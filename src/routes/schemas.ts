@@ -86,6 +86,22 @@ const registerClientSchema = {
   },
 } as const;
 
+// X1 (12 §3): `POST /v1/webhooks`. `url`/`secret` shape checks (https-only,
+// IP-literal host, length bounds) and the `kinds` ⊆ KNOWN_KINDS check live
+// in `core/webhooks.ts`/`routes/webhooks.ts` respectively -- this schema is
+// only "the right keys, the right JSON types" (LDB-A7's pattern).
+const createWebhookSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["url", "secret"],
+  properties: {
+    url: { type: "string" },
+    secret: { type: "string" },
+    kinds: { type: "array", items: { type: "string" } },
+    owner_filter: { type: "string" },
+  },
+} as const;
+
 export interface CreateBody {
   name: string;
   format: string;
@@ -121,12 +137,20 @@ export interface RegisterClientBody {
   discord_app_id?: string;
 }
 
+export interface CreateWebhookBody {
+  url: string;
+  secret: string;
+  kinds?: string[];
+  owner_filter?: string;
+}
+
 const validateCreate = ajv.compile<CreateBody>(createSchema);
 const validateReplace = ajv.compile<ReplaceBody>(replaceSchema);
 const validateTransfer = ajv.compile<TransferBody>(transferSchema);
 const validateAdminAdd = ajv.compile<AdminAddBody>(adminAddSchema);
 const validatePatch = ajv.compile<PatchBody>(patchSchema);
 const validateRegisterClient = ajv.compile<RegisterClientBody>(registerClientSchema);
+const validateCreateWebhook = ajv.compile<CreateWebhookBody>(createWebhookSchema);
 
 // ajv reports an extra/missing key at the PARENT's instancePath with the
 // key name in `params`, not as part of the path itself -- this stitches
@@ -174,4 +198,8 @@ export function parsePatchBody(body: unknown): PatchBody {
 
 export function parseRegisterClientBody(body: unknown): RegisterClientBody {
   return checkBody(validateRegisterClient, body);
+}
+
+export function parseCreateWebhookBody(body: unknown): CreateWebhookBody {
+  return checkBody(validateCreateWebhook, body);
 }

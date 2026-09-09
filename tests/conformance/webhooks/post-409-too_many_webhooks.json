@@ -1,0 +1,20 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/webhooks",
+    "bearer": "conformance-owner2-token",
+    "setup": [
+      { "method": "POST", "path": "/v1/webhooks", "bearer": "conformance-owner2-token", "body": { "url": "https://receiver.example/cap-1", "secret": "conformance-webhook-secret-1" } },
+      { "method": "POST", "path": "/v1/webhooks", "bearer": "conformance-owner2-token", "body": { "url": "https://receiver.example/cap-2", "secret": "conformance-webhook-secret-1" } },
+      { "method": "POST", "path": "/v1/webhooks", "bearer": "conformance-owner2-token", "body": { "url": "https://receiver.example/cap-3", "secret": "conformance-webhook-secret-1" } },
+      { "method": "POST", "path": "/v1/webhooks", "bearer": "conformance-owner2-token", "body": { "url": "https://receiver.example/cap-4", "secret": "conformance-webhook-secret-1" } },
+      { "method": "POST", "path": "/v1/webhooks", "bearer": "conformance-owner2-token", "body": { "url": "https://receiver.example/cap-5", "secret": "conformance-webhook-secret-1" } }
+    ],
+    "body": { "url": "https://receiver.example/cap-6", "secret": "conformance-webhook-secret-1" }
+  },
+  "response": {
+    "status": 409,
+    "headers": { "Content-Type": "application/json" },
+    "body": { "error": "too_many_webhooks", "message": "at most 5 webhooks per user", "limit": 5 }
+  }
+}

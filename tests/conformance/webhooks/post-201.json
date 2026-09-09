@@ -1,0 +1,26 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/webhooks",
+    "bearer": "conformance-owner2-token",
+    "body": { "url": "https://receiver.example/hook", "secret": "conformance-webhook-secret-1" }
+  },
+  "response": {
+    "status": 201,
+    "headers": { "Content-Type": "application/json" },
+    "body": {
+      "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "owner_user_id": "830000000000000001",
+      "url": "https://receiver.example/hook",
+      "kinds": null,
+      "owner_filter": null,
+      "status": "active",
+      "cursor": 481,
+      "failures": 0,
+      "failing_since": null,
+      "next_at": "2026-06-20T00:00:00.000Z",
+      "last_error": null,
+      "created_at": "2026-06-20T00:00:00.000Z"
+    }
+  }
+}

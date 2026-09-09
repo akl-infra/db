@@ -32,6 +32,13 @@ async function sha256Hex(bytes: ArrayBuffer): Promise<string> {
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+async function gunzipJson(gz: ArrayBuffer): Promise<unknown> {
+  const ds = new DecompressionStream("gzip");
+  const stream = new Response(gz).body!.pipeThrough(ds);
+  const text = await new Response(stream).text();
+  return JSON.parse(text);
+}
+
 describe("dump routes", () => {
   it("[LDB-D1] 404s before any dump has been written", async () => {
     const dumpRes = await SELF.fetch("https://example.com/v1/dump");
@@ -95,6 +102,29 @@ describe("dump routes", () => {
     expect(monthlyRes.headers.get("Content-Type")).toBe("application/gzip");
     const monthlyBytes = await monthlyRes.arrayBuffer();
     expect(await sha256Hex(monthlyBytes)).toBe(latest.sha256);
+  });
+
+  // [LDB-H4]: a webhook `secret` never leaves the `webhooks` table -- the
+  // dump's own half of that scan (webhooks.test.ts covers every response
+  // body and event). A live subscription exists at cron time (registered
+  // through the real route, so its `secret` is genuinely in D1) yet the
+  // dump's `webhooks` field is `[]` regardless.
+  it("[LDB-H4] the dump's `webhooks` field is always [] even with a live subscription", async () => {
+    await bindings.DB
+      .prepare(
+        `INSERT INTO webhooks (id, owner_user_id, url, secret, kinds, owner_filter, status, cursor, failures, failing_since, next_at, last_error, created_at)
+         VALUES ('wh-dump-1', '800000000000000099', 'https://example.com/hook', 'a-very-secret-value-16plus', NULL, NULL, 'active', 0, 0, NULL, '2026-07-08T00:00:00.000Z', NULL, '2026-07-08T00:00:00.000Z')`,
+      )
+      .run();
+
+    await runDumpCron("2026-07-08T03:00:00.000Z");
+    const latestRes = await SELF.fetch("https://example.com/v1/dump/latest.json");
+    const latest = await latestRes.json<{ url: string }>();
+    const gzRes = await SELF.fetch(`https://example.com${latest.url}`);
+    const dump = (await gunzipJson(await gzRes.arrayBuffer())) as { webhooks: unknown[] };
+
+    expect(dump.webhooks).toEqual([]);
+    expect(JSON.stringify(dump)).not.toContain("a-very-secret-value-16plus");
   });
 
   it("[LDB-D1] a following day's tick overwrites latest.json without touching the existing monthly key", async () => {

@@ -215,4 +215,52 @@ describe("scheduled() wiring", () => {
     const rows = await db.prepare("SELECT token_hash FROM auth_cache").all<{ token_hash: string }>();
     expect(rows.results.map((r) => r.token_hash)).toEqual(["live"]);
   });
+
+  // X1 (12 §2.4, §3 X1): the webhook drain cron. A minimal wiring check --
+  // tests/api/webhooks.test.ts's own "scheduled() wiring" describe covers
+  // the delivery behavior in depth; this just proves `*/1 * * * *` reaches
+  // `drainWebhooks()` through the real dispatcher, same as the other two
+  // cases in this describe.
+  it("the exported scheduled() handler routes '*/1 * * * *' to a webhook drain", async () => {
+    await db
+      .prepare(
+        `INSERT INTO webhooks (id, owner_user_id, url, secret, kinds, owner_filter, status, cursor, failures, failing_since, next_at, last_error, created_at)
+         VALUES ('wh-tick-1', 'u-tick', 'https://receiver.example/hook', 'tick-secret-1234567890ab', NULL, NULL, 'active', 0, 0, NULL, '2026-01-01T00:00:00.000Z', NULL, '2026-01-01T00:00:00.000Z')`,
+      )
+      .run();
+    await db
+      .prepare(
+        `INSERT INTO events (at, kind, layout_id, name, owner, rev, actor, via, admin)
+         VALUES ('2026-01-01T00:00:00.000Z', 'created', NULL, NULL, NULL, NULL, 'system:cmini-import', 'import:cmini', 0)`,
+      )
+      .run();
+
+    vi.stubGlobal("fetch", async () => new Response(null, { status: 200 }));
+    const ctx = createExecutionContext();
+    const controller = createScheduledController({ cron: "*/1 * * * *" });
+    await worker.scheduled(controller, bindings, ctx);
+    await waitOnExecutionContext(ctx);
+
+    const row = await db.prepare("SELECT cursor FROM webhooks WHERE id = 'wh-tick-1'").first<{ cursor: number }>();
+    expect(row!.cursor).toBeGreaterThan(0);
+  });
+
+  // The '0 3 * * *' prune (auth_cache/ratelimit/nonces/dump) must not touch
+  // `webhooks` (12 §3 X1's own note: "the 0 3 prune leaves webhooks alone").
+  it("the '0 3 * * *' cron leaves `webhooks` untouched", async () => {
+    await db
+      .prepare(
+        `INSERT INTO webhooks (id, owner_user_id, url, secret, kinds, owner_filter, status, cursor, failures, failing_since, next_at, last_error, created_at)
+         VALUES ('wh-prune-1', 'u-prune', 'https://receiver.example/hook', 'prune-secret-1234567890ab', NULL, NULL, 'active', 0, 0, NULL, '2026-01-01T00:00:00.000Z', NULL, '2026-01-01T00:00:00.000Z')`,
+      )
+      .run();
+
+    const ctx = createExecutionContext();
+    const controller = createScheduledController({ cron: "0 3 * * *" });
+    await worker.scheduled(controller, bindings, ctx);
+    await waitOnExecutionContext(ctx);
+
+    const row = await db.prepare("SELECT id FROM webhooks WHERE id = 'wh-prune-1'").first();
+    expect(row).not.toBeNull();
+  });
 });

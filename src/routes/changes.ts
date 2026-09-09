@@ -14,7 +14,9 @@ const CACHE_CONTROL = "public, max-age=10";
 // events (never rev-bumping, not in either type). Kept as a literal array
 // (types vanish at runtime) but pinned against both types with `satisfies`
 // so an added kind can't go stale here unnoticed.
-const KNOWN_KINDS = [
+// Exported for X1 (12 §0.2): webhook `kinds` (routes/webhooks.ts) and the
+// stream's `kinds` (routes/stream.ts) validate against this same list.
+export const KNOWN_KINDS = [
   "created",
   "updated",
   "renamed",
@@ -35,7 +37,9 @@ const KNOWN_KINDS = [
 ] satisfies (WriteKind | InfoKind | "liked" | "unliked")[];
 const KNOWN_KINDS_SET = new Set<string>(KNOWN_KINDS);
 
-function parseSince(raw: string | undefined): number {
+// Exported: routes/stream.ts's `since`/`kinds` query params are parsed the
+// same way `/v1/changes`' are (12 §2.2) -- one set of rules, one place.
+export function parseSince(raw: string | undefined): number {
   if (raw === undefined) return 0;
   const n = Number(raw);
   if (!Number.isInteger(n) || n < 0) throw badRequest(`invalid 'since' (expected a non-negative integer seq)`, "since");
@@ -49,7 +53,7 @@ function parseLimit(raw: string | undefined): number {
   return Math.min(n, 1000);
 }
 
-function parseKinds(raw: string | undefined): string[] | undefined {
+export function parseKinds(raw: string | undefined): string[] | undefined {
   if (raw === undefined) return undefined;
   const kinds = raw
     .split(",")

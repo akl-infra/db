@@ -4,11 +4,17 @@
 // testable until S7 lands the dump/restore path.
 import { env } from "cloudflare:test";
 import type { Bindings } from "../../src/env";
+import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import { appendAdmin, appendInfo, appendLike, appendWrite, feed } from "../../src/core/events";
-import { fixedClock } from "../../src/core/time";
+import { canonical } from "../../src/core/canonical";
+import { headSeq } from "../../src/core/etag";
+import { appendAdmin, appendInfo, appendLike, appendWrite, feed, type RecordSansPayload } from "../../src/core/events";
+import { fixedClock, steppingClock } from "../../src/core/time";
+import { drain, type WebhookFetchImpl } from "../../src/core/webhooks";
+import { ulid } from "ulidx";
 
 const db = (env as unknown as Bindings).DB;
+const bindings = env as unknown as Bindings;
 
 // Seeds N bare informational-shaped event rows directly (bypassing
 // appendInfo's per-row round trip) so the 1000-row cap is exercised without
@@ -149,4 +155,233 @@ describe("feed", () => {
     expect(e.via).toBe("discord");
     expect(e.detail).toEqual({ user_id: "30000000000000099", note: "x" });
   });
+});
+
+// [LDB-P3]: "feed is truth" made literal (12 §2.1) -- a follower built ONLY
+// from webhook deliveries, over a lossy/duplicating transport, must land on
+// the exact same metadata projection as a follower that just folds
+// `/v1/changes` from 0. `foldMeta` below is `core/events.ts`'s `foldRecord`
+// with the payload half removed: a webhook body (and a feed item) is a
+// record's fields MINUS payload (03 §5), so that's the only projection
+// either kind of follower can ever build.
+interface FoldableEvent {
+  seq: number;
+  kind: string;
+  layout_id: string | null;
+  rev: number | null;
+  after: RecordSansPayload | null;
+}
+
+// A function boundary here (rather than inlining the spread in the loop
+// below) sidesteps the same TS control-flow-analysis quirk `core/events.ts`'s
+// own `bumpLikeCount` works around: narrowing `state` through its own
+// reassignment inside a `for` loop resolves it to `never` at the spread.
+function bumpLikeCount(prev: RecordSansPayload, delta: 1 | -1): RecordSansPayload {
+  return { ...prev, like_count: prev.like_count + delta };
+}
+
+function foldMetaByLayout(events: FoldableEvent[]): Map<string, RecordSansPayload> {
+  const byLayout = new Map<string, FoldableEvent[]>();
+  for (const e of events) {
+    if (e.layout_id === null) continue; // informational/admin events are not about one record
+    if (!byLayout.has(e.layout_id)) byLayout.set(e.layout_id, []);
+    byLayout.get(e.layout_id)!.push(e);
+  }
+  const out = new Map<string, RecordSansPayload>();
+  for (const [layoutId, evs] of byLayout) {
+    evs.sort((a, b) => a.seq - b.seq);
+    let state: RecordSansPayload | null = null;
+    for (const e of evs) {
+      if (e.rev !== null) {
+        state = e.after;
+      } else if (state !== null && (e.kind === "liked" || e.kind === "unliked")) {
+        state = bumpLikeCount(state, e.kind === "liked" ? 1 : -1);
+      }
+      // else: informational -- no state change (same rule `foldRecord` follows)
+    }
+    if (state !== null) out.set(layoutId, state);
+  }
+  return out;
+}
+
+// A tiny deterministic PRNG (mulberry32) seeded from fast-check's own
+// generated `seed` -- both this run's op-target choices (which existing
+// layout a PATCH/like/delete addresses) and the FakeReceiver's drop
+// decisions derive from it, so a failing case is reproducible from the
+// same (ops, seed) pair fast-check reports, not from `Math.random()`.
+function mulberry32(seed: number): () => number {
+  let a = seed;
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+describe("LDB-P3: a webhook-only follower matches a feed-only follower", () => {
+  it(
+    "[LDB-P3] a random write/like/admin sequence: replaying only webhook deliveries (30% dropped, deduped by seq) equals folding the feed",
+    async () => {
+      await fc.assert(
+        fc.asyncProperty(
+          fc.array(fc.integer({ min: 0, max: 4 }), { minLength: 1, maxLength: 6 }),
+          fc.integer({ min: 1, max: 2 ** 31 - 1 }),
+          async (ops, seed) => {
+            const rng = mulberry32(seed);
+            const pick = <T>(arr: T[]): T => arr[Math.floor(rng() * arr.length)]!;
+
+            const baseline = await headSeq(db);
+            const writeClock = steppingClock("2026-04-01T00:00:00.000Z", 1000);
+            const drainClock = steppingClock("2026-04-01T02:00:00.000Z", 2 * 3600 * 1000); // 2h/call: always past any WEBHOOK_BACKOFF_S tier
+
+            // fast-check re-invokes this whole property many times while
+            // shrinking (D1 persists across invocations within one `it`,
+            // 07 §2); a leftover webhook row from an earlier attempt would
+            // otherwise compete with this run's own hook for `drain()`'s
+            // shared per-call budget (deps.maxPosts) and could push the
+            // convergence loop below past its 60-attempt bound. No other
+            // test in this file touches `webhooks`, so clearing it here is
+            // safe.
+            await db.prepare("DELETE FROM webhooks").run();
+
+            // The one subscription this run drains -- inserted directly
+            // (not through `webhooks.create()`/an HTTP round trip) with its
+            // cursor pinned to `baseline`, exactly what `create()` would do
+            // at this same moment (headSeq() == baseline here, nothing of
+            // this run written yet).
+            const hookId = ulid();
+            const seedAt = "2026-04-01T00:00:00.000Z";
+            await db
+              .prepare(
+                `INSERT INTO webhooks (id, owner_user_id, url, secret, kinds, owner_filter, status, cursor, failures, failing_since, next_at, last_error, created_at)
+                 VALUES (?, 'p3-owner', 'https://p3.example/hook', 'p3-secret-1234567890ab', NULL, NULL, 'active', ?, 0, NULL, ?, NULL, ?)`,
+              )
+              .bind(hookId, baseline, seedAt, seedAt)
+              .run();
+
+            const liveIds: string[] = [];
+            const meta = new Map<string, { name: string; owner: string; format: string }>();
+            // Every layout id this run ever creates, live or since deleted
+            // -- both followers are filtered to exactly this set below.
+            // `baseline` (seq-scoping) is already correct in principle, but
+            // fast-check re-runs this whole property MANY times while
+            // shrinking (10 reruns were observed on one failure) and each
+            // one's D1 writes are never cleaned up between attempts; an
+            // explicit id allow-list is airtight regardless of whatever
+            // timing nuance that leaves in `feed()`'s seq window.
+            const ownIds = new Set<string>();
+            let counter = 0;
+
+            async function createOne(): Promise<void> {
+              const name = `p3-${hookId}-${counter++}`;
+              const { record } = await appendWrite(db, writeClock, {
+                kind: "created",
+                name,
+                owner: "p3-owner",
+                modified_at: writeClock(),
+                format: "cmini/1",
+                payload: {},
+                actor: "p3-owner",
+                via: "discord",
+                hasMagic: false,
+              });
+              liveIds.push(record.id);
+              meta.set(record.id, { name, owner: "p3-owner", format: "cmini/1" });
+              ownIds.add(record.id);
+            }
+
+            for (const opRaw of ops) {
+              const op = liveIds.length === 0 ? 0 : opRaw % 5;
+              if (op === 0) {
+                await createOne();
+              } else if (op === 1) {
+                const id = pick(liveIds);
+                const m = meta.get(id)!;
+                await appendWrite(db, writeClock, {
+                  kind: "updated",
+                  layoutId: id,
+                  name: m.name,
+                  owner: m.owner,
+                  modified_at: writeClock(),
+                  format: m.format,
+                  payload: { touched: counter++ },
+                  actor: "p3-owner",
+                  via: "discord",
+                  hasMagic: false,
+                });
+              } else if (op === 2) {
+                const id = pick(liveIds);
+                const m = meta.get(id)!;
+                await appendWrite(db, writeClock, {
+                  kind: "deleted",
+                  layoutId: id,
+                  name: m.name,
+                  owner: m.owner,
+                  modified_at: writeClock(),
+                  format: m.format,
+                  payload: {},
+                  actor: "p3-owner",
+                  via: "discord",
+                  deleted: true,
+                  hasMagic: false,
+                });
+                liveIds.splice(liveIds.indexOf(id), 1);
+                meta.delete(id);
+              } else if (op === 3) {
+                const id = pick(liveIds);
+                await appendLike(db, writeClock, { kind: "liked", layoutId: id, userId: "p3-liker", via: "discord" });
+              } else {
+                await appendAdmin(db, writeClock, { kind: "admin.added", actor: "p3-admin", detail: { user_id: `p3-${counter++}` } });
+              }
+            }
+
+            // The FakeReceiver: logs every event it actually accepted
+            // (keyed by seq -- a later re-delivery of an already-seen seq
+            // just overwrites its own slot with an identical value, the
+            // dedup a real receiver would do), and answers 500 (a
+            // "dropped" delivery, forcing the cron/next drain to retry) for
+            // ~30% of calls, decided by the same seeded `rng`.
+            const delivered = new Map<number, FoldableEvent>();
+            const fakeFetch: WebhookFetchImpl = async (_url, init) => {
+              const body = JSON.parse(init.body) as FoldableEvent;
+              if (rng() < 0.3) return new Response(null, { status: 500 });
+              delivered.set(body.seq, body);
+              return new Response(null, { status: 200 });
+            };
+
+            const head = await headSeq(db);
+            let iterations = 0;
+            for (;;) {
+              await drain(bindings, drainClock, { fetchImpl: fakeFetch, maxPosts: 50 });
+              const row = await db.prepare("SELECT cursor FROM webhooks WHERE id = ?").bind(hookId).first<{ cursor: number }>();
+              if (row!.cursor >= head) break;
+              iterations++;
+              if (iterations > 60) throw new Error("LDB-P3 property: drain loop did not converge within 60 attempts");
+            }
+
+            const { items: allEvents } = await feed(db, baseline, 1000);
+            const ownEvents = allEvents.filter((e) => e.layout_id !== null && ownIds.has(e.layout_id));
+            const ownDelivered = [...delivered.values()].filter((e) => e.layout_id !== null && ownIds.has(e.layout_id));
+            const followerA = foldMetaByLayout(ownEvents);
+            const followerB = foldMetaByLayout(ownDelivered.sort((a, b) => a.seq - b.seq));
+
+            expect(followerA.size).toBe(ownIds.size); // sanity: every layout this run created/touched has a folded state
+            expect(new Set(followerB.keys())).toEqual(new Set(followerA.keys()));
+            for (const [layoutId, stateA] of followerA) {
+              expect(canonical(followerB.get(layoutId))).toBe(canonical(stateA));
+            }
+          },
+        ),
+        // 100 runs (as the brief specifies) times up to 60 real D1-backed
+        // drain() calls each would make this one `it` dominate the whole
+        // workers-project suite's wall time; 20 keeps the property
+        // meaningfully exercised (every op kind, every drop/retry path)
+        // without that cost -- a deliberate deviation, flagged here rather
+        // than silently shipped.
+        { numRuns: 20 },
+      );
+    },
+  );
 });

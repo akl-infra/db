@@ -1,0 +1,13 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/webhooks",
+    "bearer": "conformance-invalid-token",
+    "body": { "url": "https://receiver.example/hook", "secret": "conformance-webhook-secret-1" }
+  },
+  "response": {
+    "status": 401,
+    "headers": { "Content-Type": "application/json", "WWW-Authenticate": "Bearer error=\"invalid_token\"" },
+    "body": { "error": "token_invalid", "message": "the bearer token is invalid or expired" }
+  }
+}

@@ -19,7 +19,9 @@ import {
   notOwner,
   rateLimited,
   stale,
+  streamUnavailable,
   tokenInvalid,
+  tooManyWebhooks,
   unknownFormat,
   unauthorized,
   unsupportedForFormat,
@@ -71,6 +73,11 @@ const CONFORMANCE_OWNER2 = "830000000000000001";
 // -- a fixed id (not one minted by `registerClient`) so that fixture's path
 // stays byte-exact; the id doubles as `admin-clients/200.json`'s second row.
 const CONFORMANCE_CLIENT_DELETE_ID = "conformance-client-delete-1";
+// X1 (12 §3): the fixed id `webhooks/delete-200.json` deletes -- same
+// reasoning as `CONFORMANCE_CLIENT_DELETE_ID` above: a fixture path can
+// never embed a freshly-minted ULID, so this row is inserted directly (not
+// through the route) under a stable, non-ULID id.
+const CONFORMANCE_WEBHOOK_DELETE_ID = "conformance-webhook-delete-1";
 const CMINI_PAYLOAD = { board: "ortho" as const, keys: {} };
 const ID_PLACEHOLDERS: Record<string, string> = {};
 
@@ -223,6 +230,23 @@ async function seedWriteFixtures(): Promise<void> {
         "act-as-user",
         CONFORMANCE_CLOCK_ISO,
       ),
+    // X1: `webhooks/delete-200.json`'s target, owned by CONFORMANCE_OWNER2
+    // (not CONFORMANCE_OWNER -- by this point in the suite CONFORMANCE_OWNER
+    // is already close enough to its 60-writes/10min limit, from the T2-T6
+    // fixtures' own cumulative usage, that a webhook POST/DELETE for it can
+    // tip over into a 429; CONFORMANCE_OWNER2 is the same "second write
+    // actor" T6 already uses for exactly this reason). Seeded 'disabled'
+    // (never 'active') so the nudge -- which fires on EVERY accepted write
+    // for the rest of this suite, real `systemClock` and all -- never
+    // selects it as due (`status != 'disabled'`) and never mutates it
+    // before the delete case gets to it; DELETE only checks ownership/
+    // existence, not this row's delivery state.
+    db
+      .prepare(
+        `INSERT OR IGNORE INTO webhooks (id, owner_user_id, url, secret, kinds, owner_filter, status, cursor, failures, failing_since, next_at, last_error, created_at)
+         VALUES (?, ?, 'https://receiver.example/delete-target', 'conformance-webhook-secret-1', NULL, NULL, 'disabled', 0, 0, NULL, ?, NULL, ?)`,
+      )
+      .bind(CONFORMANCE_WEBHOOK_DELETE_ID, CONFORMANCE_OWNER2, CONFORMANCE_CLOCK_ISO, CONFORMANCE_CLOCK_ISO),
   ]);
 }
 
@@ -312,6 +336,19 @@ describe("conformance fixtures", () => {
       if (kase.id === "layouts-write/restore-403-not_owner" || kase.id === "layouts-write/restore-409-name_taken") {
         await ensureRestoreExtras();
       }
+      // X1: this one case needs the Free-plan setting (`STREAM_MAX_MS =
+      // "0"`) for the DURATION of its own request only -- every other case
+      // in this file (including `changes-stream/200`) runs under the real
+      // test default (`500`, `vitest.config.ts`'s miniflare `bindings`).
+      if (kase.id === "changes-stream/503-stream_unavailable") {
+        (bindings as unknown as { STREAM_MAX_MS: string }).STREAM_MAX_MS = "0";
+        try {
+          await assertConformanceCase(kase, resolvePath);
+        } finally {
+          (bindings as unknown as { STREAM_MAX_MS: string }).STREAM_MAX_MS = "500";
+        }
+        return;
+      }
       await assertConformanceCase(kase, resolvePath);
     });
   }
@@ -343,6 +380,8 @@ const ERROR_CODES = {
   last_admins: lastAdmins(1).body.error,
   rate_limited: rateLimited(60, 600, 600, "actor").body.error,
   unsupported_for_format: unsupportedForFormat("x", "x").body.error,
+  too_many_webhooks: tooManyWebhooks(5).body.error,
+  stream_unavailable: streamUnavailable().body.error,
 };
 interface RequiredCase {
   status: number;
@@ -521,6 +560,23 @@ const REQUIRED: Record<string, RequiredCase[]> = {
     { status: 403, code: ERROR_CODES.not_admin },
     { status: 404, code: ERROR_CODES.not_found },
     RL,
+  ],
+
+  // --- phase 5: webhooks + the stream (12 §3 X1) -------------------------
+  "POST /v1/webhooks": [
+    { status: 201 },
+    ...A,
+    { status: 400, code: ERROR_CODES.bad_request },
+    { status: 409, code: ERROR_CODES.too_many_webhooks },
+    RL,
+  ],
+  "GET /v1/webhooks": [{ status: 200 }, ...A, { status: 403, code: ERROR_CODES.not_admin }],
+  "DELETE /v1/webhooks/:id": [{ status: 200 }, ...A, { status: 404, code: ERROR_CODES.not_found }, RL],
+  // No `A` -- unauthenticated, same as `GET /v1/changes` (12 §2.2).
+  "GET /v1/changes/stream": [
+    { status: 200 },
+    { status: 400, code: ERROR_CODES.bad_request },
+    { status: 503, code: ERROR_CODES.stream_unavailable },
   ],
 };
 describe("conformance enumeration", () => {

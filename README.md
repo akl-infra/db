@@ -67,6 +67,9 @@ those are taken.
 | `IMPORT_MAX_WRITES_PER_TICK` | var | `src/import/apply.ts` (S5) | `wrangler.toml`'s `[vars]`; default `500` |
 | `IMPORT_UA` | var | `src/import/upstream.ts` (S5) | `wrangler.toml`'s `[vars]`; every upstream request must send it (0.1: the default UA is 403'd) |
 | `DISCORD_API_URL` | var | `src/auth/discord.ts` (T1) | `wrangler.toml`'s `[vars]`; default `https://discord.com/api`; tests inject `fetchImpl` directly and never resolve this URL |
+| `WEBHOOK_MAX_POSTS` | var | `src/core/webhooks.ts` (X1) | `wrangler.toml`'s `[vars]`; default `25` -- the global POST bound per `drain()` call (the after-write nudge and the `*/1` cron alike) |
+| `STREAM_MAX_MS` | var | `src/routes/stream.ts` (X1) | `wrangler.toml`'s `[vars]`; default `300000` (5 min) -- the SSE stream's wall-clock bound; `"0"` (the Free-plan setting) makes the route answer `503 stream_unavailable` instead |
+| `STREAM_POLL_MS` | var | `src/routes/stream.ts` (X1) | `wrangler.toml`'s `[vars]`; default `2000` -- the stream's feed-poll interval; tests override both stream vars via `vitest.config.ts`'s miniflare `bindings` (`500`/`20`) so the bound/reconnect cases run in well under a second |
 | `CLOUDFLARE_DB_TOKEN` | repo secret (CI) | `.github/workflows/db.yml`'s `deploy` job (S7) | a Cloudflare API token with Workers Scripts + D1 + R2 edit, separate from the site's Pages token |
 | `CLOUDFLARE_DB_ACCOUNT_ID` | repo secret (CI) | `.github/workflows/db.yml`'s `deploy` job (S7) | the NEW community account's id (00 §1) -- NOT the site's `CLOUDFLARE_ACCOUNT_ID` |
 | `DB_BASE_URL` | repo/org variable (CI) | `.github/workflows/db.yml`'s `daily` job (S7) | the deployed service's own origin, e.g. `https://akl-db.<account>.workers.dev`; set once the service is deployed |
@@ -116,6 +119,68 @@ instead of `akl-db`:
 npm run rehost -- --dump <file|url> --remote --env preview [--force]
 ```
 
+## Webhooks
+
+`POST /v1/webhooks { url, secret, kinds?, owner_filter? }` registers a
+subscription (up to `WEBHOOKS_PER_USER` = 5 per user); `GET /v1/webhooks`
+lists the caller's own (an admin with `?all=1` sees every row, every
+owner); `DELETE /v1/webhooks/{id}` removes one (own, or any as admin --
+otherwise `404`, never `403`, so ids are not enumerable). Every field but
+`secret` comes back on every route; `secret` is never returned, never
+placed on an event, and never in a dump (`Dump.webhooks: []`) -- it is
+stored verbatim in D1 because delivery needs the actual HMAC key, not a
+hash of it (`design/layout-db/12-implementation-phase5.md` §2.1's ledger
+of that decision). A rehosted service starts with zero subscriptions;
+owners re-register (the feed, which the dump carries in full, is the
+actual recovery path either way).
+
+Each subscription is a cursor into the one event log, not a per-attempt
+queue: delivery is "advance the cursor by POSTing what lies past it",
+at-least-once and in order per hook. Every event past the cursor is
+POSTed as its `canonical()` JSON, in `seq` order, with:
+
+```
+Content-Type: application/json
+User-Agent: akl-db-webhooks/1.0
+X-Akl-Webhook-Id: <id>
+X-Akl-Seq: <seq>
+X-Akl-Timestamp: <unix seconds>
+X-Akl-Signature: v1=<hex hmac-sha256(secret, `${timestamp}.${body}`)>
+```
+
+**Receiver contract:** verify `hex(hmac_sha256(secret, X-Akl-Timestamp +
+"." + raw_body)) == X-Akl-Signature`'s hex half (strip the `v1=` prefix
+first) and reject anything more than 300s old. A receiver MAY see one
+`seq` twice -- the after-write nudge and the `*/1` retry cron are safe to
+overlap, and a receiver that accepted a POST but timed out before
+answering looks identical to a dropped one from here -- so treat any `seq`
+at or below the highest one already applied as a no-op; a `seq` never
+arrives lower than one already seen from the same hook. A non-2xx answer
+(or a timeout past 10s) stops that hook's batch there and schedules a
+retry (backing off 1 min / 10 min / 1 h); three consecutive failed drains
+mark the subscription `failing` (still retried hourly, still visible via
+`GET /v1/webhooks`); a streak failing for more than 7 days marks it
+`disabled` (no further attempts). A gap in `seq` on a `disabled` hook (or
+any hook you suspect missed something) means poll `/v1/changes?since=` to
+fill it -- the feed is the ground truth a subscription is only ever a
+shortcut around (LDB-P3).
+
+## Stream
+
+`GET /v1/changes/stream?since=&kinds=` is the same feed as `/v1/changes`,
+pushed as `text/event-stream` instead of polled: `id: <seq>`, `event:
+<kind>`, `data: <canonical(event)>` per item, in order, exactly the items
+`/v1/changes?since=<since>` would return. A `Last-Event-ID` request header
+(what `EventSource` sends on reconnect) overrides `since`. A `: ping`
+comment line appears after 25s with nothing new to send; the stream closes
+with `event: close` + `data: {"next":<cursor>}` after `STREAM_MAX_MS` (5
+minutes by default) -- reconnect with `Last-Event-ID: <cursor>` (or
+`?since=<cursor>`) to continue with no gap or duplicate. No auth (same as
+`/v1/changes`). Requires the Workers Paid plan (an open response holds the
+isolate for the whole poll loop, `12 §0.1`/§2.2); a deployment on the Free
+plan sets `STREAM_MAX_MS = "0"`, which makes every request to this route
+answer `503 stream_unavailable` instead of opening a stream.
+
 ## Rehost procedure
 
 Every night (`0 3 * * *`) the Worker writes a complete snapshot -- every
@@ -152,10 +217,13 @@ streams the object itself.
 
 **What a rehost does NOT restore:** `auth_cache` (never dumped -- it holds
 only token hashes with a <=5-minute lifetime; a rehost starts with a cold
-cache, so the next authenticated request just re-verifies with Discord) and
+cache, so the next authenticated request just re-verifies with Discord),
 `ratelimit` (rate-limit windows; starting empty only ever makes a request
-succeed sooner, never later). Both tables are wiped by `restoreSql`'s own
-`DELETE FROM` pass and never re-populated -- this is intentional, not a gap.
+succeed sooner, never later), and `webhooks` (never dumped -- it holds
+`secret` verbatim; a rehost has no subscriptions, and owners re-register
+against the feed the dump already carries in full, see "Webhooks" above).
+All three tables are wiped by `restoreSql`'s own `DELETE FROM` pass and
+never re-populated -- this is intentional, not a gap.
 
 **The daily proof** (`.github/workflows/db.yml`'s `daily` job, 04:00 UTC):
 fetches the real `latest.json` from the deployed service, runs

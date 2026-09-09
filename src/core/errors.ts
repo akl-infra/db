@@ -202,6 +202,21 @@ export function actorNotAllowed(actor: string, owner: string): ApiError {
   });
 }
 
+// X1 (12 §2.1, §2.3): a 6th webhook subscription for one owner.
+export function tooManyWebhooks(limit: number): ApiError {
+  return new ApiError(409, {
+    error: "too_many_webhooks",
+    message: `at most ${limit} webhooks per user`,
+    limit,
+  });
+}
+
+// X1 (12 §2.2, §2.3): the stream is Paid-plan only and self-reports this
+// when `STREAM_MAX_MS` is configured to `0` (the Free-plan setting).
+export function streamUnavailable(): ApiError {
+  return new ApiError(503, { error: "stream_unavailable", message: "the change stream is not available on this deployment" });
+}
+
 // The write rate limit (09 §2.5; 10 C1 D8 adds `scope` for the second,
 // per-client counter). `core/ratelimit.ts`'s `take()` is the one place that
 // counts; this is only the body/headers shape.

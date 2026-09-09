@@ -34,6 +34,7 @@ const TABLE_ORDER_DELETE = [
   "import_state",
   "auth_cache",
   "ratelimit",
+  "webhooks", // never dumped (LDB-H4); deleted here too so a restore leaves genuinely zero subscriptions, not stale ones from before the restore (12 §2.1: "a rehost has no subscriptions")
 ] as const;
 
 // A conservative multi-row-INSERT chunk size: mirrors `core/events.ts`'s own

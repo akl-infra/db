@@ -35,6 +35,14 @@ export default defineConfig(async () => {
                 bindings: {
                   TEST_MIGRATIONS: migrations,
                   TEST_REHOST_DUMP_URL: process.env.REHOST_DUMP_URL ?? "",
+                  // X1 (12 §2.2): overrides wrangler.toml's production
+                  // STREAM_MAX_MS/STREAM_POLL_MS (300000/2000) so
+                  // tests/api/stream.test.ts's bound/reconnect cases run in
+                  // well under a second of real wall time instead of
+                  // minutes -- the route reads these the same way in both
+                  // cases, only the numbers differ.
+                  STREAM_MAX_MS: "500",
+                  STREAM_POLL_MS: "20",
                 },
               },
             }),

@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import type { Bindings } from "./env";
-import { type ActorVariables, requireActorOnWrites } from "./auth/actor";
+import { type ActorVariables, requireActorOnWrites, SAFE_METHODS } from "./auth/actor";
 import { pruneNonces } from "./auth/client";
 import { type AuthDeps, pruneAuthCache, resolveActor } from "./auth/discord";
 import { rateLimitWrites } from "./auth/ratelimit";
@@ -8,6 +8,7 @@ import { ApiError, internal } from "./core/errors";
 import { cachePut, conditional, etagFor, headSeq } from "./core/etag";
 import { pruneRateLimits } from "./core/ratelimit";
 import { systemClock } from "./core/time";
+import { drain as drainWebhooks, type WebhookFetchImpl } from "./core/webhooks";
 import { writeDump } from "./dump/write";
 import { list as listFormats } from "./formats/registry";
 import type { FetchImpl } from "./import/upstream";
@@ -19,6 +20,8 @@ import { dumpRoute } from "./routes/dump";
 import { formatsRoute } from "./routes/formats";
 import { layoutsRoute } from "./routes/layouts";
 import { likesRoute } from "./routes/likes";
+import { streamRoute } from "./routes/stream";
+import { webhooksRoute } from "./routes/webhooks";
 import { writeRoute } from "./routes/write";
 
 const CACHE_CONTROL = "public, max-age=10";
@@ -42,6 +45,30 @@ app.use("/v1/*", requireActorOnWrites(authDeps));
 // so T3's admin routes and T4's PATCH are covered by placement, not by
 // listing them here.
 app.use("/v1/*", rateLimitWrites(authDeps.now));
+
+// Production fetchImpl for webhook delivery: real fetch, method+body+signal
+// aware (`WebhookFetchImpl`, core/webhooks.ts) unlike `authDeps.fetchImpl`
+// above (GET-only, headers-only -- upstream/Discord's own shape).
+const webhookFetchImpl: WebhookFetchImpl = (url, init) => fetch(url, init);
+
+// The nudge (12 §2.1): one middleware, registered after `rateLimitWrites`,
+// so every accepted write/like/admin action drains once, from one place --
+// no route or `core/write.ts` change. `c.res.ok` after `next()` is true
+// only for an accepted write (an error response short-circuits via
+// `app.onError`, which runs OUTSIDE this middleware's `next()` -- Hono
+// invokes error handlers by catching the thrown `ApiError`, so a refused
+// write never reaches this line at all, and `c.res` here is always the
+// success response when it does). The 30s `waitUntil` bound (0.1) is why
+// `WEBHOOK_MAX_POSTS` exists: a nudge posts a bounded batch, the `*/1` cron
+// finishes the rest.
+app.use("/v1/*", async (c, next) => {
+  await next();
+  if (!SAFE_METHODS.has(c.req.method) && c.res.ok) {
+    c.executionCtx.waitUntil(
+      drainWebhooks(c.env, systemClock, { fetchImpl: webhookFetchImpl, maxPosts: Number(c.env.WEBHOOK_MAX_POSTS) }),
+    );
+  }
+});
 
 // GET /v1/meta -- the service's head: counts, the event cursor, and the
 // registered formats. Every field comes from a real D1 query; a fresh
@@ -101,6 +128,8 @@ app.route("/", dumpRoute);
 app.route("/", writeRoute);
 app.route("/", likesRoute);
 app.route("/", adminRoute(authDeps));
+app.route("/", webhooksRoute(authDeps));
+app.route("/", streamRoute);
 
 app.onError((err, c) => {
   if (err instanceof ApiError) {
@@ -111,7 +140,7 @@ app.onError((err, c) => {
   return c.json(e.body, 500);
 });
 
-// The two crons from wrangler.toml's [triggers]. `ScheduledController` (not
+// The three crons from wrangler.toml's [triggers]. `ScheduledController` (not
 // the legacy service-worker-format `ScheduledEvent`) is what a modules-
 // format Worker's `scheduled` export actually receives -- S1's original
 // annotation typechecked only because `@cloudflare/workers-types`'s stable
@@ -120,6 +149,9 @@ app.onError((err, c) => {
 // this handler directly via pool-workers' `createScheduledController`).
 async function scheduled(event: ScheduledController, env: Bindings, _ctx: ExecutionContext): Promise<void> {
   switch (event.cron) {
+    case "*/1 * * * *":
+      await drainWebhooks(env, systemClock, { fetchImpl: webhookFetchImpl, maxPosts: Number(env.WEBHOOK_MAX_POSTS) });
+      return;
     case "*/5 * * * *":
       await cminiTick(env, systemClock);
       return;

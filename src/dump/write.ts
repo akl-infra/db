@@ -75,6 +75,7 @@ export interface Dump {
   import_state: ImportStateDbRow[];
   import_map: ImportMapDbRow[];
   auth_cache: []; // never dumped -- holds only token hashes, and a rehost starts cold (09 §3)
+  webhooks: []; // never dumped -- holds `secret` verbatim; a rehost has no subscriptions, owners re-register (12 §2.1, LDB-H4)
 }
 
 export interface LatestJson {
@@ -187,6 +188,7 @@ export async function buildDump(env: Bindings, now: Clock): Promise<Dump> {
     import_state,
     import_map,
     auth_cache: [],
+    webhooks: [],
   };
 }
 

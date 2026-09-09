@@ -159,7 +159,12 @@ describe("rehost drill", () => {
     // hand-listed set of id prefixes) is what keeps this set in sync with
     // conformance.test.ts's own trigger as new needsSeed cases are added.
     for (const kase of CASES) {
-      if (kase.id.startsWith("dump") || kase.needsSeed) {
+      // X1: `changes-stream/503-stream_unavailable` needs `STREAM_MAX_MS`
+      // toggled to `"0"` for its one request only -- conformance.test.ts's
+      // own `it()` loop does that around this specific id; this replay has
+      // no equivalent hook, so it's excluded the same deliberate way the
+      // dump/needsSeed cases are.
+      if (kase.id.startsWith("dump") || kase.needsSeed || kase.id === "changes-stream/503-stream_unavailable") {
         continue;
       }
       await assertConformanceCase(kase);

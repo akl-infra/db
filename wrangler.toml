@@ -13,13 +13,16 @@ binding = "DUMPS"
 bucket_name = "akl-db-dumps"
 
 [triggers]
-crons = ["*/5 * * * *", "0 3 * * *"]
+crons = ["*/1 * * * *", "*/5 * * * *", "0 3 * * *"]
 
 [vars]
 IMPORT_SOURCE_URL = "https://clemenpine.com/layoutapi/v3"
 IMPORT_MAX_WRITES_PER_TICK = "500"
 IMPORT_UA = "akl-db-import/1.0"
 DISCORD_API_URL = "https://discord.com/api"
+WEBHOOK_MAX_POSTS = "25"
+STREAM_MAX_MS = "300000"
+STREAM_POLL_MS = "2000"
 
 # Preview environment (09-implementation-phase2.md §3 T7): the site's
 # phase-2 UX work writes here, never at production `akl-db`. Wrangler
@@ -40,10 +43,13 @@ binding = "DUMPS"
 bucket_name = "akl-db-dumps-preview"
 
 [env.preview.triggers]
-crons = ["*/5 * * * *", "0 3 * * *"]
+crons = ["*/1 * * * *", "*/5 * * * *", "0 3 * * *"]
 
 [env.preview.vars]
 IMPORT_SOURCE_URL = "https://clemenpine.com/layoutapi/v3"
 IMPORT_MAX_WRITES_PER_TICK = "500"
 IMPORT_UA = "akl-db-import/1.0"
 DISCORD_API_URL = "https://discord.com/api"
+WEBHOOK_MAX_POSTS = "25"
+STREAM_MAX_MS = "300000"
+STREAM_POLL_MS = "2000"

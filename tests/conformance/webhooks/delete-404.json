@@ -1,0 +1,8 @@
+{
+  "request": { "method": "DELETE", "path": "/v1/webhooks/no-such-webhook", "bearer": "conformance-owner2-token" },
+  "response": {
+    "status": 404,
+    "headers": { "Content-Type": "application/json" },
+    "body": { "error": "not_found", "message": "no webhook 'no-such-webhook'", "ref": "no-such-webhook" }
+  }
+}

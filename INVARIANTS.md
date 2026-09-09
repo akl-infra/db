@@ -44,6 +44,10 @@ the S1 rows only.
 | LDB-G2 | No admin id is a constant in code (the migration seed is data) | `tests/tools/noconst.test.ts` |
 | LDB-G4 | Every binding/var the Worker reads is in the runbook table | `tests/tools/runbook.test.ts` |
 | LDB-G5 | Nothing imports across the `db/` boundary in either direction | `tests/tools/boundary.test.ts` |
+| LDB-H1 | Webhook delivery is at-least-once and in order per hook: every matching event past a hook's cursor is POSTed with a valid signature before the cursor passes it; the cursor is advanced only by compare-and-set | `tests/api/webhooks.test.ts` |
+| LDB-H2 | The stream is the feed: the frames of any stream, and of any chain of streams reconnected by `Last-Event-ID`, are exactly `/v1/changes`' items past the original `since`, in order, no gap, no duplicate; every stream closes at the bound with `next` | `tests/api/stream.test.ts` |
+| LDB-H4 | A webhook secret never leaves the `webhooks` table: no response body, no event, no dump carries it | `tests/api/webhooks.test.ts` (scans), `tests/api/dump.test.ts` (`webhooks: []`) |
+| LDB-H5 | A drain with nothing to deliver writes zero D1 rows; a delivered batch writes exactly one `webhooks` row per hook | `tests/api/webhooks.test.ts` (statement counter) |
 | LDB-I1 | The import is idempotent: the same upstream state twice appends zero events | `tests/import/tick.test.ts` |
 | LDB-I2 | The import never overwrites a record that does not follow upstream | `tests/import/cases.test.ts` |
 | LDB-I2a | "Follows upstream" ⇔ the record's latest rev-bumping event has `via = import:cmini` | `tests/events/follows.test.ts`, `tests/api/restore.test.ts` |
@@ -58,6 +62,7 @@ the S1 rows only.
 | LDB-N1 | `check_name` is the bot's rule set with the bot's strings (`NAME_SET` minus the space), plus the 64-char cap and the ULID-shape refusal, applied to `POST` and rename only | `tests/api/names.test.ts`, `tests/api/patch.test.ts` |
 | LDB-P1 | Every write appends exactly one rev-bumping event and one `layout_revs` row; the record equals the fold of its events; `seq` is gapless | `tests/events/fold.test.ts`, `tests/events/races.test.ts`, `tests/tools/onlywriter.test.ts` |
 | LDB-P2 | An `If-Match` mismatch writes nothing and returns the current record; two writes at one `rev` → exactly one commits, the other gets `stale` with the winner's record; the guard is `layout_revs`' PK inside the batch | `tests/api/ifmatch.test.ts`, `tests/events/fold.test.ts` |
+| LDB-P3 | A follower's state built from webhook deliveries alone (with drops, reordering and duplicates) equals its state built from the feed alone | `tests/events/feed.test.ts` |
 | LDB-P4 | A name is released only by delete or rename | `tests/events/names.test.ts`, `tests/events/races.test.ts`, `tests/api/refs.test.ts`, `tests/api/names.test.ts`, `tests/api/patch.test.ts` |
 | LDB-P5 | Every following record read `?as=cmini/1` equals upstream on the projection (likes sorted) | `tests/upstream-diff.test.ts` (daily, live), `tests/import/diff-unit.test.ts` (unit half, over `upstream-100`) |
 | LDB-P6 | `/v1/changes` serves from `since=0`, including after a restore | `tests/events/feed.test.ts`, `tests/rehost.test.ts` |
