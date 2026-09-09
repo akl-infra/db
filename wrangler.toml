@@ -24,6 +24,9 @@ WEBHOOK_MAX_POSTS = "25"
 STREAM_MAX_MS = "300000"
 STREAM_POLL_MS = "2000"
 
+[observability]
+enabled = true   # Workers Logs: keep console.error() from onError (the 500 path) queryable in the dashboard; 2026-09-09, after two untraceable 500s
+
 # Preview environment (09-implementation-phase2.md §3 T7): the site's
 # phase-2 UX work writes here, never at production `akl-db`. Wrangler
 # environments do NOT inherit d1_databases/r2_buckets/vars/triggers from the
@@ -53,3 +56,6 @@ DISCORD_API_URL = "https://discord.com/api"
 WEBHOOK_MAX_POSTS = "25"
 STREAM_MAX_MS = "300000"
 STREAM_POLL_MS = "2000"
+
+[env.preview.observability]
+enabled = true
