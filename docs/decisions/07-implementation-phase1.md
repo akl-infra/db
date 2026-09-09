@@ -161,7 +161,7 @@ db/
 ```sql
 CREATE TABLE layouts (
   id            TEXT PRIMARY KEY,                 -- ULID
-  name          TEXT NOT NULL COLLATE NOCASE UNIQUE,   -- ASCII case-insensitive (SQLite NOCASE); upstream names are ASCII (0.1)
+  name          TEXT NOT NULL COLLATE NOCASE,          -- ASCII case-insensitive (SQLite NOCASE); upstream names are ASCII (0.1)
   owner         TEXT NOT NULL,                    -- Discord user id, as text
   rev           INTEGER NOT NULL,
   created_at    TEXT NOT NULL, modified_at TEXT NOT NULL,
@@ -171,6 +171,9 @@ CREATE TABLE layouts (
   like_count    INTEGER NOT NULL DEFAULT 0,
   has_magic     INTEGER NOT NULL DEFAULT 0        -- lower(payload).length > 0
 );
+-- Uniqueness among LIVE records only: a tombstone keeps its literal name
+-- (01 §1) and that name is reusable (LDB-P4), so the index is partial.
+CREATE UNIQUE INDEX layouts_name_live ON layouts(name) WHERE deleted = 0;
 CREATE INDEX layouts_owner ON layouts(owner);
 CREATE INDEX layouts_modified ON layouts(modified_at);
 
