@@ -60,31 +60,37 @@ Every schema decision below cites this table. Re-measure with
 
 ## 2. Toolchain (pinned; versions checked against npm 2026-09-08)
 
-- **Runtime:** Cloudflare Workers, `compatibility_date = "2026-09-01"`,
-  `compatibility_flags = ["nodejs_compat"]` (only for `node:crypto`-free
-  code paths that libraries probe; nothing in `src/` imports `node:*`),
-  ESM, TypeScript compiled by wrangler's esbuild — no separate build. Node
-  24 for tooling. `limits.cpu_ms = 30000` is not needed: a cron tick is
-  I/O-bound and bounded by `IMPORT_MAX_WRITES_PER_TICK` (S5).
+- **Runtime:** Cloudflare Workers, `compatibility_date = "2026-08-22"` (the
+  newest date the installed workerd/miniflare accepts as of wrangler 4.130;
+  bump when the toolchain does — S1 found `2026-09-01` refuses to boot),
+  `compatibility_flags = ["nodejs_compat"]`, ESM, TypeScript compiled by
+  wrangler's esbuild — no separate build. Node 24 for tooling. Every
+  wrangler script passes `--config wrangler.toml` explicitly (S1: without
+  it wrangler 4.130 intermittently misdetects the project as Pages).
 - **Router:** `hono@^4.13`. Route handlers return `c.json()`; error bodies
-  through `core/errors.ts` only.
+  through `core/errors.ts` only (`ApiError` thrown, `app.onError` is the one
+  place that renders it).
 - **Validation:** `ajv@^8.20` with `ajv-formats`, JSON Schema 2020-12
   (`new Ajv2020({ allErrors: false, strict: true })`), one compiled
   validator per format at module load. The failing path is
   `error.instancePath` (`/keys/a/row`), surfaced in the 400 body.
 - **Tests:** `vitest@^4.1` (NOT 5 — `@cloudflare/vitest-pool-workers@^0.22`
-  peers on `^4.1`; re-check `npm view @cloudflare/vitest-pool-workers
-  peerDependencies` when S1 lands and pin accordingly). `vitest.config.ts`
-  declares two projects: `workers` (`tests/api tests/import tests/events
-  tests/rehost.test.ts`, run inside workerd with miniflare D1 + R2,
-  `isolatedStorage: true` so every test starts from an empty database,
-  migrations applied by `readD1Migrations` + `applyD1Migrations` in
-  `tests/setup-workers.ts`) and `node` (`tests/formats tests/tools
-  tests/upstream-diff.test.ts`, plain vitest). `fast-check@^4` for
-  property tests. Outbound HTTP in the workers project goes through
-  `fetchMock` from `cloudflare:test` (the FakeUpstream is a set of
-  `fetchMock` interceptors, `tests/import/fake-upstream.ts`). Crons are
-  driven with `SELF.scheduled({ cron })`.
+  peers on `^4.1`). **Real API of pool-workers 0.22 (S1, verified):** no
+  `/config` subpath and no `defineWorkersProject`; `cloudflareTest` (a Vite
+  plugin) and `readD1Migrations` are top-level exports, used inside
+  `defineConfig(async () => ({ test: { projects: [...] } }))`. Per-test-file
+  storage isolation is automatic (no `isolatedStorage` option). Migrations
+  are read once in `vitest.config.ts` into a test-only `TEST_MIGRATIONS`
+  binding and applied by `tests/setup-workers.ts` via `applyD1Migrations`
+  from `cloudflare:test`. Two projects: `workers` (`tests/api tests/import
+  tests/events tests/rehost.test.ts`, inside workerd with miniflare D1 + R2)
+  and `node` (`tests/tools tests/core tests/formats
+  tests/upstream-diff.test.ts`). Later slices extend the `include` arrays,
+  nothing else. `fast-check@^4` for property tests. Outbound HTTP in the
+  workers project goes through `fetchMock` from `cloudflare:test` (the
+  FakeUpstream is a set of `fetchMock` interceptors,
+  `tests/import/fake-upstream.ts`). Crons are driven with
+  `SELF.scheduled({ cron })`.
 - **Ids:** `ulidx@^2.4` (`ulid()`; Web Crypto, no Node dependency).
   Monotonicity is per isolate and not relied on — ordering is `events.seq`.
 - **Canonical JSON:** `core/canonical.ts` `canonical(v: unknown): string` —
