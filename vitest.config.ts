@@ -81,6 +81,7 @@ export default defineConfig(async () => {
               "tests/formats/**/*.test.ts",
               "tests/import/diff-unit.test.ts",
               "tests/upstream-diff.test.ts",
+              "tests/drill/**/*.test.ts",
             ],
           },
         },

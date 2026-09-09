@@ -1,0 +1,33 @@
+# db/drill/fly.toml -- the Fly restore drill (design/layout-db/
+# 12-implementation-phase5.md §3 X4 item 2, LDB-D5). `app` is a
+# placeholder until saltorbit runs `fly launch --no-deploy` (below); this
+# machine is NOT deployed by an agent (⚠ saltorbit, per the design doc).
+#
+# Deploy from db/ (NOT the repo root -- unlike bot/fly.toml, the drill's
+# Dockerfile only needs db/'s own tree):
+#   cd db
+#   flyctl launch --no-deploy --config drill/fly.toml --dockerfile drill/Dockerfile
+#   flyctl secrets set --config drill/fly.toml \
+#     DRILL_CLIENT_ID=... DRILL_PRIVATE_KEY=... DRILL_ACTOR=...
+#   flyctl deploy --config drill/fly.toml --dockerfile drill/Dockerfile
+#   flyctl machine run <image> --config drill/fly.toml --schedule daily --rm
+# See db/README.md § Drill for the full runbook, including registering the
+# drill's own client-lane key as `act-as-owner-only`.
+app = "akl-db-drill"
+primary_region = "iad"
+
+[build]
+
+[env]
+  DB_BASE_URL = "https://akl-db.<account>.workers.dev" # ⚠ saltorbit: fill in the real deployed origin at launch time
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb" # bot/fly.toml's own note: 256 MB thrashed silently at boot for a Worker-adjacent Node process; 512 is the safe floor here too
+
+# Deliberately no [http_service] and no [processes]: this machine serves
+# no traffic and has no long-running process -- it's a scheduled Fly
+# Machine (`flyctl machine run --schedule daily`, set at machine-run time,
+# not a declarative field here) that runs `drill/run.sh` to completion
+# once a day and stops. `ENTRYPOINT` in the Dockerfile is the whole
+# program.

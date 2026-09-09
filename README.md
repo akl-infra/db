@@ -272,6 +272,99 @@ throwaway D1 and re-runs the whole conformance suite against the restored
 copy), and separately runs the upstream diff (S8). Both fail the job loudly
 on any problem -- neither is allowed to skip silently.
 
+## Drill
+
+The Fly restore drill (design/layout-db/12-implementation-phase5.md §3 X4
+"the drill on Fly", LDB-D5) is a THIRD, independent proof that a rehost
+works -- on top of `tests/rehost.test.ts`'s in-process CI proof (above) and
+a human operator's own `npm run rehost` -- run daily, outside Cloudflare
+entirely, as a scheduled Fly Machine (`db/drill/`). It:
+
+1. fetches `$DB_BASE_URL/v1/dump/latest.json` then the dump it names, and
+   verifies the fetched bytes' sha256 and byte count against what
+   `latest.json` claims (`scripts/drill-fetch-dump.mjs`) -- a corrupt or
+   truncated transfer never reaches the next step;
+2. restores it into a LOCAL D1 (`wrangler d1 execute --local`) through the
+   real restore code path, `restoreSql()` (`src/dump/restore.ts`) --
+   the exact function `npm run rehost` and `tests/rehost.test.ts` both
+   already use (`scripts/drill-restore.mjs`, a third caller, not a
+   re-implementation) -- and checks the restored `layout_count`/`seq`
+   against the dump's own `meta`;
+3. serves that SAME local D1 with `wrangler dev --local --port 8790` and
+   walks every layout id in the dump over real HTTP, comparing `GET /v1/
+   layouts/:id` byte-for-byte (`canonical()`) against the dump's own
+   record -- fields, likes, and payload -- plus `/v1/meta`'s
+   `layout_count`/`seq` (`scripts/drill-verify.mjs`); and
+4. signs and POSTs the assembled report to `POST /v1/admin/drill` on the
+   client lane (`scripts/report-drill.mjs`, its own copy of the signer --
+   the same duplication `bot/scripts/sign.mjs` uses, kept honest by
+   `tests/drill/report-drill.test.ts` reproducing `tests/vectors/
+   client-signing.json`), recorded as `import_state['drill.last']` and
+   surfaced at `/v1/meta.last_drill` (`{at, ok}`) and `GET /v1/admin/
+   health` (the full report, admin-only).
+
+`db/drill/run.sh` orchestrates all four steps and is the container's
+`ENTRYPOINT`; it exits non-zero on ANY failure -- a corrupted dump, a
+restore mismatch, an HTTP mismatch, or the report POST itself failing --
+even though a red (`ok: false`) report that DID post successfully still
+means step 4 ran; see the script's own header for the exact distinction.
+A Fly Machine run's own exit code is a second, redundant alarm alongside
+`/v1/meta.last_drill` going stale (LDB-M1's meta-watch) -- belt and
+suspenders, not either/or.
+
+**Registering the drill's own client-lane key** (⚠ saltorbit, once, per target
+DB): a drill needs its own Ed25519 keypair, registered as
+`act-as-owner-only` so its `X-Akl-Actor` must equal its own
+`owner_user_id` -- nobody else can act through it even if the private key
+leaked from a different Fly app.
+
+```bash
+# From bot/ (bot/scripts/gen-key.mjs is the one keypair generator in the
+# repo -- no need for the drill to carry its own copy):
+node ../bot/scripts/gen-key.mjs
+# prints CLIENT_PRIVATE_KEY=<pkcs8 b64url> and pubkey=<raw 32-byte b64url>
+
+# Register it as an existing admin (saltorbit), act-as-owner-only, owner ==
+# the same id you'll set DRILL_ACTOR to:
+node ../bot/scripts/sign.mjs POST /v1/admin/clients --actor=<your-admin-discord-id> \
+  --body='{"name":"fly-drill","pubkey":"<pubkey from above>","owner_user_id":"<DRILL_ACTOR>","caps":"act-as-owner-only"}'
+# paste the printed -H/-d flags into curl against $DB_BASE_URL/v1/admin/clients
+```
+
+**Running it locally (Docker or bare):**
+
+```bash
+cd db
+docker build -f drill/Dockerfile -t akl-db-drill .
+docker run --rm \
+  -e DB_BASE_URL=https://akl-db-preview.<account>.workers.dev \
+  -e DRILL_CLIENT_ID=<client id from registration> \
+  -e DRILL_PRIVATE_KEY=<CLIENT_PRIVATE_KEY from gen-key.mjs> \
+  -e DRILL_ACTOR=<the same owner_user_id> \
+  akl-db-drill
+
+# or, without Docker (needs this checkout's own node_modules -- npm ci first):
+DB_BASE_URL=... DRILL_CLIENT_ID=... DRILL_PRIVATE_KEY=... DRILL_ACTOR=... sh drill/run.sh
+```
+
+**Deploying the scheduled Fly Machine** (⚠ saltorbit -- `08 §2` item 2; never
+run by an agent):
+
+```bash
+cd db
+flyctl launch --no-deploy --config drill/fly.toml --dockerfile drill/Dockerfile
+flyctl secrets set --config drill/fly.toml \
+  DRILL_CLIENT_ID=... DRILL_PRIVATE_KEY=... DRILL_ACTOR=...
+flyctl deploy --config drill/fly.toml --dockerfile drill/Dockerfile
+flyctl machine run <image> --config drill/fly.toml --schedule daily --rm
+```
+
+Until the Fly drill has posted `ok: true` for seven days running AND the
+site's meta-watch warns on a stale `last_diff`/`last_drill` (LDB-M1's site
+half), `db.yml`'s own `daily` job (rehost + diff, above) stays as the
+primary safety net -- X4b (a separate, dated PR) removes it once both
+conditions hold.
+
 ## Verify the mirror
 
 `npm run diff-upstream` (`scripts/diff-upstream.mjs`, logic in `src/import/
