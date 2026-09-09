@@ -111,6 +111,25 @@ layoutsRoute.get("/v1/layouts", async (c) => {
 // (03 §1's "record fields plus held: true, format").
 const FULL_PAGE_SIZE = 500;
 
+// Likes ride inline on every record that carries a payload (detail and
+// `full=1`), sorted by user id -- cmini's own detail inlines `likes`, and
+// the site's sync and the D12 diff read them from the same response rather
+// than one `/likes` round trip per layout (W1's finding). List rows keep
+// only `like_count`. Chunked IN-lists: D1 allows <= 100 bound params.
+async function likesByLayout(db: Bindings["DB"], ids: string[]): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>(ids.map((id) => [id, []]));
+  for (let i = 0; i < ids.length; i += 90) {
+    const chunk = ids.slice(i, i + 90);
+    const rows = await db
+      .prepare(`SELECT layout_id, user_id FROM likes WHERE layout_id IN (${chunk.map(() => "?").join(",")}) ORDER BY layout_id, user_id ASC`)
+      .bind(...chunk)
+      .all<{ layout_id: string; user_id: string }>();
+    for (const r of rows.results) out.get(r.layout_id)!.push(r.user_id);
+  }
+  return out;
+}
+
+
 async function handleFullDump(c: Context<{ Bindings: Bindings }>): Promise<Response> {
   const db = c.env.DB;
   const as = resolveAsFormat(c.req.query("as"));
@@ -131,10 +150,12 @@ async function handleFullDump(c: Context<{ Bindings: Bindings }>): Promise<Respo
       let first = true;
       for (;;) {
         const page = await listRecords(db, { sort: "name", limit: FULL_PAGE_SIZE, cursor });
+        const likes = await likesByLayout(db, page.items.map((r) => r.id));
         for (const rec of page.items) {
           const result = translate(rec, as);
+          const base = { ...sansPayload(rec), likes: likes.get(rec.id) ?? [] };
           const body: Record<string, unknown> =
-            "held" in result ? { ...sansPayload(rec), held: true } : { ...sansPayload(rec), payload: result.payload };
+            "held" in result ? { ...base, held: true } : { ...base, payload: result.payload };
           await writer.write(encoder.encode((first ? "" : ",") + canonical(body)));
           first = false;
         }
@@ -175,7 +196,8 @@ layoutsRoute.get("/v1/layouts/:ref", async (c) => {
   const result = translate(rec, as);
   if ("held" in result) throw held(result.format, result.see);
 
-  return c.json({ ...sansPayload(rec), payload: result.payload });
+  const likes = await likesByLayout(db, [rec.id]);
+  return c.json({ ...sansPayload(rec), likes: likes.get(rec.id) ?? [], payload: result.payload });
 });
 
 layoutsRoute.get("/v1/layouts/:ref/likes", async (c) => {

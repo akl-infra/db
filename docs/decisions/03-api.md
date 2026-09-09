@@ -61,8 +61,8 @@ GET /v1/layouts?owner=&format=&has_magic=&since=<iso>&sort=&limit=&cursor=&as=
      sort: name (default, asc, case-insensitive) | modified_at | created_at | like_count (desc)
      limit ≤ 1000 (default 100); cursor is opaque (keyset); since = modified_at > iso; tombstones excluded
 GET /v1/layouts?full=1&as=cmini/1        one streamed response with every live record and its payload
-                                        (the site's sync); held records carry `held: true`, no payload
-GET /v1/layouts/{ref}?as=               → record with payload (a tombstone: 404 by name, 200 by id)
+                                        (the site's sync); every row carries `likes` (sorted); held records carry `held: true`, no payload
+GET /v1/layouts/{ref}?as=               → record with payload + `likes` (sorted user ids; a tombstone: 404 by name, 200 by id)
 GET /v1/layouts/{ref}/likes             → { user_ids: [sorted ascending] }
 GET /v1/layouts/{ref}/history           → [{ seq, rev, at, actor, via, kind, admin }]   oldest first
 GET /v1/layouts/{ref}/rev/{n}?as=       → the record as of rev n (layout_revs ⊕ the write event's `after`)
