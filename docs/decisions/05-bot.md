@@ -160,6 +160,20 @@ change it didn't know about. The response of any accepted write is folded
 into the cache right away too, so `!add` then `!view` in the same second
 still works.
 
+**Operability (saltorbit, 2026-09-09, `watchdog.ts`/`client/http.ts`/`main.ts`).**
+A production hang (`!sp swap! dsfs ou`, ~1 minute, nothing logged) meant
+`dbFetch` gained a 20 s abort timeout — a hung DB call now fails fast with
+its own message instead of a silent stall — and every write's non-2xx
+response is logged (method, path, the DB's `error`/`message`, elapsed ms;
+never the signed headers), alongside a slow-command log (`verb` + elapsed
+ms) for anything over 5 s. A memory watchdog DMs `ALERT_USER_ID` once when
+`process.memoryUsage().rss` crosses `ALERT_MEMORY_PCT` (default 80%) of
+the cgroup memory limit and once more on recovery, and once at boot if the
+previous run didn't shut down cleanly (`<dataDir>/spark.pid-marker`
+surviving to the next boot). `TEST_BOT_IDS` allowlists specific bot
+authors (empty in production) so an end-to-end harness's own bot can drive
+a second spark instance. LDB-B15/B16/B17; `10 §1` D16.
+
 ## 5. Where it runs
 
 **Decided (saltorbit, 2026-09-09): Fly.io**, one `shared-cpu-1x` machine,
@@ -191,6 +205,9 @@ live in this repo).
 | LDB-B6 | `bot/` imports only `@akl/core` / `@akl/layout-formats` (by path until the split) from this repo, and nothing imports `bot/`. | `bot/tests/tools/boundary.test.ts` + `db/`'s outside-scan |
 | LDB-B7–B12 | env vars in one place; `bot.yml`'s shape; the worker answers the site's protocol; cache = fold of dump + feed (**extended 2026-09-09 to a THIRD fold path, the SSE stream** — a stream-fed store and a poll/`ensureFresh`-fed store over the same events are byte-for-byte equal); prefs survive restarts; the image is a pure function of its plan. | `10 §7` |
 | **LDB-B14** | **Verify-then-serve:** a read verb's answer equals the answer computed from the DB's state at the moment the verb ran, never a stale in-memory snapshot. `ensureFresh()` is the *only* freshness mechanism; a `/v1/meta` failure never serves possibly-stale data silently. | `bot/tests/cache/fresh.test.ts` |
+| LDB-B15 | The memory watchdog DMs `ALERT_USER_ID` once per threshold crossing (10-point hysteresis on recovery), never when unset; a non-clean-restart marker DMs once at the next boot, then is always rewritten. | `bot/tests/watchdog.test.ts` |
+| LDB-B16 | A write-path `dbFetch` call times out after 20 s (a synthetic result, never a hang or a throw) and every non-2xx write response is logged (method/path/DB message/elapsed ms, never the signed headers); a `400 if_match_required` (structurally impossible given LDB-B2) logs as a bug, not an ordinary failure, and is never retried. | `bot/tests/client/http.test.ts`, `bot/tests/commands/write.test.ts`, `bot/tests/main.test.ts` |
+| LDB-B17 | `TEST_BOT_IDS` allowlists specific bot authors so `handleMessage` treats their messages like a real user's; every other bot author stays ignored. | `bot/tests/main.test.ts` |
 
 ## 8. Open questions (bot)
 
