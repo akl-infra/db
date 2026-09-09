@@ -13,7 +13,7 @@ config that another holder can change:
 |---|---|---|---|
 | **edit the data** as admin (force-transfer, delete/restore any record, register bots, add admins) | D1 `admins` table (`02 §5`) | ≥ 2 Discord users at all times (LDB-A6) | any admin adds another; removing needs the row not to be one of the last two |
 | **change the code** | GitHub repo under an **org** (`00 §6.5`), `main` protected: 1 review, CI green | org owners ≥ 2; format dirs have their own `OWNERS` (§2) | org owner adds an owner; CODEOWNERS PR |
-| **run the service** | one Cloudflare account: the Worker, D1 `akl-db`, R2 dumps, DNS for the API hostname | ≥ 2 members with Super Administrator | account member management; the runbook (§4) lists every secret and where it is set |
+| **run the service** | a Cloudflare account **of its own** (decided 2026-09-09: not the site's account) holding the Worker, D1 `akl-db`, R2 dumps, and — once registered inside it — the API domain | ≥ 2 members with Super Administrator from day one | account member management; CI uses an account-owned API token (not a member's); the runbook (§4) lists every secret and where it is set |
 | **speak for it** | the API hostname (DNS), the Discord bot application | DNS in the same Cloudflare account; the bot app has ≥ 2 team members in Discord's developer portal | same as above |
 
 The first maintainer is one of the ≥ 2 in every row and is not special in any

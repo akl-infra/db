@@ -51,9 +51,9 @@ Every schema decision below cites this table. Re-measure with
 | need | default if unanswered | blocks |
 |---|---|---|
 | Service name / hostname (`00 §6.2`) | Worker `akl-db`, served at `akl-db.<account>.workers.dev` until a hostname is picked. **The Cache API (`caches.default`) is inert on `*.workers.dev`**; ETag/304 works regardless (S6), so only the edge-cache half of `03 §5` waits on a hostname | nothing in phase 1 |
-| Cloudflare account | the site's account, same as Pages `cminibrowser`; members added at phase 5 | deploy (S7) |
+| Cloudflare account | **Decided (saltorbit, 2026-09-09): a NEW account for the community**, not the site's — saltorbit + the second admin as Super Administrators from day one, Workers Paid billed to it. Phase 1 serves from `akl-db.<account>.workers.dev`; a domain registered *inside* that account comes later (a Workers custom domain must live on a zone in the same account; `04 §1`) | deploy (S7) |
 | D1 `akl-db`, R2 `akl-db-dumps` | created by hand once (`wrangler d1 create akl-db`, `wrangler r2 bucket create akl-db-dumps`); ids into `db/wrangler.toml`; R2 lifecycle rule "delete `dump-*` after 90 days" set by hand (runbook) | S7 |
-| CI deploy token | Cloudflare API token with Workers Scripts + D1 + R2 edit, repo secret `CLOUDFLARE_DB_TOKEN` (separate from the Pages token) | S7 |
+| CI deploy token | an **Account-owned** API token (Manage Account → Account API Tokens — survives member changes; a user-owned token dies with its creator) with Workers Scripts:Edit, D1:Edit, R2:Edit, Account Settings:Read; repo secrets `CLOUDFLARE_DB_TOKEN` and `CLOUDFLARE_DB_ACCOUNT_ID` (the NEW account's id — the existing `CLOUDFLARE_ACCOUNT_ID` is the site's) | S7 |
 | Day-1 admins (`00 §6.4`) | migration `0001` seeds only saltorbit's id; a second row is a phase-2 blocker | phase 2 |
 | Confirmations in `00 §0` | assumed as written | nothing |
 | Where `LDB-*` invariants are registered | `db/INVARIANTS.md` (moves with the code) + one pointer entry in `design/INVARIANTS.md` (§11) | S1 |

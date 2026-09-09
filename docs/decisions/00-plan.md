@@ -176,7 +176,7 @@ phase 3.
 2. **Name and domain.** `api.akl.gg`? The code dir is `db/` either way; the docs say "the layout DB" until named.
 3. **Bot in Python from cmini's GPLv3 code** (fast, exact parity, same numbers) vs a fresh bot? GPL means `bot/` is GPLv3; the DB and the site are unaffected.
 4. **Day-1 co-admins**: who? The admins table (`04 §1`) is only democratic if it has two rows before phase 3.
-5. **Org names**: a GitHub org for the DB + bot repos, and a Cloudflare account with ≥2 super-admins — or keep under your account with added members until phase 5?
+5. **Org names**: a GitHub org for the DB + bot repos. *(Cloudflare: resolved 2026-09-09 — a new community-owned account, ≥2 Super Admins from day one, its own domain later; `04 §1`, `07 §1`.)*
 6. **Import end state**: keep importing from cmini indefinitely (it stays a source for bot users who never move), or stop at a date?
 7. **Rename semantics for imported records**: cmini's id is its name; if someone renames `foo` on our side, the cmini import must not re-create `foo`. Handled by `import_map` (`03 §8`, D9), but confirm you want the *old* name to become free here.
 8. Anything in `01 §2` (the `akl/1` shape) you already know you want different — this is the one doc worth reading slowly.
