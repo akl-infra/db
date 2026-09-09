@@ -119,19 +119,6 @@ function countingDb(real: D1Database): { db: D1Database; writes: () => number } 
   return { db: proxy as D1Database, writes: () => writes.n };
 }
 
-// The nudge (index.ts's middleware) delivers via `ctx.executionCtx.
-// waitUntil`, which `SELF.fetch` resolves ahead of, not after -- a test
-// that needs to observe the nudge's effect polls briefly instead of
-// assuming it already ran. Bounded so a real regression (the nudge not
-// firing at all) fails in well under a second, not by hanging.
-async function waitFor(predicate: () => boolean, timeoutMs = 500, intervalMs = 5): Promise<void> {
-  const start = Date.now();
-  while (!predicate()) {
-    if (Date.now() - start > timeoutMs) throw new Error("waitFor: condition never became true");
-    await new Promise((resolve) => setTimeout(resolve, intervalMs));
-  }
-}
-
 async function createHook(body: Record<string, unknown>, token?: string): Promise<{ res: Response; headers: Record<string, string> }> {
   const headers = ownerHeaders(token);
   const res = await writeFetch("/v1/webhooks", "POST", headers, body);
@@ -314,12 +301,9 @@ describe("[LDB-H1] [LDB-H4] [LDB-H5] webhooks", () => {
       const createLayoutRes = await writeFetch("/v1/layouts", "POST", headers, { name: uniqueName("wh-delivery"), format: "cmini/1", payload: { board: "ortho", keys: {} } });
       expect(createLayoutRes.status).toBe(201);
 
-      // The nudge fires via `ctx.executionCtx.waitUntil`, which `SELF.fetch`
-      // does NOT wait on before resolving (verified empirically -- the
-      // response is back before the delivery attempt has necessarily run):
-      // poll briefly for the receiver to see it instead of assuming it's
-      // already there.
-      await waitFor(() => receiver.requests.length > 0);
+      // `writeFetch` (write-support.ts) already awaited the nudge's own
+      // drain() before returning -- the delivery attempt has necessarily
+      // run by now.
       expect(receiver.requests).toHaveLength(1);
       const req = receiver.requests[0]!;
       expect(req.headers["X-Akl-Webhook-Id"]).toBe(hook.id);

@@ -71,6 +71,24 @@ export function normalizeIds(v: unknown): unknown {
 // passes its own substitution, tests/rehost.test.ts needs none.
 export type PathResolver = (path: string) => string;
 
+// X1 (12 §2.1): same reasoning as `write-support.ts`'s `writeFetch` --
+// `index.ts`'s webhook nudge fires via `waitUntil`, which `SELF.fetch`
+// doesn't wait on, so a dangling delivery attempt can outlive whatever
+// fetch stub was active when it was triggered and hit the real network in
+// the sandboxed test runtime (workerd's "hung" watchdog). Awaited once
+// here so every conformance step (and `tests/rehost.test.ts`'s replay,
+// which shares this function) is covered without touching individual
+// cases. Swallowed: a rejected drain is not this step's problem.
+async function awaitPendingNudge(): Promise<void> {
+  const pending = (bindings as unknown as { TEST_LAST_NUDGE?: Promise<unknown> }).TEST_LAST_NUDGE;
+  if (pending === undefined) return;
+  try {
+    await pending;
+  } catch {
+    // logged by the nudge's own caller in production; not this helper's job
+  }
+}
+
 // One request/setup-step as `runConformanceRequest` fires it (09 §3 T2):
 // bearer -> Authorization, body -> JSON + Content-Type, extra headers
 // merged on top.
@@ -96,7 +114,9 @@ export async function fireConformanceStep(step: ConformanceStep, resolvePath: Pa
     });
     Object.assign(headers, signedHeaders);
   }
-  return SELF.fetch(url, init);
+  const res = await SELF.fetch(url, init);
+  await awaitPendingNudge();
+  return res;
 }
 
 // The conformance runner (07 §6 S6/S7, 09 §3 T2): one case, asserted byte-
@@ -140,7 +160,20 @@ export async function assertConformanceCase(kase: ConformanceCase, resolvePath?:
     return;
   }
 
-  if (kase.response.body === undefined) return;
+  if (kase.response.body === undefined) {
+    // X1: a case that only asserts status/headers (e.g. `changes-stream/200`
+    // -- an open SSE response can't be byte-pinned) must still drain its
+    // body if it has one: `routes/stream.ts`'s `pump` writes into a
+    // `TransformStream` with a writable-side queue of 1, so an abandoned,
+    // never-read stream backpressures on its very next frame -- nothing
+    // ever drains the queue, so the pump's own bound check never gets
+    // another turn (`.cancel()` was tried first and did not reliably
+    // unstick it in this sandbox; fully reading does). Harmless for every
+    // non-streamed case: reading an already-buffered small body (or one
+    // with no body at all) to exhaustion costs nothing.
+    await res.text();
+    return;
+  }
 
   const contentType = res.headers.get("Content-Type") ?? "";
   const actual = contentType.includes("json") ? await res.json() : await res.text();

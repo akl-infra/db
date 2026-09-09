@@ -64,9 +64,23 @@ const webhookFetchImpl: WebhookFetchImpl = (url, init) => fetch(url, init);
 app.use("/v1/*", async (c, next) => {
   await next();
   if (!SAFE_METHODS.has(c.req.method) && c.res.ok) {
-    c.executionCtx.waitUntil(
-      drainWebhooks(c.env, systemClock, { fetchImpl: webhookFetchImpl, maxPosts: Number(c.env.WEBHOOK_MAX_POSTS) }),
-    );
+    const drainPromise = drainWebhooks(c.env, systemClock, {
+      fetchImpl: webhookFetchImpl,
+      maxPosts: Number(c.env.WEBHOOK_MAX_POSTS),
+    });
+    c.executionCtx.waitUntil(drainPromise);
+    // Test-only observability, same shape as `TEST_CLOCK` (src/routes/
+    // write.ts): `SELF.fetch` does NOT wait on `waitUntil` promises before
+    // resolving, so a test whose fetch stub has a shorter lifetime than
+    // this drain (e.g. it unstubs in `afterEach`) can otherwise leave this
+    // promise's own delivery attempt to run against the REAL global fetch
+    // after the stub is gone -- in the sandboxed test runtime that's a
+    // request to nowhere, which workerd eventually kills as "hung"
+    // (harmless to test results, noisy in CI). `tests/api/write-support.ts`'s
+    // `writeFetch` awaits this after every call so no test needs to know
+    // about it; never read anywhere else, including in production (no
+    // `TEST_*` binding exists there to set it from).
+    (c.env as unknown as { TEST_LAST_NUDGE?: Promise<unknown> }).TEST_LAST_NUDGE = drainPromise;
   }
 });
 

@@ -79,7 +79,17 @@ streamRoute.get("/v1/changes/stream", async (c) => {
     } catch (e) {
       console.error("changes stream failed", e); // never surfaced to the client -- the stream is already open
     } finally {
-      await writer.close();
+      // A reader that stopped consuming (network stall, or cancels its
+      // side) errors the writer -- `write()` above already surfaces that
+      // through the `catch`, but `close()` on an already-errored writer
+      // also rejects; swallowed here the same way `handleFullDump`'s own
+      // pump never lets a write failure escape to anything that would
+      // treat it as this request's own error.
+      try {
+        await writer.close();
+      } catch {
+        // already errored -- nothing left to close
+      }
     }
   })();
   c.executionCtx.waitUntil(pump); // keep the isolate alive for the poll loop even if the client stops reading
