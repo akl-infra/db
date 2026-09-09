@@ -19,7 +19,7 @@ same digits as the site, by construction rather than by parity testing.
 ```
 bot/                        MIT (a rewrite; nothing of cmini's GPLv3 code)
   src/
-    main.ts                 discord.js client; message commands with the `!aklgg` prefix (tentative, §8)
+    main.ts                 discord.js client; message commands with the `!spark` prefix (tentative, §8)
     commands/               one module per verb, same names/usage/wording as cmini's (§2)
     render/                 text tables (cmini's wording) and the image renderer (§3)
     cache/                  local mirror of every layout, fed by /v1/changes (§4)
@@ -44,7 +44,7 @@ driver `data/swap-engine.ts` (zero imports, every effect injected) to
 `ui/copy-image/` to `core/copyimage/`. Nothing is duplicated.
 
 The wasm engine gives the bot stats for **any** layout — published or
-`!aklgg swap`'d on the fly — at ~90 ms per layout in a `worker_threads`
+`!spark swap`'d on the fly — at ~90 ms per layout in a `worker_threads`
 Worker (`10 §1` D1). Catalog-wide verbs (`rank`, `filter`) do **not**
 recompute 4 000 layouts: the bot reads the site's own precomputed cells
 (`https://akl.gg/data/mana2/<corpus>.rowstag.none.json`, the same engine's
@@ -103,10 +103,10 @@ akl alt pairings` — rewritten as-is, no layouts involved.
 
 ### 2.4 New verbs (after parity)
 
-- `!aklgg magic [name]` — a layout's magic as the author wrote it (idioms
+- `!spark magic [name]` — a layout's magic as the author wrote it (idioms
   from `akl/1`, raw rules otherwise) — reads `?as=akl/1`.
-- `!aklgg history [name]` — last 5 events.
-- `!aklgg image [name]` — the site's copy-as-image render (§3), which is
+- `!spark history [name]` — last 5 events.
+- `!spark image [name]` — the site's copy-as-image render (§3), which is
   what #218 asked for from mana.
 
 ## 3. Rendering
@@ -160,7 +160,7 @@ live in this repo).
 
 ## 8. Open questions (bot)
 
-1. **Prefix:** `!aklgg` (saltorbit, tentative, 2026-09-09) — answer to `!cmini`
+1. **Prefix:** `!spark` (saltorbit, tentative, 2026-09-09) — answer to `!cmini`
    too during a transition, or not at all?
 2. *(resolved, `10 §0`/`§2`)* the driver moves to `core/swap-engine.ts`
    (U1), the drawing to `core/copyimage/` (U2); the worker itself is

@@ -28,7 +28,7 @@ The transcript was voice-dictated; these are the readings the plan is built on.
 2. "track **fingerprint**" → fingermap. "**digger** boards versus **Rohde** boards" → column-stagger vs row-stagger, with the amount of stagger recorded. "prematurely **Laur** lower" → lower.
 3. "a proposal … talking about a Federation concept that I don't want to do" → `design/federation/01-design.md` is **not** being built. Its §2 lists why one database is risky (single owner, one person's schema, no home for richer layouts); this plan answers each of those with governance and a format registry instead of with sync (§2 below). Its vocabulary (envelope, `rev`, *held*, *shadowed*, feed-as-truth/push-as-nudge) is reused where it fits.
 4. "start off synchronizing with the cmini database" → one-way import from `clemenpine.com/layoutapi/v3` into ours, continuing while it lives; local edits win per record; nothing is written back upstream (`06-akl-integration.md` §2). **Confirm: no write-through to cmini.**
-5. "the discord bot should be doing more or less the same things that the cmini bot did" → full command parity within reason. *(Revised 2026-09-09: a TypeScript rewrite sharing akl.gg's core — mana2 wasm + `cminiRowFromMana2` — not a fork of the Python; prefix tentatively `!aklgg`; `05-bot.md`.)*
+5. "the discord bot should be doing more or less the same things that the cmini bot did" → full command parity within reason. *(Revised 2026-09-09: a TypeScript rewrite sharing akl.gg's core — mana2 wasm + `cminiRowFromMana2` — not a fork of the Python; prefix tentatively `!spark`; `05-bot.md`.)*
 6. "keep the database in this repo for now … one folder … easy to move out later" → `db/` at the repo root: its own Worker, `wrangler.toml`, migrations, tests, `package.json`; no import crosses the `db/` boundary in either direction (§7).
 7. Stats are not the database's job. It stores layouts, ownership, likes and history; every client computes its own numbers (akl.gg with mana2/wasm, the bot with the cmini analyzer). **Confirm.**
 
@@ -157,7 +157,7 @@ DB instead of cmini's API; the extracted files are the same shape (`06 §1`).
   reused; numbers from the mana2 wasm engine composed into cmini stats by
   the site's own `cminiRowFromMana2`, so bot and site agree by construction
   (LDB-B5); cmini's command names, usage lines and wording kept for parity;
-  prefix tentatively `!aklgg`; runs on Fly.io; MIT. `bot/` may import
+  prefix tentatively `!spark`; runs on Fly.io; MIT. `bot/` may import
   `web/src/core` and `db/formats` (by path until they are packages) and
   nothing else — the one named exception to §7's rule (`05 §1`).
 - **D12 · Nothing ships to akl.gg's users until the DB is a strict superset
@@ -181,7 +181,7 @@ phase 3.
 
 1. §0 items 1, 4, 7 — confirm the readings (bot lane; no write-back to cmini; DB stores no stats).
 2. **Name and domain.** `api.akl.gg`? The code dir is `db/` either way; the docs say "the layout DB" until named.
-3. *(resolved 2026-09-09)* Bot = TypeScript rewrite sharing akl.gg's core; MIT; Fly.io; prefix tentatively `!aklgg` (`05`).
+3. *(resolved 2026-09-09)* Bot = TypeScript rewrite sharing akl.gg's core; MIT; Fly.io; prefix tentatively `!spark` (`05`).
 4. **Day-1 co-admins**: who? The admins table (`04 §1`) is only democratic if it has two rows before phase 3.
 5. **Org names**: a GitHub org for the DB + bot repos. *(Cloudflare: resolved 2026-09-09 — a new community-owned account, ≥2 Super Admins from day one, its own domain later; `04 §1`, `07 §1`.)*
 6. **Import end state**: keep importing from cmini indefinitely (it stays a source for bot users who never move), or stop at a date?

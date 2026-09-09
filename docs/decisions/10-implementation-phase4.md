@@ -15,7 +15,7 @@ nothing from `db/`.
 
 Decisions not reopened here: the bot is a TypeScript rewrite, no Python
 reused, numbers from the mana2 wasm + `cminiRowFromMana2` (the site's own
-composition), prefix tentatively `!aklgg`, Fly.io 256 MB in saltorbit's
+composition), prefix tentatively `!spark`, Fly.io 256 MB in saltorbit's
 account, MIT; the client lane is Ed25519-signed requests from
 admin-registered keys asserting the acting Discord user (`02 §3`); only the
 DB is co-owned; production flips are saltorbit's; `appendWrite` is the only
@@ -38,9 +38,9 @@ Round 1's table had four wrong paths and one wrong assumption (that
 | **the compute payload** | `web/src/core/session.ts:swapLayoutPayload(src)` → `{ name, board: nativeBoard ?? 'stagger', keys: { "<c>": {row, col, finger} } }` after `core/geometry.ts:normalizeLayoutColumns` (I-156: a negative column panics the Go runtime); the view context `swapContext(engine, board, spacegrams, thumb)` → `{ board: 'rowstag'|'ortho', space: 'none'|'lt'|'rt' }`; the cmini view always computes at `space: 'none'`; `data/swap-compute/computeLoop.ts:wasmEngineFor` maps the view name to `mana2` | core ✓ | as is; the bot's `Keys` (the site's `KeyCell[]` = `[{c, row, col, finger}]`) come from the record's `akl/1` `keys` map |
 | layout geometry / keys model | `web/src/core/geometry.ts` (`normalizeLayoutColumns`, `layoutHasThumbKey`, `keyboardBoard`, `mirrorThumbKeys`, `bvAngleModRotate`), `side.ts`, `format.ts` | core ✓ | as is |
 | grid text ↔ keys | `web/src/core/export.ts` — `matrixText`/`addGridText`/`fingermapGridText` (the **`!cmini add` exporter shape** — what cmini *parses*), `applyCyclesToKeys`, `cminiSwapPairs`, `diffToTranspositions`, `CMINI_FINGER_VALUES` | core ✓ | `applyCyclesToKeys`/`CMINI_FINGER_VALUES` as is. **cmini's display shape** (`util/layout.py:get_matrix` — 2-space lead, an extra space after column 4, per-board row indents, thumb row indented 6/13) is what the bot must *print* for parity; it is not `matrixText` — ported in V4 (`render/matrix.ts`, ≈80 lines, spec = the Python quoted in §5) |
-| magic authoring shape, scaffold, lowering | `web/src/core/rules.ts` (`RuleSet`, `magicRulesFlatCompile`, `magicCaptionTextLines`, `validateRuleSet`), `magicScaffold.ts`, `magicResolve.ts`; `db/formats/akl/1/{index,magic,translate}.ts` (`validate`, `lower`, `to`, `from`, `reconcileScaffoldsToTrueRows`) and `db/src/formats/registry.ts`'s `translate(rec, as)` | core ✓ / db | `db/formats` for translate-to-`akl/1` of every cached record and for `!aklgg magic`'s caption; `core/rules.ts:magicCaptionTextLines` for the text |
+| magic authoring shape, scaffold, lowering | `web/src/core/rules.ts` (`RuleSet`, `magicRulesFlatCompile`, `magicCaptionTextLines`, `validateRuleSet`), `magicScaffold.ts`, `magicResolve.ts`; `db/formats/akl/1/{index,magic,translate}.ts` (`validate`, `lower`, `to`, `from`, `reconcileScaffoldsToTrueRows`) and `db/src/formats/registry.ts`'s `translate(rec, as)` | core ✓ / db | `db/formats` for translate-to-`akl/1` of every cached record and for `!spark magic`'s caption; `core/rules.ts:magicCaptionTextLines` for the text |
 | board drawing for images | `web/src/ui/copy-image/{types,geometry,caption,statrows,draw}.ts` — canvas-API code over a `CanvasRenderingContext2D` parameter; imports are `core/*`, `copy/*` and each other; `draw.ts` reads exactly two deps (`deps.activeFingerColors`, `deps.keyTextColor`, line 300); **the only DOM call is `document.createElement('canvas')` in `drawImageCanvas` (`draw.ts:497`)**. `image.ts` (`resolveImageTargets`, `buildImagePlan`, `copyAsImage(id, btn: HTMLElement, …)`) reads store-shaped `CopyImageDeps` and the clipboard — stays in `ui`. Fonts are CSS stacks (`copy/copyimage.ts:57-58`: `"Helvetica Neue", Helvetica, Arial, sans-serif` / `Menlo, ui-monospace, …`) | **ui** | the five drawing modules move to `core/copyimage/` by **U2** (§2); the bot builds its own `ImagePlan` and paints on `@napi-rs/canvas`. **Pixel identity with the browser is not achievable** (different rasterizer, different fonts) — `05 §3`'s "the same pixels" is corrected to "the same drawing code" (§1 D7) |
-| state hash / share links | `web/src/core/codec.ts` — `encodeStateHash`, `msgpackEncode`, `b64urlEncode`; `core/export.ts:swapShareHash` | core ✓ | `!aklgg link` |
+| state hash / share links | `web/src/core/codec.ts` — `encodeStateHash`, `msgpackEncode`, `b64urlEncode`; `core/export.ts:swapShareHash` | core ✓ | `!spark link` |
 | the DB client code | `db/src/core/events.ts` (`Event` shape: `seq at kind layout_id name owner rev actor via admin detail before after`), `db/src/core/records.ts:toWire` (the record wire shape) | db | the bot does **not** import `db/src` (only `db/formats`, LDB-B6); the wire shapes are typed in `bot/src/client/types.ts` from `03` |
 
 ## 1. Decisions taken in this round (ledger; flip any of them)
@@ -48,8 +48,8 @@ Round 1's table had four wrong paths and one wrong assumption (that
 1. **D1 · Engine host = a bot-owned `worker_threads` Worker speaking the site's wire protocol.** `bot/src/engine/worker.ts` loads the wasm exactly as `tools/swapengine/smoke.js` does and answers `init`/`loadCorpus`/`compute`/`resolveMagicNgrams` with the same message shapes `web/swap-worker.js` emits; `core/swap-engine.ts` (U1) drives it through a 6-line `SwapWorkerLike` adapter over `parentPort`. Not the alternative (shimming `self`, `importScripts` and a relative `fetch` so `web/swap-worker.js` runs verbatim): three monkeypatches on Node globals to save ~60 lines, and the coalescing/`setTimeout` half of that file is browser-drag logic the bot never needs. The protocol, not the file, is the shared thing; V2's `protocol.test.ts` pins it.
 2. **D2 · The wasm and the standard corpus tables are fetched from the site at boot, nothing is shipped in the image.** `SITE_BASE_URL/data/swap/{meta.json,wasm_exec.js,engine.wasm}` + `/data/mana2/defs.json` + `/data/mana2/ngrams/<corpus>.json` × 13 (≈ 16 MB, one boot). Always in step with what the site serves — which is what LDB-B5 means — and the image is `node:24-slim` + `dist/`, no Go toolchain, no site build stage. Boot fails loudly if the site is unreachable (Fly restarts the machine; the site is static on Cloudflare Pages and has never been the thing that was down). Round 1's "ship in the image with a fallback snapshot" is dropped: two copies of the engine is one more way to be quietly wrong (the `datasync` lesson).
 3. **D3 · Catalog cells come from the site's harvest; the wasm fills the gaps.** At boot the bot fetches `/data/mana2/<corpus>.rowstag.none.json` × 13 (the cmini view's context, `space: 'none'`, `DEFAULT_BOARD = 'rowstag'` — `state/view.ts:35`) and `/data/mana2/build_id.json`; a cached record whose lowercase name is in the harvest **and** whose `modified_at ≤ build_id.built_at` uses the harvest cell; everything else (new since the build, edited, renamed, every transform verb) is computed by the wasm on demand and memoised per `(id, rev, corpus)`. A rev-bumping change event evicts the id. The harvest is re-fetched when `build_id.json` changes (checked every 10 min). Memory: 13 × ~4 200 cells × ~400 B ≈ 22 MB. This is not a shortcut around LDB-B5 — it *is* LDB-B5's second half (the site's deploy gate already proves wasm == harvest to 1e-12).
-4. **D4 · No magic-resolved compute in phase 4.** The `mana2-magic` engine needs the 115 MB extended tables; on a 256 MB machine that is the whole budget. The bot computes with engine `mana2` (the site's cmini view for a layout with rules shows the *resolved* numbers via `cmini-magic` — so a magic layout's `!aklgg view` numbers are the site's *unresolved* numbers; V5 prints `(magic rules not applied)` under the header when the record has rules). `!aklgg magic` shows the rules. Extended tables per corpus on demand with an LRU is phase 5 if anyone asks.
-5. **D5 · Context = `{board: 'rowstag', space: 'none'}` for every layout.** cmini's analyzer had no board notion; the site's default view is `rowstag`. `!aklgg view` therefore shows what a fresh akl.gg visitor sees. The board word on the record still decides the *drawn* shape (`keyboardBoard(word)`) and the `add` grid, not the stats. A per-user board preference is not built (nobody asked; `!corpus` is the one preference cmini had).
+4. **D4 · No magic-resolved compute in phase 4.** The `mana2-magic` engine needs the 115 MB extended tables; on a 256 MB machine that is the whole budget. The bot computes with engine `mana2` (the site's cmini view for a layout with rules shows the *resolved* numbers via `cmini-magic` — so a magic layout's `!spark view` numbers are the site's *unresolved* numbers; V5 prints `(magic rules not applied)` under the header when the record has rules). `!spark magic` shows the rules. Extended tables per corpus on demand with an LRU is phase 5 if anyone asks.
+5. **D5 · Context = `{board: 'rowstag', space: 'none'}` for every layout.** cmini's analyzer had no board notion; the site's default view is `rowstag`. `!spark view` therefore shows what a fresh akl.gg visitor sees. The board word on the record still decides the *drawn* shape (`keyboardBoard(word)`) and the `add` grid, not the stats. A per-user board preference is not built (nobody asked; `!corpus` is the one preference cmini had).
 6. **D6 · Parity strings live in the bot, keyed by (verb, error code); the DB's `message` is the fallback.** cmini has three different not-owner strings (`remove`: ``you don't own any layout named `x` ``; `rename`/`setfingermap`: ``you don't own a layout named `x` ``; the `!` transforms: `you don't own the layout x`), so no single DB `message` can satisfy LDB-P7's "matches the bot's own string" — `03 §9` LDB-P7's phase-4 clause is reworded to: *every (verb, error code) the parity table names renders the bot's own string; the DB's `message` is what the bot prints for any error the table does not name*. `bot/src/render/strings.ts` is the table; `tests/parity/*.json` is the proof.
 7. **D7 · The image verb shares the drawing code, not the pixels.** `05 §3` corrected. V6's test is determinism (two renders of one plan are byte-equal) plus a plan snapshot, not a browser golden.
 8. **D8 · Per-client write limit 300 / 10 min** (`02 §3.3` said 60). The per-actor limit (60, T5) is the fairness rule and already bounds each *person* the bot acts for; the per-client number is a rogue-key bound and a real multi-user bot serving a busy channel exceeds 6 writes/min. Counted in the same `ratelimit` table with key `client:<id>`, same statement, same 429 body.
@@ -102,7 +102,7 @@ exists, else a one-off `web/tests/golden` addition in the PR).
 
 | need | default if unanswered | blocks |
 |---|---|---|
-| `!aklgg` prefix (tentative, `05 §8`) and whether `!cmini` is answered too | `!aklgg` only; `PREFIXES` is a config list so the transition is a redeploy | nothing (a constant) — **saltorbit** |
+| `!spark` prefix (tentative, `05 §8`) and whether `!cmini` is answered too | `!spark` only; `PREFIXES` is a config list so the transition is a redeploy | nothing (a constant) — **saltorbit** |
 | Test server | saltorbit's, bot already invited (2026-09-09); `TEST_GUILD_ID` in `bot/.env` | V6's manual pass |
 | Fly app + volume | `fly launch --no-deploy` from `bot/` then `fly volumes create botdata --size 1` (saltorbit's account; `FLY_API_TOKEN` org token is a repo secret) | V7 |
 | Discord token | `bot/.env` locally (gitignored); Fly secret `DISCORD_TOKEN` at V7 | V1 |
@@ -265,7 +265,7 @@ worker.ts --bundle --platform=node --format=esm --target=node24
 (the repo's eslint config). `src/main.ts` (gateway client, intents
 `Guilds | GuildMessages | MessageContent | DirectMessages`; the message
 router below; `help`), `src/config.ts` (env: `DISCORD_TOKEN`, `DB_BASE_URL`,
-`SITE_BASE_URL`, `PREFIXES` (comma list, default `!aklgg`), `CLIENT_ID`,
+`SITE_BASE_URL`, `PREFIXES` (comma list, default `!spark`), `CLIENT_ID`,
 `CLIENT_PRIVATE_KEY`, `DATA_DIR` (default `/data`), `TEST_GUILD_ID?`; every
 one read in exactly one place, `config.ts`, and listed in `README.md`'s
 table — LDB-B7), `Dockerfile` (`node:24-slim`, `npm ci --omit=dev`, `npm
@@ -280,11 +280,11 @@ ciwiring,config}.test.ts`.
 **The router** (cmini's `main.py`, ported): a message is a command iff
 `args[0] ∈ PREFIXES` (case-sensitive, as cmini) or the channel is a DM (then
 `args[0]` is the command); `command = args[1].toLowerCase()`; unknown →
-`Error: <command> is not an available command`; bare prefix → ``Try `!aklgg help` ``
+`Error: <command> is not an available command`; bare prefix → ``Try `!spark help` ``
 (the prefix substituted); bots ignored; the reply is sent with
 `reference: message`. cmini's `RESTRICTED`/`CMINI_CHANNEL` DM redirection
-is **not** ported (a `!aklgg` channel id is a saltorbit decision; every reply
-goes where the command was typed — ledgered). Maintenance mode: `!aklgg
+is **not** ported (a `!spark` channel id is a saltorbit decision; every reply
+goes where the command was typed — ledgered). Maintenance mode: `!spark
 maintenance on|off` for admins (`GET /v1/admin/admins` cached 5 min tells the
 bot who is admin — a signed read, the one exception to LDB-B3, made at boot
 and on a 5-minute timer, never inside a verb).
@@ -295,11 +295,11 @@ and on a 5-minute timer, never inside a verb).
 | `tests/tools/ciwiring.test.ts` | parses `bot.yml`: `test` job `working-directory: bot`, triggers' `paths` include the three cones, `deploy` needs `test`, main+push only, `flyctl` pinned to a major | **LDB-B8** |
 | `tests/tools/config.test.ts` | every `process.env.X` under `src/` is read in `config.ts` only and appears in `README.md`'s table | **LDB-B7** |
 | `tests/tools/invariants.test.ts` | LDB-T1's twin over `bot/INVARIANTS.md` × `bot/tests/**` | LDB-T1 (bot) |
-| `tests/router.test.ts` | table: `!aklgg view x` in a guild → `view`, `["x"]`; `view x` in a DM → same; `!cmini view x` → ignored unless `PREFIXES` lists it; `!aklgg` alone → the Try line; `!aklgg nope` → the not-available line; a bot author → ignored | LDB-B1 (router rows) |
+| `tests/router.test.ts` | table: `!spark view x` in a guild → `view`, `["x"]`; `view x` in a DM → same; `!cmini view x` → ignored unless `PREFIXES` lists it; `!spark` alone → the Try line; `!spark nope` → the not-available line; a bot author → ignored | LDB-B1 (router rows) |
 
 **DoD:** `cd bot && npm ci && npm test && npm run typecheck && npm run
 build` green; `bot.yml` green on the PR; `node dist/main.js` with a real
-token logs in and answers `!aklgg help` in the test server with cmini's
+token logs in and answers `!spark help` in the test server with cmini's
 help layout (two columns, `ljust(16)`).
 
 ### V2 — the engine in Node
@@ -527,9 +527,9 @@ event for the same `rev` is a no-op.
 | `tests/render/grid.test.ts` | the `add` parser over 12 grids (stagger/angle/ortho/mini, a thumb row left and right, every error) → keys deep-equal a golden produced by the vendored `add.py` **except the thumb column, pinned to the absolute rule (D13)**; `stats_str` formatting over a fixed row equals the Python's output (golden) | LDB-B1 |
 | `tests/transforms.test.ts` | property: `cycle` twice with the reversed cycle is identity; `angle` then `unangle` is identity on a stagger layout; `mirror` twice is identity; every error string; the `graphite` fixture through each transform equals the vendored Python's output (golden) | LDB-B1 |
 
-**DoD:** green; in the test server against the preview DB: `!aklgg add`
+**DoD:** green; in the test server against the preview DB: `!spark add`
 of a fresh grid → `Success!` and the record is visible on `/v1/layouts/
-<name>`; `!aklgg swap! <it> ab` → updated; `!aklgg remove <it>` → removed;
+<name>`; `!spark swap! <it> ab` → updated; `!spark remove <it>` → removed;
 every reply matched against the parity table by eye once.
 
 ### V5 — the read verbs (parity, part 2)
@@ -570,7 +570,7 @@ Groups, and what each reads:
   is *format* parity, not *number* parity, and `tests/parity/read.json`
   says so per row (`"numbers": "site"`). `fingers`/`fspeed` print the
   composed `fingers` table (use/fsp/wfsp per finger — `fspeed.py`'s
-  `--stagger/--kps/…` flags are **not** ported; `!aklgg fspeed x` prints
+  `--stagger/--kps/…` flags are **not** ported; `!spark fspeed x` prints
   the site's board-aware fspeed, flags answer `Error: fspeed options are
   not supported; the numbers are akl.gg's` — a bot string, ledgered).
 - **`corpus`**: `!corpus` lists `defs.corpora` (cmini's list format);
@@ -592,7 +592,7 @@ Groups, and what each reads:
 **Lands:** `src/commands/{image,magic,history,link}.ts`, `src/render/image.ts`,
 `tests/render/image.test.ts`, `tests/transcripts/`.
 
-- `!aklgg image [name]`: `src/render/image.ts` builds an `ImagePlan`
+- `!spark image [name]`: `src/render/image.ts` builds an `ImagePlan`
   (`core/copyimage/types.ts`) for the standalone card — keys, the composed
   row, `hasSwapList: false`, `cmpBase: null`, the corpus label, magic
   caption from `magicCaptionModel(payload.magic)` — and paints it with
@@ -604,15 +604,15 @@ Groups, and what each reads:
   are matched by registering the files under the stack's first family
   names). The PNG goes out as an attachment with the `to_string` header
   line as the message.
-- `!aklgg magic [name]`: `magicCaptionTextLines(payload.magic)`
+- `!spark magic [name]`: `magicCaptionTextLines(payload.magic)`
   (`core/rules.ts`) inside a code block; raw rules (`magic.rules`) listed
   as `inputs → output (type)`; no rules → `` `{name}` has no magic rules ``.
-- `!aklgg history [name]`: the last 5 events from `GET /v1/layouts/{id}/history`
+- `!spark history [name]`: the last 5 events from `GET /v1/layouts/{id}/history`
   — **a read that is not cache-only**, the one deliberate exception to
   LDB-B3 besides the admin poll, because history is not in the dump's hot
   set the bot keeps (it is in the dump; the bot does not index it — a
   memory decision). Rendered `{at} {kind} by {actor name} via {via}`.
-- `!aklgg link [name]`: `SITE_BASE_URL/#` + the site's hash for "open this
+- `!spark link [name]`: `SITE_BASE_URL/#` + the site's hash for "open this
   layout" — `encodeStateHash({ ... })` from `core/codec.ts` with the state
   the site's own "copy link" produces (the exact `HashState` fields are
   read off `web/src/state/urlstate.ts` at implementation time and pinned by
@@ -624,7 +624,7 @@ Groups, and what each reads:
 | `tests/commands/link.test.ts` | `decodeStateHash(linkFor(record))` names the record's lowercase name as the selected layout | LDB-B1 |
 | `tests/transcripts/` | `transcript-<date>.md`: every verb once in the test server, saved by hand after V6's manual pass; a later pass diffs against it (a document, not a test — the parity tests are the tests) | — |
 
-**DoD:** green; the transcript exists; `!aklgg image graphite` in the test
+**DoD:** green; the transcript exists; `!spark image graphite` in the test
 server shows the site's card.
 
 ### V7 — deploy (saltorbit runs the production half)
@@ -694,7 +694,7 @@ indents only when both boards agree, thumb indent 6 if either first key is
 - `unangle`: only if `board == 'angle'`: `board = 'ortho'`; for `row == 2 && col < 5`: `col == 4` → `col = 0, finger = 'LP'`, else `col += 1`.
 - `mirror`: `angle_mod = board == 'angle'`; for every key with `col < 10`: if `row != 3` → `col = 9 − col`; `finger`: `L→R`, `R→L`, `TB → 'LT'`; if `angle_mod && row == 2`: `col == 0` → `col = 4, finger = 'LI'`; `col == 5` → `col = 9, finger = 'RP'`; else `col -= 1`.
 
-**Verb strings not in §4's table:** `view` (`use`: `view [name]`); `fingermap` (`fingermap [layout_name]`, body = `fingermap_to_string`: header, matrix, blank, finger matrix); `compare [new_layout] [old_layout]` — `'`compare [new_layout] [old_layout] (new - old)`'` when no args, `Error: missing old layout name`, `Error: could not find layout(s)`, header `{new}(new) - {old}(old)`; `mod layout_name [--kwarg1, …]` (its multi-line `use()` verbatim); `rank [metric]\nSupported rank stats:\nalt sfb sfs red oneh inroll outroll roll inrollratio outrollratio inrolltal outrolltal rolltal`, `Error: Invalid starting index`, `Error: Cannot rank ascending and descending altogether`, `{stat} not supported`, lines `{index}: {value:.2%} -- {name}` under `{CORPUS}`; `filter`'s `use()`/`desc()` blocks verbatim, `No matches found`, `I found {n} matches, here are {all|k} of them:`; `search`'s `use()` verbatim, `The --vowel flag should be used with sfb arg(s).\n`; `homerow [string]`, `I found {n} matches{, here are {k} of them}`; `list [username]`, `{name}'s layouts:`, `... ({n} more)` past 100, ``Error: user `{arg}` does not exist``; `likes` → `{name}'s liked layouts:` + ` - {layout}` lines; `authors` → `Layout Creators:`; `corpus [corpus_name]` → `List of Corpora:` + `- {x}`; `stats` → the `--- CMINI STATS ---` block (title kept — it is what the command printed; **copy question for saltorbit**: `--- AKLGG STATS ---`?); `sfbs [layout name]` → `Top 10 {name} SFBs:` + `{gram:<6} {pct:.3%}` + `Total: {pct:.3%}`; `sfs`/`rolls`/`inrolls`/`outrolls`/`alternates`/`redirects`/`onehands` → `Top 10 {name} {SFS|Rolls|Inrolls|Outrolls|Alternates|Redirects|Onehands}:` + `{gram:<5} {pct:.3%}`; `pattern [layout name] [finger string]` → `Please provide a layout` · `Please provide finger values (e.g., LI, _, LI|RR)` · `Please provide no more than 3 finger values` · `Please provide valid finger values (e.g., LI, _, LI|RR)` · `Top {n} {name} Patterns for {A-B-C}:` + `Total {pct:.3%}`; `freq [ngrams ...]` → `Please provide at least 1 ngram between 1-3 chars` · `Please provide no more than 6 ngrams` · `All ngrams must be the same length` · `` `{query}` not found in corpus `{corpus}` `` · `{item}: {pct:.2%}` · `Total: {pct:.2%}`; `freqs`/`freqd` (their headers verbatim from the files); `examples [some_str]` → `Examples of `{part}` in {CORPUS}:`, `{total} / {all} words ({pct:.3%})`, `{item:<15} {"(" + count + ")":>6}`, ``Error: `{part}` does not appear anywhere in this corpus``; `help` → `Help page for `{cmd}`:` / `Unknown command `{cmd}`` / `Usage: `!aklgg (command) [args]`` (prefix substituted) + two `ljust(16)` columns.
+**Verb strings not in §4's table:** `view` (`use`: `view [name]`); `fingermap` (`fingermap [layout_name]`, body = `fingermap_to_string`: header, matrix, blank, finger matrix); `compare [new_layout] [old_layout]` — `'`compare [new_layout] [old_layout] (new - old)`'` when no args, `Error: missing old layout name`, `Error: could not find layout(s)`, header `{new}(new) - {old}(old)`; `mod layout_name [--kwarg1, …]` (its multi-line `use()` verbatim); `rank [metric]\nSupported rank stats:\nalt sfb sfs red oneh inroll outroll roll inrollratio outrollratio inrolltal outrolltal rolltal`, `Error: Invalid starting index`, `Error: Cannot rank ascending and descending altogether`, `{stat} not supported`, lines `{index}: {value:.2%} -- {name}` under `{CORPUS}`; `filter`'s `use()`/`desc()` blocks verbatim, `No matches found`, `I found {n} matches, here are {all|k} of them:`; `search`'s `use()` verbatim, `The --vowel flag should be used with sfb arg(s).\n`; `homerow [string]`, `I found {n} matches{, here are {k} of them}`; `list [username]`, `{name}'s layouts:`, `... ({n} more)` past 100, ``Error: user `{arg}` does not exist``; `likes` → `{name}'s liked layouts:` + ` - {layout}` lines; `authors` → `Layout Creators:`; `corpus [corpus_name]` → `List of Corpora:` + `- {x}`; `stats` → the `--- CMINI STATS ---` block (title kept — it is what the command printed; **copy question for saltorbit**: `--- AKLGG STATS ---`?); `sfbs [layout name]` → `Top 10 {name} SFBs:` + `{gram:<6} {pct:.3%}` + `Total: {pct:.3%}`; `sfs`/`rolls`/`inrolls`/`outrolls`/`alternates`/`redirects`/`onehands` → `Top 10 {name} {SFS|Rolls|Inrolls|Outrolls|Alternates|Redirects|Onehands}:` + `{gram:<5} {pct:.3%}`; `pattern [layout name] [finger string]` → `Please provide a layout` · `Please provide finger values (e.g., LI, _, LI|RR)` · `Please provide no more than 3 finger values` · `Please provide valid finger values (e.g., LI, _, LI|RR)` · `Top {n} {name} Patterns for {A-B-C}:` + `Total {pct:.3%}`; `freq [ngrams ...]` → `Please provide at least 1 ngram between 1-3 chars` · `Please provide no more than 6 ngrams` · `All ngrams must be the same length` · `` `{query}` not found in corpus `{corpus}` `` · `{item}: {pct:.2%}` · `Total: {pct:.2%}`; `freqs`/`freqd` (their headers verbatim from the files); `examples [some_str]` → `Examples of `{part}` in {CORPUS}:`, `{total} / {all} words ({pct:.3%})`, `{item:<15} {"(" + count + ")":>6}`, ``Error: `{part}` does not appear anywhere in this corpus``; `help` → `Help page for `{cmd}`:` / `Unknown command `{cmd}`` / `Usage: `!spark (command) [args]`` (prefix substituted) + two `ljust(16)` columns.
 
 ## 6. Conformance enumeration added by C1 (for `db/`'s T6 sweep)
 
@@ -747,7 +747,7 @@ indents only when both boards agree, thumb indent 6 if either first key is
 
 ## 9. Questions only saltorbit can answer
 
-1. **Prefix and the `!cmini` transition** (`05 §8` Q1): `!aklgg` only, or
+1. **Prefix and the `!cmini` transition** (`05 §8` Q1): `!spark` only, or
    both for a period? (`PREFIXES` is a one-line change either way.)
 2. **A dedicated channel?** cmini redirected long replies to DMs outside
    `#cmini`; the port answers in place (V1). Fine, or name a channel id?

@@ -12,7 +12,7 @@ decided now.
 | akl.gg site — static SPA + Pages Functions + D1 `cb-magic` (magic rules, stat/layout patches, analytics) | Cloudflare Pages project `aklgg` | the site's account | free tier | live |
 | `workers/meta-watch` — 2-min poll that dispatches live-sync | Cloudflare Workers | the site's account | free | live |
 | **Layout DB** — Worker `akl-db`, D1 `akl-db` (`53f596d5…`), R2 `akl-db-dumps` (90-day expiry on `dump-*`); crons: import `*/5`, dump `0 3` | Cloudflare Workers | **`akl` account** (`58a5eb82…`), ≥ 2 Super Admins; CI uses an account-owned token (`CLOUDFLARE_DB_TOKEN` / `CLOUDFLARE_DB_ACCOUNT_ID`) | free tier; Workers Paid ($5/mo) only if polling outgrows it | D1 + R2 created 2026-09-09; Worker deploys at S7 |
-| **Discord bot** — `!aklgg` (tentative), TypeScript, shares the site's engine (`05`) | Fly.io, one `shared-cpu-1x`, 256 MB to start, no volume | saltorbit's (the bot and the site are his; only the DB is co-owned, `04 §1`) | ~$2–3/mo | phase 4 |
+| **Discord bot** — `!spark` (tentative), TypeScript, shares the site's engine (`05`) | Fly.io, one `shared-cpu-1x`, 256 MB to start, no volume | saltorbit's (the bot and the site are his; only the DB is co-owned, `04 §1`) | ~$2–3/mo | phase 4 |
 | CI — site gate/builds/live-sync; `db.yml` test + deploy; daily DB diff + rehost drill | GitHub Actions, hosted runners | the repo (an org later, `04 §1`) | private-repo minutes (the site's builds are the consumer, not the DB) | live; DB jobs from S7/S8 |
 | upstream — cmini `layoutapi/v3` | not ours | — | — | imported one-way while it exists (`06 §2`) |
 

@@ -218,7 +218,7 @@ specs for the sheet's states (`06-holistic §2.2`: signed out / name taken /
 yours-update-instead / conflict / sent / API error / magic collision) green
 against fixtures; on the **preview** deploy saltorbit publishes a draft, sees
 it promote, edits it in the bench, updates with the conflict path
-exercised once (a `!aklgg`-less manual `PUT` through `curl` in between),
+exercised once (a `!spark`-less manual `PUT` through `curl` in between),
 deletes, undoes. The copy list in the PR is signed off before the preview
 URL is shared.
 
