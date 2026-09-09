@@ -11,6 +11,7 @@ import type { Bindings } from "../../src/env";
 import {
   badRequest,
   identityUnavailable,
+  importPaused,
   invalidName,
   lastAdmins,
   nameTaken,
@@ -29,9 +30,11 @@ import {
 import { appendWrite } from "../../src/core/events";
 import { fixedClock, type Clock } from "../../src/core/time";
 import { app } from "../../src/index";
+import type { FetchImpl } from "../../src/import/upstream";
 import { FakeDiscord } from "../auth/fake-discord";
 import { vectors } from "../auth/client-support";
 import { CASES } from "../conformance/manifest";
+import { FakeUpstream } from "../import/fake-upstream";
 import { CONFORMANCE_CLIENT_ID, assertConformanceCase, seedUpstream100 } from "./support";
 import { BOOTSTRAP_ADMIN } from "./write-support";
 
@@ -300,6 +303,36 @@ async function seedRestoreExtras(): Promise<void> {
   ID_PLACEHOLDERS.__CW_RESTORE_TAKEN_ID__ = restoreTaken.id; // 409 name_taken: its case's own `setup` re-takes "cw-restore-taken-1" live before restoring
 }
 
+// X4 follow-up: `admin-import/tick-200` and `admin-diff/tick-200` are the
+// only two cases in this whole suite whose route (`POST /v1/admin/import
+// /tick`, `POST /v1/admin/diff/tick`) makes a REAL cmini-upstream fetch,
+// not just a Discord one -- `seedWriteFixtures`'s own `vi.stubGlobal
+// ("fetch", ...)` answers Discord shapes only, so routing `tick()`/
+// `diffTick()`'s upstream call through it would corrupt both. Both routes
+// take a test-only `TEST_TICK_FETCH_IMPL` override (same shape as
+// `resolveNow`'s `TEST_CLOCK`, `routes/admin.ts`) precisely so this can be
+// wired WITHOUT touching the global stub every other case here depends on.
+// A freshly constructed `FakeUpstream` serves the exact same upstream-100
+// fixture `seedUpstream100()` already imported (`revision: "seed-1"` is a
+// fixed default, not random, so its `/meta` canonicalizes identically to
+// the one already stored in `cmini.meta_token`) -- the manual import tick
+// this enables is thus deterministically QUIET (no drift to pin), and the
+// manual diff tick deterministically finds our own already-imported
+// records matching it.
+let tickFixturesReady: Promise<void> | null = null;
+
+function ensureTickFixtures(): Promise<void> {
+  if (tickFixturesReady === null) tickFixturesReady = seedTickFixtures();
+  return tickFixturesReady;
+}
+
+function seedTickFixtures(): Promise<void> {
+  const upstreamFake = new FakeUpstream();
+  (bindings as unknown as { TEST_TICK_FETCH_IMPL?: FetchImpl }).TEST_TICK_FETCH_IMPL = upstreamFake.fetchImpl;
+  (bindings as unknown as { IMPORT_SOURCE_URL: string }).IMPORT_SOURCE_URL = upstreamFake.baseUrl;
+  return Promise.resolve();
+}
+
 beforeAll(async () => {
   await seedUpstream100();
 });
@@ -335,6 +368,11 @@ describe("conformance fixtures", () => {
       // tombstones (see `seedRestoreExtras`'s comment above).
       if (kase.id === "layouts-write/restore-403-not_owner" || kase.id === "layouts-write/restore-409-name_taken") {
         await ensureRestoreExtras();
+      }
+      // X4 follow-up: the two manual-tick success cases need a working
+      // upstream fetch stub (see `seedTickFixtures`'s own comment above).
+      if (kase.id === "admin-import/tick-200" || kase.id === "admin-diff/tick-200") {
+        await ensureTickFixtures();
       }
       // X1: this one case needs the Free-plan setting (`STREAM_MAX_MS =
       // "0"`) for the DURATION of its own request only -- every other case
@@ -382,6 +420,7 @@ const ERROR_CODES = {
   unsupported_for_format: unsupportedForFormat("x", "x").body.error,
   too_many_webhooks: tooManyWebhooks(5).body.error,
   stream_unavailable: streamUnavailable().body.error,
+  import_paused: importPaused().body.error,
 };
 interface RequiredCase {
   status: number;
@@ -548,6 +587,15 @@ const REQUIRED: Record<string, RequiredCase[]> = {
   ],
   "POST /v1/admin/import/pause": [{ status: 200 }, ...A, { status: 403, code: ERROR_CODES.not_admin }, RL],
   "POST /v1/admin/import/resume": [{ status: 200 }, ...A, { status: 403, code: ERROR_CODES.not_admin }, RL],
+  // X4 follow-up: manual cron triggers.
+  "POST /v1/admin/import/tick": [
+    { status: 200 },
+    ...A,
+    { status: 403, code: ERROR_CODES.not_admin },
+    { status: 409, code: ERROR_CODES.import_paused },
+    RL,
+  ],
+  "POST /v1/admin/diff/tick": [{ status: 200 }, ...A, { status: 403, code: ERROR_CODES.not_admin }, RL],
 
   // --- phase 2: the client lane's admin routes (10 C1) -------------------
   // No 409 (client ids are freshly minted ULIDs, no name-uniqueness

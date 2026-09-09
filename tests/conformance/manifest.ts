@@ -264,6 +264,22 @@ import adminHealth401TokenInvalid from "./admin-health/401-token_invalid.json" w
 import adminHealth403NotAdmin from "./admin-health/403-not_admin.json" with { type: "json" };
 import adminHealth503IdentityUnavailable from "./admin-health/503-identity_unavailable.json" with { type: "json" };
 
+// X4 follow-up: manual triggers for the '*/5' import cron and the '0 4'
+// diff cron.
+import adminImportTick200 from "./admin-import/tick-200.json" with { type: "json" };
+import adminImportTick401TokenInvalid from "./admin-import/tick-401-token_invalid.json" with { type: "json" };
+import adminImportTick401Unauthorized from "./admin-import/tick-401-unauthorized.json" with { type: "json" };
+import adminImportTick403NotAdmin from "./admin-import/tick-403-not_admin.json" with { type: "json" };
+import adminImportTick409ImportPaused from "./admin-import/tick-409-import_paused.json" with { type: "json" };
+import adminImportTick429 from "./admin-import/tick-429.json" with { type: "json" };
+import adminImportTick503IdentityUnavailable from "./admin-import/tick-503-identity_unavailable.json" with { type: "json" };
+import adminDiffTick200 from "./admin-diff/tick-200.json" with { type: "json" };
+import adminDiffTick401TokenInvalid from "./admin-diff/tick-401-token_invalid.json" with { type: "json" };
+import adminDiffTick401Unauthorized from "./admin-diff/tick-401-unauthorized.json" with { type: "json" };
+import adminDiffTick403NotAdmin from "./admin-diff/tick-403-not_admin.json" with { type: "json" };
+import adminDiffTick429 from "./admin-diff/tick-429.json" with { type: "json" };
+import adminDiffTick503IdentityUnavailable from "./admin-diff/tick-503-identity_unavailable.json" with { type: "json" };
+
 // A single request as `runRequest` fires it -- shared by the main
 // (asserted) request and, for a write case, its `setup` steps (fired first
 // and discarded: e.g. the first of two POSTs that produces a name clash).
@@ -503,6 +519,26 @@ export const T6_CASES: ConformanceCase[] = [
   kase("admin-drill/post-429", "/v1/admin/drill", adminDrillPost429, true),
   kase("admin-drill/post-400-bad_request", "/v1/admin/drill", adminDrillPost400BadRequest, true),
   kase("admin-drill/post-200", "/v1/admin/drill", adminDrillPost200, true),
+
+  // X4 follow-up: manual cron triggers. `admin-import/tick-200` runs
+  // BEFORE `tick-409-import_paused` (its own `setup` pauses the import,
+  // and nothing after this point needs it unpaused again -- same
+  // hand-ordering reasoning admin-admins/delete-409-last_admins's own
+  // block comment gives).
+  kase("admin-import/tick-401-unauthorized", "/v1/admin/import/tick", adminImportTick401Unauthorized, true),
+  kase("admin-import/tick-401-token_invalid", "/v1/admin/import/tick", adminImportTick401TokenInvalid, true),
+  kase("admin-import/tick-503-identity_unavailable", "/v1/admin/import/tick", adminImportTick503IdentityUnavailable, true),
+  kase("admin-import/tick-403-not_admin", "/v1/admin/import/tick", adminImportTick403NotAdmin, true),
+  kase("admin-import/tick-429", "/v1/admin/import/tick", adminImportTick429, true),
+  kase("admin-import/tick-200", "/v1/admin/import/tick", adminImportTick200, true),
+  kase("admin-import/tick-409-import_paused", "/v1/admin/import/tick", adminImportTick409ImportPaused, true),
+
+  kase("admin-diff/tick-401-unauthorized", "/v1/admin/diff/tick", adminDiffTick401Unauthorized, true),
+  kase("admin-diff/tick-401-token_invalid", "/v1/admin/diff/tick", adminDiffTick401TokenInvalid, true),
+  kase("admin-diff/tick-503-identity_unavailable", "/v1/admin/diff/tick", adminDiffTick503IdentityUnavailable, true),
+  kase("admin-diff/tick-403-not_admin", "/v1/admin/diff/tick", adminDiffTick403NotAdmin, true),
+  kase("admin-diff/tick-429", "/v1/admin/diff/tick", adminDiffTick429, true),
+  kase("admin-diff/tick-200", "/v1/admin/diff/tick", adminDiffTick200, true),
 ];
 
 export const CASES: ConformanceCase[] = [

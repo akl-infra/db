@@ -217,6 +217,16 @@ export function streamUnavailable(): ApiError {
   return new ApiError(503, { error: "stream_unavailable", message: "the change stream is not available on this deployment" });
 }
 
+// X4 follow-up: `POST /v1/admin/import/tick` refuses to run a manual tick
+// while the import is paused (`admin.import_paused`, `core/admins.ts`) --
+// the paused switch means "don't touch upstream", and a manual kick is
+// exactly that, so it's refused the same way a write against a stale rev
+// is: loudly, not silently turned into a no-op the caller has to notice by
+// its own empty summary.
+export function importPaused(): ApiError {
+  return new ApiError(409, { error: "import_paused", message: "the cmini import is paused (POST /v1/admin/import/resume first)" });
+}
+
 // The write rate limit (09 §2.5; 10 C1 D8 adds `scope` for the second,
 // per-client counter). `core/ratelimit.ts`'s `take()` is the one place that
 // counts; this is only the body/headers shape.

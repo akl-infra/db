@@ -100,6 +100,34 @@ export async function setImportPaused(db: Bindings["DB"], now: Clock, actorId: s
   return { seq };
 }
 
+// X4 follow-up: `POST /v1/admin/import/tick`'s own pre-check -- reads the
+// exact same key `tick()` itself reads (07 §6 S5's own first check), so a
+// manual kick answers `409 import_paused` immediately rather than paying
+// for a tick call that would have quietly no-op'd anyway.
+export async function isImportPaused(db: Bindings["DB"]): Promise<boolean> {
+  const row = await db.prepare("SELECT value FROM import_state WHERE key = ?").bind(PAUSE_KEY).first<{ value: string }>();
+  return row?.value === "1";
+}
+
+// X4 follow-up: the manual-trigger routes (`POST /v1/admin/import/tick`,
+// `POST /v1/admin/diff/tick`) are event-logged the same way pause/resume
+// are -- an operator manually kicking a cron is an admin action worth the
+// public changelog seeing, same posture as everything else in this file.
+// `detail` carries the tick's own summary (`TickStats`/`LastDiffRecord`) --
+// already the exact object `cmini.last_tick`/`cmini.last_diff` store
+// uncapped, so no new size concern here.
+export async function recordManualTick(
+  db: Bindings["DB"],
+  now: Clock,
+  actorId: string,
+  which: "import" | "diff",
+  detail: object,
+): Promise<{ seq: number }> {
+  const kind: InfoKind = which === "import" ? "admin.import_ticked" : "admin.diff_ticked";
+  const { seq } = await appendAdmin(db, now, { kind, actor: actorId, detail });
+  return { seq };
+}
+
 // The drill result (12 §3 X4): the Fly container that RUNS the rehost drill
 // against the deployed dump is saltorbit's own infrastructure (⚠, `08 §2` item
 // 2) -- this is only the accept-and-store half, `POST /v1/admin/drill`'s

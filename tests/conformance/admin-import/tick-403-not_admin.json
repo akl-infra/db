@@ -1,0 +1,15 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/admin/import/tick",
+    "bearer": "conformance-owner-token"
+  },
+  "response": {
+    "status": 403,
+    "headers": { "Content-Type": "application/json" },
+    "body": {
+      "error": "not_admin",
+      "message": "admin only"
+    }
+  }
+}

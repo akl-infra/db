@@ -242,6 +242,19 @@ describe("[LDB-H1] [LDB-H4] [LDB-H5] webhooks", () => {
       await expect(res.json()).resolves.toMatchObject({ error: "bad_request", param: "/kinds" });
     });
 
+    // 10 C1 / X4 follow-up: KNOWN_KINDS (routes/changes.ts) went stale once
+    // already -- `admin.client_registered`/`admin.client_revoked` existed on
+    // `InfoKind` but were never added to the list, so a webhook subscribed
+    // to either 400'd as "unknown kind". KNOWN_KINDS is now derived from an
+    // exhaustive `Record<InfoKind, true>` (can't go stale the same way
+    // again, tests/core/known-kinds.test.ts is the regression suite for
+    // that) -- this is the black-box proof the fix actually reaches this
+    // route, not just the type.
+    it("admin.client_registered / admin.client_revoked are accepted kinds", async () => {
+      const { res } = await createHook({ ...VALID_BODY, kinds: ["admin.client_registered", "admin.client_revoked"] });
+      expect(res.status).toBe(201);
+    });
+
     it("a malformed owner_filter -> 400 bad_request /owner_filter", async () => {
       const { res } = await createHook({ ...VALID_BODY, owner_filter: "not-a-snowflake" });
       expect(res.status).toBe(400);

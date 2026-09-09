@@ -5,12 +5,16 @@
 // last-two guard (both orderings, and a genuine Promise.all race); import
 // pause/resume; every admin action lands in the event log with `admin = 1`,
 // `rev NULL`, `layout_id NULL`, and is visible through `/v1/changes`.
-import { env } from "cloudflare:test";
+import { createExecutionContext, createScheduledController, env, waitOnExecutionContext } from "cloudflare:test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Bindings } from "../../src/env";
 import { type EventDbRow, feed, rowToEvent } from "../../src/core/events";
 import { fixedClock } from "../../src/core/time";
+import * as cminiModule from "../../src/import/cmini";
 import { tick } from "../../src/import/cmini";
+import * as difftickModule from "../../src/import/difftick";
+import worker from "../../src/index";
+import { FakeDiscord } from "../auth/fake-discord";
 import { FakeUpstream } from "../import/fake-upstream";
 import { BOOTSTRAP_ADMIN, actorFixture, pinTestClock, register, uniqueName, writeFetch } from "./write-support";
 
@@ -366,5 +370,156 @@ describe("[LDB-A5] POST /v1/admin/drill and GET /v1/admin/health", () => {
     const body = await admin.json<{ last_diff: unknown; last_drill: { ok: boolean; detail?: { note: string } } | null }>();
     expect(body.last_drill?.ok).toBe(true);
     expect(body.last_drill?.detail).toEqual({ note: "seed" });
+  });
+});
+
+// X4 follow-up: manual triggers for the `*/5` import cron and the `0 4`
+// diff cron -- production reason: the deployed Worker's cron triggers are
+// registered but Cloudflare has, at least once, simply stopped dispatching
+// them (0 scheduled invocations observed over 25 minutes, no error
+// anywhere), leaving operators with no way to force a tick short of
+// waiting it out. Both routes call the EXACT SAME function `src/index.ts`'s
+// `scheduled()` calls for their own cron -- proven below by a spy shared
+// across both call sites, not just by code review -- so there is no second
+// implementation of either tick to drift out of sync with the real one.
+describe("POST /v1/admin/import/tick and POST /v1/admin/diff/tick", () => {
+  afterEach(() => {
+    (bindings as unknown as { IMPORT_SOURCE_URL: string }).IMPORT_SOURCE_URL = "https://clemenpine.com/layoutapi/v3";
+    vi.restoreAllMocks(); // vi.unstubAllGlobals() (this file's own top-level afterEach) does not cover vi.spyOn
+  });
+
+  // Both routes need Discord (actor resolution) AND the cmini upstream
+  // (tick()/diffTick() themselves) answered by ONE global fetch stub --
+  // `write-support.ts`'s `actorFixture()` stubs global fetch to a lone
+  // `FakeDiscord`, which can't also answer FakeUpstream's URLs, so this
+  // describe builds its own combined dispatcher instead of reusing it.
+  function stubCombinedFetch(discord: FakeDiscord, upstream: FakeUpstream): void {
+    vi.stubGlobal("fetch", async (url: string, init?: { headers?: Record<string, string> }) => {
+      const headers = init?.headers ?? {};
+      if (url.startsWith(upstream.baseUrl)) return upstream.fetchImpl(url, { headers });
+      return discord.fetchImpl(url, { headers });
+    });
+  }
+
+  function adminHeadersFor(discord: FakeDiscord, token: string): Record<string, string> {
+    discord.setAnswer(token, { kind: "ok", id: BOOTSTRAP_ADMIN, username: "bootstrap-admin", global_name: null });
+    return { Authorization: `Bearer ${token}` };
+  }
+
+  function userHeadersFor(discord: FakeDiscord, token: string): Record<string, string> {
+    discord.setAnswer(token, { kind: "ok", id: OTHER_USER, username: "nonadmin", global_name: null });
+    return { Authorization: `Bearer ${token}` };
+  }
+
+  async function eventCount(kind: string): Promise<number> {
+    const row = await db.prepare("SELECT COUNT(*) AS n FROM events WHERE kind = ?").bind(kind).first<{ n: number }>();
+    return row?.n ?? 0;
+  }
+
+  describe("POST /v1/admin/import/tick", () => {
+    it("anonymous 401, non-admin 403, admin 200 -> { ran: true, ...tick()'s own stats }; logs admin.import_ticked", async () => {
+      const discord = new FakeDiscord();
+      const upstream = new FakeUpstream();
+      stubCombinedFetch(discord, upstream);
+      (bindings as unknown as { IMPORT_SOURCE_URL: string }).IMPORT_SOURCE_URL = upstream.baseUrl;
+
+      const anon = await writeFetch("/v1/admin/import/tick", "POST", {});
+      expect(anon.status).toBe(401);
+
+      const user = await writeFetch("/v1/admin/import/tick", "POST", userHeadersFor(discord, `tok-${uniqueName("tick-user")}`));
+      expect(user.status).toBe(403);
+
+      const before = await eventCount("admin.import_ticked");
+      const admin = await writeFetch("/v1/admin/import/tick", "POST", adminHeadersFor(discord, `tok-${uniqueName("tick-admin")}`));
+      expect(admin.status).toBe(200);
+      const body = await admin.json<{ ran: boolean; quiet: boolean; applied?: number }>();
+      expect(body.ran).toBe(true);
+      expect(typeof body.quiet).toBe("boolean"); // TickStats' own field, spread straight through
+      expect(await eventCount("admin.import_ticked")).toBe(before + 1);
+    });
+
+    it("409 import_paused while the import is paused, and appends no event", async () => {
+      const discord = new FakeDiscord();
+      const upstream = new FakeUpstream();
+      stubCombinedFetch(discord, upstream);
+      (bindings as unknown as { IMPORT_SOURCE_URL: string }).IMPORT_SOURCE_URL = upstream.baseUrl;
+
+      await db
+        .prepare("INSERT INTO import_state (key, value) VALUES ('cmini.paused', '1') ON CONFLICT(key) DO UPDATE SET value = '1'")
+        .run();
+      try {
+        const before = await eventCount("admin.import_ticked");
+        const res = await writeFetch("/v1/admin/import/tick", "POST", adminHeadersFor(discord, `tok-${uniqueName("tick-paused")}`));
+        expect(res.status).toBe(409);
+        await expect(res.json()).resolves.toMatchObject({ error: "import_paused" });
+        expect(await eventCount("admin.import_ticked")).toBe(before);
+      } finally {
+        await db.prepare("DELETE FROM import_state WHERE key = 'cmini.paused'").run();
+      }
+    });
+
+    it("shares one implementation with the '*/5' cron (a spy on import/cmini.ts's tick sees both call sites)", async () => {
+      const discord = new FakeDiscord();
+      const upstream = new FakeUpstream();
+      stubCombinedFetch(discord, upstream);
+      (bindings as unknown as { IMPORT_SOURCE_URL: string }).IMPORT_SOURCE_URL = upstream.baseUrl;
+
+      const spy = vi.spyOn(cminiModule, "tick");
+      const before = spy.mock.calls.length;
+
+      const ctx = createExecutionContext();
+      const controller = createScheduledController({ cron: "*/5 * * * *" });
+      await worker.scheduled(controller, bindings, ctx);
+      await waitOnExecutionContext(ctx);
+      expect(spy.mock.calls.length).toBe(before + 1);
+
+      const res = await writeFetch("/v1/admin/import/tick", "POST", adminHeadersFor(discord, `tok-${uniqueName("tick-spy")}`));
+      expect(res.status).toBe(200);
+      expect(spy.mock.calls.length).toBe(before + 2);
+    });
+  });
+
+  describe("POST /v1/admin/diff/tick", () => {
+    it("anonymous 401, non-admin 403, admin 200 -> { ran: true, ...diffTick()'s own record }; logs admin.diff_ticked", async () => {
+      const discord = new FakeDiscord();
+      const upstream = new FakeUpstream();
+      stubCombinedFetch(discord, upstream);
+      (bindings as unknown as { IMPORT_SOURCE_URL: string }).IMPORT_SOURCE_URL = upstream.baseUrl;
+
+      const anon = await writeFetch("/v1/admin/diff/tick", "POST", {});
+      expect(anon.status).toBe(401);
+
+      const user = await writeFetch("/v1/admin/diff/tick", "POST", userHeadersFor(discord, `tok-${uniqueName("diff-user")}`));
+      expect(user.status).toBe(403);
+
+      const before = await eventCount("admin.diff_ticked");
+      const admin = await writeFetch("/v1/admin/diff/tick", "POST", adminHeadersFor(discord, `tok-${uniqueName("diff-admin")}`));
+      expect(admin.status).toBe(200);
+      const body = await admin.json<{ ran: boolean; ok: boolean; at: string }>();
+      expect(body.ran).toBe(true);
+      expect(typeof body.ok).toBe("boolean");
+      expect(typeof body.at).toBe("string");
+      expect(await eventCount("admin.diff_ticked")).toBe(before + 1);
+    });
+
+    it("shares one implementation with the '0 4' cron (a spy on import/difftick.ts's diffTick sees both call sites)", async () => {
+      const discord = new FakeDiscord();
+      const upstream = new FakeUpstream();
+      stubCombinedFetch(discord, upstream);
+      (bindings as unknown as { IMPORT_SOURCE_URL: string }).IMPORT_SOURCE_URL = upstream.baseUrl;
+
+      const spy = vi.spyOn(difftickModule, "diffTick");
+      const before = spy.mock.calls.length;
+
+      const ctx = createExecutionContext();
+      const controller = createScheduledController({ cron: "0 4 * * *" });
+      await worker.scheduled(controller, bindings, ctx);
+      await waitOnExecutionContext(ctx);
+      expect(spy.mock.calls.length).toBe(before + 1);
+
+      const res = await writeFetch("/v1/admin/diff/tick", "POST", adminHeadersFor(discord, `tok-${uniqueName("diff-spy")}`));
+      expect(res.status).toBe(200);
+      expect(spy.mock.calls.length).toBe(before + 2);
+    });
   });
 });

@@ -293,6 +293,24 @@ separately, the drill once it exists -- have both been green for 7
 consecutive days; deleting it is a dated follow-up PR (X4b), never a test
 with a date baked into it.
 
+### Manual cron triggers
+
+Cloudflare's cron dispatch has, at least once, simply stopped firing for
+this Worker's registered triggers (zero scheduled invocations over 25
+minutes observed on the deployed service, no error surfaced anywhere but a
+stale `/v1/meta`) -- these two routes let an admin force a tick without
+waiting it out. Both call the EXACT SAME function `scheduled()` calls for
+the real cron (`tests/api/admin.test.ts` asserts this with a spy shared
+across both call sites), so there is no second implementation of either
+tick to drift out of sync with the real one; both are admin-only, rate-
+limited the same as every other write here, and append one `admin.*`
+event to the public feed (`admin.import_ticked` / `admin.diff_ticked`).
+
+| route | body | 200 response | other statuses |
+|---|---|---|---|
+| `POST /v1/admin/import/tick` | none | `{ ran: true, ...tick()'s own TickStats }` (`quiet`/`applied`/`full_pass`/... -- `src/import/cmini.ts`'s `TickResult.stats`, unchanged) | `409 import_paused` if the import is paused (`POST .../resume` first); the usual admin `401`/`403`/`429`/`503` |
+| `POST /v1/admin/diff/tick` | none | `{ ran: true, ...diffTick()'s own LastDiffRecord }` (`ok`/`corpus`/`samples`/... -- the same shape `import_state['cmini.last_diff']` stores) | the usual admin `401`/`403`/`429`/`503` (no "paused" state exists for the diff) |
+
 ### R2 lifecycle
 
 `akl-db-dumps` has a lifecycle rule deleting objects under the `dump-`

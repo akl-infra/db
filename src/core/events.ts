@@ -48,7 +48,9 @@ export type InfoKind =
   | "admin.import_paused"
   | "admin.import_resumed"
   | "admin.client_registered" // 10 C1: POST /v1/admin/clients
-  | "admin.client_revoked"; // 10 C1: DELETE /v1/admin/clients/{id}
+  | "admin.client_revoked" // 10 C1: DELETE /v1/admin/clients/{id}
+  | "admin.import_ticked" // X4 follow-up: POST /v1/admin/import/tick (manual cron kick)
+  | "admin.diff_ticked"; // X4 follow-up: POST /v1/admin/diff/tick
 
 // A record minus its payload -- what `before`/`after` store on an event and
 // what a list row carries (03 §2).

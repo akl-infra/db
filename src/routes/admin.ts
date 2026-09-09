@@ -11,9 +11,12 @@ import type { Bindings } from "../env";
 import * as admins from "../core/admins";
 import { canonical } from "../core/canonical";
 import * as clients from "../core/clients";
-import { badRequest, notAdmin } from "../core/errors";
+import { badRequest, importPaused, notAdmin } from "../core/errors";
 import { systemClock, type Clock } from "../core/time";
-import { lastDiff } from "../import/difftick";
+import { tick as cminiTick } from "../import/cmini";
+import type { FetchImpl as DiffFetchImpl } from "../import/diff";
+import { diffTick, lastDiff } from "../import/difftick";
+import type { FetchImpl as UpstreamFetchImpl } from "../import/upstream";
 import { parseAdminAddBody, parseDrillReportBody, parseRegisterClientBody } from "./schemas";
 
 // 12 §3 X4: "detail?: object <= 4 KB" -- measured on the canonical encoding,
@@ -27,6 +30,23 @@ const DRILL_DETAIL_MAX_BYTES = 4096;
 // (LDB-G4 -- every real binding has a README row, this isn't one).
 function resolveNow(env: Bindings): Clock {
   return (env as unknown as { TEST_CLOCK?: Clock }).TEST_CLOCK ?? systemClock;
+}
+
+// X4 follow-up: same shape as `resolveNow`, for `POST /v1/admin/import
+// /tick`/`.../diff/tick`'s own upstream fetch. `cminiTick`/`diffTick` both
+// already accept an optional `fetchImpl` (production default: real
+// `fetch`) -- this only lets a test inject a fake one without going
+// through the SAME global `fetch` stub actor resolution uses (which, in
+// tests/api/conformance.test.ts, answers Discord shapes only and would be
+// corrupted by also being asked cmini-upstream questions). Absent in
+// production, same as `TEST_CLOCK`. Untyped at the storage site and cast
+// per call site: `import/cmini.ts`'s and `import/diff.ts`'s own
+// `FetchImpl` types differ only in whether `init` is required (both are
+// always called with one in practice), and are otherwise the same shape a
+// real fetchImpl (e.g. `tests/import/fake-upstream.ts`'s) satisfies either
+// way.
+function resolveTickFetchImpl(env: Bindings): unknown {
+  return (env as unknown as { TEST_TICK_FETCH_IMPL?: unknown }).TEST_TICK_FETCH_IMPL;
 }
 
 async function readJson(req: { json(): Promise<unknown> }): Promise<unknown> {
@@ -77,6 +97,37 @@ export function adminRoute(authDeps: AuthDeps) {
     if (!actor.admin) throw notAdmin();
     await admins.setImportPaused(c.env.DB, resolveNow(c.env), actor.user_id, false);
     return c.json({ paused: false });
+  });
+
+  // X4 follow-up: a manual kick for the `*/5` import cron -- production
+  // reason: Cloudflare's cron dispatch has, at least once, simply stopped
+  // firing for the deployed Worker's registered triggers (0 scheduled
+  // invocations over 25 minutes, no error surfaced anywhere but a stale
+  // `/v1/meta`), leaving operators no way to force a tick short of waiting
+  // it out. Calls the EXACT SAME `tick()` `src/index.ts`'s `scheduled()`
+  // calls for the real cron (tests/api/admin.test.ts's own spy proves the
+  // two call sites share one implementation) -- refuses while paused
+  // (`admins.isImportPaused`) rather than paying for a call that would
+  // silently no-op the same way the cron itself does.
+  route.post("/v1/admin/import/tick", async (c) => {
+    const actor = c.get("actor");
+    if (!actor.admin) throw notAdmin();
+    if (await admins.isImportPaused(c.env.DB)) throw importPaused();
+    const now = resolveNow(c.env);
+    const result = await cminiTick(c.env, now, resolveTickFetchImpl(c.env) as UpstreamFetchImpl | undefined);
+    await admins.recordManualTick(c.env.DB, now, actor.user_id, "import", result.stats);
+    return c.json({ ran: true, ...result.stats });
+  });
+
+  // Same treatment for the diff cron (`0 4 * * *`, `import/difftick.ts`) --
+  // no "paused" switch exists for it, so no pre-check.
+  route.post("/v1/admin/diff/tick", async (c) => {
+    const actor = c.get("actor");
+    if (!actor.admin) throw notAdmin();
+    const now = resolveNow(c.env);
+    const record = await diffTick(c.env, now, resolveTickFetchImpl(c.env) as DiffFetchImpl | undefined);
+    await admins.recordManualTick(c.env.DB, now, actor.user_id, "diff", record);
+    return c.json({ ran: true, ...record });
   });
 
   // 10 C1: the client lane's registration routes. `pubkey` never appears in

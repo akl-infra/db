@@ -191,4 +191,16 @@ describe("[LDB-H2] GET /v1/changes/stream", () => {
     expect(res.status).toBe(400);
     await expect(res.json()).resolves.toMatchObject({ error: "bad_request" });
   });
+
+  // X4 follow-up: KNOWN_KINDS (routes/changes.ts) once had `InfoKind`
+  // members (`admin.client_registered`/`admin.client_revoked`, 10 C1) that
+  // never made it into the list, so this route 400'd on them too --
+  // tests/core/known-kinds.test.ts is the regression suite for the type;
+  // this is the black-box proof it reaches the stream's own `kinds` filter.
+  it("admin.client_registered / admin.client_revoked are accepted kinds", async () => {
+    const since = await headSeq(db);
+    const res = await SELF.fetch(`https://example.com/v1/changes/stream?since=${since}&kinds=admin.client_registered,admin.client_revoked`);
+    expect(res.status).toBe(200);
+    await res.text(); // drain to the bound so the test doesn't leave a dangling waitUntil
+  });
 });

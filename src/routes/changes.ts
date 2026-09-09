@@ -10,32 +10,52 @@ import { byRef } from "../core/records";
 const CACHE_CONTROL = "public, max-age=10";
 
 // The complete phase-1+2 event vocabulary (03 §5): every `WriteKind`, every
-// `InfoKind` (the four `admin.*` kinds, 09 §3 T3, included -- the public
-// changelog filters on them same as any other kind), plus the two like
-// events (never rev-bumping, not in either type). Kept as a literal array
-// (types vanish at runtime) but pinned against both types with `satisfies`
-// so an added kind can't go stale here unnoticed.
+// `InfoKind` (the six `admin.*` kinds, 09 §3 T3 + 10 C1, included -- the
+// public changelog filters on them same as any other kind), plus the two
+// like events (never rev-bumping, not in either type).
+//
+// A previous version of this list was a plain literal array pinned with
+// `satisfies (WriteKind | InfoKind | "liked" | "unliked")[]` -- which only
+// checks that every LISTED literal is a valid member of the union, never
+// that every member of the union got listed; `admin.client_registered`/
+// `admin.client_revoked` (10 C1's client-lane admin kinds) landed on
+// `InfoKind` without ever being added here, silently. These two `Record<K,
+// true>` objects are exhaustive instead: TypeScript refuses to compile if
+// either type gains (or loses) a member without a matching key here --
+// `tests/core/known-kinds.test.ts` also asserts every kind any events.ts
+// writer function can actually append round-trips through KNOWN_KINDS, so
+// a gap fails both at compile time and at test time.
+const WRITE_KINDS_MAP: Record<WriteKind, true> = {
+  created: true,
+  updated: true,
+  renamed: true,
+  fingermap: true,
+  transferred: true,
+  deleted: true,
+  restored: true,
+  imported: true,
+  upstream_deleted: true,
+};
+const INFO_KINDS_MAP: Record<InfoKind, true> = {
+  upstream_changed: true,
+  import_conflict: true,
+  upstream_deleted: true, // deliberately in both maps -- see WriteKind/InfoKind's own header note (core/events.ts)
+  "admin.added": true,
+  "admin.removed": true,
+  "admin.import_paused": true,
+  "admin.import_resumed": true,
+  "admin.client_registered": true,
+  "admin.client_revoked": true,
+  "admin.import_ticked": true,
+  "admin.diff_ticked": true,
+};
+const LIKE_KINDS_MAP: Record<"liked" | "unliked", true> = { liked: true, unliked: true };
+
 // Exported for X1 (12 §0.2): webhook `kinds` (routes/webhooks.ts) and the
 // stream's `kinds` (routes/stream.ts) validate against this same list.
-export const KNOWN_KINDS = [
-  "created",
-  "updated",
-  "renamed",
-  "fingermap",
-  "transferred",
-  "deleted",
-  "restored",
-  "imported",
-  "upstream_deleted",
-  "upstream_changed",
-  "import_conflict",
-  "admin.added",
-  "admin.removed",
-  "admin.import_paused",
-  "admin.import_resumed",
-  "liked",
-  "unliked",
-] satisfies (WriteKind | InfoKind | "liked" | "unliked")[];
+export const KNOWN_KINDS: (WriteKind | InfoKind | "liked" | "unliked")[] = [
+  ...new Set([...Object.keys(WRITE_KINDS_MAP), ...Object.keys(INFO_KINDS_MAP), ...Object.keys(LIKE_KINDS_MAP)]),
+] as (WriteKind | InfoKind | "liked" | "unliked")[];
 const KNOWN_KINDS_SET = new Set<string>(KNOWN_KINDS);
 
 // Exported: routes/stream.ts's `since`/`kinds` query params are parsed the
