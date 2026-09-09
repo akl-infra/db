@@ -19,6 +19,7 @@ Companion documents in this directory, in reading order:
 | `12-implementation-phase5.md` | phase 5 (open it up): the measured facts (platform limits, the diff's cost over the live corpus, mana2's loader as it really parses, the vendored layouts, `layout-dates.json` vs upstream), cursor-based webhooks + the SSE stream, `mana2/1` with the exact algorithm both ways, the changelog page, the diff cron + the Fly drill, packages + the split dry run — slices X1–X6 as closed briefs; X7 closed by data (round 2, reviewed) |
 
 | 13 | `13-ledger.md` | Operations ledger: what is deployed where, secrets (names), how to operate/deploy, branches, the agent recipe, open items. Keep current at every milestone. |
+| 15 | `15-transition.md` | The rollout plan: phases with exit criteria from a test-server run to `!cmini` deprecation, the user-facing differences table, data questions (import end state, renames, the magic-fork list, likes) with recommendations, governance milestones, per-phase rollback, announcement drafts (unsigned), open questions for saltorbit and for Pine. |
 ---
 
 ## 0. What I understood from the dictation (assumptions — correct me)
