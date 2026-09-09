@@ -25,6 +25,7 @@ import type { LayoutDbRow } from "../src/core/records";
 import type { Dump } from "../src/dump/write";
 import { restoreInto } from "../src/dump/restore";
 import worker from "../src/index";
+import { FakeUpstream } from "./import/fake-upstream";
 import { assertConformanceCase, seedUpstream100 } from "./api/support";
 import { CASES } from "./conformance/manifest";
 
@@ -44,15 +45,26 @@ async function gunzipJson<T>(gz: ArrayBuffer): Promise<T> {
 async function runCronAndReadDump(): Promise<Dump> {
   await seedUpstream100();
 
+  // The cron consolidation (12 §3 X4 follow-up 2): every dispatch now ALSO
+  // runs an import tick before the dump -- `seedUpstream100()` above
+  // imported directly (bypassing HTTP, no global fetch stub of its own), so
+  // without one here the tick's upstream call would hit the real,
+  // unstubbed `fetch` in this sandbox. A fresh `FakeUpstream` serves the
+  // identical fixture already imported (its `/meta` `revision` is a fixed
+  // "seed-1", not random, matching the stored `cmini.meta_token`), so the
+  // tick is fast and quiet.
+  const fake = new FakeUpstream();
+  vi.stubGlobal("fetch", fake.fetchImpl);
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-08-01T03:00:00.000Z")); // the 1st -- exercises the monthly key too
   try {
     const ctx = createExecutionContext();
-    const controller = createScheduledController({ cron: "0 3 * * *" });
+    const controller = createScheduledController({ cron: "*/5 * * * *" });
     await worker.scheduled(controller, bindings, ctx);
     await waitOnExecutionContext(ctx);
   } finally {
     vi.useRealTimers();
+    vi.unstubAllGlobals();
   }
 
   const latestObj = await bindings.DUMPS.get("latest.json");

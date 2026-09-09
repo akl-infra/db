@@ -13,7 +13,7 @@ binding = "DUMPS"
 bucket_name = "akl-db-dumps"
 
 [triggers]
-crons = ["*/1 * * * *", "*/5 * * * *", "0 3 * * *", "0 4 * * *"]
+crons = ["*/5 * * * *"] # ONE trigger for four jobs -- src/index.ts's scheduled() dispatches by event.scheduledTime, not event.cron
 
 [vars]
 IMPORT_SOURCE_URL = "https://clemenpine.com/layoutapi/v3"
@@ -43,7 +43,7 @@ binding = "DUMPS"
 bucket_name = "akl-db-dumps-preview"
 
 [env.preview.triggers]
-crons = ["*/1 * * * *", "*/5 * * * *", "0 3 * * *", "0 4 * * *"]
+crons = ["*/5 * * * *"] # ONE trigger for four jobs -- src/index.ts's scheduled() dispatches by event.scheduledTime, not event.cron
 
 [env.preview.vars]
 IMPORT_SOURCE_URL = "https://clemenpine.com/layoutapi/v3"

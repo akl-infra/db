@@ -177,14 +177,20 @@ describe("scheduled() wiring", () => {
     vi.unstubAllGlobals();
   });
 
-  it("[LDB-C4] the exported scheduled() handler routes '0 4 * * *' to diffTick", async () => {
+  it("[LDB-C4] the hour=4 minute=0 slot of the exported scheduled() handler routes to diffTick", async () => {
     const fake = new FakeUpstream();
     await tick(bindings, fixedClock("2026-07-10T00:00:00.000Z"), fake.fetchImpl, fake.sleepImpl);
     vi.stubGlobal("fetch", strictUpstreamOnly(fake));
 
+    // The cron consolidation (X4 follow-up 2): one '*/5' trigger, the diff
+    // dispatched by `scheduledTime`'s hour=4/minute=0, not a separate
+    // '0 4 * * *' cron string. The SAME import tick also runs first, on
+    // this SAME `fake` (already imported above, so it's quiet) --
+    // `strictUpstreamOnly` still proves neither job ever fetches its own
+    // origin.
     const envForScheduled = envWithSource(fake.baseUrl);
     const ctx = createExecutionContext();
-    const controller = createScheduledController({ cron: "0 4 * * *" });
+    const controller = createScheduledController({ cron: "*/5 * * * *", scheduledTime: new Date(Date.UTC(2026, 6, 10, 4, 0)) });
     await worker.scheduled(controller, envForScheduled, ctx);
     await waitOnExecutionContext(ctx);
 

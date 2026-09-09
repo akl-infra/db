@@ -67,7 +67,7 @@ those are taken.
 | `IMPORT_MAX_WRITES_PER_TICK` | var | `src/import/apply.ts` (S5) | `wrangler.toml`'s `[vars]`; default `500` |
 | `IMPORT_UA` | var | `src/import/upstream.ts` (S5) | `wrangler.toml`'s `[vars]`; every upstream request must send it (0.1: the default UA is 403'd) |
 | `DISCORD_API_URL` | var | `src/auth/discord.ts` (T1) | `wrangler.toml`'s `[vars]`; default `https://discord.com/api`; tests inject `fetchImpl` directly and never resolve this URL |
-| `WEBHOOK_MAX_POSTS` | var | `src/core/webhooks.ts` (X1) | `wrangler.toml`'s `[vars]`; default `25` -- the global POST bound per `drain()` call (the after-write nudge and the `*/1` cron alike) |
+| `WEBHOOK_MAX_POSTS` | var | `src/core/webhooks.ts` (X1) | `wrangler.toml`'s `[vars]`; default `25` -- the global POST bound per `drain()` call (the after-write nudge and every `*/5` tick's own drain alike) |
 | `STREAM_MAX_MS` | var | `src/routes/stream.ts` (X1) | `wrangler.toml`'s `[vars]`; default `300000` (5 min) -- the SSE stream's wall-clock bound; `"0"` (the Free-plan setting) makes the route answer `503 stream_unavailable` instead |
 | `STREAM_POLL_MS` | var | `src/routes/stream.ts` (X1) | `wrangler.toml`'s `[vars]`; default `2000` -- the stream's feed-poll interval; tests override both stream vars via `vitest.config.ts`'s miniflare `bindings` (`500`/`20`) so the bound/reconnect cases run in well under a second |
 | `CLOUDFLARE_DB_TOKEN` | repo secret (CI) | `.github/workflows/db.yml`'s `deploy` job (S7) | a Cloudflare API token with Workers Scripts + D1 + R2 edit, separate from the site's Pages token |
@@ -151,8 +151,8 @@ X-Akl-Signature: v1=<hex hmac-sha256(secret, `${timestamp}.${body}`)>
 **Receiver contract:** verify `hex(hmac_sha256(secret, X-Akl-Timestamp +
 "." + raw_body)) == X-Akl-Signature`'s hex half (strip the `v1=` prefix
 first) and reject anything more than 300s old. A receiver MAY see one
-`seq` twice -- the after-write nudge and the `*/1` retry cron are safe to
-overlap, and a receiver that accepted a POST but timed out before
+`seq` twice -- the after-write nudge and every `*/5` tick's own retry drain
+are safe to overlap, and a receiver that accepted a POST but timed out before
 answering looks identical to a dropped one from here -- so treat any `seq`
 at or below the highest one already applied as a no-op; a `seq` never
 arrives lower than one already seen from the same hook. A non-2xx answer
@@ -181,9 +181,35 @@ isolate for the whole poll loop, `12 §0.1`/§2.2); a deployment on the Free
 plan sets `STREAM_MAX_MS = "0"`, which makes every request to this route
 answer `503 stream_unavailable` instead of opening a stream.
 
+## Scheduled jobs
+
+ONE cron trigger, `*/5 * * * *` (`wrangler.toml`'s `[triggers]`), drives
+every scheduled job -- `src/index.ts`'s `scheduled()` reads `event
+.scheduledTime` (UTC) to decide which of the four run on a given
+invocation, not `event.cron` (there is only one cron string left to
+route on). This replaced four separate cron triggers (`*/1`, `*/5`, `0 3`,
+`0 4`) because Cloudflare's own dispatch has, at least once, simply
+stopped firing for this Worker's registered triggers with no error
+anywhere but a stale `/v1/meta` -- one trigger is one fewer thing that can
+silently wedge, and `POST /v1/admin/import/tick` / `.../diff/tick` (below)
+give an operator a manual way around it either way.
+
+| every invocation | hour=3, minute=0 also | hour=4, minute=0 also |
+|---|---|---|
+| the import tick (`cminiTick`), then the webhook drain (`drainWebhooks`) -- tick first, so a subscription sees this SAME invocation's own import events without waiting a tick | `pruneAuthCache`, `pruneRateLimits`, `pruneNonces`, `writeDump` (the nightly dump, below) | `diffTick` (the diff cron, below) |
+
+Each of the (up to six) jobs one invocation can run is caught and logged
+independently (`src/index.ts`'s `runJob`) -- one job throwing (an upstream
+outage during the import tick, say) never stops the others queued after it
+in the same invocation from running. `tests/import/tick.test.ts`'s
+`[isolation]` case and its `[matrix]`/`[property]` cases (every 5-minute
+slot of a day, and a property over any two slots 5 minutes apart) are this
+dispatch's own regression suite.
+
 ## Rehost procedure
 
-Every night (`0 3 * * *`) the Worker writes a complete snapshot -- every
+Every night, at the `hour=3, minute=0` slot of the one `*/5 * * * *` cron
+trigger, the Worker writes a complete snapshot -- every
 table, the WHOLE event log (not a tail: a rehosted service must still be
 able to answer `/v1/changes?since=0`) -- to R2 as `dump-YYYY-MM-DD.json.gz`,
 with `latest.json` pointing at the newest one and a `monthly/dump-YYYY-MM.json.gz`
@@ -263,7 +289,7 @@ real network, retries for 30 minutes on an unreachable service, then fails
 (the same comparison logic over the frozen `tests/fixtures/upstream-100/`
 snapshot) on every PR.
 
-### Diff cron (`0 4 * * *`)
+### Diff cron (hour=4, minute=0 slot of the one `*/5 * * * *` trigger)
 
 A second copy of the same D12 comparison above, run automatically every day
 at 04:00 UTC by the Worker itself (`src/import/difftick.ts`'s `diffTick`),

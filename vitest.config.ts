@@ -63,6 +63,13 @@ export default defineConfig(async () => {
             // miniflare D1/R2 at all).
             exclude: ["tests/import/diff-unit.test.ts"],
             setupFiles: ["./tests/setup-workers.ts"],
+            // GitHub's runners are ~3x slower than the laptop this default
+            // (5s) was fine on -- run 34361785870 red-only on
+            // tests/api/list.test.ts's [LDB-R4] sort=like_count limit=1 and
+            // tests/api/ratelimit.test.ts's [LDB-R6] every non-GET route,
+            // both "Test timed out in 5000ms", nothing actually wrong.
+            testTimeout: 30000,
+            hookTimeout: 30000,
           },
         },
         {

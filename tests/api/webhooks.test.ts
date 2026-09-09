@@ -18,7 +18,14 @@ import {
 } from "../../src/core/webhooks";
 import { fixedClock } from "../../src/core/time";
 import worker from "../../src/index";
+import { FakeUpstream } from "../import/fake-upstream";
 import { actorFixture, pinTestClock, register, uniqueName, writeFetch } from "./write-support";
+
+// Only hour:minute (UTC) drives scheduled()'s dispatch since the cron
+// consolidation (one `*/5 * * * *` trigger, 12 §3 X4 follow-up 2).
+function atUTC(hour: number, minute: number): Date {
+  return new Date(Date.UTC(2026, 6, 15, hour, minute));
+}
 
 // Every webhook created via HTTP below gets its `created_at`/`next_at` from
 // `resolveNow(env)` (routes/webhooks.ts) = `env.TEST_CLOCK ?? systemClock` --
@@ -550,15 +557,25 @@ describe("[LDB-H1] [LDB-H4] [LDB-H5] webhooks", () => {
   });
 
   describe("scheduled() wiring", () => {
-    it("the exported scheduled() handler routes '*/1 * * * *' to drainWebhooks()", async () => {
+    // The cron consolidation (12 §3 X4 follow-up 2) means EVERY '*/5 * * * *'
+    // slot now also runs an import tick alongside the drain -- a combined
+    // stub (cmini-shaped URLs to a real FakeUpstream, everything else --
+    // the webhook receiver -- a plain 200) replaces the old bare "always
+    // 200" stub, which would otherwise make the import tick's own upstream
+    // fetch fail (empty body != JSON) and retry for several real seconds.
+    it("every '*/5 * * * *' slot reaches drainWebhooks()", async () => {
       const createHeaders = ownerHeaders();
       const createRes = await writeFetch("/v1/webhooks", "POST", createHeaders, VALID_BODY);
       const hook = await createRes.json<WebhookWire>();
       await appendOne();
 
-      vi.stubGlobal("fetch", async () => new Response(null, { status: 200 }));
+      const fake = new FakeUpstream();
+      vi.stubGlobal("fetch", async (url: string, init?: { headers?: Record<string, string> }) => {
+        if (url.startsWith(fake.baseUrl)) return fake.fetchImpl(url, { headers: init?.headers ?? {} });
+        return new Response(null, { status: 200 });
+      });
       const ctx = createExecutionContext();
-      const controller = createScheduledController({ cron: "*/1 * * * *" });
+      const controller = createScheduledController({ cron: "*/5 * * * *", scheduledTime: atUTC(12, 0) });
       await worker.scheduled(controller, bindings, ctx);
       await waitOnExecutionContext(ctx);
 
@@ -566,13 +583,15 @@ describe("[LDB-H1] [LDB-H4] [LDB-H5] webhooks", () => {
       expect(row!.cursor).toBeGreaterThan(0);
     });
 
-    it("the '0 3 * * *' prune leaves `webhooks` alone", async () => {
+    it("the hour=3 minute=0 prune leaves `webhooks` alone", async () => {
       const createHeaders = ownerHeaders();
       const createRes = await writeFetch("/v1/webhooks", "POST", createHeaders, VALID_BODY);
       const hook = await createRes.json<WebhookWire>();
 
+      const fake = new FakeUpstream();
+      vi.stubGlobal("fetch", fake.fetchImpl);
       const ctx = createExecutionContext();
-      const controller = createScheduledController({ cron: "0 3 * * *" });
+      const controller = createScheduledController({ cron: "*/5 * * * *", scheduledTime: atUTC(3, 0) });
       await worker.scheduled(controller, bindings, ctx);
       await waitOnExecutionContext(ctx);
 

@@ -166,32 +166,79 @@ app.onError((err, c) => {
   return c.json(e.body, 500);
 });
 
-// The three crons from wrangler.toml's [triggers]. `ScheduledController` (not
-// the legacy service-worker-format `ScheduledEvent`) is what a modules-
-// format Worker's `scheduled` export actually receives -- S1's original
-// annotation typechecked only because `@cloudflare/workers-types`'s stable
-// index.d.ts doesn't carry `ScheduledController` at all, so nothing here
-// caught the mismatch until S5 needed it (07 §6 S5's tick.test.ts drives
-// this handler directly via pool-workers' `createScheduledController`).
+// ONE cron trigger (`*/5 * * * *`, wrangler.toml's `[triggers]`) -- what
+// used to be four separate cron strings (`*/1`, `*/5`, `0 3`, `0 4`) are
+// now four jobs dispatched off ONE five-minute tick's own
+// `event.scheduledTime` (UTC), not off `event.cron` (there is only one cron
+// string left to switch on). Why: four registered triggers on one Worker
+// is four independent things Cloudflare's own scheduler has to keep
+// dispatching correctly, and it has -- at least once, observed on the
+// deployed service -- simply stopped firing all of them with no error
+// surfaced anywhere but a stale `/v1/meta` (the same production incident
+// the manual `/v1/admin/*/tick` routes exist for); one trigger is one
+// fewer thing that dispatch can silently wedge on, and every job's own
+// due-or-not decision is a pure function of the clock, testable as a flat
+// enumeration below (`tests/import/tick.test.ts`'s own matrix) rather than
+// scattered across which of four cron strings happened to fire.
+//
+// `ScheduledController` (not the legacy service-worker-format
+// `ScheduledEvent`) is what a modules-format Worker's `scheduled` export
+// actually receives -- S1's original annotation typechecked only because
+// `@cloudflare/workers-types`'s stable index.d.ts doesn't carry
+// `ScheduledController` at all, so nothing here caught the mismatch until
+// S5 needed it (07 §6 S5's tick.test.ts drives this handler directly via
+// pool-workers' `createScheduledController`, which accepts a `scheduledTime`
+// override for exactly this file's own tests).
+// Fault isolation between the jobs bundled onto one invocation: four
+// separate cron triggers meant a broken one (say, upstream timing out)
+// could only ever wedge ITS OWN schedule -- webhook delivery, the nightly
+// prune, the diff, kept running on their own triggers regardless.
+// Collapsing onto one dispatch must not silently recreate a single point
+// of failure out of four previously-independent jobs, so each one is
+// caught and logged here rather than left to abort every job still queued
+// after it in the same invocation (`tests/import/tick.test.ts`'s own
+// "one job's failure doesn't block the rest" case is the regression test).
+async function runJob(name: string, job: () => Promise<unknown>): Promise<void> {
+  try {
+    await job();
+  } catch (e) {
+    console.error(`scheduled(): job '${name}' failed`, e);
+  }
+}
+
 async function scheduled(event: ScheduledController, env: Bindings, _ctx: ExecutionContext): Promise<void> {
-  switch (event.cron) {
-    case "*/1 * * * *":
-      await drainWebhooks(env, systemClock, { fetchImpl: webhookFetchImpl, maxPosts: Number(env.WEBHOOK_MAX_POSTS) });
-      return;
-    case "*/5 * * * *":
-      await cminiTick(env, systemClock);
-      return;
-    case "0 3 * * *":
-      await pruneAuthCache(env.DB, systemClock);
-      await pruneRateLimits(env.DB, systemClock);
-      await pruneNonces(env.DB, systemClock);
-      await writeDump(env, systemClock);
-      return;
-    case "0 4 * * *":
-      await diffTick(env, systemClock);
-      return;
-    default:
-      throw new Error(`scheduled(): unrecognized cron '${event.cron}'`);
+  if (event.cron !== "*/5 * * * *") {
+    throw new Error(`scheduled(): unrecognized cron '${event.cron}'`);
+  }
+
+  const at = new Date(event.scheduledTime);
+  const hour = at.getUTCHours();
+  const minute = at.getUTCMinutes();
+
+  // Every tick: the import cron's own work first, then the webhook drain --
+  // so a subscription sees THIS SAME invocation's own import events
+  // (imported/upstream_changed/upstream_deleted/...) without waiting for
+  // the next five-minute slot. The reverse order has nothing to gain
+  // (drainWebhooks has no import events of its own to lose by running
+  // second) and would cost every import event one extra tick's worth of
+  // webhook latency for no reason -- so `cminiTick` runs first.
+  await runJob("cmini-tick", () => cminiTick(env, systemClock));
+  await runJob("webhook-drain", () =>
+    drainWebhooks(env, systemClock, { fetchImpl: webhookFetchImpl, maxPosts: Number(env.WEBHOOK_MAX_POSTS) }),
+  );
+
+  // The old `0 3 * * *`: prune + the nightly dump. Each of the four still
+  // runs even if an earlier one this same minute throws.
+  if (hour === 3 && minute === 0) {
+    await runJob("prune-auth-cache", () => pruneAuthCache(env.DB, systemClock));
+    await runJob("prune-rate-limits", () => pruneRateLimits(env.DB, systemClock));
+    await runJob("prune-nonces", () => pruneNonces(env.DB, systemClock));
+    await runJob("write-dump", () => writeDump(env, systemClock));
+  }
+
+  // The old `0 4 * * *`: the diff cron (12 §3 X4).
+  if (hour === 4 && minute === 0) {
+    await runJob("diff-tick", () => diffTick(env, systemClock));
   }
 }
 

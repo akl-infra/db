@@ -23,6 +23,12 @@ const db = bindings.DB;
 const clock = fixedClock("2026-07-15T00:00:00.000Z");
 pinTestClock(env as unknown as { TEST_CLOCK?: typeof clock }, clock);
 
+// Only hour:minute (UTC) drives scheduled()'s dispatch since the cron
+// consolidation (one `*/5 * * * *` trigger, 12 §3 X4 follow-up 2).
+function atUTC(hour: number, minute: number): Date {
+  return new Date(Date.UTC(2026, 6, 15, hour, minute));
+}
+
 const OTHER_USER = "owner-admin-nonadmin";
 
 afterEach(() => {
@@ -458,7 +464,7 @@ describe("POST /v1/admin/import/tick and POST /v1/admin/diff/tick", () => {
       }
     });
 
-    it("shares one implementation with the '*/5' cron (a spy on import/cmini.ts's tick sees both call sites)", async () => {
+    it("shares one implementation with every '*/5' tick (a spy on import/cmini.ts's tick sees both call sites)", async () => {
       const discord = new FakeDiscord();
       const upstream = new FakeUpstream();
       stubCombinedFetch(discord, upstream);
@@ -467,8 +473,11 @@ describe("POST /v1/admin/import/tick and POST /v1/admin/diff/tick", () => {
       const spy = vi.spyOn(cminiModule, "tick");
       const before = spy.mock.calls.length;
 
+      // A safe (non-3:00/4:00) slot: the cron consolidation means every
+      // '*/5' invocation reaches the import tick regardless of the hour, so
+      // this only needs to avoid ALSO exercising the nightly prune/diff.
       const ctx = createExecutionContext();
-      const controller = createScheduledController({ cron: "*/5 * * * *" });
+      const controller = createScheduledController({ cron: "*/5 * * * *", scheduledTime: atUTC(12, 0) });
       await worker.scheduled(controller, bindings, ctx);
       await waitOnExecutionContext(ctx);
       expect(spy.mock.calls.length).toBe(before + 1);
@@ -502,7 +511,7 @@ describe("POST /v1/admin/import/tick and POST /v1/admin/diff/tick", () => {
       expect(await eventCount("admin.diff_ticked")).toBe(before + 1);
     });
 
-    it("shares one implementation with the '0 4' cron (a spy on import/difftick.ts's diffTick sees both call sites)", async () => {
+    it("shares one implementation with the hour=4 minute=0 slot (a spy on import/difftick.ts's diffTick sees both call sites)", async () => {
       const discord = new FakeDiscord();
       const upstream = new FakeUpstream();
       stubCombinedFetch(discord, upstream);
@@ -512,7 +521,7 @@ describe("POST /v1/admin/import/tick and POST /v1/admin/diff/tick", () => {
       const before = spy.mock.calls.length;
 
       const ctx = createExecutionContext();
-      const controller = createScheduledController({ cron: "0 4 * * *" });
+      const controller = createScheduledController({ cron: "*/5 * * * *", scheduledTime: atUTC(4, 0) });
       await worker.scheduled(controller, bindings, ctx);
       await waitOnExecutionContext(ctx);
       expect(spy.mock.calls.length).toBe(before + 1);
