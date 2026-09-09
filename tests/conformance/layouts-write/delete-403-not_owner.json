@@ -3,6 +3,7 @@
     "method": "DELETE",
     "path": "/v1/layouts/cw-delete-notowner-1",
     "bearer": "conformance-other-token",
+    "headers": { "If-Match": "*" },
     "setup": [
       {
         "method": "POST",

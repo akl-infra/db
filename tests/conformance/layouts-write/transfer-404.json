@@ -3,6 +3,7 @@
     "method": "POST",
     "path": "/v1/layouts/cw-transfer-404-nonexistent/transfer",
     "bearer": "conformance-owner-token",
+    "headers": { "If-Match": "*" },
     "body": { "to": "810000000000000001" }
   },
   "response": {

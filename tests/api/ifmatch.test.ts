@@ -1,5 +1,7 @@
-// [LDB-P2] `If-Match` (09 §2.3): matching/absent/`*` all succeed; a stale
-// rev (too low or too high) is `409 stale` with the current record and its
+// [LDB-P2] `If-Match` (09 §2.3): matching/`*` succeed; absent is refused
+// (2026-09-09, saltorbit's rule) with `400 if_match_required`, checked before
+// any read or mutation, never treated as a blind overwrite; a stale rev
+// (too low or too high) is `409 stale` with the current record and its
 // `last_write`; a weak ETag or garbage is `400 bad_request`, never a
 // mismatch. The race: two writes at the same rev, run concurrently, land
 // exactly one 200 and one 409 `stale` whose `record` is the winner's.
@@ -39,18 +41,19 @@ function ownerHeaders(token: string) {
 }
 
 describe("[LDB-P2] If-Match on PUT/DELETE", () => {
-  const cases: { label: string; header: (rev: number) => string | undefined; status: number }[] = [
-    { label: "absent", header: () => undefined, status: 200 },
+  const cases: { label: string; header: (rev: number) => string | undefined; status: number; code?: string }[] = [
+    // 2026-09-09: absent is refused, never treated as `*` -- LDB-P2.
+    { label: "absent", header: () => undefined, status: 400, code: "if_match_required" },
     { label: "*", header: () => "*", status: 200 },
     { label: '"<rev>" (quoted, matching)', header: (rev) => `"${rev}"`, status: 200 },
     { label: "<rev> (bare, matching)", header: (rev) => `${rev}`, status: 200 },
     { label: '"<rev-1>" (stale)', header: (rev) => `"${rev - 1}"`, status: 409 },
     { label: '"<rev+1>" (ahead)', header: (rev) => `"${rev + 1}"`, status: 409 },
-    { label: 'W/"<rev>" (weak, refused)', header: (rev) => `W/"${rev}"`, status: 400 },
-    { label: '"a" (garbage, refused)', header: () => `"a"`, status: 400 },
+    { label: 'W/"<rev>" (weak, refused)', header: (rev) => `W/"${rev}"`, status: 400, code: "bad_request" },
+    { label: '"a" (garbage, refused)', header: () => `"a"`, status: 400, code: "bad_request" },
   ];
 
-  for (const { label, header, status } of cases) {
+  for (const { label, header, status, code } of cases) {
     it(`PUT If-Match: ${label} -> ${status}`, async () => {
       const record = await seed();
       const headers = ownerHeaders(`tok-put-${uniqueName("t")}`);
@@ -67,8 +70,11 @@ describe("[LDB-P2] If-Match on PUT/DELETE", () => {
         expect(body.record.rev).toBe(record.rev);
         expect(body.last_write.kind).toBe("created");
       }
-      if (status === 400) {
+      if (status === 400 && code === "bad_request") {
         await expect(res.json()).resolves.toMatchObject({ error: "bad_request", param: "If-Match" });
+      }
+      if (status === 400 && code === "if_match_required") {
+        await expect(res.json()).resolves.toMatchObject({ error: "if_match_required" });
       }
     });
 
@@ -81,6 +87,9 @@ describe("[LDB-P2] If-Match on PUT/DELETE", () => {
         ...(ifMatch !== undefined ? { "If-Match": ifMatch } : {}),
       });
       expect(res.status, label).toBe(status);
+      if (status === 400 && code === "if_match_required") {
+        await expect(res.json()).resolves.toMatchObject({ error: "if_match_required" });
+      }
     });
   }
 
@@ -124,19 +133,23 @@ describe("[LDB-P2] If-Match on PUT/DELETE", () => {
     expect(events?.n).toBe(2); // "created" + exactly one "updated"
   });
 
-  // "Overwrite (absent/`*`) still loses a race" (09 §2.3's whole point --
-  // absent If-Match skips the pre-check, not the guard) is the SAME
-  // `layout_revs` PK path this suite's own `PUT If-Match: absent -> 200`
-  // case above already runs, and is proven not-flakily at the pipeline
-  // level (no HTTP/JSON/ajv hops between the two racing reads) by
-  // tests/events/races.test.ts's "[LDB-P1] two updates racing from the
-  // same rev" -- appendWrite there is called with no If-Match concept at
-  // all, i.e. always "absent". Racing two full HTTP PUTs with no If-Match
-  // header a second time here was tried and is NOT reliable: the extra
-  // hops before either request reaches `commitWrite` (actor resolution,
-  // JSON parse, ajv) change how often the two interleave enough to hit the
-  // same `layout_revs` row, so a real 200/200 sometimes happens even though
-  // the guard itself is sound -- an HTTP-level scheduling artifact, not a
-  // guarantee violation (the actual guard is `appendWrite`'s, exercised
+  // "Overwrite (`*`) still loses a race" (09 §2.3's whole point -- `*`
+  // skips the pre-check, not the guard) is the SAME `layout_revs` PK path
+  // this suite's own `PUT If-Match: * -> 200` case above already runs, and
+  // is proven not-flakily at the pipeline level (no HTTP/JSON/ajv hops
+  // between the two racing reads) by tests/events/races.test.ts's
+  // "[LDB-P1] two updates racing from the same rev" -- appendWrite there is
+  // called with no If-Match concept at all, i.e. always what the HTTP layer
+  // would once have called "absent" (2026-09-09: absent is now refused at
+  // the route, before `appendWrite` is ever reached over HTTP -- see the
+  // `if_match_required` case above -- but `appendWrite` itself has no
+  // If-Match concept and is exercised the same way regardless). Racing two
+  // full HTTP PUTs with `*` a second time here was tried and is NOT
+  // reliable: the extra hops before either request reaches `commitWrite`
+  // (actor resolution, JSON parse, ajv) change how often the two interleave
+  // enough to hit the same `layout_revs` row, so a real 200/200 sometimes
+  // happens even though the guard itself is sound -- an HTTP-level
+  // scheduling artifact, not a guarantee violation (the actual guard is
+  // `appendWrite`'s, exercised
   // identically regardless of `If-Match`).
 });

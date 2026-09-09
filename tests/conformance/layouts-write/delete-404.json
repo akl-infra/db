@@ -2,7 +2,8 @@
   "request": {
     "method": "DELETE",
     "path": "/v1/layouts/cw-delete-404-nonexistent",
-    "bearer": "conformance-owner-token"
+    "bearer": "conformance-owner-token",
+    "headers": { "If-Match": "*" }
   },
   "response": {
     "status": 404,

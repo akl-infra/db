@@ -122,6 +122,20 @@ export interface LastWrite {
   admin: boolean;
 }
 
+// saltorbit's rule (2026-09-09, LDB-P2): no client may write to an existing
+// record without naming the version it saw. Distinct from a malformed
+// `If-Match` (`bad_request`, ifmatch.ts's own `parseIfMatch`) and from a
+// mismatched one (`stale`, 409) -- this is the header being missing
+// entirely on `PUT`/`PATCH`/`DELETE`/`transfer`. `POST /v1/layouts`
+// (creation), likes and the import path are unaffected -- there's no prior
+// version to name.
+export function ifMatchRequired(): ApiError {
+  return new ApiError(400, {
+    error: "if_match_required",
+    message: "an 'If-Match' header naming the record's current rev is required",
+  });
+}
+
 export function stale(record: Record<string, unknown> & { rev: number }, lastWrite: LastWrite): ApiError {
   return new ApiError(409, {
     error: "stale",

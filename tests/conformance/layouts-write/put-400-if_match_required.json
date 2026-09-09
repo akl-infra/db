@@ -1,0 +1,24 @@
+{
+  "request": {
+    "method": "PUT",
+    "path": "/v1/layouts/cw-put-noifmatch-1",
+    "bearer": "conformance-owner2-token",
+    "body": { "format": "cmini/1", "payload": { "board": "ortho", "keys": {} } },
+    "setup": [
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-owner2-token",
+        "body": { "name": "cw-put-noifmatch-1", "format": "cmini/1", "payload": { "board": "ortho", "keys": {} } }
+      }
+    ]
+  },
+  "response": {
+    "status": 400,
+    "headers": { "Content-Type": "application/json" },
+    "body": {
+      "error": "if_match_required",
+      "message": "an 'If-Match' header naming the record's current rev is required"
+    }
+  }
+}

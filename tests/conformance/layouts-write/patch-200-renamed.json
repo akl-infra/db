@@ -3,6 +3,7 @@
     "method": "PATCH",
     "path": "/v1/layouts/cw-patch-renamed-1",
     "bearer": "conformance-owner2-token",
+    "headers": { "If-Match": "\"1\"" },
     "body": { "name": "cw-patch-renamed-1-new" },
     "setup": [
       {

@@ -3,6 +3,7 @@
     "method": "PATCH",
     "path": "/v1/layouts/cw-patch-notowner-1",
     "bearer": "conformance-other-token",
+    "headers": { "If-Match": "*" },
     "body": { "name": "cw-patch-notowner-1-renamed" },
     "setup": [
       {

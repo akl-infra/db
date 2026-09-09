@@ -137,6 +137,9 @@ import layoutsWriteDelete401Unauthorized from "./layouts-write/delete-401-unauth
 import layoutsWriteDelete403NotOwner from "./layouts-write/delete-403-not_owner.json" with { type: "json" };
 import layoutsWriteDelete404 from "./layouts-write/delete-404.json" with { type: "json" };
 import layoutsWriteDelete409Stale from "./layouts-write/delete-409-stale.json" with { type: "json" };
+// [LDB-P2] saltorbit's rule (2026-09-09): no If-Match at all on an existing
+// record -> 400 if_match_required, refused before any read or mutation.
+import layoutsWriteDelete400IfMatchRequired from "./layouts-write/delete-400-if_match_required.json" with { type: "json" };
 import layoutsWriteDelete429 from "./layouts-write/delete-429.json" with { type: "json" };
 import layoutsWriteDelete503IdentityUnavailable from "./layouts-write/delete-503-identity_unavailable.json" with { type: "json" };
 import layoutsWritePatch200Renamed from "./layouts-write/patch-200-renamed.json" with { type: "json" };
@@ -149,6 +152,7 @@ import layoutsWritePatch403NotOwner from "./layouts-write/patch-403-not_owner.js
 import layoutsWritePatch404 from "./layouts-write/patch-404.json" with { type: "json" };
 import layoutsWritePatch409NameTaken from "./layouts-write/patch-409-name_taken.json" with { type: "json" };
 import layoutsWritePatch409Stale from "./layouts-write/patch-409-stale.json" with { type: "json" };
+import layoutsWritePatch400IfMatchRequired from "./layouts-write/patch-400-if_match_required.json" with { type: "json" };
 import layoutsWritePatch429 from "./layouts-write/patch-429.json" with { type: "json" };
 import layoutsWritePatch503IdentityUnavailable from "./layouts-write/patch-503-identity_unavailable.json" with { type: "json" };
 import layoutsWritePost400BadRequest from "./layouts-write/post-400-bad_request.json" with { type: "json" };
@@ -164,6 +168,7 @@ import layoutsWritePut401TokenInvalid from "./layouts-write/put-401-token_invali
 import layoutsWritePut401Unauthorized from "./layouts-write/put-401-unauthorized.json" with { type: "json" };
 import layoutsWritePut403NotOwner from "./layouts-write/put-403-not_owner.json" with { type: "json" };
 import layoutsWritePut404 from "./layouts-write/put-404.json" with { type: "json" };
+import layoutsWritePut400IfMatchRequired from "./layouts-write/put-400-if_match_required.json" with { type: "json" };
 import layoutsWritePut429 from "./layouts-write/put-429.json" with { type: "json" };
 import layoutsWritePut503IdentityUnavailable from "./layouts-write/put-503-identity_unavailable.json" with { type: "json" };
 import layoutsWriteRestore401TokenInvalid from "./layouts-write/restore-401-token_invalid.json" with { type: "json" };
@@ -178,6 +183,7 @@ import layoutsWriteTransfer401TokenInvalid from "./layouts-write/transfer-401-to
 import layoutsWriteTransfer401Unauthorized from "./layouts-write/transfer-401-unauthorized.json" with { type: "json" };
 import layoutsWriteTransfer403NotOwner from "./layouts-write/transfer-403-not_owner.json" with { type: "json" };
 import layoutsWriteTransfer404 from "./layouts-write/transfer-404.json" with { type: "json" };
+import layoutsWriteTransfer400IfMatchRequired from "./layouts-write/transfer-400-if_match_required.json" with { type: "json" };
 import layoutsWriteTransfer429 from "./layouts-write/transfer-429.json" with { type: "json" };
 import layoutsWriteTransfer503IdentityUnavailable from "./layouts-write/transfer-503-identity_unavailable.json" with { type: "json" };
 import layoutsLikeDelete400Qwerty from "./layouts-like/delete-400-qwerty.json" with { type: "json" };
@@ -360,6 +366,8 @@ export const T6_CASES: ConformanceCase[] = [
   kase("layouts-write/delete-403-not_owner", "/v1/layouts/:ref", layoutsWriteDelete403NotOwner, true),
   kase("layouts-write/delete-404", "/v1/layouts/:ref", layoutsWriteDelete404, true),
   kase("layouts-write/delete-409-stale", "/v1/layouts/:ref", layoutsWriteDelete409Stale, true),
+  // [LDB-P2] saltorbit's rule (2026-09-09): no If-Match at all -> 400 if_match_required.
+  kase("layouts-write/delete-400-if_match_required", "/v1/layouts/:ref", layoutsWriteDelete400IfMatchRequired, true),
   kase("layouts-write/delete-429", "/v1/layouts/:ref", layoutsWriteDelete429, true),
   kase("layouts-write/delete-503-identity_unavailable", "/v1/layouts/:ref", layoutsWriteDelete503IdentityUnavailable, true),
   kase("layouts-write/patch-200-renamed", "/v1/layouts/:ref", layoutsWritePatch200Renamed, true),
@@ -372,6 +380,8 @@ export const T6_CASES: ConformanceCase[] = [
   kase("layouts-write/patch-404", "/v1/layouts/:ref", layoutsWritePatch404, true),
   kase("layouts-write/patch-409-name_taken", "/v1/layouts/:ref", layoutsWritePatch409NameTaken, true),
   kase("layouts-write/patch-409-stale", "/v1/layouts/:ref", layoutsWritePatch409Stale, true),
+  // [LDB-P2] saltorbit's rule (2026-09-09): no If-Match at all -> 400 if_match_required.
+  kase("layouts-write/patch-400-if_match_required", "/v1/layouts/:ref", layoutsWritePatch400IfMatchRequired, true),
   kase("layouts-write/patch-429", "/v1/layouts/:ref", layoutsWritePatch429, true),
   kase("layouts-write/patch-503-identity_unavailable", "/v1/layouts/:ref", layoutsWritePatch503IdentityUnavailable, true),
   kase("layouts-write/post-400-bad_request", "/v1/layouts", layoutsWritePost400BadRequest, true),
@@ -387,6 +397,8 @@ export const T6_CASES: ConformanceCase[] = [
   kase("layouts-write/put-401-unauthorized", "/v1/layouts/:ref", layoutsWritePut401Unauthorized, true),
   kase("layouts-write/put-403-not_owner", "/v1/layouts/:ref", layoutsWritePut403NotOwner, true),
   kase("layouts-write/put-404", "/v1/layouts/:ref", layoutsWritePut404, true),
+  // [LDB-P2] saltorbit's rule (2026-09-09): no If-Match at all -> 400 if_match_required.
+  kase("layouts-write/put-400-if_match_required", "/v1/layouts/:ref", layoutsWritePut400IfMatchRequired, true),
   kase("layouts-write/put-429", "/v1/layouts/:ref", layoutsWritePut429, true),
   kase("layouts-write/put-503-identity_unavailable", "/v1/layouts/:ref", layoutsWritePut503IdentityUnavailable, true),
   kase("layouts-write/restore-401-token_invalid", "/v1/layouts/:ref/restore", layoutsWriteRestore401TokenInvalid, true),
@@ -401,6 +413,10 @@ export const T6_CASES: ConformanceCase[] = [
   kase("layouts-write/transfer-401-unauthorized", "/v1/layouts/:ref/transfer", layoutsWriteTransfer401Unauthorized, true),
   kase("layouts-write/transfer-403-not_owner", "/v1/layouts/:ref/transfer", layoutsWriteTransfer403NotOwner, true),
   kase("layouts-write/transfer-404", "/v1/layouts/:ref/transfer", layoutsWriteTransfer404, true),
+  // [LDB-P2] saltorbit's rule (2026-09-09): no If-Match at all -> 400
+  // if_match_required. Transfer's presence-only check (no rev matching,
+  // core/write.ts's own comment on `transferLayout`).
+  kase("layouts-write/transfer-400-if_match_required", "/v1/layouts/:ref/transfer", layoutsWriteTransfer400IfMatchRequired, true),
   kase("layouts-write/transfer-429", "/v1/layouts/:ref/transfer", layoutsWriteTransfer429, true),
   kase("layouts-write/transfer-503-identity_unavailable", "/v1/layouts/:ref/transfer", layoutsWriteTransfer503IdentityUnavailable, true),
   kase("layouts-like/delete-400-qwerty", "/v1/layouts/:ref/like", layoutsLikeDelete400Qwerty, true),

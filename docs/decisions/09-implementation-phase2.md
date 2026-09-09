@@ -91,6 +91,7 @@ and `message`, 03 §1):
 | status | `error` | extra fields | when |
 |---|---|---|---|
 | 400 | `bad_request` | `param` | body not an object / fails the route's body schema (unknown key, missing key, wrong type — `param` is the JSON pointer); `If-Match` unparsable; `to` unknown or equal to the current owner; restore of a live record |
+| 400 | `if_match_required` | — | 2026-09-09, saltorbit's rule (LDB-P2): `PUT`/`PATCH`/`DELETE`/`transfer` against an existing record with no `If-Match` header at all — refused before any read or mutation, distinct from a malformed header (`bad_request`, above) and a mismatched one (`stale`, below) |
 | 400 | `invalid_payload` | `path` (+ the format's own details) | the format's `validate` refused — the body is the format's `ValidationResult.error` verbatim |
 | 400 | `invalid_name` | `name` | `check_name` refused; `message` is the bot's string (§2.4) |
 | 400 | `unsupported_for_format` | `format`, `verb` | PATCH verb the record's format has no `edits` entry for, or its edit returned an error for this payload |
@@ -126,9 +127,21 @@ plain function and never touch the network.
 `src/core/ifmatch.ts` — `parseIfMatch(header: string | null): { kind: "absent" } | { kind: "any" } | { kind: "rev", rev: number }`:
 `"3"` (quoted, RFC 7232 strong form — what the site sends) and bare `3`
 both parse to `rev: 3`; `*` → `any`; `W/"3"`, a list, or anything else →
-`400 bad_request param If-Match`. Absent and `*` both mean *overwrite on
-purpose* (`03 §1`, `06 §2.6`). Every 2xx response that returns a record
-carries `ETag: "<rev>"` so a client can chain writes without re-reading.
+`400 bad_request param If-Match`.
+
+**2026-09-09, saltorbit's rule:** no client may write to an existing record
+without naming the version it saw. `absent` on `PUT`/`PATCH`/`DELETE`/
+`transfer` against an existing record is refused with `400
+if_match_required` (`core/write.ts`'s `requireIfMatch`, called first thing
+in each of those four pipeline functions, before `loadForWrite` touches
+D1) — no longer treated as an overwrite. `*` still means *overwrite on
+purpose* (`03 §1`, `06 §2.6`), but the client must say so explicitly; a
+client's own "overwrite" therefore means re-reading the record first and
+sending either the `rev` it was shown or `*`, never omitting the header.
+`POST /v1/layouts` (creation), likes, `restore` (no prior draft to be
+stale against) and the `import:cmini` path are unaffected — there is no
+prior version to name. Every 2xx response that returns a record carries
+`ETag: "<rev>"` so a client can chain writes without re-reading.
 
 The guarantee LDB-P2 makes is two-layered, and the brief says which layer
 does what:
@@ -142,7 +155,8 @@ does what:
    batch rolls back (0.1). `appendWrite` catches the D1 error whose message
    matches `UNIQUE constraint failed: layout_revs.layout_id, layout_revs.rev`
    and throws `RevConflict`; `core/write.ts` re-reads the record and answers
-   `409 stale` with the *winner's* record. This is why an overwrite (`absent`/`*`)
+   `409 stale` with the *winner's* record. This is why an overwrite (`*`,
+   the only form absent can no longer take since 2026-09-09 — see §2.3)
    can still get a 409: overwrite means "ignore my stale rev", not "ignore a
    write that landed this millisecond" — the client simply retries.
 
@@ -312,8 +326,13 @@ POST   /v1/layouts                  { name, format, payload }            → 201
 PUT    /v1/layouts/{ref}            { format, payload }        If-Match  → 200 record   kind updated    name/owner/created_at kept; format may change
 DELETE /v1/layouts/{ref}                                       If-Match  → 200 record   kind deleted    deleted: true, payload/format/name kept, modified_at = now
 POST   /v1/layouts/{ref}/restore                                         → 200 record   kind restored   {ref} must be the id (a tombstone has no live name)
-POST   /v1/layouts/{ref}/transfer   { to }                               → 200 record   kind transferred
+POST   /v1/layouts/{ref}/transfer   { to }                     If-Match  → 200 record   kind transferred
 ```
+
+2026-09-09: `If-Match` is now REQUIRED (not merely honoured) on `PUT`/
+`DELETE`/`transfer` above — absent → `400 if_match_required`, checked
+before any read or mutation (§2.3). `restore` still takes no `If-Match` (a
+tombstone has one possible next state).
 
 Rules, exactly:
 
@@ -321,7 +340,7 @@ Rules, exactly:
 - `PUT`: `loadForWrite` → `requireRev` → `validatePayload` (the **new** format validates) → `appendWrite` with `name/owner/created_at` from the current record.
 - `DELETE`: `loadForWrite` → `requireRev` → `appendWrite({ deleted: true, …current })`.
 - `restore`: `loadForWrite(allowDeleted: true)`; the record must be `deleted` (`400 bad_request param ref`, message `'<name>' is not deleted`); `now − record.modified_at ≤ 30 d` unless admin (else `404 not_found`); `appendWrite({ kind: "restored", deleted: false, …the tombstone's name/format/payload })` — a live holder of the name → `409 name_taken`. No `If-Match` (a tombstone has one possible next state). A restore by the owner of an `upstream_deleted` tombstone is allowed and, carrying `via: discord`, stops the record following upstream (LDB-I2a) — the import will not re-delete it.
-- `transfer`: `loadForWrite` (owner or admin; **no `If-Match`** — ownership has no draft to be stale); `to` must be a 17–20-digit string with an `authors` row (`400 bad_request param to`, message `unknown user '<to>'`) and ≠ current owner (`already the owner`); `appendWrite({ kind: "transferred", owner: to, …current })`.
+- `transfer`: `requireIfMatch` (2026-09-09: `If-Match` presence is required, `400 if_match_required` if absent) then `loadForWrite` (owner or admin; the header's VALUE is never checked against `record.rev` — ownership has no draft to be stale, so `requireRev` never runs here, only the presence check); `to` must be a 17–20-digit string with an `authors` row (`400 bad_request param to`, message `unknown user '<to>'`) and ≠ current owner (`already the owner`); `appendWrite({ kind: "transferred", owner: to, …current })`.
 - Authorization is `02 §4`: create → any actor; the rest → owner or admin (`admin: true` on the event only when the actor is not the owner).
 
 | file (workers) | asserts | invariant |
@@ -479,11 +498,11 @@ missing or extra pair. `A` = 401 `unauthorized` + 401 `token_invalid` + 503
 |---|---|---|
 | `GET /v1/me` | 200 | A |
 | `POST /v1/layouts` | 201 | A, 400 `bad_request`, 400 `invalid_name`, 400 `invalid_payload`, 400 `unknown_format`, 409 `name_taken`, 429 |
-| `PUT /v1/layouts/{ref}` | 200 | A, 400 `bad_request` (body, `If-Match`), 400 `invalid_payload`, 400 `unknown_format`, 403 `not_owner`, 404, 409 `stale`, 429 |
-| `PATCH /v1/layouts/{ref}` | 200 (`renamed`, `fingermap`, `updated` — three cases) | A, 400 `bad_request`, 400 `invalid_name`, 400 `invalid_payload`, 400 `unsupported_for_format`, 403, 404, 409 `name_taken`, 409 `stale`, 429 |
-| `DELETE /v1/layouts/{ref}` | 200 | A, 400 `bad_request` (`If-Match`), 403, 404, 409 `stale`, 429 |
+| `PUT /v1/layouts/{ref}` | 200 | A, 400 `bad_request` (body, `If-Match`), 400 `if_match_required`, 400 `invalid_payload`, 400 `unknown_format`, 403 `not_owner`, 404, 409 `stale`, 429 |
+| `PATCH /v1/layouts/{ref}` | 200 (`renamed`, `fingermap`, `updated` — three cases) | A, 400 `bad_request`, 400 `if_match_required`, 400 `invalid_name`, 400 `invalid_payload`, 400 `unsupported_for_format`, 403, 404, 409 `name_taken`, 409 `stale`, 429 |
+| `DELETE /v1/layouts/{ref}` | 200 | A, 400 `bad_request` (`If-Match`), 400 `if_match_required`, 403, 404, 409 `stale`, 429 |
 | `POST /v1/layouts/{ref}/restore` | 200 | A, 400 `bad_request` (live record), 403, 404 (unknown; by name; past 30 d), 409 `name_taken`, 429 |
-| `POST /v1/layouts/{ref}/transfer` | 200 | A, 400 `bad_request` (`to`), 403, 404, 429 |
+| `POST /v1/layouts/{ref}/transfer` | 200 | A, 400 `bad_request` (`to`), 400 `if_match_required`, 403, 404, 429 |
 | `PUT /v1/layouts/{ref}/like` · `DELETE …/like` | 200 (changed) · 200 (no-op) | A, 400 `bad_request` (qwerty), 404, 429 |
 | `GET /v1/admin/admins` | 200 | A, 403 `not_admin` |
 | `POST /v1/admin/admins` | 201 · 200 (idempotent) | A, 400, 403, 429 |
@@ -502,7 +521,7 @@ Ids from `02`/`03` keep their numbers; new ones are `LDB-N1`, `LDB-W1`,
 | LDB-A5 (admin half) | Every accepted write's event carries `via`; every admin action is an event with `admin = 1` | `tests/api/write.test.ts`, `tests/api/admin.test.ts` |
 | LDB-A6 | The admins table never drops below two rows after bootstrap (count and delete are one statement) | `tests/api/admin.test.ts` |
 | LDB-A7 | Owner changes only via `transfer`; a write body naming `owner` (or any field outside the verb's schema) is refused | `tests/api/bodies.test.ts`, `tests/api/write.test.ts`, `tests/api/transfer.test.ts` |
-| LDB-P2 | An `If-Match` mismatch writes nothing and returns the current record; two writes at one `rev` → exactly one commits, the other gets `stale` with the winner's record; the guard is `layout_revs`' PK inside the batch | `tests/api/ifmatch.test.ts`, `tests/events/fold.test.ts` |
+| LDB-P2 | An `If-Match` mismatch writes nothing and returns the current record; two writes at one `rev` → exactly one commits, the other gets `stale` with the winner's record; the guard is `layout_revs`' PK inside the batch. An absent `If-Match` on an existing record (`PUT`/`PATCH`/`DELETE`/`transfer`) is refused with `400 if_match_required`, never treated as a blind overwrite -- checked before any read or mutation (2026-09-09, saltorbit's rule; `*` still means "overwrite on purpose", but the client must say so explicitly) | `tests/api/ifmatch.test.ts`, `tests/events/fold.test.ts`, `tests/api/write.test.ts`, `tests/api/conformance.test.ts` |
 | LDB-P4 (phase-2 half) | A name race yields one record and never deletes another (`ON CONFLICT(id)`, not `OR REPLACE`) | `tests/api/names.test.ts` |
 | LDB-P8 (full) | A tombstone is unreadable by name from deletion and restorable by id for 30 days by its owner (any time by an admin), keeping name, format, payload and history | `tests/api/restore.test.ts` |
 | LDB-N1 | `check_name` is the bot's rule set with the bot's strings, plus the length cap and the ULID-shape refusal, applied to `POST` and rename only | `tests/api/names.test.ts`, `tests/api/patch.test.ts` |

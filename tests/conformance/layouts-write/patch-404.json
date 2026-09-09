@@ -3,6 +3,7 @@
     "method": "PATCH",
     "path": "/v1/layouts/cw-patch-404-nonexistent",
     "bearer": "conformance-owner-token",
+    "headers": { "If-Match": "*" },
     "body": { "name": "cw-patch-404-doesnt-matter" }
   },
   "response": {

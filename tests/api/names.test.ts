@@ -118,7 +118,7 @@ describe("[LDB-I5] imported names outside NAME_SET' survive a PUT untouched", ()
       });
 
       const headers = ownerHeaders(`tok-${uniqueName("imp")}`);
-      const res = await writeFetch(`/v1/layouts/${record.id}`, "PUT", headers, { format: "akl/1", payload: AKL_PAYLOAD });
+      const res = await writeFetch(`/v1/layouts/${record.id}`, "PUT", { ...headers, "If-Match": `"${record.rev}"` }, { format: "akl/1", payload: AKL_PAYLOAD });
       expect(res.status, importedName).toBe(200);
       const body = await res.json<{ name: string }>();
       expect(body.name).toBe(importedName); // untouched, check_name never ran

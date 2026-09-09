@@ -15,6 +15,7 @@
         "method": "PUT",
         "path": "/v1/layouts/cw-delete-stale-1",
         "bearer": "conformance-owner2-token",
+        "headers": { "If-Match": "\"1\"" },
         "body": { "format": "cmini/1", "payload": { "board": "ortho", "keys": {}, "tag": "bump" } }
       }
     ]

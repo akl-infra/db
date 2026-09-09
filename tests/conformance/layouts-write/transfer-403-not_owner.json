@@ -3,6 +3,7 @@
     "method": "POST",
     "path": "/v1/layouts/cw-transfer-notowner-1/transfer",
     "bearer": "conformance-other-token",
+    "headers": { "If-Match": "*" },
     "body": { "to": "800000000000000001" },
     "setup": [
       {

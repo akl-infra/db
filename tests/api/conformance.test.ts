@@ -11,6 +11,7 @@ import type { Bindings } from "../../src/env";
 import {
   badRequest,
   identityUnavailable,
+  ifMatchRequired,
   importPaused,
   invalidName,
   lastAdmins,
@@ -405,6 +406,7 @@ const ERROR_CODES = {
   token_invalid: tokenInvalid().body.error,
   identity_unavailable: identityUnavailable().body.error,
   bad_request: badRequest("x").body.error,
+  if_match_required: ifMatchRequired().body.error,
   // No dedicated constructor -- a format's `validate()`/an `edits.set*`
   // returns this literal directly (formats/cmini/1/index.ts, edits.ts).
   invalid_payload: "invalid_payload",
@@ -505,6 +507,7 @@ const REQUIRED: Record<string, RequiredCase[]> = {
     { status: 200 },
     ...A,
     { status: 400, code: ERROR_CODES.bad_request },
+    { status: 400, code: ERROR_CODES.if_match_required },
     { status: 400, code: ERROR_CODES.invalid_payload },
     { status: 400, code: ERROR_CODES.unknown_format },
     { status: 403, code: ERROR_CODES.not_owner },
@@ -516,6 +519,7 @@ const REQUIRED: Record<string, RequiredCase[]> = {
     { status: 200 },
     ...A,
     { status: 400, code: ERROR_CODES.bad_request },
+    { status: 400, code: ERROR_CODES.if_match_required },
     { status: 400, code: ERROR_CODES.invalid_name },
     { status: 400, code: ERROR_CODES.invalid_payload },
     { status: 400, code: ERROR_CODES.unsupported_for_format },
@@ -529,6 +533,7 @@ const REQUIRED: Record<string, RequiredCase[]> = {
     { status: 200 },
     ...A,
     { status: 400, code: ERROR_CODES.bad_request },
+    { status: 400, code: ERROR_CODES.if_match_required },
     { status: 403, code: ERROR_CODES.not_owner },
     { status: 404, code: ERROR_CODES.not_found },
     { status: 409, code: ERROR_CODES.stale },
@@ -547,6 +552,7 @@ const REQUIRED: Record<string, RequiredCase[]> = {
     { status: 200 },
     ...A,
     { status: 400, code: ERROR_CODES.bad_request },
+    { status: 400, code: ERROR_CODES.if_match_required },
     { status: 403, code: ERROR_CODES.not_owner },
     { status: 404, code: ERROR_CODES.not_found },
     RL,

@@ -110,7 +110,7 @@ describe("[LDB-A7] PUT /v1/layouts/{ref}: owner or admin", () => {
     const fake = actorFixture();
     const headers = register(fake, "tok-put-owner", OWNER);
 
-    const res = await writeFetch(`/v1/layouts/${record.id}`, "PUT", headers, { format: "akl/1", payload: AKL_PAYLOAD });
+    const res = await writeFetch(`/v1/layouts/${record.id}`, "PUT", { ...headers, "If-Match": `"${record.rev}"` }, { format: "akl/1", payload: AKL_PAYLOAD });
     expect(res.status).toBe(200);
     expect(res.headers.get("ETag")).toBe(`"${record.rev + 1}"`);
     const body = await res.json<{ rev: number; format: string; name: string; owner: string }>();
@@ -128,7 +128,7 @@ describe("[LDB-A7] PUT /v1/layouts/{ref}: owner or admin", () => {
     const fake = actorFixture();
     const headers = register(fake, "tok-put-stranger", OTHER);
 
-    const res = await writeFetch(`/v1/layouts/${record.id}`, "PUT", headers, { format: "cmini/1", payload: CMINI_PAYLOAD });
+    const res = await writeFetch(`/v1/layouts/${record.id}`, "PUT", { ...headers, "If-Match": `"${record.rev}"` }, { format: "cmini/1", payload: CMINI_PAYLOAD });
     expect(res.status).toBe(403);
     await expect(res.json()).resolves.toMatchObject({ error: "not_owner", owner: OWNER });
     expect(await eventsFor(record.id)).toHaveLength(1); // just the seed's own "created"
@@ -139,7 +139,7 @@ describe("[LDB-A7] PUT /v1/layouts/{ref}: owner or admin", () => {
     const fake = actorFixture();
     const headers = register(fake, "tok-put-admin", BOOTSTRAP_ADMIN);
 
-    const res = await writeFetch(`/v1/layouts/${record.id}`, "PUT", headers, { format: "cmini/1", payload: CMINI_PAYLOAD });
+    const res = await writeFetch(`/v1/layouts/${record.id}`, "PUT", { ...headers, "If-Match": `"${record.rev}"` }, { format: "cmini/1", payload: CMINI_PAYLOAD });
     expect(res.status).toBe(200);
     const events = await eventsFor(record.id);
     expect(events.at(-1)).toMatchObject({ kind: "updated", actor: BOOTSTRAP_ADMIN, admin: true });
@@ -150,6 +150,18 @@ describe("[LDB-A7] PUT /v1/layouts/{ref}: owner or admin", () => {
     const res = await writeFetch(`/v1/layouts/${record.id}`, "PUT", {}, { format: "cmini/1", payload: CMINI_PAYLOAD });
     expect(res.status).toBe(401);
   });
+
+  // [LDB-P2] saltorbit's rule (2026-09-09): no If-Match at all -> refused
+  // before any read or mutation, even for the owner.
+  it("no If-Match -> 400 if_match_required, record unchanged", async () => {
+    const record = await seed();
+    const fake = actorFixture();
+    const headers = register(fake, "tok-put-noifmatch", OWNER);
+    const res = await writeFetch(`/v1/layouts/${record.id}`, "PUT", headers, { format: "cmini/1", payload: CMINI_PAYLOAD });
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({ error: "if_match_required" });
+    expect(await eventsFor(record.id)).toHaveLength(1); // just the seed's own "created"
+  });
 });
 
 describe("[LDB-A7] DELETE /v1/layouts/{ref}: owner or admin", () => {
@@ -158,7 +170,7 @@ describe("[LDB-A7] DELETE /v1/layouts/{ref}: owner or admin", () => {
     const fake = actorFixture();
     const headers = register(fake, "tok-del-owner", OWNER);
 
-    const res = await writeFetch(`/v1/layouts/${record.id}`, "DELETE", headers);
+    const res = await writeFetch(`/v1/layouts/${record.id}`, "DELETE", { ...headers, "If-Match": `"${record.rev}"` });
     expect(res.status).toBe(200);
     const body = await res.json<{ deleted: boolean; payload: unknown; rev: number }>();
     expect(body.deleted).toBe(true);
@@ -170,7 +182,7 @@ describe("[LDB-A7] DELETE /v1/layouts/{ref}: owner or admin", () => {
     const record = await seed();
     const fake = actorFixture();
     const headers = register(fake, "tok-del-stranger", OTHER);
-    const res = await writeFetch(`/v1/layouts/${record.id}`, "DELETE", headers);
+    const res = await writeFetch(`/v1/layouts/${record.id}`, "DELETE", { ...headers, "If-Match": `"${record.rev}"` });
     expect(res.status).toBe(403);
   });
 
@@ -178,7 +190,7 @@ describe("[LDB-A7] DELETE /v1/layouts/{ref}: owner or admin", () => {
     const record = await seed();
     const fake = actorFixture();
     const headers = register(fake, "tok-del-admin", BOOTSTRAP_ADMIN);
-    const res = await writeFetch(`/v1/layouts/${record.id}`, "DELETE", headers);
+    const res = await writeFetch(`/v1/layouts/${record.id}`, "DELETE", { ...headers, "If-Match": `"${record.rev}"` });
     expect(res.status).toBe(200);
     const events = await eventsFor(record.id);
     expect(events.at(-1)).toMatchObject({ kind: "deleted", admin: true });
@@ -188,6 +200,18 @@ describe("[LDB-A7] DELETE /v1/layouts/{ref}: owner or admin", () => {
     const record = await seed();
     const res = await writeFetch(`/v1/layouts/${record.id}`, "DELETE");
     expect(res.status).toBe(401);
+  });
+
+  // [LDB-P2] saltorbit's rule (2026-09-09): no If-Match at all -> refused
+  // before any read or mutation, even for the owner.
+  it("no If-Match -> 400 if_match_required, record unchanged", async () => {
+    const record = await seed();
+    const fake = actorFixture();
+    const headers = register(fake, "tok-del-noifmatch", OWNER);
+    const res = await writeFetch(`/v1/layouts/${record.id}`, "DELETE", headers);
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({ error: "if_match_required" });
+    expect(await eventsFor(record.id)).toHaveLength(1); // just the seed's own "created"
   });
 });
 
@@ -262,7 +286,7 @@ describe("[LDB-A7] POST /v1/layouts/{ref}/transfer: owner or admin", () => {
     const fake = actorFixture();
     const headers = register(fake, "tok-transfer-owner", OWNER);
 
-    const res = await writeFetch(`/v1/layouts/${record.id}/transfer`, "POST", headers, { to: TARGET_ID });
+    const res = await writeFetch(`/v1/layouts/${record.id}/transfer`, "POST", { ...headers, "If-Match": `"${record.rev}"` }, { to: TARGET_ID });
     expect(res.status).toBe(200);
     const body = await res.json<{ owner: string }>();
     expect(body.owner).toBe(TARGET_ID);
@@ -277,7 +301,7 @@ describe("[LDB-A7] POST /v1/layouts/{ref}/transfer: owner or admin", () => {
     const record = await seed();
     const fake = actorFixture();
     const headers = register(fake, "tok-transfer-stranger", OTHER);
-    const res = await writeFetch(`/v1/layouts/${record.id}/transfer`, "POST", headers, { to: TARGET_ID });
+    const res = await writeFetch(`/v1/layouts/${record.id}/transfer`, "POST", { ...headers, "If-Match": `"${record.rev}"` }, { to: TARGET_ID });
     expect(res.status).toBe(403);
   });
 
@@ -286,7 +310,7 @@ describe("[LDB-A7] POST /v1/layouts/{ref}/transfer: owner or admin", () => {
     const record = await seed();
     const fake = actorFixture();
     const headers = register(fake, "tok-transfer-admin", BOOTSTRAP_ADMIN);
-    const res = await writeFetch(`/v1/layouts/${record.id}/transfer`, "POST", headers, { to: TARGET_ID });
+    const res = await writeFetch(`/v1/layouts/${record.id}/transfer`, "POST", { ...headers, "If-Match": `"${record.rev}"` }, { to: TARGET_ID });
     expect(res.status).toBe(200);
     const events = await eventsFor(record.id);
     expect(events.at(-1)).toMatchObject({ kind: "transferred", admin: true });
@@ -296,6 +320,22 @@ describe("[LDB-A7] POST /v1/layouts/{ref}/transfer: owner or admin", () => {
     const record = await seed();
     const res = await writeFetch(`/v1/layouts/${record.id}/transfer`, "POST", {}, { to: TARGET_ID });
     expect(res.status).toBe(401);
+  });
+
+  // [LDB-P2] saltorbit's rule (2026-09-09): no If-Match at all -> refused
+  // before any read or mutation, even for the owner. Transfer never checks
+  // the header's VALUE against `record.rev` (no draft to be stale), only
+  // that it's present.
+  it("no If-Match -> 400 if_match_required, record unchanged", async () => {
+    await seedTargetAuthor();
+    const record = await seed();
+    const fake = actorFixture();
+    const headers = register(fake, "tok-transfer-noifmatch", OWNER);
+    const res = await writeFetch(`/v1/layouts/${record.id}/transfer`, "POST", headers, { to: TARGET_ID });
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({ error: "if_match_required" });
+    const events = await eventsFor(record.id);
+    expect(events).toHaveLength(1); // just the seed's own "created"
   });
 });
 
@@ -322,6 +362,7 @@ describe("[LDB-A5] client-lane writes: via: client:<id>", () => {
     path: string,
     client: { clientId: string; privateKey: CryptoKey; actor: string },
     body?: unknown,
+    extraHeaders?: Record<string, string>, // e.g. If-Match -- not part of the signed set
   ): Promise<Response> {
     const bodyText = body === undefined ? undefined : JSON.stringify(body);
     const headers = await signHeaders({
@@ -335,7 +376,7 @@ describe("[LDB-A5] client-lane writes: via: client:<id>", () => {
     });
     return SELF.fetch(`https://example.com${path}`, {
       method,
-      headers: bodyText === undefined ? headers : { ...headers, "Content-Type": "application/json" },
+      headers: bodyText === undefined ? { ...headers, ...extraHeaders } : { ...headers, "Content-Type": "application/json", ...extraHeaders },
       body: bodyText,
     });
   }
@@ -354,7 +395,7 @@ describe("[LDB-A5] client-lane writes: via: client:<id>", () => {
   it("PUT /v1/layouts/{ref} -> 200, event via: client:<id>", async () => {
     const client = await freshClient();
     const record = await seed("cmini/1", client.actor);
-    const res = await signedFetch("PUT", `/v1/layouts/${record.id}`, client, { format: "cmini/1", payload: CMINI_PAYLOAD });
+    const res = await signedFetch("PUT", `/v1/layouts/${record.id}`, client, { format: "cmini/1", payload: CMINI_PAYLOAD }, { "If-Match": `"${record.rev}"` });
     expect(res.status).toBe(200);
     const events = await eventsFor(record.id);
     expect(events.at(-1)).toMatchObject({ kind: "updated", via: `client:${client.clientId}`, actor: client.actor });
@@ -366,7 +407,7 @@ describe("[LDB-A5] client-lane writes: via: client:<id>", () => {
     // fixed to `via: actor.via` alongside this test, LDB-A5's client half.
     const client = await freshClient();
     const record = await seed("cmini/1", client.actor);
-    const res = await signedFetch("PATCH", `/v1/layouts/${record.id}`, client, { name: uniqueName("client-patch") });
+    const res = await signedFetch("PATCH", `/v1/layouts/${record.id}`, client, { name: uniqueName("client-patch") }, { "If-Match": `"${record.rev}"` });
     expect(res.status).toBe(200);
     const events = await eventsFor(record.id);
     expect(events.at(-1)).toMatchObject({ kind: "renamed", via: `client:${client.clientId}`, actor: client.actor });
@@ -375,7 +416,7 @@ describe("[LDB-A5] client-lane writes: via: client:<id>", () => {
   it("DELETE /v1/layouts/{ref} -> 200, event via: client:<id>", async () => {
     const client = await freshClient();
     const record = await seed("cmini/1", client.actor);
-    const res = await signedFetch("DELETE", `/v1/layouts/${record.id}`, client);
+    const res = await signedFetch("DELETE", `/v1/layouts/${record.id}`, client, undefined, { "If-Match": `"${record.rev}"` });
     expect(res.status).toBe(200);
     const events = await eventsFor(record.id);
     expect(events.at(-1)).toMatchObject({ kind: "deleted", via: `client:${client.clientId}`, actor: client.actor });
@@ -413,7 +454,7 @@ describe("[LDB-A5] client-lane writes: via: client:<id>", () => {
     await SELF.fetch("https://example.com/v1/me", { headers: targetHeaders });
     vi.unstubAllGlobals();
 
-    const res = await signedFetch("POST", `/v1/layouts/${record.id}/transfer`, client, { to: TARGET_ID });
+    const res = await signedFetch("POST", `/v1/layouts/${record.id}/transfer`, client, { to: TARGET_ID }, { "If-Match": `"${record.rev}"` });
     expect(res.status).toBe(200);
     const events = await eventsFor(record.id);
     expect(events.at(-1)).toMatchObject({ kind: "transferred", via: `client:${client.clientId}`, actor: client.actor });
@@ -422,7 +463,7 @@ describe("[LDB-A5] client-lane writes: via: client:<id>", () => {
   it("[LDB-I2a] followsUpstream reads via, not the literal 'discord' -- a client-lane write stops it", async () => {
     const client = await freshClient();
     const record = await seed("cmini/1", client.actor);
-    const res = await signedFetch("PUT", `/v1/layouts/${record.id}`, client, { format: "cmini/1", payload: CMINI_PAYLOAD });
+    const res = await signedFetch("PUT", `/v1/layouts/${record.id}`, client, { format: "cmini/1", payload: CMINI_PAYLOAD }, { "If-Match": `"${record.rev}"` });
     expect(res.status).toBe(200);
     const row = await db.prepare("SELECT via FROM events WHERE layout_id = ? ORDER BY seq DESC LIMIT 1").bind(record.id).first<{ via: string }>();
     expect(row?.via.startsWith("client:")).toBe(true);

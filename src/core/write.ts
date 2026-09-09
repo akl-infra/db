@@ -10,7 +10,7 @@
 import type { Actor } from "../auth/actor";
 import type { Bindings } from "../env";
 import { get as getFormat, list as listFormats } from "../formats/registry";
-import type { IfMatch } from "./ifmatch";
+import { requireIfMatch, type IfMatch } from "./ifmatch";
 import {
   ApiError,
   badRequest,
@@ -160,6 +160,7 @@ export async function replaceLayout(
   ifMatch: IfMatch,
 ): Promise<{ record: RecordRow; seq: number }> {
   const db = env.DB;
+  requireIfMatch(ifMatch);
   const { record, admin } = await loadForWrite(db, ref, actor, { allowDeleted: false });
   await requireRev(db, record, ifMatch);
   const { hasMagic } = validatePayload(body.format, body.payload);
@@ -189,6 +190,7 @@ export async function deleteLayout(
   ifMatch: IfMatch,
 ): Promise<{ record: RecordRow; seq: number }> {
   const db = env.DB;
+  requireIfMatch(ifMatch);
   const { record, admin } = await loadForWrite(db, ref, actor, { allowDeleted: false });
   await requireRev(db, record, ifMatch);
 
@@ -257,16 +259,21 @@ export interface TransferBody {
 
 // POST /v1/layouts/{ref}/transfer: owner or admin; `to` must name a known
 // user (an `authors` row -- an author, or anyone who has signed in once)
-// and differ from the current owner. No `If-Match` (ownership has no draft
-// to be stale).
+// and differ from the current owner. `If-Match` is required (saltorbit's rule,
+// 2026-09-09: the client must name the version it saw) but its VALUE is
+// never checked against `record.rev` -- ownership has no draft to be
+// stale, so `requireIfMatch` (presence only) is all that runs here, not
+// `requireRev`.
 export async function transferLayout(
   env: Bindings,
   now: Clock,
   actor: Actor,
   ref: string,
   body: TransferBody,
+  ifMatch: IfMatch,
 ): Promise<{ record: RecordRow; seq: number }> {
   const db = env.DB;
+  requireIfMatch(ifMatch);
   const { record, admin } = await loadForWrite(db, ref, actor, { allowDeleted: false });
 
   if (body.to === record.owner) throw badRequest("already the owner", "/to");
@@ -354,6 +361,7 @@ export async function patchLayout(
   ifMatch: IfMatch,
 ): Promise<{ record: RecordRow; seq: number }> {
   const db = env.DB;
+  requireIfMatch(ifMatch);
   const { record, admin } = await loadForWrite(db, ref, actor, { allowDeleted: false });
   await requireRev(db, record, ifMatch);
 

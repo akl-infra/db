@@ -3,6 +3,7 @@
     "method": "PUT",
     "path": "/v1/layouts/cw-put-notowner-1",
     "bearer": "conformance-other-token",
+    "headers": { "If-Match": "*" },
     "body": { "format": "cmini/1", "payload": { "board": "ortho", "keys": {} } },
     "setup": [
       {

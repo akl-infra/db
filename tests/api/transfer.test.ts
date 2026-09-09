@@ -54,7 +54,7 @@ describe("[LDB-A7] POST /v1/layouts/{ref}/transfer", () => {
   it("to an unknown user -> 400 bad_request", async () => {
     const record = await seed();
     const headers = ownerHeaders(OWNER, `tok-${uniqueName("t")}`);
-    const res = await writeFetch(`/v1/layouts/${record.id}/transfer`, "POST", headers, { to: UNKNOWN_TARGET });
+    const res = await writeFetch(`/v1/layouts/${record.id}/transfer`, "POST", { ...headers, "If-Match": "*" }, { to: UNKNOWN_TARGET });
     expect(res.status).toBe(400);
     await expect(res.json()).resolves.toMatchObject({ error: "bad_request", param: "/to" });
   });
@@ -62,14 +62,14 @@ describe("[LDB-A7] POST /v1/layouts/{ref}/transfer", () => {
   it("to a non-snowflake-shaped string -> 400 bad_request", async () => {
     const record = await seed();
     const headers = ownerHeaders(OWNER, `tok-${uniqueName("t")}`);
-    const res = await writeFetch(`/v1/layouts/${record.id}/transfer`, "POST", headers, { to: "not-a-user-id" });
+    const res = await writeFetch(`/v1/layouts/${record.id}/transfer`, "POST", { ...headers, "If-Match": "*" }, { to: "not-a-user-id" });
     expect(res.status).toBe(400);
   });
 
   it("to the current owner -> 400 bad_request", async () => {
     const record = await seed();
     const headers = ownerHeaders(OWNER, `tok-${uniqueName("t")}`);
-    const res = await writeFetch(`/v1/layouts/${record.id}/transfer`, "POST", headers, { to: OWNER });
+    const res = await writeFetch(`/v1/layouts/${record.id}/transfer`, "POST", { ...headers, "If-Match": "*" }, { to: OWNER });
     expect(res.status).toBe(400);
     await expect(res.json()).resolves.toMatchObject({ error: "bad_request", param: "/to" });
   });
@@ -78,15 +78,24 @@ describe("[LDB-A7] POST /v1/layouts/{ref}/transfer", () => {
     await seedAuthor(KNOWN_TARGET);
     const record = await seed();
     const headers = ownerHeaders(OTHER, `tok-${uniqueName("t")}`);
-    const res = await writeFetch(`/v1/layouts/${record.id}/transfer`, "POST", headers, { to: KNOWN_TARGET });
+    const res = await writeFetch(`/v1/layouts/${record.id}/transfer`, "POST", { ...headers, "If-Match": "*" }, { to: KNOWN_TARGET });
     expect(res.status).toBe(403);
+  });
+
+  it("no If-Match -> 400 if_match_required, owner unchanged", async () => {
+    await seedAuthor(KNOWN_TARGET);
+    const record = await seed();
+    const headers = ownerHeaders(OWNER, `tok-${uniqueName("t")}`);
+    const res = await writeFetch(`/v1/layouts/${record.id}/transfer`, "POST", headers, { to: KNOWN_TARGET });
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({ error: "if_match_required" });
   });
 
   it("a known target -> 200, owner moved, event transferred with before/after owner", async () => {
     await seedAuthor(KNOWN_TARGET);
     const record = await seed();
     const headers = ownerHeaders(OWNER, `tok-${uniqueName("t")}`);
-    const res = await writeFetch(`/v1/layouts/${record.id}/transfer`, "POST", headers, { to: KNOWN_TARGET });
+    const res = await writeFetch(`/v1/layouts/${record.id}/transfer`, "POST", { ...headers, "If-Match": `"${record.rev}"` }, { to: KNOWN_TARGET });
     expect(res.status).toBe(200);
     const body = await res.json<{ owner: string }>();
     expect(body.owner).toBe(KNOWN_TARGET);
@@ -101,14 +110,14 @@ describe("[LDB-A7] POST /v1/layouts/{ref}/transfer", () => {
 
     // the new owner can PUT; the old owner is refused
     const newOwnerHeaders = ownerHeaders(KNOWN_TARGET, `tok-${uniqueName("t")}`);
-    const putAsNewOwner = await writeFetch(`/v1/layouts/${record.id}`, "PUT", newOwnerHeaders, {
+    const putAsNewOwner = await writeFetch(`/v1/layouts/${record.id}`, "PUT", { ...newOwnerHeaders, "If-Match": `"${record.rev + 1}"` }, {
       format: "cmini/1",
       payload: CMINI_PAYLOAD,
     });
     expect(putAsNewOwner.status).toBe(200);
 
     const oldOwnerHeaders = ownerHeaders(OWNER, `tok-${uniqueName("t")}`);
-    const putAsOldOwner = await writeFetch(`/v1/layouts/${record.id}`, "PUT", oldOwnerHeaders, {
+    const putAsOldOwner = await writeFetch(`/v1/layouts/${record.id}`, "PUT", { ...oldOwnerHeaders, "If-Match": "*" }, {
       format: "cmini/1",
       payload: CMINI_PAYLOAD,
     });
@@ -119,7 +128,7 @@ describe("[LDB-A7] POST /v1/layouts/{ref}/transfer", () => {
     await seedAuthor(KNOWN_TARGET);
     const record = await seed();
     const headers = ownerHeaders(BOOTSTRAP_ADMIN, `tok-${uniqueName("t")}`);
-    const res = await writeFetch(`/v1/layouts/${record.id}/transfer`, "POST", headers, { to: KNOWN_TARGET });
+    const res = await writeFetch(`/v1/layouts/${record.id}/transfer`, "POST", { ...headers, "If-Match": `"${record.rev}"` }, { to: KNOWN_TARGET });
     expect(res.status).toBe(200);
 
     const { results } = await db

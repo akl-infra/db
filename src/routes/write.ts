@@ -70,7 +70,8 @@ writeRoute.post("/v1/layouts/:ref/restore", async (c) => {
 });
 
 writeRoute.post("/v1/layouts/:ref/transfer", async (c) => {
+  const ifMatch = parseIfMatch(c.req.header("If-Match") ?? null);
   const body = parseTransferBody(await readJson(c.req));
-  const { record } = await transferLayout(c.env, resolveNow(c.env), c.get("actor"), c.req.param("ref"), body);
+  const { record } = await transferLayout(c.env, resolveNow(c.env), c.get("actor"), c.req.param("ref"), body, ifMatch);
   return c.json(toWire(record), 200, { ETag: `"${record.rev}"` });
 });

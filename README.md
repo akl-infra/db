@@ -11,6 +11,20 @@ Full design: `design/layout-db/00-plan.md` (why) and
 `design/layout-db/07-implementation-phase1.md` (what phase 1 ships, slice
 by slice). Invariants: `INVARIANTS.md` (this directory).
 
+**Writes require `If-Match` (LDB-P2, saltorbit's rule, 2026-09-09):** no client
+may write to an existing record without naming the version it saw. `PUT
+/v1/layouts/{ref}`, `PATCH /v1/layouts/{ref}`, `DELETE /v1/layouts/{ref}`
+and `POST /v1/layouts/{ref}/transfer` all refuse a request with no
+`If-Match` header -- `400 if_match_required` (`src/core/errors.ts`),
+checked before any read or mutation. A client's "overwrite" is never a
+blind write: it must re-read the record first and send the `rev` it was
+shown (`If-Match: "<rev>"`); `If-Match: *` still means "overwrite whatever
+is there", but the client must say so explicitly -- absent is refused, not
+treated as `*`. `POST /v1/layouts` (creation), likes, `restore` and the
+`import:cmini` path are unaffected -- there is no prior version to name.
+Design: `design/layout-db/09-implementation-phase2.md` §2.1 (the error
+vocabulary), §2.3 (`If-Match` mechanics).
+
 ## Run locally
 
 ```bash
