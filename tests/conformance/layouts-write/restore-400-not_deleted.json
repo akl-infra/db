@@ -1,0 +1,18 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/layouts/__CW_RESTORE_LIVE_ID__/restore",
+    "bearer": "conformance-owner-token"
+  },
+  "response": {
+    "status": 400,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "error": "bad_request",
+      "message": "'cw-restore-live-1' is not deleted",
+      "param": "/ref"
+    }
+  }
+}

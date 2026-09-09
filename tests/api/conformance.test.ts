@@ -5,20 +5,131 @@
 // route table (`app.routes`) and the error vocabulary (`core/errors.ts`)
 // and fails when a required (route, status) pair has no case, so an added
 // route or a silently-dropped error path can't go uncovered.
-import { beforeAll, describe, expect, it } from "vitest";
+import { env } from "cloudflare:test";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import type { Bindings } from "../../src/env";
 import { badRequest, notFound, unknownFormat, unauthorized } from "../../src/core/errors";
+import { appendWrite } from "../../src/core/events";
+import { fixedClock, type Clock } from "../../src/core/time";
 import { app } from "../../src/index";
+import { FakeDiscord } from "../auth/fake-discord";
 import { CASES } from "../conformance/manifest";
 import { assertConformanceCase, seedUpstream100 } from "./support";
+
+const bindings = env as unknown as Bindings;
+const db = bindings.DB;
+
+// T2's write-route fixtures (09 §3 T2, §4) need an authenticated actor and,
+// for `restore`, a tombstone's id (a tombstone has no live name -- byRef's
+// name path never reaches it), plus a handful of pre-existing records
+// (`cw-put-1`, ...). Seeding these is deliberately NOT in `beforeAll`: every
+// write here bumps the shared `layouts`/`authors`/`events` counts that the
+// `meta/200` and `authors-list/200` fixtures pin exact literals for, and
+// `beforeAll` runs before EVERY case in this file, meta/200 included --
+// seeding early would silently drift those two fixtures out from under
+// their own committed values. Seeding lazily, memoized, and triggered only
+// from the first `layouts-write/*` case's own `it()` keeps every earlier
+// case (meta/200 among them) running against the plain `seedUpstream100()`
+// state; `CASES`' declared order (the write cases are last) is what makes
+// this safe. Referenced from fixture JSON via the placeholders
+// `resolvePath` substitutes below -- a fixture file can never embed a
+// freshly-minted ulid itself. `CONFORMANCE_CLOCK_ISO` is pinned via
+// `TEST_CLOCK` (the same escape hatch tests/api/write-support.ts's
+// `pinTestClock` uses) so every write's `created_at`/`modified_at` is byte-
+// stable across runs -- required for `canonical(normalizeIds(...))` to
+// agree run to run, since `seq` and the record's own literal fields are
+// NOT normalized (07 §6 S6: "seeds ... at a FIXED clock").
+const CONFORMANCE_CLOCK_ISO = "2026-06-20T00:00:00.000Z";
+const CONFORMANCE_OWNER = "800000000000000001";
+const CONFORMANCE_TARGET = "810000000000000001";
+const CMINI_PAYLOAD = { board: "ortho" as const, keys: {} };
+const ID_PLACEHOLDERS: Record<string, string> = {};
+
+async function seedLive(name: string) {
+  const { record } = await appendWrite(db, fixedClock(CONFORMANCE_CLOCK_ISO), {
+    kind: "created",
+    name,
+    owner: CONFORMANCE_OWNER,
+    modified_at: CONFORMANCE_CLOCK_ISO,
+    format: "cmini/1",
+    payload: CMINI_PAYLOAD,
+    actor: CONFORMANCE_OWNER,
+    via: "discord",
+    hasMagic: false,
+  });
+  return record;
+}
+
+let writeFixturesReady: Promise<void> | null = null;
+
+function ensureWriteFixtures(): Promise<void> {
+  if (writeFixturesReady === null) writeFixturesReady = seedWriteFixtures();
+  return writeFixturesReady;
+}
+
+async function seedWriteFixtures(): Promise<void> {
+  const fake = new FakeDiscord();
+  fake.setAnswer("conformance-owner-token", {
+    kind: "ok",
+    id: CONFORMANCE_OWNER,
+    username: "conformance-owner",
+    global_name: null,
+  });
+  vi.stubGlobal("fetch", fake.fetchImpl);
+  (bindings as unknown as { TEST_CLOCK?: Clock }).TEST_CLOCK = fixedClock(CONFORMANCE_CLOCK_ISO);
+
+  await db
+    .prepare("INSERT OR IGNORE INTO authors (user_id, name, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?)")
+    .bind(CONFORMANCE_TARGET, "conformance-transfer-target", CONFORMANCE_CLOCK_ISO, CONFORMANCE_CLOCK_ISO)
+    .run();
+
+  await seedLive("cw-put-1");
+  await seedLive("cw-put-stale-1");
+  await seedLive("cw-delete-1");
+  await seedLive("cw-transfer-1");
+
+  const restoreOk = await seedLive("cw-restore-1");
+  await appendWrite(db, fixedClock(CONFORMANCE_CLOCK_ISO), {
+    kind: "deleted",
+    layoutId: restoreOk.id,
+    name: restoreOk.name,
+    owner: restoreOk.owner,
+    modified_at: CONFORMANCE_CLOCK_ISO,
+    format: restoreOk.format,
+    payload: restoreOk.payload,
+    actor: CONFORMANCE_OWNER,
+    via: "discord",
+    deleted: true,
+  });
+  ID_PLACEHOLDERS.__CW_RESTORE_ID__ = restoreOk.id;
+
+  const restoreLive = await seedLive("cw-restore-live-1");
+  ID_PLACEHOLDERS.__CW_RESTORE_LIVE_ID__ = restoreLive.id;
+}
 
 beforeAll(async () => {
   await seedUpstream100();
 });
 
+afterAll(() => {
+  vi.unstubAllGlobals();
+});
+
+// A fixture path may carry a T2 id-placeholder (`__CW_RESTORE_ID__`) --
+// `assertConformanceCase`/`runConformanceRequest` (tests/api/support.ts)
+// take this as their `resolvePath` so a write-route fixture can address a
+// tombstone's id without ever embedding a freshly-minted ulid itself.
+function resolvePath(path: string): string {
+  let out = path;
+  for (const [token, id] of Object.entries(ID_PLACEHOLDERS)) out = out.replaceAll(token, id);
+  return out;
+}
+
 describe("conformance fixtures", () => {
   for (const kase of CASES) {
     it(kase.id, async () => {
-      await assertConformanceCase(kase);
+      if (kase.id.startsWith("layouts-write/")) await ensureWriteFixtures();
+      await assertConformanceCase(kase, resolvePath);
     });
   }
 });
@@ -86,6 +197,14 @@ const REQUIRED: Record<string, RequiredCase[]> = {
 
 describe("conformance enumeration", () => {
   const liveGetRoutes = [...new Set(app.routes.filter((r) => r.method === "GET").map((r) => r.path))];
+  // REQUIRED stays GET-only (T6's sweep is the slice that rebuilds it as a
+  // (method, status) enumeration over every verb -- 09 §3 T6). This second,
+  // wider set exists ONLY so a non-GET case (T2's write routes: POST/PUT/
+  // DELETE all share a route TABLE path with an existing GET, except
+  // restore/transfer which have none) can still be caught if its
+  // `routeTemplate` is a typo, without requiring every write verb to gain a
+  // REQUIRED row before T6 lands.
+  const livePaths = [...new Set(app.routes.map((r) => r.path))];
 
   it("every live GET route has a REQUIRED entry", () => {
     for (const path of liveGetRoutes) {
@@ -101,9 +220,7 @@ describe("conformance enumeration", () => {
 
   it("every manifest case names a live route", () => {
     for (const kase of CASES) {
-      expect(liveGetRoutes, `case '${kase.id}' names unknown route '${kase.routeTemplate}'`).toContain(
-        kase.routeTemplate,
-      );
+      expect(livePaths, `case '${kase.id}' names unknown route '${kase.routeTemplate}'`).toContain(kase.routeTemplate);
     }
   });
 

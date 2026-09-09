@@ -51,14 +51,41 @@ import dumpLatest404 from "./dump-latest/404.json" with { type: "json" };
 import dumpKey404 from "./dump-key/404.json" with { type: "json" };
 import dumpMonthly404 from "./dump-monthly/404.json" with { type: "json" };
 
-export interface ConformanceRequest {
+// 09 §3 T2's write verbs. Not yet cross-checked by the REQUIRED enumeration
+// below (that rebuild -- a (method, status) sweep over every verb, T3-T5's
+// admin/PATCH/like routes included -- is T6's), but these ARE exercised by
+// the "conformance fixtures" describe loop like any other case.
+import layoutsWritePostOk from "./layouts-write/post-201.json" with { type: "json" };
+import layoutsWritePostInvalidName from "./layouts-write/post-400-invalid_name.json" with { type: "json" };
+import layoutsWritePostNameTaken from "./layouts-write/post-409-name_taken.json" with { type: "json" };
+import layoutsWritePutOk from "./layouts-write/put-200.json" with { type: "json" };
+import layoutsWritePutStale from "./layouts-write/put-409-stale.json" with { type: "json" };
+import layoutsWriteDeleteOk from "./layouts-write/delete-200.json" with { type: "json" };
+import layoutsWriteRestoreOk from "./layouts-write/restore-200.json" with { type: "json" };
+import layoutsWriteRestoreNotDeleted from "./layouts-write/restore-400-not_deleted.json" with { type: "json" };
+import layoutsWriteTransferOk from "./layouts-write/transfer-200.json" with { type: "json" };
+
+// A single request as `runRequest` fires it -- shared by the main
+// (asserted) request and, for a write case, its `setup` steps (fired first
+// and discarded: e.g. the first of two POSTs that produces a name clash).
+export interface ConformanceStep {
   method: string;
   path: string;
+  bearer?: string; // Authorization: Bearer <bearer> (09 §3 T2's write routes)
+  body?: unknown; // JSON.stringify'd, Content-Type set
+  headers?: Record<string, string>; // e.g. If-Match -- merged in on top of bearer/Content-Type
+}
+
+export interface ConformanceRequest extends ConformanceStep {
   // First GET the same path with no conditional header to learn the live
   // ETag, then replay with `If-None-Match` set to it (03 §5's ETag is
   // derived from the live event-log head, so no fixed fixture value would
   // stay correct across seeds).
   ifNoneMatchSelf?: boolean;
+  // Fired in order before the asserted request, responses discarded --
+  // e.g. a first POST that must land so the second one collides on the
+  // name, or a first PUT whose rev the asserted one is now stale against.
+  setup?: ConformanceStep[];
 }
 
 export interface ConformanceResponse {
@@ -128,4 +155,14 @@ export const CASES: ConformanceCase[] = [
   kase("dump-latest/404", "/v1/dump/latest.json", dumpLatest404),
   kase("dump-key/404", "/v1/dump/:key", dumpKey404),
   kase("dump-monthly/404", "/v1/dump/monthly/:key", dumpMonthly404),
+
+  kase("layouts-write/post-201", "/v1/layouts", layoutsWritePostOk),
+  kase("layouts-write/post-400-invalid_name", "/v1/layouts", layoutsWritePostInvalidName),
+  kase("layouts-write/post-409-name_taken", "/v1/layouts", layoutsWritePostNameTaken),
+  kase("layouts-write/put-200", "/v1/layouts/:ref", layoutsWritePutOk),
+  kase("layouts-write/put-409-stale", "/v1/layouts/:ref", layoutsWritePutStale),
+  kase("layouts-write/delete-200", "/v1/layouts/:ref", layoutsWriteDeleteOk),
+  kase("layouts-write/restore-200", "/v1/layouts/:ref/restore", layoutsWriteRestoreOk),
+  kase("layouts-write/restore-400-not_deleted", "/v1/layouts/:ref/restore", layoutsWriteRestoreNotDeleted),
+  kase("layouts-write/transfer-200", "/v1/layouts/:ref/transfer", layoutsWriteTransferOk),
 ];

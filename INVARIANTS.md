@@ -16,6 +16,7 @@ the S1 rows only.
 |---|---|---|
 | LDB-A1 | No write is accepted without a resolved actor; every non-GET route answers 401 to an anonymous request (enumerated from the router) | `tests/auth/routes.test.ts` |
 | LDB-A2 | The Discord cache serves a success ≤ 5 min and a 401 ≤ 60 s; 5xx/429/network are never cached; the token is never stored | `tests/auth/discord.test.ts` |
+| LDB-A7 | Owner changes only via `transfer`; a write body naming `owner` (or any field outside the verb's schema) is refused | `tests/api/bodies.test.ts`, `tests/api/write.test.ts`, `tests/api/transfer.test.ts` |
 | LDB-C1 | `db.yml`'s shape (test job on PR/push under `db/**`; deploy needs test, main+push only, migrations before deploy; daily job runs rehost + diff; actions pinned) is asserted from the parsed YAML | `tests/tools/ciwiring.test.ts` |
 | LDB-C2 | `canonical()` is key-order-invariant and lossless | `tests/core/canonical.test.ts` |
 | LDB-D1 | The nightly dump is complete (every table, the whole event log), its `latest.json` sha256 matches the object served, and the monthly copy is written on the 1st (and only the 1st) | `tests/api/dump.test.ts`, `tests/rehost.test.ts` |
@@ -43,11 +44,13 @@ the S1 rows only.
 | LDB-I6 | A list shorter than half the live record count stalls the whole tick | `tests/import/plan.test.ts` |
 | LDB-I7 | A tick whose `/meta` token is unchanged makes no further request and writes nothing | `tests/import/tick.test.ts` |
 | LDB-I8 | Every upstream request carries the UA; 404 is never retried; other failures are retried 3x | `tests/import/upstream.test.ts` |
+| LDB-N1 | `check_name` is the bot's rule set with the bot's strings (`NAME_SET` minus the space), plus the 64-char cap and the ULID-shape refusal, applied to `POST` and rename only | `tests/api/names.test.ts` |
 | LDB-P1 | Every write appends exactly one rev-bumping event and one `layout_revs` row; the record equals the fold of its events; `seq` is gapless | `tests/events/fold.test.ts`, `tests/tools/onlywriter.test.ts` |
-| LDB-P4 | A name is released only by delete or rename | `tests/events/names.test.ts`, `tests/api/refs.test.ts` |
+| LDB-P2 | An `If-Match` mismatch writes nothing and returns the current record; two writes at one `rev` → exactly one commits, the other gets `stale` with the winner's record; the guard is `layout_revs`' PK inside the batch | `tests/api/ifmatch.test.ts`, `tests/events/fold.test.ts` |
+| LDB-P4 | A name is released only by delete or rename | `tests/events/names.test.ts`, `tests/api/refs.test.ts`, `tests/api/names.test.ts` |
 | LDB-P6 | `/v1/changes` serves from `since=0`, including after a restore | `tests/events/feed.test.ts`, `tests/rehost.test.ts` |
 | LDB-P7 | Every error response carries `error` and `message`; every (route, status) pair has a conformance case | `tests/api/conformance.test.ts` |
-| LDB-P8 | A tombstone is unreadable by name from the moment of deletion (phase 1 half; the 30-day restore is phase 2) | `tests/api/refs.test.ts` |
+| LDB-P8 | A tombstone is unreadable by name from the moment of deletion (phase 1) and restorable by id for 30 days by its owner, any time by an admin, keeping name/format/payload/history (phase 2) | `tests/api/refs.test.ts`, `tests/api/restore.test.ts` |
 | LDB-R1 | Polled routes carry `Cache-Control` + strong `ETag` and answer `304` to a matching `If-None-Match`; the ETag changes iff the event head or the query changes | `tests/api/etag.test.ts` |
 | LDB-R2 | `/v1/meta` counts and `seq`/`revision` equal the tables | `tests/api/meta.test.ts` |
 | LDB-R3 | The conformance fixtures are the API contract; changing one is a documented API change | `tests/api/conformance.test.ts` (+ review) |
@@ -55,3 +58,4 @@ the S1 rows only.
 | LDB-R5 | `/rev/{n}` reproduces the payload stored at rev `n` for every n | `tests/api/history.test.ts` |
 | LDB-S1a | `db/tests/fixtures/db-responses/` (site-side sync fixture, design/layout-db/11-implementation-phase3.md §1 W1) equals the live `/v1/meta`, `/v1/layouts`, `/v1/layouts?full=1&as=cmini/1`, per-name `/v1/layouts/{name}?as=cmini/1`, `/v1/layouts/{name}/likes` and `/v1/authors` routes over the standard upstream-100 seed | `tests/api/fixture-export.test.ts` |
 | LDB-T1 | Every registry id has a tagged test and every tag has a registry row | `tests/tools/invariants.test.ts` |
+| LDB-W1 | Every write route is resolve → authorize → check → `appendWrite`; no file under `src/routes/` prepares a D1 statement | `tests/tools/routes-noprepare.test.ts` |

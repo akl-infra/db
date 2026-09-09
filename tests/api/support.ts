@@ -12,7 +12,7 @@ import { canonical } from "../../src/core/canonical";
 import { fixedClock } from "../../src/core/time";
 import { tick } from "../../src/import/cmini";
 import { FakeUpstream } from "../import/fake-upstream";
-import type { ConformanceCase } from "../conformance/manifest";
+import type { ConformanceCase, ConformanceStep } from "../conformance/manifest";
 
 export const bindings = env as unknown as Bindings;
 export const db = bindings.DB;
@@ -51,25 +51,55 @@ export function normalizeIds(v: unknown): unknown {
   return v;
 }
 
-// The conformance runner (07 §6 S6/S7): one case, asserted byte-exact.
-// Factored out of tests/api/conformance.test.ts so tests/rehost.test.ts can
-// replay the exact same assertions against a RESTORED database (LDB-G1) --
-// two copies of this logic could quietly drift on what "conformant" means.
+// Maps a fixture path (possibly carrying a T2 id-placeholder, e.g.
+// `__CW_RESTORE_ID__` -- a fixture file can never embed a freshly-minted
+// ulid) to the real path to fetch. Defaults to identity; conformance.test.ts
+// passes its own substitution, tests/rehost.test.ts needs none.
+export type PathResolver = (path: string) => string;
+
+// One request/setup-step as `runConformanceRequest` fires it (09 §3 T2):
+// bearer -> Authorization, body -> JSON + Content-Type, extra headers
+// merged on top.
+export async function fireConformanceStep(step: ConformanceStep, resolvePath: PathResolver = (p) => p): Promise<Response> {
+  const url = `https://example.com${resolvePath(step.path)}`;
+  const headers: Record<string, string> = { ...step.headers };
+  if (step.bearer !== undefined) headers.Authorization = `Bearer ${step.bearer}`;
+  const init: RequestInit = { method: step.method, headers };
+  if (step.body !== undefined) {
+    headers["Content-Type"] = "application/json";
+    init.body = JSON.stringify(step.body);
+  }
+  return SELF.fetch(url, init);
+}
+
+// The conformance runner (07 §6 S6/S7, 09 §3 T2): one case, asserted byte-
+// exact. Factored out of tests/api/conformance.test.ts so tests/
+// rehost.test.ts can replay the exact same assertions against a RESTORED
+// database (LDB-G1) -- two copies of this logic could quietly drift on
+// what "conformant" means. `req.setup` (T2's write cases: e.g. a first
+// POST that must land so the second one collides on the name) fires first,
+// responses discarded.
 export async function runConformanceRequest(
   req: ConformanceCase["request"],
+  resolvePath: PathResolver = (p) => p,
 ): Promise<{ res: Response; primingEtag?: string }> {
-  const url = `https://example.com${req.path}`;
-  if (!req.ifNoneMatchSelf) {
-    return { res: await SELF.fetch(url, { method: req.method }) };
+  for (const step of req.setup ?? []) {
+    await fireConformanceStep(step, resolvePath);
   }
-  const priming = await SELF.fetch(url);
+  if (!req.ifNoneMatchSelf) {
+    return { res: await fireConformanceStep(req, resolvePath) };
+  }
+  const priming = await fireConformanceStep({ method: req.method, path: req.path }, resolvePath);
   const primingEtag = priming.headers.get("ETag") ?? undefined;
-  const res = await SELF.fetch(url, { headers: primingEtag !== undefined ? { "If-None-Match": primingEtag } : {} });
+  const res = await fireConformanceStep(
+    { method: req.method, path: req.path, headers: primingEtag !== undefined ? { "If-None-Match": primingEtag } : {} },
+    resolvePath,
+  );
   return { res, primingEtag };
 }
 
-export async function assertConformanceCase(kase: ConformanceCase): Promise<void> {
-  const { res, primingEtag } = await runConformanceRequest(kase.request);
+export async function assertConformanceCase(kase: ConformanceCase, resolvePath?: PathResolver): Promise<void> {
+  const { res, primingEtag } = await runConformanceRequest(kase.request, resolvePath);
 
   expect(res.status, kase.id).toBe(kase.response.status);
 

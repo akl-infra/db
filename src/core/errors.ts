@@ -37,11 +37,21 @@ export function notFound(message: string, ref?: string): ApiError {
   return new ApiError(404, { error: "not_found", message, ...(ref !== undefined ? { ref } : {}) });
 }
 
-export function nameTaken(name: string): ApiError {
+// `holder` (09 §2.6, §3 T2) is attached by the write pipeline once it knows
+// which live record is blocking the name -- `appendWrite`'s own pre-check
+// throws this with no holder (it only knows the name clashed, not who
+// holds it); `core/write.ts` catches that and re-throws with `holder` set.
+export interface NameHolder {
+  id: string;
+  owner: string;
+}
+
+export function nameTaken(name: string, holder?: NameHolder): ApiError {
   return new ApiError(409, {
     error: "name_taken",
     message: `name '${name}' is already taken`,
     name,
+    ...(holder !== undefined ? { holder } : {}),
   });
 }
 
@@ -91,4 +101,44 @@ export function notOwner(name: string, owner: string): ApiError {
 
 export function notAdmin(): ApiError {
   return new ApiError(403, { error: "not_admin", message: "admin only" });
+}
+
+// The phase-2 write errors (09 §2.6, §3 T2).
+export function invalidName(name: string, message: string): ApiError {
+  return new ApiError(400, { error: "invalid_name", message, name });
+}
+
+// `record` is the current record (with payload, `toWire`'d) at the moment
+// of the conflict -- from the pre-check (09 §2.3 point 1) or from a re-read
+// after a lost race (point 2), the winner's record either way. `lastWrite`
+// is that record's latest rev-bumping event (`06 §2.6`'s "2 h ago, via the
+// bot" footer).
+export interface LastWrite {
+  seq: number;
+  at: string;
+  actor: string;
+  via: string;
+  kind: string;
+  admin: boolean;
+}
+
+export function stale(record: Record<string, unknown> & { rev: number }, lastWrite: LastWrite): ApiError {
+  return new ApiError(409, {
+    error: "stale",
+    message: `record is at rev ${record.rev}, not the version you edited`,
+    rev: record.rev,
+    record,
+    last_write: lastWrite,
+  });
+}
+
+// A PATCH verb the record's format has no `edits` entry for (T4), or its
+// edit returned an error for this payload.
+export function unsupportedForFormat(format: string, verb: string): ApiError {
+  return new ApiError(400, {
+    error: "unsupported_for_format",
+    message: `'${verb}' is not supported for format '${format}'`,
+    format,
+    verb,
+  });
 }

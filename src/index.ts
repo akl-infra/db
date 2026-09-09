@@ -14,6 +14,7 @@ import { changesRoute } from "./routes/changes";
 import { dumpRoute } from "./routes/dump";
 import { formatsRoute } from "./routes/formats";
 import { layoutsRoute } from "./routes/layouts";
+import { writeRoute } from "./routes/write";
 
 const CACHE_CONTROL = "public, max-age=10";
 
@@ -81,20 +82,12 @@ app.get("/v1/me", async (c) => {
   return c.json({ user_id: actor.user_id, name: actor.name, via: actor.via, admin: actor.admin });
 });
 
-// Throwaway write route so tests/auth/routes.test.ts can prove the write
-// gate end to end before T2 lands real write routes (T2 deletes this).
-// Answers only when the test-only TEST_ROUTES binding is set (vitest's
-// miniflare config); production has no such var, so this is a 404 there --
-// and the gate still runs first either way.
-app.post("/v1/__test/write", (c) =>
-  (c.env as { TEST_ROUTES?: string }).TEST_ROUTES === "1" ? c.json({ ok: true }) : c.notFound(),
-);
-
 app.route("/", layoutsRoute);
 app.route("/", authorsRoute);
 app.route("/", formatsRoute);
 app.route("/", changesRoute);
 app.route("/", dumpRoute);
+app.route("/", writeRoute);
 
 app.onError((err, c) => {
   if (err instanceof ApiError) {

@@ -1,0 +1,49 @@
+{
+  "request": {
+    "method": "PUT",
+    "path": "/v1/layouts/cw-put-stale-1",
+    "bearer": "conformance-owner-token",
+    "headers": { "If-Match": "\"1\"" },
+    "body": { "format": "cmini/1", "payload": { "board": "ortho", "keys": {}, "tag": "stale" } },
+    "setup": [
+      {
+        "method": "PUT",
+        "path": "/v1/layouts/cw-put-stale-1",
+        "bearer": "conformance-owner-token",
+        "body": { "format": "cmini/1", "payload": { "board": "ortho", "keys": {}, "tag": "bump" } }
+      }
+    ]
+  },
+  "response": {
+    "status": 409,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "error": "stale",
+      "message": "record is at rev 2, not the version you edited",
+      "rev": 2,
+      "record": {
+        "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "name": "cw-put-stale-1",
+        "owner": "800000000000000001",
+        "rev": 2,
+        "created_at": "2026-06-20T00:00:00.000Z",
+        "modified_at": "2026-06-20T00:00:00.000Z",
+        "deleted": false,
+        "like_count": 0,
+        "has_magic": false,
+        "format": "cmini/1",
+        "payload": { "board": "ortho", "keys": {}, "tag": "bump" }
+      },
+      "last_write": {
+        "seq": 437,
+        "at": "2026-06-20T00:00:00.000Z",
+        "actor": "800000000000000001",
+        "via": "discord",
+        "kind": "updated",
+        "admin": false
+      }
+    }
+  }
+}

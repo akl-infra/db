@@ -1,0 +1,28 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/layouts/cw-transfer-1/transfer",
+    "bearer": "conformance-owner-token",
+    "body": { "to": "810000000000000001" }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json",
+      "ETag": "\"2\""
+    },
+    "body": {
+      "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "name": "cw-transfer-1",
+      "owner": "810000000000000001",
+      "rev": 2,
+      "created_at": "2026-06-20T00:00:00.000Z",
+      "modified_at": "2026-06-20T00:00:00.000Z",
+      "deleted": false,
+      "like_count": 0,
+      "has_magic": false,
+      "format": "cmini/1",
+      "payload": { "board": "ortho", "keys": {} }
+    }
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/layouts",
+    "bearer": "conformance-owner-token",
+    "body": { "name": "cw-post-dup-1", "format": "cmini/1", "payload": { "board": "ortho", "keys": {} } },
+    "setup": [
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-owner-token",
+        "body": { "name": "cw-post-dup-1", "format": "cmini/1", "payload": { "board": "ortho", "keys": {} } }
+      }
+    ]
+  },
+  "response": {
+    "status": 409,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "error": "name_taken",
+      "message": "name 'cw-post-dup-1' is already taken",
+      "name": "cw-post-dup-1",
+      "holder": {
+        "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "owner": "800000000000000001"
+      }
+    }
+  }
+}

@@ -28,9 +28,12 @@ export default defineConfig(async () => {
                 // Worker -- `process.env` inside the workerd realm itself
                 // does not see the host shell's environment, so this is the
                 // one place tests/rehost.test.ts (S7) can read it from.
+                // (T2's write-route tests set a THIRD test-only property,
+                // `TEST_CLOCK`, directly on the live `env` object at runtime
+                // instead of declaring it here -- see src/routes/write.ts's
+                // `resolveNow()`.)
                 bindings: {
                   TEST_MIGRATIONS: migrations,
-                  TEST_ROUTES: "1",
                   TEST_REHOST_DUMP_URL: process.env.REHOST_DUMP_URL ?? "",
                 },
               },

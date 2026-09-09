@@ -314,4 +314,64 @@ describe("fold", () => {
     expect(after!.rev).toBe(before!.rev); // info + one real like + one no-op like: no rev bump
     expect(after!.like_count).toBe(before!.like_count + 1);
   });
+
+  // [LDB-P1] (09 §3 T2, extended for phase 2): the same fold identity, but
+  // now over a genuinely racing pair -- two `appendWrite`s on ONE slot fired
+  // with `Promise.all` rather than awaited in sequence. Exactly one commits
+  // (the `layout_revs` PK refuses the loser's whole batch, `core/write.ts`'s
+  // `commitWrite` is what turns that into `409 stale` at the route layer --
+  // this test stays at the pipeline level, like tests/events/races.test.ts),
+  // and the fold still equals the row afterward.
+  it("[LDB-P1] a racing Promise.all pair of writes on one slot still folds to the winner's row", async () => {
+    const clock = steppingClock("2026-01-05T00:00:00.000Z", 1000);
+
+    await fc.assert(
+      fc.asyncProperty(fc.constant(null), async () => {
+        const { record } = await appendWrite(db, clock, {
+          kind: "created",
+          name: `race-fold-${unique()}`,
+          owner: "owner-a",
+          modified_at: clock(),
+          format: "cmini/1",
+          payload: { v: unique() },
+          actor: "tester",
+          via: "discord",
+        });
+
+        const update = (v: string) =>
+          appendWrite(db, clock, {
+            kind: "updated",
+            layoutId: record.id,
+            name: record.name,
+            owner: record.owner,
+            modified_at: clock(),
+            format: record.format,
+            payload: { v },
+            actor: "tester",
+            via: "discord",
+          });
+
+        const outcomes = await Promise.allSettled([update("a"), update("b")]);
+        expect(outcomes.filter((o) => o.status === "fulfilled")).toHaveLength(1);
+
+        const eventRows = await db
+          .prepare("SELECT * FROM events WHERE layout_id = ? ORDER BY seq ASC")
+          .bind(record.id)
+          .all<EventDbRow>();
+        const events = eventRows.results.map(rowToEvent);
+        const revRows = await db
+          .prepare("SELECT rev, format, payload_json FROM layout_revs WHERE layout_id = ?")
+          .bind(record.id)
+          .all<{ rev: number; format: string; payload_json: string }>();
+        const revs = new Map(
+          revRows.results.map((r) => [r.rev, { format: r.format, payload: JSON.parse(r.payload_json) as unknown }]),
+        );
+        const folded = foldRecord(events, revs);
+
+        const actualRow = await db.prepare("SELECT * FROM layouts WHERE id = ?").bind(record.id).first<LayoutDbRow>();
+        expect(folded).toEqual(rowToRecord(actualRow!));
+      }),
+      { numRuns: 30 },
+    );
+  });
 });
