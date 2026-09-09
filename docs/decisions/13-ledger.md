@@ -5,14 +5,14 @@ operated, and what is open. A new agent or session should be able to pick up
 from this file plus `00-plan.md`'s index. Keep it current at every milestone;
 dates are UTC.
 
-## 1. Deployed state (2026-09-09 16:10Z)
+## 1. Deployed state (2026-09-09 16:30Z)
 
 | thing | where | version / state |
 |---|---|---|
 | `akl-db` Worker (production) | Cloudflare account **akl** (community, Workers Paid), `https://akl-db.akl-58a.workers.dev` | deployed by hand from 56cef60b as v499a8778 (If-Match required, LDB-P2); D1 `akl-db` (migrations 0001–0004), R2 `akl-db-dumps`; 4,176 layouts, diff vs cmini = zero; Workers Logs (observability) on |
 | `akl-db-preview` Worker | same account, `https://akl-db-preview.akl-58a.workers.dev` | deployed from ≈18660e9e; D1 `akl-db-preview`, R2 `akl-db-dumps-preview`; seeded from cmini (4,176 records, seq 6213) with its first dump; clients `ops-bootstrap-preview` (`db/.env.ops.preview`) and `spark-preview` (`bot/.env.spt`) |
 | Cron | akl account | **not dispatched by Cloudflare** (zero `workersInvocationsScheduled` rows since 12:45Z, recreated 3×, single `*/5` trigger since 15:03Z). Support ticket text: scratchpad `cloudflare-ticket.txt` (saltorbit submits). Manual kicks below. |
-| `spark` Discord bot | saltorbit's Fly.io account, app `spark-bot`, region iad, **512 MB** (256 MB thrashed silently), volume `botdata` at `/data` | deployed by hand from the branch (`flyctl deploy --config bot/fly.toml --dockerfile bot/Dockerfile --remote-only --app spark-bot` from the repo root); prefixes `!spark !sp !aklgg !ag`; points at production; verify-then-serve reads, fresh `If-Match` writes, SSE feed, memory watchdog DMing saltorbit (ALERT_USER_ID), 20 s request timeout; redeployed 15:59Z from a9972eb7 |
+| `spark` Discord bot | saltorbit's Fly.io account, app `spark-bot`, region iad, **512 MB** (256 MB thrashed silently), volume `botdata` at `/data` | deployed by hand from the branch (`flyctl deploy --config bot/fly.toml --dockerfile bot/Dockerfile --remote-only --app spark-bot` from the repo root); prefixes `!spark !sp !aklgg !ag`; points at production; verify-then-serve reads, fresh `If-Match` writes, SSE feed, memory watchdog DMing saltorbit (ALERT_USER_ID), 20 s request timeout, code-block-safe router, `!authors` under Discord's 2000-char cap; redeployed 16:25Z from 95d94d7a |
 | `!spt` test instance | saltorbit's laptop (`nohup node --env-file=.env.spt dist/main.js` in `bot/`, pid in scratchpad `spt.pid`, log `spt.log`) | same Discord bot user, prefix `!spt`, preview DB, `TEST_BOT_IDS` = spark-tester; the e2e harness drives it in `#bot-spam`. Dies with the laptop. |
 | akl.gg (the site) | saltorbit's Cloudflare account, Pages project `aklgg` | **unchanged**: still scrapes cmini, no sign-in. Only `web/proposals/**` (proposal pages + the unlisted `db/systems.html` map) reached `main`. |
 | Registered DB clients | production `clients` table | `ops-bootstrap` (act-as-owner-only, saltorbit; key in `db/.env.ops`), `spark` (act-as-user; key in `bot/.env` and Fly secrets) |
@@ -68,8 +68,10 @@ One Claude Code session has ONE worktree pin shared by every plain-spawned agent
 
 Needs saltorbit: Cloudflare cron ticket; rename the Discord app to Spark; copy sign-off (`web/src/copy/db.ts`, `bot/src/copy.ts`, every `// COPY: sign-off pending`); second admin (later); GitHub org / npm scope / hostname (X6); when to PR to main and start W6's flips; W5 §5 Q2 — migrating magic forks 10 layouts from cmini (auditor, chog, echo, opal, opal-dario, opaline, sunstone, vylet, vylet-v4, whirl): acceptable?
 
-In flight (2026-09-09 16:10Z): W4c (promoted card rendering, own-card verbs, non-blind overwrite, renumber) on ldb-w4c; the e2e harness (`bot/scripts/e2e.mjs`, scenario, checker; first live run against `!spt`) on ldb-e2e; DB sweep follow-ups (client-lane 401 codes in the auth group, LDB-D1/I9 registry drift) on ldb-sweep; X5 packages + split prep on ldb-x5. Merged since 16:00Z: bot addendums (LDB-B15/B16/B17), W5's LDB-G5 fix, the copy sign-off list (14).
+In flight (2026-09-09 16:30Z): W4d (Draft.origin populated end to end: sync carries `_dbId`/`_rev`, forking sets origin, real conflict path) on ldb-w4d; X5 packages + split prep on ldb-x5; e2e checker normalisation (structural diff) on ldb-e2e. Merged since 16:00Z: bot addendums (LDB-B15/B16/B17), W5's LDB-G5 fix, the copy sign-off list (14), the e2e harness (LDB-B18; first live run 45/51 → found the router code-block bug and `!authors` > 2000 chars), W4c (I-237..I-241; promoted card, own-card verbs, safe overwrite; Fingermap inline skipped — no bench finger editor to reuse), DB sweep (client-lane 401 codes across every A-group route, bidirectional tag coverage; 15,295 db tests), the two bot fixes (LDB-B19; live run now 46/46).
 
-Not started: X4b (delete CI daily steps after 7 green days), V7's remaining half (bot.yml deploy on main), W6 (every step saltorbit's), bot `freqd` (needs a 4-gram table), W5's two `invalid` rule sets (`adaptative-magic-sturdy`, `jazz`: adaptive trigger `C` not on the board — site data bug).
+Not started: X5b (saltorbit, 2026-09-09: one shared stats-cache module in core — harvest-first, memo by (id, rev, corpus), evict on rev bump — used by both the bot's cells.ts and the site's live-recompute paths; after X5 lands), X4b (delete CI daily steps after 7 green days), V7's remaining half (bot.yml deploy on main), W6 (every step saltorbit's), bot `freqd` (needs a 4-gram table), W5's two `invalid` rule sets (`adaptative-magic-sturdy`, `jazz`: adaptive trigger `C` not on the board — site data bug).
+
+The `!spt` instance's e2e runs write throwaway layouts to the PREVIEW DB only (`e2e-<runid>` names, removed at the end of each run).
 
 Known transient: two production 500s at 15:20–15:22Z (a PUT and a `/v1/changes`), untraceable at the time; Workers Logs are on since 15:3xZ so the next one is queryable in the dashboard.
