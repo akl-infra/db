@@ -11,7 +11,7 @@ question is only how a request proves *which* user it speaks for. Two lanes:
 
 | lane | who | proves the user by | typical caller |
 |---|---|---|---|
-| **user** (§2) | a person, through a client they are signed into | a Discord access token the DB verifies with Discord, or a DB-minted personal token | akl.gg, mana, any web app |
+| **user** (§2) | a person, through a client they are signed into | a Discord access token the DB verifies with Discord | akl.gg, any web app |
 | **client** (§3) | a registered program acting for a person it has already authenticated itself | an Ed25519 signature from a key an admin registered, plus the user id it asserts | Discord bots |
 
 Both lanes end in the same place: `ctx.actor = { user_id, via: "discord" |
@@ -38,23 +38,12 @@ akl.gg's side is `design/cmini-write/05-implementation-plan.md` §4.1–4.2,
 unchanged except the base URL: keep the user's Discord tokens encrypted in
 D1, proxy writes through Pages Functions, never hand the browser a token.
 
-### 2.2 Personal tokens (for CLIs and scripts)
+### 2.2 CLI writes — set aside
 
-A laptop cannot hold a Discord OAuth session comfortably. So:
-
-```
-POST /v1/auth/tokens          Authorization: Bearer <discord token>
-     { "label": "mana on laptop" }
-→ 201 { "token": "akl_v1_…", "id": "tok_…", "label": …, "created_at": … }   // shown once
-GET  /v1/auth/tokens          → the caller's tokens (id, label, created, last_used); never the secret
-DELETE /v1/auth/tokens/{id}
-```
-
-Stored as `sha256(token)`; presented as `Authorization: Bearer akl_v1_…`;
-no expiry by default, revocable, `last_used_at` updated on use. akl.gg's
-Settings page gets a *Create API token* button that calls this through the
-proxy and shows the token once (federation §13's "token the user copies from
-the node's settings page" — the less-code option, chosen).
+DB-minted personal tokens (a *Create API token* button in akl.gg's
+Settings, `Authorization: Bearer akl_v1_…`) were proposed here and **set
+aside** in the round-1 review (saltorbit, 2026-09-08: "this doesn't feel
+right"). Round 1 has no CLI write path. The remaining options are §7 Q2.
 
 ### 2.3 `GET /v1/me`
 
@@ -158,7 +147,7 @@ Bootstrap: migration `0001` inserts the first two admins from the runbook
 |---|---|---|
 | LDB-A1 | No write is accepted without `ctx.actor.user_id`; there is no anonymous write path, including admin routes. | route table test: every non-GET handler is wrapped by `requireActor` |
 | LDB-A2 | The Discord token cache never serves a failure longer than 60 s or a success longer than 5 min. | unit test with a fake clock |
-| LDB-A3 | A personal token's secret is stored only as a hash and returned only in the 201 that created it. | grep-style test over responses + D1 column check |
+| LDB-A3 | *(reserved — personal tokens set aside, §2.2)* | — |
 | LDB-A4 | Client-lane signatures: the verifier accepts every vector in `client-signing.json` and rejects each single-field mutation (method, path, timestamp ± 301 s, replayed nonce, body, actor, key). | generated matrix over the vectors |
 | LDB-A5 | Every accepted write's event carries `via` and, on the client lane, the client id; a revoked client's requests are refused from the revocation onward. | API test |
 | LDB-A6 | The admins table never has fewer than two active rows after bootstrap. | write-path check + test |
@@ -169,8 +158,13 @@ Bootstrap: migration `0001` inserts the first two admins from the runbook
 1. `act-as-user` for the one bot on day 1; do we want per-client allowed
    guild ids too (a bot only acting for users in the AKL server)? Cheap to
    add later; **not** on day 1.
-2. Personal tokens with optional expiry? Proposal: none by default, `expires_in`
-   optional.
+2. **How does mana write as its user?** Personal tokens are out. Left:
+   (a) a Discord device-flow login inside mana (mana registers a Discord
+   application; the token it gets is then the ordinary §2.1 bearer — zero
+   DB-side code); (b) publish only through akl.gg (mana hands the site a
+   draft, #218's `cb <layout>`, and the person presses Publish there);
+   (c) nothing in round 1. Proposal: (b) now, (a) if mana's author wants it.
 3. Should the DB run its own Discord OAuth too (for its own admin page)?
-   Proposal: no; admin actions are API calls with a personal token from an
-   admin, and the changelog is a public read-only page. Fewer secrets.
+   Proposal: no; admin actions are API calls made through akl.gg's own
+   session (its proxy forwards the admin's Discord bearer, §2.1), and the
+   changelog is a public read-only page. Fewer secrets.

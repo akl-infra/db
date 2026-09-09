@@ -110,7 +110,10 @@ reads from (`06 §1`).
   that survives renames; `name` stays unique case-insensitively and is what
   humans and the bot type. cmini used the name as the id, so a rename there was
   delete + create; here it is one event on one record. Imported records keep
-  their cmini name and carry the cmini id in `origin`.
+  their cmini name; the `imported` event and `import_map` carry the cmini
+  id. **No provenance field on the record** (saltorbit, round-1 review): one
+  client adds, another edits — where a layout came from is the event log's
+  business, not a flag that goes stale.
 - **D3 · `akl/1` is the common format**, and it is the site's existing shapes
   joined: cmini's `keys` map (`char → {row, col, finger}`, absolute thumb
   columns as in v3), a `board` that says row- or column-stagger with the
@@ -120,10 +123,11 @@ reads from (`06 §1`).
   concatenates compiled idioms and raw rules; two rows with the same trigger
   are a 400 at write time with both shown, never a silent last-wins (`01 §3`).
 - **D5 · Two auth lanes, one identity.** Users: a Discord access token
-  (verified against Discord — round 1 of #215, already approved) or a
-  DB-minted personal token for CLIs. Clients: Ed25519-signed requests from a
+  (verified against Discord — round 1 of #215, already approved). Clients: Ed25519-signed requests from a
   registered public key, naming the user they act for. Both resolve to a
-  Discord user id before any authorization rule runs (`02`).
+  Discord user id before any authorization rule runs (`02`). DB-minted
+  personal tokens for CLIs were proposed and **set aside** (saltorbit, round 1
+  review); how mana writes is an open question (`02 §7`).
 - **D6 · `rev` + `If-Match`, whole-record PUT, field PATCH for the small
   verbs.** Concurrency is an integer revision per record, checked on write;
   409 carries the current record. Rename/link/fingermap/transfer are PATCH
@@ -133,9 +137,11 @@ reads from (`06 §1`).
   `modified_at` (the bot and the site's sync already assume this).
 - **D8 · Feed is truth, webhooks nudge.** `GET /v1/changes?since=` serves
   from 0 forever; webhook subscribers get a signed POST and a gap means poll.
-- **D9 · Import is one-way and per-record.** A record imported from cmini
-  keeps following upstream until someone writes it here; then it is *forked*
-  and upstream changes to it become visible-but-unapplied events.
+- **D9 · Import is one-way and per-record, and "forked" is derived.** A
+  record imported from cmini keeps following upstream while its latest
+  write is an import; once a person has written it here, upstream changes
+  to it become visible-but-unapplied events. No flag — the import reads the
+  record's own history to decide (`06 §2`).
 - **D10 · Admins are a table, formats have owners, ops are a runbook.**
   `04`.
 - **D11 · The bot starts as a fork of cmini's command code** (GPLv3, in
@@ -153,11 +159,11 @@ phase 3.
 | phase | delivers | proof it works |
 |---|---|---|
 | **0 · proposals** | this directory, rendered at akl.gg for the community | people other than saltorbit have read `01`–`04` |
-| **1 · mirror** | `db/` Worker + D1; `formats/{core,cmini,akl}`; cmini import cron; reads (`/v1/layouts`, `?as=cmini/1`), `/v1/meta`, `/v1/changes`, `/v1/dump`; the cmini-compatible facade | `sync_cmini_data.py --base-url <ours>` produces a byte-identical data root to the upstream scrape (D12) |
+| **1 · mirror** | `db/` Worker + D1; `formats/{core,cmini,akl}`; cmini import cron; reads (`/v1/layouts`, `?as=cmini/1`), `/v1/meta`, `/v1/changes`, `/v1/dump` | every record read `?as=cmini/1` is byte-identical to upstream's copy (D12) |
 | **2 · users write** | user lane auth; POST/PUT/PATCH/DELETE; likes; transfer; event log; admin table; audit page | API suite + conformance vectors; the site's #215 publish UX pointed at the DB, in the preview deploy |
 | **3 · cutover** | akl.gg reads from the DB (pipeline data root, meta-watch), publishes to it; D1 `magic_rules` folded into records | prod on the DB for a week with the cmini import still running; no diff vs cmini for unforked records |
 | **4 · bot** | client lane auth; `bot/` with the DB verbs (`add remove rename assign setfingermap swap! angle! unangle! mirror! cycle! like unlike link unlink list likes authors`), then the analyzer verbs | parity table in `05` all green in a test guild |
-| **5 · open it** | webhooks; personal tokens page; `mana2/1` + one advanced format from its author; org + Cloudflare handover; rehost drill in CI; repo split | a second admin performs the rehost drill without saltorbit |
+| **5 · open it** | webhooks; `mana2/1` + one advanced format from its author; org + Cloudflare handover; rehost drill in CI; repo split | a second admin performs the rehost drill without saltorbit |
 
 ## 6. Questions for saltorbit
 
@@ -167,8 +173,11 @@ phase 3.
 4. **Day-1 co-admins**: who? The admins table (`04 §1`) is only democratic if it has two rows before phase 3.
 5. **Org names**: a GitHub org for the DB + bot repos, and a Cloudflare account with ≥2 super-admins — or keep under your account with added members until phase 5?
 6. **Import end state**: keep importing from cmini indefinitely (it stays a source for bot users who never move), or stop at a date?
-7. **Rename semantics for imported records**: cmini's id is its name; if someone renames `foo` on our side, the cmini import must not re-create `foo`. Handled by `origin.cmini_id` (D9), but confirm you want the *old* name to become free here.
+7. **Rename semantics for imported records**: cmini's id is its name; if someone renames `foo` on our side, the cmini import must not re-create `foo`. Handled by `import_map` (`03 §8`, D9), but confirm you want the *old* name to become free here.
 8. Anything in `01 §2` (the `akl/1` shape) you already know you want different — this is the one doc worth reading slowly.
+9. **CLI writes** (mana publishing as its user): personal tokens are set aside; the alternatives are a Discord device-flow login inside mana (needs mana to register a Discord app) or publishing through akl.gg only. Which, or neither for now?
+
+Resolved in the round-1 review (2026-09-08): no `origin` field on the record (history instead, D2/D9); `core` is a read format, not a record field (`01 §1`); no personal tokens (D5); no cmini-compatible facade — the site's sync reads `?as=cmini/1` (`06 §1`); polling cost answered in `03 §5` (edge cache + ETag + per-client limit; webhooks/stream preferred).
 
 ## 7. Where the code lives, and how it moves out
 

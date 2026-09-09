@@ -55,19 +55,13 @@ GET /v1/formats                         → registry: [{ id, owner, description,
 GET /v1/formats/{name}/{N}/schema.json
 ```
 
-### 2.1 The cmini-compatible facade
+### 2.1 No compatibility facade
 
-```
-GET /compat/cmini/v3/meta
-GET /compat/cmini/v3/layouts[?full=1]
-GET /compat/cmini/v3/layouts/{name}
-GET /compat/cmini/v3/authors
-```
-
-Byte-compatible with `clemenpine.com/layoutapi/v3` for the fields it has,
-plus nothing. This is how akl.gg's pipeline cuts over by changing one URL
-(`06 §1`), how emulayout reads without learning anything, and how the D12
-diff is run. Frozen like a format major: it never changes shape.
+A `/compat/cmini/v3/*` front door mirroring cmini's paths was proposed and
+**dropped** in the round-1 review. `?as=cmini/1` already yields cmini's
+payload shape; consumers (akl.gg's sync, emulayout) read `/v1/layouts?full=1&as=cmini/1`
+and `/v1/layouts/{name}?as=cmini/1`. The D12 mirror diff compares those
+against upstream (LDB-P5).
 
 ## 3. Writes (user or client lane, `02`)
 
@@ -113,8 +107,9 @@ Semantics:
 
 ```
 GET    /v1/me
-POST   /v1/auth/tokens · GET /v1/auth/tokens · DELETE /v1/auth/tokens/{id}     (02 §2.2)
 ```
+
+(Personal-token endpoints removed with `02 §2.2`.)
 
 ## 5. Events, feed, webhooks
 
@@ -139,6 +134,20 @@ GET /v1/changes?since=<seq>&limit=<≤1000>&kinds=created,updated,…
 
 Served from `since=0` forever (a follower bootstraps from the feed alone;
 the nightly dump is faster). Followers keep one cursor.
+
+**Cost of polling** (saltorbit, round-1 review: "won't that be bad for my
+server?"). Workers paid plan = 10 M requests/month for $5; one client
+polling `/v1/meta` every 30 s = ~86 k/month, each a single indexed D1 read
+(5 M reads/day allowance). Twenty pollers ≈ 1.7 % of the request budget. So
+polling is affordable but not free, and the design keeps it small:
+`/v1/meta`, `/v1/layouts` (list) and `/v1/changes` are served with
+`Cache-Control: public, max-age=10` through the Worker's cache API (a quiet
+poll usually never touches D1) and honour `If-None-Match` → `304`; per-client
+polling is rate-limited to one request per 10 s per endpoint; and every
+long-running client is steered to webhooks or the stream (§5 below), which
+cost one request per real change instead of one per tick. The changelog
+page (§7) is served through the same cache and is also rendered into the
+nightly dump as a static file.
 
 ```
 POST   /v1/webhooks     { url, secret, kinds?, owner_filter? }   (auth; owned by the actor)
@@ -183,19 +192,19 @@ GET    /admin/changelog           HTML, public, read-only: the event feed render
 
 ```
 layouts        id PK, name UNIQUE COLLATE NOCASE, owner, rev, created_at, modified_at,
-               deleted, link, format, payload_json, core_json, like_count,
-               origin_source, origin_id, origin_imported_at, origin_forked
+               deleted, link, format, payload_json, core_json (cache of ?as=core/1), like_count
+               -- no origin_* columns: provenance is the events table (01 §1)
 layout_revs    (layout_id, rev) PK, event_seq, payload_json, format      -- for /rev/{n}; compacted to
                                                                           -- every rev ≤ 100 per record, then monthly
 likes          (layout_id, user_id) PK, at
 authors        user_id PK, name, first_seen_at, last_seen_at              -- names from Discord at auth; cmini import seeds
 events         seq PK AUTOINCREMENT, at, kind, layout_id, actor, via, admin, before_json, after_json
-tokens         id PK, user_id, hash UNIQUE, label, created_at, last_used_at, expires_at
 clients        id PK, name, pubkey, owner_user_id, caps, discord_app_id, status, created_at, revoked_at
 nonces         (client_id, nonce) PK, at                                  -- pruned > 10 min
 admins         user_id PK, added_by, added_at, note
 webhooks       id PK, owner_user_id, url, secret_hash, kinds, status, failures, created_at
 import_state   key PK, value                                             -- cmini cursor, paused flag
+import_map     upstream_id PK, layout_id                                 -- cmini id → record id (the import's join key; not on the record)
 ```
 
 Write budget: D1's 100k rows/day cap (memory: D1 write budget) is far above
@@ -210,7 +219,7 @@ diff-only (`06 §2`).
 | LDB-P2 | `If-Match` mismatch is refused with the current record and writes nothing. | API test + concurrent-PUT race test (two PUTs at the same rev: exactly one wins) |
 | LDB-P3 | Webhook delivery never affects stored state; a follower's view from the feed alone equals a follower's view from feed + webhooks. | test with a dropping/reordering fake receiver |
 | LDB-P4 | A name is released only by delete or rename; a held or forked record keeps its name. | API matrix |
-| LDB-P5 | The compat facade's responses for every imported, unforked record are byte-identical to upstream's (after key-order canonicalisation). | D12 diff in CI |
+| LDB-P5 | Every record still following upstream (`06 §2`), read `?as=cmini/1`, is byte-identical to upstream's copy (after key-order canonicalisation). | D12 diff in CI |
 | LDB-P6 | `/v1/changes` serves from `since=0` after any compaction; compaction touches `layout_revs` only. | test: compact, then replay |
 | LDB-P7 | Every error response carries `error` and `message`; every `message` in the bot's verb set matches the bot's own string for that case. | table test from `05 §2` |
 | LDB-P8 | Deleted records are restorable for 30 days and unreadable by name from the moment of deletion. | API test with fake clock |

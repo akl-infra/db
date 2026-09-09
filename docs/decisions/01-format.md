@@ -22,16 +22,21 @@ The record is the same shape for every layout; the payload's shape is named by
   "deleted": false,                       // tombstones keep id, name, owner, rev
   "link": "https://…",                    // optional, free text URL
   "like_count": 7,                        // derived; the id list is GET /v1/layouts/{id}/likes
-  "origin": {                             // provenance; absent for layouts born here
-    "source": "cmini", "id": "hours",
-    "imported_at": "2026-09-10T02:00:00Z",
-    "forked": false                       // true once written here; upstream stops applying
-  },
   "format": "akl/1",                      // the payload's format id
-  "payload": { … },                       // see §2
-  "core": { … } | null                    // derived projection, core/1 (§4); null = held
+  "payload": { … }                        // see §2
 }
 ```
+
+No provenance field (saltorbit, round-1 review): where a record came from —
+imported from cmini, created by the bot, edited on akl.gg — is the event log
+(`03 §5`: `imported` events carry `source` and the upstream id; every write
+carries `via`). One client adds and another edits is the normal case, so a
+flag on the record would only go stale.
+
+No `core` field either: `core/1` is a **read format** (§4). The server may
+cache the projection in storage (`core_json`, `03 §8`) for listing and
+filtering, but it is not part of the record a client sees; a client asks
+`?as=core/1`.
 
 Rules:
 
@@ -42,9 +47,6 @@ Rules:
 - `payload` is stored **exactly as written**, byte-for-byte after JSON
   canonicalisation, under the `format` the writer declared. It is never
   rewritten in place by a schema change. Reads translate (§6).
-- `core` is computed by the server from the payload at write time using the
-  format's `toCore` and stored beside it, so listing and filtering never need
-  to know formats.
 
 ## 2. `akl/1` — the common format
 
@@ -86,16 +88,20 @@ board geometry from #261, the magic authoring shape from
     "magic_keys": [
       { "key": "@", "default": "repeat_previous",
         "rules": [ { "after": "n", "output": "nl" }, { "after": "r", "output": "rn" },
-                   { "after": "u", "output": "u'" }, { "after": "y", "output": "ys" } ] }
+                   { "after": "u", "output": "u'" }, { "after": "y", "output": "ys" } ],
+        // keys the default does NOT scaffold a row for (#221's "uncovered
+        // key" finding: opal has `,` but no `,◇` row). Optional.
+        "except": [","] }
     ],
     "chiral_keys": [ { "key": ";", "same": "ee", "opposite": "ei" } ],
     "adaptive_swaps": [ { "trigger": "t", "swap": ["h", "e"] } ],
 
     // ── the escape hatch ─────────────────────────────────────────────
     // Flat rules in mana2's own vocabulary, appended to the lowering
-    // unchanged. For things the idioms above cannot say yet. `note` is for
-    // the human reading the record later ("this is a 3-key swap, see …").
-    "rules": [ { "inputs": "th", "output": "te", "note": "…" } ]
+    // unchanged. For things the idioms above cannot say yet. `type` is
+    // optional: "raw" (default) or one of §3's tags when the writer knows
+    // it is honest. `note` is for the human reading the record later.
+    "rules": [ { "inputs": "th", "output": "te", "type": "raw", "note": "…" } ]
   },
 
   // ── anything else ───────────────────────────────────────────────────
@@ -130,13 +136,36 @@ them is proven in one.
 
 ## 3. Intent and lowering
 
-`lower(payload) → [{inputs, output}]` is a pure, deterministic function
+`lower(payload) → [{inputs, output, type}]` is a pure, deterministic function
 shipped with the format (`formats/akl/1/index.mjs`) and is what
 `?as=mana2/1` and `?as=cmini/1` emit in their `magic` fields. It is the
 existing compile in `scripts/build_magic_rules.py` / `functions/_lib/rules.mjs`
-(magic keys → one row per `after`; chiral → one row per key on the named
-hand; adaptive swap `t:[h,e]` → `th→te`, `te→th`) followed by the raw `rules`
-appended in order.
+(magic keys → one row per layout key not in `except` and per explicit
+`after`; chiral → one row per key on the named hand; adaptive swap
+`t:[h,e]` → `th→te`, `te→th`) followed by the raw `rules` appended in order.
+The repeat/default scaffold enumerates **the layout's keys**, not a–z
+(#221 §3.1: cmini's own rows do, and a–z gives non-Latin layouts nothing).
+
+**Typed rows.** Every lowered row carries a `type` from a closed vocabulary
+— the shape cmini's API already serves (`magic: [{inputs, output, type}]`)
+and the finding of `design/cmini-live-api/02-magic-rules-interop.md`
+(#221): with honest tags the flat list lifts back to the idioms *exactly*
+(verified on opal: 32 rows ⇄ one repeat key + 6 exceptions + 2 swaps). An
+analyzer ignores `type`; an editor trusts it. Each tag has an invariant a
+writer must satisfy:
+
+| `type` | produced by | invariant |
+|---|---|---|
+| `repeat` | a `repeat_previous` magic key's scaffold | `output == inputs[0]*2` |
+| `default:<c>` | a magic key whose default is the literal `c` | `output == inputs[0] + c` |
+| `magic` | an explicit `rules[]` entry on a magic key | `output` starts with `inputs[0]` |
+| `chiral` | a chiral key | rows sharing `inputs[1]` agree on `output[1:]` within a hand |
+| `adaptive` | one half of an adaptive swap | exactly one mate shares `inputs[0]` |
+| `raw` | the escape hatch | none |
+
+Unknown tags are legal on read (kept as the row, shown as raw). `chiral`
+and `default:<c>` are the two tags cmini's vocabulary lacks today (#221
+§2); this format adds them.
 
 **Collision rule (D4).** Two lowered rows with the same `inputs` — whether
 from two idioms, or an idiom and a raw rule — are refused at write time:
@@ -158,11 +187,11 @@ point: the lowering forgets the idiom). The **write** path therefore never
 accepts a lowering as the record's magic when the client had the intent: a
 client that only speaks flat rules writes them into `magic.rules` and the
 record honestly says "raw rules". A client that wants to *recover* intent
-from a flat list (e.g. importing `hours.jsonc`) may run the format's
-`liftRules()` — a best-effort detector for the repeat-key pattern and the
-swap pair pattern — and must present the result to the author before
-writing it, never write it silently. (Same posture as #221's finding that the
-flat rows round-trip; the lift is a convenience, the raw list is the truth.)
+from a flat list may run the format's `liftRules()`: exact for typed rows
+(#221 §3.2 — group by tag, verify each tag's invariant, anything that fails
+is a *leftover* kept as raw), a best-effort guess for untyped ones (mana2's
+`hours.jsonc`). A guessed lift must be shown to the author before it is
+written; an exact lift may be applied by the import (§8 Q3).
 
 ## 4. Other formats and the registry
 
@@ -231,7 +260,7 @@ keymaxx* — the "see it elsewhere" card from federation §6.5, in one database.
 | `board: "angle"` | `board: {kind:"rowstag", stagger:[0,0.25,0.75], cmini:"angle"}` (the angle shift is already in `keys`' cols and fingers, as cmini stores it) |
 | `board: "ortho"` | `board: {kind:"ortho", cmini:"ortho"}` |
 | `board: "mini"` | `board: {kind:"ortho", cmini:"mini"}` |
-| `magic: [{inputs, output, type}]` | `magic.rules` (raw), then the author may lift (§3). `type` is preserved under `x.cmini.magic_types` if it carries anything the row does not. |
+| `magic: [{inputs, output, type}]` | typed rows → exact lift into `magic_keys`/`adaptive_swaps` (§3); rows whose tag invariant fails, or with an unknown tag, → `magic.rules` with their tag kept. |
 | `name user link likes created_at modified_at` | record fields, not payload |
 
 Golden: every cmini layout at import (4174 on 2026-09-08) satisfies
@@ -276,10 +305,12 @@ mana2 digits (`LP..RP` = 0..9, thumbs 4/5). Magic → `lower()`. Reverse: digits
    already parses.)
 2. **Colstag amounts** are lost in `cmini/1`; fine? (Yes — cmini cannot say
    it.)
-3. **Lift on import**: run `liftRules()` at import for the ~60 cmini layouts
-   with magic and store the lifted idioms, or import raw and let owners lift
-   from the site? (Proposal: import raw; owners lift with one click on their
-   card — the lift is shown before it is saved.)
+3. **Lift on import**: cmini's rows are typed, so the lift is exact (§3).
+   Proposal: lift at import; rows that fail their tag's invariant stay raw
+   with the tag kept, and the owner sees them as "raw rules" on the site.
+3b. Add `chiral` and `default:<c>` to the tag vocabulary here even though
+   cmini lacks them (the list is designed to grow; unknown tags are legal)?
+   (Proposal: yes.)
 4. **`x` size cap**: 16 KB? (Proposal: yes, per record.)
 5. `#148` alt fingerings: additive minor to `akl/1` (`keys[c].alt: [...]`)
    once that design closes — flag now so nobody registers a format for it.

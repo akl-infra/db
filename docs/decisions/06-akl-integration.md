@@ -14,10 +14,16 @@ shape.
 Change, in order:
 
 1. **Phase 1 (mirror):** nothing on the site. The DB imports from cmini; the
-   D12 diff compares `GET /compat/cmini/v3/*` on the DB with upstream.
-2. **Phase 3 (cutover):** `DEFAULT_BASE_URL` in `sync_cmini_data.py` and
-   the Worker's `API_META_URL` point at the DB's compat facade. One URL, two
-   places, nothing else — the facade is byte-compatible (`03 §2.1`). The
+   D12 diff compares every record read `?as=cmini/1` with upstream.
+2. **Phase 3 (cutover):** `sync_cmini_data.py` grows a `--source db` mode:
+   list from `/v1/layouts?fields=id,name,owner,rev,modified_at,like_count`,
+   details (and the batch path) from `/v1/layouts?full=1&as=cmini/1` /
+   `/v1/layouts/{id}?as=cmini/1`, authors from `/v1/authors`, and the
+   change signal from `/v1/meta` (`revision`/`seq` in place of cmini's
+   `last_modified`). The extracted per-layout files are the same
+   `cmini/1` shape, so content hashes, manifests and everything downstream
+   are untouched. `workers/meta-watch` polls the DB's `/v1/meta` (later: a
+   webhook subscription replaces the 2-min poll, `03 §5`). The
    `cmini-backup` orphan branch keeps committing the scraped set (it now
    backs up our own DB, which is fine and cheap).
 3. **Later:** the sync reads `?as=akl/1` instead of the facade so board
@@ -35,31 +41,36 @@ the DB once, as the `created_at` of those records: **Q1**).
 A cron in the DB Worker (every 5 min; `/v3/meta` first, so a quiet tick is
 one GET — the trust-tier idea from the migration doc, reused):
 
+"Following upstream" is **derived, not stored** (D9): a record follows
+upstream iff its latest record-changing event (`created`/`updated`/…, likes
+excluded) is an `imported` event. One indexed query per candidate; no flag
+to go stale. `import_map` (`03 §8`) joins cmini ids to record ids.
+
 - new upstream id → `POST`-equivalent as `format: cmini/1`, `owner = user`,
-  `origin: {source: "cmini", id, imported_at}`, event `imported`;
+  event `imported {source: "cmini", upstream_id}`; `import_map` row;
 - changed upstream (`modified_at` moved, or content hash differs on the
-  daily full pass) and `origin.forked == false` → apply as an update, event
-  `imported` (actor `system:cmini-import`, `rev + 1`);
-- changed upstream and `forked == true` → **do not apply**; event
+  daily full pass) and the record follows upstream → apply as an update,
+  event `imported` (actor `system:cmini-import`, `rev + 1`);
+- changed upstream and the record does not follow → **do not apply**; event
   `upstream_changed` with the upstream content in `after` so the owner can
-  see it (the site can offer *pull cmini's version* as a one-click PUT);
-- upstream deleted → `upstream_deleted` event, record kept (**Q2**: or
-  tombstone it when unforked? Proposal: tombstone when unforked — the
-  author deleted it and they own it here too — keep when forked);
+  see it (the site offers *take cmini's version* as a one-click PUT);
+- upstream deleted → `upstream_deleted` event; tombstone when the record
+  follows upstream (the author deleted it and owns it here too), keep when
+  it does not (**Q2**);
 - upstream new name collides with a local record by a different owner →
   imported as **shadowed** (federation §6.3): stored, `name` set to
   `<name>~cmini`, event `import_conflict`, owner told on their next visit;
-- likes: replaced from upstream while unforked; merged (union) once forked
-  (**Q3**);
+- likes: replaced from upstream while the record follows; merged (union)
+  once it does not (**Q3**);
 - authors: `/v3/authors` seeds `authors` names; a name seen at auth wins
   thereafter.
 
 Bounded like `live-sync`'s prune rule: refuse to tombstone > 5 % of
 records in one tick without an admin resume.
 
-Any local write to an imported record sets `origin.forked = true` (D9). The
-site shows a small *forked from cmini · N changes upstream* line on such a
-card; copy TBD, gated on sign-off.
+The site shows a small *changed on cmini since* line on a card whose latest
+`upstream_changed` event is newer than its latest write; copy TBD, gated on
+sign-off.
 
 ## 3. Writes: #215's approved UX, retargeted
 
@@ -129,14 +140,14 @@ is unrelated and stays.
 | phase 1 | none (D12 diff runs in `db/`) | — |
 | phase 2 | `functions/api/db/*` proxy + token storage (05-impl §4.1–4.2, retargeted); publish UX per the approved round; preview deploy against a preview DB | DB writes |
 | phase 3 | flip the two URLs; magic migration; retire `magic_rules` paths; `layout-dates` import | phase 2 verified on preview |
-| phase 5 | `?as=akl/1` sync; board/magic intent in `layouts.json`; Give-to verb; API-token button in Settings | — |
+| phase 5 | `?as=akl/1` sync; board/magic intent in `layouts.json`; Give-to verb | — |
 
 ## 8. Invariants (site side)
 
 | id | invariant | enforced by |
 |---|---|---|
-| LDB-S1 | With the DB's compat facade as the base URL, `sync_cmini_data.py` produces a data root identical to the one it produces from upstream for every unforked record. | pipeline test against the facade fixture |
-| LDB-S2 | Every site write to the DB carries `If-Match: "<rev>"` unless the action is `overwrite`; the browser never sees a Discord token or a personal token. | I-W5 / I-W7 retargeted |
+| LDB-S1 | `sync_cmini_data.py --source db` produces a data root identical to the one it produces from upstream for every record that follows upstream. | pipeline test against a DB fixture |
+| LDB-S2 | Every site write to the DB carries `If-Match: "<rev>"` unless the action is `overwrite`; the browser never sees a Discord token. | I-W5 / I-W7 retargeted |
 | LDB-S3 | The publish body equals `toAkl1(draft)`; `fromAkl1(toAkl1(draft))` is the same draft. | round-trip property test |
 | LDB-S4 | After the magic migration, no layout's served rules differ from before it (static `magic_rules.json` before == `payload.magic` after, for every row). | one-shot verification script, kept as a test fixture |
 
