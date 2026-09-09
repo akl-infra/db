@@ -57,8 +57,11 @@ describe("intent survives store + read (LDB-F3)", () => {
     // the source directly here is deliberate: it's the one place this
     // invariant is actually enforced, and a future edit that made identity
     // route through a translation would be exactly the regression LDB-F3
-    // exists to catch.
-    const src = fs.readFileSync(path.resolve(import.meta.dirname, "..", "..", "src", "formats", "registry.ts"), "utf8");
+    // exists to catch. The pure `translate()` itself lives in
+    // db/formats/registry.ts (12 §3 X5 item 1, moved out of src/formats/
+    // registry.ts so it ships inside @akl/layout-formats) -- the identity
+    // line is unchanged, only its file moved.
+    const src = fs.readFileSync(path.resolve(import.meta.dirname, "..", "..", "formats", "registry.ts"), "utf8");
     const identityLine = src.match(/if \(as === rec\.format\) return \{[^}]*\};/);
     expect(identityLine).not.toBeNull();
     expect(identityLine![0]).not.toMatch(/lower|to\[/);

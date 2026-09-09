@@ -15,7 +15,8 @@
     "profile-upstream": "node scripts/profile-upstream.mjs",
     "pick-fixtures": "node scripts/pick-fixtures.mjs",
     "goldens": "node scripts/goldens.mjs",
-    "gen-vectors": "node scripts/gen-vectors.mjs"
+    "gen-vectors": "node scripts/gen-vectors.mjs",
+    "build:formats": "cd formats && tsup"
   },
   "dependencies": {
     "ajv": "^8.20.0",
@@ -29,6 +30,7 @@
     "@types/node": "^24.13.3",
     "fast-check": "^4.9.0",
     "smol-toml": "^1.8.0",
+    "tsup": "^8.5.1",
     "typescript": "^5.9.3",
     "vitest": "^4.1.11",
     "wrangler": "^4.130.0",

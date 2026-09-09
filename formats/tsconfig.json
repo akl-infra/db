@@ -1,0 +1,40 @@
+{
+  // Self-contained (12 §3 X5 item 1) -- deliberately NOT `"extends":
+  // "../tsconfig.json"`: that would pull in the Worker's own `"types":
+  // ["@cloudflare/workers-types/experimental", "@cloudflare/vitest-pool-
+  // workers/types"]`, which db/formats/**'s own source never references
+  // (pure TS/JS + ajv, no D1/Worker globals -- verified empirically) but
+  // which tsup's dts pass still tries to resolve, and fails to, whenever
+  // this package is built somewhere those two packages aren't installed --
+  // this package's OWN devDependencies (Docker's build stage, a future
+  // standalone checkout, X6's real split). Mirrors the Worker's own
+  // module/target/strictness choices by value instead, so a change to one
+  // is a deliberate edit to both, not an inherited surprise.
+  "compilerOptions": {
+    "target": "ES2022",
+    // "DOM": akl/1/index.ts's HMAC-adjacent helper uses TextEncoder --
+    // `@cloudflare/workers-types` supplied it before this file stopped
+    // extending the Worker's own tsconfig; DOM's ambient ammunition is
+    // otherwise unused (no `document`/`window`, same posture packages/
+    // akl-core/tsconfig.json takes for the identical reason).
+    "lib": ["ES2022", "DOM"],
+    "module": "esnext",
+    "moduleResolution": "Bundler",
+    "allowImportingTsExtensions": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "exactOptionalPropertyTypes": false,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": false,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "outDir": "dist"
+  },
+  "include": ["index.ts", "cmini/1/**/*.ts", "akl/1/**/*.ts", "mana2/1/**/*.ts"],
+  "exclude": ["**/fixtures/**"]
+}

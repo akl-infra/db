@@ -6,13 +6,13 @@
 // S1 checked the `test` job + triggers + action pinning only. S7 extends
 // this file to check the `deploy` job and the daily job (07 §7).
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { parse } from "yaml";
 import { describe, expect, it } from "vitest";
+import { repoLayout } from "./repo.ts";
 
-const DB_ROOT = path.resolve(import.meta.dirname, "..", "..");
-const REPO_ROOT = path.resolve(DB_ROOT, "..");
-const WORKFLOW_PATH = path.join(REPO_ROOT, ".github", "workflows", "db.yml");
+const WORKFLOW_PATH = repoLayout().workflowPath;
 
 interface Step {
   uses?: string;
@@ -181,5 +181,38 @@ describe("db.yml wiring", () => {
     const diffStep = runs.find((r) => /vitest run tests\/upstream-diff\.test\.ts/.test(r))!;
     expect(diffStep).not.toMatch(/-f tests\/upstream-diff\.test\.ts/);
     expect(diffStep.toUpperCase()).not.toContain("SKIP");
+  });
+
+  // [LDB-G6] repoLayout()'s prefix logic (tests/tools/repo.ts, 12 §3 X5
+  // item 5), unit-tested on both branches against a scratch temp dir --
+  // the real proof that db/tests/tools/{ciwiring,boundary,frozen}.test.ts
+  // and tests/api/fixture-export.test.ts run unchanged inside a split repo
+  // is `scripts/split/split-db.sh --dry-run`'s own `split-dry-run` CI job,
+  // which runs this file (and the other three) for real against a
+  // filter-repo'd clone; this is the fast, offline half.
+  it("[LDB-G6] repoLayout() reads db/'s prefix from a sibling web/, with and without one", () => {
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "ldb-repolayout-"));
+    try {
+      // With a sibling `web/` -- the monorepo shape this file's own DB_ROOT
+      // sits in right now.
+      const monorepoDb = path.join(scratch, "monorepo", "db");
+      fs.mkdirSync(path.join(scratch, "monorepo", "web"), { recursive: true });
+      fs.mkdirSync(monorepoDb, { recursive: true });
+      const monorepo = repoLayout(monorepoDb);
+      expect(monorepo.hasSiteTree).toBe(true);
+      expect(monorepo.dbPrefix).toBe("db/");
+      expect(monorepo.workflowPath).toBe(path.join(scratch, "monorepo", ".github", "workflows", "db.yml"));
+
+      // No sibling `web/` -- what `db/` becomes once `git filter-repo`
+      // renames it to the split repo's own root (item 6).
+      const splitDb = path.join(scratch, "akl-db");
+      fs.mkdirSync(splitDb, { recursive: true });
+      const split = repoLayout(splitDb);
+      expect(split.hasSiteTree).toBe(false);
+      expect(split.dbPrefix).toBe("");
+      expect(split.workflowPath).toBe(path.join(splitDb, ".github", "workflows", "ci.yml"));
+    } finally {
+      fs.rmSync(scratch, { recursive: true, force: true });
+    }
   });
 });

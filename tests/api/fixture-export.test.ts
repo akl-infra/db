@@ -65,6 +65,24 @@ import likesFixture from "../fixtures/db-responses/likes.json" with { type: "jso
 import metaFixture from "../fixtures/db-responses/meta.json" with { type: "json" };
 import { normalizeIds, seedUpstream100 } from "./support";
 
+// [LDB-S1a / 12 §3 X5 item 5] This fixture's whole reason to exist is
+// `scripts/tests/test_sync_db_source.py` (the site's Python-side sync
+// tests, 11-implementation-phase3.md §1 W1), which reads THIS committed
+// tree (`db/tests/fixtures/db-responses/`) directly by relative path --
+// it lives inside the monorepo, one directory walk away. Once db/ splits
+// into its own repo (12 §0.7) that path no longer exists on the site's
+// side at all; the site would need its own vendored copy, regenerated from
+// a published @akl/layout-formats/db tag instead (noted as follow-up work,
+// not built here -- 12 §3 X5 item 7). This file cannot gate on
+// `repoLayout().hasSiteTree` the way tests/tools/{ciwiring,boundary,
+// frozen}.test.ts do: it runs inside workerd (@cloudflare/vitest-pool-
+// workers, the "workers" vitest project), which -- per this file's own
+// header doc above -- has no `node:fs` at all, and repoLayout() needs it.
+// So this describe block runs unconditionally in every context: it is
+// ALSO the DB's own conformance check that its live routes match the
+// committed snapshot, which is true regardless of the split and regardless
+// of who else reads that snapshot -- there is nothing here to skip.
+
 const RECORD = false; // NEVER true on a committed run -- see the header doc
 
 async function getJson(url: string): Promise<unknown> {

@@ -44,8 +44,11 @@ the S1 rows only.
 | LDB-F13 | The set of vendored `mana2/1` layouts held for `akl/1` is enumerated with reasons; a new held vendored file fails until listed | `tests/formats/mana2.test.ts` |
 | LDB-G1 | Restorable from a public dump + the public repo | `tests/rehost.test.ts` (daily job: against the real deployed dump) |
 | LDB-G2 | No admin id is a constant in code (the migration seed is data) | `tests/tools/noconst.test.ts` |
+| LDB-G3 | `.github/CODEOWNERS` is generated from every format's `OWNERS` file (one line per format major, no format missing, no stale handle) | `tests/tools/codeowners.test.ts` |
 | LDB-G4 | Every binding/var the Worker reads is in the runbook table | `tests/tools/runbook.test.ts` |
 | LDB-G5 | Nothing imports across the `db/` boundary in either direction | `tests/tools/boundary.test.ts` |
+| LDB-G6 | The split repos (`git filter-repo`'d clones of `db/` and `bot/`) test green with no edits: `repoLayout()` resolves the right prefix and workflow file inside either shape | `tests/tools/ciwiring.test.ts` ([LDB-G6] case), `.github/workflows/db.yml`'s `split-dry-run` job (`scripts/split/split-db.sh --dry-run`) |
+| LDB-G7 | `@akl/layout-formats` packs every format's built entry and schema.json and imports cleanly from a clean install; its `exports` map is derived from the registry, so a fourth format cannot be forgotten | `tests/tools/package.test.ts` |
 | LDB-H1 | Webhook delivery is at-least-once and in order per hook: every matching event past a hook's cursor is POSTed with a valid signature before the cursor passes it; the cursor is advanced only by compare-and-set | `tests/api/webhooks.test.ts` |
 | LDB-H2 | The stream is the feed: the frames of any stream, and of any chain of streams reconnected by `Last-Event-ID`, are exactly `/v1/changes`' items past the original `since`, in order, no gap, no duplicate; every stream closes at the bound with `next` | `tests/api/stream.test.ts` |
 | LDB-H3 | The changelog page shows exactly the feed's events for its parameters, with every interpolated value HTML-escaped | `tests/api/changelog.test.ts` |

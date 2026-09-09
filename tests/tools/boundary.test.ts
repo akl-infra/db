@@ -6,9 +6,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { repoLayout } from "./repo.ts";
 
 const DB_ROOT = path.resolve(import.meta.dirname, "..", "..");
-const REPO_ROOT = path.resolve(DB_ROOT, "..");
+const { hasSiteTree, repoRoot: REPO_ROOT } = repoLayout();
 
 const CODE_EXT = new Set([".ts", ".tsx", ".mjs", ".js", ".cjs"]);
 const SKIP_DIRS = new Set(["node_modules", ".git", "dist", "test-results"]);
@@ -67,8 +68,26 @@ describe("db/ import boundary", () => {
     expect(violations).toEqual([]);
   });
 
-  it("[LDB-G5] nothing under web/src, scripts, functions, workers, tools imports a db/ path", () => {
-    const dirs = ["web/src", "scripts", "functions", "workers", "tools"].map((d) =>
+  it("[LDB-G5] nothing under web/src, scripts, functions, workers, tools, bot/src imports a db/ path", () => {
+    if (!hasSiteTree) {
+      // Visible, not silent (the ci-gate-split-256 lesson): once db/ is the
+      // repo root there is no sibling tree left to scan -- this is exactly
+      // the split repo's own shape, not a gap.
+      console.log("[LDB-G5] SKIP: no sibling web/ -- db/ is the repo root, nothing outside it to scan");
+      expect(hasSiteTree).toBe(false);
+      return;
+    }
+    // `bot/src` joins the scan (12 §3 X5 item 3): it used to import
+    // db/formats/** BY PATH (tsconfig `@formats/*`, LDB-B6's narrow named
+    // exception) and so had to stay excluded here or this test would have
+    // fought that exception; now that it consumes @akl/layout-formats as a
+    // real package (file: link today, published later), the exception is
+    // gone and bot/src gets the same guarantee everything else here has.
+    // `bot/tests` is deliberately NOT scanned: fixture-only reads of
+    // db/tests/fixtures/**'s sample data (bot/tests/transforms.test.ts and
+    // friends) are not a production cross-boundary import, and bot's own
+    // boundary test (LDB-B6) doesn't scan its own tests/ either.
+    const dirs = ["web/src", "scripts", "functions", "workers", "tools", "bot/src"].map((d) =>
       path.join(REPO_ROOT, d),
     );
     const files = dirs.flatMap((d) => walk(d));
