@@ -9,6 +9,7 @@ import { writeDump } from "./dump/write";
 import { list as listFormats } from "./formats/registry";
 import type { FetchImpl } from "./import/upstream";
 import { tick as cminiTick } from "./import/cmini";
+import { adminRoute } from "./routes/admin";
 import { authorsRoute } from "./routes/authors";
 import { changesRoute } from "./routes/changes";
 import { dumpRoute } from "./routes/dump";
@@ -88,6 +89,7 @@ app.route("/", formatsRoute);
 app.route("/", changesRoute);
 app.route("/", dumpRoute);
 app.route("/", writeRoute);
+app.route("/", adminRoute(authDeps));
 
 app.onError((err, c) => {
   if (err instanceof ApiError) {

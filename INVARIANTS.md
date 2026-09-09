@@ -16,6 +16,8 @@ the S1 rows only.
 |---|---|---|
 | LDB-A1 | No write is accepted without a resolved actor; every non-GET route answers 401 to an anonymous request (enumerated from the router) | `tests/auth/routes.test.ts` |
 | LDB-A2 | The Discord cache serves a success ≤ 5 min and a 401 ≤ 60 s; 5xx/429/network are never cached; the token is never stored | `tests/auth/discord.test.ts` |
+| LDB-A5 | Every accepted write's event carries `via`; every admin action is an event with `admin = 1` | `tests/api/admin.test.ts` |
+| LDB-A6 | The admins table never has fewer than two active rows after bootstrap (the count check and the delete are one statement, so two concurrent removes at three rows can't both commit) | `tests/api/admin.test.ts` |
 | LDB-A7 | Owner changes only via `transfer`; a write body naming `owner` (or any field outside the verb's schema) is refused | `tests/api/bodies.test.ts`, `tests/api/write.test.ts`, `tests/api/transfer.test.ts` |
 | LDB-C1 | `db.yml`'s shape (test job on PR/push under `db/**`; deploy needs test, main+push only, migrations before deploy; daily job runs rehost + diff; actions pinned) is asserted from the parsed YAML | `tests/tools/ciwiring.test.ts` |
 | LDB-C2 | `canonical()` is key-order-invariant and lossless | `tests/core/canonical.test.ts` |

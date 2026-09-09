@@ -132,6 +132,19 @@ export function stale(record: Record<string, unknown> & { rev: number }, lastWri
   });
 }
 
+// 09 §3 T3: removing an admin would leave fewer than two rows. `count` is
+// the current admin count at the moment of refusal -- the DELETE statement
+// that produced this refusal never ran (LDB-A6: count-and-delete is one
+// statement, so a refusal means zero rows changed), so `count` is still
+// accurate to read fresh right after.
+export function lastAdmins(count: number): ApiError {
+  return new ApiError(409, {
+    error: "last_admins",
+    message: "removing this admin would leave fewer than 2 admins",
+    count,
+  });
+}
+
 // A PATCH verb the record's format has no `edits` entry for (T4), or its
 // edit returned an error for this payload.
 export function unsupportedForFormat(format: string, verb: string): ApiError {

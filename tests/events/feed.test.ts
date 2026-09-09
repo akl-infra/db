@@ -5,7 +5,7 @@
 import { env } from "cloudflare:test";
 import type { Bindings } from "../../src/env";
 import { describe, expect, it } from "vitest";
-import { appendInfo, appendLike, appendWrite, feed } from "../../src/core/events";
+import { appendAdmin, appendInfo, appendLike, appendWrite, feed } from "../../src/core/events";
 import { fixedClock } from "../../src/core/time";
 
 const db = (env as unknown as Bindings).DB;
@@ -126,5 +126,27 @@ describe("feed", () => {
     const { items } = await feed(db, 0, 1000, ["liked"]);
     expect(items.length).toBeGreaterThan(0);
     for (const e of items) expect(e.kind).toBe("liked");
+  });
+
+  it("[LDB-P6] admin events (NULL layout_id) round-trip through feed()/rowToEvent", async () => {
+    const clock = fixedClock("2026-03-05T00:00:00.000Z");
+    const { seq } = await appendAdmin(db, clock, {
+      kind: "admin.added",
+      actor: "admin-tester",
+      detail: { user_id: "30000000000000099", note: "x" },
+    });
+
+    const { items } = await feed(db, seq - 1, 1);
+    expect(items).toHaveLength(1);
+    const e = items[0]!;
+    expect(e.seq).toBe(seq);
+    expect(e.kind).toBe("admin.added");
+    expect(e.layout_id).toBeNull();
+    expect(e.name).toBeNull();
+    expect(e.owner).toBeNull();
+    expect(e.rev).toBeNull();
+    expect(e.admin).toBe(true);
+    expect(e.via).toBe("discord");
+    expect(e.detail).toEqual({ user_id: "30000000000000099", note: "x" });
   });
 });

@@ -35,8 +35,18 @@ export type WriteKind =
 // "upstream_deleted" is deliberately in both WriteKind and InfoKind: a
 // following record's tombstoning is rev-bumping (appendWrite), a
 // non-following record's is informational (07 §6 S4's fold-rule note; S5's
-// case 9 is the caller that needed the Info half).
-export type InfoKind = "upstream_changed" | "import_conflict" | "upstream_deleted";
+// case 9 is the caller that needed the Info half). The four `admin.*` kinds
+// (09 §3 T3) are informational too -- an admin action is never rev-bumping
+// -- but travel through `appendAdmin`, not `appendInfo` (they have no
+// `layoutId` to look a current record up by).
+export type InfoKind =
+  | "upstream_changed"
+  | "import_conflict"
+  | "upstream_deleted"
+  | "admin.added"
+  | "admin.removed"
+  | "admin.import_paused"
+  | "admin.import_resumed";
 
 // A record minus its payload -- what `before`/`after` store on an event and
 // what a list row carries (03 §2).
@@ -293,6 +303,29 @@ export async function appendInfo(db: Bindings["DB"], now: Clock, i: Info): Promi
     .run();
 
   const seq = result.meta.last_row_id;
+  return { seq };
+}
+
+// Admin actions (09 §3 T3): the third informational writer, after
+// appendInfo/appendLike. NULL layout_id/name/owner, rev NULL -- an admin
+// action is never rev-bumping and is never about one particular record
+// (`GET /v1/admin/admins`'s add/remove name a *user*, not a layout; pause/
+// resume name nothing). `admin` is always 1: every row this function
+// writes IS an admin action by definition, unlike `appendWrite`/`appendInfo`
+// where it depends on who the actor turned out to be. `via` is hardcoded
+// "discord": phase 2 has no client lane, so every admin actor got here
+// through the user lane (10 widens this if a bot ever gets admin caps).
+export async function appendAdmin(db: Bindings["DB"], now: Clock, a: { kind: InfoKind; actor: string; detail?: object }): Promise<{ seq: number }> {
+  const result = await db
+    .prepare(
+      `INSERT INTO events (at, kind, layout_id, name, owner, rev, actor, via, admin, detail_json, before_json, after_json)
+       VALUES (?, ?, NULL, NULL, NULL, NULL, ?, 'discord', 1, ?, NULL, NULL)`,
+    )
+    .bind(now(), a.kind, a.actor, a.detail === undefined ? null : canonical(a.detail))
+    .run();
+
+  const seq = result.meta.last_row_id;
+  if (seq === undefined) throw new Error("appendAdmin: events insert returned no last_row_id");
   return { seq };
 }
 

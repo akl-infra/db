@@ -8,13 +8,14 @@
 import { env } from "cloudflare:test";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Bindings } from "../../src/env";
-import { badRequest, notFound, unknownFormat, unauthorized } from "../../src/core/errors";
+import { badRequest, notAdmin, notFound, unknownFormat, unauthorized } from "../../src/core/errors";
 import { appendWrite } from "../../src/core/events";
 import { fixedClock, type Clock } from "../../src/core/time";
 import { app } from "../../src/index";
 import { FakeDiscord } from "../auth/fake-discord";
 import { CASES } from "../conformance/manifest";
 import { assertConformanceCase, seedUpstream100 } from "./support";
+import { BOOTSTRAP_ADMIN } from "./write-support";
 
 const bindings = env as unknown as Bindings;
 const db = bindings.DB;
@@ -75,6 +76,15 @@ async function seedWriteFixtures(): Promise<void> {
     username: "conformance-owner",
     global_name: null,
   });
+  // admin-admins/200.json's bearer (09 §3 T3) -- BOOTSTRAP_ADMIN is
+  // migrations/0001_init.sql's seeded row, so this token resolves to an
+  // actor with `admin: true` with no extra DB setup.
+  fake.setAnswer("conformance-admin-token", {
+    kind: "ok",
+    id: BOOTSTRAP_ADMIN,
+    username: "conformance-admin",
+    global_name: null,
+  });
   vi.stubGlobal("fetch", fake.fetchImpl);
   (bindings as unknown as { TEST_CLOCK?: Clock }).TEST_CLOCK = fixedClock(CONFORMANCE_CLOCK_ISO);
 
@@ -128,7 +138,7 @@ function resolvePath(path: string): string {
 describe("conformance fixtures", () => {
   for (const kase of CASES) {
     it(kase.id, async () => {
-      if (kase.id.startsWith("layouts-write/")) await ensureWriteFixtures();
+      if (kase.id.startsWith("layouts-write/") || kase.id.startsWith("admin-admins/")) await ensureWriteFixtures();
       await assertConformanceCase(kase, resolvePath);
     });
   }
@@ -141,6 +151,7 @@ const ERROR_CODES = {
   bad_request: badRequest("x").body.error,
   unknown_format: unknownFormat("x", []).body.error,
   not_found: notFound("x").body.error,
+  not_admin: notAdmin().body.error,
 };
 
 interface RequiredCase {
@@ -193,6 +204,14 @@ const REQUIRED: Record<string, RequiredCase[]> = {
   "/v1/dump/latest.json": [{ status: 404, code: ERROR_CODES.not_found }],
   "/v1/dump/:key": [{ status: 404, code: ERROR_CODES.not_found }],
   "/v1/dump/monthly/:key": [{ status: 404, code: ERROR_CODES.not_found }],
+  // 09 §3 T3: the enumeration stays GET-only until T6's (method, status)
+  // sweep -- POST/DELETE /v1/admin/* aren't required here yet, but this GET
+  // is a live route now, so it needs an entry or the sweep below fails.
+  "/v1/admin/admins": [
+    { status: 200 },
+    { status: 401, code: ERROR_CODES.unauthorized },
+    { status: 403, code: ERROR_CODES.not_admin },
+  ],
 };
 
 describe("conformance enumeration", () => {

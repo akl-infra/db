@@ -38,6 +38,20 @@ const transferSchema = {
   },
 } as const;
 
+// 09 §3 T3: `user_id` must be a 17-20-digit Discord snowflake, ajv's own
+// `pattern` keyword rather than a second check in core/admins.ts -- one
+// place to fail a malformed id with the same 400 shape every other body
+// error uses.
+const adminAddSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["user_id"],
+  properties: {
+    user_id: { type: "string", pattern: "^\\d{17,20}$" },
+    note: { type: "string" },
+  },
+} as const;
+
 export interface CreateBody {
   name: string;
   format: string;
@@ -53,9 +67,15 @@ export interface TransferBody {
   to: string;
 }
 
+export interface AdminAddBody {
+  user_id: string;
+  note?: string;
+}
+
 const validateCreate = ajv.compile<CreateBody>(createSchema);
 const validateReplace = ajv.compile<ReplaceBody>(replaceSchema);
 const validateTransfer = ajv.compile<TransferBody>(transferSchema);
+const validateAdminAdd = ajv.compile<AdminAddBody>(adminAddSchema);
 
 // ajv reports an extra/missing key at the PARENT's instancePath with the
 // key name in `params`, not as part of the path itself -- this stitches
@@ -91,4 +111,8 @@ export function parseReplaceBody(body: unknown): ReplaceBody {
 
 export function parseTransferBody(body: unknown): TransferBody {
   return checkBody(validateTransfer, body);
+}
+
+export function parseAdminAddBody(body: unknown): AdminAddBody {
+  return checkBody(validateAdminAdd, body);
 }

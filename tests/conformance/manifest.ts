@@ -65,6 +65,13 @@ import layoutsWriteRestoreOk from "./layouts-write/restore-200.json" with { type
 import layoutsWriteRestoreNotDeleted from "./layouts-write/restore-400-not_deleted.json" with { type: "json" };
 import layoutsWriteTransferOk from "./layouts-write/transfer-200.json" with { type: "json" };
 
+// 09 §3 T3's admin routes. Only `GET /v1/admin/admins` is REQUIRED-enumerated
+// below (the enumeration stays GET-only until T6's sweep, 09 §4) -- these
+// three cases are what satisfies that requirement.
+import adminAdminsOk from "./admin-admins/200.json" with { type: "json" };
+import adminAdminsForbidden from "./admin-admins/403.json" with { type: "json" };
+import adminAdminsUnauthorized from "./admin-admins/401.json" with { type: "json" };
+
 // A single request as `runRequest` fires it -- shared by the main
 // (asserted) request and, for a write case, its `setup` steps (fired first
 // and discarded: e.g. the first of two POSTs that produces a name clash).
@@ -165,4 +172,8 @@ export const CASES: ConformanceCase[] = [
   kase("layouts-write/restore-200", "/v1/layouts/:ref/restore", layoutsWriteRestoreOk),
   kase("layouts-write/restore-400-not_deleted", "/v1/layouts/:ref/restore", layoutsWriteRestoreNotDeleted),
   kase("layouts-write/transfer-200", "/v1/layouts/:ref/transfer", layoutsWriteTransferOk),
+
+  kase("admin-admins/200", "/v1/admin/admins", adminAdminsOk),
+  kase("admin-admins/403", "/v1/admin/admins", adminAdminsForbidden),
+  kase("admin-admins/401", "/v1/admin/admins", adminAdminsUnauthorized),
 ];

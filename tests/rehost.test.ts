@@ -145,7 +145,7 @@ describe("rehost drill", () => {
     // proves a rehosted service actually serves the real API, not just that
     // its rows look right in isolation. Real upstream layout names are
     // stable enough (07 §0.1 measured them off the live corpus) that this
-    // also passes in remote mode against a real production dump. Two
+    // also passes in remote mode against a real production dump. Three
     // deliberate exclusions: the four `dump*` cases assume NO dump has been
     // written yet (the plain conformance seed's world); this test has, by
     // construction, just written or fetched one. The `layouts-write/*`
@@ -154,9 +154,13 @@ describe("rehost drill", () => {
     // (`__CW_RESTORE_ID__`) that only that file's `ensureWriteFixtures()`/
     // `resolvePath` populate -- this restored database never had them
     // seeded (only `seedUpstream100()` + the cron ran here), so they'd 404
-    // or address a literal, unresolved placeholder string.
+    // or address a literal, unresolved placeholder string. The
+    // `admin-admins/*` cases (09 §3 T3) need a stubbed Discord (no
+    // `vi.stubGlobal("fetch", ...)` runs in this file) -- without it, their
+    // bearers hit the real Discord API and come back `401 token_invalid`
+    // instead of the fixture's expected status.
     for (const kase of CASES) {
-      if (kase.id.startsWith("dump") || kase.id.startsWith("layouts-write/")) continue;
+      if (kase.id.startsWith("dump") || kase.id.startsWith("layouts-write/") || kase.id.startsWith("admin-admins/")) continue;
       await assertConformanceCase(kase);
     }
   });

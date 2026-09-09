@@ -8,7 +8,7 @@ import { env } from "cloudflare:test";
 import type { Bindings } from "../../src/env";
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import { appendInfo, appendLike, appendWrite, foldRecord, rowToEvent } from "../../src/core/events";
+import { appendAdmin, appendInfo, appendLike, appendWrite, foldRecord, rowToEvent } from "../../src/core/events";
 import type { EventDbRow, Write } from "../../src/core/events";
 import { rowToRecord } from "../../src/core/records";
 import type { LayoutDbRow } from "../../src/core/records";
@@ -372,6 +372,67 @@ describe("fold", () => {
         expect(folded).toEqual(rowToRecord(actualRow!));
       }),
       { numRuns: 30 },
+    );
+  });
+
+  // [LDB-P1] (09 §3 T3): `appendAdmin` events carry NULL `layout_id`, so
+  // they never appear in any record's own `WHERE layout_id = ?` stream --
+  // interleaving them among random record ops must leave every record's
+  // fold exactly as it would be without them, and `seq` still gapless
+  // across the whole table (admin rows included).
+  it("[LDB-P1] appendAdmin events interleave with record ops without changing any record's fold", async () => {
+    const clock = steppingClock("2026-01-10T00:00:00.000Z", 1000);
+    const ADMIN_KINDS = ["admin.added", "admin.removed", "admin.import_paused", "admin.import_resumed"] as const;
+
+    const opArb = fc.record({
+      slotIdx: fc.integer({ min: 0, max: 2 }),
+      rawKind: fc.constantFrom(...RAW_KINDS),
+      userIdPick: fc.integer({ min: 0, max: 2 }),
+    });
+    const stepArb = fc.oneof(
+      opArb.map((op) => ({ kind: "op" as const, op })),
+      fc.constantFrom(...ADMIN_KINDS).map((adminKind) => ({ kind: "admin" as const, adminKind })),
+    );
+
+    await fc.assert(
+      fc.asyncProperty(fc.array(stepArb, { minLength: 1, maxLength: 30 }), async (steps) => {
+        const slots: SlotState[] = Array.from({ length: 3 }, freshSlot);
+        for (const step of steps) {
+          if (step.kind === "op") {
+            await applyOp(clock, slots, step.op);
+          } else {
+            await appendAdmin(db, clock, { kind: step.adminKind, actor: "admin-tester" });
+          }
+        }
+
+        for (const slot of slots) {
+          if (!slot.exists) continue;
+
+          const eventRows = await db
+            .prepare("SELECT * FROM events WHERE layout_id = ? ORDER BY seq ASC")
+            .bind(slot.id)
+            .all<EventDbRow>();
+          const events = eventRows.results.map(rowToEvent);
+          expect(events.every((e) => !e.kind.startsWith("admin."))).toBe(true); // never leak into a record's own stream
+
+          const revRows = await db
+            .prepare("SELECT rev, format, payload_json FROM layout_revs WHERE layout_id = ?")
+            .bind(slot.id)
+            .all<{ rev: number; format: string; payload_json: string }>();
+          const revs = new Map(
+            revRows.results.map((r) => [r.rev, { format: r.format, payload: JSON.parse(r.payload_json) as unknown }]),
+          );
+          const folded = foldRecord(events, revs);
+
+          const actualRow = await db.prepare("SELECT * FROM layouts WHERE id = ?").bind(slot.id).first<LayoutDbRow>();
+          expect(folded).toEqual(rowToRecord(actualRow!));
+        }
+
+        const seqRows = await db.prepare("SELECT seq FROM events ORDER BY seq ASC").all<{ seq: number }>();
+        const seqs = seqRows.results.map((r) => r.seq);
+        expect(seqs).toEqual(seqs.map((_, i) => i + 1));
+      }),
+      { numRuns: 50 },
     );
   });
 });

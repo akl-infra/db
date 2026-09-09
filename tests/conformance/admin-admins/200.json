@@ -1,0 +1,16 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/admin/admins",
+    "bearer": "conformance-admin-token"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": [
+      { "user_id": "184412255822020608", "added_by": null, "added_at": "2026-09-08T00:00:00Z", "note": "bootstrap: deeroh" }
+    ]
+  }
+}

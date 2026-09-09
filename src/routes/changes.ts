@@ -8,11 +8,12 @@ import { feed, type InfoKind, type WriteKind } from "../core/events";
 
 const CACHE_CONTROL = "public, max-age=10";
 
-// The complete phase-1 event vocabulary (03 §5): every `WriteKind`, every
-// `InfoKind`, plus the two like events (never rev-bumping, not in either
-// type). Kept as a literal array (types vanish at runtime) but pinned
-// against both types with `satisfies` so an added kind can't go stale here
-// unnoticed.
+// The complete phase-1+2 event vocabulary (03 §5): every `WriteKind`, every
+// `InfoKind` (the four `admin.*` kinds, 09 §3 T3, included -- the public
+// changelog filters on them same as any other kind), plus the two like
+// events (never rev-bumping, not in either type). Kept as a literal array
+// (types vanish at runtime) but pinned against both types with `satisfies`
+// so an added kind can't go stale here unnoticed.
 const KNOWN_KINDS = [
   "created",
   "updated",
@@ -25,6 +26,10 @@ const KNOWN_KINDS = [
   "upstream_deleted",
   "upstream_changed",
   "import_conflict",
+  "admin.added",
+  "admin.removed",
+  "admin.import_paused",
+  "admin.import_resumed",
   "liked",
   "unliked",
 ] satisfies (WriteKind | InfoKind | "liked" | "unliked")[];
