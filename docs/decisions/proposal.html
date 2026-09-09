@@ -1,0 +1,519 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The layout database — proposal</title>
+<style>
+  :root { --bg:#0f1117; --bg2:#181c27; --border:#2e3450; --text:#d0d6f0; --text2:#9aa0b5; --text3:#6a7396;
+    --green:#4ec97a; --teal:#69cad3; --amber:#e0a94e; --purple:#b48cf2;
+    --font:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif; --mono:"SF Mono","Fira Mono","Cascadia Mono",Consolas,monospace; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#0a0b0f; color:var(--text); font:15px/1.6 var(--font); }
+  .layout { display:grid; grid-template-columns:240px minmax(0,1fr); gap:0; }
+  nav { position:sticky; top:0; height:100vh; overflow:auto; padding:28px 18px; border-right:1px solid var(--border); background:var(--bg); font-size:13px; }
+  nav .t { font-weight:650; color:#fff; margin:0 0 12px; font-size:14px; }
+  nav a { display:block; color:var(--text2); text-decoration:none; padding:3px 0; }
+  nav a.doc { color:var(--teal); font-weight:600; margin-top:10px; }
+  nav a.h3 { padding-left:14px; color:var(--text3); }
+  nav a:hover { color:#fff; }
+  .wrap { max-width:880px; padding:44px 32px 120px; }
+  h1 { font-size:1.5rem; font-weight:650; margin:0 0 6px; }
+  .sub { color:var(--text3); font-size:13px; margin:0 0 30px; }
+  section.doc { margin-top:56px; padding-top:28px; border-top:2px solid var(--purple); }
+  section.doc > h1 { color:var(--purple); font-size:1.35rem; }
+  section.doc .path { font:12px var(--mono); color:var(--text3); margin:0 0 18px; }
+  h2 { font-size:1.2rem; font-weight:650; margin:38px 0 10px; padding-top:14px; border-top:1px solid var(--border); }
+  h3 { font-size:1rem; font-weight:650; margin:26px 0 8px; color:var(--teal); }
+  p { margin:0 0 12px; max-width:80ch; }
+  li { margin:0 0 6px; max-width:80ch; }
+  ul, ol { padding-left:22px; margin:0 0 12px; }
+  b { color:#fff; }
+  hr { border:0; border-top:1px solid var(--border); margin:22px 0; }
+  hr + h2 { border-top:0; padding-top:0; margin-top:0; }
+  code { font-family:var(--mono); font-size:.9em; background:var(--bg2); border:1px solid var(--border); border-radius:4px; padding:1px 5px; color:var(--text); }
+  pre { background:var(--bg2); border:1px solid var(--border); border-radius:8px; padding:12px 14px; overflow:auto; font:13px/1.5 var(--mono); margin:0 0 14px; }
+  pre code { background:none; border:0; padding:0; font-size:inherit; }
+  a { color:var(--teal); }
+  .tbl { overflow-x:auto; margin:0 0 14px; }
+  table { border-collapse:collapse; font-size:13px; min-width:100%; }
+  th, td { text-align:left; vertical-align:top; padding:6px 10px; border:1px solid var(--border); }
+  th { background:var(--bg2); color:var(--text2); font-weight:600; white-space:nowrap; }
+  @media (max-width:900px) { .layout { grid-template-columns:1fr; } nav { position:static; height:auto; border-right:0; border-bottom:1px solid var(--border); } }
+</style>
+<div class="layout">
+<nav><p class="t">The layout database</p><a class="doc" href="#doc-00-plan">The layout database — plan (round 1)</a>
+<a class="h2" href="#doc-00-plan--0-what-i-understood-from-the-dictation-assumptions-correct-me">1. The goal</a>
+<a class="h2" href="#doc-00-plan--1-the-goal">2. Principles</a>
+<a class="h2" href="#doc-00-plan--2-principles">3. Architecture</a>
+<a class="h2" href="#doc-00-plan--3-architecture">4. Decisions taken in this round (flip any of them)</a>
+<a class="h2" href="#doc-00-plan--4-decisions-taken-in-this-round-flip-any-of-them">5. Phases</a>
+<a class="h2" href="#doc-00-plan--5-phases">6. Questions for saltorbit</a>
+<a class="h2" href="#doc-00-plan--6-questions-for-saltorbit">7. Where the code lives, and how it moves out</a>
+<a class="h2" href="#doc-00-plan--7-where-the-code-lives-and-how-it-moves-out">7-where-the-code-lives-and-how-it-moves-out</a>
+<a class="doc" href="#doc-01-format">The layout record and its formats</a>
+<a class="h2" href="#doc-01-format--1-record-vs-payload">2. <code>akl/1</code> — the common format</a>
+<a class="h2" href="#doc-01-format--2-akl-1-the-common-format">2.1 Validation (write-time, 400 with the offending path)</a>
+<a class="h3" href="#doc-01-format--2-1-validation-write-time-400-with-the-offending-path">3. Intent and lowering</a>
+<a class="h2" href="#doc-01-format--3-intent-and-lowering">4. Other formats and the registry</a>
+<a class="h2" href="#doc-01-format--4-other-formats-and-the-registry">5. Versioning and compatibility</a>
+<a class="h2" href="#doc-01-format--5-versioning-and-compatibility">6. Translations in day-1 formats</a>
+<a class="h2" href="#doc-01-format--6-translations-in-day-1-formats">6.1 <code>cmini/1 → akl/1</code> (the import; must be lossless)</a>
+<a class="h3" href="#doc-01-format--6-1-cmini-1-akl-1-the-import-must-be-lossless">6.2 <code>akl/1 → cmini/1</code> (what the bot and emulayout read)</a>
+<a class="h3" href="#doc-01-format--6-2-akl-1-cmini-1-what-the-bot-and-emulayout-read">6.3 <code>akl/1 ↔ mana2/1</code></a>
+<a class="h3" href="#doc-01-format--6-3-akl-1-mana2-1">7. Invariants (the covenant)</a>
+<a class="h2" href="#doc-01-format--7-invariants-the-covenant">8. Open questions (format)</a>
+<a class="h2" href="#doc-01-format--8-open-questions-format">8-open-questions-format</a>
+<a class="doc" href="#doc-02-auth">Authentication and authorization</a>
+<a class="h2" href="#doc-02-auth--1-one-identity-two-lanes">2. The user lane</a>
+<a class="h2" href="#doc-02-auth--2-the-user-lane">2.1 Discord access token (primary; round 1 of #215, approved)</a>
+<a class="h3" href="#doc-02-auth--2-1-discord-access-token-primary-round-1-of-215-approved">2.2 Personal tokens (for CLIs and scripts)</a>
+<a class="h3" href="#doc-02-auth--2-2-personal-tokens-for-clis-and-scripts">2.3 <code>GET /v1/me</code></a>
+<a class="h3" href="#doc-02-auth--2-3-get-v1-me">3. The client lane — bots</a>
+<a class="h2" href="#doc-02-auth--3-the-client-lane-bots">3.1 Registration</a>
+<a class="h3" href="#doc-02-auth--3-1-registration">3.2 Signing a request</a>
+<a class="h3" href="#doc-02-auth--3-2-signing-a-request">3.3 What a compromised bot key can do, and what bounds it</a>
+<a class="h3" href="#doc-02-auth--3-3-what-a-compromised-bot-key-can-do-and-what-bounds-it">4. Authorization rules (identical to the bot's today)</a>
+<a class="h2" href="#doc-02-auth--4-authorization-rules-identical-to-the-bot-s-today">5. Admins</a>
+<a class="h2" href="#doc-02-auth--5-admins">6. Invariants</a>
+<a class="h2" href="#doc-02-auth--6-invariants">7. Open questions (auth)</a>
+<a class="h2" href="#doc-02-auth--7-open-questions-auth">7-open-questions-auth</a>
+<a class="doc" href="#doc-03-api">The API</a>
+<a class="h2" href="#doc-03-api--1-conventions">2. Reads (no auth)</a>
+<a class="h2" href="#doc-03-api--2-reads-no-auth">2.1 The cmini-compatible facade</a>
+<a class="h3" href="#doc-03-api--2-1-the-cmini-compatible-facade">3. Writes (user or client lane, <code>02</code>)</a>
+<a class="h2" href="#doc-03-api--3-writes-user-or-client-lane-02">4. Auth and account</a>
+<a class="h2" href="#doc-03-api--4-auth-and-account">5. Events, feed, webhooks</a>
+<a class="h2" href="#doc-03-api--5-events-feed-webhooks">6. Dumps</a>
+<a class="h2" href="#doc-03-api--6-dumps">7. Admin</a>
+<a class="h2" href="#doc-03-api--7-admin">8. Storage (D1)</a>
+<a class="h2" href="#doc-03-api--8-storage-d1">9. Invariants</a>
+<a class="h2" href="#doc-03-api--9-invariants">10. Open questions (API)</a>
+<a class="h2" href="#doc-03-api--10-open-questions-api">10-open-questions-api</a>
+<a class="doc" href="#doc-04-governance">Governance — no single owner, no single point of failure</a>
+<a class="h2" href="#doc-04-governance--1-who-can-do-what">2. Changing the format is a pull request, reviewed by the format's owners</a>
+<a class="h2" href="#doc-04-governance--2-changing-the-format-is-a-pull-request-reviewed-by-the-format-s-owners">3. Gates that stop anyone breaking anyone else</a>
+<a class="h2" href="#doc-04-governance--3-gates-that-stop-anyone-breaking-anyone-else">4. The rehost drill — &quot;take over in an afternoon&quot;</a>
+<a class="h2" href="#doc-04-governance--4-the-rehost-drill-take-over-in-an-afternoon">5. Public by default</a>
+<a class="h2" href="#doc-04-governance--5-public-by-default">6. Invariants</a>
+<a class="h2" href="#doc-04-governance--6-invariants">7. Open questions (governance)</a>
+<a class="h2" href="#doc-04-governance--7-open-questions-governance">7-open-questions-governance</a>
+<a class="doc" href="#doc-05-bot">The Discord bot</a>
+<a class="h2" href="#doc-05-bot--1-shape">2. Command parity</a>
+<a class="h2" href="#doc-05-bot--2-command-parity">2.1 Layout-changing verbs → DB writes (client lane, actor = message author)</a>
+<a class="h3" href="#doc-05-bot--2-1-layout-changing-verbs-db-writes-client-lane-actor-message-author">2.2 Read verbs → local cache (analyzer unchanged)</a>
+<a class="h3" href="#doc-05-bot--2-2-read-verbs-local-cache-analyzer-unchanged">2.3 Local / social (no DB)</a>
+<a class="h3" href="#doc-05-bot--2-3-local-social-no-db">2.4 New verbs (after parity)</a>
+<a class="h3" href="#doc-05-bot--2-4-new-verbs-after-parity">3. The cache</a>
+<a class="h2" href="#doc-05-bot--3-the-cache">4. Signing (client lane)</a>
+<a class="h2" href="#doc-05-bot--4-signing-client-lane">5. Where it runs</a>
+<a class="h2" href="#doc-05-bot--5-where-it-runs">6. Invariants</a>
+<a class="h2" href="#doc-05-bot--6-invariants">7. Open questions (bot)</a>
+<a class="h2" href="#doc-05-bot--7-open-questions-bot">7-open-questions-bot</a>
+<a class="doc" href="#doc-06-akl-integration">What changes on akl.gg</a>
+<a class="h2" href="#doc-06-akl-integration--1-reads-the-pipeline-keeps-its-shape">2. The cmini import (runs inside the DB, not the site)</a>
+<a class="h2" href="#doc-06-akl-integration--2-the-cmini-import-runs-inside-the-db-not-the-site">3. Writes: #215's approved UX, retargeted</a>
+<a class="h2" href="#doc-06-akl-integration--3-writes-215-s-approved-ux-retargeted">4. Magic rules: D1 <code>magic_rules</code> folds into the record</a>
+<a class="h2" href="#doc-06-akl-integration--4-magic-rules-d1-magic-rules-folds-into-the-record">5. Drafts, mana, <code>cb &lt;layout&gt;</code> (#218, #188)</a>
+<a class="h2" href="#doc-06-akl-integration--5-drafts-mana-cb-layout-218-188">6. Admin surfaces</a>
+<a class="h2" href="#doc-06-akl-integration--6-admin-surfaces">7. Order of work on the site</a>
+<a class="h2" href="#doc-06-akl-integration--7-order-of-work-on-the-site">8. Invariants (site side)</a>
+<a class="h2" href="#doc-06-akl-integration--8-invariants-site-side">9. Open questions (site)</a>
+<a class="h2" href="#doc-06-akl-integration--9-open-questions-site">9-open-questions-site</a></nav>
+<div class="wrap">
+  <h1>The layout database — proposal, round 1</h1>
+  <p class="sub">Seven documents, rendered from <code>design/layout-db/*.md</code> on 2026-09-09. Read <b>00</b> first; <b>01</b> slowly.</p>
+<section class="doc" id="doc-00-plan"><h1>The layout database — plan (round 1)</h1><p class="path">design/layout-db/00-plan.md</p><p>Status: proposal (2026-09-08). Branch <code>worktree-layout-db</code>. Nothing implemented. Companion documents in this directory, in reading order:</p>
+<div class="tbl"><table><thead><tr><th>doc</th><th>what it settles</th></tr></thead><tbody><tr><td><code>01-format.md</code></td><td>the layout record: profiles (<code>akl/1</code>, <code>cmini/1</code>, <code>mana2/1</code>, …), intent vs lowering, escape hatches, versioning, compatibility tests</td></tr><tr><td><code>02-auth.md</code></td><td>two ways in: Discord users (sessions/tokens) and registered clients (bots, Ed25519-signed requests acting for a user)</td></tr><tr><td><code>03-api.md</code></td><td>the HTTP surface: reads, writes, <code>If-Match</code>, the change feed, webhooks, dumps</td></tr><tr><td><code>04-governance.md</code></td><td>no single owner: org, admins, format ownership, rehost drill, backwards-compat gates</td></tr><tr><td><code>05-bot.md</code></td><td>the Discord bot: cmini command parity, what it talks to, where it lives</td></tr><tr><td><code>06-akl-integration.md</code></td><td>what changes on akl.gg: data root, pipeline, publish UX (#215), magic rules</td></tr></tbody></table></div>
+<hr>
+<h2 id="doc-00-plan--0-what-i-understood-from-the-dictation-assumptions-correct-me">0. What I understood from the dictation (assumptions — correct me)</h2>
+<p>The transcript was voice-dictated; these are the readings the plan is built on.</p>
+<ol><li>&quot;we want to <b>wait</b> for discord bots to be able to edit layouts&quot; → <em>a <b>way</b> for</em> bots: a bot must be able to write without a per-user OAuth session. Modelled as a registered client with a keypair that signs requests and names the Discord user it acts for (<code>02-auth.md</code> §3).</li><li>&quot;track <b>fingerprint</b>&quot; → fingermap. &quot;<b>digger</b> boards versus <b>Rohde</b> boards&quot; → column-stagger vs row-stagger, with the amount of stagger recorded. &quot;prematurely <b>Laur</b> lower&quot; → lower.</li><li>&quot;a proposal … talking about a Federation concept that I don't want to do&quot; → <code>design/federation/01-design.md</code> is <b>not</b> being built. Its §2 lists why one database is risky (single owner, one person's schema, no home for richer layouts); this plan answers each of those with governance and a format registry instead of with sync (§2 below). Its vocabulary (envelope, <code>rev</code>, <em>held</em>, <em>shadowed</em>, feed-as-truth/push-as-nudge) is reused where it fits.</li><li>&quot;start off synchronizing with the cmini database&quot; → one-way import from <code>clemenpine.com/layoutapi/v3</code> into ours, continuing while it lives; local edits win per record; nothing is written back upstream (<code>06-akl-integration.md</code> §2). <b>Confirm: no write-through to cmini.</b></li><li>&quot;the discord bot should be doing more or less the same things that the cmini bot did&quot; → full command parity within reason, starting from the bot's own (GPLv3, already vendored) command code with its file store swapped for our API (<code>05-bot.md</code>).</li><li>&quot;keep the database in this repo for now … one folder … easy to move out later&quot; → <code>db/</code> at the repo root: its own Worker, <code>wrangler.toml</code>, migrations, tests, <code>package.json</code>; no import crosses the <code>db/</code> boundary in either direction (§7).</li><li>Stats are not the database's job. It stores layouts, ownership, likes and history; every client computes its own numbers (akl.gg with mana2/wasm, the bot with the cmini analyzer). <b>Confirm.</b></li></ol>
+<h2 id="doc-00-plan--1-the-goal">1. The goal</h2>
+<p>One database of keyboard layouts that the community, not one person, owns: any client — akl.gg, a Discord bot, mana on a laptop, an analyzer nobody has written yet — can read every layout in a format it understands and write the layouts of the Discord user it is acting for. It starts as a mirror of cmini's database and is allowed to diverge. Its format is expressive enough for ~99.5 % of what people make, keeps the author's <em>intent</em> (an adaptive swap is stored as an adaptive swap, not as the two magic rules it lowers to), and has an escape hatch for the rest. Every version of every format stays readable forever. Every change is an event anyone can subscribe to. And no one human — including its first maintainer — is needed for it to keep running.</p>
+<h2 id="doc-00-plan--2-principles">2. Principles</h2>
+<p>Each becomes invariants in the companion docs (numbered <code>LDB-*</code> there; registered in <code>design/INVARIANTS.md</code> when implemented).</p>
+<ul><li><b>P1 · A layout belongs to a Discord user.</b> Same identity everywhere: the bot sees it natively, web clients get it through OAuth. Only the owner (or an admin, logged as such) edits, renames, deletes or transfers it.</li><li><b>P2 · Intent is stored; lowering is derived.</b> The record holds what the author meant (<code>magic_keys</code>, <code>chiral_keys</code>, <code>adaptive_swaps</code>); the flat rule list engines consume is computed on read, deterministically. Raw lowered rules are accepted too, as the escape hatch — beside the intent, never instead of it.</li><li><b>P3 · Formats are named, versioned and plural.</b> A record says which format its payload is in. A format is a directory in the repo (schema + validator + lowering + frozen fixtures) with its own owners. A new format is a pull request, not a schema migration.</li><li><b>P4 · Old readers keep working.</b> <code>?as=&lt;format&gt;</code> on every read; a format version is never removed; its fixtures are never edited; CI fails when any historical fixture stops validating or lowers differently.</li><li><b>P5 · Every change is an event.</b> Append-only log from <code>seq = 0</code>; the feed is the source of truth for followers, webhooks are only a nudge (the federation doc's F-10, kept). A full dump is published nightly.</li><li><b>P6 · No single human is required.</b> Multiple admins in data, not in code; org-owned repo and cloud account; a rehost-from-dump procedure that CI itself exercises.</li><li><b>P7 · akl.gg is a client.</b> First and best-integrated, but with no private door: everything it does goes through the same API a bot or mana would use.</li></ul>
+<h2 id="doc-00-plan--3-architecture">3. Architecture</h2>
+<pre><code>  cmini (clemenpine.com/layoutapi/v3)
+        │  one-way import, cron; local edits win per record (06 §2)
+        ▼
+  ┌──────────────────────────────────────────────────────────┐
+  │  layout DB — db/  (Cloudflare Worker + D1, own domain)    │
+  │                                                          │
+  │  formats/  akl/1  cmini/1  mana2/1  core/1  …  (01)      │
+  │  auth      Discord bearer · DB tokens · signed clients   │
+  │  api       /v1/layouts  /v1/changes  /v1/dump  /v1/meta  │
+  │  events    append-only log → feed + webhooks             │
+  └───────┬──────────────────────┬───────────────────────────┘
+          │ reads (any format)   │ writes (as a user)
+  ┌───────┴───────┐   ┌──────────┴─────────┐   ┌──────────────────┐
+  │  akl.gg       │   │  Discord bot       │   │ mana / others    │
+  │  pipeline +   │   │  (bot/) Ed25519,   │   │ DB token, akl/1  │
+  │  publish UX   │   │  acts as author    │   │ or mana2/1       │
+  └───────────────┘   └────────────────────┘   └──────────────────┘</code></pre>
+<p>akl.gg's pipeline keeps its shape: <code>meta-watch</code> polls the DB's <code>/v1/meta</code> instead of cmini's, <code>live-sync</code> computes patches for changed layouts, the nightly rebuilds the base. The only change on day 1 is the URL the scrape reads from (<code>06 §1</code>).</p>
+<h2 id="doc-00-plan--4-decisions-taken-in-this-round-flip-any-of-them">4. Decisions taken in this round (flip any of them)</h2>
+<ul><li><b>D1 · One database, not federation.</b> Sync protocols buy resilience with races; at this community's write rate (single digits a minute) the cheaper resilience is a public feed, a nightly dump, open code and shared admin — anyone can stand up a replacement from yesterday's dump in an afternoon. The federation doc's three costs are answered: single point of failure → <code>04 §3</code> (rehost drill) and <code>§1</code> (shared ownership); one person's schema → the format registry with per-format owners (<code>01 §5</code>); no home for richer layouts → registered advanced formats stored verbatim, <em>held</em> for clients that cannot render them (<code>01 §4</code>).</li><li><b>D2 · Stable ids, unique names.</b> Every record gets an opaque id (ULID) that survives renames; <code>name</code> stays unique case-insensitively and is what humans and the bot type. cmini used the name as the id, so a rename there was delete + create; here it is one event on one record. Imported records keep their cmini name and carry the cmini id in <code>origin</code>.</li><li><b>D3 · <code>akl/1</code> is the common format</b>, and it is the site's existing shapes joined: cmini's <code>keys</code> map (<code>char → {row, col, finger}</code>, absolute thumb columns as in v3), a <code>board</code> that says row- or column-stagger with the amounts, and the magic authoring shape from <code>design/magic-rules/02-schema.md</code> unchanged, plus a raw <code>rules</code> list as the escape hatch (<code>01 §2</code>).</li><li><b>D4 · Intent and escape hatch coexist; conflicts are refused.</b> Lowering concatenates compiled idioms and raw rules; two rows with the same trigger are a 400 at write time with both shown, never a silent last-wins (<code>01 §3</code>).</li><li><b>D5 · Two auth lanes, one identity.</b> Users: a Discord access token (verified against Discord — round 1 of #215, already approved) or a DB-minted personal token for CLIs. Clients: Ed25519-signed requests from a registered public key, naming the user they act for. Both resolve to a Discord user id before any authorization rule runs (<code>02</code>).</li><li><b>D6 · <code>rev</code> + <code>If-Match</code>, whole-record PUT, field PATCH for the small verbs.</b> Concurrency is an integer revision per record, checked on write; 409 carries the current record. Rename/link/fingermap/transfer are PATCH verbs so a bot's <code>!rename</code> is one small request.</li><li><b>D7 · Likes are a sub-resource, not part of <code>rev</code>.</b> A like changes <code>like_count</code> and emits an event; it does not bump the record's revision or <code>modified_at</code> (the bot and the site's sync already assume this).</li><li><b>D8 · Feed is truth, webhooks nudge.</b> <code>GET /v1/changes?since=</code> serves from 0 forever; webhook subscribers get a signed POST and a gap means poll.</li><li><b>D9 · Import is one-way and per-record.</b> A record imported from cmini keeps following upstream until someone writes it here; then it is <em>forked</em> and upstream changes to it become visible-but-unapplied events.</li><li><b>D10 · Admins are a table, formats have owners, ops are a runbook.</b> <code>04</code>.</li><li><b>D11 · The bot starts as a fork of cmini's command code</b> (GPLv3, in <code>vendor/cmini-analyzer/cmds</code> already), file store replaced by an API client; numbers from the cmini analyzer as people expect from that bot; mana2 numbers later. Lives in <code>bot/</code> under the same move-out rule as <code>db/</code>.</li><li><b>D12 · Nothing ships to akl.gg's users until the DB is a strict superset of what the site shows from cmini today</b> — verified by a diff, not by eye.</li></ul>
+<h2 id="doc-00-plan--5-phases">5. Phases</h2>
+<p>Each is independently shippable; nothing user-visible on akl.gg changes before phase 3.</p>
+<div class="tbl"><table><thead><tr><th>phase</th><th>delivers</th><th>proof it works</th></tr></thead><tbody><tr><td><b>0 · proposals</b></td><td>this directory, rendered at akl.gg for the community</td><td>people other than saltorbit have read <code>01</code>–<code>04</code></td></tr><tr><td><b>1 · mirror</b></td><td><code>db/</code> Worker + D1; <code>formats/{core,cmini,akl}</code>; cmini import cron; reads (<code>/v1/layouts</code>, <code>?as=cmini/1</code>), <code>/v1/meta</code>, <code>/v1/changes</code>, <code>/v1/dump</code>; the cmini-compatible facade</td><td><code>sync_cmini_data.py --base-url &lt;ours&gt;</code> produces a byte-identical data root to the upstream scrape (D12)</td></tr><tr><td><b>2 · users write</b></td><td>user lane auth; POST/PUT/PATCH/DELETE; likes; transfer; event log; admin table; audit page</td><td>API suite + conformance vectors; the site's #215 publish UX pointed at the DB, in the preview deploy</td></tr><tr><td><b>3 · cutover</b></td><td>akl.gg reads from the DB (pipeline data root, meta-watch), publishes to it; D1 <code>magic_rules</code> folded into records</td><td>prod on the DB for a week with the cmini import still running; no diff vs cmini for unforked records</td></tr><tr><td><b>4 · bot</b></td><td>client lane auth; <code>bot/</code> with the DB verbs (<code>add remove rename assign setfingermap swap! angle! unangle! mirror! cycle! like unlike link unlink list likes authors</code>), then the analyzer verbs</td><td>parity table in <code>05</code> all green in a test guild</td></tr><tr><td><b>5 · open it</b></td><td>webhooks; personal tokens page; <code>mana2/1</code> + one advanced format from its author; org + Cloudflare handover; rehost drill in CI; repo split</td><td>a second admin performs the rehost drill without saltorbit</td></tr></tbody></table></div>
+<h2 id="doc-00-plan--6-questions-for-saltorbit">6. Questions for saltorbit</h2>
+<ol><li>§0 items 1, 4, 7 — confirm the readings (bot lane; no write-back to cmini; DB stores no stats).</li><li><b>Name and domain.</b> <code>api.akl.gg</code>? The code dir is <code>db/</code> either way; the docs say &quot;the layout DB&quot; until named.</li><li><b>Bot in Python from cmini's GPLv3 code</b> (fast, exact parity, same numbers) vs a fresh bot? GPL means <code>bot/</code> is GPLv3; the DB and the site are unaffected.</li><li><b>Day-1 co-admins</b>: who? The admins table (<code>04 §1</code>) is only democratic if it has two rows before phase 3.</li><li><b>Org names</b>: a GitHub org for the DB + bot repos, and a Cloudflare account with ≥2 super-admins — or keep under your account with added members until phase 5?</li><li><b>Import end state</b>: keep importing from cmini indefinitely (it stays a source for bot users who never move), or stop at a date?</li><li><b>Rename semantics for imported records</b>: cmini's id is its name; if someone renames <code>foo</code> on our side, the cmini import must not re-create <code>foo</code>. Handled by <code>origin.cmini_id</code> (D9), but confirm you want the <em>old</em> name to become free here.</li><li>Anything in <code>01 §2</code> (the <code>akl/1</code> shape) you already know you want different — this is the one doc worth reading slowly.</li></ol>
+<h2 id="doc-00-plan--7-where-the-code-lives-and-how-it-moves-out">7. Where the code lives, and how it moves out</h2>
+<pre><code>db/                      ← the whole service; moves to its own repo as one `git mv`
+  README.md              what it is, how to run, how to rehost
+  package.json           own deps (wrangler, vitest); never imports from ../web or ../scripts
+  wrangler.toml          Worker + D1 + cron triggers + R2 (dumps)
+  migrations/            D1 schema, numbered; applied by CI
+  src/                   the Worker: router, auth, formats, events, import
+  formats/&lt;name&gt;/&lt;N&gt;/    schema.json · index.mjs (validate, toCore, lower, fromCmini/toCmini) · fixtures/
+  tests/                 API suite, conformance vectors, format goldens, rehost drill
+  docs/                  the public API reference (generated from 03)
+bot/                     ← same rule; GPLv3; talks to db/ only over HTTP</code></pre>
+<p>Rules that keep the move cheap: (a) nothing outside <code>db/</code> imports from inside it and vice versa — the site talks HTTP, tests use fixtures; (b) CI for <code>db/</code> is its own workflow (<code>db.yml</code>) that runs <code>cd db &amp;&amp; npm test</code>; (c) secrets are the Worker's own; (d) the D1 database is its own (<code>akl-db</code>), not <code>cb-magic</code>. The design docs stay in this repo's <code>design/layout-db/</code> until the split and move with the code.</p></section>
+<section class="doc" id="doc-01-format"><h1>The layout record and its formats</h1><p class="path">design/layout-db/01-format.md</p><p>Status: proposal (2026-09-08). Part of <code>00-plan.md</code>. The one document here worth reading slowly: every other piece can be changed later; a stored record cannot.</p>
+<h2 id="doc-01-format--1-record-vs-payload">1. Record vs payload</h2>
+<p>A <b>record</b> is what the database owns about a layout — identity, ownership, history. A <b>payload</b> is the layout itself, in one of several <b>formats</b>. The record is the same shape for every layout; the payload's shape is named by <code>format</code>.</p>
+<pre><code>{
+  &quot;id&quot;: &quot;01J7Q9Z3M4K2R6X8V0B1N5C7D9&quot;,     // ULID, minted at create, never changes
+  &quot;name&quot;: &quot;hours&quot;,                        // unique, case-insensitive; what humans type
+  &quot;owner&quot;: &quot;383900587877597186&quot;,          // Discord user id (string)
+  &quot;rev&quot;: 7,                               // integer, +1 per accepted write of the record
+  &quot;created_at&quot;: &quot;2026-06-25T00:00:03Z&quot;,
+  &quot;modified_at&quot;: &quot;2026-09-08T19:40:11Z&quot;,  // last write of the record; likes do not move it
+  &quot;deleted&quot;: false,                       // tombstones keep id, name, owner, rev
+  &quot;link&quot;: &quot;https://…&quot;,                    // optional, free text URL
+  &quot;like_count&quot;: 7,                        // derived; the id list is GET /v1/layouts/{id}/likes
+  &quot;origin&quot;: {                             // provenance; absent for layouts born here
+    &quot;source&quot;: &quot;cmini&quot;, &quot;id&quot;: &quot;hours&quot;,
+    &quot;imported_at&quot;: &quot;2026-09-10T02:00:00Z&quot;,
+    &quot;forked&quot;: false                       // true once written here; upstream stops applying
+  },
+  &quot;format&quot;: &quot;akl/1&quot;,                      // the payload's format id
+  &quot;payload&quot;: { … },                       // see §2
+  &quot;core&quot;: { … } | null                    // derived projection, core/1 (§4); null = held
+}</code></pre>
+<p>Rules:</p>
+<ul><li><code>id</code> is the only key another system should store. <code>name</code> is a display and lookup handle; <code>GET /v1/layouts/{ref}</code> accepts either.</li><li><code>rev</code> is per record and continues across deletion (a recreate under the same name is a new record with a new id; the tombstone keeps the old one).</li><li><code>payload</code> is stored <b>exactly as written</b>, byte-for-byte after JSON canonicalisation, under the <code>format</code> the writer declared. It is never rewritten in place by a schema change. Reads translate (§6).</li><li><code>core</code> is computed by the server from the payload at write time using the format's <code>toCore</code> and stored beside it, so listing and filtering never need to know formats.</li></ul>
+<h2 id="doc-01-format--2-akl-1-the-common-format">2. <code>akl/1</code> — the common format</h2>
+<p>This is what akl.gg writes and what most clients will read. It is the site's existing shapes joined, so nothing is invented: cmini's <code>keys</code> map, the board geometry from #261, the magic authoring shape from <code>design/magic-rules/02-schema.md</code>.</p>
+<pre><code>{
+  // ── keys ────────────────────────────────────────────────────────────
+  // char → position. Same shape and same finger vocabulary as cmini
+  // (LP LR LM LI RI RM RR RP LT RT; TB = either thumb). Rows 0-2 are the
+  // main block, row 3 is thumbs; columns are ABSOLUTE for every row (cmini
+  // v3 semantics, 2026-08-31). A char appears at most once.
+  &quot;keys&quot;: {
+    &quot;a&quot;: { &quot;row&quot;: 1, &quot;col&quot;: 8, &quot;finger&quot;: &quot;RR&quot; },
+    &quot;e&quot;: { &quot;row&quot;: 3, &quot;col&quot;: 6, &quot;finger&quot;: &quot;RT&quot; },
+    &quot;@&quot;: { &quot;row&quot;: 0, &quot;col&quot;: 1, &quot;finger&quot;: &quot;LR&quot; }
+  },
+  // positions that exist on the board but hold no character (cmini's `~`)
+  &quot;free&quot;: [ { &quot;row&quot;: 2, &quot;col&quot;: 5, &quot;finger&quot;: &quot;RI&quot; } ],
+
+  // ── board ───────────────────────────────────────────────────────────
+  // kind: &quot;rowstag&quot; | &quot;colstag&quot; | &quot;ortho&quot;.
+  // stagger: per ROW for rowstag (rows 0..2, in key widths; ANSI is
+  // [0, 0.25, 0.75]), per COLUMN for colstag (in key heights, one entry per
+  // column present); absent or all-zero = ortho. Matches mana2's
+  // rowOrColumnStagger so mana2/1 round-trips losslessly.
+  // cmini: the word cmini would use (&quot;stagger&quot; | &quot;angle&quot; | &quot;ortho&quot; | &quot;mini&quot;),
+  // kept so an imported record lowers back to cmini/1 byte-identically.
+  // Optional; derived when absent (§6.2).
+  &quot;board&quot;: { &quot;kind&quot;: &quot;rowstag&quot;, &quot;stagger&quot;: [0, 0.25, 0.75], &quot;cmini&quot;: &quot;angle&quot; },
+
+  // ── magic (optional) ────────────────────────────────────────────────
+  // The AUTHORING shape from design/magic-rules/02-schema.md, verbatim.
+  // Intent lives here; engines get the lowering (§3).
+  &quot;magic&quot;: {
+    &quot;magic_keys&quot;: [
+      { &quot;key&quot;: &quot;@&quot;, &quot;default&quot;: &quot;repeat_previous&quot;,
+        &quot;rules&quot;: [ { &quot;after&quot;: &quot;n&quot;, &quot;output&quot;: &quot;nl&quot; }, { &quot;after&quot;: &quot;r&quot;, &quot;output&quot;: &quot;rn&quot; },
+                   { &quot;after&quot;: &quot;u&quot;, &quot;output&quot;: &quot;u'&quot; }, { &quot;after&quot;: &quot;y&quot;, &quot;output&quot;: &quot;ys&quot; } ] }
+    ],
+    &quot;chiral_keys&quot;: [ { &quot;key&quot;: &quot;;&quot;, &quot;same&quot;: &quot;ee&quot;, &quot;opposite&quot;: &quot;ei&quot; } ],
+    &quot;adaptive_swaps&quot;: [ { &quot;trigger&quot;: &quot;t&quot;, &quot;swap&quot;: [&quot;h&quot;, &quot;e&quot;] } ],
+
+    // ── the escape hatch ─────────────────────────────────────────────
+    // Flat rules in mana2's own vocabulary, appended to the lowering
+    // unchanged. For things the idioms above cannot say yet. `note` is for
+    // the human reading the record later (&quot;this is a 3-key swap, see …&quot;).
+    &quot;rules&quot;: [ { &quot;inputs&quot;: &quot;th&quot;, &quot;output&quot;: &quot;te&quot;, &quot;note&quot;: &quot;…&quot; } ]
+  },
+
+  // ── anything else ───────────────────────────────────────────────────
+  // Free-form, validated only as JSON, preserved verbatim, ignored by
+  // lowering. Where a client keeps its own extras without inventing a
+  // format. Namespaced by client: &quot;x&quot;: { &quot;keymaxx&quot;: {…}, &quot;mana&quot;: {…} }.
+  &quot;x&quot;: {}
+}</code></pre>
+<p>What is deliberately <b>not</b> in <code>akl/1</code>: layers, combos, hold-taps, per-key timing, alternate fingerings (#148 — will be an additive minor once its design closes). Those belong to advanced formats (§4) until an idiom for them is proven in one.</p>
+<h3 id="doc-01-format--2-1-validation-write-time-400-with-the-offending-path">2.1 Validation (write-time, 400 with the offending path)</h3>
+<ul><li><code>keys</code>: ≥ 1 entry; each char is one code point; rows 0–3; cols ≥ 0 (negative columns crash the wasm engine — see memory: negative-col crash); thumbs (row 3) carry <code>LT</code>/<code>RT</code>/<code>TB</code> only and rows 0–2 never do (<code>setfingermap</code>'s own rule); no two chars share a position.</li><li><code>board.stagger</code> length matches kind (3 for rowstag; one per distinct column for colstag); <code>board.cmini</code>, when present, must agree with the geometry it names (the cmini <code>add</code> heuristic on <code>stagger</code>).</li><li><code>magic</code>: every rule in <code>02-schema.md</code>'s list, unchanged (single-char keys, <code>output</code> starts with <code>after</code>, no duplicate <code>after</code> per key, no duplicate <code>trigger</code>, a key is magic or chiral never both, <code>repeat_previous</code> sentinel). Plus: every char named in <code>magic</code> exists in <code>keys</code>.</li><li><code>magic.rules[]</code>: <code>inputs</code> is exactly two chars present in <code>keys</code>, <code>output</code> non-empty; no duplicate <code>inputs</code>.</li><li>The lowering (§3) must succeed with no collision.</li></ul>
+<h2 id="doc-01-format--3-intent-and-lowering">3. Intent and lowering</h2>
+<p><code>lower(payload) → [{inputs, output}]</code> is a pure, deterministic function shipped with the format (<code>formats/akl/1/index.mjs</code>) and is what <code>?as=mana2/1</code> and <code>?as=cmini/1</code> emit in their <code>magic</code> fields. It is the existing compile in <code>scripts/build_magic_rules.py</code> / <code>functions/_lib/rules.mjs</code> (magic keys → one row per <code>after</code>; chiral → one row per key on the named hand; adaptive swap <code>t:[h,e]</code> → <code>th→te</code>, <code>te→th</code>) followed by the raw <code>rules</code> appended in order.</p>
+<p><b>Collision rule (D4).</b> Two lowered rows with the same <code>inputs</code> — whether from two idioms, or an idiom and a raw rule — are refused at write time:</p>
+<pre><code>400 { &quot;error&quot;: &quot;magic_collision&quot;,
+      &quot;inputs&quot;: &quot;th&quot;,
+      &quot;from&quot;: [ &quot;adaptive_swaps[0]&quot;, &quot;rules[0]&quot; ],
+      &quot;message&quot;: &quot;two rules fire after 'th': adaptive swap t:[h,e] and raw rule th→te&quot; }</code></pre>
+<p>Not last-wins (mana2's load behaviour, which <code>02-schema.md</code> already calls a footgun) and not &quot;raw overrides&quot; — an author who wants the raw row deletes the idiom, and the record then says what they meant. The escape hatch is for what the idioms cannot express, not for overriding them.</p>
+<p><b>Round trip.</b> <code>akl/1 → lower → akl/1</code> is lossy by construction (that is the point: the lowering forgets the idiom). The <b>write</b> path therefore never accepts a lowering as the record's magic when the client had the intent: a client that only speaks flat rules writes them into <code>magic.rules</code> and the record honestly says &quot;raw rules&quot;. A client that wants to <em>recover</em> intent from a flat list (e.g. importing <code>hours.jsonc</code>) may run the format's <code>liftRules()</code> — a best-effort detector for the repeat-key pattern and the swap pair pattern — and must present the result to the author before writing it, never write it silently. (Same posture as #221's finding that the flat rows round-trip; the lift is a convenience, the raw list is the truth.)</p>
+<h2 id="doc-01-format--4-other-formats-and-the-registry">4. Other formats and the registry</h2>
+<p>A format is a directory:</p>
+<pre><code>db/formats/&lt;name&gt;/&lt;major&gt;/
+  schema.json      JSON Schema for the payload (draft 2020-12)
+  index.mjs        validate(payload) · toCore(payload) → core/1 | null
+                   lower(payload) → flat rules | null
+                   to: { &quot;&lt;other format&gt;/&lt;N&gt;&quot;: fn } (optional)
+                   from: { &quot;&lt;other format&gt;/&lt;N&gt;&quot;: fn } (optional)
+  fixtures/        frozen: NNN-&lt;name&gt;.json (+ .core.json, .lowered.json goldens)
+  OWNERS           GitHub handles who review changes here (04 §2)
+  README.md        what this format is for, what it cannot express</code></pre>
+<p>Registered on day 1:</p>
+<div class="tbl"><table><thead><tr><th>format</th><th>owner</th><th>what it is</th><th><code>toCore</code></th><th>notes</th></tr></thead><tbody><tr><td><code>core/1</code></td><td>DB</td><td>keys + free + board + fingermap only; no magic. The tiny shared core every client must read.</td><td>identity</td><td>The read shape for &quot;just show me the keys&quot; clients (emulayout). Never gains fields.</td></tr><tr><td><code>cmini/1</code></td><td>DB</td><td>cmini's v3 detail JSON verbatim: <code>name user board keys free magic link</code></td><td>lossless</td><td>Write it and you get a record whose payload is the cmini shape; <code>?as=cmini/1</code> from an <code>akl/1</code> record lowers board → cmini word and magic → flat <code>{inputs, output, type}</code> rows. The bot writes this.</td></tr><tr><td><code>akl/1</code></td><td>DB (+ akl.gg)</td><td>§2</td><td>lossless</td><td></td></tr><tr><td><code>mana2/1</code></td><td>Zak (mana2)</td><td>a mana2 <code>.jsonc</code> layout object (<code>layout.fingers/thumbs</code>, <code>board</code>, <code>fingermap</code>, <code>magic.rules</code>)</td><td>keys+board+fingermap</td><td>mana's own write format (federation §13 &quot;mana's write format&quot;). Layers/combos are <code>todo</code> in mana2's own spec; when they land, <code>mana2/2</code>.</td></tr></tbody></table></div>
+<p>A record whose format has <code>toCore → null</code> (or whose format the running server does not have) is <b>held</b>: stored, listed with its name/owner/rev, <code>core: null</code>, and readable only as its own format. Nothing is ever dropped for being unrenderable (federation §6.5, kept). The server refuses a write in a format it does not have registered (400 <code>unknown_format</code>) — there is no &quot;opaque bytes&quot; write, because a held record that <em>nobody</em> can read is a bug, not a feature; registering the format is a PR (<code>04 §2</code>).</p>
+<p>An <b>advanced</b> format (say <code>keymaxx/1</code>, with combos and layers) is added the same way, by its author, with <code>toCore</code> giving the base layer's keys so it still lists and filters, and <code>to[&quot;akl/1&quot;]</code> if it can be lowered there. akl.gg would show such a record's core and say <em>uses features shown fully in keymaxx</em> — the &quot;see it elsewhere&quot; card from federation §6.5, in one database.</p>
+<h2 id="doc-01-format--5-versioning-and-compatibility">5. Versioning and compatibility</h2>
+<ul><li>Format id = <code>&lt;name&gt;/&lt;major&gt;</code>. Within a major, changes are <b>additive and optional</b> (a new optional key; a new enum value with a defined fallback). Anything else is a new major directory.</li><li>A major is <b>never deleted</b>, its <code>schema.json</code> never tightened, its fixtures never edited. Adding a fixture is allowed; that is how a bug found in the wild becomes a permanent regression.</li><li>Records keep their written <code>format</code>. A reader asks <code>?as=akl/2</code> and gets the <code>to[&quot;akl/2&quot;]</code> translation; asks <code>?as=akl/1</code> of an <code>akl/2</code> record and gets the down-translation where it is lossless, <code>409 held</code> where it is not, with <code>see: &quot;akl/2&quot;</code>.</li><li>API path version (<code>/v1/</code>) and format majors are independent. <code>/v1/</code> changes only if the record envelope (§1) breaks; adding fields to it does not count.</li><li>Deprecation means &quot;documented as not recommended&quot;. It never means 404.</li></ul>
+<h2 id="doc-01-format--6-translations-in-day-1-formats">6. Translations in day-1 formats</h2>
+<h3 id="doc-01-format--6-1-cmini-1-akl-1-the-import-must-be-lossless">6.1 <code>cmini/1 → akl/1</code> (the import; must be lossless)</h3>
+<div class="tbl"><table><thead><tr><th>cmini</th><th>akl/1</th></tr></thead><tbody><tr><td><code>keys</code></td><td><code>keys</code> unchanged (v3 absolute thumb cols)</td></tr><tr><td><code>free</code> (positions)</td><td><code>free</code></td></tr><tr><td><code>board: &quot;stagger&quot;</code></td><td><code>board: {kind:&quot;rowstag&quot;, stagger:[0,0.25,0.75], cmini:&quot;stagger&quot;}</code></td></tr><tr><td><code>board: &quot;angle&quot;</code></td><td><code>board: {kind:&quot;rowstag&quot;, stagger:[0,0.25,0.75], cmini:&quot;angle&quot;}</code> (the angle shift is already in <code>keys</code>' cols and fingers, as cmini stores it)</td></tr><tr><td><code>board: &quot;ortho&quot;</code></td><td><code>board: {kind:&quot;ortho&quot;, cmini:&quot;ortho&quot;}</code></td></tr><tr><td><code>board: &quot;mini&quot;</code></td><td><code>board: {kind:&quot;ortho&quot;, cmini:&quot;mini&quot;}</code></td></tr><tr><td><code>magic: [{inputs, output, type}]</code></td><td><code>magic.rules</code> (raw), then the author may lift (§3). <code>type</code> is preserved under <code>x.cmini.magic_types</code> if it carries anything the row does not.</td></tr><tr><td><code>name user link likes created_at modified_at</code></td><td>record fields, not payload</td></tr></tbody></table></div>
+<p>Golden: every cmini layout at import (4174 on 2026-09-08) satisfies <code>toCmini(fromCmini(x)) == x</code> after key-order canonicalisation. This is the D12 diff and it runs in CI against the live scrape (<code>db/tests/import.test</code>).</p>
+<h3 id="doc-01-format--6-2-akl-1-cmini-1-what-the-bot-and-emulayout-read">6.2 <code>akl/1 → cmini/1</code> (what the bot and emulayout read)</h3>
+<p><code>board.cmini</code> wins when present; otherwise derived: rowstag with ANSI stagger → <code>stagger</code>, ortho → <code>ortho</code>, colstag → <code>ortho</code> (cmini has no colstag; the stagger amounts are lost, which is the documented loss), <code>mini</code> only when the record said so. <code>magic</code> → <code>lower()</code>. <code>x</code> is dropped.</p>
+<h3 id="doc-01-format--6-3-akl-1-mana2-1">6.3 <code>akl/1 ↔ mana2/1</code></h3>
+<p>Rows → <code>layout.fingers</code> strings with column gaps rendered as mana2 does (hand split after the 5th column; <code>skip</code> for <code>free</code>); thumbs → <code>thumbs</code>; <code>board.kind/stagger</code> → <code>isRowStaggered</code> + <code>rowOrColumnStagger</code>; fingers → mana2 digits (<code>LP..RP</code> = 0..9, thumbs 4/5). Magic → <code>lower()</code>. Reverse: digits → finger letters, flat rules → <code>magic.rules</code> (raw) + optional lift.</p>
+<h2 id="doc-01-format--7-invariants-the-covenant">7. Invariants (the covenant)</h2>
+<div class="tbl"><table><thead><tr><th>id</th><th>invariant</th><th>enforced by</th></tr></thead><tbody><tr><td>LDB-F1</td><td>Every stored payload validates against its declared format's frozen schema; a write that does not is refused with the failing path.</td><td>API test per format fixture; property test over random mutations of fixtures (each single-field corruption is refused)</td></tr><tr><td>LDB-F2</td><td><code>lower()</code> is pure and deterministic: same payload → same rows in the same order, across server versions.</td><td><code>.lowered.json</code> goldens per fixture, never edited</td></tr><tr><td>LDB-F3</td><td>Intent is never silently lowered on write: a record whose client sent idioms stores idioms.</td><td>API test: PUT with <code>adaptive_swaps</code> reads back with <code>adaptive_swaps</code></td></tr><tr><td>LDB-F4</td><td>Lowering collisions are refused, never resolved.</td><td>matrix: idiom×idiom, idiom×raw, raw×raw</td></tr><tr><td>LDB-F5</td><td><code>cmini/1</code> round-trips through <code>akl/1</code> byte-identically for the whole imported set.</td><td>CI against the live scrape (D12)</td></tr><tr><td>LDB-F6</td><td>A format major, once merged, is immutable: schema not tightened, fixtures unchanged.</td><td>a test diffs <code>formats/**</code> against <code>main</code> and fails on any edit to a frozen file (additions allowed)</td></tr><tr><td>LDB-F7</td><td>Every registered format has ≥ 1 fixture with <code>.core.json</code>, and <code>toCore(fixture)</code> equals it.</td><td>generated from the registry</td></tr><tr><td>LDB-F8</td><td><code>core/1</code> never grows: its schema is <code>additionalProperties: false</code> and its fixture set is complete.</td><td>schema test</td></tr><tr><td>LDB-F9</td><td>A held record keeps its name, owner and rev, and reads as its own format.</td><td>API test with a fixture format registered only in the test</td></tr><tr><td>LDB-F10</td><td><code>x</code> is preserved verbatim through write → read in the same format and dropped in any translation.</td><td>round-trip property test</td></tr></tbody></table></div>
+<h2 id="doc-01-format--8-open-questions-format">8. Open questions (format)</h2>
+<ol><li><b>Free positions</b>: cmini's <code>free</code> is a list of positions with <code>~</code>; is a <code>free</code> list the right idea in <code>akl/1</code>, or should <code>keys</code> allow a <code>null</code> char? (Proposal: keep <code>free</code>; it is what cmini writes and what the site already parses.)</li><li><b>Colstag amounts</b> are lost in <code>cmini/1</code>; fine? (Yes — cmini cannot say it.)</li><li><b>Lift on import</b>: run <code>liftRules()</code> at import for the ~60 cmini layouts with magic and store the lifted idioms, or import raw and let owners lift from the site? (Proposal: import raw; owners lift with one click on their card — the lift is shown before it is saved.)</li><li><b><code>x</code> size cap</b>: 16 KB? (Proposal: yes, per record.)</li><li><code>#148</code> alt fingerings: additive minor to <code>akl/1</code> (<code>keys[c].alt: [...]</code>) once that design closes — flag now so nobody registers a format for it.</li></ol></section>
+<section class="doc" id="doc-02-auth"><h1>Authentication and authorization</h1><p class="path">design/layout-db/02-auth.md</p><p>Status: proposal (2026-09-08). Part of <code>00-plan.md</code>.</p>
+<h2 id="doc-02-auth--1-one-identity-two-lanes">1. One identity, two lanes</h2>
+<p>Everything authorizes on a <b>Discord user id</b>. cmini already keys every layout, author and like by it; the bot sees it on every message; akl.gg's existing OAuth (<code>functions/auth/discord/</code>) already puts it in a session. The question is only how a request proves <em>which</em> user it speaks for. Two lanes:</p>
+<div class="tbl"><table><thead><tr><th>lane</th><th>who</th><th>proves the user by</th><th>typical caller</th></tr></thead><tbody><tr><td><b>user</b> (§2)</td><td>a person, through a client they are signed into</td><td>a Discord access token the DB verifies with Discord, or a DB-minted personal token</td><td>akl.gg, mana, any web app</td></tr><tr><td><b>client</b> (§3)</td><td>a registered program acting for a person it has already authenticated itself</td><td>an Ed25519 signature from a key an admin registered, plus the user id it asserts</td><td>Discord bots</td></tr></tbody></table></div>
+<p>Both lanes end in the same place: <code>ctx.actor = { user_id, via: &quot;discord&quot; | &quot;token&quot; | &quot;client:&lt;id&gt;&quot; }</code>, and every authorization rule (§4) reads only <code>actor.user_id</code>. <code>via</code> goes to the audit log.</p>
+<h2 id="doc-02-auth--2-the-user-lane">2. The user lane</h2>
+<h3 id="doc-02-auth--2-1-discord-access-token-primary-round-1-of-215-approved">2.1 Discord access token (primary; round 1 of #215, approved)</h3>
+<pre><code>Authorization: Bearer &lt;discord access token&gt;</code></pre>
+<p>The DB calls <code>GET https://discord.com/api/users/@me</code> with the same header, caches <code>sha256(token) → user_id</code> for ≤ 5 minutes (failures ≤ 60 s), maps Discord's 401 to <code>401 token_invalid</code>, unreachable to <code>503 identity_unavailable</code>. <code>identify</code> scope is all that is needed. No secret is shared between the DB and any client: a token exists only because that user signed into <em>that</em> client's Discord app. Optional per-client allowlist by <code>application.id</code> (<code>/oauth2/@me</code>) — an admin decision, off by default.</p>
+<p>akl.gg's side is <code>design/cmini-write/05-implementation-plan.md</code> §4.1–4.2, unchanged except the base URL: keep the user's Discord tokens encrypted in D1, proxy writes through Pages Functions, never hand the browser a token.</p>
+<h3 id="doc-02-auth--2-2-personal-tokens-for-clis-and-scripts">2.2 Personal tokens (for CLIs and scripts)</h3>
+<p>A laptop cannot hold a Discord OAuth session comfortably. So:</p>
+<pre><code>POST /v1/auth/tokens          Authorization: Bearer &lt;discord token&gt;
+     { &quot;label&quot;: &quot;mana on laptop&quot; }
+→ 201 { &quot;token&quot;: &quot;akl_v1_…&quot;, &quot;id&quot;: &quot;tok_…&quot;, &quot;label&quot;: …, &quot;created_at&quot;: … }   // shown once
+GET  /v1/auth/tokens          → the caller's tokens (id, label, created, last_used); never the secret
+DELETE /v1/auth/tokens/{id}</code></pre>
+<p>Stored as <code>sha256(token)</code>; presented as <code>Authorization: Bearer akl_v1_…</code>; no expiry by default, revocable, <code>last_used_at</code> updated on use. akl.gg's Settings page gets a <em>Create API token</em> button that calls this through the proxy and shows the token once (federation §13's &quot;token the user copies from the node's settings page&quot; — the less-code option, chosen).</p>
+<h3 id="doc-02-auth--2-3-get-v1-me">2.3 <code>GET /v1/me</code></h3>
+<p>Returns <code>{ user_id, name, via, admin: bool }</code> for any authenticated request. Ships first; proves the chain with no write risk.</p>
+<h2 id="doc-02-auth--3-the-client-lane-bots">3. The client lane — bots</h2>
+<p>A Discord bot authenticates its <em>users</em> already: Discord delivered the message, <code>message.author.id</code> is trustworthy inside the bot. What the bot cannot do is present a token for that user. So the bot presents <b>itself</b>, and asserts the user.</p>
+<p>This is the pattern round 1 of #215 rejected for the <em>cmini</em> API (its rows A and D: the API takes someone's word for the user). It is acceptable here for one reason: <b>the trust decision is explicit and revocable</b> — an admin registers this specific key, sees every write it makes attributed to it, and can pull it. It is the same trust the cmini bot has always had over its own file store, made visible.</p>
+<h3 id="doc-02-auth--3-1-registration">3.1 Registration</h3>
+<pre><code>clients: { id, name, pubkey (Ed25519, base64), owner_user_id, caps, status, created_at, revoked_at }
+caps:    &quot;act-as-user&quot;        may assert any user id
+         &quot;act-as-owner-only&quot;  may assert only owner_user_id (a personal script)</code></pre>
+<p>Registered by an admin (<code>POST /v1/admin/clients</code> with the bot maintainer's public key, <code>04 §1</code>). The private key never leaves the bot's host. Rotation = register the new key, revoke the old.</p>
+<h3 id="doc-02-auth--3-2-signing-a-request">3.2 Signing a request</h3>
+<pre><code>X-Akl-Client:    &lt;client id&gt;
+X-Akl-Timestamp: &lt;unix seconds&gt;
+X-Akl-Nonce:     &lt;16 random bytes, base64url&gt;
+X-Akl-Actor:     &lt;discord user id the request acts for&gt;
+X-Akl-Signature: base64url( Ed25519_sign( sk, signing_string ) )
+
+signing_string = &quot;akl-v1\n&quot; + METHOD + &quot;\n&quot; + PATH_WITH_QUERY + &quot;\n&quot;
+               + TIMESTAMP + &quot;\n&quot; + NONCE + &quot;\n&quot; + ACTOR + &quot;\n&quot;
+               + base64url( sha256( body bytes, or empty ) )</code></pre>
+<p>Server: client exists and <code>status = active</code>; <code>|now − timestamp| ≤ 300 s</code>; nonce unseen for that client in the last 10 min (D1 table, pruned); signature verifies under the registered key (Web Crypto <code>Ed25519</code>, available in Workers); <code>caps</code> permit the asserted actor. Then <code>ctx.actor = { user_id: ACTOR, via: &quot;client:&lt;id&gt;&quot; }</code>.</p>
+<p>Deliberately our own five-line scheme rather than RFC 9421: the RFC's component negotiation is for general HTTP; here both sides are ours and the shape is fixed. <b>Interop is enforced by test vectors</b> — <code>db/tests/vectors/ client-signing.json</code> holds (key, request, expected signature) triples that the Worker verifies and the bot's Python client must reproduce (<code>05 §4</code>).</p>
+<h3 id="doc-02-auth--3-3-what-a-compromised-bot-key-can-do-and-what-bounds-it">3.3 What a compromised bot key can do, and what bounds it</h3>
+<p>Everything its <code>caps</code> allow, as any user — the confused-deputy cost, accepted. Bounds: every write carries <code>via: client:&lt;id&gt;</code> in the event log and the admin changelog, so a rogue key's writes are one query to list and one to revert (events keep <code>before</code>); per-client rate limits (default 60 writes / 10 min); revocation is immediate (no token to expire); <code>act-as-owner-only</code> for anything that is not a real multi-user bot. A bot must also be a real Discord application: registration records its Discord application id and an admin can verify it (<code>/oauth2/applications/@me</code> with the bot token) — a human step at registration, not a runtime check.</p>
+<h2 id="doc-02-auth--4-authorization-rules-identical-to-the-bot-s-today">4. Authorization rules (identical to the bot's today)</h2>
+<div class="tbl"><table><thead><tr><th>action</th><th>allowed when</th></tr></thead><tbody><tr><td>create</td><td>any authenticated actor; <code>owner = actor.user_id</code></td></tr><tr><td>edit (PUT/PATCH keys, board, magic, link) · rename · delete</td><td><code>record.owner == actor.user_id</code>, or actor is admin (logged <code>admin: true</code>)</td></tr><tr><td>transfer (<code>assign</code>)</td><td><code>record.owner == actor.user_id</code>; target must be a user the DB has seen (has an author row or has authenticated once), or admin</td></tr><tr><td>like / unlike</td><td>any authenticated actor; idempotent; refused on <code>qwerty</code> as the bot does; refused on own layout? — <b>no</b> (cmini allows it; keep)</td></tr><tr><td>set fingermap</td><td>as edit</td></tr><tr><td>admin verbs (§5)</td><td><code>actor.user_id ∈ admins</code></td></tr><tr><td>read</td><td>everyone, no auth; the record shows <code>owner</code> (a public Discord id, as cmini does)</td></tr></tbody></table></div>
+<p>Rate limits are per resolved <code>user_id</code> (all akl.gg traffic shares an egress IP), and per client id additionally on the client lane.</p>
+<h2 id="doc-02-auth--5-admins">5. Admins</h2>
+<p>A D1 table, not a constant (the site's <code>ADMIN_DISCORD_IDS</code> in <code>session.mjs</code> is the thing this replaces for the DB): <code>admins { user_id, added_by, added_at, note }</code>. Admin verbs: register/revoke clients; add/remove admins (cannot remove the last two — LDB-A6); force-transfer; delete or restore any record; pause the cmini import. All of them are events in the same log (<code>03 §5</code>), visible on the public changelog with <code>admin: true</code>.</p>
+<p>Bootstrap: migration <code>0001</code> inserts the first two admins from the runbook (<code>04 §1</code>), so the table is never a one-row table in production.</p>
+<h2 id="doc-02-auth--6-invariants">6. Invariants</h2>
+<div class="tbl"><table><thead><tr><th>id</th><th>invariant</th><th>enforced by</th></tr></thead><tbody><tr><td>LDB-A1</td><td>No write is accepted without <code>ctx.actor.user_id</code>; there is no anonymous write path, including admin routes.</td><td>route table test: every non-GET handler is wrapped by <code>requireActor</code></td></tr><tr><td>LDB-A2</td><td>The Discord token cache never serves a failure longer than 60 s or a success longer than 5 min.</td><td>unit test with a fake clock</td></tr><tr><td>LDB-A3</td><td>A personal token's secret is stored only as a hash and returned only in the 201 that created it.</td><td>grep-style test over responses + D1 column check</td></tr><tr><td>LDB-A4</td><td>Client-lane signatures: the verifier accepts every vector in <code>client-signing.json</code> and rejects each single-field mutation (method, path, timestamp ± 301 s, replayed nonce, body, actor, key).</td><td>generated matrix over the vectors</td></tr><tr><td>LDB-A5</td><td>Every accepted write's event carries <code>via</code> and, on the client lane, the client id; a revoked client's requests are refused from the revocation onward.</td><td>API test</td></tr><tr><td>LDB-A6</td><td>The admins table never has fewer than two active rows after bootstrap.</td><td>write-path check + test</td></tr><tr><td>LDB-A7</td><td>Owner checks read <code>record.owner</code> and <code>actor.user_id</code> and nothing else — no name matching, no client-supplied owner field on edits (<code>owner</code> in a PUT body is ignored, <code>transfer</code> is the only way to change it).</td><td>property test: PUT with a foreign <code>owner</code> leaves it unchanged</td></tr></tbody></table></div>
+<h2 id="doc-02-auth--7-open-questions-auth">7. Open questions (auth)</h2>
+<ol><li><code>act-as-user</code> for the one bot on day 1; do we want per-client allowed guild ids too (a bot only acting for users in the AKL server)? Cheap to add later; <b>not</b> on day 1.</li><li>Personal tokens with optional expiry? Proposal: none by default, <code>expires_in</code> optional.</li><li>Should the DB run its own Discord OAuth too (for its own admin page)? Proposal: no; admin actions are API calls with a personal token from an admin, and the changelog is a public read-only page. Fewer secrets.</li></ol></section>
+<section class="doc" id="doc-03-api"><h1>The API</h1><p class="path">design/layout-db/03-api.md</p><p>Status: proposal (2026-09-08). Part of <code>00-plan.md</code>. Base URL: the DB's own domain (name pending, <code>00 §6.2</code>), path prefix <code>/v1</code>. JSON in and out, UTF-8, <code>Content-Type: application/json</code>. CORS <code>*</code> on reads; writes are same-rules (bearer or signed, so CORS is not a gate).</p>
+<h2 id="doc-03-api--1-conventions">1. Conventions</h2>
+<ul><li><b>Refs.</b> <code>{ref}</code> in a path is a record id (<code>01J…</code>) or a name (case- insensitive). Ambiguity is impossible: ids are 26 chars of Crockford base32 and names may not be.</li><li><b>Formats.</b> Every read that returns a payload accepts <code>?as=&lt;format&gt;</code> (<code>01 §4</code>). Default <code>akl/1</code>. <code>?as=core/1</code> returns only the core projection. <code>409 { held: true, format: &quot;&lt;native&gt;&quot;, see: … }</code> when the translation is not possible (<code>01 §5</code>).</li><li><b>Fields.</b> <code>?fields=id,name,owner,rev,core</code> trims list responses; default list rows carry the record minus <code>payload</code> and <code>core</code>.</li><li><b>Errors.</b> <code>{ error: &quot;&lt;snake_code&gt;&quot;, message: &quot;&lt;human text&gt;&quot;, …details }</code>. The <code>message</code> is what a bot prints and what the site shows verbatim — write them in the bot's voice (<code>missing gap before column …</code>).</li><li><b>Concurrency.</b> Every write that changes a record accepts <code>If-Match: &quot;&lt;rev&gt;&quot;</code>. Mismatch → <code>409 { error: &quot;stale&quot;, rev, record }</code> with the current record in the body so a client can rebase. Absent <code>If-Match</code> = overwrite on purpose (the site sends it always; the bot never does — bot users edit by typing, there is no draft to be stale).</li><li><b>Idempotency.</b> <code>POST /v1/layouts</code> accepts <code>Idempotency-Key</code>; a repeat within 24 h returns the original response.</li><li><b>Versioning.</b> <code>/v1</code> changes only on a breaking change to the record envelope (<code>01 §5</code>). New endpoints and new optional fields are not breaking.</li><li><b>Rate limits.</b> Per actor: 60 writes / 10 min; reads unlimited within Cloudflare's sanity. <code>429</code> carries <code>Retry-After</code>.</li></ul>
+<h2 id="doc-03-api--2-reads-no-auth">2. Reads (no auth)</h2>
+<pre><code>GET /v1/meta
+→ { layout_count, author_count, seq, revision: &quot;&lt;iso of last event&gt;&quot;,
+    layouts_modified_at, authors_modified_at, formats: [&quot;akl/1&quot;, …] }</code></pre>
+<p>The one call a poller makes on a quiet tick (meta-watch, <code>06 §1</code>). <code>seq</code> is the event log head.</p>
+<pre><code>GET /v1/layouts?owner=&amp;format=&amp;has_magic=&amp;since=&lt;iso&gt;&amp;sort=&amp;limit=&amp;cursor=&amp;as=
+→ { items: [record…], next_cursor }
+GET /v1/layouts?full=1&amp;as=cmini/1        one response with every payload (the weekly full sync)
+GET /v1/layouts/{ref}?as=               → record with payload (+ core)
+GET /v1/layouts/{ref}/likes             → { user_ids: [...] }
+GET /v1/layouts/{ref}/history           → [{ rev, event_id, at, actor, via, kind }]
+GET /v1/layouts/{ref}/rev/{n}?as=       → the record as of rev n (from the event log)
+GET /v1/authors                         → { &quot;&lt;name&gt;&quot;: &quot;&lt;user_id&gt;&quot; }   (cmini's shape)
+GET /v1/authors/{user_id}               → { user_id, name, layout_count, liked_count }
+GET /v1/formats                         → registry: [{ id, owner, description, can_translate_to: [...] }]
+GET /v1/formats/{name}/{N}/schema.json</code></pre>
+<h3 id="doc-03-api--2-1-the-cmini-compatible-facade">2.1 The cmini-compatible facade</h3>
+<pre><code>GET /compat/cmini/v3/meta
+GET /compat/cmini/v3/layouts[?full=1]
+GET /compat/cmini/v3/layouts/{name}
+GET /compat/cmini/v3/authors</code></pre>
+<p>Byte-compatible with <code>clemenpine.com/layoutapi/v3</code> for the fields it has, plus nothing. This is how akl.gg's pipeline cuts over by changing one URL (<code>06 §1</code>), how emulayout reads without learning anything, and how the D12 diff is run. Frozen like a format major: it never changes shape.</p>
+<h2 id="doc-03-api--3-writes-user-or-client-lane-02">3. Writes (user or client lane, <code>02</code>)</h2>
+<pre><code>POST   /v1/layouts                    { name, format, payload, link? }        → 201 record
+PUT    /v1/layouts/{ref}              { format, payload, link? }  If-Match     → 200 record
+PATCH  /v1/layouts/{ref}              one or more of:                          → 200 record
+                                        { name }                 rename
+                                        { link }  / { link: null }  link / unlink
+                                        { fingermap: { &quot;&lt;char&gt;&quot;: &quot;&lt;finger&gt;&quot;, … } }
+                                        { board }                (akl/1 records only)
+                                        { magic }                (akl/1 records only)
+DELETE /v1/layouts/{ref}              If-Match                                 → 200 tombstone record
+POST   /v1/layouts/{ref}/transfer     { to: &quot;&lt;user_id&gt;&quot; }                      → 200 record
+POST   /v1/layouts/{ref}/restore      (owner or admin; within 30 days)         → 200 record
+PUT    /v1/layouts/{ref}/like                                                  → 200 { like_count }
+DELETE /v1/layouts/{ref}/like                                                  → 200 { like_count }</code></pre>
+<p>Semantics:</p>
+<ul><li><code>POST</code>: <code>name</code> checked (<code>check_name</code> rules: ≥ 3 chars, allowed charset, no leading <code>_</code>, unique case-insensitively → <code>409 name_taken</code>); <code>format</code> must be registered; payload validated (<code>01 §2.1</code>); <code>owner = actor</code>; <code>rev = 1</code>.</li><li><code>PUT</code>: whole payload replaced; <code>rev + 1</code>. <code>format</code> may change (an author moving their layout from <code>cmini/1</code> to <code>akl/1</code>).</li><li><code>PATCH</code> verbs are what the bot's small commands map to (<code>05 §2</code>); each is applied to the payload through the format's own helpers (<code>setFingermap</code>, <code>setBoard</code>, …) so a <code>cmini/1</code> record gets a cmini-shaped edit and an <code>akl/1</code> record an akl-shaped one. A verb the format cannot apply → <code>400 unsupported_for_format</code>. <code>rename</code> frees the old name immediately (the tombstone rule: names are released only by delete or rename — LDB-P4).</li><li><code>swap!/cycle!/angle!/unangle!/mirror!</code> are <b>client-side</b> transformations followed by a <code>PUT</code> — the bot computes them exactly as it does today (<code>cmds/swap.py</code> etc.) and writes the result. The DB does not grow verbs whose meaning is an analyzer's.</li><li><code>DELETE</code> writes a tombstone (<code>deleted: true</code>, <code>rev + 1</code>); the name is free; the record stays readable by id and restorable for 30 days by owner/admin.</li><li>Likes: idempotent; do not bump <code>rev</code> or <code>modified_at</code>; do bump <code>like_count</code> and <code>meta.revision</code>; refused on <code>qwerty</code>.</li></ul>
+<h2 id="doc-03-api--4-auth-and-account">4. Auth and account</h2>
+<pre><code>GET    /v1/me
+POST   /v1/auth/tokens · GET /v1/auth/tokens · DELETE /v1/auth/tokens/{id}     (02 §2.2)</code></pre>
+<h2 id="doc-03-api--5-events-feed-webhooks">5. Events, feed, webhooks</h2>
+<p>Every accepted write appends one event:</p>
+<pre><code>{ &quot;seq&quot;: 18841, &quot;at&quot;: &quot;2026-09-08T19:40:11Z&quot;,
+  &quot;kind&quot;: &quot;created&quot; | &quot;updated&quot; | &quot;renamed&quot; | &quot;linked&quot; | &quot;fingermap&quot; | &quot;transferred&quot;
+        | &quot;deleted&quot; | &quot;restored&quot; | &quot;liked&quot; | &quot;unliked&quot;
+        | &quot;imported&quot; | &quot;import_conflict&quot; | &quot;upstream_changed&quot; | &quot;upstream_deleted&quot;
+        | &quot;admin.client_registered&quot; | &quot;admin.client_revoked&quot; | &quot;admin.added&quot; | &quot;admin.removed&quot;,
+  &quot;layout_id&quot;: &quot;01J…&quot;, &quot;name&quot;: &quot;hours&quot;, &quot;owner&quot;: &quot;…&quot;, &quot;rev&quot;: 7,
+  &quot;actor&quot;: &quot;…&quot;, &quot;via&quot;: &quot;client:cmini-bot&quot;, &quot;admin&quot;: false,
+  &quot;before&quot;: { …record minus payload… } | null,        // payloads by rev via /rev/{n}
+  &quot;after&quot;:  { …record minus payload… } | null }</code></pre>
+<pre><code>GET /v1/changes?since=&lt;seq&gt;&amp;limit=&lt;≤1000&gt;&amp;kinds=created,updated,…
+→ { next: &lt;seq&gt;, items: [event…] }</code></pre>
+<p>Served from <code>since=0</code> forever (a follower bootstraps from the feed alone; the nightly dump is faster). Followers keep one cursor.</p>
+<pre><code>POST   /v1/webhooks     { url, secret, kinds?, owner_filter? }   (auth; owned by the actor)
+GET    /v1/webhooks · DELETE /v1/webhooks/{id}</code></pre>
+<p>On each event the Worker POSTs the event JSON with <code>X-Akl-Signature: hmac-sha256(secret, timestamp + &quot;.&quot; + body)</code> and <code>X-Akl-Timestamp</code>. Retries: 3, backing off 10 s / 1 min / 10 min, then the subscription is marked <code>failing</code> and the feed is the recovery (D8: a gap in <code>seq</code> means poll). No delivery is ever required for correctness (LDB-P3). A subscriber that stays failing for 7 days is disabled and its owner sees it in <code>GET /v1/webhooks</code>.</p>
+<p>Long-running clients that cannot receive webhooks (a bot behind NAT) use <code>GET /v1/changes/stream?since=</code> — SSE, same events, same cursor.</p>
+<h2 id="doc-03-api--6-dumps">6. Dumps</h2>
+<pre><code>GET /v1/dump                 → 302 to today's dump (R2): dump-YYYY-MM-DD.json.gz
+GET /v1/dump/latest.json     → { date, url, sha256, layout_count, seq }</code></pre>
+<p>Nightly (03:00 UTC) job writes <code>{ meta, records: [full records with payloads], likes, authors, admins, clients (public keys only), events_tail: last 10k }</code>. Kept 90 days in R2 and forever as a monthly. <b>The rehost drill (<code>04 §3</code>) restores from this file.</b></p>
+<h2 id="doc-03-api--7-admin">7. Admin</h2>
+<pre><code>POST   /v1/admin/clients          { name, pubkey, owner_user_id, caps, discord_app_id }
+DELETE /v1/admin/clients/{id}
+GET    /v1/admin/clients
+POST   /v1/admin/admins           { user_id, note }
+DELETE /v1/admin/admins/{user_id}
+POST   /v1/admin/import/pause · /resume
+GET    /admin/changelog           HTML, public, read-only: the event feed rendered (the site's /admin/cmini-log, moved here)</code></pre>
+<h2 id="doc-03-api--8-storage-d1">8. Storage (D1)</h2>
+<pre><code>layouts        id PK, name UNIQUE COLLATE NOCASE, owner, rev, created_at, modified_at,
+               deleted, link, format, payload_json, core_json, like_count,
+               origin_source, origin_id, origin_imported_at, origin_forked
+layout_revs    (layout_id, rev) PK, event_seq, payload_json, format      -- for /rev/{n}; compacted to
+                                                                          -- every rev ≤ 100 per record, then monthly
+likes          (layout_id, user_id) PK, at
+authors        user_id PK, name, first_seen_at, last_seen_at              -- names from Discord at auth; cmini import seeds
+events         seq PK AUTOINCREMENT, at, kind, layout_id, actor, via, admin, before_json, after_json
+tokens         id PK, user_id, hash UNIQUE, label, created_at, last_used_at, expires_at
+clients        id PK, name, pubkey, owner_user_id, caps, discord_app_id, status, created_at, revoked_at
+nonces         (client_id, nonce) PK, at                                  -- pruned &gt; 10 min
+admins         user_id PK, added_by, added_at, note
+webhooks       id PK, owner_user_id, url, secret_hash, kinds, status, failures, created_at
+import_state   key PK, value                                             -- cmini cursor, paused flag</code></pre>
+<p>Write budget: D1's 100k rows/day cap (memory: D1 write budget) is far above this workload (one record + one event + one rev per write), and the import is diff-only (<code>06 §2</code>).</p>
+<h2 id="doc-03-api--9-invariants">9. Invariants</h2>
+<div class="tbl"><table><thead><tr><th>id</th><th>invariant</th><th>enforced by</th></tr></thead><tbody><tr><td>LDB-P1</td><td>Every accepted write appends exactly one event and bumps <code>rev</code> by exactly one (likes: zero); the record is the fold of its events.</td><td>property test: random write sequences, replay from events equals the stored record</td></tr><tr><td>LDB-P2</td><td><code>If-Match</code> mismatch is refused with the current record and writes nothing.</td><td>API test + concurrent-PUT race test (two PUTs at the same rev: exactly one wins)</td></tr><tr><td>LDB-P3</td><td>Webhook delivery never affects stored state; a follower's view from the feed alone equals a follower's view from feed + webhooks.</td><td>test with a dropping/reordering fake receiver</td></tr><tr><td>LDB-P4</td><td>A name is released only by delete or rename; a held or forked record keeps its name.</td><td>API matrix</td></tr><tr><td>LDB-P5</td><td>The compat facade's responses for every imported, unforked record are byte-identical to upstream's (after key-order canonicalisation).</td><td>D12 diff in CI</td></tr><tr><td>LDB-P6</td><td><code>/v1/changes</code> serves from <code>since=0</code> after any compaction; compaction touches <code>layout_revs</code> only.</td><td>test: compact, then replay</td></tr><tr><td>LDB-P7</td><td>Every error response carries <code>error</code> and <code>message</code>; every <code>message</code> in the bot's verb set matches the bot's own string for that case.</td><td>table test from <code>05 §2</code></td></tr><tr><td>LDB-P8</td><td>Deleted records are restorable for 30 days and unreadable by name from the moment of deletion.</td><td>API test with fake clock</td></tr></tbody></table></div>
+<h2 id="doc-03-api--10-open-questions-api">10. Open questions (API)</h2>
+<ol><li><code>PATCH { board }</code> on <code>cmini/1</code> records: allow (map to the cmini word) or <code>unsupported_for_format</code>? Proposal: allow when representable.</li><li>Keep <code>like</code> on own layout allowed (cmini does)? Proposal: yes, parity.</li><li><code>history</code> visibility of <code>before</code> payloads for deleted records — public? Proposal: yes; cmini's data was always public.</li></ol></section>
+<section class="doc" id="doc-04-governance"><h1>Governance — no single owner, no single point of failure</h1><p class="path">design/layout-db/04-governance.md</p><p>Status: proposal (2026-09-08). Part of <code>00-plan.md</code>. &quot;I'm not a web person&quot; — so this is written as the concrete list of accounts, files and drills, not as principles.</p>
+<h2 id="doc-04-governance--1-who-can-do-what">1. Who can do what</h2>
+<p>Four kinds of power, each held by more than one person, each in data or in config that another holder can change:</p>
+<div class="tbl"><table><thead><tr><th>power</th><th>where it lives</th><th>held by</th><th>how it changes hands</th></tr></thead><tbody><tr><td><b>edit the data</b> as admin (force-transfer, delete/restore any record, register bots, add admins)</td><td>D1 <code>admins</code> table (<code>02 §5</code>)</td><td>≥ 2 Discord users at all times (LDB-A6)</td><td>any admin adds another; removing needs the row not to be one of the last two</td></tr><tr><td><b>change the code</b></td><td>GitHub repo under an <b>org</b> (<code>00 §6.5</code>), <code>main</code> protected: 1 review, CI green</td><td>org owners ≥ 2; format dirs have their own <code>OWNERS</code> (§2)</td><td>org owner adds an owner; CODEOWNERS PR</td></tr><tr><td><b>run the service</b></td><td>one Cloudflare account: the Worker, D1 <code>akl-db</code>, R2 dumps, DNS for the API hostname</td><td>≥ 2 members with Super Administrator</td><td>account member management; the runbook (§4) lists every secret and where it is set</td></tr><tr><td><b>speak for it</b></td><td>the API hostname (DNS), the Discord bot application</td><td>DNS in the same Cloudflare account; the bot app has ≥ 2 team members in Discord's developer portal</td><td>same as above</td></tr></tbody></table></div>
+<p>The first maintainer is one of the ≥ 2 in every row and is not special in any of them. That is the whole &quot;no dictatorship&quot; mechanism: there is nothing saltorbit can do that a second admin cannot undo, and nothing that stops if saltorbit stops.</p>
+<h2 id="doc-04-governance--2-changing-the-format-is-a-pull-request-reviewed-by-the-format-s-owners">2. Changing the format is a pull request, reviewed by the format's owners</h2>
+<p><code>db/formats/&lt;name&gt;/&lt;N&gt;/OWNERS</code> lists GitHub handles; <code>.github/CODEOWNERS</code> maps the directory to them. The author of an advanced engine owns their format directory and merges changes to it themselves, subject only to the compatibility gates (§3) — nobody else's review is required, and nobody else's format is touched. <code>core/1</code> and <code>akl/1</code> are owned by the DB maintainers as a group.</p>
+<p>What a format PR must contain (the template enforces it):</p>
+<ol><li><code>schema.json</code> — a new major is a new directory; a minor adds optional keys only.</li><li><code>index.mjs</code> — <code>validate</code>, <code>toCore</code>, <code>lower</code>, optional <code>to</code>/<code>from</code>.</li><li>≥ 1 new fixture with its <code>.core.json</code> and <code>.lowered.json</code> goldens.</li><li><code>README.md</code> — what it is for, what it cannot express, what is lost in each <code>to</code> translation.</li><li>An entry in <code>docs/formats.md</code> (generated from the registry; the PR regenerates it).</li></ol>
+<h2 id="doc-04-governance--3-gates-that-stop-anyone-breaking-anyone-else">3. Gates that stop anyone breaking anyone else</h2>
+<p>All run in <code>db.yml</code> on every PR and on <code>main</code>:</p>
+<div class="tbl"><table><thead><tr><th>gate</th><th>what it catches</th></tr></thead><tbody><tr><td><b>frozen-format diff</b> (LDB-F6)</td><td>any edit to a merged major's <code>schema.json</code> or existing fixtures; a tightened schema; a changed golden</td></tr><tr><td><b>every fixture, every version</b> (LDB-F1/F2/F7)</td><td>a validator or lowering change that alters the output for any historical fixture of any format</td></tr><tr><td><b>cross-format goldens</b></td><td><code>to[&quot;x/N&quot;]</code> outputs for every fixture that declares them, frozen</td></tr><tr><td><b>API conformance</b></td><td>the request/response fixtures in <code>db/tests/conformance/</code> (every endpoint × every documented error) — the contract other clients build against; changing one is a documented API change</td></tr><tr><td><b>client-signing vectors</b> (LDB-A4)</td><td>a change to the signing scheme that the bot would not reproduce</td></tr><tr><td><b>D12 import diff</b> (LDB-P5)</td><td>a change that makes the compat facade drift from cmini for unforked records (runs against the live scrape; skipped when unreachable, never green-skipped on <code>main</code> twice in a row — the CI gate-split lesson, <code>ci-gate-split-256</code>)</td></tr><tr><td><b>migration replay</b></td><td>every migration applied in order to an empty local D1, then the API suite; and applied to a restored dump (§4)</td></tr><tr><td><b>rehost drill</b> (§4)</td><td>the service can be brought up from yesterday's dump and last week's code by a script, without any secret that only one person has</td></tr></tbody></table></div>
+<p>A PR that touches only its own format directory and passes the gates is mergeable by its owners without the DB maintainers.</p>
+<h2 id="doc-04-governance--4-the-rehost-drill-take-over-in-an-afternoon">4. The rehost drill — &quot;take over in an afternoon&quot;</h2>
+<p><code>db/README.md</code> §Rehost is a numbered procedure, and <code>db/tests/rehost.test</code> executes the parts a machine can:</p>
+<ol><li>Clone the repo. <code>cd db &amp;&amp; npm ci</code>.</li><li><code>npm run rehost -- --dump &lt;url or file&gt;</code>: creates a local D1, applies migrations, imports the dump, starts the Worker locally, runs the API suite against it. (CI runs exactly this against the latest nightly dump — the one line that proves the dumps are complete.)</li><li><code>wrangler login</code> as any Cloudflare member; <code>wrangler deploy</code> with <code>wrangler.toml</code> as committed (no per-person config); set the four secrets the runbook lists (<code>SESSION_SECRET</code>-class values that any admin can regenerate — none are shared with another system); <code>wrangler d1 execute akl-db --remote --file dump.sql</code>.</li><li>Point DNS. Clients notice nothing: the API is stateless beyond D1.</li></ol>
+<p>Things the runbook lists explicitly: every secret (name, purpose, who can regenerate it), the Discord application (owner team), the R2 bucket, the cron schedule, the import source URL, the admins bootstrap.</p>
+<h2 id="doc-04-governance--5-public-by-default">5. Public by default</h2>
+<ul><li>The event feed, dumps, the changelog page and the format registry are public reads. Nothing about a layout was ever private in cmini; the DB keeps that.</li><li>The code is public (the repo split in phase 5 makes it its own public repo; <code>db/</code> is licensed permissively — MIT — so a fork by anyone is legal as well as possible; <code>bot/</code> inherits GPLv3 from cmini's code).</li><li>Decisions live in <code>design/layout-db/</code> (later <code>db/docs/decisions/</code>) as numbered ADRs; a proposal is a PR anyone can open.</li></ul>
+<h2 id="doc-04-governance--6-invariants">6. Invariants</h2>
+<div class="tbl"><table><thead><tr><th>id</th><th>invariant</th><th>enforced by</th></tr></thead><tbody><tr><td>LDB-G1</td><td>The service can be restored from a public dump plus the public repo with no artifact that exists only on one person's machine.</td><td>rehost drill in CI</td></tr><tr><td>LDB-G2</td><td>No admin capability is a constant in code; all are rows.</td><td>grep test: no Discord id literal outside fixtures</td></tr><tr><td>LDB-G3</td><td>A format directory's owners can merge a change to it that passes the gates without any other approval.</td><td>CODEOWNERS test against the registry</td></tr><tr><td>LDB-G4</td><td>Every secret the Worker reads is listed in the runbook with a regeneration procedure.</td><td>test: <code>wrangler.toml</code>/<code>env</code> bindings ⊆ runbook table</td></tr></tbody></table></div>
+<h2 id="doc-04-governance--7-open-questions-governance">7. Open questions (governance)</h2>
+<ol><li>Org and account names (<code>00 §6.5</code>).</li><li>MIT for <code>db/</code>? (cmini's code is GPLv3; <code>db/</code> shares none of it.)</li><li>Who owns <code>mana2/1</code> on day 1 if Zak declines — the DB maintainers as a group, with a note that it is a mirror of mana2's own spec?</li></ol></section>
+<section class="doc" id="doc-05-bot"><h1>The Discord bot</h1><p class="path">design/layout-db/05-bot.md</p><p>Status: proposal (2026-09-08). Part of <code>00-plan.md</code>. Source of the parity list: <code>vendor/cmini-analyzer/cmds/*.py</code> at upstream <code>068a4f50</code> (every command's <code>use()</code>/<code>desc()</code> read directly).</p>
+<h2 id="doc-05-bot--1-shape">1. Shape</h2>
+<p>Fork, don't rewrite (D11). <code>vendor/cmini-analyzer</code> already holds the bot's whole command set, its parser, its analyzer and its response formatting — under GPLv3. The bot is that tree with <b>one module replaced</b>: <code>util/memory.py</code> (a directory of JSON files) becomes a client of the layout DB. Everything a user sees — wording, tables, the <code>!cmini</code> prefix if that is what people want to keep typing — stays as it is, so the day the bot switches nobody in the server has to relearn anything.</p>
+<pre><code>bot/                        GPLv3 (inherited)
+  cmini/                    the fork: cmds/ core/ util/ … from vendor/cmini-analyzer
+  akl_client/               HTTP client for the DB: reads, writes, client-lane signing (02 §3)
+  memory.py                 the replacement: same function names (add/remove/get/find/…), API underneath
+  cache/                    a local mirror of every layout (cmini/1), refreshed from /v1/changes —
+                            so analyzer verbs (view, sfbs, rank…) never wait on HTTP
+  tests/                    parity table (§2) as a test; signing vectors (02 §3.2)</code></pre>
+<p>Numbers: the cmini analyzer's, as they are today — that is what &quot;the cmini bot&quot; means to the people who use it. mana2 numbers (<code>!akl view …</code>?) are a later addition, not a replacement.</p>
+<h2 id="doc-05-bot--2-command-parity">2. Command parity</h2>
+<p>Every command in <code>cmds/</code>, what it becomes. <b>DB</b> = a write to the layout DB; <b>read</b> = served from the local cache; <b>local</b> = unchanged, no DB involvement.</p>
+<h3 id="doc-05-bot--2-1-layout-changing-verbs-db-writes-client-lane-actor-message-author">2.1 Layout-changing verbs → DB writes (client lane, actor = message author)</h3>
+<div class="tbl"><table><thead><tr><th>command</th><th>usage</th><th>becomes</th><th>notes</th></tr></thead><tbody><tr><td><code>add</code></td><td><code>add [LAYOUT]</code></td><td><code>POST /v1/layouts</code> <code>format: cmini/1</code></td><td>the bot's own grid parser stays; it produces the exact cmini shape (<code>board</code> word, <code>keys</code>, <code>free</code>)</td></tr><tr><td><code>remove</code></td><td><code>remove [name]</code></td><td><code>DELETE /v1/layouts/{name}</code></td><td><code>403 not_owner</code> → the bot's own <em>you don't own any layout named</em></td></tr><tr><td><code>rename</code></td><td><code>rename [old] [new]</code></td><td><code>PATCH {name}</code></td><td><code>409 name_taken</code> → <em>already exists</em></td></tr><tr><td><code>assign</code></td><td><code>assign</code> (transfer)</td><td><code>POST …/transfer {to}</code></td><td><code>03 §3</code></td></tr><tr><td><code>setfingermap</code></td><td><code>setfingermap [name] [MATRIX]</code></td><td><code>PATCH {fingermap}</code> (+ <code>{board}</code> when the matrix implies one)</td><td>validation strings preserved (LDB-P7)</td></tr><tr><td><code>swap!</code> <code>cycle!</code></td><td><code>swap! [name] [chars]</code></td><td>local transform (<code>cmds/swap.py modify</code>) then <code>PUT</code></td><td></td></tr><tr><td><code>angle!</code> <code>unangle!</code></td><td><code>angle! [name]</code></td><td>local transform then <code>PUT</code></td><td><code>mini</code> refusal stays client-side</td></tr><tr><td><code>mirror!</code></td><td><code>mirror! [name]</code></td><td>local transform then <code>PUT</code></td><td></td></tr><tr><td><code>like</code> <code>unlike</code></td><td><code>like [name]</code></td><td><code>PUT</code>/<code>DELETE …/like</code></td><td>qwerty refusal server-side too</td></tr><tr><td><code>link</code> <code>unlink</code></td><td>(restricted today)</td><td><code>PATCH {link}</code> / <code>{link: null}</code></td><td>becomes owner-only instead of admin-only? <b>Q1</b></td></tr><tr><td><code>admin</code> <code>maintenance</code></td><td>restricted</td><td><code>/v1/admin/*</code> where they map; the rest stay bot-local</td><td></td></tr></tbody></table></div>
+<h3 id="doc-05-bot--2-2-read-verbs-local-cache-analyzer-unchanged">2.2 Read verbs → local cache (analyzer unchanged)</h3>
+<p><code>view stats fingers fspeed sfbs sfs rolls inrolls outrolls onehands alternates redirects pattern compare mod swap cycle angle unangle mirror fingermap homerow filter search rank freq freqd freqs examples names guess random count xkb list likes authors corpus</code> — all read <code>memory.get/find</code> which now reads the cache. <code>list [username]</code> and <code>authors</code> use <code>/v1/authors</code>; <code>likes</code> (a user's liked layouts) uses <code>GET /v1/layouts?liked_by=</code> — one small addition to <code>03 §2</code> (<b>add <code>liked_by</code> filter</b>).</p>
+<p><code>find</code> keeps its fuzzy match (Damerau-Levenshtein over the cached names).</p>
+<h3 id="doc-05-bot--2-3-local-social-no-db">2.3 Local / social (no DB)</h3>
+<p><code>8ball catball dofball wooperball woopercat question flip gen help suggest akl alt pairings</code> — unchanged.</p>
+<h3 id="doc-05-bot--2-4-new-verbs-after-parity">2.4 New verbs (after parity)</h3>
+<ul><li><code>!cmini magic [name]</code> — show a layout's magic as the author wrote it (idioms from <code>akl/1</code>, raw rules otherwise) — reads <code>?as=akl/1</code>.</li><li><code>!cmini history [name]</code> — last 5 events.</li><li><code>!cmini transfer</code> is <code>assign</code> already.</li></ul>
+<h2 id="doc-05-bot--3-the-cache">3. The cache</h2>
+<p><code>/v1/changes?since=&lt;cursor&gt;</code> on a 30 s timer plus the SSE stream when up; bootstrapped from <code>/v1/dump</code>. Every layout as <code>cmini/1</code> (<code>?as=cmini/1</code>, which is what the analyzer parses) in the same on-disk shape <code>memory.parse_file</code> reads today (<code>layouts/&lt;name&gt;.json</code>) — so the analyzer and every read command are untouched. Writes update the cache from the response before the next tick, so <code>!add</code> then <code>!view</code> in the same second works.</p>
+<h2 id="doc-05-bot--4-signing-client-lane">4. Signing (client lane)</h2>
+<p><code>akl_client/sign.py</code>: <code>PyNaCl</code>'s Ed25519; the signing string of <code>02 §3.2</code>; the vectors in <code>db/tests/vectors/client-signing.json</code> are a test in <code>bot/tests/</code> too — the bot and the Worker share the file (copied into <code>bot/</code> at the split; a test asserts they are identical while both live in this repo).</p>
+<p>Key: generated once on the bot host (<code>akl-client keygen</code>), public half registered by an admin (<code>02 §3.1</code>), private half in the bot's env. Rotation: keygen, register, switch, revoke.</p>
+<h2 id="doc-05-bot--5-where-it-runs">5. Where it runs</h2>
+<p>Wherever the cmini bot ran: a small always-on host (a VPS, a Raspberry Pi, a Fly machine). Stateless except the cache (rebuildable) and the key. The runbook (<code>04 §4</code>) lists it; the Discord application has ≥ 2 team members.</p>
+<h2 id="doc-05-bot--6-invariants">6. Invariants</h2>
+<div class="tbl"><table><thead><tr><th>id</th><th>invariant</th><th>enforced by</th></tr></thead><tbody><tr><td>LDB-B1</td><td>Every cmini command exists with the same <code>use()</code> string and the same success/error wording for the cases in the parity table.</td><td><code>bot/tests/parity.test</code>: table-driven against a local DB</td></tr><tr><td>LDB-B2</td><td>Every write the bot makes carries <code>X-Akl-Actor = message.author.id</code>; the bot has no code path that writes as anyone else.</td><td>grep + unit test on the client</td></tr><tr><td>LDB-B3</td><td>A read verb never performs an HTTP request (cache only).</td><td>unit test with HTTP mocked to fail</td></tr><tr><td>LDB-B4</td><td>The bot's signature for every vector equals the Worker's expectation.</td><td>shared vectors file</td></tr></tbody></table></div>
+<h2 id="doc-05-bot--7-open-questions-bot">7. Open questions (bot)</h2>
+<ol><li><code>link</code>/<code>unlink</code> are admin-restricted in cmini; make them owner verbs? (Proposal: owner + admin.)</li><li>Keep the <code>!cmini</code> prefix, or <code>!akl</code>, or both? (Copy question — saltorbit's.)</li><li>Hosting for the bot: your call; proposal a $5 VPS with the runbook.</li></ol></section>
+<section class="doc" id="doc-06-akl-integration"><h1>What changes on akl.gg</h1><p class="path">design/layout-db/06-akl-integration.md</p><p>Status: proposal (2026-09-08). Part of <code>00-plan.md</code>. The site is the DB's first client (P7) and nothing here needs the bot.</p>
+<h2 id="doc-06-akl-integration--1-reads-the-pipeline-keeps-its-shape">1. Reads: the pipeline keeps its shape</h2>
+<p>Today (<code>design/cmini-live-api/01-migration.md</code> §6–7, <code>design/DEPLOY.md</code>): <code>scripts/sync_cmini_data.py</code> scrapes <code>clemenpine.com/layoutapi/v3</code> into a data root; <code>workers/meta-watch</code> polls <code>/v3/meta</code> every 2 min and dispatches <code>live-sync.yml</code>; the nightly rebuilds the base. All of it keyed on the API's shape.</p>
+<p>Change, in order:</p>
+<ol><li><b>Phase 1 (mirror):</b> nothing on the site. The DB imports from cmini; the D12 diff compares <code>GET /compat/cmini/v3/*</code> on the DB with upstream.</li><li><b>Phase 3 (cutover):</b> <code>DEFAULT_BASE_URL</code> in <code>sync_cmini_data.py</code> and the Worker's <code>API_META_URL</code> point at the DB's compat facade. One URL, two places, nothing else — the facade is byte-compatible (<code>03 §2.1</code>). The <code>cmini-backup</code> orphan branch keeps committing the scraped set (it now backs up our own DB, which is fine and cheap).</li><li><b>Later:</b> the sync reads <code>?as=akl/1</code> instead of the facade so board geometry and magic intent reach <code>layouts.json</code>; <code>build_web.py</code>'s <code>layout_meta_and_keys()</code> grows the fields; the facade stays for others.</li></ol>
+<p><code>data/layout-dates.json</code> stops being needed once the DB carries <code>created_at</code>/<code>modified_at</code> for every record (imported ones keep cmini's dates; cmini's own were stamped 2026-08-20 for pre-existing layouts — the committed history file is the source for anything older and is imported into the DB once, as the <code>created_at</code> of those records: <b>Q1</b>).</p>
+<h2 id="doc-06-akl-integration--2-the-cmini-import-runs-inside-the-db-not-the-site">2. The cmini import (runs inside the DB, not the site)</h2>
+<p>A cron in the DB Worker (every 5 min; <code>/v3/meta</code> first, so a quiet tick is one GET — the trust-tier idea from the migration doc, reused):</p>
+<ul><li>new upstream id → <code>POST</code>-equivalent as <code>format: cmini/1</code>, <code>owner = user</code>, <code>origin: {source: &quot;cmini&quot;, id, imported_at}</code>, event <code>imported</code>;</li><li>changed upstream (<code>modified_at</code> moved, or content hash differs on the daily full pass) and <code>origin.forked == false</code> → apply as an update, event <code>imported</code> (actor <code>system:cmini-import</code>, <code>rev + 1</code>);</li><li>changed upstream and <code>forked == true</code> → <b>do not apply</b>; event <code>upstream_changed</code> with the upstream content in <code>after</code> so the owner can see it (the site can offer <em>pull cmini's version</em> as a one-click PUT);</li><li>upstream deleted → <code>upstream_deleted</code> event, record kept (<b>Q2</b>: or tombstone it when unforked? Proposal: tombstone when unforked — the author deleted it and they own it here too — keep when forked);</li><li>upstream new name collides with a local record by a different owner → imported as <b>shadowed</b> (federation §6.3): stored, <code>name</code> set to <code>&lt;name&gt;~cmini</code>, event <code>import_conflict</code>, owner told on their next visit;</li><li>likes: replaced from upstream while unforked; merged (union) once forked (<b>Q3</b>);</li><li>authors: <code>/v3/authors</code> seeds <code>authors</code> names; a name seen at auth wins thereafter.</li></ul>
+<p>Bounded like <code>live-sync</code>'s prune rule: refuse to tombstone &gt; 5 % of records in one tick without an admin resume.</p>
+<p>Any local write to an imported record sets <code>origin.forked = true</code> (D9). The site shows a small <em>forked from cmini · N changes upstream</em> line on such a card; copy TBD, gated on sign-off.</p>
+<h2 id="doc-06-akl-integration--3-writes-215-s-approved-ux-retargeted">3. Writes: #215's approved UX, retargeted</h2>
+<p><code>design/cmini-write/06-holistic-proposal.md</code> (approved 2026-09-01) stands as written — local-first drafts, the record as the unit, derived destination, publish consumes / delete restores, conflicts as a footer line, numbers never wait, one DB two clients. Changes:</p>
+<ul><li>The proxy targets the DB: <code>functions/api/db/*</code> (rename from <code>api/cmini/*</code>), same design (session cookie → stored Discord token → bearer to the DB); <code>06 §3.2</code>'s &quot;does the API honour <code>If-Match</code>&quot; is answered: yes, on <code>rev</code> (<code>03 §1</code>), so the emulation branch is dropped.</li><li>The write body is <code>akl/1</code> (<code>01 §2</code>), assembled by the same builder as the <code>!cmini add</code> exporter plus <code>board</code> (from #261's per-side geometry) and <code>magic</code> (the workbench's <code>ruleSet</code>, verbatim — it <em>is</em> <code>02-schema.md</code>). I-W2 becomes &quot;the body is the draft's <code>akl/1</code> projection&quot;.</li><li>Rename / Link / Fingermap → <code>PATCH</code> (<code>03 §3</code>); Delete → <code>DELETE</code> (tombstone; the 8 s Undo pill calls <code>restore</code>, so the id is stable — better than the re-POST 06 §2.6 planned).</li><li>Transfer: a new <em>Give to…</em> verb under <em>More ▾</em> on the owner's card (copy gated). Not in the approved round; small.</li><li>Likes: the heart from round 1 (<code>02-ux-mockups.html</code>), now buildable (<code>PUT/DELETE …/like</code>); its arrival moves identity to the header (06 §2.7).</li></ul>
+<h2 id="doc-06-akl-integration--4-magic-rules-d1-magic-rules-folds-into-the-record">4. Magic rules: D1 <code>magic_rules</code> folds into the record</h2>
+<p>Today the site's D1 <code>magic_rules</code> is canonical for rules and <code>magic-rules-sync</code> computes patches from it. After cutover the rules live in the record's <code>payload.magic</code> (R2 of the approved proposal; #221's recommendation):</p>
+<ol><li>One-time migration: for every <code>magic_rules</code> row, <code>PUT</code> the layout as <code>akl/1</code> with <code>magic</code> = the row's <code>rules_json</code> (actor <code>system:magic-migrate</code>, <code>admin: true</code>, logged). Layouts whose owner never signed in are migrated the same way — the DB admin lane exists for this.</li><li><code>functions/api/magic-rules/*</code> becomes a thin read of <code>GET /v1/layouts/{id}?as=akl/1</code> for a transition, then is deleted.</li><li><code>magic-rules-sync.yml</code> retires; <code>live-sync</code> sees the record change like any other and computes the patch (rules are content now, so the <code>rules_sig</code> in <code>stat_patches</code> is derived from <code>payload.magic</code>).</li><li><code>layout_authors</code> D1 table and <code>build_layout_authors.py</code> retire: ownership is <code>record.owner</code>, read from the sync.</li></ol>
+<h2 id="doc-06-akl-integration--5-drafts-mana-cb-layout-218-188">5. Drafts, mana, <code>cb &lt;layout&gt;</code> (#218, #188)</h2>
+<ul><li>A draft is not a record (federation F-12 kept): the <em>try elsewhere</em> handoff is a URL-encoded <code>akl/1</code> payload (<code>?draft=&lt;base64&gt;</code>), no server state; the same shape mana can emit for <code>cb &lt;local layout&gt;</code> and the site can import (<code>#188</code>: a mana2/1 payload pasted or opened → the format's <code>from[&quot;mana2/1&quot;]</code> runs client-side too, since <code>formats/</code> is plain ESM the site can import as a package).</li><li><code>formats/</code> as a package: publish <code>db/formats</code> to npm (<code>@akl/layout-formats</code>) at the split so the site, the bot's JS-free needs aside, and anyone else validate and translate with the same code the server runs. Until then the site imports it by path (allowed: <code>formats/</code> has no server deps; the archlint rule is <code>web/src/data → db/formats</code> only).</li></ul>
+<h2 id="doc-06-akl-integration--6-admin-surfaces">6. Admin surfaces</h2>
+<p><code>/admin/cmini-log</code> (the site) → the DB's <code>/admin/changelog</code> (<code>03 §7</code>); <code>/admin/rule-log</code> retires with <code>magic_rules</code>. The site's <code>usage</code> admin page is unrelated and stays.</p>
+<h2 id="doc-06-akl-integration--7-order-of-work-on-the-site">7. Order of work on the site</h2>
+<div class="tbl"><table><thead><tr><th>when</th><th>site work</th><th>depends on</th></tr></thead><tbody><tr><td>phase 1</td><td>none (D12 diff runs in <code>db/</code>)</td><td>—</td></tr><tr><td>phase 2</td><td><code>functions/api/db/*</code> proxy + token storage (05-impl §4.1–4.2, retargeted); publish UX per the approved round; preview deploy against a preview DB</td><td>DB writes</td></tr><tr><td>phase 3</td><td>flip the two URLs; magic migration; retire <code>magic_rules</code> paths; <code>layout-dates</code> import</td><td>phase 2 verified on preview</td></tr><tr><td>phase 5</td><td><code>?as=akl/1</code> sync; board/magic intent in <code>layouts.json</code>; Give-to verb; API-token button in Settings</td><td>—</td></tr></tbody></table></div>
+<h2 id="doc-06-akl-integration--8-invariants-site-side">8. Invariants (site side)</h2>
+<div class="tbl"><table><thead><tr><th>id</th><th>invariant</th><th>enforced by</th></tr></thead><tbody><tr><td>LDB-S1</td><td>With the DB's compat facade as the base URL, <code>sync_cmini_data.py</code> produces a data root identical to the one it produces from upstream for every unforked record.</td><td>pipeline test against the facade fixture</td></tr><tr><td>LDB-S2</td><td>Every site write to the DB carries <code>If-Match: &quot;&lt;rev&gt;&quot;</code> unless the action is <code>overwrite</code>; the browser never sees a Discord token or a personal token.</td><td>I-W5 / I-W7 retargeted</td></tr><tr><td>LDB-S3</td><td>The publish body equals <code>toAkl1(draft)</code>; <code>fromAkl1(toAkl1(draft))</code> is the same draft.</td><td>round-trip property test</td></tr><tr><td>LDB-S4</td><td>After the magic migration, no layout's served rules differ from before it (static <code>magic_rules.json</code> before == <code>payload.magic</code> after, for every row).</td><td>one-shot verification script, kept as a test fixture</td></tr></tbody></table></div>
+<h2 id="doc-06-akl-integration--9-open-questions-site">9. Open questions (site)</h2>
+<ol><li>Import <code>data/layout-dates.json</code> into the DB as <code>created_at</code> for pre-2026-08-20 records? (Proposal: yes, once, at phase 3.)</li><li>Upstream delete of an unforked record: tombstone here? (Proposal: yes.)</li><li>Likes on a forked record: union with upstream, or stop syncing? (Proposal: union.)</li></ol></section>
+</div>
+</div>
