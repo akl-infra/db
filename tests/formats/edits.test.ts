@@ -12,6 +12,8 @@ import { describe, expect, it } from "vitest";
 import { list as listFormats } from "../../src/formats/registry";
 import * as akl1 from "../../formats/akl/1/index.ts";
 import * as cmini1 from "../../formats/cmini/1/index.ts";
+import * as mana2_1 from "../../formats/mana2/1/index.ts";
+import { parseRow, DIGIT_BY_FINGER } from "../../formats/mana2/1/translate.ts";
 
 const FORMATS_DIR = path.resolve(import.meta.dirname, "..", "..", "formats");
 
@@ -62,7 +64,14 @@ function unwrap<T>(result: T | { error: unknown }): T {
 }
 
 const FINGERS = ["LP", "LR", "LM", "LI", "RI", "RM", "RR", "RP", "LT", "RT", "TB"];
-const EDIT_FORMATS = listFormats().filter((f) => f.edits !== undefined);
+// mana2/1's own `setFingermap` operates over `layout.fingers` ROW STRINGS,
+// not a `p.keys` map (it has none) -- `fingermapOf`/the "not in keys"/
+// "bad finger word" assertions below all assume the akl/1|cmini/1 shape.
+// Excluded here in favour of its own describe block (mana2/1
+// setFingermap, below), the same pattern this file already uses for
+// board/magic (cmini/1 setBoard, akl/1 setBoard, akl/1 setMagic are all
+// their own blocks, never squeezed into this generic one).
+const EDIT_FORMATS = listFormats().filter((f) => f.edits !== undefined && f.id !== "mana2/1");
 
 describe("format edits (LDB-E1)", () => {
   for (const format of EDIT_FORMATS) {
@@ -226,4 +235,116 @@ describe("akl/1 setMagic (LDB-E1)", () => {
       expect(akl1.lower(payload)).toEqual(akl1.lower({ ...fixture.payload, magic: m }));
     });
   }
+});
+
+// -- mana2/1 setFingermap: its own block (excluded from the generic loop
+// above) because a char here names a `layout.fingers` ROW CELL, found via
+// `parseRow`, not a `p.keys` map entry -- mana2/1 has none.
+const DIGIT_TO_FINGER = Object.fromEntries(Object.entries(DIGIT_BY_FINGER).map(([f, d]) => [d, f]));
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mana2FingermapOf(p: any): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (let y = 0; y < p.layout.fingers.length; y++) {
+    const parsed = parseRow(p.layout.fingers[y]);
+    if ("message" in parsed) continue;
+    const digits = (p.fingermap[y] ?? "").trim().split(/\s+/).filter(Boolean);
+    for (const { index, resolution } of parsed) {
+      if (resolution.tap === undefined) continue; // skip, or a construct with no resolved tap
+      const finger = DIGIT_TO_FINGER[Number(digits[index])];
+      if (finger) out[resolution.tap] = finger;
+    }
+  }
+  return out;
+}
+
+// `setFingermap` rebuilds a changed row's fingermap string from its own
+// re-split digit tokens (single-space-joined) rather than patching the
+// original text in place -- a real vendored file's LEADING whitespace
+// (several rows use it to visually suggest the row's physical rightward
+// shift, e.g. hours.jsonc's row 1/2) carries no data (translate.ts's own
+// header comment: the loader's tokeniser collapses any run of whitespace
+// identically), so this is not a loss, just a re-rendering -- canonicalised
+// away here the same way `mana2.test.ts`'s own round-trip checks do.
+function canonicalizeMana2Rows(p: mana2_1.Payload): unknown {
+  const clone = structuredClone(p);
+  const canon = (s: string | undefined) => (s ?? "").trim().split(/\s+/).filter(Boolean).join(" ");
+  clone.layout.fingers = clone.layout.fingers.map(canon);
+  if (clone.layout.thumbs) clone.layout.thumbs = clone.layout.thumbs.map(canon);
+  clone.fingermap = clone.fingermap.map(canon);
+  return clone;
+}
+
+describe("mana2/1 setFingermap (LDB-E1)", () => {
+  const fixtures = fixturesFor("mana2/1");
+
+  for (const fixture of fixtures) {
+    it(`[LDB-E1] ${fixture.stem} setFingermap(fingermapOf(p)) is identity, pure, and valid`, () => {
+      const before = structuredClone(fixture.payload);
+      const map = mana2FingermapOf(fixture.payload);
+      const result = mana2_1.edits!.setFingermap!(fixture.payload, map);
+      expect(fixture.payload, "purity: input untouched").toEqual(before);
+      expect(isEditError(result), "identity map is never refused").toBe(false);
+      if (!isEditError(result)) {
+        expect(canonicalizeMana2Rows(result as mana2_1.Payload), "identity: setFingermap(fingermapOf(p)) === p, modulo row whitespace").toEqual(canonicalizeMana2Rows(fixture.payload));
+        expect(mana2_1.validate(result).ok, "validity").toBe(true);
+      }
+    });
+  }
+
+  it("[LDB-E1] a fingermap naming a char not in any fingers row -> invalid_payload at /layout/fingers", () => {
+    const fixture = fixtures.find((f) => f.stem === "001-hours")!;
+    const ghost = String.fromCharCode(1); // a control character, never a real layout key across any fixture
+    const before = structuredClone(fixture.payload);
+    const result = mana2_1.edits!.setFingermap!(fixture.payload, { [ghost]: "LP" });
+    expect(fixture.payload).toEqual(before); // purity even on refusal
+    expect(result).toEqual({ error: { error: "invalid_payload", message: expect.any(String), path: "/layout/fingers" } });
+  });
+
+  it("[LDB-E1] a partial fingermap changes exactly the named char's digit", () => {
+    const fixture = fixtures.find((f) => f.stem === "001-hours")!;
+    const map = mana2FingermapOf(fixture.payload);
+    const chars = Object.keys(map);
+    const [changed, untouched] = [chars[0]!, chars[1]!];
+    const newFinger = map[changed] === "LP" ? "RP" : "LP";
+    const result = mana2_1.edits!.setFingermap!(fixture.payload, { [changed]: newFinger });
+    expect(isEditError(result)).toBe(false);
+    if (!isEditError(result)) {
+      const afterMap = mana2FingermapOf(result);
+      expect(afterMap[changed]).toBe(newFinger);
+      expect(afterMap[untouched]).toBe(map[untouched]);
+    }
+  });
+
+  it("[LDB-E1] property: setFingermap then fingermapOf recovers the map, for random single-row layouts", () => {
+    const digitByFinger: Record<string, number> = { LP: 0, LR: 1, LM: 2, LI: 3, LT: 4, RT: 5, RI: 6, RM: 7, RR: 8, RP: 9 };
+    const nonThumbFingers = FINGERS.filter((f) => f !== "TB" && f !== "LT" && f !== "RT");
+    fc.assert(
+      fc.property(
+        fc.uniqueArray(
+          fc.string({ minLength: 1, maxLength: 1 }).filter((s) => !["skip", "space"].includes(s) && !/[()<>$\s]/.test(s)),
+          { minLength: 1, maxLength: 6 },
+        ),
+        fc.array(fc.constantFrom(...nonThumbFingers), { minLength: 1, maxLength: 6 }),
+        (chars, fingers) => {
+          const row = chars.join(" ");
+          const digits = chars.map((_, i) => digitByFinger[fingers[i % fingers.length]!]).join(" ");
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const base: any = { layout: { fingers: [row] }, fingermap: [digits], board: { isRowStaggered: true, rowOrColumnStagger: [0] } };
+          const map: Record<string, string> = {};
+          chars.forEach((c, i) => {
+            map[c] = fingers[(i + 1) % fingers.length]!;
+          });
+          const before = structuredClone(base);
+          const result = mana2_1.edits!.setFingermap!(base, map);
+          expect(base).toEqual(before); // purity
+          expect(isEditError(result)).toBe(false);
+          if (!isEditError(result)) {
+            expect(mana2FingermapOf(result)).toEqual(map);
+          }
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
 });

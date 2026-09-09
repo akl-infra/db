@@ -170,12 +170,11 @@ const ALLOWED: Record<string, Set<string>> = {
   ]),
   "mana2/1": new Set([
     "fingers:empty string", // an empty layout.fingers row is a real state (zero keys that row) -- fromAkl produces one for a main row with no keys
-    "thumbs:delete", // 1-2 items either way (schema minItems 1) -- shrinking to 1 is still a valid thumbs array
+    "thumbs:delete", // 1-2 items either way (schema minItems 0) -- shrinking is still a valid thumbs array
     "thumbs:empty string", // "" means no key on that hand (gust.jsonc's own ["", "space"]) -- a real vendored state, not a corruption
     "splitAngle:delete", // optional tilt angle
     "splitAngle:negative number", // a mirrored tilt is still a tilt -- no sign constraint, same reasoning as akl/1's stagger
-    "rowOrColumnStagger:delete", // this format holds what mana2 holds (mana2's own runtime-only length check against row/column count is out of scope here, same "representation, not full engine validity" stance cmini/1 takes)
-    "rowOrColumnStagger:negative number", // same reasoning as akl/1's stagger: length is never checked here, sign never was either
+    "rowOrColumnStagger:negative number", // 12 §2.5 checks stagger LENGTH against the layout's true height/width, never per-entry sign -- same reasoning as akl/1's own stagger
   ]),
 };
 
@@ -257,7 +256,48 @@ describe("payload mutations", () => {
               it.skip(`[LDB-F1] ${fixture.stem} ${leaf.pointer} delete -- per-index, see collisions.test.ts`, () => {});
               continue;
             }
-            const isAllowed = allowed.has(`${kind}:${mutation}`);
+            // Same reasoning, one fixture: `908-held-stagger-mismatch`'s
+            // whole POINT is a 4th `rowOrColumnStagger` entry disagreeing
+            // with the 3rd (12 §2.5's held rule) -- deleting ANY one of
+            // its four entries always leaves exactly 3, which trivially
+            // satisfies "no entries past the 3rd to disagree" and
+            // therefore validates. Not a uniform ALLOWED/refused verdict
+            // for `rowOrColumnStagger:delete` (every OTHER mana2/1 fixture
+            // has exactly the required minimum and correctly refuses a
+            // deletion) -- skipped visibly for this one fixture, favour of
+            // the dedicated stagger-mismatch assertion in mana2.test.ts.
+            if (format.id === "mana2/1" && kind === "rowOrColumnStagger" && mutation === "delete" && fixture.stem.startsWith("908-")) {
+              it.skip(`[LDB-F1] ${fixture.stem} ${leaf.pointer} delete -- deleting any one entry removes the mismatch itself, see mana2.test.ts`, () => {});
+              continue;
+            }
+            // `combos[].inputs[j]` (mana2/1 only): `fieldKind` collapses
+            // to plain "inputs" regardless of context, which would also
+            // match `magic.rules[].inputs` (schema-required, minLength 2,
+            // correctly refused) if added to ALLOWED by that name --
+            // matched on the full leaf pointer instead so only the combos
+            // path is affected. "every char must be a key" is vacuous
+            // over a shrunk/emptied trigger string, so both mutations
+            // still validate.
+            const isCombosInputsElement =
+              format.id === "mana2/1" &&
+              kind === "inputs" &&
+              leaf.pointer.startsWith("/combos/") &&
+              (mutation === "delete" || mutation === "empty string"); // "wrong type" still correctly refused (schema requires a string)
+            // `900-held-combos`'s combos reference the same row
+            // `fingers:empty string` would otherwise be free to blank out
+            // (both a general mana2/1 allowance AND this fixture's own
+            // combos content, in tension only here) -- emptying the row
+            // removes the combo's own referenced keys, correctly refused
+            // by checkCombos. Fixture-specific, not a blanket verdict for
+            // `fingers:empty string` (every other fixture has no combos to
+            // collide with), so it is the ONE skip, not a change to the
+            // shared ALLOWED set.
+            const isEmptiedComboRow = kind === "fingers" && mutation === "empty string" && fixture.stem.startsWith("900-") && leaf.pointer === "/layout/fingers/0";
+            if (isEmptiedComboRow) {
+              it.skip(`[LDB-F1] ${fixture.stem} ${leaf.pointer} empty string -- combos on this fixture reference this row's own keys, see mana2.test.ts`, () => {});
+              continue;
+            }
+            const isAllowed = isCombosInputsElement || allowed.has(`${kind}:${mutation}`);
             it(`[LDB-F1] ${fixture.stem} ${leaf.pointer} ${mutation}${isAllowed ? " (allowed)" : ""}`, () => {
               const mutated = applyMutation(fixture.payload, leaf, mutation);
               const result = format.validate(mutated);
@@ -287,15 +327,32 @@ describe("payload mutations", () => {
 
         const magicInputs = magicInputsLeafPaths(fixture.payload);
         if (magicInputs.length >= 2) {
-          it(`[LDB-F4] ${fixture.stem} duplicate magic inputs (${magicInputs[0]} <- ${magicInputs[1]})`, () => {
-            const mutated = duplicateMagicInputs(fixture.payload, magicInputs[0]!, magicInputs[1]!);
-            const result = format.validate(mutated);
-            expect(result.ok).toBe(false);
-            // cmini/1 names the exact leaf; akl/1's magic_collision names
-            // the colliding ROW (a magic_collision has no single "field"
-            // to blame) -- both are acceptable, exact-or-parent.
-            if (!result.ok) expect([magicInputs[1], parentPointer(magicInputs[1]!)]).toContain(result.error.path);
-          });
+          if (format.id === "mana2/1") {
+            // mana2's own load-time semantics: a later `magic.rules[]`
+            // entry with the same `inputs` REPLACES the earlier one
+            // (core/load_layout.go re-parses rules into a map keyed by
+            // `inputs`) -- 12-implementation-phase5.md §2.5's explicit
+            // override of every other format's "duplicate inputs refused"
+            // default. `lower()` keeps the LAST occurrence.
+            it(`[LDB-F1] ${fixture.stem} duplicate magic inputs (${magicInputs[0]} <- ${magicInputs[1]}) -- last wins, not refused`, () => {
+              const mutated = duplicateMagicInputs(fixture.payload, magicInputs[0]!, magicInputs[1]!);
+              const result = format.validate(mutated);
+              expect(result.ok).toBe(true);
+              const lowered = format.lower(mutated);
+              const dup = lowered?.filter((r: { inputs: string }) => r.inputs === (fixture.payload as { magic?: { rules?: { inputs: string }[] } }).magic?.rules?.[0]?.inputs);
+              expect(dup?.length).toBe(1); // exactly one surviving row for that `inputs`
+            });
+          } else {
+            it(`[LDB-F4] ${fixture.stem} duplicate magic inputs (${magicInputs[0]} <- ${magicInputs[1]})`, () => {
+              const mutated = duplicateMagicInputs(fixture.payload, magicInputs[0]!, magicInputs[1]!);
+              const result = format.validate(mutated);
+              expect(result.ok).toBe(false);
+              // cmini/1 names the exact leaf; akl/1's magic_collision names
+              // the colliding ROW (a magic_collision has no single "field"
+              // to blame) -- both are acceptable, exact-or-parent.
+              if (!result.ok) expect([magicInputs[1], parentPointer(magicInputs[1]!)]).toContain(result.error.path);
+            });
+          }
         }
       }
     });

@@ -1,0 +1,165 @@
+{
+   "layout": {
+     "fingers": [
+       "q g d f v z l u o y",
+       "n s t h m ' r e a i",
+       "b c p w k x j ; . ,"
+     ],
+     "thumbs": [
+       "space",
+       "*"
+     ]
+   },
+   "fingermap": [
+     "0 1 2 3 3 6 6 7 8 9",
+     "0 1 2 3 3 6 6 7 8 9",
+     "0 1 2 3 3 6 6 7 8 9"
+   ],
+   "board": {
+     "isRowStaggered": false,
+     "mirrorLeftRowStagger": false,
+     "splitAngle": 0,
+     "rowOrColumnStagger": [
+       0,
+       -0.3,
+       -0.4,
+       -0.3,
+       -0.2,
+       -0.2,
+       -0.3,
+       -0.4,
+       -0.3,
+       0
+     ]
+   },
+   "layers": null,
+   "magic": {
+     "magicKeys": null,
+     "rules": [
+       {
+         "inputs": "'*",
+         "output": "'r"
+       },
+       {
+         "inputs": "g*",
+         "output": "gs"
+       },
+       {
+         "inputs": "u*",
+         "output": "ue"
+       },
+       {
+         "inputs": "w*",
+         "output": "wh"
+       },
+       {
+         "inputs": "y*",
+         "output": "y,"
+       },
+       {
+         "inputs": "q*",
+         "output": "qq"
+       },
+       {
+         "inputs": "d*",
+         "output": "dd"
+       },
+       {
+         "inputs": "f*",
+         "output": "ff"
+       },
+       {
+         "inputs": "v*",
+         "output": "vv"
+       },
+       {
+         "inputs": "z*",
+         "output": "zz"
+       },
+       {
+         "inputs": "l*",
+         "output": "ll"
+       },
+       {
+         "inputs": "o*",
+         "output": "oo"
+       },
+       {
+         "inputs": "n*",
+         "output": "nn"
+       },
+       {
+         "inputs": "s*",
+         "output": "ss"
+       },
+       {
+         "inputs": "t*",
+         "output": "tt"
+       },
+       {
+         "inputs": "h*",
+         "output": "hh"
+       },
+       {
+         "inputs": "m*",
+         "output": "mm"
+       },
+       {
+         "inputs": "r*",
+         "output": "rr"
+       },
+       {
+         "inputs": "e*",
+         "output": "ee"
+       },
+       {
+         "inputs": "a*",
+         "output": "aa"
+       },
+       {
+         "inputs": "i*",
+         "output": "ii"
+       },
+       {
+         "inputs": "b*",
+         "output": "bb"
+       },
+       {
+         "inputs": "c*",
+         "output": "cc"
+       },
+       {
+         "inputs": "p*",
+         "output": "pp"
+       },
+       {
+         "inputs": "k*",
+         "output": "kk"
+       },
+       {
+         "inputs": "x*",
+         "output": "xx"
+       },
+       {
+         "inputs": "j*",
+         "output": "jj"
+       },
+       {
+         "inputs": ";*",
+         "output": ";;"
+       },
+       {
+         "inputs": ".*",
+         "output": ".."
+       },
+       {
+         "inputs": ",*",
+         "output": ",,"
+       },
+       {
+         "inputs": " *",
+         "output": "  "
+       }
+     ]
+   }
+ }

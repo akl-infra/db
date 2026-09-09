@@ -1,4 +1,5 @@
 {
+  "board": "ortho",
   "keys": {
     "p": {
       "row": 0,
@@ -164,18 +165,6 @@
       "row": 3,
       "col": 5,
       "finger": "RT"
-    }
-  },
-  "board": {
-    "kind": "ortho",
-    "cmini": "ortho"
-  },
-  "x": {
-    "mana2": {
-      "mirrorLeftRowStagger": false,
-      "splitAngle": 0,
-      "magicKeys": null,
-      "layers": null
     }
   }
 }

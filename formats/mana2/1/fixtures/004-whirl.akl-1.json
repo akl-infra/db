@@ -1,0 +1,346 @@
+{
+  "keys": {
+    "q": {
+      "row": 0,
+      "col": 0,
+      "finger": "LP"
+    },
+    "g": {
+      "row": 0,
+      "col": 1,
+      "finger": "LR"
+    },
+    "d": {
+      "row": 0,
+      "col": 2,
+      "finger": "LM"
+    },
+    "f": {
+      "row": 0,
+      "col": 3,
+      "finger": "LI"
+    },
+    "v": {
+      "row": 0,
+      "col": 4,
+      "finger": "LI"
+    },
+    "z": {
+      "row": 0,
+      "col": 5,
+      "finger": "RI"
+    },
+    "l": {
+      "row": 0,
+      "col": 6,
+      "finger": "RI"
+    },
+    "u": {
+      "row": 0,
+      "col": 7,
+      "finger": "RM"
+    },
+    "o": {
+      "row": 0,
+      "col": 8,
+      "finger": "RR"
+    },
+    "y": {
+      "row": 0,
+      "col": 9,
+      "finger": "RP"
+    },
+    "n": {
+      "row": 1,
+      "col": 0,
+      "finger": "LP"
+    },
+    "s": {
+      "row": 1,
+      "col": 1,
+      "finger": "LR"
+    },
+    "t": {
+      "row": 1,
+      "col": 2,
+      "finger": "LM"
+    },
+    "h": {
+      "row": 1,
+      "col": 3,
+      "finger": "LI"
+    },
+    "m": {
+      "row": 1,
+      "col": 4,
+      "finger": "LI"
+    },
+    "'": {
+      "row": 1,
+      "col": 5,
+      "finger": "RI"
+    },
+    "r": {
+      "row": 1,
+      "col": 6,
+      "finger": "RI"
+    },
+    "e": {
+      "row": 1,
+      "col": 7,
+      "finger": "RM"
+    },
+    "a": {
+      "row": 1,
+      "col": 8,
+      "finger": "RR"
+    },
+    "i": {
+      "row": 1,
+      "col": 9,
+      "finger": "RP"
+    },
+    "b": {
+      "row": 2,
+      "col": 0,
+      "finger": "LP"
+    },
+    "c": {
+      "row": 2,
+      "col": 1,
+      "finger": "LR"
+    },
+    "p": {
+      "row": 2,
+      "col": 2,
+      "finger": "LM"
+    },
+    "w": {
+      "row": 2,
+      "col": 3,
+      "finger": "LI"
+    },
+    "k": {
+      "row": 2,
+      "col": 4,
+      "finger": "LI"
+    },
+    "x": {
+      "row": 2,
+      "col": 5,
+      "finger": "RI"
+    },
+    "j": {
+      "row": 2,
+      "col": 6,
+      "finger": "RI"
+    },
+    ";": {
+      "row": 2,
+      "col": 7,
+      "finger": "RM"
+    },
+    ".": {
+      "row": 2,
+      "col": 8,
+      "finger": "RR"
+    },
+    ",": {
+      "row": 2,
+      "col": 9,
+      "finger": "RP"
+    },
+    " ": {
+      "row": 3,
+      "col": 4,
+      "finger": "LT"
+    },
+    "*": {
+      "row": 3,
+      "col": 5,
+      "finger": "RT"
+    }
+  },
+  "board": {
+    "kind": "colstag",
+    "stagger": [
+      0,
+      -0.3,
+      -0.4,
+      -0.3,
+      -0.2,
+      -0.2,
+      -0.3,
+      -0.4,
+      -0.3,
+      0
+    ]
+  },
+  "magic": {
+    "rules": [
+      {
+        "inputs": "'*",
+        "output": "'r",
+        "type": "raw"
+      },
+      {
+        "inputs": "g*",
+        "output": "gs",
+        "type": "raw"
+      },
+      {
+        "inputs": "u*",
+        "output": "ue",
+        "type": "raw"
+      },
+      {
+        "inputs": "w*",
+        "output": "wh",
+        "type": "raw"
+      },
+      {
+        "inputs": "y*",
+        "output": "y,",
+        "type": "raw"
+      },
+      {
+        "inputs": "q*",
+        "output": "qq",
+        "type": "raw"
+      },
+      {
+        "inputs": "d*",
+        "output": "dd",
+        "type": "raw"
+      },
+      {
+        "inputs": "f*",
+        "output": "ff",
+        "type": "raw"
+      },
+      {
+        "inputs": "v*",
+        "output": "vv",
+        "type": "raw"
+      },
+      {
+        "inputs": "z*",
+        "output": "zz",
+        "type": "raw"
+      },
+      {
+        "inputs": "l*",
+        "output": "ll",
+        "type": "raw"
+      },
+      {
+        "inputs": "o*",
+        "output": "oo",
+        "type": "raw"
+      },
+      {
+        "inputs": "n*",
+        "output": "nn",
+        "type": "raw"
+      },
+      {
+        "inputs": "s*",
+        "output": "ss",
+        "type": "raw"
+      },
+      {
+        "inputs": "t*",
+        "output": "tt",
+        "type": "raw"
+      },
+      {
+        "inputs": "h*",
+        "output": "hh",
+        "type": "raw"
+      },
+      {
+        "inputs": "m*",
+        "output": "mm",
+        "type": "raw"
+      },
+      {
+        "inputs": "r*",
+        "output": "rr",
+        "type": "raw"
+      },
+      {
+        "inputs": "e*",
+        "output": "ee",
+        "type": "raw"
+      },
+      {
+        "inputs": "a*",
+        "output": "aa",
+        "type": "raw"
+      },
+      {
+        "inputs": "i*",
+        "output": "ii",
+        "type": "raw"
+      },
+      {
+        "inputs": "b*",
+        "output": "bb",
+        "type": "raw"
+      },
+      {
+        "inputs": "c*",
+        "output": "cc",
+        "type": "raw"
+      },
+      {
+        "inputs": "p*",
+        "output": "pp",
+        "type": "raw"
+      },
+      {
+        "inputs": "k*",
+        "output": "kk",
+        "type": "raw"
+      },
+      {
+        "inputs": "x*",
+        "output": "xx",
+        "type": "raw"
+      },
+      {
+        "inputs": "j*",
+        "output": "jj",
+        "type": "raw"
+      },
+      {
+        "inputs": ";*",
+        "output": ";;",
+        "type": "raw"
+      },
+      {
+        "inputs": ".*",
+        "output": "..",
+        "type": "raw"
+      },
+      {
+        "inputs": ",*",
+        "output": ",,",
+        "type": "raw"
+      },
+      {
+        "inputs": " *",
+        "output": "  ",
+        "type": "raw"
+      }
+    ]
+  },
+  "x": {
+    "mana2": {
+      "mirrorLeftRowStagger": false,
+      "splitAngle": 0,
+      "magicKeys": null,
+      "layers": null
+    }
+  }
+}

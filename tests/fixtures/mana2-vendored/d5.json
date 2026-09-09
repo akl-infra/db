@@ -1,0 +1,40 @@
+{
+  "layout": {
+    "fingers": [
+      "(<space repeat> $shift) g d m y y b f z (<space repeat> $shift)",
+      "                        e t r v j l n e",
+      "                        w c k     h p s"
+    ],
+    "thumbs": [
+      "u (i $numbers)",
+      "a (o $symbols)"
+    ]
+  },
+  "fingermap": [
+    "0 1 2 3 3 6 6 7 8 9",
+    "  1 2 3 3 6 6 7 8",
+    "  1 2 3     6 7 8"
+  ],
+  "board": {
+    "isRowStaggered": false,
+    "mirrorLeftRowStagger": false,
+    "splitAngle": 0,
+    "rowOrColumnStagger": [
+      2,
+      0.5,
+      0,
+      0.5,
+      1,
+      1,
+      0.5,
+      0,
+      0.5,
+      2
+    ]
+  },
+  "layers": null,
+  "magic": {
+    "magicKeys": null,
+    "rules": []
+  }
+}

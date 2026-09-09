@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://akl-db/formats/mana2/1/schema.json",
   "title": "mana2/1 payload",
-  "description": "A parsed mana2 .jsonc layout object (vendor/mana2/docs/layouts.md), minus comments/trailing commas (already stripped by formats/mana2/1/jsonc.ts before this schema ever sees it). `layout.fingers`/`fingermap` are whitespace-tokenized row strings (single OR double space between tokens, either is just visual -- see core/load_layout.go's Fields()-based tokeniser); the per-row shape agreement between them (same or fewer fingers tokens than fingermap tokens, one-digit fingermap values) is a semantic check in formats/mana2/1/index.ts's validate(), not expressible here. `board.mirrorLeftRowStagger`/`board.splitAngle` and `magic.magicKeys`/`layers` are mana2 features akl/1 has no idiom for (magicKeys is an unused/legacy field even in mana2 itself -- see load_layout.go's addMagicDirectionals TODO; layers are 'todo' in mana2's own docs) -- carried through same-format round trips and, for a record translated from akl/1, recovered from `x.mana2` (01-format.md §6.3's own escape-hatch pattern for `x.cmini`).",
+  "description": "A parsed mana2 .jsonc layout object (12-implementation-phase5.md §0.4/§2.5, replacing 01-format.md §6.3). additionalProperties:false at every level -- a future mana2 key is a mana2/2, not a silent pass. Grammar (token shape, duplicate chars, row-shape agreement, stagger length) and cross-field rules live in formats/mana2/1/index.ts's validate(), not here.",
   "type": "object",
   "additionalProperties": false,
   "required": ["layout", "fingermap", "board"],
@@ -14,12 +14,14 @@
       "properties": {
         "fingers": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": { "type": "string" },
+          "minItems": 1,
+          "maxItems": 5
         },
         "thumbs": {
           "type": "array",
           "items": { "type": "string" },
-          "minItems": 1,
+          "minItems": 0,
           "maxItems": 2
         }
       }
@@ -31,6 +33,7 @@
     "board": {
       "type": "object",
       "additionalProperties": false,
+      "required": ["rowOrColumnStagger"],
       "properties": {
         "isRowStaggered": { "type": "boolean" },
         "mirrorLeftRowStagger": { "type": "boolean" },
@@ -55,6 +58,10 @@
         }
       }
     },
+    "combos": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/combo" }
+    },
     "layers": {}
   },
   "$defs": {
@@ -63,7 +70,20 @@
       "additionalProperties": false,
       "required": ["inputs", "output"],
       "properties": {
-        "inputs": { "type": "string", "minLength": 1 },
+        "inputs": { "type": "string", "minLength": 2 },
+        "output": { "type": "string", "minLength": 1 }
+      }
+    },
+    "combo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["inputs", "output"],
+      "properties": {
+        "inputs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
         "output": { "type": "string", "minLength": 1 }
       }
     }
