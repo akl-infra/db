@@ -1,0 +1,17 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/admin/drill",
+    "bearer": "conformance-admin-token",
+    "body": {}
+  },
+  "response": {
+    "status": 400,
+    "headers": { "Content-Type": "application/json" },
+    "body": {
+      "error": "bad_request",
+      "message": "body must have required property 'ok'",
+      "param": "/ok"
+    }
+  }
+}

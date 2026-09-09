@@ -5,7 +5,16 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { diffCorpus, parseUpstreamRaw, pathDiff, type OursEntry, type UpstreamEntry } from "../../src/import/diff";
+import {
+  diffCorpus,
+  httpOurs,
+  parseUpstreamRaw,
+  pathDiff,
+  type FetchImpl,
+  type OursEntry,
+  type OursSource,
+  type UpstreamEntry,
+} from "../../src/import/diff";
 
 const FIXTURE_DIR = path.join(import.meta.dirname, "..", "fixtures", "upstream-100");
 
@@ -205,5 +214,120 @@ describe("pathDiff", () => {
   it("[LDB-P5] object keys with '/' and '~' are pointer-escaped", () => {
     expect(pathDiff({ "a/b": 1 }, { "a/b": 2 })).toBe("/a~1b");
     expect(pathDiff({ "a~b": 1 }, { "a~b": 2 })).toBe("/a~0b");
+  });
+});
+
+// X4 (12 §3 X4): `httpOurs` is the pre-X4 "our side" behaviour, moved
+// unchanged behind `OursSource` -- this is the moved code's own regression
+// suite, over a hand-built fake DB (no D1, no miniflare: `httpOurs` never
+// touches either, only `fetchImpl`, so this belongs in the "node" project
+// alongside the rest of this file).
+describe("httpOurs (X4: the moved HTTP-based OursSource)", () => {
+  const BASE = "https://ours.example";
+
+  const OUR_ITEMS = [
+    {
+      id: "id-alpha",
+      name: "alpha",
+      owner: "111111111111111111",
+      created_at: "2026-01-01T00:00:00Z",
+      modified_at: "2026-01-02T00:00:00Z",
+      like_count: 0,
+      likes: [] as string[],
+      payload: { board: "ortho", keys: {} },
+    },
+    {
+      id: "id-beta",
+      name: "beta",
+      owner: "222222222222222222",
+      created_at: "2026-01-01T00:00:00Z",
+      modified_at: "2026-01-02T00:00:00Z",
+      like_count: 0,
+      held: true,
+    },
+    {
+      id: "id-gamma",
+      name: "gamma",
+      owner: "333333333333333333",
+      created_at: "2026-01-01T00:00:00Z",
+      modified_at: "2026-01-02T00:00:00Z",
+      like_count: 2,
+      // No inline `likes` -- forces the /likes fallback (the older-build
+      // shape `resolveOurLikes` still supports, unchanged by the move).
+      payload: { board: "ortho", keys: {} },
+    },
+  ];
+
+  // `/v1/layouts/{ref}/history` returns events ascending by seq (oldest
+  // first, `routes/layouts.ts`) -- `id-gamma`'s rev 1 (the import) came
+  // first, rev 2 (a later human edit) came after it.
+  const HISTORY: Record<string, { rev: number | null; via: string }[]> = {
+    "id-alpha": [{ rev: 1, via: "import:cmini" }],
+    "id-gamma": [
+      { rev: 1, via: "import:cmini" },
+      { rev: 2, via: "discord" },
+    ],
+  };
+
+  function fakeFetch(): FetchImpl {
+    return async (url) => {
+      const u = new URL(url);
+      if (u.pathname === "/v1/layouts" && u.searchParams.get("full") === "1") {
+        return new Response(JSON.stringify({ items: OUR_ITEMS }), { status: 200 });
+      }
+      if (u.pathname === "/v1/authors") {
+        return new Response(JSON.stringify({ alpha: "111111111111111111", gamma: "333333333333333333" }), { status: 200 });
+      }
+      if (u.pathname === "/v1/meta") {
+        // alpha + gamma; `beta` is `held` and excluded, same as
+        // `/v1/meta.layout_count` (a held record is still a live record --
+        // this fixture's `2` is just what this fake chose to report, not a
+        // rule `httpOurs` enforces).
+        return new Response(JSON.stringify({ layout_count: 2 }), { status: 200 });
+      }
+      const historyMatch = /^\/v1\/layouts\/([^/]+)\/history$/.exec(u.pathname);
+      if (historyMatch) {
+        const ref = decodeURIComponent(historyMatch[1]!);
+        return new Response(JSON.stringify(HISTORY[ref] ?? []), { status: 200 });
+      }
+      const likesMatch = /^\/v1\/layouts\/([^/]+)\/likes$/.exec(u.pathname);
+      if (likesMatch) {
+        return new Response(JSON.stringify({ user_ids: ["444444444444444444", "555555555555555555"] }), { status: 200 });
+      }
+      throw new Error(`fakeFetch: unhandled ${url}`);
+    };
+  }
+
+  it("[LDB-P5] full() yields every live record as an OursEntry, plus the name of every held one", async () => {
+    const ours: OursSource = httpOurs(BASE, fakeFetch());
+    const entries: (OursEntry | { held: string })[] = [];
+    for await (const item of ours.full()) entries.push(item);
+
+    expect(entries).toHaveLength(3);
+    const alpha = entries.find((e) => "ref" in e && e.name === "alpha") as OursEntry;
+    expect(alpha.ref).toBe("id-alpha");
+    expect(alpha.owner).toBe("111111111111111111");
+
+    const heldEntry = entries.find((e) => "held" in e) as { held: string };
+    expect(heldEntry.held).toBe("beta");
+
+    const gamma = entries.find((e) => "ref" in e && e.name === "gamma") as OursEntry;
+    expect(gamma.likes).toEqual(["444444444444444444", "555555555555555555"]);
+  });
+
+  it("[LDB-P5] authors() reproduces /v1/authors' {name: id} shape", async () => {
+    const ours = httpOurs(BASE, fakeFetch());
+    await expect(ours.authors()).resolves.toEqual({ alpha: "111111111111111111", gamma: "333333333333333333" });
+  });
+
+  it("[LDB-P5] layoutCount() reproduces /v1/meta's layout_count", async () => {
+    const ours = httpOurs(BASE, fakeFetch());
+    await expect(ours.layoutCount()).resolves.toBe(2);
+  });
+
+  it("[LDB-P5] followsUpstream() reads the latest rev-bumping event's via, off /history", async () => {
+    const ours = httpOurs(BASE, fakeFetch());
+    await expect(ours.followsUpstream("id-alpha")).resolves.toBe(true);
+    await expect(ours.followsUpstream("id-gamma")).resolves.toBe(false); // latest rev-bumping event is 'discord', not the import
   });
 });

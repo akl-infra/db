@@ -9,10 +9,17 @@ import type { ActorVariables } from "../auth/actor";
 import { type AuthDeps, resolveActor } from "../auth/discord";
 import type { Bindings } from "../env";
 import * as admins from "../core/admins";
+import { canonical } from "../core/canonical";
 import * as clients from "../core/clients";
 import { badRequest, notAdmin } from "../core/errors";
 import { systemClock, type Clock } from "../core/time";
-import { parseAdminAddBody, parseRegisterClientBody } from "./schemas";
+import { lastDiff } from "../import/difftick";
+import { parseAdminAddBody, parseDrillReportBody, parseRegisterClientBody } from "./schemas";
+
+// 12 §3 X4: "detail?: object <= 4 KB" -- measured on the canonical encoding,
+// same posture as every other byte-length bound in this codebase (webhook
+// `secret`, client `pubkey`).
+const DRILL_DETAIL_MAX_BYTES = 4096;
 
 // Same test-only escape hatch as routes/write.ts's `resolveNow`: a test
 // pins `TEST_CLOCK` on the shared `env` object before a `SELF.fetch` call
@@ -96,6 +103,34 @@ export function adminRoute(authDeps: AuthDeps) {
     const actor = await resolveActor(c.env, c.req, authDeps);
     if (!actor.admin) throw notAdmin();
     return c.json(await clients.listClients(c.env.DB));
+  });
+
+  // 12 §3 X4: accepts and stores a signed drill report. The drill itself
+  // (a rehost + the conformance suite, run against a real deployed dump)
+  // runs on Fly, outside this Worker (⚠ saltorbit, `08 §2` item 2) -- this
+  // route only records what it was told, on the client lane (`scripts/
+  // report-drill.mjs`, act-as-owner-only) or a bearer, same as every other
+  // admin write here.
+  route.post("/v1/admin/drill", async (c) => {
+    const actor = c.get("actor");
+    if (!actor.admin) throw notAdmin();
+    const body = parseDrillReportBody(await readJson(c.req));
+    if (body.detail !== undefined) {
+      const bytes = new TextEncoder().encode(canonical(body.detail)).length;
+      if (bytes > DRILL_DETAIL_MAX_BYTES) throw badRequest(`'detail' exceeds ${DRILL_DETAIL_MAX_BYTES} bytes`, "/detail");
+    }
+    await admins.recordDrill(c.env.DB, resolveNow(c.env), actor.user_id, body.ok, body.detail);
+    return c.json({ recorded: true });
+  });
+
+  // 12 §3 X4: the full `last_diff`/`last_drill` bodies -- `/v1/meta` only
+  // ever serves `{at, ok}` off the same two `import_state` rows (12 §6.7:
+  // "the public poll stays small").
+  route.get("/v1/admin/health", async (c) => {
+    const actor = await resolveActor(c.env, c.req, authDeps);
+    if (!actor.admin) throw notAdmin();
+    const [diff, drill] = await Promise.all([lastDiff(c.env.DB), admins.lastDrill(c.env.DB)]);
+    return c.json({ last_diff: diff, last_drill: drill });
   });
 
   return route;

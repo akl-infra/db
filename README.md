@@ -263,6 +263,36 @@ real network, retries for 30 minutes on an unreachable service, then fails
 (the same comparison logic over the frozen `tests/fixtures/upstream-100/`
 snapshot) on every PR.
 
+### Diff cron (`0 4 * * *`)
+
+A second copy of the same D12 comparison above, run automatically every day
+at 04:00 UTC by the Worker itself (`src/import/difftick.ts`'s `diffTick`),
+against our OWN D1 -- no HTTP, in either direction (LDB-C4): `d1Ours`
+(`src/import/difftick.ts`) reads `layouts`/`likes`/`authors`/`events`
+directly, through the same `list()`/`translate()` functions the read routes
+use, paged 500 records at a time. Every run -- success or failure -- writes
+`import_state['cmini.last_diff']`; `GET /v1/meta` exposes it (and a drill
+report, below) as `last_diff: {at, ok} | null` and `last_drill: {at, ok} |
+null` (LDB-M1); the full summary (`upstream_count`/`corpus`/`authors`/up to
+10 samples of each kind of mismatch) is admin-only, at `GET
+/v1/admin/health` alongside the full drill record.
+
+`POST /v1/admin/drill { ok: boolean, detail?: object <= 4 KB }` accepts and
+stores a signed report of a rehost drill (a full restore-from-dump plus a
+conformance-suite replay) -- admin-only, one `import_state['drill.last']`
+row, no event (12 §6.4: ops state, not governance). **The drill itself
+-- the Fly container that actually runs it against the deployed dump, and
+the scheduled job that posts its result here -- is not part of this PR**
+(`design/layout-db/12-implementation-phase5.md` §3 X4: "the Fly container
+that performs it is saltorbit's own infrastructure, ⚠"); this service only
+ever accepts and stores whatever report it's sent.
+
+`.github/workflows/db.yml`'s `daily` job (the live upstream diff + the
+rehost drill it already runs) is left in place until this cron -- and,
+separately, the drill once it exists -- have both been green for 7
+consecutive days; deleting it is a dated follow-up PR (X4b), never a test
+with a date baked into it.
+
 ### R2 lifecycle
 
 `akl-db-dumps` has a lifecycle rule deleting objects under the `dump-`

@@ -358,15 +358,35 @@ export function diffAuthors(upstream: Record<string, string>, ours: Record<strin
   return { missing, extra, aliasCount };
 }
 
+// X4 (12 §3 X4): "our" side of the diff, behind an interface -- so the same
+// pure comparison core above can be driven either from a live HTTP mirror
+// (`httpOurs`, the CLI and the daily CI job) or straight from this
+// Worker's own D1 (`src/import/difftick.ts`'s `d1Ours`), with NO self-HTTP
+// from the diff cron (LDB-C4: the cron reading its own origin over HTTP
+// would need to be its own subrequest budget AND could deadlock a
+// single-invocation cron against itself under load). `full()` yields every
+// live record as a `cmini/1` detail (`OursEntry`), or `{ held: string }`
+// naming a record that cannot translate to `cmini/1` at all -- unreachable
+// in phase 1 (cmini/1 and akl/1 always translate both ways) but real once
+// `mana2/1` or a future advanced format lands (X2), so `diffUpstream`
+// reports it rather than assuming it can't happen.
+export interface OursSource {
+  full(): AsyncIterable<OursEntry | { held: string }>;
+  authors(): Promise<Record<string, string>>;
+  layoutCount(): Promise<number>;
+  followsUpstream(ref: string): Promise<boolean>;
+}
+
 // ---------------------------------------------------------------------
 // I/O orchestration -- the live diff (`npm run diff-upstream`, the daily
-// job's tests/upstream-diff.test.ts).
+// job's tests/upstream-diff.test.ts, and (X4) the `0 4 * * *` cron via
+// `import/difftick.ts`'s `d1Ours`).
 // ---------------------------------------------------------------------
 
 export interface DiffOptions {
-  dbBaseUrl: string;
   upstreamUrl: string;
   ua: string;
+  ours: OursSource;
   fetchImpl?: FetchImpl;
   sleepImpl?: SleepImpl;
 }
@@ -398,15 +418,6 @@ interface OurFullItem {
 }
 interface OurFullResponse {
   items: OurFullItem[];
-}
-interface OurSingleRecord {
-  name: string;
-  owner: string;
-  created_at: string;
-  modified_at: string;
-  like_count: number;
-  likes?: string[];
-  payload: unknown;
 }
 interface HistoryEvent {
   rev: number | null;
@@ -446,29 +457,82 @@ function summaryIsOk(s: Omit<DiffSummary, "ok">): boolean {
   );
 }
 
-// Fetches both sides, matches by name, resolves every leftover local name's
-// follow status via `/history` (only leftovers -- 07 §6 S8: "to keep it
-// cheap"), and resolves our `likes` via `resolveOurLikes` -- inline on the
-// record when present (W1), else the separate `/likes` endpoint, and only
-// when `like_count > 0` (07 §6 S8: likes compared sorted both sides;
-// zero-likes needs no fetch since `[] === []` already). Never throws for a *content*
-// difference -- only for a network/shape failure the retries couldn't
-// recover from; the caller (script or daily test) decides what a thrown
-// error means.
+// X4 (12 §3 X4): `httpOurs` is today's pre-refactor "our side" behaviour,
+// unchanged, just moved behind `OursSource` -- what `scripts/diff-upstream.mjs`
+// (the CLI) and `tests/upstream-diff.test.ts` (the daily CI job) still use,
+// both of them necessarily off-Worker (a CLI/CI job has no D1 binding to
+// read directly). The UA sent here is fixed, not `opts.ua`: these requests
+// all address OUR OWN Worker (`dbBaseUrl`), which -- unlike upstream (0.1)
+// -- never gates on User-Agent, so there's nothing for a caller-supplied
+// value to accomplish.
+const HTTP_OURS_UA = "akl-db-diff-ours/1.0";
+
+export function httpOurs(dbBaseUrl: string, fetchImpl?: FetchImpl, sleepImpl?: SleepImpl): OursSource {
+  const doFetch: FetchImpl = fetchImpl ?? ((url, init) => fetch(url, init));
+  const doSleep: SleepImpl = sleepImpl ?? realSleep;
+  return {
+    async *full() {
+      const raw = await fetchJsonRetried(doFetch, doSleep, HTTP_OURS_UA, `${dbBaseUrl}/v1/layouts?full=1&as=cmini/1`);
+      const ourFull = raw as OurFullResponse;
+      if (!Array.isArray(ourFull.items)) throw new Error(`${dbBaseUrl}/v1/layouts?full=1&as=cmini/1 is not {items: [...]}`);
+      for (const item of ourFull.items) {
+        if (item.held === true || item.payload === undefined) {
+          yield { held: item.name };
+          continue;
+        }
+        const likes = await resolveOurLikes(doFetch, doSleep, HTTP_OURS_UA, dbBaseUrl, item.id, item);
+        yield {
+          ref: item.id,
+          name: item.name,
+          owner: item.owner,
+          created_at: item.created_at,
+          modified_at: item.modified_at,
+          likes,
+          payload: item.payload as cmini1.Payload,
+        };
+      }
+    },
+    async authors() {
+      return (await fetchJsonRetried(doFetch, doSleep, HTTP_OURS_UA, `${dbBaseUrl}/v1/authors`)) as Record<string, string>;
+    },
+    async layoutCount() {
+      const meta = (await fetchJsonRetried(doFetch, doSleep, HTTP_OURS_UA, `${dbBaseUrl}/v1/meta`)) as { layout_count?: number };
+      return meta.layout_count ?? -1;
+    },
+    async followsUpstream(ref: string) {
+      const historyRaw = await fetchJsonRetried(
+        doFetch,
+        doSleep,
+        HTTP_OURS_UA,
+        `${dbBaseUrl}/v1/layouts/${encodeURIComponent(ref)}/history`,
+      );
+      const events = historyRaw as HistoryEvent[];
+      for (let i = events.length - 1; i >= 0; i--) {
+        const e = events[i]!;
+        if (e.rev !== null) return e.via === "import:cmini";
+      }
+      return false;
+    },
+  };
+}
+
+// Fetches upstream, reads `opts.ours` for the other side, matches by name,
+// resolves every leftover local name's follow status via `opts.ours
+// .followsUpstream` (only leftovers -- 07 §6 S8: "to keep it cheap"). Never
+// throws for a *content* difference -- only for a network/shape failure the
+// retries couldn't recover from; the caller (script, daily test, or X4's
+// cron) decides what a thrown error means.
 export async function diffUpstream(opts: DiffOptions): Promise<DiffSummary> {
   const fetchImpl: FetchImpl = opts.fetchImpl ?? ((url, init) => fetch(url, init));
   const sleepImpl: SleepImpl = opts.sleepImpl ?? realSleep;
-  const { dbBaseUrl, upstreamUrl, ua } = opts;
+  const { upstreamUrl, ua, ours } = opts;
 
-  const [upstreamFullRaw, upstreamAuthorsRaw, upstreamMetaRaw] = await Promise.all([
+  const [upstreamFullRaw, upstreamAuthorsRaw, upstreamMetaRaw, ourAuthorsRaw, ourLayoutCount] = await Promise.all([
     fetchJsonRetried(fetchImpl, sleepImpl, ua, `${upstreamUrl}/layouts?full=1`),
     fetchJsonRetried(fetchImpl, sleepImpl, ua, `${upstreamUrl}/authors`),
     fetchJsonRetried(fetchImpl, sleepImpl, ua, `${upstreamUrl}/meta`),
-  ]);
-  const [ourFullRaw, ourAuthorsRaw, ourMetaRaw] = await Promise.all([
-    fetchJsonRetried(fetchImpl, sleepImpl, ua, `${dbBaseUrl}/v1/layouts?full=1&as=cmini/1`),
-    fetchJsonRetried(fetchImpl, sleepImpl, ua, `${dbBaseUrl}/v1/authors`),
-    fetchJsonRetried(fetchImpl, sleepImpl, ua, `${dbBaseUrl}/v1/meta`),
+    ours.authors(),
+    ours.layoutCount(),
   ]);
 
   const upstreamFull = upstreamFullRaw as RawFullResponse;
@@ -492,78 +556,53 @@ export async function diffUpstream(opts: DiffOptions): Promise<DiffSummary> {
     upstream.set(key, { name, parsed: parseUpstreamRaw(raw) });
   }
 
-  const ourFull = ourFullRaw as OurFullResponse;
-  if (!Array.isArray(ourFull.items)) throw new Error(`${dbBaseUrl}/v1/layouts?full=1&as=cmini/1 is not {items: [...]}`);
-
   const held: string[] = [];
-  const ours = new Map<string, OursEntry>();
-  for (const item of ourFull.items) {
-    if (item.held === true || item.payload === undefined) {
-      held.push(item.name);
+  const ours_ = new Map<string, OursEntry>();
+  for await (const item of ours.full()) {
+    if ("held" in item) {
+      held.push(item.held);
       continue;
     }
-    const likes = await resolveOurLikes(fetchImpl, sleepImpl, ua, dbBaseUrl, item.id, item);
-    ours.set(item.name.toLowerCase(), {
-      ref: item.id,
-      name: item.name,
-      owner: item.owner,
-      created_at: item.created_at,
-      modified_at: item.modified_at,
-      likes,
-      payload: item.payload as cmini1.Payload,
-    });
+    ours_.set(item.name.toLowerCase(), item);
   }
 
   // First pass: find which local names upstream's name-set doesn't match.
-  const firstPass = diffCorpus(upstream, ours);
+  const firstPass = diffCorpus(upstream, ours_);
   // Resolve exactly those leftovers' follow status (the one place this
-  // function does per-record I/O beyond likes -- bounded by
+  // function does per-record I/O beyond `ours.full()` itself -- bounded by
   // `extraUnresolved.length`, not the whole corpus).
   for (const name of firstPass.extraUnresolved) {
-    const entry = ours.get(name.toLowerCase());
-    if (entry === undefined) continue; // unreachable: name came from `ours` itself
-    const historyRaw = await fetchJsonRetried(
-      fetchImpl,
-      sleepImpl,
-      ua,
-      `${dbBaseUrl}/v1/layouts/${encodeURIComponent(entry.ref)}/history`,
-    );
-    const events = historyRaw as HistoryEvent[];
-    let follows = false;
-    for (let i = events.length - 1; i >= 0; i--) {
-      const e = events[i]!;
-      if (e.rev !== null) {
-        follows = e.via === "import:cmini";
-        break;
-      }
-    }
-    entry.followsUpstream = follows;
+    const entry = ours_.get(name.toLowerCase());
+    if (entry === undefined) continue; // unreachable: name came from `ours_` itself
+    entry.followsUpstream = await ours.followsUpstream(entry.ref);
   }
-  const corpus = diffCorpus(upstream, ours);
+  const corpus = diffCorpus(upstream, ours_);
 
-  // A record the bulk (`?full=1`) comparison flags as differing gets ONE
-  // more look before being reported, through both sides' small
-  // single-record endpoints (`/layouts/{id}` upstream, `/v1/layouts/{id}
-  // ?as=cmini/1` ours) -- rebuilt as CminiRecordLike, re-compared. Why:
-  // this slice's own local proof (07 §6 S8) found that `JSON.parse` of the
-  // ~5 MB `?full=1` bodies can -- reproduced identically under Node 24.20.0
-  // and 26.8.1, so not specific to one Node build -- silently substitute a
-  // literal backslash for a `\uXXXX`-escaped key character (upstream's own
-  // `&`/`<`), and that the wrong decoding is sometimes STABLE across
-  // repeated parses of the very same bytes (so `parseJsonChecked`'s
-  // double-parse guard alone doesn't catch every case), while every small
-  // single-record fetch in that investigation parsed correctly, every
-  // time. So a content diff is only reported once it survives a second
-  // look through the small endpoints -- bounded to records that already
-  // look different, the same "keep it cheap" posture as the `/history`
-  // resolution above.
+  // A record the bulk comparison flags as differing gets ONE more look
+  // before being reported, through a FRESH single-record upstream fetch --
+  // rebuilt as CminiRecordLike, re-compared. Why: this slice's own local
+  // proof (07 §6 S8) found that `JSON.parse` of the ~5 MB upstream `?full=1`
+  // body can -- reproduced identically under Node 24.20.0 and 26.8.1, so not
+  // specific to one Node build -- silently substitute a literal backslash
+  // for a `\uXXXX`-escaped key character (upstream's own `&`/`<`), and that
+  // the wrong decoding is sometimes STABLE across repeated parses of the
+  // very same bytes (so `parseJsonChecked`'s double-parse guard alone
+  // doesn't catch every case), while every small single-record fetch in
+  // that investigation parsed correctly, every time. That hazard is
+  // specific to a big single-string JSON.parse -- it lives on the UPSTREAM
+  // side only here: `ours` either never does one at all (`d1Ours`, X4:
+  // every record is a separate, small D1 read, `JSON.parse`d individually)
+  // or already ran the SAME double-parse-checked `fetchJsonRetried` while
+  // building `ours_` above (`httpOurs`) -- so a second fetch of OUR OWN
+  // side buys nothing further, and this reconfirmation re-reads only
+  // upstream, comparing against the `ours_` entry already in hand.
   const confirmedContentDiffs: DiffLine[] = [];
   let reconfirmedMatches = 0;
   for (const diff of corpus.contentDiffs) {
     const key = diff.name.toLowerCase();
-    const ourEntry = ours.get(key);
+    const ourEntry = ours_.get(key);
     if (ourEntry === undefined) {
-      confirmedContentDiffs.push(diff); // unreachable: `diff.name` came from `ours` itself
+      confirmedContentDiffs.push(diff); // unreachable: `diff.name` came from `ours_` itself
       continue;
     }
     const upRawSingle = await fetchJsonRetried(fetchImpl, sleepImpl, ua, `${upstreamUrl}/layouts/${encodeURIComponent(key)}`);
@@ -572,29 +611,14 @@ export async function diffUpstream(opts: DiffOptions): Promise<DiffSummary> {
       confirmedContentDiffs.push({ name: diff.name, path: upParsedSingle.error.path, message: upParsedSingle.error.message });
       continue;
     }
-    const ourRawSingle = (await fetchJsonRetried(
-      fetchImpl,
-      sleepImpl,
-      ua,
-      `${dbBaseUrl}/v1/layouts/${encodeURIComponent(ourEntry.ref)}?as=cmini/1`,
-    )) as OurSingleRecord;
-    const singleLikes = await resolveOurLikes(fetchImpl, sleepImpl, ua, dbBaseUrl, ourEntry.ref, ourRawSingle);
-    const ourSingle: cmini1.CminiRecordLike = {
-      name: ourRawSingle.name,
-      owner: ourRawSingle.owner,
-      created_at: ourRawSingle.created_at,
-      modified_at: ourRawSingle.modified_at,
-      likes: singleLikes,
-      payload: ourRawSingle.payload as cmini1.Payload,
-    };
-    const recheck = compareRecords(upParsedSingle.detail, ourSingle);
+    const recheck = compareRecords(upParsedSingle.detail, ourEntry);
     if (recheck.equal) {
       reconfirmedMatches++;
     } else {
       confirmedContentDiffs.push({
         name: diff.name,
         path: recheck.path ?? "/",
-        message: "content differs from upstream (confirmed via single-record refetch)",
+        message: "content differs from upstream (confirmed via a fresh upstream refetch)",
       });
     }
   }
@@ -602,15 +626,14 @@ export async function diffUpstream(opts: DiffOptions): Promise<DiffSummary> {
   corpus.matched += reconfirmedMatches;
 
   const upstreamMeta = upstreamMetaRaw as { layout_count?: number };
-  const ourMeta = ourMetaRaw as { layout_count?: number };
   const layoutCount = {
     upstream: upstreamMeta.layout_count ?? -1,
-    ours: ourMeta.layout_count ?? -1,
-    equal: upstreamMeta.layout_count === ourMeta.layout_count,
+    ours: ourLayoutCount,
+    equal: upstreamMeta.layout_count === ourLayoutCount,
   };
 
-  const authors = diffAuthors(upstreamAuthorsRaw as Record<string, string>, ourAuthorsRaw as Record<string, string>);
+  const authors = diffAuthors(upstreamAuthorsRaw as Record<string, string>, ourAuthorsRaw);
 
-  const summary = { upstreamCount: upstream.size, upstreamDupNames: dupNames.size, ourCount: ours.size, held, layoutCount, authors, corpus };
+  const summary = { upstreamCount: upstream.size, upstreamDupNames: dupNames.size, ourCount: ours_.size, held, layoutCount, authors, corpus };
   return { ...summary, ok: summaryIsOk(summary) };
 }

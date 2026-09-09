@@ -12,7 +12,7 @@
 // gives the deployed Worker's import (`IMPORT_SOURCE_URL`/`IMPORT_UA`), so
 // running this against a fresh local D1 + a real upstream tick (07 §8)
 // compares like for like.
-import { diffUpstream } from "../src/import/diff.ts";
+import { diffUpstream, httpOurs } from "../src/import/diff.ts";
 
 const DB_BASE_URL = process.env.DB_BASE_URL ?? "http://localhost:8787";
 const UPSTREAM_URL = process.env.UPSTREAM_URL ?? "https://clemenpine.com/layoutapi/v3";
@@ -32,7 +32,7 @@ function printLines(label, lines, max = 20) {
 
 async function main() {
   console.log(`diff-upstream: ours=${DB_BASE_URL} upstream=${UPSTREAM_URL} (UA: ${UA})`);
-  const summary = await diffUpstream({ dbBaseUrl: DB_BASE_URL, upstreamUrl: UPSTREAM_URL, ua: UA });
+  const summary = await diffUpstream({ ours: httpOurs(DB_BASE_URL), upstreamUrl: UPSTREAM_URL, ua: UA });
 
   console.log(`\nupstream layouts: ${summary.upstreamCount} (dup names dropped: ${summary.upstreamDupNames})`);
   console.log(`our layouts:      ${summary.ourCount}`);

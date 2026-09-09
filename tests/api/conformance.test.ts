@@ -593,6 +593,16 @@ const REQUIRED: Record<string, RequiredCase[]> = {
     { status: 400, code: ERROR_CODES.bad_request },
     { status: 404, code: ERROR_CODES.not_found },
   ],
+
+  // --- phase 5: the diff cron's drill/health routes (12 §3 X4) -----------
+  "POST /v1/admin/drill": [
+    { status: 200 },
+    ...A,
+    { status: 400, code: ERROR_CODES.bad_request },
+    { status: 403, code: ERROR_CODES.not_admin },
+    RL,
+  ],
+  "GET /v1/admin/health": [{ status: 200 }, ...A, { status: 403, code: ERROR_CODES.not_admin }],
 };
 describe("conformance enumeration", () => {
   // `app.routes` also lists the two `app.use("/v1/*", ...)` middleware

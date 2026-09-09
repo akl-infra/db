@@ -297,3 +297,74 @@ describe("[LDB-P6] admin events on the public feed", () => {
     expect(items.some((e) => e.kind === "admin.added")).toBe(true);
   });
 });
+
+// X4 (12 §3 X4): the drill result and the health check. Neither appends an
+// event (12 §6.4: ops state, not governance) -- the conformance suite
+// (tests/conformance/admin-drill/*, admin-health/*) already sweeps the
+// (route, status, code) matrix; this file covers the round-trip a fixture
+// can't: a drill's own `ok`/`detail` reaching both `/v1/meta` (projected)
+// and `/v1/admin/health` (in full).
+describe("[LDB-A5] POST /v1/admin/drill and GET /v1/admin/health", () => {
+  it("anonymous 401, non-admin 403, admin 200 -> { recorded: true }", async () => {
+    const anon = await writeFetch("/v1/admin/drill", "POST", {}, { ok: true });
+    expect(anon.status).toBe(401);
+
+    const user = await writeFetch("/v1/admin/drill", "POST", userHeaders(`tok-${uniqueName("drill-user")}`), { ok: true });
+    expect(user.status).toBe(403);
+
+    const admin = await writeFetch("/v1/admin/drill", "POST", adminHeaders(`tok-${uniqueName("drill-admin")}`), {
+      ok: true,
+      detail: { dump: "dump-2026-07-15.json.gz" },
+    });
+    expect(admin.status).toBe(200);
+    await expect(admin.json()).resolves.toEqual({ recorded: true });
+  });
+
+  it("a body missing 'ok' is 400 bad_request", async () => {
+    const res = await writeFetch("/v1/admin/drill", "POST", adminHeaders(`tok-${uniqueName("drill-bad")}`), {});
+    expect(res.status).toBe(400);
+    const body = await res.json<{ error: string; param: string }>();
+    expect(body.error).toBe("bad_request");
+    expect(body.param).toBe("/ok");
+  });
+
+  it("a 'detail' over 4 KB is refused", async () => {
+    const res = await writeFetch("/v1/admin/drill", "POST", adminHeaders(`tok-${uniqueName("drill-big")}`), {
+      ok: true,
+      detail: { blob: "x".repeat(5000) },
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json<{ error: string; param: string }>();
+    expect(body.error).toBe("bad_request");
+    expect(body.param).toBe("/detail");
+  });
+
+  it("[LDB-M1] a false report is recorded ok:false, and /v1/meta.last_drill reflects it", async () => {
+    const res = await writeFetch("/v1/admin/drill", "POST", adminHeaders(`tok-${uniqueName("drill-fail")}`), {
+      ok: false,
+      detail: { step: "rehost" },
+    });
+    expect(res.status).toBe(200);
+
+    const meta = await writeFetch("/v1/meta", "GET", {});
+    const body = await meta.json<{ last_drill: { at: string; ok: boolean } | null }>();
+    expect(body.last_drill).not.toBeNull();
+    expect(body.last_drill!.ok).toBe(false);
+  });
+
+  it("GET /v1/admin/health is admin-only and carries the full last_diff/last_drill bodies", async () => {
+    const anon = await writeFetch("/v1/admin/health", "GET", {});
+    expect(anon.status).toBe(401);
+
+    const user = await writeFetch("/v1/admin/health", "GET", userHeaders(`tok-${uniqueName("health-user")}`));
+    expect(user.status).toBe(403);
+
+    await writeFetch("/v1/admin/drill", "POST", adminHeaders(`tok-${uniqueName("health-seed")}`), { ok: true, detail: { note: "seed" } });
+
+    const admin = await writeFetch("/v1/admin/health", "GET", adminHeaders(`tok-${uniqueName("health-admin")}`));
+    expect(admin.status).toBe(200);
+    const body = await admin.json<{ last_diff: unknown; last_drill: { ok: boolean; detail?: { note: string } } | null }>();
+    expect(body.last_drill?.ok).toBe(true);
+    expect(body.last_drill?.detail).toEqual({ note: "seed" });
+  });
+});

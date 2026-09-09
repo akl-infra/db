@@ -144,6 +144,25 @@ export interface CreateWebhookBody {
   owner_filter?: string;
 }
 
+// X4 (12 §3 X4): `POST /v1/admin/drill`. `detail`'s <= 4 KB cap is checked
+// in `routes/admin.ts` after this schema passes (a byte-length bound on a
+// canonicalized object isn't a `pattern` ajv can express, same reasoning
+// `registerClientSchema`'s own header note gives for `pubkey`).
+const drillReportSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["ok"],
+  properties: {
+    ok: { type: "boolean" },
+    detail: { type: "object" },
+  },
+} as const;
+
+export interface DrillReportBody {
+  ok: boolean;
+  detail?: object;
+}
+
 const validateCreate = ajv.compile<CreateBody>(createSchema);
 const validateReplace = ajv.compile<ReplaceBody>(replaceSchema);
 const validateTransfer = ajv.compile<TransferBody>(transferSchema);
@@ -151,6 +170,7 @@ const validateAdminAdd = ajv.compile<AdminAddBody>(adminAddSchema);
 const validatePatch = ajv.compile<PatchBody>(patchSchema);
 const validateRegisterClient = ajv.compile<RegisterClientBody>(registerClientSchema);
 const validateCreateWebhook = ajv.compile<CreateWebhookBody>(createWebhookSchema);
+const validateDrillReport = ajv.compile<DrillReportBody>(drillReportSchema);
 
 // ajv reports an extra/missing key at the PARENT's instancePath with the
 // key name in `params`, not as part of the path itself -- this stitches
@@ -202,4 +222,8 @@ export function parseRegisterClientBody(body: unknown): RegisterClientBody {
 
 export function parseCreateWebhookBody(body: unknown): CreateWebhookBody {
   return checkBody(validateCreateWebhook, body);
+}
+
+export function parseDrillReportBody(body: unknown): DrillReportBody {
+  return checkBody(validateDrillReport, body);
 }

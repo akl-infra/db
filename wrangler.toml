@@ -13,7 +13,7 @@ binding = "DUMPS"
 bucket_name = "akl-db-dumps"
 
 [triggers]
-crons = ["*/1 * * * *", "*/5 * * * *", "0 3 * * *"]
+crons = ["*/1 * * * *", "*/5 * * * *", "0 3 * * *", "0 4 * * *"]
 
 [vars]
 IMPORT_SOURCE_URL = "https://clemenpine.com/layoutapi/v3"
@@ -43,7 +43,7 @@ binding = "DUMPS"
 bucket_name = "akl-db-dumps-preview"
 
 [env.preview.triggers]
-crons = ["*/1 * * * *", "*/5 * * * *", "0 3 * * *"]
+crons = ["*/1 * * * *", "*/5 * * * *", "0 3 * * *", "0 4 * * *"]
 
 [env.preview.vars]
 IMPORT_SOURCE_URL = "https://clemenpine.com/layoutapi/v3"

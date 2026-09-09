@@ -4,6 +4,7 @@
 // sees any other write. `src/routes/admin.ts` is glue only -- every D1
 // statement for these verbs lives here.
 import type { Bindings } from "../env";
+import { canonical } from "./canonical";
 import { appendAdmin, type InfoKind } from "./events";
 import { lastAdmins, notFound } from "./errors";
 import type { Clock } from "./time";
@@ -97,4 +98,34 @@ export async function setImportPaused(db: Bindings["DB"], now: Clock, actorId: s
   const kind: InfoKind = paused ? "admin.import_paused" : "admin.import_resumed";
   const { seq } = await appendAdmin(db, now, { kind, actor: actorId });
   return { seq };
+}
+
+// The drill result (12 §3 X4): the Fly container that RUNS the rehost drill
+// against the deployed dump is saltorbit's own infrastructure (⚠, `08 §2` item
+// 2) -- this is only the accept-and-store half, `POST /v1/admin/drill`'s
+// glue. No event (12 §6.4: ops state, not governance, same posture as
+// webhook CRUD -- neither is about a layout or an admin action a public
+// changelog reader would care about); `detail` is caller-supplied and
+// capped by the route's own schema (`routes/schemas.ts`), not here.
+const DRILL_KEY = "drill.last";
+
+export interface DrillRecord {
+  at: string;
+  ok: boolean;
+  actor: string;
+  detail?: object;
+}
+
+export async function recordDrill(db: Bindings["DB"], now: Clock, actorId: string, ok: boolean, detail?: object): Promise<DrillRecord> {
+  const record: DrillRecord = { at: now(), ok, actor: actorId, ...(detail !== undefined ? { detail } : {}) };
+  await db
+    .prepare("INSERT INTO import_state (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+    .bind(DRILL_KEY, canonical(record))
+    .run();
+  return record;
+}
+
+export async function lastDrill(db: Bindings["DB"]): Promise<DrillRecord | null> {
+  const row = await db.prepare("SELECT value FROM import_state WHERE key = ?").bind(DRILL_KEY).first<{ value: string }>();
+  return row === null ? null : (JSON.parse(row.value) as DrillRecord);
 }

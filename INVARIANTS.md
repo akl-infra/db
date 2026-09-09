@@ -25,6 +25,7 @@ the S1 rows only.
 | LDB-C1 | `db.yml`'s shape (test job on PR/push under `db/**`; deploy needs test, main+push only, migrations before deploy; daily job runs rehost + diff; actions pinned) is asserted from the parsed YAML | `tests/tools/ciwiring.test.ts` |
 | LDB-C2 | `canonical()` is key-order-invariant and lossless | `tests/core/canonical.test.ts` |
 | LDB-C3 | `[env.preview]` redeclares every top-level binding and var with the preview resource names; no top-level binding is missing from it | `tests/tools/wrangler-envs.test.ts` |
+| LDB-C4 | The diff cron (`0 4 * * *`) reads our side from D1 directly and never fetches its own origin; it is one invocation, bounded by ⌈records/500⌉ pages | `tests/import/difftick.test.ts` |
 | LDB-D1 | The nightly dump is complete (every table, the whole event log), its `latest.json` sha256 matches the object served, and the monthly copy is written on the 1st (and only the 1st) | `tests/api/dump.test.ts`, `tests/rehost.test.ts` |
 | LDB-E1 | Format edits are pure, identity on their own projection, and validity-preserving | `tests/formats/edits.test.ts` |
 | LDB-F1 | Every stored payload validates against its format's frozen schema; a write that does not is refused with the failing path | `tests/formats/goldens.test.ts`, `tests/formats/mutations.test.ts` |
@@ -60,6 +61,7 @@ the S1 rows only.
 | LDB-I8 | Every upstream request carries the UA; 404 is never retried; other failures are retried 3x | `tests/import/upstream.test.ts` |
 | LDB-I9 | Upstream JSON is parsed only through `core/safejson.ts`: Go's `\u003c`/`\u003e`/`\u0026` escapes are rewritten to literals before `JSON.parse` (a reproduced V8 bug decodes escaped object keys non-deterministically on the ~5 MB `?full=1` body, in Node and in workerd), an escaped backslash is never touched, and the parse is checked against a second parse | `tests/core/safejson.test.ts`; `tests/import/upstream.test.ts` |
 | LDB-L1 | Likes move `like_count`, `likes` and `meta.revision`/`seq` only -- never `rev`, `modified_at` or `layouts_modified_at`; concurrent likes are counted exactly | `tests/api/likes.test.ts` |
+| LDB-M1 | `/v1/meta.last_diff` and `.last_drill` are `{at, ok}` written on every run including failures; `/v1/meta`'s ETag folds both `at`s in so a poller can never get stuck on a stale 304 | `tests/import/difftick.test.ts`, `tests/api/admin.test.ts` |
 | LDB-N1 | `check_name` is the bot's rule set with the bot's strings (`NAME_SET` minus the space), plus the 64-char cap and the ULID-shape refusal, applied to `POST` and rename only | `tests/api/names.test.ts`, `tests/api/patch.test.ts` |
 | LDB-P1 | Every write appends exactly one rev-bumping event and one `layout_revs` row; the record equals the fold of its events; `seq` is gapless | `tests/events/fold.test.ts`, `tests/events/races.test.ts`, `tests/tools/onlywriter.test.ts` |
 | LDB-P2 | An `If-Match` mismatch writes nothing and returns the current record; two writes at one `rev` → exactly one commits, the other gets `stale` with the winner's record; the guard is `layout_revs`' PK inside the batch | `tests/api/ifmatch.test.ts`, `tests/events/fold.test.ts` |

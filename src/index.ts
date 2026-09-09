@@ -13,6 +13,8 @@ import { writeDump } from "./dump/write";
 import { list as listFormats } from "./formats/registry";
 import type { FetchImpl } from "./import/upstream";
 import { tick as cminiTick } from "./import/cmini";
+import { diffTick, lastDiff } from "./import/difftick";
+import { lastDrill } from "./core/admins";
 import { adminRoute } from "./routes/admin";
 import { authorsRoute } from "./routes/authors";
 import { changelogRoute } from "./routes/changelog";
@@ -90,11 +92,17 @@ app.use("/v1/*", async (c, next) => {
 // database (no rows anywhere) answers the all-zero/null body below.
 // `seq` doubles as the ETag's head (core/etag.ts) -- read it first, via the
 // same one-indexed-read query etag.ts itself would do, so a 304 costs
-// exactly that.
+// exactly that read plus (X4) the two `import_state` PK lookups below:
+// `last_diff`/`last_drill` never bump `seq` (neither the diff cron nor a
+// drill report appends an event, 12 §6.4), so without folding their own
+// `at` into the ETag's query hash a client polling with `If-None-Match`
+// could see 304 forever after a fresh diff/drill run -- exactly the
+// staleness LDB-M1's meta-watch exists to catch.
 app.get("/v1/meta", async (c) => {
   const db = c.env.DB;
   const seq = await headSeq(db);
-  const etag = await etagFor(seq, {});
+  const [diffRecord, drillRecord] = await Promise.all([lastDiff(db), lastDrill(db)]);
+  const etag = await etagFor(seq, { last_diff_at: diffRecord?.at ?? null, last_drill_at: drillRecord?.at ?? null });
   const short = await conditional(c, etag, CACHE_CONTROL);
   if (short) return short;
 
@@ -120,6 +128,8 @@ app.get("/v1/meta", async (c) => {
     layouts_modified_at: layoutRow?.modified ?? null,
     authors_modified_at: authorRow?.modified ?? null,
     formats: listFormats().map((f) => f.id), // S3 adds akl/1 alongside cmini/1
+    last_diff: diffRecord === null ? null : { at: diffRecord.at, ok: diffRecord.ok },
+    last_drill: drillRecord === null ? null : { at: drillRecord.at, ok: drillRecord.ok },
   });
   res.headers.set("ETag", etag);
   res.headers.set("Cache-Control", CACHE_CONTROL);
@@ -176,6 +186,9 @@ async function scheduled(event: ScheduledController, env: Bindings, _ctx: Execut
       await pruneRateLimits(env.DB, systemClock);
       await pruneNonces(env.DB, systemClock);
       await writeDump(env, systemClock);
+      return;
+    case "0 4 * * *":
+      await diffTick(env, systemClock);
       return;
     default:
       throw new Error(`scheduled(): unrecognized cron '${event.cron}'`);

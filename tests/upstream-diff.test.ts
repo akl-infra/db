@@ -6,7 +6,7 @@
 // the `ci-gate-split-256` lesson db.yml's own comments cite: "a skip nobody
 // reads is a pass".
 import { describe, expect, it } from "vitest";
-import { diffUpstream, type DiffSummary } from "../src/import/diff";
+import { diffUpstream, httpOurs, type DiffSummary } from "../src/import/diff";
 
 const DB_BASE_URL = process.env.DB_BASE_URL;
 const UPSTREAM_URL = process.env.UPSTREAM_URL ?? "https://clemenpine.com/layoutapi/v3";
@@ -29,7 +29,7 @@ async function diffUntilReachable(dbBaseUrl: string): Promise<DiffSummary> {
   let lastErr: unknown;
   for (;;) {
     try {
-      return await diffUpstream({ dbBaseUrl, upstreamUrl: UPSTREAM_URL, ua: UA });
+      return await diffUpstream({ ours: httpOurs(dbBaseUrl), upstreamUrl: UPSTREAM_URL, ua: UA });
     } catch (e) {
       lastErr = e;
       if (Date.now() >= deadline) {

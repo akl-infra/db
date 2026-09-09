@@ -249,6 +249,21 @@ import changesStream200 from "./changes-stream/200.json" with { type: "json" };
 import changesStream400BadRequest from "./changes-stream/400-bad_request.json" with { type: "json" };
 import changesStream503StreamUnavailable from "./changes-stream/503-stream_unavailable.json" with { type: "json" };
 
+// X4 (12 §3 X4, §4): the diff cron's `last_*` on /v1/meta is covered by
+// the extended meta/200 case above; these are the two new admin routes.
+import adminDrillPost200 from "./admin-drill/post-200.json" with { type: "json" };
+import adminDrillPost400BadRequest from "./admin-drill/post-400-bad_request.json" with { type: "json" };
+import adminDrillPost401TokenInvalid from "./admin-drill/post-401-token_invalid.json" with { type: "json" };
+import adminDrillPost401Unauthorized from "./admin-drill/post-401-unauthorized.json" with { type: "json" };
+import adminDrillPost403NotAdmin from "./admin-drill/post-403-not_admin.json" with { type: "json" };
+import adminDrillPost429 from "./admin-drill/post-429.json" with { type: "json" };
+import adminDrillPost503IdentityUnavailable from "./admin-drill/post-503-identity_unavailable.json" with { type: "json" };
+import adminHealth200 from "./admin-health/200.json" with { type: "json" };
+import adminHealth401Unauthorized from "./admin-health/401-unauthorized.json" with { type: "json" };
+import adminHealth401TokenInvalid from "./admin-health/401-token_invalid.json" with { type: "json" };
+import adminHealth403NotAdmin from "./admin-health/403-not_admin.json" with { type: "json" };
+import adminHealth503IdentityUnavailable from "./admin-health/503-identity_unavailable.json" with { type: "json" };
+
 // A single request as `runRequest` fires it -- shared by the main
 // (asserted) request and, for a write case, its `setup` steps (fired first
 // and discarded: e.g. the first of two POSTs that produces a name clash).
@@ -465,6 +480,29 @@ export const T6_CASES: ConformanceCase[] = [
   kase("webhooks/delete-200", "/v1/webhooks/:id", webhooksDelete200, true),
 
   kase("changes-stream/400-bad_request", "/v1/changes/stream", changesStream400BadRequest),
+
+  // X4 (12 §3 X4, §4). `admin-health` is hand-ordered BEFORE `admin-drill`:
+  // its own `200` case asserts `{last_diff: null, last_drill: null}`, true
+  // only until `admin-drill/post-200` below (the one case in this suite
+  // that calls `recordDrill`) runs -- the same "count starts at a known
+  // value" reasoning `admin-admins/delete-409-last_admins`'s own block
+  // comment gives.
+  kase("admin-health/401-unauthorized", "/v1/admin/health", adminHealth401Unauthorized, true),
+  kase("admin-health/401-token_invalid", "/v1/admin/health", adminHealth401TokenInvalid, true),
+  kase("admin-health/503-identity_unavailable", "/v1/admin/health", adminHealth503IdentityUnavailable, true),
+  kase("admin-health/403-not_admin", "/v1/admin/health", adminHealth403NotAdmin, true),
+  kase("admin-health/200", "/v1/admin/health", adminHealth200, true),
+
+  // Same shape as admin-import/pause-* -- one admin-only POST route, no
+  // idempotent-200/201 or 409 case (a drill report is neither a create nor
+  // a named-resource write).
+  kase("admin-drill/post-401-unauthorized", "/v1/admin/drill", adminDrillPost401Unauthorized, true),
+  kase("admin-drill/post-401-token_invalid", "/v1/admin/drill", adminDrillPost401TokenInvalid, true),
+  kase("admin-drill/post-503-identity_unavailable", "/v1/admin/drill", adminDrillPost503IdentityUnavailable, true),
+  kase("admin-drill/post-403-not_admin", "/v1/admin/drill", adminDrillPost403NotAdmin, true),
+  kase("admin-drill/post-429", "/v1/admin/drill", adminDrillPost429, true),
+  kase("admin-drill/post-400-bad_request", "/v1/admin/drill", adminDrillPost400BadRequest, true),
+  kase("admin-drill/post-200", "/v1/admin/drill", adminDrillPost200, true),
 ];
 
 export const CASES: ConformanceCase[] = [
