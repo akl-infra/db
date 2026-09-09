@@ -16,6 +16,7 @@ Companion documents in this directory, in reading order:
 | `09-implementation-phase2.md` | phase 2 (people write): the phase-1 code facts every brief cites (incl. two concurrency defects T2/T5 fix), the error vocabulary, `If-Match`'s two-layer guarantee, `check_name` with the bot's charset and strings, the write rate limit, migration 0002, slices T1–T7 as closed briefs with matrices/races/property tests, the conformance enumeration, the phase-2 invariant rows (round 2, reviewed) |
 | `10-implementation-phase4.md` | phase 4 (the bot + the DB's client lane): the verified code inventory (real wasm/table paths, how Node loads the engine, what U1/U2 move), the decision ledger (bot-owned worker, engine + harvest fetched from the site, parity strings in the bot), closed briefs C1 + U1/U2 + V1–V7 with cmini's verbatim strings and rules, LDB-B5 as a live test against the deployed site (round 2, reviewed) |
 | `11-implementation-phase3.md` | phase 3 (akl.gg cuts over): the measured seams (the pipeline id stays the lowercase name; dates and ownership untouched), closed briefs W1–W6 with the DB-exported fixture for LDB-S1, the proxy's pass-through contract, the retargeted publish UX, the magic migration + LDB-S4 verifier, the production flip as saltorbit's runbook (round 2, reviewed) |
+| `12-implementation-phase5.md` | phase 5 (open it up): webhooks + SSE, `mana2/1`, the changelog page, diff/drill as crons, packages + the repo split, the dates backfill — slices X1–X7 (draft; reviewer pass pending) |
 
 ---
 
