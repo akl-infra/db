@@ -116,12 +116,27 @@
 <a class="h2" href="#doc-06-akl-integration--6-admin-surfaces">7. Order of work on the site</a>
 <a class="h2" href="#doc-06-akl-integration--7-order-of-work-on-the-site">8. Invariants (site side)</a>
 <a class="h2" href="#doc-06-akl-integration--8-invariants-site-side">9. Open questions (site)</a>
-<a class="h2" href="#doc-06-akl-integration--9-open-questions-site">9-open-questions-site</a></nav>
+<a class="h2" href="#doc-06-akl-integration--9-open-questions-site">9-open-questions-site</a>
+<a class="doc" href="#doc-07-implementation-phase1">Implementation — phase 1, the mirror</a>
+<a class="h2" href="#doc-07-implementation-phase1--0-what-phase-1-delivers-and-what-it-does-not">1. Before the first PR — decisions and hand-made things</a>
+<a class="h2" href="#doc-07-implementation-phase1--1-before-the-first-pr-decisions-and-hand-made-things">2. Toolchain</a>
+<a class="h2" href="#doc-07-implementation-phase1--2-toolchain">3. Repository layout</a>
+<a class="h2" href="#doc-07-implementation-phase1--3-repository-layout">4. Migration <code>0001_init.sql</code></a>
+<a class="h2" href="#doc-07-implementation-phase1--4-migration-0001-init-sql">5. The two formats</a>
+<a class="h2" href="#doc-07-implementation-phase1--5-the-two-formats">5.1 <code>formats/cmini/1</code></a>
+<a class="h3" href="#doc-07-implementation-phase1--5-1-formats-cmini-1">5.2 <code>formats/akl/1</code></a>
+<a class="h3" href="#doc-07-implementation-phase1--5-2-formats-akl-1">5.3 Fixtures (frozen from the day they merge — LDB-F6)</a>
+<a class="h3" href="#doc-07-implementation-phase1--5-3-fixtures-frozen-from-the-day-they-merge-ldb-f6">6. Slices — PRs in order, each with its invariants</a>
+<a class="h2" href="#doc-07-implementation-phase1--6-slices-prs-in-order-each-with-its-invariants">7. CI — <code>.github/workflows/db.yml</code></a>
+<a class="h2" href="#doc-07-implementation-phase1--7-ci-github-workflows-db-yml">8. Local development</a>
+<a class="h2" href="#doc-07-implementation-phase1--8-local-development">9. Definition of done (phase 1)</a>
+<a class="h2" href="#doc-07-implementation-phase1--9-definition-of-done-phase-1">10. What phase 2 will need from phase 1 (so phase 1 doesn't paint over it)</a>
+<a class="h2" href="#doc-07-implementation-phase1--10-what-phase-2-will-need-from-phase-1-so-phase-1-doesn-t-paint-over-it">10-what-phase-2-will-need-from-phase-1-so-phase-1-doesn-t-paint-over-it</a></nav>
 <div class="wrap">
   <h1>The layout database — proposal, round 1</h1>
   <p class="sub">Seven documents, rendered from <code>design/layout-db/*.md</code> on 2026-09-09. Read <b>00</b> first; <b>01</b> slowly.</p>
 <section class="doc" id="doc-00-plan"><h1>The layout database — plan (round 1)</h1><p class="path">design/layout-db/00-plan.md</p><p>Status: proposal (2026-09-08). Branch <code>worktree-layout-db</code>. Nothing implemented. Companion documents in this directory, in reading order:</p>
-<div class="tbl"><table><thead><tr><th>doc</th><th>what it settles</th></tr></thead><tbody><tr><td><code>01-format.md</code></td><td>the layout record: profiles (<code>akl/1</code>, <code>cmini/1</code>, <code>mana2/1</code>, …), intent vs lowering, escape hatches, versioning, compatibility tests</td></tr><tr><td><code>02-auth.md</code></td><td>two ways in: Discord users (sessions/tokens) and registered clients (bots, Ed25519-signed requests acting for a user)</td></tr><tr><td><code>03-api.md</code></td><td>the HTTP surface: reads, writes, <code>If-Match</code>, the change feed, webhooks, dumps</td></tr><tr><td><code>04-governance.md</code></td><td>no single owner: org, admins, format ownership, rehost drill, backwards-compat gates</td></tr><tr><td><code>05-bot.md</code></td><td>the Discord bot: cmini command parity, what it talks to, where it lives</td></tr><tr><td><code>06-akl-integration.md</code></td><td>what changes on akl.gg: data root, pipeline, publish UX (#215), magic rules</td></tr></tbody></table></div>
+<div class="tbl"><table><thead><tr><th>doc</th><th>what it settles</th></tr></thead><tbody><tr><td><code>01-format.md</code></td><td>the layout record: profiles (<code>akl/1</code>, <code>cmini/1</code>, <code>mana2/1</code>, …), intent vs lowering, escape hatches, versioning, compatibility tests</td></tr><tr><td><code>02-auth.md</code></td><td>two ways in: Discord users (sessions/tokens) and registered clients (bots, Ed25519-signed requests acting for a user)</td></tr><tr><td><code>03-api.md</code></td><td>the HTTP surface: reads, writes, <code>If-Match</code>, the change feed, webhooks, dumps</td></tr><tr><td><code>04-governance.md</code></td><td>no single owner: org, admins, format ownership, rehost drill, backwards-compat gates</td></tr><tr><td><code>05-bot.md</code></td><td>the Discord bot: cmini command parity, what it talks to, where it lives</td></tr><tr><td><code>06-akl-integration.md</code></td><td>what changes on akl.gg: data root, pipeline, publish UX (#215), magic rules</td></tr><tr><td><code>07-implementation-phase1.md</code></td><td>how to build phase 1 (the mirror): toolchain, <code>db/</code> layout, migration 0001, the two formats, PR slices S1–S8 with their invariants, CI, definition of done</td></tr></tbody></table></div>
 <hr>
 <h2 id="doc-00-plan--0-what-i-understood-from-the-dictation-assumptions-correct-me">0. What I understood from the dictation (assumptions — correct me)</h2>
 <p>The transcript was voice-dictated; these are the readings the plan is built on.</p>
@@ -513,5 +528,125 @@ import_map     upstream_id PK, layout_id                                 -- cmin
 <div class="tbl"><table><thead><tr><th>id</th><th>invariant</th><th>enforced by</th></tr></thead><tbody><tr><td>LDB-S1</td><td><code>sync_cmini_data.py --source db</code> produces a data root identical to the one it produces from upstream for every record that follows upstream.</td><td>pipeline test against a DB fixture</td></tr><tr><td>LDB-S2</td><td>Every site write to the DB carries <code>If-Match: &quot;&lt;rev&gt;&quot;</code> unless the action is <code>overwrite</code>; the browser never sees a Discord token.</td><td>I-W5 / I-W7 retargeted</td></tr><tr><td>LDB-S3</td><td>The publish body equals <code>toAkl1(draft)</code>; <code>fromAkl1(toAkl1(draft))</code> is the same draft.</td><td>round-trip property test</td></tr><tr><td>LDB-S4</td><td>After the magic migration, no layout's served rules differ from before it (static <code>magic_rules.json</code> before == <code>payload.magic</code> after, for every row).</td><td>one-shot verification script, kept as a test fixture</td></tr></tbody></table></div>
 <h2 id="doc-06-akl-integration--9-open-questions-site">9. Open questions (site)</h2>
 <ol><li>Import <code>data/layout-dates.json</code> into the DB as <code>created_at</code> for pre-2026-08-20 records? (Proposal: yes, once, at phase 3.)</li><li>Upstream delete of an unforked record: tombstone here? (Proposal: yes.)</li><li>Likes on a forked record: union with upstream, or stop syncing? (Proposal: union.)</li></ol></section>
+<section class="doc" id="doc-07-implementation-phase1"><h1>Implementation — phase 1, the mirror</h1><p class="path">design/layout-db/07-implementation-phase1.md</p><p>Status: plan (2026-09-08). Part of <code>00-plan.md</code> (§5 phase 1). Written so an engineer or an agent can start from a clean checkout and land it as a series of PRs, each carrying the invariants it introduces (<code>design/INVARIANTS.md</code> covenant). Phases 2–5 get their own doc when phase 1 is on <code>main</code>.</p>
+<h2 id="doc-07-implementation-phase1--0-what-phase-1-delivers-and-what-it-does-not">0. What phase 1 delivers, and what it does not</h2>
+<p>Delivers: <code>db/</code> as a deployable Cloudflare Worker with its own D1 and R2; two registered formats (<code>cmini/1</code>, <code>akl/1</code>) with lossless translation both ways; a continuous one-way import from cmini; read-only <code>/v1</code> (meta, list, detail with <code>?as=</code>, likes, history, revs, authors, formats, changes, dump); the nightly dump; the D12 mirror diff in CI; the rehost script. Nothing on akl.gg changes. No writes, no auth, no bot.</p>
+<p>Does not deliver: any write endpoint, either auth lane, admins, webhooks, the stream, <code>mana2/1</code>, the site cutover. Those are phases 2–5.</p>
+<h2 id="doc-07-implementation-phase1--1-before-the-first-pr-decisions-and-hand-made-things">1. Before the first PR — decisions and hand-made things</h2>
+<div class="tbl"><table><thead><tr><th>need</th><th>default if unanswered</th><th>blocks</th></tr></thead><tbody><tr><td>Service name / hostname (<code>00 §6.2</code>)</td><td>Worker <code>akl-db</code>; served at <code>akl-db.&lt;account&gt;.workers.dev</code> until a hostname is picked</td><td>nothing in phase 1</td></tr><tr><td>Cloudflare account</td><td>the site's account, same as Pages <code>cminibrowser</code>; members added at phase 5</td><td>deploy (S7)</td></tr><tr><td>D1 database <code>akl-db</code>, R2 bucket <code>akl-db-dumps</code></td><td>created by hand once (<code>wrangler d1 create akl-db</code>, <code>wrangler r2 bucket create akl-db-dumps</code>); ids into <code>db/wrangler.toml</code></td><td>S7</td></tr><tr><td>CI deploy token</td><td>a Cloudflare API token with Workers Scripts + D1 + R2 edit, as repo secret <code>CLOUDFLARE_DB_TOKEN</code> (separate from the Pages token)</td><td>S7</td></tr><tr><td>Day-1 admins (<code>00 §6.4</code>)</td><td>migration <code>0001</code> seeds only saltorbit's id; a second row is a phase-2 blocker, not a phase-1 one</td><td>phase 2</td></tr><tr><td>Confirmations in <code>00 §0</code> (bot lane, no write-back, no stats)</td><td>assumed as written</td><td>nothing in phase 1</td></tr></tbody></table></div>
+<h2 id="doc-07-implementation-phase1--2-toolchain">2. Toolchain</h2>
+<ul><li><b>Runtime:</b> Cloudflare Workers, <code>compatibility_date = 2026-09-01</code>, ESM, TypeScript (the Worker is compiled by wrangler's esbuild; no separate build step). Node 24 for tooling.</li><li><b>Router:</b> Hono (<code>hono@4</code>) — small, typed, Workers-native; the Pages Functions' no-dependency posture is right for four routes, not for a service with a registry, a feed and a cron.</li><li><b>Validation:</b> JSON Schema 2020-12 via <code>ajv@8</code> (compiled once at module load per format). Every format's <code>schema.json</code> is the same file the registry publishes at <code>/v1/formats/{name}/{N}/schema.json</code>.</li><li><b>Tests:</b> <code>vitest</code> with <code>@cloudflare/vitest-pool-workers</code> — tests run <em>inside</em> workerd against a real (miniflare) D1 and R2, so migrations, SQL and cache headers are tested for real, not mocked. Golden/fixture tests are plain vitest.</li><li><b>Dependencies rule:</b> <code>db/package.json</code> is its own; nothing in <code>db/</code> imports from <code>../web</code>, <code>../scripts</code> or <code>../functions</code>, and nothing outside imports <code>db/</code> (an archlint-style test in S1 enforces both directions).</li><li><b>Ids:</b> ULID (<code>ulid</code> package; monotonic factory per isolate).</li><li><b>Canonical JSON:</b> one <code>canonical(obj)</code> helper (sorted keys, no whitespace) used for payload storage and every byte-identity test.</li></ul>
+<h2 id="doc-07-implementation-phase1--3-repository-layout">3. Repository layout</h2>
+<pre><code>db/
+  README.md                 what it is · run locally · rehost procedure (04 §4) · secrets table
+  package.json              scripts: dev · test · deploy · migrate · rehost · diff-upstream
+  wrangler.toml             worker name, D1 + R2 bindings, cron triggers (import */5, dump 0 3 * * *)
+  tsconfig.json
+  migrations/
+    0001_init.sql           §4
+  src/
+    index.ts                Hono app + scheduled() dispatcher
+    env.ts                  Bindings type (DB, DUMPS, IMPORT_SOURCE_URL, …)
+    routes/
+      meta.ts  layouts.ts  authors.ts  formats.ts  changes.ts  dump.ts
+    core/
+      records.ts            get/list/byRef, canonical(), rev handling
+      events.ts             appendEvent(), foldRecord() (replay), feed queries
+      follows.ts            followsUpstream(layout_id) -- the D9 derivation
+      cache.ts              edge-cache + ETag wrapper for the polled routes (03 §5)
+      errors.ts             { error, message } helpers; the bot's strings
+    formats/
+      registry.ts           loads ../../formats/*/N, exposes get(id), translate(rec, as)
+    import/
+      cmini.ts              the cron: meta check → list → details → events (06 §2)
+      upstream.ts           HTTP client for clemenpine.com/layoutapi/v3 (UA header, retries)
+    dump/
+      write.ts              nightly: R2 dump-YYYY-MM-DD.json.gz + latest.json
+      restore.ts            used by `npm run rehost`
+  formats/                  (the registry; also the future npm package, 06 §5)
+    cmini/1/  schema.json  index.ts  README.md  OWNERS  fixtures/
+    akl/1/    schema.json  index.ts  README.md  OWNERS  fixtures/
+  tests/
+    formats/                goldens, frozen-dir diff, mutation-refusal matrix
+    api/                    conformance fixtures (request/response JSON) + route tests
+    import/                 replay tests with a FakeUpstream
+    events/                 fold/replay property tests
+    upstream-diff.test.ts   the D12 diff (live; skips when unreachable, see §7)
+    rehost.test.ts          migrations → restore(dump) → API suite
+    boundary.test.ts        no imports across the db/ boundary
+    conformance/            *.json request/response pairs
+.github/workflows/db.yml    §7</code></pre>
+<h2 id="doc-07-implementation-phase1--4-migration-0001-init-sql">4. Migration <code>0001_init.sql</code></h2>
+<pre><code>CREATE TABLE layouts (
+  id            TEXT PRIMARY KEY,                 -- ULID
+  name          TEXT NOT NULL COLLATE NOCASE UNIQUE,
+  owner         TEXT NOT NULL,                    -- Discord user id
+  rev           INTEGER NOT NULL,
+  created_at    TEXT NOT NULL, modified_at TEXT NOT NULL,
+  deleted       INTEGER NOT NULL DEFAULT 0,
+  link          TEXT,
+  format        TEXT NOT NULL,                    -- 'cmini/1' | 'akl/1' | …
+  payload_json  TEXT NOT NULL,                    -- canonical JSON
+  like_count    INTEGER NOT NULL DEFAULT 0,
+  has_magic     INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX layouts_owner ON layouts(owner);
+CREATE INDEX layouts_modified ON layouts(modified_at);
+
+CREATE TABLE layout_revs (
+  layout_id TEXT NOT NULL, rev INTEGER NOT NULL, event_seq INTEGER NOT NULL,
+  format TEXT NOT NULL, payload_json TEXT NOT NULL,
+  PRIMARY KEY (layout_id, rev)
+);
+
+CREATE TABLE likes (layout_id TEXT NOT NULL, user_id TEXT NOT NULL, at TEXT NOT NULL,
+  PRIMARY KEY (layout_id, user_id));
+
+CREATE TABLE authors (user_id TEXT PRIMARY KEY, name TEXT NOT NULL,
+  first_seen_at TEXT NOT NULL, last_seen_at TEXT NOT NULL);
+
+CREATE TABLE events (
+  seq        INTEGER PRIMARY KEY AUTOINCREMENT,
+  at         TEXT NOT NULL,
+  kind       TEXT NOT NULL,
+  layout_id  TEXT, name TEXT, owner TEXT, rev INTEGER,
+  actor      TEXT NOT NULL,                       -- user id or 'system:cmini-import'
+  via        TEXT NOT NULL,                       -- 'system' in phase 1
+  admin      INTEGER NOT NULL DEFAULT 0,
+  detail_json TEXT,                               -- imported: {source, upstream_id}; upstream_changed: upstream payload
+  before_json TEXT, after_json TEXT
+);
+CREATE INDEX events_layout ON events(layout_id, seq);
+CREATE INDEX events_kind ON events(kind, seq);
+
+CREATE TABLE admins (user_id TEXT PRIMARY KEY, added_by TEXT, added_at TEXT NOT NULL, note TEXT);
+INSERT INTO admins VALUES ('184412255822020608', NULL, '2026-09-08T00:00:00Z', 'bootstrap: deeroh');
+
+CREATE TABLE import_state (key TEXT PRIMARY KEY, value TEXT NOT NULL);   -- 'cmini.revision', 'cmini.paused', 'cmini.last_full'
+CREATE TABLE import_map (upstream_id TEXT PRIMARY KEY, layout_id TEXT NOT NULL UNIQUE);</code></pre>
+<p>Phase 2 adds <code>clients</code>, <code>nonces</code>, <code>webhooks</code> and the second admin. Every migration is applied by <code>npm run migrate</code> locally and by S7's deploy step remotely (<code>wrangler d1 migrations apply akl-db --remote</code> — verify it works on a wrangler-created DB; the site's hand-created <code>cb-magic</code> is why it fails there, <code>DEPLOY.md</code>).</p>
+<h2 id="doc-07-implementation-phase1--5-the-two-formats">5. The two formats</h2>
+<h3 id="doc-07-implementation-phase1--5-1-formats-cmini-1">5.1 <code>formats/cmini/1</code></h3>
+<ul><li><code>schema.json</code>: cmini's v3 detail minus record fields — <code>board</code> (enum), <code>keys</code> (map char → <code>{row, col, finger}</code>), <code>free</code> (array), <code>magic</code> (array of <code>{inputs, output, type}</code>), <code>additionalProperties: false</code>.</li><li><code>validate(p)</code>: schema, then the bot's own rules (<code>add.py</code>/<code>setfingermap.py</code>, ported: duplicate char, thumb rows, finger enum, <code>inputs</code> two chars).</li><li><code>lower(p)</code>: <code>p.magic</code> as is (already flat, typed).</li><li><code>to[&quot;akl/1&quot;](p)</code>: <code>01 §6.1</code> — board word → <code>{kind, stagger, cmini}</code>; typed rows → exact lift (<code>liftRules</code>, ported from #221's <code>scripts/magic_interop.py</code> <code>lift()</code>), leftovers → <code>magic.rules</code> with tag.</li><li><code>from[&quot;akl/1&quot;](p)</code>: <code>01 §6.2</code> — inverse; <code>x</code> dropped.</li></ul>
+<h3 id="doc-07-implementation-phase1--5-2-formats-akl-1">5.2 <code>formats/akl/1</code></h3>
+<ul><li><code>schema.json</code>: <code>01 §2</code> exactly; <code>x</code> is <code>type: object</code> unconstrained, 16 KB cap enforced in <code>validate</code>.</li><li><code>validate(p)</code>: <code>01 §2.1</code>, including running <code>lower()</code> and refusing collisions with the <code>magic_collision</code> error body (<code>01 §3</code>).</li><li><code>lower(p)</code>: the compile from <code>functions/_lib/rules.mjs</code>, <b>ported, not imported</b> (boundary rule), with the two changes <code>01 §3</code> names: layout-key scaffold instead of a–z, and <code>except</code>. Emits typed rows.</li><li><code>to[&quot;cmini/1&quot;]</code>, <code>from[&quot;cmini/1&quot;]</code>: the inverses of 5.1.</li></ul>
+<h3 id="doc-07-implementation-phase1--5-3-fixtures-frozen-from-the-day-they-merge-ldb-f6">5.3 Fixtures (frozen from the day they merge — LDB-F6)</h3>
+<p>From the live scrape, chosen for coverage: <code>graphite</code> (the repo's canonical fixture), <code>opal</code> (typed magic rows — the #221 fixture, already in <code>scripts/tests/fixtures/api_magic_opal.json</code>), one <code>angle</code>, one <code>mini</code>, one <code>stagger</code>, one with <code>free</code> positions, one with thumbs on both hands, one with an apostrophe/underscore in the name. Each cmini fixture gets <code>.akl-1.json</code> (translation golden) and each akl fixture <code>.lowered.json</code> + <code>.cmini-1.json</code>.</p>
+<h2 id="doc-07-implementation-phase1--6-slices-prs-in-order-each-with-its-invariants">6. Slices — PRs in order, each with its invariants</h2>
+<div class="tbl"><table><thead><tr><th>#</th><th>PR</th><th>lands</th><th>invariants (registered on merge)</th></tr></thead><tbody><tr><td><b>S1</b></td><td><code>db/</code> skeleton</td><td>package.json, wrangler.toml (placeholders), tsconfig, Hono <code>GET /v1/meta</code> returning zeros, migration 0001, <code>npm run dev</code> works, <code>db.yml</code> runs <code>npm test</code>, boundary test</td><td>LDB-G2 (no admin constant beyond the seed row — a test greps <code>src/</code>), boundary invariant (new: <b>LDB-G5</b> nothing imports across <code>db/</code>)</td></tr><tr><td><b>S2</b></td><td>format registry + <code>cmini/1</code></td><td><code>formats/registry.ts</code>, <code>cmini/1</code> with schema/validate/lower, fixtures, frozen-dir diff test, mutation-refusal matrix</td><td>LDB-F1, F2, F6, F7</td></tr><tr><td><b>S3</b></td><td><code>akl/1</code> + translations</td><td><code>akl/1</code> schema/validate/lower/<code>except</code>/typed rows, both <code>to</code>/<code>from</code>, lift port, goldens</td><td>LDB-F3, F4, F5 (fixture-level), F10</td></tr><tr><td><b>S4</b></td><td>records + events</td><td><code>core/records.ts</code>, <code>core/events.ts</code>, <code>foldRecord()</code>, <code>layout_revs</code>; property test: random sequences of (create, update, rename, delete) as <em>internal</em> ops → stored record == fold of events; <code>/v1/changes</code> from 0</td><td>LDB-P1, P6</td></tr><tr><td><b>S5</b></td><td>cmini import</td><td><code>import/cmini.ts</code> + <code>upstream.ts</code> + <code>follows.ts</code>; FakeUpstream tests for every bullet of <code>06 §2</code> (new, changed-following, changed-not-following, deleted, name collision → shadowed, likes, authors, &gt;5 % prune refusal); cron wiring</td><td><b>LDB-I1</b> import is idempotent (same upstream twice → no events), <b>LDB-I2</b> never overwrites a non-following record, <b>LDB-I3</b> prune bound</td></tr><tr><td><b>S6</b></td><td>reads</td><td><code>/v1/layouts</code> (list/filters/cursor/<code>full=1</code>), <code>/{ref}?as=</code>, <code>/likes</code>, <code>/history</code>, <code>/rev/{n}</code>, <code>/v1/authors</code>, <code>/v1/formats</code> + schema, <code>409 held</code>; <code>core/cache.ts</code> (max-age 10 + ETag/304 on meta/list/changes); conformance fixtures for every route and error</td><td>LDB-P7 (error shape), LDB-P4 (names — via import paths), <b>LDB-R1</b> polled routes carry <code>Cache-Control</code>+<code>ETag</code> and answer 304</td></tr><tr><td><b>S7</b></td><td>deploy + dump + rehost</td><td>R2 dump cron, <code>/v1/dump/latest.json</code> + redirect, <code>restore.ts</code>, <code>npm run rehost</code>, <code>rehost.test.ts</code> (migrate → restore fixture dump → API suite), <code>db.yml</code> deploy job on <code>main</code> (<code>wrangler deploy</code> + <code>migrations apply</code>), README runbook table</td><td>LDB-G1, G4</td></tr><tr><td><b>S8</b></td><td>D12 diff</td><td><code>upstream-diff.test.ts</code> + <code>npm run diff-upstream</code>: every following record <code>?as=cmini/1</code> vs upstream detail, canonicalised; scheduled daily in <code>db.yml</code>; first full import into the real <code>akl-db</code></td><td>LDB-P5</td></tr></tbody></table></div>
+<p>Order is a dependency order: S2/S3 need S1; S4 needs S1; S5 needs S2–S4; S6 needs S3–S5; S7 needs S6; S8 needs S7 (a real database to diff). S2 and S4 can run in parallel.</p>
+<h2 id="doc-07-implementation-phase1--7-ci-github-workflows-db-yml">7. CI — <code>.github/workflows/db.yml</code></h2>
+<ul><li><b>On PR and push touching <code>db/**</code> or <code>db.yml</code>:</b> <code>cd db &amp;&amp; npm ci &amp;&amp; npm test</code> (vitest in workerd), plus the frozen-format diff against <code>main</code> (<code>git diff --name-only origin/main -- db/formats</code> filtered to schema/fixtures/goldens of merged majors → fail on any modification).</li><li><b>On push to <code>main</code>:</b> the above, then deploy: <code>wrangler d1 migrations apply akl-db --remote</code>, <code>wrangler deploy</code>. Secrets: <code>CLOUDFLARE_DB_TOKEN</code>, <code>CLOUDFLARE_ACCOUNT_ID</code> (already present for Pages).</li><li><b>Daily 04:00 UTC:</b> <code>npm run rehost -- --dump &lt;latest.json url&gt;</code> (LDB-G1, proves the dump) and <code>npm run diff-upstream</code> (LDB-P5). Both are real network; on unreachable upstream/R2 they <em>skip with a visible notice</em> and a second consecutive skip fails (the <code>ci-gate-split-256</code> lesson).</li><li>Wiring is asserted by a <code>ciwiring</code>-style test in <code>db/tests/</code> that parses <code>db.yml</code> (the site's I-135..I-139 pattern) — cones, pinned action majors, the deploy job gated on the test job.</li></ul>
+<h2 id="doc-07-implementation-phase1--8-local-development">8. Local development</h2>
+<pre><code>cd db &amp;&amp; npm ci
+npm run migrate          # wrangler d1 migrations apply akl-db --local
+npm run import -- --once # one import tick against the live upstream into local D1 (~2 s warm; ~5 MB full=1)
+npm run dev              # wrangler dev; GET http://localhost:8787/v1/meta
+npm test                 # everything; `npm test -- formats` etc. for a slice</code></pre>
+<p><code>IMPORT_SOURCE_URL</code> defaults to <code>https://clemenpine.com/layoutapi/v3</code>; tests point it at the FakeUpstream. A <code>--fixture</code> flag imports from a checked-in 100-layout snapshot instead (offline dev, and the seed for <code>rehost.test</code>).</p>
+<h2 id="doc-07-implementation-phase1--9-definition-of-done-phase-1">9. Definition of done (phase 1)</h2>
+<ol><li><code>akl-db</code> deployed; <code>/v1/meta</code> reports the same <code>layout_count</code> as cmini's <code>/v3/meta</code> within one import tick.</li><li><code>npm run diff-upstream</code> reports zero differences across the whole set.</li><li>The nightly dump exists in R2 and <code>npm run rehost</code> against it passes the API suite in CI.</li><li>Every invariant in §6 is in <code>design/INVARIANTS.md</code> (as <code>LDB-*</code> → <code>I-nnn</code>) with its catalog entry and tagged test; <code>gates.sh</code> and <code>db.yml</code> are green.</li><li>Nothing on akl.gg has changed. The proposal pages link to the live <code>/v1/meta</code> as &quot;it exists&quot; (one sentence; copy sign-off).</li></ol>
+<h2 id="doc-07-implementation-phase1--10-what-phase-2-will-need-from-phase-1-so-phase-1-doesn-t-paint-over-it">10. What phase 2 will need from phase 1 (so phase 1 doesn't paint over it)</h2>
+<ul><li><code>events.via</code> and <code>events.admin</code> columns exist now (always <code>system</code>/<code>0</code>), so phase 2's auth lanes add no migration to the log.</li><li><code>foldRecord()</code> is the only way a record is materialised, so phase 2's writes are &quot;append an event, fold&quot; — no second write path.</li><li>Format helpers <code>setFingermap</code>/<code>setBoard</code>/<code>rename</code> (for PATCH verbs) are <em>not</em> built in phase 1; the format <code>index.ts</code> shape leaves room (<code>edits?: {...}</code>).</li><li><code>has_magic</code> is maintained on write from <code>lower().length &gt; 0</code>, so the list filter works from day one.</li></ul></section>
 </div>
 </div>

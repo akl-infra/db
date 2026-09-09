@@ -11,6 +11,7 @@ Companion documents in this directory, in reading order:
 | `04-governance.md` | no single owner: org, admins, format ownership, rehost drill, backwards-compat gates |
 | `05-bot.md` | the Discord bot: cmini command parity, what it talks to, where it lives |
 | `06-akl-integration.md` | what changes on akl.gg: data root, pipeline, publish UX (#215), magic rules |
+| `07-implementation-phase1.md` | how to build phase 1 (the mirror): toolchain, `db/` layout, migration 0001, the two formats, PR slices S1–S8 with their invariants, CI, definition of done |
 
 ---
 
