@@ -33,10 +33,9 @@ imported from cmini, created by the bot, edited on akl.gg — is the event log
 carries `via`). One client adds and another edits is the normal case, so a
 flag on the record would only go stale.
 
-No `core` field either: `core/1` is a **read format** (§4). The server may
-cache the projection in storage (`core_json`, `03 §8`) for listing and
-filtering, but it is not part of the record a client sees; a client asks
-`?as=core/1`.
+No `core` field, and no `core/1` format (saltorbit, round-1 review: "overkill").
+A reader asks for the format it speaks; the list endpoint carries record
+fields only.
 
 Rules:
 
@@ -200,37 +199,35 @@ A format is a directory:
 ```
 db/formats/<name>/<major>/
   schema.json      JSON Schema for the payload (draft 2020-12)
-  index.mjs        validate(payload) · toCore(payload) → core/1 | null
+  index.mjs        validate(payload)
                    lower(payload) → flat rules | null
                    to: { "<other format>/<N>": fn } (optional)
                    from: { "<other format>/<N>": fn } (optional)
-  fixtures/        frozen: NNN-<name>.json (+ .core.json, .lowered.json goldens)
+  fixtures/        frozen: NNN-<name>.json (+ .lowered.json goldens, + .<to-format>.json per declared translation)
   OWNERS           GitHub handles who review changes here (04 §2)
   README.md        what this format is for, what it cannot express
 ```
 
 Registered on day 1:
 
-| format | owner | what it is | `toCore` | notes |
+| format | owner | what it is | translations | notes |
 |---|---|---|---|---|
-| `core/1` | DB | keys + free + board + fingermap only; no magic. The tiny shared core every client must read. | identity | The read shape for "just show me the keys" clients (emulayout). Never gains fields. |
-| `cmini/1` | DB | cmini's v3 detail JSON verbatim: `name user board keys free magic link` | lossless | Write it and you get a record whose payload is the cmini shape; `?as=cmini/1` from an `akl/1` record lowers board → cmini word and magic → flat `{inputs, output, type}` rows. The bot writes this. |
-| `akl/1` | DB (+ akl.gg) | §2 | lossless | |
-| `mana2/1` | Zak (mana2) | a mana2 `.jsonc` layout object (`layout.fingers/thumbs`, `board`, `fingermap`, `magic.rules`) | keys+board+fingermap | mana's own write format (federation §13 "mana's write format"). Layers/combos are `todo` in mana2's own spec; when they land, `mana2/2`. |
+| `cmini/1` | DB | cmini's v3 detail JSON verbatim: `name user board keys free magic link` | ↔ `akl/1` lossless | Write it and you get a record whose payload is the cmini shape; `?as=cmini/1` from an `akl/1` record lowers board → cmini word and magic → flat `{inputs, output, type}` rows. The bot writes this. |
+| `akl/1` | DB (+ akl.gg) | §2 | ↔ `cmini/1`, ↔ `mana2/1` | |
+| `mana2/1` | Zak (mana2) | a mana2 `.jsonc` layout object (`layout.fingers/thumbs`, `board`, `fingermap`, `magic.rules`) | ↔ `akl/1` | mana's own write format (federation §13 "mana's write format"). Layers/combos are `todo` in mana2's own spec; when they land, `mana2/2`. |
 
-A record whose format has `toCore → null` (or whose format the running server
-does not have) is **held**: stored, listed with its name/owner/rev, `core:
-null`, and readable only as its own format. Nothing is ever dropped for being
+A record whose format cannot be translated to the one a reader asked for is
+**held** for that reader: stored, listed with its name/owner/rev, readable as
+its own format (and any format it does translate to). Nothing is ever dropped for being
 unrenderable (federation §6.5, kept). The server refuses a write in a format
 it does not have registered (400 `unknown_format`) — there is no "opaque
 bytes" write, because a held record that *nobody* can read is a bug, not a
 feature; registering the format is a PR (`04 §2`).
 
 An **advanced** format (say `keymaxx/1`, with combos and layers) is added the
-same way, by its author, with `toCore` giving the base layer's keys so it
-still lists and filters, and `to["akl/1"]` if it can be lowered there. akl.gg
-would show such a record's core and say *uses features shown fully in
-keymaxx* — the "see it elsewhere" card from federation §6.5, in one database.
+same way, by its author, with `to["akl/1"]` if the base layer can be
+expressed there (the way to appear on akl.gg and in the bot at all). akl.gg
+would show that translation and say *uses features shown fully in keymaxx* — the "see it elsewhere" card from federation §6.5, in one database.
 
 ## 5. Versioning and compatibility
 
@@ -292,8 +289,7 @@ mana2 digits (`LP..RP` = 0..9, thumbs 4/5). Magic → `lower()`. Reverse: digits
 | LDB-F4 | Lowering collisions are refused, never resolved. | matrix: idiom×idiom, idiom×raw, raw×raw |
 | LDB-F5 | `cmini/1` round-trips through `akl/1` byte-identically for the whole imported set. | CI against the live scrape (D12) |
 | LDB-F6 | A format major, once merged, is immutable: schema not tightened, fixtures unchanged. | a test diffs `formats/**` against `main` and fails on any edit to a frozen file (additions allowed) |
-| LDB-F7 | Every registered format has ≥ 1 fixture with `.core.json`, and `toCore(fixture)` equals it. | generated from the registry |
-| LDB-F8 | `core/1` never grows: its schema is `additionalProperties: false` and its fixture set is complete. | schema test |
+| LDB-F7 | Every registered format has ≥ 1 fixture, and for every translation it declares, a frozen `.<to>.json` golden the translation still reproduces. | generated from the registry |
 | LDB-F9 | A held record keeps its name, owner and rev, and reads as its own format. | API test with a fixture format registered only in the test |
 | LDB-F10 | `x` is preserved verbatim through write → read in the same format and dropped in any translation. | round-trip property test |
 

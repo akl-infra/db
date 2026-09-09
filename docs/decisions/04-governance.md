@@ -27,15 +27,15 @@ saltorbit stops.
 maps the directory to them. The author of an advanced engine owns their
 format directory and merges changes to it themselves, subject only to the
 compatibility gates (§3) — nobody else's review is required, and nobody
-else's format is touched. `core/1` and `akl/1` are owned by the DB
+else's format is touched. `akl/1` is owned by the DB
 maintainers as a group.
 
 What a format PR must contain (the template enforces it):
 
 1. `schema.json` — a new major is a new directory; a minor adds optional
    keys only.
-2. `index.mjs` — `validate`, `toCore`, `lower`, optional `to`/`from`.
-3. ≥ 1 new fixture with its `.core.json` and `.lowered.json` goldens.
+2. `index.mjs` — `validate`, `lower`, optional `to`/`from`.
+3. ≥ 1 new fixture with its `.lowered.json` (and per-translation) goldens.
 4. `README.md` — what it is for, what it cannot express, what is lost in
    each `to` translation.
 5. An entry in `docs/formats.md` (generated from the registry; the PR

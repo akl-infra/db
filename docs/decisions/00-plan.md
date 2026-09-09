@@ -77,7 +77,7 @@ registered in `design/INVARIANTS.md` when implemented).
   ┌──────────────────────────────────────────────────────────┐
   │  layout DB — db/  (Cloudflare Worker + D1, own domain)    │
   │                                                          │
-  │  formats/  akl/1  cmini/1  mana2/1  core/1  …  (01)      │
+  │  formats/  akl/1  cmini/1  mana2/1  …  (01)             │
   │  auth      Discord bearer · signed clients               │
   │  api       /v1/layouts  /v1/changes  /v1/dump  /v1/meta  │
   │  events    append-only log → feed + webhooks             │
@@ -159,7 +159,7 @@ phase 3.
 | phase | delivers | proof it works |
 |---|---|---|
 | **0 · proposals** | this directory, rendered at akl.gg for the community | people other than saltorbit have read `01`–`04` |
-| **1 · mirror** | `db/` Worker + D1; `formats/{core,cmini,akl}`; cmini import cron; reads (`/v1/layouts`, `?as=cmini/1`), `/v1/meta`, `/v1/changes`, `/v1/dump` | every record read `?as=cmini/1` is byte-identical to upstream's copy (D12) |
+| **1 · mirror** | `db/` Worker + D1; `formats/{cmini,akl}`; cmini import cron; reads (`/v1/layouts`, `?as=cmini/1`), `/v1/meta`, `/v1/changes`, `/v1/dump` | every record read `?as=cmini/1` is byte-identical to upstream's copy (D12) |
 | **2 · users write** | user lane auth; POST/PUT/PATCH/DELETE; likes; transfer; event log; admin table; audit page | API suite + conformance vectors; the site's #215 publish UX pointed at the DB, in the preview deploy |
 | **3 · cutover** | akl.gg reads from the DB (pipeline data root, meta-watch), publishes to it; D1 `magic_rules` folded into records | prod on the DB for a week with the cmini import still running; no diff vs cmini for unforked records |
 | **4 · bot** | client lane auth; `bot/` with the DB verbs (`add remove rename assign setfingermap swap! angle! unangle! mirror! cycle! like unlike link unlink list likes authors`), then the analyzer verbs | parity table in `05` all green in a test guild |
@@ -177,7 +177,7 @@ phase 3.
 8. Anything in `01 §2` (the `akl/1` shape) you already know you want different — this is the one doc worth reading slowly.
 9. **CLI writes** (mana publishing as its user): personal tokens are set aside; the alternatives are a Discord device-flow login inside mana (needs mana to register a Discord app) or publishing through akl.gg only. Which, or neither for now?
 
-Resolved in the round-1 review (2026-09-08): no `origin` field on the record (history instead, D2/D9); `core` is a read format, not a record field (`01 §1`); no personal tokens (D5); no cmini-compatible facade — the site's sync reads `?as=cmini/1` (`06 §1`); polling cost answered in `03 §5` (edge cache + ETag + per-client limit; webhooks/stream preferred).
+Resolved in the round-1 review (2026-09-08): no `origin` field on the record (history instead, D2/D9); no `core` at all — not a field, not a format ("overkill"); a format that wants to appear on akl.gg ships `to["akl/1"]`, otherwise it is held there (`01 §4`); no personal tokens (D5); no cmini-compatible facade — the site's sync reads `?as=cmini/1` (`06 §1`); polling cost answered in `03 §5` (edge cache + ETag + per-client limit; webhooks/stream preferred).
 
 ## 7. Where the code lives, and how it moves out
 
@@ -188,7 +188,7 @@ db/                      ← the whole service; moves to its own repo as one `gi
   wrangler.toml          Worker + D1 + cron triggers + R2 (dumps)
   migrations/            D1 schema, numbered; applied by CI
   src/                   the Worker: router, auth, formats, events, import
-  formats/<name>/<N>/    schema.json · index.mjs (validate, toCore, lower, fromCmini/toCmini) · fixtures/
+  formats/<name>/<N>/    schema.json · index.mjs (validate, lower, to/from) · fixtures/
   tests/                 API suite, conformance vectors, format goldens, rehost drill
   docs/                  the public API reference (generated from 03)
 bot/                     ← same rule; GPLv3; talks to db/ only over HTTP

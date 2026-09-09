@@ -11,11 +11,11 @@ domain (name pending, `00 §6.2`), path prefix `/v1`. JSON in and out, UTF-8,
   insensitive). Ambiguity is impossible: ids are 26 chars of Crockford base32
   and names may not be.
 - **Formats.** Every read that returns a payload accepts `?as=<format>`
-  (`01 §4`). Default `akl/1`. `?as=core/1` returns only the core projection.
+  (`01 §4`). Default `akl/1`.
   `409 { held: true, format: "<native>", see: … }` when the translation is
   not possible (`01 §5`).
-- **Fields.** `?fields=id,name,owner,rev,core` trims list responses; default
-  list rows carry the record minus `payload` and `core`.
+- **Fields.** `?fields=id,name,owner,rev` trims list responses; default
+  list rows carry the record minus `payload`.
 - **Errors.** `{ error: "<snake_code>", message: "<human text>", …details }`.
   The `message` is what a bot prints and what the site shows verbatim — write
   them in the bot's voice (`missing gap before column …`).
@@ -45,7 +45,7 @@ the event log head.
 GET /v1/layouts?owner=&format=&has_magic=&since=<iso>&sort=&limit=&cursor=&as=
 → { items: [record…], next_cursor }
 GET /v1/layouts?full=1&as=cmini/1        one response with every payload (the weekly full sync)
-GET /v1/layouts/{ref}?as=               → record with payload (+ core)
+GET /v1/layouts/{ref}?as=               → record with payload
 GET /v1/layouts/{ref}/likes             → { user_ids: [...] }
 GET /v1/layouts/{ref}/history           → [{ rev, event_id, at, actor, via, kind }]
 GET /v1/layouts/{ref}/rev/{n}?as=       → the record as of rev n (from the event log)
@@ -192,7 +192,7 @@ GET    /admin/changelog           HTML, public, read-only: the event feed render
 
 ```
 layouts        id PK, name UNIQUE COLLATE NOCASE, owner, rev, created_at, modified_at,
-               deleted, link, format, payload_json, core_json (cache of ?as=core/1), like_count
+               deleted, link, format, payload_json, like_count, has_magic
                -- no origin_* columns: provenance is the events table (01 §1)
 layout_revs    (layout_id, rev) PK, event_seq, payload_json, format      -- for /rev/{n}; compacted to
                                                                           -- every rev ≤ 100 per record, then monthly
