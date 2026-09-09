@@ -23,4 +23,8 @@ the S1 rows only.
 | LDB-F11 | Every live upstream detail (snapshot) validates as `cmini/1` and `hasMagic` matches upstream's `has_magic` | `tests/formats/cmini-envelope.test.ts` |
 | LDB-G2 | No admin id is a constant in code (the migration seed is data) | `tests/tools/noconst.test.ts` |
 | LDB-G5 | Nothing imports across the `db/` boundary in either direction | `tests/tools/boundary.test.ts` |
+| LDB-I2a | "Follows upstream" ⇔ the record's latest rev-bumping event has `via = import:cmini` | `tests/events/follows.test.ts` |
+| LDB-P1 | Every write appends exactly one rev-bumping event and one `layout_revs` row; the record equals the fold of its events; `seq` is gapless | `tests/events/fold.test.ts`, `tests/tools/onlywriter.test.ts` |
+| LDB-P4 | A name is released only by delete or rename | `tests/events/names.test.ts` |
+| LDB-P6 | `/v1/changes` serves from `since=0`, including after a restore | `tests/events/feed.test.ts` |
 | LDB-T1 | Every registry id has a tagged test and every tag has a registry row | `tests/tools/invariants.test.ts` |

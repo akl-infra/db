@@ -35,6 +35,14 @@ export function notFound(message: string, ref?: string): ApiError {
   return new ApiError(404, { error: "not_found", message, ...(ref !== undefined ? { ref } : {}) });
 }
 
+export function nameTaken(name: string): ApiError {
+  return new ApiError(409, {
+    error: "name_taken",
+    message: `name '${name}' is already taken`,
+    name,
+  });
+}
+
 export function held(format: string, see?: string): ApiError {
   return new ApiError(409, {
     error: "held",
