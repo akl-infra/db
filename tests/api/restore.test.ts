@@ -64,7 +64,7 @@ function addDays(iso: string, days: number): string {
 }
 
 describe("[LDB-P8] restore within the 30-day window", () => {
-  it("29d 23h after deletion -> 200, same name/payload/format, rev + 1, live by name", async () => {
+  it("[LDB-P8] 29d 23h after deletion -> 200, same name/payload/format, rev + 1, live by name", async () => {
     const tombstone = await seedTombstone();
     setNow(new Date(new Date(addDays(DELETED_AT, 29)).getTime() + 23 * 60 * 60 * 1000).toISOString());
 
@@ -93,7 +93,7 @@ describe("[LDB-P8] restore past the 30-day window", () => {
     expect(res.status).toBe(404);
   });
 
-  it("30d + 1s after deletion -> 200 for an admin", async () => {
+  it("[LDB-P8] 30d + 1s after deletion -> 200 for an admin", async () => {
     const tombstone = await seedTombstone();
     setNow(new Date(new Date(addDays(DELETED_AT, 30)).getTime() + 1000).toISOString());
 

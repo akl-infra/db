@@ -270,7 +270,7 @@ describe("[LDB-H1] [LDB-H4] [LDB-H5] webhooks", () => {
   });
 
   describe("[LDB-H4] a secret never leaves the webhooks table", () => {
-    it("scans every CRUD response body for the literal secret", async () => {
+    it("[LDB-H4] scans every CRUD response body for the literal secret", async () => {
       const secret = "super-secret-value-do-not-leak-9";
       const { res, headers } = await createHook({ url: "https://receiver.example/hook", secret });
       const createdText = await res.clone().text();
@@ -284,7 +284,7 @@ describe("[LDB-H1] [LDB-H4] [LDB-H5] webhooks", () => {
       expect(await delRes.text()).not.toContain(secret);
     });
 
-    it("never appears in any event", async () => {
+    it("[LDB-H4] never appears in any event", async () => {
       const secret = "another-secret-that-must-not-leak";
       await createHook({ url: "https://receiver.example/hook", secret });
       const rows = await db.prepare("SELECT detail_json, before_json, after_json FROM events").all<{ detail_json: string | null; before_json: string | null; after_json: string | null }>();

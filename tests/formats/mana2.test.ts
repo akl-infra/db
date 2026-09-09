@@ -38,7 +38,7 @@ function isHeldResult(v: unknown): v is { held: true; reason: string } {
 describe("every vendored mana2 layout -- the envelope (75 files)", () => {
   const files = fs.readdirSync(VENDORED_DIR).filter((f) => f.endsWith(".json")).sort();
 
-  it("all 75 vendored layouts are present", () => {
+  it("[LDB-F7] all 75 vendored layouts are present", () => {
     expect(files.length).toBe(75);
   });
 

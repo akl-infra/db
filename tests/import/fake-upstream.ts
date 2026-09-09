@@ -39,6 +39,13 @@ export class FakeUpstream {
   private nameById: Map<string, string>;
   private fullEntries: RawUpstreamDetail[]; // array, not a map -- duplicate names must be representable
   private detailOverrides = new Map<string, DetailOverride>();
+  // LDB-I9: raw response TEXT for a detail() call, bypassing `jsonResponse`'s
+  // `JSON.stringify` entirely -- the only way to serve upstream text
+  // carrying a literal (unescaped-backslash) `<`/`>`/`&`
+  // sequence the way Go's `encoding/json` HTML-escapes actually look on the
+  // wire (`JSON.stringify` never produces one; `detailOverrides` above goes
+  // through it too).
+  private rawDetailBodies = new Map<string, string>();
   private authorsMap: Record<string, string>;
   private metaObj: Record<string, unknown>;
   private failNext = new Map<string, number>(); // url-substring -> remaining forced 500s
@@ -82,6 +89,9 @@ export class FakeUpstream {
   readonly sleepImpl: SleepImpl = () => Promise.resolve();
 
   private detailResponse(id: string): Response {
+    const raw = this.rawDetailBodies.get(id);
+    if (raw !== undefined) return new Response(raw, { status: 200, headers: { "Content-Type": "application/json" } });
+
     const override = this.detailOverrides.get(id);
     if (override === "notfound") return new Response("not found", { status: 404 });
     if (override === "servererror") return new Response("error", { status: 500 });
@@ -160,6 +170,13 @@ export class FakeUpstream {
 
   setDetailOverride(id: string, detail: RawUpstreamDetail): void {
     this.detailOverrides.set(id, detail);
+  }
+
+  // LDB-I9: serve exactly `rawBody` for `GET .../layouts/<id>`, no
+  // `JSON.stringify` in between -- lets a test embed a literal Go-style
+  // `<`/`>`/`&` escape (see `rawDetailBodies`'s own comment).
+  setRawDetailBody(id: string, rawBody: string): void {
+    this.rawDetailBodies.set(id, rawBody);
   }
 
   clearOverride(id: string): void {

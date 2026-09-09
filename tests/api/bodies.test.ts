@@ -43,7 +43,7 @@ function ownerHeaders() {
 describe("[LDB-A7] POST /v1/layouts body", () => {
   const base = { name: uniqueName("post-body"), format: "cmini/1", payload: CMINI_PAYLOAD };
 
-  it("a foreign key (owner) -> 400 bad_request, param /owner", async () => {
+  it("[LDB-A7] a foreign key (owner) -> 400 bad_request, param /owner", async () => {
     const res = await writeFetch("/v1/layouts", "POST", ownerHeaders(), { ...base, owner: "someone-else" });
     expect(res.status).toBe(400);
     await expect(res.json()).resolves.toMatchObject({ error: "bad_request", param: "/owner" });

@@ -98,7 +98,14 @@ function foldedFromDump(rec: LayoutDbRow): Record<string, unknown> {
 }
 
 describe("rehost drill", () => {
-  it("[LDB-G1] [LDB-P6] restoreSql reproduces the exact dumped state", async () => {
+  // [LDB-D1] this replay is also the strongest proof the nightly dump is
+  // COMPLETE: every table's rows survive `restoreInto` well enough that
+  // `/v1/meta`, `/v1/changes?since=0` and the whole conformance replay all
+  // agree with the pre-dump state -- a dump missing a table (or truncating
+  // the event log to a tail) would desync one of those, not just look wrong
+  // in isolation. `tests/api/dump.test.ts` covers the OTHER two clauses
+  // (the `latest.json` sha256, the monthly-key timing) directly.
+  it("[LDB-G1] [LDB-P6] [LDB-D1] restoreSql reproduces the exact dumped state", async () => {
     const remoteUrl = bindings.TEST_REHOST_DUMP_URL;
     const usingRemote = remoteUrl !== "";
 

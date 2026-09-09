@@ -91,7 +91,7 @@ describe("[LDB-A7] POST /v1/layouts/{ref}/transfer", () => {
     await expect(res.json()).resolves.toMatchObject({ error: "if_match_required" });
   });
 
-  it("a known target -> 200, owner moved, event transferred with before/after owner", async () => {
+  it("[LDB-A7] a known target -> 200, owner moved, event transferred with before/after owner", async () => {
     await seedAuthor(KNOWN_TARGET);
     const record = await seed();
     const headers = ownerHeaders(OWNER, `tok-${uniqueName("t")}`);

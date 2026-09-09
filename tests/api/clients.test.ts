@@ -79,7 +79,7 @@ describe("[LDB-A5] admin client routes: role matrix", () => {
 });
 
 describe("[LDB-A5] POST /v1/admin/clients", () => {
-  it("registers a client -> 201, the row, one admin.client_registered event WITHOUT the pubkey in detail", async () => {
+  it("[LDB-A5] registers a client -> 201, the row, one admin.client_registered event WITHOUT the pubkey in detail", async () => {
     const { pubkeyB64url } = await generateKeyPair();
     const owner = testUserId();
     const res = await registerClient(pubkeyB64url, owner);
@@ -134,7 +134,7 @@ describe("[LDB-A5] POST /v1/admin/clients", () => {
 });
 
 describe("[LDB-A9] DELETE /v1/admin/clients/{id}", () => {
-  it("revokes -> 200, status revoked, one admin.client_revoked event", async () => {
+  it("[LDB-A9] revokes -> 200, status revoked, one admin.client_revoked event", async () => {
     const { pubkeyB64url } = await generateKeyPair();
     const registerRes = await registerClient(pubkeyB64url, testUserId());
     const { id } = await registerRes.json<{ id: string }>();

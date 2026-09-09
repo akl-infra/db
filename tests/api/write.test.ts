@@ -153,7 +153,7 @@ describe("[LDB-A7] PUT /v1/layouts/{ref}: owner or admin", () => {
 
   // [LDB-P2] saltorbit's rule (2026-09-09): no If-Match at all -> refused
   // before any read or mutation, even for the owner.
-  it("no If-Match -> 400 if_match_required, record unchanged", async () => {
+  it("[LDB-P2] no If-Match -> 400 if_match_required, record unchanged", async () => {
     const record = await seed();
     const fake = actorFixture();
     const headers = register(fake, "tok-put-noifmatch", OWNER);
@@ -204,7 +204,7 @@ describe("[LDB-A7] DELETE /v1/layouts/{ref}: owner or admin", () => {
 
   // [LDB-P2] saltorbit's rule (2026-09-09): no If-Match at all -> refused
   // before any read or mutation, even for the owner.
-  it("no If-Match -> 400 if_match_required, record unchanged", async () => {
+  it("[LDB-P2] no If-Match -> 400 if_match_required, record unchanged", async () => {
     const record = await seed();
     const fake = actorFixture();
     const headers = register(fake, "tok-del-noifmatch", OWNER);
@@ -280,7 +280,7 @@ describe("[LDB-A7] POST /v1/layouts/{ref}/transfer: owner or admin", () => {
     expect(res.status).toBe(200);
   }
 
-  it("the owner -> 200, owner changed, event transferred", async () => {
+  it("[LDB-A7] the owner -> 200, owner changed, event transferred", async () => {
     await seedTargetAuthor();
     const record = await seed();
     const fake = actorFixture();
@@ -326,7 +326,7 @@ describe("[LDB-A7] POST /v1/layouts/{ref}/transfer: owner or admin", () => {
   // before any read or mutation, even for the owner. Transfer never checks
   // the header's VALUE against `record.rev` (no draft to be stale), only
   // that it's present.
-  it("no If-Match -> 400 if_match_required, record unchanged", async () => {
+  it("[LDB-P2] no If-Match -> 400 if_match_required, record unchanged", async () => {
     await seedTargetAuthor();
     const record = await seed();
     const fake = actorFixture();
@@ -381,7 +381,7 @@ describe("[LDB-A5] client-lane writes: via: client:<id>", () => {
     });
   }
 
-  it("POST /v1/layouts -> 201, event via: client:<id>", async () => {
+  it("[LDB-A5] POST /v1/layouts -> 201, event via: client:<id>", async () => {
     const client = await freshClient();
     const name = uniqueName("client-post");
     const res = await signedFetch("POST", "/v1/layouts", client, { name, format: "cmini/1", payload: CMINI_PAYLOAD });

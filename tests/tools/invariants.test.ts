@@ -14,6 +14,9 @@ const REGISTRY_PATH = path.join(DB_ROOT, "INVARIANTS.md");
 const ID_PATTERN = /^\|\s*(LDB-[A-Za-z0-9]+)\s*\|/;
 const TAG_PATTERN = /\[LDB-[A-Za-z0-9]+\]/g;
 const TEST_CALL = /\b(?:it|test)\(\s*(['"`])((?:(?!\1)[\s\S])*?)\1/g;
+// A `*.test.ts` path inside backticks in the registry's own "enforced by"
+// column -- the convention every row in INVARIANTS.md already follows.
+const FILE_IN_CELL = /`([^`]+\.test\.ts)`/g;
 
 function registryIds(): string[] {
   const lines = fs.readFileSync(REGISTRY_PATH, "utf8").split("\n");
@@ -23,6 +26,24 @@ function registryIds(): string[] {
     if (m?.[1] !== undefined) ids.push(m[1]);
   }
   return ids;
+}
+
+// Every row's (id, enforced-by files) pair -- the registry's own table is
+// `| id | invariant | enforced by |`, so the LAST real cell (before the
+// line's trailing empty split piece) is always "enforced by" regardless of
+// how long the middle "invariant" cell's prose runs.
+function registryRows(): { id: string; files: string[] }[] {
+  const lines = fs.readFileSync(REGISTRY_PATH, "utf8").split("\n");
+  const rows: { id: string; files: string[] }[] = [];
+  for (const line of lines) {
+    const m = ID_PATTERN.exec(line);
+    if (m?.[1] === undefined) continue;
+    const cells = line.split("|");
+    const enforcedByCell = cells[cells.length - 2] ?? "";
+    const files = [...enforcedByCell.matchAll(FILE_IN_CELL)].map((f) => f[1]!);
+    rows.push({ id: m[1], files });
+  }
+  return rows;
 }
 
 function walk(dir: string): string[] {
@@ -78,5 +99,25 @@ describe("db/INVARIANTS.md coverage", () => {
     const tagged = taggedIds();
     const orphans = [...tagged.keys()].filter((id) => !ids.has(id));
     expect(orphans).toEqual([]);
+  });
+
+  // The reverse of "every registry id has >=1 tagged test" above: that test
+  // only proves the tag exists SOMEWHERE under tests/, not in the specific
+  // file(s) the row's own "enforced by" column names -- a row can drift
+  // (the file gets renamed, or was never actually tagged) while the tag
+  // survives untouched in some other file and the looser check keeps
+  // passing. This one reads each row's own file list and requires the tag
+  // inside THAT file.
+  it("[LDB-T1] every file a registry row names actually carries that row's tag", () => {
+    const rows = registryRows();
+    const tagged = taggedIds();
+    const drift: string[] = [];
+    for (const { id, files } of rows) {
+      const taggedFiles = new Set(tagged.get(id) ?? []);
+      for (const file of files) {
+        if (!taggedFiles.has(file)) drift.push(`${id}: '${file}' names it but carries no [${id}] tag`);
+      }
+    }
+    expect(drift).toEqual([]);
   });
 });

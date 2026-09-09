@@ -230,7 +230,7 @@ describe("[LDB-P1] combined patches", () => {
 });
 
 describe("[LDB-N1] PATCH {name} rename semantics", () => {
-  it("check_name refuses an invalid new name -> 400 invalid_name, verbatim bot message", async () => {
+  it("[LDB-N1] check_name refuses an invalid new name -> 400 invalid_name, verbatim bot message", async () => {
     const record = await seed("cmini/1");
     const headers = ownerHeaders(`tok-${uniqueName("badname")}`);
     const res = await patch(record.id, headers, { name: "_bad" }, `"${record.rev}"`);

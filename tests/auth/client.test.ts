@@ -88,7 +88,7 @@ describe("[LDB-A4] the mutation matrix: one bad field at a time", () => {
     k1PrivateKey = await importPrivateKeyPkcs8(K1_PKCS8);
   });
 
-  it("method mutated -> bad_signature", async () => {
+  it("[LDB-A4] method mutated -> bad_signature", async () => {
     const { request, bodyBytes } = requestFor(BASE, { method: "PUT" });
     await expect(verifyClientRequest(db, NOW, request, bodyBytes, {})).rejects.toMatchObject({ body: { error: "bad_signature" } });
   });
@@ -104,7 +104,7 @@ describe("[LDB-A4] the mutation matrix: one bad field at a time", () => {
     await expect(verifyClientRequest(db, NOW, request, bodyBytes, {})).rejects.toMatchObject({ body: { error: "bad_signature" } });
   });
 
-  it("timestamp +301s -> stale_timestamp", async () => {
+  it("[LDB-A4] timestamp +301s -> stale_timestamp", async () => {
     const { request, bodyBytes } = requestFor(BASE, { timestamp: String(Number(BASE.timestamp) + 301) });
     await expect(verifyClientRequest(db, NOW, request, bodyBytes, {})).rejects.toMatchObject({ body: { error: "stale_timestamp" } });
   });
@@ -134,7 +134,7 @@ describe("[LDB-A4] the mutation matrix: one bad field at a time", () => {
     }
   });
 
-  it("nonce replayed -> replay", async () => {
+  it("[LDB-A4] nonce replayed -> replay", async () => {
     const headers = await signHeaders({
       privateKey: k1PrivateKey,
       clientId: BASE.client_id,
@@ -203,7 +203,7 @@ describe("[LDB-A4] the mutation matrix: one bad field at a time", () => {
     await expect(verifyClientRequest(db, NOW, request, bodyBytes, {})).rejects.toMatchObject({ body: { error: "bad_signature" } });
   });
 
-  it("malformed nonce (not 16 bytes) -> bad_signature", async () => {
+  it("[LDB-A4] malformed nonce (not 16 bytes) -> bad_signature", async () => {
     const { request, bodyBytes } = requestFor(BASE, { nonce: "AA" });
     await expect(verifyClientRequest(db, NOW, request, bodyBytes, {})).rejects.toMatchObject({ body: { error: "bad_signature" } });
   });

@@ -82,4 +82,25 @@ describe("UpstreamClient", () => {
     expect(new Set(ids).size).toBe(ids.length);
     expect(entries.every((e) => typeof e.id === "string")).toBe(true);
   });
+
+  // LDB-I9: proves the wiring, not just the rewrite -- `UpstreamClient`
+  // (this file's own subject) parses every response through
+  // `parseUpstreamJson` (src/import/upstream.ts's `fetchJson`), so a
+  // Go-style `<`/`>`/`&` escape reaching `detail()` from the
+  // real upstream must come out the other side as the literal character,
+  // not the escape sequence -- `tests/core/safejson.test.ts` proves the
+  // rewrite itself is correct in isolation; this proves it's actually in
+  // the request path a real import tick uses.
+  it("[LDB-I9] a Go-style \\u003c/\\u003e/\\u0026 escape in the raw upstream body survives detail() intact", async () => {
+    const fake = new FakeUpstream();
+    const base = fake.detailByName("graphite");
+    const raw = JSON.stringify(base).replace('"graphite"', '"a\\u003cb\\u003e\\u0026c"');
+    fake.setRawDetailBody("graphite", raw);
+    const client = new UpstreamClient(fake.baseUrl, UA, fake.fetchImpl, fake.sleepImpl);
+
+    const result = await client.detail("graphite");
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect((result.detail as { name: string }).name).toBe("a<b>&c");
+  });
 });
