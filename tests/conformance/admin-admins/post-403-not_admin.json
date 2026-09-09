@@ -1,0 +1,16 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/admin/admins",
+    "bearer": "conformance-owner-token",
+    "body": { "user_id": "800000000000000013" }
+  },
+  "response": {
+    "status": 403,
+    "headers": { "Content-Type": "application/json" },
+    "body": {
+      "error": "not_admin",
+      "message": "admin only"
+    }
+  }
+}

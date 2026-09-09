@@ -1,0 +1,18 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/admin/admins",
+    "bearer": "conformance-admin-token",
+    "body": { "user_id": "800000000000000010", "note": "conformance test admin" }
+  },
+  "response": {
+    "status": 201,
+    "headers": { "Content-Type": "application/json" },
+    "body": {
+      "user_id": "800000000000000010",
+      "added_by": "184412255822020608",
+      "added_at": "2026-06-20T00:00:00.000Z",
+      "note": "conformance test admin"
+    }
+  }
+}

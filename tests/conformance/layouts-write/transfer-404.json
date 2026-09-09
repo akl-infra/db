@@ -1,0 +1,17 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/layouts/cw-transfer-404-nonexistent/transfer",
+    "bearer": "conformance-owner-token",
+    "body": { "to": "810000000000000001" }
+  },
+  "response": {
+    "status": 404,
+    "headers": { "Content-Type": "application/json" },
+    "body": {
+      "error": "not_found",
+      "message": "no layout 'cw-transfer-404-nonexistent'",
+      "ref": "cw-transfer-404-nonexistent"
+    }
+  }
+}

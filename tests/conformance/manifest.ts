@@ -85,6 +85,108 @@ import layoutsLikeDeleteOk from "./layouts-like/delete-200.json" with { type: "j
 import layoutsLikeQwerty from "./layouts-like/put-400-qwerty.json" with { type: "json" };
 import ratelimit429 from "./ratelimit/429.json" with { type: "json" };
 
+// T6 (09 §3 T6, §4): the full (method, route, status[, code]) sweep. Every
+// route the phase-2 error vocabulary reaches (09 §2.1) gets its own
+// A-group (401 unauthorized / 401 token_invalid / 503 identity_unavailable)
+// and, for every write route, its own 429 -- plus each route's own
+// bad_request/invalid_payload/unknown_format/not_owner/not_found/stale/
+// name_taken/last_admins rows per 09 §4. `T6_CASES` (below `kase()`) is
+// spread into `CASES` after the T2-T5 cases above, so none of THEIR
+// pinned literals (`put-409-stale`'s `last_write.seq`, e.g.) shift.
+import me200 from "./me/200.json" with { type: "json" };
+import me401TokenInvalid from "./me/401-token_invalid.json" with { type: "json" };
+import me503IdentityUnavailable from "./me/503-identity_unavailable.json" with { type: "json" };
+import layoutsWriteDelete400BadRequest from "./layouts-write/delete-400-bad_request.json" with { type: "json" };
+import layoutsWriteDelete401TokenInvalid from "./layouts-write/delete-401-token_invalid.json" with { type: "json" };
+import layoutsWriteDelete401Unauthorized from "./layouts-write/delete-401-unauthorized.json" with { type: "json" };
+import layoutsWriteDelete403NotOwner from "./layouts-write/delete-403-not_owner.json" with { type: "json" };
+import layoutsWriteDelete404 from "./layouts-write/delete-404.json" with { type: "json" };
+import layoutsWriteDelete409Stale from "./layouts-write/delete-409-stale.json" with { type: "json" };
+import layoutsWriteDelete429 from "./layouts-write/delete-429.json" with { type: "json" };
+import layoutsWriteDelete503IdentityUnavailable from "./layouts-write/delete-503-identity_unavailable.json" with { type: "json" };
+import layoutsWritePatch200Renamed from "./layouts-write/patch-200-renamed.json" with { type: "json" };
+import layoutsWritePatch200Updated from "./layouts-write/patch-200-updated.json" with { type: "json" };
+import layoutsWritePatch400InvalidName from "./layouts-write/patch-400-invalid_name.json" with { type: "json" };
+import layoutsWritePatch400InvalidPayload from "./layouts-write/patch-400-invalid_payload.json" with { type: "json" };
+import layoutsWritePatch401TokenInvalid from "./layouts-write/patch-401-token_invalid.json" with { type: "json" };
+import layoutsWritePatch401Unauthorized from "./layouts-write/patch-401-unauthorized.json" with { type: "json" };
+import layoutsWritePatch403NotOwner from "./layouts-write/patch-403-not_owner.json" with { type: "json" };
+import layoutsWritePatch404 from "./layouts-write/patch-404.json" with { type: "json" };
+import layoutsWritePatch409NameTaken from "./layouts-write/patch-409-name_taken.json" with { type: "json" };
+import layoutsWritePatch409Stale from "./layouts-write/patch-409-stale.json" with { type: "json" };
+import layoutsWritePatch429 from "./layouts-write/patch-429.json" with { type: "json" };
+import layoutsWritePatch503IdentityUnavailable from "./layouts-write/patch-503-identity_unavailable.json" with { type: "json" };
+import layoutsWritePost400BadRequest from "./layouts-write/post-400-bad_request.json" with { type: "json" };
+import layoutsWritePost400InvalidPayload from "./layouts-write/post-400-invalid_payload.json" with { type: "json" };
+import layoutsWritePost400UnknownFormat from "./layouts-write/post-400-unknown_format.json" with { type: "json" };
+import layoutsWritePost401TokenInvalid from "./layouts-write/post-401-token_invalid.json" with { type: "json" };
+import layoutsWritePost401Unauthorized from "./layouts-write/post-401-unauthorized.json" with { type: "json" };
+import layoutsWritePost503IdentityUnavailable from "./layouts-write/post-503-identity_unavailable.json" with { type: "json" };
+import layoutsWritePut400BadRequest from "./layouts-write/put-400-bad_request.json" with { type: "json" };
+import layoutsWritePut400InvalidPayload from "./layouts-write/put-400-invalid_payload.json" with { type: "json" };
+import layoutsWritePut400UnknownFormat from "./layouts-write/put-400-unknown_format.json" with { type: "json" };
+import layoutsWritePut401TokenInvalid from "./layouts-write/put-401-token_invalid.json" with { type: "json" };
+import layoutsWritePut401Unauthorized from "./layouts-write/put-401-unauthorized.json" with { type: "json" };
+import layoutsWritePut403NotOwner from "./layouts-write/put-403-not_owner.json" with { type: "json" };
+import layoutsWritePut404 from "./layouts-write/put-404.json" with { type: "json" };
+import layoutsWritePut429 from "./layouts-write/put-429.json" with { type: "json" };
+import layoutsWritePut503IdentityUnavailable from "./layouts-write/put-503-identity_unavailable.json" with { type: "json" };
+import layoutsWriteRestore401TokenInvalid from "./layouts-write/restore-401-token_invalid.json" with { type: "json" };
+import layoutsWriteRestore401Unauthorized from "./layouts-write/restore-401-unauthorized.json" with { type: "json" };
+import layoutsWriteRestore403NotOwner from "./layouts-write/restore-403-not_owner.json" with { type: "json" };
+import layoutsWriteRestore404 from "./layouts-write/restore-404.json" with { type: "json" };
+import layoutsWriteRestore409NameTaken from "./layouts-write/restore-409-name_taken.json" with { type: "json" };
+import layoutsWriteRestore429 from "./layouts-write/restore-429.json" with { type: "json" };
+import layoutsWriteRestore503IdentityUnavailable from "./layouts-write/restore-503-identity_unavailable.json" with { type: "json" };
+import layoutsWriteTransfer400BadRequest from "./layouts-write/transfer-400-bad_request.json" with { type: "json" };
+import layoutsWriteTransfer401TokenInvalid from "./layouts-write/transfer-401-token_invalid.json" with { type: "json" };
+import layoutsWriteTransfer401Unauthorized from "./layouts-write/transfer-401-unauthorized.json" with { type: "json" };
+import layoutsWriteTransfer403NotOwner from "./layouts-write/transfer-403-not_owner.json" with { type: "json" };
+import layoutsWriteTransfer404 from "./layouts-write/transfer-404.json" with { type: "json" };
+import layoutsWriteTransfer429 from "./layouts-write/transfer-429.json" with { type: "json" };
+import layoutsWriteTransfer503IdentityUnavailable from "./layouts-write/transfer-503-identity_unavailable.json" with { type: "json" };
+import layoutsLikeDelete400Qwerty from "./layouts-like/delete-400-qwerty.json" with { type: "json" };
+import layoutsLikeDelete401TokenInvalid from "./layouts-like/delete-401-token_invalid.json" with { type: "json" };
+import layoutsLikeDelete401Unauthorized from "./layouts-like/delete-401-unauthorized.json" with { type: "json" };
+import layoutsLikeDelete404 from "./layouts-like/delete-404.json" with { type: "json" };
+import layoutsLikeDelete429 from "./layouts-like/delete-429.json" with { type: "json" };
+import layoutsLikeDelete503IdentityUnavailable from "./layouts-like/delete-503-identity_unavailable.json" with { type: "json" };
+import layoutsLikePut401TokenInvalid from "./layouts-like/put-401-token_invalid.json" with { type: "json" };
+import layoutsLikePut401Unauthorized from "./layouts-like/put-401-unauthorized.json" with { type: "json" };
+import layoutsLikePut404 from "./layouts-like/put-404.json" with { type: "json" };
+import layoutsLikePut429 from "./layouts-like/put-429.json" with { type: "json" };
+import layoutsLikePut503IdentityUnavailable from "./layouts-like/put-503-identity_unavailable.json" with { type: "json" };
+import adminAdminsDelete401TokenInvalid from "./admin-admins/delete-401-token_invalid.json" with { type: "json" };
+import adminAdminsDelete401Unauthorized from "./admin-admins/delete-401-unauthorized.json" with { type: "json" };
+import adminAdminsDelete429 from "./admin-admins/delete-429.json" with { type: "json" };
+import adminAdminsDelete503IdentityUnavailable from "./admin-admins/delete-503-identity_unavailable.json" with { type: "json" };
+import adminAdminsGet401TokenInvalid from "./admin-admins/get-401-token_invalid.json" with { type: "json" };
+import adminAdminsGet503IdentityUnavailable from "./admin-admins/get-503-identity_unavailable.json" with { type: "json" };
+import adminAdminsPost401TokenInvalid from "./admin-admins/post-401-token_invalid.json" with { type: "json" };
+import adminAdminsPost401Unauthorized from "./admin-admins/post-401-unauthorized.json" with { type: "json" };
+import adminAdminsPost429 from "./admin-admins/post-429.json" with { type: "json" };
+import adminAdminsPost503IdentityUnavailable from "./admin-admins/post-503-identity_unavailable.json" with { type: "json" };
+import adminAdminsDelete409LastAdmins from "./admin-admins/delete-409-last_admins.json" with { type: "json" };
+import adminAdminsPost201 from "./admin-admins/post-201.json" with { type: "json" };
+import adminAdminsPost200Idempotent from "./admin-admins/post-200-idempotent.json" with { type: "json" };
+import adminAdminsDelete200 from "./admin-admins/delete-200.json" with { type: "json" };
+import adminAdminsDelete404 from "./admin-admins/delete-404.json" with { type: "json" };
+import adminAdminsPost400BadRequest from "./admin-admins/post-400-bad_request.json" with { type: "json" };
+import adminAdminsPost403NotAdmin from "./admin-admins/post-403-not_admin.json" with { type: "json" };
+import adminAdminsDelete403NotAdmin from "./admin-admins/delete-403-not_admin.json" with { type: "json" };
+import adminImportPause200 from "./admin-import/pause-200.json" with { type: "json" };
+import adminImportPause401TokenInvalid from "./admin-import/pause-401-token_invalid.json" with { type: "json" };
+import adminImportPause401Unauthorized from "./admin-import/pause-401-unauthorized.json" with { type: "json" };
+import adminImportPause403NotAdmin from "./admin-import/pause-403-not_admin.json" with { type: "json" };
+import adminImportPause429 from "./admin-import/pause-429.json" with { type: "json" };
+import adminImportPause503IdentityUnavailable from "./admin-import/pause-503-identity_unavailable.json" with { type: "json" };
+import adminImportResume200 from "./admin-import/resume-200.json" with { type: "json" };
+import adminImportResume401TokenInvalid from "./admin-import/resume-401-token_invalid.json" with { type: "json" };
+import adminImportResume401Unauthorized from "./admin-import/resume-401-unauthorized.json" with { type: "json" };
+import adminImportResume403NotAdmin from "./admin-import/resume-403-not_admin.json" with { type: "json" };
+import adminImportResume429 from "./admin-import/resume-429.json" with { type: "json" };
+import adminImportResume503IdentityUnavailable from "./admin-import/resume-503-identity_unavailable.json" with { type: "json" };
+
 // A single request as `runRequest` fires it -- shared by the main
 // (asserted) request and, for a write case, its `setup` steps (fired first
 // and discarded: e.g. the first of two POSTs that produces a name clash).
@@ -121,12 +223,131 @@ export interface ConformanceCase {
   routeTemplate: string;
   request: ConformanceRequest;
   response: ConformanceResponse;
+  // T6: true iff the case's bearer needs `conformance.test.ts`'s
+  // `ensureWriteFixtures()` (the stubbed FakeDiscord + the T2-T5 write
+  // fixtures) to resolve -- i.e. every case whose request carries a
+  // `bearer` naming one of `seedWriteFixtures`'s tokens, plus any case that
+  // addresses a record `seedWriteFixtures` creates. Drives two things: (1)
+  // `conformance.test.ts`'s own describe loop, which triggers
+  // `ensureWriteFixtures()` before such a case instead of a hand-listed set
+  // of id prefixes (the previous mechanism -- prefixes can't distinguish
+  // "me/401", which needs no Discord stub, from a later "me/200" that
+  // does, without breaking the ordering `meta/200`/`authors-list/200`'s
+  // pinned counts depend on, 07 §6 S6); (2) `tests/rehost.test.ts`'s
+  // replay set, which excludes every `needsSeed` case for the same reason
+  // it always has (no FakeDiscord stub, no write fixtures, there).
+  needsSeed?: boolean;
 }
 
-function kase(id: string, routeTemplate: string, data: unknown): ConformanceCase {
+function kase(id: string, routeTemplate: string, data: unknown, needsSeed?: boolean): ConformanceCase {
   const d = data as { request: ConformanceRequest; response: ConformanceResponse };
-  return { id, routeTemplate, request: d.request, response: d.response };
+  return { id, routeTemplate, request: d.request, response: d.response, ...(needsSeed ? { needsSeed: true } : {}) };
 }
+
+// T6 (09 §3 T6, §4): the (method, route, status[, code]) sweep, grouped by
+// route in the same order the imports above declare them. The
+// admin-admins mutating cases (409 last_admins, the two add cases, the
+// delete cases) are hand-ordered at the end of that group so the admins
+// table starts at exactly one row (the 409 case) before anything else
+// changes its count -- moving one of those six without preserving that
+// order breaks the 409 case's `count: 1` literal.
+export const T6_CASES: ConformanceCase[] = [
+  kase("me/200", "/v1/me", me200, true),
+  kase("me/401-token_invalid", "/v1/me", me401TokenInvalid, true),
+  kase("me/503-identity_unavailable", "/v1/me", me503IdentityUnavailable, true),
+  kase("layouts-write/delete-400-bad_request", "/v1/layouts/:ref", layoutsWriteDelete400BadRequest, true),
+  kase("layouts-write/delete-401-token_invalid", "/v1/layouts/:ref", layoutsWriteDelete401TokenInvalid, true),
+  kase("layouts-write/delete-401-unauthorized", "/v1/layouts/:ref", layoutsWriteDelete401Unauthorized, true),
+  kase("layouts-write/delete-403-not_owner", "/v1/layouts/:ref", layoutsWriteDelete403NotOwner, true),
+  kase("layouts-write/delete-404", "/v1/layouts/:ref", layoutsWriteDelete404, true),
+  kase("layouts-write/delete-409-stale", "/v1/layouts/:ref", layoutsWriteDelete409Stale, true),
+  kase("layouts-write/delete-429", "/v1/layouts/:ref", layoutsWriteDelete429, true),
+  kase("layouts-write/delete-503-identity_unavailable", "/v1/layouts/:ref", layoutsWriteDelete503IdentityUnavailable, true),
+  kase("layouts-write/patch-200-renamed", "/v1/layouts/:ref", layoutsWritePatch200Renamed, true),
+  kase("layouts-write/patch-200-updated", "/v1/layouts/:ref", layoutsWritePatch200Updated, true),
+  kase("layouts-write/patch-400-invalid_name", "/v1/layouts/:ref", layoutsWritePatch400InvalidName, true),
+  kase("layouts-write/patch-400-invalid_payload", "/v1/layouts/:ref", layoutsWritePatch400InvalidPayload, true),
+  kase("layouts-write/patch-401-token_invalid", "/v1/layouts/:ref", layoutsWritePatch401TokenInvalid, true),
+  kase("layouts-write/patch-401-unauthorized", "/v1/layouts/:ref", layoutsWritePatch401Unauthorized, true),
+  kase("layouts-write/patch-403-not_owner", "/v1/layouts/:ref", layoutsWritePatch403NotOwner, true),
+  kase("layouts-write/patch-404", "/v1/layouts/:ref", layoutsWritePatch404, true),
+  kase("layouts-write/patch-409-name_taken", "/v1/layouts/:ref", layoutsWritePatch409NameTaken, true),
+  kase("layouts-write/patch-409-stale", "/v1/layouts/:ref", layoutsWritePatch409Stale, true),
+  kase("layouts-write/patch-429", "/v1/layouts/:ref", layoutsWritePatch429, true),
+  kase("layouts-write/patch-503-identity_unavailable", "/v1/layouts/:ref", layoutsWritePatch503IdentityUnavailable, true),
+  kase("layouts-write/post-400-bad_request", "/v1/layouts", layoutsWritePost400BadRequest, true),
+  kase("layouts-write/post-400-invalid_payload", "/v1/layouts", layoutsWritePost400InvalidPayload, true),
+  kase("layouts-write/post-400-unknown_format", "/v1/layouts", layoutsWritePost400UnknownFormat, true),
+  kase("layouts-write/post-401-token_invalid", "/v1/layouts", layoutsWritePost401TokenInvalid, true),
+  kase("layouts-write/post-401-unauthorized", "/v1/layouts", layoutsWritePost401Unauthorized, true),
+  kase("layouts-write/post-503-identity_unavailable", "/v1/layouts", layoutsWritePost503IdentityUnavailable, true),
+  kase("layouts-write/put-400-bad_request", "/v1/layouts/:ref", layoutsWritePut400BadRequest, true),
+  kase("layouts-write/put-400-invalid_payload", "/v1/layouts/:ref", layoutsWritePut400InvalidPayload, true),
+  kase("layouts-write/put-400-unknown_format", "/v1/layouts/:ref", layoutsWritePut400UnknownFormat, true),
+  kase("layouts-write/put-401-token_invalid", "/v1/layouts/:ref", layoutsWritePut401TokenInvalid, true),
+  kase("layouts-write/put-401-unauthorized", "/v1/layouts/:ref", layoutsWritePut401Unauthorized, true),
+  kase("layouts-write/put-403-not_owner", "/v1/layouts/:ref", layoutsWritePut403NotOwner, true),
+  kase("layouts-write/put-404", "/v1/layouts/:ref", layoutsWritePut404, true),
+  kase("layouts-write/put-429", "/v1/layouts/:ref", layoutsWritePut429, true),
+  kase("layouts-write/put-503-identity_unavailable", "/v1/layouts/:ref", layoutsWritePut503IdentityUnavailable, true),
+  kase("layouts-write/restore-401-token_invalid", "/v1/layouts/:ref/restore", layoutsWriteRestore401TokenInvalid, true),
+  kase("layouts-write/restore-401-unauthorized", "/v1/layouts/:ref/restore", layoutsWriteRestore401Unauthorized, true),
+  kase("layouts-write/restore-403-not_owner", "/v1/layouts/:ref/restore", layoutsWriteRestore403NotOwner, true),
+  kase("layouts-write/restore-404", "/v1/layouts/:ref/restore", layoutsWriteRestore404, true),
+  kase("layouts-write/restore-409-name_taken", "/v1/layouts/:ref/restore", layoutsWriteRestore409NameTaken, true),
+  kase("layouts-write/restore-429", "/v1/layouts/:ref/restore", layoutsWriteRestore429, true),
+  kase("layouts-write/restore-503-identity_unavailable", "/v1/layouts/:ref/restore", layoutsWriteRestore503IdentityUnavailable, true),
+  kase("layouts-write/transfer-400-bad_request", "/v1/layouts/:ref/transfer", layoutsWriteTransfer400BadRequest, true),
+  kase("layouts-write/transfer-401-token_invalid", "/v1/layouts/:ref/transfer", layoutsWriteTransfer401TokenInvalid, true),
+  kase("layouts-write/transfer-401-unauthorized", "/v1/layouts/:ref/transfer", layoutsWriteTransfer401Unauthorized, true),
+  kase("layouts-write/transfer-403-not_owner", "/v1/layouts/:ref/transfer", layoutsWriteTransfer403NotOwner, true),
+  kase("layouts-write/transfer-404", "/v1/layouts/:ref/transfer", layoutsWriteTransfer404, true),
+  kase("layouts-write/transfer-429", "/v1/layouts/:ref/transfer", layoutsWriteTransfer429, true),
+  kase("layouts-write/transfer-503-identity_unavailable", "/v1/layouts/:ref/transfer", layoutsWriteTransfer503IdentityUnavailable, true),
+  kase("layouts-like/delete-400-qwerty", "/v1/layouts/:ref/like", layoutsLikeDelete400Qwerty, true),
+  kase("layouts-like/delete-401-token_invalid", "/v1/layouts/:ref/like", layoutsLikeDelete401TokenInvalid, true),
+  kase("layouts-like/delete-401-unauthorized", "/v1/layouts/:ref/like", layoutsLikeDelete401Unauthorized, true),
+  kase("layouts-like/delete-404", "/v1/layouts/:ref/like", layoutsLikeDelete404, true),
+  kase("layouts-like/delete-429", "/v1/layouts/:ref/like", layoutsLikeDelete429, true),
+  kase("layouts-like/delete-503-identity_unavailable", "/v1/layouts/:ref/like", layoutsLikeDelete503IdentityUnavailable, true),
+  kase("layouts-like/put-401-token_invalid", "/v1/layouts/:ref/like", layoutsLikePut401TokenInvalid, true),
+  kase("layouts-like/put-401-unauthorized", "/v1/layouts/:ref/like", layoutsLikePut401Unauthorized, true),
+  kase("layouts-like/put-404", "/v1/layouts/:ref/like", layoutsLikePut404, true),
+  kase("layouts-like/put-429", "/v1/layouts/:ref/like", layoutsLikePut429, true),
+  kase("layouts-like/put-503-identity_unavailable", "/v1/layouts/:ref/like", layoutsLikePut503IdentityUnavailable, true),
+  kase("admin-admins/delete-401-token_invalid", "/v1/admin/admins/:user_id", adminAdminsDelete401TokenInvalid, true),
+  kase("admin-admins/delete-401-unauthorized", "/v1/admin/admins/:user_id", adminAdminsDelete401Unauthorized, true),
+  kase("admin-admins/delete-429", "/v1/admin/admins/:user_id", adminAdminsDelete429, true),
+  kase("admin-admins/delete-503-identity_unavailable", "/v1/admin/admins/:user_id", adminAdminsDelete503IdentityUnavailable, true),
+  kase("admin-admins/get-401-token_invalid", "/v1/admin/admins", adminAdminsGet401TokenInvalid, true),
+  kase("admin-admins/get-503-identity_unavailable", "/v1/admin/admins", adminAdminsGet503IdentityUnavailable, true),
+  kase("admin-admins/post-401-token_invalid", "/v1/admin/admins", adminAdminsPost401TokenInvalid, true),
+  kase("admin-admins/post-401-unauthorized", "/v1/admin/admins", adminAdminsPost401Unauthorized, true),
+  kase("admin-admins/post-429", "/v1/admin/admins", adminAdminsPost429, true),
+  kase("admin-admins/post-503-identity_unavailable", "/v1/admin/admins", adminAdminsPost503IdentityUnavailable, true),
+  // Hand-ordered from here (see the block comment above T6_CASES): the
+  // admins table is exactly {bootstrap} until this line runs.
+  kase("admin-admins/delete-409-last_admins", "/v1/admin/admins/:user_id", adminAdminsDelete409LastAdmins, true),
+  kase("admin-admins/post-201", "/v1/admin/admins", adminAdminsPost201, true),
+  kase("admin-admins/post-200-idempotent", "/v1/admin/admins", adminAdminsPost200Idempotent, true),
+  kase("admin-admins/delete-200", "/v1/admin/admins/:user_id", adminAdminsDelete200, true),
+  kase("admin-admins/delete-404", "/v1/admin/admins/:user_id", adminAdminsDelete404, true),
+  kase("admin-admins/post-400-bad_request", "/v1/admin/admins", adminAdminsPost400BadRequest, true),
+  kase("admin-admins/post-403-not_admin", "/v1/admin/admins", adminAdminsPost403NotAdmin, true),
+  kase("admin-admins/delete-403-not_admin", "/v1/admin/admins/:user_id", adminAdminsDelete403NotAdmin, true),
+  kase("admin-import/pause-200", "/v1/admin/import/pause", adminImportPause200, true),
+  kase("admin-import/pause-401-token_invalid", "/v1/admin/import/pause", adminImportPause401TokenInvalid, true),
+  kase("admin-import/pause-401-unauthorized", "/v1/admin/import/pause", adminImportPause401Unauthorized, true),
+  kase("admin-import/pause-403-not_admin", "/v1/admin/import/pause", adminImportPause403NotAdmin, true),
+  kase("admin-import/pause-429", "/v1/admin/import/pause", adminImportPause429, true),
+  kase("admin-import/pause-503-identity_unavailable", "/v1/admin/import/pause", adminImportPause503IdentityUnavailable, true),
+  kase("admin-import/resume-200", "/v1/admin/import/resume", adminImportResume200, true),
+  kase("admin-import/resume-401-token_invalid", "/v1/admin/import/resume", adminImportResume401TokenInvalid, true),
+  kase("admin-import/resume-401-unauthorized", "/v1/admin/import/resume", adminImportResume401Unauthorized, true),
+  kase("admin-import/resume-403-not_admin", "/v1/admin/import/resume", adminImportResume403NotAdmin, true),
+  kase("admin-import/resume-429", "/v1/admin/import/resume", adminImportResume429, true),
+  kase("admin-import/resume-503-identity_unavailable", "/v1/admin/import/resume", adminImportResume503IdentityUnavailable, true),
+];
 
 export const CASES: ConformanceCase[] = [
   kase("meta/200", "/v1/meta", metaOk),
@@ -176,30 +397,32 @@ export const CASES: ConformanceCase[] = [
   kase("dump-key/404", "/v1/dump/:key", dumpKey404),
   kase("dump-monthly/404", "/v1/dump/monthly/:key", dumpMonthly404),
 
-  kase("layouts-write/post-201", "/v1/layouts", layoutsWritePostOk),
-  kase("layouts-write/post-400-invalid_name", "/v1/layouts", layoutsWritePostInvalidName),
-  kase("layouts-write/post-409-name_taken", "/v1/layouts", layoutsWritePostNameTaken),
-  kase("layouts-write/put-200", "/v1/layouts/:ref", layoutsWritePutOk),
-  kase("layouts-write/put-409-stale", "/v1/layouts/:ref", layoutsWritePutStale),
-  kase("layouts-write/delete-200", "/v1/layouts/:ref", layoutsWriteDeleteOk),
-  kase("layouts-write/restore-200", "/v1/layouts/:ref/restore", layoutsWriteRestoreOk),
-  kase("layouts-write/restore-400-not_deleted", "/v1/layouts/:ref/restore", layoutsWriteRestoreNotDeleted),
-  kase("layouts-write/transfer-200", "/v1/layouts/:ref/transfer", layoutsWriteTransferOk),
+  kase("layouts-write/post-201", "/v1/layouts", layoutsWritePostOk, true),
+  kase("layouts-write/post-400-invalid_name", "/v1/layouts", layoutsWritePostInvalidName, true),
+  kase("layouts-write/post-409-name_taken", "/v1/layouts", layoutsWritePostNameTaken, true),
+  kase("layouts-write/put-200", "/v1/layouts/:ref", layoutsWritePutOk, true),
+  kase("layouts-write/put-409-stale", "/v1/layouts/:ref", layoutsWritePutStale, true),
+  kase("layouts-write/delete-200", "/v1/layouts/:ref", layoutsWriteDeleteOk, true),
+  kase("layouts-write/restore-200", "/v1/layouts/:ref/restore", layoutsWriteRestoreOk, true),
+  kase("layouts-write/restore-400-not_deleted", "/v1/layouts/:ref/restore", layoutsWriteRestoreNotDeleted, true),
+  kase("layouts-write/transfer-200", "/v1/layouts/:ref/transfer", layoutsWriteTransferOk, true),
 
-  kase("admin-admins/200", "/v1/admin/admins", adminAdminsOk),
-  kase("admin-admins/403", "/v1/admin/admins", adminAdminsForbidden),
-  kase("admin-admins/401", "/v1/admin/admins", adminAdminsUnauthorized),
+  kase("admin-admins/200", "/v1/admin/admins", adminAdminsOk, true),
+  kase("admin-admins/403", "/v1/admin/admins", adminAdminsForbidden, true),
+  kase("admin-admins/401", "/v1/admin/admins", adminAdminsUnauthorized, true),
 
   // T4: each case creates its own record via its own `request.setup` (see
   // conformance.test.ts's seedWriteFixtures comment) -- no shared seed, no
   // ordering dependency between these three.
-  kase("layouts-write/patch-400-bad_request", "/v1/layouts/:ref", layoutsWritePatchBadRequest),
-  kase("layouts-write/patch-400-unsupported_for_format", "/v1/layouts/:ref", layoutsWritePatchUnsupported),
-  kase("layouts-write/patch-200", "/v1/layouts/:ref", layoutsWritePatchOk),
+  kase("layouts-write/patch-400-bad_request", "/v1/layouts/:ref", layoutsWritePatchBadRequest, true),
+  kase("layouts-write/patch-400-unsupported_for_format", "/v1/layouts/:ref", layoutsWritePatchUnsupported, true),
+  kase("layouts-write/patch-200", "/v1/layouts/:ref", layoutsWritePatchOk, true),
 
-  kase("layouts-like/put-200", "/v1/layouts/:ref/like", layoutsLikePutOk),
-  kase("layouts-like/delete-200", "/v1/layouts/:ref/like", layoutsLikeDeleteOk),
-  kase("layouts-like/put-400-qwerty", "/v1/layouts/:ref/like", layoutsLikeQwerty),
+  kase("layouts-like/put-200", "/v1/layouts/:ref/like", layoutsLikePutOk, true),
+  kase("layouts-like/delete-200", "/v1/layouts/:ref/like", layoutsLikeDeleteOk, true),
+  kase("layouts-like/put-400-qwerty", "/v1/layouts/:ref/like", layoutsLikeQwerty, true),
 
-  kase("ratelimit/429", "/v1/layouts", ratelimit429),
+  kase("ratelimit/429", "/v1/layouts", ratelimit429, true),
+
+  ...T6_CASES,
 ];

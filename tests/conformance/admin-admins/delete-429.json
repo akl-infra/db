@@ -1,0 +1,21 @@
+{
+  "request": {
+    "method": "DELETE",
+    "path": "/v1/admin/admins/800000000000000099",
+    "bearer": "conformance-ratelimited-token"
+  },
+  "response": {
+    "status": 429,
+    "headers": {
+      "Content-Type": "application/json",
+      "Retry-After": "600"
+    },
+    "body": {
+      "error": "rate_limited",
+      "message": "rate limit exceeded: 60 writes per 600s",
+      "limit": 60,
+      "window_seconds": 600,
+      "retry_after": 600
+    }
+  }
+}

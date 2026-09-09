@@ -1,0 +1,28 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/layouts/__CW_RESTORE_TAKEN_ID__/restore",
+    "bearer": "conformance-owner-token",
+    "setup": [
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-owner-token",
+        "body": { "name": "cw-restore-taken-1", "format": "cmini/1", "payload": { "board": "ortho", "keys": {} } }
+      }
+    ]
+  },
+  "response": {
+    "status": 409,
+    "headers": { "Content-Type": "application/json" },
+    "body": {
+      "error": "name_taken",
+      "message": "name 'cw-restore-taken-1' is already taken",
+      "name": "cw-restore-taken-1",
+      "holder": {
+        "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "owner": "800000000000000001"
+      }
+    }
+  }
+}

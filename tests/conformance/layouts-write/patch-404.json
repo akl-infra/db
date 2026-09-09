@@ -1,0 +1,17 @@
+{
+  "request": {
+    "method": "PATCH",
+    "path": "/v1/layouts/cw-patch-404-nonexistent",
+    "bearer": "conformance-owner-token",
+    "body": { "name": "cw-patch-404-doesnt-matter" }
+  },
+  "response": {
+    "status": 404,
+    "headers": { "Content-Type": "application/json" },
+    "body": {
+      "error": "not_found",
+      "message": "no layout 'cw-patch-404-nonexistent'",
+      "ref": "cw-patch-404-nonexistent"
+    }
+  }
+}

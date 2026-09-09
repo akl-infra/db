@@ -8,7 +8,22 @@
 import { env } from "cloudflare:test";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Bindings } from "../../src/env";
-import { badRequest, notAdmin, notFound, unknownFormat, unauthorized } from "../../src/core/errors";
+import {
+  badRequest,
+  identityUnavailable,
+  invalidName,
+  lastAdmins,
+  nameTaken,
+  notAdmin,
+  notFound,
+  notOwner,
+  rateLimited,
+  stale,
+  tokenInvalid,
+  unknownFormat,
+  unauthorized,
+  unsupportedForFormat,
+} from "../../src/core/errors";
 import { appendWrite } from "../../src/core/events";
 import { fixedClock, type Clock } from "../../src/core/time";
 import { app } from "../../src/index";
@@ -44,6 +59,13 @@ const CONFORMANCE_CLOCK_ISO = "2026-06-20T00:00:00.000Z";
 const CONFORMANCE_OWNER = "800000000000000001";
 const CONFORMANCE_TARGET = "810000000000000001";
 const CONFORMANCE_RATELIMITED = "820000000000000001"; // T5: an actor no other case's writes touch
+// T6: a second write-actor for the handful of new cases whose own `setup`
+// runs 2-3 write attempts each (patch-409-name_taken, e.g.) -- keeping
+// every one of those on CONFORMANCE_OWNER would push its cumulative
+// attempt count (already ~50 across the T2-T5 fixtures) past the 60/10min
+// write limit (09 §2.5) partway through this file, 429-ing later cases
+// for a reason that has nothing to do with what they're testing.
+const CONFORMANCE_OWNER2 = "830000000000000001";
 const CMINI_PAYLOAD = { board: "ortho" as const, keys: {} };
 const ID_PLACEHOLDERS: Record<string, string> = {};
 
@@ -90,10 +112,44 @@ async function seedWriteFixtures(): Promise<void> {
   // window no other case touches -- CONFORMANCE_OWNER's own window already
   // accumulates one attempt per layouts-write/* case above, which would
   // make a fixed setup-step count fragile against future additions there.
+  // T6 reuses the SAME token for every other route's own 429 case (each
+  // positioned after `ratelimit/429` in CASES) -- once that case's 60
+  // setup POSTs + its own real POST exhaust the window, the actor stays
+  // over limit for the rest of the run (the clock never advances), so no
+  // second exhaustion dance is needed per route.
   fake.setAnswer("conformance-ratelimited-token", {
     kind: "ok",
     id: CONFORMANCE_RATELIMITED,
     username: "conformance-ratelimited",
+    global_name: null,
+  });
+  // T6's A-group (09 §2.1, §4): every write route's 401 `token_invalid` case
+  // needs a bearer Discord itself rejects. No `setAnswer` call for it --
+  // `FakeDiscord`'s own default answer (any unregistered token -> 401) IS
+  // the fixture, so this token is deliberately absent from the map:
+  // "conformance-invalid-token".
+  //
+  // The 503 `identity_unavailable` cases need Discord to answer something
+  // that's neither 200 nor 401 -- `resolveBearer` never caches that outcome
+  // (09 §2.2), so every reuse of this token re-hits the fake, unlike the
+  // tokens above.
+  fake.setAnswer("conformance-unavailable-token", { kind: "status", status: 500 });
+  // T6's `not_owner`/403 cases: a second real actor who owns nothing
+  // touched by `seedWriteFixtures` -- reuses CONFORMANCE_TARGET (already an
+  // `authors` row below, for `transfer`) rather than minting a third id.
+  fake.setAnswer("conformance-other-token", {
+    kind: "ok",
+    id: CONFORMANCE_TARGET,
+    username: "conformance-transfer-target",
+    global_name: null,
+  });
+  // T6's second write-actor (see CONFORMANCE_OWNER2's own comment) -- only
+  // used as the creator/owner of a record in a handful of write-heavy
+  // cases, never as the "other" (non-owner) caller.
+  fake.setAnswer("conformance-owner2-token", {
+    kind: "ok",
+    id: CONFORMANCE_OWNER2,
+    username: "conformance-owner2",
     global_name: null,
   });
   vi.stubGlobal("fetch", fake.fetchImpl);
@@ -140,6 +196,56 @@ async function seedWriteFixtures(): Promise<void> {
   ID_PLACEHOLDERS.__CW_RESTORE_LIVE_ID__ = restoreLive.id;
 }
 
+// T6: two more tombstones for `restore-403-not_owner`/`restore-409-name_taken`
+// (09 §3 T6), each addressed only by id (a tombstone has no live name, so a
+// case's own `request.setup` -- whose responses are discarded -- can never
+// learn one). Deliberately NOT folded into `seedWriteFixtures` above: that
+// function runs before EVERY needsSeed case (triggered by the first one,
+// "layouts-write/post-201"), so adding events to it shifts the global `seq`
+// every earlier-declared case with a baked-in `last_write.seq` literal
+// depends on (`put-409-stale`, e.g. -- the exact landmine seedWriteFixtures'
+// own comment warns about). This second lazy seed is triggered only by the
+// two restore cases that need it, both declared near the end of T6_CASES,
+// well after every seq-pinning case earlier in CASES has already run.
+let restoreExtrasReady: Promise<void> | null = null;
+
+function ensureRestoreExtras(): Promise<void> {
+  if (restoreExtrasReady === null) restoreExtrasReady = seedRestoreExtras();
+  return restoreExtrasReady;
+}
+
+async function seedRestoreExtras(): Promise<void> {
+  const restoreOther = await seedLive("cw-restore-other-1");
+  await appendWrite(db, fixedClock(CONFORMANCE_CLOCK_ISO), {
+    kind: "deleted",
+    layoutId: restoreOther.id,
+    name: restoreOther.name,
+    owner: restoreOther.owner,
+    modified_at: CONFORMANCE_CLOCK_ISO,
+    format: restoreOther.format,
+    payload: restoreOther.payload,
+    actor: CONFORMANCE_OWNER,
+    via: "discord",
+    deleted: true,
+  });
+  ID_PLACEHOLDERS.__CW_RESTORE_OTHER_ID__ = restoreOther.id; // 403 not_owner: restored by conformance-other-token
+
+  const restoreTaken = await seedLive("cw-restore-taken-1");
+  await appendWrite(db, fixedClock(CONFORMANCE_CLOCK_ISO), {
+    kind: "deleted",
+    layoutId: restoreTaken.id,
+    name: restoreTaken.name,
+    owner: restoreTaken.owner,
+    modified_at: CONFORMANCE_CLOCK_ISO,
+    format: restoreTaken.format,
+    payload: restoreTaken.payload,
+    actor: CONFORMANCE_OWNER,
+    via: "discord",
+    deleted: true,
+  });
+  ID_PLACEHOLDERS.__CW_RESTORE_TAKEN_ID__ = restoreTaken.id; // 409 name_taken: its case's own `setup` re-takes "cw-restore-taken-1" live before restoring
+}
+
 beforeAll(async () => {
   await seedUpstream100();
 });
@@ -161,17 +267,20 @@ function resolvePath(path: string): string {
 describe("conformance fixtures", () => {
   for (const kase of CASES) {
     it(kase.id, async () => {
-      // T3's admin-admins/*, T5's layouts-like/* and ratelimit/* cases are
-      // all seeded by the same lazy fixture set as T2's layouts-write/* --
-      // one memoized seed, several trigger prefixes (07 §6 S6/09 §3 T2's
-      // comment above explains why this can't be `beforeAll`).
-      if (
-        kase.id.startsWith("layouts-write/") ||
-        kase.id.startsWith("admin-admins/") ||
-        kase.id.startsWith("layouts-like/") ||
-        kase.id.startsWith("ratelimit/")
-      ) {
+      // T3's admin-admins/*, T5's layouts-like/*/ratelimit/*, and T6's
+      // A-group/403/404/409 cases across every route are all seeded by the
+      // same lazy fixture set as T2's layouts-write/* -- one memoized seed,
+      // triggered by the manifest's own `needsSeed` flag rather than a
+      // hand-listed set of id prefixes (07 §6 S6/09 §3 T2's comment above
+      // explains why this can't be `beforeAll`; manifest.ts's `needsSeed`
+      // doc explains why a flag replaced the prefix list).
+      if (kase.needsSeed) {
         await ensureWriteFixtures();
+      }
+      // T6: the two restore cases that need a second, later-seeded pair of
+      // tombstones (see `seedRestoreExtras`'s comment above).
+      if (kase.id === "layouts-write/restore-403-not_owner" || kase.id === "layouts-write/restore-409-name_taken") {
+        await ensureRestoreExtras();
       }
       await assertConformanceCase(kase, resolvePath);
     });
@@ -179,20 +288,49 @@ describe("conformance fixtures", () => {
 });
 
 // --- enumeration: routes from app.routes, error codes from errors.ts -----
+// T6 (09 §3 T6, §4): REQUIRED is now a full (method, status[, code]) sweep,
+// keyed "METHOD /path" (Hono's own path-template spelling) over EVERY live
+// route, not just GET. A route or a (route, status, code) with no fixture
+// case fails the enumeration test below; a fixture case naming a
+// (route, status, code) not in REQUIRED fails it too (LDB-P7/LDB-R3's
+// "both directions" property).
 
 const ERROR_CODES = {
   unauthorized: unauthorized().body.error,
+  token_invalid: tokenInvalid().body.error,
+  identity_unavailable: identityUnavailable().body.error,
   bad_request: badRequest("x").body.error,
+  // No dedicated constructor -- a format's `validate()`/an `edits.set*`
+  // returns this literal directly (formats/cmini/1/index.ts, edits.ts).
+  invalid_payload: "invalid_payload",
+  invalid_name: invalidName("x", "x").body.error,
   unknown_format: unknownFormat("x", []).body.error,
-  not_found: notFound("x").body.error,
+  not_owner: notOwner("x", "x").body.error,
   not_admin: notAdmin().body.error,
+  not_found: notFound("x").body.error,
+  name_taken: nameTaken("x").body.error,
+  stale: stale({ rev: 1 }, { seq: 1, at: "x", actor: "x", via: "x", kind: "x", admin: false }).body.error,
+  last_admins: lastAdmins(1).body.error,
+  rate_limited: rateLimited(60, 600, 600).body.error,
+  unsupported_for_format: unsupportedForFormat("x", "x").body.error,
 };
-
 interface RequiredCase {
   status: number;
   code?: string;
 }
 
+// The A-group every authenticated route shares (09 §4: "every authenticated
+// route has all three"). `RL` is 429 `rate_limited`, appended separately
+// (write routes only) -- NOT part of `A` itself (09 §4's table lists it
+// after "A", never inside it: `GET /v1/me` and `GET /v1/admin/admins` get
+// `A` with no 429, since `rateLimitWrites` skips GET/HEAD/OPTIONS same as
+// `requireActorOnWrites`, 09 §2.1/§2.5).
+const A: RequiredCase[] = [
+  { status: 401, code: ERROR_CODES.unauthorized },
+  { status: 401, code: ERROR_CODES.token_invalid },
+  { status: 503, code: ERROR_CODES.identity_unavailable },
+];
+const RL: RequiredCase = { status: 429, code: ERROR_CODES.rate_limited };
 // Hand-authored (route semantics aren't derivable from the route table
 // itself): which (status[, error code]) pairs a route can actually
 // produce. `held` is deliberately absent here -- phase 1's only two
@@ -201,79 +339,164 @@ interface RequiredCase {
 // response; that behaviour is covered instead by held.test.ts's
 // test-only format (LDB-F9), in its own isolated storage.
 const REQUIRED: Record<string, RequiredCase[]> = {
-  "/v1/meta": [{ status: 200 }, { status: 304 }],
-  // /v1/me: the user lane (T1). Only the anonymous 401 is reproducible from a
-  // static fixture -- a 200 needs a Discord bearer, which discord.test.ts /
-  // me.test.ts cover with the injected fake.
-  "/v1/me": [{ status: 401, code: ERROR_CODES.unauthorized }],
-  "/v1/layouts": [
+  // --- phase 1 (unauthenticated GET routes; S6's set, unchanged) --------
+  "GET /v1/meta": [{ status: 200 }, { status: 304 }],
+  "GET /v1/layouts": [
     { status: 200 },
     { status: 400, code: ERROR_CODES.bad_request },
     { status: 400, code: ERROR_CODES.unknown_format },
     { status: 304 },
   ],
-  "/v1/layouts/:ref": [
+  "GET /v1/layouts/:ref": [
     { status: 200 },
     { status: 404, code: ERROR_CODES.not_found },
     { status: 400, code: ERROR_CODES.unknown_format },
   ],
-  "/v1/layouts/:ref/likes": [{ status: 200 }, { status: 404, code: ERROR_CODES.not_found }],
-  "/v1/layouts/:ref/history": [{ status: 200 }, { status: 404, code: ERROR_CODES.not_found }],
-  "/v1/layouts/:ref/rev/:n": [
+  "GET /v1/layouts/:ref/likes": [{ status: 200 }, { status: 404, code: ERROR_CODES.not_found }],
+  "GET /v1/layouts/:ref/history": [{ status: 200 }, { status: 404, code: ERROR_CODES.not_found }],
+  "GET /v1/layouts/:ref/rev/:n": [
     { status: 200 },
     { status: 404, code: ERROR_CODES.not_found },
     { status: 400, code: ERROR_CODES.bad_request },
     { status: 400, code: ERROR_CODES.unknown_format },
   ],
-  "/v1/authors": [{ status: 200 }, { status: 304 }],
-  "/v1/authors/:user_id": [{ status: 200 }, { status: 404, code: ERROR_CODES.not_found }],
-  "/v1/formats": [{ status: 200 }],
-  "/v1/formats/:name/:major/schema.json": [{ status: 200 }, { status: 404, code: ERROR_CODES.not_found }],
-  "/v1/changes": [{ status: 200 }, { status: 400, code: ERROR_CODES.bad_request }, { status: 304 }],
+  "GET /v1/authors": [{ status: 200 }, { status: 304 }],
+  "GET /v1/authors/:user_id": [{ status: 200 }, { status: 404, code: ERROR_CODES.not_found }],
+  "GET /v1/formats": [{ status: 200 }],
+  "GET /v1/formats/:name/:major/schema.json": [{ status: 200 }, { status: 404, code: ERROR_CODES.not_found }],
+  "GET /v1/changes": [{ status: 200 }, { status: 400, code: ERROR_CODES.bad_request }, { status: 304 }],
   // No dump exists in the conformance seed (only the cmini import tick
   // runs) -- every dump route's only reachable status here is 404
   // (tests/rehost.test.ts and tests/api/dump.test.ts cover the 200/302
   // paths against a real dump).
-  "/v1/dump": [{ status: 404, code: ERROR_CODES.not_found }],
-  "/v1/dump/latest.json": [{ status: 404, code: ERROR_CODES.not_found }],
-  "/v1/dump/:key": [{ status: 404, code: ERROR_CODES.not_found }],
-  "/v1/dump/monthly/:key": [{ status: 404, code: ERROR_CODES.not_found }],
-  // 09 §3 T3: the enumeration stays GET-only until T6's (method, status)
-  // sweep -- POST/DELETE /v1/admin/* aren't required here yet, but this GET
-  // is a live route now, so it needs an entry or the sweep below fails.
-  "/v1/admin/admins": [
-    { status: 200 },
-    { status: 401, code: ERROR_CODES.unauthorized },
-    { status: 403, code: ERROR_CODES.not_admin },
+  "GET /v1/dump": [{ status: 404, code: ERROR_CODES.not_found }],
+  "GET /v1/dump/latest.json": [{ status: 404, code: ERROR_CODES.not_found }],
+  "GET /v1/dump/:key": [{ status: 404, code: ERROR_CODES.not_found }],
+  "GET /v1/dump/monthly/:key": [{ status: 404, code: ERROR_CODES.not_found }],
+
+  // --- phase 2: the user lane (T1) ---------------------------------------
+  "GET /v1/me": [{ status: 200 }, ...A],
+  // --- phase 2: write verbs on the record (T2, T4) -----------------------
+  "POST /v1/layouts": [
+    { status: 201 },
+    ...A,
+    { status: 400, code: ERROR_CODES.bad_request },
+    { status: 400, code: ERROR_CODES.invalid_name },
+    { status: 400, code: ERROR_CODES.invalid_payload },
+    { status: 400, code: ERROR_CODES.unknown_format },
+    { status: 409, code: ERROR_CODES.name_taken },
+    RL,
   ],
+  "PUT /v1/layouts/:ref": [
+    { status: 200 },
+    ...A,
+    { status: 400, code: ERROR_CODES.bad_request },
+    { status: 400, code: ERROR_CODES.invalid_payload },
+    { status: 400, code: ERROR_CODES.unknown_format },
+    { status: 403, code: ERROR_CODES.not_owner },
+    { status: 404, code: ERROR_CODES.not_found },
+    { status: 409, code: ERROR_CODES.stale },
+    RL,
+  ],
+  "PATCH /v1/layouts/:ref": [
+    { status: 200 },
+    ...A,
+    { status: 400, code: ERROR_CODES.bad_request },
+    { status: 400, code: ERROR_CODES.invalid_name },
+    { status: 400, code: ERROR_CODES.invalid_payload },
+    { status: 400, code: ERROR_CODES.unsupported_for_format },
+    { status: 403, code: ERROR_CODES.not_owner },
+    { status: 404, code: ERROR_CODES.not_found },
+    { status: 409, code: ERROR_CODES.name_taken },
+    { status: 409, code: ERROR_CODES.stale },
+    RL,
+  ],
+  "DELETE /v1/layouts/:ref": [
+    { status: 200 },
+    ...A,
+    { status: 400, code: ERROR_CODES.bad_request },
+    { status: 403, code: ERROR_CODES.not_owner },
+    { status: 404, code: ERROR_CODES.not_found },
+    { status: 409, code: ERROR_CODES.stale },
+    RL,
+  ],
+  "POST /v1/layouts/:ref/restore": [
+    { status: 200 },
+    ...A,
+    { status: 400, code: ERROR_CODES.bad_request },
+    { status: 403, code: ERROR_CODES.not_owner },
+    { status: 404, code: ERROR_CODES.not_found },
+    { status: 409, code: ERROR_CODES.name_taken },
+    RL,
+  ],
+  "POST /v1/layouts/:ref/transfer": [
+    { status: 200 },
+    ...A,
+    { status: 400, code: ERROR_CODES.bad_request },
+    { status: 403, code: ERROR_CODES.not_owner },
+    { status: 404, code: ERROR_CODES.not_found },
+    RL,
+  ],
+  // --- phase 2: likes (T5) ------------------------------------------------
+  "PUT /v1/layouts/:ref/like": [
+    { status: 200 },
+    ...A,
+    { status: 400, code: ERROR_CODES.bad_request },
+    { status: 404, code: ERROR_CODES.not_found },
+    RL,
+  ],
+  "DELETE /v1/layouts/:ref/like": [
+    { status: 200 },
+    ...A,
+    { status: 400, code: ERROR_CODES.bad_request },
+    { status: 404, code: ERROR_CODES.not_found },
+    RL,
+  ],
+
+  // --- phase 2: admins as data (T3) --------------------------------------
+  "GET /v1/admin/admins": [{ status: 200 }, ...A, { status: 403, code: ERROR_CODES.not_admin }],
+  "POST /v1/admin/admins": [
+    { status: 201 },
+    { status: 200 }, // idempotent re-add
+    ...A,
+    { status: 400, code: ERROR_CODES.bad_request },
+    { status: 403, code: ERROR_CODES.not_admin },
+    RL,
+  ],
+  "DELETE /v1/admin/admins/:user_id": [
+    { status: 200 },
+    ...A,
+    { status: 403, code: ERROR_CODES.not_admin },
+    { status: 404, code: ERROR_CODES.not_found },
+    { status: 409, code: ERROR_CODES.last_admins },
+    RL,
+  ],
+  "POST /v1/admin/import/pause": [{ status: 200 }, ...A, { status: 403, code: ERROR_CODES.not_admin }, RL],
+  "POST /v1/admin/import/resume": [{ status: 200 }, ...A, { status: 403, code: ERROR_CODES.not_admin }, RL],
 };
-
 describe("conformance enumeration", () => {
-  const liveGetRoutes = [...new Set(app.routes.filter((r) => r.method === "GET").map((r) => r.path))];
-  // REQUIRED stays GET-only (T6's sweep is the slice that rebuilds it as a
-  // (method, status) enumeration over every verb -- 09 §3 T6). This second,
-  // wider set exists ONLY so a non-GET case (T2's write routes: POST/PUT/
-  // DELETE all share a route TABLE path with an existing GET, except
-  // restore/transfer which have none) can still be caught if its
-  // `routeTemplate` is a typo, without requiring every write verb to gain a
-  // REQUIRED row before T6 lands.
-  const livePaths = [...new Set(app.routes.map((r) => r.path))];
+  // `app.routes` also lists the two `app.use("/v1/*", ...)` middleware
+  // registrations (`requireActorOnWrites`, `rateLimitWrites`) as method
+  // "ALL" -- not a route a client can address, so it's excluded here
+  // rather than given a REQUIRED entry.
+  const liveRoutes = [...new Set(app.routes.filter((r) => r.method !== "ALL").map((r) => `${r.method} ${r.path}`))];
 
-  it("every live GET route has a REQUIRED entry", () => {
-    for (const path of liveGetRoutes) {
-      expect(Object.keys(REQUIRED), `route '${path}' has no REQUIRED entry`).toContain(path);
+  it("every live route has a REQUIRED entry", () => {
+    for (const route of liveRoutes) {
+      expect(Object.keys(REQUIRED), `route '${route}' has no REQUIRED entry`).toContain(route);
     }
   });
 
   it("every REQUIRED route is actually live", () => {
-    for (const path of Object.keys(REQUIRED)) {
-      expect(liveGetRoutes, `REQUIRED references '${path}', not a live route`).toContain(path);
+    for (const route of Object.keys(REQUIRED)) {
+      expect(liveRoutes, `REQUIRED references '${route}', not a live route`).toContain(route);
     }
   });
 
-  it("every manifest case names a live route", () => {
+  it("every manifest case names a live (method, route)", () => {
     for (const kase of CASES) {
-      expect(livePaths, `case '${kase.id}' names unknown route '${kase.routeTemplate}'`).toContain(kase.routeTemplate);
+      const route = `${kase.request.method} ${kase.routeTemplate}`;
+      expect(liveRoutes, `case '${kase.id}' names unknown route '${route}'`).toContain(route);
     }
   });
 
@@ -282,7 +505,7 @@ describe("conformance enumeration", () => {
     for (const [route, required] of Object.entries(REQUIRED)) {
       for (const req of required) {
         const found = CASES.some((kase) => {
-          if (kase.routeTemplate !== route || kase.response.status !== req.status) return false;
+          if (`${kase.request.method} ${kase.routeTemplate}` !== route || kase.response.status !== req.status) return false;
           if (req.code === undefined) return true;
           const body = kase.response.body as { error?: string } | undefined;
           return body?.error === req.code;
@@ -291,6 +514,21 @@ describe("conformance enumeration", () => {
       }
     }
     expect(missing, `missing conformance cases:\n${missing.join("\n")}`).toEqual([]);
+  });
+
+  it("[LDB-P7] [LDB-R3] every case names a (route, status[, code]) pair that is REQUIRED", () => {
+    const extra: string[] = [];
+    for (const kase of CASES) {
+      const route = `${kase.request.method} ${kase.routeTemplate}`;
+      const required = REQUIRED[route] ?? [];
+      const body = kase.response.body as { error?: string } | undefined;
+      const code = kase.response.status >= 400 ? body?.error : undefined;
+      const known = required.some(
+        (req) => req.status === kase.response.status && (req.code === undefined ? code === undefined : req.code === code),
+      );
+      if (!known) extra.push(`${kase.id} -> ${route} ${kase.response.status}${code ? ` (${code})` : ""}`);
+    }
+    expect(extra, `cases naming a (route, status, code) not in REQUIRED:\n${extra.join("\n")}`).toEqual([]);
   });
 
   it("every case body claiming an error code carries 'error' and 'message'", () => {

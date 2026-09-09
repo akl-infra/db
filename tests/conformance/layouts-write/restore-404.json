@@ -1,0 +1,16 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/layouts/cw-restore-404-nonexistent/restore",
+    "bearer": "conformance-owner-token"
+  },
+  "response": {
+    "status": 404,
+    "headers": { "Content-Type": "application/json" },
+    "body": {
+      "error": "not_found",
+      "message": "no layout 'cw-restore-404-nonexistent'",
+      "ref": "cw-restore-404-nonexistent"
+    }
+  }
+}

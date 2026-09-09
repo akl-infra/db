@@ -1,0 +1,40 @@
+{
+  "request": {
+    "method": "PATCH",
+    "path": "/v1/layouts/cw-patch-updated-1",
+    "bearer": "conformance-owner2-token",
+    "body": { "name": "cw-patch-updated-1-new", "fingermap": { "a": "RP" } },
+    "setup": [
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-owner2-token",
+        "body": {
+          "name": "cw-patch-updated-1",
+          "format": "cmini/1",
+          "payload": { "board": "ortho", "keys": { "a": { "row": 0, "col": 0, "finger": "LP" } } }
+        }
+      }
+    ]
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json",
+      "ETag": "\"2\""
+    },
+    "body": {
+      "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "name": "cw-patch-updated-1-new",
+      "owner": "830000000000000001",
+      "rev": 2,
+      "created_at": "2026-06-20T00:00:00.000Z",
+      "modified_at": "2026-06-20T00:00:00.000Z",
+      "deleted": false,
+      "like_count": 0,
+      "has_magic": false,
+      "format": "cmini/1",
+      "payload": { "board": "ortho", "keys": { "a": { "row": 0, "col": 0, "finger": "RP" } } }
+    }
+  }
+}

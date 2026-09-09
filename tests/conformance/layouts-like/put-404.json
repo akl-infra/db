@@ -1,0 +1,16 @@
+{
+  "request": {
+    "method": "PUT",
+    "path": "/v1/layouts/cw-like-404-nonexistent/like",
+    "bearer": "conformance-owner-token"
+  },
+  "response": {
+    "status": 404,
+    "headers": { "Content-Type": "application/json" },
+    "body": {
+      "error": "not_found",
+      "message": "no layout 'cw-like-404-nonexistent'",
+      "ref": "cw-like-404-nonexistent"
+    }
+  }
+}

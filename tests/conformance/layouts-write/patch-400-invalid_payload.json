@@ -1,0 +1,29 @@
+{
+  "request": {
+    "method": "PATCH",
+    "path": "/v1/layouts/cw-patch-badpayload-1",
+    "bearer": "conformance-owner-token",
+    "body": { "fingermap": { "z": "RP" } },
+    "setup": [
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-owner-token",
+        "body": {
+          "name": "cw-patch-badpayload-1",
+          "format": "cmini/1",
+          "payload": { "board": "ortho", "keys": { "a": { "row": 0, "col": 0, "finger": "LP" } } }
+        }
+      }
+    ]
+  },
+  "response": {
+    "status": 400,
+    "headers": { "Content-Type": "application/json" },
+    "body": {
+      "error": "invalid_payload",
+      "message": "fingermap names a char not in this layout's keys: \"z\"",
+      "path": "/keys/z"
+    }
+  }
+}

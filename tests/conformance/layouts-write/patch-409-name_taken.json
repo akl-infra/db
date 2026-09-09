@@ -1,0 +1,35 @@
+{
+  "request": {
+    "method": "PATCH",
+    "path": "/v1/layouts/cw-patch-nametaken-src-1",
+    "bearer": "conformance-owner2-token",
+    "body": { "name": "cw-patch-nametaken-target-1" },
+    "setup": [
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-owner2-token",
+        "body": { "name": "cw-patch-nametaken-target-1", "format": "cmini/1", "payload": { "board": "ortho", "keys": {} } }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-owner2-token",
+        "body": { "name": "cw-patch-nametaken-src-1", "format": "cmini/1", "payload": { "board": "ortho", "keys": {} } }
+      }
+    ]
+  },
+  "response": {
+    "status": 409,
+    "headers": { "Content-Type": "application/json" },
+    "body": {
+      "error": "name_taken",
+      "message": "name 'cw-patch-nametaken-target-1' is already taken",
+      "name": "cw-patch-nametaken-target-1",
+      "holder": {
+        "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "owner": "830000000000000001"
+      }
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/me",
+    "bearer": "conformance-owner-token"
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "body": {
+      "user_id": "800000000000000001",
+      "name": "conformance-owner",
+      "via": "discord",
+      "admin": false
+    }
+  }
+}

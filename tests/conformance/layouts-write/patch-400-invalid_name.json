@@ -1,0 +1,25 @@
+{
+  "request": {
+    "method": "PATCH",
+    "path": "/v1/layouts/cw-patch-badname-1",
+    "bearer": "conformance-owner-token",
+    "body": { "name": "_bad" },
+    "setup": [
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-owner-token",
+        "body": { "name": "cw-patch-badname-1", "format": "cmini/1", "payload": { "board": "ortho", "keys": {} } }
+      }
+    ]
+  },
+  "response": {
+    "status": 400,
+    "headers": { "Content-Type": "application/json" },
+    "body": {
+      "error": "invalid_name",
+      "message": "names cannot start with an underscore",
+      "name": "_bad"
+    }
+  }
+}

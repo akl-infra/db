@@ -15,7 +15,7 @@ the S1 rows only.
 | id | invariant | enforced by |
 |---|---|---|
 | LDB-A1 | No write is accepted without a resolved actor; every non-GET route answers 401 to an anonymous request (enumerated from the router) | `tests/auth/routes.test.ts` |
-| LDB-A2 | The Discord cache serves a success ≤ 5 min and a 401 ≤ 60 s; 5xx/429/network are never cached; the token is never stored | `tests/auth/discord.test.ts` |
+| LDB-A2 | The Discord cache serves a success ≤ 5 min and a 401 ≤ 60 s; 5xx/429/network are never cached; the token is never stored | `tests/auth/discord.test.ts`, `tests/api/me.test.ts` |
 | LDB-A5 | Every accepted write's event carries `via`; every admin action is an event with `admin = 1` | `tests/api/admin.test.ts` |
 | LDB-A6 | The admins table never has fewer than two active rows after bootstrap (the count check and the delete are one statement, so two concurrent removes at three rows can't both commit) | `tests/api/admin.test.ts` |
 | LDB-A7 | Owner changes only via `transfer`; a write body naming `owner` (or any field outside the verb's schema) is refused | `tests/api/bodies.test.ts`, `tests/api/write.test.ts`, `tests/api/transfer.test.ts` |
@@ -41,7 +41,7 @@ the S1 rows only.
 | LDB-G5 | Nothing imports across the `db/` boundary in either direction | `tests/tools/boundary.test.ts` |
 | LDB-I1 | The import is idempotent: the same upstream state twice appends zero events | `tests/import/tick.test.ts` |
 | LDB-I2 | The import never overwrites a record that does not follow upstream | `tests/import/cases.test.ts` |
-| LDB-I2a | "Follows upstream" ⇔ the record's latest rev-bumping event has `via = import:cmini` | `tests/events/follows.test.ts` |
+| LDB-I2a | "Follows upstream" ⇔ the record's latest rev-bumping event has `via = import:cmini` | `tests/events/follows.test.ts`, `tests/api/restore.test.ts` |
 | LDB-I3 | Tombstoning more than `max(5, 5%)` of live records in one tick stalls the import instead | `tests/import/plan.test.ts` |
 | LDB-I4 | Every import event carries `via = import:cmini` and `actor = system:cmini-import` (likes: the liking user) | `tests/import/cases.test.ts` |
 | LDB-I5 | Imported names are stored verbatim (case kept, `check_name` not applied) and are unique case-insensitively | `tests/import/cases.test.ts` |
@@ -51,9 +51,9 @@ the S1 rows only.
 | LDB-I9 | Upstream JSON is parsed only through `core/safejson.ts`: Go's `\u003c`/`\u003e`/`\u0026` escapes are rewritten to literals before `JSON.parse` (a reproduced V8 bug decodes escaped object keys non-deterministically on the ~5 MB `?full=1` body, in Node and in workerd), an escaped backslash is never touched, and the parse is checked against a second parse | `tests/core/safejson.test.ts`; `tests/import/upstream.test.ts` |
 | LDB-L1 | Likes move `like_count`, `likes` and `meta.revision`/`seq` only -- never `rev`, `modified_at` or `layouts_modified_at`; concurrent likes are counted exactly | `tests/api/likes.test.ts` |
 | LDB-N1 | `check_name` is the bot's rule set with the bot's strings (`NAME_SET` minus the space), plus the 64-char cap and the ULID-shape refusal, applied to `POST` and rename only | `tests/api/names.test.ts`, `tests/api/patch.test.ts` |
-| LDB-P1 | Every write appends exactly one rev-bumping event and one `layout_revs` row; the record equals the fold of its events; `seq` is gapless | `tests/events/fold.test.ts`, `tests/tools/onlywriter.test.ts` |
+| LDB-P1 | Every write appends exactly one rev-bumping event and one `layout_revs` row; the record equals the fold of its events; `seq` is gapless | `tests/events/fold.test.ts`, `tests/events/races.test.ts`, `tests/tools/onlywriter.test.ts` |
 | LDB-P2 | An `If-Match` mismatch writes nothing and returns the current record; two writes at one `rev` → exactly one commits, the other gets `stale` with the winner's record; the guard is `layout_revs`' PK inside the batch | `tests/api/ifmatch.test.ts`, `tests/events/fold.test.ts` |
-| LDB-P4 | A name is released only by delete or rename | `tests/events/names.test.ts`, `tests/api/refs.test.ts`, `tests/api/names.test.ts` |
+| LDB-P4 | A name is released only by delete or rename | `tests/events/names.test.ts`, `tests/events/races.test.ts`, `tests/api/refs.test.ts`, `tests/api/names.test.ts`, `tests/api/patch.test.ts` |
 | LDB-P5 | Every following record read `?as=cmini/1` equals upstream on the projection (likes sorted) | `tests/upstream-diff.test.ts` (daily, live), `tests/import/diff-unit.test.ts` (unit half, over `upstream-100`) |
 | LDB-P6 | `/v1/changes` serves from `since=0`, including after a restore | `tests/events/feed.test.ts`, `tests/rehost.test.ts` |
 | LDB-P7 | Every error response carries `error` and `message`; every (route, status) pair has a conformance case | `tests/api/conformance.test.ts` |

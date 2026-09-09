@@ -1,0 +1,17 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/admin/admins",
+    "bearer": "conformance-admin-token",
+    "body": { "user_id": "123" }
+  },
+  "response": {
+    "status": 400,
+    "headers": { "Content-Type": "application/json" },
+    "body": {
+      "error": "bad_request",
+      "message": "body/user_id must match pattern \"^\\d{17,20}$\"",
+      "param": "/user_id"
+    }
+  }
+}

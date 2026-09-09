@@ -1,0 +1,25 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/layouts/cw-transfer-notowner-1/transfer",
+    "bearer": "conformance-other-token",
+    "body": { "to": "800000000000000001" },
+    "setup": [
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-owner-token",
+        "body": { "name": "cw-transfer-notowner-1", "format": "cmini/1", "payload": { "board": "ortho", "keys": {} } }
+      }
+    ]
+  },
+  "response": {
+    "status": 403,
+    "headers": { "Content-Type": "application/json" },
+    "body": {
+      "error": "not_owner",
+      "message": "you don't own a layout named 'cw-transfer-notowner-1'",
+      "owner": "800000000000000001"
+    }
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "request": {
+    "method": "DELETE",
+    "path": "/v1/admin/admins/800000000000000011",
+    "bearer": "conformance-admin-token",
+    "setup": [
+      {
+        "method": "POST",
+        "path": "/v1/admin/admins",
+        "bearer": "conformance-admin-token",
+        "body": { "user_id": "800000000000000011", "note": "conformance temp admin" }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/admin/admins",
+        "bearer": "conformance-admin-token",
+        "body": { "user_id": "800000000000000012", "note": "conformance temp admin" }
+      }
+    ]
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "body": { "removed": "800000000000000011" }
+  }
+}

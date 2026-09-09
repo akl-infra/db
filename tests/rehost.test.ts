@@ -148,27 +148,18 @@ describe("rehost drill", () => {
     // also passes in remote mode against a real production dump. Deliberate
     // exclusions: the four `dump*` cases assume NO dump has been written yet
     // (the plain conformance seed's world); this test has, by construction,
-    // just written or fetched one. The `layouts-write/*` (09 §3 T2),
-    // `layouts-like/*` and `ratelimit/*` (09 §3 T5) cases all assume
-    // tests/api/conformance.test.ts's OWN lazily-seeded write-route fixtures
-    // (`cw-put-1`, `cw-like-1`, the `QWERTY` record, the ratelimited actor,
-    // ...) and an id placeholder (`__CW_RESTORE_ID__`) that only that file's
-    // `ensureWriteFixtures()`/`resolvePath` populate -- this restored
-    // database never had them seeded (only `seedUpstream100()` + the cron
-    // ran here), so they'd 404, 401 (no matching FakeDiscord answer), or
-    // address a literal, unresolved placeholder string. The `admin-admins/*`
-    // cases (09 §3 T3) need a stubbed Discord (no `vi.stubGlobal("fetch",
-    // ...)` runs in this file) -- without it, their bearers hit the real
-    // Discord API and come back `401 token_invalid` instead of the
-    // fixture's expected status.
+    // just written or fetched one. Every `needsSeed` case (09 §3 T6's flag,
+    // manifest.ts) assumes tests/api/conformance.test.ts's OWN lazily-seeded
+    // write fixtures (`cw-put-1`, `cw-like-1`, the `QWERTY` record, the
+    // ratelimited/second-owner/admin actors, the `__CW_RESTORE*_ID__`
+    // placeholders, ...) and its stubbed FakeDiscord -- none of which exist
+    // here (only `seedUpstream100()` + the cron ran), so they'd 404, 401 (no
+    // matching FakeDiscord answer), or address a literal, unresolved
+    // placeholder string. Deriving this from the flag (rather than a
+    // hand-listed set of id prefixes) is what keeps this set in sync with
+    // conformance.test.ts's own trigger as new needsSeed cases are added.
     for (const kase of CASES) {
-      if (
-        kase.id.startsWith("dump") ||
-        kase.id.startsWith("layouts-write/") ||
-        kase.id.startsWith("admin-admins/") ||
-        kase.id.startsWith("layouts-like/") ||
-        kase.id.startsWith("ratelimit/")
-      ) {
+      if (kase.id.startsWith("dump") || kase.needsSeed) {
         continue;
       }
       await assertConformanceCase(kase);

@@ -1,0 +1,17 @@
+{
+  "request": {
+    "method": "PUT",
+    "path": "/v1/layouts/cw-put-404-nonexistent",
+    "bearer": "conformance-owner-token",
+    "body": { "format": "cmini/1", "payload": { "board": "ortho", "keys": {} } }
+  },
+  "response": {
+    "status": 404,
+    "headers": { "Content-Type": "application/json" },
+    "body": {
+      "error": "not_found",
+      "message": "no layout 'cw-put-404-nonexistent'",
+      "ref": "cw-put-404-nonexistent"
+    }
+  }
+}

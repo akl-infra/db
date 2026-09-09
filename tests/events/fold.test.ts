@@ -322,7 +322,7 @@ describe("fold", () => {
   // `commitWrite` is what turns that into `409 stale` at the route layer --
   // this test stays at the pipeline level, like tests/events/races.test.ts),
   // and the fold still equals the row afterward.
-  it("[LDB-P1] a racing Promise.all pair of writes on one slot still folds to the winner's row", async () => {
+  it("[LDB-P1] [LDB-P2] a racing Promise.all pair of writes on one slot still folds to the winner's row", async () => {
     const clock = steppingClock("2026-01-05T00:00:00.000Z", 1000);
 
     await fc.assert(

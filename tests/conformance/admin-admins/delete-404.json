@@ -1,0 +1,16 @@
+{
+  "request": {
+    "method": "DELETE",
+    "path": "/v1/admin/admins/800000000000000098",
+    "bearer": "conformance-admin-token"
+  },
+  "response": {
+    "status": 404,
+    "headers": { "Content-Type": "application/json" },
+    "body": {
+      "error": "not_found",
+      "message": "'800000000000000098' is not an admin",
+      "ref": "800000000000000098"
+    }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "request": {
+    "method": "DELETE",
+    "path": "/v1/admin/admins/184412255822020608",
+    "bearer": "conformance-owner-token"
+  },
+  "response": {
+    "status": 403,
+    "headers": { "Content-Type": "application/json" },
+    "body": {
+      "error": "not_admin",
+      "message": "admin only"
+    }
+  }
+}

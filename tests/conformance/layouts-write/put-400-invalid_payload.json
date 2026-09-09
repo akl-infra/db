@@ -1,0 +1,25 @@
+{
+  "request": {
+    "method": "PUT",
+    "path": "/v1/layouts/cw-put-badpayload-1",
+    "bearer": "conformance-owner-token",
+    "body": { "format": "cmini/1", "payload": { "board": "not-a-board", "keys": {} } },
+    "setup": [
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-owner-token",
+        "body": { "name": "cw-put-badpayload-1", "format": "cmini/1", "payload": { "board": "ortho", "keys": {} } }
+      }
+    ]
+  },
+  "response": {
+    "status": 400,
+    "headers": { "Content-Type": "application/json" },
+    "body": {
+      "error": "invalid_payload",
+      "message": "payload/board must be equal to one of the allowed values",
+      "path": "/board"
+    }
+  }
+}
