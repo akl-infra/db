@@ -87,8 +87,8 @@ cron schedule, the import source URL, the admins bootstrap.
   public reads. Nothing about a layout was ever private in cmini; the DB
   keeps that.
 - The code is public (the repo split in phase 5 makes it its own public
-  repo; `db/` is licensed permissively — MIT — so a fork by anyone is legal
-  as well as possible; `bot/` inherits GPLv3 from cmini's code).
+  repo; `db/` and `bot/` are MIT — a fork by anyone is legal as well as
+  possible; the bot is a rewrite, so nothing of cmini's GPLv3 code is in it).
 - Decisions live in `design/layout-db/` (later `db/docs/decisions/`) as
   numbered ADRs; a proposal is a PR anyone can open.
 
@@ -104,6 +104,6 @@ cron schedule, the import source URL, the admins bootstrap.
 ## 7. Open questions (governance)
 
 1. Org and account names (`00 §6.5`).
-2. MIT for `db/`? (cmini's code is GPLv3; `db/` shares none of it.)
+2. *(resolved)* MIT for `db/` and `bot/` (the bot is a rewrite).
 3. Who owns `mana2/1` on day 1 if Zak declines — the DB maintainers as a
    group, with a note that it is a mirror of mana2's own spec?

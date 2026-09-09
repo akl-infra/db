@@ -23,7 +23,7 @@ The transcript was voice-dictated; these are the readings the plan is built on.
 2. "track **fingerprint**" → fingermap. "**digger** boards versus **Rohde** boards" → column-stagger vs row-stagger, with the amount of stagger recorded. "prematurely **Laur** lower" → lower.
 3. "a proposal … talking about a Federation concept that I don't want to do" → `design/federation/01-design.md` is **not** being built. Its §2 lists why one database is risky (single owner, one person's schema, no home for richer layouts); this plan answers each of those with governance and a format registry instead of with sync (§2 below). Its vocabulary (envelope, `rev`, *held*, *shadowed*, feed-as-truth/push-as-nudge) is reused where it fits.
 4. "start off synchronizing with the cmini database" → one-way import from `clemenpine.com/layoutapi/v3` into ours, continuing while it lives; local edits win per record; nothing is written back upstream (`06-akl-integration.md` §2). **Confirm: no write-through to cmini.**
-5. "the discord bot should be doing more or less the same things that the cmini bot did" → full command parity within reason, starting from the bot's own (GPLv3, already vendored) command code with its file store swapped for our API (`05-bot.md`).
+5. "the discord bot should be doing more or less the same things that the cmini bot did" → full command parity within reason. *(Revised 2026-09-09: a TypeScript rewrite sharing akl.gg's core — mana2 wasm + `cminiRowFromMana2` — not a fork of the Python; prefix tentatively `!aklgg`; `05-bot.md`.)*
 6. "keep the database in this repo for now … one folder … easy to move out later" → `db/` at the repo root: its own Worker, `wrangler.toml`, migrations, tests, `package.json`; no import crosses the `db/` boundary in either direction (§7).
 7. Stats are not the database's job. It stores layouts, ownership, likes and history; every client computes its own numbers (akl.gg with mana2/wasm, the bot with the cmini analyzer). **Confirm.**
 
@@ -147,12 +147,14 @@ DB instead of cmini's API; the extracted files are the same shape (`06 §1`).
   record's own history to decide (`06 §2`).
 - **D10 · Admins are a table, formats have owners, ops are a runbook.**
   `04`.
-- **D11 · The bot starts as a fork of cmini's command code** (GPLv3; it was
-  vendored at `vendor/cmini-analyzer` until #214 removed it — still in
-  history at `a5b0fe35^:vendor/cmini-analyzer`, upstream `068a4f50`, and
-  upstream itself is the better source), file store replaced by an API client;
-  numbers from the cmini analyzer as people expect from that bot; mana2
-  numbers later. Lives in `bot/` under the same move-out rule as `db/`.
+- **D11 · The bot is a TypeScript rewrite that shares akl.gg's logic**
+  (saltorbit, 2026-09-09, replacing round 1's "fork the Python"): no cmini code
+  reused; numbers from the mana2 wasm engine composed into cmini stats by
+  the site's own `cminiRowFromMana2`, so bot and site agree by construction
+  (LDB-B5); cmini's command names, usage lines and wording kept for parity;
+  prefix tentatively `!aklgg`; runs on Fly.io; MIT. `bot/` may import
+  `web/src/core` and `db/formats` (by path until they are packages) and
+  nothing else — the one named exception to §7's rule (`05 §1`).
 - **D12 · Nothing ships to akl.gg's users until the DB is a strict superset
   of what the site shows from cmini today** — verified by a diff, not by eye.
 
@@ -167,14 +169,14 @@ phase 3.
 | **1 · mirror** | `db/` Worker + D1; `formats/{cmini,akl}`; cmini import cron; reads (`/v1/layouts`, `?as=cmini/1`), `/v1/meta`, `/v1/changes`, `/v1/dump` | every record read `?as=cmini/1` equals upstream's copy on the cmini projection (`canonical()`, likes sorted — D12, LDB-P5), daily, three days running |
 | **2 · users write** | user lane auth; POST/PUT/PATCH/DELETE; likes; transfer; event log; admin table; audit page | API suite + conformance vectors; the site's #215 publish UX pointed at the DB, in the preview deploy |
 | **3 · cutover** | akl.gg reads from the DB (pipeline data root, meta-watch), publishes to it; D1 `magic_rules` folded into records | prod on the DB for a week with the cmini import still running; no diff vs cmini for unforked records |
-| **4 · bot** | client lane auth; `bot/` with the DB verbs (`add remove rename assign setfingermap swap! angle! unangle! mirror! cycle! like unlike list likes authors`), then the analyzer verbs | parity table in `05` all green in a test guild |
+| **4 · bot** | client lane auth; `bot/` (TS rewrite on `@akl/core`) with the DB verbs (`add remove rename assign setfingermap swap! angle! unangle! mirror! cycle! like unlike list likes authors`), then the analyzer verbs | parity table in `05` all green in a test guild |
 | **5 · open it** | webhooks; `mana2/1` + one advanced format from its author; org + Cloudflare handover; rehost drill in CI; repo split | a second admin performs the rehost drill without saltorbit |
 
 ## 6. Questions for saltorbit
 
 1. §0 items 1, 4, 7 — confirm the readings (bot lane; no write-back to cmini; DB stores no stats).
 2. **Name and domain.** `api.akl.gg`? The code dir is `db/` either way; the docs say "the layout DB" until named.
-3. **Bot in Python from cmini's GPLv3 code** (fast, exact parity, same numbers) vs a fresh bot? GPL means `bot/` is GPLv3; the DB and the site are unaffected.
+3. *(resolved 2026-09-09)* Bot = TypeScript rewrite sharing akl.gg's core; MIT; Fly.io; prefix tentatively `!aklgg` (`05`).
 4. **Day-1 co-admins**: who? The admins table (`04 §1`) is only democratic if it has two rows before phase 3.
 5. **Org names**: a GitHub org for the DB + bot repos. *(Cloudflare: resolved 2026-09-09 — a new community-owned account, ≥2 Super Admins from day one, its own domain later; `04 §1`, `07 §1`.)*
 6. **Import end state**: keep importing from cmini indefinitely (it stays a source for bot users who never move), or stop at a date?
@@ -206,7 +208,7 @@ db/                      ← the whole service; moves to its own repo as one `gi
   formats/<name>/<N>/    schema.json · index.mjs (validate, lower, to/from) · fixtures/
   tests/                 API suite, conformance vectors, format goldens, rehost drill
   docs/                  the public API reference (generated from 03)
-bot/                     ← same rule; GPLv3; talks to db/ only over HTTP
+bot/                     ← MIT; talks to db/ over HTTP; may import web/src/core + db/formats (05 §1), nothing else
 ```
 
 Rules that keep the move cheap: (a) nothing outside `db/` imports from
