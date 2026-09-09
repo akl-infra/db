@@ -43,6 +43,7 @@ const db = bindings.DB;
 const CONFORMANCE_CLOCK_ISO = "2026-06-20T00:00:00.000Z";
 const CONFORMANCE_OWNER = "800000000000000001";
 const CONFORMANCE_TARGET = "810000000000000001";
+const CONFORMANCE_RATELIMITED = "820000000000000001"; // T5: an actor no other case's writes touch
 const CMINI_PAYLOAD = { board: "ortho" as const, keys: {} };
 const ID_PLACEHOLDERS: Record<string, string> = {};
 
@@ -85,6 +86,16 @@ async function seedWriteFixtures(): Promise<void> {
     username: "conformance-admin",
     global_name: null,
   });
+  // T5's rate-limit case (`ratelimit/429`) needs an actor whose write
+  // window no other case touches -- CONFORMANCE_OWNER's own window already
+  // accumulates one attempt per layouts-write/* case above, which would
+  // make a fixed setup-step count fragile against future additions there.
+  fake.setAnswer("conformance-ratelimited-token", {
+    kind: "ok",
+    id: CONFORMANCE_RATELIMITED,
+    username: "conformance-ratelimited",
+    global_name: null,
+  });
   vi.stubGlobal("fetch", fake.fetchImpl);
   (bindings as unknown as { TEST_CLOCK?: Clock }).TEST_CLOCK = fixedClock(CONFORMANCE_CLOCK_ISO);
 
@@ -103,7 +114,12 @@ async function seedWriteFixtures(): Promise<void> {
   // seq` literal (put-409-stale's, e.g.) by the count added -- instead each
   // patch-*.json fixture creates its own record via its own `request.
   // setup` (the same mechanism post-409-name_taken/put-409-stale already
-  // use), scoped to that one case and touching no one else's numbers.
+  // use), scoped to that one case and touching no one else's numbers. T5's
+  // two records below predate that lesson and are accepted as a one-time,
+  // already-accounted-for shift (put-409-stale's `last_write.seq` literal
+  // reflects it) rather than re-plumbed through per-case `setup`.
+  await seedLive("cw-like-1"); // T5: dedicated so layouts-like/* never touches another case's record
+  await seedLive("QWERTY"); // T5: the bot-parity like refusal (0.1), case-insensitive
 
   const restoreOk = await seedLive("cw-restore-1");
   await appendWrite(db, fixedClock(CONFORMANCE_CLOCK_ISO), {
@@ -145,7 +161,18 @@ function resolvePath(path: string): string {
 describe("conformance fixtures", () => {
   for (const kase of CASES) {
     it(kase.id, async () => {
-      if (kase.id.startsWith("layouts-write/") || kase.id.startsWith("admin-admins/")) await ensureWriteFixtures();
+      // T3's admin-admins/*, T5's layouts-like/* and ratelimit/* cases are
+      // all seeded by the same lazy fixture set as T2's layouts-write/* --
+      // one memoized seed, several trigger prefixes (07 §6 S6/09 §3 T2's
+      // comment above explains why this can't be `beforeAll`).
+      if (
+        kase.id.startsWith("layouts-write/") ||
+        kase.id.startsWith("admin-admins/") ||
+        kase.id.startsWith("layouts-like/") ||
+        kase.id.startsWith("ratelimit/")
+      ) {
+        await ensureWriteFixtures();
+      }
       await assertConformanceCase(kase, resolvePath);
     });
   }

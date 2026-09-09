@@ -79,6 +79,12 @@ import adminAdminsOk from "./admin-admins/200.json" with { type: "json" };
 import adminAdminsForbidden from "./admin-admins/403.json" with { type: "json" };
 import adminAdminsUnauthorized from "./admin-admins/401.json" with { type: "json" };
 
+// T5's likes and write rate limit.
+import layoutsLikePutOk from "./layouts-like/put-200.json" with { type: "json" };
+import layoutsLikeDeleteOk from "./layouts-like/delete-200.json" with { type: "json" };
+import layoutsLikeQwerty from "./layouts-like/put-400-qwerty.json" with { type: "json" };
+import ratelimit429 from "./ratelimit/429.json" with { type: "json" };
+
 // A single request as `runRequest` fires it -- shared by the main
 // (asserted) request and, for a write case, its `setup` steps (fired first
 // and discarded: e.g. the first of two POSTs that produces a name clash).
@@ -190,4 +196,10 @@ export const CASES: ConformanceCase[] = [
   kase("layouts-write/patch-400-bad_request", "/v1/layouts/:ref", layoutsWritePatchBadRequest),
   kase("layouts-write/patch-400-unsupported_for_format", "/v1/layouts/:ref", layoutsWritePatchUnsupported),
   kase("layouts-write/patch-200", "/v1/layouts/:ref", layoutsWritePatchOk),
+
+  kase("layouts-like/put-200", "/v1/layouts/:ref/like", layoutsLikePutOk),
+  kase("layouts-like/delete-200", "/v1/layouts/:ref/like", layoutsLikeDeleteOk),
+  kase("layouts-like/put-400-qwerty", "/v1/layouts/:ref/like", layoutsLikeQwerty),
+
+  kase("ratelimit/429", "/v1/layouts", ratelimit429),
 ];

@@ -16,7 +16,10 @@ export interface Actor {
 
 export type ActorVariables = { actor: Actor };
 
-const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+// Exported so `auth/ratelimit.ts`'s `rateLimitWrites` (mounted right after
+// this middleware, 09 §2.5) skips the exact same methods -- two independent
+// copies of this set could quietly drift.
+export const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 export function requireActorOnWrites(
   deps: AuthDeps,

@@ -1,0 +1,811 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/layouts",
+    "bearer": "conformance-ratelimited-token",
+    "body": {
+      "name": "cw-ratelimit-seed",
+      "format": "cmini/1",
+      "payload": {
+        "board": "ortho",
+        "keys": {}
+      }
+    },
+    "setup": [
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-ratelimited-token",
+        "body": {
+          "name": "cw-ratelimit-seed",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
+      }
+    ]
+  },
+  "response": {
+    "status": 429,
+    "headers": {
+      "Content-Type": "application/json",
+      "Retry-After": "600"
+    },
+    "body": {
+      "error": "rate_limited",
+      "message": "rate limit exceeded: 60 writes per 600s",
+      "limit": 60,
+      "window_seconds": 600,
+      "retry_after": 600
+    }
+  }
+}

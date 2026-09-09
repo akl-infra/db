@@ -2,8 +2,10 @@ import { Hono } from "hono";
 import type { Bindings } from "./env";
 import { type ActorVariables, requireActorOnWrites } from "./auth/actor";
 import { type AuthDeps, pruneAuthCache, resolveActor } from "./auth/discord";
+import { rateLimitWrites } from "./auth/ratelimit";
 import { ApiError, internal } from "./core/errors";
 import { cachePut, conditional, etagFor, headSeq } from "./core/etag";
+import { pruneRateLimits } from "./core/ratelimit";
 import { systemClock } from "./core/time";
 import { writeDump } from "./dump/write";
 import { list as listFormats } from "./formats/registry";
@@ -15,6 +17,7 @@ import { changesRoute } from "./routes/changes";
 import { dumpRoute } from "./routes/dump";
 import { formatsRoute } from "./routes/formats";
 import { layoutsRoute } from "./routes/layouts";
+import { likesRoute } from "./routes/likes";
 import { writeRoute } from "./routes/write";
 
 const CACHE_CONTROL = "public, max-age=10";
@@ -32,6 +35,11 @@ const authDeps: AuthDeps = { fetchImpl: ((url, init) => fetch(url, init)) as Fet
 // (09 §2.1) -- registered before any route, so no write route, present or
 // future, can be reached without it.
 app.use("/v1/*", requireActorOnWrites(authDeps));
+
+// The write rate limit (09 §2.5): mounted right after the actor is
+// resolved and before every route, so T3's admin routes and T4's PATCH are
+// covered by placement, not by listing them here.
+app.use("/v1/*", rateLimitWrites(authDeps.now));
 
 // GET /v1/meta -- the service's head: counts, the event cursor, and the
 // registered formats. Every field comes from a real D1 query; a fresh
@@ -89,6 +97,7 @@ app.route("/", formatsRoute);
 app.route("/", changesRoute);
 app.route("/", dumpRoute);
 app.route("/", writeRoute);
+app.route("/", likesRoute);
 app.route("/", adminRoute(authDeps));
 
 app.onError((err, c) => {
@@ -114,6 +123,7 @@ async function scheduled(event: ScheduledController, env: Bindings, _ctx: Execut
       return;
     case "0 3 * * *":
       await pruneAuthCache(env.DB, systemClock);
+      await pruneRateLimits(env.DB, systemClock);
       await writeDump(env, systemClock);
       return;
     default:

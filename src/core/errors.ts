@@ -145,6 +145,23 @@ export function lastAdmins(count: number): ApiError {
   });
 }
 
+// The write rate limit (09 §2.5, T5): 429, `Retry-After` header, and the
+// same three fields in the body so a client can back off without parsing
+// the header separately.
+export function rateLimited(limit: number, windowSeconds: number, retryAfter: number): ApiError {
+  return new ApiError(
+    429,
+    {
+      error: "rate_limited",
+      message: `rate limit exceeded: ${limit} writes per ${windowSeconds}s`,
+      limit,
+      window_seconds: windowSeconds,
+      retry_after: retryAfter,
+    },
+    { "Retry-After": String(retryAfter) },
+  );
+}
+
 // A PATCH verb the record's format has no `edits` entry for (T4), or its
 // edit returned an error for this payload.
 export function unsupportedForFormat(format: string, verb: string): ApiError {

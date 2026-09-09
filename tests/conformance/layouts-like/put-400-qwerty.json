@@ -1,0 +1,18 @@
+{
+  "request": {
+    "method": "PUT",
+    "path": "/v1/layouts/qwerty/like",
+    "bearer": "conformance-owner-token"
+  },
+  "response": {
+    "status": 400,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "error": "bad_request",
+      "message": "You can't like Qwerty :yellow_circle:",
+      "param": "/ref"
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "request": {
+    "method": "DELETE",
+    "path": "/v1/layouts/cw-like-1/like",
+    "bearer": "conformance-owner-token",
+    "setup": [
+      {
+        "method": "PUT",
+        "path": "/v1/layouts/cw-like-1/like",
+        "bearer": "conformance-owner-token"
+      }
+    ]
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "like_count": 0
+    }
+  }
+}
