@@ -758,6 +758,33 @@ indents only when both boards agree, thumb indent 6 if either first key is
 4. **Production key registration** (V7 step 2) and **`DB_BASE_URL` →
    production** (V7 step 5) are yours.
 5. **The `assign` superset** (D11: owner-transfer, not admin-only) — fine?
+6. **Open finding, 2026-09-09 (V2's numbers.test.ts, LDB-B5):** a specific
+   10-layout subset — `shale`, `slate`, `marble`, `onyx`, `kormite`,
+   `neon`, `tenders`, `jeep`, `tomato`, `graphite-vimified` (`bot/tests/
+   engine/numbers.test.ts`'s `HARVEST_DRIFT_OPEN`) — computes a
+   *different* mana2 cell (every field: hb/big/skip/tri/trin/trix/fu/fsp/
+   fspw, not just hand-balance) through the bot's wasm path than the
+   deployed harvest reports, on every corpus, well past 1e-9. None are
+   magic layouts (that's the separate, understood D4 case `opal` surfaced).
+   Keys are byte-identical between the fixture, the live site's own
+   `/data/layouts_keys.json`, and what the bot sends the wasm; no negative
+   columns; `ConvertLayout`'s own doc comment says cmini's board word is
+   ignored for wasm geometry (`PhysicalThumbSide`/`MirrorThumbCol` both
+   ignore their `board` parameter too) — so it isn't a bot-side "wrong
+   board string" bug, and `LDB-B9`'s protocol-identity test plus the other
+   89% of the fixture (including other thumbed, non-'angle' layouts)
+   confirms the compute PATH is correct. Most (not all — `graphite-
+   vimified` is `ortho`) of the ten are cmini's legacy `angle` board word
+   with a real thumb key. The site's own deploy gate
+   (`tools/swapengine/engine/compute_test.go:TestComputeMana2MatchesHarvest`)
+   doesn't cover any of these ten ids, so it hasn't validated this case
+   either way. Best remaining lead: `tools/mana2bridge/harvest.go` builds
+   the harvest by shelling out to the real mana2 CLI — a different code
+   path from the wasm's `ConvertLayout`+`compute` this bot calls — worth
+   comparing directly. `numbers.test.ts` carries the exclusion with a
+   second `it` that fails the moment any listed id stops mismatching (so
+   the list can't go stale) or a listed id isn't in the fixture at all;
+   remove ids from `HARVEST_DRIFT_OPEN` as this gets root-caused.
 
 ## 10. What can start when
 
