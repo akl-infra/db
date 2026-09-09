@@ -103,15 +103,21 @@ Deliberately our own five-line scheme rather than RFC 9421: the RFC's
 component negotiation is for general HTTP; here both sides are ours and the
 shape is fixed. **Interop is enforced by test vectors** — `db/tests/vectors/
 client-signing.json` holds (key, request, expected signature) triples that
-the Worker verifies and the bot's Python client must reproduce (`05 §4`).
+the Worker verifies and the bot's TS client must reproduce (`05 §6`, `10`
+C1/V3: the file is generated deterministically by `db/scripts/gen-vectors.mjs`
+and frozen by its `--check` mode). `PATH_WITH_QUERY` is the path and query
+exactly as sent (no canonicalisation); an absent body hashes as zero bytes.
 
 ### 3.3 What a compromised bot key can do, and what bounds it
 
 Everything its `caps` allow, as any user — the confused-deputy cost, accepted.
 Bounds: every write carries `via: client:<id>` in the event log and the
 admin changelog, so a rogue key's writes are one query to list and one to
-revert (events keep `before`); per-client rate limits (default 60 writes /
-10 min); revocation is immediate (no token to expire); `act-as-owner-only`
+revert (events keep `before`); per-client rate limits (300 writes / 10 min
+on top of the per-actor 60 — `10 §1` D8: the per-actor limit is the
+fairness rule, the per-client one bounds a rogue key); revocation is
+immediate (no token to expire, no cache in front of `clients.status` —
+LDB-A9); `act-as-owner-only`
 for anything that is not a real multi-user bot. A bot must also be a real
 Discord application: registration records its Discord application id and an
 admin can verify it (`/oauth2/applications/@me` with the bot token) — a
@@ -155,6 +161,8 @@ Bootstrap: migration `0001` inserts the first two admins from the runbook
 | LDB-A5 | Every accepted write's event carries `via` and, on the client lane, the client id; a revoked client's requests are refused from the revocation onward. | API test |
 | LDB-A6 | The admins table never has fewer than two active rows after bootstrap. | write-path check + test |
 | LDB-A7 | Owner checks read `record.owner` and `actor.user_id` and nothing else — no name matching, no client-supplied owner field on edits (`owner` in any write body is **refused** with `400 bad_request`, as is every field outside the verb's schema; `transfer` is the only way to change it). | `tests/api/bodies.test.ts` (every route × every foreign key → 400, record unchanged), `tests/api/transfer.test.ts` (`09 §2.6`) |
+| LDB-A8 | A client-lane nonce is accepted once: the `nonces` PK insert is the replay check (after the signature check, one statement); rows are pruned after 900 s. | `tests/auth/client.test.ts` (`10` C1) |
+| LDB-A9 | A revoked client's requests are refused from the revocation onward — `clients.status` is read on every request, never cached. | `tests/api/clients.test.ts` (`10` C1) |
 
 ## 7. Open questions (auth)
 

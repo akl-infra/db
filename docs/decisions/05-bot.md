@@ -38,15 +38,20 @@ from `web/src/core` at the split, the same way `db/formats` becomes
 named exception to `00 §7`'s no-cross-import rule, enforced by an archlint
 rule (`bot → web/src/core | db/formats` only, nothing else, never the
 reverse). Anything the bot needs that lives in `web/src/data` or `ui`
-(the wasm loader is in `web/src/data/swap-engine.ts`) is either moved down
-to `core` or duplicated once with a header naming the source — moving it
-down is preferred, and is a site PR.
+is moved down to `core` by a site PR — `10 §2`: **U1** moves the worker
+driver `data/swap-engine.ts` (zero imports, every effect injected) to
+`core/swap-engine.ts`; **U2** moves the canvas drawing half of
+`ui/copy-image/` to `core/copyimage/`. Nothing is duplicated.
 
 The wasm engine gives the bot stats for **any** layout — published or
-`!aklgg swap`'d on the fly — with no static harvest to ship; the measured
-recompute is ~90 ms per layout, so a `rank` over 4 000 layouts is a
-one-off cache the bot builds at boot from `/v1/dump` and refreshes per
-change event.
+`!aklgg swap`'d on the fly — at ~90 ms per layout in a `worker_threads`
+Worker (`10 §1` D1). Catalog-wide verbs (`rank`, `filter`) do **not**
+recompute 4 000 layouts: the bot reads the site's own precomputed cells
+(`https://akl.gg/data/mana2/<corpus>.rowstag.none.json`, the same engine's
+output, gated on every deploy against the wasm) and computes only what the
+harvest cannot have — records newer than the nightly, and transforms
+(`10 §1` D3). The wasm and the corpus tables are fetched from the site at
+boot, never shipped in the image (D2).
 
 ## 2. Command parity
 
@@ -80,10 +85,16 @@ fingermap homerow filter search rank freq freqd freqs examples names guess
 random count xkb list likes authors corpus` — the cmini-view row for a layout
 is `cminiRowFromMana2(engine.compute(layout, corpus))`; the per-finger and
 n-gram detail verbs (`sfbs`, `rolls`, `pattern`, `freq…`) read the same
-harvest the site's popovers read. `list [username]` and `authors` use
-`/v1/authors`; `likes` uses `GET /v1/layouts?liked_by=` (phase 4 adds the
-filter). `find` keeps cmini's fuzzy match (Damerau–Levenshtein over cached
-names). `corpus` (a user's preferred corpus) is bot-local state, as in cmini.
+harvest the site's popovers read. `list [username]`, `authors` and
+`likes` read the bot's local cache (authors, `likedBy` from the dump +
+`liked`/`unliked` events — LDB-B3; the DB's `liked_by` filter, `10` C1, is
+for other clients). `find` keeps cmini's fuzzy match (Damerau–Levenshtein
+over cached names, `10` V4). `corpus` (a user's preferred corpus) is
+bot-local state on a 1 GB Fly volume (`10 §1` D10); the default is the
+site's `reddit` (cmini's `mt-quotes` does not exist on akl.gg). The
+n-gram detail verbs (`sfbs`, `rolls`, `pattern`, `freq…`) keep cmini's
+wording and columns over the site's corpus tables and mana2 taxonomy —
+format parity, not number parity (`10` V5).
 
 ### 2.3 Local / social
 
@@ -102,9 +113,11 @@ akl alt pairings` — rewritten as-is, no layouts involved.
 
 Text output reproduces cmini's tables (its `layout.to_string`, fingermap
 matrix, stat tables) — the wording is the parity contract. The image verb
-reuses the site's copy-as-image drawing (`core/legacyBoardDrawer.ts` and
-the copyimage copy) through a headless canvas (`@napi-rs/canvas`) so a
-Discord image and the site's image are the same pixels.
+reuses the site's copy-as-image drawing (`core/copyimage/` after `10 §2`
+U2) through a headless canvas (`@napi-rs/canvas`) so a Discord image and
+the site's image come from the same drawing code — not the same pixels:
+a server rasterizer and its fonts differ from a browser's (`10 §1` D7;
+LDB-B12 is determinism of the bot's own render).
 
 ## 4. The cache
 
@@ -120,8 +133,9 @@ then `!view` in the same second works.
 256 MB to start (measure peak RSS across every compute verb in the test
 guild before raising it; an OOM restart drops one command and loses
 nothing), in saltorbit's Fly account (the bot is his, `04 §1`), deployed from
-`bot.yml` with a deploy token. No volume: the cache is
-rebuilt from `/v1/dump` at boot. The signing key (`02 §3`) lives in Fly
+`bot.yml` with a deploy token. One 1 GB volume (`/data`) for the per-user
+corpus preferences only (`10 §1` D10); the layout cache is rebuilt from
+`/v1/dump` at boot and the engine is fetched from the site at boot. The signing key (`02 §3`) lives in Fly
 secrets; rotation = new key, register, switch, revoke. The Discord
 application is saltorbit's.
 
@@ -140,16 +154,18 @@ live in this repo).
 | LDB-B2 | Every write the bot makes carries `X-Akl-Actor = message.author.id`; the bot has no code path that writes as anyone else. | grep + unit test on the client |
 | LDB-B3 | A read verb never performs an HTTP request (cache only). | unit test with HTTP mocked to fail |
 | LDB-B4 | The bot's signature for every vector equals the Worker's expectation. | shared vectors file |
-| **LDB-B5** | **The bot's numbers are the site's numbers:** for every fixture layout × corpus, the bot's cmini-view row deep-equals `cminiRowFromMana2` over the site's swap-engine output, and its mana2 cells equal the engine's. | `bot/tests/numbers.test` against the same wasm build the site ships |
-| LDB-B6 | `bot/` imports only `@akl/core` / `@akl/layout-formats` (by path until the split) from this repo, and nothing imports `bot/`. | archlint rule + boundary test |
+| **LDB-B5** | **The bot's numbers are the site's numbers:** for every `upstream-100` layout × every corpus, the bot's cell equals the deployed site's harvest cell (rel 1e-9) and its composed cmini row equals the same composition over that cell; the bot boots only when the wasm's pin equals the harvest's; `cminiRowFromMana2` is called from exactly one bot module. | `bot/tests/engine/numbers.test.ts` against the wasm and harvest the site serves (`10` V2) |
+| LDB-B6 | `bot/` imports only `@akl/core` / `@akl/layout-formats` (by path until the split) from this repo, and nothing imports `bot/`. | `bot/tests/tools/boundary.test.ts` + `db/`'s outside-scan |
+| LDB-B7–B12 | env vars in one place; `bot.yml`'s shape; the worker answers the site's protocol; cache = fold of dump + feed; prefs survive restarts; the image is a pure function of its plan. | `10 §7` |
 
 ## 8. Open questions (bot)
 
 1. **Prefix:** `!aklgg` (saltorbit, tentative, 2026-09-09) — answer to `!cmini`
    too during a transition, or not at all?
-2. Which `web/src/core` pieces the bot needs that currently sit in `data`
-   (the wasm loader, the worker protocol) — moved down or duplicated? An
-   inventory is the first task of the phase-4 doc.
-3. The image verb's headless canvas: `@napi-rs/canvas` vs rendering the
-   board to SVG and rasterising with `resvg` — decide when the copy-as-image
-   code's dependencies are inventoried.
+2. *(resolved, `10 §0`/`§2`)* the driver moves to `core/swap-engine.ts`
+   (U1), the drawing to `core/copyimage/` (U2); the worker itself is
+   bot-owned and speaks the site's protocol.
+3. *(resolved, `10 §1` D7)* `@napi-rs/canvas` over the moved drawing code;
+   no SVG path.
+4. A dedicated channel / DM redirection for long replies (cmini's
+   `RESTRICTED`) — `10 §9`.

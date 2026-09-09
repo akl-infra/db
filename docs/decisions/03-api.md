@@ -40,8 +40,9 @@ domain (name pending, `00 §6.2`), path prefix `/v1`. JSON in and out, UTF-8,
 - **Versioning.** `/v1` changes only on a breaking change to the record
   envelope (`01 §5`). New endpoints and new optional fields are not breaking.
 - **Rate limits.** Per actor: 60 writes / 10 min, counted per attempt in a
-  fixed window (`09 §2.5`); reads are never counted. `429 rate_limited`
-  carries `Retry-After`.
+  fixed window (`09 §2.5`); on the client lane additionally 300 / 10 min
+  per client (`10` C1, D8 — the 429 body's `scope` names which); reads are
+  never counted. `429 rate_limited` carries `Retry-After`.
 
 ## 2. Reads (no auth)
 
@@ -73,8 +74,9 @@ GET /v1/formats/{name}/{N}/schema.json
 
 Likes are always emitted sorted by user id — in `/likes`, in `?as=cmini/1`
 and in the dump — never in insertion order; the D12 diff sorts upstream's
-list the same way. `liked_by=<user_id>` on the list is the bot's `likes`
-verb (`05 §2.2`) and lands with phase 4.
+list the same way. `liked_by=<user_id>` on the list (also on `full=1`) lands
+with `10` C1 (LDB-R8). The bot's own `likes` verb reads its local cache
+(LDB-B3); the filter is for every other client.
 
 ### 2.1 No compatibility facade
 
@@ -127,9 +129,9 @@ Semantics:
   with `detail.fields`. `rename` frees the old name immediately (the
   tombstone rule: names are released only by delete or rename — LDB-P4).
 - `swap!/cycle!/angle!/unangle!/mirror!` are **client-side** transformations
-  followed by a `PUT` — the bot computes them exactly as it does today
-  (`cmds/swap.py` etc.) and writes the result. The DB does not grow verbs
-  whose meaning is an analyzer's.
+  followed by a `PUT` — the bot's TS port of cmini's `modify()` bodies
+  (`10 §5`, the Python quoted as the spec) computes them and writes the
+  result. The DB does not grow verbs whose meaning is an analyzer's.
 - `DELETE` writes a tombstone (`deleted: true`, `rev + 1`, payload kept);
   the name is free; the record stays readable by id and restorable **by id**
   for 30 days by its owner (any time by an admin, logged `admin: true`);
@@ -284,7 +286,7 @@ diff-only (`06 §2`). Every write is one `batch()` (one transaction).
 | LDB-P4 | A name is released only by delete or rename; a held or forked record keeps its name. | API matrix |
 | LDB-P5 | Every record still following upstream (`06 §2`), read `?as=cmini/1`, equals upstream's copy on the `cminiDetail` projection (`canonical()`, likes sorted). | the daily D12 diff (`07 §6 S8`) |
 | LDB-P6 | `/v1/changes` serves from `since=0` always, including from a rehosted database; `layout_revs` is never compacted in phase 1. | feed test + the rehost test |
-| LDB-P7 | Every error response carries `error` and `message`; every (route, status) pair has a conformance fixture; every `message` in the bot's verb set matches the bot's own string for that case (phase 4). | conformance suite (`07 §6 S6`); table test from `05 §2` |
+| LDB-P7 | Every error response carries `error` and `message`; every (route, status) pair has a conformance fixture. Phase-4 clause (`10 §1` D6): for every (verb, error code) the bot's parity table names, the **bot** renders cmini's own string; the DB's `message` is what the bot prints for any error the table does not name — cmini had three different not-owner strings, so no single `message` can be "the bot's string". | conformance suite (`07 §6 S6`); `bot/tests/parity-write.test.ts` (`10` V4) |
 | LDB-P8 | Deleted records are unreadable by name from the moment of deletion (phase 1) and restorable by id for 30 days by their owner, any time by an admin, keeping name/format/payload/history (phase 2). | `tests/api/refs.test.ts`, `tests/api/restore.test.ts` (fake clock) |
 | LDB-N1 | `check_name` is the bot's rule set with the bot's strings (`NAME_SET` minus the space), plus the 64-char cap and the ULID-shape refusal, applied to `POST` and rename only. | `tests/api/names.test.ts`, `tests/api/patch.test.ts` (`09 §2.4`) |
 | LDB-W1 | Every write route is resolve → authorize → check → `appendWrite`; no file under `src/routes/` prepares a D1 statement. | `tests/tools/routes-noprepare.test.ts` |

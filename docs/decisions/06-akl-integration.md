@@ -30,9 +30,11 @@ Change, in order:
    geometry and magic intent reach `layouts.json`; `build_web.py`'s
    `layout_meta_and_keys()` grows the fields.
 
-`data/layout-dates.json` stops being needed once the DB carries
-`created_at`/`modified_at` for every record (imported ones keep cmini's
-dates). Measured 2026-09-08 (`07 §0.1`): upstream's `created_at` now spans
+`data/layout-dates.json` **stays through phase 3** (`11 §3.2`): `build_web.py`
+keeps reading it and `sync_cmini_data.py --update-dates` keeps rolling it
+forward from the DB list's `created_at`/`modified_at`; it stops being
+needed only when the site reads dates off the record (phase 5, with the
+`?as=akl/1` sync). Measured 2026-09-08 (`07 §0.1`): upstream's `created_at` now spans
 2022-12-07 onward and 1965 layouts have `created == modified`, so the
 "stamped 2026-08-20" premise of round 1 no longer holds — whether the
 committed history file still has anything older or more precise than
@@ -129,8 +131,11 @@ computes patches from it. After cutover the rules live in the record's
 3. `magic-rules-sync.yml` retires; `live-sync` sees the record change like
    any other and computes the patch (rules are content now, so the
    `rules_sig` in `stat_patches` is derived from `payload.magic`).
-4. `layout_authors` D1 table and `build_layout_authors.py` retire: ownership
-   is `record.owner`, read from the sync.
+4. `layout_authors` D1 table and `build_layout_authors.py` retire **after**
+   the magic-rules PUT route is deleted (its last reader besides
+   `functions/admin/*`) — a follow-up to `11` W6, not a phase-3 slice:
+   `/v1/authors` has cmini's `{name: id}` shape, so nothing in that path
+   changes at cutover.
 
 ## 5. Drafts, mana, `cb <layout>` (#218, #188)
 
@@ -160,21 +165,24 @@ is unrelated and stays.
 |---|---|---|
 | phase 1 | none (D12 diff runs in `db/`) | — |
 | phase 2 | `functions/api/db/*` proxy + token storage (05-impl §4.1–4.2, retargeted); publish UX per the approved round; preview deploy against a preview DB | DB writes |
-| phase 3 | flip the two URLs; magic migration; retire `magic_rules` paths; `layout-dates` import | phase 2 verified on preview |
+| phase 3 | `--source db` + CI wiring; the proxy + publish UX on preview; magic migration; ⚠ flip the two URLs, retire the `magic_rules` write paths (`11` W1–W6) | phase 2 verified on preview |
 | phase 5 | `?as=akl/1` sync; board/magic intent in `layouts.json`; Give-to verb | — |
 
 ## 8. Invariants (site side)
 
 | id | invariant | enforced by |
 |---|---|---|
-| LDB-S1 | `sync_cmini_data.py --source db` produces a data root identical to the one it produces from upstream for every record that follows upstream. | pipeline test against a DB fixture |
-| LDB-S2 | Every site write to the DB carries `If-Match: "<rev>"` unless the action is `overwrite`; the browser never sees a Discord token. | I-W5 / I-W7 retargeted |
-| LDB-S3 | The publish body equals `toAkl1(draft)`; `fromAkl1(toAkl1(draft))` is the same draft. | round-trip property test |
-| LDB-S4 | After the magic migration, no layout's served rules differ from before it (static `magic_rules.json` before == `payload.magic` after, for every row). | one-shot verification script, kept as a test fixture |
+| LDB-S1 | `sync_cmini_data.py --source db` produces a data root byte-identical (`layouts/*`, `likes.json`, `authors.json`, `sync_digest.txt`) to the cmini source's for every record following upstream; the pipeline id stays the lowercase name. | `scripts/tests/test_sync_db_source.py` over a fixture the DB's own code exported (`11` W1) |
+| LDB-S1a | The site's committed DB-response fixture equals the DB's live routes. | `db/tests/api/site-fixture.test.ts` |
+| LDB-S2 | Every site write to the DB carries `If-Match: "<rev>"` unless the action is `overwrite`; no proxy response carries the bearer, `Set-Cookie` or `WWW-Authenticate`. | I-W5 / I-W7 retargeted; `web/tests/backend/db-proxy.test.js` |
+| LDB-S3 | The publish body equals `toAkl1(draft)`; `fromAkl1(toAkl1(draft))` is the same draft; the body validates against the frozen `akl/1` schema. | `web/tests/core/akl1.test.ts` (property) |
+| LDB-S4 | After the magic migration, no layout's served rules differ from before it (the site's compile of the static `magic_rules.json` == the DB's lowering, as sets of `(inputs, output)`); the migration is idempotent. | `scripts/tests/test_migrate_magic_rules.py`, `web/tests/backend/magic-migration-verify.test.js`, the one-shot `verify_magic_migration.py` |
+| LDB-S5 | Every CI scrape passes `source-url: ${{ vars.DB_BASE_URL }}`; none calls `sync_cmini_data.py` outside the action. | `web/tests/tools/ciwiring.test.mjs` |
+| LDB-S6 | The proxy is a pass-through: status, body, `ETag`, `Retry-After` equal the DB's. | `db-proxy.test.js` |
 
 ## 9. Open questions (site)
 
-1. Does `data/layout-dates.json` still hold anything upstream's `created_at` does not (`§1`)? Diff once before phase 3; import only if so.
+1. Does `data/layout-dates.json` still hold anything upstream's `created_at` does not (`§1`)? Diff once before the file retires (phase 5 — `11 §3.2` keeps it through phase 3); import only if so.
 2. Upstream delete of an unforked record: tombstone here? (Proposal: yes.)
 3. Likes on a forked record: union with upstream, or stop syncing? (Proposal: union.)
 4. Upstream renames as delete + create (`§2`): acceptable, or worth a content-matching heuristic? (Proposal: acceptable; cmini loses the history too.)

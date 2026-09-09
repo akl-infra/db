@@ -198,7 +198,9 @@ ON CONFLICT(key) DO UPDATE SET
 RETURNING n, window_start
 ```
 
-`key = 'write:' || user_id`, `window_start = floor(epochSeconds(now) / 600) * 600`.
+`key = 'write:' || user_id`, `window_start = floor(epochSeconds(now) / 600) * 600`
+(`10` C1 adds a second key, `'client:' || id`, limit 300, through the same
+statement — the middleware's shape is built for two counters from the start).
 `n > 60` → `429 rate_limited { limit: 60, window_seconds: 600, retry_after: window_start + 600 − now }`
 with `Retry-After`. Likes count as writes. Admin routes count as writes.
 The nightly cron deletes rows with `window_start < now − 1200`. Cost: one D1
@@ -229,7 +231,9 @@ restoreLayout(env, now, actor, ref)                                             
 transferLayout(env, now, actor, ref, body: { to })                                      → kind transferred
 ```
 
-Every `Write` built here has `actor: actor.user_id`, `via: "discord"`,
+Every `Write` built here has `actor: actor.user_id`, `via: actor.via`
+(always `"discord"` in phase 2 — `10` C1 widens the union to
+`client:<id>` without touching this file),
 `admin: <true iff the owner check passed only because the actor is admin>`,
 `modified_at: now()`, `hasMagic` from the format. The error mapping for
 D1 constraint failures (§2.3) lives in `appendWrite`/`appendLike`, not
