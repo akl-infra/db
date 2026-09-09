@@ -398,7 +398,7 @@ export async function patchLayout(
     format: record.format,
     payload,
     actor: actor.user_id,
-    via: "discord",
+    via: actor.via,
     admin,
     hasMagic,
     ...(kind === "updated" ? { detail: { fields } } : {}),

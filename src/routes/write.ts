@@ -48,7 +48,12 @@ writeRoute.put("/v1/layouts/:ref", async (c) => {
 
 writeRoute.patch("/v1/layouts/:ref", async (c) => {
   const ifMatch = parseIfMatch(c.req.header("If-Match") ?? null);
-  const body = parsePatchBody(await readJson(c.req.raw));
+  // `c.req`, not `c.req.raw`: `auth/actor.ts`'s own comment on this exact
+  // rule -- the client lane hashes the body via `c.req.arrayBuffer()`,
+  // which Hono caches on `c.req`; reading the raw Request's stream here
+  // (this route's own bug until the PATCH client-lane test below caught
+  // it) leaves nothing for that cache to reuse and a second read throws.
+  const body = parsePatchBody(await readJson(c.req));
   const { record } = await patchLayout(c.env, resolveNow(c.env), c.get("actor"), c.req.param("ref"), body, ifMatch);
   return c.json(toWire(record), 200, { ETag: `"${record.rev}"` });
 });

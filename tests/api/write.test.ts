@@ -360,6 +360,18 @@ describe("[LDB-A5] client-lane writes: via: client:<id>", () => {
     expect(events.at(-1)).toMatchObject({ kind: "updated", via: `client:${client.clientId}`, actor: client.actor });
   });
 
+  it("PATCH /v1/layouts/{ref} -> 200, event via: client:<id>", async () => {
+    // core/write.ts's patchLayout hardcoded `via: "discord"` (missed by
+    // this describe's original verb sweep, which never exercised PATCH) --
+    // fixed to `via: actor.via` alongside this test, LDB-A5's client half.
+    const client = await freshClient();
+    const record = await seed("cmini/1", client.actor);
+    const res = await signedFetch("PATCH", `/v1/layouts/${record.id}`, client, { name: uniqueName("client-patch") });
+    expect(res.status).toBe(200);
+    const events = await eventsFor(record.id);
+    expect(events.at(-1)).toMatchObject({ kind: "renamed", via: `client:${client.clientId}`, actor: client.actor });
+  });
+
   it("DELETE /v1/layouts/{ref} -> 200, event via: client:<id>", async () => {
     const client = await freshClient();
     const record = await seed("cmini/1", client.actor);
