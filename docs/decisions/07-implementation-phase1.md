@@ -421,6 +421,19 @@ akl-side fixtures and goldens (§5.3).
 | `x.test.ts` | property: random `x` (≤ 16 KB) survives `validate` and identity translation; `x.keymaxx` is absent after `to["cmini/1"]`; > 16 KB is refused with `path: "/x"` | LDB-F10 |
 | `goldens.test.ts`, `mutations.test.ts` | (from S2, now over both formats) | F1, F2, F7 |
 
+**What S3 found in the real data (and changed):** (a) `magic_interop.py`
+excluded *every* magic/chiral key char from every other key's scaffold;
+upstream disagrees (`auditor`: `b` is itself a magic key and still receives
+`*`'s repeat row `b*→bb`) — a scaffold excludes only its own key. (b) A
+naive lift invents scaffold rows upstream never had (uncovered keys: opal's
+`,`) or collides with a real raw row (whirl's `y*→y,`), so `fromCmini` runs
+`reconcileScaffoldsToTrueRows` — the `except` hint applied automatically,
+exactly 01 §3's rule — and LDB-F8's fixture half is stated over
+lift+reconcile, the real import step. (c) `adaptive` pairs are verified by
+relowering before they are accepted (`vylet-v4`'s `nh→n'`/`nr→ny` cannot be
+a swap); unverifiable halves are leftovers. Caught by running roundtrip
+over the whole 100-layout snapshot, not the 18 named fixtures.
+
 **Port notes for the agent:** `validateRuleSet`'s messages keep their text
 (they are the bot-voice strings LDB-P7 will pin); the `${layoutId}:` prefix
 becomes the record name at the call site. `lower()`'s Python
@@ -760,7 +773,7 @@ the registry has to move with the code at the split (00 §7).
 | LDB-F5 | `cmini/1 → akl/1 → cmini/1` is identity on the projection, for every fixture and (P5) the live set | `roundtrip.test.ts`, `list.test.ts`, S8 |
 | LDB-F6 | Merged format majors are immutable | `frozen.test.ts` |
 | LDB-F7 | Every format has ≥ 1 fixture and a frozen golden per declared translation | `goldens.test.ts` (generated) |
-| LDB-F8 | `liftRules(lower(m)) == (m, [])` for every valid idiom set; `lower(lift(rows)) ≡ rows` for every typed row set; leftovers are exactly the rows that fail their tag's invariant | `lift.test.ts` |
+| LDB-F8 | `liftRules(lower(m)) == (m, [])` for every valid idiom set; `lower(lift+reconcile(rows)) ≡ rows` for every typed row set (the import's lift, `except` hints applied); leftovers are exactly the rows that fail their tag's invariant, are untyped, not 2 code points, or an unverifiable `adaptive` half | `lift.test.ts` |
 | LDB-F9 | A held record keeps name/owner/rev and reads as its own format | `held.test.ts` |
 | LDB-F10 | `x` survives same-format round trips; only `x.cmini` survives `to["cmini/1"]` | `x.test.ts` |
 | LDB-F11 | Every live upstream detail (snapshot) validates as `cmini/1` and `hasMagic` matches upstream's `has_magic` | `cmini-envelope.test.ts` |

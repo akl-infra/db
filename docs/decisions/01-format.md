@@ -162,7 +162,10 @@ existing compile in `scripts/build_magic_rules.py` / `functions/_lib/rules.mjs`
 (magic keys → one row per layout key not in `except` and per explicit
 `after`; chiral → one row per key on the named hand; adaptive swap
 `t:[h,e]` → `th→te`, `te→th`) followed by the raw `rules` appended in order.
-The repeat/default scaffold enumerates **the layout's keys**, not a–z
+A scaffold enumerates every layout key except the scaffolding key itself
+and its `except` list — *not* every magic/chiral key (S3: upstream's
+`auditor` gives its magic key `b` a repeat row from `*`). The
+repeat/default scaffold enumerates **the layout's keys**, not a–z
 (#221 §3.1: cmini's own rows do, and a–z gives non-Latin layouts nothing).
 
 **Typed rows.** Every lowered row carries a `type` from a closed vocabulary
@@ -331,7 +334,7 @@ mana2 digits (`LP..RP` = 0..9, thumbs 4/5). Magic → `lower()`. Reverse: digits
 | LDB-F5 | `cmini/1 → akl/1 → cmini/1` is identity on the `cminiDetail` projection (likes sorted) for every fixture and for the whole live set. | `roundtrip.test.ts` per PR; the daily D12 diff (LDB-P5) |
 | LDB-F6 | A format major, once merged, is immutable: schema not tightened, fixtures unchanged. | a test diffs `formats/**` against `main` and fails on any edit to a frozen file (additions allowed) |
 | LDB-F7 | Every registered format has ≥ 1 fixture, and for every translation it declares, a frozen `.<to>.json` golden the translation still reproduces. | generated from the registry |
-| LDB-F8 | `liftRules(lower(m)) == (m, [])` for every valid idiom set; `lower(liftRules(rows).set) ≡ rows` for every typed row set; the leftovers are exactly the rows that fail their tag's invariant (or are untyped / not 2 code points). | property test + every cmini fixture with magic (`lift.test.ts`) |
+| LDB-F8 | `liftRules(lower(m)) == (m, [])` for every valid idiom set; `lower(lift+reconcile(rows)) ≡ rows` for every typed row set — the lift the import runs, which applies `except` hints for uncovered keys and verifies `adaptive` pairs by relowering (S3); the leftovers are exactly the rows that fail their tag's invariant, are untyped / not 2 code points, or an unverifiable `adaptive` half. | property test + the whole upstream snapshot (`lift.test.ts`, `roundtrip.test.ts`) |
 | LDB-F9 | A held record keeps its name, owner and rev, and reads as its own format. | API test with a fixture format registered only in the test |
 | LDB-F10 | `x` is preserved verbatim through write → read in the same format; only `x.cmini` survives `to["cmini/1"]`, nothing else survives any translation. | round-trip property test |
 | LDB-F11 | Every live upstream detail validates as `cmini/1` (the frozen 100-layout snapshot per PR; the whole set on the daily diff), and `hasMagic` agrees with upstream's `has_magic`. | `cmini-envelope.test.ts`; D12 |
