@@ -18,6 +18,7 @@ Companion documents in this directory, in reading order:
 | `11-implementation-phase3.md` | phase 3 (akl.gg cuts over): the measured seams (the pipeline id stays the lowercase name; dates and ownership untouched), closed briefs W1–W6 with the DB-exported fixture for LDB-S1, the proxy's pass-through contract, the retargeted publish UX, the magic migration + LDB-S4 verifier, the production flip as saltorbit's runbook (round 2, reviewed) |
 | `12-implementation-phase5.md` | phase 5 (open it up): the measured facts (platform limits, the diff's cost over the live corpus, mana2's loader as it really parses, the vendored layouts, `layout-dates.json` vs upstream), cursor-based webhooks + the SSE stream, `mana2/1` with the exact algorithm both ways, the changelog page, the diff cron + the Fly drill, packages + the split dry run — slices X1–X6 as closed briefs; X7 closed by data (round 2, reviewed) |
 
+| 13 | `13-ledger.md` | Operations ledger: what is deployed where, secrets (names), how to operate/deploy, branches, the agent recipe, open items. Keep current at every milestone. |
 ---
 
 ## 0. What I understood from the dictation (assumptions — correct me)
