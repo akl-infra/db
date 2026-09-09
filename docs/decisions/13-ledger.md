@@ -1,6 +1,6 @@
 # 13 — Operations ledger and pickup guide
 
-**Start here.** This is the handoff for the layout-DB effort: what exists, where it runs, how to operate it, how to resume the work with agents, and what is open. Written 2026-09-09 ~19:45 UTC at branch tip `worktree-layout-db`; every earlier design doc (00–12, 14, 15) is referenced from here. Dates are UTC.
+**Start here.** This is the handoff for the layout-DB effort: what exists, where it runs, how to operate it, how to resume the work with agents, and what is open. Written 2026-09-09 ~19:45 UTC (updated 23:05 UTC) at branch tip `worktree-layout-db`; every earlier design doc (00–12, 14, 15) is referenced from here. Dates are UTC.
 
 ## 0. One-paragraph status
 
@@ -64,6 +64,7 @@ Coupling rule: the DB refuses writes without `If-Match`; deploy a DB change and 
 - `worktree-layout-db`: the integration branch, pushed, fast-forward only. **Before the PR to main:** rebase onto `origin/main`; invariant ids are already renumbered past main's I-236 (site I-237..I-243); reconcile `design/cmini-write/06-holistic-proposal.md` (exists on main, not here).
 - Slice branches `ldb-*` and agent worktrees `.claude/worktrees/{worktree-ldb-*,agent-*}`: all merged; safe to delete (`git worktree remove`, `git branch -D`).
 - Layout: `db/` (Worker; `db/formats` = `@akl/layout-formats`), `bot/`, `packages/akl-core` (= `@akl/core` from `web/src/core` + `copy`), `web/src/**` (site), `functions/api/db/*` (proxy), `scripts/{sync_cmini_data.py,migrate_magic_rules_to_db.py,verify_magic_migration.py}`, `scripts/split/split-db.sh --dry-run` (the future repo split, green), `design/layout-db/00–15`.
+- **Client onboarding:** `db/INTEGRATION.md` — the guide a new bot/site/script reads (reads, both auth lanes with proven JS/Python signers, writes + If-Match retry pattern, feed/SSE/webhooks/dump, recipes, etiquette, generated error appendix pinned by LDB-G8). Every example is real preview output.
 - Invariant registries: `db/INVARIANTS.md` (LDB-*), `bot/INVARIANTS.md` (LDB-B*), `design/INVARIANTS.md` + behaviour catalog (site). Each row names its enforcing test; tag-coverage tests fail on drift in both directions.
 
 ## 5. Resuming with agents (read before spawning anything)
@@ -82,6 +83,8 @@ One Claude Code session has ONE worktree pin shared by every plain-spawned agent
 7. Fly deploy of the restore drill (`db/README.md` § Drill); X4b (delete the CI daily diff steps after 7 green days).
 
 **Known gaps, deliberate:** bot `freqd` (needs a 4-gram table the site never built); Fingermap inline edit on the site (no reusable finger editor); two invalid rule sets in the site's magic data (`adaptative-magic-sturdy`, `jazz`: adaptive trigger `C` not on the board).
+
+**Doc drift to fix at PR time (found while writing INTEGRATION.md):** `03-api.md` says `transfer` takes no If-Match (the code requires it, LDB-P2); `01-format.md`'s table omits the composed `cmini/1 → mana2/1` translation that `/v1/formats` advertises; the `magic_collision` message wording differs from `01-format.md`'s example ("two rows fire on" vs "two rules fire after").
 
 **Nice-to-haves not started:** a "did you mean" on fuzzy misses (cmini-faithful today: a miss resolves to the nearest layout); persisting the bot's stats memo across restarts; the drill as a scheduled Fly machine.
 
