@@ -390,15 +390,44 @@ interface OurFullItem {
   created_at: string;
   modified_at: string;
   like_count: number;
+  likes?: string[]; // inline on newer builds (W1); older ones need the /likes fallback below
   held?: boolean;
   payload?: unknown;
 }
 interface OurFullResponse {
   items: OurFullItem[];
 }
+interface OurSingleRecord {
+  name: string;
+  owner: string;
+  created_at: string;
+  modified_at: string;
+  like_count: number;
+  likes?: string[];
+  payload: unknown;
+}
 interface HistoryEvent {
   rev: number | null;
   via: string;
+}
+
+// `likes` is inline on both `?full=1&as=cmini/1` items and `/v1/layouts/
+// {ref}?as=cmini/1` once it's added (W1, landing alongside this slice) --
+// use it when present; otherwise fall back to the separate `/likes`
+// endpoint this slice was written against, so `diff-upstream` works
+// against either shape without needing to know which one it's talking to.
+async function resolveOurLikes(
+  fetchImpl: FetchImpl,
+  sleepImpl: SleepImpl,
+  ua: string,
+  dbBaseUrl: string,
+  ref: string,
+  item: { likes?: string[]; like_count: number },
+): Promise<string[]> {
+  if (Array.isArray(item.likes)) return item.likes;
+  if (item.like_count <= 0) return [];
+  const likesRaw = await fetchJsonRetried(fetchImpl, sleepImpl, ua, `${dbBaseUrl}/v1/layouts/${encodeURIComponent(ref)}/likes`);
+  return (likesRaw as { user_ids: string[] }).user_ids;
 }
 
 function summaryIsOk(s: Omit<DiffSummary, "ok">): boolean {
@@ -417,9 +446,10 @@ function summaryIsOk(s: Omit<DiffSummary, "ok">): boolean {
 
 // Fetches both sides, matches by name, resolves every leftover local name's
 // follow status via `/history` (only leftovers -- 07 §6 S8: "to keep it
-// cheap"), fetches real `likes` only for records either side reports as
-// liked (07 §6 S8: likes compared sorted both sides; zero-likes needs no
-// fetch since `[] === []` already). Never throws for a *content*
+// cheap"), and resolves our `likes` via `resolveOurLikes` -- inline on the
+// record when present (W1), else the separate `/likes` endpoint, and only
+// when `like_count > 0` (07 §6 S8: likes compared sorted both sides;
+// zero-likes needs no fetch since `[] === []` already). Never throws for a *content*
 // difference -- only for a network/shape failure the retries couldn't
 // recover from; the caller (script or daily test) decides what a thrown
 // error means.
@@ -470,16 +500,7 @@ export async function diffUpstream(opts: DiffOptions): Promise<DiffSummary> {
       held.push(item.name);
       continue;
     }
-    let likes: string[] = [];
-    if (item.like_count > 0) {
-      const likesRaw = await fetchJsonRetried(
-        fetchImpl,
-        sleepImpl,
-        ua,
-        `${dbBaseUrl}/v1/layouts/${encodeURIComponent(item.id)}/likes`,
-      );
-      likes = (likesRaw as { user_ids: string[] }).user_ids;
-    }
+    const likes = await resolveOurLikes(fetchImpl, sleepImpl, ua, dbBaseUrl, item.id, item);
     ours.set(item.name.toLowerCase(), {
       ref: item.id,
       name: item.name,
@@ -554,13 +575,14 @@ export async function diffUpstream(opts: DiffOptions): Promise<DiffSummary> {
       sleepImpl,
       ua,
       `${dbBaseUrl}/v1/layouts/${encodeURIComponent(ourEntry.ref)}?as=cmini/1`,
-    )) as { name: string; owner: string; created_at: string; modified_at: string; payload: unknown };
+    )) as OurSingleRecord;
+    const singleLikes = await resolveOurLikes(fetchImpl, sleepImpl, ua, dbBaseUrl, ourEntry.ref, ourRawSingle);
     const ourSingle: cmini1.CminiRecordLike = {
       name: ourRawSingle.name,
       owner: ourRawSingle.owner,
       created_at: ourRawSingle.created_at,
       modified_at: ourRawSingle.modified_at,
-      likes: ourEntry.likes,
+      likes: singleLikes,
       payload: ourRawSingle.payload as cmini1.Payload,
     };
     const recheck = compareRecords(upParsedSingle.detail, ourSingle);
