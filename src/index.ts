@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Bindings } from "./env";
 import { ApiError, internal } from "./core/errors";
+import { list as listFormats } from "./formats/registry";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -31,7 +32,7 @@ app.get("/v1/meta", async (c) => {
     revision: eventRow?.at ?? null,
     layouts_modified_at: layoutRow?.modified ?? null,
     authors_modified_at: authorRow?.modified ?? null,
-    formats: [] as string[], // S2 registers cmini/1, akl/1
+    formats: listFormats().map((f) => f.id), // S3 adds akl/1 alongside cmini/1
   });
 });
 

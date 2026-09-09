@@ -22,9 +22,13 @@ npm test                            # both vitest projects (workers + node)
 npm run typecheck
 ```
 
-`npm run import`, `deploy`, `rehost`, `diff-upstream` and
-`profile-upstream` are placeholders until their slice lands (S5-S8); each
-prints which slice to look for.
+`npm run import`, `deploy`, `rehost` and `diff-upstream` are placeholders
+until their slice lands (S5-S8); each prints which slice to look for.
+`profile-upstream` (prints the `07 §0.1` measured table), `pick-fixtures`
+(regenerates `tests/fixtures/upstream-100/` -- run once, its output is
+frozen) and `goldens -- --write` (writes `db/formats/*/*/fixtures/` and
+their derived goldens -- also run once per new fixture, never to
+regenerate one that already merged) are real (S2).
 
 ## Secrets and bindings
 

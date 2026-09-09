@@ -16,7 +16,7 @@ describe("GET /v1/meta", () => {
       revision: null,
       layouts_modified_at: null,
       authors_modified_at: null,
-      formats: [],
+      formats: ["cmini/1"],
     });
   });
 });

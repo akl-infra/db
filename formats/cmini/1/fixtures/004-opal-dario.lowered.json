@@ -1,0 +1,162 @@
+[
+  {
+    "inputs": "a◇",
+    "output": "ay",
+    "type": "magic"
+  },
+  {
+    "inputs": "b◇",
+    "output": "bb",
+    "type": "repeat"
+  },
+  {
+    "inputs": "c◇",
+    "output": "cc",
+    "type": "repeat"
+  },
+  {
+    "inputs": "d◇",
+    "output": "dd",
+    "type": "repeat"
+  },
+  {
+    "inputs": "e◇",
+    "output": "ee",
+    "type": "repeat"
+  },
+  {
+    "inputs": "f◇",
+    "output": "ff",
+    "type": "repeat"
+  },
+  {
+    "inputs": "g◇",
+    "output": "gg",
+    "type": "repeat"
+  },
+  {
+    "inputs": "h◇",
+    "output": "hr",
+    "type": "magic"
+  },
+  {
+    "inputs": "i◇",
+    "output": "ii",
+    "type": "repeat"
+  },
+  {
+    "inputs": "j◇",
+    "output": "jo",
+    "type": "magic"
+  },
+  {
+    "inputs": "jn",
+    "output": "ju",
+    "type": "adaptive"
+  },
+  {
+    "inputs": "ju",
+    "output": "jn",
+    "type": "adaptive"
+  },
+  {
+    "inputs": "k◇",
+    "output": "kk",
+    "type": "repeat"
+  },
+  {
+    "inputs": "l◇",
+    "output": "ll",
+    "type": "repeat"
+  },
+  {
+    "inputs": "m◇",
+    "output": "mm",
+    "type": "repeat"
+  },
+  {
+    "inputs": "n◇",
+    "output": "nn",
+    "type": "repeat"
+  },
+  {
+    "inputs": "o◇",
+    "output": "oo",
+    "type": "repeat"
+  },
+  {
+    "inputs": "p◇",
+    "output": "pp",
+    "type": "repeat"
+  },
+  {
+    "inputs": "q◇",
+    "output": "qq",
+    "type": "repeat"
+  },
+  {
+    "inputs": "r◇",
+    "output": "rl",
+    "type": "magic"
+  },
+  {
+    "inputs": "s◇",
+    "output": "ss",
+    "type": "repeat"
+  },
+  {
+    "inputs": "t◇",
+    "output": "tt",
+    "type": "repeat"
+  },
+  {
+    "inputs": "u◇",
+    "output": "u'",
+    "type": "magic"
+  },
+  {
+    "inputs": "ue",
+    "output": "uo",
+    "type": "adaptive"
+  },
+  {
+    "inputs": "uo",
+    "output": "ue",
+    "type": "adaptive"
+  },
+  {
+    "inputs": "v◇",
+    "output": "vv",
+    "type": "repeat"
+  },
+  {
+    "inputs": "w◇",
+    "output": "ww",
+    "type": "repeat"
+  },
+  {
+    "inputs": "x◇",
+    "output": "xx",
+    "type": "repeat"
+  },
+  {
+    "inputs": "y◇",
+    "output": "ye",
+    "type": "magic"
+  },
+  {
+    "inputs": "z◇",
+    "output": "zz",
+    "type": "repeat"
+  },
+  {
+    "inputs": ".◇",
+    "output": "..",
+    "type": "repeat"
+  },
+  {
+    "inputs": "'◇",
+    "output": "''",
+    "type": "repeat"
+  }
+]

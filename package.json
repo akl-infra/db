@@ -12,7 +12,9 @@
     "deploy": "wrangler deploy --config wrangler.toml",
     "rehost": "node scripts/not-yet.mjs rehost",
     "diff-upstream": "node scripts/not-yet.mjs diff-upstream",
-    "profile-upstream": "node scripts/not-yet.mjs profile-upstream"
+    "profile-upstream": "node scripts/profile-upstream.mjs",
+    "pick-fixtures": "node scripts/pick-fixtures.mjs",
+    "goldens": "node scripts/goldens.mjs"
   },
   "dependencies": {
     "ajv": "^8.20.0",

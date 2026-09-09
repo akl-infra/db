@@ -2,7 +2,7 @@
   "compilerOptions": {
     "target": "ES2022",
     "lib": ["ES2022"],
-    "module": "ES2022",
+    "module": "esnext", // needed for import attributes (`with { type: "json" }`, S2's schema.json imports) -- pairs fine with moduleResolution: Bundler
     "moduleResolution": "Bundler",
     "types": ["@cloudflare/workers-types", "@cloudflare/vitest-pool-workers/types"],
     "strict": true,

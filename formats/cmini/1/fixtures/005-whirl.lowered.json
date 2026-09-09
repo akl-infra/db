@@ -1,0 +1,97 @@
+[
+  {
+    "inputs": "n*",
+    "output": "nn",
+    "type": "repeat"
+  },
+  {
+    "inputs": "g*",
+    "output": "gs",
+    "type": "magic"
+  },
+  {
+    "inputs": "s*",
+    "output": "ss",
+    "type": "repeat"
+  },
+  {
+    "inputs": "t*",
+    "output": "tt",
+    "type": "repeat"
+  },
+  {
+    "inputs": "w*",
+    "output": "wh",
+    "type": "magic"
+  },
+  {
+    "inputs": "m*",
+    "output": "mm",
+    "type": "repeat"
+  },
+  {
+    "inputs": "l*",
+    "output": "ll",
+    "type": "repeat"
+  },
+  {
+    "inputs": "r*",
+    "output": "rr",
+    "type": "repeat"
+  },
+  {
+    "inputs": "e*",
+    "output": "ee",
+    "type": "repeat"
+  },
+  {
+    "inputs": "u*",
+    "output": "ue",
+    "type": "magic"
+  },
+  {
+    "inputs": "o*",
+    "output": "oo",
+    "type": "repeat"
+  },
+  {
+    "inputs": "y*",
+    "output": "y,",
+    "type": "raw"
+  },
+  {
+    "inputs": "p*",
+    "output": "pp",
+    "type": "repeat"
+  },
+  {
+    "inputs": ".*",
+    "output": "...",
+    "type": "magic"
+  },
+  {
+    "inputs": "f*",
+    "output": "ff",
+    "type": "repeat"
+  },
+  {
+    "inputs": "c*",
+    "output": "cc",
+    "type": "repeat"
+  },
+  {
+    "inputs": "d*",
+    "output": "dd",
+    "type": "repeat"
+  },
+  {
+    "inputs": "b*",
+    "output": "bb",
+    "type": "repeat"
+  },
+  {
+    "inputs": "z*",
+    "output": "zz",
+    "type": "repeat"
+  }
+]
