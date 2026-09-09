@@ -1,0 +1,42 @@
+# db/'s own CI (design/layout-db/07-implementation-phase1.md §7). Runs
+# independently of the site's gate.yml/build.yml -- db/ has its own
+# package.json and moves to its own repo eventually (00-plan.md §7), so its
+# CI moves with it. `test` lands in S1; `deploy` (S7, needs: test, main-push
+# only) and the daily rehost/diff-upstream job (S7/S8) are added later --
+# tests/tools/ciwiring.test.ts is extended alongside them.
+name: db
+
+on:
+  pull_request:
+    paths:
+      - "db/**"
+      - ".github/workflows/db.yml"
+  push:
+    paths:
+      - "db/**"
+      - ".github/workflows/db.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: db
+    steps:
+      # fetch-depth 0: frozen.test.ts (S2) diffs against origin/main to
+      # enforce LDB-F6 (merged format majors are immutable) -- a shallow
+      # checkout has no origin/main to diff against.
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: db/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Test
+        run: npm test

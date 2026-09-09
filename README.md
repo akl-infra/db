@@ -1,0 +1,45 @@
+# `akl-db`
+
+The layout-db service (`design/layout-db/`): a Cloudflare Worker with its
+own D1 database and R2 bucket, mirroring cmini's layouts read-only in
+phase 1. Deployable independently of the rest of this repo -- see
+`00-plan.md` §7 for why nothing here imports from `../web`, `../scripts` or
+`../functions`, and nothing outside imports `db/` (enforced by
+`tests/tools/boundary.test.ts`, LDB-G5).
+
+Full design: `design/layout-db/00-plan.md` (why) and
+`design/layout-db/07-implementation-phase1.md` (what phase 1 ships, slice
+by slice). Invariants: `INVARIANTS.md` (this directory).
+
+## Run locally
+
+```bash
+cd db && npm ci
+npm run migrate                     # wrangler d1 migrations apply akl-db --local
+npm run import -- --once --fixture  # S5: a 100-layout snapshot, offline
+npm run dev                         # wrangler dev; GET http://localhost:8787/v1/meta
+npm test                            # both vitest projects (workers + node)
+npm run typecheck
+```
+
+`npm run import`, `deploy`, `rehost`, `diff-upstream` and
+`profile-upstream` are placeholders until their slice lands (S5-S8); each
+prints which slice to look for.
+
+## Secrets and bindings
+
+| name | kind | where it's read | how to regenerate |
+|---|---|---|---|
+| `DB` | D1 binding | `src/index.ts` (and everywhere under `src/core`, `src/import`) | `wrangler d1 create akl-db`; paste the id into `wrangler.toml`'s `[[d1_databases]]` |
+| `DUMPS` | R2 binding | `src/dump/write.ts` (S7) | `wrangler r2 bucket create akl-db-dumps` |
+| `IMPORT_SOURCE_URL` | var | `src/import/upstream.ts` (S5) | `wrangler.toml`'s `[vars]`; defaults to `https://clemenpine.com/layoutapi/v3` |
+| `IMPORT_MAX_WRITES_PER_TICK` | var | `src/import/apply.ts` (S5) | `wrangler.toml`'s `[vars]`; default `500` |
+| `IMPORT_UA` | var | `src/import/upstream.ts` (S5) | `wrangler.toml`'s `[vars]`; every upstream request must send it (0.1: the default UA is 403'd) |
+| `CLOUDFLARE_DB_TOKEN` | repo secret (CI) | `.github/workflows/db.yml`'s `deploy` job (S7) | a Cloudflare API token with Workers Scripts + D1 + R2 edit, separate from the site's Pages token |
+| `CLOUDFLARE_ACCOUNT_ID` | repo secret (CI) | `.github/workflows/db.yml`'s `deploy` job (S7) | same account as Pages (`cminibrowser`) |
+
+## Rehost procedure
+
+Not yet implemented (S7). Will be: `npm run rehost -- --dump <file|url>`,
+which applies migrations then restores the nightly dump's full event log
+into a fresh D1 -- see `07-implementation-phase1.md` §7.

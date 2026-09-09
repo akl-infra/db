@@ -1,0 +1,21 @@
+name = "akl-db"
+main = "src/index.ts"
+compatibility_date = "2026-08-22" # newest date the installed workerd/miniflare (wrangler ^4.130.0) supports as of this writing; bump when the toolchain does
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "akl-db"
+database_id = "00000000-0000-0000-0000-000000000000" # placeholder -- `wrangler d1 create akl-db` then paste the real id
+
+[[r2_buckets]]
+binding = "DUMPS"
+bucket_name = "akl-db-dumps"
+
+[triggers]
+crons = ["*/5 * * * *", "0 3 * * *"]
+
+[vars]
+IMPORT_SOURCE_URL = "https://clemenpine.com/layoutapi/v3"
+IMPORT_MAX_WRITES_PER_TICK = "500"
+IMPORT_UA = "akl-db-import/1.0"

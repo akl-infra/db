@@ -1,0 +1,32 @@
+{
+  "name": "akl-db",
+  "private": true,
+  "type": "module",
+  "description": "The layout-db service (design/layout-db/): a deployable Cloudflare Worker with its own D1 + R2, mirroring cmini's layouts read-only in phase 1. Owns its own dependencies -- nothing here imports from ../web, ../scripts or ../functions, and nothing outside imports this directory (tests/tools/boundary.test.ts, LDB-G5).",
+  "scripts": {
+    "dev": "wrangler dev --config wrangler.toml",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "migrate": "wrangler d1 migrations apply akl-db --local --config wrangler.toml",
+    "import": "node scripts/not-yet.mjs import",
+    "deploy": "wrangler deploy --config wrangler.toml",
+    "rehost": "node scripts/not-yet.mjs rehost",
+    "diff-upstream": "node scripts/not-yet.mjs diff-upstream",
+    "profile-upstream": "node scripts/not-yet.mjs profile-upstream"
+  },
+  "dependencies": {
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "hono": "^4.13.0",
+    "ulidx": "^2.4.1"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
+    "@cloudflare/workers-types": "^5.20260908.1",
+    "fast-check": "^4.9.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.11",
+    "wrangler": "^4.130.0",
+    "yaml": "^2.9.0"
+  }
+}
