@@ -1,0 +1,13 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/admin/changelog",
+    "ifNoneMatchSelf": true
+  },
+  "response": {
+    "status": 304,
+    "headers": {
+      "Cache-Control": "public, max-age=10"
+    }
+  }
+}

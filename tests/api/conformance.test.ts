@@ -433,7 +433,13 @@ const REQUIRED: Record<string, RequiredCase[]> = {
   "GET /v1/authors/:user_id": [{ status: 200 }, { status: 404, code: ERROR_CODES.not_found }],
   "GET /v1/formats": [{ status: 200 }],
   "GET /v1/formats/:name/:major/schema.json": [{ status: 200 }, { status: 404, code: ERROR_CODES.not_found }],
-  "GET /v1/changes": [{ status: 200 }, { status: 400, code: ERROR_CODES.bad_request }, { status: 304 }],
+  // X3 (12 §3 X3, §6.6): `layout=` unknown -> 404, same as `/v1/layouts/:ref`.
+  "GET /v1/changes": [
+    { status: 200 },
+    { status: 400, code: ERROR_CODES.bad_request },
+    { status: 304 },
+    { status: 404, code: ERROR_CODES.not_found },
+  ],
   // No dump exists in the conformance seed (only the cmini import tick
   // runs) -- every dump route's only reachable status here is 404
   // (tests/rehost.test.ts and tests/api/dump.test.ts cover the 200/302
@@ -577,6 +583,15 @@ const REQUIRED: Record<string, RequiredCase[]> = {
     { status: 200 },
     { status: 400, code: ERROR_CODES.bad_request },
     { status: 503, code: ERROR_CODES.stream_unavailable },
+  ],
+
+  // --- phase 5: the changelog page (12 §3 X3) -----------------------------
+  // No `A` -- public, unauthenticated, same posture as `/v1/changes`.
+  "GET /admin/changelog": [
+    { status: 200 },
+    { status: 304 },
+    { status: 400, code: ERROR_CODES.bad_request },
+    { status: 404, code: ERROR_CODES.not_found },
   ],
 };
 describe("conformance enumeration", () => {

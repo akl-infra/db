@@ -1,0 +1,17 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/admin/changelog?layout=does-not-exist-xyz"
+  },
+  "response": {
+    "status": 404,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "error": "not_found",
+      "message": "no layout 'does-not-exist-xyz'",
+      "ref": "does-not-exist-xyz"
+    }
+  }
+}

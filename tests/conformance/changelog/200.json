@@ -1,0 +1,13 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/admin/changelog"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Cache-Control": "public, max-age=10",
+      "Content-Type": "text/html; charset=utf-8"
+    }
+  }
+}

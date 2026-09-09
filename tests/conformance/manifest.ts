@@ -46,6 +46,16 @@ import changes304 from "./changes/304.json" with { type: "json" };
 import changesBadSince from "./changes/400-bad_request-since.json" with { type: "json" };
 import changesBadKinds from "./changes/400-bad_request-kinds.json" with { type: "json" };
 
+// X3 (12 §3 X3, §6.6): `layout=`/`actor=` on `/v1/changes`, and the
+// changelog page (12 §4's own new route).
+import changesOkLayout from "./changes/200-layout.json" with { type: "json" };
+import changesOkActor from "./changes/200-actor.json" with { type: "json" };
+import changes404 from "./changes/404.json" with { type: "json" };
+import changelogOk from "./changelog/200.json" with { type: "json" };
+import changelog304 from "./changelog/304.json" with { type: "json" };
+import changelogBadRequest from "./changelog/400-bad_request.json" with { type: "json" };
+import changelog404 from "./changelog/404.json" with { type: "json" };
+
 import dump404 from "./dump/404.json" with { type: "json" };
 import dumpLatest404 from "./dump-latest/404.json" with { type: "json" };
 import dumpKey404 from "./dump-key/404.json" with { type: "json" };
@@ -496,6 +506,14 @@ export const CASES: ConformanceCase[] = [
   kase("changes/304", "/v1/changes", changes304),
   kase("changes/400-bad_request-since", "/v1/changes", changesBadSince),
   kase("changes/400-bad_request-kinds", "/v1/changes", changesBadKinds),
+  kase("changes/200-layout", "/v1/changes", changesOkLayout),
+  kase("changes/200-actor", "/v1/changes", changesOkActor),
+  kase("changes/404", "/v1/changes", changes404),
+
+  kase("changelog/200", "/admin/changelog", changelogOk),
+  kase("changelog/304", "/admin/changelog", changelog304),
+  kase("changelog/400-bad_request", "/admin/changelog", changelogBadRequest),
+  kase("changelog/404", "/admin/changelog", changelog404),
 
   // No dump exists in the conformance seed (`seedUpstream100()` runs only
   // the cmini import tick, never the `0 3 * * *` dump cron) -- every dump

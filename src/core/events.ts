@@ -430,6 +430,17 @@ export function foldRecord(
   return state === null ? null : { ...state, payload };
 }
 
+// X3 (12 §3 X3, §6.6): `/v1/changes` and the changelog page both narrow the
+// feed by `layout=` (resolved to an id by the caller -- `events_layout`
+// indexes `(layout_id, seq)`, so this filter rides the same index the
+// `seq > ?` scan already uses) and/or `actor=` (an unindexed scan -- 12
+// §3 X3 accepts that at this volume rather than adding an index no other
+// reader needs).
+export interface FeedFilter {
+  layoutId?: string;
+  actor?: string;
+}
+
 // `since` exclusive; first event is seq 1 (`since=0` = everything); `next`
 // is the last seq returned; `limit` capped at 1000 (03 §5, 07 §6 S4).
 export async function feed(
@@ -437,6 +448,7 @@ export async function feed(
   since: number,
   limit: number,
   kinds?: string[],
+  filter?: FeedFilter,
 ): Promise<{ next: number; items: Event[] }> {
   const cappedLimit = Math.min(limit, 1000);
   const params: unknown[] = [since];
@@ -444,6 +456,14 @@ export async function feed(
   if (kinds !== undefined && kinds.length > 0) {
     sql += ` AND kind IN (${kinds.map(() => "?").join(",")})`;
     params.push(...kinds);
+  }
+  if (filter?.layoutId !== undefined) {
+    sql += " AND layout_id = ?";
+    params.push(filter.layoutId);
+  }
+  if (filter?.actor !== undefined) {
+    sql += " AND actor = ?";
+    params.push(filter.actor);
   }
   sql += " ORDER BY seq ASC LIMIT ?";
   params.push(cappedLimit);

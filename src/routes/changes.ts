@@ -2,9 +2,10 @@
 // S4's `feed()`: parse/validate `since`/`limit`/`kinds`, ETag/304, done.
 import { Hono } from "hono";
 import type { Bindings } from "../env";
-import { badRequest } from "../core/errors";
+import { badRequest, notFound } from "../core/errors";
 import { cachePut, conditional, etagFor, headSeq } from "../core/etag";
-import { feed, type InfoKind, type WriteKind } from "../core/events";
+import { feed, type FeedFilter, type InfoKind, type WriteKind } from "../core/events";
+import { byRef } from "../core/records";
 
 const CACHE_CONTROL = "public, max-age=10";
 
@@ -65,6 +66,19 @@ export function parseKinds(raw: string | undefined): string[] | undefined {
   return kinds;
 }
 
+// X3 (12 §3 X3, §6.6): `layout=` (a `byRef` ref -- id or name, same rule
+// `/v1/layouts/{ref}` uses) resolved to an id up front, so an unknown ref
+// 404s before any feed read, and so the changelog page (which shares this
+// exact resolution) can never disagree with `/v1/changes` about what
+// `layout=` means -- that agreement is what makes LDB-H3 checkable.
+// Exported for `routes/changelog.ts`.
+export async function resolveLayoutFilter(db: Bindings["DB"], ref: string | undefined): Promise<string | undefined> {
+  if (ref === undefined) return undefined;
+  const rec = await byRef(db, ref);
+  if (rec === null) throw notFound(`no layout '${ref}'`, ref);
+  return rec.id;
+}
+
 export const changesRoute = new Hono<{ Bindings: Bindings }>();
 
 changesRoute.get("/v1/changes", async (c) => {
@@ -72,13 +86,16 @@ changesRoute.get("/v1/changes", async (c) => {
   const since = parseSince(c.req.query("since"));
   const limit = parseLimit(c.req.query("limit"));
   const kinds = parseKinds(c.req.query("kinds"));
+  const actor = c.req.query("actor");
+  const layoutId = await resolveLayoutFilter(db, c.req.query("layout"));
+  const filter: FeedFilter = { layoutId, actor };
 
   const seq = await headSeq(db);
-  const etag = await etagFor(seq, { since, limit, kinds: kinds ?? null });
+  const etag = await etagFor(seq, { since, limit, kinds: kinds ?? null, layout: layoutId ?? null, actor: actor ?? null });
   const short = await conditional(c, etag, CACHE_CONTROL);
   if (short) return short;
 
-  const { next, items } = await feed(db, since, limit, kinds);
+  const { next, items } = await feed(db, since, limit, kinds, filter);
   const res = c.json({ next, items });
   res.headers.set("ETag", etag);
   res.headers.set("Cache-Control", CACHE_CONTROL);
