@@ -1,12 +1,18 @@
 // Shared helpers for the S6 read-route suite (07 §6 S6). Not a `*.test.ts`
 // file itself -- vitest.config.ts's `include` only picks up `tests/api/
 // **/*.test.ts`, so this module is safe to import from several of them
-// without becoming its own (empty) suite.
-import { env } from "cloudflare:test";
+// without becoming its own (empty) suite. `tests/rehost.test.ts` (top-level,
+// S7) also imports from here despite the directory name -- it's the one
+// other file that needs to run the exact same conformance assertions
+// (against a restored DB instead of a freshly-seeded one).
+import { SELF, env } from "cloudflare:test";
+import { expect } from "vitest";
 import type { Bindings } from "../../src/env";
+import { canonical } from "../../src/core/canonical";
 import { fixedClock } from "../../src/core/time";
 import { tick } from "../../src/import/cmini";
 import { FakeUpstream } from "../import/fake-upstream";
+import type { ConformanceCase } from "../conformance/manifest";
 
 export const bindings = env as unknown as Bindings;
 export const db = bindings.DB;
@@ -43,4 +49,43 @@ export function normalizeIds(v: unknown): unknown {
     return out;
   }
   return v;
+}
+
+// The conformance runner (07 §6 S6/S7): one case, asserted byte-exact.
+// Factored out of tests/api/conformance.test.ts so tests/rehost.test.ts can
+// replay the exact same assertions against a RESTORED database (LDB-G1) --
+// two copies of this logic could quietly drift on what "conformant" means.
+export async function runConformanceRequest(
+  req: ConformanceCase["request"],
+): Promise<{ res: Response; primingEtag?: string }> {
+  const url = `https://example.com${req.path}`;
+  if (!req.ifNoneMatchSelf) {
+    return { res: await SELF.fetch(url, { method: req.method }) };
+  }
+  const priming = await SELF.fetch(url);
+  const primingEtag = priming.headers.get("ETag") ?? undefined;
+  const res = await SELF.fetch(url, { headers: primingEtag !== undefined ? { "If-None-Match": primingEtag } : {} });
+  return { res, primingEtag };
+}
+
+export async function assertConformanceCase(kase: ConformanceCase): Promise<void> {
+  const { res, primingEtag } = await runConformanceRequest(kase.request);
+
+  expect(res.status, kase.id).toBe(kase.response.status);
+
+  for (const [name, expected] of Object.entries(kase.response.headers ?? {})) {
+    expect(res.headers.get(name), `${kase.id}: header '${name}'`).toBe(expected);
+  }
+
+  if (kase.request.ifNoneMatchSelf && kase.response.status === 304) {
+    expect(res.headers.get("ETag"), kase.id).toBe(primingEtag);
+    expect(await res.text(), kase.id).toBe("");
+    return;
+  }
+
+  if (kase.response.body === undefined) return;
+
+  const contentType = res.headers.get("Content-Type") ?? "";
+  const actual = contentType.includes("json") ? await res.json() : await res.text();
+  expect(canonical(normalizeIds(actual)), kase.id).toBe(canonical(normalizeIds(kase.response.body)));
 }

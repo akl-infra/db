@@ -18,6 +18,7 @@ the S1 rows only.
 | LDB-A2 | The Discord cache serves a success ≤ 5 min and a 401 ≤ 60 s; 5xx/429/network are never cached; the token is never stored | `tests/auth/discord.test.ts` |
 | LDB-C1 | `db.yml`'s shape (test job on PR/push under `db/**`; deploy needs test, main+push only, migrations before deploy; daily job runs rehost + diff; actions pinned) is asserted from the parsed YAML | `tests/tools/ciwiring.test.ts` |
 | LDB-C2 | `canonical()` is key-order-invariant and lossless | `tests/core/canonical.test.ts` |
+| LDB-D1 | The nightly dump is complete (every table, the whole event log), its `latest.json` sha256 matches the object served, and the monthly copy is written on the 1st (and only the 1st) | `tests/api/dump.test.ts`, `tests/rehost.test.ts` |
 | LDB-F1 | Every stored payload validates against its format's frozen schema; a write that does not is refused with the failing path | `tests/formats/goldens.test.ts`, `tests/formats/mutations.test.ts` |
 | LDB-F2 | `lower()` is deterministic across versions | `tests/formats/goldens.test.ts` (`.lowered.json` goldens) |
 | LDB-F3 | Intent is never lowered on store | `tests/formats/intent.test.ts` |
@@ -29,7 +30,9 @@ the S1 rows only.
 | LDB-F9 | A held record keeps name/owner/rev and reads as its own format | `tests/api/held.test.ts` |
 | LDB-F10 | `x` survives same-format round trips; only `x.cmini` survives `to["cmini/1"]` | `tests/formats/x.test.ts`, `tests/formats/roundtrip.test.ts` |
 | LDB-F11 | Every live upstream detail (snapshot) validates as `cmini/1` and `hasMagic` matches upstream's `has_magic` | `tests/formats/cmini-envelope.test.ts` |
+| LDB-G1 | Restorable from a public dump + the public repo | `tests/rehost.test.ts` (daily job: against the real deployed dump) |
 | LDB-G2 | No admin id is a constant in code (the migration seed is data) | `tests/tools/noconst.test.ts` |
+| LDB-G4 | Every binding/var the Worker reads is in the runbook table | `tests/tools/runbook.test.ts` |
 | LDB-G5 | Nothing imports across the `db/` boundary in either direction | `tests/tools/boundary.test.ts` |
 | LDB-I1 | The import is idempotent: the same upstream state twice appends zero events | `tests/import/tick.test.ts` |
 | LDB-I2 | The import never overwrites a record that does not follow upstream | `tests/import/cases.test.ts` |
@@ -42,7 +45,7 @@ the S1 rows only.
 | LDB-I8 | Every upstream request carries the UA; 404 is never retried; other failures are retried 3x | `tests/import/upstream.test.ts` |
 | LDB-P1 | Every write appends exactly one rev-bumping event and one `layout_revs` row; the record equals the fold of its events; `seq` is gapless | `tests/events/fold.test.ts`, `tests/tools/onlywriter.test.ts` |
 | LDB-P4 | A name is released only by delete or rename | `tests/events/names.test.ts`, `tests/api/refs.test.ts` |
-| LDB-P6 | `/v1/changes` serves from `since=0`, including after a restore | `tests/events/feed.test.ts` |
+| LDB-P6 | `/v1/changes` serves from `since=0`, including after a restore | `tests/events/feed.test.ts`, `tests/rehost.test.ts` |
 | LDB-P7 | Every error response carries `error` and `message`; every (route, status) pair has a conformance case | `tests/api/conformance.test.ts` |
 | LDB-P8 | A tombstone is unreadable by name from the moment of deletion (phase 1 half; the 30-day restore is phase 2) | `tests/api/refs.test.ts` |
 | LDB-R1 | Polled routes carry `Cache-Control` + strong `ETag` and answer `304` to a matching `If-None-Match`; the ETag changes iff the event head or the query changes | `tests/api/etag.test.ts` |

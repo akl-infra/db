@@ -3,7 +3,7 @@
 // header) applied to CI wiring: a passing job whose steps quietly don't do
 // what the invariant claims is worse than an obviously-red one.
 //
-// S1 checks the `test` job + triggers + action pinning only. S7 extends
+// S1 checked the `test` job + triggers + action pinning only. S7 extends
 // this file to check the `deploy` job and the daily job (07 §7).
 import fs from "node:fs";
 import path from "node:path";
@@ -90,5 +90,64 @@ describe("db.yml wiring", () => {
     for (const u of uses) {
       expect(u, `'${u}' is not pinned to a bare major (name@vN)`).toMatch(/^[^@]+@v\d+$/);
     }
+  });
+
+  it("[LDB-C1] the deploy job needs test, runs only on a push to main, and applies migrations before deploying", () => {
+    const wf = loadWorkflow();
+    const deploy = wf.jobs.deploy;
+    expect(deploy, "no `deploy` job in db.yml").toBeDefined();
+    if (!deploy) throw new Error("unreachable: assertion above failed");
+
+    expect(deploy.needs).toEqual(expect.stringContaining("test"));
+    expect(deploy.if, "deploy job has no `if:` guard").toContain("refs/heads/main");
+    expect(deploy.if).toContain("github.event_name == 'push'");
+
+    const steps = deploy.steps ?? [];
+    const runSteps = steps.filter((s): s is Step & { run: string } => typeof s.run === "string");
+    const migrationsIdx = runSteps.findIndex((s) => /d1 migrations apply akl-db.*--remote/.test(s.run));
+    const deployIdx = runSteps.findIndex((s) => /wrangler deploy/.test(s.run));
+    expect(migrationsIdx, "no 'd1 migrations apply akl-db --remote' step").toBeGreaterThanOrEqual(0);
+    expect(deployIdx, "no 'wrangler deploy' step").toBeGreaterThanOrEqual(0);
+    expect(migrationsIdx, "migrations must run before deploy").toBeLessThan(deployIdx);
+
+    // Both secrets referenced somewhere in the job (migrations and/or deploy
+    // steps' `env:`) -- a deploy running with neither would just fail
+    // remotely with no auth, silently past this check otherwise.
+    const jobText = JSON.stringify(deploy);
+    expect(jobText).toContain("CLOUDFLARE_DB_TOKEN");
+    expect(jobText).toContain("CLOUDFLARE_DB_ACCOUNT_ID");
+  });
+
+  it("[LDB-C1] triggers on schedule and workflow_dispatch (for the daily job)", () => {
+    const wf = loadWorkflow();
+    expect(wf.on?.schedule, "no `schedule` trigger").toBeDefined();
+    expect(wf.on?.workflow_dispatch !== undefined || "workflow_dispatch" in (wf.on ?? {})).toBe(true);
+  });
+
+  it("[LDB-C1] the daily job runs the rehost drill and the upstream diff, guarding the not-yet-existing diff test", () => {
+    const wf = loadWorkflow();
+    const daily = wf.jobs.daily;
+    expect(daily, "no `daily` job in db.yml").toBeDefined();
+    if (!daily) throw new Error("unreachable: assertion above failed");
+
+    // Never runs on a plain PR/push -- only schedule/workflow_dispatch.
+    expect(daily.if, "daily job has no `if:` guard").toBeDefined();
+    expect(daily.if).toContain("schedule");
+    expect(daily.if).toContain("workflow_dispatch");
+
+    const runs = (daily.steps ?? []).map((s) => s.run).filter((r): r is string => typeof r === "string");
+    expect(runs.some((r) => /vitest run tests\/rehost\.test\.ts/.test(r)), "no rehost.test.ts step").toBe(true);
+    expect(runs.some((r) => /vitest run tests\/upstream-diff\.test\.ts/.test(r)), "no upstream-diff.test.ts step").toBe(
+      true,
+    );
+
+    // The upstream-diff step must guard the file's existence (S8 hasn't
+    // landed it yet) rather than let a missing test file pass silently or
+    // error opaquely -- `[ -f ... ]` plus a visible "SKIP" line, not a bare
+    // `|| true`/`continue-on-error` that would hide a real failure once S8
+    // does land the file.
+    const diffStep = runs.find((r) => /vitest run tests\/upstream-diff\.test\.ts/.test(r))!;
+    expect(diffStep).toMatch(/-f tests\/upstream-diff\.test\.ts/);
+    expect(diffStep.toUpperCase()).toContain("SKIP");
   });
 });

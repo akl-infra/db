@@ -20,9 +20,19 @@ export default defineConfig(async () => {
             cloudflareTest({
               wrangler: { configPath: "./wrangler.toml" },
               miniflare: {
-                // Test-only binding: tests/setup-workers.ts applies these
-                // via applyD1Migrations() before any workers test runs.
-                bindings: { TEST_MIGRATIONS: migrations, TEST_ROUTES: "1" },
+                // Test-only bindings: tests/setup-workers.ts applies
+                // TEST_MIGRATIONS via applyD1Migrations() before any workers
+                // test runs. TEST_REHOST_DUMP_URL threads the real
+                // `REHOST_DUMP_URL` env var (set only by db.yml's daily job,
+                // 07 §7) from this outer Node process into the miniflare
+                // Worker -- `process.env` inside the workerd realm itself
+                // does not see the host shell's environment, so this is the
+                // one place tests/rehost.test.ts (S7) can read it from.
+                bindings: {
+                  TEST_MIGRATIONS: migrations,
+                  TEST_ROUTES: "1",
+                  TEST_REHOST_DUMP_URL: process.env.REHOST_DUMP_URL ?? "",
+                },
               },
             }),
           ],

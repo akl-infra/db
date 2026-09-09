@@ -1,0 +1,17 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/dump/dump-2026-01-01.json.gz"
+  },
+  "response": {
+    "status": 404,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "error": "not_found",
+      "message": "no dump 'dump-2026-01-01.json.gz'",
+      "ref": "dump-2026-01-01.json.gz"
+    }
+  }
+}

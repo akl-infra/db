@@ -5,54 +5,20 @@
 // route table (`app.routes`) and the error vocabulary (`core/errors.ts`)
 // and fails when a required (route, status) pair has no case, so an added
 // route or a silently-dropped error path can't go uncovered.
-import { SELF } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
-import { canonical } from "../../src/core/canonical";
 import { badRequest, notFound, unknownFormat, unauthorized } from "../../src/core/errors";
 import { app } from "../../src/index";
-import { CASES, type ConformanceCase } from "../conformance/manifest";
-import { normalizeIds, seedUpstream100 } from "./support";
+import { CASES } from "../conformance/manifest";
+import { assertConformanceCase, seedUpstream100 } from "./support";
 
 beforeAll(async () => {
   await seedUpstream100();
 });
 
-async function runRequest(req: ConformanceCase["request"]): Promise<{ res: Response; primingEtag?: string }> {
-  const url = `https://example.com${req.path}`;
-  if (!req.ifNoneMatchSelf) {
-    return { res: await SELF.fetch(url, { method: req.method }) };
-  }
-  const priming = await SELF.fetch(url);
-  const primingEtag = priming.headers.get("ETag") ?? undefined;
-  const res = await SELF.fetch(url, { headers: primingEtag !== undefined ? { "If-None-Match": primingEtag } : {} });
-  return { res, primingEtag };
-}
-
 describe("conformance fixtures", () => {
   for (const kase of CASES) {
     it(kase.id, async () => {
-      const { res, primingEtag } = await runRequest(kase.request);
-
-      expect(res.status).toBe(kase.response.status);
-
-      for (const [name, expected] of Object.entries(kase.response.headers ?? {})) {
-        expect(res.headers.get(name)).toBe(expected);
-      }
-
-      if (kase.request.ifNoneMatchSelf && kase.response.status === 304) {
-        // The fixture can't pin the ETag's value (it's derived from the
-        // live event-log head); it CAN insist a 304 echoes exactly the
-        // ETag the priming request just saw.
-        expect(res.headers.get("ETag")).toBe(primingEtag);
-        expect(await res.text()).toBe("");
-        return;
-      }
-
-      if (kase.response.body === undefined) return;
-
-      const contentType = res.headers.get("Content-Type") ?? "";
-      const actual = contentType.includes("json") ? await res.json() : await res.text();
-      expect(canonical(normalizeIds(actual))).toBe(canonical(normalizeIds(kase.response.body)));
+      await assertConformanceCase(kase);
     });
   }
 });
@@ -108,6 +74,14 @@ const REQUIRED: Record<string, RequiredCase[]> = {
   "/v1/formats": [{ status: 200 }],
   "/v1/formats/:name/:major/schema.json": [{ status: 200 }, { status: 404, code: ERROR_CODES.not_found }],
   "/v1/changes": [{ status: 200 }, { status: 400, code: ERROR_CODES.bad_request }, { status: 304 }],
+  // No dump exists in the conformance seed (only the cmini import tick
+  // runs) -- every dump route's only reachable status here is 404
+  // (tests/rehost.test.ts and tests/api/dump.test.ts cover the 200/302
+  // paths against a real dump).
+  "/v1/dump": [{ status: 404, code: ERROR_CODES.not_found }],
+  "/v1/dump/latest.json": [{ status: 404, code: ERROR_CODES.not_found }],
+  "/v1/dump/:key": [{ status: 404, code: ERROR_CODES.not_found }],
+  "/v1/dump/monthly/:key": [{ status: 404, code: ERROR_CODES.not_found }],
 };
 
 describe("conformance enumeration", () => {

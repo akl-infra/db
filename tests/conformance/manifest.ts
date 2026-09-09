@@ -46,6 +46,11 @@ import changes304 from "./changes/304.json" with { type: "json" };
 import changesBadSince from "./changes/400-bad_request-since.json" with { type: "json" };
 import changesBadKinds from "./changes/400-bad_request-kinds.json" with { type: "json" };
 
+import dump404 from "./dump/404.json" with { type: "json" };
+import dumpLatest404 from "./dump-latest/404.json" with { type: "json" };
+import dumpKey404 from "./dump-key/404.json" with { type: "json" };
+import dumpMonthly404 from "./dump-monthly/404.json" with { type: "json" };
+
 export interface ConformanceRequest {
   method: string;
   path: string;
@@ -115,4 +120,12 @@ export const CASES: ConformanceCase[] = [
   kase("changes/304", "/v1/changes", changes304),
   kase("changes/400-bad_request-since", "/v1/changes", changesBadSince),
   kase("changes/400-bad_request-kinds", "/v1/changes", changesBadKinds),
+
+  // No dump exists in the conformance seed (`seedUpstream100()` runs only
+  // the cmini import tick, never the `0 3 * * *` dump cron) -- every dump
+  // route 404s deterministically (07 §6 S7).
+  kase("dump/404", "/v1/dump", dump404),
+  kase("dump-latest/404", "/v1/dump/latest.json", dumpLatest404),
+  kase("dump-key/404", "/v1/dump/:key", dumpKey404),
+  kase("dump-monthly/404", "/v1/dump/monthly/:key", dumpMonthly404),
 ];

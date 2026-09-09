@@ -10,7 +10,7 @@
     "migrate": "wrangler d1 migrations apply akl-db --local --config wrangler.toml",
     "import": "node scripts/import.mjs",
     "deploy": "wrangler deploy --config wrangler.toml",
-    "rehost": "node scripts/not-yet.mjs rehost",
+    "rehost": "node scripts/rehost.mjs",
     "diff-upstream": "node scripts/not-yet.mjs diff-upstream",
     "profile-upstream": "node scripts/profile-upstream.mjs",
     "pick-fixtures": "node scripts/pick-fixtures.mjs",

@@ -5,11 +5,13 @@ import { type AuthDeps, pruneAuthCache, resolveActor } from "./auth/discord";
 import { ApiError, internal } from "./core/errors";
 import { cachePut, conditional, etagFor, headSeq } from "./core/etag";
 import { systemClock } from "./core/time";
+import { writeDump } from "./dump/write";
 import { list as listFormats } from "./formats/registry";
 import type { FetchImpl } from "./import/upstream";
 import { tick as cminiTick } from "./import/cmini";
 import { authorsRoute } from "./routes/authors";
 import { changesRoute } from "./routes/changes";
+import { dumpRoute } from "./routes/dump";
 import { formatsRoute } from "./routes/formats";
 import { layoutsRoute } from "./routes/layouts";
 
@@ -92,6 +94,7 @@ app.route("/", layoutsRoute);
 app.route("/", authorsRoute);
 app.route("/", formatsRoute);
 app.route("/", changesRoute);
+app.route("/", dumpRoute);
 
 app.onError((err, c) => {
   if (err instanceof ApiError) {
@@ -116,7 +119,7 @@ async function scheduled(event: ScheduledController, env: Bindings, _ctx: Execut
       return;
     case "0 3 * * *":
       await pruneAuthCache(env.DB, systemClock);
-      // TODO(S7): src/dump/write.ts
+      await writeDump(env, systemClock);
       return;
     default:
       throw new Error(`scheduled(): unrecognized cron '${event.cron}'`);

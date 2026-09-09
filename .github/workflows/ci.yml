@@ -2,8 +2,8 @@
 # independently of the site's gate.yml/build.yml -- db/ has its own
 # package.json and moves to its own repo eventually (00-plan.md §7), so its
 # CI moves with it. `test` lands in S1; `deploy` (S7, needs: test, main-push
-# only) and the daily rehost/diff-upstream job (S7/S8) are added later --
-# tests/tools/ciwiring.test.ts is extended alongside them.
+# only) and the daily rehost/diff-upstream job (S7/S8) land here -- both
+# checked by tests/tools/ciwiring.test.ts.
 name: db
 
 on:
@@ -15,6 +15,9 @@ on:
     paths:
       - "db/**"
       - ".github/workflows/db.yml"
+  schedule:
+    - cron: "0 4 * * *" # 04:00 UTC daily (07 §7)
+  workflow_dispatch: {}
 
 jobs:
   test:
@@ -40,3 +43,70 @@ jobs:
         run: npm run typecheck
       - name: Test
         run: npm test
+
+  # Push to main only: apply migrations, then deploy. Same order a rehost
+  # uses (07 §6 S7) -- a deploy never ships code expecting a column/table a
+  # freshly-created remote D1 (or one behind on migrations) doesn't have yet.
+  deploy:
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: db
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: db/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Apply D1 migrations (remote)
+        run: npx wrangler d1 migrations apply akl-db --remote --config wrangler.toml
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DB_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DB_ACCOUNT_ID }}
+      - name: Deploy
+        run: npx wrangler deploy --config wrangler.toml
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DB_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DB_ACCOUNT_ID }}
+
+  # `schedule`/`workflow_dispatch` only (never on a PR/push) -- real network
+  # against the deployed service, on ${{ vars.DB_BASE_URL }} (a repo/org
+  # variable naming the live origin, e.g. https://akl-db.<account>.workers.dev).
+  # Both steps fail loudly on any problem; neither is allowed to skip
+  # silently (07 §6 S8: "a skip nobody reads is a pass").
+  daily:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: db
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: db/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Rehost drill against the live dump (LDB-G1)
+        run: |
+          set -euo pipefail
+          latest_json=$(curl -sf "${{ vars.DB_BASE_URL }}/v1/dump/latest.json")
+          rel_url=$(echo "$latest_json" | jq -r .url)
+          REHOST_DUMP_URL="${{ vars.DB_BASE_URL }}${rel_url}" npx vitest run tests/rehost.test.ts --project workers
+      - name: Upstream diff (LDB-P5, S8)
+        run: |
+          set -euo pipefail
+          if [ -f tests/upstream-diff.test.ts ]; then
+            DB_BASE_URL="${{ vars.DB_BASE_URL }}" npx vitest run tests/upstream-diff.test.ts --project node
+          else
+            echo "SKIP: tests/upstream-diff.test.ts does not exist yet (S8) -- visible skip line, not a silent pass"
+          fi
