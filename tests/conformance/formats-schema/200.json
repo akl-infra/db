@@ -1,0 +1,143 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/formats/cmini/1/schema.json"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/schema+json"
+    },
+    "body": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "https://akl-db/formats/cmini/1/schema.json",
+      "title": "cmini/1 payload",
+      "description": "cmini's v3 layout detail, minus the record fields (name user likes created_at modified_at). Envelope is the measured live set (07-implementation-phase1.md §0.1), not the bot's own rules: no thumb-row rule, no non-empty-keys rule -- both are violated by live data.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "board",
+        "keys"
+      ],
+      "properties": {
+        "board": {
+          "enum": [
+            "stagger",
+            "angle",
+            "ortho",
+            "mini"
+          ]
+        },
+        "keys": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/position"
+          }
+        },
+        "free": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/position"
+          }
+        },
+        "magic": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/magicRow"
+          }
+        },
+        "combos": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/combo"
+          }
+        },
+        "tag": {
+          "type": "string"
+        },
+        "blame": {
+          "type": "string"
+        },
+        "link": {
+          "type": "string"
+        }
+      },
+      "$defs": {
+        "position": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "row",
+            "col",
+            "finger"
+          ],
+          "properties": {
+            "row": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4
+            },
+            "col": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "finger": {
+              "enum": [
+                "LP",
+                "LR",
+                "LM",
+                "LI",
+                "RI",
+                "RM",
+                "RR",
+                "RP",
+                "LT",
+                "RT",
+                "TB"
+              ]
+            }
+          }
+        },
+        "magicRow": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "inputs",
+            "output"
+          ],
+          "properties": {
+            "inputs": {
+              "type": "string",
+              "minLength": 2
+            },
+            "output": {
+              "type": "string",
+              "minLength": 1
+            },
+            "type": {
+              "type": "string"
+            }
+          }
+        },
+        "combo": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "inputs",
+            "output"
+          ],
+          "properties": {
+            "inputs": {
+              "type": "string",
+              "minLength": 2
+            },
+            "output": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    }
+  }
+}

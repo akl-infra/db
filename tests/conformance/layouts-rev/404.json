@@ -1,0 +1,17 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/layouts/io/rev/999"
+  },
+  "response": {
+    "status": 404,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "error": "not_found",
+      "message": "layout 'io' has no rev 999",
+      "ref": "io"
+    }
+  }
+}

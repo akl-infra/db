@@ -1,0 +1,17 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/layouts/io/rev/abc"
+  },
+  "response": {
+    "status": 400,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "error": "bad_request",
+      "message": "invalid rev 'abc' (expected a positive integer)",
+      "param": "n"
+    }
+  }
+}

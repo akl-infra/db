@@ -84,15 +84,115 @@ export async function byRef(db: Bindings["DB"], ref: string): Promise<RecordRow 
   return readByName(db, ref);
 }
 
-// Minimal stub: every live record, unfiltered, name order. S6 replaces this
-// with owner/format/has_magic/since filters, sort options and keyset
-// pagination (07 §6 S6) -- kept here (rather than left unexported) so S6
-// extends one function instead of inventing the read path from scratch.
-export async function list(db: Bindings["DB"]): Promise<RecordRow[]> {
+// `GET /v1/layouts`'s sort options (03 §2): `name` is the only ascending
+// one (case-insensitive, the column's own COLLATE); the other three are
+// all descending (07 §6 S6: "desc for the three").
+export type SortKey = "name" | "modified_at" | "created_at" | "like_count";
+const SORT_DESC: Record<SortKey, boolean> = {
+  name: false,
+  modified_at: true,
+  created_at: true,
+  like_count: true,
+};
+
+export interface ListCursor {
+  sortValue: string | number;
+  id: string;
+}
+
+export interface ListParams {
+  owner?: string;
+  format?: string;
+  hasMagic?: boolean;
+  since?: string; // modified_at > since (ISO, compared as text -- 07 §0.1: upstream timestamps are one fixed Z-format, so lexicographic order agrees with chronological order)
+  sort: SortKey;
+  limit: number; // already validated/clamped by the caller (routes/layouts.ts)
+  cursor?: ListCursor;
+}
+
+export interface ListPage {
+  items: RecordRow[];
+  nextCursor: string | null;
+}
+
+// Opaque keyset cursor: base64 of `[sortValue, id]` (07 §6 S6). `id` is the
+// tie-breaker so paging is a strict total order even when many records
+// share one `sortValue` (e.g. `like_count = 0`).
+export function encodeCursor(cursor: ListCursor): string {
+  return btoa(JSON.stringify([cursor.sortValue, cursor.id]));
+}
+
+export function decodeCursor(raw: string): ListCursor | null {
+  try {
+    const parsed: unknown = JSON.parse(atob(raw));
+    if (!Array.isArray(parsed) || parsed.length !== 2) return null;
+    const [sortValue, id] = parsed as [unknown, unknown];
+    if ((typeof sortValue !== "string" && typeof sortValue !== "number") || typeof id !== "string") return null;
+    return { sortValue, id };
+  } catch {
+    return null;
+  }
+}
+
+function sortValueOf(rec: RecordRow, sort: SortKey): string | number {
+  return rec[sort];
+}
+
+// Filtered, sorted, keyset-paginated live records (`deleted = 0` always --
+// tombstones never appear in a list, 03 §2). Used both for the plain list
+// (rows minus payload) and, in pages of 500, for `?full=1`'s stream
+// (routes/layouts.ts) -- one function so the two can't disagree on
+// ordering or filters.
+export async function list(db: Bindings["DB"], params: ListParams): Promise<ListPage> {
+  const col = params.sort; // column name == SortKey literal for all four (name/modified_at/created_at/like_count)
+  const desc = SORT_DESC[params.sort];
+  const collate = params.sort === "name" ? " COLLATE NOCASE" : "";
+  const dir = desc ? "DESC" : "ASC";
+
+  const where: string[] = ["deleted = 0"];
+  const args: unknown[] = [];
+  if (params.owner !== undefined) {
+    where.push("owner = ?");
+    args.push(params.owner);
+  }
+  if (params.format !== undefined) {
+    where.push("format = ?");
+    args.push(params.format);
+  }
+  if (params.hasMagic !== undefined) {
+    where.push("has_magic = ?");
+    args.push(params.hasMagic ? 1 : 0);
+  }
+  if (params.since !== undefined) {
+    where.push("modified_at > ?");
+    args.push(params.since);
+  }
+  if (params.cursor !== undefined) {
+    // Keyset predicate: strictly past (sortValue, id) in the walk's own
+    // order. `id` breaks ties regardless of the primary column's
+    // direction -- ids are unique, so this alone gives a total order.
+    const cmp = desc ? "<" : ">";
+    where.push(`(${col}${collate} ${cmp} ? OR (${col}${collate} = ? AND id > ?))`);
+    args.push(params.cursor.sortValue, params.cursor.sortValue, params.cursor.id);
+  }
+
+  const sql = `SELECT * FROM layouts WHERE ${where.join(" AND ")} ORDER BY ${col}${collate} ${dir}, id ASC LIMIT ?`;
+  args.push(params.limit + 1); // one extra row to know whether a next page exists
+
   const { results } = await db
-    .prepare("SELECT * FROM layouts WHERE deleted = 0 ORDER BY name")
+    .prepare(sql)
+    .bind(...args)
     .all<LayoutDbRow>();
-  return results.map(rowToRecord);
+  const rows = results.map(rowToRecord);
+
+  let nextCursor: string | null = null;
+  let items = rows;
+  if (rows.length > params.limit) {
+    items = rows.slice(0, params.limit);
+    const last = items[items.length - 1]!;
+    nextCursor = encodeCursor({ sortValue: sortValueOf(last, params.sort), id: last.id });
+  }
+  return { items, nextCursor };
 }
 
 // The public wire shape (01-format.md §1) -- a fresh plain object so

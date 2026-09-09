@@ -1,0 +1,18 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/authors/761732338744557568"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "user_id": "761732338744557568",
+      "name": "galileotime",
+      "layout_count": 3,
+      "liked_count": 4
+    }
+  }
+}

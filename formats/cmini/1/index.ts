@@ -17,6 +17,11 @@ import { fromCmini, toCmini } from "../../akl/1/translate.ts";
 import type { Payload as AklPayload } from "../../akl/1/index.ts";
 
 export const id: `${string}/${number}` = "cmini/1";
+// `GET /v1/formats` (07 §6 S6; registry.ts's FormatModule comment explains
+// why this is a plain export rather than parsed from OWNERS/README.md).
+export const owner = "DB";
+export const description =
+  "cmini's v3 detail JSON verbatim minus the record fields (name/user/likes/created_at/modified_at): board keys free? magic? combos? tag? blame? link?";
 export const schema: object = rawSchema;
 
 export interface Position {

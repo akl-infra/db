@@ -1,0 +1,17 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/layouts/does-not-exist-xyz/likes"
+  },
+  "response": {
+    "status": 404,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "error": "not_found",
+      "message": "no layout 'does-not-exist-xyz'",
+      "ref": "does-not-exist-xyz"
+    }
+  }
+}

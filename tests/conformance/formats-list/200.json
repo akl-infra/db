@@ -1,0 +1,30 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/formats"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": [
+      {
+        "id": "cmini/1",
+        "owner": "DB",
+        "description": "cmini's v3 detail JSON verbatim minus the record fields (name/user/likes/created_at/modified_at): board keys free? magic? combos? tag? blame? link?",
+        "can_translate_to": [
+          "akl/1"
+        ]
+      },
+      {
+        "id": "akl/1",
+        "owner": "DB (+ akl.gg)",
+        "description": "The common format: cmini's keys map, #261's board geometry, an authoring shape for magic rules, a raw-rule escape hatch, and a free-form x. What akl.gg writes and most clients read.",
+        "can_translate_to": [
+          "cmini/1"
+        ]
+      }
+    ]
+  }
+}

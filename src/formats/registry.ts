@@ -36,6 +36,14 @@ export type Payload = any;
 
 export interface FormatModule {
   id: string;
+  // `GET /v1/formats` (07 §6 S6). Hardcoded per-module exports rather than
+  // parsed out of OWNERS/README.md at build time: those files are prose for
+  // human reviewers (04 §2), and a text scraper over them is a second,
+  // fragile way for owner/description to drift from what a module actually
+  // says about itself. A plain exported constant is typechecked and can
+  // never disagree with its own module.
+  owner: string;
+  description: string;
   schema: object;
   validate(p: unknown): ValidationResult;
   lower(p: Payload): Row[] | null;
@@ -44,9 +52,9 @@ export interface FormatModule {
   hasMagic(p: Payload): boolean;
 }
 
-const REGISTRY: FormatModule[] = [cmini1 as unknown as FormatModule, akl1 as unknown as FormatModule];
+let REGISTRY: FormatModule[] = [cmini1 as unknown as FormatModule, akl1 as unknown as FormatModule];
 
-const byId = new Map<string, FormatModule>(REGISTRY.map((f) => [f.id, f]));
+let byId = new Map<string, FormatModule>(REGISTRY.map((f) => [f.id, f]));
 
 export function list(): FormatModule[] {
   return [...REGISTRY];
@@ -54,6 +62,23 @@ export function list(): FormatModule[] {
 
 export function get(id: string): FormatModule | undefined {
   return byId.get(id);
+}
+
+// Test-only escape hatch (07 §6 S6's held.test.ts): registers an extra
+// format module for the lifetime of one test -- e.g. a bare `held/1` stub
+// with no `to` at all, to exercise "translatable to nothing" without
+// touching the real cmini/1 or akl/1 modules. `REGISTRY`/`byId` are one
+// module-level singleton per test file (vitest-pool-workers isolates
+// storage per file, not per `it`, 07 §2), so this returns an unregister
+// function callers MUST run in `afterEach`/`afterAll` or the stub leaks
+// into every other test in the same file.
+export function registerForTest(mod: FormatModule): () => void {
+  REGISTRY = [...REGISTRY, mod];
+  byId = new Map(REGISTRY.map((f) => [f.id, f]));
+  return () => {
+    REGISTRY = REGISTRY.filter((f) => f !== mod);
+    byId = new Map(REGISTRY.map((f) => [f.id, f]));
+  };
 }
 
 function isHeld(v: unknown): v is Held {

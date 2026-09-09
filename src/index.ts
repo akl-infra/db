@@ -3,10 +3,17 @@ import type { Bindings } from "./env";
 import { type ActorVariables, requireActorOnWrites } from "./auth/actor";
 import { type AuthDeps, pruneAuthCache, resolveActor } from "./auth/discord";
 import { ApiError, internal } from "./core/errors";
+import { cachePut, conditional, etagFor, headSeq } from "./core/etag";
 import { systemClock } from "./core/time";
 import { list as listFormats } from "./formats/registry";
 import type { FetchImpl } from "./import/upstream";
 import { tick as cminiTick } from "./import/cmini";
+import { authorsRoute } from "./routes/authors";
+import { changesRoute } from "./routes/changes";
+import { formatsRoute } from "./routes/formats";
+import { layoutsRoute } from "./routes/layouts";
+
+const CACHE_CONTROL = "public, max-age=10";
 
 const app = new Hono<{ Bindings: Bindings; Variables: ActorVariables }>();
 
@@ -25,8 +32,18 @@ app.use("/v1/*", requireActorOnWrites(authDeps));
 // GET /v1/meta -- the service's head: counts, the event cursor, and the
 // registered formats. Every field comes from a real D1 query; a fresh
 // database (no rows anywhere) answers the all-zero/null body below.
+// `seq` doubles as the ETag's head (core/etag.ts) -- read it first, via the
+// same one-indexed-read query etag.ts itself would do, so a 304 costs
+// exactly that.
 app.get("/v1/meta", async (c) => {
   const db = c.env.DB;
+  const seq = await headSeq(db);
+  const etag = await etagFor(seq, {});
+  const short = await conditional(c, etag, CACHE_CONTROL);
+  if (short) return short;
+
+  // `seq` is already known from `headSeq()` above -- this second query only
+  // needs the head event's `at` (its `revision` timestamp).
   const [layoutRow, authorRow, eventRow] = await Promise.all([
     db
       .prepare(
@@ -36,21 +53,22 @@ app.get("/v1/meta", async (c) => {
     db
       .prepare("SELECT COUNT(*) AS n, MAX(last_seen_at) AS modified FROM authors")
       .first<{ n: number; modified: string | null }>(),
-    db.prepare("SELECT MAX(seq) AS seq, MAX(at) AS at FROM events").first<{
-      seq: number | null;
-      at: string | null;
-    }>(),
+    db.prepare("SELECT MAX(at) AS at FROM events").first<{ at: string | null }>(),
   ]);
 
-  return c.json({
+  const res = c.json({
     layout_count: layoutRow?.n ?? 0,
     author_count: authorRow?.n ?? 0,
-    seq: eventRow?.seq ?? 0,
+    seq,
     revision: eventRow?.at ?? null,
     layouts_modified_at: layoutRow?.modified ?? null,
     authors_modified_at: authorRow?.modified ?? null,
     formats: listFormats().map((f) => f.id), // S3 adds akl/1 alongside cmini/1
   });
+  res.headers.set("ETag", etag);
+  res.headers.set("Cache-Control", CACHE_CONTROL);
+  await cachePut(c, res.clone());
+  return res;
 });
 
 // GET /v1/me -- proves the whole auth chain with no write risk (09 §2.1).
@@ -61,11 +79,6 @@ app.get("/v1/me", async (c) => {
   return c.json({ user_id: actor.user_id, name: actor.name, via: actor.via, admin: actor.admin });
 });
 
-// T1 lands no real write routes yet (T2 adds POST/PUT/PATCH/DELETE on
-// /v1/layouts); this one exists only so LDB-A1's black-box enumeration has
-// at least one non-GET route to prove requireActorOnWrites actually gates
-// something end-to-end, rather than asserting on Hono internals. T2 removes
-// it once real write routes exist to enumerate instead.
 // Throwaway write route so tests/auth/routes.test.ts can prove the write
 // gate end to end before T2 lands real write routes (T2 deletes this).
 // Answers only when the test-only TEST_ROUTES binding is set (vitest's
@@ -74,6 +87,11 @@ app.get("/v1/me", async (c) => {
 app.post("/v1/__test/write", (c) =>
   (c.env as { TEST_ROUTES?: string }).TEST_ROUTES === "1" ? c.json({ ok: true }) : c.notFound(),
 );
+
+app.route("/", layoutsRoute);
+app.route("/", authorsRoute);
+app.route("/", formatsRoute);
+app.route("/", changesRoute);
 
 app.onError((err, c) => {
   if (err instanceof ApiError) {
@@ -104,6 +122,11 @@ async function scheduled(event: ScheduledController, env: Bindings, _ctx: Execut
       throw new Error(`scheduled(): unrecognized cron '${event.cron}'`);
   }
 }
+
+// Exported (not just the default) so tests/api/conformance.test.ts can
+// enumerate `app.routes` -- the case set it requires is derived from the
+// live route table, not copy-pasted alongside it.
+export { app };
 
 export default {
   fetch: app.fetch,

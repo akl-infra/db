@@ -1,0 +1,17 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/changes?kinds=bogus"
+  },
+  "response": {
+    "status": 400,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "error": "bad_request",
+      "message": "unknown kind 'bogus'",
+      "param": "kinds"
+    }
+  }
+}

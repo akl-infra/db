@@ -1,0 +1,17 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/formats/bogus/1/schema.json"
+  },
+  "response": {
+    "status": 404,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "error": "not_found",
+      "message": "no format 'bogus/1'",
+      "ref": "bogus/1"
+    }
+  }
+}

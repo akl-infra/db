@@ -1,0 +1,158 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/layouts/io/history"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": [
+      {
+        "seq": 258,
+        "rev": 1,
+        "at": "2026-06-01T00:00:00.000Z",
+        "actor": "system:cmini-import",
+        "via": "import:cmini",
+        "kind": "imported",
+        "admin": false
+      },
+      {
+        "seq": 259,
+        "rev": null,
+        "at": "2026-06-01T00:00:00.000Z",
+        "actor": "813698873863962694",
+        "via": "import:cmini",
+        "kind": "liked",
+        "admin": false
+      },
+      {
+        "seq": 260,
+        "rev": null,
+        "at": "2026-06-01T00:00:00.000Z",
+        "actor": "761732338744557568",
+        "via": "import:cmini",
+        "kind": "liked",
+        "admin": false
+      },
+      {
+        "seq": 261,
+        "rev": null,
+        "at": "2026-06-01T00:00:00.000Z",
+        "actor": "424716784155754518",
+        "via": "import:cmini",
+        "kind": "liked",
+        "admin": false
+      },
+      {
+        "seq": 262,
+        "rev": null,
+        "at": "2026-06-01T00:00:00.000Z",
+        "actor": "846826972898131998",
+        "via": "import:cmini",
+        "kind": "liked",
+        "admin": false
+      },
+      {
+        "seq": 263,
+        "rev": null,
+        "at": "2026-06-01T00:00:00.000Z",
+        "actor": "621924065581465611",
+        "via": "import:cmini",
+        "kind": "liked",
+        "admin": false
+      },
+      {
+        "seq": 264,
+        "rev": null,
+        "at": "2026-06-01T00:00:00.000Z",
+        "actor": "244547046240026628",
+        "via": "import:cmini",
+        "kind": "liked",
+        "admin": false
+      },
+      {
+        "seq": 265,
+        "rev": null,
+        "at": "2026-06-01T00:00:00.000Z",
+        "actor": "1087436602466373673",
+        "via": "import:cmini",
+        "kind": "liked",
+        "admin": false
+      },
+      {
+        "seq": 266,
+        "rev": null,
+        "at": "2026-06-01T00:00:00.000Z",
+        "actor": "307567726585708545",
+        "via": "import:cmini",
+        "kind": "liked",
+        "admin": false
+      },
+      {
+        "seq": 267,
+        "rev": null,
+        "at": "2026-06-01T00:00:00.000Z",
+        "actor": "608048958329323536",
+        "via": "import:cmini",
+        "kind": "liked",
+        "admin": false
+      },
+      {
+        "seq": 268,
+        "rev": null,
+        "at": "2026-06-01T00:00:00.000Z",
+        "actor": "243686907438039040",
+        "via": "import:cmini",
+        "kind": "liked",
+        "admin": false
+      },
+      {
+        "seq": 269,
+        "rev": null,
+        "at": "2026-06-01T00:00:00.000Z",
+        "actor": "670365221038325760",
+        "via": "import:cmini",
+        "kind": "liked",
+        "admin": false
+      },
+      {
+        "seq": 270,
+        "rev": null,
+        "at": "2026-06-01T00:00:00.000Z",
+        "actor": "333362365292740609",
+        "via": "import:cmini",
+        "kind": "liked",
+        "admin": false
+      },
+      {
+        "seq": 271,
+        "rev": null,
+        "at": "2026-06-01T00:00:00.000Z",
+        "actor": "1004139554682441779",
+        "via": "import:cmini",
+        "kind": "liked",
+        "admin": false
+      },
+      {
+        "seq": 272,
+        "rev": null,
+        "at": "2026-06-01T00:00:00.000Z",
+        "actor": "184412255822020608",
+        "via": "import:cmini",
+        "kind": "liked",
+        "admin": false
+      },
+      {
+        "seq": 273,
+        "rev": null,
+        "at": "2026-06-01T00:00:00.000Z",
+        "actor": "347489972070252545",
+        "via": "import:cmini",
+        "kind": "liked",
+        "admin": false
+      }
+    ]
+  }
+}

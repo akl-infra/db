@@ -1,0 +1,21 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/layouts?full=1&as=bogus/1"
+  },
+  "response": {
+    "status": 400,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "error": "unknown_format",
+      "message": "unknown format 'bogus/1'",
+      "format": "bogus/1",
+      "known": [
+        "cmini/1",
+        "akl/1"
+      ]
+    }
+  }
+}
