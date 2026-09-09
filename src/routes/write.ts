@@ -9,8 +9,8 @@ import { badRequest } from "../core/errors";
 import { parseIfMatch } from "../core/ifmatch";
 import { toWire } from "../core/records";
 import { systemClock, type Clock } from "../core/time";
-import { createLayout, deleteLayout, replaceLayout, restoreLayout, transferLayout } from "../core/write";
-import { parseCreateBody, parseReplaceBody, parseTransferBody } from "./schemas";
+import { createLayout, deleteLayout, patchLayout, replaceLayout, restoreLayout, transferLayout } from "../core/write";
+import { parseCreateBody, parsePatchBody, parseReplaceBody, parseTransferBody } from "./schemas";
 
 // Test-only escape hatch, same shape as `TEST_ROUTES`/`TEST_MIGRATIONS`
 // (vitest.config.ts, src/index.ts): pool-workers runs the Worker in the
@@ -43,6 +43,13 @@ writeRoute.put("/v1/layouts/:ref", async (c) => {
   const ifMatch = parseIfMatch(c.req.header("If-Match") ?? null);
   const body = parseReplaceBody(await readJson(c.req.raw));
   const { record } = await replaceLayout(c.env, resolveNow(c.env), c.get("actor"), c.req.param("ref"), body, ifMatch);
+  return c.json(toWire(record), 200, { ETag: `"${record.rev}"` });
+});
+
+writeRoute.patch("/v1/layouts/:ref", async (c) => {
+  const ifMatch = parseIfMatch(c.req.header("If-Match") ?? null);
+  const body = parsePatchBody(await readJson(c.req.raw));
+  const { record } = await patchLayout(c.env, resolveNow(c.env), c.get("actor"), c.req.param("ref"), body, ifMatch);
   return c.json(toWire(record), 200, { ETag: `"${record.rev}"` });
 });
 

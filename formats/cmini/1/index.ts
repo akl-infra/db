@@ -250,3 +250,7 @@ export function project(record: CminiRecordLike): CminiDetail {
 // Named alias -- 07 §6 S2 calls it `cminiDetail` in prose, `project` in the
 // generic-test vocabulary (S3's roundtrip.test.ts). Both names, one function.
 export { project as cminiDetail };
+
+// registry.ts's optional PATCH slot (09 §3 T4) -- see edits.ts. No
+// `setMagic`: cmini/1 has no magic idiom of its own (03 §3).
+export { edits } from "./edits.ts";

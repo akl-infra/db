@@ -21,13 +21,15 @@ import {
   notOwner,
   stale,
   unknownFormat,
+  unsupportedForFormat,
+  type ErrBody,
   type LastWrite,
 } from "./errors";
 import { appendWrite, RevConflictError, rowToEvent, type EventDbRow, type Write } from "./events";
 import { checkName } from "./names";
 import { byRef, readById, readByName, toWire, type RecordRow } from "./records";
 import type { Clock } from "./time";
-import type { FormatModule } from "../formats/registry";
+import type { EditResult, FormatModule } from "../formats/registry";
 
 const RESTORE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 const TRANSFER_USER_ID_RE = /^\d{17,20}$/;
@@ -284,5 +286,121 @@ export async function transferLayout(
     via: "discord",
     admin,
     hasMagic: record.has_magic,
+  });
+}
+
+export interface PatchBody {
+  name?: string;
+  fingermap?: Record<string, string>;
+  board?: unknown;
+  magic?: unknown;
+}
+
+const PATCH_FIELDS = ["name", "fingermap", "board", "magic"] as const;
+type PatchField = (typeof PATCH_FIELDS)[number];
+type PatchEditField = Exclude<PatchField, "name">;
+
+// `EditResult`'s error branch (registry.ts's `FormatEdits` contract): no
+// stored payload -- cmini/1's or akl/1's, both `additionalProperties:
+// false` with no top-level `error` key -- can ever collide with this
+// shape, so the presence of an `error` key alone disambiguates it from a
+// genuine payload.
+function isEditError(r: EditResult): r is { error: ErrBody } {
+  return typeof r === "object" && r !== null && "error" in (r as object);
+}
+
+// Runs one PATCH verb's edit (09 §2.6): no `edits` entry for this format at
+// all, or the edit's own `{error}` answer, both refuse the verb -- with the
+// edit's own `invalid_payload` forwarded verbatim (it names its own path),
+// anything else collapsing to the generic `unsupported_for_format` naming
+// the format and verb. `p`/`arg`/the return are typed `any` (registry.ts's
+// own `Payload = any`, §5: "a format's payload shape is its own business")
+// -- `unknown` here would make every concrete `edits.set*` (declared with
+// the format's own narrower per-verb argument type, e.g. `map:
+// Record<string, string>`) fail assignment to this slot under
+// `strictFunctionTypes`.
+/* eslint-disable @typescript-eslint/no-explicit-any */
+function runEdit(
+  format: string,
+  verb: PatchEditField,
+  edit: ((p: any, arg: any) => EditResult) | undefined,
+  payload: any,
+  arg: any,
+): any {
+  if (edit === undefined) throw unsupportedForFormat(format, verb);
+  const result = edit(payload, arg);
+  if (isEditError(result)) {
+    if (result.error.error === "invalid_payload") throw new ApiError(400, result.error);
+    throw unsupportedForFormat(format, verb);
+  }
+  return result;
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
+// PATCH /v1/layouts/{ref}: owner or admin; one or more of {name, fingermap,
+// board, magic}, applied in that order to a clone of the current payload
+// via the record's format `edits` (09 §2.6, §3 T4), validated once as a
+// whole, one event: `renamed` when the body is exactly {name}, `fingermap`
+// when exactly {fingermap}, else `updated` with `detail: { fields }` in
+// application order. `name` goes through the same `check_name` POST uses;
+// it may differ from the current name only by case (still `renamed` --
+// `appendWrite`'s self-exclusion, §2.3, allows it).
+export async function patchLayout(
+  env: Bindings,
+  now: Clock,
+  actor: Actor,
+  ref: string,
+  body: PatchBody,
+  ifMatch: IfMatch,
+): Promise<{ record: RecordRow; seq: number }> {
+  const db = env.DB;
+  const { record, admin } = await loadForWrite(db, ref, actor, { allowDeleted: false });
+  await requireRev(db, record, ifMatch);
+
+  const module = getFormat(record.format);
+  if (module === undefined) {
+    throw unknownFormat(
+      record.format,
+      listFormats().map((f) => f.id),
+    );
+  }
+
+  const fields = PATCH_FIELDS.filter((f) => body[f] !== undefined);
+
+  let name = record.name;
+  if (body.name !== undefined) {
+    const nameCheck = checkName(body.name);
+    if (!nameCheck.ok) throw invalidName(body.name, nameCheck.message);
+    name = body.name;
+  }
+
+  let payload: unknown = structuredClone(record.payload);
+  if (body.fingermap !== undefined) {
+    payload = runEdit(record.format, "fingermap", module.edits?.setFingermap, payload, body.fingermap);
+  }
+  if (body.board !== undefined) {
+    payload = runEdit(record.format, "board", module.edits?.setBoard, payload, body.board);
+  }
+  if (body.magic !== undefined) {
+    payload = runEdit(record.format, "magic", module.edits?.setMagic, payload, body.magic);
+  }
+
+  const { hasMagic } = validatePayload(record.format, payload);
+
+  const kind = fields.length === 1 && fields[0] === "name" ? "renamed" : fields.length === 1 && fields[0] === "fingermap" ? "fingermap" : "updated";
+
+  return commitWrite(db, now, {
+    kind,
+    layoutId: record.id,
+    name,
+    owner: record.owner,
+    modified_at: now(),
+    format: record.format,
+    payload,
+    actor: actor.user_id,
+    via: "discord",
+    admin,
+    hasMagic,
+    ...(kind === "updated" ? { detail: { fields } } : {}),
   });
 }

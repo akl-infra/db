@@ -3,7 +3,7 @@
 // (01 §4) whose index.ts exports exactly the contract below; this module is
 // the only place those modules are imported, so adding a format is "import
 // it here" plus its own PR (04 §2).
-import { unknownFormat } from "../core/errors";
+import { unknownFormat, type ErrBody } from "../core/errors";
 import * as cmini1 from "../../formats/cmini/1/index";
 import * as akl1 from "../../formats/akl/1/index";
 
@@ -34,6 +34,26 @@ export interface Held {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type Payload = any;
 
+// The optional PATCH slot (09 §2.6, §3 T4): each function is pure (never
+// mutates `p`, structured-clones before changing anything) and total (never
+// throws) -- an edit that cannot be applied answers `{ error }` instead. A
+// format missing an entry entirely (cmini/1 has no `setMagic`: 03 §3, an
+// owner moves to akl/1 with a PUT first) means that PATCH verb is refused
+// with `unsupported_for_format` before the edit is ever called.
+export type EditResult = Payload | { error: ErrBody };
+export interface FormatEdits {
+  // char -> finger; every named char must already be one of `p.keys`
+  // (else `{error: {error: "invalid_payload", path: "/keys/<c>"}}`);
+  // partial maps are fine. A bad finger word is left to the pipeline's
+  // validate() re-run, not checked here.
+  setFingermap?(p: Payload, map: Record<string, string>): EditResult;
+  // `board` arrives shaped as akl/1's board object (01 §2) -- the API's
+  // one board vocabulary regardless of the record's own format.
+  setBoard?(p: Payload, board: unknown): EditResult;
+  // `magic` arrives shaped as akl/1's magic object (01 §2).
+  setMagic?(p: Payload, magic: unknown): EditResult;
+}
+
 export interface FormatModule {
   id: string;
   // `GET /v1/formats` (07 §6 S6). Hardcoded per-module exports rather than
@@ -50,6 +70,7 @@ export interface FormatModule {
   to: Record<string, (p: Payload) => Payload | Held>;
   from: Record<string, (p: Payload) => Payload>;
   hasMagic(p: Payload): boolean;
+  edits?: FormatEdits;
 }
 
 let REGISTRY: FormatModule[] = [cmini1 as unknown as FormatModule, akl1 as unknown as FormatModule];

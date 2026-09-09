@@ -52,6 +52,24 @@ const adminAddSchema = {
   },
 } as const;
 
+// PATCH (09 §2.6, §3 T4): at least one of {name, fingermap, board, magic},
+// no others -- `minProperties: 1` is the "at least one key" half, the same
+// `additionalProperties: false` the other schemas use is the "no others"
+// half. `board`/`magic` are validated as whole objects here; their format-
+// specific shape is the job of the record's format `edits` + the pipeline's
+// validate() re-run, not this schema.
+const patchSchema = {
+  type: "object",
+  additionalProperties: false,
+  minProperties: 1,
+  properties: {
+    name: { type: "string" },
+    fingermap: { type: "object", additionalProperties: { type: "string" } },
+    board: { type: "object" },
+    magic: { type: "object" },
+  },
+} as const;
+
 export interface CreateBody {
   name: string;
   format: string;
@@ -72,10 +90,18 @@ export interface AdminAddBody {
   note?: string;
 }
 
+export interface PatchBody {
+  name?: string;
+  fingermap?: Record<string, string>;
+  board?: object;
+  magic?: object;
+}
+
 const validateCreate = ajv.compile<CreateBody>(createSchema);
 const validateReplace = ajv.compile<ReplaceBody>(replaceSchema);
 const validateTransfer = ajv.compile<TransferBody>(transferSchema);
 const validateAdminAdd = ajv.compile<AdminAddBody>(adminAddSchema);
+const validatePatch = ajv.compile<PatchBody>(patchSchema);
 
 // ajv reports an extra/missing key at the PARENT's instancePath with the
 // key name in `params`, not as part of the path itself -- this stitches
@@ -115,4 +141,8 @@ export function parseTransferBody(body: unknown): TransferBody {
 
 export function parseAdminAddBody(body: unknown): AdminAddBody {
   return checkBody(validateAdminAdd, body);
+}
+
+export function parsePatchBody(body: unknown): PatchBody {
+  return checkBody(validatePatch, body);
 }

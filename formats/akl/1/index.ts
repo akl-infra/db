@@ -249,3 +249,6 @@ export const from: Record<string, (p: CminiPayload) => Payload> = {
 // Re-exported so isSingleChar-shaped call sites elsewhere in this format
 // (fixtures, magic.ts) don't need a second import path.
 export { isSingleChar };
+
+// registry.ts's optional PATCH slot (09 §3 T4) -- see edits.ts.
+export { edits } from "./edits.ts";

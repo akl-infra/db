@@ -97,6 +97,13 @@ async function seedWriteFixtures(): Promise<void> {
   await seedLive("cw-put-stale-1");
   await seedLive("cw-delete-1");
   await seedLive("cw-transfer-1");
+  // T4's PATCH fixtures do NOT seed a record here (unlike the verbs above):
+  // any record seeded in this shared function runs before EVERY
+  // layouts-write case and shifts every OTHER case's baked-in `last_write.
+  // seq` literal (put-409-stale's, e.g.) by the count added -- instead each
+  // patch-*.json fixture creates its own record via its own `request.
+  // setup` (the same mechanism post-409-name_taken/put-409-stale already
+  // use), scoped to that one case and touching no one else's numbers.
 
   const restoreOk = await seedLive("cw-restore-1");
   await appendWrite(db, fixedClock(CONFORMANCE_CLOCK_ISO), {

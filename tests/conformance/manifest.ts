@@ -64,6 +64,13 @@ import layoutsWriteDeleteOk from "./layouts-write/delete-200.json" with { type: 
 import layoutsWriteRestoreOk from "./layouts-write/restore-200.json" with { type: "json" };
 import layoutsWriteRestoreNotDeleted from "./layouts-write/restore-400-not_deleted.json" with { type: "json" };
 import layoutsWriteTransferOk from "./layouts-write/transfer-200.json" with { type: "json" };
+// T4's PATCH cases (09 §3 T4, §4): a 2xx, an `unsupported_for_format`, and
+// one `bad_request` -- following the same "not yet cross-checked by
+// REQUIRED, but exercised by the conformance loop like any other case"
+// note above (T6's sweep is what adds PATCH to REQUIRED).
+import layoutsWritePatchOk from "./layouts-write/patch-200.json" with { type: "json" };
+import layoutsWritePatchUnsupported from "./layouts-write/patch-400-unsupported_for_format.json" with { type: "json" };
+import layoutsWritePatchBadRequest from "./layouts-write/patch-400-bad_request.json" with { type: "json" };
 
 // 09 §3 T3's admin routes. Only `GET /v1/admin/admins` is REQUIRED-enumerated
 // below (the enumeration stays GET-only until T6's sweep, 09 §4) -- these
@@ -176,4 +183,11 @@ export const CASES: ConformanceCase[] = [
   kase("admin-admins/200", "/v1/admin/admins", adminAdminsOk),
   kase("admin-admins/403", "/v1/admin/admins", adminAdminsForbidden),
   kase("admin-admins/401", "/v1/admin/admins", adminAdminsUnauthorized),
+
+  // T4: each case creates its own record via its own `request.setup` (see
+  // conformance.test.ts's seedWriteFixtures comment) -- no shared seed, no
+  // ordering dependency between these three.
+  kase("layouts-write/patch-400-bad_request", "/v1/layouts/:ref", layoutsWritePatchBadRequest),
+  kase("layouts-write/patch-400-unsupported_for_format", "/v1/layouts/:ref", layoutsWritePatchUnsupported),
+  kase("layouts-write/patch-200", "/v1/layouts/:ref", layoutsWritePatchOk),
 ];

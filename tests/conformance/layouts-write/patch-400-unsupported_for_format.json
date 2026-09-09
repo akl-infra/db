@@ -1,0 +1,28 @@
+{
+  "request": {
+    "method": "PATCH",
+    "path": "/v1/layouts/cw-patch-magic-1",
+    "bearer": "conformance-owner-token",
+    "body": { "magic": { "rules": [{ "inputs": "aa", "output": "ab" }] } },
+    "setup": [
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-owner-token",
+        "body": { "name": "cw-patch-magic-1", "format": "cmini/1", "payload": { "board": "ortho", "keys": {} } }
+      }
+    ]
+  },
+  "response": {
+    "status": 400,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "error": "unsupported_for_format",
+      "message": "'magic' is not supported for format 'cmini/1'",
+      "format": "cmini/1",
+      "verb": "magic"
+    }
+  }
+}
