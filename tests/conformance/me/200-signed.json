@@ -1,0 +1,19 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/me",
+    "signed": { "actor": "800000000000000001" }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "user_id": "800000000000000001",
+      "name": "conformance-owner",
+      "via": "client:conformance-client-1",
+      "admin": false
+    }
+  }
+}

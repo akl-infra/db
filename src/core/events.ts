@@ -46,7 +46,9 @@ export type InfoKind =
   | "admin.added"
   | "admin.removed"
   | "admin.import_paused"
-  | "admin.import_resumed";
+  | "admin.import_resumed"
+  | "admin.client_registered" // 10 C1: POST /v1/admin/clients
+  | "admin.client_revoked"; // 10 C1: DELETE /v1/admin/clients/{id}
 
 // A record minus its payload -- what `before`/`after` store on an event and
 // what a list row carries (03 §2).

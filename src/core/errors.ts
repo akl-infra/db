@@ -145,23 +145,6 @@ export function lastAdmins(count: number): ApiError {
   });
 }
 
-// The write rate limit (09 §2.5, T5): 429, `Retry-After` header, and the
-// same three fields in the body so a client can back off without parsing
-// the header separately.
-export function rateLimited(limit: number, windowSeconds: number, retryAfter: number): ApiError {
-  return new ApiError(
-    429,
-    {
-      error: "rate_limited",
-      message: `rate limit exceeded: ${limit} writes per ${windowSeconds}s`,
-      limit,
-      window_seconds: windowSeconds,
-      retry_after: retryAfter,
-    },
-    { "Retry-After": String(retryAfter) },
-  );
-}
-
 // A PATCH verb the record's format has no `edits` entry for (T4), or its
 // edit returned an error for this payload.
 export function unsupportedForFormat(format: string, verb: string): ApiError {
@@ -171,4 +154,68 @@ export function unsupportedForFormat(format: string, verb: string): ApiError {
     format,
     verb,
   });
+}
+
+// The client lane (02 §3, 10 C1): src/auth/client.ts's `verifyClientRequest`
+// throws exactly these six, in the order its steps run. Every 401 here
+// carries `WWW-Authenticate: Bearer` too -- a client that fell into the
+// wrong lane (or sent a malformed one) sees the same hint a bearer-lane
+// caller would.
+export function badSignature(): ApiError {
+  return new ApiError(
+    401,
+    { error: "bad_signature", message: "the client signature is missing or invalid" },
+    { "WWW-Authenticate": "Bearer" },
+  );
+}
+
+export function unknownClient(): ApiError {
+  return new ApiError(401, { error: "unknown_client", message: "unknown client" }, { "WWW-Authenticate": "Bearer" });
+}
+
+export function clientRevoked(): ApiError {
+  return new ApiError(
+    401,
+    { error: "client_revoked", message: "this client has been revoked" },
+    { "WWW-Authenticate": "Bearer" },
+  );
+}
+
+export function staleTimestamp(skew: number): ApiError {
+  return new ApiError(
+    401,
+    { error: "stale_timestamp", message: "request timestamp is outside the accepted window", skew },
+    { "WWW-Authenticate": "Bearer" },
+  );
+}
+
+export function replay(): ApiError {
+  return new ApiError(401, { error: "replay", message: "nonce already used" }, { "WWW-Authenticate": "Bearer" });
+}
+
+export function actorNotAllowed(actor: string, owner: string): ApiError {
+  return new ApiError(403, {
+    error: "actor_not_allowed",
+    message: "this client may not act as this user",
+    actor,
+    owner,
+  });
+}
+
+// The write rate limit (09 §2.5; 10 C1 D8 adds `scope` for the second,
+// per-client counter). `core/ratelimit.ts`'s `take()` is the one place that
+// counts; this is only the body/headers shape.
+export function rateLimited(limit: number, windowSeconds: number, retryAfter: number, scope: "actor" | "client"): ApiError {
+  return new ApiError(
+    429,
+    {
+      error: "rate_limited",
+      message: `rate limit exceeded: ${limit} writes per ${windowSeconds}s`,
+      limit,
+      window_seconds: windowSeconds,
+      retry_after: retryAfter,
+      scope,
+    },
+    { "Retry-After": String(retryAfter) },
+  );
 }

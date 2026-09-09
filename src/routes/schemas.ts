@@ -70,6 +70,22 @@ const patchSchema = {
   },
 } as const;
 
+// 10 C1: `POST /v1/admin/clients`. `pubkey`'s byte length (it must decode
+// to exactly 32 bytes) is not a `pattern` ajv can express -- checked in
+// `core/clients.ts` after this schema passes.
+const registerClientSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["name", "pubkey", "owner_user_id", "caps"],
+  properties: {
+    name: { type: "string", minLength: 1 },
+    pubkey: { type: "string" },
+    owner_user_id: { type: "string", pattern: "^\\d{17,20}$" },
+    caps: { type: "string", enum: ["act-as-user", "act-as-owner-only"] },
+    discord_app_id: { type: "string" },
+  },
+} as const;
+
 export interface CreateBody {
   name: string;
   format: string;
@@ -97,11 +113,20 @@ export interface PatchBody {
   magic?: object;
 }
 
+export interface RegisterClientBody {
+  name: string;
+  pubkey: string;
+  owner_user_id: string;
+  caps: string;
+  discord_app_id?: string;
+}
+
 const validateCreate = ajv.compile<CreateBody>(createSchema);
 const validateReplace = ajv.compile<ReplaceBody>(replaceSchema);
 const validateTransfer = ajv.compile<TransferBody>(transferSchema);
 const validateAdminAdd = ajv.compile<AdminAddBody>(adminAddSchema);
 const validatePatch = ajv.compile<PatchBody>(patchSchema);
+const validateRegisterClient = ajv.compile<RegisterClientBody>(registerClientSchema);
 
 // ajv reports an extra/missing key at the PARENT's instancePath with the
 // key name in `params`, not as part of the path itself -- this stitches
@@ -145,4 +170,8 @@ export function parseAdminAddBody(body: unknown): AdminAddBody {
 
 export function parsePatchBody(body: unknown): PatchBody {
   return checkBody(validatePatch, body);
+}
+
+export function parseRegisterClientBody(body: unknown): RegisterClientBody {
+  return checkBody(validateRegisterClient, body);
 }

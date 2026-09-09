@@ -7,10 +7,13 @@ import type { MiddlewareHandler } from "hono";
 import type { Bindings } from "../env";
 import { type AuthDeps, resolveActor } from "./discord";
 
+// `via` widens to the client lane (10 C1): `"discord"` from a Discord
+// bearer token, `` `client:${id}` `` from an Ed25519-signed request an
+// admin-registered client made on that user's behalf (02 §3).
 export interface Actor {
   user_id: string;
   name: string;
-  via: "discord";
+  via: "discord" | `client:${string}`;
   admin: boolean;
 }
 
@@ -29,7 +32,10 @@ export function requireActorOnWrites(
       await next();
       return;
     }
-    const actor = await resolveActor(c.env, c.req.raw, deps);
+    // `c.req`, not `c.req.raw`: the client lane (10 C1) hashes the body via
+    // `c.req.arrayBuffer()`, which Hono caches on `c.req` -- reading the raw
+    // Request's own stream here would leave nothing for that cache to reuse.
+    const actor = await resolveActor(c.env, c.req, deps);
     c.set("actor", actor);
     await next();
   };

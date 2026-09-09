@@ -79,6 +79,31 @@ import adminAdminsOk from "./admin-admins/200.json" with { type: "json" };
 import adminAdminsForbidden from "./admin-admins/403.json" with { type: "json" };
 import adminAdminsUnauthorized from "./admin-admins/401.json" with { type: "json" };
 
+// 10 C1: the client-lane admin routes -- same GET-only pattern as
+// admin-admins above (T6's sweep hasn't reached these yet -- a future PR
+// adds their own A-group + write-verb rows to T6_CASES). `me/200-signed`
+// proves the `signed` step works end to end over a real live route.
+import adminClientsOk from "./admin-clients/200.json" with { type: "json" };
+import adminClientsForbidden from "./admin-clients/403.json" with { type: "json" };
+import adminClientsUnauthorized from "./admin-clients/401.json" with { type: "json" };
+import me200Signed from "./me/200-signed.json" with { type: "json" };
+import adminClientsPost201 from "./admin-clients/post-201.json" with { type: "json" };
+import adminClientsPost400BadRequest from "./admin-clients/post-400-bad_request.json" with { type: "json" };
+import adminClientsPost401TokenInvalid from "./admin-clients/post-401-token_invalid.json" with { type: "json" };
+import adminClientsPost401Unauthorized from "./admin-clients/post-401-unauthorized.json" with { type: "json" };
+import adminClientsPost403NotAdmin from "./admin-clients/post-403-not_admin.json" with { type: "json" };
+import adminClientsPost429 from "./admin-clients/post-429.json" with { type: "json" };
+import adminClientsPost503IdentityUnavailable from "./admin-clients/post-503-identity_unavailable.json" with { type: "json" };
+import adminClientsDelete200 from "./admin-clients/delete-200.json" with { type: "json" };
+import adminClientsDelete401TokenInvalid from "./admin-clients/delete-401-token_invalid.json" with { type: "json" };
+import adminClientsDelete401Unauthorized from "./admin-clients/delete-401-unauthorized.json" with { type: "json" };
+import adminClientsDelete403NotAdmin from "./admin-clients/delete-403-not_admin.json" with { type: "json" };
+import adminClientsDelete404 from "./admin-clients/delete-404.json" with { type: "json" };
+import adminClientsDelete429 from "./admin-clients/delete-429.json" with { type: "json" };
+import adminClientsDelete503IdentityUnavailable from "./admin-clients/delete-503-identity_unavailable.json" with { type: "json" };
+import adminClientsGet401TokenInvalid from "./admin-clients/get-401-token_invalid.json" with { type: "json" };
+import adminClientsGet503IdentityUnavailable from "./admin-clients/get-503-identity_unavailable.json" with { type: "json" };
+
 // T5's likes and write rate limit.
 import layoutsLikePutOk from "./layouts-like/put-200.json" with { type: "json" };
 import layoutsLikeDeleteOk from "./layouts-like/delete-200.json" with { type: "json" };
@@ -194,6 +219,12 @@ export interface ConformanceStep {
   method: string;
   path: string;
   bearer?: string; // Authorization: Bearer <bearer> (09 §3 T2's write routes)
+  // 10 C1: sign this request on the client lane instead of a bearer --
+  // `actor` is the asserted Discord user id; the five X-Akl-* headers are
+  // computed at fire time (tests/api/support.ts's fireConformanceStep) with
+  // the conformance seed's well-known client (CONFORMANCE_CLIENT_ID, the
+  // vectors' k1 key) -- mutually exclusive with `bearer`.
+  signed?: { actor: string };
   body?: unknown; // JSON.stringify'd, Content-Type set
   headers?: Record<string, string>; // e.g. If-Match -- merged in on top of bearer/Content-Type
 }
@@ -347,6 +378,27 @@ export const T6_CASES: ConformanceCase[] = [
   kase("admin-import/resume-403-not_admin", "/v1/admin/import/resume", adminImportResume403NotAdmin, true),
   kase("admin-import/resume-429", "/v1/admin/import/resume", adminImportResume429, true),
   kase("admin-import/resume-503-identity_unavailable", "/v1/admin/import/resume", adminImportResume503IdentityUnavailable, true),
+
+  // 10 C1: the client-lane admin routes' own A-group + write-verb rows,
+  // following T6's shape (no 409 -- client ids are freshly minted ULIDs,
+  // no name-uniqueness surface to collide on; POST is not idempotent, so
+  // no 200-idempotent case either).
+  kase("admin-clients/get-401-token_invalid", "/v1/admin/clients", adminClientsGet401TokenInvalid, true),
+  kase("admin-clients/get-503-identity_unavailable", "/v1/admin/clients", adminClientsGet503IdentityUnavailable, true),
+  kase("admin-clients/post-401-token_invalid", "/v1/admin/clients", adminClientsPost401TokenInvalid, true),
+  kase("admin-clients/post-401-unauthorized", "/v1/admin/clients", adminClientsPost401Unauthorized, true),
+  kase("admin-clients/post-403-not_admin", "/v1/admin/clients", adminClientsPost403NotAdmin, true),
+  kase("admin-clients/post-429", "/v1/admin/clients", adminClientsPost429, true),
+  kase("admin-clients/post-503-identity_unavailable", "/v1/admin/clients", adminClientsPost503IdentityUnavailable, true),
+  kase("admin-clients/post-400-bad_request", "/v1/admin/clients", adminClientsPost400BadRequest, true),
+  kase("admin-clients/post-201", "/v1/admin/clients", adminClientsPost201, true),
+  kase("admin-clients/delete-401-token_invalid", "/v1/admin/clients/:id", adminClientsDelete401TokenInvalid, true),
+  kase("admin-clients/delete-401-unauthorized", "/v1/admin/clients/:id", adminClientsDelete401Unauthorized, true),
+  kase("admin-clients/delete-403-not_admin", "/v1/admin/clients/:id", adminClientsDelete403NotAdmin, true),
+  kase("admin-clients/delete-404", "/v1/admin/clients/:id", adminClientsDelete404, true),
+  kase("admin-clients/delete-429", "/v1/admin/clients/:id", adminClientsDelete429, true),
+  kase("admin-clients/delete-503-identity_unavailable", "/v1/admin/clients/:id", adminClientsDelete503IdentityUnavailable, true),
+  kase("admin-clients/delete-200", "/v1/admin/clients/:id", adminClientsDelete200, true),
 ];
 
 export const CASES: ConformanceCase[] = [
@@ -410,6 +462,13 @@ export const CASES: ConformanceCase[] = [
   kase("admin-admins/200", "/v1/admin/admins", adminAdminsOk, true),
   kase("admin-admins/403", "/v1/admin/admins", adminAdminsForbidden, true),
   kase("admin-admins/401", "/v1/admin/admins", adminAdminsUnauthorized, true),
+
+  // 10 C1: same GET-only shape as admin-admins above.
+  kase("admin-clients/200", "/v1/admin/clients", adminClientsOk, true),
+  kase("admin-clients/403", "/v1/admin/clients", adminClientsForbidden, true),
+  kase("admin-clients/401", "/v1/admin/clients", adminClientsUnauthorized, true),
+
+  kase("me/200-signed", "/v1/me", me200Signed, true),
 
   // T4: each case creates its own record via its own `request.setup` (see
   // conformance.test.ts's seedWriteFixtures comment) -- no shared seed, no

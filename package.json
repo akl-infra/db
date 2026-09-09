@@ -14,7 +14,8 @@
     "diff-upstream": "node scripts/diff-upstream.mjs",
     "profile-upstream": "node scripts/profile-upstream.mjs",
     "pick-fixtures": "node scripts/pick-fixtures.mjs",
-    "goldens": "node scripts/goldens.mjs"
+    "goldens": "node scripts/goldens.mjs",
+    "gen-vectors": "node scripts/gen-vectors.mjs"
   },
   "dependencies": {
     "ajv": "^8.20.0",

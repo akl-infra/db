@@ -1,0 +1,16 @@
+{
+  "request": {
+    "method": "DELETE",
+    "path": "/v1/admin/clients/conformance-client-nonexistent",
+    "bearer": "conformance-admin-token"
+  },
+  "response": {
+    "status": 404,
+    "headers": { "Content-Type": "application/json" },
+    "body": {
+      "error": "not_found",
+      "message": "no client 'conformance-client-nonexistent'",
+      "ref": "conformance-client-nonexistent"
+    }
+  }
+}

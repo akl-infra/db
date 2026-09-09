@@ -9,9 +9,10 @@ import type { ActorVariables } from "../auth/actor";
 import { type AuthDeps, resolveActor } from "../auth/discord";
 import type { Bindings } from "../env";
 import * as admins from "../core/admins";
+import * as clients from "../core/clients";
 import { badRequest, notAdmin } from "../core/errors";
 import { systemClock, type Clock } from "../core/time";
-import { parseAdminAddBody } from "./schemas";
+import { parseAdminAddBody, parseRegisterClientBody } from "./schemas";
 
 // Same test-only escape hatch as routes/write.ts's `resolveNow`: a test
 // pins `TEST_CLOCK` on the shared `env` object before a `SELF.fetch` call
@@ -21,7 +22,7 @@ function resolveNow(env: Bindings): Clock {
   return (env as unknown as { TEST_CLOCK?: Clock }).TEST_CLOCK ?? systemClock;
 }
 
-async function readJson(req: Request): Promise<unknown> {
+async function readJson(req: { json(): Promise<unknown> }): Promise<unknown> {
   try {
     return await req.json();
   } catch {
@@ -36,7 +37,7 @@ export function adminRoute(authDeps: AuthDeps) {
   const route = new Hono<{ Bindings: Bindings; Variables: ActorVariables }>();
 
   route.get("/v1/admin/admins", async (c) => {
-    const actor = await resolveActor(c.env, c.req.raw, authDeps);
+    const actor = await resolveActor(c.env, c.req, authDeps);
     if (!actor.admin) throw notAdmin();
     return c.json(await admins.list(c.env.DB));
   });
@@ -44,7 +45,7 @@ export function adminRoute(authDeps: AuthDeps) {
   route.post("/v1/admin/admins", async (c) => {
     const actor = c.get("actor");
     if (!actor.admin) throw notAdmin();
-    const body = parseAdminAddBody(await readJson(c.req.raw));
+    const body = parseAdminAddBody(await readJson(c.req));
     const { row, created } = await admins.add(c.env.DB, resolveNow(c.env), actor.user_id, body.user_id, body.note);
     return c.json(row, created ? 201 : 200);
   });
@@ -69,6 +70,32 @@ export function adminRoute(authDeps: AuthDeps) {
     if (!actor.admin) throw notAdmin();
     await admins.setImportPaused(c.env.DB, resolveNow(c.env), actor.user_id, false);
     return c.json({ paused: false });
+  });
+
+  // 10 C1: the client lane's registration routes. `pubkey` never appears in
+  // the event `detail` (core/clients.ts); `GET` lists it anyway -- public
+  // keys are public by design (02 §3.1).
+  route.post("/v1/admin/clients", async (c) => {
+    const actor = c.get("actor");
+    if (!actor.admin) throw notAdmin();
+    const body = parseRegisterClientBody(await readJson(c.req));
+    const row = await clients.registerClient(c.env.DB, resolveNow(c.env), actor.user_id, body);
+    return c.json(row, 201);
+  });
+
+  route.delete("/v1/admin/clients/:id", async (c) => {
+    const actor = c.get("actor");
+    if (!actor.admin) throw notAdmin();
+    const id = c.req.param("id");
+    const result = await clients.revokeClient(c.env.DB, resolveNow(c.env), actor.user_id, id);
+    if (result === null) throw clients.unknownClientId(id);
+    return c.json(result);
+  });
+
+  route.get("/v1/admin/clients", async (c) => {
+    const actor = await resolveActor(c.env, c.req, authDeps);
+    if (!actor.admin) throw notAdmin();
+    return c.json(await clients.listClients(c.env.DB));
   });
 
   return route;

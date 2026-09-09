@@ -28,8 +28,9 @@ import { appendWrite } from "../../src/core/events";
 import { fixedClock, type Clock } from "../../src/core/time";
 import { app } from "../../src/index";
 import { FakeDiscord } from "../auth/fake-discord";
+import { vectors } from "../auth/client-support";
 import { CASES } from "../conformance/manifest";
-import { assertConformanceCase, seedUpstream100 } from "./support";
+import { CONFORMANCE_CLIENT_ID, assertConformanceCase, seedUpstream100 } from "./support";
 import { BOOTSTRAP_ADMIN } from "./write-support";
 
 const bindings = env as unknown as Bindings;
@@ -66,6 +67,10 @@ const CONFORMANCE_RATELIMITED = "820000000000000001"; // T5: an actor no other c
 // write limit (09 §2.5) partway through this file, 429-ing later cases
 // for a reason that has nothing to do with what they're testing.
 const CONFORMANCE_OWNER2 = "830000000000000001";
+// 10 C1: a second well-known client id, revoked by `admin-clients/delete-200.json`
+// -- a fixed id (not one minted by `registerClient`) so that fixture's path
+// stays byte-exact; the id doubles as `admin-clients/200.json`'s second row.
+const CONFORMANCE_CLIENT_DELETE_ID = "conformance-client-delete-1";
 const CMINI_PAYLOAD = { board: "ortho" as const, keys: {} };
 const ID_PLACEHOLDERS: Record<string, string> = {};
 
@@ -194,6 +199,31 @@ async function seedWriteFixtures(): Promise<void> {
 
   const restoreLive = await seedLive("cw-restore-live-1");
   ID_PLACEHOLDERS.__CW_RESTORE_LIVE_ID__ = restoreLive.id;
+
+  // 10 C1: the two well-known clients `admin-clients/*.json` and
+  // `me/200-signed.json` (support.ts's `signed` step) address -- fixed ids,
+  // not ones minted by `registerClient`, so those fixtures stay byte-exact.
+  await db.batch([
+    db
+      .prepare(
+        `INSERT OR IGNORE INTO clients (id, name, pubkey, owner_user_id, caps, discord_app_id, status, created_at, revoked_at)
+         VALUES (?, ?, ?, ?, ?, NULL, 'active', ?, NULL)`,
+      )
+      .bind(CONFORMANCE_CLIENT_ID, "conformance-client", vectors.keys[0]!.pubkey_b64url, CONFORMANCE_OWNER, "act-as-user", CONFORMANCE_CLOCK_ISO),
+    db
+      .prepare(
+        `INSERT OR IGNORE INTO clients (id, name, pubkey, owner_user_id, caps, discord_app_id, status, created_at, revoked_at)
+         VALUES (?, ?, ?, ?, ?, NULL, 'active', ?, NULL)`,
+      )
+      .bind(
+        CONFORMANCE_CLIENT_DELETE_ID,
+        "conformance-client-delete",
+        vectors.keys[0]!.pubkey_b64url,
+        CONFORMANCE_OWNER,
+        "act-as-user",
+        CONFORMANCE_CLOCK_ISO,
+      ),
+  ]);
 }
 
 // T6: two more tombstones for `restore-403-not_owner`/`restore-409-name_taken`
@@ -311,7 +341,7 @@ const ERROR_CODES = {
   name_taken: nameTaken("x").body.error,
   stale: stale({ rev: 1 }, { seq: 1, at: "x", actor: "x", via: "x", kind: "x", admin: false }).body.error,
   last_admins: lastAdmins(1).body.error,
-  rate_limited: rateLimited(60, 600, 600).body.error,
+  rate_limited: rateLimited(60, 600, 600, "actor").body.error,
   unsupported_for_format: unsupportedForFormat("x", "x").body.error,
 };
 interface RequiredCase {
@@ -473,6 +503,25 @@ const REQUIRED: Record<string, RequiredCase[]> = {
   ],
   "POST /v1/admin/import/pause": [{ status: 200 }, ...A, { status: 403, code: ERROR_CODES.not_admin }, RL],
   "POST /v1/admin/import/resume": [{ status: 200 }, ...A, { status: 403, code: ERROR_CODES.not_admin }, RL],
+
+  // --- phase 2: the client lane's admin routes (10 C1) -------------------
+  // No 409 (client ids are freshly minted ULIDs, no name-uniqueness
+  // surface); POST is not idempotent, so no 200-idempotent row either.
+  "GET /v1/admin/clients": [{ status: 200 }, ...A, { status: 403, code: ERROR_CODES.not_admin }],
+  "POST /v1/admin/clients": [
+    { status: 201 },
+    ...A,
+    { status: 400, code: ERROR_CODES.bad_request },
+    { status: 403, code: ERROR_CODES.not_admin },
+    RL,
+  ],
+  "DELETE /v1/admin/clients/:id": [
+    { status: 200 },
+    ...A,
+    { status: 403, code: ERROR_CODES.not_admin },
+    { status: 404, code: ERROR_CODES.not_found },
+    RL,
+  ],
 };
 describe("conformance enumeration", () => {
   // `app.routes` also lists the two `app.use("/v1/*", ...)` middleware

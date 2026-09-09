@@ -805,7 +805,8 @@
       "message": "rate limit exceeded: 60 writes per 600s",
       "limit": 60,
       "window_seconds": 600,
-      "retry_after": 600
+      "retry_after": 600,
+      "scope": "actor"
     }
   }
 }

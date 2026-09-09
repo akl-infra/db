@@ -1,0 +1,22 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/admin/clients",
+    "bearer": "conformance-admin-token",
+    "body": {
+      "name": "x",
+      "pubkey": "not-32-bytes",
+      "owner_user_id": "800000000000000022",
+      "caps": "act-as-user"
+    }
+  },
+  "response": {
+    "status": 400,
+    "headers": { "Content-Type": "application/json" },
+    "body": {
+      "error": "bad_request",
+      "message": "pubkey must be base64url of exactly 32 bytes",
+      "param": "/pubkey"
+    }
+  }
+}

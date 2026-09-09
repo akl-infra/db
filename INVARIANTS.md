@@ -16,9 +16,12 @@ the S1 rows only.
 |---|---|---|
 | LDB-A1 | No write is accepted without a resolved actor; every non-GET route answers 401 to an anonymous request (enumerated from the router) | `tests/auth/routes.test.ts` |
 | LDB-A2 | The Discord cache serves a success ≤ 5 min and a 401 ≤ 60 s; 5xx/429/network are never cached; the token is never stored | `tests/auth/discord.test.ts`, `tests/api/me.test.ts` |
-| LDB-A5 | Every accepted write's event carries `via`; every admin action is an event with `admin = 1` | `tests/api/admin.test.ts` |
+| LDB-A4 | Client-lane signatures (02 §3.2, 10 C1): every vector in `tests/vectors/client-signing.json` is accepted; each single-field mutation (method, path, query, timestamp ±301s, replayed nonce, body, actor, signature, key) is refused with the named 401; every malformed/missing header collapses to `bad_signature` | `tests/auth/client.test.ts`, `tests/tools/vectors.test.ts` |
+| LDB-A5 | Every accepted write's event carries `via` (the actor's own lane -- 10 C1 widens this from the literal `"discord"` to `client:<id>` on the client lane); every admin action is an event with `admin = 1`; the admin client routes (register/revoke/list) follow the same admin-only, event-logged pattern, never leaking the pubkey into `detail` | `tests/api/admin.test.ts`, `tests/api/write.test.ts`, `tests/api/clients.test.ts` |
 | LDB-A6 | The admins table never has fewer than two active rows after bootstrap (the count check and the delete are one statement, so two concurrent removes at three rows can't both commit) | `tests/api/admin.test.ts` |
 | LDB-A7 | Owner changes only via `transfer`; a write body naming `owner` (or any field outside the verb's schema) is refused | `tests/api/bodies.test.ts`, `tests/api/write.test.ts`, `tests/api/transfer.test.ts` |
+| LDB-A8 | A client-lane nonce is accepted once: the `nonces` PK insert is the replay check, run only after the signature verifies; rows are pruned after 900s | `tests/auth/client.test.ts` |
+| LDB-A9 | A revoked client's requests are refused from the revocation onward -- `clients.status` is read on every request, never cached | `tests/auth/client.test.ts`, `tests/api/clients.test.ts` |
 | LDB-C1 | `db.yml`'s shape (test job on PR/push under `db/**`; deploy needs test, main+push only, migrations before deploy; daily job runs rehost + diff; actions pinned) is asserted from the parsed YAML | `tests/tools/ciwiring.test.ts` |
 | LDB-C2 | `canonical()` is key-order-invariant and lossless | `tests/core/canonical.test.ts` |
 | LDB-C3 | `[env.preview]` redeclares every top-level binding and var with the preview resource names; no top-level binding is missing from it | `tests/tools/wrangler-envs.test.ts` |
@@ -64,6 +67,8 @@ the S1 rows only.
 | LDB-R4 | Every `sort` × `limit` cursor walk visits every live record exactly once | `tests/api/list.test.ts` |
 | LDB-R5 | `/rev/{n}` reproduces the payload stored at rev `n` for every n | `tests/api/history.test.ts` |
 | LDB-R6 | Writes are limited to 60 per 10-minute window per actor, counted per attempt, `429` + `Retry-After`; reads are never counted | `tests/api/ratelimit.test.ts` |
+| LDB-R7 | Client-lane writes are limited to 300/10min per client, on top of the 60/10min per-actor limit that applies to every lane; a 429 names which counter tripped (`scope`) | `tests/api/ratelimit.test.ts` |
+| LDB-R8 | `GET /v1/layouts?liked_by=<user_id>` equals a filter over `likes`, composable with every other filter/sort, and rides on `?full=1` | `tests/api/list.test.ts` |
 | LDB-S1a | `db/tests/fixtures/db-responses/` (site-side sync fixture, design/layout-db/11-implementation-phase3.md §1 W1) equals the live `/v1/meta`, `/v1/layouts`, `/v1/layouts?full=1&as=cmini/1`, per-name `/v1/layouts/{name}?as=cmini/1`, `/v1/layouts/{name}/likes` and `/v1/authors` routes over the standard upstream-100 seed | `tests/api/fixture-export.test.ts` |
 | LDB-T1 | Every registry id has a tagged test and every tag has a registry row | `tests/tools/invariants.test.ts` |
 | LDB-W1 | Every write route is resolve → authorize → check → `appendWrite`; no file under `src/routes/` prepares a D1 statement | `tests/tools/routes-noprepare.test.ts` |

@@ -1,9 +1,9 @@
 // The write rate limit (09 §2.5): one atomic D1 statement per attempt --
 // counted whether the write is ultimately accepted or refused, so a flood
-// costs exactly one row write and nothing else. Fixed 10-minute windows,
-// keyed `'write:' || user_id` (`10` C1 adds a second key, `'client:' ||
-// id`, through this same function -- `take()`'s shape is built for two
-// counters from the start).
+// costs exactly one row write and nothing else. Fixed windows, keyed by the
+// caller (`'write:' || user_id` for the per-actor counter, `'client:' ||
+// id` for 10 C1's per-client counter) -- `take()`'s shape is one function
+// for both from the start.
 import type { Bindings } from "../env";
 import type { Clock } from "./time";
 

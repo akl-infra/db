@@ -53,6 +53,13 @@ async function expectedOrder(sort: string): Promise<string[]> {
   return results.map((r) => r.id);
 }
 
+async function loadSeedRows(): Promise<ListItem[]> {
+  const { results } = await db
+    .prepare("SELECT id, owner, format, has_magic, modified_at FROM layouts WHERE deleted = 0")
+    .all<{ id: string; owner: string; format: string; has_magic: number; modified_at: string }>();
+  return results.map((r) => ({ ...r, has_magic: r.has_magic !== 0 }));
+}
+
 describe("[LDB-R4] every sort x limit cursor walk visits every live record exactly once, in order", () => {
   const sorts = ["name", "modified_at", "created_at", "like_count"];
   const limits = [1, 7, 100];
@@ -70,13 +77,6 @@ describe("[LDB-R4] every sort x limit cursor walk visits every live record exact
 });
 
 describe("[LDB-F5] every filter equals a plain JS filter over the seed", () => {
-  async function loadSeedRows(): Promise<ListItem[]> {
-    const { results } = await db
-      .prepare("SELECT id, owner, format, has_magic, modified_at FROM layouts WHERE deleted = 0")
-      .all<{ id: string; owner: string; format: string; has_magic: number; modified_at: string }>();
-    return results.map((r) => ({ ...r, has_magic: r.has_magic !== 0 }));
-  }
-
   it("[LDB-F5] owner=", async () => {
     const seed = await loadSeedRows();
     const owner = seed[0]!.owner;
@@ -123,6 +123,69 @@ describe("[LDB-F5] every filter equals a plain JS filter over the seed", () => {
     const res = await SELF.fetch(`https://example.com/v1/layouts?since=${encodeURIComponent(since)}&limit=1000`);
     const body = await res.json<{ items: ListItem[] }>();
     expect(new Set(body.items.map((i) => i.id))).toEqual(expected);
+  });
+});
+
+// [LDB-R8] 10 C1: `liked_by` equals a plain JS filter over the seed's own
+// `likes` rows, composable with every other filter/sort, and rides on
+// `?full=1` too.
+describe("[LDB-R8] liked_by=<user_id>", () => {
+  async function likedIdsFor(userId: string): Promise<Set<string>> {
+    const { results } = await db.prepare("SELECT layout_id FROM likes WHERE user_id = ?").bind(userId).all<{ layout_id: string }>();
+    return new Set(results.map((r) => r.layout_id));
+  }
+
+  it("[LDB-R8] equals a JS filter over the seed's likes, for a real liker", async () => {
+    const { results } = await db.prepare("SELECT DISTINCT user_id FROM likes LIMIT 1").all<{ user_id: string }>();
+    const userId = results[0]?.user_id;
+    expect(userId, "upstream-100 must include at least one like").toBeDefined();
+
+    const expected = await likedIdsFor(userId!);
+    expect(expected.size).toBeGreaterThan(0);
+
+    const res = await SELF.fetch(`https://example.com/v1/layouts?liked_by=${userId}&limit=1000`);
+    expect(res.status).toBe(200);
+    const body = await res.json<{ items: ListItem[] }>();
+    expect(new Set(body.items.map((i) => i.id))).toEqual(expected);
+  });
+
+  it("[LDB-R8] composes with has_magic and sort", async () => {
+    const { results } = await db.prepare("SELECT DISTINCT user_id FROM likes LIMIT 1").all<{ user_id: string }>();
+    const userId = results[0]!.user_id;
+    const liked = await likedIdsFor(userId);
+    const seed = await loadSeedRows();
+    const expected = new Set(seed.filter((r) => liked.has(r.id) && r.has_magic).map((r) => r.id));
+
+    const res = await SELF.fetch(`https://example.com/v1/layouts?liked_by=${userId}&has_magic=true&sort=like_count&limit=1000`);
+    expect(res.status).toBe(200);
+    const body = await res.json<{ items: ListItem[] }>();
+    expect(new Set(body.items.map((i) => i.id))).toEqual(expected);
+  });
+
+  it("[LDB-R8] a user_id nobody has liked anything for -> empty list", async () => {
+    const res = await SELF.fetch("https://example.com/v1/layouts?liked_by=999999999999999999&limit=1000");
+    expect(res.status).toBe(200);
+    const body = await res.json<{ items: ListItem[] }>();
+    expect(body.items).toEqual([]);
+  });
+
+  it("[LDB-R8] a malformed liked_by -> 400 bad_request", async () => {
+    const res = await SELF.fetch("https://example.com/v1/layouts?liked_by=not-a-snowflake");
+    expect(res.status).toBe(400);
+    const body = await res.json<{ error: string }>();
+    expect(body.error).toBe("bad_request");
+  });
+
+  it("[LDB-R8] ?full=1&liked_by= streams only the liked records' payloads", async () => {
+    const { results } = await db.prepare("SELECT DISTINCT user_id FROM likes LIMIT 1").all<{ user_id: string }>();
+    const userId = results[0]!.user_id;
+    const expected = await likedIdsFor(userId);
+
+    const res = await SELF.fetch(`https://example.com/v1/layouts?full=1&liked_by=${userId}&as=cmini/1`);
+    expect(res.status).toBe(200);
+    const body = await res.json<{ items: { id: string; payload: unknown }[] }>();
+    expect(new Set(body.items.map((i) => i.id))).toEqual(expected);
+    for (const item of body.items) expect(item.payload).toBeDefined();
   });
 });
 

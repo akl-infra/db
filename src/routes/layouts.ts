@@ -60,6 +60,15 @@ function parseHasMagic(raw: string | undefined): boolean | undefined {
   return undefined;
 }
 
+// 10 C1: `?liked_by=<user_id>` -- same Discord-id shape every other actor
+// id on this service is checked against.
+const LIKED_BY_RE = /^\d{17,20}$/;
+function parseLikedBy(raw: string | undefined): string | undefined {
+  if (raw === undefined) return undefined;
+  if (!LIKED_BY_RE.test(raw)) throw badRequest(`invalid 'liked_by' (expected a Discord user id)`, "liked_by");
+  return raw;
+}
+
 // `?as=` validated against the registry up front so a bad format 400s
 // before any D1 read, on every route that takes it.
 function resolveAsFormat(raw: string | undefined): string {
@@ -85,17 +94,18 @@ layoutsRoute.get("/v1/layouts", async (c) => {
   const format = c.req.query("format");
   const hasMagic = parseHasMagic(c.req.query("has_magic"));
   const since = parseSince(c.req.query("since"));
+  const likedBy = parseLikedBy(c.req.query("liked_by"));
   const sort = parseSort(c.req.query("sort"));
   const limit = parseLimit(c.req.query("limit"));
   const cursor = parseCursor(c.req.query("cursor"));
 
   const seq = await headSeq(db);
-  const query = { owner, format, hasMagic, since, sort, limit, cursor };
+  const query = { owner, format, hasMagic, since, likedBy, sort, limit, cursor };
   const etag = await etagFor(seq, query);
   const short = await conditional(c, etag, CACHE_CONTROL);
   if (short) return short;
 
-  const page = await listRecords(db, { owner, format, hasMagic, since, sort, limit, cursor });
+  const page = await listRecords(db, { owner, format, hasMagic, since, likedBy, sort, limit, cursor });
   const res = c.json({ items: page.items.map(sansPayload), next_cursor: page.nextCursor });
   res.headers.set("ETag", etag);
   res.headers.set("Cache-Control", CACHE_CONTROL);
@@ -133,9 +143,10 @@ async function likesByLayout(db: Bindings["DB"], ids: string[]): Promise<Map<str
 async function handleFullDump(c: Context<{ Bindings: Bindings }>): Promise<Response> {
   const db = c.env.DB;
   const as = resolveAsFormat(c.req.query("as"));
+  const likedBy = parseLikedBy(c.req.query("liked_by"));
 
   const seq = await headSeq(db);
-  const etag = await etagFor(seq, { full: 1, as });
+  const etag = await etagFor(seq, { full: 1, as, likedBy });
   const short = await conditional(c, etag, CACHE_CONTROL);
   if (short) return short;
 
@@ -149,7 +160,7 @@ async function handleFullDump(c: Context<{ Bindings: Bindings }>): Promise<Respo
       let cursor: ListCursor | undefined;
       let first = true;
       for (;;) {
-        const page = await listRecords(db, { sort: "name", limit: FULL_PAGE_SIZE, cursor });
+        const page = await listRecords(db, { sort: "name", limit: FULL_PAGE_SIZE, cursor, likedBy });
         const likes = await likesByLayout(db, page.items.map((r) => r.id));
         for (const rec of page.items) {
           const result = translate(rec, as);

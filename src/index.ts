@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Bindings } from "./env";
 import { type ActorVariables, requireActorOnWrites } from "./auth/actor";
+import { pruneNonces } from "./auth/client";
 import { type AuthDeps, pruneAuthCache, resolveActor } from "./auth/discord";
 import { rateLimitWrites } from "./auth/ratelimit";
 import { ApiError, internal } from "./core/errors";
@@ -36,9 +37,10 @@ const authDeps: AuthDeps = { fetchImpl: ((url, init) => fetch(url, init)) as Fet
 // future, can be reached without it.
 app.use("/v1/*", requireActorOnWrites(authDeps));
 
-// The write rate limit (09 §2.5): mounted right after the actor is
-// resolved and before every route, so T3's admin routes and T4's PATCH are
-// covered by placement, not by listing them here.
+// The write rate limit (09 §2.5; 10 C1 D8 layers the per-client counter on
+// top) -- mounted right after the actor is resolved and before every route,
+// so T3's admin routes and T4's PATCH are covered by placement, not by
+// listing them here.
 app.use("/v1/*", rateLimitWrites(authDeps.now));
 
 // GET /v1/meta -- the service's head: counts, the event cursor, and the
@@ -87,7 +89,7 @@ app.get("/v1/meta", async (c) => {
 // The one GET that needs an actor, so it calls resolveActor itself instead
 // of going through requireActorOnWrites (which skips GET/HEAD/OPTIONS).
 app.get("/v1/me", async (c) => {
-  const actor = await resolveActor(c.env, c.req.raw, authDeps);
+  const actor = await resolveActor(c.env, c.req, authDeps);
   return c.json({ user_id: actor.user_id, name: actor.name, via: actor.via, admin: actor.admin });
 });
 
@@ -124,6 +126,7 @@ async function scheduled(event: ScheduledController, env: Bindings, _ctx: Execut
     case "0 3 * * *":
       await pruneAuthCache(env.DB, systemClock);
       await pruneRateLimits(env.DB, systemClock);
+      await pruneNonces(env.DB, systemClock);
       await writeDump(env, systemClock);
       return;
     default:

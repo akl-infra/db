@@ -12,7 +12,21 @@ import { canonical } from "../../src/core/canonical";
 import { fixedClock } from "../../src/core/time";
 import { tick } from "../../src/import/cmini";
 import { FakeUpstream } from "../import/fake-upstream";
+import { importPrivateKeyPkcs8, signHeaders, vectors } from "../auth/client-support";
 import type { ConformanceCase, ConformanceStep } from "../conformance/manifest";
+
+// 10 C1: the well-known client every `signed` conformance step (manifest.ts)
+// authenticates against -- a fixed, non-ULID id (not `registerClient`'s
+// minted one) so a signed case's response body stays byte-exact without
+// `normalizeIds`. `conformance.test.ts`'s `seedWriteFixtures` inserts the
+// matching `clients` row directly; this module only signs.
+export const CONFORMANCE_CLIENT_ID = "conformance-client-1";
+
+let conformancePrivateKeyPromise: Promise<CryptoKey> | null = null;
+function conformancePrivateKey(): Promise<CryptoKey> {
+  conformancePrivateKeyPromise ??= importPrivateKeyPkcs8(vectors.keys[0]!.pkcs8_b64url);
+  return conformancePrivateKeyPromise;
+}
 
 export const bindings = env as unknown as Bindings;
 export const db = bindings.DB;
@@ -61,13 +75,26 @@ export type PathResolver = (path: string) => string;
 // bearer -> Authorization, body -> JSON + Content-Type, extra headers
 // merged on top.
 export async function fireConformanceStep(step: ConformanceStep, resolvePath: PathResolver = (p) => p): Promise<Response> {
-  const url = `https://example.com${resolvePath(step.path)}`;
+  const path = resolvePath(step.path);
+  const url = `https://example.com${path}`;
   const headers: Record<string, string> = { ...step.headers };
   if (step.bearer !== undefined) headers.Authorization = `Bearer ${step.bearer}`;
   const init: RequestInit = { method: step.method, headers };
   if (step.body !== undefined) {
     headers["Content-Type"] = "application/json";
     init.body = JSON.stringify(step.body);
+  }
+  if (step.signed !== undefined) {
+    const signedHeaders = await signHeaders({
+      privateKey: await conformancePrivateKey(),
+      clientId: CONFORMANCE_CLIENT_ID,
+      actor: step.signed.actor,
+      method: step.method,
+      pathWithQuery: path,
+      body: typeof init.body === "string" ? new TextEncoder().encode(init.body) : undefined,
+      timestamp: Math.floor(Date.now() / 1000), // the live auth clock is real wall-clock, never a fixture value
+    });
+    Object.assign(headers, signedHeaders);
   }
   return SELF.fetch(url, init);
 }

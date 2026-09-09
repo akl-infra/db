@@ -1,13 +1,15 @@
-// [LDB-R6] The write rate limit (09 §2.5): 60 writes / 10 min / actor,
-// counted per attempt (accepted or refused), fixed windows, `429
+// [LDB-R6] [LDB-R7] The write rate limit (09 §2.5): 60 writes / 10 min /
+// actor, counted per attempt (accepted or refused), fixed windows, `429
 // rate_limited` + `Retry-After`; GET is never counted; the limit is per
 // actor; the middleware's placement (not a per-route list) is what covers
-// every non-GET route, T3/T4's included.
-import { env } from "cloudflare:test";
+// every non-GET route, T3/T4's included. 10 C1 layers a second, per-client
+// counter (300/10min) on top for the client lane.
+import { SELF, env } from "cloudflare:test";
 import { app } from "../../src/index";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Bindings } from "../../src/env";
-import type { Clock } from "../../src/core/time";
+import { fixedClock, type Clock } from "../../src/core/time";
+import { generateKeyPair, seedClient, signHeaders } from "../auth/client-support";
 import { CMINI_PAYLOAD, actorFixture, pinTestClock, register, uniqueName, writeFetch } from "./write-support";
 
 const bindings = env as unknown as Bindings;
@@ -180,5 +182,121 @@ describe("[LDB-R6] write rate limit", () => {
 
     const row = await db.prepare("SELECT 1 FROM ratelimit WHERE key = ?").bind("write:owner-rl-prune").first();
     expect(row).toBeNull();
+  });
+});
+
+// 10 C1: the per-client counter, layered on top of the per-actor one above.
+// Its own window (WINDOW_C, distinct from WINDOW_0/WINDOW_1 above) so
+// nothing here depends on -- or disturbs -- the LDB-R6 tests' clock state.
+const WINDOW_C = "2026-08-10T00:00:00.000Z";
+const clockC = fixedClock(WINDOW_C);
+const WINDOW_C_START = Math.floor(new Date(WINDOW_C).getTime() / 1000 / 600) * 600;
+
+async function seedCounter(key: string, n: number): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO ratelimit (key, window_start, n) VALUES (?, ?, ?)
+       ON CONFLICT(key) DO UPDATE SET window_start = excluded.window_start, n = excluded.n`,
+    )
+    .bind(key, WINDOW_C_START, n)
+    .run();
+}
+
+async function counterFor(key: string): Promise<number> {
+  const row = await db.prepare("SELECT n FROM ratelimit WHERE key = ?").bind(key).first<{ n: number }>();
+  return row?.n ?? 0;
+}
+
+// The LIVE auth clock is always real wall-clock (`authDeps.now = systemClock`
+// in src/index.ts -- TEST_CLOCK only overrides a write route's own
+// `resolveNow()` for the record's `modified_at`, not signature verification
+// or the rate-limit window), so every signed request is timestamped off
+// `Date.now()`.
+async function signedPost(clientId: string, privateKey: CryptoKey, actor: string, name: string): Promise<Response> {
+  const bodyObj = { name, format: "cmini/1", payload: CMINI_PAYLOAD };
+  const bodyText = JSON.stringify(bodyObj);
+  const headers = await signHeaders({
+    privateKey,
+    clientId,
+    actor,
+    method: "POST",
+    pathWithQuery: "/v1/layouts",
+    body: new TextEncoder().encode(bodyText),
+    timestamp: Math.floor(Date.now() / 1000),
+  });
+  return SELF.fetch("https://example.com/v1/layouts", {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: bodyText,
+  });
+}
+
+describe("[LDB-R7] the per-client counter: 300/10min, on top of the per-actor one", () => {
+  // The top-level `afterEach` above (unstubs fetch, clears TEST_CLOCK)
+  // covers every test in this describe too -- no second copy needed.
+  it("[LDB-R7] at 299, the 300th client-lane write passes; at 300, the 301st is 429 scope: client", async () => {
+    pinTestClock(env as unknown as { TEST_CLOCK?: Clock }, clockC);
+    const { privateKey, pubkeyB64url } = await generateKeyPair();
+    const clientId = uniqueName("rl-client-300");
+    // Distinct actors so the PER-ACTOR counter (60/window) never trips first
+    // -- LDB-R7 is about the per-client ceiling specifically.
+    let actorN = 0;
+    const freshActor = () => {
+      actorN++;
+      return `70${String(actorN).padStart(16, "0")}`;
+    };
+    await seedClient(db, clockC, { id: clientId, pubkeyB64url, ownerUserId: freshActor(), caps: "act-as-user" });
+
+    await seedCounter(`client:${clientId}`, 299);
+    const ok = await signedPost(clientId, privateKey, freshActor(), uniqueName("rl-ok"));
+    expect(ok.status).toBe(201);
+    expect(await counterFor(`client:${clientId}`)).toBe(300);
+
+    const refused = await signedPost(clientId, privateKey, freshActor(), uniqueName("rl-refused"));
+    expect(refused.status).toBe(429);
+    const body = await refused.json<{ error: string; scope: string; limit: number }>();
+    expect(body.error).toBe("rate_limited");
+    expect(body.scope).toBe("client");
+    expect(body.limit).toBe(300);
+    // Refused attempts still count (09 §2.5: "counted on every attempt").
+    expect(await counterFor(`client:${clientId}`)).toBe(301);
+  });
+
+  it("60 writes for one actor through the client lane -> the 61st is 429 scope: actor (not client)", async () => {
+    pinTestClock(env as unknown as { TEST_CLOCK?: Clock }, clockC);
+    const { privateKey, pubkeyB64url } = await generateKeyPair();
+    const clientId = uniqueName("rl-client-actor");
+    const actor = "710000000000000001";
+    await seedClient(db, clockC, { id: clientId, pubkeyB64url, ownerUserId: actor, caps: "act-as-user" });
+
+    await seedCounter(`write:${actor}`, 59);
+    const ok = await signedPost(clientId, privateKey, actor, uniqueName("rl-actor-ok"));
+    expect(ok.status).toBe(201);
+
+    const refused = await signedPost(clientId, privateKey, actor, uniqueName("rl-actor-refused"));
+    expect(refused.status).toBe(429);
+    const body = await refused.json<{ error: string; scope: string; limit: number }>();
+    expect(body.scope).toBe("actor");
+    expect(body.limit).toBe(60);
+    // The client counter is nowhere near its own ceiling -- this is the
+    // actor limit tripping, not the client one, even on the client lane.
+    expect(await counterFor(`client:${clientId}`)).toBeLessThan(300);
+  });
+
+  it("a bearer-lane write never creates or touches a client:* ratelimit row", async () => {
+    pinTestClock(env as unknown as { TEST_CLOCK?: Clock }, clockC);
+    const fake = actorFixture();
+    const headers = register(fake, `tok-${uniqueName("rl-bearer")}`, "720000000000000001");
+    const before = await db.prepare("SELECT COUNT(*) AS n FROM ratelimit WHERE key LIKE 'client:%'").first<{ n: number }>();
+
+    const res = await writeFetch("/v1/layouts", "POST", headers, {
+      name: uniqueName("rl-bearer-post"),
+      format: "cmini/1",
+      payload: CMINI_PAYLOAD,
+    });
+    expect(res.status).toBe(201);
+
+    const after = await db.prepare("SELECT COUNT(*) AS n FROM ratelimit WHERE key LIKE 'client:%'").first<{ n: number }>();
+    expect(after?.n).toBe(before?.n);
   });
 });

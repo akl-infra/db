@@ -1,0 +1,16 @@
+{
+  "request": {
+    "method": "DELETE",
+    "path": "/v1/admin/clients/conformance-client-delete-1",
+    "bearer": "conformance-admin-token"
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "body": {
+      "id": "conformance-client-delete-1",
+      "status": "revoked",
+      "revoked_at": "2026-06-20T00:00:00.000Z"
+    }
+  }
+}

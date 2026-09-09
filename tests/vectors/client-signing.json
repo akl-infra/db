@@ -1,0 +1,182 @@
+{
+  "version": 1,
+  "keys": [
+    {
+      "id": "k1",
+      "seed_hex": "dba37dbf20281991da86aeb66e45f47c71e629dc6bc8d3783bfc14da344c77f0",
+      "pubkey_b64url": "KsG4a3kPQ2f74uSL0Ra4QRWDq84lNtJ63mhZ9OLNU1c",
+      "pkcs8_b64url": "MC4CAQAwBQYDK2VwBCIEINujfb8gKBmR2oautm5F9Hxx5inca8jTeDv8FNo0THfw"
+    }
+  ],
+  "vectors": [
+    {
+      "name": "get-no-body",
+      "key": "k1",
+      "client_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "method": "GET",
+      "path": "/v1/me",
+      "timestamp": "1788000000",
+      "nonce": "c3n-MHUOLraqLSy4lX8rIw",
+      "actor": "184412255822020608",
+      "body": null,
+      "signing_string": "akl-v1\nGET\n/v1/me\n1788000000\nc3n-MHUOLraqLSy4lX8rIw\n184412255822020608\n47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU",
+      "signature_b64url": "LQj5PUazwfiv_48_NrTms1AqTp4c4YNliKzRdQWqlRsAhio7jQd-n-jMRGf8a2tPK9HGnCjCTektvMtjRUCtAw"
+    },
+    {
+      "name": "post-layouts-body",
+      "key": "k1",
+      "client_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "method": "POST",
+      "path": "/v1/layouts",
+      "timestamp": "1788000000",
+      "nonce": "vyB9xATKxJgAYDeVXMPxrA",
+      "actor": "184412255822020608",
+      "body": "{\"name\":\"test-layout\",\"format\":\"akl/1\",\"payload\":{\"keys\":{}}}",
+      "signing_string": "akl-v1\nPOST\n/v1/layouts\n1788000000\nvyB9xATKxJgAYDeVXMPxrA\n184412255822020608\n0vt-bo2cbitFAdlT6qDD1irLrvi5HZ_5ruFRTPF2fmM",
+      "signature_b64url": "WibgcXRcJee4dyEHQXnTd0M8f0H3BRUsSAzhCkX5LRO2ye3_tAJzQonA-1Jq0HGwRI4SmE2QNzSrXEhRa9K1BQ"
+    },
+    {
+      "name": "put-layouts-body",
+      "key": "k1",
+      "client_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "method": "PUT",
+      "path": "/v1/layouts/01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "timestamp": "1788000000",
+      "nonce": "tjvzDmg827wdoKUsXF6o_Q",
+      "actor": "184412255822020608",
+      "body": "{\"format\":\"akl/1\",\"payload\":{\"keys\":{}}}",
+      "signing_string": "akl-v1\nPUT\n/v1/layouts/01ARZ3NDEKTSV4RRFFQ69G5FAV\n1788000000\ntjvzDmg827wdoKUsXF6o_Q\n184412255822020608\n_KdNaWmeDWGsetoSxLoL2g5thinWBOrfL7VF7T_ZE6k",
+      "signature_b64url": "DD4sn4LW9P_gb7m98GxfCsPaoJjWQo8qqlRCEC9fly2H-m90QwvLN9uGI8qh-dEwDiQzcU-9N6TIvH30lVodAg"
+    },
+    {
+      "name": "patch-layouts-body",
+      "key": "k1",
+      "client_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "method": "PATCH",
+      "path": "/v1/layouts/01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "timestamp": "1788000000",
+      "nonce": "_F5pXcvw_2-49CoZJqwsXA",
+      "actor": "184412255822020608",
+      "body": "{\"name\":\"renamed-layout\"}",
+      "signing_string": "akl-v1\nPATCH\n/v1/layouts/01ARZ3NDEKTSV4RRFFQ69G5FAV\n1788000000\n_F5pXcvw_2-49CoZJqwsXA\n184412255822020608\ngVabpvsqzaXjDjtgiOJN6e_Cmqg5auvNNCqC1_e6_bA",
+      "signature_b64url": "nVoDtwRiMmNZCOHOJQ3P-CmgMOTUC1Euqjr71hpFC7aRcCmiUdJOhNbGDVQVUtkK2cGumNO40NViVsWpElcHDw"
+    },
+    {
+      "name": "delete-no-body",
+      "key": "k1",
+      "client_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "method": "DELETE",
+      "path": "/v1/layouts/01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "timestamp": "1788000000",
+      "nonce": "pN6gZ5YvDq_zCMncXGi1OA",
+      "actor": "184412255822020608",
+      "body": null,
+      "signing_string": "akl-v1\nDELETE\n/v1/layouts/01ARZ3NDEKTSV4RRFFQ69G5FAV\n1788000000\npN6gZ5YvDq_zCMncXGi1OA\n184412255822020608\n47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU",
+      "signature_b64url": "Tzr-eOim7nFoSGpwC-RzMMGnK6KJRK9aCgbmYX3HmP8fh_CBorWw-a7cln8O3KuIxJtwnzbgfQBIGeS3rwzIDw"
+    },
+    {
+      "name": "get-with-query",
+      "key": "k1",
+      "client_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "method": "GET",
+      "path": "/v1/layouts?liked_by=184412255822020608&limit=5",
+      "timestamp": "1788000000",
+      "nonce": "4eIavNJcFsJcPJOWdcqsfg",
+      "actor": "184412255822020608",
+      "body": null,
+      "signing_string": "akl-v1\nGET\n/v1/layouts?liked_by=184412255822020608&limit=5\n1788000000\n4eIavNJcFsJcPJOWdcqsfg\n184412255822020608\n47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU",
+      "signature_b64url": "unB7LI_x2WqDFrg_Gsot5VYRPvvSq7PuHE_iuVNhqcmytrqKX8UY_Fw8B3z1ZXcF-9RCDJhLOukHcLRS6XzzAA"
+    },
+    {
+      "name": "post-body-non-ascii",
+      "key": "k1",
+      "client_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "method": "POST",
+      "path": "/v1/layouts",
+      "timestamp": "1788000000",
+      "nonce": "mptmvQwwSJ3S_krt3V41Mg",
+      "actor": "184412255822020608",
+      "body": "{\"name\":\"café\",\"format\":\"akl/1\",\"payload\":{\"keys\":{}}}",
+      "signing_string": "akl-v1\nPOST\n/v1/layouts\n1788000000\nmptmvQwwSJ3S_krt3V41Mg\n184412255822020608\nH03j6tNwy0tiE_JKQlw3bbdkPEKv1zgTaIRykdjc6CY",
+      "signature_b64url": "E5t8-OhWICoBpiTpedx26YYMLoAHo4-vYk8FHE4cKGnmZMx54k4_NSfi_DW-aBqwvWZ4wa5ESHgY4-1YAE5VCg"
+    },
+    {
+      "name": "post-body-empty-string",
+      "key": "k1",
+      "client_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "method": "POST",
+      "path": "/v1/layouts/01ARZ3NDEKTSV4RRFFQ69G5FAV/restore",
+      "timestamp": "1788000000",
+      "nonce": "x2bg5zZHdHYMfRb5TE2dPg",
+      "actor": "184412255822020608",
+      "body": "",
+      "signing_string": "akl-v1\nPOST\n/v1/layouts/01ARZ3NDEKTSV4RRFFQ69G5FAV/restore\n1788000000\nx2bg5zZHdHYMfRb5TE2dPg\n184412255822020608\n47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU",
+      "signature_b64url": "ra-Am9PHgPTaNifqBUC84zCwUpfo6MgytMoFnogGqeiVYCZTPb9nbFLRxz4R_11nSZIGXE656kna5bIuGOL6Bw"
+    },
+    {
+      "name": "post-transfer",
+      "key": "k1",
+      "client_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "method": "POST",
+      "path": "/v1/layouts/01ARZ3NDEKTSV4RRFFQ69G5FAV/transfer",
+      "timestamp": "1788000000",
+      "nonce": "9u2L9wf_pu1egOnobpa5Eg",
+      "actor": "184412255822020608",
+      "body": "{\"to\":\"184412255822020609\"}",
+      "signing_string": "akl-v1\nPOST\n/v1/layouts/01ARZ3NDEKTSV4RRFFQ69G5FAV/transfer\n1788000000\n9u2L9wf_pu1egOnobpa5Eg\n184412255822020608\nDdvex2l5uOUGnVtt5xcMxiBEzIaHmdcjlGnlYLf-ry4",
+      "signature_b64url": "eqIksB4q9v7wkXa4rLdOJFLZEp1Gcprs82IlK0jqLbu5ftlxRsviyTJIZbETCnUgiefDBx0FmYf3Rm224pohDA"
+    },
+    {
+      "name": "put-like",
+      "key": "k1",
+      "client_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "method": "PUT",
+      "path": "/v1/layouts/01ARZ3NDEKTSV4RRFFQ69G5FAV/like",
+      "timestamp": "1788000000",
+      "nonce": "4Q5MMASCbMS7eQRx4D4ePQ",
+      "actor": "184412255822020608",
+      "body": null,
+      "signing_string": "akl-v1\nPUT\n/v1/layouts/01ARZ3NDEKTSV4RRFFQ69G5FAV/like\n1788000000\n4Q5MMASCbMS7eQRx4D4ePQ\n184412255822020608\n47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU",
+      "signature_b64url": "V4o0kMlOL0lYQLl07V-uxPP3VHAlTG-P9s4Zj_HTELs38FOnshfvp-hPe0Szsk36StKGu3QSUvYBd7e8rmsHDA"
+    },
+    {
+      "name": "timestamp-plus-300",
+      "key": "k1",
+      "client_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "method": "GET",
+      "path": "/v1/me",
+      "timestamp": "1788000300",
+      "nonce": "mUEwJLZKDf82nTiJyqwLrw",
+      "actor": "184412255822020608",
+      "body": null,
+      "signing_string": "akl-v1\nGET\n/v1/me\n1788000300\nmUEwJLZKDf82nTiJyqwLrw\n184412255822020608\n47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU",
+      "signature_b64url": "gDytaB_XShB_VuPVWWUPOzL3dr2qfJEYpamLl2oQgMrRtEXEbRcFqUSCX8dRg44sHky2pzO-7Dcno5v0zTzEDg"
+    },
+    {
+      "name": "timestamp-minus-300",
+      "key": "k1",
+      "client_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "method": "GET",
+      "path": "/v1/me",
+      "timestamp": "1787999700",
+      "nonce": "KrAdT-6YMwy8T_hgKpjBcw",
+      "actor": "184412255822020608",
+      "body": null,
+      "signing_string": "akl-v1\nGET\n/v1/me\n1787999700\nKrAdT-6YMwy8T_hgKpjBcw\n184412255822020608\n47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU",
+      "signature_b64url": "pA4QsXWJioOSjvOycEUzmZFrvJkEm-rZYko0dib3ywxfyc0JgrN8ksVbo2WhzPOl-kGJLk-w9ofYCkNzsmueAQ"
+    },
+    {
+      "name": "actor-20-digit",
+      "key": "k1",
+      "client_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "method": "GET",
+      "path": "/v1/me",
+      "timestamp": "1788000000",
+      "nonce": "KyczjESwPPSB4dnADsZ6Nw",
+      "actor": "20000000000000000019",
+      "body": null,
+      "signing_string": "akl-v1\nGET\n/v1/me\n1788000000\nKyczjESwPPSB4dnADsZ6Nw\n20000000000000000019\n47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU",
+      "signature_b64url": "YcbeRCHNa_G_O9sbcitDPBvqbtkgNyVmjXylGe2mzJtxvgdghuuVxScQW-ESul94F9EMpauyzQbU1xCOhgBqDA"
+    }
+  ]
+}

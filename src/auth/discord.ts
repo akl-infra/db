@@ -1,16 +1,19 @@
 // The user lane (09 §2.2): a Discord access token, verified with Discord,
 // cached by hash. `resolveBearer` is the whole cache dance; `resolveActor`
-// adds the `Authorization` header parse on top of it (09 §2.1). `fetchImpl`
-// is injected exactly as the import's is (`FetchImpl` from
-// `import/upstream.ts`, reused) -- tests fake Discord with a plain function,
-// never the network.
+// (09 §2.1) widens at 10 C1 into a two-lane dispatcher -- `Authorization`
+// present -> this lane; else `X-Akl-Client` present -> the client lane
+// (`./client.ts`); both -> 400; neither -> 401. `fetchImpl` is injected
+// exactly as the import's is (`FetchImpl` from `import/upstream.ts`,
+// reused) -- tests fake Discord with a plain function, never the network.
+import type { HonoRequest } from "hono";
 import type { Bindings } from "../env";
-import { identityUnavailable, tokenInvalid, unauthorized } from "../core/errors";
+import { badRequest, identityUnavailable, tokenInvalid, unauthorized } from "../core/errors";
 import type { Clock } from "../core/time";
 import type { FetchImpl } from "../import/upstream";
 import type { Actor } from "./actor";
+import { type ClientDeps, verifyClientRequest } from "./client";
 
-export interface AuthDeps {
+export interface AuthDeps extends ClientDeps {
   fetchImpl: FetchImpl;
   now: Clock;
 }
@@ -147,14 +150,32 @@ export async function resolveBearer(
   return { user_id: user.id, name, via: "discord", admin };
 }
 
-// Header parse -> resolveBearer (09 §2.1). The only place `Authorization`
-// is read; a missing header or a scheme other than `Bearer` is
-// `unauthorized`, not `token_invalid` (that's reserved for Discord itself
-// rejecting the token).
-export async function resolveActor(env: Bindings, request: Request, deps: AuthDeps): Promise<Actor> {
-  const header = request.headers.get("Authorization");
-  if (header === null) throw unauthorized();
-  const match = /^Bearer\s+(.+)$/.exec(header);
-  if (match === null) throw unauthorized();
-  return resolveBearer(env.DB, deps.now, match[1]!, deps.fetchImpl, env.DISCORD_API_URL);
+// The two-lane dispatcher (09 §2.1; 10 C1 §1 D9: on any route, not just
+// writes -- so `GET /v1/me` on the client lane answers `via: client:<id>`
+// too). `Authorization` present -> resolveBearer; else `X-Akl-Client`
+// present -> the client lane; both -> 400 (one lane per request); neither
+// -> 401 with the same `WWW-Authenticate` hint either lane's own failure
+// would carry.
+export async function resolveActor(env: Bindings, req: HonoRequest, deps: AuthDeps): Promise<Actor> {
+  const header = req.header("Authorization");
+  const clientId = req.header("X-Akl-Client");
+
+  if (header !== undefined && clientId !== undefined) {
+    throw badRequest("use one lane per request", "Authorization");
+  }
+
+  if (header !== undefined) {
+    const match = /^Bearer\s+(.+)$/.exec(header);
+    if (match === null) throw unauthorized();
+    return resolveBearer(env.DB, deps.now, match[1]!, deps.fetchImpl, env.DISCORD_API_URL);
+  }
+
+  if (clientId !== undefined) {
+    // Read ONCE through Hono's cache (see requireActorOnWrites's comment) so
+    // a route handler's later `c.req.json()` still sees the same bytes.
+    const bodyBytes = new Uint8Array(await req.arrayBuffer());
+    return verifyClientRequest(env.DB, deps.now, req.raw, bodyBytes, deps);
+  }
+
+  throw unauthorized();
 }

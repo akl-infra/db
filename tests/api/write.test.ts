@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Bindings } from "../../src/env";
 import { type EventDbRow, appendWrite, rowToEvent } from "../../src/core/events";
 import { fixedClock } from "../../src/core/time";
+import { generateKeyPair, seedClient, signHeaders } from "../auth/client-support";
 import {
   AKL_PAYLOAD,
   BOOTSTRAP_ADMIN,
@@ -295,5 +296,124 @@ describe("[LDB-A7] POST /v1/layouts/{ref}/transfer: owner or admin", () => {
     const record = await seed();
     const res = await writeFetch(`/v1/layouts/${record.id}/transfer`, "POST", {}, { to: TARGET_ID });
     expect(res.status).toBe(401);
+  });
+});
+
+// [LDB-A5] 10 C1: the whole verb matrix runs again on the client lane -- a
+// signed request, not a Discord bearer -- and every accepted write's event
+// carries `via: client:<id>` (`actor.via`, not the literal "discord",
+// core/write.ts). Auth here goes through the LIVE two-lane dispatcher
+// (`authDeps.now` = real wall-clock, never the pinned TEST_CLOCK), so every
+// signed request below is timestamped off `Date.now()`, not `clock()`.
+describe("[LDB-A5] client-lane writes: via: client:<id>", () => {
+  const TARGET_ID = "20000000000000002"; // 17 digits, distinct from the transfer describe above's own TARGET_ID
+  let clientCounter = 0;
+  async function freshClient(): Promise<{ clientId: string; privateKey: CryptoKey; actor: string }> {
+    clientCounter++;
+    const { privateKey, pubkeyB64url } = await generateKeyPair();
+    const clientId = `wclient-${clientCounter}`;
+    const actor = `60000000000000${String(clientCounter).padStart(4, "0")}`;
+    await seedClient(db, clock, { id: clientId, pubkeyB64url, ownerUserId: actor, caps: "act-as-user" });
+    return { clientId, privateKey, actor };
+  }
+
+  async function signedFetch(
+    method: string,
+    path: string,
+    client: { clientId: string; privateKey: CryptoKey; actor: string },
+    body?: unknown,
+  ): Promise<Response> {
+    const bodyText = body === undefined ? undefined : JSON.stringify(body);
+    const headers = await signHeaders({
+      privateKey: client.privateKey,
+      clientId: client.clientId,
+      actor: client.actor,
+      method,
+      pathWithQuery: path,
+      body: bodyText === undefined ? undefined : new TextEncoder().encode(bodyText),
+      timestamp: Math.floor(Date.now() / 1000),
+    });
+    return SELF.fetch(`https://example.com${path}`, {
+      method,
+      headers: bodyText === undefined ? headers : { ...headers, "Content-Type": "application/json" },
+      body: bodyText,
+    });
+  }
+
+  it("POST /v1/layouts -> 201, event via: client:<id>", async () => {
+    const client = await freshClient();
+    const name = uniqueName("client-post");
+    const res = await signedFetch("POST", "/v1/layouts", client, { name, format: "cmini/1", payload: CMINI_PAYLOAD });
+    expect(res.status).toBe(201);
+    const body = await res.json<{ id: string; owner: string }>();
+    expect(body.owner).toBe(client.actor);
+    const events = await eventsFor(body.id);
+    expect(events[0]).toMatchObject({ kind: "created", via: `client:${client.clientId}`, actor: client.actor });
+  });
+
+  it("PUT /v1/layouts/{ref} -> 200, event via: client:<id>", async () => {
+    const client = await freshClient();
+    const record = await seed("cmini/1", client.actor);
+    const res = await signedFetch("PUT", `/v1/layouts/${record.id}`, client, { format: "cmini/1", payload: CMINI_PAYLOAD });
+    expect(res.status).toBe(200);
+    const events = await eventsFor(record.id);
+    expect(events.at(-1)).toMatchObject({ kind: "updated", via: `client:${client.clientId}`, actor: client.actor });
+  });
+
+  it("DELETE /v1/layouts/{ref} -> 200, event via: client:<id>", async () => {
+    const client = await freshClient();
+    const record = await seed("cmini/1", client.actor);
+    const res = await signedFetch("DELETE", `/v1/layouts/${record.id}`, client);
+    expect(res.status).toBe(200);
+    const events = await eventsFor(record.id);
+    expect(events.at(-1)).toMatchObject({ kind: "deleted", via: `client:${client.clientId}`, actor: client.actor });
+  });
+
+  it("POST /v1/layouts/{ref}/restore -> 200, event via: client:<id>", async () => {
+    const client = await freshClient();
+    const record = await seed("cmini/1", client.actor);
+    const tombstone = await appendWrite(db, clock, {
+      kind: "deleted",
+      layoutId: record.id,
+      name: record.name,
+      owner: record.owner,
+      modified_at: clock(),
+      format: record.format,
+      payload: record.payload,
+      actor: client.actor,
+      via: "discord",
+      deleted: true,
+      hasMagic: false,
+    }).then((r) => r.record);
+    const res = await signedFetch("POST", `/v1/layouts/${tombstone.id}/restore`, client);
+    expect(res.status).toBe(200);
+    const events = await eventsFor(tombstone.id);
+    expect(events.at(-1)).toMatchObject({ kind: "restored", via: `client:${client.clientId}`, actor: client.actor });
+  });
+
+  it("POST /v1/layouts/{ref}/transfer -> 200, event via: client:<id>", async () => {
+    const client = await freshClient();
+    const record = await seed("cmini/1", client.actor);
+    // transfer's target must be a known user -- a live /v1/me call (bearer
+    // lane, unrelated to what's under test) seeds the authors row.
+    const targetFake = actorFixture();
+    const targetHeaders = register(targetFake, `tok-${uniqueName("target")}`, TARGET_ID);
+    await SELF.fetch("https://example.com/v1/me", { headers: targetHeaders });
+    vi.unstubAllGlobals();
+
+    const res = await signedFetch("POST", `/v1/layouts/${record.id}/transfer`, client, { to: TARGET_ID });
+    expect(res.status).toBe(200);
+    const events = await eventsFor(record.id);
+    expect(events.at(-1)).toMatchObject({ kind: "transferred", via: `client:${client.clientId}`, actor: client.actor });
+  });
+
+  it("[LDB-I2a] followsUpstream reads via, not the literal 'discord' -- a client-lane write stops it", async () => {
+    const client = await freshClient();
+    const record = await seed("cmini/1", client.actor);
+    const res = await signedFetch("PUT", `/v1/layouts/${record.id}`, client, { format: "cmini/1", payload: CMINI_PAYLOAD });
+    expect(res.status).toBe(200);
+    const row = await db.prepare("SELECT via FROM events WHERE layout_id = ? ORDER BY seq DESC LIMIT 1").bind(record.id).first<{ via: string }>();
+    expect(row?.via.startsWith("client:")).toBe(true);
+    expect(row?.via).not.toBe("import:cmini"); // I2a: "follows upstream" is via === 'import:cmini' exactly
   });
 });

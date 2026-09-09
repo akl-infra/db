@@ -105,6 +105,7 @@ export interface ListParams {
   format?: string;
   hasMagic?: boolean;
   since?: string; // modified_at > since (ISO, compared as text -- 07 §0.1: upstream timestamps are one fixed Z-format, so lexicographic order agrees with chronological order)
+  likedBy?: string; // 10 C1: `id IN (SELECT layout_id FROM likes WHERE user_id = ?)` -- combinable with every other filter/sort
   sort: SortKey;
   limit: number; // already validated/clamped by the caller (routes/layouts.ts)
   cursor?: ListCursor;
@@ -166,6 +167,10 @@ export async function list(db: Bindings["DB"], params: ListParams): Promise<List
   if (params.since !== undefined) {
     where.push("modified_at > ?");
     args.push(params.since);
+  }
+  if (params.likedBy !== undefined) {
+    where.push("id IN (SELECT layout_id FROM likes WHERE user_id = ?)");
+    args.push(params.likedBy);
   }
   if (params.cursor !== undefined) {
     // Keyset predicate: strictly past (sortValue, id) in the walk's own

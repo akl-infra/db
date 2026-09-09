@@ -1,0 +1,37 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/admin/clients",
+    "bearer": "conformance-admin-token"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": [
+      {
+        "id": "conformance-client-1",
+        "name": "conformance-client",
+        "pubkey": "KsG4a3kPQ2f74uSL0Ra4QRWDq84lNtJ63mhZ9OLNU1c",
+        "owner_user_id": "800000000000000001",
+        "caps": "act-as-user",
+        "discord_app_id": null,
+        "status": "active",
+        "created_at": "2026-06-20T00:00:00.000Z",
+        "revoked_at": null
+      },
+      {
+        "id": "conformance-client-delete-1",
+        "name": "conformance-client-delete",
+        "pubkey": "KsG4a3kPQ2f74uSL0Ra4QRWDq84lNtJ63mhZ9OLNU1c",
+        "owner_user_id": "800000000000000001",
+        "caps": "act-as-user",
+        "discord_app_id": null,
+        "status": "active",
+        "created_at": "2026-06-20T00:00:00.000Z",
+        "revoked_at": null
+      }
+    ]
+  }
+}

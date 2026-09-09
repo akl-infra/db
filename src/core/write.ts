@@ -139,7 +139,7 @@ export async function createLayout(
     format: body.format,
     payload: body.payload,
     actor: actor.user_id,
-    via: "discord",
+    via: actor.via,
     hasMagic,
   });
 }
@@ -173,7 +173,7 @@ export async function replaceLayout(
     format: body.format,
     payload: body.payload,
     actor: actor.user_id,
-    via: "discord",
+    via: actor.via,
     admin,
     hasMagic,
   });
@@ -201,7 +201,7 @@ export async function deleteLayout(
     format: record.format,
     payload: record.payload,
     actor: actor.user_id,
-    via: "discord",
+    via: actor.via,
     admin,
     deleted: true,
     hasMagic: record.has_magic,
@@ -244,7 +244,7 @@ export async function restoreLayout(
     format: record.format,
     payload: record.payload,
     actor: actor.user_id,
-    via: "discord", // stops a follow of upstream (LDB-I2a): this becomes the latest rev-bumping event
+    via: actor.via, // stops a follow of upstream (LDB-I2a): this becomes the latest rev-bumping event
     admin,
     deleted: false,
     hasMagic: record.has_magic,
@@ -283,7 +283,7 @@ export async function transferLayout(
     format: record.format,
     payload: record.payload,
     actor: actor.user_id,
-    via: "discord",
+    via: actor.via,
     admin,
     hasMagic: record.has_magic,
   });

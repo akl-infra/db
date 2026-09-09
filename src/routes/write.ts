@@ -23,7 +23,7 @@ function resolveNow(env: Bindings): Clock {
   return (env as unknown as { TEST_CLOCK?: Clock }).TEST_CLOCK ?? systemClock;
 }
 
-async function readJson(req: Request): Promise<unknown> {
+async function readJson(req: { json(): Promise<unknown> }): Promise<unknown> {
   try {
     return await req.json();
   } catch {
@@ -34,14 +34,14 @@ async function readJson(req: Request): Promise<unknown> {
 export const writeRoute = new Hono<{ Bindings: Bindings; Variables: ActorVariables }>();
 
 writeRoute.post("/v1/layouts", async (c) => {
-  const body = parseCreateBody(await readJson(c.req.raw));
+  const body = parseCreateBody(await readJson(c.req));
   const { record } = await createLayout(c.env, resolveNow(c.env), c.get("actor"), body);
   return c.json(toWire(record), 201, { ETag: `"${record.rev}"` });
 });
 
 writeRoute.put("/v1/layouts/:ref", async (c) => {
   const ifMatch = parseIfMatch(c.req.header("If-Match") ?? null);
-  const body = parseReplaceBody(await readJson(c.req.raw));
+  const body = parseReplaceBody(await readJson(c.req));
   const { record } = await replaceLayout(c.env, resolveNow(c.env), c.get("actor"), c.req.param("ref"), body, ifMatch);
   return c.json(toWire(record), 200, { ETag: `"${record.rev}"` });
 });
@@ -65,7 +65,7 @@ writeRoute.post("/v1/layouts/:ref/restore", async (c) => {
 });
 
 writeRoute.post("/v1/layouts/:ref/transfer", async (c) => {
-  const body = parseTransferBody(await readJson(c.req.raw));
+  const body = parseTransferBody(await readJson(c.req));
   const { record } = await transferLayout(c.env, resolveNow(c.env), c.get("actor"), c.req.param("ref"), body);
   return c.json(toWire(record), 200, { ETag: `"${record.rev}"` });
 });
