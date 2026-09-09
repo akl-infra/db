@@ -24,17 +24,24 @@ domain (name pending, `00 §6.2`), path prefix `/v1`. JSON in and out, UTF-8,
   The `message` is what a bot prints and what the site shows verbatim — write
   them in the bot's voice (`missing gap before column …`). Phase 1's full
   table is `07 §6 S6`.
-- **Concurrency.** Every write that changes a record accepts `If-Match:
-  "<rev>"`. Mismatch → `409 { error: "stale", rev, record }` with the current
-  record in the body so a client can rebase. Absent `If-Match` = overwrite on
-  purpose (the site sends it always; the bot never does — bot users edit by
-  typing, there is no draft to be stale).
-- **Idempotency.** `POST /v1/layouts` accepts `Idempotency-Key`; a repeat
-  within 24 h returns the original response.
+- **Concurrency.** Every write that changes a record's payload or name
+  accepts `If-Match: "<rev>"` (quoted or bare; `*` = any). Mismatch → `409
+  { error: "stale", rev, record, last_write: { seq, at, actor, via, kind,
+  admin } }` with the current record so a client can rebase and say who
+  changed it. Absent `If-Match` (or `*`) = overwrite on purpose (the site
+  sends it always; the bot never does — bot users edit by typing, there is
+  no draft to be stale) — an overwrite can still get a `409` when another
+  write lands between read and commit; the guard is the `layout_revs` PK
+  inside the batch (`09 §2.3`). Every 2xx that returns a record carries
+  `ETag: "<rev>"`. `transfer`, `restore` and likes take no `If-Match`.
+- **Idempotency.** No `Idempotency-Key` (cut, `09 §6`): `POST` is guarded by
+  name uniqueness — a retried create gets `409 name_taken` whose `holder`
+  is the caller's own record; the other verbs are idempotent by `rev`.
 - **Versioning.** `/v1` changes only on a breaking change to the record
   envelope (`01 §5`). New endpoints and new optional fields are not breaking.
-- **Rate limits.** Per actor: 60 writes / 10 min; reads unlimited within
-  Cloudflare's sanity. `429` carries `Retry-After`.
+- **Rate limits.** Per actor: 60 writes / 10 min, counted per attempt in a
+  fixed window (`09 §2.5`); reads are never counted. `429 rate_limited`
+  carries `Retry-After`.
 
 ## 2. Reads (no auth)
 
@@ -85,7 +92,7 @@ PUT    /v1/layouts/{ref}              { format, payload }  If-Match            �
 PATCH  /v1/layouts/{ref}              one or more of:                          → 200 record
                                         { name }                 rename
                                         { fingermap: { "<char>": "<finger>", … } }
-                                        { board }                (akl/1 records only)
+                                        { board }                (akl/1 board shape; cmini/1 when a cmini word applies)
                                         { magic }                (akl/1 records only)
 DELETE /v1/layouts/{ref}              If-Match                                 → 200 tombstone record
 POST   /v1/layouts/{ref}/transfer     { to: "<user_id>" }                      → 200 record
@@ -101,21 +108,34 @@ Semantics:
   (§1); unique case-insensitively → `409 name_taken`); `format` must be
   registered; payload validated (`01 §2.1`); `owner = actor`; `rev = 1`.
   `check_name` applies to `POST` and `rename` only — **imported names are
-  stored verbatim** (`io` is 2 chars, `AdNW` keeps its case; LDB-I5).
+  stored verbatim** (`io` is 2 chars, `AdNW` keeps its case; LDB-I5). Its
+  charset is the bot's `NAME_SET` minus the space, its messages the bot's
+  own, plus a 64-char cap (`09 §2.4`, LDB-N1). `409 name_taken` carries
+  `holder: { id, owner }` so a client can tell its own record from a
+  stranger's (`06 §2.2`).
 - `PUT`: whole payload replaced; `rev + 1`. `format` may change (an author
   moving their layout from `cmini/1` to `akl/1`).
 - `PATCH` verbs are what the bot's small commands map to (`05 §2`); each is
   applied to the payload through the format's own helpers (`setFingermap`,
   `setBoard`, …) so a `cmini/1` record gets a cmini-shaped edit and an `akl/1`
-  record an akl-shaped one. A verb the format cannot apply → `400
-  unsupported_for_format`. `rename` frees the old name immediately (the
+  record an akl-shaped one (`09 §3 T4`: `board` and `magic` bodies are
+  `akl/1` shapes; `cmini/1` accepts `board` when a cmini word is present or
+  derivable, never `magic`). A verb the format cannot apply → `400
+  unsupported_for_format`. Verbs in one body apply in the order `name,
+  fingermap, board, magic`, validated as a whole, **one event**: `renamed`
+  for `{name}` alone, `fingermap` for `{fingermap}` alone, else `updated`
+  with `detail.fields`. `rename` frees the old name immediately (the
   tombstone rule: names are released only by delete or rename — LDB-P4).
 - `swap!/cycle!/angle!/unangle!/mirror!` are **client-side** transformations
   followed by a `PUT` — the bot computes them exactly as it does today
   (`cmds/swap.py` etc.) and writes the result. The DB does not grow verbs
   whose meaning is an analyzer's.
-- `DELETE` writes a tombstone (`deleted: true`, `rev + 1`); the name is free;
-  the record stays readable by id and restorable for 30 days by owner/admin.
+- `DELETE` writes a tombstone (`deleted: true`, `rev + 1`, payload kept);
+  the name is free; the record stays readable by id and restorable **by id**
+  for 30 days by its owner (any time by an admin, logged `admin: true`);
+  a live holder of the name → `409 name_taken`.
+- `transfer`: owner or admin; `to` must have an `authors` row (an author or
+  anyone who has signed in once) and differ from the current owner.
 - Likes: idempotent; do not bump `rev` or `modified_at`; do bump
   `like_count` and `meta.revision`; refused on `qwerty`.
 
@@ -178,9 +198,10 @@ polling is affordable but not free, and the design keeps it small:
 indexed D1 read (`MAX(seq)`), no other query. The Worker's cache API
 (`caches.default`) sits in front of that best-effort — **it is inert on
 `*.workers.dev`**, so the edge-cache half only engages once the service has
-a hostname (`00 §6.2`); the ETag half works everywhere. Per-client polling
-is rate-limited to one request per 10 s per endpoint (phase 2, with the
-rest of rate limiting); every long-running client is steered to webhooks
+a hostname (`00 §6.2`); the ETag half works everywhere. Per-client poll
+limiting is **not** done in code (`09 §6`: a D1 counter per poll turns
+every cheap 304 into a write) — it is a zone-level rate-limiting rule once
+the service has a hostname; every long-running client is steered to webhooks
 or the stream (below), which cost one request per real change instead of
 one per tick. The changelog page (§7) is served through the same cache
 and is also rendered into the nightly dump as a static file.
@@ -258,13 +279,18 @@ diff-only (`06 §2`). Every write is one `batch()` (one transaction).
 | id | invariant | enforced by |
 |---|---|---|
 | LDB-P1 | Every accepted write appends exactly one rev-bumping event and one `layout_revs` row and bumps `rev` by exactly one (likes and informational events: zero, `rev: null`); the record is the fold of its events; `seq` is gapless from 1. | property test: random write sequences, replay from events equals the stored record (`07 §6 S4`) |
-| LDB-P2 | `If-Match` mismatch is refused with the current record and writes nothing. | API test + concurrent-PUT race test (two PUTs at the same rev: exactly one wins) — phase 2 |
+| LDB-P2 | `If-Match` mismatch is refused with the current record and writes nothing; two writes at one `rev` → exactly one commits, the other gets `stale` with the winner's record (the guard is `layout_revs`' PK inside the batch). | `tests/api/ifmatch.test.ts` (matrix + `Promise.all` race), `tests/events/fold.test.ts` (`09 §3 T2`) |
 | LDB-P3 | Webhook delivery never affects stored state; a follower's view from the feed alone equals a follower's view from feed + webhooks. | test with a dropping/reordering fake receiver — phase 5 |
 | LDB-P4 | A name is released only by delete or rename; a held or forked record keeps its name. | API matrix |
 | LDB-P5 | Every record still following upstream (`06 §2`), read `?as=cmini/1`, equals upstream's copy on the `cminiDetail` projection (`canonical()`, likes sorted). | the daily D12 diff (`07 §6 S8`) |
 | LDB-P6 | `/v1/changes` serves from `since=0` always, including from a rehosted database; `layout_revs` is never compacted in phase 1. | feed test + the rehost test |
 | LDB-P7 | Every error response carries `error` and `message`; every (route, status) pair has a conformance fixture; every `message` in the bot's verb set matches the bot's own string for that case (phase 4). | conformance suite (`07 §6 S6`); table test from `05 §2` |
-| LDB-P8 | Deleted records are restorable for 30 days (phase 2) and unreadable by name from the moment of deletion (phase 1). | API test with fake clock |
+| LDB-P8 | Deleted records are unreadable by name from the moment of deletion (phase 1) and restorable by id for 30 days by their owner, any time by an admin, keeping name/format/payload/history (phase 2). | `tests/api/refs.test.ts`, `tests/api/restore.test.ts` (fake clock) |
+| LDB-N1 | `check_name` is the bot's rule set with the bot's strings (`NAME_SET` minus the space), plus the 64-char cap and the ULID-shape refusal, applied to `POST` and rename only. | `tests/api/names.test.ts`, `tests/api/patch.test.ts` (`09 §2.4`) |
+| LDB-W1 | Every write route is resolve → authorize → check → `appendWrite`; no file under `src/routes/` prepares a D1 statement. | `tests/tools/routes-noprepare.test.ts` |
+| LDB-E1 | Format `edits` are pure, identity on their own projection and validity-preserving. | `tests/formats/edits.test.ts` (generated over the registry × fixtures) |
+| LDB-L1 | Likes move `like_count`, `likes` and `meta.revision`/`seq` only — never `rev`, `modified_at` or `layouts_modified_at`; concurrent likes are counted exactly. | `tests/api/likes.test.ts` |
+| LDB-R6 | Writes are limited to 60 per 10-minute window per actor, counted per attempt, `429` + `Retry-After`; reads are never counted. | `tests/api/ratelimit.test.ts` |
 | LDB-R1 | Polled routes carry `Cache-Control` + a strong `ETag` and answer `304` to a matching `If-None-Match`; the ETag changes iff the event head or the query changes. | matrix over routes × header states |
 | LDB-R2 | `/v1/meta`'s counts, `seq` and `revision` equal the tables. | API test after a fixture import |
 | LDB-R3 | The conformance fixtures are the API contract: a changed fixture is a documented API change. | conformance suite + review |
@@ -273,7 +299,7 @@ diff-only (`06 §2`). Every write is one `batch()` (one transaction).
 
 ## 10. Open questions (API)
 
-1. `PATCH { board }` on `cmini/1` records: allow (map to the cmini word) or
+1. *(resolved, `09 §6.9`: allow when a cmini word is present or derivable.)* `PATCH { board }` on `cmini/1` records: allow (map to the cmini word) or
    `unsupported_for_format`? Proposal: allow when representable.
 2. Keep `like` on own layout allowed (cmini does)? Proposal: yes, parity.
 3. `history` visibility of `before` payloads for deleted records — public?

@@ -148,13 +148,13 @@ Bootstrap: migration `0001` inserts the first two admins from the runbook
 
 | id | invariant | enforced by |
 |---|---|---|
-| LDB-A1 | No write is accepted without `ctx.actor.user_id`; there is no anonymous write path, including admin routes. | route table test: every non-GET handler is wrapped by `requireActor` |
-| LDB-A2 | The Discord token cache never serves a failure longer than 60 s or a success longer than 5 min. | unit test with a fake clock |
+| LDB-A1 | No write is accepted without `ctx.actor.user_id`; there is no anonymous write path, including admin routes. | black-box enumeration: every non-GET entry in the router answers `401` to an anonymous request (`09 §3 T1`, `tests/auth/routes.test.ts`) |
+| LDB-A2 | The Discord token cache never serves a 401 longer than 60 s or a success longer than 5 min; 5xx/429/network are never cached; the token itself is never stored (only its hash). | `tests/auth/discord.test.ts` with a fake clock and a fake Discord (`09 §2.2`) |
 | LDB-A3 | *(reserved — personal tokens set aside, §2.2)* | — |
 | LDB-A4 | Client-lane signatures: the verifier accepts every vector in `client-signing.json` and rejects each single-field mutation (method, path, timestamp ± 301 s, replayed nonce, body, actor, key). | generated matrix over the vectors |
 | LDB-A5 | Every accepted write's event carries `via` and, on the client lane, the client id; a revoked client's requests are refused from the revocation onward. | API test |
 | LDB-A6 | The admins table never has fewer than two active rows after bootstrap. | write-path check + test |
-| LDB-A7 | Owner checks read `record.owner` and `actor.user_id` and nothing else — no name matching, no client-supplied owner field on edits (`owner` in a PUT body is ignored, `transfer` is the only way to change it). | property test: PUT with a foreign `owner` leaves it unchanged |
+| LDB-A7 | Owner checks read `record.owner` and `actor.user_id` and nothing else — no name matching, no client-supplied owner field on edits (`owner` in any write body is **refused** with `400 bad_request`, as is every field outside the verb's schema; `transfer` is the only way to change it). | `tests/api/bodies.test.ts` (every route × every foreign key → 400, record unchanged), `tests/api/transfer.test.ts` (`09 §2.6`) |
 
 ## 7. Open questions (auth)
 
