@@ -118,6 +118,39 @@ describe("db.yml wiring", () => {
     expect(jobText).toContain("CLOUDFLARE_DB_ACCOUNT_ID");
   });
 
+  it("[LDB-C1] the preview job needs test, runs only on a push to worktree-layout-db, applies migrations before deploying, both --env preview", () => {
+    const wf = loadWorkflow();
+    const preview = wf.jobs.preview;
+    expect(preview, "no `preview` job in db.yml").toBeDefined();
+    if (!preview) throw new Error("unreachable: assertion above failed");
+
+    expect(preview.needs).toEqual(expect.stringContaining("test"));
+    expect(preview.if, "preview job has no `if:` guard").toContain("refs/heads/worktree-layout-db");
+    expect(preview.if).toContain("github.event_name == 'push'");
+
+    const steps = preview.steps ?? [];
+    const runSteps = steps.filter((s): s is Step & { run: string } => typeof s.run === "string");
+    const migrationsIdx = runSteps.findIndex((s) => /d1 migrations apply akl-db-preview.*--env preview.*--remote/.test(s.run));
+    const deployIdx = runSteps.findIndex((s) => /wrangler deploy.*--env preview/.test(s.run));
+    expect(migrationsIdx, "no 'd1 migrations apply akl-db-preview --env preview --remote' step").toBeGreaterThanOrEqual(0);
+    expect(deployIdx, "no 'wrangler deploy --env preview' step").toBeGreaterThanOrEqual(0);
+    expect(migrationsIdx, "migrations must run before deploy").toBeLessThan(deployIdx);
+
+    // Same two secrets as `deploy` -- the preview Worker lives in the same
+    // account, just a different D1/R2/Worker name inside it.
+    const jobText = JSON.stringify(preview);
+    expect(jobText).toContain("CLOUDFLARE_DB_TOKEN");
+    expect(jobText).toContain("CLOUDFLARE_DB_ACCOUNT_ID");
+  });
+
+  it("[LDB-C1] the deploy job's `if:` is unchanged by the preview job (main-push only)", () => {
+    const wf = loadWorkflow();
+    const deploy = wf.jobs.deploy;
+    expect(deploy?.if).toContain("refs/heads/main");
+    expect(deploy?.if).toContain("github.event_name == 'push'");
+    expect(deploy?.if).not.toContain("worktree-layout-db");
+  });
+
   it("[LDB-C1] triggers on schedule and workflow_dispatch (for the daily job)", () => {
     const wf = loadWorkflow();
     expect(wf.on?.schedule, "no `schedule` trigger").toBeDefined();

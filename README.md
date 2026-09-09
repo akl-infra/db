@@ -74,6 +74,48 @@ those are taken.
 | `TEST_MIGRATIONS` | test-only miniflare binding | `tests/setup-workers.ts` | built from `migrations/` by `vitest.config.ts` at test-run time; never present outside tests |
 | `TEST_REHOST_DUMP_URL` | test-only miniflare binding | `tests/rehost.test.ts` (S7) | threads the real `REHOST_DUMP_URL` env var (set only by db.yml's `daily` job) into the miniflare Worker; empty string locally, so `npm test` always runs the local (cron-driven) half of the rehost drill |
 
+## Preview environment
+
+`[env.preview]` in `wrangler.toml` is a second, independent deployment of
+this Worker (`09-implementation-phase2.md` §3 T7) that the site's phase-2
+UX work (drafts, write verbs, `/v1/me`, likes, ...) writes against so that
+production `akl-db` stays read-only-by-humans until phase 3. Wrangler
+environments do not inherit `d1_databases`/`r2_buckets`/`vars`/`triggers`
+from the top level, so `[env.preview]` redeclares every one of them under
+the same binding names (`DB`, `DUMPS`) with preview-only resource names:
+
+| resource | production | preview |
+|---|---|---|
+| Worker | `akl-db` -- `https://akl-db.<account>.workers.dev` | `akl-db-preview` -- `https://akl-db-preview.<account>.workers.dev` |
+| D1 (binding `DB`) | `akl-db` (`53f596d5-9cb5-43b0-9026-17518d18052f`) | `akl-db-preview` (`d31147d4-ef1f-485e-bbed-c9f4a71f4d53`) |
+| R2 (binding `DUMPS`) | `akl-db-dumps` | `akl-db-dumps-preview` |
+
+Both resources were created by hand in the community (`akl`) Cloudflare
+account on 2026-09-09 (`wrangler d1 create akl-db-preview`, `wrangler r2
+bucket create akl-db-dumps-preview`); their ids/names live only in
+`wrangler.toml`'s `[env.preview]` block, never as a code constant
+(`tests/tools/wrangler-envs.test.ts`, LDB-C3, also asserts `[env.preview]`
+mirrors the top level with only names/ids changed).
+
+`.github/workflows/db.yml`'s `preview` job (`needs: test`, pushes to the
+`worktree-layout-db` branch only) runs `wrangler d1 migrations apply
+akl-db-preview --env preview --remote` then `wrangler deploy --env preview`
+on every push -- so preview tracks that branch's `db/` automatically; there
+is no separate manual deploy step for it.
+
+The site's Pages Preview environment points its `DB_BASE_URL` build
+variable at `https://akl-db-preview.<account>.workers.dev` (a site PR, not
+this directory) so phase-2 UX previews read and write the preview database
+instead of production.
+
+**Resetting the preview database:** the same rehost drill as production
+(below), with `--env preview` so every wrangler call targets `akl-db-preview`
+instead of `akl-db`:
+
+```bash
+npm run rehost -- --dump <file|url> --remote --env preview [--force]
+```
+
 ## Rehost procedure
 
 Every night (`0 3 * * *`) the Worker writes a complete snapshot -- every

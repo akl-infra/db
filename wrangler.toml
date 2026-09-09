@@ -20,3 +20,30 @@ IMPORT_SOURCE_URL = "https://clemenpine.com/layoutapi/v3"
 IMPORT_MAX_WRITES_PER_TICK = "500"
 IMPORT_UA = "akl-db-import/1.0"
 DISCORD_API_URL = "https://discord.com/api"
+
+# Preview environment (09-implementation-phase2.md §3 T7): the site's
+# phase-2 UX work writes here, never at production `akl-db`. Wrangler
+# environments do NOT inherit d1_databases/r2_buckets/vars/triggers from the
+# top level -- every one of them is redeclared below with the preview
+# resource names (created 2026-09-09 in the community account); only `main`
+# and `compatibility_date`/`compatibility_flags` are inherited.
+[env.preview]
+name = "akl-db-preview"
+
+[[env.preview.d1_databases]]
+binding = "DB"
+database_name = "akl-db-preview"
+database_id = "d31147d4-ef1f-485e-bbed-c9f4a71f4d53"
+
+[[env.preview.r2_buckets]]
+binding = "DUMPS"
+bucket_name = "akl-db-dumps-preview"
+
+[env.preview.triggers]
+crons = ["*/5 * * * *", "0 3 * * *"]
+
+[env.preview.vars]
+IMPORT_SOURCE_URL = "https://clemenpine.com/layoutapi/v3"
+IMPORT_MAX_WRITES_PER_TICK = "500"
+IMPORT_UA = "akl-db-import/1.0"
+DISCORD_API_URL = "https://discord.com/api"
