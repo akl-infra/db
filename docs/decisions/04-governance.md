@@ -14,7 +14,14 @@ config that another holder can change:
 | **edit the data** as admin (force-transfer, delete/restore any record, register bots, add admins) | D1 `admins` table (`02 §5`) | ≥ 2 Discord users at all times (LDB-A6) | any admin adds another; removing needs the row not to be one of the last two |
 | **change the code** | GitHub repo under an **org** (`00 §6.5`), `main` protected: 1 review, CI green | org owners ≥ 2; format dirs have their own `OWNERS` (§2) | org owner adds an owner; CODEOWNERS PR |
 | **run the service** | a Cloudflare account **of its own** (decided 2026-09-09: not the site's account) holding the Worker, D1 `akl-db`, R2 dumps, and — once registered inside it — the API domain | ≥ 2 members with Super Administrator from day one | account member management; CI uses an account-owned API token (not a member's); the runbook (§4) lists every secret and where it is set |
-| **speak for it** | the API hostname (DNS), the Discord bot application | DNS in the same Cloudflare account; the bot app has ≥ 2 team members in Discord's developer portal | same as above |
+| **speak for it** | the API hostname (DNS) | DNS in the `akl` account, once a domain is registered there | same as above |
+
+**Scope (saltorbit, 2026-09-09): only the layout DB is co-owned.** akl.gg and the
+Discord bot stay saltorbit's — his Cloudflare account, his Fly account, his
+Discord application. The community guarantee is the *database*: any client,
+including a replacement for the site or the bot, can be written against it
+by anyone, and the data can be rehosted without him. The site and the bot
+are clients like any other (P7).
 
 The first maintainer is one of the ≥ 2 in every row and is not special in any
 of them. That is the whole "no dictatorship" mechanism: there is nothing

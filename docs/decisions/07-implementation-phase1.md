@@ -88,9 +88,13 @@ Every schema decision below cites this table. Re-measure with
   tests/upstream-diff.test.ts`). Later slices extend the `include` arrays,
   nothing else. `fast-check@^4` for property tests. Outbound HTTP in the
   workers project goes through `fetchMock` from `cloudflare:test` (the
-  FakeUpstream is a set of `fetchMock` interceptors,
-  `tests/import/fake-upstream.ts`). Crons are driven with
-  `SELF.scheduled({ cron })`.
+  FakeUpstream is a plain Fetch-shaped fake injected as `fetchImpl`,
+  `tests/import/fake-upstream.ts` — S5 found pool-workers 0.22 exports no
+  `fetchMock`). Crons are driven by calling the exported `scheduled()`
+  with `createScheduledController` + `createExecutionContext` from
+  `cloudflare:test` (`SELF.scheduled()` throws `DataCloneError` in 0.22).
+  `scheduled()`'s event type is `ScheduledController` (modules format);
+  `tsconfig` uses `@cloudflare/workers-types/experimental`.
 - **Ids:** `ulidx@^2.4` (`ulid()`; Web Crypto, no Node dependency).
   Monotonicity is per isolate and not relied on — ordering is `events.seq`.
 - **Canonical JSON:** `core/canonical.ts` `canonical(v: unknown): string` —
@@ -210,6 +214,7 @@ INSERT INTO admins VALUES ('184412255822020608', NULL, '2026-09-08T00:00:00Z', '
 
 CREATE TABLE import_state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
   -- keys: 'cmini.meta_token' (canonical /meta response), 'cmini.last_full' (iso),
+  --       'cmini.full_pass_cursor' (sorted upstream id an in-progress capped sweep has reached; S5),
   --       'cmini.paused' ('1'), 'cmini.stalled' (json {at, reason}), 'cmini.last_tick' (json stats)
 CREATE TABLE import_map (upstream_id TEXT PRIMARY KEY, layout_id TEXT NOT NULL UNIQUE);
 ```
@@ -514,7 +519,13 @@ then, in one D1 batch per record:
 (likes excluded, compared separately). Writes are capped at
 `IMPORT_MAX_WRITES_PER_TICK` (default 500) records per tick; the plan is
 recomputed next tick, so the initial import completes in ≤ 9 ticks
-(≈ 45 min) with no state to carry. The meta token is stored only after a
+(≈ 45 min). **The daily full pass carries a cursor** (`cmini.full_pass_cursor`,
+S5): `plan.fetch` (real backlog) is served before `plan.fetchFullPassOnly`
+(ids only due for re-verification), and a capped sweep resumes past the
+cursor next tick — without it a corpus larger than one cap re-selected the
+same ids every tick, never finished the pass, and never stored the meta
+token (S5 caught this with the `IMPORT_MAX_WRITES_PER_TICK=20` convergence
+test). The meta token is stored only after a
 tick that applied everything it planned. Authors: `GET /authors` on every
 non-quiet tick; upsert rows whose `name` differs (`first_seen_at = now` on
 insert); no events. **An upstream rename is delete + create** (cmini's id
@@ -530,7 +541,7 @@ equal → return `{quiet: true}`; else list → plan → fetch → apply → aut
 | `tests/import/cases.test.ts` | one `it` per row of the case table, seeded from `upstream-100`, asserting the exact events appended (kind, rev, via, actor, detail), the `layouts` row, `import_map`, `likes` | LDB-I2 (never overwrites a non-following record), **LDB-I4** (every import write carries `via: 'import:cmini'`), **LDB-I5** (imported names bypass `check_name`: `io`, `AdNW`, the apostrophe name all import verbatim) |
 | `tests/import/tick.test.ts` | fixture upstream imported twice → second tick is quiet (meta token) → zero new events; same upstream with a changed `revision` but identical content → zero new events (daily pass); 100 layouts import in ≤ 1 tick with the default cap, 20 with `IMPORT_MAX_WRITES_PER_TICK=20` → 5 ticks, all idempotent; `?full=1` used when > 50 to fetch, per-id when ≤ 50 (assert the request log); a 404 on a listed id becomes a tombstone that tick; a shape-invalid detail is skipped and reported; `SELF.scheduled({cron: '*/5 * * * *'})` runs a tick | **LDB-I1** (idempotent), LDB-I7 (meta gate) |
 | `tests/import/upstream.test.ts` | UA header on every request; 403 without it (the fake enforces it); 404 → `NotFound` without retry; 500 → 3 tries; `?full=1` join drops duplicate names to the per-id path | LDB-I8 |
-| `tests/api/meta.test.ts` (extended) | after the fixture import, `layout_count` = 100, `author_count`, `seq`, `revision` = `at` of the last event | LDB-R2 |
+| `tests/api/meta.test.ts` (extended) | after the fixture import, `layout_count` = 100, `author_count` = 32 (the snapshot's 48 author *names* map to 32 distinct user ids; `authors` is keyed by id), `seq`, `revision` = `at` of the last event | LDB-R2 |
 
 **DoD:** all green; `npm run import -- --once --fixture` on a fresh local
 D1 yields `layout_count: 100`; run twice → `quiet`.

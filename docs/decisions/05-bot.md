@@ -119,11 +119,11 @@ then `!view` in the same second works.
 **Decided (saltorbit, 2026-09-09): Fly.io**, one `shared-cpu-1x` machine,
 256 MB to start (measure peak RSS across every compute verb in the test
 guild before raising it; an OOM restart drops one command and loses
-nothing), in a Fly organisation with both admins, deployed from
-`bot.yml` with an org-scoped deploy token. No volume: the cache is
+nothing), in saltorbit's Fly account (the bot is his, `04 §1`), deployed from
+`bot.yml` with a deploy token. No volume: the cache is
 rebuilt from `/v1/dump` at boot. The signing key (`02 §3`) lives in Fly
-secrets; rotation = new key, register, switch, revoke. Discord application
-under a Discord Team with both admins.
+secrets; rotation = new key, register, switch, revoke. The Discord
+application is saltorbit's.
 
 ## 6. Signing (client lane)
 
