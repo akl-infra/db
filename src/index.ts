@@ -135,4 +135,3 @@ export default {
 
 // Test-only: LDB-A1's black-box enumeration walks `app.routes` to prove
 // requireActorOnWrites gates every non-GET route (tests/auth/routes.test.ts).
-export { app };

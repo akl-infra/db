@@ -8,7 +8,7 @@
 import { SELF } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import { canonical } from "../../src/core/canonical";
-import { badRequest, notFound, unknownFormat } from "../../src/core/errors";
+import { badRequest, notFound, unknownFormat, unauthorized } from "../../src/core/errors";
 import { app } from "../../src/index";
 import { CASES, type ConformanceCase } from "../conformance/manifest";
 import { normalizeIds, seedUpstream100 } from "./support";
@@ -60,6 +60,7 @@ describe("conformance fixtures", () => {
 // --- enumeration: routes from app.routes, error codes from errors.ts -----
 
 const ERROR_CODES = {
+  unauthorized: unauthorized().body.error,
   bad_request: badRequest("x").body.error,
   unknown_format: unknownFormat("x", []).body.error,
   not_found: notFound("x").body.error,
@@ -79,6 +80,10 @@ interface RequiredCase {
 // test-only format (LDB-F9), in its own isolated storage.
 const REQUIRED: Record<string, RequiredCase[]> = {
   "/v1/meta": [{ status: 200 }, { status: 304 }],
+  // /v1/me: the user lane (T1). Only the anonymous 401 is reproducible from a
+  // static fixture -- a 200 needs a Discord bearer, which discord.test.ts /
+  // me.test.ts cover with the injected fake.
+  "/v1/me": [{ status: 401, code: ERROR_CODES.unauthorized }],
   "/v1/layouts": [
     { status: 200 },
     { status: 400, code: ERROR_CODES.bad_request },

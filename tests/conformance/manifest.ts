@@ -8,6 +8,7 @@
 // against the live route table (`app.routes`) and the error vocabulary
 // (`core/errors.ts`) so an uncovered route or status still fails loudly.
 import metaOk from "./meta/200.json" with { type: "json" };
+import me401 from "./me/401.json" with { type: "json" };
 import meta304 from "./meta/304.json" with { type: "json" };
 
 import layoutsListOk from "./layouts-list/200.json" with { type: "json" };
@@ -78,6 +79,7 @@ function kase(id: string, routeTemplate: string, data: unknown): ConformanceCase
 export const CASES: ConformanceCase[] = [
   kase("meta/200", "/v1/meta", metaOk),
   kase("meta/304", "/v1/meta", meta304),
+  kase("me/401", "/v1/me", me401),
 
   kase("layouts-list/200", "/v1/layouts", layoutsListOk),
   kase("layouts-list/400-bad_request", "/v1/layouts", layoutsListBadLimit),
