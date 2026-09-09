@@ -12,6 +12,7 @@ import * as admins from "../core/admins";
 import { canonical } from "../core/canonical";
 import * as clients from "../core/clients";
 import { badRequest, importPaused, notAdmin } from "../core/errors";
+import { runNightly } from "../core/nightly";
 import { systemClock, type Clock } from "../core/time";
 import { tick as cminiTick } from "../import/cmini";
 import type { FetchImpl as DiffFetchImpl } from "../import/diff";
@@ -128,6 +129,26 @@ export function adminRoute(authDeps: AuthDeps) {
     const record = await diffTick(c.env, now, resolveTickFetchImpl(c.env) as DiffFetchImpl | undefined);
     await admins.recordManualTick(c.env.DB, now, actor.user_id, "diff", record);
     return c.json({ ran: true, ...record });
+  });
+
+  // X4 follow-up 3: a manual kick for the `hour=3, minute=0` nightly job set
+  // (the three prunes + the R2 dump, `core/nightly.ts`'s `runNightly`) --
+  // same production reason as import/tick and diff/tick above: Cloudflare's
+  // cron dispatch is not currently firing for this account, and even
+  // locally `wrangler dev --test-scheduled`'s `/__scheduled` endpoint
+  // ignores a `?time=` override (07 §6 S5's own doc), so there was no way
+  // -- production OR local -- to force the nightly dump short of waiting
+  // for a real 03:00Z. Calls the EXACT SAME `runNightly()` `src/index.ts`'s
+  // `scheduled()` calls for the real cron (tests/api/admin.test.ts's own
+  // spy proves the two call sites share one implementation) -- no "paused"
+  // gate exists for this job set (unlike import/tick), so no pre-check.
+  route.post("/v1/admin/nightly/tick", async (c) => {
+    const actor = c.get("actor");
+    if (!actor.admin) throw notAdmin();
+    const now = resolveNow(c.env);
+    const result = await runNightly(c.env, now);
+    await admins.recordManualTick(c.env.DB, now, actor.user_id, "nightly", { at: result.at, jobs: result.jobs, dump: result.dump });
+    return c.json(result);
   });
 
   // 10 C1: the client lane's registration routes. `pubkey` never appears in

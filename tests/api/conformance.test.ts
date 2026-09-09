@@ -656,6 +656,9 @@ const REQUIRED: Record<string, RequiredCase[]> = {
     RL,
   ],
   "POST /v1/admin/diff/tick": [{ status: 200 }, ...A, { status: 403, code: ERROR_CODES.not_admin }, RL],
+  // X4 follow-up 3: the manual nightly-job-set trigger (no "paused" state
+  // exists for it either).
+  "POST /v1/admin/nightly/tick": [{ status: 200 }, ...A, { status: 403, code: ERROR_CODES.not_admin }, RL],
 
   // --- phase 2: the client lane's admin routes (10 C1) -------------------
   // No 409 (client ids are freshly minted ULIDs, no name-uniqueness

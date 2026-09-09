@@ -48,6 +48,7 @@ const INFO_KINDS_MAP: Record<InfoKind, true> = {
   "admin.client_revoked": true,
   "admin.import_ticked": true,
   "admin.diff_ticked": true,
+  "admin.nightly_ticked": true,
 };
 const LIKE_KINDS_MAP: Record<"liked" | "unliked", true> = { liked: true, unliked: true };
 

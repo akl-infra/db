@@ -79,9 +79,15 @@ const ROUTES = [
   ["webhooks", "delete", "DELETE", "/v1/webhooks/:id", "/v1/webhooks/nonexistent"],
   ["admin-drill", "post", "POST", "/v1/admin/drill", "/v1/admin/drill"],
   ["admin-health", "", "GET", "/v1/admin/health", "/v1/admin/health"],
+  // X4 follow-up 3: appended at the END, not inserted alongside admin-diff
+  // above -- every earlier row's `replayNonce` is derived from its own
+  // array INDEX (`i`), so inserting a new route in the middle would shift
+  // every later row's nonce and silently invalidate its already-committed
+  // fixture. Keep future additions appended here too.
+  ["admin-nightly", "tick", "POST", "/v1/admin/nightly/tick", "/v1/admin/nightly/tick"],
 ];
 
-if (ROUTES.length !== 24) throw new Error(`expected 24 A-group routes, got ${ROUTES.length}`);
+if (ROUTES.length !== 25) throw new Error(`expected 25 A-group routes, got ${ROUTES.length}`);
 
 function pascal(s) {
   return s

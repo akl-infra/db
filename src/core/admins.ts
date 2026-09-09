@@ -110,20 +110,24 @@ export async function isImportPaused(db: Bindings["DB"]): Promise<boolean> {
 }
 
 // X4 follow-up: the manual-trigger routes (`POST /v1/admin/import/tick`,
-// `POST /v1/admin/diff/tick`) are event-logged the same way pause/resume
-// are -- an operator manually kicking a cron is an admin action worth the
-// public changelog seeing, same posture as everything else in this file.
-// `detail` carries the tick's own summary (`TickStats`/`LastDiffRecord`) --
-// already the exact object `cmini.last_tick`/`cmini.last_diff` store
-// uncapped, so no new size concern here.
+// `POST /v1/admin/diff/tick`, and -- X4 follow-up 3 -- `POST /v1/admin/
+// nightly/tick`) are event-logged the same way pause/resume are -- an
+// operator manually kicking a cron is an admin action worth the public
+// changelog seeing, same posture as everything else in this file. `detail`
+// carries the tick's own summary (`TickStats`/`LastDiffRecord`/
+// `{at, jobs, dump}`) -- already the exact shape `cmini.last_tick`/
+// `cmini.last_diff` store uncapped (or, for `nightly`, small: `jobs` is
+// four one-word statuses and `dump` is `{key, latest}`, never the dump's
+// own multi-MB body), so no new size concern here.
 export async function recordManualTick(
   db: Bindings["DB"],
   now: Clock,
   actorId: string,
-  which: "import" | "diff",
+  which: "import" | "diff" | "nightly",
   detail: object,
 ): Promise<{ seq: number }> {
-  const kind: InfoKind = which === "import" ? "admin.import_ticked" : "admin.diff_ticked";
+  const kind: InfoKind =
+    which === "import" ? "admin.import_ticked" : which === "diff" ? "admin.diff_ticked" : "admin.nightly_ticked";
   const { seq } = await appendAdmin(db, now, { kind, actor: actorId, detail });
   return { seq };
 }

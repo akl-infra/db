@@ -1,15 +1,14 @@
 import { Hono } from "hono";
 import type { Bindings } from "./env";
 import { type ActorVariables, requireActorOnWrites, SAFE_METHODS } from "./auth/actor";
-import { pruneNonces } from "./auth/client";
-import { type AuthDeps, pruneAuthCache, resolveActor } from "./auth/discord";
+import { type AuthDeps, resolveActor } from "./auth/discord";
 import { rateLimitWrites } from "./auth/ratelimit";
 import { ApiError, internal } from "./core/errors";
 import { cachePut, conditional, etagFor, headSeq } from "./core/etag";
-import { pruneRateLimits } from "./core/ratelimit";
+import { runJob } from "./core/jobs";
+import { runNightly } from "./core/nightly";
 import { systemClock } from "./core/time";
 import { drain as drainWebhooks, type WebhookFetchImpl } from "./core/webhooks";
-import { writeDump } from "./dump/write";
 import { list as listFormats } from "./formats/registry";
 import type { FetchImpl } from "./import/upstream";
 import { tick as cminiTick } from "./import/cmini";
@@ -195,17 +194,10 @@ app.onError((err, c) => {
 // prune, the diff, kept running on their own triggers regardless.
 // Collapsing onto one dispatch must not silently recreate a single point
 // of failure out of four previously-independent jobs, so each one is
-// caught and logged here rather than left to abort every job still queued
-// after it in the same invocation (`tests/import/tick.test.ts`'s own
-// "one job's failure doesn't block the rest" case is the regression test).
-async function runJob(name: string, job: () => Promise<unknown>): Promise<void> {
-  try {
-    await job();
-  } catch (e) {
-    console.error(`scheduled(): job '${name}' failed`, e);
-  }
-}
-
+// caught and logged (`core/jobs.ts`'s `runJob`) rather than left to abort
+// every job still queued after it in the same invocation
+// (`tests/import/tick.test.ts`'s own "one job's failure doesn't block the
+// rest" case is the regression test).
 async function scheduled(event: ScheduledController, env: Bindings, _ctx: ExecutionContext): Promise<void> {
   if (event.cron !== "*/5 * * * *") {
     throw new Error(`scheduled(): unrecognized cron '${event.cron}'`);
@@ -227,13 +219,14 @@ async function scheduled(event: ScheduledController, env: Bindings, _ctx: Execut
     drainWebhooks(env, systemClock, { fetchImpl: webhookFetchImpl, maxPosts: Number(env.WEBHOOK_MAX_POSTS) }),
   );
 
-  // The old `0 3 * * *`: prune + the nightly dump. Each of the four still
-  // runs even if an earlier one this same minute throws.
+  // The old `0 3 * * *`: prune + the nightly dump, delegated to
+  // `core/nightly.ts`'s `runNightly` so this exact job list is also what
+  // `POST /v1/admin/nightly/tick` (routes/admin.ts) runs -- one job list,
+  // two callers, never a second copy to drift out of sync (each of the
+  // four still runs even if an earlier one this same minute throws --
+  // `runNightly`'s own `runJob` guard).
   if (hour === 3 && minute === 0) {
-    await runJob("prune-auth-cache", () => pruneAuthCache(env.DB, systemClock));
-    await runJob("prune-rate-limits", () => pruneRateLimits(env.DB, systemClock));
-    await runJob("prune-nonces", () => pruneNonces(env.DB, systemClock));
-    await runJob("write-dump", () => writeDump(env, systemClock));
+    await runNightly(env, systemClock);
   }
 
   // The old `0 4 * * *`: the diff cron (12 §3 X4).

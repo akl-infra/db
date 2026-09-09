@@ -50,7 +50,8 @@ export type InfoKind =
   | "admin.client_registered" // 10 C1: POST /v1/admin/clients
   | "admin.client_revoked" // 10 C1: DELETE /v1/admin/clients/{id}
   | "admin.import_ticked" // X4 follow-up: POST /v1/admin/import/tick (manual cron kick)
-  | "admin.diff_ticked"; // X4 follow-up: POST /v1/admin/diff/tick
+  | "admin.diff_ticked" // X4 follow-up: POST /v1/admin/diff/tick
+  | "admin.nightly_ticked"; // X4 follow-up 3: POST /v1/admin/nightly/tick (manual nightly-job-set kick)
 
 // A record minus its payload -- what `before`/`after` store on an event and
 // what a list row carries (03 §2).

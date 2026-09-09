@@ -338,18 +338,25 @@ with a date baked into it.
 Cloudflare's cron dispatch has, at least once, simply stopped firing for
 this Worker's registered triggers (zero scheduled invocations over 25
 minutes observed on the deployed service, no error surfaced anywhere but a
-stale `/v1/meta`) -- these two routes let an admin force a tick without
-waiting it out. Both call the EXACT SAME function `scheduled()` calls for
-the real cron (`tests/api/admin.test.ts` asserts this with a spy shared
-across both call sites), so there is no second implementation of either
-tick to drift out of sync with the real one; both are admin-only, rate-
-limited the same as every other write here, and append one `admin.*`
-event to the public feed (`admin.import_ticked` / `admin.diff_ticked`).
+stale `/v1/meta`) -- these three routes let an admin force a tick without
+waiting it out. `wrangler dev --test-scheduled`'s `/__scheduled` endpoint
+also ignores a `?time=` override, so there is no LOCAL way to drive the
+`hour=3, minute=0` nightly slot either -- `POST /v1/admin/nightly/tick`
+exists mainly for that: an operator who needs a fresh dump written (a
+rehost drill, say) has no other way to force one short of waiting for a
+real 03:00Z. All three call the EXACT SAME function(s) `scheduled()` calls
+for the real cron (`tests/api/admin.test.ts` asserts this with a spy shared
+across both call sites for each route), so there is no second
+implementation of any tick to drift out of sync with the real one; all
+three are admin-only, rate-limited the same as every other write here, and
+append one `admin.*` event to the public feed (`admin.import_ticked` /
+`admin.diff_ticked` / `admin.nightly_ticked`).
 
 | route | body | 200 response | other statuses |
 |---|---|---|---|
 | `POST /v1/admin/import/tick` | none | `{ ran: true, ...tick()'s own TickStats }` (`quiet`/`applied`/`full_pass`/... -- `src/import/cmini.ts`'s `TickResult.stats`, unchanged) | `409 import_paused` if the import is paused (`POST .../resume` first); the usual admin `401`/`403`/`429`/`503` |
 | `POST /v1/admin/diff/tick` | none | `{ ran: true, ...diffTick()'s own LastDiffRecord }` (`ok`/`corpus`/`samples`/... -- the same shape `import_state['cmini.last_diff']` stores) | the usual admin `401`/`403`/`429`/`503` (no "paused" state exists for the diff) |
+| `POST /v1/admin/nightly/tick` | none | `{ ran: true, at, jobs: { "prune-auth-cache": "ok"\|"error", "prune-rate-limits": "ok"\|"error", "prune-nonces": "ok"\|"error", "write-dump": "ok"\|"error" }, dump: writeDump()'s own { key, latest } or null }` -- `src/core/nightly.ts`'s `runNightly`, the SAME job list `scheduled()`'s `hour=3, minute=0` branch runs, each job guarded (`core/jobs.ts`'s `runJob`) so one failing never skips the rest | the usual admin `401`/`403`/`429`/`503` (no "paused" state exists for this job set either) |
 
 ### R2 lifecycle
 
