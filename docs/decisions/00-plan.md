@@ -78,22 +78,22 @@ registered in `design/INVARIANTS.md` when implemented).
   │  layout DB — db/  (Cloudflare Worker + D1, own domain)    │
   │                                                          │
   │  formats/  akl/1  cmini/1  mana2/1  core/1  …  (01)      │
-  │  auth      Discord bearer · DB tokens · signed clients   │
+  │  auth      Discord bearer · signed clients               │
   │  api       /v1/layouts  /v1/changes  /v1/dump  /v1/meta  │
   │  events    append-only log → feed + webhooks             │
   └───────┬──────────────────────┬───────────────────────────┘
           │ reads (any format)   │ writes (as a user)
   ┌───────┴───────┐   ┌──────────┴─────────┐   ┌──────────────────┐
   │  akl.gg       │   │  Discord bot       │   │ mana / others    │
-  │  pipeline +   │   │  (bot/) Ed25519,   │   │ DB token, akl/1  │
-  │  publish UX   │   │  acts as author    │   │ or mana2/1       │
+  │  pipeline +   │   │  (bot/) Ed25519,   │   │ reads any format │
+  │  publish UX   │   │  acts as author    │   │ follows the feed │
   └───────────────┘   └────────────────────┘   └──────────────────┘
 ```
 
 akl.gg's pipeline keeps its shape: `meta-watch` polls the DB's `/v1/meta`
 instead of cmini's, `live-sync` computes patches for changed layouts, the
-nightly rebuilds the base. The only change on day 1 is the URL the scrape
-reads from (`06 §1`).
+nightly rebuilds the base. On day 1 the scrape reads `?as=cmini/1` from the
+DB instead of cmini's API; the extracted files are the same shape (`06 §1`).
 
 ## 4. Decisions taken in this round (flip any of them)
 

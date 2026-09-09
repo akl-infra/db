@@ -26,9 +26,9 @@ Change, in order:
    webhook subscription replaces the 2-min poll, `03 §5`). The
    `cmini-backup` orphan branch keeps committing the scraped set (it now
    backs up our own DB, which is fine and cheap).
-3. **Later:** the sync reads `?as=akl/1` instead of the facade so board
+3. **Later:** the sync reads `?as=akl/1` instead of `cmini/1` so board
    geometry and magic intent reach `layouts.json`; `build_web.py`'s
-   `layout_meta_and_keys()` grows the fields; the facade stays for others.
+   `layout_meta_and_keys()` grows the fields.
 
 `data/layout-dates.json` stops being needed once the DB carries
 `created_at`/`modified_at` for every record (imported ones keep cmini's
