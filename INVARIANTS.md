@@ -53,4 +53,5 @@ the S1 rows only.
 | LDB-R3 | The conformance fixtures are the API contract; changing one is a documented API change | `tests/api/conformance.test.ts` (+ review) |
 | LDB-R4 | Every `sort` × `limit` cursor walk visits every live record exactly once | `tests/api/list.test.ts` |
 | LDB-R5 | `/rev/{n}` reproduces the payload stored at rev `n` for every n | `tests/api/history.test.ts` |
+| LDB-S1a | `db/tests/fixtures/db-responses/` (site-side sync fixture, design/layout-db/11-implementation-phase3.md §1 W1) equals the live `/v1/meta`, `/v1/layouts`, `/v1/layouts?full=1&as=cmini/1`, per-name `/v1/layouts/{name}?as=cmini/1`, `/v1/layouts/{name}/likes` and `/v1/authors` routes over the standard upstream-100 seed | `tests/api/fixture-export.test.ts` |
 | LDB-T1 | Every registry id has a tagged test and every tag has a registry row | `tests/tools/invariants.test.ts` |
