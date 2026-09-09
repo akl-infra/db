@@ -22,7 +22,7 @@ export default defineConfig(async () => {
               miniflare: {
                 // Test-only binding: tests/setup-workers.ts applies these
                 // via applyD1Migrations() before any workers test runs.
-                bindings: { TEST_MIGRATIONS: migrations },
+                bindings: { TEST_MIGRATIONS: migrations, TEST_ROUTES: "1" },
               },
             }),
           ],
@@ -30,6 +30,7 @@ export default defineConfig(async () => {
             name: "workers",
             include: [
               "tests/api/**/*.test.ts",
+              "tests/auth/**/*.test.ts",
               "tests/import/**/*.test.ts",
               "tests/events/**/*.test.ts",
               "tests/rehost.test.ts",

@@ -14,6 +14,8 @@ the S1 rows only.
 
 | id | invariant | enforced by |
 |---|---|---|
+| LDB-A1 | No write is accepted without a resolved actor; every non-GET route answers 401 to an anonymous request (enumerated from the router) | `tests/auth/routes.test.ts` |
+| LDB-A2 | The Discord cache serves a success ≤ 5 min and a 401 ≤ 60 s; 5xx/429/network are never cached; the token is never stored | `tests/auth/discord.test.ts` |
 | LDB-C1 | `db.yml`'s shape (test job on PR/push under `db/**`; deploy needs test, main+push only, migrations before deploy; daily job runs rehost + diff; actions pinned) is asserted from the parsed YAML | `tests/tools/ciwiring.test.ts` |
 | LDB-C2 | `canonical()` is key-order-invariant and lossless | `tests/core/canonical.test.ts` |
 | LDB-F1 | Every stored payload validates against its format's frozen schema; a write that does not is refused with the failing path | `tests/formats/goldens.test.ts`, `tests/formats/mutations.test.ts` |

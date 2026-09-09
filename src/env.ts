@@ -6,4 +6,5 @@ export interface Bindings {
   IMPORT_SOURCE_URL: string;
   IMPORT_MAX_WRITES_PER_TICK: string;
   IMPORT_UA: string;
+  DISCORD_API_URL: string; // e.g. https://discord.com/api -- src/auth/discord.ts (09 §3 T1)
 }

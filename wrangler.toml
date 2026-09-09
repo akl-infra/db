@@ -19,3 +19,4 @@ crons = ["*/5 * * * *", "0 3 * * *"]
 IMPORT_SOURCE_URL = "https://clemenpine.com/layoutapi/v3"
 IMPORT_MAX_WRITES_PER_TICK = "500"
 IMPORT_UA = "akl-db-import/1.0"
+DISCORD_API_URL = "https://discord.com/api"

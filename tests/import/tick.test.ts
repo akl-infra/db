@@ -195,4 +195,24 @@ describe("scheduled() wiring", () => {
     expect(await countEvents()).toBeGreaterThan(before);
     expect(await liveLayoutCount()).toBe(100);
   });
+
+  // T1: the '0 3 * * *' cron also prunes expired auth_cache rows (09 §3
+  // T1). No FakeUpstream/fetch stubbing needed -- this branch never calls
+  // Discord or cmini, only src/auth/discord.ts's pruneAuthCache().
+  it("the exported scheduled() handler routes '0 3 * * *' to an auth_cache prune", async () => {
+    await db.batch([
+      db
+        .prepare("INSERT INTO auth_cache (token_hash, user_id, name, ok, expires_at) VALUES ('expired', 'u1', 'n1', 1, '2020-01-01T00:00:00.000Z')"),
+      db
+        .prepare("INSERT INTO auth_cache (token_hash, user_id, name, ok, expires_at) VALUES ('live', 'u2', 'n2', 1, '2099-01-01T00:00:00.000Z')"),
+    ]);
+
+    const ctx = createExecutionContext();
+    const controller = createScheduledController({ cron: "0 3 * * *" });
+    await worker.scheduled(controller, bindings, ctx);
+    await waitOnExecutionContext(ctx);
+
+    const rows = await db.prepare("SELECT token_hash FROM auth_cache").all<{ token_hash: string }>();
+    expect(rows.results.map((r) => r.token_hash)).toEqual(["live"]);
+  });
 });

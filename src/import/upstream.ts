@@ -11,7 +11,10 @@
 // not wired to the Worker's global fetch in this version). `sleepImpl` is
 // injected for the same reason `now` is elsewhere: tests must not wait out
 // real backoff delays.
-export type FetchImpl = (url: string, init: { headers: Record<string, string> }) => Promise<Response>;
+// `signal` is optional and unused by this module's own calls -- added for
+// auth/discord.ts's 5s Discord timeout (09 §2.2), which reuses this exact
+// type rather than inventing a second injection shape.
+export type FetchImpl = (url: string, init: { headers: Record<string, string>; signal?: AbortSignal }) => Promise<Response>;
 export type SleepImpl = (ms: number) => Promise<void>;
 
 const RETRIES = 3;
