@@ -44,6 +44,7 @@ Every schema decision below cites this table. Re-measure with
 | `user` | JSON string on all | stored as text |
 | `created_at` | spans 2022-12-07 … today; 1965 have `created == modified` | 06 §1's "stamped 2026-08-20" note is stale — see 06 Q1 |
 | UA | default `urllib`/`fetch` UA is 403'd | send `User-Agent: akl-db-import/1.0` on every request |
+| **V8 `JSON.parse` on the `?full=1` body** | parsing the SAME ~5.3 MB string repeatedly returns two different results — a `\u003c`/`\u003e`/`\u0026` object key (Go's HTML escapes) sometimes decodes to a backslash; reproduced in Node 24/26 and inside workerd; Python agrees with the correct decoding every time; a synthetic document does not trigger it (S8, 2026-09-09) | every upstream parse goes through `core/safejson.ts`: those three escapes are rewritten to literals (an escaped backslash left alone) before `JSON.parse`, then a second parse must agree (LDB-I9). The daily diff (LDB-P5) is the live check |
 | 404 on a listed id | happens (created-then-deleted between list and detail) | = deletion this tick, bounded like prune |
 
 ## 1. Before the first PR — decisions and hand-made things
@@ -790,6 +791,7 @@ the registry has to move with the code at the split (00 §7).
 | LDB-I6 | A list shorter than half the live record count stalls the whole tick | `plan.test.ts` |
 | LDB-I7 | A tick whose `/meta` token is unchanged makes no further request and writes nothing | `tick.test.ts` |
 | LDB-I8 | Every upstream request carries the UA; 404 is never retried; other failures are retried 3× | `upstream.test.ts` |
+| LDB-I9 | Upstream JSON is parsed only through `core/safejson.ts` (Go escapes rewritten before `JSON.parse`, escaped backslashes untouched, second parse must agree) | `tests/core/safejson.test.ts` |
 | LDB-P1 | Every write appends exactly one rev-bumping event and one `layout_revs` row; the record equals the fold of its events; `seq` is gapless | `fold.test.ts` |
 | LDB-P4 | A name is released only by delete or rename | `names.test.ts`, `refs.test.ts` |
 | LDB-P5 | Every following record read `?as=cmini/1` equals upstream on the projection (likes sorted) | `upstream-diff.test.ts` (daily) |
