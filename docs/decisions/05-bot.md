@@ -121,11 +121,44 @@ LDB-B12 is determinism of the bot's own render).
 
 ## 4. The cache
 
-`/v1/changes?since=<cursor>` on a 30 s timer plus the SSE stream when up;
-bootstrapped from `/v1/dump`. Every layout as `akl/1` (the format the site
-reads), with the wasm-computed cmini row per corpus memoised beside it.
-Writes update the cache from the response before the next tick, so `!add`
-then `!view` in the same second works.
+Bootstrapped from `/v1/dump`. Every layout as `akl/1` (the format the site
+reads), with the wasm-computed cmini row per corpus memoised beside it,
+keyed `(id, rev, corpus)` so nothing recomputes unless the rev moved.
+
+**No stale reads, no clobbering writes (saltorbit, 2026-09-09).** A read verb's
+answer must equal the answer computed from the DB's state at the moment
+the verb ran — never a snapshot from whenever the cache last happened to
+sync. So before ANY read verb answers, the bot calls `ensureFresh()`: one
+conditional `GET /v1/meta`, `If-None-Match` = the ETag last seen. A `304`
+(the event log's `seq` is unchanged) serves straight from memory, no other
+request. A `200` with `seq` past the cache's own cursor folds
+`GET /v1/changes?since=<cursor>` (the same fold as everything else in this
+section) before the verb runs. Concurrent callers share one in-flight
+check rather than each firing their own; a `/v1/meta` failure answers an
+honest "the layout database isn't reachable right now" instead of ever
+serving something that might be stale. `ensureFresh()` is the *only*
+freshness mechanism a read verb depends on — there is no separate polling
+loop backing it.
+
+The SSE stream (`GET /v1/changes/stream`, reconnecting with backoff on any
+drop) is layered on top as a keep-warm optimization, nothing more: it
+folds events into the cache the moment they happen so that `ensureFresh`'s
+own catch-up is almost always empty, keeping replies fast. Losing the
+stream costs latency, not correctness — `ensureFresh` still catches the
+cache up before every read either way, so a dropped connection degrades
+quietly and reconnects on its own.
+
+Writes never trust the cache either. Every write verb that modifies an
+*existing* record — everything except `add`, which is creating one from
+nothing — fetches that record fresh right before writing, applies its
+edit to that fresh copy, and sends the write with `If-Match` set to the
+rev it just read: never omitted, never based on whatever rev the cache
+happened to be holding. If someone else's write landed in between, the DB
+answers 409 and the bot folds that newer record into the cache immediately
+and tells the user to try again — it never blindly retries over top of a
+change it didn't know about. The response of any accepted write is folded
+into the cache right away too, so `!add` then `!view` in the same second
+still works.
 
 ## 5. Where it runs
 
@@ -151,12 +184,13 @@ live in this repo).
 | id | invariant | enforced by |
 |---|---|---|
 | LDB-B1 | Every cmini command exists with the same `use()` string and the same success/error wording for the cases in the parity table. | `bot/tests/parity.test`: table-driven against a local DB |
-| LDB-B2 | Every write the bot makes carries `X-Akl-Actor = message.author.id`; the bot has no code path that writes as anyone else. | grep + unit test on the client |
-| LDB-B3 | A read verb never performs an HTTP request (cache only). | unit test with HTTP mocked to fail |
+| LDB-B2 | Every write the bot makes carries `X-Akl-Actor = message.author.id`; the bot has no code path that writes as anyone else. **Extended (2026-09-09):** every mutating verb but `add` fetches its record fresh and sends the write with `If-Match` set to that fresh rev, always — no path omits it. | grep + unit test on the client |
+| LDB-B3 | A read verb's own body never performs an HTTP request (cache only) — `ensureFresh()` (LDB-B14) lives one level up, in dispatch, not inside a verb. | unit test with HTTP mocked to fail |
 | LDB-B4 | The bot's signature for every vector equals the Worker's expectation. | shared vectors file |
 | **LDB-B5** | **The bot's numbers are the site's numbers:** for every `upstream-100` layout × every corpus, the bot's cell equals the deployed site's harvest cell (rel 1e-9) and its composed cmini row equals the same composition over that cell; the bot boots only when the wasm's pin equals the harvest's; `cminiRowFromMana2` is called from exactly one bot module. | `bot/tests/engine/numbers.test.ts` against the wasm and harvest the site serves (`10` V2) |
 | LDB-B6 | `bot/` imports only `@akl/core` / `@akl/layout-formats` (by path until the split) from this repo, and nothing imports `bot/`. | `bot/tests/tools/boundary.test.ts` + `db/`'s outside-scan |
-| LDB-B7–B12 | env vars in one place; `bot.yml`'s shape; the worker answers the site's protocol; cache = fold of dump + feed; prefs survive restarts; the image is a pure function of its plan. | `10 §7` |
+| LDB-B7–B12 | env vars in one place; `bot.yml`'s shape; the worker answers the site's protocol; cache = fold of dump + feed (**extended 2026-09-09 to a THIRD fold path, the SSE stream** — a stream-fed store and a poll/`ensureFresh`-fed store over the same events are byte-for-byte equal); prefs survive restarts; the image is a pure function of its plan. | `10 §7` |
+| **LDB-B14** | **Verify-then-serve:** a read verb's answer equals the answer computed from the DB's state at the moment the verb ran, never a stale in-memory snapshot. `ensureFresh()` is the *only* freshness mechanism; a `/v1/meta` failure never serves possibly-stale data silently. | `bot/tests/cache/fresh.test.ts` |
 
 ## 8. Open questions (bot)
 

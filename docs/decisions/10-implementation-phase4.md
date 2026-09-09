@@ -59,6 +59,7 @@ Round 1's table had four wrong paths and one wrong assumption (that
 12. **D12 · Scope of parity.** V4 + V5 cover every verb that reads or writes layouts or corpora (§5 lists them). `link`/`unlink` (dropped with the record's `link`, `00 §6`), `gen` (a generator), `xkb` (DM-only template export), `names`/`guess`/`count`/`8ball`/`catball`/`dofball`/`wooperball`/`woopercat`/`question`/`flip`/`akl`/`alt`/`pairings`/`suggest` (minigames/social/cmini-specific) are **V8, after the parity tables are green** — listed so nobody thinks they were forgotten, cut from this document's briefs.
 13. **D13 · `!add` parses cmini's *current* grid rules, not the vendored copy's.** The vendored `add.py` (`a5b0fe35^`) predates cmini v3's absolute thumb columns (2026-08-31; memory `thumb-absolute-cols`): it stores a thumb key's column as its index among the stripped row's tokens. The live API stores absolute columns (`adept`'s `e` is `{row: 3, col: 6, finger: TB}`). The bot follows the live rule: a row-3 key's `col` is its absolute column (leading-space offset ÷ 2, as `setfingermap`'s matrix already implies), `finger` = `RT` when `spaces[3] > 8` else `LT`. The parity fixture for a thumb layout pins it; the agent verifies once against upstream `068a4f50`'s `add.py` (`git show` is not enough — the vendored tree is older).
 14. **D14 · The client lane carries no display name** (C1 step 7): `/v1/authors` shows a bot-only author's id until they sign into akl.gg once. The bot's replies use the cached name when one exists, the id otherwise.
+15. **D15 · No stale reads, no clobbering writes (saltorbit, 2026-09-09).** The 30 s `feedTick` poll this document's own §4 V3 originally specified is retired outright — `cache/fresh.ts`'s `ensureFresh()` (one conditional `GET /v1/meta`, folding `GET /v1/changes?since=<cursor>` only when `seq` moved) runs before every read verb and is now the sole freshness guarantee (LDB-B14): a read's answer equals the DB's state at the moment it ran, not a snapshot from whenever the cache last happened to sync. `cache/stream.ts`'s SSE `subscribe()` replaces the poll as a keep-warm layer on top — it makes `ensureFresh`'s own catch-up almost always empty, but a dropped stream costs latency, never correctness (a stream failure is swallowed and retried with backoff, never surfaced). Symmetrically, every write verb but `add` now fetches its record fresh immediately before writing and sends `If-Match` set to that fresh rev, unconditionally, no fallback path that omits it (LDB-B2, extended) — a `409 stale` folds the conflict's own record into the cache and answers "changed a moment ago" rather than retrying blind. `bot/tests/cache/fresh.test.ts`, `bot/tests/cache/stream.test.ts`, `bot/tests/commands/write.test.ts` are the tests; `bot/INVARIANTS.md`'s LDB-B2/B3/B10/B14 rows are the registry entries this decision touches.
 
 ## 2. The two site PRs (precede V2/V6; archlint-checked; no `db/` involvement)
 
@@ -389,7 +390,23 @@ request); per event: rev-bumping kind → `GET /v1/layouts/<layout_id>?as=akl/1`
 id in a `tombstones` set for `!history`), `liked`/`unliked` → `likedBy` ±
 actor, `like_count` from `after`; `renamed` → `byName` maintained; admin
 events → refresh the admin set; `cursor = next`. A feed failure logs and
-retries next tick (the cursor never advances past a failed GET). **Cells**
+retries next tick (the cursor never advances past a failed GET).
+
+**Superseded (D15, 2026-09-09): the 30 s poll above is gone.** `feed.ts`'s
+`applyEvent`/`drainChanges` (the fold this paragraph describes) are
+unchanged and still directly tested (LDB-B10) — only the PERIODIC CALLER
+is retired. In its place: `cache/fresh.ts`'s `ensureFresh()` (one
+conditional `GET /v1/meta`, folding `GET /v1/changes?since=<cursor>`
+through `drainChanges` only when `seq` moved past the cache's own cursor)
+runs before every read verb and is now the sole freshness guarantee
+(LDB-B14) — a read verb's answer equals the DB's state at the moment it
+ran, not a snapshot from whenever a poll last happened to land.
+`cache/stream.ts`'s SSE `subscribe()` (`GET /v1/changes/stream`,
+reconnecting with 1/2/4/8/16/30 s backoff, folding through the SAME
+`applyEvent`) sits on top purely to keep `ensureFresh`'s own catch-up
+almost always empty — losing the stream costs latency, never correctness,
+so a stream failure is swallowed and retried rather than surfaced
+anywhere. **Cells**
 (`cells.ts`): `cellFor(id, corpus)` → harvest cell when `id`'s lowercase
 name is in `harvest[corpus]` and `record.modified_at ≤ buildId.built_at`,
 else memo `(id, rev, corpus)` → `engine.compute`. A rev-bumping event
@@ -405,9 +422,13 @@ actor, method, url, body?: Uint8Array, now, nonce = randomBytes(16))` →
 headers; Web Crypto (`crypto.subtle.importKey('pkcs8', …, { name:
 'Ed25519' })`, `crypto.subtle.sign('Ed25519', …)`) so the same code would
 run in a browser or Worker; `http.ts` — `dbFetch(method, path, { actor,
-body?, as? })` → parsed `{ status, body, etag }`; **never sends `If-Match`**
-(`03 §1`: bot users edit by typing, no draft to be stale) and never a
-bearer. `types.ts` — the wire types from `03` (`RecordWire`, `Event`,
+body?, as?, ifMatch? })` → parsed `{ status, body, etag }`; never a
+bearer. **Superseded (D15, 2026-09-09):** `If-Match` is no longer never
+sent — every mutating verb but `add` now fetches its record fresh and
+sends the write with `If-Match` set to that fresh rev, unconditionally
+(LDB-B2, extended); `dbFetch`'s own `If-Match` header is present iff a
+caller supplies `opts.ifMatch`. `types.ts` — the wire types from `03`
+(`RecordWire`, `Event`,
 `ErrBody` with the phase-2 + C1 codes). `scripts/gen-key.mjs` (prints a
 fresh seed/pubkey pair), `scripts/sign.mjs <method> <url> [body]` (prints
 the five headers — the runbook's `curl` helper).
@@ -417,15 +438,17 @@ the five headers — the runbook's `curl` helper).
 | `tests/cache/boot.test.ts` | from a recorded dump fixture (`tests/fixtures/db/dump.json.gz`, produced by `db/`'s own dump code over `upstream-100` — a `db/` test writes it, `db/tests/api/dump.test.ts` extended with `--write-bot-fixture`; committed): every live record present as `akl/1` with `keys`, tombstones absent, `likedBy` equals the dump's `likes`, `byName` case-insensitive, `cursor = dump.seq`; a `cmini/1` record and an `akl/1` record produce identical `keys` for the same layout | **LDB-B10** (cache = fold of dump + feed) |
 | `tests/cache/feed.test.ts` | a fake DB (plain `fetchImpl`) serving `/v1/changes` pages + per-id details: every event kind from `03 §5` applied → the cache equals the fake's records; `next` chained across pages; a 304 makes no other request; a detail GET failure leaves `cursor` unchanged and the next tick retries; a `renamed` event frees the old name; `deleted` removes; `restored` re-adds with the same id | LDB-B10 |
 | `tests/cache/cells.test.ts` | harvest hit iff name present and `modified_at ≤ built_at`; a rev-bumping event evicts; the memo key includes `rev`; `allRows` over the fixture equals per-id `rowFor` | LDB-B5 (cache half) |
-| `tests/cache/readonly.test.ts` | with `fetchImpl` = `() => { throw }` after boot, every read verb (V5's list, called through the router with a fixture cache) answers without throwing and makes zero calls (the fake counts) | **LDB-B3** |
+| `tests/cache/readonly.test.ts` | with `fetchImpl` = `() => { throw }` after boot, every read verb (V5's list, called through the router with a fixture cache) answers without throwing and makes zero calls from its OWN body (the fake counts) — **superseded (D15): the WHOLE dispatch round trip (`ensureFresh()` then the verb) now costs exactly one conditional `GET /v1/meta` on a warm path; that whole-pipeline invariant moved to `tests/cache/fresh.test.ts`, LDB-B14** | **LDB-B3** |
 | `tests/client/sign.test.ts` | reproduces every vector in `db/tests/vectors/client-signing.json` (read as a fixture) byte-for-byte: `signing_string` and `signature_b64url`; a test asserts `bot/tests/fixtures/client-signing.json` (the bot's committed copy) is byte-equal to the `db/` file while both live in this repo | **LDB-B4** |
-| `tests/client/http.test.ts` | every `dbFetch` carries the five headers and `X-Akl-Actor = actor`; `If-Match` never present (asserted over every call the fake sees); `Authorization` never present; a 429 body is surfaced as `{status: 429, retry_after}` | **LDB-B2** (transport half) |
+| `tests/client/http.test.ts` | every `dbFetch` carries the five headers and `X-Akl-Actor = actor`; `Authorization` never present; a 429 body is surfaced as `{status: 429, retry_after}` — **superseded (D15): `If-Match` is present iff a caller supplies `opts.ifMatch`, asserted both ways** | **LDB-B2** (transport half) |
 
 **DoD:** green; against the preview DB with the registered key: `node
 scripts/sign.mjs GET https://akl-db-preview…/v1/me` → `curl` → `via:
 client:…`; the bot boots, logs `cache: <n> records, cursor <seq>`, and a
-`PUT …/like` made by hand through the preview shows up in the log within
-30 s.
+`PUT …/like` made by hand through the preview shows up in the log —
+**superseded (D15): "within 30 s" no longer applies (the poll it named is
+gone); the SSE stream reflects it near-instantly when connected, and
+`ensureFresh()` guarantees the NEXT read reflects it regardless**.
 
 ### V4 — the write verbs (parity, part 1)
 
