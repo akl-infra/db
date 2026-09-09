@@ -1,3 +1,4 @@
+import { parseUpstreamJson } from "../core/safejson";
 // The cmini upstream HTTP client (07 §6 S5). Ported from
 // ../../../scripts/sync_cmini_data.py @ 6ed4cb13b3639a3056d35ad06b628941fade3c0c
 // (fetch_with_retry, fetch_list, batch_join_details, parse_snowflake) -- a
@@ -63,7 +64,7 @@ async function fetchJson(fetchImpl: FetchImpl, ua: string, url: string): Promise
   if (!res.ok) throw new Error(`${res.status} fetching ${url}`);
   const text = await res.text();
   try {
-    return JSON.parse(text) as unknown;
+    return parseUpstreamJson(text);
   } catch (e) {
     throw new Error(`invalid JSON from ${url}: ${(e as Error).message}`);
   }

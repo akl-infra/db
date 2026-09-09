@@ -20,6 +20,7 @@
 // and re-implements the small slice of upstream-detail parsing and HTTP
 // retry it needs rather than importing `apply.ts`/`upstream.ts` across that
 // boundary.
+import { unescapeGoHtml } from "../core/safejson.ts";
 import * as cmini1 from "../../formats/cmini/1/index.ts";
 import { canonical } from "../core/canonical.ts";
 
@@ -58,8 +59,9 @@ function parseJsonChecked(text: string, url: string): unknown {
   let first: unknown;
   let second: unknown;
   try {
-    first = JSON.parse(text) as unknown;
-    second = JSON.parse(text) as unknown;
+    const fixed = unescapeGoHtml(text); // core/safejson.ts: the V8 escaped-key hazard
+    first = JSON.parse(fixed) as unknown;
+    second = JSON.parse(fixed) as unknown;
   } catch (e) {
     throw new Error(`invalid JSON from ${url}: ${(e as Error).message}`);
   }

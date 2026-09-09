@@ -45,6 +45,7 @@ the S1 rows only.
 | LDB-I7 | A tick whose `/meta` token is unchanged makes no further request and writes nothing | `tests/import/tick.test.ts` |
 | LDB-I8 | Every upstream request carries the UA; 404 is never retried; other failures are retried 3x | `tests/import/upstream.test.ts` |
 | LDB-N1 | `check_name` is the bot's rule set with the bot's strings (`NAME_SET` minus the space), plus the 64-char cap and the ULID-shape refusal, applied to `POST` and rename only | `tests/api/names.test.ts` |
+| LDB-I9 | Upstream JSON is parsed only through `core/safejson.ts`: Go's `\u003c`/`\u003e`/`\u0026` escapes are rewritten to literals before `JSON.parse` (a reproduced V8 bug decodes escaped object keys non-deterministically on the ~5 MB `?full=1` body, in Node and in workerd), an escaped backslash is never touched, and the parse is checked against a second parse | `tests/core/safejson.test.ts`; `tests/import/upstream.test.ts` |
 | LDB-P1 | Every write appends exactly one rev-bumping event and one `layout_revs` row; the record equals the fold of its events; `seq` is gapless | `tests/events/fold.test.ts`, `tests/tools/onlywriter.test.ts` |
 | LDB-P2 | An `If-Match` mismatch writes nothing and returns the current record; two writes at one `rev` → exactly one commits, the other gets `stale` with the winner's record; the guard is `layout_revs`' PK inside the batch | `tests/api/ifmatch.test.ts`, `tests/events/fold.test.ts` |
 | LDB-P4 | A name is released only by delete or rename | `tests/events/names.test.ts`, `tests/api/refs.test.ts`, `tests/api/names.test.ts` |
