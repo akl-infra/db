@@ -6,9 +6,12 @@ command's `use()`/`desc()` read directly).
 
 ## 1. Shape
 
-Fork, don't rewrite (D11). `vendor/cmini-analyzer` already holds the bot's
-whole command set, its parser, its analyzer and its response formatting —
-under GPLv3. The bot is that tree with **one module replaced**:
+Fork, don't rewrite (D11). cmini's bot tree — its whole command set, its
+parser, its analyzer and its response formatting, under GPLv3 — was
+vendored at `vendor/cmini-analyzer` until #214 removed it; it is still in
+this repo's history (`a5b0fe35^:vendor/cmini-analyzer`, upstream
+`068a4f50`) and, better, at upstream itself. The bot is that tree with
+**one module replaced**:
 `util/memory.py` (a directory of JSON files) becomes a client of the layout
 DB. Everything a user sees — wording, tables, the `!cmini` prefix if that is
 what people want to keep typing — stays as it is, so the day the bot switches
@@ -47,7 +50,7 @@ involvement.
 | `angle!` `unangle!` | `angle! [name]` | local transform then `PUT` | `mini` refusal stays client-side |
 | `mirror!` | `mirror! [name]` | local transform then `PUT` | |
 | `like` `unlike` | `like [name]` | `PUT`/`DELETE …/like` | qwerty refusal server-side too |
-| `link` `unlink` | (restricted today) | `PATCH {link}` / `{link: null}` | becomes owner-only instead of admin-only? **Q1** |
+| `link` `unlink` | (restricted today) | **dropped** — the record has no `link` (00 §6, saltorbit's round-1 cut); an imported cmini `link` rides in the payload for fidelity only and no command reads or writes it |
 | `admin` `maintenance` | restricted | `/v1/admin/*` where they map; the rest stay bot-local | |
 
 ### 2.2 Read verbs → local cache (analyzer unchanged)
@@ -113,7 +116,6 @@ runbook (`04 §4`) lists it; the Discord application has ≥ 2 team members.
 
 ## 7. Open questions (bot)
 
-1. `link`/`unlink` are admin-restricted in cmini; make them owner verbs?
-   (Proposal: owner + admin.)
+1. *(resolved: `link`/`unlink` are dropped with the record's `link` field, 00 §6.)*
 2. Keep the `!cmini` prefix, or `!akl`, or both? (Copy question — saltorbit's.)
 3. Hosting for the bot: your call; proposal a $5 VPS with the runbook.

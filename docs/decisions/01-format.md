@@ -20,8 +20,8 @@ The record is the same shape for every layout; the payload's shape is named by
   "created_at": "2026-06-25T00:00:03Z",
   "modified_at": "2026-09-08T19:40:11Z",  // last write of the record; likes do not move it
   "deleted": false,                       // tombstones keep id, name, owner, rev
-  "link": "https://…",                    // optional, free text URL
   "like_count": 7,                        // derived; the id list is GET /v1/layouts/{id}/likes
+  "has_magic": true,                      // derived on every write: the format's hasMagic(payload) (lower() non-empty)
   "format": "akl/1",                      // the payload's format id
   "payload": { … }                        // see §2
 }
@@ -58,9 +58,13 @@ board geometry from #261, the magic authoring shape from
 {
   // ── keys ────────────────────────────────────────────────────────────
   // char → position. Same shape and same finger vocabulary as cmini
-  // (LP LR LM LI RI RM RR RP LT RT; TB = either thumb). Rows 0-2 are the
-  // main block, row 3 is thumbs; columns are ABSOLUTE for every row (cmini
-  // v3 semantics, 2026-08-31). A char appears at most once.
+  // (LP LR LM LI RI RM RR RP LT RT TB; TB = either thumb). By convention
+  // rows 0-2 are the main block and row 3 is thumbs, but the format holds
+  // what cmini holds (07 §0.1: live data has row 4, thumb fingers on
+  // rows 0-2, non-thumb fingers on row 3, and 52 layouts with no keys at
+  // all) — so the rule is rows 0-4, cols ≥ 0, finger ∈ the enum, nothing
+  // about which finger sits on which row. Columns are ABSOLUTE for every
+  // row (cmini v3 semantics, 2026-08-31). A char appears at most once.
   "keys": {
     "a": { "row": 1, "col": 8, "finger": "RR" },
     "e": { "row": 3, "col": 6, "finger": "RT" },
@@ -76,7 +80,7 @@ board geometry from #261, the magic authoring shape from
   // column present); absent or all-zero = ortho. Matches mana2's
   // rowOrColumnStagger so mana2/1 round-trips losslessly.
   // cmini: the word cmini would use ("stagger" | "angle" | "ortho" | "mini"),
-  // kept so an imported record lowers back to cmini/1 byte-identically.
+  // kept so an imported record lowers back to the same cmini/1 word.
   // Optional; derived when absent (§6.2).
   "board": { "kind": "rowstag", "stagger": [0, 0.25, 0.75], "cmini": "angle" },
 
@@ -92,14 +96,19 @@ board geometry from #261, the magic authoring shape from
         // key" finding: opal has `,` but no `,◇` row). Optional.
         "except": [","] }
     ],
-    "chiral_keys": [ { "key": ";", "same": "ee", "opposite": "ei" } ],
+    // `except` exists on chiral keys too, for the same reason (a swap
+    // whose trigger+member would collide with the chiral scaffold, §3).
+    "chiral_keys": [ { "key": ";", "same": "ee", "opposite": "ei", "except": [] } ],
     "adaptive_swaps": [ { "trigger": "t", "swap": ["h", "e"] } ],
 
     // ── the escape hatch ─────────────────────────────────────────────
     // Flat rules in mana2's own vocabulary, appended to the lowering
-    // unchanged. For things the idioms above cannot say yet. `type` is
-    // optional: "raw" (default) or one of §3's tags when the writer knows
-    // it is honest. `note` is for the human reading the record later.
+    // unchanged. For things the idioms above cannot say yet. `inputs` is
+    // ≥ 2 code points (cmini serves 3-code-point inputs, `he*→her`, 07
+    // §0.1), the last being the pressed key. `type` is optional: "raw"
+    // (default) or one of §3's tags when the writer knows it is honest —
+    // an imported row keeps whatever tag upstream gave it. `note` is for
+    // the human reading the record later.
     "rules": [ { "inputs": "th", "output": "te", "type": "raw", "note": "…" } ]
   },
 
@@ -107,6 +116,10 @@ board geometry from #261, the magic authoring shape from
   // Free-form, validated only as JSON, preserved verbatim, ignored by
   // lowering. Where a client keeps its own extras without inventing a
   // format. Namespaced by client: "x": { "keymaxx": {…}, "mana": {…} }.
+  // `x.cmini` is reserved: it holds the cmini fields akl/1 has no idiom
+  // for (`tag`, `blame`, `combos`, `link`) so an imported record loses nothing
+  // when its owner moves it to akl/1, and `to["cmini/1"]` copies them
+  // back out (§6.2). Every other `x` key is dropped by every translation.
   "x": {}
 }
 ```
@@ -118,19 +131,26 @@ them is proven in one.
 
 ### 2.1 Validation (write-time, 400 with the offending path)
 
-- `keys`: ≥ 1 entry; each char is one code point; rows 0–3; cols ≥ 0
+- `keys`: may be empty; each char is one code point; rows 0–4; cols ≥ 0
   (negative columns crash the wasm engine — see memory: negative-col crash);
-  thumbs (row 3) carry `LT`/`RT`/`TB` only and rows 0–2 never do
-  (`setfingermap`'s own rule); no two chars share a position.
+  finger ∈ the enum; no two chars (or `free` entries) share a position.
+  No thumb-row rule: the live cmini set violates every version of it
+  (07 §0.1), and the format's job is to be lossless against cmini. (The
+  bot's `setfingermap` message stays a *bot* check; a stricter rule for
+  new akl.gg writes, if ever wanted, is a route-level check in phase 2.)
 - `board.stagger` length matches kind (3 for rowstag; one per distinct
   column for colstag); `board.cmini`, when present, must agree with the
   geometry it names (the cmini `add` heuristic on `stagger`).
 - `magic`: every rule in `02-schema.md`'s list, unchanged (single-char keys,
   `output` starts with `after`, no duplicate `after` per key, no duplicate
-  `trigger`, a key is magic or chiral never both, `repeat_previous` sentinel).
-  Plus: every char named in `magic` exists in `keys`.
-- `magic.rules[]`: `inputs` is exactly two chars present in `keys`,
-  `output` non-empty; no duplicate `inputs`.
+  `trigger`+member pair, a key is magic or chiral never both,
+  `repeat_previous` sentinel). Plus: `magic_keys[].key`,
+  `chiral_keys[].key`, `adaptive_swaps[].trigger` and `.swap[]` exist in
+  `keys` (the scaffold needs their hand/position); `except[]` entries are
+  single code points. A rule's `after` need **not** be a key (opal's `?◇`
+  row names a char the layout does not carry — 07 §0.1).
+- `magic.rules[]`: `inputs` ≥ 2 code points, `output` non-empty; no
+  duplicate `inputs`; chars need not be keys.
 - The lowering (§3) must succeed with no collision.
 
 ## 3. Intent and lowering
@@ -181,6 +201,18 @@ footgun) and not "raw overrides" — an author who wants the raw row deletes
 the idiom, and the record then says what they meant. The escape hatch is for
 what the idioms cannot express, not for overriding them.
 
+The one collision the site's existing data relies on is *scaffold vs
+idiom*: bunya's repeat key `@` scaffolds `f@→ff` and its swap `f:[@,d]`
+claims `f@` too (`data/magic_rules.json`; `#221 §3.1` resolves it by rank,
+adaptive over repeat). Here the record says it explicitly: `@` gets
+`except: ["f"]`, the scaffold emits no `f@` row, the swap owns it. The
+error body carries the fix — `"hint": { "path": "magic_keys[0].except",
+"add": "f" }` — whenever one side of a collision is a scaffold row, and
+the magic migration (06 §4) applies that hint automatically so no existing
+rule set is refused. An explicit `rules[]` entry on the same `after` is
+**not** a collision with its own key's scaffold: it replaces the scaffold
+row, as `rules.mjs`/`magic_interop.py` already do.
+
 **Round trip.** `akl/1 → lower → akl/1` is lossy by construction (that is the
 point: the lowering forgets the idiom). The **write** path therefore never
 accepts a lowering as the record's magic when the client had the intent: a
@@ -188,9 +220,14 @@ client that only speaks flat rules writes them into `magic.rules` and the
 record honestly says "raw rules". A client that wants to *recover* intent
 from a flat list may run the format's `liftRules()`: exact for typed rows
 (#221 §3.2 — group by tag, verify each tag's invariant, anything that fails
-is a *leftover* kept as raw), a best-effort guess for untyped ones (mana2's
-`hours.jsonc`). A guessed lift must be shown to the author before it is
-written; an exact lift may be applied by the import (§8 Q3).
+is a *leftover* kept in `magic.rules` with its tag), a best-effort guess for
+untyped ones (mana2's `hours.jsonc`). A row with no tag, an unknown tag, or
+an `inputs` that is not exactly two code points is always a leftover. A
+guessed lift must be shown to the author before it is written; an exact
+lift may be applied by the import (§8 Q3). Live upstream today (07 §0.1):
+opal's rows are all `type: magic` (its repeat key lifts to a magic key
+with `default: none` and 27 explicit rules — exact, if unlovely); auditor
+and friends carry `repeat`; four rows are 3-code-point; one is untyped.
 
 ## 4. Other formats and the registry
 
@@ -212,7 +249,7 @@ Registered on day 1:
 
 | format | owner | what it is | translations | notes |
 |---|---|---|---|---|
-| `cmini/1` | DB | cmini's v3 detail JSON verbatim: `name user board keys free magic link` | ↔ `akl/1` lossless | Write it and you get a record whose payload is the cmini shape; `?as=cmini/1` from an `akl/1` record lowers board → cmini word and magic → flat `{inputs, output, type}` rows. The bot writes this. |
+| `cmini/1` | DB | cmini's v3 detail JSON verbatim minus the record fields: `board keys free? magic? combos? tag? blame? link?` (`name user likes created_at modified_at` are the record; `link` stays in the payload for import fidelity only — no record field, no verb, never surfaced) | ↔ `akl/1` lossless | Write it and you get a record whose payload is the cmini shape; `?as=cmini/1` from an `akl/1` record lowers board → cmini word and magic → flat `{inputs, output, type}` rows. The bot writes this. |
 | `akl/1` | DB (+ akl.gg) | §2 | ↔ `cmini/1`, ↔ `mana2/1` | |
 | `mana2/1` | Zak (mana2) | a mana2 `.jsonc` layout object (`layout.fingers/thumbs`, `board`, `fingermap`, `magic.rules`) | ↔ `akl/1` | mana's own write format (federation §13 "mana's write format"). Layers/combos are `todo` in mana2's own spec; when they land, `mana2/2`. |
 
@@ -257,19 +294,23 @@ would show that translation and say *uses features shown fully in keymaxx* — t
 | `board: "angle"` | `board: {kind:"rowstag", stagger:[0,0.25,0.75], cmini:"angle"}` (the angle shift is already in `keys`' cols and fingers, as cmini stores it) |
 | `board: "ortho"` | `board: {kind:"ortho", cmini:"ortho"}` |
 | `board: "mini"` | `board: {kind:"ortho", cmini:"mini"}` |
-| `magic: [{inputs, output, type}]` | typed rows → exact lift into `magic_keys`/`adaptive_swaps` (§3); rows whose tag invariant fails, or with an unknown tag, → `magic.rules` with their tag kept. |
-| `name user link likes created_at modified_at` | record fields, not payload |
+| `magic: [{inputs, output, type?}]` | typed rows → exact lift into `magic_keys`/`adaptive_swaps` (§3); rows whose tag invariant fails, with an unknown or absent tag, or with `inputs` ≠ 2 code points → `magic.rules` with their tag kept (`raw` when absent). |
+| `tag`, `blame`, `combos`, `link` | `x.cmini: { tag, blame, combos, link }` — preserved, ignored by lowering (combos are a phase-5 idiom, not an akl/1 one; `link` is import fidelity only, saltorbit's round-1 cut) |
+| `name user likes created_at modified_at` | record fields, not payload |
 
 Golden: every cmini layout at import (4174 on 2026-09-08) satisfies
-`toCmini(fromCmini(x)) == x` after key-order canonicalisation. This is the
-D12 diff and it runs in CI against the live scrape (`db/tests/import.test`).
+`project(toCmini(fromCmini(x))) == project(x)`, where `project` is 07 §5.1's
+`cminiDetail` projection under `canonical()` with `likes` sorted. This is
+the D12 diff; it runs daily in CI against the live API (`db/tests/
+upstream-diff.test.ts`) and at fixture level on every PR.
 
 ### 6.2 `akl/1 → cmini/1` (what the bot and emulayout read)
 
 `board.cmini` wins when present; otherwise derived: rowstag with ANSI stagger
 → `stagger`, ortho → `ortho`, colstag → `ortho` (cmini has no colstag; the
 stagger amounts are lost, which is the documented loss), `mini` only when the
-record said so. `magic` → `lower()`. `x` is dropped.
+record said so. `magic` → `lower()`. `x.cmini.{tag, blame, combos, link}` are
+copied back out; every other `x` key is dropped.
 
 ### 6.3 `akl/1 ↔ mana2/1`
 
@@ -287,11 +328,15 @@ mana2 digits (`LP..RP` = 0..9, thumbs 4/5). Magic → `lower()`. Reverse: digits
 | LDB-F2 | `lower()` is pure and deterministic: same payload → same rows in the same order, across server versions. | `.lowered.json` goldens per fixture, never edited |
 | LDB-F3 | Intent is never silently lowered on write: a record whose client sent idioms stores idioms. | API test: PUT with `adaptive_swaps` reads back with `adaptive_swaps` |
 | LDB-F4 | Lowering collisions are refused, never resolved. | matrix: idiom×idiom, idiom×raw, raw×raw |
-| LDB-F5 | `cmini/1` round-trips through `akl/1` byte-identically for the whole imported set. | CI against the live scrape (D12) |
+| LDB-F5 | `cmini/1 → akl/1 → cmini/1` is identity on the `cminiDetail` projection (likes sorted) for every fixture and for the whole live set. | `roundtrip.test.ts` per PR; the daily D12 diff (LDB-P5) |
 | LDB-F6 | A format major, once merged, is immutable: schema not tightened, fixtures unchanged. | a test diffs `formats/**` against `main` and fails on any edit to a frozen file (additions allowed) |
 | LDB-F7 | Every registered format has ≥ 1 fixture, and for every translation it declares, a frozen `.<to>.json` golden the translation still reproduces. | generated from the registry |
+| LDB-F8 | `liftRules(lower(m)) == (m, [])` for every valid idiom set; `lower(liftRules(rows).set) ≡ rows` for every typed row set; the leftovers are exactly the rows that fail their tag's invariant (or are untyped / not 2 code points). | property test + every cmini fixture with magic (`lift.test.ts`) |
 | LDB-F9 | A held record keeps its name, owner and rev, and reads as its own format. | API test with a fixture format registered only in the test |
-| LDB-F10 | `x` is preserved verbatim through write → read in the same format and dropped in any translation. | round-trip property test |
+| LDB-F10 | `x` is preserved verbatim through write → read in the same format; only `x.cmini` survives `to["cmini/1"]`, nothing else survives any translation. | round-trip property test |
+| LDB-F11 | Every live upstream detail validates as `cmini/1` (the frozen 100-layout snapshot per PR; the whole set on the daily diff), and `hasMagic` agrees with upstream's `has_magic`. | `cmini-envelope.test.ts`; D12 |
+
+The full phase-1 registry, with the test file per id, is `07 §11`.
 
 ## 8. Open questions (format)
 
@@ -310,3 +355,11 @@ mana2 digits (`LP..RP` = 0..9, thumbs 4/5). Magic → `lower()`. Reverse: digits
 4. **`x` size cap**: 16 KB? (Proposal: yes, per record.)
 5. `#148` alt fingerings: additive minor to `akl/1` (`keys[c].alt: [...]`)
    once that design closes — flag now so nobody registers a format for it.
+6. **Combos** (2 live layouts carry `combos: [{inputs, output}]`, 07 §0.1)
+   ride in `x.cmini` until someone owns an idiom for them. Fine for round 1?
+   (Proposal: yes; an `akl/1` minor can add `combos` later without moving
+   anything, since `x.cmini.combos` → `combos` is one line in `from`.)
+7. **Empty and odd layouts**: 52 upstream layouts have no keys, two have a
+   row 4. They import (the format holds what cmini holds); should the site
+   hide `key_count == 0` records as it hides them today? (Not a DB question
+   — noted so nobody "fixes" the format instead.)

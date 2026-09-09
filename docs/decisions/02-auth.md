@@ -15,8 +15,11 @@ question is only how a request proves *which* user it speaks for. Two lanes:
 | **client** (§3) | a registered program acting for a person it has already authenticated itself | an Ed25519 signature from a key an admin registered, plus the user id it asserts | Discord bots |
 
 Both lanes end in the same place: `ctx.actor = { user_id, via: "discord" |
-"token" | "client:<id>" }`, and every authorization rule (§4) reads only
-`actor.user_id`. `via` goes to the audit log.
+"client:<id>" }`, and every authorization rule (§4) reads only
+`actor.user_id`. `via` goes to the audit log. The third `via` value,
+`"import:cmini"`, is not a lane — it is what the cmini import (`06 §2`)
+stamps on its own events, and "follows upstream" is read off it. (`"token"`
+went with personal tokens, §2.2.)
 
 ## 2. The user lane
 
@@ -119,7 +122,7 @@ human step at registration, not a runtime check.
 | action | allowed when |
 |---|---|
 | create | any authenticated actor; `owner = actor.user_id` |
-| edit (PUT/PATCH keys, board, magic, link) · rename · delete | `record.owner == actor.user_id`, or actor is admin (logged `admin: true`) |
+| edit (PUT/PATCH keys, board, magic) · rename · delete | `record.owner == actor.user_id`, or actor is admin (logged `admin: true`) |
 | transfer (`assign`) | `record.owner == actor.user_id`; target must be a user the DB has seen (has an author row or has authenticated once), or admin |
 | like / unlike | any authenticated actor; idempotent; refused on `qwerty` as the bot does; refused on own layout? — **no** (cmini allows it; keep) |
 | set fingermap | as edit |

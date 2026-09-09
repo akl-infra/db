@@ -16,7 +16,7 @@ Change, in order:
 1. **Phase 1 (mirror):** nothing on the site. The DB imports from cmini; the
    D12 diff compares every record read `?as=cmini/1` with upstream.
 2. **Phase 3 (cutover):** `sync_cmini_data.py` grows a `--source db` mode:
-   list from `/v1/layouts?fields=id,name,owner,rev,modified_at,like_count`,
+   list from `/v1/layouts` (rows are the record minus payload),
    details (and the batch path) from `/v1/layouts?full=1&as=cmini/1` /
    `/v1/layouts/{id}?as=cmini/1`, authors from `/v1/authors`, and the
    change signal from `/v1/meta` (`revision`/`seq` in place of cmini's
@@ -32,9 +32,11 @@ Change, in order:
 
 `data/layout-dates.json` stops being needed once the DB carries
 `created_at`/`modified_at` for every record (imported ones keep cmini's
-dates; cmini's own were stamped 2026-08-20 for pre-existing layouts — the
-committed history file is the source for anything older and is imported into
-the DB once, as the `created_at` of those records: **Q1**).
+dates). Measured 2026-09-08 (`07 §0.1`): upstream's `created_at` now spans
+2022-12-07 onward and 1965 layouts have `created == modified`, so the
+"stamped 2026-08-20" premise of round 1 no longer holds — whether the
+committed history file still has anything older or more precise than
+upstream is **Q1**, to be answered by a one-off diff before phase 3.
 
 ## 2. The cmini import (runs inside the DB, not the site)
 
@@ -42,31 +44,47 @@ A cron in the DB Worker (every 5 min; `/v3/meta` first, so a quiet tick is
 one GET — the trust-tier idea from the migration doc, reused):
 
 "Following upstream" is **derived, not stored** (D9): a record follows
-upstream iff its latest record-changing event (`created`/`updated`/…, likes
-excluded) is an `imported` event. One indexed query per candidate; no flag
-to go stale. `import_map` (`03 §8`) joins cmini ids to record ids.
+upstream iff its latest rev-bumping event (likes and informational events
+excluded, `03 §5`) has `via = "import:cmini"`. One indexed query per
+candidate; no flag to go stale; a phase-2 write stops the following
+automatically because it carries another `via`. `import_map` (`03 §8`)
+joins cmini ids (= the lowercase name, `07 §0.1`) to record ids.
 
 - new upstream id → `POST`-equivalent as `format: cmini/1`, `owner = user`,
-  event `imported {source: "cmini", upstream_id}`; `import_map` row;
-- changed upstream (`modified_at` moved, or content hash differs on the
-  daily full pass) and the record follows upstream → apply as an update,
-  event `imported` (actor `system:cmini-import`, `rev + 1`);
+  name **verbatim** (case kept; `check_name` not applied), event
+  `imported {source: "cmini", upstream_id}`; `import_map` row;
+- changed upstream (`modified_at` moved, list `like_count` differs, name
+  differs, or content differs on the daily full pass) and the record
+  follows upstream → apply as an update, event `imported` (actor
+  `system:cmini-import`, `via: "import:cmini"`, `rev + 1`);
 - changed upstream and the record does not follow → **do not apply**; event
-  `upstream_changed` with the upstream content in `after` so the owner can
-  see it (the site offers *take cmini's version* as a one-click PUT);
-- upstream deleted → `upstream_deleted` event; tombstone when the record
-  follows upstream (the author deleted it and owns it here too), keep when
-  it does not (**Q2**);
-- upstream new name collides with a local record by a different owner →
-  imported as **shadowed** (federation §6.3): stored, `name` set to
-  `<name>~cmini`, event `import_conflict`, owner told on their next visit;
-- likes: replaced from upstream while the record follows; merged (union)
-  once it does not (**Q3**);
+  `upstream_changed` with the upstream content in `detail` so the owner can
+  see it (the site offers *take cmini's version* as a one-click PUT); not
+  repeated while the upstream content stays the same;
+- upstream deleted (unlisted, or a listed id whose detail 404s) →
+  `upstream_deleted`: the tombstoning event (`rev + 1`) when the record
+  follows upstream (the author deleted it and owns it here too), an
+  informational event when it does not (**Q2**);
+- upstream new name collides with a live local record: by the **same**
+  owner → mapped and treated as not-following (`upstream_changed`); by a
+  different owner → imported as **shadowed** (federation §6.3): stored,
+  `name` set to `<name>~cmini` (`~cmini2`, … if taken), event
+  `import_conflict`, owner told on their next visit. Unreachable until
+  phase 2 (no local writers), built and tested in phase 1 anyway;
+- likes: replaced from upstream while the record follows (`liked`/`unliked`
+  events, actor = the liking user); merged (union) once it does not (**Q3**);
 - authors: `/v3/authors` seeds `authors` names; a name seen at auth wins
-  thereafter.
+  thereafter; no events.
+- an upstream **rename** is delete + create (cmini's id is its lowercase
+  name; there is nothing to match on but content). The old record is
+  tombstoned, the new one gets a new id — the same history loss cmini
+  itself has. A content-matching heuristic is a later addition if renames
+  turn out to matter (**Q4**).
 
-Bounded like `live-sync`'s prune rule: refuse to tombstone > 5 % of
-records in one tick without an admin resume.
+Bounded like `live-sync`'s prune rule: refuse to tombstone > `max(5, 5 %)`
+of live records in one tick (the tick stalls, `import_state.cmini.stalled`,
+runbook entry to clear); a list shorter than half the live count stalls
+the whole tick.
 
 The site shows a small *changed on cmini since* line on a card whose latest
 `upstream_changed` event is newer than its latest write; copy TBD, gated on
@@ -87,7 +105,8 @@ wait, one DB two clients. Changes:
   `!cmini add` exporter plus `board` (from #261's per-side geometry) and
   `magic` (the workbench's `ruleSet`, verbatim — it *is* `02-schema.md`).
   I-W2 becomes "the body is the draft's `akl/1` projection".
-- Rename / Link / Fingermap → `PATCH` (`03 §3`); Delete → `DELETE`
+- Rename / Fingermap → `PATCH` (`03 §3`; the approved UX's Link verb is
+  gone with the record's `link` field, `00 §6`); Delete → `DELETE`
   (tombstone; the 8 s Undo pill calls `restore`, so the id is stable —
   better than the re-POST 06 §2.6 planned).
 - Transfer: a new *Give to…* verb under *More ▾* on the owner's card
@@ -122,10 +141,12 @@ computes patches from it. After cutover the rules live in the record's
   `from["mana2/1"]` runs client-side too, since `formats/` is plain ESM the
   site can import as a package).
 - `formats/` as a package: publish `db/formats` to npm (`@akl/layout-formats`)
-  at the split so the site, the bot's JS-free needs aside, and anyone else
-  validate and translate with the same code the server runs. Until then the
-  site imports it by path (allowed: `formats/` has no server deps; the
-  archlint rule is `web/src/data → db/formats` only).
+  so the site, the bot's JS-free needs aside, and anyone else validate and
+  translate with the same code the server runs. The site consumes the
+  **package**, never a path into `db/` — `00 §7`'s boundary rule (LDB-G5)
+  is absolute in both directions, and a path import would break the
+  `git mv` at the split. Until the package exists the site has no
+  client-side translation (nothing in phases 1–3 needs one).
 
 ## 6. Admin surfaces
 
@@ -153,6 +174,7 @@ is unrelated and stays.
 
 ## 9. Open questions (site)
 
-1. Import `data/layout-dates.json` into the DB as `created_at` for pre-2026-08-20 records? (Proposal: yes, once, at phase 3.)
+1. Does `data/layout-dates.json` still hold anything upstream's `created_at` does not (`§1`)? Diff once before phase 3; import only if so.
 2. Upstream delete of an unforked record: tombstone here? (Proposal: yes.)
 3. Likes on a forked record: union with upstream, or stop syncing? (Proposal: union.)
+4. Upstream renames as delete + create (`§2`): acceptable, or worth a content-matching heuristic? (Proposal: acceptable; cmini loses the history too.)

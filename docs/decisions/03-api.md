@@ -8,17 +8,22 @@ domain (name pending, `00 §6.2`), path prefix `/v1`. JSON in and out, UTF-8,
 ## 1. Conventions
 
 - **Refs.** `{ref}` in a path is a record id (`01J…`) or a name (case-
-  insensitive). Ambiguity is impossible: ids are 26 chars of Crockford base32
-  and names may not be.
+  insensitive). A ref matching the ULID shape
+  (`^[0-7][0-9A-HJKMNP-TV-Z]{25}$`, case-insensitive) is looked up as an id
+  first, then as a name; any other ref is a name. `check_name` (§3) refuses
+  ULID-shaped names, so a new record can never be ambiguous; an imported
+  name of that shape (none exist, 07 §0.1) would be reachable by id only.
 - **Formats.** Every read that returns a payload accepts `?as=<format>`
   (`01 §4`). Default `akl/1`.
-  `409 { held: true, format: "<native>", see: … }` when the translation is
-  not possible (`01 §5`).
-- **Fields.** `?fields=id,name,owner,rev` trims list responses; default
-  list rows carry the record minus `payload`.
+  `409 { error: "held", held: true, format: "<native>", see: … }` when the
+  translation is not possible (`01 §5`). In a `full=1` list a held record
+  appears as its record fields plus `held: true, format`, without `payload`.
+- **List rows** carry the record minus `payload` (§2). (A `?fields=`
+  trimmer was in round 1 and is cut: nothing left on a row is heavy.)
 - **Errors.** `{ error: "<snake_code>", message: "<human text>", …details }`.
   The `message` is what a bot prints and what the site shows verbatim — write
-  them in the bot's voice (`missing gap before column …`).
+  them in the bot's voice (`missing gap before column …`). Phase 1's full
+  table is `07 §6 S6`.
 - **Concurrency.** Every write that changes a record accepts `If-Match:
   "<rev>"`. Mismatch → `409 { error: "stale", rev, record }` with the current
   record in the body so a client can rebase. Absent `If-Match` = overwrite on
@@ -39,21 +44,30 @@ GET /v1/meta
     layouts_modified_at, authors_modified_at, formats: ["akl/1", …] }
 ```
 The one call a poller makes on a quiet tick (meta-watch, `06 §1`). `seq` is
-the event log head.
+the event log head; `revision` is the `at` of that event (likes move it,
+`layouts_modified_at` they do not); `layout_count` counts live records.
 
 ```
 GET /v1/layouts?owner=&format=&has_magic=&since=<iso>&sort=&limit=&cursor=&as=
-→ { items: [record…], next_cursor }
-GET /v1/layouts?full=1&as=cmini/1        one response with every payload (the weekly full sync)
-GET /v1/layouts/{ref}?as=               → record with payload
-GET /v1/layouts/{ref}/likes             → { user_ids: [...] }
-GET /v1/layouts/{ref}/history           → [{ rev, event_id, at, actor, via, kind }]
-GET /v1/layouts/{ref}/rev/{n}?as=       → the record as of rev n (from the event log)
+→ { items: [record minus payload…], next_cursor }
+     sort: name (default, asc, case-insensitive) | modified_at | created_at | like_count (desc)
+     limit ≤ 1000 (default 100); cursor is opaque (keyset); since = modified_at > iso; tombstones excluded
+GET /v1/layouts?full=1&as=cmini/1        one streamed response with every live record and its payload
+                                        (the site's sync); held records carry `held: true`, no payload
+GET /v1/layouts/{ref}?as=               → record with payload (a tombstone: 404 by name, 200 by id)
+GET /v1/layouts/{ref}/likes             → { user_ids: [sorted ascending] }
+GET /v1/layouts/{ref}/history           → [{ seq, rev, at, actor, via, kind, admin }]   oldest first
+GET /v1/layouts/{ref}/rev/{n}?as=       → the record as of rev n (layout_revs ⊕ the write event's `after`)
 GET /v1/authors                         → { "<name>": "<user_id>" }   (cmini's shape)
 GET /v1/authors/{user_id}               → { user_id, name, layout_count, liked_count }
 GET /v1/formats                         → registry: [{ id, owner, description, can_translate_to: [...] }]
 GET /v1/formats/{name}/{N}/schema.json
 ```
+
+Likes are always emitted sorted by user id — in `/likes`, in `?as=cmini/1`
+and in the dump — never in insertion order; the D12 diff sorts upstream's
+list the same way. `liked_by=<user_id>` on the list is the bot's `likes`
+verb (`05 §2.2`) and lands with phase 4.
 
 ### 2.1 No compatibility facade
 
@@ -66,11 +80,10 @@ against upstream (LDB-P5).
 ## 3. Writes (user or client lane, `02`)
 
 ```
-POST   /v1/layouts                    { name, format, payload, link? }        → 201 record
-PUT    /v1/layouts/{ref}              { format, payload, link? }  If-Match     → 200 record
+POST   /v1/layouts                    { name, format, payload }               → 201 record
+PUT    /v1/layouts/{ref}              { format, payload }  If-Match            → 200 record
 PATCH  /v1/layouts/{ref}              one or more of:                          → 200 record
                                         { name }                 rename
-                                        { link }  / { link: null }  link / unlink
                                         { fingermap: { "<char>": "<finger>", … } }
                                         { board }                (akl/1 records only)
                                         { magic }                (akl/1 records only)
@@ -83,9 +96,12 @@ DELETE /v1/layouts/{ref}/like                                                  �
 
 Semantics:
 
-- `POST`: `name` checked (`check_name` rules: ≥ 3 chars, allowed charset, no
-  leading `_`, unique case-insensitively → `409 name_taken`); `format` must be
+- `POST`: `name` checked (`check_name` rules, the bot's `util/layout.py`:
+  ≥ 3 chars, its `NAME_SET` charset, no leading `_`; plus: not ULID-shaped
+  (§1); unique case-insensitively → `409 name_taken`); `format` must be
   registered; payload validated (`01 §2.1`); `owner = actor`; `rev = 1`.
+  `check_name` applies to `POST` and `rename` only — **imported names are
+  stored verbatim** (`io` is 2 chars, `AdNW` keeps its case; LDB-I5).
 - `PUT`: whole payload replaced; `rev + 1`. `format` may change (an author
   moving their layout from `cmini/1` to `akl/1`).
 - `PATCH` verbs are what the bot's small commands map to (`05 §2`); each is
@@ -117,37 +133,57 @@ Every accepted write appends one event:
 
 ```jsonc
 { "seq": 18841, "at": "2026-09-08T19:40:11Z",
-  "kind": "created" | "updated" | "renamed" | "linked" | "fingermap" | "transferred"
-        | "deleted" | "restored" | "liked" | "unliked"
-        | "imported" | "import_conflict" | "upstream_changed" | "upstream_deleted"
+  "kind": "created" | "updated" | "renamed" | "fingermap" | "transferred"
+        | "deleted" | "restored" | "imported" | "upstream_deleted"          // rev-bumping
+        | "liked" | "unliked"                                              // like_count only
+        | "upstream_changed" | "import_conflict"                           // informational
         | "admin.client_registered" | "admin.client_revoked" | "admin.added" | "admin.removed",
-  "layout_id": "01J…", "name": "hours", "owner": "…", "rev": 7,
-  "actor": "…", "via": "client:cmini-bot", "admin": false,
+  "layout_id": "01J…", "name": "hours", "owner": "…",
+  "rev": 7 | null,                                     // the record's rev after this event; null = no bump
+  "actor": "<user id>" | "system:cmini-import", "via": "discord" | "client:<id>" | "import:cmini",
+  "admin": false,
+  "detail": { … } | null,                             // imported: {source, upstream_id, shadowed?}; upstream_changed: upstream's cmini/1 detail
   "before": { …record minus payload… } | null,        // payloads by rev via /rev/{n}
   "after":  { …record minus payload… } | null }
 ```
+
+Three classes, and the fold is uniform (`07 §6 S4`): a **rev-bumping**
+event sets the record to `after` ⊕ the payload stored for that rev
+(`upstream_deleted` on a following record is the tombstoning event, rev + 1);
+`liked`/`unliked` move `like_count` by ±1 and nothing else; an
+**informational** event changes nothing (`upstream_deleted` on a
+non-following record is informational, `rev: null`). "Follows upstream"
+(`06 §2`) is read off this log: the record's latest rev-bumping event has
+`via = "import:cmini"`.
 
 ```
 GET /v1/changes?since=<seq>&limit=<≤1000>&kinds=created,updated,…
 → { next: <seq>, items: [event…] }
 ```
 
-Served from `since=0` forever (a follower bootstraps from the feed alone;
-the nightly dump is faster). Followers keep one cursor.
+`since` is exclusive (`seq > since`); the first event is `seq = 1`, so
+`since=0` is "everything"; `next` is the last `seq` returned (pass it back
+as `since`). Served from `since=0` forever, including after a rehost (the
+dump carries the whole log, §6). Followers keep one cursor.
 
 **Cost of polling** (saltorbit, round-1 review: "won't that be bad for my
 server?"). Workers paid plan = 10 M requests/month for $5; one client
 polling `/v1/meta` every 30 s = ~86 k/month, each a single indexed D1 read
 (5 M reads/day allowance). Twenty pollers ≈ 1.7 % of the request budget. So
 polling is affordable but not free, and the design keeps it small:
-`/v1/meta`, `/v1/layouts` (list) and `/v1/changes` are served with
-`Cache-Control: public, max-age=10` through the Worker's cache API (a quiet
-poll usually never touches D1) and honour `If-None-Match` → `304`; per-client
-polling is rate-limited to one request per 10 s per endpoint; and every
-long-running client is steered to webhooks or the stream (§5 below), which
-cost one request per real change instead of one per tick. The changelog
-page (§7) is served through the same cache and is also rendered into the
-nightly dump as a static file.
+`/v1/meta`, `/v1/layouts` (list and `full=1`), `/v1/changes` and
+`/v1/authors` carry `Cache-Control: public, max-age=10` and a strong
+`ETag` derived from the event head and the query
+(`"<seq>:<hash(query)>"`); `If-None-Match` matching → `304` after one
+indexed D1 read (`MAX(seq)`), no other query. The Worker's cache API
+(`caches.default`) sits in front of that best-effort — **it is inert on
+`*.workers.dev`**, so the edge-cache half only engages once the service has
+a hostname (`00 §6.2`); the ETag half works everywhere. Per-client polling
+is rate-limited to one request per 10 s per endpoint (phase 2, with the
+rest of rate limiting); every long-running client is steered to webhooks
+or the stream (below), which cost one request per real change instead of
+one per tick. The changelog page (§7) is served through the same cache
+and is also rendered into the nightly dump as a static file.
 
 ```
 POST   /v1/webhooks     { url, secret, kinds?, owner_filter? }   (auth; owned by the actor)
@@ -167,14 +203,19 @@ Long-running clients that cannot receive webhooks (a bot behind NAT) use
 ## 6. Dumps
 
 ```
-GET /v1/dump                 → 302 to today's dump (R2): dump-YYYY-MM-DD.json.gz
-GET /v1/dump/latest.json     → { date, url, sha256, layout_count, seq }
+GET /v1/dump                       → 302 to /v1/dump/dump-YYYY-MM-DD.json.gz (today's)
+GET /v1/dump/latest.json           → { date, key, url, sha256, bytes, layout_count, seq }
+GET /v1/dump/dump-YYYY-MM-DD.json.gz   the object, streamed from R2 by the Worker (no public bucket)
 ```
 
-Nightly (03:00 UTC) job writes `{ meta, records: [full records with payloads],
-likes, authors, admins, clients (public keys only), events_tail: last 10k }`.
-Kept 90 days in R2 and forever as a monthly. **The rehost drill (`04 §3`)
-restores from this file.**
+Nightly (03:00 UTC) job writes `{ version, date, meta, records: [full
+records with payloads], layout_revs, likes, authors, admins, clients
+(public keys only), events: <the whole log>, import_state, import_map }`.
+The **whole** event log, not a tail: a rehosted service must still serve
+`/v1/changes?since=0` (LDB-P6); at this write rate the log is a few MB a
+year. Kept 90 days in R2 (a lifecycle rule on the `dump-` prefix) and
+forever as `monthly/dump-YYYY-MM.json.gz`. **The rehost drill (`04 §4`)
+restores from this file, and CI restores from it daily (LDB-G1).**
 
 ## 7. Admin
 
@@ -192,10 +233,10 @@ GET    /admin/changelog           HTML, public, read-only: the event feed render
 
 ```
 layouts        id PK, name UNIQUE COLLATE NOCASE, owner, rev, created_at, modified_at,
-               deleted, link, format, payload_json, like_count, has_magic
+               deleted, format, payload_json, like_count, has_magic       -- no link column (00 §6: cut)
                -- no origin_* columns: provenance is the events table (01 §1)
-layout_revs    (layout_id, rev) PK, event_seq, payload_json, format      -- for /rev/{n}; compacted to
-                                                                          -- every rev ≤ 100 per record, then monthly
+layout_revs    (layout_id, rev) PK, event_seq, payload_json, format      -- for /rev/{n}; every rev kept
+                                                                          -- (compaction was cut, 07 §12)
 likes          (layout_id, user_id) PK, at
 authors        user_id PK, name, first_seen_at, last_seen_at              -- names from Discord at auth; cmini import seeds
 events         seq PK AUTOINCREMENT, at, kind, layout_id, actor, via, admin, before_json, after_json
@@ -203,26 +244,32 @@ clients        id PK, name, pubkey, owner_user_id, caps, discord_app_id, status,
 nonces         (client_id, nonce) PK, at                                  -- pruned > 10 min
 admins         user_id PK, added_by, added_at, note
 webhooks       id PK, owner_user_id, url, secret_hash, kinds, status, failures, created_at
-import_state   key PK, value                                             -- cmini cursor, paused flag
-import_map     upstream_id PK, layout_id                                 -- cmini id → record id (the import's join key; not on the record)
+import_state   key PK, value                                             -- cmini.meta_token · cmini.last_full · cmini.paused · cmini.stalled · cmini.last_tick
+import_map     upstream_id PK, layout_id UNIQUE                          -- cmini id (= lowercase name) → record id; not on the record
 ```
 
-Write budget: D1's 100k rows/day cap (memory: D1 write budget) is far above
-this workload (one record + one event + one rev per write), and the import is
-diff-only (`06 §2`).
+Write budget: D1's 100k rows/day free-tier cap (memory: D1 write budget)
+is far above this workload — the initial import is ≈ 19 k rows once
+(`07 §4`), a write is one record + one event + one rev — and the import is
+diff-only (`06 §2`). Every write is one `batch()` (one transaction).
 
 ## 9. Invariants
 
 | id | invariant | enforced by |
 |---|---|---|
-| LDB-P1 | Every accepted write appends exactly one event and bumps `rev` by exactly one (likes: zero); the record is the fold of its events. | property test: random write sequences, replay from events equals the stored record |
-| LDB-P2 | `If-Match` mismatch is refused with the current record and writes nothing. | API test + concurrent-PUT race test (two PUTs at the same rev: exactly one wins) |
-| LDB-P3 | Webhook delivery never affects stored state; a follower's view from the feed alone equals a follower's view from feed + webhooks. | test with a dropping/reordering fake receiver |
+| LDB-P1 | Every accepted write appends exactly one rev-bumping event and one `layout_revs` row and bumps `rev` by exactly one (likes and informational events: zero, `rev: null`); the record is the fold of its events; `seq` is gapless from 1. | property test: random write sequences, replay from events equals the stored record (`07 §6 S4`) |
+| LDB-P2 | `If-Match` mismatch is refused with the current record and writes nothing. | API test + concurrent-PUT race test (two PUTs at the same rev: exactly one wins) — phase 2 |
+| LDB-P3 | Webhook delivery never affects stored state; a follower's view from the feed alone equals a follower's view from feed + webhooks. | test with a dropping/reordering fake receiver — phase 5 |
 | LDB-P4 | A name is released only by delete or rename; a held or forked record keeps its name. | API matrix |
-| LDB-P5 | Every record still following upstream (`06 §2`), read `?as=cmini/1`, is byte-identical to upstream's copy (after key-order canonicalisation). | D12 diff in CI |
-| LDB-P6 | `/v1/changes` serves from `since=0` after any compaction; compaction touches `layout_revs` only. | test: compact, then replay |
-| LDB-P7 | Every error response carries `error` and `message`; every `message` in the bot's verb set matches the bot's own string for that case. | table test from `05 §2` |
-| LDB-P8 | Deleted records are restorable for 30 days and unreadable by name from the moment of deletion. | API test with fake clock |
+| LDB-P5 | Every record still following upstream (`06 §2`), read `?as=cmini/1`, equals upstream's copy on the `cminiDetail` projection (`canonical()`, likes sorted). | the daily D12 diff (`07 §6 S8`) |
+| LDB-P6 | `/v1/changes` serves from `since=0` always, including from a rehosted database; `layout_revs` is never compacted in phase 1. | feed test + the rehost test |
+| LDB-P7 | Every error response carries `error` and `message`; every (route, status) pair has a conformance fixture; every `message` in the bot's verb set matches the bot's own string for that case (phase 4). | conformance suite (`07 §6 S6`); table test from `05 §2` |
+| LDB-P8 | Deleted records are restorable for 30 days (phase 2) and unreadable by name from the moment of deletion (phase 1). | API test with fake clock |
+| LDB-R1 | Polled routes carry `Cache-Control` + a strong `ETag` and answer `304` to a matching `If-None-Match`; the ETag changes iff the event head or the query changes. | matrix over routes × header states |
+| LDB-R2 | `/v1/meta`'s counts, `seq` and `revision` equal the tables. | API test after a fixture import |
+| LDB-R3 | The conformance fixtures are the API contract: a changed fixture is a documented API change. | conformance suite + review |
+| LDB-R4 | Every `sort` × `limit` cursor walk of `/v1/layouts` visits every live record exactly once, in order. | property test |
+| LDB-R5 | `/rev/{n}` reproduces the payload stored at rev `n` for every `n`. | API test over every seed record |
 
 ## 10. Open questions (API)
 

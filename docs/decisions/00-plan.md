@@ -11,7 +11,7 @@ Companion documents in this directory, in reading order:
 | `04-governance.md` | no single owner: org, admins, format ownership, rehost drill, backwards-compat gates |
 | `05-bot.md` | the Discord bot: cmini command parity, what it talks to, where it lives |
 | `06-akl-integration.md` | what changes on akl.gg: data root, pipeline, publish UX (#215), magic rules |
-| `07-implementation-phase1.md` | how to build phase 1 (the mirror): toolchain, `db/` layout, migration 0001, the two formats, PR slices S1–S8 with their invariants, CI, definition of done |
+| `07-implementation-phase1.md` | how to build phase 1 (the mirror): the measured upstream facts every rule cites, toolchain, `db/` layout, migration 0001, the two formats, PR slices S1–S8 as self-contained briefs with their tests and invariants, CI, definition of done, the phase-1 invariant registry |
 
 ---
 
@@ -109,10 +109,12 @@ DB instead of cmini's API; the extracted files are the same shape (`06 §1`).
   that cannot render them (`01 §4`).
 - **D2 · Stable ids, unique names.** Every record gets an opaque id (ULID)
   that survives renames; `name` stays unique case-insensitively and is what
-  humans and the bot type. cmini used the name as the id, so a rename there was
-  delete + create; here it is one event on one record. Imported records keep
-  their cmini name; the `imported` event and `import_map` carry the cmini
-  id. **No provenance field on the record** (saltorbit, round-1 review): one
+  humans and the bot type. cmini used the lowercase name as the id (`AdNW`
+  is id `adnw`; 184 differ by case), so a rename there was delete + create;
+  here it is one event on one record (an upstream rename still arrives as
+  delete + create, `06 §2`). Imported records keep their cmini name
+  verbatim; the `imported` event and `import_map` carry the cmini id.
+  **No provenance field on the record** (saltorbit, round-1 review): one
   client adds, another edits — where a layout came from is the event log's
   business, not a flag that goes stale.
 - **D3 · `akl/1` is the common format**, and it is the site's existing shapes
@@ -131,7 +133,7 @@ DB instead of cmini's API; the extracted files are the same shape (`06 §1`).
   review); how mana writes is an open question (`02 §7`).
 - **D6 · `rev` + `If-Match`, whole-record PUT, field PATCH for the small
   verbs.** Concurrency is an integer revision per record, checked on write;
-  409 carries the current record. Rename/link/fingermap/transfer are PATCH
+  409 carries the current record. Rename/fingermap/transfer are PATCH
   verbs so a bot's `!rename` is one small request.
 - **D7 · Likes are a sub-resource, not part of `rev`.** A like changes
   `like_count` and emits an event; it does not bump the record's revision or
@@ -145,8 +147,10 @@ DB instead of cmini's API; the extracted files are the same shape (`06 §1`).
   record's own history to decide (`06 §2`).
 - **D10 · Admins are a table, formats have owners, ops are a runbook.**
   `04`.
-- **D11 · The bot starts as a fork of cmini's command code** (GPLv3, in
-  `vendor/cmini-analyzer/cmds` already), file store replaced by an API client;
+- **D11 · The bot starts as a fork of cmini's command code** (GPLv3; it was
+  vendored at `vendor/cmini-analyzer` until #214 removed it — still in
+  history at `a5b0fe35^:vendor/cmini-analyzer`, upstream `068a4f50`, and
+  upstream itself is the better source), file store replaced by an API client;
   numbers from the cmini analyzer as people expect from that bot; mana2
   numbers later. Lives in `bot/` under the same move-out rule as `db/`.
 - **D12 · Nothing ships to akl.gg's users until the DB is a strict superset
@@ -160,10 +164,10 @@ phase 3.
 | phase | delivers | proof it works |
 |---|---|---|
 | **0 · proposals** | this directory, rendered at akl.gg for the community | people other than saltorbit have read `01`–`04` |
-| **1 · mirror** | `db/` Worker + D1; `formats/{cmini,akl}`; cmini import cron; reads (`/v1/layouts`, `?as=cmini/1`), `/v1/meta`, `/v1/changes`, `/v1/dump` | every record read `?as=cmini/1` is byte-identical to upstream's copy (D12) |
+| **1 · mirror** | `db/` Worker + D1; `formats/{cmini,akl}`; cmini import cron; reads (`/v1/layouts`, `?as=cmini/1`), `/v1/meta`, `/v1/changes`, `/v1/dump` | every record read `?as=cmini/1` equals upstream's copy on the cmini projection (`canonical()`, likes sorted — D12, LDB-P5), daily, three days running |
 | **2 · users write** | user lane auth; POST/PUT/PATCH/DELETE; likes; transfer; event log; admin table; audit page | API suite + conformance vectors; the site's #215 publish UX pointed at the DB, in the preview deploy |
 | **3 · cutover** | akl.gg reads from the DB (pipeline data root, meta-watch), publishes to it; D1 `magic_rules` folded into records | prod on the DB for a week with the cmini import still running; no diff vs cmini for unforked records |
-| **4 · bot** | client lane auth; `bot/` with the DB verbs (`add remove rename assign setfingermap swap! angle! unangle! mirror! cycle! like unlike link unlink list likes authors`), then the analyzer verbs | parity table in `05` all green in a test guild |
+| **4 · bot** | client lane auth; `bot/` with the DB verbs (`add remove rename assign setfingermap swap! angle! unangle! mirror! cycle! like unlike list likes authors`), then the analyzer verbs | parity table in `05` all green in a test guild |
 | **5 · open it** | webhooks; `mana2/1` + one advanced format from its author; org + Cloudflare handover; rehost drill in CI; repo split | a second admin performs the rehost drill without saltorbit |
 
 ## 6. Questions for saltorbit
@@ -178,7 +182,17 @@ phase 3.
 8. Anything in `01 §2` (the `akl/1` shape) you already know you want different — this is the one doc worth reading slowly.
 9. **CLI writes** (mana publishing as its user): personal tokens are set aside; the alternatives are a Discord device-flow login inside mana (needs mana to register a Discord app) or publishing through akl.gg only. Which, or neither for now?
 
-Resolved in the round-1 review (2026-09-08): no `origin` field on the record (history instead, D2/D9); no `core` at all — not a field, not a format ("overkill"); a format that wants to appear on akl.gg ships `to["akl/1"]`, otherwise it is held there (`01 §4`); no personal tokens (D5); no cmini-compatible facade — the site's sync reads `?as=cmini/1` (`06 §1`); polling cost answered in `03 §5` (edge cache + ETag + per-client limit; webhooks/stream preferred).
+Round 2 (the 07 rewrite, 2026-09-08) adds three, none blocking phase 1:
+
+10. **Invariant registry placement**: `db/INVARIANTS.md` + one pointer entry
+    in `design/INVARIANTS.md` (`07 §11`), so the registry moves with the
+    code — or one `I-nnn` per `LDB-*` in the site's registry as the covenant
+    literally says? (Built as the former; flip if you want the latter.)
+11. **Combos, row 4, empty layouts** are in the live cmini set and now in
+    the formats' envelope (`01 §8` Q6–7). Fine, or hold them?
+12. **Upstream renames as delete + create** (`06 §2`, Q4).
+
+Resolved in the round-1 review (2026-09-08): no `link` on the record either (saltorbit: "let's delete this too") — cmini's `link` is accepted inside the `cmini/1` payload for import fidelity only (the D12 diff), never surfaced as a record field, verb or bot command; no `origin` field on the record (history instead, D2/D9); no `core` at all — not a field, not a format ("overkill"); a format that wants to appear on akl.gg ships `to["akl/1"]`, otherwise it is held there (`01 §4`); no personal tokens (D5); no cmini-compatible facade — the site's sync reads `?as=cmini/1` (`06 §1`); polling cost answered in `03 §5` (edge cache + ETag + per-client limit; webhooks/stream preferred).
 
 ## 7. Where the code lives, and how it moves out
 
@@ -196,8 +210,13 @@ bot/                     ← same rule; GPLv3; talks to db/ only over HTTP
 ```
 
 Rules that keep the move cheap: (a) nothing outside `db/` imports from
-inside it and vice versa — the site talks HTTP, tests use fixtures; (b) CI
-for `db/` is its own workflow (`db.yml`) that runs `cd db && npm test`; (c)
-secrets are the Worker's own; (d) the D1 database is its own (`akl-db`), not
-`cb-magic`. The design docs stay in this repo's `design/layout-db/` until the
-split and move with the code.
+inside it and vice versa — the site talks HTTP, tests use fixtures, the
+formats reach the site as an npm package (`06 §5`; LDB-G5 tests both
+directions); (b) CI for `db/` is its own workflow (`db.yml`) that runs `cd
+db && npm test`, and `gates.sh` runs the same when `db/node_modules`
+exists; (c) secrets are the Worker's own; (d) the D1 database is its own
+(`akl-db`), not `cb-magic`; (e) the invariant registry is `db/INVARIANTS.md`
+(`LDB-*`, with the tag-coverage check `LDB-T1`), and `design/INVARIANTS.md`
+carries one pointer entry rather than a copy (`07 §11`). The design docs
+stay in this repo's `design/layout-db/` until the split and move with the
+code.

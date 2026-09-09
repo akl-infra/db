@@ -52,9 +52,10 @@ All run in `db.yml` on every PR and on `main`:
 | **cross-format goldens** | `to["x/N"]` outputs for every fixture that declares them, frozen |
 | **API conformance** | the request/response fixtures in `db/tests/conformance/` (every endpoint × every documented error) — the contract other clients build against; changing one is a documented API change |
 | **client-signing vectors** (LDB-A4) | a change to the signing scheme that the bot would not reproduce |
-| **D12 import diff** (LDB-P5) | a change that makes `?as=cmini/1` drift from cmini for records still following upstream (runs against the live scrape; skipped when unreachable, never green-skipped on `main` twice in a row — the CI gate-split lesson, `ci-gate-split-256`) |
-| **migration replay** | every migration applied in order to an empty local D1, then the API suite; and applied to a restored dump (§4) |
-| **rehost drill** (§4) | the service can be brought up from yesterday's dump and last week's code by a script, without any secret that only one person has |
+| **D12 import diff** (LDB-P5) | a change that makes `?as=cmini/1` drift from cmini for records still following upstream. A daily job against the live API, not a PR gate; on an unreachable side it retries for 30 min and then **fails** — no skip state at all, because a skip nobody reads is a pass (`ci-gate-split-256`) |
+| **migration replay** | every migration applied in order to an empty D1 before every test (the workers test project does this on every run), and to a restored dump (§4) |
+| **rehost drill** (§4) | the service can be brought up from yesterday's dump and last week's code by a script, without any secret that only one person has — `db/tests/rehost.test.ts` runs it daily against the real dump |
+| **invariant coverage** (LDB-T1) | every `LDB-*` in `db/INVARIANTS.md` has a tagged test and every tag has a row (`db/tests/tools/invariants.test.ts`) |
 
 A PR that touches only its own format directory and passes the gates is
 mergeable by its owners without the DB maintainers.
