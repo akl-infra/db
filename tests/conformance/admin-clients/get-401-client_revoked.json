@@ -1,0 +1,24 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/admin/clients",
+    "headers": {
+      "X-Akl-Client": "conformance-client-revoked-1",
+      "X-Akl-Timestamp": "1700000000",
+      "X-Akl-Nonce": "AAAAAAAAAAAAAAAAAAAAAA",
+      "X-Akl-Actor": "899999999999999901",
+      "X-Akl-Signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    }
+  },
+  "response": {
+    "status": 401,
+    "headers": {
+      "Content-Type": "application/json",
+      "WWW-Authenticate": "Bearer"
+    },
+    "body": {
+      "error": "client_revoked",
+      "message": "this client has been revoked"
+    }
+  }
+}

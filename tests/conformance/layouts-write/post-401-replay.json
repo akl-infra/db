@@ -1,0 +1,31 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/layouts",
+    "signed": {
+      "actor": "899999999999999902",
+      "nonce": "AAAAAAAAAAAAAAAAAAAAAg"
+    },
+    "setup": [
+      {
+        "method": "GET",
+        "path": "/v1/me",
+        "signed": {
+          "actor": "899999999999999902",
+          "nonce": "AAAAAAAAAAAAAAAAAAAAAg"
+        }
+      }
+    ]
+  },
+  "response": {
+    "status": 401,
+    "headers": {
+      "Content-Type": "application/json",
+      "WWW-Authenticate": "Bearer"
+    },
+    "body": {
+      "error": "replay",
+      "message": "nonce already used"
+    }
+  }
+}

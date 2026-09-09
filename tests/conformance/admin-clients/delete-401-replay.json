@@ -1,0 +1,31 @@
+{
+  "request": {
+    "method": "DELETE",
+    "path": "/v1/admin/clients/conformance-client-nonexistent",
+    "signed": {
+      "actor": "899999999999999902",
+      "nonce": "AAAAAAAAAAAAAAAAAAAAEw"
+    },
+    "setup": [
+      {
+        "method": "GET",
+        "path": "/v1/me",
+        "signed": {
+          "actor": "899999999999999902",
+          "nonce": "AAAAAAAAAAAAAAAAAAAAEw"
+        }
+      }
+    ]
+  },
+  "response": {
+    "status": 401,
+    "headers": {
+      "Content-Type": "application/json",
+      "WWW-Authenticate": "Bearer"
+    },
+    "body": {
+      "error": "replay",
+      "message": "nonce already used"
+    }
+  }
+}

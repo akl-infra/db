@@ -1,0 +1,27 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/admin/import/pause",
+    "headers": {
+      "X-Akl-Client": "conformance-client-1",
+      "X-Akl-Timestamp": "1700000000",
+      "X-Akl-Nonce": "AAAAAAAAAAAAAAAAAAAAAA",
+      "X-Akl-Actor": "899999999999999901",
+      "X-Akl-Signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    }
+  },
+  "response": {
+    "status": 401,
+    "headers": {
+      "Content-Type": "application/json",
+      "WWW-Authenticate": "Bearer"
+    },
+    "body": {
+      "error": "stale_timestamp",
+      "message": "request timestamp is outside the accepted window"
+    },
+    "omitBodyKeys": [
+      "skew"
+    ]
+  }
+}

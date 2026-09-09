@@ -1,0 +1,31 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/admin/health",
+    "signed": {
+      "actor": "899999999999999902",
+      "nonce": "AAAAAAAAAAAAAAAAAAAAGA"
+    },
+    "setup": [
+      {
+        "method": "GET",
+        "path": "/v1/me",
+        "signed": {
+          "actor": "899999999999999902",
+          "nonce": "AAAAAAAAAAAAAAAAAAAAGA"
+        }
+      }
+    ]
+  },
+  "response": {
+    "status": 401,
+    "headers": {
+      "Content-Type": "application/json",
+      "WWW-Authenticate": "Bearer"
+    },
+    "body": {
+      "error": "replay",
+      "message": "nonce already used"
+    }
+  }
+}

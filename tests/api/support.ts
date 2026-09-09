@@ -8,6 +8,7 @@
 import { SELF, env } from "cloudflare:test";
 import { expect } from "vitest";
 import type { Bindings } from "../../src/env";
+import { base64UrlToBytes } from "../../src/auth/client";
 import { canonical } from "../../src/core/canonical";
 import { fixedClock } from "../../src/core/time";
 import { tick } from "../../src/import/cmini";
@@ -103,6 +104,12 @@ export async function fireConformanceStep(step: ConformanceStep, resolvePath: Pa
     init.body = JSON.stringify(step.body);
   }
   if (step.signed !== undefined) {
+    // LDB-A4 follow-up: `nonce`, when the fixture names one, is forwarded
+    // verbatim instead of a fresh random one -- how a `replay` fixture's
+    // `setup` step and its asserted step share one nonce while each still
+    // signs a real, freshly-timestamped request (manifest.ts's
+    // `ConformanceStep.signed` comment explains why this can't be frozen).
+    const nonce = step.signed.nonce !== undefined ? (base64UrlToBytes(step.signed.nonce) ?? undefined) : undefined;
     const signedHeaders = await signHeaders({
       privateKey: await conformancePrivateKey(),
       clientId: CONFORMANCE_CLIENT_ID,
@@ -111,6 +118,7 @@ export async function fireConformanceStep(step: ConformanceStep, resolvePath: Pa
       pathWithQuery: path,
       body: typeof init.body === "string" ? new TextEncoder().encode(init.body) : undefined,
       timestamp: Math.floor(Date.now() / 1000), // the live auth clock is real wall-clock, never a fixture value
+      nonce,
     });
     Object.assign(headers, signedHeaders);
   }
@@ -176,6 +184,13 @@ export async function assertConformanceCase(kase: ConformanceCase, resolvePath?:
   }
 
   const contentType = res.headers.get("Content-Type") ?? "";
-  const actual = contentType.includes("json") ? await res.json() : await res.text();
+  let actual = contentType.includes("json") ? await res.json() : await res.text();
+  // LDB-A4 follow-up: strip whatever `omitBodyKeys` names (e.g. client-lane
+  // `stale_timestamp`'s real-clock `skew`) from the ACTUAL body only --
+  // never from `kase.response.body`, which is asserted to omit it already.
+  if (kase.response.omitBodyKeys !== undefined && actual !== null && typeof actual === "object" && !Array.isArray(actual)) {
+    actual = { ...(actual as Record<string, unknown>) };
+    for (const key of kase.response.omitBodyKeys) delete (actual as Record<string, unknown>)[key];
+  }
   expect(canonical(normalizeIds(actual)), kase.id).toBe(canonical(normalizeIds(kase.response.body)));
 }

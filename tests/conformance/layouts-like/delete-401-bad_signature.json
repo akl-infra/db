@@ -1,0 +1,24 @@
+{
+  "request": {
+    "method": "DELETE",
+    "path": "/v1/layouts/01ARZ3NDEKTSV4RRFFQ69G5FAV/like",
+    "headers": {
+      "X-Akl-Client": "conformance-client-1",
+      "X-Akl-Timestamp": "1700000000",
+      "X-Akl-Nonce": "AAAA",
+      "X-Akl-Actor": "899999999999999901",
+      "X-Akl-Signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    }
+  },
+  "response": {
+    "status": 401,
+    "headers": {
+      "Content-Type": "application/json",
+      "WWW-Authenticate": "Bearer"
+    },
+    "body": {
+      "error": "bad_signature",
+      "message": "the client signature is missing or invalid"
+    }
+  }
+}
