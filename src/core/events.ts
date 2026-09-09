@@ -12,6 +12,15 @@ import { type RecordRow, readById } from "./records";
 import { ulid } from "ulidx";
 import type { Clock } from "./time";
 
+// A write lost the rev race: another write committed the same rev first
+// (the `layout_revs` PK refused the loser's batch). Routes turn this into
+// 409 stale with the winner's record (09 §2.3).
+export class RevConflictError extends Error {
+  constructor(readonly layoutId: string, readonly rev: number) {
+    super(`rev ${rev} of ${layoutId} was written concurrently`);
+  }
+}
+
 export type WriteKind =
   | "created"
   | "updated"
@@ -124,7 +133,17 @@ function sansPayload(rec: RecordRow): RecordSansPayload {
 
 // One batch: `events` (rev = previous + 1) -> `layout_revs` (event_seq =
 // last_insert_rowid(), the same D1 connection/transaction the whole batch
-// runs on, 07 §4) -> `layouts` (INSERT OR REPLACE, keyed by id).
+// runs on, 07 §4) -> `layouts` (upsert keyed by id).
+//
+// Two constraints inside that batch are the concurrency guard, not the
+// pre-checks above it (09 §2.3): `layout_revs (layout_id, rev)` is a PK, so
+// two writes at the same rev cannot both commit -- the loser's batch rolls
+// back whole (events included, so `seq` stays gapless) and surfaces as
+// RevConflictError; and `layouts_name_live` is a partial UNIQUE index, so two
+// creates racing on one name fail the same way and surface as name_taken.
+// The upsert is `ON CONFLICT(id) DO UPDATE`, never `INSERT OR REPLACE`: OR
+// REPLACE resolves a UNIQUE conflict by DELETING the other row, which under
+// a name race would silently orphan the first record's events and revs.
 export async function appendWrite(
   db: Bindings["DB"],
   now: Clock,
@@ -183,7 +202,9 @@ export async function appendWrite(
 
   const payloadJson = canonical(w.payload);
 
-  const results = await db.batch([
+  let results;
+  try {
+    results = await db.batch([
     db
       .prepare(
         `INSERT INTO events (at, kind, layout_id, name, owner, rev, actor, via, admin, detail_json, before_json, after_json)
@@ -211,8 +232,13 @@ export async function appendWrite(
       .bind(id, rev, w.format, payloadJson),
     db
       .prepare(
-        `INSERT OR REPLACE INTO layouts (id, name, owner, rev, created_at, modified_at, deleted, format, payload_json, like_count, has_magic)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO layouts (id, name, owner, rev, created_at, modified_at, deleted, format, payload_json, like_count, has_magic)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           name = excluded.name, owner = excluded.owner, rev = excluded.rev,
+           modified_at = excluded.modified_at, deleted = excluded.deleted,
+           format = excluded.format, payload_json = excluded.payload_json,
+           like_count = excluded.like_count, has_magic = excluded.has_magic`,
       )
       .bind(
         id,
@@ -228,6 +254,13 @@ export async function appendWrite(
         has_magic ? 1 : 0,
       ),
   ]);
+
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/UNIQUE constraint failed: layouts\.name/.test(msg)) throw nameTaken(name);
+    if (/UNIQUE constraint failed: layout_revs\.layout_id, layout_revs\.rev/.test(msg)) throw new RevConflictError(id, rev);
+    throw e;
+  }
 
   const seq = results[0]?.meta.last_row_id;
   if (seq === undefined) throw new Error("appendWrite: events insert returned no last_row_id");
@@ -286,24 +319,45 @@ export async function appendLike(
   }
 
   const at = now();
-  const like_count = current.like_count + (wantsLike ? 1 : -1);
 
-  const results = await db.batch([
-    db
-      .prepare(
-        `INSERT INTO events (at, kind, layout_id, name, owner, rev, actor, via, admin, detail_json, before_json, after_json)
-         VALUES (?, ?, ?, ?, ?, NULL, ?, ?, 0, NULL, NULL, NULL)`,
-      )
-      .bind(at, l.kind, l.layoutId, current.name, current.owner, l.userId, l.via),
-    wantsLike
-      ? db.prepare("INSERT INTO likes (layout_id, user_id, at) VALUES (?, ?, ?)").bind(l.layoutId, l.userId, at)
-      : db.prepare("DELETE FROM likes WHERE layout_id = ? AND user_id = ?").bind(l.layoutId, l.userId),
-    db.prepare("UPDATE layouts SET like_count = ? WHERE id = ?").bind(like_count, l.layoutId),
-  ]);
+  // `like_count` is recomputed FROM the likes table inside the same batch,
+  // never carried in from the pre-read: two users liking at once each add
+  // their row and each set the count to what the table then holds, so no
+  // increment is lost. A same-user double-like races into the likes PK,
+  // which fails the whole batch (no event) -- that is the idempotent no-op,
+  // caught below. (A same-user double-UNlike can append two events; the
+  // count stays right because it is derived, and the fold treats the second
+  // as a no-op. Accepted: unlikes are rare.)
+  let results;
+  try {
+    results = await db.batch([
+      wantsLike
+        ? db.prepare("INSERT INTO likes (layout_id, user_id, at) VALUES (?, ?, ?)").bind(l.layoutId, l.userId, at)
+        : db.prepare("DELETE FROM likes WHERE layout_id = ? AND user_id = ?").bind(l.layoutId, l.userId),
+      db
+        .prepare(
+          `INSERT INTO events (at, kind, layout_id, name, owner, rev, actor, via, admin, detail_json, before_json, after_json)
+           VALUES (?, ?, ?, ?, ?, NULL, ?, ?, 0, NULL, NULL, NULL)`,
+        )
+        .bind(at, l.kind, l.layoutId, current.name, current.owner, l.userId, l.via),
+      db
+        .prepare("UPDATE layouts SET like_count = (SELECT COUNT(*) FROM likes WHERE layout_id = ?) WHERE id = ?")
+        .bind(l.layoutId, l.layoutId),
+      db.prepare("SELECT like_count FROM layouts WHERE id = ?").bind(l.layoutId),
+    ]);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/UNIQUE constraint failed: likes\./.test(msg)) {
+      const row = await db.prepare("SELECT like_count FROM layouts WHERE id = ?").bind(l.layoutId).first<{ like_count: number }>();
+      return { seq: null, like_count: row?.like_count ?? current.like_count };
+    }
+    throw e;
+  }
 
-  const seq = results[0]?.meta.last_row_id;
+  const seq = results[1]?.meta.last_row_id;
   if (seq === undefined) throw new Error("appendLike: events insert returned no last_row_id");
-  return { seq, like_count };
+  const counted = (results[3]?.results?.[0] as { like_count: number } | undefined)?.like_count;
+  return { seq, like_count: counted ?? current.like_count };
 }
 
 // A function boundary here (rather than inlining the spread in the loop
