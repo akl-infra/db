@@ -1,7 +1,9 @@
 import { Hono } from "hono";
 import type { Bindings } from "./env";
 import { ApiError, internal } from "./core/errors";
+import { systemClock } from "./core/time";
 import { list as listFormats } from "./formats/registry";
+import { tick as cminiTick } from "./import/cmini";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -45,12 +47,17 @@ app.onError((err, c) => {
   return c.json(e.body, 500);
 });
 
-// The two crons from wrangler.toml's [triggers]. Neither has a real
-// implementation yet: the import tick lands in S5, the nightly dump in S7.
-async function scheduled(event: ScheduledEvent, _env: Bindings, _ctx: ExecutionContext): Promise<void> {
+// The two crons from wrangler.toml's [triggers]. `ScheduledController` (not
+// the legacy service-worker-format `ScheduledEvent`) is what a modules-
+// format Worker's `scheduled` export actually receives -- S1's original
+// annotation typechecked only because `@cloudflare/workers-types`'s stable
+// index.d.ts doesn't carry `ScheduledController` at all, so nothing here
+// caught the mismatch until S5 needed it (07 §6 S5's tick.test.ts drives
+// this handler directly via pool-workers' `createScheduledController`).
+async function scheduled(event: ScheduledController, env: Bindings, _ctx: ExecutionContext): Promise<void> {
   switch (event.cron) {
     case "*/5 * * * *":
-      // TODO(S5): src/import/cmini.ts's tick()
+      await cminiTick(env, systemClock);
       return;
     case "0 3 * * *":
       // TODO(S7): src/dump/write.ts

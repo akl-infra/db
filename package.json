@@ -8,7 +8,7 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "migrate": "wrangler d1 migrations apply akl-db --local --config wrangler.toml",
-    "import": "node scripts/not-yet.mjs import",
+    "import": "node scripts/import.mjs",
     "deploy": "wrangler deploy --config wrangler.toml",
     "rehost": "node scripts/not-yet.mjs rehost",
     "diff-upstream": "node scripts/not-yet.mjs diff-upstream",

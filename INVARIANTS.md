@@ -23,8 +23,17 @@ the S1 rows only.
 | LDB-F11 | Every live upstream detail (snapshot) validates as `cmini/1` and `hasMagic` matches upstream's `has_magic` | `tests/formats/cmini-envelope.test.ts` |
 | LDB-G2 | No admin id is a constant in code (the migration seed is data) | `tests/tools/noconst.test.ts` |
 | LDB-G5 | Nothing imports across the `db/` boundary in either direction | `tests/tools/boundary.test.ts` |
+| LDB-I1 | The import is idempotent: the same upstream state twice appends zero events | `tests/import/tick.test.ts` |
+| LDB-I2 | The import never overwrites a record that does not follow upstream | `tests/import/cases.test.ts` |
 | LDB-I2a | "Follows upstream" ⇔ the record's latest rev-bumping event has `via = import:cmini` | `tests/events/follows.test.ts` |
+| LDB-I3 | Tombstoning more than `max(5, 5%)` of live records in one tick stalls the import instead | `tests/import/plan.test.ts` |
+| LDB-I4 | Every import event carries `via = import:cmini` and `actor = system:cmini-import` (likes: the liking user) | `tests/import/cases.test.ts` |
+| LDB-I5 | Imported names are stored verbatim (case kept, `check_name` not applied) and are unique case-insensitively | `tests/import/cases.test.ts` |
+| LDB-I6 | A list shorter than half the live record count stalls the whole tick | `tests/import/plan.test.ts` |
+| LDB-I7 | A tick whose `/meta` token is unchanged makes no further request and writes nothing | `tests/import/tick.test.ts` |
+| LDB-I8 | Every upstream request carries the UA; 404 is never retried; other failures are retried 3x | `tests/import/upstream.test.ts` |
 | LDB-P1 | Every write appends exactly one rev-bumping event and one `layout_revs` row; the record equals the fold of its events; `seq` is gapless | `tests/events/fold.test.ts`, `tests/tools/onlywriter.test.ts` |
 | LDB-P4 | A name is released only by delete or rename | `tests/events/names.test.ts` |
 | LDB-P6 | `/v1/changes` serves from `since=0`, including after a restore | `tests/events/feed.test.ts` |
+| LDB-R2 | `/v1/meta` counts and `seq`/`revision` equal the tables | `tests/api/meta.test.ts` |
 | LDB-T1 | Every registry id has a tagged test and every tag has a registry row | `tests/tools/invariants.test.ts` |

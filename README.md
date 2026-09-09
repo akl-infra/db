@@ -22,13 +22,39 @@ npm test                            # both vitest projects (workers + node)
 npm run typecheck
 ```
 
-`npm run import`, `deploy`, `rehost` and `diff-upstream` are placeholders
-until their slice lands (S5-S8); each prints which slice to look for.
-`profile-upstream` (prints the `07 §0.1` measured table), `pick-fixtures`
-(regenerates `tests/fixtures/upstream-100/` -- run once, its output is
-frozen) and `goldens -- --write` (writes `db/formats/*/*/fixtures/` and
-their derived goldens -- also run once per new fixture, never to
-regenerate one that already merged) are real (S2).
+`deploy`, `rehost` and `diff-upstream` are placeholders until their slice
+lands (S7-S8); each prints which slice to look for. `profile-upstream`
+(prints the `07 §0.1` measured table), `pick-fixtures` (regenerates
+`tests/fixtures/upstream-100/` -- run once, its output is frozen) and
+`goldens -- --write` (writes `db/formats/*/*/fixtures/` and their derived
+goldens -- also run once per new fixture, never to regenerate one that
+already merged) are real (S2). `import` is real (S5, see below).
+
+### `npm run import -- --once [--fixture]`
+
+Drives exactly one cmini import tick (`src/import/cmini.ts`'s `tick()`)
+against the LOCAL D1 (`npm run migrate` first). `scripts/import.mjs` starts
+`wrangler dev --test-scheduled` and hits its `/__scheduled?cron=*/5+*+*+*+*`
+endpoint -- the same mechanism 07 §8 documents by hand
+(`wrangler dev --test-scheduled` + `curl
+"http://localhost:8787/__scheduled?cron=*/5+*+*+*+*"`), just scripted.
+
+- **`--fixture`**: serves `tests/fixtures/upstream-100/{list,full,authors}.json`
+  from a tiny in-process HTTP server and points the dev Worker's
+  `IMPORT_SOURCE_URL` at it for this run only (`wrangler dev --var`,
+  wrangler.toml itself is untouched) -- fully offline, safe to run
+  repeatedly. A fresh local D1 ends up with `layout_count: 100`,
+  `author_count: 32` (authors.json has 48 name entries but only 32 distinct
+  user ids -- some users have more than one recorded name; `authors`'s
+  PRIMARY KEY is `user_id`, so 32 is the correct row count); running it
+  again reports a fast, event-count-unchanged ("quiet") tick.
+- without `--fixture`: hits the real upstream
+  (`IMPORT_SOURCE_URL` from `wrangler.toml`, `https://clemenpine.com/
+  layoutapi/v3` by default) -- a real tick against production data.
+
+Ports default to 8787 (wrangler dev) and 8788 (the fixture server);
+override with `IMPORT_SCRIPT_WRANGLER_PORT`/`IMPORT_SCRIPT_FIXTURE_PORT` if
+those are taken.
 
 ## Secrets and bindings
 

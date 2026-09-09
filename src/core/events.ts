@@ -23,7 +23,11 @@ export type WriteKind =
   | "imported"
   | "upstream_deleted";
 
-export type InfoKind = "upstream_changed" | "import_conflict";
+// "upstream_deleted" is deliberately in both WriteKind and InfoKind: a
+// following record's tombstoning is rev-bumping (appendWrite), a
+// non-following record's is informational (07 §6 S4's fold-rule note; S5's
+// case 9 is the caller that needed the Info half).
+export type InfoKind = "upstream_changed" | "import_conflict" | "upstream_deleted";
 
 // A record minus its payload -- what `before`/`after` store on an event and
 // what a list row carries (03 §2).
