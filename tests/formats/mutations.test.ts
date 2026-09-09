@@ -168,6 +168,15 @@ const ALLOWED: Record<string, Set<string>> = {
     "note:empty string",
     "stagger:negative number", // 01 §2.1 only constrains stagger's LENGTH, not its per-entry sign
   ]),
+  "mana2/1": new Set([
+    "fingers:empty string", // an empty layout.fingers row is a real state (zero keys that row) -- fromAkl produces one for a main row with no keys
+    "thumbs:delete", // 1-2 items either way (schema minItems 1) -- shrinking to 1 is still a valid thumbs array
+    "thumbs:empty string", // "" means no key on that hand (gust.jsonc's own ["", "space"]) -- a real vendored state, not a corruption
+    "splitAngle:delete", // optional tilt angle
+    "splitAngle:negative number", // a mirrored tilt is still a tilt -- no sign constraint, same reasoning as akl/1's stagger
+    "rowOrColumnStagger:delete", // this format holds what mana2 holds (mana2's own runtime-only length check against row/column count is out of scope here, same "representation, not full engine validity" stance cmini/1 takes)
+    "rowOrColumnStagger:negative number", // same reasoning as akl/1's stagger: length is never checked here, sign never was either
+  ]),
 };
 
 // The last path segment names the field UNLESS it's an array index (a

@@ -1,0 +1,33 @@
+{
+  "layout": {
+    "fingers": [
+      "v m l c p x f o u j",
+      "s t r d y . n a e i",
+      "z k q g w b h ' ; ,"
+    ],
+    "thumbs": [
+      "space",
+      ""
+    ]
+  },
+  "fingermap": [
+    "0 1 2 3 3 6 6 7 8 9",
+    "0 1 2 3 3 6 6 7 8 9",
+    "0 1 2 3 3 6 6 7 8 9"
+  ],
+  "board": {
+    "isRowStaggered": true,
+    "mirrorLeftRowStagger": false,
+    "splitAngle": 0,
+    "rowOrColumnStagger": [
+      0,
+      0,
+      0
+    ]
+  },
+  "layers": null,
+  "magic": {
+    "magicKeys": null,
+    "rules": []
+  }
+}

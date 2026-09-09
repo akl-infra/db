@@ -1,0 +1,270 @@
+{
+  "layout": {
+    "fingers": [
+      "q w e r t y u i o p",
+      "a s d f g h j k l ;",
+      "z x c v b n m , . /"
+    ],
+    "thumbs": [
+      "",
+      ""
+    ]
+  },
+  "fingermap": [
+    "0 1 2 3 3 6 6 7 8 9",
+    "0 1 2 3 3 6 6 7 8 9",
+    "0 1 2 3 3 6 6 7 8 9"
+  ],
+  "board": {
+    "isRowStaggered": true,
+    "rowOrColumnStagger": [
+      0,
+      0.25,
+      0.75
+    ]
+  },
+  "magic": {
+    "rules": [
+      {
+        "inputs": ",;",
+        "output": ",,"
+      },
+      {
+        "inputs": ".;",
+        "output": ".."
+      },
+      {
+        "inputs": "/;",
+        "output": "//"
+      },
+      {
+        "inputs": "a;",
+        "output": "aa"
+      },
+      {
+        "inputs": "b;",
+        "output": "bb"
+      },
+      {
+        "inputs": "c;",
+        "output": "cc"
+      },
+      {
+        "inputs": "d;",
+        "output": "dd"
+      },
+      {
+        "inputs": "e;",
+        "output": "ee"
+      },
+      {
+        "inputs": "f;",
+        "output": "ff"
+      },
+      {
+        "inputs": "g;",
+        "output": "gg"
+      },
+      {
+        "inputs": "h;",
+        "output": "hh"
+      },
+      {
+        "inputs": "i;",
+        "output": "ii"
+      },
+      {
+        "inputs": "j;",
+        "output": "jj"
+      },
+      {
+        "inputs": "k;",
+        "output": "kk"
+      },
+      {
+        "inputs": "l;",
+        "output": "ll"
+      },
+      {
+        "inputs": "m;",
+        "output": "mm"
+      },
+      {
+        "inputs": "n;",
+        "output": "nn"
+      },
+      {
+        "inputs": "o;",
+        "output": "oo"
+      },
+      {
+        "inputs": "p;",
+        "output": "pp"
+      },
+      {
+        "inputs": "r;",
+        "output": "rr"
+      },
+      {
+        "inputs": "s;",
+        "output": "ss"
+      },
+      {
+        "inputs": "u;",
+        "output": "uu"
+      },
+      {
+        "inputs": "v;",
+        "output": "vv"
+      },
+      {
+        "inputs": "w;",
+        "output": "ww"
+      },
+      {
+        "inputs": "x;",
+        "output": "xx"
+      },
+      {
+        "inputs": "y;",
+        "output": "yy"
+      },
+      {
+        "inputs": "z;",
+        "output": "zz"
+      },
+      {
+        "inputs": "t;",
+        "output": "th"
+      },
+      {
+        "inputs": ",/",
+        "output": ",ee"
+      },
+      {
+        "inputs": "./",
+        "output": ".ee"
+      },
+      {
+        "inputs": ";/",
+        "output": ";ee"
+      },
+      {
+        "inputs": "a/",
+        "output": "aei"
+      },
+      {
+        "inputs": "b/",
+        "output": "bei"
+      },
+      {
+        "inputs": "c/",
+        "output": "cei"
+      },
+      {
+        "inputs": "d/",
+        "output": "dei"
+      },
+      {
+        "inputs": "e/",
+        "output": "eei"
+      },
+      {
+        "inputs": "f/",
+        "output": "fei"
+      },
+      {
+        "inputs": "g/",
+        "output": "gei"
+      },
+      {
+        "inputs": "h/",
+        "output": "hee"
+      },
+      {
+        "inputs": "i/",
+        "output": "iee"
+      },
+      {
+        "inputs": "j/",
+        "output": "jee"
+      },
+      {
+        "inputs": "k/",
+        "output": "kee"
+      },
+      {
+        "inputs": "l/",
+        "output": "lee"
+      },
+      {
+        "inputs": "n/",
+        "output": "nee"
+      },
+      {
+        "inputs": "o/",
+        "output": "oee"
+      },
+      {
+        "inputs": "p/",
+        "output": "pee"
+      },
+      {
+        "inputs": "q/",
+        "output": "qei"
+      },
+      {
+        "inputs": "r/",
+        "output": "rei"
+      },
+      {
+        "inputs": "s/",
+        "output": "sei"
+      },
+      {
+        "inputs": "t/",
+        "output": "tei"
+      },
+      {
+        "inputs": "u/",
+        "output": "uee"
+      },
+      {
+        "inputs": "v/",
+        "output": "vei"
+      },
+      {
+        "inputs": "w/",
+        "output": "wei"
+      },
+      {
+        "inputs": "x/",
+        "output": "xei"
+      },
+      {
+        "inputs": "y/",
+        "output": "yee"
+      },
+      {
+        "inputs": "z/",
+        "output": "zei"
+      },
+      {
+        "inputs": "nh",
+        "output": "nj"
+      },
+      {
+        "inputs": "nj",
+        "output": "nh"
+      },
+      {
+        "inputs": "ab",
+        "output": "ax"
+      },
+      {
+        "inputs": "cd",
+        "output": "cx"
+      }
+    ]
+  }
+}

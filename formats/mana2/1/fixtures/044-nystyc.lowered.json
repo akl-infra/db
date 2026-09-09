@@ -1,0 +1,12 @@
+[
+  {
+    "inputs": "aY",
+    "output": "ay",
+    "type": "raw"
+  },
+  {
+    "inputs": "hY",
+    "output": "hy",
+    "type": "raw"
+  }
+]

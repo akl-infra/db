@@ -1,0 +1,157 @@
+[
+  {
+    "inputs": "'*",
+    "output": "'r",
+    "type": "raw"
+  },
+  {
+    "inputs": "g*",
+    "output": "gs",
+    "type": "raw"
+  },
+  {
+    "inputs": "u*",
+    "output": "ue",
+    "type": "raw"
+  },
+  {
+    "inputs": "w*",
+    "output": "wh",
+    "type": "raw"
+  },
+  {
+    "inputs": "y*",
+    "output": "y,",
+    "type": "raw"
+  },
+  {
+    "inputs": "q*",
+    "output": "qq",
+    "type": "raw"
+  },
+  {
+    "inputs": "d*",
+    "output": "dd",
+    "type": "raw"
+  },
+  {
+    "inputs": "f*",
+    "output": "ff",
+    "type": "raw"
+  },
+  {
+    "inputs": "v*",
+    "output": "vv",
+    "type": "raw"
+  },
+  {
+    "inputs": "z*",
+    "output": "zz",
+    "type": "raw"
+  },
+  {
+    "inputs": "l*",
+    "output": "ll",
+    "type": "raw"
+  },
+  {
+    "inputs": "o*",
+    "output": "oo",
+    "type": "raw"
+  },
+  {
+    "inputs": "n*",
+    "output": "nn",
+    "type": "raw"
+  },
+  {
+    "inputs": "s*",
+    "output": "ss",
+    "type": "raw"
+  },
+  {
+    "inputs": "t*",
+    "output": "tt",
+    "type": "raw"
+  },
+  {
+    "inputs": "h*",
+    "output": "hh",
+    "type": "raw"
+  },
+  {
+    "inputs": "m*",
+    "output": "mm",
+    "type": "raw"
+  },
+  {
+    "inputs": "r*",
+    "output": "rr",
+    "type": "raw"
+  },
+  {
+    "inputs": "e*",
+    "output": "ee",
+    "type": "raw"
+  },
+  {
+    "inputs": "a*",
+    "output": "aa",
+    "type": "raw"
+  },
+  {
+    "inputs": "i*",
+    "output": "ii",
+    "type": "raw"
+  },
+  {
+    "inputs": "b*",
+    "output": "bb",
+    "type": "raw"
+  },
+  {
+    "inputs": "c*",
+    "output": "cc",
+    "type": "raw"
+  },
+  {
+    "inputs": "p*",
+    "output": "pp",
+    "type": "raw"
+  },
+  {
+    "inputs": "k*",
+    "output": "kk",
+    "type": "raw"
+  },
+  {
+    "inputs": "x*",
+    "output": "xx",
+    "type": "raw"
+  },
+  {
+    "inputs": "j*",
+    "output": "jj",
+    "type": "raw"
+  },
+  {
+    "inputs": ";*",
+    "output": ";;",
+    "type": "raw"
+  },
+  {
+    "inputs": ".*",
+    "output": "..",
+    "type": "raw"
+  },
+  {
+    "inputs": ",*",
+    "output": ",,",
+    "type": "raw"
+  },
+  {
+    "inputs": " *",
+    "output": "  ",
+    "type": "raw"
+  }
+]

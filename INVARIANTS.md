@@ -31,9 +31,9 @@ the S1 rows only.
 | LDB-F2 | `lower()` is deterministic across versions | `tests/formats/goldens.test.ts` (`.lowered.json` goldens) |
 | LDB-F3 | Intent is never lowered on store | `tests/formats/intent.test.ts` |
 | LDB-F4 | Lowering collisions are refused with both sources named | `tests/formats/collisions.test.ts`, `tests/formats/mutations.test.ts` |
-| LDB-F5 | `cmini/1 → akl/1 → cmini/1` is identity on the projection, for every fixture and (P5) the live set | `tests/formats/roundtrip.test.ts`, `tests/api/list.test.ts`, S8 |
+| LDB-F5 | `cmini/1 → akl/1 → cmini/1` is identity on the projection, for every fixture and (P5) the live set; `mana2/1 → akl/1 → mana2/1` is identity (modulo row whitespace + unused fingermap padding) for every vendored fixture; `akl/1 → mana2/1 → akl/1` is identity minus mana2's documented losses (magic idiom structure, `TB`, non-`x.mana2` `x`, an akl-native `ortho` board, non-contiguous columns) for every akl/1 fixture | `tests/formats/roundtrip.test.ts`, `tests/formats/mana2.test.ts`, `tests/api/list.test.ts`, S8 |
 | LDB-F6 | Merged format majors are immutable | `tests/formats/frozen.test.ts` |
-| LDB-F7 | Every format has ≥ 1 fixture and a frozen golden per declared translation | `tests/formats/goldens.test.ts` |
+| LDB-F7 | Every format has ≥ 1 fixture and a frozen golden per declared translation | `tests/formats/goldens.test.ts`, `tests/formats/mana2.test.ts` (X2: 74 vendored mana2/1 fixtures + `d5.jsonc`'s documented exclusion) |
 | LDB-F8 | `liftRules(lower(m)) == (m, [])` for every valid idiom set; `lower(lift(rows)) ≡ rows` for every typed row set; leftovers are exactly the rows that fail their tag's invariant | `tests/formats/lift.test.ts` |
 | LDB-F9 | A held record keeps name/owner/rev and reads as its own format | `tests/api/held.test.ts` |
 | LDB-F10 | `x` survives same-format round trips; only `x.cmini` survives `to["cmini/1"]` | `tests/formats/x.test.ts`, `tests/formats/roundtrip.test.ts` |

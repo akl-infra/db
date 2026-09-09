@@ -1,0 +1,191 @@
+{
+  "keys": {
+    "з": {
+      "row": 0,
+      "col": 0,
+      "finger": "LP"
+    },
+    "л": {
+      "row": 0,
+      "col": 1,
+      "finger": "LR"
+    },
+    "к": {
+      "row": 0,
+      "col": 2,
+      "finger": "LM"
+    },
+    "ц": {
+      "row": 0,
+      "col": 3,
+      "finger": "LI"
+    },
+    "щ": {
+      "row": 0,
+      "col": 4,
+      "finger": "LI"
+    },
+    "й": {
+      "row": 0,
+      "col": 5,
+      "finger": "RI"
+    },
+    "б": {
+      "row": 0,
+      "col": 6,
+      "finger": "RI"
+    },
+    "а": {
+      "row": 0,
+      "col": 7,
+      "finger": "RM"
+    },
+    "я": {
+      "row": 0,
+      "col": 8,
+      "finger": "RR"
+    },
+    "у": {
+      "row": 0,
+      "col": 9,
+      "finger": "RP"
+    },
+    "э": {
+      "row": 0,
+      "col": 10,
+      "finger": "RP"
+    },
+    "с": {
+      "row": 1,
+      "col": 0,
+      "finger": "LP"
+    },
+    "р": {
+      "row": 1,
+      "col": 1,
+      "finger": "LR"
+    },
+    "н": {
+      "row": 1,
+      "col": 2,
+      "finger": "LM"
+    },
+    "т": {
+      "row": 1,
+      "col": 3,
+      "finger": "LI"
+    },
+    "х": {
+      "row": 1,
+      "col": 4,
+      "finger": "LI"
+    },
+    "ь": {
+      "row": 1,
+      "col": 5,
+      "finger": "RI"
+    },
+    "в": {
+      "row": 1,
+      "col": 6,
+      "finger": "RI"
+    },
+    "о": {
+      "row": 1,
+      "col": 7,
+      "finger": "RM"
+    },
+    "е": {
+      "row": 1,
+      "col": 8,
+      "finger": "RR"
+    },
+    "и": {
+      "row": 1,
+      "col": 9,
+      "finger": "RP"
+    },
+    "ф": {
+      "row": 1,
+      "col": 10,
+      "finger": "RP"
+    },
+    "ж": {
+      "row": 2,
+      "col": 0,
+      "finger": "LP"
+    },
+    "ч": {
+      "row": 2,
+      "col": 1,
+      "finger": "LR"
+    },
+    "п": {
+      "row": 2,
+      "col": 2,
+      "finger": "LM"
+    },
+    "д": {
+      "row": 2,
+      "col": 3,
+      "finger": "LI"
+    },
+    "ш": {
+      "row": 2,
+      "col": 4,
+      "finger": "LI"
+    },
+    "г": {
+      "row": 2,
+      "col": 5,
+      "finger": "RI"
+    },
+    "м": {
+      "row": 2,
+      "col": 6,
+      "finger": "RI"
+    },
+    "ъ": {
+      "row": 2,
+      "col": 7,
+      "finger": "RM"
+    },
+    "ю": {
+      "row": 2,
+      "col": 8,
+      "finger": "RR"
+    },
+    "ы": {
+      "row": 2,
+      "col": 9,
+      "finger": "RP"
+    },
+    "space": {
+      "row": 3,
+      "col": 0,
+      "finger": "LT"
+    }
+  },
+  "board": {
+    "kind": "rowstag",
+    "stagger": [
+      0,
+      0.25,
+      0.75
+    ]
+  },
+  "x": {
+    "mana2": {
+      "isRowStaggered": true,
+      "rowOrColumnStagger": [
+        0,
+        0.25,
+        0.75
+      ],
+      "mirrorLeftRowStagger": false,
+      "splitAngle": 0,
+      "magicKeys": null,
+      "layers": null
+    }
+  }
+}

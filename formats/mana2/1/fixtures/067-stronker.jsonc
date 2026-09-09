@@ -1,0 +1,83 @@
+// Copied verbatim from vendor/mana2/data/layouts/stronker.jsonc at vendored commit b1761f6f4ed50dc1089d82a35dfce4936f75b6a4 (git submodule vendor/mana2 HEAD as of this format's authoring).
+{
+   "layout": {
+     "fingers": [
+       "f d l b k z y o u j",
+       "s t n h . g c a e i",
+       " q x * p v w m ' ; ,"
+     ],
+     "thumbs": [
+       "space",
+       "r"
+     ]
+   },
+   "fingermap": [
+     "0 1 2 3 3 6 6 7 8 9",
+     "0 1 2 3 3 6 6 7 8 9",
+     " 1 2 3 3 3 6 6 7 8 9"
+   ],
+   "board": {
+     "isRowStaggered": true,
+     "mirrorLeftRowStagger": false,
+     "splitAngle": 0,
+     "rowOrColumnStagger": [
+       0,
+       0.25,
+       0.75
+     ]
+   },
+   "layers": null,
+   "magic": {
+     "magicKeys": null,
+     "rules": [
+       {
+         "inputs": "m*",
+         "output": "my"
+       },
+       {
+         "inputs": "a*",
+         "output": "ay"
+       },
+       {
+         "inputs": "l*",
+         "output": "ll"
+       },
+       {
+         "inputs": "u*",
+         "output": "u'"
+       },
+       {
+         "inputs": "g*",
+         "output": "ge"
+       },
+       {
+         "inputs": "s*",
+         "output": "ss"
+       },
+       {
+         "inputs": "o*",
+         "output": "oo"
+       },
+       {
+         "inputs": "e*",
+         "output": "ee"
+       },
+       {
+         "inputs": "t*",
+         "output": "tt"
+       },
+       {
+         "inputs": "f*",
+         "output": "ff"
+       },
+       {
+         "inputs": "y*",
+         "output": "y'"
+       },
+       {
+         "inputs": "n*",
+         "output": "nl"
+       }
+     ]
+   }
+ }

@@ -1,0 +1,34 @@
+// Copied verbatim from vendor/mana2/data/layouts/gallium_ortho.jsonc at vendored commit b1761f6f4ed50dc1089d82a35dfce4936f75b6a4 (git submodule vendor/mana2 HEAD as of this format's authoring).
+{
+   "layout": {
+     "fingers": [
+       "b l d c v j y o u ,",
+       "n r t s g p h a e i",
+       "x q m w z k f ' ; ."
+     ],
+     "thumbs": [
+       "space",
+       ""
+     ]
+   },
+   "fingermap": [
+     "0 1 2 3 3 6 6 7 8 9",
+     "0 1 2 3 3 6 6 7 8 9",
+     "0 1 2 3 3 6 6 7 8 9"
+   ],
+   "board": {
+     "isRowStaggered": true,
+     "mirrorLeftRowStagger": false,
+     "splitAngle": 0,
+     "rowOrColumnStagger": [
+       0,
+       0,
+       0
+     ]
+   },
+   "layers": null,
+   "magic": {
+     "magicKeys": null,
+     "rules": []
+   }
+ }

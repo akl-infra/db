@@ -1,0 +1,34 @@
+// Copied verbatim from vendor/mana2/data/layouts/misty.jsonc at vendored commit b1761f6f4ed50dc1089d82a35dfce4936f75b6a4 (git submodule vendor/mana2 HEAD as of this format's authoring).
+{
+   "layout": {
+     "fingers": [
+       "f d b n p q x o u ,",
+       " s t r y g j h a e i /",
+       "  z k w c v m l ' ; ."
+     ],
+     "thumbs": [
+       "space",
+       ""
+     ]
+   },
+   "fingermap": [
+     "0 1 2 2 3 6 6 7 8 9",
+     " 0 1 2 3 3 6 6 7 8 9 9",
+     "  0 1 3 3 3 6 6 7 8 9"
+   ],
+   "board": {
+     "isRowStaggered": true,
+     "mirrorLeftRowStagger": false,
+     "splitAngle": 0,
+     "rowOrColumnStagger": [
+       0,
+       0.25,
+       0.75
+     ]
+   },
+   "layers": null,
+   "magic": {
+     "magicKeys": null,
+     "rules": []
+   }
+ }

@@ -6,6 +6,7 @@
 import { unknownFormat, type ErrBody } from "../core/errors";
 import * as cmini1 from "../../formats/cmini/1/index";
 import * as akl1 from "../../formats/akl/1/index";
+import * as mana2_1 from "../../formats/mana2/1/index";
 
 // A row of a format's lowering: what an analyzer/emulator reads regardless
 // of which idiom shape produced it (01 §3).
@@ -73,7 +74,7 @@ export interface FormatModule {
   edits?: FormatEdits;
 }
 
-let REGISTRY: FormatModule[] = [cmini1 as unknown as FormatModule, akl1 as unknown as FormatModule];
+let REGISTRY: FormatModule[] = [cmini1 as unknown as FormatModule, akl1 as unknown as FormatModule, mana2_1 as unknown as FormatModule];
 
 let byId = new Map<string, FormatModule>(REGISTRY.map((f) => [f.id, f]));
 

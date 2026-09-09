@@ -1,0 +1,41 @@
+// Copied verbatim from vendor/mana2/data/layouts/d5.jsonc at vendored commit b1761f6f4ed50dc1089d82a35dfce4936f75b6a4. NOT a base fixture (isBaseFixtureFile only matches *.json with no extra dot) -- see README.md "d5.jsonc is excluded from this format's fixtures".
+{
+   "layout": {
+     "fingers": [
+       "(\u003cspace repeat\u003e $shift) g d m y y b f z (\u003cspace repeat\u003e $shift)",
+       "                        e t r v j l n e",
+       "                        w c k     h p s"
+     ],
+     "thumbs": [
+       "u (i $numbers)",
+       "a (o $symbols)"
+     ]
+   },
+   "fingermap": [
+     "0 1 2 3 3 6 6 7 8 9",
+     "  1 2 3 3 6 6 7 8",
+     "  1 2 3     6 7 8"
+   ],
+   "board": {
+     "isRowStaggered": false,
+     "mirrorLeftRowStagger": false,
+     "splitAngle": 0,
+     "rowOrColumnStagger": [
+       2,
+       0.5,
+       0,
+       0.5,
+       1,
+       1,
+       0.5,
+       0,
+       0.5,
+       2
+     ]
+   },
+   "layers": null,
+   "magic": {
+     "magicKeys": null,
+     "rules": []
+   }
+ }

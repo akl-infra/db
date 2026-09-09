@@ -24,6 +24,14 @@
         "can_translate_to": [
           "cmini/1"
         ]
+      },
+      {
+        "id": "mana2/1",
+        "owner": "Zak (mana2)",
+        "description": "A mana2 .jsonc layout object (layout.fingers/thumbs, board, fingermap, magic.rules) -- mana's own write format. Layers/combos are todo in mana2's own spec.",
+        "can_translate_to": [
+          "akl/1"
+        ]
       }
     ]
   }

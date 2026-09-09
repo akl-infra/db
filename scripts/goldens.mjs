@@ -18,6 +18,20 @@
 // finds on disk, generated or hand-written alike, and fills in its
 // `.lowered.json`/`.<to>.json` goldens generically.
 //
+// X2 adds mana2/1: its 74 base fixtures (every vendored mana2 layout except
+// `d5.jsonc`, which uses an undocumented tap-hold/directional mini-language
+// -- formats/mana2/1/README.md) are authored directly on disk (a one-time
+// fixture-authoring step outside this script -- mana2's own jsonc.ts reader
+// runs over vendor/mana2/data/layouts/*.jsonc, NOT this script, which only
+// ever reads already-parsed formats/*/fixtures/*.json), so
+// `writeDerivedGoldens(mana2_1)` below picks them up the same generic way
+// and fills in their `.lowered.json`/`.akl-1.json` goldens. The REVERSE
+// pair -- three akl/1 fixtures gaining a `.mana2-1.json` golden -- is NOT
+// generic (mana2/1's own `to`/`from` only cover `akl/1`; there is no
+// `akl1.to["mana2/1"]` to loop over), so it is written explicitly below,
+// for exactly the three fixtures 12-implementation-phase5.md §1 X2 names
+// (900-colstag, 901-idioms, one cmini-derived: 001-graphite).
+//
 // Format modules are self-contained (07 §5: they never import
 // src/formats/registry.ts), so this script imports them directly with
 // plain Node ESM resolution instead of going through the Worker-only
@@ -28,6 +42,7 @@ import path from "node:path";
 import url from "node:url";
 import * as cmini1 from "../formats/cmini/1/index.ts";
 import * as akl1 from "../formats/akl/1/index.ts";
+import * as mana2_1 from "../formats/mana2/1/index.ts";
 
 const SCRIPTS_DIR = path.dirname(url.fileURLToPath(import.meta.url));
 const DB_ROOT = path.join(SCRIPTS_DIR, "..");
@@ -121,6 +136,31 @@ function writeDerivedGoldens(mod) {
   }
 }
 
+// The three akl/1 fixtures 12-implementation-phase5.md §1 X2 names for a
+// `.mana2-1.json` golden: `900-colstag` and `901-idioms` (hand-authored
+// akl-native, exercising board.kind: colstag and the full magic idiom set),
+// plus one cmini-derived fixture, `001-graphite` (an ortho board with
+// rows of DIFFERENT lengths -- 12/11/10 keys -- the best real exercise of
+// mana2/1's column arithmetic among the cmini-derived akl fixtures).
+// mana2/1 has no `akl1.to["mana2/1"]` counterpart to loop over generically
+// (only mana2_1's OWN `to`/`from` cover the pair) -- this stays a short,
+// explicit list rather than pretending to be generic.
+const AKL_TO_MANA2_GOLDEN_STEMS = ["900-colstag", "901-idioms", "001-graphite"];
+
+function writeAklToMana2Goldens() {
+  const dir = fixturesDirFor(akl1);
+  for (const stem of AKL_TO_MANA2_GOLDEN_STEMS) {
+    const file = path.join(dir, `${stem}.json`);
+    const payload = JSON.parse(fs.readFileSync(file, "utf8"));
+    const check = akl1.validate(payload);
+    if (!check.ok) throw new Error(`akl/1 fixture '${stem}' fails its own validate(): ${JSON.stringify(check.error)}`);
+    const translated = mana2_1.from["akl/1"](payload);
+    const mana2Check = mana2_1.validate(translated);
+    if (!mana2Check.ok) throw new Error(`akl/1 fixture '${stem}' -> mana2/1 fails mana2/1's own validate(): ${JSON.stringify(mana2Check.error)}`);
+    writeJson(path.join(dir, `${stem}.mana2-1.json`), translated);
+  }
+}
+
 function main() {
   const snapshotDir = path.join(DB_ROOT, "tests", "fixtures", "upstream-100");
   const list = JSON.parse(fs.readFileSync(path.join(snapshotDir, "list.json"), "utf8")).layouts;
@@ -155,9 +195,14 @@ function main() {
 
   // Derived goldens for every base fixture found on disk -- the 18 above
   // AND the hand-written akl-native ones (900-colstag, 901-idioms, 902-x),
-  // which must already exist as base files before this runs.
+  // which must already exist as base files before this runs; and mana2/1's
+  // own 74 base fixtures (authored directly under formats/mana2/1/fixtures/
+  // from vendor/mana2/data/layouts/*.jsonc, outside this script -- see the
+  // header comment).
   writeDerivedGoldens(cmini1);
   writeDerivedGoldens(akl1);
+  writeDerivedGoldens(mana2_1);
+  writeAklToMana2Goldens();
 
   if (!WRITE) console.log("\n(dry run -- pass --write to actually write these files)");
 }

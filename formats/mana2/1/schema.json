@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://akl-db/formats/mana2/1/schema.json",
+  "title": "mana2/1 payload",
+  "description": "A parsed mana2 .jsonc layout object (vendor/mana2/docs/layouts.md), minus comments/trailing commas (already stripped by formats/mana2/1/jsonc.ts before this schema ever sees it). `layout.fingers`/`fingermap` are whitespace-tokenized row strings (single OR double space between tokens, either is just visual -- see core/load_layout.go's Fields()-based tokeniser); the per-row shape agreement between them (same or fewer fingers tokens than fingermap tokens, one-digit fingermap values) is a semantic check in formats/mana2/1/index.ts's validate(), not expressible here. `board.mirrorLeftRowStagger`/`board.splitAngle` and `magic.magicKeys`/`layers` are mana2 features akl/1 has no idiom for (magicKeys is an unused/legacy field even in mana2 itself -- see load_layout.go's addMagicDirectionals TODO; layers are 'todo' in mana2's own docs) -- carried through same-format round trips and, for a record translated from akl/1, recovered from `x.mana2` (01-format.md §6.3's own escape-hatch pattern for `x.cmini`).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["layout", "fingermap", "board"],
+  "properties": {
+    "layout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fingers"],
+      "properties": {
+        "fingers": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "thumbs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1,
+          "maxItems": 2
+        }
+      }
+    },
+    "fingermap": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "board": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "isRowStaggered": { "type": "boolean" },
+        "mirrorLeftRowStagger": { "type": "boolean" },
+        "splitAngle": { "type": "number" },
+        "rowOrColumnStagger": {
+          "type": "array",
+          "items": { "type": "number" }
+        }
+      }
+    },
+    "magic": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "magicKeys": {
+          "type": ["array", "null"],
+          "items": { "type": "string" }
+        },
+        "rules": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/rule" }
+        }
+      }
+    },
+    "layers": {}
+  },
+  "$defs": {
+    "rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["inputs", "output"],
+      "properties": {
+        "inputs": { "type": "string", "minLength": 1 },
+        "output": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

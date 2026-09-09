@@ -23,7 +23,7 @@ describe("GET /v1/meta", () => {
       revision: null,
       layouts_modified_at: null,
       authors_modified_at: null,
-      formats: ["cmini/1", "akl/1"],
+      formats: ["cmini/1", "akl/1", "mana2/1"],
     });
   });
 

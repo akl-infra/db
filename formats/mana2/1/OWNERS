@@ -1,0 +1,8 @@
+# GitHub handles who review changes under this format directory
+# (design/layout-db/01-format.md §4). A format major is frozen once merged
+# (LDB-F6): schema/fixtures changes here are additions only, never edits.
+#
+# Zak maintains mana2 itself (design/layout-db/12-implementation-phase5.md
+# §1 X2, 01-format.md §4's registry table); saltorbit reviews on the DB
+# side until Zak (or another mana2 maintainer, 04 Q3) is added as a mirror.
+saltorbit

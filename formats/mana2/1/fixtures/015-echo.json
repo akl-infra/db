@@ -1,0 +1,134 @@
+{
+  "layout": {
+    "fingers": [
+      "f d l m p x j o u q",
+      "s t r y c b n a e i ,",
+      "z k w g v * h ' ; ."
+    ],
+    "thumbs": [
+      "space",
+      ""
+    ]
+  },
+  "fingermap": [
+    "0 1 2 2 3 6 6 7 8 9",
+    " 0 1 2 3 3 6 6 7 8 9 9",
+    "  0 1 3 3 3 6 6 7 8 9"
+  ],
+  "board": {
+    "isRowStaggered": true,
+    "mirrorLeftRowStagger": false,
+    "splitAngle": 0,
+    "rowOrColumnStagger": [
+      0,
+      0.25,
+      0.75
+    ]
+  },
+  "layers": null,
+  "magic": {
+    "magicKeys": null,
+    "rules": [
+      {
+        "inputs": "a*",
+        "output": "aa"
+      },
+      {
+        "inputs": "c*",
+        "output": "cc"
+      },
+      {
+        "inputs": "d*",
+        "output": "dd"
+      },
+      {
+        "inputs": "e*",
+        "output": "ee"
+      },
+      {
+        "inputs": "f*",
+        "output": "ff"
+      },
+      {
+        "inputs": "g*",
+        "output": "gg"
+      },
+      {
+        "inputs": "h*",
+        "output": "hh"
+      },
+      {
+        "inputs": "i*",
+        "output": "ii"
+      },
+      {
+        "inputs": "j*",
+        "output": "jj"
+      },
+      {
+        "inputs": "k*",
+        "output": "kk"
+      },
+      {
+        "inputs": "l*",
+        "output": "ll"
+      },
+      {
+        "inputs": "m*",
+        "output": "mm"
+      },
+      {
+        "inputs": "o*",
+        "output": "oo"
+      },
+      {
+        "inputs": "p*",
+        "output": "pp"
+      },
+      {
+        "inputs": "q*",
+        "output": "qq"
+      },
+      {
+        "inputs": "r*",
+        "output": "rr"
+      },
+      {
+        "inputs": "s*",
+        "output": "ss"
+      },
+      {
+        "inputs": "t*",
+        "output": "tt"
+      },
+      {
+        "inputs": "u*",
+        "output": "ue"
+      },
+      {
+        "inputs": "v*",
+        "output": "vv"
+      },
+      {
+        "inputs": "w*",
+        "output": "ww"
+      },
+      {
+        "inputs": "x*",
+        "output": "xx"
+      },
+      {
+        "inputs": "y*",
+        "output": "yp"
+      },
+      {
+        "inputs": "z*",
+        "output": "zz"
+      },
+      {
+        "inputs": ".*",
+        "output": ".."
+      }
+    ]
+  }
+}
