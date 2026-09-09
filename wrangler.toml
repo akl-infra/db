@@ -6,7 +6,7 @@ compatibility_flags = ["nodejs_compat"]
 [[d1_databases]]
 binding = "DB"
 database_name = "akl-db"
-database_id = "00000000-0000-0000-0000-000000000000" # placeholder -- `wrangler d1 create akl-db` then paste the real id
+database_id = "53f596d5-9cb5-43b0-9026-17518d18052f" # account "akl" (58a5eb82…), created 2026-09-09
 
 [[r2_buckets]]
 binding = "DUMPS"
