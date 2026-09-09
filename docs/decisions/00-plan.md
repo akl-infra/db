@@ -13,6 +13,7 @@ Companion documents in this directory, in reading order:
 | `06-akl-integration.md` | what changes on akl.gg: data root, pipeline, publish UX (#215), magic rules |
 | `07-implementation-phase1.md` | how to build phase 1 (the mirror): the measured upstream facts every rule cites, toolchain, `db/` layout, migration 0001, the two formats, PR slices S1–S8 as self-contained briefs with their tests and invariants, CI, definition of done, the phase-1 invariant registry |
 | `08-infrastructure.md` | the map of what runs where (site, DB, bot, CI), what it costs, and the follow-ups penciled in but deliberately not done now (diff → Worker cron, rehost drill → Fly schedule, repo split, domain, self-hosted runner) |
+| `09-implementation-phase2.md` | phase 2 (people write): user lane, write verbs, If-Match, admins as data, PATCH edits, likes, rate limits, preview DB — slices T1–T7 (draft; reviewer pass pending) |
 
 ---
 

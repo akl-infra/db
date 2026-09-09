@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { render, inline, slug } from '../federation/build_page.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const DOCS = ['00-plan.md', '01-format.md', '02-auth.md', '03-api.md', '04-governance.md', '05-bot.md', '06-akl-integration.md', '07-implementation-phase1.md', '08-infrastructure.md'];
+const DOCS = ['00-plan.md', '01-format.md', '02-auth.md', '03-api.md', '04-governance.md', '05-bot.md', '06-akl-integration.md', '07-implementation-phase1.md', '08-infrastructure.md', '09-implementation-phase2.md'];
 const OUT = path.join(HERE, 'proposal.html');
 
 const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
