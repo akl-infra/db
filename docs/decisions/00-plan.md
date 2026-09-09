@@ -15,6 +15,7 @@ Companion documents in this directory, in reading order:
 | `08-infrastructure.md` | the map of what runs where (site, DB, bot, CI), what it costs, and the follow-ups penciled in but deliberately not done now (diff → Worker cron, rehost drill → Fly schedule, repo split, domain, self-hosted runner) |
 | `09-implementation-phase2.md` | phase 2 (people write): user lane, write verbs, If-Match, admins as data, PATCH edits, likes, rate limits, preview DB — slices T1–T7 (draft; reviewer pass pending) |
 | `10-implementation-phase4.md` | phase 4 (the bot + the DB's client lane): the code inventory of what the bot shares with akl.gg, site PRs U1/U2, slices C1 + V1–V7 (draft; reviewer pass pending) |
+| `11-implementation-phase3.md` | phase 3 (akl.gg cuts over): the site-side seams, slices W1–W6 with the production flip marked as saltorbit's (draft; reviewer pass pending) |
 
 ---
 
