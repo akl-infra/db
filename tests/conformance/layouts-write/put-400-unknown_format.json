@@ -20,7 +20,7 @@
       "error": "unknown_format",
       "message": "unknown format 'bogus/1'",
       "format": "bogus/1",
-      "known": ["cmini/1", "akl/1"]
+      "known": ["cmini/1", "akl/1", "mana2/1"]
     }
   }
 }

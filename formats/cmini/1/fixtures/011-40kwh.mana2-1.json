@@ -1,22 +1,25 @@
 {
   "layout": {
     "fingers": [
-      "b l d w z ' f o u j ; =",
-      "n r t s g y h a e i ,",
-      "q x m c v k p . - /"
+      "v m l c p x * o u q",
+      "s t r d y f n a e i",
+      "k j g w z b h . , '",
+      "skip skip skip skip skip skip @"
     ]
   },
   "fingermap": [
-    "0 1 2 3 3 6 6 7 8 9 9 9",
-    "0 1 2 3 3 6 6 7 8 9 9",
-    "0 1 2 3 3 6 6 7 8 9"
+    "0 1 2 3 3 6 6 7 8 0",
+    "0 1 2 3 3 6 6 7 8 9",
+    "0 2 3 3 3 6 6 7 8 9",
+    "0 0 0 0 0 0 0"
   ],
   "board": {
     "isRowStaggered": true,
     "rowOrColumnStagger": [
       0,
-      0,
-      0
+      0.25,
+      0.75,
+      0.75
     ],
     "mirrorLeftRowStagger": false,
     "splitAngle": 0

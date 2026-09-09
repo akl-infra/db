@@ -14,7 +14,8 @@
         "owner": "DB",
         "description": "cmini's v3 detail JSON verbatim minus the record fields (name/user/likes/created_at/modified_at): board keys free? magic? combos? tag? blame? link?",
         "can_translate_to": [
-          "akl/1"
+          "akl/1",
+          "mana2/1"
         ]
       },
       {
@@ -22,15 +23,17 @@
         "owner": "DB (+ akl.gg)",
         "description": "The common format: cmini's keys map, #261's board geometry, an authoring shape for magic rules, a raw-rule escape hatch, and a free-form x. What akl.gg writes and most clients read.",
         "can_translate_to": [
-          "cmini/1"
+          "cmini/1",
+          "mana2/1"
         ]
       },
       {
         "id": "mana2/1",
-        "owner": "Zak (mana2)",
-        "description": "A mana2 .jsonc layout object (layout.fingers/thumbs, board, fingermap, magic.rules) -- mana's own write format. Layers/combos are todo in mana2's own spec.",
+        "owner": "DB maintainers (a mirror of mana2's loader at the vendored submodule commit -- see README.md; Zak's handle added when confirmed, 12 §1)",
+        "description": "A mana2 .jsonc layout object (layout.fingers/thumbs, board, fingermap, magic.rules) -- mana's own write format. Tap-hold/directional tokens, >5 keys on one thumb, non-empty combos, and rowstag stagger past the 3rd entry disagreeing with it are held for akl/1.",
         "can_translate_to": [
-          "akl/1"
+          "akl/1",
+          "cmini/1"
         ]
       }
     ]

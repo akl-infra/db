@@ -1,14 +1,18 @@
 {
   "layout": {
     "fingers": [
-      "b l d w z ' f o u j ; =",
-      "n r t s g y h a e i ,",
-      "q x m c v k p . - /"
+      "/ w m p q z k , . ;",
+      "r s n t g v h a i o",
+      "x c f d b j l u y '"
+    ],
+    "thumbs": [
+      "",
+      "e"
     ]
   },
   "fingermap": [
-    "0 1 2 3 3 6 6 7 8 9 9 9",
-    "0 1 2 3 3 6 6 7 8 9 9",
+    "0 1 2 3 3 6 6 7 8 9",
+    "0 1 2 3 3 6 6 7 8 9",
     "0 1 2 3 3 6 6 7 8 9"
   ],
   "board": {

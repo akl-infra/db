@@ -38,6 +38,8 @@ the S1 rows only.
 | LDB-F9 | A held record keeps name/owner/rev and reads as its own format | `tests/api/held.test.ts` |
 | LDB-F10 | `x` survives same-format round trips; only `x.cmini` survives `to["cmini/1"]` | `tests/formats/x.test.ts`, `tests/formats/roundtrip.test.ts` |
 | LDB-F11 | Every live upstream detail (snapshot) validates as `cmini/1` and `hasMagic` matches upstream's `has_magic` | `tests/formats/cmini-envelope.test.ts` |
+| LDB-F12 | The DB's `akl/1 → mana2/1` grid and thumb strings equal the site's real `bridgecore.ConvertLayout` wasm output for every `cmini/1` fixture (modulo trailing `skip`s and the fingermap digit under a `skip` cell) | `tests/formats/mana2-convert-parity.test.ts` against the frozen `tests/fixtures/mana2-convert/*.json` snapshot (`scripts/check-convert-parity.mjs` records/re-verifies it from the live wasm) |
+| LDB-F13 | The set of vendored `mana2/1` layouts held for `akl/1` is enumerated with reasons; a new held vendored file fails until listed | `tests/formats/mana2.test.ts` |
 | LDB-G1 | Restorable from a public dump + the public repo | `tests/rehost.test.ts` (daily job: against the real deployed dump) |
 | LDB-G2 | No admin id is a constant in code (the migration seed is data) | `tests/tools/noconst.test.ts` |
 | LDB-G4 | Every binding/var the Worker reads is in the runbook table | `tests/tools/runbook.test.ts` |

@@ -11,6 +11,7 @@ import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import * as akl1 from "../../formats/akl/1/index.ts";
 import type { Payload } from "../../formats/akl/1/index.ts";
+import type { Payload as CminiPayload } from "../../formats/cmini/1/index.ts";
 
 const FIXTURE = path.resolve(import.meta.dirname, "..", "..", "formats", "akl", "1", "fixtures", "902-x.json");
 
@@ -94,7 +95,7 @@ describe("x (LDB-F10)", () => {
     expect(payload.x).toHaveProperty("keymaxx");
     expect(payload.x?.["cmini"]).toBeUndefined(); // 902-x.json's own point: x.cmini absent
 
-    const cmini = akl1.to["cmini/1"]!(payload);
+    const cmini = akl1.to["cmini/1"]!(payload) as CminiPayload;
     expect(cmini).not.toHaveProperty("x");
     expect(cmini).not.toHaveProperty("keymaxx");
     // No cmini idiom for keymaxx and no x.cmini to copy out -- tag/blame/
@@ -105,7 +106,7 @@ describe("x (LDB-F10)", () => {
 
   it("x.cmini DOES survive to[\"cmini/1\"] as the record-level fields it names", () => {
     const payload = basePayload({ cmini: { tag: "cmini", blame: "dmini" }, keymaxx: { note: "dropped" } });
-    const cmini = akl1.to["cmini/1"]!(payload);
+    const cmini = akl1.to["cmini/1"]!(payload) as CminiPayload;
     expect(cmini.tag).toBe("cmini");
     expect(cmini.blame).toBe("dmini");
     expect(cmini).not.toHaveProperty("keymaxx");

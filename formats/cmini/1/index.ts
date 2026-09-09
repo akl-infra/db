@@ -15,6 +15,15 @@ import rawSchema from "./schema.json" with { type: "json" };
 // well after both modules finish loading.
 import { fromCmini, toCmini } from "../../akl/1/translate.ts";
 import type { Payload as AklPayload } from "../../akl/1/index.ts";
+// cmini/1 <-> mana2/1 is the composition through akl/1 (12-implementation-
+// phase5.md §2.5), never a third direct implementation. This direction
+// (cmini -> akl -> mana2) never holds -- akl/1 -> mana2/1 has no held
+// cases (12 §2.5's held rows are all mana2 -> akl) -- so, unlike the
+// reverse direction (mana2/1/index.ts's own `to["cmini/1"]`), no
+// held-passthrough is needed here. No import cycle: mana2/1/translate.ts
+// imports nothing from this file.
+import { fromAkl as mana2FromAkl } from "../../mana2/1/translate.ts";
+import type { Payload as Mana2Payload } from "../../mana2/1/index.ts";
 
 export const id: `${string}/${number}` = "cmini/1";
 // `GET /v1/formats` (07 §6 S6; registry.ts's FormatModule comment explains
@@ -191,8 +200,9 @@ export function hasMagic(p: Payload): boolean {
 
 // 01 §6.1/§6.2, implemented once in akl/1/translate.ts and imported both
 // ways (07 §6 S3) so cmini/1<->akl/1 can't drift out of sync with itself.
-export const to: Record<string, (p: Payload) => AklPayload> = {
+export const to: Record<string, (p: Payload) => AklPayload | Mana2Payload> = {
   "akl/1": fromCmini, // cmini -> akl IS §6.1's "fromCmini"
+  "mana2/1": (p) => mana2FromAkl(fromCmini(p)), // 12 §2.5's declared composition; never held (see the import comment above)
 };
 export const from: Record<string, (p: AklPayload) => Payload> = {
   "akl/1": toCmini, // akl -> cmini IS §6.2's "toCmini"

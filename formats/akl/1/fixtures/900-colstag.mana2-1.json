@@ -4,10 +4,6 @@
       "q w e r t y u i o p",
       "a s d f g h j k l ;",
       "z x c v b n m , . /"
-    ],
-    "thumbs": [
-      "",
-      ""
     ]
   },
   "fingermap": [
@@ -28,6 +24,13 @@
       0.25,
       0,
       0
-    ]
-  }
+    ],
+    "mirrorLeftRowStagger": false,
+    "splitAngle": 0
+  },
+  "magic": {
+    "rules": [],
+    "magicKeys": null
+  },
+  "layers": null
 }

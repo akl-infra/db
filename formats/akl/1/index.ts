@@ -20,6 +20,16 @@ import {
 } from "./magic.ts";
 import { fromCmini, toCmini } from "./translate.ts";
 import type { Payload as CminiPayload } from "../../cmini/1/index.ts";
+// mana2/1's OWN translate.ts is the one place akl/1 <-> mana2/1 is
+// implemented (12-implementation-phase5.md §2.5) -- this reciprocal
+// registration just re-exports those two functions under akl/1's own
+// `to`/`from` maps, the same "one implementation, two registrations"
+// pattern this file already uses for `fromCmini`/`toCmini` above. No
+// runtime import cycle: mana2/1/translate.ts imports only TYPES from this
+// file (erased at compile time), and its one VALUE import from this
+// format (`computeRows`) comes from ./magic.ts, not this file.
+import { toAkl as mana2ToAkl, fromAkl as mana2FromAkl } from "../../mana2/1/translate.ts";
+import type { Payload as Mana2Payload } from "../../mana2/1/index.ts";
 
 export const id: `${string}/${number}` = "akl/1";
 // `GET /v1/formats` (07 §6 S6; registry.ts's FormatModule comment explains
@@ -239,11 +249,20 @@ export function hasMagic(p: Payload): boolean {
   return lower(p).length > 0;
 }
 
-export const to: Record<string, (p: Payload) => CminiPayload> = {
+// akl/1 -> mana2/1 never holds (12 §2.5's held cases are all in the
+// mana2 -> akl direction); the reverse direction (used by `from`, which
+// registry.ts's own `translate()` never actually calls -- see that file's
+// FormatModule comment) can, so `from`'s value type stays loose here
+// rather than widening every OTHER entry's signature for one key that
+// dispatch never reads.
+export const to: Record<string, (p: Payload) => CminiPayload | Mana2Payload> = {
   "cmini/1": toCmini,
+  "mana2/1": mana2FromAkl,
 };
-export const from: Record<string, (p: CminiPayload) => Payload> = {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const from: Record<string, (p: any) => any> = {
   "cmini/1": fromCmini,
+  "mana2/1": mana2ToAkl, // can return `{held:true,...}` -- `from` is never called by registry.ts's translate(), see the import comment above
 };
 
 // Re-exported so isSingleChar-shaped call sites elsewhere in this format

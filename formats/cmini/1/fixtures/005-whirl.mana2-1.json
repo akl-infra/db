@@ -1,0 +1,110 @@
+{
+  "layout": {
+    "fingers": [
+      "q g d f v z l u o y",
+      "n s t h m ' r e a i",
+      "b c p w k x j ; . ,"
+    ],
+    "thumbs": [
+      "",
+      "*"
+    ]
+  },
+  "fingermap": [
+    "0 1 2 3 3 6 6 7 8 9",
+    "0 1 2 3 3 6 6 7 8 9",
+    "0 1 2 3 3 6 6 7 8 9"
+  ],
+  "board": {
+    "isRowStaggered": true,
+    "rowOrColumnStagger": [
+      0,
+      0,
+      0
+    ],
+    "mirrorLeftRowStagger": false,
+    "splitAngle": 0
+  },
+  "magic": {
+    "rules": [
+      {
+        "inputs": "b*",
+        "output": "bb"
+      },
+      {
+        "inputs": "c*",
+        "output": "cc"
+      },
+      {
+        "inputs": "d*",
+        "output": "dd"
+      },
+      {
+        "inputs": "e*",
+        "output": "ee"
+      },
+      {
+        "inputs": "f*",
+        "output": "ff"
+      },
+      {
+        "inputs": "l*",
+        "output": "ll"
+      },
+      {
+        "inputs": "m*",
+        "output": "mm"
+      },
+      {
+        "inputs": "n*",
+        "output": "nn"
+      },
+      {
+        "inputs": "o*",
+        "output": "oo"
+      },
+      {
+        "inputs": "p*",
+        "output": "pp"
+      },
+      {
+        "inputs": "r*",
+        "output": "rr"
+      },
+      {
+        "inputs": "s*",
+        "output": "ss"
+      },
+      {
+        "inputs": "t*",
+        "output": "tt"
+      },
+      {
+        "inputs": "z*",
+        "output": "zz"
+      },
+      {
+        "inputs": ".*",
+        "output": "..."
+      },
+      {
+        "inputs": "g*",
+        "output": "gs"
+      },
+      {
+        "inputs": "u*",
+        "output": "ue"
+      },
+      {
+        "inputs": "w*",
+        "output": "wh"
+      },
+      {
+        "inputs": "y*",
+        "output": "y,"
+      }
+    ],
+    "magicKeys": null
+  },
+  "layers": null
+}

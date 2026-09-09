@@ -1,0 +1,21 @@
+{
+  "layout": {
+    "fingers": [],
+    "thumbs": [
+      "",
+      ""
+    ]
+  },
+  "fingermap": [],
+  "board": {
+    "isRowStaggered": true,
+    "mirrorLeftRowStagger": false,
+    "splitAngle": 0,
+    "rowOrColumnStagger": []
+  },
+  "layers": null,
+  "magic": {
+    "magicKeys": null,
+    "rules": null
+  }
+}
