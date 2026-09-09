@@ -5,7 +5,7 @@ operated, and what is open. A new agent or session should be able to pick up
 from this file plus `00-plan.md`'s index. Keep it current at every milestone;
 dates are UTC.
 
-## 1. Deployed state (2026-09-09 16:30Z)
+## 1. Deployed state (2026-09-09 16:50Z)
 
 | thing | where | version / state |
 |---|---|---|
@@ -68,7 +68,9 @@ One Claude Code session has ONE worktree pin shared by every plain-spawned agent
 
 Needs saltorbit: Cloudflare cron ticket; rename the Discord app to Spark; copy sign-off (`web/src/copy/db.ts`, `bot/src/copy.ts`, every `// COPY: sign-off pending`); second admin (later); GitHub org / npm scope / hostname (X6); when to PR to main and start W6's flips; W5 §5 Q2 — migrating magic forks 10 layouts from cmini (auditor, chog, echo, opal, opal-dario, opaline, sunstone, vylet, vylet-v4, whirl): acceptable?
 
-In flight (2026-09-09 16:30Z): W4d (Draft.origin populated end to end: sync carries `_dbId`/`_rev`, forking sets origin, real conflict path) on ldb-w4d; X5 packages + split prep on ldb-x5; e2e checker normalisation (structural diff) on ldb-e2e. Merged since 16:00Z: bot addendums (LDB-B15/B16/B17), W5's LDB-G5 fix, the copy sign-off list (14), the e2e harness (LDB-B18; first live run 45/51 → found the router code-block bug and `!authors` > 2000 chars), W4c (I-237..I-241; promoted card, own-card verbs, safe overwrite; Fingermap inline skipped — no bench finger editor to reuse), DB sweep (client-lane 401 codes across every A-group route, bidirectional tag coverage; 15,295 db tests), the two bot fixes (LDB-B19; live run now 46/46).
+In flight (2026-09-09 16:50Z): X5 packages + split prep on ldb-x5; the transition plan doc (15). Merged since 16:30Z: W4d (catalog rows carry `_dbId`/`_rev` under --source db, forking stamps Draft.origin, real conflict path in Playwright; I-242; LDB-S1 parity now compares stripped of the two fields), the e2e checker's structural normalisation (9 ok / 37 explained / 5 skipped vs the offline transcript). Merged since 16:00Z: bot addendums (LDB-B15/B16/B17), W5's LDB-G5 fix, the copy sign-off list (14), the e2e harness (LDB-B18; first live run 45/51 → found the router code-block bug and `!authors` > 2000 chars), W4c (I-237..I-241; promoted card, own-card verbs, safe overwrite; Fingermap inline skipped — no bench finger editor to reuse), DB sweep (client-lane 401 codes across every A-group route, bidirectional tag coverage; 15,295 db tests), the two bot fixes (LDB-B19; live run now 46/46).
+
+Site preview for saltorbit to try the publish UX needs two things that touch his Cloudflare account: migration 0008 (token table) on the site's D1 and `DB_BASE_URL` on the Pages preview environment — both W6-adjacent, not done.
 
 Not started: X5b (saltorbit, 2026-09-09: one shared stats-cache module in core — harvest-first, memo by (id, rev, corpus), evict on rev bump — used by both the bot's cells.ts and the site's live-recompute paths; after X5 lands), X4b (delete CI daily steps after 7 green days), V7's remaining half (bot.yml deploy on main), W6 (every step saltorbit's), bot `freqd` (needs a 4-gram table), W5's two `invalid` rule sets (`adaptative-magic-sturdy`, `jazz`: adaptive trigger `C` not on the board — site data bug).
 
