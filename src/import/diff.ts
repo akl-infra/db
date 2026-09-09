@@ -1,0 +1,592 @@
+// The D12 mirror diff (07 §6 S8): compares every upstream cmini layout
+// against ours over HTTP, on the `cmini/1` projection. Used by both
+// `scripts/diff-upstream.mjs` (a plain Node CLI) and `tests/upstream-diff
+// .test.ts` (the daily job) / `tests/import/diff-unit.test.ts` (the offline
+// unit half).
+//
+// Import-boundary note: this file's own relative imports use explicit
+// `.ts`/no-bundler-needed paths ON PURPOSE, unlike the rest of `src/import`
+// (which imports extensionless, resolved by the Worker's esbuild/Vite in
+// tests). `scripts/diff-upstream.mjs` loads this file with PLAIN Node ESM
+// (Node 24's native TypeScript stripping, same trick `rehost.mjs` uses for
+// `dump/restore.ts`) -- that resolver requires real specifiers and refuses
+// TS features it can't erase (confirmed empirically: `src/import/upstream
+// .ts`'s `UpstreamClient` uses constructor parameter properties, which
+// Node's strip-only mode rejects outright, and `src/import/apply.ts`'s own
+// extensionless `../core/events` etc. don't resolve either). So this module
+// depends on nothing but `formats/cmini/1/index.ts` (extension-explicit
+// throughout, like `scripts/goldens.mjs` already relies on) and
+// `core/canonical.ts` (no imports of its own) -- both plain-Node-loadable --
+// and re-implements the small slice of upstream-detail parsing and HTTP
+// retry it needs rather than importing `apply.ts`/`upstream.ts` across that
+// boundary.
+import * as cmini1 from "../../formats/cmini/1/index.ts";
+import { canonical } from "../core/canonical.ts";
+
+export type FetchImpl = (url: string, init?: { headers?: Record<string, string> }) => Promise<Response>;
+export type SleepImpl = (ms: number) => Promise<void>;
+
+function realSleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+const RETRIES = 3;
+const BACKOFF_MS = [1000, 2000, 4000];
+
+// Parses `text` twice and demands the two parses agree (by `canonical()`),
+// re-throwing as a parse failure (caught by `fetchJsonRetried`'s retry loop,
+// same as a network error) when they don't.
+//
+// Why: this slice's own local proof (07 §6 S8) hit a REAL, reproduced
+// engine bug fetching upstream's ~5.3 MB `?full=1` body under the Node
+// version installed in this environment (v25.1.0, V8 14.1.146.11-node.11,
+// newer than 07 §2's pinned Node 24 -- unverified whether the pin avoids
+// it): the FIRST `JSON.parse` of a freshly-assembled large string
+// occasionally decoded one `\uXXXX`-escaped object key (e.g. `&`,
+// i.e. `&`) into a single raw backslash, while a second `JSON.parse` of
+// the SAME in-memory string (or of a substring re-sliced from it)
+// consistently came back correct -- caught only because `diff-upstream`
+// re-fetched and reparsed and got a DIFFERENT, correct answer, making the
+// "content differs" it briefly reported a false alarm from a parser
+// hiccup, not a real upstream/mirror difference. A silent, intermittent
+// false positive like that is exactly what would make LDB-P5's daily job
+// untrustworthy (red for no actionable reason) -- so every parse here is
+// self-checked against a second parse of the same bytes before it's
+// trusted, and a disagreement is treated as failure worth retrying the
+// whole fetch for, on the chance a fresh response parses cleanly.
+function parseJsonChecked(text: string, url: string): unknown {
+  let first: unknown;
+  let second: unknown;
+  try {
+    first = JSON.parse(text) as unknown;
+    second = JSON.parse(text) as unknown;
+  } catch (e) {
+    throw new Error(`invalid JSON from ${url}: ${(e as Error).message}`);
+  }
+  if (canonical(first) !== canonical(second)) {
+    throw new Error(`JSON.parse gave two different results for the same response body from ${url} (parser bug guard)`);
+  }
+  return first;
+}
+
+// A small port of `upstream.ts`'s `fetchWithRetry` (see the header note for
+// why this isn't imported instead): UA header on every request, 1s/2s/4s
+// backoff, 3 attempts.
+async function fetchJsonRetried(
+  fetchImpl: FetchImpl,
+  sleepImpl: SleepImpl,
+  ua: string,
+  url: string,
+): Promise<unknown> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < RETRIES; attempt++) {
+    try {
+      const res = await fetchImpl(url, { headers: { "User-Agent": ua } });
+      if (!res.ok) throw new Error(`${res.status} fetching ${url}`);
+      const text = await res.text();
+      return parseJsonChecked(text, url);
+    } catch (e) {
+      lastErr = e;
+    }
+    if (attempt < RETRIES - 1) await sleepImpl(BACKOFF_MS[attempt]!);
+  }
+  throw new Error(`failed to fetch ${url} after ${RETRIES} attempts: ${String(lastErr)}`);
+}
+
+// A Discord snowflake as the API sends it (number or numeric string) --
+// ported from `upstream.ts`'s `parseSnowflake` (see header note).
+function parseSnowflake(value: unknown): string | null {
+  if (typeof value === "boolean") return null;
+  if (typeof value === "number") return Number.isInteger(value) ? String(value) : null;
+  if (typeof value === "string" && /^[0-9]+$/.test(value)) return value;
+  return null;
+}
+
+// ---------------------------------------------------------------------
+// The pure comparison core -- no I/O below this line until `diffUpstream`.
+// ---------------------------------------------------------------------
+
+// JSON Pointer escaping (RFC 6901), same rule as `formats/cmini/1/index.ts`'s
+// (unexported) `pointerSegment`.
+function pointerSegment(raw: string): string {
+  return raw.replace(/~/g, "~0").replace(/\//g, "~1");
+}
+
+// The first JSON path at which `a` and `b` disagree, or null if they're
+// deep-equal. Object keys are walked in sorted order (matching
+// `canonical()`'s own key order) so "first" is deterministic regardless of
+// which side's insertion order produced the value.
+export function pathDiff(a: unknown, b: unknown, path = ""): string | null {
+  if (a === b) return null;
+  const aArr = Array.isArray(a);
+  const bArr = Array.isArray(b);
+  const aObj = a !== null && typeof a === "object";
+  const bObj = b !== null && typeof b === "object";
+
+  if (aArr && bArr) {
+    const len = Math.max(a.length, b.length);
+    for (let i = 0; i < len; i++) {
+      const sub = pathDiff(a[i], b[i], `${path}/${i}`);
+      if (sub !== null) return sub;
+    }
+    return null;
+  }
+  if (aArr !== bArr) return path || "/";
+  if (aObj && bObj) {
+    const ao = a as Record<string, unknown>;
+    const bo = b as Record<string, unknown>;
+    const keys = [...new Set([...Object.keys(ao), ...Object.keys(bo)])].sort();
+    for (const k of keys) {
+      const sub = pathDiff(ao[k], bo[k], `${path}/${pointerSegment(k)}`);
+      if (sub !== null) return sub;
+    }
+    return null;
+  }
+  if (aObj !== bObj) return path || "/";
+  // Two scalars, not `===`: JSON.stringify catches the one shape mismatch
+  // `===` alone would over-report on (e.g. -0 vs 0, both valid JSON 0).
+  return JSON.stringify(a) === JSON.stringify(b) ? null : path || "/";
+}
+
+// `cmini1.project()` sorts `likes` internally, so passing raw (unsorted,
+// possibly differently-ordered) `likes` arrays into `compareRecords` is
+// already order-insensitive -- no separate likes-sort step needed here.
+export function compareRecords(
+  upstream: cmini1.CminiRecordLike,
+  ours: cmini1.CminiRecordLike,
+): { equal: boolean; path: string | null } {
+  const u = cmini1.project(upstream);
+  const o = cmini1.project(ours);
+  if (canonical(u) === canonical(o)) return { equal: true, path: null };
+  return { equal: false, path: pathDiff(u, o) ?? "/" };
+}
+
+const RECORD_FIELDS = new Set(["name", "user", "likes", "created_at", "modified_at"]);
+
+export interface ShapeErr {
+  path: string;
+  message: string;
+}
+
+// The upstream side of one comparison: either a parsed `cmini/1`
+// record-like (name/owner/likes/created_at/modified_at/payload), or the
+// shape error that `cmini/1`'s own `validate()` (or record-field parsing)
+// found -- surfaced, never papered over (07 §6 S8: "that is the D12
+// finding this slice exists to surface").
+export type UpstreamParse = { ok: true; detail: cmini1.CminiRecordLike } | { ok: false; error: ShapeErr };
+
+// Record-field parsing + `payload = raw minus record fields` + `cmini1
+// .validate` -- the same rule `apply.ts`'s `parseUpstreamDetail` applies on
+// import (07 §5.1: `link` stays in the payload; only these five keys are
+// ever stripped), reimplemented here per the header note.
+export function parseUpstreamRaw(raw: unknown): UpstreamParse {
+  if (typeof raw !== "object" || raw === null) {
+    return { ok: false, error: { path: "/", message: "detail is not an object" } };
+  }
+  const r = raw as Record<string, unknown>;
+
+  if (typeof r.name !== "string") {
+    return { ok: false, error: { path: "/name", message: "missing or non-string 'name'" } };
+  }
+  const owner = parseSnowflake(r.user);
+  if (owner === null) {
+    return { ok: false, error: { path: "/user", message: "missing or invalid 'user' (not a snowflake)" } };
+  }
+  if (typeof r.created_at !== "string") {
+    return { ok: false, error: { path: "/created_at", message: "missing or non-string 'created_at'" } };
+  }
+  if (typeof r.modified_at !== "string") {
+    return { ok: false, error: { path: "/modified_at", message: "missing or non-string 'modified_at'" } };
+  }
+  const likes: string[] = [];
+  if (r.likes !== undefined) {
+    if (!Array.isArray(r.likes)) {
+      return { ok: false, error: { path: "/likes", message: "'likes' is not an array" } };
+    }
+    for (const u of r.likes) {
+      const s = parseSnowflake(u);
+      if (s === null) return { ok: false, error: { path: "/likes", message: "'likes' contains a non-snowflake value" } };
+      likes.push(s);
+    }
+  }
+
+  const payload: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(r)) {
+    if (!RECORD_FIELDS.has(k)) payload[k] = v;
+  }
+  const check = cmini1.validate(payload);
+  if (!check.ok) {
+    const path = typeof check.error.path === "string" ? check.error.path : "/";
+    return { ok: false, error: { path, message: check.error.message } };
+  }
+
+  return {
+    ok: true,
+    detail: {
+      name: r.name,
+      owner,
+      created_at: r.created_at,
+      modified_at: r.modified_at,
+      likes,
+      payload: payload as unknown as cmini1.Payload,
+    },
+  };
+}
+
+export interface DiffLine {
+  name: string;
+  path: string;
+  message: string;
+}
+
+// Our side of one comparison: a `CminiRecordLike` plus the record's id
+// (`ref`, for a lazy `/history` lookup) and -- ONLY meaningful for a name
+// left over after matching -- whether it follows upstream (undefined until
+// the caller resolves it; `diffCorpus` reports those as `extraUnresolved`
+// rather than guessing).
+export interface OursEntry extends cmini1.CminiRecordLike {
+  ref: string;
+  followsUpstream?: boolean;
+}
+
+export interface UpstreamEntry {
+  name: string;
+  parsed: UpstreamParse;
+}
+
+export interface CorpusDiff {
+  matched: number;
+  missing: DiffLine[];
+  invalidUpstream: DiffLine[];
+  contentDiffs: DiffLine[];
+  extra: DiffLine[];
+  // Names present locally, absent from upstream by name, whose follow
+  // status the caller never resolved (a caller bug, not a real finding --
+  // `diffUpstream` always resolves every leftover before reporting).
+  extraUnresolved: string[];
+}
+
+// Pure: matches upstream entries to ours by `name.toLowerCase()` (03 §1's
+// id-first/name-second ref rule doesn't apply here -- upstream's `?full=1`
+// carries no id, 07 §0.1), then `compareRecords` on the matched pairs.
+// Leftover local names are reported as `extra` only when the caller has
+// already marked them `followsUpstream: true` (06 §2: a record here that
+// follows upstream but upstream no longer lists is a real mirror bug; one
+// that doesn't follow is expected local divergence and not reported at
+// all, matching S8's "not-following records are skipped").
+export function diffCorpus(upstream: Map<string, UpstreamEntry>, ours: Map<string, OursEntry>): CorpusDiff {
+  const missing: DiffLine[] = [];
+  const invalidUpstream: DiffLine[] = [];
+  const contentDiffs: DiffLine[] = [];
+  let matched = 0;
+  const consumed = new Set<string>();
+
+  for (const [key, up] of upstream) {
+    const our = ours.get(key);
+    if (our === undefined) {
+      missing.push({ name: up.name, path: "/", message: "no local record by this name" });
+      continue;
+    }
+    consumed.add(key);
+    if (!up.parsed.ok) {
+      invalidUpstream.push({ name: up.name, path: up.parsed.error.path, message: up.parsed.error.message });
+      continue;
+    }
+    const cmp = compareRecords(up.parsed.detail, our);
+    if (!cmp.equal) {
+      contentDiffs.push({ name: up.name, path: cmp.path ?? "/", message: "content differs from upstream" });
+      continue;
+    }
+    matched++;
+  }
+
+  const extra: DiffLine[] = [];
+  const extraUnresolved: string[] = [];
+  for (const [key, our] of ours) {
+    if (consumed.has(key)) continue;
+    if (our.followsUpstream === undefined) {
+      extraUnresolved.push(our.name);
+    } else if (our.followsUpstream) {
+      extra.push({
+        name: our.name,
+        path: "/",
+        message: "follows upstream but upstream no longer lists a layout by this name",
+      });
+    }
+  }
+
+  return { matched, missing, invalidUpstream, contentDiffs, extra, extraUnresolved };
+}
+
+// Compared by ID, not by name: upstream's `/authors` is `name -> id` and
+// keeps EVERY historical name a user has ever had on file (a rename adds a
+// key, never replaces one -- confirmed against the real corpus, 07 §6 S5's
+// `applyAuthors` upserts our `authors(user_id PK, name)` row's `name` only
+// when it differs, one row per id, "best-effort bookkeeping" -- no reason
+// to keep the old alias once we've seen the new one). A name-keyed
+// comparison over the real 4174-layout corpus reported 55 "missing" names
+// that were, every one, an id we already have under a *different* (more
+// current) name -- not a mirror gap, just this shape mismatch (07 §6 S8's
+// local proof found this; documented here so it isn't rediscovered as a
+// false alarm). The invariant that actually matters -- "we know every id
+// upstream currently attributes a layout to, and only those" -- is over
+// ids; `aliasCount` (informational, never fails the diff) is how many of
+// upstream's name entries are exactly that kind of old alias.
+export interface AuthorsDiff {
+  missing: { id: string; name: string }[]; // upstream ids we don't have at all (name is one upstream name for it)
+  extra: { id: string; name: string }[]; // our ids upstream doesn't have at all
+  aliasCount: number;
+}
+
+export function diffAuthors(upstream: Record<string, string>, ours: Record<string, string>): AuthorsDiff {
+  const upstreamNameById = new Map<string, string>(); // last-wins is fine -- purely for a readable label
+  for (const [name, id] of Object.entries(upstream)) upstreamNameById.set(id, name);
+  const oursNameById = new Map<string, string>();
+  for (const [name, id] of Object.entries(ours)) oursNameById.set(id, name);
+
+  const upstreamIds = new Set(upstreamNameById.keys());
+  const oursIds = new Set(oursNameById.keys());
+
+  const missing = [...upstreamIds]
+    .filter((id) => !oursIds.has(id))
+    .map((id) => ({ id, name: upstreamNameById.get(id)! }));
+  const extra = [...oursIds].filter((id) => !upstreamIds.has(id)).map((id) => ({ id, name: oursNameById.get(id)! }));
+  const aliasCount = Object.entries(upstream).filter(([name, id]) => oursIds.has(id) && oursNameById.get(id) !== name).length;
+
+  return { missing, extra, aliasCount };
+}
+
+// ---------------------------------------------------------------------
+// I/O orchestration -- the live diff (`npm run diff-upstream`, the daily
+// job's tests/upstream-diff.test.ts).
+// ---------------------------------------------------------------------
+
+export interface DiffOptions {
+  dbBaseUrl: string;
+  upstreamUrl: string;
+  ua: string;
+  fetchImpl?: FetchImpl;
+  sleepImpl?: SleepImpl;
+}
+
+export interface DiffSummary {
+  upstreamCount: number;
+  upstreamDupNames: number;
+  ourCount: number;
+  held: string[]; // our records that read back `held` for as=cmini/1 (unreachable in phase 1; reported, not swallowed)
+  layoutCount: { upstream: number; ours: number; equal: boolean };
+  authors: AuthorsDiff;
+  corpus: CorpusDiff;
+  ok: boolean; // true iff every category above is empty/equal
+}
+
+interface RawFullResponse {
+  layouts: Record<string, unknown>[];
+}
+interface OurFullItem {
+  id: string;
+  name: string;
+  owner: string;
+  created_at: string;
+  modified_at: string;
+  like_count: number;
+  held?: boolean;
+  payload?: unknown;
+}
+interface OurFullResponse {
+  items: OurFullItem[];
+}
+interface HistoryEvent {
+  rev: number | null;
+  via: string;
+}
+
+function summaryIsOk(s: Omit<DiffSummary, "ok">): boolean {
+  return (
+    s.held.length === 0 &&
+    s.layoutCount.equal &&
+    s.authors.missing.length === 0 &&
+    s.authors.extra.length === 0 &&
+    s.corpus.missing.length === 0 &&
+    s.corpus.invalidUpstream.length === 0 &&
+    s.corpus.contentDiffs.length === 0 &&
+    s.corpus.extra.length === 0 &&
+    s.corpus.extraUnresolved.length === 0
+  );
+}
+
+// Fetches both sides, matches by name, resolves every leftover local name's
+// follow status via `/history` (only leftovers -- 07 §6 S8: "to keep it
+// cheap"), fetches real `likes` only for records either side reports as
+// liked (07 §6 S8: likes compared sorted both sides; zero-likes needs no
+// fetch since `[] === []` already). Never throws for a *content*
+// difference -- only for a network/shape failure the retries couldn't
+// recover from; the caller (script or daily test) decides what a thrown
+// error means.
+export async function diffUpstream(opts: DiffOptions): Promise<DiffSummary> {
+  const fetchImpl: FetchImpl = opts.fetchImpl ?? ((url, init) => fetch(url, init));
+  const sleepImpl: SleepImpl = opts.sleepImpl ?? realSleep;
+  const { dbBaseUrl, upstreamUrl, ua } = opts;
+
+  const [upstreamFullRaw, upstreamAuthorsRaw, upstreamMetaRaw] = await Promise.all([
+    fetchJsonRetried(fetchImpl, sleepImpl, ua, `${upstreamUrl}/layouts?full=1`),
+    fetchJsonRetried(fetchImpl, sleepImpl, ua, `${upstreamUrl}/authors`),
+    fetchJsonRetried(fetchImpl, sleepImpl, ua, `${upstreamUrl}/meta`),
+  ]);
+  const [ourFullRaw, ourAuthorsRaw, ourMetaRaw] = await Promise.all([
+    fetchJsonRetried(fetchImpl, sleepImpl, ua, `${dbBaseUrl}/v1/layouts?full=1&as=cmini/1`),
+    fetchJsonRetried(fetchImpl, sleepImpl, ua, `${dbBaseUrl}/v1/authors`),
+    fetchJsonRetried(fetchImpl, sleepImpl, ua, `${dbBaseUrl}/v1/meta`),
+  ]);
+
+  const upstreamFull = upstreamFullRaw as RawFullResponse;
+  if (!Array.isArray(upstreamFull.layouts)) throw new Error("upstream /layouts?full=1 is not {layouts: [...]}");
+
+  // Upstream's own dedupe rule (07 §0.1: names are unique among live
+  // records -- a duplicate here is itself a finding, so entries that
+  // collide are dropped from the comparable map and counted separately,
+  // same posture as `upstream.ts`'s `full()`.
+  const upstream = new Map<string, UpstreamEntry>();
+  const dupNames = new Set<string>();
+  for (const raw of upstreamFull.layouts) {
+    const name = typeof raw.name === "string" ? raw.name : undefined;
+    if (name === undefined) continue;
+    const key = name.toLowerCase();
+    if (upstream.has(key) || dupNames.has(key)) {
+      upstream.delete(key);
+      dupNames.add(key);
+      continue;
+    }
+    upstream.set(key, { name, parsed: parseUpstreamRaw(raw) });
+  }
+
+  const ourFull = ourFullRaw as OurFullResponse;
+  if (!Array.isArray(ourFull.items)) throw new Error(`${dbBaseUrl}/v1/layouts?full=1&as=cmini/1 is not {items: [...]}`);
+
+  const held: string[] = [];
+  const ours = new Map<string, OursEntry>();
+  for (const item of ourFull.items) {
+    if (item.held === true || item.payload === undefined) {
+      held.push(item.name);
+      continue;
+    }
+    let likes: string[] = [];
+    if (item.like_count > 0) {
+      const likesRaw = await fetchJsonRetried(
+        fetchImpl,
+        sleepImpl,
+        ua,
+        `${dbBaseUrl}/v1/layouts/${encodeURIComponent(item.id)}/likes`,
+      );
+      likes = (likesRaw as { user_ids: string[] }).user_ids;
+    }
+    ours.set(item.name.toLowerCase(), {
+      ref: item.id,
+      name: item.name,
+      owner: item.owner,
+      created_at: item.created_at,
+      modified_at: item.modified_at,
+      likes,
+      payload: item.payload as cmini1.Payload,
+    });
+  }
+
+  // First pass: find which local names upstream's name-set doesn't match.
+  const firstPass = diffCorpus(upstream, ours);
+  // Resolve exactly those leftovers' follow status (the one place this
+  // function does per-record I/O beyond likes -- bounded by
+  // `extraUnresolved.length`, not the whole corpus).
+  for (const name of firstPass.extraUnresolved) {
+    const entry = ours.get(name.toLowerCase());
+    if (entry === undefined) continue; // unreachable: name came from `ours` itself
+    const historyRaw = await fetchJsonRetried(
+      fetchImpl,
+      sleepImpl,
+      ua,
+      `${dbBaseUrl}/v1/layouts/${encodeURIComponent(entry.ref)}/history`,
+    );
+    const events = historyRaw as HistoryEvent[];
+    let follows = false;
+    for (let i = events.length - 1; i >= 0; i--) {
+      const e = events[i]!;
+      if (e.rev !== null) {
+        follows = e.via === "import:cmini";
+        break;
+      }
+    }
+    entry.followsUpstream = follows;
+  }
+  const corpus = diffCorpus(upstream, ours);
+
+  // A record the bulk (`?full=1`) comparison flags as differing gets ONE
+  // more look before being reported, through both sides' small
+  // single-record endpoints (`/layouts/{id}` upstream, `/v1/layouts/{id}
+  // ?as=cmini/1` ours) -- rebuilt as CminiRecordLike, re-compared. Why:
+  // this slice's own local proof (07 §6 S8) found that `JSON.parse` of the
+  // ~5 MB `?full=1` bodies can -- reproduced identically under Node 24.20.0
+  // and 26.8.1, so not specific to one Node build -- silently substitute a
+  // literal backslash for a `\uXXXX`-escaped key character (upstream's own
+  // `&`/`<`), and that the wrong decoding is sometimes STABLE across
+  // repeated parses of the very same bytes (so `parseJsonChecked`'s
+  // double-parse guard alone doesn't catch every case), while every small
+  // single-record fetch in that investigation parsed correctly, every
+  // time. So a content diff is only reported once it survives a second
+  // look through the small endpoints -- bounded to records that already
+  // look different, the same "keep it cheap" posture as the `/history`
+  // resolution above.
+  const confirmedContentDiffs: DiffLine[] = [];
+  let reconfirmedMatches = 0;
+  for (const diff of corpus.contentDiffs) {
+    const key = diff.name.toLowerCase();
+    const ourEntry = ours.get(key);
+    if (ourEntry === undefined) {
+      confirmedContentDiffs.push(diff); // unreachable: `diff.name` came from `ours` itself
+      continue;
+    }
+    const upRawSingle = await fetchJsonRetried(fetchImpl, sleepImpl, ua, `${upstreamUrl}/layouts/${encodeURIComponent(key)}`);
+    const upParsedSingle = parseUpstreamRaw(upRawSingle);
+    if (!upParsedSingle.ok) {
+      confirmedContentDiffs.push({ name: diff.name, path: upParsedSingle.error.path, message: upParsedSingle.error.message });
+      continue;
+    }
+    const ourRawSingle = (await fetchJsonRetried(
+      fetchImpl,
+      sleepImpl,
+      ua,
+      `${dbBaseUrl}/v1/layouts/${encodeURIComponent(ourEntry.ref)}?as=cmini/1`,
+    )) as { name: string; owner: string; created_at: string; modified_at: string; payload: unknown };
+    const ourSingle: cmini1.CminiRecordLike = {
+      name: ourRawSingle.name,
+      owner: ourRawSingle.owner,
+      created_at: ourRawSingle.created_at,
+      modified_at: ourRawSingle.modified_at,
+      likes: ourEntry.likes,
+      payload: ourRawSingle.payload as cmini1.Payload,
+    };
+    const recheck = compareRecords(upParsedSingle.detail, ourSingle);
+    if (recheck.equal) {
+      reconfirmedMatches++;
+    } else {
+      confirmedContentDiffs.push({
+        name: diff.name,
+        path: recheck.path ?? "/",
+        message: "content differs from upstream (confirmed via single-record refetch)",
+      });
+    }
+  }
+  corpus.contentDiffs = confirmedContentDiffs;
+  corpus.matched += reconfirmedMatches;
+
+  const upstreamMeta = upstreamMetaRaw as { layout_count?: number };
+  const ourMeta = ourMetaRaw as { layout_count?: number };
+  const layoutCount = {
+    upstream: upstreamMeta.layout_count ?? -1,
+    ours: ourMeta.layout_count ?? -1,
+    equal: upstreamMeta.layout_count === ourMeta.layout_count,
+  };
+
+  const authors = diffAuthors(upstreamAuthorsRaw as Record<string, string>, ourAuthorsRaw as Record<string, string>);
+
+  const summary = { upstreamCount: upstream.size, upstreamDupNames: dupNames.size, ourCount: ours.size, held, layoutCount, authors, corpus };
+  return { ...summary, ok: summaryIsOk(summary) };
+}

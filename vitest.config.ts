@@ -48,6 +48,12 @@ export default defineConfig(async () => {
               "tests/events/**/*.test.ts",
               "tests/rehost.test.ts",
             ],
+            // diff-unit.test.ts (S8) is offline/pure -- it belongs in the
+            // "node" project below (import/diff.ts's own header explains
+            // why: it can't share the workers project's extensionless
+            // module resolution assumptions either way, and doesn't need
+            // miniflare D1/R2 at all).
+            exclude: ["tests/import/diff-unit.test.ts"],
             setupFiles: ["./tests/setup-workers.ts"],
           },
         },
@@ -58,6 +64,7 @@ export default defineConfig(async () => {
               "tests/tools/**/*.test.ts",
               "tests/core/**/*.test.ts",
               "tests/formats/**/*.test.ts",
+              "tests/import/diff-unit.test.ts",
               "tests/upstream-diff.test.ts",
             ],
           },

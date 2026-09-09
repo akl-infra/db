@@ -22,15 +22,14 @@ npm test                            # both vitest projects (workers + node)
 npm run typecheck
 ```
 
-`diff-upstream` is a placeholder until S8 lands; it prints which slice to
-look for. `profile-upstream` (prints the `07 §0.1` measured table),
-`pick-fixtures` (regenerates `tests/fixtures/upstream-100/` -- run once, its
-output is frozen) and `goldens -- --write` (writes `db/formats/*/*/fixtures/`
-and their derived goldens -- also run once per new fixture, never to
-regenerate one that already merged) are real (S2). `import` is real (S5, see
-below). `deploy` and `rehost` are real (S7, see "Rehost procedure" below);
-`deploy` is normally run by CI (`.github/workflows/db.yml`'s `deploy` job),
-not by hand.
+`diff-upstream` is real (S8, see "Verify the mirror" below). `profile-upstream`
+(prints the `07 §0.1` measured table), `pick-fixtures` (regenerates
+`tests/fixtures/upstream-100/` -- run once, its output is frozen) and
+`goldens -- --write` (writes `db/formats/*/*/fixtures/` and their derived
+goldens -- also run once per new fixture, never to regenerate one that
+already merged) are real (S2). `import` is real (S5, see below). `deploy`
+and `rehost` are real (S7, see "Rehost procedure" below); `deploy` is
+normally run by CI (`.github/workflows/db.yml`'s `deploy` job), not by hand.
 
 ### `npm run import -- --once [--fixture]`
 
@@ -122,6 +121,37 @@ fetches the real `latest.json` from the deployed service, runs
 throwaway D1 and re-runs the whole conformance suite against the restored
 copy), and separately runs the upstream diff (S8). Both fail the job loudly
 on any problem -- neither is allowed to skip silently.
+
+## Verify the mirror
+
+`npm run diff-upstream` (`scripts/diff-upstream.mjs`, logic in `src/import/
+diff.ts`, LDB-P5) is the D12 diff: it fetches every layout from upstream and
+from `DB_BASE_URL`, matches by `name.toLowerCase()`, and compares each pair
+on the `cmini/1` projection (`?as=cmini/1`, likes sorted both sides) --
+printing the first differing JSON path for anything that disagrees, plus
+`layout_count` and the `authors` map. Exits 1 on any difference.
+
+```bash
+npm run migrate                      # fresh local D1
+npm run dev                          # in a second terminal: wrangler dev on :8787
+
+# drive the import cron by hand against the real upstream until it's caught
+# up (the write cap is 500/tick -- 07 §0.1's ~4200 layouts take ~9 ticks;
+# `/v1/meta` converges when a tick reports `quiet: true`, i.e. two ticks in
+# a row leave `layout_count` unchanged):
+curl "http://localhost:8787/__scheduled?cron=*/5+*+*+*+*"   # repeat, waiting for each tick to finish
+curl http://localhost:8787/v1/meta                          # check layout_count against upstream's own /meta
+
+npm run diff-upstream                # DB_BASE_URL defaults to http://localhost:8787
+```
+
+Against the deployed service: `DB_BASE_URL=https://akl-db.<account>.workers.dev npm run diff-upstream`.
+The daily job (`.github/workflows/db.yml`) runs the same comparison as
+`tests/upstream-diff.test.ts` (`DB_BASE_URL` set to the live origin) --
+real network, retries for 30 minutes on an unreachable service, then fails
+(never skips); `tests/import/diff-unit.test.ts` runs the offline half
+(the same comparison logic over the frozen `tests/fixtures/upstream-100/`
+snapshot) on every PR.
 
 ### R2 lifecycle
 

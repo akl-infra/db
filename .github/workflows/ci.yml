@@ -105,8 +105,4 @@ jobs:
       - name: Upstream diff (LDB-P5, S8)
         run: |
           set -euo pipefail
-          if [ -f tests/upstream-diff.test.ts ]; then
-            DB_BASE_URL="${{ vars.DB_BASE_URL }}" npx vitest run tests/upstream-diff.test.ts --project node
-          else
-            echo "SKIP: tests/upstream-diff.test.ts does not exist yet (S8) -- visible skip line, not a silent pass"
-          fi
+          DB_BASE_URL="${{ vars.DB_BASE_URL }}" npx vitest run tests/upstream-diff.test.ts --project node

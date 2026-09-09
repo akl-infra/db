@@ -48,6 +48,7 @@ the S1 rows only.
 | LDB-P1 | Every write appends exactly one rev-bumping event and one `layout_revs` row; the record equals the fold of its events; `seq` is gapless | `tests/events/fold.test.ts`, `tests/tools/onlywriter.test.ts` |
 | LDB-P2 | An `If-Match` mismatch writes nothing and returns the current record; two writes at one `rev` → exactly one commits, the other gets `stale` with the winner's record; the guard is `layout_revs`' PK inside the batch | `tests/api/ifmatch.test.ts`, `tests/events/fold.test.ts` |
 | LDB-P4 | A name is released only by delete or rename | `tests/events/names.test.ts`, `tests/api/refs.test.ts`, `tests/api/names.test.ts` |
+| LDB-P5 | Every following record read `?as=cmini/1` equals upstream on the projection (likes sorted) | `tests/upstream-diff.test.ts` (daily, live), `tests/import/diff-unit.test.ts` (unit half, over `upstream-100`) |
 | LDB-P6 | `/v1/changes` serves from `since=0`, including after a restore | `tests/events/feed.test.ts`, `tests/rehost.test.ts` |
 | LDB-P7 | Every error response carries `error` and `message`; every (route, status) pair has a conformance case | `tests/api/conformance.test.ts` |
 | LDB-P8 | A tombstone is unreadable by name from the moment of deletion (phase 1) and restorable by id for 30 days by its owner, any time by an admin, keeping name/format/payload/history (phase 2) | `tests/api/refs.test.ts`, `tests/api/restore.test.ts` |

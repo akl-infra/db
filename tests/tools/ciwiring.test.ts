@@ -124,7 +124,7 @@ describe("db.yml wiring", () => {
     expect(wf.on?.workflow_dispatch !== undefined || "workflow_dispatch" in (wf.on ?? {})).toBe(true);
   });
 
-  it("[LDB-C1] the daily job runs the rehost drill and the upstream diff, guarding the not-yet-existing diff test", () => {
+  it("[LDB-C1] the daily job runs the rehost drill and the upstream diff, unguarded (S8 landed the file)", () => {
     const wf = loadWorkflow();
     const daily = wf.jobs.daily;
     expect(daily, "no `daily` job in db.yml").toBeDefined();
@@ -141,13 +141,12 @@ describe("db.yml wiring", () => {
       true,
     );
 
-    // The upstream-diff step must guard the file's existence (S8 hasn't
-    // landed it yet) rather than let a missing test file pass silently or
-    // error opaquely -- `[ -f ... ]` plus a visible "SKIP" line, not a bare
-    // `|| true`/`continue-on-error` that would hide a real failure once S8
-    // does land the file.
+    // S8 landed `tests/upstream-diff.test.ts` for real -- the step must run
+    // it directly now, no `[ -f ... ]`/"SKIP" guard (07 §6 S8: "no skip
+    // semantics -- a skip nobody reads is a pass"; that guard was S7's
+    // placeholder for a file S8 hadn't landed yet).
     const diffStep = runs.find((r) => /vitest run tests\/upstream-diff\.test\.ts/.test(r))!;
-    expect(diffStep).toMatch(/-f tests\/upstream-diff\.test\.ts/);
-    expect(diffStep.toUpperCase()).toContain("SKIP");
+    expect(diffStep).not.toMatch(/-f tests\/upstream-diff\.test\.ts/);
+    expect(diffStep.toUpperCase()).not.toContain("SKIP");
   });
 });
