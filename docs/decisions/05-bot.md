@@ -208,6 +208,7 @@ live in this repo).
 | LDB-B15 | The memory watchdog DMs `ALERT_USER_ID` once per threshold crossing (10-point hysteresis on recovery), never when unset; a non-clean-restart marker DMs once at the next boot, then is always rewritten. | `bot/tests/watchdog.test.ts` |
 | LDB-B16 | A write-path `dbFetch` call times out after 20 s (a synthetic result, never a hang or a throw) and every non-2xx write response is logged (method/path/DB message/elapsed ms, never the signed headers); a `400 if_match_required` (structurally impossible given LDB-B2) logs as a bug, not an ordinary failure, and is never retried. | `bot/tests/client/http.test.ts`, `bot/tests/commands/write.test.ts`, `bot/tests/main.test.ts` |
 | LDB-B17 | `TEST_BOT_IDS` allowlists specific bot authors so `handleMessage` treats their messages like a real user's; every other bot author stays ignored. | `bot/tests/main.test.ts` |
+| LDB-B19 | `!authors`'s reply never exceeds Discord's 2 000-char message limit (a live e2e finding: an untruncated reply silently failed to send); a reply that already fits is never truncated. | `bot/tests/commands/read.test.ts` |
 
 ## 8. Open questions (bot)
 
