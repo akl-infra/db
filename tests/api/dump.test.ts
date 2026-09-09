@@ -6,6 +6,27 @@
 // date `systemClock()` sees -- proven to reach the Worker's own `Date` in
 // this pool (same realm as `vi.stubGlobal("fetch", ...)`, already relied on
 // by tests/import/tick.test.ts's "scheduled() wiring" tests).
+//
+// This file also carries the bot's dump fixture (10-implementation-
+// phase4.md §4 V3: "a db/ test writes it"): `bot/tests/fixtures/db/
+// dump.json.gz`, the same `writeDump()` output over the `upstream-100` seed
+// that `bot/tests/cache/boot.test.ts` folds. Same RECORD-and-print
+// constraint as tests/api/fixture-export.test.ts's own header doc: this
+// "workers" pool has no real filesystem at all (verified there), so
+// recording means printing the gzip bytes (base64, since they're binary)
+// between two unique markers and slicing them out host-side. Flip
+// RECORD_BOT_FIXTURE below to true, run
+//   npx vitest run tests/api/dump.test.ts --reporter=verbose > /tmp/ldb-b10.out
+// then:
+//   python3 -c "
+//   import base64, re, pathlib
+//   text = pathlib.Path('/tmp/ldb-b10.out').read_text()
+//   m = re.search(r'===LDB-B10-BOT-FIXTURE-START:dump.json.gz.b64===\n(.*?)\n===LDB-B10-BOT-FIXTURE-END:dump.json.gz.b64===', text, re.S)
+//   out = pathlib.Path('../bot/tests/fixtures/db/dump.json.gz')
+//   out.parent.mkdir(parents=True, exist_ok=True)
+//   out.write_bytes(base64.b64decode(m.group(1)))
+//   "
+// then flip RECORD_BOT_FIXTURE back to false.
 import { createExecutionContext, createScheduledController, SELF, env, waitOnExecutionContext } from "cloudflare:test";
 import { describe, expect, it, vi } from "vitest";
 import type { Bindings } from "../../src/env";
@@ -13,6 +34,18 @@ import worker from "../../src/index";
 import { seedUpstream100 } from "./support";
 
 const bindings = env as unknown as Bindings;
+const RECORD_BOT_FIXTURE = false; // NEVER true on a committed run -- see the header doc above
+
+// Chunked to stay well clear of any call-stack/argument-count limit on
+// `String.fromCharCode(...bytes)` for a many-KB gzip buffer.
+function bytesToBase64(bytes: Uint8Array): string {
+  const CHUNK = 8192;
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
+}
 
 async function runDumpCron(dateIso: string): Promise<void> {
   vi.useFakeTimers();
@@ -139,5 +172,29 @@ describe("dump routes", () => {
     // a day that isn't itself the 1st.
     const monthlyRes = await SELF.fetch("https://example.com/v1/dump/monthly/dump-2026-07.json.gz");
     expect(monthlyRes.status).toBe(200);
+  });
+});
+
+// bot/tests/fixtures/db/dump.json.gz -- see the header doc for how this is
+// (re)recorded. Skipped on every committed run (RECORD_BOT_FIXTURE is
+// false); `bot/tests/cache/boot.test.ts` (LDB-B10, the bot's own registry)
+// is what actually exercises the committed fixture -- deliberately UNTAGGED
+// here: this is a fixture-export utility, not an assertion of DB behavior,
+// and LDB-B10 is not a db/INVARIANTS.md id (db/tests/tools/invariants.test.ts
+// would refuse an orphaned tag were this ever un-skipped and detected).
+describe("bot/ dump fixture (10 §4 V3)", () => {
+  it.skipIf(!RECORD_BOT_FIXTURE)("prints bot/tests/fixtures/db/dump.json.gz (base64) from the upstream-100 seed", async () => {
+    await seedUpstream100();
+    await runDumpCron("2026-07-01T03:00:00.000Z");
+
+    const latestRes = await SELF.fetch("https://example.com/v1/dump/latest.json");
+    expect(latestRes.status).toBe(200);
+    const latest = await latestRes.json<{ url: string }>();
+    const gzRes = await SELF.fetch(`https://example.com${latest.url}`);
+    expect(gzRes.status).toBe(200);
+    const bytes = new Uint8Array(await gzRes.arrayBuffer());
+
+    // eslint-disable-next-line no-console -- the whole point of RECORD mode
+    console.log(`===LDB-B10-BOT-FIXTURE-START:dump.json.gz.b64===\n${bytesToBase64(bytes)}\n===LDB-B10-BOT-FIXTURE-END:dump.json.gz.b64===`);
   });
 });
