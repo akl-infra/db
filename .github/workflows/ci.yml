@@ -12,8 +12,6 @@ on:
       - "db/**"
       - ".github/workflows/db.yml"
   push:
-    branches:
-      - main   # branch pushes are quiet for now (saltorbit, 2026-09-09); PRs still gate
     paths:
       - "db/**"
       - ".github/workflows/db.yml"
