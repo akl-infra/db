@@ -4,8 +4,8 @@
 // the only place those modules are imported, so adding a format is "import
 // it here" plus its own PR (04 §2).
 import { unknownFormat } from "../core/errors";
-// S3 registers akl/1 alongside this.
 import * as cmini1 from "../../formats/cmini/1/index";
+import * as akl1 from "../../formats/akl/1/index";
 
 // A row of a format's lowering: what an analyzer/emulator reads regardless
 // of which idiom shape produced it (01 §3).
@@ -44,7 +44,7 @@ export interface FormatModule {
   hasMagic(p: Payload): boolean;
 }
 
-const REGISTRY: FormatModule[] = [cmini1 as unknown as FormatModule];
+const REGISTRY: FormatModule[] = [cmini1 as unknown as FormatModule, akl1 as unknown as FormatModule];
 
 const byId = new Map<string, FormatModule>(REGISTRY.map((f) => [f.id, f]));
 

@@ -1,0 +1,4 @@
+# GitHub handles who review changes under this format directory
+# (design/layout-db/01-format.md §4). A format major is frozen once merged
+# (LDB-F6): schema/fixtures changes here are additions only, never edits.
+saltorbit

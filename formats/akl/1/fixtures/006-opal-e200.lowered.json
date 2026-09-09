@@ -1,0 +1,77 @@
+[
+  {
+    "inputs": "d*",
+    "output": "dd",
+    "type": "repeat"
+  },
+  {
+    "inputs": "e*",
+    "output": "ee",
+    "type": "repeat"
+  },
+  {
+    "inputs": "f*",
+    "output": "ff",
+    "type": "repeat"
+  },
+  {
+    "inputs": "l*",
+    "output": "ll",
+    "type": "repeat"
+  },
+  {
+    "inputs": "o*",
+    "output": "oo",
+    "type": "repeat"
+  },
+  {
+    "inputs": "s*",
+    "output": "ss",
+    "type": "repeat"
+  },
+  {
+    "inputs": "t*",
+    "output": "tt",
+    "type": "repeat"
+  },
+  {
+    "inputs": "a*",
+    "output": "ar",
+    "type": "magic"
+  },
+  {
+    "inputs": "h*",
+    "output": "hr",
+    "type": "magic"
+  },
+  {
+    "inputs": "i*",
+    "output": "ik",
+    "type": "magic"
+  },
+  {
+    "inputs": "k*",
+    "output": "ke",
+    "type": "magic"
+  },
+  {
+    "inputs": "n*",
+    "output": "nk",
+    "type": "magic"
+  },
+  {
+    "inputs": "r*",
+    "output": "rk",
+    "type": "magic"
+  },
+  {
+    "inputs": "he*",
+    "output": "her",
+    "type": "magic"
+  },
+  {
+    "inputs": "ra*",
+    "output": "ral",
+    "type": "magic"
+  }
+]

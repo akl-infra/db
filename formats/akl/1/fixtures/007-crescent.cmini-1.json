@@ -1,0 +1,191 @@
+{
+  "board": "ortho",
+  "keys": {
+    "_": {
+      "row": 2,
+      "col": 3,
+      "finger": "LI"
+    },
+    "a": {
+      "row": 1,
+      "col": 6,
+      "finger": "RI"
+    },
+    "c": {
+      "row": 1,
+      "col": 0,
+      "finger": "LP"
+    },
+    "e": {
+      "row": 1,
+      "col": 7,
+      "finger": "RM"
+    },
+    "i": {
+      "row": 1,
+      "col": 9,
+      "finger": "RP"
+    },
+    "n": {
+      "row": 2,
+      "col": 6,
+      "finger": "RI"
+    },
+    "r": {
+      "row": 1,
+      "col": 1,
+      "finger": "LR"
+    },
+    "s": {
+      "row": 1,
+      "col": 2,
+      "finger": "LM"
+    },
+    "t": {
+      "row": 1,
+      "col": 3,
+      "finger": "LI"
+    },
+    "u": {
+      "row": 1,
+      "col": 8,
+      "finger": "RR"
+    }
+  },
+  "tag": "cmini",
+  "blame": "dmini",
+  "combos": [
+    {
+      "inputs": "cr",
+      "output": "w"
+    },
+    {
+      "inputs": "cs",
+      "output": "f"
+    },
+    {
+      "inputs": "ct",
+      "output": "g"
+    },
+    {
+      "inputs": "cn",
+      "output": "q"
+    },
+    {
+      "inputs": "ca",
+      "output": "'"
+    },
+    {
+      "inputs": "ce",
+      "output": "#"
+    },
+    {
+      "inputs": "cu",
+      "output": "y"
+    },
+    {
+      "inputs": "ci",
+      "output": "p"
+    },
+    {
+      "inputs": "rs",
+      "output": "x"
+    },
+    {
+      "inputs": "rt",
+      "output": "j"
+    },
+    {
+      "inputs": "rn",
+      "output": "l"
+    },
+    {
+      "inputs": "ra",
+      "output": "!"
+    },
+    {
+      "inputs": "re",
+      "output": "@"
+    },
+    {
+      "inputs": "ru",
+      "output": "_"
+    },
+    {
+      "inputs": "ri",
+      "output": ","
+    },
+    {
+      "inputs": "st",
+      "output": "d"
+    },
+    {
+      "inputs": "sn",
+      "output": "z"
+    },
+    {
+      "inputs": "sa",
+      "output": "`"
+    },
+    {
+      "inputs": "su",
+      "output": "v"
+    },
+    {
+      "inputs": "si",
+      "output": "b"
+    },
+    {
+      "inputs": "tn",
+      "output": "m"
+    },
+    {
+      "inputs": "tu",
+      "output": "k"
+    },
+    {
+      "inputs": "ti",
+      "output": "/"
+    },
+    {
+      "inputs": "na",
+      "output": "("
+    },
+    {
+      "inputs": "ne",
+      "output": ")"
+    },
+    {
+      "inputs": "nu",
+      "output": "h"
+    },
+    {
+      "inputs": "ni",
+      "output": "?"
+    },
+    {
+      "inputs": "ae",
+      "output": "o"
+    },
+    {
+      "inputs": "au",
+      "output": "-"
+    },
+    {
+      "inputs": "ai",
+      "output": "."
+    },
+    {
+      "inputs": "eu",
+      "output": "\""
+    },
+    {
+      "inputs": "ei",
+      "output": ":"
+    },
+    {
+      "inputs": "ui",
+      "output": ";"
+    }
+  ]
+}

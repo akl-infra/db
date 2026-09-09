@@ -1,0 +1,177 @@
+[
+  {
+    "inputs": "ue",
+    "output": "uo",
+    "type": "magic"
+  },
+  {
+    "inputs": "'f",
+    "output": "'l",
+    "type": "magic"
+  },
+  {
+    "inputs": "'l",
+    "output": "'f",
+    "type": "magic"
+  },
+  {
+    "inputs": "jn",
+    "output": "ju",
+    "type": "magic"
+  },
+  {
+    "inputs": "uo",
+    "output": "ue",
+    "type": "magic"
+  },
+  {
+    "inputs": "ju",
+    "output": "jn",
+    "type": "magic"
+  },
+  {
+    "inputs": "'◇",
+    "output": "''",
+    "type": "magic"
+  },
+  {
+    "inputs": ".◇",
+    "output": "..",
+    "type": "magic"
+  },
+  {
+    "inputs": "?◇",
+    "output": "??",
+    "type": "magic"
+  },
+  {
+    "inputs": "a◇",
+    "output": "ay",
+    "type": "magic"
+  },
+  {
+    "inputs": "b◇",
+    "output": "bb",
+    "type": "magic"
+  },
+  {
+    "inputs": "c◇",
+    "output": "cc",
+    "type": "magic"
+  },
+  {
+    "inputs": "d◇",
+    "output": "dd",
+    "type": "magic"
+  },
+  {
+    "inputs": "e◇",
+    "output": "ee",
+    "type": "magic"
+  },
+  {
+    "inputs": "f◇",
+    "output": "ff",
+    "type": "magic"
+  },
+  {
+    "inputs": "g◇",
+    "output": "gg",
+    "type": "magic"
+  },
+  {
+    "inputs": "h◇",
+    "output": "hr",
+    "type": "magic"
+  },
+  {
+    "inputs": "i◇",
+    "output": "ik",
+    "type": "magic"
+  },
+  {
+    "inputs": "j◇",
+    "output": "jo",
+    "type": "magic"
+  },
+  {
+    "inputs": "k◇",
+    "output": "ke",
+    "type": "magic"
+  },
+  {
+    "inputs": "l◇",
+    "output": "ll",
+    "type": "magic"
+  },
+  {
+    "inputs": "m◇",
+    "output": "mm",
+    "type": "magic"
+  },
+  {
+    "inputs": "n◇",
+    "output": "nn",
+    "type": "magic"
+  },
+  {
+    "inputs": "o◇",
+    "output": "oo",
+    "type": "magic"
+  },
+  {
+    "inputs": "p◇",
+    "output": "pp",
+    "type": "magic"
+  },
+  {
+    "inputs": "q◇",
+    "output": "qq",
+    "type": "magic"
+  },
+  {
+    "inputs": "r◇",
+    "output": "rl",
+    "type": "magic"
+  },
+  {
+    "inputs": "s◇",
+    "output": "ss",
+    "type": "magic"
+  },
+  {
+    "inputs": "t◇",
+    "output": "tt",
+    "type": "magic"
+  },
+  {
+    "inputs": "u◇",
+    "output": "u'",
+    "type": "magic"
+  },
+  {
+    "inputs": "v◇",
+    "output": "vv",
+    "type": "magic"
+  },
+  {
+    "inputs": "w◇",
+    "output": "ww",
+    "type": "magic"
+  },
+  {
+    "inputs": "x◇",
+    "output": "xx",
+    "type": "magic"
+  },
+  {
+    "inputs": "y◇",
+    "output": "ye",
+    "type": "magic"
+  },
+  {
+    "inputs": "z◇",
+    "output": "zz",
+    "type": "magic"
+  }
+]

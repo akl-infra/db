@@ -1,0 +1,285 @@
+{
+  "keys": {
+    "'": {
+      "row": 2,
+      "col": 4,
+      "finger": "LI"
+    },
+    "*": {
+      "row": 3,
+      "col": 0,
+      "finger": "LT"
+    },
+    ",": {
+      "row": 2,
+      "col": 2,
+      "finger": "LI"
+    },
+    ".": {
+      "row": 1,
+      "col": 4,
+      "finger": "LI"
+    },
+    ";": {
+      "row": 2,
+      "col": 0,
+      "finger": "LP"
+    },
+    "a": {
+      "row": 1,
+      "col": 2,
+      "finger": "LM"
+    },
+    "b": {
+      "row": 0,
+      "col": 9,
+      "finger": "RP"
+    },
+    "c": {
+      "row": 0,
+      "col": 7,
+      "finger": "RM"
+    },
+    "d": {
+      "row": 1,
+      "col": 6,
+      "finger": "RI"
+    },
+    "e": {
+      "row": 1,
+      "col": 1,
+      "finger": "LR"
+    },
+    "f": {
+      "row": 0,
+      "col": 8,
+      "finger": "RR"
+    },
+    "g": {
+      "row": 2,
+      "col": 7,
+      "finger": "RI"
+    },
+    "h": {
+      "row": 0,
+      "col": 1,
+      "finger": "LR"
+    },
+    "i": {
+      "row": 1,
+      "col": 0,
+      "finger": "LP"
+    },
+    "j": {
+      "row": 0,
+      "col": 0,
+      "finger": "LP"
+    },
+    "k": {
+      "row": 0,
+      "col": 5,
+      "finger": "RI"
+    },
+    "l": {
+      "row": 2,
+      "col": 3,
+      "finger": "LI"
+    },
+    "m": {
+      "row": 2,
+      "col": 6,
+      "finger": "RI"
+    },
+    "n": {
+      "row": 1,
+      "col": 9,
+      "finger": "RP"
+    },
+    "o": {
+      "row": 0,
+      "col": 2,
+      "finger": "LM"
+    },
+    "p": {
+      "row": 1,
+      "col": 5,
+      "finger": "RI"
+    },
+    "q": {
+      "row": 2,
+      "col": 9,
+      "finger": "RP"
+    },
+    "r": {
+      "row": 1,
+      "col": 3,
+      "finger": "LI"
+    },
+    "s": {
+      "row": 1,
+      "col": 8,
+      "finger": "RR"
+    },
+    "t": {
+      "row": 1,
+      "col": 7,
+      "finger": "RM"
+    },
+    "u": {
+      "row": 0,
+      "col": 3,
+      "finger": "LI"
+    },
+    "v": {
+      "row": 2,
+      "col": 8,
+      "finger": "RR"
+    },
+    "w": {
+      "row": 2,
+      "col": 5,
+      "finger": "RI"
+    },
+    "x": {
+      "row": 0,
+      "col": 4,
+      "finger": "LI"
+    },
+    "y": {
+      "row": 0,
+      "col": 6,
+      "finger": "RM"
+    },
+    "z": {
+      "row": 2,
+      "col": 1,
+      "finger": "LR"
+    }
+  },
+  "board": {
+    "kind": "ortho",
+    "cmini": "ortho"
+  },
+  "magic": {
+    "magic_keys": [
+      {
+        "key": "*",
+        "default": "repeat_previous",
+        "rules": [
+          {
+            "after": "'",
+            "output": "'r"
+          },
+          {
+            "after": ".",
+            "output": ".."
+          },
+          {
+            "after": "a",
+            "output": "ay"
+          },
+          {
+            "after": "c",
+            "output": "ct"
+          },
+          {
+            "after": "h",
+            "output": "he"
+          },
+          {
+            "after": "i",
+            "output": "ic"
+          },
+          {
+            "after": "r",
+            "output": "rl"
+          },
+          {
+            "after": "u",
+            "output": "ul"
+          },
+          {
+            "after": "y",
+            "output": "yt"
+          },
+          {
+            "after": "z",
+            "output": "ze"
+          }
+        ],
+        "except": [
+          ",",
+          ";"
+        ]
+      },
+      {
+        "key": "b",
+        "default": "none",
+        "rules": [
+          {
+            "after": "r",
+            "output": "r."
+          }
+        ]
+      },
+      {
+        "key": "d",
+        "default": "none",
+        "rules": [
+          {
+            "after": "t",
+            "output": "ts"
+          }
+        ]
+      },
+      {
+        "key": "j",
+        "default": "none",
+        "rules": [
+          {
+            "after": "r",
+            "output": "ru"
+          },
+          {
+            "after": "s",
+            "output": "sy"
+          },
+          {
+            "after": "u",
+            "output": "ur"
+          }
+        ]
+      },
+      {
+        "key": "q",
+        "default": "none",
+        "rules": [
+          {
+            "after": "a",
+            "output": "ak"
+          },
+          {
+            "after": "u",
+            "output": "u'"
+          }
+        ]
+      },
+      {
+        "key": "v",
+        "default": "none",
+        "rules": [
+          {
+            "after": "m",
+            "output": "mp"
+          }
+        ]
+      }
+    ]
+  },
+  "x": {
+    "cmini": {
+      "tag": "cmini",
+      "blame": "dmini"
+    }
+  }
+}

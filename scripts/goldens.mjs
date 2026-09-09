@@ -9,6 +9,15 @@
 // already merged. Without `--write` this prints what it would do and
 // changes nothing.
 //
+// S3 adds akl/1: every cmini fixture's `.akl-1.json` golden (cmini1.to's
+// generic loop below) is ALSO written as its own base fixture under
+// formats/akl/1/fixtures/ (07 §5.3: "the akl side holds each translation as
+// its own fixture"). The three hand-written akl-native fixtures
+// (900-colstag, 901-idioms, 902-x) are authored directly as base files and
+// need no code here -- `writeDerivedGoldens` picks up every base fixture it
+// finds on disk, generated or hand-written alike, and fills in its
+// `.lowered.json`/`.<to>.json` goldens generically.
+//
 // Format modules are self-contained (07 §5: they never import
 // src/formats/registry.ts), so this script imports them directly with
 // plain Node ESM resolution instead of going through the Worker-only
@@ -18,6 +27,7 @@ import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
 import * as cmini1 from "../formats/cmini/1/index.ts";
+import * as akl1 from "../formats/akl/1/index.ts";
 
 const SCRIPTS_DIR = path.dirname(url.fileURLToPath(import.meta.url));
 const DB_ROOT = path.join(SCRIPTS_DIR, "..");
@@ -72,6 +82,45 @@ function writeJson(file, data) {
   console.log(`wrote ${path.relative(DB_ROOT, file)}`);
 }
 
+// Base fixture files are `NNN-<id>.json`; goldens are
+// `NNN-<id>.lowered.json` / `NNN-<id>.<to-format>.json` -- one extra "."
+// segment distinguishes them (same predicate tests/formats/goldens.test.ts
+// uses).
+function isBaseFixtureFile(filename) {
+  if (!filename.endsWith(".json")) return false;
+  return !filename.slice(0, -".json".length).includes(".");
+}
+
+function fixturesDirFor(mod) {
+  const [name, major] = mod.id.split("/");
+  return path.join(DB_ROOT, "formats", name, major, "fixtures");
+}
+
+// For every base fixture already on disk (generated above, or hand-written
+// directly) write its `.lowered.json` and every declared `.<to>.json`
+// golden. Generic over the format module, so a hand-authored fixture (900+)
+// needs no special-casing here.
+function writeDerivedGoldens(mod) {
+  const dir = fixturesDirFor(mod);
+  if (!fs.existsSync(dir)) return;
+  for (const file of fs.readdirSync(dir).filter(isBaseFixtureFile).sort()) {
+    const stem = file.slice(0, -".json".length);
+    const payload = JSON.parse(fs.readFileSync(path.join(dir, file), "utf8"));
+    const check = mod.validate(payload);
+    if (!check.ok) {
+      throw new Error(`${mod.id} fixture '${stem}' fails its own validate(): ${JSON.stringify(check.error)}`);
+    }
+
+    const lowered = mod.lower(payload);
+    if (lowered !== null) writeJson(path.join(dir, `${stem}.lowered.json`), lowered);
+
+    for (const target of Object.keys(mod.to)) {
+      const translated = mod.to[target](payload);
+      writeJson(path.join(dir, `${stem}.${target.replace("/", "-")}.json`), translated);
+    }
+  }
+}
+
 function main() {
   const snapshotDir = path.join(DB_ROOT, "tests", "fixtures", "upstream-100");
   const list = JSON.parse(fs.readFileSync(path.join(snapshotDir, "list.json"), "utf8")).layouts;
@@ -79,8 +128,8 @@ function main() {
   const nameById = new Map(list.map((l) => [l.id, l.name]));
   const byName = new Map(full.map((l) => [l.name, l]));
 
-  const [, major] = cmini1.id.split("/");
-  const fixturesDir = path.join(DB_ROOT, "formats", "cmini", major, "fixtures");
+  const cminiFixturesDir = fixturesDirFor(cmini1);
+  const aklFixturesDir = fixturesDirFor(akl1);
 
   CMINI_NAMED.forEach((id, i) => {
     const name = nameById.get(id);
@@ -95,18 +144,20 @@ function main() {
     }
 
     const base = `${pad3(i + 1)}-${id}`;
-    writeJson(path.join(fixturesDir, `${base}.json`), payload);
+    writeJson(path.join(cminiFixturesDir, `${base}.json`), payload);
 
-    const lowered = cmini1.lower(payload);
-    writeJson(path.join(fixturesDir, `${base}.lowered.json`), lowered);
-
-    // S2's cmini/1 has no `to[...]` yet (S3 fills it in) -- nothing else to
-    // write. Kept as a loop so S3's akl/1 addition needs no change here.
-    for (const target of Object.keys(cmini1.to)) {
-      const translated = cmini1.to[target](payload);
-      writeJson(path.join(fixturesDir, `${base}.${target.replace("/", "-")}.json`), translated);
-    }
+    // The akl side holds the SAME translation as its own base fixture (07
+    // §5.3), not just a golden under cmini/1/ -- so its own goldens.test.ts
+    // rows (validate, lower, to["cmini/1"]) exist for it too.
+    const akl = cmini1.to["akl/1"] ? cmini1.to["akl/1"](payload) : undefined;
+    if (akl !== undefined) writeJson(path.join(aklFixturesDir, `${base}.json`), akl);
   });
+
+  // Derived goldens for every base fixture found on disk -- the 18 above
+  // AND the hand-written akl-native ones (900-colstag, 901-idioms, 902-x),
+  // which must already exist as base files before this runs.
+  writeDerivedGoldens(cmini1);
+  writeDerivedGoldens(akl1);
 
   if (!WRITE) console.log("\n(dry run -- pass --write to actually write these files)");
 }

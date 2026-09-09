@@ -18,8 +18,13 @@ the S1 rows only.
 | LDB-C2 | `canonical()` is key-order-invariant and lossless | `tests/core/canonical.test.ts` |
 | LDB-F1 | Every stored payload validates against its format's frozen schema; a write that does not is refused with the failing path | `tests/formats/goldens.test.ts`, `tests/formats/mutations.test.ts` |
 | LDB-F2 | `lower()` is deterministic across versions | `tests/formats/goldens.test.ts` (`.lowered.json` goldens) |
+| LDB-F3 | Intent is never lowered on store | `tests/formats/intent.test.ts` |
+| LDB-F4 | Lowering collisions are refused with both sources named | `tests/formats/collisions.test.ts`, `tests/formats/mutations.test.ts` |
+| LDB-F5 | `cmini/1 → akl/1 → cmini/1` is identity on the projection, for every fixture and (P5) the live set | `tests/formats/roundtrip.test.ts`, S8 |
 | LDB-F6 | Merged format majors are immutable | `tests/formats/frozen.test.ts` |
 | LDB-F7 | Every format has ≥ 1 fixture and a frozen golden per declared translation | `tests/formats/goldens.test.ts` |
+| LDB-F8 | `liftRules(lower(m)) == (m, [])` for every valid idiom set; `lower(lift(rows)) ≡ rows` for every typed row set; leftovers are exactly the rows that fail their tag's invariant | `tests/formats/lift.test.ts` |
+| LDB-F10 | `x` survives same-format round trips; only `x.cmini` survives `to["cmini/1"]` | `tests/formats/x.test.ts`, `tests/formats/roundtrip.test.ts` |
 | LDB-F11 | Every live upstream detail (snapshot) validates as `cmini/1` and `hasMagic` matches upstream's `has_magic` | `tests/formats/cmini-envelope.test.ts` |
 | LDB-G2 | No admin id is a constant in code (the migration seed is data) | `tests/tools/noconst.test.ts` |
 | LDB-G5 | Nothing imports across the `db/` boundary in either direction | `tests/tools/boundary.test.ts` |

@@ -1,0 +1,13 @@
+{
+  "keys": {},
+  "board": {
+    "kind": "ortho",
+    "cmini": "ortho"
+  },
+  "x": {
+    "cmini": {
+      "tag": "cmini",
+      "blame": "cmini"
+    }
+  }
+}

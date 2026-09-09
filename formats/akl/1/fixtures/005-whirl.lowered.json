@@ -1,0 +1,97 @@
+[
+  {
+    "inputs": "b*",
+    "output": "bb",
+    "type": "repeat"
+  },
+  {
+    "inputs": "c*",
+    "output": "cc",
+    "type": "repeat"
+  },
+  {
+    "inputs": "d*",
+    "output": "dd",
+    "type": "repeat"
+  },
+  {
+    "inputs": "e*",
+    "output": "ee",
+    "type": "repeat"
+  },
+  {
+    "inputs": "f*",
+    "output": "ff",
+    "type": "repeat"
+  },
+  {
+    "inputs": "l*",
+    "output": "ll",
+    "type": "repeat"
+  },
+  {
+    "inputs": "m*",
+    "output": "mm",
+    "type": "repeat"
+  },
+  {
+    "inputs": "n*",
+    "output": "nn",
+    "type": "repeat"
+  },
+  {
+    "inputs": "o*",
+    "output": "oo",
+    "type": "repeat"
+  },
+  {
+    "inputs": "p*",
+    "output": "pp",
+    "type": "repeat"
+  },
+  {
+    "inputs": "r*",
+    "output": "rr",
+    "type": "repeat"
+  },
+  {
+    "inputs": "s*",
+    "output": "ss",
+    "type": "repeat"
+  },
+  {
+    "inputs": "t*",
+    "output": "tt",
+    "type": "repeat"
+  },
+  {
+    "inputs": "z*",
+    "output": "zz",
+    "type": "repeat"
+  },
+  {
+    "inputs": ".*",
+    "output": "...",
+    "type": "magic"
+  },
+  {
+    "inputs": "g*",
+    "output": "gs",
+    "type": "magic"
+  },
+  {
+    "inputs": "u*",
+    "output": "ue",
+    "type": "magic"
+  },
+  {
+    "inputs": "w*",
+    "output": "wh",
+    "type": "magic"
+  },
+  {
+    "inputs": "y*",
+    "output": "y,",
+    "type": "raw"
+  }
+]

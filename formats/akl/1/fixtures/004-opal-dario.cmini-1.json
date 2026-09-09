@@ -1,0 +1,319 @@
+{
+  "board": "stagger",
+  "keys": {
+    "'": {
+      "row": 0,
+      "col": 5,
+      "finger": "RI"
+    },
+    ",": {
+      "row": 2,
+      "col": 7,
+      "finger": "RM"
+    },
+    ".": {
+      "row": 0,
+      "col": 6,
+      "finger": "RI"
+    },
+    "a": {
+      "row": 1,
+      "col": 8,
+      "finger": "RR"
+    },
+    "b": {
+      "row": 0,
+      "col": 0,
+      "finger": "LP"
+    },
+    "c": {
+      "row": 2,
+      "col": 2,
+      "finger": "LI"
+    },
+    "d": {
+      "row": 1,
+      "col": 3,
+      "finger": "LI"
+    },
+    "e": {
+      "row": 1,
+      "col": 7,
+      "finger": "RM"
+    },
+    "f": {
+      "row": 0,
+      "col": 1,
+      "finger": "LR"
+    },
+    "g": {
+      "row": 1,
+      "col": 4,
+      "finger": "LI"
+    },
+    "h": {
+      "row": 2,
+      "col": 6,
+      "finger": "RI"
+    },
+    "i": {
+      "row": 1,
+      "col": 9,
+      "finger": "RP"
+    },
+    "j": {
+      "row": 2,
+      "col": 9,
+      "finger": "RP"
+    },
+    "k": {
+      "row": 1,
+      "col": 5,
+      "finger": "RI"
+    },
+    "l": {
+      "row": 2,
+      "col": 5,
+      "finger": "RI"
+    },
+    "m": {
+      "row": 2,
+      "col": 3,
+      "finger": "LI"
+    },
+    "n": {
+      "row": 1,
+      "col": 0,
+      "finger": "LP"
+    },
+    "o": {
+      "row": 0,
+      "col": 8,
+      "finger": "RR"
+    },
+    "p": {
+      "row": 0,
+      "col": 3,
+      "finger": "LM"
+    },
+    "q": {
+      "row": 2,
+      "col": 0,
+      "finger": "LP"
+    },
+    "r": {
+      "row": 1,
+      "col": 6,
+      "finger": "RI"
+    },
+    "s": {
+      "row": 1,
+      "col": 1,
+      "finger": "LR"
+    },
+    "t": {
+      "row": 1,
+      "col": 2,
+      "finger": "LM"
+    },
+    "u": {
+      "row": 0,
+      "col": 7,
+      "finger": "RM"
+    },
+    "v": {
+      "row": 2,
+      "col": 1,
+      "finger": "LR"
+    },
+    "w": {
+      "row": 0,
+      "col": 4,
+      "finger": "LI"
+    },
+    "x": {
+      "row": 2,
+      "col": 4,
+      "finger": "LI"
+    },
+    "y": {
+      "row": 0,
+      "col": 9,
+      "finger": "RP"
+    },
+    "z": {
+      "row": 2,
+      "col": 8,
+      "finger": "RR"
+    },
+    "◇": {
+      "row": 0,
+      "col": 2,
+      "finger": "LM"
+    }
+  },
+  "magic": [
+    {
+      "inputs": "'◇",
+      "output": "''",
+      "type": "repeat"
+    },
+    {
+      "inputs": ".◇",
+      "output": "..",
+      "type": "repeat"
+    },
+    {
+      "inputs": "b◇",
+      "output": "bb",
+      "type": "repeat"
+    },
+    {
+      "inputs": "c◇",
+      "output": "cc",
+      "type": "repeat"
+    },
+    {
+      "inputs": "d◇",
+      "output": "dd",
+      "type": "repeat"
+    },
+    {
+      "inputs": "e◇",
+      "output": "ee",
+      "type": "repeat"
+    },
+    {
+      "inputs": "f◇",
+      "output": "ff",
+      "type": "repeat"
+    },
+    {
+      "inputs": "g◇",
+      "output": "gg",
+      "type": "repeat"
+    },
+    {
+      "inputs": "i◇",
+      "output": "ii",
+      "type": "repeat"
+    },
+    {
+      "inputs": "k◇",
+      "output": "kk",
+      "type": "repeat"
+    },
+    {
+      "inputs": "l◇",
+      "output": "ll",
+      "type": "repeat"
+    },
+    {
+      "inputs": "m◇",
+      "output": "mm",
+      "type": "repeat"
+    },
+    {
+      "inputs": "n◇",
+      "output": "nn",
+      "type": "repeat"
+    },
+    {
+      "inputs": "o◇",
+      "output": "oo",
+      "type": "repeat"
+    },
+    {
+      "inputs": "p◇",
+      "output": "pp",
+      "type": "repeat"
+    },
+    {
+      "inputs": "q◇",
+      "output": "qq",
+      "type": "repeat"
+    },
+    {
+      "inputs": "s◇",
+      "output": "ss",
+      "type": "repeat"
+    },
+    {
+      "inputs": "t◇",
+      "output": "tt",
+      "type": "repeat"
+    },
+    {
+      "inputs": "v◇",
+      "output": "vv",
+      "type": "repeat"
+    },
+    {
+      "inputs": "w◇",
+      "output": "ww",
+      "type": "repeat"
+    },
+    {
+      "inputs": "x◇",
+      "output": "xx",
+      "type": "repeat"
+    },
+    {
+      "inputs": "z◇",
+      "output": "zz",
+      "type": "repeat"
+    },
+    {
+      "inputs": "a◇",
+      "output": "ay",
+      "type": "magic"
+    },
+    {
+      "inputs": "h◇",
+      "output": "hr",
+      "type": "magic"
+    },
+    {
+      "inputs": "j◇",
+      "output": "jo",
+      "type": "magic"
+    },
+    {
+      "inputs": "r◇",
+      "output": "rl",
+      "type": "magic"
+    },
+    {
+      "inputs": "u◇",
+      "output": "u'",
+      "type": "magic"
+    },
+    {
+      "inputs": "y◇",
+      "output": "ye",
+      "type": "magic"
+    },
+    {
+      "inputs": "jn",
+      "output": "ju",
+      "type": "adaptive"
+    },
+    {
+      "inputs": "ju",
+      "output": "jn",
+      "type": "adaptive"
+    },
+    {
+      "inputs": "ue",
+      "output": "uo",
+      "type": "adaptive"
+    },
+    {
+      "inputs": "uo",
+      "output": "ue",
+      "type": "adaptive"
+    }
+  ],
+  "tag": "cmini",
+  "blame": "dmini"
+}

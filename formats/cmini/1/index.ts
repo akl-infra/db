@@ -7,6 +7,14 @@
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 import rawSchema from "./schema.json" with { type: "json" };
+// S3: akl/1's translate.ts is the ONE place cmini/1<->akl/1 is implemented
+// (07 §6 S3), so both directions can't drift apart. This creates a module
+// cycle (translate.ts imports this file back for `cmini1.lower`/`Payload`)
+// that's safe here: `fromCmini`/`toCmini` are function declarations (hoisted
+// before either module's top-level code runs) and are only ever CALLED
+// well after both modules finish loading.
+import { fromCmini, toCmini } from "../../akl/1/translate.ts";
+import type { Payload as AklPayload } from "../../akl/1/index.ts";
 
 export const id: `${string}/${number}` = "cmini/1";
 export const schema: object = rawSchema;
@@ -176,11 +184,14 @@ export function hasMagic(p: Payload): boolean {
   return lower(p).length > 0;
 }
 
-// S3 fills these in (akl/1, 01 §6.1/§6.2). Empty for now: the registry's
-// translate() reads a missing `to[as]` as "held", which is exactly right
-// until the translation exists.
-export const to: Record<string, (p: Payload) => Payload> = {};
-export const from: Record<string, (p: Payload) => Payload> = {};
+// 01 §6.1/§6.2, implemented once in akl/1/translate.ts and imported both
+// ways (07 §6 S3) so cmini/1<->akl/1 can't drift out of sync with itself.
+export const to: Record<string, (p: Payload) => AklPayload> = {
+  "akl/1": fromCmini, // cmini -> akl IS §6.1's "fromCmini"
+};
+export const from: Record<string, (p: AklPayload) => Payload> = {
+  "akl/1": toCmini, // akl -> cmini IS §6.2's "toCmini"
+};
 
 // The record-level projection used by `?as=cmini/1`, the D12 diff and the
 // `full=1` list (07 §5.1). Likes are emitted sorted ascending, never in

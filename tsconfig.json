@@ -6,9 +6,9 @@
     "moduleResolution": "Bundler",
     // "/experimental" (not the bare package, which resolves to its older
     // stable index.d.ts with no exports/types/main field) is what carries
-    // `Fetcher.scheduled()`/`FetcherScheduledOptions` -- needed for
-    // `SELF.scheduled({cron})` (07 §6 S5's tick.test.ts). A superset of the
-    // stable surface, so nothing that typechecked before stops typechecking.
+    // `ScheduledController` and `Fetcher.scheduled()` (S5). A superset of
+    // the stable surface, so nothing that typechecked before stops.
+    "allowImportingTsExtensions": true, // S3: formats/akl/1's internal imports carry explicit .ts extensions so scripts/goldens.mjs (plain Node) can resolve them -- safe with noEmit above
     "types": ["@cloudflare/workers-types/experimental", "@cloudflare/vitest-pool-workers/types"],
     "strict": true,
     "noUncheckedIndexedAccess": true,

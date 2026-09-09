@@ -1,0 +1,174 @@
+{
+  "keys": {
+    "'": {
+      "row": 2,
+      "col": 9,
+      "finger": "RP"
+    },
+    "*": {
+      "row": 0,
+      "col": 6,
+      "finger": "RI"
+    },
+    ",": {
+      "row": 2,
+      "col": 8,
+      "finger": "RR"
+    },
+    ".": {
+      "row": 2,
+      "col": 7,
+      "finger": "RM"
+    },
+    "@": {
+      "row": 3,
+      "col": 6,
+      "finger": "LP"
+    },
+    "a": {
+      "row": 1,
+      "col": 7,
+      "finger": "RM"
+    },
+    "b": {
+      "row": 2,
+      "col": 5,
+      "finger": "RI"
+    },
+    "c": {
+      "row": 0,
+      "col": 3,
+      "finger": "LI"
+    },
+    "d": {
+      "row": 1,
+      "col": 3,
+      "finger": "LI"
+    },
+    "e": {
+      "row": 1,
+      "col": 8,
+      "finger": "RR"
+    },
+    "f": {
+      "row": 1,
+      "col": 5,
+      "finger": "RI"
+    },
+    "g": {
+      "row": 2,
+      "col": 2,
+      "finger": "LI"
+    },
+    "h": {
+      "row": 2,
+      "col": 6,
+      "finger": "RI"
+    },
+    "i": {
+      "row": 1,
+      "col": 9,
+      "finger": "RP"
+    },
+    "j": {
+      "row": 2,
+      "col": 1,
+      "finger": "LM"
+    },
+    "k": {
+      "row": 2,
+      "col": 0,
+      "finger": "LP"
+    },
+    "l": {
+      "row": 0,
+      "col": 2,
+      "finger": "LM"
+    },
+    "m": {
+      "row": 0,
+      "col": 1,
+      "finger": "LR"
+    },
+    "n": {
+      "row": 1,
+      "col": 6,
+      "finger": "RI"
+    },
+    "o": {
+      "row": 0,
+      "col": 7,
+      "finger": "RM"
+    },
+    "p": {
+      "row": 0,
+      "col": 4,
+      "finger": "LI"
+    },
+    "q": {
+      "row": 0,
+      "col": 9,
+      "finger": "LP"
+    },
+    "r": {
+      "row": 1,
+      "col": 2,
+      "finger": "LM"
+    },
+    "s": {
+      "row": 1,
+      "col": 0,
+      "finger": "LP"
+    },
+    "t": {
+      "row": 1,
+      "col": 1,
+      "finger": "LR"
+    },
+    "u": {
+      "row": 0,
+      "col": 8,
+      "finger": "RR"
+    },
+    "v": {
+      "row": 0,
+      "col": 0,
+      "finger": "LP"
+    },
+    "w": {
+      "row": 2,
+      "col": 3,
+      "finger": "LI"
+    },
+    "x": {
+      "row": 0,
+      "col": 5,
+      "finger": "RI"
+    },
+    "y": {
+      "row": 1,
+      "col": 4,
+      "finger": "LI"
+    },
+    "z": {
+      "row": 2,
+      "col": 4,
+      "finger": "LI"
+    }
+  },
+  "board": {
+    "kind": "rowstag",
+    "stagger": [
+      0,
+      0.25,
+      0.75
+    ],
+    "cmini": "stagger"
+  },
+  "x": {
+    "cmini": {
+      "tag": "cmini",
+      "blame": "cmini"
+    }
+  }
+}
