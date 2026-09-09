@@ -9,7 +9,10 @@ phase 1. Deployable independently of the rest of this repo -- see
 
 Full design: `design/layout-db/00-plan.md` (why) and
 `design/layout-db/07-implementation-phase1.md` (what phase 1 ships, slice
-by slice). Invariants: `INVARIANTS.md` (this directory).
+by slice). Invariants: `INVARIANTS.md` (this directory). **Building a
+client (a bot, a site, a script)?** Start at `INTEGRATION.md` (this
+directory) -- the guide for a new client, base URLs, auth, reads/writes,
+the change feed, and a generated error-code appendix.
 
 **Writes require `If-Match` (LDB-P2, saltorbit's rule, 2026-09-09):** no client
 may write to an existing record without naming the version it saw. `PUT

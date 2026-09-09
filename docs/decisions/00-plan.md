@@ -20,6 +20,7 @@ Companion documents in this directory, in reading order:
 
 | 13 | `13-ledger.md` | Operations ledger: what is deployed where, secrets (names), how to operate/deploy, branches, the agent recipe, open items. Keep current at every milestone. |
 | 15 | `15-transition.md` | The rollout plan: phases with exit criteria from a test-server run to `!cmini` deprecation, the user-facing differences table, data questions (import end state, renames, the magic-fork list, likes) with recommendations, governance milestones, per-phase rollback, announcement drafts (unsigned), open questions for saltorbit and for Pine. |
+| — | `db/INTEGRATION.md` | The guide for a new CLIENT (a bot, a site, a script) to hook into the deployed service: base URLs, reads with real examples, the two auth lanes (user bearer + client Ed25519 signing, with a minimal JS and Python signer both proven against `db/tests/vectors/client-signing.json`), writes (`If-Match`, the retry pattern, error bodies), the change feed/SSE/webhooks/dump, recipes, and a generated error-code appendix (`LDB-G8`). Lives in `db/`, not here, since it moves with the service on the eventual split (`§7`). |
 ---
 
 ## 0. What I understood from the dictation (assumptions — correct me)
