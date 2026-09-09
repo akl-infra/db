@@ -183,6 +183,37 @@ describe("db.yml wiring", () => {
     expect(diffStep.toUpperCase()).not.toContain("SKIP");
   });
 
+  it("[LDB-G6] the split-dry-run job needs test, runs weekly + on workflow_dispatch, and runs scripts/split/split-db.sh --dry-run", () => {
+    const wf = loadWorkflow();
+    const job = wf.jobs["split-dry-run"];
+    expect(job, "no `split-dry-run` job in db.yml").toBeDefined();
+    if (!job) throw new Error("unreachable: assertion above failed");
+
+    const needs = Array.isArray(job.needs) ? job.needs : [job.needs];
+    expect(needs).toContain("test");
+
+    expect(job.if, "split-dry-run job has no `if:` guard").toBeDefined();
+    expect(job.if).toContain("schedule");
+    expect(job.if).toContain("workflow_dispatch");
+    // Its own cron, not daily's -- a weekly job firing every day would be
+    // a silent behavior change nothing here would ever catch otherwise.
+    const schedules = (wf.on?.schedule as unknown as { cron: string }[] | undefined) ?? [];
+    expect(schedules.length, "no `schedule` triggers at all").toBeGreaterThanOrEqual(2);
+    const dailyCron = wf.jobs.daily?.if ?? "";
+    const ownCron = schedules.map((s) => s.cron).find((cron) => !dailyCron.includes(cron));
+    expect(ownCron, "no schedule distinct from daily's own cron").toBeDefined();
+    expect(job.if).toContain(ownCron);
+
+    const runs = (job.steps ?? []).map((s) => s.run).filter((r): r is string => typeof r === "string");
+    expect(runs.some((r) => /sh scripts\/split\/split-db\.sh --dry-run/.test(r)), "no split-db.sh --dry-run step").toBe(
+      true,
+    );
+
+    const checkout = job.steps?.find((s) => s.uses?.startsWith("actions/checkout@"));
+    expect(checkout, "no actions/checkout step").toBeDefined();
+    expect(checkout?.with?.["fetch-depth"], "needs full history to filter-repo").toBe(0);
+  });
+
   // [LDB-G6] repoLayout()'s prefix logic (tests/tools/repo.ts, 12 §3 X5
   // item 5), unit-tested on both branches against a scratch temp dir --
   // the real proof that db/tests/tools/{ciwiring,boundary,frozen}.test.ts

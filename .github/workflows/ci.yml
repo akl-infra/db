@@ -16,7 +16,8 @@ on:
       - "db/**"
       - ".github/workflows/db.yml"
   schedule:
-    - cron: "0 4 * * *" # 04:00 UTC daily (07 §7)
+    - cron: "0 4 * * *" # 04:00 UTC daily (07 §7) -- the `daily` job
+    - cron: "0 5 * * 0" # 05:00 UTC Sundays (12 §3 X5 item 6, LDB-G6) -- the `split-dry-run` job
   workflow_dispatch: {}
 
 jobs:
@@ -113,7 +114,7 @@ jobs:
   # Both steps fail loudly on any problem; neither is allowed to skip
   # silently (07 §6 S8: "a skip nobody reads is a pass").
   daily:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: (github.event_name == 'schedule' && github.event.schedule == '0 4 * * *') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -139,3 +140,31 @@ jobs:
         run: |
           set -euo pipefail
           DB_BASE_URL="${{ vars.DB_BASE_URL }}" npx vitest run tests/upstream-diff.test.ts --project node
+
+  # `workflow_dispatch`/the weekly Sunday cron only (12 §3 X5 item 6,
+  # LDB-G6) -- runs scripts/split/split-db.sh --dry-run at the repo root
+  # (NOT `working-directory: db`: the script clones the whole repo, filters
+  # db/ and bot/ into their own throwaway trees, and proves each tests
+  # green with no edits). `needs: test` -- no point splitting a red tree.
+  split-dry-run:
+    needs: test
+    if: (github.event_name == 'schedule' && github.event.schedule == '0 5 * * 0') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install git-filter-repo
+        run: pip install --user git-filter-repo
+      - name: Configure git identity (filter-repo needs one to rewrite history)
+        run: |
+          git config --global user.email "ci@akl.gg"
+          git config --global user.name "akl-db CI"
+      - name: split-db.sh --dry-run
+        run: PATH="$HOME/.local/bin:$PATH" sh scripts/split/split-db.sh --dry-run
