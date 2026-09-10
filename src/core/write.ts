@@ -267,7 +267,11 @@ export async function replaceLayout(
     layoutId: record.id,
     name: record.name,
     owner: record.owner,
-    modified_at: now(),
+    // A magic-only write leaves `modified_at` alone (2026-09-10): magic is a
+    // layer the cmini import never touches, so the record's own modified_at
+    // keeps mirroring upstream's -- the seed bumped 67 records' and the
+    // daily diff flagged every one until the next upstream change.
+    modified_at: magicOnly ? record.modified_at : now(),
     format: body.format,
     payload: body.payload,
     actor: actor.user_id,
@@ -521,7 +525,7 @@ export async function patchLayout(
     layoutId: record.id,
     name,
     owner: record.owner,
-    modified_at: now(),
+    modified_at: magicOnly ? record.modified_at : now(), // magic-only: see replaceLayout
     format,
     payload,
     actor: actor.user_id,

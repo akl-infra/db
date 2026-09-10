@@ -183,6 +183,13 @@ describe("[LDB-A7] PUT /v1/layouts/{ref}: owner or admin", () => {
     expect(res.status).toBe(200);
     const events = await eventsFor(record.id);
     expect(events.at(-1)).toMatchObject({ kind: "updated", detail: { magic_only: true } });
+    // and modified_at is untouched (2026-09-10): magic is a layer the cmini
+    // import never touches, so the record keeps mirroring upstream's
+    // modified_at -- the seed had bumped 67 records' and the daily diff
+    // flagged every one.
+    const body = (await res.json()) as { modified_at: string; rev: number };
+    expect(body.modified_at).toBe(record.modified_at);
+    expect(body.rev).toBe(record.rev + 1);
   });
 
   it("[LDB-I12] a PUT lifting cmini/1 -> akl/1 with ONLY magic added (the migration's own shape) is marked magic_only", async () => {
