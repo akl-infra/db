@@ -68,13 +68,13 @@ anything; only the prefix changes (§8).
 | `add` | `add [LAYOUT]` | `POST /v1/layouts` `format: akl/1` | the grid parser is rewritten in TS with cmini's exact error strings (`missing gap before column …`, LDB-P7); board word derived as `add.py` does, stored as `board.cmini` + geometry |
 | `remove` | `remove [name]` | `DELETE /v1/layouts/{name}` | `403 not_owner` → *you don't own any layout named* |
 | `rename` | `rename [old] [new]` | `PATCH {name}` | `409 name_taken` → *already exists* |
-| `assign` | `assign` (transfer) | `POST …/transfer {to}` | |
+| `assign` `transfer` | `assign [LAYOUT] [AUTHOR]` | `POST …/transfer {to}` | C4 (18 §2, LDB-B32, 2026-09-10 SHIPPED): `transfer` registered as the SAME Command object -- `assign` kept for cmini muscle memory |
 | `setfingermap` | `setfingermap [name] [MATRIX]` | `PATCH {fingermap}` (+ `{board}` when implied) | validation strings preserved |
 | `swap!` `cycle!` | `swap! [name] [chars]` | local transform then `PUT` | |
 | `angle!` `unangle!` | `angle! [name]` | local transform then `PUT` | `mini` refusal client-side |
 | `mirror!` | `mirror! [name]` | local transform then `PUT` | |
 | `like` `unlike` | `like [name]` | `PUT`/`DELETE …/like` | qwerty refusal server-side too |
-| `link` `unlink` | (admin-only in cmini) | **dropped** — no link on the record (round-1 review) | |
+| `link` `unlink` | (admin-only in cmini) | **dropped** — no link on the record (round-1 review); C1 (18 §2, LDB-B30, 2026-09-10 SHIPPED) removed the `!link` VERB too — `linkFor`/`siteIdFor`/`appendSiteLink` moved to `commands/siteLink.ts`, still used everywhere else | |
 | `admin` `maintenance` | restricted | `/v1/admin/*` where they map; the rest stay bot-local | |
 
 ### 2.2 Read verbs → compute over the cache
@@ -105,9 +105,44 @@ akl alt pairings` — rewritten as-is, no layouts involved.
 
 - `!spark magic [name]` — a layout's magic as the author wrote it (idioms
   from `akl/1`, raw rules otherwise) — reads `?as=akl/1`.
-- `!spark history [name]` — last 5 events.
+- `!spark history [name]` — last 5 events. **Changed 2026-09-10** (C7, §2.5
+  below): now a header line + a link to layoutdb's own changelog, no more
+  per-call DB fetch.
 - `!spark image [name]` — the site's copy-as-image render (§3), which is
-  what #218 asked for from mana.
+  what #218 asked for from mana. **Extended 2026-09-10** (C12, §2.5): a
+  second name renders the site's compare card.
+
+### 2.5 Update 2026-09-10 (`18-command-decisions.md`'s round-2 review) — SHIPPED
+
+- **C1/LDB-B30**: `link`/`mod`/`pattern`/`freqd` dropped from the registry
+  outright (their modules deleted, not just unregistered).
+  `commands/link.ts`'s `linkFor`/`siteIdFor`/`appendSiteLink` moved to
+  `commands/siteLink.ts`.
+- **C2/LDB-B31**: `search`/`filter`/`homerow` are one-line redirect stubs
+  (`copy.ts`'s `siteFiltersRedirect`) — no DSL, no cache read, no fetch
+  (added to `NO_FRESH_VERBS`); `render/similar.ts` (Jaro-Winkler) deleted
+  with them.
+- **C4/LDB-B32**: `transfer` is a second registry key for `assign`'s own
+  `Command` object.
+- **C5/LDB-B33**: `freq`/`freqs` collapse into one implementation
+  (`freqs.ts`'s grouped-with-reverse output), registered under both names;
+  `freq.ts` deleted.
+- **C6/LDB-B34**: `authors [page]` pages like `rank` — `AUTHORS_PAGE_SIZE`
+  = `rank.ts`'s own `LENGTH` (15), a plain 1-based page number, page 1
+  default; the LDB-B19 byte-budget cap stays as the within-page backstop.
+- **C7/LDB-B35**: `history` moves to the cache-only column — no more
+  per-call `GET /v1/layouts/{ref}/history`, no more "last 5 events". The
+  reply is `image.ts`'s own header-line shape plus a masked link to
+  layoutdb's own public changelog (`db/src/routes/changelog.ts`'s
+  `/admin/changelog?layout=<name>`, `ctx.dbBaseUrl` — a NEW `CommandContext`
+  field, distinct from `siteBaseUrl`/akl.gg until D3 gives akl.gg its own
+  changelist page).
+- **C8/LDB-B36**: `compare` appends the site's compare-dock link
+  (`siteLink.ts`'s `compareLinkFor`, `encodeStateHash({cmpA, cmpB})`).
+- **C12/LDB-B36**: `image <a> <b>` renders the site's compare card through
+  the SAME drawing code `image <a>` uses (`render/image.ts`'s
+  `buildStandaloneImagePlan`, extended with an optional `base`); `image
+  <a>` (one name) is unchanged.
 
 ## 3. Rendering
 
@@ -216,6 +251,13 @@ live in this repo).
 | LDB-B29 | The key grids (`view`, `fingermap`, the read-only previews) are painted per finger in Discord's ANSI colors -- three colors only (saltorbit, 2026-09-10): yellow on the middle fingers and thumbs, cyan on LP/LI/RR, pink on LR/RI/RP, alternated so no adjacent fingers share one; the colored grid is the plain grid plus escape codes and nothing else, so cmini's parity strings survive byte-for-byte and a client without ANSI shows today's output. | `bot/tests/render/ansi.test.ts` |
 | LDB-B26 | A reply never contains a user-supplied string that hasn't been validated as a name (GH #304: "Don't repeat user strings -- abuse to get around blocks"; `16-command-audit.md` §3 F1). `copy.ts`'s `quoteUserText(text, kind, quoted?)` echoes the caller's own text verbatim only when it passes that kind's own allow-list (`layout`/`user`: the DB's own name rules; `corpus`/`ngram`/`verb`: narrower charsets); anything else -- a mention, `@everyone`/`@here`, a URL, a newline, 65+ chars, unicode, empty -- answers a neutral, still-grammatical fallback instead. A record's own name/a cache-resolved author name/a `defs`-confirmed corpus are data, not input, and stay untouched. | `bot/tests/copy.test.ts`, `bot/tests/commands/no-raw-echo.property.test.ts` |
 | LDB-B27 | A reply never exceeds Discord's 2 000-char message limit (`16-command-audit.md` §3 F2: only `!authors`, LDB-B19, capped itself before this). `main.ts`'s `capReplyContent` runs over every reply inside `replyOrAlert`; a no-op under the limit, otherwise cut to fit (preferring the last newline, closing an open ``` fence first) with a `… (truncated)` marker appended. | `bot/tests/main.test.ts` |
+| LDB-B30 | `link`/`mod`/`pattern`/`freqd` DROPPED from the registry (§2.5 C1, 2026-09-10) -- modules deleted, `help` lists none of them. | `bot/tests/commands/registry.test.ts` |
+| LDB-B31 | `search`/`filter`/`homerow` are redirect stubs (§2.5 C2) -- one line, zero cache/network reads. | `bot/tests/commands/read.test.ts` |
+| LDB-B32 | `transfer` is `assign`'s own `Command` object under a second registry key (§2.5 C4). | `bot/tests/commands/write.test.ts` |
+| LDB-B33 | `freq`/`freqs` are one implementation registered under both names (§2.5 C5). | `bot/tests/commands/ngramVerbs.test.ts` |
+| LDB-B34 | `authors [page]` pages like `rank` (§2.5 C6) -- 15/page, 1-based, out-of-range answers honestly; LDB-B19's cap stays as the within-page backstop. | `bot/tests/commands/read.test.ts` |
+| LDB-B35 | `history` is cache-only (§2.5 C7) -- no more per-call DB fetch; the reply is a header line + a masked link to layoutdb's own changelog. | `bot/tests/commands/history.test.ts` |
+| LDB-B36 | `compare`/`image <a> <b>` append the site's compare-dock link (§2.5 C8); `image <a> <b>` additionally renders the site's compare CARD through the same drawing code `image <a>` uses (§2.5 C12). | `bot/tests/commands/{read,image}.test.ts`, `bot/tests/render/image.test.ts` |
 
 ## 8. Open questions (bot)
 

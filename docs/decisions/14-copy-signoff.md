@@ -167,6 +167,62 @@ LDB-B27 (branch `ldb-b26`, 2026-09-10) adds ONE new string -- the marker line `c
 124:const TRUNCATED_MARKER = '… (truncated)';
 ```
 
+## `bot/src/copy.ts` (round 2, worktree `worktree-ldb-v3`, 2026-09-10)
+
+`18-command-decisions.md` §2's C1-C8/C12 items add THREE new strings:
+
+```ts
+// C2 (18-command-decisions.md, LDB-B31, 2026-09-10): `search`/`filter`/
+// `homerow`'s DSL is gone -- "the complex things should direct people to
+// the site" (saltorbit). Registered honest redirect stubs rather than
+// unregistered/"unknown command" -- one line, a masked link to akl.gg's
+// own filters, matching the LDB-B25 masked-link template (`[akl.gg](<url>)`).
+// COPY: sign-off pending
+export function siteFiltersRedirect(siteBaseUrl: string): string {
+  return `Search and filter live on akl.gg: [akl.gg](<${siteBaseUrl}>)`;
+}
+
+// C6 (18-command-decisions.md, LDB-B34, 2026-09-10): `authors [page]`
+// pages like `rank` (same 15-per-page size). ...
+// COPY: sign-off pending
+export function invalidPageNumber(): string {
+  return 'Error: invalid page number';
+}
+
+export function pageOutOfRange(page: number, totalPages: number): string {
+  const plural = totalPages === 1 ? 'is' : 'are';
+  const noun = totalPages === 1 ? 'page' : 'pages';
+  return `Error: page ${page} is out of range -- there ${plural} only ${totalPages} ${noun}`;
+}
+```
+
+Plus one changed `desc()` string (not flagged inline -- `use()`/`desc()`
+text follows the existing lighter convention, "the description text is a
+bot string, ledgered", `authors.ts`'s own header comment) — listed here
+for the same sign-off:
+
+- `commands/assign.ts`: `'assign your layout to a new author'` →
+  `'assign your layout to a new author (alias: transfer)'` (C4, LDB-B32 --
+  `transfer` is registered as a second key for the same Command).
+- `commands/search.ts`/`filter.ts`/`homerow.ts`: `desc()` reworded to
+  `'... -- now on akl.gg'` (C2, LDB-B31), and `use()` shortened to just the
+  bare verb name (no more flag/arg usage line, since none of the three
+  parses args any more).
+- `commands/authors.ts`: `desc()` → `'see a list of layout creators, 15
+  per page'` (C6, LDB-B34); `use()` → `'authors [page]'`.
+- `commands/history.ts`: `desc()` → `"see a layout's changelog on akl.gg"`
+  (C7, LDB-B35; was `'see the last 5 events for a layout'`).
+- `commands/image.ts`: `desc()` → `"get a picture of a layout's detail
+  card, or a compare card for two"` (C12, LDB-B36); `use()` →
+  `'image [name] [old_name]'`.
+
+Two masked links reuse the EXISTING `appendSiteLink`/`[akl.gg](<url>)`
+template (`siteLink.ts`'s new `appendMaskedLink`, C7/C8/C12's `history`/
+`compare`/`image <a> <b>`) -- no new wording there, just the same visible
+text (`akl.gg`) pointed at a different url. `image <a> <b>`'s header line
+reuses `compare.ts`'s own EXISTING parity text (`${new}(new) -
+${old}(old)`) verbatim rather than inventing new "a vs b" wording.
+
 ## Other flagged spots
 
 - web/src/ui/card/PublishSheet.tsx:8:// is `copy/db.ts`'s own stand-in (COPY: sign-off pending -- CLAUDE.md's
