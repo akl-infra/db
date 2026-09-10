@@ -1180,3 +1180,8 @@ ledgered and flippable by saltorbit):**
   formats-list fixture changed only by the three new fields; db
   typecheck 0, vitest 16 068 passed / 0 failed (+31); bot 775. Next: S8's
   adoption guide + LDB-G10, then the combined gate run and the rebase.
+- **2026-09-11 ~03:10Z** — S8's adoption guide + LDB-G10 started (Sonnet
+  agent, this worktree). Combined-branch gates at 1e3bac56e, beyond the
+  per-slice runs: site `gates.sh --fast` ALL PASS (typecheck, lint,
+  archlint, behaviors, dbtest, datasync); scripts pytest (§0 set + the
+  verify and migrate-records tests) 127 passed / 1 skipped.
