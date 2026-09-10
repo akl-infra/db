@@ -140,6 +140,18 @@ are in §8; §3/§4 already carry the fixes.** **Pick-up guide: read §0, then
     rewritten: events written before 0005 read `source: {client:
     "legacy:<via>", version: null}`. A rollback-by-source admin tool is
     the follow-up this enables; it is not in this branch. Slice S3s.
+15. **An API adoption guide, and every layoutdb doc on the site,
+    cross-linked** (saltorbit, 2026-09-10, during implementation: "a clear API
+    adoption document that humans and agents can both follow if they want
+    to write a discord bot or user client. Also all of these docs we're
+    writing should end up on the site. Make sure they're linked to each
+    other somewhere so you can navigate between them"). Slice S8. The
+    guide lives with the service (`db/docs/adoption.md`, so it moves with
+    `db/` at the repo split) and is written after S2–S6 settle the API it
+    describes. The site gets a docs hub at `/layoutdb/`: one page per doc,
+    a shared navigation listing every doc on every page, and each page's
+    raw `.md` beside it for agents. Nothing in the main app links to the
+    hub yet: that would be new UI copy, which needs saltorbit's sign-off.
 
 ## 2. Deploy order (for c7 / saltorbit; nothing here deploys)
 
@@ -175,7 +187,7 @@ which the deployed bot holds as unreadable. So:
 
 ## 3. Slices (serial; one Sonnet agent at a time, working in this branch's own worktree — no per-slice worktrees, because the disk hit 95% on 2026-09-10; the lead reviews every diff before committing)
 
-Order: S1 → S2 → S3a → S3s → S3b → S4 → S5 → S6 → S7.
+Order: S1 → S2 → S3a → S3s → S3b → S4 → S5 → S6 → S7 → S8.
 
 Shared vocabulary, defined once in S1 (`db/formats/registry.ts`) and used by
 every later slice:
@@ -512,6 +524,35 @@ D6.
   those fields (`test_sync_db_source.py`).
 - Tests: bot B48, B49 (§5), pytest parity.
 
+**S8 · adoption guide + docs hub (after S7; the API is final by then).**
+- `db/docs/adoption.md`: for a human or an agent building (a) a Discord
+  bot on the client lane, (b) a user client on the user lane. Sections in
+  task order: pick a lane; register (client lane: the admin registration
+  and the Ed25519 signing recipe with the `tests/vectors/client-signing.json`
+  vectors; user lane: Discord OAuth `identify`, the Bearer header); read
+  (`/v1/layouts`, `?as=spark/1` and `?as=mana2/1`, `full=1`, `/v1/formats`,
+  schemas); stay current (`/v1/changes?since=`, the SSE stream, webhooks,
+  dumps; how to fold events, `migrated` included); write (spark payloads,
+  `If-Match` and `409 stale` handling, `X-Client-Version`, PATCH verbs,
+  errors); limits (rate limits, the 409/400 table); conformance (the
+  vectors and fixtures a client can test itself against). Every request
+  and response shown as a copy-pasteable example. Agent-first details: one
+  endpoint table with method, path, auth, body, success and error codes.
+- `design/layout-db/build_site.mjs`: renders the hub into `web/layoutdb/`
+  with the federation renderer (`design/federation/build_page.mjs`'s
+  `render`): `index.html` (what layoutdb is, who each doc is for, the
+  list), one `web/layoutdb/<slug>/index.html` + `<slug>.md` per doc, and
+  the architecture page (the approved artifact's HTML, checked in as
+  `design/layout-db/architecture.html`) wrapped with the same nav. Docs,
+  in reader order: architecture, adoption guide, formats (01), API (03),
+  auth (02), governance (04), the spark plan (20), upcast (19), then the
+  design record (00, 05–18) in a collapsed group. Every page carries the
+  same side navigation with every doc exactly once, plus previous/next.
+  Replaces `design/layout-db/build_page.mjs`'s single `proposal.html`.
+- `scripts/assemble_dist.mjs` `ENTRIES` gains `['layoutdb', 'layoutdb',
+  true]`; the gate's sparse-checkout cone gains what the test imports.
+- Tests (db, `tests/tools/docs-site.test.ts`): LDB-G9 and LDB-G10.
+
 **S7 · docs.** Amend `01-format.md`, `03-api.md` (native-`format` +
 label rule, `upstream`, `migrated`, `format_not_writable`, restore body,
 `/v1/formats` `role`/`aliases`), `06-akl-integration.md`,
@@ -523,8 +564,8 @@ R-M3). **Rows are not moved here**: each slice already landed its rows
 ## 4. Invariants (the covenant) — ids checked free 2026-09-10
 
 Registered today (grep `db/INVARIANTS.md`, 2026-09-10): F ≤ 15, I ≤ 12,
-P ≤ 10, D ≤ 5; bot B ≤ 47. This plan claims F16–F21, I13–I14, P11–P15,
-D6, B48–B50.
+P ≤ 10, D ≤ 5, G ≤ 8; bot B ≤ 47. This plan claims F16–F21, I13–I14,
+P11–P15, D6, G9–G10, B48–B50.
 
 | id | slice | invariant | enforced by |
 |---|---|---|---|
@@ -543,6 +584,8 @@ D6, B48–B50.
 | LDB-P14 | S3a | A write with `expectRev` commits only if the record is still at that rev: a user write interleaved between a system writer's read and its write survives, and the record stays `forked` | property: random interleavings of {import, strip, migrate} × {user write} |
 | LDB-P15 | S3s | Every rev-bumping event written after 0005 carries `source.client` derived from the authenticated identity (`client:<id>`, `discord-app:<app id>`) or the system writer (`system:cmini-import`, `system:migration`), never from a header or body; `source.version` is the validated `X-Client-Version` or null; the record's `source` equals its latest rev-bumping event's (fold); `/history` and `/rev/{n}` return per-rev source; pre-0005 events read `legacy:<via>` | lane × verb × header matrix; spoof matrix; replay property (with P11) |
 | LDB-A2 (amended) | S3s | The Discord cache also keys the token's application id from `/oauth2/@me`; a cached row without it is a miss | `tests/auth/discord.test.ts` |
+| LDB-G9 | S8 | The docs hub ships and cannot drift: every page in `web/layoutdb/` equals a fresh render of its source; every page's navigation lists every doc exactly once; every internal link and every raw `.md` link resolves; every `design/layout-db/*.md` and `db/docs/*.md` is in the hub | `tests/tools/docs-site.test.ts` |
+| LDB-G10 | S8 | The adoption guide covers the API exactly: the set of public routes enumerated from the router equals the guide's endpoint table (method + path), and every error code the guide lists is one the error factories can produce | `tests/tools/docs-site.test.ts` |
 | LDB-D6 | S5 | Per-major dumps: one file per registered stored major, held rows marked, sha256 sidecars; `latest.json` unchanged | dump tests |
 | LDB-D1 / D5 (amended) | S3a | The dump carries `upstream_source/id/state`; `restoreSql` round-trips them; a dump without them restores NULL; the drill's per-record HTTP check includes `upstream` | `dump.test.ts`, `rehost.test.ts`, `drill/verify.test.ts` |
 | LDB-R1 (amended) | S2 | The ETag also changes when the wire version changes (`WIRE_VERSION` folded into the query hash) | `etag.test.ts` |
@@ -811,3 +854,9 @@ ledgered and flippable by saltorbit):**
    they stay readable through LDB-F21.
 4. **Workers Paid**, per 13-ledger and the account memory (`akl`,
    Workers Paid). S7 corrects 08.
+- **2026-09-10 ~17:45Z** — S1 agent (Sonnet) started in this worktree.
+  saltorbit added decision 15 mid-run (adoption guide + docs hub on the site,
+  cross-linked) → slice S8, LDB-G9/G10. Root `node_modules` is missing in
+  this worktree and main's lockfile differs, so the site test
+  (`akl1.vitest.ts`) and `gates.sh --fast` need a root `npm ci` before the
+  rebase (disk: 26 GB free).
