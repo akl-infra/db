@@ -1213,3 +1213,13 @@ ledgered and flippable by saltorbit):**
   historical. db `tests/tools` 53/53. Next: rebase onto `ldb-v3` as the
   new branch `ldb-spark-final` (a force push of `ldb-spark` is refused
   here, and c7 can fast-forward to the new branch just the same).
+- **2026-09-11 ~04:40Z** — **Rebased for the hand-off.** New branch
+  `ldb-spark-final` = `ldb-spark` rebased onto `ldb-v3` 60d70b7d8 (29
+  commits, zero conflicts; `bot/INVARIANTS.md` auto-merged, B44–B50 each
+  once). `ldb-v3` is an ancestor, so it fast-forwards. c7's full gate set on
+  the rebased tree: db typecheck 0, vitest 16 071 passed / 0 failed; bot
+  typecheck 0, lint clean, vitest 775 passed; site `gates.sh --fast` ALL
+  PASS; copy-image + `akl1.vitest.ts` 59 passed; scripts pytest 127 / 1
+  skipped. Sent to cmini-web-c7 for its gates and the fast-forward.
+  (`ldb-spark` keeps the pre-rebase history; a force push of it is refused
+  here.) Pipeline consolidation parked as GitHub issue #313.
