@@ -181,9 +181,69 @@ akl alt pairings` — rewritten as-is, no layouts involved.
   write-success stats block prints the card's own rows in the card's
   order — `Alt`, `Roll` (In/Out), `Rol2` (In/Out), `Rol3` (In/Out), `Red`
   (Bad), `SFB`, `SFS` (Alt/Red), `LH/RH` — in cmini's column shape
-  (`render/grid.ts`'s `statsStr`). Stretch/Scissor/NoTh/Thumb are not
-  printed: the composed cmini row carries none of those numbers. Verb
-  names/aliases untouched. Signed-off copy (`14-copy-signoff.md` round 4).
+  (`render/grid.ts`'s `statsStr`). Stretch/Scissor are not printed: the
+  composed cmini row carries no such numbers (NoTh/Thumb, which it does
+  carry, followed as LDB-B44 below). Verb names/aliases untouched.
+  Signed-off copy (`14-copy-signoff.md` round 4).
+- **LDB-B43 (saltorbit 2026-09-10, live: `!sp view night` drew the LT thumb
+  `r` at x=21)**: thumb rows keep their ABSOLUTE columns.
+  `render/matrix.ts` had ported cmini's OLD cluster-relative thumb rule
+  (a fixed 6/13-space indent on row 3, `thumbIndent`) on top of records
+  that carry absolute thumb columns since cmini's 2026-08-31 v3
+  re-encoding, so the leading blank cells AND the fixed indent both
+  applied. All three thumb-indent branches (key grid, finger grid, common
+  matrix) are gone — akl.gg's own `matrixText` rule: the row's leading
+  blank cells are the indent. An LT-home thumb (col 3) sits 6 chars into
+  its row, an RT-home one (col 6) 13, plus the 2-char display margin
+  every cmini row carries (night's thumb line: `        r`). The seven
+  thumb-bearing `tests/fixtures/cmini-matrix` goldens were regenerated
+  (`gen-cmini-goldens.py` mirrors the rule); every non-thumb LDB-B1
+  golden is byte-identical.
+- **C13 follow-up, LDB-B41 (saltorbit 2026-09-10, mockup round T2)**: the
+  `view`/`compare` text grid shows the space key. When a layout's
+  RESOLVED space context is `lt`/`rt`, the key grid gains exactly one `␣`
+  (U+2423) under the thumb side that types space; `none` leaves the grid
+  byte-identical to today's. Placement (`render/matrix.ts`'s
+  `spaceKeyPlacement`/`withSpaceKeys`, akl.gg's `dottedSpaceKeyPos` idea
+  in text form): a new line under the bottom alpha row's LM/RM key plus
+  the board's stagger step, or — when the layout renders a thumb row with
+  keys on that side — on that row, one cell outside the cluster, never
+  crossing the center gap; a key is never overwritten. `view` resolves
+  the side first (`resolveSpace`, memoised — the same call `rowFor('auto')`
+  would make) and reads the row for it; `compare` resolves each layout on
+  its own and marks each one's space on the common grid. Worked example
+  (graphite as stored, space on the left thumb): `  q x m c v  k p . - /`
+  then `      ␣` (under `m`). `fingermap`/`magic`/`image`'s header line,
+  the write verbs' success blocks, `random` and the previews are
+  untouched. Header/corpus lines untouched (not a picked change).
+- **LDB-B44 (saltorbit 2026-09-10: "add the thumb reds category like we have
+  on akl.gg whenever a thumb is involved (sg, thumb alpha)")**: after the
+  `Red` row, `statsStr` prints the card's own `NoTh`/`Thumb` sub-rows
+  (`StatsCmini.tsx`, `copy/card.ts` labels), gated exactly as the site
+  gates them — `red_thumb != null` (a thumb key) OR `forceThumb`, which
+  `toString` sets when the resolved space context is `lt`/`rt`; `compare`
+  gates on either layout qualifying and nets a one-sided thumb null
+  against 0 (the site's `dvD` rule). The four fields enter
+  `CminiStatsRow` through the ONE adapter `shared.ts:toCminiStatsRow`
+  (LDB-B5). Label column = cmini's ` {:>5}` = 6 wide, which `Thumb:` fills
+  exactly. graphite/reddit with spacegrams on: `  Red:  4.88%   (Bad:
+  0.13%)` / ` NoTh:  1.10%   (Bad:     0.13%)` / `Thumb:  3.78%   (Bad:
+  0.00%)`; a thumbless layout with spacegrams off prints today's block.
+- **C13 follow-up, LDB-B42 (saltorbit 2026-09-10, mockup round I1)**: the
+  `!image` card draws akl.gg's own dashed synthetic space key on each
+  layout's RESOLVED side (`render/image.ts` hands `spaceSide`/
+  `base.spaceSide` to the site's own `measureKb`, `lt`/`rt` → `'lt'`/
+  `'rt'`, `none` → null; `mana2Spacegrams` follows), and the footer's
+  corpus string becomes `<corpus> · SG On` / `<corpus> · SG Off`
+  (`copy.ts`'s `spacegramsFooterSuffix` — the two strings dictated
+  verbatim, signed, `14-copy-signoff.md` round 5; `Off` iff the
+  preference is `off`, `On` for any resolved side, a compare card whose
+  sides differ included), so the drawn line reads `corpus: reddit · SG On
+  ·  akl.gg`. The long forms (`· spacegrams (auto: new left thumb, old
+  right thumb)` etc.) overflowed the footer into the LH/RH block and are
+  gone; the footer is now measured against the card width for the
+  longest corpus name. A new `graphite-sg-lt` image golden per
+  platform+arch.
 
 ## 3. Rendering
 
@@ -303,6 +363,10 @@ live in this repo).
 | LDB-B38 | akl.gg's own card-label names -- `alt`/`rol2`/`rol3`/`red`/`sfb` -- are PRIMARY registry aliases of `alternates`/`rolls`/`onehands`/`redirects`/`sfbs` (§2.5 C10), same `Command` instance under both keys. | `bot/tests/commands/ngramVerbs.test.ts` |
 | LDB-B39 | `!spacegrams auto` (§2.5 C13 follow-up) is akl.gg's own auto rule per layout: the bot's side == `autoSpaceSideFrom(keys, computeVowelHand(keys), ltRed, rtRed)` over the bot's own engine's plain Redirect Totals; memoised per (id, rev, corpus), at most two computes per `view`, zero for a harvested record. | `bot/tests/cache/autoSpace.test.ts` (matrix + property), `bot/tests/commands/{read,image}.test.ts`, `bot/tests/copy.test.ts`, `bot/tests/prefs.test.ts` |
 | LDB-B40 | No stats-rendering reply contains a cmini-only stat name (`Onehand`, `One:`, `Rol:`, `Rtl`, `Alternates`, `Inrolls`/`Outrolls`, bare `Rolls`, `Red/Alt`) -- akl.gg's names everywhere (§2.5), the stats block in the card's row order. | `bot/tests/commands/statNames.test.ts`, `bot/tests/render/grid.test.ts`, `bot/tests/commands/ngramVerbs.test.ts`, `bot/tests/copy.test.ts` |
+| LDB-B41 | `view`/`compare`'s key grid shows exactly one `␣` under the thumb side that types space when the layout's resolved space context is `lt`/`rt` (§2.5), byte-identical to today's grid with `none`; against the thumb cluster on that side or under the bottom row's LM/RM column, never across the center gap, never over a key. | `bot/tests/render/matrix.test.ts` (matrix over every fixture x both sides), `bot/tests/render/grid.test.ts` (exact blocks), `bot/tests/commands/read.test.ts` |
+| LDB-B42 | The `!image` card draws akl.gg's own dashed space key on each layout's resolved side through the site's own `measureKb` (none on both sides = the pre-B42 card byte-for-byte) and its footer says `<corpus> · SG On` / `· SG Off` (§2.5), never wider than the card for the longest corpus name. | `bot/tests/render/image.test.ts` (per-side synthetic item, footer width, the `graphite-sg-lt` golden), `bot/tests/commands/image.test.ts`, `bot/tests/copy.test.ts` |
+| LDB-B43 | Thumb rows keep their absolute columns (§2.5): every thumb key's x in the bot's grid equals its x in akl.gg's `matrixText` plus the 2-char display margin (LT-home col 3 = 6 into the row, RT-home col 6 = 13); the finger grid and the common matrix agree; the seven thumb-bearing cmini-matrix goldens regenerated, no non-thumb golden changed. | `bot/tests/render/matrix.test.ts` |
+| LDB-B44 | The stats block prints the card's `NoTh`/`Thumb` split of Red exactly when the card shows it -- `red_thumb != null` or a space thumb computed with (§2.5); `compare` on either side qualifying, one-sided nulls netting against 0; the four fields through the ONE adapter (LDB-B5); a thumbless layout with spacegrams off prints today's block. | `bot/tests/render/grid.test.ts`, `bot/tests/commands/read.test.ts`, `bot/tests/commands/statNames.test.ts` |
 
 ## 8. Open questions (bot)
 
