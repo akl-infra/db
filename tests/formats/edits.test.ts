@@ -2,25 +2,25 @@
 // pure (never mutate the input), identity on their own projection
 // (setFingermap(fingermapOf(p)) === p), and validity-preserving (every
 // edit that returns a payload passes the format's own validate()).
-// Generated per format x fixture from the registry (like mutations.test.ts,
-// same fixture-loading convention -- no cross-import, each *.test.ts here
-// duplicates the small helper rather than sharing one).
+// Generated per format x fixture -- the shared shape list
+// (`validated-shapes.ts`) for the generic loop below, since a bare
+// `listFormats()` (this file's convention pre-20-spark.md S1) would
+// silently stop covering the cmini adapter once it left the registry;
+// the four dedicated per-format blocks (board/magic, and mana2's own
+// setFingermap, all excluded from the generic loop for reasons stated at
+// each) keep their own tiny fixture loader, same as before.
 import fs from "node:fs";
 import path from "node:path";
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import { list as listFormats } from "../../src/formats/registry";
-import * as akl1 from "../../formats/akl/1/index.ts";
-import * as cmini1 from "../../formats/cmini/1/index.ts";
+import { validatedShapes, fixturesIn } from "./validated-shapes.ts";
+import * as spark1 from "../../formats/spark/1/index.ts";
+import * as cmini1 from "../../formats/adapters/cmini/index.ts";
+import { toCmini } from "../../formats/adapters/cmini/translate.ts";
 import * as mana2_1 from "../../formats/mana2/1/index.ts";
 import { parseRow, DIGIT_BY_FINGER } from "../../formats/mana2/1/translate.ts";
 
 const FORMATS_DIR = path.resolve(import.meta.dirname, "..", "..", "formats");
-
-function isBaseFixtureFile(filename: string): boolean {
-  if (!filename.endsWith(".json")) return false;
-  return !filename.slice(0, -".json".length).includes(".");
-}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- a payload's exact shape is the format's own business
 interface Fixture {
@@ -28,18 +28,12 @@ interface Fixture {
   payload: any;
 }
 
+// Named-format lookup for the four dedicated blocks below (each pins one
+// real format/adapter by name, not a loop over every registered one).
 function fixturesFor(formatId: string): Fixture[] {
   const [name, major] = formatId.split("/") as [string, string];
   const dir = path.join(FORMATS_DIR, name, major, "fixtures");
-  if (!fs.existsSync(dir)) return [];
-  return fs
-    .readdirSync(dir)
-    .filter(isBaseFixtureFile)
-    .sort()
-    .map((file) => ({
-      stem: file.slice(0, -".json".length),
-      payload: JSON.parse(fs.readFileSync(path.join(dir, file), "utf8")) as unknown,
-    }));
+  return fixturesIn(dir) as Fixture[];
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -71,15 +65,16 @@ const FINGERS = ["LP", "LR", "LM", "LI", "RI", "RM", "RR", "RP", "LT", "RT", "TB
 // setFingermap, below), the same pattern this file already uses for
 // board/magic (cmini/1 setBoard, akl/1 setBoard, akl/1 setMagic are all
 // their own blocks, never squeezed into this generic one).
-const EDIT_FORMATS = listFormats().filter((f) => f.edits !== undefined && f.id !== "mana2/1");
+const EDIT_FORMATS = validatedShapes().filter((f) => f.edits !== undefined && f.id !== "mana2/1");
 
 describe("format edits (LDB-E1)", () => {
   for (const format of EDIT_FORMATS) {
     describe(format.id, () => {
       const edits = format.edits!;
+      const fixtures = fixturesIn(format.fixturesDir) as Fixture[];
 
       if (edits.setFingermap !== undefined) {
-        for (const fixture of fixturesFor(format.id)) {
+        for (const fixture of fixtures) {
           it(`[LDB-E1] ${fixture.stem} setFingermap(fingermapOf(p)) is identity, pure, and valid`, () => {
             const before = structuredClone(fixture.payload);
             const map = fingermapOf(fixture.payload);
@@ -94,7 +89,7 @@ describe("format edits (LDB-E1)", () => {
         }
 
         it("[LDB-E1] a fingermap naming a char not in keys -> invalid_payload at /keys/<c>", () => {
-          const fixture = fixturesFor(format.id)[0]!;
+          const fixture = fixtures[0]!;
           const ghost = "\u0001"; // a control character, never a real layout key across any fixture
           expect(ghost in fixture.payload.keys).toBe(false);
           const before = structuredClone(fixture.payload);
@@ -104,7 +99,7 @@ describe("format edits (LDB-E1)", () => {
         });
 
         it("[LDB-E1] a bad finger word is left to validate()'s re-run: error at /keys/<c>/finger", () => {
-          const fixture = fixturesFor(format.id).find((f) => Object.keys(f.payload.keys).length > 0)!;
+          const fixture = fixtures.find((f) => Object.keys(f.payload.keys).length > 0)!;
           const ch = Object.keys(fixture.payload.keys)[0]!;
           const result = edits.setFingermap!(fixture.payload, { [ch]: "NOT_A_FINGER" });
           expect(isEditError(result)).toBe(false);
@@ -119,7 +114,7 @@ describe("format edits (LDB-E1)", () => {
         });
 
         it("[LDB-E1] a partial fingermap changes exactly the named chars", () => {
-          const fixture = fixturesFor(format.id).find((f) => Object.keys(f.payload.keys).length >= 2)!;
+          const fixture = fixtures.find((f) => Object.keys(f.payload.keys).length >= 2)!;
           const chars = Object.keys(fixture.payload.keys);
           const [changed, untouched] = [chars[0]!, chars[1]!];
           const newFinger = fixture.payload.keys[changed].finger === "LP" ? "RP" : "LP";
@@ -176,7 +171,7 @@ describe("format edits (LDB-E1)", () => {
 describe("cmini/1 setBoard (LDB-E1)", () => {
   const BASE_CMINI_PAYLOAD = { board: "ortho" as const, keys: {} };
 
-  for (const fixture of fixturesFor("akl/1")) {
+  for (const fixture of fixturesFor("spark/1")) {
     it(`[LDB-E1] ${fixture.stem}'s board -> the word to["cmini/1"] derives (or the documented colstag refusal)`, () => {
       const before = structuredClone(BASE_CMINI_PAYLOAD);
       const result = cmini1.edits!.setBoard!(BASE_CMINI_PAYLOAD, fixture.payload.board);
@@ -189,7 +184,7 @@ describe("cmini/1 setBoard (LDB-E1)", () => {
         if (isEditError(result)) expect(result.error.error).toBe("unsupported_for_format");
       } else {
         const payload = unwrap<{ board: unknown }>(result);
-        const expectedWord = (akl1.to["cmini/1"]!(fixture.payload) as { board: unknown }).board;
+        const expectedWord = (toCmini(fixture.payload) as { board: unknown }).board;
         expect(payload.board).toBe(expectedWord);
         expect(cmini1.validate(payload).ok).toBe(true);
       }
@@ -197,7 +192,7 @@ describe("cmini/1 setBoard (LDB-E1)", () => {
   }
 
   it("[LDB-E1] 900-colstag has no board.cmini hint (the fixture this refusal exercises)", () => {
-    const colstag = fixturesFor("akl/1").find((f) => f.stem === "900-colstag")!;
+    const colstag = fixturesFor("spark/1").find((f) => f.stem === "900-colstag")!;
     expect(colstag.payload.board.kind).toBe("colstag");
     expect(colstag.payload.board.cmini).toBeUndefined();
   });
@@ -206,15 +201,15 @@ describe("cmini/1 setBoard (LDB-E1)", () => {
 // -- board (akl/1): the board vocabulary is akl/1's own, validated as a
 // whole by the pipeline's validate() re-run.
 describe("akl/1 setBoard (LDB-E1)", () => {
-  for (const fixture of fixturesFor("akl/1")) {
+  for (const fixture of fixturesFor("spark/1")) {
     it(`[LDB-E1] ${fixture.stem} setBoard(p.board) is identity and pure`, () => {
       const before = structuredClone(fixture.payload);
-      const result = akl1.edits!.setBoard!(fixture.payload, fixture.payload.board);
+      const result = spark1.edits!.setBoard!(fixture.payload, fixture.payload.board);
       expect(fixture.payload).toEqual(before); // purity
       expect(isEditError(result)).toBe(false);
       if (!isEditError(result)) {
         expect(result).toEqual(fixture.payload);
-        expect(akl1.validate(result).ok).toBe(true);
+        expect(spark1.validate(result).ok).toBe(true);
       }
     });
   }
@@ -225,14 +220,14 @@ describe("akl/1 setBoard (LDB-E1)", () => {
 // the invariant is tests/api/patch.test.ts's `unsupported_for_format`
 // case, not a format-level property).
 describe("akl/1 setMagic (LDB-E1)", () => {
-  for (const fixture of fixturesFor("akl/1")) {
+  for (const fixture of fixturesFor("spark/1")) {
     it(`[LDB-E1] ${fixture.stem}: lower(setMagic(p, m)) === lower({...p, magic: m})`, () => {
       const m = fixture.payload.magic; // reuse the fixture's own magic (or undefined) as `m`
       const before = structuredClone(fixture.payload);
-      const result = akl1.edits!.setMagic!(fixture.payload, m);
+      const result = spark1.edits!.setMagic!(fixture.payload, m);
       expect(fixture.payload).toEqual(before); // purity
-      const payload = unwrap<Parameters<typeof akl1.lower>[0]>(result);
-      expect(akl1.lower(payload)).toEqual(akl1.lower({ ...fixture.payload, magic: m }));
+      const payload = unwrap<Parameters<typeof spark1.compileMagic>[0]>(result);
+      expect(spark1.compileMagic(payload)).toEqual(spark1.compileMagic({ ...fixture.payload, magic: m }));
     });
   }
 });

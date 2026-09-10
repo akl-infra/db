@@ -10,8 +10,8 @@
 import type { Actor } from "../auth/actor";
 import type { Bindings } from "../env";
 import { get as getFormat, list as listFormats } from "../formats/registry";
-import * as cmini1 from "../../formats/cmini/1/index";
-import { fromCmini } from "../../formats/akl/1/translate";
+import * as cmini1 from "../../formats/adapters/cmini/index";
+import { fromCmini } from "../../formats/adapters/cmini/translate";
 import { requireIfMatch, type IfMatch } from "./ifmatch";
 import {
   ApiError,

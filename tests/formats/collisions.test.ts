@@ -34,8 +34,8 @@
 // pattern this format's own design doc walks through), or two raw rules
 // sharing a literal `inputs` outright. That's the matrix below.
 import { describe, expect, it } from "vitest";
-import * as akl1 from "../../formats/akl/1/index.ts";
-import type { Payload, Position } from "../../formats/akl/1/index.ts";
+import * as spark1 from "../../formats/spark/1/index.ts";
+import type { Payload, Position } from "../../formats/spark/1/index.ts";
 
 // A small layout wide enough for every case: A-J on the left hand (LP..LI
 // cycling), K-T on the right (RP..RI cycling) -- chiral needs two real
@@ -58,7 +58,7 @@ function payloadWith(magic: Payload["magic"]): Payload {
 }
 
 function expectCollision(payload: Payload, expectFrom: [string, string] | "any", expectHint: { path: string; add: string } | "none" | "any" = "any") {
-  const result = akl1.validate(payload);
+  const result = spark1.validate(payload);
   expect(result.ok).toBe(false);
   if (result.ok) return;
   expect(result.error.error).toBe("magic_collision");
@@ -134,7 +134,7 @@ describe("magic_collision matrix (LDB-F4)", () => {
     const payload = payloadWith({
       magic_keys: [{ key: "k", default: "repeat_previous", rules: [{ after: "a", output: "az" }] }],
     });
-    const result = akl1.validate(payload);
+    const result = spark1.validate(payload);
     expect(result.ok).toBe(true);
   });
 
@@ -142,7 +142,7 @@ describe("magic_collision matrix (LDB-F4)", () => {
     const payload = payloadWith({
       magic_keys: [{ key: "k", default: "z", rules: [{ after: "a", output: "aq" }] }],
     });
-    const result = akl1.validate(payload);
+    const result = spark1.validate(payload);
     expect(result.ok).toBe(true);
   });
 
@@ -191,7 +191,7 @@ describe("magic_collision matrix (LDB-F4)", () => {
       magic_keys: [{ key: "k", default: "repeat_previous", except: ["a"] }],
       adaptive_swaps: [{ trigger: "a", swap: ["k", "b"] }],
     });
-    const result = akl1.validate(payload);
+    const result = spark1.validate(payload);
     expect(result.ok).toBe(true);
   });
 
@@ -200,7 +200,7 @@ describe("magic_collision matrix (LDB-F4)", () => {
       magic_keys: [{ key: "k", default: "z", except: ["a"] }],
       rules: [{ inputs: "ak", output: "ay" }],
     });
-    const result = akl1.validate(payload);
+    const result = spark1.validate(payload);
     expect(result.ok).toBe(true);
   });
 });

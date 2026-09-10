@@ -6,7 +6,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import * as cmini1 from "../../formats/cmini/1/index";
+import * as cmini1 from "../../formats/adapters/cmini/index";
 
 const SNAPSHOT_DIR = path.resolve(import.meta.dirname, "..", "fixtures", "upstream-100");
 

@@ -3,9 +3,9 @@
 // sanctioned way to touch `layouts` (onlywriter.test.ts) -- plus direct
 // reads/writes of `import_map`, a table events.ts doesn't own.
 import type { Bindings } from "../env";
-import * as cmini1 from "../../formats/cmini/1/index";
-import * as akl1 from "../../formats/akl/1/index";
-import { fromCmini, toCmini } from "../../formats/akl/1/translate";
+import * as cmini1 from "../../formats/adapters/cmini/index";
+import * as akl1 from "../../formats/spark/1/index";
+import { fromCmini, toCmini } from "../../formats/adapters/cmini/translate";
 import { canonical } from "../core/canonical";
 import { appendInfo, appendLike, appendWrite } from "../core/events";
 import { followsUpstream } from "../core/follows";

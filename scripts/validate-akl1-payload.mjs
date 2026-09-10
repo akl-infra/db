@@ -30,7 +30,7 @@
 //   input:  a full akl/1 payload object ({ keys, board?, magic?, free?, x? })
 //   output: the ValidationResult JSON validate() returns --
 //           { ok: true } or { ok: false, error: { error, message, ... } }
-import { validate } from '../formats/akl/1/index.ts';
+import { validate } from '../formats/spark/1/index.ts';
 
 function readStdin() {
   return new Promise((resolve, reject) => {

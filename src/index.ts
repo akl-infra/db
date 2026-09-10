@@ -126,7 +126,7 @@ app.get("/v1/meta", async (c) => {
     revision: eventRow?.at ?? null,
     layouts_modified_at: layoutRow?.modified ?? null,
     authors_modified_at: authorRow?.modified ?? null,
-    formats: listFormats().map((f) => f.id), // S3 adds akl/1 alongside cmini/1
+    formats: listFormats().map((f) => f.id), // registered ids only (20-spark.md S1: spark/1, mana2/1 -- aliases excluded)
     last_diff: diffRecord === null ? null : { at: diffRecord.at, ok: diffRecord.ok },
     last_drill: drillRecord === null ? null : { at: drillRecord.at, ok: drillRecord.ok },
   });

@@ -5,15 +5,42 @@ import { Hono } from "hono";
 import type { Bindings } from "../env";
 import { notFound } from "../core/errors";
 import { get as getFormat, list as listFormats } from "../formats/registry";
+import { ALIASES } from "../../formats/registry.ts";
 
 export const formatsRoute = new Hono<{ Bindings: Bindings }>();
+
+// Every alias id whose target is exactly `formatId` -- reachable FROM
+// `formatId` for free (reading `?as=<alias>` of a `formatId`-shaped
+// payload is always the identity translation, LDB-F20/F21).
+function aliasesFor(formatId: string): string[] {
+  return Object.entries(ALIASES)
+    .filter(([, a]) => a.target === formatId)
+    .map(([alias]) => alias);
+}
+
+// `can_translate_to` (20-spark.md S1): the format's own registered
+// `to[...]` targets, PLUS every alias reachable from it -- an alias whose
+// target IS this format (identity via the alias, e.g. `akl/1` from
+// `spark/1`), or whose target is one of this format's own `to[...]`
+// entries (a chain through a registered target), or the special
+// `adapter:cmini` target when this format is `spark/1` (the one format
+// the cmini adapter's `toCmini` can be reached from).
+function reachableFormats(f: { id: string; to: Record<string, unknown> }): string[] {
+  const direct = Object.keys(f.to);
+  const viaAlias = Object.entries(ALIASES)
+    .filter(([, a]) => a.target === f.id || direct.includes(a.target) || (a.target === "adapter:cmini" && f.id === "spark/1"))
+    .map(([alias]) => alias);
+  return [...direct, ...viaAlias];
+}
 
 formatsRoute.get("/v1/formats", (c) => {
   const body = listFormats().map((f) => ({
     id: f.id,
     owner: f.owner,
     description: f.description,
-    can_translate_to: Object.keys(f.to),
+    role: f.role,
+    aliases: aliasesFor(f.id),
+    can_translate_to: reachableFormats(f),
   }));
   return c.json(body);
 });

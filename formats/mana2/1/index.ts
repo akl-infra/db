@@ -8,28 +8,19 @@
 // This module never reads a raw `.jsonc` FILE -- that is jsonc.ts's job,
 // used by scripts/pick-mana2-fixtures.mjs (not at runtime). Every function
 // here (`validate`/`lower`/`to`/`from`) takes an ALREADY-PARSED payload,
-// exactly like cmini/1 and akl/1.
+// exactly like cmini/1 and spark/1.
 import Ajv2020 from "ajv/dist/2020.js";
 import rawSchema from "./schema.json" with { type: "json" };
-import { toAkl, fromAkl, parseRow, dedupeRulesLastWins } from "./translate.ts";
-import type { Payload as AklPayload } from "../../akl/1/index.ts";
-// mana2/1 -> cmini/1 is the composition through akl/1 (12-implementation-
-// phase5.md §2.5: "to['cmini/1'] = p => toCmini(fromMana2(p))"), held
-// passed through (a mana2 payload akl/1 can't express obviously can't
-// reach cmini/1 either). No import cycle back to THIS file: akl/1/
-// translate.ts imports cmini1 as a value, and cmini/1/index.ts imports
-// mana2/1/translate.ts (not this file) as a value; nothing in that chain
-// imports mana2/1/index.ts except as an erased type.
-import { toCmini } from "../../akl/1/translate.ts";
-import type { Payload as CminiPayload } from "../../cmini/1/index.ts";
+import { parseRow, dedupeRulesLastWins } from "./translate.ts";
 
 export const id: `${string}/${number}` = "mana2/1";
 // `GET /v1/formats` (07 §6 S6; registry.ts's FormatModule comment explains
 // why this is a plain export rather than parsed from OWNERS/README.md).
 export const owner = "DB maintainers (a mirror of mana2's loader at the vendored submodule commit -- see README.md; Zak's handle added when confirmed, 12 §1)";
 export const description =
-  "A mana2 .jsonc layout object (layout.fingers/thumbs, board, fingermap, magic.rules) -- mana's own write format. Tap-hold/directional tokens, >5 keys on one thumb, non-empty combos, and rowstag stagger past the 3rd entry disagreeing with it are held for akl/1.";
+  "A mana2 .jsonc layout object (layout.fingers/thumbs, board, fingermap, magic.rules) -- mana's own write format. Tap-hold/directional tokens, >5 keys on one thumb, non-empty combos, and rowstag stagger past the 3rd entry disagreeing with it are held for spark/1.";
 export const schema: object = rawSchema;
+export const role: "stored" | "output" = "output";
 
 export interface Board {
   isRowStaggered: boolean;
@@ -282,19 +273,26 @@ export function hasMagic(p: Payload): boolean {
   return lower(p).length > 0;
 }
 
-type HeldResult = { held: true; reason: string };
+// mana2/1 is an `output`-only role (20-spark.md §1 decision 3: "mana2 is
+// the lowered format ... a write in mana2/1 is refused" -- S2 wires the
+// refusal; S1 changes only the registry shape): nothing is EVER stored as
+// mana2/1, so there is nothing to translate FROM once it's the source, and
+// no `?as=mana2/1` reader needs a registry-level `to`/`from` entry either
+// (spark/1's own `to["mana2/1"]`/`from["mana2/1"]` cover every real read/
+// write path). `toSpark`/`fromSpark` (this format's own converters, above)
+// stay reachable as plain named exports -- mana2.test.ts and the cmini
+// adapter's own `to["mana2/1"]` composition (adapters/cmini/index.ts)
+// import them directly rather than through this now-empty map.
+export const to: Record<string, (p: Payload) => Payload> = {};
+export const from: Record<string, (p: Payload) => Payload> = {};
 
-export const to: Record<string, (p: Payload) => AklPayload | CminiPayload | HeldResult> = {
-  "akl/1": toAkl,
-  "cmini/1": (p) => {
-    const akl = toAkl(p);
-    if ((akl as HeldResult).held === true) return akl as HeldResult;
-    return toCmini(akl as AklPayload);
-  },
-};
-export const from: Record<string, (p: AklPayload) => Payload> = {
-  "akl/1": fromAkl,
-};
+// Plain re-export (not part of the `to`/`from` maps above -- those stay
+// `{}`, 20-spark.md S1) so a package consumer that isn't the registry
+// (the bot's own `cache/translate.ts`, which cannot import `db/src` at
+// all, LDB-B6) can still reach this format's converters by name, the same
+// way it always could via `mana2/1/translate.ts` directly -- just also
+// reachable off the barrel import.
+export { toSpark, fromSpark } from "./translate.ts";
 
 // registry.ts's optional PATCH slot (09 §3 T4) -- see edits.ts.
 // `setFingermap` only: `setBoard`/`setMagic` are `unsupported_for_format`

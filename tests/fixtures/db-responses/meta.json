@@ -6,8 +6,7 @@
  "layouts_modified_at": "2026-09-09T01:13:31Z",
  "authors_modified_at": "2026-06-01T00:00:00.000Z",
  "formats": [
-  "cmini/1",
-  "akl/1",
+  "spark/1",
   "mana2/1"
  ],
  "last_diff": null,

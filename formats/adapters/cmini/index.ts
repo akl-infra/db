@@ -1,28 +1,35 @@
-// cmini/1 -- cmini's v3 layout detail, minus the record fields (07 §5.1).
-// This is the bot's own shape: `keys`/`free`/`magic`/`combos`/`tag`/`blame`
-// are kept verbatim, `link` stays in the payload for import fidelity only
-// (it is never a record field and no verb reads it). The format's job is to
+// The cmini adapter (was the registered format `cmini/1`; moved out of
+// db/formats/ 's registry by 20-spark.md S1 -- decision 2, "cmini is an
+// import source, not a format"). cmini's v3 layout detail, minus the
+// record fields (07 §5.1): `keys`/`free`/`magic`/`combos`/`tag`/`blame` are
+// kept verbatim, `link` stays in the payload for import fidelity only (it
+// is never a record field and no verb reads it). The adapter's job is to
 // hold what cmini holds -- no thumb-row rule, no non-empty-keys rule, both
-// violated by live data (07 §0.1).
+// violated by live data (07 §0.1). NOT in `db/formats/registry.ts`'s
+// `REGISTRY`: the Worker's `LEGACY_WRITABLE` shim (`db/src/formats/
+// registry.ts`, temporary through S2) is what still accepts a `cmini/1`
+// write in S1; every read of a `cmini/1`-stored row goes through
+// `storedAsSpark`/`fromCmini`, never this module directly.
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 import rawSchema from "./schema.json" with { type: "json" };
-// S3: akl/1's translate.ts is the ONE place cmini/1<->akl/1 is implemented
-// (07 §6 S3), so both directions can't drift apart. This creates a module
-// cycle (translate.ts imports this file back for `cmini1.lower`/`Payload`)
-// that's safe here: `fromCmini`/`toCmini` are function declarations (hoisted
-// before either module's top-level code runs) and are only ever CALLED
-// well after both modules finish loading.
-import { fromCmini, toCmini } from "../../akl/1/translate.ts";
-import type { Payload as AklPayload } from "../../akl/1/index.ts";
-// cmini/1 <-> mana2/1 is the composition through akl/1 (12-implementation-
+// This file's own translate.ts is the ONE place cmini<->spark/1 is
+// implemented (moved from spark/1/translate.ts by 20-spark.md S1, was
+// 07 §6 S3's akl/1/translate.ts), so both directions can't drift apart.
+// This creates a module cycle (translate.ts imports this file back for
+// `cmini1.rows`/`Payload`) that's safe here: `fromCmini`/`toCmini` are
+// function declarations (hoisted before either module's top-level code
+// runs) and are only ever CALLED well after both modules finish loading.
+import { fromCmini, toCmini } from "./translate.ts";
+import type { Payload as SparkPayload } from "../../spark/1/index.ts";
+// cmini <-> mana2/1 is the composition through spark/1 (12-implementation-
 // phase5.md §2.5), never a third direct implementation. This direction
-// (cmini -> akl -> mana2) never holds -- akl/1 -> mana2/1 has no held
-// cases (12 §2.5's held rows are all mana2 -> akl) -- so, unlike the
+// (cmini -> spark -> mana2) never holds -- spark/1 -> mana2/1 has no held
+// cases (12 §2.5's held rows are all mana2 -> spark) -- so, unlike the
 // reverse direction (mana2/1/index.ts's own `to["cmini/1"]`), no
 // held-passthrough is needed here. No import cycle: mana2/1/translate.ts
 // imports nothing from this file.
-import { fromAkl as mana2FromAkl } from "../../mana2/1/translate.ts";
+import { fromSpark as mana2FromSpark } from "../../mana2/1/translate.ts";
 import type { Payload as Mana2Payload } from "../../mana2/1/index.ts";
 
 export const id: `${string}/${number}` = "cmini/1";
@@ -187,25 +194,34 @@ export function validate(p: unknown): ValidationResult {
   return { ok: true };
 }
 
-// lower(p) = p.magic ?? [], typed rows default to "raw" (07 §5.1). cmini/1
-// always has a magic concept (never null -- that's for a format with none).
-export function lower(p: Payload): Row[] {
+// rows(p) = p.magic ?? [], typed rows default to "raw" (07 §5.1). cmini
+// always has a magic concept (never null -- that's for a format with
+// none). Was `lower` -- renamed the same way spark/1's own compile step
+// was (20-spark.md S1): `lower` left the `FormatModule` contract, and this
+// module isn't in that contract at all anymore, but the rename keeps the
+// same word meaning the same thing everywhere in db/formats/.
+export function rows(p: Payload): Row[] {
   const magic = p.magic ?? [];
   return magic.map((row) => ({ inputs: row.inputs, output: row.output, type: row.type ?? "raw" }));
 }
 
 export function hasMagic(p: Payload): boolean {
-  return lower(p).length > 0;
+  return rows(p).length > 0;
 }
 
-// 01 §6.1/§6.2, implemented once in akl/1/translate.ts and imported both
-// ways (07 §6 S3) so cmini/1<->akl/1 can't drift out of sync with itself.
-export const to: Record<string, (p: Payload) => AklPayload | Mana2Payload> = {
-  "akl/1": fromCmini, // cmini -> akl IS §6.1's "fromCmini"
-  "mana2/1": (p) => mana2FromAkl(fromCmini(p)), // 12 §2.5's declared composition; never held (see the import comment above)
+// 01 §6.1/§6.2, implemented once in this directory's own translate.ts and
+// imported both ways (moved from akl/1/translate.ts by 20-spark.md S1) so
+// cmini<->spark/1 can't drift out of sync with itself. Not a `FormatModule`
+// `to`/`from` map (this adapter isn't registered) -- kept as plain named
+// exports purely so existing call sites (`goldens.mjs`, `mana2-convert-
+// parity.test.ts`, `roundtrip.test.ts`) don't need restructuring, keyed by
+// spark/1's real id now instead of the old alias-shaped "akl/1".
+export const to: Record<string, (p: Payload) => SparkPayload | Mana2Payload> = {
+  "spark/1": fromCmini, // cmini -> spark IS §6.1's "fromCmini"
+  "mana2/1": (p) => mana2FromSpark(fromCmini(p)), // 12 §2.5's declared composition; never held (see the import comment above)
 };
-export const from: Record<string, (p: AklPayload) => Payload> = {
-  "akl/1": toCmini, // akl -> cmini IS §6.2's "toCmini"
+export const from: Record<string, (p: SparkPayload) => Payload> = {
+  "spark/1": toCmini, // spark -> cmini IS §6.2's "toCmini"
 };
 
 // The record-level projection used by `?as=cmini/1`, the D12 diff and the

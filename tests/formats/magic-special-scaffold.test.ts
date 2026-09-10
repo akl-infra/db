@@ -25,8 +25,8 @@
 // magic/chiral key's own char as another key's `after` -- it cannot
 // exercise this invariant at all, hence dedicated tests here.
 import { describe, expect, it } from "vitest";
-import { computeRows, findCollision, liftRules, type MagicIntent } from "../../formats/akl/1/magic.ts";
-import type { Position } from "../../formats/akl/1/index.ts";
+import { computeRows, findCollision, liftRules, type MagicIntent } from "../../formats/spark/1/magic.ts";
+import type { Position } from "../../formats/spark/1/index.ts";
 
 const LEFT = ["LP", "LR", "LM", "LI"];
 const RIGHT = ["RP", "RR", "RM", "RI"];

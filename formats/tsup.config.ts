@@ -7,7 +7,7 @@
 import { defineConfig } from "tsup";
 
 export default defineConfig({
-  entry: ["index.ts", "cmini/1/index.ts", "akl/1/index.ts", "mana2/1/index.ts"],
+  entry: ["index.ts", "spark/1/index.ts", "mana2/1/index.ts", "adapters/cmini/index.ts"],
   format: ["esm"],
   dts: true,
   splitting: true,

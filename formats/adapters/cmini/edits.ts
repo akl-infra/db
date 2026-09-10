@@ -1,14 +1,14 @@
 // cmini/1's PATCH edits (09-implementation-phase2.md §2.6, §3 T4):
 // fingermap and board only. No `setMagic` -- cmini/1 has no magic idiom of
-// its own (03 §3: an owner moves to akl/1 with a PUT before they can PATCH
+// its own (03 §3: an owner moves to spark/1 with a PUT before they can PATCH
 // magic), so a `magic` PATCH on a cmini/1 record is refused with
 // `unsupported_for_format` by the pipeline before this module is even
 // asked (registry.ts's FormatEdits: an absent entry IS the refusal).
 // Self-contained like index.ts (07 §5): no import of src/formats/
-// registry.ts (only `import type` from ./index.ts and akl/1/index.ts,
+// registry.ts (only `import type` from ./index.ts and spark/1/index.ts,
 // erased at compile time).
 import type { Payload, ErrBody } from "./index.ts";
-import type { Board as AklBoard } from "../../akl/1/index.ts";
+import type { Board as SparkBoard } from "../../spark/1/index.ts";
 
 export type EditResult = Payload | { error: ErrBody };
 
@@ -20,7 +20,7 @@ function invalidPayload(message: string, path: string): { error: ErrBody } {
   return { error: { error: "invalid_payload", message, path } };
 }
 
-// char -> finger; same rule as akl/1's own setFingermap (a named char must
+// char -> finger; same rule as spark/1's own setFingermap (a named char must
 // be one of this layout's keys, else `invalid_payload` at `/keys/<c>`) --
 // cmini/1's `Position` shape is identical.
 export function setFingermap(p: Payload, map: Record<string, string>): EditResult {
@@ -37,7 +37,7 @@ export function setFingermap(p: Payload, map: Record<string, string>): EditResul
   return out;
 }
 
-// `board` arrives shaped as akl/1's board object (01 §2, the API's one
+// `board` arrives shaped as spark/1's board object (01 §2, the API's one
 // board vocabulary) even though this record is cmini/1: `board.cmini` wins
 // when present (the same rule `to["cmini/1"]` uses, 01 §6.2); otherwise a
 // rowstag board derives "stagger", an ortho board derives "ortho". UNLIKE
@@ -51,7 +51,7 @@ export function setBoard(p: Payload, board: unknown): EditResult {
   if (board !== null && typeof board !== "object") {
     return invalidPayload("board must be an object", "/board");
   }
-  const word = deriveWord(board as AklBoard | null | undefined);
+  const word = deriveWord(board as SparkBoard | null | undefined);
   if (word === null) {
     return {
       error: {
@@ -67,7 +67,7 @@ export function setBoard(p: Payload, board: unknown): EditResult {
   return out;
 }
 
-function deriveWord(board: AklBoard | null | undefined): Payload["board"] | null {
+function deriveWord(board: SparkBoard | null | undefined): Payload["board"] | null {
   if (board?.cmini) return board.cmini;
   if (board === undefined || board === null || board.kind === "ortho") return "ortho";
   if (board.kind === "rowstag") return "stagger";

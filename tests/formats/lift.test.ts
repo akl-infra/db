@@ -8,12 +8,12 @@ import fs from "node:fs";
 import path from "node:path";
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import * as cmini1 from "../../formats/cmini/1/index.ts";
-import { computeRows, findCollision, liftRules, specialCharsFromRows, type MagicIntent, type Row } from "../../formats/akl/1/magic.ts";
-import { reconcileScaffoldsToTrueRows } from "../../formats/akl/1/translate.ts";
-import type { Position } from "../../formats/akl/1/index.ts";
+import * as cmini1 from "../../formats/adapters/cmini/index.ts";
+import { computeRows, findCollision, liftRules, specialCharsFromRows, type MagicIntent, type Row } from "../../formats/spark/1/magic.ts";
+import { reconcileScaffoldsToTrueRows } from "../../formats/adapters/cmini/translate.ts";
+import type { Position } from "../../formats/spark/1/index.ts";
 
-const CMINI_FIXTURES_DIR = path.resolve(import.meta.dirname, "..", "..", "formats", "cmini", "1", "fixtures");
+const CMINI_FIXTURES_DIR = path.resolve(import.meta.dirname, "..", "..", "formats", "adapters", "cmini", "fixtures");
 
 // -- half 1: property -- valid akl idioms round-trip through lower/lift exactly --
 

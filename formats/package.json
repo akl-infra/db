@@ -1,35 +1,48 @@
 {
   "name": "@akl/layout-formats",
   "version": "0.1.0",
-  "description": "Keyboard-layout payload formats (cmini/1, akl/1, mana2/1): schema, validate, lower, and the to/from translations between them. The pure format registry akl-db's Worker wraps (12 §3 X5 item 1).",
+  "description": "Keyboard-layout payload formats: spark/1 (the one stored format), mana2/1 (output-only) -- schema, validate, compileMagic, and the to/from translations between them -- plus the unregistered cmini import adapter. The pure format registry akl-db's Worker wraps (12 §3 X5 item 1). `./akl/1` and `./cmini/1` are transitional alias subpaths (design/layout-db/20-spark.md §1 decision 12, §6's removal checklist).",
   "license": "MIT",
   "type": "module",
   "files": [
     "dist",
     "*/*/schema.json",
     "*/*/README.md",
-    "*/*/OWNERS"
+    "*/*/OWNERS",
+    "adapters/*/schema.json",
+    "adapters/*/README.md",
+    "adapters/*/OWNERS"
   ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./cmini/1": {
-      "types": "./dist/cmini/1/index.d.ts",
-      "import": "./dist/cmini/1/index.js"
-    },
-    "./akl/1": {
-      "types": "./dist/akl/1/index.d.ts",
-      "import": "./dist/akl/1/index.js"
+    "./spark/1": {
+      "types": "./dist/spark/1/index.d.ts",
+      "import": "./dist/spark/1/index.js"
     },
     "./mana2/1": {
       "types": "./dist/mana2/1/index.d.ts",
       "import": "./dist/mana2/1/index.js"
     },
-    "./cmini/1/schema.json": "./cmini/1/schema.json",
-    "./akl/1/schema.json": "./akl/1/schema.json",
-    "./mana2/1/schema.json": "./mana2/1/schema.json"
+    "./adapters/cmini": {
+      "types": "./dist/adapters/cmini/index.d.ts",
+      "import": "./dist/adapters/cmini/index.js"
+    },
+    "./akl/1": {
+      "types": "./dist/spark/1/index.d.ts",
+      "import": "./dist/spark/1/index.js"
+    },
+    "./cmini/1": {
+      "types": "./dist/adapters/cmini/index.d.ts",
+      "import": "./dist/adapters/cmini/index.js"
+    },
+    "./spark/1/schema.json": "./spark/1/schema.json",
+    "./mana2/1/schema.json": "./mana2/1/schema.json",
+    "./adapters/cmini/schema.json": "./adapters/cmini/schema.json",
+    "./akl/1/schema.json": "./spark/1/schema.json",
+    "./cmini/1/schema.json": "./adapters/cmini/schema.json"
   },
   "dependencies": {
     "ajv": "^8.20.0",

@@ -1,28 +1,35 @@
-// [LDB-F5] [LDB-F13] mana2/1 <-> akl/1 (12-implementation-phase5.md §2.5,
-// which replaces 01-format.md §6.3). goldens.test.ts/mutations.test.ts/
-// frozen.test.ts already cover this format generically (registry-driven --
-// registering it in src/formats/registry.ts is what picked them up): every
-// named/hand-written fixture validates and has frozen `.lowered.json`/
-// `.akl-1.json`/`.cmini-1.json` goldens [LDB-F1] [LDB-F2] [LDB-F7]
-// [LDB-F6], and the fingers/fingermap/duplicate-char/duplicate-inputs/
-// combos mutation matrix is enforced [LDB-F1]. This file is what's left:
-// the envelope over all 75 vendored layouts, the algorithm-row assertions
-// §2.5 states by name, both round-trip directions, and the held-reasons
-// enumeration.
+// [LDB-F5] [LDB-F13] mana2/1 <-> spark/1 (12-implementation-phase5.md §2.5,
+// which replaces 01-format.md §6.3, renamed by 20-spark.md S1). mana2/1
+// stays registered, so `goldens.test.ts`'s own generic loop (`validated-
+// shapes.ts`) still covers F1 (validate) and F2 (`.lowered.json`) for
+// every fixture here, and `mutations.test.ts`/`frozen.test.ts` still cover
+// the fingers/fingermap/duplicate-char/duplicate-inputs/combos mutation
+// matrix [LDB-F1], same as before. What that generic loop CAN'T reach
+// anymore: this format's `.spark-1.json`/`.cmini-1.json` goldens --
+// mana2/1's registry `to`/`from` are `{}` now (nothing is ever stored as
+// mana2/1, so the registry has nothing to dispatch through) -- this
+// file's own "goldens (LDB-F7, kept out of goldens.test.ts)" block below
+// is what keeps THOSE tested, calling `toSpark`/`fromSpark` (this
+// format's own named exports, were `toAkl`/`fromAkl`) directly. Everything
+// else here is what was always this file's own: the envelope over all 75
+// vendored layouts, the algorithm-row assertions §2.5 states by name, both
+// round-trip directions, and the held-reasons enumeration.
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import * as akl1 from "../../formats/akl/1/index.ts";
-import { computeRows } from "../../formats/akl/1/magic.ts";
-import type { Payload as AklPayload, Board as AklBoard } from "../../formats/akl/1/index.ts";
+import * as spark1 from "../../formats/spark/1/index.ts";
+import { computeRows } from "../../formats/spark/1/magic.ts";
+import type { Payload as SparkPayload, Board as SparkBoard } from "../../formats/spark/1/index.ts";
 import * as mana2_1 from "../../formats/mana2/1/index.ts";
 import type { Payload as Mana2Payload } from "../../formats/mana2/1/index.ts";
-import { parseRow } from "../../formats/mana2/1/translate.ts";
+import { parseRow, toSpark, fromSpark } from "../../formats/mana2/1/translate.ts";
+import { toCmini } from "../../formats/adapters/cmini/translate.ts";
+import * as cminiAdapter from "../../formats/adapters/cmini/index.ts";
 
 const VENDORED_DIR = path.resolve(import.meta.dirname, "..", "fixtures", "mana2-vendored");
 const MANA2_FIXTURES_DIR = path.resolve(import.meta.dirname, "..", "..", "formats", "mana2", "1", "fixtures");
-const AKL_FIXTURES_DIR = path.resolve(import.meta.dirname, "..", "..", "formats", "akl", "1", "fixtures");
-const CMINI_FIXTURES_DIR = path.resolve(import.meta.dirname, "..", "..", "formats", "cmini", "1", "fixtures");
+const SPARK_FIXTURES_DIR = path.resolve(import.meta.dirname, "..", "..", "formats", "spark", "1", "fixtures");
+const CMINI_FIXTURES_DIR = path.resolve(import.meta.dirname, "..", "..", "formats", "adapters", "cmini", "fixtures");
 
 function isBaseFixtureFile(filename: string): boolean {
   if (!filename.endsWith(".json")) return false;
@@ -32,6 +39,57 @@ function isBaseFixtureFile(filename: string): boolean {
 function isHeldResult(v: unknown): v is { held: true; reason: string } {
   return typeof v === "object" && v !== null && (v as { held?: unknown }).held === true;
 }
+
+// -- goldens (LDB-F7, kept out of goldens.test.ts -- see the header
+// comment): every mana2/1 base fixture's `.spark-1.json` (was
+// `.akl-1.json`) and `.cmini-1.json` golden, called through this format's
+// own named exports since its registry `to`/`from` are `{}`. F1
+// (validate) and F2 (`.lowered.json`) are NOT duplicated here -- mana2/1
+// is still registered, so `goldens.test.ts`'s own generic loop already
+// covers both for every one of these same fixtures.
+describe("mana2/1 goldens (LDB-F7)", () => {
+  const files = fs.readdirSync(MANA2_FIXTURES_DIR).filter(isBaseFixtureFile).sort();
+
+  for (const file of files) {
+    const stem = file.slice(0, -".json".length);
+    const payload = JSON.parse(fs.readFileSync(path.join(MANA2_FIXTURES_DIR, file), "utf8")) as Mana2Payload;
+    const check = mana2_1.validate(payload);
+    if (!check.ok) continue; // shouldn't happen among base fixtures; the envelope describe is the authority
+
+    // A held golden (e.g. 900-held-combos.spark-1.json) is the `{held,
+    // reason}` object itself, written verbatim (scripts/goldens.mjs's own
+    // rule) -- compared as-is, same as a real payload; only a non-held
+    // translation gets the extra "validates as spark/1" check.
+    const sparkGolden = path.join(MANA2_FIXTURES_DIR, `${stem}.spark-1.json`);
+    if (fs.existsSync(sparkGolden)) {
+      it(`[LDB-F7] ${stem}: toSpark matches its frozen golden (.spark-1.json, was .akl-1.json)`, () => {
+        const translated = toSpark(payload);
+        expect(translated).toEqual(JSON.parse(fs.readFileSync(sparkGolden, "utf8")));
+      });
+
+      it(`[LDB-F7] ${stem}: toSpark's output validates there`, () => {
+        const translated = toSpark(payload);
+        if (isHeldResult(translated)) return; // a held golden carries no payload to validate (07 §5), same as goldens.test.ts's own rule
+        expect(spark1.validate(translated).ok).toBe(true);
+      });
+    }
+
+    const cminiGolden = path.join(MANA2_FIXTURES_DIR, `${stem}.cmini-1.json`);
+    if (fs.existsSync(cminiGolden)) {
+      it(`[LDB-F7] ${stem}: toCmini(toSpark(p)) matches its frozen golden (.cmini-1.json, unchanged)`, () => {
+        const translated = toSpark(payload);
+        const composed = isHeldResult(translated) ? translated : toCmini(translated);
+        expect(composed).toEqual(JSON.parse(fs.readFileSync(cminiGolden, "utf8")));
+      });
+
+      it(`[LDB-F7] ${stem}: toCmini(toSpark(p))'s output validates against the cmini adapter`, () => {
+        const translated = toSpark(payload);
+        if (isHeldResult(translated)) return;
+        expect(cminiAdapter.validate(toCmini(translated)).ok).toBe(true);
+      });
+    }
+  }
+});
 
 // -- half 1: the envelope -- every one of the 75 vendored layouts --
 
@@ -75,12 +133,12 @@ describe("every vendored mana2 layout -- the envelope (75 files)", () => {
     it(`[LDB-F1] ${stem}: to["akl/1"] succeeds (no vendored file besides d5 is held, 12 §0.5)`, () => {
       const check = mana2_1.validate(payload);
       if (!check.ok) return; // d5 handled above; nothing else fails here
-      const translated = mana2_1.to["akl/1"]!(payload);
+      const translated = toSpark(payload);
       if (isHeldResult(translated)) {
         heldVendoredFiles.push(stem);
         return;
       }
-      expect(akl1.validate(translated as AklPayload).ok).toBe(true);
+      expect(spark1.validate(translated as SparkPayload).ok).toBe(true);
     });
   }
 
@@ -95,53 +153,53 @@ describe("algorithm rows (12-implementation-phase5.md §2.5, exact)", () => {
   function load(name: string): Mana2Payload {
     return JSON.parse(fs.readFileSync(path.join(MANA2_FIXTURES_DIR, `${name}.json`), "utf8"));
   }
-  function akl(name: string): AklPayload {
-    const t = mana2_1.to["akl/1"]!(load(name));
+  function spark(name: string): SparkPayload {
+    const t = toSpark(load(name));
     if (isHeldResult(t)) throw new Error(`${name} unexpectedly held: ${t.reason}`);
-    return t as AklPayload;
+    return t as SparkPayload;
   }
 
   it("hours: e at {row:3,col:5,finger:RT}, space at {row:3,col:4,finger:LT}", () => {
-    const a = akl("001-hours");
+    const a = spark("001-hours");
     expect(a.keys["e"]).toEqual({ row: 3, col: 5, finger: "RT" });
     expect(a.keys[" "]).toEqual({ row: 3, col: 4, finger: "LT" });
   });
 
   it("chantries: l {row:3,col:3,finger:LT}, h {row:3,col:4,finger:LT}", () => {
-    const a = akl("006-chantries");
+    const a = spark("006-chantries");
     expect(a.keys["l"]).toEqual({ row: 3, col: 3, finger: "LT" });
     expect(a.keys["h"]).toEqual({ row: 3, col: 4, finger: "LT" });
   });
 
   it("stand_iso: free[0] = {row:2,col:5,finger:LI}", () => {
-    const a = akl("003-stand_iso");
+    const a = spark("003-stand_iso");
     expect(a.free).toContainEqual({ row: 2, col: 5, finger: "LI" });
   });
 
   it("cyclone: row 2 col 0 is 'k' with LR", () => {
-    const a = akl("008-cyclone");
+    const a = spark("008-cyclone");
     expect(a.keys["k"]).toMatchObject({ row: 2, col: 0, finger: "LR" });
   });
 
   it("graphite: columns reach 11", () => {
-    const a = akl("002-graphite");
+    const a = spark("002-graphite");
     const maxCol = Math.max(...Object.values(a.keys).map((k) => k.col), ...(a.free ?? []).map((k) => k.col));
     expect(maxCol).toBe(11);
   });
 
   it("whirl: colstag with 10 entries", () => {
-    const a = akl("004-whirl");
+    const a = spark("004-whirl");
     expect(a.board?.kind).toBe("colstag");
     expect(a.board?.stagger).toHaveLength(10);
   });
 
   it("bunya: ortho", () => {
-    const a = akl("005-bunya");
+    const a = spark("005-bunya");
     expect(a.board).toEqual({ kind: "ortho", cmini: "ortho" });
   });
 
   it("904-dup-rules: keeps the last rule", () => {
-    const t = akl("904-dup-rules");
+    const t = spark("904-dup-rules");
     expect(t.magic?.rules).toEqual([{ inputs: "th", output: "te", type: "raw" }]);
   });
 
@@ -154,7 +212,7 @@ describe("algorithm rows (12-implementation-phase5.md §2.5, exact)", () => {
   ];
   for (const [name, reason] of heldCases) {
     it(`${name}: held -- ${reason}`, () => {
-      const t = mana2_1.to["akl/1"]!(load(name));
+      const t = toSpark(load(name));
       expect(isHeldResult(t)).toBe(true);
       if (isHeldResult(t)) expect(t.reason).toBe(reason);
     });
@@ -166,14 +224,14 @@ describe("algorithm rows (12-implementation-phase5.md §2.5, exact)", () => {
   ];
   for (const [name, field, value] of hatchCases) {
     it(`${name}: NOT held -- x.mana2 hatch carries board.${field} (12 §2.5's decision, this format's override)`, () => {
-      const a = akl(name);
+      const a = spark(name);
       expect(isHeldResult(a)).toBe(false);
       expect((a.x as { mana2?: Record<string, unknown> } | undefined)?.mana2?.[field]).toBe(value);
     });
   }
 
   it("905-colstag-zeros: derives to ortho", () => {
-    const a = akl("905-colstag-zeros");
+    const a = spark("905-colstag-zeros");
     expect(a.board).toEqual({ kind: "ortho", cmini: "ortho" });
   });
 });
@@ -250,13 +308,13 @@ describe("mana2/1 -> akl/1 -> mana2/1 (every non-held fixture, modulo normalizeM
       // so this generic loop's identity claim stays true for what it
       // actually claims.
       if (stem === "904-dup-rules" || stem === "905-colstag-zeros") continue;
-      const translated = mana2_1.to["akl/1"]!(m);
+      const translated = toSpark(m);
       if (isHeldResult(translated)) continue; // held fixtures have no round trip to check here (algorithm-row assertions cover them)
 
       it(`[LDB-F5] ${stem}: identity under normalizeMana2()`, () => {
-        const akl = translated as AklPayload;
-        expect(akl1.validate(akl).ok).toBe(true);
-        const back = mana2_1.from["akl/1"]!(akl);
+        const spark = translated as SparkPayload;
+        expect(spark1.validate(spark).ok).toBe(true);
+        const back = fromSpark(spark);
         expect(normalizeMana2(back)).toEqual(normalizeMana2(m));
       });
     }
@@ -267,7 +325,7 @@ describe("mana2/1 -> akl/1 -> mana2/1 (every non-held fixture, modulo normalizeM
 // fixture: identity OFF the thumb row (12 §5's own invariant wording),
 // with the enumerated thumb re-anchoring asserted exactly, not skipped --
 
-function expectedBoard(board: AklBoard | undefined, _numMainRows: number): AklBoard {
+function expectedBoard(board: SparkBoard | undefined, _numMainRows: number): SparkBoard {
   // ortho (or board absent) -> fromAkl's isRowStaggered:true, all-zero
   // stagger -> toAkl's OWN all-zero-collapses-to-ortho rule (12 §2.5's
   // table: "isRowStaggered: true, stagger all zero -> board: {kind:ortho,
@@ -278,11 +336,11 @@ function expectedBoard(board: AklBoard | undefined, _numMainRows: number): AklBo
     return { kind: "ortho", cmini: "ortho" };
   }
   if (board.kind === "colstag") {
-    const out: AklBoard = { kind: "colstag" };
+    const out: SparkBoard = { kind: "colstag" };
     if (board.stagger) out.stagger = board.stagger;
     return out;
   }
-  const out: AklBoard = { kind: "rowstag" };
+  const out: SparkBoard = { kind: "rowstag" };
   if (board.stagger) {
     const first3 = board.stagger.slice(0, 3);
     out.stagger = first3;
@@ -291,7 +349,7 @@ function expectedBoard(board: AklBoard | undefined, _numMainRows: number): AklBo
   return out;
 }
 
-function expectedMagic(p: AklPayload): AklPayload["magic"] {
+function expectedMagic(p: SparkPayload): SparkPayload["magic"] {
   const rows = computeRows(p.magic, p.keys);
   if (rows.length === 0) return undefined;
   return { rules: rows.map((r) => ({ inputs: r.inputs, output: r.output, type: "raw" })) };
@@ -314,7 +372,7 @@ function isThumbFinger(f: string): boolean {
 // finger). Predicted here by literally re-deriving what `fromAkl`'s own
 // grouping+sort+re-anchor step produces, then feeding it through
 // `toAkl`'s own reverse formula -- the exact mechanism, not a guess.
-function adjustForMana2RoundTrip(a: AklPayload): AklPayload {
+function adjustForMana2RoundTrip(a: SparkPayload): SparkPayload {
   const mainEntries: Array<{ row: number; col: number; char?: string; finger: string }> = [];
   const left: ThumbEntry[] = [];
   const right: ThumbEntry[] = [];
@@ -342,8 +400,8 @@ function adjustForMana2RoundTrip(a: AklPayload): AklPayload {
   // row's LAST REAL KEY simply vanishes, key or gap alike, and a
   // surviving gap-or-free cell reappears as a NEW `free` entry (finger LP
   // for a pure gap, the original finger for a genuine `free` entry).
-  const outKeys: AklPayload["keys"] = {};
-  const outFree: AklPayload["keys"][string][] = [];
+  const outKeys: SparkPayload["keys"] = {};
+  const outFree: SparkPayload["keys"][string][] = [];
   for (let r = 0; r < numMainRows; r++) {
     const byCol = new Map<number, { char?: string; finger: string }>();
     for (const e of mainEntries) if (e.row === r) byCol.set(e.col, { char: e.char, finger: e.finger });
@@ -372,7 +430,7 @@ function adjustForMana2RoundTrip(a: AklPayload): AklPayload {
 
   const numMainRowsForBoard = numMainRows;
   const board = expectedBoard(a.board, numMainRowsForBoard);
-  const out: AklPayload = { keys: outKeys, board };
+  const out: SparkPayload = { keys: outKeys, board };
   if (outFree.length > 0) out.free = outFree;
   const magic = expectedMagic(a);
   if (magic) out.magic = magic;
@@ -396,11 +454,11 @@ function adjustForMana2RoundTrip(a: AklPayload): AklPayload {
 // `crescent`/`sanrie-cmini-test2`, exercise the grid-gap-fill and
 // trailing-skip-trim rules `adjustForMana2RoundTrip` itself implements)
 // gets the full exact-identity assertion, not a guess or a skip.
-function assertMana2RoundTrip(stem: string, a: AklPayload): void {
-  expect(akl1.validate(a).ok).toBe(true);
-  const m = mana2_1.from["akl/1"]!(a);
+function assertMana2RoundTrip(stem: string, a: SparkPayload): void {
+  expect(spark1.validate(a).ok).toBe(true);
+  const m = fromSpark(a);
   expect(mana2_1.validate(m).ok).toBe(true);
-  const back = mana2_1.to["akl/1"]!(m);
+  const back = toSpark(m);
 
   if (stem === "010-test12222") {
     expect(isHeldResult(back)).toBe(true);
@@ -412,7 +470,7 @@ function assertMana2RoundTrip(stem: string, a: AklPayload): void {
 }
 
 describe("akl/1 -> mana2/1 -> akl/1 (every akl/1 fixture, thumb re-anchoring asserted exactly)", () => {
-  const files = fs.readdirSync(AKL_FIXTURES_DIR).filter(isBaseFixtureFile).sort();
+  const files = fs.readdirSync(SPARK_FIXTURES_DIR).filter(isBaseFixtureFile).sort();
 
   it("the akl/1 fixture set is non-empty", () => {
     expect(files.length).toBeGreaterThan(0);
@@ -420,37 +478,37 @@ describe("akl/1 -> mana2/1 -> akl/1 (every akl/1 fixture, thumb re-anchoring ass
 
   for (const file of files) {
     const stem = file.slice(0, -".json".length);
-    const a = JSON.parse(fs.readFileSync(path.join(AKL_FIXTURES_DIR, file), "utf8")) as AklPayload;
+    const a = JSON.parse(fs.readFileSync(path.join(SPARK_FIXTURES_DIR, file), "utf8")) as SparkPayload;
     it(`[LDB-F5] '${stem}': identity off the thumb row`, () => assertMana2RoundTrip(stem, a));
   }
 
   it("test12222: rows 0-2 thumb fingers re-anchor toward cols 4/5 before hitting the >5-per-side held limit", () => {
-    const a = JSON.parse(fs.readFileSync(path.join(AKL_FIXTURES_DIR, "010-test12222.json"), "utf8")) as AklPayload;
+    const a = JSON.parse(fs.readFileSync(path.join(SPARK_FIXTURES_DIR, "010-test12222.json"), "utf8")) as SparkPayload;
     const hadThumbOffMainRows = Object.values(a.keys).some((k) => isThumbFinger(k.finger) && k.row < 3);
     expect(hadThumbOffMainRows).toBe(true);
-    const held = mana2_1.to["akl/1"]!(mana2_1.from["akl/1"]!(a));
+    const held = toSpark(fromSpark(a));
     expect(isHeldResult(held)).toBe(true); // see MESSY_STEMS's comment -- this fixture has >5 keys on one re-anchored thumb side
   });
 
   it("adept: TB re-anchors by column, never TB again", () => {
-    const a = JSON.parse(fs.readFileSync(path.join(AKL_FIXTURES_DIR, "009-adept.json"), "utf8")) as AklPayload;
+    const a = JSON.parse(fs.readFileSync(path.join(SPARK_FIXTURES_DIR, "009-adept.json"), "utf8")) as SparkPayload;
     const hadTb = Object.values(a.keys).some((k) => k.finger === "TB") || (a.free ?? []).some((k) => k.finger === "TB");
     expect(hadTb).toBe(true);
-    const back = mana2_1.to["akl/1"]!(mana2_1.from["akl/1"]!(a)) as AklPayload;
+    const back = toSpark(fromSpark(a)) as SparkPayload;
     const stillTb = Object.values(back.keys).some((k) => k.finger === "TB") || (back.free ?? []).some((k) => k.finger === "TB");
     expect(stillTb).toBe(false);
   });
 });
 
 describe("akl/1 -> mana2/1 -> akl/1 (every cmini-derived fixture, via the cmini/1 -> akl/1 golden)", () => {
-  const files = fs.readdirSync(CMINI_FIXTURES_DIR).filter((f) => f.endsWith(".akl-1.json")).sort();
+  const files = fs.readdirSync(CMINI_FIXTURES_DIR).filter((f) => f.endsWith(".spark-1.json")).sort();
 
   for (const file of files) {
-    const stem = file.slice(0, -".akl-1.json".length);
-    const a = JSON.parse(fs.readFileSync(path.join(CMINI_FIXTURES_DIR, file), "utf8")) as AklPayload;
+    const stem = file.slice(0, -".spark-1.json".length);
+    const a = JSON.parse(fs.readFileSync(path.join(CMINI_FIXTURES_DIR, file), "utf8")) as SparkPayload;
 
     it(`[LDB-F5] cmini-derived '${stem}': identity off the thumb row`, () => {
-      if (akl1.validate(a).ok !== true) return; // a held/incomplete golden shape; nothing to assert here
+      if (spark1.validate(a).ok !== true) return; // a held/incomplete golden shape; nothing to assert here
       assertMana2RoundTrip(stem, a);
     });
   }
@@ -462,7 +520,13 @@ describe("akl/1 -> mana2/1 -> akl/1 (every cmini-derived fixture, via the cmini/
 describe("§6.8: space -> \" \" survives to ?as=cmini/1", () => {
   it("001-hours (a real 'space' thumb token) carries keys[\" \"] via to[\"cmini/1\"]", () => {
     const m = JSON.parse(fs.readFileSync(path.join(MANA2_FIXTURES_DIR, "001-hours.json"), "utf8")) as Mana2Payload;
-    const cmini = mana2_1.to["cmini/1"]!(m) as { keys: Record<string, unknown> };
+    // mana2/1's registry `to` is `{}` now (20-spark.md S1: nothing is ever
+    // stored as mana2/1, so the registry has nothing to dispatch through)
+    // -- the composition is the same one `?as=cmini/1` of a mana2-derived
+    // spark/1 record would run: `toCmini(toSpark(p))`.
+    const asSpark = toSpark(m);
+    if (isHeldResult(asSpark)) throw new Error(`001-hours unexpectedly held: ${asSpark.reason}`);
+    const cmini = toCmini(asSpark) as { keys: Record<string, unknown> };
     expect(cmini.keys).toHaveProperty(" ");
   });
 });

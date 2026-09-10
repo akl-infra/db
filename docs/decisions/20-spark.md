@@ -892,3 +892,24 @@ ledgered and flippable by saltorbit):**
 - **2026-09-10 ~17:55Z** — saltorbit: docs are "mainly html, but with a md
   copy available to give to agents". S8: one source per doc → HTML page +
   generated `.md` copy + `all.md`; LDB-G9 covers both outputs.
+- **2026-09-10 ~19:10Z** — **S1 landed** (Sonnet agent, lead-reviewed).
+  `akl/1` → `spark/1` (dir, id, types, golden suffixes; contents
+  byte-identical), cmini → `db/formats/adapters/cmini/` (unregistered),
+  `mana2/1` `role: "output"` with `to`/`from` `{}` (converters kept as
+  `toSpark`/`fromSpark`), `lower` off the contract (`compileMagic`,
+  `cminiBoardWord`), `ALIASES`/`resolveFormat`/`LEGACY_STORED`/
+  `storedAsSpark`, Worker `LEGACY_WRITABLE` shim, package alias
+  subpaths, `/v1/formats` `role`/`aliases`. Deviations: the bot needed a
+  ~15-line fix in `cache/{translate,cells}.ts` (map *keys* renamed, which
+  alias subpaths can't cover); mana2's held-reason strings keep the
+  literal `akl/1` (wire-visible, byte-asserted); `history.test.ts`'s
+  marker became `tag` (an out-of-schema key no longer survives the F21
+  legacy read); `.github/CODEOWNERS` regenerated. Review caught a
+  coverage hole: generated suites looped only `listFormats()`, so the
+  cmini adapter's mutation/edit matrices vanished; fixed with
+  `tests/formats/validated-shapes.ts` (registered formats + the adapter).
+  Verified by the lead: db typecheck 0, vitest 15 788 passed / 0 failed
+  (pre-S1 15 754; +34 net, per-file reconciliation in the agent report:
+  the 132 goldens that left `goldens.test.ts` moved to
+  `adapter-cmini.test.ts` and `mana2.test.ts`); bot typecheck/lint clean,
+  755 passed; `akl1.vitest.ts` 17 passed. Next: S2.

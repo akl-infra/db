@@ -27,7 +27,7 @@
 // (mana2/1's `to` map now covers both targets, 12-implementation-
 // phase5.md §2.5 "declared on both modules"). akl/1 and cmini/1 gained
 // reciprocal `to["mana2/1"]` entries too (akl/1/index.ts, cmini/1/
-// index.ts), so `writeDerivedGoldens(akl1)`/`writeDerivedGoldens(cmini1)`
+// index.ts), so `writeDerivedGoldens(spark1)`/`writeDerivedGoldens(cmini1)`
 // now generate a `.mana2-1.json` golden for EVERY akl/1 and cmini/1
 // fixture automatically -- no separate explicit-list function needed
 // (an earlier round of this script had one; the generic mechanism now
@@ -47,8 +47,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
-import * as cmini1 from "../formats/cmini/1/index.ts";
-import * as akl1 from "../formats/akl/1/index.ts";
+import * as cmini1 from "../formats/adapters/cmini/index.ts";
+import * as spark1 from "../formats/spark/1/index.ts";
 import * as mana2_1 from "../formats/mana2/1/index.ts";
 
 const SCRIPTS_DIR = path.dirname(url.fileURLToPath(import.meta.url));
@@ -113,9 +113,23 @@ function isBaseFixtureFile(filename) {
   return !filename.slice(0, -".json".length).includes(".");
 }
 
+// The cmini adapter isn't versioned like a registered format (it moved to
+// `formats/adapters/cmini/` -- 20-spark.md S1, decision 2) -- everything
+// else's fixtures dir is still `formats/<name>/<major>/fixtures`.
 function fixturesDirFor(mod) {
+  if (mod === cmini1) return path.join(DB_ROOT, "formats", "adapters", "cmini", "fixtures");
   const [name, major] = mod.id.split("/");
   return path.join(DB_ROOT, "formats", name, major, "fixtures");
+}
+
+// Each module's own compile step, post-20-spark.md-S1: `lower` left the
+// `FormatModule` contract (registry.ts's `role` replaces it), so there is
+// no single generic name to call anymore -- spark renamed its own to
+// `compileMagic`, the cmini adapter's to `rows`, mana2/1 kept `lower`.
+function compileFn(mod) {
+  if (mod === spark1) return spark1.compileMagic;
+  if (mod === cmini1) return cmini1.rows;
+  return mod.lower;
 }
 
 // For every base fixture already on disk (generated above, or hand-written
@@ -125,6 +139,7 @@ function fixturesDirFor(mod) {
 function writeDerivedGoldens(mod) {
   const dir = fixturesDirFor(mod);
   if (!fs.existsSync(dir)) return;
+  const lower = compileFn(mod);
   for (const file of fs.readdirSync(dir).filter(isBaseFixtureFile).sort()) {
     const stem = file.slice(0, -".json".length);
     const payload = JSON.parse(fs.readFileSync(path.join(dir, file), "utf8"));
@@ -133,7 +148,7 @@ function writeDerivedGoldens(mod) {
       throw new Error(`${mod.id} fixture '${stem}' fails its own validate(): ${JSON.stringify(check.error)}`);
     }
 
-    const lowered = mod.lower(payload);
+    const lowered = lower(payload);
     if (lowered !== null) writeJson(path.join(dir, `${stem}.lowered.json`), lowered);
 
     for (const target of Object.keys(mod.to)) {
@@ -151,7 +166,7 @@ function main() {
   const byName = new Map(full.map((l) => [l.name, l]));
 
   const cminiFixturesDir = fixturesDirFor(cmini1);
-  const aklFixturesDir = fixturesDirFor(akl1);
+  const sparkFixturesDir = fixturesDirFor(spark1);
 
   CMINI_NAMED.forEach((id, i) => {
     const name = nameById.get(id);
@@ -168,22 +183,23 @@ function main() {
     const base = `${pad3(i + 1)}-${id}`;
     writeJson(path.join(cminiFixturesDir, `${base}.json`), payload);
 
-    // The akl side holds the SAME translation as its own base fixture (07
-    // §5.3), not just a golden under cmini/1/ -- so its own goldens.test.ts
-    // rows (validate, lower, to["cmini/1"]) exist for it too.
-    const akl = cmini1.to["akl/1"] ? cmini1.to["akl/1"](payload) : undefined;
-    if (akl !== undefined) writeJson(path.join(aklFixturesDir, `${base}.json`), akl);
+    // The spark side holds the SAME translation as its own base fixture
+    // (07 §5.3), not just a golden under adapters/cmini/ -- so its own
+    // goldens.test.ts rows (validate, compileMagic) exist for it too.
+    const spark = cmini1.to["spark/1"] ? cmini1.to["spark/1"](payload) : undefined;
+    if (spark !== undefined) writeJson(path.join(sparkFixturesDir, `${base}.json`), spark);
   });
 
   // Derived goldens for every base fixture found on disk -- the 18 above
-  // AND the hand-written akl-native ones (900-colstag, 901-idioms, 902-x),
-  // which must already exist as base files before this runs; and mana2/1's
-  // own named + hand-written base fixtures (authored outside this script --
-  // see the header comment). Order matters only for `mana2_1` needing
-  // `akl1`'s reciprocal `to["mana2/1"]` to already be wired (it's a static
-  // import, so it always is) -- otherwise these three are independent.
+  // AND the hand-written spark-native ones (900-colstag, 901-idioms,
+  // 902-x), which must already exist as base files before this runs; and
+  // mana2/1's own named + hand-written base fixtures (authored outside
+  // this script -- see the header comment). Order matters only for
+  // `mana2_1` needing `spark1`'s reciprocal `to["mana2/1"]` to already be
+  // wired (it's a static import, so it always is) -- otherwise these three
+  // are independent.
   writeDerivedGoldens(cmini1);
-  writeDerivedGoldens(akl1);
+  writeDerivedGoldens(spark1);
   writeDerivedGoldens(mana2_1);
 
   if (!WRITE) console.log("\n(dry run -- pass --write to actually write these files)");

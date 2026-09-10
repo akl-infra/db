@@ -22,10 +22,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import * as cmini1 from "../../formats/cmini/1/index.ts";
+import * as cmini1 from "../../formats/adapters/cmini/index.ts";
 import type { Payload as Mana2Payload } from "../../formats/mana2/1/index.ts";
 
-const CMINI_FIXTURES_DIR = path.resolve(import.meta.dirname, "..", "..", "formats", "cmini", "1", "fixtures");
+const CMINI_FIXTURES_DIR = path.resolve(import.meta.dirname, "..", "..", "formats", "adapters", "cmini", "fixtures");
 const SNAPSHOT_DIR = path.resolve(import.meta.dirname, "..", "fixtures", "mana2-convert");
 
 function isBaseFixtureFile(filename: string): boolean {

@@ -9,11 +9,12 @@ import fs from "node:fs";
 import path from "node:path";
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import * as akl1 from "../../formats/akl/1/index.ts";
-import type { Payload } from "../../formats/akl/1/index.ts";
-import type { Payload as CminiPayload } from "../../formats/cmini/1/index.ts";
+import * as spark1 from "../../formats/spark/1/index.ts";
+import { toCmini } from "../../formats/adapters/cmini/translate.ts";
+import type { Payload } from "../../formats/spark/1/index.ts";
+import type { Payload as CminiPayload } from "../../formats/adapters/cmini/index.ts";
 
-const FIXTURE = path.resolve(import.meta.dirname, "..", "..", "formats", "akl", "1", "fixtures", "902-x.json");
+const FIXTURE = path.resolve(import.meta.dirname, "..", "..", "formats", "spark", "1", "fixtures", "902-x.json");
 
 // Minimal always-valid base payload (no magic, ortho board) -- only `x`
 // varies across cases.
@@ -50,7 +51,7 @@ describe("x (LDB-F10)", () => {
       fc.property(fc.dictionary(fc.string({ maxLength: 20 }), fc.jsonValue({ maxDepth: 2 }), { maxKeys: 30 }), (x) => {
         fc.pre(canonicalSize(x) <= 16 * 1024);
         const payload = basePayload(x);
-        const result = akl1.validate(payload);
+        const result = spark1.validate(payload);
         expect(result.ok).toBe(true);
         // Identity: nothing about `x` is touched by validate(); the same
         // object read back (the registry's identity path, LDB-F3) is
@@ -64,7 +65,7 @@ describe("x (LDB-F10)", () => {
   it("[LDB-F10] x over 16 KB canonical is refused with path: \"/x\"", () => {
     const big = { blob: "x".repeat(17 * 1024) };
     expect(canonicalSize(big)).toBeGreaterThan(16 * 1024);
-    const result = akl1.validate(basePayload(big));
+    const result = spark1.validate(basePayload(big));
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error.path).toBe("/x");
@@ -81,11 +82,11 @@ describe("x (LDB-F10)", () => {
     const budget = 16 * 1024 - overhead;
     const atLimit = { blob: "x".repeat(budget) };
     expect(canonicalSize(atLimit)).toBe(16 * 1024);
-    expect(akl1.validate(basePayload(atLimit)).ok).toBe(true);
+    expect(spark1.validate(basePayload(atLimit)).ok).toBe(true);
 
     const overLimit = { blob: "x".repeat(budget + 1) };
     expect(canonicalSize(overLimit)).toBe(16 * 1024 + 1);
-    const result = akl1.validate(basePayload(overLimit));
+    const result = spark1.validate(basePayload(overLimit));
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.path).toBe("/x");
   });
@@ -95,7 +96,7 @@ describe("x (LDB-F10)", () => {
     expect(payload.x).toHaveProperty("keymaxx");
     expect(payload.x?.["cmini"]).toBeUndefined(); // 902-x.json's own point: x.cmini absent
 
-    const cmini = akl1.to["cmini/1"]!(payload) as CminiPayload;
+    const cmini = toCmini(payload) as CminiPayload;
     expect(cmini).not.toHaveProperty("x");
     expect(cmini).not.toHaveProperty("keymaxx");
     // No cmini idiom for keymaxx and no x.cmini to copy out -- tag/blame/
@@ -106,7 +107,7 @@ describe("x (LDB-F10)", () => {
 
   it("x.cmini DOES survive to[\"cmini/1\"] as the record-level fields it names", () => {
     const payload = basePayload({ cmini: { tag: "cmini", blame: "dmini" }, keymaxx: { note: "dropped" } });
-    const cmini = akl1.to["cmini/1"]!(payload) as CminiPayload;
+    const cmini = toCmini(payload) as CminiPayload;
     expect(cmini.tag).toBe("cmini");
     expect(cmini.blame).toBe("dmini");
     expect(cmini).not.toHaveProperty("keymaxx");

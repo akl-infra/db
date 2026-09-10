@@ -23,7 +23,7 @@ describe("GET /v1/meta", () => {
       revision: null,
       layouts_modified_at: null,
       authors_modified_at: null,
-      formats: ["cmini/1", "akl/1", "mana2/1"],
+      formats: ["spark/1", "mana2/1"],
       // X4 (12 §3 X4): {at, ok} | null off import_state's 'cmini.last_diff'
       // / 'drill.last' rows -- neither exists before a diff tick / drill
       // report has ever run.

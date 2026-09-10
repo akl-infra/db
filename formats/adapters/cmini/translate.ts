@@ -1,15 +1,19 @@
-// cmini/1 <-> akl/1, in ONE place (01-format.md §6.1/§6.2) so cmini/1's
-// `to["akl/1"]`/`from["akl/1"]` and akl/1's own `from["cmini/1"]`/
-// `to["cmini/1"]` are the same four function references and can never
-// drift apart. `fromCmini` is §6.1 (the import: cmini -> akl); `toCmini`
-// is §6.2 (what the bot/emulayout read: akl -> cmini).
-import * as cmini1 from "../../cmini/1/index.ts";
-import { computeRows, isScaffold, liftRules, type MagicIntent, type Row, type RawRule } from "./magic.ts";
-import type { Payload as AklPayload, Position } from "./index.ts";
+// cmini <-> spark/1, in ONE place (01-format.md §6.1/§6.2, moved here from
+// spark/1/translate.ts by 20-spark.md S1: cmini is an import source now,
+// not a registered format, so the conversion lives with the adapter, not
+// with spark). `fromCmini` is §6.1 (the import: cmini -> spark); `toCmini`
+// is §6.2 (what the bot/emulayout read: spark -> cmini). Dependency runs
+// adapter -> spark (this file imports spark's `computeRows`/`isScaffold`/
+// `liftRules`/`cminiBoardWord`), never the reverse -- spark/1/index.ts has
+// no import of this directory at all.
+import * as cmini1 from "./index.ts";
+import { computeRows, isScaffold, liftRules, type MagicIntent, type Row, type RawRule } from "../../spark/1/magic.ts";
+import { cminiBoardWord } from "../../spark/1/index.ts";
+import type { Payload as SparkPayload, Position } from "../../spark/1/index.ts";
 
 const ANSI_STAGGER = [0, 0.25, 0.75];
 
-function boardFromCmini(word: cmini1.Payload["board"]): AklPayload["board"] {
+function boardFromCmini(word: cmini1.Payload["board"]): SparkPayload["board"] {
   switch (word) {
     case "stagger":
       return { kind: "rowstag", stagger: [...ANSI_STAGGER], cmini: "stagger" };
@@ -23,18 +27,6 @@ function boardFromCmini(word: cmini1.Payload["board"]): AklPayload["board"] {
     case "mini":
       return { kind: "ortho", cmini: "mini" };
   }
-}
-
-// board.cmini wins when present; else derived (01 §6.2): rowstag -> the
-// only cmini word for a staggered board is "stagger" (the exact amounts
-// aren't distinguishable in cmini's vocabulary either way); ortho and
-// colstag -> "ortho" (colstag's stagger amounts are lost -- the documented
-// exception, 07 §6 S3's roundtrip.test.ts asserts it exactly); "mini" is
-// NEVER derived, only ever carried through an explicit hint.
-function deriveCminiWord(board: AklPayload["board"]): cmini1.Payload["board"] {
-  if (board?.cmini) return board.cmini;
-  if (board === undefined || board.kind === "ortho" || board.kind === "colstag") return "ortho";
-  return "stagger";
 }
 
 function definedEntries<T extends object>(obj: T): Partial<T> {
@@ -85,14 +77,14 @@ export function reconcileScaffoldsToTrueRows(magic: MagicIntent, trueRows: Row[]
 // fromCmini (01 §6.1): the import. Must be lossless -- every cmini payload
 // round-trips through `toCmini(fromCmini(x))` back to the same
 // `cminiDetail` projection (LDB-F5, roundtrip.test.ts).
-export function fromCmini(p: cmini1.Payload): AklPayload {
-  const out: AklPayload = {
+export function fromCmini(p: cmini1.Payload): SparkPayload {
+  const out: SparkPayload = {
     keys: p.keys,
     board: boardFromCmini(p.board),
   };
   if (p.free !== undefined) out.free = p.free;
 
-  const rows = cmini1.lower(p); // typed rows, `type` defaulted to "raw" (cmini/1's own lower())
+  const rows = cmini1.rows(p); // typed rows, `type` defaulted to "raw" (the adapter's own rows())
   if (rows.length > 0) {
     const { lifted, leftovers } = liftRules(rows, p.keys);
     const magic: MagicIntent = {};
@@ -106,10 +98,10 @@ export function fromCmini(p: cmini1.Payload): AklPayload {
     if (Object.keys(magic).length > 0) out.magic = magic;
   }
 
-  // tag/blame/combos/link have no akl/1 idiom (01 §2's "escape hatch" is for
-  // magic rows, not these) -- reserved in `x.cmini` so nothing is lost
+  // tag/blame/combos/link have no spark/1 idiom (01 §2's "escape hatch" is
+  // for magic rows, not these) -- reserved in `x.cmini` so nothing is lost
   // (01 §6.1). Never emit an empty `x`/`x.cmini` (round-trip identity with
-  // an akl-native payload that never had one).
+  // a spark-native payload that never had one).
   const cminiExtra = definedEntries({ tag: p.tag, blame: p.blame, combos: p.combos, link: p.link });
   if (Object.keys(cminiExtra).length > 0) out.x = { cmini: cminiExtra };
 
@@ -117,9 +109,9 @@ export function fromCmini(p: cmini1.Payload): AklPayload {
 }
 
 // toCmini (01 §6.2): what the bot and emulayout read.
-export function toCmini(p: AklPayload): cmini1.Payload {
+export function toCmini(p: SparkPayload): cmini1.Payload {
   const out: cmini1.Payload = {
-    board: deriveCminiWord(p.board),
+    board: cminiBoardWord(p.board),
     keys: p.keys,
   };
   if (p.free !== undefined) out.free = p.free;

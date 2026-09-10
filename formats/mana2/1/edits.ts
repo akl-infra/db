@@ -5,7 +5,7 @@
 // a mana user edits the `.jsonc` file directly for those, this format
 // never invents a second write path for them.
 //
-// mana2/1 has no `keys` map (akl/1's `setFingermap` doc comment: "every
+// mana2/1 has no `keys` map (spark/1's `setFingermap` doc comment: "every
 // named char must already be one of p.keys" does not apply verbatim
 // here) -- a char names a FINGERS-ROW cell; mana2's own thumbs carry no
 // fingermap entry at all (thumb finger is hardcoded 4/5 by which string a
@@ -26,11 +26,11 @@ function rowTokens(row: string | undefined): string[] {
   return (row ?? "").trim().split(/\s+/).filter((t) => t.length > 0);
 }
 
-// char -> finger letter (akl/1 vocabulary, e.g. "LP"); a char not found
+// char -> finger letter (spark/1 vocabulary, e.g. "LP"); a char not found
 // among `layout.fingers`' own resolved keys (including a valid-but-held
 // row, e.g. a tap-hold cell's tap character) is refused at
 // `/layout/fingers` -- a bad finger WORD is left to the pipeline's
-// validate() re-run, not checked here (matching akl/1/edits.ts's own
+// validate() re-run, not checked here (matching spark/1/edits.ts's own
 // convention).
 export function setFingermap(p: Payload, map: Record<string, string>): EditResult {
   const out: Payload = structuredClone(p);

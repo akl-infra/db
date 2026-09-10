@@ -12,7 +12,7 @@
 // `applyMapped` applies to a not-following record's content generally),
 // so its magic is the owner's now, never this route's to touch.
 import type { Bindings } from "../env";
-import * as cmini1 from "../../formats/cmini/1/index";
+import * as cmini1 from "../../formats/adapters/cmini/index";
 import { appendWrite } from "../core/events";
 import { followsUpstream } from "../core/follows";
 import { list, readById } from "../core/records";

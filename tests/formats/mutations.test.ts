@@ -4,39 +4,17 @@
 // pointing at that leaf or its immediate parent -- except mutations that
 // are enumerated below in ALLOWED because they produce another valid
 // payload (07 §6 S2: "no blanket skips"; 07 §6 S3: ALLOWED is now
-// per-format so cmini/1 and akl/1 can't leak allowances into each other).
-// Duplicate-sibling mutations (positions, magic inputs) are structural,
-// generated once per fixture alongside the per-leaf matrix.
-import fs from "node:fs";
-import path from "node:path";
+// per-format so cmini/1 and spark/1 can't leak allowances into each
+// other). Duplicate-sibling mutations (positions, magic inputs) are
+// structural, generated once per fixture alongside the per-leaf matrix.
+// Loops over `validatedShapes()` (`validated-shapes.ts`), not
+// `listFormats()` directly: cmini/1 left the registry in 20-spark.md S1
+// (moved to the unregistered adapter, db/formats/adapters/cmini/), and a
+// bare `listFormats()` loop would silently stop generating this matrix
+// for it -- `validatedShapes()` is that same list plus the adapter, so
+// this file's coverage is unchanged by the move.
 import { describe, expect, it } from "vitest";
-import { list as listFormats } from "../../src/formats/registry";
-
-const FORMATS_DIR = path.resolve(import.meta.dirname, "..", "..", "formats");
-
-function isBaseFixtureFile(filename: string): boolean {
-  if (!filename.endsWith(".json")) return false;
-  return !filename.slice(0, -".json".length).includes(".");
-}
-
-interface Fixture {
-  stem: string;
-  payload: unknown;
-}
-
-function fixturesFor(formatId: string): Fixture[] {
-  const [name, major] = formatId.split("/") as [string, string];
-  const dir = path.join(FORMATS_DIR, name, major, "fixtures");
-  if (!fs.existsSync(dir)) return [];
-  return fs
-    .readdirSync(dir)
-    .filter(isBaseFixtureFile)
-    .sort()
-    .map((file) => ({
-      stem: file.slice(0, -".json".length),
-      payload: JSON.parse(fs.readFileSync(path.join(dir, file), "utf8")) as unknown,
-    }));
-}
+import { validatedShapes, fixturesIn } from "./validated-shapes.ts";
 
 // -- JSON Pointer helpers (RFC 6901) --
 function pointerSeg(seg: string): string {
@@ -157,7 +135,7 @@ const ALLOWED: Record<string, Set<string>> = {
     "type:delete", // magic row's optional `type` (defaults to "raw" on lower())
     "type:empty string",
   ]),
-  "akl/1": new Set([
+  "spark/1": new Set([
     "default:delete", // magic_keys[].default (falls back to "none"); can only REMOVE rows, never collide
     "cmini:delete", // board.cmini (derived when absent, 01 §6.2)
     "same:delete", // chiral_keys[] needs only ONE of same/opposite -- 901-idioms sets both
@@ -233,11 +211,11 @@ function duplicateMagicInputs(payload: unknown, inputsA: string, inputsB: string
 }
 
 describe("payload mutations", () => {
-  for (const format of listFormats()) {
+  for (const format of validatedShapes()) {
     describe(format.id, () => {
       const allowed = ALLOWED[format.id] ?? new Set<string>();
 
-      for (const fixture of fixturesFor(format.id)) {
+      for (const fixture of fixturesIn(format.fixturesDir)) {
         for (const leaf of walkLeaves(omitX(fixture.payload))) {
           const kind = fieldKind(leaf.segs);
           for (const mutation of mutationsFor(leaf)) {
@@ -338,7 +316,7 @@ describe("payload mutations", () => {
               const mutated = duplicateMagicInputs(fixture.payload, magicInputs[0]!, magicInputs[1]!);
               const result = format.validate(mutated);
               expect(result.ok).toBe(true);
-              const lowered = format.lower(mutated);
+              const lowered = format.compile(mutated);
               const dup = lowered?.filter((r: { inputs: string }) => r.inputs === (fixture.payload as { magic?: { rules?: { inputs: string }[] } }).magic?.rules?.[0]?.inputs);
               expect(dup?.length).toBe(1); // exactly one surviving row for that `inputs`
             });

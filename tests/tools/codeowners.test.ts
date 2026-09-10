@@ -52,10 +52,14 @@ describe(".github/CODEOWNERS is generated from formats/*/*/OWNERS", () => {
 
   it("[LDB-G3] a fourth format (with its own OWNERS) would need a line too -- the generator derives dirs from disk, not a hardcoded list", () => {
     // Not a new format's fixture cost (that's X2's own bar) -- just proving
-    // formatDirs() walks formats/*/*/  rather than naming cmini/akl/mana2
-    // by hand, so this test doesn't silently stop covering a real add.
+    // formatDirs() walks formats/*/*/ rather than naming spark/mana2/
+    // adapters by hand, so this test doesn't silently stop covering a real
+    // add. `adapters/cmini` also has its own OWNERS (20-spark.md S1) and
+    // matches the SAME two-level glob (formats/adapters/cmini/OWNERS) even
+    // though the adapter isn't a registered format -- codeowners.mjs walks
+    // disk, not the registry, so it picks it up too.
     const names = formatDirs().map((d) => d.name);
-    expect(new Set(names)).toEqual(new Set(["cmini", "akl", "mana2"]));
+    expect(new Set(names)).toEqual(new Set(["spark", "mana2", "adapters"]));
   });
 
   it("[LDB-G3] the committed .github/CODEOWNERS equals what the generator writes right now", () => {

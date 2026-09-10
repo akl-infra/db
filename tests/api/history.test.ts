@@ -75,7 +75,17 @@ describe("[LDB-R5] /rev/{n} reproduces the payload stored at rev n; rev+1 404s",
     const payloadsByRev: unknown[] = [originalPayload]; // index 0 == rev 1
 
     for (let i = 0; i < 3; i++) {
-      const payload = { ...(originalPayload as Record<string, unknown>), _rev_marker: i };
+      // `tag` (a real cmini/1 schema field, round-trips through `x.cmini`)
+      // distinguishes each revision's payload -- NOT a bare out-of-schema
+      // marker key like an earlier version of this test used. Since
+      // 20-spark.md S1 (LDB-F21), every read of a legacy-stored row --
+      // `/rev/{n}` included, even at the row's OWN format -- normalizes
+      // through `storedAsSpark` first (no raw-identity shortcut for a
+      // legacy format), which round-trips a real cmini/1 payload exactly
+      // but would silently drop an unknown top-level key the same way
+      // `fromCmini`/`toCmini` always have for any field with no cmini
+      // idiom (01 §6.1/§6.2, LDB-F10).
+      const payload = { ...(originalPayload as Record<string, unknown>), tag: `rev-${i}` };
       await appendWrite(db, fixedClock(`2026-06-09T00:0${i}:00.000Z`), {
         kind: "updated",
         layoutId: seed.id,

@@ -16,13 +16,14 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import * as cmini1 from "../../formats/cmini/1/index.ts";
-import * as akl1 from "../../formats/akl/1/index.ts";
-import { specialCharsFromRows } from "../../formats/akl/1/magic.ts";
-import type { Board, Payload as AklPayload } from "../../formats/akl/1/index.ts";
+import * as cmini1 from "../../formats/adapters/cmini/index.ts";
+import { fromCmini, toCmini } from "../../formats/adapters/cmini/translate.ts";
+import * as spark1 from "../../formats/spark/1/index.ts";
+import { specialCharsFromRows } from "../../formats/spark/1/magic.ts";
+import type { Board, Payload as SparkPayload } from "../../formats/spark/1/index.ts";
 
 const SNAPSHOT_DIR = path.resolve(import.meta.dirname, "..", "fixtures", "upstream-100");
-const AKL_FIXTURES_DIR = path.resolve(import.meta.dirname, "..", "..", "formats", "akl", "1", "fixtures");
+const SPARK_FIXTURES_DIR = path.resolve(import.meta.dirname, "..", "..", "formats", "spark", "1", "fixtures");
 
 // -- half 1: every upstream-100 detail, cmini -> akl -> cmini --
 
@@ -106,10 +107,10 @@ describe("cmini/1 -> akl/1 -> cmini/1 (the import direction)", () => {
       const payload = payloadFrom(detail);
       expect(cmini1.validate(payload).ok).toBe(true);
 
-      const akl = cmini1.to["akl/1"]!(payload) as AklPayload;
-      expect(akl1.validate(akl).ok).toBe(true);
+      const akl = cmini1.to["spark/1"]!(payload) as SparkPayload;
+      expect(spark1.validate(akl).ok).toBe(true);
 
-      const back = cmini1.from["akl/1"]!(akl);
+      const back = cmini1.from["spark/1"]!(akl);
       expect(normalized(projectWithPayload(detail, back))).toEqual(normalized(projectWithPayload(detail, payload)));
     });
   }
@@ -137,7 +138,7 @@ function expectedBoard(board: Board | undefined): Board {
 
 // What `fromCmini(toCmini(a))` produces, by definition of the two documented
 // lossy corners above plus LDB-F10 (only `x.cmini` survives a translation).
-function adjustForCminiRoundTrip(a: AklPayload): AklPayload {
+function adjustForCminiRoundTrip(a: SparkPayload): SparkPayload {
   const clone = structuredClone(a);
   clone.board = expectedBoard(a.board);
   if (clone.x) {
@@ -155,7 +156,7 @@ function adjustForCminiRoundTrip(a: AklPayload): AklPayload {
 
 describe("akl/1 -> cmini/1 -> akl/1", () => {
   const fixtures = fs
-    .readdirSync(AKL_FIXTURES_DIR)
+    .readdirSync(SPARK_FIXTURES_DIR)
     .filter(isBaseFixtureFile)
     .sort();
 
@@ -165,20 +166,20 @@ describe("akl/1 -> cmini/1 -> akl/1", () => {
 
   for (const file of fixtures) {
     const stem = file.slice(0, -".json".length);
-    const a = JSON.parse(fs.readFileSync(path.join(AKL_FIXTURES_DIR, file), "utf8")) as AklPayload;
+    const a = JSON.parse(fs.readFileSync(path.join(SPARK_FIXTURES_DIR, file), "utf8")) as SparkPayload;
 
     it(`[LDB-F5] [LDB-F10] '${stem}': identity minus the documented losses`, () => {
-      expect(akl1.validate(a).ok).toBe(true);
-      const cmini = akl1.to["cmini/1"]!(a);
+      expect(spark1.validate(a).ok).toBe(true);
+      const cmini = toCmini(a);
       expect(cmini1.validate(cmini).ok).toBe(true);
-      const back = akl1.from["cmini/1"]!(cmini);
+      const back = fromCmini(cmini);
       expect(back).toEqual(adjustForCminiRoundTrip(a));
     });
   }
 
   it("[LDB-F5] '900-colstag': colstag becomes ortho, stagger amounts dropped -- exactly, not skipped", () => {
-    const a = JSON.parse(fs.readFileSync(path.join(AKL_FIXTURES_DIR, "900-colstag.json"), "utf8")) as AklPayload;
-    const back = akl1.from["cmini/1"]!(akl1.to["cmini/1"]!(a));
+    const a = JSON.parse(fs.readFileSync(path.join(SPARK_FIXTURES_DIR, "900-colstag.json"), "utf8")) as SparkPayload;
+    const back = fromCmini(toCmini(a));
     expect(back.board).toEqual({ kind: "ortho", cmini: "ortho" });
   });
 });

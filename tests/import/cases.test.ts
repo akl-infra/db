@@ -10,8 +10,8 @@ import { readById, readByName } from "../../src/core/records";
 import { fixedClock } from "../../src/core/time";
 import { applyFetchedId } from "../../src/import/apply";
 import type { RawUpstreamDetail } from "../../src/import/upstream";
-import { fromCmini } from "../../formats/akl/1/translate";
-import type { Payload as CminiPayload } from "../../formats/cmini/1/index";
+import { fromCmini } from "../../formats/adapters/cmini/translate";
+import type { Payload as CminiPayload } from "../../formats/adapters/cmini/index";
 import listSnapshot from "../fixtures/upstream-100/list.json" with { type: "json" };
 import fullSnapshot from "../fixtures/upstream-100/full.json" with { type: "json" };
 

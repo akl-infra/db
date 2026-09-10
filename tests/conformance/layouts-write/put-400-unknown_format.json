@@ -3,25 +3,42 @@
     "method": "PUT",
     "path": "/v1/layouts/cw-put-badformat-1",
     "bearer": "conformance-owner-token",
-    "headers": { "If-Match": "\"1\"" },
-    "body": { "format": "bogus/1", "payload": {} },
+    "headers": {
+      "If-Match": "\"1\""
+    },
+    "body": {
+      "format": "bogus/1",
+      "payload": {}
+    },
     "setup": [
       {
         "method": "POST",
         "path": "/v1/layouts",
         "bearer": "conformance-owner-token",
-        "body": { "name": "cw-put-badformat-1", "format": "cmini/1", "payload": { "board": "ortho", "keys": {} } }
+        "body": {
+          "name": "cw-put-badformat-1",
+          "format": "cmini/1",
+          "payload": {
+            "board": "ortho",
+            "keys": {}
+          }
+        }
       }
     ]
   },
   "response": {
     "status": 400,
-    "headers": { "Content-Type": "application/json" },
+    "headers": {
+      "Content-Type": "application/json"
+    },
     "body": {
       "error": "unknown_format",
       "message": "unknown format 'bogus/1'",
       "format": "bogus/1",
-      "known": ["cmini/1", "akl/1", "mana2/1"]
+      "known": [
+        "spark/1",
+        "mana2/1"
+      ]
     }
   }
 }

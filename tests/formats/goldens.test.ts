@@ -1,45 +1,16 @@
-// [LDB-F1] [LDB-F2] [LDB-F7] Generated from the registry + the fixture
-// directories, not hand-picked: adding a format or a fixture adds test rows
-// here for free (07 §6 S2).
+// [LDB-F1] [LDB-F2] [LDB-F7] Generated from the shared shape list (every
+// registered format plus the unregistered cmini adapter, `validated-
+// shapes.ts`) + the fixture directories, not hand-picked: adding a format
+// or a fixture adds test rows here for free (07 §6 S2).
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { get as getFormat, list as listFormats } from "../../src/formats/registry";
-
-const FORMATS_DIR = path.resolve(import.meta.dirname, "..", "..", "formats");
-
-// Base fixture files are `NNN-<id>.json`; goldens are `NNN-<id>.lowered.json`
-// / `NNN-<id>.<to-format>.json` -- one extra "." segment distinguishes them.
-function isBaseFixtureFile(filename: string): boolean {
-  if (!filename.endsWith(".json")) return false;
-  return !filename.slice(0, -".json".length).includes(".");
-}
-
-interface Fixture {
-  stem: string; // "NNN-<id>", no extension
-  dir: string;
-  payload: unknown;
-}
-
-function fixturesFor(formatId: string): Fixture[] {
-  const [name, major] = formatId.split("/") as [string, string];
-  const dir = path.join(FORMATS_DIR, name, major, "fixtures");
-  if (!fs.existsSync(dir)) return [];
-  return fs
-    .readdirSync(dir)
-    .filter(isBaseFixtureFile)
-    .sort()
-    .map((file) => ({
-      stem: file.slice(0, -".json".length),
-      dir,
-      payload: JSON.parse(fs.readFileSync(path.join(dir, file), "utf8")) as unknown,
-    }));
-}
+import { validatedShapes, getFormat, fixturesIn } from "./validated-shapes.ts";
 
 describe("format goldens", () => {
-  for (const format of listFormats()) {
+  for (const format of validatedShapes()) {
     describe(format.id, () => {
-      const fixtures = fixturesFor(format.id);
+      const fixtures = fixturesIn(format.fixturesDir);
 
       it(`[LDB-F7] ${format.id} has at least one fixture`, () => {
         expect(fixtures.length).toBeGreaterThan(0);
@@ -55,7 +26,7 @@ describe("format goldens", () => {
         if (fs.existsSync(loweredFile)) {
           it(`[LDB-F2] ${fixture.stem}: lower() matches its frozen golden`, () => {
             const expected = JSON.parse(fs.readFileSync(loweredFile, "utf8"));
-            expect(format.lower(fixture.payload)).toEqual(expected);
+            expect(format.compile(fixture.payload)).toEqual(expected);
           });
         }
 
@@ -77,6 +48,9 @@ describe("format goldens", () => {
             if (translated !== null && typeof translated === "object" && (translated as { held?: unknown }).held === true) {
               return;
             }
+            // Every `to[...]` TARGET here is a registered format (the
+            // cmini adapter is never itself a target) -- `getFormat`
+            // (the Worker registry wrapper) resolves it, aliases included.
             const targetFormat = getFormat(target);
             expect(targetFormat).toBeDefined();
             expect(targetFormat?.validate(translated).ok).toBe(true);

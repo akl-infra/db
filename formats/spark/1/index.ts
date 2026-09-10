@@ -1,9 +1,18 @@
-// akl/1 -- the common format (01-format.md §2): cmini's `keys` map, #261's
-// board geometry, the magic-rules authoring shape, a raw-rule escape hatch,
-// and a free-form `x`. Self-contained like cmini/1 (07 §5): no import of
-// src/formats/registry.ts, and every local import carries an explicit `.ts`
-// extension so scripts/goldens.mjs can resolve this module with plain Node
-// ESM (see that script's own comment).
+// spark/1 -- the one stored format (design/layout-db/20-spark.md §1 decision
+// 1; was `akl/1`, renamed byte-for-byte -- the payload shape is unchanged).
+// cmini's `keys` map, #261's board geometry, the magic-rules authoring
+// shape, a raw-rule escape hatch, and a free-form `x`. Self-contained (07
+// §5): no import of src/formats/registry.ts, and every local import carries
+// an explicit `.ts` extension so scripts/goldens.mjs can resolve this
+// module with plain Node ESM (see that script's own comment).
+//
+// `fromCmini`/`toCmini` moved OUT of this format to
+// `db/formats/adapters/cmini/translate.ts` (20-spark.md S1): cmini is an
+// import source now, not a registered format, so the conversion lives with
+// the adapter, not here. This format only exports the pure board-word
+// helper the adapter's `toCmini` calls back into (`cminiBoardWord`, was the
+// private `deriveCminiWord`) -- the dependency direction is adapter ->
+// spark, never the reverse.
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 import rawSchema from "./schema.json" with { type: "json" };
@@ -18,26 +27,25 @@ import {
   type MagicKey,
   type RawRule,
 } from "./magic.ts";
-import { fromCmini, toCmini } from "./translate.ts";
-import type { Payload as CminiPayload } from "../../cmini/1/index.ts";
-// mana2/1's OWN translate.ts is the one place akl/1 <-> mana2/1 is
+// mana2/1's OWN translate.ts is the one place spark/1 <-> mana2/1 is
 // implemented (12-implementation-phase5.md §2.5) -- this reciprocal
-// registration just re-exports those two functions under akl/1's own
+// registration just re-exports those two functions under spark/1's own
 // `to`/`from` maps, the same "one implementation, two registrations"
-// pattern this file already uses for `fromCmini`/`toCmini` above. No
-// runtime import cycle: mana2/1/translate.ts imports only TYPES from this
-// file (erased at compile time), and its one VALUE import from this
-// format (`computeRows`) comes from ./magic.ts, not this file.
-import { toAkl as mana2ToAkl, fromAkl as mana2FromAkl } from "../../mana2/1/translate.ts";
+// pattern this format used for `fromCmini`/`toCmini` before they moved to
+// the adapter. No runtime import cycle: mana2/1/translate.ts imports only
+// TYPES from this file (erased at compile time), and its one VALUE import
+// from this format (`computeRows`) comes from ./magic.ts, not this file.
+import { toSpark as mana2ToSpark, fromSpark as mana2FromSpark } from "../../mana2/1/translate.ts";
 import type { Payload as Mana2Payload } from "../../mana2/1/index.ts";
 
-export const id: `${string}/${number}` = "akl/1";
+export const id: `${string}/${number}` = "spark/1";
 // `GET /v1/formats` (07 §6 S6; registry.ts's FormatModule comment explains
 // why this is a plain export rather than parsed from OWNERS/README.md).
 export const owner = "DB (+ akl.gg)";
 export const description =
-  "The common format: cmini's keys map, #261's board geometry, an authoring shape for magic rules, a raw-rule escape hatch, and a free-form x. What akl.gg writes and most clients read.";
+  "The one stored format: cmini's keys map, #261's board geometry, an authoring shape for magic rules, a raw-rule escape hatch, and a free-form x. What akl.gg writes and most clients read.";
 export const schema: object = rawSchema;
+export const role: "stored" | "output" = "stored";
 
 export interface Position {
   row: number;
@@ -193,7 +201,7 @@ export function validate(p: unknown): ValidationResult {
       ok: false,
       error: {
         error: "invalid_payload",
-        message: err ? (ajv.errorsText([err], { dataVar: "payload" }) as string) : "invalid akl/1 payload",
+        message: err ? (ajv.errorsText([err], { dataVar: "payload" }) as string) : "invalid spark/1 payload",
         path: err?.instancePath || "/",
       },
     };
@@ -241,28 +249,45 @@ export function validate(p: unknown): ValidationResult {
   return { ok: true };
 }
 
-export function lower(p: Payload): Row[] {
+// `lower` renamed `compileMagic` (20-spark.md S1): `lower` left the
+// `FormatModule` contract entirely (registry.ts's `role` replaces it), so
+// every format's own compile step is now just a named export, not a
+// registry-dispatched method. Logic byte-identical to the old `lower()`.
+export function compileMagic(p: Payload): Row[] {
   return computeRows(p.magic, p.keys).map(({ inputs, output, type }) => ({ inputs, output, type }));
 }
 
 export function hasMagic(p: Payload): boolean {
-  return lower(p).length > 0;
+  return compileMagic(p).length > 0;
 }
 
-// akl/1 -> mana2/1 never holds (12 §2.5's held cases are all in the
-// mana2 -> akl direction); the reverse direction (used by `from`, which
-// registry.ts's own `translate()` never actually calls -- see that file's
-// FormatModule comment) can, so `from`'s value type stays loose here
-// rather than widening every OTHER entry's signature for one key that
-// dispatch never reads.
-export const to: Record<string, (p: Payload) => CminiPayload | Mana2Payload> = {
-  "cmini/1": toCmini,
-  "mana2/1": mana2FromAkl,
+// board.cmini wins when present; else derived (01 §6.2): rowstag -> the
+// only cmini word for a staggered board is "stagger" (the exact amounts
+// aren't distinguishable in cmini's vocabulary either way); ortho and
+// colstag -> "ortho" (colstag's stagger amounts are lost -- the documented
+// exception, 07 §6 S3's roundtrip.test.ts asserts it exactly); "mini" is
+// NEVER derived, only ever carried through an explicit hint. Was the
+// private `deriveCminiWord` in translate.ts before fromCmini/toCmini moved
+// to the adapter (20-spark.md S1) -- exported now because the adapter's
+// `toCmini` (adapters/cmini/translate.ts) calls back into it: the
+// dependency runs adapter -> spark, never the reverse.
+export function cminiBoardWord(board: Board | undefined): "stagger" | "angle" | "ortho" | "mini" {
+  if (board?.cmini) return board.cmini;
+  if (board === undefined || board.kind === "ortho" || board.kind === "colstag") return "ortho";
+  return "stagger";
+}
+
+// spark/1 -> mana2/1 never holds (12 §2.5's held cases are all in the
+// mana2 -> spark direction). spark's `to` no longer lists `cmini/1`
+// (20-spark.md S1): cmini is an unregistered adapter now, reached only
+// through the registry's `ALIASES`/`adapter:cmini` path (db/formats/
+// registry.ts), never a plain `to[...]` entry.
+export const to: Record<string, (p: Payload) => Mana2Payload> = {
+  "mana2/1": mana2FromSpark,
 };
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const from: Record<string, (p: any) => any> = {
-  "cmini/1": fromCmini,
-  "mana2/1": mana2ToAkl, // can return `{held:true,...}` -- `from` is never called by registry.ts's translate(), see the import comment above
+  "mana2/1": mana2ToSpark, // can return `{held:true,...}` -- `from` is never called by registry.ts's translate(), see the import comment above
 };
 
 // Re-exported so isSingleChar-shaped call sites elsewhere in this format

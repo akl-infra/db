@@ -34,7 +34,7 @@ const SCRIPTS_DIR = path.dirname(url.fileURLToPath(import.meta.url));
 const DB_ROOT = path.join(SCRIPTS_DIR, "..");
 const REPO_ROOT = path.resolve(DB_ROOT, "..");
 const OUT_DIR = path.join(DB_ROOT, "tests", "fixtures", "mana2-convert");
-const CMINI_FIXTURES_DIR = path.join(DB_ROOT, "formats", "cmini", "1", "fixtures");
+const CMINI_FIXTURES_DIR = path.join(DB_ROOT, "formats", "adapters", "cmini", "fixtures");
 
 function arg(name, fallback) {
   const found = process.argv.find((a) => a.startsWith(`--${name}=`));

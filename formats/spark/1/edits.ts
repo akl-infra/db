@@ -1,4 +1,4 @@
-// akl/1's PATCH edits (09-implementation-phase2.md §2.6, §3 T4): the
+// spark/1's PATCH edits (09-implementation-phase2.md §2.6, §3 T4): the
 // `FormatEdits` registry.ts's optional slot reserves, one pure function per
 // verb `patchLayout` (src/core/write.ts) may apply. Self-contained like
 // index.ts (07 §5): no import of src/formats/registry.ts (only `import
@@ -37,7 +37,7 @@ export function setFingermap(p: Payload, map: Record<string, string>): EditResul
   return out;
 }
 
-// The board vocabulary IS akl/1's own (01 §2) -- validated as a whole by
+// The board vocabulary IS spark/1's own (01 §2) -- validated as a whole by
 // the pipeline's validate() re-run (board.stagger length, board.cmini
 // agreement), nothing extra checked here.
 export function setBoard(p: Payload, board: unknown): EditResult {
@@ -46,7 +46,7 @@ export function setBoard(p: Payload, board: unknown): EditResult {
   return out;
 }
 
-// The magic vocabulary IS akl/1's own (01 §2) -- same reasoning as
+// The magic vocabulary IS spark/1's own (01 §2) -- same reasoning as
 // setBoard.
 export function setMagic(p: Payload, magic: unknown): EditResult {
   const out: Payload = structuredClone(p);

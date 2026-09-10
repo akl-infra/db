@@ -1,8 +1,8 @@
-// mana2/1 <-> akl/1 (design/layout-db/12-implementation-phase5.md §2.5,
+// mana2/1 <-> spark/1 (design/layout-db/12-implementation-phase5.md §2.5,
 // which replaces 01-format.md §6.3). The one place this pair is
-// implemented (matching akl/1/translate.ts's own cmini/1 <-> akl/1
-// pairing): mana2/1's `to["akl/1"]`/`from["akl/1"]` live here; akl/1's own
-// reciprocal `to["mana2/1"]`/`from["mana2/1"]` (akl/1/index.ts) import
+// implemented (matching spark/1/translate.ts's own cmini <-> spark/1
+// pairing): mana2/1's `to["spark/1"]`/`from["spark/1"]` live here; spark/1's own
+// reciprocal `to["mana2/1"]`/`from["mana2/1"]` (spark/1/index.ts) import
 // these same two functions rather than re-implementing them.
 //
 // Ground truth is vendor/mana2/core/load_layout.go, read line-by-line (not
@@ -22,9 +22,9 @@
 // level (a tap-hold's first slot may be a directional; nothing nests
 // inside a directial or on a hold), and no vendored file goes deeper.
 
-import type { Payload as AklPayload, Position as AklPosition, Board as AklBoard } from "../../akl/1/index.ts";
-import type { MagicIntent } from "../../akl/1/magic.ts";
-import { computeRows } from "../../akl/1/magic.ts";
+import type { Payload as SparkPayload, Position as SparkPosition, Board as SparkBoard } from "../../spark/1/index.ts";
+import type { MagicIntent } from "../../spark/1/magic.ts";
+import { computeRows } from "../../spark/1/magic.ts";
 import type { Payload as Mana2Payload, Board as Mana2Board, Rule as Mana2Rule } from "./index.ts";
 
 // 12-implementation-phase5.md §2.5 / core/stats.go's `fingerSuffixNames`.
@@ -33,7 +33,7 @@ export const DIGIT_BY_FINGER: Record<string, number> = Object.fromEntries(FINGER
 
 // `TB` has no mana2 digit -- §2.5: "TB -> 4 when col < 4.5 else 5" (the
 // site's `PhysicalThumbSide`, bridgecore/cmini.go), used only in the
-// akl/1 -> mana2/1 direction (mana2 itself never emits TB).
+// spark/1 -> mana2/1 direction (mana2 itself never emits TB).
 export function thumbDigitForCol(col: number): number {
   return col < 4.5 ? 4 : 5;
 }
@@ -101,7 +101,7 @@ export function splitCells(row: string): RawCell[] | ParseError {
 
 // `word == "space"` -> a literal space (parseList's own substitution,
 // applied before any further resolution -- decision #8 in 12's ledger: a
-// mana2 `space` token becomes a `" "` key in akl/1, lossless both ways).
+// mana2 `space` token becomes a `" "` key in spark/1, lossless both ways).
 // One code point -> itself. Anything else (including "skip", handled by
 // the caller before this is reached) -> not a valid single character.
 function singleCharOf(word: string): string | null {
@@ -210,15 +210,15 @@ export function parseRow(row: string): RowCell[] | ParseError {
 }
 
 // ---------------------------------------------------------------------
-// mana2/1 -> akl/1
+// mana2/1 -> spark/1
 // ---------------------------------------------------------------------
 
-// Everything mana2 carries that akl/1 has no idiom for AND that this pair
+// Everything mana2 carries that spark/1 has no idiom for AND that this pair
 // chooses to preserve exactly rather than hold (12 §2.5 holds all four;
 // this format's `x.mana2` escape hatch -- the same pattern 01-format.md
 // §6.1 uses for `x.cmini` -- overrides that for exactly these four, since
 // none of them affect what a position/character/board-shape IS, only
-// rendering/bookkeeping metadata akl/1 genuinely has no field for. A key
+// rendering/bookkeeping metadata spark/1 genuinely has no field for. A key
 // is present here IFF it was present (at any value, including `false`/
 // `null`) on the source mana2 payload.
 export interface Mana2Extra {
@@ -239,7 +239,7 @@ function definedEntries<T extends object>(obj: T): Partial<T> {
 // Last duplicate wins (mana2's own load-time semantics -- the loader
 // re-parses `magic.rules` into a map keyed by `inputs`, so a later entry
 // silently overwrites an earlier one). Shared by `lower()` (index.ts) and
-// `to["akl/1"]` below so the two can never disagree about which rule
+// `to["spark/1"]` below so the two can never disagree about which rule
 // "wins".
 export function dedupeRulesLastWins(rules: Mana2Rule[]): Mana2Rule[] {
   const byInputs = new Map<string, Mana2Rule>();
@@ -254,12 +254,12 @@ export function dedupeRulesLastWins(rules: Mana2Rule[]): Mana2Rule[] {
   return order.map((inputs) => byInputs.get(inputs)!);
 }
 
-function boardToAkl(board: Mana2Board): AklBoard {
+function boardToSpark(board: Mana2Board): SparkBoard {
   const stagger = board.rowOrColumnStagger;
   if (board.isRowStaggered) {
     if (stagger.every((v) => v === 0)) return { kind: "ortho", cmini: "ortho" };
     const first3 = stagger.slice(0, 3);
-    const out: AklBoard = { kind: "rowstag", stagger: [...first3] };
+    const out: SparkBoard = { kind: "rowstag", stagger: [...first3] };
     if (first3.length === 3 && first3[0] === 0 && first3[1] === 0.25 && first3[2] === 0.75) out.cmini = "stagger";
     return out;
   }
@@ -293,7 +293,7 @@ function parseThumbSide(raw: string | undefined): { cells: ThumbCell[] } | Held 
   if ("message" in parsed) {
     // A thumb string that fails to parse can only do so via a held
     // construct here (validate() already refused genuine grammar errors
-    // before to["akl/1"] is ever called) -- surfaced as held for safety
+    // before to["spark/1"] is ever called) -- surfaced as held for safety
     // rather than silently dropped.
     return { held: true, reason: parsed.message };
   }
@@ -305,10 +305,10 @@ function parseThumbSide(raw: string | undefined): { cells: ThumbCell[] } | Held 
   return { cells };
 }
 
-// to["akl/1"] (mana2 -> akl/1). Assumes `p` already validates.
-export function toAkl(p: Mana2Payload): AklPayload | Held {
-  const keys: Record<string, AklPosition> = {};
-  const free: AklPosition[] = [];
+// to["spark/1"] (mana2 -> spark/1). Assumes `p` already validates.
+export function toSpark(p: Mana2Payload): SparkPayload | Held {
+  const keys: Record<string, SparkPosition> = {};
+  const free: SparkPosition[] = [];
 
   const fingers = p.layout.fingers;
   const fingermap = p.fingermap;
@@ -349,7 +349,7 @@ export function toAkl(p: Mana2Payload): AklPayload | Held {
   const staggerHeld = staggerHeldReason(p.board);
   if (staggerHeld) return { held: true, reason: staggerHeld };
 
-  const board = boardToAkl(p.board);
+  const board = boardToSpark(p.board);
 
   const rules = dedupeRulesLastWins(p.magic?.rules ?? []);
   let magic: MagicIntent | undefined;
@@ -364,7 +364,7 @@ export function toAkl(p: Mana2Payload): AklPayload | Held {
     layers: p.layers,
   });
 
-  const out: AklPayload = { keys, board };
+  const out: SparkPayload = { keys, board };
   if (free.length > 0) out.free = free;
   if (magic) out.magic = magic;
   if (Object.keys(extra).length > 0) out.x = { mana2: extra };
@@ -372,7 +372,7 @@ export function toAkl(p: Mana2Payload): AklPayload | Held {
 }
 
 // ---------------------------------------------------------------------
-// akl/1 -> mana2/1
+// spark/1 -> mana2/1
 // ---------------------------------------------------------------------
 
 interface MainEntry {
@@ -390,7 +390,7 @@ interface ThumbEntry {
 
 // colstag's per-column padding (to the true width) happens in the caller,
 // which is the only place that knows `maxCol`.
-function boardFromAkl(board: AklBoard | undefined, numMainRows: number): { isRowStaggered: boolean; rowOrColumnStagger: number[] } {
+function boardFromSpark(board: SparkBoard | undefined, numMainRows: number): { isRowStaggered: boolean; rowOrColumnStagger: number[] } {
   if (board === undefined || board.kind === "ortho") {
     return { isRowStaggered: true, rowOrColumnStagger: new Array(numMainRows).fill(0) };
   }
@@ -403,7 +403,7 @@ function boardFromAkl(board: AklBoard | undefined, numMainRows: number): { isRow
   return { isRowStaggered: false, rowOrColumnStagger: board.stagger ? [...board.stagger] : [] };
 }
 
-// from["akl/1"] (akl/1 -> mana2/1). Mirrors the site's ConvertLayout
+// from["spark/1"] (spark/1 -> mana2/1). Mirrors the site's ConvertLayout
 // (tools/mana2bridge/bridgecore/convert.go): a grid over the NON-thumb
 // keys/free (rows 0..maxRow, cols 0..maxCol, absolute -- no compaction,
 // matching cmini's own absolute-column convention), a `skip` for any
@@ -412,7 +412,7 @@ function boardFromAkl(board: AklBoard | undefined, numMainRows: number): { isRow
 // trimmed so mana2's own vendored files round-trip byte-for-byte; thumb
 // keys (finger LT/RT/TB, on ANY row) re-anchor by `col < 4.5` into the
 // compact mana2 thumb-string convention, sorted by (col, row).
-export function fromAkl(p: AklPayload): Mana2Payload {
+export function fromSpark(p: SparkPayload): Mana2Payload {
   const main: MainEntry[] = [];
   const left: ThumbEntry[] = [];
   const right: ThumbEntry[] = [];
@@ -430,7 +430,7 @@ export function fromAkl(p: AklPayload): Mana2Payload {
   for (const pos of p.free ?? []) place(pos.row, pos.col, undefined, pos.finger);
 
   // mana2's own schema requires >=1 fingers row (every vendored file has
-  // 1-5) -- a genuinely empty akl/1 layout (0 keys, 52 live upstream
+  // 1-5) -- a genuinely empty spark/1 layout (0 keys, 52 live upstream
   // layouts, 07-implementation-phase1.md §0.1) still needs ONE row to
   // stay schema-valid; an empty string represents "no keys" faithfully.
   const numMainRows = Math.max(main.length === 0 ? 0 : Math.max(...main.map((e) => e.row)) + 1, 1);
@@ -470,7 +470,7 @@ export function fromAkl(p: AklPayload): Mana2Payload {
 
   const extra = (p.x?.["mana2"] ?? undefined) as Mana2Extra | undefined;
 
-  const derivedBoard = boardFromAkl(p.board, numMainRows);
+  const derivedBoard = boardFromSpark(p.board, numMainRows);
   const board: Mana2Board = {
     isRowStaggered: derivedBoard.isRowStaggered,
     rowOrColumnStagger: derivedBoard.rowOrColumnStagger,

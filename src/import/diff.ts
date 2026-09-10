@@ -21,7 +21,7 @@
 // retry it needs rather than importing `apply.ts`/`upstream.ts` across that
 // boundary.
 import { unescapeGoHtml } from "../core/safejson.ts";
-import * as cmini1 from "../../formats/cmini/1/index.ts";
+import * as cmini1 from "../../formats/adapters/cmini/index.ts";
 import { canonical } from "../core/canonical.ts";
 
 export type FetchImpl = (url: string, init?: { headers?: Record<string, string> }) => Promise<Response>;

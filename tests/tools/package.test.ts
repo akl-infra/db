@@ -1,18 +1,27 @@
 // [LDB-G7] @akl/layout-formats (db/formats/, 12 §3 X5 item 1) packs every
 // format's built entry and schema.json, no test or fixture file, imports
 // cleanly from a clean install, and its `exports` map names exactly the
-// registered format ids -- a fourth format landing in the registry
-// (db/formats/registry.ts) without its own package.json "exports" entry
-// fails here, not silently at a consumer's `import` months later.
+// registered format ids, the transitional alias ids (design/layout-db/
+// 20-spark.md S1 decision 12: `./akl/1`, `./cmini/1`), and the cmini
+// adapter's own subpath (`./adapters/cmini`) -- a fourth registered format,
+// a new alias, or a new adapter landing without its own package.json
+// "exports" entry fails here, not silently at a consumer's `import` months
+// later.
 import { execFileSync, execSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
-import { list } from "../../formats/registry.ts";
+import { list, ALIASES } from "../../formats/registry.ts";
 
 const DB_ROOT = path.resolve(import.meta.dirname, "..", "..");
 const FORMATS_ROOT = path.join(DB_ROOT, "formats");
+// The one unregistered adapter this package still ships a subpath for
+// (20-spark.md S1). Not registry-driven (there's no generic "adapters"
+// discovery mechanism yet, unlike registered formats/aliases) -- a second
+// adapter would need this list extended by hand, same as it needs its own
+// package.json "exports" entry by hand.
+const ADAPTER_SUBPATHS = ["adapters/cmini"];
 
 interface PackedFile {
   path: string;
@@ -39,39 +48,47 @@ describe("[LDB-G7] @akl/layout-formats packages db/formats", () => {
     execSync("npm run build", { cwd: FORMATS_ROOT, stdio: "pipe" });
   }, 60_000);
 
-  it("[LDB-G7] npm pack lists dist/index.js, every dist/<format>/1/index.js and every schema.json, no test or fixture file", () => {
+  it("[LDB-G7] npm pack lists dist/index.js, every dist/<format>/1/index.js, dist/adapters/cmini/index.js, and every schema.json, no test or fixture file", () => {
     const paths = npmPackDryRun().files.map((f) => f.path);
 
     expect(paths).toContain("dist/index.js");
-    expect(paths).toContain("dist/cmini/1/index.js");
-    expect(paths).toContain("dist/akl/1/index.js");
+    expect(paths).toContain("dist/spark/1/index.js");
     expect(paths).toContain("dist/mana2/1/index.js");
-    expect(paths).toContain("cmini/1/schema.json");
-    expect(paths).toContain("akl/1/schema.json");
+    expect(paths).toContain("dist/adapters/cmini/index.js");
+    expect(paths).toContain("spark/1/schema.json");
     expect(paths).toContain("mana2/1/schema.json");
+    expect(paths).toContain("adapters/cmini/schema.json");
+    // No SEPARATE build output for the alias subpaths -- `./akl/1`/
+    // `./cmini/1` point at the same dist files as `./spark/1`/
+    // `./adapters/cmini` (package.json's "exports" map), so a physical
+    // `dist/akl/1/` or `dist/cmini/1/` never exists.
+    expect(paths).not.toContain("dist/akl/1/index.js");
+    expect(paths).not.toContain("dist/cmini/1/index.js");
 
     const suspect = paths.filter((p) => /\.test\.|\/fixtures\//.test(p));
     expect(suspect).toEqual([]);
   });
 
-  it("[LDB-G7] package.json's exports map names exactly the registered format ids", () => {
+  it("[LDB-G7] [LDB-F20] package.json's exports map names exactly the registered format ids ∪ the alias ids ∪ the adapter subpaths", () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(FORMATS_ROOT, "package.json"), "utf8")) as {
       exports: Record<string, unknown>;
     };
-    const registeredIds = list().map((f) => f.id); // e.g. "cmini/1", "akl/1", "mana2/1"
-    for (const id of registeredIds) {
-      expect(pkg.exports, `package.json "exports" has no "./${id}" entry for registered format '${id}'`).toHaveProperty(
-        `./${id}`,
-      );
+    const registeredIds = list().map((f) => f.id); // "spark/1", "mana2/1"
+    const aliasIds = Object.keys(ALIASES); // "akl/1", "cmini/1"
+
+    for (const id of [...registeredIds, ...aliasIds, ...ADAPTER_SUBPATHS]) {
+      expect(pkg.exports, `package.json "exports" has no "./${id}" entry`).toHaveProperty(`./${id}`);
       expect(pkg.exports, `no "./${id}/schema.json" entry`).toHaveProperty(`./${id}/schema.json`);
     }
-    // The reverse direction too: no subpath export for a format that isn't
-    // (or is no longer) registered.
+    // The reverse direction too: no subpath export for anything that isn't
+    // a registered format, an alias, or the one known adapter.
     const exportedFormatIds = Object.keys(pkg.exports).filter((k) => k !== "." && !k.endsWith("/schema.json"));
-    expect(new Set(exportedFormatIds)).toEqual(new Set(registeredIds.map((id) => `./${id}`)));
+    expect(new Set(exportedFormatIds)).toEqual(
+      new Set([...registeredIds, ...aliasIds, ...ADAPTER_SUBPATHS].map((id) => `./${id}`)),
+    );
   });
 
-  it("[LDB-G7] a clean install of the packed tarball imports and runs @akl/layout-formats/akl/1", () => {
+  it("[LDB-G7] a clean install of the packed tarball imports and runs @akl/layout-formats/akl/1 (the transitional alias subpath)", () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "ldb-layout-formats-pack-"));
     try {
       const tarballName = execSync("npm pack --json", { cwd: FORMATS_ROOT, encoding: "utf8" });

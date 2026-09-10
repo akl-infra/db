@@ -9,8 +9,8 @@
 // `after: ' '` DOES replace it (same carve-out every board char gets), and
 // the row participates in collision detection like any other scaffold row.
 import { describe, expect, it } from "vitest";
-import { computeRows, findCollision, liftRules, type MagicIntent } from "../../formats/akl/1/magic.ts";
-import type { Position } from "../../formats/akl/1/index.ts";
+import { computeRows, findCollision, liftRules, type MagicIntent } from "../../formats/spark/1/magic.ts";
+import type { Position } from "../../formats/spark/1/index.ts";
 
 const LEFT = ["LP", "LR", "LM", "LI"];
 const RIGHT = ["RP", "RR", "RM", "RI"];
