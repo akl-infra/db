@@ -30,7 +30,7 @@ strings, renamed verbs) stay `// COPY: sign-off pending` until saltorbit signs
 | authors | keep | page it like `rank` |
 | stats | keep | leave as is |
 | search filter homerow | **drop** | the complex things should direct people to the site; maybe back later |
-| fingers fspeed | keep | ("port the 12 modes?" — asked what that means; §3) |
+| fingers fspeed | keep | usage only (the other cmini metrics are not ported) |
 | sfbs sfs rolls inrolls outrolls alternates redirects | keep | |
 | onehands | change | will be renamed (`3rolls` or similar) |
 | pattern | **drop** | |
@@ -51,12 +51,13 @@ Bot (branch after LDB-B26/B27 lands; each row is an invariant + tests):
 - **C7 `history` → link.** Reply = one header line + the link to the layout's changelist page. Until akl.gg has one, the link is layoutdb's own public changelog (`/admin/changelog`, X3) filtered to the layout (add a `layout=<name>` filter to that page if it lacks one). Swap the target when the akl.gg page exists.
 - **C8 `compare` link**: append the site's compare link (`cmpA`/`cmpB` hash keys, `web/src/core/codec.ts`). See §3 Q2 for the image form.
 - **C9 `view` bench link**: the akl.gg link on `view` opens the layout in the bench (the site's hash for "open this layout in the bench" — to confirm with the site session; if none exists, it is a small site change). Other single-layout replies keep the card link.
+- **C12 `image <a> <b>`** renders the site's compare card (same drawing code, `cmpBase` set) — saltorbit: "great idea, do that"; `compare` stays text + the akl.gg compare link (C8).
 - **C11 Link text.** The masked link's visible text is `akl.gg`, not `(akl.gg link)` (saltorbit, 03:3xZ) — `appendSiteLink` and the LDB-B25 row.
 - **C10 `onehands` rename**: when the name is chosen, add it as the primary and keep `onehands` as an alias for a while.
 
 DB / site (design first, `17`-style docs):
 
-- **D1 Same-name re-add inherits likes** (`remove` decision). Proposed rule: `POST /v1/layouts` with a name currently held by a **tombstone the same actor owns** is a restore-with-payload — same record id, rev+1, likes and history kept, `kind: created` with `detail.restored_from: <rev>`; a different actor gets a fresh record and inherits nothing (a freed name must not be a way to collect someone else's likes). Invariant + tests in `db/`; the bot's `add` needs no change. Needs saltorbit's yes on the different-actor half.
+- **D1 Same-name re-add inherits likes** (`remove` decision; saltorbit 2026-09-10: "tombstoned name carries likes for whoever takes it. it's a quirk people like"). Rule: `POST /v1/layouts` with a name held by a tombstone — **any** actor — creates the new record with the tombstone's likes copied onto it (`liked` events `via: name_inherited` naming the source record, so the fold stays the record; the tombstone keeps its own history and stays restorable by its owner, which would then split the likes — acceptable, document it). Invariant + tests in `db/`; the bot's `add` needs no change.
 - **D2 Rename never loses the id.** Already true at the record level (a rename is a `PATCH` on the same id; likes, history, rev chain continue — LDB-P4) but the SITE keys its catalog by `name.lower()`, so a rename moves the site id; the sync carries `_dbId` on every row. Add an explicit invariant that every path that identifies a layout across a rename (site sync, bot cache, links) does so by `_dbId`/record id, and a test that a renamed layout keeps its likes and history end to end.
 - **D3 A per-layout changelist page** on akl.gg (the `history` target). Out of the bot's scope; either the site session builds it, or C7's layoutdb page is the long-term answer.
 - **D4 Layout entry expressivity** (`add`/`setfingermap`): a design round — coordinates, stagger, thumbs, row 4 — "easy and identical for simple layouts, more expressive for advanced ones". Candidate: the akl/1 shape as an optional fenced JSON alternative to cmini's grid, plus the bench link so the site is the advanced editor. Design doc first, no code.
@@ -65,8 +66,8 @@ DB / site (design first, `17`-style docs):
 
 ## 3. Open questions (saltorbit)
 
-- **Q1 `fingers` modes.** cmini's `fingers [layout] [metric]` prints one per-finger table per metric: `usage` (what spark prints), and also `sfb`, `sfs`, `roll`, `alt`, `red`, `oneh`, `inroll`, `outroll`, `redirect`, `dsfb`, `speed` — twelve breakdowns of the same stats by finger. spark answers "not supported" for anything but `usage`. Port them (each is a column of numbers the site already has per finger), or leave `fingers` as the usage table only?
-- **Q2 compare with an image.** Recommendation: no new verb — `image <a> <b>` renders the site's compare card (the same drawing code as `image <a>`, `cmpBase` set), and `compare` stays the text form plus the akl.gg compare link. One verb, two arities, matches how `view`/`image` already pair.
-- **Q3 D1's different-actor half** (§2): fresh record, no inherited likes?
+- ~~Q1 `fingers` modes~~ — **usage only** (saltorbit). `fingers`/`fspeed` stay as they are.
+- ~~Q2 compare with an image~~ — **`image <a> <b>`** (saltorbit: "great idea, do that") → C12.
+- ~~Q3 D1's different-actor half~~ — **likes carry to whoever takes the name** → D1 as written.
 - **Q4 `onehands`' new name** when you have it.
 - **Q5 `search`/`filter`/`homerow`**: stubs that point at the site (C2), or silent removal?
