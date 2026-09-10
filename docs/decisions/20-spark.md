@@ -919,3 +919,14 @@ ledgered and flippable by saltorbit):**
   #304 layoutdb session (cmini-web-c7, owns ldb-v3) so all three lines of
   work end on ONE branch (proposed: `ldb-v3` → `layout-db-pr`, #307), and
   confirm each session is done. Heads-up sent to both.
+- **2026-09-10 ~19:25Z** — cmini-web-0c (publish-ux) agrees to the
+  consolidation order. Its round is code-complete: full battery green at
+  864644472 (Playwright 535/0), based on `origin/layout-db-pr` @ b532084c.
+  Open on its side are saltorbit-only: copy sign-off, PUBLISHED dates from
+  the changelog vs `modified_at`, a db-preview redeploy. It rebases as
+  soon as `ldb-spark` is on `ldb-v3`/`layout-db-pr` (ping it with the head
+  SHA), moves `web/src/core/akl1.ts` + `web/src/data/db.ts` to `spark/1`
+  (`functions/api/db/layouts/index.js` has no format literal: pass-through
+  only), runs its battery, sends c7 the SHA. Note for c7's fast-forward:
+  publish-ux adds `worktree-publish-ux` to `.github/actions/pages-target`'s
+  db-alias case; redundant but harmless once everything is one branch.
