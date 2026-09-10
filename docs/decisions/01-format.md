@@ -162,9 +162,23 @@ existing compile in `scripts/build_magic_rules.py` / `functions/_lib/rules.mjs`
 (magic keys → one row per layout key not in `except` and per explicit
 `after`; chiral → one row per key on the named hand; adaptive swap
 `t:[h,e]` → `th→te`, `te→th`) followed by the raw `rules` appended in order.
-A scaffold enumerates every layout key except the scaffolding key itself
-and its `except` list — *not* every magic/chiral key (S3: upstream's
-`auditor` gives its magic key `b` a repeat row from `*`). The
+A magic key's board-char scaffold enumerates every layout key except its
+own `except` list AND every magic/chiral key's own char (LDB-F15,
+`web/src/core/magicScaffold.ts`'s `magicScaffoldChars`: one GLOBAL
+exclusion set built from `magic_keys[]`/`chiral_keys[]` and shared across
+every key's scaffold) — corrected from an earlier version of this format
+that excluded only the scaffolding key's own char, reasoning from a
+misread of upstream's `auditor` data (S3: 'b' is its own magic key AND
+its stored `magic` array carries `*`'s repeat row `b*→bb`; the row is
+real, but recompiling `auditor`'s own idiom through today's site compiler
+does NOT reproduce it — the row survives only because `liftRules`
+recognizes a repeat/default row whose `after` is itself a special char and
+promotes it into an EXPLICIT `magic_keys[].rules[]` override instead,
+which relowers tagged `magic`, not `repeat`/`default:<c>` — same
+`(inputs, output)`, intentionally relabeled). A chiral key's scaffold,
+separately, enumerates every layout key WITH A HAND (`except` aside),
+the chiral key's own char included: same hand as itself, so it always
+takes `same` (never `opposite`), producing a self row `key+key`. The
 repeat/default scaffold enumerates **the layout's keys**, not a–z
 (#221 §3.1: cmini's own rows do, and a–z gives non-Latin layouts nothing).
 A `default:<c>` scaffold (never `repeat_previous`) also gets one extra

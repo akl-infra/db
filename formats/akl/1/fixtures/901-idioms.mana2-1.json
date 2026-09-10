@@ -32,10 +32,6 @@
         "output": ".."
       },
       {
-        "inputs": "/;",
-        "output": "//"
-      },
-      {
         "inputs": "a;",
         "output": "aa"
       },
@@ -142,6 +138,10 @@
       {
         "inputs": "./",
         "output": ".ee"
+      },
+      {
+        "inputs": "//",
+        "output": "/ee"
       },
       {
         "inputs": ";/",

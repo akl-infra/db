@@ -28,14 +28,6 @@
   "magic": {
     "rules": [
       {
-        "inputs": "b*",
-        "output": "bb"
-      },
-      {
-        "inputs": "d*",
-        "output": "dd"
-      },
-      {
         "inputs": "e*",
         "output": "ee"
       },
@@ -46,10 +38,6 @@
       {
         "inputs": "g*",
         "output": "gg"
-      },
-      {
-        "inputs": "j*",
-        "output": "jj"
       },
       {
         "inputs": "k*",
@@ -76,20 +64,12 @@
         "output": "pp"
       },
       {
-        "inputs": "q*",
-        "output": "qq"
-      },
-      {
         "inputs": "s*",
         "output": "ss"
       },
       {
         "inputs": "t*",
         "output": "tt"
-      },
-      {
-        "inputs": "v*",
-        "output": "vv"
       },
       {
         "inputs": "w*",
@@ -112,8 +92,16 @@
         "output": "ay"
       },
       {
+        "inputs": "b*",
+        "output": "bb"
+      },
+      {
         "inputs": "c*",
         "output": "ct"
+      },
+      {
+        "inputs": "d*",
+        "output": "dd"
       },
       {
         "inputs": "h*",
@@ -124,12 +112,24 @@
         "output": "ic"
       },
       {
+        "inputs": "j*",
+        "output": "jj"
+      },
+      {
+        "inputs": "q*",
+        "output": "qq"
+      },
+      {
         "inputs": "r*",
         "output": "rl"
       },
       {
         "inputs": "u*",
         "output": "ul"
+      },
+      {
+        "inputs": "v*",
+        "output": "vv"
       },
       {
         "inputs": "y*",

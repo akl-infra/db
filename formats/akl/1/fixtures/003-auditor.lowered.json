@@ -1,15 +1,5 @@
 [
   {
-    "inputs": "b*",
-    "output": "bb",
-    "type": "repeat"
-  },
-  {
-    "inputs": "d*",
-    "output": "dd",
-    "type": "repeat"
-  },
-  {
     "inputs": "e*",
     "output": "ee",
     "type": "repeat"
@@ -22,11 +12,6 @@
   {
     "inputs": "g*",
     "output": "gg",
-    "type": "repeat"
-  },
-  {
-    "inputs": "j*",
-    "output": "jj",
     "type": "repeat"
   },
   {
@@ -60,11 +45,6 @@
     "type": "repeat"
   },
   {
-    "inputs": "q*",
-    "output": "qq",
-    "type": "repeat"
-  },
-  {
     "inputs": "s*",
     "output": "ss",
     "type": "repeat"
@@ -72,11 +52,6 @@
   {
     "inputs": "t*",
     "output": "tt",
-    "type": "repeat"
-  },
-  {
-    "inputs": "v*",
-    "output": "vv",
     "type": "repeat"
   },
   {
@@ -105,8 +80,18 @@
     "type": "magic"
   },
   {
+    "inputs": "b*",
+    "output": "bb",
+    "type": "magic"
+  },
+  {
     "inputs": "c*",
     "output": "ct",
+    "type": "magic"
+  },
+  {
+    "inputs": "d*",
+    "output": "dd",
     "type": "magic"
   },
   {
@@ -120,6 +105,16 @@
     "type": "magic"
   },
   {
+    "inputs": "j*",
+    "output": "jj",
+    "type": "magic"
+  },
+  {
+    "inputs": "q*",
+    "output": "qq",
+    "type": "magic"
+  },
+  {
     "inputs": "r*",
     "output": "rl",
     "type": "magic"
@@ -127,6 +122,11 @@
   {
     "inputs": "u*",
     "output": "ul",
+    "type": "magic"
+  },
+  {
+    "inputs": "v*",
+    "output": "vv",
     "type": "magic"
   },
   {

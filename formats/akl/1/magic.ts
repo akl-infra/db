@@ -154,18 +154,33 @@ export function computeRows(magic: MagicIntent | undefined, keys: Record<string,
   const rawRules = m.rules ?? [];
   const rows: LabeledRow[] = [];
 
-  // Each key's own scaffold excludes only ITS OWN char (no "KK" row) --
-  // NOT every other magic/chiral key's char. Real upstream data (auditor)
-  // disproves the broader exclusion python's `special` set applies: 'b' is
-  // its own magic key (explicit rule "rb"->"r.") AND still receives '*''s
-  // repeat scaffold ("b*"->"bb"); excluding all magic-key chars from every
-  // OTHER key's scaffold would silently drop that row on relower, breaking
-  // LDB-F8. Deliberate deviation from the ported python for this reason.
+  // LDB-F15 (design/layout-db/01-format.md §3, db/INVARIANTS.md): the
+  // site's magicScaffoldChars (web/src/core/magicScaffold.ts) excludes
+  // EVERY magic key's own char AND every chiral key's own char from EVERY
+  // key's board-char scaffold -- one GLOBAL set, not "just this key's own
+  // char". A prior version of this comment claimed the narrower
+  // (per-key-only) exclusion was needed because real upstream data
+  // (auditor) has 'b' as its own magic key yet its stored `magic` array
+  // still carries '*''s repeat row `b*->bb` -- that claim was wrong about
+  // WHY the row exists: auditor's frozen row is genuine historical data
+  // (tests/fixtures/upstream-100), but recompiling auditor's OWN idiom
+  // through today's site compiler would NOT reproduce it (magicScaffoldChars
+  // excludes 'b' from every scaffold, '*''s included) -- confirmed live via
+  // scripts/verify_magic_migration.py against production (rosewood/
+  // tanglewood/twister all over-emit exactly this shape of row today). The
+  // row survives round-tripping anyway: `liftRules` below promotes a
+  // repeat/default row whose `after` is itself a special char into an
+  // EXPLICIT override on that key, since the (correctly narrowed) scaffold
+  // can no longer emit it as a default.
+  const specialChars = new Set<string>();
+  for (const mk of magicKeys) if (mk.key) specialChars.add(mk.key);
+  for (const ck of chiralKeys) if (ck.key) specialChars.add(ck.key);
+
   magicKeys.forEach((mk, i) => {
     const exceptSet = new Set(mk.except ?? []);
     const explicitAfters = new Set((mk.rules ?? []).map((r) => r.after));
     const dflt = mk.default ?? "none";
-    for (const c of layoutChars(keys, new Set([mk.key]))) {
+    for (const c of layoutChars(keys, specialChars)) {
       if (exceptSet.has(c) || explicitAfters.has(c)) continue; // an explicit rule for this `after` REPLACES the scaffold row -- not a collision (01 §3)
       if (dflt === "repeat_previous") {
         rows.push({ inputs: c + mk.key, output: c + c, type: "repeat", from: `magic_keys[${i}]` });
@@ -203,10 +218,20 @@ export function computeRows(magic: MagicIntent | undefined, keys: Record<string,
     });
   });
 
+  // LDB-F15: the site's chiral loop (`for (const k of keys)`,
+  // web/src/core/rules.ts) enumerates EVERY layout key with a resolvable
+  // hand, the chiral key's OWN char included -- same hand as itself, so it
+  // always takes `same` (never `opposite`), giving a self row `key+key`
+  // (repeat_previous doubles it, same as any other char; a literal `same`
+  // emits `key`+that char). Confirmed live: neon/neon_colstag/stingray/
+  // tenders all serve this row (`yy->y#`, `уу->у@`) that `lower()` was
+  // dropping. No `specialChars` exclusion here either -- the site's loop
+  // has none; a magic key's own char is a perfectly good chiral scaffold
+  // char (only a key's OWN except list, or lacking a hand, excludes it).
   chiralKeys.forEach((ck, i) => {
     const exceptSet = new Set(ck.except ?? []);
     const kh = handOf(keys, ck.key);
-    for (const c of layoutChars(keys, new Set([ck.key]))) {
+    for (const c of layoutChars(keys, new Set())) {
       if (exceptSet.has(c)) continue;
       const h = handOf(keys, c);
       if (h === null || kh === null) continue; // no hand on either side -> this construct produces nothing here (a documented zero-row case, 01 §4.1 in the interop writeup)
@@ -288,6 +313,32 @@ export interface LiftedIntent {
 // that isn't producible by any construct on THIS layout is a leftover, kept
 // verbatim (01 §3's round-trip section; #221's "leftovers are never
 // dropped").
+// LDB-F15: the set of magic/chiral key chars a row LIST implies -- every
+// distinct `key` (the 2nd code point) among rows shaped like a magic-key
+// scaffold/override ('repeat', 'default:<c>', 'magic') or a chiral
+// scaffold ('chiral'). This is the same set `computeRows` builds directly
+// from `magic_keys[]`/`chiral_keys[]` when an idiom already exists; here
+// it's reconstructed from the FLAT rows themselves, for the two places
+// that need it before (or without) an idiom: `liftRules` (below -- the
+// idiom doesn't exist yet, this pass IS what builds it) and any test
+// comparing a frozen row set against its own round trip, which must
+// tolerate the same type relabeling `liftRules` performs (a repeat/
+// default row whose `after` is itself a special char comes back tagged
+// "magic", not "repeat"/"default:<c>" -- same (inputs, output), promoted
+// to an explicit override since the scaffold that used to emit it no
+// longer does, LDB-F8).
+export function specialCharsFromRows(rows: Row[]): Set<string> {
+  const special = new Set<string>();
+  for (const r of rows) {
+    const t = r.type ?? "";
+    if (t !== "repeat" && t !== "magic" && t !== "chiral" && !t.startsWith("default:")) continue;
+    const split = splitInputs(r.inputs);
+    if (!split) continue;
+    special.add(split[1]);
+  }
+  return special;
+}
+
 export function liftRules(rows: Row[], keys: Record<string, Position>): { lifted: LiftedIntent; leftovers: Row[] } {
   const magicKeys = new Map<string, MagicKey>();
   const leftovers: Row[] = [];
@@ -300,6 +351,24 @@ export function liftRules(rows: Row[], keys: Record<string, Position>): { lifted
     }
     return m;
   }
+
+  // computeRows' scaffold now excludes every magic/chiral key's OWN char
+  // from every OTHER key's scaffold (`specialChars` there, mirroring the
+  // site's magicScaffoldChars) -- so a repeat/default row whose `after` is
+  // itself a special char (auditor's real `b*->bb`, 'b' its own magic key)
+  // can no longer be reproduced as that key's `default`; relowering a
+  // `default: 'repeat_previous'`/`default: <c>` would skip `after`
+  // entirely. It still round-trips: promoted below into an EXPLICIT
+  // `magic_keys[].rules[]` override instead, which computeRows'
+  // unconditional explicit-rules loop always emits regardless of
+  // specialChars. ' ' is excluded on purpose: the LDB-F14 word-start row
+  // also carries a `default:<c>` tag with `after === ' '`, but
+  // computeRows' dedicated push for it is UNCONDITIONAL on specialChars
+  // (only an explicit `after: ' '` rule suppresses it, same as any board
+  // char) -- promoting it here would be based on a coincidence (some OTHER
+  // key literally sitting on the space character, no fixture does) that
+  // has nothing to do with why that row exists.
+  const specialChars = specialCharsFromRows(rows);
 
   for (const r of rows) {
     const t = r.type ?? "";
@@ -315,6 +384,10 @@ export function liftRules(rows: Row[], keys: Record<string, Position>): { lifted
         leftovers.push(r);
         continue;
       }
+      if (after !== " " && specialChars.has(after)) {
+        mk(k).rules!.push({ after, output: r.output });
+        continue;
+      }
       const m = mk(k);
       if (m.default !== "none" && m.default !== "repeat_previous") {
         leftovers.push(r);
@@ -325,6 +398,10 @@ export function liftRules(rows: Row[], keys: Record<string, Position>): { lifted
       const d = t.slice("default:".length);
       if ([...d].length !== 1 || r.output !== after + d) {
         leftovers.push(r);
+        continue;
+      }
+      if (after !== " " && specialChars.has(after)) {
+        mk(k).rules!.push({ after, output: r.output });
         continue;
       }
       const m = mk(k);

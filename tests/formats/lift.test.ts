@@ -9,7 +9,7 @@ import path from "node:path";
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import * as cmini1 from "../../formats/cmini/1/index.ts";
-import { computeRows, findCollision, liftRules, type MagicIntent, type Row } from "../../formats/akl/1/magic.ts";
+import { computeRows, findCollision, liftRules, specialCharsFromRows, type MagicIntent, type Row } from "../../formats/akl/1/magic.ts";
 import { reconcileScaffoldsToTrueRows } from "../../formats/akl/1/translate.ts";
 import type { Position } from "../../formats/akl/1/index.ts";
 
@@ -166,9 +166,26 @@ function typed(rows: Row[]): TypedRow[] {
 }
 
 function byTriple(a: TypedRow, b: TypedRow): number {
-  const ka = `${a.inputs} ${a.output} ${a.type}`;
-  const kb = `${b.inputs} ${b.output} ${b.type}`;
+  const ka = `${a.inputs} ${a.output} ${a.type}`;
+  const kb = `${b.inputs} ${b.output} ${b.type}`;
   return ka < kb ? -1 : ka > kb ? 1 : 0;
+}
+
+// LDB-F15: a repeat/default row whose `after` is itself another magic/
+// chiral key's char (auditor's `b*->bb`, 'b' its own magic key) comes back
+// tagged "magic" (an explicit override), not "repeat"/"default:<c>", once
+// computeRows' narrowed scaffold no longer emits it as a default -- same
+// (inputs, output) pair, intentionally relabeled. `' '` is exempt: the
+// LDB-F14 word-start row is unconditional on specialChars (see magic.ts).
+function canonicalType(row: TypedRow, special: Set<string>): string {
+  const after = [...row.inputs][0];
+  if (after !== undefined && after !== " " && special.has(after) && (row.type === "repeat" || row.type.startsWith("default:"))) {
+    return "magic";
+  }
+  return row.type;
+}
+function canonicalized(rows: TypedRow[], special: Set<string>): TypedRow[] {
+  return rows.map((r) => ({ ...r, type: canonicalType(r, special) }));
 }
 
 function handOf(keys: Record<string, Position>, ch: string): "L" | "R" | null {
@@ -238,7 +255,7 @@ describe("lower(lift(rows)) ≡ rows -- every cmini/1 fixture with magic", () =>
     const rows: TypedRow[] = typed(JSON.parse(fs.readFileSync(path.join(CMINI_FIXTURES_DIR, loweredFile), "utf8")));
     const payload = JSON.parse(fs.readFileSync(path.join(CMINI_FIXTURES_DIR, `${stem}.json`), "utf8")) as cmini1.Payload;
 
-    it(`[LDB-F8] ${stem}: lower(lift(rows)) reproduces rows; leftovers ⊆ rows and each earns its spot`, () => {
+    it(`[LDB-F8] [LDB-F15] ${stem}: lower(lift(rows)) reproduces rows; leftovers ⊆ rows and each earns its spot`, () => {
       const { lifted, leftovers } = liftRules(rows, payload.keys);
       expect(leftovers.length + Object.values(lifted).flat().length).toBeGreaterThanOrEqual(0); // sanity: liftRules ran
 
@@ -254,12 +271,13 @@ describe("lower(lift(rows)) ≡ rows -- every cmini/1 fixture with magic", () =>
       reconcileScaffoldsToTrueRows(magic, rows, payload.keys);
 
       const relowered = typed(computeRows({ ...magic, rules: leftovers.map((r) => ({ inputs: r.inputs, output: r.output, type: r.type })) }, payload.keys));
-      expect([...relowered].sort(byTriple)).toEqual([...rows].sort(byTriple));
+      const special = specialCharsFromRows(rows);
+      expect(canonicalized(relowered, special).sort(byTriple)).toEqual(canonicalized(rows, special).sort(byTriple));
 
-      const rowSet = new Set(rows.map((r) => `${r.inputs} ${r.output} ${r.type}`));
+      const rowSet = new Set(rows.map((r) => `${r.inputs} ${r.output} ${r.type}`));
       for (const leftover of leftovers) {
         const lo = typed([leftover])[0]!;
-        expect(rowSet.has(`${lo.inputs} ${lo.output} ${lo.type}`)).toBe(true); // leftovers ⊆ rows
+        expect(rowSet.has(`${lo.inputs} ${lo.output} ${lo.type}`)).toBe(true); // leftovers ⊆ rows
         expect(failsTagInvariant(lo, rows, payload.keys)).toBe(true); // and each one EARNED being a leftover
       }
     });

@@ -179,8 +179,16 @@
             "output": "ay"
           },
           {
+            "after": "b",
+            "output": "bb"
+          },
+          {
             "after": "c",
             "output": "ct"
+          },
+          {
+            "after": "d",
+            "output": "dd"
           },
           {
             "after": "h",
@@ -191,12 +199,24 @@
             "output": "ic"
           },
           {
+            "after": "j",
+            "output": "jj"
+          },
+          {
+            "after": "q",
+            "output": "qq"
+          },
+          {
             "after": "r",
             "output": "rl"
           },
           {
             "after": "u",
             "output": "ul"
+          },
+          {
+            "after": "v",
+            "output": "vv"
           },
           {
             "after": "y",

@@ -18,6 +18,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import * as cmini1 from "../../formats/cmini/1/index.ts";
 import * as akl1 from "../../formats/akl/1/index.ts";
+import { specialCharsFromRows } from "../../formats/akl/1/magic.ts";
 import type { Board, Payload as AklPayload } from "../../formats/akl/1/index.ts";
 
 const SNAPSHOT_DIR = path.resolve(import.meta.dirname, "..", "fixtures", "upstream-100");
@@ -62,15 +63,32 @@ function projectWithPayload(detail: UpstreamDetail, payload: cmini1.Payload): cm
 // both sides before a plain deep-equal, matching this codebase's existing
 // "every array in this schema is semantically a SET" convention
 // (functions/_lib/rules.mjs's ruleSetSignature).
+// LDB-F15: a magic/chiral key's own char (auditor's 'b', 'd', 'j', 'q',
+// 'v' -- each a `default: "none"` magic key in its own right) is now
+// excluded from every OTHER key's board-char scaffold (magic.ts's
+// `specialChars`, mirroring the site's `magicScaffoldChars`). A frozen
+// row like auditor's `b*->bb` (type "repeat") still round-trips, but only
+// as an EXPLICIT `magic_keys[].rules[]` override on `*` -- which relowers
+// tagged "magic", not "repeat"/"default:<c>". Same (inputs, output) pair,
+// intentionally relabeled; not a real difference in behavior.
 function normalized(detail: cmini1.CminiDetail): unknown {
   const clone = structuredClone(detail) as cmini1.CminiDetail;
   if (clone.magic) {
+    const special = specialCharsFromRows(clone.magic.map((r) => ({ inputs: r.inputs, output: r.output, type: r.type ?? "raw" })));
     // `type` absent and `type: "raw"` are the same row (07 §5.1's own
     // `lower()` already treats them identically) -- whirl's one untyped
     // row would otherwise look like a mismatch against its own
     // round-tripped (explicitly "raw") copy.
     clone.magic = clone.magic
-      .map((r) => ({ inputs: r.inputs, output: r.output, type: r.type ?? "raw" }))
+      .map((r) => {
+        let type = r.type ?? "raw";
+        const cps = [...r.inputs];
+        const after = cps[0];
+        if (cps.length === 2 && after !== " " && special.has(after!) && (type === "repeat" || type.startsWith("default:"))) {
+          type = "magic";
+        }
+        return { inputs: r.inputs, output: r.output, type };
+      })
       .sort((a, b) => (a.inputs < b.inputs ? -1 : a.inputs > b.inputs ? 1 : 0));
   }
   return clone;
@@ -84,7 +102,7 @@ describe("cmini/1 -> akl/1 -> cmini/1 (the import direction)", () => {
   });
 
   for (const detail of full) {
-    it(`[LDB-F5] '${detail.name}': identity on the cminiDetail projection`, () => {
+    it(`[LDB-F5] [LDB-F15] '${detail.name}': identity on the cminiDetail projection`, () => {
       const payload = payloadFrom(detail);
       expect(cmini1.validate(payload).ok).toBe(true);
 

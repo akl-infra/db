@@ -10,11 +10,6 @@
     "type": "repeat"
   },
   {
-    "inputs": "/;",
-    "output": "//",
-    "type": "repeat"
-  },
-  {
     "inputs": "a;",
     "output": "aa",
     "type": "repeat"
@@ -147,6 +142,11 @@
   {
     "inputs": "./",
     "output": ".ee",
+    "type": "chiral"
+  },
+  {
+    "inputs": "//",
+    "output": "/ee",
     "type": "chiral"
   },
   {
