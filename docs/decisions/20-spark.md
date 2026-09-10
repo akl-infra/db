@@ -995,3 +995,16 @@ ledgered and flippable by saltorbit):**
   code change: S3a builds the field as planned, framed as transitional.
   Architecture doc/page get one sentence; the S8 guide marks the field
   transitional.
+- **2026-09-10 ~21:10Z** — S8 hub scaffolding **ready** on `ldb-spark-docs`
+  (bb57dce0f + 3c6cdd3cf): `design/layout-db/build_site.mjs` (one source
+  per doc → HTML + `.md` copy + `all.md`, `<figure>` passthrough), the
+  architecture page ported to `design/layout-db/architecture.md` (decision
+  16 edits applied), hub generated at build time by
+  `scripts/assemble_dist.mjs` (`web/layoutdb/` gitignored, never
+  committed), sparse-checkout cones widened in gate/build/full-rebuild,
+  LDB-G9 on properties of a fresh build, `build_page.mjs` +
+  `proposal.html` retired (nothing referenced them). Agent-verified: db
+  15 795 passed, ciwiring 21/21, assembledist + federation 17/17,
+  `npm run build` emits 46 hub files. Waits for S3a's commit (both touch
+  `db/INVARIANTS.md`), then lands as ONE squashed commit, then the agent
+  worktree is removed.
