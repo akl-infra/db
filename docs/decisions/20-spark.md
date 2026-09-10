@@ -1127,3 +1127,22 @@ ledgered and flippable by saltorbit):**
   exit condition. The S4 agent worktree is removed next; the branch stays.
   S7 (prose docs) is running in this worktree; S6 follow-ups in flight.
   Next: S5.
+- **2026-09-11 ~01:40Z** — **S6 landed** on `ldb-spark` (squash of
+  `ldb-spark-s6` 8fe861632 + ba81f9083; no conflicts). Bot: `toSpark`
+  reads `spark/1`, `akl/1` and legacy `cmini/1` rows (boot, apply, feed),
+  `?as=spark/1` reads, writes `spark/1`, `migrated` events advance
+  rev/format with no refetch (LDB-B49), `cells.ts` uses
+  `cminiBoardWord`, every DB request sends `X-Client-Version:
+  spark-bot/<Fly deployment id>` (falls back to `FLY_MACHINE_VERSION`,
+  then the package version; ≤ 64 chars; LDB-B50), rows B48–B50 in
+  `bot/INVARIANTS.md` (the bot has a tag↔row gate). Functions
+  (`magicdb.mjs`, `magic-rules/[id].js`) read `?as=spark/1`. Scripts:
+  `build_magic_rules`, `fetch_d1_rules`, `migrate_magic_rules_to_db`,
+  `sync_cmini_data --source db` (Python spark→cmini board word,
+  parity-tested against the adapter's goldens), `verify_magic_migration`
+  (DB side from `?as=mana2/1` flat rules vs the site compile: the
+  compiler-agreement check kept, new pytest). Lead verified in the S6
+  worktree: bot typecheck/lint clean, 775 passed (+20); pytest 122/1;
+  root node tests 423; `akl1.vitest.ts` 17. The combined db+bot run on
+  this branch happens before the hand-off to c7. S5 and S7 are running in
+  this worktree.
