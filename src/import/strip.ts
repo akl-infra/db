@@ -14,7 +14,7 @@
 import type { Bindings } from "../env";
 import * as cmini1 from "../../formats/adapters/cmini/index";
 import { appendWrite } from "../core/events";
-import { followsUpstream } from "../core/follows";
+import { nextUpstream, upstreamOf } from "../core/upstream";
 import { list, readById } from "../core/records";
 import type { Clock } from "../core/time";
 
@@ -48,13 +48,16 @@ export async function stripCminiMagic(db: Bindings["DB"], now: Clock): Promise<S
 
   let stripped = 0;
   for (const row of page.items) {
-    // Re-checked per record, live: this scan's `has_magic = 1` filter says
-    // nothing about follow status, and a record a human edit has already
-    // taken off upstream must be skipped (see header).
-    if (!(await followsUpstream(db, row.id))) continue;
-
     const record = await readById(db, row.id); // fresh read -- immune to `list()`'s row shape changing independently of this
     if (record === null) continue; // raced away (e.g. deleted) between the scan and here
+
+    // Re-checked per record, live: this scan's `has_magic = 1` filter says
+    // nothing about follow status, and a record a human edit has already
+    // taken off upstream must be skipped (see header). 20-spark.md S3a:
+    // reads the field (else the legacy fallback), not `followsUpstream`.
+    const prior = await upstreamOf(db, record);
+    if (prior?.state !== "following") continue;
+
     const payload = record.payload as cmini1.Payload;
     if (!cmini1.hasMagic(payload)) continue; // defensive: has_magic and hasMagic(payload) should never disagree
 
@@ -72,6 +75,8 @@ export async function stripCminiMagic(db: Bindings["DB"], now: Clock): Promise<S
       via: "import:cmini",
       detail: { source: "cmini", upstream_id: upstreamId, reason: "magic_stripped" },
       hasMagic: false,
+      upstream: nextUpstream(prior, "imported", "import:cmini"),
+      expectRev: record.rev,
     });
     stripped++;
   }

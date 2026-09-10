@@ -106,6 +106,7 @@ describe("[LDB-I5] imported names outside NAME_SET' survive a PUT untouched", ()
   it("a name with a space, a dot, and lowercase-only survive an update (never re-checked on PUT)", async () => {
     for (const importedName of ["io", "AdNW", "a.dotted.name", "a name with spaces"]) {
       const { record } = await appendWrite(db, clock, {
+      upstream: null,
         kind: "imported",
         name: importedName,
         owner: OWNER,

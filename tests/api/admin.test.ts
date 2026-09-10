@@ -536,6 +536,7 @@ describe("POST /v1/admin/import/tick, POST /v1/admin/diff/tick, and POST /v1/adm
     it("[LDB-I10] actually strips a legacy-magic-carrying record: has_magic flips, an 'imported' rev bump lands, and a second call finds nothing left", async () => {
       const owner = "9300000000000000001";
       const { record } = await appendWrite(db, clock, {
+      upstream: null,
         kind: "created",
         name: uniqueName("Strip-Admin-Route"),
         owner,
@@ -546,9 +547,15 @@ describe("POST /v1/admin/import/tick, POST /v1/admin/diff/tick, and POST /v1/adm
         via: "discord",
         hasMagic: false,
       });
-      // Simulate a record imported before M1 landed: still following
-      // upstream, but its stored payload already carries cmini's magic.
+      // Simulate a record imported before M1 landed (and, 20-spark.md S3a:
+      // before 0005 -- no `upstream` column values either): still following
+      // upstream via the legacy fallback (`core/upstream.ts`'s `upstreamOf`,
+      // which needs the SAME `import_map` row the real importer always
+      // wrote alongside the event), but its stored payload already carries
+      // cmini's magic.
+      await db.prepare("INSERT INTO import_map (upstream_id, layout_id) VALUES (?, ?)").bind("strip-admin-route", record.id).run();
       await appendWrite(db, clock, {
+      upstream: null,
         kind: "imported",
         layoutId: record.id,
         name: record.name,

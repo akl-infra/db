@@ -85,6 +85,7 @@ describe("[LDB-F16] POST /v1/layouts: format resolution", () => {
 
 async function seedLegacy(owner: string, format: "cmini/1" | "akl/1" | "spark/1" = "cmini/1") {
   const { record } = await appendWrite(db, clock, {
+      upstream: null,
     kind: "created",
     name: uniqueName("fwm-legacy"),
     owner,
@@ -183,6 +184,7 @@ describe("[LDB-F16] [LDB-F21] carry-forward writes always store spark/<latest>",
     it(`restore of a ${format}-stored tombstone -> stores spark/1`, async () => {
       const record = await seedLegacy(OWNER, format);
       await appendWrite(db, clock, {
+      upstream: null,
         kind: "deleted",
         layoutId: record.id,
         name: record.name,

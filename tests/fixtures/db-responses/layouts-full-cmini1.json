@@ -17,7 +17,12 @@
     "keys": {},
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "00------higgs",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2024-11-24T23:55:55Z",
@@ -36,7 +41,12 @@
     "keys": {},
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "02_we've_been_in_this_room_too_long",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-01-07T00:00:02Z",
@@ -211,7 +221,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "40kwh",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-09-07T08:15:10Z",
@@ -391,7 +406,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "5quid-nhrl2",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2025-08-15T00:00:02Z",
@@ -566,7 +586,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "abyss",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2022-12-07T23:24:35Z",
@@ -743,7 +768,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "adept",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2022-12-07T23:24:35Z",
@@ -929,7 +959,12 @@
     "link": "http://www.adnw.de/",
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "adnw",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-08-01T00:00:03Z",
@@ -1106,7 +1141,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "apple",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2023-02-16T03:52:38Z",
@@ -1285,7 +1325,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "apt26",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-09-03T01:24:11Z",
@@ -1460,7 +1505,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "auditor",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-08-16T00:00:02Z",
@@ -1635,7 +1685,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "auditor-old",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-09-03T21:14:17Z",
@@ -1810,7 +1865,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "auditors",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-01-31T00:00:02Z",
@@ -1962,7 +2022,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "babymak-pipis",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2025-04-28T00:00:02Z",
@@ -2137,7 +2202,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "bevel",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2023-05-28T00:00:01Z",
@@ -2329,7 +2399,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "bunya",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2024-07-01T02:49:53Z",
@@ -2544,7 +2619,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "crescent",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-09-05T23:46:00Z",
@@ -2719,7 +2799,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "csthyou",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2023-02-16T03:52:38Z",
@@ -2905,7 +2990,12 @@
     "link": "https://oxey.dev/dhorf",
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "dhorf",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-09-09T00:43:46Z",
@@ -3075,7 +3165,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "dina-test",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-08-31T13:04:38Z",
@@ -3250,7 +3345,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "dmini-thumb-test",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-08-31T13:23:32Z",
@@ -3425,7 +3525,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "dmini-thumb-test-2",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-08-31T16:05:27Z",
@@ -3600,7 +3705,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "dmini-thumb-test-3",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-08-31T16:38:03Z",
@@ -3775,7 +3885,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "dmini-thumb-test-4",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-08-31T19:03:22Z",
@@ -3950,7 +4065,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "dmini-thumb-test-6",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-09-01T15:52:43Z",
@@ -4125,7 +4245,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "dmini-thumb-test-7",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2025-11-30T00:00:02Z",
@@ -4307,7 +4432,12 @@
     "link": "https://github.com/Spookfish163/Echo",
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "echo",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-06-08T00:00:03Z",
@@ -4489,7 +4619,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "eclipse",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-09-08T18:09:47Z",
@@ -4664,7 +4799,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "eclipse-themb",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-08-25T05:09:45Z",
@@ -4834,7 +4974,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "eclipse-v2",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-09-07T20:27:43Z",
@@ -5006,7 +5151,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "eclipse-v3",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-09-07T18:59:07Z",
@@ -5176,7 +5326,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "eclipseortho",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2025-05-18T00:00:02Z",
@@ -5351,7 +5506,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "fhmb-test",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-08-30T23:56:12Z",
@@ -5560,7 +5720,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "finch",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-09-06T19:44:10Z",
@@ -5730,7 +5895,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "for-duo",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-09-06T19:49:46Z",
@@ -5900,7 +6070,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "for-duo-2",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-09-06T20:19:08Z",
@@ -6070,7 +6245,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "for-duo-3",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2023-03-16T23:40:06Z",
@@ -6335,7 +6515,12 @@
     "link": "https://github.com/rdavison/graphite-layout",
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "graphite",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-09-07T09:56:58Z",
@@ -6510,7 +6695,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "graphite-vimified",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2024-05-12T00:00:02Z",
@@ -6695,7 +6885,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "haul",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-06-01T00:00:02Z",
@@ -6877,7 +7072,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "inky-nyoom",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2023-02-16T03:52:38Z",
@@ -7129,7 +7329,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "inqwerted",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2022-12-07T23:24:35Z",
@@ -7315,7 +7520,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "io",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-09-03T02:39:08Z",
@@ -7495,7 +7705,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "jeep",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-08-31T01:34:57Z",
@@ -7670,7 +7885,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "kai-nokwts",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-08-28T12:57:11Z",
@@ -7850,7 +8070,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "kairos",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-03-10T00:00:03Z",
@@ -8025,7 +8250,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "kate-2",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2025-07-17T00:00:02Z",
@@ -8200,7 +8430,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "kinda-dina",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-09-08T16:10:20Z",
@@ -8375,7 +8610,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "knight-you",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-09-05T22:41:47Z",
@@ -8560,7 +8800,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "kormite",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-09-05T21:25:43Z",
@@ -8745,7 +8990,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "magnetite",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-08-19T00:00:02Z",
@@ -8923,7 +9173,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "mantra",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-09-05T17:12:25Z",
@@ -9108,7 +9363,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "marble",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-09-05T05:54:44Z",
@@ -9283,7 +9543,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "mistyfun",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-09-05T06:03:21Z",
@@ -9458,7 +9723,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "mistynail",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-06-23T00:00:02Z",
@@ -9644,7 +9914,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "neon",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-09-07T11:56:29Z",
@@ -9824,7 +10099,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "night-e",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-06-26T00:00:03Z",
@@ -10007,7 +10287,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "nightcore",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2022-12-07T23:24:35Z",
@@ -10183,7 +10468,12 @@
     "link": "https://kennetchaz.github.io/symmetric-typing/niro.html",
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "niro",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-09-07T07:56:36Z",
@@ -10358,7 +10648,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "ntabv6",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-08-31T19:55:19Z",
@@ -10545,7 +10840,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "onyx",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2025-07-01T00:00:02Z",
@@ -10727,7 +11027,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "opal",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-08-29T13:58:14Z",
@@ -10897,7 +11202,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "opal-dario",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-08-30T23:18:14Z",
@@ -11067,7 +11377,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "opal-e200",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-09-05T21:29:05Z",
@@ -11240,7 +11555,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "opalbetter",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-08-21T00:00:02Z",
@@ -11426,7 +11746,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "opaline",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-08-30T06:16:38Z",
@@ -11606,7 +11931,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "opaline-meteorited",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2025-03-30T00:00:02Z",
@@ -11781,7 +12111,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "oxeytest64",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2025-03-30T00:00:02Z",
@@ -11956,7 +12291,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "oxeytest65",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2025-03-30T00:00:02Z",
@@ -12131,7 +12471,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "oxeytest66",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2025-03-30T00:00:02Z",
@@ -12306,7 +12651,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "oxeytest76",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2024-04-04T00:00:02Z",
@@ -12498,7 +12848,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "racket",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-09-06T00:03:44Z",
@@ -12673,7 +13028,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "raincsth",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-09-01T10:44:27Z",
@@ -12848,7 +13208,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "rightrollv2",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-09-03T08:56:22Z",
@@ -13023,7 +13388,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "rightrollv3",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-09-07T21:37:14Z",
@@ -13193,7 +13563,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "rnhsy",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-09-07T21:28:45Z",
@@ -13368,7 +13743,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "rnhsye",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-08-31T17:14:02Z",
@@ -13538,7 +13918,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "rosellae",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-09-07T12:02:10Z",
@@ -13673,7 +14058,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "rosellaeacc",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-09-05T08:32:31Z",
@@ -13833,7 +14223,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "rosellaenav",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-09-05T08:31:56Z",
@@ -13978,7 +14373,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "rosellaesym",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-02-27T00:00:03Z",
@@ -14140,7 +14540,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "sanrie-cmini-test2",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-09-07T00:42:00Z",
@@ -14327,7 +14732,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "shale",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-09-09T01:10:57Z",
@@ -14502,7 +14912,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "shtc",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-08-31T15:55:03Z",
@@ -14690,7 +15105,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "slate",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2024-07-13T19:18:30Z",
@@ -14866,7 +15286,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "smiemak",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2022-12-07T23:24:35Z",
@@ -15042,7 +15467,12 @@
     "link": "https://kennetchaz.github.io/symmetric-typing/soul.html",
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "soul",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-08-18T00:00:02Z",
@@ -15228,7 +15658,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "sunstone",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-09-05T22:14:36Z",
@@ -15408,7 +15843,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "swift",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-02-27T00:00:03Z",
@@ -15583,7 +16023,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "sy-thumb",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-09-03T03:13:54Z",
@@ -15763,7 +16208,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "tenders",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2025-10-04T00:00:02Z",
@@ -15955,7 +16405,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "tendon25b",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-08-30T09:56:04Z",
@@ -16130,7 +16585,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "test12222",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2025-05-20T00:00:02Z",
@@ -16305,7 +16765,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "thumb-u-test",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-09-09T01:13:24Z",
@@ -16480,7 +16945,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "thumb-u-xb",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-07-30T00:00:03Z",
@@ -16660,7 +17130,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "tomato",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2024-02-06T00:00:01Z",
@@ -16855,7 +17330,12 @@
     "link": "https://github.com/MightyAcas/vylet",
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "vylet",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-05-17T00:00:02Z",
@@ -17030,7 +17510,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "vylet-v4",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2024-11-10T04:07:53Z",
@@ -17219,7 +17704,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "whirl",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2022-12-07T23:24:35Z",
@@ -17406,7 +17896,12 @@
     "link": "https://github.com/whorfian/whorf",
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "whorf",
+    "source": "cmini",
+    "state": "following"
+   }
   },
   {
    "created_at": "2026-09-05T07:42:37Z",
@@ -17581,7 +18076,12 @@
     },
     "tag": "cmini"
    },
-   "rev": 1
+   "rev": 1,
+   "upstream": {
+    "id": "workman-rowstagger",
+    "source": "cmini",
+    "state": "following"
+   }
   }
  ]
 }

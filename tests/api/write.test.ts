@@ -37,6 +37,7 @@ const OTHER = "owner-write-2";
 async function seed(format: "cmini/1" | "akl/1" = "cmini/1", owner = OWNER) {
   const payload = format === "cmini/1" ? CMINI_PAYLOAD : AKL_PAYLOAD;
   const { record } = await appendWrite(db, clock, {
+      upstream: null,
     kind: "created",
     name: uniqueName("write-seed"),
     owner,
@@ -320,6 +321,7 @@ describe("[LDB-A7] POST /v1/layouts/{ref}/restore: owner or admin", () => {
   async function seedDeleted(owner = OWNER) {
     const record = await seed("cmini/1", owner);
     return appendWrite(db, clock, {
+      upstream: null,
       kind: "deleted",
       layoutId: record.id,
       name: record.name,
@@ -527,6 +529,7 @@ describe("[LDB-A5] client-lane writes: via: client:<id>", () => {
     const client = await freshClient();
     const record = await seed("cmini/1", client.actor);
     const tombstone = await appendWrite(db, clock, {
+      upstream: null,
       kind: "deleted",
       layoutId: record.id,
       name: record.name,

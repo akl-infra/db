@@ -58,6 +58,7 @@ describe("GET /admin/changelog", () => {
   it("[LDB-H3] a name with '<'/'>' is escaped, never rendered as a literal tag", async () => {
     const clock = fixedClock("2026-06-15T00:00:00.000Z");
     const { record } = await appendWrite(db, clock, {
+      upstream: null,
       kind: "created",
       name: "<b>x",
       owner: "700000000000000001",

@@ -16,6 +16,7 @@ const clock = fixedClock("2026-05-01T00:00:00.000Z");
 
 function create(name: string, owner = "owner-a") {
   return appendWrite(db, clock, {
+      upstream: null,
     kind: "created",
     name,
     owner,
@@ -29,6 +30,7 @@ function create(name: string, owner = "owner-a") {
 
 function tombstone(record: { id: string; name: string; owner: string; format: string; payload: unknown }) {
   return appendWrite(db, clock, {
+      upstream: null,
     kind: "deleted",
     layoutId: record.id,
     name: record.name,
@@ -72,6 +74,7 @@ describe("name uniqueness", () => {
 
     await expect(
       appendWrite(db, clock, {
+      upstream: null,
         kind: "restored",
         layoutId: a.id,
         name: "Restore-1",
@@ -89,6 +92,7 @@ describe("name uniqueness", () => {
   it("[LDB-P4] renamed frees the old name in the same batch", async () => {
     const { record: a } = await create("Baz-1");
     await appendWrite(db, clock, {
+      upstream: null,
       kind: "renamed",
       layoutId: a.id,
       name: "Baz-2",
@@ -108,6 +112,7 @@ describe("name uniqueness", () => {
   it("[LDB-P4] a record keeps its own name across an update (no self-collision)", async () => {
     const { record: a } = await create("Qux-1");
     const { record: updated } = await appendWrite(db, clock, {
+      upstream: null,
       kind: "updated",
       layoutId: a.id,
       name: a.name,

@@ -5,7 +5,7 @@ import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import type { Bindings } from "../../src/env";
 import { appendWrite } from "../../src/core/events";
-import { followsUpstream } from "../../src/core/follows";
+import { legacyFollows } from "../../src/core/follows";
 import { readById, readByName } from "../../src/core/records";
 import { fixedClock } from "../../src/core/time";
 import { applyFetchedId } from "../../src/import/apply";
@@ -57,6 +57,7 @@ async function likeIds(layoutId: string): Promise<string[]> {
 // (`project()`'s comparison includes modified_at, likes excluded only).
 async function humanTouch(rec: { id: string; name: string; owner: string; format: string; payload: unknown; modified_at: string }) {
   await appendWrite(db, clock, {
+      upstream: null,
     kind: "updated",
     layoutId: rec.id,
     name: rec.name,
@@ -94,6 +95,7 @@ describe("import case table (07 §6 S5)", () => {
   it("[LDB-I2] case 2: new id, name held by a live LOCAL record with the SAME owner -> mapped, informational only", async () => {
     const owner = "2000000000000000001";
     const { record: existing } = await appendWrite(db, clock, {
+      upstream: null,
       kind: "created",
       name: "Case2-Shared",
       owner,
@@ -125,6 +127,7 @@ describe("import case table (07 §6 S5)", () => {
     const existingOwner = "3000000000000000001";
     const upstreamOwner = "3000000000000000002";
     const { record: existing } = await appendWrite(db, clock, {
+      upstream: null,
       kind: "created",
       name: "Case3-Clash",
       owner: existingOwner,
@@ -162,11 +165,13 @@ describe("import case table (07 §6 S5)", () => {
     const ownerB = "3100000000000000002";
     const ownerC = "3100000000000000003";
     await appendWrite(db, clock, {
+      upstream: null,
       kind: "created", name: "Case3b-Clash", owner: ownerA, modified_at: clock(),
       format: "cmini/1", payload: { board: "ortho", keys: {} }, actor: ownerA, via: "discord",
     });
     // pre-occupy the first shadow slot too
     await appendWrite(db, clock, {
+      upstream: null,
       kind: "created", name: "Case3b-Clash~cmini", owner: ownerB, modified_at: clock(),
       format: "cmini/1", payload: { board: "ortho", keys: {} }, actor: ownerB, via: "discord",
     });
@@ -308,6 +313,7 @@ describe("import case table (07 §6 S5)", () => {
 
     // a new record may now claim the freed name
     const { record: reclaimed } = await appendWrite(db, clock, {
+      upstream: null,
       kind: "created", name: "Case8-Delete", owner: "someone-else", modified_at: clock(),
       format: "cmini/1", payload: { board: "ortho", keys: {} }, actor: "someone-else", via: "discord",
     });
@@ -409,6 +415,7 @@ describe("[LDB-I11] an import write preserves the record's own magic byte-for-by
     // (exactly what `POST /v1/admin/import/strip-cmini-magic` targets).
     const legacyMagic = [{ inputs: "n*", output: "nn", type: "repeat" }];
     await appendWrite(db, clock, {
+      upstream: null,
       kind: "imported",
       layoutId: rec!.id,
       name: rec!.name,
@@ -449,6 +456,7 @@ describe("[LDB-I11] an import write preserves the record's own magic byte-for-by
     // comment on `edits`).
     const localMagic = [{ inputs: "s*", output: "ss", type: "repeat" }];
     await appendWrite(db, clock, {
+      upstream: null,
       kind: "updated",
       layoutId: rec!.id,
       name: rec!.name,
@@ -478,14 +486,14 @@ describe("[LDB-I11] an import write preserves the record's own magic byte-for-by
 // item 1; 17-magic-ownership.md §3): the `akl/1` branch of LDB-I11's case-4
 // carry-forward, previously a named TODO in `import/apply.ts` -- a
 // following record CAN now be `akl/1` (a magic-only PATCH lifts it,
-// `core/write.ts`'s `patchLayout`, and `followsUpstream` skips that write
+// `core/write.ts`'s `patchLayout`, and `legacyFollows` skips that write
 // when deciding "the latest write"). Simulated directly via `appendWrite`
 // (same style as LDB-I11's own cmini/1 legacy-magic case above) rather than
 // through `patchLayout`/HTTP -- this describe is about the IMPORT's own
 // case-4 behavior once such a record exists, not about how it got there
 // (`tests/api/patch.test.ts`'s own [LDB-I12] cases cover the PATCH side).
 describe("[LDB-I12] an import write on an akl/1 following record translates upstream's keys and keeps the record's own magic", () => {
-  it("[LDB-I12] case 4 on akl/1: upstream's board/keys land, the record's magic survives byte-for-byte, followsUpstream stays true, and a repeat is idempotent", async () => {
+  it("[LDB-I12] case 4 on akl/1: upstream's board/keys land, the record's magic survives byte-for-byte, legacyFollows stays true, and a repeat is idempotent", async () => {
     const owner = "1100000000000000005";
     const d1 = detail({ name: "I12-Akl", user: owner, board: "ortho", keys: {} });
     await applyFetchedId(db, clock, "i12-akl", d1);
@@ -494,10 +502,11 @@ describe("[LDB-I12] an import write on an akl/1 following record translates upst
     // Simulate a magic-only PATCH's lift (LDB-I12, `core/write.ts`): the
     // record becomes `akl/1`, `fromCmini`-translated from its own current
     // (magic-less) cmini/1 payload, with the PATCH's own magic set --
-    // marked `magic_only` so `followsUpstream` keeps reading through it.
+    // marked `magic_only` so `legacyFollows` keeps reading through it.
     const ownMagic = { rules: [{ inputs: "n*", output: "nn" }] };
     const lifted = { ...fromCmini(rec!.payload as CminiPayload), magic: ownMagic };
     await appendWrite(db, clock, {
+      upstream: null,
       kind: "updated",
       layoutId: rec!.id,
       name: rec!.name,
@@ -510,7 +519,7 @@ describe("[LDB-I12] an import write on an akl/1 following record translates upst
       detail: { fields: ["magic"], magic_only: true },
       hasMagic: true,
     });
-    expect(await followsUpstream(db, rec!.id)).toBe(true); // LDB-I12: the lift alone never forks
+    expect(await legacyFollows(db, rec!.id)).toBe(true); // LDB-I12: the lift alone never forks
 
     // A REAL upstream content change (board differs) -- case 4 fires.
     const d2 = detail({ name: "I12-Akl", user: owner, board: "angle", keys: {}, modified_at: "2026-02-01T00:00:00Z" });
@@ -525,7 +534,7 @@ describe("[LDB-I12] an import write on an akl/1 following record translates upst
 
     const events = await eventsFor(rec!.id);
     expect(events.map((e) => e.kind)).toEqual(["imported", "updated", "imported"]);
-    expect(await followsUpstream(db, rec!.id)).toBe(true); // still following after a real case-4 write
+    expect(await legacyFollows(db, rec!.id)).toBe(true); // still following after a real case-4 write
 
     // LDB-I1 idempotence: the SAME upstream state again appends no event --
     // this is exactly what the format-aware `projectLocalNoLikes` fix (an

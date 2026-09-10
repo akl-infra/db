@@ -98,6 +98,7 @@ const ID_PLACEHOLDERS: Record<string, string> = {};
 
 async function seedLive(name: string) {
   const { record } = await appendWrite(db, fixedClock(CONFORMANCE_CLOCK_ISO), {
+      upstream: null,
     kind: "created",
     name,
     owner: CONFORMANCE_OWNER,
@@ -206,6 +207,7 @@ async function seedWriteFixtures(): Promise<void> {
 
   const restoreOk = await seedLive("cw-restore-1");
   await appendWrite(db, fixedClock(CONFORMANCE_CLOCK_ISO), {
+      upstream: null,
     kind: "deleted",
     layoutId: restoreOk.id,
     name: restoreOk.name,
@@ -305,6 +307,7 @@ function ensureRestoreExtras(): Promise<void> {
 async function seedRestoreExtras(): Promise<void> {
   const restoreOther = await seedLive("cw-restore-other-1");
   await appendWrite(db, fixedClock(CONFORMANCE_CLOCK_ISO), {
+      upstream: null,
     kind: "deleted",
     layoutId: restoreOther.id,
     name: restoreOther.name,
@@ -320,6 +323,7 @@ async function seedRestoreExtras(): Promise<void> {
 
   const restoreTaken = await seedLive("cw-restore-taken-1");
   await appendWrite(db, fixedClock(CONFORMANCE_CLOCK_ISO), {
+      upstream: null,
     kind: "deleted",
     layoutId: restoreTaken.id,
     name: restoreTaken.name,

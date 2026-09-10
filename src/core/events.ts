@@ -8,7 +8,7 @@
 import type { Bindings } from "../env";
 import { canonical } from "./canonical";
 import { nameTaken } from "./errors";
-import { type RecordRow, readById } from "./records";
+import { type RecordRow, type Upstream, readById } from "./records";
 import { ulid } from "ulidx";
 import type { Clock } from "./time";
 
@@ -73,6 +73,25 @@ export interface Write {
   detail?: object;
   deleted?: boolean;
   hasMagic?: boolean; // 07 §6 S4: "passed in by the caller ... default false"; S5/S6 compute it from the format
+  // 20-spark.md S3a (decision 5, LDB-I14): REQUIRED, not optional -- every
+  // call site must say what this write does to the record's upstream link,
+  // so tsc enumerates every one of them. `core/upstream.ts`'s
+  // `nextUpstream(prior, kind, via)` is the one function that computes it;
+  // every caller uses it (or, for the rare case with no prior record at
+  // all -- a plain user create -- passes `null` directly, which is what
+  // `nextUpstream(null, ...)` itself always answers anyway).
+  upstream: Upstream | null;
+  // 20-spark.md S3a (LDB-P14, §8 R-H4): when set, `appendWrite` throws
+  // `RevConflictError` BEFORE any write if the record isn't still at this
+  // rev -- closes the race where a system writer (import, strip, the S4
+  // migration) builds a payload from an earlier read, and a user write
+  // lands in between: without this, the system writer's own fresh re-read
+  // just advances the rev counter with no collision, silently clobbering
+  // the user's edit. User-facing routes don't need it: they already 409
+  // `stale` off `If-Match` before ever calling this, and two writers
+  // racing for the SAME target rev still collide on `layout_revs`'s PK
+  // regardless.
+  expectRev?: number;
 }
 
 export interface Info {
@@ -182,6 +201,17 @@ export async function appendWrite(
     if (current === null) {
       throw new Error(`appendWrite: layoutId '${id}' does not exist`);
     }
+    // LDB-P14: checked BEFORE any write -- the caller built `w.payload`
+    // (and `w.upstream`, via `nextUpstream(prior, ...)`) from a read taken
+    // at `expectRev`; if the record has moved since, that payload is
+    // stale and must never land, even though nothing here would otherwise
+    // collide (the natural `layout_revs` PK conflict only fires when two
+    // writers compute the SAME target rev -- a writer that unconditionally
+    // re-reads `current` fresh, as this function always does, never hits
+    // it on its own).
+    if (w.expectRev !== undefined && current.rev !== w.expectRev) {
+      throw new RevConflictError(id, w.expectRev + 1);
+    }
   }
 
   const deleted = w.deleted ?? false;
@@ -227,6 +257,7 @@ export async function appendWrite(
     like_count,
     has_magic,
     format: w.format,
+    upstream: w.upstream,
   };
 
   const payloadJson = canonical(w.payload);
@@ -261,13 +292,14 @@ export async function appendWrite(
       .bind(id, rev, w.format, payloadJson),
     db
       .prepare(
-        `INSERT INTO layouts (id, name, owner, rev, created_at, modified_at, deleted, format, payload_json, like_count, has_magic)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO layouts (id, name, owner, rev, created_at, modified_at, deleted, format, payload_json, like_count, has_magic, upstream_source, upstream_id, upstream_state)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            name = excluded.name, owner = excluded.owner, rev = excluded.rev,
            created_at = excluded.created_at, modified_at = excluded.modified_at, deleted = excluded.deleted,
            format = excluded.format, payload_json = excluded.payload_json,
-           like_count = excluded.like_count, has_magic = excluded.has_magic`,
+           like_count = excluded.like_count, has_magic = excluded.has_magic,
+           upstream_source = excluded.upstream_source, upstream_id = excluded.upstream_id, upstream_state = excluded.upstream_state`,
       )
       .bind(
         id,
@@ -281,6 +313,9 @@ export async function appendWrite(
         payloadJson,
         like_count,
         has_magic ? 1 : 0,
+        w.upstream?.source ?? null,
+        w.upstream?.id ?? null,
+        w.upstream?.state ?? null,
       ),
   ]);
 

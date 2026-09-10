@@ -30,6 +30,7 @@ const AKL_KEYED = { keys: { a: { row: 0, col: 0, finger: "LP" } } };
 async function seed(format: "cmini/1" | "akl/1", owner = OWNER) {
   const payload = format === "cmini/1" ? CMINI_KEYED : AKL_KEYED;
   const { record } = await appendWrite(db, clock, {
+      upstream: null,
     kind: "created",
     name: uniqueName("patch-seed"),
     owner,

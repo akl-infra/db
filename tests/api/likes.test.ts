@@ -28,6 +28,7 @@ function ownerHeaders(token: string) {
 
 async function seed(name = uniqueName("likes-seed")) {
   const { record } = await appendWrite(db, clock, {
+      upstream: null,
     kind: "created",
     name,
     owner: OWNER,
@@ -167,6 +168,7 @@ describe("[LDB-L1] PUT/DELETE /v1/layouts/{ref}/like", () => {
   it("a tombstone -> 404", async () => {
     const record = await seed();
     await appendWrite(db, clock, {
+      upstream: null,
       kind: "deleted",
       layoutId: record.id,
       name: record.name,

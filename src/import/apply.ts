@@ -8,7 +8,7 @@ import * as akl1 from "../../formats/spark/1/index";
 import { fromCmini, toCmini } from "../../formats/adapters/cmini/translate";
 import { canonical } from "../core/canonical";
 import { appendInfo, appendLike, appendWrite } from "../core/events";
-import { followsUpstream } from "../core/follows";
+import { nextUpstream, upstreamOf } from "../core/upstream";
 import { readById, readByName, type RecordRow } from "../core/records";
 import type { Clock } from "../core/time";
 import { parseSnowflake, type RawUpstreamDetail } from "./upstream";
@@ -224,7 +224,10 @@ async function applyNew(
   const existing = await readByName(db, detail.name);
 
   if (existing === null) {
-    // Case 1: name free.
+    // Case 1: name free. No prior record to read `upstreamOf` from -- the
+    // caller (this function) already knows the link it's about to create,
+    // so it seeds `nextUpstream`'s `prior` with it directly (20-spark.md
+    // S3a, `core/upstream.ts`'s header note).
     const { record } = await appendWrite(db, now, {
       kind: "imported",
       name: detail.name,
@@ -237,6 +240,7 @@ async function applyNew(
       via: "import:cmini",
       detail: { source: "cmini", upstream_id: upstreamId },
       hasMagic: cmini1.hasMagic(detail.payload),
+      upstream: nextUpstream({ source: "cmini", id: upstreamId, state: "following" }, "imported", "import:cmini"),
     });
     await insertImportMap(db, upstreamId, record.id);
     await importLikes(db, now, record.id, detail.likes);
@@ -279,6 +283,7 @@ async function applyNew(
     via: "import:cmini",
     detail: { source: "cmini", upstream_id: upstreamId, shadowed: { upstream_name: detail.name } },
     hasMagic: cmini1.hasMagic(detail.payload),
+    upstream: nextUpstream({ source: "cmini", id: upstreamId, state: "following" }, "imported", "import:cmini"),
   });
   await insertImportMap(db, upstreamId, record.id);
   await importLikes(db, now, record.id, detail.likes);
@@ -308,7 +313,8 @@ async function applyMapped(
   detail: ParsedUpstreamDetail,
   record: RecordRow,
 ): Promise<void> {
-  const following = await followsUpstream(db, record.id);
+  const prior = await upstreamOf(db, record);
+  const following = prior?.state === "following";
   const differs = contentDiffers(record, detail);
   const localLikeIds = await currentLikeIds(db, record.id);
   const upstreamLikeIds = new Set(detail.likes);
@@ -351,6 +357,8 @@ async function applyMapped(
           detail: { source: "cmini", upstream_id: upstreamId },
           deleted: false,
           hasMagic: akl1.hasMagic(payload),
+          upstream: nextUpstream(prior, "imported", "import:cmini"),
+          expectRev: record.rev,
         });
       } else {
         const existingPayload = record.payload as cmini1.Payload;
@@ -369,6 +377,8 @@ async function applyMapped(
           detail: { source: "cmini", upstream_id: upstreamId },
           deleted: false,
           hasMagic: cmini1.hasMagic(payload),
+          upstream: nextUpstream(prior, "imported", "import:cmini"),
+          expectRev: record.rev,
         });
       }
     }
@@ -417,7 +427,8 @@ export async function applyDelete(db: Bindings["DB"], now: Clock, layoutId: stri
   const record = await readById(db, layoutId);
   if (record === null) return; // defensive: import_map pointed at a missing row
 
-  const following = await followsUpstream(db, layoutId);
+  const prior = await upstreamOf(db, record);
+  const following = prior?.state === "following";
   if (following) {
     await appendWrite(db, now, {
       kind: "upstream_deleted",
@@ -430,6 +441,8 @@ export async function applyDelete(db: Bindings["DB"], now: Clock, layoutId: stri
       actor: "system:cmini-import",
       via: "import:cmini",
       deleted: true,
+      upstream: nextUpstream(prior, "upstream_deleted", "import:cmini"),
+      expectRev: record.rev,
     });
     return;
   }

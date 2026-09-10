@@ -31,6 +31,7 @@ import { appendLike, appendWrite, RevConflictError, rowToEvent, type EventDbRow,
 import { checkName } from "./names";
 import { byRef, readById, readByName, toWire, type RecordRow } from "./records";
 import type { Clock } from "./time";
+import { nextUpstream, upstreamOf } from "./upstream";
 import type { EditResult, FormatModule } from "../formats/registry";
 
 const TRANSFER_USER_ID_RE = /^\d{17,20}$/;
@@ -205,6 +206,7 @@ export async function createLayout(
     actor: actor.user_id,
     via: actor.via,
     hasMagic,
+    upstream: nextUpstream(null, "created", actor.via), // no prior record -- always null (LDB-I14)
   });
 
   if (tombstoneId === null) return result;
@@ -256,6 +258,7 @@ export async function replaceLayout(
   const { record, admin } = await loadForWrite(db, ref, actor, { allowDeleted: false });
   await requireRev(db, record, ifMatch);
   const { hasMagic, module } = validatePayload(body.format, body.payload);
+  const prior = await upstreamOf(db, record);
 
   return commitWrite(db, now, {
     kind: "updated",
@@ -269,6 +272,7 @@ export async function replaceLayout(
     via: actor.via,
     admin,
     hasMagic,
+    upstream: nextUpstream(prior, "updated", actor.via), // LDB-I14: a user write forks a following/forked record; null stays null
   });
 }
 
@@ -293,6 +297,7 @@ export async function deleteLayout(
   const { record, admin } = await loadForWrite(db, ref, actor, { allowDeleted: false });
   await requireRev(db, record, ifMatch);
   const stored = storedAsSpark(record.format, record.payload);
+  const prior = await upstreamOf(db, record);
 
   return commitWrite(db, now, {
     kind: "deleted",
@@ -307,6 +312,7 @@ export async function deleteLayout(
     admin,
     deleted: true,
     hasMagic: sparkHasMagic(stored.payload),
+    upstream: nextUpstream(prior, "deleted", actor.via),
   });
 }
 
@@ -358,6 +364,7 @@ export async function restoreLayout(
   }
 
   const stored = storedAsSpark(record.format, record.payload);
+  const prior = await upstreamOf(db, record);
 
   return commitWrite(db, now, {
     kind: "restored",
@@ -368,10 +375,11 @@ export async function restoreLayout(
     format: stored.format,
     payload: stored.payload,
     actor: actor.user_id,
-    via: actor.via, // stops a follow of upstream (LDB-I2a): this becomes the latest rev-bumping event
+    via: actor.via, // forks a following/forked record (LDB-I14): this becomes the latest rev-bumping event
     admin,
     deleted: false,
     hasMagic: sparkHasMagic(stored.payload),
+    upstream: nextUpstream(prior, "restored", actor.via),
     ...(renamedFrom !== undefined ? { detail: { renamed_from: renamedFrom } } : {}),
   });
 }
@@ -408,6 +416,7 @@ export async function transferLayout(
   if (author === null) throw badRequest(`unknown user '${body.to}'`, "/to");
 
   const stored = storedAsSpark(record.format, record.payload);
+  const prior = await upstreamOf(db, record);
 
   return commitWrite(db, now, {
     kind: "transferred",
@@ -421,6 +430,7 @@ export async function transferLayout(
     via: actor.via,
     admin,
     hasMagic: sparkHasMagic(stored.payload),
+    upstream: nextUpstream(prior, "transferred", actor.via),
   });
 }
 
@@ -539,8 +549,13 @@ export async function patchLayout(
   // 20-spark.md S2 (decision 6): magic edits fork like any other write now
   // -- there is no more magic-only exemption on a NEW write. `modified_at`
   // bumps unconditionally and no event ever writes `detail.magic_only`
-  // again (LDB-I12 narrowed: `core/follows.ts` keeps skipping the marker
-  // on HISTORICAL events only).
+  // again (LDB-I12 narrowed: `core/follows.ts`'s `legacyFollows` keeps
+  // skipping the marker on HISTORICAL events only). S3a: `nextUpstream`
+  // forks the record the same way -- a magic-only PATCH is a user
+  // rev-bumping write like any other, no exemption at the upstream level
+  // either.
+  const prior = await upstreamOf(db, record);
+
   return commitWrite(db, now, {
     kind,
     layoutId: record.id,
@@ -553,6 +568,7 @@ export async function patchLayout(
     via: actor.via,
     admin,
     hasMagic,
+    upstream: nextUpstream(prior, kind, actor.via),
     ...(kind === "updated" ? { detail: { fields } } : {}),
   });
 }

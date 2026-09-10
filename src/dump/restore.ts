@@ -85,7 +85,22 @@ export function restoreSql(dump: Dump): string[] {
   statements.push(
     ...chunkedInserts(
       "INSERT INTO layouts",
-      ["id", "name", "owner", "rev", "created_at", "modified_at", "deleted", "format", "payload_json", "like_count", "has_magic"],
+      [
+        "id",
+        "name",
+        "owner",
+        "rev",
+        "created_at",
+        "modified_at",
+        "deleted",
+        "format",
+        "payload_json",
+        "like_count",
+        "has_magic",
+        "upstream_source",
+        "upstream_id",
+        "upstream_state",
+      ],
       dump.records.map((r) => ({
         id: r.id,
         name: r.name,
@@ -98,6 +113,13 @@ export function restoreSql(dump: Dump): string[] {
         payload_json: r.payload_json,
         like_count: r.like_count,
         has_magic: r.has_magic,
+        // 20-spark.md S3a (LDB-D1/D5 amended): a dump written before 0005
+        // simply has no such keys on its raw rows -- `?? null` in
+        // `chunkedInserts` treats that the same as present-and-NULL, so an
+        // old-shape dump restores every one of these NULL.
+        upstream_source: r.upstream_source ?? null,
+        upstream_id: r.upstream_id ?? null,
+        upstream_state: r.upstream_state ?? null,
       })),
     ),
   );

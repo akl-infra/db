@@ -607,6 +607,7 @@ describe("[LDB-H1] [LDB-H4] [LDB-H5] webhooks", () => {
 let apCounter = 0;
 async function appendCreatedLayout() {
   return appendWrite(db, fixedClock("2026-07-01T00:00:00.000Z"), {
+      upstream: null,
     kind: "created",
     name: uniqueName(`wh-fixture-${apCounter++}`),
     owner: "wh-fixture-owner",
@@ -630,6 +631,7 @@ async function appendLikeDirect(layoutId: string): Promise<void> {
 
 async function appendWriteAs(owner: string): Promise<void> {
   await appendWrite(db, fixedClock("2026-07-01T00:00:00.000Z"), {
+      upstream: null,
     kind: "created",
     name: uniqueName(`wh-owner-${apCounter++}`),
     owner,

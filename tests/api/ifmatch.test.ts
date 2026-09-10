@@ -22,6 +22,7 @@ afterEach(() => {
 
 async function seed() {
   const { record } = await appendWrite(db, clock, {
+      upstream: null,
     kind: "created",
     name: uniqueName("ifmatch-seed"),
     owner: OWNER,

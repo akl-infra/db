@@ -39,25 +39,26 @@
       "ETag": "\"2\""
     },
     "body": {
+      "created_at": "2026-06-20T00:00:00.000Z",
+      "deleted": false,
+      "format": "spark/1",
+      "has_magic": false,
       "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "like_count": 0,
+      "modified_at": "2026-06-20T00:00:00.000Z",
       "name": "cw-patch-1",
       "owner": "800000000000000001",
-      "rev": 2,
-      "created_at": "2026-06-20T00:00:00.000Z",
-      "modified_at": "2026-06-20T00:00:00.000Z",
-      "deleted": false,
-      "like_count": 0,
-      "has_magic": false,
-      "format": "spark/1",
       "payload": {
         "keys": {
           "a": {
-            "row": 0,
             "col": 0,
-            "finger": "RP"
+            "finger": "RP",
+            "row": 0
           }
         }
-      }
+      },
+      "rev": 2,
+      "upstream": null
     }
   }
 }

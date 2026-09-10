@@ -11,7 +11,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "00------higgs",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -23,7 +28,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "02_we've_been_in_this_room_too_long",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -35,7 +45,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "40kwh",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -47,7 +62,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "5quid-nhrl2",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -59,7 +79,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "abyss",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -71,7 +96,12 @@
     "deleted": false,
     "like_count": 1,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "adept",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -83,7 +113,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "adnw",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -95,7 +130,12 @@
     "deleted": false,
     "like_count": 1,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "apple",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -107,7 +147,12 @@
     "deleted": false,
     "like_count": 1,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "apt26",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -119,7 +164,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "auditor",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -131,7 +181,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "auditor-old",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -143,7 +198,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "auditors",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -155,7 +215,12 @@
     "deleted": false,
     "like_count": 1,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "babymak-pipis",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -167,7 +232,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "bevel",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -179,7 +249,12 @@
     "deleted": false,
     "like_count": 16,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "bunya",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -191,7 +266,12 @@
     "deleted": false,
     "like_count": 10,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "crescent",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -203,7 +283,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "csthyou",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -215,7 +300,12 @@
     "deleted": false,
     "like_count": 14,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "dhorf",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -227,7 +317,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "dina-test",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -239,7 +334,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "dmini-thumb-test",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -251,7 +351,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "dmini-thumb-test-2",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -263,7 +368,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "dmini-thumb-test-3",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -275,7 +385,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "dmini-thumb-test-4",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -287,7 +402,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "dmini-thumb-test-6",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -299,7 +419,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "dmini-thumb-test-7",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -311,7 +436,12 @@
     "deleted": false,
     "like_count": 5,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "echo",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -323,7 +453,12 @@
     "deleted": false,
     "like_count": 11,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "eclipse",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -335,7 +470,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "eclipse-themb",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -347,7 +487,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "eclipse-v2",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -359,7 +504,12 @@
     "deleted": false,
     "like_count": 1,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "eclipse-v3",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -371,7 +521,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "eclipseortho",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -383,7 +538,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "fhmb-test",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -395,7 +555,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "finch",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -407,7 +572,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "for-duo",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -419,7 +589,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "for-duo-2",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -431,7 +606,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "for-duo-3",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -443,7 +623,12 @@
     "deleted": false,
     "like_count": 78,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "graphite",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -455,7 +640,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "graphite-vimified",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -467,7 +657,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "haul",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -479,7 +674,12 @@
     "deleted": false,
     "like_count": 1,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "inky-nyoom",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -491,7 +691,12 @@
     "deleted": false,
     "like_count": 76,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "inqwerted",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -503,7 +708,12 @@
     "deleted": false,
     "like_count": 15,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "io",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -515,7 +725,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "jeep",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -527,7 +742,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "kai-nokwts",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -539,7 +759,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "kairos",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -551,7 +776,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "kate-2",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -563,7 +793,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "kinda-dina",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -575,7 +810,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "knight-you",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -587,7 +827,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "kormite",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -599,7 +844,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "magnetite",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -611,7 +861,12 @@
     "deleted": false,
     "like_count": 2,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "mantra",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -623,7 +878,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "marble",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -635,7 +895,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "mistyfun",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -647,7 +912,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "mistynail",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -659,7 +929,12 @@
     "deleted": false,
     "like_count": 5,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "neon",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -671,7 +946,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "night-e",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -683,7 +963,12 @@
     "deleted": false,
     "like_count": 2,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "nightcore",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -695,7 +980,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "niro",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -707,7 +997,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "ntabv6",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -719,7 +1014,12 @@
     "deleted": false,
     "like_count": 1,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "onyx",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -731,7 +1031,12 @@
     "deleted": false,
     "like_count": 11,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "opal",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -743,7 +1048,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "opal-dario",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -755,7 +1065,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "opal-e200",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -767,7 +1082,12 @@
     "deleted": false,
     "like_count": 2,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "opalbetter",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -779,7 +1099,12 @@
     "deleted": false,
     "like_count": 5,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "opaline",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -791,7 +1116,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "opaline-meteorited",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -803,7 +1133,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "oxeytest64",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -815,7 +1150,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "oxeytest65",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -827,7 +1167,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "oxeytest66",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -839,7 +1184,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "oxeytest76",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -851,7 +1201,12 @@
     "deleted": false,
     "like_count": 16,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "racket",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -863,7 +1218,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "raincsth",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -875,7 +1235,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "rightrollv2",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -887,7 +1252,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "rightrollv3",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -899,7 +1269,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "rnhsy",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -911,7 +1286,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "rnhsye",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -923,7 +1303,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "rosellae",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -935,7 +1320,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "rosellaeacc",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -947,7 +1337,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "rosellaenav",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -959,7 +1354,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "rosellaesym",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -971,7 +1371,12 @@
     "deleted": false,
     "like_count": 1,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "sanrie-cmini-test2",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -983,7 +1388,12 @@
     "deleted": false,
     "like_count": 1,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "shale",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -995,7 +1405,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "shtc",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -1007,7 +1422,12 @@
     "deleted": false,
     "like_count": 2,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "slate",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -1019,7 +1439,12 @@
     "deleted": false,
     "like_count": 5,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "smiemak",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -1031,7 +1456,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "soul",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -1043,7 +1473,12 @@
     "deleted": false,
     "like_count": 5,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "sunstone",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -1055,7 +1490,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "swift",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -1067,7 +1507,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "sy-thumb",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -1079,7 +1524,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "tenders",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -1091,7 +1541,12 @@
     "deleted": false,
     "like_count": 1,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "tendon25b",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -1103,7 +1558,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "test12222",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -1115,7 +1575,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "thumb-u-test",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -1127,7 +1592,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "thumb-u-xb",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -1139,7 +1609,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "tomato",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -1151,7 +1626,12 @@
     "deleted": false,
     "like_count": 13,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "vylet",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -1163,7 +1643,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "vylet-v4",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -1175,7 +1660,12 @@
     "deleted": false,
     "like_count": 13,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "whirl",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -1187,7 +1677,12 @@
     "deleted": false,
     "like_count": 10,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "whorf",
+     "state": "following"
+    }
    },
    {
     "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -1199,7 +1694,12 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1"
+    "format": "cmini/1",
+    "upstream": {
+     "source": "cmini",
+     "id": "workman-rowstagger",
+     "state": "following"
+    }
    }
   ],
   "next_cursor": null

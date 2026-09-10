@@ -42,6 +42,7 @@ function parseFrames(text: string): ParsedFrame[] {
 let apCounter = 0;
 async function appendOne(owner = "stream-owner"): Promise<Event> {
   const { seq } = await appendWrite(db, fixedClock("2026-08-01T00:00:00.000Z"), {
+      upstream: null,
     kind: "created",
     name: `stream-fixture-${apCounter++}-${Math.random().toString(36).slice(2)}`,
     owner,

@@ -40,6 +40,7 @@ describe("feed", () => {
   it("[LDB-P6] returns everything in seq order from since=0", async () => {
     const clock = fixedClock("2026-03-02T00:00:00.000Z");
     const a = await appendWrite(db, clock, {
+      upstream: null,
       kind: "created",
       name: "feed-a",
       owner: "owner-a",
@@ -50,6 +51,7 @@ describe("feed", () => {
       via: "discord",
     });
     const b = await appendWrite(db, clock, {
+      upstream: null,
       kind: "created",
       name: "feed-b",
       owner: "owner-a",
@@ -72,6 +74,7 @@ describe("feed", () => {
     const clock = fixedClock("2026-03-03T00:00:00.000Z");
     for (let i = 0; i < 5; i++) {
       await appendWrite(db, clock, {
+      upstream: null,
         kind: "created",
         name: `feed-walk-${i}-${Math.random()}`,
         owner: "owner-a",
@@ -112,6 +115,7 @@ describe("feed", () => {
   it("[LDB-P6] kinds filters the feed", async () => {
     const clock = fixedClock("2026-03-04T00:00:00.000Z");
     const { record } = await appendWrite(db, clock, {
+      upstream: null,
       kind: "created",
       name: `feed-kinds-${Math.random()}`,
       owner: "owner-a",
@@ -277,6 +281,7 @@ describe("LDB-P3: a webhook-only follower matches a feed-only follower", () => {
             async function createOne(): Promise<void> {
               const name = `p3-${hookId}-${counter++}`;
               const { record } = await appendWrite(db, writeClock, {
+      upstream: null,
                 kind: "created",
                 name,
                 owner: "p3-owner",
@@ -300,6 +305,7 @@ describe("LDB-P3: a webhook-only follower matches a feed-only follower", () => {
                 const id = pick(liveIds);
                 const m = meta.get(id)!;
                 await appendWrite(db, writeClock, {
+      upstream: null,
                   kind: "updated",
                   layoutId: id,
                   name: m.name,
@@ -315,6 +321,7 @@ describe("LDB-P3: a webhook-only follower matches a feed-only follower", () => {
                 const id = pick(liveIds);
                 const m = meta.get(id)!;
                 await appendWrite(db, writeClock, {
+      upstream: null,
                   kind: "deleted",
                   layoutId: id,
                   name: m.name,

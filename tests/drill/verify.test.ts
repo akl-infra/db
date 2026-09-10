@@ -24,6 +24,9 @@ describe("[LDB-D5] drill-verify.mjs -- expectedFromRecord", () => {
       payload_json: '{"keys":{"a":1}}',
       like_count: 2,
       has_magic: 1,
+      upstream_source: "cmini",
+      upstream_id: "test-layout",
+      upstream_state: "following",
     };
     expect(expectedFromRecord(rec, ["u1", "u2"])).toEqual({
       id: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -36,9 +39,30 @@ describe("[LDB-D5] drill-verify.mjs -- expectedFromRecord", () => {
       like_count: 2,
       has_magic: true,
       format: "akl/1",
+      upstream: { source: "cmini", id: "test-layout", state: "following" },
       likes: ["u1", "u2"],
       payload: { keys: { a: 1 } },
     });
+  });
+
+  // 20-spark.md S3a (LDB-D1/D5 amended): a dump written before 0005 has no
+  // `upstream_*` keys on its raw rows at all -- `expectedFromRecord` must
+  // treat that exactly like present-and-NULL, not throw or misreport.
+  it("[LDB-D5] [LDB-P11] a pre-0005 dump row (no upstream_* keys at all) yields upstream: null", () => {
+    const rec = {
+      id: "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+      name: "old-shape",
+      owner: "184412255822020608",
+      rev: 1,
+      created_at: "2026-01-01T00:00:00.000Z",
+      modified_at: "2026-01-01T00:00:00.000Z",
+      deleted: 0,
+      format: "akl/1",
+      payload_json: "{}",
+      like_count: 0,
+      has_magic: 0,
+    };
+    expect(expectedFromRecord(rec, [])).toMatchObject({ upstream: null });
   });
 
   it("[LDB-D5] a tombstoned record (deleted: 1) round-trips deleted: true, not skipped or special-cased", () => {

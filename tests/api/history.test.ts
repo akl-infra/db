@@ -87,6 +87,7 @@ describe("[LDB-R5] /rev/{n} reproduces the payload stored at rev n; rev+1 404s",
       // idiom (01 §6.1/§6.2, LDB-F10).
       const payload = { ...(originalPayload as Record<string, unknown>), tag: `rev-${i}` };
       await appendWrite(db, fixedClock(`2026-06-09T00:0${i}:00.000Z`), {
+      upstream: null,
         kind: "updated",
         layoutId: seed.id,
         name: seed.name,

@@ -23,6 +23,7 @@ afterEach(() => {
 
 async function seed() {
   const { record } = await appendWrite(db, clock, {
+      upstream: null,
     kind: "created",
     name: uniqueName("readlabel"),
     owner: OWNER,
@@ -125,6 +126,7 @@ describe("[LDB-F20] ?format= list filter resolves aliases", () => {
 
   it("?format=cmini/1 stays a literal match against legacy-stored rows (never resolved to the adapter target)", async () => {
     const { record: legacy } = await appendWrite(db, clock, {
+      upstream: null,
       kind: "created",
       name: uniqueName("readlabel-cmini"),
       owner: OWNER,

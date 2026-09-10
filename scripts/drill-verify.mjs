@@ -79,6 +79,9 @@ export function expectedFromRecord(rec, likes) {
     like_count: rec.like_count,
     has_magic: rec.has_magic !== 0,
     format: rec.format,
+    // 20-spark.md S3a (LDB-D1/D5 amended): a dump row without these keys
+    // (pre-0005) means "no known link", same as `rowToRecord`.
+    upstream: rec.upstream_source == null ? null : { source: rec.upstream_source, id: rec.upstream_id, state: rec.upstream_state },
     likes,
     payload: JSON.parse(rec.payload_json),
   };

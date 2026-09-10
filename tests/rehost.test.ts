@@ -21,7 +21,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { Bindings } from "../src/env";
 import { canonical } from "../src/core/canonical";
 import { type EventDbRow, foldRecord, rowToEvent } from "../src/core/events";
-import type { LayoutDbRow } from "../src/core/records";
+import { upstreamFromRow, type LayoutDbRow } from "../src/core/records";
 import type { Dump } from "../src/dump/write";
 import { restoreInto } from "../src/dump/restore";
 import worker from "../src/index";
@@ -93,6 +93,7 @@ function foldedFromDump(rec: LayoutDbRow): Record<string, unknown> {
     like_count: rec.like_count,
     has_magic: rec.has_magic !== 0,
     format: rec.format,
+    upstream: upstreamFromRow(rec),
     payload: JSON.parse(rec.payload_json) as unknown,
   };
 }
@@ -105,7 +106,7 @@ describe("rehost drill", () => {
   // the event log to a tail) would desync one of those, not just look wrong
   // in isolation. `tests/api/dump.test.ts` covers the OTHER two clauses
   // (the `latest.json` sha256, the monthly-key timing) directly.
-  it("[LDB-G1] [LDB-P6] [LDB-D1] restoreSql reproduces the exact dumped state", async () => {
+  it("[LDB-G1] [LDB-P6] [LDB-D1] [LDB-P11] restoreSql reproduces the exact dumped state", async () => {
     const remoteUrl = bindings.TEST_REHOST_DUMP_URL;
     const usingRemote = remoteUrl !== "";
 

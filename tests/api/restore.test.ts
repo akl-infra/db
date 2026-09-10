@@ -39,6 +39,7 @@ function ownerHeaders(id: string, token: string) {
 
 async function seedTombstone(name = uniqueName("restore-seed"), owner = OWNER, via: "discord" | "import:cmini" = "discord") {
   const created = await appendWrite(db, fixedClock(DELETED_AT), {
+      upstream: null,
     kind: via === "import:cmini" ? "imported" : "created",
     name,
     owner,
@@ -50,6 +51,7 @@ async function seedTombstone(name = uniqueName("restore-seed"), owner = OWNER, v
     hasMagic: false,
   });
   const deleted = await appendWrite(db, fixedClock(DELETED_AT), {
+      upstream: null,
     kind: via === "import:cmini" ? "upstream_deleted" : "deleted",
     layoutId: created.record.id,
     name,
@@ -119,6 +121,7 @@ describe("[LDB-P8] restore has no time limit", () => {
 describe("[LDB-P8] restore edge cases", () => {
   it("restore of a live record -> 400", async () => {
     const { record } = await appendWrite(db, fixedClock(DELETED_AT), {
+      upstream: null,
       kind: "created",
       name: uniqueName("live-not-deleted"),
       owner: OWNER,
@@ -138,6 +141,7 @@ describe("[LDB-P8] restore edge cases", () => {
   it("a live holder of the name meanwhile, no {name} in the body -> 409 name_taken with holder", async () => {
     const tombstone = await seedTombstone();
     const { record: holder } = await appendWrite(db, fixedClock(DELETED_AT), {
+      upstream: null,
       kind: "created",
       name: tombstone.name, // freed by the delete; a new live record claims it
       owner: OTHER,
@@ -246,6 +250,7 @@ describe("[LDB-P8] [LDB-N1] restore body: optional, {name} renames under check_n
   it("[LDB-N1] {name} naming a name a LIVE record already holds -> 409 name_taken with holder", async () => {
     const tombstone = await seedTombstone();
     const { record: holder } = await appendWrite(db, fixedClock(DELETED_AT), {
+      upstream: null,
       kind: "created",
       name: uniqueName("restore-name-taken"),
       owner: OTHER,

@@ -1008,3 +1008,21 @@ ledgered and flippable by saltorbit):**
   `npm run build` emits 46 hub files. Waits for S3a's commit (both touch
   `db/INVARIANTS.md`), then lands as ONE squashed commit, then the agent
   worktree is removed.
+- **2026-09-10 ~21:40Z** — **S3a landed** (Sonnet agent, lead-reviewed and
+  re-verified). `0005_spark.sql` (`layouts.upstream_source/id/state`, no
+  backfill), `RecordRow.upstream` through `toWire`/`sansPayload` (events'
+  before/after, `/v1/changes`, webhooks, list, `full=1`), `Write.upstream`
+  required, `core/upstream.ts` `nextUpstream` + `upstreamOf` (legacy
+  fallback), `followsUpstream` → `legacyFollows` (skips magic-only and
+  `migrated`), `appendWrite` `expectRev` → `RevConflictError`, dump/restore/
+  drill carry the columns. New LDB-I14, P11, P14; amended I2a, I12, D1,
+  D5. Judgment calls: fresh import creates seed `nextUpstream`'s prior
+  with the known upstream id; `UpstreamWriteKind` = `WriteKind | "migrated"`
+  until S4 adds the kind; the strip test gained the `import_map` row every
+  real import writes. The deployed bot ignores the extra `upstream` key
+  (plain casts, no schema validation: checked in `cache/{feed,apply,boot,
+  store}.ts`). Lead checks: the 21 regenerated fixtures are JSON-identical
+  once `upstream` is stripped (the large line diff is re-serialisation);
+  db typecheck 0, vitest 15 846 passed / 0 failed (+19, no file lost
+  tests); bot 755 passed, lint clean; `akl1.vitest.ts` 17; 0001–0005 apply
+  on a fresh local D1. Next: land the docs branch, then S3s.

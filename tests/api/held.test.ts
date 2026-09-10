@@ -33,6 +33,7 @@ describe("[LDB-F9] held/1 records", () => {
   beforeAll(async () => {
     unregister = registerForTest(HELD_FORMAT);
     const { record } = await appendWrite(db, fixedClock("2026-06-08T00:00:00.000Z"), {
+      upstream: null,
       kind: "created",
       name: "held-record",
       owner: "1",

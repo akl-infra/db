@@ -19,6 +19,7 @@ const clock = fixedClock("2026-05-02T00:00:00.000Z");
 
 function create(name: string, owner = "owner-a") {
   return appendWrite(db, clock, {
+      upstream: null,
     kind: "created",
     name,
     owner,
@@ -66,6 +67,7 @@ describe("races resolved inside the batch", () => {
     const { record } = await create("race-rev");
     const update = (payload: unknown) =>
       appendWrite(db, clock, {
+      upstream: null,
         kind: "updated",
         layoutId: record.id,
         name: record.name,

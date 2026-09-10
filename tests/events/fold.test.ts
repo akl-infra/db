@@ -89,6 +89,7 @@ async function applyOp(clock: () => string, slots: SlotState[], op: Op): Promise
     case "imported": {
       if (!slot.exists) {
         const write: Write = {
+      upstream: null,
           kind: action,
           name: `rec-${op.slotIdx}-${unique()}`,
           owner,
@@ -111,6 +112,7 @@ async function applyOp(clock: () => string, slots: SlotState[], op: Op): Promise
       // slot exists and is deleted: "imported" revives it (07 §6 S5's
       // "a tombstoned record comes back").
       const write: Write = {
+      upstream: null,
         kind: "imported",
         layoutId: slot.id,
         name: `rec-${op.slotIdx}-${unique()}`,
@@ -131,6 +133,7 @@ async function applyOp(clock: () => string, slots: SlotState[], op: Op): Promise
     case "updated":
     case "fingermap": {
       const write: Write = {
+      upstream: null,
         kind: action,
         layoutId: slot.id,
         name: slot.name,
@@ -146,6 +149,7 @@ async function applyOp(clock: () => string, slots: SlotState[], op: Op): Promise
     }
     case "renamed": {
       const write: Write = {
+      upstream: null,
         kind: "renamed",
         layoutId: slot.id,
         name: `rec-${op.slotIdx}-${unique()}`,
@@ -163,6 +167,7 @@ async function applyOp(clock: () => string, slots: SlotState[], op: Op): Promise
     case "transferred": {
       const newOwner = slot.owner === owner ? otherOwner : owner;
       const write: Write = {
+      upstream: null,
         kind: "transferred",
         layoutId: slot.id,
         name: slot.name,
@@ -180,6 +185,7 @@ async function applyOp(clock: () => string, slots: SlotState[], op: Op): Promise
     case "deleted":
     case "upstream_deleted": {
       const write: Write = {
+      upstream: null,
         kind: action,
         layoutId: slot.id,
         name: slot.name,
@@ -198,6 +204,7 @@ async function applyOp(clock: () => string, slots: SlotState[], op: Op): Promise
     }
     case "restored": {
       const write: Write = {
+      upstream: null,
         kind: "restored",
         layoutId: slot.id,
         name: `rec-${op.slotIdx}-${unique()}`,
@@ -289,6 +296,7 @@ describe("fold", () => {
   it("[LDB-P1] appendInfo/appendLike leave the layouts row alone but still land in the feed", async () => {
     const clock = steppingClock("2026-02-01T00:00:00.000Z", 1000);
     const { record } = await appendWrite(db, clock, {
+      upstream: null,
       kind: "created",
       name: `alone-${unique()}`,
       owner: "owner-a",
@@ -328,6 +336,7 @@ describe("fold", () => {
     await fc.assert(
       fc.asyncProperty(fc.constant(null), async () => {
         const { record } = await appendWrite(db, clock, {
+      upstream: null,
           kind: "created",
           name: `race-fold-${unique()}`,
           owner: "owner-a",
@@ -340,6 +349,7 @@ describe("fold", () => {
 
         const update = (v: string) =>
           appendWrite(db, clock, {
+      upstream: null,
             kind: "updated",
             layoutId: record.id,
             name: record.name,

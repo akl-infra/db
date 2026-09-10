@@ -45,6 +45,7 @@ async function seedLegacyMagicRecord(name: string, owner: string, upstreamId: st
   await applyFetchedId(db, clock, upstreamId, d);
   const rec = await readByName(db, name);
   await appendWrite(db, clock, {
+      upstream: null,
     kind: "imported",
     layoutId: rec!.id,
     name: rec!.name,
@@ -102,6 +103,7 @@ describe("stripCminiMagic", () => {
     // A human edit takes the record off upstream (`via: discord`) without
     // touching its magic.
     await appendWrite(db, clock, {
+      upstream: null,
       kind: "updated",
       layoutId: id,
       name: rec!.name,

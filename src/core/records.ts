@@ -2,6 +2,21 @@
 // that writes it (07 S4, the onlywriter test) -- this module only SELECTs.
 import type { Bindings } from "../env";
 
+// 20-spark.md S3a (decision 5, LDB-I14): a record's own belief about its
+// upstream link, folded from events (`core/events.ts`'s `appendWrite`
+// stores it on every write, `core/upstream.ts`'s `upstreamOf` is the
+// read-side fallback for a record this field has never been written on
+// yet). `null` = no known link (a plain user record, or one written before
+// 0005 and not yet touched -- `upstreamOf`'s legacy fallback covers that
+// case, never this type).
+export type UpstreamState = "following" | "forked";
+
+export interface Upstream {
+  source: "cmini";
+  id: string; // the upstream (cmini) id, as text
+  state: UpstreamState;
+}
+
 export interface RecordRow {
   id: string;
   name: string;
@@ -14,6 +29,7 @@ export interface RecordRow {
   has_magic: boolean;
   format: string;
   payload: unknown;
+  upstream: Upstream | null;
 }
 
 // 03 §1: a ref matching this shape is looked up as an id first, then as a
@@ -39,6 +55,23 @@ export interface LayoutDbRow {
   payload_json: string;
   like_count: number;
   has_magic: number;
+  upstream_source: string | null; // migrations/0005_spark.sql; all three NULL together or set together
+  upstream_id: string | null;
+  upstream_state: string | null; // 'following' | 'forked'
+}
+
+// A dump/restored row from before 0005 (or a raw JS object built by hand in
+// a test) may simply lack these three keys -- `?? null` treats "absent" the
+// same as "present and NULL" (LDB-D1/D5 amended: an old-shape dump restores
+// NULL).
+export function upstreamFromRow(row: {
+  upstream_source: string | null | undefined;
+  upstream_id: string | null | undefined;
+  upstream_state: string | null | undefined;
+}): Upstream | null {
+  const source = row.upstream_source ?? null;
+  if (source === null) return null;
+  return { source: source as "cmini", id: row.upstream_id ?? "", state: (row.upstream_state ?? "following") as UpstreamState };
 }
 
 export function rowToRecord(row: LayoutDbRow): RecordRow {
@@ -54,6 +87,7 @@ export function rowToRecord(row: LayoutDbRow): RecordRow {
     has_magic: row.has_magic !== 0,
     format: row.format,
     payload: JSON.parse(row.payload_json) as unknown,
+    upstream: upstreamFromRow(row),
   };
 }
 
@@ -214,6 +248,7 @@ export function toWire(rec: RecordRow): Record<string, unknown> {
     like_count: rec.like_count,
     has_magic: rec.has_magic,
     format: rec.format,
+    upstream: rec.upstream,
     payload: rec.payload,
   };
 }

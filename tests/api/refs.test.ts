@@ -58,6 +58,7 @@ describe("[LDB-P8] a tombstone is unreadable by name, readable by id", () => {
     if (current === null) throw new Error("record vanished");
 
     await appendWrite(db, fixedClock("2026-06-05T00:00:00.000Z"), {
+      upstream: null,
       kind: "upstream_deleted",
       layoutId: seed.id,
       name: seed.name,
@@ -96,6 +97,7 @@ describe("[LDB-P8] a ULID-shaped name doesn't break reachability", () => {
   it("[LDB-P8] is reachable by its id, and (via the id-then-name fallback) by its literal name too", async () => {
     const ulidShapedName = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
     const { record } = await appendWrite(db, fixedClock("2026-06-06T00:00:00.000Z"), {
+      upstream: null,
       kind: "created",
       name: ulidShapedName,
       owner: "1",

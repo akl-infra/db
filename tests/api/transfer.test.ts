@@ -27,6 +27,7 @@ function ownerHeaders(id: string, token: string) {
 
 async function seed(owner = OWNER) {
   const { record } = await appendWrite(db, clock, {
+      upstream: null,
     kind: "created",
     name: uniqueName("transfer-seed"),
     owner,
