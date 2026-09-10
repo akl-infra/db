@@ -57,7 +57,10 @@ describe.skipIf(DB_BASE_URL === undefined || DB_BASE_URL === "")("upstream diff 
       expect(summary.corpus.invalidUpstream).toEqual([]);
       expect(summary.corpus.contentDiffs).toEqual([]);
       expect(summary.corpus.extra).toEqual([]);
-      // `divergent` (a name-matched local record that's forked/unlinked) is
+      // A name-matched record with no upstream link is a failure: over HTTP
+      // it means legacy rows the record migration hasn't reached yet.
+      expect(summary.corpus.unresolved).toEqual([]);
+      // `divergent` (a name-matched local record that's forked) is
       // informational only, 20-spark.md S3b/LDB-P5 -- never asserted here.
       expect(summary.layoutCount).toEqual({
         upstream: summary.layoutCount.upstream,

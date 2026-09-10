@@ -155,6 +155,19 @@ describe("diffTick()", () => {
     expect(after.headers.get("ETag")).not.toBe(etagBefore);
   });
 
+  it("[LDB-P5] with every stored upstream column NULL (the window between the 0005 deploy and the record migration), the Worker's diff still compares every following record through the legacy rule", async () => {
+    const fake = new FakeUpstream();
+    await tick(bindings, fixedClock("2026-07-10T00:00:00.000Z"), fake.fetchImpl, fake.sleepImpl);
+    await db.prepare("UPDATE layouts SET upstream_source = NULL, upstream_id = NULL, upstream_state = NULL").run();
+
+    const record = await diffTick(envWithSource(fake.baseUrl), fixedClock("2026-07-11T00:00:00.000Z"), strictUpstreamOnly(fake));
+    expect(record.ok).toBe(true);
+    expect(record.corpus?.matched).toBe(100);
+    expect(record.corpus?.divergent).toBe(0);
+    expect(record.corpus?.unresolved).toBe(0);
+    expect(record.corpus?.content_diffs).toBe(0);
+  });
+
   it("[LDB-C4] reads our side in a bounded number of D1 queries -- no per-record query", async () => {
     const fake = new FakeUpstream();
     await tick(bindings, fixedClock("2026-07-08T00:00:00.000Z"), fake.fetchImpl, fake.sleepImpl);

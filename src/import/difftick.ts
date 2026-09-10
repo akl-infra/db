@@ -14,6 +14,7 @@ import { canonical } from "../core/canonical";
 import { decodeCursor, list as listRecords, type ListCursor } from "../core/records";
 import type { Clock } from "../core/time";
 import { storedAsSpark } from "../../formats/registry.ts";
+import { legacyUpstreamMap } from "../core/upstream";
 import { diffUpstream, type DiffSummary, type FetchImpl, type OursSource } from "./diff";
 
 const PAGE_SIZE = 500; // 12 §0.3: pages our side from D1 in 500-record pages, one list query per page
@@ -52,6 +53,11 @@ export function d1Ours(env: Bindings): OursSource {
   const db = env.DB;
   return {
     async *full() {
+      // A legacy row's stored `upstream` is NULL until the record migration
+      // writes it; resolve those with the same legacy rule `upstreamOf` uses
+      // (one bulk query), so the diff compares them in that window instead of
+      // calling every record `divergent` (the 2026-09-11 preview finding).
+      const legacy = await legacyUpstreamMap(db);
       let cursor: ListCursor | undefined;
       for (;;) {
         const page = await listRecords(db, { sort: "name", limit: PAGE_SIZE, cursor });
@@ -69,7 +75,7 @@ export function d1Ours(env: Bindings): OursSource {
             modified_at: rec.modified_at,
             likes: likes.get(rec.id) ?? [],
             payload,
-            upstream: rec.upstream,
+            upstream: rec.upstream ?? legacy.get(rec.id) ?? null,
           };
         }
         if (page.nextCursor === null) break;
@@ -105,7 +111,7 @@ export interface LastDiffRecord {
   held?: string[];
   layout_count?: { upstream: number; ours: number; equal: boolean };
   authors?: { missing: number; extra: number; alias_count: number };
-  corpus?: { matched: number; missing: number; invalid_upstream: number; content_diffs: number; extra: number; divergent: number };
+  corpus?: { matched: number; missing: number; invalid_upstream: number; content_diffs: number; extra: number; divergent: number; unresolved: number };
   samples?: {
     missing: string[];
     content_diffs: { name: string; path: string }[];
@@ -131,6 +137,7 @@ function summaryToLastDiff(at: string, durationMs: number, summary: DiffSummary)
       content_diffs: summary.corpus.contentDiffs.length,
       extra: summary.corpus.extra.length,
       divergent: summary.corpus.divergent.length,
+      unresolved: summary.corpus.unresolved.length,
     },
     samples: {
       missing: summary.corpus.missing.slice(0, SAMPLE_CAP).map((d) => d.name),

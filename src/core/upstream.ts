@@ -53,6 +53,35 @@ export function nextUpstream(prior: Upstream | null, kind: WriteKind, via: strin
 // reserved for the one case that's actually ambiguous: no `import_map` row
 // exists at all (a plain user record that was never imported). Only a
 // record with NO `import_map` row reads `null` here.
+// The bulk twin of `upstreamOf`'s legacy fallback (20-spark.md, found by the
+// 2026-09-11 preview dry run): one statement over `import_map`, each mapped
+// layout's latest rev-bumping event, skipping `migrated` events and events
+// whose detail carries `magic_only: true` -- exactly `legacyFollows`'s rule
+// (JSON `true` only; malformed detail is not a marker, never an error).
+// Used where a whole corpus needs its follow state at once (the D12 diff's
+// `d1Ours`) and a per-record `upstreamOf` would cost one query per record.
+// `legacyUpstreamMap(db).get(id)` equals `upstreamOf(db, rec)` for every
+// record whose stored `upstream` is null (LDB-P5 amended, tested).
+export async function legacyUpstreamMap(db: Bindings["DB"]): Promise<Map<string, Upstream>> {
+  const { results } = await db
+    .prepare(
+      `SELECT m.layout_id AS layout_id, m.upstream_id AS upstream_id,
+         (SELECT e.via FROM events e
+            WHERE e.layout_id = m.layout_id
+              AND e.rev IS NOT NULL
+              AND e.kind != 'migrated'
+              AND (CASE WHEN json_valid(e.detail_json) THEN json_type(e.detail_json, '$.magic_only') ELSE NULL END) IS NOT 'true'
+            ORDER BY e.seq DESC LIMIT 1) AS via
+       FROM import_map m`,
+    )
+    .all<{ layout_id: string; upstream_id: string; via: string | null }>();
+  const out = new Map<string, Upstream>();
+  for (const r of results) {
+    out.set(r.layout_id, { source: "cmini", id: r.upstream_id, state: r.via === "import:cmini" ? "following" : "forked" });
+  }
+  return out;
+}
+
 export async function upstreamOf(db: Bindings["DB"], rec: RecordRow): Promise<Upstream | null> {
   if (rec.upstream !== null) return rec.upstream;
   const row = await db.prepare("SELECT upstream_id FROM import_map WHERE layout_id = ?").bind(rec.id).first<{ upstream_id: string }>();

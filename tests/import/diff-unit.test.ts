@@ -91,7 +91,7 @@ describe("parseUpstreamRaw over upstream-100", () => {
 });
 
 describe("diffCorpus over upstream-100 against itself", () => {
-  it("[LDB-P5] zero differences: every entry matches, none missing, none extra", () => {
+  it("[LDB-P5] zero differences: every entry matches, none missing, none extra, none unresolved", () => {
     const raws = loadFixture();
     const { upstream, ours } = corpusMaps(raws);
     const result = diffCorpus(upstream, ours);
@@ -290,21 +290,22 @@ describe("diffCorpus over upstream-100 against itself", () => {
 
     const result = diffCorpus(upstream, ours);
     expect(result.divergent).toEqual([
-      { name: "graphite", path: "/", message: "name-matched local record does not follow upstream (forked or unlinked)" },
+      { name: "graphite", path: "/", message: "name-matched local record is forked from upstream" },
     ]);
     expect(result.contentDiffs).toEqual([]);
     expect(result.matched).toBe(raws.length - 1);
   });
 
-  it("[LDB-P5] a name-matched record with NO upstream link is also 'divergent', never a content diff", () => {
+  it("[LDB-P5] a name-matched record with NO upstream link is 'unresolved' (a failure), never 'divergent' or a content diff", () => {
     const raws = loadFixture();
     const { upstream, ours } = corpusMaps(raws);
     const graphite = ours.get("graphite")!;
     ours.set("graphite", { ...graphite, upstream: null });
 
     const result = diffCorpus(upstream, ours);
-    expect(result.divergent).toHaveLength(1);
-    expect(result.divergent[0]!.name).toBe("graphite");
+    expect(result.unresolved).toHaveLength(1);
+    expect(result.unresolved[0]!.name).toBe("graphite");
+    expect(result.divergent).toEqual([]);
     expect(result.contentDiffs).toEqual([]);
   });
 });

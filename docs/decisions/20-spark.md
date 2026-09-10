@@ -1242,3 +1242,22 @@ ledgered and flippable by saltorbit):**
   `legacy_magic_only_following_names` listing them (the operator script
   carries both fields). LDB-P12 row amended; 4 new migration tests and 1
   pytest.
+- **2026-09-11 ~06:30Z** — c7 landed the migration fix (121244f56) and
+  the preview dry run is clean: `invalid` 0, `magic_stripped` 1
+  (slataline), `legacy_magic_only_following` 67 with names. The real run
+  waits for saltorbit (c7's permission prompt refused it without
+  `--dry-run`; nobody routes around that). c7 then asked about a fresh
+  preview diff tick showing `divergent: 4180, matched: 0` before the
+  migration. The importer is fine in that window (`upstreamOf` falls back
+  to the legacy rule), but the D12 diff read the raw stored field on
+  both paths, so "0 content diffs" meant nothing was compared. **Fix on
+  `ldb-spark-fix2`** (on 121244f56; c7 cherry-picks it onto its head):
+  `legacyUpstreamMap` in `core/upstream.ts`, the one-query twin of
+  `upstreamOf`'s fallback (same skip rules, JSON `true` only, malformed
+  detail not a marker), used by `d1Ours` for NULL fields so the Worker's
+  diff compares correctly in the window; and a new `unresolved` category
+  (name-matched, no link at all) that fails the diff, so the HTTP path
+  (`diff-upstream.mjs`, the daily job) reads red rather than clean until
+  the migration runs. LDB-P5 amended; tests: the bulk/one-at-a-time
+  equivalence over seven history shapes, the all-NULL-columns diff tick,
+  the unresolved unit case.

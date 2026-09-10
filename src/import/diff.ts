@@ -320,6 +320,13 @@ export interface CorpusDiff {
   // S3b, LDB-P5): informational, never a failure -- a forked record is by
   // definition allowed to differ from upstream.
   divergent: DiffLine[];
+  // Name-matched local records with NO upstream link at all (null). After the
+  // record migration this can't happen: every name-matched record has an
+  // `import_map` row, so a resolved link. Before it, a source that can't
+  // apply the legacy rule (`httpOurs`, over the wire) sees legacy rows as
+  // null. A FAILURE: "nothing compared" must never read as "clean"
+  // (2026-09-11 preview finding).
+  unresolved: DiffLine[];
 }
 
 // Pure: matches upstream entries to ours by `name.toLowerCase()` (03 §1's
@@ -336,6 +343,7 @@ export function diffCorpus(upstream: Map<string, UpstreamEntry>, ours: Map<strin
   const invalidUpstream: DiffLine[] = [];
   const contentDiffs: DiffLine[] = [];
   const divergent: DiffLine[] = [];
+  const unresolved: DiffLine[] = [];
   let matched = 0;
   const consumed = new Set<string>();
 
@@ -350,8 +358,12 @@ export function diffCorpus(upstream: Map<string, UpstreamEntry>, ours: Map<strin
       invalidUpstream.push({ name: up.name, path: up.parsed.error.path, message: up.parsed.error.message });
       continue;
     }
-    if (our.upstream?.state !== "following") {
-      divergent.push({ name: up.name, path: "/", message: "name-matched local record does not follow upstream (forked or unlinked)" });
+    if (our.upstream === null) {
+      unresolved.push({ name: up.name, path: "/", message: "name-matched local record has no upstream link (a legacy row before the record migration, or a source that cannot resolve it)" });
+      continue;
+    }
+    if (our.upstream.state !== "following") {
+      divergent.push({ name: up.name, path: "/", message: "name-matched local record is forked from upstream" });
       continue;
     }
     const cmp = compareRecords(up.parsed.detail, our);
@@ -374,7 +386,7 @@ export function diffCorpus(upstream: Map<string, UpstreamEntry>, ours: Map<strin
     }
   }
 
-  return { matched, missing, invalidUpstream, contentDiffs, extra, divergent };
+  return { matched, missing, invalidUpstream, contentDiffs, extra, divergent, unresolved };
 }
 
 // Compared by ID, not by name: upstream's `/authors` is `name -> id` and
@@ -509,7 +521,8 @@ function summaryIsOk(s: Omit<DiffSummary, "ok">): boolean {
     s.corpus.missing.length === 0 &&
     s.corpus.invalidUpstream.length === 0 &&
     s.corpus.contentDiffs.length === 0 &&
-    s.corpus.extra.length === 0
+    s.corpus.extra.length === 0 &&
+    s.corpus.unresolved.length === 0
   );
 }
 

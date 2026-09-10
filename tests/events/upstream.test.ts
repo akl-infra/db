@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest";
 import { RevConflictError, appendWrite } from "../../src/core/events";
 import { readById, type Upstream } from "../../src/core/records";
 import { fixedClock } from "../../src/core/time";
-import { nextUpstream, upstreamOf } from "../../src/core/upstream";
+import { legacyUpstreamMap, nextUpstream, upstreamOf } from "../../src/core/upstream";
 
 const db = (env as unknown as Bindings).DB;
 const clock = fixedClock("2026-09-10T00:00:00.000Z");
@@ -346,5 +346,60 @@ describe("[LDB-P14] expectRev closes the system-writer/user-write race", () => {
       }),
       { numRuns: 20 },
     );
+  });
+});
+
+describe("[LDB-P5] legacyUpstreamMap equals upstreamOf's legacy fallback, record for record", () => {
+  it("[LDB-P5] [LDB-I14] every history shape resolves the same in bulk as one record at a time", async () => {
+    const clock = fixedClock("2026-09-11T00:00:00.000Z");
+    const importW = { actor: "system:cmini-import", via: "import:cmini", source: { client: "system:cmini-import", version: null } };
+    const userW = { actor: "owner-lum", via: "discord", source: { client: "discord-app:test", version: null } };
+    const migW = { actor: "system:migration", via: "migration", source: { client: "system:migration", version: null } };
+    type Step = { kind: "imported" | "updated" | "migrated"; w: typeof importW; detail?: Record<string, unknown> };
+    async function seed(name: string, steps: Step[], map: boolean): Promise<string> {
+      let id: string | undefined;
+      for (const st of steps) {
+        const { record } = await appendWrite(db, clock, {
+          kind: st.kind,
+          ...(id ? { layoutId: id } : {}),
+          name,
+          owner: "owner-lum",
+          modified_at: "2026-09-01T00:00:00.000Z",
+          format: "spark/1",
+          payload: { keys: {} },
+          hasMagic: false,
+          upstream: null,
+          ...st.w,
+          ...(st.detail ? { detail: st.detail } : {}),
+        });
+        id = record.id;
+      }
+      if (map) await insertImportMapRow(`up-${name}`, id!);
+      return id!;
+    }
+    const ids = [
+      await seed(`lum-following-${unique()}`, [{ kind: "imported", w: importW }], true),
+      await seed(`lum-magiconly-${unique()}`, [{ kind: "imported", w: importW }, { kind: "updated", w: userW, detail: { magic_only: true } }], true),
+      await seed(`lum-stringtrue-${unique()}`, [{ kind: "imported", w: importW }, { kind: "updated", w: userW, detail: { magic_only: "true" } }], true),
+      await seed(`lum-migrated-${unique()}`, [{ kind: "imported", w: importW }, { kind: "migrated", w: migW, detail: { from: "cmini/1", to: "spark/1" } }], true),
+      await seed(`lum-useredit-${unique()}`, [{ kind: "imported", w: importW }, { kind: "updated", w: userW }], true),
+      await seed(`lum-malformed-${unique()}`, [{ kind: "imported", w: importW }, { kind: "updated", w: userW, detail: { note: "x" } }], true),
+      await seed(`lum-unmapped-${unique()}`, [{ kind: "imported", w: importW }], false),
+    ];
+    // Malformed detail JSON on the malformed record's latest event: not a marker, never an error.
+    await db.prepare("UPDATE events SET detail_json = '{not json' WHERE layout_id = ? AND seq = (SELECT MAX(seq) FROM events WHERE layout_id = ?)").bind(ids[5], ids[5]).run();
+    // Clear the stored field (what the migration would fill) so both sides take the legacy path.
+    await db.prepare("UPDATE layouts SET upstream_source = NULL, upstream_id = NULL, upstream_state = NULL").run();
+
+    const bulk = await legacyUpstreamMap(db);
+    const states: Array<string | null> = [];
+    for (const id of ids) {
+      const rec = await readById(db, id);
+      const one = await upstreamOf(db, rec!);
+      expect(bulk.get(id) ?? null, `record ${id}`).toEqual(one);
+      states.push(one?.state ?? null);
+    }
+    // The shapes really cover every branch.
+    expect(states).toEqual(["following", "following", "forked", "following", "forked", "forked", null]);
   });
 });
