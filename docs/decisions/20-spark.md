@@ -553,12 +553,22 @@ D6.
     the old major chained up, `held` and `format_behind` handling), the
     switch itself (read the new major, write it, drop the old `?as=`), and
     how to test it (the per-major dump files, the stub lineage fixtures).
+- **HTML first, markdown for agents** (saltorbit, 2026-09-10: "mainly html,
+  but with a md copy available to give to agents too"). Each doc has ONE
+  source (markdown that may embed `<figure>` blocks with inline SVG). The
+  builder emits the designed HTML page (figures rendered) and a `.md`
+  copy beside it (each figure replaced by its caption and `aria-label`
+  text), linked from the page as "Markdown for agents". It also emits
+  `web/layoutdb/all.md`, every doc concatenated in reader order, for
+  handing an agent the whole set at once. The architecture artifact is
+  ported to this source form (its SVG figures kept) rather than shipped
+  as hand-kept HTML.
 - `design/layout-db/build_site.mjs`: renders the hub into `web/layoutdb/`
   with the federation renderer (`design/federation/build_page.mjs`'s
   `render`): `index.html` (what layoutdb is, who each doc is for, the
   list), one `web/layoutdb/<slug>/index.html` + `<slug>.md` per doc, and
-  the architecture page (the approved artifact's HTML, checked in as
-  `design/layout-db/architecture.html`) wrapped with the same nav. Docs,
+  the architecture page (ported from the approved artifact to the
+  single-source form above, `design/layout-db/architecture.md`). Docs,
   in reader order: architecture, adoption guide, formats (01), API (03),
   auth (02), governance (04), the spark plan (20), upcast (19), then the
   design record (00, 05–18) in a collapsed group. Every page carries the
@@ -599,7 +609,7 @@ P11–P15, D6, G9–G10, B48–B50.
 | LDB-P14 | S3a | A write with `expectRev` commits only if the record is still at that rev: a user write interleaved between a system writer's read and its write survives, and the record stays `forked` | property: random interleavings of {import, strip, migrate} × {user write} |
 | LDB-P15 | S3s | Every rev-bumping event written after 0005 carries `source.client` derived from the authenticated identity (`client:<id>`, `discord-app:<app id>`) or the system writer (`system:cmini-import`, `system:migration`), never from a header or body; `source.version` is the validated `X-Client-Version` or null; the record's `source` equals its latest rev-bumping event's (fold); `/history` and `/rev/{n}` return per-rev source; pre-0005 events read `legacy:<via>` | lane × verb × header matrix; spoof matrix; replay property (with P11) |
 | LDB-A2 (amended) | S3s | The Discord cache also keys the token's application id from `/oauth2/@me`; a cached row without it is a miss | `tests/auth/discord.test.ts` |
-| LDB-G9 | S8 | The docs hub ships and cannot drift: every page in `web/layoutdb/` equals a fresh render of its source; every page's navigation lists every doc exactly once; every internal link and every raw `.md` link resolves; every `design/layout-db/*.md` and `db/docs/*.md` is in the hub | `tests/tools/docs-site.test.ts` |
+| LDB-G9 | S8 | The docs hub ships and cannot drift: every page in `web/layoutdb/` and its `.md` copy equal a fresh render of the one source; `all.md` equals the concatenation in nav order; every page's navigation lists every doc exactly once; every internal link and every "Markdown for agents" link resolves; every `design/layout-db/*.md` and `db/docs/*.md` is in the hub | `tests/tools/docs-site.test.ts` |
 | LDB-G10 | S8 | The adoption guide covers the API exactly: the set of public routes enumerated from the router equals the guide's endpoint table (method + path); every error code the guide lists is one the error factories can produce; its format-author checklist names every member the registry requires of a stored format and of a major > 1 (enumerated from the same required-member list LDB-F18 enforces) | `tests/tools/docs-site.test.ts` |
 | LDB-D6 | S5 | Per-major dumps: one file per registered stored major, held rows marked, sha256 sidecars; `latest.json` unchanged | dump tests |
 | LDB-D1 / D5 (amended) | S3a | The dump carries `upstream_source/id/state`; `restoreSql` round-trips them; a dump without them restores NULL; the drill's per-record HTTP check includes `upstream` | `dump.test.ts`, `rehost.test.ts`, `drill/verify.test.ts` |
@@ -879,3 +889,6 @@ ledgered and flippable by saltorbit):**
   format, new major, lowering to mana2) and client migration across
   majors. LDB-G10 now also ties the author checklist to F18's required
   members.
+- **2026-09-10 ~17:55Z** — saltorbit: docs are "mainly html, but with a md
+  copy available to give to agents". S8: one source per doc → HTML page +
+  generated `.md` copy + `all.md`; LDB-G9 covers both outputs.
