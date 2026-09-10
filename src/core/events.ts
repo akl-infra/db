@@ -63,7 +63,7 @@ export interface Write {
   layoutId?: string; // absent = create
   name: string;
   owner: string;
-  created_at?: string; // creates only; ignored on an update (the record's own created_at never moves)
+  created_at?: string; // a create's own; on an update, only the cmini import names it (a following record mirrors upstream's, 2026-09-10) -- absent = keep the record's
   modified_at: string;
   format: string;
   payload: unknown;
@@ -198,7 +198,13 @@ export async function appendWrite(
   }
 
   const rev = creating ? 1 : current!.rev + 1; // continues across deleted -> restored/imported/upstream_deleted
-  const created_at = creating ? (w.created_at ?? w.modified_at) : current!.created_at;
+  // An update keeps the record's created_at unless the write names one --
+  // only the cmini import does (import/apply.ts's applyMapped, following
+  // records): when cmini deletes and re-adds a layout under the same name
+  // between two ticks, upstream's created_at moves and a following record
+  // must move with it, or the daily diff flags it forever (2026-09-10:
+  // kate-2, eclipse-v2).
+  const created_at = creating ? (w.created_at ?? w.modified_at) : (w.created_at ?? current!.created_at);
   const like_count = creating ? 0 : current!.like_count; // appendWrite never moves like_count
   const has_magic = w.hasMagic ?? false;
 
@@ -252,7 +258,7 @@ export async function appendWrite(
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            name = excluded.name, owner = excluded.owner, rev = excluded.rev,
-           modified_at = excluded.modified_at, deleted = excluded.deleted,
+           created_at = excluded.created_at, modified_at = excluded.modified_at, deleted = excluded.deleted,
            format = excluded.format, payload_json = excluded.payload_json,
            like_count = excluded.like_count, has_magic = excluded.has_magic`,
       )

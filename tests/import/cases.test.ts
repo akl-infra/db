@@ -197,6 +197,29 @@ describe("import case table (07 §6 S5)", () => {
     expect(events[1]).toMatchObject({ kind: "imported", rev: 2, actor: "system:cmini-import", via: "import:cmini" });
   });
 
+  it("[LDB-I2] case 4b: mapped + following + upstream re-created the layout (created_at moved) -> imported, our created_at follows", async () => {
+    const owner = "4000000000000000001";
+    const d1 = detail({ name: "Case4b-Recreated", user: owner, board: "ortho", keys: {}, created_at: "2026-01-01T00:00:00Z", modified_at: "2026-01-01T00:00:00Z" });
+    await applyFetchedId(db, clock, "case4b", d1);
+    const before = await readByName(db, "Case4b-Recreated");
+    expect(before!.created_at).toBe("2026-01-01T00:00:00Z");
+
+    // cmini deleted and re-added it between two ticks: same name, same keys, new created_at
+    const d2 = detail({ name: "Case4b-Recreated", user: owner, board: "ortho", keys: {}, created_at: "2026-03-01T00:00:00Z", modified_at: "2026-03-01T00:00:00Z" });
+    const result = await applyFetchedId(db, clock, "case4b", d2);
+    expect(result.errors).toEqual([]);
+
+    const after = await readById(db, before!.id);
+    expect(after!.rev).toBe(2);
+    expect(after!.created_at).toBe("2026-03-01T00:00:00Z");
+    expect(after!.modified_at).toBe("2026-03-01T00:00:00Z");
+
+    // and a third identical tick is quiet again (LDB-I1)
+    const again = await applyFetchedId(db, clock, "case4b", d2);
+    expect(again.errors).toEqual([]);
+    expect((await readById(db, before!.id))!.rev).toBe(2);
+  });
+
   it("[LDB-I2] case 5: mapped + following + ONLY likes differ -> like diff, no content write", async () => {
     const owner = "5000000000000000001";
     const d1 = detail({ name: "Case5-Likes", user: owner, likes: ["5000000000000000011", "5000000000000000012"] });

@@ -324,6 +324,7 @@ async function applyMapped(
         layoutId: record.id,
         name: detail.name,
         owner: detail.owner,
+        created_at: detail.created_at, // follows upstream too: a layout cmini deleted and re-added between two ticks moves it (2026-09-10, kate-2/eclipse-v2 flagged forever by the diff)
         modified_at: detail.modified_at,
         format: "cmini/1",
         payload,
