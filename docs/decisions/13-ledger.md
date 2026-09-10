@@ -80,7 +80,7 @@ One Claude Code session has ONE worktree pin shared by every plain-spawned agent
 3. Copy sign-off: `14-copy-signoff.md` lists every `// COPY: sign-off pending` string (`web/src/copy/db.ts`, `bot/src/copy.ts`).
 4. Decisions in `15-transition.md` §8 (import end state, renames, the 10 layouts the magic migration forks, likes union) and §4.
 5. Second admin (later); GitHub org, npm scope, hostname (X6).
-6. When to open the PR to main, and W6's production flips (`11-implementation-phase3.md` §1 W6): repo variable `DB_BASE_URL`, meta-watch, the real magic migration (`scripts/migrate_magic_rules_to_db.py` without `--dry-run`), Pages production env, retiring the magic PUT.
+6. When to open the PR to main, and W6's production flips (`11-implementation-phase3.md` §1 W6): repo variable `DB_BASE_URL`, meta-watch, the real magic migration (`scripts/migrate_magic_rules_to_db.py` without `--dry-run`), Pages production env, retiring the magic PUT. Note (2026-09-10, `ldb-m3-sync`): flipping `DB_BASE_URL` now also flips `build_magic_rules.py` to `--source db` in the same `build.yml` step that already branches the scrape on it (`design/DEPLOY.md`, `17-magic-ownership.md` §4 M3's sync half) — one variable, both the layout catalog and the magic rules.
 7. Fly deploy of the restore drill (`db/README.md` § Drill); X4b (delete the CI daily diff steps after 7 green days).
 
 **Known gaps, deliberate:** bot `freqd` (needs a 4-gram table the site never built); Fingermap inline edit on the site (no reusable finger editor); two invalid rule sets in the site's magic data (`adaptative-magic-sturdy`, `jazz`: adaptive trigger `C` not on the board).

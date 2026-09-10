@@ -97,16 +97,27 @@ no longer a question: LDB-I12 makes the seed a magic-only write. Invariant:
 **I-2xx** after the seed, akl.gg never writes a rule set anywhere but
 the record (`magic_rules_log` frozen, the PUT route gone).
 
-**M3 — akl.gg reads rules from records.** `sync_cmini_data.py --source db`
-builds `web/data/magic_rules.json` from `?as=akl/1` records with magic
-(planned in `11` §1 W5); the live `/api/magic-rules/:id` read becomes a
-proxy of the record's `magic`; `magic-rules-sync.yml` and D1's table
-retire after a parity window with a daily D1-vs-DB diff (the same shape
-as the cmini one). The pipeline's magic-aware harvest keeps reading
-`magic_rules.json`, so nothing changes for stats.
+**M3 — akl.gg reads rules from records.** **Sync half DONE** (2026-09-10,
+`ldb-m3-sync`): `scripts/build_magic_rules.py --source db --base-url
+<layoutdb>` builds `web/data/magic_rules.json` from every `has_magic=true`
+record's `?as=akl/1` payload (cursor-paged list + a per-id detail GET --
+`full=1` doesn't compose with `has_magic`, so it can't be one dump),
+merged with the hand-authored seed for any site-only layout the DB
+doesn't have a record for yet (`seed-only: <id>`, logged); D1 is not
+consulted in this mode at all. `.github/workflows/build.yml`'s "Build
+magic rules data" step now branches on the same `DB_BASE_URL` repo
+variable the scrape step already uses (`design/DEPLOY.md`), so flipping
+that one variable moves both the catalog and the rules onto the DB
+together. Still open: the live `/api/magic-rules/:id` read becomes a
+proxy of the record's `magic` instead of the built file; the editor's PUT
+switches from the D1 table to `PATCH /v1/layouts/{id} {magic}`;
+`magic-rules-sync.yml` and D1's table retire after a parity window with a
+daily D1-vs-DB diff (the same shape as the cmini one). The pipeline's
+magic-aware harvest keeps reading `magic_rules.json`, so nothing changes
+for stats either way.
 
-Order: M1 done; M2 as soon as LDB-I12 is deployed (preview, then
-production); M3 with W6.
+Order: M1 done; M2 done (2026-09-10); M3's sync half done (2026-09-10);
+the read proxy + editor PUT switch with W6.
 
 ## 5. What this changes for the bot
 
