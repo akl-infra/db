@@ -92,6 +92,12 @@ describe("db.yml wiring", () => {
     }
   });
 
+  it("[LDB-C1] push runs only on main (a PR branch runs once, on pull_request -- 2026-09-10, doubled runs and failure emails)", () => {
+    const wf = loadWorkflow();
+    const push = (wf.on as Record<string, { branches?: string[] }>).push;
+    expect(push.branches).toEqual(["main"]);
+  });
+
   it("[LDB-C1] the deploy job needs test, runs only on a push to main, and applies migrations before deploying", () => {
     const wf = loadWorkflow();
     const deploy = wf.jobs.deploy;
@@ -118,15 +124,16 @@ describe("db.yml wiring", () => {
     expect(jobText).toContain("CLOUDFLARE_DB_ACCOUNT_ID");
   });
 
-  it("[LDB-C1] the preview job needs test, runs only on a push to worktree-layout-db, applies migrations before deploying, both --env preview", () => {
+  it("[LDB-C1] the preview job needs test, runs only on the layout-db-pr pull request, applies migrations before deploying, both --env preview", () => {
     const wf = loadWorkflow();
     const preview = wf.jobs.preview;
     expect(preview, "no `preview` job in db.yml").toBeDefined();
     if (!preview) throw new Error("unreachable: assertion above failed");
 
     expect(preview.needs).toEqual(expect.stringContaining("test"));
-    expect(preview.if, "preview job has no `if:` guard").toContain("refs/heads/worktree-layout-db");
-    expect(preview.if).toContain("github.event_name == 'push'");
+    expect(preview.if, "preview job has no `if:` guard").toBeTruthy();
+    expect(preview.if).toContain("github.event_name == 'pull_request'");
+    expect(preview.if).toContain("github.head_ref == 'layout-db-pr'");
 
     const steps = preview.steps ?? [];
     const runSteps = steps.filter((s): s is Step & { run: string } => typeof s.run === "string");

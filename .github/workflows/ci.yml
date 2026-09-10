@@ -12,6 +12,10 @@ on:
       - "db/**"
       - ".github/workflows/db.yml"
   push:
+    # main only (2026-09-10): a branch with an open PR already runs on
+    # pull_request; running on push too doubled every run and every
+    # failure email. The preview job rides the PR event instead (below).
+    branches: [main]
     paths:
       - "db/**"
       - ".github/workflows/db.yml"
@@ -83,7 +87,7 @@ jobs:
   # a preview per branch would need a D1 per branch (09 §7).
   preview:
     needs: test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/worktree-layout-db'
+    if: github.event_name == 'pull_request' && github.head_ref == 'layout-db-pr'
     runs-on: ubuntu-latest
     defaults:
       run:
