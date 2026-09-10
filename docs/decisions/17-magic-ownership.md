@@ -18,6 +18,31 @@ rule fixed the mechanism, not a per-layout call): the seed forks nothing.
 The exact procedure is `db/README.md`'s "Magic rules seed (one-time, M2)"
 section; preview first, then production.
 
+**Amended 2026-09-11 (20-spark.md S7, decision 6): magic edits fork going
+forward.** The paragraph above described LDB-I12 as a standing exemption
+— true through M2's seed, and still true of the seed itself, but no
+longer true of any *new* write. `20-spark.md`'s decision 6 retires the
+magic-only exemption: a `PATCH {magic}` (or any write that changes only
+`magic`) now forks an upstream-following record exactly like any other
+edit, and bumps `modified_at` (the lead's answer to that plan's §8 Q1 —
+a magic edit is an edit; there is nothing left for an unbumped
+`modified_at` to keep in step with once the record no longer mirrors
+upstream). `LDB-I12` is **narrowed, not deleted** (`03-api.md` §5,
+`20-spark.md` §4): its text is now the definition of `legacyFollows`
+(`core/follows.ts`), read only by `upstreamOf`'s fallback for a record
+whose stored `upstream` column predates 0005, and by the S4 record
+migration when it computes a record's *initial* `upstream` value. No
+code path sets a new `detail.magic_only: true` marker again. The **67
+records M2 seeded stay `following`**, deliberately (decision 7, flagged
+here and in the migration's own report as
+`legacy_magic_only_following`): the legacy rule walks back past their
+magic-only seed event to the `import:cmini` write underneath, so their
+*initial* `upstream` comes out `following` even though a magic-only write
+made after this landed would fork them like anything else. akl.gg's
+editor (M3, below) writes ordinary `PATCH {magic}` calls, so from the
+site's perspective nothing here changes — the difference is only in what
+the record's `upstream` field now says afterward.
+
 ## 1. Where rules live today
 
 | store | writer | reader |
@@ -42,6 +67,16 @@ pipeline — reads the record.
 
 ## 3. Why "a layer the cmini import never touches", not "publishing flips the record"
 
+**Amended:** `LDB-I2a`'s check below is now the **legacy fallback**
+(`legacyFollows`, `03-api.md` §5) read only for a record whose stored
+`upstream` column predates 0005 — the live answer is the stored field
+(decision 5), computed by `nextUpstream` the same way on every write. The
+reasoning underneath — the import must not let publishing a rule set look
+like an ordinary write that stops the layout's `!cmini` key edits — is
+unchanged; it is why the *import's own* writes (never the site's) are the
+one write kind exempt from forking (decision 6's "only system writes never
+fork: the importer and one-time migrations").
+
 `LDB-I2a`: a record follows upstream iff its latest rev-bumping event
 has `via = import:cmini`. If akl.gg's rules were published as an ordinary
 write, every layout with rules would stop receiving its author's `!cmini`
@@ -61,13 +96,17 @@ upstream **for keys** while leaving **magic** alone:
   with `magic` excluded on both sides, so "diff vs cmini = zero" keeps its
   meaning for what the DB actually mirrors.
 
-Format wrinkle: a `cmini/1` record cannot hold akl/1 magic (its `magic`
-shape is cmini's flat rows). When akl.gg publishes rules to a `cmini/1`
-record, the write lifts the record to `akl/1` (`cmini/1 → akl/1` is
-lossless, LDB-F5) and sets `magic`; later imports for that record
-translate upstream's keys into the record's current format and keep the
-magic. `?as=cmini/1` still lowers akl rules into cmini's flat rows for
-readers that want that shape (the bot's cmini-view, external tools).
+Format wrinkle (**historical**, resolved by the one-stored-format
+redesign): a `cmini/1` record could not hold `akl/1` magic (its `magic`
+shape was cmini's flat rows), so publishing rules to one had to lift it
+to `akl/1` first. **Since S2 (`20-spark.md`, LDB-F16) every write —
+`setMagic` included, not only a magic write — carries a legacy-stored
+record's payload through `storedAsSpark` before applying anything**, so
+this is no longer a magic-specific wrinkle: any PATCH lifts a still-legacy
+record to `spark/1`. Later imports for that record translate upstream's
+keys into the record's current (now always `spark/1`) format and keep
+the magic. `?as=cmini/1` still lowers spark rules into cmini's flat rows
+for readers that want that shape (the bot's cmini-view, external tools).
 
 ## 4. The steps
 

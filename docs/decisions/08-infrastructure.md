@@ -5,18 +5,28 @@ phase-1 briefs (`07`); it is the map of what runs where today, what phase 1
 adds, and the follow-ups saltorbit asked to have written down rather than
 decided now.
 
+**Amended 2026-09-11 (20-spark.md S7).** The tier row below said "free
+tier" for the Layout DB; `13-ledger.md` records the `akl` account as
+**Workers Paid**, confirmed for this round (`20-spark.md` §8 Q4/answer,
+§4 R-M3): the record migration's write volume (~40 k rows for ~4.2 k
+records) fits either tier, but the binding constraint is Workers Paid's
+1 000-queries-per-invocation ceiling, which the migration's own batching
+(≤ 100 records/call, ~7 D1 round trips each) is sized against. Corrected
+below.
+
 ## 1. The map
 
 | what | where | account / owners | cost | state |
 |---|---|---|---|---|
 | akl.gg site — static SPA + Pages Functions + D1 `cb-magic` (magic rules, stat/layout patches, analytics) | Cloudflare Pages project `aklgg` | the site's account | free tier | live |
 | `workers/meta-watch` — 2-min poll that dispatches live-sync | Cloudflare Workers | the site's account | free | live |
-| **Layout DB** — Worker `akl-db`, D1 `akl-db` (`53f596d5…`), R2 `akl-db-dumps` (90-day expiry on `dump-*`); crons: import `*/5`, dump `0 3` | Cloudflare Workers | **`akl` account** (`58a5eb82…`), ≥ 2 Super Admins; CI uses an account-owned token (`CLOUDFLARE_DB_TOKEN` / `CLOUDFLARE_DB_ACCOUNT_ID`) | free tier; Workers Paid ($5/mo) only if polling outgrows it | D1 + R2 created 2026-09-09; Worker deploys at S7 |
+| **Layout DB** — Worker `akl-db`, D1 `akl-db` (`53f596d5…`), R2 `akl-db-dumps` (90-day expiry on `dump-*`); crons: import `*/5`, dump `0 3` | Cloudflare Workers | **`akl` account** (`58a5eb82…`), ≥ 2 Super Admins; CI uses an account-owned token (`CLOUDFLARE_DB_TOKEN` / `CLOUDFLARE_DB_ACCOUNT_ID`) | **Workers Paid ($5/mo)**, per `13-ledger.md` — the account is already on Paid, not free tier (corrected 2026-09-11, `20-spark.md` §7/§8 Q4) | D1 + R2 created 2026-09-09; Worker deploys at S7 |
 | **Discord bot** — `!spark` (tentative), TypeScript, shares the site's engine (`05`) | Fly.io, one `shared-cpu-1x`, 256 MB to start, no volume | saltorbit's (the bot and the site are his; only the DB is co-owned, `04 §1`) | ~$2–3/mo | phase 4 |
 | CI — site gate/builds/live-sync; `db.yml` test + deploy; daily DB diff + rehost drill | GitHub Actions, hosted runners | the repo (an org later, `04 §1`) | private-repo minutes (the site's builds are the consumer, not the DB) | live; DB jobs from S7/S8 |
 | upstream — cmini `layoutapi/v3` | not ours | — | — | imported one-way while it exists (`06 §2`) |
 
-New monthly spend for DB + bot: $2–3; ~$8 if the DB needs Workers Paid.
+New monthly spend for DB + bot: ~$8 ($5 for the DB's Workers Paid,
+corrected above, + $2–3 for the bot's Fly machine).
 
 ## 2. Penciled in — not now, but written down
 

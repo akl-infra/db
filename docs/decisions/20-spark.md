@@ -1146,3 +1146,16 @@ ledgered and flippable by saltorbit):**
   root node tests 423; `akl1.vitest.ts` 17. The combined db+bot run on
   this branch happens before the hand-off to c7. S5 and S7 are running in
   this worktree.
+- **2026-09-11 ~02:05Z** — **S7 landed** (Sonnet agent). `01-format`,
+  `03-api`, `06-akl-integration`, `08-infrastructure`, `17-magic-ownership`
+  and `19-upcast` now describe the built system: spark/1 the one stored
+  format, cmini an adapter (not a lineage), mana2 output-only, aliases and
+  `LEGACY_STORED`, native `format` with the `akl/1` relabel, `upstream`
+  (transitional) and `source` on records/events/history/rev,
+  `X-Client-Version`, `migrated`, the two new errors, restore without a
+  window, `/v1/formats` role/aliases, `WIRE_VERSION`, the migrate admin
+  route; the tier row says Workers Paid; 17 records that magic edits fork
+  and I12 is historical-only; 19 renamed to spark with ids renumbered
+  (F18, F19, P13, D6) and its chain sections marked "implemented in S5".
+  Every remaining `akl/1`/`cmini/1` mention is an alias, the legacy table,
+  or history. docs-site 7/7, LDB-T1 4/4. S5 still running.
