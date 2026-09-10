@@ -544,3 +544,180 @@ describe("[LDB-P12] chain generalization (20-spark.md S5): 'below its lineage's 
     expect(after).toMatchObject({ format: "spark/1" }); // spark/2 is not registered in THIS test -- latest is plain spark/1
   });
 });
+
+// 2026-09-11 preview dry run (c7): `slataline` (following, stored `cmini/1`)
+// still carried upstream cmini magic, because the M1 strip route ran on
+// production only, and its rows lifted to an invalid spark rule. Separately,
+// the M2-seeded records all counted 0 in `legacy_magic_only_following`,
+// because a later `imported` event sat on top of the seed's magic-only one.
+describe("[LDB-P12] M1 strip on migration, and the seeded-record count", () => {
+  const MAGIC_CMINI = {
+    board: "ortho" as const,
+    keys: { a: { row: 0, col: 0, finger: "LI" }, b: { row: 0, col: 1, finger: "LM" } },
+    magic: [{ inputs: "ab", output: "ba" }],
+  };
+
+  async function lastDetail(layoutId: string): Promise<Record<string, unknown>> {
+    const row = await db
+      .prepare("SELECT detail_json FROM events WHERE layout_id = ? AND rev IS NOT NULL ORDER BY seq DESC LIMIT 1")
+      .bind(layoutId)
+      .first<{ detail_json: string | null }>();
+    return JSON.parse(row?.detail_json ?? "{}") as Record<string, unknown>;
+  }
+
+  it("[LDB-P12] a FOLLOWING cmini/1 record's upstream cmini magic is dropped on conversion (M1), recorded on the event and in the report", async () => {
+    const { record } = await appendWrite(db, clock, {
+      kind: "imported",
+      name: "strip-following",
+      owner: "owner-1",
+      modified_at: "2026-01-01T00:00:00.000Z",
+      format: "cmini/1",
+      payload: MAGIC_CMINI,
+      actor: "system:cmini-import",
+      via: "import:cmini",
+      source: { client: "system:cmini-import", version: null },
+      hasMagic: true,
+      upstream: null,
+    });
+    await mapUpstream("up-strip-following", record.id);
+
+    const report = await migrateTick(db, clock, { dryRun: false });
+    expect(report.invalid).toEqual([]);
+    expect(report.magic_stripped).toBe(1);
+    expect(report.converted).toBe(1);
+
+    const after = await readById(db, record.id);
+    expect(after?.format).toBe("spark/1");
+    expect((after?.payload as { magic?: unknown }).magic).toBeUndefined();
+    expect(after?.has_magic).toBe(false);
+    expect(after?.upstream?.state).toBe("following");
+    expect(after?.modified_at).toBe("2026-01-01T00:00:00.000Z");
+    expect(await lastDetail(record.id)).toMatchObject({ from: "cmini/1", to: "spark/1", magic_stripped: true });
+
+    // Idempotent: the converted record is spark now, so nothing is re-selected.
+    const again = await migrateTick(db, clock, { dryRun: false });
+    expect(again.selected).toBe(0);
+  });
+
+  it("[LDB-P12] a NOT-following (forked) cmini/1 record keeps its magic, lifted to spark", async () => {
+    const { record } = await appendWrite(db, clock, {
+      kind: "imported",
+      name: "strip-forked",
+      owner: "owner-1",
+      modified_at: "2026-01-01T00:00:00.000Z",
+      format: "cmini/1",
+      payload: MAGIC_CMINI,
+      actor: "system:cmini-import",
+      via: "import:cmini",
+      source: { client: "system:cmini-import", version: null },
+      hasMagic: true,
+      upstream: null,
+    });
+    await mapUpstream("up-strip-forked", record.id);
+    await appendWrite(db, clock, {
+      kind: "updated",
+      layoutId: record.id,
+      name: record.name,
+      owner: record.owner,
+      modified_at: "2026-01-02T00:00:00.000Z",
+      format: "cmini/1",
+      payload: { ...MAGIC_CMINI, tag: "edited" },
+      actor: "owner-1",
+      via: "discord",
+      source: { client: "discord-app:test", version: null },
+      hasMagic: true,
+      upstream: null,
+    });
+
+    const report = await migrateTick(db, clock, { dryRun: false });
+    expect(report.invalid).toEqual([]);
+    expect(report.magic_stripped).toBe(0);
+
+    const after = await readById(db, record.id);
+    expect(after?.format).toBe("spark/1");
+    expect(after?.upstream?.state).toBe("forked");
+    expect(after?.has_magic).toBe(true);
+    expect((after?.payload as { magic?: unknown }).magic).toBeDefined();
+    expect(await lastDetail(record.id)).not.toHaveProperty("magic_stripped");
+  });
+
+  it("[LDB-P12] the dry run reports the same strip without writing", async () => {
+    const { record } = await appendWrite(db, clock, {
+      kind: "imported",
+      name: "strip-dry",
+      owner: "owner-1",
+      modified_at: "2026-01-01T00:00:00.000Z",
+      format: "cmini/1",
+      payload: MAGIC_CMINI,
+      actor: "system:cmini-import",
+      via: "import:cmini",
+      source: { client: "system:cmini-import", version: null },
+      hasMagic: true,
+      upstream: null,
+    });
+    await mapUpstream("up-strip-dry", record.id);
+    const report = await migrateTick(db, clock, { dryRun: true });
+    expect(report.magic_stripped).toBe(1);
+    expect(report.invalid).toEqual([]);
+    const after = await readById(db, record.id);
+    expect(after?.format).toBe("cmini/1");
+    expect(after?.has_magic).toBe(true);
+  });
+
+  it("[LDB-P12] a seeded record counts and is named even when a later import sits on top of the seed's magic-only event", async () => {
+    const { record } = await appendWrite(db, clock, {
+      kind: "imported",
+      name: "seeded-then-imported",
+      owner: "owner-1",
+      modified_at: "2026-01-01T00:00:00.000Z",
+      format: "akl/1",
+      payload: { keys: SPARK_KEYS, board: SPARK_BOARD },
+      actor: "system:cmini-import",
+      via: "import:cmini",
+      source: { client: "system:cmini-import", version: null },
+      hasMagic: false,
+      upstream: null,
+    });
+    await mapUpstream("up-seeded", record.id);
+    await appendWrite(db, clock, {
+      kind: "updated",
+      layoutId: record.id,
+      name: record.name,
+      owner: record.owner,
+      modified_at: "2026-01-01T00:00:00.000Z",
+      format: "akl/1",
+      payload: { keys: SPARK_KEYS, board: SPARK_BOARD, magic: SPARK_MAGIC },
+      actor: "system:migration-m2",
+      via: "client:m2-seed",
+      source: { client: "client:m2-seed", version: null },
+      hasMagic: true,
+      detail: { magic_only: true },
+      upstream: null,
+    });
+    // An upstream change afterwards: the importer rewrites keys/board and
+    // carries the record's own magic forward (LDB-I11).
+    await appendWrite(db, clock, {
+      kind: "imported",
+      layoutId: record.id,
+      name: record.name,
+      owner: record.owner,
+      modified_at: "2026-02-01T00:00:00.000Z",
+      format: "akl/1",
+      payload: { keys: SPARK_KEYS, board: SPARK_BOARD, magic: SPARK_MAGIC },
+      actor: "system:cmini-import",
+      via: "import:cmini",
+      source: { client: "system:cmini-import", version: null },
+      hasMagic: true,
+      detail: { source: "cmini", upstream_id: "up-seeded" },
+      upstream: null,
+    });
+
+    const report = await migrateTick(db, clock, { dryRun: false });
+    expect(report.invalid).toEqual([]);
+    expect(report.legacy_magic_only_following).toBe(1);
+    expect(report.legacy_magic_only_following_names).toEqual(["seeded-then-imported"]);
+    const after = await readById(db, record.id);
+    expect(after?.upstream?.state).toBe("following");
+    expect(after?.has_magic).toBe(true);
+  });
+});

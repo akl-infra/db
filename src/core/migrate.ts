@@ -58,6 +58,13 @@ export interface MigrateReport {
   deleted: number;
   upstream: { following: number; forked: number; null: number };
   legacy_magic_only_following: number;
+  // Names of the records counted above, sorted (20-spark.md §1.7: the report
+  // must NAME the M2-seeded records, not just count them).
+  legacy_magic_only_following_names: string[];
+  // Following `cmini/1` records whose upstream cmini magic was dropped on
+  // conversion (M1 / LDB-I10: cmini's magic is never akl.gg's; the same
+  // rule `import/strip.ts` applies). Zero on a DB the strip route already ran on.
+  magic_stripped: number;
   invalid: InvalidEntry[];
   raced: number;
   next_after: string | null;
@@ -123,18 +130,25 @@ async function selectIds(db: Bindings["DB"], after: string, limit: number, lates
 // of what `legacyFollows` itself computes, so sharing one helper would mean
 // exporting a second, easily-confused function from a file this slice
 // doesn't own.
-async function latestRevBumpingIsMagicOnly(db: Bindings["DB"], layoutId: string): Promise<boolean> {
-  const row = await db
-    .prepare("SELECT detail_json FROM events WHERE layout_id = ? AND rev IS NOT NULL ORDER BY seq DESC LIMIT 1")
+async function historyHasMagicOnlyEvent(db: Bindings["DB"], layoutId: string): Promise<boolean> {
+  // ANY rev-bumping event in the record's history marked `magic_only` (the
+  // M2 seed's PUTs, LDB-I12's historical marker), not just the latest one:
+  // a later `imported` event (an upstream change carrying the record's own
+  // magic forward, LDB-I11) or the M1 strip sits on top of the seed on real
+  // data, which is why the latest-only check counted 0 of the 67 on preview
+  // (2026-09-11 dry run).
+  const { results } = await db
+    .prepare("SELECT detail_json FROM events WHERE layout_id = ? AND rev IS NOT NULL AND detail_json IS NOT NULL")
     .bind(layoutId)
-    .first<{ detail_json: string | null }>();
-  if (row === null || row.detail_json === null) return false;
-  try {
-    const detail = JSON.parse(row.detail_json) as { magic_only?: unknown };
-    return detail.magic_only === true;
-  } catch {
-    return false;
+    .all<{ detail_json: string }>();
+  for (const row of results) {
+    try {
+      if ((JSON.parse(row.detail_json) as { magic_only?: unknown }).magic_only === true) return true;
+    } catch {
+      // not JSON: not a marker
+    }
   }
+  return false;
 }
 
 function upstreamStateKey(upstream: Upstream | null): UpstreamState | "null" {
@@ -195,6 +209,8 @@ export async function migrateTick(db: Bindings["DB"], now: Clock, opts: MigrateO
     deleted: 0,
     upstream: { following: 0, forked: 0, null: 0 },
     legacy_magic_only_following: 0,
+    legacy_magic_only_following_names: [],
+    magic_stripped: 0,
     invalid: [],
     raced: 0,
     next_after: ids.length > 0 ? ids[ids.length - 1]! : null,
@@ -208,7 +224,29 @@ export async function migrateTick(db: Bindings["DB"], now: Clock, opts: MigrateO
     if (record === null) continue; // defensive: nothing hard-deletes a `layouts` row, so unreachable in practice
 
     const from = record.format;
-    const next = convertToLatest(record, latest);
+
+    // `prior` = the record's own field when non-null, else the legacy
+    // fallback (`upstreamOf`); computed BEFORE conversion because the M1
+    // strip below depends on it.
+    const prior = await upstreamOf(db, record);
+
+    // M1 / LDB-I10 (17-magic-ownership.md): cmini's magic is never akl.gg's.
+    // A FOLLOWING `cmini/1` row still carrying upstream cmini magic (the
+    // one-time strip route ran on production only; preview's 2026-09-11 dry
+    // run found `slataline`, whose cmini rows lift to an invalid spark rule)
+    // drops it here, exactly as `import/strip.ts` would. A not-following row
+    // keeps its magic: a human edit already took it off cmini's mirror.
+    let source = record.payload;
+    let magicStripped = false;
+    if (from === "cmini/1" && prior?.state === "following") {
+      const p = record.payload as { magic?: unknown[] };
+      if (Array.isArray(p.magic) && p.magic.length > 0) {
+        const { magic: _dropped, ...rest } = p;
+        source = rest;
+        magicStripped = true;
+      }
+    }
+    const next = convertToLatest({ format: from, payload: source }, latest);
 
     const validation = latestModule.validate(next.payload);
     if (!validation.ok) {
@@ -218,7 +256,7 @@ export async function migrateTick(db: Bindings["DB"], now: Clock, opts: MigrateO
     }
 
     const hasMagic = latestModule.hasMagic(next.payload);
-    if (hasMagic !== record.has_magic) {
+    if (!magicStripped && hasMagic !== record.has_magic) {
       // R-M2's own posture, extended: the stored `has_magic` disagreeing
       // with a freshly computed one is exactly as unsafe to write over as
       // a validate() failure -- skip and list, never silently correct it.
@@ -241,7 +279,6 @@ export async function migrateTick(db: Bindings["DB"], now: Clock, opts: MigrateO
     // one). `nextUpstream(prior, "migrated", ...)` always answers `prior`
     // unchanged -- called anyway, like every other writer, rather than
     // inlining that short-circuit here.
-    const prior = await upstreamOf(db, record);
     const upstream = nextUpstream(prior, "migrated", "migration");
     const stateKey = upstreamStateKey(upstream);
     // Computed BEFORE the write below: once this record's own `migrated`
@@ -249,7 +286,7 @@ export async function migrateTick(db: Bindings["DB"], now: Clock, opts: MigrateO
     // event, and its `detail` carries no `magic_only` key -- checking after
     // the write would silently and wrongly answer `false` for every record
     // this tick just converted.
-    const magicOnlyLatest = stateKey === "following" ? await latestRevBumpingIsMagicOnly(db, id) : false;
+    const magicSeeded = stateKey === "following" ? await historyHasMagicOnlyEvent(db, id) : false;
 
     if (!opts.dryRun) {
       try {
@@ -270,7 +307,7 @@ export async function migrateTick(db: Bindings["DB"], now: Clock, opts: MigrateO
           hasMagic,
           upstream,
           source: { client: "system:migration", version: null },
-          detail: { from, to: next.format, upstream_state: stateKey === "null" ? null : stateKey },
+          detail: { from, to: next.format, upstream_state: stateKey === "null" ? null : stateKey, ...(magicStripped ? { magic_stripped: true } : {}) },
           expectRev: record.rev, // LDB-P14: a user write interleaved since this record's own read wins, not this migration
         });
       } catch (e) {
@@ -286,8 +323,13 @@ export async function migrateTick(db: Bindings["DB"], now: Clock, opts: MigrateO
     report.by_from[from] = (report.by_from[from] ?? 0) + 1;
     if (record.deleted) report.deleted++;
     report.upstream[stateKey]++;
-    if (magicOnlyLatest) report.legacy_magic_only_following++;
+    if (magicSeeded) {
+      report.legacy_magic_only_following++;
+      report.legacy_magic_only_following_names.push(record.name);
+    }
+    if (magicStripped) report.magic_stripped++;
   }
 
+  report.legacy_magic_only_following_names.sort();
   return report;
 }

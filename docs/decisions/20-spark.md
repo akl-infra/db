@@ -1223,3 +1223,22 @@ ledgered and flippable by saltorbit):**
   skipped. Sent to cmini-web-c7 for its gates and the fast-forward.
   (`ldb-spark` keeps the pre-rebase history; a force push of it is refused
   here.) Pipeline consolidation parked as GitHub issue #313.
+- **2026-09-11 ~05:30Z** — c7 fast-forwarded `ldb-v3` + `layout-db-pr` to
+  b417cdd9b (its full gate set green incl. Linux amd64 image goldens), ran
+  preview steps 1 and 4a (0005 on `akl-db-preview`, Worker 76ab51ba,
+  rollback dump 2026-09-10 seq 6460) and held the real migration: the dry
+  run found (1) `invalid: 1`, `slataline` (following, stored `cmini/1`,
+  still carrying upstream cmini magic because the M1 strip route ran on
+  production only; its rows lift to an invalid spark rule), and (2)
+  `legacy_magic_only_following: 0` instead of 67 (the counter looked only
+  at each record's latest event; a later `imported` event sits on top of
+  the M2 seed's magic-only one). The bot stays undeployed until saltorbit's
+  production go. **Lead fix on `ldb-spark-final`:** the migration now
+  applies M1 itself: a following `cmini/1` record's upstream cmini magic
+  is dropped on conversion (`detail.magic_stripped`, report
+  `magic_stripped`; not-following records keep theirs; the `has_magic`
+  equality check is skipped only for a stripped record), and the seeded
+  count looks for a magic-only event anywhere in the history, with
+  `legacy_magic_only_following_names` listing them (the operator script
+  carries both fields). LDB-P12 row amended; 4 new migration tests and 1
+  pytest.
