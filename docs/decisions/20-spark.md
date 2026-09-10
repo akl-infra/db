@@ -152,6 +152,17 @@ are in §8; §3/§4 already carry the fixes.** **Pick-up guide: read §0, then
     a shared navigation listing every doc on every page, and each page's
     raw `.md` beside it for agents. Nothing in the main app links to the
     hub yet: that would be new UI copy, which needs saltorbit's sign-off.
+16. **Forking is transitional** (saltorbit, 2026-09-10: "forking is a specific
+    one time thing on the upstream from cmini, not anything that will
+    persist in steady state"). `upstream` and its following/forked states
+    exist only while the cmini import runs: they answer "does the importer
+    still own this record's keys and board?". layoutdb has no general
+    fork concept (no layout-from-layout forks, no re-follow), and nothing
+    beyond the importer, the D12 diff and the migration may build on the
+    field. The adoption guide (S8) documents it as transitional and tells
+    clients not to depend on it. When the import is retired, the field is
+    retired by the §6b checklist. The earlier open question "can a forked
+    record follow again?" is closed: no.
 
 ## 2. Deploy order (for c7 / saltorbit; nothing here deploys)
 
@@ -640,6 +651,17 @@ also removes: the `./akl/1` and `./cmini/1` package subpath exports (bump
 legacy rows forever (history is not rewritten), and `/rev/{n}` must keep
 reading them (LDB-R5, F21).
 
+## 6b. Upstream retirement checklist (decision 16)
+
+When the cmini import is switched off for good: stop the import cron job
+and the D12 diff; one last `migrated`-style system event per record is
+**not** needed (history keeps the old values). Then drop `upstream` from
+the wire record and from `/v1/changes` payloads (a `WIRE_VERSION` bump, a
+documented change, 03 §1), remove `nextUpstream`/`upstreamOf`/
+`legacyFollows`, the `import_map` table and the `upstream_*` columns
+(a new D1 migration), and retire LDB-I13, I14, P5, P11's upstream half
+and I2a/I12. `x.cmini` in payloads stays (it is data the records carry).
+
 ## 7. Ledger (newest last)
 
 - **2026-09-10 ~16:30Z** — branch `ldb-spark` created from `ldb-upcast`
@@ -967,3 +989,9 @@ ledgered and flippable by saltorbit):**
   `layout_revs` rows are cmini forever). Verified: db typecheck 0, vitest
   15 827 passed / 0 failed (+39); bot 755 passed, lint clean;
   `akl1.vitest.ts` 17 passed. Next: S3a.
+- **2026-09-10 ~20:45Z** — saltorbit: forking is a one-time transition state
+  tied to the cmini upstream, not a steady-state concept → decision 16,
+  §6b retirement checklist; the "re-follow" question is closed (no). No
+  code change: S3a builds the field as planned, framed as transitional.
+  Architecture doc/page get one sentence; the S8 guide marks the field
+  transitional.
