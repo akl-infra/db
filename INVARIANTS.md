@@ -77,7 +77,7 @@ the S1 rows only.
 | LDB-P6 | `/v1/changes` serves from `since=0`, including after a restore | `tests/events/feed.test.ts`, `tests/rehost.test.ts` |
 | LDB-P7 | Every error response carries `error` and `message`; every (route, status) pair has a conformance case | `tests/api/conformance.test.ts` |
 | LDB-P8 | A tombstone is unreadable by name from the moment of deletion (phase 1) and restorable by id for 30 days by its owner, any time by an admin, keeping name/format/payload/history (phase 2) | `tests/api/refs.test.ts`, `tests/api/restore.test.ts` |
-| LDB-R1 | Polled routes carry `Cache-Control` + strong `ETag` and answer `304` to a matching `If-None-Match`; the ETag changes iff the event head or the query changes | `tests/api/etag.test.ts` |
+| LDB-R1 | Polled routes carry `Cache-Control` + strong `ETag` and answer `304` to a matching `If-None-Match` -- compared weakly per RFC 7232 §3.2, so the `W/"…"` form Cloudflare rewrites every compressed response's ETag to (what a client that echoes what it received sends back) matches too (2026-09-10: the bot's per-minute heartbeat never got a 304 before this); the ETag changes iff the event head or the query changes | `tests/api/etag.test.ts` |
 | LDB-R2 | `/v1/meta` counts and `seq`/`revision` equal the tables | `tests/api/meta.test.ts` |
 | LDB-R3 | The conformance fixtures are the API contract; changing one is a documented API change | `tests/api/conformance.test.ts` (+ review) |
 | LDB-R4 | Every `sort` × `limit` cursor walk visits every live record exactly once | `tests/api/list.test.ts` |

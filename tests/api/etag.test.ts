@@ -38,6 +38,30 @@ describe.each(CACHED_ROUTES)("[LDB-R1] %s", (path) => {
     expect(stale.headers.get("ETag")).toBe(etag);
     expect(stale.headers.get("Cache-Control")).toBe(CACHE_CONTROL);
   });
+
+  // [LDB-R1] Weak comparison (RFC 7232 §3.2): Cloudflare rewrites our
+  // strong ETag to `W/"…"` on every compressed response, so a client that
+  // echoes what it received sends the weak form -- it must still get a
+  // 304 (2026-09-10: the bot's per-minute heartbeat never did, paying the
+  // full meta query each time). A weak tag with a DIFFERENT opaque value
+  // is still a miss, and a list mixing forms matches on any member.
+  it("[LDB-R1] the weak form W/<etag> of the current tag -> 304; a weak stale tag -> 200; a list matches on any member", async () => {
+    const first = await SELF.fetch(`https://example.com${path}`);
+    const etag = first.headers.get("ETag")!;
+    expect(etag.startsWith('"')).toBe(true); // strong on the way out, unchanged
+
+    const weak = await SELF.fetch(`https://example.com${path}`, { headers: { "If-None-Match": `W/${etag}` } });
+    expect(weak.status).toBe(304);
+    expect(weak.headers.get("ETag")).toBe(etag);
+
+    const weakStale = await SELF.fetch(`https://example.com${path}`, { headers: { "If-None-Match": 'W/"0:0000000000000000"' } });
+    expect(weakStale.status).toBe(200);
+
+    const list = await SELF.fetch(`https://example.com${path}`, {
+      headers: { "If-None-Match": `"0:0000000000000000", W/${etag}` },
+    });
+    expect(list.status).toBe(304);
+  });
 });
 
 describe("[LDB-R1] ETag changes iff the event head changes, or the query changes", () => {

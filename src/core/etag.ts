@@ -23,15 +23,28 @@ async function sha256Hex(s: string): Promise<string> {
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-// `If-None-Match` may be `*` or a comma-separated list of etags (weak or
-// strong); ours are always strong, so a straight substring-free membership
-// check is enough.
+// `If-None-Match` may be `*` or a comma-separated list of etags, weak or
+// strong. RFC 7232 §3.2 says If-None-Match uses the WEAK comparison
+// (`W/"x"` matches `"x"`), and that is not academic here: Cloudflare
+// rewrites a strong ETag to `W/"…"` whenever it compresses the response
+// body (every client that sends `Accept-Encoding: gzip, br` -- Node's
+// fetch, browsers), so a well-behaved client echoes the weak form back
+// and, under a strict compare, never sees a 304 (2026-09-10, the spark
+// bot's once-a-minute `/v1/meta` heartbeat from Fly got a 200 every time
+// while the SAME header from elsewhere happened to be answered by the
+// edge cache's own weak-aware match). Ours are always strong on the way
+// out; strip `W/` on the way in and compare the opaque tags.
 function etagMatches(header: string, etag: string): boolean {
   if (header.trim() === "*") return true;
+  const wanted = stripWeak(etag);
   return header
     .split(",")
-    .map((s) => s.trim())
-    .includes(etag);
+    .map((s) => stripWeak(s.trim()))
+    .includes(wanted);
+}
+
+function stripWeak(tag: string): string {
+  return tag.startsWith("W/") ? tag.slice(2) : tag;
 }
 
 // Returns a 304 (same ETag + Cache-Control, no body) when the request's
