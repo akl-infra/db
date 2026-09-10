@@ -271,6 +271,52 @@ verb, no prior string to diff against):
 - `use()`: `'spacegrams [off|left|right]'`
 - `desc()`: `'set whether stats treat space as a thumb key (off/left/right)'`
 
+## Round 4 — directed by saltorbit 2026-09-10 (3-rolls not onehands; akl.gg names everywhere) — SIGNED
+
+Two verbatim asks (2026-09-10): *"Spacegrams should also support auto"*
+and *"this should say 3-rolls, not onehands ```Top 10 graphite Onehands:
+...``` (If there's anywhere else similar, let's fix)"*. The STAT NAMES
+below are user-facing copy saltorbit directed in that message, so they are
+**signed off, not pending** (LDB-B40, `bot/src/copy.ts`'s `NGRAM_LABELS`
++ `STAT_LABELS`; sources: `web/src/copy/explainer.ts`'s names,
+`web/src/copy/card.ts`'s card labels, both read only):
+
+| surface | old (cmini) | new (akl.gg) |
+|---|---|---|
+| `Top 10 <layout> …:` header, `onehands`/`rol3` | `Onehands` | `3-Rolls` |
+| `Top 10 <layout> …:` header, `rolls`/`rol2` | `Rolls` | `2-Rolls` |
+| `Top 10 <layout> …:` header, `inrolls` | `Inrolls` | `2-Rolls In` |
+| `Top 10 <layout> …:` header, `outrolls` | `Outrolls` | `2-Rolls Out` |
+| `Top 10 <layout> …:` header, `alternates`/`alt` | `Alternates` | `Alternations` |
+| `Top 10 <layout> …:` header, `redirects`/`red`, `sfbs`/`sfb`, `sfs` | `Redirects`/`SFBs`/`SFS` | unchanged |
+| `view`/`compare`/write-success stats block (`render/grid.ts`'s `statsStr`) | rows `Alt`, `Rol`, `One`, `Rtl`, `Red (Bad)`, `SFB`, `SFS (Red/Alt)`, `LH/RH` | rows `Alt`, `Roll` (In/Out), `Rol2` (In/Out), `Rol3` (In/Out), `Red` (Bad), `SFB`, `SFS` (Alt/Red), `LH/RH` — the card's order (`ui/card/StatsCmini.tsx`), cmini's column shape |
+
+Stretch/Scissor and the NoTh/Thumb sub-rows are NOT added: the composed
+cmini row the bot prints from carries none of those numbers.
+
+Still **pending** from this round (sentences, not stat names — same
+lighter convention as C4's `desc()` changes):
+
+- `commands/onehands.ts` `desc()`: `'see the best onehands for a
+  particular layout (alias: onehands)'` → `'see the best 3-rolls for a
+  particular layout (alias: onehands)'`
+- `commands/rolls.ts` `desc()`: `'see the best rolls …'` → `'see the best
+  2-rolls for a particular layout (alias: rolls)'`
+- `commands/inrolls.ts` `desc()`: `'see the best inward rolls …'` → `'see
+  the best inward 2-rolls for a particular layout'`
+- `commands/outrolls.ts` `desc()`: `'see the best outward rolls …'` →
+  `'see the best outward 2-rolls for a particular layout'`
+- `commands/spacegrams.ts` (LDB-B39, `auto`): `use()` `'spacegrams
+  [off|left|right|auto]'`; `desc()` `'set whether stats treat space as a
+  thumb key (off/left/right/auto)'`; the invalid-arg reply now ends
+  ``isn't `off`, `left`, `right`, or `auto`.``; the no-arg/set replies
+  are unchanged and simply print `auto` as the value.
+- `bot/src/copy.ts` `spacegramsFooterSuffix` (LDB-B39): `' · spacegrams
+  (auto: left thumb)'` / `' · spacegrams (auto: right thumb)'`, and on a
+  compare card whose two layouts resolved differently `' · spacegrams
+  (auto: new left thumb, old right thumb)'` (new first, matching the
+  `a(new) - b(old)` header order).
+
 ## Other flagged spots
 
 - web/src/ui/card/PublishSheet.tsx:8:// is `copy/db.ts`'s own stand-in (COPY: sign-off pending -- CLAUDE.md's

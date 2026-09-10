@@ -161,6 +161,29 @@ akl alt pairings` — rewritten as-is, no layouts involved.
   `redirects`/`sfbs`, same `Command` instance under both keys (C4's
   `assign`/`transfer` pattern); `sfs`/`inrolls`/`outrolls` already match
   and are unchanged.
+- **C13 follow-up, LDB-B39 (saltorbit 2026-09-10: "Spacegrams should also
+  support auto")**: `!spacegrams auto` — akl.gg's OWN auto mode
+  (`@akl/core/spacegrams`, `web/src/core/spacegrams.ts`: rules 1a/1b/2
+  from the keys, else rule 3 = the side with the lower mana2 Redirect
+  Total, tie/missing → left), resolved PER LAYOUT by `cache/cells.ts`
+  (`resolveSpace`, memoised per (id, rev, corpus); rule 3's two cells go
+  through the usual harvest-else-wasm path, so a catalog record settles
+  from the site's shipped `.lt`/`.rt` harvests with no compute). A verb
+  hands the cache a `SpaceRequest` (`none`/`lt`/`rt`/`auto`); the engine
+  only ever sees a concrete context. `compare`/`image a b` resolve each
+  layout on its own; `!image`'s footer names the resolved side
+  (`· spacegrams (auto: left thumb)`). Default stays `off`.
+- **LDB-B40 (saltorbit 2026-09-10: "this should say 3-rolls, not onehands …
+  If there's anywhere else similar, let's fix")**: every stat the bot
+  NAMES uses akl.gg's vocabulary — the n-gram headers say `3-Rolls`/
+  `2-Rolls`/`2-Rolls In`/`2-Rolls Out`/`Alternations` (`Onehands`/`Rolls`/
+  `Inrolls`/`Outrolls`/`Alternates` are gone), and the `view`/`compare`/
+  write-success stats block prints the card's own rows in the card's
+  order — `Alt`, `Roll` (In/Out), `Rol2` (In/Out), `Rol3` (In/Out), `Red`
+  (Bad), `SFB`, `SFS` (Alt/Red), `LH/RH` — in cmini's column shape
+  (`render/grid.ts`'s `statsStr`). Stretch/Scissor/NoTh/Thumb are not
+  printed: the composed cmini row carries none of those numbers. Verb
+  names/aliases untouched. Signed-off copy (`14-copy-signoff.md` round 4).
 
 ## 3. Rendering
 
@@ -278,6 +301,8 @@ live in this repo).
 | LDB-B36 | `compare`/`image <a> <b>` append the site's compare-dock link (§2.5 C8); `image <a> <b>` additionally renders the site's compare CARD through the same drawing code `image <a>` uses (§2.5 C12). | `bot/tests/commands/{read,image}.test.ts`, `bot/tests/render/image.test.ts` |
 | LDB-B37 | `!spacegrams off\|left\|right` (§2.5 C13) is a per-user preference beside `!corpus`; every stat verb and `!image` compute with it -- `(corpus, space)` is one cache/harvest key (`cache/cells.ts`), the wasm CONTEXT and `!image`'s footer both follow the setting. | `bot/tests/prefs.test.ts`, `bot/tests/cache/cells.test.ts`, `bot/tests/engine/{host,site}.test.ts`, `bot/tests/commands/{read,image}.test.ts` |
 | LDB-B38 | akl.gg's own card-label names -- `alt`/`rol2`/`rol3`/`red`/`sfb` -- are PRIMARY registry aliases of `alternates`/`rolls`/`onehands`/`redirects`/`sfbs` (§2.5 C10), same `Command` instance under both keys. | `bot/tests/commands/ngramVerbs.test.ts` |
+| LDB-B39 | `!spacegrams auto` (§2.5 C13 follow-up) is akl.gg's own auto rule per layout: the bot's side == `autoSpaceSideFrom(keys, computeVowelHand(keys), ltRed, rtRed)` over the bot's own engine's plain Redirect Totals; memoised per (id, rev, corpus), at most two computes per `view`, zero for a harvested record. | `bot/tests/cache/autoSpace.test.ts` (matrix + property), `bot/tests/commands/{read,image}.test.ts`, `bot/tests/copy.test.ts`, `bot/tests/prefs.test.ts` |
+| LDB-B40 | No stats-rendering reply contains a cmini-only stat name (`Onehand`, `One:`, `Rol:`, `Rtl`, `Alternates`, `Inrolls`/`Outrolls`, bare `Rolls`, `Red/Alt`) -- akl.gg's names everywhere (§2.5), the stats block in the card's row order. | `bot/tests/commands/statNames.test.ts`, `bot/tests/render/grid.test.ts`, `bot/tests/commands/ngramVerbs.test.ts`, `bot/tests/copy.test.ts` |
 
 ## 8. Open questions (bot)
 
