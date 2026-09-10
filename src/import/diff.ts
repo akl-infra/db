@@ -153,12 +153,17 @@ export function pathDiff(a: unknown, b: unknown, path = ""): string | null {
 // `cmini1.project()` sorts `likes` internally, so passing raw (unsorted,
 // possibly differently-ordered) `likes` arrays into `compareRecords` is
 // already order-insensitive -- no separate likes-sort step needed here.
+// LDB-P5 (M1, design/layout-db/17-magic-ownership.md §3): the projection
+// compared is magic-less on BOTH sides, the same rule `import/apply.ts`'s
+// own change detection applies -- upstream's magic is never akl.gg's, and a
+// followed record's own magic (nothing today; akl.gg's rules, once M2
+// lands) is never a mirror difference either.
 export function compareRecords(
   upstream: cmini1.CminiRecordLike,
   ours: cmini1.CminiRecordLike,
 ): { equal: boolean; path: string | null } {
-  const u = cmini1.project(upstream);
-  const o = cmini1.project(ours);
+  const u = cmini1.projectNoMagic(upstream);
+  const o = cmini1.projectNoMagic(ours);
   if (canonical(u) === canonical(o)) return { equal: true, path: null };
   return { equal: false, path: pathDiff(u, o) ?? "/" };
 }

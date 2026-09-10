@@ -13,6 +13,16 @@ import { parseSnowflake, type RawUpstreamDetail } from "./upstream";
 import type { DeleteAction } from "./plan";
 
 const RECORD_FIELDS = new Set(["name", "user", "likes", "created_at", "modified_at"]);
+// LDB-I10 (M1, design/layout-db/17-magic-ownership.md §2/§3): cmini's magic
+// is never akl.gg's -- dropped here, before validation, so it can never
+// reach `ParsedUpstreamDetail.payload` at all. This is a stronger guarantee
+// than "the change-detection projection ignores it" (below): a fresh
+// `applyNew` write and `applyMapped`'s upstream-derived fields alike simply
+// never see the field, so `hasMagic(payload)` on either is always false --
+// the only way a payload built from `detail.payload` ends up carrying magic
+// is `applyMapped` deliberately carrying the RECORD's own magic forward
+// (LDB-I11, below), never upstream's.
+const IMPORT_DROPPED_FIELDS = new Set(["magic"]);
 
 export interface ParsedUpstreamDetail {
   name: string;
@@ -30,13 +40,13 @@ export interface ShapeErr {
 
 export type ParseResult = { ok: true; detail: ParsedUpstreamDetail } | { ok: false; error: ShapeErr };
 
-// detail minus the record fields (name user likes created_at modified_at);
-// `link` stays in the payload (07 §5.1) -- only these five are ever
-// stripped.
+// detail minus the record fields (name user likes created_at modified_at)
+// and (LDB-I10) `magic`; `link` stays in the payload (07 §5.1) -- only
+// those six keys are ever stripped.
 function payloadFromRaw(raw: RawUpstreamDetail): unknown {
   const payload: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(raw)) {
-    if (!RECORD_FIELDS.has(k)) payload[k] = v;
+    if (!RECORD_FIELDS.has(k) && !IMPORT_DROPPED_FIELDS.has(k)) payload[k] = v;
   }
   return payload;
 }
@@ -98,12 +108,17 @@ export function parseUpstreamDetail(raw: unknown): ParseResult {
   };
 }
 
-// The comparable projection of a fetched detail, likes stripped -- used
-// both for the content-differs decision and for repeat-suppression, so
-// neither is ever tripped by a likes-only change (06 §2's separate like
-// diff owns that).
+// The comparable projection of a fetched detail, likes AND magic stripped
+// (LDB-I10/I11: upstream's payload never carries magic to begin with, after
+// `payloadFromRaw`'s drop above, but projecting through `projectNoMagic`
+// here too -- rather than plain `project` -- keeps this function correct
+// on its own terms, not just correct because of what its one caller
+// happens to feed it) -- used both for the content-differs decision and
+// for repeat-suppression, so neither is ever tripped by a likes-only or
+// magic-only change (06 §2's separate like diff owns likes; 17-magic-
+// ownership.md §3 owns magic).
 function projectUpstreamNoLikes(detail: ParsedUpstreamDetail): unknown {
-  return cmini1.project({
+  return cmini1.projectNoMagic({
     name: detail.name,
     owner: detail.owner,
     created_at: detail.created_at,
@@ -126,8 +141,11 @@ function projectUpstreamFull(detail: ParsedUpstreamDetail): cmini1.CminiDetail {
   });
 }
 
+// LDB-I11: the record's own magic (nothing today; akl.gg's rules, once M2
+// lands) is never a difference against upstream -- excluded here the same
+// way `projectUpstreamNoLikes` excludes upstream's.
 function projectLocalNoLikes(record: RecordRow): unknown {
-  return cmini1.project({
+  return cmini1.projectNoMagic({
     name: record.name,
     owner: record.owner,
     created_at: record.created_at,
@@ -138,7 +156,7 @@ function projectLocalNoLikes(record: RecordRow): unknown {
 }
 
 // "Content differs" (07 §6 S5): the two sides' cmini/1 projections, likes
-// excluded, disagree.
+// and magic excluded, disagree.
 export function contentDiffers(record: RecordRow, detail: ParsedUpstreamDetail): boolean {
   return canonical(projectLocalNoLikes(record)) !== canonical(projectUpstreamNoLikes(detail));
 }
@@ -261,7 +279,13 @@ async function latestUpstreamChangedNoLikes(db: Bindings["DB"], layoutId: string
     .first<{ detail_json: string | null }>();
   if (row?.detail_json === undefined || row.detail_json === null) return null;
   const parsed = JSON.parse(row.detail_json) as Record<string, unknown>;
-  return canonical({ ...parsed, likes: [] });
+  // `magic: undefined` (canonical() drops undefined-valued keys, core/
+  // canonical.ts) rather than trusting every stored `upstream_changed`
+  // detail to already lack it: an event written before M1 landed can still
+  // carry upstream's old magic in its `detail_json` verbatim, and this
+  // comparison must keep agreeing with `projectUpstreamNoLikes` (LDB-I1's
+  // idempotence) regardless of when the last announcement was written.
+  return canonical({ ...parsed, likes: [], magic: undefined });
 }
 
 // Case 4/5/6/7: the upstream id is mapped to an existing record.
@@ -280,6 +304,21 @@ async function applyMapped(
   if (following) {
     if (differs) {
       // Case 4: content differs -- replace it (a tombstone comes back).
+      // LDB-I11 (M1, design/layout-db/17-magic-ownership.md §3): the
+      // record's own `magic` survives this write byte-for-byte -- upstream
+      // never supplies one (`detail.payload` already lacks it, LDB-I10), so
+      // whatever is carried forward is whatever the RECORD already held
+      // (nothing, for anything imported after M1; a legacy cmini import's
+      // magic, until the one-time strip route removes it; akl.gg's rules,
+      // once M2 lands).
+      // TODO(M2): once an import can land on an `akl/1` record
+      // (`record.format === "akl/1"`), this branch needs upstream's keys
+      // translated into akl/1 (`formats/akl/1/translate.ts`) with `magic`
+      // set from the akl/1 record's OWN magic -- akl/1 holds `magic`
+      // natively, unlike cmini/1's flat rows, so this cmini/1-only carry-
+      // forward cannot just be reused verbatim for it.
+      const existingPayload = record.payload as cmini1.Payload;
+      const payload: cmini1.Payload = { ...detail.payload, magic: existingPayload.magic };
       await appendWrite(db, now, {
         kind: "imported",
         layoutId: record.id,
@@ -287,12 +326,12 @@ async function applyMapped(
         owner: detail.owner,
         modified_at: detail.modified_at,
         format: "cmini/1",
-        payload: detail.payload,
+        payload,
         actor: "system:cmini-import",
         via: "import:cmini",
         detail: { source: "cmini", upstream_id: upstreamId },
         deleted: false,
-        hasMagic: cmini1.hasMagic(detail.payload),
+        hasMagic: cmini1.hasMagic(payload),
       });
     }
     // Case 5 (and the like half of case 4): likes replaced wholesale.

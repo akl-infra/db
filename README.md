@@ -454,6 +454,24 @@ append one `admin.*` event to the public feed (`admin.import_ticked` /
 | `POST /v1/admin/diff/tick` | none | `{ ran: true, ...diffTick()'s own LastDiffRecord }` (`ok`/`corpus`/`samples`/... -- the same shape `import_state['cmini.last_diff']` stores) | the usual admin `401`/`403`/`429`/`503` (no "paused" state exists for the diff) |
 | `POST /v1/admin/nightly/tick` | none | `{ ran: true, at, jobs: { "prune-auth-cache": "ok"\|"error", "prune-rate-limits": "ok"\|"error", "prune-nonces": "ok"\|"error", "write-dump": "ok"\|"error" }, dump: writeDump()'s own { key, latest } or null }` -- `src/core/nightly.ts`'s `runNightly`, the SAME job list `scheduled()`'s `hour=3, minute=0` branch runs, each job guarded (`core/jobs.ts`'s `runJob`) so one failing never skips the rest | the usual admin `401`/`403`/`429`/`503` (no "paused" state exists for this job set either) |
 
+### Cmini-magic strip (one-time cleanup, M1)
+
+`POST /v1/admin/import/strip-cmini-magic` -- unlike the three manual cron
+triggers above, this route has no `scheduled()` counterpart; it exists once,
+to drop the cmini `magic` still sitting in records imported before M1
+(`design/layout-db/17-magic-ownership.md` §4, `LDB-I10`/`LDB-I11`) landed.
+For every live record that still follows upstream (`06 §2`) and whose
+payload has `magic`, it writes the payload without it as an `imported` rev
+bump (`detail: { source: "cmini", upstream_id, reason: "magic_stripped" }`)
+-- same admin-only/rate-limited/`409 import_paused`-while-paused/event-logged
+(`admin.magic_stripped`) shape as `POST /v1/admin/import/tick`. Batched
+(`src/import/strip.ts`'s `BATCH_LIMIT`) and idempotent: call it repeatedly
+until the response is `{ stripped: 0 }`.
+
+| route | body | 200 response | other statuses |
+|---|---|---|---|
+| `POST /v1/admin/import/strip-cmini-magic` | none | `{ stripped: n }` | `409 import_paused` if the import is paused; the usual admin `401`/`403`/`429`/`503` |
+
 ### R2 lifecycle
 
 `akl-db-dumps` has a lifecycle rule deleting objects under the `dump-`

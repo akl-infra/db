@@ -99,11 +99,22 @@ describe("[LDB-F5] every filter equals a plain JS filter over the seed", () => {
   });
 
   it("[LDB-F5] has_magic=true and has_magic=false partition the seed", async () => {
+    // M1 (LDB-I10): a fresh import never sets has_magic=true -- upstream's
+    // magic is stripped before it ever reaches a payload (07 §5.3's "picked
+    // to include magic layouts" premise described the pre-M1 import, not
+    // the filter itself). Flip one seed record's `has_magic` directly to
+    // exercise the true branch the way a record that already carried local
+    // magic before M1 landed would (LDB-I11 keeps such a record's magic on
+    // later import writes; M2 gives akl.gg's own rules the same shape) --
+    // this is a read-route filter test, so the column alone is enough.
+    const seedRows = await loadSeedRows();
+    await db.prepare("UPDATE layouts SET has_magic = 1 WHERE id = ?").bind(seedRows[0]!.id).run();
+
     const seed = await loadSeedRows();
     const expectedTrue = new Set(seed.filter((r) => r.has_magic).map((r) => r.id));
     const expectedFalse = new Set(seed.filter((r) => !r.has_magic).map((r) => r.id));
     expect(expectedTrue.size + expectedFalse.size).toBe(seed.length);
-    expect(expectedTrue.size).toBeGreaterThan(0); // upstream-100 was picked to include magic layouts (07 §5.3)
+    expect(expectedTrue.size).toBeGreaterThan(0);
 
     const trueRes = await SELF.fetch("https://example.com/v1/layouts?has_magic=true&limit=1000");
     const trueBody = await trueRes.json<{ items: ListItem[] }>();

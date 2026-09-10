@@ -184,6 +184,16 @@ non-following record is informational, `rev: null`). "Follows upstream"
 (`06 §2`) is read off this log: the record's latest rev-bumping event has
 `via = "import:cmini"`.
 
+Cmini's magic is never akl.gg's (`17-magic-ownership.md`, M1): an imported
+payload never carries `magic` (dropped from upstream's detail before it's
+ever stored, so `has_magic` on a fresh import is always false), and an
+import write that DOES touch a record carries that record's own `magic`
+forward untouched — upstream's is simply never in the picture, and the
+change-detection/D12-diff projection compares both sides with `magic`
+excluded so neither side's magic is ever mistaken for a difference.
+`POST /v1/admin/import/strip-cmini-magic` (§7) is the one-time cleanup for
+records imported before this landed.
+
 ```
 GET /v1/changes?since=<seq>&limit=<≤1000>&kinds=created,updated,…
 → { next: <seq>, items: [event…] }
@@ -255,6 +265,7 @@ GET    /v1/admin/clients
 POST   /v1/admin/admins           { user_id, note }
 DELETE /v1/admin/admins/{user_id}
 POST   /v1/admin/import/pause · /resume
+POST   /v1/admin/import/strip-cmini-magic   { }  → { stripped: n }   (M1: the one-time cmini-magic cleanup, §5)
 GET    /admin/changelog           HTML, public, read-only: the event feed rendered (the site's /admin/cmini-log, moved here)
 ```
 

@@ -659,6 +659,15 @@ const REQUIRED: Record<string, RequiredCase[]> = {
   // X4 follow-up 3: the manual nightly-job-set trigger (no "paused" state
   // exists for it either).
   "POST /v1/admin/nightly/tick": [{ status: 200 }, ...A, { status: 403, code: ERROR_CODES.not_admin }, RL],
+  // M1 (LDB-I10, design/layout-db/17-magic-ownership.md §4): same shape as
+  // `POST /v1/admin/import/tick` above, "paused" guard included.
+  "POST /v1/admin/import/strip-cmini-magic": [
+    { status: 200 },
+    ...A,
+    { status: 403, code: ERROR_CODES.not_admin },
+    { status: 409, code: ERROR_CODES.import_paused },
+    RL,
+  ],
 
   // --- phase 2: the client lane's admin routes (10 C1) -------------------
   // No 409 (client ids are freshly minted ULIDs, no name-uniqueness

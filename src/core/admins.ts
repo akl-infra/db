@@ -119,16 +119,24 @@ export async function isImportPaused(db: Bindings["DB"]): Promise<boolean> {
 // `cmini.last_diff` store uncapped (or, for `nightly`, small: `jobs` is
 // four one-word statuses and `dump` is `{key, latest}`, never the dump's
 // own multi-MB body), so no new size concern here.
+// M1: `which: "strip_cmini_magic"` (`admin.magic_stripped`) is the fourth
+// manual-trigger kind, same posture as the other three -- `POST /v1/admin/
+// import/strip-cmini-magic`'s own audit event.
+const MANUAL_TICK_KIND: Record<"import" | "diff" | "nightly" | "strip_cmini_magic", InfoKind> = {
+  import: "admin.import_ticked",
+  diff: "admin.diff_ticked",
+  nightly: "admin.nightly_ticked",
+  strip_cmini_magic: "admin.magic_stripped",
+};
+
 export async function recordManualTick(
   db: Bindings["DB"],
   now: Clock,
   actorId: string,
-  which: "import" | "diff" | "nightly",
+  which: "import" | "diff" | "nightly" | "strip_cmini_magic",
   detail: object,
 ): Promise<{ seq: number }> {
-  const kind: InfoKind =
-    which === "import" ? "admin.import_ticked" : which === "diff" ? "admin.diff_ticked" : "admin.nightly_ticked";
-  const { seq } = await appendAdmin(db, now, { kind, actor: actorId, detail });
+  const { seq } = await appendAdmin(db, now, { kind: MANUAL_TICK_KIND[which], actor: actorId, detail });
   return { seq };
 }
 

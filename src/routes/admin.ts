@@ -17,6 +17,7 @@ import { systemClock, type Clock } from "../core/time";
 import { tick as cminiTick } from "../import/cmini";
 import type { FetchImpl as DiffFetchImpl } from "../import/diff";
 import { diffTick, lastDiff } from "../import/difftick";
+import { stripCminiMagic } from "../import/strip";
 import type { FetchImpl as UpstreamFetchImpl } from "../import/upstream";
 import { parseAdminAddBody, parseDrillReportBody, parseRegisterClientBody } from "./schemas";
 
@@ -118,6 +119,28 @@ export function adminRoute(authDeps: AuthDeps) {
     const result = await cminiTick(c.env, now, resolveTickFetchImpl(c.env) as UpstreamFetchImpl | undefined);
     await admins.recordManualTick(c.env.DB, now, actor.user_id, "import", result.stats);
     return c.json({ ran: true, ...result.stats });
+  });
+
+  // M1 (LDB-I10, design/layout-db/17-magic-ownership.md §4): the one-time
+  // pass that drops the cmini magic already sitting in records imported
+  // before this landed (`import/strip.ts`'s own header explains the
+  // follow-status guard). Same shape as `POST /v1/admin/import/tick`
+  // above -- admin-only, refused while the cmini import is paused (an
+  // operator pausing it wants every import-sourced write halted, this
+  // one-time cleanup included), and logged as an admin action
+  // (`admin.magic_stripped`) so `/v1/changes` -- and the per-record
+  // `imported` events it triggers -- both show up publicly the same way
+  // the periodic import's own writes do. Batched (`import/strip.ts`'s
+  // `BATCH_LIMIT`) and idempotent: call it repeatedly until the response
+  // is `{ stripped: 0 }`.
+  route.post("/v1/admin/import/strip-cmini-magic", async (c) => {
+    const actor = c.get("actor");
+    if (!actor.admin) throw notAdmin();
+    if (await admins.isImportPaused(c.env.DB)) throw importPaused();
+    const now = resolveNow(c.env);
+    const result = await stripCminiMagic(c.env.DB, now);
+    await admins.recordManualTick(c.env.DB, now, actor.user_id, "strip_cmini_magic", result);
+    return c.json(result);
   });
 
   // Same treatment for the diff cron (`0 4 * * *`, `import/difftick.ts`) --

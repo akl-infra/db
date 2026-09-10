@@ -12,6 +12,12 @@
 // gives the deployed Worker's import (`IMPORT_SOURCE_URL`/`IMPORT_UA`), so
 // running this against a fresh local D1 + a real upstream tick (07 §8)
 // compares like for like.
+//
+// M1 (LDB-P5, design/layout-db/17-magic-ownership.md §3): the `cmini/1`
+// projection this compares is magic-less on both sides (`diff.ts`'s
+// `compareRecords` -> `cmini1.projectNoMagic`) -- cmini's magic is never
+// akl.gg's, so it never enters the DB and is never counted as a
+// difference from what the DB actually mirrors.
 import { diffUpstream, httpOurs } from "../src/import/diff.ts";
 
 const DB_BASE_URL = process.env.DB_BASE_URL ?? "http://localhost:8787";
@@ -31,7 +37,7 @@ function printLines(label, lines, max = 20) {
 }
 
 async function main() {
-  console.log(`diff-upstream: ours=${DB_BASE_URL} upstream=${UPSTREAM_URL} (UA: ${UA})`);
+  console.log(`diff-upstream: ours=${DB_BASE_URL} upstream=${UPSTREAM_URL} (UA: ${UA}) -- cmini/1 projection, magic excluded (LDB-P5/M1)`);
   const summary = await diffUpstream({ ours: httpOurs(DB_BASE_URL), upstreamUrl: UPSTREAM_URL, ua: UA });
 
   console.log(`\nupstream layouts: ${summary.upstreamCount} (dup names dropped: ${summary.upstreamDupNames})`);

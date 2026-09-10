@@ -279,6 +279,17 @@ import adminImportTick403NotAdmin from "./admin-import/tick-403-not_admin.json" 
 import adminImportTick409ImportPaused from "./admin-import/tick-409-import_paused.json" with { type: "json" };
 import adminImportTick429 from "./admin-import/tick-429.json" with { type: "json" };
 import adminImportTick503IdentityUnavailable from "./admin-import/tick-503-identity_unavailable.json" with { type: "json" };
+
+// M1 (LDB-I10, design/layout-db/17-magic-ownership.md §4): the one-time
+// cmini-magic strip pass, same shape as admin-import/tick above.
+import adminImportStripCminiMagic200 from "./admin-import/strip-cmini-magic-200.json" with { type: "json" };
+import adminImportStripCminiMagic401TokenInvalid from "./admin-import/strip-cmini-magic-401-token_invalid.json" with { type: "json" };
+import adminImportStripCminiMagic401Unauthorized from "./admin-import/strip-cmini-magic-401-unauthorized.json" with { type: "json" };
+import adminImportStripCminiMagic403NotAdmin from "./admin-import/strip-cmini-magic-403-not_admin.json" with { type: "json" };
+import adminImportStripCminiMagic409ImportPaused from "./admin-import/strip-cmini-magic-409-import_paused.json" with { type: "json" };
+import adminImportStripCminiMagic429 from "./admin-import/strip-cmini-magic-429.json" with { type: "json" };
+import adminImportStripCminiMagic503IdentityUnavailable from "./admin-import/strip-cmini-magic-503-identity_unavailable.json" with { type: "json" };
+
 import adminDiffTick200 from "./admin-diff/tick-200.json" with { type: "json" };
 import adminDiffTick401TokenInvalid from "./admin-diff/tick-401-token_invalid.json" with { type: "json" };
 import adminDiffTick401Unauthorized from "./admin-diff/tick-401-unauthorized.json" with { type: "json" };
@@ -426,6 +437,14 @@ import clAdminHealthUnknownClient from "./admin-health/401-unknown_client.json" 
 import clAdminHealthClientRevoked from "./admin-health/401-client_revoked.json" with { type: "json" };
 import clAdminHealthStaleTimestamp from "./admin-health/401-stale_timestamp.json" with { type: "json" };
 import clAdminHealthReplay from "./admin-health/401-replay.json" with { type: "json" };
+// M1: appended at the end (scripts/gen-client-lane-sweep.mjs's own ROUTES
+// comment) -- a new A-group route's five client-lane 401 cases always join
+// here, never inserted alongside an earlier route.
+import clAdminImportStripCminiMagicBadSignature from "./admin-import/strip-cmini-magic-401-bad_signature.json" with { type: "json" };
+import clAdminImportStripCminiMagicUnknownClient from "./admin-import/strip-cmini-magic-401-unknown_client.json" with { type: "json" };
+import clAdminImportStripCminiMagicClientRevoked from "./admin-import/strip-cmini-magic-401-client_revoked.json" with { type: "json" };
+import clAdminImportStripCminiMagicStaleTimestamp from "./admin-import/strip-cmini-magic-401-stale_timestamp.json" with { type: "json" };
+import clAdminImportStripCminiMagicReplay from "./admin-import/strip-cmini-magic-401-replay.json" with { type: "json" };
 
 // A single request as `runRequest` fires it -- shared by the main
 // (asserted) request and, for a write case, its `setup` steps (fired first
@@ -707,6 +726,20 @@ export const T6_CASES: ConformanceCase[] = [
   kase("admin-import/tick-403-not_admin", "/v1/admin/import/tick", adminImportTick403NotAdmin, true),
   kase("admin-import/tick-429", "/v1/admin/import/tick", adminImportTick429, true),
   kase("admin-import/tick-200", "/v1/admin/import/tick", adminImportTick200, true),
+
+  // M1: strip-cmini-magic's own 200 MUST run here -- before either tick's
+  // or its own 409-import_paused case pauses the import for the rest of
+  // this file's run (no case anywhere after this point un-pauses it
+  // again, same reasoning admin-import/tick-200's own ordering comment
+  // above gives).
+  kase("admin-import/strip-cmini-magic-401-unauthorized", "/v1/admin/import/strip-cmini-magic", adminImportStripCminiMagic401Unauthorized, true),
+  kase("admin-import/strip-cmini-magic-401-token_invalid", "/v1/admin/import/strip-cmini-magic", adminImportStripCminiMagic401TokenInvalid, true),
+  kase("admin-import/strip-cmini-magic-503-identity_unavailable", "/v1/admin/import/strip-cmini-magic", adminImportStripCminiMagic503IdentityUnavailable, true),
+  kase("admin-import/strip-cmini-magic-403-not_admin", "/v1/admin/import/strip-cmini-magic", adminImportStripCminiMagic403NotAdmin, true),
+  kase("admin-import/strip-cmini-magic-429", "/v1/admin/import/strip-cmini-magic", adminImportStripCminiMagic429, true),
+  kase("admin-import/strip-cmini-magic-200", "/v1/admin/import/strip-cmini-magic", adminImportStripCminiMagic200, true),
+  kase("admin-import/strip-cmini-magic-409-import_paused", "/v1/admin/import/strip-cmini-magic", adminImportStripCminiMagic409ImportPaused, true),
+
   kase("admin-import/tick-409-import_paused", "/v1/admin/import/tick", adminImportTick409ImportPaused, true),
 
   kase("admin-diff/tick-401-unauthorized", "/v1/admin/diff/tick", adminDiffTick401Unauthorized, true),
@@ -862,6 +895,11 @@ export const CLIENT_LANE_CASES: ConformanceCase[] = [
   kase("admin-health/401-client_revoked", "/v1/admin/health", clAdminHealthClientRevoked, true),
   kase("admin-health/401-stale_timestamp", "/v1/admin/health", clAdminHealthStaleTimestamp, true),
   kase("admin-health/401-replay", "/v1/admin/health", clAdminHealthReplay, true),
+  kase("admin-import/strip-cmini-magic-401-bad_signature", "/v1/admin/import/strip-cmini-magic", clAdminImportStripCminiMagicBadSignature, true),
+  kase("admin-import/strip-cmini-magic-401-unknown_client", "/v1/admin/import/strip-cmini-magic", clAdminImportStripCminiMagicUnknownClient, true),
+  kase("admin-import/strip-cmini-magic-401-client_revoked", "/v1/admin/import/strip-cmini-magic", clAdminImportStripCminiMagicClientRevoked, true),
+  kase("admin-import/strip-cmini-magic-401-stale_timestamp", "/v1/admin/import/strip-cmini-magic", clAdminImportStripCminiMagicStaleTimestamp, true),
+  kase("admin-import/strip-cmini-magic-401-replay", "/v1/admin/import/strip-cmini-magic", clAdminImportStripCminiMagicReplay, true),
 ];
 
 export const CASES: ConformanceCase[] = [

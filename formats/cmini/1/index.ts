@@ -261,6 +261,19 @@ export function project(record: CminiRecordLike): CminiDetail {
 // generic-test vocabulary (S3's roundtrip.test.ts). Both names, one function.
 export { project as cminiDetail };
 
+// LDB-I10/I11 (M1, design/layout-db/17-magic-ownership.md §3): the same
+// projection with `magic` dropped -- what the import's change detection
+// (`import/apply.ts`) and the D12 diff (`import/diff.ts`) compare on BOTH
+// sides, so neither upstream's magic (never akl.gg's) nor a record's own
+// magic (nothing today; akl.gg's rules, once M2 lands) is ever mistaken for
+// a content difference. A thin wrapper around `project()` rather than a
+// second projection function, so the two can't drift apart on anything but
+// this one field.
+export function projectNoMagic(record: CminiRecordLike): Omit<CminiDetail, "magic"> {
+  const { magic: _magic, ...rest } = project(record);
+  return rest;
+}
+
 // registry.ts's optional PATCH slot (09 §3 T4) -- see edits.ts. No
 // `setMagic`: cmini/1 has no magic idiom of its own (03 §3).
 export { edits } from "./edits.ts";

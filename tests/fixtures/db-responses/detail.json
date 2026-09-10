@@ -1647,7 +1647,7 @@
   "modified_at": "2026-09-03T21:12:51Z",
   "deleted": false,
   "like_count": 0,
-  "has_magic": true,
+  "has_magic": false,
   "format": "cmini/1",
   "likes": [],
   "payload": {
@@ -1810,188 +1810,6 @@
      "row": 2
     }
    },
-   "magic": [
-    {
-     "inputs": "'*",
-     "output": "'r",
-     "type": "magic"
-    },
-    {
-     "inputs": ".*",
-     "output": "..",
-     "type": "magic"
-    },
-    {
-     "inputs": "a*",
-     "output": "ay",
-     "type": "magic"
-    },
-    {
-     "inputs": "aq",
-     "output": "ak",
-     "type": "magic"
-    },
-    {
-     "inputs": "b*",
-     "output": "bb",
-     "type": "repeat"
-    },
-    {
-     "inputs": "c*",
-     "output": "ct",
-     "type": "magic"
-    },
-    {
-     "inputs": "d*",
-     "output": "dd",
-     "type": "repeat"
-    },
-    {
-     "inputs": "e*",
-     "output": "ee",
-     "type": "repeat"
-    },
-    {
-     "inputs": "f*",
-     "output": "ff",
-     "type": "repeat"
-    },
-    {
-     "inputs": "g*",
-     "output": "gg",
-     "type": "repeat"
-    },
-    {
-     "inputs": "h*",
-     "output": "he",
-     "type": "magic"
-    },
-    {
-     "inputs": "i*",
-     "output": "ic",
-     "type": "magic"
-    },
-    {
-     "inputs": "j*",
-     "output": "jj",
-     "type": "repeat"
-    },
-    {
-     "inputs": "k*",
-     "output": "kk",
-     "type": "repeat"
-    },
-    {
-     "inputs": "l*",
-     "output": "ll",
-     "type": "repeat"
-    },
-    {
-     "inputs": "m*",
-     "output": "mm",
-     "type": "repeat"
-    },
-    {
-     "inputs": "mv",
-     "output": "mp",
-     "type": "magic"
-    },
-    {
-     "inputs": "n*",
-     "output": "nn",
-     "type": "repeat"
-    },
-    {
-     "inputs": "o*",
-     "output": "oo",
-     "type": "repeat"
-    },
-    {
-     "inputs": "p*",
-     "output": "pp",
-     "type": "repeat"
-    },
-    {
-     "inputs": "q*",
-     "output": "qq",
-     "type": "repeat"
-    },
-    {
-     "inputs": "r*",
-     "output": "rl",
-     "type": "magic"
-    },
-    {
-     "inputs": "rj",
-     "output": "ru",
-     "type": "magic"
-    },
-    {
-     "inputs": "rb",
-     "output": "r.",
-     "type": "magic"
-    },
-    {
-     "inputs": "s*",
-     "output": "ss",
-     "type": "repeat"
-    },
-    {
-     "inputs": "sj",
-     "output": "sy",
-     "type": "magic"
-    },
-    {
-     "inputs": "t*",
-     "output": "tt",
-     "type": "repeat"
-    },
-    {
-     "inputs": "td",
-     "output": "ts",
-     "type": "magic"
-    },
-    {
-     "inputs": "u*",
-     "output": "ul",
-     "type": "magic"
-    },
-    {
-     "inputs": "uj",
-     "output": "ur",
-     "type": "magic"
-    },
-    {
-     "inputs": "uq",
-     "output": "u'",
-     "type": "magic"
-    },
-    {
-     "inputs": "v*",
-     "output": "vv",
-     "type": "repeat"
-    },
-    {
-     "inputs": "w*",
-     "output": "ww",
-     "type": "repeat"
-    },
-    {
-     "inputs": "x*",
-     "output": "xx",
-     "type": "repeat"
-    },
-    {
-     "inputs": "y*",
-     "output": "yt",
-     "type": "magic"
-    },
-    {
-     "inputs": "z*",
-     "output": "ze",
-     "type": "magic"
-    }
-   ],
    "tag": "cmini"
   }
  },
@@ -2179,7 +1997,7 @@
   "modified_at": "2026-09-03T21:16:57Z",
   "deleted": false,
   "like_count": 0,
-  "has_magic": true,
+  "has_magic": false,
   "format": "cmini/1",
   "likes": [],
   "payload": {
@@ -2342,178 +2160,6 @@
      "row": 2
     }
    },
-   "magic": [
-    {
-     "inputs": "'*",
-     "output": "'r",
-     "type": "magic"
-    },
-    {
-     "inputs": ".*",
-     "output": "..",
-     "type": "magic"
-    },
-    {
-     "inputs": "a*",
-     "output": "ay",
-     "type": "magic"
-    },
-    {
-     "inputs": "aq",
-     "output": "ak",
-     "type": "magic"
-    },
-    {
-     "inputs": "b*",
-     "output": "bb",
-     "type": "repeat"
-    },
-    {
-     "inputs": "c*",
-     "output": "ct",
-     "type": "magic"
-    },
-    {
-     "inputs": "d*",
-     "output": "dd",
-     "type": "repeat"
-    },
-    {
-     "inputs": "e*",
-     "output": "ee",
-     "type": "repeat"
-    },
-    {
-     "inputs": "f*",
-     "output": "ff",
-     "type": "repeat"
-    },
-    {
-     "inputs": "g*",
-     "output": "gg",
-     "type": "repeat"
-    },
-    {
-     "inputs": "h*",
-     "output": "he",
-     "type": "magic"
-    },
-    {
-     "inputs": "i*",
-     "output": "ic",
-     "type": "magic"
-    },
-    {
-     "inputs": "j*",
-     "output": "jj",
-     "type": "repeat"
-    },
-    {
-     "inputs": "k*",
-     "output": "kk",
-     "type": "repeat"
-    },
-    {
-     "inputs": "l*",
-     "output": "ll",
-     "type": "repeat"
-    },
-    {
-     "inputs": "m*",
-     "output": "mm",
-     "type": "repeat"
-    },
-    {
-     "inputs": "mv",
-     "output": "mp",
-     "type": "magic"
-    },
-    {
-     "inputs": "n*",
-     "output": "nn",
-     "type": "repeat"
-    },
-    {
-     "inputs": "o*",
-     "output": "oo",
-     "type": "repeat"
-    },
-    {
-     "inputs": "p*",
-     "output": "pp",
-     "type": "repeat"
-    },
-    {
-     "inputs": "q*",
-     "output": "qq",
-     "type": "repeat"
-    },
-    {
-     "inputs": "r*",
-     "output": "rl",
-     "type": "magic"
-    },
-    {
-     "inputs": "rb",
-     "output": "r.",
-     "type": "magic"
-    },
-    {
-     "inputs": "s*",
-     "output": "ss",
-     "type": "repeat"
-    },
-    {
-     "inputs": "sj",
-     "output": "sy",
-     "type": "magic"
-    },
-    {
-     "inputs": "t*",
-     "output": "tt",
-     "type": "repeat"
-    },
-    {
-     "inputs": "td",
-     "output": "ts",
-     "type": "magic"
-    },
-    {
-     "inputs": "u*",
-     "output": "ul",
-     "type": "magic"
-    },
-    {
-     "inputs": "uq",
-     "output": "u'",
-     "type": "magic"
-    },
-    {
-     "inputs": "v*",
-     "output": "vv",
-     "type": "repeat"
-    },
-    {
-     "inputs": "w*",
-     "output": "ww",
-     "type": "repeat"
-    },
-    {
-     "inputs": "x*",
-     "output": "xx",
-     "type": "repeat"
-    },
-    {
-     "inputs": "y*",
-     "output": "yt",
-     "type": "magic"
-    },
-    {
-     "inputs": "z*",
-     "output": "ze",
-     "type": "magic"
-    }
-   ],
    "tag": "cmini"
   }
  },
@@ -4841,7 +4487,7 @@
   "modified_at": "2026-09-05T21:45:47Z",
   "deleted": false,
   "like_count": 5,
-  "has_magic": true,
+  "has_magic": false,
   "format": "cmini/1",
   "likes": [
    "1183955138541523115",
@@ -5011,78 +4657,6 @@
     }
    },
    "link": "https://github.com/Spookfish163/Echo",
-   "magic": [
-    {
-     "inputs": "a◈",
-     "output": "aa",
-     "type": "repeat"
-    },
-    {
-     "inputs": "c◈",
-     "output": "cc",
-     "type": "repeat"
-    },
-    {
-     "inputs": "d◈",
-     "output": "dd",
-     "type": "repeat"
-    },
-    {
-     "inputs": "e◈",
-     "output": "ee",
-     "type": "repeat"
-    },
-    {
-     "inputs": "f◈",
-     "output": "ff",
-     "type": "repeat"
-    },
-    {
-     "inputs": "g◈",
-     "output": "gg",
-     "type": "repeat"
-    },
-    {
-     "inputs": "l◈",
-     "output": "ll",
-     "type": "repeat"
-    },
-    {
-     "inputs": "m◈",
-     "output": "mm",
-     "type": "repeat"
-    },
-    {
-     "inputs": "o◈",
-     "output": "oo",
-     "type": "repeat"
-    },
-    {
-     "inputs": "p◈",
-     "output": "pp",
-     "type": "repeat"
-    },
-    {
-     "inputs": "r◈",
-     "output": "rr",
-     "type": "repeat"
-    },
-    {
-     "inputs": "s◈",
-     "output": "ss",
-     "type": "repeat"
-    },
-    {
-     "inputs": "t◈",
-     "output": "tt",
-     "type": "repeat"
-    },
-    {
-     "inputs": "u◈",
-     "output": "ue",
-     "type": "magic"
-    }
-   ],
    "tag": "cmini"
   }
  },
@@ -10432,7 +10006,7 @@
   "modified_at": "2026-09-07T22:23:45Z",
   "deleted": false,
   "like_count": 0,
-  "has_magic": true,
+  "has_magic": false,
   "format": "cmini/1",
   "likes": [],
   "payload": {
@@ -10600,138 +10174,6 @@
      "row": 2
     }
    },
-   "magic": [
-    {
-     "inputs": ".*",
-     "output": "..",
-     "type": "magic"
-    },
-    {
-     "inputs": "a*",
-     "output": "ay",
-     "type": "magic"
-    },
-    {
-     "inputs": "b*",
-     "output": "bb",
-     "type": "repeat"
-    },
-    {
-     "inputs": "c*",
-     "output": "cc",
-     "type": "repeat"
-    },
-    {
-     "inputs": "d*",
-     "output": "dd",
-     "type": "repeat"
-    },
-    {
-     "inputs": "e*",
-     "output": "ee",
-     "type": "repeat"
-    },
-    {
-     "inputs": "f*",
-     "output": "ff",
-     "type": "repeat"
-    },
-    {
-     "inputs": "g*",
-     "output": "gg",
-     "type": "repeat"
-    },
-    {
-     "inputs": "h*",
-     "output": "hh",
-     "type": "repeat"
-    },
-    {
-     "inputs": "i*",
-     "output": "ii",
-     "type": "repeat"
-    },
-    {
-     "inputs": "j*",
-     "output": "jj",
-     "type": "repeat"
-    },
-    {
-     "inputs": "k*",
-     "output": "kk",
-     "type": "repeat"
-    },
-    {
-     "inputs": "l*",
-     "output": "ll",
-     "type": "repeat"
-    },
-    {
-     "inputs": "m*",
-     "output": "mm",
-     "type": "repeat"
-    },
-    {
-     "inputs": "n*",
-     "output": "nn",
-     "type": "repeat"
-    },
-    {
-     "inputs": "o*",
-     "output": "oo",
-     "type": "repeat"
-    },
-    {
-     "inputs": "p*",
-     "output": "pp",
-     "type": "repeat"
-    },
-    {
-     "inputs": "q*",
-     "output": "qq",
-     "type": "repeat"
-    },
-    {
-     "inputs": "s*",
-     "output": "ss",
-     "type": "repeat"
-    },
-    {
-     "inputs": "t*",
-     "output": "tt",
-     "type": "repeat"
-    },
-    {
-     "inputs": "u*",
-     "output": "u,",
-     "type": "magic"
-    },
-    {
-     "inputs": "v*",
-     "output": "vv",
-     "type": "repeat"
-    },
-    {
-     "inputs": "w*",
-     "output": "ww",
-     "type": "repeat"
-    },
-    {
-     "inputs": "x*",
-     "output": "xx",
-     "type": "repeat"
-    },
-    {
-     "inputs": "y*",
-     "output": "yy",
-     "type": "repeat"
-    },
-    {
-     "inputs": "z*",
-     "output": "zz",
-     "type": "repeat"
-    }
-   ],
    "tag": "cmini"
   }
  },
@@ -11289,7 +10731,7 @@
   "modified_at": "2026-09-08T06:14:44Z",
   "deleted": false,
   "like_count": 11,
-  "has_magic": true,
+  "has_magic": false,
   "format": "cmini/1",
   "likes": [
    "114224492288540678",
@@ -11459,183 +10901,6 @@
      "row": 0
     }
    },
-   "magic": [
-    {
-     "inputs": "a◇",
-     "output": "ay",
-     "type": "magic"
-    },
-    {
-     "inputs": "b◇",
-     "output": "bb",
-     "type": "magic"
-    },
-    {
-     "inputs": "c◇",
-     "output": "cc",
-     "type": "magic"
-    },
-    {
-     "inputs": "d◇",
-     "output": "dd",
-     "type": "magic"
-    },
-    {
-     "inputs": "e◇",
-     "output": "ee",
-     "type": "magic"
-    },
-    {
-     "inputs": "f◇",
-     "output": "ff",
-     "type": "magic"
-    },
-    {
-     "inputs": "g◇",
-     "output": "gg",
-     "type": "magic"
-    },
-    {
-     "inputs": "h◇",
-     "output": "hr",
-     "type": "magic"
-    },
-    {
-     "inputs": "i◇",
-     "output": "ik",
-     "type": "magic"
-    },
-    {
-     "inputs": "j◇",
-     "output": "jo",
-     "type": "magic"
-    },
-    {
-     "inputs": "jn",
-     "output": "ju",
-     "type": "magic"
-    },
-    {
-     "inputs": "ju",
-     "output": "jn",
-     "type": "magic"
-    },
-    {
-     "inputs": "k◇",
-     "output": "ke",
-     "type": "magic"
-    },
-    {
-     "inputs": "l◇",
-     "output": "ll",
-     "type": "magic"
-    },
-    {
-     "inputs": "m◇",
-     "output": "mm",
-     "type": "magic"
-    },
-    {
-     "inputs": "n◇",
-     "output": "nn",
-     "type": "magic"
-    },
-    {
-     "inputs": "o◇",
-     "output": "oo",
-     "type": "magic"
-    },
-    {
-     "inputs": "p◇",
-     "output": "pp",
-     "type": "magic"
-    },
-    {
-     "inputs": "q◇",
-     "output": "qq",
-     "type": "magic"
-    },
-    {
-     "inputs": "r◇",
-     "output": "rl",
-     "type": "magic"
-    },
-    {
-     "inputs": "s◇",
-     "output": "ss",
-     "type": "magic"
-    },
-    {
-     "inputs": "t◇",
-     "output": "tt",
-     "type": "magic"
-    },
-    {
-     "inputs": "u◇",
-     "output": "u'",
-     "type": "magic"
-    },
-    {
-     "inputs": "ue",
-     "output": "uo",
-     "type": "magic"
-    },
-    {
-     "inputs": "uo",
-     "output": "ue",
-     "type": "magic"
-    },
-    {
-     "inputs": "v◇",
-     "output": "vv",
-     "type": "magic"
-    },
-    {
-     "inputs": "w◇",
-     "output": "ww",
-     "type": "magic"
-    },
-    {
-     "inputs": "x◇",
-     "output": "xx",
-     "type": "magic"
-    },
-    {
-     "inputs": "y◇",
-     "output": "ye",
-     "type": "magic"
-    },
-    {
-     "inputs": "z◇",
-     "output": "zz",
-     "type": "magic"
-    },
-    {
-     "inputs": ".◇",
-     "output": "..",
-     "type": "magic"
-    },
-    {
-     "inputs": "?◇",
-     "output": "??",
-     "type": "magic"
-    },
-    {
-     "inputs": "'◇",
-     "output": "''",
-     "type": "magic"
-    },
-    {
-     "inputs": "'l",
-     "output": "'f",
-     "type": "magic"
-    },
-    {
-     "inputs": "'f",
-     "output": "'l",
-     "type": "magic"
-    }
-   ],
    "tag": "cmini"
   }
  },
@@ -11648,7 +10913,7 @@
   "modified_at": "2026-08-29T13:58:14Z",
   "deleted": false,
   "like_count": 0,
-  "has_magic": true,
+  "has_magic": false,
   "format": "cmini/1",
   "likes": [],
   "payload": {
@@ -11806,168 +11071,6 @@
      "row": 0
     }
    },
-   "magic": [
-    {
-     "inputs": "a◇",
-     "output": "ay",
-     "type": "magic"
-    },
-    {
-     "inputs": "b◇",
-     "output": "bb",
-     "type": "repeat"
-    },
-    {
-     "inputs": "c◇",
-     "output": "cc",
-     "type": "repeat"
-    },
-    {
-     "inputs": "d◇",
-     "output": "dd",
-     "type": "repeat"
-    },
-    {
-     "inputs": "e◇",
-     "output": "ee",
-     "type": "repeat"
-    },
-    {
-     "inputs": "f◇",
-     "output": "ff",
-     "type": "repeat"
-    },
-    {
-     "inputs": "g◇",
-     "output": "gg",
-     "type": "repeat"
-    },
-    {
-     "inputs": "h◇",
-     "output": "hr",
-     "type": "magic"
-    },
-    {
-     "inputs": "i◇",
-     "output": "ii",
-     "type": "repeat"
-    },
-    {
-     "inputs": "j◇",
-     "output": "jo",
-     "type": "magic"
-    },
-    {
-     "inputs": "jn",
-     "output": "ju",
-     "type": "adaptive"
-    },
-    {
-     "inputs": "ju",
-     "output": "jn",
-     "type": "adaptive"
-    },
-    {
-     "inputs": "k◇",
-     "output": "kk",
-     "type": "repeat"
-    },
-    {
-     "inputs": "l◇",
-     "output": "ll",
-     "type": "repeat"
-    },
-    {
-     "inputs": "m◇",
-     "output": "mm",
-     "type": "repeat"
-    },
-    {
-     "inputs": "n◇",
-     "output": "nn",
-     "type": "repeat"
-    },
-    {
-     "inputs": "o◇",
-     "output": "oo",
-     "type": "repeat"
-    },
-    {
-     "inputs": "p◇",
-     "output": "pp",
-     "type": "repeat"
-    },
-    {
-     "inputs": "q◇",
-     "output": "qq",
-     "type": "repeat"
-    },
-    {
-     "inputs": "r◇",
-     "output": "rl",
-     "type": "magic"
-    },
-    {
-     "inputs": "s◇",
-     "output": "ss",
-     "type": "repeat"
-    },
-    {
-     "inputs": "t◇",
-     "output": "tt",
-     "type": "repeat"
-    },
-    {
-     "inputs": "u◇",
-     "output": "u'",
-     "type": "magic"
-    },
-    {
-     "inputs": "ue",
-     "output": "uo",
-     "type": "adaptive"
-    },
-    {
-     "inputs": "uo",
-     "output": "ue",
-     "type": "adaptive"
-    },
-    {
-     "inputs": "v◇",
-     "output": "vv",
-     "type": "repeat"
-    },
-    {
-     "inputs": "w◇",
-     "output": "ww",
-     "type": "repeat"
-    },
-    {
-     "inputs": "x◇",
-     "output": "xx",
-     "type": "repeat"
-    },
-    {
-     "inputs": "y◇",
-     "output": "ye",
-     "type": "magic"
-    },
-    {
-     "inputs": "z◇",
-     "output": "zz",
-     "type": "repeat"
-    },
-    {
-     "inputs": ".◇",
-     "output": "..",
-     "type": "repeat"
-    },
-    {
-     "inputs": "'◇",
-     "output": "''",
-     "type": "repeat"
-    }
-   ],
    "tag": "cmini"
   }
  },
@@ -11980,7 +11083,7 @@
   "modified_at": "2026-09-04T21:12:03Z",
   "deleted": false,
   "like_count": 0,
-  "has_magic": true,
+  "has_magic": false,
   "format": "cmini/1",
   "likes": [],
   "payload": {
@@ -12138,83 +11241,6 @@
      "row": 2
     }
    },
-   "magic": [
-    {
-     "inputs": "o*",
-     "output": "oo",
-     "type": "repeat"
-    },
-    {
-     "inputs": "a*",
-     "output": "ar",
-     "type": "magic"
-    },
-    {
-     "inputs": "e*",
-     "output": "ee",
-     "type": "repeat"
-    },
-    {
-     "inputs": "r*",
-     "output": "rk",
-     "type": "magic"
-    },
-    {
-     "inputs": "h*",
-     "output": "hr",
-     "type": "magic"
-    },
-    {
-     "inputs": "l*",
-     "output": "ll",
-     "type": "repeat"
-    },
-    {
-     "inputs": "k*",
-     "output": "ke",
-     "type": "magic"
-    },
-    {
-     "inputs": "s*",
-     "output": "ss",
-     "type": "repeat"
-    },
-    {
-     "inputs": "f*",
-     "output": "ff",
-     "type": "repeat"
-    },
-    {
-     "inputs": "t*",
-     "output": "tt",
-     "type": "repeat"
-    },
-    {
-     "inputs": "n*",
-     "output": "nk",
-     "type": "magic"
-    },
-    {
-     "inputs": "d*",
-     "output": "dd",
-     "type": "repeat"
-    },
-    {
-     "inputs": "he*",
-     "output": "her",
-     "type": "magic"
-    },
-    {
-     "inputs": "ra*",
-     "output": "ral",
-     "type": "magic"
-    },
-    {
-     "inputs": "i*",
-     "output": "ik",
-     "type": "magic"
-    }
-   ],
    "tag": "cmini"
   }
  },
@@ -12227,7 +11253,7 @@
   "modified_at": "2026-09-08T19:25:06Z",
   "deleted": false,
   "like_count": 2,
-  "has_magic": true,
+  "has_magic": false,
   "format": "cmini/1",
   "likes": [
    "1203272268449579041",
@@ -12388,83 +11414,6 @@
      "row": 2
     }
    },
-   "magic": [
-    {
-     "inputs": "o*",
-     "output": "oo",
-     "type": "repeat"
-    },
-    {
-     "inputs": "a*",
-     "output": "ar",
-     "type": "magic"
-    },
-    {
-     "inputs": "e*",
-     "output": "ee",
-     "type": "repeat"
-    },
-    {
-     "inputs": "r*",
-     "output": "rk",
-     "type": "magic"
-    },
-    {
-     "inputs": "h*",
-     "output": "hr",
-     "type": "magic"
-    },
-    {
-     "inputs": "l*",
-     "output": "ll",
-     "type": "repeat"
-    },
-    {
-     "inputs": "k*",
-     "output": "ke",
-     "type": "magic"
-    },
-    {
-     "inputs": "s*",
-     "output": "ss",
-     "type": "repeat"
-    },
-    {
-     "inputs": "f*",
-     "output": "ff",
-     "type": "repeat"
-    },
-    {
-     "inputs": "t*",
-     "output": "tt",
-     "type": "repeat"
-    },
-    {
-     "inputs": "n*",
-     "output": "nk",
-     "type": "magic"
-    },
-    {
-     "inputs": "d*",
-     "output": "dd",
-     "type": "repeat"
-    },
-    {
-     "inputs": "he*",
-     "output": "her",
-     "type": "magic"
-    },
-    {
-     "inputs": "ra*",
-     "output": "ral",
-     "type": "magic"
-    },
-    {
-     "inputs": "i*",
-     "output": "ik",
-     "type": "magic"
-    }
-   ],
    "tag": "cmini"
   }
  },
@@ -12477,7 +11426,7 @@
   "modified_at": "2026-09-08T06:14:35Z",
   "deleted": false,
   "like_count": 5,
-  "has_magic": true,
+  "has_magic": false,
   "format": "cmini/1",
   "likes": [
    "226128695377526784",
@@ -12651,183 +11600,6 @@
      "row": 0
     }
    },
-   "magic": [
-    {
-     "inputs": "a◇",
-     "output": "ay",
-     "type": "magic"
-    },
-    {
-     "inputs": "b◇",
-     "output": "bb",
-     "type": "magic"
-    },
-    {
-     "inputs": "c◇",
-     "output": "cc",
-     "type": "magic"
-    },
-    {
-     "inputs": "d◇",
-     "output": "dd",
-     "type": "magic"
-    },
-    {
-     "inputs": "e◇",
-     "output": "ee",
-     "type": "magic"
-    },
-    {
-     "inputs": "f◇",
-     "output": "ff",
-     "type": "magic"
-    },
-    {
-     "inputs": "g◇",
-     "output": "gg",
-     "type": "magic"
-    },
-    {
-     "inputs": "h◇",
-     "output": "hy",
-     "type": "magic"
-    },
-    {
-     "inputs": "i◇",
-     "output": "ik",
-     "type": "magic"
-    },
-    {
-     "inputs": "j◇",
-     "output": "jj",
-     "type": "magic"
-    },
-    {
-     "inputs": "k◇",
-     "output": "kk",
-     "type": "magic"
-    },
-    {
-     "inputs": "l◇",
-     "output": "ll",
-     "type": "magic"
-    },
-    {
-     "inputs": "m◇",
-     "output": "mm",
-     "type": "magic"
-    },
-    {
-     "inputs": "n◇",
-     "output": "nn",
-     "type": "magic"
-    },
-    {
-     "inputs": "o◇",
-     "output": "oo",
-     "type": "magic"
-    },
-    {
-     "inputs": "p◇",
-     "output": "pp",
-     "type": "magic"
-    },
-    {
-     "inputs": "q◇",
-     "output": "qq",
-     "type": "magic"
-    },
-    {
-     "inputs": "r◇",
-     "output": "rl",
-     "type": "magic"
-    },
-    {
-     "inputs": "s◇",
-     "output": "ss",
-     "type": "magic"
-    },
-    {
-     "inputs": "t◇",
-     "output": "tt",
-     "type": "magic"
-    },
-    {
-     "inputs": "u◇",
-     "output": "u'",
-     "type": "magic"
-    },
-    {
-     "inputs": "v◇",
-     "output": "vv",
-     "type": "magic"
-    },
-    {
-     "inputs": "w◇",
-     "output": "ww",
-     "type": "magic"
-    },
-    {
-     "inputs": "x◇",
-     "output": "xx",
-     "type": "magic"
-    },
-    {
-     "inputs": "y◇",
-     "output": "y.",
-     "type": "magic"
-    },
-    {
-     "inputs": "z◇",
-     "output": "zz",
-     "type": "magic"
-    },
-    {
-     "inputs": "'◇",
-     "output": "'m",
-     "type": "magic"
-    },
-    {
-     "inputs": "ui",
-     "output": "uo",
-     "type": "magic"
-    },
-    {
-     "inputs": "uo",
-     "output": "ui",
-     "type": "magic"
-    },
-    {
-     "inputs": "rk",
-     "output": "rh",
-     "type": "magic"
-    },
-    {
-     "inputs": "rh",
-     "output": "rk",
-     "type": "magic"
-    },
-    {
-     "inputs": "eu",
-     "output": "ey",
-     "type": "magic"
-    },
-    {
-     "inputs": "ey",
-     "output": "eu",
-     "type": "magic"
-    },
-    {
-     "inputs": "'l",
-     "output": "'f",
-     "type": "magic"
-    },
-    {
-     "inputs": "'f",
-     "output": "'l",
-     "type": "magic"
-    }
-   ],
    "tag": "cmini"
   }
  },
@@ -16280,7 +15052,7 @@
   "modified_at": "2026-09-05T11:50:52Z",
   "deleted": false,
   "like_count": 5,
-  "has_magic": true,
+  "has_magic": false,
   "format": "cmini/1",
   "likes": [
    "1203272268449579041",
@@ -16454,183 +15226,6 @@
      "row": 2
     }
    },
-   "magic": [
-    {
-     "inputs": "'@",
-     "output": "''",
-     "type": "repeat"
-    },
-    {
-     "inputs": ",@",
-     "output": ",,",
-     "type": "repeat"
-    },
-    {
-     "inputs": ".@",
-     "output": "..",
-     "type": "repeat"
-    },
-    {
-     "inputs": ";@",
-     "output": ";;",
-     "type": "repeat"
-    },
-    {
-     "inputs": "?@",
-     "output": "??",
-     "type": "repeat"
-    },
-    {
-     "inputs": "c@",
-     "output": "cc",
-     "type": "repeat"
-    },
-    {
-     "inputs": "d@",
-     "output": "dd",
-     "type": "repeat"
-    },
-    {
-     "inputs": "e@",
-     "output": "ee",
-     "type": "repeat"
-    },
-    {
-     "inputs": "f@",
-     "output": "ff",
-     "type": "repeat"
-    },
-    {
-     "inputs": "g@",
-     "output": "gg",
-     "type": "repeat"
-    },
-    {
-     "inputs": "i@",
-     "output": "ii",
-     "type": "repeat"
-    },
-    {
-     "inputs": "j@",
-     "output": "jj",
-     "type": "repeat"
-    },
-    {
-     "inputs": "l@",
-     "output": "ll",
-     "type": "repeat"
-    },
-    {
-     "inputs": "m@",
-     "output": "mm",
-     "type": "repeat"
-    },
-    {
-     "inputs": "o@",
-     "output": "oo",
-     "type": "repeat"
-    },
-    {
-     "inputs": "p@",
-     "output": "pp",
-     "type": "repeat"
-    },
-    {
-     "inputs": "q@",
-     "output": "qq",
-     "type": "repeat"
-    },
-    {
-     "inputs": "s@",
-     "output": "ss",
-     "type": "repeat"
-    },
-    {
-     "inputs": "t@",
-     "output": "tt",
-     "type": "repeat"
-    },
-    {
-     "inputs": "u@",
-     "output": "uu",
-     "type": "repeat"
-    },
-    {
-     "inputs": "v@",
-     "output": "vv",
-     "type": "repeat"
-    },
-    {
-     "inputs": "w@",
-     "output": "ww",
-     "type": "repeat"
-    },
-    {
-     "inputs": "x@",
-     "output": "xx",
-     "type": "repeat"
-    },
-    {
-     "inputs": "z@",
-     "output": "zz",
-     "type": "repeat"
-    },
-    {
-     "inputs": "a@",
-     "output": "ay",
-     "type": "magic"
-    },
-    {
-     "inputs": "b@",
-     "output": "bu",
-     "type": "magic"
-    },
-    {
-     "inputs": "h@",
-     "output": "hy",
-     "type": "magic"
-    },
-    {
-     "inputs": "k@",
-     "output": "kn",
-     "type": "magic"
-    },
-    {
-     "inputs": "n@",
-     "output": "nk",
-     "type": "magic"
-    },
-    {
-     "inputs": "r@",
-     "output": "rl",
-     "type": "magic"
-    },
-    {
-     "inputs": "y@",
-     "output": "y.",
-     "type": "magic"
-    },
-    {
-     "inputs": "ui",
-     "output": "uo",
-     "type": "adaptive"
-    },
-    {
-     "inputs": "uo",
-     "output": "ui",
-     "type": "adaptive"
-    },
-    {
-     "inputs": "ey",
-     "output": "eu",
-     "type": "adaptive"
-    },
-    {
-     "inputs": "eu",
-     "output": "ey",
-     "type": "adaptive"
-    }
-   ],
    "tag": "cmini"
   }
  },
@@ -18075,7 +16670,7 @@
   "modified_at": "2026-08-31T15:14:24Z",
   "deleted": false,
   "like_count": 13,
-  "has_magic": true,
+  "has_magic": false,
   "format": "cmini/1",
   "likes": [
    "119825772901957632",
@@ -18258,73 +16853,6 @@
     }
    },
    "link": "https://github.com/MightyAcas/vylet",
-   "magic": [
-    {
-     "inputs": "'*",
-     "output": "'l",
-     "type": "magic"
-    },
-    {
-     "inputs": "a*",
-     "output": "ax",
-     "type": "magic"
-    },
-    {
-     "inputs": "b*",
-     "output": "bt",
-     "type": "magic"
-    },
-    {
-     "inputs": "c*",
-     "output": "ck",
-     "type": "magic"
-    },
-    {
-     "inputs": "e*",
-     "output": "ex",
-     "type": "magic"
-    },
-    {
-     "inputs": "f*",
-     "output": "ft",
-     "type": "magic"
-    },
-    {
-     "inputs": "g*",
-     "output": "gh",
-     "type": "magic"
-    },
-    {
-     "inputs": "i*",
-     "output": "ix",
-     "type": "magic"
-    },
-    {
-     "inputs": "m*",
-     "output": "mb",
-     "type": "magic"
-    },
-    {
-     "inputs": "p*",
-     "output": "pt",
-     "type": "magic"
-    },
-    {
-     "inputs": "r*",
-     "output": "rk",
-     "type": "magic"
-    },
-    {
-     "inputs": "s*",
-     "output": "sc",
-     "type": "magic"
-    },
-    {
-     "inputs": "w*",
-     "output": "wr",
-     "type": "magic"
-    }
-   ],
    "tag": "cmini"
   }
  },
@@ -18337,7 +16865,7 @@
   "modified_at": "2026-09-02T02:11:47Z",
   "deleted": false,
   "like_count": 0,
-  "has_magic": true,
+  "has_magic": false,
   "format": "cmini/1",
   "likes": [],
   "payload": {
@@ -18500,38 +17028,6 @@
      "row": 0
     }
    },
-   "magic": [
-    {
-     "inputs": "gv",
-     "output": "gr",
-     "type": "adaptive"
-    },
-    {
-     "inputs": "lh",
-     "output": "ly",
-     "type": "adaptive"
-    },
-    {
-     "inputs": "nr",
-     "output": "ny",
-     "type": "adaptive"
-    },
-    {
-     "inputs": "nh",
-     "output": "n'",
-     "type": "adaptive"
-    },
-    {
-     "inputs": "wc",
-     "output": "wr",
-     "type": "adaptive"
-    },
-    {
-     "inputs": "ae",
-     "output": "ay",
-     "type": "adaptive"
-    }
-   ],
    "tag": "cmini"
   }
  },
@@ -18544,7 +17040,7 @@
   "modified_at": "2026-08-31T12:45:29Z",
   "deleted": false,
   "like_count": 13,
-  "has_magic": true,
+  "has_magic": false,
   "format": "cmini/1",
   "likes": [
    "1004139554682441779",
@@ -18721,102 +17217,6 @@
      "row": 0
     }
    },
-   "magic": [
-    {
-     "inputs": "n*",
-     "output": "nn",
-     "type": "repeat"
-    },
-    {
-     "inputs": "g*",
-     "output": "gs",
-     "type": "magic"
-    },
-    {
-     "inputs": "s*",
-     "output": "ss",
-     "type": "repeat"
-    },
-    {
-     "inputs": "t*",
-     "output": "tt",
-     "type": "repeat"
-    },
-    {
-     "inputs": "w*",
-     "output": "wh",
-     "type": "magic"
-    },
-    {
-     "inputs": "m*",
-     "output": "mm",
-     "type": "repeat"
-    },
-    {
-     "inputs": "l*",
-     "output": "ll",
-     "type": "repeat"
-    },
-    {
-     "inputs": "r*",
-     "output": "rr",
-     "type": "repeat"
-    },
-    {
-     "inputs": "e*",
-     "output": "ee",
-     "type": "repeat"
-    },
-    {
-     "inputs": "u*",
-     "output": "ue",
-     "type": "magic"
-    },
-    {
-     "inputs": "o*",
-     "output": "oo",
-     "type": "repeat"
-    },
-    {
-     "inputs": "y*",
-     "output": "y,"
-    },
-    {
-     "inputs": "p*",
-     "output": "pp",
-     "type": "repeat"
-    },
-    {
-     "inputs": ".*",
-     "output": "...",
-     "type": "magic"
-    },
-    {
-     "inputs": "f*",
-     "output": "ff",
-     "type": "repeat"
-    },
-    {
-     "inputs": "c*",
-     "output": "cc",
-     "type": "repeat"
-    },
-    {
-     "inputs": "d*",
-     "output": "dd",
-     "type": "repeat"
-    },
-    {
-     "inputs": "b*",
-     "output": "bb",
-     "type": "repeat"
-    },
-    {
-     "inputs": "z*",
-     "output": "zz",
-     "type": "repeat"
-    }
-   ],
    "tag": "cmini"
   }
  },

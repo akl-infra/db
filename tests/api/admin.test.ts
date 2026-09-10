@@ -8,7 +8,7 @@
 import { createExecutionContext, createScheduledController, env, waitOnExecutionContext } from "cloudflare:test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Bindings } from "../../src/env";
-import { type EventDbRow, feed, rowToEvent } from "../../src/core/events";
+import { appendWrite, type EventDbRow, feed, rowToEvent } from "../../src/core/events";
 import { fixedClock } from "../../src/core/time";
 import * as nightlyModule from "../../src/core/nightly";
 import * as cminiModule from "../../src/import/cmini";
@@ -489,6 +489,94 @@ describe("POST /v1/admin/import/tick, POST /v1/admin/diff/tick, and POST /v1/adm
       const res = await writeFetch("/v1/admin/import/tick", "POST", adminHeadersFor(discord, `tok-${uniqueName("tick-spy")}`));
       expect(res.status).toBe(200);
       expect(spy.mock.calls.length).toBe(before + 2);
+    });
+  });
+
+  // M1 (LDB-I10, design/layout-db/17-magic-ownership.md §4): the one-time
+  // cmini-magic strip pass. Unlike import/tick and diff/tick above, this
+  // route makes no upstream fetch at all (`import/strip.ts` is D1-only),
+  // so it uses the file's plain `adminHeaders`/`userHeaders` (a lone
+  // FakeDiscord stub) rather than `stubCombinedFetch`'s Discord+upstream
+  // dispatcher.
+  describe("POST /v1/admin/import/strip-cmini-magic", () => {
+    it("anonymous 401, non-admin 403, admin 200 -> { stripped: 0 } (a fresh seed carries no legacy magic); logs admin.magic_stripped", async () => {
+      const anon = await writeFetch("/v1/admin/import/strip-cmini-magic", "POST", {});
+      expect(anon.status).toBe(401);
+
+      const user = await writeFetch("/v1/admin/import/strip-cmini-magic", "POST", userHeaders(`tok-${uniqueName("strip-user")}`));
+      expect(user.status).toBe(403);
+
+      const before = await eventCount("admin.magic_stripped");
+      const admin = await writeFetch("/v1/admin/import/strip-cmini-magic", "POST", adminHeaders(`tok-${uniqueName("strip-admin")}`));
+      expect(admin.status).toBe(200);
+      const body = await admin.json<{ stripped: number }>();
+      expect(body).toEqual({ stripped: 0 });
+      expect(await eventCount("admin.magic_stripped")).toBe(before + 1);
+    });
+
+    it("409 import_paused while the import is paused, and appends no admin.magic_stripped event", async () => {
+      await db
+        .prepare("INSERT INTO import_state (key, value) VALUES ('cmini.paused', '1') ON CONFLICT(key) DO UPDATE SET value = '1'")
+        .run();
+      try {
+        const before = await eventCount("admin.magic_stripped");
+        const res = await writeFetch(
+          "/v1/admin/import/strip-cmini-magic",
+          "POST",
+          adminHeaders(`tok-${uniqueName("strip-paused")}`),
+        );
+        expect(res.status).toBe(409);
+        await expect(res.json()).resolves.toMatchObject({ error: "import_paused" });
+        expect(await eventCount("admin.magic_stripped")).toBe(before);
+      } finally {
+        await db.prepare("DELETE FROM import_state WHERE key = 'cmini.paused'").run();
+      }
+    });
+
+    it("[LDB-I10] actually strips a legacy-magic-carrying record: has_magic flips, an 'imported' rev bump lands, and a second call finds nothing left", async () => {
+      const owner = "9300000000000000001";
+      const { record } = await appendWrite(db, clock, {
+        kind: "created",
+        name: uniqueName("Strip-Admin-Route"),
+        owner,
+        modified_at: clock(),
+        format: "cmini/1",
+        payload: { board: "ortho", keys: {} },
+        actor: owner,
+        via: "discord",
+        hasMagic: false,
+      });
+      // Simulate a record imported before M1 landed: still following
+      // upstream, but its stored payload already carries cmini's magic.
+      await appendWrite(db, clock, {
+        kind: "imported",
+        layoutId: record.id,
+        name: record.name,
+        owner: record.owner,
+        modified_at: record.modified_at,
+        format: "cmini/1",
+        payload: { board: "ortho", keys: {}, magic: [{ inputs: "n*", output: "nn", type: "repeat" }] },
+        actor: "system:cmini-import",
+        via: "import:cmini",
+        detail: { source: "cmini", upstream_id: "strip-admin-route" },
+        hasMagic: true,
+      });
+
+      const res = await writeFetch("/v1/admin/import/strip-cmini-magic", "POST", adminHeaders(`tok-${uniqueName("strip-real")}`));
+      expect(res.status).toBe(200);
+      const body = await res.json<{ stripped: number }>();
+      expect(body.stripped).toBeGreaterThanOrEqual(1);
+
+      const row = await db
+        .prepare("SELECT has_magic, payload_json FROM layouts WHERE id = ?")
+        .bind(record.id)
+        .first<{ has_magic: number; payload_json: string }>();
+      expect(row?.has_magic).toBe(0);
+      expect(JSON.parse(row!.payload_json)).toEqual({ board: "ortho", keys: {} });
+
+      const again = await writeFetch("/v1/admin/import/strip-cmini-magic", "POST", adminHeaders(`tok-${uniqueName("strip-real-2")}`));
+      const bodyAgain = await again.json<{ stripped: number }>();
+      expect(bodyAgain.stripped).toBe(0); // this record no longer qualifies; idempotent
     });
   });
 

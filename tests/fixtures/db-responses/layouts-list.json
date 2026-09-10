@@ -118,7 +118,7 @@
     "modified_at": "2026-09-03T21:12:51Z",
     "deleted": false,
     "like_count": 0,
-    "has_magic": true,
+    "has_magic": false,
     "format": "cmini/1"
    },
    {
@@ -142,7 +142,7 @@
     "modified_at": "2026-09-03T21:16:57Z",
     "deleted": false,
     "like_count": 0,
-    "has_magic": true,
+    "has_magic": false,
     "format": "cmini/1"
    },
    {
@@ -310,7 +310,7 @@
     "modified_at": "2026-09-05T21:45:47Z",
     "deleted": false,
     "like_count": 5,
-    "has_magic": true,
+    "has_magic": false,
     "format": "cmini/1"
    },
    {
@@ -670,7 +670,7 @@
     "modified_at": "2026-09-07T22:23:45Z",
     "deleted": false,
     "like_count": 0,
-    "has_magic": true,
+    "has_magic": false,
     "format": "cmini/1"
    },
    {
@@ -730,7 +730,7 @@
     "modified_at": "2026-09-08T06:14:44Z",
     "deleted": false,
     "like_count": 11,
-    "has_magic": true,
+    "has_magic": false,
     "format": "cmini/1"
    },
    {
@@ -742,7 +742,7 @@
     "modified_at": "2026-08-29T13:58:14Z",
     "deleted": false,
     "like_count": 0,
-    "has_magic": true,
+    "has_magic": false,
     "format": "cmini/1"
    },
    {
@@ -754,7 +754,7 @@
     "modified_at": "2026-09-04T21:12:03Z",
     "deleted": false,
     "like_count": 0,
-    "has_magic": true,
+    "has_magic": false,
     "format": "cmini/1"
    },
    {
@@ -766,7 +766,7 @@
     "modified_at": "2026-09-08T19:25:06Z",
     "deleted": false,
     "like_count": 2,
-    "has_magic": true,
+    "has_magic": false,
     "format": "cmini/1"
    },
    {
@@ -778,7 +778,7 @@
     "modified_at": "2026-09-08T06:14:35Z",
     "deleted": false,
     "like_count": 5,
-    "has_magic": true,
+    "has_magic": false,
     "format": "cmini/1"
    },
    {
@@ -1042,7 +1042,7 @@
     "modified_at": "2026-09-05T11:50:52Z",
     "deleted": false,
     "like_count": 5,
-    "has_magic": true,
+    "has_magic": false,
     "format": "cmini/1"
    },
    {
@@ -1150,7 +1150,7 @@
     "modified_at": "2026-08-31T15:14:24Z",
     "deleted": false,
     "like_count": 13,
-    "has_magic": true,
+    "has_magic": false,
     "format": "cmini/1"
    },
    {
@@ -1162,7 +1162,7 @@
     "modified_at": "2026-09-02T02:11:47Z",
     "deleted": false,
     "like_count": 0,
-    "has_magic": true,
+    "has_magic": false,
     "format": "cmini/1"
    },
    {
@@ -1174,7 +1174,7 @@
     "modified_at": "2026-08-31T12:45:29Z",
     "deleted": false,
     "like_count": 13,
-    "has_magic": true,
+    "has_magic": false,
     "format": "cmini/1"
    },
    {

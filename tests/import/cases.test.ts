@@ -325,6 +325,129 @@ describe("import case table (07 §6 S5)", () => {
   });
 });
 
+// M1 (design/layout-db/17-magic-ownership.md §4): cmini's magic is never
+// akl.gg's -- these two describes are LDB-I10/I11's own tagged coverage,
+// alongside `tests/import/strip.test.ts` (the one-time strip route) and
+// `tests/import/diff-unit.test.ts`/`tests/import/tick.test.ts` (the
+// change-detection projection).
+describe("[LDB-I10] an imported payload never carries cmini's magic", () => {
+  it("[LDB-I10] case 1: upstream detail carries magic -> the imported payload has none, has_magic is false", async () => {
+    const d = detail({
+      name: "I10-Fresh",
+      user: "1100000000000000001",
+      magic: [{ inputs: "e*", output: "ee", type: "repeat" }],
+    });
+    const result = await applyFetchedId(db, clock, "i10-fresh", d);
+    expect(result.errors).toEqual([]);
+
+    const rec = await readByName(db, "I10-Fresh");
+    expect(rec).not.toBeNull();
+    expect((rec!.payload as { magic?: unknown }).magic).toBeUndefined();
+    expect(rec!.has_magic).toBe(false);
+  });
+
+  it("[LDB-I10] case 4: upstream adding magic on a later fetch, content otherwise identical, is NOT a content difference -- no new event", async () => {
+    const owner = "1100000000000000002";
+    const d1 = detail({ name: "I10-NoDiff", user: owner, board: "ortho" });
+    await applyFetchedId(db, clock, "i10-nodiff", d1);
+    const rec = await readByName(db, "I10-NoDiff");
+    const before = await eventsFor(rec!.id);
+
+    const d2 = detail({
+      name: "I10-NoDiff",
+      user: owner,
+      board: "ortho",
+      magic: [{ inputs: "t*", output: "tt", type: "repeat" }],
+    });
+    const result = await applyFetchedId(db, clock, "i10-nodiff", d2);
+    expect(result.errors).toEqual([]);
+
+    const after = await readById(db, rec!.id);
+    expect(after!.rev).toBe(1); // no write at all -- upstream adding magic is invisible to change detection
+    expect(await eventsFor(rec!.id)).toHaveLength(before.length);
+    expect((after!.payload as { magic?: unknown }).magic).toBeUndefined();
+  });
+});
+
+describe("[LDB-I11] an import write preserves the record's own magic byte-for-byte", () => {
+  it("[LDB-I11] case 4: a real upstream content change carries the record's pre-existing (legacy) magic forward untouched", async () => {
+    const owner = "1100000000000000003";
+    const d1 = detail({ name: "I11-Legacy", user: owner, board: "ortho", keys: {} });
+    await applyFetchedId(db, clock, "i11-legacy", d1);
+    const rec = await readByName(db, "I11-Legacy");
+
+    // Simulate a record imported BEFORE M1 landed: still following upstream
+    // (`via: import:cmini`), but its stored payload already carries cmini's
+    // magic -- today's imports never write this (LDB-I10), so the only way
+    // a followed record has magic at all is a legacy write like this one
+    // (exactly what `POST /v1/admin/import/strip-cmini-magic` targets).
+    const legacyMagic = [{ inputs: "n*", output: "nn", type: "repeat" }];
+    await appendWrite(db, clock, {
+      kind: "imported",
+      layoutId: rec!.id,
+      name: rec!.name,
+      owner: rec!.owner,
+      modified_at: rec!.modified_at,
+      format: "cmini/1",
+      payload: { ...(rec!.payload as object), magic: legacyMagic },
+      actor: "system:cmini-import",
+      via: "import:cmini",
+      detail: { source: "cmini", upstream_id: "i11-legacy" },
+      hasMagic: true,
+    });
+
+    // A REAL upstream content change (board differs) -- case 4 fires.
+    const d2 = detail({ name: "I11-Legacy", user: owner, board: "angle", keys: {}, modified_at: "2026-02-01T00:00:00Z" });
+    const result = await applyFetchedId(db, clock, "i11-legacy", d2);
+    expect(result.errors).toEqual([]);
+
+    const after = await readById(db, rec!.id);
+    expect((after!.payload as { board: string }).board).toBe("angle"); // upstream's new content landed
+    expect((after!.payload as { magic?: unknown }).magic).toEqual(legacyMagic); // magic carried forward byte-for-byte
+    expect(after!.has_magic).toBe(true);
+
+    const events = await eventsFor(rec!.id);
+    expect(events.map((e) => e.kind)).toEqual(["imported", "imported", "imported"]);
+  });
+
+  it("[LDB-I11] a not-following record's own local magic is never reported as an upstream difference", async () => {
+    const owner = "1100000000000000004";
+    const d1 = detail({ name: "I11-NotFollow", user: owner, board: "ortho" });
+    await applyFetchedId(db, clock, "i11-notfollow", d1);
+    const rec = await readByName(db, "I11-NotFollow");
+    await humanTouch({ id: rec!.id, name: rec!.name, owner: rec!.owner, format: rec!.format, payload: rec!.payload, modified_at: rec!.modified_at });
+
+    // The owner's own record now carries local magic (M2-shaped: akl.gg's
+    // own rules on an akl/1 record -- simulated directly here since cmini/1
+    // has no write idiom for `magic` yet, formats/cmini/1/index.ts's own
+    // comment on `edits`).
+    const localMagic = [{ inputs: "s*", output: "ss", type: "repeat" }];
+    await appendWrite(db, clock, {
+      kind: "updated",
+      layoutId: rec!.id,
+      name: rec!.name,
+      owner: rec!.owner,
+      modified_at: rec!.modified_at,
+      format: "cmini/1",
+      payload: { ...(rec!.payload as object), magic: localMagic },
+      actor: rec!.owner,
+      via: "discord",
+    });
+    const before = await eventsFor(rec!.id);
+
+    // The SAME upstream content as before (still d1's board/keys). Absent
+    // the magic-less projection, this would look like "content differs"
+    // purely because the local side now has a `magic` field upstream's
+    // never has -- spamming an `upstream_changed` info event every daily
+    // pass for content that, from cmini's point of view, never changed.
+    const result = await applyFetchedId(db, clock, "i11-notfollow", d1);
+    expect(result.errors).toEqual([]);
+    expect(await eventsFor(rec!.id)).toHaveLength(before.length); // no new event
+    const after = await readById(db, rec!.id);
+    expect((after!.payload as { magic?: unknown }).magic).toEqual(localMagic); // untouched
+  });
+});
+
 describe("[LDB-I5] imported names are stored verbatim from the live snapshot", () => {
   const list = (listSnapshot as { layouts: { id: string; name: string }[] }).layouts;
   const full = (fullSnapshot as { layouts: RawUpstreamDetail[] }).layouts;

@@ -138,6 +138,52 @@ describe("diffCorpus over upstream-100 against itself", () => {
     expect(diff?.path).toMatch(/^\/likes(\/\d+)?$/);
   });
 
+  // M1 (design/layout-db/17-magic-ownership.md §3): `compareRecords`
+  // (import/diff.ts) projects both sides through `cmini1.projectNoMagic`,
+  // so magic never surfaces as a mirror difference -- upstream's magic is
+  // never akl.gg's, and a followed record's own (nothing today; akl.gg's
+  // rules once M2 lands) is never one either.
+  it("[LDB-P5] [LDB-I11] our copy carrying DIFFERENT magic than upstream's is NOT a content difference", () => {
+    const raws = loadFixture();
+    const { upstream, ours } = corpusMaps(raws);
+    const opal = raws.find((r) => r.name === "opal");
+    expect(opal).toBeDefined();
+    const opalMagic = (opal as { magic?: unknown[] }).magic;
+    expect(opalMagic).toBeDefined();
+    expect((opalMagic as unknown[]).length).toBeGreaterThan(0); // 07 §5.3: opal is a real magic fixture
+
+    const mutated = { ...(opal as Record<string, unknown>), magic: [{ inputs: "q*", output: "qq", type: "repeat" }] };
+    ours.set("opal", toOursEntry(mutated, "id-opal"));
+
+    const result = diffCorpus(upstream, ours);
+    expect(result.contentDiffs).toEqual([]);
+    expect(result.matched).toBe(raws.length);
+  });
+
+  it("[LDB-P5] [LDB-I11] our copy dropping magic entirely (upstream still has it) is NOT a content difference", () => {
+    const raws = loadFixture();
+    const { upstream, ours } = corpusMaps(raws);
+    const opal = raws.find((r) => r.name === "opal");
+    const { magic: _magic, ...withoutMagic } = opal as Record<string, unknown>;
+    ours.set("opal", toOursEntry(withoutMagic, "id-opal"));
+
+    const result = diffCorpus(upstream, ours);
+    expect(result.contentDiffs).toEqual([]);
+    expect(result.matched).toBe(raws.length);
+  });
+
+  it("[LDB-P5] [LDB-I11] a genuine non-magic difference is still reported even when magic ALSO differs", () => {
+    const raws = loadFixture();
+    const { upstream, ours } = corpusMaps(raws);
+    const opal = raws.find((r) => r.name === "opal");
+    const mutated = { ...(opal as Record<string, unknown>), board: "ortho", magic: [{ inputs: "q*", output: "qq", type: "repeat" }] };
+    ours.set("opal", toOursEntry(mutated, "id-opal"));
+
+    const result = diffCorpus(upstream, ours);
+    const diff = result.contentDiffs.find((d) => d.name === "opal");
+    expect(diff?.path).toBe("/board"); // the real difference, never magic's own path
+  });
+
   it("[LDB-P5] a missing local record is reported under 'missing'", () => {
     const raws = loadFixture();
     const { upstream, ours } = corpusMaps(raws);

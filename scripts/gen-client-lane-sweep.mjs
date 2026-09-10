@@ -85,9 +85,12 @@ const ROUTES = [
   // every later row's nonce and silently invalidate its already-committed
   // fixture. Keep future additions appended here too.
   ["admin-nightly", "tick", "POST", "/v1/admin/nightly/tick", "/v1/admin/nightly/tick"],
+  // M1 (LDB-I10, design/layout-db/17-magic-ownership.md §4): same shape as
+  // admin-import/tick above.
+  ["admin-import", "strip-cmini-magic", "POST", "/v1/admin/import/strip-cmini-magic", "/v1/admin/import/strip-cmini-magic"],
 ];
 
-if (ROUTES.length !== 25) throw new Error(`expected 25 A-group routes, got ${ROUTES.length}`);
+if (ROUTES.length !== 26) throw new Error(`expected 26 A-group routes, got ${ROUTES.length}`);
 
 function pascal(s) {
   return s

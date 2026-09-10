@@ -49,6 +49,7 @@ const INFO_KINDS_MAP: Record<InfoKind, true> = {
   "admin.import_ticked": true,
   "admin.diff_ticked": true,
   "admin.nightly_ticked": true,
+  "admin.magic_stripped": true, // M1 (LDB-I10): POST /v1/admin/import/strip-cmini-magic
 };
 const LIKE_KINDS_MAP: Record<"liked" | "unliked", true> = { liked: true, unliked: true };
 
