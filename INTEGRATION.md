@@ -1,11 +1,22 @@
 # Integrating with the akl layout database
 
+**`db/docs/adoption.md` is the primary guide for building a client** — a
+Discord bot, a web app, a script, or an agent — written to be followed by a
+human or handed whole to an agent, and machine-checked against the live
+router and the error factories (`LDB-G10`). This file is the older,
+narrower integration note: it exists now for its cross-references into the
+design docs (`00-plan.md`, `01-format.md`, `02-auth.md`, `03-api.md`,
+`04-governance.md`) and for the generated error-code appendix (§8, checked
+by `LDB-G8`) that the adoption guide's own §6 points back at as "the same
+table `db/INTEGRATION.md` carries". Where a section below would otherwise
+repeat the guide, it links to the guide's section instead of restating it.
+
+Updated 2026-09-11 (20-spark.md).
+
 A guide for a new client — a bot, a site, a script — that wants to read or
 write keyboard layouts through `akl-db`, the community-owned layout database
 (`design/layout-db/00-plan.md`). No prior familiarity with this repo needed:
-every claim below is tied to a route, a source file, or a test, and every
-read example is a real `curl` against the live PREVIEW deployment, trimmed
-for length.
+every claim below is tied to a route, a source file, or a test.
 
 ```
 production   https://akl-db.akl-58a.workers.dev
@@ -25,41 +36,49 @@ import from cmini, now accepts writes directly. JSON in and out, UTF-8,
 `/v1` prefix, CORS `*` on every read (writes are gated by identity, not
 CORS, `03-api.md` §1).
 
+**One stored format.** `spark/1` — `akl/1` renamed, the same payload shape
+byte for byte (`design/layout-db/20-spark.md` decision 1) — is the only
+format a write may store. `mana2/1` is the lowered, analyzer-facing shape:
+produced from `spark/1` on read (`?as=mana2/1`), never stored — a write
+naming it is `400 format_not_writable`. cmini is an import *source*, not a
+format lineage: the importer converts each upstream detail to spark on
+arrival, and `?as=cmini/1` stays readable through an adapter for legacy
+consumers, but `cmini/1` writes are refused. `akl/1` is a transitional
+**alias** of `spark/1` — reads and writes under that name still work, and a
+response to a request naming it is relabelled `"akl/1"` — kept only for
+clients not yet moved to `spark/1`'s own name (adoption guide §3, §8;
+removal checklist in `20-spark.md` §6). **New clients should read and write
+`spark/1` directly.**
+
 **Versioning and compatibility.** `/v1` changes only on a breaking change to
-the record envelope (`id/name/owner/rev/…`) — never happened yet. A **format
-major** (`cmini/1`, `akl/1`, `mana2/1`) is never removed, its schema never
-tightened, its fixtures never edited (`01-format.md` §5, `LDB-F6`); an
-incompatible shape is a new major (`akl/2`), not a break of `/v1`. Every read
-that returns a payload takes `?as=<format>`; a record that can't be
-translated to the format you asked for comes back `409 { error: "held",
-held: true, format, see? }` (`held()` in `src/core/errors.ts`) instead of an
-error that looks like your request was wrong — the record exists, your
-format just can't show it yet. Read the format you write, or `akl/1` (the
-default) if you have no opinion.
+the record envelope (`id/name/owner/rev/…`) — never happened yet. A
+registered format major is never removed, its schema never tightened, its
+fixtures never edited (`01-format.md` §5, `LDB-F6`); an incompatible shape is
+a new major (`spark/2`), not a break of `/v1` — the adoption guide §8 covers
+how a client detects and migrates across one. Every read that returns a
+payload takes `?as=<format>`; a record that can't be translated to the
+format you asked for comes back `409 { error: "held", held: true, format,
+see? }` (`held()` in `src/core/errors.ts`) instead of an error that looks
+like your request was wrong — the record exists, your format just can't show
+it yet. Read and write `spark/1` if you have no opinion; `GET /v1/formats`
+is the live registry (adoption guide §3).
 
 ## 2. Reading (no auth, ever)
 
-```bash
-curl -s https://akl-db-preview.akl-58a.workers.dev/v1/meta
-# {"layout_count":4176,"author_count":367,"seq":6264,"revision":"2026-09-09T22:49:08.539Z",
-#  "layouts_modified_at":"2026-09-09T22:35:15Z","formats":["cmini/1","akl/1","mana2/1"],
-#  "last_diff":null,"last_drill":{"at":"2026-09-09T18:45:16.367Z","ok":true}}
-```
+Every route, its real trimmed request/response shapes, and the `?as=<format>`
+/ `held` mechanics are in the adoption guide §3 — not repeated here. In
+short: `GET /v1/meta` is the one call a poller makes on a quiet tick (`seq`
+is the event-log head, `revision` that event's timestamp, `03-api.md` §2);
+`GET /v1/layouts` lists records (list rows carry every field except
+`payload`; params below); `GET /v1/layouts?full=1&as=<format>` streams every
+live record with its translated payload and sorted `likes` — the sync route
+a mirror uses (§6) — a held record there carries `held: true` and no
+`payload` rather than erroring the whole response; `{ref}` in a path is an
+id (ULID) or a name, case-insensitive (a ULID-shaped ref is tried as an id
+first) — an unknown ref is `404 not_found` (never a 200 with an empty body),
+and a tombstoned name is `404` by name, `200` by id, restorable (§4).
 
-`seq` is the event log head; `revision` is that event's timestamp (likes move
-it, `layouts_modified_at` they do not, `03-api.md` §2) — the one call a
-poller makes on a quiet tick.
-
-```bash
-curl -s '…/v1/layouts?limit=2'
-# {"items":[{"id":"01M23D5GJNN8AVAYA67357SS31","name":"-b-","owner":"782784290769207336",
-#   "rev":1,"created_at":"2025-04-11T00:00:02Z","modified_at":"2026-08-31T12:45:28Z",
-#   "deleted":false,"like_count":0,"has_magic":false,"format":"cmini/1"}, …],
-#  "next_cursor":"WyIwMC0tLS0tLWhpZ2dzIiwiMDFNMjNENUdUQzJNRlhFWDg1WlRBUTJXTTgiXQ=="}
-```
-
-List rows carry every record field except `payload`. Params
-(`src/routes/layouts.ts`, `03-api.md` §2):
+Params (`src/routes/layouts.ts`, `03-api.md` §2):
 
 | param | meaning |
 |---|---|
@@ -69,35 +88,11 @@ List rows carry every record field except `payload`. Params
 | `limit=<n>` (≤ 1000, default 100), `cursor=<opaque>` | a full keyset walk visits every live record exactly once (`LDB-R4`) |
 | `as=<format>` | `full=1` only — a list row never carries a payload |
 
-`GET /v1/layouts?full=1&as=cmini/1` streams **every** live record with its
-translated payload and sorted `likes` — the sync route a mirror uses (§6). A
-held record here carries `held: true` and no `payload` rather than erroring
-the whole response.
-
-```bash
-curl -s '…/v1/layouts/graphite?as=cmini/1' | head -c 260
-# {"id":"01M23DDWHTV8V5R06HN6SX3D4A","name":"graphite","owner":"130544188818194432","rev":1,
-#  "like_count":78,"has_magic":false,"format":"cmini/1","likes":["1004139554682441779", …]}
-curl -s '…/v1/layouts/graphite/likes' | head -c 100
-# {"user_ids":["1004139554682441779","1007355784830652507", …]}
-curl -s '…/v1/layouts/graphite/history' | head -c 200   # + /rev/{n} for the payload as of any rev
-# [{"seq":2080,"rev":1,"at":"2026-09-09T15:43:48.794Z","actor":"system:cmini-import",
-#   "via":"import:cmini","kind":"imported","admin":false}, …]
-curl -s '…/v1/authors/130544188818194432'
-# {"user_id":"130544188818194432","name":"stronglytyped","layout_count":35,"liked_count":23}
-curl -s '…/v1/formats' | head -c 220   # + /v1/formats/{name}/{N}/schema.json per format
-# [{"id":"cmini/1","owner":"DB","description":"…","can_translate_to":["akl/1","mana2/1"]}, …]
-```
-
-`{ref}` in a path is an id (ULID) or a name, case-insensitive — a ULID-shaped
-ref is tried as an id first. An unknown ref → `404 not_found` (never a 200
-with an empty body); a tombstoned name is `404` by name, `200` by id,
-restorable (§4).
-
 **ETag/304.** `/v1/meta`, `/v1/layouts` (list and `full=1`), `/v1/changes` and
 `/v1/authors` carry `Cache-Control: public, max-age=10` and a strong `ETag`
-(`"<seq>:<hash(query)>"`) that changes iff the event head or the query does
-(`LDB-R1`); a matching `If-None-Match` gets `304` after one indexed read:
+(`"<seq>:<hash(query)>"`) that changes iff the event head, the wire version,
+or the query does (`LDB-R1`); a matching `If-None-Match` gets `304` after one
+indexed read:
 
 ```bash
 etag=$(curl -sD - -o /dev/null …/v1/meta | grep -i '^etag:')
@@ -106,119 +101,51 @@ curl -s -o /dev/null -w '%{http_code}\n' -H "If-None-Match: ${etag#etag: }" …/
 
 ## 3. Identity: two lanes, one Discord user id
 
-Every request ends up as `{ user_id, via }` (`02-auth.md` §1); every
-authorization rule reads only `user_id`.
+Every request resolves to one `Actor` (`src/auth/actor.ts`): `{ user_id,
+via, admin, source_client }` — every authorization rule reads only
+`user_id`. `source_client` is the proven provenance every rev-bumping
+write's event (and the record's own latest one) now carries as
+`source: {client, version}` (decision 14 of `20-spark.md`; adoption guide
+§1.3) — never a header or body field a caller controls.
 
-### 3.a — a person, through their own client: `Authorization: Bearer <discord access token>`
+- **User lane** — a person, through their own client:
+  `Authorization: Bearer <discord access token>` (scope `identify` is
+  enough). The DB confirms it by calling Discord's own `GET
+  /oauth2/@me` with the same header and caches the answer (`resolveBearer`,
+  `LDB-A2`; adoption guide §1.2, §2.2). Discord 401 → `401 token_invalid`;
+  unreachable → `503 identity_unavailable`. Web apps: sign the user into
+  your own Discord app, hold their token server-side, proxy writes through
+  your backend — never hand a browser tab the raw token.
 
-The DB calls `GET https://discord.com/api/users/@me` with the same header
-(scope `identify` is enough) and caches `sha256(token) → user_id` for ≤ 5 min
-on success, ≤ 60s on a Discord 401 — 5xx/429/network are never cached, and
-the token itself is never stored, only its hash (`resolveBearer`, `LDB-A2`).
-Discord 401 → `401 token_invalid`; unreachable → `503 identity_unavailable`.
-Web apps: sign the user into your own Discord app, hold their token
-server-side, proxy writes through your backend — never hand a browser tab
-the raw token.
+  ```bash
+  curl -s -H 'Authorization: Bearer <token>' …/v1/me     # {"user_id":"…","name":"…","via":"discord","admin":false}
+  curl -s …/v1/me   # no header -> 401 {"error":"unauthorized","message":"authentication required"}
+  ```
 
-```bash
-curl -s -H 'Authorization: Bearer <token>' …/v1/me     # {"user_id":"…","name":"…","via":"discord","admin":false}
-curl -s …/v1/me   # no header -> 401 {"error":"unauthorized","message":"authentication required"}
-```
+- **Client lane** — a bot asserting a user it already trusts: a Discord bot
+  already knows which user sent a message; it can't present that user's
+  token, so it presents *itself* (an admin-registered Ed25519 key) and
+  *asserts* the user id. **Registration is admin-only** (`POST
+  /v1/admin/clients { name, pubkey, owner_user_id, caps, discord_app_id? }`,
+  `02-auth.md` §3.1, `04-governance.md` §1) — no self-service sign-up; ask an
+  admin (§7) for a client with your public key, an `owner_user_id`, and the
+  `caps` you need: `act-as-user` (may assert any Discord user id — a real
+  multi-user bot) or `act-as-owner-only` (only its own `owner_user_id` — a
+  personal script). Every write is attributed to your client id on the
+  public feed and changelog (`GET /admin/changelog`, both via `source.client`
+  and the write's own `actor`) — a compromised key is one query to find and
+  one call to revoke (`DELETE /v1/admin/clients/{id}`), effective immediately
+  (`clients.status` is read every request, never cached, `LDB-A9`).
 
-### 3.b Client lane — a bot asserting a user it already trusts
-
-A Discord bot already knows which user sent a message; it can't present that
-user's token, so it presents *itself* (an admin-registered Ed25519 key) and
-*asserts* the user id. **Registration is admin-only** (`POST
-/v1/admin/clients { name, pubkey, owner_user_id, caps, discord_app_id? }`,
-`02-auth.md` §3.1, `04-governance.md` §1) — no self-service sign-up; ask an
-admin (§7) for a client with your public key, an `owner_user_id`, and the
-`caps` you need: `act-as-user` (may assert any Discord user id — a real
-multi-user bot) or `act-as-owner-only` (only its own `owner_user_id` — a
-personal script). Every write is logged `via: "client:<id>"` on the public
-feed and changelog (`GET /admin/changelog`) — a compromised key is one query
-to find and one call to revoke (`DELETE /v1/admin/clients/{id}`), effective
-immediately (`clients.status` is read every request, never cached,
-`LDB-A9`).
-
-**Signing a request** — five headers, one string
-(`signingString` in `src/auth/client.ts`, `02-auth.md` §3.2):
-
-```
-X-Akl-Client:    <client id>
-X-Akl-Timestamp: <unix seconds>
-X-Akl-Nonce:     <16 random bytes, base64url>
-X-Akl-Actor:     <the Discord user id this request acts for>
-X-Akl-Signature: base64url( Ed25519_sign( sk, signing_string ) )
-
-signing_string = "akl-v1\n" + METHOD + "\n" + PATH_WITH_QUERY + "\n"
-               + TIMESTAMP + "\n" + NONCE + "\n" + ACTOR + "\n"
-               + base64url( sha256( body bytes, or empty ) )
-```
-
-`METHOD` upper-cased; `PATH_WITH_QUERY` exactly as sent (no canonicalisation,
-no origin); an absent body hashes as zero bytes. Checks, in order
-(`verifyClientRequest`), each throwing before the route runs:
-
-| check | failure |
-|---|---|
-| 5 headers present and shaped right (nonce/sig decode, actor is a 17-20-digit id) | `401 bad_signature` |
-| client id known | `401 unknown_client` |
-| `client.status == "active"` | `401 client_revoked` |
-| `\|now − timestamp\| ≤ 300s` | `401 stale_timestamp` (`skew` in body) |
-| Ed25519 signature verifies under the registered key | `401 bad_signature` |
-| nonce unseen for this client in 10 min (a D1 INSERT's own PK) | `401 replay` |
-| `act-as-owner-only` ⇒ `X-Akl-Actor == owner_user_id` | `403 actor_not_allowed` |
-
-(every 401 above also carries `WWW-Authenticate: Bearer`). **Interop is a
-frozen vector file**, `db/tests/vectors/client-signing.json` — (key,
-request, expected signature) triples every signer below reproduces byte for
-byte (`LDB-A4`).
-
-**JS signer** (Web Crypto only — Node, a Worker, or a browser unchanged;
-trimmed from the bot's real, tested `bot/src/client/sign.ts`):
-
-```js
-function b64url(bytes) {
-  let bin = ''; for (const b of bytes) bin += String.fromCharCode(b);
-  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-function unb64url(s) {
-  const pad = s.length % 4 === 0 ? '' : '='.repeat(4 - (s.length % 4));
-  return Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/') + pad), (c) => c.charCodeAt(0));
-}
-async function importClientKey(pkcs8B64url) {        // CLIENT_PRIVATE_KEY's shape
-  return crypto.subtle.importKey('pkcs8', unb64url(pkcs8B64url), { name: 'Ed25519' }, false, ['sign']);
-}
-async function signRequest(key, clientId, actor, method, pathWithQuery, bodyBytes) {
-  const timestamp = String(Math.floor(Date.now() / 1000));
-  const nonce = b64url(crypto.getRandomValues(new Uint8Array(16)));
-  const hash = b64url(new Uint8Array(await crypto.subtle.digest('SHA-256', bodyBytes ?? new Uint8Array(0))));
-  const msg = `akl-v1\n${method.toUpperCase()}\n${pathWithQuery}\n${timestamp}\n${nonce}\n${actor}\n${hash}`;
-  const sig = await crypto.subtle.sign('Ed25519', key, new TextEncoder().encode(msg));
-  return { 'X-Akl-Client': clientId, 'X-Akl-Timestamp': timestamp, 'X-Akl-Nonce': nonce,
-           'X-Akl-Actor': actor, 'X-Akl-Signature': b64url(new Uint8Array(sig)) };
-}
-```
-
-Proven against every vector, by the real module this is trimmed from:
-`cd bot && npx vitest run tests/client/sign.test.ts` → `Test Files 1 passed
-(1)  Tests 2 passed (2)`.
-
-**Python signer** (`scripts/akl_client_signing.py` — pure stdlib, its own
-small Ed25519 so no third-party crypto dependency is needed):
-`sign_headers(method, path_with_query, actor, client_id, seed, body_bytes)`
-returns the same five headers; `load_seed_from_env(var)` reads
-`CLIENT_PRIVATE_KEY`-shaped base64url PKCS8 from the environment (never
-argv). Proven against every vector: `python3 -m unittest
-scripts.tests.test_client_signing -v` → `test_every_vector_signing_string_
-and_signature ... ok`, `test_public_key_matches_every_key ... ok` (4 tests,
-OK).
-
-`bot/scripts/sign.mjs` wraps the JS signer as a CLI (prints `-H` flags for
-`curl`); `db/scripts/ops-call.sh` wraps that for a maintainer's own signed
-admin calls. Both read `CLIENT_ID`/`CLIENT_PRIVATE_KEY` from the
-environment, never a flag.
+  The five-header signing recipe (`signingString` in `src/auth/client.ts`,
+  `02-auth.md` §3.2), the server's ordered checks (`verifyClientRequest`),
+  and working, tested JS/Python signers are all in the adoption guide §2.1
+  — don't re-derive the recipe by hand; build your signer against the
+  frozen vector file, `db/tests/vectors/client-signing.json` (`LDB-A4`), and
+  diff. `bot/scripts/sign.mjs` wraps the JS signer as a CLI (prints `-H`
+  flags for `curl`); `db/scripts/ops-call.sh` wraps that for a maintainer's
+  own signed admin calls — both read `CLIENT_ID`/`CLIENT_PRIVATE_KEY` from
+  the environment, never a flag.
 
 ## 4. Writing
 
@@ -228,7 +155,7 @@ PUT    /v1/layouts/{ref}            { format, payload }             If-Match →
 PATCH  /v1/layouts/{ref}            { name? , fingermap? , board? , magic? } If-Match → 200
 DELETE /v1/layouts/{ref}                                             If-Match → 200 (tombstone)
 POST   /v1/layouts/{ref}/transfer   { to }                           If-Match → 200
-POST   /v1/layouts/{ref}/restore    (owner or admin, ≤ 30 days)                → 200
+POST   /v1/layouts/{ref}/restore    { name? }  (owner or admin, no time limit)  → 200
 PUT / DELETE /v1/layouts/{ref}/like                                            → 200 { like_count }
 ```
 
@@ -241,12 +168,15 @@ takes none either. `If-Match: "<rev>"` (quoted or bare) or `If-Match: *`
 anything else is `400 bad_request`. **Retry pattern on `409 stale`:** the
 error body already carries the current record — re-read isn't even a second
 request — so re-apply your change to it and resend with `If-Match` set to
-*its* `rev`.
+*its* `rev`. **Every write should also carry `X-Client-Version`** — not
+enforced by the schema, but it's what lets an operator later find every
+write a given build of your client made (adoption guide §1.3, §5).
 
 ```bash
-curl -sX POST …/v1/layouts -d '{"name":"ldb-integration-doc-demo","format":"akl/1",
-  "payload":{"keys":{"a":{"row":1,"col":1,"finger":"LI"}}}}' <signed>
-# 201 {"id":"01M245Q4J76A4PKAP2QX02YFRJ","rev":1,"format":"akl/1","payload":{"keys":{"a": …}}}
+curl -sX POST …/v1/layouts -H 'X-Client-Version: my-bot/1.0' -d '{"name":"ldb-integration-doc-demo",
+  "format":"spark/1","payload":{"keys":{"a":{"row":1,"col":1,"finger":"LI"}}}}' <signed>
+# 201 {"id":"01M245Q4J76A4PKAP2QX02YFRJ","rev":1,"format":"spark/1","payload":{"keys":{"a": …}}}
+# (the same call with "format":"akl/1" still stores spark/1 and answers "format":"akl/1" -- §1)
 
 curl -sX PATCH …/v1/layouts/01M245…YFRJ -H 'If-Match: "1"' -d '{"fingermap":{"a":"LM"}}' <signed>
 # 200 { …, "rev":2, "payload":{"keys":{"a":{"col":1,"finger":"LM","row":1}}} }
@@ -280,10 +210,18 @@ fixtures (`patch-409-stale.json`, `patch-200-renamed.json`, etc.).
   `400 {"error":"magic_collision","inputs":"th","from":["adaptive_swaps[0]","rules[0]"],"path":"/magic/rules/0"}`
 - `400 invalid_payload` — the format's own `validate()` refused it, with a
   JSON-pointer `path`. Check locally, same function the server runs (or
-  `import { validate } from '@akl/layout-formats/akl/1'` from JS):
+  `import { validate } from '@akl/layout-formats/spark/1'` from JS — the
+  transitional `@akl/layout-formats/akl/1` subpath resolves to the same
+  module):
   `echo '{"keys":{"a":{"row":9,"col":1,"finger":"LI"}}}' | node
   db/scripts/validate-akl1-payload.mjs` →
-  `{"ok":false,"error":{"error":"invalid_payload","message":"payload/keys/a/row must be <= 4","path":"/keys/a/row"}}`.
+  `{"ok":false,"error":{"error":"invalid_payload","message":"payload/keys/a/row must be <= 4","path":"/keys/a/row"}}`
+  (the script's own name is unchanged; it validates against `spark/1`'s
+  schema).
+- `400 format_not_writable` / `409 format_behind` — `mana2/1` can never be
+  written (it's produced on read only), and a blind `PUT` in an older major
+  that has genuinely outgrown it is refused rather than silently losing
+  content (adoption guide §5, §8).
 - **Rate limits** (`LDB-R6`/`R7`): 60 writes/10 min per actor, plus —
   client lane only — 300/10 min per client id. `429 rate_limited` carries
   `Retry-After` (seconds) and `scope` (`"actor"`/`"client"`, naming which
@@ -295,10 +233,13 @@ fixtures (`patch-409-stale.json`, `patch-200-renamed.json`, etc.).
 polling it. `since` is exclusive (`since=0` = everything); pass back `next`
 as your next `since`. Every write appends exactly one event (`03-api.md`
 §5); `rev`-bumping kinds (`created`/`updated`/`renamed`/`fingermap`/
-`transferred`/`deleted`/`restored`/`imported`/`upstream_deleted`) carry
-`before`/`after`; `liked`/`unliked` move only `like_count`;
-`upstream_changed`/`import_conflict` are informational. `kinds=` filters to
-a comma list.
+`transferred`/`deleted`/`restored`/`imported`/`upstream_deleted`/`migrated`)
+carry `before`/`after` plus per-event `source`; `liked`/`unliked` move only
+`like_count`; `upstream_changed`/`import_conflict`/`admin.*` are
+informational. `kinds=` filters to a comma list. Every record also carries
+a top-level `upstream` field — **transitional**, tied to the one-time cmini
+import; don't build client behavior on it (adoption guide §4, `20-spark.md`
+decision 16).
 
 ```bash
 curl -s '…/v1/changes?since=6260&limit=3'
@@ -370,16 +311,20 @@ re-fetch the whole corpus over the API. **Verify-then-serve:** if you cache
 
 ## 7. Governance & etiquette
 
-Imports from cmini keep following upstream until a person writes the record
-here (`via` on its latest rev-bumping event flips away from
-`"import:cmini"` — "forked" is derived, never a stored flag, `01-format.md`
-§1). Admins (a D1 table, never a code constant, `LDB-G2`) can register/
+Imports from cmini keep a record's stored `upstream.state` at `"following"`
+until a person writes it — any rev-bumping user write forks it (decision 6
+of `20-spark.md`; magic edits included, since the old magic-only exemption
+is retired). `upstream` is a stored field folded from events
+(`core/upstream.ts`'s `nextUpstream`), not derived from `via` — and it is
+**transitional**: it exists only while the one-time cmini import runs, and
+is removed once that import is retired (`20-spark.md` §6b; adoption guide
+§4). Admins (a D1 table, never a code constant, `LDB-G2`) can register/
 revoke clients, add/remove other admins (never below 2, `LDB-A6`),
 force-transfer or delete/restore any record, and pause the cmini import —
 every admin action is a public event (`admin: true`) on the same feed and
 changelog everyone else's writes are on. **To register a client**, reach an
-admin with your public key and the `owner_user_id`/`caps` you need (§3.b) —
-there's no other path. **Etiquette:** read the API, don't scrape the site's
+admin with your public key and the `owner_user_id`/`caps` you need (§3
+above) — there's no other path. **Etiquette:** read the API, don't scrape the site's
 HTML for what `/v1/layouts` already serves; respect `Retry-After` on a
 `429` rather than retrying immediately; prefer webhooks or the stream over
 tight polling once you're past prototyping.
@@ -389,10 +334,11 @@ tight polling once you're past prototyping.
 Generated from `src/core/errors.ts`'s own `ApiError` factories
 (`db/scripts/gen-error-table.mjs`) — `db/tests/tools/error-table.test.ts`
 (`LDB-G8`) fails the build if this table drifts from that source, so it is
-never hand-edited. Two more codes exist in the *format* layer
-(`db/formats/*/1/index.ts`), not here: `invalid_payload` (any format's
-`validate()`) and `magic_collision` (`akl/1` only) — both always `400`,
-shown with real examples in §4.
+never hand-edited. Two more codes exist in the *format* layer (a stored
+format's own `validate()`, e.g. `db/formats/spark/1/index.ts`), not here:
+`invalid_payload` (any stored format's `validate()`) and `magic_collision`
+(a `spark/1` payload's lowered magic rows) — both always `400`, shown with
+real examples in §4.
 
 <!-- BEGIN GENERATED ERROR TABLE (db/scripts/gen-error-table.mjs) -->
 | status | error | message | thrown by |

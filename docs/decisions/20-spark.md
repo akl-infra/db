@@ -1203,3 +1203,13 @@ ledgered and flippable by saltorbit):**
   Found: `db/README.md` and `db/INTEGRATION.md` still describe the old
   model (akl/1 as the written format, the magic-only exemption). Fixing
   them next, before the combined run and the rebase.
+- **2026-09-11 ~04:10Z** — `db/README.md` and `db/INTEGRATION.md` refreshed
+  (Sonnet agent): both point to `db/docs/adoption.md` first; INTEGRATION's
+  prose now matches the code (spark/1, `/oauth2/@me`, `source_client`,
+  restore without a window, `format_not_writable`/`format_behind`,
+  `migrated`, stored transitional `upstream`) and links into the guide
+  instead of duplicating it; the generated error table passes its drift
+  check. README gains a Formats section and marks the M2 magic-only note
+  historical. db `tests/tools` 53/53. Next: rebase onto `ldb-v3` as the
+  new branch `ldb-spark-final` (a force push of `ldb-spark` is refused
+  here, and c7 can fast-forward to the new branch just the same).

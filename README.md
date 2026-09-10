@@ -1,18 +1,71 @@
 # `akl-db`
 
+Updated 2026-09-11 (20-spark.md).
+
 The layout-db service (`design/layout-db/`): a Cloudflare Worker with its
-own D1 database and R2 bucket, mirroring cmini's layouts read-only in
-phase 1. Deployable independently of the rest of this repo -- see
-`00-plan.md` §7 for why nothing here imports from `../web`, `../scripts` or
-`../functions`, and nothing outside imports `db/` (enforced by
-`tests/tools/boundary.test.ts`, LDB-G5).
+own D1 database and R2 bucket, mirroring cmini's layouts -- read-only in
+phase 1, now also accepting direct writes. Deployable independently of the
+rest of this repo -- see `00-plan.md` §7 for why nothing here imports from
+`../web`, `../scripts` or `../functions`, and nothing outside imports `db/`
+(enforced by `tests/tools/boundary.test.ts`, LDB-G5).
 
 Full design: `design/layout-db/00-plan.md` (why) and
-`design/layout-db/07-implementation-phase1.md` (what phase 1 ships, slice
-by slice). Invariants: `INVARIANTS.md` (this directory). **Building a
-client (a bot, a site, a script)?** Start at `INTEGRATION.md` (this
-directory) -- the guide for a new client, base URLs, auth, reads/writes,
-the change feed, and a generated error-code appendix.
+`design/layout-db/07-implementation-phase1.md` (what phase 1 shipped, slice
+by slice; `design/layout-db/20-spark.md` is the current plan + ledger).
+Invariants: `INVARIANTS.md` (this directory). **Building a client (a bot, a
+site, a script, or an agent)?** Start at `db/docs/adoption.md` -- the
+primary, code-checked adoption guide: lanes, registration, reads, staying
+current, writes, limits, format authoring, and the full endpoint table.
+`INTEGRATION.md` (this directory) is the older integration note, kept for
+its design-doc cross-references and the generated error-code appendix.
+Both docs, plus the rest of `design/layout-db/*.md`, are rendered onto the
+site as the `/layoutdb/` hub (`design/layout-db/build_site.mjs`, `LDB-G9`).
+
+## Formats
+
+`spark/1` is the one **stored** format (`akl/1` renamed at the same payload
+shape, byte for byte -- `design/layout-db/20-spark.md` decision 1): every
+accepted write ends up stored as `spark/<latest>`, including a
+delete/restore/transfer/PATCH of a record that predates the rename (it is
+converted first, through the one `storedAsSpark` function, `LDB-F16`/`F21`).
+`mana2/1` is the **lowered**, analyzer-facing shape -- produced from
+`spark/1` on read (`?as=mana2/1`) only, never stored; a write naming it is
+`400 format_not_writable`. cmini is an **import source**, not a stored
+format lineage -- the importer converts each upstream detail to spark on
+arrival, and `?as=cmini/1` stays readable through an adapter for legacy
+consumers, but `cmini/1` writes are refused. `akl/1` is a **transitional
+alias** of `spark/1`: reads and writes under that name still work
+(`design/layout-db/20-spark.md` §1.12), and a response to a request naming
+it is relabelled `"akl/1"`, but new clients should read and write `spark/1`
+directly -- the alias is removed on the schedule in `20-spark.md` §6.
+`GET /v1/formats` is the live registry (`role`, `aliases`,
+`can_translate_to`).
+
+**The chain.** A format lineage can grow a second (and later) major without
+breaking older clients: `up`/`down` convert one major to the next/previous
+(down is held or lossless), a write in an older major is chained up to the
+latest automatically (`detail.written_as` on the event), and a blind
+overwrite that would lose newer content is refused with `409
+format_behind` instead of silently discarding it. With only `spark/1`
+registered today the mechanism is exercised by a test-only stub lineage --
+see `db/formats/registry.ts` and `db/docs/adoption.md` §7/§8.
+
+**`upstream` is transitional.** Every record carries `upstream: {source:
+"cmini", id, state: "following" | "forked"} | null`, folded from import and
+write events (`core/upstream.ts`'s `nextUpstream`) -- it answers exactly one
+question, "does the importer still own this record's keys and board", for
+exactly as long as the one-time cmini import keeps running. Nothing outside
+the importer, the daily upstream diff, and the one-time record migration
+reads it for any decision; it is retired along with the import
+(`20-spark.md` decision 16, §6b). Don't build client behavior on it.
+
+**Every edit records its source.** `Write.source: {client, version}` is
+required on every write and folded onto the record and its events: `client`
+is proven (`client:<id>` on the client lane, `discord-app:<app id>` on the
+user lane, `system:cmini-import`/`system:migration` for system writers) --
+never a header or body field a caller controls; `version` is whatever the
+caller sends as `X-Client-Version`. History predating this (`0005_spark.sql`)
+reads `source: {client: "legacy:<via>", version: null}`.
 
 **Writes require `If-Match` (LDB-P2, saltorbit's rule, 2026-09-09):** no client
 may write to an existing record without naming the version it saw. `PUT
@@ -373,9 +426,13 @@ conditions hold.
 `npm run diff-upstream` (`scripts/diff-upstream.mjs`, logic in `src/import/
 diff.ts`, LDB-P5) is the D12 diff: it fetches every layout from upstream and
 from `DB_BASE_URL`, matches by `name.toLowerCase()`, and compares each pair
-on the `cmini/1` projection (`?as=cmini/1`, likes sorted both sides) --
-printing the first differing JSON path for anything that disagrees, plus
-`layout_count` and the `authors` map. Exits 1 on any difference.
+on the `spark/1` projection (`?as=spark/1`, likes sorted, magic excluded) --
+but only for records whose stored `upstream.state` is `"following"`; a
+name-matched record that's `forked` or unmapped is reported `divergent`
+rather than a mismatch, since a forked record is allowed to differ from
+upstream (`design/layout-db/20-spark.md` decision 16, LDB-P5 amended).
+Prints the first differing JSON path for anything that disagrees, plus
+`layout_count` and the `authors` map. Exits 1 on any real difference.
 
 ```bash
 npm run migrate                      # fresh local D1
@@ -483,6 +540,17 @@ LDB-I12 (magic-only writes never fork a record from upstream, `18
 writes through `PUT` (a whole-payload replace, not `PATCH`; see below for
 why), and without LDB-I12 every migrated record would stop receiving
 upstream's `!cmini` key edits the moment this script touched it.
+
+**Historical since `spark/1` (2026-09):** this migration already ran; its
+prerequisite is retired going forward. Decision 6 of
+`design/layout-db/20-spark.md` retires LDB-I12's magic-only exemption, and
+the `isMagicOnlyReplace` check and `detail.magic_only` event marker this
+section's mechanics describe below were deleted in the same rewrite. A
+magic-only write today forks like any other user edit and bumps
+`modified_at`; LDB-I12 is kept only as the historical definition of
+`legacyFollows`, used by the one-time record migration and nothing else
+(`20-spark.md` decision 7, §1.16). Nothing in this section is meant to run
+again -- it's kept for the record of what M2 did and why.
 
 **What `scripts/migrate_magic_rules_to_db.py` does, per layout id** in
 `web/data/magic_rules.json` (the nightly build's served rule sets, seed ⊕
