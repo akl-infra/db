@@ -13,9 +13,10 @@ never forks a record from upstream any more, `followsUpstream` skips it,
 and a `magic` PATCH on a `cmini/1` record lifts it to `akl/1` losslessly
 (§3's "format wrinkle" below, now implemented) -- `import/apply.ts`'s
 `akl/1` branch of case 4 (this doc's own §4 M1 TODO) is implemented too.
-M2's actual seed run (`scripts/migrate_magic_rules_to_db.py` for real) is
-still pending saltorbit's call on the fork question below; the exact procedure
-is `db/README.md`'s new "Magic rules seed (one-time, M2)" section.
+With LDB-I12 the "10 forks" question is moot (saltorbit, 2026-09-10: the
+rule fixed the mechanism, not a per-layout call): the seed forks nothing.
+The exact procedure is `db/README.md`'s "Magic rules seed (one-time, M2)"
+section; preview first, then production.
 
 ## 1. Where rules live today
 
@@ -91,8 +92,8 @@ lifted to `akl/1`. That is the last time akl.gg's copy is read as a
 source. From then on akl.gg's editor writes `PATCH /v1/layouts/{id}
 {magic}` through the existing `/api/db/*` proxy on the user lane
 (I-225/I-226) — owner or admin, the same rule the current PUT enforces —
-and the D1 `magic_rules` PUT is deleted. The 10 layouts whose rules the
-seed would fork (ledger §6 Q2) need saltorbit's call first. Invariant:
+and the D1 `magic_rules` PUT is deleted. The former "10 forks" (ledger §6 Q2) are
+no longer a question: LDB-I12 makes the seed a magic-only write. Invariant:
 **I-2xx** after the seed, akl.gg never writes a rule set anywhere but
 the record (`magic_rules_log` frozen, the PUT route gone).
 
@@ -104,9 +105,8 @@ retire after a parity window with a daily D1-vs-DB diff (the same shape
 as the cmini one). The pipeline's magic-aware harvest keeps reading
 `magic_rules.json`, so nothing changes for stats.
 
-Order: M1 now (DB only, no user-visible change except cmini-flagged
-records losing a flag nobody wanted); M2 after the fork question; M3 with
-W6.
+Order: M1 done; M2 as soon as LDB-I12 is deployed (preview, then
+production); M3 with W6.
 
 ## 5. What this changes for the bot
 
