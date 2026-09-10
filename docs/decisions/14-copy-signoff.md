@@ -2,6 +2,8 @@
 
 Every user-facing string the layout-DB work introduced, flagged `// COPY: sign-off pending` in its source. saltorbit signs off by editing the string in place (or replying "fine") and removing the flag; the invariant tests do not depend on the wording. Generated 2026-09-09T15:51Z from the branch; regenerate with `sh scratchpad/copy-signoff.sh`.
 
+**Note (publish-ux P1, 2026-09-10):** `web/src/copy/db.ts`'s strings were re-worded for `layoutdb` per `design/publish-ux/04-decisions.md` (this snapshot below is pre-rename and NOT regenerated -- see the source file for the current wording, still all `// COPY: sign-off pending`).
+
 ## `web/src/copy/db.ts`
 
 ```ts
