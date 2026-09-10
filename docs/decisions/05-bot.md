@@ -205,10 +205,17 @@ akl alt pairings` — rewritten as-is, no layouts involved.
   (U+2423) under the thumb side that types space; `none` leaves the grid
   byte-identical to today's. Placement (`render/matrix.ts`'s
   `spaceKeyPlacement`/`withSpaceKeys`, akl.gg's `dottedSpaceKeyPos` idea
-  in text form): a new line under the bottom alpha row's LM/RM key plus
-  the board's stagger step, or — when the layout renders a thumb row with
-  keys on that side — on that row, one cell outside the cluster, never
-  crossing the center gap; a key is never overwritten. `view` resolves
+  in text form): a new line under the thumb HOME column (col 3 for `lt`,
+  col 6 for `rt` — one in from the middle finger, saltorbit's correction on
+  the first live render) plus the board's stagger step, or — when the
+  layout renders a thumb row with keys on that side — on that row, one
+  cell outside the cluster, never crossing the center gap; a key is never
+  overwritten. `compare`'s common grid carries NO `␣` (two glyphs on a
+  diff grid collided with a thumb key's `~` and opened a second line —
+  "this render is bad"); its sides are still resolved for the numbers and
+  the NoTh/Thumb rows show the context. The stats block separates its
+  groups with a blank line: Alt · Roll/Rol2/Rol3 · Red(+NoTh/Thumb) ·
+  SFB/SFS · LH/RH. `view` resolves
   the side first (`resolveSpace`, memoised — the same call `rowFor('auto')`
   would make) and reads the row for it; `compare` resolves each layout on
   its own and marks each one's space on the common grid. Worked example
@@ -363,7 +370,7 @@ live in this repo).
 | LDB-B38 | akl.gg's own card-label names -- `alt`/`rol2`/`rol3`/`red`/`sfb` -- are PRIMARY registry aliases of `alternates`/`rolls`/`onehands`/`redirects`/`sfbs` (§2.5 C10), same `Command` instance under both keys. | `bot/tests/commands/ngramVerbs.test.ts` |
 | LDB-B39 | `!spacegrams auto` (§2.5 C13 follow-up) is akl.gg's own auto rule per layout: the bot's side == `autoSpaceSideFrom(keys, computeVowelHand(keys), ltRed, rtRed)` over the bot's own engine's plain Redirect Totals; memoised per (id, rev, corpus), at most two computes per `view`, zero for a harvested record. | `bot/tests/cache/autoSpace.test.ts` (matrix + property), `bot/tests/commands/{read,image}.test.ts`, `bot/tests/copy.test.ts`, `bot/tests/prefs.test.ts` |
 | LDB-B40 | No stats-rendering reply contains a cmini-only stat name (`Onehand`, `One:`, `Rol:`, `Rtl`, `Alternates`, `Inrolls`/`Outrolls`, bare `Rolls`, `Red/Alt`) -- akl.gg's names everywhere (§2.5), the stats block in the card's row order. | `bot/tests/commands/statNames.test.ts`, `bot/tests/render/grid.test.ts`, `bot/tests/commands/ngramVerbs.test.ts`, `bot/tests/copy.test.ts` |
-| LDB-B41 | `view`/`compare`'s key grid shows exactly one `␣` under the thumb side that types space when the layout's resolved space context is `lt`/`rt` (§2.5), byte-identical to today's grid with `none`; against the thumb cluster on that side or under the bottom row's LM/RM column, never across the center gap, never over a key. | `bot/tests/render/matrix.test.ts` (matrix over every fixture x both sides), `bot/tests/render/grid.test.ts` (exact blocks), `bot/tests/commands/read.test.ts` |
+| LDB-B41 | `view`'s key grid shows exactly one `␣` under the thumb side that types space when the layout's resolved space context is `lt`/`rt` (§2.5), byte-identical to today's grid with `none`; against the thumb cluster on that side or under the thumb home column (col 3 / col 6), never across the center gap, never over a key. `compare`'s common grid never carries one. | `bot/tests/render/matrix.test.ts` (matrix over every fixture x both sides), `bot/tests/render/grid.test.ts` (exact blocks), `bot/tests/commands/read.test.ts` |
 | LDB-B42 | The `!image` card draws akl.gg's own dashed space key on each layout's resolved side through the site's own `measureKb` (none on both sides = the pre-B42 card byte-for-byte) and its footer says `<corpus> · SG On` / `· SG Off` (§2.5), never wider than the card for the longest corpus name. | `bot/tests/render/image.test.ts` (per-side synthetic item, footer width, the `graphite-sg-lt` golden), `bot/tests/commands/image.test.ts`, `bot/tests/copy.test.ts` |
 | LDB-B43 | Thumb rows keep their absolute columns (§2.5): every thumb key's x in the bot's grid equals its x in akl.gg's `matrixText` plus the 2-char display margin (LT-home col 3 = 6 into the row, RT-home col 6 = 13); the finger grid and the common matrix agree; the seven thumb-bearing cmini-matrix goldens regenerated, no non-thumb golden changed. | `bot/tests/render/matrix.test.ts` |
 | LDB-B44 | The stats block prints the card's `NoTh`/`Thumb` split of Red exactly when the card shows it -- `red_thumb != null` or a space thumb computed with (§2.5); `compare` on either side qualifying, one-sided nulls netting against 0; the four fields through the ONE adapter (LDB-B5); a thumbless layout with spacegrams off prints today's block. | `bot/tests/render/grid.test.ts`, `bot/tests/commands/read.test.ts`, `bot/tests/commands/statNames.test.ts` |
