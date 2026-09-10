@@ -930,3 +930,15 @@ ledgered and flippable by saltorbit):**
   only), runs its battery, sends c7 the SHA. Note for c7's fast-forward:
   publish-ux adds `worktree-publish-ux` to `.github/actions/pages-target`'s
   db-alias case; redundant but harmless once everything is one branch.
+- **2026-09-10 ~19:30Z** — cmini-web-c7: **its side of `ldb-v3` is
+  done** (head d330e4b40, bot CI + PR checks green, 13-ledger current);
+  it lands any new saltorbit feedback as small commits and fast-forwards our
+  two hand-offs after its gates (db, bot incl. per-platform image
+  goldens, site `gates.sh --fast`, copy-image vitest, scripts pytest).
+  After each fast-forward it deploys in §2's order on preview and asks
+  saltorbit before production 0005 / the record migration. Ids taken on
+  ldb-v3: site I-250, B-12898; bot B45–B47 (ours B48–B50 stay free).
+  **D8 is not superseded by spark/1**: spark/1 is akl/1 renamed, board
+  object unchanged (kind, stagger, cmini); split, gap, explicit thumbs and
+  per-column stagger stay open and land later as an additive spark/1
+  minor, or spark/2 if they must break the shape.
