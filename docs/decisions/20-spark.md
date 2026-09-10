@@ -1065,3 +1065,15 @@ ledgered and flippable by saltorbit):**
   The lead reviews each, cherry-picks S4/S6 onto `ldb-spark` after S3b
   commits, then removes their worktrees. S5 waits for S4 (it generalises
   `migrate.ts`), S7 for S5, S8's guide for the final API.
+- **2026-09-10 ~23:40Z** — S4 ready on `ldb-spark-s4` (90225cc5f; db
+  15 933 passed, +19; its pytest 5/5; the conformance sweep forced 11
+  admin-migrate fixtures and the exhaustive `changes.ts` kind maps). It
+  found a real gap, which the lead traced to S3a: `upstreamOf` returned
+  `null` for any record with an `import_map` row that isn't following. That
+  covers a mapped-but-never-written record (import case 2) AND every record
+  imported then edited by a user. Result: the migration's backfill arm
+  would re-select them forever, and a genuinely forked record would lose
+  its `forked` state. Fix sent back to the S4 agent: mapped + not following
+  → `{source: "cmini", id, state: "forked"}`; only records with no mapping
+  are `null`. Tests: the fallback matrix, plus P12 convergence on both
+  shapes (second tick selects nothing; the script terminates).
