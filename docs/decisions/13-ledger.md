@@ -60,8 +60,8 @@ Coupling rule: the DB refuses writes without `If-Match`; deploy a DB change and 
 
 ## 4. Repo, branch, worktrees
 
-- `main`: the site as it runs + proposal pages. 10+ commits ahead of this branch's base (bridge, popovers, backup); this branch cherry-picked main's Pages-rename CI fix.
-- `worktree-layout-db`: the integration branch, pushed, fast-forward only. **Before the PR to main:** rebase onto `origin/main`; invariant ids are already renumbered past main's I-236 (site I-237..I-243); reconcile `design/cmini-write/06-holistic-proposal.md` (exists on main, not here).
+- `main`: the site as it runs + proposal pages.
+- `worktree-layout-db`: the integration branch, pushed. **Rebased onto `origin/main` 2026-09-10** (148 commits replayed; the reconcile commit re-inserted main's Origin-bridge invariants, renumbered the branch's colliding I-221 → I-244 and 30 catalog ids → B-12840..B-12869, and merged the pill CSS). Merging it into main flips nothing on production: the site's DB surfaces render only when `GET /api/db/me` answers 200, which needs the `DB_BASE_URL` repo variable (W6 step 1, saltorbit's).
 - Slice branches `ldb-*` and agent worktrees `.claude/worktrees/{worktree-ldb-*,agent-*}`: all merged; safe to delete (`git worktree remove`, `git branch -D`).
 - Layout: `db/` (Worker; `db/formats` = `@akl/layout-formats`), `bot/`, `packages/akl-core` (= `@akl/core` from `web/src/core` + `copy`), `web/src/**` (site), `functions/api/db/*` (proxy), `scripts/{sync_cmini_data.py,migrate_magic_rules_to_db.py,verify_magic_migration.py}`, `scripts/split/split-db.sh --dry-run` (the future repo split, green), `design/layout-db/00–15`.
 - **Client onboarding:** `db/INTEGRATION.md` — the guide a new bot/site/script reads (reads, both auth lanes with proven JS/Python signers, writes + If-Match retry pattern, feed/SSE/webhooks/dump, recipes, etiquette, generated error appendix pinned by LDB-G8). Every example is real preview output.
