@@ -32,8 +32,23 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { repoLayout } from "./repo.ts";
+// LDB-G10's own imports (below): unlike LDB-G9 above, this doesn't reach
+// outside db/ and isn't skipped once db/ splits out -- the guide, the
+// router, the error factories and the registry all live inside db/.
+import { app } from "../../src/index";
+import { chainViolations, registerForTest } from "../../formats/registry.ts";
+import { T1, T2, T2_MISSING_UP, T2_MISSING_DOWN, T2_MISSING_EDITS } from "../formats/stub-lineage.ts";
+// gen-error-table.mjs is a plain script (no .d.ts) -- typed locally, same
+// posture db/tests/tools/error-table.test.ts's own import already takes.
+// @ts-expect-error -- see above
+import * as genErrorTable from "../../scripts/gen-error-table.mjs";
 
 const { hasSiteTree, repoRoot: REPO_ROOT } = repoLayout();
+// db/'s own root, independent of repoLayout()'s monorepo/split distinction
+// (REPO_ROOT above is db/'s PARENT in the monorepo, db/ itself once split;
+// LDB-G10 only ever reads files inside db/, so it needs db/ itself, always).
+const DB_ROOT = path.resolve(import.meta.dirname, "..", "..");
+const ADOPTION_GUIDE_PATH = path.join(DB_ROOT, "docs", "adoption.md");
 const BUILD_SITE_PATH = path.join(REPO_ROOT, "design", "layout-db", "build_site.mjs");
 
 // Minimal shape of design/layout-db/build_site.mjs's exports this file
@@ -259,5 +274,160 @@ describe("[LDB-G9] layoutdb docs hub", () => {
     for (const [relPath, content] of files) {
       expect(fs.readFileSync(path.join(outDir, relPath), "utf8")).toEqual(content);
     }
+  });
+});
+
+// -- [LDB-G10] The adoption guide (db/docs/adoption.md, 20-spark.md S8)
+// covers the API exactly. Unlike LDB-G9 above, this never skips itself once
+// db/ splits out -- the guide, the router, the error factories and the
+// registry all live inside db/, none of it in design/layout-db/.
+
+function readAdoptionGuide(): string {
+  return fs.readFileSync(ADOPTION_GUIDE_PATH, "utf8");
+}
+
+// A plain markdown pipe table, located by its header row's cells (exact,
+// case-sensitive match against `headerCells`) so the guide's several pipe
+// tables (the endpoint table, the error table, and others) are never
+// confused for one another -- no comment markers needed (the renderer
+// this guide targets, design/federation/build_page.mjs's `render`, has no
+// raw-HTML-comment passthrough, so a marker would render as visible text).
+function findPipeTable(md: string, headerCells: string[]): string[][] {
+  const lines = md.split("\n");
+  const cells = (line: string) =>
+    line.replace(/^\|/, "").replace(/\|\s*$/, "").split("|").map((c) => c.trim());
+  for (let i = 0; i < lines.length - 1; i++) {
+    const line = lines[i]!;
+    if (!line.startsWith("|") || !/^\|[\s:|-]+\|$/.test(lines[i + 1]!)) continue; // header, then a `---` separator row (internal `|`s included in the class)
+    if (JSON.stringify(cells(line)) !== JSON.stringify(headerCells)) continue;
+    const rows: string[][] = [];
+    for (let j = i + 2; j < lines.length && lines[j]!.startsWith("|"); j++) rows.push(cells(lines[j]!));
+    return rows;
+  }
+  throw new Error(`findPipeTable: no table with header ${JSON.stringify(headerCells)} in ${ADOPTION_GUIDE_PATH}`);
+}
+
+// "`/v1/layouts/:ref`" -> "/v1/layouts/:ref"; a cell with no backticks is
+// returned trimmed, unchanged.
+function unbacktick(cell: string): string {
+  const m = /^`([^`]*)`$/.exec(cell.trim());
+  return m ? m[1]! : cell.trim();
+}
+
+// The lines strictly between `startHeading` and either `endHeading` (if
+// given) or the next heading (`#`, `##` or `###`) after it -- what one
+// section's own body reads as, for the bullet-name extraction below.
+function extractSection(md: string, startHeading: string, endHeading: string | null): string {
+  const lines = md.split("\n");
+  const startIdx = lines.findIndex((l) => l.trim() === startHeading);
+  if (startIdx === -1) throw new Error(`extractSection: heading '${startHeading}' not found in ${ADOPTION_GUIDE_PATH}`);
+  let endIdx = lines.length;
+  if (endHeading !== null) {
+    const idx = lines.findIndex((l, i) => i > startIdx && l.trim() === endHeading);
+    if (idx !== -1) endIdx = idx;
+  } else {
+    for (let i = startIdx + 1; i < lines.length; i++) {
+      if (/^#{1,3}\s/.test(lines[i]!)) {
+        endIdx = i;
+        break;
+      }
+    }
+  }
+  return lines.slice(startIdx + 1, endIdx).join("\n");
+}
+
+// A section's own `- \`name\`: ...` bullets -- the format-author checklist's
+// one bullet-per-member shape (adoption.md's "Every stored format exports"
+// / "Additionally, for a major > 1" lists).
+function extractBacktickBulletNames(section: string): string[] {
+  const out: string[] = [];
+  for (const line of section.split("\n")) {
+    const m = /^-\s+`([A-Za-z]+)/.exec(line);
+    if (m) out.push(m[1]!);
+  }
+  return out;
+}
+
+// Every non-ALL entry in the live Hono router (`app.routes`, exported by
+// src/index.ts for exactly this kind of black-box enumeration -- the same
+// export tests/auth/routes.test.ts's [LDB-A1] already walks). "ALL" is
+// `app.use()`'s own registration (the actor/rate-limit/nudge middleware),
+// never a route a client calls.
+function routerRoutes(): Set<string> {
+  const out = new Set<string>();
+  for (const route of app.routes) {
+    if (route.method === "ALL") continue;
+    out.add(`${route.method} ${route.path}`);
+  }
+  return out;
+}
+
+describe("[LDB-G10] the adoption guide covers the API exactly", () => {
+  it("[LDB-G10] the guide's endpoint table (method + path) equals the router's own registered routes", () => {
+    const rows = findPipeTable(readAdoptionGuide(), ["METHOD", "PATH", "auth", "body", "success", "errors"]);
+    expect(rows.length).toBeGreaterThan(0);
+    const guideRoutes = new Set(rows.map((r) => `${unbacktick(r[0]!)} ${unbacktick(r[1]!)}`));
+    const liveRoutes = routerRoutes();
+    expect(liveRoutes.size).toBeGreaterThan(0);
+    expect([...guideRoutes].sort()).toEqual([...liveRoutes].sort());
+  });
+
+  it("[LDB-G10] every error code the guide's error table lists is one the error factories can produce, and every factory code is in the guide", () => {
+    const rows = findPipeTable(readAdoptionGuide(), ["status", "error", "message", "thrown by"]);
+    expect(rows.length).toBeGreaterThan(0);
+    const guideCodes = new Set(rows.map((r) => unbacktick(r[1]!)));
+
+    const parseErrors = genErrorTable.parseErrors as () => { code: string }[];
+    const factoryCodes = new Set(parseErrors().map((r) => r.code));
+    expect(factoryCodes.size).toBeGreaterThan(0);
+
+    expect([...guideCodes].sort()).toEqual([...factoryCodes].sort());
+  });
+
+  it("[LDB-G10] the format-author checklist names every member the registry requires, for a stored format and for a major > 1 -- enumerated from LDB-F18's own required-member fixtures, not hard-coded", () => {
+    // Baseline: T1 (db/tests/formats/stub-lineage.ts) is LDB-F18's own
+    // conforming major-1 fixture -- zero chainViolations, same assertion
+    // chain.test.ts's "every REAL registered module is chain-clean" makes.
+    // Every key it carries is exactly what a major-1 FormatModule needs.
+    expect(chainViolations(T1)).toEqual([]);
+    const requiredStored = Object.keys(T1);
+    expect(requiredStored.length).toBeGreaterThan(0);
+
+    // Additionally for major > 1: derived from the SAME three "missing
+    // piece" mutants LDB-F18's own test proves chainViolations catches
+    // (chain.test.ts's "chainViolations catches each missing piece" block).
+    // For each mutant, the one key it lacks that T2 (the conforming major-2
+    // fixture) has is the required member -- confirmed here by running
+    // chainViolations and checking it actually flags THAT key missing, so
+    // this list is behaviorally derived, never a hard-coded ["up","down",
+    // "edits"] literal.
+    const requiredMajorGt1: string[] = [];
+    for (const mutant of [T2_MISSING_UP, T2_MISSING_DOWN, T2_MISSING_EDITS]) {
+      const t2Keys = Object.keys(T2) as (keyof typeof T2)[];
+      const missingKey = t2Keys.find((k) => T2[k] !== undefined && (mutant as typeof T2)[k] === undefined);
+      expect(missingKey, "each mutant must lack exactly one key T2 has").toBeDefined();
+
+      const unT1 = registerForTest(T1);
+      const unMutant = registerForTest(mutant);
+      let errs: string[];
+      try {
+        errs = chainViolations(mutant);
+      } finally {
+        unMutant();
+        unT1();
+      }
+      expect(errs.some((e) => e.includes(`missing '${missingKey}'`)), `chainViolations should flag '${missingKey}' missing: ${JSON.stringify(errs)}`).toBe(
+        true,
+      );
+      requiredMajorGt1.push(missingKey as string);
+    }
+    expect(requiredMajorGt1.length).toBe(3);
+
+    const guide = readAdoptionGuide();
+    const storedSection = extractSection(guide, "### Every stored format exports", "### Additionally, for a major > 1 of an existing lineage");
+    const majorSection = extractSection(guide, "### Additionally, for a major > 1 of an existing lineage", null);
+
+    expect(new Set(extractBacktickBulletNames(storedSection))).toEqual(new Set(requiredStored));
+    expect(new Set(extractBacktickBulletNames(majorSection))).toEqual(new Set(requiredMajorGt1));
   });
 });

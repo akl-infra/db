@@ -1185,3 +1185,21 @@ ledgered and flippable by saltorbit):**
   per-slice runs: site `gates.sh --fast` ALL PASS (typecheck, lint,
   archlint, behaviors, dbtest, datasync); scripts pytest (§0 set + the
   verify and migrate-records tests) 127 passed / 1 skipped.
+- **2026-09-11 ~03:40Z** — **S8 guide landed** (Sonnet agent).
+  `db/docs/adoption.md` (880 lines): quick start for agents, lanes and
+  source client, registration and the signing recipe against the vectors,
+  reads (spark/1, mana2/1 as the lowered form, full=1, formats, history,
+  rev, the akl/1 alias), staying current (changes, SSE, webhooks, dumps,
+  per-major dumps, folding `migrated`, `upstream` transitional), writes
+  (If-Match/stale, format_behind, format_not_writable, restore, likes,
+  X-Client-Version everywhere), limits and the 29-row error table, format
+  authoring (new format, new major, lowering to mana2), clients moving
+  across majors, and the 44-route endpoint table; examples trimmed from
+  real conformance fixtures. LDB-G10: the router's routes = the endpoint
+  table; the guide's error codes = `gen-error-table.mjs`'s `parseErrors()`;
+  the author checklist = the members `chainViolations` actually requires
+  (derived from the stub mutants, not hard-coded). db vitest 16 071
+  passed; the hub builds 23 docs with the guide second in the nav.
+  Found: `db/README.md` and `db/INTEGRATION.md` still describe the old
+  model (akl/1 as the written format, the magic-only exemption). Fixing
+  them next, before the combined run and the rebase.
