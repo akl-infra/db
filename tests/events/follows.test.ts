@@ -138,3 +138,64 @@ describe("followsUpstream matrix", () => {
     expect(await followsUpstream(db, id)).toBe(false);
   });
 });
+
+// LDB-I12 (design/layout-db/18-command-decisions.md §2 item 1;
+// 17-magic-ownership.md's M2 prerequisite): a magic-only `updated` event
+// (`detail: {fields: ["magic"], magic_only: true}` -- what `core/write.ts`'s
+// `patchLayout` appends for a PATCH whose body is only `{magic}`) is
+// skipped when finding "the latest write" -- constructed directly here via
+// `appendWrite` rather than through `patchLayout`/HTTP so this stays a pure
+// events -> boolean unit test, same style as the LDB-I2a matrix above.
+async function appendMagicOnlyUpdate(id: string, name: string): Promise<void> {
+  await appendWrite(db, clock, {
+    kind: "updated",
+    layoutId: id,
+    name,
+    owner: "owner-a",
+    modified_at: clock(),
+    format: "akl/1",
+    payload: { keys: {}, magic: { rules: [{ inputs: "aa", output: "ab" }] } },
+    actor: "owner-a",
+    via: "discord",
+    detail: { fields: ["magic"], magic_only: true },
+  });
+}
+
+describe("[LDB-I12] followsUpstream skips magic-only rev-bumping events", () => {
+  it("[LDB-I12] {imported, magic-only updated} -> T (a magic-only PATCH never forks a following record)", async () => {
+    const id = await create("follows-i12-1");
+    await appendMagicOnlyUpdate(id, "follows-i12-1");
+    expect(await followsUpstream(db, id)).toBe(true);
+  });
+
+  it("[LDB-I12] {imported, magic-only updated x2} -> T (any number of magic-only writes stack)", async () => {
+    const id = await create("follows-i12-2");
+    await appendMagicOnlyUpdate(id, "follows-i12-2");
+    await appendMagicOnlyUpdate(id, "follows-i12-2");
+    expect(await followsUpstream(db, id)).toBe(true);
+  });
+
+  it("[LDB-I12] {imported, magic-only updated, updated (real fork)} -> F (a later real write still forks)", async () => {
+    const id = await create("follows-i12-3");
+    await appendMagicOnlyUpdate(id, "follows-i12-3");
+    await appendWrite(db, clock, {
+      kind: "updated",
+      layoutId: id,
+      name: "follows-i12-3",
+      owner: "owner-a",
+      modified_at: clock(),
+      format: "akl/1",
+      payload: { keys: { a: { row: 0, col: 0, finger: "LP" } }, magic: { rules: [{ inputs: "aa", output: "ab" }] } },
+      actor: "owner-a",
+      via: "discord",
+      detail: { fields: ["fingermap", "magic"] }, // NOT magic-only: magic_only is only ever set when fields === ["magic"]
+    });
+    expect(await followsUpstream(db, id)).toBe(false);
+  });
+
+  it("[LDB-I12] {created (human), magic-only updated} -> F (a magic-only PATCH never REVIVES a follow that wasn't there)", async () => {
+    const id = await createByHumanOwner("follows-i12-4");
+    await appendMagicOnlyUpdate(id, "follows-i12-4");
+    expect(await followsUpstream(db, id)).toBe(false);
+  });
+});

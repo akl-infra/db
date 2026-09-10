@@ -162,6 +162,66 @@ describe("[LDB-A7] PUT /v1/layouts/{ref}: owner or admin", () => {
     await expect(res.json()).resolves.toMatchObject({ error: "if_match_required" });
     expect(await eventsFor(record.id)).toHaveLength(1); // just the seed's own "created"
   });
+
+  // LDB-I12 (design/layout-db/18-command-decisions.md §2 item 1): "the
+  // migration's equivalent" of a magic-only PATCH -- `scripts/
+  // migrate_magic_rules_to_db.py` writes through PUT (a whole-payload
+  // replace), never PATCH. A PUT whose payload changes ONLY `magic` (even
+  // across a cmini/1 -> akl/1 format lift, exactly what that script does)
+  // must not fork the record from upstream either.
+  it("[LDB-I12] a PUT changing ONLY magic (same format) is marked magic_only", async () => {
+    const record = await seed("akl/1");
+    const fake = actorFixture();
+    const headers = register(fake, `tok-${uniqueName("put-magiconly")}`, OWNER);
+
+    const res = await writeFetch(
+      `/v1/layouts/${record.id}`,
+      "PUT",
+      { ...headers, "If-Match": `"${record.rev}"` },
+      { format: "akl/1", payload: { ...(record.payload as object), magic: { rules: [{ inputs: "aa", output: "ab" }] } } },
+    );
+    expect(res.status).toBe(200);
+    const events = await eventsFor(record.id);
+    expect(events.at(-1)).toMatchObject({ kind: "updated", detail: { magic_only: true } });
+  });
+
+  it("[LDB-I12] a PUT lifting cmini/1 -> akl/1 with ONLY magic added (the migration's own shape) is marked magic_only", async () => {
+    const record = await seed("cmini/1"); // CMINI_PAYLOAD = {board: "ortho", keys: {}}
+    const fake = actorFixture();
+    const headers = register(fake, `tok-${uniqueName("put-lift-magiconly")}`, OWNER);
+
+    // The migration's own recipe: GET ?as=akl/1 (fromCmini's translation),
+    // strip to {magic_keys, chiral_keys, adaptive_swaps}, PUT it back with
+    // ONLY magic changed -- keys/board/free/x all exactly what fromCmini
+    // would have produced from the record's own current cmini/1 payload.
+    const res = await writeFetch(
+      `/v1/layouts/${record.id}`,
+      "PUT",
+      { ...headers, "If-Match": `"${record.rev}"` },
+      { format: "akl/1", payload: { keys: {}, board: { kind: "ortho", cmini: "ortho" }, magic: { rules: [{ inputs: "aa", output: "ab" }] } } },
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json<{ format: string }>();
+    expect(body.format).toBe("akl/1");
+    const events = await eventsFor(record.id);
+    expect(events.at(-1)).toMatchObject({ kind: "updated", detail: { magic_only: true } });
+  });
+
+  it("[LDB-I12] a PUT changing magic AND something else (keys) is NOT magic_only -- forks as before", async () => {
+    const record = await seed("akl/1");
+    const fake = actorFixture();
+    const headers = register(fake, `tok-${uniqueName("put-not-magiconly")}`, OWNER);
+
+    const res = await writeFetch(
+      `/v1/layouts/${record.id}`,
+      "PUT",
+      { ...headers, "If-Match": `"${record.rev}"` },
+      { format: "akl/1", payload: { keys: { a: { row: 0, col: 0, finger: "LP" } }, magic: { rules: [{ inputs: "aa", output: "ab" }] } } },
+    );
+    expect(res.status).toBe(200);
+    const events = await eventsFor(record.id);
+    expect(events.at(-1)).toMatchObject({ kind: "updated", detail: null });
+  });
 });
 
 describe("[LDB-A7] DELETE /v1/layouts/{ref}: owner or admin", () => {
@@ -468,5 +528,164 @@ describe("[LDB-A5] client-lane writes: via: client:<id>", () => {
     const row = await db.prepare("SELECT via FROM events WHERE layout_id = ? ORDER BY seq DESC LIMIT 1").bind(record.id).first<{ via: string }>();
     expect(row?.via.startsWith("client:")).toBe(true);
     expect(row?.via).not.toBe("import:cmini"); // I2a: "follows upstream" is via === 'import:cmini' exactly
+  });
+});
+
+// [LDB-P9] design/layout-db/18-command-decisions.md §2 D1 (saltorbit:
+// "tombstoned name carries likes for whoever takes it. it's a quirk people
+// like"): `POST /v1/layouts` on a name a tombstone currently holds copies
+// that tombstone's likes onto the new record, `via: "name_inherited"`,
+// `detail: {from: <tombstone id>}`.
+describe("[LDB-P9] a re-added tombstoned name inherits the tombstone's likes", () => {
+  interface CreatedBody {
+    id: string;
+    rev: number;
+    name: string;
+    owner: string;
+    like_count: number;
+  }
+
+  async function createViaHttp(headers: Record<string, string>, name: string): Promise<CreatedBody> {
+    const res = await writeFetch("/v1/layouts", "POST", headers, { name, format: "cmini/1", payload: CMINI_PAYLOAD });
+    expect(res.status).toBe(201);
+    return res.json<CreatedBody>();
+  }
+
+  async function likeAs(id: string, headers: Record<string, string>): Promise<void> {
+    const res = await writeFetch(`/v1/layouts/${id}/like`, "PUT", headers);
+    expect(res.status).toBe(200);
+  }
+
+  async function deleteViaHttp(id: string, rev: number, headers: Record<string, string>): Promise<void> {
+    const res = await writeFetch(`/v1/layouts/${id}`, "DELETE", { ...headers, "If-Match": `"${rev}"` });
+    expect(res.status).toBe(200);
+  }
+
+  it("[LDB-P9] same owner: delete then re-add the same name -> the new record inherits the tombstone's likes", async () => {
+    const fake = actorFixture();
+    const owner = register(fake, `tok-${uniqueName("p9-owner")}`, "p9-owner-same");
+    const liker1 = register(fake, `tok-${uniqueName("p9-l1")}`, "p9-liker-1");
+    const liker2 = register(fake, `tok-${uniqueName("p9-l2")}`, "p9-liker-2");
+
+    const name = uniqueName("p9-same");
+    const first = await createViaHttp(owner, name);
+    await likeAs(first.id, liker1);
+    await likeAs(first.id, liker2);
+    await deleteViaHttp(first.id, first.rev, owner);
+
+    const second = await createViaHttp(owner, name);
+    expect(second.like_count).toBe(2); // the create's own 201 response already reflects the inherited likes
+
+    const likeRows = await db.prepare("SELECT user_id FROM likes WHERE layout_id = ? ORDER BY user_id ASC").bind(second.id).all<{ user_id: string }>();
+    expect(likeRows.results.map((r) => r.user_id)).toEqual(["p9-liker-1", "p9-liker-2"]);
+
+    const events = await eventsFor(second.id);
+    expect(events.map((e) => e.kind)).toEqual(["created", "liked", "liked"]);
+    for (const e of events.slice(1)) {
+      expect(e.via).toBe("name_inherited");
+      expect(e.detail).toEqual({ from: first.id });
+    }
+  });
+
+  it("[LDB-P9] different owner: someone else re-adding the name inherits the tombstone's likes too", async () => {
+    const fake = actorFixture();
+    const origOwner = register(fake, `tok-${uniqueName("p9-orig")}`, "p9-owner-orig");
+    const newOwner = register(fake, `tok-${uniqueName("p9-new")}`, "p9-owner-new");
+    const liker = register(fake, `tok-${uniqueName("p9-l3")}`, "p9-liker-3");
+
+    const name = uniqueName("p9-diff");
+    const first = await createViaHttp(origOwner, name);
+    await likeAs(first.id, liker);
+    await deleteViaHttp(first.id, first.rev, origOwner);
+
+    const second = await createViaHttp(newOwner, name);
+    expect(second.owner).toBe("p9-owner-new");
+    expect(second.like_count).toBe(1);
+
+    const events = await eventsFor(second.id);
+    expect(events.map((e) => e.kind)).toEqual(["created", "liked"]);
+    expect(events[1]).toMatchObject({ via: "name_inherited", actor: "p9-liker-3" });
+    expect(events[1]!.detail).toEqual({ from: first.id });
+  });
+
+  it("[LDB-P9] no tombstone ever held the name -> no inherited likes", async () => {
+    const fake = actorFixture();
+    const owner = register(fake, `tok-${uniqueName("p9-fresh")}`, "p9-owner-fresh");
+    const rec = await createViaHttp(owner, uniqueName("p9-fresh-name"));
+    expect(rec.like_count).toBe(0);
+    expect(await eventsFor(rec.id)).toHaveLength(1); // just "created"
+  });
+
+  it("[LDB-P9] a tombstone with zero likes -> re-add inherits nothing", async () => {
+    const fake = actorFixture();
+    const owner = register(fake, `tok-${uniqueName("p9-zero")}`, "p9-owner-zero");
+    const name = uniqueName("p9-zero-likes");
+    const first = await createViaHttp(owner, name);
+    await deleteViaHttp(first.id, first.rev, owner);
+
+    const second = await createViaHttp(owner, name);
+    expect(second.like_count).toBe(0);
+    expect(await eventsFor(second.id)).toHaveLength(1); // just "created" -- no liked events
+  });
+
+  it("[LDB-P9] restore-after-inherit: the tombstone stays restorable, and both records end up carrying the like (accepted per 18)", async () => {
+    const fake = actorFixture();
+    const owner = register(fake, `tok-${uniqueName("p9-restore")}`, "p9-owner-restore");
+    const liker = register(fake, `tok-${uniqueName("p9-restore-l")}`, "p9-liker-restore");
+
+    const name = uniqueName("p9-restore");
+    const first = await createViaHttp(owner, name);
+    await likeAs(first.id, liker);
+    await deleteViaHttp(first.id, first.rev, owner);
+
+    const second = await createViaHttp(owner, name);
+    expect(second.like_count).toBe(1);
+
+    // LDB-P8: restoring onto a name a LIVE record still holds is refused
+    // (409 name_taken, tests/api/restore.test.ts's own "a live holder of
+    // the name meanwhile" case) -- rename the re-add away first so the
+    // tombstone's own name is free again.
+    const renameRes = await writeFetch(
+      `/v1/layouts/${second.id}`,
+      "PATCH",
+      { ...owner, "If-Match": `"${second.rev}"` },
+      { name: uniqueName("p9-restore-moved") },
+    );
+    expect(renameRes.status).toBe(200);
+
+    const restoreRes = await writeFetch(`/v1/layouts/${first.id}/restore`, "POST", owner);
+    expect(restoreRes.status).toBe(200);
+    const restored = await restoreRes.json<{ deleted: boolean; name: string }>();
+    expect(restored.deleted).toBe(false);
+    expect(restored.name).toBe(name);
+
+    // Two live records now, each independently carrying its OWN copy of
+    // the like: the original's (never touched by the inherit step) and
+    // the re-add's (copied at create time) -- accepted per 18's own text
+    // ("restoring then yields two records each carrying the likes").
+    const firstLikes = await db.prepare("SELECT user_id FROM likes WHERE layout_id = ?").bind(first.id).all<{ user_id: string }>();
+    const secondLikes = await db.prepare("SELECT user_id FROM likes WHERE layout_id = ?").bind(second.id).all<{ user_id: string }>();
+    expect(firstLikes.results.map((r) => r.user_id)).toEqual(["p9-liker-restore"]);
+    expect(secondLikes.results.map((r) => r.user_id)).toEqual(["p9-liker-restore"]);
+  });
+
+  it("[LDB-P9] /v1/changes shows the inherited 'liked' events with via: name_inherited", async () => {
+    const fake = actorFixture();
+    const owner = register(fake, `tok-${uniqueName("p9-feed")}`, "p9-owner-feed");
+    const liker = register(fake, `tok-${uniqueName("p9-feed-l")}`, "p9-liker-feed");
+
+    const name = uniqueName("p9-feed");
+    const first = await createViaHttp(owner, name);
+    await likeAs(first.id, liker);
+    await deleteViaHttp(first.id, first.rev, owner);
+    const second = await createViaHttp(owner, name);
+
+    const res = await writeFetch(`/v1/changes?since=0&layout=${second.id}`, "GET", owner);
+    expect(res.status).toBe(200);
+    const body = await res.json<{ items: { kind: string; via: string; detail: unknown }[] }>();
+    const liked = body.items.filter((e) => e.kind === "liked");
+    expect(liked).toHaveLength(1);
+    expect(liked[0]!.via).toBe("name_inherited");
+    expect(liked[0]!.detail).toEqual({ from: first.id });
   });
 });

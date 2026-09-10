@@ -88,6 +88,13 @@ export interface Like {
   layoutId: string;
   userId: string;
   via: string;
+  // LDB-P9 (design/layout-db/18-command-decisions.md §2 D1): a like
+  // inherited from a re-added name's tombstone carries `{from: <tombstone
+  // id>}` so a feed reader can tell an inherited like from a fresh one
+  // without a second lookup. Every OTHER caller of `appendLike` omits this
+  // (undefined -> the same `detail_json: NULL` every like event has always
+  // stored).
+  detail?: object;
 }
 
 // A parsed `events` row (03 §5's wire shape, D1's 0/1 and JSON-string
@@ -382,9 +389,9 @@ export async function appendLike(
       db
         .prepare(
           `INSERT INTO events (at, kind, layout_id, name, owner, rev, actor, via, admin, detail_json, before_json, after_json)
-           VALUES (?, ?, ?, ?, ?, NULL, ?, ?, 0, NULL, NULL, NULL)`,
+           VALUES (?, ?, ?, ?, ?, NULL, ?, ?, 0, ?, NULL, NULL)`,
         )
-        .bind(at, l.kind, l.layoutId, current.name, current.owner, l.userId, l.via),
+        .bind(at, l.kind, l.layoutId, current.name, current.owner, l.userId, l.via, l.detail === undefined ? null : canonical(l.detail)),
       db
         .prepare("UPDATE layouts SET like_count = (SELECT COUNT(*) FROM likes WHERE layout_id = ?) WHERE id = ?")
         .bind(l.layoutId, l.layoutId),

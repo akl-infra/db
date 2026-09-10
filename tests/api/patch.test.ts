@@ -168,26 +168,31 @@ describe("[LDB-P1] PATCH verb x format matrix", () => {
     });
   }
 
-  it("[LDB-P4] magic on akl/1 -> 200, kind updated", async () => {
+  it("[LDB-P4] [LDB-I12] magic on akl/1 -> 200, kind updated, detail.magic_only", async () => {
     const record = await seed("akl/1");
     const headers = ownerHeaders(`tok-${uniqueName("magic")}`);
     const res = await patch(record.id, headers, { magic: { rules: [{ inputs: "aa", output: "ab" }] } }, `"${record.rev}"`);
     expect(res.status).toBe(200);
     const events = await eventsFor(record.id);
-    expect(events.at(-1)).toMatchObject({ kind: "updated", detail: { fields: ["magic"] } });
+    expect(events.at(-1)).toMatchObject({ kind: "updated", detail: { fields: ["magic"], magic_only: true } });
     const body = await res.json<{ payload: { magic: { rules: unknown[] } } }>();
     expect(body.payload.magic.rules).toHaveLength(1);
   });
 
-  it("magic on cmini/1 -> 400 unsupported_for_format", async () => {
+  it("[LDB-I12] magic on cmini/1 -> 200, lifts to akl/1 (fromCmini), keys/board preserved, detail.magic_only", async () => {
     const record = await seed("cmini/1");
     const headers = ownerHeaders(`tok-${uniqueName("magic-cmini")}`);
     const res = await patch(record.id, headers, { magic: { rules: [{ inputs: "aa", output: "ab" }] } }, `"${record.rev}"`);
-    expect(res.status).toBe(400);
-    await expect(res.json()).resolves.toMatchObject({ error: "unsupported_for_format", format: "cmini/1", verb: "magic" });
-    // nothing applied -- rev unchanged
-    const row = await db.prepare("SELECT rev FROM layouts WHERE id = ?").bind(record.id).first<{ rev: number }>();
-    expect(row?.rev).toBe(record.rev);
+    expect(res.status).toBe(200);
+    const events = await eventsFor(record.id);
+    expect(events.at(-1)).toMatchObject({ kind: "updated", detail: { fields: ["magic"], magic_only: true } });
+    const body = await res.json<{ format: string; payload: { keys: unknown; board: unknown; magic: { rules: unknown[] } } }>();
+    expect(body.format).toBe("akl/1"); // lifted (cmini/1 has no magic idiom of its own)
+    expect(body.payload.keys).toEqual(CMINI_KEYED.keys); // fromCmini: lossless
+    expect(body.payload.board).toEqual({ kind: "ortho", cmini: "ortho" }); // fromCmini's boardFromCmini("ortho")
+    expect(body.payload.magic.rules).toHaveLength(1);
+    const row = await db.prepare("SELECT format FROM layouts WHERE id = ?").bind(record.id).first<{ format: string }>();
+    expect(row?.format).toBe("akl/1");
   });
 
   it("a hint-less colstag board on cmini/1 -> 400 unsupported_for_format", async () => {
@@ -214,10 +219,10 @@ describe("[LDB-P1] combined patches", () => {
     expect(body.payload.keys.a?.finger).toBe("RP");
   });
 
-  it("a failing later verb (magic on cmini/1) leaves the earlier ones (fingermap) unapplied -- one batch or nothing", async () => {
+  it("a failing later verb (a hint-less colstag board on cmini/1) leaves the earlier ones (fingermap) unapplied -- one batch or nothing", async () => {
     const record = await seed("cmini/1");
     const headers = ownerHeaders(`tok-${uniqueName("partial")}`);
-    const res = await patch(record.id, headers, { fingermap: { a: "RP" }, magic: { rules: [{ inputs: "aa", output: "ab" }] } }, `"${record.rev}"`);
+    const res = await patch(record.id, headers, { fingermap: { a: "RP" }, board: { kind: "colstag", stagger: [0] } }, `"${record.rev}"`);
     expect(res.status).toBe(400);
     await expect(res.json()).resolves.toMatchObject({ error: "unsupported_for_format" });
 
@@ -269,5 +274,77 @@ describe("[LDB-N1] PATCH {name} rename semantics", () => {
 
     const postRes = await writeFetch("/v1/layouts", "POST", headers, { name: oldName, format: "cmini/1", payload: CMINI_KEYED });
     expect(postRes.status).toBe(201);
+  });
+});
+
+// [LDB-P10] design/layout-db/18-command-decisions.md §2 D2: a rename never
+// loses the id. Already true at the record level (a rename is a PATCH on
+// the same id -- likes, history and the rev chain continue, LDB-P4 owns
+// "the old name is freed"); this pins the OTHER half explicitly -- every
+// read that identifies the record (by new name, by id, `/history`,
+// `/likes`, and a `full=1` list row) agrees on the same id across the
+// rename.
+describe("[LDB-P10] a rename never loses the id", () => {
+  it("[LDB-P10] create -> like x3 -> rename -> GET by new name / by id / history / likes agree; a full=1 row carries the same id", async () => {
+    const fake = actorFixture();
+    const owner = register(fake, `tok-${uniqueName("p10-owner")}`, "p10-owner");
+    const likers = [
+      register(fake, `tok-${uniqueName("p10-l1")}`, "p10-liker-1"),
+      register(fake, `tok-${uniqueName("p10-l2")}`, "p10-liker-2"),
+      register(fake, `tok-${uniqueName("p10-l3")}`, "p10-liker-3"),
+    ];
+
+    const oldName = uniqueName("p10-old");
+    const createRes = await writeFetch("/v1/layouts", "POST", owner, { name: oldName, format: "cmini/1", payload: CMINI_KEYED });
+    expect(createRes.status).toBe(201);
+    const created = await createRes.json<{ id: string; rev: number }>();
+
+    for (const liker of likers) {
+      const res = await writeFetch(`/v1/layouts/${created.id}/like`, "PUT", liker);
+      expect(res.status).toBe(200);
+    }
+
+    const newName = uniqueName("p10-new");
+    const renameRes = await writeFetch(`/v1/layouts/${created.id}`, "PATCH", { ...owner, "If-Match": `"${created.rev}"` }, { name: newName });
+    expect(renameRes.status).toBe(200);
+    const renamed = await renameRes.json<{ id: string; name: string }>();
+    expect(renamed.id).toBe(created.id);
+    expect(renamed.name).toBe(newName);
+
+    // by the new name
+    const byNameRes = await writeFetch(`/v1/layouts/${newName}`, "GET");
+    expect(byNameRes.status).toBe(200);
+    expect((await byNameRes.json<{ id: string }>()).id).toBe(created.id);
+
+    // by id -- and it now carries the new name
+    const byIdRes = await writeFetch(`/v1/layouts/${created.id}`, "GET");
+    expect(byIdRes.status).toBe(200);
+    const byId = await byIdRes.json<{ id: string; name: string }>();
+    expect(byId.id).toBe(created.id);
+    expect(byId.name).toBe(newName);
+
+    // history: same id's rev chain, unbroken across the rename
+    const historyRes = await writeFetch(`/v1/layouts/${created.id}/history`, "GET");
+    expect(historyRes.status).toBe(200);
+    const history = await historyRes.json<{ kind: string }[]>();
+    expect(history.map((h) => h.kind)).toEqual(["created", "liked", "liked", "liked", "renamed"]);
+
+    // likes: the same 3 users, reachable through the NEW name
+    const likesRes = await writeFetch(`/v1/layouts/${newName}/likes`, "GET");
+    expect(likesRes.status).toBe(200);
+    const likes = await likesRes.json<{ user_ids: string[] }>();
+    expect([...likes.user_ids].sort()).toEqual(["p10-liker-1", "p10-liker-2", "p10-liker-3"]);
+
+    // the old name is free (LDB-P4) -- a fresh POST with it succeeds
+    const reuseRes = await writeFetch("/v1/layouts", "POST", owner, { name: oldName, format: "cmini/1", payload: CMINI_KEYED });
+    expect(reuseRes.status).toBe(201);
+
+    // a `full=1` list row carries the SAME id -- the site's own `_dbId`
+    // projection (18 §2 D2: "the sync carries `_dbId` on every row")
+    const fullRes = await writeFetch("/v1/layouts?full=1&as=cmini/1", "GET");
+    expect(fullRes.status).toBe(200);
+    const full = await fullRes.json<{ items: { id: string; name: string }[] }>();
+    const fullRow = full.items.find((r) => r.name === newName);
+    expect(fullRow?.id).toBe(created.id);
   });
 });

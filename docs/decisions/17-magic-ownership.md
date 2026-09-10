@@ -5,7 +5,17 @@ to get its magic rules, meaning that aklgg needs to change to publish its
 magic rules to the db (and the db needs to ignore rules coming from
 cmini)"; #304: "drop cmini magic rules on the floor, only use aklgg magic
 rules everywhere"). Refines `11-implementation-phase3.md` §1 W5/W6 and
-`03-api.md` §5's import semantics; supersedes nothing yet.
+`03-api.md` §5's import semantics; supersedes nothing yet. **M1 DONE**
+(`import/apply.ts`/`import/strip.ts`, LDB-I9/I10/I11). **M2's prerequisite
+DONE** (2026-09-10, `18-command-decisions.md` §2 item 1, LDB-I12): a
+magic-only write (`PATCH {magic}`, or its migration-script PUT equivalent)
+never forks a record from upstream any more, `followsUpstream` skips it,
+and a `magic` PATCH on a `cmini/1` record lifts it to `akl/1` losslessly
+(§3's "format wrinkle" below, now implemented) -- `import/apply.ts`'s
+`akl/1` branch of case 4 (this doc's own §4 M1 TODO) is implemented too.
+M2's actual seed run (`scripts/migrate_magic_rules_to_db.py` for real) is
+still pending saltorbit's call on the fork question below; the exact procedure
+is `db/README.md`'s new "Magic rules seed (one-time, M2)" section.
 
 ## 1. Where rules live today
 

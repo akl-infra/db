@@ -5,10 +5,13 @@ import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import type { Bindings } from "../../src/env";
 import { appendWrite } from "../../src/core/events";
+import { followsUpstream } from "../../src/core/follows";
 import { readById, readByName } from "../../src/core/records";
 import { fixedClock } from "../../src/core/time";
 import { applyFetchedId } from "../../src/import/apply";
 import type { RawUpstreamDetail } from "../../src/import/upstream";
+import { fromCmini } from "../../formats/akl/1/translate";
+import type { Payload as CminiPayload } from "../../formats/cmini/1/index";
 import listSnapshot from "../fixtures/upstream-100/list.json" with { type: "json" };
 import fullSnapshot from "../fixtures/upstream-100/full.json" with { type: "json" };
 
@@ -468,6 +471,71 @@ describe("[LDB-I11] an import write preserves the record's own magic byte-for-by
     expect(await eventsFor(rec!.id)).toHaveLength(before.length); // no new event
     const after = await readById(db, rec!.id);
     expect((after!.payload as { magic?: unknown }).magic).toEqual(localMagic); // untouched
+  });
+});
+
+// LDB-I12 (M2's prerequisite, design/layout-db/18-command-decisions.md §2
+// item 1; 17-magic-ownership.md §3): the `akl/1` branch of LDB-I11's case-4
+// carry-forward, previously a named TODO in `import/apply.ts` -- a
+// following record CAN now be `akl/1` (a magic-only PATCH lifts it,
+// `core/write.ts`'s `patchLayout`, and `followsUpstream` skips that write
+// when deciding "the latest write"). Simulated directly via `appendWrite`
+// (same style as LDB-I11's own cmini/1 legacy-magic case above) rather than
+// through `patchLayout`/HTTP -- this describe is about the IMPORT's own
+// case-4 behavior once such a record exists, not about how it got there
+// (`tests/api/patch.test.ts`'s own [LDB-I12] cases cover the PATCH side).
+describe("[LDB-I12] an import write on an akl/1 following record translates upstream's keys and keeps the record's own magic", () => {
+  it("[LDB-I12] case 4 on akl/1: upstream's board/keys land, the record's magic survives byte-for-byte, followsUpstream stays true, and a repeat is idempotent", async () => {
+    const owner = "1100000000000000005";
+    const d1 = detail({ name: "I12-Akl", user: owner, board: "ortho", keys: {} });
+    await applyFetchedId(db, clock, "i12-akl", d1);
+    const rec = await readByName(db, "I12-Akl");
+
+    // Simulate a magic-only PATCH's lift (LDB-I12, `core/write.ts`): the
+    // record becomes `akl/1`, `fromCmini`-translated from its own current
+    // (magic-less) cmini/1 payload, with the PATCH's own magic set --
+    // marked `magic_only` so `followsUpstream` keeps reading through it.
+    const ownMagic = { rules: [{ inputs: "n*", output: "nn" }] };
+    const lifted = { ...fromCmini(rec!.payload as CminiPayload), magic: ownMagic };
+    await appendWrite(db, clock, {
+      kind: "updated",
+      layoutId: rec!.id,
+      name: rec!.name,
+      owner: rec!.owner,
+      modified_at: rec!.modified_at,
+      format: "akl/1",
+      payload: lifted,
+      actor: rec!.owner,
+      via: "discord",
+      detail: { fields: ["magic"], magic_only: true },
+      hasMagic: true,
+    });
+    expect(await followsUpstream(db, rec!.id)).toBe(true); // LDB-I12: the lift alone never forks
+
+    // A REAL upstream content change (board differs) -- case 4 fires.
+    const d2 = detail({ name: "I12-Akl", user: owner, board: "angle", keys: {}, modified_at: "2026-02-01T00:00:00Z" });
+    const result = await applyFetchedId(db, clock, "i12-akl", d2);
+    expect(result.errors).toEqual([]);
+
+    const after = await readById(db, rec!.id);
+    expect(after!.format).toBe("akl/1"); // stays akl/1, never reverted to cmini/1
+    expect((after!.payload as { board: unknown }).board).toEqual(fromCmini(d2 as unknown as CminiPayload).board);
+    expect((after!.payload as { magic: unknown }).magic).toEqual(ownMagic); // carried forward byte-for-byte
+    expect(after!.has_magic).toBe(true);
+
+    const events = await eventsFor(rec!.id);
+    expect(events.map((e) => e.kind)).toEqual(["imported", "updated", "imported"]);
+    expect(await followsUpstream(db, rec!.id)).toBe(true); // still following after a real case-4 write
+
+    // LDB-I1 idempotence: the SAME upstream state again appends no event --
+    // this is exactly what the format-aware `projectLocalNoLikes` fix (an
+    // `akl/1` record compared through `toCmini`, not a bare cast) makes
+    // true; before that fix this would misfire as "content differs" on
+    // every tick purely from the shape mismatch.
+    const beforeRepeat = await eventsFor(rec!.id);
+    const repeat = await applyFetchedId(db, clock, "i12-akl", d2);
+    expect(repeat.errors).toEqual([]);
+    expect(await eventsFor(rec!.id)).toHaveLength(beforeRepeat.length);
   });
 });
 

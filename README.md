@@ -472,6 +472,109 @@ until the response is `{ stripped: 0 }`.
 |---|---|---|---|
 | `POST /v1/admin/import/strip-cmini-magic` | none | `{ stripped: n }` | `409 import_paused` if the import is paused; the usual admin `401`/`403`/`429`/`503` |
 
+### Magic rules seed (one-time, M2)
+
+`design/layout-db/17-magic-ownership.md` §4 M2: the one-time migration that
+seeds every record's `magic` from akl.gg's own rule sets, the last time
+akl.gg's copy is read as a source -- from then on akl.gg's rules editor
+writes `PATCH /v1/layouts/{id} {magic}` directly (M3). **Prerequisite:
+LDB-I12 (magic-only writes never fork a record from upstream, `18
+-command-decisions.md` §2 item 1) must already be deployed** -- this script
+writes through `PUT` (a whole-payload replace, not `PATCH`; see below for
+why), and without LDB-I12 every migrated record would stop receiving
+upstream's `!cmini` key edits the moment this script touched it.
+
+**What `scripts/migrate_magic_rules_to_db.py` does, per layout id** in
+`web/data/magic_rules.json` (the nightly build's served rule sets, seed ⊕
+D1):
+
+1. `GET {base_url}/v1/layouts/{id}?as=akl/1` -- unauthenticated. A 404 is
+   logged `missing` and skipped (the layout isn't in the DB).
+2. The candidate `magic` is the rule set stripped to
+   `{magic_keys, chiral_keys, adaptive_swaps}` (akl/1's schema has no room
+   for the seed file's `updated`/`notes`). If the record's current
+   `payload.magic` already equals the candidate byte-for-byte, it's
+   `skipped_identical` -- no request sent.
+3. Collision detection runs **locally**, zero network traffic, via the
+   real akl/1 `validate()` (`db/formats/akl/1/index.ts`, through the
+   `db/scripts/validate-akl1-payload.mjs` node shim) against
+   `{...record.payload, magic: candidate}` -- the same function
+   `core/write.ts`'s `validatePayload` runs server-side. A `magic_collision`
+   with a hint (the scaffold-vs-idiom case) has the hint applied and is
+   re-checked once; still colliding, or no hint at all, is `collision`.
+   Any OTHER validation failure (observed once in production: a rule set
+   naming a key the layout's CURRENT board doesn't have) is its own
+   `invalid` bucket, never folded into `collision`.
+4. **Live mode only** (`--dry-run` sends no write, ever): `PUT
+   {base_url}/v1/layouts/{id}` `{format: "akl/1", payload}` `If-Match:
+   "<rev>"`, client-lane signed. This is a whole-payload PUT rather than a
+   `PATCH {magic}` because the script reads the record through `?as=akl/1`
+   (so it can run ONE local `validate()` regardless of the record's
+   underlying stored format) and writes that same translated shape back --
+   but the payload it sends never touches anything except `magic`: keys/
+   board/free/x are exactly what the `?as=akl/1` read already produced
+   (identity for an `akl/1` record, `fromCmini`'s lossless translation for
+   a `cmini/1` one). `core/write.ts`'s `replaceLayout` recognizes this shape
+   (`isMagicOnlyReplace`: the new payload minus `magic` equals the record's
+   own current content minus `magic`, translated to a common format first
+   when the format changed) and marks the resulting event `magic_only` the
+   same way a `PATCH {magic}` does -- this is "the migration's equivalent"
+   LDB-I12's own registry row names. A `409 stale` re-GETs and retries the
+   write once against the fresh record; any OTHER non-2xx response aborts
+   the whole run loudly (a one-shot admin tool, not something that should
+   paper over a local/server disagreement).
+
+**What it logs**: one `{id}: {bucket}` line to stdout per layout, and
+`migrate-report.json` (`--report` to change the path): `{migrated: [...],
+missing: [...], collision: [...], invalid: [...], skipped_identical:
+[...]}`. `--dry-run` marks every `migrated` entry `"dry_run": true` (a
+preview, not a confirmation -- no write was actually sent).
+
+**Verify**: `scripts/verify_magic_migration.py --base-url <same base-url>
+--migrate-report migrate-report.json` -- for every id in
+`magic_rules.json`, compares the site's OWN compiler output
+(`magicRulesFlatCompile`, via a real node shim) against the DB's
+`?as=cmini/1` lowered rows as a set of `(inputs, output)` pairs, and fails
+if `migrate-report.json` still has any `missing`/`collision` entry. Exit 0
+only when every layout matches and the report has nothing unresolved.
+
+**After LDB-I12 lands, this seed forks nothing**: every migrated record's
+last write is `magic_only`, so `followsUpstream` reads straight through it
+to whatever rev-bumping event came before -- a record that was following
+`!cmini` (`via: import:cmini`) keeps following it, and the very next import
+tick that sees upstream's keys change writes them through, carrying the
+just-seeded `magic` forward untouched (`import/apply.ts`'s `akl/1` branch
+of case 4, LDB-I11/I12).
+
+**⚠ saltorbit, once, per target DB -- never run by an agent, never against a
+remote from this checkout.** Register an ops client the same way the
+drill's own client is registered (above): `act-as-owner-only` is NOT right
+here (this writes to records owned by many different users) -- register it
+as a plain admin-actor client instead (whatever `POST /v1/admin/clients`
+shape 10 C1 gives an unrestricted client; see `INTEGRATION.md`'s client-lane
+section), then:
+
+```bash
+cd db
+python3 ../scripts/migrate_magic_rules_to_db.py \
+  --base-url "$DB_BASE_URL" \
+  --actor <the ops Discord user id every migrated write is attributed to> \
+  --client-id <the registered client id> \
+  --private-key-env MIGRATION_PRIVATE_KEY
+# reads web/data/magic_rules.json, writes ./migrate-report.json (repo root)
+
+python3 ../scripts/verify_magic_migration.py \
+  --base-url "$DB_BASE_URL" \
+  --migrate-report ../migrate-report.json
+```
+
+Run `--dry-run` first (add the flag to the first command) and read its
+report -- `collision`/`invalid`/`missing` entries need saltorbit's call before a
+live run (17 §4 M2: "the 10 layouts whose rules the seed would fork" need a
+decision first). The live run is idempotent: re-running it after a partial
+or fully successful pass sends zero further writes for anything already
+`skipped_identical`.
+
 ### R2 lifecycle
 
 `akl-db-dumps` has a lifecycle rule deleting objects under the `dump-`

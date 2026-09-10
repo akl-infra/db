@@ -4,6 +4,8 @@
 // reads/writes of `import_map`, a table events.ts doesn't own.
 import type { Bindings } from "../env";
 import * as cmini1 from "../../formats/cmini/1/index";
+import * as akl1 from "../../formats/akl/1/index";
+import { fromCmini, toCmini } from "../../formats/akl/1/translate";
 import { canonical } from "../core/canonical";
 import { appendInfo, appendLike, appendWrite } from "../core/events";
 import { followsUpstream } from "../core/follows";
@@ -141,17 +143,27 @@ function projectUpstreamFull(detail: ParsedUpstreamDetail): cmini1.CminiDetail {
   });
 }
 
-// LDB-I11: the record's own magic (nothing today; akl.gg's rules, once M2
-// lands) is never a difference against upstream -- excluded here the same
-// way `projectUpstreamNoLikes` excludes upstream's.
+// LDB-I11: the record's own magic (nothing before M2; akl.gg's rules,
+// lifted onto an `akl/1` record from M2 on -- LDB-I12's lift branch in
+// `core/write.ts`'s `patchLayout`) is never a difference against upstream --
+// excluded here the same way `projectUpstreamNoLikes` excludes upstream's.
+// An `akl/1` record is compared through the same `?as=cmini/1` lowering
+// every OTHER reader of a following record sees (LDB-P5: "every following
+// record read `?as=cmini/1` equals upstream on the projection") -- `toCmini`
+// -- rather than casting its payload straight to `cmini1.Payload`, which
+// would compare the wrong shape entirely (an akl/1 `board` object where
+// cmini1's own is a bare word, `tag`/`blame`/`combos`/`link` nested under
+// `x.cmini` instead of top-level) and spuriously call every akl/1 following
+// record's content "different" on every tick.
 function projectLocalNoLikes(record: RecordRow): unknown {
+  const payload: cmini1.Payload = record.format === "akl/1" ? toCmini(record.payload as akl1.Payload) : (record.payload as cmini1.Payload);
   return cmini1.projectNoMagic({
     name: record.name,
     owner: record.owner,
     created_at: record.created_at,
     modified_at: record.modified_at,
     likes: [],
-    payload: record.payload as cmini1.Payload,
+    payload,
   });
 }
 
@@ -310,30 +322,55 @@ async function applyMapped(
       // whatever is carried forward is whatever the RECORD already held
       // (nothing, for anything imported after M1; a legacy cmini import's
       // magic, until the one-time strip route removes it; akl.gg's rules,
-      // once M2 lands).
-      // TODO(M2): once an import can land on an `akl/1` record
-      // (`record.format === "akl/1"`), this branch needs upstream's keys
-      // translated into akl/1 (`formats/akl/1/translate.ts`) with `magic`
-      // set from the akl/1 record's OWN magic -- akl/1 holds `magic`
-      // natively, unlike cmini/1's flat rows, so this cmini/1-only carry-
-      // forward cannot just be reused verbatim for it.
-      const existingPayload = record.payload as cmini1.Payload;
-      const payload: cmini1.Payload = { ...detail.payload, magic: existingPayload.magic };
-      await appendWrite(db, now, {
-        kind: "imported",
-        layoutId: record.id,
-        name: detail.name,
-        owner: detail.owner,
-        created_at: detail.created_at, // follows upstream too: a layout cmini deleted and re-added between two ticks moves it (2026-09-10, kate-2/eclipse-v2 flagged forever by the diff)
-        modified_at: detail.modified_at,
-        format: "cmini/1",
-        payload,
-        actor: "system:cmini-import",
-        via: "import:cmini",
-        detail: { source: "cmini", upstream_id: upstreamId },
-        deleted: false,
-        hasMagic: cmini1.hasMagic(payload),
-      });
+      // once M2 lands, or a magic-only PATCH lift, LDB-I12).
+      //
+      // LDB-I12 (M2's prerequisite, design/layout-db/18-command-decisions.md
+      // §2 item 1): a record can now be `akl/1` and still follow upstream
+      // (a magic-only PATCH lifts it, `core/write.ts`'s `patchLayout`, and
+      // stays followed -- `core/follows.ts`'s `followsUpstream` skips
+      // magic-only writes). That record's `magic` idiom is native (unlike
+      // cmini/1's flat rows), so it cannot be carried forward with a bare
+      // object spread over upstream's cmini/1 detail -- upstream's keys/
+      // board/free/x are translated into akl/1 first (`fromCmini`, the
+      // SAME lossless translation the lift itself uses, LDB-F5), and only
+      // then does the record's own `magic` get carried over untouched.
+      if (record.format === "akl/1") {
+        const existing = record.payload as akl1.Payload;
+        const payload: akl1.Payload = { ...fromCmini(detail.payload), magic: existing.magic };
+        await appendWrite(db, now, {
+          kind: "imported",
+          layoutId: record.id,
+          name: detail.name,
+          owner: detail.owner,
+          created_at: detail.created_at,
+          modified_at: detail.modified_at,
+          format: "akl/1",
+          payload,
+          actor: "system:cmini-import",
+          via: "import:cmini",
+          detail: { source: "cmini", upstream_id: upstreamId },
+          deleted: false,
+          hasMagic: akl1.hasMagic(payload),
+        });
+      } else {
+        const existingPayload = record.payload as cmini1.Payload;
+        const payload: cmini1.Payload = { ...detail.payload, magic: existingPayload.magic };
+        await appendWrite(db, now, {
+          kind: "imported",
+          layoutId: record.id,
+          name: detail.name,
+          owner: detail.owner,
+          created_at: detail.created_at, // follows upstream too: a layout cmini deleted and re-added between two ticks moves it (2026-09-10, kate-2/eclipse-v2 flagged forever by the diff)
+          modified_at: detail.modified_at,
+          format: "cmini/1",
+          payload,
+          actor: "system:cmini-import",
+          via: "import:cmini",
+          detail: { source: "cmini", upstream_id: upstreamId },
+          deleted: false,
+          hasMagic: cmini1.hasMagic(payload),
+        });
+      }
     }
     // Case 5 (and the like half of case 4): likes replaced wholesale.
     for (const u of upstreamLikeIds) {

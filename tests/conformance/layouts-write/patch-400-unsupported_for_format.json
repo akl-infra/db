@@ -1,16 +1,16 @@
 {
   "request": {
     "method": "PATCH",
-    "path": "/v1/layouts/cw-patch-magic-1",
+    "path": "/v1/layouts/cw-patch-colstag-1",
     "bearer": "conformance-owner-token",
     "headers": { "If-Match": "\"1\"" },
-    "body": { "magic": { "rules": [{ "inputs": "aa", "output": "ab" }] } },
+    "body": { "board": { "kind": "colstag", "stagger": [0] } },
     "setup": [
       {
         "method": "POST",
         "path": "/v1/layouts",
         "bearer": "conformance-owner-token",
-        "body": { "name": "cw-patch-magic-1", "format": "cmini/1", "payload": { "board": "ortho", "keys": {} } }
+        "body": { "name": "cw-patch-colstag-1", "format": "cmini/1", "payload": { "board": "ortho", "keys": {} } }
       }
     ]
   },
@@ -21,9 +21,9 @@
     },
     "body": {
       "error": "unsupported_for_format",
-      "message": "'magic' is not supported for format 'cmini/1'",
+      "message": "'board' is not supported for format 'cmini/1'",
       "format": "cmini/1",
-      "verb": "magic"
+      "verb": "board"
     }
   }
 }

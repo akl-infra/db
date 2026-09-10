@@ -168,9 +168,9 @@ Every accepted write appends one event:
         | "admin.client_registered" | "admin.client_revoked" | "admin.added" | "admin.removed",
   "layout_id": "01J…", "name": "hours", "owner": "…",
   "rev": 7 | null,                                     // the record's rev after this event; null = no bump
-  "actor": "<user id>" | "system:cmini-import", "via": "discord" | "client:<id>" | "import:cmini",
+  "actor": "<user id>" | "system:cmini-import", "via": "discord" | "client:<id>" | "import:cmini" | "name_inherited",
   "admin": false,
-  "detail": { … } | null,                             // imported: {source, upstream_id, shadowed?}; upstream_changed: upstream's cmini/1 detail
+  "detail": { … } | null,                             // imported: {source, upstream_id, shadowed?}; upstream_changed: upstream's cmini/1 detail; updated (magic-only): {fields: ["magic"], magic_only: true}; liked (inherited): {from: <tombstone id>}
   "before": { …record minus payload… } | null,        // payloads by rev via /rev/{n}
   "after":  { …record minus payload… } | null }
 ```
@@ -182,7 +182,20 @@ event sets the record to `after` ⊕ the payload stored for that rev
 **informational** event changes nothing (`upstream_deleted` on a
 non-following record is informational, `rev: null`). "Follows upstream"
 (`06 §2`) is read off this log: the record's latest rev-bumping event has
-`via = "import:cmini"`.
+`via = "import:cmini"` — MAGIC-ONLY rev-bumping events skipped when finding
+that latest one (`LDB-I12`, `design/layout-db/18-command-decisions.md` §2
+item 1): a `PATCH`/`PUT` whose payload changes ONLY `magic` marks its
+`updated` event `detail.magic_only: true` (a `PATCH {magic}` on a `cmini/1`
+record lifts it to `akl/1` first, losslessly, since cmini/1 has no magic
+idiom of its own) so it never forks a following record from upstream.
+
+A `liked` event's `via` is normally the liking user's own lane
+(`discord`/`client:<id>`); `"name_inherited"` (`LDB-P9`,
+`design/layout-db/18-command-decisions.md` §2 D1) is the one exception —
+`POST /v1/layouts` on a name a tombstone currently holds copies that
+tombstone's likes onto the new record as `liked` events in this shape,
+`detail: {from: <tombstone id>}` naming the source record; the tombstone
+keeps its own likes/history untouched and stays restorable.
 
 Cmini's magic is never akl.gg's (`17-magic-ownership.md`, M1): an imported
 payload never carries `magic` (dropped from upstream's detail before it's

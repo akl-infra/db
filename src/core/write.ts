@@ -10,6 +10,8 @@
 import type { Actor } from "../auth/actor";
 import type { Bindings } from "../env";
 import { get as getFormat, list as listFormats } from "../formats/registry";
+import * as cmini1 from "../../formats/cmini/1/index";
+import { fromCmini } from "../../formats/akl/1/translate";
 import { requireIfMatch, type IfMatch } from "./ifmatch";
 import {
   ApiError,
@@ -25,7 +27,8 @@ import {
   type ErrBody,
   type LastWrite,
 } from "./errors";
-import { appendWrite, RevConflictError, rowToEvent, type EventDbRow, type Write } from "./events";
+import { canonical } from "./canonical";
+import { appendLike, appendWrite, RevConflictError, rowToEvent, type EventDbRow, type Write } from "./events";
 import { checkName } from "./names";
 import { byRef, readById, readByName, toWire, type RecordRow } from "./records";
 import type { Clock } from "./time";
@@ -120,7 +123,44 @@ export interface CreateBody {
   payload: unknown;
 }
 
+// LDB-P9 (design/layout-db/18-command-decisions.md §2 D1; saltorbit,
+// 2026-09-10: "tombstoned name carries likes for whoever takes it. it's a
+// quirk people like"): the name column has no per-status uniqueness
+// constraint beyond `layouts_name_live` (live rows only, migrations/
+// 0001_init.sql), so more than one tombstone can hold the same literal
+// name (case-insensitively -- the column's own COLLATE) over a record's
+// history. "The" tombstone a re-add inherits from is the most recently
+// modified one -- ties broken by `rev` (impossible in practice: two rows
+// can't share both `name` and `modified_at` unless one wrote the other,
+// which only rev can order).
+async function latestTombstoneIdByName(db: Bindings["DB"], name: string): Promise<string | null> {
+  const row = await db
+    .prepare("SELECT id FROM layouts WHERE name = ? AND deleted = 1 ORDER BY modified_at DESC, rev DESC LIMIT 1")
+    .bind(name)
+    .first<{ id: string }>();
+  return row?.id ?? null;
+}
+
+async function likeUserIds(db: Bindings["DB"], layoutId: string): Promise<string[]> {
+  const { results } = await db
+    .prepare("SELECT user_id FROM likes WHERE layout_id = ? ORDER BY user_id ASC")
+    .bind(layoutId)
+    .all<{ user_id: string }>();
+  return results.map((r) => r.user_id);
+}
+
 // POST /v1/layouts: any actor; check_name -> validate -> create (09 §3 T2).
+// LDB-P9: a name currently held by a tombstone (ANY owner, not just the
+// same actor -- Q3 in `18-command-decisions.md` §3 confirmed the
+// different-actor half) has its likes copied onto the new record as
+// `liked` events `via: "name_inherited"`, `detail: {from: <tombstone id>}`
+// -- read BEFORE the create's own write so a concurrent restore of that
+// SAME tombstone (LDB-P8, 30-day owner window or any-time admin) racing
+// this POST is decided by which one's D1 statement actually lands first,
+// same as any other race in this file; the tombstone itself keeps its own
+// likes and history untouched (appendLike never removes a like from its
+// SOURCE record) and stays restorable, which would then leave both records
+// carrying the same users' likes -- accepted, documented in `18`.
 export async function createLayout(
   env: Bindings,
   now: Clock,
@@ -131,7 +171,9 @@ export async function createLayout(
   if (!nameCheck.ok) throw invalidName(body.name, nameCheck.message);
   const { hasMagic } = validatePayload(body.format, body.payload);
 
-  return commitWrite(env.DB, now, {
+  const tombstoneId = await latestTombstoneIdByName(env.DB, body.name);
+
+  const result = await commitWrite(env.DB, now, {
     kind: "created",
     name: body.name,
     owner: actor.user_id,
@@ -142,11 +184,65 @@ export async function createLayout(
     via: actor.via,
     hasMagic,
   });
+
+  if (tombstoneId === null) return result;
+
+  // `record.like_count` was captured at rev 1 (always 0 for a fresh
+  // create) BEFORE these likes landed -- carried forward from the last
+  // `appendLike`'s own return (the same derived-from-`likes` count
+  // `appendLike` always answers, LDB-L1) so the response this returns
+  // reflects the inherited likes instead of silently under-reporting them
+  // until the next read.
+  let likeCount = result.record.like_count;
+  for (const userId of await likeUserIds(env.DB, tombstoneId)) {
+    ({ like_count: likeCount } = await appendLike(env.DB, now, {
+      kind: "liked",
+      layoutId: result.record.id,
+      userId,
+      via: "name_inherited",
+      detail: { from: tombstoneId },
+    }));
+  }
+  return { record: { ...result.record, like_count: likeCount }, seq: result.seq };
 }
 
 export interface ReplaceBody {
   format: string;
   payload: unknown;
+}
+
+// `magic` is always a top-level payload key in every format that has one
+// (cmini/1's flat `MagicRow[]`, akl/1's `MagicIntent` object) -- stripping
+// it this way, rather than through a format-specific projection, is exactly
+// right for comparing a payload against ANOTHER payload already known to
+// be the same format (this function's two call sites below never compare
+// across formats without lifting one side first).
+function payloadMinusMagic(payload: unknown): unknown {
+  if (typeof payload !== "object" || payload === null) return payload;
+  const { magic: _magic, ...rest } = payload as Record<string, unknown>;
+  return rest;
+}
+
+// LDB-I12 (design/layout-db/18-command-decisions.md §2 item 1): "a PATCH
+// whose body is ONLY {magic} ... (and the migration's equivalent) keeps
+// the record following cmini". `scripts/migrate_magic_rules_to_db.py`
+// writes through PUT (a whole-payload replace, `format: "akl/1"` even for
+// a `cmini/1` record it read via `?as=akl/1`), not PATCH -- this is that
+// migration's equivalent: a PUT is magic-only when its payload, minus
+// `magic`, is byte-for-byte the record's own current content minus `magic`
+// (translated to a common format first when the format itself changed,
+// the same lossless `fromCmini` lift `patchLayout`'s magic PATCH uses).
+// Anything else that changed alongside magic -- keys, board, free, x --
+// fails this and forks as any other PUT always has.
+function isMagicOnlyReplace(record: RecordRow, newFormat: string, newPayload: unknown): boolean {
+  if (newFormat === record.format) {
+    return canonical(payloadMinusMagic(newPayload)) === canonical(payloadMinusMagic(record.payload));
+  }
+  if (record.format === "cmini/1" && newFormat === "akl/1") {
+    const lifted = fromCmini(record.payload as cmini1.Payload);
+    return canonical(payloadMinusMagic(newPayload)) === canonical(payloadMinusMagic(lifted));
+  }
+  return false;
 }
 
 // PUT /v1/layouts/{ref}: owner or admin; whole payload replaced, name/
@@ -164,6 +260,7 @@ export async function replaceLayout(
   const { record, admin } = await loadForWrite(db, ref, actor, { allowDeleted: false });
   await requireRev(db, record, ifMatch);
   const { hasMagic } = validatePayload(body.format, body.payload);
+  const magicOnly = isMagicOnlyReplace(record, body.format, body.payload);
 
   return commitWrite(db, now, {
     kind: "updated",
@@ -175,6 +272,7 @@ export async function replaceLayout(
     payload: body.payload,
     actor: actor.user_id,
     via: actor.via,
+    ...(magicOnly ? { detail: { magic_only: true } } : {}),
     admin,
     hasMagic,
   });
@@ -365,10 +463,27 @@ export async function patchLayout(
   const { record, admin } = await loadForWrite(db, ref, actor, { allowDeleted: false });
   await requireRev(db, record, ifMatch);
 
-  const module = getFormat(record.format);
+  // LDB-I12 (design/layout-db/18-command-decisions.md §2 item 1;
+  // 17-magic-ownership.md §3's "format wrinkle"): cmini/1 has no magic
+  // idiom of its own (no `setMagic` in its `edits`), so a `magic` PATCH on
+  // a cmini/1 record lifts it to akl/1 FIRST -- `fromCmini` is the same
+  // lossless cmini/1 -> akl/1 translation the import uses (LDB-F5), so
+  // keys/board/free/x survive exactly; any magic `fromCmini` lifted out of
+  // cmini/1's own flat rows is then overwritten by the PATCH's own value
+  // below, same as it would be for a record that was already akl/1. Every
+  // other field in this same PATCH (name/fingermap/board) is then applied
+  // against the NEW format, not the old one -- one write, one format.
+  let format = record.format;
+  let payload: unknown = structuredClone(record.payload);
+  if (body.magic !== undefined && format === "cmini/1") {
+    payload = fromCmini(payload as cmini1.Payload);
+    format = "akl/1";
+  }
+
+  const module = getFormat(format);
   if (module === undefined) {
     throw unknownFormat(
-      record.format,
+      format,
       listFormats().map((f) => f.id),
     );
   }
@@ -382,20 +497,24 @@ export async function patchLayout(
     name = body.name;
   }
 
-  let payload: unknown = structuredClone(record.payload);
   if (body.fingermap !== undefined) {
-    payload = runEdit(record.format, "fingermap", module.edits?.setFingermap, payload, body.fingermap);
+    payload = runEdit(format, "fingermap", module.edits?.setFingermap, payload, body.fingermap);
   }
   if (body.board !== undefined) {
-    payload = runEdit(record.format, "board", module.edits?.setBoard, payload, body.board);
+    payload = runEdit(format, "board", module.edits?.setBoard, payload, body.board);
   }
   if (body.magic !== undefined) {
-    payload = runEdit(record.format, "magic", module.edits?.setMagic, payload, body.magic);
+    payload = runEdit(format, "magic", module.edits?.setMagic, payload, body.magic);
   }
 
-  const { hasMagic } = validatePayload(record.format, payload);
+  const { hasMagic } = validatePayload(format, payload);
 
   const kind = fields.length === 1 && fields[0] === "name" ? "renamed" : fields.length === 1 && fields[0] === "fingermap" ? "fingermap" : "updated";
+  // LDB-I12: a PATCH whose body is ONLY {magic} never touches keys/board/
+  // name -- `detail.magic_only` marks the `updated` event so `followsUpstream`
+  // (core/follows.ts) can skip past it when looking for "the latest write"
+  // that would fork a following record from upstream.
+  const magicOnly = fields.length === 1 && fields[0] === "magic";
 
   return commitWrite(db, now, {
     kind,
@@ -403,12 +522,12 @@ export async function patchLayout(
     name,
     owner: record.owner,
     modified_at: now(),
-    format: record.format,
+    format,
     payload,
     actor: actor.user_id,
     via: actor.via,
     admin,
     hasMagic,
-    ...(kind === "updated" ? { detail: { fields } } : {}),
+    ...(kind === "updated" ? { detail: magicOnly ? { fields, magic_only: true } : { fields } } : {}),
   });
 }
