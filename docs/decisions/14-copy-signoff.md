@@ -336,6 +336,22 @@ glyph the `view`/`compare` text grid shows under the space thumb
 latter are `web/src/copy/card.ts`'s own `noTh`/`thumb` (akl.gg's names,
 round 4's rule: signed).
 
+## Round 6 — `!theme` (2026-09-10) — PENDING
+
+saltorbit asked for the verb ("a theme command that lets you switch between
+default and colorblind mode for images"); the wording below is a stand-in.
+The theme names themselves are akl.gg's own (`web/src/copy/index.ts`'s
+`layoutThemeLabels` keys), so they need no sign-off.
+
+| surface | stand-in |
+|---|---|
+| `!help` description | `set the key colors `image` uses (default or colorblind)` |
+| `!theme` (no arg) | ``Your image theme is `default`.`` |
+| `!theme colorblind` | ``Your image theme has been changed to `colorblind`.`` |
+| `!theme <anything else>` | ``<quoted arg> isn't `default` or `colorblind`.`` |
+
+Not copy: the footer's WCAG AA colors (LDB-B46) change no string.
+
 ## Other flagged spots
 
 - web/src/ui/card/PublishSheet.tsx:8:// is `copy/db.ts`'s own stand-in (COPY: sign-off pending -- CLAUDE.md's
