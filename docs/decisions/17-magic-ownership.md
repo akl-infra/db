@@ -108,16 +108,45 @@ consulted in this mode at all. `.github/workflows/build.yml`'s "Build
 magic rules data" step now branches on the same `DB_BASE_URL` repo
 variable the scrape step already uses (`design/DEPLOY.md`), so flipping
 that one variable moves both the catalog and the rules onto the DB
-together. Still open: the live `/api/magic-rules/:id` read becomes a
-proxy of the record's `magic` instead of the built file; the editor's PUT
-switches from the D1 table to `PATCH /v1/layouts/{id} {magic}`;
-`magic-rules-sync.yml` and D1's table retire after a parity window with a
-daily D1-vs-DB diff (the same shape as the cmini one). The pipeline's
+together. **Live half DONE** (2026-09-10, `ldb-m3-live`, LDB-S7..S11 =
+I-245..I-249): with the Pages env var `DB_BASE_URL` set (the site-side
+twin of the same knob, `design/DEPLOY.md`), `functions/api/magic-rules/*`
+switch at their first line to `functions/_lib/magicdb.mjs` and D1's
+`magic_rules`/`layout_authors` are never queried --
+- `GET /api/magic-rules/:id` is a public read of the record's `?as=akl/1`
+  `payload.magic` (the rule set verbatim, no conversion), same wire shape;
+  `updated_at` is the record's latest `created`/`updated`/`restored`
+  event's `at` (a magic-only write keeps `modified_at`, LDB-I12, so that
+  field can't date the rules; the editor's pending-sync poll needs the
+  write time, or a later bound, to compare the stat patch against);
+- `PUT /api/magic-rules/:id` reads the record through the user-lane proxy
+  (its sign-in gate; ownership is the DB's own 403), validates as before,
+  honours `X-Magic-Base-Sig` against the record's current magic (same 409
+  shape), then `PATCH /v1/layouts/{id} {magic}` with `If-Match "<rev
+  read>"`; a `409 stale` is rebased once; `400 magic_collision` and every
+  other DB answer pass through verbatim (the sheet already handles them);
+- `GET /api/magic-rules` (the load-time overlay `state/catalog.ts` merges
+  over the static file) is the tail of the DB's event feed, detailed and
+  capped -- the free-tier Pages Function can't fan out over 80+ records
+  and `full=1` doesn't compose with `has_magic`; an overlay is what the
+  frontend's `mergeServerRules` wanted anyway;
+- after a 2xx the route fires `db_site_write` (nothing consumes it yet)
+  AND the existing `magic_rules_submit`, because the layout's NUMBERS
+  still come from `magic-rules-sync.yml`'s per-layout stat patch -- that
+  workflow's rules-fetch step, `live-sync.yml`'s compute
+  (`live_patch_sync.py --db-base-url`) and `magic-rules-backup.yml` (parks)
+  all branch on `vars.DB_BASE_URL` too (`fetch_d1_rules.py --source db`).
+Frontend untouched: `web/src/data/magic-api.ts`'s four calls see the same
+shapes. Still open: D1's table and `magic-rules-sync.yml`'s D1 branch
+retire after a parity window with a daily D1-vs-DB diff (the same shape
+as the cmini one); `compact_stat_patches.py`/`check_magic_freshness.py`
+still read D1 (build-time readers of a frozen table -- harmless until the
+retirement, listed in `13-ledger.md` §6 item 6). The pipeline's
 magic-aware harvest keeps reading `magic_rules.json`, so nothing changes
 for stats either way.
 
 Order: M1 done; M2 done (2026-09-10); M3's sync half done (2026-09-10);
-the read proxy + editor PUT switch with W6.
+M3's live half done (2026-09-10, waits only on W6's env-var flips).
 
 ## 5. What this changes for the bot
 
