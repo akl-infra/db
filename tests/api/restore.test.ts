@@ -48,6 +48,7 @@ async function seedTombstone(name = uniqueName("restore-seed"), owner = OWNER, v
     payload: CMINI_PAYLOAD,
     actor: via === "import:cmini" ? "system:cmini-import" : owner,
     via,
+    source: via === "import:cmini" ? { client: "system:cmini-import", version: null } : { client: "discord-app:test", version: null },
     hasMagic: false,
   });
   const deleted = await appendWrite(db, fixedClock(DELETED_AT), {
@@ -61,6 +62,7 @@ async function seedTombstone(name = uniqueName("restore-seed"), owner = OWNER, v
     payload: CMINI_PAYLOAD,
     actor: via === "import:cmini" ? "system:cmini-import" : owner,
     via,
+    source: via === "import:cmini" ? { client: "system:cmini-import", version: null } : { client: "discord-app:test", version: null },
     deleted: true,
   });
   return deleted.record;
@@ -130,6 +132,7 @@ describe("[LDB-P8] restore edge cases", () => {
       payload: CMINI_PAYLOAD,
       actor: OWNER,
       via: "discord",
+      source: { client: "discord-app:test", version: null },
       hasMagic: false,
     });
     setNow(DELETED_AT);
@@ -150,6 +153,7 @@ describe("[LDB-P8] restore edge cases", () => {
       payload: CMINI_PAYLOAD,
       actor: OTHER,
       via: "discord",
+      source: { client: "discord-app:test", version: null },
       hasMagic: false,
     });
     setNow(DELETED_AT);
@@ -259,6 +263,7 @@ describe("[LDB-P8] [LDB-N1] restore body: optional, {name} renames under check_n
       payload: CMINI_PAYLOAD,
       actor: OTHER,
       via: "discord",
+      source: { client: "discord-app:test", version: null },
       hasMagic: false,
     });
     setNow(DELETED_AT);

@@ -39,6 +39,7 @@ async function seed(format: "cmini/1" | "akl/1", owner = OWNER) {
     payload,
     actor: owner,
     via: "discord",
+    source: { client: "discord-app:test", version: null },
     hasMagic: false,
   });
   return record;

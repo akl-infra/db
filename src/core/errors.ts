@@ -90,16 +90,30 @@ export function unauthorized(): ApiError {
   return new ApiError(401, { error: "unauthorized", message: "authentication required" }, { "WWW-Authenticate": "Bearer" });
 }
 
-export function tokenInvalid(): ApiError {
-  return new ApiError(
-    401,
-    { error: "token_invalid", message: "the bearer token is invalid or expired" },
-    { "WWW-Authenticate": 'Bearer error="invalid_token"' },
-  );
+// 20-spark.md S3s: also thrown (with a caller-supplied message) when
+// Discord answers `GET /oauth2/@me` with a 200 that carries no `user` key
+// -- a token that authenticates but was never granted the `identify`
+// scope. Cached as a failure exactly like a real Discord 401 (`ok = 0`,
+// `auth/discord.ts`'s `resolveBearer`) -- the DEFAULT keeps every existing
+// call site's wording unchanged.
+export function tokenInvalid(message: string = "the bearer token is invalid or expired"): ApiError {
+  return new ApiError(401, { message, error: "token_invalid" }, { "WWW-Authenticate": 'Bearer error="invalid_token"' });
 }
 
 // Discord unreachable, erroring, or rate-limiting us -- never cached
 // (09 §2.2). `retryAfter` is passed through verbatim when Discord sent one.
+// 20-spark.md S3s (LDB-P15): `X-Client-Version` present but not <= 64
+// chars of `[A-Za-z0-9._+/:-]` -- `auth/actor.ts`'s `parseClientVersion`,
+// run once in `requireActorOnWrites` for every non-GET/HEAD/OPTIONS
+// request. An absent header is `null` (never this error); this header
+// never influences `Actor.source_client`.
+export function invalidClientVersion(raw: string): ApiError {
+  return new ApiError(400, {
+    error: "invalid_client_version",
+    message: `invalid 'X-Client-Version' header '${raw}' (expected <= 64 chars of [A-Za-z0-9._+/:-])`,
+  });
+}
+
 export function identityUnavailable(retryAfter?: string): ApiError {
   return new ApiError(
     503,

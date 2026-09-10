@@ -18,8 +18,17 @@
       "modified_at": "2022-12-07T23:24:35Z",
       "name": "io",
       "owner": "761732338744557568",
+      "rev": 1,
+      "source": {
+        "client": "system:cmini-import",
+        "version": null
+      },
+      "upstream": {
+        "id": "io",
+        "source": "cmini",
+        "state": "following"
+      },
       "payload": {
-        "blame": "cmini",
         "board": "ortho",
         "keys": {
           "'": {
@@ -173,13 +182,8 @@
             "row": 2
           }
         },
-        "tag": "cmini"
-      },
-      "rev": 1,
-      "upstream": {
-        "id": "io",
-        "source": "cmini",
-        "state": "following"
+        "tag": "cmini",
+        "blame": "cmini"
       }
     }
   }

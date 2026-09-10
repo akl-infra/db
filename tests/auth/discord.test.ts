@@ -58,6 +58,23 @@ async function cacheRowCount(): Promise<number> {
   return row?.n ?? 0;
 }
 
+// Mirrors `src/auth/discord.ts`'s own (unexported) `sha256Hex`/`addSeconds`
+// -- duplicated rather than exported-for-tests, same call this codebase
+// makes elsewhere for a module's own internal helpers (`auth/client.ts`'s
+// `signingString`, by contrast, IS exported, precisely because a test
+// needs to build byte-identical strings independently; here the test only
+// needs to seed a row the same shape the real cache would have, not prove
+// hashing itself).
+async function sha256Hex(input: string): Promise<string> {
+  const bytes = new TextEncoder().encode(input);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function addSeconds(iso: string, seconds: number): string {
+  return new Date(new Date(iso).getTime() + seconds * 1000).toISOString();
+}
+
 async function authorRow(userId: string): Promise<{ name: string; first_seen_at: string; last_seen_at: string } | null> {
   return db
     .prepare("SELECT name, first_seen_at, last_seen_at FROM authors WHERE user_id = ?")
@@ -66,13 +83,13 @@ async function authorRow(userId: string): Promise<{ name: string; first_seen_at:
 }
 
 describe("resolveBearer()", () => {
-  it("[LDB-A2] a 200 resolves the actor, makes one Discord request, and upserts authors", async () => {
+  it("[LDB-A2] [LDB-P15] a 200 resolves the actor (source_client proven from application.id), makes one Discord request, and upserts authors", async () => {
     const fake = new FakeDiscord();
     fake.setAnswer("tok-a", { kind: "ok", id: "1001", username: "alice", global_name: "Alice A" });
     const { clock } = mutableClock("2026-09-09T00:00:00.000Z");
 
     const actor = await resolveBearer(db, clock, "tok-a", fake.fetchImpl, BASE_URL);
-    expect(actor).toEqual({ user_id: "1001", name: "Alice A", via: "discord", admin: false });
+    expect(actor).toEqual({ user_id: "1001", name: "Alice A", via: "discord", admin: false, source_client: "discord-app:app-default" });
     expect(fake.requestLog.length).toBe(1);
     expect(fake.requestLog[0]!.authorization).toBe("Bearer tok-a");
 
@@ -192,5 +209,66 @@ describe("resolveBearer()", () => {
     // '184412255822020608' is the bootstrap admin seeded by migrations/0001_init.sql.
     const actor = await resolveBearer(db, clock, "tok-h", fake.fetchImpl, BASE_URL);
     expect(actor.admin).toBe(true);
+  });
+
+  it("[LDB-A2] [LDB-P15] a 200 with no 'user' key (identify scope missing) is 401 token_invalid, cached as a failure like any other", async () => {
+    const fake = new FakeDiscord();
+    fake.setAnswer("tok-i", { kind: "no-identify" });
+    const { clock, advanceMs } = mutableClock("2026-09-09T00:00:00.000Z");
+
+    // The FIRST (live) call's message names the actual reason -- distinct
+    // from a plain invalid token's generic wording, caught directly since
+    // expectApiError only checks the status/code/headers.
+    try {
+      await resolveBearer(db, clock, "tok-i", fake.fetchImpl, BASE_URL);
+      expect.fail("expected token_invalid");
+    } catch (e) {
+      expect((e as { body: { message: string } }).body.message).toMatch(/identify/);
+    }
+    expect(fake.requestLog.length).toBe(1);
+
+    // The SECOND call is served from the 60s failure cache -- generic
+    // message (the cache only stores `ok = 0`, not why).
+    await expectApiError(resolveBearer(db, clock, "tok-i", fake.fetchImpl, BASE_URL), 401, "token_invalid");
+    expect(fake.requestLog.length).toBe(1); // still cached, no second Discord call
+
+    advanceMs(61_000);
+    await expectApiError(resolveBearer(db, clock, "tok-i", fake.fetchImpl, BASE_URL), 401, "token_invalid");
+    expect(fake.requestLog.length).toBe(2); // past the 60s window -- asks Discord again
+
+    expect(await authorRow("anything")).toBeNull(); // no identity was ever resolved
+  });
+
+  it("[LDB-A2] [LDB-P15] a cached success row with app_id NULL (pre-0005) is a miss -- re-verified with Discord, re-cached with app_id", async () => {
+    const fake = new FakeDiscord();
+    fake.setAnswer("tok-j", { kind: "ok", id: "1006", username: "finn", global_name: null, app_id: "app-j" });
+    const { clock } = mutableClock("2026-09-09T00:00:00.000Z");
+
+    const hash = await sha256Hex("tok-j");
+    // A pre-0005 success row: `ok = 1` but `app_id` was never written.
+    await db
+      .prepare("INSERT INTO auth_cache (token_hash, user_id, name, app_id, ok, expires_at) VALUES (?, ?, ?, NULL, 1, ?)")
+      .bind(hash, "1006", "finn", addSeconds("2026-09-09T00:00:00.000Z", 300))
+      .run();
+
+    const actor = await resolveBearer(db, clock, "tok-j", fake.fetchImpl, BASE_URL);
+    expect(fake.requestLog.length).toBe(1); // the NULL app_id row was treated as a miss, not trusted
+    expect(actor.source_client).toBe("discord-app:app-j");
+
+    const row = await db.prepare("SELECT app_id FROM auth_cache WHERE token_hash = ?").bind(hash).first<{ app_id: string }>();
+    expect(row?.app_id).toBe("app-j"); // re-cached with it this time
+
+    // A second call now hits the (now-complete) cache row -- no further request.
+    await resolveBearer(db, clock, "tok-j", fake.fetchImpl, BASE_URL);
+    expect(fake.requestLog.length).toBe(1);
+  });
+
+  it("[LDB-A2] [LDB-P15] app_id feeds Actor.source_client as discord-app:<app_id>", async () => {
+    const fake = new FakeDiscord();
+    fake.setAnswer("tok-k", { kind: "ok", id: "1007", username: "gwen", global_name: null, app_id: "my-custom-app" });
+    const { clock } = mutableClock("2026-09-09T00:00:00.000Z");
+
+    const actor = await resolveBearer(db, clock, "tok-k", fake.fetchImpl, BASE_URL);
+    expect(actor.source_client).toBe("discord-app:my-custom-app");
   });
 });

@@ -55,6 +55,7 @@ async function seedLegacyMagicRecord(name: string, owner: string, upstreamId: st
     payload: { ...(rec!.payload as object), magic },
     actor: "system:cmini-import",
     via: "import:cmini",
+    source: { client: "system:cmini-import", version: null },
     detail: { source: "cmini", upstream_id: upstreamId },
     hasMagic: true,
   });
@@ -113,6 +114,7 @@ describe("stripCminiMagic", () => {
       payload: rec!.payload,
       actor: rec!.owner,
       via: "discord",
+      source: { client: "discord-app:test", version: null },
       hasMagic: true, // content (magic included) is unchanged from `rec!.payload`
     });
 

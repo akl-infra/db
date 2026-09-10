@@ -17,6 +17,18 @@ export interface Upstream {
   state: UpstreamState;
 }
 
+// 20-spark.md S3s (decision 14, LDB-P15): who/what made the latest
+// rev-bumping write -- `client` is PROVEN (derived from the authenticated
+// identity or a system writer's own literal, never a header/body field);
+// `version` is the client's own `X-Client-Version` header, validated and
+// stored as sent, or `null` if it sent none. Never null once a write has
+// ever supplied one (`Write.source` is required) -- only a record whose
+// latest rev-bumping event predates 0005 reads this column NULL.
+export interface Source {
+  client: string;
+  version: string | null;
+}
+
 export interface RecordRow {
   id: string;
   name: string;
@@ -30,6 +42,7 @@ export interface RecordRow {
   format: string;
   payload: unknown;
   upstream: Upstream | null;
+  source: Source | null;
 }
 
 // 03 §1: a ref matching this shape is looked up as an id first, then as a
@@ -58,6 +71,8 @@ export interface LayoutDbRow {
   upstream_source: string | null; // migrations/0005_spark.sql; all three NULL together or set together
   upstream_id: string | null;
   upstream_state: string | null; // 'following' | 'forked'
+  source_client: string | null; // migrations/0005_spark.sql (S3s): NULL iff never rev-bumped since 0005
+  source_version: string | null;
 }
 
 // A dump/restored row from before 0005 (or a raw JS object built by hand in
@@ -74,6 +89,23 @@ export function upstreamFromRow(row: {
   return { source: source as "cmini", id: row.upstream_id ?? "", state: (row.upstream_state ?? "following") as UpstreamState };
 }
 
+// 20-spark.md S3s: a dump/restored row from before 0005 (or a raw JS
+// object built by hand in a test) may lack these two keys entirely -- `??
+// null` treats "absent" the same as "present and NULL", same convention
+// `upstreamFromRow` uses. No "legacy:<via>" synthesis here: unlike
+// `/history`/`/rev/{n}` (which read a specific EVENT row that already
+// carries its own `via`), a `layouts` row has no `via` column to fall back
+// on, so a record whose latest rev-bumping write predates 0005 simply
+// reads `source: null` on every route until it is next written.
+export function sourceFromRow(row: {
+  source_client: string | null | undefined;
+  source_version: string | null | undefined;
+}): Source | null {
+  const client = row.source_client ?? null;
+  if (client === null) return null;
+  return { client, version: row.source_version ?? null };
+}
+
 export function rowToRecord(row: LayoutDbRow): RecordRow {
   return {
     id: row.id,
@@ -88,6 +120,7 @@ export function rowToRecord(row: LayoutDbRow): RecordRow {
     format: row.format,
     payload: JSON.parse(row.payload_json) as unknown,
     upstream: upstreamFromRow(row),
+    source: sourceFromRow(row),
   };
 }
 
@@ -249,6 +282,7 @@ export function toWire(rec: RecordRow): Record<string, unknown> {
     has_magic: rec.has_magic,
     format: rec.format,
     upstream: rec.upstream,
+    source: rec.source,
     payload: rec.payload,
   };
 }

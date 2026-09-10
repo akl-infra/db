@@ -118,6 +118,7 @@ describe("[LDB-R1] ETag changes iff the event head changes, or the query changes
       layoutId: rec.id,
       userId: "1", // not a real liker in the fixture -- guaranteed to append, not a no-op
       via: "discord",
+      source: { client: "discord-app:test", version: null },
     });
     expect(result.seq).not.toBeNull(); // confirms an event really was appended, not a no-op
 

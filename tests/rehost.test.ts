@@ -21,7 +21,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { Bindings } from "../src/env";
 import { canonical } from "../src/core/canonical";
 import { type EventDbRow, foldRecord, rowToEvent } from "../src/core/events";
-import { upstreamFromRow, type LayoutDbRow } from "../src/core/records";
+import { sourceFromRow, upstreamFromRow, type LayoutDbRow } from "../src/core/records";
 import type { Dump } from "../src/dump/write";
 import { restoreInto } from "../src/dump/restore";
 import worker from "../src/index";
@@ -94,6 +94,7 @@ function foldedFromDump(rec: LayoutDbRow): Record<string, unknown> {
     has_magic: rec.has_magic !== 0,
     format: rec.format,
     upstream: upstreamFromRow(rec),
+    source: sourceFromRow(rec), // 20-spark.md S3s (LDB-P15)
     payload: JSON.parse(rec.payload_json) as unknown,
   };
 }

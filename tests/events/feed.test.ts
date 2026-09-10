@@ -49,6 +49,7 @@ describe("feed", () => {
       payload: {},
       actor: "tester",
       via: "discord",
+      source: { client: "discord-app:test", version: null },
     });
     const b = await appendWrite(db, clock, {
       upstream: null,
@@ -60,6 +61,7 @@ describe("feed", () => {
       payload: {},
       actor: "tester",
       via: "discord",
+      source: { client: "discord-app:test", version: null },
     });
 
     const { items, next } = await feed(db, 0, 1000);
@@ -83,6 +85,7 @@ describe("feed", () => {
         payload: {},
         actor: "tester",
         via: "discord",
+        source: { client: "discord-app:test", version: null },
       });
     }
 
@@ -124,14 +127,16 @@ describe("feed", () => {
       payload: {},
       actor: "tester",
       via: "discord",
+      source: { client: "discord-app:test", version: null },
     });
     await appendInfo(db, clock, {
       kind: "upstream_changed",
       layoutId: record.id,
       actor: "system:cmini-import",
       via: "import:cmini",
+      source: { client: "system:cmini-import", version: null },
     });
-    await appendLike(db, clock, { kind: "liked", layoutId: record.id, userId: "u1", via: "discord" });
+    await appendLike(db, clock, { kind: "liked", layoutId: record.id, userId: "u1", via: "discord", source: { client: "discord-app:test", version: null } });
 
     const { items } = await feed(db, 0, 1000, ["liked"]);
     expect(items.length).toBeGreaterThan(0);
@@ -290,6 +295,7 @@ describe("LDB-P3: a webhook-only follower matches a feed-only follower", () => {
                 payload: {},
                 actor: "p3-owner",
                 via: "discord",
+                source: { client: "discord-app:test", version: null },
                 hasMagic: false,
               });
               liveIds.push(record.id);
@@ -315,6 +321,7 @@ describe("LDB-P3: a webhook-only follower matches a feed-only follower", () => {
                   payload: { touched: counter++ },
                   actor: "p3-owner",
                   via: "discord",
+                  source: { client: "discord-app:test", version: null },
                   hasMagic: false,
                 });
               } else if (op === 2) {
@@ -331,6 +338,7 @@ describe("LDB-P3: a webhook-only follower matches a feed-only follower", () => {
                   payload: {},
                   actor: "p3-owner",
                   via: "discord",
+                  source: { client: "discord-app:test", version: null },
                   deleted: true,
                   hasMagic: false,
                 });
@@ -338,7 +346,7 @@ describe("LDB-P3: a webhook-only follower matches a feed-only follower", () => {
                 meta.delete(id);
               } else if (op === 3) {
                 const id = pick(liveIds);
-                await appendLike(db, writeClock, { kind: "liked", layoutId: id, userId: "p3-liker", via: "discord" });
+                await appendLike(db, writeClock, { kind: "liked", layoutId: id, userId: "p3-liker", via: "discord", source: { client: "discord-app:test", version: null } });
               } else {
                 await appendAdmin(db, writeClock, { kind: "admin.added", actor: "p3-admin", detail: { user_id: `p3-${counter++}` } });
               }

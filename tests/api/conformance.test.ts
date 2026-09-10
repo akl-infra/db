@@ -107,6 +107,7 @@ async function seedLive(name: string) {
     payload: CMINI_PAYLOAD,
     actor: CONFORMANCE_OWNER,
     via: "discord",
+    source: { client: "discord-app:test", version: null },
     hasMagic: false,
   });
   return record;
@@ -217,6 +218,7 @@ async function seedWriteFixtures(): Promise<void> {
     payload: restoreOk.payload,
     actor: CONFORMANCE_OWNER,
     via: "discord",
+    source: { client: "discord-app:test", version: null },
     deleted: true,
   });
   ID_PLACEHOLDERS.__CW_RESTORE_ID__ = restoreOk.id;
@@ -317,6 +319,7 @@ async function seedRestoreExtras(): Promise<void> {
     payload: restoreOther.payload,
     actor: CONFORMANCE_OWNER,
     via: "discord",
+    source: { client: "discord-app:test", version: null },
     deleted: true,
   });
   ID_PLACEHOLDERS.__CW_RESTORE_OTHER_ID__ = restoreOther.id; // 403 not_owner: restored by conformance-other-token
@@ -333,6 +336,7 @@ async function seedRestoreExtras(): Promise<void> {
     payload: restoreTaken.payload,
     actor: CONFORMANCE_OWNER,
     via: "discord",
+    source: { client: "discord-app:test", version: null },
     deleted: true,
   });
   ID_PLACEHOLDERS.__CW_RESTORE_TAKEN_ID__ = restoreTaken.id; // 409 name_taken: its case's own `setup` re-takes "cw-restore-taken-1" live before restoring

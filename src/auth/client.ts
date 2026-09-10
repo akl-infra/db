@@ -181,7 +181,15 @@ export async function verifyClientRequest(
     .first<{ name: string }>();
   const adminRow = await db.prepare("SELECT 1 FROM admins WHERE user_id = ?").bind(actorRaw).first();
 
-  return { user_id: actorRaw, name: authorRow?.name ?? actorRaw, via: `client:${client.id}`, admin: adminRow !== null };
+  return {
+    user_id: actorRaw,
+    name: authorRow?.name ?? actorRaw,
+    via: `client:${client.id}`,
+    admin: adminRow !== null,
+    // 20-spark.md S3s (LDB-P15): same string `via` already carries on this
+    // lane -- the signed request already names the client unambiguously.
+    source_client: `client:${client.id}`,
+  };
 }
 
 // Nightly (`0 3 * * *`, wired into src/index.ts's `scheduled()`, alongside

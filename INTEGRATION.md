@@ -405,7 +405,8 @@ shown with real examples in §4.
 | 409 | `held` | record cannot be translated to '${format}' | `held(format, see)` |
 | 500 | `internal` | internal error | `internal()` |
 | 401 | `unauthorized` | authentication required | `unauthorized()` |
-| 401 | `token_invalid` | the bearer token is invalid or expired | `tokenInvalid()` |
+| 401 | `token_invalid` | *(caller-supplied -- this function's own `message` parameter)* | `tokenInvalid(message)` |
+| 400 | `invalid_client_version` | invalid 'X-Client-Version' header '${raw}' (expected <= 64 chars of [A-Za-z0-9._+/:-]) | `invalidClientVersion(raw)` |
 | 503 | `identity_unavailable` | could not verify identity with Discord | `identityUnavailable(retryAfter)` |
 | 403 | `not_owner` | you don't own a layout named '${name}' | `notOwner(name, owner)` |
 | 403 | `not_admin` | admin only | `notAdmin()` |

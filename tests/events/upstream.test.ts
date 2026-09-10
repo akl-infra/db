@@ -40,6 +40,7 @@ describe("[LDB-I14] upstreamOf: field vs. legacy fallback, the import_map dimens
       payload: { v: 1 },
       actor: "owner-a",
       via: "discord",
+      source: { client: "discord-app:test", version: null },
     });
     // A contradicting import_map row -- if the fallback were consulted at
     // all, this record would read "following". It must not be: the field
@@ -61,6 +62,7 @@ describe("[LDB-I14] upstreamOf: field vs. legacy fallback, the import_map dimens
       payload: { v: 1 },
       actor: "system:cmini-import",
       via: "import:cmini", // legacyFollows' own rule: latest rev-bumping event's via
+      source: { client: "system:cmini-import", version: null },
     });
     await insertImportMapRow("legacy-up-1", record.id);
     const rec = await readById(db, record.id);
@@ -79,6 +81,7 @@ describe("[LDB-I14] upstreamOf: field vs. legacy fallback, the import_map dimens
       payload: { v: 1 },
       actor: "owner-a",
       via: "discord",
+      source: { client: "discord-app:test", version: null },
     });
     await insertImportMapRow("legacy-up-2", record.id);
     const rec = await readById(db, record.id);
@@ -97,6 +100,7 @@ describe("[LDB-I14] upstreamOf: field vs. legacy fallback, the import_map dimens
       payload: { v: 1 },
       actor: "owner-a",
       via: "discord",
+      source: { client: "discord-app:test", version: null },
     });
     const rec = await readById(db, record.id);
     expect(await upstreamOf(db, rec!)).toBeNull();
@@ -117,6 +121,7 @@ describe("[LDB-P11] upstream is a fold", () => {
       payload: { v: 1 },
       actor: "system:cmini-import",
       via: "import:cmini",
+      source: { client: "system:cmini-import", version: null },
     });
     expect(created.record.upstream).toEqual(initial);
     let rec = await readById(db, created.record.id);
@@ -136,6 +141,7 @@ describe("[LDB-P11] upstream is a fold", () => {
       payload: { v: 2 },
       actor: "owner-a",
       via: "discord",
+      source: { client: "discord-app:test", version: null },
     });
     expect(updated.record.upstream).toEqual({ ...initial, state: "forked" });
     rec = await readById(db, updated.record.id);
@@ -159,6 +165,7 @@ describe("[LDB-P11] upstream is a fold", () => {
       payload: { v: 1 },
       actor: "system:cmini-import",
       via: "import:cmini",
+      source: { client: "system:cmini-import", version: null },
     });
     await insertImportMapRow("pre-0005-up", record.id);
     const rec = await readById(db, record.id);
@@ -180,6 +187,7 @@ describe("[LDB-P14] expectRev closes the system-writer/user-write race", () => {
       payload: { v: 0 },
       actor: "system:cmini-import",
       via: "import:cmini",
+      source: { client: "system:cmini-import", version: null },
     });
     const staleRev = record.rev; // what a system writer read BEFORE the user's write below landed
 
@@ -195,6 +203,7 @@ describe("[LDB-P14] expectRev closes the system-writer/user-write race", () => {
       payload: { v: "user" },
       actor: "owner-a",
       via: "discord",
+      source: { client: "discord-app:test", version: null },
     });
     expect(userWrite.record.rev).toBe(2);
 
@@ -215,6 +224,7 @@ describe("[LDB-P14] expectRev closes the system-writer/user-write race", () => {
         payload: { v: "stale-system-write" },
         actor: "system:cmini-import",
         via: "import:cmini",
+        source: { client: "system:cmini-import", version: null },
         expectRev: staleRev,
       }),
     ).rejects.toThrow(RevConflictError);
@@ -237,6 +247,7 @@ describe("[LDB-P14] expectRev closes the system-writer/user-write race", () => {
       payload: { v: 0 },
       actor: "system:cmini-import",
       via: "import:cmini",
+      source: { client: "system:cmini-import", version: null },
     });
     const { record: updated } = await appendWrite(db, clock, {
       upstream: { source: "cmini", id: "race-up-2", state: "following" },
@@ -249,6 +260,7 @@ describe("[LDB-P14] expectRev closes the system-writer/user-write race", () => {
       payload: { v: 1 },
       actor: "system:cmini-import",
       via: "import:cmini",
+      source: { client: "system:cmini-import", version: null },
       expectRev: record.rev,
     });
     expect(updated.rev).toBe(2);
@@ -275,6 +287,7 @@ describe("[LDB-P14] expectRev closes the system-writer/user-write race", () => {
           payload: { v: 0 },
           actor: "system:cmini-import",
           via: "import:cmini",
+          source: { client: "system:cmini-import", version: null },
         });
         const systemReadRev = created.rev; // the system writer's own "read", taken now
 
@@ -294,6 +307,7 @@ describe("[LDB-P14] expectRev closes the system-writer/user-write race", () => {
             payload: { v: `user-${i}` },
             actor: "owner-a",
             via: "discord",
+            source: { client: "discord-app:test", version: null },
           });
           lastUserPayload = r.payload;
           expectedRev = r.rev;
@@ -310,6 +324,7 @@ describe("[LDB-P14] expectRev closes the system-writer/user-write race", () => {
           payload: { v: "system" },
           actor: "system:cmini-import",
           via: "import:cmini",
+          source: { client: "system:cmini-import", version: null },
           expectRev: systemReadRev,
         });
 

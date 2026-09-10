@@ -67,6 +67,7 @@ async function humanTouch(rec: { id: string; name: string; owner: string; format
     payload: rec.payload,
     actor: rec.owner,
     via: "discord",
+    source: { client: "discord-app:test", version: null },
   });
 }
 
@@ -104,6 +105,7 @@ describe("import case table (07 §6 S5)", () => {
       payload: { board: "ortho", keys: {} },
       actor: owner,
       via: "discord",
+      source: { client: "discord-app:test", version: null },
     });
 
     const d = detail({ name: "Case2-Shared", user: owner });
@@ -136,6 +138,7 @@ describe("import case table (07 §6 S5)", () => {
       payload: { board: "ortho", keys: {} },
       actor: existingOwner,
       via: "discord",
+      source: { client: "discord-app:test", version: null },
     });
 
     const d = detail({ name: "Case3-Clash", user: upstreamOwner, likes: ["3000000000000000099"] });
@@ -167,13 +170,13 @@ describe("import case table (07 §6 S5)", () => {
     await appendWrite(db, clock, {
       upstream: null,
       kind: "created", name: "Case3b-Clash", owner: ownerA, modified_at: clock(),
-      format: "cmini/1", payload: { board: "ortho", keys: {} }, actor: ownerA, via: "discord",
+      format: "cmini/1", payload: { board: "ortho", keys: {} }, actor: ownerA, via: "discord", source: { client: "discord-app:test", version: null },
     });
     // pre-occupy the first shadow slot too
     await appendWrite(db, clock, {
       upstream: null,
       kind: "created", name: "Case3b-Clash~cmini", owner: ownerB, modified_at: clock(),
-      format: "cmini/1", payload: { board: "ortho", keys: {} }, actor: ownerB, via: "discord",
+      format: "cmini/1", payload: { board: "ortho", keys: {} }, actor: ownerB, via: "discord", source: { client: "discord-app:test", version: null },
     });
 
     const d = detail({ name: "Case3b-Clash", user: ownerC });
@@ -315,7 +318,7 @@ describe("import case table (07 §6 S5)", () => {
     const { record: reclaimed } = await appendWrite(db, clock, {
       upstream: null,
       kind: "created", name: "Case8-Delete", owner: "someone-else", modified_at: clock(),
-      format: "cmini/1", payload: { board: "ortho", keys: {} }, actor: "someone-else", via: "discord",
+      format: "cmini/1", payload: { board: "ortho", keys: {} }, actor: "someone-else", via: "discord", source: { client: "discord-app:test", version: null },
     });
     expect(reclaimed.name).toBe("Case8-Delete");
   });
@@ -425,6 +428,7 @@ describe("[LDB-I11] an import write preserves the record's own magic byte-for-by
       payload: { ...(rec!.payload as object), magic: legacyMagic },
       actor: "system:cmini-import",
       via: "import:cmini",
+      source: { client: "system:cmini-import", version: null },
       detail: { source: "cmini", upstream_id: "i11-legacy" },
       hasMagic: true,
     });
@@ -466,6 +470,7 @@ describe("[LDB-I11] an import write preserves the record's own magic byte-for-by
       payload: { ...(rec!.payload as object), magic: localMagic },
       actor: rec!.owner,
       via: "discord",
+      source: { client: "discord-app:test", version: null },
     });
     const before = await eventsFor(rec!.id);
 
@@ -516,6 +521,7 @@ describe("[LDB-I12] an import write on an akl/1 following record translates upst
       payload: lifted,
       actor: rec!.owner,
       via: "discord",
+      source: { client: "discord-app:test", version: null },
       detail: { fields: ["magic"], magic_only: true },
       hasMagic: true,
     });

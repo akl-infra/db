@@ -67,6 +67,7 @@ describe("GET /admin/changelog", () => {
       payload: CMINI_PAYLOAD,
       actor: "700000000000000001",
       via: "discord",
+      source: { client: "discord-app:test", version: null },
       hasMagic: false,
     });
 

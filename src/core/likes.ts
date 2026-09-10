@@ -28,6 +28,7 @@ export async function likeLayout(
   now: Clock,
   actor: Actor,
   ref: string,
+  version: string | null,
 ): Promise<{ like_count: number }> {
   const record = await loadForLike(env.DB, ref);
   const { like_count } = await appendLike(env.DB, now, {
@@ -35,6 +36,9 @@ export async function likeLayout(
     layoutId: record.id,
     userId: actor.user_id,
     via: actor.via,
+    // 20-spark.md S3s: carried on the event, never folded onto `layouts`
+    // (a like never moves `source_client`/`source_version`).
+    source: { client: actor.source_client, version },
   });
   return { like_count };
 }
@@ -44,6 +48,7 @@ export async function unlikeLayout(
   now: Clock,
   actor: Actor,
   ref: string,
+  version: string | null,
 ): Promise<{ like_count: number }> {
   const record = await loadForLike(env.DB, ref);
   const { like_count } = await appendLike(env.DB, now, {
@@ -51,6 +56,7 @@ export async function unlikeLayout(
     layoutId: record.id,
     userId: actor.user_id,
     via: actor.via,
+    source: { client: actor.source_client, version },
   });
   return { like_count };
 }

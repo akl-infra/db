@@ -82,6 +82,10 @@ export function expectedFromRecord(rec, likes) {
     // 20-spark.md S3a (LDB-D1/D5 amended): a dump row without these keys
     // (pre-0005) means "no known link", same as `rowToRecord`.
     upstream: rec.upstream_source == null ? null : { source: rec.upstream_source, id: rec.upstream_id, state: rec.upstream_state },
+    // 20-spark.md S3s (LDB-D1/D5 amended again): same treatment, one
+    // migration later -- a dump row without `source_client` (pre-0005)
+    // means `null`, same as `sourceFromRow`.
+    source: rec.source_client == null ? null : { client: rec.source_client, version: rec.source_version ?? null },
     likes,
     payload: JSON.parse(rec.payload_json),
   };

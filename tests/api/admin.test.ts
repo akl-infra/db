@@ -545,6 +545,7 @@ describe("POST /v1/admin/import/tick, POST /v1/admin/diff/tick, and POST /v1/adm
         payload: { board: "ortho", keys: {} },
         actor: owner,
         via: "discord",
+        source: { client: "discord-app:test", version: null },
         hasMagic: false,
       });
       // Simulate a record imported before M1 landed (and, 20-spark.md S3a:
@@ -565,6 +566,7 @@ describe("POST /v1/admin/import/tick, POST /v1/admin/diff/tick, and POST /v1/adm
         payload: { board: "ortho", keys: {}, magic: [{ inputs: "n*", output: "nn", type: "repeat" }] },
         actor: "system:cmini-import",
         via: "import:cmini",
+        source: { client: "system:cmini-import", version: null },
         detail: { source: "cmini", upstream_id: "strip-admin-route" },
         hasMagic: true,
       });

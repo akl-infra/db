@@ -94,6 +94,7 @@ async function seedLegacy(owner: string, format: "cmini/1" | "akl/1" | "spark/1"
     payload: format === "cmini/1" ? CMINI_PAYLOAD : AKL_PAYLOAD,
     actor: owner,
     via: "discord",
+    source: { client: "discord-app:test", version: null },
     hasMagic: false,
   });
   return record;
@@ -194,6 +195,7 @@ describe("[LDB-F16] [LDB-F21] carry-forward writes always store spark/<latest>",
         payload: record.payload,
         actor: OWNER,
         via: "discord",
+        source: { client: "discord-app:test", version: null },
         deleted: true,
       });
       const h = headers();

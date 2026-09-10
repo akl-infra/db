@@ -21,6 +21,7 @@ async function create(name: string): Promise<string> {
     payload: { v: 1 },
     actor: "system:cmini-import",
     via: "import:cmini",
+    source: { client: "system:cmini-import", version: null },
   });
   return record.id;
 }
@@ -36,6 +37,7 @@ async function createByHumanOwner(name: string): Promise<string> {
     payload: { v: 1 },
     actor: "owner-a",
     via: "discord",
+    source: { client: "discord-app:test", version: null },
   });
   return record.id;
 }
@@ -59,13 +61,14 @@ describe("legacyFollows matrix", () => {
       payload: { v: 2 },
       actor: "owner-a",
       via: "discord",
+      source: { client: "discord-app:test", version: null },
     });
     expect(await legacyFollows(db, id)).toBe(false);
   });
 
   it("[LDB-I2a] {imported, liked} -> T", async () => {
     const id = await create("follows-3");
-    await appendLike(db, clock, { kind: "liked", layoutId: id, userId: "u1", via: "discord" });
+    await appendLike(db, clock, { kind: "liked", layoutId: id, userId: "u1", via: "discord", source: { client: "discord-app:test", version: null } });
     expect(await legacyFollows(db, id)).toBe(true);
   });
 
@@ -76,6 +79,7 @@ describe("legacyFollows matrix", () => {
       layoutId: id,
       actor: "system:cmini-import",
       via: "import:cmini",
+      source: { client: "system:cmini-import", version: null },
       detail: { note: "x" },
     });
     expect(await legacyFollows(db, id)).toBe(true);
@@ -99,6 +103,7 @@ describe("legacyFollows matrix", () => {
       payload: { v: 1 },
       actor: "system:cmini-import",
       via: "import:cmini",
+      source: { client: "system:cmini-import", version: null },
       deleted: true,
     });
     expect(await legacyFollows(db, id)).toBe(true);
@@ -117,6 +122,7 @@ describe("legacyFollows matrix", () => {
       payload: { v: 1 },
       actor: "owner-a",
       via: "discord",
+      source: { client: "discord-app:test", version: null },
       deleted: true,
     });
     expect(await legacyFollows(db, id)).toBe(false);
@@ -139,6 +145,7 @@ describe("legacyFollows matrix", () => {
       payload: { v: 1 },
       actor: "owner-a",
       via: "discord",
+      source: { client: "discord-app:test", version: null },
       deleted: false,
     });
     expect(await legacyFollows(db, id)).toBe(false);
@@ -164,6 +171,7 @@ async function appendMagicOnlyUpdate(id: string, name: string): Promise<void> {
     payload: { keys: {}, magic: { rules: [{ inputs: "aa", output: "ab" }] } },
     actor: "owner-a",
     via: "discord",
+    source: { client: "discord-app:test", version: null },
     detail: { fields: ["magic"], magic_only: true },
   });
 }
@@ -196,6 +204,7 @@ describe("[LDB-I12] legacyFollows skips magic-only rev-bumping events", () => {
       payload: { keys: { a: { row: 0, col: 0, finger: "LP" } }, magic: { rules: [{ inputs: "aa", output: "ab" }] } },
       actor: "owner-a",
       via: "discord",
+      source: { client: "discord-app:test", version: null },
       detail: { fields: ["fingermap", "magic"] }, // NOT magic-only: magic_only is only ever set when fields === ["magic"]
     });
     expect(await legacyFollows(db, id)).toBe(false);
@@ -229,6 +238,7 @@ describe("[LDB-I12] legacyFollows skips migrated rev-bumping events", () => {
       payload: { v: 1 },
       actor: "system:migration",
       via: "migration",
+      source: { client: "system:migration", version: null },
       detail: { from: "cmini/1", to: "spark/1" },
     });
     expect(await legacyFollows(db, id)).toBe(true);
@@ -247,6 +257,7 @@ describe("[LDB-I12] legacyFollows skips migrated rev-bumping events", () => {
       payload: { v: 1 },
       actor: "system:migration",
       via: "migration",
+      source: { client: "system:migration", version: null },
       detail: { from: "cmini/1", to: "spark/1" },
     });
     expect(await legacyFollows(db, id)).toBe(false);
@@ -265,6 +276,7 @@ describe("[LDB-I12] legacyFollows skips migrated rev-bumping events", () => {
       payload: { v: 1 },
       actor: "system:migration",
       via: "migration",
+      source: { client: "system:migration", version: null },
       detail: { from: "cmini/1", to: "spark/1" },
     });
     await appendWrite(db, clock, {
@@ -278,6 +290,7 @@ describe("[LDB-I12] legacyFollows skips migrated rev-bumping events", () => {
       payload: { v: 2 },
       actor: "owner-a",
       via: "discord",
+      source: { client: "discord-app:test", version: null },
     });
     expect(await legacyFollows(db, id)).toBe(false);
   });

@@ -115,6 +115,7 @@ describe("[LDB-I5] imported names outside NAME_SET' survive a PUT untouched", ()
         payload: CMINI_PAYLOAD,
         actor: "system:cmini-import",
         via: "import:cmini",
+        source: { client: "system:cmini-import", version: null },
         hasMagic: false,
       });
 

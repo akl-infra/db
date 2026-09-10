@@ -8,7 +8,7 @@
 import type { Bindings } from "../env";
 import { canonical } from "./canonical";
 import { nameTaken } from "./errors";
-import { type RecordRow, type Upstream, readById } from "./records";
+import { type RecordRow, type Source, type Upstream, readById } from "./records";
 import { ulid } from "ulidx";
 import type { Clock } from "./time";
 
@@ -92,6 +92,14 @@ export interface Write {
   // racing for the SAME target rev still collide on `layout_revs`'s PK
   // regardless.
   expectRev?: number;
+  // 20-spark.md S3s (decision 14, LDB-P15): REQUIRED, same reasoning as
+  // `upstream` above -- every write states who/what made it, so tsc
+  // enumerates every call site. `client` is proven (the actor's own
+  // `source_client`, or a system writer's literal `system:cmini-import`/
+  // `system:migration`), never a header or body field; `version` is the
+  // validated `X-Client-Version` or `null`. Stored on the event AND folded
+  // onto the `layouts` row (this function is rev-bumping writes only).
+  source: Source;
 }
 
 export interface Info {
@@ -100,6 +108,11 @@ export interface Info {
   actor: string;
   via: string;
   detail?: object;
+  // 20-spark.md S3s: informational events carry the actor's source too
+  // (history should say who/what triggered them), but `appendInfo` never
+  // touches `layouts.source_client`/`source_version` -- only a rev-bumping
+  // write (`appendWrite`) moves the record's own fold.
+  source: Source;
 }
 
 export interface Like {
@@ -114,6 +127,10 @@ export interface Like {
   // (undefined -> the same `detail_json: NULL` every like event has always
   // stored).
   detail?: object;
+  // 20-spark.md S3s: same as `Info.source` -- carried on the event, never
+  // folded onto `layouts` (a like never moves `source_client`/`source_version`,
+  // same as it never moves `rev`/`upstream`).
+  source: Source;
 }
 
 // A parsed `events` row (03 §5's wire shape, D1's 0/1 and JSON-string
@@ -132,6 +149,11 @@ export interface Event {
   detail: unknown;
   before: RecordSansPayload | null;
   after: RecordSansPayload | null;
+  // 20-spark.md S3s (LDB-P15): this event's OWN source, always present --
+  // a NULL column (written before 0005) reads `{client: "legacy:" + via,
+  // version: null}`, using this SAME row's own `via` (no extra query,
+  // unlike `upstreamOf`'s legacy fallback).
+  source: Source;
 }
 
 export interface EventDbRow {
@@ -148,6 +170,17 @@ export interface EventDbRow {
   detail_json: string | null;
   before_json: string | null;
   after_json: string | null;
+  source_client: string | null;
+  source_version: string | null;
+}
+
+// 20-spark.md S3s: the read-side NULL fallback (`row.source_client` absent
+// means this event was written before 0005) -- `legacy:<via>` rather than
+// a bare `null`, since every event (unlike a `layouts` row) always has its
+// own `via` to fall back on.
+export function sourceOfEvent(row: { source_client: string | null; source_version: string | null; via: string }): Source {
+  if (row.source_client === null) return { client: `legacy:${row.via}`, version: null };
+  return { client: row.source_client, version: row.source_version };
 }
 
 export function rowToEvent(row: EventDbRow): Event {
@@ -165,6 +198,7 @@ export function rowToEvent(row: EventDbRow): Event {
     detail: row.detail_json === null ? null : JSON.parse(row.detail_json),
     before: row.before_json === null ? null : (JSON.parse(row.before_json) as RecordSansPayload),
     after: row.after_json === null ? null : (JSON.parse(row.after_json) as RecordSansPayload),
+    source: sourceOfEvent(row),
   };
 }
 
@@ -258,6 +292,7 @@ export async function appendWrite(
     has_magic,
     format: w.format,
     upstream: w.upstream,
+    source: w.source,
   };
 
   const payloadJson = canonical(w.payload);
@@ -267,8 +302,8 @@ export async function appendWrite(
     results = await db.batch([
     db
       .prepare(
-        `INSERT INTO events (at, kind, layout_id, name, owner, rev, actor, via, admin, detail_json, before_json, after_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO events (at, kind, layout_id, name, owner, rev, actor, via, admin, detail_json, before_json, after_json, source_client, source_version)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         at,
@@ -283,6 +318,8 @@ export async function appendWrite(
         w.detail === undefined ? null : canonical(w.detail),
         before === null ? null : canonical(before),
         canonical(after),
+        w.source.client,
+        w.source.version,
       ),
     db
       .prepare(
@@ -292,14 +329,15 @@ export async function appendWrite(
       .bind(id, rev, w.format, payloadJson),
     db
       .prepare(
-        `INSERT INTO layouts (id, name, owner, rev, created_at, modified_at, deleted, format, payload_json, like_count, has_magic, upstream_source, upstream_id, upstream_state)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO layouts (id, name, owner, rev, created_at, modified_at, deleted, format, payload_json, like_count, has_magic, upstream_source, upstream_id, upstream_state, source_client, source_version)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            name = excluded.name, owner = excluded.owner, rev = excluded.rev,
            created_at = excluded.created_at, modified_at = excluded.modified_at, deleted = excluded.deleted,
            format = excluded.format, payload_json = excluded.payload_json,
            like_count = excluded.like_count, has_magic = excluded.has_magic,
-           upstream_source = excluded.upstream_source, upstream_id = excluded.upstream_id, upstream_state = excluded.upstream_state`,
+           upstream_source = excluded.upstream_source, upstream_id = excluded.upstream_id, upstream_state = excluded.upstream_state,
+           source_client = excluded.source_client, source_version = excluded.source_version`,
       )
       .bind(
         id,
@@ -316,6 +354,8 @@ export async function appendWrite(
         w.upstream?.source ?? null,
         w.upstream?.id ?? null,
         w.upstream?.state ?? null,
+        w.source.client,
+        w.source.version,
       ),
   ]);
 
@@ -341,8 +381,8 @@ export async function appendInfo(db: Bindings["DB"], now: Clock, i: Info): Promi
 
   const result = await db
     .prepare(
-      `INSERT INTO events (at, kind, layout_id, name, owner, rev, actor, via, admin, detail_json, before_json, after_json)
-       VALUES (?, ?, ?, ?, ?, NULL, ?, ?, 0, ?, NULL, NULL)`,
+      `INSERT INTO events (at, kind, layout_id, name, owner, rev, actor, via, admin, detail_json, before_json, after_json, source_client, source_version)
+       VALUES (?, ?, ?, ?, ?, NULL, ?, ?, 0, ?, NULL, NULL, ?, ?)`,
     )
     .bind(
       now(),
@@ -353,6 +393,8 @@ export async function appendInfo(db: Bindings["DB"], now: Clock, i: Info): Promi
       i.actor,
       i.via,
       i.detail === undefined ? null : canonical(i.detail),
+      i.source.client,
+      i.source.version,
     )
     .run();
 
@@ -423,10 +465,21 @@ export async function appendLike(
         : db.prepare("DELETE FROM likes WHERE layout_id = ? AND user_id = ?").bind(l.layoutId, l.userId),
       db
         .prepare(
-          `INSERT INTO events (at, kind, layout_id, name, owner, rev, actor, via, admin, detail_json, before_json, after_json)
-           VALUES (?, ?, ?, ?, ?, NULL, ?, ?, 0, ?, NULL, NULL)`,
+          `INSERT INTO events (at, kind, layout_id, name, owner, rev, actor, via, admin, detail_json, before_json, after_json, source_client, source_version)
+           VALUES (?, ?, ?, ?, ?, NULL, ?, ?, 0, ?, NULL, NULL, ?, ?)`,
         )
-        .bind(at, l.kind, l.layoutId, current.name, current.owner, l.userId, l.via, l.detail === undefined ? null : canonical(l.detail)),
+        .bind(
+          at,
+          l.kind,
+          l.layoutId,
+          current.name,
+          current.owner,
+          l.userId,
+          l.via,
+          l.detail === undefined ? null : canonical(l.detail),
+          l.source.client,
+          l.source.version,
+        ),
       db
         .prepare("UPDATE layouts SET like_count = (SELECT COUNT(*) FROM likes WHERE layout_id = ?) WHERE id = ?")
         .bind(l.layoutId, l.layoutId),

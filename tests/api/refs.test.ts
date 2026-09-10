@@ -68,6 +68,7 @@ describe("[LDB-P8] a tombstone is unreadable by name, readable by id", () => {
       payload: JSON.parse(current.payload_json) as unknown,
       actor: "system:cmini-import",
       via: "import:cmini",
+      source: { client: "system:cmini-import", version: null },
       deleted: true,
     });
 
@@ -106,6 +107,7 @@ describe("[LDB-P8] a ULID-shaped name doesn't break reachability", () => {
       payload: { board: "ortho", keys: {} },
       actor: "1",
       via: "discord",
+      source: { client: "discord-app:test", version: null },
     });
     expect(record.id).not.toBe(ulidShapedName); // minted independently -- confirms this isn't a trivial id==name coincidence
 

@@ -189,12 +189,15 @@ export async function createLayout(
   now: Clock,
   actor: Actor,
   body: CreateBody,
+  version: string | null,
 ): Promise<{ record: RecordRow; seq: number }> {
   const nameCheck = checkName(body.name);
   if (!nameCheck.ok) throw invalidName(body.name, nameCheck.message);
   const { hasMagic, module } = validatePayload(body.format, body.payload);
 
   const tombstoneId = await latestTombstoneIdByName(env.DB, body.name);
+
+  const source = { client: actor.source_client, version }; // 20-spark.md S3s (LDB-P15)
 
   const result = await commitWrite(env.DB, now, {
     kind: "created",
@@ -207,6 +210,7 @@ export async function createLayout(
     via: actor.via,
     hasMagic,
     upstream: nextUpstream(null, "created", actor.via), // no prior record -- always null (LDB-I14)
+    source,
   });
 
   if (tombstoneId === null) return result;
@@ -225,6 +229,7 @@ export async function createLayout(
       userId,
       via: "name_inherited",
       detail: { from: tombstoneId },
+      source, // the CREATE's own source -- the inherited like is a side effect of it
     }));
   }
   return { record: { ...result.record, like_count: likeCount }, seq: result.seq };
@@ -252,6 +257,7 @@ export async function replaceLayout(
   ref: string,
   body: ReplaceBody,
   ifMatch: IfMatch,
+  version: string | null,
 ): Promise<{ record: RecordRow; seq: number }> {
   const db = env.DB;
   requireIfMatch(ifMatch);
@@ -273,6 +279,7 @@ export async function replaceLayout(
     admin,
     hasMagic,
     upstream: nextUpstream(prior, "updated", actor.via), // LDB-I14: a user write forks a following/forked record; null stays null
+    source: { client: actor.source_client, version }, // 20-spark.md S3s (LDB-P15)
   });
 }
 
@@ -291,6 +298,7 @@ export async function deleteLayout(
   actor: Actor,
   ref: string,
   ifMatch: IfMatch,
+  version: string | null,
 ): Promise<{ record: RecordRow; seq: number }> {
   const db = env.DB;
   requireIfMatch(ifMatch);
@@ -313,6 +321,7 @@ export async function deleteLayout(
     deleted: true,
     hasMagic: sparkHasMagic(stored.payload),
     upstream: nextUpstream(prior, "deleted", actor.via),
+    source: { client: actor.source_client, version }, // 20-spark.md S3s (LDB-P15)
   });
 }
 
@@ -346,6 +355,7 @@ export async function restoreLayout(
   actor: Actor,
   ref: string,
   body: RestoreBody = {},
+  version: string | null,
 ): Promise<{ record: RecordRow; seq: number }> {
   const db = env.DB;
   const { record, admin } = await loadForWrite(db, ref, actor, { allowDeleted: true });
@@ -380,6 +390,7 @@ export async function restoreLayout(
     deleted: false,
     hasMagic: sparkHasMagic(stored.payload),
     upstream: nextUpstream(prior, "restored", actor.via),
+    source: { client: actor.source_client, version }, // 20-spark.md S3s (LDB-P15)
     ...(renamedFrom !== undefined ? { detail: { renamed_from: renamedFrom } } : {}),
   });
 }
@@ -405,6 +416,7 @@ export async function transferLayout(
   ref: string,
   body: TransferBody,
   ifMatch: IfMatch,
+  version: string | null,
 ): Promise<{ record: RecordRow; seq: number }> {
   const db = env.DB;
   requireIfMatch(ifMatch);
@@ -431,6 +443,7 @@ export async function transferLayout(
     admin,
     hasMagic: sparkHasMagic(stored.payload),
     upstream: nextUpstream(prior, "transferred", actor.via),
+    source: { client: actor.source_client, version }, // 20-spark.md S3s (LDB-P15)
   });
 }
 
@@ -497,6 +510,7 @@ export async function patchLayout(
   ref: string,
   body: PatchBody,
   ifMatch: IfMatch,
+  version: string | null,
 ): Promise<{ record: RecordRow; seq: number }> {
   const db = env.DB;
   requireIfMatch(ifMatch);
@@ -569,6 +583,7 @@ export async function patchLayout(
     admin,
     hasMagic,
     upstream: nextUpstream(prior, kind, actor.via),
+    source: { client: actor.source_client, version }, // 20-spark.md S3s (LDB-P15)
     ...(kind === "updated" ? { detail: { fields } } : {}),
   });
 }

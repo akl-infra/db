@@ -100,6 +100,8 @@ export function restoreSql(dump: Dump): string[] {
         "upstream_source",
         "upstream_id",
         "upstream_state",
+        "source_client",
+        "source_version",
       ],
       dump.records.map((r) => ({
         id: r.id,
@@ -120,6 +122,9 @@ export function restoreSql(dump: Dump): string[] {
         upstream_source: r.upstream_source ?? null,
         upstream_id: r.upstream_id ?? null,
         upstream_state: r.upstream_state ?? null,
+        // 20-spark.md S3s: same treatment, one migration later.
+        source_client: r.source_client ?? null,
+        source_version: r.source_version ?? null,
       })),
     ),
   );
@@ -162,6 +167,8 @@ export function restoreSql(dump: Dump): string[] {
         "detail_json",
         "before_json",
         "after_json",
+        "source_client",
+        "source_version",
       ],
       dump.events.map((e) => ({
         seq: e.seq,
@@ -177,6 +184,10 @@ export function restoreSql(dump: Dump): string[] {
         detail_json: e.detail_json,
         before_json: e.before_json,
         after_json: e.after_json,
+        // 20-spark.md S3s (LDB-D1/D5 amended): a dump written before 0005
+        // has no such keys -- `?? null` treats that as present-and-NULL.
+        source_client: e.source_client ?? null,
+        source_version: e.source_version ?? null,
       })),
     ),
   );

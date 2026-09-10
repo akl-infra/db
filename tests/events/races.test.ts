@@ -28,6 +28,7 @@ function create(name: string, owner = "owner-a") {
     payload: { v: 1 },
     actor: owner,
     via: "discord",
+    source: { client: "discord-app:test", version: null },
   });
 }
 
@@ -77,6 +78,7 @@ describe("races resolved inside the batch", () => {
         payload,
         actor: record.owner,
         via: "discord",
+        source: { client: "discord-app:test", version: null },
       });
     const outcomes = await Promise.allSettled([update({ v: 2 }), update({ v: 3 })]);
     const won = outcomes.filter((o) => o.status === "fulfilled");
@@ -92,7 +94,7 @@ describe("races resolved inside the batch", () => {
 
   it("[LDB-P1] five users liking at once: like_count is 5 and five events exist; the same user twice at once is one like, one event", async () => {
     const { record } = await create("race-likes");
-    const like = (userId: string) => appendLike(db, clock, { kind: "liked", layoutId: record.id, userId, via: "discord" });
+    const like = (userId: string) => appendLike(db, clock, { kind: "liked", layoutId: record.id, userId, via: "discord", source: { client: "discord-app:test", version: null } });
 
     await Promise.all(["u1", "u2", "u3", "u4", "u5"].map(like));
     expect((await readById(db, record.id))?.like_count).toBe(5);

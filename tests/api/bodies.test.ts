@@ -31,6 +31,7 @@ async function seed() {
     payload: CMINI_PAYLOAD,
     actor: OWNER,
     via: "discord",
+    source: { client: "discord-app:test", version: null },
     hasMagic: false,
   });
   return record;

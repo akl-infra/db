@@ -51,6 +51,7 @@ async function appendOne(owner = "stream-owner"): Promise<Event> {
     payload: {},
     actor: owner,
     via: "discord",
+    source: { client: "discord-app:test", version: null },
     hasMagic: false,
   });
   const { items } = await feed(db, seq - 1, 1);
@@ -120,7 +121,7 @@ describe("[LDB-H2] GET /v1/changes/stream", () => {
     const res = await resPromise;
 
     const created = await appendOne();
-    await appendLike(db, fixedClock("2026-08-01T00:00:01.000Z"), { kind: "liked", layoutId: created.layout_id!, userId: "stream-liker", via: "discord" });
+    await appendLike(db, fixedClock("2026-08-01T00:00:01.000Z"), { kind: "liked", layoutId: created.layout_id!, userId: "stream-liker", via: "discord", source: { client: "discord-app:test", version: null } });
 
     const frames = parseFrames(await res.text()).filter((f) => f.id !== undefined);
     expect(frames).toHaveLength(1);

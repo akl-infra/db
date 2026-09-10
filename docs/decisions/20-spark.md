@@ -1034,3 +1034,26 @@ ledgered and flippable by saltorbit):**
   db typecheck 0, assembledist + federation + ciwiring 38/38, `npm run
   build` generates `dist/layoutdb/` (46 files). The agent worktree is
   removed next; the `ldb-spark-docs` branch stays. Next: S3s.
+- **2026-09-10 ~22:50Z** — docs agent worktree removed (branch
+  `ldb-spark-docs` kept). **S3s landed** (Sonnet agent, lead-reviewed and
+  re-verified). 0005 gains `events.source_client/source_version`,
+  `layouts.source_client/source_version`, `auth_cache.app_id`; the user
+  lane calls Discord `/oauth2/@me` (no `user` key → cached 401 naming the
+  missing identify scope; a cached success without `app_id` is a miss);
+  `Actor.source_client` (`discord-app:<id>` | `client:<id>`);
+  `X-Client-Version` validated after actor resolution (`400
+  invalid_client_version`); `Write/Info/Like.source` required, folded
+  onto `layouts` for rev-bumping events only; `/history` and `/rev/{n}`
+  carry per-event `source` (`legacy:<via>` for pre-0005 events); dump,
+  restore, drill carry the columns. New LDB-P15 (lane × verb × header
+  matrix + spoof matrix + fold property), A2 amended. Judgment calls,
+  ledgered: a pre-0005 **record's** `source` reads `null` (no `via` on the
+  row to derive `legacy:` from; S4's `migrated` event gives every record
+  `system:migration`); admin-action events (`appendAdmin`) carry no
+  `source` (not layout edits); follow-up: `db/scripts/gen-error-table.mjs`
+  misparses a shorthand `message` that is the last property (worked
+  around in `tokenInvalid`). Lead checks: 22 regenerated fixtures
+  JSON-identical once `source` is stripped; the capture harness left no
+  residue; no test file's static case count dropped; db typecheck 0,
+  vitest 15 914 passed / 0 failed (+62); bot 755, lint clean; site 17;
+  0001–0005 apply on a fresh local D1. Next: S3b.

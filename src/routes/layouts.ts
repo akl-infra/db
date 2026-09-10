@@ -6,7 +6,7 @@ import { canonical } from "../core/canonical";
 import { badRequest, held, notFound, unknownFormat } from "../core/errors";
 import { cachePut, conditional, etagFor, headSeq } from "../core/etag";
 import type { EventDbRow, RecordSansPayload } from "../core/events";
-import { rowToEvent } from "../core/events";
+import { rowToEvent, sourceOfEvent } from "../core/events";
 import {
   byRef,
   decodeCursor,
@@ -276,6 +276,10 @@ layoutsRoute.get("/v1/layouts/:ref/history", async (c) => {
     via: e.via,
     kind: e.kind,
     admin: e.admin,
+    // 20-spark.md S3s (LDB-P15): per-event, via `rowToEvent`'s own
+    // `sourceOfEvent` -- a NULL `source_client` column (written before
+    // 0005) reads `{client: "legacy:" + via, version: null}`.
+    source: e.source,
   }));
   return c.json(items);
 });
@@ -297,9 +301,9 @@ layoutsRoute.get("/v1/layouts/:ref/rev/:n", async (c) => {
       .bind(rec.id, n)
       .first<{ format: string; payload_json: string }>(),
     db
-      .prepare("SELECT after_json FROM events WHERE layout_id = ? AND rev = ?")
+      .prepare("SELECT after_json, via, source_client, source_version FROM events WHERE layout_id = ? AND rev = ?")
       .bind(rec.id, n)
-      .first<{ after_json: string | null }>(),
+      .first<{ after_json: string | null; via: string; source_client: string | null; source_version: string | null }>(),
   ]);
   if (revRow === null || eventRow === null || eventRow.after_json === null) {
     throw notFound(`layout '${ref}' has no rev ${n}`, ref);
@@ -310,5 +314,10 @@ layoutsRoute.get("/v1/layouts/:ref/rev/:n", async (c) => {
   const result = translate({ format: revRow.format, payload }, as);
   if ("held" in result) throw held(result.format, result.see);
 
-  return c.json({ ...after, payload: result.payload, format: labelFormat(after.format, as) });
+  // 20-spark.md S3s (LDB-P15): computed from THIS event's own row, not
+  // trusted straight off `after_json` -- an event written before 0005 has
+  // no `source` key in its stored `after` at all, so `sourceOfEvent`'s
+  // `legacy:<via>` fallback (using this same row's `via`) is what actually
+  // fills it in.
+  return c.json({ ...after, payload: result.payload, format: labelFormat(after.format, as), source: sourceOfEvent(eventRow) });
 });

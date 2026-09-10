@@ -9,12 +9,25 @@
       "Content-Type": "application/json"
     },
     "body": {
-      "created_at": "2022-12-07T23:24:35Z",
-      "deleted": false,
-      "format": "cmini/1",
-      "has_magic": false,
       "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "name": "io",
+      "owner": "761732338744557568",
+      "rev": 1,
+      "created_at": "2022-12-07T23:24:35Z",
+      "modified_at": "2022-12-07T23:24:35Z",
+      "deleted": false,
       "like_count": 15,
+      "has_magic": false,
+      "format": "cmini/1",
+      "upstream": {
+        "source": "cmini",
+        "id": "io",
+        "state": "following"
+      },
+      "source": {
+        "client": "system:cmini-import",
+        "version": null
+      },
       "likes": [
         "1004139554682441779",
         "1087436602466373673",
@@ -32,14 +45,7 @@
         "813698873863962694",
         "846826972898131998"
       ],
-      "modified_at": "2022-12-07T23:24:35Z",
-      "name": "io",
-      "owner": "761732338744557568",
       "payload": {
-        "board": {
-          "cmini": "ortho",
-          "kind": "ortho"
-        },
         "keys": {
           "'": {
             "col": 8,
@@ -192,18 +198,16 @@
             "row": 2
           }
         },
+        "board": {
+          "kind": "ortho",
+          "cmini": "ortho"
+        },
         "x": {
           "cmini": {
-            "blame": "cmini",
-            "tag": "cmini"
+            "tag": "cmini",
+            "blame": "cmini"
           }
         }
-      },
-      "rev": 1,
-      "upstream": {
-        "id": "io",
-        "source": "cmini",
-        "state": "following"
       }
     }
   }

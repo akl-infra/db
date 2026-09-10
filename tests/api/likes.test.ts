@@ -37,6 +37,7 @@ async function seed(name = uniqueName("likes-seed")) {
     payload: CMINI_PAYLOAD,
     actor: OWNER,
     via: "discord",
+    source: { client: "discord-app:test", version: null },
     hasMagic: false,
   });
   return record;
@@ -178,6 +179,7 @@ describe("[LDB-L1] PUT/DELETE /v1/layouts/{ref}/like", () => {
       payload: record.payload,
       actor: OWNER,
       via: "discord",
+      source: { client: "discord-app:test", version: null },
       deleted: true,
     });
     const headers = ownerHeaders(`tok-${uniqueName("tomb")}`);

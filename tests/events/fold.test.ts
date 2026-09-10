@@ -98,6 +98,7 @@ async function applyOp(clock: () => string, slots: SlotState[], op: Op): Promise
           payload: { v: unique() },
           actor: "tester",
           via: action === "imported" ? "import:cmini" : "discord",
+          source: action === "imported" ? { client: "system:cmini-import", version: null } : { client: "discord-app:test", version: null },
           hasMagic: false,
         };
         const { record } = await appendWrite(db, clock, write);
@@ -122,6 +123,7 @@ async function applyOp(clock: () => string, slots: SlotState[], op: Op): Promise
         payload: { v: unique() },
         actor: "system:cmini-import",
         via: "import:cmini",
+        source: { client: "system:cmini-import", version: null },
         deleted: false,
         hasMagic: false,
       };
@@ -143,6 +145,7 @@ async function applyOp(clock: () => string, slots: SlotState[], op: Op): Promise
         payload: { v: unique() },
         actor: "tester",
         via: "discord",
+        source: { client: "discord-app:test", version: null },
       };
       await appendWrite(db, clock, write);
       return;
@@ -159,6 +162,7 @@ async function applyOp(clock: () => string, slots: SlotState[], op: Op): Promise
         payload: { v: unique() },
         actor: "tester",
         via: "discord",
+        source: { client: "discord-app:test", version: null },
       };
       const { record } = await appendWrite(db, clock, write);
       slot.name = record.name;
@@ -177,6 +181,7 @@ async function applyOp(clock: () => string, slots: SlotState[], op: Op): Promise
         payload: { v: unique() },
         actor: "tester",
         via: "discord",
+        source: { client: "discord-app:test", version: null },
       };
       const { record } = await appendWrite(db, clock, write);
       slot.owner = record.owner;
@@ -195,6 +200,7 @@ async function applyOp(clock: () => string, slots: SlotState[], op: Op): Promise
         payload: { v: unique() },
         actor: action === "upstream_deleted" ? "system:cmini-import" : "tester",
         via: action === "upstream_deleted" ? "import:cmini" : "discord",
+        source: action === "upstream_deleted" ? { client: "system:cmini-import", version: null } : { client: "discord-app:test", version: null },
         deleted: true,
       };
       const { record } = await appendWrite(db, clock, write);
@@ -214,6 +220,7 @@ async function applyOp(clock: () => string, slots: SlotState[], op: Op): Promise
         payload: { v: unique() },
         actor: "tester",
         via: "discord",
+        source: { client: "discord-app:test", version: null },
         deleted: false,
       };
       const { record } = await appendWrite(db, clock, write);
@@ -224,7 +231,7 @@ async function applyOp(clock: () => string, slots: SlotState[], op: Op): Promise
     case "liked":
     case "unliked": {
       const userId = `u${op.userIdPick}`;
-      await appendLike(db, clock, { kind: action, layoutId: slot.id, userId, via: "discord" });
+      await appendLike(db, clock, { kind: action, layoutId: slot.id, userId, via: "discord", source: { client: "discord-app:test", version: null } });
       return;
     }
   }
@@ -305,6 +312,7 @@ describe("fold", () => {
       payload: { v: 1 },
       actor: "tester",
       via: "discord",
+      source: { client: "discord-app:test", version: null },
     });
 
     const before = await db.prepare("SELECT * FROM layouts WHERE id = ?").bind(record.id).first<LayoutDbRow>();
@@ -313,10 +321,11 @@ describe("fold", () => {
       layoutId: record.id,
       actor: "system:cmini-import",
       via: "import:cmini",
+      source: { client: "system:cmini-import", version: null },
       detail: { note: "x" },
     });
-    await appendLike(db, clock, { kind: "liked", layoutId: record.id, userId: "u1", via: "discord" });
-    await appendLike(db, clock, { kind: "liked", layoutId: record.id, userId: "u1", via: "discord" }); // repeat: idempotent no-op
+    await appendLike(db, clock, { kind: "liked", layoutId: record.id, userId: "u1", via: "discord", source: { client: "discord-app:test", version: null } });
+    await appendLike(db, clock, { kind: "liked", layoutId: record.id, userId: "u1", via: "discord", source: { client: "discord-app:test", version: null } }); // repeat: idempotent no-op
 
     const after = await db.prepare("SELECT * FROM layouts WHERE id = ?").bind(record.id).first<LayoutDbRow>();
     expect(after!.rev).toBe(before!.rev); // info + one real like + one no-op like: no rev bump
@@ -345,6 +354,7 @@ describe("fold", () => {
           payload: { v: unique() },
           actor: "tester",
           via: "discord",
+          source: { client: "discord-app:test", version: null },
         });
 
         const update = (v: string) =>
@@ -359,6 +369,7 @@ describe("fold", () => {
             payload: { v },
             actor: "tester",
             via: "discord",
+            source: { client: "discord-app:test", version: null },
           });
 
         const outcomes = await Promise.allSettled([update("a"), update("b")]);

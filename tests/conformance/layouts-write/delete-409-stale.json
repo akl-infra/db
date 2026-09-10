@@ -45,35 +45,39 @@
     },
     "body": {
       "error": "stale",
-      "last_write": {
-        "actor": "830000000000000001",
-        "admin": false,
-        "at": "2026-06-20T00:00:00.000Z",
-        "kind": "updated",
-        "seq": 450,
-        "via": "discord"
-      },
       "message": "record is at rev 2, not the version you edited",
+      "rev": 2,
       "record": {
-        "created_at": "2026-06-20T00:00:00.000Z",
-        "deleted": false,
-        "format": "spark/1",
-        "has_magic": false,
         "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-        "like_count": 0,
-        "modified_at": "2026-06-20T00:00:00.000Z",
         "name": "cw-delete-stale-1",
         "owner": "830000000000000001",
+        "rev": 2,
+        "created_at": "2026-06-20T00:00:00.000Z",
+        "modified_at": "2026-06-20T00:00:00.000Z",
+        "deleted": false,
+        "like_count": 0,
+        "has_magic": false,
+        "format": "spark/1",
+        "upstream": null,
+        "source": {
+          "client": "discord-app:app-default",
+          "version": null
+        },
         "payload": {
           "keys": {},
           "x": {
             "tag": "bump"
           }
-        },
-        "rev": 2,
-        "upstream": null
+        }
       },
-      "rev": 2
+      "last_write": {
+        "seq": 450,
+        "at": "2026-06-20T00:00:00.000Z",
+        "actor": "830000000000000001",
+        "via": "discord",
+        "kind": "updated",
+        "admin": false
+      }
     }
   }
 }

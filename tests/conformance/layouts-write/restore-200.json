@@ -11,24 +11,28 @@
       "ETag": "\"3\""
     },
     "body": {
-      "created_at": "2026-06-20T00:00:00.000Z",
-      "deleted": false,
-      "format": "spark/1",
-      "has_magic": false,
       "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-      "like_count": 0,
-      "modified_at": "2026-06-20T00:00:00.000Z",
       "name": "cw-restore-1",
       "owner": "800000000000000001",
-      "payload": {
-        "board": {
-          "cmini": "ortho",
-          "kind": "ortho"
-        },
-        "keys": {}
-      },
       "rev": 3,
-      "upstream": null
+      "created_at": "2026-06-20T00:00:00.000Z",
+      "modified_at": "2026-06-20T00:00:00.000Z",
+      "deleted": false,
+      "like_count": 0,
+      "has_magic": false,
+      "format": "spark/1",
+      "upstream": null,
+      "source": {
+        "client": "discord-app:app-default",
+        "version": null
+      },
+      "payload": {
+        "keys": {},
+        "board": {
+          "kind": "ortho",
+          "cmini": "ortho"
+        }
+      }
     }
   }
 }

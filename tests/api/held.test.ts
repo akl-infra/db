@@ -42,6 +42,7 @@ describe("[LDB-F9] held/1 records", () => {
       payload: { anything: true },
       actor: "1",
       via: "discord",
+      source: { client: "discord-app:test", version: null },
     });
     recordId = record.id;
   });

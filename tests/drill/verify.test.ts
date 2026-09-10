@@ -27,6 +27,8 @@ describe("[LDB-D5] drill-verify.mjs -- expectedFromRecord", () => {
       upstream_source: "cmini",
       upstream_id: "test-layout",
       upstream_state: "following",
+      source_client: "discord-app:12345",
+      source_version: "1.2.3",
     };
     expect(expectedFromRecord(rec, ["u1", "u2"])).toEqual({
       id: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -40,9 +42,30 @@ describe("[LDB-D5] drill-verify.mjs -- expectedFromRecord", () => {
       has_magic: true,
       format: "akl/1",
       upstream: { source: "cmini", id: "test-layout", state: "following" },
+      source: { client: "discord-app:12345", version: "1.2.3" },
       likes: ["u1", "u2"],
       payload: { keys: { a: 1 } },
     });
+  });
+
+  // 20-spark.md S3s (LDB-D1/D5 amended again): a dump written before this
+  // slice's migration has no `source_client`/`source_version` keys at all
+  // -- same "absent == present-and-NULL" treatment as `upstream_*`.
+  it("[LDB-D5] [LDB-P15] a pre-0005 dump row (no source_client key at all) yields source: null", () => {
+    const rec = {
+      id: "01ARZ3NDEKTSV4RRFFQ69G5FAX",
+      name: "old-shape-source",
+      owner: "184412255822020608",
+      rev: 1,
+      created_at: "2026-01-01T00:00:00.000Z",
+      modified_at: "2026-01-01T00:00:00.000Z",
+      deleted: 0,
+      format: "akl/1",
+      payload_json: "{}",
+      like_count: 0,
+      has_magic: 0,
+    };
+    expect(expectedFromRecord(rec, [])).toMatchObject({ source: null });
   });
 
   // 20-spark.md S3a (LDB-D1/D5 amended): a dump written before 0005 has no

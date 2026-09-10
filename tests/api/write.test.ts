@@ -46,6 +46,7 @@ async function seed(format: "cmini/1" | "akl/1" = "cmini/1", owner = OWNER) {
     payload,
     actor: owner,
     via: "discord",
+    source: { client: "discord-app:test", version: null },
     hasMagic: false,
   });
   return record;
@@ -331,6 +332,7 @@ describe("[LDB-A7] POST /v1/layouts/{ref}/restore: owner or admin", () => {
       payload: record.payload,
       actor: owner,
       via: "discord",
+      source: { client: "discord-app:test", version: null },
       deleted: true,
       hasMagic: false,
     }).then((r) => r.record);
@@ -539,6 +541,7 @@ describe("[LDB-A5] client-lane writes: via: client:<id>", () => {
       payload: record.payload,
       actor: client.actor,
       via: "discord",
+      source: { client: "discord-app:test", version: null },
       deleted: true,
       hasMagic: false,
     }).then((r) => r.record);

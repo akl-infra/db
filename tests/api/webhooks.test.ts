@@ -616,6 +616,7 @@ async function appendCreatedLayout() {
     payload: {},
     actor: "wh-fixture-owner",
     via: "discord",
+    source: { client: "discord-app:test", version: null },
     hasMagic: false,
   });
 }
@@ -626,7 +627,7 @@ async function appendOne(): Promise<{ seq: number }> {
 }
 
 async function appendLikeDirect(layoutId: string): Promise<void> {
-  await appendLike(db, fixedClock("2026-07-01T00:00:01.000Z"), { kind: "liked", layoutId, userId: "wh-liker", via: "discord" });
+  await appendLike(db, fixedClock("2026-07-01T00:00:01.000Z"), { kind: "liked", layoutId, userId: "wh-liker", via: "discord", source: { client: "discord-app:test", version: null } });
 }
 
 async function appendWriteAs(owner: string): Promise<void> {
@@ -640,6 +641,7 @@ async function appendWriteAs(owner: string): Promise<void> {
     payload: {},
     actor: owner,
     via: "discord",
+    source: { client: "discord-app:test", version: null },
     hasMagic: false,
   });
 }

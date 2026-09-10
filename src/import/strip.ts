@@ -73,6 +73,7 @@ export async function stripCminiMagic(db: Bindings["DB"], now: Clock): Promise<S
       payload: withoutMagic,
       actor: "system:cmini-import",
       via: "import:cmini",
+      source: { client: "system:cmini-import", version: null },
       detail: { source: "cmini", upstream_id: upstreamId, reason: "magic_stripped" },
       hasMagic: false,
       upstream: nextUpstream(prior, "imported", "import:cmini"),

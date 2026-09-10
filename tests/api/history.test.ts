@@ -15,6 +15,8 @@ interface EventRow {
   via: string;
   kind: string;
   admin: number;
+  source_client: string | null;
+  source_version: string | null;
 }
 
 interface HistoryItem {
@@ -25,6 +27,7 @@ interface HistoryItem {
   via: string;
   kind: string;
   admin: boolean;
+  source: { client: string; version: string | null };
 }
 
 beforeAll(async () => {
@@ -32,7 +35,7 @@ beforeAll(async () => {
 });
 
 describe("[LDB-R5] /history equals a record's own events, for every seed record", () => {
-  it("[LDB-R5] matches the events table row for row", async () => {
+  it("[LDB-R5] [LDB-P15] matches the events table row for row, source included", async () => {
     const { results: ids } = await db.prepare("SELECT id FROM layouts").all<{ id: string }>();
     expect(ids.length).toBeGreaterThan(0);
 
@@ -42,7 +45,7 @@ describe("[LDB-R5] /history equals a record's own events, for every seed record"
       const items = await res.json<HistoryItem[]>();
 
       const { results: rows } = await db
-        .prepare("SELECT seq, rev, at, actor, via, kind, admin FROM events WHERE layout_id = ? ORDER BY seq ASC")
+        .prepare("SELECT seq, rev, at, actor, via, kind, admin, source_client, source_version FROM events WHERE layout_id = ? ORDER BY seq ASC")
         .bind(id)
         .all<EventRow>();
 
@@ -58,6 +61,11 @@ describe("[LDB-R5] /history equals a record's own events, for every seed record"
           via: row.via,
           kind: row.kind,
           admin: row.admin !== 0,
+          // 20-spark.md S3s (LDB-P15): a NULL `source_client` (written
+          // before 0005) reads `legacy:<via>` -- the same rule
+          // `core/events.ts`'s `sourceOfEvent` applies, recomputed here
+          // independently off the raw row rather than imported.
+          source: row.source_client === null ? { client: `legacy:${row.via}`, version: null } : { client: row.source_client, version: row.source_version },
         });
       }
     }
@@ -97,6 +105,7 @@ describe("[LDB-R5] /rev/{n} reproduces the payload stored at rev n; rev+1 404s",
         payload,
         actor: seed.owner,
         via: "discord",
+        source: { client: "discord-app:test", version: null },
       });
       payloadsByRev.push(payload);
     }

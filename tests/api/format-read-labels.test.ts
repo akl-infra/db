@@ -32,6 +32,7 @@ async function seed() {
     payload: { keys: {} },
     actor: OWNER,
     via: "discord",
+    source: { client: "discord-app:test", version: null },
     hasMagic: false,
   });
   return record;
@@ -135,6 +136,7 @@ describe("[LDB-F20] ?format= list filter resolves aliases", () => {
       payload: { board: "ortho", keys: {} },
       actor: OWNER,
       via: "discord",
+      source: { client: "discord-app:test", version: null },
       hasMagic: false,
     });
     const res = await writeFetch(`/v1/layouts?owner=${OWNER}&format=cmini/1`, "GET");

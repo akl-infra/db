@@ -18,11 +18,11 @@ function resolveNow(env: Bindings): Clock {
 export const likesRoute = new Hono<{ Bindings: Bindings; Variables: ActorVariables }>();
 
 likesRoute.put("/v1/layouts/:ref/like", async (c) => {
-  const { like_count } = await likeLayout(c.env, resolveNow(c.env), c.get("actor"), c.req.param("ref"));
+  const { like_count } = await likeLayout(c.env, resolveNow(c.env), c.get("actor"), c.req.param("ref"), c.get("sourceVersion"));
   return c.json({ like_count });
 });
 
 likesRoute.delete("/v1/layouts/:ref/like", async (c) => {
-  const { like_count } = await unlikeLayout(c.env, resolveNow(c.env), c.get("actor"), c.req.param("ref"));
+  const { like_count } = await unlikeLayout(c.env, resolveNow(c.env), c.get("actor"), c.req.param("ref"), c.get("sourceVersion"));
   return c.json({ like_count });
 });

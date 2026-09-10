@@ -209,7 +209,7 @@ async function freeShadowName(db: Bindings["DB"], name: string): Promise<string>
 
 async function importLikes(db: Bindings["DB"], now: Clock, layoutId: string, userIds: string[]): Promise<void> {
   for (const userId of userIds) {
-    await appendLike(db, now, { kind: "liked", layoutId, userId, via: "import:cmini" });
+    await appendLike(db, now, { kind: "liked", layoutId, userId, via: "import:cmini", source: { client: "system:cmini-import", version: null } });
   }
 }
 
@@ -238,6 +238,7 @@ async function applyNew(
       payload: detail.payload,
       actor: "system:cmini-import",
       via: "import:cmini",
+      source: { client: "system:cmini-import", version: null },
       detail: { source: "cmini", upstream_id: upstreamId },
       hasMagic: cmini1.hasMagic(detail.payload),
       upstream: nextUpstream({ source: "cmini", id: upstreamId, state: "following" }, "imported", "import:cmini"),
@@ -256,6 +257,7 @@ async function applyNew(
       layoutId: existing.id,
       actor: "system:cmini-import",
       via: "import:cmini",
+      source: { client: "system:cmini-import", version: null },
       detail: projectUpstreamFull(detail),
     });
     return;
@@ -268,6 +270,7 @@ async function applyNew(
     layoutId: existing.id,
     actor: "system:cmini-import",
     via: "import:cmini",
+    source: { client: "system:cmini-import", version: null },
     detail: { upstream_id: upstreamId, upstream_name: detail.name, conflicts_with: existing.id },
   });
   const shadowName = await freeShadowName(db, detail.name);
@@ -281,6 +284,7 @@ async function applyNew(
     payload: detail.payload,
     actor: "system:cmini-import",
     via: "import:cmini",
+    source: { client: "system:cmini-import", version: null },
     detail: { source: "cmini", upstream_id: upstreamId, shadowed: { upstream_name: detail.name } },
     hasMagic: cmini1.hasMagic(detail.payload),
     upstream: nextUpstream({ source: "cmini", id: upstreamId, state: "following" }, "imported", "import:cmini"),
@@ -354,6 +358,7 @@ async function applyMapped(
           payload,
           actor: "system:cmini-import",
           via: "import:cmini",
+          source: { client: "system:cmini-import", version: null },
           detail: { source: "cmini", upstream_id: upstreamId },
           deleted: false,
           hasMagic: akl1.hasMagic(payload),
@@ -374,6 +379,7 @@ async function applyMapped(
           payload,
           actor: "system:cmini-import",
           via: "import:cmini",
+          source: { client: "system:cmini-import", version: null },
           detail: { source: "cmini", upstream_id: upstreamId },
           deleted: false,
           hasMagic: cmini1.hasMagic(payload),
@@ -384,10 +390,10 @@ async function applyMapped(
     }
     // Case 5 (and the like half of case 4): likes replaced wholesale.
     for (const u of upstreamLikeIds) {
-      if (!localLikeIds.has(u)) await appendLike(db, now, { kind: "liked", layoutId: record.id, userId: u, via: "import:cmini" });
+      if (!localLikeIds.has(u)) await appendLike(db, now, { kind: "liked", layoutId: record.id, userId: u, via: "import:cmini", source: { client: "system:cmini-import", version: null } });
     }
     for (const u of localLikeIds) {
-      if (!upstreamLikeIds.has(u)) await appendLike(db, now, { kind: "unliked", layoutId: record.id, userId: u, via: "import:cmini" });
+      if (!upstreamLikeIds.has(u)) await appendLike(db, now, { kind: "unliked", layoutId: record.id, userId: u, via: "import:cmini", source: { client: "system:cmini-import", version: null } });
     }
     return;
   }
@@ -403,13 +409,14 @@ async function applyMapped(
         layoutId: record.id,
         actor: "system:cmini-import",
         via: "import:cmini",
+        source: { client: "system:cmini-import", version: null },
         detail: projectUpstreamFull(detail),
       });
     }
   }
   // Case 7 (and the like half of case 6): union only, never unlike.
   for (const u of upstreamLikeIds) {
-    if (!localLikeIds.has(u)) await appendLike(db, now, { kind: "liked", layoutId: record.id, userId: u, via: "import:cmini" });
+    if (!localLikeIds.has(u)) await appendLike(db, now, { kind: "liked", layoutId: record.id, userId: u, via: "import:cmini", source: { client: "system:cmini-import", version: null } });
   }
 }
 
@@ -440,6 +447,7 @@ export async function applyDelete(db: Bindings["DB"], now: Clock, layoutId: stri
       payload: record.payload,
       actor: "system:cmini-import",
       via: "import:cmini",
+      source: { client: "system:cmini-import", version: null },
       deleted: true,
       upstream: nextUpstream(prior, "upstream_deleted", "import:cmini"),
       expectRev: record.rev,
@@ -453,6 +461,7 @@ export async function applyDelete(db: Bindings["DB"], now: Clock, layoutId: stri
       layoutId,
       actor: "system:cmini-import",
       via: "import:cmini",
+      source: { client: "system:cmini-import", version: null },
     });
   }
 }

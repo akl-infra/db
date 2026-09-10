@@ -25,6 +25,7 @@ function create(name: string, owner = "owner-a") {
     payload: { v: 1 },
     actor: owner,
     via: "discord",
+    source: { client: "discord-app:test", version: null },
   });
 }
 
@@ -40,6 +41,7 @@ function tombstone(record: { id: string; name: string; owner: string; format: st
     payload: record.payload,
     actor: record.owner,
     via: "discord",
+    source: { client: "discord-app:test", version: null },
     deleted: true,
   });
 }
@@ -84,6 +86,7 @@ describe("name uniqueness", () => {
         payload: a.payload,
         actor: a.owner,
         via: "discord",
+        source: { client: "discord-app:test", version: null },
         deleted: false,
       }),
     ).rejects.toMatchObject({ status: 409, body: { error: "name_taken", name: "Restore-1" } });
@@ -102,6 +105,7 @@ describe("name uniqueness", () => {
       payload: a.payload,
       actor: a.owner,
       via: "discord",
+      source: { client: "discord-app:test", version: null },
     });
 
     const { record: b } = await create("Baz-1"); // the name "renamed" vacated
@@ -122,6 +126,7 @@ describe("name uniqueness", () => {
       payload: { v: 2 },
       actor: a.owner,
       via: "discord",
+      source: { client: "discord-app:test", version: null },
     });
     expect(updated.name).toBe("Qux-1");
     expect(updated.rev).toBe(a.rev + 1);

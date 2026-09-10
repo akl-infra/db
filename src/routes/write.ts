@@ -72,7 +72,7 @@ export const writeRoute = new Hono<{ Bindings: Bindings; Variables: ActorVariabl
 
 writeRoute.post("/v1/layouts", async (c) => {
   const body = parseCreateBody(await readJson(c.req));
-  const { record } = await createLayout(c.env, resolveNow(c.env), c.get("actor"), body);
+  const { record } = await createLayout(c.env, resolveNow(c.env), c.get("actor"), body, c.get("sourceVersion"));
   return c.json(relabelWrite(toWire(record), body.format), 201, { ETag: `"${record.rev}"` });
 });
 
@@ -80,7 +80,7 @@ writeRoute.put("/v1/layouts/:ref", async (c) => {
   const ifMatch = parseIfMatch(c.req.header("If-Match") ?? null);
   const body = parseReplaceBody(await readJson(c.req));
   try {
-    const { record } = await replaceLayout(c.env, resolveNow(c.env), c.get("actor"), c.req.param("ref"), body, ifMatch);
+    const { record } = await replaceLayout(c.env, resolveNow(c.env), c.get("actor"), c.req.param("ref"), body, ifMatch, c.get("sourceVersion"));
     return c.json(relabelWrite(toWire(record), body.format), 200, { ETag: `"${record.rev}"` });
   } catch (e) {
     relabelStaleError(e, body.format);
@@ -95,25 +95,25 @@ writeRoute.patch("/v1/layouts/:ref", async (c) => {
   // (this route's own bug until the PATCH client-lane test below caught
   // it) leaves nothing for that cache to reuse and a second read throws.
   const body = parsePatchBody(await readJson(c.req));
-  const { record } = await patchLayout(c.env, resolveNow(c.env), c.get("actor"), c.req.param("ref"), body, ifMatch);
+  const { record } = await patchLayout(c.env, resolveNow(c.env), c.get("actor"), c.req.param("ref"), body, ifMatch, c.get("sourceVersion"));
   return c.json(toWire(record), 200, { ETag: `"${record.rev}"` });
 });
 
 writeRoute.delete("/v1/layouts/:ref", async (c) => {
   const ifMatch = parseIfMatch(c.req.header("If-Match") ?? null);
-  const { record } = await deleteLayout(c.env, resolveNow(c.env), c.get("actor"), c.req.param("ref"), ifMatch);
+  const { record } = await deleteLayout(c.env, resolveNow(c.env), c.get("actor"), c.req.param("ref"), ifMatch, c.get("sourceVersion"));
   return c.json(toWire(record), 200, { ETag: `"${record.rev}"` });
 });
 
 writeRoute.post("/v1/layouts/:ref/restore", async (c) => {
   const body = parseRestoreBody(await readOptionalJson(c.req));
-  const { record } = await restoreLayout(c.env, resolveNow(c.env), c.get("actor"), c.req.param("ref"), body);
+  const { record } = await restoreLayout(c.env, resolveNow(c.env), c.get("actor"), c.req.param("ref"), body, c.get("sourceVersion"));
   return c.json(toWire(record), 200, { ETag: `"${record.rev}"` });
 });
 
 writeRoute.post("/v1/layouts/:ref/transfer", async (c) => {
   const ifMatch = parseIfMatch(c.req.header("If-Match") ?? null);
   const body = parseTransferBody(await readJson(c.req));
-  const { record } = await transferLayout(c.env, resolveNow(c.env), c.get("actor"), c.req.param("ref"), body, ifMatch);
+  const { record } = await transferLayout(c.env, resolveNow(c.env), c.get("actor"), c.req.param("ref"), body, ifMatch, c.get("sourceVersion"));
   return c.json(toWire(record), 200, { ETag: `"${record.rev}"` });
 });
