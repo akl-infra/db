@@ -538,6 +538,21 @@ D6.
   vectors and fixtures a client can test itself against). Every request
   and response shown as a copy-pasteable example. Agent-first details: one
   endpoint table with method, path, auth, body, success and error codes.
+  Plus two sections added by saltorbit (2026-09-10):
+  - **For format authors:** adding a new format (directory contract,
+    `role`, schema, validate, edits, translations, fixtures and goldens,
+    OWNERS, registry wiring, the tests that must pass); adding a new major
+    of an existing format (the `up`/`down` steps, "down is held or
+    lossless", frozen fixtures, the migrate tick that moves stored records,
+    per-major dumps); lowering to mana2 (what `to["mana2/1"]` must produce,
+    what may be lost, why it must never hold for a valid payload, how to
+    test it against the mana2 engine's own loader).
+  - **For clients moving to a new major:** how to detect it
+    (`/v1/formats` `latest`, `lineage`, `major`; a `409 format_behind`),
+    what keeps working meanwhile (reads via `?as=<old major>`, writes in
+    the old major chained up, `held` and `format_behind` handling), the
+    switch itself (read the new major, write it, drop the old `?as=`), and
+    how to test it (the per-major dump files, the stub lineage fixtures).
 - `design/layout-db/build_site.mjs`: renders the hub into `web/layoutdb/`
   with the federation renderer (`design/federation/build_page.mjs`'s
   `render`): `index.html` (what layoutdb is, who each doc is for, the
@@ -585,7 +600,7 @@ P11–P15, D6, G9–G10, B48–B50.
 | LDB-P15 | S3s | Every rev-bumping event written after 0005 carries `source.client` derived from the authenticated identity (`client:<id>`, `discord-app:<app id>`) or the system writer (`system:cmini-import`, `system:migration`), never from a header or body; `source.version` is the validated `X-Client-Version` or null; the record's `source` equals its latest rev-bumping event's (fold); `/history` and `/rev/{n}` return per-rev source; pre-0005 events read `legacy:<via>` | lane × verb × header matrix; spoof matrix; replay property (with P11) |
 | LDB-A2 (amended) | S3s | The Discord cache also keys the token's application id from `/oauth2/@me`; a cached row without it is a miss | `tests/auth/discord.test.ts` |
 | LDB-G9 | S8 | The docs hub ships and cannot drift: every page in `web/layoutdb/` equals a fresh render of its source; every page's navigation lists every doc exactly once; every internal link and every raw `.md` link resolves; every `design/layout-db/*.md` and `db/docs/*.md` is in the hub | `tests/tools/docs-site.test.ts` |
-| LDB-G10 | S8 | The adoption guide covers the API exactly: the set of public routes enumerated from the router equals the guide's endpoint table (method + path), and every error code the guide lists is one the error factories can produce | `tests/tools/docs-site.test.ts` |
+| LDB-G10 | S8 | The adoption guide covers the API exactly: the set of public routes enumerated from the router equals the guide's endpoint table (method + path); every error code the guide lists is one the error factories can produce; its format-author checklist names every member the registry requires of a stored format and of a major > 1 (enumerated from the same required-member list LDB-F18 enforces) | `tests/tools/docs-site.test.ts` |
 | LDB-D6 | S5 | Per-major dumps: one file per registered stored major, held rows marked, sha256 sidecars; `latest.json` unchanged | dump tests |
 | LDB-D1 / D5 (amended) | S3a | The dump carries `upstream_source/id/state`; `restoreSql` round-trips them; a dump without them restores NULL; the drill's per-record HTTP check includes `upstream` | `dump.test.ts`, `rehost.test.ts`, `drill/verify.test.ts` |
 | LDB-R1 (amended) | S2 | The ETag also changes when the wire version changes (`WIRE_VERSION` folded into the query hash) | `etag.test.ts` |
@@ -860,3 +875,7 @@ ledgered and flippable by saltorbit):**
   this worktree and main's lockfile differs, so the site test
   (`akl1.vitest.ts`) and `gates.sh --fast` need a root `npm ci` before the
   rebase (disk: 26 GB free).
+- **2026-09-10 ~17:50Z** — saltorbit widened S8's guide: format authoring (new
+  format, new major, lowering to mana2) and client migration across
+  majors. LDB-G10 now also ties the author checklist to F18's required
+  members.
