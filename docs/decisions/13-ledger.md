@@ -89,6 +89,18 @@ One Claude Code session has ONE worktree pin shared by every plain-spawned agent
 
 **Nice-to-haves not started:** a "did you mean" on fuzzy misses (cmini-faithful today: a miss resolves to the nearest layout); persisting the bot's stats memo across restarts; the drill as a scheduled Fly machine.
 
+## 6b. Parked design rounds (saltorbit, 2026-09-10: "hold this for later ... write everything down so another agent can pick it back up")
+
+Each row is a design round with rendered mockups already made. Pick it up by opening the artifact (saltorbit owns them; the HTML sources are in this session's scratchpad only, so if an artifact is gone, regenerate from the description in the doc named), reading the doc, and asking saltorbit for the pick the artifact's last section lists. Nothing here blocks anything else.
+
+| round | doc | mockups (artifact) | status / what's needed |
+|---|---|---|---|
+| **Layout entry expressivity + the board shape in the format** (D4 + D8) | `18-command-decisions.md` §2 D4/D8 | https://claude.ai/code/artifact/fd8f4a07-cf10-4e78-b3bc-a3f77ecb3530 (options: 0 today · A grid + header lines `board`/`stagger`/`fingers`/`thumbs` · B named board presets · C Discord stays simple, the bench edits shape · D8 the akl/1 `board` minor: `split`, `gap`, explicit `thumbs`, per-column stagger) | **Parked 2026-09-10 05:4xZ** ("hold this for later"). Recommendation on the page: D8 first, then A + C together, B later. Needs saltorbit's pick: header words, whether `fingers`-per-column replaces the digit matrix, presets, D8 field names. Implementation order when picked: `01-format.md` §2 amendment + `db/formats/akl/1` minor with goldens → import fills the new fields from the cmini word → site/bot renderers read them → bot `add` header lines. |
+| **mana stats as text** (`view` in mana vocabulary) | GH #309 (constraints + the four rejected shapes) | https://claude.ai/code/artifact/f0867827-8f09-4ed7-8ef1-4b64152dd433 | Parked: none of A–D liked. Constraint that survives: ~38 monospace columns on a phone; context line `reddit · rowstag · no spacegrams` replaces `REDDIT:` regardless (C13). |
+| **magic rules from Discord** | `18` D7 | read grammar https://claude.ai/code/artifact/e7e65dd1-baa8-4602-b2bc-bd664fd7ad92 · rule-by-rule `magic!` https://claude.ai/code/artifact/c56085f3-5237-4a31-aaa2-8da414c6c56b | **Closed**: magic is edited on the site only; `magic` (read) keeps today's block. Reopen only if saltorbit asks. |
+| finger colors on the text grids | `bot/INVARIANTS.md` LDB-B29 | https://claude.ai/code/artifact/fcd4081b-c583-434f-91bb-e2b7f527f959 | Done (three-color pick, live). |
+| command-surface review | `18-command-decisions.md` | https://claude.ai/code/artifact/846e52cd-769a-4865-accb-3dc2e6258e6d (decisions persisted in the page's own store, collection `decisions`) | Done; all bot items shipped except C9 (bench link from `view`, waits on D8), C10 (`onehands`→`rol3` family rename, plan agreed: akl.gg's labels as primaries, cmini names as aliases), C13 (spacegrams setting, next). |
+
 ## 7. Where to look when something is wrong
 
 - DB 5xx: Cloudflare dashboard → akl-db → Logs (Workers Logs on since 15:3xZ); `/v1/admin/health`; `flyctl logs` shows the bot's side (every failed write logs route/status/message).
