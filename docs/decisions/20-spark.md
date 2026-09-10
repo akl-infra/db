@@ -1077,3 +1077,15 @@ ledgered and flippable by saltorbit):**
   → `{source: "cmini", id, state: "forked"}`; only records with no mapping
   are `null`. Tests: the fallback matrix, plus P12 convergence on both
   shapes (second tick selects nothing; the script terminates).
+- **2026-09-10 ~23:50Z** — S6 ready on `ldb-spark-s6` (8fe861632; bot
+  767 passed, +12; scripts pytest 115/1; functions magic-lib tests 53;
+  root node tests 423; `akl1.vitest.ts` 17; bot LDB-B48–B50 rows added to
+  `bot/INVARIANTS.md` since the bot has a tag↔row gate). Lead review sent
+  two changes back: (1) `verify_magic_migration.py` must keep checking
+  that the DB's compiler agrees with the site's (DB side from
+  `?as=mana2/1` flat rules, the analyzer's input, which survives the
+  cmini alias's removal); the draft compiled both sides with the site
+  compiler, which only proves content parity. (2) LDB-B50's version header
+  uses Fly's per-deploy `FLY_IMAGE_REF` tag (then `FLY_MACHINE_VERSION`,
+  then the package version), ≤ 64 chars in the DB's charset, so edits can
+  be traced and rolled back per bot release (decision 14's purpose).
