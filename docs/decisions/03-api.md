@@ -28,12 +28,18 @@ domain (name pending, `00 §6.2`), path prefix `/v1`. JSON in and out, UTF-8,
   accepts `If-Match: "<rev>"` (quoted or bare; `*` = any). Mismatch → `409
   { error: "stale", rev, record, last_write: { seq, at, actor, via, kind,
   admin } }` with the current record so a client can rebase and say who
-  changed it. Absent `If-Match` (or `*`) = overwrite on purpose (the site
-  sends it always; the bot never does — bot users edit by typing, there is
-  no draft to be stale) — an overwrite can still get a `409` when another
-  write lands between read and commit; the guard is the `layout_revs` PK
-  inside the batch (`09 §2.3`). Every 2xx that returns a record carries
-  `ETag: "<rev>"`. `transfer`, `restore` and likes take no `If-Match`.
+  changed it. A write against an existing record — `PUT`, `PATCH`,
+  `DELETE`, `transfer` — must name the version it saw: absent `If-Match`
+  is refused with `400 if_match_required` (saltorbit, 2026-09-09, LDB-P2;
+  `core/ifmatch.ts`'s `requireIfMatch`, called before any read). `*` is
+  still "overwrite on purpose", but the client has to say so explicitly.
+  The site always sends the rev it holds; the bot fetches the record fresh
+  and sends that rev on every mutating verb (`bot/src/commands/shared.ts`'s
+  `writeWithFreshRecord`, 2026-09-09) — an overwrite can still get a `409`
+  when another write lands between read and commit; the guard is the
+  `layout_revs` PK inside the batch (`09 §2.3`). Every 2xx that returns a
+  record carries `ETag: "<rev>"`. `restore` and likes take no `If-Match`
+  (no prior draft to be stale against); neither does `POST /v1/layouts`.
 - **Idempotency.** No `Idempotency-Key` (cut, `09 §6`): `POST` is guarded by
   name uniqueness — a retried create gets `409 name_taken` whose `holder`
   is the caller's own record; the other verbs are idempotent by `rev`.
@@ -97,7 +103,7 @@ PATCH  /v1/layouts/{ref}              one or more of:                          �
                                         { board }                (akl/1 board shape; cmini/1 when a cmini word applies)
                                         { magic }                (akl/1 records only)
 DELETE /v1/layouts/{ref}              If-Match                                 → 200 tombstone record
-POST   /v1/layouts/{ref}/transfer     { to: "<user_id>" }                      → 200 record
+POST   /v1/layouts/{ref}/transfer     { to: "<user_id>" }  If-Match            → 200 record
 POST   /v1/layouts/{ref}/restore      (owner or admin; within 30 days)         → 200 record
 PUT    /v1/layouts/{ref}/like                                                  → 200 { like_count }
 DELETE /v1/layouts/{ref}/like                                                  → 200 { like_count }

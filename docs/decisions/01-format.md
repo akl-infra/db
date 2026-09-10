@@ -196,7 +196,7 @@ from two idioms, or an idiom and a raw rule — are refused at write time:
 400 { "error": "magic_collision",
       "inputs": "th",
       "from": [ "adaptive_swaps[0]", "rules[0]" ],
-      "message": "two rules fire after 'th': adaptive swap t:[h,e] and raw rule th→te" }
+      "message": "two rows fire on 'th': adaptive_swaps[0] and rules[0]" }
 ```
 
 Not last-wins (mana2's load behaviour, which `02-schema.md` already calls a
@@ -252,9 +252,14 @@ Registered on day 1:
 
 | format | owner | what it is | translations | notes |
 |---|---|---|---|---|
-| `cmini/1` | DB | cmini's v3 detail JSON verbatim minus the record fields: `board keys free? magic? combos? tag? blame? link?` (`name user likes created_at modified_at` are the record; `link` stays in the payload for import fidelity only — no record field, no verb, never surfaced) | ↔ `akl/1` lossless | Write it and you get a record whose payload is the cmini shape; `?as=cmini/1` from an `akl/1` record lowers board → cmini word and magic → flat `{inputs, output, type}` rows. The bot writes this. |
-| `akl/1` | DB (+ akl.gg) | §2 | ↔ `cmini/1`, ↔ `mana2/1` | |
-| `mana2/1` | Zak (mana2) | a mana2 `.jsonc` layout object (`layout.fingers/thumbs`, `board`, `fingermap`, `magic.rules`) | ↔ `akl/1` | mana's own write format (federation §13 "mana's write format"). Layers/combos are `todo` in mana2's own spec; when they land, `mana2/2`. |
+| `cmini/1` | DB | cmini's v3 detail JSON verbatim minus the record fields: `board keys free? magic? combos? tag? blame? link?` (`name user likes created_at modified_at` are the record; `link` stays in the payload for import fidelity only — no record field, no verb, never surfaced) | ↔ `akl/1` lossless; → `mana2/1` composed through `akl/1` | Write it and you get a record whose payload is the cmini shape; `?as=cmini/1` from an `akl/1` record lowers board → cmini word and magic → flat `{inputs, output, type}` rows. The bot writes this. |
+| `akl/1` | DB (+ akl.gg) | §2 | ↔ `cmini/1`, ↔ `mana2/1` | The hub: every other pair is composed through it. |
+| `mana2/1` | Zak (mana2) | a mana2 `.jsonc` layout object (`layout.fingers/thumbs`, `board`, `fingermap`, `magic.rules`) | ↔ `akl/1`; → `cmini/1` composed through `akl/1` | mana's own write format (federation §13 "mana's write format"). Layers/combos are `todo` in mana2's own spec; when they land, `mana2/2`. |
+
+`GET /v1/formats` advertises the composed pairs too (`cmini/1 → mana2/1`
+and `mana2/1 → cmini/1`, each `akl/1` in the middle), so a client sees the
+full reachable set in `can_translate_to` rather than only the direct edges
+above; `?as=` accepts any advertised target.
 
 A record whose format cannot be translated to the one a reader asked for is
 **held** for that reader: stored, listed with its name/owner/rev, readable as
