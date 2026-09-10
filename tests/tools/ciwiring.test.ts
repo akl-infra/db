@@ -95,7 +95,7 @@ describe("db.yml wiring", () => {
   it("[LDB-C1] push runs only on main (a PR branch runs once, on pull_request -- 2026-09-10, doubled runs and failure emails)", () => {
     const wf = loadWorkflow();
     const push = (wf.on as Record<string, { branches?: string[] }>).push;
-    expect(push.branches).toEqual(["main"]);
+    expect(push?.branches).toEqual(["main"]);
   });
 
   it("[LDB-C1] the deploy job needs test, runs only on a push to main, and applies migrations before deploying", () => {
