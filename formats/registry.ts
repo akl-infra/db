@@ -106,6 +106,19 @@ export interface FormatModule {
   from: Record<string, (p: Payload) => Payload>;
   hasMagic(p: Payload): boolean;
   edits?: FormatEdits;
+  // 20-spark.md S5 (19 §4.1's directory contract, LDB-F18): the ONLY two
+  // within-lineage converters a major ever ships. `up_N: <L>/<N-1> ->
+  // <L>/<N>` (never held: a stored record's payload always fits its
+  // lineage's later majors, R3's own reasoning run forwards) and
+  // `down_N: <L>/<N> -> <L>/<N-1> | Held` (held whenever ANYTHING would be
+  // lost -- never a documented-lossy projection, unlike a cross edge).
+  // REQUIRED for `major(id) > 1` (checked at runtime by `chainViolations`,
+  // not the type system -- TS has no way to make a field's presence depend
+  // on a string literal parsed out of another field); optional (and
+  // unused) at major 1, exactly like `held/1`'s test stub or today's real
+  // `spark/1`/`mana2/1`.
+  up?(p: Payload): Payload;
+  down?(p: Payload): Payload | Held;
 }
 
 let REGISTRY: FormatModule[] = [spark1 as unknown as FormatModule, mana2_1 as unknown as FormatModule];
@@ -139,6 +152,173 @@ export function registerForTest(mod: FormatModule): () => void {
 
 function isHeld(v: unknown): v is Held {
   return typeof v === "object" && v !== null && (v as { held?: unknown }).held === true;
+}
+
+// -- 20-spark.md S5's chain (19-upcast.md round 2 §1/§4, renumbered here:
+// its F16 -> LDB-F18, its F17 -> LDB-F19, its P11 -> LDB-P13, its D6 stays
+// D6). A "lineage" is the `<name>` half of a format id (`akl/1`, `akl/2`
+// share one; `cmini/1`, `mana2/1` each their own); "latest" is the highest
+// MAJOR currently registered for it. `LEGACY_STORED`/`ALIASES` above are
+// NOT chain steps -- `akl/1` is a different lineage name from `spark/1`
+// even though `LEGACY_STORED["akl/1"]` happens to be the identity function
+// today; `translate()` normalizes through them FIRST, then walks the
+// chain (§5's own ordering: legacy-normalize -> chain -> pinned cross edge
+// -> chain).
+
+function splitId(id: string): { name: string; major: number } {
+  const i = id.lastIndexOf("/");
+  return i === -1 ? { name: id, major: NaN } : { name: id.slice(0, i), major: Number(id.slice(i + 1)) };
+}
+
+// lineage(id): the `<name>` half of a format id.
+export function lineage(id: string): string {
+  return splitId(id).name;
+}
+
+// The `<major>` half, as a number.
+export function majorOf(id: string): number {
+  return splitId(id).major;
+}
+
+// latestOf(name): the highest major registered for this lineage, or 0 if
+// none is (an unregistered/unknown lineage name).
+export function latestOf(name: string): number {
+  let max = 0;
+  for (const f of REGISTRY) {
+    const s = splitId(f.id);
+    if (s.name === name && s.major > max) max = s.major;
+  }
+  return max;
+}
+
+// The registered id of a lineage's latest major, or undefined if the
+// lineage has no registered member at all.
+export function latestId(name: string): string | undefined {
+  const m = latestOf(name);
+  return m > 0 ? `${name}/${m}` : undefined;
+}
+
+// chainViolations(mod): LDB-F18's own contract, checked at test time (and
+// exercised through the stub lineage's own deliberately-broken variants so
+// the check is proven to catch each missing piece, not just proven to pass
+// on a conforming module): for `major(mod.id) > 1`, the previous major of
+// the SAME lineage must be registered, and `up`/`down`/`edits` must all be
+// exported. `to`/`from` may never name the module's OWN lineage (that's
+// what `up`/`down` are for -- a lineage's cross edges only ever point at a
+// DIFFERENT lineage).
+export function chainViolations(mod: FormatModule): string[] {
+  const errs: string[] = [];
+  const { name, major } = splitId(mod.id);
+  if (major > 1) {
+    if (!byId.has(`${name}/${major - 1}`)) errs.push(`${mod.id}: lineage '${name}' has no registered ${name}/${major - 1}`);
+    if (typeof mod.up !== "function") errs.push(`${mod.id}: missing 'up' (required for major > 1)`);
+    if (typeof mod.down !== "function") errs.push(`${mod.id}: missing 'down' (required for major > 1)`);
+    if (mod.edits === undefined) errs.push(`${mod.id}: missing 'edits' (required for major > 1)`);
+  }
+  for (const target of [...Object.keys(mod.to), ...Object.keys(mod.from)]) {
+    if (lineage(target) === name) errs.push(`${mod.id}: 'to'/'from' names its own lineage ('${target}')`);
+  }
+  return errs;
+}
+
+// chainFn(name, fromMajor, toMajor): composes `up` (fromMajor < toMajor) or
+// `down` (fromMajor > toMajor) steps one major at a time -- crossing
+// several majors is several steps, never a single shortcut function
+// (19 §1 decision 2). `down` short-circuits on the first held step (R3:
+// held whenever ANYTHING would be lost); `up` never holds.
+function chainFn(name: string, fromMajor: number, toMajor: number): (p: Payload) => Payload | Held {
+  if (fromMajor === toMajor) return (p) => p;
+  if (fromMajor < toMajor) {
+    return (p: Payload) => {
+      let cur = p;
+      for (let m = fromMajor + 1; m <= toMajor; m++) {
+        const mod = byId.get(`${name}/${m}`);
+        if (!mod?.up) throw new Error(`registry: ${name}/${m} is missing 'up' (required for major > 1)`);
+        cur = mod.up(cur);
+      }
+      return cur;
+    };
+  }
+  return (p: Payload) => {
+    let cur: Payload = p;
+    for (let m = fromMajor; m > toMajor; m--) {
+      const mod = byId.get(`${name}/${m}`);
+      if (!mod?.down) throw new Error(`registry: ${name}/${m} is missing 'down' (required for major > 1)`);
+      const result = mod.down(cur);
+      if (isHeld(result)) return result;
+      cur = result;
+    }
+    return cur;
+  };
+}
+
+// path(from, to): the composed converter `translate()`/`walk()` run (19
+// §4.2). Same lineage: the chain alone. Different lineages: chain `from`
+// up/down to whichever major of its OWN lineage carries a registered cross
+// edge (`to[...]`) reaching `to`'s lineage, cross it, then chain the
+// landing major to `to`. When more than one major carries such an edge,
+// the shortest total chain distance wins (19 §11 Q5's open tie-break,
+// decided here since nothing has yet needed a second edge to disagree with
+// it); a lineage with NO edge to the other at all answers a constant
+// `held` function.
+export function path(from: string, to: string): (p: Payload) => Payload | Held {
+  const { name: lFrom, major: mFrom } = splitId(from);
+  const { name: lTo, major: mTo } = splitId(to);
+  if (lFrom === lTo) return chainFn(lFrom, mFrom, mTo);
+
+  const edges: { atMajor: number; targetId: string; fn: (p: Payload) => Payload | Held }[] = [];
+  for (let m = 1; m <= latestOf(lFrom); m++) {
+    const mod = byId.get(`${lFrom}/${m}`);
+    if (!mod) continue;
+    for (const [targetId, fn] of Object.entries(mod.to)) {
+      if (lineage(targetId) === lTo) edges.push({ atMajor: m, targetId, fn });
+    }
+  }
+  if (edges.length === 0) {
+    return () => ({ held: true, reason: `no cross edge from lineage '${lFrom}' to '${lTo}'` });
+  }
+  edges.sort((a, b) => {
+    const da = Math.abs(mFrom - a.atMajor) + Math.abs(majorOf(a.targetId) - mTo);
+    const db_ = Math.abs(mFrom - b.atMajor) + Math.abs(majorOf(b.targetId) - mTo);
+    return da - db_;
+  });
+  const edge = edges[0]!;
+  const preChain = chainFn(lFrom, mFrom, edge.atMajor);
+  const postChain = chainFn(lTo, majorOf(edge.targetId), mTo);
+  return (p: Payload) => {
+    const pre = preChain(p);
+    if (isHeld(pre)) return pre;
+    const crossed = edge.fn(pre);
+    if (isHeld(crossed)) return crossed;
+    return postChain(crossed);
+  };
+}
+
+// walk(from, to, payload): `path(from, to)(payload)` -- the plain
+// call-and-run form most callers want.
+export function walk(from: string, to: string, payload: Payload): Payload | Held {
+  return path(from, to)(payload);
+}
+
+// hasEdge(from, to): STRUCTURAL reachability only -- `GET /v1/formats`'
+// `can_translate_to` (19 §4.2's "declared translation", extended from a
+// direct `to[...]` lookup to the full chain) uses this, never a real
+// payload. True for any pair in the SAME lineage (the chain always exists
+// structurally once LDB-F18's contract holds, whatever a specific
+// payload's `down` might do at RUNTIME) or a different lineage with at
+// least one registered cross edge between them, at any major.
+export function hasEdge(from: string, to: string): boolean {
+  const lFrom = lineage(from);
+  const lTo = lineage(to);
+  if (lFrom === lTo) return true;
+  for (let m = 1; m <= latestOf(lFrom); m++) {
+    const mod = byId.get(`${lFrom}/${m}`);
+    if (!mod) continue;
+    for (const targetId of Object.keys(mod.to)) {
+      if (lineage(targetId) === lTo) return true;
+    }
+  }
+  return false;
 }
 
 // -- 20-spark.md S1's shared vocabulary (§3) --
@@ -241,11 +421,12 @@ export function translate(rec: { format: string; payload: Payload }, as: string)
   }
   if (resolvedAs === normRec.format) return { payload: normRec.payload };
 
-  const source = byId.get(normRec.format);
-  const fn = source?.to[resolvedAs];
-  if (!fn) return { held: true, format: as, see: normRec.format };
-
-  const result = fn(normRec.payload);
+  // 20-spark.md S5: walks `path()` (chain -> pinned cross edge -> chain)
+  // instead of a single direct `to[...]` lookup -- with every lineage at
+  // major 1 (spark/mana2 today) this reduces to exactly the old single-hop
+  // behaviour, byte for byte; it only starts composing once a lineage ships
+  // a second major.
+  const result = walk(normRec.format, resolvedAs, normRec.payload);
   if (isHeld(result)) return { held: true, format: as, see: normRec.format };
   return { payload: result };
 }

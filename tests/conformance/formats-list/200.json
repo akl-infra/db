@@ -14,6 +14,9 @@
         "owner": "DB (+ akl.gg)",
         "description": "The one stored format: cmini's keys map, #261's board geometry, an authoring shape for magic rules, a raw-rule escape hatch, and a free-form x. What akl.gg writes and most clients read.",
         "role": "stored",
+        "lineage": "spark",
+        "major": 1,
+        "latest": true,
         "aliases": [
           "akl/1"
         ],
@@ -28,6 +31,9 @@
         "owner": "DB maintainers (a mirror of mana2's loader at the vendored submodule commit -- see README.md; Zak's handle added when confirmed, 12 §1)",
         "description": "A mana2 .jsonc layout object (layout.fingers/thumbs, board, fingermap, magic.rules) -- mana's own write format. Tap-hold/directional tokens, >5 keys on one thumb, non-empty combos, and rowstag stagger past the 3rd entry disagreeing with it are held for spark/1.",
         "role": "output",
+        "lineage": "mana2",
+        "major": 1,
+        "latest": true,
         "aliases": [],
         "can_translate_to": []
       }

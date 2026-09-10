@@ -13,14 +13,27 @@
 // `nextUpstream` or `upstreamOf` -- it calls them, the same as every other
 // writer (S2/S3a/S3b).
 import type { Bindings } from "../env";
-import { get as getFormat } from "../formats/registry";
-import { storedAsSpark } from "../../formats/registry.ts";
+import { get as getFormat, list as listFormats } from "../formats/registry";
+import { storedAsSpark, LEGACY_STORED, lineage, latestId, walk } from "../../formats/registry.ts";
 import { appendWrite, RevConflictError } from "./events";
 import { readById, type Upstream, type UpstreamState } from "./records";
 import type { Clock } from "./time";
 import { nextUpstream, upstreamOf } from "./upstream";
 
-const SPARK_FORMAT = "spark/1";
+// 20-spark.md S5: generalised from a hardcoded `'spark/1'` target to
+// "whatever the ONE stored lineage's latest major currently is" -- decision
+// 1 pins exactly one stored-role lineage at a time, so `list()` always has
+// exactly one `role: "stored"` entry to read the lineage NAME off; `latestId`
+// then answers its CURRENT latest, which moves the moment a new major
+// registers (`spark/2`, say) with no further change here.
+function storedLatestId(): string {
+  const stored = listFormats().find((f) => f.role === "stored");
+  if (stored === undefined) throw new Error("migrateTick: no registered format with role 'stored'");
+  const id = latestId(lineage(stored.id));
+  if (id === undefined) throw new Error("migrateTick: unreachable -- a registered module's own lineage has no latest");
+  return id;
+}
+
 // LDB-P12/§8 R-M3: the selection's own `LIMIT min(limit, 100)` -- a batch
 // of 100 stays well under Workers Paid's 1 000 queries/invocation at
 // roughly 7 D1 round trips per record (one `readById` here, up to two for
@@ -56,33 +69,44 @@ export interface MigrateOptions {
   limit?: number;
 }
 
-function sparkModule() {
-  // `spark/1` is always registered (LDB-T1's own bar, same reasoning
-  // `core/write.ts`'s `sparkHasMagic` gives) -- this never actually
-  // throws, the check only satisfies the type checker.
-  const module = getFormat(SPARK_FORMAT);
-  if (module === undefined) throw new Error("migrateTick: spark/1 is not registered");
-  return module;
+// The selection (20-spark.md S4, generalised by S5's own bullet: "the S4
+// selection gains OR major(format) < latest"): ordered by id, `id > after`,
+// `LIMIT min(limit, 100)` --
+//   format IN (<every LEGACY_STORED id> ++ <every registered major of the
+//              stored lineage BELOW its current latest>)
+//   OR (upstream_state IS NULL AND id IN (SELECT layout_id FROM import_map))
+// -- the first arm is now built from the LIVE registry rather than a
+// hardcoded `'spark/1'` literal, so it keeps selecting a stored-lineage
+// record that's fallen behind (`spark/1` once `spark/2` is latest) with NO
+// further change here; `LEGACY_STORED`'s ids (`akl/1`/`cmini/1`) are
+// included unconditionally since they are never chain steps (20-spark.md
+// §5's own wording) and must always convert regardless of how many majors
+// the stored lineage has. The IN-list is at minimum `LEGACY_STORED`'s two
+// ids, so it is never empty (an empty SQL `IN ()` is a syntax error). The
+// second arm backfills a record a write already stored as latest between
+// the deploy and this run, whose `upstream` the plain "below latest" rule
+// would otherwise leave null forever.
+function belowLatestFormatIds(latest: string): string[] {
+  const name = lineage(latest);
+  const latestMajor = Number(latest.slice(name.length + 1));
+  const lowerMajors: string[] = [];
+  for (let m = 1; m < latestMajor; m++) lowerMajors.push(`${name}/${m}`);
+  return [...Object.keys(LEGACY_STORED), ...lowerMajors];
 }
 
-// The selection (20-spark.md S4): ordered by id, `id > after`, `LIMIT
-// min(limit, 100)` -- `format != 'spark/1'` (legacy `cmini/1`/`akl/1`, live
-// AND deleted: a tombstone's format/payload are kept, LDB-P8) OR
-// (`upstream_state IS NULL AND id IN (SELECT layout_id FROM import_map)`)
-// -- the second arm backfills a record a write already stored as spark
-// between the deploy and this run, whose `upstream` the plain "migrate only
-// format != spark" rule would otherwise leave null forever.
-async function selectIds(db: Bindings["DB"], after: string, limit: number): Promise<string[]> {
+async function selectIds(db: Bindings["DB"], after: string, limit: number, latest: string): Promise<string[]> {
+  const belowLatest = belowLatestFormatIds(latest);
+  const placeholders = belowLatest.map(() => "?").join(", ");
   const { results } = await db
     .prepare(
       `SELECT id FROM layouts
        WHERE id > ?
-         AND (format != ?
+         AND (format IN (${placeholders})
               OR (upstream_state IS NULL AND id IN (SELECT layout_id FROM import_map)))
        ORDER BY id
        LIMIT ?`,
     )
-    .bind(after, SPARK_FORMAT, limit)
+    .bind(after, ...belowLatest, limit)
     .all<{ id: string }>();
   return results.map((r) => r.id);
 }
@@ -117,6 +141,34 @@ function upstreamStateKey(upstream: Upstream | null): UpstreamState | "null" {
   return upstream?.state ?? "null";
 }
 
+// `up` never holds (LDB-F18/R3) -- this only satisfies the type checker;
+// hitting it for real means a registered chain step violates its own
+// contract, which `chainViolations`/LDB-F18's own test catches long before
+// a migration ever runs.
+function assertNotHeld(v: unknown): unknown {
+  if (typeof v === "object" && v !== null && (v as { held?: unknown }).held === true) {
+    throw new Error("migrateTick: a chain step unexpectedly held (LDB-F18 violation)");
+  }
+  return v;
+}
+
+// convertToLatest(rec, latest) (20-spark.md S5): a legacy-stored record
+// (`akl/1`/`cmini/1`) normalizes through `storedAsSpark` FIRST (the one
+// converter LDB-F21 allows for a stored legacy payload -- never a chain
+// step, decision in S5's own header comment above `selectIds`), then, if
+// the stored lineage's latest is past `spark/1`, chains up the rest of the
+// way; a record already at a REGISTERED lower major of the stored lineage
+// (no real example exists yet -- only the stub lineage in tests) chains up
+// directly, `storedAsSpark` never touching it (it isn't a legacy id).
+function convertToLatest(rec: { format: string; payload: unknown }, latest: string): { format: string; payload: unknown } {
+  if (rec.format in LEGACY_STORED) {
+    const base = storedAsSpark(rec.format, rec.payload);
+    if (base.format === latest) return base;
+    return { format: latest, payload: assertNotHeld(walk(base.format, latest, base.payload)) };
+  }
+  return { format: latest, payload: assertNotHeld(walk(rec.format, latest, rec.payload)) };
+}
+
 // `migrateTick(db, now, {dryRun, after, limit})`: one batch of the
 // migration. `dryRun`: identical selection, conversion and validation --
 // zero D1 WRITES (reads are fine: `upstreamOf`'s legacy fallback and the
@@ -127,9 +179,14 @@ function upstreamStateKey(upstream: Upstream | null): UpstreamState | "null" {
 export async function migrateTick(db: Bindings["DB"], now: Clock, opts: MigrateOptions): Promise<MigrateReport> {
   const limit = Math.min(opts.limit ?? DEFAULT_LIMIT, MAX_LIMIT);
   const after = opts.after ?? "";
-  const spark = sparkModule();
+  // 20-spark.md S5: the live target, not a hardcoded `spark/1` -- moves
+  // automatically once a `spark/2` (or, in tests, a stub lineage's own
+  // second major) registers.
+  const latest = storedLatestId();
+  const latestModule = getFormat(latest);
+  if (latestModule === undefined) throw new Error(`migrateTick: unreachable -- '${latest}' is not registered`);
 
-  const ids = await selectIds(db, after, limit);
+  const ids = await selectIds(db, after, limit, latest);
 
   const report: MigrateReport = {
     selected: ids.length,
@@ -151,16 +208,16 @@ export async function migrateTick(db: Bindings["DB"], now: Clock, opts: MigrateO
     if (record === null) continue; // defensive: nothing hard-deletes a `layouts` row, so unreachable in practice
 
     const from = record.format;
-    const next = storedAsSpark(from, record.payload);
+    const next = convertToLatest(record, latest);
 
-    const validation = spark.validate(next.payload);
+    const validation = latestModule.validate(next.payload);
     if (!validation.ok) {
       const path = typeof validation.error.path === "string" ? validation.error.path : "/";
       report.invalid.push({ id, name: record.name, format: from, path, message: validation.error.message });
       continue; // write nothing -- the record keeps reading through LDB-F21
     }
 
-    const hasMagic = spark.hasMagic(next.payload);
+    const hasMagic = latestModule.hasMagic(next.payload);
     if (hasMagic !== record.has_magic) {
       // R-M2's own posture, extended: the stored `has_magic` disagreeing
       // with a freshly computed one is exactly as unsafe to write over as
@@ -213,7 +270,7 @@ export async function migrateTick(db: Bindings["DB"], now: Clock, opts: MigrateO
           hasMagic,
           upstream,
           source: { client: "system:migration", version: null },
-          detail: { from, to: SPARK_FORMAT, upstream_state: stateKey === "null" ? null : stateKey },
+          detail: { from, to: next.format, upstream_state: stateKey === "null" ? null : stateKey },
           expectRev: record.rev, // LDB-P14: a user write interleaved since this record's own read wins, not this migration
         });
       } catch (e) {

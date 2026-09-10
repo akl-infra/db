@@ -10,11 +10,12 @@
 import type { Actor } from "../auth/actor";
 import type { Bindings } from "../env";
 import { get as getFormat, list as listFormats } from "../formats/registry";
-import { resolveFormat, storedAsSpark } from "../../formats/registry.ts";
+import { resolveFormat, storedAsSpark, translate, lineage, latestId, walk } from "../../formats/registry.ts";
 import { requireIfMatch, type IfMatch } from "./ifmatch";
 import {
   ApiError,
   badRequest,
+  formatBehind,
   formatNotWritable,
   internal,
   invalidName,
@@ -114,6 +115,39 @@ export function validatePayload(format: string, payload: unknown): { module: For
   return { module: resolved.module, hasMagic: resolved.module.hasMagic(payload) };
 }
 
+// 20-spark.md S5 (19 §2/§3 R2, LDB-P13): a record is stored at its
+// lineage's LATEST major, always -- a write naming an older major (already
+// validated against ITS OWN major above) is chained up here before the
+// commit, and `writtenAs` (-> the event's `detail.written_as`) names what
+// was actually sent. `walk` going UP a chain never holds (19 §3 R3: `down`
+// is the only direction that can lose anything), so this never itself
+// throws `held`/`format_behind` -- an existing record's R1 check (below,
+// `replaceLayout`) is what catches a genuinely blind overwrite, and a
+// fresh `POST` has no prior record to have been unreadable in the first
+// place (19 §3: "POST in an older major: same as R2's chain, no R1").
+// `hasMagic` is recomputed against the payload as actually STORED (the
+// chained major), same reasoning `sparkHasMagic`/the carry-forward writes
+// below already use -- never the pre-chain value `validatePayload` itself
+// returned for the WRITTEN major.
+function chainToLatest(module: FormatModule, payload: unknown): { format: string; payload: unknown; hasMagic: boolean; writtenAs?: string } {
+  const latest = latestId(lineage(module.id));
+  if (latest === undefined || latest === module.id) {
+    return { format: module.id, payload, hasMagic: module.hasMagic(payload) };
+  }
+  const chained = walk(module.id, latest, payload);
+  if (typeof chained === "object" && chained !== null && (chained as { held?: unknown }).held === true) {
+    // Unreachable per LDB-F18's own chain contract (`up` never holds) --
+    // a format module that violates it is a bug caught at registration
+    // time (`chainViolations`), not something a write should ever surface.
+    throw internal();
+  }
+  const latestModule = getFormat(latest);
+  if (latestModule === undefined) throw internal();
+  const validated = latestModule.validate(chained);
+  if (!validated.ok) throw internal(); // 19 §3: "a step that yields an invalid payload is a format bug: 500"
+  return { format: latest, payload: chained, hasMagic: latestModule.hasMagic(chained), writtenAs: module.id };
+}
+
 // Maps the two D1-constraint outcomes `appendWrite` surfaces (09 §2.3) onto
 // the route-facing errors: a lost rev race -> re-read the winner, 409
 // `stale`; a lost name race -> re-read the holder, 409 `name_taken` with
@@ -193,7 +227,11 @@ export async function createLayout(
 ): Promise<{ record: RecordRow; seq: number }> {
   const nameCheck = checkName(body.name);
   if (!nameCheck.ok) throw invalidName(body.name, nameCheck.message);
-  const { hasMagic, module } = validatePayload(body.format, body.payload);
+  const { module } = validatePayload(body.format, body.payload);
+  // 20-spark.md S5 (19 §3, LDB-P13): chained to the lineage's latest major
+  // -- with only one major ever registered, `chained.format === module.id`
+  // and this is a no-op, exactly today's behaviour.
+  const chained = chainToLatest(module, body.payload);
 
   const tombstoneId = await latestTombstoneIdByName(env.DB, body.name);
 
@@ -204,13 +242,14 @@ export async function createLayout(
     name: body.name,
     owner: actor.user_id,
     modified_at: now(),
-    format: module.id, // native id: an `akl/1` write stores `spark/1` (LDB-F16/F20)
-    payload: body.payload,
+    format: chained.format, // native, chained-to-latest id: an `akl/1` write stores `spark/<latest>` (LDB-F16/F20/P13)
+    payload: chained.payload,
     actor: actor.user_id,
     via: actor.via,
-    hasMagic,
+    hasMagic: chained.hasMagic,
     upstream: nextUpstream(null, "created", actor.via), // no prior record -- always null (LDB-I14)
     source,
+    ...(chained.writtenAs !== undefined ? { detail: { written_as: chained.writtenAs } } : {}),
   });
 
   if (tombstoneId === null) return result;
@@ -263,7 +302,25 @@ export async function replaceLayout(
   requireIfMatch(ifMatch);
   const { record, admin } = await loadForWrite(db, ref, actor, { allowDeleted: false });
   await requireRev(db, record, ifMatch);
-  const { hasMagic, module } = validatePayload(body.format, body.payload);
+
+  // 20-spark.md S5 (19 §3 R1, LDB-P13): a write naming a format the record
+  // (as CURRENTLY stored) cannot be shown as -- the same `translate()` path
+  // a `GET ?as=` walks -- would be a blind overwrite: the client could
+  // never have read this record whole in that format, so a pure upcast of
+  // the write would silently drop whatever made it hold. Checked BEFORE
+  // `validatePayload` (the write's own format may otherwise validate fine
+  // on its own terms) and only when the write actually names a different
+  // format than the record's current one -- same format is never held
+  // against itself.
+  if (body.format !== record.format) {
+    const view = translate({ format: record.format, payload: record.payload }, body.format);
+    if ("held" in view) throw formatBehind(body.format, record.format, record.rev);
+  }
+
+  const { module } = validatePayload(body.format, body.payload);
+  // R2: stored at the lineage's latest major, `detail.written_as` naming
+  // what was actually sent when it wasn't already latest (LDB-P13).
+  const chained = chainToLatest(module, body.payload);
   const prior = await upstreamOf(db, record);
 
   return commitWrite(db, now, {
@@ -272,14 +329,15 @@ export async function replaceLayout(
     name: record.name,
     owner: record.owner,
     modified_at: now(),
-    format: module.id,
-    payload: body.payload,
+    format: chained.format,
+    payload: chained.payload,
     actor: actor.user_id,
     via: actor.via,
     admin,
-    hasMagic,
+    hasMagic: chained.hasMagic,
     upstream: nextUpstream(prior, "updated", actor.via), // LDB-I14: a user write forks a following/forked record; null stays null
     source: { client: actor.source_client, version }, // 20-spark.md S3s (LDB-P15)
+    ...(chained.writtenAs !== undefined ? { detail: { written_as: chained.writtenAs } } : {}),
   });
 }
 

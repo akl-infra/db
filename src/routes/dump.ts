@@ -10,6 +10,10 @@ import { notFound } from "../core/errors";
 
 const DAILY_KEY_RE = /^dump-\d{4}-\d{2}-\d{2}\.json\.gz$/;
 const MONTHLY_KEY_RE = /^dump-\d{4}-\d{2}\.json\.gz$/;
+// LDB-D6: the per-major files `writeDump()` writes (`latest.<name>-<N>.json`
+// and its `.sha256` sidecar, never gzipped). Anchored, lowercase lineage
+// name, decimal major: nothing else in the bucket is reachable through it.
+const PER_MAJOR_KEY_RE = /^latest\.[a-z][a-z0-9]*-[1-9]\d*\.json(\.sha256)?$/;
 
 export const dumpRoute = new Hono<{ Bindings: Bindings }>();
 
@@ -37,10 +41,12 @@ dumpRoute.get("/v1/dump/monthly/:key", async (c) => {
 
 dumpRoute.get("/v1/dump/:key", async (c) => {
   const key = c.req.param("key");
-  if (!DAILY_KEY_RE.test(key)) throw notFound(`no dump '${key}'`, key);
+  const perMajor = PER_MAJOR_KEY_RE.test(key);
+  if (!perMajor && !DAILY_KEY_RE.test(key)) throw notFound(`no dump '${key}'`, key);
   const obj = await c.env.DUMPS.get(key);
   if (obj === null) throw notFound(`no dump '${key}'`, key);
-  return new Response(obj.body, { headers: { "Content-Type": "application/gzip", ETag: obj.httpEtag } });
+  const contentType = !perMajor ? "application/gzip" : key.endsWith(".sha256") ? "text/plain" : "application/json";
+  return new Response(obj.body, { headers: { "Content-Type": contentType, ETag: obj.httpEtag } });
 });
 
 // GET /v1/dump -- always the latest, via a 302 (07 §6 S7: "no public bucket

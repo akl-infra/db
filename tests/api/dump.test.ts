@@ -32,7 +32,10 @@ import { describe, expect, it, vi } from "vitest";
 import type { Bindings } from "../../src/env";
 import worker from "../../src/index";
 import { FakeUpstream } from "../import/fake-upstream";
+import { registerForTest } from "../../src/formats/registry";
+import { T1 } from "../formats/stub-lineage";
 import { seedUpstream100 } from "./support";
+import { actorFixture, register, uniqueName, writeFetch } from "./write-support";
 
 const bindings = env as unknown as Bindings;
 const RECORD_BOT_FIXTURE = false; // NEVER true on a committed run -- see the header doc above
@@ -184,6 +187,123 @@ describe("dump routes", () => {
     // a day that isn't itself the 1st.
     const monthlyRes = await SELF.fetch("https://example.com/v1/dump/monthly/dump-2026-07.json.gz");
     expect(monthlyRes.status).toBe(200);
+  });
+});
+
+// [LDB-D6] Per-major dump files (20-spark.md S5; 19-upcast.md round 2
+// §6.2's own text: "a consumer on akl/1 fetches latest.akl-1.json and
+// never sees a shape it does not speak"): one `latest.<name>-<N>.json`
+// (plus a sha256 sidecar, neither gzipped) per registered `role: "stored"`
+// major -- never for an `"output"` one like `mana2/1` -- carrying every
+// LIVE record translated to that major, or `held: true, see: <native
+// format>` when it can't be shown. `latest.json` itself is untouched.
+//
+// Served over HTTP by `routes/dump.ts`'s `/v1/dump/:key` (anchored
+// `latest.<name>-<N>.json[.sha256]` pattern, added by the lead when
+// landing S5); the first tests read R2 directly, the HTTP test below
+// proves the route serves exactly those bytes and nothing else.
+describe("[LDB-D6] per-major dump files", () => {
+  it("[LDB-D6] writes latest.spark-1.json (+ sha256 sidecar), one live record per row, latest.json unchanged in shape", async () => {
+    await seedUpstream100();
+    await runDumpCron("2026-07-20T03:00:00.000Z");
+
+    const obj = await bindings.DUMPS.get("latest.spark-1.json");
+    expect(obj).not.toBeNull();
+    const file = await obj!.json<{
+      version: number;
+      format: string;
+      meta: { layout_count: number; seq: number };
+      records: { id: string; held?: true; see?: string; payload?: unknown }[];
+    }>();
+    expect(file.version).toBe(1);
+    expect(file.format).toBe("spark/1");
+
+    const metaRes = await SELF.fetch("https://example.com/v1/meta");
+    const meta = await metaRes.json<{ layout_count: number; seq: number }>();
+    expect(file.meta.layout_count).toBe(meta.layout_count);
+    expect(file.meta.seq).toBe(meta.seq);
+    expect(file.records).toHaveLength(meta.layout_count); // live records only -- no tombstones
+    // The upstream-100 seed's own records are all native spark/1 (LDB-F16):
+    // never held in their OWN file.
+    for (const rec of file.records) expect(rec.held).toBeUndefined();
+
+    const sidecar = await bindings.DUMPS.get("latest.spark-1.json.sha256");
+    expect(sidecar).not.toBeNull();
+    expect(await sidecar!.text()).toMatch(/^[0-9a-f]{64}$/);
+
+    // latest.json itself keeps exactly its pre-S5 shape.
+    const latestRes = await SELF.fetch("https://example.com/v1/dump/latest.json");
+    const latest = (await latestRes.json()) as Record<string, unknown>;
+    expect(Object.keys(latest).sort()).toEqual(["bytes", "date", "key", "layout_count", "seq", "sha256", "url"]);
+  });
+
+  it("[LDB-D6] GET /v1/dump/latest.spark-1.json serves the stored bytes, its .sha256 matches them, and nothing else is reachable", async () => {
+    await runDumpCron("2026-07-22T03:00:00.000Z");
+    const stored = await bindings.DUMPS.get("latest.spark-1.json");
+    expect(stored).not.toBeNull();
+    const storedText = await stored!.text();
+
+    const res = await SELF.fetch("https://example.com/v1/dump/latest.spark-1.json");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toBe("application/json");
+    const body = await res.text();
+    expect(body).toBe(storedText);
+
+    const sideRes = await SELF.fetch("https://example.com/v1/dump/latest.spark-1.json.sha256");
+    expect(sideRes.status).toBe(200);
+    expect(sideRes.headers.get("Content-Type")).toBe("text/plain");
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(body));
+    const hex = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+    expect(await sideRes.text()).toBe(hex);
+
+    for (const key of ["latest.mana2-1.json", "latest.spark-0.json", "latest.Spark-1.json", "latest.spark-1.json.bak", "latest.json.sha256", "latest.spark-1.jsonx"]) {
+      const miss = await SELF.fetch(`https://example.com/v1/dump/${key}`);
+      expect(miss.status, key).toBe(404);
+    }
+  });
+
+  it("[LDB-D6] never writes a file for mana2/1 (role: output, not stored)", async () => {
+    await runDumpCron("2026-07-21T03:00:00.000Z");
+    expect(await bindings.DUMPS.get("latest.mana2-1.json")).toBeNull();
+  });
+
+  it("[LDB-D6] a record whose native format has no path to a major is marked held/see there, and vice versa", async () => {
+    const unregister = registerForTest(T1);
+    try {
+      // A genuine t/1 record, plus the real spark/1 seed -- t/1 has no
+      // registered cross edge to spark's lineage, and spark/1 has none to
+      // t's, so each is `held` in the OTHER's per-major file.
+      const fake = actorFixture();
+      const h = register(fake, "tok-d6-t1", "owner-d6-t1");
+      const createRes = await writeFetch("/v1/layouts", "POST", h, { name: uniqueName("d6-t1-record"), format: "t/1", payload: { v: 1, a: 7 } });
+      // A real spark/1 record too -- explicit, so this test's "held in
+      // t/1's own file" assertion below never depends on whatever other
+      // state this file's earlier tests happened to leave behind.
+      const sparkRes = await writeFetch("/v1/layouts", "POST", h, { name: uniqueName("d6-spark-record"), format: "spark/1", payload: { keys: {} } });
+      vi.unstubAllGlobals();
+      expect(createRes.status, await createRes.clone().text()).toBe(201);
+      expect(sparkRes.status, await sparkRes.clone().text()).toBe(201);
+      const created = await createRes.json<{ id: string }>();
+      const createdSpark = await sparkRes.json<{ id: string }>();
+
+      await runDumpCron("2026-07-22T03:00:00.000Z");
+
+      const sparkFile = await (await bindings.DUMPS.get("latest.spark-1.json"))!.json<{ records: { id: string; held?: true; see?: string }[] }>();
+      const heldInSpark = sparkFile.records.find((r) => r.id === created.id);
+      expect(heldInSpark).toMatchObject({ held: true, see: "t/1" });
+
+      const tFile = await (await bindings.DUMPS.get("latest.t-1.json"))!.json<{
+        format: string;
+        records: { id: string; held?: true; see?: string; payload?: unknown }[];
+      }>();
+      expect(tFile.format).toBe("t/1");
+      const ownRow = tFile.records.find((r) => r.id === created.id);
+      expect(ownRow).toMatchObject({ payload: { v: 1, a: 7 } }); // its own major -- never held for itself
+      const heldInT = tFile.records.find((r) => r.id === createdSpark.id);
+      expect(heldInT).toMatchObject({ held: true, see: "spark/1" });
+    } finally {
+      unregister();
+    }
   });
 });
 

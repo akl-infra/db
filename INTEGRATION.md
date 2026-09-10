@@ -403,6 +403,7 @@ shown with real examples in §4.
 | 404 | `not_found` | *(caller-supplied -- this function's own `message` parameter)* | `notFound(message, ref)` |
 | 409 | `name_taken` | name '${name}' is already taken | `nameTaken(name, holder)` |
 | 409 | `held` | record cannot be translated to '${format}' | `held(format, see)` |
+| 409 | `format_behind` | this record uses ${see} features that ${format} cannot show; write it as ${see}, or PATCH the field you mean to change | `formatBehind(format, see, rev)` |
 | 500 | `internal` | internal error | `internal()` |
 | 401 | `unauthorized` | authentication required | `unauthorized()` |
 | 401 | `token_invalid` | *(caller-supplied -- this function's own `message` parameter)* | `tokenInvalid(message)` |

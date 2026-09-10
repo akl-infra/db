@@ -24,6 +24,18 @@ export type { Row, ValidationResult, Held, Payload, ErrBody, EditResult, FormatE
 export const list = pureRegistry.list;
 export const registerForTest = pureRegistry.registerForTest;
 
+// 20-spark.md S5: the chain primitives, re-exported for `core/write.ts`,
+// `core/migrate.ts` and `routes/formats.ts` -- pure functions, nothing here
+// needs `core/errors.ts`.
+export const lineage = pureRegistry.lineage;
+export const majorOf = pureRegistry.majorOf;
+export const latestOf = pureRegistry.latestOf;
+export const latestId = pureRegistry.latestId;
+export const path = pureRegistry.path;
+export const walk = pureRegistry.walk;
+export const hasEdge = pureRegistry.hasEdge;
+export const chainViolations = pureRegistry.chainViolations;
+
 // get(id): resolves a native registered id or an alias (`akl/1` -> the
 // spark/1 module) through the pure registry's `resolveFormat`.
 // `getFormat("akl/1")` returns the SAME module `getFormat("spark/1")` does

@@ -78,6 +78,25 @@ export function held(format: string, see?: string): ApiError {
   });
 }
 
+// 20-spark.md S5 (19 §3 R1, LDB-P13): a write naming an older major of the
+// record's own lineage, where the record's `latest`-only content is
+// non-empty (`translate(record, format)` would itself answer `held`) --
+// same body shape as `held` above (`held: true`, `format`, `see`), because
+// it's the SAME underlying fact from the writer's side: "you could never
+// have read this record whole in the major you're writing, so this would
+// be a blind overwrite." `rev` is the record's current rev (for the same
+// reason `stale` carries one -- the client can refetch it).
+export function formatBehind(format: string, see: string, rev: number): ApiError {
+  return new ApiError(409, {
+    error: "format_behind",
+    message: `this record uses ${see} features that ${format} cannot show; write it as ${see}, or PATCH the field you mean to change`,
+    held: true,
+    format,
+    see,
+    rev,
+  });
+}
+
 export function internal(): ApiError {
   return new ApiError(500, { error: "internal", message: "internal error" });
 }

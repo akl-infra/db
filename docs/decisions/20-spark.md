@@ -1159,3 +1159,24 @@ ledgered and flippable by saltorbit):**
   (F18, F19, P13, D6) and its chain sections marked "implemented in S5".
   Every remaining `akl/1`/`cmini/1` mention is an alias, the legacy table,
   or history. docs-site 7/7, LDB-T1 4/4. S5 still running.
+- **2026-09-11 ~03:00Z** — **S5 landed** (Sonnet agent, lead-reviewed, plus
+  one lead fix). `registry.ts`: `up`/`down` on `FormatModule`, `lineage`,
+  `majorOf`, `latestOf`, `chainViolations`, `path`/`walk`, `translate`
+  over `path()` (legacy-normalize → chain → pinned cross edge → chain;
+  byte-identical for today's one-major lineages). Write path:
+  `409 format_behind` on a blind older-major PUT, chain-to-latest with
+  `detail.written_as` on create/replace. `migrate.ts` selects any record
+  below its lineage's latest major. Nightly dump writes
+  `latest.<name>-<N>.json` + `.sha256` per stored major. `/v1/formats`
+  gains `lineage`, `major`, `latest`, and path-derived `can_translate_to`.
+  Stub lineages `t/1..t/3` + `u/1` exercise it all. New LDB-F18, F19,
+  P13, D6; P12 amended. **Lead fix:** nothing served the per-major dump
+  files over HTTP (the agent flagged it; the route was outside its file
+  list). `GET /v1/dump/:key` now also serves
+  `latest.<name>-<N>.json[.sha256]` under an anchored pattern (no other
+  bucket key reachable), with an HTTP test: bytes equal R2, sidecar
+  equals the body's sha256, six near-miss keys 404. That completes
+  saltorbit's "a dump of all layouts at a given major". Lead checks: the
+  formats-list fixture changed only by the three new fields; db
+  typecheck 0, vitest 16 068 passed / 0 failed (+31); bot 775. Next: S8's
+  adoption guide + LDB-G10, then the combined gate run and the rebase.

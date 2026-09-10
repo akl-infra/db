@@ -11,9 +11,10 @@ import type { Bindings } from "../env";
 import { canonical } from "../core/canonical";
 import { headSeq } from "../core/etag";
 import type { EventDbRow } from "../core/events";
-import type { LayoutDbRow } from "../core/records";
+import { rowToRecord, type LayoutDbRow } from "../core/records";
 import type { Clock } from "../core/time";
 import { list as listFormats } from "../formats/registry";
+import { translate as pureTranslate } from "../../formats/registry.ts";
 
 const PAGE_SIZE = 500;
 
@@ -86,6 +87,36 @@ export interface LatestJson {
   bytes: number;
   layout_count: number;
   seq: number;
+}
+
+// 20-spark.md S5 (19 §6.2, LDB-D6): "every layout at every major", the
+// dump's own surface for it. One entry per LIVE record (tombstones are
+// excluded here -- same convention `GET /v1/layouts` defaults to, and the
+// main dump's own `records`/`layout_revs` already carry every tombstone
+// for anyone who needs one); `payload` is the record's translation to this
+// file's own major, or, when the chain/cross edge holds for it, `held:
+// true` + `see` naming the record's own NATIVE format (never this file's
+// major -- a consumer reading `held` already knows which file it opened).
+export interface LatestMajorRecord {
+  id: string;
+  name: string;
+  owner: string;
+  rev: number;
+  created_at: string;
+  modified_at: string;
+  like_count: number;
+  has_magic: boolean;
+  payload?: unknown;
+  held?: true;
+  see?: string;
+}
+
+export interface LatestMajorFile {
+  version: 1;
+  date: string;
+  format: string; // this file's own major, e.g. "spark/1"
+  meta: { layout_count: number; seq: number };
+  records: LatestMajorRecord[];
 }
 
 // Single-column-PK keyset pager: `SELECT * FROM <table> WHERE <keyCol> > ?
@@ -192,6 +223,52 @@ export async function buildDump(env: Bindings, now: Clock): Promise<Dump> {
   };
 }
 
+// LDB-D6: one file per registered `role: "stored"` major (never an
+// `"output"` one like `mana2/1` -- that's what `?as=mana2/1` on the LIST
+// route is for, not a per-major snapshot of what's actually stored) --
+// every live `layouts` row translated to it, or `held` when the chain/
+// cross edge can't show it. Built straight from the SAME `dump.records`
+// page the main dump already paged, so this never re-queries D1.
+function buildLatestMajorFiles(dump: Dump): { format: string; file: LatestMajorFile }[] {
+  const liveRows = dump.records.filter((r) => r.deleted === 0);
+  const storedFormats = listFormats()
+    .filter((f) => f.role === "stored")
+    .map((f) => f.id);
+
+  return storedFormats.map((format) => {
+    const records: LatestMajorRecord[] = liveRows.map((row) => {
+      const rec = rowToRecord(row);
+      const common = {
+        id: rec.id,
+        name: rec.name,
+        owner: rec.owner,
+        rev: rec.rev,
+        created_at: rec.created_at,
+        modified_at: rec.modified_at,
+        like_count: rec.like_count,
+        has_magic: rec.has_magic,
+      };
+      if (rec.format === format) return { ...common, payload: rec.payload };
+      const result = pureTranslate({ format: rec.format, payload: rec.payload }, format);
+      if ("held" in result) return { ...common, held: true, see: rec.format };
+      // "unknown" is unreachable here: `format` is drawn from `listFormats()`
+      // itself, so it is always registered.
+      if ("unknown" in result) throw new Error(`buildLatestMajorFiles: unreachable -- '${format}' resolved unknown`);
+      return { ...common, payload: result.payload };
+    });
+    return {
+      format,
+      file: {
+        version: 1,
+        date: dump.date,
+        format,
+        meta: { layout_count: records.length, seq: dump.meta.seq },
+        records,
+      },
+    };
+  });
+}
+
 async function gzip(bytes: Uint8Array): Promise<Uint8Array> {
   const cs = new CompressionStream("gzip");
   const writer = cs.writable.getWriter();
@@ -242,6 +319,17 @@ export async function writeDump(env: Bindings, now: Clock): Promise<{ key: strin
     seq: dump.meta.seq,
   };
   await env.DUMPS.put("latest.json", canonical(latest), { httpMetadata: { contentType: "application/json" } });
+
+  // LDB-D6: one `latest.<name>-<N>.json` (slash-free, R2-key-safe -- 19
+  // §11 Q4) per registered STORED major, plus its own sha256 sidecar; never
+  // gzipped (a consumer on that one major wants a plain fetch, same as
+  // `latest.json` itself). `latest.json` above is untouched by any of this.
+  for (const { format, file } of buildLatestMajorFiles(dump)) {
+    const majorKey = `latest.${format.replace("/", "-")}.json`;
+    const majorBytes = new TextEncoder().encode(canonical(file));
+    await env.DUMPS.put(majorKey, majorBytes, { httpMetadata: { contentType: "application/json" } });
+    await env.DUMPS.put(`${majorKey}.sha256`, await sha256Hex(majorBytes), { httpMetadata: { contentType: "text/plain" } });
+  }
 
   if (dump.date.slice(8, 10) === "01") {
     const monthKey = `monthly/dump-${dump.date.slice(0, 7)}.json.gz`;

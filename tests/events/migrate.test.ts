@@ -13,6 +13,8 @@ import { migrateTick } from "../../src/core/migrate";
 import * as recordsModule from "../../src/core/records";
 import { readById } from "../../src/core/records";
 import { fixedClock } from "../../src/core/time";
+import { registerForTest, type FormatModule } from "../../src/formats/registry";
+import * as spark1 from "../../formats/spark/1/index.ts";
 
 const db = (env as unknown as Bindings).DB;
 const clock = fixedClock("2026-09-10T00:00:00.000Z");
@@ -65,6 +67,30 @@ const SPARK_BOARD = { kind: "ortho", cmini: "ortho" };
 const SPARK_MAGIC = { rules: [{ inputs: "ab", output: "ba", type: "raw" }] };
 
 const CMINI_PAYLOAD = { board: "ortho" as const, keys: { a: { row: 0, col: 0, finger: "LI" } } };
+
+// 20-spark.md S5: `migrateTick`'s selection/conversion generalizes to "any
+// record below its LINEAGE's latest major", not a hardcoded `spark/1`
+// literal. With no real `spark/2` yet, this test-only stand-in extends the
+// REAL `spark` lineage (not an unrelated stub lineage -- `storedLatestId()`
+// always resolves the first `role: "stored"` module it finds, which is
+// always `spark/1`, so the lineage under test here is genuinely `spark`).
+// `up`/`down` are the identity: `spark/2`'s payload shape is deliberately
+// IDENTICAL to `spark/1`'s, so a real `spark/1` payload exercises the
+// generalized selection/conversion path with zero new semantics to model.
+const SPARK_2: FormatModule = {
+  id: "spark/2",
+  owner: "test",
+  description: "test-only spark/2 stand-in for LDB-P12's chain-generalization case (20-spark.md S5)",
+  schema: spark1.schema,
+  role: "stored",
+  validate: spark1.validate,
+  to: {},
+  from: {},
+  hasMagic: spark1.hasMagic,
+  edits: spark1.edits,
+  up: (p: unknown) => p,
+  down: (p: unknown) => p,
+};
 
 describe("[LDB-P12] migrateTick", () => {
   it("[LDB-P12] converts legacy formats, backfills a spark-stored record's upstream, skips an invalid payload, and reports the full shape", async () => {
@@ -450,5 +476,71 @@ describe("[LDB-P12] migrateTick", () => {
     expect(second.raced).toBe(0);
     const finalRec = await readById(db, record.id);
     expect(finalRec).toMatchObject({ format: "spark/1" });
+  });
+});
+
+describe("[LDB-P12] chain generalization (20-spark.md S5): 'below its lineage's latest', not a hardcoded spark/1", () => {
+  it("[LDB-P12] once spark/2 registers, a spark/1-stored record is selected and converted, with detail.to naming the new latest", async () => {
+    const unregister = registerForTest(SPARK_2);
+    try {
+      const { record } = await appendWrite(db, clock, {
+        kind: "created",
+        name: "migrate-chain-gen",
+        owner: "owner-1",
+        modified_at: "2026-01-01T00:00:00.000Z",
+        format: "spark/1",
+        payload: { keys: SPARK_KEYS, board: SPARK_BOARD },
+        actor: "owner-1",
+        via: "discord",
+        source: { client: "discord-app:test", version: null },
+        hasMagic: false,
+        upstream: null,
+      });
+
+      const report = await migrateTick(db, clock, { dryRun: false, limit: 100 });
+      expect(report.selected).toBe(1);
+      expect(report.converted).toBe(1);
+      expect(report.by_from).toEqual({ "spark/1": 1 });
+      expect(report.upstream).toEqual({ following: 0, forked: 0, null: 1 }); // a plain user create -- no import_map row
+
+      const after = await readById(db, record.id);
+      expect(after).toMatchObject({ format: "spark/2", rev: record.rev + 1, modified_at: record.modified_at, has_magic: false });
+
+      const migratedEvent = await db
+        .prepare("SELECT detail_json FROM events WHERE layout_id = ? AND kind = 'migrated'")
+        .bind(record.id)
+        .first<{ detail_json: string }>();
+      expect(JSON.parse(migratedEvent!.detail_json)).toEqual({ from: "spark/1", to: "spark/2", upstream_state: null });
+
+      // Converged: a second tick, still with spark/2 registered, selects
+      // and writes nothing -- the "below latest" rule now matches nothing.
+      const { db: countedDb, batches } = countingBatchDb(db);
+      const second = await migrateTick(countedDb, clock, { dryRun: false, limit: 100 });
+      expect(second.selected).toBe(0);
+      expect(batches()).toBe(0);
+    } finally {
+      unregister();
+    }
+  });
+
+  it("[LDB-P12] with spark/2 UNregistered again, migrateTick reverts to selecting only the legacy formats -- the rule reads the LIVE registry every call, not a cached target", async () => {
+    const { record: legacyRecord } = await appendWrite(db, clock, {
+      kind: "imported",
+      name: "migrate-chain-gen-2",
+      owner: "owner-1",
+      modified_at: "2026-01-01T00:00:00.000Z",
+      format: "cmini/1",
+      payload: CMINI_PAYLOAD,
+      actor: "system:cmini-import",
+      via: "import:cmini",
+      source: { client: "system:cmini-import", version: null },
+      hasMagic: false,
+      upstream: null,
+    });
+
+    const report = await migrateTick(db, clock, { dryRun: false, limit: 100 });
+    expect(report.converted).toBe(1);
+    const after = await readById(db, legacyRecord.id);
+    expect(after).toMatchObject({ format: "spark/1" }); // spark/2 is not registered in THIS test -- latest is plain spark/1
   });
 });
