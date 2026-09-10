@@ -13,6 +13,8 @@
 // so its magic is the owner's now, never this route's to touch.
 import type { Bindings } from "../env";
 import * as cmini1 from "../../formats/adapters/cmini/index";
+import * as akl1 from "../../formats/spark/1/index";
+import { storedAsSpark } from "../../formats/registry";
 import { appendWrite } from "../core/events";
 import { nextUpstream, upstreamOf } from "../core/upstream";
 import { list, readById } from "../core/records";
@@ -61,7 +63,13 @@ export async function stripCminiMagic(db: Bindings["DB"], now: Clock): Promise<S
     const payload = record.payload as cmini1.Payload;
     if (!cmini1.hasMagic(payload)) continue; // defensive: has_magic and hasMagic(payload) should never disagree
 
+    // 20-spark.md S3b: writes `storedAsSpark` of the stripped payload, not
+    // the record's legacy `cmini/1` shape verbatim (LDB-F16/F21) -- this
+    // route becomes a permanent no-op once S4's migration has moved every
+    // record to `spark/1` (the `format: CMINI_FORMAT` selection above
+    // never matches again).
     const { magic: _magic, ...withoutMagic } = payload;
+    const stored = storedAsSpark(CMINI_FORMAT, withoutMagic);
     const upstreamId = await upstreamIdForLayout(db, row.id);
     await appendWrite(db, now, {
       kind: "imported",
@@ -69,13 +77,13 @@ export async function stripCminiMagic(db: Bindings["DB"], now: Clock): Promise<S
       name: record.name,
       owner: record.owner,
       modified_at: record.modified_at,
-      format: CMINI_FORMAT,
-      payload: withoutMagic,
+      format: stored.format,
+      payload: stored.payload,
       actor: "system:cmini-import",
       via: "import:cmini",
       source: { client: "system:cmini-import", version: null },
       detail: { source: "cmini", upstream_id: upstreamId, reason: "magic_stripped" },
-      hasMagic: false,
+      hasMagic: akl1.hasMagic(stored.payload as akl1.Payload),
       upstream: nextUpstream(prior, "imported", "import:cmini"),
       expectRev: record.rev,
     });

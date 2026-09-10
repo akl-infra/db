@@ -18,7 +18,7 @@
       "deleted": false,
       "like_count": 15,
       "has_magic": false,
-      "format": "cmini/1",
+      "format": "spark/1",
       "upstream": {
         "source": "cmini",
         "id": "io",

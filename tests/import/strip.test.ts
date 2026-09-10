@@ -13,6 +13,7 @@ import { fixedClock } from "../../src/core/time";
 import { applyFetchedId } from "../../src/import/apply";
 import { stripCminiMagic } from "../../src/import/strip";
 import type { RawUpstreamDetail } from "../../src/import/upstream";
+import { fromCmini } from "../../formats/adapters/cmini/translate";
 
 const db = (env as unknown as Bindings).DB;
 const clock = fixedClock("2026-06-01T00:00:00.000Z");
@@ -52,7 +53,12 @@ async function seedLegacyMagicRecord(name: string, owner: string, upstreamId: st
     owner: rec!.owner,
     modified_at: rec!.modified_at,
     format: "cmini/1",
-    payload: { ...(rec!.payload as object), magic },
+    // A genuinely cmini/1-shaped payload (board a bare word) -- `rec!
+    // .payload` is itself spark-shaped by this point (20-spark.md S3b:
+    // every fresh import writes `spark/1`), so it can't be spread here
+    // without smuggling a spark `board` object into a record labelled
+    // `cmini/1`.
+    payload: { board: "ortho", keys: {}, magic },
     actor: "system:cmini-import",
     via: "import:cmini",
     source: { client: "system:cmini-import", version: null },
@@ -63,7 +69,7 @@ async function seedLegacyMagicRecord(name: string, owner: string, upstreamId: st
 }
 
 describe("stripCminiMagic", () => {
-  it("[LDB-I10] strips a following record's legacy magic: an 'imported' rev bump, magic-less payload, has_magic false", async () => {
+  it("[LDB-I10] [LDB-F16] strips a following record's legacy magic: an 'imported' rev bump, magic-less payload, has_magic false", async () => {
     const magic = [{ inputs: "n*", output: "nn", type: "repeat" }];
     const { id } = await seedLegacyMagicRecord("Strip-Following", "9200000000000000001", "strip-following", magic);
 
@@ -73,7 +79,9 @@ describe("stripCminiMagic", () => {
     const after = await readById(db, id);
     expect((after!.payload as { magic?: unknown }).magic).toBeUndefined();
     expect(after!.has_magic).toBe(false);
-    expect((after!.payload as { board: string }).board).toBe("ortho"); // everything else untouched
+    expect(after!.format).toBe("spark/1"); // 20-spark.md S3b: `storedAsSpark` of the stripped payload, not cmini/1 verbatim
+    // spark-shaped now -- still "ortho", just as spark's `board` object.
+    expect((after!.payload as { board: unknown }).board).toEqual(fromCmini({ board: "ortho", keys: {} }).board);
 
     const events = await eventsFor(id);
     expect(events.map((e) => e.kind)).toEqual(["imported", "imported", "imported"]);

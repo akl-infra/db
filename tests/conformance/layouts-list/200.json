@@ -21,7 +21,7 @@
           "deleted": false,
           "like_count": 1,
           "has_magic": false,
-          "format": "cmini/1",
+          "format": "spark/1",
           "upstream": {
             "source": "cmini",
             "id": "adept",
@@ -42,7 +42,7 @@
           "deleted": false,
           "like_count": 1,
           "has_magic": false,
-          "format": "cmini/1",
+          "format": "spark/1",
           "upstream": {
             "source": "cmini",
             "id": "apt26",

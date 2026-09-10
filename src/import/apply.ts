@@ -5,7 +5,8 @@
 import type { Bindings } from "../env";
 import * as cmini1 from "../../formats/adapters/cmini/index";
 import * as akl1 from "../../formats/spark/1/index";
-import { fromCmini, toCmini } from "../../formats/adapters/cmini/translate";
+import { fromCmini } from "../../formats/adapters/cmini/translate";
+import { storedAsSpark } from "../../formats/registry";
 import { canonical } from "../core/canonical";
 import { appendInfo, appendLike, appendWrite } from "../core/events";
 import { nextUpstream, upstreamOf } from "../core/upstream";
@@ -144,33 +145,32 @@ function projectUpstreamFull(detail: ParsedUpstreamDetail): cmini1.CminiDetail {
 }
 
 // LDB-I11: the record's own magic (nothing before M2; akl.gg's rules,
-// lifted onto an `akl/1` record from M2 on -- LDB-I12's lift branch in
-// `core/write.ts`'s `patchLayout`) is never a difference against upstream --
-// excluded here the same way `projectUpstreamNoLikes` excludes upstream's.
-// An `akl/1` record is compared through the same `?as=cmini/1` lowering
-// every OTHER reader of a following record sees (LDB-P5: "every following
-// record read `?as=cmini/1` equals upstream on the projection") -- `toCmini`
-// -- rather than casting its payload straight to `cmini1.Payload`, which
-// would compare the wrong shape entirely (an akl/1 `board` object where
-// cmini1's own is a bare word, `tag`/`blame`/`combos`/`link` nested under
-// `x.cmini` instead of top-level) and spuriously call every akl/1 following
-// record's content "different" on every tick.
-function projectLocalNoLikes(record: RecordRow): unknown {
-  const payload: cmini1.Payload = record.format === "akl/1" ? toCmini(record.payload as akl1.Payload) : (record.payload as cmini1.Payload);
-  return cmini1.projectNoMagic({
-    name: record.name,
-    owner: record.owner,
-    created_at: record.created_at,
-    modified_at: record.modified_at,
-    likes: [],
-    payload,
-  });
+// lifted onto a following record from M2 on -- LDB-I12's lift branch in
+// `core/write.ts`'s `patchLayout`) is never a difference against upstream.
+// 20-spark.md S3b: the comparison itself moved from cmini/1 to spark --
+// upstream's detail is run through the SAME `fromCmini` the importer uses
+// to write with, and the record's own (possibly legacy-stored) payload is
+// normalized through `storedAsSpark` first (the ONE conversion of a stored
+// legacy payload, LDB-F21) -- rather than casting either side to
+// `cmini1.Payload`, which would compare the wrong shape (spark's `board`
+// object vs cmini's bare word, `x.cmini` vs top-level `tag`/`blame`/
+// `combos`/`link`) and spuriously call every following record's content
+// "different" on every tick. `magic` dropped on both sides (LDB-I10/I11);
+// likes excluded, as always (07 §6 S5's own like diff owns them).
+function projectUpstreamSpark(detail: ParsedUpstreamDetail): unknown {
+  const { magic: _magic, ...payload } = fromCmini(detail.payload);
+  return { name: detail.name, owner: detail.owner, created_at: detail.created_at, modified_at: detail.modified_at, payload };
 }
 
-// "Content differs" (07 §6 S5): the two sides' cmini/1 projections, likes
+function projectLocalSpark(record: RecordRow): unknown {
+  const { magic: _magic, ...payload } = storedAsSpark(record.format, record.payload).payload as akl1.Payload;
+  return { name: record.name, owner: record.owner, created_at: record.created_at, modified_at: record.modified_at, payload };
+}
+
+// "Content differs" (07 §6 S5): the two sides' spark projections, likes
 // and magic excluded, disagree.
 export function contentDiffers(record: RecordRow, detail: ParsedUpstreamDetail): boolean {
-  return canonical(projectLocalNoLikes(record)) !== canonical(projectUpstreamNoLikes(detail));
+  return canonical(projectLocalSpark(record)) !== canonical(projectUpstreamSpark(detail));
 }
 
 async function currentLikeIds(db: Bindings["DB"], layoutId: string): Promise<Set<string>> {
@@ -227,20 +227,24 @@ async function applyNew(
     // Case 1: name free. No prior record to read `upstreamOf` from -- the
     // caller (this function) already knows the link it's about to create,
     // so it seeds `nextUpstream`'s `prior` with it directly (20-spark.md
-    // S3a, `core/upstream.ts`'s header note).
+    // S3a, `core/upstream.ts`'s header note). 20-spark.md S3b: every fresh
+    // import converts to spark at arrival (`fromCmini`) -- `detail.payload`
+    // never carries upstream's magic (LDB-I10's `payloadFromRaw` already
+    // stripped it), so `fromCmini` never lifts anything here either.
+    const payload = fromCmini(detail.payload);
     const { record } = await appendWrite(db, now, {
       kind: "imported",
       name: detail.name,
       owner: detail.owner,
       created_at: detail.created_at,
       modified_at: detail.modified_at,
-      format: "cmini/1",
-      payload: detail.payload,
+      format: "spark/1",
+      payload,
       actor: "system:cmini-import",
       via: "import:cmini",
       source: { client: "system:cmini-import", version: null },
       detail: { source: "cmini", upstream_id: upstreamId },
-      hasMagic: cmini1.hasMagic(detail.payload),
+      hasMagic: akl1.hasMagic(payload),
       upstream: nextUpstream({ source: "cmini", id: upstreamId, state: "following" }, "imported", "import:cmini"),
     });
     await insertImportMap(db, upstreamId, record.id);
@@ -274,19 +278,20 @@ async function applyNew(
     detail: { upstream_id: upstreamId, upstream_name: detail.name, conflicts_with: existing.id },
   });
   const shadowName = await freeShadowName(db, detail.name);
+  const shadowPayload = fromCmini(detail.payload);
   const { record } = await appendWrite(db, now, {
     kind: "imported",
     name: shadowName,
     owner: detail.owner,
     created_at: detail.created_at,
     modified_at: detail.modified_at,
-    format: "cmini/1",
-    payload: detail.payload,
+    format: "spark/1",
+    payload: shadowPayload,
     actor: "system:cmini-import",
     via: "import:cmini",
     source: { client: "system:cmini-import", version: null },
     detail: { source: "cmini", upstream_id: upstreamId, shadowed: { upstream_name: detail.name } },
-    hasMagic: cmini1.hasMagic(detail.payload),
+    hasMagic: akl1.hasMagic(shadowPayload),
     upstream: nextUpstream({ source: "cmini", id: upstreamId, state: "following" }, "imported", "import:cmini"),
   });
   await insertImportMap(db, upstreamId, record.id);
@@ -334,59 +339,41 @@ async function applyMapped(
       // magic, until the one-time strip route removes it; akl.gg's rules,
       // once M2 lands, or a magic-only PATCH lift, LDB-I12).
       //
-      // LDB-I12 (M2's prerequisite, design/layout-db/18-command-decisions.md
-      // §2 item 1): a record can now be `akl/1` and still follow upstream
-      // (a magic-only PATCH lifts it, `core/write.ts`'s `patchLayout`, and
-      // stays followed -- `core/follows.ts`'s `followsUpstream` skips
+      // 20-spark.md S3b: only the (formerly akl/1-only) branch survives --
+      // a legacy cmini/1-stored record's existing payload is taken through
+      // `storedAsSpark` FIRST (the ONE conversion of a stored legacy
+      // payload, LDB-F21), so this is a single carry-forward rule
+      // regardless of what the record was stored as coming in. LDB-I12
+      // (M2's prerequisite, design/layout-db/18-command-decisions.md §2
+      // item 1): a record can be spark-shaped and still follow upstream (a
+      // magic-only PATCH lifts it, `core/write.ts`'s `patchLayout`, and
+      // stays followed -- `core/follows.ts`'s `legacyFollows` skips
       // magic-only writes). That record's `magic` idiom is native (unlike
       // cmini/1's flat rows), so it cannot be carried forward with a bare
       // object spread over upstream's cmini/1 detail -- upstream's keys/
-      // board/free/x are translated into akl/1 first (`fromCmini`, the
+      // board/free/x are translated into spark first (`fromCmini`, the
       // SAME lossless translation the lift itself uses, LDB-F5), and only
       // then does the record's own `magic` get carried over untouched.
-      if (record.format === "akl/1") {
-        const existing = record.payload as akl1.Payload;
-        const payload: akl1.Payload = { ...fromCmini(detail.payload), magic: existing.magic };
-        await appendWrite(db, now, {
-          kind: "imported",
-          layoutId: record.id,
-          name: detail.name,
-          owner: detail.owner,
-          created_at: detail.created_at,
-          modified_at: detail.modified_at,
-          format: "akl/1",
-          payload,
-          actor: "system:cmini-import",
-          via: "import:cmini",
-          source: { client: "system:cmini-import", version: null },
-          detail: { source: "cmini", upstream_id: upstreamId },
-          deleted: false,
-          hasMagic: akl1.hasMagic(payload),
-          upstream: nextUpstream(prior, "imported", "import:cmini"),
-          expectRev: record.rev,
-        });
-      } else {
-        const existingPayload = record.payload as cmini1.Payload;
-        const payload: cmini1.Payload = { ...detail.payload, magic: existingPayload.magic };
-        await appendWrite(db, now, {
-          kind: "imported",
-          layoutId: record.id,
-          name: detail.name,
-          owner: detail.owner,
-          created_at: detail.created_at, // follows upstream too: a layout cmini deleted and re-added between two ticks moves it (2026-09-10, kate-2/eclipse-v2 flagged forever by the diff)
-          modified_at: detail.modified_at,
-          format: "cmini/1",
-          payload,
-          actor: "system:cmini-import",
-          via: "import:cmini",
-          source: { client: "system:cmini-import", version: null },
-          detail: { source: "cmini", upstream_id: upstreamId },
-          deleted: false,
-          hasMagic: cmini1.hasMagic(payload),
-          upstream: nextUpstream(prior, "imported", "import:cmini"),
-          expectRev: record.rev,
-        });
-      }
+      const existing = storedAsSpark(record.format, record.payload).payload as akl1.Payload;
+      const payload: akl1.Payload = { ...fromCmini(detail.payload), magic: existing.magic };
+      await appendWrite(db, now, {
+        kind: "imported",
+        layoutId: record.id,
+        name: detail.name,
+        owner: detail.owner,
+        created_at: detail.created_at, // follows upstream too: a layout cmini deleted and re-added between two ticks moves it (2026-09-10, kate-2/eclipse-v2 flagged forever by the diff)
+        modified_at: detail.modified_at,
+        format: "spark/1",
+        payload,
+        actor: "system:cmini-import",
+        via: "import:cmini",
+        source: { client: "system:cmini-import", version: null },
+        detail: { source: "cmini", upstream_id: upstreamId },
+        deleted: false,
+        hasMagic: akl1.hasMagic(payload),
+        upstream: nextUpstream(prior, "imported", "import:cmini"),
+        expectRev: record.rev,
+      });
     }
     // Case 5 (and the like half of case 4): likes replaced wholesale.
     for (const u of upstreamLikeIds) {
@@ -437,14 +424,19 @@ export async function applyDelete(db: Bindings["DB"], now: Clock, layoutId: stri
   const prior = await upstreamOf(db, record);
   const following = prior?.state === "following";
   if (following) {
+    // 20-spark.md S3b (LDB-F16/F21, §8 R-H2): carries the payload forward
+    // through `storedAsSpark`, not `record.format`/`record.payload`
+    // verbatim -- otherwise tombstoning an unmigrated legacy-stored record
+    // would re-store its old format.
+    const stored = storedAsSpark(record.format, record.payload);
     await appendWrite(db, now, {
       kind: "upstream_deleted",
       layoutId,
       name: record.name,
       owner: record.owner,
       modified_at: now(),
-      format: record.format,
-      payload: record.payload,
+      format: stored.format,
+      payload: stored.payload,
       actor: "system:cmini-import",
       via: "import:cmini",
       source: { client: "system:cmini-import", version: null },

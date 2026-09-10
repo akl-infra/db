@@ -13,11 +13,10 @@ import type { Bindings } from "../env";
 import { canonical } from "../core/canonical";
 import { decodeCursor, list as listRecords, type ListCursor } from "../core/records";
 import type { Clock } from "../core/time";
-import { translate } from "../formats/registry";
+import { storedAsSpark } from "../../formats/registry.ts";
 import { diffUpstream, type DiffSummary, type FetchImpl, type OursSource } from "./diff";
 
 const PAGE_SIZE = 500; // 12 §0.3: pages our side from D1 in 500-record pages, one list query per page
-const CMINI_FORMAT = "cmini/1";
 const IMPORT_STATE_KEY = "cmini.last_diff";
 const SAMPLE_CAP = 10;
 
@@ -44,6 +43,11 @@ async function likesFor(db: Bindings["DB"], ids: string[]): Promise<Map<string, 
 // `fetchImpl` anywhere in this function -- `diffTick`'s own fetchImpl
 // (injected in tests, real `fetch` in production) is used ONLY for the
 // upstream half inside `diffUpstream`, never here.
+//
+// 20-spark.md S3b (§8 R-H6): yields `storedAsSpark` payloads, not a
+// `?as=cmini/1` translation -- comparison happens in spark now, and every
+// row already carries its own `upstream` (S3a), so no `/history`
+// follow-up (the old `followsUpstream` method, deleted) is needed either.
 export function d1Ours(env: Bindings): OursSource {
   const db = env.DB;
   return {
@@ -56,11 +60,7 @@ export function d1Ours(env: Bindings): OursSource {
           page.items.map((r) => r.id),
         );
         for (const rec of page.items) {
-          const result = translate(rec, CMINI_FORMAT);
-          if ("held" in result) {
-            yield { held: rec.name };
-            continue;
-          }
+          const { payload } = storedAsSpark(rec.format, rec.payload);
           yield {
             ref: rec.id,
             name: rec.name,
@@ -68,7 +68,8 @@ export function d1Ours(env: Bindings): OursSource {
             created_at: rec.created_at,
             modified_at: rec.modified_at,
             likes: likes.get(rec.id) ?? [],
-            payload: result.payload,
+            payload,
+            upstream: rec.upstream,
           };
         }
         if (page.nextCursor === null) break;
@@ -87,23 +88,6 @@ export function d1Ours(env: Bindings): OursSource {
       const row = await db.prepare("SELECT COUNT(*) AS n FROM layouts WHERE deleted = 0").first<{ n: number }>();
       return row?.n ?? 0;
     },
-    // LDB-I2a: "follows upstream" <=> the latest rev-bumping event's `via`
-    // is 'import:cmini' -- read newest-first off the `events_layout` index
-    // so the first `rev IS NOT NULL` row found IS the answer, no in-memory
-    // reverse needed (`routes/layouts.ts`'s `/history` route, which
-    // `httpOurs.followsUpstream` reads over HTTP, returns the same rows
-    // ascending and reverses in JS instead -- same result, this is the
-    // direct-D1 equivalent).
-    async followsUpstream(ref: string) {
-      const { results } = await db
-        .prepare("SELECT rev, via FROM events WHERE layout_id = ? ORDER BY seq DESC")
-        .bind(ref)
-        .all<{ rev: number | null; via: string }>();
-      for (const e of results) {
-        if (e.rev !== null) return e.via === "import:cmini";
-      }
-      return false;
-    },
   };
 }
 
@@ -121,7 +105,7 @@ export interface LastDiffRecord {
   held?: string[];
   layout_count?: { upstream: number; ours: number; equal: boolean };
   authors?: { missing: number; extra: number; alias_count: number };
-  corpus?: { matched: number; missing: number; invalid_upstream: number; content_diffs: number; extra: number };
+  corpus?: { matched: number; missing: number; invalid_upstream: number; content_diffs: number; extra: number; divergent: number };
   samples?: {
     missing: string[];
     content_diffs: { name: string; path: string }[];
@@ -146,6 +130,7 @@ function summaryToLastDiff(at: string, durationMs: number, summary: DiffSummary)
       invalid_upstream: summary.corpus.invalidUpstream.length,
       content_diffs: summary.corpus.contentDiffs.length,
       extra: summary.corpus.extra.length,
+      divergent: summary.corpus.divergent.length,
     },
     samples: {
       missing: summary.corpus.missing.slice(0, SAMPLE_CAP).map((d) => d.name),

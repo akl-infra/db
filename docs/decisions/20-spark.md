@@ -1089,3 +1089,22 @@ ledgered and flippable by saltorbit):**
   uses Fly's per-deploy `FLY_IMAGE_REF` tag (then `FLY_MACHINE_VERSION`,
   then the package version), ≤ 64 chars in the DB's charset, so edits can
   be traced and rolled back per bot release (decision 14's purpose).
+- **2026-09-11 ~00:30Z** — **S3b landed** (Sonnet agent, lead-reviewed and
+  re-verified). The importer writes `spark/1` via `fromCmini` with
+  `upstream: following`; `applyMapped` has one branch (`storedAsSpark`
+  then `fromCmini`, record's magic carried); `applyDelete` and strip store
+  `storedAsSpark`; `contentDiffers` compares in spark (magic and likes
+  excluded), `upstream_changed` detail stays cmini-shaped. The tick now
+  **catches `RevConflictError` per id** (`TickStats.raced`): the loop had
+  no such catch; the plan assumed one. D12 diff compares only following
+  records (`divergent` for forked/null name matches, never a failure),
+  follow status from the field (the via/history derivations deleted), in
+  spark end to end, `parseUpstreamRaw` runs `fromCmini` + spark validate.
+  New LDB-I13 (+100 upstream-fixture checks); amended F16, I11, P5, P14.
+  Plan wording fixed by the agent: the D12 diff keeps comparing **likes**
+  (only magic is excluded there; the importer's change detection excludes
+  both). Lead checks: the 10 changed fixtures differ only by `format`
+  `cmini/1` → `spark/1` (native-format rule); the deployed sync script
+  never reads `format`, so no transition hazard; db typecheck 0, vitest
+  16 017 passed / 0 failed (+103); bot 755; site 17. Next: land S4 (fix in
+  flight) and S6 (follow-ups in flight), then S5.

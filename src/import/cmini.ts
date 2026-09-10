@@ -3,6 +3,7 @@
 // unchanged, so the next cron invocation reruns the whole tick.
 import type { Bindings } from "../env";
 import { canonical } from "../core/canonical";
+import { RevConflictError } from "../core/events";
 import type { Clock } from "../core/time";
 import { applyAuthors, applyDeleteAction, applyFetchedId } from "./apply";
 import { planTick, type LocalMapRow } from "./plan";
@@ -61,6 +62,11 @@ export interface TickStats {
   delete_stalled?: string | null;
   full_pass?: boolean;
   fully_applied?: boolean;
+  // 20-spark.md S3b (LDB-P14): a system write's `expectRev` lost the race
+  // to a concurrent user write -- caught per id, counted here, never
+  // thrown out of `tick()`. The record itself is untouched (whatever the
+  // user write left it at); the next tick re-evaluates it from scratch.
+  raced?: number;
 }
 
 export interface TickResult {
@@ -141,18 +147,33 @@ export async function tick(
 
   const errors: { id: string; path: string; message: string }[] = [];
   let applied = 0;
+  let raced = 0;
   for (const id of toProcess) {
     const raw = detailsById.get(id)!;
-    const result = await applyFetchedId(db, now, id, raw);
-    errors.push(...result.errors);
+    try {
+      const result = await applyFetchedId(db, now, id, raw);
+      errors.push(...result.errors);
+    } catch (e) {
+      // 20-spark.md S3b (LDB-P14, §8 R-H4): a user write landed between this
+      // system write's read and its own write -- caught per id, counted,
+      // never thrown out of the tick; the next tick re-evaluates this id
+      // from a fresh read.
+      if (!(e instanceof RevConflictError)) throw e;
+      raced++;
+    }
     applied++;
   }
 
   let deletesApplied = 0;
   if (plan.deleteStalled === null) {
     for (const del of plan.delete) {
-      await applyDeleteAction(db, now, del);
-      deletesApplied++;
+      try {
+        await applyDeleteAction(db, now, del);
+        deletesApplied++;
+      } catch (e) {
+        if (!(e instanceof RevConflictError)) throw e;
+        raced++;
+      }
     }
     await clearState(db, "cmini.stalled");
   } else {
@@ -196,6 +217,7 @@ export async function tick(
     delete_stalled: plan.deleteStalled?.reason ?? null,
     full_pass: plan.isFullPass,
     fully_applied: fullyApplied,
+    raced,
   };
   await setState(db, "cmini.last_tick", canonical(stats));
 

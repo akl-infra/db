@@ -6,10 +6,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Bindings } from "../../src/env";
 import * as clientModule from "../../src/auth/client";
 import * as discordModule from "../../src/auth/discord";
+import { RevConflictError } from "../../src/core/events";
 import { fixedClock } from "../../src/core/time";
 import * as ratelimitModule from "../../src/core/ratelimit";
 import * as webhooksModule from "../../src/core/webhooks";
 import * as dumpModule from "../../src/dump/write";
+import * as applyModule from "../../src/import/apply";
 import * as cminiModule from "../../src/import/cmini";
 import { tick } from "../../src/import/cmini";
 import * as difftickModule from "../../src/import/difftick";
@@ -164,6 +166,64 @@ describe("tick()", () => {
 
     const row = await db.prepare("SELECT deleted FROM layouts WHERE name = ?").bind(targetName).first<{ deleted: number }>();
     expect(row?.deleted).toBe(1);
+  });
+
+  // 20-spark.md S3b (LDB-P14's importer case, §8 R-H4): every system write
+  // in `applyFetchedId`/`applyDeleteAction` carries `expectRev`, and
+  // `tick()` itself is what turns a lost race into a counted `raced`
+  // rather than an unhandled throw that would abort the whole tick (and
+  // every other id it was about to process). Simulated here by making the
+  // apply layer itself throw `RevConflictError` for one id -- the same
+  // exception `appendWrite` throws for real when a user write lands
+  // between a system writer's read and its own write.
+  it("[LDB-P14] a RevConflictError from one id's apply is caught, counted as 'raced', and never aborts the tick", async () => {
+    const fake = new FakeUpstream();
+    const clock = fixedClock("2026-06-09T12:00:00.000Z");
+    await tick(bindings, clock, fake.fetchImpl, fake.sleepImpl); // graphite + 99 others imported
+
+    fake.set404("graphite");
+    fake.removeFromList("graphite"); // graphite is now a delete case
+    const abyssId = fake.ids().find((id) => fake.listEntry(id).name === "abyss")!;
+    fake.mutateDetailByName("abyss", { board: "ortho" });
+    // `planTick` decides "fetch" off the LIST entry's own modified_at/
+    // like_count, not the detail -- the list entry must move too, or abyss
+    // would never be selected for re-fetch this tick.
+    fake.mutateListEntry(abyssId, { modified_at: "2026-06-09T13:00:00.000Z" });
+    fake.bumpMeta();
+
+    const realApplyFetchedId = applyModule.applyFetchedId;
+    const applyFetchedIdSpy = vi.spyOn(applyModule, "applyFetchedId").mockImplementation(async (db, now, id, raw) => {
+      if (id === "abyss") throw new RevConflictError("some-layout-id", 2);
+      return realApplyFetchedId(db, now, id, raw);
+    });
+    const realApplyDeleteAction = applyModule.applyDeleteAction;
+    const applyDeleteActionSpy = vi.spyOn(applyModule, "applyDeleteAction").mockImplementation(async (db, now, action) => {
+      throw new RevConflictError(action.layoutId, 2);
+    });
+
+    let result: Awaited<ReturnType<typeof tick>>;
+    try {
+      result = await tick(bindings, clock, fake.fetchImpl, fake.sleepImpl);
+    } finally {
+      applyFetchedIdSpy.mockRestore();
+      applyDeleteActionSpy.mockRestore();
+    }
+
+    expect(result.stats.raced).toBe(2); // abyss's update, graphite's delete
+    expect(result.stats.errors).toEqual([]); // a race is never reported as a shape error
+    // Neither raced write landed: abyss keeps its pre-tick content, graphite stays live.
+    const abyssRow = await db.prepare("SELECT payload_json FROM layouts WHERE name = 'abyss'").first<{ payload_json: string }>();
+    expect((JSON.parse(abyssRow!.payload_json) as { board?: unknown }).board).not.toEqual({ kind: "ortho", cmini: "ortho" });
+    const graphiteRow = await db.prepare("SELECT deleted FROM layouts WHERE name = 'graphite'").first<{ deleted: number }>();
+    expect(graphiteRow?.deleted).toBe(0);
+
+    // Re-verify the delete alone abolishes 'raced' via `applyDeleteAction`'s
+    // real path can still be re-evaluated next tick undisturbed: without
+    // this catch, the thrown error above would have aborted the tick before
+    // `cmini.last_tick` was ever written.
+    const stored = await db.prepare("SELECT value FROM import_state WHERE key = 'cmini.last_tick'").first<{ value: string }>();
+    expect(stored).not.toBeNull();
+    expect((JSON.parse(stored!.value) as { raced?: number }).raced).toBe(2);
   });
 
   it("a shape-invalid detail is skipped and reported in cmini.last_tick, never a tick failure", async () => {

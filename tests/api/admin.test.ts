@@ -14,6 +14,7 @@ import * as nightlyModule from "../../src/core/nightly";
 import * as cminiModule from "../../src/import/cmini";
 import { tick } from "../../src/import/cmini";
 import * as difftickModule from "../../src/import/difftick";
+import { fromCmini } from "../../formats/adapters/cmini/translate";
 import worker from "../../src/index";
 import { FakeDiscord } from "../auth/fake-discord";
 import { FakeUpstream } from "../import/fake-upstream";
@@ -581,7 +582,9 @@ describe("POST /v1/admin/import/tick, POST /v1/admin/diff/tick, and POST /v1/adm
         .bind(record.id)
         .first<{ has_magic: number; payload_json: string }>();
       expect(row?.has_magic).toBe(0);
-      expect(JSON.parse(row!.payload_json)).toEqual({ board: "ortho", keys: {} });
+      // 20-spark.md S3b: `stripCminiMagic` writes `storedAsSpark` of the
+      // stripped payload now, not the record's own cmini/1 literal.
+      expect(JSON.parse(row!.payload_json)).toEqual(fromCmini({ board: "ortho", keys: {} }));
 
       const again = await writeFetch("/v1/admin/import/strip-cmini-magic", "POST", adminHeaders(`tok-${uniqueName("strip-real-2")}`));
       const bodyAgain = await again.json<{ stripped: number }>();

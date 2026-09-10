@@ -1,6 +1,7 @@
-// [LDB-P5] The D12 mirror diff, live (07 §6 S8; §7's daily job): every
-// upstream cmini layout read back `?as=cmini/1` must equal upstream on the
-// projection. Runs ONLY when `DB_BASE_URL` is set (the daily job sets it to
+// [LDB-P5] The D12 mirror diff, live (07 §6 S8; §7's daily job; 20-spark.md
+// S3b): every FOLLOWING upstream cmini layout read back `?as=spark/1` must
+// equal upstream (converted through `fromCmini`) on the projection. Runs
+// ONLY when `DB_BASE_URL` is set (the daily job sets it to
 // the deployed service's origin) -- when set, this does NOT skip on a
 // network hiccup: it retries for up to 30 minutes, then fails loud. That's
 // the `ci-gate-split-256` lesson db.yml's own comments cite: "a skip nobody
@@ -42,7 +43,7 @@ async function diffUntilReachable(dbBaseUrl: string): Promise<DiffSummary> {
 
 describe.skipIf(DB_BASE_URL === undefined || DB_BASE_URL === "")("upstream diff (daily, live)", () => {
   it(
-    "[LDB-P5] every following record read ?as=cmini/1 equals upstream on the projection",
+    "[LDB-P5] [LDB-I13] every following record read ?as=spark/1 equals upstream on the projection",
     async () => {
       const summary = await diffUntilReachable(DB_BASE_URL!);
       if (!summary.ok) {
@@ -51,12 +52,13 @@ describe.skipIf(DB_BASE_URL === undefined || DB_BASE_URL === "")("upstream diff 
         console.error(JSON.stringify(summary, null, 2));
       }
 
-      expect(summary.held, "held records: as=cmini/1 should always be identity in phase 1").toEqual([]);
+      expect(summary.held, "held records: as=spark/1 should always be identity in phase 1").toEqual([]);
       expect(summary.corpus.missing).toEqual([]);
       expect(summary.corpus.invalidUpstream).toEqual([]);
       expect(summary.corpus.contentDiffs).toEqual([]);
       expect(summary.corpus.extra).toEqual([]);
-      expect(summary.corpus.extraUnresolved).toEqual([]);
+      // `divergent` (a name-matched local record that's forked/unlinked) is
+      // informational only, 20-spark.md S3b/LDB-P5 -- never asserted here.
       expect(summary.layoutCount).toEqual({
         upstream: summary.layoutCount.upstream,
         ours: summary.layoutCount.upstream,

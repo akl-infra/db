@@ -7,6 +7,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import * as cmini1 from "../../formats/adapters/cmini/index";
+import { fromCmini } from "../../formats/adapters/cmini/translate";
+import * as spark from "../../formats/spark/1/index";
 
 const SNAPSHOT_DIR = path.resolve(import.meta.dirname, "..", "fixtures", "upstream-100");
 
@@ -57,6 +59,20 @@ describe("cmini/1 envelope over the live snapshot", () => {
       expect(listEntry).toBeDefined();
       const payload = payloadFrom(detail) as cmini1.Payload;
       expect(cmini1.hasMagic(payload)).toBe(Boolean(listEntry?.has_magic));
+    });
+
+    // 20-spark.md S3b (LDB-I13): "every live upstream detail's `fromCmini`
+    // validates as spark" -- the importer and the D12 diff both rely on
+    // `fromCmini` never producing a payload their own `parseUpstreamRaw`/
+    // `applyNew` would reject; this is the live proof over the frozen
+    // snapshot (the daily diff's `invalidUpstream` line is the same
+    // invariant's runtime guard against a future upstream detail this
+    // snapshot doesn't cover).
+    it(`[LDB-I13] '${detail.name}': fromCmini(payload) validates as spark`, () => {
+      const payload = payloadFrom(detail) as cmini1.Payload;
+      const sparkPayload = fromCmini(payload);
+      const result = spark.validate(sparkPayload);
+      expect(result.ok, !result.ok ? result.error.message : undefined).toBe(true);
     });
   }
 });

@@ -11,7 +11,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "00------higgs",
@@ -32,7 +32,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "02_we've_been_in_this_room_too_long",
@@ -53,7 +53,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "40kwh",
@@ -74,7 +74,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "5quid-nhrl2",
@@ -95,7 +95,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "abyss",
@@ -116,7 +116,7 @@
     "deleted": false,
     "like_count": 1,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "adept",
@@ -137,7 +137,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "adnw",
@@ -158,7 +158,7 @@
     "deleted": false,
     "like_count": 1,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "apple",
@@ -179,7 +179,7 @@
     "deleted": false,
     "like_count": 1,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "apt26",
@@ -200,7 +200,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "auditor",
@@ -221,7 +221,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "auditor-old",
@@ -242,7 +242,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "auditors",
@@ -263,7 +263,7 @@
     "deleted": false,
     "like_count": 1,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "babymak-pipis",
@@ -284,7 +284,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "bevel",
@@ -305,7 +305,7 @@
     "deleted": false,
     "like_count": 16,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "bunya",
@@ -326,7 +326,7 @@
     "deleted": false,
     "like_count": 10,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "crescent",
@@ -347,7 +347,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "csthyou",
@@ -368,7 +368,7 @@
     "deleted": false,
     "like_count": 14,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "dhorf",
@@ -389,7 +389,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "dina-test",
@@ -410,7 +410,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "dmini-thumb-test",
@@ -431,7 +431,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "dmini-thumb-test-2",
@@ -452,7 +452,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "dmini-thumb-test-3",
@@ -473,7 +473,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "dmini-thumb-test-4",
@@ -494,7 +494,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "dmini-thumb-test-6",
@@ -515,7 +515,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "dmini-thumb-test-7",
@@ -536,7 +536,7 @@
     "deleted": false,
     "like_count": 5,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "echo",
@@ -557,7 +557,7 @@
     "deleted": false,
     "like_count": 11,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "eclipse",
@@ -578,7 +578,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "eclipse-themb",
@@ -599,7 +599,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "eclipse-v2",
@@ -620,7 +620,7 @@
     "deleted": false,
     "like_count": 1,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "eclipse-v3",
@@ -641,7 +641,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "eclipseortho",
@@ -662,7 +662,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "fhmb-test",
@@ -683,7 +683,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "finch",
@@ -704,7 +704,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "for-duo",
@@ -725,7 +725,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "for-duo-2",
@@ -746,7 +746,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "for-duo-3",
@@ -767,7 +767,7 @@
     "deleted": false,
     "like_count": 78,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "graphite",
@@ -788,7 +788,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "graphite-vimified",
@@ -809,7 +809,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "haul",
@@ -830,7 +830,7 @@
     "deleted": false,
     "like_count": 1,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "inky-nyoom",
@@ -851,7 +851,7 @@
     "deleted": false,
     "like_count": 76,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "inqwerted",
@@ -872,7 +872,7 @@
     "deleted": false,
     "like_count": 15,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "io",
@@ -893,7 +893,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "jeep",
@@ -914,7 +914,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "kai-nokwts",
@@ -935,7 +935,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "kairos",
@@ -956,7 +956,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "kate-2",
@@ -977,7 +977,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "kinda-dina",
@@ -998,7 +998,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "knight-you",
@@ -1019,7 +1019,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "kormite",
@@ -1040,7 +1040,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "magnetite",
@@ -1061,7 +1061,7 @@
     "deleted": false,
     "like_count": 2,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "mantra",
@@ -1082,7 +1082,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "marble",
@@ -1103,7 +1103,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "mistyfun",
@@ -1124,7 +1124,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "mistynail",
@@ -1145,7 +1145,7 @@
     "deleted": false,
     "like_count": 5,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "neon",
@@ -1166,7 +1166,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "night-e",
@@ -1187,7 +1187,7 @@
     "deleted": false,
     "like_count": 2,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "nightcore",
@@ -1208,7 +1208,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "niro",
@@ -1229,7 +1229,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "ntabv6",
@@ -1250,7 +1250,7 @@
     "deleted": false,
     "like_count": 1,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "onyx",
@@ -1271,7 +1271,7 @@
     "deleted": false,
     "like_count": 11,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "opal",
@@ -1292,7 +1292,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "opal-dario",
@@ -1313,7 +1313,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "opal-e200",
@@ -1334,7 +1334,7 @@
     "deleted": false,
     "like_count": 2,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "opalbetter",
@@ -1355,7 +1355,7 @@
     "deleted": false,
     "like_count": 5,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "opaline",
@@ -1376,7 +1376,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "opaline-meteorited",
@@ -1397,7 +1397,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "oxeytest64",
@@ -1418,7 +1418,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "oxeytest65",
@@ -1439,7 +1439,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "oxeytest66",
@@ -1460,7 +1460,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "oxeytest76",
@@ -1481,7 +1481,7 @@
     "deleted": false,
     "like_count": 16,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "racket",
@@ -1502,7 +1502,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "raincsth",
@@ -1523,7 +1523,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "rightrollv2",
@@ -1544,7 +1544,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "rightrollv3",
@@ -1565,7 +1565,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "rnhsy",
@@ -1586,7 +1586,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "rnhsye",
@@ -1607,7 +1607,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "rosellae",
@@ -1628,7 +1628,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "rosellaeacc",
@@ -1649,7 +1649,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "rosellaenav",
@@ -1670,7 +1670,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "rosellaesym",
@@ -1691,7 +1691,7 @@
     "deleted": false,
     "like_count": 1,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "sanrie-cmini-test2",
@@ -1712,7 +1712,7 @@
     "deleted": false,
     "like_count": 1,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "shale",
@@ -1733,7 +1733,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "shtc",
@@ -1754,7 +1754,7 @@
     "deleted": false,
     "like_count": 2,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "slate",
@@ -1775,7 +1775,7 @@
     "deleted": false,
     "like_count": 5,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "smiemak",
@@ -1796,7 +1796,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "soul",
@@ -1817,7 +1817,7 @@
     "deleted": false,
     "like_count": 5,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "sunstone",
@@ -1838,7 +1838,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "swift",
@@ -1859,7 +1859,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "sy-thumb",
@@ -1880,7 +1880,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "tenders",
@@ -1901,7 +1901,7 @@
     "deleted": false,
     "like_count": 1,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "tendon25b",
@@ -1922,7 +1922,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "test12222",
@@ -1943,7 +1943,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "thumb-u-test",
@@ -1964,7 +1964,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "thumb-u-xb",
@@ -1985,7 +1985,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "tomato",
@@ -2006,7 +2006,7 @@
     "deleted": false,
     "like_count": 13,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "vylet",
@@ -2027,7 +2027,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "vylet-v4",
@@ -2048,7 +2048,7 @@
     "deleted": false,
     "like_count": 13,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "whirl",
@@ -2069,7 +2069,7 @@
     "deleted": false,
     "like_count": 10,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "whorf",
@@ -2090,7 +2090,7 @@
     "deleted": false,
     "like_count": 0,
     "has_magic": false,
-    "format": "cmini/1",
+    "format": "spark/1",
     "upstream": {
      "source": "cmini",
      "id": "workman-rowstagger",

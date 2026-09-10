@@ -22,7 +22,20 @@
 // boundary.
 import { unescapeGoHtml } from "../core/safejson.ts";
 import * as cmini1 from "../../formats/adapters/cmini/index.ts";
+import * as spark from "../../formats/spark/1/index.ts";
+import { fromCmini } from "../../formats/adapters/cmini/translate.ts";
 import { canonical } from "../core/canonical.ts";
+
+// A record's own belief about its upstream link (20-spark.md S3a/S3b,
+// LDB-I14) -- mirrors `db/src/core/records.ts`'s `Upstream` type, but
+// redeclared here rather than imported: this module stays plain-Node-ESM
+// loadable (see the header note above), and that file pulls in the
+// Worker's `Bindings` type and more besides.
+export interface UpstreamLink {
+  source: "cmini";
+  id: string;
+  state: "following" | "forked";
+}
 
 export type FetchImpl = (url: string, init?: { headers?: Record<string, string> }) => Promise<Response>;
 export type SleepImpl = (ms: number) => Promise<void>;
@@ -150,20 +163,42 @@ export function pathDiff(a: unknown, b: unknown, path = ""): string | null {
   return JSON.stringify(a) === JSON.stringify(b) ? null : path || "/";
 }
 
-// `cmini1.project()` sorts `likes` internally, so passing raw (unsorted,
-// possibly differently-ordered) `likes` arrays into `compareRecords` is
-// already order-insensitive -- no separate likes-sort step needed here.
+// The upstream/ours record shape the D12 diff compares (20-spark.md S3b):
+// upstream's detail run through `fromCmini` (the SAME conversion the
+// importer writes with), and "ours" already spark-shaped (`d1Ours` via
+// `storedAsSpark`, `httpOurs` via `?as=spark/1`) -- comparison happens in
+// spark now, never cmini/1.
+export interface SparkRecordLike {
+  name: string;
+  owner: string;
+  created_at: string;
+  modified_at: string;
+  likes: string[];
+  payload: spark.Payload;
+}
+
+// The record-level projection this file compares on: `likes` sorted
+// (order-insensitive), `magic` dropped on both sides (LDB-I10/I11: upstream's
+// magic is never akl.gg's, and a followed record's own -- nothing today;
+// akl.gg's rules once M2 lands -- is never a mirror difference either).
+function projectSparkNoMagic(record: SparkRecordLike): unknown {
+  const { magic: _magic, ...payload } = record.payload;
+  return {
+    name: record.name,
+    owner: record.owner,
+    created_at: record.created_at,
+    modified_at: record.modified_at,
+    likes: [...record.likes].sort(),
+    payload,
+  };
+}
+
 // LDB-P5 (M1, design/layout-db/17-magic-ownership.md §3): the projection
 // compared is magic-less on BOTH sides, the same rule `import/apply.ts`'s
-// own change detection applies -- upstream's magic is never akl.gg's, and a
-// followed record's own magic (nothing today; akl.gg's rules, once M2
-// lands) is never a mirror difference either.
-export function compareRecords(
-  upstream: cmini1.CminiRecordLike,
-  ours: cmini1.CminiRecordLike,
-): { equal: boolean; path: string | null } {
-  const u = cmini1.projectNoMagic(upstream);
-  const o = cmini1.projectNoMagic(ours);
+// own change detection applies.
+export function compareRecords(upstream: SparkRecordLike, ours: SparkRecordLike): { equal: boolean; path: string | null } {
+  const u = projectSparkNoMagic(upstream);
+  const o = projectSparkNoMagic(ours);
   if (canonical(u) === canonical(o)) return { equal: true, path: null };
   return { equal: false, path: pathDiff(u, o) ?? "/" };
 }
@@ -175,17 +210,24 @@ export interface ShapeErr {
   message: string;
 }
 
-// The upstream side of one comparison: either a parsed `cmini/1`
+// The upstream side of one comparison: either a spark-converted
 // record-like (name/owner/likes/created_at/modified_at/payload), or the
-// shape error that `cmini/1`'s own `validate()` (or record-field parsing)
-// found -- surfaced, never papered over (07 §6 S8: "that is the D12
-// finding this slice exists to surface").
-export type UpstreamParse = { ok: true; detail: cmini1.CminiRecordLike } | { ok: false; error: ShapeErr };
+// shape error that `cmini/1`'s own `validate()`, spark's own `validate()`
+// (20-spark.md S3b, LDB-I13), or record-field parsing found -- surfaced,
+// never papered over (07 §6 S8: "that is the D12 finding this slice exists
+// to surface").
+export type UpstreamParse = { ok: true; detail: SparkRecordLike } | { ok: false; error: ShapeErr };
 
 // Record-field parsing + `payload = raw minus record fields` + `cmini1
-// .validate` -- the same rule `apply.ts`'s `parseUpstreamDetail` applies on
-// import (07 §5.1: `link` stays in the payload; only these five keys are
-// ever stripped), reimplemented here per the header note.
+// .validate`, then `fromCmini` + spark's OWN `validate` (20-spark.md S3b,
+// LDB-I13: "every live upstream detail's `fromCmini` validates as spark") --
+// a payload cmini's own (looser) schema accepts but spark's (magic
+// semantics, collisions, the `x` size cap) refuses is reported here as
+// `invalidUpstream`, not thrown. Reimplemented here (record-field parsing
+// + the cmini shape check) rather than importing `apply.ts`'s
+// `parseUpstreamDetail` across the plain-Node boundary, per the header
+// note (07 §5.1: `link` stays in the payload; only these five keys are
+// ever stripped).
 export function parseUpstreamRaw(raw: unknown): UpstreamParse {
   if (typeof raw !== "object" || raw === null) {
     return { ok: false, error: { path: "/", message: "detail is not an object" } };
@@ -227,6 +269,13 @@ export function parseUpstreamRaw(raw: unknown): UpstreamParse {
     return { ok: false, error: { path, message: check.error.message } };
   }
 
+  const sparkPayload = fromCmini(payload as unknown as cmini1.Payload);
+  const sparkCheck = spark.validate(sparkPayload);
+  if (!sparkCheck.ok) {
+    const path = typeof sparkCheck.error.path === "string" ? sparkCheck.error.path : "/";
+    return { ok: false, error: { path, message: sparkCheck.error.message } };
+  }
+
   return {
     ok: true,
     detail: {
@@ -235,7 +284,7 @@ export function parseUpstreamRaw(raw: unknown): UpstreamParse {
       created_at: r.created_at,
       modified_at: r.modified_at,
       likes,
-      payload: payload as unknown as cmini1.Payload,
+      payload: sparkPayload,
     },
   };
 }
@@ -246,14 +295,14 @@ export interface DiffLine {
   message: string;
 }
 
-// Our side of one comparison: a `CminiRecordLike` plus the record's id
-// (`ref`, for a lazy `/history` lookup) and -- ONLY meaningful for a name
-// left over after matching -- whether it follows upstream (undefined until
-// the caller resolves it; `diffCorpus` reports those as `extraUnresolved`
-// rather than guessing).
-export interface OursEntry extends cmini1.CminiRecordLike {
+// Our side of one comparison: a `SparkRecordLike` plus the record's id
+// (`ref`) and its own `upstream` link, read straight off the wire/D1 (no
+// lazy per-record resolution any more -- 20-spark.md S3b, §8 R-H6: both
+// `httpOurs` and `d1Ours` already carry it as part of `full()`'s own
+// response/row).
+export interface OursEntry extends SparkRecordLike {
   ref: string;
-  followsUpstream?: boolean;
+  upstream: UpstreamLink | null;
 }
 
 export interface UpstreamEntry {
@@ -267,24 +316,26 @@ export interface CorpusDiff {
   invalidUpstream: DiffLine[];
   contentDiffs: DiffLine[];
   extra: DiffLine[];
-  // Names present locally, absent from upstream by name, whose follow
-  // status the caller never resolved (a caller bug, not a real finding --
-  // `diffUpstream` always resolves every leftover before reporting).
-  extraUnresolved: string[];
+  // Name-matched local records that are forked or unlinked (20-spark.md
+  // S3b, LDB-P5): informational, never a failure -- a forked record is by
+  // definition allowed to differ from upstream.
+  divergent: DiffLine[];
 }
 
 // Pure: matches upstream entries to ours by `name.toLowerCase()` (03 §1's
 // id-first/name-second ref rule doesn't apply here -- upstream's `?full=1`
-// carries no id, 07 §0.1), then `compareRecords` on the matched pairs.
-// Leftover local names are reported as `extra` only when the caller has
-// already marked them `followsUpstream: true` (06 §2: a record here that
-// follows upstream but upstream no longer lists is a real mirror bug; one
-// that doesn't follow is expected local divergence and not reported at
-// all, matching S8's "not-following records are skipped").
+// carries no id, 07 §0.1). A name-matched pair is content-compared only
+// when OUR side's `upstream.state === "following"` (LDB-P5's own wording,
+// decision 16: following is the only state the importer/diff ever act on);
+// otherwise it's `divergent`. Leftover local names are reported as `extra`
+// only when they're `following` (06 §2: a record here that follows
+// upstream but upstream no longer lists is a real mirror bug; one that
+// doesn't follow is expected local divergence and not reported at all).
 export function diffCorpus(upstream: Map<string, UpstreamEntry>, ours: Map<string, OursEntry>): CorpusDiff {
   const missing: DiffLine[] = [];
   const invalidUpstream: DiffLine[] = [];
   const contentDiffs: DiffLine[] = [];
+  const divergent: DiffLine[] = [];
   let matched = 0;
   const consumed = new Set<string>();
 
@@ -299,6 +350,10 @@ export function diffCorpus(upstream: Map<string, UpstreamEntry>, ours: Map<strin
       invalidUpstream.push({ name: up.name, path: up.parsed.error.path, message: up.parsed.error.message });
       continue;
     }
+    if (our.upstream?.state !== "following") {
+      divergent.push({ name: up.name, path: "/", message: "name-matched local record does not follow upstream (forked or unlinked)" });
+      continue;
+    }
     const cmp = compareRecords(up.parsed.detail, our);
     if (!cmp.equal) {
       contentDiffs.push({ name: up.name, path: cmp.path ?? "/", message: "content differs from upstream" });
@@ -308,12 +363,9 @@ export function diffCorpus(upstream: Map<string, UpstreamEntry>, ours: Map<strin
   }
 
   const extra: DiffLine[] = [];
-  const extraUnresolved: string[] = [];
   for (const [key, our] of ours) {
     if (consumed.has(key)) continue;
-    if (our.followsUpstream === undefined) {
-      extraUnresolved.push(our.name);
-    } else if (our.followsUpstream) {
+    if (our.upstream?.state === "following") {
       extra.push({
         name: our.name,
         path: "/",
@@ -322,7 +374,7 @@ export function diffCorpus(upstream: Map<string, UpstreamEntry>, ours: Map<strin
     }
   }
 
-  return { matched, missing, invalidUpstream, contentDiffs, extra, extraUnresolved };
+  return { matched, missing, invalidUpstream, contentDiffs, extra, divergent };
 }
 
 // Compared by ID, not by name: upstream's `/authors` is `name -> id` and
@@ -379,7 +431,6 @@ export interface OursSource {
   full(): AsyncIterable<OursEntry | { held: string }>;
   authors(): Promise<Record<string, string>>;
   layoutCount(): Promise<number>;
-  followsUpstream(ref: string): Promise<boolean>;
 }
 
 // ---------------------------------------------------------------------
@@ -420,13 +471,12 @@ interface OurFullItem {
   likes?: string[]; // inline on newer builds (W1); older ones need the /likes fallback below
   held?: boolean;
   payload?: unknown;
+  // 20-spark.md S3a: `sansPayload` carries this on every list/full=1 row --
+  // read straight off the wire, no `/history` lookup (§8 R-H6).
+  upstream?: UpstreamLink | null;
 }
 interface OurFullResponse {
   items: OurFullItem[];
-}
-interface HistoryEvent {
-  rev: number | null;
-  via: string;
 }
 
 // `likes` is inline on both `?full=1&as=cmini/1` items and `/v1/layouts/
@@ -448,6 +498,8 @@ async function resolveOurLikes(
   return (likesRaw as { user_ids: string[] }).user_ids;
 }
 
+// `divergent` (a name-matched local record that's forked or unlinked) is
+// informational only -- LDB-P5: it never gates `ok`.
 function summaryIsOk(s: Omit<DiffSummary, "ok">): boolean {
   return (
     s.held.length === 0 &&
@@ -457,8 +509,7 @@ function summaryIsOk(s: Omit<DiffSummary, "ok">): boolean {
     s.corpus.missing.length === 0 &&
     s.corpus.invalidUpstream.length === 0 &&
     s.corpus.contentDiffs.length === 0 &&
-    s.corpus.extra.length === 0 &&
-    s.corpus.extraUnresolved.length === 0
+    s.corpus.extra.length === 0
   );
 }
 
@@ -477,9 +528,12 @@ export function httpOurs(dbBaseUrl: string, fetchImpl?: FetchImpl, sleepImpl?: S
   const doSleep: SleepImpl = sleepImpl ?? realSleep;
   return {
     async *full() {
-      const raw = await fetchJsonRetried(doFetch, doSleep, HTTP_OURS_UA, `${dbBaseUrl}/v1/layouts?full=1&as=cmini/1`);
+      // 20-spark.md S3b: reads `?as=spark/1` (was `cmini/1`) -- comparison
+      // happens in spark now, and the item's own `upstream` (§8 R-H6) means
+      // no per-leftover `/history` follow-up is needed any more.
+      const raw = await fetchJsonRetried(doFetch, doSleep, HTTP_OURS_UA, `${dbBaseUrl}/v1/layouts?full=1&as=spark/1`);
       const ourFull = raw as OurFullResponse;
-      if (!Array.isArray(ourFull.items)) throw new Error(`${dbBaseUrl}/v1/layouts?full=1&as=cmini/1 is not {items: [...]}`);
+      if (!Array.isArray(ourFull.items)) throw new Error(`${dbBaseUrl}/v1/layouts?full=1&as=spark/1 is not {items: [...]}`);
       for (const item of ourFull.items) {
         if (item.held === true || item.payload === undefined) {
           yield { held: item.name };
@@ -493,7 +547,8 @@ export function httpOurs(dbBaseUrl: string, fetchImpl?: FetchImpl, sleepImpl?: S
           created_at: item.created_at,
           modified_at: item.modified_at,
           likes,
-          payload: item.payload as cmini1.Payload,
+          payload: item.payload as spark.Payload,
+          upstream: item.upstream ?? null,
         };
       }
     },
@@ -504,29 +559,16 @@ export function httpOurs(dbBaseUrl: string, fetchImpl?: FetchImpl, sleepImpl?: S
       const meta = (await fetchJsonRetried(doFetch, doSleep, HTTP_OURS_UA, `${dbBaseUrl}/v1/meta`)) as { layout_count?: number };
       return meta.layout_count ?? -1;
     },
-    async followsUpstream(ref: string) {
-      const historyRaw = await fetchJsonRetried(
-        doFetch,
-        doSleep,
-        HTTP_OURS_UA,
-        `${dbBaseUrl}/v1/layouts/${encodeURIComponent(ref)}/history`,
-      );
-      const events = historyRaw as HistoryEvent[];
-      for (let i = events.length - 1; i >= 0; i--) {
-        const e = events[i]!;
-        if (e.rev !== null) return e.via === "import:cmini";
-      }
-      return false;
-    },
   };
 }
 
-// Fetches upstream, reads `opts.ours` for the other side, matches by name,
-// resolves every leftover local name's follow status via `opts.ours
-// .followsUpstream` (only leftovers -- 07 §6 S8: "to keep it cheap"). Never
-// throws for a *content* difference -- only for a network/shape failure the
-// retries couldn't recover from; the caller (script, daily test, or X4's
-// cron) decides what a thrown error means.
+// Fetches upstream, reads `opts.ours` for the other side, matches by name.
+// 20-spark.md S3b (§8 R-H6): follow status comes straight off each
+// `OursEntry.upstream`, read eagerly as part of `ours.full()` itself -- no
+// per-leftover `/history` follow-up any more. Never throws for a *content*
+// difference -- only for a network/shape failure the retries couldn't
+// recover from; the caller (script, daily test, or X4's cron) decides what
+// a thrown error means.
 export async function diffUpstream(opts: DiffOptions): Promise<DiffSummary> {
   const fetchImpl: FetchImpl = opts.fetchImpl ?? ((url, init) => fetch(url, init));
   const sleepImpl: SleepImpl = opts.sleepImpl ?? realSleep;
@@ -571,21 +613,11 @@ export async function diffUpstream(opts: DiffOptions): Promise<DiffSummary> {
     ours_.set(item.name.toLowerCase(), item);
   }
 
-  // First pass: find which local names upstream's name-set doesn't match.
-  const firstPass = diffCorpus(upstream, ours_);
-  // Resolve exactly those leftovers' follow status (the one place this
-  // function does per-record I/O beyond `ours.full()` itself -- bounded by
-  // `extraUnresolved.length`, not the whole corpus).
-  for (const name of firstPass.extraUnresolved) {
-    const entry = ours_.get(name.toLowerCase());
-    if (entry === undefined) continue; // unreachable: name came from `ours_` itself
-    entry.followsUpstream = await ours.followsUpstream(entry.ref);
-  }
   const corpus = diffCorpus(upstream, ours_);
 
   // A record the bulk comparison flags as differing gets ONE more look
   // before being reported, through a FRESH single-record upstream fetch --
-  // rebuilt as CminiRecordLike, re-compared. Why: this slice's own local
+  // rebuilt as a `SparkRecordLike`, re-compared. Why: this slice's own local
   // proof (07 §6 S8) found that `JSON.parse` of the ~5 MB upstream `?full=1`
   // body can -- reproduced identically under Node 24.20.0 and 26.8.1, so not
   // specific to one Node build -- silently substitute a literal backslash

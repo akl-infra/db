@@ -72,7 +72,7 @@ async function humanTouch(rec: { id: string; name: string; owner: string; format
 }
 
 describe("import case table (07 §6 S5)", () => {
-  it("[LDB-I2] [LDB-I4] case 1: new id, name free -> imported, mapped, likes seeded", async () => {
+  it("[LDB-I2] [LDB-I4] [LDB-F16] case 1: new id, name free -> imported, mapped, likes seeded", async () => {
     const d = detail({ name: "Case1-Free", user: "1000000000000000001", likes: ["1000000000000000011", "1000000000000000012"] });
     const result = await applyFetchedId(db, clock, "case1", d);
     expect(result.errors).toEqual([]);
@@ -81,6 +81,7 @@ describe("import case table (07 §6 S5)", () => {
     expect(rec).not.toBeNull();
     expect(rec!.owner).toBe("1000000000000000001");
     expect(rec!.rev).toBe(1);
+    expect(rec!.format).toBe("spark/1"); // 20-spark.md S3b: every fresh import writes spark/1, never cmini/1
 
     const map = await importMapRow("case1");
     expect(map?.layout_id).toBe(rec!.id);
@@ -188,7 +189,7 @@ describe("import case table (07 §6 S5)", () => {
     expect(shadow2!.owner).toBe(ownerC);
   });
 
-  it("[LDB-I2] [LDB-I4] case 4: mapped + following + content differs -> imported (rev+1), tombstone revived", async () => {
+  it("[LDB-I2] [LDB-I4] [LDB-F16] case 4: mapped + following + content differs -> imported (rev+1), tombstone revived", async () => {
     const owner = "4000000000000000001";
     const d1 = detail({ name: "Case4-Content", user: owner, board: "ortho", keys: {} });
     await applyFetchedId(db, clock, "case4", d1);
@@ -201,7 +202,10 @@ describe("import case table (07 §6 S5)", () => {
 
     const after = await readById(db, before!.id);
     expect(after!.rev).toBe(2);
-    expect((after!.payload as { board: string }).board).toBe("angle");
+    expect(after!.format).toBe("spark/1");
+    // 20-spark.md S3b: spark-shaped now -- upstream's cmini `board` word
+    // landed through `fromCmini`, not verbatim.
+    expect((after!.payload as { board: unknown }).board).toEqual(fromCmini(d2 as unknown as CminiPayload).board);
 
     const events = await eventsFor(before!.id);
     expect(events.map((e) => e.kind)).toEqual(["imported", "imported"]);
@@ -263,7 +267,9 @@ describe("import case table (07 §6 S5)", () => {
     expect(result.errors).toEqual([]);
 
     const after = await readById(db, rec!.id);
-    expect((after!.payload as { board: string }).board).toBe("ortho"); // untouched by the info event
+    // 20-spark.md S3b: spark-shaped since creation -- still d1's board,
+    // untouched by the info event.
+    expect((after!.payload as { board: unknown }).board).toEqual(fromCmini(d1 as unknown as CminiPayload).board);
 
     const events = await eventsFor(rec!.id);
     expect(events.map((e) => e.kind)).toEqual(["imported", "updated", "upstream_changed"]);
@@ -297,7 +303,7 @@ describe("import case table (07 §6 S5)", () => {
     expect(events[3]).toMatchObject({ kind: "liked", actor: "7000000000000000022" });
   });
 
-  it("[LDB-I2] [LDB-I4] case 8: delete (404) while following -> upstream_deleted WRITE, name released", async () => {
+  it("[LDB-I2] [LDB-I4] [LDB-F16] case 8: delete (404) while following -> upstream_deleted WRITE, name released", async () => {
     const owner = "8000000000000000001";
     const d1 = detail({ name: "Case8-Delete", user: owner });
     await applyFetchedId(db, clock, "case8", d1);
@@ -309,6 +315,7 @@ describe("import case table (07 §6 S5)", () => {
     const after = await readById(db, rec!.id);
     expect(after!.deleted).toBe(true);
     expect(after!.rev).toBe(2);
+    expect(after!.format).toBe("spark/1"); // 20-spark.md S3b (§8 R-H2): applyDelete carries storedAsSpark, never the record's own literal format
     expect(await readByName(db, "Case8-Delete")).toBeNull(); // name released
 
     const events = await eventsFor(rec!.id);
@@ -404,10 +411,16 @@ describe("[LDB-I10] an imported payload never carries cmini's magic", () => {
   });
 });
 
-describe("[LDB-I11] an import write preserves the record's own magic byte-for-byte", () => {
-  it("[LDB-I11] case 4: a real upstream content change carries the record's pre-existing (legacy) magic forward untouched", async () => {
+describe("[LDB-I11] an import write preserves the record's own magic", () => {
+  it("[LDB-I11] case 4 on a legacy cmini/1-stored record: the record's pre-existing (legacy) magic is carried forward, lifted to spark's own idiom (not dropped, not re-derived from upstream)", async () => {
     const owner = "1100000000000000003";
-    const d1 = detail({ name: "I11-Legacy", user: owner, board: "ortho", keys: {} });
+    // `keys` carries both of `legacyMagic`'s characters throughout (spark's
+    // `liftRules`/`computeRows` need the magic key's OWN position, unlike
+    // cmini's own `hasMagic`, which is just an array length check) -- an
+    // empty `keys` would lift to a `magic_keys` entry that computes zero
+    // rows, i.e. `hasMagic() === false`, on either side of the write.
+    const magicKeys = { n: { row: 0, col: 0, finger: "LP" }, "*": { row: 0, col: 1, finger: "LR" } };
+    const d1 = detail({ name: "I11-Legacy", user: owner, board: "ortho", keys: magicKeys });
     await applyFetchedId(db, clock, "i11-legacy", d1);
     const rec = await readByName(db, "I11-Legacy");
 
@@ -417,6 +430,12 @@ describe("[LDB-I11] an import write preserves the record's own magic byte-for-by
     // a followed record has magic at all is a legacy write like this one
     // (exactly what `POST /v1/admin/import/strip-cmini-magic` targets).
     const legacyMagic = [{ inputs: "n*", output: "nn", type: "repeat" }];
+    // A genuinely cmini/1-shaped payload (board a bare word, magic a flat
+    // row array) -- `rec!.payload` is itself spark-shaped now (20-spark.md
+    // S3b: every fresh import writes `spark/1`), so it can't be spread
+    // here without smuggling a spark `board` object into a record
+    // labelled `cmini/1`.
+    const legacyPayload = { board: "ortho" as const, keys: magicKeys, magic: legacyMagic };
     await appendWrite(db, clock, {
       upstream: null,
       kind: "imported",
@@ -425,7 +444,7 @@ describe("[LDB-I11] an import write preserves the record's own magic byte-for-by
       owner: rec!.owner,
       modified_at: rec!.modified_at,
       format: "cmini/1",
-      payload: { ...(rec!.payload as object), magic: legacyMagic },
+      payload: legacyPayload,
       actor: "system:cmini-import",
       via: "import:cmini",
       source: { client: "system:cmini-import", version: null },
@@ -434,13 +453,22 @@ describe("[LDB-I11] an import write preserves the record's own magic byte-for-by
     });
 
     // A REAL upstream content change (board differs) -- case 4 fires.
-    const d2 = detail({ name: "I11-Legacy", user: owner, board: "angle", keys: {}, modified_at: "2026-02-01T00:00:00Z" });
+    const d2 = detail({ name: "I11-Legacy", user: owner, board: "angle", keys: magicKeys, modified_at: "2026-02-01T00:00:00Z" });
     const result = await applyFetchedId(db, clock, "i11-legacy", d2);
     expect(result.errors).toEqual([]);
 
     const after = await readById(db, rec!.id);
-    expect((after!.payload as { board: string }).board).toBe("angle"); // upstream's new content landed
-    expect((after!.payload as { magic?: unknown }).magic).toEqual(legacyMagic); // magic carried forward byte-for-byte
+    // 20-spark.md S3b: the record is spark-shaped now -- upstream's cmini
+    // `board` word landed through `fromCmini`, not verbatim.
+    expect((after!.payload as { board: unknown }).board).toEqual(fromCmini(d2 as unknown as CminiPayload).board); // upstream's new content landed
+    // 20-spark.md S3b: the EXISTING payload is taken through `storedAsSpark`
+    // FIRST (LDB-F21's one conversion of a stored legacy payload) before its
+    // `magic` is carried forward -- a genuinely legacy cmini/1-stored
+    // record's flat magic rows are therefore lifted to spark's own idiom
+    // here (once; from then on the record IS spark/1, so a later case 4
+    // carries it forward byte-for-byte, LDB-I12's own test covers that).
+    expect((after!.payload as { magic?: unknown }).magic).toEqual(fromCmini(legacyPayload).magic);
+    expect(after!.format).toBe("spark/1");
     expect(after!.has_magic).toBe(true);
 
     const events = await eventsFor(rec!.id);
@@ -455,10 +483,14 @@ describe("[LDB-I11] an import write preserves the record's own magic byte-for-by
     await humanTouch({ id: rec!.id, name: rec!.name, owner: rec!.owner, format: rec!.format, payload: rec!.payload, modified_at: rec!.modified_at });
 
     // The owner's own record now carries local magic (M2-shaped: akl.gg's
-    // own rules on an akl/1 record -- simulated directly here since cmini/1
-    // has no write idiom for `magic` yet, formats/cmini/1/index.ts's own
-    // comment on `edits`).
-    const localMagic = [{ inputs: "s*", output: "ss", type: "repeat" }];
+    // own rules on the record -- simulated directly here via spark's own
+    // raw-rule escape hatch, since cmini/1 has no write idiom for `magic`
+    // at all, formats/adapters/cmini/index.ts's own comment on `edits`).
+    // 20-spark.md S3b: `rec!.payload` is already spark-shaped (every
+    // fresh import writes `spark/1`), so this write stays `spark/1` too --
+    // labelling it `cmini/1` while spreading a spark-shaped `board` object
+    // over it would smuggle a shape mismatch into `contentDiffers`.
+    const localMagic = { rules: [{ inputs: "s*", output: "ss", type: "repeat" }] };
     await appendWrite(db, clock, {
       upstream: null,
       kind: "updated",
@@ -466,7 +498,7 @@ describe("[LDB-I11] an import write preserves the record's own magic byte-for-by
       name: rec!.name,
       owner: rec!.owner,
       modified_at: rec!.modified_at,
-      format: "cmini/1",
+      format: "spark/1",
       payload: { ...(rec!.payload as object), magic: localMagic },
       actor: rec!.owner,
       via: "discord",
@@ -484,32 +516,38 @@ describe("[LDB-I11] an import write preserves the record's own magic byte-for-by
     expect(await eventsFor(rec!.id)).toHaveLength(before.length); // no new event
     const after = await readById(db, rec!.id);
     expect((after!.payload as { magic?: unknown }).magic).toEqual(localMagic); // untouched
+    expect(after!.format).toBe("spark/1");
   });
 });
 
 // LDB-I12 (M2's prerequisite, design/layout-db/18-command-decisions.md §2
-// item 1; 17-magic-ownership.md §3): the `akl/1` branch of LDB-I11's case-4
-// carry-forward, previously a named TODO in `import/apply.ts` -- a
-// following record CAN now be `akl/1` (a magic-only PATCH lifts it,
-// `core/write.ts`'s `patchLayout`, and `legacyFollows` skips that write
-// when deciding "the latest write"). Simulated directly via `appendWrite`
-// (same style as LDB-I11's own cmini/1 legacy-magic case above) rather than
-// through `patchLayout`/HTTP -- this describe is about the IMPORT's own
-// case-4 behavior once such a record exists, not about how it got there
-// (`tests/api/patch.test.ts`'s own [LDB-I12] cases cover the PATCH side).
-describe("[LDB-I12] an import write on an akl/1 following record translates upstream's keys and keeps the record's own magic", () => {
-  it("[LDB-I12] case 4 on akl/1: upstream's board/keys land, the record's magic survives byte-for-byte, legacyFollows stays true, and a repeat is idempotent", async () => {
+// item 1; 17-magic-ownership.md §3): a following record CAN carry its own
+// magic (a magic-only PATCH lifts it, `core/write.ts`'s `patchLayout`, and
+// `legacyFollows` skips that write when deciding "the latest write").
+// Simulated directly via `appendWrite` (same style as LDB-I11's own
+// cmini/1 legacy-magic case above) rather than through `patchLayout`/HTTP
+// -- this describe is about the IMPORT's own case-4 behavior once such a
+// record exists, not about how it got there (`tests/api/patch.test.ts`'s
+// own [LDB-I12] cases cover the PATCH side). 20-spark.md S3b: the record
+// is simulated as legacy-labelled `akl/1` (a real, if now-unwritable,
+// stored value `storedAsSpark`/`LEGACY_STORED` still normalizes forever,
+// LDB-F21) to prove case 4 normalizes it -- and always writes the result
+// out as `spark/1` (S3b unified the akl/1/cmini/1 carry-forward branches).
+describe("[LDB-I12] an import write on a legacy akl/1-labelled following record normalizes it to spark/1, keeping the record's own magic", () => {
+  it("[LDB-I12] case 4 on a legacy akl/1 row: upstream's board/keys land, the record's magic survives byte-for-byte, legacyFollows stays true, and a repeat is idempotent", async () => {
     const owner = "1100000000000000005";
     const d1 = detail({ name: "I12-Akl", user: owner, board: "ortho", keys: {} });
     await applyFetchedId(db, clock, "i12-akl", d1);
     const rec = await readByName(db, "I12-Akl");
 
     // Simulate a magic-only PATCH's lift (LDB-I12, `core/write.ts`): the
-    // record becomes `akl/1`, `fromCmini`-translated from its own current
-    // (magic-less) cmini/1 payload, with the PATCH's own magic set --
-    // marked `magic_only` so `legacyFollows` keeps reading through it.
+    // record is labelled `akl/1` (a legacy-stored alias, LDB-F21) -- its
+    // payload is ALREADY spark-shaped (every fresh import writes
+    // `spark/1`, 20-spark.md S3b), so no `fromCmini` re-conversion is
+    // needed here, only the PATCH's own magic set -- marked `magic_only`
+    // so `legacyFollows` keeps reading through it.
     const ownMagic = { rules: [{ inputs: "n*", output: "nn" }] };
-    const lifted = { ...fromCmini(rec!.payload as CminiPayload), magic: ownMagic };
+    const lifted = { ...(rec!.payload as object), magic: ownMagic };
     await appendWrite(db, clock, {
       upstream: null,
       kind: "updated",
@@ -533,7 +571,7 @@ describe("[LDB-I12] an import write on an akl/1 following record translates upst
     expect(result.errors).toEqual([]);
 
     const after = await readById(db, rec!.id);
-    expect(after!.format).toBe("akl/1"); // stays akl/1, never reverted to cmini/1
+    expect(after!.format).toBe("spark/1"); // 20-spark.md S3b: normalized, never re-stored as akl/1 or cmini/1
     expect((after!.payload as { board: unknown }).board).toEqual(fromCmini(d2 as unknown as CminiPayload).board);
     expect((after!.payload as { magic: unknown }).magic).toEqual(ownMagic); // carried forward byte-for-byte
     expect(after!.has_magic).toBe(true);
@@ -543,8 +581,8 @@ describe("[LDB-I12] an import write on an akl/1 following record translates upst
     expect(await legacyFollows(db, rec!.id)).toBe(true); // still following after a real case-4 write
 
     // LDB-I1 idempotence: the SAME upstream state again appends no event --
-    // this is exactly what the format-aware `projectLocalNoLikes` fix (an
-    // `akl/1` record compared through `toCmini`, not a bare cast) makes
+    // this is exactly what the format-aware carry-forward (a legacy row
+    // normalized through `storedAsSpark` first, not a bare cast) makes
     // true; before that fix this would misfire as "content differs" on
     // every tick purely from the shape mismatch.
     const beforeRepeat = await eventsFor(rec!.id);

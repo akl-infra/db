@@ -114,7 +114,9 @@ describe("diffTick()", () => {
 
     expect(record.ok).toBe(false);
     expect(record.corpus?.content_diffs).toBe(1);
-    expect(record.samples?.content_diffs).toEqual([{ name: "graphite", path: "/board" }]);
+    // 20-spark.md S3b: comparison happens in spark now, nested under
+    // `payload` (unlike cmini/1's flat `board` word).
+    expect(record.samples?.content_diffs).toEqual([{ name: "graphite", path: "/payload/board/cmini" }]);
   });
 
   it("[LDB-C4] a fake refusing every attempt writes { ok: false, error } -- a stale `at` never hides an outage", async () => {
