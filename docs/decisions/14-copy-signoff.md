@@ -223,6 +223,54 @@ text (`akl.gg`) pointed at a different url. `image <a> <b>`'s header line
 reuses `compare.ts`'s own EXISTING parity text (`${new}(new) -
 ${old}(old)`) verbatim rather than inventing new "a vs b" wording.
 
+## `bot/src/copy.ts` + `bot/src/commands/spacegrams.ts` (round 3, worktree `ldb-c13-bot`, 2026-09-10)
+
+`18-command-decisions.md` §2's C13/C10 items add FOUR new strings:
+
+```ts
+// bot/src/copy.ts -- LDB-B37 (C13): `!image`'s footer suffix, now a
+// function of the caller's own spacegrams setting rather than a static
+// string (`off` keeps the exact wording the round-2 section above already
+// shipped as `noSpacegramsSuffix`, now removed).
+// COPY: sign-off pending
+export function spacegramsFooterSuffix(pref: SpacegramsPref): string {
+  if (pref === 'left') return ' · spacegrams (left thumb)';
+  if (pref === 'right') return ' · spacegrams (right thumb)';
+  return ' · no spacegrams';
+}
+```
+
+```ts
+// bot/src/commands/spacegrams.ts -- LDB-B37 (C13): the new `!spacegrams`
+// verb's own three replies (no cmini parity-table row to match -- a new
+// preference, same posture as `setcorpus.ts`'s own un-prefixed replies).
+// COPY: sign-off pending
+`Your spacegrams preference is \`${current}\`.`               // no arg
+`${quoteUserText(arg, 'corpus')} isn't \`off\`, \`left\`, or \`right\`.`  // invalid arg
+`Your spacegrams preference has been changed to \`${parsed}\`.`          // set
+```
+
+Plus FIVE changed `desc()` strings (not flagged inline -- same lighter
+convention as C4's `assign.ts` change above), one per C10 alias:
+
+- `commands/alternates.ts`: `'see the best hand alternations for a
+  particular layout'` → `'... (alias: alternates)'` (`alt` is now the
+  primary registered name, `commands/index.ts`).
+- `commands/rolls.ts`: `'see the best rolls for a particular layout'` →
+  `'... (alias: rolls)'` (`rol2` primary).
+- `commands/onehands.ts`: `'see the best onehands for a particular
+  layout'` → `'... (alias: onehands)'` (`rol3` primary).
+- `commands/redirects.ts`: `'see the worst redirects for a particular
+  layout'` → `'... (alias: redirects)'` (`red` primary).
+- `commands/sfbs.ts`: `'see the worst same-finger bigrams for a particular
+  layout'` → `'... (alias: sfbs)'` (`sfb` primary).
+
+`commands/spacegrams.ts` also gets its own `desc()`/`use()` pair (new
+verb, no prior string to diff against):
+
+- `use()`: `'spacegrams [off|left|right]'`
+- `desc()`: `'set whether stats treat space as a thumb key (off/left/right)'`
+
 ## Other flagged spots
 
 - web/src/ui/card/PublishSheet.tsx:8:// is `copy/db.ts`'s own stand-in (COPY: sign-off pending -- CLAUDE.md's

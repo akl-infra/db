@@ -143,6 +143,24 @@ akl alt pairings` — rewritten as-is, no layouts involved.
   the SAME drawing code `image <a>` uses (`render/image.ts`'s
   `buildStandaloneImagePlan`, extended with an optional `base`); `image
   <a>` (one name) is unchanged.
+- **C13/LDB-B37**: `!spacegrams off|left|right`, a second per-user
+  preference beside `!corpus` in the SAME `prefs.ts` file (same
+  durability) — no arg reads the current setting back (default `off`); an
+  arg validates against those three values and persists. Every stat verb
+  and `!image` compute WITH it: `space.ts` maps the preference onto the
+  site's own `context.space` vocabulary (`none`/`lt`/`rt`) — the harvest
+  read and the wasm fallback's CONTEXT both key off `(corpus, space)` as
+  one pair (`cache/cells.ts`, `engine/host.ts`, `engine/site.ts`). `!image`'s
+  footer names the setting (`copy.ts`'s `spacegramsFooterSuffix`,
+  replacing the static `noSpacegramsSuffix` this same section shipped
+  2026-09-10 as an interim). `!view`'s corpus header line is untouched — a
+  separate design.
+- **C10/LDB-B38**: akl.gg's own card-label stat names
+  (`web/src/copy/card.ts`) — `alt`/`rol2`/`rol3`/`red`/`sfb` — are
+  registered as PRIMARY aliases of `alternates`/`rolls`/`onehands`/
+  `redirects`/`sfbs`, same `Command` instance under both keys (C4's
+  `assign`/`transfer` pattern); `sfs`/`inrolls`/`outrolls` already match
+  and are unchanged.
 
 ## 3. Rendering
 
@@ -258,6 +276,8 @@ live in this repo).
 | LDB-B34 | `authors [page]` pages like `rank` (§2.5 C6) -- 15/page, 1-based, out-of-range answers honestly; LDB-B19's cap stays as the within-page backstop. | `bot/tests/commands/read.test.ts` |
 | LDB-B35 | `history` is cache-only (§2.5 C7) -- no more per-call DB fetch; the reply is a header line + a masked link to layoutdb's own changelog. | `bot/tests/commands/history.test.ts` |
 | LDB-B36 | `compare`/`image <a> <b>` append the site's compare-dock link (§2.5 C8); `image <a> <b>` additionally renders the site's compare CARD through the same drawing code `image <a>` uses (§2.5 C12). | `bot/tests/commands/{read,image}.test.ts`, `bot/tests/render/image.test.ts` |
+| LDB-B37 | `!spacegrams off\|left\|right` (§2.5 C13) is a per-user preference beside `!corpus`; every stat verb and `!image` compute with it -- `(corpus, space)` is one cache/harvest key (`cache/cells.ts`), the wasm CONTEXT and `!image`'s footer both follow the setting. | `bot/tests/prefs.test.ts`, `bot/tests/cache/cells.test.ts`, `bot/tests/engine/{host,site}.test.ts`, `bot/tests/commands/{read,image}.test.ts` |
+| LDB-B38 | akl.gg's own card-label names -- `alt`/`rol2`/`rol3`/`red`/`sfb` -- are PRIMARY registry aliases of `alternates`/`rolls`/`onehands`/`redirects`/`sfbs` (§2.5 C10), same `Command` instance under both keys. | `bot/tests/commands/ngramVerbs.test.ts` |
 
 ## 8. Open questions (bot)
 
