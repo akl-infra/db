@@ -1026,3 +1026,11 @@ ledgered and flippable by saltorbit):**
   db typecheck 0, vitest 15 846 passed / 0 failed (+19, no file lost
   tests); bot 755 passed, lint clean; `akl1.vitest.ts` 17; 0001–0005 apply
   on a fresh local D1. Next: land the docs branch, then S3s.
+- **2026-09-10 ~21:55Z** — **S8 hub scaffolding landed** on `ldb-spark` as
+  one squashed commit of `ldb-spark-docs` (bb57dce0f + 3c6cdd3cf; the
+  generated `web/layoutdb/` added in the first and removed in the second
+  never enters this branch's history). Clean apply (`db/INVARIANTS.md`
+  auto-merged with S3a's rows). Lead checks: docs-site + invariants 11/11,
+  db typecheck 0, assembledist + federation + ciwiring 38/38, `npm run
+  build` generates `dist/layoutdb/` (46 files). The agent worktree is
+  removed next; the `ldb-spark-docs` branch stays. Next: S3s.
