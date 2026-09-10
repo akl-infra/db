@@ -8,13 +8,21 @@
         "method": "POST",
         "path": "/v1/layouts",
         "bearer": "conformance-owner-token",
-        "body": { "name": "cw-restore-taken-1", "format": "cmini/1", "payload": { "board": "ortho", "keys": {} } }
+        "body": {
+          "name": "cw-restore-taken-1",
+          "format": "akl/1",
+          "payload": {
+            "keys": {}
+          }
+        }
       }
     ]
   },
   "response": {
     "status": 409,
-    "headers": { "Content-Type": "application/json" },
+    "headers": {
+      "Content-Type": "application/json"
+    },
     "body": {
       "error": "name_taken",
       "message": "name 'cw-restore-taken-1' is already taken",

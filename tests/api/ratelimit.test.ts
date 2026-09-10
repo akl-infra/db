@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Bindings } from "../../src/env";
 import { fixedClock, type Clock } from "../../src/core/time";
 import { generateKeyPair, seedClient, signHeaders } from "../auth/client-support";
-import { CMINI_PAYLOAD, actorFixture, pinTestClock, register, uniqueName, writeFetch } from "./write-support";
+import { AKL_PAYLOAD, CMINI_PAYLOAD, actorFixture, pinTestClock, register, uniqueName, writeFetch } from "./write-support";
 
 const bindings = env as unknown as Bindings;
 const db = bindings.DB;
@@ -32,7 +32,7 @@ afterEach(() => {
 });
 
 async function create(headers: Record<string, string>, name = uniqueName("rl")) {
-  return writeFetch("/v1/layouts", "POST", headers, { name, format: "cmini/1", payload: CMINI_PAYLOAD });
+  return writeFetch("/v1/layouts", "POST", headers, { name, format: "akl/1", payload: AKL_PAYLOAD });
 }
 
 describe("[LDB-R6] write rate limit", () => {
@@ -213,7 +213,7 @@ async function counterFor(key: string): Promise<number> {
 // or the rate-limit window), so every signed request is timestamped off
 // `Date.now()`.
 async function signedPost(clientId: string, privateKey: CryptoKey, actor: string, name: string): Promise<Response> {
-  const bodyObj = { name, format: "cmini/1", payload: CMINI_PAYLOAD };
+  const bodyObj = { name, format: "akl/1", payload: AKL_PAYLOAD };
   const bodyText = JSON.stringify(bodyObj);
   const headers = await signHeaders({
     privateKey,
@@ -291,8 +291,8 @@ describe("[LDB-R7] the per-client counter: 300/10min, on top of the per-actor on
 
     const res = await writeFetch("/v1/layouts", "POST", headers, {
       name: uniqueName("rl-bearer-post"),
-      format: "cmini/1",
-      payload: CMINI_PAYLOAD,
+      format: "akl/1",
+      payload: AKL_PAYLOAD,
     });
     expect(res.status).toBe(201);
 

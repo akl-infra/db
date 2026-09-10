@@ -176,8 +176,11 @@ export interface ResolvedFormat {
 // labelled with the ALIAS (so a caller can echo what was actually asked
 // for); `cmini/1` resolves to `undefined` here -- its target is the
 // adapter, not a `FormatModule` this registry owns, so only `translate()`
-// (which knows the adapter projection) and the Worker's own temporary
-// `LEGACY_WRITABLE` shim (db/src/formats/registry.ts, S1 only) handle it.
+// (which knows the adapter projection) handles a `cmini/1` READ. S2
+// deleted the Worker's temporary `LEGACY_WRITABLE` write-compat shim
+// (db/src/formats/registry.ts) -- a `cmini/1` WRITE is refused (`400
+// unknown_format`) everywhere now, `core/write.ts`'s `validatePayload`
+// included.
 export function resolveFormat(id: string): ResolvedFormat | undefined {
   const direct = byId.get(id);
   if (direct) return { module: direct, label: id };

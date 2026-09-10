@@ -5,17 +5,24 @@
     "bearer": "conformance-owner-token",
     "body": {
       "name": "cw-post-badpayload-1",
-      "format": "cmini/1",
-      "payload": { "board": "not-a-board", "keys": {} }
+      "format": "akl/1",
+      "payload": {
+        "board": {
+          "kind": "not-a-kind"
+        },
+        "keys": {}
+      }
     }
   },
   "response": {
     "status": 400,
-    "headers": { "Content-Type": "application/json" },
+    "headers": {
+      "Content-Type": "application/json"
+    },
     "body": {
       "error": "invalid_payload",
-      "message": "payload/board must be equal to one of the allowed values",
-      "path": "/board"
+      "message": "payload/board/kind must be equal to one of the allowed values",
+      "path": "/board/kind"
     }
   }
 }

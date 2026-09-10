@@ -24,7 +24,7 @@ function ownerHeaders(token: string) {
 }
 
 async function postLayout(name: string, headers: Record<string, string>) {
-  return writeFetch("/v1/layouts", "POST", headers, { name, format: "cmini/1", payload: CMINI_PAYLOAD });
+  return writeFetch("/v1/layouts", "POST", headers, { name, format: "akl/1", payload: AKL_PAYLOAD });
 }
 
 describe("[LDB-N1] check_name at POST", () => {

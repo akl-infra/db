@@ -4,9 +4,42 @@
 // changes.
 import { SELF } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
+import { canonical } from "../../src/core/canonical";
 import { appendLike } from "../../src/core/events";
+import { etagFor } from "../../src/core/etag";
 import { fixedClock } from "../../src/core/time";
 import { db, seedUpstream100 } from "./support";
+
+async function sha256Hex(s: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+// 20-spark.md S2 (LDB-R1 amended): `WIRE_VERSION` is folded into the
+// hashed query -- a white-box check that the CURRENT constant is 2
+// (bumped by this slice) and is actually part of what gets hashed, not
+// merely present in a comment. Replicates `etagFor`'s own formula with a
+// literal `wireVersion: 2` -- if a future slice bumps the real constant
+// without bumping this test, the two hashes diverge and this fails,
+// which is the point: a version bump is a deliberate, visible edit here
+// too.
+describe("[LDB-R1] WIRE_VERSION is folded into the ETag hash", () => {
+  it("[LDB-R1] etagFor(seq, query) reproduces exactly the wireVersion:2-folded hash", async () => {
+    const seq = 42;
+    const query = { a: 1, b: "x" };
+    const expectedHash = await sha256Hex(canonical({ wireVersion: 2, query }));
+    const expected = `"${seq}:${expectedHash.slice(0, 16)}"`;
+    expect(await etagFor(seq, query)).toBe(expected);
+  });
+
+  it("[LDB-R1] a hash computed with a DIFFERENT wireVersion does not match (proves the fold isn't a no-op)", async () => {
+    const seq = 42;
+    const query = { a: 1, b: "x" };
+    const wrongHash = await sha256Hex(canonical({ wireVersion: 1, query }));
+    const wrong = `"${seq}:${wrongHash.slice(0, 16)}"`;
+    expect(await etagFor(seq, query)).not.toBe(wrong);
+  });
+});
 
 const CACHE_CONTROL = "public, max-age=10";
 const CACHED_ROUTES = ["/v1/meta", "/v1/layouts", "/v1/changes", "/v1/authors"];

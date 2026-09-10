@@ -6,6 +6,7 @@ import type { Bindings } from "../env";
 import { notFound } from "../core/errors";
 import { get as getFormat, list as listFormats } from "../formats/registry";
 import { ALIASES } from "../../formats/registry.ts";
+import * as cminiAdapter from "../../formats/adapters/cmini/index.ts";
 
 export const formatsRoute = new Hono<{ Bindings: Bindings }>();
 
@@ -47,6 +48,14 @@ formatsRoute.get("/v1/formats", (c) => {
 
 formatsRoute.get("/v1/formats/:name/:major/schema.json", (c) => {
   const id = `${c.req.param("name")}/${c.req.param("major")}`;
+  // 20-spark.md S2: `cmini/1` is no longer a registered `FormatModule`
+  // (`getFormat` can't answer it -- its alias target is the unregistered
+  // adapter, not a module this registry owns), but its schema still
+  // describes a real legacy-stored shape (`layout_revs` keeps `cmini/1`
+  // rows forever, LDB-F21/§6) -- a client reading old history still needs
+  // it, so this route serves the adapter's own schema.json directly
+  // rather than 404ing something with a real answer.
+  if (id === "cmini/1") return c.json(cminiAdapter.schema, 200, { "Content-Type": "application/schema+json" });
   const mod = getFormat(id);
   if (mod === undefined) throw notFound(`no format '${id}'`, id);
   return c.json(mod.schema, 200, { "Content-Type": "application/schema+json" });

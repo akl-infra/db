@@ -33,6 +33,19 @@ export function unknownFormat(format: string, known: string[]): ApiError {
   });
 }
 
+// 20-spark.md S2 (LDB-F16): a write naming a registered format whose
+// `role` is `"output"` (mana2/1 today -- produced on read only, never
+// stored). Distinct from `unknown_format` (the id isn't registered/
+// reachable at all, e.g. `cmini/1` or a typo) -- this is "the format
+// exists, but you may not write it."
+export function formatNotWritable(format: string): ApiError {
+  return new ApiError(400, {
+    error: "format_not_writable",
+    message: `format '${format}' cannot be written (it is produced on read only)`,
+    format,
+  });
+}
+
 export function notFound(message: string, ref?: string): ApiError {
   return new ApiError(404, { error: "not_found", message, ...(ref !== undefined ? { ref } : {}) });
 }

@@ -16,10 +16,35 @@ import {
   type SortKey,
 } from "../core/records";
 import { get as getFormat, list as listFormats, translate } from "../formats/registry";
+import { ALIASES } from "../../formats/registry.ts";
 
 const CACHE_CONTROL = "public, max-age=10";
 const SORT_KEYS: readonly SortKey[] = ["name", "modified_at", "created_at", "like_count"];
-const DEFAULT_FORMAT = "akl/1"; // 03 §1: every read that returns a payload defaults `as` here
+const DEFAULT_FORMAT = "spark/1"; // 03 §1 (20-spark.md S2): every read that returns a payload defaults `as` here
+
+// 20-spark.md §1.12 (refined §8 R-H3/R-L3): the wire `format` field is the
+// record's NATIVE format everywhere -- relabelled to the REQUESTED `as`
+// only when that request named `akl/1` (the one alias with `relabel:
+// true`). `?as=cmini/1` is deliberately NOT relabelled: it is an adapter
+// projection (`toCmini`), never the same format as the record's own.
+function labelFormat(nativeFormat: string, as: string): string {
+  return ALIASES[as]?.relabel ? as : nativeFormat;
+}
+
+// The `?format=` list filter (LDB-F20): resolves an alias to what it
+// actually names as a STORED column value. `akl/1`'s target IS a
+// registered format (`spark/1`) -- a caller filtering `?format=akl/1`
+// means "records shaped like akl/1", which is exactly `spark/1` once
+// stored. `cmini/1`'s target is the unregistered adapter projection, not a
+// column value anything is ever stored under -- filtering on it stays a
+// literal match against legacy-stored rows (`format = 'cmini/1'`), same as
+// any other unrecognized literal this filter has always accepted.
+function resolveFormatFilter(raw: string | undefined): string | undefined {
+  if (raw === undefined) return undefined;
+  const alias = ALIASES[raw];
+  if (alias === undefined || alias.target === "adapter:cmini") return raw;
+  return alias.target;
+}
 
 function sansPayload(rec: RecordRow): RecordSansPayload {
   const { payload: _payload, ...rest } = rec;
@@ -70,10 +95,15 @@ function parseLikedBy(raw: string | undefined): string | undefined {
 }
 
 // `?as=` validated against the registry up front so a bad format 400s
-// before any D1 read, on every route that takes it.
+// before any D1 read, on every route that takes it. `getFormat` alone
+// would reject `cmini/1` (its target is the unregistered adapter, not a
+// `FormatModule` -- `resolveFormat` answers `undefined` for it on
+// purpose, LDB-F20's own test), so a read's own alias table is checked
+// too -- `?as=cmini/1` stays readable (`translate()`'s own `adapter:cmini`
+// branch handles the actual projection).
 function resolveAsFormat(raw: string | undefined): string {
   const as = raw ?? DEFAULT_FORMAT;
-  if (getFormat(as) === undefined) {
+  if (getFormat(as) === undefined && !(as in ALIASES)) {
     throw unknownFormat(
       as,
       listFormats().map((f) => f.id),
@@ -91,7 +121,7 @@ layoutsRoute.get("/v1/layouts", async (c) => {
   if (full) return handleFullDump(c);
 
   const owner = c.req.query("owner");
-  const format = c.req.query("format");
+  const format = resolveFormatFilter(c.req.query("format"));
   const hasMagic = parseHasMagic(c.req.query("has_magic"));
   const since = parseSince(c.req.query("since"));
   const likedBy = parseLikedBy(c.req.query("liked_by"));
@@ -165,8 +195,12 @@ async function handleFullDump(c: Context<{ Bindings: Bindings }>): Promise<Respo
         for (const rec of page.items) {
           const result = translate(rec, as);
           const base = { ...sansPayload(rec), likes: likes.get(rec.id) ?? [] };
+          // A held item's `format` is already the record's own native
+          // format from that same spread (03 §1's "record fields plus
+          // held: true, format") -- no relabel for it; only a successful
+          // translation's `format` follows the request (label rule above).
           const body: Record<string, unknown> =
-            "held" in result ? { ...base, held: true } : { ...base, payload: result.payload };
+            "held" in result ? { ...base, held: true } : { ...base, payload: result.payload, format: labelFormat(rec.format, as) };
           await writer.write(encoder.encode((first ? "" : ",") + canonical(body)));
           first = false;
         }
@@ -208,7 +242,7 @@ layoutsRoute.get("/v1/layouts/:ref", async (c) => {
   if ("held" in result) throw held(result.format, result.see);
 
   const likes = await likesByLayout(db, [rec.id]);
-  return c.json({ ...sansPayload(rec), likes: likes.get(rec.id) ?? [], payload: result.payload });
+  return c.json({ ...sansPayload(rec), likes: likes.get(rec.id) ?? [], payload: result.payload, format: labelFormat(rec.format, as) });
 });
 
 layoutsRoute.get("/v1/layouts/:ref/likes", async (c) => {
@@ -276,5 +310,5 @@ layoutsRoute.get("/v1/layouts/:ref/rev/:n", async (c) => {
   const result = translate({ format: revRow.format, payload }, as);
   if ("held" in result) throw held(result.format, result.see);
 
-  return c.json({ ...after, payload: result.payload });
+  return c.json({ ...after, payload: result.payload, format: labelFormat(after.format, as) });
 });

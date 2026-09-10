@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Bindings } from "../../src/env";
 import { appendWrite } from "../../src/core/events";
 import { fixedClock } from "../../src/core/time";
-import { CMINI_PAYLOAD, actorFixture, register, uniqueName, writeFetch } from "./write-support";
+import { AKL_PAYLOAD, CMINI_PAYLOAD, actorFixture, register, uniqueName, writeFetch } from "./write-support";
 
 const db = (env as unknown as Bindings).DB;
 const clock = fixedClock("2026-07-05T00:00:00.000Z");
@@ -78,7 +78,16 @@ describe("[LDB-A7] POST /v1/layouts body", () => {
 
   it("Content-Type absent but body valid JSON -> accepted", async () => {
     const headers = ownerHeaders(); // no Content-Type set
-    const res = await fetchRaw("/v1/layouts", "POST", headers, JSON.stringify({ ...base, name: uniqueName("no-ct") }));
+    // `format: "spark/1"`/`payload: AKL_PAYLOAD`, not `base`'s own
+    // `cmini/1`/`CMINI_PAYLOAD` (20-spark.md S2: cmini/1 writes are
+    // refused now) -- this test is about the missing header, not the
+    // format.
+    const res = await fetchRaw(
+      "/v1/layouts",
+      "POST",
+      headers,
+      JSON.stringify({ ...base, name: uniqueName("no-ct"), format: "spark/1", payload: AKL_PAYLOAD }),
+    );
     expect(res.status).toBe(201);
   });
 });

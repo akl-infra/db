@@ -3,27 +3,49 @@
     "method": "PATCH",
     "path": "/v1/layouts/cw-patch-stale-1",
     "bearer": "conformance-owner2-token",
-    "headers": { "If-Match": "\"1\"" },
-    "body": { "name": "cw-patch-stale-1-renamed" },
+    "headers": {
+      "If-Match": "\"1\""
+    },
+    "body": {
+      "name": "cw-patch-stale-1-renamed"
+    },
     "setup": [
       {
         "method": "POST",
         "path": "/v1/layouts",
         "bearer": "conformance-owner2-token",
-        "body": { "name": "cw-patch-stale-1", "format": "cmini/1", "payload": { "board": "ortho", "keys": {} } }
+        "body": {
+          "name": "cw-patch-stale-1",
+          "format": "akl/1",
+          "payload": {
+            "keys": {}
+          }
+        }
       },
       {
         "method": "PUT",
         "path": "/v1/layouts/cw-patch-stale-1",
         "bearer": "conformance-owner2-token",
-        "headers": { "If-Match": "\"1\"" },
-        "body": { "format": "cmini/1", "payload": { "board": "ortho", "keys": {}, "tag": "bump" } }
+        "headers": {
+          "If-Match": "\"1\""
+        },
+        "body": {
+          "format": "akl/1",
+          "payload": {
+            "keys": {},
+            "x": {
+              "tag": "bump"
+            }
+          }
+        }
       }
     ]
   },
   "response": {
     "status": 409,
-    "headers": { "Content-Type": "application/json" },
+    "headers": {
+      "Content-Type": "application/json"
+    },
     "body": {
       "error": "stale",
       "message": "record is at rev 2, not the version you edited",
@@ -38,11 +60,16 @@
         "deleted": false,
         "like_count": 0,
         "has_magic": false,
-        "format": "cmini/1",
-        "payload": { "board": "ortho", "keys": {}, "tag": "bump" }
+        "format": "spark/1",
+        "payload": {
+          "keys": {},
+          "x": {
+            "tag": "bump"
+          }
+        }
       },
       "last_write": {
-        "seq": 464,
+        "seq": 462,
         "at": "2026-06-20T00:00:00.000Z",
         "actor": "830000000000000001",
         "via": "discord",

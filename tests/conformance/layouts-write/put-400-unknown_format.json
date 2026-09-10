@@ -17,9 +17,8 @@
         "bearer": "conformance-owner-token",
         "body": {
           "name": "cw-put-badformat-1",
-          "format": "cmini/1",
+          "format": "akl/1",
           "payload": {
-            "board": "ortho",
             "keys": {}
           }
         }

@@ -3,7 +3,13 @@
     "method": "POST",
     "path": "/v1/layouts",
     "bearer": "conformance-owner-token",
-    "body": { "name": "cw-post-ok-1", "format": "cmini/1", "payload": { "board": "ortho", "keys": {} } }
+    "body": {
+      "name": "cw-post-ok-1",
+      "format": "akl/1",
+      "payload": {
+        "keys": {}
+      }
+    }
   },
   "response": {
     "status": 201,
@@ -21,8 +27,10 @@
       "deleted": false,
       "like_count": 0,
       "has_magic": false,
-      "format": "cmini/1",
-      "payload": { "board": "ortho", "keys": {} }
+      "format": "akl/1",
+      "payload": {
+        "keys": {}
+      }
     }
   }
 }

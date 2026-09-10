@@ -4,12 +4,22 @@
     "path": "/v1/webhooks",
     "bearer": "conformance-other-token",
     "setup": [
-      { "method": "POST", "path": "/v1/webhooks", "bearer": "conformance-other-token", "body": { "url": "https://receiver.example/get-200", "secret": "conformance-webhook-secret-1" } }
+      {
+        "method": "POST",
+        "path": "/v1/webhooks",
+        "bearer": "conformance-other-token",
+        "body": {
+          "url": "https://receiver.example/get-200",
+          "secret": "conformance-webhook-secret-1"
+        }
+      }
     ]
   },
   "response": {
     "status": 200,
-    "headers": { "Content-Type": "application/json" },
+    "headers": {
+      "Content-Type": "application/json"
+    },
     "body": [
       {
         "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
@@ -18,7 +28,7 @@
         "kinds": null,
         "owner_filter": null,
         "status": "active",
-        "cursor": 485,
+        "cursor": 483,
         "failures": 0,
         "failing_since": null,
         "next_at": "2026-06-20T00:00:00.000Z",

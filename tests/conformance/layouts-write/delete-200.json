@@ -3,7 +3,9 @@
     "method": "DELETE",
     "path": "/v1/layouts/cw-delete-1",
     "bearer": "conformance-owner-token",
-    "headers": { "If-Match": "\"1\"" }
+    "headers": {
+      "If-Match": "\"1\""
+    }
   },
   "response": {
     "status": 200,
@@ -21,8 +23,14 @@
       "deleted": true,
       "like_count": 0,
       "has_magic": false,
-      "format": "cmini/1",
-      "payload": { "board": "ortho", "keys": {} }
+      "format": "spark/1",
+      "payload": {
+        "keys": {},
+        "board": {
+          "kind": "ortho",
+          "cmini": "ortho"
+        }
+      }
     }
   }
 }

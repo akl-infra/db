@@ -3,8 +3,15 @@
     "method": "PUT",
     "path": "/v1/layouts/cw-put-1",
     "bearer": "conformance-owner-token",
-    "headers": { "If-Match": "\"1\"" },
-    "body": { "format": "cmini/1", "payload": { "board": "ortho", "keys": {} } }
+    "headers": {
+      "If-Match": "\"1\""
+    },
+    "body": {
+      "format": "akl/1",
+      "payload": {
+        "keys": {}
+      }
+    }
   },
   "response": {
     "status": 200,
@@ -22,8 +29,10 @@
       "deleted": false,
       "like_count": 0,
       "has_magic": false,
-      "format": "cmini/1",
-      "payload": { "board": "ortho", "keys": {} }
+      "format": "akl/1",
+      "payload": {
+        "keys": {}
+      }
     }
   }
 }

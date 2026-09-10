@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Bindings } from "../../src/env";
 import { appendWrite } from "../../src/core/events";
 import { fixedClock } from "../../src/core/time";
-import { BOOTSTRAP_ADMIN, CMINI_PAYLOAD, actorFixture, register, uniqueName, writeFetch } from "./write-support";
+import { AKL_PAYLOAD, BOOTSTRAP_ADMIN, CMINI_PAYLOAD, actorFixture, register, uniqueName, writeFetch } from "./write-support";
 
 const db = (env as unknown as Bindings).DB;
 const clock = fixedClock("2026-07-08T00:00:00.000Z");
@@ -111,15 +111,15 @@ describe("[LDB-A7] POST /v1/layouts/{ref}/transfer", () => {
     // the new owner can PUT; the old owner is refused
     const newOwnerHeaders = ownerHeaders(KNOWN_TARGET, `tok-${uniqueName("t")}`);
     const putAsNewOwner = await writeFetch(`/v1/layouts/${record.id}`, "PUT", { ...newOwnerHeaders, "If-Match": `"${record.rev + 1}"` }, {
-      format: "cmini/1",
-      payload: CMINI_PAYLOAD,
+      format: "akl/1",
+      payload: AKL_PAYLOAD,
     });
     expect(putAsNewOwner.status).toBe(200);
 
     const oldOwnerHeaders = ownerHeaders(OWNER, `tok-${uniqueName("t")}`);
     const putAsOldOwner = await writeFetch(`/v1/layouts/${record.id}`, "PUT", { ...oldOwnerHeaders, "If-Match": "*" }, {
-      format: "cmini/1",
-      payload: CMINI_PAYLOAD,
+      format: "akl/1",
+      payload: AKL_PAYLOAD,
     });
     expect(putAsOldOwner.status).toBe(403);
   });

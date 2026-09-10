@@ -6,9 +6,9 @@
 // is never a record field and no verb reads it). The adapter's job is to
 // hold what cmini holds -- no thumb-row rule, no non-empty-keys rule, both
 // violated by live data (07 §0.1). NOT in `db/formats/registry.ts`'s
-// `REGISTRY`: the Worker's `LEGACY_WRITABLE` shim (`db/src/formats/
-// registry.ts`, temporary through S2) is what still accepts a `cmini/1`
-// write in S1; every read of a `cmini/1`-stored row goes through
+// `REGISTRY`: a `cmini/1` write is refused everywhere since 20-spark.md
+// S2 deleted the Worker's temporary `LEGACY_WRITABLE` shim (S1 only);
+// every read of a `cmini/1`-stored row goes through
 // `storedAsSpark`/`fromCmini`, never this module directly.
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";

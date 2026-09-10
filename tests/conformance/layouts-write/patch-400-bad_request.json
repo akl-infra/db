@@ -9,7 +9,13 @@
         "method": "POST",
         "path": "/v1/layouts",
         "bearer": "conformance-owner-token",
-        "body": { "name": "cw-patch-bad-1", "format": "cmini/1", "payload": { "board": "ortho", "keys": {} } }
+        "body": {
+          "name": "cw-patch-bad-1",
+          "format": "akl/1",
+          "payload": {
+            "keys": {}
+          }
+        }
       }
     ]
   },

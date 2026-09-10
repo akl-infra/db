@@ -10,12 +10,12 @@
 import type { Actor } from "../auth/actor";
 import type { Bindings } from "../env";
 import { get as getFormat, list as listFormats } from "../formats/registry";
-import * as cmini1 from "../../formats/adapters/cmini/index";
-import { fromCmini } from "../../formats/adapters/cmini/translate";
+import { resolveFormat, storedAsSpark } from "../../formats/registry.ts";
 import { requireIfMatch, type IfMatch } from "./ifmatch";
 import {
   ApiError,
   badRequest,
+  formatNotWritable,
   internal,
   invalidName,
   nameTaken,
@@ -27,15 +27,27 @@ import {
   type ErrBody,
   type LastWrite,
 } from "./errors";
-import { canonical } from "./canonical";
 import { appendLike, appendWrite, RevConflictError, rowToEvent, type EventDbRow, type Write } from "./events";
 import { checkName } from "./names";
 import { byRef, readById, readByName, toWire, type RecordRow } from "./records";
 import type { Clock } from "./time";
 import type { EditResult, FormatModule } from "../formats/registry";
 
-const RESTORE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 const TRANSFER_USER_ID_RE = /^\d{17,20}$/;
+
+// Every write that carries an EXISTING record's payload forward (delete,
+// restore, transfer, the PATCH normalization below) stores it through
+// spark, never verbatim (20-spark.md S2, LDB-F16/F21): a legacy-stored
+// (`akl/1`/`cmini/1`) record is converted, and `has_magic` is recomputed
+// from the converted payload -- `record.has_magic` itself may be stale
+// (LDB-I10/I11-era rows) or simply wrong for a format the carry-forward
+// changed. `spark/1` is always registered (LDB-T1's own bar), so this
+// never actually throws -- the check only satisfies the type checker.
+function sparkHasMagic(payload: unknown): boolean {
+  const module = getFormat("spark/1");
+  if (module === undefined) throw internal();
+  return module.hasMagic(payload);
+}
 
 // byRef; a tombstone is reachable only by id and only when `allowDeleted`
 // (restore -- a tombstone has no live name, so byRef's own name lookup
@@ -78,17 +90,27 @@ export async function requireRev(db: Bindings["DB"], record: RecordRow, ifMatch:
   throw stale(toWire(record) as Record<string, unknown> & { rev: number }, lastWrite);
 }
 
+// 20-spark.md S2 (LDB-F16): every write resolves `format` through the
+// registry's alias table first -- `spark/1` (or `akl/1`, its alias)
+// resolves to spark/1's module and stores natively (`module.id`, never
+// the caller's own literal, so an `akl/1` write stores `spark/1` byte-
+// identical); `mana2/1` resolves but its `role` is `"output"` -> `400
+// format_not_writable`; `cmini/1` and anything unregistered don't resolve
+// at all -> `400 unknown_format`, `known` listing registered ids only.
 export function validatePayload(format: string, payload: unknown): { module: FormatModule; hasMagic: boolean } {
-  const module = getFormat(format);
-  if (module === undefined) {
+  const resolved = resolveFormat(format);
+  if (resolved === undefined) {
     throw unknownFormat(
       format,
       listFormats().map((f) => f.id),
     );
   }
-  const result = module.validate(payload);
+  if (resolved.module.role === "output") {
+    throw formatNotWritable(format);
+  }
+  const result = resolved.module.validate(payload);
   if (!result.ok) throw new ApiError(400, result.error);
-  return { module, hasMagic: module.hasMagic(payload) };
+  return { module: resolved.module, hasMagic: resolved.module.hasMagic(payload) };
 }
 
 // Maps the two D1-constraint outcomes `appendWrite` surfaces (09 §2.3) onto
@@ -169,7 +191,7 @@ export async function createLayout(
 ): Promise<{ record: RecordRow; seq: number }> {
   const nameCheck = checkName(body.name);
   if (!nameCheck.ok) throw invalidName(body.name, nameCheck.message);
-  const { hasMagic } = validatePayload(body.format, body.payload);
+  const { hasMagic, module } = validatePayload(body.format, body.payload);
 
   const tombstoneId = await latestTombstoneIdByName(env.DB, body.name);
 
@@ -178,7 +200,7 @@ export async function createLayout(
     name: body.name,
     owner: actor.user_id,
     modified_at: now(),
-    format: body.format,
+    format: module.id, // native id: an `akl/1` write stores `spark/1` (LDB-F16/F20)
     payload: body.payload,
     actor: actor.user_id,
     via: actor.via,
@@ -211,42 +233,16 @@ export interface ReplaceBody {
   payload: unknown;
 }
 
-// `magic` is always a top-level payload key in every format that has one
-// (cmini/1's flat `MagicRow[]`, akl/1's `MagicIntent` object) -- stripping
-// it this way, rather than through a format-specific projection, is exactly
-// right for comparing a payload against ANOTHER payload already known to
-// be the same format (this function's two call sites below never compare
-// across formats without lifting one side first).
-function payloadMinusMagic(payload: unknown): unknown {
-  if (typeof payload !== "object" || payload === null) return payload;
-  const { magic: _magic, ...rest } = payload as Record<string, unknown>;
-  return rest;
-}
-
-// LDB-I12 (design/layout-db/18-command-decisions.md §2 item 1): "a PATCH
-// whose body is ONLY {magic} ... (and the migration's equivalent) keeps
-// the record following cmini". `scripts/migrate_magic_rules_to_db.py`
-// writes through PUT (a whole-payload replace, `format: "akl/1"` even for
-// a `cmini/1` record it read via `?as=akl/1`), not PATCH -- this is that
-// migration's equivalent: a PUT is magic-only when its payload, minus
-// `magic`, is byte-for-byte the record's own current content minus `magic`
-// (translated to a common format first when the format itself changed,
-// the same lossless `fromCmini` lift `patchLayout`'s magic PATCH uses).
-// Anything else that changed alongside magic -- keys, board, free, x --
-// fails this and forks as any other PUT always has.
-function isMagicOnlyReplace(record: RecordRow, newFormat: string, newPayload: unknown): boolean {
-  if (newFormat === record.format) {
-    return canonical(payloadMinusMagic(newPayload)) === canonical(payloadMinusMagic(record.payload));
-  }
-  if (record.format === "cmini/1" && newFormat === "akl/1") {
-    const lifted = fromCmini(record.payload as cmini1.Payload);
-    return canonical(payloadMinusMagic(newPayload)) === canonical(payloadMinusMagic(lifted));
-  }
-  return false;
-}
-
 // PUT /v1/layouts/{ref}: owner or admin; whole payload replaced, name/
 // owner/created_at kept, format may change.
+//
+// 20-spark.md S2 (saltorbit's decision 6 + the lead's answer to §8 Q1): magic
+// edits fork like any user write now -- `isMagicOnlyReplace` and its
+// `detail.magic_only` marker are gone, so `modified_at` bumps here
+// unconditionally, same as every other PUT. `core/follows.ts`'s
+// `legacyFollows`/`followsUpstream` keeps reading the marker off
+// HISTORICAL events (LDB-I12, narrowed not deleted) -- nothing new ever
+// writes it again.
 export async function replaceLayout(
   env: Bindings,
   now: Clock,
@@ -259,24 +255,18 @@ export async function replaceLayout(
   requireIfMatch(ifMatch);
   const { record, admin } = await loadForWrite(db, ref, actor, { allowDeleted: false });
   await requireRev(db, record, ifMatch);
-  const { hasMagic } = validatePayload(body.format, body.payload);
-  const magicOnly = isMagicOnlyReplace(record, body.format, body.payload);
+  const { hasMagic, module } = validatePayload(body.format, body.payload);
 
   return commitWrite(db, now, {
     kind: "updated",
     layoutId: record.id,
     name: record.name,
     owner: record.owner,
-    // A magic-only write leaves `modified_at` alone (2026-09-10): magic is a
-    // layer the cmini import never touches, so the record's own modified_at
-    // keeps mirroring upstream's -- the seed bumped 67 records' and the
-    // daily diff flagged every one until the next upstream change.
-    modified_at: magicOnly ? record.modified_at : now(),
-    format: body.format,
+    modified_at: now(),
+    format: module.id,
     payload: body.payload,
     actor: actor.user_id,
     via: actor.via,
-    ...(magicOnly ? { detail: { magic_only: true } } : {}),
     admin,
     hasMagic,
   });
@@ -284,6 +274,13 @@ export async function replaceLayout(
 
 // DELETE /v1/layouts/{ref}: owner or admin; tombstones (payload/format/name
 // kept, `deleted: true`); frees the name.
+//
+// 20-spark.md S2 (LDB-F16/F21, §8 R-H2): carries the record's payload
+// forward through `storedAsSpark`, not `record.format`/`record.payload`
+// verbatim -- otherwise deleting an unmigrated legacy-stored record would
+// re-store its old format, breaking "every accepted write stores
+// spark/<latest>". `has_magic` is recomputed from the converted payload
+// (`record.has_magic` may disagree once the payload's shape changed).
 export async function deleteLayout(
   env: Bindings,
   now: Clock,
@@ -295,6 +292,7 @@ export async function deleteLayout(
   requireIfMatch(ifMatch);
   const { record, admin } = await loadForWrite(db, ref, actor, { allowDeleted: false });
   await requireRev(db, record, ifMatch);
+  const stored = storedAsSpark(record.format, record.payload);
 
   return commitWrite(db, now, {
     kind: "deleted",
@@ -302,26 +300,46 @@ export async function deleteLayout(
     name: record.name,
     owner: record.owner,
     modified_at: now(),
-    format: record.format,
-    payload: record.payload,
+    format: stored.format,
+    payload: stored.payload,
     actor: actor.user_id,
     via: actor.via,
     admin,
     deleted: true,
-    hasMagic: record.has_magic,
+    hasMagic: sparkHasMagic(stored.payload),
   });
 }
 
+export interface RestoreBody {
+  name?: string;
+}
+
 // POST /v1/layouts/{ref}/restore: `{ref}` must be the id (a tombstone has
-// no live name, so byRef's name path never finds one anyway); owner within
-// 30 days, admin any time (09 §6.7); no `If-Match` -- a tombstone has one
-// possible next state. Format/payload/has_magic are the tombstone's own,
-// carried through verbatim (no re-validation: they were valid when stored).
+// no live name, so byRef's name path never finds one anyway); owner or
+// admin, no time limit (20-spark.md §1 decision 8 -- the 30-day owner
+// window is gone: tombstones were never pruned, so there is no storage
+// pressure the window was protecting against). No `If-Match` -- a
+// tombstone has one possible next state.
+//
+// Decision 9 (refined in review, §8 R-L1): the body is optional (absent,
+// `{}`, or `{name}`; the route's `parseRestoreBody` refuses anything else
+// with `400 bad_request`, LDB-A7). Without `name`, restoring under the
+// tombstone's own (possibly reclaimed) name answers `409 name_taken` with
+// `holder` exactly as any other name clash does (`commitWrite`'s own
+// catch). With a DIFFERENT `name`, it goes through `check_name` (LDB-N1
+// amended) and the event is `restored` with `detail: {renamed_from}`
+// (LDB-P8 amended) -- both records keep their own likes; a restore frees
+// no name (LDB-P4 untouched).
+//
+// LDB-F16/F21/§8 R-H2: the payload is carried forward through
+// `storedAsSpark`, not verbatim, and `has_magic` is recomputed -- same
+// reasoning as `deleteLayout`.
 export async function restoreLayout(
   env: Bindings,
   now: Clock,
   actor: Actor,
   ref: string,
+  body: RestoreBody = {},
 ): Promise<{ record: RecordRow; seq: number }> {
   const db = env.DB;
   const { record, admin } = await loadForWrite(db, ref, actor, { allowDeleted: true });
@@ -330,28 +348,31 @@ export async function restoreLayout(
     throw badRequest(`'${record.name}' is not deleted`, "/ref");
   }
 
-  const deletedAtMs = new Date(record.modified_at).getTime();
-  const nowMs = new Date(now()).getTime();
-  // `actor.admin`, not the `admin` flag above: that flag means "passed
-  // ownership only via admin", but the 30-day extension is granted to any
-  // admin (09 §6.7), owner-admin included.
-  if (!actor.admin && nowMs - deletedAtMs > RESTORE_WINDOW_MS) {
-    throw notFound(`no layout '${ref}'`, ref);
+  let name = record.name;
+  let renamedFrom: string | undefined;
+  if (body.name !== undefined && body.name !== record.name) {
+    const nameCheck = checkName(body.name);
+    if (!nameCheck.ok) throw invalidName(body.name, nameCheck.message);
+    name = body.name;
+    renamedFrom = record.name;
   }
+
+  const stored = storedAsSpark(record.format, record.payload);
 
   return commitWrite(db, now, {
     kind: "restored",
     layoutId: record.id,
-    name: record.name,
+    name,
     owner: record.owner,
     modified_at: now(),
-    format: record.format,
-    payload: record.payload,
+    format: stored.format,
+    payload: stored.payload,
     actor: actor.user_id,
     via: actor.via, // stops a follow of upstream (LDB-I2a): this becomes the latest rev-bumping event
     admin,
     deleted: false,
-    hasMagic: record.has_magic,
+    hasMagic: sparkHasMagic(stored.payload),
+    ...(renamedFrom !== undefined ? { detail: { renamed_from: renamedFrom } } : {}),
   });
 }
 
@@ -366,6 +387,9 @@ export interface TransferBody {
 // never checked against `record.rev` -- ownership has no draft to be
 // stale, so `requireIfMatch` (presence only) is all that runs here, not
 // `requireRev`.
+//
+// LDB-F16/F21/§8 R-H2: carries the payload forward through `storedAsSpark`
+// and recomputes `has_magic`, same reasoning as `deleteLayout`.
 export async function transferLayout(
   env: Bindings,
   now: Clock,
@@ -383,18 +407,20 @@ export async function transferLayout(
   const author = await db.prepare("SELECT 1 FROM authors WHERE user_id = ?").bind(body.to).first();
   if (author === null) throw badRequest(`unknown user '${body.to}'`, "/to");
 
+  const stored = storedAsSpark(record.format, record.payload);
+
   return commitWrite(db, now, {
     kind: "transferred",
     layoutId: record.id,
     name: record.name,
     owner: body.to,
     modified_at: now(),
-    format: record.format,
-    payload: record.payload,
+    format: stored.format,
+    payload: stored.payload,
     actor: actor.user_id,
     via: actor.via,
     admin,
-    hasMagic: record.has_magic,
+    hasMagic: sparkHasMagic(stored.payload),
   });
 }
 
@@ -467,22 +493,17 @@ export async function patchLayout(
   const { record, admin } = await loadForWrite(db, ref, actor, { allowDeleted: false });
   await requireRev(db, record, ifMatch);
 
-  // LDB-I12 (design/layout-db/18-command-decisions.md §2 item 1;
-  // 17-magic-ownership.md §3's "format wrinkle"): cmini/1 has no magic
-  // idiom of its own (no `setMagic` in its `edits`), so a `magic` PATCH on
-  // a cmini/1 record lifts it to akl/1 FIRST -- `fromCmini` is the same
-  // lossless cmini/1 -> akl/1 translation the import uses (LDB-F5), so
-  // keys/board/free/x survive exactly; any magic `fromCmini` lifted out of
-  // cmini/1's own flat rows is then overwritten by the PATCH's own value
-  // below, same as it would be for a record that was already akl/1. Every
-  // other field in this same PATCH (name/fingermap/board) is then applied
-  // against the NEW format, not the old one -- one write, one format.
-  let format = record.format;
-  let payload: unknown = structuredClone(record.payload);
-  if (body.magic !== undefined && format === "cmini/1") {
-    payload = fromCmini(payload as cmini1.Payload);
-    format = "akl/1";
-  }
+  // 20-spark.md S2 (LDB-F16/F21): any legacy-stored record is converted to
+  // spark FIRST, whatever the PATCH names -- `storedAsSpark` is the SAME
+  // conversion every read and every carry-forward write uses, so a
+  // fingermap/board PATCH on a `cmini/1` record no longer needs the cmini
+  // adapter's own `edits` at all (it never has: spark's `edits` covers
+  // fingermap/board/magic uniformly). Every field in this PATCH (name/
+  // fingermap/board/magic) is then applied against the NEW format, not
+  // the old one -- one write, one format.
+  const stored = storedAsSpark(record.format, record.payload);
+  let format = stored.format;
+  let payload: unknown = stored.payload;
 
   const module = getFormat(format);
   if (module === undefined) {
@@ -514,24 +535,24 @@ export async function patchLayout(
   const { hasMagic } = validatePayload(format, payload);
 
   const kind = fields.length === 1 && fields[0] === "name" ? "renamed" : fields.length === 1 && fields[0] === "fingermap" ? "fingermap" : "updated";
-  // LDB-I12: a PATCH whose body is ONLY {magic} never touches keys/board/
-  // name -- `detail.magic_only` marks the `updated` event so `followsUpstream`
-  // (core/follows.ts) can skip past it when looking for "the latest write"
-  // that would fork a following record from upstream.
-  const magicOnly = fields.length === 1 && fields[0] === "magic";
 
+  // 20-spark.md S2 (decision 6): magic edits fork like any other write now
+  // -- there is no more magic-only exemption on a NEW write. `modified_at`
+  // bumps unconditionally and no event ever writes `detail.magic_only`
+  // again (LDB-I12 narrowed: `core/follows.ts` keeps skipping the marker
+  // on HISTORICAL events only).
   return commitWrite(db, now, {
     kind,
     layoutId: record.id,
     name,
     owner: record.owner,
-    modified_at: magicOnly ? record.modified_at : now(), // magic-only: see replaceLayout
+    modified_at: now(),
     format,
     payload,
     actor: actor.user_id,
     via: actor.via,
     admin,
     hasMagic,
-    ...(kind === "updated" ? { detail: magicOnly ? { fields, magic_only: true } : { fields } } : {}),
+    ...(kind === "updated" ? { detail: { fields } } : {}),
   });
 }

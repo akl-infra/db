@@ -399,6 +399,7 @@ shown with real examples in §4.
 |---|---|---|---|
 | 400 | `bad_request` | *(caller-supplied -- this function's own `message` parameter)* | `badRequest(message, param)` |
 | 400 | `unknown_format` | unknown format '${format}' | `unknownFormat(format, known)` |
+| 400 | `format_not_writable` | format '${format}' cannot be written (it is produced on read only) | `formatNotWritable(format)` |
 | 404 | `not_found` | *(caller-supplied -- this function's own `message` parameter)* | `notFound(message, ref)` |
 | 409 | `name_taken` | name '${name}' is already taken | `nameTaken(name, holder)` |
 | 409 | `held` | record cannot be translated to '${format}' | `held(format, see)` |

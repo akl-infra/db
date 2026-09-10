@@ -3,26 +3,44 @@
     "method": "PATCH",
     "path": "/v1/layouts/cw-patch-nametaken-src-1",
     "bearer": "conformance-owner2-token",
-    "headers": { "If-Match": "\"1\"" },
-    "body": { "name": "cw-patch-nametaken-target-1" },
+    "headers": {
+      "If-Match": "\"1\""
+    },
+    "body": {
+      "name": "cw-patch-nametaken-target-1"
+    },
     "setup": [
       {
         "method": "POST",
         "path": "/v1/layouts",
         "bearer": "conformance-owner2-token",
-        "body": { "name": "cw-patch-nametaken-target-1", "format": "cmini/1", "payload": { "board": "ortho", "keys": {} } }
+        "body": {
+          "name": "cw-patch-nametaken-target-1",
+          "format": "akl/1",
+          "payload": {
+            "keys": {}
+          }
+        }
       },
       {
         "method": "POST",
         "path": "/v1/layouts",
         "bearer": "conformance-owner2-token",
-        "body": { "name": "cw-patch-nametaken-src-1", "format": "cmini/1", "payload": { "board": "ortho", "keys": {} } }
+        "body": {
+          "name": "cw-patch-nametaken-src-1",
+          "format": "akl/1",
+          "payload": {
+            "keys": {}
+          }
+        }
       }
     ]
   },
   "response": {
     "status": 409,
-    "headers": { "Content-Type": "application/json" },
+    "headers": {
+      "Content-Type": "application/json"
+    },
     "body": {
       "error": "name_taken",
       "message": "name 'cw-patch-nametaken-target-1' is already taken",

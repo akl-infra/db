@@ -98,6 +98,12 @@ describe("[LDB-P1] PATCH verb x format matrix", () => {
         await expect(res.json()).resolves.toMatchObject({ error: "invalid_payload", path: "/keys/z" });
       });
 
+      // 20-spark.md S2: a `cmini/1`-stored record is converted to spark
+      // FIRST (`storedAsSpark`, whatever the PATCH names), so `board` is
+      // ALWAYS applied through spark's own `setBoard` (raw passthrough) --
+      // not, as before S2, through the cmini adapter's own word-deriving
+      // `setBoard`. Both formats' loops now produce the identical raw
+      // object.
       it("board alone -> 200, kind updated, detail.fields = ['board']", async () => {
         const record = await seed(format);
         const headers = ownerHeaders(`tok-${uniqueName("board")}`);
@@ -107,7 +113,7 @@ describe("[LDB-P1] PATCH verb x format matrix", () => {
         const events = await eventsFor(record.id);
         expect(events.at(-1)).toMatchObject({ kind: "updated", detail: { fields: ["board"] } });
         const body = await res.json<{ payload: { board: unknown } }>();
-        expect(body.payload.board).toEqual(format === "akl/1" ? board : "stagger");
+        expect(body.payload.board).toEqual(board);
       });
 
       it("{} -> 400 bad_request", async () => {
@@ -168,41 +174,69 @@ describe("[LDB-P1] PATCH verb x format matrix", () => {
     });
   }
 
-  it("[LDB-P4] [LDB-I12] magic on akl/1 -> 200, kind updated, detail.magic_only", async () => {
+  // 20-spark.md S2 (saltorbit's decision 6): magic edits fork like any other
+  // write now -- `isMagicOnlyReplace`/`detail.magic_only` are gone.
+  // `modified_at` bumps unconditionally and the event carries a plain
+  // `detail: {fields}`, same shape a fingermap-only PATCH always got.
+  // `modified_at` bumping unconditionally (this file's clock is pinned to
+  // one fixed instant throughout, so it can't distinguish "bumped" from
+  // "left alone" here) is covered with a mutable clock in
+  // tests/api/write.test.ts's own [LDB-P4] case.
+  it("[LDB-P4] magic on akl/1 -> 200, kind updated, plain detail.fields, no magic_only marker", async () => {
     const record = await seed("akl/1");
     const headers = ownerHeaders(`tok-${uniqueName("magic")}`);
     const res = await patch(record.id, headers, { magic: { rules: [{ inputs: "aa", output: "ab" }] } }, `"${record.rev}"`);
     expect(res.status).toBe(200);
     const events = await eventsFor(record.id);
-    expect(events.at(-1)).toMatchObject({ kind: "updated", detail: { fields: ["magic"], magic_only: true } });
+    expect(events.at(-1)).toMatchObject({ kind: "updated", detail: { fields: ["magic"] } });
+    expect((events.at(-1)?.detail as { magic_only?: unknown } | null)?.magic_only).toBeUndefined();
     const body = await res.json<{ payload: { magic: { rules: unknown[] } } }>();
     expect(body.payload.magic.rules).toHaveLength(1);
   });
 
-  it("[LDB-I12] magic on cmini/1 -> 200, lifts to akl/1 (fromCmini), keys/board preserved, detail.magic_only", async () => {
+  // 20-spark.md S2 (LDB-F16/F21): a `cmini/1`-stored record is converted
+  // to spark FIRST, whatever the PATCH names -- always `spark/1`, never
+  // `akl/1` (S1's alias is byte-identical payload-wise, but the STORED
+  // format a carry-forward write picks is always the native id).
+  it("[LDB-F16] [LDB-F21] [LDB-I12] magic on cmini/1 -> 200, converts to spark/1 (storedAsSpark), keys/board preserved, no magic_only marker", async () => {
     const record = await seed("cmini/1");
     const headers = ownerHeaders(`tok-${uniqueName("magic-cmini")}`);
     const res = await patch(record.id, headers, { magic: { rules: [{ inputs: "aa", output: "ab" }] } }, `"${record.rev}"`);
     expect(res.status).toBe(200);
     const events = await eventsFor(record.id);
-    expect(events.at(-1)).toMatchObject({ kind: "updated", detail: { fields: ["magic"], magic_only: true } });
+    expect(events.at(-1)).toMatchObject({ kind: "updated", detail: { fields: ["magic"] } });
+    expect((events.at(-1)?.detail as { magic_only?: unknown } | null)?.magic_only).toBeUndefined();
     const body = await res.json<{ format: string; payload: { keys: unknown; board: unknown; magic: { rules: unknown[] } } }>();
-    expect(body.format).toBe("akl/1"); // lifted (cmini/1 has no magic idiom of its own)
+    expect(body.format).toBe("spark/1"); // converted, not lifted to the akl/1 alias
     expect(body.payload.keys).toEqual(CMINI_KEYED.keys); // fromCmini: lossless
     expect(body.payload.board).toEqual({ kind: "ortho", cmini: "ortho" }); // fromCmini's boardFromCmini("ortho")
     expect(body.payload.magic.rules).toHaveLength(1);
     const row = await db.prepare("SELECT format FROM layouts WHERE id = ?").bind(record.id).first<{ format: string }>();
-    expect(row?.format).toBe("akl/1");
-  });
-
-  it("a hint-less colstag board on cmini/1 -> 400 unsupported_for_format", async () => {
-    const record = await seed("cmini/1");
-    const headers = ownerHeaders(`tok-${uniqueName("colstag")}`);
-    const res = await patch(record.id, headers, { board: { kind: "colstag", stagger: [0] } }, `"${record.rev}"`);
-    expect(res.status).toBe(400);
-    await expect(res.json()).resolves.toMatchObject({ error: "unsupported_for_format", format: "cmini/1", verb: "board" });
+    expect(row?.format).toBe("spark/1");
   });
 });
+
+// 20-spark.md S2: `unsupported_for_format` on PATCH is now GENUINELY
+// UNREACHABLE, not just untested. `patchLayout` runs EVERY record through
+// `storedAsSpark` unconditionally (correct per spec: in the real registry
+// a stored record's format is always `spark/1` or a legacy id --
+// `storedAsSpark` is an identity for the former), so `module` is always
+// spark's own -- which has `edits` for fingermap/board/magic uniformly.
+// Even a test-registered second "stored" format (the mechanism
+// `held.test.ts`'s LDB-F9 uses for `unknown`/`held`) would be silently
+// coerced through `storedAsSpark` into spark's module too, so it can't
+// stand in for "a stored format with no edits" either -- that shape
+// doesn't exist while spark/1 is the only stored format (phase 1-4; S5's
+// chain is the first format that could ever lack a verb). Two tests are
+// therefore genuinely gone, not merely moved: "a hint-less colstag board
+// on cmini/1 -> 400 unsupported_for_format" (cmini's own `setBoard`
+// refused a hint-less colstag; spark's `setBoard` never refuses ANY
+// board) and the "combined patches" partial-failure case built on it.
+// `runEdit`'s `edit === undefined` branch itself is still real code (a
+// future format module that omits an edit still gets refused this way),
+// it just has no live caller today -- `tests/formats/edits.test.ts`'s own
+// note pointed here for the end-to-end half, and is corrected alongside
+// this file.
 
 describe("[LDB-P1] combined patches", () => {
   it("{name, fingermap} -> one event 'updated', detail.fields = ['name','fingermap']", async () => {
@@ -219,16 +253,23 @@ describe("[LDB-P1] combined patches", () => {
     expect(body.payload.keys.a?.finger).toBe("RP");
   });
 
-  it("a failing later verb (a hint-less colstag board on cmini/1) leaves the earlier ones (fingermap) unapplied -- one batch or nothing", async () => {
+  // 20-spark.md S2: the pre-S2 failure mode here was a hint-less colstag
+  // board on a `cmini/1` record ("unsupported_for_format") -- genuinely
+  // unreachable now (see the comment above this describe). A later verb's
+  // `invalid_payload` (fingermap naming a char not in keys) exercises the
+  // exact same "one batch or nothing" atomicity property with a failure
+  // mode that still exists.
+  it("a failing later verb (a fingermap naming a char not in keys) leaves the earlier ones (name) unapplied -- one batch or nothing", async () => {
     const record = await seed("cmini/1");
     const headers = ownerHeaders(`tok-${uniqueName("partial")}`);
-    const res = await patch(record.id, headers, { fingermap: { a: "RP" }, board: { kind: "colstag", stagger: [0] } }, `"${record.rev}"`);
+    const newName = uniqueName("patch-partial-newname");
+    const res = await patch(record.id, headers, { name: newName, fingermap: { z: "RP" } }, `"${record.rev}"`);
     expect(res.status).toBe(400);
-    await expect(res.json()).resolves.toMatchObject({ error: "unsupported_for_format" });
+    await expect(res.json()).resolves.toMatchObject({ error: "invalid_payload", path: "/keys/z" });
 
-    const row = await db.prepare("SELECT rev, payload_json FROM layouts WHERE id = ?").bind(record.id).first<{ rev: number; payload_json: string }>();
+    const row = await db.prepare("SELECT rev, name FROM layouts WHERE id = ?").bind(record.id).first<{ rev: number; name: string }>();
     expect(row?.rev).toBe(record.rev);
-    expect((JSON.parse(row!.payload_json) as { keys: Record<string, { finger: string }> }).keys.a?.finger).toBe("LP");
+    expect(row?.name).toBe(record.name); // the earlier "name" field never landed
     const events = await eventsFor(record.id);
     expect(events).toHaveLength(1); // just the seed's own "created" -- nothing appended
   });
@@ -272,7 +313,7 @@ describe("[LDB-N1] PATCH {name} rename semantics", () => {
     const renameRes = await patch(record.id, headers, { name: uniqueName("patch-newname") }, `"${record.rev}"`);
     expect(renameRes.status).toBe(200);
 
-    const postRes = await writeFetch("/v1/layouts", "POST", headers, { name: oldName, format: "cmini/1", payload: CMINI_KEYED });
+    const postRes = await writeFetch("/v1/layouts", "POST", headers, { name: oldName, format: "akl/1", payload: AKL_KEYED });
     expect(postRes.status).toBe(201);
   });
 });
@@ -295,7 +336,7 @@ describe("[LDB-P10] a rename never loses the id", () => {
     ];
 
     const oldName = uniqueName("p10-old");
-    const createRes = await writeFetch("/v1/layouts", "POST", owner, { name: oldName, format: "cmini/1", payload: CMINI_KEYED });
+    const createRes = await writeFetch("/v1/layouts", "POST", owner, { name: oldName, format: "akl/1", payload: AKL_KEYED });
     expect(createRes.status).toBe(201);
     const created = await createRes.json<{ id: string; rev: number }>();
 
@@ -336,7 +377,7 @@ describe("[LDB-P10] a rename never loses the id", () => {
     expect([...likes.user_ids].sort()).toEqual(["p10-liker-1", "p10-liker-2", "p10-liker-3"]);
 
     // the old name is free (LDB-P4) -- a fresh POST with it succeeds
-    const reuseRes = await writeFetch("/v1/layouts", "POST", owner, { name: oldName, format: "cmini/1", payload: CMINI_KEYED });
+    const reuseRes = await writeFetch("/v1/layouts", "POST", owner, { name: oldName, format: "akl/1", payload: AKL_KEYED });
     expect(reuseRes.status).toBe(201);
 
     // a `full=1` list row carries the SAME id -- the site's own `_dbId`

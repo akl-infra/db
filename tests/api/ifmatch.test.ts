@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Bindings } from "../../src/env";
 import { appendWrite } from "../../src/core/events";
 import { fixedClock } from "../../src/core/time";
-import { CMINI_PAYLOAD, actorFixture, register, uniqueName, writeFetch } from "./write-support";
+import { AKL_PAYLOAD, CMINI_PAYLOAD, actorFixture, register, uniqueName, writeFetch } from "./write-support";
 
 const db = (env as unknown as Bindings).DB;
 const clock = fixedClock("2026-07-06T00:00:00.000Z");
@@ -61,7 +61,7 @@ describe("[LDB-P2] If-Match on PUT/DELETE", () => {
       const res = await writeFetch(`/v1/layouts/${record.id}`, "PUT", {
         ...headers,
         ...(ifMatch !== undefined ? { "If-Match": ifMatch } : {}),
-      }, { format: "cmini/1", payload: CMINI_PAYLOAD });
+      }, { format: "akl/1", payload: AKL_PAYLOAD });
       expect(res.status, label).toBe(status);
       if (status === 409) {
         const body = await res.json<{ error: string; rev: number; record: { rev: number }; last_write: { kind: string } }>();
@@ -97,8 +97,8 @@ describe("[LDB-P2] If-Match on PUT/DELETE", () => {
     const record = await seed();
     const headers = ownerHeaders("tok-noop");
     const res = await writeFetch(`/v1/layouts/${record.id}`, "PUT", { ...headers, "If-Match": `"${record.rev + 5}"` }, {
-      format: "cmini/1",
-      payload: CMINI_PAYLOAD,
+      format: "akl/1",
+      payload: AKL_PAYLOAD,
     });
     expect(res.status).toBe(409);
     const row = await db.prepare("SELECT rev FROM layouts WHERE id = ?").bind(record.id).first<{ rev: number }>();
@@ -113,8 +113,8 @@ describe("[LDB-P2] If-Match on PUT/DELETE", () => {
     const headers = register(fake, "tok-race", OWNER);
     const put = (v: number) =>
       writeFetch(`/v1/layouts/${record.id}`, "PUT", { ...headers, "If-Match": `"${record.rev}"` }, {
-        format: "cmini/1",
-        payload: { ...CMINI_PAYLOAD, tag: `v${v}` },
+        format: "akl/1",
+        payload: { ...AKL_PAYLOAD, x: { tag: `v${v}` } },
       });
 
     const [a, b] = await Promise.all([put(1), put(2)]);

@@ -13,8 +13,16 @@ export async function headSeq(db: D1Database): Promise<number> {
   return row?.seq ?? 0;
 }
 
+// 20-spark.md S2 (LDB-R1 amended): bumped whenever the WIRE shape changes
+// independently of the event log's own head -- spark/1 the stored format,
+// the label rule, `/v1/formats`'s `role`/`aliases`, etc. Without this, a
+// pre-deploy `If-None-Match` (or an edge-cached body, `caches.default`)
+// at an unchanged head seq would keep answering 304/a stale cached body
+// with the OLD shape forever.
+const WIRE_VERSION = 2;
+
 export async function etagFor(headSeqValue: number, query: unknown): Promise<string> {
-  const hash = await sha256Hex(canonical(query ?? null));
+  const hash = await sha256Hex(canonical({ wireVersion: WIRE_VERSION, query: query ?? null }));
   return `"${headSeqValue}:${hash.slice(0, 16)}"`;
 }
 

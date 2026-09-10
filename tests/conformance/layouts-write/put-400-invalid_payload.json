@@ -3,24 +3,42 @@
     "method": "PUT",
     "path": "/v1/layouts/cw-put-badpayload-1",
     "bearer": "conformance-owner-token",
-    "headers": { "If-Match": "\"1\"" },
-    "body": { "format": "cmini/1", "payload": { "board": "not-a-board", "keys": {} } },
+    "headers": {
+      "If-Match": "\"1\""
+    },
+    "body": {
+      "format": "akl/1",
+      "payload": {
+        "board": {
+          "kind": "not-a-kind"
+        },
+        "keys": {}
+      }
+    },
     "setup": [
       {
         "method": "POST",
         "path": "/v1/layouts",
         "bearer": "conformance-owner-token",
-        "body": { "name": "cw-put-badpayload-1", "format": "cmini/1", "payload": { "board": "ortho", "keys": {} } }
+        "body": {
+          "name": "cw-put-badpayload-1",
+          "format": "akl/1",
+          "payload": {
+            "keys": {}
+          }
+        }
       }
     ]
   },
   "response": {
     "status": 400,
-    "headers": { "Content-Type": "application/json" },
+    "headers": {
+      "Content-Type": "application/json"
+    },
     "body": {
       "error": "invalid_payload",
-      "message": "payload/board must be equal to one of the allowed values",
-      "path": "/board"
+      "message": "payload/board/kind must be equal to one of the allowed values",
+      "path": "/board/kind"
     }
   }
 }

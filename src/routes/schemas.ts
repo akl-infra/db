@@ -29,6 +29,19 @@ const replaceSchema = {
   },
 } as const;
 
+// 20-spark.md §1 decision 9 (refined §8 R-L1): restore's body is
+// OPTIONAL -- absent, `{}`, or `{name}`; any other key is `400
+// bad_request` (LDB-A7's pattern, same as every other write schema).
+// `name`'s own shape (`check_name`) is `core/write.ts`'s job, not this
+// schema's -- same split every other body/edit-argument field uses.
+const restoreSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    name: { type: "string" },
+  },
+} as const;
+
 const transferSchema = {
   type: "object",
   additionalProperties: false,
@@ -117,6 +130,10 @@ export interface TransferBody {
   to: string;
 }
 
+export interface RestoreBody {
+  name?: string;
+}
+
 export interface AdminAddBody {
   user_id: string;
   note?: string;
@@ -165,6 +182,7 @@ export interface DrillReportBody {
 
 const validateCreate = ajv.compile<CreateBody>(createSchema);
 const validateReplace = ajv.compile<ReplaceBody>(replaceSchema);
+const validateRestore = ajv.compile<RestoreBody>(restoreSchema);
 const validateTransfer = ajv.compile<TransferBody>(transferSchema);
 const validateAdminAdd = ajv.compile<AdminAddBody>(adminAddSchema);
 const validatePatch = ajv.compile<PatchBody>(patchSchema);
@@ -206,6 +224,10 @@ export function parseReplaceBody(body: unknown): ReplaceBody {
 
 export function parseTransferBody(body: unknown): TransferBody {
   return checkBody(validateTransfer, body);
+}
+
+export function parseRestoreBody(body: unknown): RestoreBody {
+  return checkBody(validateRestore, body);
 }
 
 export function parseAdminAddBody(body: unknown): AdminAddBody {

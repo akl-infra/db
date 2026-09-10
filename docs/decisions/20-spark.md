@@ -948,3 +948,22 @@ ledgered and flippable by saltorbit):**
   touches no file the Worker slices do. The adoption guide and LDB-G10
   still wait for the final API. Lead cherry-picks it onto `ldb-spark`,
   then removes that worktree.
+- **2026-09-10 ~20:30Z** — **S2 landed** (Sonnet agent, lead-reviewed and
+  re-verified). `LEGACY_WRITABLE` deleted; writes resolve through
+  `resolveFormat` (`mana2/1` → `400 format_not_writable`, `cmini/1` and
+  unregistered → `unknown_format`); every write stores `spark/1` and
+  every carry-forward write (delete/restore/transfer/patch/replace) stores
+  `storedAsSpark(record)` with `has_magic` recomputed; magic-only
+  exemption deleted (a magic edit forks and bumps `modified_at`; LDB-I12
+  narrowed to the historical skip); §1.12 label rule on detail, `/rev`,
+  `full=1`, write responses and `409 stale` bodies; `?format=` resolves
+  `akl/1`; `WIRE_VERSION = 2` in the ETag; restore has no window and takes
+  an optional `{name}`. New: LDB-F16; amended F20, F21, N1, P8, R1, I12.
+  Deviations: `unsupported_for_format` on PATCH is now unreachable (every
+  record is patched as spark), so its conformance fixture and one
+  patch case were removed; `adapters/cmini/edits.ts` kept (dead but
+  tested; cleanup later); `?as=cmini/1` stays readable via an explicit
+  `ALIASES` check; `GET /v1/formats/cmini/1/schema.json` kept serving (old
+  `layout_revs` rows are cmini forever). Verified: db typecheck 0, vitest
+  15 827 passed / 0 failed (+39); bot 755 passed, lint clean;
+  `akl1.vitest.ts` 17 passed. Next: S3a.

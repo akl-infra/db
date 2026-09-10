@@ -74,12 +74,17 @@ import layoutsWriteDeleteOk from "./layouts-write/delete-200.json" with { type: 
 import layoutsWriteRestoreOk from "./layouts-write/restore-200.json" with { type: "json" };
 import layoutsWriteRestoreNotDeleted from "./layouts-write/restore-400-not_deleted.json" with { type: "json" };
 import layoutsWriteTransferOk from "./layouts-write/transfer-200.json" with { type: "json" };
-// T4's PATCH cases (09 §3 T4, §4): a 2xx, an `unsupported_for_format`, and
-// one `bad_request` -- following the same "not yet cross-checked by
-// REQUIRED, but exercised by the conformance loop like any other case"
-// note above (T6's sweep is what adds PATCH to REQUIRED).
+// T4's PATCH cases (09 §3 T4, §4): a 2xx and a `bad_request` -- following
+// the same "not yet cross-checked by REQUIRED, but exercised by the
+// conformance loop like any other case" note above (T6's sweep is what
+// adds PATCH to REQUIRED). `unsupported_for_format` had a case here too
+// (a hint-less colstag board on a cmini/1 record) until 20-spark.md S2:
+// `patchLayout` now runs every record through `storedAsSpark` first, so
+// `edits` is always spark's own (fingermap/board/magic uniformly
+// supported) -- the refusal is genuinely unreachable with today's one
+// stored format, and REQUIRED's own PATCH row drops the code with it
+// (tests/api/conformance.test.ts).
 import layoutsWritePatchOk from "./layouts-write/patch-200.json" with { type: "json" };
-import layoutsWritePatchUnsupported from "./layouts-write/patch-400-unsupported_for_format.json" with { type: "json" };
 import layoutsWritePatchBadRequest from "./layouts-write/patch-400-bad_request.json" with { type: "json" };
 
 // 09 §3 T3's admin routes. Only `GET /v1/admin/admins` is REQUIRED-enumerated
@@ -983,7 +988,6 @@ export const CASES: ConformanceCase[] = [
   // conformance.test.ts's seedWriteFixtures comment) -- no shared seed, no
   // ordering dependency between these three.
   kase("layouts-write/patch-400-bad_request", "/v1/layouts/:ref", layoutsWritePatchBadRequest, true),
-  kase("layouts-write/patch-400-unsupported_for_format", "/v1/layouts/:ref", layoutsWritePatchUnsupported, true),
   kase("layouts-write/patch-200", "/v1/layouts/:ref", layoutsWritePatchOk, true),
 
   kase("layouts-like/put-200", "/v1/layouts/:ref/like", layoutsLikePutOk, true),

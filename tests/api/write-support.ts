@@ -9,6 +9,13 @@ import { FakeDiscord } from "../auth/fake-discord";
 // migrations/0001_init.sql's bootstrap admin row.
 export const BOOTSTRAP_ADMIN = "184412255822020608";
 
+// Genuinely cmini-shaped (bare-string `board`) -- still used to seed a
+// REAL `cmini/1`-stored record directly via `appendWrite` (LDB-F21's own
+// carry-forward tests need a real legacy shape to convert). 20-spark.md
+// S2: `cmini/1` writes are refused through the real write routes now
+// (LDB-F16), so a call site that used to POST/PUT this through HTTP uses
+// `AKL_PAYLOAD`/`format: "akl/1"` instead -- never this constant, which
+// would 400 `unknown_format`.
 export const CMINI_PAYLOAD = { board: "ortho" as const, keys: {} };
 export const AKL_PAYLOAD = { keys: {} };
 

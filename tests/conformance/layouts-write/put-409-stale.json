@@ -3,15 +3,35 @@
     "method": "PUT",
     "path": "/v1/layouts/cw-put-stale-1",
     "bearer": "conformance-owner-token",
-    "headers": { "If-Match": "\"1\"" },
-    "body": { "format": "cmini/1", "payload": { "board": "ortho", "keys": {}, "tag": "stale" } },
+    "headers": {
+      "If-Match": "\"1\""
+    },
+    "body": {
+      "format": "akl/1",
+      "payload": {
+        "keys": {},
+        "x": {
+          "tag": "stale"
+        }
+      }
+    },
     "setup": [
       {
         "method": "PUT",
         "path": "/v1/layouts/cw-put-stale-1",
         "bearer": "conformance-owner-token",
-        "headers": { "If-Match": "\"1\"" },
-        "body": { "format": "cmini/1", "payload": { "board": "ortho", "keys": {}, "tag": "bump" } }
+        "headers": {
+          "If-Match": "\"1\""
+        },
+        "body": {
+          "format": "akl/1",
+          "payload": {
+            "keys": {},
+            "x": {
+              "tag": "bump"
+            }
+          }
+        }
       }
     ]
   },
@@ -34,8 +54,13 @@
         "deleted": false,
         "like_count": 0,
         "has_magic": false,
-        "format": "cmini/1",
-        "payload": { "board": "ortho", "keys": {}, "tag": "bump" }
+        "format": "akl/1",
+        "payload": {
+          "keys": {},
+          "x": {
+            "tag": "bump"
+          }
+        }
       },
       "last_write": {
         "seq": 439,

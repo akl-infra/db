@@ -66,7 +66,7 @@ describe("[LDB-F9] held/1 records", () => {
     expect(body.payload).toEqual({ anything: true });
   });
 
-  it("[LDB-F9] 409s for as=akl/1 with see: 'held/1'", async () => {
+  it("[LDB-F9] [LDB-F20] 409s for as=akl/1 with see: 'held/1'", async () => {
     const res = await SELF.fetch(`https://example.com/v1/layouts/${recordId}?as=akl/1`);
     expect(res.status).toBe(409);
     const body = await res.json<{ error: string; held: boolean; format: string; see?: string }>();

@@ -569,6 +569,10 @@ const REQUIRED: Record<string, RequiredCase[]> = {
     { status: 409, code: ERROR_CODES.stale },
     RL,
   ],
+  // 20-spark.md S2: `unsupported_for_format` dropped -- genuinely
+  // unreachable now that `patchLayout` normalizes every record to spark
+  // first (spark's own `edits` covers fingermap/board/magic uniformly);
+  // see manifest.ts's own note where the fixture was removed.
   "PATCH /v1/layouts/:ref": [
     { status: 200 },
     ...A,
@@ -576,7 +580,6 @@ const REQUIRED: Record<string, RequiredCase[]> = {
     { status: 400, code: ERROR_CODES.if_match_required },
     { status: 400, code: ERROR_CODES.invalid_name },
     { status: 400, code: ERROR_CODES.invalid_payload },
-    { status: 400, code: ERROR_CODES.unsupported_for_format },
     { status: 403, code: ERROR_CODES.not_owner },
     { status: 404, code: ERROR_CODES.not_found },
     { status: 409, code: ERROR_CODES.name_taken },

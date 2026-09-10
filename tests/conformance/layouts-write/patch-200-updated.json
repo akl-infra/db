@@ -3,8 +3,15 @@
     "method": "PATCH",
     "path": "/v1/layouts/cw-patch-updated-1",
     "bearer": "conformance-owner2-token",
-    "headers": { "If-Match": "\"1\"" },
-    "body": { "name": "cw-patch-updated-1-new", "fingermap": { "a": "RP" } },
+    "headers": {
+      "If-Match": "\"1\""
+    },
+    "body": {
+      "name": "cw-patch-updated-1-new",
+      "fingermap": {
+        "a": "RP"
+      }
+    },
     "setup": [
       {
         "method": "POST",
@@ -12,8 +19,16 @@
         "bearer": "conformance-owner2-token",
         "body": {
           "name": "cw-patch-updated-1",
-          "format": "cmini/1",
-          "payload": { "board": "ortho", "keys": { "a": { "row": 0, "col": 0, "finger": "LP" } } }
+          "format": "akl/1",
+          "payload": {
+            "keys": {
+              "a": {
+                "row": 0,
+                "col": 0,
+                "finger": "LP"
+              }
+            }
+          }
         }
       }
     ]
@@ -34,8 +49,16 @@
       "deleted": false,
       "like_count": 0,
       "has_magic": false,
-      "format": "cmini/1",
-      "payload": { "board": "ortho", "keys": { "a": { "row": 0, "col": 0, "finger": "RP" } } }
+      "format": "spark/1",
+      "payload": {
+        "keys": {
+          "a": {
+            "row": 0,
+            "col": 0,
+            "finger": "RP"
+          }
+        }
+      }
     }
   }
 }
