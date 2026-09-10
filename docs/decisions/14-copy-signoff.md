@@ -311,11 +311,30 @@ lighter convention as C4's `desc()` changes):
   thumb key (off/left/right/auto)'`; the invalid-arg reply now ends
   ``isn't `off`, `left`, `right`, or `auto`.``; the no-arg/set replies
   are unchanged and simply print `auto` as the value.
-- `bot/src/copy.ts` `spacegramsFooterSuffix` (LDB-B39): `' · spacegrams
+- ~~`bot/src/copy.ts` `spacegramsFooterSuffix` (LDB-B39): `' · spacegrams
   (auto: left thumb)'` / `' · spacegrams (auto: right thumb)'`, and on a
   compare card whose two layouts resolved differently `' · spacegrams
   (auto: new left thumb, old right thumb)'` (new first, matching the
-  `a(new) - b(old)` header order).
+  `a(new) - b(old)` header order).~~ — SUPERSEDED by round 5 (the long
+  forms are gone).
+
+## Round 5 — directed by saltorbit 2026-09-10 (mockup round, T2 + I1 picks) — SIGNED
+
+Two strings, dictated verbatim by saltorbit ("SG On or SG Off") for `!image`'s
+footer (LDB-B42, `bot/src/copy.ts`'s `spacegramsFooterSuffix`), replacing
+round 3/4's long forms, which overflowed the card's footer into the LH/RH
+block:
+
+| surface | old | new (signed) |
+|---|---|---|
+| `!image` footer, spacegrams preference `off` | `corpus: reddit · no spacegrams  ·  akl.gg` | `corpus: reddit · SG Off  ·  akl.gg` |
+| `!image` footer, any resolved side (`left`/`right`/`auto`, a compare card whose sides differ included) | `corpus: reddit · spacegrams (left thumb)  ·  akl.gg`, `… (auto: new left thumb, old right thumb) …` | `corpus: reddit · SG On  ·  akl.gg` |
+
+Also in this round, not copy strings and needing no sign-off: the `␣`
+glyph the `view`/`compare` text grid shows under the space thumb
+(LDB-B41), and the `NoTh:`/`Thumb:` stats-block labels (LDB-B44) — the
+latter are `web/src/copy/card.ts`'s own `noTh`/`thumb` (akl.gg's names,
+round 4's rule: signed).
 
 ## Other flagged spots
 
