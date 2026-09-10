@@ -20,12 +20,16 @@ imported record carries.
 
 ## 2. The rule
 
-**A record's `magic` is akl.gg's, or absent.** cmini's magic never enters
-the DB. The import writes keys, board and name; it never reads or writes
-`magic`. The site writes rules straight into the record. Everything that
-wants a layout's rules reads the record.
+**The record is the one home of a layout's magic.** akl.gg's current
+rule sets are the *seed* — imported once, then never consulted again as
+a source: after the seed akl.gg writes rules to the record like any other
+client and reads them back from it; its D1 table and `magic_rules.json`
+become derived or retired. cmini's magic never enters the DB. The cmini
+import writes keys, board and name; it never reads or writes `magic`.
+Everything that wants a layout's rules — the site, the bot, the
+pipeline — reads the record.
 
-## 3. Why "an akl.gg-owned layer", not "publishing flips the record"
+## 3. Why "a layer the cmini import never touches", not "publishing flips the record"
 
 `LDB-I2a`: a record follows upstream iff its latest rev-bumping event
 has `via = import:cmini`. If akl.gg's rules were published as an ordinary
@@ -69,16 +73,18 @@ refold. Invariants: **LDB-I9** an imported payload never carries `magic`;
 import cases (upstream adds/changes/removes magic → no event), the
 apply-preserves-magic case, the diff fixture.
 
-**M2 — site → DB: publish akl.gg's rules into their records.**
-Run `scripts/migrate_magic_rules_to_db.py` for real (W5's script, today
-`--dry-run`): each of the 83 sets becomes its record's akl/1 `magic` via
-the ops client, `via: migration`, one event each, records lifted to
-`akl/1`. Then akl.gg's editor writes `PATCH /v1/layouts/{id} {magic}`
-through the existing `/api/db/*` proxy on the user lane (I-225/I-226) —
-owner or admin, the same rule the current PUT enforces — instead of D1.
-The 10 layouts whose rules the migration forks (ledger §6 Q2) need
-saltorbit's call first. Invariant: **I-2xx** akl.gg never writes a rule set
-anywhere but the record (the PUT route deleted; `magic_rules_log` frozen).
+**M2 — seed the records from akl.gg's rules, then akl.gg writes to the
+DB.** Run `scripts/migrate_magic_rules_to_db.py` for real (W5's script,
+today `--dry-run`): each of the 83 sets becomes its record's akl/1
+`magic` via the ops client, `via: migration`, one event each, records
+lifted to `akl/1`. That is the last time akl.gg's copy is read as a
+source. From then on akl.gg's editor writes `PATCH /v1/layouts/{id}
+{magic}` through the existing `/api/db/*` proxy on the user lane
+(I-225/I-226) — owner or admin, the same rule the current PUT enforces —
+and the D1 `magic_rules` PUT is deleted. The 10 layouts whose rules the
+seed would fork (ledger §6 Q2) need saltorbit's call first. Invariant:
+**I-2xx** after the seed, akl.gg never writes a rule set anywhere but
+the record (`magic_rules_log` frozen, the PUT route gone).
 
 **M3 — akl.gg reads rules from records.** `sync_cmini_data.py --source db`
 builds `web/data/magic_rules.json` from `?as=akl/1` records with magic
@@ -94,7 +100,8 @@ W6.
 
 ## 5. What this changes for the bot
 
-Nothing beyond LDB-B24: its `rulesFor(rec)` already prefers the site's
-file, then an `akl/1` record's own magic, never a `cmini/1` record's.
-After M2, the file and the records agree; after M3 the file is derived
-from the records, and the bot can drop the file and read the record only.
+Nothing beyond LDB-B24: its `rulesFor(rec)` reads an `akl/1` record's
+own magic first (the DB is the truth), falls back to akl.gg's file only
+for a record not yet seeded, and never reads a `cmini/1` record's. After
+M2 the fallback never fires; after M3 it is deleted and the bot reads the
+record only.
