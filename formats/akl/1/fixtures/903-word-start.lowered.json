@@ -1,0 +1,152 @@
+[
+  {
+    "inputs": ",;",
+    "output": ",y",
+    "type": "default:y"
+  },
+  {
+    "inputs": ".;",
+    "output": ".y",
+    "type": "default:y"
+  },
+  {
+    "inputs": "/;",
+    "output": "/y",
+    "type": "default:y"
+  },
+  {
+    "inputs": "a;",
+    "output": "ay",
+    "type": "default:y"
+  },
+  {
+    "inputs": "b;",
+    "output": "by",
+    "type": "default:y"
+  },
+  {
+    "inputs": "c;",
+    "output": "cy",
+    "type": "default:y"
+  },
+  {
+    "inputs": "d;",
+    "output": "dy",
+    "type": "default:y"
+  },
+  {
+    "inputs": "e;",
+    "output": "ey",
+    "type": "default:y"
+  },
+  {
+    "inputs": "f;",
+    "output": "fy",
+    "type": "default:y"
+  },
+  {
+    "inputs": "g;",
+    "output": "gy",
+    "type": "default:y"
+  },
+  {
+    "inputs": "h;",
+    "output": "hy",
+    "type": "default:y"
+  },
+  {
+    "inputs": "i;",
+    "output": "iy",
+    "type": "default:y"
+  },
+  {
+    "inputs": "j;",
+    "output": "jy",
+    "type": "default:y"
+  },
+  {
+    "inputs": "k;",
+    "output": "ky",
+    "type": "default:y"
+  },
+  {
+    "inputs": "l;",
+    "output": "ly",
+    "type": "default:y"
+  },
+  {
+    "inputs": "m;",
+    "output": "my",
+    "type": "default:y"
+  },
+  {
+    "inputs": "n;",
+    "output": "ny",
+    "type": "default:y"
+  },
+  {
+    "inputs": "o;",
+    "output": "oy",
+    "type": "default:y"
+  },
+  {
+    "inputs": "p;",
+    "output": "py",
+    "type": "default:y"
+  },
+  {
+    "inputs": "q;",
+    "output": "qy",
+    "type": "default:y"
+  },
+  {
+    "inputs": "r;",
+    "output": "ry",
+    "type": "default:y"
+  },
+  {
+    "inputs": "s;",
+    "output": "sy",
+    "type": "default:y"
+  },
+  {
+    "inputs": "t;",
+    "output": "ty",
+    "type": "default:y"
+  },
+  {
+    "inputs": "u;",
+    "output": "uy",
+    "type": "default:y"
+  },
+  {
+    "inputs": "v;",
+    "output": "vy",
+    "type": "default:y"
+  },
+  {
+    "inputs": "w;",
+    "output": "wy",
+    "type": "default:y"
+  },
+  {
+    "inputs": "x;",
+    "output": "xy",
+    "type": "default:y"
+  },
+  {
+    "inputs": "y;",
+    "output": "yy",
+    "type": "default:y"
+  },
+  {
+    "inputs": "z;",
+    "output": "zy",
+    "type": "default:y"
+  },
+  {
+    "inputs": " ;",
+    "output": " y",
+    "type": "default:y"
+  }
+]

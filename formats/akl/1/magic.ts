@@ -140,10 +140,11 @@ function emission(m: MagicIntent, keys: Record<string, Position>, trigger: strin
 }
 
 // Every row the idioms + raw rules produce, in 07 §5.2's output order:
-// per magic key (scaffold rows sorted by layout char, then explicit rules
-// in author order), per chiral key (scaffold rows sorted by layout char),
-// per adaptive swap (two rows, author order), then `rules[]` in author
-// order. Emits EVERY row unconditionally -- collisions are a separate pass
+// per magic key (scaffold rows sorted by layout char, then the LDB-F14
+// word-start row for a literal default, then explicit rules in author
+// order), per chiral key (scaffold rows sorted by layout char), per
+// adaptive swap (two rows, author order), then `rules[]` in author order.
+// Emits EVERY row unconditionally -- collisions are a separate pass
 // (`findCollision`) so `lower()` stays a total, pure mapping.
 export function computeRows(magic: MagicIntent | undefined, keys: Record<string, Position>): LabeledRow[] {
   const m = magic ?? {};
@@ -163,14 +164,39 @@ export function computeRows(magic: MagicIntent | undefined, keys: Record<string,
   magicKeys.forEach((mk, i) => {
     const exceptSet = new Set(mk.except ?? []);
     const explicitAfters = new Set((mk.rules ?? []).map((r) => r.after));
+    const dflt = mk.default ?? "none";
     for (const c of layoutChars(keys, new Set([mk.key]))) {
       if (exceptSet.has(c) || explicitAfters.has(c)) continue; // an explicit rule for this `after` REPLACES the scaffold row -- not a collision (01 §3)
-      const dflt = mk.default ?? "none";
       if (dflt === "repeat_previous") {
         rows.push({ inputs: c + mk.key, output: c + c, type: "repeat", from: `magic_keys[${i}]` });
       } else if (dflt !== "none" && isSingleChar(dflt)) {
         rows.push({ inputs: c + mk.key, output: c + dflt, type: `default:${dflt}`, from: `magic_keys[${i}]` });
       }
+    }
+    // LDB-F14 (design/layout-db/01-format.md §3, db/INVARIANTS.md): the
+    // site's compile (web/src/core/rules.ts's magicRulesFlatCompile,
+    // I-153) emits one extra scaffold row for a LITERAL default -- a bare
+    // space (word-initial text has no preceding board character for the
+    // loop above to enumerate). Mirrors the site's condition exactly:
+    //   - repeat_previous gets none (the site's own comment: "repeating a
+    //     space types text nobody analyzes", #210's board-only scaffold).
+    //   - NOT gated by `except`: the site has no such list to consult for
+    //     this row at all (its MagicKey type carries no `except` field),
+    //     so unlike every board-char row above, exceptSet is deliberately
+    //     NOT checked here -- an authored `except: [" "]` does not
+    //     suppress it (findCollision below omits the misleading
+    //     "add ' ' to except" hint for exactly this reason).
+    //   - IS suppressed by an explicit magic_keys[].rules[] entry whose
+    //     `after` is a bare space, same "explicit replaces scaffold"
+    //     carve-out board chars already get (01 §3).
+    //   - Guarded against literal duplication on the vanishing chance a
+    //     layout's own `keys` assigns a real position to the ' ' character
+    //     itself (no fixture does; the site's magicScaffoldChars excludes
+    //     whitespace from its board enumeration for the same reason) --
+    //     in that case the loop above already emitted (and except-gated)
+    //     the ' '+key row, so this dedicated push would only duplicate it.
+    if (dflt !== "repeat_previous" && dflt !== "none" && isSingleChar(dflt) && !explicitAfters.has(" ") && !(" " in keys)) {
+      rows.push({ inputs: " " + mk.key, output: " " + dflt, type: `default:${dflt}`, from: `magic_keys[${i}]` });
     }
     (mk.rules ?? []).forEach((r, j) => {
       rows.push({ inputs: r.after + mk.key, output: r.output, type: "magic", from: `magic_keys[${i}].rules[${j}]` });
@@ -230,7 +256,12 @@ export function findCollision(rows: LabeledRow[]): CollisionInfo | null {
     if (group.length < 2) continue;
     const [first, second] = group as [LabeledRow, LabeledRow];
     const scaffoldFrom = isScaffold(first.from) ? first.from : isScaffold(second.from) ? second.from : undefined;
-    const hint = scaffoldFrom ? { path: `${scaffoldFrom}.except`, add: [...inputs].slice(0, -1).join("") } : undefined;
+    const afterChar = [...inputs].slice(0, -1).join("");
+    // LDB-F14: a bare space `after` is the word-start row's own signature
+    // (computeRows above never checks `except` for it), so "add ' ' to
+    // except" would not actually resolve this collision -- omit the hint
+    // rather than ship one that doesn't work.
+    const hint = scaffoldFrom && afterChar !== " " ? { path: `${scaffoldFrom}.except`, add: afterChar } : undefined;
     return {
       inputs,
       from: [first.from, second.from],

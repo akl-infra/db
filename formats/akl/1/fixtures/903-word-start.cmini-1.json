@@ -1,0 +1,307 @@
+{
+  "board": "stagger",
+  "keys": {
+    "q": {
+      "row": 0,
+      "col": 0,
+      "finger": "LP"
+    },
+    "w": {
+      "row": 0,
+      "col": 1,
+      "finger": "LR"
+    },
+    "e": {
+      "row": 0,
+      "col": 2,
+      "finger": "LM"
+    },
+    "r": {
+      "row": 0,
+      "col": 3,
+      "finger": "LI"
+    },
+    "t": {
+      "row": 0,
+      "col": 4,
+      "finger": "LI"
+    },
+    "y": {
+      "row": 0,
+      "col": 5,
+      "finger": "RI"
+    },
+    "u": {
+      "row": 0,
+      "col": 6,
+      "finger": "RI"
+    },
+    "i": {
+      "row": 0,
+      "col": 7,
+      "finger": "RM"
+    },
+    "o": {
+      "row": 0,
+      "col": 8,
+      "finger": "RR"
+    },
+    "p": {
+      "row": 0,
+      "col": 9,
+      "finger": "RP"
+    },
+    "a": {
+      "row": 1,
+      "col": 0,
+      "finger": "LP"
+    },
+    "s": {
+      "row": 1,
+      "col": 1,
+      "finger": "LR"
+    },
+    "d": {
+      "row": 1,
+      "col": 2,
+      "finger": "LM"
+    },
+    "f": {
+      "row": 1,
+      "col": 3,
+      "finger": "LI"
+    },
+    "g": {
+      "row": 1,
+      "col": 4,
+      "finger": "LI"
+    },
+    "h": {
+      "row": 1,
+      "col": 5,
+      "finger": "RI"
+    },
+    "j": {
+      "row": 1,
+      "col": 6,
+      "finger": "RI"
+    },
+    "k": {
+      "row": 1,
+      "col": 7,
+      "finger": "RM"
+    },
+    "l": {
+      "row": 1,
+      "col": 8,
+      "finger": "RR"
+    },
+    ";": {
+      "row": 1,
+      "col": 9,
+      "finger": "RP"
+    },
+    "z": {
+      "row": 2,
+      "col": 0,
+      "finger": "LP"
+    },
+    "x": {
+      "row": 2,
+      "col": 1,
+      "finger": "LR"
+    },
+    "c": {
+      "row": 2,
+      "col": 2,
+      "finger": "LM"
+    },
+    "v": {
+      "row": 2,
+      "col": 3,
+      "finger": "LI"
+    },
+    "b": {
+      "row": 2,
+      "col": 4,
+      "finger": "LI"
+    },
+    "n": {
+      "row": 2,
+      "col": 5,
+      "finger": "RI"
+    },
+    "m": {
+      "row": 2,
+      "col": 6,
+      "finger": "RI"
+    },
+    ",": {
+      "row": 2,
+      "col": 7,
+      "finger": "RM"
+    },
+    ".": {
+      "row": 2,
+      "col": 8,
+      "finger": "RR"
+    },
+    "/": {
+      "row": 2,
+      "col": 9,
+      "finger": "RP"
+    }
+  },
+  "magic": [
+    {
+      "inputs": ",;",
+      "output": ",y",
+      "type": "default:y"
+    },
+    {
+      "inputs": ".;",
+      "output": ".y",
+      "type": "default:y"
+    },
+    {
+      "inputs": "/;",
+      "output": "/y",
+      "type": "default:y"
+    },
+    {
+      "inputs": "a;",
+      "output": "ay",
+      "type": "default:y"
+    },
+    {
+      "inputs": "b;",
+      "output": "by",
+      "type": "default:y"
+    },
+    {
+      "inputs": "c;",
+      "output": "cy",
+      "type": "default:y"
+    },
+    {
+      "inputs": "d;",
+      "output": "dy",
+      "type": "default:y"
+    },
+    {
+      "inputs": "e;",
+      "output": "ey",
+      "type": "default:y"
+    },
+    {
+      "inputs": "f;",
+      "output": "fy",
+      "type": "default:y"
+    },
+    {
+      "inputs": "g;",
+      "output": "gy",
+      "type": "default:y"
+    },
+    {
+      "inputs": "h;",
+      "output": "hy",
+      "type": "default:y"
+    },
+    {
+      "inputs": "i;",
+      "output": "iy",
+      "type": "default:y"
+    },
+    {
+      "inputs": "j;",
+      "output": "jy",
+      "type": "default:y"
+    },
+    {
+      "inputs": "k;",
+      "output": "ky",
+      "type": "default:y"
+    },
+    {
+      "inputs": "l;",
+      "output": "ly",
+      "type": "default:y"
+    },
+    {
+      "inputs": "m;",
+      "output": "my",
+      "type": "default:y"
+    },
+    {
+      "inputs": "n;",
+      "output": "ny",
+      "type": "default:y"
+    },
+    {
+      "inputs": "o;",
+      "output": "oy",
+      "type": "default:y"
+    },
+    {
+      "inputs": "p;",
+      "output": "py",
+      "type": "default:y"
+    },
+    {
+      "inputs": "q;",
+      "output": "qy",
+      "type": "default:y"
+    },
+    {
+      "inputs": "r;",
+      "output": "ry",
+      "type": "default:y"
+    },
+    {
+      "inputs": "s;",
+      "output": "sy",
+      "type": "default:y"
+    },
+    {
+      "inputs": "t;",
+      "output": "ty",
+      "type": "default:y"
+    },
+    {
+      "inputs": "u;",
+      "output": "uy",
+      "type": "default:y"
+    },
+    {
+      "inputs": "v;",
+      "output": "vy",
+      "type": "default:y"
+    },
+    {
+      "inputs": "w;",
+      "output": "wy",
+      "type": "default:y"
+    },
+    {
+      "inputs": "x;",
+      "output": "xy",
+      "type": "default:y"
+    },
+    {
+      "inputs": "y;",
+      "output": "yy",
+      "type": "default:y"
+    },
+    {
+      "inputs": "z;",
+      "output": "zy",
+      "type": "default:y"
+    },
+    {
+      "inputs": " ;",
+      "output": " y",
+      "type": "default:y"
+    }
+  ]
+}

@@ -1,0 +1,150 @@
+{
+  "layout": {
+    "fingers": [
+      "q w e r t y u i o p",
+      "a s d f g h j k l ;",
+      "z x c v b n m , . /"
+    ]
+  },
+  "fingermap": [
+    "0 1 2 3 3 6 6 7 8 9",
+    "0 1 2 3 3 6 6 7 8 9",
+    "0 1 2 3 3 6 6 7 8 9"
+  ],
+  "board": {
+    "isRowStaggered": true,
+    "rowOrColumnStagger": [
+      0,
+      0.25,
+      0.75
+    ],
+    "mirrorLeftRowStagger": false,
+    "splitAngle": 0
+  },
+  "magic": {
+    "rules": [
+      {
+        "inputs": ",;",
+        "output": ",y"
+      },
+      {
+        "inputs": ".;",
+        "output": ".y"
+      },
+      {
+        "inputs": "/;",
+        "output": "/y"
+      },
+      {
+        "inputs": "a;",
+        "output": "ay"
+      },
+      {
+        "inputs": "b;",
+        "output": "by"
+      },
+      {
+        "inputs": "c;",
+        "output": "cy"
+      },
+      {
+        "inputs": "d;",
+        "output": "dy"
+      },
+      {
+        "inputs": "e;",
+        "output": "ey"
+      },
+      {
+        "inputs": "f;",
+        "output": "fy"
+      },
+      {
+        "inputs": "g;",
+        "output": "gy"
+      },
+      {
+        "inputs": "h;",
+        "output": "hy"
+      },
+      {
+        "inputs": "i;",
+        "output": "iy"
+      },
+      {
+        "inputs": "j;",
+        "output": "jy"
+      },
+      {
+        "inputs": "k;",
+        "output": "ky"
+      },
+      {
+        "inputs": "l;",
+        "output": "ly"
+      },
+      {
+        "inputs": "m;",
+        "output": "my"
+      },
+      {
+        "inputs": "n;",
+        "output": "ny"
+      },
+      {
+        "inputs": "o;",
+        "output": "oy"
+      },
+      {
+        "inputs": "p;",
+        "output": "py"
+      },
+      {
+        "inputs": "q;",
+        "output": "qy"
+      },
+      {
+        "inputs": "r;",
+        "output": "ry"
+      },
+      {
+        "inputs": "s;",
+        "output": "sy"
+      },
+      {
+        "inputs": "t;",
+        "output": "ty"
+      },
+      {
+        "inputs": "u;",
+        "output": "uy"
+      },
+      {
+        "inputs": "v;",
+        "output": "vy"
+      },
+      {
+        "inputs": "w;",
+        "output": "wy"
+      },
+      {
+        "inputs": "x;",
+        "output": "xy"
+      },
+      {
+        "inputs": "y;",
+        "output": "yy"
+      },
+      {
+        "inputs": "z;",
+        "output": "zy"
+      },
+      {
+        "inputs": " ;",
+        "output": " y"
+      }
+    ],
+    "magicKeys": null
+  },
+  "layers": null
+}

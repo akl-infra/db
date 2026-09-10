@@ -167,6 +167,14 @@ and its `except` list — *not* every magic/chiral key (S3: upstream's
 `auditor` gives its magic key `b` a repeat row from `*`). The
 repeat/default scaffold enumerates **the layout's keys**, not a–z
 (#221 §3.1: cmini's own rows do, and a–z gives non-Latin layouts nothing).
+A `default:<c>` scaffold (never `repeat_previous`) also gets one extra
+word-start row, `{inputs: ' '+key, output: ' '+c}` — word-initial text has
+no preceding board character for the scaffold above to enumerate, and the
+site's own compile (`web/src/core/rules.ts`'s `magicRulesFlatCompile`,
+I-153) emits it unconditionally whenever the default is literal, `except`
+included (the site's authoring shape has no `except` list to consult for
+this row at all); an explicit `magic_keys[].rules[]` entry for
+`after: ' '` still replaces it, same as any board char (LDB-F14).
 
 **Typed rows.** Every lowered row carries a `type` from a closed vocabulary
 — the shape cmini's API already serves (`magic: [{inputs, output, type}]`)

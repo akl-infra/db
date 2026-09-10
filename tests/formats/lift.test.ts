@@ -135,7 +135,7 @@ function canonicalIntent(m: MagicIntent): unknown {
 }
 
 describe("liftRules(lower(m)) == (m, []) -- valid akl idioms", () => {
-  it("[LDB-F8] property: 200 random 20-35 key layouts x idiom sets", () => {
+  it("[LDB-F8] [LDB-F14] property: 200 random 20-35 key layouts x idiom sets (a third of magic keys get a literal default, exercising the word-start row)", () => {
     fc.assert(
       fc.property(fc.gen(), (g) => {
         const keys = genLayout(g);
