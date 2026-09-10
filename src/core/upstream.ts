@@ -6,11 +6,6 @@ import { legacyFollows } from "./follows";
 import type { RecordRow, Upstream } from "./records";
 import type { WriteKind } from "./events";
 
-// S4 (`db/src/core/migrate.ts`) adds `"migrated"` to `WriteKind` itself;
-// `nextUpstream` already has to understand it (I14's own text), so this
-// widens the parameter type here rather than waiting on that slice.
-export type UpstreamWriteKind = WriteKind | "migrated";
-
 // The LDB-I14 rule:
 //  - `migrated` never changes it -- a migration's write carries forward
 //    whatever `prior` already resolved to (the legacy rule, the first time).
@@ -32,7 +27,7 @@ export type UpstreamWriteKind = WriteKind | "migrated";
 // this function only ever looks at `prior`'s `state` on the fork branch,
 // and an import write can't reach that branch (`via` is always
 // `"import:cmini"` there), so the placeholder never surfaces.
-export function nextUpstream(prior: Upstream | null, kind: UpstreamWriteKind, via: string): Upstream | null {
+export function nextUpstream(prior: Upstream | null, kind: WriteKind, via: string): Upstream | null {
   if (kind === "migrated") return prior;
   if (prior === null) return null;
   if (via === "import:cmini") return { ...prior, state: "following" };
@@ -43,16 +38,25 @@ export function nextUpstream(prior: Upstream | null, kind: UpstreamWriteKind, vi
 // permanent legacy fallback (LDB-P11) -- keeps every write correct between
 // the 0005 deploy and the S4 migration, and after a restore of a pre-0005
 // dump (whose rows carry no `upstream_*` columns at all, so `rowToRecord`
-// reads them back `null`). The fallback only ever answers `following` or
-// `null`, never `forked` (R-L6: a mapped-but-not-following record, e.g.
-// import case 2's same-owner name clash, has an `import_map` row but was
-// never actually "the record importing wrote" -- the legacy model has no
-// way to tell that apart from "no link at all", so it doesn't try).
+// reads them back `null`).
+//
+// **Corrected 2026-09-10** (S4 review, the lead's fix for a migration
+// non-termination bug this slice found): an `import_map` row is I14's own
+// "does the importer still own this record's keys and board" question --
+// its answer is `following` or `forked`, never "no link at all". The
+// earlier text here (R-L6) had the fallback answer `null` for a mapped
+// record `legacyFollows` says isn't following (e.g. import case 2's
+// same-owner name clash, or ANY imported record a user has since edited),
+// reasoning that the legacy model "can't tell that apart from no link at
+// all" -- but it doesn't need to: an `import_map` row IS the link, `state`
+// is just whichever of the two the legacy rule computes. `null` is now
+// reserved for the one case that's actually ambiguous: no `import_map` row
+// exists at all (a plain user record that was never imported). Only a
+// record with NO `import_map` row reads `null` here.
 export async function upstreamOf(db: Bindings["DB"], rec: RecordRow): Promise<Upstream | null> {
   if (rec.upstream !== null) return rec.upstream;
   const row = await db.prepare("SELECT upstream_id FROM import_map WHERE layout_id = ?").bind(rec.id).first<{ upstream_id: string }>();
   if (row === null) return null;
   const following = await legacyFollows(db, rec.id);
-  if (!following) return null;
-  return { source: "cmini", id: row.upstream_id, state: "following" };
+  return { source: "cmini", id: row.upstream_id, state: following ? "following" : "forked" };
 }

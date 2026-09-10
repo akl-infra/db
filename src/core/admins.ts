@@ -122,18 +122,23 @@ export async function isImportPaused(db: Bindings["DB"]): Promise<boolean> {
 // M1: `which: "strip_cmini_magic"` (`admin.magic_stripped`) is the fourth
 // manual-trigger kind, same posture as the other three -- `POST /v1/admin/
 // import/strip-cmini-magic`'s own audit event.
-const MANUAL_TICK_KIND: Record<"import" | "diff" | "nightly" | "strip_cmini_magic", InfoKind> = {
+// 20-spark.md S4 (LDB-A5 amended): `which: "migrate"` (`admin.migrate_ticked`)
+// is the fifth -- `POST /v1/admin/migrate/tick`'s own audit event, `detail`
+// carrying the full `MigrateReport` (`core/migrate.ts`), same posture as
+// `diff`'s own full record.
+const MANUAL_TICK_KIND: Record<"import" | "diff" | "nightly" | "strip_cmini_magic" | "migrate", InfoKind> = {
   import: "admin.import_ticked",
   diff: "admin.diff_ticked",
   nightly: "admin.nightly_ticked",
   strip_cmini_magic: "admin.magic_stripped",
+  migrate: "admin.migrate_ticked",
 };
 
 export async function recordManualTick(
   db: Bindings["DB"],
   now: Clock,
   actorId: string,
-  which: "import" | "diff" | "nightly" | "strip_cmini_magic",
+  which: "import" | "diff" | "nightly" | "strip_cmini_magic" | "migrate",
   detail: object,
 ): Promise<{ seq: number }> {
   const { seq } = await appendAdmin(db, now, { kind: MANUAL_TICK_KIND[which], actor: actorId, detail });

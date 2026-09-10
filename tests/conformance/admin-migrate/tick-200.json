@@ -1,0 +1,12 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/admin/migrate/tick",
+    "bearer": "conformance-admin-token",
+    "body": { "dry_run": true }
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" }
+  }
+}

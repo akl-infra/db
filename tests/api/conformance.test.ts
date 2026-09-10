@@ -670,6 +670,11 @@ const REQUIRED: Record<string, RequiredCase[]> = {
   // X4 follow-up 3: the manual nightly-job-set trigger (no "paused" state
   // exists for it either).
   "POST /v1/admin/nightly/tick": [{ status: 200 }, ...A, { status: 403, code: ERROR_CODES.not_admin }, RL],
+  // 20-spark.md S4 (LDB-A5 amended, LDB-P12): the record migration's manual
+  // trigger -- same shape as diff/tick and nightly/tick above, no "paused"
+  // gate (not gated on the import pause, `expectRev` keeps the two safe to
+  // interleave).
+  "POST /v1/admin/migrate/tick": [{ status: 200 }, ...A, { status: 403, code: ERROR_CODES.not_admin }, RL],
   // M1 (LDB-I10, design/layout-db/17-magic-ownership.md §4): same shape as
   // `POST /v1/admin/import/tick` above, "paused" guard included.
   "POST /v1/admin/import/strip-cmini-magic": [

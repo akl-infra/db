@@ -69,7 +69,7 @@ describe("[LDB-I14] upstreamOf: field vs. legacy fallback, the import_map dimens
     expect(await upstreamOf(db, rec!)).toEqual({ source: "cmini", id: "legacy-up-1", state: "following" });
   });
 
-  it("[LDB-I14] null field + import_map row + legacyFollows false -> null (R-L6: mapped is not sufficient)", async () => {
+  it("[LDB-I14] null field + import_map row + legacyFollows false -> 'forked' (mapped but not following IS forked, not null -- an import_map row alone answers 'does the importer own this record', never 'is there a link at all')", async () => {
     const name = `legacy-not-following-${unique()}`;
     const { record } = await appendWrite(db, clock, {
       upstream: null,
@@ -85,7 +85,7 @@ describe("[LDB-I14] upstreamOf: field vs. legacy fallback, the import_map dimens
     });
     await insertImportMapRow("legacy-up-2", record.id);
     const rec = await readById(db, record.id);
-    expect(await upstreamOf(db, rec!)).toBeNull();
+    expect(await upstreamOf(db, rec!)).toEqual({ source: "cmini", id: "legacy-up-2", state: "forked" });
   });
 
   it("[LDB-I14] null field + no import_map row at all -> null", async () => {

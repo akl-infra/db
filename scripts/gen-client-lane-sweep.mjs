@@ -88,9 +88,20 @@ const ROUTES = [
   // M1 (LDB-I10, design/layout-db/17-magic-ownership.md §4): same shape as
   // admin-import/tick above.
   ["admin-import", "strip-cmini-magic", "POST", "/v1/admin/import/strip-cmini-magic", "/v1/admin/import/strip-cmini-magic"],
+  // 20-spark.md S4 (LDB-A5 amended, LDB-P12): the record migration's manual
+  // trigger, same shape as admin-diff/tick above (no "paused" gate).
+  // Appended here by hand (the tick fixtures already committed under
+  // tests/conformance/admin-migrate/ and manifest.ts's CLIENT_LANE_CASES
+  // entries match this row's own template byte for byte) rather than by
+  // re-running this script -- it is only safe to run against a manifest.ts
+  // that does not yet have a CLIENT_LANE_CASES block at all (a second run
+  // re-inserts the whole generated section instead of replacing it, per
+  // this file's own header note: "idempotent ... as long as ROUTES is kept
+  // in sync ... by hand").
+  ["admin-migrate", "tick", "POST", "/v1/admin/migrate/tick", "/v1/admin/migrate/tick"],
 ];
 
-if (ROUTES.length !== 26) throw new Error(`expected 26 A-group routes, got ${ROUTES.length}`);
+if (ROUTES.length !== 27) throw new Error(`expected 27 A-group routes, got ${ROUTES.length}`);
 
 function pascal(s) {
   return s

@@ -1108,3 +1108,22 @@ ledgered and flippable by saltorbit):**
   never reads `format`, so no transition hazard; db typecheck 0, vitest
   16 017 passed / 0 failed (+103); bot 755; site 17. Next: land S4 (fix in
   flight) and S6 (follow-ups in flight), then S5.
+- **2026-09-11 ~01:05Z** — **S4 landed** on `ldb-spark` (squash of
+  `ldb-spark-s4` 90225cc5f + f18fd30ee; conflicts only in
+  `db/INVARIANTS.md`, resolved row by row: S4's I14/P12, S3b's I13/P14).
+  `core/migrate.ts` `migrateTick` (legacy formats + null-upstream-with-
+  mapping selection, `storedAsSpark`, spark validate → `invalid`,
+  `migrated` events with `expectRev`, `system:migration` source, dry run =
+  zero writes), `migrated` WriteKind, `POST /v1/admin/migrate/tick`
+  (`admin.migrate_ticked`), `scripts/migrate_records_to_spark.py` +
+  pytest, 11 admin-migrate conformance fixtures. **Fix in the same
+  landing:** `upstreamOf` answers `forked` (not `null`) for a record with
+  an `import_map` row that isn't following. Without it the backfill arm
+  never terminated and genuinely forked records lost their state. New
+  LDB-P12; amended A5, I14. Lead checks: db typecheck 0, vitest 16 037
+  passed / 0 failed (+20); migration pytest 5/5. Not added: a
+  script-level pytest for the loop's termination on those two shapes;
+  the TS test proves a second tick selects nothing, which is the loop's
+  exit condition. The S4 agent worktree is removed next; the branch stays.
+  S7 (prose docs) is running in this worktree; S6 follow-ups in flight.
+  Next: S5.

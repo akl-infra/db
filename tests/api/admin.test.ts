@@ -766,3 +766,91 @@ describe("POST /v1/admin/import/tick, POST /v1/admin/diff/tick, and POST /v1/adm
     });
   });
 });
+
+// [LDB-A5] [LDB-P12] 20-spark.md S4: the record migration's manual trigger.
+// Unlike import/diff/nightly's tick routes above, this one makes no cmini
+// upstream fetch of its own (`migrateTick` reads/writes D1 only) -- the
+// plain top-level `adminHeaders`/`userHeaders` (a lone `FakeDiscord`,
+// `actorFixture()`) are enough, no combined-fetch dispatcher needed.
+describe("[LDB-A5] POST /v1/admin/migrate/tick", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  async function migrateEventCount(): Promise<number> {
+    const row = await db.prepare("SELECT COUNT(*) AS n FROM events WHERE kind = 'admin.migrate_ticked'").first<{ n: number }>();
+    return row?.n ?? 0;
+  }
+
+  it("anonymous 401, non-admin 403, admin 200 -> { ran: true, ...report }; logs admin.migrate_ticked", async () => {
+    const anon = await writeFetch("/v1/admin/migrate/tick", "POST", {}, { dry_run: true });
+    expect(anon.status).toBe(401);
+
+    const user = await writeFetch("/v1/admin/migrate/tick", "POST", userHeaders(`tok-${uniqueName("migrate-user")}`), { dry_run: true });
+    expect(user.status).toBe(403);
+
+    // Dry run, `limit: 0`-shaped no-op is not offered (limit's floor is 1),
+    // so this reads the report shape without asserting exact counts --
+    // earlier describes in this shared file (`strip-cmini-magic`'s own
+    // real-strip case) leave one legacy-format record behind on purpose
+    // (LDB-F21: nothing here ever deletes it), so "a fresh store" is not a
+    // safe assumption this far into the file.
+    const before = await migrateEventCount();
+    const admin = await writeFetch("/v1/admin/migrate/tick", "POST", adminHeaders(`tok-${uniqueName("migrate-admin")}`), { dry_run: true });
+    expect(admin.status).toBe(200);
+    const body = await admin.json<{ ran: boolean; selected: number; converted: number; invalid: unknown[]; raced: number; next_after: string | null }>();
+    expect(body.ran).toBe(true);
+    expect(typeof body.selected).toBe("number");
+    expect(typeof body.converted).toBe("number");
+    expect(Array.isArray(body.invalid)).toBe(true);
+    expect(typeof body.raced).toBe("number");
+    expect(await migrateEventCount()).toBe(before + 1);
+  });
+
+  it("is not gated on the import pause (unlike import/tick and strip-cmini-magic)", async () => {
+    await writeFetch("/v1/admin/import/pause", "POST", adminHeaders(`tok-${uniqueName("migrate-pause")}`));
+    const res = await writeFetch("/v1/admin/migrate/tick", "POST", adminHeaders(`tok-${uniqueName("migrate-still-runs")}`), { dry_run: true });
+    expect(res.status).toBe(200);
+    await writeFetch("/v1/admin/import/resume", "POST", adminHeaders(`tok-${uniqueName("migrate-resume")}`));
+  });
+
+  it("rejects a body missing 'dry_run', an unknown key, and an out-of-range 'limit'", async () => {
+    const noDryRun = await writeFetch("/v1/admin/migrate/tick", "POST", adminHeaders(`tok-${uniqueName("migrate-bad1")}`), {});
+    expect(noDryRun.status).toBe(400);
+
+    const extraKey = await writeFetch("/v1/admin/migrate/tick", "POST", adminHeaders(`tok-${uniqueName("migrate-bad2")}`), {
+      dry_run: true,
+      bogus: 1,
+    });
+    expect(extraKey.status).toBe(400);
+
+    const badLimit = await writeFetch("/v1/admin/migrate/tick", "POST", adminHeaders(`tok-${uniqueName("migrate-bad3")}`), {
+      dry_run: true,
+      limit: 101,
+    });
+    expect(badLimit.status).toBe(400);
+  });
+
+  it("a real (non-dry-run) tick actually converts a legacy-stored record", async () => {
+    const { record } = await appendWrite(db, clock, {
+      kind: "imported",
+      name: uniqueName("migrate-route-real"),
+      owner: "9100000000000000001",
+      modified_at: clock(),
+      format: "cmini/1",
+      payload: { board: "ortho", keys: { a: { row: 0, col: 0, finger: "LI" } } },
+      actor: "system:cmini-import",
+      via: "import:cmini",
+      source: { client: "system:cmini-import", version: null },
+      hasMagic: false,
+      upstream: null,
+    });
+    await db.prepare("INSERT INTO import_map (upstream_id, layout_id) VALUES (?, ?)").bind(uniqueName("migrate-route-up"), record.id).run();
+
+    const res = await writeFetch("/v1/admin/migrate/tick", "POST", adminHeaders(`tok-${uniqueName("migrate-real")}`), { dry_run: false });
+    expect(res.status).toBe(200);
+    const body = await res.json<{ converted: number; by_from: Record<string, number> }>();
+    expect(body.converted).toBeGreaterThanOrEqual(1);
+    expect(body.by_from["cmini/1"]).toBeGreaterThanOrEqual(1);
+  });
+});

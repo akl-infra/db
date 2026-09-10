@@ -30,7 +30,16 @@ export type WriteKind =
   | "deleted"
   | "restored"
   | "imported"
-  | "upstream_deleted";
+  | "upstream_deleted"
+  // 20-spark.md S4 (LDB-P12): the operator-driven record migration's own
+  // rev-bumping write (`core/migrate.ts`'s `migrateTick`) -- carries a
+  // legacy-stored record's payload forward through `storedAsSpark` (or, for
+  // a record a write already stored as spark before the migration ran,
+  // backfills `upstream` alone). `core/upstream.ts`'s `nextUpstream` treats
+  // it specially: it never changes `upstream` (the migration's own `prior`
+  // -- `upstreamOf`'s legacy fallback, computed once -- is carried forward
+  // verbatim, decision 7/16).
+  | "migrated";
 
 // "upstream_deleted" is deliberately in both WriteKind and InfoKind: a
 // following record's tombstoning is rev-bumping (appendWrite), a
@@ -52,7 +61,8 @@ export type InfoKind =
   | "admin.import_ticked" // X4 follow-up: POST /v1/admin/import/tick (manual cron kick)
   | "admin.diff_ticked" // X4 follow-up: POST /v1/admin/diff/tick
   | "admin.nightly_ticked" // X4 follow-up 3: POST /v1/admin/nightly/tick (manual nightly-job-set kick)
-  | "admin.magic_stripped"; // M1 (LDB-I10): POST /v1/admin/import/strip-cmini-magic
+  | "admin.magic_stripped" // M1 (LDB-I10): POST /v1/admin/import/strip-cmini-magic
+  | "admin.migrate_ticked"; // 20-spark.md S4 (LDB-A5 amended): POST /v1/admin/migrate/tick (manual migration kick)
 
 // A record minus its payload -- what `before`/`after` store on an event and
 // what a list row carries (03 §2).
