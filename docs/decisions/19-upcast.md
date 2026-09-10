@@ -1,315 +1,354 @@
-# 19 — Upcast on write: older clients keep writing
+# 19 — Upcast on write: one stored major, a chain of converters
 
-Status: proposal (2026-09-10), branch `ldb-upcast` off `ldb-v3`. Follows the
-format thread with xsznix (migration = translate on read, `01 §5`) and
-saltorbit's addendum: *clients on older versions must still be able to write,
-so the DB needs an upcast too.* Nothing here changes a stored byte; it
-changes what a cross-format `PUT` stores.
+Status: proposal round 2 (2026-09-10), branch `ldb-upcast` off `ldb-v3`.
+Round 1 (same day) proposed a `home()` rank that let older-major records
+sit next to newer ones. saltorbit's decisions replace it:
 
-## 0. The gap
+1. **Always store the latest major.** A write in an older major is upcast
+   and stored at the lineage's current major.
+2. **Converters are a chain.** Every major ships exactly one step up from
+   and one step down to the previous major. Crossing several majors is
+   several steps.
+3. **Every layout is available at every major.** A dump of all layouts at
+   a given major must be queryable.
 
-`01 §5` says records keep their written format and readers translate. That
-covers reads. For writes, `03 §3` says "`PUT`: whole payload replaced;
-`format` may change", and `src/core/write.ts`'s `replaceLayout` does
-exactly that: validates `body.payload` against `body.format` and stores
-both as written.
+This document is the design under those three. It amends `01 §1` (records
+no longer keep their written format forever within a lineage), `01 §4`/`§5`
+(the directory contract), `03 §3`/`§5` (PUT, events, dumps).
 
-So the day `akl/2` exists (say it adds `keys[c].alt`, `01 §8` item 5), a
-client still speaking `akl/1` — the bot's `mirror!`, a `fetchFreshAkl1` +
-`PUT {format: "akl/1"}` — that touches an `akl/2` record flips the record
-back to `akl/1` and every `alt` is gone. Silently: the write is valid
-`akl/1`, the event is an ordinary `updated`, and the next `?as=akl/2`
-reader gets `akl2.from["akl/1"]` of a payload that never had `alt`.
+## 0. The gap this closes
 
-Today's three formats do not trigger this. `akl/1` is the hub and both
-day-1 clients (the bot, the site's magic editor, the migration script)
-write *into* it: a `cmini/1` or `mana2/1` record they `PUT` as `akl/1`
-moves up losslessly (`LDB-F5`). The gap is forward-looking, and it is the
-kind `01` says not to paint ourselves into: a stored record cannot be
+`replaceLayout` (`src/core/write.ts`) stores `body.format`/`body.payload`
+as written, and `03 §3` lets `format` change on `PUT`. When `akl/2` exists,
+a client still speaking `akl/1` (the bot's `mirror!`: `fetchFreshAkl1` then
+`PUT {format: "akl/1"}`) that touches an `akl/2` record would flip it back
+to `akl/1` and drop every `akl/2`-only field, with an ordinary `updated`
+event. Today's three formats don't trigger it — every day-1 writer writes
+*into* `akl/1`, the hub — so this is forward-looking, and it is the kind of
+corner `01` was written not to paint: a flipped record cannot be
 un-flipped.
 
 ## 1. Terms
 
-- **lineage** — the `<name>` half of a format id. `akl/1` and `akl/2` share
-  a lineage; `cmini/1` and `akl/1` do not.
-- **hub** — the lineage every pair composes through (`01 §4`): `akl`.
-- **native** — the format a record is stored in (`record.format`).
-- **view** — what a reader gets from `?as=F`: `native.to[F](payload)`.
-- **home(F, G)** — where a write in `F` against a record in `G` is stored
-  (§3 R2). It is never "further from the hub" or "down a lineage" than the
-  record already is.
-- **base** — the record's current native payload, handed to a `from` so it
-  can reconcile what the writer's view could not show (§3 R3).
+- **lineage** — the `<name>` in a format id. `akl/1`, `akl/2` share one;
+  `cmini/1` is its own, `mana2/1` its own.
+- **latest(L)** — the highest registered major of lineage `L`.
+- **hub** — `akl` (`01 §4`); every cross-lineage pair composes through it.
+- **step** — `up_N: <L>/<N−1> → <L>/<N>` and `down_N: <L>/<N> → <L>/<N−1> | held`,
+  the only two converters a major ships within its lineage.
+- **chain** — the composition of steps between two majors of one lineage.
+- **cross edge** — a `to`/`from` between lineages (`cmini/1 ↔ akl/1`,
+  `mana2/1 ↔ akl/1`), pinned to the major it was written against.
 
-## 2. The three ways an older client writes
+## 2. Storage rule
 
-| the client does | today | after this proposal |
-|---|---|---|
-| `POST` a new layout in `F` | stored as `F`; newer readers upcast on read | unchanged |
-| `PATCH` a verb (`name fingermap board magic`) | the edit runs on the native payload through that format's `edits`; untouched fields stay | unchanged; this is the safe lane. A new major ships `edits` (§4.3) |
-| `PUT` the whole payload as `F` over a record in `G ≠ F` | stored as `F`; `G`-only content dropped | R1–R3 below: refused when the client could not have seen the record whole; otherwise stored in `home(F, G)` through `G.from[F](payload, base)` |
+**A record is stored at `latest(lineage(record.format))`.** Always. Three
+ways a record could be anywhere else, and what happens in each:
 
-`PUT` in the record's own format is unchanged: you replace what you send.
-(The residual hazard there — a minor adds an optional key and a client
-strips unknown keys before writing back — is what "additive and optional"
-buys survivability for, `PATCH` is the lane that avoids it, and with three
-client maintainers it is a message, not a mechanism. Noted in §9.)
+| how | what happens |
+|---|---|
+| a write arrives in an older major (§3) | upcast through the chain at write time; stored at latest; the event says what it was written as |
+| a new major is registered (§5) | every record of that lineage is migrated up by a bounded, idempotent cron step; each gets a `migrated` event |
+| a rev in `layout_revs` predates the bump | history is never rewritten; `/rev/{n}` reads translate on the way out like any read (`?as=`) |
 
-## 3. The rule
+`01 §1`'s "stored exactly as written, never rewritten in place by a schema
+change" becomes: *stored at the lineage's latest major; the bytes the
+writer sent are the rev's `layout_revs` row when they were already latest,
+and `detail.written_as` names the older major otherwise.* The event log is
+still the truth; the record is still its fold.
 
-A `PUT {format: F, payload}` arrives for a record `(G, current)`, `F ≠ G`,
-`If-Match` already satisfied (`LDB-P2`).
+Cross-lineage is unchanged: a `cmini/1` record stays `cmini/1` (its
+lineage's latest *is* 1). A `PUT` in a different lineage is a **move**,
+exactly as `03 §3` has it today ("an author moving their layout from
+`cmini/1` to `akl/1`"), guarded by §3 R1 like any other cross-format write.
 
-**R1 · Visibility.** Compute `view = G.to[F](current)`. If `G.to[F]` is not
-wired, or returns `held`, the client could never have read this record in
-`F`, so this is a blind overwrite. Refuse:
+## 3. Writes in an older major
+
+`PUT {format: F, payload}` on a record `(G, current)`, `F ≠ G`,
+`If-Match` satisfied (`LDB-P2`).
+
+**R1 · Visibility.** `view = translate(current, F)` (the same path a
+`GET ?as=F` walks, §4.2). If it is held, the client could never have read
+this record whole in `F`, so this is a blind overwrite. Refuse:
 
 ```
 409 { "error": "format_behind", "format": "akl/1", "see": "akl/2", "rev": 7,
-      "message": "this record is akl/2 and akl/1 cannot show all of it; write it as akl/2, or PATCH the field you mean to change" }
+      "message": "this record uses akl/2 features that akl/1 cannot show; write it as akl/2, or PATCH the field you mean to change" }
 ```
 
-Same shape as `held` (`03 §1`), a different word because a write was
-refused rather than a read.
+**R2 · Store at latest.** Otherwise:
 
-**R2 · Home.** The stored format is `home(F, G)`:
+- same lineage: `stored = chain(F → latest(L))(payload)`, format `latest(L)`;
+- different lineage: a move — `stored = payload` in `F` if `F` is its
+  lineage's latest, else `chain(F → latest(lineage(F)))(payload)`. The
+  record's lineage changes; §2's rule then holds in the new one.
+
+**R3 · Down is honest.** Within a lineage, `down_N` returns `held` whenever
+*anything* would be lost — never a documented-lossy projection. That is
+what makes R1 sufficient: a write that passes R1 replaces a record whose
+`latest`-only content was empty, so a pure upcast of the write loses
+nothing. Cross edges may stay documented-lossy (`cmini/1` cannot hold
+colstag amounts, `01 §6.2`); the chain may not.
+
+**R4 · Writer's-view identity** (test-time): after an accepted write,
+`translate(stored, F) ≡ payload` under `canonical()`. What you wrote is
+what you read back.
+
+**Validation.** `payload` validates against `F` first (`LDB-F1`); the
+chained result validates against the stored format before commit (the
+re-run `patchLayout` already does). A step that yields an invalid payload
+is a format bug: `500`, never a stored invalid record.
+
+**Not in v1, reserved:** a base-aware step (`up_N(p, base?)`) that carries
+`latest`-only content forward when the visible part is unchanged, so an
+old client could edit a record R1 currently refuses. The signature can
+grow later without touching any caller; the `written_as` breadcrumb and
+R4 already give it its test.
+
+`POST` in an older major: same as R2's chain, no R1 (there is no record).
+`PATCH` is unchanged: edits run on the stored (latest) payload through the
+format's own `edits`; verb bodies are versioned with `/v1/`, so a new hub
+major's `edits` accept the `/v1/` shapes (`09 §3 T4`).
+
+## 4. The chain
+
+### 4.1 Directory contract (`01 §4` amended)
 
 ```
-rank(f) = (lineage(f) == hub ? 1 : 0, major(f))
-home(F, G) = the higher-ranked of F, G;
-             on a tie in lineage-rank across DIFFERENT lineages (mana2/1 vs cmini/1): F, as written
+db/formats/<name>/<N>/
+  schema.json
+  index.ts        validate, lower, hasMagic, edits
+                  up:   (p: <name>/<N−1>) => <name>/<N>            required for N > 1
+                  down: (p: <name>/<N>)   => <name>/<N−1> | Held   required for N > 1
+                  to:   { "<other>/<M>": fn }   optional cross edges, any major M of the other lineage
+                  from: { "<other>/<M>": fn }   optional cross edges
+  fixtures/       + <fixture>.down.json goldens (or .down.held.json), + <fixture>.up.json for every <N−1> fixture
 ```
 
-Consequences, spelled out for the pairs that exist or are planned:
+`to`/`from` lose their within-lineage use; a format never lists its own
+lineage there. `up`/`down` are the *only* within-lineage converters, so
+`akl/3` ships `up` from `akl/2` and `down` to `akl/2` and nothing else;
+`akl/1 ↔ akl/3` is two steps, computed by the registry.
 
-| record `G` | write `F` | home | what happens |
-|---|---|---|---|
-| `cmini/1` | `akl/1` | `akl/1` | a move up, stored as written (today's bot/migration path, unchanged) |
-| `mana2/1` | `akl/1` | `akl/1` | same |
-| `akl/1` | `cmini/1` | `akl/1` | upcast: `akl1.from["cmini/1"](payload, base)` |
-| `akl/1` | `mana2/1` | `akl/1` | upcast: `akl1.from["mana2/1"](payload, base)` |
-| `akl/2` | `akl/1` | `akl/2` | upcast: `akl2.from["akl/1"](payload, base)` — the case this proposal exists for |
-| `akl/1` | `akl/2` | `akl/2` | a move up, stored as written |
-| `cmini/1` | `mana2/1` | `mana2/1` | a move, stored as written (R1 still applies) |
+A new major is therefore: schema, validate, lower, edits, one `up`, one
+`down`, fixtures + goldens, README ("what this major adds; what `down`
+holds on"). `LDB-F16` refuses a registration missing any of these.
 
-A record's format therefore only ever moves toward the hub or up its
-lineage. It never regresses, whoever writes it.
+### 4.2 `translate(rec, as)` walks a path
 
-**R3 · Reconcile.** When `home ≠ F` the server stores
-`home.from[F](payload, base)` with `base = current` (the record is already
-in `home` in every such row above, so `home == G`). `from` gains an
-optional second argument; the format decides what the writer's view could
-not show and carries it forward from `base`. A `from` that ignores `base`
-is a pure conversion, which is what every existing `from` is today (§4.1
-lists what each day-1 one should do with it).
-
-**R4 · Writer's-view identity** (a test-time invariant, not a runtime
-check): after an accepted cross-format `PUT`, `home.to[F](stored)` equals
-`payload` under `canonical()`. What the client wrote is what it reads back.
-A `from` that breaks this is a format bug caught by `LDB-F17`, not a
-request the client can do anything about, so it is not checked per
-request.
-
-**Validation order.** `body.payload` is validated against `F` first
-(`LDB-F1`, unchanged); the reconciled result is validated against `home`
-again before commit, the same re-run `patchLayout` already does after its
-edits. A reconciliation that produces an invalid `home` payload is a format
-bug and answers `500`, never a stored invalid record.
-
-## 4. Contract changes
-
-### 4.1 `from` takes a base
-
-`db/formats/registry.ts`:
-
-```ts
-export interface FormatModule {
-  …
-  to:   Record<string, (p: Payload) => Payload | Held>;
-  from: Record<string, (p: Payload, base?: Payload) => Payload>;   // base: this format's own payload, when the write edits an existing record
-  …
-}
+```
+path(from = <L1>/<a>, to = <L2>/<b>):
+  L1 == L2:  chain a → b            (up steps if b > a, down steps if b < a)
+  else:      chain a → m1   where m1 = the major of L1 that has a cross edge to L2     (to["<L2>/<m2>"])
+             cross edge   m1 → <L2>/<m2>
+             chain m2 → b
 ```
 
-Source-compatible: every existing `from` has arity 1 and keeps working.
-What each day-1 `from` should do with `base` once it has one:
+A cross edge is pinned to the majors it was written for (`cmini/1.to["akl/1"]`
+stays exactly that when `akl/2` lands); the chain covers the rest. So the
+hub bumping costs its own `up`/`down` and **zero** changes to any other
+lineage. If a lineage later adds a second cross edge at a newer major
+(`cmini/1.to["akl/3"]`, say, because `akl/3` can hold something the chain
+used to lose), the registry prefers the edge whose chain distance to `to`
+is shortest.
 
-| `from` | today drops (`01 §6`) | with `base` |
-|---|---|---|
-| `akl/1.from["cmini/1"]` (`fromCmini`) | non-`x.cmini` keys of `x`; colstag stagger amounts (cmini has no colstag) | carry `base.x`'s non-`cmini` keys verbatim; when the write's cmini board word equals `base.board.cmini`, carry `base.board` whole (kind + stagger amounts) |
-| `akl/1.from["mana2/1"]` | magic idiom structure (mana2 rows are flat), `TB`, non-`x.mana2` `x` | carry `base.x`'s non-`mana2` keys; when `lower(base.magic)` equals the write's rows (canonical, order-insensitive), carry `base.magic` whole — the idioms survive an edit that did not touch magic |
-| `cmini/1.from["akl/1"]`, `mana2/1.from["akl/1"]` | — | never called with a base under R2 (home is never cmini or mana2 when the record was akl); `base` unused |
-| `akl/2.from["akl/1"]` (future) | `alt` | for each `c` in the write's `keys`, carry `base.keys[c].alt` when `keys[c]` (row, col, finger) is unchanged from `base`; drop it otherwise — an `alt` is a claim about a position, and the writer moved the key |
+The result is held iff any step is held; `see` names the record's native
+(latest) format. `GET /v1/formats` advertises, per entry: `lineage`,
+`major`, `latest: bool`, and `can_translate_to` computed from the path
+function — every reachable format, not just direct edges (`01 §4` already
+promised the composed pairs).
 
-The rule of thumb for a format author: *carry forward what the writer could
-not see, for as long as what they could see still says the same thing about
-it.* Each format's README gains a "reconcile" paragraph listing exactly
-this (`01 §4`'s "what it cannot express" already lives there).
+### 4.3 Day-1 impact
 
-### 4.2 `home()` and `lineage()` in the registry
+Nothing moves. `cmini/1`, `akl/1`, `mana2/1` are each `latest` of a
+one-major lineage; `up`/`down` are unrequired at `N = 1`; the three cross
+edges stay where they are. The chain code is exercised by the stub lineage
+in tests (`t/1`, `t/2`, `t/3` via `registerForTest`) until `akl/2` exists.
 
-Two pure helpers beside `translate`:
+## 5. Migrating a lineage when a major lands
 
-```ts
-export const HUB = "akl";
-export function lineage(id: string): { name: string; major: number }   // parses "<name>/<N>"
-export function home(writeFormat: string, recordFormat: string): string // §3 R2
-```
+Registering `akl/2` is a deploy of the Worker. From that moment the
+storage rule (§2) is violated for every `akl/1` record until each is
+rewritten. Mechanism:
 
-`GET /v1/formats` (`03 §2`) advertises `lineage` and `major` per entry so a
-client can tell it is behind without parsing ids.
+- **A cron job** on the existing `*/5` trigger (`LDB-C5`'s dispatch):
+  `migrateTick()` selects up to `MIGRATE_BATCH` (500) records whose
+  `format` is below `latest` of its lineage, ordered by id, and rewrites
+  each: `payload = chain(format → latest)(payload)`, one **`migrated`**
+  event per record — rev-bumping (`LDB-P1`: every payload change is a rev
+  and a `layout_revs` row), `modified_at` untouched (like magic-only
+  writes: this is not the author's edit), `actor: "system:migration"`,
+  `via: "migration"`, `detail: {from: "akl/1", to: "akl/2"}`. Tombstones
+  are migrated too (they are restorable; a restore should not resurrect an
+  old major).
+- **Idempotent and bounded**: a tick with nothing below latest writes
+  nothing; 4 174 records is 9 ticks (45 minutes) at 500 — well inside the
+  D1 write budget (`d1-write-budget`: 100k rows/day; a migration is ~3
+  rows per record: `layouts`, `layout_revs`, `events`).
+- **`POST /v1/admin/migrate/tick`** kicks it by hand, event-logged like the
+  other admin ticks (`LDB-A5`).
+- **`followsUpstream`** (`core/follows.ts`) skips `migrated` events exactly
+  as it skips magic-only ones (`LDB-I2a`, `LDB-I12`) — a migration never
+  forks a following record.
+- **`If-Match` holders** see one `stale` after their record migrates and
+  refetch; that is the cost of rev-bumping, paid once per major, and it is
+  the honest signal ("the record changed under you") rather than a silent
+  rev-less rewrite that `LDB-P1` forbids anyway.
+- **The import** (`import/apply.ts`) writes `cmini/1`, a one-major
+  lineage; untouched. If cmini ever ships a v4 the same machinery covers
+  `cmini/2`.
 
-### 4.3 Lineage adjacency (what a new major must ship)
+Between deploy and the last tick, reads are already correct (§4.2 walks
+the chain from whatever the record is) and writes are already correct (§3
+chains to latest). Only §2's *storage* invariant lags, by design and by a
+bounded amount; `LDB-P12` pins that.
 
-A registered `<name>/<N>`, `N > 1`, must have `<name>/<N−1>` registered
-and:
+## 6. Every layout at every major (dumps)
 
-- `to["<name>/<N−1>"]`, returning `held` per payload when this payload
-  uses something `N−1` cannot hold (the thing R1 keys off);
-- `from["<name>/<N−1>"]`, with a `base`-aware reconcile (§4.1);
-- `edits` accepting the `/v1/` verb bodies (`board`/`magic` are `akl/1`
-  shapes by `09 §3 T4`; the verb vocabulary is versioned with the API path,
-  not with the format — a new hub major converts inside its `edits`).
+Three surfaces, none of which needs a second copy of the data:
 
-`01 §4` currently says `to`/`from` are optional. They stay optional across
-lineages; within a lineage they are required. `LDB-F16` enforces it from
-the registry.
+1. **The list** (`03 §2`): `GET /v1/layouts?as=<L>/<M>&full=1` already
+   translates per record and marks the rest `held: true`. It works for any
+   registered major of any lineage through §4.2, paged.
+2. **The nightly dump** (`LDB-D1`, R2 `akl-db-dumps`): beside `latest.json`
+   (native, unchanged), the nightly writes one **`latest.<name>-<N>.json`
+   per registered major of every lineage** — every live record as its
+   translation to that major, or `{…record fields, held: true, see}` when
+   the chain holds. Monthly copies follow the same pattern. A consumer on
+   `akl/1` fetches `latest.akl-1.json` and never sees a shape it does not
+   speak. Cost: one file per major; the dump job is already a full table
+   walk.
+3. **`/v1/changes`** (`03 §5`) carries records without payloads;
+   consumers fetch payloads with `?as=`. Unchanged.
 
-## 5. `replaceLayout` after the change
+Not proposed: a materialised `layout_views(layout_id, format, payload)`
+table refreshed on every write. It is the fallback if on-demand
+translation proves slow in the list (it will not for a two-step chain over
+4 000 records), and it would multiply every write's D1 rows by the number
+of majors, which the budget memo says to avoid. If it is ever needed, the
+same `path()` populates it; nothing in this design precludes it.
+
+## 7. `replaceLayout` after the change
 
 ```ts
 requireIfMatch(ifMatch);
 const { record, admin } = await loadForWrite(db, ref, actor, { allowDeleted: false });
 await requireRev(db, record, ifMatch);
-validatePayload(body.format, body.payload);                      // LDB-F1, as today
+validatePayload(body.format, body.payload);                          // LDB-F1
 
-let format = body.format;
-let payload = body.payload;
-let writtenAs: string | undefined;
+let format = body.format, payload = body.payload, writtenAs: string | undefined;
 
 if (body.format !== record.format) {
-  // R1: could the writer have seen this record whole?
-  const view = translate(record, body.format);                    // the same call GET ?as= makes
+  const view = translate(record, body.format);                       // R1: the GET ?as= path
   if ("held" in view) throw formatBehind(body.format, record.format, record.rev);
-
-  // R2 + R3: where it lives, and how the hidden part comes along.
-  const target = home(body.format, record.format);
-  if (target !== body.format) {
-    payload = getFormat(target)!.from[body.format]!(body.payload, record.payload);   // from[] exists: R1 passed through to[], and F16 wires from[] with to[] inside a lineage; across lineages the hub's from[] is wired for every registered format (01 §4)
-    format = target;
-    writtenAs = body.format;
-  }
+}
+const target = latestOf(lineage(body.format).name);                  // R2
+if (target !== body.format) {
+  payload = walk(body.format, target, body.payload);                 // the chain; never held going up
+  format = target;
+  writtenAs = body.format;
 }
 
-const { hasMagic } = validatePayload(format, payload);            // the reconciled result, re-validated
-const magicOnly = isMagicOnlyReplace(record, format, payload);    // §5.1
-
-return commitWrite(db, now, {
-  kind: "updated", …, format, payload, hasMagic,
-  ...(magicOnly ? { detail: { magic_only: true } } : {}),
-  ...(writtenAs ? { detail: { …, written_as: writtenAs } } : {}),
-});
+const { hasMagic } = validatePayload(format, payload);               // the chained result
+const magicOnly = isMagicOnlyReplace(record, format, payload);       // §7.1
+return commitWrite(db, now, { kind: "updated", …, format, payload, hasMagic,
+  detail: { ...(magicOnly ? { magic_only: true } : {}), ...(writtenAs ? { written_as: writtenAs } : {}) } });
 ```
 
-### 5.1 `isMagicOnlyReplace` simplifies
+### 7.1 `isMagicOnlyReplace`
 
-Its `cmini/1 → akl/1` special case (`fromCmini(record.payload)` then
-compare) exists because the migration script writes `akl/1` over `cmini/1`
-records. Under R2 that PUT's `home` is `akl/1`, and comparing "stored minus
-magic" against "`akl1.from["cmini/1"](current)` minus magic" is the same
-computation expressed through the registry instead of a hard-coded pair.
-Generalise: when `format ≠ record.format`, lift `record.payload` into
-`format` via `from` (or compare `to[format]` of it — either side works
-because `LDB-F5` makes the pair lossless) and compare minus magic. The
-function loses its two literal format ids.
+Its hard-coded `cmini/1 → akl/1` branch (`fromCmini` then compare) becomes
+"translate `record.payload` to `format` through the registry, compare
+minus magic". Same computation, no literal format ids, and it keeps
+working when `format` is `akl/2` and the record is `cmini/1`.
 
-### 5.2 The event
+### 7.2 Errors and events
 
-`updated` gains `detail.written_as: "<F>"` whenever the stored format is not
-the one the client sent. `03 §5`'s `detail` line lists it. Nothing reads it
-yet; it is the forensic breadcrumb for "why did this record's `alt` change
-on a write from the bot".
+- `src/core/errors.ts`: `formatBehind(format, see, rev)` → `409 format_behind`
+  (§3 R1), added to `03 §1`'s table and the conformance sweep.
+- `03 §5`: `updated` gains `detail.written_as`; new kind **`migrated`**
+  (rev-bumping, §5); `via` gains `"migration"`; `actor` gains
+  `"system:migration"`.
 
-## 6. Error
-
-`src/core/errors.ts`:
-
-```ts
-export function formatBehind(format: string, see: string, rev: number): ApiError   // 409 { error: "format_behind", format, see, rev, message }
-```
-
-Added to `03 §1`'s error table and to `tests/api/conformance.test.ts`'s
-sweep of every route × every error code it can answer.
-
-## 7. Invariants (the covenant)
+## 8. Invariants (the covenant)
 
 | id | invariant | enforced by |
 |---|---|---|
-| LDB-F16 | **Lineage adjacency.** For every registered `<name>/<N>` with `N > 1`: `<name>/<N−1>` is registered, `to["<name>/<N−1>"]` and `from["<name>/<N−1>"]` are both wired, and `edits` is exported. Enumerated from the registry; phase 1 has no `N > 1`, so the test also registers a stub lineage (`t/1`, `t/2`, `registerForTest`) and asserts the check catches each missing piece. | `tests/formats/lineage.test.ts` (new) |
-| LDB-F17 | **Reconcile.** For every `from[F]` with a base, over every fixture pair `(base in G, write in F)`: (a) writer's-view identity, `G.to[F](from[F](write, base)) ≡ write` under `canonical()`; (b) remainder preserved, `hidden(from[F](write, base)) ≡ hidden(base)` where `hidden(p) = p − G.from[F](G.to[F](p))` — the part of a payload `F` cannot show — whenever the write leaves the visible part of `base` unchanged (`G.to[F](base) ≡ write`); (c) validity, the result validates as `G`. For the day-1 `from`s the concrete carried fields (§4.1: `x` keys, colstag amounts, magic idioms) get a named fixture each. | `tests/formats/reconcile.test.ts` (new, generated over the registry × fixtures; property test over random single-field edits of the visible part); the stub lineage carries `extra` |
-| LDB-P11 | **Cross-format PUT.** A `PUT` in `F` over a record in `G ≠ F` is (a) refused `409 format_behind` iff `G.to[F]` of the current payload is held or unwired, writing nothing; (b) otherwise stored in `home(F, G)`, so a record's format never moves away from the hub or down its lineage under any sequence of writes; (c) afterwards `GET ?as=F` returns the written payload exactly; (d) the `updated` event carries `detail.written_as = F` iff the stored format is not `F`. | `tests/api/put-format.test.ts` (new): a matrix over every registered pair × {held, not held} via the stub lineage plus the three real formats; a property test replaying random write sequences and asserting (b) on the format trajectory |
-| LDB-F9 | unchanged, and now also holds for writes: a held record cannot be overwritten through the format it is held for | `tests/api/held.test.ts` gains the `PUT` case |
+| LDB-F16 | **Chain contract.** Every registered `<L>/<N>`, `N > 1`: `<L>/<N−1>` is registered; `up`, `down`, `edits` are exported; `to`/`from` never name the module's own lineage. Over every fixture `p` at `N`: `down(p)` is held **or** `up(down(p)) ≡ p` (down is honest, §3 R3). Over every fixture `q` at `N−1`: `down(up(q)) ≡ q` (up is injective) and `up(q)` validates at `N`. Enumerated from the registry; exercised through the stub lineage until a real `N > 1` exists, and the test proves it catches each missing piece. | `tests/formats/chain.test.ts` (new) |
+| LDB-F17 | **Path composition.** `translate(rec, as)` walks `path()` (§4.2): same lineage = the chain, otherwise chain → pinned cross edge → chain; the result is held iff a step is held; `see` is the record's native format; `can_translate_to` in `GET /v1/formats` equals the set of formats `path()` reaches. Goldens: every fixture × every reachable format (`LDB-F7` extended from "declared translation" to "reachable format"). | `tests/formats/goldens.test.ts` (extended), `tests/formats/path.test.ts` (new, stub lineage: 1→3, 3→1, cross edge at a non-latest major) |
+| LDB-P11 | **Stored at latest.** (a) A `PUT`/`POST` in `F` stores at `latest(lineage(F))` with `detail.written_as = F` iff `F` was not latest; (b) a `PUT` in `F ≠ record.format` is refused `409 format_behind`, writing nothing, iff `translate(record, F)` is held; (c) after an accepted write, `GET ?as=F` returns the written payload exactly; (d) under any sequence of writes a record's major never decreases. | `tests/api/put-format.test.ts` (new): matrix over every registered pair × {held, not}; property test over random write sequences asserting (d) |
+| LDB-P12 | **Migration.** After `migrateTick()` runs to quiescence, no record (live or tombstone) has `format` below its lineage's latest; each migrated record gained exactly one `migrated` event, rev + 1, `layout_revs` row present, `modified_at` unchanged, payload equal to the chain of its previous rev; a tick with nothing to do writes zero rows; one tick touches ≤ `MIGRATE_BATCH`; `followsUpstream` is unchanged by a `migrated` event; the manual admin tick calls the same function. | `tests/import/migrate.test.ts` (new, stub lineage: register `t/2` after seeding `t/1` records; fake clock), `tests/events/follows.test.ts` (extended) |
+| LDB-D6 | **Per-major dumps.** The nightly writes `latest.<name>-<N>.json` for every registered major of every lineage; each carries every live record as its translation or as `held: true, see`; sha256 sidecar per file; the native `latest.json` is byte-identical to today's. | `tests/api/dump.test.ts` (extended), `tests/rehost.test.ts` |
+| LDB-F9 | unchanged, and now also holds for writes: a held record cannot be overwritten through a format it is held for | `tests/api/held.test.ts` gains the `PUT` case |
 
-`db/INVARIANTS.md` gets the three rows; `tests/tools/invariants.test.ts`
-(`LDB-T1`) fails until each has a tagged test.
+`db/INVARIANTS.md` gets the rows; `tests/tools/invariants.test.ts`
+(`LDB-T1`) fails until each has a tagged test. `LDB-F5`/`F7`/`F10` keep
+their meaning (cross edges are unchanged); `F6`'s frozen-file check is
+untouched (the stub lineage lives under `tests/`).
 
-## 8. Work plan
+## 9. Work plan
 
-One PR, three commits, in this order so every step is green on its own:
+One PR, four commits, each green alone:
 
-1. **Registry + formats** — `from(p, base?)` signature, `lineage()`,
-   `home()`, `HUB`; `fromCmini`/`fromMana2` learn `base` (§4.1); the stub
-   lineage lives under `tests/formats/stub-lineage.ts` (test-only, so
-   `LDB-F6`'s frozen-file check is untouched); `lineage.test.ts`,
-   `reconcile.test.ts`; README "reconcile" paragraphs; `01 §4`/`§5`
-   amendments.
-2. **Write path** — `formatBehind`, `replaceLayout` (§5),
-   `isMagicOnlyReplace` generalised (§5.1), `written_as` (§5.2);
-   `put-format.test.ts`, `held.test.ts`'s PUT case, the conformance sweep;
-   `03 §1`/`§3`/`§5` amendments; `INVARIANTS.md` rows.
-3. **Advertise** — `lineage`/`major` in `GET /v1/formats`; the bot's
-   `writeWithFreshRecord` maps `format_behind` to a message (copy stand-in,
-   `// COPY: sign-off pending`, `14-copy-signoff.md`) — today it would fall
-   through to `errorText(body.message)`, which is acceptable for the first
-   deploy.
+1. **Registry** — `lineage()`, `latestOf()`, `path()`, `walk()`,
+   `translate` over `path()`; `up`/`down` in `FormatModule` (optional at
+   `N = 1`, required otherwise); stub lineage under
+   `tests/formats/stub-lineage.ts`; `chain.test.ts`, `path.test.ts`,
+   goldens extended; `01 §4`/`§5` amended; `GET /v1/formats` fields.
+2. **Write path** — `formatBehind`, `replaceLayout` (§7),
+   `isMagicOnlyReplace` (§7.1), `written_as`; `put-format.test.ts`,
+   `held.test.ts`'s PUT case, conformance sweep; `03 §1`/`§3`/`§5`.
+3. **Migration** — `migrateTick()` on the cron dispatch + admin kick,
+   `migrated` event, `followsUpstream` skip; `migrate.test.ts`;
+   `INVARIANTS.md` rows.
+4. **Dumps** — per-major nightly files + sidecars; `dump.test.ts`,
+   `rehost.test.ts`; `08-infrastructure.md` R2 layout note.
 
-No data migration, no D1 change: `layout_revs.format` already records
-whatever was stored. Deploy is the Worker only.
+No D1 schema change (`layouts.format` and `layout_revs.format` already
+carry what is stored; `events.kind` is free text). Deploy is the Worker.
+The bot needs nothing for the first deploy: `writeWithFreshRecord` falls
+through to `errorText(body.message)` on `format_behind`, and the message
+is written to read correctly in Discord; a dedicated string is a
+`// COPY: sign-off pending` line for `14-copy-signoff.md` when `akl/2` is
+real.
 
-Estimated size: ~120 lines in `registry.ts`/`translate.ts`, ~40 in
-`write.ts`, ~30 in `errors.ts`, ~400 of tests. A Sonnet agent per commit,
-with the invariant ids as the acceptance bar (`plan-review-before-impl`).
+Size: ~200 lines registry, ~60 write path, ~120 migration, ~60 dumps,
+~600 tests. One Sonnet agent per commit, the invariant ids as the bar,
+Fable review of each diff (`plan-review-before-impl`).
 
-## 9. Non-goals, kept deliberately
+## 10. Non-goals, kept deliberately
 
-- **Same-format `PUT` stays whole-replace.** The minor-version key-stripping
-  hazard (§2) is not solved by the server, because it cannot see which
-  minor a client speaks and `01 §5` rejected minor identifiers. `PATCH` is
-  the answer; the contract is additive-optional.
-- **No runtime writer's-view check** (R4 is test-time). A per-request
-  `to(from(p))` doubles the write's CPU for a class of bug the fixture matrix
-  catches at PR time.
-- **No "merge" API.** `base` is the whole mechanism. A format that wants a
-  smarter three-way merge (the writer's *previous* view against the current
-  one) has `layout_revs` and `If-Match`'s `rev` to fetch it from, later, in
-  its own `from`; the signature does not need to grow now.
-- **Verb bodies stay pinned to `/v1/`**, not to a format major (§4.3).
+- **Same-major `PUT` stays whole-replace.** A client that strips unknown
+  optional keys added by a minor drops them; that is what "additive and
+  optional" (`01 §5`) buys survivability for, `PATCH` avoids it, and the
+  server cannot see which minor a client speaks (minor identifiers were
+  rejected in `01 §5`).
+- **No base-aware upcast in v1** (§3, reserved). R1 refuses the one case
+  it would rescue; that case cannot occur until `akl/2` has a field and a
+  record uses it.
+- **No materialised per-major table** (§6). Dumps and the list cover
+  "every layout at every major" without a second copy.
+- **No runtime writer's-view check** (R4 is test-time).
+- **Cross edges stay documented-lossy**; only the chain is held-or-lossless.
 
-## 10. Open questions (for saltorbit)
+## 11. Open questions (for saltorbit)
 
-1. **R1's answer: refuse, or accept and drop with a warning?** Proposal:
-   refuse. A `409` with `see` is the same thing a reader already gets, the
-   client already handles `stale` on the same route, and silent loss is
-   the one outcome `01` was written to prevent. The alternative
-   (`Warning:` header, store the upcast of a lossy view) is one line if you
-   want it.
-2. **Non-hub cross-lineage writes** (`mana2/1` over `cmini/1`): R2 stores as
-   written after R1. Alternative: refuse unless the writer is the hub. It
-   cannot happen with today's clients; proposal keeps the permissive rule
-   because it is the one that needs no rank table.
-3. **`written_as` on the event, or a separate `upcast` event kind?** Proposal:
-   detail on `updated`, so `followsUpstream` and every other fold stay
-   untouched.
-4. **Does the bot want to speak `format_behind` now**, or is falling through
-   to `body.message` fine until `akl/2` exists? Proposal: the fall-through;
-   the message is written so it reads correctly in Discord as is.
+1. **`migrated` bumps `rev`.** It must, for `LDB-P1` (record = fold of
+   events, one `layout_revs` row per rev). The visible cost is one `stale`
+   per client-held rev per major bump. OK? The alternative — a rev-less
+   in-place rewrite — breaks the fold and history.
+2. **Tombstones migrate too** (§5). Alternative: migrate on restore. The
+   proposal migrates them because a dump at an old major should not have
+   to special-case restorable records, and there are few.
+3. **Cross-lineage moves keep the permissive rule** (§2: a `PUT` in another
+   lineage moves the record, after R1). Alternative: only moves *into* the
+   hub. Today's clients only ever move into the hub; the permissive rule
+   needs no rank table.
+4. **Dump file naming** `latest.<name>-<N>.json` (slash-free for R2 keys)
+   vs a prefix per major (`akl-1/latest.json`). Cosmetic; the prefix reads
+   better in a bucket listing if monthly copies also fan out.
+5. **When a cross edge should be re-pinned** (§4.2: `cmini/1.to["akl/3"]`
+   because `akl/3` can hold something the chain from `akl/1` loses). The
+   registry prefers the shortest chain to the target; is "shortest" the
+   right tie-break, or "highest-major edge"? Same answer for every case
+   anyone has named so far; flagging so nobody hard-codes either.
