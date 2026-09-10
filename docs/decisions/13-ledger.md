@@ -74,7 +74,7 @@ One Claude Code session has ONE worktree pin shared by every plain-spawned agent
 ## 6. Open items
 
 **Needs saltorbit (nothing else blocks on these):**
-0. **Redeploy the bot** (§3's `flyctl deploy …`) so `!image` stops shipping blank cards — 934d8eae, LDB-B22; the deploy command was refused to the agent session on 2026-09-10. Then prove it on the real artifact: `E2E_ALLOW_PRODUCTION=1 node bot/scripts/e2e.mjs --prefix '!sp' --spark-id 1537826030046281909 --scenario tests/e2e/scenario.image.json` and open the PNG it saves under `bot/tests/transcripts/`.
+0. **Redeploy the bot** (§3's `flyctl deploy …`) so `!image` stops shipping blank cards — 934d8eae, LDB-B22 — and **the production Worker** (§3's `npx wrangler deploy --config wrangler.toml`, no migration) for 0083db3b (weak `If-None-Match` compare, LDB-R1; already on preview, verified 304). Both production deploy commands were refused to the agent session on 2026-09-10 by the permission classifier; preview deploys go through. Then prove it on the real artifact: `E2E_ALLOW_PRODUCTION=1 node bot/scripts/e2e.mjs --prefix '!sp' --spark-id 1537826030046281909 --scenario tests/e2e/scenario.image.json` and open the PNG it saves under `bot/tests/transcripts/`.
 1. Cloudflare support ticket for cron dispatch — **optional now** (dispatch resumed 21:35Z, §1); keep the text in case it stops again.
 2. Discord: rename the app to Spark; add the preview redirect URI (§1).
 3. Copy sign-off: `14-copy-signoff.md` lists every `// COPY: sign-off pending` string (`web/src/copy/db.ts`, `bot/src/copy.ts`).
