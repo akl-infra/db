@@ -942,3 +942,9 @@ ledgered and flippable by saltorbit):**
   object unchanged (kind, stagger, cmini); split, gap, explicit thumbs and
   per-column stagger stay open and land later as an additive spark/1
   minor, or spark/2 if they must break the shape.
+- **2026-09-10 ~19:40Z** — S8's hub scaffolding (builder, nav, md copies,
+  `all.md`, architecture port, LDB-G9) started **in parallel** in its own
+  agent worktree on branch `ldb-spark-docs` (off `origin/ldb-spark`): it
+  touches no file the Worker slices do. The adoption guide and LDB-G10
+  still wait for the final API. Lead cherry-picks it onto `ldb-spark`,
+  then removes that worktree.
