@@ -1057,3 +1057,11 @@ ledgered and flippable by saltorbit):**
   residue; no test file's static case count dropped; db typecheck 0,
   vitest 15 914 passed / 0 failed (+62); bot 755, lint clean; site 17;
   0001–0005 apply on a fresh local D1. Next: S3b.
+- **2026-09-10 ~22:55Z** — three slices now run **in parallel** to cut wall
+  time (their files don't overlap): S3b in this worktree; S4 on
+  `ldb-spark-s4` and S6 on `ldb-spark-s6`, each in its own agent worktree
+  off `origin/ldb-spark` 875ac4dec with `node_modules` symlinked from this
+  worktree. Each brief lists the other two slices' files as off-limits.
+  The lead reviews each, cherry-picks S4/S6 onto `ldb-spark` after S3b
+  commits, then removes their worktrees. S5 waits for S4 (it generalises
+  `migrate.ts`), S7 for S5, S8's guide for the final API.
