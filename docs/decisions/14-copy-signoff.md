@@ -141,6 +141,32 @@ Every user-facing string the layout-DB work introduced, flagged `// COPY: sign-o
 4-// (CLAUDE.md: "never touch user-facing copy... as a side effect"),
 ```
 
+LDB-B26 (branch `ldb-b26`, 2026-09-10) adds FIVE new strings -- `quoteUserText`'s own neutral fallback per kind, printed instead of a user's raw text once it fails that kind's allow-list:
+
+```ts
+155:// COPY: sign-off pending -- the five neutral fallbacks `quoteUserText`
+156-// prints instead of a user's raw text once it fails that kind's allow-
+157-// list. Chosen to keep the surrounding cmini-parity sentence grammatical
+158-// ("Error: couldn't find any layout named that layout") without ever
+159-// repeating anything that wasn't typed as an actual name/corpus/ngram/
+160-// command.
+161:function thatLayout(): string { return 'that layout'; }
+162:function thatUser(): string { return 'that user'; }
+163:function thatCorpus(): string { return 'that corpus'; }
+164:function thatNgram(): string { return 'that n-gram'; }
+165:function thatVerb(): string { return 'that command'; }
+```
+
+## `bot/src/main.ts`
+
+LDB-B27 (branch `ldb-b26`, 2026-09-10) adds ONE new string -- the marker line `capReplyContent` appends when it has to cut an over-2 000-char reply short:
+
+```ts
+122:// COPY: sign-off pending -- the marker line `capReplyContent` appends when
+123-// it has to cut a reply short (F2, `16-command-audit.md` §3).
+124:const TRUNCATED_MARKER = '… (truncated)';
+```
+
 ## Other flagged spots
 
 - web/src/ui/card/PublishSheet.tsx:8:// is `copy/db.ts`'s own stand-in (COPY: sign-off pending -- CLAUDE.md's

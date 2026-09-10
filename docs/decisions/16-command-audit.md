@@ -87,6 +87,27 @@ neither the string nor any `<@`, `@everyone`, `@here`, `http`. Copy
 impact: the neutral fallbacks are new strings (sign-off pending,
 `14-copy-signoff.md`); the happy-path wording is unchanged.
 
+**Status: DONE (LDB-B26), 2026-09-10, branch `ldb-b26`.** Every site named
+above, plus three this audit's own table missed on a closer per-command
+read (`help.ts`'s "Unknown command", `mod.ts`'s own "couldn't find any
+layout" echo — distinct from the other read-only preview twins only in
+variable name, `layoutName` — and `render/kwargs.ts`'s "invalid kwarg",
+the one call site EVERY `--flag`-taking verb — `filter`/`rank`/`mod`/
+`search` — shares), is wrapped. `rank`'s unsupported-stat line and
+`examples`' query echo were also found to be genuine, previously-
+unaudited gaps (this table's own "echoes raw input? no" for
+`filter`/`search`/`homerow` undercounted `filter`'s own `compareWithStr`
+kwarg-value echo, which is INTENTIONALLY left open — see below) and are
+now wrapped too (`verb`/`ngram` kind respectively; both a narrow,
+documented trade-off against a rare honest-input edge, not a behavior
+regression this audit's own tests didn't already cover). Left
+deliberately open: `filter.ts`'s `compareWithStr` (`--<metric> <value>`'s
+error text) still echoes its raw comparison-operator string verbatim on
+a malformed value — none of `quoteUserText`'s five kinds fit an arbitrary
+`>`/`<`-prefixed comparison string, and it needs a `--flagname` token to
+even reach (not hit by pure single-argument fuzzing the way every other
+site here is) — flagged for a follow-up, not silently dropped.
+
 **F2 — no general reply-length guard.** Only `!authors` truncates. A
 2 000+ char reply throws `DiscordAPIError[50035]` in `replyOrAlert`,
 which is caught and reported (LDB-B21) — the user sees nothing. Today
@@ -96,6 +117,16 @@ it. → **LDB-B27 (proposed): `replyOrAlert` hard-caps content at 2 000
 chars** with a visible marker on the last line (`… (truncated)`, sign-off
 pending), so the reply always lands and the operator alert stays for
 real API errors.
+
+**Status: DONE (LDB-B27), 2026-09-10, branch `ldb-b26`.** `main.ts`'s
+`capReplyContent`, run inside `replyOrAlert` over every reply (every
+verb, `bareTryReply`, `notAvailableReply`, `commandFailedInternally`, ...)
+before it ever reaches `message.reply`: a no-op at or under 2 000 chars;
+over it, cuts to fit -- preferring the last newline before the limit so a
+fenced code block or a list row is never sliced mid-line, closing an odd
+(still-open) ``` fence first -- then appends the marker. `!authors`' own
+LDB-B19 truncation already fits comfortably under the cap by construction
+and is unaffected.
 
 **F3 — reads are unmetered.** The DB rate-limits writes per actor; the
 bot meters nothing. Every read is cheap (cache + harvest) except the
