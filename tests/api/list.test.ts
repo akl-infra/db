@@ -1,9 +1,8 @@
-// [LDB-F5] [LDB-R4] `GET /v1/layouts` (03 §2, 07 §6 S6): a keyset cursor
-// walk of any sort/limit visits every live record exactly once, in order;
-// every filter equals a plain JS filter over the seed; `?full=1` streams
-// every live record's payload, matching `fromCmini` of the upstream
-// fixture's own shape (21-formats.md D5 deleted the cmini export, so this
-// is spark-shaped now, not byte-identical to upstream's own cmini shape).
+// [LDB-F5] [LDB-R4] `GET /v1/layouts?format=spark/1` (21-formats.md §2.4):
+// a keyset cursor walk of any sort/limit visits every live record exactly
+// once, in order; every filter equals a plain JS filter over the seed;
+// `?full=1` streams every live record's payload, matching `fromCmini` of
+// the upstream fixture's own shape.
 import { SELF } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import fullSnapshot from "../fixtures/upstream-100/full.json" with { type: "json" };
@@ -29,7 +28,7 @@ async function walkAll(sort: string, limit: number): Promise<string[]> {
   const ids: string[] = [];
   let cursor: string | undefined;
   for (;;) {
-    const qs = new URLSearchParams({ sort, limit: String(limit) });
+    const qs = new URLSearchParams({ format: "spark/1", sort, limit: String(limit) });
     if (cursor !== undefined) qs.set("cursor", cursor);
     const res = await SELF.fetch(`https://example.com/v1/layouts?${qs.toString()}`);
     expect(res.status).toBe(200);
@@ -49,15 +48,17 @@ const SORT_ORDER_SQL: Record<string, string> = {
 };
 
 async function expectedOrder(sort: string): Promise<string[]> {
-  const { results } = await db
-    .prepare(`SELECT id FROM layouts WHERE deleted = 0 ${SORT_ORDER_SQL[sort]}`)
-    .all<{ id: string }>();
+  const { results } = await db.prepare(`SELECT id FROM layouts WHERE deleted = 0 ${SORT_ORDER_SQL[sort]}`).all<{ id: string }>();
   return results.map((r) => r.id);
 }
 
 async function loadSeedRows(): Promise<ListItem[]> {
   const { results } = await db
-    .prepare("SELECT id, owner, format, has_magic, modified_at FROM layouts WHERE deleted = 0")
+    .prepare(
+      `SELECT l.id AS id, l.owner AS owner, f.format AS format, f.has_magic AS has_magic, l.modified_at AS modified_at
+       FROM layouts l JOIN layout_formats f ON f.layout_id = l.id AND f.lineage = 'spark'
+       WHERE l.deleted = 0`,
+    )
     .all<{ id: string; owner: string; format: string; has_magic: number; modified_at: string }>();
   return results.map((r) => ({ ...r, has_magic: r.has_magic !== 0 }));
 }
@@ -85,32 +86,30 @@ describe("[LDB-F5] every filter equals a plain JS filter over the seed", () => {
     const expected = new Set(seed.filter((r) => r.owner === owner).map((r) => r.id));
     expect(expected.size).toBeGreaterThan(0);
 
-    const res = await SELF.fetch(`https://example.com/v1/layouts?owner=${owner}&limit=1000`);
+    const res = await SELF.fetch(`https://example.com/v1/layouts?format=spark/1&owner=${owner}&limit=1000`);
     const body = await res.json<{ items: ListItem[] }>();
     expect(new Set(body.items.map((i) => i.id))).toEqual(expected);
   });
 
-  it("[LDB-F5] format=", async () => {
+  // 21-formats.md D4: `format` is no longer an optional equality filter --
+  // it's the required selector itself (every seed record is spark/1, one
+  // lineage), so this now just confirms the selector returns the full set.
+  it("[LDB-F5] format=spark/1 selects the whole seed (every record is stored spark/1)", async () => {
     const seed = await loadSeedRows();
-    const format = seed[0]!.format;
-    const expected = new Set(seed.filter((r) => r.format === format).map((r) => r.id));
+    const expected = new Set(seed.map((r) => r.id));
 
-    const res = await SELF.fetch(`https://example.com/v1/layouts?format=${encodeURIComponent(format)}&limit=1000`);
+    const res = await SELF.fetch(`https://example.com/v1/layouts?format=spark/1&limit=1000`);
     const body = await res.json<{ items: ListItem[] }>();
     expect(new Set(body.items.map((i) => i.id))).toEqual(expected);
   });
 
   it("[LDB-F5] has_magic=true and has_magic=false partition the seed", async () => {
     // M1 (LDB-I10): a fresh import never sets has_magic=true -- upstream's
-    // magic is stripped before it ever reaches a payload (07 §5.3's "picked
-    // to include magic layouts" premise described the pre-M1 import, not
-    // the filter itself). Flip one seed record's `has_magic` directly to
-    // exercise the true branch the way a record that already carried local
-    // magic before M1 landed would (LDB-I11 keeps such a record's magic on
-    // later import writes; M2 gives akl.gg's own rules the same shape) --
-    // this is a read-route filter test, so the column alone is enough.
+    // magic is stripped before it ever reaches a payload. Flip one seed
+    // record's `has_magic` directly on its SPARK format row to exercise
+    // the true branch.
     const seedRows = await loadSeedRows();
-    await db.prepare("UPDATE layouts SET has_magic = 1 WHERE id = ?").bind(seedRows[0]!.id).run();
+    await db.prepare("UPDATE layout_formats SET has_magic = 1 WHERE layout_id = ? AND lineage = 'spark'").bind(seedRows[0]!.id).run();
 
     const seed = await loadSeedRows();
     const expectedTrue = new Set(seed.filter((r) => r.has_magic).map((r) => r.id));
@@ -118,11 +117,11 @@ describe("[LDB-F5] every filter equals a plain JS filter over the seed", () => {
     expect(expectedTrue.size + expectedFalse.size).toBe(seed.length);
     expect(expectedTrue.size).toBeGreaterThan(0);
 
-    const trueRes = await SELF.fetch("https://example.com/v1/layouts?has_magic=true&limit=1000");
+    const trueRes = await SELF.fetch("https://example.com/v1/layouts?format=spark/1&has_magic=true&limit=1000");
     const trueBody = await trueRes.json<{ items: ListItem[] }>();
     expect(new Set(trueBody.items.map((i) => i.id))).toEqual(expectedTrue);
 
-    const falseRes = await SELF.fetch("https://example.com/v1/layouts?has_magic=false&limit=1000");
+    const falseRes = await SELF.fetch("https://example.com/v1/layouts?format=spark/1&has_magic=false&limit=1000");
     const falseBody = await falseRes.json<{ items: ListItem[] }>();
     expect(new Set(falseBody.items.map((i) => i.id))).toEqual(expectedFalse);
   });
@@ -133,7 +132,7 @@ describe("[LDB-F5] every filter equals a plain JS filter over the seed", () => {
     const since = sortedByModified[Math.floor(sortedByModified.length / 2)]!.modified_at;
     const expected = new Set(seed.filter((r) => r.modified_at > since).map((r) => r.id));
 
-    const res = await SELF.fetch(`https://example.com/v1/layouts?since=${encodeURIComponent(since)}&limit=1000`);
+    const res = await SELF.fetch(`https://example.com/v1/layouts?format=spark/1&since=${encodeURIComponent(since)}&limit=1000`);
     const body = await res.json<{ items: ListItem[] }>();
     expect(new Set(body.items.map((i) => i.id))).toEqual(expected);
   });
@@ -156,7 +155,7 @@ describe("[LDB-R8] liked_by=<user_id>", () => {
     const expected = await likedIdsFor(userId!);
     expect(expected.size).toBeGreaterThan(0);
 
-    const res = await SELF.fetch(`https://example.com/v1/layouts?liked_by=${userId}&limit=1000`);
+    const res = await SELF.fetch(`https://example.com/v1/layouts?format=spark/1&liked_by=${userId}&limit=1000`);
     expect(res.status).toBe(200);
     const body = await res.json<{ items: ListItem[] }>();
     expect(new Set(body.items.map((i) => i.id))).toEqual(expected);
@@ -169,21 +168,21 @@ describe("[LDB-R8] liked_by=<user_id>", () => {
     const seed = await loadSeedRows();
     const expected = new Set(seed.filter((r) => liked.has(r.id) && r.has_magic).map((r) => r.id));
 
-    const res = await SELF.fetch(`https://example.com/v1/layouts?liked_by=${userId}&has_magic=true&sort=like_count&limit=1000`);
+    const res = await SELF.fetch(`https://example.com/v1/layouts?format=spark/1&liked_by=${userId}&has_magic=true&sort=like_count&limit=1000`);
     expect(res.status).toBe(200);
     const body = await res.json<{ items: ListItem[] }>();
     expect(new Set(body.items.map((i) => i.id))).toEqual(expected);
   });
 
   it("[LDB-R8] a user_id nobody has liked anything for -> empty list", async () => {
-    const res = await SELF.fetch("https://example.com/v1/layouts?liked_by=999999999999999999&limit=1000");
+    const res = await SELF.fetch("https://example.com/v1/layouts?format=spark/1&liked_by=999999999999999999&limit=1000");
     expect(res.status).toBe(200);
     const body = await res.json<{ items: ListItem[] }>();
     expect(body.items).toEqual([]);
   });
 
   it("[LDB-R8] a malformed liked_by -> 400 bad_request", async () => {
-    const res = await SELF.fetch("https://example.com/v1/layouts?liked_by=not-a-snowflake");
+    const res = await SELF.fetch("https://example.com/v1/layouts?format=spark/1&liked_by=not-a-snowflake");
     expect(res.status).toBe(400);
     const body = await res.json<{ error: string }>();
     expect(body.error).toBe("bad_request");
@@ -194,7 +193,7 @@ describe("[LDB-R8] liked_by=<user_id>", () => {
     const userId = results[0]!.user_id;
     const expected = await likedIdsFor(userId);
 
-    const res = await SELF.fetch(`https://example.com/v1/layouts?full=1&liked_by=${userId}`);
+    const res = await SELF.fetch(`https://example.com/v1/layouts?full=1&format=spark/1&liked_by=${userId}`);
     expect(res.status).toBe(200);
     const body = await res.json<{ items: { id: string; payload: unknown }[] }>();
     expect(new Set(body.items.map((i) => i.id))).toEqual(expected);
@@ -204,11 +203,9 @@ describe("[LDB-R8] liked_by=<user_id>", () => {
 
 describe("[LDB-F5] ?full=1 streams every live record's payload", () => {
   it("[LDB-F5] matches fromCmini(upstream fixture) exactly, for every seeded record", async () => {
-    const fixtureByName = new Map(
-      (fullSnapshot as { layouts: RawUpstreamDetail[] }).layouts.map((d) => [d.name, d]),
-    );
+    const fixtureByName = new Map((fullSnapshot as { layouts: RawUpstreamDetail[] }).layouts.map((d) => [d.name, d]));
 
-    const res = await SELF.fetch("https://example.com/v1/layouts?full=1");
+    const res = await SELF.fetch("https://example.com/v1/layouts?full=1&format=spark/1");
     expect(res.status).toBe(200);
     const body = await res.json<{ items: { name: string; held?: boolean; payload?: unknown }[] }>();
     expect(body.items.length).toBe(100);
