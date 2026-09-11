@@ -357,6 +357,10 @@ real examples in §4.
 | 409 | `held` | record cannot be translated to '${format}' | `held(format, see)` |
 | 409 | `format_behind` | this record uses ${see} features that ${format} cannot show; write it as ${see}, or PATCH the field you mean to change | `formatBehind(format, see, rev)` |
 | 500 | `internal` | internal error | `internal()` |
+| 400 | `format_required` | a 'format' parameter is required | `formatRequired()` |
+| 404 | `format_absent` | this layout has no '${format}' format | `formatAbsent(format)` |
+| 409 | `format_exists` | this layout already has a '${format}' format | `formatExists(format)` |
+| 400 | `mixed_patch` | a PATCH may change the layout's name, or one format's payload, never both at once | `mixedPatch()` |
 | 401 | `unauthorized` | authentication required | `unauthorized()` |
 | 401 | `token_invalid` | *(caller-supplied -- this function's own `message` parameter)* | `tokenInvalid(message)` |
 | 400 | `invalid_client_version` | invalid 'X-Client-Version' header '${raw}' (expected <= 64 chars of [A-Za-z0-9._+/:-]) | `invalidClientVersion(raw)` |
@@ -365,7 +369,7 @@ real examples in §4.
 | 403 | `not_admin` | admin only | `notAdmin()` |
 | 400 | `invalid_name` | *(caller-supplied -- this function's own `message` parameter)* | `invalidName(name, message)` |
 | 400 | `if_match_required` | an 'If-Match' header naming the record's current rev is required | `ifMatchRequired()` |
-| 409 | `stale` | record is at rev ${record.rev}, not the version you edited | `stale(record, lastWrite)` |
+| 409 | `stale` | '${scope}' is at rev ${rev}, not the version you edited | `stale(scope, rev, record, lastWrite)` |
 | 409 | `last_admins` | removing this admin would leave fewer than 2 admins | `lastAdmins(count)` |
 | 400 | `unsupported_for_format` | '${verb}' is not supported for format '${format}' | `unsupportedForFormat(format, verb)` |
 | 401 | `bad_signature` | the client signature is missing or invalid | `badSignature()` |

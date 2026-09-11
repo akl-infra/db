@@ -122,7 +122,7 @@ describe("[LDB-S1a] db-responses/ fixture equals the live routes over upstream-1
 
   beforeAll(async () => {
     await seedUpstream100();
-    const list = (await getJson("/v1/layouts?limit=1000")) as { items: { name: string }[] };
+    const list = (await getJson("/v1/layouts?format=spark/1&limit=1000")) as { items: { name: string }[] };
     names = list.items.map((i) => i.name).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   });
 
@@ -134,7 +134,7 @@ describe("[LDB-S1a] db-responses/ fixture equals the live routes over upstream-1
     const pages: unknown[] = [];
     let cursor: string | undefined;
     for (;;) {
-      const qs = new URLSearchParams({ limit: "1000" });
+      const qs = new URLSearchParams({ format: "spark/1", limit: "1000" });
       if (cursor !== undefined) qs.set("cursor", cursor);
       const page = (await getJson(`/v1/layouts?${qs.toString()}`)) as {
         items: unknown[];
@@ -148,7 +148,7 @@ describe("[LDB-S1a] db-responses/ fixture equals the live routes over upstream-1
   });
 
   it("[LDB-S1a] /v1/layouts?full=1", async () => {
-    checkOrRecord("layouts-full-cmini1.json", layoutsFullFixture, await getJson("/v1/layouts?full=1"));
+    checkOrRecord("layouts-full-cmini1.json", layoutsFullFixture, await getJson("/v1/layouts?full=1&format=spark/1"));
   });
 
   it("[LDB-S1a] every /v1/layouts/{name} and its /likes", async () => {
@@ -161,7 +161,7 @@ describe("[LDB-S1a] db-responses/ fixture equals the live routes over upstream-1
     const pairs = await Promise.all(
       names.map(async (name) => {
         const [detail, likes] = await Promise.all([
-          getJson(`/v1/layouts/${encodeURIComponent(name)}`),
+          getJson(`/v1/layouts/${encodeURIComponent(name)}?format=spark/1`),
           getJson(`/v1/layouts/${encodeURIComponent(name)}/likes`),
         ]);
         return [name, detail, likes] as const;

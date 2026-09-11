@@ -4,8 +4,8 @@
    "created_at": "2024-11-24T23:55:55Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2024-11-24T23:55:55Z",
@@ -18,11 +18,6 @@
     },
     "keys": {}
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "00------higgs",
     "source": "cmini",
@@ -33,8 +28,8 @@
    "created_at": "2024-11-24T23:55:55Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2024-11-24T23:55:55Z",
@@ -47,11 +42,6 @@
     },
     "keys": {}
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "02_we've_been_in_this_room_too_long",
     "source": "cmini",
@@ -62,8 +52,8 @@
    "created_at": "2026-01-07T00:00:02Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-08-31T12:45:28Z",
@@ -237,11 +227,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "40kwh",
     "source": "cmini",
@@ -252,8 +237,8 @@
    "created_at": "2026-09-07T08:15:10Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-09-07T11:41:29Z",
@@ -432,11 +417,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "5quid-nhrl2",
     "source": "cmini",
@@ -447,8 +427,8 @@
    "created_at": "2025-08-15T00:00:02Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-08-31T12:45:28Z",
@@ -622,11 +602,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "abyss",
     "source": "cmini",
@@ -637,8 +612,8 @@
    "created_at": "2022-12-07T23:24:35Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 1,
    "likes": [
     "761732338744557568"
@@ -809,11 +784,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "adept",
     "source": "cmini",
@@ -824,8 +794,8 @@
    "created_at": "2022-12-07T23:24:35Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-08-24T01:01:10Z",
@@ -1004,11 +974,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "adnw",
     "source": "cmini",
@@ -1019,8 +984,8 @@
    "created_at": "2026-08-01T00:00:03Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 1,
    "likes": [
     "226128695377526784"
@@ -1196,11 +1161,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "apple",
     "source": "cmini",
@@ -1211,8 +1171,8 @@
    "created_at": "2023-02-16T03:52:38Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 1,
    "likes": [
     "480103746911862798"
@@ -1385,11 +1345,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "apt26",
     "source": "cmini",
@@ -1400,8 +1355,8 @@
    "created_at": "2026-09-03T01:24:11Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-09-03T21:12:51Z",
@@ -1570,11 +1525,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "auditor",
     "source": "cmini",
@@ -1585,8 +1535,8 @@
    "created_at": "2026-08-16T00:00:02Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-08-31T13:02:25Z",
@@ -1755,11 +1705,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "auditor-old",
     "source": "cmini",
@@ -1770,8 +1715,8 @@
    "created_at": "2026-09-03T21:14:17Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-09-03T21:16:57Z",
@@ -1940,11 +1885,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "auditors",
     "source": "cmini",
@@ -1955,8 +1895,8 @@
    "created_at": "2026-01-31T00:00:02Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 1,
    "likes": [
     "525231824465690645"
@@ -2102,11 +2042,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "babymak-pipis",
     "source": "cmini",
@@ -2117,8 +2052,8 @@
    "created_at": "2025-04-28T00:00:02Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-08-31T23:08:42Z",
@@ -2287,11 +2222,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "bevel",
     "source": "cmini",
@@ -2302,8 +2232,8 @@
    "created_at": "2023-05-28T00:00:01Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 16,
    "likes": [
     "1055236731722543154",
@@ -2489,11 +2419,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "bunya",
     "source": "cmini",
@@ -2504,8 +2429,8 @@
    "created_at": "2024-07-01T02:49:53Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 10,
    "likes": [
     "119825772901957632",
@@ -2580,11 +2505,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "crescent",
     "source": "cmini",
@@ -2595,8 +2515,8 @@
    "created_at": "2026-09-05T23:46:00Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-09-05T23:49:11Z",
@@ -2765,11 +2685,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "csthyou",
     "source": "cmini",
@@ -2780,8 +2695,8 @@
    "created_at": "2023-02-16T03:52:38Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 14,
    "likes": [
     "1055236731722543154",
@@ -2960,11 +2875,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "dhorf",
     "source": "cmini",
@@ -2975,8 +2885,8 @@
    "created_at": "2026-09-09T00:43:46Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-09-09T00:43:52Z",
@@ -3145,11 +3055,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "dina-test",
     "source": "cmini",
@@ -3160,8 +3065,8 @@
    "created_at": "2026-08-31T13:04:38Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-08-31T13:04:38Z",
@@ -3330,11 +3235,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "dmini-thumb-test",
     "source": "cmini",
@@ -3345,8 +3245,8 @@
    "created_at": "2026-08-31T13:23:32Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-08-31T13:23:32Z",
@@ -3515,11 +3415,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "dmini-thumb-test-2",
     "source": "cmini",
@@ -3530,8 +3425,8 @@
    "created_at": "2026-08-31T16:05:27Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-08-31T16:05:27Z",
@@ -3700,11 +3595,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "dmini-thumb-test-3",
     "source": "cmini",
@@ -3715,8 +3605,8 @@
    "created_at": "2026-08-31T16:38:03Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-08-31T16:47:20Z",
@@ -3885,11 +3775,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "dmini-thumb-test-4",
     "source": "cmini",
@@ -3900,8 +3785,8 @@
    "created_at": "2026-08-31T19:03:22Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-08-31T19:03:22Z",
@@ -4070,11 +3955,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "dmini-thumb-test-6",
     "source": "cmini",
@@ -4085,8 +3965,8 @@
    "created_at": "2026-09-01T15:52:43Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-09-01T15:55:37Z",
@@ -4255,11 +4135,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "dmini-thumb-test-7",
     "source": "cmini",
@@ -4270,8 +4145,8 @@
    "created_at": "2025-11-30T00:00:02Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 5,
    "likes": [
     "1183955138541523115",
@@ -4451,11 +4326,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "echo",
     "source": "cmini",
@@ -4466,8 +4336,8 @@
    "created_at": "2026-06-08T00:00:03Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 11,
    "likes": [
     "119825772901957632",
@@ -4648,11 +4518,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "eclipse",
     "source": "cmini",
@@ -4663,8 +4528,8 @@
    "created_at": "2026-09-08T18:09:47Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-09-08T18:10:59Z",
@@ -4838,11 +4703,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "eclipse-themb",
     "source": "cmini",
@@ -4853,8 +4713,8 @@
    "created_at": "2026-08-25T05:09:45Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-09-07T22:35:17Z",
@@ -5023,11 +4883,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "eclipse-v2",
     "source": "cmini",
@@ -5038,8 +4893,8 @@
    "created_at": "2026-09-07T20:27:43Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 1,
    "likes": [
     "525231824465690645"
@@ -5210,11 +5065,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "eclipse-v3",
     "source": "cmini",
@@ -5225,8 +5075,8 @@
    "created_at": "2026-09-07T18:59:07Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-09-07T18:59:07Z",
@@ -5390,11 +5240,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "eclipseortho",
     "source": "cmini",
@@ -5405,8 +5250,8 @@
    "created_at": "2025-05-18T00:00:02Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-09-09T01:04:13Z",
@@ -5575,11 +5420,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "fhmb-test",
     "source": "cmini",
@@ -5590,8 +5430,8 @@
    "created_at": "2026-08-30T23:56:12Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-09-05T03:28:40Z",
@@ -5760,11 +5600,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "finch",
     "source": "cmini",
@@ -5775,8 +5610,8 @@
    "created_at": "2026-09-06T19:44:10Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-09-06T19:44:48Z",
@@ -5940,11 +5775,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "for-duo",
     "source": "cmini",
@@ -5955,8 +5785,8 @@
    "created_at": "2026-09-06T19:49:46Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-09-06T19:51:27Z",
@@ -6120,11 +5950,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "for-duo-2",
     "source": "cmini",
@@ -6135,8 +5960,8 @@
    "created_at": "2026-09-06T20:19:08Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-09-06T20:24:31Z",
@@ -6300,11 +6125,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "for-duo-3",
     "source": "cmini",
@@ -6315,8 +6135,8 @@
    "created_at": "2023-03-16T23:40:06Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 78,
    "likes": [
     "1004139554682441779",
@@ -6574,11 +6394,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "graphite",
     "source": "cmini",
@@ -6589,8 +6404,8 @@
    "created_at": "2026-09-07T09:56:58Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-09-07T09:56:58Z",
@@ -6759,11 +6574,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "graphite-vimified",
     "source": "cmini",
@@ -6774,8 +6584,8 @@
    "created_at": "2024-05-12T00:00:02Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2024-05-12T00:00:02Z",
@@ -6954,11 +6764,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "haul",
     "source": "cmini",
@@ -6969,8 +6774,8 @@
    "created_at": "2026-06-01T00:00:02Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 1,
    "likes": [
     "383900587877597186"
@@ -7151,11 +6956,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "inky-nyoom",
     "source": "cmini",
@@ -7166,8 +6966,8 @@
    "created_at": "2023-02-16T03:52:38Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 76,
    "likes": [
     "1000311474398445588",
@@ -7413,11 +7213,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "inqwerted",
     "source": "cmini",
@@ -7428,8 +7223,8 @@
    "created_at": "2022-12-07T23:24:35Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 15,
    "likes": [
     "1004139554682441779",
@@ -7609,11 +7404,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "io",
     "source": "cmini",
@@ -7624,8 +7414,8 @@
    "created_at": "2026-09-03T02:39:08Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-09-03T02:39:08Z",
@@ -7804,11 +7594,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "jeep",
     "source": "cmini",
@@ -7819,8 +7604,8 @@
    "created_at": "2026-08-31T01:34:57Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-08-31T12:55:52Z",
@@ -7994,11 +7779,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "kai-nokwts",
     "source": "cmini",
@@ -8009,8 +7789,8 @@
    "created_at": "2026-08-28T12:57:11Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-09-08T19:07:01Z",
@@ -8189,11 +7969,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "kairos",
     "source": "cmini",
@@ -8204,8 +7979,8 @@
    "created_at": "2026-03-10T00:00:03Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-09-09T00:51:30Z",
@@ -8374,11 +8149,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "kate-2",
     "source": "cmini",
@@ -8389,8 +8159,8 @@
    "created_at": "2025-07-17T00:00:02Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-09-08T16:15:22Z",
@@ -8559,11 +8329,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "kinda-dina",
     "source": "cmini",
@@ -8574,8 +8339,8 @@
    "created_at": "2026-09-08T16:10:20Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-09-08T16:11:19Z",
@@ -8744,11 +8509,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "knight-you",
     "source": "cmini",
@@ -8759,8 +8519,8 @@
    "created_at": "2026-09-05T22:41:47Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-09-07T05:25:46Z",
@@ -8944,11 +8704,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "kormite",
     "source": "cmini",
@@ -8959,8 +8714,8 @@
    "created_at": "2026-09-05T21:25:43Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-09-05T21:25:43Z",
@@ -9144,11 +8899,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "magnetite",
     "source": "cmini",
@@ -9159,8 +8909,8 @@
    "created_at": "2026-08-19T00:00:02Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 2,
    "likes": [
     "525231824465690645",
@@ -9332,11 +9082,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "mantra",
     "source": "cmini",
@@ -9347,8 +9092,8 @@
    "created_at": "2026-09-05T17:12:25Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-09-07T05:57:26Z",
@@ -9532,11 +9277,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "marble",
     "source": "cmini",
@@ -9547,8 +9287,8 @@
    "created_at": "2026-09-05T05:54:44Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-09-05T21:54:30Z",
@@ -9717,11 +9457,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "mistyfun",
     "source": "cmini",
@@ -9732,8 +9467,8 @@
    "created_at": "2026-09-05T06:03:21Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-09-05T06:09:05Z",
@@ -9902,11 +9637,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "mistynail",
     "source": "cmini",
@@ -9917,8 +9647,8 @@
    "created_at": "2026-06-23T00:00:02Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 5,
    "likes": [
     "1203272268449579041",
@@ -10103,11 +9833,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "neon",
     "source": "cmini",
@@ -10118,8 +9843,8 @@
    "created_at": "2026-09-07T11:56:29Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-09-07T22:23:45Z",
@@ -10293,11 +10018,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "night-e",
     "source": "cmini",
@@ -10308,8 +10028,8 @@
    "created_at": "2026-06-26T00:00:03Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 2,
    "likes": [
     "383900587877597186",
@@ -10491,11 +10211,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "nightcore",
     "source": "cmini",
@@ -10506,8 +10221,8 @@
    "created_at": "2022-12-07T23:24:35Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-08-31T13:33:00Z",
@@ -10681,11 +10396,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "niro",
     "source": "cmini",
@@ -10696,8 +10406,8 @@
    "created_at": "2026-09-07T07:56:36Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-09-07T07:57:12Z",
@@ -10871,11 +10581,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "ntabv6",
     "source": "cmini",
@@ -10886,8 +10591,8 @@
    "created_at": "2026-08-31T19:55:19Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 1,
    "likes": [
     "226128695377526784"
@@ -11073,11 +10778,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "onyx",
     "source": "cmini",
@@ -11088,8 +10788,8 @@
    "created_at": "2025-07-01T00:00:02Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 11,
    "likes": [
     "114224492288540678",
@@ -11270,11 +10970,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "opal",
     "source": "cmini",
@@ -11285,8 +10980,8 @@
    "created_at": "2026-08-29T13:58:14Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-08-29T13:58:14Z",
@@ -11455,11 +11150,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "opal-dario",
     "source": "cmini",
@@ -11470,8 +11160,8 @@
    "created_at": "2026-08-30T23:18:14Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-09-04T21:12:03Z",
@@ -11640,11 +11330,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "opal-e200",
     "source": "cmini",
@@ -11655,8 +11340,8 @@
    "created_at": "2026-09-05T21:29:05Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 2,
    "likes": [
     "1203272268449579041",
@@ -11828,11 +11513,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "opalbetter",
     "source": "cmini",
@@ -11843,8 +11523,8 @@
    "created_at": "2026-08-21T00:00:02Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 5,
    "likes": [
     "226128695377526784",
@@ -12029,11 +11709,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "opaline",
     "source": "cmini",
@@ -12044,8 +11719,8 @@
    "created_at": "2026-08-30T06:16:38Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-09-06T22:12:46Z",
@@ -12224,11 +11899,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "opaline-meteorited",
     "source": "cmini",
@@ -12239,8 +11909,8 @@
    "created_at": "2025-03-30T00:00:02Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-08-31T12:45:29Z",
@@ -12409,11 +12079,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "oxeytest64",
     "source": "cmini",
@@ -12424,8 +12089,8 @@
    "created_at": "2025-03-30T00:00:02Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-08-31T12:45:29Z",
@@ -12594,11 +12259,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "oxeytest65",
     "source": "cmini",
@@ -12609,8 +12269,8 @@
    "created_at": "2025-03-30T00:00:02Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-08-31T12:45:29Z",
@@ -12779,11 +12439,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "oxeytest66",
     "source": "cmini",
@@ -12794,8 +12449,8 @@
    "created_at": "2025-03-30T00:00:02Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-08-31T12:45:29Z",
@@ -12964,11 +12619,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "oxeytest76",
     "source": "cmini",
@@ -12979,8 +12629,8 @@
    "created_at": "2024-04-04T00:00:02Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 16,
    "likes": [
     "115623048077377544",
@@ -13166,11 +12816,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "racket",
     "source": "cmini",
@@ -13181,8 +12826,8 @@
    "created_at": "2026-09-06T00:03:44Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-09-06T00:19:11Z",
@@ -13351,11 +12996,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "raincsth",
     "source": "cmini",
@@ -13366,8 +13006,8 @@
    "created_at": "2026-09-01T10:44:27Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-09-01T10:46:08Z",
@@ -13541,11 +13181,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "rightrollv2",
     "source": "cmini",
@@ -13556,8 +13191,8 @@
    "created_at": "2026-09-03T08:56:22Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-09-03T08:56:36Z",
@@ -13731,11 +13366,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "rightrollv3",
     "source": "cmini",
@@ -13746,8 +13376,8 @@
    "created_at": "2026-09-07T21:37:14Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-09-07T21:37:36Z",
@@ -13916,11 +13546,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "rnhsy",
     "source": "cmini",
@@ -13931,8 +13556,8 @@
    "created_at": "2026-09-07T21:28:45Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-09-07T21:36:59Z",
@@ -14106,11 +13731,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "rnhsye",
     "source": "cmini",
@@ -14121,8 +13741,8 @@
    "created_at": "2026-08-31T17:14:02Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-08-31T17:14:02Z",
@@ -14286,11 +13906,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "rosellae",
     "source": "cmini",
@@ -14301,8 +13916,8 @@
    "created_at": "2026-09-07T12:02:10Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-09-07T12:02:10Z",
@@ -14431,11 +14046,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "rosellaeacc",
     "source": "cmini",
@@ -14446,8 +14056,8 @@
    "created_at": "2026-09-05T08:32:31Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-09-05T08:32:31Z",
@@ -14601,11 +14211,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "rosellaenav",
     "source": "cmini",
@@ -14616,8 +14221,8 @@
    "created_at": "2026-09-05T08:31:56Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-09-05T08:31:56Z",
@@ -14756,11 +14361,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "rosellaesym",
     "source": "cmini",
@@ -14771,8 +14371,8 @@
    "created_at": "2026-02-27T00:00:03Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 1,
    "likes": [
     "736739510251028480"
@@ -14928,11 +14528,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "sanrie-cmini-test2",
     "source": "cmini",
@@ -14943,8 +14538,8 @@
    "created_at": "2026-09-07T00:42:00Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 1,
    "likes": [
     "226128695377526784"
@@ -15130,11 +14725,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "shale",
     "source": "cmini",
@@ -15145,8 +14735,8 @@
    "created_at": "2026-09-09T01:10:57Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-09-09T01:11:51Z",
@@ -15315,11 +14905,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "shtc",
     "source": "cmini",
@@ -15330,8 +14915,8 @@
    "created_at": "2026-08-31T15:55:03Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 2,
    "likes": [
     "226128695377526784",
@@ -15518,11 +15103,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "slate",
     "source": "cmini",
@@ -15533,8 +15113,8 @@
    "created_at": "2024-07-13T19:18:30Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 5,
    "likes": [
     "1203272268449579041",
@@ -15704,11 +15284,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "smiemak",
     "source": "cmini",
@@ -15719,8 +15294,8 @@
    "created_at": "2022-12-07T23:24:35Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-08-31T13:33:00Z",
@@ -15894,11 +15469,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "soul",
     "source": "cmini",
@@ -15909,8 +15479,8 @@
    "created_at": "2026-08-18T00:00:02Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 5,
    "likes": [
     "1203272268449579041",
@@ -16090,11 +15660,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "sunstone",
     "source": "cmini",
@@ -16105,8 +15670,8 @@
    "created_at": "2026-09-05T22:14:36Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-09-08T19:01:34Z",
@@ -16285,11 +15850,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "swift",
     "source": "cmini",
@@ -16300,8 +15860,8 @@
    "created_at": "2026-02-27T00:00:03Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-09-09T01:03:25Z",
@@ -16470,11 +16030,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "sy-thumb",
     "source": "cmini",
@@ -16485,8 +16040,8 @@
    "created_at": "2026-09-03T03:13:54Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-09-03T04:59:17Z",
@@ -16665,11 +16220,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "tenders",
     "source": "cmini",
@@ -16680,8 +16230,8 @@
    "created_at": "2025-10-04T00:00:02Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 1,
    "likes": [
     "773077222189432843"
@@ -16872,11 +16422,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "tendon25b",
     "source": "cmini",
@@ -16887,8 +16432,8 @@
    "created_at": "2026-08-30T09:56:04Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-08-30T10:00:15Z",
@@ -17057,11 +16602,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "test12222",
     "source": "cmini",
@@ -17072,8 +16612,8 @@
    "created_at": "2025-05-20T00:00:02Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-09-08T15:59:52Z",
@@ -17242,11 +16782,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "thumb-u-test",
     "source": "cmini",
@@ -17257,8 +16792,8 @@
    "created_at": "2026-09-09T01:13:24Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-09-09T01:13:31Z",
@@ -17427,11 +16962,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "thumb-u-xb",
     "source": "cmini",
@@ -17442,8 +16972,8 @@
    "created_at": "2026-07-30T00:00:03Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-08-31T19:42:06Z",
@@ -17622,11 +17152,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "tomato",
     "source": "cmini",
@@ -17637,8 +17162,8 @@
    "created_at": "2024-02-06T00:00:01Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 13,
    "likes": [
     "119825772901957632",
@@ -17826,11 +17351,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "vylet",
     "source": "cmini",
@@ -17841,8 +17361,8 @@
    "created_at": "2026-05-17T00:00:02Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-09-02T02:11:47Z",
@@ -18011,11 +17531,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "vylet-v4",
     "source": "cmini",
@@ -18026,8 +17541,8 @@
    "created_at": "2024-11-10T04:07:53Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 13,
    "likes": [
     "1004139554682441779",
@@ -18210,11 +17725,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "whirl",
     "source": "cmini",
@@ -18225,8 +17735,8 @@
    "created_at": "2022-12-07T23:24:35Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 10,
    "likes": [
     "322155360104349697",
@@ -18406,11 +17916,6 @@
      }
     }
    },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
-   },
    "upstream": {
     "id": "whorf",
     "source": "cmini",
@@ -18421,8 +17926,8 @@
    "created_at": "2026-09-05T07:42:37Z",
    "deleted": false,
    "format": "spark/1",
-   "has_magic": false,
    "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+   "layout_rev": 1,
    "like_count": 0,
    "likes": [],
    "modified_at": "2026-09-05T07:43:12Z",
@@ -18595,11 +18100,6 @@
       "row": 2
      }
     }
-   },
-   "rev": 1,
-   "source": {
-    "client": "system:cmini-import",
-    "version": null
    },
    "upstream": {
     "id": "workman-rowstagger",
