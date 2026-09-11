@@ -6,8 +6,9 @@
 import { env } from "cloudflare:test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Bindings } from "../../src/env";
-import { appendWrite } from "../../src/core/events";
+import { commitWrite, type CommitInput } from "../../src/core/events";
 import { fixedClock } from "../../src/core/time";
+import { ulid } from "ulidx";
 import { AKL_PAYLOAD, actorFixture, register, uniqueName, writeFetch } from "./write-support";
 
 const db = (env as unknown as Bindings).DB;
@@ -105,22 +106,24 @@ describe("[LDB-P4] POST on an existing name", () => {
 describe("[LDB-I5] imported names outside NAME_SET' survive a PUT untouched", () => {
   it("a name with a space, a dot, and lowercase-only survive an update (never re-checked on PUT)", async () => {
     for (const importedName of ["io", "AdNW", "a.dotted.name", "a name with spaces"]) {
-      const { record } = await appendWrite(db, clock, {
-      upstream: null,
-        kind: "imported",
-        name: importedName,
-        owner: OWNER,
+      const input: CommitInput = {
+        layoutId: ulid(),
+        creating: true,
+        currentN: 0,
+        currentLayout: null,
+        currentFormats: new Map(),
+        layout: { kind: "imported", name: importedName, owner: OWNER, created_at: clock(), deleted: false },
+        format: { kind: "imported", lineage: "spark", format: "spark/1", payload: AKL_PAYLOAD, hasMagic: false },
         modified_at: clock(),
-        format: "spark/1",
-        payload: AKL_PAYLOAD,
         actor: "system:cmini-import",
         via: "import:cmini",
         source: { client: "system:cmini-import", version: null },
-        hasMagic: false,
-      });
+        upstream: { source: "cmini", id: `up-${uniqueName("imp")}`, state: "following" },
+      };
+      const { layout, formats } = await commitWrite(db, clock, input);
 
       const headers = ownerHeaders(`tok-${uniqueName("imp")}`);
-      const res = await writeFetch(`/v1/layouts/${record.id}`, "PUT", { ...headers, "If-Match": `"${record.rev}"` }, { format: "spark/1", payload: AKL_PAYLOAD });
+      const res = await writeFetch(`/v1/layouts/${layout.id}`, "PUT", { ...headers, "If-Match": `"spark:${formats.get("spark")!.rev}"` }, { format: "spark/1", payload: AKL_PAYLOAD });
       expect(res.status, importedName).toBe(200);
       const body = await res.json<{ name: string }>();
       expect(body.name).toBe(importedName); // untouched, check_name never ran

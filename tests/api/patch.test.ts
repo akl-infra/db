@@ -1,17 +1,20 @@
-// [LDB-P1] [LDB-N1] [LDB-P7] PATCH /v1/layouts/{ref} (09 §2.6, §3 T4): one
-// or more of {name, fingermap, board, magic}, applied in that order to a
-// clone of the payload via the record's format `edits`, validated once as
-// a whole, one event -- `renamed`/`fingermap` for exactly that one field,
-// `updated` with `detail.fields` otherwise. `If-Match` as PUT/DELETE
-// (tests/api/ifmatch.test.ts already sweeps that matrix generically; this
-// file only re-checks stale and -- [LDB-P2], 2026-09-09 -- absent for PATCH
-// itself). A verb the record's format has no `edits` entry for is `400
-// unsupported_for_format`.
+// [LDB-P1] [LDB-N1] [LDB-P7] PATCH /v1/layouts/{ref} (21-formats.md
+// §2.2/§2.4): EITHER `{name}` (layout scope, `If-Match: "layout:<rev>"`) OR
+// `{format, <one or more of fingermap/board/magic>}` (that format's scope,
+// `If-Match: "<lineage>:<rev>"`) -- applied in order to a clone of the
+// format's payload via its `edits`, validated once as a whole, one event:
+// `renamed`/`fingermap` for exactly that one field, `updated` with
+// `detail.fields` otherwise. Mixing `name` with a format edit is `400
+// mixed_patch`; a format edit with no `format` is `400 format_required`.
+// `If-Match` as PUT/DELETE (tests/api/ifmatch.test.ts sweeps that matrix
+// generically). A verb the record's format has no `edits` entry for is
+// `400 unsupported_for_format`.
 import { env } from "cloudflare:test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Bindings } from "../../src/env";
-import { type EventDbRow, appendWrite, rowToEvent } from "../../src/core/events";
+import { type EventDbRow, commitWrite, rowToEvent, type CommitInput } from "../../src/core/events";
 import { fixedClock } from "../../src/core/time";
+import { ulid } from "ulidx";
 import { BOOTSTRAP_ADMIN, actorFixture, pinTestClock, register, uniqueName, writeFetch } from "./write-support";
 
 const db = (env as unknown as Bindings).DB;
@@ -20,30 +23,37 @@ pinTestClock(env as unknown as { TEST_CLOCK?: typeof clock }, clock);
 
 const OWNER = "owner-patch-1";
 const OTHER = "owner-patch-2";
+const SOURCE = { client: "discord-app:test", version: null };
 
 // Seeded with one real key ("a") -- PATCH's fingermap tests need a char to
-// name; write-support.ts's own AKL_PAYLOAD is deliberately keyless (it
-// exists for tests that don't care). 21-formats.md D12: every stored row
-// is spark/1 now -- there is no second legacy format left to seed a
-// record as (`cmini/1`/`akl/1` are both unregistered), so this file no
-// longer runs its PATCH matrix twice.
+// name.
 const AKL_KEYED = { keys: { a: { row: 0, col: 0, finger: "LP" } } };
 
-async function seed(owner = OWNER) {
-  const { record } = await appendWrite(db, clock, {
-      upstream: null,
-    kind: "created",
-    name: uniqueName("patch-seed"),
-    owner,
+interface Seeded {
+  id: string;
+  name: string;
+  owner: string;
+  layoutRev: number;
+  formatRev: number;
+}
+
+async function seed(owner = OWNER): Promise<Seeded> {
+  const input: CommitInput = {
+    layoutId: ulid(),
+    creating: true,
+    currentN: 0,
+    currentLayout: null,
+    currentFormats: new Map(),
+    layout: { kind: "created", name: uniqueName("patch-seed"), owner, created_at: clock(), deleted: false },
+    format: { kind: "format_added", lineage: "spark", format: "spark/1", payload: AKL_KEYED, hasMagic: false },
     modified_at: clock(),
-    format: "spark/1",
-    payload: AKL_KEYED,
     actor: owner,
     via: "discord",
-    source: { client: "discord-app:test", version: null },
-    hasMagic: false,
-  });
-  return record;
+    source: SOURCE,
+    upstream: null,
+  };
+  const { layout, formats } = await commitWrite(db, clock, input);
+  return { id: layout.id, name: layout.name, owner: layout.owner, layoutRev: layout.layout_rev, formatRev: formats.get("spark")!.rev };
 }
 
 async function eventsFor(layoutId: string) {
@@ -64,188 +74,25 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("[LDB-P1] PATCH verbs (spark/1)", () => {
-      it("name alone -> 200, kind renamed, rev + 1", async () => {
-        const record = await seed();
-        const headers = ownerHeaders(`tok-${uniqueName("name")}`);
-        const newName = uniqueName("patch-renamed");
-        const res = await patch(record.id, headers, { name: newName }, `"${record.rev}"`);
-        expect(res.status).toBe(200);
-        expect(res.headers.get("ETag")).toBe(`"${record.rev + 1}"`);
-        const body = await res.json<{ name: string; rev: number }>();
-        expect(body.name).toBe(newName);
-        expect(body.rev).toBe(record.rev + 1);
-        const events = await eventsFor(record.id);
-        expect(events.at(-1)).toMatchObject({ kind: "renamed", actor: OWNER, admin: false, detail: null });
-      });
-
-      it("fingermap alone -> 200, kind fingermap, rev + 1, only the named char changes", async () => {
-        const record = await seed();
-        const headers = ownerHeaders(`tok-${uniqueName("fm")}`);
-        const res = await patch(record.id, headers, { fingermap: { a: "RP" } }, `"${record.rev}"`);
-        expect(res.status).toBe(200);
-        const body = await res.json<{ rev: number; payload: { keys: Record<string, { finger: string }> } }>();
-        expect(body.rev).toBe(record.rev + 1);
-        expect(body.payload.keys.a?.finger).toBe("RP");
-        const events = await eventsFor(record.id);
-        expect(events.at(-1)).toMatchObject({ kind: "fingermap", actor: OWNER, admin: false, detail: null });
-      });
-
-      it("a fingermap naming a char not in keys -> 400 invalid_payload", async () => {
-        const record = await seed();
-        const headers = ownerHeaders(`tok-${uniqueName("fm-bad")}`);
-        const res = await patch(record.id, headers, { fingermap: { z: "RP" } }, `"${record.rev}"`);
-        expect(res.status).toBe(400);
-        await expect(res.json()).resolves.toMatchObject({ error: "invalid_payload", path: "/keys/z" });
-      });
-
-      // `board` is applied through spark's own `setBoard` (raw
-      // passthrough) -- the only PATCH-able format left.
-      it("board alone -> 200, kind updated, detail.fields = ['board']", async () => {
-        const record = await seed();
-        const headers = ownerHeaders(`tok-${uniqueName("board")}`);
-        const board = { kind: "rowstag", stagger: [0, 0.25, 0.75], cmini: "stagger" };
-        const res = await patch(record.id, headers, { board }, `"${record.rev}"`);
-        expect(res.status).toBe(200);
-        const events = await eventsFor(record.id);
-        expect(events.at(-1)).toMatchObject({ kind: "updated", detail: { fields: ["board"] } });
-        const body = await res.json<{ payload: { board: unknown } }>();
-        expect(body.payload.board).toEqual(board);
-      });
-
-      it("{} -> 400 bad_request", async () => {
-        const record = await seed();
-        const headers = ownerHeaders(`tok-${uniqueName("empty")}`);
-        const res = await patch(record.id, headers, {});
-        expect(res.status).toBe(400);
-        await expect(res.json()).resolves.toMatchObject({ error: "bad_request" });
-      });
-
-      it("an unknown key -> 400 bad_request", async () => {
-        const record = await seed();
-        const headers = ownerHeaders(`tok-${uniqueName("unk")}`);
-        const res = await patch(record.id, headers, { color: "blue" });
-        expect(res.status).toBe(400);
-        await expect(res.json()).resolves.toMatchObject({ error: "bad_request", param: "/color" });
-      });
-
-      it("If-Match stale -> 409", async () => {
-        const record = await seed();
-        const headers = ownerHeaders(`tok-${uniqueName("stale")}`);
-        const res = await patch(record.id, headers, { fingermap: { a: "RP" } }, `"${record.rev + 5}"`);
-        expect(res.status).toBe(409);
-        await expect(res.json()).resolves.toMatchObject({ error: "stale" });
-      });
-
-      it("a stranger -> 403, an admin (non-owner) -> 200 admin: true, anonymous -> 401", async () => {
-        const stranger = await seed();
-        const strangerRes = await patch(stranger.id, register(actorFixture(), `tok-${uniqueName("s")}`, OTHER), { fingermap: { a: "RP" } }, `"${stranger.rev}"`);
-        expect(strangerRes.status).toBe(403);
-
-        const forAdmin = await seed();
-        const adminRes = await patch(
-          forAdmin.id,
-          register(actorFixture(), `tok-${uniqueName("a")}`, BOOTSTRAP_ADMIN),
-          { fingermap: { a: "RP" } },
-          `"${forAdmin.rev}"`,
-        );
-        expect(adminRes.status).toBe(200);
-        const events = await eventsFor(forAdmin.id);
-        expect(events.at(-1)).toMatchObject({ admin: true });
-
-        const anon = await seed();
-        const anonRes = await patch(anon.id, {}, { fingermap: { a: "RP" } });
-        expect(anonRes.status).toBe(401);
-      });
-
-      // [LDB-P2] saltorbit's rule (2026-09-09): no If-Match at all -> refused
-      // before any read or mutation, even for the owner.
-      it("no If-Match -> 400 if_match_required, record unchanged", async () => {
-        const record = await seed();
-        const headers = ownerHeaders(`tok-${uniqueName("noifmatch")}`);
-        const res = await patch(record.id, headers, { fingermap: { a: "RP" } });
-        expect(res.status).toBe(400);
-        await expect(res.json()).resolves.toMatchObject({ error: "if_match_required" });
-        expect(await eventsFor(record.id)).toHaveLength(1); // just the seed's own "created"
-      });
-
-  // 20-spark.md S2 (saltorbit's decision 6): magic edits fork like any other
-  // write now -- `isMagicOnlyReplace`/`detail.magic_only` are gone.
-  // `modified_at` bumps unconditionally and the event carries a plain
-  // `detail: {fields}`, same shape a fingermap-only PATCH always got.
-  // `modified_at` bumping unconditionally (this file's clock is pinned to
-  // one fixed instant throughout, so it can't distinguish "bumped" from
-  // "left alone" here) is covered with a mutable clock in
-  // tests/api/write.test.ts's own [LDB-P4] case.
-  it("[LDB-P4] magic on spark/1 -> 200, kind updated, plain detail.fields, no magic_only marker", async () => {
+describe("[LDB-P1] PATCH {name}: layout scope", () => {
+  it("name alone -> 200, kind renamed, layout_rev + 1", async () => {
     const record = await seed();
-    const headers = ownerHeaders(`tok-${uniqueName("magic")}`);
-    const res = await patch(record.id, headers, { magic: { rules: [{ inputs: "aa", output: "ab" }] } }, `"${record.rev}"`);
+    const headers = ownerHeaders(`tok-${uniqueName("name")}`);
+    const newName = uniqueName("patch-renamed");
+    const res = await patch(record.id, headers, { name: newName }, `"layout:${record.layoutRev}"`);
     expect(res.status).toBe(200);
-    const events = await eventsFor(record.id);
-    expect(events.at(-1)).toMatchObject({ kind: "updated", detail: { fields: ["magic"] } });
-    expect((events.at(-1)?.detail as { magic_only?: unknown } | null)?.magic_only).toBeUndefined();
-    const body = await res.json<{ payload: { magic: { rules: unknown[] } } }>();
-    expect(body.payload.magic.rules).toHaveLength(1);
-  });
-  // 21-formats.md D12 deleted the legacy carry-forward (`storedAsSpark`)
-  // this describe used to have a second test for ("magic on cmini/1 ->
-  // converts to spark/1"): after the D8 wipe no row is ever stored as
-  // `cmini/1`, so there is nothing left to convert -- every record here
-  // is spark/1 from the moment it's created.
-});
-
-// `unsupported_for_format` on PATCH is GENUINELY UNREACHABLE here, not
-// just untested: every stored record is spark/1 (21-formats.md D12 --
-// there is no second legacy format left to seed one as), and spark's own
-// `edits` covers fingermap/board/magic uniformly, never refusing any of
-// them. `runEdit`'s `edit === undefined` branch itself is still real code
-// (a future format module that omits an edit still gets refused this
-// way), it just has no live caller today -- `tests/formats/edits.test.ts`
-// covers the format-level half.
-
-describe("[LDB-P1] combined patches", () => {
-  it("{name, fingermap} -> one event 'updated', detail.fields = ['name','fingermap']", async () => {
-    const record = await seed();
-    const headers = ownerHeaders(`tok-${uniqueName("combo")}`);
-    const newName = uniqueName("patch-combo");
-    const res = await patch(record.id, headers, { name: newName, fingermap: { a: "RP" } }, `"${record.rev}"`);
-    expect(res.status).toBe(200);
-    const events = await eventsFor(record.id);
-    expect(events).toHaveLength(2); // seed's "created" + this one
-    expect(events.at(-1)).toMatchObject({ kind: "updated", detail: { fields: ["name", "fingermap"] } });
-    const body = await res.json<{ name: string; payload: { keys: Record<string, { finger: string }> } }>();
+    expect(res.headers.get("ETag")).toBe(`"layout:${record.layoutRev + 1}"`);
+    const body = await res.json<{ name: string; layout_rev: number }>();
     expect(body.name).toBe(newName);
-    expect(body.payload.keys.a?.finger).toBe("RP");
-  });
-
-  // 20-spark.md S2: the pre-S2 failure mode here was a hint-less colstag
-  // board on a `cmini/1` record ("unsupported_for_format") -- genuinely
-  // unreachable now (see the comment above this describe). A later verb's
-  // `invalid_payload` (fingermap naming a char not in keys) exercises the
-  // exact same "one batch or nothing" atomicity property with a failure
-  // mode that still exists.
-  it("a failing later verb (a fingermap naming a char not in keys) leaves the earlier ones (name) unapplied -- one batch or nothing", async () => {
-    const record = await seed();
-    const headers = ownerHeaders(`tok-${uniqueName("partial")}`);
-    const newName = uniqueName("patch-partial-newname");
-    const res = await patch(record.id, headers, { name: newName, fingermap: { z: "RP" } }, `"${record.rev}"`);
-    expect(res.status).toBe(400);
-    await expect(res.json()).resolves.toMatchObject({ error: "invalid_payload", path: "/keys/z" });
-
-    const row = await db.prepare("SELECT rev, name FROM layouts WHERE id = ?").bind(record.id).first<{ rev: number; name: string }>();
-    expect(row?.rev).toBe(record.rev);
-    expect(row?.name).toBe(record.name); // the earlier "name" field never landed
+    expect(body.layout_rev).toBe(record.layoutRev + 1);
     const events = await eventsFor(record.id);
-    expect(events).toHaveLength(1); // just the seed's own "created" -- nothing appended
+    expect(events.at(-1)).toMatchObject({ kind: "renamed", actor: OWNER, admin: false, detail: null, format: null });
   });
-});
 
-describe("[LDB-N1] PATCH {name} rename semantics", () => {
   it("[LDB-N1] check_name refuses an invalid new name -> 400 invalid_name, verbatim bot message", async () => {
     const record = await seed();
     const headers = ownerHeaders(`tok-${uniqueName("badname")}`);
-    const res = await patch(record.id, headers, { name: "_bad" }, `"${record.rev}"`);
+    const res = await patch(record.id, headers, { name: "_bad" }, `"layout:${record.layoutRev}"`);
     expect(res.status).toBe(400);
     await expect(res.json()).resolves.toMatchObject({ error: "invalid_name", message: "names cannot start with an underscore" });
   });
@@ -254,7 +101,7 @@ describe("[LDB-N1] PATCH {name} rename semantics", () => {
     const taken = await seed();
     const record = await seed();
     const headers = ownerHeaders(`tok-${uniqueName("taken")}`);
-    const res = await patch(record.id, headers, { name: taken.name }, `"${record.rev}"`);
+    const res = await patch(record.id, headers, { name: taken.name }, `"layout:${record.layoutRev}"`);
     expect(res.status).toBe(409);
     const body = await res.json<{ error: string; holder: { id: string; owner: string } }>();
     expect(body.error).toBe("name_taken");
@@ -264,7 +111,7 @@ describe("[LDB-N1] PATCH {name} rename semantics", () => {
   it("rename by case only -> 200 renamed", async () => {
     const record = await seed();
     const headers = ownerHeaders(`tok-${uniqueName("case")}`);
-    const res = await patch(record.id, headers, { name: record.name.toUpperCase() }, `"${record.rev}"`);
+    const res = await patch(record.id, headers, { name: record.name.toUpperCase() }, `"layout:${record.layoutRev}"`);
     expect(res.status).toBe(200);
     const events = await eventsFor(record.id);
     expect(events.at(-1)?.kind).toBe("renamed");
@@ -276,7 +123,7 @@ describe("[LDB-N1] PATCH {name} rename semantics", () => {
     const record = await seed();
     const oldName = record.name;
     const headers = ownerHeaders(`tok-${uniqueName("free")}`);
-    const renameRes = await patch(record.id, headers, { name: uniqueName("patch-newname") }, `"${record.rev}"`);
+    const renameRes = await patch(record.id, headers, { name: uniqueName("patch-newname") }, `"layout:${record.layoutRev}"`);
     expect(renameRes.status).toBe(200);
 
     const postRes = await writeFetch("/v1/layouts", "POST", headers, { name: oldName, format: "spark/1", payload: AKL_KEYED });
@@ -284,13 +131,170 @@ describe("[LDB-N1] PATCH {name} rename semantics", () => {
   });
 });
 
+describe("[LDB-P1] PATCH {format, fingermap|board|magic}: that format's scope", () => {
+  it("fingermap alone -> 200, kind fingermap, format rev + 1, only the named char changes", async () => {
+    const record = await seed();
+    const headers = ownerHeaders(`tok-${uniqueName("fm")}`);
+    const res = await patch(record.id, headers, { format: "spark/1", fingermap: { a: "RP" } }, `"spark:${record.formatRev}"`);
+    expect(res.status).toBe(200);
+    const body = await res.json<{ formats: Record<string, { rev: number }>; payload: { keys: Record<string, { finger: string }> } }>();
+    expect(body.formats["spark/1"]!.rev).toBe(record.formatRev + 1);
+    expect(body.payload.keys.a?.finger).toBe("RP");
+    const events = await eventsFor(record.id);
+    expect(events.at(-1)).toMatchObject({ kind: "fingermap", actor: OWNER, admin: false, detail: null, format: "spark/1" });
+  });
+
+  it("a fingermap naming a char not in keys -> 400 invalid_payload", async () => {
+    const record = await seed();
+    const headers = ownerHeaders(`tok-${uniqueName("fm-bad")}`);
+    const res = await patch(record.id, headers, { format: "spark/1", fingermap: { z: "RP" } }, `"spark:${record.formatRev}"`);
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({ error: "invalid_payload", path: "/keys/z" });
+  });
+
+  it("board alone -> 200, kind updated, detail.fields = ['board']", async () => {
+    const record = await seed();
+    const headers = ownerHeaders(`tok-${uniqueName("board")}`);
+    const board = { kind: "rowstag", stagger: [0, 0.25, 0.75], cmini: "stagger" };
+    const res = await patch(record.id, headers, { format: "spark/1", board }, `"spark:${record.formatRev}"`);
+    expect(res.status).toBe(200);
+    const events = await eventsFor(record.id);
+    expect(events.at(-1)).toMatchObject({ kind: "updated", detail: { fields: ["board"] } });
+    const body = await res.json<{ payload: { board: unknown } }>();
+    expect(body.payload.board).toEqual(board);
+  });
+
+  it("magic on spark/1 -> 200, kind updated, plain detail.fields, no magic_only marker", async () => {
+    const record = await seed();
+    const headers = ownerHeaders(`tok-${uniqueName("magic")}`);
+    const res = await patch(record.id, headers, { format: "spark/1", magic: { rules: [{ inputs: "aa", output: "ab" }] } }, `"spark:${record.formatRev}"`);
+    expect(res.status).toBe(200);
+    const events = await eventsFor(record.id);
+    expect(events.at(-1)).toMatchObject({ kind: "updated", detail: { fields: ["magic"] } });
+    expect((events.at(-1)?.detail as { magic_only?: unknown } | null)?.magic_only).toBeUndefined();
+    const body = await res.json<{ payload: { magic: { rules: unknown[] } } }>();
+    expect(body.payload.magic.rules).toHaveLength(1);
+  });
+
+  it("fingermap AND board together -> one event 'updated', detail.fields = ['fingermap','board']", async () => {
+    const record = await seed();
+    const headers = ownerHeaders(`tok-${uniqueName("combo-fmt")}`);
+    const board = { kind: "ortho" };
+    const res = await patch(record.id, headers, { format: "spark/1", fingermap: { a: "RP" }, board }, `"spark:${record.formatRev}"`);
+    expect(res.status).toBe(200);
+    const events = await eventsFor(record.id);
+    expect(events.at(-1)).toMatchObject({ kind: "updated", detail: { fields: ["fingermap", "board"] } });
+    const body = await res.json<{ payload: { keys: Record<string, { finger: string }>; board: unknown } }>();
+    expect(body.payload.keys.a?.finger).toBe("RP");
+    expect(body.payload.board).toEqual(board);
+  });
+
+  it("a failing later verb (a fingermap naming a char not in keys) leaves the earlier one (board) unapplied -- one batch or nothing", async () => {
+    const record = await seed();
+    const headers = ownerHeaders(`tok-${uniqueName("partial")}`);
+    const res = await patch(record.id, headers, { format: "spark/1", board: { kind: "ortho" }, fingermap: { z: "RP" } }, `"spark:${record.formatRev}"`);
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({ error: "invalid_payload", path: "/keys/z" });
+
+    const row = await db.prepare("SELECT rev FROM layout_formats WHERE layout_id = ? AND lineage = 'spark'").bind(record.id).first<{ rev: number }>();
+    expect(row?.rev).toBe(record.formatRev);
+    const events = await eventsFor(record.id);
+    expect(events).toHaveLength(2); // just the seed's own created + format_added -- nothing appended
+  });
+
+  it("{format: 'spark/1'} with no edit field -> 400 (schema requires at least one key)", async () => {
+    const record = await seed();
+    const headers = ownerHeaders(`tok-${uniqueName("format-only")}`);
+    const res = await patch(record.id, headers, { format: "spark/1" }, `"spark:${record.formatRev}"`);
+    expect(res.status).toBe(400);
+  });
+
+  it("If-Match stale -> 409", async () => {
+    const record = await seed();
+    const headers = ownerHeaders(`tok-${uniqueName("stale")}`);
+    const res = await patch(record.id, headers, { format: "spark/1", fingermap: { a: "RP" } }, `"spark:${record.formatRev + 5}"`);
+    expect(res.status).toBe(409);
+    await expect(res.json()).resolves.toMatchObject({ error: "stale" });
+  });
+
+  it("a stranger -> 403, an admin (non-owner) -> 200 admin: true, anonymous -> 401", async () => {
+    const stranger = await seed();
+    const strangerRes = await patch(stranger.id, register(actorFixture(), `tok-${uniqueName("s")}`, OTHER), { format: "spark/1", fingermap: { a: "RP" } }, `"spark:${stranger.formatRev}"`);
+    expect(strangerRes.status).toBe(403);
+
+    const forAdmin = await seed();
+    const adminRes = await patch(forAdmin.id, register(actorFixture(), `tok-${uniqueName("a")}`, BOOTSTRAP_ADMIN), { format: "spark/1", fingermap: { a: "RP" } }, `"spark:${forAdmin.formatRev}"`);
+    expect(adminRes.status).toBe(200);
+    const events = await eventsFor(forAdmin.id);
+    expect(events.at(-1)).toMatchObject({ admin: true });
+
+    const anon = await seed();
+    const anonRes = await patch(anon.id, {}, { format: "spark/1", fingermap: { a: "RP" } });
+    expect(anonRes.status).toBe(401);
+  });
+
+  it("no If-Match -> 400 if_match_required, record unchanged", async () => {
+    const record = await seed();
+    const headers = ownerHeaders(`tok-${uniqueName("noifmatch")}`);
+    const res = await patch(record.id, headers, { format: "spark/1", fingermap: { a: "RP" } });
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({ error: "if_match_required" });
+    expect(await eventsFor(record.id)).toHaveLength(2); // just created + format_added
+  });
+
+  it("{} -> 400 bad_request", async () => {
+    const record = await seed();
+    const headers = ownerHeaders(`tok-${uniqueName("empty")}`);
+    const res = await patch(record.id, headers, {});
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({ error: "bad_request" });
+  });
+
+  it("an unknown key -> 400 bad_request", async () => {
+    const record = await seed();
+    const headers = ownerHeaders(`tok-${uniqueName("unk")}`);
+    const res = await patch(record.id, headers, { color: "blue" });
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({ error: "bad_request", param: "/color" });
+  });
+});
+
+// `unsupported_for_format` on PATCH is GENUINELY UNREACHABLE here, not just
+// untested: every stored record is spark/1, and spark's own `edits` covers
+// fingermap/board/magic uniformly, never refusing any of them. `runEdit`'s
+// `edit === undefined` branch is still real code (a future format module
+// that omits an edit still gets refused this way); `tests/formats/
+// edits.test.ts` covers the format-level half.
+
+describe("[LDB-P7] mixed_patch: name can never combine with a format edit", () => {
+  it("{name, fingermap} -> 400 mixed_patch, before any read (works with either If-Match value)", async () => {
+    const record = await seed();
+    const headers = ownerHeaders(`tok-${uniqueName("mixed")}`);
+    const res = await patch(record.id, headers, { name: uniqueName("mixed-name"), format: "spark/1", fingermap: { a: "RP" } }, `"layout:${record.layoutRev}"`);
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({ error: "mixed_patch" });
+    expect(await eventsFor(record.id)).toHaveLength(2); // untouched
+  });
+
+  it("{name, board} without format -> still 400 mixed_patch (not format_required -- mixing wins)", async () => {
+    const record = await seed();
+    const headers = ownerHeaders(`tok-${uniqueName("mixed2")}`);
+    const res = await patch(record.id, headers, { name: uniqueName("mixed-name-2"), board: { kind: "ortho" } }, `"layout:${record.layoutRev}"`);
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({ error: "mixed_patch" });
+  });
+
+  it("[MF-4 = LDB-G11] {fingermap} without format -> 400 format_required", async () => {
+    const record = await seed();
+    const headers = ownerHeaders(`tok-${uniqueName("noformat")}`);
+    const res = await patch(record.id, headers, { fingermap: { a: "RP" } }, `"spark:${record.formatRev}"`);
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({ error: "format_required" });
+  });
+});
+
 // [LDB-P10] design/layout-db/18-command-decisions.md §2 D2: a rename never
-// loses the id. Already true at the record level (a rename is a PATCH on
-// the same id -- likes, history and the rev chain continue, LDB-P4 owns
-// "the old name is freed"); this pins the OTHER half explicitly -- every
-// read that identifies the record (by new name, by id, `/history`,
-// `/likes`, and a `full=1` list row) agrees on the same id across the
-// rename.
+// loses the id.
 describe("[LDB-P10] a rename never loses the id", () => {
   it("[LDB-P10] create -> like x3 -> rename -> GET by new name / by id / history / likes agree; a full=1 row carries the same id", async () => {
     const fake = actorFixture();
@@ -304,7 +308,7 @@ describe("[LDB-P10] a rename never loses the id", () => {
     const oldName = uniqueName("p10-old");
     const createRes = await writeFetch("/v1/layouts", "POST", owner, { name: oldName, format: "spark/1", payload: AKL_KEYED });
     expect(createRes.status).toBe(201);
-    const created = await createRes.json<{ id: string; rev: number }>();
+    const created = await createRes.json<{ id: string; layout_rev: number }>();
 
     for (const liker of likers) {
       const res = await writeFetch(`/v1/layouts/${created.id}/like`, "PUT", liker);
@@ -312,43 +316,36 @@ describe("[LDB-P10] a rename never loses the id", () => {
     }
 
     const newName = uniqueName("p10-new");
-    const renameRes = await writeFetch(`/v1/layouts/${created.id}`, "PATCH", { ...owner, "If-Match": `"${created.rev}"` }, { name: newName });
+    const renameRes = await writeFetch(`/v1/layouts/${created.id}`, "PATCH", { ...owner, "If-Match": `"layout:${created.layout_rev}"` }, { name: newName });
     expect(renameRes.status).toBe(200);
     const renamed = await renameRes.json<{ id: string; name: string }>();
     expect(renamed.id).toBe(created.id);
     expect(renamed.name).toBe(newName);
 
-    // by the new name
-    const byNameRes = await writeFetch(`/v1/layouts/${newName}`, "GET");
+    const byNameRes = await writeFetch(`/v1/layouts/${newName}?format=spark/1`, "GET");
     expect(byNameRes.status).toBe(200);
     expect((await byNameRes.json<{ id: string }>()).id).toBe(created.id);
 
-    // by id -- and it now carries the new name
-    const byIdRes = await writeFetch(`/v1/layouts/${created.id}`, "GET");
+    const byIdRes = await writeFetch(`/v1/layouts/${created.id}?format=spark/1`, "GET");
     expect(byIdRes.status).toBe(200);
     const byId = await byIdRes.json<{ id: string; name: string }>();
     expect(byId.id).toBe(created.id);
     expect(byId.name).toBe(newName);
 
-    // history: same id's rev chain, unbroken across the rename
     const historyRes = await writeFetch(`/v1/layouts/${created.id}/history`, "GET");
     expect(historyRes.status).toBe(200);
     const history = await historyRes.json<{ kind: string }[]>();
-    expect(history.map((h) => h.kind)).toEqual(["created", "liked", "liked", "liked", "renamed"]);
+    expect(history.map((h) => h.kind)).toEqual(["created", "format_added", "liked", "liked", "liked", "renamed"]);
 
-    // likes: the same 3 users, reachable through the NEW name
     const likesRes = await writeFetch(`/v1/layouts/${newName}/likes`, "GET");
     expect(likesRes.status).toBe(200);
     const likes = await likesRes.json<{ user_ids: string[] }>();
     expect([...likes.user_ids].sort()).toEqual(["p10-liker-1", "p10-liker-2", "p10-liker-3"]);
 
-    // the old name is free (LDB-P4) -- a fresh POST with it succeeds
     const reuseRes = await writeFetch("/v1/layouts", "POST", owner, { name: oldName, format: "spark/1", payload: AKL_KEYED });
     expect(reuseRes.status).toBe(201);
 
-    // a `full=1` list row carries the SAME id -- the site's own `_dbId`
-    // projection (18 §2 D2: "the sync carries `_dbId` on every row")
-    const fullRes = await writeFetch("/v1/layouts?full=1", "GET");
+    const fullRes = await writeFetch("/v1/layouts?full=1&format=spark/1", "GET");
     expect(fullRes.status).toBe(200);
     const full = await fullRes.json<{ items: { id: string; name: string }[] }>();
     const fullRow = full.items.find((r) => r.name === newName);
