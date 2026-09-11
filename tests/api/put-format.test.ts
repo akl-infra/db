@@ -6,7 +6,8 @@
 // `detail.written_as` on the event naming what was actually sent -- and
 // the stored major never decreases. Exercised through the stub `t/1 ->
 // t/2 -> t/3` lineage (`stub-lineage.ts`), since `spark/1`/`mana2/1` are
-// each still a one-major lineage.
+// each still a one-major lineage. Every write here is a FORMAT-scope write
+// on lineage `t` (21-formats.md §2.2) -- If-Match tokens are `"t:<rev>"`.
 import { env } from "cloudflare:test";
 import fc from "fast-check";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -39,7 +40,7 @@ afterEach(() => {
 });
 
 // Registers t/1..t/3 for the lifetime of one test -- same convention
-// `tests/api/held.test.ts`'s `HELD_FORMAT` uses.
+// `tests/api/held.test.ts`'s stub-lineage tests use.
 function withStubLineage<T>(fn: () => Promise<T>): Promise<T> {
   const un1 = registerForTest(T1);
   const un2 = registerForTest(T2);
@@ -52,13 +53,13 @@ function withStubLineage<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 async function storedFormatOf(id: string): Promise<string> {
-  const row = await db.prepare("SELECT format FROM layouts WHERE id = ?").bind(id).first<{ format: string }>();
+  const row = await db.prepare("SELECT format FROM layout_formats WHERE layout_id = ? AND lineage = 't'").bind(id).first<{ format: string }>();
   return row!.format;
 }
 
 async function writtenAsOf(id: string): Promise<unknown> {
   const row = await db
-    .prepare("SELECT detail_json FROM events WHERE layout_id = ? ORDER BY seq DESC LIMIT 1")
+    .prepare("SELECT detail_json FROM events WHERE layout_id = ? AND format IS NOT NULL ORDER BY seq DESC LIMIT 1")
     .bind(id)
     .first<{ detail_json: string | null }>();
   return row?.detail_json === null || row?.detail_json === undefined ? undefined : (JSON.parse(row.detail_json) as { written_as?: string }).written_as;
@@ -93,19 +94,14 @@ describe("[LDB-P13] POST in an older major: R2's chain, no R1", () => {
 describe("[LDB-P13] PUT in an older major on an EXISTING record", () => {
   async function seedT3(payload: { v: 3; a: number; b: number; c: boolean }): Promise<{ id: string; rev: number }> {
     const res = await writeFetch("/v1/layouts", "POST", headers(), { name: uniqueName("pf-seed"), format: "t/3", payload });
-    const body = await res.json<{ id: string; rev: number }>();
-    return body;
+    const body = await res.json<{ id: string; formats: Record<string, { rev: number }> }>();
+    return { id: body.id, rev: body.formats["t/3"]!.rev };
   }
 
   it("[LDB-P13] the record's latest-only content is EMPTY -> the older-major write is accepted, chained to t/3", () =>
     withStubLineage(async () => {
       const seeded = await seedT3({ v: 3, a: 1, b: 0, c: false }); // b===0, c===false: translate(record, t/1) is NOT held
-      const res = await writeFetch(
-        `/v1/layouts/${seeded.id}`,
-        "PUT",
-        { ...headers(), "If-Match": `"${seeded.rev}"` },
-        { format: "t/1", payload: { v: 1, a: 99 } },
-      );
+      const res = await writeFetch(`/v1/layouts/${seeded.id}`, "PUT", { ...headers(), "If-Match": `"t:${seeded.rev}"` }, { format: "t/1", payload: { v: 1, a: 99 } });
       expect(res.status).toBe(200);
       const body = await res.json<{ format: string; payload: unknown }>();
       expect(body.format).toBe("t/3");
@@ -118,12 +114,7 @@ describe("[LDB-P13] PUT in an older major on an EXISTING record", () => {
     withStubLineage(async () => {
       const seeded = await seedT3({ v: 3, a: 1, b: 0, c: true }); // c===true: down_3 (t/3 -> t/2) holds, so the whole t/3 -> t/1 chain does too
       const beforeFormat = await storedFormatOf(seeded.id);
-      const res = await writeFetch(
-        `/v1/layouts/${seeded.id}`,
-        "PUT",
-        { ...headers(), "If-Match": `"${seeded.rev}"` },
-        { format: "t/1", payload: { v: 1, a: 99 } },
-      );
+      const res = await writeFetch(`/v1/layouts/${seeded.id}`, "PUT", { ...headers(), "If-Match": `"t:${seeded.rev}"` }, { format: "t/1", payload: { v: 1, a: 99 } });
       expect(res.status).toBe(409);
       const body = await res.json<{ error: string; format: string; see: string; rev: number; held: boolean }>();
       expect(body.error).toBe("format_behind");
@@ -137,12 +128,7 @@ describe("[LDB-P13] PUT in an older major on an EXISTING record", () => {
   it("[LDB-P13] the record's latest-only content is non-empty via 'b' alone (t/2's own field) -> also 409 format_behind writing t/1", () =>
     withStubLineage(async () => {
       const seeded = await seedT3({ v: 3, a: 1, b: 3, c: false });
-      const res = await writeFetch(
-        `/v1/layouts/${seeded.id}`,
-        "PUT",
-        { ...headers(), "If-Match": `"${seeded.rev}"` },
-        { format: "t/1", payload: { v: 1, a: 99 } },
-      );
+      const res = await writeFetch(`/v1/layouts/${seeded.id}`, "PUT", { ...headers(), "If-Match": `"t:${seeded.rev}"` }, { format: "t/1", payload: { v: 1, a: 99 } });
       expect(res.status).toBe(409);
       await expect(res.json()).resolves.toMatchObject({ error: "format_behind", format: "t/1", see: "t/3" });
     }));
@@ -150,22 +136,12 @@ describe("[LDB-P13] PUT in an older major on an EXISTING record", () => {
   it("[LDB-P13] format_behind is PER-FORMAT, not all-or-nothing: a record with b!=0 but c=false is writable as t/2 (which keeps b) but not t/1 (which would lose it)", () =>
     withStubLineage(async () => {
       const seeded = await seedT3({ v: 3, a: 1, b: 4, c: false }); // down_3 (t/3->t/2) only checks c -- not held; down_2 (t/2->t/1) checks b -- held
-      const asT2 = await writeFetch(
-        `/v1/layouts/${seeded.id}`,
-        "PUT",
-        { ...headers(), "If-Match": `"${seeded.rev}"` },
-        { format: "t/2", payload: { v: 2, a: 5, b: 4 } },
-      );
+      const asT2 = await writeFetch(`/v1/layouts/${seeded.id}`, "PUT", { ...headers(), "If-Match": `"t:${seeded.rev}"` }, { format: "t/2", payload: { v: 2, a: 5, b: 4 } });
       expect(asT2.status).toBe(200); // t/3 -> t/2 is not held: b survives, c was already false
-      const body = await asT2.json<{ format: string; rev: number }>();
+      const body = await asT2.json<{ format: string; formats: Record<string, { rev: number }> }>();
       expect(body.format).toBe("t/3"); // still chained to latest
 
-      const asT1 = await writeFetch(
-        `/v1/layouts/${seeded.id}`,
-        "PUT",
-        { ...headers(), "If-Match": `"${body.rev}"` },
-        { format: "t/1", payload: { v: 1, a: 6 } },
-      );
+      const asT1 = await writeFetch(`/v1/layouts/${seeded.id}`, "PUT", { ...headers(), "If-Match": `"t:${body.formats["t/3"]!.rev}"` }, { format: "t/1", payload: { v: 1, a: 6 } });
       expect(asT1.status).toBe(409); // t/3 -> t/2 -> t/1: the second step loses b
       await expect(asT1.json()).resolves.toMatchObject({ error: "format_behind", format: "t/1", see: "t/3" });
     }));
@@ -173,12 +149,7 @@ describe("[LDB-P13] PUT in an older major on an EXISTING record", () => {
   it("[LDB-P13] writing the SAME format the record is already at never triggers R1's held check", () =>
     withStubLineage(async () => {
       const seeded = await seedT3({ v: 3, a: 1, b: 9, c: true }); // maximally risky, but format === record.format
-      const res = await writeFetch(
-        `/v1/layouts/${seeded.id}`,
-        "PUT",
-        { ...headers(), "If-Match": `"${seeded.rev}"` },
-        { format: "t/3", payload: { v: 3, a: 2, b: 9, c: true } },
-      );
+      const res = await writeFetch(`/v1/layouts/${seeded.id}`, "PUT", { ...headers(), "If-Match": `"t:${seeded.rev}"` }, { format: "t/3", payload: { v: 3, a: 2, b: 9, c: true } });
       expect(res.status).toBe(200);
     }));
 });
@@ -192,8 +163,8 @@ describe("[LDB-P13] property: the stored major never decreases under a random se
           async (steps) => {
             const h = freshHeaders();
             const seedRes = await writeFetch("/v1/layouts", "POST", h, { name: uniqueName("pf-prop"), format: "t/3", payload: { v: 3, a: 0, b: 0, c: false } });
-            const seeded = await seedRes.json<{ id: string; rev: number }>();
-            let rev = seeded.rev;
+            const seeded = await seedRes.json<{ id: string; formats: Record<string, { rev: number }> }>();
+            let rev = seeded.formats["t/3"]!.rev;
             let lastGoodFormat = "t/3";
 
             for (const step of steps) {
@@ -204,11 +175,11 @@ describe("[LDB-P13] property: the stored major never decreases under a random se
                   : step.format === "t/2"
                     ? { v: 2, a: 1, b: step.risky ? 5 : 0 }
                     : { v: 3, a: 1, b: step.risky ? 5 : 0, c: step.risky };
-              const res = await writeFetch(`/v1/layouts/${seeded.id}`, "PUT", { ...h, "If-Match": `"${rev}"` }, { format: step.format, payload });
+              const res = await writeFetch(`/v1/layouts/${seeded.id}`, "PUT", { ...h, "If-Match": `"t:${rev}"` }, { format: step.format, payload });
               if (res.status === 200) {
-                const body = await res.json<{ format: string; rev: number }>();
+                const body = await res.json<{ format: string; formats: Record<string, { rev: number }> }>();
                 expect(body.format).toBe("t/3"); // R2: always chained to the lineage's latest
-                rev = body.rev;
+                rev = body.formats["t/3"]!.rev;
                 lastGoodFormat = body.format;
               } else {
                 expect(res.status).toBe(409); // format_behind (or, if the record's own new risky state itself blocks a LATER step, still format_behind)

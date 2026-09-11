@@ -119,7 +119,7 @@ describe("[LDB-P1] PATCH {name}: layout scope", () => {
     expect(body.name).toBe(record.name.toUpperCase());
   });
 
-  it("a rename frees the old name in the same request -- a POST with it immediately after -> 201", async () => {
+  it("[LDB-P4] a rename frees the old name in the same request -- a POST with it immediately after -> 201", async () => {
     const record = await seed();
     const oldName = record.name;
     const headers = ownerHeaders(`tok-${uniqueName("free")}`);

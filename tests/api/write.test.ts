@@ -229,7 +229,7 @@ describe("[LDB-A7] PUT /v1/layouts/{ref}: owner or admin", () => {
 });
 
 describe("[LDB-A7] DELETE /v1/layouts/{ref}: owner or admin (layout scope only)", () => {
-  it("the owner -> 200, kind deleted, deleted: true, formats untouched", async () => {
+  it("[LDB-F16] the owner -> 200, kind deleted, deleted: true, formats untouched", async () => {
     const record = await seed();
     const fake = actorFixture();
     const headers = register(fake, "tok-del-owner", OWNER);
