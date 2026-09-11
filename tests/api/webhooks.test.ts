@@ -20,7 +20,7 @@ import {
   sign,
   type WebhookFetchImpl,
 } from "../../src/core/webhooks";
-import { fixedClock, steppingClock } from "../../src/core/time";
+import { fixedClock, steppingClock, type Clock } from "../../src/core/time";
 import worker from "../../src/index";
 import { FakeUpstream } from "../import/fake-upstream";
 import { ulid } from "ulidx";
@@ -135,6 +135,102 @@ function countingDb(real: D1Database): { db: D1Database; writes: () => number } 
     },
   });
   return { db: proxy as D1Database, writes: () => writes.n };
+}
+
+// Intercepts every LDB-H6 lease-claim UPDATE (`UPDATE webhooks SET
+// lease_id = ?, lease_until = ? WHERE ...`) and records the values bound
+// into it -- `hook id`, the `lease_until` this drain is about to try to
+// set, and `wallNow()` (the SAME real-time source `drain()` itself reads
+// for `claimWallMs`) at the moment the claim statement executes. This is
+// how the "[bug 1] stale claim-time clock" test observes what `lease_until`
+// a hook's claim actually computed, since a normally-completing drain
+// clears `lease_id`/`lease_until` back to NULL by the time the test could
+// otherwise read the row.
+function spyClaimUpdates(real: D1Database, wallNow: () => number): { db: D1Database; claims: { id: string; leaseUntilIso: string; observedWallMs: number }[] } {
+  const claims: { id: string; leaseUntilIso: string; observedWallMs: number }[] = [];
+  const proxy = new Proxy(real, {
+    get(target, prop, receiver) {
+      if (prop === "prepare") {
+        return (sql: string) => {
+          const stmt = target.prepare(sql);
+          if (!/^\s*UPDATE webhooks SET lease_id = \?/i.test(sql)) return stmt;
+          return new Proxy(stmt, {
+            get(starget, sprop, sreceiver) {
+              if (sprop === "bind") {
+                return (...args: unknown[]) => {
+                  claims.push({ id: args[2] as string, leaseUntilIso: args[1] as string, observedWallMs: wallNow() });
+                  return (starget.bind as (...a: unknown[]) => D1PreparedStatement).apply(starget, args);
+                };
+              }
+              const val = Reflect.get(starget, sprop, sreceiver);
+              return typeof val === "function" ? (val as (...a: unknown[]) => unknown).bind(starget) : val;
+            },
+          }) as D1PreparedStatement;
+        };
+      }
+      const val = Reflect.get(target, prop, receiver);
+      return typeof val === "function" ? (val as (...a: unknown[]) => unknown).bind(target) : val;
+    },
+  });
+  return { db: proxy as D1Database, claims };
+}
+
+// Intercepts `drain()`'s own `due` SELECT: the real query runs immediately
+// (so its result reflects the ACTUAL row at that moment, exactly what a
+// real concurrent drain's in-memory snapshot would hold) but the result is
+// withheld from the caller until `release()` is called -- letting a test
+// force "this drain's due-read happened before that OTHER drain's write"
+// deterministically, without racing two real `drain()` calls against each
+// other and hoping the scheduler cooperates. `selected` resolves once the
+// real query has actually run (so a test can await it before advancing the
+// scenario further).
+function delayDueSelect(real: D1Database): { db: D1Database; selected: Promise<void>; release: () => void } {
+  let releaseFn!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    releaseFn = resolve;
+  });
+  let signalSelected!: () => void;
+  const selected = new Promise<void>((resolve) => {
+    signalSelected = resolve;
+  });
+  // The real statement is called as `.prepare(sql).bind(...).all(...)` --
+  // `.bind()` returns a DIFFERENT object, so the delay has to survive that
+  // hop by re-wrapping on every `.bind()` (the same recursive pattern
+  // `wrapStmt`/`countingDb` above uses), not just override `.all` on the
+  // unbound statement `.prepare()` itself returns.
+  function wrapDelayed(stmt: D1PreparedStatement): D1PreparedStatement {
+    return new Proxy(stmt, {
+      get(starget, sprop, sreceiver) {
+        if (sprop === "all") {
+          return async (...args: unknown[]) => {
+            const result = await (starget.all as (...a: unknown[]) => Promise<unknown>).apply(starget, args);
+            signalSelected();
+            await gate;
+            return result;
+          };
+        }
+        if (sprop === "bind") {
+          return (...args: unknown[]) => wrapDelayed((starget.bind as (...a: unknown[]) => D1PreparedStatement).apply(starget, args));
+        }
+        const val = Reflect.get(starget, sprop, sreceiver);
+        return typeof val === "function" ? (val as (...a: unknown[]) => unknown).bind(starget) : val;
+      },
+    }) as D1PreparedStatement;
+  }
+  const proxy = new Proxy(real, {
+    get(target, prop, receiver) {
+      if (prop === "prepare") {
+        return (sql: string) => {
+          const stmt = target.prepare(sql);
+          if (!/^\s*SELECT \* FROM webhooks WHERE status != 'disabled' AND next_at/i.test(sql)) return stmt;
+          return wrapDelayed(stmt);
+        };
+      }
+      const val = Reflect.get(target, prop, receiver);
+      return typeof val === "function" ? (val as (...a: unknown[]) => unknown).bind(target) : val;
+    },
+  });
+  return { db: proxy as D1Database, selected, release: () => releaseFn() };
 }
 
 async function createHook(body: Record<string, unknown>, token?: string): Promise<{ res: Response; headers: Record<string, string> }> {
@@ -805,6 +901,161 @@ describe("[LDB-H1] [LDB-H4] [LDB-H5] webhooks", () => {
       });
     });
 
+    describe("review fixes: stale claim-time clock, and the claim not re-checking due-ness", () => {
+      it("[bug 1] a hook claimed late in a long drain gets a lease measured from ITS OWN claim moment, not the drain's stale start-of-call clock read", async () => {
+        // Four filler hooks, each with 2 pending events and a fetchImpl
+        // that advances the shared clock by 25s per POST (50s per hook --
+        // safely UNDER each hook's own lease-deadline self-cap of
+        // WEBHOOK_LEASE_MS - POST_TIMEOUT_MS - WEBHOOK_LEASE_START_MARGIN_MS
+        // = 75s, so none of them gets cut short by that valve and each
+        // delivers its whole batch). Their CUMULATIVE cost -- 4 * 50s =
+        // 200s -- is what has to exceed WEBHOOK_LEASE_MS (90s) before
+        // hookB is ever reached; no single hook's own batch needs to (or
+        // safely could, given the deadline valve) run that long alone.
+        // Every hook is inserted DIRECTLY (bypassing POST /v1/webhooks
+        // and, with it, the after-write nudge) -- the nudge always runs on
+        // the REAL `systemClock`/real `fetch`, and this test needs `now`
+        // and `next_at` fully under its own control from the moment any
+        // hook exists; creating them through the route risks a real,
+        // uncontrolled background drain racing this test's own.
+        // Every hook (fillers and hookB alike) gets its OWN `owner_filter`
+        // matched to a unique event owner: with `owner_filter` NULL, EVERY
+        // hook sees EVERY event in the one shared log from its own cursor
+        // onward, so an earlier filler would also try to redeliver every
+        // LATER filler's (and hookB's) events -- `owner_filter` scopes each
+        // hook to only the events this test appends for it specifically.
+        const fillerIds: string[] = [];
+        for (let f = 0; f < 4; f++) {
+          const id = ulid();
+          const owner = `lease-filler-${f}-owner`;
+          fillerIds.push(id);
+          const baseline = await headSeq(db);
+          await db
+            .prepare(
+              `INSERT INTO webhooks (id, owner_user_id, url, secret, kinds, owner_filter, status, cursor, failures, failing_since, next_at, last_error, created_at)
+               VALUES (?, 'lease-owner', ?, 'lease-filler-secret-1234567890ab', NULL, ?, 'active', ?, 0, NULL, ?, NULL, ?)`,
+            )
+            .bind(id, `https://lease-filler-${f}.example/hook`, owner, baseline, `2026-07-25T00:00:00.${f}00Z`, `2026-07-25T00:00:00.${f}00Z`)
+            .run();
+          for (let i = 0; i < 2; i++) await appendWriteAs(owner);
+        }
+
+        const hookBId = ulid();
+        const hookBOwner = "lease-b-owner";
+        const baselineB = await headSeq(db); // after every filler's events -- hookB starts caught up on those
+        await db
+          .prepare(
+            `INSERT INTO webhooks (id, owner_user_id, url, secret, kinds, owner_filter, status, cursor, failures, failing_since, next_at, last_error, created_at)
+             VALUES (?, 'lease-owner', 'https://lease-b.example/hook', 'lease-b-secret-1234567890ab', NULL, ?, 'active', ?, 0, NULL, ?, NULL, ?)`,
+          )
+          .bind(hookBId, hookBOwner, baselineB, "2026-07-25T00:00:00.500Z", "2026-07-25T00:00:00.500Z") // sorts after all four fillers in the due scan
+          .run();
+        await appendWriteAs(hookBOwner); // hookB's own pending event
+
+        let simMs = new Date("2026-07-25T00:00:01.000Z").getTime(); // past every hook's next_at
+        const controlledClock: Clock = () => new Date(simMs).toISOString();
+        const wallNow = () => simMs;
+
+        const bPending: ((res: Response) => void)[] = [];
+        const bRequests: string[] = [];
+        const fetchImpl: WebhookFetchImpl = async (_url, init) => {
+          const hookId = init.headers["X-Akl-Webhook-Id"]!;
+          if (fillerIds.includes(hookId)) {
+            simMs += 25_000; // 25s of "real" wall-clock time per POST
+            return new Response(null, { status: 200 });
+          }
+          bRequests.push(hookId);
+          return new Promise<Response>((resolve) => bPending.push(resolve)); // held until this test releases it
+        };
+
+        const { db: spiedDb, claims } = spyClaimUpdates(db, wallNow);
+        const drain1 = drain({ ...bindings, DB: spiedDb }, controlledClock, { fetchImpl, maxPosts: 25, wallNow });
+
+        // Wait until hookA's whole (real-time-consuming) batch has
+        // committed and hookB has been claimed and is genuinely blocked
+        // mid-POST.
+        await waitUntil(() => bRequests.length >= 1);
+        const claimB = claims.find((c) => c.id === hookBId);
+        expect(claimB).toBeDefined();
+        const drainStartMs = new Date("2026-07-25T00:00:01.000Z").getTime();
+        expect(claimB!.observedWallMs).toBeGreaterThan(drainStartMs + WEBHOOK_LEASE_MS); // hookA's batch really did eat more than one whole lease's worth of time before hookB was ever reached
+
+        // hookB's OWN lease_until is measured from ITS OWN claim moment
+        // (>= claimB's observed wall time + the full lease length) --
+        // not from the drain's stale start-of-call clock, which by now is
+        // already WEBHOOK_LEASE_MS in the past.
+        const leaseUntilMs = new Date(claimB!.leaseUntilIso).getTime();
+        expect(leaseUntilMs).toBeGreaterThanOrEqual(claimB!.observedWallMs + WEBHOOK_LEASE_MS);
+        expect(leaseUntilMs).toBeGreaterThan(drainStartMs + WEBHOOK_LEASE_MS); // strictly more than the OLD (buggy) computation would have produced, which is already in the past by now
+
+        // A second, "concurrent" drain checking in at EXACTLY hookB's real
+        // claim moment must not be able to claim it -- the lease is still
+        // very much alive at that instant.
+        const concurrentRequests: string[] = [];
+        const concurrentFetch: WebhookFetchImpl = async (_url, init) => {
+          concurrentRequests.push(init.headers["X-Akl-Webhook-Id"]!);
+          return new Response(null, { status: 200 });
+        };
+        const pinnedClock: Clock = () => new Date(claimB!.observedWallMs).toISOString();
+        const drain2 = await drain(bindings, pinnedClock, { fetchImpl: concurrentFetch, maxPosts: 25, wallNow: () => claimB!.observedWallMs });
+        expect(concurrentRequests).not.toContain(hookBId); // still leased -- correctly shut out
+        expect(drain2.posted).toBe(0); // every filler hook is already fully delivered by drain1 at this point, nothing else due
+
+        // Release hookB's POST and let drain1 finish cleanly.
+        bPending.shift()!(new Response(null, { status: 200 }));
+        const result1 = await drain1;
+        expect(result1.failed).toBe(0);
+        const finalB = await db.prepare("SELECT cursor, lease_id, lease_until FROM webhooks WHERE id = ?").bind(hookBId).first<{ cursor: number; lease_id: string | null; lease_until: string | null }>();
+        expect(finalB!.lease_id).toBeNull();
+        expect(finalB!.lease_until).toBeNull();
+      });
+
+      it("[bug 2] a claim re-checks due-ness: a drain whose due SELECT ran before a concurrent drain's failing commit must not bypass the backoff it just set", async () => {
+        const createHeaders = ownerHeaders();
+        const createRes = await writeFetch("/v1/webhooks", "POST", createHeaders, VALID_BODY);
+        const hook = await createRes.json<WebhookWire>();
+        await appendOne();
+
+        // B's `due` SELECT is intercepted so it runs for real (capturing
+        // the CURRENT, still-due row) but doesn't return to `drain()` until
+        // this test releases it -- simulating "B's due SELECT ran before A
+        // committed its failure", the exact interleaving bug 2 is about.
+        const { db: delayedDb, selected, release } = delayDueSelect(db);
+        const clock = fixedClock("2026-07-26T00:00:00.000Z");
+        const bRequests: string[] = [];
+        const bFetch: WebhookFetchImpl = async (_url, init) => {
+          bRequests.push(init.headers["X-Akl-Webhook-Id"]!);
+          return new Response(null, { status: 200 });
+        };
+        const drainB = drain({ ...bindings, DB: delayedDb }, clock, { fetchImpl: bFetch, maxPosts: 25 });
+        await selected; // B has now captured its (soon-to-be-stale) `due` snapshot
+
+        // A runs to completion for real: claims, POSTs, gets a 500, and
+        // commits a failure -- cursor unchanged, `failures = 1`, and
+        // `next_at` pushed WEBHOOK_BACKOFF_S[0] (60s) into the future.
+        const aReceiver = new FakeReceiver();
+        aReceiver.answer = 500;
+        const resultA = await drain(bindings, clock, { fetchImpl: aReceiver.fetchImpl, maxPosts: 25 });
+        expect(resultA.failed).toBe(1);
+        const afterA = await db.prepare("SELECT next_at, failures FROM webhooks WHERE id = ?").bind(hook.id).first<{ next_at: string; failures: number }>();
+        expect(afterA!.failures).toBe(1);
+        expect(new Date(afterA!.next_at).getTime()).toBeGreaterThan(new Date("2026-07-26T00:00:00.000Z").getTime());
+
+        // Now let B proceed with its stale snapshot. Its claim re-reads
+        // `next_at` fresh (this test's fix) -- since the row's real
+        // `next_at` is now 60s in B's own clock's future, B's claim must
+        // fail and it must never POST to this hook.
+        release();
+        const resultB = await drainB;
+        expect(resultB.posted).toBe(0);
+        expect(bRequests).toHaveLength(0); // B never reached the receiver -- the backoff held
+
+        const final = await db.prepare("SELECT failures, cursor, lease_id FROM webhooks WHERE id = ?").bind(hook.id).first<{ failures: number; cursor: number; lease_id: string | null }>();
+        expect(final!.failures).toBe(1); // undisturbed by B
+        expect(final!.lease_id).toBeNull();
+      });
+    });
+
     it(
       "[property] random events / receiver outcomes / concurrent drains / clock advances: per-hook delivery stays strictly increasing with no duplicates, failures tracks exactly the committed failed attempts, cursor reaches the head, and the lease is always released",
       async () => {
@@ -852,13 +1103,33 @@ describe("[LDB-H1] [LDB-H4] [LDB-H5] webhooks", () => {
                 .run();
 
               const delivered: number[] = []; // every 2xx-accepted seq, across every round, in receipt order
+              // LDB-H6 stated directly, not just inferred from the delivered
+              // sequence afterwards: track how many POSTs are simultaneously
+              // in flight PER HOOK, and fail immediately if that ever
+              // exceeds 1 -- exactly the thing the lease exists to prevent.
+              // The `await Promise.resolve()` before decrementing widens the
+              // in-flight window by one microtask turn (this fetchImpl would
+              // otherwise never actually suspend, since it has no real
+              // await of its own), giving a genuinely broken lease a fair
+              // chance to be caught by a concurrent round (concurrency > 1)
+              // without slowing the property down with real timers.
+              const inFlight = new Map<string, number>();
               const fakeFetch: WebhookFetchImpl = async (_url, init) => {
-                const body = JSON.parse(init.body) as { seq: number };
-                const r = rng();
-                if (r < 0.15) return new Response(null, { status: 500 });
-                if (r < 0.2) throw new Error("[property] simulated network failure");
-                delivered.push(body.seq);
-                return new Response(null, { status: 200 });
+                const hookId = init.headers["X-Akl-Webhook-Id"]!;
+                const n = (inFlight.get(hookId) ?? 0) + 1;
+                inFlight.set(hookId, n);
+                if (n > 1) throw new Error(`[LDB-H6] hook ${hookId} had ${n} POSTs in flight at once`);
+                try {
+                  const body = JSON.parse(init.body) as { seq: number };
+                  const r = rng();
+                  if (r < 0.15) return new Response(null, { status: 500 });
+                  if (r < 0.2) throw new Error("[property] simulated network failure");
+                  delivered.push(body.seq);
+                  return new Response(null, { status: 200 });
+                } finally {
+                  await Promise.resolve();
+                  inFlight.set(hookId, (inFlight.get(hookId) ?? 1) - 1);
+                }
               };
 
               let attemptMs = new Date("2026-08-02T00:00:00.000Z").getTime();

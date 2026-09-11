@@ -236,18 +236,33 @@ longer reads a due hook's feed page or POSTs anything until step 1.5
 claims it:
 
 ```sql
-UPDATE webhooks SET lease_id = ?newUlid, lease_until = ?now+90s
-  WHERE id = ? AND (lease_until IS NULL OR lease_until <= ?now)
+UPDATE webhooks SET lease_id = ?newUlid, lease_until = ?claimIso+90s
+  WHERE id = ? AND status != 'disabled' AND next_at <= ?claimIso AND cursor < ?head
+    AND (lease_until IS NULL OR lease_until <= ?claimIso)
   RETURNING *
 ```
 
-`changes = 0` (no row returned) → another drain already holds an
-unexpired lease: skip this hook this call, not an error. The `RETURNING *`
-row (not the possibly-stale `due` read) is what the batch is built from,
-so a drain never bases its work on a cursor/failures snapshot another
-drain has since moved past. Step 3's CAS moves from `cursor` to the
-lease: `WHERE id = ? AND lease_id = ?leaseId`, clearing both lease columns
-in the same statement:
+`?claimIso` is read fresh, per hook, right here -- NOT the `now` step 1's
+`due` SELECT used. A drain can run far longer than one lease across many
+hooks (`deps.maxPosts` POSTs at up to `POST_TIMEOUT_MS` each, cumulatively,
+across everything the `due` page holds), so a hook claimed late in a long
+drain with a stale clock read would get a `lease_until` that could already
+be in the past by the time anyone else checks it -- reopening the exact
+concurrent-claim race this lease exists to close. The claim also re-checks
+every `due` condition, not just the lease: a hook can stop being due
+between step 1's `due` SELECT and this claim -- most commonly, a
+DIFFERENT drain's own commit landing a failure in between, which pushes
+`next_at` into the future. Without this re-check, a drain holding a
+now-stale `due` snapshot would claim and retry immediately anyway,
+bypassing that backoff (the lease alone only prevents two POSTs in flight
+at once, not a premature retry once the lease has already been cleanly
+released). `changes = 0` (no row returned) means the hook is no longer due
+OR another drain already holds an unexpired lease -- skip this hook this
+call, not an error. The `RETURNING *` row (not the possibly-stale `due`
+read) is what the batch is built from, so a drain never bases its work on
+a cursor/failures snapshot another drain has since moved past. Step 3's
+CAS moves from `cursor` to the lease: `WHERE id = ? AND lease_id =
+?leaseId`, clearing both lease columns in the same statement:
 
 ```sql
 -- success:
@@ -676,7 +691,7 @@ node scripts/report-drill.mjs --ok "$ok" --detail "{\"dump\":\"$url\"}"
 | LDB-H3 | The changelog page shows exactly the feed's events for its parameters, with every interpolated value HTML-escaped | `tests/api/changelog.test.ts` |
 | LDB-H4 | A webhook secret never leaves the `webhooks` table: no response body, no event, no dump carries it | `tests/api/webhooks.test.ts` (scans), `tests/api/dump.test.ts` (`webhooks: []`) |
 | LDB-H5 | A drain with nothing to deliver writes zero D1 rows; a delivered batch writes exactly two `webhooks` rows per hook (the LDB-H6 lease claim, then the commit) | `tests/api/webhooks.test.ts` (statement counter) |
-| LDB-H6 (2026-09-11) | A hook is claimed (one CAS UPDATE on `lease_id`/`lease_until`) before `drain()` reads its feed page or POSTs anything, and `commitOutcome()` CASes on that same `lease_id` (never on `cursor`) and releases it in the same statement -- so no two drains ever have a POST in flight to the same hook at once, `failures`/`cursor` can never be lost or clobbered by a racing second attempt, and a hook another drain is mid-batch on is never disabled out from under it. The lease is real-time bounded and always NULL again once every concurrent `drain()` call touching a hook has resolved -- except when a drain dies while holding it, in which case the hook simply waits out `lease_until` before the next drain reclaims it | `tests/api/webhooks.test.ts` (`[LDB-H6] claim-before-send lease`: real interleaving, concurrent failures, the partial-failure-vs-success race, lease expiry, and a property test) |
+| LDB-H6 (2026-09-11) | A hook is claimed (one CAS UPDATE on `lease_id`/`lease_until`, re-checking EVERY due condition -- `status`, `next_at`, `cursor < head` -- not just the lease) before `drain()` reads its feed page or POSTs anything, and `commitOutcome()` CASes on that same `lease_id` (never on `cursor`) and releases it in the same statement -- so no two drains ever have a POST in flight to the same hook at once, `failures`/`cursor` can never be lost or clobbered by a racing second attempt, a hook another drain is mid-batch on is never disabled out from under it, and a drain holding a stale `due` snapshot (from before a concurrent commit pushed `next_at` into the future) can never bypass that backoff. The claim's clock and lease-until are read FRESH per hook, right at the claim -- never a `now`/`wallNow` sample taken once at the top of `drain()` -- since a drain can run far longer than one lease across many hooks. The lease is real-time bounded and always NULL again once every concurrent `drain()` call touching a hook has resolved -- except when a drain dies while holding it, in which case the hook simply waits out `lease_until` before the next drain reclaims it | `tests/api/webhooks.test.ts` (`[LDB-H6] claim-before-send lease`: real interleaving, concurrent failures, the partial-failure-vs-success race, lease expiry, the stale-claim-clock and due-recheck regressions, and a property test) |
 | LDB-P3 (now enforced) | A follower's state from webhooks alone (drops, reorders, duplicates) equals its state from the feed alone | `tests/events/feed.test.ts` |
 | LDB-F5 / F7 (mana2 rows) | `mana2 → akl → mana2` is identity under `normalizeMana2()`; `akl → mana2 → akl` is identity off the thumb row; every declared translation has a frozen golden | `tests/formats/mana2.test.ts`, `goldens.test.ts` |
 | LDB-F12 | The DB's `akl/1 → mana2/1` grid and thumb strings equal the site's `bridgecore.ConvertLayout` output for every cmini fixture (modulo trailing `skip`s) | `tests/formats/mana2-convert-parity.test.ts` + the frozen converter snapshot |

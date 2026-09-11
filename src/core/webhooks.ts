@@ -12,18 +12,23 @@
 // `drain()` runs from the after-write nudge on EVERY write and from the
 // cron -- overlap is routine. Before touching a due hook's feed page or
 // POSTing anything, `drain()` claims it with one CAS UPDATE on
-// `lease_id`/`lease_until`; `commitOutcome()` CASes its outcome on that
-// SAME `lease_id` (not `cursor`) and releases it in the same statement.
-// This makes "claim, deliver, commit" one hook's business at a time -- two
-// drains can never have POSTs in flight to the same hook concurrently, so
-// delivery is genuinely in order per hook, and `failures`/`cursor` can
-// never be lost or clobbered by a second attempt racing the first. The
-// only way a receiver sees a duplicate `seq` is a drain that dies (crashes,
-// or is evicted) while holding a lease: the hook simply waits out
-// `lease_until`, then the next drain claims it and re-delivers from the
-// last committed cursor -- if the dead drain's last POST had actually
-// landed, that one seq arrives twice. Still at-least-once, never a lost
-// delivery; README.md § Webhooks documents the receiver-side half.
+// `lease_id`/`lease_until` (re-checking every due condition, not just the
+// lease -- see `drain()`'s own comment on why); `commitOutcome()` CASes its
+// outcome on that SAME `lease_id` (not `cursor`) and releases it in the
+// same statement. This makes "claim, deliver, commit" one hook's business
+// at a time -- two drains can never have POSTs in flight to the same hook
+// concurrently, so delivery is genuinely in order per hook, and
+// `failures`/`cursor` can never be lost or clobbered by a second attempt
+// racing the first. The lease's own clock is read fresh, per hook, at the
+// moment of ITS claim -- never a single sample taken once at the top of
+// `drain()` -- since a drain touching many due hooks can run for far
+// longer, in total, than one lease. The only way a receiver sees a
+// duplicate `seq` is a drain that dies (crashes, or is evicted) while
+// holding a lease: the hook simply waits out `lease_until`, then the next
+// drain claims it and re-delivers from the last committed cursor -- if the
+// dead drain's last POST had actually landed, that one seq arrives twice.
+// Still at-least-once, never a lost delivery; README.md § Webhooks
+// documents the receiver-side half.
 import { canonical } from "./canonical";
 import { badRequest, notFound, tooManyWebhooks } from "./errors";
 import { feed, type Event } from "./events";
@@ -406,19 +411,43 @@ export async function drain(env: Bindings, now: Clock, deps: DrainDeps): Promise
     // (LDB-H6): one CAS UPDATE, `RETURNING *` so the row this drain builds
     // its batch from is the just-committed state, not the possibly-stale
     // `due` read above (another drain could have delivered and committed
-    // against this hook between that SELECT and here). `changes = 0` (no
-    // row returned) means another drain already holds an unexpired lease
-    // -- skip this hook this call, not an error; it will be picked up by
-    // a later drain once the lease is released or lapses.
+    // against this hook between that SELECT and here).
+    //
+    // `claimIso`/`claimWallMs` are taken fresh, right here, per hook -- NOT
+    // `nowIso` from the top of `drain()`. A drain can run far longer than
+    // one lease across many hooks (`deps.maxPosts` POSTs at up to
+    // `POST_TIMEOUT_MS` each can dwarf `WEBHOOK_LEASE_MS`); a hook claimed
+    // late in a long drain with a stale `nowIso` would get a `lease_until`
+    // that could already be in the past while this drain's own (freshly
+    // computed) `deadlineMs` still let it keep POSTing -- reopening the
+    // exact race LDB-H6 exists to close (a concurrent drain claiming and
+    // delivering to the same hook at once).
+    //
+    // The claim also re-checks EVERY `due` condition (`status`, `next_at`,
+    // `cursor < head`), not just the lease: a hook can stop being due
+    // between the `due` SELECT above and this claim -- most importantly, a
+    // second drain's own commit landing a FAILURE in between, which sets
+    // `next_at` into the future. Without this re-check, this drain would
+    // claim and retry immediately anyway, bypassing that backoff entirely
+    // (the lease alone only prevents two POSTs in flight at once, not a
+    // premature retry after the lease has already been cleanly released).
+    //
+    // `changes = 0` (no row returned) means the hook is no longer due, OR
+    // another drain already holds an unexpired lease -- skip this hook
+    // this call, not an error; it will be picked up by a later drain once
+    // it's due and the lease (if any) has been released or lapsed.
+    const claimIso = now();
+    const claimWallMs = wallNow();
     const leaseId = ulid();
-    const leaseUntilMs = new Date(nowIso).getTime() + WEBHOOK_LEASE_MS;
+    const leaseUntilMs = new Date(claimIso).getTime() + WEBHOOK_LEASE_MS;
     const claimed = await db
       .prepare(
         `UPDATE webhooks SET lease_id = ?, lease_until = ?
-         WHERE id = ? AND (lease_until IS NULL OR lease_until <= ?)
+         WHERE id = ? AND status != 'disabled' AND next_at <= ? AND cursor < ?
+           AND (lease_until IS NULL OR lease_until <= ?)
          RETURNING *`,
       )
-      .bind(leaseId, new Date(leaseUntilMs).toISOString(), dbRow.id, nowIso)
+      .bind(leaseId, new Date(leaseUntilMs).toISOString(), dbRow.id, claimIso, head, claimIso)
       .first<WebhookDbRow>();
     if (claimed === null) continue;
     const hook = rowToInternal(claimed);
@@ -427,12 +456,14 @@ export async function drain(env: Bindings, now: Clock, deps: DrainDeps): Promise
     // other drain could plausibly still see it held by a live, healthy
     // attempt (the lease itself is WEBHOOK_LEASE_MS long; this stops
     // issuing new POSTs WEBHOOK_LEASE_START_MARGIN_MS + one POST timeout
-    // before it actually lapses). Measured from `wallNow()`, REAL elapsed
-    // time since the claim -- not `leaseUntilMs` (which is `nowIso`, the
-    // business clock, plus the lease length): the two clocks can be on
-    // entirely different timelines in a test (`fixedClock`/`steppingClock`),
-    // and only real elapsed time can ever actually threaten a real lease.
-    const deadlineMs = wallNow() + (WEBHOOK_LEASE_MS - POST_TIMEOUT_MS - WEBHOOK_LEASE_START_MARGIN_MS);
+    // before it actually lapses). Measured from `claimWallMs` (`wallNow()`
+    // at the SAME moment as `claimIso`, above), REAL elapsed time since the
+    // claim -- not `leaseUntilMs` (which is `claimIso`, the business clock,
+    // plus the lease length): the two clocks can be on entirely different
+    // timelines in a test (`fixedClock`/`steppingClock`), and only real
+    // elapsed time can ever actually threaten a real lease. In production
+    // both clocks are real time, so the two stay in lockstep.
+    const deadlineMs = claimWallMs + (WEBHOOK_LEASE_MS - POST_TIMEOUT_MS - WEBHOOK_LEASE_START_MARGIN_MS);
 
     // Pages the feed 10 at a time (FEED_PAGE_SIZE) for THIS hook alone,
     // across as many pages as its share of `deps.maxPosts` (or the lease
