@@ -23,17 +23,25 @@ The fastest path to a working client: read one layout, then write one.
 **Read** — no auth, ever:
 
 ```bash
-curl -s https://akl-db.akl-58a.workers.dev/v1/layouts/io
+curl -s https://akl-db.akl-58a.workers.dev/v1/layouts/io?format=spark/1
 ```
 
-returns the record plus its `payload` in the native `spark/1` shape
-(`?as=mana2/1` for the analyzer-facing lowered shape instead — §3). A
-`404 { "error": "not_found" }` means no such id/name; nothing else to handle
-for a read-only client.
+returns the layout's own fields, a `formats` map (rev/timestamps/`has_magic`
+per format this layout actually has stored), and the ONE requested format's
+`payload` in its native `spark/1` shape (`?format=mana2/1` for the
+analyzer-facing lowered shape instead — §3). **`?format=` is required on
+every route that returns a payload** — there is no default; omitting it is
+`400 format_required`. A `404 { "error": "not_found" }` means no such
+id/name; a `404 { "error": "format_absent" }` means the layout exists but
+doesn't have (and can't derive) the format you asked for; nothing else to
+handle for a read-only client.
 
 **Write** — every write needs an authenticated actor (§1) and, against an
-*existing* record, an `If-Match` header naming the `rev` you read. The
-signed (client-lane) shape, the one a Discord bot uses:
+*existing* record, an `If-Match` header naming the SCOPE and rev you read:
+`"layout:<layout_rev>"` for a layout-level write (rename, delete, transfer),
+or `"<lineage>:<rev>"` for a format write (e.g. `"spark:7"`) — never a bare
+number any more (§5). The signed (client-lane) shape, the one a Discord bot
+uses:
 
 ```bash
 curl -sX POST https://akl-db.akl-58a.workers.dev/v1/layouts \
@@ -245,62 +253,91 @@ writing anything.
 
 ```bash
 GET /v1/meta
-GET /v1/layouts?owner=&format=&has_magic=&since=<iso>&liked_by=&sort=&limit=&cursor=&as=
-GET /v1/layouts?full=1&as=<format>          # every live record, streamed
-GET /v1/layouts/{ref}?as=<format>            # {ref} = id (ULID) or name, case-insensitive
+GET /v1/layouts?owner=&format=<REQUIRED>&has_magic=&since=<iso>&liked_by=&sort=&limit=&cursor=
+GET /v1/layouts?full=1&format=<REQUIRED>          # every live record, streamed
+GET /v1/layouts/{ref}?format=<REQUIRED>            # {ref} = id (ULID) or name, case-insensitive
 GET /v1/layouts/{ref}/likes
-GET /v1/layouts/{ref}/history
-GET /v1/layouts/{ref}/rev/{n}?as=<format>
+GET /v1/layouts/{ref}/history?format=<optional filter>
+GET /v1/layouts/{ref}/rev/{n}?format=<REQUIRED>
 GET /v1/authors
 GET /v1/authors/{user_id}
 GET /v1/formats
 GET /v1/formats/{name}/{N}/schema.json
 ```
 
-Every route that returns a payload takes `?as=<format>` — the format id to
-translate the stored payload into. Two are registered today:
+**A layout can hold several formats at once** (`spark/1` today; a future
+`lw/1` for layouts.wiki, §7's own worked example). `formats` on every
+layout response lists every format it actually has stored — id, rev,
+timestamps, `has_magic`, `source` — but returns no `payload` there; to read
+a payload you name exactly which format with `?format=<format id>`. **This
+is required everywhere a payload is returned — there is no default**
+(`400 format_required` without one; `/history` is the one deliberate
+exception, an optional filter, absent meaning "every event"). Two formats
+are registered today:
 
-- **`spark/1`** (the default) — the one *stored* shape: cmini's `keys` map,
-  board geometry, and an authoring shape for magic rules that keeps intent
+- **`spark/1`** — the one *stored* shape: cmini's `keys` map, board
+  geometry, and an authoring shape for magic rules that keeps intent
   (`magic_keys`/`chiral_keys`/`adaptive_swaps`), not flattened rows.
-- **`mana2/1`** — the **lowered, analyzer-facing** form: a mana2 `.jsonc`
+- **`mana2/1`** — an **output-only, derived** shape: a mana2 `.jsonc`
   layout object (`layout.fingers`/`thumbs` row strings, `board`, flat
-  `magic.rules[]`). Produced from `spark/1` on read, never stored (§7's
-  "For format authors" has the mechanics); it is what an analyzer or emulator
-  reads.
+  `magic.rules[]`). Never stored — derived from whichever ONE stored
+  format is registered to reach it (`spark/1` today; §7's "For format
+  authors" has the mechanics) on every read that asks for it explicitly.
+  Never written (`400 format_not_writable`, §5).
 
 Real detail response (`db/tests/conformance/layouts-detail/200.json`,
-trimmed):
+trimmed, `?format=spark/1`):
 
 ```json
 {
   "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "name": "io",
-  "owner": "761732338744557568", "rev": 1,
+  "owner": "761732338744557568", "layout_rev": 1,
   "created_at": "2022-12-07T23:24:35Z", "modified_at": "2022-12-07T23:24:35Z",
-  "deleted": false, "like_count": 15, "has_magic": false,
-  "format": "spark/1",
+  "deleted": false, "like_count": 15,
   "upstream": { "source": "cmini", "id": "io", "state": "following" },
-  "source": { "client": "system:cmini-import", "version": null },
-  "likes": ["184412255822020608", "…"],
+  "formats": {
+    "spark/1": { "rev": 1, "created_at": "2022-12-07T23:24:35Z",
+                 "modified_at": "2022-12-07T23:24:35Z", "has_magic": false,
+                 "source": { "client": "system:cmini-import", "version": null } }
+  },
+  "format": "spark/1",
   "payload": { "keys": { "a": { "row": 1, "col": 6, "finger": "RI" }, "…": "…" },
-               "board": { "kind": "ortho", "cmini": "ortho" },
-               "x": { "cmini": { "tag": "cmini", "blame": "cmini" } } }
+               "board": { "kind": "ortho", "cmini": "ortho" } },
+  "likes": ["184412255822020608", "…"]
 }
 ```
 
-**A record whose format cannot be translated to the one you asked for** is
-`held`, not an error about your request — the record exists, your format
-just cannot show it yet:
+`layout_rev` moves on a layout-level write (rename, transfer, delete,
+restore); each entry under `formats` moves on a write to THAT format only
+(§5's `If-Match` scopes on exactly this split). There is no single top-level
+`rev` any more — a layout can have several independently-versioned formats.
+
+**Asking for `mana2/1`** derives it on the fly (never writes, never caches)
+and names its source:
 
 ```json
-409 { "error": "held", "held": true, "message": "record cannot be translated to 'mana2/1'",
-      "format": "mana2/1", "see": "spark/1" }
+{ "…layout fields…", "formats": { "spark/1": { "…": "…" } },
+  "format": "mana2/1", "derived_from": "spark/1",
+  "payload": { "layout": { "fingers": ["…"], "…": "…" } } }
 ```
 
-`?full=1&as=<format>` streams every live record; a held one there carries
-`held: true` and its record fields, no `payload`, instead of erroring the
-whole response. `GET /v1/formats` is the registry itself, machine-readable
-(`db/tests/conformance/formats-list/200.json`, trimmed):
+`derived_from` is present only when the format you asked for isn't one the
+layout actually stores. **A layout that doesn't have (and can't derive) the
+format you asked for** is `404 format_absent` — not `held`; `held` is a
+narrower, same-lineage case (a format that lineage COULD show but this
+particular record's content is too new for, §8):
+
+```json
+404 { "error": "format_absent", "format": "lw/1",
+      "message": "this layout has no 'lw/1' format" }
+409 { "error": "held", "held": true, "message": "record cannot be translated to 'spark/1'",
+      "format": "spark/1", "see": "spark/2" }
+```
+
+`?full=1&format=<format>` streams every live record; a held one there
+carries `held: true` and its record fields, no `payload`, instead of
+erroring the whole response. `GET /v1/formats` is the registry itself,
+machine-readable (`db/tests/conformance/formats-list/200.json`, trimmed):
 
 ```json
 [
@@ -318,32 +355,46 @@ ever appears on read (`"output"`, §5). `lineage`/`major`/`latest` are what a
 client checks to detect a new major without parsing the id string itself
 (§8). `aliases` names every transitional alias whose target is this format
 — always `[]` today; kept on the wire shape for a future one, not currently
-in use (see below). `can_translate_to` is the full reachable set.
-`GET /v1/formats/{name}/{N}/schema.json` serves the literal JSON Schema
-(draft 2020-12) a payload must satisfy — validate client-side against it
-before ever sending a write, the same schema the server itself runs
+in use (see below). `can_translate_to` is the full reachable set — for an
+output format this is always exactly the empty set (nothing translates OUT
+of a derived format); **each output format is itself reachable from exactly
+one stored lineage** (`spark/1` -> `mana2/1` today) — a second stored
+lineage wanting to reach the same output format needs a way to name which
+one you mean, not designed yet, so it can't happen silently. `GET
+/v1/formats/{name}/{N}/schema.json` serves the literal JSON Schema (draft
+2020-12) a payload must satisfy — validate client-side against it before
+ever sending a write, the same schema the server itself runs
 (`db/scripts/validate-akl1-payload.mjs` is a Node CLI shim over the exact
 same `validate()`; the script's own name is historical, it validates
 against `spark/1`'s current schema).
 
-**No more `akl/1` alias.** `spark/1` is `akl/1` renamed — same payload
-shape, byte for byte (`design/layout-db/20-spark.md` decision 1). `akl/1`
-worked as a transitional alias while the bot, the preview site and
-publish-ux moved to `spark/1`'s own name; `21-formats.md` D12 deleted the
-alias mechanism entirely once every client had (2026-09-11). `?as=akl/1`
-and `format: "akl/1"` now answer/refuse exactly like any other unregistered
-format id (`400`/`404 unknown_format`, per §3's error table) — there is no
-relabeling, and `format` in every response is always the record's native
-`spark/1`. **Every client reads and writes `spark/1` by name.**
+**No more `akl/1` alias, no more `?as=`.** `spark/1` is `akl/1` renamed —
+same payload shape, byte for byte (`design/layout-db/20-spark.md` decision
+1). `akl/1` worked as a transitional alias while the bot, the preview site
+and publish-ux moved to `spark/1`'s own name; `21-formats.md` D5/D12
+deleted the alias mechanism entirely once every client had (2026-09-11).
+`format=akl/1` (query or body) now answers/refuses exactly like any other
+unregistered format id (`400`/`404 unknown_format`, §6's error table).
+`21-formats.md` D4 additionally renamed the query parameter itself: `?as=`
+is gone, `?format=` is the one name everywhere, and it is now **required**
+(§3 above) rather than defaulting to `spark/1` — there is no relabeling,
+and `format` in a response always equals exactly what you asked for (the
+layout's own stored data if it has that format, `derived_from` naming the
+real source if it doesn't and the format is derivable, or `404
+format_absent` if neither). **Every client reads and writes `spark/1` by
+name, explicitly, every time.**
 
 **`history` and `rev/{n}` carry `source` too** — per-event provenance, not
-just per-record (`db/tests/conformance/layouts-history/200.json`, trimmed):
+just per-record (`db/tests/conformance/layouts-history/200.json`, trimmed).
+`format` on an event names which scope it touched: `null` for a
+layout-level event (`rev` is then that write's `layout_rev`), or a format
+id for a format-scope event (`rev` is then that format's own rev):
 
 ```json
-[ { "seq": 258, "rev": 1, "at": "2026-06-01T00:00:00.000Z",
-    "actor": "system:cmini-import", "via": "import:cmini", "kind": "imported",
+[ { "seq": 258, "format": "spark/1", "rev": 1, "at": "2026-06-01T00:00:00.000Z",
+    "actor": "system:cmini-import", "via": "import:cmini", "kind": "format_added",
     "admin": false, "source": { "client": "system:cmini-import", "version": null } },
-  { "seq": 259, "rev": null, "kind": "liked", "…": "…" } ]
+  { "seq": 259, "format": null, "rev": null, "kind": "liked", "…": "…" } ]
 ```
 
 ## 4. Stay current
@@ -363,32 +414,41 @@ GET /v1/changes?since=<seq>&limit=<≤1000>&kinds=created,updated,…&layout=&ac
 { "next": 3, "items": [
   { "seq": 1, "at": "2026-06-01T00:00:00.000Z", "kind": "imported",
     "layout_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "name": "00------higgs",
-    "owner": "621924065581465611", "rev": 1, "actor": "system:cmini-import",
-    "via": "import:cmini", "admin": false,
+    "owner": "621924065581465611", "format": null, "rev": 1,
+    "actor": "system:cmini-import", "via": "import:cmini", "admin": false,
     "detail": { "source": "cmini", "upstream_id": "00------higgs" },
     "before": null,
-    "after": { "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "name": "00------higgs",
-               "rev": 1, "format": "spark/1", "has_magic": false,
+    "after": { "scope": "layout", "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+               "name": "00------higgs", "layout_rev": 1,
                "upstream": { "id": "00------higgs", "source": "cmini", "state": "following" },
+               "source": { "client": "system:cmini-import", "version": null }, "…": "…" },
+    "source": { "client": "system:cmini-import", "version": null } },
+  { "seq": 2, "at": "2026-06-01T00:00:00.000Z", "kind": "imported",
+    "layout_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "name": "00------higgs",
+    "owner": "621924065581465611", "format": "spark/1", "rev": 1,
+    "actor": "system:cmini-import", "via": "import:cmini", "admin": false,
+    "before": null,
+    "after": { "scope": "format", "layout_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+               "lineage": "spark", "format": "spark/1", "rev": 1, "has_magic": false,
                "source": { "client": "system:cmini-import", "version": null }, "…": "…" },
     "source": { "client": "system:cmini-import", "version": null } } ] }
 ```
 
-**Folding events**, per `kind`: a **rev-bumping** kind (`created`,
-`updated`, `renamed`, `fingermap`, `transferred`, `deleted`, `restored`,
-`imported`, `upstream_deleted`, `migrated`) sets your local copy of the
-record to `after` plus the payload for that `rev` (read via `/rev/{n}` if
-you keep payloads, or just re-`GET` the record — `after` alone is enough to
-know *that* it changed); `liked`/`unliked` move only `like_count` by ±1;
-everything else (`upstream_changed`, `import_conflict`, `admin.*`) is
-informational and changes nothing in your local copy.
-
-**`migrated` needs no special handling beyond the fold above** — it is the
-one-time record migration onto `spark/1` (§8), and it is rev-bumping like
-any other write: apply `after` and move on. A client that special-cases it
-to skip a re-fetch (the deployed bot does exactly this, `bot/src/cache/
-feed.ts`, LDB-B49) is an optimization, not a requirement — `after` already
-carries everything `applyEvent` needs.
+**Folding events**: `format` on a rev-bumping event says which scope it
+touched — `null` is layout-level (bumps `layout_rev`; `after` is
+`{scope: "layout", …}` — name/owner/deletion/`upstream`, no payload), a
+format id is that format's own scope (bumps that format's `rev`; `after` is
+`{scope: "format", …}` — that ONE format's rev/timestamps/`has_magic`/
+payload-implying fields, never another format's). A new layout always appends TWO events in the same batch, one per scope —
+`created` (layout) + `format_added` (format) for a client's `POST
+/v1/layouts`, or `imported` on both scopes for one the cmini import
+creates — apply both to build the full local copy of a brand-new layout. Read the payload for a given rev via
+`/rev/{n}?format=<that format>` if you keep payloads, or just re-`GET` the
+record with `?format=` — `after` alone is enough to know *that* something
+changed and on which scope. `liked`/`unliked` move only `like_count` by ±1
+(layout-scope, no rev bump); everything else (`upstream_changed`,
+`import_conflict`, `admin.*`) is informational and changes nothing in your
+local copy.
 
 **SSE**: `GET /v1/changes/stream?since=&kinds=` is the same feed pushed
 instead of polled (needs the Workers Paid plan; `503 stream_unavailable`
@@ -423,13 +483,20 @@ repeating the dead drain's own last, already-landed POST) — dedupe by
 → `"failing"` (still retried hourly); failing past 7 days → `"disabled"`.
 
 **The nightly dump** (`GET /v1/dump/latest.json`, written 03:00 UTC) is the
-full state — every table, the **whole** event log, not a tail:
+full state — every table (including `layout_formats`, one row per format a
+layout stores), the **whole** event log, not a tail:
 
 ```json
 { "date": "2026-06-01", "key": "dump-2026-06-01.json.gz",
   "url": "/v1/dump/dump-2026-06-01.json.gz", "sha256": "…",
   "bytes": 1240439, "layout_count": 4176, "seq": 6213 }
 ```
+
+`seq` is a **floor, never a ceiling**: the dump reads `meta` (and its
+`seq`) strictly before any table, so every table may carry a write or two
+past that `seq` but never one *behind* it — booting from the dump then
+draining `/v1/changes?since=<seq>` always reaches exactly the live state,
+with no gap.
 
 **Per-major dump files** (decision 10 of `20-spark.md`, LDB-D6) — one per
 registered *stored* major, at `GET /v1/dump/latest.<lineage>-<N>.json` (plus
@@ -446,8 +513,11 @@ question — "does the importer still own this record's keys and board" — for
 exactly as long as the one-time cmini import keeps running
 (`design/layout-db/20-spark.md` decision 16). There is no general
 layout-from-layout fork concept here, no re-follow, and nothing outside the
-importer, the daily upstream diff, and the one-time record migration reads
-it for any decision. When the import is retired the field, its rule, and
+importer and the daily upstream diff reads it for any decision. **Follow
+state is layout-level**: a write to the layout itself, or to lineage
+`spark` specifically, forks it (user write) or keeps it following (import
+write); a write to any OTHER format (`lw/1`, say) never touches `upstream`
+at all. When the import is retired the field, its rule, and
 every invariant that mentions it (`LDB-I13`/`I14`/`P5`/`P11`'s upstream
 half) are removed in one migration (`20-spark.md` §6b) — a client that
 keyed any behavior on `upstream.state` today has that behavior silently stop
@@ -462,17 +532,27 @@ have a dump.
 ## 5. Write
 
 ```
-POST   /v1/layouts                  { name, format, payload }               → 201
-PUT    /v1/layouts/{ref}            { format, payload }             If-Match → 200
-PATCH  /v1/layouts/{ref}            { name?, fingermap?, board?, magic? }  If-Match → 200
-DELETE /v1/layouts/{ref}                                             If-Match → 200 (tombstone)
-POST   /v1/layouts/{ref}/transfer   { to }                           If-Match → 200
-POST   /v1/layouts/{ref}/restore    { name? }  (owner or admin, no time limit)  → 200
-PUT / DELETE /v1/layouts/{ref}/like                                            → 200 { like_count }
+POST   /v1/layouts                  { name, format, payload }                      → 201
+PUT    /v1/layouts/{ref}            { format, payload }        If-Match (replace)   → 200
+                                                                 If-None-Match: * (add) → 200
+PATCH  /v1/layouts/{ref}            { name } If-Match: "layout:<n>"                 → 200
+                                     { format, fingermap?/board?/magic? } If-Match: "<lineage>:<n>" → 200
+DELETE /v1/layouts/{ref}                                    If-Match: "layout:<n>" → 200 (tombstone)
+POST   /v1/layouts/{ref}/transfer   { to }                  If-Match: "layout:<n>" or * → 200
+POST   /v1/layouts/{ref}/restore    { name? }  (owner or admin, no time limit)      → 200
+PUT / DELETE /v1/layouts/{ref}/like                                                 → 200 { like_count }
 ```
 
 **Every write carries `X-Client-Version`** (§1.3) — not required by the
 schema, but every example below sends one, and you should too.
+
+**Two independent scopes per layout** (§3): a **layout-scope** write
+(rename, transfer, delete, restore) touches name/owner/deletion and nothing
+else; a **format-scope** write (`PUT`, or a `PATCH` naming `format`) touches
+exactly ONE format's payload/rev/`has_magic` and nothing else — including no
+OTHER format the layout has, and no layout-level field. Each scope has its
+own `If-Match` token (§below) and its own rev; a create is the one write
+that touches both scopes at once, in a single request.
 
 **`spark/1` payloads.** `payload.keys` maps a one-code-point char to
 `{row, col, finger}` (finger ∈ `LP LR LM LI RI RM RR RP LT RT TB`); `free`
@@ -481,63 +561,94 @@ character; `board` names the geometry (`{kind: "rowstag"|"colstag"|"ortho",
 stagger?, cmini?}`); `magic` is optional and carries **intent**
 (`magic_keys`/`chiral_keys`/`adaptive_swaps`, plus a raw `rules[]` escape
 hatch) — never the flattened rows an analyzer reads (that's what
-`?as=mana2/1` is for, §3/§7). Full shape and every validation rule:
+`?format=mana2/1` is for, §3/§7). Full shape and every validation rule:
 `design/layout-db/01-format.md` §2/§2.1; the schema itself:
 `GET /v1/formats/spark/1/schema.json`.
 
-**Creating** (real fixture, `db/tests/conformance/layouts-write/post-201.json`):
+**Creating** — one request, two events (layout + format, §4), one response
+carrying both (real fixture,
+`db/tests/conformance/layouts-write/post-201.json`, shape updated for
+several-formats-per-layout):
 
 ```bash
 curl -sX POST …/v1/layouts -H 'X-Client-Version: my-bot/1.0' <signed-or-bearer> -d '
 {"name":"my-layout","format":"spark/1","payload":{"keys":{}}}'
-# 201 {"id":"01ARZ3ND…","name":"my-layout","owner":"800000000000000001","rev":1,
-#      "created_at":"…","modified_at":"…","deleted":false,"like_count":0,"has_magic":false,
-#      "format":"spark/1","upstream":null,
-#      "source":{"client":"discord-app:app-default","version":null},
-#      "payload":{"keys":{}}}
+# 201 {"id":"01ARZ3ND…","name":"my-layout","owner":"800000000000000001","layout_rev":1,
+#      "created_at":"…","modified_at":"…","deleted":false,"like_count":0,"upstream":null,
+#      "formats":{"spark/1":{"rev":1,"created_at":"…","modified_at":"…","has_magic":false,
+#                             "source":{"client":"discord-app:app-default","version":null}}},
+#      "format":"spark/1","payload":{"keys":{}}}
 ```
 
-**`If-Match` and `409 stale`.** Every write against an *existing* record —
-`PUT`/`PATCH`/`DELETE`/`transfer` — **must** carry `If-Match: "<rev>"` (the
-rev you last read; quoted or bare) or `If-Match: *` (overwrite on purpose,
-stated explicitly). Absent → `400 if_match_required`, checked before any
-read or mutation. A mismatch is `409 stale` with the **winning** record
-already in the body — no second request needed, just re-apply your change
-to it and resend with its `rev`:
+**Scoped `If-Match` and `409 stale`.** Every write against an *existing*
+record's SPECIFIC scope — `PUT`/format-`PATCH`/`DELETE`/`transfer`/name-`PATCH`
+— **must** carry `If-Match` naming that scope's own token: `"layout:<n>"`
+for a layout-scope write, `"<lineage>:<rev>"` (e.g. `"spark:7"`) for a
+format-scope write — or `If-Match: *` (overwrite on purpose, stated
+explicitly, any scope). A bare unscoped number, or the WRONG scope's token,
+is `400 bad_request` — checked before any read. Absent entirely →
+`400 if_match_required`. A same-scope mismatch is `409 stale` with the
+**winning** record already in the body, naming which scope raced — no
+second request needed, just re-apply your change to it and resend with its
+current rev:
 
 ```json
-409 { "error": "stale", "message": "record is at rev 2, not the version you edited",
+409 { "error": "stale", "scope": "spark", "message": "'spark' is at rev 2, not the version you edited",
       "rev": 2,
-      "record": { "id": "01ARZ3ND…", "rev": 2, "format": "spark/1", "…": "…" },
+      "record": { "id": "01ARZ3ND…", "layout_rev": 1,
+                   "formats": { "spark/1": { "rev": 2, "…": "…" } }, "…": "…" },
       "last_write": { "seq": 439, "at": "…", "actor": "800000000000000001",
                        "via": "discord", "kind": "updated", "admin": false } }
 ```
 
-(`format` is always the record's native `spark/1` — there is no relabeling
-any more, §3.)
+A write to one scope never races a write to the OTHER scope of the same
+layout — both land (§4's model, `MF-6`).
 
-**PATCH verbs** apply, in one event, in the order `name, fingermap, board,
-magic` — one or more of them in a single body:
+**`PUT` also ADDS a format the layout doesn't have yet**: send
+`If-None-Match: *` instead of `If-Match` to add lineage `body.format` names,
+refused `409 format_exists` if the layout already has that lineage. With
+`If-Match` instead, `PUT` REPLACES that format's own payload wholesale
+(same scoped-token rules as any other format-scope write); `404
+format_absent` if the layout doesn't have that lineage yet (use
+`If-None-Match: *` instead to add it).
 
-```bash
-curl -sX PATCH …/v1/layouts/01ARZ3ND… -H 'If-Match: "1"' <signed> \
-  -d '{"fingermap":{"a":"LM"}}'
-# 200 {"…","rev":2,"payload":{"keys":{"a":{"col":1,"finger":"LM","row":1}}}}
+```json
+409 { "error": "format_exists", "format": "spark/1",
+      "message": "this layout already has a 'spark/1' format" }
 ```
 
-A body of exactly `{name}` writes a `renamed` event; exactly `{fingermap}` a
-`fingermap` event; anything else (including any *combination*) an `updated`
-event with `detail.fields` naming which keys changed. Every record patches
-as `spark/1` — a legacy-stored record (still possible during the alias
-window, §3) is converted first, whatever the PATCH names, so
-`unsupported_for_format` never actually fires against a live record today.
+**`PATCH` is either `{name}` (layout scope) or `{format, …edits}` (that
+format's scope) — never both at once**, one event, one or more edits
+applied in the order `fingermap, board, magic`:
+
+```bash
+curl -sX PATCH …/v1/layouts/01ARZ3ND… -H 'If-Match: "spark:1"' <signed> \
+  -d '{"format":"spark/1","fingermap":{"a":"LM"}}'
+# 200 {"…","format":"spark/1","payload":{"keys":{"a":{"col":1,"finger":"LM","row":1}}}}
+```
+
+A `{name}` body writes a `renamed` event (layout scope, `If-Match:
+"layout:<n>"`); a `{format, fingermap}` body a `fingermap` event; anything
+else naming `format` (including several edits at once) an `updated` event
+with `detail.fields` naming which keys changed. **`{name, format}` (or any
+mix of a rename with a format edit) in one body is `400 mixed_patch`** —
+they're different scopes with different `If-Match` tokens, so one request
+can never mean both:
+
+```json
+400 { "error": "mixed_patch", "message": "a PATCH may change the layout's name, or one format's payload, never both at once" }
+```
+
+An edit key (`fingermap`/`board`/`magic`) with no `format` named is `400
+format_required`; a body with neither `name` nor any edit key at all is
+`400 bad_request`.
 
 **`format_behind`** (only matters once a format grows a second major, §8):
-a `PUT` naming an older major of the record's own lineage is refused with
-`409 format_behind` when the record, as currently stored, could never have
-been read whole in that older major — the same fact a `GET
-?as=<older-major>` would answer `held` for. The body shape is the same as
-`held` (`format_behind` is `held` from the *writer's* side):
+a `PUT` naming an older major of that lineage's own is refused with `409
+format_behind` when the format, as currently stored, could never have been
+read whole in that older major — the same fact a `GET
+?format=<older-major>` would answer `held` for. The body shape is the same
+as `held` (`format_behind` is `held` from the *writer's* side):
 
 ```json
 409 { "error": "format_behind", "held": true, "format": "spark/1", "see": "spark/2", "rev": 7,
@@ -557,11 +668,13 @@ stored):
 ```
 
 **Restore** — `POST /v1/layouts/{ref}/restore`, owner or admin, no time
-limit (tombstones are never pruned). The body is optional: absent, `{}`, or
-`{name}`; anything else is `400 bad_request`. Without `name`, restoring
-under the tombstone's own (possibly reclaimed) name is `409 name_taken` with
-`holder` exactly as any other name clash; with a *different* `name`, the
-new name goes through the same `check_name` rules as a fresh `POST`.
+limit (tombstones are never pruned), layout-scope only (every format the
+layout had is simply untouched — restore/delete never touch
+`layout_formats` at all). The body is optional: absent, `{}`, or `{name}`;
+anything else is `400 bad_request`. Without `name`, restoring under the
+tombstone's own (possibly reclaimed) name is `409 name_taken` with `holder`
+exactly as any other name clash; with a *different* `name`, the new name
+goes through the same `check_name` rules as a fresh `POST`.
 
 ```bash
 curl -sX POST …/v1/layouts/01ARZ3ND…/restore <signed>       # no body
@@ -569,10 +682,10 @@ curl -sX POST …/v1/layouts/01ARZ3ND…/restore <signed> -d '{"name":"my-layout
 ```
 
 Real success (`db/tests/conformance/layouts-write/restore-200.json`,
-trimmed): `200 {"…","deleted":false,"rev":3}`.
+trimmed): `200 {"…","deleted":false,"layout_rev":3}`.
 
-**Likes** — idempotent, never bump `rev`/`modified_at`, always return the
-current count:
+**Likes** — idempotent, never bump `layout_rev`/`modified_at`/a format's own
+`rev`/`modified_at`, always return the current count:
 
 ```bash
 curl -sX PUT …/v1/layouts/01ARZ3ND…/like <signed>      # 200 {"like_count":1}
@@ -604,6 +717,10 @@ it as generated, not hand-edited):
 | 409 | `held` | record cannot be translated to '${format}' | `held(format, see)` |
 | 409 | `format_behind` | this record uses ${see} features that ${format} cannot show; write it as ${see}, or PATCH the field you mean to change | `formatBehind(format, see, rev)` |
 | 500 | `internal` | internal error | `internal()` |
+| 400 | `format_required` | a 'format' parameter is required | `formatRequired()` |
+| 404 | `format_absent` | this layout has no '${format}' format | `formatAbsent(format)` |
+| 409 | `format_exists` | this layout already has a '${format}' format | `formatExists(format)` |
+| 400 | `mixed_patch` | a PATCH may change the layout's name, or one format's payload, never both at once | `mixedPatch()` |
 | 401 | `unauthorized` | authentication required | `unauthorized()` |
 | 401 | `token_invalid` | *(caller-supplied -- this function's own `message` parameter)* | `tokenInvalid(message)` |
 | 400 | `invalid_client_version` | invalid 'X-Client-Version' header '${raw}' (expected <= 64 chars of [A-Za-z0-9._+/:-]) | `invalidClientVersion(raw)` |
@@ -612,7 +729,7 @@ it as generated, not hand-edited):
 | 403 | `not_admin` | admin only | `notAdmin()` |
 | 400 | `invalid_name` | *(caller-supplied -- this function's own `message` parameter)* | `invalidName(name, message)` |
 | 400 | `if_match_required` | an 'If-Match' header naming the record's current rev is required | `ifMatchRequired()` |
-| 409 | `stale` | record is at rev ${record.rev}, not the version you edited | `stale(record, lastWrite)` |
+| 409 | `stale` | '${scope}' is at rev ${rev}, not the version you edited | `stale(scope, rev, record, lastWrite)` |
 | 409 | `last_admins` | removing this admin would leave fewer than 2 admins | `lastAdmins(count)` |
 | 400 | `unsupported_for_format` | '${verb}' is not supported for format '${format}' | `unsupportedForFormat(format, verb)` |
 | 401 | `bad_signature` | the client signature is missing or invalid | `badSignature()` |
@@ -750,8 +867,8 @@ registered:
 ### Lowering to `mana2/1`
 
 `spark/1`'s `to["mana2/1"]` (named export `fromSpark`,
-`db/formats/mana2/1/translate.ts`) is what `?as=mana2/1` and the analyzer
-pipeline both call. **It must never hold for a valid `spark/1` payload**
+`db/formats/mana2/1/translate.ts`) is what `?format=mana2/1` and the
+analyzer pipeline both call. **It must never hold for a valid `spark/1` payload**
 (`LDB-F17`) — the held cases documented on `mana2/1`'s own README are all in
 the *other* direction (`mana2/1 -> spark/1`, a tap-hold token, a directional
 token, more than five keys on one thumb, a non-empty `combos`, a rowstag
@@ -773,6 +890,32 @@ under `normalizeMana2()` (LDB-F5's mana2 half), and separately proves the
 converter against the site's real wasm-compiled engine, not a duplicate
 implementation).
 
+### Adding a SECOND stored format alongside spark
+
+A layout can hold several stored formats at once (§3, e.g. a future
+`lw/1` for layouts.wiki) — this is a normal addition too, following the
+same directory/registry shape above with `role: "stored"`. Two rules keep
+derivation unambiguous when more than one stored lineage exists (§4 of
+`design/layout-db/21-formats.md`, `MF-10`):
+
+- **Each output format (`mana2/1`) is reachable from exactly one stored
+  lineage.** If your new format also wants to reach `mana2/1`, that edge
+  can't just be added alongside spark's — two stored lineages both
+  claiming the same output edge is a hidden default (which one does a
+  bare `?format=mana2/1` mean?) and is refused at the registry level
+  (`reachingLineages()` reports both, `outputSourceLineage()` refuses to
+  pick one). Reaching `mana2/1` from a second lineage needs an explicit way
+  to name the source (a `from=` parameter, not designed yet) — until then,
+  a second stored format simply doesn't register a `to["mana2/1"]` edge at
+  all.
+- **Stored formats are never derived from each other on read.** An edge
+  FROM your new format TO `spark/1` (or vice versa), if you write one, is a
+  package function your own clients call themselves (`@akl/layout-formats`)
+  — layoutdb's `GET …?format=spark/1` always means "this layout's own
+  `spark/1` row", never something translated over from another lineage.
+  `?format=<your format>` on a layout that never wrote it is `404
+  format_absent`, not a silent derivation.
+
 ## 8. For clients moving to a new major
 
 **Detecting a new major**: `GET /v1/formats` carries `lineage`, `major`, and
@@ -782,11 +925,11 @@ is. The other signal is reactive: a `PUT` you send in your pinned major
 starts coming back `409 format_behind` the moment the record you're editing
 has grown content the older major cannot show (§5).
 
-**What keeps working while you migrate**: reads via `?as=<your old major>`
-keep answering exactly what they always did, until the record's content
-genuinely outgrows that major (then `held`, same as any cross-format
-translation gap, §3); writes in the old major keep being accepted — they
-are chained up to the new latest transparently, with
+**What keeps working while you migrate**: reads via `?format=<your old
+major>` keep answering exactly what they always did, until the record's
+content genuinely outgrows that major (then `held`, same as any
+cross-format translation gap, §3); writes in the old major keep being
+accepted — they are chained up to the new latest transparently, with
 `detail.written_as` on the event naming what you actually sent, so your
 existing write path needs no code change to keep functioning, only an
 eventual read-side upgrade. `held`/`format_behind` are the same signal
@@ -794,16 +937,17 @@ from two sides of one fact: "the record's real content can no longer be
 shown whole in your major" — treat either as "read (and, for a write, write)
 the newer major for this one record" rather than a hard failure.
 
-**The switch, once you're ready**: start reading `?as=<new major>` (or drop
-`?as=` entirely if the new major is now the default), start sending
-`format: "<new major>"` on writes, and drop your old `?as=`/`format=` calls
-once nothing you talk to still needs the old shape. There is no server-side
-flag to flip — the chain (§7) makes both majors simultaneously readable for
-as long as you need.
+**The switch, once you're ready**: start reading `?format=<new major>` and
+sending `format: "<new major>"` on writes, and drop your old
+`?format=<old major>` calls once nothing you talk to still needs the old
+shape (`?format=` is always required, §3 — there is no "default major" to
+fall back to by omitting it). There is no server-side flag to flip — the
+chain (§7) makes both majors simultaneously readable for as long as you
+need.
 
 **Testing it**: the per-major dump files (§4) let you fetch every record's
-payload as of a specific major directly, without walking `?as=` one id at a
-time — compare your new-major reader against `latest.<lineage>-<old
+payload as of a specific major directly, without walking `?format=` one id
+at a time — compare your new-major reader against `latest.<lineage>-<old
 N>.json` and `latest.<lineage>-<new N>.json` side by side. Before any real
 second major exists, the stub lineage `db/tests/formats/stub-lineage.ts`'s
 `t/1 -> t/2 -> t/3` (exercised by `db/tests/formats/chain.test.ts`) is the
@@ -827,15 +971,15 @@ silently drift from what `db/src/index.ts` actually registers.
 |---|---|---|---|---|---|
 | GET | `/v1/meta` | none | — | 200 | — |
 | GET | `/v1/me` | none (401 if unauthenticated) | — | 200 | `unauthorized`, `token_invalid`, lane errors |
-| GET | `/v1/layouts` | none | — | 200 | `bad_request` |
-| GET | `/v1/layouts/:ref` | none | — | 200 | `unknown_format`, `held`, `not_found` |
+| GET | `/v1/layouts` | none | — | 200 | `format_required`, `unknown_format`, `format_absent`, `bad_request` |
+| GET | `/v1/layouts/:ref` | none | — | 200 | `format_required`, `unknown_format`, `format_absent`, `held`, `not_found` |
 | GET | `/v1/layouts/:ref/likes` | none | — | 200 | `not_found` |
 | GET | `/v1/layouts/:ref/history` | none | — | 200 | `not_found` |
-| GET | `/v1/layouts/:ref/rev/:n` | none | — | 200 | `bad_request`, `unknown_format`, `held`, `not_found` |
+| GET | `/v1/layouts/:ref/rev/:n` | none | — | 200 | `format_required`, `unknown_format`, `bad_request`, `held`, `not_found` |
 | POST | `/v1/layouts` | user | `{name, format, payload}` | 201 | `bad_request`, `invalid_name`, `unknown_format`, `format_not_writable`, `invalid_payload`, `magic_collision`, `name_taken`, lane errors |
-| PUT | `/v1/layouts/:ref` | user | `{format, payload}` + `If-Match` | 200 | `if_match_required`, `bad_request`, `unknown_format`, `format_not_writable`, `format_behind`, `invalid_payload`, `magic_collision`, `not_owner`, `not_found`, `stale`, lane errors |
-| PATCH | `/v1/layouts/:ref` | user | one or more of `{name, fingermap, board, magic}` + `If-Match` | 200 | `if_match_required`, `invalid_name`, `invalid_payload`, `unsupported_for_format`, `not_owner`, `not_found`, `name_taken`, `stale`, lane errors |
-| DELETE | `/v1/layouts/:ref` | user | — + `If-Match` | 200 | `if_match_required`, `bad_request`, `not_owner`, `not_found`, `stale`, lane errors |
+| PUT | `/v1/layouts/:ref` | user | `{format, payload}` + `If-Match` (replace) or `If-None-Match: *` (add) | 200 | `if_match_required`, `bad_request`, `unknown_format`, `format_not_writable`, `format_behind`, `format_absent`, `format_exists`, `invalid_payload`, `magic_collision`, `not_owner`, `not_found`, `stale`, lane errors |
+| PATCH | `/v1/layouts/:ref` | user | `{name}` (layout scope) or `{format, fingermap?, board?, magic?}` (that format's scope) + `If-Match` | 200 | `if_match_required`, `bad_request`, `mixed_patch`, `format_required`, `invalid_name`, `invalid_payload`, `unsupported_for_format`, `not_owner`, `not_found`, `name_taken`, `stale`, lane errors |
+| DELETE | `/v1/layouts/:ref` | user | — + `If-Match: "layout:<n>"` | 200 | `if_match_required`, `bad_request`, `not_owner`, `not_found`, `stale`, lane errors |
 | POST | `/v1/layouts/:ref/restore` | user | `{name?}` (optional) | 200 | `bad_request`, `invalid_name`, `not_owner`, `not_found`, `name_taken`, lane errors |
 | POST | `/v1/layouts/:ref/transfer` | user | `{to}` + `If-Match` | 200 | `if_match_required`, `bad_request`, `not_owner`, `not_found`, lane errors |
 | PUT | `/v1/layouts/:ref/like` | user | — | 200 | `not_found`, lane errors |
