@@ -1261,3 +1261,15 @@ ledgered and flippable by saltorbit):**
   the migration runs. LDB-P5 amended; tests: the bulk/one-at-a-time
   equivalence over seven history shapes, the all-NULL-columns diff tick,
   the unresolved unit case.
+- **2026-09-11 ~07:30Z** — saltorbit asked whether the architecture page made it
+  to the site. On the preview (`db.cmini-web.pages.dev/layoutdb/`) the hub
+  and the architecture page are live, but the **adoption guide was
+  missing**: the build jobs' sparse checkouts carried `design/layout-db`
+  and `design/federation` but not `db/docs`, and `build_site.mjs` skipped a
+  missing source directory silently, so every CI-built hub shipped without
+  it while every local test passed. Fix on `ldb-docs-cone` (on
+  bf8f12373): `db/docs` added to the gate, build and full-rebuild cones;
+  the builder now throws on a missing source directory; LDB-G9 gains a
+  check that every sparse checkout carrying `design/layout-db` also
+  carries `db/docs` and `design/federation`. akl.gg itself has no hub
+  until #307 merges.

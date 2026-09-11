@@ -88,7 +88,13 @@ const stripTags = s => s.replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace
 export function discoverDocs() {
   const found = [];
   for (const dir of [LAYOUTDB_SRC_DIR, DB_DOCS_DIR]) {
-    if (!fs.existsSync(dir)) continue;
+    // A missing source directory is a build error, never a silent skip:
+    // CI's sparse checkouts once left out db/docs, and every CI-built hub
+    // shipped without the adoption guide while every test stayed green
+    // (2026-09-11). Add the directory to the job's sparse-checkout list.
+    if (!fs.existsSync(dir)) {
+      throw new Error(`build_site: hub source directory ${path.relative(REPO_ROOT, dir)} is missing (a CI job's sparse-checkout list must include it)`);
+    }
     for (const name of fs.readdirSync(dir).sort()) {
       if (!name.endsWith('.md')) continue;
       const srcPath = path.join(dir, name);

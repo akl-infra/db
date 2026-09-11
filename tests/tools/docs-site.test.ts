@@ -431,3 +431,39 @@ describe("[LDB-G10] the adoption guide covers the API exactly", () => {
     expect(new Set(extractBacktickBulletNames(majorSection))).toEqual(new Set(requiredMajorGt1));
   });
 });
+
+// [LDB-G9] CI can build the whole hub: every workflow job whose sparse
+// checkout carries the hub's design sources also carries every other
+// directory the builder reads (found 2026-09-11: db/docs was missing, so
+// CI-built hubs had no adoption guide).
+const cone = repoLayout();
+(cone.hasSiteTree ? describe : describe.skip)("[LDB-G9] CI sparse checkouts carry every hub source", () => {
+  it("[LDB-G9] a sparse-checkout block that lists design/layout-db also lists db/docs and design/federation", () => {
+    const wfDir = path.join(cone.repoRoot, ".github", "workflows");
+    const problems: string[] = [];
+    let blocks = 0;
+    for (const file of fs.readdirSync(wfDir).filter((f) => f.endsWith(".yml"))) {
+      const lines = fs.readFileSync(path.join(wfDir, file), "utf8").split("\n");
+      for (let i = 0; i < lines.length; i++) {
+        if (!/sparse-checkout:\s*\|\s*$/.test(lines[i]!)) continue;
+        const entries: string[] = [];
+        const indent = (lines[i + 1]?.match(/^(\s+)/)?.[1] ?? "").length;
+        for (let j = i + 1; j < lines.length; j++) {
+          const l = lines[j]!;
+          if (l.trim() === "" || (l.match(/^(\s*)/)?.[1] ?? "").length < indent || l.trim().startsWith("#")) {
+            if (l.trim().startsWith("#")) continue;
+            break;
+          }
+          entries.push(l.trim());
+        }
+        if (!entries.includes("design/layout-db")) continue;
+        blocks++;
+        for (const need of ["db/docs", "design/federation"]) {
+          if (!entries.includes(need)) problems.push(`${file}:${i + 1} lacks ${need}`);
+        }
+      }
+    }
+    expect(blocks).toBeGreaterThan(0);
+    expect(problems).toEqual([]);
+  });
+});
