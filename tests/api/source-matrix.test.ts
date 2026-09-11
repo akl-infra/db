@@ -7,8 +7,9 @@
 import { env } from "cloudflare:test";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Bindings } from "../../src/env";
-import { appendWrite } from "../../src/core/events";
+import { commitWrite, type CommitInput } from "../../src/core/events";
 import { fixedClock } from "../../src/core/time";
+import { ulid } from "ulidx";
 import { generateKeyPair, seedClient, signHeaders } from "../auth/client-support";
 import { AKL_PAYLOAD, actorFixture, pinTestClock, register, uniqueName, writeFetch } from "./write-support";
 
@@ -76,26 +77,33 @@ async function clientHeaders(method: string, pathWithQuery: string, body?: unkno
   return versionHeader === undefined ? signed : { ...signed, "X-Client-Version": versionHeader };
 }
 
-async function revOf(layoutId: string): Promise<number | null> {
-  const row = await db.prepare("SELECT rev FROM layouts WHERE id = ?").bind(layoutId).first<{ rev: number }>();
-  return row?.rev ?? null;
+// `n` (the internal write counter, shared across BOTH scopes) is what this
+// file checks moved-or-not on: a write refused for an invalid client
+// version 400s before `commitWrite` ever runs, whatever scope it would
+// have targeted, so `n` unchanged is the one check that works for every
+// verb uniformly.
+async function nOf(layoutId: string): Promise<number | null> {
+  const row = await db.prepare("SELECT n FROM layouts WHERE id = ?").bind(layoutId).first<{ n: number }>();
+  return row?.n ?? null;
 }
 
-async function seedRecord(owner: string): Promise<{ id: string; rev: number; name: string }> {
-  const { record } = await appendWrite(db, clock, {
-    upstream: null,
-    kind: "created",
-    name: uniqueName("srcm-seed"),
-    owner,
+async function seedRecord(owner: string): Promise<{ id: string; n: number; name: string }> {
+  const input: CommitInput = {
+    layoutId: ulid(),
+    creating: true,
+    currentN: 0,
+    currentLayout: null,
+    currentFormats: new Map(),
+    layout: { kind: "created", name: uniqueName("srcm-seed"), owner, created_at: clock(), deleted: false },
+    format: { kind: "format_added", lineage: "spark", format: "spark/1", payload: AKL_PAYLOAD, hasMagic: false },
     modified_at: clock(),
-    format: "spark/1",
-    payload: AKL_PAYLOAD,
     actor: owner,
     via: "discord",
     source: { client: "discord-app:test", version: null },
-    hasMagic: false,
-  });
-  return { id: record.id, rev: record.rev, name: record.name };
+    upstream: null,
+  };
+  const { layout } = await commitWrite(db, clock, input);
+  return { id: layout.id, n: layout.n, name: layout.name };
 }
 
 interface EventSourceRow {
@@ -120,7 +128,7 @@ type Verb = "create" | "replace" | "patch" | "delete" | "restore" | "transfer";
 // the raw Response. `owner` differs by lane -- the client lane is
 // registered `act-as-owner-only` for CLIENT_OWNER, so every client-lane
 // write must act as that user.
-async function fire(lane: Lane, verb: Verb, versionHeader: string | undefined): Promise<{ res: Response; layoutId: string; revBefore: number | null }> {
+async function fire(lane: Lane, verb: Verb, versionHeader: string | undefined): Promise<{ res: Response; layoutId: string; nBefore: number | null }> {
   const owner = lane === "discord" ? DISCORD_OWNER : CLIENT_OWNER;
   // Lazy: each `actorFixture()` call replaces the global `fetch` stub with
   // a FRESH FakeDiscord, orphaning any earlier one's registered token --
@@ -137,7 +145,7 @@ async function fire(lane: Lane, verb: Verb, versionHeader: string | undefined): 
         lane === "discord" ? withVersion(baseHeaders()) : await clientHeaders("POST", "/v1/layouts", body, versionHeader);
       const res = await writeFetch("/v1/layouts", "POST", headers, body);
       const layoutId = res.status === 201 ? (await res.clone().json<{ id: string }>()).id : "";
-      return { res, layoutId, revBefore: null }; // no prior rev -- "nothing written" is checked via the global event count instead
+      return { res, layoutId, nBefore: null }; // no prior rev -- "nothing written" is checked via the global event count instead
     }
     case "replace": {
       const seed = await seedRecord(owner);
@@ -148,7 +156,7 @@ async function fire(lane: Lane, verb: Verb, versionHeader: string | undefined): 
           ? { ...withVersion(baseHeaders()), "If-Match": "*" }
           : { ...(await clientHeaders("PUT", path, body, versionHeader)), "If-Match": "*" };
       const res = await writeFetch(path, "PUT", headers, body);
-      return { res, layoutId: seed.id, revBefore: seed.rev };
+      return { res, layoutId: seed.id, nBefore: seed.n };
     }
     case "patch": {
       const seed = await seedRecord(owner);
@@ -159,7 +167,7 @@ async function fire(lane: Lane, verb: Verb, versionHeader: string | undefined): 
           ? { ...withVersion(baseHeaders()), "If-Match": "*" }
           : { ...(await clientHeaders("PATCH", path, body, versionHeader)), "If-Match": "*" };
       const res = await writeFetch(path, "PATCH", headers, body);
-      return { res, layoutId: seed.id, revBefore: seed.rev };
+      return { res, layoutId: seed.id, nBefore: seed.n };
     }
     case "delete": {
       const seed = await seedRecord(owner);
@@ -169,7 +177,7 @@ async function fire(lane: Lane, verb: Verb, versionHeader: string | undefined): 
           ? { ...withVersion(baseHeaders()), "If-Match": "*" }
           : { ...(await clientHeaders("DELETE", path, undefined, versionHeader)), "If-Match": "*" };
       const res = await writeFetch(path, "DELETE", headers);
-      return { res, layoutId: seed.id, revBefore: seed.rev };
+      return { res, layoutId: seed.id, nBefore: seed.n };
     }
     case "restore": {
       const seed = await seedRecord(owner);
@@ -178,11 +186,11 @@ async function fire(lane: Lane, verb: Verb, versionHeader: string | undefined): 
       // so this reaches the same ownership check either way without
       // needing a signed delete too).
       await writeFetch(`/v1/layouts/${seed.id}`, "DELETE", { ...headersForDiscordUser(owner), "If-Match": "*" });
-      const revBefore = await revOf(seed.id);
+      const nBefore = await nOf(seed.id);
       const path = `/v1/layouts/${seed.id}/restore`;
       const headers = lane === "discord" ? withVersion(baseHeaders()) : await clientHeaders("POST", path, {}, versionHeader);
       const res = await writeFetch(path, "POST", headers, lane === "discord" ? undefined : {});
-      return { res, layoutId: seed.id, revBefore };
+      return { res, layoutId: seed.id, nBefore };
     }
     case "transfer": {
       const seed = await seedRecord(owner);
@@ -193,7 +201,7 @@ async function fire(lane: Lane, verb: Verb, versionHeader: string | undefined): 
           ? { ...withVersion(baseHeaders()), "If-Match": "*" }
           : { ...(await clientHeaders("POST", path, body, versionHeader)), "If-Match": "*" };
       const res = await writeFetch(path, "POST", headers, body);
-      return { res, layoutId: seed.id, revBefore: seed.rev };
+      return { res, layoutId: seed.id, nBefore: seed.n };
     }
   }
 }
@@ -225,7 +233,7 @@ describe("[LDB-P15] source.client x source.version: lane x verb x version-header
         ["disallowed character (space)", INVALID_VERSION_BAD_CHAR],
       ])(`[LDB-P15] ${lane} lane, ${verb}: invalid header (%s) -> 400 invalid_client_version, writes nothing`, async (_label, bad) => {
         const globalBefore = await db.prepare("SELECT COUNT(*) AS n FROM events").first<{ n: number }>();
-        const { res, layoutId, revBefore } = await fire(lane, verb, bad);
+        const { res, layoutId, nBefore } = await fire(lane, verb, bad);
         expect(res.status).toBe(400);
         await expect(res.clone().json()).resolves.toMatchObject({ error: "invalid_client_version" });
         if (verb === "create") {
@@ -238,7 +246,7 @@ describe("[LDB-P15] source.client x source.version: lane x verb x version-header
           // tombstone) before this attempt -- those writes already
           // happened, so the precise check is that THIS record's rev
           // didn't move past what seeding itself left it at.
-          expect(await revOf(layoutId)).toBe(revBefore);
+          expect(await nOf(layoutId)).toBe(nBefore);
         }
       });
     }
