@@ -183,6 +183,10 @@ async function seedWriteFixtures(): Promise<void> {
   });
   vi.stubGlobal("fetch", fake.fetchImpl);
   (bindings as unknown as { TEST_CLOCK?: Clock }).TEST_CLOCK = fixedClock(CONFORMANCE_CLOCK_ISO);
+  // The fixtures' 429 cases are reached by piling up this file's own writes,
+  // so the limits are pinned at the pre-2026-09-11 values the fixtures show
+  // (production's are 1000/5000 per 10 min; tests/api/ratelimit.test.ts).
+  (bindings as unknown as { TEST_RATE_LIMITS?: { write: number; client: number } }).TEST_RATE_LIMITS = { write: 60, client: 300 };
 
   await db
     .prepare("INSERT OR IGNORE INTO authors (user_id, name, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?)")
@@ -378,6 +382,7 @@ beforeAll(async () => {
 
 afterAll(() => {
   vi.unstubAllGlobals();
+  delete (bindings as unknown as { TEST_RATE_LIMITS?: unknown }).TEST_RATE_LIMITS;
 });
 
 // A fixture path may carry a T2 id-placeholder (`__CW_RESTORE_ID__`) --

@@ -82,8 +82,8 @@ rev-bumping event carries a proven `source` (§5, decision 14); a new
   is the caller's own record; the other verbs are idempotent by `rev`.
 - **Versioning.** `/v1` changes only on a breaking change to the record
   envelope (`01 §5`). New endpoints and new optional fields are not breaking.
-- **Rate limits.** Per actor: 60 writes / 10 min, counted per attempt in a
-  fixed window (`09 §2.5`); on the client lane additionally 300 / 10 min
+- **Rate limits.** Per actor: 1000 writes / 10 min, counted per attempt in a
+  fixed window (`09 §2.5`); on the client lane additionally 5000 / 10 min
   per client (`10` C1, D8 — the 429 body's `scope` names which); reads are
   never counted. `429 rate_limited` carries `Retry-After`.
 
@@ -473,7 +473,7 @@ diff-only (`06 §2`). Every write is one `batch()` (one transaction).
 | LDB-W1 | Every write route is resolve → authorize → check → `appendWrite`; no file under `src/routes/` prepares a D1 statement. | `tests/tools/routes-noprepare.test.ts` |
 | LDB-E1 | Format `edits` are pure, identity on their own projection and validity-preserving. | `tests/formats/edits.test.ts` (generated over the registry × fixtures) |
 | LDB-L1 | Likes move `like_count`, `likes` and `meta.revision`/`seq` only — never `rev`, `modified_at` or `layouts_modified_at`; concurrent likes are counted exactly. | `tests/api/likes.test.ts` |
-| LDB-R6 | Writes are limited to 60 per 10-minute window per actor, counted per attempt, `429` + `Retry-After`; reads are never counted. | `tests/api/ratelimit.test.ts` |
+| LDB-R6 | Writes are limited to 1000 per 10-minute window per actor, counted per attempt, `429` + `Retry-After`; reads are never counted. | `tests/api/ratelimit.test.ts` |
 | LDB-R1 | **Amended (S2):** polled routes carry `Cache-Control` + a strong `ETag` and answer `304` to a matching `If-None-Match`; the ETag changes iff the event head, the query, or `WIRE_VERSION` changes. | matrix over routes × header states; `etag.test.ts` |
 | LDB-R2 | `/v1/meta`'s counts, `seq` and `revision` equal the tables. | API test after a fixture import |
 | LDB-R3 | The conformance fixtures are the API contract: a changed fixture is a documented API change. | conformance suite + review |

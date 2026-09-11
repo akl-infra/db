@@ -224,10 +224,10 @@ fixtures (`patch-409-stale.json`, `patch-200-renamed.json`, etc.).
   written (it's produced on read only), and a blind `PUT` in an older major
   that has genuinely outgrown it is refused rather than silently losing
   content (adoption guide §5, §8).
-- **Rate limits** (`LDB-R6`/`R7`): 60 writes/10 min per actor, plus —
-  client lane only — 300/10 min per client id. `429 rate_limited` carries
+- **Rate limits** (`LDB-R6`/`R7`): 1000 writes/10 min per actor, plus —
+  client lane only — 5000/10 min per client id. `429 rate_limited` carries
   `Retry-After` (seconds) and `scope` (`"actor"`/`"client"`, naming which
-  counter tripped): `{"error":"rate_limited","limit":60,"window_seconds":600,"retry_after":600,"scope":"actor"}`
+  counter tripped): `{"error":"rate_limited","limit":1000,"window_seconds":600,"retry_after":600,"scope":"actor"}`
 
 ## 5. Staying in sync
 

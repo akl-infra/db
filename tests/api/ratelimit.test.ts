@@ -3,10 +3,13 @@
 // rate_limited` + `Retry-After`; GET is never counted; the limit is per
 // actor; the middleware's placement (not a per-route list) is what covers
 // every non-GET route, T3/T4's included. 10 C1 layers a second, per-client
-// counter (300/10min) on top for the client lane.
+// counter (300/10min) on top for the client lane. Those are the limits this
+// file PINS (TEST_RATE_LIMITS); production's own are 1000 and 5000 per 10
+// min (saltorbit 2026-09-11), asserted at the end of the file.
 import { SELF, env } from "cloudflare:test";
 import { app } from "../../src/index";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { CLIENT_LIMIT, WRITE_LIMIT } from "../../src/auth/ratelimit";
 import type { Bindings } from "../../src/env";
 import { fixedClock, type Clock } from "../../src/core/time";
 import { generateKeyPair, seedClient, signHeaders } from "../auth/client-support";
@@ -26,9 +29,14 @@ function mutableClock(startIso: string): { clock: Clock; set: (iso: string) => v
   return { clock: () => iso, set: (next: string) => (iso = next) };
 }
 
+beforeEach(() => {
+  (bindings as unknown as { TEST_RATE_LIMITS?: { write: number; client: number } }).TEST_RATE_LIMITS = { write: 60, client: 300 };
+});
+
 afterEach(() => {
   vi.unstubAllGlobals();
   delete (bindings as unknown as { TEST_CLOCK?: Clock }).TEST_CLOCK;
+  delete (bindings as unknown as { TEST_RATE_LIMITS?: unknown }).TEST_RATE_LIMITS;
 });
 
 async function create(headers: Record<string, string>, name = uniqueName("rl")) {
@@ -298,5 +306,34 @@ describe("[LDB-R7] the per-client counter: 300/10min, on top of the per-actor on
 
     const after = await db.prepare("SELECT COUNT(*) AS n FROM ratelimit WHERE key LIKE 'client:%'").first<{ n: number }>();
     expect(after?.n).toBe(before?.n);
+  });
+});
+
+describe("[LDB-R6] [LDB-R7] the production limits: 1000/10min per actor, 5000/10min per client", () => {
+  it("[LDB-R6] [LDB-R7] the constants are 1000 and 5x that (saltorbit 2026-09-11: \"make this much higher, like 1000\")", () => {
+    expect(WRITE_LIMIT).toBe(1000);
+    expect(CLIENT_LIMIT).toBe(5 * WRITE_LIMIT);
+  });
+
+  it("[LDB-R6] [LDB-R7] with no override: the 1000th actor write and the 5000th client write pass, the next ones 429", async () => {
+    delete (bindings as unknown as { TEST_RATE_LIMITS?: unknown }).TEST_RATE_LIMITS;
+    pinTestClock(env as unknown as { TEST_CLOCK?: Clock }, clockC);
+    const { privateKey, pubkeyB64url } = await generateKeyPair();
+    const clientId = uniqueName("rl-prod");
+    const actor = "7100000000000000001";
+    await seedClient(db, clockC, { id: clientId, pubkeyB64url, ownerUserId: actor, caps: "act-as-user" });
+
+    await seedCounter(`write:${actor}`, 999);
+    expect((await signedPost(clientId, privateKey, actor, uniqueName("rl-prod-ok"))).status).toBe(201);
+    const refused = await signedPost(clientId, privateKey, actor, uniqueName("rl-prod-no"));
+    expect(refused.status).toBe(429);
+    expect(await refused.json()).toMatchObject({ limit: 1000, scope: "actor" });
+
+    await seedCounter(`client:${clientId}`, 4999);
+    const actor2 = "7100000000000000002"; // a fresh actor, so the client ceiling is what trips
+    expect((await signedPost(clientId, privateKey, actor2, uniqueName("rl-prod-c-ok"))).status).toBe(201);
+    const refused2 = await signedPost(clientId, privateKey, actor2, uniqueName("rl-prod-c-no"));
+    expect(refused2.status).toBe(429);
+    expect(await refused2.json()).toMatchObject({ limit: 5000, scope: "client" });
   });
 });

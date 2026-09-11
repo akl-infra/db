@@ -578,8 +578,8 @@ curl -sX DELETE …/v1/layouts/01ARZ3ND…/like <signed>    # 200 {"like_count":
 
 ## 6. Limits and errors
 
-**Rate limits**: 60 writes / 10 minutes per actor, counted per attempt
-whether or not the write is accepted; on the client lane, an additional 300
+**Rate limits**: 1000 writes / 10 minutes per actor, counted per attempt
+whether or not the write is accepted; on the client lane, an additional 5000
 / 10 minutes per client id (a bound on top of the per-actor one, not a
 replacement for it — a busy multi-user bot legitimately needs it wider than
 one person's own budget). `429 rate_limited` carries `Retry-After` (seconds)

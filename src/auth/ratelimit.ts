@@ -11,13 +11,21 @@ import { rateLimited } from "../core/errors";
 import { take } from "../core/ratelimit";
 import { systemClock, type Clock } from "../core/time";
 
-const WRITE_LIMIT = 60;
+// saltorbit 2026-09-11: "make this much higher, like 1000" (was 60; the magic
+// seed of a rebuilt layoutdb tripped it).
+export const WRITE_LIMIT = 1000;
 const WRITE_WINDOW_SECONDS = 600;
 // 10 C1 D8: a rogue-key bound layered on top of the per-actor limit above --
-// a real multi-user bot serving a busy channel exceeds 6 writes/min, so
+// a real multi-user bot serving a busy channel exceeds one actor's rate, so
 // this is 5x the per-actor number, not equal to it.
-const CLIENT_LIMIT = 300;
+export const CLIENT_LIMIT = 5 * WRITE_LIMIT;
 const CLIENT_WINDOW_SECONDS = 600;
+
+// Test-only, like TEST_CLOCK below: the ratelimit and conformance suites pin
+// small limits so they can reach a 429 without thousands of writes.
+function resolveLimits(env: Bindings): { write: number; client: number } {
+  return (env as unknown as { TEST_RATE_LIMITS?: { write: number; client: number } }).TEST_RATE_LIMITS ?? { write: WRITE_LIMIT, client: CLIENT_LIMIT };
+}
 
 // Test-only escape hatch, same shape as `src/routes/write.ts`'s
 // `resolveNow()`: pool-workers runs the Worker in the same isolate as the
@@ -39,20 +47,21 @@ export function rateLimitWrites(defaultNow: Clock = systemClock): MiddlewareHand
     // is always set here.
     const actor = c.get("actor");
     const now = resolveNow(c.env, defaultNow);
+    const limits = resolveLimits(c.env);
 
     // Counted on EVERY attempt, both counters, whether or not the write is
     // ultimately accepted (09 §2.5) -- so both `take()` calls run
     // unconditionally rather than short-circuiting on the first refusal.
-    const actorResult = await take(c.env.DB, now, `write:${actor.user_id}`, WRITE_LIMIT, WRITE_WINDOW_SECONDS);
+    const actorResult = await take(c.env.DB, now, `write:${actor.user_id}`, limits.write, WRITE_WINDOW_SECONDS);
     const clientResult = actor.via.startsWith("client:")
-      ? await take(c.env.DB, now, `client:${actor.via.slice("client:".length)}`, CLIENT_LIMIT, CLIENT_WINDOW_SECONDS)
+      ? await take(c.env.DB, now, `client:${actor.via.slice("client:".length)}`, limits.client, CLIENT_WINDOW_SECONDS)
       : null;
 
     if (!actorResult.allowed) {
-      throw rateLimited(WRITE_LIMIT, WRITE_WINDOW_SECONDS, actorResult.retryAfter, "actor");
+      throw rateLimited(limits.write, WRITE_WINDOW_SECONDS, actorResult.retryAfter, "actor");
     }
     if (clientResult !== null && !clientResult.allowed) {
-      throw rateLimited(CLIENT_LIMIT, CLIENT_WINDOW_SECONDS, clientResult.retryAfter, "client");
+      throw rateLimited(limits.client, CLIENT_WINDOW_SECONDS, clientResult.retryAfter, "client");
     }
     await next();
   };
