@@ -49,6 +49,8 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "notes": { "type": "string" },
+        "updated": { "type": "string" },
         "magic_keys": {
           "type": "array",
           "items": { "$ref": "#/$defs/magicKey" }
@@ -99,8 +101,8 @@
       "required": ["key"],
       "properties": {
         "key": { "type": "string" },
-        "same": { "type": "string" },
-        "opposite": { "type": "string" },
+        "same": { "type": ["string", "null"] },
+        "opposite": { "type": ["string", "null"] },
         "except": {
           "type": "array",
           "items": { "type": "string" }

@@ -79,13 +79,17 @@ describe("parseUpstreamRaw over upstream-100", () => {
       modified_at: "2026-01-01T00:00:00Z",
       board: "ortho",
       keys: {},
-      magic: [{ inputs: "q*", output: "qq", type: "repeat" }], // '*' is not one of this layout's (empty) keys
+      // cmini/1 caps no string field; spark/1 caps `x` (where cmini's
+      // tag/blame/combos/link land) at 16 KiB canonical. (Was a magic key
+      // missing from the layout, which spark/1 accepts since 2026-09-11,
+      // LDB-F22, matching akl.gg.)
+      blame: "x".repeat(17000),
     };
     const parsed = parseUpstreamRaw(raw);
     expect(parsed.ok).toBe(false);
     if (!parsed.ok) {
-      expect(parsed.error.path).toMatch(/^\/magic\//);
-      expect(parsed.error.message).toContain("is not one of this layout's keys");
+      expect(parsed.error.path).toBe("/x");
+      expect(parsed.error.message).toContain("over the 16384-byte cap");
     }
   });
 });

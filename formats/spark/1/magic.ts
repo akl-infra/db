@@ -25,9 +25,8 @@
 // `validateRuleSet` (f6c836af561d2ff07d6c44d4f0072786a785073a) over the
 // `magic_keys`/`chiral_keys`/`adaptive_swaps` arrays, message texts kept
 // verbatim minus the `${layoutId}: ` prefix (there is no record name at
-// this layer), plus 01-format.md §2.1's additions: a magic/chiral key or
-// swap trigger/member must name a real layout key; `except[]` entries are
-// single code points. Schema-level facts (types, required-ness) are left to
+// this layer), plus 01-format.md §2.1's `except[]` entries being single code points (the
+// keys a rule set names need not be on the layout, as on akl.gg: LDB-F22). Schema-level facts (types, required-ness) are left to
 // schema.json; only checks JSON Schema can't express live here, matching
 // rules.mjs's own approach (it validates a plain object with no schema
 // pass at all).
@@ -55,8 +54,8 @@ export interface MagicKey {
 
 export interface ChiralKey {
   key: string;
-  same?: string;
-  opposite?: string;
+  same?: string | null; // null reads as absent, as akl.gg's validator does (`!= null`)
+  opposite?: string | null;
   except?: string[];
 }
 
@@ -77,6 +76,10 @@ export interface MagicIntent {
   chiral_keys?: ChiralKey[];
   adaptive_swaps?: AdaptiveSwap[];
   rules?: RawRule[];
+  // akl.gg's rule sets carry these two free-text fields (functions/_lib/
+  // rules.mjs checks only that they are strings); nothing compiles them.
+  notes?: string;
+  updated?: string;
 }
 
 export interface Row {
@@ -236,7 +239,7 @@ export function computeRows(magic: MagicIntent | undefined, keys: Record<string,
       const h = handOf(keys, c);
       if (h === null || kh === null) continue; // no hand on either side -> this construct produces nothing here (a documented zero-row case, 01 §4.1 in the interop writeup)
       const val = h === kh ? ck.same : ck.opposite;
-      if (val === undefined) continue;
+      if (val == null) continue; // undefined or null: absent, as on akl.gg
       const output = c + (val === "repeat_previous" ? c : val);
       rows.push({ inputs: c + ck.key, output, type: "chiral", from: `chiral_keys[${i}]` });
     }
@@ -587,8 +590,8 @@ export interface SemanticError {
 
 // Ported from validateRuleSet, restricted to what schema.json (draft
 // 2020-12) cannot express: single-code-point-ness, per-key uniqueness,
-// cross-field agreement, and (01 §2.1's addition) that a magic/chiral key
-// or swap trigger/member names a real layout key. Returns the first
+// and cross-field agreement -- and nothing akl.gg's gate doesn't check
+// (LDB-F22: a named key need not be on the layout). Returns the first
 // violation instead of throwing (index.ts's validate() never throws).
 export function validateMagicSemantics(
   magic: MagicIntent | undefined,
@@ -605,9 +608,6 @@ export function validateMagicSemantics(
     const mk = magicKeys[i]!;
     const base = `/magic/magic_keys/${i}`;
     if (!isSingleChar(mk.key)) return { message: "magic_keys[].key must be a single character", path: `${base}/key` };
-    if (!(mk.key in keys)) {
-      return { message: `magic_keys[].key ${JSON.stringify(mk.key)} is not one of this layout's keys`, path: `${base}/key` };
-    }
     magicKeyChars.add(mk.key);
 
     const dflt = mk.default ?? "none";
@@ -665,17 +665,18 @@ export function validateMagicSemantics(
         path: `${base}/key`,
       };
     }
-    if (!(key in keys)) return { message: `chiral_keys[].key ${JSON.stringify(key)} is not one of this layout's keys`, path: `${base}/key` };
 
     const same = ck.same;
     const opposite = ck.opposite;
-    if (same === undefined && opposite === undefined) {
+    // `== null`: an explicit JSON null reads as absent (akl.gg's validator's
+    // own `!= null`, which its Python mirror's .get() forces).
+    if (same == null && opposite == null) {
       return { message: `chiral_keys[].${JSON.stringify(key)} must set at least one of 'same'/'opposite'`, path: base };
     }
-    if (same !== undefined && (typeof same !== "string" || same.length === 0)) {
+    if (same != null && (typeof same !== "string" || same.length === 0)) {
       return { message: `chiral_keys[].same must be a non-empty string, got ${JSON.stringify(same)}`, path: `${base}/same` };
     }
-    if (opposite !== undefined && (typeof opposite !== "string" || opposite.length === 0)) {
+    if (opposite != null && (typeof opposite !== "string" || opposite.length === 0)) {
       return { message: `chiral_keys[].opposite must be a non-empty string, got ${JSON.stringify(opposite)}`, path: `${base}/opposite` };
     }
 
@@ -687,6 +688,11 @@ export function validateMagicSemantics(
     }
   }
 
+  for (const field of ["notes", "updated"] as const) {
+    const v = magic[field];
+    if (v !== undefined && typeof v !== "string") return { message: `'${field}' must be a string`, path: `/magic/${field}` };
+  }
+
   const seenPairs = new Set<string>();
   for (let i = 0; i < swaps.length; i++) {
     const sw = swaps[i]!;
@@ -694,17 +700,11 @@ export function validateMagicSemantics(
     if (!isSingleChar(sw.trigger)) {
       return { message: `adaptive_swaps[].trigger must be a single character, got ${JSON.stringify(sw.trigger)}`, path: `${base}/trigger` };
     }
-    if (!(sw.trigger in keys)) {
-      return { message: `adaptive_swaps[].trigger ${JSON.stringify(sw.trigger)} is not one of this layout's keys`, path: `${base}/trigger` };
-    }
     const pair = sw.swap;
     if (!(Array.isArray(pair) && pair.length === 2 && pair.every(isSingleChar))) {
       return { message: `adaptive_swaps[].swap must be a 2-element list of single characters, got ${JSON.stringify(pair)}`, path: `${base}/swap` };
     }
     if (pair[0] === pair[1]) return { message: "adaptive_swaps[].swap must name two different characters", path: `${base}/swap` };
-    for (const c of pair) {
-      if (!(c in keys)) return { message: `adaptive_swaps[].swap member ${JSON.stringify(c)} is not one of this layout's keys`, path: `${base}/swap` };
-    }
     for (const c of pair) {
       const pairKey = `${sw.trigger} ${c}`;
       if (seenPairs.has(pairKey)) {

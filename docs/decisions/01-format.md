@@ -165,14 +165,18 @@ them is proven in one.
 - `magic`: every rule in `02-schema.md`'s list, unchanged (single-char keys,
   `output` starts with `after`, no duplicate `after` per key, no duplicate
   `trigger`+member pair, a key is magic or chiral never both,
-  `repeat_previous` sentinel). Plus: `magic_keys[].key`,
-  `chiral_keys[].key`, `adaptive_swaps[].trigger` and `.swap[]` exist in
-  `keys` (the scaffold needs their hand/position); `except[]` entries are
-  single code points. A rule's `after` need **not** be a key (opal's `?◇`
+  `repeat_previous` sentinel). *Amended 2026-09-11 (saltorbit: "layoutdb
+  validation right now should match aklgg validation"; LDB-F22):* the keys
+  a rule set names (`magic_keys[].key`, `chiral_keys[].key`,
+  `adaptive_swaps[].trigger`/`.swap[]`) need **not** exist in `keys`, as on
+  akl.gg (issue #321 would add that check to both together); `notes` and
+  `updated` are accepted as strings; a `null` chiral `same`/`opposite` reads
+  as absent. `except[]` entries are single code points. A rule's `after` need **not** be a key (opal's `?◇`
   row names a char the layout does not carry — 07 §0.1).
 - `magic.rules[]`: `inputs` ≥ 2 code points, `output` non-empty; no
   duplicate `inputs`; chars need not be keys.
-- The lowering (§3) must succeed with no collision.
+- The lowering (§3) must succeed with no collision involving a raw
+  `rules[]` row (idiom overlaps resolve as akl.gg does, D4 as amended).
 
 ## 3. Intent and lowering
 
