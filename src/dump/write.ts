@@ -250,8 +250,17 @@ function buildLatestMajorFiles(dump: Dump): { format: string; file: LatestMajorF
     const lin = format.slice(0, format.lastIndexOf("/"));
     const records: LatestMajorRecord[] = [];
     for (const layout of liveRows) {
-      const fmtRow = (formatsByLayout.get(layout.id) ?? []).find((f) => f.lineage === lin);
-      if (fmtRow === undefined) continue; // this layout has no row of the lineage this file is about -- simply absent, not `held`
+      const own = (formatsByLayout.get(layout.id) ?? []).find((f) => f.lineage === lin);
+      // LDB-D6: when the layout doesn't store THIS file's own lineage, it
+      // still appears here -- `held: true` naming whichever OTHER stored
+      // lineage it does have (MF-5 guarantees at least one). Picking the
+      // first such row is a deliberate, deterministic (insertion-order)
+      // choice among several possible "native formats" when a layout
+      // stores more than one non-matching lineage; today's registry has no
+      // cross edge between any two stored lineages, so the result is
+      // `held` regardless of which one is picked.
+      const fmtRow = own ?? (formatsByLayout.get(layout.id) ?? [])[0];
+      if (fmtRow === undefined) continue; // MF-5: unreachable -- every live layout has >= 1 format row
       const fmt = rowToFormat(fmtRow);
       const common = {
         id: layout.id,
