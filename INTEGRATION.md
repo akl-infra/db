@@ -36,36 +36,46 @@ import from cmini, now accepts writes directly. JSON in and out, UTF-8,
 `/v1` prefix, CORS `*` on every read (writes are gated by identity, not
 CORS, `03-api.md` §1).
 
-**One stored format.** `spark/1` — `akl/1` renamed, the same payload shape
-byte for byte (`design/layout-db/20-spark.md` decision 1) — is the only
-format a write may store. `mana2/1` is the lowered, analyzer-facing shape:
-produced from `spark/1` on read (`?as=mana2/1`), never stored — a write
-naming it is `400 format_not_writable`. cmini is an import *source*, not a
-format lineage: the importer converts each upstream detail to spark on
-arrival. There is no `akl/1` alias and no `?as=cmini/1` read path any more
-(`design/layout-db/21-formats.md` D5/D12, F1, 2026-09-11 — both were
-transitional, and the 2026-09-11 wipe left no row for either to carry
-forward): `GET .../{ref}?as=cmini/1` or `?as=akl/1` now answers exactly
-like any other unregistered format id (404). **Every client reads and
-writes `spark/1` by name.**
+**Several formats per layout, one stored today.** A layout can hold more
+than one format (`design/layout-db/21-formats.md`, F2, 2026-09-11), each
+its own row (`layout_formats`) with its own rev, independent of every
+other format the layout has and of the layout's own name/owner/deletion
+(`layout_rev`). `spark/1` — `akl/1` renamed, the same payload shape byte
+for byte (`design/layout-db/20-spark.md` decision 1) — is the one
+**stored** format today; `mana2/1` is an **output-only, derived** shape:
+produced from whichever ONE stored lineage reaches it (`spark/1` today) on
+a read that names it explicitly (`?format=mana2/1`), never stored — a
+write naming it is `400 format_not_writable`. cmini is an import *source*,
+not a format lineage: the importer converts each upstream detail to spark
+on arrival, touching the layout's own fields and lineage `spark` only.
+There is no `akl/1` alias, and no `?as=` query parameter at all any more
+(`design/layout-db/21-formats.md` D4/D5/D12, F1/F2 — the alias was
+transitional and the 2026-09-11 wipe left no row to carry it forward;
+`?as=` is renamed `?format=` and made **required**, no default). `GET
+.../{ref}?format=cmini/1` (or `akl/1`) answers exactly like any other
+unregistered format id (404 `unknown_format`). **Every client reads and
+writes `spark/1` by name, explicitly, every time.**
 
 **Versioning and compatibility.** `/v1` changes only on a breaking change to
-the record envelope (`id/name/owner/rev/…`) — never happened yet. A
-registered format major is never removed, its schema never tightened, its
-fixtures never edited (`01-format.md` §5, `LDB-F6`); an incompatible shape is
-a new major (`spark/2`), not a break of `/v1` — the adoption guide §8 covers
-how a client detects and migrates across one. Every read that returns a
-payload takes `?as=<format>`; a record that can't be translated to the
-format you asked for comes back `409 { error: "held", held: true, format,
-see? }` (`held()` in `src/core/errors.ts`) instead of an error that looks
-like your request was wrong — the record exists, your format just can't show
-it yet. Read and write `spark/1` if you have no opinion; `GET /v1/formats`
-is the live registry (adoption guide §3).
+the record envelope (`id/name/owner/layout_rev/formats/…`) — never happened
+yet. A registered format major is never removed, its schema never
+tightened, its fixtures never edited (`01-format.md` §5, `LDB-F6`); an
+incompatible shape is a new major (`spark/2`), not a break of `/v1` — the
+adoption guide §8 covers how a client detects and migrates across one.
+Every read that returns a payload **requires** `?format=<format>` — no
+default; a layout that doesn't have (and can't derive) the format you
+asked for is `404 format_absent`; a record whose stored content can't be
+translated to the format you asked for comes back `409 { error: "held",
+held: true, format, see? }` (`held()` in `src/core/errors.ts`) instead of
+an error that looks like your request was wrong — the record exists, your
+format just can't show it yet. Read and write `spark/1` if you have no
+opinion; `GET /v1/formats` is the live registry (adoption guide §3).
 
 ## 2. Reading (no auth, ever)
 
-Every route, its real trimmed request/response shapes, and the `?as=<format>`
-/ `held` mechanics are in the adoption guide §3 — not repeated here. In
+Every route, its real trimmed request/response shapes, and the required
+`?format=<format>` / `held` / `format_absent` mechanics are in the adoption
+guide §3 — not repeated here. In
 short: `GET /v1/meta` is the one call a poller makes on a quiet tick (`seq`
 is the event-log head, `revision` that event's timestamp, `03-api.md` §2);
 `GET /v1/layouts` lists records (list rows carry every field except
@@ -151,52 +161,59 @@ write's event (and the record's own latest one) now carries as
 ## 4. Writing
 
 ```
-POST   /v1/layouts                  { name, format, payload }                → 201
-PUT    /v1/layouts/{ref}            { format, payload }             If-Match → 200
-PATCH  /v1/layouts/{ref}            { name? , fingermap? , board? , magic? } If-Match → 200
-DELETE /v1/layouts/{ref}                                             If-Match → 200 (tombstone)
-POST   /v1/layouts/{ref}/transfer   { to }                           If-Match → 200
-POST   /v1/layouts/{ref}/restore    { name? }  (owner or admin, no time limit)  → 200
-PUT / DELETE /v1/layouts/{ref}/like                                            → 200 { like_count }
+POST   /v1/layouts                  { name, format, payload }                              → 201
+PUT    /v1/layouts/{ref}            { format, payload }        If-Match (replace) or          → 200
+                                                                 If-None-Match: * (add)
+PATCH  /v1/layouts/{ref}            { name } If-Match: "layout:<n>", or                       → 200
+                                     { format, fingermap?/board?/magic? } If-Match: "<lineage>:<n>"
+DELETE /v1/layouts/{ref}                                    If-Match: "layout:<n>"           → 200 (tombstone)
+POST   /v1/layouts/{ref}/transfer   { to }                  If-Match: "layout:<n>" or *      → 200
+POST   /v1/layouts/{ref}/restore    { name? }  (owner or admin, no time limit)                → 200
+PUT / DELETE /v1/layouts/{ref}/like                                                           → 200 { like_count }
 ```
 
-**The `If-Match` rule (`LDB-P2`, `db/README.md`):** every write to an
-*existing* record — `PUT`/`PATCH`/`DELETE`/`transfer` — refuses with `400
-if_match_required` if `If-Match` is absent, checked before any read or
-mutation. `restore` and likes take none (no prior version to name); creation
-takes none either. `If-Match: "<rev>"` (quoted or bare) or `If-Match: *`
-(overwrite on purpose, stated explicitly) are the only legal values;
-anything else is `400 bad_request`. **Retry pattern on `409 stale`:** the
-error body already carries the current record — re-read isn't even a second
-request — so re-apply your change to it and resend with `If-Match` set to
-*its* `rev`. **Every write should also carry `X-Client-Version`** — not
-enforced by the schema, but it's what lets an operator later find every
-write a given build of your client made (adoption guide §1.3, §5).
+**The scoped `If-Match` rule (`LDB-P2`/`MF-11`, `db/README.md`):** every
+write to an *existing* SCOPE — `PUT`/format-`PATCH`/`DELETE`/`transfer`/
+name-`PATCH` — refuses with `400 if_match_required` if `If-Match` is
+absent, checked before any read or mutation. `restore` and likes take none
+(no prior version to name); creation takes none either. `If-Match:
+"layout:<n>"` (a layout-scope write) or `If-Match: "<lineage>:<rev>"` (a
+format-scope write), or `If-Match: *` (overwrite on purpose, any scope,
+stated explicitly), are the only legal values — a bare unscoped number or
+the WRONG scope's token is `400 bad_request`. **Retry pattern on `409
+stale`:** the error body already carries the current record (and which
+scope raced) — re-read isn't even a second request — so re-apply your
+change to it and resend with `If-Match` set to that scope's current rev.
+**Every write should also carry `X-Client-Version`** — not enforced by the
+schema, but it's what lets an operator later find every write a given
+build of your client made (adoption guide §1.3, §5).
 
 ```bash
 curl -sX POST …/v1/layouts -H 'X-Client-Version: my-bot/1.0' -d '{"name":"ldb-integration-doc-demo",
   "format":"spark/1","payload":{"keys":{"a":{"row":1,"col":1,"finger":"LI"}}}}' <signed>
-# 201 {"id":"01M245Q4J76A4PKAP2QX02YFRJ","rev":1,"format":"spark/1","payload":{"keys":{"a": …}}}
+# 201 {"id":"01M245Q4J76A4PKAP2QX02YFRJ","name":"ldb-integration-doc-demo","layout_rev":1,
+#      "formats":{"spark/1":{"rev":1,"…":"…"}},"format":"spark/1","payload":{"keys":{"a": …}}}
 # (the same call with "format":"akl/1" now 400s "unknown_format" -- §1: no more alias)
 
-curl -sX PATCH …/v1/layouts/01M245…YFRJ -H 'If-Match: "1"' -d '{"fingermap":{"a":"LM"}}' <signed>
-# 200 { …, "rev":2, "payload":{"keys":{"a":{"col":1,"finger":"LM","row":1}}} }
+curl -sX PATCH …/v1/layouts/01M245…YFRJ -H 'If-Match: "spark:1"' -d '{"format":"spark/1","fingermap":{"a":"LM"}}' <signed>
+# 200 { …, "format":"spark/1", "payload":{"keys":{"a":{"col":1,"finger":"LM","row":1}}} }
 
-curl -sX PATCH …/v1/layouts/01M245…YFRJ -H 'If-Match: "1"' -d '{"fingermap":{"a":"LI"}}' <signed>  # replayed
-# 409 {"error":"stale","rev":2,"record":{ …,"rev":2 },
+curl -sX PATCH …/v1/layouts/01M245…YFRJ -H 'If-Match: "spark:1"' -d '{"format":"spark/1","fingermap":{"a":"LI"}}' <signed>  # replayed
+# 409 {"error":"stale","scope":"spark","rev":2,"record":{ …,"formats":{"spark/1":{"rev":2}} },
 #      "last_write":{"seq":6259,"actor":"999999999999999999","via":"client:01M245NRV…","kind":"fingermap"}}
 
-curl -sX PATCH …/v1/layouts/01M245…YFRJ -H 'If-Match: "2"' -d '{"fingermap":{"a":"LI"}}' <signed>  # retry
-# 200 { …, "rev":3 }
+curl -sX PATCH …/v1/layouts/01M245…YFRJ -H 'If-Match: "spark:2"' -d '{"format":"spark/1","fingermap":{"a":"LI"}}' <signed>  # retry
+# 200 { …, "formats":{"spark/1":{"rev":3}} }
 
-curl -sX PUT …/v1/layouts/01M245…YFRJ/like <signed>                    # 200 {"like_count":1}
-curl -sX DELETE …/v1/layouts/01M245…YFRJ -H 'If-Match: "3"' <signed>   # 200 {"deleted":true,"rev":4}
-curl -sX POST …/v1/layouts/01M245…YFRJ/restore <signed>                # 200 {"deleted":false,"rev":5}
+curl -sX PUT …/v1/layouts/01M245…YFRJ/like <signed>                              # 200 {"like_count":1}
+curl -sX DELETE …/v1/layouts/01M245…YFRJ -H 'If-Match: "layout:1"' <signed>      # 200 {"deleted":true,"layout_rev":2}
+curl -sX POST …/v1/layouts/01M245…YFRJ/restore <signed>                          # 200 {"deleted":false,"layout_rev":3}
 ```
 
-This exact sequence ran live against PREVIEW while writing this guide;
-`db/tests/conformance/layouts-write/` freezes the same shapes as CI
-fixtures (`patch-409-stale.json`, `patch-200-renamed.json`, etc.).
+`db/tests/conformance/layouts-write/` freezes the current shapes as CI
+fixtures (`patch-409-stale.json`, `patch-200-renamed.json`, etc.) — read
+those for a byte-exact, machine-verified body rather than this hand-typed
+sequence.
 
 **Other write errors:**
 
@@ -232,20 +249,24 @@ fixtures (`patch-409-stale.json`, `patch-200-renamed.json`, etc.).
 
 **The change feed is ground truth**; everything else is a shortcut around
 polling it. `since` is exclusive (`since=0` = everything); pass back `next`
-as your next `since`. Every write appends exactly one event (`03-api.md`
-§5); `rev`-bumping kinds (`created`/`updated`/`renamed`/`fingermap`/
-`transferred`/`deleted`/`restored`/`imported`/`upstream_deleted`/`migrated`)
-carry `before`/`after` plus per-event `source`; `liked`/`unliked` move only
-`like_count`; `upstream_changed`/`import_conflict`/`admin.*` are
-informational. `kinds=` filters to a comma list. Every record also carries
-a top-level `upstream` field — **transitional**, tied to the one-time cmini
-import; don't build client behavior on it (adoption guide §4, `20-spark.md`
-decision 16).
+as your next `since`. A write appends one event per scope it touches (two
+for a create or an import) — each event's own `format` field says which:
+`null` for a layout-scope kind (`created`/`renamed`/`transferred`/
+`deleted`/`restored`/`upstream_deleted`), a format id for a format-scope
+one (`format_added`/`updated`/`fingermap`/`imported`) — carrying
+`before`/`after` (scope-shaped: layout fields, or that one format's own)
+plus per-event `source`; `liked`/`unliked` move only `like_count`;
+`upstream_changed`/`import_conflict`/`admin.*` are informational. `kinds=`
+filters to a comma list. Every layout also carries a top-level `upstream`
+field — **transitional**, tied to the one-time cmini import, layout-level
+(a write to lineage `spark` or the layout itself moves it; any other
+format never does); don't build client behavior on it (adoption guide §4,
+`20-spark.md` decision 16).
 
 ```bash
 curl -s '…/v1/changes?since=6260&limit=3'
-# {"next":6263,"items":[{"seq":6261,"kind":"liked","layout_id":"01M245…","rev":null, …},
-#                        {"seq":6262,"kind":"deleted", …,"before":{ …,"rev":3},"after":{ …,"rev":4}}, …]}
+# {"next":6263,"items":[{"seq":6261,"kind":"liked","layout_id":"01M245…","format":null,"rev":null, …},
+#                        {"seq":6262,"kind":"deleted","format":null, …,"before":{"scope":"layout", …,"layout_rev":3},"after":{"scope":"layout", …,"layout_rev":4}}, …]}
 ```
 
 **SSE** (`GET /v1/changes/stream?since=&kinds=`) is the same feed pushed
@@ -301,8 +322,9 @@ re-fetch the whole corpus over the API. **Verify-then-serve:** if you cache
 ## 6. Recipes
 
 - **A bot answering `!view <name>`.** No durable cache beyond your own
-  `changes` cursor. `GET /v1/layouts/{name}?as=<your format>`; `404` → "no
-  such layout"; render `payload`. Keep a local cache warm by following
+  `changes` cursor. `GET /v1/layouts/{name}?format=<your format>`; `404` →
+  "no such layout" (or `format_absent` if the layout exists but never
+  stored that format); render `payload`. Keep a local cache warm by following
   `/v1/changes/stream` (or polling `since=`), applying `before`/`after`.
 - **Mirroring the whole DB.** `GET /v1/dump/latest.json` → fetch+gunzip the
   named object → load `records`/`likes`/`authors`/`events` → remember its

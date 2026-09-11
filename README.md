@@ -23,22 +23,40 @@ site as the `/layoutdb/` hub (`design/layout-db/build_site.mjs`, `LDB-G9`).
 
 ## Formats
 
-`spark/1` is the one **stored** format (`akl/1` renamed at the same payload
-shape, byte for byte -- `design/layout-db/20-spark.md` decision 1): every
-accepted write ends up stored as `spark/<latest>`. `mana2/1` is the
-**lowered**, analyzer-facing shape -- produced from `spark/1` on read
-(`?as=mana2/1`) only, never stored; a write naming it is `400
-format_not_writable`. cmini is an **import source**, not a stored format
-lineage -- the importer converts each upstream detail to spark on arrival.
-There is no `akl/1` alias and no `?as=cmini/1` read path any more
-(`design/layout-db/21-formats.md` D5/D12, F1, 2026-09-11): both were
-transitional, and after the 2026-09-11 wipe left no row for either to
-carry forward, so `GET .../{ref}?as=cmini/1` (or `?as=akl/1`) now answers
-exactly like any other unregistered format id. `spark/1` also lost its
-free-form `x` field in the same slice (D10) -- see
-`design/layout-db/22-spark-spec.md` for the current spec. `GET /v1/formats`
-is the live registry (`role`, `can_translate_to`, and an `aliases` field
-kept for wire compatibility but always `[]` now that there are none).
+**A layout can hold several formats at once** (`design/layout-db/
+21-formats.md`, F2, 2026-09-11): `layout_formats` has one row per (layout,
+lineage), each with its own rev/timestamps/`has_magic`/payload,
+independent of every other format the same layout has and of the layout's
+own name/owner/deletion (`layouts.layout_rev`) -- two disjoint write
+scopes per layout, each with its own `If-Match` token (below). `spark/1` is
+the one **stored** format today (`akl/1` renamed at the same payload shape,
+byte for byte -- `design/layout-db/20-spark.md` decision 1): every write
+naming it ends up in `layout_formats` under lineage `spark`. `mana2/1` is
+an **output-only, derived** shape -- never stored, produced from whichever
+ONE stored lineage is registered to reach it (`spark/1` today) on every
+read that asks for it explicitly (`?format=mana2/1`); a write naming it is
+`400 format_not_writable`. Each output format is reachable from exactly
+one stored lineage (`MF-10`) -- a second stored lineage wanting the same
+output edge needs an explicit way to say so, not designed yet. cmini is an
+**import source**, not a stored format lineage -- the importer converts
+each upstream detail to spark on arrival, touching the layout's own
+fields and lineage `spark` only. There is no `akl/1` alias, no `?as=`
+query parameter at all any more (`design/layout-db/21-formats.md` D4/D5/D12):
+`?format=` is the one name everywhere, and it is **required** on every
+route that returns a payload -- there is no default, `400
+format_required` without one. `spark/1` also lost its free-form `x` field
+in the F1 slice (D10) -- see `design/layout-db/22-spark-spec.md` for the
+current spec. `GET /v1/formats` is the live registry (`role`,
+`can_translate_to`, and an `aliases` field kept for wire compatibility but
+always `[]` now that there are none).
+
+**New error codes** (`src/core/errors.ts`, `db/INTEGRATION.md`'s
+generated appendix): `format_required` (400, no `?format=`/`format`),
+`format_absent` (404, this layout has no such format and can't derive it
+-- distinct from `unknown_format`, the id itself unregistered), `format_exists`
+(409, `PUT … If-None-Match: *` naming a lineage the layout already has),
+`mixed_patch` (400, a PATCH body naming both `name` and a format edit --
+each write has exactly one scope).
 
 **The chain.** A format lineage can grow a second (and later) major without
 breaking older clients: `up`/`down` convert one major to the next/previous
@@ -66,19 +84,26 @@ never a header or body field a caller controls; `version` is whatever the
 caller sends as `X-Client-Version`. History predating this (`0005_spark.sql`)
 reads `source: {client: "legacy:<via>", version: null}`.
 
-**Writes require `If-Match` (LDB-P2, saltorbit's rule, 2026-09-09):** no client
-may write to an existing record without naming the version it saw. `PUT
-/v1/layouts/{ref}`, `PATCH /v1/layouts/{ref}`, `DELETE /v1/layouts/{ref}`
-and `POST /v1/layouts/{ref}/transfer` all refuse a request with no
-`If-Match` header -- `400 if_match_required` (`src/core/errors.ts`),
-checked before any read or mutation. A client's "overwrite" is never a
-blind write: it must re-read the record first and send the `rev` it was
-shown (`If-Match: "<rev>"`); `If-Match: *` still means "overwrite whatever
-is there", but the client must say so explicitly -- absent is refused, not
-treated as `*`. `POST /v1/layouts` (creation), likes, `restore` and the
-`import:cmini` path are unaffected -- there is no prior version to name.
-Design: `design/layout-db/09-implementation-phase2.md` §2.1 (the error
-vocabulary), §2.3 (`If-Match` mechanics).
+**Writes require a SCOPED `If-Match` (LDB-P2/MF-11, restated by
+21-formats.md for several formats per layout):** no client may write to an
+existing scope without naming the version it saw, and the token must name
+the write's OWN scope -- `"layout:<layout_rev>"` for a layout-level write
+(rename, delete, transfer), `"<lineage>:<rev>"` (e.g. `"spark:7"`) for a
+format write. `PUT /v1/layouts/{ref}`, `PATCH /v1/layouts/{ref}`, `DELETE
+/v1/layouts/{ref}` and `POST /v1/layouts/{ref}/transfer` all refuse a
+request with no `If-Match` header -- `400 if_match_required`
+(`src/core/errors.ts`), checked before any read or mutation. A bare
+unscoped number, or the WRONG scope's token, is `400 bad_request` (MF-11) --
+also checked before any read. A client's "overwrite" is never a blind
+write: it must re-read the record first and send the scope's OWN current
+rev; `If-Match: *` still means "overwrite whatever is there, any scope",
+but the client must say so explicitly -- absent is refused, not treated as
+`*`. Two writers on DIFFERENT scopes of one layout never race each other
+and both land (MF-6); only same-scope writers race. `POST /v1/layouts`
+(creation), likes, `restore` and the `import:cmini` path are unaffected --
+there is no prior version to name. Design: `design/layout-db/
+09-implementation-phase2.md` §2.1 (the error vocabulary), §2.3 (`If-Match`
+mechanics), `design/layout-db/21-formats.md` §2.2/§2.3 (the scoped rewrite).
 
 ## Run locally
 
@@ -353,9 +378,10 @@ entirely, as a scheduled Fly Machine (`db/drill/`). It:
    re-implementation) -- and checks the restored `layout_count`/`seq`
    against the dump's own `meta`;
 3. serves that SAME local D1 with `wrangler dev --local --port 8790` and
-   walks every layout id in the dump over real HTTP, comparing `GET /v1/
-   layouts/:id` byte-for-byte (`canonical()`) against the dump's own
-   record -- fields, likes, and payload -- plus `/v1/meta`'s
+   walks every `layout_formats` row in the dump over real HTTP, comparing
+   `GET /v1/layouts/:id?format=<that row's format>` byte-for-byte
+   (`canonical()`) against the dump's own record -- layout-level fields,
+   likes, and that format's own payload -- plus `/v1/meta`'s
    `layout_count`/`seq` (`scripts/drill-verify.mjs`); and
 4. signs and POSTs the assembled report to `POST /v1/admin/drill` on the
    client lane (`scripts/report-drill.mjs`, its own copy of the signer --
@@ -432,7 +458,7 @@ conditions hold.
 `npm run diff-upstream` (`scripts/diff-upstream.mjs`, logic in `src/import/
 diff.ts`, LDB-P5) is the D12 diff: it fetches every layout from upstream and
 from `DB_BASE_URL`, matches by `name.toLowerCase()`, and compares each pair
-on the `spark/1` projection (`?as=spark/1`, likes sorted, magic excluded) --
+on the `spark/1` projection (`?format=spark/1`, likes sorted, magic excluded) --
 but only for records whose stored `upstream.state` is `"following"`; a
 name-matched record that's `forked` or unmapped is reported `divergent`
 rather than a mismatch, since a forked record is allowed to differ from
