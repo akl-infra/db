@@ -352,7 +352,7 @@ async function checkLayoutInvariants(layoutId: string): Promise<void> {
 }
 
 describe("[LDB-P1] [MF-1] [MF-2] [MF-3] [MF-5] [MF-12] the shared write model", () => {
-  it("random write sequences over the layout scope and two lineages fold correctly, one format never touching another, and upstream forking exactly per lineage", async () => {
+  it("[LDB-P16] [LDB-P17] [LDB-P18] [LDB-P19] [LDB-I18] random write sequences over the layout scope and two lineages fold correctly, one format never touching another, and upstream forking exactly per lineage", async () => {
     const clock = steppingClock("2026-01-01T00:00:00.000Z", 1000);
 
     const opArb = fc.record({

@@ -82,7 +82,7 @@ describe("[LDB-F9] a record stored at a lineage's latest major, read as an OLDER
     expect(body.see).toBe("t/3");
   });
 
-  it("[MF-10 = LDB-F26] a DIFFERENT lineage entirely (spark/1, which this layout never stored) -> 404 format_absent, never held", async () => {
+  it("[MF-10] [LDB-F26] a DIFFERENT lineage entirely (spark/1, which this layout never stored) -> 404 format_absent, never held", async () => {
     const res = await SELF.fetch(`https://example.com/v1/layouts/${recordId}?format=spark/1`);
     expect(res.status).toBe(404);
     const body = await res.json<{ error: string }>();

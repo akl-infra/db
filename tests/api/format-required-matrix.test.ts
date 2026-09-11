@@ -121,7 +121,7 @@ describe("[MF-4 = LDB-G11] format_required matrix: every format-bearing GET rout
     const isList = route.name.includes("(list)");
     const isRev = route.name.includes("/rev/:n");
     for (const scenario of SCENARIOS) {
-      it(`[MF-4] ${route.name} x ${scenario.name}`, async () => {
+      it(`[MF-4] [LDB-G11] ${route.name} x ${scenario.name}`, async () => {
         const id = await seed();
         const res = await writeFetch(route.path(id, scenario.format), "GET");
 

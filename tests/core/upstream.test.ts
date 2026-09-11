@@ -23,7 +23,7 @@ describe("[LDB-I14] nextUpstream matrix", () => {
     }
   });
 
-  it("[MF-12] touches=false leaves a non-null prior BYTE-IDENTICAL, whatever `via` is", () => {
+  it("[MF-12] [LDB-I18] touches=false leaves a non-null prior BYTE-IDENTICAL, whatever `via` is", () => {
     expect(nextUpstream(FOLLOWING, "discord", false)).toEqual(FOLLOWING);
     expect(nextUpstream(FORKED, "discord", false)).toEqual(FORKED);
     expect(nextUpstream(FOLLOWING, "import:cmini", false)).toEqual(FOLLOWING);

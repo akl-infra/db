@@ -64,7 +64,7 @@ describe("[MF-11] If-Match on PUT (format scope: spark)", () => {
   ];
 
   for (const { label, header, status, code } of cases) {
-    it(`PUT If-Match: ${label} -> ${status}`, async () => {
+    it(`[MF-11] [LDB-P21] PUT If-Match: ${label} -> ${status}`, async () => {
       const record = await seed();
       const headers = ownerHeaders(`tok-put-${uniqueName("t")}`);
       const ifMatch = header(record.formatRev);
@@ -104,7 +104,7 @@ describe("[MF-11] If-Match on DELETE (layout scope)", () => {
   ];
 
   for (const { label, header, status, code } of cases) {
-    it(`DELETE If-Match: ${label} -> ${status}`, async () => {
+    it(`[MF-11] [LDB-P21] DELETE If-Match: ${label} -> ${status}`, async () => {
       const record = await seed();
       const headers = ownerHeaders(`tok-del-${uniqueName("t")}`);
       const ifMatch = header(record.layoutRev);

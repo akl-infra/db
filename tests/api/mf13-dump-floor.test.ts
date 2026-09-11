@@ -80,7 +80,7 @@ describe("[MF-13 = LDB-D7] the dump floor: tables are never behind meta.seq", ()
     vi.restoreAllMocks();
   });
 
-  it("[MF-13] a rename injected between readHead() and the table pages lands in the dump's own tables, strictly ahead of meta.seq", async () => {
+  it("[MF-13] [LDB-D7] a rename injected between readHead() and the table pages lands in the dump's own tables, strictly ahead of meta.seq", async () => {
     const seeded = await seed();
     const seqBeforeInjection = await headSeqNow();
 

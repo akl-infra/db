@@ -15,9 +15,21 @@
 // A tombstoned record is walked too (not skipped): `GET /v1/layouts/:id`
 // looks records up by id via `readById()` (src/core/records.ts), which
 // does not filter `deleted` -- only name lookups do (LDB-P8).
+//
+// 21-formats.md (several formats per layout): a layout's payload no
+// longer lives on its own `layouts` row -- it's one `layout_formats` row
+// per lineage the layout has stored, and every read of one requires an
+// explicit `?format=` (D4, no default; `?as=` is gone). So this script
+// now walks every STORED format row a layout has (real dumps carry
+// exactly one, `spark/1`, today; a test dump may carry more) and does one
+// `GET /v1/layouts/:id?format=<that format>` per row, each compared
+// against the exact `fullWire()` shape the live route builds (imported
+// straight from `src/core/records.ts` so this can never drift from the
+// real wire function).
 import fs from "node:fs";
 import url from "node:url";
 import { canonical } from "../src/core/canonical.ts";
+import { fullWire, rowToFormat, rowToLayout } from "../src/core/records.ts";
 
 const CONCURRENCY = 16;
 
@@ -63,49 +75,56 @@ export function likesByLayoutFromDump(dumpLikes) {
   return map;
 }
 
-// The exact shape `GET /v1/layouts/:ref` returns (src/routes/layouts.ts:
-// `{ ...sansPayload(rec), likes, payload }`), built from a dump's raw
-// `LayoutDbRow` (0/1 booleans, `payload_json` a string) the way `src/core/
-// records.ts`'s `rowToRecord` converts a live D1 row.
-export function expectedFromRecord(rec, likes) {
-  return {
-    id: rec.id,
-    name: rec.name,
-    owner: rec.owner,
-    rev: rec.rev,
-    created_at: rec.created_at,
-    modified_at: rec.modified_at,
-    deleted: rec.deleted !== 0,
-    like_count: rec.like_count,
-    has_magic: rec.has_magic !== 0,
-    format: rec.format,
-    // 20-spark.md S3a (LDB-D1/D5 amended): a dump row without these keys
-    // (pre-0005) means "no known link", same as `rowToRecord`.
-    upstream: rec.upstream_source == null ? null : { source: rec.upstream_source, id: rec.upstream_id, state: rec.upstream_state },
-    // 20-spark.md S3s (LDB-D1/D5 amended again): same treatment, one
-    // migration later -- a dump row without `source_client` (pre-0005)
-    // means `null`, same as `sourceFromRow`.
-    source: rec.source_client == null ? null : { client: rec.source_client, version: rec.source_version ?? null },
-    likes,
-    payload: JSON.parse(rec.payload_json),
-  };
+// 21-formats.md: groups a dump's `layout_formats` rows by `layout_id`, the
+// same shape `formatsForLayout()` (src/core/records.ts) returns off a live
+// D1 read -- so `expectedFromRecord` below can build the exact same
+// `Map<lineage, FormatRow>` `fullWire()` expects, straight from a dump's
+// raw rows.
+export function formatsByLayoutFromDump(dumpFormats) {
+  const map = new Map();
+  for (const f of dumpFormats) {
+    if (!map.has(f.layout_id)) map.set(f.layout_id, []);
+    map.get(f.layout_id).push(f);
+  }
+  return map;
 }
 
-async function checkOne(base, rec, likesByLayout) {
-  const reqUrl = `${base}/v1/layouts/${rec.id}?as=${encodeURIComponent(rec.format)}`;
-  let res;
-  try {
-    res = await fetch(reqUrl);
-  } catch (e) {
-    return { id: rec.id, name: rec.name, reason: `fetch failed: ${String(e)}` };
+// The exact shape `GET /v1/layouts/:ref?format=F` returns
+// (src/routes/layouts.ts: `{ ...fullWire(lwf.layout, lwf.formats, {format,
+// payload, derived_from?}), likes }`) for ONE of this layout's own stored
+// formats (`format` -- never a derived/output format: every dump row is
+// already `role: "stored"` by construction). Built from `fullWire()`
+// itself (imported, not reimplemented) over `rowToLayout`/`rowToFormat`
+// applied to the dump's own raw rows, so this can never drift from the
+// live wire function the way a hand-copied shape could.
+export function expectedFromRecord(rec, formatRows, format, likes) {
+  const layout = rowToLayout(rec);
+  const formatsMap = new Map(formatRows.map((f) => [f.lineage, rowToFormat(f)]));
+  const requested = formatsMap.get(format.slice(0, format.indexOf("/")));
+  if (requested === undefined || requested.format !== format) {
+    throw new Error(`drill-verify: layout ${rec.id} has no stored format '${format}'`);
   }
-  if (!res.ok) return { id: rec.id, name: rec.name, reason: `GET ${reqUrl} -> ${res.status}` };
-  const body = await res.json();
-  const expected = expectedFromRecord(rec, likesByLayout.get(rec.id) ?? []);
-  const gotCanon = canonical(body);
-  const expectCanon = canonical(expected);
-  if (gotCanon !== expectCanon) {
-    return { id: rec.id, name: rec.name, reason: "body mismatch", got: body, expected };
+  return { ...fullWire(layout, formatsMap, { format: requested.format, payload: requested.payload }), likes };
+}
+
+async function checkOne(base, rec, formatRows, likesByLayout) {
+  const likes = likesByLayout.get(rec.id) ?? [];
+  for (const fr of formatRows) {
+    const reqUrl = `${base}/v1/layouts/${rec.id}?format=${encodeURIComponent(fr.format)}`;
+    let res;
+    try {
+      res = await fetch(reqUrl);
+    } catch (e) {
+      return { id: rec.id, name: rec.name, format: fr.format, reason: `fetch failed: ${String(e)}` };
+    }
+    if (!res.ok) return { id: rec.id, name: rec.name, format: fr.format, reason: `GET ${reqUrl} -> ${res.status}` };
+    const body = await res.json();
+    const expected = expectedFromRecord(rec, formatRows, fr.format, likes);
+    const gotCanon = canonical(body);
+    const expectCanon = canonical(expected);
+    if (gotCanon !== expectCanon) {
+      return { id: rec.id, name: rec.name, format: fr.format, reason: "body mismatch", got: body, expected };
+    }
   }
   return null;
 }
@@ -142,7 +161,8 @@ async function main() {
   const metaOk = metaGot.layout_count === metaExpected.layout_count && metaGot.seq === metaExpected.seq;
 
   const likesByLayout = likesByLayoutFromDump(dump.likes);
-  const results = await pool(dump.records, CONCURRENCY, (rec) => checkOne(args.base, rec, likesByLayout));
+  const formatsByLayout = formatsByLayoutFromDump(dump.layout_formats ?? []);
+  const results = await pool(dump.records, CONCURRENCY, (rec) => checkOne(args.base, rec, formatsByLayout.get(rec.id) ?? [], likesByLayout));
   const mismatches = results.filter((r) => r !== null);
 
   const ok = metaOk && mismatches.length === 0;

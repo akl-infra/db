@@ -63,7 +63,7 @@ describe("races resolved inside the batch", () => {
     await invariantsHold();
   });
 
-  it("[MF-6 = LDB-P20] two updates to the SAME format racing from the same rev: exactly one wins, the loser is a RevConflictError, that format's rev advances once", async () => {
+  it("[MF-6] [LDB-P20] two updates to the SAME format racing from the same rev: exactly one wins, the loser is a RevConflictError, that format's rev advances once", async () => {
     const { layout } = await create("race-rev");
     const update = async (v: number) => {
       const current = (await readById(db, layout.id))!;
@@ -100,7 +100,7 @@ describe("races resolved inside the batch", () => {
   // and a format-scope replace, fired concurrently on the same layout, must
   // BOTH commit -- the `n` counter serializes them (one gets n+1, the other
   // n+2) rather than either refusing the other.
-  it("[MF-6 = LDB-P20] a rename and a format replace racing on one layout both land", async () => {
+  it("[MF-6] [LDB-P20] a rename and a format replace racing on one layout both land", async () => {
     const { layout } = await create("race-cross-scope");
 
     const rename = async () => {

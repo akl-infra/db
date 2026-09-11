@@ -63,7 +63,7 @@ function register(...mods: FormatModule[]): void {
 }
 
 describe("[MF-10 = LDB-F26] the real registry: every output format has exactly one reaching stored lineage", () => {
-  it("[MF-10] reachingLineages(id).length === 1 for every registered role:'output' format", () => {
+  it("[MF-10] [LDB-F26] reachingLineages(id).length === 1 for every registered role:'output' format", () => {
     const outputs = listFormats().filter((f) => f.role === "output");
     expect(outputs.length).toBeGreaterThan(0); // mana2/1, today
     for (const out of outputs) {
@@ -73,7 +73,7 @@ describe("[MF-10 = LDB-F26] the real registry: every output format has exactly o
     }
   });
 
-  it("[MF-10] reachingLineages/outputSourceLineage answer empty/undefined for a non-output or unregistered id", () => {
+  it("[MF-10] [LDB-F26] reachingLineages/outputSourceLineage answer empty/undefined for a non-output or unregistered id", () => {
     const stored = listFormats().find((f) => f.role === "stored")!;
     expect(reachingLineages(stored.id)).toEqual([]);
     expect(outputSourceLineage(stored.id)).toBeUndefined();
@@ -83,7 +83,7 @@ describe("[MF-10 = LDB-F26] the real registry: every output format has exactly o
 });
 
 describe("[MF-10 = LDB-F26] a single reaching lineage resolves cleanly", () => {
-  it("[MF-10] one stored lineage reaching the output format -> reachingLineages == [that lineage], outputSourceLineage resolves it", () => {
+  it("[MF-10] [LDB-F26] one stored lineage reaching the output format -> reachingLineages == [that lineage], outputSourceLineage resolves it", () => {
     register(OUT1, SRC_A);
     expect(reachingLineages("mf10out/1")).toEqual(["mf10a/1"]);
     expect(outputSourceLineage("mf10out/1")).toBe("mf10a/1");
@@ -91,7 +91,7 @@ describe("[MF-10 = LDB-F26] a single reaching lineage resolves cleanly", () => {
 });
 
 describe("[MF-10 = LDB-F26] TWO stored lineages reaching one output format is caught, not silently resolved", () => {
-  it("[MF-10] reachingLineages reports both; outputSourceLineage refuses to pick one (undefined, not arbitrary)", () => {
+  it("[MF-10] [LDB-F26] reachingLineages reports both; outputSourceLineage refuses to pick one (undefined, not arbitrary)", () => {
     register(OUT1, SRC_A, SRC_B);
     const reaching = reachingLineages("mf10out/1");
     expect(reaching.sort()).toEqual(["mf10a/1", "mf10b/1"]);

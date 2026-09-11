@@ -284,7 +284,7 @@ describe("[LDB-P7] mixed_patch: name can never combine with a format edit", () =
     await expect(res.json()).resolves.toMatchObject({ error: "mixed_patch" });
   });
 
-  it("[MF-4 = LDB-G11] {fingermap} without format -> 400 format_required", async () => {
+  it("[MF-4] [LDB-G11] {fingermap} without format -> 400 format_required", async () => {
     const record = await seed();
     const headers = ownerHeaders(`tok-${uniqueName("noformat")}`);
     const res = await patch(record.id, headers, { fingermap: { a: "RP" } }, `"spark:${record.formatRev}"`);

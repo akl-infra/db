@@ -62,7 +62,7 @@ async function snapshot(id: string): Promise<Counts> {
 }
 
 describe("[MF-7 = LDB-F25] a ?format=mana2/1 read derives, never writes", () => {
-  it("[MF-7] GET detail ?format=mana2/1 leaves every row byte-identical and answers derived_from: spark/1", async () => {
+  it("[MF-7] [LDB-F25] GET detail ?format=mana2/1 leaves every row byte-identical and answers derived_from: spark/1", async () => {
     const id = await seed();
     const before = await snapshot(id);
 
@@ -81,7 +81,7 @@ describe("[MF-7 = LDB-F25] a ?format=mana2/1 read derives, never writes", () => 
     expect(manaRow).toBeNull();
   });
 
-  it("[MF-7] GET list ?format=mana2/1 also derives without writing", async () => {
+  it("[MF-7] [LDB-F25] GET list ?format=mana2/1 also derives without writing", async () => {
     const id = await seed();
     const before = await snapshot(id);
 
@@ -97,7 +97,7 @@ describe("[MF-7 = LDB-F25] a ?format=mana2/1 read derives, never writes", () => 
 });
 
 describe("[MF-7 = LDB-F25] a read of a stored format is never derived", () => {
-  it("[MF-7] GET detail ?format=spark/1 -> no derived_from key at all", async () => {
+  it("[MF-7] [LDB-F25] GET detail ?format=spark/1 -> no derived_from key at all", async () => {
     const id = await seed();
     const res = await writeFetch(`/v1/layouts/${id}?format=spark/1`, "GET");
     expect(res.status).toBe(200);
@@ -107,7 +107,7 @@ describe("[MF-7 = LDB-F25] a read of a stored format is never derived", () => {
     expect(Object.prototype.hasOwnProperty.call(body, "derived_from")).toBe(false);
   });
 
-  it("[MF-7] GET list ?format=spark/1 -> no derived_from key on the item", async () => {
+  it("[MF-7] [LDB-F25] GET list ?format=spark/1 -> no derived_from key on the item", async () => {
     const id = await seed();
     const res = await writeFetch(`/v1/layouts?owner=${OWNER}&format=spark/1`, "GET");
     expect(res.status).toBe(200);
@@ -117,7 +117,7 @@ describe("[MF-7 = LDB-F25] a read of a stored format is never derived", () => {
     expect(item === undefined ? undefined : Object.prototype.hasOwnProperty.call(item, "derived_from")).toBe(false);
   });
 
-  it("[MF-7] GET ?full=1&format=spark/1 -> no derived_from key on the item", async () => {
+  it("[MF-7] [LDB-F25] GET ?full=1&format=spark/1 -> no derived_from key on the item", async () => {
     const id = await seed();
     const res = await writeFetch(`/v1/layouts?full=1&format=spark/1`, "GET");
     expect(res.status).toBe(200);
@@ -127,7 +127,7 @@ describe("[MF-7 = LDB-F25] a read of a stored format is never derived", () => {
     expect(item === undefined ? undefined : Object.prototype.hasOwnProperty.call(item, "derived_from")).toBe(false);
   });
 
-  it("[MF-7] GET ?full=1&format=mana2/1 -> derived_from: spark/1 on the item, never written", async () => {
+  it("[MF-7] [LDB-F25] GET ?full=1&format=mana2/1 -> derived_from: spark/1 on the item, never written", async () => {
     const id = await seed();
     const before = await snapshot(id);
     const res = await writeFetch(`/v1/layouts?full=1&format=mana2/1`, "GET");

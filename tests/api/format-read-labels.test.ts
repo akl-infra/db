@@ -49,7 +49,7 @@ async function seed() {
 }
 
 describe("GET detail: ?format= is required (D4); the wire format is always the record's native one", () => {
-  it("no ?format= -> 400 format_required", async () => {
+  it("[MF-4] [LDB-G11] no ?format= -> 400 format_required", async () => {
     const record = await seed();
     const res = await writeFetch(`/v1/layouts/${record.id}`, "GET");
     expect(res.status).toBe(400);
@@ -81,7 +81,7 @@ describe("GET /v1/layouts?full=1: ?format= required; the wire format is always t
     expect(item?.format).toBe("spark/1");
   });
 
-  it("full=1 with no ?format= -> 400 format_required", async () => {
+  it("[MF-4] [LDB-G11] full=1 with no ?format= -> 400 format_required", async () => {
     await seed();
     const res = await writeFetch("/v1/layouts?full=1", "GET");
     expect(res.status).toBe(400);
@@ -104,7 +104,7 @@ describe("GET /v1/layouts/{ref}/rev/{n}: ?format= required; the wire format is a
     await expect(res.json()).resolves.toMatchObject({ format: "spark/1" });
   });
 
-  it("no ?format= -> 400 format_required", async () => {
+  it("[MF-4] [LDB-G11] no ?format= -> 400 format_required", async () => {
     const record = await seed();
     const res = await writeFetch(`/v1/layouts/${record.id}/rev/1`, "GET");
     expect(res.status).toBe(400);
@@ -128,7 +128,7 @@ describe("?format= list selector: required, plain equality against the stored li
     await expect(res.json()).resolves.toMatchObject({ error: "unknown_format" });
   });
 
-  it("no ?format= -> 400 format_required", async () => {
+  it("[MF-4] [LDB-G11] no ?format= -> 400 format_required", async () => {
     await seed();
     const res = await writeFetch(`/v1/layouts?owner=${OWNER}`, "GET");
     expect(res.status).toBe(400);

@@ -1,10 +1,11 @@
 // [LDB-L1] PUT/DELETE /v1/layouts/{ref}/like (layout scope, informational):
 // idempotent (repeat likes/unlikes append no second event); `layout_rev`,
-// `modified_at` and `layouts_modified_at` never move, `like_count` and
-// `meta.revision`/`seq` do; `qwerty` is refused with the bot's exact
-// string; a tombstone is 404; anonymous is 401; concurrent likes from
-// different users are all counted, a concurrent double-like from the SAME
-// user is one event; the fold always equals the stored row.
+// `modified_at`, `layouts_modified_at` and every format's own `rev`/
+// `modified_at` never move, `like_count` and `meta.revision`/`seq` do;
+// `qwerty` is refused with the bot's exact string; a tombstone is 404;
+// anonymous is 401; concurrent likes from different users are all
+// counted, a concurrent double-like from the SAME user is one event; the
+// fold always equals the stored row.
 import { env } from "cloudflare:test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Bindings } from "../../src/env";
@@ -109,10 +110,10 @@ describe("[LDB-L1] PUT/DELETE /v1/layouts/{ref}/like", () => {
     await assertFoldMatchesRow(record.id);
   });
 
-  it("[LDB-L1] layout_rev/modified_at/layouts_modified_at never move; like_count and meta.revision/seq do", async () => {
+  it("[LDB-L1] layout_rev/modified_at/layouts_modified_at never move (nor a format's own rev/modified_at); like_count and meta.revision/seq do", async () => {
     const record = await seed();
     const before = await writeFetch(`/v1/layouts/${record.id}?format=spark/1`, "GET");
-    const beforeBody = await before.json<{ layout_rev: number; modified_at: string }>();
+    const beforeBody = await before.json<{ layout_rev: number; modified_at: string; formats: Record<string, { rev: number; modified_at: string }> }>();
     const metaBefore = await (await writeFetch("/v1/meta", "GET")).json<{ seq: number; revision: string | null; layouts_modified_at: string | null }>();
 
     const headers = ownerHeaders(`tok-${uniqueName("like")}`);
@@ -120,10 +121,13 @@ describe("[LDB-L1] PUT/DELETE /v1/layouts/{ref}/like", () => {
     expect(res.status).toBe(200);
 
     const after = await writeFetch(`/v1/layouts/${record.id}?format=spark/1`, "GET");
-    const afterBody = await after.json<{ layout_rev: number; modified_at: string; like_count: number }>();
+    const afterBody = await after.json<{ layout_rev: number; modified_at: string; like_count: number; formats: Record<string, { rev: number; modified_at: string }> }>();
     expect(afterBody.layout_rev).toBe(beforeBody.layout_rev);
     expect(afterBody.modified_at).toBe(beforeBody.modified_at);
     expect(afterBody.like_count).toBe(1);
+    // A like is layout-scope only (MF-1): the format's own rev/modified_at
+    // never move either -- not just the layout's.
+    expect(afterBody.formats["spark/1"]).toEqual(beforeBody.formats["spark/1"]);
 
     const metaAfter = await (await writeFetch("/v1/meta", "GET")).json<{ seq: number; revision: string | null; layouts_modified_at: string | null }>();
     expect(metaAfter.seq).toBeGreaterThan(metaBefore.seq);
