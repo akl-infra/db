@@ -6,12 +6,14 @@
 // `vitest.config.ts`'s miniflare `bindings` -- every case here runs to
 // completion in well under a second of real wall time.
 import { SELF, env } from "cloudflare:test";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { Bindings } from "../../src/env";
 import { canonical } from "../../src/core/canonical";
 import { headSeq } from "../../src/core/etag";
-import { appendLike, appendWrite, feed, type Event } from "../../src/core/events";
+import { appendLike, commitWrite, feed, type CommitInput, type Event } from "../../src/core/events";
+import { formatsForLayout, readById } from "../../src/core/records";
 import { fixedClock } from "../../src/core/time";
+import { ulid } from "ulidx";
 
 const bindings = env as unknown as Bindings;
 const db = bindings.DB;
@@ -39,21 +41,52 @@ function parseFrames(text: string): ParsedFrame[] {
     });
 }
 
+// A fresh `commitWrite` create now appends TWO events (`created` +
+// `format_added`, 21-formats.md §2.2) -- this suite's "one call = one
+// frame" fixtures instead do a single layout-scope rename on a lazily
+// created shared layout, same trick tests/api/webhooks.test.ts uses.
 let apCounter = 0;
-async function appendOne(owner = "stream-owner"): Promise<Event> {
-  const { seq } = await appendWrite(db, fixedClock("2026-08-01T00:00:00.000Z"), {
-      upstream: null,
-    kind: "created",
-    name: `stream-fixture-${apCounter++}-${Math.random().toString(36).slice(2)}`,
-    owner,
+let sharedLayoutId: string | null = null;
+async function seedSharedLayout(owner: string): Promise<string> {
+  if (sharedLayoutId !== null) return sharedLayoutId;
+  const input: CommitInput = {
+    layoutId: ulid(),
+    creating: true,
+    currentN: 0,
+    currentLayout: null,
+    currentFormats: new Map(),
+    layout: { kind: "created", name: `stream-shared-${Math.random().toString(36).slice(2)}`, owner, created_at: "2026-08-01T00:00:00.000Z", deleted: false },
+    format: { kind: "format_added", lineage: "spark", format: "spark/1", payload: {}, hasMagic: false },
     modified_at: "2026-08-01T00:00:00.000Z",
-    format: "cmini/1",
-    payload: {},
     actor: owner,
     via: "discord",
     source: { client: "discord-app:test", version: null },
-    hasMagic: false,
-  });
+    upstream: null,
+  };
+  const { layout } = await commitWrite(db, fixedClock("2026-08-01T00:00:00.000Z"), input);
+  sharedLayoutId = layout.id;
+  return sharedLayoutId;
+}
+
+async function appendOne(owner = "stream-owner"): Promise<Event> {
+  const id = await seedSharedLayout(owner);
+  const current = (await readById(db, id))!;
+  const formats = await formatsForLayout(db, id);
+  const input: CommitInput = {
+    layoutId: id,
+    creating: false,
+    currentN: current.n,
+    currentLayout: current,
+    currentFormats: formats,
+    layout: { kind: "renamed", name: `stream-fixture-${apCounter++}-${Math.random().toString(36).slice(2)}`, owner, created_at: current.created_at, deleted: false },
+    modified_at: "2026-08-01T00:00:00.000Z",
+    actor: owner,
+    via: "discord",
+    source: { client: "discord-app:test", version: null },
+    upstream: current.upstream,
+  };
+  const result = await commitWrite(db, fixedClock("2026-08-01T00:00:00.000Z"), input);
+  const seq = result.seqs[0]!;
   const { items } = await feed(db, seq - 1, 1);
   return items[0]!;
 }
@@ -68,6 +101,14 @@ afterEach(() => {
 });
 
 describe("[LDB-H2] GET /v1/changes/stream", () => {
+  // The shared fixture layout's own CREATE (two events, 21-formats.md
+  // §2.2) must land before any test below takes its own `since` baseline --
+  // otherwise whichever test happens to run `appendOne()` first would see
+  // those two extra events leak into its own "since -> now" window.
+  beforeAll(async () => {
+    await seedSharedLayout("stream-owner");
+  });
+
   it("headers: Content-Type text/event-stream, Cache-Control no-store", async () => {
     const since = await headSeq(db);
     const res = await SELF.fetch(`https://example.com/v1/changes/stream?since=${since}`);
@@ -88,7 +129,7 @@ describe("[LDB-H2] GET /v1/changes/stream", () => {
     const text = await res.text();
     const frames = parseFrames(text).filter((f) => f.id !== undefined);
     expect(frames.map((f) => f.id)).toEqual([a.seq, b.seq]);
-    expect(frames[0]!.event).toBe("created");
+    expect(frames[0]!.event).toBe("renamed"); // appendOne()'s own fixture write kind
     expect(frames[0]!.data).toBe(canonical(a));
     expect(frames[1]!.data).toBe(canonical(b));
   });
