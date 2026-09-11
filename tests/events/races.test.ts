@@ -11,6 +11,7 @@ import { ApiError } from "../../src/core/errors";
 import { RevConflictError, appendLike, commitWrite, type CommitInput } from "../../src/core/events";
 import { formatsForLayout, readById } from "../../src/core/records";
 import { fixedClock } from "../../src/core/time";
+import { ulid } from "ulidx";
 
 const db = (env as unknown as Bindings).DB;
 const clock = fixedClock("2026-05-02T00:00:00.000Z");
@@ -18,7 +19,7 @@ const SOURCE = { client: "discord-app:test", version: null };
 
 function create(name: string, owner = "owner-a") {
   const input: CommitInput = {
-    layoutId: crypto.randomUUID(),
+    layoutId: ulid(),
     creating: true,
     currentN: 0,
     currentLayout: null,

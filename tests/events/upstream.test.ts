@@ -17,6 +17,7 @@ import { RevConflictError, commitWrite, type CommitInput } from "../../src/core/
 import { formatsForLayout, readById, type Upstream } from "../../src/core/records";
 import { fixedClock } from "../../src/core/time";
 import { nextUpstream, upstreamOf } from "../../src/core/upstream";
+import { ulid } from "ulidx";
 
 const db = (env as unknown as Bindings).DB;
 const clock = fixedClock("2026-09-10T00:00:00.000Z");
@@ -34,7 +35,7 @@ async function insertImportMapRow(upstreamId: string, layoutId: string): Promise
 
 function createLayout(name: string, upstream: Upstream | null, isImport: boolean) {
   const input: CommitInput = {
-    layoutId: crypto.randomUUID(),
+    layoutId: ulid(),
     creating: true,
     currentN: 0,
     currentLayout: null,

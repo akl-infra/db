@@ -15,6 +15,7 @@ import type { Bindings } from "../../src/env";
 import { appendInfo, appendLike, commitWrite, sourceOfEvent, type CommitInput } from "../../src/core/events";
 import { formatsForLayout, readById, type Source } from "../../src/core/records";
 import { fixedClock } from "../../src/core/time";
+import { ulid } from "ulidx";
 
 const db = (env as unknown as Bindings).DB;
 const clock = fixedClock("2026-09-10T00:00:00.000Z");
@@ -31,7 +32,7 @@ async function eventSourceCols(layoutId: string): Promise<{ source_client: strin
 
 function create(name: string, source: Source) {
   const input: CommitInput = {
-    layoutId: crypto.randomUUID(),
+    layoutId: ulid(),
     creating: true,
     currentN: 0,
     currentLayout: null,

@@ -26,6 +26,7 @@ import { nextUpstream } from "../../src/core/upstream";
 import { steppingClock } from "../../src/core/time";
 import { registerForTest } from "../../formats/registry.ts";
 import { T1 } from "../formats/stub-lineage.ts";
+import { ulid } from "ulidx";
 
 const db = (env as unknown as Bindings).DB;
 
@@ -148,7 +149,7 @@ async function applyOp(clock: () => string, slots: Slot[], op: Op): Promise<void
     const payload = { keys: {} };
     const upstream: Upstream | null = isImport ? { source: "cmini", id: `up-${op.slotIdx}-${unique()}`, state: "following" } : null;
     const input: CommitInput = {
-      layoutId: crypto.randomUUID(),
+      layoutId: ulid(),
       creating: true,
       currentN: 0,
       currentLayout: null,
@@ -405,7 +406,7 @@ describe("[LDB-P1] [MF-1] [MF-2] [MF-3] [MF-5] [MF-12] the shared write model", 
 
   it("[LDB-P1] appendInfo/appendLike leave the layouts row's rev/formats alone but still land in the feed", async () => {
     const clock = steppingClock("2026-02-01T00:00:00.000Z", 1000);
-    const id = crypto.randomUUID();
+    const id = ulid();
     const { layout } = await commitWrite(db, clock, {
       layoutId: id,
       creating: true,

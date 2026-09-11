@@ -1,60 +1,83 @@
-// [LDB-A7] [LDB-P1] The write-verb x actor x format matrix (09 §3 T2, 02
-// §4): POST accepts any actor; PUT/DELETE/restore/transfer accept the
-// owner or an admin (logged `admin: true` only when the actor isn't the
-// owner) and refuse a stranger with `403 not_owner`; every verb requires a
-// resolved actor at all (401 anonymous, already swept exhaustively by
-// tests/auth/routes.test.ts -- checked once more here per-verb for the
-// matrix's own sake). Every accepted write lands in the event log with
-// `via: discord`, the right `kind`, `rev + 1` (POST: 1), a `layout_revs`
-// row, `has_magic` from the format, and an `ETag: "<rev>"` header.
+// [LDB-A7] [LDB-P1] The write-verb x actor x format matrix (21-formats.md
+// §2.2/§2.4, 02 §4): POST accepts any actor; PUT/PATCH/DELETE/restore/
+// transfer accept the owner or an admin (logged `admin: true` only when the
+// actor isn't the owner) and refuse a stranger with `403 not_owner`; every
+// verb requires a resolved actor at all (401 anonymous, already swept
+// exhaustively by tests/auth/routes.test.ts). Every accepted write lands in
+// the event log with `via: discord`, the right `kind`, the right scope's
+// rev bumped by exactly 1 (POST/PUT/PATCH-format: the format's own rev;
+// PATCH-name/DELETE/restore/transfer: `layout_rev`), a `layout_revs` row,
+// `has_magic` from the format, and a scoped `ETag`.
 import { SELF, env } from "cloudflare:test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Bindings } from "../../src/env";
-import { type EventDbRow, appendWrite, rowToEvent } from "../../src/core/events";
+import { type EventDbRow, commitWrite, rowToEvent, type CommitInput } from "../../src/core/events";
+import { formatsForLayout, readById } from "../../src/core/records";
 import { fixedClock } from "../../src/core/time";
+import { ulid } from "ulidx";
 import { generateKeyPair, seedClient, signHeaders } from "../auth/client-support";
-import {
-  AKL_PAYLOAD,
-  BOOTSTRAP_ADMIN,
-  actorFixture,
-  pinTestClock,
-  register,
-  uniqueName,
-  writeFetch,
-} from "./write-support";
+import { AKL_PAYLOAD, BOOTSTRAP_ADMIN, actorFixture, pinTestClock, register, uniqueName, writeFetch } from "./write-support";
 
 const db = (env as unknown as Bindings).DB;
 const clock = fixedClock("2026-07-01T00:00:00.000Z");
-// Pins every write route's "now" to the same instant the seeds below use --
-// keeps rev/ETag assertions deterministic and (restore) trivially inside
-// the 30-day window (tests/api/restore.test.ts covers that boundary itself).
 pinTestClock(env as unknown as { TEST_CLOCK?: typeof clock }, clock);
 
 const OWNER = "owner-write-1";
 const OTHER = "owner-write-2";
+const SOURCE = { client: "discord-app:test", version: null };
 
-async function seed(owner = OWNER) {
-  const { record } = await appendWrite(db, clock, {
-      upstream: null,
-    kind: "created",
-    name: uniqueName("write-seed"),
-    owner,
+interface Seeded {
+  id: string;
+  name: string;
+  owner: string;
+  layoutRev: number;
+  formatRev: number;
+  payload: unknown;
+}
+
+async function seed(owner = OWNER): Promise<Seeded> {
+  const input: CommitInput = {
+    layoutId: ulid(),
+    creating: true,
+    currentN: 0,
+    currentLayout: null,
+    currentFormats: new Map(),
+    layout: { kind: "created", name: uniqueName("write-seed"), owner, created_at: clock(), deleted: false },
+    format: { kind: "format_added", lineage: "spark", format: "spark/1", payload: AKL_PAYLOAD, hasMagic: false },
     modified_at: clock(),
-    format: "spark/1",
-    payload: AKL_PAYLOAD,
     actor: owner,
     via: "discord",
-    source: { client: "discord-app:test", version: null },
-    hasMagic: false,
-  });
-  return record;
+    source: SOURCE,
+    upstream: null,
+  };
+  const { layout, formats } = await commitWrite(db, clock, input);
+  const spark = formats.get("spark")!;
+  return { id: layout.id, name: layout.name, owner: layout.owner, layoutRev: layout.layout_rev, formatRev: spark.rev, payload: spark.payload };
+}
+
+async function seedDeleted(owner = OWNER): Promise<Seeded> {
+  const created = await seed(owner);
+  const currentLayout = (await readById(db, created.id))!;
+  const currentFormats = await formatsForLayout(db, created.id);
+  const input: CommitInput = {
+    layoutId: created.id,
+    creating: false,
+    currentN: currentLayout.n,
+    currentLayout,
+    currentFormats,
+    layout: { kind: "deleted", name: created.name, owner: created.owner, created_at: currentLayout.created_at, deleted: true },
+    modified_at: clock(),
+    actor: owner,
+    via: "discord",
+    source: SOURCE,
+    upstream: currentLayout.upstream,
+  };
+  const { layout } = await commitWrite(db, clock, input);
+  return { ...created, layoutRev: layout.layout_rev };
 }
 
 async function eventsFor(layoutId: string) {
-  const { results } = await db
-    .prepare("SELECT * FROM events WHERE layout_id = ? ORDER BY seq ASC")
-    .bind(layoutId)
-    .all<EventDbRow>();
+  const { results } = await db.prepare("SELECT * FROM events WHERE layout_id = ? ORDER BY seq ASC").bind(layoutId).all<EventDbRow>();
   return results.map(rowToEvent);
 }
 
@@ -68,29 +91,28 @@ describe("[LDB-P1] POST /v1/layouts: any actor", () => {
     ["a stranger", OTHER],
     ["an admin", BOOTSTRAP_ADMIN],
   ] as const) {
-    it(`${kind} -> 201, kind created, rev 1, ETag`, async () => {
+    it(`${kind} -> 201, kind created + format_added, format rev 1, scoped ETag`, async () => {
       const fake = actorFixture();
       const headers = register(fake, `tok-post-${id}`, id);
       const name = uniqueName("post-ok");
 
-      const res = await writeFetch("/v1/layouts", "POST", headers, {
-        name,
-        format: "spark/1",
-        payload: AKL_PAYLOAD,
-      });
+      const res = await writeFetch("/v1/layouts", "POST", headers, { name, format: "spark/1", payload: AKL_PAYLOAD });
       expect(res.status, kind).toBe(201);
-      expect(res.headers.get("ETag")).toBe('"1"');
-      const body = await res.json<{ id: string; rev: number; owner: string; name: string; has_magic: boolean }>();
-      expect(body.rev).toBe(1);
+      expect(res.headers.get("ETag")).toBe('"spark:1"');
+      const body = await res.json<{ id: string; layout_rev: number; owner: string; name: string; format: string; formats: Record<string, { rev: number; has_magic: boolean }> }>();
+      expect(body.layout_rev).toBe(1);
       expect(body.owner).toBe(id);
       expect(body.name).toBe(name);
-      expect(body.has_magic).toBe(false);
+      expect(body.format).toBe("spark/1");
+      expect(body.formats["spark/1"]!.rev).toBe(1);
+      expect(body.formats["spark/1"]!.has_magic).toBe(false);
 
       const events = await eventsFor(body.id);
-      expect(events).toHaveLength(1);
-      expect(events[0]).toMatchObject({ kind: "created", via: "discord", actor: id, rev: 1, admin: false });
+      expect(events).toHaveLength(2);
+      expect(events[0]).toMatchObject({ kind: "created", via: "discord", actor: id, format: null, rev: 1, admin: false });
+      expect(events[1]).toMatchObject({ kind: "format_added", via: "discord", actor: id, format: "spark/1", rev: 1, admin: false });
 
-      const rev = await db.prepare("SELECT * FROM layout_revs WHERE layout_id = ? AND rev = 1").bind(body.id).first();
+      const rev = await db.prepare("SELECT * FROM layout_revs WHERE layout_id = ? AND lineage = 'spark' AND rev = 1").bind(body.id).first();
       expect(rev).not.toBeNull();
     });
   }
@@ -105,22 +127,22 @@ describe("[LDB-P1] POST /v1/layouts: any actor", () => {
 });
 
 describe("[LDB-A7] PUT /v1/layouts/{ref}: owner or admin", () => {
-  it("the owner -> 200, kind updated, rev + 1", async () => {
+  it("the owner -> 200, kind updated, format rev + 1", async () => {
     const record = await seed();
     const fake = actorFixture();
     const headers = register(fake, "tok-put-owner", OWNER);
 
-    const res = await writeFetch(`/v1/layouts/${record.id}`, "PUT", { ...headers, "If-Match": `"${record.rev}"` }, { format: "spark/1", payload: AKL_PAYLOAD });
+    const res = await writeFetch(`/v1/layouts/${record.id}`, "PUT", { ...headers, "If-Match": `"spark:${record.formatRev}"` }, { format: "spark/1", payload: AKL_PAYLOAD });
     expect(res.status).toBe(200);
-    expect(res.headers.get("ETag")).toBe(`"${record.rev + 1}"`);
-    const body = await res.json<{ rev: number; format: string; name: string; owner: string }>();
-    expect(body.rev).toBe(record.rev + 1);
+    expect(res.headers.get("ETag")).toBe(`"spark:${record.formatRev + 1}"`);
+    const body = await res.json<{ format: string; name: string; owner: string; formats: Record<string, { rev: number }> }>();
+    expect(body.formats["spark/1"]!.rev).toBe(record.formatRev + 1);
     expect(body.format).toBe("spark/1");
-    expect(body.name).toBe(record.name); // kept
-    expect(body.owner).toBe(record.owner); // kept
+    expect(body.name).toBe(record.name);
+    expect(body.owner).toBe(record.owner);
 
     const events = await eventsFor(record.id);
-    expect(events.at(-1)).toMatchObject({ kind: "updated", via: "discord", actor: OWNER, rev: record.rev + 1, admin: false });
+    expect(events.at(-1)).toMatchObject({ kind: "updated", via: "discord", actor: OWNER, format: "spark/1", rev: record.formatRev + 1, admin: false });
   });
 
   it("a stranger -> 403 not_owner, record unchanged", async () => {
@@ -128,10 +150,10 @@ describe("[LDB-A7] PUT /v1/layouts/{ref}: owner or admin", () => {
     const fake = actorFixture();
     const headers = register(fake, "tok-put-stranger", OTHER);
 
-    const res = await writeFetch(`/v1/layouts/${record.id}`, "PUT", { ...headers, "If-Match": `"${record.rev}"` }, { format: "spark/1", payload: AKL_PAYLOAD });
+    const res = await writeFetch(`/v1/layouts/${record.id}`, "PUT", { ...headers, "If-Match": `"spark:${record.formatRev}"` }, { format: "spark/1", payload: AKL_PAYLOAD });
     expect(res.status).toBe(403);
     await expect(res.json()).resolves.toMatchObject({ error: "not_owner", owner: OWNER });
-    expect(await eventsFor(record.id)).toHaveLength(1); // just the seed's own "created"
+    expect(await eventsFor(record.id)).toHaveLength(2); // just the seed's own created+format_added
   });
 
   it("an admin (non-owner) -> 200, event admin: true", async () => {
@@ -139,7 +161,7 @@ describe("[LDB-A7] PUT /v1/layouts/{ref}: owner or admin", () => {
     const fake = actorFixture();
     const headers = register(fake, "tok-put-admin", BOOTSTRAP_ADMIN);
 
-    const res = await writeFetch(`/v1/layouts/${record.id}`, "PUT", { ...headers, "If-Match": `"${record.rev}"` }, { format: "spark/1", payload: AKL_PAYLOAD });
+    const res = await writeFetch(`/v1/layouts/${record.id}`, "PUT", { ...headers, "If-Match": `"spark:${record.formatRev}"` }, { format: "spark/1", payload: AKL_PAYLOAD });
     expect(res.status).toBe(200);
     const events = await eventsFor(record.id);
     expect(events.at(-1)).toMatchObject({ kind: "updated", actor: BOOTSTRAP_ADMIN, admin: true });
@@ -151,8 +173,6 @@ describe("[LDB-A7] PUT /v1/layouts/{ref}: owner or admin", () => {
     expect(res.status).toBe(401);
   });
 
-  // [LDB-P2] saltorbit's rule (2026-09-09): no If-Match at all -> refused
-  // before any read or mutation, even for the owner.
   it("[LDB-P2] no If-Match -> 400 if_match_required, record unchanged", async () => {
     const record = await seed();
     const fake = actorFixture();
@@ -160,16 +180,12 @@ describe("[LDB-A7] PUT /v1/layouts/{ref}: owner or admin", () => {
     const res = await writeFetch(`/v1/layouts/${record.id}`, "PUT", headers, { format: "spark/1", payload: AKL_PAYLOAD });
     expect(res.status).toBe(400);
     await expect(res.json()).resolves.toMatchObject({ error: "if_match_required" });
-    expect(await eventsFor(record.id)).toHaveLength(1); // just the seed's own "created"
+    expect(await eventsFor(record.id)).toHaveLength(2);
   });
 
-  // 20-spark.md S2 (saltorbit's decision 6, the lead's answer to §8 Q1):
-  // `isMagicOnlyReplace`/`detail.magic_only` are gone -- a PUT whose
-  // payload changes ONLY `magic` forks like any other write now, and
-  // `modified_at` bumps unconditionally. A mutable clock (this file's
-  // module-level one is fixed) is the only way to see the bump; it is
-  // restored afterward so every other test in this file keeps using the
-  // fixed one.
+  // 20-spark.md S2 (decision 6): `isMagicOnlyReplace`/`detail.magic_only`
+  // are gone -- a PUT whose payload changes ONLY `magic` forks like any
+  // other write, and `modified_at` bumps unconditionally.
   it("[LDB-P4] a PUT changing ONLY magic (same format) forks like any write: no magic_only marker, modified_at bumps", async () => {
     const record = await seed();
     const fake = actorFixture();
@@ -181,28 +197,20 @@ describe("[LDB-A7] PUT /v1/layouts/{ref}: owner or admin", () => {
       const res = await writeFetch(
         `/v1/layouts/${record.id}`,
         "PUT",
-        { ...headers, "If-Match": `"${record.rev}"` },
+        { ...headers, "If-Match": `"spark:${record.formatRev}"` },
         { format: "spark/1", payload: { ...(record.payload as object), magic: { rules: [{ inputs: "aa", output: "ab" }] } } },
       );
       expect(res.status).toBe(200);
       const events = await eventsFor(record.id);
       expect(events.at(-1)).toMatchObject({ kind: "updated", detail: null });
-      const body = (await res.json()) as { modified_at: string; rev: number };
-      expect(body.modified_at).toBe(bumped());
-      expect(body.modified_at).not.toBe(record.modified_at);
-      expect(body.rev).toBe(record.rev + 1);
+      const body = (await res.json()) as { formats: Record<string, { modified_at: string; rev: number }> };
+      expect(body.formats["spark/1"]!.modified_at).toBe(bumped());
+      expect(body.formats["spark/1"]!.rev).toBe(record.formatRev + 1);
     } finally {
       pinTestClock(env as unknown as { TEST_CLOCK?: typeof clock }, clock);
     }
   });
 
-  // 21-formats.md D5/D12 deleted the alias-relabel mechanism (`akl/1`)
-  // and the legacy carry-forward (`storedAsSpark`) this describe used to
-  // have a "PUT lifting cmini/1 -> akl/1 with only magic added" test for
-  // -- there is no more alias to relabel a response to, and every stored
-  // record is spark/1 from the start, so a magic-only PUT is just an
-  // ordinary same-format write (the next test covers its "forks, no
-  // magic_only marker" half).
   it("a PUT changing magic AND something else (keys) is NOT magic_only -- forks as before", async () => {
     const record = await seed();
     const fake = actorFixture();
@@ -211,7 +219,7 @@ describe("[LDB-A7] PUT /v1/layouts/{ref}: owner or admin", () => {
     const res = await writeFetch(
       `/v1/layouts/${record.id}`,
       "PUT",
-      { ...headers, "If-Match": `"${record.rev}"` },
+      { ...headers, "If-Match": `"spark:${record.formatRev}"` },
       { format: "spark/1", payload: { keys: { a: { row: 0, col: 0, finger: "LP" } }, magic: { rules: [{ inputs: "aa", output: "ab" }] } } },
     );
     expect(res.status).toBe(200);
@@ -220,32 +228,25 @@ describe("[LDB-A7] PUT /v1/layouts/{ref}: owner or admin", () => {
   });
 });
 
-describe("[LDB-A7] DELETE /v1/layouts/{ref}: owner or admin", () => {
-  it("[LDB-F16] the owner -> 200, kind deleted, deleted: true, payload kept (already spark-shaped)", async () => {
+describe("[LDB-A7] DELETE /v1/layouts/{ref}: owner or admin (layout scope only)", () => {
+  it("the owner -> 200, kind deleted, deleted: true, formats untouched", async () => {
     const record = await seed();
     const fake = actorFixture();
     const headers = register(fake, "tok-del-owner", OWNER);
 
-    const res = await writeFetch(`/v1/layouts/${record.id}`, "DELETE", { ...headers, "If-Match": `"${record.rev}"` });
+    const res = await writeFetch(`/v1/layouts/${record.id}`, "DELETE", { ...headers, "If-Match": `"layout:${record.layoutRev}"` });
     expect(res.status).toBe(200);
-    const body = await res.json<{ deleted: boolean; format: string; payload: unknown; rev: number }>();
+    const body = await res.json<{ deleted: boolean; layout_rev: number; formats: Record<string, { rev: number }> }>();
     expect(body.deleted).toBe(true);
-    expect(body.format).toBe("spark/1"); // stored natively -- no more alias to relabel a DELETE's response to
-    expect(body.payload).toEqual(record.payload); // carried forward verbatim
-    expect(body.rev).toBe(record.rev + 1);
+    expect(body.layout_rev).toBe(record.layoutRev + 1);
+    expect(body.formats["spark/1"]!.rev).toBe(record.formatRev); // untouched -- D3: deletion is layout-level only
   });
-  // 21-formats.md D12 deleted the legacy carry-forward (`storedAsSpark`)
-  // this describe used to have a second test for ("deletes an unmigrated
-  // cmini/1 record -> tombstone converts via fromCmini"): after the D8
-  // wipe no row is ever stored as `cmini/1`, so there is nothing left to
-  // convert -- the test right above already covers the only carry-forward
-  // shape that exists now (verbatim).
 
   it("a stranger -> 403", async () => {
     const record = await seed();
     const fake = actorFixture();
     const headers = register(fake, "tok-del-stranger", OTHER);
-    const res = await writeFetch(`/v1/layouts/${record.id}`, "DELETE", { ...headers, "If-Match": `"${record.rev}"` });
+    const res = await writeFetch(`/v1/layouts/${record.id}`, "DELETE", { ...headers, "If-Match": `"layout:${record.layoutRev}"` });
     expect(res.status).toBe(403);
   });
 
@@ -253,7 +254,7 @@ describe("[LDB-A7] DELETE /v1/layouts/{ref}: owner or admin", () => {
     const record = await seed();
     const fake = actorFixture();
     const headers = register(fake, "tok-del-admin", BOOTSTRAP_ADMIN);
-    const res = await writeFetch(`/v1/layouts/${record.id}`, "DELETE", { ...headers, "If-Match": `"${record.rev}"` });
+    const res = await writeFetch(`/v1/layouts/${record.id}`, "DELETE", { ...headers, "If-Match": `"layout:${record.layoutRev}"` });
     expect(res.status).toBe(200);
     const events = await eventsFor(record.id);
     expect(events.at(-1)).toMatchObject({ kind: "deleted", admin: true });
@@ -265,8 +266,6 @@ describe("[LDB-A7] DELETE /v1/layouts/{ref}: owner or admin", () => {
     expect(res.status).toBe(401);
   });
 
-  // [LDB-P2] saltorbit's rule (2026-09-09): no If-Match at all -> refused
-  // before any read or mutation, even for the owner.
   it("[LDB-P2] no If-Match -> 400 if_match_required, record unchanged", async () => {
     const record = await seed();
     const fake = actorFixture();
@@ -274,30 +273,11 @@ describe("[LDB-A7] DELETE /v1/layouts/{ref}: owner or admin", () => {
     const res = await writeFetch(`/v1/layouts/${record.id}`, "DELETE", headers);
     expect(res.status).toBe(400);
     await expect(res.json()).resolves.toMatchObject({ error: "if_match_required" });
-    expect(await eventsFor(record.id)).toHaveLength(1); // just the seed's own "created"
+    expect(await eventsFor(record.id)).toHaveLength(2);
   });
 });
 
 describe("[LDB-A7] POST /v1/layouts/{ref}/restore: owner or admin", () => {
-  async function seedDeleted(owner = OWNER) {
-    const record = await seed(owner);
-    return appendWrite(db, clock, {
-      upstream: null,
-      kind: "deleted",
-      layoutId: record.id,
-      name: record.name,
-      owner: record.owner,
-      modified_at: clock(),
-      format: record.format,
-      payload: record.payload,
-      actor: owner,
-      via: "discord",
-      source: { client: "discord-app:test", version: null },
-      deleted: true,
-      hasMagic: false,
-    }).then((r) => r.record);
-  }
-
   it("the owner -> 200, kind restored, deleted: false", async () => {
     const tombstone = await seedDeleted();
     const fake = actorFixture();
@@ -337,8 +317,6 @@ describe("[LDB-A7] POST /v1/layouts/{ref}/transfer: owner or admin", () => {
   const TARGET_ID = "20000000000000001"; // 17 digits -- shaped like a snowflake
 
   async function seedTargetAuthor() {
-    // A sign-in is what gives someone an `authors` row (09 §2.2) -- the
-    // simplest way to seed one from this suite is a real /v1/me call.
     const fake = actorFixture();
     const headers = register(fake, "tok-transfer-target", TARGET_ID);
     const res = await SELF.fetch("https://example.com/v1/me", { headers });
@@ -351,7 +329,7 @@ describe("[LDB-A7] POST /v1/layouts/{ref}/transfer: owner or admin", () => {
     const fake = actorFixture();
     const headers = register(fake, "tok-transfer-owner", OWNER);
 
-    const res = await writeFetch(`/v1/layouts/${record.id}/transfer`, "POST", { ...headers, "If-Match": `"${record.rev}"` }, { to: TARGET_ID });
+    const res = await writeFetch(`/v1/layouts/${record.id}/transfer`, "POST", { ...headers, "If-Match": `"layout:${record.layoutRev}"` }, { to: TARGET_ID });
     expect(res.status).toBe(200);
     const body = await res.json<{ owner: string }>();
     expect(body.owner).toBe(TARGET_ID);
@@ -366,16 +344,16 @@ describe("[LDB-A7] POST /v1/layouts/{ref}/transfer: owner or admin", () => {
     const record = await seed();
     const fake = actorFixture();
     const headers = register(fake, "tok-transfer-stranger", OTHER);
-    const res = await writeFetch(`/v1/layouts/${record.id}/transfer`, "POST", { ...headers, "If-Match": `"${record.rev}"` }, { to: TARGET_ID });
+    const res = await writeFetch(`/v1/layouts/${record.id}/transfer`, "POST", { ...headers, "If-Match": `"layout:${record.layoutRev}"` }, { to: TARGET_ID });
     expect(res.status).toBe(403);
   });
 
-  it("an admin (non-owner) -> 200, event admin: true, transfers a stranger's record", async () => {
+  it("an admin (non-owner) -> 200, event admin: true, transfers a stranger's layout", async () => {
     await seedTargetAuthor();
     const record = await seed();
     const fake = actorFixture();
     const headers = register(fake, "tok-transfer-admin", BOOTSTRAP_ADMIN);
-    const res = await writeFetch(`/v1/layouts/${record.id}/transfer`, "POST", { ...headers, "If-Match": `"${record.rev}"` }, { to: TARGET_ID });
+    const res = await writeFetch(`/v1/layouts/${record.id}/transfer`, "POST", { ...headers, "If-Match": `"layout:${record.layoutRev}"` }, { to: TARGET_ID });
     expect(res.status).toBe(200);
     const events = await eventsFor(record.id);
     expect(events.at(-1)).toMatchObject({ kind: "transferred", admin: true });
@@ -387,10 +365,6 @@ describe("[LDB-A7] POST /v1/layouts/{ref}/transfer: owner or admin", () => {
     expect(res.status).toBe(401);
   });
 
-  // [LDB-P2] saltorbit's rule (2026-09-09): no If-Match at all -> refused
-  // before any read or mutation, even for the owner. Transfer never checks
-  // the header's VALUE against `record.rev` (no draft to be stale), only
-  // that it's present.
   it("[LDB-P2] no If-Match -> 400 if_match_required, record unchanged", async () => {
     await seedTargetAuthor();
     const record = await seed();
@@ -400,18 +374,13 @@ describe("[LDB-A7] POST /v1/layouts/{ref}/transfer: owner or admin", () => {
     expect(res.status).toBe(400);
     await expect(res.json()).resolves.toMatchObject({ error: "if_match_required" });
     const events = await eventsFor(record.id);
-    expect(events).toHaveLength(1); // just the seed's own "created"
+    expect(events).toHaveLength(2);
   });
 });
 
-// [LDB-A5] 10 C1: the whole verb matrix runs again on the client lane -- a
-// signed request, not a Discord bearer -- and every accepted write's event
-// carries `via: client:<id>` (`actor.via`, not the literal "discord",
-// core/write.ts). Auth here goes through the LIVE two-lane dispatcher
-// (`authDeps.now` = real wall-clock, never the pinned TEST_CLOCK), so every
-// signed request below is timestamped off `Date.now()`, not `clock()`.
+// [LDB-A5] 10 C1: the whole verb matrix runs again on the client lane.
 describe("[LDB-A5] client-lane writes: via: client:<id>", () => {
-  const TARGET_ID = "20000000000000002"; // 17 digits, distinct from the transfer describe above's own TARGET_ID
+  const TARGET_ID = "20000000000000002";
   let clientCounter = 0;
   async function freshClient(): Promise<{ clientId: string; privateKey: CryptoKey; actor: string }> {
     clientCounter++;
@@ -427,7 +396,7 @@ describe("[LDB-A5] client-lane writes: via: client:<id>", () => {
     path: string,
     client: { clientId: string; privateKey: CryptoKey; actor: string },
     body?: unknown,
-    extraHeaders?: Record<string, string>, // e.g. If-Match -- not part of the signed set
+    extraHeaders?: Record<string, string>,
   ): Promise<Response> {
     const bodyText = body === undefined ? undefined : JSON.stringify(body);
     const headers = await signHeaders({
@@ -460,19 +429,16 @@ describe("[LDB-A5] client-lane writes: via: client:<id>", () => {
   it("PUT /v1/layouts/{ref} -> 200, event via: client:<id>", async () => {
     const client = await freshClient();
     const record = await seed(client.actor);
-    const res = await signedFetch("PUT", `/v1/layouts/${record.id}`, client, { format: "spark/1", payload: AKL_PAYLOAD }, { "If-Match": `"${record.rev}"` });
+    const res = await signedFetch("PUT", `/v1/layouts/${record.id}`, client, { format: "spark/1", payload: AKL_PAYLOAD }, { "If-Match": `"spark:${record.formatRev}"` });
     expect(res.status).toBe(200);
     const events = await eventsFor(record.id);
     expect(events.at(-1)).toMatchObject({ kind: "updated", via: `client:${client.clientId}`, actor: client.actor });
   });
 
-  it("PATCH /v1/layouts/{ref} -> 200, event via: client:<id>", async () => {
-    // core/write.ts's patchLayout hardcoded `via: "discord"` (missed by
-    // this describe's original verb sweep, which never exercised PATCH) --
-    // fixed to `via: actor.via` alongside this test, LDB-A5's client half.
+  it("PATCH /v1/layouts/{ref} (rename) -> 200, event via: client:<id>", async () => {
     const client = await freshClient();
     const record = await seed(client.actor);
-    const res = await signedFetch("PATCH", `/v1/layouts/${record.id}`, client, { name: uniqueName("client-patch") }, { "If-Match": `"${record.rev}"` });
+    const res = await signedFetch("PATCH", `/v1/layouts/${record.id}`, client, { name: uniqueName("client-patch") }, { "If-Match": `"layout:${record.layoutRev}"` });
     expect(res.status).toBe(200);
     const events = await eventsFor(record.id);
     expect(events.at(-1)).toMatchObject({ kind: "renamed", via: `client:${client.clientId}`, actor: client.actor });
@@ -481,7 +447,7 @@ describe("[LDB-A5] client-lane writes: via: client:<id>", () => {
   it("DELETE /v1/layouts/{ref} -> 200, event via: client:<id>", async () => {
     const client = await freshClient();
     const record = await seed(client.actor);
-    const res = await signedFetch("DELETE", `/v1/layouts/${record.id}`, client, undefined, { "If-Match": `"${record.rev}"` });
+    const res = await signedFetch("DELETE", `/v1/layouts/${record.id}`, client, undefined, { "If-Match": `"layout:${record.layoutRev}"` });
     expect(res.status).toBe(200);
     const events = await eventsFor(record.id);
     expect(events.at(-1)).toMatchObject({ kind: "deleted", via: `client:${client.clientId}`, actor: client.actor });
@@ -489,22 +455,7 @@ describe("[LDB-A5] client-lane writes: via: client:<id>", () => {
 
   it("POST /v1/layouts/{ref}/restore -> 200, event via: client:<id>", async () => {
     const client = await freshClient();
-    const record = await seed(client.actor);
-    const tombstone = await appendWrite(db, clock, {
-      upstream: null,
-      kind: "deleted",
-      layoutId: record.id,
-      name: record.name,
-      owner: record.owner,
-      modified_at: clock(),
-      format: record.format,
-      payload: record.payload,
-      actor: client.actor,
-      via: "discord",
-      source: { client: "discord-app:test", version: null },
-      deleted: true,
-      hasMagic: false,
-    }).then((r) => r.record);
+    const tombstone = await seedDeleted(client.actor);
     const res = await signedFetch("POST", `/v1/layouts/${tombstone.id}/restore`, client);
     expect(res.status).toBe(200);
     const events = await eventsFor(tombstone.id);
@@ -514,14 +465,12 @@ describe("[LDB-A5] client-lane writes: via: client:<id>", () => {
   it("POST /v1/layouts/{ref}/transfer -> 200, event via: client:<id>", async () => {
     const client = await freshClient();
     const record = await seed(client.actor);
-    // transfer's target must be a known user -- a live /v1/me call (bearer
-    // lane, unrelated to what's under test) seeds the authors row.
     const targetFake = actorFixture();
     const targetHeaders = register(targetFake, `tok-${uniqueName("target")}`, TARGET_ID);
     await SELF.fetch("https://example.com/v1/me", { headers: targetHeaders });
     vi.unstubAllGlobals();
 
-    const res = await signedFetch("POST", `/v1/layouts/${record.id}/transfer`, client, { to: TARGET_ID }, { "If-Match": `"${record.rev}"` });
+    const res = await signedFetch("POST", `/v1/layouts/${record.id}/transfer`, client, { to: TARGET_ID }, { "If-Match": `"layout:${record.layoutRev}"` });
     expect(res.status).toBe(200);
     const events = await eventsFor(record.id);
     expect(events.at(-1)).toMatchObject({ kind: "transferred", via: `client:${client.clientId}`, actor: client.actor });
@@ -530,23 +479,21 @@ describe("[LDB-A5] client-lane writes: via: client:<id>", () => {
   it("[LDB-I14] nextUpstream reads via, not the literal 'discord' -- a client-lane write forks a following record too", async () => {
     const client = await freshClient();
     const record = await seed(client.actor);
-    const res = await signedFetch("PUT", `/v1/layouts/${record.id}`, client, { format: "spark/1", payload: AKL_PAYLOAD }, { "If-Match": `"${record.rev}"` });
+    const res = await signedFetch("PUT", `/v1/layouts/${record.id}`, client, { format: "spark/1", payload: AKL_PAYLOAD }, { "If-Match": `"spark:${record.formatRev}"` });
     expect(res.status).toBe(200);
     const row = await db.prepare("SELECT via FROM events WHERE layout_id = ? ORDER BY seq DESC LIMIT 1").bind(record.id).first<{ via: string }>();
     expect(row?.via.startsWith("client:")).toBe(true);
-    expect(row?.via).not.toBe("import:cmini"); // LDB-I14: "following" only ever comes from via === 'import:cmini' exactly
+    expect(row?.via).not.toBe("import:cmini");
   });
 });
 
-// [LDB-P9] design/layout-db/18-command-decisions.md §2 D1 (saltorbit:
-// "tombstoned name carries likes for whoever takes it. it's a quirk people
-// like"): `POST /v1/layouts` on a name a tombstone currently holds copies
-// that tombstone's likes onto the new record, `via: "name_inherited"`,
-// `detail: {from: <tombstone id>}`.
+// [LDB-P9] design/layout-db/18-command-decisions.md §2 D1: `POST
+// /v1/layouts` on a name a tombstone currently holds copies that
+// tombstone's likes onto the new record, `via: "name_inherited"`.
 describe("[LDB-P9] a re-added tombstoned name inherits the tombstone's likes", () => {
   interface CreatedBody {
     id: string;
-    rev: number;
+    layout_rev: number;
     name: string;
     owner: string;
     like_count: number;
@@ -563,8 +510,8 @@ describe("[LDB-P9] a re-added tombstoned name inherits the tombstone's likes", (
     expect(res.status).toBe(200);
   }
 
-  async function deleteViaHttp(id: string, rev: number, headers: Record<string, string>): Promise<void> {
-    const res = await writeFetch(`/v1/layouts/${id}`, "DELETE", { ...headers, "If-Match": `"${rev}"` });
+  async function deleteViaHttp(id: string, layoutRev: number, headers: Record<string, string>): Promise<void> {
+    const res = await writeFetch(`/v1/layouts/${id}`, "DELETE", { ...headers, "If-Match": `"layout:${layoutRev}"` });
     expect(res.status).toBe(200);
   }
 
@@ -578,17 +525,17 @@ describe("[LDB-P9] a re-added tombstoned name inherits the tombstone's likes", (
     const first = await createViaHttp(owner, name);
     await likeAs(first.id, liker1);
     await likeAs(first.id, liker2);
-    await deleteViaHttp(first.id, first.rev, owner);
+    await deleteViaHttp(first.id, first.layout_rev, owner);
 
     const second = await createViaHttp(owner, name);
-    expect(second.like_count).toBe(2); // the create's own 201 response already reflects the inherited likes
+    expect(second.like_count).toBe(2);
 
     const likeRows = await db.prepare("SELECT user_id FROM likes WHERE layout_id = ? ORDER BY user_id ASC").bind(second.id).all<{ user_id: string }>();
     expect(likeRows.results.map((r) => r.user_id)).toEqual(["p9-liker-1", "p9-liker-2"]);
 
     const events = await eventsFor(second.id);
-    expect(events.map((e) => e.kind)).toEqual(["created", "liked", "liked"]);
-    for (const e of events.slice(1)) {
+    expect(events.map((e) => e.kind)).toEqual(["created", "format_added", "liked", "liked"]);
+    for (const e of events.slice(2)) {
       expect(e.via).toBe("name_inherited");
       expect(e.detail).toEqual({ from: first.id });
     }
@@ -603,16 +550,16 @@ describe("[LDB-P9] a re-added tombstoned name inherits the tombstone's likes", (
     const name = uniqueName("p9-diff");
     const first = await createViaHttp(origOwner, name);
     await likeAs(first.id, liker);
-    await deleteViaHttp(first.id, first.rev, origOwner);
+    await deleteViaHttp(first.id, first.layout_rev, origOwner);
 
     const second = await createViaHttp(newOwner, name);
     expect(second.owner).toBe("p9-owner-new");
     expect(second.like_count).toBe(1);
 
     const events = await eventsFor(second.id);
-    expect(events.map((e) => e.kind)).toEqual(["created", "liked"]);
-    expect(events[1]).toMatchObject({ via: "name_inherited", actor: "p9-liker-3" });
-    expect(events[1]!.detail).toEqual({ from: first.id });
+    expect(events.map((e) => e.kind)).toEqual(["created", "format_added", "liked"]);
+    expect(events[2]).toMatchObject({ via: "name_inherited", actor: "p9-liker-3" });
+    expect(events[2]!.detail).toEqual({ from: first.id });
   });
 
   it("[LDB-P9] no tombstone ever held the name -> no inherited likes", async () => {
@@ -620,7 +567,7 @@ describe("[LDB-P9] a re-added tombstoned name inherits the tombstone's likes", (
     const owner = register(fake, `tok-${uniqueName("p9-fresh")}`, "p9-owner-fresh");
     const rec = await createViaHttp(owner, uniqueName("p9-fresh-name"));
     expect(rec.like_count).toBe(0);
-    expect(await eventsFor(rec.id)).toHaveLength(1); // just "created"
+    expect(await eventsFor(rec.id)).toHaveLength(2); // created + format_added
   });
 
   it("[LDB-P9] a tombstone with zero likes -> re-add inherits nothing", async () => {
@@ -628,11 +575,11 @@ describe("[LDB-P9] a re-added tombstoned name inherits the tombstone's likes", (
     const owner = register(fake, `tok-${uniqueName("p9-zero")}`, "p9-owner-zero");
     const name = uniqueName("p9-zero-likes");
     const first = await createViaHttp(owner, name);
-    await deleteViaHttp(first.id, first.rev, owner);
+    await deleteViaHttp(first.id, first.layout_rev, owner);
 
     const second = await createViaHttp(owner, name);
     expect(second.like_count).toBe(0);
-    expect(await eventsFor(second.id)).toHaveLength(1); // just "created" -- no liked events
+    expect(await eventsFor(second.id)).toHaveLength(2);
   });
 
   it("[LDB-P9] restore-after-inherit: the tombstone stays restorable, and both records end up carrying the like (accepted per 18)", async () => {
@@ -643,21 +590,12 @@ describe("[LDB-P9] a re-added tombstoned name inherits the tombstone's likes", (
     const name = uniqueName("p9-restore");
     const first = await createViaHttp(owner, name);
     await likeAs(first.id, liker);
-    await deleteViaHttp(first.id, first.rev, owner);
+    await deleteViaHttp(first.id, first.layout_rev, owner);
 
     const second = await createViaHttp(owner, name);
     expect(second.like_count).toBe(1);
 
-    // LDB-P8: restoring onto a name a LIVE record still holds is refused
-    // (409 name_taken, tests/api/restore.test.ts's own "a live holder of
-    // the name meanwhile" case) -- rename the re-add away first so the
-    // tombstone's own name is free again.
-    const renameRes = await writeFetch(
-      `/v1/layouts/${second.id}`,
-      "PATCH",
-      { ...owner, "If-Match": `"${second.rev}"` },
-      { name: uniqueName("p9-restore-moved") },
-    );
+    const renameRes = await writeFetch(`/v1/layouts/${second.id}`, "PATCH", { ...owner, "If-Match": `"layout:${second.layout_rev}"` }, { name: uniqueName("p9-restore-moved") });
     expect(renameRes.status).toBe(200);
 
     const restoreRes = await writeFetch(`/v1/layouts/${first.id}/restore`, "POST", owner);
@@ -666,10 +604,6 @@ describe("[LDB-P9] a re-added tombstoned name inherits the tombstone's likes", (
     expect(restored.deleted).toBe(false);
     expect(restored.name).toBe(name);
 
-    // Two live records now, each independently carrying its OWN copy of
-    // the like: the original's (never touched by the inherit step) and
-    // the re-add's (copied at create time) -- accepted per 18's own text
-    // ("restoring then yields two records each carrying the likes").
     const firstLikes = await db.prepare("SELECT user_id FROM likes WHERE layout_id = ?").bind(first.id).all<{ user_id: string }>();
     const secondLikes = await db.prepare("SELECT user_id FROM likes WHERE layout_id = ?").bind(second.id).all<{ user_id: string }>();
     expect(firstLikes.results.map((r) => r.user_id)).toEqual(["p9-liker-restore"]);
@@ -684,7 +618,7 @@ describe("[LDB-P9] a re-added tombstoned name inherits the tombstone's likes", (
     const name = uniqueName("p9-feed");
     const first = await createViaHttp(owner, name);
     await likeAs(first.id, liker);
-    await deleteViaHttp(first.id, first.rev, owner);
+    await deleteViaHttp(first.id, first.layout_rev, owner);
     const second = await createViaHttp(owner, name);
 
     const res = await writeFetch(`/v1/changes?since=0&layout=${second.id}`, "GET", owner);
