@@ -20,9 +20,9 @@ import { SELF, createExecutionContext, createScheduledController, env, waitOnExe
 import { describe, expect, it, vi } from "vitest";
 import type { Bindings } from "../src/env";
 import { canonical } from "../src/core/canonical";
-import { type EventDbRow, foldRecord, rowToEvent } from "../src/core/events";
-import { sourceFromRow, upstreamFromRow, type LayoutDbRow } from "../src/core/records";
-import type { Dump } from "../src/dump/write";
+import { type EventDbRow, foldLayout, rowToEvent } from "../src/core/events";
+import { rowToFormat, rowToLayout, type FormatDbRow, type LayoutDbRow } from "../src/core/records";
+import type { Dump, LayoutRevDbRow } from "../src/dump/write";
 import { restoreInto } from "../src/dump/restore";
 import worker from "../src/index";
 import { FakeUpstream } from "./import/fake-upstream";
@@ -81,22 +81,16 @@ async function fetchRemoteDump(url: string): Promise<Dump> {
   return gunzipJson<Dump>(await res.arrayBuffer());
 }
 
-function foldedFromDump(rec: LayoutDbRow): Record<string, unknown> {
-  return {
-    id: rec.id,
-    name: rec.name,
-    owner: rec.owner,
-    rev: rec.rev,
-    created_at: rec.created_at,
-    modified_at: rec.modified_at,
-    deleted: rec.deleted !== 0,
-    like_count: rec.like_count,
-    has_magic: rec.has_magic !== 0,
-    format: rec.format,
-    upstream: upstreamFromRow(rec),
-    source: sourceFromRow(rec), // 20-spark.md S3s (LDB-P15)
-    payload: JSON.parse(rec.payload_json) as unknown,
-  };
+// The dump's own equivalent of `readByIdWithFormats` (records.ts) -- built
+// straight from the dump's raw rows rather than a D1 read, so this can run
+// against a dump fetched over the network too (remote mode has no local D1
+// of its own to read from before restoring).
+function foldedFromDumpRows(rec: LayoutDbRow, formatRows: FormatDbRow[]): { layout: Record<string, unknown>; formats: Record<string, unknown> } {
+  const layout = rowToLayout(rec);
+  const { n: _n, ...layoutSansN } = layout;
+  const formats: Record<string, unknown> = {};
+  for (const f of formatRows) formats[f.lineage] = rowToFormat(f);
+  return { layout: layoutSansN, formats };
 }
 
 describe("rehost drill", () => {
@@ -107,7 +101,7 @@ describe("rehost drill", () => {
   // the event log to a tail) would desync one of those, not just look wrong
   // in isolation. `tests/api/dump.test.ts` covers the OTHER two clauses
   // (the `latest.json` sha256, the monthly-key timing) directly.
-  it("[LDB-G1] [LDB-P6] [LDB-D1] [LDB-P11] restoreSql reproduces the exact dumped state", async () => {
+  it("[LDB-G1] [LDB-P6] [LDB-D1] [MF-3] [LDB-P11] restoreSql reproduces the exact dumped state", async () => {
     const remoteUrl = bindings.TEST_REHOST_DUMP_URL;
     const usingRemote = remoteUrl !== "";
 
@@ -123,29 +117,39 @@ describe("rehost drill", () => {
 
     await restoreInto(db, dump);
 
-    // P1 replay: every dumped record equals the fold of its own events
-    // against the payloads `layout_revs` stored for it -- the same identity
-    // tests/events/fold.test.ts checks live, now checked over a full
-    // dump/restore round trip.
+    // MF-3 replay: every dumped layout equals the fold of its own events
+    // against the payloads `layout_revs` stored for each scope -- the same
+    // identity tests/events/fold.test.ts's write model checks live, now
+    // checked over a full dump/restore round trip.
     const eventsByLayout = new Map<string, EventDbRow[]>();
     for (const e of dump.events) {
       if (e.layout_id === null) continue;
       if (!eventsByLayout.has(e.layout_id)) eventsByLayout.set(e.layout_id, []);
       eventsByLayout.get(e.layout_id)!.push(e);
     }
-    const revsByLayout = new Map<string, Map<number, { format: string; payload: unknown }>>();
-    for (const r of dump.layout_revs) {
+    const revsByLayout = new Map<string, Map<string, { format: string | null; payload: unknown }>>();
+    for (const r of dump.layout_revs as LayoutRevDbRow[]) {
       if (!revsByLayout.has(r.layout_id)) revsByLayout.set(r.layout_id, new Map());
-      revsByLayout.get(r.layout_id)!.set(r.rev, { format: r.format, payload: JSON.parse(r.payload_json) as unknown });
+      const payload = r.payload_json === null ? undefined : (JSON.parse(r.payload_json) as unknown);
+      revsByLayout.get(r.layout_id)!.set(`${r.lineage ?? ""} ${r.rev}`, { format: r.format, payload });
+    }
+    const formatsByLayout = new Map<string, FormatDbRow[]>();
+    for (const f of dump.layout_formats) {
+      if (!formatsByLayout.has(f.layout_id)) formatsByLayout.set(f.layout_id, []);
+      formatsByLayout.get(f.layout_id)!.push(f);
     }
 
     expect(dump.records.length).toBeGreaterThan(0);
     for (const rec of dump.records) {
       const events = (eventsByLayout.get(rec.id) ?? []).map(rowToEvent);
       const revs = revsByLayout.get(rec.id) ?? new Map();
-      const folded = foldRecord(events, revs);
-      expect(folded, `record ${rec.id} ('${rec.name}') folded to null`).not.toBeNull();
-      expect(canonical(folded), `record ${rec.id} ('${rec.name}')`).toBe(canonical(foldedFromDump(rec)));
+      const folded = foldLayout(events, revs);
+      expect(folded, `layout ${rec.id} ('${rec.name}') folded to null`).not.toBeNull();
+      const foldedFormats: Record<string, unknown> = {};
+      for (const [lineage, row] of folded!.formats) foldedFormats[lineage] = row;
+      const expected = foldedFromDumpRows(rec, formatsByLayout.get(rec.id) ?? []);
+      expect(canonical(folded!.layout), `layout ${rec.id} ('${rec.name}')`).toBe(canonical(expected.layout));
+      expect(canonical(foldedFormats), `layout ${rec.id} ('${rec.name}') formats`).toBe(canonical(expected.formats));
     }
 
     if (usingRemote) {
@@ -164,21 +168,14 @@ describe("rehost drill", () => {
 
     // Every conformance case, replayed against the RESTORED database --
     // proves a rehosted service actually serves the real API, not just that
-    // its rows look right in isolation. Real upstream layout names are
-    // stable enough (07 §0.1 measured them off the live corpus) that this
-    // also passes in remote mode against a real production dump. Deliberate
-    // exclusions: the four `dump*` cases assume NO dump has been written yet
-    // (the plain conformance seed's world); this test has, by construction,
-    // just written or fetched one. Every `needsSeed` case (09 §3 T6's flag,
-    // manifest.ts) assumes tests/api/conformance.test.ts's OWN lazily-seeded
-    // write fixtures (`cw-put-1`, `cw-like-1`, the `QWERTY` record, the
-    // ratelimited/second-owner/admin actors, the `__CW_RESTORE*_ID__`
-    // placeholders, ...) and its stubbed FakeDiscord -- none of which exist
-    // here (only `seedUpstream100()` + the cron ran), so they'd 404, 401 (no
-    // matching FakeDiscord answer), or address a literal, unresolved
-    // placeholder string. Deriving this from the flag (rather than a
-    // hand-listed set of id prefixes) is what keeps this set in sync with
-    // conformance.test.ts's own trigger as new needsSeed cases are added.
+    // its rows look right in isolation.
+    //
+    // NOTE (F2 follow-up owed, same as tests/api/conformance.test.ts's own
+    // note): every case's fixture still encodes the PRE-F2 wire shape, so
+    // this loop is expected to fail at runtime until that dedicated
+    // regeneration pass lands -- kept running (not skipped) so it starts
+    // passing the moment the fixtures are fixed, per this repo's "a skip
+    // nobody reads is a pass" rule.
     for (const kase of CASES) {
       // X1: `changes-stream/503-stream_unavailable` needs `STREAM_MAX_MS`
       // toggled to `"0"` for its one request only -- conformance.test.ts's
