@@ -165,13 +165,20 @@ function chainToLatest(module: FormatModule, payload: unknown): { format: string
   return { format: latest, payload: chained, hasMagic: latestModule.hasMagic(chained), writtenAs: module.id };
 }
 
-async function commitAndMapErrors(db: Bindings["DB"], now: Clock, build: () => Promise<CommitInput>, nameForClash?: string): Promise<CommitResult> {
+// `nameTaken()`'s own thrown body always carries the clashing `name`
+// (`commitWrite`'s pre-check only knows a name clashed, not who holds it)
+// -- read straight off the caught error, so every caller here needs no
+// separate "what name was I trying to claim" parameter of its own (restore
+// without a `{name}` reuses the tombstone's own name, computed only
+// inside `build`, which this could not otherwise see).
+async function commitAndMapErrors(db: Bindings["DB"], now: Clock, build: () => Promise<CommitInput>): Promise<CommitResult> {
   try {
     return await commitWithRetry(db, now, build);
   } catch (e) {
-    if (e instanceof ApiError && e.body.error === "name_taken" && e.body.holder === undefined && nameForClash !== undefined) {
-      const holderRec = await readByName(db, nameForClash);
-      if (holderRec !== null) throw nameTaken(nameForClash, { id: holderRec.id, owner: holderRec.owner });
+    if (e instanceof ApiError && e.body.error === "name_taken" && e.body.holder === undefined && typeof e.body.name === "string") {
+      const clashName = e.body.name;
+      const holderRec = await readByName(db, clashName);
+      if (holderRec !== null) throw nameTaken(clashName, { id: holderRec.id, owner: holderRec.owner });
     }
     throw e;
   }
@@ -248,7 +255,7 @@ export async function createLayout(env: Bindings, now: Clock, actor: Actor, body
     upstream: null, // a plain user create has no prior link -- nextUpstream(null, ...) is always null
   };
 
-  const result = await commitAndMapErrors(db, now, () => Promise.resolve(input), body.name);
+  const result = await commitAndMapErrors(db, now, () => Promise.resolve(input));
 
   let layout = result.layout;
   if (tombstoneId !== null) {
@@ -393,7 +400,7 @@ export async function renameLayout(env: Bindings, now: Clock, actor: Actor, ref:
     };
   };
 
-  const result = await commitAndMapErrors(db, now, build, name);
+  const result = await commitAndMapErrors(db, now, build);
   return { layout: result.layout, formats: result.formats };
 }
 
@@ -543,7 +550,7 @@ export async function restoreLayout(env: Bindings, now: Clock, actor: Actor, ref
     };
   };
 
-  const result = await commitAndMapErrors(db, now, build, body.name);
+  const result = await commitAndMapErrors(db, now, build);
   return { layout: result.layout, formats: result.formats };
 }
 
