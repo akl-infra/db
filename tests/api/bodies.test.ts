@@ -8,8 +8,9 @@
 import { SELF, env } from "cloudflare:test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Bindings } from "../../src/env";
-import { appendWrite } from "../../src/core/events";
+import { commitWrite, type CommitInput } from "../../src/core/events";
 import { fixedClock } from "../../src/core/time";
+import { ulid } from "ulidx";
 import { AKL_PAYLOAD, CMINI_PAYLOAD, actorFixture, register, uniqueName, writeFetch } from "./write-support";
 
 const db = (env as unknown as Bindings).DB;
@@ -21,20 +22,26 @@ afterEach(() => {
 });
 
 async function seed() {
-  const { record } = await appendWrite(db, clock, {
-      upstream: null,
-    kind: "created",
-    name: uniqueName("bodies-seed"),
-    owner: OWNER,
+  // `commitWrite` itself does no registry validation (that's the HTTP
+  // route's `validatePayload` job) -- `cmini/1` is a fine low-level stand-in
+  // here, same as the old single-scope tests always used, and this file's
+  // own cases never need the format to actually resolve.
+  const input: CommitInput = {
+    layoutId: ulid(),
+    creating: true,
+    currentN: 0,
+    currentLayout: null,
+    currentFormats: new Map(),
+    layout: { kind: "created", name: uniqueName("bodies-seed"), owner: OWNER, created_at: clock(), deleted: false },
+    format: { kind: "format_added", lineage: "cmini", format: "cmini/1", payload: CMINI_PAYLOAD, hasMagic: false },
     modified_at: clock(),
-    format: "cmini/1",
-    payload: CMINI_PAYLOAD,
     actor: OWNER,
     via: "discord",
     source: { client: "discord-app:test", version: null },
-    hasMagic: false,
-  });
-  return record;
+    upstream: null,
+  };
+  const { layout } = await commitWrite(db, clock, input);
+  return layout;
 }
 
 function ownerHeaders() {

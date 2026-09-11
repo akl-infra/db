@@ -8,7 +8,7 @@
 import { createExecutionContext, createScheduledController, env, waitOnExecutionContext } from "cloudflare:test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Bindings } from "../../src/env";
-import { appendWrite, type EventDbRow, feed, rowToEvent } from "../../src/core/events";
+import { type EventDbRow, feed, rowToEvent } from "../../src/core/events";
 import { fixedClock } from "../../src/core/time";
 import * as nightlyModule from "../../src/core/nightly";
 import * as cminiModule from "../../src/import/cmini";
