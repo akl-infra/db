@@ -542,7 +542,12 @@ token (S5 caught this with the `IMPORT_MAX_WRITES_PER_TICK=20` convergence
 test). The meta token is stored only after a
 tick that applied everything it planned. Authors: `GET /authors` on every
 non-quiet tick; upsert rows whose `name` differs (`first_seen_at = now` on
-insert); no events. **An upstream rename is delete + create** (cmini's id
+insert); no events. **Amended 2026-09-11 (LDB-I15..I17):** upstream lists
+several names per id, and "upsert whenever it differs" walked every such id
+through all of them on every pass (moving `authors_modified_at` with no
+seq bump). The import now keeps a stored name while upstream still lists
+it, otherwise takes the code-point-greatest of upstream's names, and never
+renames a user-lane name (`authors.name_source`, `src/import/authors.ts`). **An upstream rename is delete + create** (cmini's id
 is its lowercase name; matching by content is a phase-2+ heuristic, 06 §2).
 
 **`cmini.ts`** — `tick(env, now)`: `paused` → return; `meta()` → token

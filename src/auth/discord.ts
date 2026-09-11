@@ -191,8 +191,11 @@ export async function resolveBearer(
       .bind(hash, user.id, name, appId, addSeconds(at, CACHE_OK_SECONDS)),
     db
       .prepare(
-        `INSERT INTO authors (user_id, name, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?)
-         ON CONFLICT(user_id) DO UPDATE SET name = excluded.name, last_seen_at = excluded.last_seen_at`,
+        // LDB-I17: the user lane always sets its own name and marks it
+        // `name_source = 'user'` -- the one mark the cmini import never
+        // overwrites (`import/authors.ts`).
+        `INSERT INTO authors (user_id, name, first_seen_at, last_seen_at, name_source) VALUES (?, ?, ?, ?, 'user')
+         ON CONFLICT(user_id) DO UPDATE SET name = excluded.name, name_source = 'user', last_seen_at = excluded.last_seen_at`,
       )
       .bind(user.id, name, at, at),
   ]);

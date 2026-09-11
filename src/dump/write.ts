@@ -35,6 +35,9 @@ export interface AuthorDbRow {
   name: string;
   first_seen_at: string;
   last_seen_at: string;
+  // migrations/0006 (LDB-I17): 'import' | 'user' | 'client'. Absent from a
+  // dump written before that migration -- restore.ts reads it as 'import'.
+  name_source?: string;
 }
 export interface AdminDbRow {
   user_id: string;

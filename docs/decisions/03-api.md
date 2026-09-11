@@ -427,6 +427,7 @@ layout_revs    (layout_id, rev) PK, event_seq, payload_json, format      -- for 
                                                                           -- format here is the LEGACY value forever -- history is not rewritten (LDB-F21)
 likes          (layout_id, user_id) PK, at
 authors        user_id PK, name, first_seen_at, last_seen_at              -- names from Discord at auth; cmini import seeds
+               -- 0006: name_source 'import'|'user'|'client' -- one stable name per id; a user-lane name is never overwritten by the import (LDB-I15..I17)
 events         seq PK AUTOINCREMENT, at, kind, layout_id, actor, via, admin, before_json, after_json
                -- 0005_spark.sql (S3s): source_client, source_version   -- decision 14; NULL on any event written before this column existed
 clients        id PK, name, pubkey, owner_user_id, caps, discord_app_id, status, created_at, revoked_at

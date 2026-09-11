@@ -13,6 +13,7 @@ import { nextUpstream, upstreamOf } from "../core/upstream";
 import { readById, readByName, type RecordRow } from "../core/records";
 import type { Clock } from "../core/time";
 import { parseSnowflake, type RawUpstreamDetail } from "./upstream";
+import { planAuthorNames, readStoredAuthors, writeAuthorNames } from "./authors";
 import type { DeleteAction } from "./plan";
 
 const RECORD_FIELDS = new Set(["name", "user", "likes", "created_at", "modified_at"]);
@@ -498,20 +499,13 @@ export async function applyDeleteAction(db: Bindings["DB"], now: Clock, action: 
   await applyDelete(db, now, action.layoutId);
 }
 
-// GET /authors -> upsert rows whose name differs (07 §6 S5); no events, and
-// a row whose name already matches is left untouched (so `authors_modified
-// at`/`last_seen_at` only moves on a real change).
+// GET /authors -> one read, one pure plan, compare-and-set writes (LDB-I15..
+// I17, `import/authors.ts`): a stored name that is still one of upstream's
+// names for its id is kept, a user-lane name is never touched, anything
+// else gets `preferredName`. No events; a second pass over the same
+// upstream writes nothing, so `authors_modified_at`/`last_seen_at` only
+// move when a stored name really changes.
 export async function applyAuthors(db: Bindings["DB"], now: Clock, authors: Record<string, string>): Promise<void> {
-  for (const [name, userId] of Object.entries(authors)) {
-    const existing = await db.prepare("SELECT name FROM authors WHERE user_id = ?").bind(userId).first<{ name: string }>();
-    const at = now();
-    if (existing === null) {
-      await db
-        .prepare("INSERT INTO authors (user_id, name, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?)")
-        .bind(userId, name, at, at)
-        .run();
-    } else if (existing.name !== name) {
-      await db.prepare("UPDATE authors SET name = ?, last_seen_at = ? WHERE user_id = ?").bind(name, at, userId).run();
-    }
-  }
+  const stored = await readStoredAuthors(db);
+  await writeAuthorNames(db, now, planAuthorNames(authors, stored));
 }

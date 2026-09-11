@@ -115,6 +115,16 @@ export class FakeUpstream {
 
   // --- mutation knobs ----------------------------------------------------
 
+  // LDB-I15/I16: the whole `/authors` body, verbatim -- key ORDER included,
+  // so a test can serve the same content listed differently.
+  setAuthors(map: Record<string, string>): void {
+    this.authorsMap = structuredClone(map);
+  }
+
+  authors(): Record<string, string> {
+    return structuredClone(this.authorsMap);
+  }
+
   bumpMeta(): void {
     this.metaObj = { ...this.metaObj, revision: `rev-${this.requestLog.length}-${Math.random()}` };
   }

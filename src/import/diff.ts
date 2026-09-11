@@ -392,9 +392,10 @@ export function diffCorpus(upstream: Map<string, UpstreamEntry>, ours: Map<strin
 // Compared by ID, not by name: upstream's `/authors` is `name -> id` and
 // keeps EVERY historical name a user has ever had on file (a rename adds a
 // key, never replaces one -- confirmed against the real corpus, 07 §6 S5's
-// `applyAuthors` upserts our `authors(user_id PK, name)` row's `name` only
-// when it differs, one row per id, "best-effort bookkeeping" -- no reason
-// to keep the old alias once we've seen the new one). A name-keyed
+// `applyAuthors` keeps ONE name per id in our `authors(user_id PK, name)`
+// row, "best-effort bookkeeping" -- since LDB-I15..I17 a stable one: the
+// stored name while upstream still lists it, else the code-point-greatest
+// of upstream's names, never over a user-lane name). A name-keyed
 // comparison over the real 4174-layout corpus reported 55 "missing" names
 // that were, every one, an id we already have under a *different* (more
 // current) name -- not a mirror gap, just this shape mismatch (07 §6 S8's

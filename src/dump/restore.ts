@@ -144,8 +144,11 @@ export function restoreSql(dump: Dump): string[] {
   statements.push(
     ...chunkedInserts(
       "INSERT INTO authors",
-      ["user_id", "name", "first_seen_at", "last_seen_at"],
-      dump.authors.map((r) => ({ ...r })),
+      ["user_id", "name", "first_seen_at", "last_seen_at", "name_source"],
+      // LDB-I17: `name_source` round-trips; a dump written before
+      // migrations/0006 has none, and restores as 'import' (the column's
+      // own default -- NOT NULL, so `chunkedInserts`'s NULL won't do).
+      dump.authors.map((r) => ({ ...r, name_source: r.name_source ?? "import" })),
     ),
   );
 

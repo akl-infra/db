@@ -170,10 +170,14 @@ export async function verifyClientRequest(
   // client lane carries no display name (D14): `name` is set to the id
   // ONLY on first sight and never overwritten afterward -- a real name
   // still wins whenever it arrived through the user lane, before or after.
+  // LDB-I17: that first-sight placeholder is marked `name_source =
+  // 'client'`; the conflict branch never touches `name`/`name_source`, and
+  // the cmini import may replace the placeholder with an upstream name
+  // (`import/authors.ts`).
   const at = now();
   const authorRow = await db
     .prepare(
-      `INSERT INTO authors (user_id, name, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?)
+      `INSERT INTO authors (user_id, name, first_seen_at, last_seen_at, name_source) VALUES (?, ?, ?, ?, 'client')
        ON CONFLICT(user_id) DO UPDATE SET last_seen_at = excluded.last_seen_at
        RETURNING name`,
     )
