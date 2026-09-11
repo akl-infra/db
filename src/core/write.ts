@@ -7,13 +7,14 @@
 import { ulid } from "ulidx";
 import type { Actor } from "../auth/actor";
 import type { Bindings } from "../env";
-import { get as getFormat, latestId, lineage, list as listFormats, resolveFormat, walk } from "../formats/registry";
+import { get as getFormat, latestId, lineage, list as listFormats, resolveFormat, translate, walk } from "../formats/registry";
 import type { EditResult, FormatModule } from "../formats/registry";
 import { parseIfMatch, requireScopedIfMatch, type CheckedIfMatch, type IfMatch, type IfNoneMatch } from "./ifmatch";
 import {
   ApiError,
   badRequest,
   formatAbsent,
+  formatBehind,
   formatExists,
   formatNotWritable,
   formatRequired,
@@ -309,6 +310,17 @@ export async function putFormat(
       if (existing === null) throw formatAbsent(chained.format);
       const checked = requireScopedIfMatch(ifMatchHeader, lin);
       await requireFormatRev(db, lwf.layout, existing, checked, lwf.formats);
+
+      // 20-spark.md S5 (19 §3 R1, LDB-P13): a write naming a format the
+      // format row (as CURRENTLY stored) cannot be shown as would be a
+      // blind overwrite -- the client could never have read this format
+      // whole in that major, so a pure upcast of the write would silently
+      // drop whatever made it hold. Checked only when the write actually
+      // names a DIFFERENT major than the format's current one.
+      if (body.format !== existing.format) {
+        const view = translate({ format: existing.format, payload: existing.payload }, body.format);
+        if ("held" in view) throw formatBehind(body.format, existing.format, existing.rev);
+      }
     }
 
     const touches = lin === "spark";
