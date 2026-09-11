@@ -19,13 +19,13 @@ write keyboard layouts through `akl-db`, the community-owned layout database
 every claim below is tied to a route, a source file, or a test.
 
 ```
-production   https://akl-db.akl-58a.workers.dev
-preview      https://akl-db-preview.akl-58a.workers.dev   <- develop here
+production   https://akl-db.akl-58a.workers.dev   <- the one layoutdb
 ```
 
-Both run the same code (`db/README.md` § Preview environment) against
-separate D1/R2 resources — there is no other staging. **Develop against
-preview**, not production: write whatever you like there without asking.
+There is one layoutdb, production. The preview environment
+(`akl-db-preview`) was retired on 2026-09-11: nothing reads it and it
+accepts no clients. **Develop against production**, and ask before writing
+there.
 
 ## 1. What this is
 

@@ -124,33 +124,48 @@ describe("db.yml wiring", () => {
     expect(jobText).toContain("CLOUDFLARE_DB_ACCOUNT_ID");
   });
 
-  it("[LDB-C1] the preview job needs test, runs only on the layout-db-pr pull request, applies migrations before deploying, both --env preview", () => {
+  it("[LDB-C1] the pr-deploy job needs test, runs only on the layout-db-pr pull request, and bookmarks, migrates and deploys the ONE layoutdb (prod akl-db) in that order", () => {
+    // saltorbit 2026-09-11: "deploy to prod layoutdb" -- the preview layoutdb is
+    // retired, so a PR push deploys production, never akl-db-preview.
     const wf = loadWorkflow();
-    const preview = wf.jobs.preview;
-    expect(preview, "no `preview` job in db.yml").toBeDefined();
-    if (!preview) throw new Error("unreachable: assertion above failed");
+    expect(wf.jobs.preview, "the retired preview job is back in db.yml").toBeUndefined();
+    const job = wf.jobs["pr-deploy"];
+    expect(job, "no `pr-deploy` job in db.yml").toBeDefined();
+    if (!job) throw new Error("unreachable: assertion above failed");
 
-    expect(preview.needs).toEqual(expect.stringContaining("test"));
-    expect(preview.if, "preview job has no `if:` guard").toBeTruthy();
-    expect(preview.if).toContain("github.event_name == 'pull_request'");
-    expect(preview.if).toContain("github.head_ref == 'layout-db-pr'");
+    expect(job.needs).toEqual(expect.stringContaining("test"));
+    expect(job.if, "pr-deploy job has no `if:` guard").toBeTruthy();
+    expect(job.if).toContain("github.event_name == 'pull_request'");
+    expect(job.if).toContain("github.head_ref == 'layout-db-pr'");
 
-    const steps = preview.steps ?? [];
+    const steps = job.steps ?? [];
     const runSteps = steps.filter((s): s is Step & { run: string } => typeof s.run === "string");
-    const migrationsIdx = runSteps.findIndex((s) => /d1 migrations apply akl-db-preview.*--env preview.*--remote/.test(s.run));
-    const deployIdx = runSteps.findIndex((s) => /wrangler deploy.*--env preview/.test(s.run));
-    expect(migrationsIdx, "no 'd1 migrations apply akl-db-preview --env preview --remote' step").toBeGreaterThanOrEqual(0);
-    expect(deployIdx, "no 'wrangler deploy --env preview' step").toBeGreaterThanOrEqual(0);
+    const bookmarkIdx = runSteps.findIndex((s) => /d1 time-travel info akl-db\b/.test(s.run));
+    const migrationsIdx = runSteps.findIndex((s) => /d1 migrations apply akl-db --remote/.test(s.run));
+    const deployIdx = runSteps.findIndex((s) => /wrangler deploy/.test(s.run));
+    expect(bookmarkIdx, "no 'd1 time-travel info akl-db' (rollback bookmark) step").toBeGreaterThanOrEqual(0);
+    expect(migrationsIdx, "no 'd1 migrations apply akl-db --remote' step").toBeGreaterThanOrEqual(0);
+    expect(deployIdx, "no 'wrangler deploy' step").toBeGreaterThanOrEqual(0);
+    expect(bookmarkIdx, "the bookmark must be taken before migrations").toBeLessThan(migrationsIdx);
     expect(migrationsIdx, "migrations must run before deploy").toBeLessThan(deployIdx);
 
-    // Same two secrets as `deploy` -- the preview Worker lives in the same
-    // account, just a different D1/R2/Worker name inside it.
-    const jobText = JSON.stringify(preview);
+    const jobText = JSON.stringify(job);
+    expect(jobText).not.toContain("akl-db-preview");
+    expect(jobText).not.toContain("--env preview");
     expect(jobText).toContain("CLOUDFLARE_DB_TOKEN");
     expect(jobText).toContain("CLOUDFLARE_DB_ACCOUNT_ID");
   });
 
-  it("[LDB-C1] the deploy job's `if:` is unchanged by the preview job (main-push only)", () => {
+  it("[LDB-C1] pr-deploy and deploy share one non-cancelling concurrency group (two prod deploys never interleave)", () => {
+    const wf = loadWorkflow();
+    for (const name of ["deploy", "pr-deploy"]) {
+      const c = (wf.jobs[name] as { concurrency?: { group?: string; "cancel-in-progress"?: boolean } } | undefined)?.concurrency;
+      expect(c?.group, name).toBe("db-prod-deploy");
+      expect(c?.["cancel-in-progress"], name).toBe(false);
+    }
+  });
+
+  it("[LDB-C1] the deploy job's `if:` is unchanged by the pr-deploy job (main-push only)", () => {
     const wf = loadWorkflow();
     const deploy = wf.jobs.deploy;
     expect(deploy?.if).toContain("refs/heads/main");

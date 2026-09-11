@@ -8,13 +8,13 @@ from; every request/response shown is either a real conformance fixture
 factory / schema the server runs, never invented.
 
 ```
-production   https://akl-db.akl-58a.workers.dev
-preview      https://akl-db-preview.akl-58a.workers.dev   <- develop here
+production   https://akl-db.akl-58a.workers.dev   <- the one layoutdb
 ```
 
-Both run the same Worker code against separate D1/R2 resources (`db/README.md`
-§ Preview environment) — there is no other staging. Write whatever you like
-on preview without asking; ask before writing on production.
+There is one layoutdb, production. The preview environment
+(`akl-db-preview`) was retired on 2026-09-11: nothing reads it and it
+accepts no clients. Develop against production, and ask before writing
+there.
 
 ## 0. Quick start for agents
 
@@ -23,7 +23,7 @@ The fastest path to a working client: read one layout, then write one.
 **Read** — no auth, ever:
 
 ```bash
-curl -s https://akl-db-preview.akl-58a.workers.dev/v1/layouts/io
+curl -s https://akl-db.akl-58a.workers.dev/v1/layouts/io
 ```
 
 returns the record plus its `payload` in the native `spark/1` shape
@@ -36,7 +36,7 @@ for a read-only client.
 signed (client-lane) shape, the one a Discord bot uses:
 
 ```bash
-curl -sX POST https://akl-db-preview.akl-58a.workers.dev/v1/layouts \
+curl -sX POST https://akl-db.akl-58a.workers.dev/v1/layouts \
   -H 'X-Akl-Client: <client id>' -H 'X-Akl-Timestamp: <unix seconds>' \
   -H 'X-Akl-Nonce: <16 random bytes, base64url>' -H 'X-Akl-Actor: <discord user id>' \
   -H 'X-Akl-Signature: <base64url ed25519 signature>' \
@@ -225,7 +225,7 @@ moment you send it:
 
 ```bash
 curl -s -H 'Authorization: Bearer <discord access token>' \
-  https://akl-db-preview.akl-58a.workers.dev/v1/me
+  https://akl-db.akl-58a.workers.dev/v1/me
 # {"user_id":"800000000000000001","name":"conformance-owner","via":"discord","admin":false}
 ```
 

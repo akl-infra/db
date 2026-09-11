@@ -14,7 +14,7 @@ on:
   push:
     # main only (2026-09-10): a branch with an open PR already runs on
     # pull_request; running on push too doubled every run and every
-    # failure email. The preview job rides the PR event instead (below).
+    # failure email. The pr-deploy job rides the PR event instead (below).
     branches: [main]
     paths:
       - "db/**"
@@ -55,6 +55,9 @@ jobs:
   deploy:
     needs: test
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    concurrency:
+      group: db-prod-deploy
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -79,15 +82,18 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DB_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DB_ACCOUNT_ID }}
 
-  # Push to the feature branch only: apply migrations to the PREVIEW D1,
-  # then deploy the PREVIEW Worker (09-implementation-phase2.md §3 T7). The
-  # site's phase-2 UX PRs point their Pages Preview `DB_BASE_URL` at
-  # akl-db-preview.<account>.workers.dev; production `akl-db` stays
-  # untouched by this job. One named branch, not "every feature branch" --
-  # a preview per branch would need a D1 per branch (09 §7).
-  preview:
+  # A push to the layout-db-pr pull request deploys the ONE layoutdb, prod
+  # `akl-db` (saltorbit 2026-09-11: "everything should point to the production
+  # layoutdb" / "deploy to prod layoutdb"; the preview layoutdb is retired).
+  # Records a D1 time-travel bookmark first (the rollback point, printed in
+  # the log), then migrations, then the Worker -- the same order as
+  # `deploy`. Serialized with `deploy` so two runs never interleave.
+  pr-deploy:
     needs: test
     if: github.event_name == 'pull_request' && github.head_ref == 'layout-db-pr'
+    concurrency:
+      group: db-prod-deploy
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -101,13 +107,18 @@ jobs:
           cache-dependency-path: db/package-lock.json
       - name: Install dependencies
         run: npm ci
-      - name: Apply D1 migrations (preview, remote)
-        run: npx wrangler d1 migrations apply akl-db-preview --env preview --remote --config wrangler.toml
+      - name: Record the D1 rollback bookmark
+        run: npx wrangler d1 time-travel info akl-db --config wrangler.toml
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DB_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DB_ACCOUNT_ID }}
-      - name: Deploy (preview)
-        run: npx wrangler deploy --env preview --config wrangler.toml
+      - name: Apply D1 migrations (remote)
+        run: npx wrangler d1 migrations apply akl-db --remote --config wrangler.toml
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DB_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DB_ACCOUNT_ID }}
+      - name: Deploy
+        run: npx wrangler deploy --config wrangler.toml
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DB_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DB_ACCOUNT_ID }}
