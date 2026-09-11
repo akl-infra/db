@@ -1,12 +1,18 @@
 # 22 — spark/1 spec (as shipped, F1)
 
-The current, accurate spec for `spark/1` — the one stored format — after
-`21-formats.md` F1 (2026-09-11) removed the transitional `akl/1` alias,
-`?as=cmini/1`, and the free-form `x` field. `01-format.md` §2 and
-`20-spark.md` describe the earlier design and its ledger; where they
-disagree with this page, this page is what the code does today (each
-carries a dated note pointing here). This page is deliberately narrower
-than either: it is the format's reference, not the plan that produced it.
+The current, accurate spec for `spark/1` — the one stored format today,
+though `21-formats.md` (F2, 2026-09-11) lets a layout hold a second one
+alongside it (`lw/1`, illustrative, `architecture.md`'s "Adding a second
+format" section) — after `21-formats.md` F1 (2026-09-11) removed the
+transitional `akl/1` alias, `?as=cmini/1`, and the free-form `x` field.
+`01-format.md` §2 and `20-spark.md` describe the earlier design and its
+ledger; where they disagree with this page, this page is what the code
+does today (each carries a dated note pointing here). This page is
+deliberately narrower than either: it is the format's reference, not the
+plan that produced it. Everything below is `spark/1`'s OWN payload shape
+and validation rules -- unaffected by how many OTHER formats a layout
+might also store (`db/docs/adoption.md` §3/§5 has the wire-level
+`?format=`/`If-Match` mechanics that changed with F2).
 
 ## 1. What it is
 
@@ -68,7 +74,7 @@ it is not the DB's job to shuttle it.
 
 `magic` holds **authoring intent**, never the flattened rows an analyzer
 consumes. `compileMagic(payload)` (in `magic.ts`, formerly `lower()`)
-derives those on demand — `GET .../{ref}?as=mana2/1` is the one format
+derives those on demand — `GET .../{ref}?format=mana2/1` is the one format
 that ever asks for them; the registry never stores a lowering in place of
 what was written (LDB-F3). Three deliberate differences from the Python
 tool this ported from, plus one real-data-forced fourth, are in

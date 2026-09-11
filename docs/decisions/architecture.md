@@ -29,7 +29,12 @@ place for this (each edit is called out where it lands); the new
 "Adding a second format: layouts.wiki" section after §5 is F2's own
 worked example of what a SECOND stored format actually looks like end to
 end. `db/docs/adoption.md` is the up-to-date, machine-checked reference
-for the wire shape; `21-formats.md` is the design source.
+for the wire shape; `21-formats.md` is the design source. §6/§7 below are
+untouched by this note -- they were already the historical "ldb-v3 vs.
+round 2" snapshot the F1 note above disclaims, and stay exactly that; treat
+every `rev`/format claim in them (like every other pre-F1/F2 mention of a
+bare `rev` or "the one stored format" outside the sections named above) as
+what shipped THEN, never what the API does today.
 
 ## 1 · The system
 
@@ -366,7 +371,7 @@ mana2 is produced from spark on read and never stored. A write in mana2 is refus
 
 <figure>
   <div class="frame">
-    <svg viewBox="0 0 440 210" role="img" aria-label="Option A: writers send spark; only spark is stored; mana2 is produced on read. A write in mana2 is refused.">
+    <svg viewBox="0 0 440 210" role="img" aria-label="Option A: writers send spark; spark is stored; mana2 is produced on read. A write in mana2 is refused, whether or not the layout has other stored formats besides spark.">
       <defs>
         <marker id="ar6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
           <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
@@ -379,7 +384,7 @@ mana2 is produced from spark on read and never stored. A write in mana2 is refus
       <text class="lbl" x="143" y="72" text-anchor="middle">spark</text>
       <rect class="acc-fill" x="170" y="56" width="110" height="48" rx="3"/>
       <text class="t acc-text" x="225" y="77" text-anchor="middle">spark/1</text>
-      <text class="s" x="225" y="94" text-anchor="middle">only store</text>
+      <text class="s" x="225" y="94" text-anchor="middle">a stored format</text>
       <path class="edge" d="M280 80 H330" marker-end="url(#ar6)"/>
       <text class="lbl" x="305" y="72" text-anchor="middle">read</text>
       <rect class="box" x="330" y="60" width="96" height="40" rx="3"/>
@@ -388,10 +393,10 @@ mana2 is produced from spark on read and never stored. A write in mana2 is refus
       <text x="378" y="165" text-anchor="middle">PUT mana2</text>
       <path class="edge faint" d="M330 160 H240 V104" marker-end="url(#ar6)"/>
       <text class="lbl" x="250" y="152">refused</text>
-      <text class="s" x="16" y="202">no held records; no cross-format writes</text>
+      <text class="s" x="16" y="202">mana2 is never held, never a write target</text>
     </svg>
   </div>
-  <figcaption><span class="rec">Decided 2026-09-10.</span> One stored format means no record is ever unreadable, and a cross-format write cannot happen. If mana wants to write later, a mana2 input adapter converts to spark on the way in, exactly like the cmini import.</figcaption>
+  <figcaption><span class="rec">Decided 2026-09-10.</span> mana2 stays derived-only, so it is never a write target and a read of it is never held. This is a decision about mana2 SPECIFICALLY, not a claim that spark is the only format a layout may ever store -- `21-formats.md` (F2) later lets a layout hold a second STORED format alongside spark (see "Adding a second format" below); that second format still can't be mana2. If mana2 wants to write later, a mana2 input adapter converts to spark on the way in, exactly like the cmini import.</figcaption>
 </figure>
 
 Not chosen: storing mana2 as a second format. It would bring back held reads, a visibility check on cross-format writes, and records the site could only show partially, because mana2 loses magic idioms and the either-thumb finger on the way to spark.
@@ -489,7 +494,7 @@ Everything above this line describes what shipped with `spark/1` as the only sto
 
 <figure>
   <div class="frame">
-    <svg viewBox="0 0 900 260" role="img" aria-label="One layout carries shared layout-level fields (name, owner, layout_rev, upstream) plus two independent stored-format rows: spark/1 at its own rev 7, and a hypothetical lw/1 at its own rev 1. Each format row has its own If-Match token and its own timestamps; neither format's row is affected by a write to the other.">
+    <svg viewBox="0 0 900 320" role="img" aria-label="One layout carries shared layout-level fields (name, owner, layout_rev, upstream) plus two independent stored-format rows: spark/1 at its own rev 7, and a hypothetical lw/1 at its own rev 1. Each format row has its own If-Match token and its own timestamps; neither format's row is affected by a write to the other. Below, one events table interleaves layout-scope and format-scope events under one shared seq counter.">
       <defs>
         <marker id="ar7" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
           <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
@@ -524,51 +529,134 @@ Everything above this line describes what shipped with `spark/1` as the only sto
       <text class="s" x="620" y="117">the shared fast-check write model</text>
       <text class="s" x="620" y="145">both rows are listed in the SAME</text>
       <text class="s" x="620" y="160">layout's `formats` map on every read</text>
+
+      <text class="s" x="20" y="252">EVENTS (one seq counter, interleaved across both scopes)</text>
+      <rect class="store" x="20" y="262" width="860" height="46" rx="3"/>
+      <text class="lbl" x="35" y="283">seq 40 renamed</text>
+      <text class="s" x="35" y="298">format: null (layout)</text>
+      <text class="lbl" x="250" y="283">seq 41 updated</text>
+      <text class="s" x="250" y="298">format: "spark/1"</text>
+      <text class="lbl" x="480" y="283">seq 42 format_added</text>
+      <text class="s" x="480" y="298">format: "lw/1"</text>
+      <text class="s" x="700" y="283">one shared feed --</text>
+      <text class="s" x="700" y="298">every reader filters by `format`</text>
     </svg>
   </div>
-  <figcaption>One layout, two independently-versioned stored formats. `layout_rev` moves only on a layout-scope write; `spark/1`'s and `lw/1`'s own `rev`s move only on a write to THAT format. Each has its own `If-Match` scope -- writing one can never race, or be mistaken for, a write to the other.</figcaption>
+  <figcaption>One layout, two independently-versioned stored formats. `layout_rev` moves only on a layout-scope write; `spark/1`'s and `lw/1`'s own `rev`s move only on a write to THAT format. Each has its own `If-Match` scope -- writing one can never race, or be mistaken for, a write to the other. The event log is still ONE feed, ONE `seq` counter, shared by every scope -- a client that only cares about one format (the bot, below) filters by the event's own `format` field rather than following a separate stream per format.</figcaption>
 </figure>
-
-**Adding `lw/1` to an existing layout never touches its `spark/1` row.** `PUT /v1/layouts/{ref} {format: "lw/1", payload} If-None-Match: *` ADDS the new lineage (`409 format_exists` if the layout already has one); `If-Match: "<lineage>:<rev>"` instead REPLACES a format the layout already has. There is no third way to write a format, and no way to write two formats in one request.
 
 <figure>
   <div class="frame">
-    <svg viewBox="0 0 900 230" role="img" aria-label="Before: the layout has only spark/1 at rev 7. A PUT naming lw/1 with If-None-Match star adds it. After: spark/1 is still at rev 7, byte-identical, and a new lw/1 row exists at rev 1. layout_rev is unchanged either way -- adding a format is a format-scope write.">
+    <svg viewBox="0 0 940 320" role="img" aria-label="Who reads and writes what: the spark bot and akl.gg both read and write spark/1 only; layouts.wiki reads and writes lw/1, and may also read spark/1 if it wants (never write it); the cmini importer writes spark/1 only, never lw/1; mana2/1 is derived from spark/1 on read, with no writer at all; layouts.wiki's own keymaxx IR is a client-side lowering of lw/1, entirely outside layoutdb, the same shape mana2/1 is for spark.">
       <defs>
-        <marker id="ar8" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+        <marker id="ar10" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
           <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
         </marker>
       </defs>
 
-      <text class="s" x="20" y="24">BEFORE</text>
-      <rect class="box" x="20" y="36" width="190" height="50" rx="3"/>
-      <text class="t" x="32" y="57">spark/1</text>
-      <text class="lbl" x="32" y="75">rev 7</text>
-      <rect class="ghost" x="20" y="96" width="190" height="50" rx="3"/>
-      <text x="115" y="126" text-anchor="middle">no lw/1 row yet</text>
+      <text class="s" x="20" y="16">CLIENTS</text>
+      <rect class="box" x="20" y="26" width="180" height="46" rx="3"/>
+      <text class="t" x="32" y="46">spark bot</text>
+      <text class="s" x="32" y="62">reads spark/1 only</text>
 
-      <path class="edge" d="M210 61 H320" marker-end="url(#ar8)"/>
-      <text class="lbl" x="265" y="53" text-anchor="middle">PUT lw/1</text>
-      <text class="s" x="265" y="76" text-anchor="middle">If-None-Match: *</text>
-      <text class="s" x="265" y="91" text-anchor="middle">(add, not replace)</text>
+      <rect class="box" x="20" y="86" width="180" height="46" rx="3"/>
+      <text class="t" x="32" y="106">akl.gg</text>
+      <text class="s" x="32" y="122">reads + writes spark/1</text>
 
-      <text class="s" x="700" y="24">AFTER</text>
-      <rect class="box" x="700" y="36" width="180" height="50" rx="3"/>
-      <text class="t" x="712" y="57">spark/1</text>
-      <text class="lbl" x="712" y="75">rev 7 -- unchanged</text>
-      <path class="edge faint" d="M320 61 H700" marker-end="url(#ar8)"/>
-      <text class="s" x="510" y="53" text-anchor="middle">byte-identical (MF-1)</text>
+      <rect class="box" x="20" y="146" width="180" height="46" rx="3"/>
+      <text class="t" x="32" y="166">layouts.wiki</text>
+      <text class="s" x="32" y="182">reads + writes lw/1</text>
 
-      <rect class="acc-fill" x="700" y="96" width="180" height="50" rx="3"/>
-      <text class="t acc-text" x="712" y="117">lw/1</text>
-      <text class="lbl acc-text" x="712" y="135">rev 1 -- new row</text>
-      <path class="edge" d="M320 121 H700" marker-end="url(#ar8)"/>
-      <text class="s" x="510" y="113" text-anchor="middle">created, format_added</text>
+      <rect class="box" x="20" y="206" width="180" height="46" rx="3"/>
+      <text class="t" x="32" y="226">cmini importer</text>
+      <text class="s" x="32" y="242">writes spark/1 only</text>
 
-      <text class="s" x="20" y="200">layout_rev does not move either -- adding a format is a FORMAT-scope write, never a layout-scope one</text>
+      <text class="s" x="380" y="16">STORED</text>
+      <rect class="acc-fill" x="380" y="26" width="140" height="46" rx="3"/>
+      <text class="t acc-text" x="392" y="54" text-anchor="start">spark/1</text>
+
+      <rect class="box" x="380" y="146" width="140" height="46" rx="3"/>
+      <text class="t" x="392" y="174" text-anchor="start">lw/1</text>
+
+      <text class="s" x="620" y="16">DERIVED (no writer)</text>
+      <rect class="acc-fill" x="620" y="26" width="140" height="46" rx="3"/>
+      <text class="t acc-text" x="632" y="54" text-anchor="start">mana2/1</text>
+
+      <rect class="ghost" x="620" y="146" width="300" height="70" rx="3"/>
+      <text class="t" x="632" y="168">keymaxx IR</text>
+      <text class="s" x="632" y="186">layouts.wiki's OWN lowering of lw/1</text>
+      <text class="s" x="632" y="201">outside layoutdb entirely -- not a format</text>
+
+      <path class="edge" d="M200 49 H380" marker-end="url(#ar10)"/>
+      <path class="edge" d="M200 109 H380" marker-end="url(#ar10)"/>
+      <path class="edge" d="M200 229 H380" marker-end="url(#ar10)"/>
+      <path class="edge" d="M200 169 H380" marker-end="url(#ar10)"/>
+      <path class="edge faint" d="M200 160 C280 60, 320 49, 380 49" marker-end="url(#ar10)"/>
+      <text class="s" x="220" y="90" text-anchor="middle">read spark/1 too,</text>
+      <text class="s" x="220" y="105" text-anchor="middle">if it wants (never write it)</text>
+
+      <path class="edge" d="M520 49 H620" marker-end="url(#ar10)"/>
+      <text class="lbl" x="570" y="41" text-anchor="middle">derive</text>
+
+      <path class="edge faint" d="M520 169 H620" stroke-dasharray="4 4"/>
+      <text class="s" x="570" y="90" text-anchor="middle">client-side lowering</text>
+      <text class="s" x="570" y="105" text-anchor="middle">(no edge in the registry)</text>
     </svg>
   </div>
-  <figcaption>Adding a format is exactly one new `layout_formats` row and one `format_added` event; every other row on the layout -- `spark/1`'s own, and the layout's own name/owner/`layout_rev` -- is byte-identical before and after.</figcaption>
+  <figcaption>Who reads and writes what, once `lw/1` exists: the bot and akl.gg stay spark-only; layouts.wiki owns `lw/1` and may read `spark/1` too if it wants (never write it -- writing a format you don't own the concept of is a client-side choice this diagram doesn't forbid, but nothing here does it for you); the cmini importer never learns `lw/1` exists. `mana2/1` keeps deriving from `spark/1` alone (MF-10, next figure). `keymaxx IR` is layouts.wiki's OWN lowering of its OWN format -- the exact role `?format=mana2/1` plays for spark, but entirely outside layoutdb, never a registered edge.</figcaption>
+</figure>
+
+<figure>
+  <div class="frame">
+    <svg viewBox="0 0 1000 240" role="img" aria-label="A write, end to end: layouts.wiki PUTs lw/1 with If-Match colon lw:2, the format registry validates it with the lw/1 module, commit writes one layout_revs row and one event naming format lw/1, then the feed and webhooks fire. Below, the spark bot receives the same event over the feed, checks its format field, sees lw rather than spark, and ignores it -- its cache stays exactly as it was.">
+      <defs>
+        <marker id="ar11" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+          <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+        </marker>
+      </defs>
+
+      <rect class="box" x="20" y="30" width="120" height="50" rx="3"/>
+      <text class="t" x="32" y="51" text-anchor="start">layouts.wiki</text>
+      <text class="s" x="32" y="67">PUT lw/1</text>
+      <path class="edge" d="M140 55 H190" marker-end="url(#ar11)"/>
+      <text class="lbl" x="165" y="47" text-anchor="middle">If-Match:</text>
+      <text class="lbl" x="165" y="72" text-anchor="middle">"lw:2"</text>
+
+      <rect class="acc-fill" x="190" y="30" width="140" height="50" rx="3"/>
+      <text class="t acc-text" x="202" y="51">validate</text>
+      <text class="s acc-text" x="202" y="67">lw/1 module</text>
+      <path class="edge" d="M330 55 H380" marker-end="url(#ar11)"/>
+
+      <rect class="box" x="380" y="30" width="190" height="50" rx="3"/>
+      <text class="t" x="392" y="51">commit (1 batch)</text>
+      <text class="s" x="392" y="67">layout_revs(lw) + event</text>
+      <path class="edge" d="M570 55 H610" marker-end="url(#ar11)"/>
+
+      <rect class="box" x="610" y="30" width="80" height="50" rx="3"/>
+      <text x="650" y="59" text-anchor="middle">feed</text>
+      <path class="edge" d="M690 55 H730" marker-end="url(#ar11)"/>
+      <rect class="box" x="730" y="30" width="110" height="50" rx="3"/>
+      <text x="785" y="59" text-anchor="middle">webhooks</text>
+
+      <text class="s" x="880" y="45">event: seq N,</text>
+      <text class="s" x="880" y="60">format: "lw/1",</text>
+      <text class="s" x="880" y="75">rev: 2</text>
+
+      <path class="edge faint" d="M650 80 V150" marker-end="url(#ar11)"/>
+      <text class="s" x="660" y="115">every reader on the feed</text>
+      <text class="s" x="660" y="130">sees this same event</text>
+
+      <rect class="box" x="560" y="160" width="150" height="50" rx="3"/>
+      <text class="t" x="572" y="181">spark bot</text>
+      <text class="s" x="572" y="197">reads the event's `format`</text>
+      <path class="edge" d="M710 185 H750" marker-end="url(#ar11)"/>
+
+      <rect class="ghost" x="750" y="160" width="220" height="50" rx="3"/>
+      <text class="t" x="762" y="181">"lw/1" != "spark" -> ignored</text>
+      <text class="s" x="762" y="197">cache untouched, no re-fetch</text>
+    </svg>
+  </div>
+  <figcaption>One write, one batch, one event -- the SAME feed every client already polls. `format: "lw/1"` is the whole signal a reader needs: the bot's own cache logic already only applies rev-bumping events for the ONE lineage it reads (`spark`, MF-8, the bot's own job), so an `lw/1` event costs it nothing beyond noticing the field and moving past it.</figcaption>
 </figure>
 
 **`mana2/1` still comes from `spark/1` alone -- adding `lw/1` doesn't change that.** Each output format is reachable from exactly one stored lineage (`MF-10`): `spark/1 → mana2/1` is the one registered edge, and it stays the one registered edge no matter how many other stored formats a layout grows. `lw/1` wanting its own bridge to `spark/1` (say, so a layouts.wiki editor can also show a layout as spark) is a package function ITS OWN client calls -- `@akl/layout-formats`'s exported converters -- never something `GET /v1/layouts/{ref}?format=` serves on the server's own initiative.

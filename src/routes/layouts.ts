@@ -273,6 +273,14 @@ layoutsRoute.get("/v1/layouts/:ref/rev/:n", async (c) => {
   if (mod.role !== "stored") throw badRequest(`'${format}' is an output format -- it has no numbered history of its own`, "format");
   const lin = format.slice(0, format.indexOf("/"));
 
+  // Bug fix (coordinator review): a lineage this layout never stored at
+  // all is `format_absent`, the SAME vocabulary the detail route uses for
+  // exactly this fact -- not the generic `not_found` a merely-out-of-range
+  // rev number gets. `rec.formats` (from `byRefWithFormats`, already
+  // fetched above) already answers "does this layout have lineage `lin`
+  // at all", so this is a plain map lookup, no extra query.
+  if (!rec.formats.has(lin)) throw formatAbsent(format);
+
   const [revRow, eventRow] = await Promise.all([
     db.prepare("SELECT format, payload_json FROM layout_revs WHERE layout_id = ? AND lineage = ? AND rev = ?").bind(rec.layout.id, lin, n).first<{ format: string; payload_json: string }>(),
     db
@@ -281,6 +289,8 @@ layoutsRoute.get("/v1/layouts/:ref/rev/:n", async (c) => {
       .first<{ after_json: string | null; via: string; source_client: string | null; source_version: string | null }>(),
   ]);
   if (revRow === null || eventRow === null || eventRow.after_json === null) {
+    // The lineage exists (checked above); this specific rev number
+    // doesn't -- a real "no such revision", still `not_found`.
     throw notFound(`layout '${ref}' has no rev ${n} of '${format}'`, ref);
   }
 

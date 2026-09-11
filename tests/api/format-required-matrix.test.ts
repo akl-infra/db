@@ -74,13 +74,18 @@ interface Scenario {
   name: string;
   format: string | undefined;
   detail: StatusExp;
-  // GET .../rev/:n is narrower than GET :ref (§2.4): revs are numbered
-  // per (layout, lineage), so an output format is refused outright
-  // (bad_request, not derived) and "never stored on this layout" reads as
-  // a plain not_found (no rev N exists) rather than the detail route's
-  // dedicated format_absent -- the plan's §2.4 text only spells out
-  // format_absent for the detail route, not for rev. Defaults to
-  // `detail` when a scenario doesn't need to differ.
+  // GET .../rev/:n is narrower than GET :ref for OUTPUT formats only
+  // (§2.4): revs are numbered per (layout, lineage), and a derived format
+  // never has one, so `mana2/1` is refused outright (bad_request, not
+  // derived) rather than served. For "never stored on this layout",
+  // though, `/rev/:n` uses the SAME `format_absent` vocabulary the detail
+  // route does (coordinator review, 2026-09-11): the layout plainly
+  // doesn't have that lineage at all, which is exactly what
+  // `format_absent` means everywhere else it's thrown -- only a genuinely
+  // out-of-range rev NUMBER on a lineage the layout DOES have falls
+  // through to a plain `not_found` (`tests/api/history.test.ts`'s own
+  // LDB-R5 case covers that one). Defaults to `detail` when a scenario
+  // doesn't need to differ.
   rev?: StatusExp;
   list: ListExp;
 }
@@ -92,7 +97,7 @@ const SCENARIOS: Scenario[] = [
     name: "stored but absent on this layout (t/1)",
     format: "t/1",
     detail: { status: 404, error: "format_absent" },
-    rev: { status: 404, error: "not_found" },
+    rev: { status: 404, error: "format_absent" },
     list: "absent-from-list",
   },
   {
