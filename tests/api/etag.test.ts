@@ -15,19 +15,19 @@ async function sha256Hex(s: string): Promise<string> {
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-// 20-spark.md S2 (LDB-R1 amended): `WIRE_VERSION` is folded into the
-// hashed query -- a white-box check that the CURRENT constant is 2
-// (bumped by this slice) and is actually part of what gets hashed, not
-// merely present in a comment. Replicates `etagFor`'s own formula with a
-// literal `wireVersion: 2` -- if a future slice bumps the real constant
-// without bumping this test, the two hashes diverge and this fails,
-// which is the point: a version bump is a deliberate, visible edit here
-// too.
+// 21-formats.md §2.3 (LDB-R1 amended again): `WIRE_VERSION` is folded into
+// the hashed query -- a white-box check that the CURRENT constant is 3
+// (bumped by this slice: several formats per layout, scoped If-Match,
+// required ?format=) and is actually part of what gets hashed, not merely
+// present in a comment. Replicates `etagFor`'s own formula with a literal
+// `wireVersion: 3` -- if a future slice bumps the real constant without
+// bumping this test, the two hashes diverge and this fails, which is the
+// point: a version bump is a deliberate, visible edit here too.
 describe("[LDB-R1] WIRE_VERSION is folded into the ETag hash", () => {
-  it("[LDB-R1] etagFor(seq, query) reproduces exactly the wireVersion:2-folded hash", async () => {
+  it("[LDB-R1] etagFor(seq, query) reproduces exactly the wireVersion:3-folded hash", async () => {
     const seq = 42;
     const query = { a: 1, b: "x" };
-    const expectedHash = await sha256Hex(canonical({ wireVersion: 2, query }));
+    const expectedHash = await sha256Hex(canonical({ wireVersion: 3, query }));
     const expected = `"${seq}:${expectedHash.slice(0, 16)}"`;
     expect(await etagFor(seq, query)).toBe(expected);
   });
@@ -35,17 +35,18 @@ describe("[LDB-R1] WIRE_VERSION is folded into the ETag hash", () => {
   it("[LDB-R1] a hash computed with a DIFFERENT wireVersion does not match (proves the fold isn't a no-op)", async () => {
     const seq = 42;
     const query = { a: 1, b: "x" };
-    const wrongHash = await sha256Hex(canonical({ wireVersion: 1, query }));
+    const wrongHash = await sha256Hex(canonical({ wireVersion: 2, query }));
     const wrong = `"${seq}:${wrongHash.slice(0, 16)}"`;
     expect(await etagFor(seq, query)).not.toBe(wrong);
   });
 });
 
 const CACHE_CONTROL = "public, max-age=10";
-const CACHED_ROUTES = ["/v1/meta", "/v1/layouts", "/v1/changes", "/v1/authors"];
+// 21-formats.md §2.4 (D4): `/v1/layouts` now requires `?format=`.
+const CACHED_ROUTES = ["/v1/meta", "/v1/layouts?format=spark/1", "/v1/changes", "/v1/authors"];
 // Every cached route whose body can change with an event. `/v1/authors`
 // is the one that can't (LDB-R9: it keys on `authors_head` instead).
-const SEQ_KEYED_ROUTES = ["/v1/meta", "/v1/layouts", "/v1/changes"];
+const SEQ_KEYED_ROUTES = ["/v1/meta", "/v1/layouts?format=spark/1", "/v1/changes"];
 
 beforeAll(async () => {
   await seedUpstream100();
@@ -140,8 +141,8 @@ describe("[LDB-R1] ETag changes iff the event head changes, or the query changes
   });
 
   it("[LDB-R1] differs for a different query at the same head", async () => {
-    const a = await SELF.fetch("https://example.com/v1/layouts?limit=1");
-    const b = await SELF.fetch("https://example.com/v1/layouts?limit=2");
+    const a = await SELF.fetch("https://example.com/v1/layouts?format=spark/1&limit=1");
+    const b = await SELF.fetch("https://example.com/v1/layouts?format=spark/1&limit=2");
     expect(a.headers.get("ETag")).not.toBe(b.headers.get("ETag"));
   });
 });
