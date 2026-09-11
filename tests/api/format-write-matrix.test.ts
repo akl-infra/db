@@ -36,7 +36,7 @@ describe("[LDB-F16] POST /v1/layouts: format resolution", () => {
     expect(res.status).toBe(201);
     const body = await res.json<{ id: string; format: string }>();
     expect(body.format).toBe("spark/1");
-    const row = await db.prepare("SELECT format FROM layouts WHERE id = ?").bind(body.id).first<{ format: string }>();
+    const row = await db.prepare("SELECT format FROM layout_formats WHERE layout_id = ? AND lineage = 'spark'").bind(body.id).first<{ format: string }>();
     expect(row?.format).toBe("spark/1");
   });
 
@@ -81,27 +81,31 @@ async function seedSpark(owner: string) {
     payload: AKL_PAYLOAD,
   });
   vi.unstubAllGlobals();
-  return res.json<{ id: string; rev: number; format: string; owner: string; payload: unknown }>();
+  const body = await res.json<{ id: string; owner: string; formats: Record<string, { rev: number }> }>();
+  return { id: body.id, owner: body.owner, rev: body.formats["spark/1"]!.rev };
+}
+
+async function sparkRev(id: string): Promise<number> {
+  const row = await db.prepare("SELECT rev FROM layout_formats WHERE layout_id = ? AND lineage = 'spark'").bind(id).first<{ rev: number }>();
+  return row!.rev;
 }
 
 describe("[LDB-F16] PUT /v1/layouts/{ref}: same resolution rules apply", () => {
   it("mana2/1 -> 400 format_not_writable, record unchanged", async () => {
     const record = await seedSpark(OWNER);
     const h = headers();
-    const res = await writeFetch(`/v1/layouts/${record.id}`, "PUT", { ...h, "If-Match": `"${record.rev}"` }, { format: "mana2/1", payload: {} });
+    const res = await writeFetch(`/v1/layouts/${record.id}`, "PUT", { ...h, "If-Match": `"spark:${record.rev}"` }, { format: "mana2/1", payload: {} });
     expect(res.status).toBe(400);
     await expect(res.json()).resolves.toMatchObject({ error: "format_not_writable", format: "mana2/1" });
-    const row = await db.prepare("SELECT rev FROM layouts WHERE id = ?").bind(record.id).first<{ rev: number }>();
-    expect(row?.rev).toBe(record.rev);
+    expect(await sparkRev(record.id)).toBe(record.rev);
   });
 
   it("cmini/1 -> 400 unknown_format, record unchanged", async () => {
     const record = await seedSpark(OWNER);
     const h = headers();
-    const res = await writeFetch(`/v1/layouts/${record.id}`, "PUT", { ...h, "If-Match": `"${record.rev}"` }, { format: "cmini/1", payload: { board: "ortho", keys: {} } });
+    const res = await writeFetch(`/v1/layouts/${record.id}`, "PUT", { ...h, "If-Match": `"spark:${record.rev}"` }, { format: "cmini/1", payload: { board: "ortho", keys: {} } });
     expect(res.status).toBe(400);
     await expect(res.json()).resolves.toMatchObject({ error: "unknown_format", format: "cmini/1" });
-    const row = await db.prepare("SELECT rev FROM layouts WHERE id = ?").bind(record.id).first<{ rev: number }>();
-    expect(row?.rev).toBe(record.rev);
+    expect(await sparkRev(record.id)).toBe(record.rev);
   });
 });
