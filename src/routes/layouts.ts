@@ -19,7 +19,7 @@ import {
   type ListCursor,
   type SortKey,
 } from "../core/records";
-import { get as getFormat, translate } from "../formats/registry";
+import { get as getFormat, list as listFormats, translate } from "../formats/registry";
 
 const CACHE_CONTROL = "public, max-age=10";
 const SORT_KEYS: readonly SortKey[] = ["name", "modified_at", "created_at", "like_count"];
@@ -258,7 +258,18 @@ layoutsRoute.get("/v1/layouts/:ref/rev/:n", async (c) => {
   if (rec === null) throw notFound(`no layout '${ref}'`, ref);
 
   const mod = getFormat(format);
-  if (mod === undefined) throw badRequest(`unknown format '${format}'`, "format");
+  // MF-4/§2.4: "an unregistered id stays 400 unknown_format" -- every
+  // route, not just detail/list. This route used to throw a bare
+  // `badRequest` here, the one place in the router that didn't use the
+  // shared factory (found by the MF-4 generated matrix).
+  if (mod === undefined) throw unknownFormat(format, listFormats().map((f) => f.id));
+  // An output format (mana2/1) has no `layout_revs` row of its own --
+  // revs are numbered per (layout, lineage), and a derived format never
+  // has a lineage. Deliberately narrower than the detail route (which
+  // derives output formats): "rev N" only ever means a STORED format's
+  // own history, so this stays a plain `bad_request` rather than
+  // `format_absent` (nothing is missing on this layout -- the request
+  // itself doesn't name a concept the route supports).
   if (mod.role !== "stored") throw badRequest(`'${format}' is an output format -- it has no numbered history of its own`, "format");
   const lin = format.slice(0, format.indexOf("/"));
 
