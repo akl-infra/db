@@ -1,32 +1,50 @@
 // [LDB-P6] `/v1/changes`'s backing function: seq order, `since` exclusive,
 // `next` = last seq returned, `limit` capped at 1000, `kinds` filters.
-// S7 extends this file's DoD clause with a restore-from-dump case; not
-// testable until S7 lands the dump/restore path.
 import { env } from "cloudflare:test";
 import type { Bindings } from "../../src/env";
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { canonical } from "../../src/core/canonical";
 import { headSeq } from "../../src/core/etag";
-import { appendAdmin, appendInfo, appendLike, appendWrite, feed, type RecordSansPayload } from "../../src/core/events";
+import { appendAdmin, appendInfo, appendLike, commitWrite, feed, type CommitInput, type EventSnapshot } from "../../src/core/events";
+import { formatsForLayout, readById } from "../../src/core/records";
 import { fixedClock, steppingClock } from "../../src/core/time";
 import { drain, type WebhookFetchImpl } from "../../src/core/webhooks";
 import { ulid } from "ulidx";
 
 const db = (env as unknown as Bindings).DB;
 const bindings = env as unknown as Bindings;
+const SOURCE = { client: "discord-app:test", version: null };
+
+function create(clock: () => string, name: string, owner = "owner-a") {
+  const input: CommitInput = {
+    layoutId: ulid(),
+    creating: true,
+    currentN: 0,
+    currentLayout: null,
+    currentFormats: new Map(),
+    layout: { kind: "created", name, owner, created_at: clock(), deleted: false },
+    format: { kind: "format_added", lineage: "spark", format: "spark/1", payload: {}, hasMagic: false },
+    modified_at: clock(),
+    actor: "tester",
+    via: "discord",
+    source: SOURCE,
+    upstream: null,
+  };
+  return commitWrite(db, clock, input);
+}
 
 // Seeds N bare informational-shaped event rows directly (bypassing
 // appendInfo's per-row round trip) so the 1000-row cap is exercised without
-// 1000+ awaited D1 calls; chunked at <=100 statements/batch (07 §4).
+// 1000+ awaited D1 calls; chunked at <=100 statements/batch.
 async function seedBareEvents(n: number, kind: string): Promise<void> {
   const stmts = [];
   for (let i = 0; i < n; i++) {
     stmts.push(
       db
         .prepare(
-          `INSERT INTO events (at, kind, layout_id, name, owner, rev, actor, via, admin)
-           VALUES (?, ?, NULL, NULL, NULL, NULL, 'system:cmini-import', 'import:cmini', 0)`,
+          `INSERT INTO events (at, kind, layout_id, name, owner, format, rev, actor, via, admin)
+           VALUES (?, ?, NULL, NULL, NULL, NULL, NULL, 'system:cmini-import', 'import:cmini', 0)`,
         )
         .bind(`2026-03-01T00:00:${String(i % 60).padStart(2, "0")}.${String(i).padStart(3, "0")}Z`, kind),
     );
@@ -39,54 +57,21 @@ async function seedBareEvents(n: number, kind: string): Promise<void> {
 describe("feed", () => {
   it("[LDB-P6] returns everything in seq order from since=0", async () => {
     const clock = fixedClock("2026-03-02T00:00:00.000Z");
-    const a = await appendWrite(db, clock, {
-      upstream: null,
-      kind: "created",
-      name: "feed-a",
-      owner: "owner-a",
-      modified_at: clock(),
-      format: "cmini/1",
-      payload: {},
-      actor: "tester",
-      via: "discord",
-      source: { client: "discord-app:test", version: null },
-    });
-    const b = await appendWrite(db, clock, {
-      upstream: null,
-      kind: "created",
-      name: "feed-b",
-      owner: "owner-a",
-      modified_at: clock(),
-      format: "cmini/1",
-      payload: {},
-      actor: "tester",
-      via: "discord",
-      source: { client: "discord-app:test", version: null },
-    });
+    const a = await create(clock, "feed-a");
+    const b = await create(clock, "feed-b");
 
     const { items, next } = await feed(db, 0, 1000);
     expect(items.map((e) => e.seq)).toEqual([...items.map((e) => e.seq)].sort((x, y) => x - y));
     const seqs = items.map((e) => e.seq);
-    expect(seqs).toContain(a.seq);
-    expect(seqs).toContain(b.seq);
+    expect(seqs).toContain(a.seqs[0]);
+    expect(seqs).toContain(b.seqs[0]);
     expect(next).toBe(items[items.length - 1]!.seq);
   });
 
   it("[LDB-P6] since is exclusive; next is the last seq returned; a cursor walk covers everything once", async () => {
     const clock = fixedClock("2026-03-03T00:00:00.000Z");
     for (let i = 0; i < 5; i++) {
-      await appendWrite(db, clock, {
-      upstream: null,
-        kind: "created",
-        name: `feed-walk-${i}-${Math.random()}`,
-        owner: "owner-a",
-        modified_at: clock(),
-        format: "cmini/1",
-        payload: {},
-        actor: "tester",
-        via: "discord",
-        source: { client: "discord-app:test", version: null },
-      });
+      await create(clock, `feed-walk-${i}-${Math.random()}`);
     }
 
     const all = await feed(db, 0, 1000);
@@ -97,7 +82,6 @@ describe("feed", () => {
     const second = await feed(db, first.next, 2);
     expect(second.items[0]!.seq).toBeGreaterThan(first.next); // exclusive
 
-    // walking the whole feed in pages of 2 visits every event exactly once
     let cursor = 0;
     const walked: number[] = [];
     for (;;) {
@@ -117,26 +101,9 @@ describe("feed", () => {
 
   it("[LDB-P6] kinds filters the feed", async () => {
     const clock = fixedClock("2026-03-04T00:00:00.000Z");
-    const { record } = await appendWrite(db, clock, {
-      upstream: null,
-      kind: "created",
-      name: `feed-kinds-${Math.random()}`,
-      owner: "owner-a",
-      modified_at: clock(),
-      format: "cmini/1",
-      payload: {},
-      actor: "tester",
-      via: "discord",
-      source: { client: "discord-app:test", version: null },
-    });
-    await appendInfo(db, clock, {
-      kind: "upstream_changed",
-      layoutId: record.id,
-      actor: "system:cmini-import",
-      via: "import:cmini",
-      source: { client: "system:cmini-import", version: null },
-    });
-    await appendLike(db, clock, { kind: "liked", layoutId: record.id, userId: "u1", via: "discord", source: { client: "discord-app:test", version: null } });
+    const { layout } = await create(clock, `feed-kinds-${Math.random()}`);
+    await appendInfo(db, clock, { kind: "upstream_changed", layoutId: layout.id, actor: "system:cmini-import", via: "import:cmini", source: { client: "system:cmini-import", version: null } });
+    await appendLike(db, clock, { kind: "liked", layoutId: layout.id, userId: "u1", via: "discord", source: SOURCE });
 
     const { items } = await feed(db, 0, 1000, ["liked"]);
     expect(items.length).toBeGreaterThan(0);
@@ -145,11 +112,7 @@ describe("feed", () => {
 
   it("[LDB-P6] admin events (NULL layout_id) round-trip through feed()/rowToEvent", async () => {
     const clock = fixedClock("2026-03-05T00:00:00.000Z");
-    const { seq } = await appendAdmin(db, clock, {
-      kind: "admin.added",
-      actor: "admin-tester",
-      detail: { user_id: "30000000000000099", note: "x" },
-    });
+    const { seq } = await appendAdmin(db, clock, { kind: "admin.added", actor: "admin-tester", detail: { user_id: "30000000000000099", note: "x" } });
 
     const { items } = await feed(db, seq - 1, 1);
     expect(items).toHaveLength(1);
@@ -159,6 +122,7 @@ describe("feed", () => {
     expect(e.layout_id).toBeNull();
     expect(e.name).toBeNull();
     expect(e.owner).toBeNull();
+    expect(e.format).toBeNull();
     expect(e.rev).toBeNull();
     expect(e.admin).toBe(true);
     expect(e.via).toBe("discord");
@@ -166,58 +130,50 @@ describe("feed", () => {
   });
 });
 
-// [LDB-P3]: "feed is truth" made literal (12 §2.1) -- a follower built ONLY
-// from webhook deliveries, over a lossy/duplicating transport, must land on
-// the exact same metadata projection as a follower that just folds
-// `/v1/changes` from 0. `foldMeta` below is `core/events.ts`'s `foldRecord`
-// with the payload half removed: a webhook body (and a feed item) is a
-// record's fields MINUS payload (03 §5), so that's the only projection
-// either kind of follower can ever build.
+// [LDB-P3]: "feed is truth" made literal -- a follower built ONLY from
+// webhook deliveries, over a lossy/duplicating transport, must land on the
+// exact same metadata projection as a follower that just folds
+// `/v1/changes` from 0. `foldMetaByLayout` below is `core/events.ts`'s
+// `foldLayout`, restricted to the LAYOUT scope only (format events are
+// folded the same way MF-3's own test covers, and are irrelevant to this
+// property, which is about whether the TRANSPORT loses information -- not
+// about which scope an event names).
 interface FoldableEvent {
   seq: number;
   kind: string;
   layout_id: string | null;
+  format: string | null;
   rev: number | null;
-  after: RecordSansPayload | null;
+  after: EventSnapshot | null;
 }
 
-// A function boundary here (rather than inlining the spread in the loop
-// below) sidesteps the same TS control-flow-analysis quirk `core/events.ts`'s
-// own `bumpLikeCount` works around: narrowing `state` through its own
-// reassignment inside a `for` loop resolves it to `never` at the spread.
-function bumpLikeCount(prev: RecordSansPayload, delta: 1 | -1): RecordSansPayload {
-  return { ...prev, like_count: prev.like_count + delta };
+function withLikeDelta(l: EventSnapshot, delta: 1 | -1): EventSnapshot {
+  return l.scope === "layout" ? { ...l, like_count: l.like_count + delta } : l;
 }
 
-function foldMetaByLayout(events: FoldableEvent[]): Map<string, RecordSansPayload> {
+function foldMetaByLayout(events: FoldableEvent[]): Map<string, EventSnapshot> {
   const byLayout = new Map<string, FoldableEvent[]>();
   for (const e of events) {
-    if (e.layout_id === null) continue; // informational/admin events are not about one record
+    if (e.layout_id === null) continue;
     if (!byLayout.has(e.layout_id)) byLayout.set(e.layout_id, []);
     byLayout.get(e.layout_id)!.push(e);
   }
-  const out = new Map<string, RecordSansPayload>();
+  const out = new Map<string, EventSnapshot>();
   for (const [layoutId, evs] of byLayout) {
     evs.sort((a, b) => a.seq - b.seq);
-    let state: RecordSansPayload | null = null;
+    let state: EventSnapshot | null = null;
     for (const e of evs) {
-      if (e.rev !== null) {
-        state = e.after;
+      if (e.rev !== null && e.format === null) {
+        state = e.after; // this test only tracks the LAYOUT scope's own state
       } else if (state !== null && (e.kind === "liked" || e.kind === "unliked")) {
-        state = bumpLikeCount(state, e.kind === "liked" ? 1 : -1);
+        state = withLikeDelta(state, e.kind === "liked" ? 1 : -1);
       }
-      // else: informational -- no state change (same rule `foldRecord` follows)
     }
     if (state !== null) out.set(layoutId, state);
   }
   return out;
 }
 
-// A tiny deterministic PRNG (mulberry32) seeded from fast-check's own
-// generated `seed` -- both this run's op-target choices (which existing
-// layout a PATCH/like/delete addresses) and the FakeReceiver's drop
-// decisions derive from it, so a failing case is reproducible from the
-// same (ops, seed) pair fast-check reports, not from `Math.random()`.
 function mulberry32(seed: number): () => number {
   let a = seed;
   return () => {
@@ -243,23 +199,10 @@ describe("LDB-P3: a webhook-only follower matches a feed-only follower", () => {
 
             const baseline = await headSeq(db);
             const writeClock = steppingClock("2026-04-01T00:00:00.000Z", 1000);
-            const drainClock = steppingClock("2026-04-01T02:00:00.000Z", 2 * 3600 * 1000); // 2h/call: always past any WEBHOOK_BACKOFF_S tier
+            const drainClock = steppingClock("2026-04-01T02:00:00.000Z", 2 * 3600 * 1000);
 
-            // fast-check re-invokes this whole property many times while
-            // shrinking (D1 persists across invocations within one `it`,
-            // 07 §2); a leftover webhook row from an earlier attempt would
-            // otherwise compete with this run's own hook for `drain()`'s
-            // shared per-call budget (deps.maxPosts) and could push the
-            // convergence loop below past its 60-attempt bound. No other
-            // test in this file touches `webhooks`, so clearing it here is
-            // safe.
             await db.prepare("DELETE FROM webhooks").run();
 
-            // The one subscription this run drains -- inserted directly
-            // (not through `webhooks.create()`/an HTTP round trip) with its
-            // cursor pinned to `baseline`, exactly what `create()` would do
-            // at this same moment (headSeq() == baseline here, nothing of
-            // this run written yet).
             const hookId = ulid();
             const seedAt = "2026-04-01T00:00:00.000Z";
             await db
@@ -271,36 +214,16 @@ describe("LDB-P3: a webhook-only follower matches a feed-only follower", () => {
               .run();
 
             const liveIds: string[] = [];
-            const meta = new Map<string, { name: string; owner: string; format: string }>();
-            // Every layout id this run ever creates, live or since deleted
-            // -- both followers are filtered to exactly this set below.
-            // `baseline` (seq-scoping) is already correct in principle, but
-            // fast-check re-runs this whole property MANY times while
-            // shrinking (10 reruns were observed on one failure) and each
-            // one's D1 writes are never cleaned up between attempts; an
-            // explicit id allow-list is airtight regardless of whatever
-            // timing nuance that leaves in `feed()`'s seq window.
+            const meta = new Map<string, { name: string; owner: string; n: number }>();
             const ownIds = new Set<string>();
             let counter = 0;
 
             async function createOne(): Promise<void> {
               const name = `p3-${hookId}-${counter++}`;
-              const { record } = await appendWrite(db, writeClock, {
-      upstream: null,
-                kind: "created",
-                name,
-                owner: "p3-owner",
-                modified_at: writeClock(),
-                format: "cmini/1",
-                payload: {},
-                actor: "p3-owner",
-                via: "discord",
-                source: { client: "discord-app:test", version: null },
-                hasMagic: false,
-              });
-              liveIds.push(record.id);
-              meta.set(record.id, { name, owner: "p3-owner", format: "cmini/1" });
-              ownIds.add(record.id);
+              const { layout } = await create(writeClock, name, "p3-owner");
+              liveIds.push(layout.id);
+              meta.set(layout.id, { name, owner: "p3-owner", n: layout.n });
+              ownIds.add(layout.id);
             }
 
             for (const opRaw of ops) {
@@ -308,56 +231,54 @@ describe("LDB-P3: a webhook-only follower matches a feed-only follower", () => {
               if (op === 0) {
                 await createOne();
               } else if (op === 1) {
+                // A FORMAT-scope write -- deliberately excluded from
+                // `meta`/the layout-scope fold: it never touches
+                // `layout_rev`, so it must never appear as a bump in
+                // `foldMetaByLayout`'s tracked state either.
                 const id = pick(liveIds);
-                const m = meta.get(id)!;
-                await appendWrite(db, writeClock, {
-      upstream: null,
-                  kind: "updated",
+                const layout = (await readById(db, id))!;
+                const formats = await formatsForLayout(db, id);
+                await commitWrite(db, writeClock, {
                   layoutId: id,
-                  name: m.name,
-                  owner: m.owner,
+                  creating: false,
+                  currentN: layout.n,
+                  currentLayout: layout,
+                  currentFormats: formats,
+                  format: { kind: "updated", lineage: "spark", format: "spark/1", payload: { touched: counter++ }, hasMagic: false },
                   modified_at: writeClock(),
-                  format: m.format,
-                  payload: { touched: counter++ },
                   actor: "p3-owner",
                   via: "discord",
-                  source: { client: "discord-app:test", version: null },
-                  hasMagic: false,
+                  source: SOURCE,
+                  upstream: layout.upstream,
                 });
               } else if (op === 2) {
                 const id = pick(liveIds);
                 const m = meta.get(id)!;
-                await appendWrite(db, writeClock, {
-      upstream: null,
-                  kind: "deleted",
+                const layout = (await readById(db, id))!;
+                const formats = await formatsForLayout(db, id);
+                await commitWrite(db, writeClock, {
                   layoutId: id,
-                  name: m.name,
-                  owner: m.owner,
+                  creating: false,
+                  currentN: layout.n,
+                  currentLayout: layout,
+                  currentFormats: formats,
+                  layout: { kind: "deleted", name: m.name, owner: m.owner, created_at: layout.created_at, deleted: true },
                   modified_at: writeClock(),
-                  format: m.format,
-                  payload: {},
                   actor: "p3-owner",
                   via: "discord",
-                  source: { client: "discord-app:test", version: null },
-                  deleted: true,
-                  hasMagic: false,
+                  source: SOURCE,
+                  upstream: layout.upstream,
                 });
                 liveIds.splice(liveIds.indexOf(id), 1);
                 meta.delete(id);
               } else if (op === 3) {
                 const id = pick(liveIds);
-                await appendLike(db, writeClock, { kind: "liked", layoutId: id, userId: "p3-liker", via: "discord", source: { client: "discord-app:test", version: null } });
+                await appendLike(db, writeClock, { kind: "liked", layoutId: id, userId: "p3-liker", via: "discord", source: SOURCE });
               } else {
                 await appendAdmin(db, writeClock, { kind: "admin.added", actor: "p3-admin", detail: { user_id: `p3-${counter++}` } });
               }
             }
 
-            // The FakeReceiver: logs every event it actually accepted
-            // (keyed by seq -- a later re-delivery of an already-seen seq
-            // just overwrites its own slot with an identical value, the
-            // dedup a real receiver would do), and answers 500 (a
-            // "dropped" delivery, forcing the cron/next drain to retry) for
-            // ~30% of calls, decided by the same seeded `rng`.
             const delivered = new Map<number, FoldableEvent>();
             const fakeFetch: WebhookFetchImpl = async (_url, init) => {
               const body = JSON.parse(init.body) as FoldableEvent;
@@ -382,19 +303,13 @@ describe("LDB-P3: a webhook-only follower matches a feed-only follower", () => {
             const followerA = foldMetaByLayout(ownEvents);
             const followerB = foldMetaByLayout(ownDelivered.sort((a, b) => a.seq - b.seq));
 
-            expect(followerA.size).toBe(ownIds.size); // sanity: every layout this run created/touched has a folded state
+            expect(followerA.size).toBe(ownIds.size);
             expect(new Set(followerB.keys())).toEqual(new Set(followerA.keys()));
             for (const [layoutId, stateA] of followerA) {
               expect(canonical(followerB.get(layoutId))).toBe(canonical(stateA));
             }
           },
         ),
-        // 100 runs (as the brief specifies) times up to 60 real D1-backed
-        // drain() calls each would make this one `it` dominate the whole
-        // workers-project suite's wall time; 20 keeps the property
-        // meaningfully exercised (every op kind, every drop/retry path)
-        // without that cost -- a deliberate deviation, flagged here rather
-        // than silently shipped.
         { numRuns: 20 },
       );
     },

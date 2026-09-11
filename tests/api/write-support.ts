@@ -19,6 +19,12 @@ export const BOOTSTRAP_ADMIN = "184412255822020608";
 export const CMINI_PAYLOAD = { board: "ortho" as const, keys: {} };
 export const AKL_PAYLOAD = { keys: {} };
 
+// 21-formats.md §2.3: scoped If-Match/write-ETag tokens -- `"layout:3"`,
+// `"spark:7"`.
+export function scopedToken(scope: string, rev: number): string {
+  return `"${scope}:${rev}"`;
+}
+
 let uniqueCounter = 0;
 export function uniqueName(prefix: string): string {
   return `${prefix}-${uniqueCounter++}`;

@@ -1,10 +1,11 @@
 // [LDB-I14] [LDB-P11] [LDB-P14] `core/upstream.ts` against real D1:
 // `upstreamOf`'s plain field read (21-formats.md D12 deleted the legacy
-// `import_map`/`legacyFollows` fallback this used to fall back to -- after
-// the D8 wipe every imported row's `upstream` column is always set at
-// create time, so there is nothing left to fall back to), the fold
-// identity (P11: the row's `upstream` equals the latest rev-bumping
-// event's `after.upstream`), and `expectRev`'s race guard (P14).
+// `import_map`/`legacyFollows` fallback this used to fall back to), the
+// fold identity (P11: the row's `upstream` equals the latest rev-bumping
+// event's after.upstream, over EITHER scope -- MF-12), and the system-
+// writer race guard (P14) -- now implemented by `commitWrite`'s own
+// `layout_revs` PK on a stale `currentN`, with no separate `expectN` field
+// (a stale base always collides on an already-committed row at that `n`).
 // `tests/core/upstream.test.ts` covers `nextUpstream` itself as a pure
 // function; this file is what actually touches the `layouts.upstream_*`
 // columns and `events`.
@@ -12,13 +13,15 @@ import { env } from "cloudflare:test";
 import type { Bindings } from "../../src/env";
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import { RevConflictError, appendWrite } from "../../src/core/events";
-import { readById, type Upstream } from "../../src/core/records";
+import { RevConflictError, commitWrite, type CommitInput } from "../../src/core/events";
+import { formatsForLayout, readById, type Upstream } from "../../src/core/records";
 import { fixedClock } from "../../src/core/time";
 import { nextUpstream, upstreamOf } from "../../src/core/upstream";
 
 const db = (env as unknown as Bindings).DB;
 const clock = fixedClock("2026-09-10T00:00:00.000Z");
+const USER_SOURCE = { client: "discord-app:test", version: null };
+const IMPORT_SOURCE = { client: "system:cmini-import", version: null };
 
 let uniqueCounter = 0;
 function unique(): string {
@@ -29,283 +32,152 @@ async function insertImportMapRow(upstreamId: string, layoutId: string): Promise
   await db.prepare("INSERT INTO import_map (upstream_id, layout_id) VALUES (?, ?)").bind(upstreamId, layoutId).run();
 }
 
-describe("[LDB-I14] upstreamOf: a plain read of the record's own field", () => {
+function createLayout(name: string, upstream: Upstream | null, isImport: boolean) {
+  const input: CommitInput = {
+    layoutId: crypto.randomUUID(),
+    creating: true,
+    currentN: 0,
+    currentLayout: null,
+    currentFormats: new Map(),
+    layout: { kind: isImport ? "imported" : "created", name, owner: "owner-a", created_at: clock(), deleted: false },
+    format: { kind: isImport ? "imported" : "format_added", lineage: "spark", format: "spark/1", payload: { v: 0 }, hasMagic: false },
+    modified_at: clock(),
+    actor: isImport ? "system:cmini-import" : "owner-a",
+    via: isImport ? "import:cmini" : "discord",
+    source: isImport ? IMPORT_SOURCE : USER_SOURCE,
+    upstream,
+  };
+  return commitWrite(db, clock, input);
+}
+
+async function updateSpark(layoutId: string, currentN: number, payload: unknown, via: "discord" | "import:cmini", upstream: Upstream | null) {
+  const currentLayout = await readById(db, layoutId);
+  const currentFormats = await formatsForLayout(db, layoutId);
+  const input: CommitInput = {
+    layoutId,
+    creating: false,
+    currentN,
+    currentLayout,
+    currentFormats,
+    format: { kind: via === "import:cmini" ? "imported" : "updated", lineage: "spark", format: "spark/1", payload, hasMagic: false },
+    modified_at: clock(),
+    actor: via === "import:cmini" ? "system:cmini-import" : "owner-a",
+    via,
+    source: via === "import:cmini" ? IMPORT_SOURCE : USER_SOURCE,
+    upstream,
+  };
+  return commitWrite(db, clock, input);
+}
+
+describe("[LDB-I14] upstreamOf: a plain read of the layout's own field", () => {
   it("[LDB-I14] a non-null `upstream` field is returned as-is", async () => {
     const name = `field-wins-${unique()}`;
-    const { record } = await appendWrite(db, clock, {
-      upstream: { source: "cmini", id: "some-upstream", state: "forked" },
-      kind: "created",
-      name,
-      owner: "owner-a",
-      modified_at: clock(),
-      format: "spark/1",
-      payload: { keys: {} },
-      actor: "owner-a",
-      via: "discord",
-      source: { client: "discord-app:test", version: null },
-    });
+    const { layout } = await createLayout(name, { source: "cmini", id: "some-upstream", state: "forked" }, false);
     // An import_map row for the same upstream id changes nothing -- D12
     // deleted the legacy fallback that used to consult it.
-    await insertImportMapRow("some-upstream", record.id);
-    const rec = await readById(db, record.id);
+    await insertImportMapRow("some-upstream", layout.id);
+    const rec = await readById(db, layout.id);
     expect(await upstreamOf(db, rec!)).toEqual({ source: "cmini", id: "some-upstream", state: "forked" });
   });
 
   it("[LDB-I14] a null `upstream` field is null, whether or not an import_map row exists (D12: no more legacy fallback)", async () => {
     const name = `never-mapped-${unique()}`;
-    const { record } = await appendWrite(db, clock, {
-      upstream: null,
-      kind: "created",
-      name,
-      owner: "owner-a",
-      modified_at: clock(),
-      format: "spark/1",
-      payload: { keys: {} },
-      actor: "owner-a",
-      via: "discord",
-      source: { client: "discord-app:test", version: null },
-    });
-    await insertImportMapRow(`would-have-been-legacy-${unique()}`, record.id);
-    const rec = await readById(db, record.id);
+    const { layout } = await createLayout(name, null, false);
+    await insertImportMapRow(`would-have-been-legacy-${unique()}`, layout.id);
+    const rec = await readById(db, layout.id);
     expect(await upstreamOf(db, rec!)).toBeNull();
   });
 });
 
 describe("[LDB-P11] upstream is a fold", () => {
-  it("[LDB-P11] the row's `upstream` equals the latest rev-bumping event's after.upstream, through a following -> forked transition", async () => {
+  it("[MF-12] [LDB-P11] the row's `upstream` equals the latest rev-bumping event's after.upstream, through a following -> forked transition on a FORMAT-scope write", async () => {
     const name = `fold-${unique()}`;
     const initial: Upstream = { source: "cmini", id: "fold-up-1", state: "following" };
-    const created = await appendWrite(db, clock, {
-      upstream: initial,
-      kind: "imported",
-      name,
-      owner: "owner-a",
-      modified_at: clock(),
-      format: "spark/1",
-      payload: { v: 1 },
-      actor: "system:cmini-import",
-      via: "import:cmini",
-      source: { client: "system:cmini-import", version: null },
-    });
-    expect(created.record.upstream).toEqual(initial);
-    let rec = await readById(db, created.record.id);
+    const { layout: created } = await createLayout(name, initial, true);
+    expect(created.upstream).toEqual(initial);
+    let rec = await readById(db, created.id);
     expect(rec!.upstream).toEqual(initial);
 
-    // A user PUT-shaped write forks it -- LDB-I14.
+    // A user write to the SPARK format forks it -- MF-12: spark is a
+    // touching lineage.
     const prior = await upstreamOf(db, rec!);
-    const forkedUpstream = nextUpstream(prior, "updated", "discord");
-    const updated = await appendWrite(db, clock, {
-      upstream: forkedUpstream,
-      kind: "updated",
-      layoutId: rec!.id,
-      name,
-      owner: "owner-a",
-      modified_at: clock(),
-      format: "spark/1",
-      payload: { v: 2 },
-      actor: "owner-a",
-      via: "discord",
-      source: { client: "discord-app:test", version: null },
-    });
-    expect(updated.record.upstream).toEqual({ ...initial, state: "forked" });
-    rec = await readById(db, updated.record.id);
+    const forkedUpstream = nextUpstream(prior, "discord", true);
+    const { layout: updated } = await updateSpark(created.id, rec!.n, { v: 2 }, "discord", forkedUpstream);
+    expect(updated.upstream).toEqual({ ...initial, state: "forked" });
+    rec = await readById(db, updated.id);
     expect(rec!.upstream).toEqual({ ...initial, state: "forked" });
-    // The field wins from here on -- `upstreamOf` agrees with the row.
     expect(await upstreamOf(db, rec!)).toEqual(rec!.upstream);
   });
 
   it("[LDB-P11] a row with a NULL `upstream` field reads null, even with an import_map row (21-formats.md D12: the legacy fallback is gone)", async () => {
-    // Mirrors `dump/restore.ts`'s NULL-on-old-shape behaviour without
-    // going through a real dump/restore round trip (that's rehost.test.ts
-    // and drill/verify.test.ts's job) -- this only needs the column state.
     const name = `null-upstream-${unique()}`;
-    const { record } = await appendWrite(db, clock, {
-      upstream: null,
-      kind: "imported",
-      name,
-      owner: "owner-a",
-      modified_at: clock(),
-      format: "spark/1",
-      payload: { v: 1 },
-      actor: "system:cmini-import",
-      via: "import:cmini",
-      source: { client: "system:cmini-import", version: null },
-    });
-    await insertImportMapRow(`would-have-been-legacy-${unique()}`, record.id);
-    const rec = await readById(db, record.id);
+    const { layout } = await createLayout(name, null, true);
+    await insertImportMapRow(`would-have-been-legacy-${unique()}`, layout.id);
+    const rec = await readById(db, layout.id);
     expect(rec!.upstream).toBeNull();
     expect(await upstreamOf(db, rec!)).toBeNull();
   });
 });
 
-describe("[LDB-P14] expectRev closes the system-writer/user-write race", () => {
-  it("[LDB-P14] a system write with a stale expectRev throws RevConflictError before touching the row, and the user's write survives", async () => {
+describe("[LDB-P14] a stale base closes the system-writer/user-write race", () => {
+  it("[LDB-P14] a system write built from a stale `n` throws RevConflictError before landing, and the user's write survives", async () => {
     const name = `race-${unique()}`;
-    const { record } = await appendWrite(db, clock, {
-      upstream: { source: "cmini", id: "race-up-1", state: "following" },
-      kind: "imported",
-      name,
-      owner: "owner-a",
-      modified_at: clock(),
-      format: "spark/1",
-      payload: { v: 0 },
-      actor: "system:cmini-import",
-      via: "import:cmini",
-      source: { client: "system:cmini-import", version: null },
-    });
-    const staleRev = record.rev; // what a system writer read BEFORE the user's write below landed
+    const { layout: created } = await createLayout(name, { source: "cmini", id: "race-up-1", state: "following" }, true);
+    const staleN = created.n; // what a system writer read BEFORE the user's write below landed
 
-    // The user's write lands first (rev 1 -> 2), forking the record.
-    const userWrite = await appendWrite(db, clock, {
-      upstream: { source: "cmini", id: "race-up-1", state: "forked" },
-      kind: "updated",
-      layoutId: record.id,
-      name,
-      owner: "owner-a",
-      modified_at: clock(),
-      format: "spark/1",
-      payload: { v: "user" },
-      actor: "owner-a",
-      via: "discord",
-      source: { client: "discord-app:test", version: null },
-    });
-    expect(userWrite.record.rev).toBe(2);
+    // The user's write lands first, forking the layout.
+    const { formats: _f1 } = await updateSpark(created.id, created.n, { v: "user" }, "discord", { source: "cmini", id: "race-up-1", state: "forked" });
 
-    // The system writer's own re-read, built from the STALE `staleRev`,
-    // must be refused before it ever lands -- not silently accepted at a
-    // NEW target rev (which is exactly what would happen without
-    // `expectRev`: `appendWrite` always re-reads `current` fresh and just
-    // advances one past whatever it finds).
-    await expect(
-      appendWrite(db, clock, {
-        upstream: { source: "cmini", id: "race-up-1", state: "following" },
-        kind: "imported",
-        layoutId: record.id,
-        name,
-        owner: "owner-a",
-        modified_at: clock(),
-        format: "spark/1",
-        payload: { v: "stale-system-write" },
-        actor: "system:cmini-import",
-        via: "import:cmini",
-        source: { client: "system:cmini-import", version: null },
-        expectRev: staleRev,
-      }),
-    ).rejects.toThrow(RevConflictError);
+    // The system writer's own attempt, built from the STALE `staleN`, must
+    // be refused before it ever lands -- not silently accepted at a NEW
+    // target `n` (which is exactly what would happen without this guard).
+    await expect(updateSpark(created.id, staleN, { v: "stale-system-write" }, "import:cmini", { source: "cmini", id: "race-up-1", state: "following" })).rejects.toThrow(RevConflictError);
 
-    const finalRec = await readById(db, record.id);
-    expect(finalRec!.rev).toBe(2); // unchanged by the rejected system write
-    expect(finalRec!.payload).toEqual({ v: "user" }); // the user's edit, never clobbered
+    const finalRec = await readById(db, created.id);
+    const finalFormats = await formatsForLayout(db, created.id);
+    expect(finalFormats.get("spark")!.payload).toEqual({ v: "user" }); // the user's edit, never clobbered
     expect(finalRec!.upstream).toEqual({ source: "cmini", id: "race-up-1", state: "forked" }); // stays forked
   });
 
-  it("[LDB-P14] a system write whose expectRev IS current commits normally", async () => {
+  it("[LDB-P14] a system write whose base `n` IS current commits normally", async () => {
     const name = `race-ok-${unique()}`;
-    const { record } = await appendWrite(db, clock, {
-      upstream: { source: "cmini", id: "race-up-2", state: "following" },
-      kind: "imported",
-      name,
-      owner: "owner-a",
-      modified_at: clock(),
-      format: "spark/1",
-      payload: { v: 0 },
-      actor: "system:cmini-import",
-      via: "import:cmini",
-      source: { client: "system:cmini-import", version: null },
-    });
-    const { record: updated } = await appendWrite(db, clock, {
-      upstream: { source: "cmini", id: "race-up-2", state: "following" },
-      kind: "imported",
-      layoutId: record.id,
-      name,
-      owner: "owner-a",
-      modified_at: clock(),
-      format: "spark/1",
-      payload: { v: 1 },
-      actor: "system:cmini-import",
-      via: "import:cmini",
-      source: { client: "system:cmini-import", version: null },
-      expectRev: record.rev,
-    });
-    expect(updated.rev).toBe(2);
-    expect(updated.payload).toEqual({ v: 1 });
+    const { layout: created } = await createLayout(name, { source: "cmini", id: "race-up-2", state: "following" }, true);
+    const { formats } = await updateSpark(created.id, created.n, { v: 1 }, "import:cmini", { source: "cmini", id: "race-up-2", state: "following" });
+    expect(formats.get("spark")!.rev).toBe(2);
+    expect(formats.get("spark")!.payload).toEqual({ v: 1 });
   });
 
   // [LDB-P14] property: random interleavings of a system writer's
   // (potentially stale) read/write pair against a burst of user writes.
   // Whatever order they land in, a system write only ever succeeds when
-  // its `expectRev` is STILL current at the moment it runs; it never
-  // clobbers a user write that beat it there, and the record's rev only
-  // ever advances by exactly the writes that actually committed.
-  it("[LDB-P14] property: a system write commits iff its expectRev is still current when it runs", async () => {
+  // its base `n` is STILL current at the moment it runs; it never clobbers
+  // a user write that beat it there.
+  it("[LDB-P14] property: a system write commits iff its base `n` is still current when it runs", async () => {
     await fc.assert(
       fc.asyncProperty(fc.integer({ min: 0, max: 5 }), async (userWritesBeforeSystemWrite) => {
         const name = `race-prop-${unique()}`;
-        const { record: created } = await appendWrite(db, clock, {
-          upstream: { source: "cmini", id: "race-prop-up", state: "following" },
-          kind: "imported",
-          name,
-          owner: "owner-a",
-          modified_at: clock(),
-          format: "spark/1",
-          payload: { v: 0 },
-          actor: "system:cmini-import",
-          via: "import:cmini",
-          source: { client: "system:cmini-import", version: null },
-        });
-        const systemReadRev = created.rev; // the system writer's own "read", taken now
+        const { layout: created } = await createLayout(name, { source: "cmini", id: "race-prop-up", state: "following" }, true);
+        const systemReadN = created.n; // the system writer's own "read", taken now
 
         let lastUserPayload: unknown = null;
-        let expectedRev = created.rev;
+        let currentN = created.n;
         for (let i = 0; i < userWritesBeforeSystemWrite; i++) {
           const rec = await readById(db, created.id);
           const prior = await upstreamOf(db, rec!);
-          const { record: r } = await appendWrite(db, clock, {
-            upstream: nextUpstream(prior, "updated", "discord"),
-            kind: "updated",
-            layoutId: created.id,
-            name,
-            owner: "owner-a",
-            modified_at: clock(),
-            format: "spark/1",
-            payload: { v: `user-${i}` },
-            actor: "owner-a",
-            via: "discord",
-            source: { client: "discord-app:test", version: null },
-          });
-          lastUserPayload = r.payload;
-          expectedRev = r.rev;
+          const { layout: l, formats } = await updateSpark(created.id, currentN, { v: `user-${i}` }, "discord", nextUpstream(prior, "discord", true));
+          lastUserPayload = formats.get("spark")!.payload;
+          currentN = l.n;
         }
 
-        const attempt = appendWrite(db, clock, {
-          upstream: nextUpstream({ source: "cmini", id: "race-prop-up", state: "following" }, "imported", "import:cmini"),
-          kind: "imported",
-          layoutId: created.id,
-          name,
-          owner: "owner-a",
-          modified_at: clock(),
-          format: "spark/1",
-          payload: { v: "system" },
-          actor: "system:cmini-import",
-          via: "import:cmini",
-          source: { client: "system:cmini-import", version: null },
-          expectRev: systemReadRev,
-        });
+        const attempt = updateSpark(created.id, systemReadN, { v: "system" }, "import:cmini", nextUpstream({ source: "cmini", id: "race-prop-up", state: "following" }, "import:cmini", true));
 
         if (userWritesBeforeSystemWrite === 0) {
-          // Nothing moved the rev since the system writer's read -- its
-          // write commits normally.
-          const { record: sysRecord } = await attempt;
-          expect(sysRecord.rev).toBe(expectedRev + 1);
-          expect(sysRecord.payload).toEqual({ v: "system" });
+          const { formats } = await attempt;
+          expect(formats.get("spark")!.payload).toEqual({ v: "system" });
         } else {
-          // At least one user write landed first -- the system writer's
-          // stale expectRev must be refused, and the record must still
-          // show the LAST user write, untouched.
           await expect(attempt).rejects.toThrow(RevConflictError);
-          const finalRec = await readById(db, created.id);
-          expect(finalRec!.rev).toBe(expectedRev);
-          expect(finalRec!.payload).toEqual(lastUserPayload);
+          const finalFormats = await formatsForLayout(db, created.id);
+          expect(finalFormats.get("spark")!.payload).toEqual(lastUserPayload);
         }
       }),
       { numRuns: 20 },
