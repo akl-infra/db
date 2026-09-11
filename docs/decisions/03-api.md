@@ -21,6 +21,59 @@ rev-bumping event carries a proven `source` (§5, decision 14); a new
 (§2); `WIRE_VERSION` folds into every ETag (§5); `POST
 /v1/admin/migrate/tick` is new (§7).
 
+**Superseded 2026-09-11 (`21-formats.md`, slices F1 then F2) — read this
+note before anything below.** F1 retired the transitional machinery the
+S7 note above still describes: no `akl/1` alias, no `?as=cmini/1`, no
+`x` field (`22-spark-spec.md` is now `spark/1`'s accurate spec), no
+`migrated` kind, no `POST /v1/admin/migrate/tick`. **F2 then moved a
+layout from "one payload" to "several formats, one row each"** — the
+single biggest wire change since this document was written, and every
+`rev`/`format`/`If-Match` claim below is written for the OLD one-format
+shape. Rather than rewrite this whole page in place (`22-spark-spec.md`'s
+own header explains the convention: a superseded design doc gets a
+pointer, not a line-by-line rewrite), here is the delta a reader needs to
+translate anything below into what the code actually does today —
+`21-formats.md` §2 is the authoritative design source, `db/docs/
+adoption.md` the authoritative up-to-date reference (machine-checked
+against the live router, `LDB-G10`):
+
+- **Two independent write scopes per layout, not one.** `layouts` keeps
+  name/owner/deletion and its own `layout_rev`; `layout_formats` is a NEW
+  table, one row per `(layout, lineage)`, each with its own `rev`/
+  timestamps/`has_magic`/payload. A read's `formats` map lists every
+  format a layout has; `rev` alone (as this document uses it everywhere
+  below) no longer exists as a single number — it is either `layout_rev`
+  or one format's own `rev`, never both at once.
+- **Every event names its scope**: `format: null` on a rev-bumping event
+  means layout scope (`before`/`after` are the layout's fields); a format
+  id means that format's own scope (`before`/`after` are that ONE
+  format's fields — never another's, never a layout field). A
+  create/import always appends two events, one per scope, in one batch.
+- **`?as=` is gone. `?format=` is required, everywhere, no default** (D4)
+  — every `?as=<format>` in §2 below should read `?format=<format>,
+  REQUIRED`. A layout missing (and unable to derive) the format asked for
+  is `404 format_absent` (new), distinct from `held` (a narrower,
+  same-lineage major mismatch).
+- **`If-Match` is scoped** (§1, §3 below): `"layout:<layout_rev>"` for a
+  layout-level write, `"<lineage>:<rev>"` (e.g. `"spark:7"`) for a format
+  write — never a bare number. A write accepts only its own scope's
+  token; the wrong scope, or an unscoped number, is `400 bad_request`
+  before any read. `409 stale`'s body carries `scope` and that scope's
+  rev, not a bare `rev`.
+- **`PUT` splits into replace vs. add** (§3): `If-Match` replaces a format
+  the layout already has; `If-None-Match: *` ADDS a lineage it doesn't
+  have yet (`409 format_exists` if it already does).
+- **`PATCH` is `{name}` (layout scope) XOR `{format, …edits}` (that
+  format's scope), never both** (§3) — mixing the two in one body is a
+  new error, `400 mixed_patch`; a format edit naming no `format` is `400
+  format_required`.
+- **mana2/1's derivation rule is now explicit and checked**: each output
+  format is reachable from exactly one stored lineage (`MF-10`); a second
+  stored lineage (a future `lw/1`) never silently reaches `mana2/1`.
+- New error codes throughout: `format_required`, `format_absent`,
+  `format_exists`, `mixed_patch` (`db/INTEGRATION.md`'s generated
+  appendix, `LDB-G8`, is the byte-accurate table).
+
 ## 1. Conventions
 
 - **Refs.** `{ref}` in a path is a record id (`01J…`) or a name (case-
@@ -496,6 +549,19 @@ The chain's own invariants (`F18` chain contract, `F19` path composition,
 `P13` older-major write, `D6` per-major dumps) are `19-upcast.md` §8,
 implemented in S5 — not yet landed as of this writing; see
 `20-spark.md` §4/§7 for status.
+
+**This table itself is superseded by the "Superseded" note above** —
+`LDB-F20`/`F21`/`P12`, `I2a`/`I12` are retired (F1/F2, D5/D10/D12; deleted
+outright from the registry, not left as a placeholder — `db/INVARIANTS.md`'s
+own retirement log has the why for each); `LDB-P1`/`P2`/`P8`/`P11`/`P14`/
+`F16` are restated for several formats per layout; and F2 added thirteen
+new `MF-*` rows (format independence, rev partition, replay equivalence,
+explicit format, at least one format, per-scope concurrency, derived-never-
+stored, the bot reads spark only, `fromCmini` exactness, unambiguous
+derivation, scoped If-Match, follow scope, dump floor). `db/INVARIANTS.md`
+is the live, code-checked registry (`LDB-T1` enforces every row has a
+tagged test); `21-formats.md` §4 has the MF table with the id mapping this
+slice assigned.
 
 ## 10. Open questions (API)
 
