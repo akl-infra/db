@@ -374,6 +374,7 @@ ${navHtml(mainDocs, recordDocs, '')}
     <h1>layoutdb docs</h1>
     <p>One Cloudflare Worker over one D1 database. Every record is stored in one format, <b>spark</b>, which akl.gg and the bot both read and write. cmini is an import source: its layouts become spark records the moment they arrive. <b>mana2</b> is the format the analyzer reads, produced from spark on request.</p>
     <p>Each doc below is a single markdown source; every page on this hub carries the same navigation and a link to its own raw markdown, for handing to an agent. <a href="/layoutdb/all.md">The whole set, concatenated</a>, is one fetch away.</p>
+    <p>Architecture maps and other design pages, including how layoutdb, the spark bot and akl.gg fit together, are at <a href="/artifacts/">/artifacts/</a>.</p>
     <ul class="doclist">${mainDocs.map(li).join('')}</ul>
     <h2>Design record</h2>
     <p>${escHtml(DESIGN_RECORD_BLURB)}</p>
