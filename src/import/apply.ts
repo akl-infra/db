@@ -6,7 +6,6 @@ import type { Bindings } from "../env";
 import * as cmini1 from "../../formats/adapters/cmini/index";
 import * as akl1 from "../../formats/spark/1/index";
 import { fromCmini } from "../../formats/adapters/cmini/translate";
-import { storedAsSpark } from "../../formats/registry";
 import { canonical } from "../core/canonical";
 import { appendInfo, appendLike, appendWrite } from "../core/events";
 import { nextUpstream, upstreamOf } from "../core/upstream";
@@ -148,23 +147,22 @@ function projectUpstreamFull(detail: ParsedUpstreamDetail): cmini1.CminiDetail {
 // LDB-I11: the record's own magic (nothing before M2; akl.gg's rules,
 // lifted onto a following record from M2 on -- LDB-I12's lift branch in
 // `core/write.ts`'s `patchLayout`) is never a difference against upstream.
-// 20-spark.md S3b: the comparison itself moved from cmini/1 to spark --
-// upstream's detail is run through the SAME `fromCmini` the importer uses
-// to write with, and the record's own (possibly legacy-stored) payload is
-// normalized through `storedAsSpark` first (the ONE conversion of a stored
-// legacy payload, LDB-F21) -- rather than casting either side to
-// `cmini1.Payload`, which would compare the wrong shape (spark's `board`
-// object vs cmini's bare word, `x.cmini` vs top-level `tag`/`blame`/
-// `combos`/`link`) and spuriously call every following record's content
-// "different" on every tick. `magic` dropped on both sides (LDB-I10/I11);
-// likes excluded, as always (07 §6 S5's own like diff owns them).
+// 20-spark.md S3b: the comparison happens in spark -- upstream's detail is
+// run through the SAME `fromCmini` the importer uses to write with, and
+// the record's own payload is already spark-shaped (21-formats.md D12
+// deleted the legacy-stored carry-forward `storedAsSpark` used to need
+// here) -- rather than casting either side to `cmini1.Payload`, which
+// would compare the wrong shape (spark's `board` object vs cmini's bare
+// word) and spuriously call every following record's content "different"
+// on every tick. `magic` dropped on both sides (LDB-I10/I11); likes
+// excluded, as always (07 §6 S5's own like diff owns them).
 function projectUpstreamSpark(detail: ParsedUpstreamDetail): unknown {
   const { magic: _magic, ...payload } = fromCmini(detail.payload);
   return { name: detail.name, owner: detail.owner, created_at: detail.created_at, modified_at: detail.modified_at, payload };
 }
 
 function projectLocalSpark(record: RecordRow): unknown {
-  const { magic: _magic, ...payload } = storedAsSpark(record.format, record.payload).payload as akl1.Payload;
+  const { magic: _magic, ...payload } = record.payload as akl1.Payload;
   return { name: record.name, owner: record.owner, created_at: record.created_at, modified_at: record.modified_at, payload };
 }
 
@@ -336,26 +334,18 @@ async function applyMapped(
       // record's own `magic` survives this write byte-for-byte -- upstream
       // never supplies one (`detail.payload` already lacks it, LDB-I10), so
       // whatever is carried forward is whatever the RECORD already held
-      // (nothing, for anything imported after M1; a legacy cmini import's
-      // magic, until the one-time strip route removes it; akl.gg's rules,
-      // once M2 lands, or a magic-only PATCH lift, LDB-I12).
-      //
-      // 20-spark.md S3b: only the (formerly akl/1-only) branch survives --
-      // a legacy cmini/1-stored record's existing payload is taken through
-      // `storedAsSpark` FIRST (the ONE conversion of a stored legacy
-      // payload, LDB-F21), so this is a single carry-forward rule
-      // regardless of what the record was stored as coming in. LDB-I12
-      // (M2's prerequisite, design/layout-db/18-command-decisions.md §2
-      // item 1): a record can be spark-shaped and still follow upstream (a
+      // (nothing, for anything imported after M1; akl.gg's rules, once M2
+      // lands, or a magic-only PATCH lift, LDB-I12). LDB-I12 (M2's
+      // prerequisite, design/layout-db/18-command-decisions.md §2 item 1):
+      // a record can be spark-shaped and still follow upstream (a
       // magic-only PATCH lifts it, `core/write.ts`'s `patchLayout`, and
-      // stays followed -- `core/follows.ts`'s `legacyFollows` skips
-      // magic-only writes). That record's `magic` idiom is native (unlike
-      // cmini/1's flat rows), so it cannot be carried forward with a bare
-      // object spread over upstream's cmini/1 detail -- upstream's keys/
-      // board/free/x are translated into spark first (`fromCmini`, the
-      // SAME lossless translation the lift itself uses, LDB-F5), and only
-      // then does the record's own `magic` get carried over untouched.
-      const existing = storedAsSpark(record.format, record.payload).payload as akl1.Payload;
+      // stays followed -- LDB-I14's own fork rule). That record's `magic`
+      // idiom cannot be carried forward with a bare object spread over
+      // upstream's cmini detail -- upstream's keys/board/free are
+      // translated into spark first (`fromCmini`, the SAME lossless
+      // translation the lift itself uses, LDB-F5), and only then does the
+      // record's own `magic` get carried over untouched.
+      const existing = record.payload as akl1.Payload;
       const payload: akl1.Payload = { ...fromCmini(detail.payload), magic: existing.magic };
       await appendWrite(db, now, {
         kind: "imported",
@@ -425,19 +415,14 @@ export async function applyDelete(db: Bindings["DB"], now: Clock, layoutId: stri
   const prior = await upstreamOf(db, record);
   const following = prior?.state === "following";
   if (following) {
-    // 20-spark.md S3b (LDB-F16/F21, §8 R-H2): carries the payload forward
-    // through `storedAsSpark`, not `record.format`/`record.payload`
-    // verbatim -- otherwise tombstoning an unmigrated legacy-stored record
-    // would re-store its old format.
-    const stored = storedAsSpark(record.format, record.payload);
     await appendWrite(db, now, {
       kind: "upstream_deleted",
       layoutId,
       name: record.name,
       owner: record.owner,
       modified_at: now(),
-      format: stored.format,
-      payload: stored.payload,
+      format: record.format,
+      payload: record.payload,
       actor: "system:cmini-import",
       via: "import:cmini",
       source: { client: "system:cmini-import", version: null },

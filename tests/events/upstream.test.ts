@@ -1,11 +1,13 @@
 // [LDB-I14] [LDB-P11] [LDB-P14] `core/upstream.ts` against real D1:
-// `upstreamOf`'s field-vs-legacy-fallback precedence (the `import_map`
-// dimension of I14's own matrix), the fold identity (P11: the row's
-// `upstream` equals the latest rev-bumping event's `after.upstream`, and a
-// pre-0005-shaped row falls back to the legacy rule), and `expectRev`'s
-// race guard (P14). `tests/core/upstream.test.ts` covers `nextUpstream`
-// itself as a pure function; this file is what actually touches the
-// `layouts.upstream_*` columns and `events`.
+// `upstreamOf`'s plain field read (21-formats.md D12 deleted the legacy
+// `import_map`/`legacyFollows` fallback this used to fall back to -- after
+// the D8 wipe every imported row's `upstream` column is always set at
+// create time, so there is nothing left to fall back to), the fold
+// identity (P11: the row's `upstream` equals the latest rev-bumping
+// event's `after.upstream`), and `expectRev`'s race guard (P14).
+// `tests/core/upstream.test.ts` covers `nextUpstream` itself as a pure
+// function; this file is what actually touches the `layouts.upstream_*`
+// columns and `events`.
 import { env } from "cloudflare:test";
 import type { Bindings } from "../../src/env";
 import fc from "fast-check";
@@ -13,7 +15,7 @@ import { describe, expect, it } from "vitest";
 import { RevConflictError, appendWrite } from "../../src/core/events";
 import { readById, type Upstream } from "../../src/core/records";
 import { fixedClock } from "../../src/core/time";
-import { legacyUpstreamMap, nextUpstream, upstreamOf } from "../../src/core/upstream";
+import { nextUpstream, upstreamOf } from "../../src/core/upstream";
 
 const db = (env as unknown as Bindings).DB;
 const clock = fixedClock("2026-09-10T00:00:00.000Z");
@@ -27,8 +29,8 @@ async function insertImportMapRow(upstreamId: string, layoutId: string): Promise
   await db.prepare("INSERT INTO import_map (upstream_id, layout_id) VALUES (?, ?)").bind(upstreamId, layoutId).run();
 }
 
-describe("[LDB-I14] upstreamOf: field vs. legacy fallback, the import_map dimension", () => {
-  it("[LDB-I14] a non-null `upstream` field wins outright -- ignores import_map/legacyFollows entirely, even when they'd disagree", async () => {
+describe("[LDB-I14] upstreamOf: a plain read of the record's own field", () => {
+  it("[LDB-I14] a non-null `upstream` field is returned as-is", async () => {
     const name = `field-wins-${unique()}`;
     const { record } = await appendWrite(db, clock, {
       upstream: { source: "cmini", id: "some-upstream", state: "forked" },
@@ -36,59 +38,20 @@ describe("[LDB-I14] upstreamOf: field vs. legacy fallback, the import_map dimens
       name,
       owner: "owner-a",
       modified_at: clock(),
-      format: "cmini/1",
-      payload: { v: 1 },
+      format: "spark/1",
+      payload: { keys: {} },
       actor: "owner-a",
       via: "discord",
       source: { client: "discord-app:test", version: null },
     });
-    // A contradicting import_map row -- if the fallback were consulted at
-    // all, this record would read "following". It must not be: the field
-    // is non-null.
+    // An import_map row for the same upstream id changes nothing -- D12
+    // deleted the legacy fallback that used to consult it.
     await insertImportMapRow("some-upstream", record.id);
     const rec = await readById(db, record.id);
     expect(await upstreamOf(db, rec!)).toEqual({ source: "cmini", id: "some-upstream", state: "forked" });
   });
 
-  it("[LDB-I14] null field + import_map row + legacyFollows true -> the legacy fallback answers 'following'", async () => {
-    const name = `legacy-following-${unique()}`;
-    const { record } = await appendWrite(db, clock, {
-      upstream: null, // pre-0005 shape: no field ever written
-      kind: "imported",
-      name,
-      owner: "owner-a",
-      modified_at: clock(),
-      format: "cmini/1",
-      payload: { v: 1 },
-      actor: "system:cmini-import",
-      via: "import:cmini", // legacyFollows' own rule: latest rev-bumping event's via
-      source: { client: "system:cmini-import", version: null },
-    });
-    await insertImportMapRow("legacy-up-1", record.id);
-    const rec = await readById(db, record.id);
-    expect(await upstreamOf(db, rec!)).toEqual({ source: "cmini", id: "legacy-up-1", state: "following" });
-  });
-
-  it("[LDB-I14] null field + import_map row + legacyFollows false -> 'forked' (mapped but not following IS forked, not null -- an import_map row alone answers 'does the importer own this record', never 'is there a link at all')", async () => {
-    const name = `legacy-not-following-${unique()}`;
-    const { record } = await appendWrite(db, clock, {
-      upstream: null,
-      kind: "created", // via: discord -- legacyFollows answers false
-      name,
-      owner: "owner-a",
-      modified_at: clock(),
-      format: "cmini/1",
-      payload: { v: 1 },
-      actor: "owner-a",
-      via: "discord",
-      source: { client: "discord-app:test", version: null },
-    });
-    await insertImportMapRow("legacy-up-2", record.id);
-    const rec = await readById(db, record.id);
-    expect(await upstreamOf(db, rec!)).toEqual({ source: "cmini", id: "legacy-up-2", state: "forked" });
-  });
-
-  it("[LDB-I14] null field + no import_map row at all -> null", async () => {
+  it("[LDB-I14] a null `upstream` field is null, whether or not an import_map row exists (D12: no more legacy fallback)", async () => {
     const name = `never-mapped-${unique()}`;
     const { record } = await appendWrite(db, clock, {
       upstream: null,
@@ -96,12 +59,13 @@ describe("[LDB-I14] upstreamOf: field vs. legacy fallback, the import_map dimens
       name,
       owner: "owner-a",
       modified_at: clock(),
-      format: "cmini/1",
-      payload: { v: 1 },
+      format: "spark/1",
+      payload: { keys: {} },
       actor: "owner-a",
       via: "discord",
       source: { client: "discord-app:test", version: null },
     });
+    await insertImportMapRow(`would-have-been-legacy-${unique()}`, record.id);
     const rec = await readById(db, record.id);
     expect(await upstreamOf(db, rec!)).toBeNull();
   });
@@ -117,7 +81,7 @@ describe("[LDB-P11] upstream is a fold", () => {
       name,
       owner: "owner-a",
       modified_at: clock(),
-      format: "cmini/1",
+      format: "spark/1",
       payload: { v: 1 },
       actor: "system:cmini-import",
       via: "import:cmini",
@@ -137,7 +101,7 @@ describe("[LDB-P11] upstream is a fold", () => {
       name,
       owner: "owner-a",
       modified_at: clock(),
-      format: "cmini/1",
+      format: "spark/1",
       payload: { v: 2 },
       actor: "owner-a",
       via: "discord",
@@ -150,27 +114,27 @@ describe("[LDB-P11] upstream is a fold", () => {
     expect(await upstreamOf(db, rec!)).toEqual(rec!.upstream);
   });
 
-  it("[LDB-P11] a pre-0005-shaped row (upstream_* NULL, as any dump written before this slice restores it) falls back to the legacy rule", async () => {
+  it("[LDB-P11] a row with a NULL `upstream` field reads null, even with an import_map row (21-formats.md D12: the legacy fallback is gone)", async () => {
     // Mirrors `dump/restore.ts`'s NULL-on-old-shape behaviour without
     // going through a real dump/restore round trip (that's rehost.test.ts
     // and drill/verify.test.ts's job) -- this only needs the column state.
-    const name = `pre-0005-${unique()}`;
+    const name = `null-upstream-${unique()}`;
     const { record } = await appendWrite(db, clock, {
       upstream: null,
       kind: "imported",
       name,
       owner: "owner-a",
       modified_at: clock(),
-      format: "cmini/1",
+      format: "spark/1",
       payload: { v: 1 },
       actor: "system:cmini-import",
       via: "import:cmini",
       source: { client: "system:cmini-import", version: null },
     });
-    await insertImportMapRow("pre-0005-up", record.id);
+    await insertImportMapRow(`would-have-been-legacy-${unique()}`, record.id);
     const rec = await readById(db, record.id);
-    expect(rec!.upstream).toBeNull(); // exactly what a restored old-shape dump reads back
-    expect(await upstreamOf(db, rec!)).toEqual({ source: "cmini", id: "pre-0005-up", state: "following" });
+    expect(rec!.upstream).toBeNull();
+    expect(await upstreamOf(db, rec!)).toBeNull();
   });
 });
 
@@ -183,7 +147,7 @@ describe("[LDB-P14] expectRev closes the system-writer/user-write race", () => {
       name,
       owner: "owner-a",
       modified_at: clock(),
-      format: "cmini/1",
+      format: "spark/1",
       payload: { v: 0 },
       actor: "system:cmini-import",
       via: "import:cmini",
@@ -199,7 +163,7 @@ describe("[LDB-P14] expectRev closes the system-writer/user-write race", () => {
       name,
       owner: "owner-a",
       modified_at: clock(),
-      format: "cmini/1",
+      format: "spark/1",
       payload: { v: "user" },
       actor: "owner-a",
       via: "discord",
@@ -220,7 +184,7 @@ describe("[LDB-P14] expectRev closes the system-writer/user-write race", () => {
         name,
         owner: "owner-a",
         modified_at: clock(),
-        format: "cmini/1",
+        format: "spark/1",
         payload: { v: "stale-system-write" },
         actor: "system:cmini-import",
         via: "import:cmini",
@@ -243,7 +207,7 @@ describe("[LDB-P14] expectRev closes the system-writer/user-write race", () => {
       name,
       owner: "owner-a",
       modified_at: clock(),
-      format: "cmini/1",
+      format: "spark/1",
       payload: { v: 0 },
       actor: "system:cmini-import",
       via: "import:cmini",
@@ -256,7 +220,7 @@ describe("[LDB-P14] expectRev closes the system-writer/user-write race", () => {
       name,
       owner: "owner-a",
       modified_at: clock(),
-      format: "cmini/1",
+      format: "spark/1",
       payload: { v: 1 },
       actor: "system:cmini-import",
       via: "import:cmini",
@@ -283,7 +247,7 @@ describe("[LDB-P14] expectRev closes the system-writer/user-write race", () => {
           name,
           owner: "owner-a",
           modified_at: clock(),
-          format: "cmini/1",
+          format: "spark/1",
           payload: { v: 0 },
           actor: "system:cmini-import",
           via: "import:cmini",
@@ -303,7 +267,7 @@ describe("[LDB-P14] expectRev closes the system-writer/user-write race", () => {
             name,
             owner: "owner-a",
             modified_at: clock(),
-            format: "cmini/1",
+            format: "spark/1",
             payload: { v: `user-${i}` },
             actor: "owner-a",
             via: "discord",
@@ -320,7 +284,7 @@ describe("[LDB-P14] expectRev closes the system-writer/user-write race", () => {
           name,
           owner: "owner-a",
           modified_at: clock(),
-          format: "cmini/1",
+          format: "spark/1",
           payload: { v: "system" },
           actor: "system:cmini-import",
           via: "import:cmini",
@@ -346,60 +310,5 @@ describe("[LDB-P14] expectRev closes the system-writer/user-write race", () => {
       }),
       { numRuns: 20 },
     );
-  });
-});
-
-describe("[LDB-P5] legacyUpstreamMap equals upstreamOf's legacy fallback, record for record", () => {
-  it("[LDB-P5] [LDB-I14] every history shape resolves the same in bulk as one record at a time", async () => {
-    const clock = fixedClock("2026-09-11T00:00:00.000Z");
-    const importW = { actor: "system:cmini-import", via: "import:cmini", source: { client: "system:cmini-import", version: null } };
-    const userW = { actor: "owner-lum", via: "discord", source: { client: "discord-app:test", version: null } };
-    const migW = { actor: "system:migration", via: "migration", source: { client: "system:migration", version: null } };
-    type Step = { kind: "imported" | "updated" | "migrated"; w: typeof importW; detail?: Record<string, unknown> };
-    async function seed(name: string, steps: Step[], map: boolean): Promise<string> {
-      let id: string | undefined;
-      for (const st of steps) {
-        const { record } = await appendWrite(db, clock, {
-          kind: st.kind,
-          ...(id ? { layoutId: id } : {}),
-          name,
-          owner: "owner-lum",
-          modified_at: "2026-09-01T00:00:00.000Z",
-          format: "spark/1",
-          payload: { keys: {} },
-          hasMagic: false,
-          upstream: null,
-          ...st.w,
-          ...(st.detail ? { detail: st.detail } : {}),
-        });
-        id = record.id;
-      }
-      if (map) await insertImportMapRow(`up-${name}`, id!);
-      return id!;
-    }
-    const ids = [
-      await seed(`lum-following-${unique()}`, [{ kind: "imported", w: importW }], true),
-      await seed(`lum-magiconly-${unique()}`, [{ kind: "imported", w: importW }, { kind: "updated", w: userW, detail: { magic_only: true } }], true),
-      await seed(`lum-stringtrue-${unique()}`, [{ kind: "imported", w: importW }, { kind: "updated", w: userW, detail: { magic_only: "true" } }], true),
-      await seed(`lum-migrated-${unique()}`, [{ kind: "imported", w: importW }, { kind: "migrated", w: migW, detail: { from: "cmini/1", to: "spark/1" } }], true),
-      await seed(`lum-useredit-${unique()}`, [{ kind: "imported", w: importW }, { kind: "updated", w: userW }], true),
-      await seed(`lum-malformed-${unique()}`, [{ kind: "imported", w: importW }, { kind: "updated", w: userW, detail: { note: "x" } }], true),
-      await seed(`lum-unmapped-${unique()}`, [{ kind: "imported", w: importW }], false),
-    ];
-    // Malformed detail JSON on the malformed record's latest event: not a marker, never an error.
-    await db.prepare("UPDATE events SET detail_json = '{not json' WHERE layout_id = ? AND seq = (SELECT MAX(seq) FROM events WHERE layout_id = ?)").bind(ids[5], ids[5]).run();
-    // Clear the stored field (what the migration would fill) so both sides take the legacy path.
-    await db.prepare("UPDATE layouts SET upstream_source = NULL, upstream_id = NULL, upstream_state = NULL").run();
-
-    const bulk = await legacyUpstreamMap(db);
-    const states: Array<string | null> = [];
-    for (const id of ids) {
-      const rec = await readById(db, id);
-      const one = await upstreamOf(db, rec!);
-      expect(bulk.get(id) ?? null, `record ${id}`).toEqual(one);
-      states.push(one?.state ?? null);
-    }
-    // The shapes really cover every branch.
-    expect(states).toEqual(["following", "following", "forked", "following", "forked", "forked", null]);
   });
 });

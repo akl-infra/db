@@ -13,7 +13,7 @@
         "bearer": "conformance-owner2-token",
         "body": {
           "name": "cw-delete-stale-1",
-          "format": "akl/1",
+          "format": "spark/1",
           "payload": {
             "keys": {}
           }
@@ -27,11 +27,11 @@
           "If-Match": "\"1\""
         },
         "body": {
-          "format": "akl/1",
+          "format": "spark/1",
           "payload": {
             "keys": {},
-            "x": {
-              "tag": "bump"
+            "magic": {
+              "notes": "bump"
             }
           }
         }
@@ -65,8 +65,8 @@
         },
         "payload": {
           "keys": {},
-          "x": {
-            "tag": "bump"
+          "magic": {
+            "notes": "bump"
           }
         }
       },

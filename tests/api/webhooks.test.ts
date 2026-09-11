@@ -425,7 +425,7 @@ describe("[LDB-H1] [LDB-H4] [LDB-H5] webhooks", () => {
         return fake.fetchImpl(url, init as unknown as { headers: Record<string, string>; signal?: AbortSignal });
       });
 
-      const createLayoutRes = await writeFetch("/v1/layouts", "POST", headers, { name: uniqueName("wh-delivery"), format: "akl/1", payload: { keys: {} } });
+      const createLayoutRes = await writeFetch("/v1/layouts", "POST", headers, { name: uniqueName("wh-delivery"), format: "spark/1", payload: { keys: {} } });
       expect(createLayoutRes.status).toBe(201);
 
       // `writeFetch` (write-support.ts) already awaited the nudge's own

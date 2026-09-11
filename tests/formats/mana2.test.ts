@@ -5,15 +5,17 @@
 // every fixture here, and `mutations.test.ts`/`frozen.test.ts` still cover
 // the fingers/fingermap/duplicate-char/duplicate-inputs/combos mutation
 // matrix [LDB-F1], same as before. What that generic loop CAN'T reach
-// anymore: this format's `.spark-1.json`/`.cmini-1.json` goldens --
-// mana2/1's registry `to`/`from` are `{}` now (nothing is ever stored as
-// mana2/1, so the registry has nothing to dispatch through) -- this
-// file's own "goldens (LDB-F7, kept out of goldens.test.ts)" block below
-// is what keeps THOSE tested, calling `toSpark`/`fromSpark` (this
-// format's own named exports, were `toAkl`/`fromAkl`) directly. Everything
-// else here is what was always this file's own: the envelope over all 75
-// vendored layouts, the algorithm-row assertions §2.5 states by name, both
-// round-trip directions, and the held-reasons enumeration.
+// anymore: this format's `.spark-1.json` golden -- mana2/1's registry
+// `to`/`from` are `{}` now (nothing is ever stored as mana2/1, so the
+// registry has nothing to dispatch through) -- this file's own "goldens
+// (LDB-F7, kept out of goldens.test.ts)" block below is what keeps THAT
+// tested, calling `toSpark`/`fromSpark` (this format's own named exports,
+// were `toAkl`/`fromAkl`) directly. 21-formats.md D5 deleted `toCmini`
+// entirely, so there is no `.cmini-1.json` golden for any format any
+// more. Everything else here is what was always this file's own: the
+// envelope over all 75 vendored layouts, the algorithm-row assertions
+// §2.5 states by name, both round-trip directions, and the held-reasons
+// enumeration.
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -23,8 +25,6 @@ import type { Payload as SparkPayload, Board as SparkBoard } from "../../formats
 import * as mana2_1 from "../../formats/mana2/1/index.ts";
 import type { Payload as Mana2Payload } from "../../formats/mana2/1/index.ts";
 import { parseRow, toSpark, fromSpark } from "../../formats/mana2/1/translate.ts";
-import { toCmini } from "../../formats/adapters/cmini/translate.ts";
-import * as cminiAdapter from "../../formats/adapters/cmini/index.ts";
 
 const VENDORED_DIR = path.resolve(import.meta.dirname, "..", "fixtures", "mana2-vendored");
 const MANA2_FIXTURES_DIR = path.resolve(import.meta.dirname, "..", "..", "formats", "mana2", "1", "fixtures");
@@ -73,21 +73,9 @@ describe("mana2/1 goldens (LDB-F7)", () => {
         expect(spark1.validate(translated).ok).toBe(true);
       });
     }
-
-    const cminiGolden = path.join(MANA2_FIXTURES_DIR, `${stem}.cmini-1.json`);
-    if (fs.existsSync(cminiGolden)) {
-      it(`[LDB-F7] ${stem}: toCmini(toSpark(p)) matches its frozen golden (.cmini-1.json, unchanged)`, () => {
-        const translated = toSpark(payload);
-        const composed = isHeldResult(translated) ? translated : toCmini(translated);
-        expect(composed).toEqual(JSON.parse(fs.readFileSync(cminiGolden, "utf8")));
-      });
-
-      it(`[LDB-F7] ${stem}: toCmini(toSpark(p))'s output validates against the cmini adapter`, () => {
-        const translated = toSpark(payload);
-        if (isHeldResult(translated)) return;
-        expect(cminiAdapter.validate(toCmini(translated)).ok).toBe(true);
-      });
-    }
+    // 21-formats.md D5 deleted `toCmini` (the cmini export) entirely --
+    // there is no more `.cmini-1.json` golden for any format, mana2/1
+    // included.
   }
 });
 
@@ -218,15 +206,22 @@ describe("algorithm rows (12-implementation-phase5.md §2.5, exact)", () => {
     });
   }
 
-  const hatchCases: Array<[string, string, unknown]> = [
-    ["901-splitangle-hatch", "splitAngle", 15],
-    ["902-mirror-hatch", "mirrorLeftRowStagger", true],
+  // 21-formats.md D10: spark/1's free-form `x` field (and this pair's own
+  // `x.mana2` hatch, which used to carry these two fields across the hop
+  // exactly) is gone. `toSpark` no longer holds on them -- it just drops
+  // them, a documented loss (`db/formats/mana2/1/translate.ts`'s own
+  // `Mana2Extra` comment) -- so these fixtures still translate, but the
+  // field itself no longer survives; see the round-trip exclusion below
+  // for the resulting default-value assertion.
+  const hatchCases: Array<[string, string]> = [
+    ["901-splitangle-hatch", "splitAngle"],
+    ["902-mirror-hatch", "mirrorLeftRowStagger"],
   ];
-  for (const [name, field, value] of hatchCases) {
-    it(`${name}: NOT held -- x.mana2 hatch carries board.${field} (12 §2.5's decision, this format's override)`, () => {
+  for (const [name, field] of hatchCases) {
+    it(`${name}: NOT held -- board.${field} is silently dropped (D10: no more x.mana2 hatch)`, () => {
       const a = spark(name);
       expect(isHeldResult(a)).toBe(false);
-      expect((a.x as { mana2?: Record<string, unknown> } | undefined)?.mana2?.[field]).toBe(value);
+      expect(a.board).not.toHaveProperty(field);
     });
   }
 
@@ -298,16 +293,28 @@ describe("mana2/1 -> akl/1 -> mana2/1 (every non-held fixture, modulo normalizeM
       const m = JSON.parse(fs.readFileSync(path.join(dir, file), "utf8")) as Mana2Payload;
       const check = mana2_1.validate(m);
       if (!check.ok) continue; // shouldn't happen here; the envelope test above is the authority
-      // Two hand fixtures are DESIGNED to be lossy, not round-trip clean
-      // -- `904-dup-rules` (last-wins dedup at the FIRST hop discards the
-      // earlier duplicate forever) and `905-colstag-zeros` (an all-zero
-      // colstag collapses to "ortho", which comes back isRowStaggered:
-      // true, not the original false -- the same asymmetry documented for
-      // `board.kind: "ortho"` generally). Both are asserted exactly, by
-      // name, in the "algorithm rows" describe block above; excluded here
-      // so this generic loop's identity claim stays true for what it
-      // actually claims.
-      if (stem === "904-dup-rules" || stem === "905-colstag-zeros") continue;
+      // Five fixtures are DESIGNED (or, for `opaline`, discovered) to be
+      // lossy, not round-trip clean -- `904-dup-rules` (last-wins dedup at
+      // the FIRST hop discards the earlier duplicate forever),
+      // `905-colstag-zeros` (an all-zero colstag collapses to "ortho",
+      // which comes back isRowStaggered: true, not the original false --
+      // the same asymmetry documented for `board.kind: "ortho"`
+      // generally), `901-splitangle-hatch`/`902-mirror-hatch` (21-formats
+      // .md D10: spark/1 has nowhere left to carry `board.splitAngle`/
+      // `mirrorLeftRowStagger` across the hop, so they silently reset to
+      // their defaults -- see the `hatchCases` block above), and the
+      // vendored `opaline` (its own `magic.magicKeys: []` -- an explicit
+      // empty array, distinct from absent/null -- comes back `null`,
+      // D10's same loss: `normalizeMana2` treats `null` as absent but `[]`
+      // as present, so this one real file's empty array can never survive
+      // the hop now that there's nowhere to carry it). The first four are
+      // asserted exactly, by name, in the "algorithm rows" describe block
+      // above; `opaline` alone has no dedicated re-assertion (an empty
+      // `magicKeys` carries no information worth pinning beyond "it's
+      // gone, like the others"). All five are excluded here so this
+      // generic loop's identity claim stays true for what it actually
+      // claims.
+      if (["904-dup-rules", "905-colstag-zeros", "901-splitangle-hatch", "902-mirror-hatch", "opaline"].includes(stem)) continue;
       const translated = toSpark(m);
       if (isHeldResult(translated)) continue; // held fixtures have no round trip to check here (algorithm-row assertions cover them)
 
@@ -434,14 +441,11 @@ function adjustForMana2RoundTrip(a: SparkPayload): SparkPayload {
   if (outFree.length > 0) out.free = outFree;
   const magic = expectedMagic(a);
   if (magic) out.magic = magic;
-  // `fromAkl` never leaves mirrorLeftRowStagger/splitAngle/magicKeys/
-  // layers unset on the mana2 payload it produces (defaults when no
-  // x.mana2 hint exists to prefer instead), so the very next `toAkl` call
-  // always finds them present and captures them into a NEW `x.mana2` --
-  // even though none of this format's own akl/1 fixtures ever had one.
-  // README.md documents this as the deliberate mirror image of a
-  // genuinely mana2-sourced record's `x.mana2` surviving on purpose.
-  out.x = { mana2: { mirrorLeftRowStagger: false, splitAngle: 0, magicKeys: null, layers: null } };
+  // 21-formats.md D10: spark/1 has no `x` field any more, so a spark ->
+  // mana2 -> spark round trip no longer carries anything extra -- `toSpark`
+  // silently drops `mirrorLeftRowStagger`/`splitAngle`/`magicKeys`/
+  // `layers` instead of capturing them (mana2/1/translate.ts's own
+  // `Mana2Extra` comment documents this loss).
   return out;
 }
 
@@ -514,19 +518,6 @@ describe("akl/1 -> mana2/1 -> akl/1 (every cmini-derived fixture, via the cmini/
   }
 });
 
-// -- §6.8: a mana2 record read ?as=cmini/1 carries keys[" "] when the file
-// had a `space` token --
-
-describe("§6.8: space -> \" \" survives to ?as=cmini/1", () => {
-  it("001-hours (a real 'space' thumb token) carries keys[\" \"] via to[\"cmini/1\"]", () => {
-    const m = JSON.parse(fs.readFileSync(path.join(MANA2_FIXTURES_DIR, "001-hours.json"), "utf8")) as Mana2Payload;
-    // mana2/1's registry `to` is `{}` now (20-spark.md S1: nothing is ever
-    // stored as mana2/1, so the registry has nothing to dispatch through)
-    // -- the composition is the same one `?as=cmini/1` of a mana2-derived
-    // spark/1 record would run: `toCmini(toSpark(p))`.
-    const asSpark = toSpark(m);
-    if (isHeldResult(asSpark)) throw new Error(`001-hours unexpectedly held: ${asSpark.reason}`);
-    const cmini = toCmini(asSpark) as { keys: Record<string, unknown> };
-    expect(cmini.keys).toHaveProperty(" ");
-  });
-});
+// 21-formats.md D5 deleted `toCmini` and the whole cmini export -- the
+// former "§6.8: space -> \" \" survives to ?as=cmini/1" block, which
+// composed `toCmini(toSpark(p))`, has nothing left to test.

@@ -7,11 +7,11 @@
       "If-Match": "\"1\""
     },
     "body": {
-      "format": "akl/1",
+      "format": "spark/1",
       "payload": {
         "keys": {},
-        "x": {
-          "tag": "stale"
+        "magic": {
+          "notes": "stale"
         }
       }
     },
@@ -24,11 +24,11 @@
           "If-Match": "\"1\""
         },
         "body": {
-          "format": "akl/1",
+          "format": "spark/1",
           "payload": {
             "keys": {},
-            "x": {
-              "tag": "bump"
+            "magic": {
+              "notes": "bump"
             }
           }
         }
@@ -54,7 +54,7 @@
         "deleted": false,
         "like_count": 0,
         "has_magic": false,
-        "format": "akl/1",
+        "format": "spark/1",
         "upstream": null,
         "source": {
           "client": "discord-app:app-default",
@@ -62,8 +62,8 @@
         },
         "payload": {
           "keys": {},
-          "x": {
-            "tag": "bump"
+          "magic": {
+            "notes": "bump"
           }
         }
       },

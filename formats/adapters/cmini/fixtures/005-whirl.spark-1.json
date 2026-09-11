@@ -206,11 +206,5 @@
         "type": "raw"
       }
     ]
-  },
-  "x": {
-    "cmini": {
-      "tag": "cmini",
-      "blame": "dmini"
-    }
   }
 }

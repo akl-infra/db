@@ -12,10 +12,11 @@
    "name": "00------higgs",
    "owner": "621924065581465611",
    "payload": {
-    "blame": "cmini",
-    "board": "ortho",
-    "keys": {},
-    "tag": "cmini"
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
+    "keys": {}
    },
    "rev": 1,
    "source": {
@@ -40,10 +41,11 @@
    "name": "02_we've_been_in_this_room_too_long",
    "owner": "621924065581465611",
    "payload": {
-    "blame": "cmini",
-    "board": "ortho",
-    "keys": {},
-    "tag": "cmini"
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
+    "keys": {}
    },
    "rev": 1,
    "source": {
@@ -68,8 +70,15 @@
    "name": "40kwh",
    "owner": "525231824465690645",
    "payload": {
-    "blame": "cmini",
-    "board": "stagger",
+    "board": {
+     "cmini": "stagger",
+     "kind": "rowstag",
+     "stagger": [
+      0,
+      0.25,
+      0.75
+     ]
+    },
     "keys": {
      "'": {
       "col": 9,
@@ -226,8 +235,7 @@
       "finger": "LI",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -252,8 +260,15 @@
    "name": "5quid-nhrl2",
    "owner": "766194884095901746",
    "payload": {
-    "blame": "dmini",
-    "board": "stagger",
+    "board": {
+     "cmini": "stagger",
+     "kind": "rowstag",
+     "stagger": [
+      0,
+      0.25,
+      0.75
+     ]
+    },
     "keys": {
      "'": {
       "col": 7,
@@ -415,8 +430,7 @@
       "finger": "LR",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -441,8 +455,15 @@
    "name": "abyss",
    "owner": "766194884095901746",
    "payload": {
-    "blame": "cmini",
-    "board": "angle",
+    "board": {
+     "cmini": "angle",
+     "kind": "rowstag",
+     "stagger": [
+      0,
+      0.25,
+      0.75
+     ]
+    },
     "keys": {
      "'": {
       "col": 4,
@@ -599,8 +620,7 @@
       "finger": "RR",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -627,8 +647,10 @@
    "name": "adept",
    "owner": "169285177481101312",
    "payload": {
-    "blame": "cmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 9,
@@ -785,8 +807,7 @@
       "finger": "RI",
       "row": 0
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -811,8 +832,10 @@
    "name": "AdNW",
    "owner": "1085579430623199292",
    "payload": {
-    "blame": "cmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 11,
@@ -979,9 +1002,7 @@
       "finger": "LM",
       "row": 0
      }
-    },
-    "link": "http://www.adnw.de/",
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -1008,8 +1029,15 @@
    "name": "apple",
    "owner": "226128695377526784",
    "payload": {
-    "blame": "dmini",
-    "board": "angle",
+    "board": {
+     "cmini": "angle",
+     "kind": "rowstag",
+     "stagger": [
+      0,
+      0.25,
+      0.75
+     ]
+    },
     "keys": {
      "'": {
       "col": 4,
@@ -1166,8 +1194,7 @@
       "finger": "RI",
       "row": 0
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -1194,8 +1221,10 @@
    "name": "apt26",
    "owner": "169285177481101312",
    "payload": {
-    "blame": "cmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "free": [
      {
       "col": 0,
@@ -1354,8 +1383,7 @@
       "finger": "RP",
       "row": 0
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -1380,8 +1408,10 @@
    "name": "auditor",
    "owner": "782784290769207336",
    "payload": {
-    "blame": "dmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 4,
@@ -1538,8 +1568,7 @@
       "finger": "LR",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -1564,8 +1593,10 @@
    "name": "auditor-old",
    "owner": "782784290769207336",
    "payload": {
-    "blame": "dmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 4,
@@ -1722,8 +1753,7 @@
       "finger": "LI",
       "row": 1
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -1748,8 +1778,10 @@
    "name": "auditors",
    "owner": "782784290769207336",
    "payload": {
-    "blame": "dmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 4,
@@ -1906,8 +1938,7 @@
       "finger": "LR",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -1934,8 +1965,10 @@
    "name": "babymak-pipis",
    "owner": "554549441458077697",
    "payload": {
-    "blame": "dmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "!": {
       "col": 4,
@@ -2067,8 +2100,7 @@
       "finger": "LI",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -2093,8 +2125,10 @@
    "name": "bevel",
    "owner": "782784290769207336",
    "payload": {
-    "blame": "dmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 4,
@@ -2251,8 +2285,7 @@
       "finger": "RI",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -2294,8 +2327,10 @@
    "name": "bunya",
    "owner": "761732338744557568",
    "payload": {
-    "blame": "dmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 7,
@@ -2452,8 +2487,7 @@
       "finger": "LI",
       "row": 0
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -2489,142 +2523,10 @@
    "name": "crescent",
    "owner": "514971722626367517",
    "payload": {
-    "blame": "dmini",
-    "board": "ortho",
-    "combos": [
-     {
-      "inputs": "cr",
-      "output": "w"
-     },
-     {
-      "inputs": "cs",
-      "output": "f"
-     },
-     {
-      "inputs": "ct",
-      "output": "g"
-     },
-     {
-      "inputs": "cn",
-      "output": "q"
-     },
-     {
-      "inputs": "ca",
-      "output": "'"
-     },
-     {
-      "inputs": "ce",
-      "output": "#"
-     },
-     {
-      "inputs": "cu",
-      "output": "y"
-     },
-     {
-      "inputs": "ci",
-      "output": "p"
-     },
-     {
-      "inputs": "rs",
-      "output": "x"
-     },
-     {
-      "inputs": "rt",
-      "output": "j"
-     },
-     {
-      "inputs": "rn",
-      "output": "l"
-     },
-     {
-      "inputs": "ra",
-      "output": "!"
-     },
-     {
-      "inputs": "re",
-      "output": "@"
-     },
-     {
-      "inputs": "ru",
-      "output": "_"
-     },
-     {
-      "inputs": "ri",
-      "output": ","
-     },
-     {
-      "inputs": "st",
-      "output": "d"
-     },
-     {
-      "inputs": "sn",
-      "output": "z"
-     },
-     {
-      "inputs": "sa",
-      "output": "`"
-     },
-     {
-      "inputs": "su",
-      "output": "v"
-     },
-     {
-      "inputs": "si",
-      "output": "b"
-     },
-     {
-      "inputs": "tn",
-      "output": "m"
-     },
-     {
-      "inputs": "tu",
-      "output": "k"
-     },
-     {
-      "inputs": "ti",
-      "output": "/"
-     },
-     {
-      "inputs": "na",
-      "output": "("
-     },
-     {
-      "inputs": "ne",
-      "output": ")"
-     },
-     {
-      "inputs": "nu",
-      "output": "h"
-     },
-     {
-      "inputs": "ni",
-      "output": "?"
-     },
-     {
-      "inputs": "ae",
-      "output": "o"
-     },
-     {
-      "inputs": "au",
-      "output": "-"
-     },
-     {
-      "inputs": "ai",
-      "output": "."
-     },
-     {
-      "inputs": "eu",
-      "output": "\""
-     },
-     {
-      "inputs": "ei",
-      "output": ":"
-     },
-     {
-      "inputs": "ui",
-      "output": ";"
-     }
-    ],
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "_": {
       "col": 3,
@@ -2676,8 +2578,7 @@
       "finger": "RR",
       "row": 1
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -2702,8 +2603,10 @@
    "name": "csthyou",
    "owner": "581630432265895957",
    "payload": {
-    "blame": "dmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 4,
@@ -2860,8 +2763,7 @@
       "finger": "LP",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -2901,8 +2803,10 @@
    "name": "dhorf",
    "owner": "239371209202991105",
    "payload": {
-    "blame": "dmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 7,
@@ -3054,9 +2958,7 @@
       "finger": "LP",
       "row": 2
      }
-    },
-    "link": "https://oxey.dev/dhorf",
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -3081,8 +2983,15 @@
    "name": "dina-test",
    "owner": "782784290769207336",
    "payload": {
-    "blame": "dmini",
-    "board": "angle",
+    "board": {
+     "cmini": "angle",
+     "kind": "rowstag",
+     "stagger": [
+      0,
+      0.25,
+      0.75
+     ]
+    },
     "keys": {
      "'": {
       "col": 5,
@@ -3234,8 +3143,7 @@
       "finger": "LI",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -3260,8 +3168,10 @@
    "name": "dmini-thumb-test",
    "owner": "184412255822020608",
    "payload": {
-    "blame": "dmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 5,
@@ -3418,8 +3328,7 @@
       "finger": "LI",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -3444,8 +3353,10 @@
    "name": "dmini-thumb-test-2",
    "owner": "184412255822020608",
    "payload": {
-    "blame": "dmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 5,
@@ -3602,8 +3513,7 @@
       "finger": "LI",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -3628,8 +3538,10 @@
    "name": "dmini-thumb-test-3",
    "owner": "184412255822020608",
    "payload": {
-    "blame": "dmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 5,
@@ -3786,8 +3698,7 @@
       "finger": "LI",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -3812,8 +3723,10 @@
    "name": "dmini-thumb-test-4",
    "owner": "184412255822020608",
    "payload": {
-    "blame": "dmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 5,
@@ -3970,8 +3883,7 @@
       "finger": "LI",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -3996,8 +3908,10 @@
    "name": "dmini-thumb-test-6",
    "owner": "184412255822020608",
    "payload": {
-    "blame": "dmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 5,
@@ -4154,8 +4068,7 @@
       "finger": "LI",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -4180,8 +4093,10 @@
    "name": "dmini-thumb-test-7",
    "owner": "184412255822020608",
    "payload": {
-    "blame": "dmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 5,
@@ -4338,8 +4253,7 @@
       "finger": "LI",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -4370,8 +4284,15 @@
    "name": "echo",
    "owner": "82004107568615424",
    "payload": {
-    "blame": "dmini",
-    "board": "stagger",
+    "board": {
+     "cmini": "stagger",
+     "kind": "rowstag",
+     "stagger": [
+      0,
+      0.25,
+      0.75
+     ]
+    },
     "keys": {
      "'": {
       "col": 7,
@@ -4528,9 +4449,7 @@
       "finger": "RI",
       "row": 2
      }
-    },
-    "link": "https://github.com/Spookfish163/Echo",
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -4567,8 +4486,15 @@
    "name": "eclipse",
    "owner": "1451323852658577581",
    "payload": {
-    "blame": "dmini",
-    "board": "stagger",
+    "board": {
+     "cmini": "stagger",
+     "kind": "rowstag",
+     "stagger": [
+      0,
+      0.25,
+      0.75
+     ]
+    },
     "keys": {
      "'": {
       "col": 7,
@@ -4720,8 +4646,7 @@
       "finger": "LP",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -4746,8 +4671,15 @@
    "name": "eclipse-themb",
    "owner": "990947281857577002",
    "payload": {
-    "blame": "dmini",
-    "board": "stagger",
+    "board": {
+     "cmini": "stagger",
+     "kind": "rowstag",
+     "stagger": [
+      0,
+      0.25,
+      0.75
+     ]
+    },
     "keys": {
      "'": {
       "col": 7,
@@ -4904,8 +4836,7 @@
       "finger": "LP",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -4930,8 +4861,15 @@
    "name": "eclipse-v2",
    "owner": "1451323852658577581",
    "payload": {
-    "blame": "dmini",
-    "board": "stagger",
+    "board": {
+     "cmini": "stagger",
+     "kind": "rowstag",
+     "stagger": [
+      0,
+      0.25,
+      0.75
+     ]
+    },
     "keys": {
      "'": {
       "col": 7,
@@ -5083,8 +5021,7 @@
       "finger": "LP",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -5111,8 +5048,15 @@
    "name": "eclipse-v3",
    "owner": "1451323852658577581",
    "payload": {
-    "blame": "dmini",
-    "board": "stagger",
+    "board": {
+     "cmini": "stagger",
+     "kind": "rowstag",
+     "stagger": [
+      0,
+      0.25,
+      0.75
+     ]
+    },
     "keys": {
      "'": {
       "col": 7,
@@ -5264,8 +5208,7 @@
       "finger": "LP",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -5290,8 +5233,10 @@
    "name": "eclipseortho",
    "owner": "990947281857577002",
    "payload": {
-    "blame": "dmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 7,
@@ -5443,8 +5388,7 @@
       "finger": "LP",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -5469,8 +5413,10 @@
    "name": "fhmb-test",
    "owner": "782784290769207336",
    "payload": {
-    "blame": "dmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 4,
@@ -5627,8 +5573,7 @@
       "finger": "LP",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -5653,42 +5598,10 @@
    "name": "finch",
    "owner": "581630432265895957",
    "payload": {
-    "blame": "dmini",
-    "board": "ortho",
-    "combos": [
-     {
-      "inputs": "yw",
-      "output": "q"
-     },
-     {
-      "inputs": "ly",
-      "output": "v"
-     },
-     {
-      "inputs": "xg",
-      "output": "z"
-     },
-     {
-      "inputs": "gd",
-      "output": "j"
-     },
-     {
-      "inputs": "h'",
-      "output": "\\"
-     },
-     {
-      "inputs": ".'",
-      "output": "/"
-     },
-     {
-      "inputs": "fo",
-      "output": "`"
-     },
-     {
-      "inputs": "o,",
-      "output": ";"
-     }
-    ],
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 7,
@@ -5845,8 +5758,7 @@
       "finger": "LP",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -5871,8 +5783,10 @@
    "name": "for-duo",
    "owner": "782784290769207336",
    "payload": {
-    "blame": "dmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 9,
@@ -6024,8 +5938,7 @@
       "finger": "LP",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -6050,8 +5963,10 @@
    "name": "for-duo-2",
    "owner": "782784290769207336",
    "payload": {
-    "blame": "dmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 9,
@@ -6203,8 +6118,7 @@
       "finger": "LP",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -6229,8 +6143,10 @@
    "name": "for-duo-3",
    "owner": "782784290769207336",
    "payload": {
-    "blame": "dmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 9,
@@ -6382,8 +6298,7 @@
       "finger": "LP",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -6487,8 +6402,10 @@
    "name": "graphite",
    "owner": "130544188818194432",
    "payload": {
-    "blame": "dmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 5,
@@ -6655,9 +6572,7 @@
       "finger": "LI",
       "row": 0
      }
-    },
-    "link": "https://github.com/rdavison/graphite-layout",
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -6682,8 +6597,10 @@
    "name": "graphite-vimified",
    "owner": "132132319518523393",
    "payload": {
-    "blame": "dmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 5,
@@ -6840,8 +6757,7 @@
       "finger": "RP",
       "row": 0
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -6866,8 +6782,10 @@
    "name": "haul",
    "owner": "1216940789460893763",
    "payload": {
-    "blame": "cmini",
-    "board": "mini",
+    "board": {
+     "cmini": "mini",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 10,
@@ -7034,8 +6952,7 @@
       "finger": "LP",
       "row": 0
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -7062,8 +6979,15 @@
    "name": "inky-nyoom",
    "owner": "766194884095901746",
    "payload": {
-    "blame": "dmini",
-    "board": "angle",
+    "board": {
+     "cmini": "angle",
+     "kind": "rowstag",
+     "stagger": [
+      0,
+      0.25,
+      0.75
+     ]
+    },
     "keys": {
      "'": {
       "col": 4,
@@ -7225,8 +7149,7 @@
       "finger": "RI",
       "row": 0
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -7328,8 +7251,10 @@
    "name": "inqwerted",
    "owner": "474550534301548556",
    "payload": {
-    "blame": "dmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 10,
@@ -7486,8 +7411,7 @@
       "finger": "LI",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -7528,8 +7452,10 @@
    "name": "io",
    "owner": "761732338744557568",
    "payload": {
-    "blame": "cmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 8,
@@ -7681,8 +7607,7 @@
       "finger": "LP",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -7707,8 +7632,15 @@
    "name": "jeep",
    "owner": "525811617473101824",
    "payload": {
-    "blame": "dmini",
-    "board": "angle",
+    "board": {
+     "cmini": "angle",
+     "kind": "rowstag",
+     "stagger": [
+      0,
+      0.25,
+      0.75
+     ]
+    },
     "keys": {
      "'": {
       "col": 5,
@@ -7870,8 +7802,7 @@
       "finger": "LP",
       "row": 0
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -7896,8 +7827,15 @@
    "name": "kai-nokwts",
    "owner": "782784290769207336",
    "payload": {
-    "blame": "dmini",
-    "board": "stagger",
+    "board": {
+     "cmini": "stagger",
+     "kind": "rowstag",
+     "stagger": [
+      0,
+      0.25,
+      0.75
+     ]
+    },
     "keys": {
      "'": {
       "col": 4,
@@ -8054,8 +7992,7 @@
       "finger": "LP",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -8080,8 +8017,15 @@
    "name": "kairos",
    "owner": "82004107568615424",
    "payload": {
-    "blame": "dmini",
-    "board": "stagger",
+    "board": {
+     "cmini": "stagger",
+     "kind": "rowstag",
+     "stagger": [
+      0,
+      0.25,
+      0.75
+     ]
+    },
     "keys": {
      "'": {
       "col": 7,
@@ -8243,8 +8187,7 @@
       "finger": "LP",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -8269,8 +8212,10 @@
    "name": "kate-2",
    "owner": "782784290769207336",
    "payload": {
-    "blame": "dmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 4,
@@ -8427,8 +8372,7 @@
       "finger": "RI",
       "row": 0
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -8453,8 +8397,10 @@
    "name": "kinda-dina",
    "owner": "782784290769207336",
    "payload": {
-    "blame": "dmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 8,
@@ -8611,8 +8557,7 @@
       "finger": "LP",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -8637,8 +8582,10 @@
    "name": "knight-you",
    "owner": "782784290769207336",
    "payload": {
-    "blame": "dmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 5,
@@ -8795,8 +8742,7 @@
       "finger": "LP",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -8821,8 +8767,15 @@
    "name": "kormite",
    "owner": "226128695377526784",
    "payload": {
-    "blame": "dmini",
-    "board": "angle",
+    "board": {
+     "cmini": "angle",
+     "kind": "rowstag",
+     "stagger": [
+      0,
+      0.25,
+      0.75
+     ]
+    },
     "keys": {
      "'": {
       "col": 4,
@@ -8989,8 +8942,7 @@
       "finger": "RI",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -9015,8 +8967,15 @@
    "name": "magnetite",
    "owner": "226128695377526784",
    "payload": {
-    "blame": "dmini",
-    "board": "angle",
+    "board": {
+     "cmini": "angle",
+     "kind": "rowstag",
+     "stagger": [
+      0,
+      0.25,
+      0.75
+     ]
+    },
     "keys": {
      "'": {
       "col": 4,
@@ -9183,8 +9142,7 @@
       "finger": "LI",
       "row": 0
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -9212,8 +9170,10 @@
    "name": "mantra",
    "owner": "260844740797399050",
    "payload": {
-    "blame": "dmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "а": {
       "col": 7,
@@ -9370,8 +9330,7 @@
       "finger": "RR",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -9396,8 +9355,15 @@
    "name": "marble",
    "owner": "226128695377526784",
    "payload": {
-    "blame": "dmini",
-    "board": "angle",
+    "board": {
+     "cmini": "angle",
+     "kind": "rowstag",
+     "stagger": [
+      0,
+      0.25,
+      0.75
+     ]
+    },
     "keys": {
      "'": {
       "col": 4,
@@ -9564,8 +9530,7 @@
       "finger": "RI",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -9590,8 +9555,10 @@
    "name": "mistyfun",
    "owner": "581630432265895957",
    "payload": {
-    "blame": "dmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 9,
@@ -9748,8 +9715,7 @@
       "finger": "LP",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -9774,8 +9740,10 @@
    "name": "mistynail",
    "owner": "581630432265895957",
    "payload": {
-    "blame": "dmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 4,
@@ -9932,8 +9900,7 @@
       "finger": "LP",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -9964,8 +9931,15 @@
    "name": "neon",
    "owner": "525811617473101824",
    "payload": {
-    "blame": "dmini",
-    "board": "angle",
+    "board": {
+     "cmini": "angle",
+     "kind": "rowstag",
+     "stagger": [
+      0,
+      0.25,
+      0.75
+     ]
+    },
     "keys": {
      "'": {
       "col": 5,
@@ -10127,8 +10101,7 @@
       "finger": "RP",
       "row": 0
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -10153,8 +10126,10 @@
    "name": "night-e",
    "owner": "782784290769207336",
    "payload": {
-    "blame": "dmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 5,
@@ -10316,8 +10291,7 @@
       "finger": "LI",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -10345,8 +10319,15 @@
    "name": "nightcore",
    "owner": "766194884095901746",
    "payload": {
-    "blame": "dmini",
-    "board": "angle",
+    "board": {
+     "cmini": "angle",
+     "kind": "rowstag",
+     "stagger": [
+      0,
+      0.25,
+      0.75
+     ]
+    },
     "keys": {
      "'": {
       "col": 7,
@@ -10508,8 +10489,7 @@
       "finger": "LI",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -10534,8 +10514,15 @@
    "name": "Niro",
    "owner": "1085579430623199292",
    "payload": {
-    "blame": "dmini",
-    "board": "stagger",
+    "board": {
+     "cmini": "stagger",
+     "kind": "rowstag",
+     "stagger": [
+      0,
+      0.25,
+      0.75
+     ]
+    },
     "keys": {
      "'": {
       "col": 10,
@@ -10692,9 +10679,7 @@
       "finger": "LR",
       "row": 2
      }
-    },
-    "link": "https://kennetchaz.github.io/symmetric-typing/niro.html",
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -10719,8 +10704,15 @@
    "name": "ntabv6",
    "owner": "264738939288420353",
    "payload": {
-    "blame": "dmini",
-    "board": "stagger",
+    "board": {
+     "cmini": "stagger",
+     "kind": "rowstag",
+     "stagger": [
+      0,
+      0.25,
+      0.75
+     ]
+    },
     "keys": {
      "'": {
       "col": 0,
@@ -10877,8 +10869,7 @@
       "finger": "RP",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -10905,8 +10896,15 @@
    "name": "onyx",
    "owner": "226128695377526784",
    "payload": {
-    "blame": "dmini",
-    "board": "angle",
+    "board": {
+     "cmini": "angle",
+     "kind": "rowstag",
+     "stagger": [
+      0,
+      0.25,
+      0.75
+     ]
+    },
     "keys": {
      "'": {
       "col": 4,
@@ -11073,8 +11071,7 @@
       "finger": "RI",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -11111,8 +11108,15 @@
    "name": "opal",
    "owner": "383900587877597186",
    "payload": {
-    "blame": "dmini",
-    "board": "stagger",
+    "board": {
+     "cmini": "stagger",
+     "kind": "rowstag",
+     "stagger": [
+      0,
+      0.25,
+      0.75
+     ]
+    },
     "keys": {
      "'": {
       "col": 5,
@@ -11264,8 +11268,7 @@
       "finger": "LM",
       "row": 0
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -11290,8 +11293,15 @@
    "name": "opal-dario",
    "owner": "184412255822020608",
    "payload": {
-    "blame": "dmini",
-    "board": "stagger",
+    "board": {
+     "cmini": "stagger",
+     "kind": "rowstag",
+     "stagger": [
+      0,
+      0.25,
+      0.75
+     ]
+    },
     "keys": {
      "'": {
       "col": 5,
@@ -11443,8 +11453,7 @@
       "finger": "LM",
       "row": 0
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -11469,8 +11478,15 @@
    "name": "opal-e200",
    "owner": "1203272268449579041",
    "payload": {
-    "blame": "dmini",
-    "board": "stagger",
+    "board": {
+     "cmini": "stagger",
+     "kind": "rowstag",
+     "stagger": [
+      0,
+      0.25,
+      0.75
+     ]
+    },
     "keys": {
      "'": {
       "col": 5,
@@ -11622,8 +11638,7 @@
       "finger": "RR",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -11651,8 +11666,15 @@
    "name": "opalbetter",
    "owner": "1203272268449579041",
    "payload": {
-    "blame": "dmini",
-    "board": "stagger",
+    "board": {
+     "cmini": "stagger",
+     "kind": "rowstag",
+     "stagger": [
+      0,
+      0.25,
+      0.75
+     ]
+    },
     "keys": {
      "'": {
       "col": 5,
@@ -11804,8 +11826,7 @@
       "finger": "RR",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -11836,8 +11857,15 @@
    "name": "opaline",
    "owner": "383900587877597186",
    "payload": {
-    "blame": "dmini",
-    "board": "stagger",
+    "board": {
+     "cmini": "stagger",
+     "kind": "rowstag",
+     "stagger": [
+      0,
+      0.25,
+      0.75
+     ]
+    },
     "keys": {
      "'": {
       "col": 5,
@@ -11999,8 +12027,7 @@
       "finger": "LM",
       "row": 0
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -12025,8 +12052,15 @@
    "name": "opaline-meteorited",
    "owner": "525231824465690645",
    "payload": {
-    "blame": "dmini",
-    "board": "stagger",
+    "board": {
+     "cmini": "stagger",
+     "kind": "rowstag",
+     "stagger": [
+      0,
+      0.25,
+      0.75
+     ]
+    },
     "keys": {
      "'": {
       "col": 5,
@@ -12188,8 +12222,7 @@
       "finger": "RP",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -12214,8 +12247,10 @@
    "name": "oxeytest64",
    "owner": "383900587877597186",
    "payload": {
-    "blame": "cmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 7,
@@ -12372,8 +12407,7 @@
       "finger": "LP",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -12398,8 +12432,10 @@
    "name": "oxeytest65",
    "owner": "383900587877597186",
    "payload": {
-    "blame": "cmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 2,
@@ -12556,8 +12592,7 @@
       "finger": "RP",
       "row": 0
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -12582,8 +12617,10 @@
    "name": "oxeytest66",
    "owner": "383900587877597186",
    "payload": {
-    "blame": "cmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 4,
@@ -12740,8 +12777,7 @@
       "finger": "RP",
       "row": 0
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -12766,8 +12802,10 @@
    "name": "oxeytest76",
    "owner": "383900587877597186",
    "payload": {
-    "blame": "cmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 6,
@@ -12924,8 +12962,7 @@
       "finger": "RP",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -12967,8 +13004,10 @@
    "name": "racket",
    "owner": "761732338744557568",
    "payload": {
-    "blame": "dmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 7,
@@ -13125,8 +13164,7 @@
       "finger": "RI",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -13151,8 +13189,10 @@
    "name": "raincsth",
    "owner": "581630432265895957",
    "payload": {
-    "blame": "dmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 4,
@@ -13309,8 +13349,7 @@
       "finger": "LP",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -13335,8 +13374,15 @@
    "name": "rightrollv2",
    "owner": "264738939288420353",
    "payload": {
-    "blame": "dmini",
-    "board": "stagger",
+    "board": {
+     "cmini": "stagger",
+     "kind": "rowstag",
+     "stagger": [
+      0,
+      0.25,
+      0.75
+     ]
+    },
     "keys": {
      "'": {
       "col": 5,
@@ -13493,8 +13539,7 @@
       "finger": "LR",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -13519,8 +13564,15 @@
    "name": "rightrollv3",
    "owner": "264738939288420353",
    "payload": {
-    "blame": "dmini",
-    "board": "angle",
+    "board": {
+     "cmini": "angle",
+     "kind": "rowstag",
+     "stagger": [
+      0,
+      0.25,
+      0.75
+     ]
+    },
     "keys": {
      "'": {
       "col": 5,
@@ -13677,8 +13729,7 @@
       "finger": "RI",
       "row": 0
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -13703,8 +13754,15 @@
    "name": "rnhsy",
    "owner": "990947281857577002",
    "payload": {
-    "blame": "dmini",
-    "board": "stagger",
+    "board": {
+     "cmini": "stagger",
+     "kind": "rowstag",
+     "stagger": [
+      0,
+      0.25,
+      0.75
+     ]
+    },
     "keys": {
      "'": {
       "col": 7,
@@ -13856,8 +13914,7 @@
       "finger": "LP",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -13882,8 +13939,15 @@
    "name": "rnhsye",
    "owner": "990947281857577002",
    "payload": {
-    "blame": "dmini",
-    "board": "stagger",
+    "board": {
+     "cmini": "stagger",
+     "kind": "rowstag",
+     "stagger": [
+      0,
+      0.25,
+      0.75
+     ]
+    },
     "keys": {
      "'": {
       "col": 7,
@@ -14040,8 +14104,7 @@
       "finger": "LP",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -14066,8 +14129,10 @@
    "name": "rosellae",
    "owner": "424828064988528651",
    "payload": {
-    "blame": "dmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 6,
@@ -14219,8 +14284,7 @@
       "finger": "RI",
       "row": 0
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -14245,8 +14309,10 @@
    "name": "rosellaeacc",
    "owner": "424828064988528651",
    "payload": {
-    "blame": "dmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "q": {
       "col": 0,
@@ -14363,8 +14429,7 @@
       "finger": "RI",
       "row": 1
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -14389,8 +14454,10 @@
    "name": "rosellaenav",
    "owner": "424828064988528651",
    "payload": {
-    "blame": "dmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "0": {
       "col": 3,
@@ -14532,8 +14599,7 @@
       "finger": "RP",
       "row": 0
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -14558,8 +14624,10 @@
    "name": "rosellaesym",
    "owner": "424828064988528651",
    "payload": {
-    "blame": "dmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "#": {
       "col": 6,
@@ -14686,8 +14754,7 @@
       "finger": "LR",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -14714,8 +14781,10 @@
    "name": "sanrie-cmini-test2",
    "owner": "584442680725995540",
    "payload": {
-    "blame": "cmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      ".": {
       "col": 7,
@@ -14857,8 +14926,7 @@
       "finger": "LP",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -14885,8 +14953,15 @@
    "name": "shale",
    "owner": "226128695377526784",
    "payload": {
-    "blame": "dmini",
-    "board": "angle",
+    "board": {
+     "cmini": "angle",
+     "kind": "rowstag",
+     "stagger": [
+      0,
+      0.25,
+      0.75
+     ]
+    },
     "keys": {
      "'": {
       "col": 4,
@@ -15053,8 +15128,7 @@
       "finger": "LI",
       "row": 0
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -15079,8 +15153,10 @@
    "name": "shtc",
    "owner": "782784290769207336",
    "payload": {
-    "blame": "dmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 4,
@@ -15237,8 +15313,7 @@
       "finger": "LI",
       "row": 0
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -15266,8 +15341,15 @@
    "name": "slate",
    "owner": "226128695377526784",
    "payload": {
-    "blame": "dmini",
-    "board": "angle",
+    "board": {
+     "cmini": "angle",
+     "kind": "rowstag",
+     "stagger": [
+      0,
+      0.25,
+      0.75
+     ]
+    },
     "keys": {
      "'": {
       "col": 4,
@@ -15434,8 +15516,7 @@
       "finger": "LI",
       "row": 0
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -15466,8 +15547,10 @@
    "name": "smiemak",
    "owner": "341813193464872991",
    "payload": {
-    "blame": "dmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 5,
@@ -15619,8 +15702,7 @@
       "finger": "LI",
       "row": 0
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -15645,8 +15727,15 @@
    "name": "Soul",
    "owner": "1085579430623199292",
    "payload": {
-    "blame": "dmini",
-    "board": "stagger",
+    "board": {
+     "cmini": "stagger",
+     "kind": "rowstag",
+     "stagger": [
+      0,
+      0.25,
+      0.75
+     ]
+    },
     "keys": {
      "'": {
       "col": 10,
@@ -15803,9 +15892,7 @@
       "finger": "LR",
       "row": 2
      }
-    },
-    "link": "https://kennetchaz.github.io/symmetric-typing/soul.html",
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -15836,8 +15923,10 @@
    "name": "sunstone",
    "owner": "383900587877597186",
    "payload": {
-    "blame": "dmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 4,
@@ -15999,8 +16088,7 @@
       "finger": "RP",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -16025,8 +16113,15 @@
    "name": "swift",
    "owner": "82004107568615424",
    "payload": {
-    "blame": "dmini",
-    "board": "stagger",
+    "board": {
+     "cmini": "stagger",
+     "kind": "rowstag",
+     "stagger": [
+      0,
+      0.25,
+      0.75
+     ]
+    },
     "keys": {
      "'": {
       "col": 7,
@@ -16188,8 +16283,7 @@
       "finger": "LP",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -16214,8 +16308,10 @@
    "name": "sy-thumb",
    "owner": "782784290769207336",
    "payload": {
-    "blame": "dmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 4,
@@ -16372,8 +16468,7 @@
       "finger": "LR",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -16398,8 +16493,15 @@
    "name": "tenders",
    "owner": "525811617473101824",
    "payload": {
-    "blame": "dmini",
-    "board": "angle",
+    "board": {
+     "cmini": "angle",
+     "kind": "rowstag",
+     "stagger": [
+      0,
+      0.25,
+      0.75
+     ]
+    },
     "keys": {
      "'": {
       "col": 5,
@@ -16561,8 +16663,7 @@
       "finger": "LI",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -16589,8 +16690,15 @@
    "name": "tendon25b",
    "owner": "773077222189432843",
    "payload": {
-    "blame": "dmini",
-    "board": "stagger",
+    "board": {
+     "cmini": "stagger",
+     "kind": "rowstag",
+     "stagger": [
+      0,
+      0.25,
+      0.75
+     ]
+    },
     "keys": {
      "'": {
       "col": 9,
@@ -16762,8 +16870,7 @@
       "finger": "RI",
       "row": 0
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -16788,8 +16895,10 @@
    "name": "test12222",
    "owner": "264738939288420353",
    "payload": {
-    "blame": "dmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 0,
@@ -16946,8 +17055,7 @@
       "finger": "RM",
       "row": 1
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -16972,8 +17080,10 @@
    "name": "thumb-u-test",
    "owner": "782784290769207336",
    "payload": {
-    "blame": "dmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 4,
@@ -17130,8 +17240,7 @@
       "finger": "RI",
       "row": 1
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -17156,8 +17265,10 @@
    "name": "thumb-u-xb",
    "owner": "782784290769207336",
    "payload": {
-    "blame": "dmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 4,
@@ -17314,8 +17425,7 @@
       "finger": "RI",
       "row": 1
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -17340,8 +17450,15 @@
    "name": "tomato",
    "owner": "226128695377526784",
    "payload": {
-    "blame": "dmini",
-    "board": "angle",
+    "board": {
+     "cmini": "angle",
+     "kind": "rowstag",
+     "stagger": [
+      0,
+      0.25,
+      0.75
+     ]
+    },
     "keys": {
      "'": {
       "col": 5,
@@ -17503,8 +17620,7 @@
       "finger": "RI",
       "row": 1
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -17543,8 +17659,10 @@
    "name": "vylet",
    "owner": "119825772901957632",
    "payload": {
-    "blame": "dmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 7,
@@ -17706,9 +17824,7 @@
       "finger": "RI",
       "row": 2
      }
-    },
-    "link": "https://github.com/MightyAcas/vylet",
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -17733,8 +17849,10 @@
    "name": "vylet-v4",
    "owner": "119825772901957632",
    "payload": {
-    "blame": "dmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 5,
@@ -17891,8 +18009,7 @@
       "finger": "RI",
       "row": 0
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -17931,8 +18048,10 @@
    "name": "whirl",
    "owner": "1204708988298461234",
    "payload": {
-    "blame": "dmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 5,
@@ -18089,8 +18208,7 @@
       "finger": "RI",
       "row": 0
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -18126,8 +18244,10 @@
    "name": "whorf",
    "owner": "426851559952089088",
    "payload": {
-    "blame": "dmini",
-    "board": "ortho",
+    "board": {
+     "cmini": "ortho",
+     "kind": "ortho"
+    },
     "keys": {
      "'": {
       "col": 7,
@@ -18284,9 +18404,7 @@
       "finger": "LI",
       "row": 2
      }
-    },
-    "link": "https://github.com/whorfian/whorf",
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {
@@ -18311,8 +18429,15 @@
    "name": "workman-rowstagger",
    "owner": "383900587877597186",
    "payload": {
-    "blame": "dmini",
-    "board": "stagger",
+    "board": {
+     "cmini": "stagger",
+     "kind": "rowstag",
+     "stagger": [
+      0,
+      0.25,
+      0.75
+     ]
+    },
     "keys": {
      "'": {
       "col": 10,
@@ -18469,8 +18594,7 @@
       "finger": "LP",
       "row": 2
      }
-    },
-    "tag": "cmini"
+    }
    },
    "rev": 1,
    "source": {

@@ -7,7 +7,7 @@
       "If-Match": "\"1\""
     },
     "body": {
-      "format": "akl/1",
+      "format": "spark/1",
       "payload": {
         "board": {
           "kind": "not-a-kind"
@@ -22,7 +22,7 @@
         "bearer": "conformance-owner-token",
         "body": {
           "name": "cw-put-badpayload-1",
-          "format": "akl/1",
+          "format": "spark/1",
           "payload": {
             "keys": {}
           }

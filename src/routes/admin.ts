@@ -12,13 +12,11 @@ import * as admins from "../core/admins";
 import { canonical } from "../core/canonical";
 import * as clients from "../core/clients";
 import { badRequest, importPaused, notAdmin } from "../core/errors";
-import { migrateTick } from "../core/migrate";
 import { runNightly } from "../core/nightly";
 import { systemClock, type Clock } from "../core/time";
 import { tick as cminiTick } from "../import/cmini";
 import type { FetchImpl as DiffFetchImpl } from "../import/diff";
 import { diffTick, lastDiff } from "../import/difftick";
-import { stripCminiMagic } from "../import/strip";
 import type { FetchImpl as UpstreamFetchImpl } from "../import/upstream";
 import { parseAdminAddBody, parseDrillReportBody, parseRegisterClientBody } from "./schemas";
 
@@ -58,38 +56,6 @@ async function readJson(req: { json(): Promise<unknown> }): Promise<unknown> {
   } catch {
     throw badRequest("request body must be valid JSON", "/");
   }
-}
-
-// 20-spark.md S4 (decision 11, refined §8 R-L2): `POST /v1/admin/migrate
-// /tick`'s own body -- `{dry_run: bool, after?: <id>, limit?: <= 100}`.
-// Hand-validated here rather than through `routes/schemas.ts` (this
-// slice's own file list does not include it; the shape is small enough
-// that a second `ajv` schema would cost more than it saves) but the SAME
-// posture every other body schema in this codebase follows (LDB-A7):
-// `additionalProperties: false`'s equivalent (an unknown key is `400
-// bad_request` naming it), types checked, `limit` bounded.
-interface MigrateTickBody {
-  dry_run: boolean;
-  after?: string;
-  limit?: number;
-}
-
-const MIGRATE_TICK_BODY_KEYS = new Set(["dry_run", "after", "limit"]);
-
-function parseMigrateTickBody(body: unknown): MigrateTickBody {
-  if (typeof body !== "object" || body === null || Array.isArray(body)) {
-    throw badRequest("request body must be a JSON object", "/");
-  }
-  const obj = body as Record<string, unknown>;
-  for (const key of Object.keys(obj)) {
-    if (!MIGRATE_TICK_BODY_KEYS.has(key)) throw badRequest(`unexpected property '${key}'`, `/${key}`);
-  }
-  if (typeof obj.dry_run !== "boolean") throw badRequest("'dry_run' must be a boolean", "/dry_run");
-  if (obj.after !== undefined && typeof obj.after !== "string") throw badRequest("'after' must be a string", "/after");
-  if (obj.limit !== undefined && (typeof obj.limit !== "number" || !Number.isInteger(obj.limit) || obj.limit < 1 || obj.limit > 100)) {
-    throw badRequest("'limit' must be an integer from 1 to 100", "/limit");
-  }
-  return { dry_run: obj.dry_run, after: obj.after as string | undefined, limit: obj.limit as number | undefined };
 }
 
 // Takes the same `AuthDeps` `index.ts` builds for `requireActorOnWrites`/
@@ -154,28 +120,6 @@ export function adminRoute(authDeps: AuthDeps) {
     return c.json({ ran: true, ...result.stats });
   });
 
-  // M1 (LDB-I10, design/layout-db/17-magic-ownership.md §4): the one-time
-  // pass that drops the cmini magic already sitting in records imported
-  // before this landed (`import/strip.ts`'s own header explains the
-  // follow-status guard). Same shape as `POST /v1/admin/import/tick`
-  // above -- admin-only, refused while the cmini import is paused (an
-  // operator pausing it wants every import-sourced write halted, this
-  // one-time cleanup included), and logged as an admin action
-  // (`admin.magic_stripped`) so `/v1/changes` -- and the per-record
-  // `imported` events it triggers -- both show up publicly the same way
-  // the periodic import's own writes do. Batched (`import/strip.ts`'s
-  // `BATCH_LIMIT`) and idempotent: call it repeatedly until the response
-  // is `{ stripped: 0 }`.
-  route.post("/v1/admin/import/strip-cmini-magic", async (c) => {
-    const actor = c.get("actor");
-    if (!actor.admin) throw notAdmin();
-    if (await admins.isImportPaused(c.env.DB)) throw importPaused();
-    const now = resolveNow(c.env);
-    const result = await stripCminiMagic(c.env.DB, now);
-    await admins.recordManualTick(c.env.DB, now, actor.user_id, "strip_cmini_magic", result);
-    return c.json(result);
-  });
-
   // Same treatment for the diff cron (`0 4 * * *`, `import/difftick.ts`) --
   // no "paused" switch exists for it, so no pre-check.
   route.post("/v1/admin/diff/tick", async (c) => {
@@ -205,25 +149,6 @@ export function adminRoute(authDeps: AuthDeps) {
     const result = await runNightly(c.env, now);
     await admins.recordManualTick(c.env.DB, now, actor.user_id, "nightly", { at: result.at, jobs: result.jobs, dump: result.dump });
     return c.json(result);
-  });
-
-  // 20-spark.md S4 (decision 11, LDB-P12; LDB-A5 amended): a manual kick
-  // for the operator-driven record migration -- there is no cron for this
-  // one at all (unlike import/diff/nightly's real cron dispatch, this is
-  // the ONLY way it ever runs). Admin-only, glue only (LDB-W1: every D1
-  // statement lives in `core/migrate.ts`), and deliberately NOT gated on
-  // `admins.isImportPaused` -- `expectRev` (LDB-P14) is what keeps a
-  // concurrent import tick and a migration tick safe to interleave, so
-  // there is nothing for a "paused" check to protect here. `detail` carries
-  // the full report, same posture as `diff/tick`'s own full record above.
-  route.post("/v1/admin/migrate/tick", async (c) => {
-    const actor = c.get("actor");
-    if (!actor.admin) throw notAdmin();
-    const body = parseMigrateTickBody(await readJson(c.req));
-    const now = resolveNow(c.env);
-    const report = await migrateTick(c.env.DB, now, { dryRun: body.dry_run, after: body.after, limit: body.limit });
-    await admins.recordManualTick(c.env.DB, now, actor.user_id, "migrate", report);
-    return c.json({ ran: true, ...report });
   });
 
   // 10 C1: the client lane's registration routes. `pubkey` never appears in

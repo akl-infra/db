@@ -345,11 +345,5 @@
         ]
       }
     ]
-  },
-  "x": {
-    "cmini": {
-      "tag": "cmini",
-      "blame": "dmini"
-    }
   }
 }

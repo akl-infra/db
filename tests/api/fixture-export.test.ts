@@ -41,20 +41,26 @@
 //      then flip RECORD back to false and re-run normally to confirm.
 //
 // Also unlike 11 §1's table (reported in the W1 handoff): the plan assumed
-// `GET .../layouts/{ref}?as=cmini/1` (and the `?full=1` batch) already
-// carry a `likes` list, the way upstream cmini's own detail response
-// always has. They don't -- likes live in the DB's separate `likes`
-// table, surfaced only by `GET .../layouts/{ref}/likes` (likes are not
-// part of any format's payload) -- so this fixture also exports a
-// `likes.json` map, which `DbSource` (scripts/sync_cmini_data.py) reads to
-// fill that gap before handing a merged raw dict to the same
-// normalize_detail/extract_likes the cmini path already uses. And rather
-// than 100 `detail/<name>.json`/`likes/<name>.json` files (11 §1's
-// literal layout), `detail.json`/`likes.json` are single maps keyed by
-// name -- 100 static import statements would themselves need to name 100
-// files that must already exist before the bundler can even resolve this
-// test file, the same chicken-and-egg problem RECORD above solves once,
-// not per file.
+// `GET .../layouts/{ref}` (and the `?full=1` batch) already carry a
+// `likes` list, the way upstream cmini's own detail response always has.
+// They don't -- likes live in the DB's separate `likes` table, surfaced
+// only by `GET .../layouts/{ref}/likes` (likes are not part of any
+// format's payload) -- so this fixture also exports a `likes.json` map,
+// which `DbSource` (scripts/sync_cmini_data.py) reads to fill that gap
+// before handing a merged raw dict to the same normalize_detail/
+// extract_likes the cmini path already uses. And rather than 100
+// `detail/<name>.json`/`likes/<name>.json` files (11 §1's literal
+// layout), `detail.json`/`likes.json` are single maps keyed by name -- 100
+// static import statements would themselves need to name 100 files that
+// must already exist before the bundler can even resolve this test file,
+// the same chicken-and-egg problem RECORD above solves once, not per file.
+//
+// 21-formats.md D5 deleted `?as=cmini/1` (the cmini export) entirely, so
+// this fixture now records the default (spark/1) response instead --
+// `layouts-full-cmini1.json`'s filename is stale (kept as-is: `scripts/
+// tests/test_sync_db_source.py` reads it by exact path, and F1 does not
+// touch scripts/ -- F3c owns updating `DbSource` to spark/1 and can rename
+// it then).
 import { SELF } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import authorsFixture from "../fixtures/db-responses/authors.json" with { type: "json" };
@@ -141,11 +147,11 @@ describe("[LDB-S1a] db-responses/ fixture equals the live routes over upstream-1
     checkOrRecord("layouts-list.json", layoutsListFixture, pages);
   });
 
-  it("[LDB-S1a] /v1/layouts?full=1&as=cmini/1", async () => {
-    checkOrRecord("layouts-full-cmini1.json", layoutsFullFixture, await getJson("/v1/layouts?full=1&as=cmini/1"));
+  it("[LDB-S1a] /v1/layouts?full=1", async () => {
+    checkOrRecord("layouts-full-cmini1.json", layoutsFullFixture, await getJson("/v1/layouts?full=1"));
   });
 
-  it("[LDB-S1a] every /v1/layouts/{name}?as=cmini/1 and its /likes", async () => {
+  it("[LDB-S1a] every /v1/layouts/{name} and its /likes", async () => {
     expect(names.length).toBe(100);
     // In parallel -- 200 sequential round trips through Hono+D1 was slow
     // enough (this file's own beforeAll seeds a full 100-layout import
@@ -155,7 +161,7 @@ describe("[LDB-S1a] db-responses/ fixture equals the live routes over upstream-1
     const pairs = await Promise.all(
       names.map(async (name) => {
         const [detail, likes] = await Promise.all([
-          getJson(`/v1/layouts/${encodeURIComponent(name)}?as=cmini/1`),
+          getJson(`/v1/layouts/${encodeURIComponent(name)}`),
           getJson(`/v1/layouts/${encodeURIComponent(name)}/likes`),
         ]);
         return [name, detail, likes] as const;

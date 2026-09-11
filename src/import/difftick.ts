@@ -13,8 +13,7 @@ import type { Bindings } from "../env";
 import { canonical } from "../core/canonical";
 import { decodeCursor, list as listRecords, type ListCursor } from "../core/records";
 import type { Clock } from "../core/time";
-import { storedAsSpark } from "../../formats/registry.ts";
-import { legacyUpstreamMap } from "../core/upstream";
+import type { Payload as SparkPayload } from "../../formats/spark/1/index.ts";
 import { diffUpstream, type DiffSummary, type FetchImpl, type OursSource } from "./diff";
 
 const PAGE_SIZE = 500; // 12 §0.3: pages our side from D1 in 500-record pages, one list query per page
@@ -45,19 +44,17 @@ async function likesFor(db: Bindings["DB"], ids: string[]): Promise<Map<string, 
 // (injected in tests, real `fetch` in production) is used ONLY for the
 // upstream half inside `diffUpstream`, never here.
 //
-// 20-spark.md S3b (§8 R-H6): yields `storedAsSpark` payloads, not a
-// `?as=cmini/1` translation -- comparison happens in spark now, and every
-// row already carries its own `upstream` (S3a), so no `/history`
-// follow-up (the old `followsUpstream` method, deleted) is needed either.
+// 20-spark.md S3b (§8 R-H6): yields the record's own payload directly --
+// comparison happens in spark now, and every row already carries its own
+// `upstream` (S3a), so no `/history` follow-up (the old `followsUpstream`
+// method, deleted) is needed either. 21-formats.md D12 deleted the legacy
+// fallback (`legacyUpstreamMap`/`storedAsSpark`) this used to need: after
+// the D8 wipe every row is already spark-shaped with its own `upstream`
+// column set.
 export function d1Ours(env: Bindings): OursSource {
   const db = env.DB;
   return {
     async *full() {
-      // A legacy row's stored `upstream` is NULL until the record migration
-      // writes it; resolve those with the same legacy rule `upstreamOf` uses
-      // (one bulk query), so the diff compares them in that window instead of
-      // calling every record `divergent` (the 2026-09-11 preview finding).
-      const legacy = await legacyUpstreamMap(db);
       let cursor: ListCursor | undefined;
       for (;;) {
         const page = await listRecords(db, { sort: "name", limit: PAGE_SIZE, cursor });
@@ -66,7 +63,6 @@ export function d1Ours(env: Bindings): OursSource {
           page.items.map((r) => r.id),
         );
         for (const rec of page.items) {
-          const { payload } = storedAsSpark(rec.format, rec.payload);
           yield {
             ref: rec.id,
             name: rec.name,
@@ -74,8 +70,8 @@ export function d1Ours(env: Bindings): OursSource {
             created_at: rec.created_at,
             modified_at: rec.modified_at,
             likes: likes.get(rec.id) ?? [],
-            payload,
-            upstream: rec.upstream ?? legacy.get(rec.id) ?? null,
+            payload: rec.payload as SparkPayload,
+            upstream: rec.upstream ?? null,
           };
         }
         if (page.nextCursor === null) break;

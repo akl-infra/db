@@ -5,38 +5,21 @@ import { Hono } from "hono";
 import type { Bindings } from "../env";
 import { notFound } from "../core/errors";
 import { get as getFormat, list as listFormats } from "../formats/registry";
-import { ALIASES, lineage, majorOf, latestOf, hasEdge } from "../../formats/registry.ts";
-import * as cminiAdapter from "../../formats/adapters/cmini/index.ts";
+import { lineage, majorOf, latestOf, hasEdge } from "../../formats/registry.ts";
 
 export const formatsRoute = new Hono<{ Bindings: Bindings }>();
 
-// Every alias id whose target is exactly `formatId` -- reachable FROM
-// `formatId` for free (reading `?as=<alias>` of a `formatId`-shaped
-// payload is always the identity translation, LDB-F20/F21).
-function aliasesFor(formatId: string): string[] {
-  return Object.entries(ALIASES)
-    .filter(([, a]) => a.target === formatId)
-    .map(([alias]) => alias);
-}
-
 // `can_translate_to` (20-spark.md S1, extended by S5's chain -- 19 §4.2:
 // "`can_translate_to` equals the set of formats `path()` reaches"): every
-// OTHER registered format `hasEdge()` reaches STRUCTURALLY (same lineage,
-// always -- the chain; a different lineage with a registered cross edge at
-// ANY major, not just this module's own), PLUS every alias reachable from
-// it -- an alias whose target IS this format (identity via the alias,
-// e.g. `akl/1` from `spark/1`), or whose target is one of the chain-
-// reachable ids above, or the special `adapter:cmini` target when this
-// format is `spark/1` (the one format the cmini adapter's `toCmini` can be
-// reached from).
+// OTHER registered format `hasEdge()` reaches STRUCTURALLY -- same lineage,
+// always (the chain), or a different lineage with a registered cross edge
+// at ANY major, not just this module's own. 21-formats.md D5/D12 deleted
+// every alias (`akl/1`, `cmini/1`'s `adapter:cmini` read path), so this is
+// now just the chain-reachable set -- no alias union any more.
 function reachableFormats(f: { id: string }): string[] {
-  const chainReachable = listFormats()
+  return listFormats()
     .map((m) => m.id)
     .filter((id) => id !== f.id && hasEdge(f.id, id));
-  const viaAlias = Object.entries(ALIASES)
-    .filter(([, a]) => a.target === f.id || chainReachable.includes(a.target) || (a.target === "adapter:cmini" && f.id === "spark/1"))
-    .map(([alias]) => alias);
-  return [...chainReachable, ...viaAlias];
 }
 
 formatsRoute.get("/v1/formats", (c) => {
@@ -50,7 +33,9 @@ formatsRoute.get("/v1/formats", (c) => {
     lineage: lineage(f.id),
     major: majorOf(f.id),
     latest: majorOf(f.id) === latestOf(lineage(f.id)),
-    aliases: aliasesFor(f.id),
+    // 21-formats.md D5/D12: no more aliases -- always empty until a future
+    // format reintroduces one.
+    aliases: [] as string[],
     can_translate_to: reachableFormats(f),
   }));
   return c.json(body);
@@ -58,14 +43,10 @@ formatsRoute.get("/v1/formats", (c) => {
 
 formatsRoute.get("/v1/formats/:name/:major/schema.json", (c) => {
   const id = `${c.req.param("name")}/${c.req.param("major")}`;
-  // 20-spark.md S2: `cmini/1` is no longer a registered `FormatModule`
-  // (`getFormat` can't answer it -- its alias target is the unregistered
-  // adapter, not a module this registry owns), but its schema still
-  // describes a real legacy-stored shape (`layout_revs` keeps `cmini/1`
-  // rows forever, LDB-F21/§6) -- a client reading old history still needs
-  // it, so this route serves the adapter's own schema.json directly
-  // rather than 404ing something with a real answer.
-  if (id === "cmini/1") return c.json(cminiAdapter.schema, 200, { "Content-Type": "application/schema+json" });
+  // 21-formats.md D5: `cmini/1` is no longer reachable at all (was served
+  // here directly, from the unregistered adapter's own schema, for a
+  // legacy-stored row's benefit -- D12's wipe means no such row exists any
+  // more) -- an unregistered id answers `404`, same as any other.
   const mod = getFormat(id);
   if (mod === undefined) throw notFound(`no format '${id}'`, id);
   return c.json(mod.schema, 200, { "Content-Type": "application/schema+json" });

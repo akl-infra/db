@@ -306,7 +306,7 @@ whole response. `GET /v1/formats` is the registry itself, machine-readable
 [
   { "id": "spark/1", "owner": "DB (+ akl.gg)", "role": "stored",
     "lineage": "spark", "major": 1, "latest": true,
-    "aliases": ["akl/1"], "can_translate_to": ["mana2/1", "akl/1", "cmini/1"] },
+    "aliases": [], "can_translate_to": ["mana2/1"] },
   { "id": "mana2/1", "owner": "…", "role": "output",
     "lineage": "mana2", "major": 1, "latest": true,
     "aliases": [], "can_translate_to": [] }
@@ -317,25 +317,24 @@ whole response. `GET /v1/formats` is the registry itself, machine-readable
 ever appears on read (`"output"`, §5). `lineage`/`major`/`latest` are what a
 client checks to detect a new major without parsing the id string itself
 (§8). `aliases` names every transitional alias whose target is this format
-— today only `akl/1` (see below); `can_translate_to` is the full reachable
-set, aliases included. `GET /v1/formats/{name}/{N}/schema.json` serves the
-literal JSON Schema (draft 2020-12) a payload must satisfy — validate
-client-side against it before ever sending a write, the same schema the
-server itself runs (`db/scripts/validate-akl1-payload.mjs` is a Node CLI
-shim over the exact same `validate()`).
+— always `[]` today; kept on the wire shape for a future one, not currently
+in use (see below). `can_translate_to` is the full reachable set.
+`GET /v1/formats/{name}/{N}/schema.json` serves the literal JSON Schema
+(draft 2020-12) a payload must satisfy — validate client-side against it
+before ever sending a write, the same schema the server itself runs
+(`db/scripts/validate-akl1-payload.mjs` is a Node CLI shim over the exact
+same `validate()`; the script's own name is historical, it validates
+against `spark/1`'s current schema).
 
-**The `akl/1` alias, and why it exists.** `spark/1` is `akl/1` renamed —
-same payload shape, byte for byte (`design/layout-db/20-spark.md` decision
-1). `akl/1` still works everywhere as a transitional alias for clients not
-yet moved to `spark/1`'s own name: `?as=akl/1` reads the same payload,
-`format: "akl/1"` write bodies still store, and — the one place the wire
-`format` field is **not** the record's native format — a response to a
-request that itself named `akl/1` (a detail/`rev`/`full=1` read, a write
-response, a `409 stale` body) is relabelled `"akl/1"` instead of the native
-`"spark/1"`. Everywhere else (list rows, events, `/v1/changes`, webhooks,
-the dump) `format` is always native. **New clients should read and write
-`spark/1` directly** — the alias exists only for clients this rewrite
-predates and disappears on the schedule in `20-spark.md` §6.
+**No more `akl/1` alias.** `spark/1` is `akl/1` renamed — same payload
+shape, byte for byte (`design/layout-db/20-spark.md` decision 1). `akl/1`
+worked as a transitional alias while the bot, the preview site and
+publish-ux moved to `spark/1`'s own name; `21-formats.md` D12 deleted the
+alias mechanism entirely once every client had (2026-09-11). `?as=akl/1`
+and `format: "akl/1"` now answer/refuse exactly like any other unregistered
+format id (`400`/`404 unknown_format`, per §3's error table) — there is no
+relabeling, and `format` in every response is always the record's native
+`spark/1`. **Every client reads and writes `spark/1` by name.**
 
 **`history` and `rev/{n}` carry `source` too** — per-event provenance, not
 just per-record (`db/tests/conformance/layouts-history/200.json`, trimmed):
@@ -509,14 +508,13 @@ to it and resend with its `rev`:
 ```json
 409 { "error": "stale", "message": "record is at rev 2, not the version you edited",
       "rev": 2,
-      "record": { "id": "01ARZ3ND…", "rev": 2, "format": "akl/1", "…": "…" },
+      "record": { "id": "01ARZ3ND…", "rev": 2, "format": "spark/1", "…": "…" },
       "last_write": { "seq": 439, "at": "…", "actor": "800000000000000001",
                        "via": "discord", "kind": "updated", "admin": false } }
 ```
 
-(`format` here reads `"akl/1"` because the losing write's own body named
-`akl/1` — the relabel follows the request, §3; a `spark/1` write would see
-`"spark/1"` in the same spot.)
+(`format` is always the record's native `spark/1` — there is no relabeling
+any more, §3.)
 
 **PATCH verbs** apply, in one event, in the order `name, fingermap, board,
 magic` — one or more of them in a single body:
@@ -741,11 +739,6 @@ its fixtures are frozen (`LDB-F6`) and its `up`/`down` steps are what every
 older-stored record chains *through*, not around. Once the new major is
 registered:
 
-- `core/migrate.ts`'s `migrateTick` selection widens automatically (`OR
-  major(format) < latest`) — no code change needed there to start moving
-  stored records at the older major up to the new latest; the operator runs
-  `POST /v1/admin/migrate/tick` (or `scripts/migrate_records_to_spark.py`)
-  the same way as any other migration.
 - the nightly dump gains a new per-major file,
   `latest.<name>-<N>.json` (+`.sha256`), alongside the older major's own —
   never replacing it (`LDB-D6`, §4 above).
@@ -867,10 +860,8 @@ silently drift from what `db/src/index.ts` actually registers.
 | POST | `/v1/admin/import/pause` | admin | — | 200 | `not_admin`, lane errors |
 | POST | `/v1/admin/import/resume` | admin | — | 200 | `not_admin`, lane errors |
 | POST | `/v1/admin/import/tick` | admin | — | 200 | `not_admin`, `import_paused`, lane errors |
-| POST | `/v1/admin/import/strip-cmini-magic` | admin | — | 200 | `not_admin`, `import_paused`, lane errors |
 | POST | `/v1/admin/diff/tick` | admin | — | 200 | `not_admin`, lane errors |
 | POST | `/v1/admin/nightly/tick` | admin | — | 200 | `not_admin`, lane errors |
-| POST | `/v1/admin/migrate/tick` | admin | `{dry_run, after?, limit?}` | 200 | `bad_request`, `not_admin`, lane errors |
 | POST | `/v1/admin/clients` | admin | `{name, pubkey, owner_user_id, caps, discord_app_id?}` | 201 | `bad_request`, `not_admin`, lane errors |
 | DELETE | `/v1/admin/clients/:id` | admin | — | 200 | `not_admin`, `not_found`, lane errors |
 | GET | `/v1/admin/clients` | admin | — | 200 | `not_admin`, lane errors |

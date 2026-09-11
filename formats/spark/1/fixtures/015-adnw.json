@@ -169,12 +169,5 @@
   "board": {
     "kind": "ortho",
     "cmini": "ortho"
-  },
-  "x": {
-    "cmini": {
-      "tag": "cmini",
-      "blame": "cmini",
-      "link": "http://www.adnw.de/"
-    }
   }
 }

@@ -8,9 +8,10 @@
 //
 // spark/1 is the one stored format (design/layout-db/20-spark.md §1
 // decision 1, S1): `spark/1` and `mana2/1` are the only registered
-// FormatModules now. cmini is an import source, not a format (decision
-// 2) -- its adapter lives at db/formats/adapters/cmini/, unregistered,
-// reached only through `ALIASES`'s `adapter:cmini` target below.
+// FormatModules. cmini is an import source, not a format (decision 2) --
+// its adapter lives at db/formats/adapters/cmini/, unregistered, and
+// unreachable from `translate()` at all since 21-formats.md D5 deleted
+// the `cmini/1` read path and its `adapter:cmini` alias.
 //
 // Self-contained like every format module (07 §5): no import of
 // src/core/errors.ts or anything else under src/ -- a packaged consumer
@@ -21,7 +22,6 @@
 // result into a thrown ApiError.
 import * as spark1 from "./spark/1/index.ts";
 import * as mana2_1 from "./mana2/1/index.ts";
-import { fromCmini, toCmini } from "./adapters/cmini/translate.ts";
 
 // A row of a format's lowering: what an analyzer/emulator reads regardless
 // of which idiom shape produced it (01 §3).
@@ -156,14 +156,11 @@ function isHeld(v: unknown): v is Held {
 
 // -- 20-spark.md S5's chain (19-upcast.md round 2 §1/§4, renumbered here:
 // its F16 -> LDB-F18, its F17 -> LDB-F19, its P11 -> LDB-P13, its D6 stays
-// D6). A "lineage" is the `<name>` half of a format id (`akl/1`, `akl/2`
-// share one; `cmini/1`, `mana2/1` each their own); "latest" is the highest
-// MAJOR currently registered for it. `LEGACY_STORED`/`ALIASES` above are
-// NOT chain steps -- `akl/1` is a different lineage name from `spark/1`
-// even though `LEGACY_STORED["akl/1"]` happens to be the identity function
-// today; `translate()` normalizes through them FIRST, then walks the
-// chain (§5's own ordering: legacy-normalize -> chain -> pinned cross edge
-// -> chain).
+// D6). A "lineage" is the `<name>` half of a format id (`spark/1`,
+// `spark/2` would share one; `mana2/1` its own); "latest" is the highest
+// MAJOR currently registered for it. `translate()` walks the chain
+// directly now (21-formats.md D5/D12 deleted the legacy-normalize step
+// that used to run first).
 
 function splitId(id: string): { name: string; major: number } {
   const i = id.lastIndexOf("/");
@@ -323,68 +320,22 @@ export function hasEdge(from: string, to: string): boolean {
 
 // -- 20-spark.md S1's shared vocabulary (§3) --
 
-// Every transitional alias (§1 decision 12): `target` is the registered id
-// (or the special adapter target below) a request in this alias actually
-// resolves to; `relabel` says whether the wire `format` field follows the
-// request instead of staying native (only `akl/1`, since the deployed bot
-// still branches on `format === 'akl/1'` -- the relabel rule itself is a
-// Worker-layer (S2) concern, this table just marks which alias needs it);
-// `write` says whether a write naming this alias is accepted (`akl/1`,
-// stored as `spark/1` byte-identical) or refused (`cmini/1`, S2).
-// `"adapter:cmini"` is not a registered format id -- it names the cmini
-// adapter's `toCmini` projection (db/formats/adapters/cmini/translate.ts),
-// reachable only from a `spark/1`-shaped payload, never a chain step
-// (§5's `lineage()` never lists it).
-export interface AliasEntry {
-  target: string;
-  relabel: boolean;
-  write: "store" | "refuse";
-}
-
-export const ALIASES: Record<string, AliasEntry> = {
-  "akl/1": { target: "spark/1", relabel: true, write: "store" },
-  "cmini/1": { target: "adapter:cmini", relabel: false, write: "refuse" },
-};
-
+// resolveFormat(id): a native registered id resolves to itself (label ===
+// id). 21-formats.md D5/D12: there are no more aliases -- `akl/1` and the
+// `cmini/1` read path are both gone, so this is now a plain lookup;
+// `label` stays part of the shape (rather than `resolveFormat` simply
+// returning the module) because a future format may reintroduce a
+// caller-visible distinction between "what was asked for" and "what
+// resolved" (F2's `lw/1`, say), and every caller already reads `.module`/
+// `.label` rather than the module directly.
 export interface ResolvedFormat {
   module: FormatModule;
   label: string;
 }
 
-// resolveFormat(id): a native registered id resolves to itself (label ===
-// id); an alias whose target is a registered id resolves to that module,
-// labelled with the ALIAS (so a caller can echo what was actually asked
-// for); `cmini/1` resolves to `undefined` here -- its target is the
-// adapter, not a `FormatModule` this registry owns, so only `translate()`
-// (which knows the adapter projection) handles a `cmini/1` READ. S2
-// deleted the Worker's temporary `LEGACY_WRITABLE` write-compat shim
-// (db/src/formats/registry.ts) -- a `cmini/1` WRITE is refused (`400
-// unknown_format`) everywhere now, `core/write.ts`'s `validatePayload`
-// included.
 export function resolveFormat(id: string): ResolvedFormat | undefined {
   const direct = byId.get(id);
-  if (direct) return { module: direct, label: id };
-  const alias = ALIASES[id];
-  if (alias && byId.has(alias.target)) return { module: byId.get(alias.target)!, label: id };
-  return undefined;
-}
-
-// LEGACY_STORED: every format a `layouts`/`layout_revs` row can carry as
-// its OWN stored `format` column value that is no longer `spark/<latest>`
-// -- today, the two pre-spark ids. `storedAsSpark` is the ONE conversion
-// used by every read of such a row (this file's own `translate()` below,
-// forever for `layout_revs`; `layouts` too until S4's migration converts
-// every live row) and by every write that carries a legacy record's
-// payload forward (S2/S3b/S4) -- nothing else converts a stored legacy
-// payload (LDB-F21).
-export const LEGACY_STORED: Record<string, (p: Payload) => Payload> = {
-  "akl/1": (p) => p, // byte-identical: akl/1 and spark/1 are the same payload shape
-  "cmini/1": fromCmini,
-};
-
-export function storedAsSpark(format: string, payload: Payload): { format: "spark/1"; payload: Payload } {
-  const conv = LEGACY_STORED[format];
-  return { format: "spark/1", payload: conv ? conv(payload) : payload };
+  return direct ? { module: direct, label: id } : undefined;
 }
 
 // Pure result: unlike the Worker-facing wrapper (db/src/formats/registry.ts)
@@ -396,37 +347,23 @@ export type TranslateResult =
   | { held: true; format: string; see?: string }
   | { unknown: true; known: string[] };
 
-// translate(rec, as): first normalizes `rec` through `storedAsSpark` when
-// `rec.format` is a legacy-stored id (every read of a legacy row goes
-// through this, even when `as` names that SAME legacy id back -- there is
-// no raw-identity shortcut for a legacy format, LDB-F21: the row reads
-// exactly as its `storedAsSpark` twin on every route). Then resolves `as`
-// through `ALIASES` (`cmini/1` -> the adapter's `toCmini`, reachable only
-// from a `spark/1`-shaped payload; `akl/1` -> `spark/1`). `held` bodies
-// name the REQUESTED id verbatim (e.g. `format: "akl/1"`), never the
-// resolved target -- `as` is used as-is in every `held`/`unknown` body
-// below.
+// translate(rec, as): 21-formats.md D5/D12 deleted every alias and the
+// legacy-stored normalization (`LEGACY_STORED`/`storedAsSpark`) -- `rec`
+// is always already shaped as its own registered `format` now, so this is
+// a plain `resolveFormat` + `path()` walk. `held` bodies name the
+// REQUESTED id verbatim, never the resolved target.
 export function translate(rec: { format: string; payload: Payload }, as: string): TranslateResult {
-  const normRec = rec.format in LEGACY_STORED ? storedAsSpark(rec.format, rec.payload) : rec;
-
-  const alias = ALIASES[as];
-  if (alias?.target === "adapter:cmini") {
-    if (normRec.format !== "spark/1") return { held: true, format: as, see: normRec.format };
-    return { payload: toCmini(normRec.payload) };
-  }
-
-  const resolvedAs = alias ? alias.target : as;
-  if (!byId.has(resolvedAs)) {
+  if (!byId.has(as)) {
     return { unknown: true, known: REGISTRY.map((f) => f.id) };
   }
-  if (resolvedAs === normRec.format) return { payload: normRec.payload };
+  if (as === rec.format) return { payload: rec.payload };
 
   // 20-spark.md S5: walks `path()` (chain -> pinned cross edge -> chain)
   // instead of a single direct `to[...]` lookup -- with every lineage at
   // major 1 (spark/mana2 today) this reduces to exactly the old single-hop
   // behaviour, byte for byte; it only starts composing once a lineage ships
   // a second major.
-  const result = walk(normRec.format, resolvedAs, normRec.payload);
-  if (isHeld(result)) return { held: true, format: as, see: normRec.format };
+  const result = walk(rec.format, as, rec.payload);
+  if (isHeld(result)) return { held: true, format: as, see: rec.format };
   return { payload: result };
 }

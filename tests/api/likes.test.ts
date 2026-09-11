@@ -11,7 +11,7 @@ import type { Bindings } from "../../src/env";
 import { appendWrite, foldRecord, rowToEvent, type EventDbRow } from "../../src/core/events";
 import { readById } from "../../src/core/records";
 import { fixedClock } from "../../src/core/time";
-import { CMINI_PAYLOAD, actorFixture, register, uniqueName, writeFetch } from "./write-support";
+import { AKL_PAYLOAD, actorFixture, register, uniqueName, writeFetch } from "./write-support";
 
 const db = (env as unknown as Bindings).DB;
 const clock = fixedClock("2026-07-09T00:00:00.000Z");
@@ -33,8 +33,8 @@ async function seed(name = uniqueName("likes-seed")) {
     name,
     owner: OWNER,
     modified_at: clock(),
-    format: "cmini/1",
-    payload: CMINI_PAYLOAD,
+    format: "spark/1",
+    payload: AKL_PAYLOAD,
     actor: OWNER,
     via: "discord",
     source: { client: "discord-app:test", version: null },
@@ -140,7 +140,7 @@ describe("[LDB-L1] PUT/DELETE /v1/layouts/{ref}/like", () => {
     expect(metaAfter.layouts_modified_at).toBe(metaBefore.layouts_modified_at);
   });
 
-  it("?as=cmini/1 detail's likes are sorted by user id", async () => {
+  it("a detail's likes are sorted by user id", async () => {
     const record = await seed();
     const ids = ["user-c", "user-a", "user-b"];
     for (const id of ids) {
@@ -149,7 +149,7 @@ describe("[LDB-L1] PUT/DELETE /v1/layouts/{ref}/like", () => {
       const res = await writeFetch(`/v1/layouts/${record.id}/like`, "PUT", headers);
       expect(res.status).toBe(200);
     }
-    const detail = await writeFetch(`/v1/layouts/${record.id}?as=cmini/1`, "GET");
+    const detail = await writeFetch(`/v1/layouts/${record.id}`, "GET");
     const body = await detail.json<{ likes: string[] }>();
     expect(body.likes).toEqual(["user-a", "user-b", "user-c"]);
   });

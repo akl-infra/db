@@ -2,15 +2,15 @@
 // client sent idioms (magic_keys/chiral_keys/adaptive_swaps/the raw escape
 // hatch) reads back with those idioms intact. The registry (src/formats/
 // registry.ts) never lowers a stored payload -- `translate()` is either
-// the identity (the resolved `as` equals the record's own -- normalized --
-// format) or a `to[as]` translation; there is no path from "store" to
-// "read the same format back" that touches `compileMagic()`/`lower()` at
-// all. 901-idioms.json is the fixture built for exactly this (repeat key +
+// the identity (the resolved `as` equals the record's own format) or a
+// `to[as]` translation; there is no path from "store" to "read the same
+// format back" that touches `compileMagic()`/`lower()` at all.
+// 901-idioms.json is the fixture built for exactly this (repeat key +
 // except + explicit rules + chiral key + except + adaptive swap + raw
-// rules, on a realistic 30-key layout). Reads `getFormat("akl/1")`
-// deliberately (not `"spark/1"`) throughout: it's the same fixture proving
-// the ALIAS resolution path (20-spark.md S1's `resolveFormat`) keeps this
-// invariant too, not just the native id.
+// rules, on a realistic 30-key layout). 21-formats.md D5/D12 deleted the
+// `akl/1` alias this test used to read through deliberately (proving the
+// alias path too, not just the native id) -- there are no aliases left,
+// so this reads `"spark/1"` directly now.
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -22,16 +22,16 @@ const FIXTURE = path.resolve(import.meta.dirname, "..", "..", "formats", "spark"
 describe("intent survives store + read (LDB-F3)", () => {
   const payload = JSON.parse(fs.readFileSync(FIXTURE, "utf8")) as Payload;
 
-  it("901-idioms.json validates as akl/1", () => {
-    const spark1 = getFormat("akl/1")!;
+  it("901-idioms.json validates as spark/1", () => {
+    const spark1 = getFormat("spark/1")!;
     expect(spark1.validate(payload).ok).toBe(true);
   });
 
   it("[LDB-F3] reading it back as its own format (the registry's identity path) keeps adaptive_swaps intact", () => {
-    const spark1 = getFormat("akl/1")!;
-    // "Reading it back" is exactly what a GET ?as=akl/1 of an akl/1 record
-    // does: registry.translate() with `as === rec.format` returns the
-    // payload UNCHANGED (src/formats/registry.ts's `translate`), never
+    const spark1 = getFormat("spark/1")!;
+    // "Reading it back" is exactly what a GET ?as=spark/1 of a spark/1
+    // record does: registry.translate() with `as === rec.format` returns
+    // the payload UNCHANGED (src/formats/registry.ts's `translate`), never
     // routing through `lower()`. Simulated here at the format-module level
     // (no D1/records in a format-only test) by asserting identity itself.
     const readBack = payload; // the identity translation IS the object itself
@@ -55,21 +55,21 @@ describe("intent survives store + read (LDB-F3)", () => {
 
   it("[LDB-F3] the registry's own translate() never calls a format's compileMagic()/lower() on the identity path", () => {
     // Static check on registry.ts's own source: `translate()` returns
-    // `{ payload: normRec.payload }` verbatim once the resolved `as`
-    // equals the (legacy-normalized) record's format, before ever
-    // touching `source.to[as]` (which is the only place any format's own
-    // compile step gets called, transitively, via toCmini/fromCmini).
-    // Reading the source directly here is deliberate: it's the one place
-    // this invariant is actually enforced, and a future edit that made
-    // identity route through a translation would be exactly the
-    // regression LDB-F3 exists to catch. The pure `translate()` itself
-    // lives in db/formats/registry.ts (12 §3 X5 item 1, moved out of
-    // src/formats/registry.ts so it ships inside @akl/layout-formats);
-    // 20-spark.md S1 added the legacy-normalization step in front of this
-    // same identity check (LDB-F21), but the check itself is still a bare
-    // return with no `to[...]`/compile call on that line.
+    // `{ payload: rec.payload }` verbatim once the resolved `as` equals
+    // the record's own format, before ever touching `source.to[as]`
+    // (which is the only place any format's own compile step gets
+    // called, transitively, via fromCmini). Reading the source directly
+    // here is deliberate: it's the one place this invariant is actually
+    // enforced, and a future edit that made identity route through a
+    // translation would be exactly the regression LDB-F3 exists to catch.
+    // The pure `translate()` itself lives in db/formats/registry.ts (12
+    // §3 X5 item 1, moved out of src/formats/registry.ts so it ships
+    // inside @akl/layout-formats); 21-formats.md D5/D12 deleted the
+    // legacy-normalization/alias-resolution steps that used to run in
+    // front of this same identity check, so it's simpler now, not more
+    // complex -- still a bare return with no `to[...]`/compile call.
     const src = fs.readFileSync(path.resolve(import.meta.dirname, "..", "..", "formats", "registry.ts"), "utf8");
-    const identityLine = src.match(/if \(resolvedAs === normRec\.format\) return \{[^}]*\};/);
+    const identityLine = src.match(/if \(as === rec\.format\) return \{[^}]*\};/);
     expect(identityLine).not.toBeNull();
     expect(identityLine![0]).not.toMatch(/lower|compileMagic|to\[/);
   });

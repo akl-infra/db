@@ -25,21 +25,20 @@ site as the `/layoutdb/` hub (`design/layout-db/build_site.mjs`, `LDB-G9`).
 
 `spark/1` is the one **stored** format (`akl/1` renamed at the same payload
 shape, byte for byte -- `design/layout-db/20-spark.md` decision 1): every
-accepted write ends up stored as `spark/<latest>`, including a
-delete/restore/transfer/PATCH of a record that predates the rename (it is
-converted first, through the one `storedAsSpark` function, `LDB-F16`/`F21`).
-`mana2/1` is the **lowered**, analyzer-facing shape -- produced from
-`spark/1` on read (`?as=mana2/1`) only, never stored; a write naming it is
-`400 format_not_writable`. cmini is an **import source**, not a stored
-format lineage -- the importer converts each upstream detail to spark on
-arrival, and `?as=cmini/1` stays readable through an adapter for legacy
-consumers, but `cmini/1` writes are refused. `akl/1` is a **transitional
-alias** of `spark/1`: reads and writes under that name still work
-(`design/layout-db/20-spark.md` §1.12), and a response to a request naming
-it is relabelled `"akl/1"`, but new clients should read and write `spark/1`
-directly -- the alias is removed on the schedule in `20-spark.md` §6.
-`GET /v1/formats` is the live registry (`role`, `aliases`,
-`can_translate_to`).
+accepted write ends up stored as `spark/<latest>`. `mana2/1` is the
+**lowered**, analyzer-facing shape -- produced from `spark/1` on read
+(`?as=mana2/1`) only, never stored; a write naming it is `400
+format_not_writable`. cmini is an **import source**, not a stored format
+lineage -- the importer converts each upstream detail to spark on arrival.
+There is no `akl/1` alias and no `?as=cmini/1` read path any more
+(`design/layout-db/21-formats.md` D5/D12, F1, 2026-09-11): both were
+transitional, and after the 2026-09-11 wipe left no row for either to
+carry forward, so `GET .../{ref}?as=cmini/1` (or `?as=akl/1`) now answers
+exactly like any other unregistered format id. `spark/1` also lost its
+free-form `x` field in the same slice (D10) -- see
+`design/layout-db/22-spark-spec.md` for the current spec. `GET /v1/formats`
+is the live registry (`role`, `can_translate_to`, and an `aliases` field
+kept for wire compatibility but always `[]` now that there are none).
 
 **The chain.** A format lineage can grow a second (and later) major without
 breaking older clients: `up`/`down` convert one major to the next/previous
@@ -518,24 +517,6 @@ append one `admin.*` event to the public feed (`admin.import_ticked` /
 | `POST /v1/admin/diff/tick` | none | `{ ran: true, ...diffTick()'s own LastDiffRecord }` (`ok`/`corpus`/`samples`/... -- the same shape `import_state['cmini.last_diff']` stores) | the usual admin `401`/`403`/`429`/`503` (no "paused" state exists for the diff) |
 | `POST /v1/admin/nightly/tick` | none | `{ ran: true, at, jobs: { "prune-auth-cache": "ok"\|"error", "prune-rate-limits": "ok"\|"error", "prune-nonces": "ok"\|"error", "write-dump": "ok"\|"error" }, dump: writeDump()'s own { key, latest } or null }` -- `src/core/nightly.ts`'s `runNightly`, the SAME job list `scheduled()`'s `hour=3, minute=0` branch runs, each job guarded (`core/jobs.ts`'s `runJob`) so one failing never skips the rest | the usual admin `401`/`403`/`429`/`503` (no "paused" state exists for this job set either) |
 
-### Cmini-magic strip (one-time cleanup, M1)
-
-`POST /v1/admin/import/strip-cmini-magic` -- unlike the three manual cron
-triggers above, this route has no `scheduled()` counterpart; it exists once,
-to drop the cmini `magic` still sitting in records imported before M1
-(`design/layout-db/17-magic-ownership.md` §4, `LDB-I10`/`LDB-I11`) landed.
-For every live record that still follows upstream (`06 §2`) and whose
-payload has `magic`, it writes the payload without it as an `imported` rev
-bump (`detail: { source: "cmini", upstream_id, reason: "magic_stripped" }`)
--- same admin-only/rate-limited/`409 import_paused`-while-paused/event-logged
-(`admin.magic_stripped`) shape as `POST /v1/admin/import/tick`. Batched
-(`src/import/strip.ts`'s `BATCH_LIMIT`) and idempotent: call it repeatedly
-until the response is `{ stripped: 0 }`.
-
-| route | body | 200 response | other statuses |
-|---|---|---|---|
-| `POST /v1/admin/import/strip-cmini-magic` | none | `{ stripped: n }` | `409 import_paused` if the import is paused; the usual admin `401`/`403`/`429`/`503` |
-
 ### Magic rules seed (one-time, M2)
 
 `design/layout-db/17-magic-ownership.md` §4 M2: the one-time migration that
@@ -554,9 +535,12 @@ prerequisite is retired going forward. Decision 6 of
 the `isMagicOnlyReplace` check and `detail.magic_only` event marker this
 section's mechanics describe below were deleted in the same rewrite. A
 magic-only write today forks like any other user edit and bumps
-`modified_at`; LDB-I12 is kept only as the historical definition of
-`legacyFollows`, used by the one-time record migration and nothing else
-(`20-spark.md` decision 7, §1.16). Nothing in this section is meant to run
+`modified_at`. **Further update (2026-09-11, `21-formats.md` D12, F1):**
+`legacyFollows`/`core/follows.ts`, `isMagicOnlyReplace`, and the
+`magic_only` event marker are deleted outright now, not just retired in
+behavior, and LDB-I12's own registry row is gone from `INVARIANTS.md`
+(retired, `legacyFollows` no longer exists to define even historically --
+see that file's retirement log). Nothing in this section is meant to run
 again -- it's kept for the record of what M2 did and why.
 
 **What `scripts/migrate_magic_rules_to_db.py` does, per layout id** in
@@ -609,9 +593,12 @@ preview, not a confirmation -- no write was actually sent).
 --migrate-report migrate-report.json` -- for every id in
 `magic_rules.json`, compares the site's OWN compiler output
 (`magicRulesFlatCompile`, via a real node shim) against the DB's
-`?as=cmini/1` lowered rows as a set of `(inputs, output)` pairs, and fails
-if `migrate-report.json` still has any `missing`/`collision` entry. Exit 0
-only when every layout matches and the report has nothing unresolved.
+`?as=mana2/1` lowered rows (`payload.magic.rules`) as a set of `(inputs,
+output)` pairs -- moved off `?as=cmini/1` once `spark/1 -> mana2/1` never
+held and the cmini adapter's alias was slated for removal (now gone
+entirely, `21-formats.md` D5) -- and fails if `migrate-report.json` still
+has any `missing`/`collision` entry. Exit 0 only when every layout matches
+and the report has nothing unresolved.
 
 **After LDB-I12 lands, this seed forks nothing**: every migrated record's
 last write is `magic_only`, so `followsUpstream` reads straight through it

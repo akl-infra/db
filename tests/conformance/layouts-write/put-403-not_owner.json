@@ -20,7 +20,7 @@
         "bearer": "conformance-owner-token",
         "body": {
           "name": "cw-put-notowner-1",
-          "format": "akl/1",
+          "format": "spark/1",
           "payload": {
             "keys": {}
           }

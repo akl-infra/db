@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://akl-db/formats/akl/1/schema.json",
   "title": "akl/1 payload",
-  "description": "The common format (01-format.md §2): cmini's keys map, #261's board geometry, the magic-rules authoring shape from design/magic-rules/02-schema.md, plus a raw-rule escape hatch and a free-form `x`. Single-code-point-ness, cross-field agreement and referential checks (a magic key names a real layout key, etc.) are NOT expressible here -- they live in formats/akl/1/index.ts's validate().",
+  "description": "The common format (01-format.md §2): cmini's keys map, #261's board geometry, the magic-rules authoring shape from design/magic-rules/02-schema.md, plus a raw-rule escape hatch. 21-formats.md D10 dropped the free-form `x` field. Single-code-point-ness, cross-field agreement and referential checks (a magic key names a real layout key, etc.) are NOT expressible here -- they live in formats/spark/1/index.ts's validate().",
   "type": "object",
   "additionalProperties": false,
   "required": ["keys"],
@@ -16,8 +16,7 @@
       "items": { "$ref": "#/$defs/position" }
     },
     "board": { "$ref": "#/$defs/board" },
-    "magic": { "$ref": "#/$defs/magic" },
-    "x": { "type": "object" }
+    "magic": { "$ref": "#/$defs/magic" }
   },
   "$defs": {
     "position": {

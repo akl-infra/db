@@ -17,7 +17,7 @@
         "bearer": "conformance-owner2-token",
         "body": {
           "name": "cw-put-noifmatch-1",
-          "format": "akl/1",
+          "format": "spark/1",
           "payload": {
             "keys": {}
           }

@@ -5,7 +5,7 @@
     "bearer": "conformance-owner-token",
     "body": {
       "name": "cw-post-dup-1",
-      "format": "akl/1",
+      "format": "spark/1",
       "payload": {
         "keys": {}
       }
@@ -17,7 +17,7 @@
         "bearer": "conformance-owner-token",
         "body": {
           "name": "cw-post-dup-1",
-          "format": "akl/1",
+          "format": "spark/1",
           "payload": {
             "keys": {}
           }

@@ -8,15 +8,17 @@
 // (LDB-I2a). The body is optional -- absent, `{}`, or `{name}` (a
 // different name goes through `check_name`, LDB-N1 amended, and is
 // recorded as `detail: {renamed_from}`) -- any other key is `400
-// bad_request` (LDB-A7). LDB-F16/F21: the tombstone's payload/format
-// carry forward through `storedAsSpark`, not verbatim.
+// bad_request` (LDB-A7). The tombstone's payload/format carry forward
+// verbatim (21-formats.md D12 deleted the legacy `storedAsSpark`
+// conversion this used to run through -- every stored row is already
+// spark/1).
 import { env } from "cloudflare:test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Bindings } from "../../src/env";
 import { appendWrite } from "../../src/core/events";
 import { fixedClock } from "../../src/core/time";
 import type { Clock } from "../../src/core/time";
-import { CMINI_PAYLOAD, actorFixture, pinTestClock, register, uniqueName, writeFetch } from "./write-support";
+import { AKL_PAYLOAD, actorFixture, pinTestClock, register, uniqueName, writeFetch } from "./write-support";
 
 const bindings = env as unknown as Bindings;
 const db = bindings.DB;
@@ -44,8 +46,8 @@ async function seedTombstone(name = uniqueName("restore-seed"), owner = OWNER, v
     name,
     owner,
     modified_at: DELETED_AT,
-    format: "cmini/1",
-    payload: CMINI_PAYLOAD,
+    format: "spark/1",
+    payload: AKL_PAYLOAD,
     actor: via === "import:cmini" ? "system:cmini-import" : owner,
     via,
     source: via === "import:cmini" ? { client: "system:cmini-import", version: null } : { client: "discord-app:test", version: null },
@@ -58,8 +60,8 @@ async function seedTombstone(name = uniqueName("restore-seed"), owner = OWNER, v
     name,
     owner,
     modified_at: DELETED_AT,
-    format: "cmini/1",
-    payload: CMINI_PAYLOAD,
+    format: "spark/1",
+    payload: AKL_PAYLOAD,
     actor: via === "import:cmini" ? "system:cmini-import" : owner,
     via,
     source: via === "import:cmini" ? { client: "system:cmini-import", version: null } : { client: "discord-app:test", version: null },
@@ -77,7 +79,7 @@ async function restore(id: string, headers: Record<string, string>, body?: unkno
 }
 
 describe("[LDB-P8] restore has no time limit", () => {
-  it("[LDB-P8] [LDB-F16] [LDB-F21] shortly after deletion -> 200, spark-converted payload/format, rev + 1, live by name", async () => {
+  it("[LDB-P8] [LDB-F16] shortly after deletion -> 200, payload/format carried forward verbatim, rev + 1, live by name", async () => {
     const tombstone = await seedTombstone();
     setNow(new Date(new Date(addDays(DELETED_AT, 1)).getTime()).toISOString());
 
@@ -87,9 +89,8 @@ describe("[LDB-P8] restore has no time limit", () => {
     const body = await res.json<{ deleted: boolean; name: string; payload: { keys: unknown; board: unknown }; format: string; rev: number }>();
     expect(body.deleted).toBe(false);
     expect(body.name).toBe(tombstone.name);
-    expect(body.format).toBe("spark/1"); // LDB-F16/F21: converted, not the tombstone's own literal "cmini/1"
+    expect(body.format).toBe("spark/1"); // 21-formats.md D12: every stored row already is spark/1, no conversion
     expect(body.payload.keys).toEqual((tombstone.payload as { keys: unknown }).keys);
-    expect(body.payload.board).toEqual({ kind: "ortho", cmini: "ortho" }); // fromCmini's boardFromCmini("ortho")
     expect(body.rev).toBe(tombstone.rev + 1);
 
     const byName = await writeFetch(`/v1/layouts/${encodeURIComponent(tombstone.name)}`, "GET");
@@ -128,8 +129,8 @@ describe("[LDB-P8] restore edge cases", () => {
       name: uniqueName("live-not-deleted"),
       owner: OWNER,
       modified_at: DELETED_AT,
-      format: "cmini/1",
-      payload: CMINI_PAYLOAD,
+      format: "spark/1",
+      payload: AKL_PAYLOAD,
       actor: OWNER,
       via: "discord",
       source: { client: "discord-app:test", version: null },
@@ -149,8 +150,8 @@ describe("[LDB-P8] restore edge cases", () => {
       name: tombstone.name, // freed by the delete; a new live record claims it
       owner: OTHER,
       modified_at: DELETED_AT,
-      format: "cmini/1",
-      payload: CMINI_PAYLOAD,
+      format: "spark/1",
+      payload: AKL_PAYLOAD,
       actor: OTHER,
       via: "discord",
       source: { client: "discord-app:test", version: null },
@@ -173,7 +174,7 @@ describe("[LDB-P8] restore edge cases", () => {
     expect(res.status).toBe(404);
   });
 
-  it("[LDB-I2a] owner restores an upstream_deleted tombstone -> 200, no longer follows upstream", async () => {
+  it("[LDB-I14] owner restores an upstream_deleted tombstone -> 200, no longer follows upstream", async () => {
     const tombstone = await seedTombstone(uniqueName("was-following"), OWNER, "import:cmini");
     setNow(DELETED_AT);
     const headers = ownerHeaders(OWNER, `tok-${uniqueName("t")}`);
@@ -184,7 +185,7 @@ describe("[LDB-P8] restore edge cases", () => {
       .prepare("SELECT kind, via, rev FROM events WHERE layout_id = ? AND rev IS NOT NULL ORDER BY seq DESC LIMIT 1")
       .bind(tombstone.id)
       .all<{ kind: string; via: string; rev: number }>();
-    expect(results[0]).toMatchObject({ kind: "restored", via: "discord" }); // LDB-I2a: latest rev-bumping event's via decides "follows upstream"
+    expect(results[0]).toMatchObject({ kind: "restored", via: "discord" }); // LDB-I14: a user write (via !== import:cmini) always forks
   });
 });
 
@@ -259,8 +260,8 @@ describe("[LDB-P8] [LDB-N1] restore body: optional, {name} renames under check_n
       name: uniqueName("restore-name-taken"),
       owner: OTHER,
       modified_at: DELETED_AT,
-      format: "cmini/1",
-      payload: CMINI_PAYLOAD,
+      format: "spark/1",
+      payload: AKL_PAYLOAD,
       actor: OTHER,
       via: "discord",
       source: { client: "discord-app:test", version: null },

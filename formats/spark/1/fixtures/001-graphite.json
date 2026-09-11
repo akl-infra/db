@@ -169,12 +169,5 @@
   "board": {
     "kind": "ortho",
     "cmini": "ortho"
-  },
-  "x": {
-    "cmini": {
-      "tag": "cmini",
-      "blame": "dmini",
-      "link": "https://github.com/rdavison/graphite-layout"
-    }
   }
 }

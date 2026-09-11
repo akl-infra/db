@@ -18,6 +18,18 @@ alias table (§4). `mana2/1` is **output-only** (decision 3): produced from
 `design/layout-db/20-spark.md` for the full plan, the ledger of what
 actually shipped, and the alias removal checklist.
 
+**Dated note (2026-09-11, `21-formats.md` F1).** The alias removal
+checklist above ran: `akl/1` and `?as=cmini/1` are no longer aliases at
+all, transitional or otherwise -- `GET .../{ref}?as=cmini/1` now answers
+exactly like any other unregistered format id, and `toCmini` (the
+`spark/1 -> cmini` lowering §6.2 below describes) is deleted along with
+it, per `21-formats.md` D5. `spark/1` also lost the free-form `x` field §2
+describes (D10) -- there is no more per-client namespaced escape hatch on
+the stored payload. The prose below (§2's `x` paragraph, §6.2's `toCmini`
+walkthrough) is kept as the historical record of what F1 removed and WHY
+it was shaped that way; it is no longer what the code does. `22-spark-spec.md`
+is the current, accurate spec for `spark/1` as shipped.
+
 ## 1. Record vs payload
 
 A **record** is what the database owns about a layout — identity, ownership,

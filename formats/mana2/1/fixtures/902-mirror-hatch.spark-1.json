@@ -54,13 +54,5 @@
   "board": {
     "kind": "ortho",
     "cmini": "ortho"
-  },
-  "x": {
-    "mana2": {
-      "mirrorLeftRowStagger": true,
-      "splitAngle": 0,
-      "magicKeys": null,
-      "layers": null
-    }
   }
 }

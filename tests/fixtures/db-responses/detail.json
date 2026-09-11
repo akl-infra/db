@@ -21,10 +21,11 @@
   },
   "likes": [],
   "payload": {
-   "board": "ortho",
-   "keys": {},
-   "tag": "cmini",
-   "blame": "cmini"
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
+   "keys": {}
   }
  },
  "02_we've_been_in_this_room_too_long": {
@@ -49,10 +50,11 @@
   },
   "likes": [],
   "payload": {
-   "board": "ortho",
-   "keys": {},
-   "tag": "cmini",
-   "blame": "cmini"
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
+   "keys": {}
   }
  },
  "40kwh": {
@@ -77,7 +79,15 @@
   },
   "likes": [],
   "payload": {
-   "board": "stagger",
+   "board": {
+    "cmini": "stagger",
+    "kind": "rowstag",
+    "stagger": [
+     0,
+     0.25,
+     0.75
+    ]
+   },
    "keys": {
     "'": {
      "col": 9,
@@ -234,9 +244,7 @@
      "finger": "LI",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "cmini"
+   }
   }
  },
  "5quid-nhrl2": {
@@ -261,7 +269,15 @@
   },
   "likes": [],
   "payload": {
-   "board": "stagger",
+   "board": {
+    "cmini": "stagger",
+    "kind": "rowstag",
+    "stagger": [
+     0,
+     0.25,
+     0.75
+    ]
+   },
    "keys": {
     "'": {
      "col": 7,
@@ -423,9 +439,7 @@
      "finger": "LR",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "AdNW": {
@@ -450,7 +464,10 @@
   },
   "likes": [],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 11,
@@ -617,10 +634,7 @@
      "finger": "LM",
      "row": 0
     }
-   },
-   "tag": "cmini",
-   "blame": "cmini",
-   "link": "http://www.adnw.de/"
+   }
   }
  },
  "Niro": {
@@ -645,7 +659,15 @@
   },
   "likes": [],
   "payload": {
-   "board": "stagger",
+   "board": {
+    "cmini": "stagger",
+    "kind": "rowstag",
+    "stagger": [
+     0,
+     0.25,
+     0.75
+    ]
+   },
    "keys": {
     "'": {
      "col": 10,
@@ -802,10 +824,7 @@
      "finger": "LR",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini",
-   "link": "https://kennetchaz.github.io/symmetric-typing/niro.html"
+   }
   }
  },
  "Soul": {
@@ -830,7 +849,15 @@
   },
   "likes": [],
   "payload": {
-   "board": "stagger",
+   "board": {
+    "cmini": "stagger",
+    "kind": "rowstag",
+    "stagger": [
+     0,
+     0.25,
+     0.75
+    ]
+   },
    "keys": {
     "'": {
      "col": 10,
@@ -987,10 +1014,7 @@
      "finger": "LR",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini",
-   "link": "https://kennetchaz.github.io/symmetric-typing/soul.html"
+   }
   }
  },
  "abyss": {
@@ -1015,7 +1039,15 @@
   },
   "likes": [],
   "payload": {
-   "board": "angle",
+   "board": {
+    "cmini": "angle",
+    "kind": "rowstag",
+    "stagger": [
+     0,
+     0.25,
+     0.75
+    ]
+   },
    "keys": {
     "'": {
      "col": 4,
@@ -1172,9 +1204,7 @@
      "finger": "RR",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "cmini"
+   }
   }
  },
  "adept": {
@@ -1201,7 +1231,10 @@
    "761732338744557568"
   ],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 9,
@@ -1358,9 +1391,7 @@
      "finger": "RI",
      "row": 0
     }
-   },
-   "tag": "cmini",
-   "blame": "cmini"
+   }
   }
  },
  "apple": {
@@ -1387,7 +1418,15 @@
    "226128695377526784"
   ],
   "payload": {
-   "board": "angle",
+   "board": {
+    "cmini": "angle",
+    "kind": "rowstag",
+    "stagger": [
+     0,
+     0.25,
+     0.75
+    ]
+   },
    "keys": {
     "'": {
      "col": 4,
@@ -1544,9 +1583,7 @@
      "finger": "RI",
      "row": 0
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "apt26": {
@@ -1573,7 +1610,32 @@
    "480103746911862798"
   ],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
+   "free": [
+    {
+     "col": 0,
+     "finger": "LP",
+     "row": 2
+    },
+    {
+     "col": 4,
+     "finger": "LI",
+     "row": 2
+    },
+    {
+     "col": 5,
+     "finger": "RI",
+     "row": 2
+    },
+    {
+     "col": 9,
+     "finger": "RP",
+     "row": 2
+    }
+   ],
    "keys": {
     "'": {
      "col": 6,
@@ -1710,31 +1772,7 @@
      "finger": "RP",
      "row": 0
     }
-   },
-   "free": [
-    {
-     "col": 0,
-     "finger": "LP",
-     "row": 2
-    },
-    {
-     "col": 4,
-     "finger": "LI",
-     "row": 2
-    },
-    {
-     "col": 5,
-     "finger": "RI",
-     "row": 2
-    },
-    {
-     "col": 9,
-     "finger": "RP",
-     "row": 2
-    }
-   ],
-   "tag": "cmini",
-   "blame": "cmini"
+   }
   }
  },
  "auditor": {
@@ -1759,7 +1797,10 @@
   },
   "likes": [],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 4,
@@ -1916,9 +1957,7 @@
      "finger": "LR",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "auditor-old": {
@@ -1943,7 +1982,10 @@
   },
   "likes": [],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 4,
@@ -2100,9 +2142,7 @@
      "finger": "LI",
      "row": 1
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "auditors": {
@@ -2127,7 +2167,10 @@
   },
   "likes": [],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 4,
@@ -2284,9 +2327,7 @@
      "finger": "LR",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "babymak-pipis": {
@@ -2313,7 +2354,10 @@
    "525231824465690645"
   ],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "!": {
      "col": 4,
@@ -2445,9 +2489,7 @@
      "finger": "LI",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "bevel": {
@@ -2472,7 +2514,10 @@
   },
   "likes": [],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 4,
@@ -2629,9 +2674,7 @@
      "finger": "RI",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "bunya": {
@@ -2673,7 +2716,10 @@
    "897962192714993706"
   ],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 7,
@@ -2830,9 +2876,7 @@
      "finger": "LI",
      "row": 0
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "crescent": {
@@ -2868,7 +2912,10 @@
    "657688933001330718"
   ],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "_": {
      "col": 3,
@@ -2920,143 +2967,7 @@
      "finger": "RR",
      "row": 1
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini",
-   "combos": [
-    {
-     "inputs": "cr",
-     "output": "w"
-    },
-    {
-     "inputs": "cs",
-     "output": "f"
-    },
-    {
-     "inputs": "ct",
-     "output": "g"
-    },
-    {
-     "inputs": "cn",
-     "output": "q"
-    },
-    {
-     "inputs": "ca",
-     "output": "'"
-    },
-    {
-     "inputs": "ce",
-     "output": "#"
-    },
-    {
-     "inputs": "cu",
-     "output": "y"
-    },
-    {
-     "inputs": "ci",
-     "output": "p"
-    },
-    {
-     "inputs": "rs",
-     "output": "x"
-    },
-    {
-     "inputs": "rt",
-     "output": "j"
-    },
-    {
-     "inputs": "rn",
-     "output": "l"
-    },
-    {
-     "inputs": "ra",
-     "output": "!"
-    },
-    {
-     "inputs": "re",
-     "output": "@"
-    },
-    {
-     "inputs": "ru",
-     "output": "_"
-    },
-    {
-     "inputs": "ri",
-     "output": ","
-    },
-    {
-     "inputs": "st",
-     "output": "d"
-    },
-    {
-     "inputs": "sn",
-     "output": "z"
-    },
-    {
-     "inputs": "sa",
-     "output": "`"
-    },
-    {
-     "inputs": "su",
-     "output": "v"
-    },
-    {
-     "inputs": "si",
-     "output": "b"
-    },
-    {
-     "inputs": "tn",
-     "output": "m"
-    },
-    {
-     "inputs": "tu",
-     "output": "k"
-    },
-    {
-     "inputs": "ti",
-     "output": "/"
-    },
-    {
-     "inputs": "na",
-     "output": "("
-    },
-    {
-     "inputs": "ne",
-     "output": ")"
-    },
-    {
-     "inputs": "nu",
-     "output": "h"
-    },
-    {
-     "inputs": "ni",
-     "output": "?"
-    },
-    {
-     "inputs": "ae",
-     "output": "o"
-    },
-    {
-     "inputs": "au",
-     "output": "-"
-    },
-    {
-     "inputs": "ai",
-     "output": "."
-    },
-    {
-     "inputs": "eu",
-     "output": "\""
-    },
-    {
-     "inputs": "ei",
-     "output": ":"
-    },
-    {
-     "inputs": "ui",
-     "output": ";"
-    }
-   ]
+   }
   }
  },
  "csthyou": {
@@ -3081,7 +2992,10 @@
   },
   "likes": [],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 4,
@@ -3238,9 +3152,7 @@
      "finger": "LP",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "dhorf": {
@@ -3280,7 +3192,10 @@
    "925183910009266259"
   ],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 7,
@@ -3432,10 +3347,7 @@
      "finger": "LP",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini",
-   "link": "https://oxey.dev/dhorf"
+   }
   }
  },
  "dina-test": {
@@ -3460,7 +3372,15 @@
   },
   "likes": [],
   "payload": {
-   "board": "angle",
+   "board": {
+    "cmini": "angle",
+    "kind": "rowstag",
+    "stagger": [
+     0,
+     0.25,
+     0.75
+    ]
+   },
    "keys": {
     "'": {
      "col": 5,
@@ -3612,9 +3532,7 @@
      "finger": "LI",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "dmini-thumb-test": {
@@ -3639,7 +3557,10 @@
   },
   "likes": [],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 5,
@@ -3796,9 +3717,7 @@
      "finger": "LI",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "dmini-thumb-test-2": {
@@ -3823,7 +3742,10 @@
   },
   "likes": [],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 5,
@@ -3980,9 +3902,7 @@
      "finger": "LI",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "dmini-thumb-test-3": {
@@ -4007,7 +3927,10 @@
   },
   "likes": [],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 5,
@@ -4164,9 +4087,7 @@
      "finger": "LI",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "dmini-thumb-test-4": {
@@ -4191,7 +4112,10 @@
   },
   "likes": [],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 5,
@@ -4348,9 +4272,7 @@
      "finger": "LI",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "dmini-thumb-test-6": {
@@ -4375,7 +4297,10 @@
   },
   "likes": [],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 5,
@@ -4532,9 +4457,7 @@
      "finger": "LI",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "dmini-thumb-test-7": {
@@ -4559,7 +4482,10 @@
   },
   "likes": [],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 5,
@@ -4716,9 +4642,7 @@
      "finger": "LI",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "echo": {
@@ -4749,7 +4673,15 @@
    "897962192714993706"
   ],
   "payload": {
-   "board": "stagger",
+   "board": {
+    "cmini": "stagger",
+    "kind": "rowstag",
+    "stagger": [
+     0,
+     0.25,
+     0.75
+    ]
+   },
    "keys": {
     "'": {
      "col": 7,
@@ -4906,10 +4838,7 @@
      "finger": "RI",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini",
-   "link": "https://github.com/Spookfish163/Echo"
+   }
   }
  },
  "eclipse": {
@@ -4946,7 +4875,15 @@
    "897962192714993706"
   ],
   "payload": {
-   "board": "stagger",
+   "board": {
+    "cmini": "stagger",
+    "kind": "rowstag",
+    "stagger": [
+     0,
+     0.25,
+     0.75
+    ]
+   },
    "keys": {
     "'": {
      "col": 7,
@@ -5098,9 +5035,7 @@
      "finger": "LP",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "eclipse-themb": {
@@ -5125,7 +5060,15 @@
   },
   "likes": [],
   "payload": {
-   "board": "stagger",
+   "board": {
+    "cmini": "stagger",
+    "kind": "rowstag",
+    "stagger": [
+     0,
+     0.25,
+     0.75
+    ]
+   },
    "keys": {
     "'": {
      "col": 7,
@@ -5282,9 +5225,7 @@
      "finger": "LP",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "eclipse-v2": {
@@ -5309,7 +5250,15 @@
   },
   "likes": [],
   "payload": {
-   "board": "stagger",
+   "board": {
+    "cmini": "stagger",
+    "kind": "rowstag",
+    "stagger": [
+     0,
+     0.25,
+     0.75
+    ]
+   },
    "keys": {
     "'": {
      "col": 7,
@@ -5461,9 +5410,7 @@
      "finger": "LP",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "eclipse-v3": {
@@ -5490,7 +5437,15 @@
    "525231824465690645"
   ],
   "payload": {
-   "board": "stagger",
+   "board": {
+    "cmini": "stagger",
+    "kind": "rowstag",
+    "stagger": [
+     0,
+     0.25,
+     0.75
+    ]
+   },
    "keys": {
     "'": {
      "col": 7,
@@ -5642,9 +5597,7 @@
      "finger": "LP",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "eclipseortho": {
@@ -5669,7 +5622,10 @@
   },
   "likes": [],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 7,
@@ -5821,9 +5777,7 @@
      "finger": "LP",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "fhmb-test": {
@@ -5848,7 +5802,10 @@
   },
   "likes": [],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 4,
@@ -6005,9 +5962,7 @@
      "finger": "LP",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "finch": {
@@ -6032,7 +5987,10 @@
   },
   "likes": [],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 7,
@@ -6189,43 +6147,7 @@
      "finger": "LP",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini",
-   "combos": [
-    {
-     "inputs": "yw",
-     "output": "q"
-    },
-    {
-     "inputs": "ly",
-     "output": "v"
-    },
-    {
-     "inputs": "xg",
-     "output": "z"
-    },
-    {
-     "inputs": "gd",
-     "output": "j"
-    },
-    {
-     "inputs": "h'",
-     "output": "\\"
-    },
-    {
-     "inputs": ".'",
-     "output": "/"
-    },
-    {
-     "inputs": "fo",
-     "output": "`"
-    },
-    {
-     "inputs": "o,",
-     "output": ";"
-    }
-   ]
+   }
   }
  },
  "for-duo": {
@@ -6250,7 +6172,10 @@
   },
   "likes": [],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 9,
@@ -6402,9 +6327,7 @@
      "finger": "LP",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "for-duo-2": {
@@ -6429,7 +6352,10 @@
   },
   "likes": [],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 9,
@@ -6581,9 +6507,7 @@
      "finger": "LP",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "for-duo-3": {
@@ -6608,7 +6532,10 @@
   },
   "likes": [],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 9,
@@ -6760,9 +6687,7 @@
      "finger": "LP",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "graphite": {
@@ -6866,7 +6791,10 @@
    "954011524198969385"
   ],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 5,
@@ -7033,10 +6961,7 @@
      "finger": "LI",
      "row": 0
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini",
-   "link": "https://github.com/rdavison/graphite-layout"
+   }
   }
  },
  "graphite-vimified": {
@@ -7061,7 +6986,10 @@
   },
   "likes": [],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 5,
@@ -7218,9 +7146,7 @@
      "finger": "RP",
      "row": 0
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "haul": {
@@ -7245,7 +7171,10 @@
   },
   "likes": [],
   "payload": {
-   "board": "mini",
+   "board": {
+    "cmini": "mini",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 10,
@@ -7412,9 +7341,7 @@
      "finger": "LP",
      "row": 0
     }
-   },
-   "tag": "cmini",
-   "blame": "cmini"
+   }
   }
  },
  "inky-nyoom": {
@@ -7441,7 +7368,15 @@
    "383900587877597186"
   ],
   "payload": {
-   "board": "angle",
+   "board": {
+    "cmini": "angle",
+    "kind": "rowstag",
+    "stagger": [
+     0,
+     0.25,
+     0.75
+    ]
+   },
    "keys": {
     "'": {
      "col": 4,
@@ -7603,9 +7538,7 @@
      "finger": "RI",
      "row": 0
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "inqwerted": {
@@ -7707,7 +7640,10 @@
    "990947281857577002"
   ],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 10,
@@ -7864,9 +7800,7 @@
      "finger": "LI",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "io": {
@@ -7907,7 +7841,10 @@
    "846826972898131998"
   ],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 8,
@@ -8059,9 +7996,7 @@
      "finger": "LP",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "cmini"
+   }
   }
  },
  "jeep": {
@@ -8086,7 +8021,15 @@
   },
   "likes": [],
   "payload": {
-   "board": "angle",
+   "board": {
+    "cmini": "angle",
+    "kind": "rowstag",
+    "stagger": [
+     0,
+     0.25,
+     0.75
+    ]
+   },
    "keys": {
     "'": {
      "col": 5,
@@ -8248,9 +8191,7 @@
      "finger": "LP",
      "row": 0
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "kai-nokwts": {
@@ -8275,7 +8216,15 @@
   },
   "likes": [],
   "payload": {
-   "board": "stagger",
+   "board": {
+    "cmini": "stagger",
+    "kind": "rowstag",
+    "stagger": [
+     0,
+     0.25,
+     0.75
+    ]
+   },
    "keys": {
     "'": {
      "col": 4,
@@ -8432,9 +8381,7 @@
      "finger": "LP",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "kairos": {
@@ -8459,7 +8406,15 @@
   },
   "likes": [],
   "payload": {
-   "board": "stagger",
+   "board": {
+    "cmini": "stagger",
+    "kind": "rowstag",
+    "stagger": [
+     0,
+     0.25,
+     0.75
+    ]
+   },
    "keys": {
     "'": {
      "col": 7,
@@ -8621,9 +8576,7 @@
      "finger": "LP",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "kate-2": {
@@ -8648,7 +8601,10 @@
   },
   "likes": [],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 4,
@@ -8805,9 +8761,7 @@
      "finger": "RI",
      "row": 0
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "kinda-dina": {
@@ -8832,7 +8786,10 @@
   },
   "likes": [],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 8,
@@ -8989,9 +8946,7 @@
      "finger": "LP",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "knight-you": {
@@ -9016,7 +8971,10 @@
   },
   "likes": [],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 5,
@@ -9173,9 +9131,7 @@
      "finger": "LP",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "kormite": {
@@ -9200,7 +9156,15 @@
   },
   "likes": [],
   "payload": {
-   "board": "angle",
+   "board": {
+    "cmini": "angle",
+    "kind": "rowstag",
+    "stagger": [
+     0,
+     0.25,
+     0.75
+    ]
+   },
    "keys": {
     "'": {
      "col": 4,
@@ -9367,9 +9331,7 @@
      "finger": "RI",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "magnetite": {
@@ -9394,7 +9356,15 @@
   },
   "likes": [],
   "payload": {
-   "board": "angle",
+   "board": {
+    "cmini": "angle",
+    "kind": "rowstag",
+    "stagger": [
+     0,
+     0.25,
+     0.75
+    ]
+   },
    "keys": {
     "'": {
      "col": 4,
@@ -9561,9 +9531,7 @@
      "finger": "LI",
      "row": 0
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "mantra": {
@@ -9591,7 +9559,10 @@
    "897962192714993706"
   ],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "а": {
      "col": 7,
@@ -9748,9 +9719,7 @@
      "finger": "RR",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "marble": {
@@ -9775,7 +9744,15 @@
   },
   "likes": [],
   "payload": {
-   "board": "angle",
+   "board": {
+    "cmini": "angle",
+    "kind": "rowstag",
+    "stagger": [
+     0,
+     0.25,
+     0.75
+    ]
+   },
    "keys": {
     "'": {
      "col": 4,
@@ -9942,9 +9919,7 @@
      "finger": "RI",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "mistyfun": {
@@ -9969,7 +9944,10 @@
   },
   "likes": [],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 9,
@@ -10126,9 +10104,7 @@
      "finger": "LP",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "mistynail": {
@@ -10153,7 +10129,10 @@
   },
   "likes": [],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 4,
@@ -10310,9 +10289,7 @@
      "finger": "LP",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "neon": {
@@ -10343,7 +10320,15 @@
    "897962192714993706"
   ],
   "payload": {
-   "board": "angle",
+   "board": {
+    "cmini": "angle",
+    "kind": "rowstag",
+    "stagger": [
+     0,
+     0.25,
+     0.75
+    ]
+   },
    "keys": {
     "'": {
      "col": 5,
@@ -10505,9 +10490,7 @@
      "finger": "RP",
      "row": 0
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "night-e": {
@@ -10532,7 +10515,10 @@
   },
   "likes": [],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 5,
@@ -10694,9 +10680,7 @@
      "finger": "LI",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "nightcore": {
@@ -10724,7 +10708,15 @@
    "766194884095901746"
   ],
   "payload": {
-   "board": "angle",
+   "board": {
+    "cmini": "angle",
+    "kind": "rowstag",
+    "stagger": [
+     0,
+     0.25,
+     0.75
+    ]
+   },
    "keys": {
     "'": {
      "col": 7,
@@ -10886,9 +10878,7 @@
      "finger": "LI",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "ntabv6": {
@@ -10913,7 +10903,15 @@
   },
   "likes": [],
   "payload": {
-   "board": "stagger",
+   "board": {
+    "cmini": "stagger",
+    "kind": "rowstag",
+    "stagger": [
+     0,
+     0.25,
+     0.75
+    ]
+   },
    "keys": {
     "'": {
      "col": 0,
@@ -11070,9 +11068,7 @@
      "finger": "RP",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "onyx": {
@@ -11099,7 +11095,15 @@
    "226128695377526784"
   ],
   "payload": {
-   "board": "angle",
+   "board": {
+    "cmini": "angle",
+    "kind": "rowstag",
+    "stagger": [
+     0,
+     0.25,
+     0.75
+    ]
+   },
    "keys": {
     "'": {
      "col": 4,
@@ -11266,9 +11270,7 @@
      "finger": "RI",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "opal": {
@@ -11305,7 +11307,15 @@
    "897962192714993706"
   ],
   "payload": {
-   "board": "stagger",
+   "board": {
+    "cmini": "stagger",
+    "kind": "rowstag",
+    "stagger": [
+     0,
+     0.25,
+     0.75
+    ]
+   },
    "keys": {
     "'": {
      "col": 5,
@@ -11457,9 +11467,7 @@
      "finger": "LM",
      "row": 0
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "opal-dario": {
@@ -11484,7 +11492,15 @@
   },
   "likes": [],
   "payload": {
-   "board": "stagger",
+   "board": {
+    "cmini": "stagger",
+    "kind": "rowstag",
+    "stagger": [
+     0,
+     0.25,
+     0.75
+    ]
+   },
    "keys": {
     "'": {
      "col": 5,
@@ -11636,9 +11652,7 @@
      "finger": "LM",
      "row": 0
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "opal-e200": {
@@ -11663,7 +11677,15 @@
   },
   "likes": [],
   "payload": {
-   "board": "stagger",
+   "board": {
+    "cmini": "stagger",
+    "kind": "rowstag",
+    "stagger": [
+     0,
+     0.25,
+     0.75
+    ]
+   },
    "keys": {
     "'": {
      "col": 5,
@@ -11815,9 +11837,7 @@
      "finger": "RR",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "opalbetter": {
@@ -11845,7 +11865,15 @@
    "897962192714993706"
   ],
   "payload": {
-   "board": "stagger",
+   "board": {
+    "cmini": "stagger",
+    "kind": "rowstag",
+    "stagger": [
+     0,
+     0.25,
+     0.75
+    ]
+   },
    "keys": {
     "'": {
      "col": 5,
@@ -11997,9 +12025,7 @@
      "finger": "RR",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "opaline": {
@@ -12030,7 +12056,15 @@
    "897962192714993706"
   ],
   "payload": {
-   "board": "stagger",
+   "board": {
+    "cmini": "stagger",
+    "kind": "rowstag",
+    "stagger": [
+     0,
+     0.25,
+     0.75
+    ]
+   },
    "keys": {
     "'": {
      "col": 5,
@@ -12192,9 +12226,7 @@
      "finger": "LM",
      "row": 0
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "opaline-meteorited": {
@@ -12219,7 +12251,15 @@
   },
   "likes": [],
   "payload": {
-   "board": "stagger",
+   "board": {
+    "cmini": "stagger",
+    "kind": "rowstag",
+    "stagger": [
+     0,
+     0.25,
+     0.75
+    ]
+   },
    "keys": {
     "'": {
      "col": 5,
@@ -12381,9 +12421,7 @@
      "finger": "RP",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "oxeytest64": {
@@ -12408,7 +12446,10 @@
   },
   "likes": [],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 7,
@@ -12565,9 +12606,7 @@
      "finger": "LP",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "cmini"
+   }
   }
  },
  "oxeytest65": {
@@ -12592,7 +12631,10 @@
   },
   "likes": [],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 2,
@@ -12749,9 +12791,7 @@
      "finger": "RP",
      "row": 0
     }
-   },
-   "tag": "cmini",
-   "blame": "cmini"
+   }
   }
  },
  "oxeytest66": {
@@ -12776,7 +12816,10 @@
   },
   "likes": [],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 4,
@@ -12933,9 +12976,7 @@
      "finger": "RP",
      "row": 0
     }
-   },
-   "tag": "cmini",
-   "blame": "cmini"
+   }
   }
  },
  "oxeytest76": {
@@ -12960,7 +13001,10 @@
   },
   "likes": [],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 6,
@@ -13117,9 +13161,7 @@
      "finger": "RP",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "cmini"
+   }
   }
  },
  "racket": {
@@ -13161,7 +13203,10 @@
    "897962192714993706"
   ],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 7,
@@ -13318,9 +13363,7 @@
      "finger": "RI",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "raincsth": {
@@ -13345,7 +13388,10 @@
   },
   "likes": [],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 4,
@@ -13502,9 +13548,7 @@
      "finger": "LP",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "rightrollv2": {
@@ -13529,7 +13573,15 @@
   },
   "likes": [],
   "payload": {
-   "board": "stagger",
+   "board": {
+    "cmini": "stagger",
+    "kind": "rowstag",
+    "stagger": [
+     0,
+     0.25,
+     0.75
+    ]
+   },
    "keys": {
     "'": {
      "col": 5,
@@ -13686,9 +13738,7 @@
      "finger": "LR",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "rightrollv3": {
@@ -13713,7 +13763,15 @@
   },
   "likes": [],
   "payload": {
-   "board": "angle",
+   "board": {
+    "cmini": "angle",
+    "kind": "rowstag",
+    "stagger": [
+     0,
+     0.25,
+     0.75
+    ]
+   },
    "keys": {
     "'": {
      "col": 5,
@@ -13870,9 +13928,7 @@
      "finger": "RI",
      "row": 0
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "rnhsy": {
@@ -13897,7 +13953,15 @@
   },
   "likes": [],
   "payload": {
-   "board": "stagger",
+   "board": {
+    "cmini": "stagger",
+    "kind": "rowstag",
+    "stagger": [
+     0,
+     0.25,
+     0.75
+    ]
+   },
    "keys": {
     "'": {
      "col": 7,
@@ -14049,9 +14113,7 @@
      "finger": "LP",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "rnhsye": {
@@ -14076,7 +14138,15 @@
   },
   "likes": [],
   "payload": {
-   "board": "stagger",
+   "board": {
+    "cmini": "stagger",
+    "kind": "rowstag",
+    "stagger": [
+     0,
+     0.25,
+     0.75
+    ]
+   },
    "keys": {
     "'": {
      "col": 7,
@@ -14233,9 +14303,7 @@
      "finger": "LP",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "rosellae": {
@@ -14260,7 +14328,10 @@
   },
   "likes": [],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 6,
@@ -14412,9 +14483,7 @@
      "finger": "RI",
      "row": 0
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "rosellaeacc": {
@@ -14439,7 +14508,10 @@
   },
   "likes": [],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "q": {
      "col": 0,
@@ -14556,9 +14628,7 @@
      "finger": "RI",
      "row": 1
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "rosellaenav": {
@@ -14583,7 +14653,10 @@
   },
   "likes": [],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "0": {
      "col": 3,
@@ -14725,9 +14798,7 @@
      "finger": "RP",
      "row": 0
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "rosellaesym": {
@@ -14752,7 +14823,10 @@
   },
   "likes": [],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "#": {
      "col": 6,
@@ -14879,9 +14953,7 @@
      "finger": "LR",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "sanrie-cmini-test2": {
@@ -14908,7 +14980,10 @@
    "736739510251028480"
   ],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     ".": {
      "col": 7,
@@ -15050,9 +15125,7 @@
      "finger": "LP",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "cmini"
+   }
   }
  },
  "shale": {
@@ -15079,7 +15152,15 @@
    "226128695377526784"
   ],
   "payload": {
-   "board": "angle",
+   "board": {
+    "cmini": "angle",
+    "kind": "rowstag",
+    "stagger": [
+     0,
+     0.25,
+     0.75
+    ]
+   },
    "keys": {
     "'": {
      "col": 4,
@@ -15246,9 +15327,7 @@
      "finger": "LI",
      "row": 0
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "shtc": {
@@ -15273,7 +15352,10 @@
   },
   "likes": [],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 4,
@@ -15430,9 +15512,7 @@
      "finger": "LI",
      "row": 0
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "slate": {
@@ -15460,7 +15540,15 @@
    "782784290769207336"
   ],
   "payload": {
-   "board": "angle",
+   "board": {
+    "cmini": "angle",
+    "kind": "rowstag",
+    "stagger": [
+     0,
+     0.25,
+     0.75
+    ]
+   },
    "keys": {
     "'": {
      "col": 4,
@@ -15627,9 +15715,7 @@
      "finger": "LI",
      "row": 0
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "smiemak": {
@@ -15660,7 +15746,10 @@
    "834396974743552061"
   ],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 5,
@@ -15812,9 +15901,7 @@
      "finger": "LI",
      "row": 0
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "sunstone": {
@@ -15845,7 +15932,10 @@
    "525231824465690645"
   ],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 4,
@@ -16007,9 +16097,7 @@
      "finger": "RP",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "swift": {
@@ -16034,7 +16122,15 @@
   },
   "likes": [],
   "payload": {
-   "board": "stagger",
+   "board": {
+    "cmini": "stagger",
+    "kind": "rowstag",
+    "stagger": [
+     0,
+     0.25,
+     0.75
+    ]
+   },
    "keys": {
     "'": {
      "col": 7,
@@ -16196,9 +16292,7 @@
      "finger": "LP",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "sy-thumb": {
@@ -16223,7 +16317,10 @@
   },
   "likes": [],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 4,
@@ -16380,9 +16477,7 @@
      "finger": "LR",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "tenders": {
@@ -16407,7 +16502,15 @@
   },
   "likes": [],
   "payload": {
-   "board": "angle",
+   "board": {
+    "cmini": "angle",
+    "kind": "rowstag",
+    "stagger": [
+     0,
+     0.25,
+     0.75
+    ]
+   },
    "keys": {
     "'": {
      "col": 5,
@@ -16569,9 +16672,7 @@
      "finger": "LI",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "tendon25b": {
@@ -16598,7 +16699,15 @@
    "773077222189432843"
   ],
   "payload": {
-   "board": "stagger",
+   "board": {
+    "cmini": "stagger",
+    "kind": "rowstag",
+    "stagger": [
+     0,
+     0.25,
+     0.75
+    ]
+   },
    "keys": {
     "'": {
      "col": 9,
@@ -16770,9 +16879,7 @@
      "finger": "RI",
      "row": 0
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "test12222": {
@@ -16797,7 +16904,10 @@
   },
   "likes": [],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 0,
@@ -16954,9 +17064,7 @@
      "finger": "RM",
      "row": 1
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "thumb-u-test": {
@@ -16981,7 +17089,10 @@
   },
   "likes": [],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 4,
@@ -17138,9 +17249,7 @@
      "finger": "RI",
      "row": 1
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "thumb-u-xb": {
@@ -17165,7 +17274,10 @@
   },
   "likes": [],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 4,
@@ -17322,9 +17434,7 @@
      "finger": "RI",
      "row": 1
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "tomato": {
@@ -17349,7 +17459,15 @@
   },
   "likes": [],
   "payload": {
-   "board": "angle",
+   "board": {
+    "cmini": "angle",
+    "kind": "rowstag",
+    "stagger": [
+     0,
+     0.25,
+     0.75
+    ]
+   },
    "keys": {
     "'": {
      "col": 5,
@@ -17511,9 +17629,7 @@
      "finger": "RI",
      "row": 1
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "vylet": {
@@ -17552,7 +17668,10 @@
    "897962192714993706"
   ],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 7,
@@ -17714,10 +17833,7 @@
      "finger": "RI",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini",
-   "link": "https://github.com/MightyAcas/vylet"
+   }
   }
  },
  "vylet-v4": {
@@ -17742,7 +17858,10 @@
   },
   "likes": [],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 5,
@@ -17899,9 +18018,7 @@
      "finger": "RI",
      "row": 0
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "whirl": {
@@ -17940,7 +18057,10 @@
    "766194884095901746"
   ],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 5,
@@ -18097,9 +18217,7 @@
      "finger": "RI",
      "row": 0
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  },
  "whorf": {
@@ -18135,7 +18253,10 @@
    "897962192714993706"
   ],
   "payload": {
-   "board": "ortho",
+   "board": {
+    "cmini": "ortho",
+    "kind": "ortho"
+   },
    "keys": {
     "'": {
      "col": 7,
@@ -18292,10 +18413,7 @@
      "finger": "LI",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini",
-   "link": "https://github.com/whorfian/whorf"
+   }
   }
  },
  "workman-rowstagger": {
@@ -18320,7 +18438,15 @@
   },
   "likes": [],
   "payload": {
-   "board": "stagger",
+   "board": {
+    "cmini": "stagger",
+    "kind": "rowstag",
+    "stagger": [
+     0,
+     0.25,
+     0.75
+    ]
+   },
    "keys": {
     "'": {
      "col": 10,
@@ -18477,9 +18603,7 @@
      "finger": "LP",
      "row": 2
     }
-   },
-   "tag": "cmini",
-   "blame": "dmini"
+   }
   }
  }
 }

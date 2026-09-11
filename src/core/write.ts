@@ -10,7 +10,7 @@
 import type { Actor } from "../auth/actor";
 import type { Bindings } from "../env";
 import { get as getFormat, list as listFormats } from "../formats/registry";
-import { resolveFormat, storedAsSpark, translate, lineage, latestId, walk } from "../../formats/registry.ts";
+import { resolveFormat, translate, lineage, latestId, walk } from "../../formats/registry.ts";
 import { requireIfMatch, type IfMatch } from "./ifmatch";
 import {
   ApiError,
@@ -38,15 +38,17 @@ import type { EditResult, FormatModule } from "../formats/registry";
 const TRANSFER_USER_ID_RE = /^\d{17,20}$/;
 
 // Every write that carries an EXISTING record's payload forward (delete,
-// restore, transfer, the PATCH normalization below) stores it through
-// spark, never verbatim (20-spark.md S2, LDB-F16/F21): a legacy-stored
-// (`akl/1`/`cmini/1`) record is converted, and `has_magic` is recomputed
-// from the converted payload -- `record.has_magic` itself may be stale
-// (LDB-I10/I11-era rows) or simply wrong for a format the carry-forward
-// changed. `spark/1` is always registered (LDB-T1's own bar), so this
-// never actually throws -- the check only satisfies the type checker.
-function sparkHasMagic(payload: unknown): boolean {
-  const module = getFormat("spark/1");
+// restore, transfer, the PATCH normalization below) recomputes `has_magic`
+// from the record's own current payload/format rather than trusting the
+// stored column verbatim -- `record.has_magic` could in principle disagree
+// (a bug in an earlier write, say). 21-formats.md D12 deleted the legacy
+// carry-forward conversion (`storedAsSpark`) this used to run first: after
+// the D8 wipe every stored row is already shaped as its own registered
+// format, so there is nothing left to convert. The record's own format is
+// always registered (LDB-T1's own bar), so this never actually throws --
+// the check only satisfies the type checker.
+function currentHasMagic(format: string, payload: unknown): boolean {
+  const module = getFormat(format);
   if (module === undefined) throw internal();
   return module.hasMagic(payload);
 }
@@ -92,13 +94,13 @@ export async function requireRev(db: Bindings["DB"], record: RecordRow, ifMatch:
   throw stale(toWire(record) as Record<string, unknown> & { rev: number }, lastWrite);
 }
 
-// 20-spark.md S2 (LDB-F16): every write resolves `format` through the
-// registry's alias table first -- `spark/1` (or `akl/1`, its alias)
-// resolves to spark/1's module and stores natively (`module.id`, never
-// the caller's own literal, so an `akl/1` write stores `spark/1` byte-
-// identical); `mana2/1` resolves but its `role` is `"output"` -> `400
-// format_not_writable`; `cmini/1` and anything unregistered don't resolve
-// at all -> `400 unknown_format`, `known` listing registered ids only.
+// 20-spark.md S2 (LDB-F16), narrowed by 21-formats.md D5/D12 (no more
+// aliases): every write resolves `format` through the registry and stores
+// natively (`module.id`, never the caller's own literal, though today that's
+// always the same string). `mana2/1` resolves but its `role` is `"output"`
+// -> `400 format_not_writable`; `cmini/1` and anything unregistered don't
+// resolve at all -> `400 unknown_format`, `known` listing registered ids
+// only.
 export function validatePayload(format: string, payload: unknown): { module: FormatModule; hasMagic: boolean } {
   const resolved = resolveFormat(format);
   if (resolved === undefined) {
@@ -126,9 +128,9 @@ export function validatePayload(format: string, payload: unknown): { module: For
 // fresh `POST` has no prior record to have been unreadable in the first
 // place (19 §3: "POST in an older major: same as R2's chain, no R1").
 // `hasMagic` is recomputed against the payload as actually STORED (the
-// chained major), same reasoning `sparkHasMagic`/the carry-forward writes
-// below already use -- never the pre-chain value `validatePayload` itself
-// returned for the WRITTEN major.
+// chained major), same reasoning `currentHasMagic`/the carry-forward
+// writes below already use -- never the pre-chain value `validatePayload`
+// itself returned for the WRITTEN major.
 function chainToLatest(module: FormatModule, payload: unknown): { format: string; payload: unknown; hasMagic: boolean; writtenAs?: string } {
   const latest = latestId(lineage(module.id));
   if (latest === undefined || latest === module.id) {
@@ -242,7 +244,7 @@ export async function createLayout(
     name: body.name,
     owner: actor.user_id,
     modified_at: now(),
-    format: chained.format, // native, chained-to-latest id: an `akl/1` write stores `spark/<latest>` (LDB-F16/F20/P13)
+    format: chained.format, // native, chained-to-latest id (LDB-F16/P13)
     payload: chained.payload,
     actor: actor.user_id,
     via: actor.via,
@@ -343,13 +345,6 @@ export async function replaceLayout(
 
 // DELETE /v1/layouts/{ref}: owner or admin; tombstones (payload/format/name
 // kept, `deleted: true`); frees the name.
-//
-// 20-spark.md S2 (LDB-F16/F21, §8 R-H2): carries the record's payload
-// forward through `storedAsSpark`, not `record.format`/`record.payload`
-// verbatim -- otherwise deleting an unmigrated legacy-stored record would
-// re-store its old format, breaking "every accepted write stores
-// spark/<latest>". `has_magic` is recomputed from the converted payload
-// (`record.has_magic` may disagree once the payload's shape changed).
 export async function deleteLayout(
   env: Bindings,
   now: Clock,
@@ -362,7 +357,6 @@ export async function deleteLayout(
   requireIfMatch(ifMatch);
   const { record, admin } = await loadForWrite(db, ref, actor, { allowDeleted: false });
   await requireRev(db, record, ifMatch);
-  const stored = storedAsSpark(record.format, record.payload);
   const prior = await upstreamOf(db, record);
 
   return commitWrite(db, now, {
@@ -371,13 +365,13 @@ export async function deleteLayout(
     name: record.name,
     owner: record.owner,
     modified_at: now(),
-    format: stored.format,
-    payload: stored.payload,
+    format: record.format,
+    payload: record.payload,
     actor: actor.user_id,
     via: actor.via,
     admin,
     deleted: true,
-    hasMagic: sparkHasMagic(stored.payload),
+    hasMagic: currentHasMagic(record.format, record.payload),
     upstream: nextUpstream(prior, "deleted", actor.via),
     source: { client: actor.source_client, version }, // 20-spark.md S3s (LDB-P15)
   });
@@ -404,9 +398,7 @@ export interface RestoreBody {
 // (LDB-P8 amended) -- both records keep their own likes; a restore frees
 // no name (LDB-P4 untouched).
 //
-// LDB-F16/F21/§8 R-H2: the payload is carried forward through
-// `storedAsSpark`, not verbatim, and `has_magic` is recomputed -- same
-// reasoning as `deleteLayout`.
+// `has_magic` is recomputed -- same reasoning as `deleteLayout`.
 export async function restoreLayout(
   env: Bindings,
   now: Clock,
@@ -431,7 +423,6 @@ export async function restoreLayout(
     renamedFrom = record.name;
   }
 
-  const stored = storedAsSpark(record.format, record.payload);
   const prior = await upstreamOf(db, record);
 
   return commitWrite(db, now, {
@@ -440,13 +431,13 @@ export async function restoreLayout(
     name,
     owner: record.owner,
     modified_at: now(),
-    format: stored.format,
-    payload: stored.payload,
+    format: record.format,
+    payload: record.payload,
     actor: actor.user_id,
     via: actor.via, // forks a following/forked record (LDB-I14): this becomes the latest rev-bumping event
     admin,
     deleted: false,
-    hasMagic: sparkHasMagic(stored.payload),
+    hasMagic: currentHasMagic(record.format, record.payload),
     upstream: nextUpstream(prior, "restored", actor.via),
     source: { client: actor.source_client, version }, // 20-spark.md S3s (LDB-P15)
     ...(renamedFrom !== undefined ? { detail: { renamed_from: renamedFrom } } : {}),
@@ -465,8 +456,7 @@ export interface TransferBody {
 // stale, so `requireIfMatch` (presence only) is all that runs here, not
 // `requireRev`.
 //
-// LDB-F16/F21/§8 R-H2: carries the payload forward through `storedAsSpark`
-// and recomputes `has_magic`, same reasoning as `deleteLayout`.
+// Recomputes `has_magic`, same reasoning as `deleteLayout`.
 export async function transferLayout(
   env: Bindings,
   now: Clock,
@@ -485,7 +475,6 @@ export async function transferLayout(
   const author = await db.prepare("SELECT 1 FROM authors WHERE user_id = ?").bind(body.to).first();
   if (author === null) throw badRequest(`unknown user '${body.to}'`, "/to");
 
-  const stored = storedAsSpark(record.format, record.payload);
   const prior = await upstreamOf(db, record);
 
   return commitWrite(db, now, {
@@ -494,12 +483,12 @@ export async function transferLayout(
     name: record.name,
     owner: body.to,
     modified_at: now(),
-    format: stored.format,
-    payload: stored.payload,
+    format: record.format,
+    payload: record.payload,
     actor: actor.user_id,
     via: actor.via,
     admin,
-    hasMagic: sparkHasMagic(stored.payload),
+    hasMagic: currentHasMagic(record.format, record.payload),
     upstream: nextUpstream(prior, "transferred", actor.via),
     source: { client: actor.source_client, version }, // 20-spark.md S3s (LDB-P15)
   });
@@ -517,10 +506,10 @@ type PatchField = (typeof PATCH_FIELDS)[number];
 type PatchEditField = Exclude<PatchField, "name">;
 
 // `EditResult`'s error branch (registry.ts's `FormatEdits` contract): no
-// stored payload -- cmini/1's or akl/1's, both `additionalProperties:
-// false` with no top-level `error` key -- can ever collide with this
-// shape, so the presence of an `error` key alone disambiguates it from a
-// genuine payload.
+// stored payload -- every registered format's schema is
+// `additionalProperties: false` with no top-level `error` key -- can ever
+// collide with this shape, so the presence of an `error` key alone
+// disambiguates it from a genuine payload.
 function isEditError(r: EditResult): r is { error: ErrBody } {
   return typeof r === "object" && r !== null && "error" in (r as object);
 }
@@ -575,17 +564,10 @@ export async function patchLayout(
   const { record, admin } = await loadForWrite(db, ref, actor, { allowDeleted: false });
   await requireRev(db, record, ifMatch);
 
-  // 20-spark.md S2 (LDB-F16/F21): any legacy-stored record is converted to
-  // spark FIRST, whatever the PATCH names -- `storedAsSpark` is the SAME
-  // conversion every read and every carry-forward write uses, so a
-  // fingermap/board PATCH on a `cmini/1` record no longer needs the cmini
-  // adapter's own `edits` at all (it never has: spark's `edits` covers
-  // fingermap/board/magic uniformly). Every field in this PATCH (name/
-  // fingermap/board/magic) is then applied against the NEW format, not
-  // the old one -- one write, one format.
-  const stored = storedAsSpark(record.format, record.payload);
-  let format = stored.format;
-  let payload: unknown = stored.payload;
+  // Every field in this PATCH (name/fingermap/board/magic) is applied
+  // against the record's own current format.
+  let format = record.format;
+  let payload: unknown = record.payload;
 
   const module = getFormat(format);
   if (module === undefined) {

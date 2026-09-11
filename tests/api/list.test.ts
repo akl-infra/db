@@ -1,13 +1,15 @@
 // [LDB-F5] [LDB-R4] `GET /v1/layouts` (03 §2, 07 §6 S6): a keyset cursor
 // walk of any sort/limit visits every live record exactly once, in order;
-// every filter equals a plain JS filter over the seed; `?full=1&as=cmini/1`
-// streams every live record's payload, byte-identical to the upstream
-// fixture's own shape.
+// every filter equals a plain JS filter over the seed; `?full=1` streams
+// every live record's payload, matching `fromCmini` of the upstream
+// fixture's own shape (21-formats.md D5 deleted the cmini export, so this
+// is spark-shaped now, not byte-identical to upstream's own cmini shape).
 import { SELF } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import fullSnapshot from "../fixtures/upstream-100/full.json" with { type: "json" };
 import { canonical } from "../../src/core/canonical";
 import { parseUpstreamDetail } from "../../src/import/apply";
+import { fromCmini } from "../../formats/adapters/cmini/translate.ts";
 import type { RawUpstreamDetail } from "../../src/import/upstream";
 import { db, seedUpstream100 } from "./support";
 
@@ -192,7 +194,7 @@ describe("[LDB-R8] liked_by=<user_id>", () => {
     const userId = results[0]!.user_id;
     const expected = await likedIdsFor(userId);
 
-    const res = await SELF.fetch(`https://example.com/v1/layouts?full=1&liked_by=${userId}&as=cmini/1`);
+    const res = await SELF.fetch(`https://example.com/v1/layouts?full=1&liked_by=${userId}`);
     expect(res.status).toBe(200);
     const body = await res.json<{ items: { id: string; payload: unknown }[] }>();
     expect(new Set(body.items.map((i) => i.id))).toEqual(expected);
@@ -200,24 +202,24 @@ describe("[LDB-R8] liked_by=<user_id>", () => {
   });
 });
 
-describe("[LDB-F5] ?full=1&as=cmini/1 streams every live record's payload", () => {
-  it("[LDB-F5] matches the upstream fixture byte-for-byte on the derived cmini/1 payload", async () => {
+describe("[LDB-F5] ?full=1 streams every live record's payload", () => {
+  it("[LDB-F5] matches fromCmini(upstream fixture) exactly, for every seeded record", async () => {
     const fixtureByName = new Map(
       (fullSnapshot as { layouts: RawUpstreamDetail[] }).layouts.map((d) => [d.name, d]),
     );
 
-    const res = await SELF.fetch("https://example.com/v1/layouts?full=1&as=cmini/1");
+    const res = await SELF.fetch("https://example.com/v1/layouts?full=1");
     expect(res.status).toBe(200);
     const body = await res.json<{ items: { name: string; held?: boolean; payload?: unknown }[] }>();
     expect(body.items.length).toBe(100);
 
     for (const item of body.items) {
-      expect(item.held).toBeUndefined(); // every seed record is native cmini/1 -- nothing held for as=cmini/1
+      expect(item.held).toBeUndefined(); // every seed record is native spark/1 -- nothing held for spark/1
       const raw = fixtureByName.get(item.name);
       expect(raw, `no fixture entry for '${item.name}'`).toBeDefined();
       const parsed = parseUpstreamDetail(raw);
       if (!parsed.ok) throw new Error(`fixture '${item.name}' failed to parse: ${parsed.error.message}`);
-      expect(canonical(item.payload)).toBe(canonical(parsed.detail.payload));
+      expect(canonical(item.payload)).toBe(canonical(fromCmini(parsed.detail.payload)));
     }
   });
 });

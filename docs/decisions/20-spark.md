@@ -9,6 +9,20 @@ plus `19-upcast.md` (the chain, renamed here to spark). **Reviewed
 are in §8; §3/§4 already carry the fixes.** **Pick-up guide: read §0, then
 §8, then §7 (ledger, newest last).**
 
+**Dated note (2026-09-11, `21-formats.md` F1, lead's call D5/D10/D12):**
+this doc's `akl/1` alias and `?as=cmini/1` were always described here as
+*transitional* (§1 decision 12, §4's alias table) -- as of F1 they are
+gone, not just deprecated: `LEGACY_STORED`/`storedAsSpark`, the `akl/1`
+alias and the package's `./akl/1`/`./cmini/1` subpaths, the whole record
+migration (`core/migrate.ts`, its admin route, the `migrated` event kind),
+the legacy upstream fallback (`core/follows.ts`, `legacyUpstreamMap`,
+`upstreamOf`'s `import_map` fallback), and the M1 strip route are all
+deleted. `spark/1` also lost its free-form `x` bag (D10) and the cmini
+adapter lost `toCmini` (D5) -- `?as=cmini/1` now answers like any other
+unregistered format id. See `21-formats.md` for the reviewed plan and
+`22-spark-spec.md` for the format's current spec (this doc's §1-§4 stay as
+the historical plan/ledger and are not rewritten).
+
 ## 0. How this branch lands
 
 - `ldb-v3` is owned by the #304 session (cmini-web-c7). **Never move

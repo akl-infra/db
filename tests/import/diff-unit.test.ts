@@ -66,32 +66,29 @@ describe("parseUpstreamRaw over upstream-100", () => {
   });
 
   // 20-spark.md S3b (LDB-I13): a detail that's schema-valid per cmini/1 but
-  // fails spark's OWN (stricter) semantic validate -- here, a magic rule
-  // whose trigger key isn't among the layout's own `keys` -- is reported as
-  // an `invalidUpstream`-shaped parse failure, never thrown. This is the
-  // same class of finding the daily diff surfaces as a `corpus.invalidUpstream`
+  // fails spark's OWN (stricter) semantic validate is reported as an
+  // `invalidUpstream`-shaped parse failure, never thrown. This is the same
+  // class of finding the daily diff surfaces as a `corpus.invalidUpstream`
   // line for real upstream data (`tests/upstream-diff.test.ts`, live).
-  it("[LDB-I13] a cmini/1-valid detail whose fromCmini fails spark's own validate is reported, not thrown", () => {
-    const raw = {
-      name: "Bad-Magic",
-      user: "1234567890123456789",
-      created_at: "2026-01-01T00:00:00Z",
-      modified_at: "2026-01-01T00:00:00Z",
-      board: "ortho",
-      keys: {},
-      // cmini/1 caps no string field; spark/1 caps `x` (where cmini's
-      // tag/blame/combos/link land) at 16 KiB canonical. (Was a magic key
-      // missing from the layout, which spark/1 accepts since 2026-09-11,
-      // LDB-F22, matching akl.gg.)
-      blame: "x".repeat(17000),
-    };
-    const parsed = parseUpstreamRaw(raw);
-    expect(parsed.ok).toBe(false);
-    if (!parsed.ok) {
-      expect(parsed.error.path).toBe("/x");
-      expect(parsed.error.message).toContain("over the 16384-byte cap");
-    }
-  });
+  //
+  // 21-formats.md D10 deleted the one concrete divergence this test used
+  // to exercise (spark/1's `x`-size cap, where cmini's `tag`/`blame`/
+  // `combos`/`link` used to land): `fromCmini` now drops those four
+  // fields outright rather than reserving them anywhere spark validates,
+  // so there is no longer a way to make a cmini-schema-valid detail
+  // overflow a cap that no longer exists. A magic key missing from the
+  // layout (this test's OWN earlier divergence, before the cap) stopped
+  // diverging even earlier, LDB-F22 (2026-09-11): spark/1 accepts it now,
+  // matching akl.gg. No other field cmini's schema accepts and fromCmini
+  // preserves is validated any more stringently by spark than by cmini
+  // (both schemas agree on `keys`/`free`/`board`/`magic`'s shapes) --
+  // this specific negative example is retired with the field it depended
+  // on; LDB-I13's positive half ("every LIVE upstream detail's fromCmini
+  // conversion validates as spark") stays fully covered by `tests/formats
+  // /cmini-envelope.test.ts` and the daily `tests/upstream-diff.test.ts`,
+  // and `parseUpstreamRaw`'s own defensive `sparkCheck.ok` branch (never
+  // exercised live) is unchanged code, just currently unreachable by any
+  // known input shape.
 });
 
 describe("diffCorpus over upstream-100 against itself", () => {

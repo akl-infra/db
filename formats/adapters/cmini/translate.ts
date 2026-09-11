@@ -1,14 +1,15 @@
-// cmini <-> spark/1, in ONE place (01-format.md §6.1/§6.2, moved here from
+// cmini -> spark/1, in ONE place (01-format.md §6.1, moved here from
 // spark/1/translate.ts by 20-spark.md S1: cmini is an import source now,
 // not a registered format, so the conversion lives with the adapter, not
-// with spark). `fromCmini` is §6.1 (the import: cmini -> spark); `toCmini`
-// is §6.2 (what the bot/emulayout read: spark -> cmini). Dependency runs
+// with spark). `fromCmini` is §6.1 (the import: cmini -> spark). The
+// reverse direction (§6.2's `toCmini`, what the bot/emulayout used to
+// read) was deleted by 21-formats.md D5 -- the cmini export is gone
+// entirely, the cmini IMPORT (this function) stays. Dependency runs
 // adapter -> spark (this file imports spark's `computeRows`/`isScaffold`/
-// `liftRules`/`cminiBoardWord`), never the reverse -- spark/1/index.ts has
-// no import of this directory at all.
+// `liftRules`), never the reverse -- spark/1/index.ts has no import of
+// this directory at all.
 import * as cmini1 from "./index.ts";
-import { computeRows, isScaffold, liftRules, resolveRows, type MagicIntent, type Row, type RawRule } from "../../spark/1/magic.ts";
-import { cminiBoardWord } from "../../spark/1/index.ts";
+import { computeRows, isScaffold, liftRules, type MagicIntent, type Row, type RawRule } from "../../spark/1/magic.ts";
 import type { Payload as SparkPayload, Position } from "../../spark/1/index.ts";
 
 const ANSI_STAGGER = [0, 0.25, 0.75];
@@ -27,14 +28,6 @@ function boardFromCmini(word: cmini1.Payload["board"]): SparkPayload["board"] {
     case "mini":
       return { kind: "ortho", cmini: "mini" };
   }
-}
-
-function definedEntries<T extends object>(obj: T): Partial<T> {
-  const out: Partial<T> = {};
-  for (const [k, v] of Object.entries(obj)) {
-    if (v !== undefined) (out as Record<string, unknown>)[k] = v;
-  }
-  return out;
 }
 
 // lift() infers "default: repeat_previous" (etc.) from seeing ANY row of
@@ -74,9 +67,13 @@ export function reconcileScaffoldsToTrueRows(magic: MagicIntent, trueRows: Row[]
   }
 }
 
-// fromCmini (01 §6.1): the import. Must be lossless -- every cmini payload
-// round-trips through `toCmini(fromCmini(x))` back to the same
-// `cminiDetail` projection (LDB-F5, roundtrip.test.ts).
+// fromCmini (01 §6.1): the import. `tag`/`blame`/`combos`/`link` have no
+// spark/1 idiom (spark's escape hatch is for magic rows, not these) and,
+// since 21-formats.md D10 dropped spark/1's free-form `x` field, are
+// dropped here rather than reserved anywhere -- MF-9 (db/tests/formats/
+// mf9-fromcmini.test.ts) is the invariant that replaces the old
+// `toCmini(fromCmini(x))` round trip: it states exactly these four fields
+// as the ones fromCmini is allowed to drop.
 export function fromCmini(p: cmini1.Payload): SparkPayload {
   const out: SparkPayload = {
     keys: p.keys,
@@ -96,38 +93,6 @@ export function fromCmini(p: cmini1.Payload): SparkPayload {
       magic.rules = leftovers.map((r): RawRule => ({ inputs: r.inputs, output: r.output, type: r.type ?? "raw" }));
     }
     if (Object.keys(magic).length > 0) out.magic = magic;
-  }
-
-  // tag/blame/combos/link have no spark/1 idiom (01 §2's "escape hatch" is
-  // for magic rows, not these) -- reserved in `x.cmini` so nothing is lost
-  // (01 §6.1). Never emit an empty `x`/`x.cmini` (round-trip identity with
-  // a spark-native payload that never had one).
-  const cminiExtra = definedEntries({ tag: p.tag, blame: p.blame, combos: p.combos, link: p.link });
-  if (Object.keys(cminiExtra).length > 0) out.x = { cmini: cminiExtra };
-
-  return out;
-}
-
-// toCmini (01 §6.2): what the bot and emulayout read.
-export function toCmini(p: SparkPayload): cmini1.Payload {
-  const out: cmini1.Payload = {
-    board: cminiBoardWord(p.board),
-    keys: p.keys,
-  };
-  if (p.free !== undefined) out.free = p.free;
-
-  const rows = resolveRows(computeRows(p.magic, p.keys)); // LDB-F4: akl.gg's order, last wins
-  if (rows.length > 0) {
-    out.magic = rows.map(({ inputs, output, type }) => ({ inputs, output, type }));
-  }
-
-  // Only `x.cmini` survives (LDB-F10); every other `x` key is dropped.
-  const cminiExtra = p.x?.["cmini"] as { tag?: string; blame?: string; combos?: cmini1.Combo[]; link?: string } | undefined;
-  if (cminiExtra) {
-    if (cminiExtra.tag !== undefined) out.tag = cminiExtra.tag;
-    if (cminiExtra.blame !== undefined) out.blame = cminiExtra.blame;
-    if (cminiExtra.combos !== undefined) out.combos = cminiExtra.combos;
-    if (cminiExtra.link !== undefined) out.link = cminiExtra.link;
   }
 
   return out;

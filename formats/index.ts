@@ -8,7 +8,7 @@
 // here -- it isn't part of the registry this barrel mirrors.
 export * as spark1 from "./spark/1/index.ts";
 export * as mana21 from "./mana2/1/index.ts";
-export { list, get, translate, registerForTest, ALIASES, resolveFormat, LEGACY_STORED, storedAsSpark } from "./registry.ts";
+export { list, get, translate, registerForTest, resolveFormat } from "./registry.ts";
 export type {
   Row,
   ValidationResult,
@@ -19,6 +19,5 @@ export type {
   FormatEdits,
   FormatModule,
   TranslateResult,
-  AliasEntry,
   ResolvedFormat,
 } from "./registry.ts";

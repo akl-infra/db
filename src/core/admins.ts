@@ -119,26 +119,21 @@ export async function isImportPaused(db: Bindings["DB"]): Promise<boolean> {
 // `cmini.last_diff` store uncapped (or, for `nightly`, small: `jobs` is
 // four one-word statuses and `dump` is `{key, latest}`, never the dump's
 // own multi-MB body), so no new size concern here.
-// M1: `which: "strip_cmini_magic"` (`admin.magic_stripped`) is the fourth
-// manual-trigger kind, same posture as the other three -- `POST /v1/admin/
-// import/strip-cmini-magic`'s own audit event.
-// 20-spark.md S4 (LDB-A5 amended): `which: "migrate"` (`admin.migrate_ticked`)
-// is the fifth -- `POST /v1/admin/migrate/tick`'s own audit event, `detail`
-// carrying the full `MigrateReport` (`core/migrate.ts`), same posture as
-// `diff`'s own full record.
-const MANUAL_TICK_KIND: Record<"import" | "diff" | "nightly" | "strip_cmini_magic" | "migrate", InfoKind> = {
+// 21-formats.md D12 deleted the M1 strip route (`admin.magic_stripped`,
+// `which: "strip_cmini_magic"`) and the record migration (`admin
+// .migrate_ticked`, `which: "migrate"`) -- both were one-time cleanups
+// this manual-trigger kind list no longer needs.
+const MANUAL_TICK_KIND: Record<"import" | "diff" | "nightly", InfoKind> = {
   import: "admin.import_ticked",
   diff: "admin.diff_ticked",
   nightly: "admin.nightly_ticked",
-  strip_cmini_magic: "admin.magic_stripped",
-  migrate: "admin.migrate_ticked",
 };
 
 export async function recordManualTick(
   db: Bindings["DB"],
   now: Clock,
   actorId: string,
-  which: "import" | "diff" | "nightly" | "strip_cmini_magic" | "migrate",
+  which: "import" | "diff" | "nightly",
   detail: object,
 ): Promise<{ seq: number }> {
   const { seq } = await appendAdmin(db, now, { kind: MANUAL_TICK_KIND[which], actor: actorId, detail });

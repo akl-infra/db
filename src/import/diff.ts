@@ -435,11 +435,11 @@ export function diffAuthors(upstream: Record<string, string>, ours: Record<strin
 // from the diff cron (LDB-C4: the cron reading its own origin over HTTP
 // would need to be its own subrequest budget AND could deadlock a
 // single-invocation cron against itself under load). `full()` yields every
-// live record as a `cmini/1` detail (`OursEntry`), or `{ held: string }`
-// naming a record that cannot translate to `cmini/1` at all -- unreachable
-// in phase 1 (cmini/1 and akl/1 always translate both ways) but real once
-// `mana2/1` or a future advanced format lands (X2), so `diffUpstream`
-// reports it rather than assuming it can't happen.
+// live record as a spark-shaped detail (`OursEntry`), or `{ held: string }`
+// naming a record that cannot translate to `spark/1` at all -- unreachable
+// today (every stored row already IS spark/1) but real once a second
+// stored lineage lands (F2), so `diffUpstream` reports it rather than
+// assuming it can't happen.
 export interface OursSource {
   full(): AsyncIterable<OursEntry | { held: string }>;
   authors(): Promise<Record<string, string>>;
@@ -464,7 +464,7 @@ export interface DiffSummary {
   upstreamCount: number;
   upstreamDupNames: number;
   ourCount: number;
-  held: string[]; // our records that read back `held` for as=cmini/1 (unreachable in phase 1; reported, not swallowed)
+  held: string[]; // our records that read back `held` for as=spark/1 (unreachable in phase 1; reported, not swallowed)
   layoutCount: { upstream: number; ours: number; equal: boolean };
   authors: AuthorsDiff;
   corpus: CorpusDiff;

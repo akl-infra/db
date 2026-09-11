@@ -9,35 +9,29 @@
 // already merged. Without `--write` this prints what it would do and
 // changes nothing.
 //
-// S3 adds akl/1: every cmini fixture's `.akl-1.json` golden (cmini1.to's
-// generic loop below) is ALSO written as its own base fixture under
-// formats/akl/1/fixtures/ (07 §5.3: "the akl side holds each translation as
-// its own fixture"). The three hand-written akl-native fixtures
-// (900-colstag, 901-idioms, 902-x) are authored directly as base files and
-// need no code here -- `writeDerivedGoldens` picks up every base fixture it
-// finds on disk, generated or hand-written alike, and fills in its
-// `.lowered.json`/`.<to>.json` goldens generically.
+// S3 adds akl/1 (renamed spark/1 by 20-spark.md S1): every cmini fixture's
+// `.spark-1.json` golden (cmini1.to's generic loop below) is ALSO written
+// as its own base fixture under formats/spark/1/fixtures/ (07 §5.3: "the
+// spark side holds each translation as its own fixture"). The two
+// hand-written spark-native fixtures (900-colstag, 901-idioms) are
+// authored directly as base files and need no code here --
+// `writeDerivedGoldens` picks up every base fixture it finds on disk,
+// generated or hand-written alike, and fills in its `.lowered.json`/
+// `.<to>.json` goldens generically. (A third, 902-x, existed only to
+// exercise spark/1's now-deleted free-form `x` field -- 21-formats.md
+// D10 removed it along with the field.)
 //
 // X2 adds mana2/1: its 13 named base fixtures (formats/mana2/1/fixtures/)
 // and hand-written 900+ ones are authored directly on disk (the named 13
 // via `scripts/pick-mana2-fixtures.mjs`, a one-time fixture-authoring step
 // outside this script; the 900+ ones by hand) -- `writeDerivedGoldens
 // (mana2_1)` below picks them up the same generic way as every other
-// format and fills in `.lowered.json`/`.akl-1.json`/`.cmini-1.json`
-// (mana2/1's `to` map now covers both targets, 12-implementation-
-// phase5.md §2.5 "declared on both modules"). akl/1 and cmini/1 gained
-// reciprocal `to["mana2/1"]` entries too (akl/1/index.ts, cmini/1/
-// index.ts), so `writeDerivedGoldens(spark1)`/`writeDerivedGoldens(cmini1)`
-// now generate a `.mana2-1.json` golden for EVERY akl/1 and cmini/1
-// fixture automatically -- no separate explicit-list function needed
-// (an earlier round of this script had one; the generic mechanism now
-// covers the same ground for every fixture, not just three). A `to[...]`
-// call that returns `{held:true,reason}` (mana2_1's own `to["akl/1"]`/
-// `to["cmini/1"]` on a held-worthy payload -- none of the 13 named
-// fixtures, but several of the 900+ hand-written ones) is written as that
-// object verbatim; goldens.test.ts's own "output validates there" check
-// already special-cases a `held` golden (skips validating it against the
-// target format, since there is no payload to validate).
+// format, but mana2/1's own registry `to` map is `{}` (nothing is ever
+// stored as mana2/1, so there is nothing to dispatch through) -- it only
+// ever fills in `.lowered.json` for these. mana2.test.ts's own dedicated
+// "goldens (LDB-F7)" block covers `toSpark`/`fromSpark` directly instead
+// (see that file's header comment) -- there is no `.cmini-1.json` golden
+// for any format any more (21-formats.md D5 deleted `toCmini` entirely).
 //
 // Format modules are self-contained (07 §5: they never import
 // src/formats/registry.ts), so this script imports them directly with
@@ -191,8 +185,8 @@ function main() {
   });
 
   // Derived goldens for every base fixture found on disk -- the 18 above
-  // AND the hand-written spark-native ones (900-colstag, 901-idioms,
-  // 902-x), which must already exist as base files before this runs; and
+  // AND the hand-written spark-native ones (900-colstag, 901-idioms),
+  // which must already exist as base files before this runs; and
   // mana2/1's own named + hand-written base fixtures (authored outside
   // this script -- see the header comment). Order matters only for
   // `mana2_1` needing `spark1`'s reciprocal `to["mana2/1"]` to already be

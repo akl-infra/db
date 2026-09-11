@@ -5,7 +5,6 @@ import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import type { Bindings } from "../../src/env";
 import { appendWrite } from "../../src/core/events";
-import { legacyFollows } from "../../src/core/follows";
 import { readById, readByName } from "../../src/core/records";
 import { fixedClock } from "../../src/core/time";
 import { applyFetchedId } from "../../src/import/apply";
@@ -412,68 +411,12 @@ describe("[LDB-I10] an imported payload never carries cmini's magic", () => {
 });
 
 describe("[LDB-I11] an import write preserves the record's own magic", () => {
-  it("[LDB-I11] case 4 on a legacy cmini/1-stored record: the record's pre-existing (legacy) magic is carried forward, lifted to spark's own idiom (not dropped, not re-derived from upstream)", async () => {
-    const owner = "1100000000000000003";
-    // `keys` carries both of `legacyMagic`'s characters throughout (spark's
-    // `liftRules`/`computeRows` need the magic key's OWN position, unlike
-    // cmini's own `hasMagic`, which is just an array length check) -- an
-    // empty `keys` would lift to a `magic_keys` entry that computes zero
-    // rows, i.e. `hasMagic() === false`, on either side of the write.
-    const magicKeys = { n: { row: 0, col: 0, finger: "LP" }, "*": { row: 0, col: 1, finger: "LR" } };
-    const d1 = detail({ name: "I11-Legacy", user: owner, board: "ortho", keys: magicKeys });
-    await applyFetchedId(db, clock, "i11-legacy", d1);
-    const rec = await readByName(db, "I11-Legacy");
-
-    // Simulate a record imported BEFORE M1 landed: still following upstream
-    // (`via: import:cmini`), but its stored payload already carries cmini's
-    // magic -- today's imports never write this (LDB-I10), so the only way
-    // a followed record has magic at all is a legacy write like this one
-    // (exactly what `POST /v1/admin/import/strip-cmini-magic` targets).
-    const legacyMagic = [{ inputs: "n*", output: "nn", type: "repeat" }];
-    // A genuinely cmini/1-shaped payload (board a bare word, magic a flat
-    // row array) -- `rec!.payload` is itself spark-shaped now (20-spark.md
-    // S3b: every fresh import writes `spark/1`), so it can't be spread
-    // here without smuggling a spark `board` object into a record
-    // labelled `cmini/1`.
-    const legacyPayload = { board: "ortho" as const, keys: magicKeys, magic: legacyMagic };
-    await appendWrite(db, clock, {
-      upstream: null,
-      kind: "imported",
-      layoutId: rec!.id,
-      name: rec!.name,
-      owner: rec!.owner,
-      modified_at: rec!.modified_at,
-      format: "cmini/1",
-      payload: legacyPayload,
-      actor: "system:cmini-import",
-      via: "import:cmini",
-      source: { client: "system:cmini-import", version: null },
-      detail: { source: "cmini", upstream_id: "i11-legacy" },
-      hasMagic: true,
-    });
-
-    // A REAL upstream content change (board differs) -- case 4 fires.
-    const d2 = detail({ name: "I11-Legacy", user: owner, board: "angle", keys: magicKeys, modified_at: "2026-02-01T00:00:00Z" });
-    const result = await applyFetchedId(db, clock, "i11-legacy", d2);
-    expect(result.errors).toEqual([]);
-
-    const after = await readById(db, rec!.id);
-    // 20-spark.md S3b: the record is spark-shaped now -- upstream's cmini
-    // `board` word landed through `fromCmini`, not verbatim.
-    expect((after!.payload as { board: unknown }).board).toEqual(fromCmini(d2 as unknown as CminiPayload).board); // upstream's new content landed
-    // 20-spark.md S3b: the EXISTING payload is taken through `storedAsSpark`
-    // FIRST (LDB-F21's one conversion of a stored legacy payload) before its
-    // `magic` is carried forward -- a genuinely legacy cmini/1-stored
-    // record's flat magic rows are therefore lifted to spark's own idiom
-    // here (once; from then on the record IS spark/1, so a later case 4
-    // carries it forward byte-for-byte, LDB-I12's own test covers that).
-    expect((after!.payload as { magic?: unknown }).magic).toEqual(fromCmini(legacyPayload).magic);
-    expect(after!.format).toBe("spark/1");
-    expect(after!.has_magic).toBe(true);
-
-    const events = await eventsFor(rec!.id);
-    expect(events.map((e) => e.kind)).toEqual(["imported", "imported", "imported"]);
-  });
+  // 21-formats.md D12 deleted the legacy carry-forward machinery
+  // (`storedAsSpark`, the M1 strip route) this describe used to have a
+  // "case 4 on a legacy cmini/1-stored record" test for: after the D8
+  // wipe, no row is ever stored as `cmini/1`, so `import/apply.ts`'s case
+  // 4 no longer special-cases a legacy-shaped existing record at all --
+  // `record.payload` is always already spark-shaped.
 
   it("[LDB-I11] a not-following record's own local magic is never reported as an upstream difference", async () => {
     const owner = "1100000000000000004";
@@ -520,77 +463,20 @@ describe("[LDB-I11] an import write preserves the record's own magic", () => {
   });
 });
 
-// LDB-I12 (M2's prerequisite, design/layout-db/18-command-decisions.md §2
-// item 1; 17-magic-ownership.md §3): a following record CAN carry its own
-// magic (a magic-only PATCH lifts it, `core/write.ts`'s `patchLayout`, and
-// `legacyFollows` skips that write when deciding "the latest write").
-// Simulated directly via `appendWrite` (same style as LDB-I11's own
-// cmini/1 legacy-magic case above) rather than through `patchLayout`/HTTP
-// -- this describe is about the IMPORT's own case-4 behavior once such a
-// record exists, not about how it got there (`tests/api/patch.test.ts`'s
-// own [LDB-I12] cases cover the PATCH side). 20-spark.md S3b: the record
-// is simulated as legacy-labelled `akl/1` (a real, if now-unwritable,
-// stored value `storedAsSpark`/`LEGACY_STORED` still normalizes forever,
-// LDB-F21) to prove case 4 normalizes it -- and always writes the result
-// out as `spark/1` (S3b unified the akl/1/cmini/1 carry-forward branches).
-describe("[LDB-I12] an import write on a legacy akl/1-labelled following record normalizes it to spark/1, keeping the record's own magic", () => {
-  it("[LDB-I12] case 4 on a legacy akl/1 row: upstream's board/keys land, the record's magic survives byte-for-byte, legacyFollows stays true, and a repeat is idempotent", async () => {
-    const owner = "1100000000000000005";
-    const d1 = detail({ name: "I12-Akl", user: owner, board: "ortho", keys: {} });
-    await applyFetchedId(db, clock, "i12-akl", d1);
-    const rec = await readByName(db, "I12-Akl");
-
-    // Simulate a magic-only PATCH's lift (LDB-I12, `core/write.ts`): the
-    // record is labelled `akl/1` (a legacy-stored alias, LDB-F21) -- its
-    // payload is ALREADY spark-shaped (every fresh import writes
-    // `spark/1`, 20-spark.md S3b), so no `fromCmini` re-conversion is
-    // needed here, only the PATCH's own magic set -- marked `magic_only`
-    // so `legacyFollows` keeps reading through it.
-    const ownMagic = { rules: [{ inputs: "n*", output: "nn" }] };
-    const lifted = { ...(rec!.payload as object), magic: ownMagic };
-    await appendWrite(db, clock, {
-      upstream: null,
-      kind: "updated",
-      layoutId: rec!.id,
-      name: rec!.name,
-      owner: rec!.owner,
-      modified_at: rec!.modified_at,
-      format: "akl/1",
-      payload: lifted,
-      actor: rec!.owner,
-      via: "discord",
-      source: { client: "discord-app:test", version: null },
-      detail: { fields: ["magic"], magic_only: true },
-      hasMagic: true,
-    });
-    expect(await legacyFollows(db, rec!.id)).toBe(true); // LDB-I12: the lift alone never forks
-
-    // A REAL upstream content change (board differs) -- case 4 fires.
-    const d2 = detail({ name: "I12-Akl", user: owner, board: "angle", keys: {}, modified_at: "2026-02-01T00:00:00Z" });
-    const result = await applyFetchedId(db, clock, "i12-akl", d2);
-    expect(result.errors).toEqual([]);
-
-    const after = await readById(db, rec!.id);
-    expect(after!.format).toBe("spark/1"); // 20-spark.md S3b: normalized, never re-stored as akl/1 or cmini/1
-    expect((after!.payload as { board: unknown }).board).toEqual(fromCmini(d2 as unknown as CminiPayload).board);
-    expect((after!.payload as { magic: unknown }).magic).toEqual(ownMagic); // carried forward byte-for-byte
-    expect(after!.has_magic).toBe(true);
-
-    const events = await eventsFor(rec!.id);
-    expect(events.map((e) => e.kind)).toEqual(["imported", "updated", "imported"]);
-    expect(await legacyFollows(db, rec!.id)).toBe(true); // still following after a real case-4 write
-
-    // LDB-I1 idempotence: the SAME upstream state again appends no event --
-    // this is exactly what the format-aware carry-forward (a legacy row
-    // normalized through `storedAsSpark` first, not a bare cast) makes
-    // true; before that fix this would misfire as "content differs" on
-    // every tick purely from the shape mismatch.
-    const beforeRepeat = await eventsFor(rec!.id);
-    const repeat = await applyFetchedId(db, clock, "i12-akl", d2);
-    expect(repeat.errors).toEqual([]);
-    expect(await eventsFor(rec!.id)).toHaveLength(beforeRepeat.length);
-  });
-});
+// 21-formats.md D12 retires LDB-I12: it was entirely about `core/follows
+// .ts`'s `legacyFollows` walking PAST historical `detail.magic_only: true`
+// events when computing a record's LEGACY (column-less) follow state --
+// "S2 deleted that marker: no NEW write ever sets it again, since decision
+// 6 forks every magic edit like any other write" (the invariant's own
+// prior wording). Since decision 6, a magic-only PATCH through the real
+// write pipeline (`core/write.ts`'s `patchLayout`) already forks a
+// following record like any other user write -- `nextUpstream` has never
+// special-cased it. D12 deletes the legacy fallback this invariant's
+// "stays following" half depended on, so there is no way left to
+// construct that scenario at all: every stored record's `upstream` column
+// is set directly at import time and read straight off the row
+// (`core/upstream.ts`'s `upstreamOf`), never recomputed by walking
+// history.
 
 describe("[LDB-I5] imported names are stored verbatim from the live snapshot", () => {
   const list = (listSnapshot as { layouts: { id: string; name: string }[] }).layouts;

@@ -155,18 +155,15 @@ describe("diffTick()", () => {
     expect(after.headers.get("ETag")).not.toBe(etagBefore);
   });
 
-  it("[LDB-P5] with every stored upstream column NULL (the window between the 0005 deploy and the record migration), the Worker's diff still compares every following record through the legacy rule", async () => {
-    const fake = new FakeUpstream();
-    await tick(bindings, fixedClock("2026-07-10T00:00:00.000Z"), fake.fetchImpl, fake.sleepImpl);
-    await db.prepare("UPDATE layouts SET upstream_source = NULL, upstream_id = NULL, upstream_state = NULL").run();
-
-    const record = await diffTick(envWithSource(fake.baseUrl), fixedClock("2026-07-11T00:00:00.000Z"), strictUpstreamOnly(fake));
-    expect(record.ok).toBe(true);
-    expect(record.corpus?.matched).toBe(100);
-    expect(record.corpus?.divergent).toBe(0);
-    expect(record.corpus?.unresolved).toBe(0);
-    expect(record.corpus?.content_diffs).toBe(0);
-  });
+  // 21-formats.md D12 deleted the legacy fallback (`legacyUpstreamMap`,
+  // LDB-I2a) this describe used to have an "[LDB-P5] with every stored
+  // upstream column NULL ... the Worker's diff still compares every
+  // following record through the legacy rule" test for: after the D8
+  // wipe, every imported record's `upstream` column is set directly at
+  // create time and never legitimately goes back to NULL, so there is no
+  // window left to simulate -- a record with a NULL `upstream` column now
+  // correctly reports `unresolved` (LDB-P5's own "nothing compared never
+  // reads as clean" rule), not `matched`.
 
   it("[LDB-C4] reads our side in a bounded number of D1 queries -- no per-record query", async () => {
     const fake = new FakeUpstream();

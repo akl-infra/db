@@ -14,13 +14,6 @@ const FOLLOWING: Upstream = { source: "cmini", id: "u1", state: "following" };
 const FORKED: Upstream = { source: "cmini", id: "u1", state: "forked" };
 
 describe("[LDB-I14] nextUpstream matrix", () => {
-  it("[LDB-I14] migrated leaves `prior` unchanged, whatever it is and whatever `via` is", () => {
-    expect(nextUpstream(null, "migrated", "system:migration")).toBeNull();
-    expect(nextUpstream(FOLLOWING, "migrated", "system:migration")).toEqual(FOLLOWING);
-    expect(nextUpstream(FORKED, "migrated", "system:migration")).toEqual(FORKED);
-    expect(nextUpstream(FOLLOWING, "migrated", "import:cmini")).toEqual(FOLLOWING); // via never matters for `migrated`
-  });
-
   it("[LDB-I14] null stays null regardless of kind/via", () => {
     for (const [kind, via] of [
       ["created", "discord"],

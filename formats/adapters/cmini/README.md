@@ -3,38 +3,42 @@
 cmini's own v3 layout detail (`GET /layoutapi/v3/layouts/{id}`), minus the
 fields the database treats as record fields (`name user likes created_at
 modified_at`). Everything else -- `board keys free? magic? combos? tag?
-blame? link?` -- is kept verbatim, so `?as=cmini/1` of an imported record
-reproduces upstream exactly (`design/layout-db/01-format.md` §6.1's D12
-diff).
+blame? link?` -- is kept verbatim on this adapter's own `Payload` type, so
+an import always has upstream's exact shape to translate from.
 
-Was the registered format `cmini/1`; moved here and unregistered by
-`design/layout-db/20-spark.md` S1, decision 2 ("cmini is an import source,
-not a format"): `fromCmini`/`toCmini` (`translate.ts`) are the conversion
-to/from `spark/1`, the one stored format now. `?as=cmini/1` stays readable
-through the registry's alias table (`ALIASES`); a `cmini/1` write is
-refused from S2 on. Its own `id` constant (below) stays `cmini/1` -- that's
-the format identity these functions still implement, only its registration
-status changed.
-
-`link` stays **in the payload**, not as a record field: keeping cmini's
-value here is what keeps the diff exact, and nothing else ever reads it
-(`design/layout-db/00-plan.md` §6).
+**Import-only** (`design/layout-db/21-formats.md` D5, lead's call, review
+of `20-spark.md` S1's original "unregistered but still readable" design):
+`fromCmini` (`translate.ts`) is the ONE conversion left, cmini -> `spark/1`
+at import time. There is no `toCmini`, no `spark/1 -> cmini/1` lowering,
+and no way to reach this shape from the API at all -- `GET .../{ref}
+?as=cmini/1` answers exactly like any other unregistered format id (404
+`unknown format`, with the list of registered ones). `cmini/1`'s own `id`
+constant (below) stays for identity/testing purposes only; it was never
+re-registered after `20-spark.md` S1 unregistered it, and D5 finished the
+job by deleting the export path S1 had left in place. What `fromCmini`
+drops on the way in (`tag`, `blame`, `combos`, `link` -- fields `spark/1`
+has no place for) is permanent: nothing downstream of the DB ever sees
+them again. `db/tests/formats/mf9-fromcmini.test.ts` (LDB-F23, MF-9) is
+the invariant that replaces the old cmini round trip: over every
+`upstream-100` fixture layout, the `(char, row, col, finger)` multiset
+survives exactly, the board word maps to `spark/1`'s `board.kind` by a
+fixed table, and the fields dropped are exactly those four -- nothing else
+vanishes or leaks in.
 
 ## What it can't express
 
-Nothing that upstream itself can express is lost: this format's job is to
-hold what cmini holds, including the parts of the live set that violate the
-bot's own rules (07 §0.1) -- empty `keys`, non-thumb fingers on thumb rows
-and vice versa, a row 4, 3-code-point `magic.inputs`. There is deliberately
-**no thumb-row rule and no non-empty-keys rule** in `validate()`.
+Nothing that upstream itself can express is lost on the way IN: this
+format's job is to hold what cmini holds, including the parts of the live
+set that violate the bot's own rules (07 §0.1) -- empty `keys`, non-thumb
+fingers on thumb rows and vice versa, a row 4, 3-code-point `magic.inputs`.
+There is deliberately **no thumb-row rule and no non-empty-keys rule** in
+`validate()`.
 
-What it *cannot* express, because upstream can't either: layers, combos as
-an idiom (they ride as opaque `{inputs,output}` pairs, not lowered),
-per-column stagger amounts (cmini's four board words are coarser than
-`spark/1`'s `stagger` array), alternate fingerings, `except` on magic keys.
-Writing a `spark/1` record with any of those and reading it back
-`?as=cmini/1` degrades to what cmini can hold -- that's `toCmini`'s
-documented loss (01 §6.2), not a bug here.
+Going OUT (import -> `spark/1`) loses `tag`/`blame`/`combos`/`link` (D10,
+D5 -- `spark/1` has no free-form `x` bag to carry them in anymore, and
+nothing reads them back) and normalises the board word into `spark/1`'s
+`board` object via the fixed table `cminiBoardWord`'s inverse
+(`boardFromCmini`) uses.
 
 ## Owner
 

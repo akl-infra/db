@@ -7,7 +7,7 @@
       "If-Match": "\"1\""
     },
     "body": {
-      "format": "akl/1",
+      "format": "spark/1",
       "payload": {
         "keys": {}
       }
@@ -29,7 +29,7 @@
       "deleted": false,
       "like_count": 0,
       "has_magic": false,
-      "format": "akl/1",
+      "format": "spark/1",
       "upstream": null,
       "source": {
         "client": "discord-app:app-default",

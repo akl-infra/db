@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Bindings } from "../../src/env";
 import { appendWrite } from "../../src/core/events";
 import { fixedClock } from "../../src/core/time";
-import { AKL_PAYLOAD, CMINI_PAYLOAD, actorFixture, register, uniqueName, writeFetch } from "./write-support";
+import { AKL_PAYLOAD, actorFixture, register, uniqueName, writeFetch } from "./write-support";
 
 const db = (env as unknown as Bindings).DB;
 const clock = fixedClock("2026-07-07T00:00:00.000Z");
@@ -24,7 +24,7 @@ function ownerHeaders(token: string) {
 }
 
 async function postLayout(name: string, headers: Record<string, string>) {
-  return writeFetch("/v1/layouts", "POST", headers, { name, format: "akl/1", payload: AKL_PAYLOAD });
+  return writeFetch("/v1/layouts", "POST", headers, { name, format: "spark/1", payload: AKL_PAYLOAD });
 }
 
 describe("[LDB-N1] check_name at POST", () => {
@@ -111,8 +111,8 @@ describe("[LDB-I5] imported names outside NAME_SET' survive a PUT untouched", ()
         name: importedName,
         owner: OWNER,
         modified_at: clock(),
-        format: "cmini/1",
-        payload: CMINI_PAYLOAD,
+        format: "spark/1",
+        payload: AKL_PAYLOAD,
         actor: "system:cmini-import",
         via: "import:cmini",
         source: { client: "system:cmini-import", version: null },
@@ -120,7 +120,7 @@ describe("[LDB-I5] imported names outside NAME_SET' survive a PUT untouched", ()
       });
 
       const headers = ownerHeaders(`tok-${uniqueName("imp")}`);
-      const res = await writeFetch(`/v1/layouts/${record.id}`, "PUT", { ...headers, "If-Match": `"${record.rev}"` }, { format: "akl/1", payload: AKL_PAYLOAD });
+      const res = await writeFetch(`/v1/layouts/${record.id}`, "PUT", { ...headers, "If-Match": `"${record.rev}"` }, { format: "spark/1", payload: AKL_PAYLOAD });
       expect(res.status, importedName).toBe(200);
       const body = await res.json<{ name: string }>();
       expect(body.name).toBe(importedName); // untouched, check_name never ran

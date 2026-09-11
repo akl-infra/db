@@ -1,7 +1,7 @@
 {
   "request": {
     "method": "GET",
-    "path": "/v1/layouts/io/rev/1?as=cmini/1"
+    "path": "/v1/layouts/io/rev/1"
   },
   "response": {
     "status": 200,
@@ -29,7 +29,6 @@
         "state": "following"
       },
       "payload": {
-        "board": "ortho",
         "keys": {
           "'": {
             "col": 8,
@@ -182,8 +181,10 @@
             "row": 2
           }
         },
-        "tag": "cmini",
-        "blame": "cmini"
+        "board": {
+          "kind": "ortho",
+          "cmini": "ortho"
+        }
       }
     }
   }

@@ -1,0 +1,21 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/layouts/io?as=cmini/1"
+  },
+  "response": {
+    "status": 400,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "error": "unknown_format",
+      "message": "unknown format 'cmini/1'",
+      "format": "cmini/1",
+      "known": [
+        "spark/1",
+        "mana2/1"
+      ]
+    }
+  }
+}

@@ -12,18 +12,14 @@
       {
         "id": "spark/1",
         "owner": "DB (+ akl.gg)",
-        "description": "The one stored format: cmini's keys map, #261's board geometry, an authoring shape for magic rules, a raw-rule escape hatch, and a free-form x. What akl.gg writes and most clients read.",
+        "description": "The one stored format: cmini's keys map, #261's board geometry, an authoring shape for magic rules, and a raw-rule escape hatch. What akl.gg writes and most clients read.",
         "role": "stored",
         "lineage": "spark",
         "major": 1,
         "latest": true,
-        "aliases": [
-          "akl/1"
-        ],
+        "aliases": [],
         "can_translate_to": [
-          "mana2/1",
-          "akl/1",
-          "cmini/1"
+          "mana2/1"
         ]
       },
       {

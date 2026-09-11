@@ -6,27 +6,26 @@
 // is never a record field and no verb reads it). The adapter's job is to
 // hold what cmini holds -- no thumb-row rule, no non-empty-keys rule, both
 // violated by live data (07 §0.1). NOT in `db/formats/registry.ts`'s
-// `REGISTRY`: a `cmini/1` write is refused everywhere since 20-spark.md
-// S2 deleted the Worker's temporary `LEGACY_WRITABLE` shim (S1 only);
-// every read of a `cmini/1`-stored row goes through
-// `storedAsSpark`/`fromCmini`, never this module directly.
+// `REGISTRY`: 21-formats.md D5 deleted the `cmini/1` read path entirely
+// (`?as=cmini/1` now answers exactly like any other unregistered format) --
+// this module is reachable only from `import/*` (the cmini IMPORT stays,
+// D5), never from a read/write route.
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 import rawSchema from "./schema.json" with { type: "json" };
-// This file's own translate.ts is the ONE place cmini<->spark/1 is
+// This file's own translate.ts is the ONE place cmini -> spark/1 is
 // implemented (moved from spark/1/translate.ts by 20-spark.md S1, was
-// 07 §6 S3's akl/1/translate.ts), so both directions can't drift apart.
-// This creates a module cycle (translate.ts imports this file back for
-// `cmini1.rows`/`Payload`) that's safe here: `fromCmini`/`toCmini` are
-// function declarations (hoisted before either module's top-level code
-// runs) and are only ever CALLED well after both modules finish loading.
-import { fromCmini, toCmini } from "./translate.ts";
+// 07 §6 S3's akl/1/translate.ts). This creates a module cycle
+// (translate.ts imports this file back for `cmini1.rows`/`Payload`)
+// that's safe here: `fromCmini` is a function declaration (hoisted before
+// either module's top-level code runs) and is only ever CALLED well after
+// both modules finish loading.
+import { fromCmini } from "./translate.ts";
 import type { Payload as SparkPayload } from "../../spark/1/index.ts";
-// cmini <-> mana2/1 is the composition through spark/1 (12-implementation-
+// cmini -> mana2/1 is the composition through spark/1 (12-implementation-
 // phase5.md §2.5), never a third direct implementation. This direction
 // (cmini -> spark -> mana2) never holds -- spark/1 -> mana2/1 has no held
-// cases (12 §2.5's held rows are all mana2 -> spark) -- so, unlike the
-// reverse direction (mana2/1/index.ts's own `to["cmini/1"]`), no
+// cases (12 §2.5's held rows are all mana2 -> spark) -- so no
 // held-passthrough is needed here. No import cycle: mana2/1/translate.ts
 // imports nothing from this file.
 import { fromSpark as mana2FromSpark } from "../../mana2/1/translate.ts";
@@ -209,19 +208,17 @@ export function hasMagic(p: Payload): boolean {
   return rows(p).length > 0;
 }
 
-// 01 §6.1/§6.2, implemented once in this directory's own translate.ts and
-// imported both ways (moved from akl/1/translate.ts by 20-spark.md S1) so
-// cmini<->spark/1 can't drift out of sync with itself. Not a `FormatModule`
-// `to`/`from` map (this adapter isn't registered) -- kept as plain named
-// exports purely so existing call sites (`goldens.mjs`, `mana2-convert-
-// parity.test.ts`, `roundtrip.test.ts`) don't need restructuring, keyed by
-// spark/1's real id now instead of the old alias-shaped "akl/1".
+// 01 §6.1, implemented once in this directory's own translate.ts (moved
+// from akl/1/translate.ts by 20-spark.md S1) so cmini -> spark/1 can't
+// drift out of sync with itself. Not a `FormatModule` `to` map (this
+// adapter isn't registered) -- kept as a plain named export purely so
+// existing call sites (`goldens.mjs`, `mana2-convert-parity.test.ts`)
+// don't need restructuring, keyed by spark/1's real id now instead of the
+// old alias-shaped "akl/1". `from` (spark -> cmini, §6.2's `toCmini`) was
+// deleted by 21-formats.md D5 along with the export it served.
 export const to: Record<string, (p: Payload) => SparkPayload | Mana2Payload> = {
   "spark/1": fromCmini, // cmini -> spark IS §6.1's "fromCmini"
   "mana2/1": (p) => mana2FromSpark(fromCmini(p)), // 12 §2.5's declared composition; never held (see the import comment above)
-};
-export const from: Record<string, (p: SparkPayload) => Payload> = {
-  "spark/1": toCmini, // spark -> cmini IS §6.2's "toCmini"
 };
 
 // The record-level projection used by `?as=cmini/1`, the D12 diff and the
@@ -289,7 +286,3 @@ export function projectNoMagic(record: CminiRecordLike): Omit<CminiDetail, "magi
   const { magic: _magic, ...rest } = project(record);
   return rest;
 }
-
-// registry.ts's optional PATCH slot (09 §3 T4) -- see edits.ts. No
-// `setMagic`: cmini/1 has no magic idiom of its own (03 §3).
-export { edits } from "./edits.ts";

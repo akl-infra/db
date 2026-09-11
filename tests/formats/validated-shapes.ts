@@ -63,13 +63,16 @@ function fromFormatModule(f: FormatModule): ValidatedShape {
   };
 }
 
+// 21-formats.md D5: the adapter's own `from`/`edits` are gone along with
+// `toCmini` (there is no more spark -> cmini direction, and no more
+// cmini/1 record to PATCH) -- `from: {}` and no `edits` reflect that
+// exactly, not a gap in this shared shape list.
 const CMINI_ADAPTER_SHAPE: ValidatedShape = {
   id: "cmini/1",
   validate: cminiAdapter.validate,
   hasMagic: cminiAdapter.hasMagic,
   to: cminiAdapter.to,
-  from: cminiAdapter.from,
-  edits: cminiAdapter.edits,
+  from: {},
   compile: cminiAdapter.rows,
   fixturesDir: fixturesDirFor("cmini/1"),
 };

@@ -42,13 +42,12 @@ format a write may store. `mana2/1` is the lowered, analyzer-facing shape:
 produced from `spark/1` on read (`?as=mana2/1`), never stored — a write
 naming it is `400 format_not_writable`. cmini is an import *source*, not a
 format lineage: the importer converts each upstream detail to spark on
-arrival, and `?as=cmini/1` stays readable through an adapter for legacy
-consumers, but `cmini/1` writes are refused. `akl/1` is a transitional
-**alias** of `spark/1` — reads and writes under that name still work, and a
-response to a request naming it is relabelled `"akl/1"` — kept only for
-clients not yet moved to `spark/1`'s own name (adoption guide §3, §8;
-removal checklist in `20-spark.md` §6). **New clients should read and write
-`spark/1` directly.**
+arrival. There is no `akl/1` alias and no `?as=cmini/1` read path any more
+(`design/layout-db/21-formats.md` D5/D12, F1, 2026-09-11 — both were
+transitional, and the 2026-09-11 wipe left no row for either to carry
+forward): `GET .../{ref}?as=cmini/1` or `?as=akl/1` now answers exactly
+like any other unregistered format id (404). **Every client reads and
+writes `spark/1` by name.**
 
 **Versioning and compatibility.** `/v1` changes only on a breaking change to
 the record envelope (`id/name/owner/rev/…`) — never happened yet. A
@@ -178,7 +177,7 @@ write a given build of your client made (adoption guide §1.3, §5).
 curl -sX POST …/v1/layouts -H 'X-Client-Version: my-bot/1.0' -d '{"name":"ldb-integration-doc-demo",
   "format":"spark/1","payload":{"keys":{"a":{"row":1,"col":1,"finger":"LI"}}}}' <signed>
 # 201 {"id":"01M245Q4J76A4PKAP2QX02YFRJ","rev":1,"format":"spark/1","payload":{"keys":{"a": …}}}
-# (the same call with "format":"akl/1" still stores spark/1 and answers "format":"akl/1" -- §1)
+# (the same call with "format":"akl/1" now 400s "unknown_format" -- §1: no more alias)
 
 curl -sX PATCH …/v1/layouts/01M245…YFRJ -H 'If-Match: "1"' -d '{"fingermap":{"a":"LM"}}' <signed>
 # 200 { …, "rev":2, "payload":{"keys":{"a":{"col":1,"finger":"LM","row":1}}} }
@@ -212,9 +211,9 @@ fixtures (`patch-409-stale.json`, `patch-200-renamed.json`, etc.).
   `400 {"error":"magic_collision","inputs":"th","from":["adaptive_swaps[0]","rules[0]"],"path":"/magic/rules/0"}`
 - `400 invalid_payload` — the format's own `validate()` refused it, with a
   JSON-pointer `path`. Check locally, same function the server runs (or
-  `import { validate } from '@akl/layout-formats/spark/1'` from JS — the
-  transitional `@akl/layout-formats/akl/1` subpath resolves to the same
-  module):
+  `import { validate } from '@akl/layout-formats/spark/1'` from JS — there
+  is no `./akl/1` or `./cmini/1` package subpath any more, `21-formats.md`
+  D12):
   `echo '{"keys":{"a":{"row":9,"col":1,"finger":"LI"}}}' | node
   db/scripts/validate-akl1-payload.mjs` →
   `{"ok":false,"error":{"error":"invalid_payload","message":"payload/keys/a/row must be <= 4","path":"/keys/a/row"}}`

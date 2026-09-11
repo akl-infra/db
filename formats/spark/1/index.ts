@@ -1,18 +1,21 @@
 // spark/1 -- the one stored format (design/layout-db/20-spark.md §1 decision
 // 1; was `akl/1`, renamed byte-for-byte -- the payload shape is unchanged).
 // cmini's `keys` map, #261's board geometry, the magic-rules authoring
-// shape, a raw-rule escape hatch, and a free-form `x`. Self-contained (07
-// §5): no import of src/formats/registry.ts, and every local import carries
-// an explicit `.ts` extension so scripts/goldens.mjs can resolve this
-// module with plain Node ESM (see that script's own comment).
+// shape, and a raw-rule escape hatch (21-formats.md D10 dropped the
+// free-form `x` field -- there is no cmini export left to round-trip
+// through it, and nothing else ever used it). Self-contained (07 §5): no
+// import of src/formats/registry.ts, and every local import carries an
+// explicit `.ts` extension so scripts/goldens.mjs can resolve this module
+// with plain Node ESM (see that script's own comment).
 //
-// `fromCmini`/`toCmini` moved OUT of this format to
+// `fromCmini` (the cmini IMPORT) lives at
 // `db/formats/adapters/cmini/translate.ts` (20-spark.md S1): cmini is an
 // import source now, not a registered format, so the conversion lives with
-// the adapter, not here. This format only exports the pure board-word
-// helper the adapter's `toCmini` calls back into (`cminiBoardWord`, was the
-// private `deriveCminiWord`) -- the dependency direction is adapter ->
-// spark, never the reverse.
+// the adapter, not here. `toCmini` (the export) was deleted entirely by
+// 21-formats.md D5. This format still exports the pure board-word helper
+// used to (`cminiBoardWord`, was the private `deriveCminiWord`) -- kept
+// because `bot/`'s own board-word reads still call it directly (see that
+// module's callers).
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 import rawSchema from "./schema.json" with { type: "json" };
@@ -44,7 +47,7 @@ export const id: `${string}/${number}` = "spark/1";
 // why this is a plain export rather than parsed from OWNERS/README.md).
 export const owner = "DB (+ akl.gg)";
 export const description =
-  "The one stored format: cmini's keys map, #261's board geometry, an authoring shape for magic rules, a raw-rule escape hatch, and a free-form x. What akl.gg writes and most clients read.";
+  "The one stored format: cmini's keys map, #261's board geometry, an authoring shape for magic rules, and a raw-rule escape hatch. What akl.gg writes and most clients read.";
 export const schema: object = rawSchema;
 export const role: "stored" | "output" = "stored";
 
@@ -67,7 +70,6 @@ export interface Payload {
   free?: Position[];
   board?: Board;
   magic?: MagicIntent;
-  x?: Record<string, unknown>;
 }
 
 export interface Row {
@@ -162,39 +164,12 @@ function validateBoard(p: Payload): SemanticError | null {
   return null;
 }
 
-const X_MAX_BYTES = 16 * 1024;
-
-// Duplicated from src/core/canonical.ts's algorithm (object keys sorted,
-// recursively, no whitespace) rather than imported -- format modules must
-// stay resolvable by plain Node ESM (scripts/goldens.mjs), which cannot
-// resolve src/core/*'s own extensionless imports (see that script's
-// comment).
-function canonicalBytes(v: unknown): number {
-  function stringify(node: unknown): string {
-    if (node === undefined) return "null";
-    if (node === null || typeof node !== "object") return JSON.stringify(node);
-    if (Array.isArray(node)) return "[" + node.map((item) => (item === undefined ? "null" : stringify(item))).join(",") + "]";
-    const obj = node as Record<string, unknown>;
-    const keys = Object.keys(obj)
-      .filter((k) => obj[k] !== undefined)
-      .sort();
-    return "{" + keys.map((k) => JSON.stringify(k) + ":" + stringify(obj[k])).join(",") + "}";
-  }
-  return new TextEncoder().encode(stringify(v)).length;
-}
-
-function validateX(x: unknown): SemanticError | null {
-  if (x === undefined) return null;
-  const bytes = canonicalBytes(x);
-  if (bytes > X_MAX_BYTES) {
-    return { message: `x is ${bytes} bytes canonical, over the ${X_MAX_BYTES}-byte cap`, path: "/x" };
-  }
-  return null;
-}
-
 // validate: schema -> the ported validateRuleSet rules + 01 §2.1's additions
 // (positions, board, magic referencing real keys, `except` single code
-// points, `x` size) -> the lower()/collision check (07 §5). Never throws.
+// points) -> the lower()/collision check (07 §5). Never throws. 21-formats
+// .md D10 dropped the free-form `x` field (and its byte-cap check,
+// `validateX`/`canonicalBytes`, that used to run here) -- the schema's
+// `additionalProperties: false` now refuses a payload that carries one.
 export function validate(p: unknown): ValidationResult {
   if (!ajvValidate(p)) {
     const err = ajvValidate.errors?.[0];
@@ -227,9 +202,6 @@ export function validate(p: unknown): ValidationResult {
 
   const magicErr = validateMagicSemantics(payload.magic, payload.keys);
   if (magicErr) return { ok: false, error: { error: "invalid_payload", message: magicErr.message, path: magicErr.path } };
-
-  const xErr = validateX(payload.x);
-  if (xErr) return { ok: false, error: { error: "invalid_payload", message: xErr.message, path: xErr.path } };
 
   const rows = computeRows(payload.magic, payload.keys);
   const collision = findCollision(rows);
@@ -265,13 +237,13 @@ export function hasMagic(p: Payload): boolean {
 // board.cmini wins when present; else derived (01 §6.2): rowstag -> the
 // only cmini word for a staggered board is "stagger" (the exact amounts
 // aren't distinguishable in cmini's vocabulary either way); ortho and
-// colstag -> "ortho" (colstag's stagger amounts are lost -- the documented
-// exception, 07 §6 S3's roundtrip.test.ts asserts it exactly); "mini" is
+// colstag -> "ortho" (colstag's stagger amounts are lost); "mini" is
 // NEVER derived, only ever carried through an explicit hint. Was the
-// private `deriveCminiWord` in translate.ts before fromCmini/toCmini moved
-// to the adapter (20-spark.md S1) -- exported now because the adapter's
-// `toCmini` (adapters/cmini/translate.ts) calls back into it: the
-// dependency runs adapter -> spark, never the reverse.
+// private `deriveCminiWord` in translate.ts before fromCmini moved to the
+// adapter (20-spark.md S1); stayed exported after `toCmini` (the adapter's
+// own caller) was deleted entirely (21-formats.md D5) because `bot/`'s own
+// board-word reads (`cache/cells.ts`, `cache/provenance.ts`) call it
+// directly.
 export function cminiBoardWord(board: Board | undefined): "stagger" | "angle" | "ortho" | "mini" {
   if (board?.cmini) return board.cmini;
   if (board === undefined || board.kind === "ortho" || board.kind === "colstag") return "ortho";
@@ -279,10 +251,10 @@ export function cminiBoardWord(board: Board | undefined): "stagger" | "angle" | 
 }
 
 // spark/1 -> mana2/1 never holds (12 §2.5's held cases are all in the
-// mana2 -> spark direction). spark's `to` no longer lists `cmini/1`
-// (20-spark.md S1): cmini is an unregistered adapter now, reached only
-// through the registry's `ALIASES`/`adapter:cmini` path (db/formats/
-// registry.ts), never a plain `to[...]` entry.
+// mana2 -> spark direction). spark's `to` never listed `cmini/1` (20-spark
+// .md S1): cmini was always reached through the unregistered adapter, and
+// 21-formats.md D5 deleted that read path entirely -- there is no cmini
+// export left at all now.
 export const to: Record<string, (p: Payload) => Mana2Payload> = {
   "mana2/1": mana2FromSpark,
 };

@@ -35,7 +35,6 @@ const WRITE_KINDS_MAP: Record<WriteKind, true> = {
   restored: true,
   imported: true,
   upstream_deleted: true,
-  migrated: true, // 20-spark.md S4 (LDB-P12): the record migration's own rev-bumping write
 };
 const INFO_KINDS_MAP: Record<InfoKind, true> = {
   upstream_changed: true,
@@ -50,8 +49,6 @@ const INFO_KINDS_MAP: Record<InfoKind, true> = {
   "admin.import_ticked": true,
   "admin.diff_ticked": true,
   "admin.nightly_ticked": true,
-  "admin.magic_stripped": true, // M1 (LDB-I10): POST /v1/admin/import/strip-cmini-magic
-  "admin.migrate_ticked": true, // 20-spark.md S4 (LDB-A5 amended): POST /v1/admin/migrate/tick
 };
 const LIKE_KINDS_MAP: Record<"liked" | "unliked", true> = { liked: true, unliked: true };
 

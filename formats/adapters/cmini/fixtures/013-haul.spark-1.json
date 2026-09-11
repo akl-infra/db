@@ -169,11 +169,5 @@
   "board": {
     "kind": "ortho",
     "cmini": "mini"
-  },
-  "x": {
-    "cmini": {
-      "tag": "cmini",
-      "blame": "cmini"
-    }
   }
 }

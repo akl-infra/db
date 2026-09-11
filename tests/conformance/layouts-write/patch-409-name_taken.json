@@ -16,7 +16,7 @@
         "bearer": "conformance-owner2-token",
         "body": {
           "name": "cw-patch-nametaken-target-1",
-          "format": "akl/1",
+          "format": "spark/1",
           "payload": {
             "keys": {}
           }
@@ -28,7 +28,7 @@
         "bearer": "conformance-owner2-token",
         "body": {
           "name": "cw-patch-nametaken-src-1",
-          "format": "akl/1",
+          "format": "spark/1",
           "payload": {
             "keys": {}
           }

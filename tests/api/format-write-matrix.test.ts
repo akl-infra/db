@@ -1,18 +1,18 @@
-// [LDB-F16] 20-spark.md S2: one stored format. Every accepted write
-// resolves `body.format` through the registry's alias table and stores
-// natively (`spark/1`) -- never the caller's own literal -- and every
-// write that carries an EXISTING record's payload forward (delete,
-// restore, transfer, PATCH) converts it through `storedAsSpark` rather
-// than re-storing whatever the record happened to be. This is the
-// dedicated matrix S2's own plan calls for: verb x format, over
-// {spark/1, akl/1 (alias), cmini/1 (unregistered), mana2/1 (output-only),
-// unknown}.
+// [LDB-F16] Every accepted write resolves `body.format` through the
+// registry and stores natively (`spark/1`) -- verb x format, over
+// {spark/1, mana2/1 (output-only), unknown}. 21-formats.md D5/D12 deleted
+// every alias (`akl/1`) and the unregistered `cmini/1` write path along
+// with the legacy carry-forward (`storedAsSpark`) this file used to have
+// a dedicated "every legacy format converts" matrix for -- after the D8
+// wipe no row is ever stored as a legacy format, so delete/restore/
+// transfer/PATCH carrying a record's own (already-native) format forward
+// is covered by the ordinary tests in write.test.ts/restore.test.ts/
+// transfer.test.ts/patch.test.ts, not a second matrix here.
 import { env } from "cloudflare:test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Bindings } from "../../src/env";
-import { appendWrite } from "../../src/core/events";
 import { fixedClock } from "../../src/core/time";
-import { AKL_PAYLOAD, BOOTSTRAP_ADMIN, CMINI_PAYLOAD, actorFixture, pinTestClock, register, uniqueName, writeFetch } from "./write-support";
+import { AKL_PAYLOAD, actorFixture, pinTestClock, register, uniqueName, writeFetch } from "./write-support";
 
 const db = (env as unknown as Bindings).DB;
 const clock = fixedClock("2026-07-15T00:00:00.000Z");
@@ -40,17 +40,8 @@ describe("[LDB-F16] POST /v1/layouts: format resolution", () => {
     expect(row?.format).toBe("spark/1");
   });
 
-  it("[LDB-F20] akl/1 (alias) -> 201, stores spark/1 natively, response relabelled akl/1", async () => {
-    const res = await writeFetch("/v1/layouts", "POST", headers(), { name: uniqueName("fwm-akl"), format: "akl/1", payload: AKL_PAYLOAD });
-    expect(res.status).toBe(201);
-    const body = await res.json<{ id: string; format: string }>();
-    expect(body.format).toBe("akl/1"); // relabelled: the request named akl/1
-    const row = await db.prepare("SELECT format FROM layouts WHERE id = ?").bind(body.id).first<{ format: string }>();
-    expect(row?.format).toBe("spark/1"); // stored natively
-  });
-
   it("cmini/1 -> 400 unknown_format, known lists registered ids only", async () => {
-    const res = await writeFetch("/v1/layouts", "POST", headers(), { name: uniqueName("fwm-cmini"), format: "cmini/1", payload: CMINI_PAYLOAD });
+    const res = await writeFetch("/v1/layouts", "POST", headers(), { name: uniqueName("fwm-cmini"), format: "cmini/1", payload: { board: "ortho", keys: {} } });
     expect(res.status).toBe(400);
     const body = await res.json<{ error: string; format: string; known: string[] }>();
     expect(body.error).toBe("unknown_format");
@@ -83,71 +74,19 @@ describe("[LDB-F16] POST /v1/layouts: format resolution", () => {
   });
 });
 
-async function seedLegacy(owner: string, format: "cmini/1" | "akl/1" | "spark/1" = "cmini/1") {
-  const { record } = await appendWrite(db, clock, {
-      upstream: null,
-    kind: "created",
-    name: uniqueName("fwm-legacy"),
-    owner,
-    modified_at: clock(),
-    format,
-    payload: format === "cmini/1" ? CMINI_PAYLOAD : AKL_PAYLOAD,
-    actor: owner,
-    via: "discord",
-    source: { client: "discord-app:test", version: null },
-    hasMagic: false,
+async function seedSpark(owner: string) {
+  const res = await writeFetch("/v1/layouts", "POST", register(actorFixture(), `tok-${uniqueName("fwm-seed")}`, owner), {
+    name: uniqueName("fwm-seed"),
+    format: "spark/1",
+    payload: AKL_PAYLOAD,
   });
-  return record;
+  vi.unstubAllGlobals();
+  return res.json<{ id: string; rev: number; format: string; owner: string; payload: unknown }>();
 }
-
-// [LDB-F20] The deployed bot's own three read points
-// (bot/src/cache/apply.ts's write response, magic/source.ts,
-// commands/magic.ts) all branch on `format === 'akl/1'` -- this is the
-// exact write-response and 409-stale shape it depends on staying stable
-// through the transition (design/layout-db/20-spark.md §1.12).
-describe("[LDB-F20] the deployed-bot path: write response and 409 stale relabel to akl/1", () => {
-  it("[LDB-F20] PUT with body.format 'akl/1' -> 200 response format 'akl/1'", async () => {
-    const record = await seedLegacy(OWNER, "akl/1");
-    const h = headers();
-    const res = await writeFetch(`/v1/layouts/${record.id}`, "PUT", { ...h, "If-Match": `"${record.rev}"` }, { format: "akl/1", payload: AKL_PAYLOAD });
-    expect(res.status).toBe(200);
-    await expect(res.json()).resolves.toMatchObject({ format: "akl/1" });
-  });
-
-  it("a 409 stale body for a PUT whose body said format 'akl/1' carries record.format 'akl/1'", async () => {
-    const record = await seedLegacy(OWNER, "akl/1");
-    const h = headers();
-    const res = await writeFetch(
-      `/v1/layouts/${record.id}`,
-      "PUT",
-      { ...h, "If-Match": `"${record.rev + 5}"` }, // deliberately stale
-      { format: "akl/1", payload: AKL_PAYLOAD },
-    );
-    expect(res.status).toBe(409);
-    const body = await res.json<{ error: string; record: { format: string } }>();
-    expect(body.error).toBe("stale");
-    expect(body.record.format).toBe("akl/1");
-  });
-
-  it("a 409 stale body for a PUT whose body said format 'spark/1' carries record.format 'spark/1' (no relabel)", async () => {
-    const record = await seedLegacy(OWNER, "spark/1");
-    const h = headers();
-    const res = await writeFetch(
-      `/v1/layouts/${record.id}`,
-      "PUT",
-      { ...h, "If-Match": `"${record.rev + 5}"` },
-      { format: "spark/1", payload: AKL_PAYLOAD },
-    );
-    expect(res.status).toBe(409);
-    const body = await res.json<{ error: string; record: { format: string } }>();
-    expect(body.error).toBe("stale");
-    expect(body.record.format).toBe("spark/1");
-  });
-});
 
 describe("[LDB-F16] PUT /v1/layouts/{ref}: same resolution rules apply", () => {
   it("mana2/1 -> 400 format_not_writable, record unchanged", async () => {
-    const record = await seedLegacy(OWNER, "akl/1");
+    const record = await seedSpark(OWNER);
     const h = headers();
     const res = await writeFetch(`/v1/layouts/${record.id}`, "PUT", { ...h, "If-Match": `"${record.rev}"` }, { format: "mana2/1", payload: {} });
     expect(res.status).toBe(400);
@@ -157,86 +96,12 @@ describe("[LDB-F16] PUT /v1/layouts/{ref}: same resolution rules apply", () => {
   });
 
   it("cmini/1 -> 400 unknown_format, record unchanged", async () => {
-    const record = await seedLegacy(OWNER, "akl/1");
+    const record = await seedSpark(OWNER);
     const h = headers();
-    const res = await writeFetch(`/v1/layouts/${record.id}`, "PUT", { ...h, "If-Match": `"${record.rev}"` }, { format: "cmini/1", payload: CMINI_PAYLOAD });
+    const res = await writeFetch(`/v1/layouts/${record.id}`, "PUT", { ...h, "If-Match": `"${record.rev}"` }, { format: "cmini/1", payload: { board: "ortho", keys: {} } });
     expect(res.status).toBe(400);
     await expect(res.json()).resolves.toMatchObject({ error: "unknown_format", format: "cmini/1" });
     const row = await db.prepare("SELECT rev FROM layouts WHERE id = ?").bind(record.id).first<{ rev: number }>();
     expect(row?.rev).toBe(record.rev);
   });
-});
-
-// -- carry-forward writes: every legacy-stored record converts ---------
-
-describe("[LDB-F16] [LDB-F21] carry-forward writes always store spark/<latest>", () => {
-  for (const format of ["cmini/1", "akl/1"] as const) {
-    it(`[LDB-F21] delete of a ${format}-stored record -> tombstone stores spark/1`, async () => {
-      const record = await seedLegacy(OWNER, format);
-      const h = headers();
-      const res = await writeFetch(`/v1/layouts/${record.id}`, "DELETE", { ...h, "If-Match": `"${record.rev}"` });
-      expect(res.status).toBe(200);
-      const body = await res.json<{ format: string }>();
-      expect(body.format).toBe("spark/1");
-      const row = await db.prepare("SELECT format FROM layouts WHERE id = ?").bind(record.id).first<{ format: string }>();
-      expect(row?.format).toBe("spark/1");
-    });
-
-    it(`restore of a ${format}-stored tombstone -> stores spark/1`, async () => {
-      const record = await seedLegacy(OWNER, format);
-      await appendWrite(db, clock, {
-      upstream: null,
-        kind: "deleted",
-        layoutId: record.id,
-        name: record.name,
-        owner: record.owner,
-        modified_at: clock(),
-        format: record.format,
-        payload: record.payload,
-        actor: OWNER,
-        via: "discord",
-        source: { client: "discord-app:test", version: null },
-        deleted: true,
-      });
-      const h = headers();
-      const res = await writeFetch(`/v1/layouts/${record.id}/restore`, "POST", h);
-      expect(res.status).toBe(200);
-      const body = await res.json<{ format: string }>();
-      expect(body.format).toBe("spark/1");
-    });
-
-    it(`transfer of a ${format}-stored record -> stores spark/1`, async () => {
-      const record = await seedLegacy(OWNER, format);
-      const fake = actorFixture();
-      const h = register(fake, `tok-${uniqueName("fwm-transfer-target")}`, "20000000000000009");
-      const meRes = await writeFetch("/v1/me", "GET", h);
-      expect(meRes.status).toBe(200);
-      vi.unstubAllGlobals();
-
-      const owner = register(actorFixture(), `tok-${uniqueName("fwm-transfer-owner")}`, OWNER);
-      const res = await writeFetch(
-        `/v1/layouts/${record.id}/transfer`,
-        "POST",
-        { ...owner, "If-Match": `"${record.rev}"` },
-        { to: "20000000000000009" },
-      );
-      expect(res.status).toBe(200);
-      const body = await res.json<{ format: string }>();
-      expect(body.format).toBe("spark/1");
-    });
-
-    it(`PATCH {name} on a ${format}-stored record -> stores spark/1`, async () => {
-      const record = await seedLegacy(OWNER, format);
-      const h = headers();
-      const res = await writeFetch(
-        `/v1/layouts/${record.id}`,
-        "PATCH",
-        { ...h, "If-Match": `"${record.rev}"` },
-        { name: uniqueName("fwm-patched") },
-      );
-      expect(res.status).toBe(200);
-      const row = await db.prepare("SELECT format FROM layouts WHERE id = ?").bind(record.id).first<{ format: string }>();
-      expect(row?.format).toBe("spark/1");
-    });
-  }
 });

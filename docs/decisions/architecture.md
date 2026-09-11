@@ -6,6 +6,18 @@ One Cloudflare Worker over one D1 database. Every record is stored in one format
 
 This is round 2, following a review of round 1. It differs from what is deployed on `ldb-v3`; the last section lists how.
 
+**Dated note (2026-09-11, `21-formats.md` F1).** §6/§7 below describe the
+one-time migration this design proposed (the `migrated` event kind, the
+migrate tick, `core/follows.ts`'s legacy upstream fallback, keeping
+`tag`/`blame`/`combos`/`link` in a `spark/1` `x.cmini` bag during the
+transition) as a still-open plan. It ran, then F1 deleted the whole
+mechanism -- there is no migrate tick, no `migrated` event, no `x` field
+at all (D10), and no `x.cmini` (D5): `fromCmini` just drops those four
+fields now, permanently. §3's formats table is current; §5's "migrate
+tick" bullet and §6/§7's migration-plan rows are the historical record of
+what got built and removed, not what exists today. `22-spark-spec.md` is
+the current spec for `spark/1`.
+
 ## 1 · The system
 
 <figure>
@@ -256,9 +268,9 @@ This tightens the rule the branch runs today, which lets magic-only edits keep a
 
 | format | role | what it is | who uses it | lost converting to mana2 |
 |---|---|---|---|---|
-| `spark/1` | stored | today's `akl/1`, renamed. A `keys` map with row, col and finger per character, `free` positions, a `board` object (rowstag, colstag or ortho with stagger amounts), `magic` as intent (magic keys, chiral keys, adaptive swaps, raw rules), and a namespaced `x` | akl.gg, the bot, the cmini import; every record | magic intent becomes flat rules; the either-thumb finger; an ortho board declared as ortho; `x` |
+| `spark/1` | stored | today's `akl/1`, renamed. A `keys` map with row, col and finger per character, `free` positions, a `board` object (rowstag, colstag or ortho with stagger amounts), and `magic` as intent (magic keys, chiral keys, adaptive swaps, raw rules). No free-form `x` field (`21-formats.md` D10 removed it: no format writes one and nothing reads one back) | akl.gg, the bot, the cmini import; every record | magic intent becomes flat rules; the either-thumb finger; an ortho board declared as ortho |
 | `mana2/1` | lowered | a mana2 `.jsonc` layout: `layout.fingers` and `thumbs` row strings, stagger geometry, finger digits, flat `magic.rules` | anything that computes stats, through `?as=mana2/1`; never stored, never written | — |
-| cmini v3 | import only | not a format. The importer converts each upstream detail to `spark/1` and keeps the four fields spark has no place for (`tag`, `blame`, `combos`, `link`) in `x.cmini` | the importer | — |
+| cmini v3 | import only | not a format, and not readable back out either (`21-formats.md` D5 deleted `toCmini` and the `?as=cmini/1` read path entirely). The importer converts each upstream detail to `spark/1` and drops the four fields spark has no place for (`tag`, `blame`, `combos`, `link`) permanently -- there is no `x` left to keep them in | the importer | — |
 | `spark/2` | future | the first breaking change, whenever it comes; the standing candidate is per-key alt fingerings from #148 | — | — |
 
 <figure>

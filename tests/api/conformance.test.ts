@@ -93,7 +93,14 @@ const CONFORMANCE_CLIENT_REVOKED_ID = "conformance-client-revoked-1";
 // never embed a freshly-minted ULID, so this row is inserted directly (not
 // through the route) under a stable, non-ULID id.
 const CONFORMANCE_WEBHOOK_DELETE_ID = "conformance-webhook-delete-1";
-const CMINI_PAYLOAD = { board: "ortho" as const, keys: {} };
+// 21-formats.md D12: every stored row is spark/1 now -- `cmini/1` is
+// unregistered, so a record seeded under that literal would 500 the
+// moment any write path (transfer, delete, restore, PATCH) recomputes
+// `has_magic` via the registry. Same shape `fromCmini({board: "ortho",
+// keys: {}})` used to produce, so every fixture's expected payload (baked
+// in when this file's seeds really were cmini/1, carried forward through
+// `storedAsSpark`) stays byte-identical.
+const SPARK_PAYLOAD = { keys: {}, board: { kind: "ortho" as const, cmini: "ortho" as const } };
 const ID_PLACEHOLDERS: Record<string, string> = {};
 
 async function seedLive(name: string) {
@@ -103,8 +110,8 @@ async function seedLive(name: string) {
     name,
     owner: CONFORMANCE_OWNER,
     modified_at: CONFORMANCE_CLOCK_ISO,
-    format: "cmini/1",
-    payload: CMINI_PAYLOAD,
+    format: "spark/1",
+    payload: SPARK_PAYLOAD,
     actor: CONFORMANCE_OWNER,
     via: "discord",
     source: { client: "discord-app:test", version: null },
@@ -675,20 +682,10 @@ const REQUIRED: Record<string, RequiredCase[]> = {
   // X4 follow-up 3: the manual nightly-job-set trigger (no "paused" state
   // exists for it either).
   "POST /v1/admin/nightly/tick": [{ status: 200 }, ...A, { status: 403, code: ERROR_CODES.not_admin }, RL],
-  // 20-spark.md S4 (LDB-A5 amended, LDB-P12): the record migration's manual
-  // trigger -- same shape as diff/tick and nightly/tick above, no "paused"
-  // gate (not gated on the import pause, `expectRev` keeps the two safe to
-  // interleave).
-  "POST /v1/admin/migrate/tick": [{ status: 200 }, ...A, { status: 403, code: ERROR_CODES.not_admin }, RL],
-  // M1 (LDB-I10, design/layout-db/17-magic-ownership.md §4): same shape as
-  // `POST /v1/admin/import/tick` above, "paused" guard included.
-  "POST /v1/admin/import/strip-cmini-magic": [
-    { status: 200 },
-    ...A,
-    { status: 403, code: ERROR_CODES.not_admin },
-    { status: 409, code: ERROR_CODES.import_paused },
-    RL,
-  ],
+  // 21-formats.md D12 deleted the record migration (`POST /v1/admin/migrate
+  // /tick`) and the M1 strip route (`POST /v1/admin/import/strip-cmini
+  // -magic`) -- both were one-time cleanups with nothing left to migrate/
+  // strip after the D8 wipe.
 
   // --- phase 2: the client lane's admin routes (10 C1) -------------------
   // No 409 (client ids are freshly minted ULIDs, no name-uniqueness

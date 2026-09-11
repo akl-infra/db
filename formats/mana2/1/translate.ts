@@ -213,27 +213,25 @@ export function parseRow(row: string): RowCell[] | ParseError {
 // mana2/1 -> spark/1
 // ---------------------------------------------------------------------
 
-// Everything mana2 carries that spark/1 has no idiom for AND that this pair
-// chooses to preserve exactly rather than hold (12 §2.5 holds all four;
-// this format's `x.mana2` escape hatch -- the same pattern 01-format.md
-// §6.1 uses for `x.cmini` -- overrides that for exactly these four, since
-// none of them affect what a position/character/board-shape IS, only
-// rendering/bookkeeping metadata spark/1 genuinely has no field for. A key
-// is present here IFF it was present (at any value, including `false`/
-// `null`) on the source mana2 payload.
+// Everything mana2 carries that spark/1 has no idiom for: `board
+// .mirrorLeftRowStagger`/`board.splitAngle` (rendering-only tilt/mirror
+// hints -- neither changes what a position/character/board-shape IS,
+// only how a client draws the board) and `magic.magicKeys`/`layers`
+// (mana2-only bookkeeping). 12 §2.5 originally held all four; this pair
+// used to preserve them exactly through spark/1's now-deleted free-form
+// `x` field (21-formats.md D10 dropped it -- there is no cmini export
+// left to preserve fidelity for, and D10's own cost list already accepts
+// this kind of rendering/bookkeeping loss for cmini's `tag`/`blame`/
+// `link`). Since D10, `toSpark` silently drops all four instead: a
+// documented loss, not a hold (MF-9's sibling for this pair -- see
+// `901-splitangle-hatch`/`902-mirror-hatch` in mana2.test.ts, which name
+// the two fields this actually affects; `magicKeys`/`layers` have no
+// non-null vendored fixture to lose anything from in practice).
 export interface Mana2Extra {
   mirrorLeftRowStagger?: boolean;
   splitAngle?: number;
   magicKeys?: string[] | null;
   layers?: unknown;
-}
-
-function definedEntries<T extends object>(obj: T): Partial<T> {
-  const out: Partial<T> = {};
-  for (const [k, v] of Object.entries(obj)) {
-    if (v !== undefined) (out as Record<string, unknown>)[k] = v;
-  }
-  return out;
 }
 
 // Last duplicate wins (mana2's own load-time semantics -- the loader
@@ -357,17 +355,12 @@ export function toSpark(p: Mana2Payload): SparkPayload | Held {
     magic = { rules: rules.map((r) => ({ inputs: r.inputs, output: r.output, type: "raw" })) };
   }
 
-  const extra: Mana2Extra = definedEntries({
-    mirrorLeftRowStagger: p.board.mirrorLeftRowStagger,
-    splitAngle: p.board.splitAngle,
-    magicKeys: p.magic?.magicKeys,
-    layers: p.layers,
-  });
-
+  // `board.mirrorLeftRowStagger`/`board.splitAngle`/`magic.magicKeys`/
+  // `layers` have no spark/1 idiom and are dropped here (a documented
+  // loss since 21-formats.md D10 -- see the `Mana2Extra` comment above).
   const out: SparkPayload = { keys, board };
   if (free.length > 0) out.free = free;
   if (magic) out.magic = magic;
-  if (Object.keys(extra).length > 0) out.x = { mana2: extra };
   return out;
 }
 
@@ -468,14 +461,16 @@ export function fromSpark(p: SparkPayload): Mana2Payload {
   const leftTokens = sortSide(left).map((e) => (e.char === undefined ? "skip" : e.char === " " ? "space" : e.char));
   const rightTokens = sortSide(right).map((e) => (e.char === undefined ? "skip" : e.char === " " ? "space" : e.char));
 
-  const extra = (p.x?.["mana2"] ?? undefined) as Mana2Extra | undefined;
-
+  // No `x` on `p` to recover `mirrorLeftRowStagger`/`splitAngle`/
+  // `magicKeys`/`layers` from any more (21-formats.md D10) -- every
+  // derivation from a stored spark/1 record answers each field's default,
+  // same as a genuinely mana2-native layout that never set it.
   const derivedBoard = boardFromSpark(p.board, numMainRows);
   const board: Mana2Board = {
     isRowStaggered: derivedBoard.isRowStaggered,
     rowOrColumnStagger: derivedBoard.rowOrColumnStagger,
-    mirrorLeftRowStagger: extra?.mirrorLeftRowStagger ?? false,
-    splitAngle: extra?.splitAngle ?? 0,
+    mirrorLeftRowStagger: false,
+    splitAngle: 0,
   };
   if (!derivedBoard.isRowStaggered) {
     // colstag: pad the per-column array to the true width with 0.
@@ -490,8 +485,8 @@ export function fromSpark(p: SparkPayload): Mana2Payload {
     layout: { fingers },
     fingermap,
     board,
-    magic: { rules, magicKeys: extra && "magicKeys" in extra ? (extra.magicKeys ?? null) : null },
-    layers: extra && "layers" in extra ? extra.layers : null,
+    magic: { rules, magicKeys: null },
+    layers: null,
   };
   if (leftTokens.length > 0 || rightTokens.length > 0) out.layout.thumbs = [leftTokens.join(" "), rightTokens.join(" ")];
   return out;

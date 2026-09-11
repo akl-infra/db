@@ -63,13 +63,5 @@
         "type": "raw"
       }
     ]
-  },
-  "x": {
-    "mana2": {
-      "mirrorLeftRowStagger": false,
-      "splitAngle": 0,
-      "magicKeys": null,
-      "layers": null
-    }
   }
 }

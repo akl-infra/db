@@ -15,8 +15,6 @@ import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { validatedShapes, fixturesIn } from "./validated-shapes.ts";
 import * as spark1 from "../../formats/spark/1/index.ts";
-import * as cmini1 from "../../formats/adapters/cmini/index.ts";
-import { toCmini } from "../../formats/adapters/cmini/translate.ts";
 import * as mana2_1 from "../../formats/mana2/1/index.ts";
 import { parseRow, DIGIT_BY_FINGER } from "../../formats/mana2/1/translate.ts";
 
@@ -60,11 +58,13 @@ function unwrap<T>(result: T | { error: unknown }): T {
 const FINGERS = ["LP", "LR", "LM", "LI", "RI", "RM", "RR", "RP", "LT", "RT", "TB"];
 // mana2/1's own `setFingermap` operates over `layout.fingers` ROW STRINGS,
 // not a `p.keys` map (it has none) -- `fingermapOf`/the "not in keys"/
-// "bad finger word" assertions below all assume the akl/1|cmini/1 shape.
-// Excluded here in favour of its own describe block (mana2/1
-// setFingermap, below), the same pattern this file already uses for
-// board/magic (cmini/1 setBoard, akl/1 setBoard, akl/1 setMagic are all
-// their own blocks, never squeezed into this generic one).
+// "bad finger word" assertions below all assume spark/1's shape. Excluded
+// here in favour of its own describe block (mana2/1 setFingermap, below),
+// the same pattern this file already uses for board/magic (spark/1
+// setBoard, spark/1 setMagic are their own blocks, never squeezed into
+// this generic one). 21-formats.md D5 deleted the cmini adapter's own
+// `edits.ts` entirely (a `cmini/1` record no longer exists to PATCH), so
+// spark/1 is the only member of this generic loop now.
 const EDIT_FORMATS = validatedShapes().filter((f) => f.edits !== undefined && f.id !== "mana2/1");
 
 describe("format edits (LDB-E1)", () => {
@@ -141,7 +141,7 @@ describe("format edits (LDB-E1)", () => {
                 chars.forEach((c, i) => {
                   keys[c] = { row: 0, col: i, finger: fingers[i % fingers.length] };
                 });
-                const base = format.id === "cmini/1" ? { board: "ortho" as const, keys } : { keys };
+                const base = { keys };
                 const map: Record<string, string> = {};
                 chars.forEach((c, i) => {
                   map[c] = fingers[(i + 1) % fingers.length]!;
@@ -163,44 +163,14 @@ describe("format edits (LDB-E1)", () => {
   }
 });
 
-// -- board (cmini/1): board.cmini wins; otherwise derived from board.kind
-// via the same rule to["cmini/1"] uses (01 §6.2) -- EXCEPT a hint-less
-// colstag board, which to["cmini/1"] silently defaults to "ortho" (a
-// documented translation loss) but an explicit board PATCH refuses
-// outright (09 §3 T4).
-describe("cmini/1 setBoard (LDB-E1)", () => {
-  const BASE_CMINI_PAYLOAD = { board: "ortho" as const, keys: {} };
+// 21-formats.md D5 deleted the cmini adapter's own `edits.ts` (`setBoard`
+// included) along with the rest of the cmini export -- a `cmini/1` record
+// no longer exists to PATCH, so there is no "cmini/1 setBoard" block here
+// any more.
 
-  for (const fixture of fixturesFor("spark/1")) {
-    it(`[LDB-E1] ${fixture.stem}'s board -> the word to["cmini/1"] derives (or the documented colstag refusal)`, () => {
-      const before = structuredClone(BASE_CMINI_PAYLOAD);
-      const result = cmini1.edits!.setBoard!(BASE_CMINI_PAYLOAD, fixture.payload.board);
-      expect(BASE_CMINI_PAYLOAD).toEqual(before); // purity
-
-      const hasHint = fixture.payload.board?.cmini !== undefined;
-      const isHintlessColstag = !hasHint && fixture.payload.board?.kind === "colstag";
-      if (isHintlessColstag) {
-        expect(isEditError(result)).toBe(true);
-        if (isEditError(result)) expect(result.error.error).toBe("unsupported_for_format");
-      } else {
-        const payload = unwrap<{ board: unknown }>(result);
-        const expectedWord = (toCmini(fixture.payload) as { board: unknown }).board;
-        expect(payload.board).toBe(expectedWord);
-        expect(cmini1.validate(payload).ok).toBe(true);
-      }
-    });
-  }
-
-  it("[LDB-E1] 900-colstag has no board.cmini hint (the fixture this refusal exercises)", () => {
-    const colstag = fixturesFor("spark/1").find((f) => f.stem === "900-colstag")!;
-    expect(colstag.payload.board.kind).toBe("colstag");
-    expect(colstag.payload.board.cmini).toBeUndefined();
-  });
-});
-
-// -- board (akl/1): the board vocabulary is akl/1's own, validated as a
-// whole by the pipeline's validate() re-run.
-describe("akl/1 setBoard (LDB-E1)", () => {
+// -- board (spark/1): the board vocabulary is spark/1's own, validated as
+// a whole by the pipeline's validate() re-run.
+describe("spark/1 setBoard (LDB-E1)", () => {
   for (const fixture of fixturesFor("spark/1")) {
     it(`[LDB-E1] ${fixture.stem} setBoard(p.board) is identity and pure`, () => {
       const before = structuredClone(fixture.payload);
@@ -215,11 +185,9 @@ describe("akl/1 setBoard (LDB-E1)", () => {
   }
 });
 
-// -- magic (akl/1 only -- cmini/1 has no setMagic, so PATCH{magic} on a
-// cmini/1 record is refused before edits.ts is even asked; that half of
-// the invariant is tests/api/patch.test.ts's `unsupported_for_format`
-// case, not a format-level property).
-describe("akl/1 setMagic (LDB-E1)", () => {
+// -- magic (spark/1 -- the only format PATCH{magic} was ever going to
+// touch: cmini/1 never had a setMagic, and D5 deleted it entirely).
+describe("spark/1 setMagic (LDB-E1)", () => {
   for (const fixture of fixturesFor("spark/1")) {
     it(`[LDB-E1] ${fixture.stem}: lower(setMagic(p, m)) === lower({...p, magic: m})`, () => {
       const m = fixture.payload.magic; // reuse the fixture's own magic (or undefined) as `m`

@@ -170,13 +170,5 @@
       "col": 5,
       "finger": "LI"
     }
-  ],
-  "x": {
-    "mana2": {
-      "mirrorLeftRowStagger": false,
-      "splitAngle": 0,
-      "magicKeys": null,
-      "layers": null
-    }
-  }
+  ]
 }
