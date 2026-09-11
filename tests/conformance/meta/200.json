@@ -15,6 +15,7 @@
       "revision": "2026-06-01T00:00:00.000Z",
       "layouts_modified_at": "2026-09-09T01:13:31Z",
       "authors_modified_at": "2026-06-01T00:00:00.000Z",
+      "authors_version": 32,
       "formats": [
         "spark/1",
         "mana2/1"

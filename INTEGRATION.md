@@ -91,8 +91,10 @@ Params (`src/routes/layouts.ts`, `03-api.md` §2):
 **ETag/304.** `/v1/meta`, `/v1/layouts` (list and `full=1`), `/v1/changes` and
 `/v1/authors` carry `Cache-Control: public, max-age=10` and a strong `ETag`
 (`"<seq>:<hash(query)>"`) that changes iff the event head, the wire version,
-or the query does (`LDB-R1`); a matching `If-None-Match` gets `304` after one
-indexed read:
+or the query does (`LDB-R1`). Author changes append no event, so
+`/v1/authors` keys on the authors version instead of the seq, and `/v1/meta`
+folds it in beside the seq: their tags move iff what they show does
+(`LDB-R9`). A matching `If-None-Match` gets `304` after one D1 query:
 
 ```bash
 etag=$(curl -sD - -o /dev/null …/v1/meta | grep -i '^etag:')

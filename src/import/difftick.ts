@@ -18,7 +18,7 @@ import { legacyUpstreamMap } from "../core/upstream";
 import { diffUpstream, type DiffSummary, type FetchImpl, type OursSource } from "./diff";
 
 const PAGE_SIZE = 500; // 12 §0.3: pages our side from D1 in 500-record pages, one list query per page
-const IMPORT_STATE_KEY = "cmini.last_diff";
+export const IMPORT_STATE_KEY = "cmini.last_diff"; // exported for `/v1/meta`'s one-query head (src/index.ts)
 const SAMPLE_CAP = 10;
 
 // Chunked IN-list, same shape `routes/layouts.ts`'s own `likesByLayout`

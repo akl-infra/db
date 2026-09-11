@@ -215,6 +215,17 @@ export function restoreSql(dump: Dump): string[] {
   // rehost starts with a cold auth cache and no rate-limit windows (never
   // part of the dump, 07 §6 S7).
 
+  // `authors_head` (migrations/0007, LDB-R9, LDB-D1 amended): never
+  // deleted above (its triggers need the row), and the `authors` deletes
+  // and inserts above each moved it by trigger -- so it is set LAST, to
+  // exactly the dumped value, and a restored `/v1/meta` equals the dumped
+  // one. A dump from before 0007 carries no `authors_version` and restores
+  // as 0, the value 0007 itself seeds.
+  statements.push(
+    `INSERT INTO authors_head (id, version, modified_at) VALUES (1, ${sqlLit(dump.meta.authors_version ?? 0)}, ${sqlLit(dump.meta.authors_modified_at ?? null)}) ` +
+      "ON CONFLICT(id) DO UPDATE SET version = excluded.version, modified_at = excluded.modified_at",
+  );
+
   return statements;
 }
 

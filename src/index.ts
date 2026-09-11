@@ -4,16 +4,16 @@ import { type ActorVariables, requireActorOnWrites, SAFE_METHODS } from "./auth/
 import { type AuthDeps, resolveActor } from "./auth/discord";
 import { rateLimitWrites } from "./auth/ratelimit";
 import { ApiError, internal } from "./core/errors";
-import { cachePut, conditional, etagFor, headSeq } from "./core/etag";
+import { cachePut, conditional, etagFor, readHead } from "./core/etag";
 import { runJob } from "./core/jobs";
+import { metaFormats, readMetaCore } from "./core/meta";
 import { runNightly } from "./core/nightly";
 import { systemClock } from "./core/time";
 import { drain as drainWebhooks, type WebhookFetchImpl } from "./core/webhooks";
-import { list as listFormats } from "./formats/registry";
 import type { FetchImpl } from "./import/upstream";
 import { tick as cminiTick } from "./import/cmini";
-import { diffTick, lastDiff } from "./import/difftick";
-import { lastDrill } from "./core/admins";
+import { diffTick, IMPORT_STATE_KEY as LAST_DIFF_KEY, type LastDiffRecord } from "./import/difftick";
+import { DRILL_KEY, type DrillRecord } from "./core/admins";
 import { adminRoute } from "./routes/admin";
 import { authorsRoute } from "./routes/authors";
 import { changelogRoute } from "./routes/changelog";
@@ -86,49 +86,49 @@ app.use("/v1/*", async (c, next) => {
   }
 });
 
-// GET /v1/meta -- the service's head: counts, the event cursor, and the
-// registered formats. Every field comes from a real D1 query; a fresh
-// database (no rows anywhere) answers the all-zero/null body below.
-// `seq` doubles as the ETag's head (core/etag.ts) -- read it first, via the
-// same one-indexed-read query etag.ts itself would do, so a 304 costs
-// exactly that read plus (X4) the two `import_state` PK lookups below:
-// `last_diff`/`last_drill` never bump `seq` (neither the diff cron nor a
-// drill report appends an event, 12 §6.4), so without folding their own
-// `at` into the ETag's query hash a client polling with `If-None-Match`
-// could see 304 forever after a fresh diff/drill run -- exactly the
-// staleness LDB-M1's meta-watch exists to catch.
+// GET /v1/meta -- the service's head: counts, the event cursor, the
+// authors version, and the registered formats. Every field comes from a
+// real D1 query; a fresh database (no rows anywhere) answers the
+// all-zero/null body.
+//
+// The ETag (LDB-R9..R11) is computed from `readHead` (core/etag.ts) --
+// ONE D1 query: the event head, `authors_head`'s row, and (X4) the two
+// `import_state` records -- plus the in-memory format registry. That is
+// every input the body is a function of, and the body carries each of
+// them, so the ETag changes iff the body does:
+//   - `last_diff`/`last_drill` never bump `seq` (neither the diff cron nor
+//     a drill report appends an event, 12 §6.4); without them in the tag
+//     a poller could see 304 forever after a fresh diff/drill run
+//     (LDB-M1);
+//   - an author-only change (a new id or a rename, from the import or
+//     either auth lane) appends no event either; `authors_head` moves on
+//     exactly those (migrations/0007's triggers) and never on
+//     `last_seen_at` bookkeeping, so a sign-in that keeps its name still
+//     gets the bot's per-command check a 304.
+// A 304 costs that one query.
+const META_STATE_KEYS = [LAST_DIFF_KEY, DRILL_KEY] as const;
+
 app.get("/v1/meta", async (c) => {
   const db = c.env.DB;
-  const seq = await headSeq(db);
-  const [diffRecord, drillRecord] = await Promise.all([lastDiff(db), lastDrill(db)]);
-  const etag = await etagFor(seq, { last_diff_at: diffRecord?.at ?? null, last_drill_at: drillRecord?.at ?? null });
+  const head = await readHead(db, META_STATE_KEYS);
+  const [diffRaw, drillRaw] = head.state;
+  const diffRecord = diffRaw === null || diffRaw === undefined ? null : (JSON.parse(diffRaw) as LastDiffRecord);
+  const drillRecord = drillRaw === null || drillRaw === undefined ? null : (JSON.parse(drillRaw) as DrillRecord);
+  const lastDiffWire = diffRecord === null ? null : { at: diffRecord.at, ok: diffRecord.ok };
+  const lastDrillWire = drillRecord === null ? null : { at: drillRecord.at, ok: drillRecord.ok };
+  const etag = await etagFor(head.seq, {
+    authors: head.authors,
+    last_diff: lastDiffWire,
+    last_drill: lastDrillWire,
+    formats: metaFormats(),
+  });
   const short = await conditional(c, etag, CACHE_CONTROL);
   if (short) return short;
 
-  // `seq` is already known from `headSeq()` above -- this second query only
-  // needs the head event's `at` (its `revision` timestamp).
-  const [layoutRow, authorRow, eventRow] = await Promise.all([
-    db
-      .prepare(
-        "SELECT COUNT(*) AS n, MAX(modified_at) AS modified FROM layouts WHERE deleted = 0",
-      )
-      .first<{ n: number; modified: string | null }>(),
-    db
-      .prepare("SELECT COUNT(*) AS n, MAX(last_seen_at) AS modified FROM authors")
-      .first<{ n: number; modified: string | null }>(),
-    db.prepare("SELECT MAX(at) AS at FROM events").first<{ at: string | null }>(),
-  ]);
-
   const res = c.json({
-    layout_count: layoutRow?.n ?? 0,
-    author_count: authorRow?.n ?? 0,
-    seq,
-    revision: eventRow?.at ?? null,
-    layouts_modified_at: layoutRow?.modified ?? null,
-    authors_modified_at: authorRow?.modified ?? null,
-    formats: listFormats().map((f) => f.id), // registered ids only (20-spark.md S1: spark/1, mana2/1 -- aliases excluded)
-    last_diff: diffRecord === null ? null : { at: diffRecord.at, ok: diffRecord.ok },
-    last_drill: drillRecord === null ? null : { at: drillRecord.at, ok: drillRecord.ok },
+    ...(await readMetaCore(db, head)),
+    last_diff: lastDiffWire,
+    last_drill: lastDrillWire,
   });
   res.headers.set("ETag", etag);
   res.headers.set("Cache-Control", CACHE_CONTROL);

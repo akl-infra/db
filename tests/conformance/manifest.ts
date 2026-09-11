@@ -34,6 +34,7 @@ import layoutsRevBadFormat from "./layouts-rev/400-unknown_format.json" with { t
 
 import authorsListOk from "./authors-list/200.json" with { type: "json" };
 import authorsList304 from "./authors-list/304.json" with { type: "json" };
+import authorsList400 from "./authors-list/400.json" with { type: "json" };
 import authorsDetailOk from "./authors-detail/200.json" with { type: "json" };
 import authorsDetail404 from "./authors-detail/404.json" with { type: "json" };
 
@@ -969,6 +970,7 @@ export const CASES: ConformanceCase[] = [
 
   kase("authors-list/200", "/v1/authors", authorsListOk),
   kase("authors-list/304", "/v1/authors", authorsList304),
+  kase("authors-list/400", "/v1/authors", authorsList400),
   kase("authors-detail/200", "/v1/authors/:user_id", authorsDetailOk),
   kase("authors-detail/404", "/v1/authors/:user_id", authorsDetail404),
 

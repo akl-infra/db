@@ -92,11 +92,16 @@ rev-bumping event carries a proven `source` (§5, decision 14); a new
 ```
 GET /v1/meta
 → { layout_count, author_count, seq, revision: "<iso of last event>",
-    layouts_modified_at, authors_modified_at, formats: ["spark/1", "mana2/1", …] }
+    layouts_modified_at, authors_modified_at, authors_version,
+    formats: ["spark/1", "mana2/1", …] }
 ```
 The one call a poller makes on a quiet tick (meta-watch, `06 §1`). `seq` is
 the event log head; `revision` is the `at` of that event (likes move it,
 `layouts_modified_at` they do not); `layout_count` counts live records.
+`authors_version` moves on every change to the author set or to an author's
+name, which appends no event, and never on sign-in bookkeeping;
+`authors_modified_at` is when the latest such change was written
+(`LDB-R2`/`LDB-R9`).
 
 ```
 GET /v1/layouts?owner=&format=&has_magic=&since=<iso>&sort=&limit=&cursor=&as=
@@ -110,6 +115,7 @@ GET /v1/layouts/{ref}/likes             → { user_ids: [sorted ascending] }
 GET /v1/layouts/{ref}/history           → [{ seq, rev, at, actor, via, kind, admin }]   oldest first
 GET /v1/layouts/{ref}/rev/{n}?as=       → the record as of rev n (layout_revs ⊕ the write event's `after`)
 GET /v1/authors                         → { "<name>": "<user_id>" }   (cmini's shape)
+GET /v1/authors?by=id                   → { "<user_id>": "<name>" }   (lossless: two ids may share a name)
 GET /v1/authors/{user_id}               → { user_id, name, layout_count, liked_count }
 GET /v1/formats                         → registry: [{ id, owner, description, role, aliases: [...], can_translate_to: [...] }]
 GET /v1/formats/{name}/{N}/schema.json

@@ -23,6 +23,7 @@ describe("GET /v1/meta", () => {
       revision: null,
       layouts_modified_at: null,
       authors_modified_at: null,
+      authors_version: 0, // migrations/0007's seed: no author has ever been written
       formats: ["spark/1", "mana2/1"],
       // X4 (12 §3 X4): {at, ok} | null off import_state's 'cmini.last_diff'
       // / 'drill.last' rows -- neither exists before a diff tick / drill
@@ -38,7 +39,26 @@ describe("GET /v1/meta", () => {
     await tick(bindings, clock, fake.fetchImpl, fake.sleepImpl);
 
     const res = await SELF.fetch("https://example.com/v1/meta");
-    const body = await res.json<{ layout_count: number; author_count: number; seq: number; revision: string | null }>();
+    const body = await res.json<{
+      layout_count: number;
+      author_count: number;
+      seq: number;
+      revision: string | null;
+      authors_version: number;
+      authors_modified_at: string | null;
+    }>();
+
+    // LDB-R2 amended (migrations/0007): the author fields are
+    // `authors_head`'s row -- one trigger bump per author insert (32 of
+    // them on a fresh table) and the inserts' own clock -- and
+    // `author_count` is the table's.
+    const headRow = await db.prepare("SELECT version, modified_at FROM authors_head WHERE id = 1").first<{ version: number; modified_at: string | null }>();
+    const countRow = await db.prepare("SELECT COUNT(*) AS n FROM authors").first<{ n: number }>();
+    expect(body.authors_version).toBe(headRow!.version);
+    expect(body.authors_version).toBe(32);
+    expect(body.authors_modified_at).toBe(headRow!.modified_at);
+    expect(body.authors_modified_at).toBe("2026-06-11T00:00:00.000Z");
+    expect(body.author_count).toBe(countRow!.n);
     expect(body.layout_count).toBe(100);
     // authors.json has 48 name entries but only 32 distinct user ids (9
     // users have >=2 recorded names -- verified against the fixture); the

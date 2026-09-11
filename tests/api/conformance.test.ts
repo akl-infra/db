@@ -532,7 +532,7 @@ const REQUIRED: Record<string, RequiredCase[]> = {
     { status: 400, code: ERROR_CODES.bad_request },
     { status: 400, code: ERROR_CODES.unknown_format },
   ],
-  "GET /v1/authors": [{ status: 200 }, { status: 304 }],
+  "GET /v1/authors": [{ status: 200 }, { status: 304 }, { status: 400, code: ERROR_CODES.bad_request }],
   "GET /v1/authors/:user_id": [{ status: 200 }, { status: 404, code: ERROR_CODES.not_found }],
   "GET /v1/formats": [{ status: 200 }],
   "GET /v1/formats/:name/:major/schema.json": [{ status: 200 }, { status: 404, code: ERROR_CODES.not_found }],

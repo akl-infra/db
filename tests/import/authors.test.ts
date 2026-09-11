@@ -132,14 +132,13 @@ async function row(userId: string): Promise<Row | undefined> {
   return (await snapshot()).find((r) => r.user_id === userId);
 }
 
-// The exact query `/v1/meta` (src/index.ts) and the dump's own meta
-// (src/dump/write.ts) derive `authors_modified_at` from. Read straight
-// from D1 rather than through `GET /v1/meta`: that route's ETag is the
-// event head alone, and an author-only change never moves it, so a
-// second fetch at the same head could be answered from `caches.default`
-// and pass vacuously.
+// What `/v1/meta` (src/index.ts) and the dump's own meta (src/dump/
+// write.ts) report as `authors_modified_at`: `authors_head.modified_at`
+// (migrations/0007), moved by trigger only when a row is inserted or
+// renamed. Read straight from D1; tests/api/authors-validator.test.ts
+// owns the route-level half (LDB-R9..R11).
 async function authorsModifiedAt(): Promise<string | null> {
-  const r = await db.prepare("SELECT MAX(last_seen_at) AS modified FROM authors").first<{ modified: string | null }>();
+  const r = await db.prepare("SELECT modified_at AS modified FROM authors_head WHERE id = 1").first<{ modified: string | null }>();
   return r?.modified ?? null;
 }
 

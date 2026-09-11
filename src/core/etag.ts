@@ -5,12 +5,69 @@
 // head get different ETags but the same query at the same head always
 // agrees. `headSeq()` is the ONE indexed read (`MAX(seq)`) a route does
 // before anything else; a 304 costs exactly that one read.
+//
+// LDB-R9..R11: `/v1/meta` and `/v1/authors` also show AUTHOR data, and an
+// author-only change appends no event, so the seq alone can't validate
+// them. `/v1/authors` keys on `authors_head.version` alone (its body is a
+// function of the `authors` rows and nothing else -- no event moves it);
+// `/v1/meta` keys on the seq plus `authors_head` plus the two
+// `import_state` records it shows (`readHead`, still one query).
+// `authors_head` (migrations/0007) is moved by triggers on every author
+// insert, delete or rename, and by nothing else -- never by `last_seen_at`
+// bookkeeping.
 import type { Context } from "hono";
 import { canonical } from "./canonical";
 
 export async function headSeq(db: D1Database): Promise<number> {
   const row = await db.prepare("SELECT MAX(seq) AS seq FROM events").first<{ seq: number | null }>();
   return row?.seq ?? 0;
+}
+
+// `authors_head`'s one row (migrations/0007).
+export interface AuthorsHead {
+  version: number;
+  modifiedAt: string | null;
+}
+
+// `/v1/authors`' whole validator: one primary-key read.
+export async function authorsHead(db: D1Database): Promise<AuthorsHead> {
+  const row = await db
+    .prepare("SELECT version, modified_at FROM authors_head WHERE id = 1")
+    .first<{ version: number; modified_at: string | null }>();
+  return { version: row?.version ?? 0, modifiedAt: row?.modified_at ?? null };
+}
+
+export interface Head {
+  seq: number;
+  authors: AuthorsHead;
+  // `import_state.value` for each of `readHead`'s `stateKeys`, in order
+  // (`null` when the key has no row).
+  state: (string | null)[];
+}
+
+// `/v1/meta`'s whole validator in ONE round trip: the event head
+// (`MAX(seq)` on the INTEGER PRIMARY KEY), `authors_head`'s row, and one
+// `import_state` primary-key lookup per `stateKeys` entry -- each a
+// scalar subquery, so a 304 costs one D1 query of indexed reads.
+export async function readHead(db: D1Database, stateKeys: readonly string[] = []): Promise<Head> {
+  const cols = [
+    "(SELECT MAX(seq) FROM events) AS seq",
+    "(SELECT version FROM authors_head WHERE id = 1) AS authors_version",
+    "(SELECT modified_at FROM authors_head WHERE id = 1) AS authors_modified_at",
+    ...stateKeys.map((_, i) => `(SELECT value FROM import_state WHERE key = ?${i + 1}) AS state_${i}`),
+  ];
+  const row = await db
+    .prepare(`SELECT ${cols.join(", ")}`)
+    .bind(...stateKeys)
+    .first<Record<string, string | number | null>>();
+  return {
+    seq: (row?.seq as number | null) ?? 0,
+    authors: {
+      version: (row?.authors_version as number | null) ?? 0,
+      modifiedAt: (row?.authors_modified_at as string | null) ?? null,
+    },
+    state: stateKeys.map((_, i) => (row?.[`state_${i}`] as string | null | undefined) ?? null),
+  };
 }
 
 // 20-spark.md S2 (LDB-R1 amended): bumped whenever the WIRE shape changes

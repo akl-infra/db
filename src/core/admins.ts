@@ -152,7 +152,7 @@ export async function recordManualTick(
 // webhook CRUD -- neither is about a layout or an admin action a public
 // changelog reader would care about); `detail` is caller-supplied and
 // capped by the route's own schema (`routes/schemas.ts`), not here.
-const DRILL_KEY = "drill.last";
+export const DRILL_KEY = "drill.last"; // exported for `/v1/meta`'s one-query head (src/index.ts)
 
 export interface DrillRecord {
   at: string;

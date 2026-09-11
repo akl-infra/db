@@ -842,7 +842,7 @@ silently drift from what `db/src/index.ts` actually registers.
 | POST | `/v1/layouts/:ref/transfer` | user | `{to}` + `If-Match` | 200 | `if_match_required`, `bad_request`, `not_owner`, `not_found`, lane errors |
 | PUT | `/v1/layouts/:ref/like` | user | — | 200 | `not_found`, lane errors |
 | DELETE | `/v1/layouts/:ref/like` | user | — | 200 | `not_found`, lane errors |
-| GET | `/v1/authors` | none | — | 200 | — |
+| GET | `/v1/authors` | none | — | 200 | `bad_request` |
 | GET | `/v1/authors/:user_id` | none | — | 200 | `not_found` |
 | GET | `/v1/formats` | none | — | 200 | — |
 | GET | `/v1/formats/:name/:major/schema.json` | none | — | 200 | `not_found` |

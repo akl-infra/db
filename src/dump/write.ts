@@ -9,8 +9,9 @@
 // that plain-row shape is what keeps the dump byte-stable for the sha256.
 import type { Bindings } from "../env";
 import { canonical } from "../core/canonical";
-import { headSeq } from "../core/etag";
+import { readHead } from "../core/etag";
 import type { EventDbRow } from "../core/events";
+import { readMetaCore } from "../core/meta";
 import { rowToRecord, type LayoutDbRow } from "../core/records";
 import type { Clock } from "../core/time";
 import { list as listFormats } from "../formats/registry";
@@ -61,6 +62,10 @@ export interface DumpMeta {
   revision: string | null;
   layouts_modified_at: string | null;
   authors_modified_at: string | null;
+  // `authors_head.version` (migrations/0007, LDB-R9). Absent from a dump
+  // written before that migration -- restore.ts reads it as 0, the value
+  // 0007 itself seeds.
+  authors_version?: number;
   formats: string[];
 }
 
@@ -166,31 +171,12 @@ async function pageByCompositeKey<T>(db: Bindings["DB"], table: string, col1: st
   return out;
 }
 
-// Mirrors `src/index.ts`'s `GET /v1/meta` body exactly (same three queries,
-// same field names) -- duplicated rather than imported because the route
-// handler builds its response inline (headers, ETag) and isn't factored out
-// as a callable; kept in lockstep by `tests/api/dump.test.ts` comparing a
-// dump's `meta` against a live `/v1/meta` call.
+// `src/index.ts`'s `GET /v1/meta` body minus `last_diff`/`last_drill`:
+// the SAME `readMetaCore` (core/meta.ts), so the two can't drift;
+// `tests/api/dump.test.ts` also compares a dump's `meta` against a live
+// `/v1/meta` call.
 async function computeMeta(db: Bindings["DB"]): Promise<DumpMeta> {
-  const seq = await headSeq(db);
-  const [layoutRow, authorRow, eventRow] = await Promise.all([
-    db
-      .prepare("SELECT COUNT(*) AS n, MAX(modified_at) AS modified FROM layouts WHERE deleted = 0")
-      .first<{ n: number; modified: string | null }>(),
-    db
-      .prepare("SELECT COUNT(*) AS n, MAX(last_seen_at) AS modified FROM authors")
-      .first<{ n: number; modified: string | null }>(),
-    db.prepare("SELECT MAX(at) AS at FROM events").first<{ at: string | null }>(),
-  ]);
-  return {
-    layout_count: layoutRow?.n ?? 0,
-    author_count: authorRow?.n ?? 0,
-    seq,
-    revision: eventRow?.at ?? null,
-    layouts_modified_at: layoutRow?.modified ?? null,
-    authors_modified_at: authorRow?.modified ?? null,
-    formats: listFormats().map((f) => f.id),
-  };
+  return readMetaCore(db, await readHead(db));
 }
 
 export async function buildDump(env: Bindings, now: Clock): Promise<Dump> {

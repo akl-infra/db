@@ -43,6 +43,9 @@ describe("[LDB-R1] WIRE_VERSION is folded into the ETag hash", () => {
 
 const CACHE_CONTROL = "public, max-age=10";
 const CACHED_ROUTES = ["/v1/meta", "/v1/layouts", "/v1/changes", "/v1/authors"];
+// Every cached route whose body can change with an event. `/v1/authors`
+// is the one that can't (LDB-R9: it keys on `authors_head` instead).
+const SEQ_KEYED_ROUTES = ["/v1/meta", "/v1/layouts", "/v1/changes"];
 
 beforeAll(async () => {
   await seedUpstream100();
@@ -104,7 +107,12 @@ describe("[LDB-R1] ETag changes iff the event head changes, or the query changes
     expect(b.headers.get("ETag")).toBe(a.headers.get("ETag"));
   });
 
-  it("[LDB-R1] changes after any event, across every cached route (the head is global)", async () => {
+  // LDB-R1 amended by LDB-R9: `/v1/authors`' body is a function of the
+  // `authors` rows alone, so its ETag keys on `authors_head.version`, not
+  // the seq -- an event (here, a like) moves every seq-keyed route's tag
+  // and must NOT move `/v1/authors`' (a poller would pay a 200 for an
+  // unchanged body).
+  it("[LDB-R1] [LDB-R9] changes after any event on every seq-keyed route (the head is global); /v1/authors' does not move", async () => {
     const before = new Map<string, string>();
     for (const path of CACHED_ROUTES) {
       const res = await SELF.fetch(`https://example.com${path}`);
@@ -122,10 +130,13 @@ describe("[LDB-R1] ETag changes iff the event head changes, or the query changes
     });
     expect(result.seq).not.toBeNull(); // confirms an event really was appended, not a no-op
 
-    for (const path of CACHED_ROUTES) {
+    for (const path of SEQ_KEYED_ROUTES) {
       const res = await SELF.fetch(`https://example.com${path}`);
       expect(res.headers.get("ETag"), `${path} did not change after an event`).not.toBe(before.get(path));
     }
+    const authors = await SELF.fetch("https://example.com/v1/authors", { headers: { "If-None-Match": before.get("/v1/authors")! } });
+    expect(authors.status, "/v1/authors moved on an event that changed no author").toBe(304);
+    expect(authors.headers.get("ETag")).toBe(before.get("/v1/authors"));
   });
 
   it("[LDB-R1] differs for a different query at the same head", async () => {
