@@ -162,6 +162,8 @@ Each slice runs in its own worktree on a branch cut from `ldb-formats`, built by
 
 **Nothing deploys before F4.** No slice pushes to `main` or opens a PR from `layout-db-pr`: db.yml's `pr-deploy` job deploys prod `akl-db` from that branch's PRs. The live Worker, bot and stats service keep running the old wire until F4 replaces all three together. Until then an F-branch Worker runs only locally (`wrangler dev`) or in tests.
 
+**Syncing the live bot and trial site (saltorbit, 2026-09-11):** keep the bot and `db.cmini-web.pages.dev` synced with this branch so testing continues, but only at natural pause points, and not when a sync would be painful. F1 alone was not synced: its `x` removal makes every stored payload unwritable, so syncing it meant a full wipe and re-import, and F2 + F3 need one anyway (D8). The first sync is therefore F4.
+
 ### F1 — spark/1 cleanup (format package, and the dead code it strands)
 
 - D5: delete `toCmini`, the `adapter:cmini` alias and the `cmini/1` read path (`registry.ts` ALIASES/translate, `adapters/cmini/translate.ts`, `adapters/cmini/edits.ts`, `cminiBoardWord` if only `toCmini` uses it), and the `held` bookkeeping for it in `db/src/import/diff.ts`.
