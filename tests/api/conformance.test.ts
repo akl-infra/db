@@ -33,8 +33,10 @@ import {
   unauthorized,
   unsupportedForFormat,
 } from "../../src/core/errors";
-import { appendWrite } from "../../src/core/events";
+import { commitWrite, type CommitInput } from "../../src/core/events";
+import { readById, formatsForLayout, type LayoutRow } from "../../src/core/records";
 import { fixedClock, type Clock } from "../../src/core/time";
+import { ulid } from "ulidx";
 import { app } from "../../src/index";
 import type { FetchImpl } from "../../src/import/upstream";
 import { FakeDiscord } from "../auth/fake-discord";
@@ -103,21 +105,52 @@ const CONFORMANCE_WEBHOOK_DELETE_ID = "conformance-webhook-delete-1";
 const SPARK_PAYLOAD = { keys: {}, board: { kind: "ortho" as const, cmini: "ortho" as const } };
 const ID_PLACEHOLDERS: Record<string, string> = {};
 
+// NOTE (F2 follow-up owed): this whole file's fixtures (`tests/conformance/
+// **`, 357 JSON files) still encode the PRE-F2 wire shape (bare `rev`,
+// unscoped If-Match, no `formats` map, `?as=` instead of required
+// `?format=`, etc.) -- 21-formats.md's wire change is a deliberate,
+// documented one (LDB-R3), but regenerating 357 byte-exact fixtures (and
+// the request shapes that produce them) is a dedicated follow-up task of
+// its own, out of scope for this slice. This file is kept COMPILING
+// (`commitWrite` instead of the deleted `appendWrite`) so `db/`'s tsc gate
+// stays clean; its assertions are expected to fail at runtime until that
+// follow-up lands.
 async function seedLive(name: string) {
-  const { record } = await appendWrite(db, fixedClock(CONFORMANCE_CLOCK_ISO), {
-      upstream: null,
-    kind: "created",
-    name,
-    owner: CONFORMANCE_OWNER,
+  const input: CommitInput = {
+    layoutId: ulid(),
+    creating: true,
+    currentN: 0,
+    currentLayout: null,
+    currentFormats: new Map(),
+    layout: { kind: "created", name, owner: CONFORMANCE_OWNER, created_at: CONFORMANCE_CLOCK_ISO, deleted: false },
+    format: { kind: "format_added", lineage: "spark", format: "spark/1", payload: SPARK_PAYLOAD, hasMagic: false },
     modified_at: CONFORMANCE_CLOCK_ISO,
-    format: "spark/1",
-    payload: SPARK_PAYLOAD,
     actor: CONFORMANCE_OWNER,
     via: "discord",
     source: { client: "discord-app:test", version: null },
-    hasMagic: false,
-  });
-  return record;
+    upstream: null,
+  };
+  const { layout } = await commitWrite(db, fixedClock(CONFORMANCE_CLOCK_ISO), input);
+  return layout;
+}
+
+async function tombstone(record: LayoutRow): Promise<void> {
+  const current = (await readById(db, record.id))!;
+  const formats = await formatsForLayout(db, record.id);
+  const input: CommitInput = {
+    layoutId: record.id,
+    creating: false,
+    currentN: current.n,
+    currentLayout: current,
+    currentFormats: formats,
+    layout: { kind: "deleted", name: current.name, owner: current.owner, created_at: current.created_at, deleted: true },
+    modified_at: CONFORMANCE_CLOCK_ISO,
+    actor: CONFORMANCE_OWNER,
+    via: "discord",
+    source: { client: "discord-app:test", version: null },
+    upstream: current.upstream,
+  };
+  await commitWrite(db, fixedClock(CONFORMANCE_CLOCK_ISO), input);
 }
 
 let writeFixturesReady: Promise<void> | null = null;
@@ -218,20 +251,7 @@ async function seedWriteFixtures(): Promise<void> {
   await seedLive("QWERTY"); // T5: the bot-parity like refusal (0.1), case-insensitive
 
   const restoreOk = await seedLive("cw-restore-1");
-  await appendWrite(db, fixedClock(CONFORMANCE_CLOCK_ISO), {
-      upstream: null,
-    kind: "deleted",
-    layoutId: restoreOk.id,
-    name: restoreOk.name,
-    owner: restoreOk.owner,
-    modified_at: CONFORMANCE_CLOCK_ISO,
-    format: restoreOk.format,
-    payload: restoreOk.payload,
-    actor: CONFORMANCE_OWNER,
-    via: "discord",
-    source: { client: "discord-app:test", version: null },
-    deleted: true,
-  });
+  await tombstone(restoreOk);
   ID_PLACEHOLDERS.__CW_RESTORE_ID__ = restoreOk.id;
 
   const restoreLive = await seedLive("cw-restore-live-1");
@@ -319,37 +339,11 @@ function ensureRestoreExtras(): Promise<void> {
 
 async function seedRestoreExtras(): Promise<void> {
   const restoreOther = await seedLive("cw-restore-other-1");
-  await appendWrite(db, fixedClock(CONFORMANCE_CLOCK_ISO), {
-      upstream: null,
-    kind: "deleted",
-    layoutId: restoreOther.id,
-    name: restoreOther.name,
-    owner: restoreOther.owner,
-    modified_at: CONFORMANCE_CLOCK_ISO,
-    format: restoreOther.format,
-    payload: restoreOther.payload,
-    actor: CONFORMANCE_OWNER,
-    via: "discord",
-    source: { client: "discord-app:test", version: null },
-    deleted: true,
-  });
+  await tombstone(restoreOther);
   ID_PLACEHOLDERS.__CW_RESTORE_OTHER_ID__ = restoreOther.id; // 403 not_owner: restored by conformance-other-token
 
   const restoreTaken = await seedLive("cw-restore-taken-1");
-  await appendWrite(db, fixedClock(CONFORMANCE_CLOCK_ISO), {
-      upstream: null,
-    kind: "deleted",
-    layoutId: restoreTaken.id,
-    name: restoreTaken.name,
-    owner: restoreTaken.owner,
-    modified_at: CONFORMANCE_CLOCK_ISO,
-    format: restoreTaken.format,
-    payload: restoreTaken.payload,
-    actor: CONFORMANCE_OWNER,
-    via: "discord",
-    source: { client: "discord-app:test", version: null },
-    deleted: true,
-  });
+  await tombstone(restoreTaken);
   ID_PLACEHOLDERS.__CW_RESTORE_TAKEN_ID__ = restoreTaken.id; // 409 name_taken: its case's own `setup` re-takes "cw-restore-taken-1" live before restoring
 }
 
@@ -466,7 +460,7 @@ const ERROR_CODES = {
   not_admin: notAdmin().body.error,
   not_found: notFound("x").body.error,
   name_taken: nameTaken("x").body.error,
-  stale: stale({ rev: 1 }, { seq: 1, at: "x", actor: "x", via: "x", kind: "x", admin: false }).body.error,
+  stale: stale("layout", 1, {}, { seq: 1, at: "x", actor: "x", via: "x", kind: "x", admin: false }).body.error,
   last_admins: lastAdmins(1).body.error,
   rate_limited: rateLimited(60, 600, 600, "actor").body.error,
   unsupported_for_format: unsupportedForFormat("x", "x").body.error,
