@@ -4,8 +4,9 @@
 // what the feed "should" contain.
 import { SELF } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
-import { appendWrite } from "../../src/core/events";
+import { commitWrite, type CommitInput } from "../../src/core/events";
 import { fixedClock } from "../../src/core/time";
+import { ulid } from "ulidx";
 import { db, seedUpstream100 } from "./support";
 
 const CMINI_PAYLOAD = { board: "ortho" as const, keys: {} };
@@ -57,21 +58,23 @@ describe("GET /admin/changelog", () => {
 
   it("[LDB-H3] a name with '<'/'>' is escaped, never rendered as a literal tag", async () => {
     const clock = fixedClock("2026-06-15T00:00:00.000Z");
-    const { record } = await appendWrite(db, clock, {
-      upstream: null,
-      kind: "created",
-      name: "<b>x",
-      owner: "700000000000000001",
-      modified_at: "2026-06-15T00:00:00.000Z",
-      format: "cmini/1",
-      payload: CMINI_PAYLOAD,
+    const input: CommitInput = {
+      layoutId: ulid(),
+      creating: true,
+      currentN: 0,
+      currentLayout: null,
+      currentFormats: new Map(),
+      layout: { kind: "created", name: "<b>x", owner: "700000000000000001", created_at: clock(), deleted: false },
+      format: { kind: "format_added", lineage: "spark", format: "spark/1", payload: CMINI_PAYLOAD, hasMagic: false },
+      modified_at: clock(),
       actor: "700000000000000001",
       via: "discord",
       source: { client: "discord-app:test", version: null },
-      hasMagic: false,
-    });
+      upstream: null,
+    };
+    const { layout } = await commitWrite(db, clock, input);
 
-    const { html } = await fetchChangelog(`?layout=${record.id}`);
+    const { html } = await fetchChangelog(`?layout=${layout.id}`);
     expect(html).toContain("&lt;b&gt;x");
     expect(html).not.toContain("<b>x");
     // No literal <b> opening tag anywhere on the page (the escaped name is
@@ -107,7 +110,7 @@ describe("GET /admin/changelog", () => {
   });
 
   it("[LDB-H3] layout= by name and by id agree", async () => {
-    const detailRes = await SELF.fetch("https://example.com/v1/layouts/40kwh");
+    const detailRes = await SELF.fetch("https://example.com/v1/layouts/40kwh?format=spark/1");
     expect(detailRes.status).toBe(200);
     const detail = await detailRes.json<{ id: string }>();
 

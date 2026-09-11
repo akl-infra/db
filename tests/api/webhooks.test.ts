@@ -8,7 +8,8 @@ import { createExecutionContext, createScheduledController, env, waitOnExecution
 import fc from "fast-check";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Bindings } from "../../src/env";
-import { appendLike, appendWrite } from "../../src/core/events";
+import { appendLike, commitWrite, type CommitInput } from "../../src/core/events";
+import { formatsForLayout, readById } from "../../src/core/records";
 import { headSeq } from "../../src/core/etag";
 import {
   WEBHOOK_BACKOFF_S,
@@ -404,7 +405,7 @@ describe("[LDB-H1] [LDB-H4] [LDB-H5] webhooks", () => {
   });
 
   describe("delivery", () => {
-    it("[LDB-H1] a write delivers exactly one signed POST, with the seq/webhook-id headers, verifiable with the right secret and not with a wrong one", async () => {
+    it("[LDB-H1] a create delivers two signed POSTs (created + format_added, 21-formats.md §2.2), each with the seq/webhook-id headers, verifiable with the right secret and not with a wrong one", async () => {
       const secret = "delivery-secret-1234567890ab";
       // Keep our own reference to the FakeDiscord instance (rather than
       // going through `ownerHeaders()`, which discards it) so the combined
@@ -431,12 +432,18 @@ describe("[LDB-H1] [LDB-H4] [LDB-H5] webhooks", () => {
       // `writeFetch` (write-support.ts) already awaited the nudge's own
       // drain() before returning -- the delivery attempt has necessarily
       // run by now.
-      expect(receiver.requests).toHaveLength(1);
+      expect(receiver.requests).toHaveLength(2);
       const req = receiver.requests[0]!;
       expect(req.headers["X-Akl-Webhook-Id"]).toBe(hook.id);
       const body = JSON.parse(req.body) as { seq: number; kind: string };
       expect(body.kind).toBe("created");
       expect(req.headers["X-Akl-Seq"]).toBe(String(body.seq));
+
+      const req2 = receiver.requests[1]!;
+      const body2 = JSON.parse(req2.body) as { seq: number; kind: string; format: string | null };
+      expect(body2.kind).toBe("format_added");
+      expect(body2.format).toBe("spark/1");
+      expect(body2.seq).toBe(body.seq + 1);
 
       const [, hex] = req.headers["X-Akl-Signature"]!.split("=");
       const expected = await sign(secret, req.headers["X-Akl-Timestamp"]!, req.body);
@@ -544,8 +551,8 @@ describe("[LDB-H1] [LDB-H4] [LDB-H5] webhooks", () => {
       const createRes = await writeFetch("/v1/webhooks", "POST", createHeaders, { ...VALID_BODY, kinds: ["liked"] });
       const hook = await createRes.json<WebhookWire>();
 
-      const { record } = await appendCreatedLayout();
-      await appendLikeDirect(record.id);
+      const { layoutId } = await appendCreatedLayout();
+      await appendLikeDirect(layoutId);
 
       const receiver = new FakeReceiver();
       const head = await currentHeadSeq();
@@ -1073,21 +1080,29 @@ describe("[LDB-H1] [LDB-H4] [LDB-H5] webhooks", () => {
               // own property test.
               await db.prepare("DELETE FROM webhooks").run();
               const writeClock = steppingClock("2026-08-01T00:00:00.000Z", 1000);
-              let counter = 0;
+              // `n` pending events, each ONE event (a layout-scope rename on
+              // a lazily-created shared layout) -- a fresh `commitWrite`
+              // create would append TWO events per call (21-formats.md
+              // §2.2), breaking this property's "n pending events" baseline
+              // math below.
+              const propLayoutId = await seedSharedLayout();
               for (let i = 0; i < n; i++) {
-                await appendWrite(db, writeClock, {
-                  upstream: null,
-                  kind: "created",
-                  name: uniqueName(`wh-prop-${counter++}`),
-                  owner: "wh-prop-owner",
+                const current = (await readById(db, propLayoutId))!;
+                const formats = await formatsForLayout(db, propLayoutId);
+                const input: CommitInput = {
+                  layoutId: propLayoutId,
+                  creating: false,
+                  currentN: current.n,
+                  currentLayout: current,
+                  currentFormats: formats,
+                  layout: { kind: "renamed", name: uniqueName(`wh-prop-${i}`), owner: "wh-prop-owner", created_at: current.created_at, deleted: false },
                   modified_at: writeClock(),
-                  format: "cmini/1",
-                  payload: {},
                   actor: "wh-prop-owner",
                   via: "discord",
                   source: { client: "discord-app:test", version: null },
-                  hasMagic: false,
-                });
+                  upstream: current.upstream,
+                };
+                await commitWrite(db, writeClock, input);
               }
               const head = await headSeq(db);
               const baseline = head - n; // this hook's starting cursor: strictly before every event just appended
@@ -1259,27 +1274,65 @@ function mulberry32(seed: number): () => number {
 }
 
 // --- fixtures: append events directly (bypassing the route/nudge) so a
-// delivery test controls exactly when `drain()` runs. ---------------------
+// delivery test controls exactly when `drain()` runs. This suite's own
+// notion of "one pending event" predates F2 and doesn't care WHICH kind it
+// is or which layout it's about -- a fresh `commitWrite` create now always
+// appends TWO events (`created` + `format_added`, 21-formats.md §2.2), so
+// every fixture here instead does ONE rename (layout scope) on a lazily
+// created shared layout, keeping "one call = one event = one seq" true. ---
 
 let apCounter = 0;
-async function appendCreatedLayout() {
-  return appendWrite(db, fixedClock("2026-07-01T00:00:00.000Z"), {
-      upstream: null,
-    kind: "created",
-    name: uniqueName(`wh-fixture-${apCounter++}`),
-    owner: "wh-fixture-owner",
+let sharedLayoutId: string | null = null;
+async function seedSharedLayout(): Promise<string> {
+  if (sharedLayoutId !== null) return sharedLayoutId;
+  const input: CommitInput = {
+    layoutId: ulid(),
+    creating: true,
+    currentN: 0,
+    currentLayout: null,
+    currentFormats: new Map(),
+    layout: { kind: "created", name: uniqueName("wh-shared"), owner: "wh-fixture-owner", created_at: "2026-07-01T00:00:00.000Z", deleted: false },
+    format: { kind: "format_added", lineage: "spark", format: "spark/1", payload: {}, hasMagic: false },
     modified_at: "2026-07-01T00:00:00.000Z",
-    format: "cmini/1",
-    payload: {},
     actor: "wh-fixture-owner",
     via: "discord",
     source: { client: "discord-app:test", version: null },
-    hasMagic: false,
-  });
+    upstream: null,
+  };
+  const { layout } = await commitWrite(db, fixedClock("2026-07-01T00:00:00.000Z"), input);
+  sharedLayoutId = layout.id;
+  return sharedLayoutId;
+}
+
+// One event (a layout-scope rename), one seq -- `owner` lets a caller vary
+// the event's own `owner` field (webhooks filter on it).
+async function appendOneEvent(owner = "wh-fixture-owner"): Promise<{ seq: number; layoutId: string }> {
+  const id = await seedSharedLayout();
+  const current = (await readById(db, id))!;
+  const formats = await formatsForLayout(db, id);
+  const input: CommitInput = {
+    layoutId: id,
+    creating: false,
+    currentN: current.n,
+    currentLayout: current,
+    currentFormats: formats,
+    layout: { kind: "renamed", name: uniqueName(`wh-fixture-${apCounter++}`), owner, created_at: current.created_at, deleted: false },
+    modified_at: "2026-07-01T00:00:00.000Z",
+    actor: owner,
+    via: "discord",
+    source: { client: "discord-app:test", version: null },
+    upstream: current.upstream,
+  };
+  const result = await commitWrite(db, fixedClock("2026-07-01T00:00:00.000Z"), input);
+  return { seq: result.seqs[0]!, layoutId: id };
+}
+
+async function appendCreatedLayout(): Promise<{ seq: number; layoutId: string }> {
+  return appendOneEvent();
 }
 
 async function appendOne(): Promise<{ seq: number }> {
-  const { seq } = await appendCreatedLayout();
+  const { seq } = await appendOneEvent();
   return { seq };
 }
 
@@ -1288,19 +1341,7 @@ async function appendLikeDirect(layoutId: string): Promise<void> {
 }
 
 async function appendWriteAs(owner: string): Promise<void> {
-  await appendWrite(db, fixedClock("2026-07-01T00:00:00.000Z"), {
-      upstream: null,
-    kind: "created",
-    name: uniqueName(`wh-owner-${apCounter++}`),
-    owner,
-    modified_at: "2026-07-01T00:00:00.000Z",
-    format: "cmini/1",
-    payload: {},
-    actor: owner,
-    via: "discord",
-    source: { client: "discord-app:test", version: null },
-    hasMagic: false,
-  });
+  await appendOneEvent(owner);
 }
 
 async function currentHeadSeq(): Promise<number> {
