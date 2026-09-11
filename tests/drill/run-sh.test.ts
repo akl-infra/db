@@ -48,6 +48,7 @@ function emptyDumpBytes(): { gz: Buffer; sha256: string } {
       formats: [],
     },
     records: [],
+    layout_formats: [],
     layout_revs: [],
     likes: [],
     authors: [],
