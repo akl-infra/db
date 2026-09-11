@@ -17,7 +17,4 @@ Source: xsznix's review in saltorbit's test server, #general, 2026-09-11 11:28â€
 | D7 | **Out of scope:** Fossil-style content-addressed revisions and WASM format modules ("overkill"; "idc about wasm"). |
 | D8 | **No data migration.** layoutdb is wiped and rebuilt from cmini and akl.gg after the schema change (standing rule: layoutdb is disposable). |
 | D9 | **Docs move with the code.** Each slice updates `architecture.md` (the `/layoutdb/` page), `20-spark.md`, `db/README.md`, `bot/README.md` and the invariant IDs it touches. A spark/1 spec page is part of this work. |
-
-## Open
-
-- What spark's free-form `x` field is for. Today its only use is `x.cmini.link`. Proposal: metadata only, grouped by client (`x.cmini`, `x.aklgg`), never affecting how a layout types or is analyzed.
+| D10 | **spark/1 drops its free-form `x` field.** It existed so the cmini import could round-trip exactly (`x.cmini` held `tag`, `blame`, `combos` and `link`, which spark has nowhere to put) and as a place for other clients' extras. D5 removes the round trip and D3 gives other clients their own formats. Cost: the combos on crescent and finch are not carried (spark has no combos idiom); `link` is already never rendered (18 C3), and nothing reads `tag` or `blame`. |
