@@ -1,30 +1,36 @@
-// Per-record import appliers (07 §6 S5's case table). Every write goes
-// through events.ts's appendWrite/appendInfo/appendLike -- the only
-// sanctioned way to touch `layouts` (onlywriter.test.ts) -- plus direct
-// reads/writes of `import_map`, a table events.ts doesn't own.
+// Per-record import appliers (21-formats.md §2.2: "cmini import" rows).
+// Every write goes through `core/events.ts`'s `commitWrite`/`appendInfo`/
+// `appendLike` (onlywriter.test.ts) -- plus direct reads/writes of
+// `import_map`, a table events.ts doesn't own. The importer touches the
+// layout's own fields (name/owner/created_at) and lineage `spark` ONLY
+// (21-formats.md §3 F2); every write is a system write, built from a
+// single fresh read and committed with THAT read's `n` as the base --
+// `commitWrite`'s own `layout_revs` PK guard is what gives this "expectN"
+// semantics (a write since the read makes the base stale, which always
+// collides with an already-committed row at that `n`) -- so a losing race
+// is a plain `RevConflictError`, caught per id by the tick loop
+// (`import/cmini.ts`), never retried here.
+import { ulid } from "ulidx";
 import type { Bindings } from "../env";
 import * as cmini1 from "../../formats/adapters/cmini/index";
 import * as akl1 from "../../formats/spark/1/index";
 import { fromCmini } from "../../formats/adapters/cmini/translate";
 import { canonical } from "../core/canonical";
-import { appendInfo, appendLike, appendWrite } from "../core/events";
+import { appendInfo, appendLike, commitWrite, type CommitInput } from "../core/events";
 import { nextUpstream, upstreamOf } from "../core/upstream";
-import { readById, readByName, type RecordRow } from "../core/records";
+import { formatsForLayout, readById, readByName, type LayoutRow } from "../core/records";
 import type { Clock } from "../core/time";
 import { parseSnowflake, type RawUpstreamDetail } from "./upstream";
 import { planAuthorNames, readStoredAuthors, writeAuthorNames } from "./authors";
 import type { DeleteAction } from "./plan";
 
+const SPARK_LINEAGE = "spark";
+const SPARK_FORMAT = "spark/1";
+const SYSTEM_SOURCE = { client: "system:cmini-import", version: null };
+
 const RECORD_FIELDS = new Set(["name", "user", "likes", "created_at", "modified_at"]);
-// LDB-I10 (M1, design/layout-db/17-magic-ownership.md §2/§3): cmini's magic
-// is never akl.gg's -- dropped here, before validation, so it can never
-// reach `ParsedUpstreamDetail.payload` at all. This is a stronger guarantee
-// than "the change-detection projection ignores it" (below): a fresh
-// `applyNew` write and `applyMapped`'s upstream-derived fields alike simply
-// never see the field, so `hasMagic(payload)` on either is always false --
-// the only way a payload built from `detail.payload` ends up carrying magic
-// is `applyMapped` deliberately carrying the RECORD's own magic forward
-// (LDB-I11, below), never upstream's.
+// LDB-I10 (M1): cmini's magic is never akl.gg's -- dropped here, before
+// validation, so it can never reach `ParsedUpstreamDetail.payload` at all.
 const IMPORT_DROPPED_FIELDS = new Set(["magic"]);
 
 export interface ParsedUpstreamDetail {
@@ -43,9 +49,6 @@ export interface ShapeErr {
 
 export type ParseResult = { ok: true; detail: ParsedUpstreamDetail } | { ok: false; error: ShapeErr };
 
-// detail minus the record fields (name user likes created_at modified_at)
-// and (LDB-I10) `magic`; `link` stays in the payload (07 §5.1) -- only
-// those six keys are ever stripped.
 function payloadFromRaw(raw: RawUpstreamDetail): unknown {
   const payload: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(raw)) {
@@ -54,11 +57,6 @@ function payloadFromRaw(raw: RawUpstreamDetail): unknown {
   return payload;
 }
 
-// Validates the record-level fields cmini/1's own `validate()` doesn't see
-// (name/user/created_at/modified_at/likes are record fields, stripped
-// before the payload ever reaches the format), then the payload itself. A
-// failure here is never a tick failure (07 §6 S5): the caller skips the
-// record and reports {id, path, message}.
 export function parseUpstreamDetail(raw: unknown): ParseResult {
   if (typeof raw !== "object" || raw === null) {
     return { ok: false, error: { path: "/", message: "detail response is not an object" } };
@@ -111,15 +109,6 @@ export function parseUpstreamDetail(raw: unknown): ParseResult {
   };
 }
 
-// The comparable projection of a fetched detail, likes AND magic stripped
-// (LDB-I10/I11: upstream's payload never carries magic to begin with, after
-// `payloadFromRaw`'s drop above, but projecting through `projectNoMagic`
-// here too -- rather than plain `project` -- keeps this function correct
-// on its own terms, not just correct because of what its one caller
-// happens to feed it) -- used both for the content-differs decision and
-// for repeat-suppression, so neither is ever tripped by a likes-only or
-// magic-only change (06 §2's separate like diff owns likes; 17-magic-
-// ownership.md §3 owns magic).
 function projectUpstreamNoLikes(detail: ParsedUpstreamDetail): unknown {
   return cmini1.projectNoMagic({
     name: detail.name,
@@ -131,8 +120,6 @@ function projectUpstreamNoLikes(detail: ParsedUpstreamDetail): unknown {
   });
 }
 
-// The full projection (real likes) -- what's stored in an `upstream_changed`
-// event's `detail` (03 §5: "upstream_changed: upstream's cmini/1 detail").
 function projectUpstreamFull(detail: ParsedUpstreamDetail): cmini1.CminiDetail {
   return cmini1.project({
     name: detail.name,
@@ -144,47 +131,37 @@ function projectUpstreamFull(detail: ParsedUpstreamDetail): cmini1.CminiDetail {
   });
 }
 
-// LDB-I11: the record's own magic (nothing before M2; akl.gg's rules,
-// lifted onto a following record from M2 on -- LDB-I12's lift branch in
-// `core/write.ts`'s `patchLayout`) is never a difference against upstream.
-// 20-spark.md S3b: the comparison happens in spark -- upstream's detail is
-// run through the SAME `fromCmini` the importer uses to write with, and
-// the record's own payload is already spark-shaped (21-formats.md D12
-// deleted the legacy-stored carry-forward `storedAsSpark` used to need
-// here) -- rather than casting either side to `cmini1.Payload`, which
-// would compare the wrong shape (spark's `board` object vs cmini's bare
-// word) and spuriously call every following record's content "different"
-// on every tick. `magic` dropped on both sides (LDB-I10/I11); likes
-// excluded, as always (07 §6 S5's own like diff owns them).
-function projectUpstreamSpark(detail: ParsedUpstreamDetail): unknown {
-  const { magic: _magic, ...payload } = fromCmini(detail.payload);
-  return { name: detail.name, owner: detail.owner, created_at: detail.created_at, modified_at: detail.modified_at, payload };
+function payloadMinusMagic(p: akl1.Payload): unknown {
+  const { magic: _magic, ...rest } = p;
+  return rest;
 }
 
-function projectLocalSpark(record: RecordRow): unknown {
-  const { magic: _magic, ...payload } = record.payload as akl1.Payload;
-  return { name: record.name, owner: record.owner, created_at: record.created_at, modified_at: record.modified_at, payload };
+// 21-formats.md §2.2: the layout scope (name/owner/created_at) and the
+// spark scope (payload, magic excluded) are compared INDEPENDENTLY, so an
+// upstream rename with no payload change writes only the layout event, and
+// vice versa.
+export function layoutFieldsDiffer(record: LayoutRow, detail: ParsedUpstreamDetail): boolean {
+  return record.name !== detail.name || record.owner !== detail.owner || record.created_at !== detail.created_at;
 }
 
-// "Content differs" (07 §6 S5): the two sides' spark projections, likes
-// and magic excluded, disagree.
-export function contentDiffers(record: RecordRow, detail: ParsedUpstreamDetail): boolean {
-  return canonical(projectLocalSpark(record)) !== canonical(projectUpstreamSpark(detail));
+export function sparkPayloadDiffers(currentPayload: unknown, detail: ParsedUpstreamDetail): boolean {
+  return canonical(payloadMinusMagic(currentPayload as akl1.Payload)) !== canonical(payloadMinusMagic(fromCmini(detail.payload)));
+}
+
+// The overall "is there anything new to apply" gate (07 §6 S5's original
+// "content differs" -- kept as the union of the two scoped diffs above so
+// case 4/6's outer branch is unchanged).
+export function contentDiffers(record: LayoutRow, currentSparkPayload: unknown, detail: ParsedUpstreamDetail): boolean {
+  return layoutFieldsDiffer(record, detail) || sparkPayloadDiffers(currentSparkPayload, detail);
 }
 
 async function currentLikeIds(db: Bindings["DB"], layoutId: string): Promise<Set<string>> {
-  const { results } = await db
-    .prepare("SELECT user_id FROM likes WHERE layout_id = ?")
-    .bind(layoutId)
-    .all<{ user_id: string }>();
+  const { results } = await db.prepare("SELECT user_id FROM likes WHERE layout_id = ?").bind(layoutId).all<{ user_id: string }>();
   return new Set(results.map((r) => r.user_id));
 }
 
 async function importMapByUpstreamId(db: Bindings["DB"], upstreamId: string): Promise<string | null> {
-  const row = await db
-    .prepare("SELECT layout_id FROM import_map WHERE upstream_id = ?")
-    .bind(upstreamId)
-    .first<{ layout_id: string }>();
+  const row = await db.prepare("SELECT layout_id FROM import_map WHERE upstream_id = ?").bind(upstreamId).first<{ layout_id: string }>();
   return row?.layout_id ?? null;
 }
 
@@ -192,10 +169,6 @@ async function insertImportMap(db: Bindings["DB"], upstreamId: string, layoutId:
   await db.prepare("INSERT INTO import_map (upstream_id, layout_id) VALUES (?, ?)").bind(upstreamId, layoutId).run();
 }
 
-// The name a shadowed import lands on: `<name>~cmini`, `~cmini2`, ... the
-// first not held by any LIVE record (06 §2). Unreachable in phase 1 (no
-// local writers create the colliding record in the first place) but built
-// and tested per the brief.
 async function freeShadowName(db: Bindings["DB"], name: string): Promise<string> {
   let candidate = `${name}~cmini`;
   let n = 2;
@@ -208,46 +181,42 @@ async function freeShadowName(db: Bindings["DB"], name: string): Promise<string>
 
 async function importLikes(db: Bindings["DB"], now: Clock, layoutId: string, userIds: string[]): Promise<void> {
   for (const userId of userIds) {
-    await appendLike(db, now, { kind: "liked", layoutId, userId, via: "import:cmini", source: { client: "system:cmini-import", version: null } });
+    await appendLike(db, now, { kind: "liked", layoutId, userId, via: "import:cmini", source: SYSTEM_SOURCE });
   }
+}
+
+// Case 1/3: create both scopes in one batch (21-formats.md §2.2's "cmini
+// import: create" row -- `imported` (layout) then `imported` (spark/1)).
+async function importCreate(db: Bindings["DB"], now: Clock, upstreamId: string, name: string, detail: ParsedUpstreamDetail, extraDetail?: object): Promise<LayoutRow> {
+  const payload = fromCmini(detail.payload);
+  const id = ulid();
+  const input: CommitInput = {
+    layoutId: id,
+    creating: true,
+    currentN: 0,
+    currentLayout: null,
+    currentFormats: new Map(),
+    layout: { kind: "imported", name, owner: detail.owner, created_at: detail.created_at, deleted: false, detail: { source: "cmini", upstream_id: upstreamId, ...extraDetail } },
+    format: { kind: "imported", lineage: SPARK_LINEAGE, format: SPARK_FORMAT, payload, hasMagic: akl1.hasMagic(payload) },
+    modified_at: detail.modified_at,
+    actor: "system:cmini-import",
+    via: "import:cmini",
+    source: SYSTEM_SOURCE,
+    upstream: { source: "cmini", id: upstreamId, state: "following" },
+  };
+  const { layout } = await commitWrite(db, now, input);
+  return layout;
 }
 
 // Case 1/2/3 (07 §6 S5's table): the upstream id has no `import_map` row
 // yet.
-async function applyNew(
-  db: Bindings["DB"],
-  now: Clock,
-  upstreamId: string,
-  detail: ParsedUpstreamDetail,
-): Promise<void> {
+async function applyNew(db: Bindings["DB"], now: Clock, upstreamId: string, detail: ParsedUpstreamDetail): Promise<void> {
   const existing = await readByName(db, detail.name);
 
   if (existing === null) {
-    // Case 1: name free. No prior record to read `upstreamOf` from -- the
-    // caller (this function) already knows the link it's about to create,
-    // so it seeds `nextUpstream`'s `prior` with it directly (20-spark.md
-    // S3a, `core/upstream.ts`'s header note). 20-spark.md S3b: every fresh
-    // import converts to spark at arrival (`fromCmini`) -- `detail.payload`
-    // never carries upstream's magic (LDB-I10's `payloadFromRaw` already
-    // stripped it), so `fromCmini` never lifts anything here either.
-    const payload = fromCmini(detail.payload);
-    const { record } = await appendWrite(db, now, {
-      kind: "imported",
-      name: detail.name,
-      owner: detail.owner,
-      created_at: detail.created_at,
-      modified_at: detail.modified_at,
-      format: "spark/1",
-      payload,
-      actor: "system:cmini-import",
-      via: "import:cmini",
-      source: { client: "system:cmini-import", version: null },
-      detail: { source: "cmini", upstream_id: upstreamId },
-      hasMagic: akl1.hasMagic(payload),
-      upstream: nextUpstream({ source: "cmini", id: upstreamId, state: "following" }, "imported", "import:cmini"),
-    });
-    await insertImportMap(db, upstreamId, record.id);
-    await importLikes(db, now, record.id, detail.likes);
+    const layout = await importCreate(db, now, upstreamId, detail.name, detail);
+    await insertImportMap(db, upstreamId, layout.id);
+    await importLikes(db, now, layout.id, detail.likes);
     return;
   }
 
@@ -260,41 +229,25 @@ async function applyNew(
       layoutId: existing.id,
       actor: "system:cmini-import",
       via: "import:cmini",
-      source: { client: "system:cmini-import", version: null },
+      source: SYSTEM_SOURCE,
       detail: projectUpstreamFull(detail),
     });
     return;
   }
 
-  // Case 3: name held by a different owner -- import shadowed, and tell
-  // the CONFLICTING (existing) record's owner first.
+  // Case 3: name held by a different owner -- import shadowed.
   await appendInfo(db, now, {
     kind: "import_conflict",
     layoutId: existing.id,
     actor: "system:cmini-import",
     via: "import:cmini",
-    source: { client: "system:cmini-import", version: null },
+    source: SYSTEM_SOURCE,
     detail: { upstream_id: upstreamId, upstream_name: detail.name, conflicts_with: existing.id },
   });
   const shadowName = await freeShadowName(db, detail.name);
-  const shadowPayload = fromCmini(detail.payload);
-  const { record } = await appendWrite(db, now, {
-    kind: "imported",
-    name: shadowName,
-    owner: detail.owner,
-    created_at: detail.created_at,
-    modified_at: detail.modified_at,
-    format: "spark/1",
-    payload: shadowPayload,
-    actor: "system:cmini-import",
-    via: "import:cmini",
-    source: { client: "system:cmini-import", version: null },
-    detail: { source: "cmini", upstream_id: upstreamId, shadowed: { upstream_name: detail.name } },
-    hasMagic: akl1.hasMagic(shadowPayload),
-    upstream: nextUpstream({ source: "cmini", id: upstreamId, state: "following" }, "imported", "import:cmini"),
-  });
-  await insertImportMap(db, upstreamId, record.id);
-  await importLikes(db, now, record.id, detail.likes);
+  const layout = await importCreate(db, now, upstreamId, shadowName, detail, { shadowed: { upstream_name: detail.name } });
+  await insertImportMap(db, upstreamId, layout.id);
+  await importLikes(db, now, layout.id, detail.likes);
 }
 
 async function latestUpstreamChangedNoLikes(db: Bindings["DB"], layoutId: string): Promise<string | null> {
@@ -304,81 +257,75 @@ async function latestUpstreamChangedNoLikes(db: Bindings["DB"], layoutId: string
     .first<{ detail_json: string | null }>();
   if (row?.detail_json === undefined || row.detail_json === null) return null;
   const parsed = JSON.parse(row.detail_json) as Record<string, unknown>;
-  // `magic: undefined` (canonical() drops undefined-valued keys, core/
-  // canonical.ts) rather than trusting every stored `upstream_changed`
-  // detail to already lack it: an event written before M1 landed can still
-  // carry upstream's old magic in its `detail_json` verbatim, and this
-  // comparison must keep agreeing with `projectUpstreamNoLikes` (LDB-I1's
-  // idempotence) regardless of when the last announcement was written.
   return canonical({ ...parsed, likes: [], magic: undefined });
 }
 
-// Case 4/5/6/7: the upstream id is mapped to an existing record.
-async function applyMapped(
-  db: Bindings["DB"],
-  now: Clock,
-  upstreamId: string,
-  detail: ParsedUpstreamDetail,
-  record: RecordRow,
-): Promise<void> {
+// Case 4/5/6/7: the upstream id is mapped to an existing layout.
+async function applyMapped(db: Bindings["DB"], now: Clock, upstreamId: string, detail: ParsedUpstreamDetail, record: LayoutRow): Promise<void> {
   const prior = await upstreamOf(db, record);
   const following = prior?.state === "following";
-  const differs = contentDiffers(record, detail);
   const localLikeIds = await currentLikeIds(db, record.id);
   const upstreamLikeIds = new Set(detail.likes);
 
   if (following) {
-    if (differs) {
-      // Case 4: content differs -- replace it (a tombstone comes back).
-      // LDB-I11 (M1, design/layout-db/17-magic-ownership.md §3): the
-      // record's own `magic` survives this write byte-for-byte -- upstream
-      // never supplies one (`detail.payload` already lacks it, LDB-I10), so
-      // whatever is carried forward is whatever the RECORD already held
-      // (nothing, for anything imported after M1; akl.gg's rules, once M2
-      // lands, or a magic-only PATCH lift, LDB-I12). LDB-I12 (M2's
-      // prerequisite, design/layout-db/18-command-decisions.md §2 item 1):
-      // a record can be spark-shaped and still follow upstream (a
-      // magic-only PATCH lifts it, `core/write.ts`'s `patchLayout`, and
-      // stays followed -- LDB-I14's own fork rule). That record's `magic`
-      // idiom cannot be carried forward with a bare object spread over
-      // upstream's cmini detail -- upstream's keys/board/free are
-      // translated into spark first (`fromCmini`, the SAME lossless
-      // translation the lift itself uses, LDB-F5), and only then does the
-      // record's own `magic` get carried over untouched.
-      const existing = record.payload as akl1.Payload;
-      const payload: akl1.Payload = { ...fromCmini(detail.payload), magic: existing.magic };
-      await appendWrite(db, now, {
-        kind: "imported",
+    const sparkRow = await db.prepare("SELECT * FROM layout_formats WHERE layout_id = ? AND lineage = ?").bind(record.id, SPARK_LINEAGE).first<{ payload_json: string }>();
+    const currentSparkPayload: unknown = sparkRow === null ? {} : JSON.parse(sparkRow.payload_json);
+    const layoutDiffers = layoutFieldsDiffer(record, detail);
+    const payloadDiffers = sparkPayloadDiffers(currentSparkPayload, detail);
+
+    if (layoutDiffers || payloadDiffers) {
+      // Case 4: content differs -- one `imported` event per scope that
+      // actually changed, in ONE batch, guarded by this read's own `n`
+      // (21-formats.md §2.2).
+      const upstream = nextUpstream(prior, "import:cmini", true);
+      const input: CommitInput = {
         layoutId: record.id,
-        name: detail.name,
-        owner: detail.owner,
-        created_at: detail.created_at, // follows upstream too: a layout cmini deleted and re-added between two ticks moves it (2026-09-10, kate-2/eclipse-v2 flagged forever by the diff)
+        creating: false,
+        currentN: record.n,
+        currentLayout: record,
+        currentFormats: new Map(), // unused by commitWrite except for computing the format's existing rev, read fresh below when needed
         modified_at: detail.modified_at,
-        format: "spark/1",
-        payload,
         actor: "system:cmini-import",
         via: "import:cmini",
-        source: { client: "system:cmini-import", version: null },
-        detail: { source: "cmini", upstream_id: upstreamId },
-        deleted: false,
-        hasMagic: akl1.hasMagic(payload),
-        upstream: nextUpstream(prior, "imported", "import:cmini"),
-        expectRev: record.rev,
-      });
+        source: SYSTEM_SOURCE,
+        upstream,
+        ...(layoutDiffers
+          ? { layout: { kind: "imported", name: detail.name, owner: detail.owner, created_at: detail.created_at, deleted: false, detail: { source: "cmini", upstream_id: upstreamId } } }
+          : {}),
+        ...(payloadDiffers
+          ? (() => {
+              // LDB-I11 (M1): the layout's own `magic` survives byte-for-byte
+              // -- upstream never supplies one (already stripped), so
+              // whatever is carried forward is whatever the format row
+              // already held.
+              const existingMagic = (currentSparkPayload as akl1.Payload).magic;
+              const payload: akl1.Payload = { ...fromCmini(detail.payload), magic: existingMagic };
+              return {
+                format: { kind: "imported" as const, lineage: SPARK_LINEAGE, format: SPARK_FORMAT, payload, hasMagic: akl1.hasMagic(payload), detail: { source: "cmini", upstream_id: upstreamId } },
+              };
+            })()
+          : {}),
+      };
+      // `currentFormats` must carry the layout's EXISTING format rows (for
+      // the spark row's own current rev, when this write touches it).
+      input.currentFormats = await formatsForLayout(db, record.id);
+      await commitWrite(db, now, input);
     }
+
     // Case 5 (and the like half of case 4): likes replaced wholesale.
     for (const u of upstreamLikeIds) {
-      if (!localLikeIds.has(u)) await appendLike(db, now, { kind: "liked", layoutId: record.id, userId: u, via: "import:cmini", source: { client: "system:cmini-import", version: null } });
+      if (!localLikeIds.has(u)) await appendLike(db, now, { kind: "liked", layoutId: record.id, userId: u, via: "import:cmini", source: SYSTEM_SOURCE });
     }
     for (const u of localLikeIds) {
-      if (!upstreamLikeIds.has(u)) await appendLike(db, now, { kind: "unliked", layoutId: record.id, userId: u, via: "import:cmini", source: { client: "system:cmini-import", version: null } });
+      if (!upstreamLikeIds.has(u)) await appendLike(db, now, { kind: "unliked", layoutId: record.id, userId: u, via: "import:cmini", source: SYSTEM_SOURCE });
     }
     return;
   }
 
-  if (differs) {
-    // Case 6: not following -- inform only, and only if this is new news
-    // (not a repeat of the daily pass re-announcing the same content).
+  const sparkRow = await db.prepare("SELECT payload_json FROM layout_formats WHERE layout_id = ? AND lineage = ?").bind(record.id, SPARK_LINEAGE).first<{ payload_json: string }>();
+  const currentSparkPayload: unknown = sparkRow === null ? {} : JSON.parse(sparkRow.payload_json);
+  if (contentDiffers(record, currentSparkPayload, detail)) {
+    // Case 6: not following -- inform only, and only if this is new news.
     const latest = await latestUpstreamChangedNoLikes(db, record.id);
     const current = canonical(projectUpstreamNoLikes(detail));
     if (latest !== current) {
@@ -387,27 +334,24 @@ async function applyMapped(
         layoutId: record.id,
         actor: "system:cmini-import",
         via: "import:cmini",
-        source: { client: "system:cmini-import", version: null },
+        source: SYSTEM_SOURCE,
         detail: projectUpstreamFull(detail),
       });
     }
   }
   // Case 7 (and the like half of case 6): union only, never unlike.
   for (const u of upstreamLikeIds) {
-    if (!localLikeIds.has(u)) await appendLike(db, now, { kind: "liked", layoutId: record.id, userId: u, via: "import:cmini", source: { client: "system:cmini-import", version: null } });
+    if (!localLikeIds.has(u)) await appendLike(db, now, { kind: "liked", layoutId: record.id, userId: u, via: "import:cmini", source: SYSTEM_SOURCE });
   }
 }
 
 async function hasUpstreamDeletedInfo(db: Bindings["DB"], layoutId: string): Promise<boolean> {
-  const row = await db
-    .prepare("SELECT 1 FROM events WHERE layout_id = ? AND kind = 'upstream_deleted' AND rev IS NULL LIMIT 1")
-    .bind(layoutId)
-    .first();
+  const row = await db.prepare("SELECT 1 FROM events WHERE layout_id = ? AND kind = 'upstream_deleted' AND rev IS NULL LIMIT 1").bind(layoutId).first();
   return row !== null;
 }
 
-// Case 8/9: upstream no longer has this id (unlisted, or a 404 discovered
-// while fetching a listed id -- 07 §0.1).
+// Case 8/9: upstream no longer has this id -- layout scope only (D3: a
+// deletion is a layout-level fact; formats are untouched, restorable).
 export async function applyDelete(db: Bindings["DB"], now: Clock, layoutId: string): Promise<void> {
   const record = await readById(db, layoutId);
   if (record === null) return; // defensive: import_map pointed at a missing row
@@ -415,32 +359,26 @@ export async function applyDelete(db: Bindings["DB"], now: Clock, layoutId: stri
   const prior = await upstreamOf(db, record);
   const following = prior?.state === "following";
   if (following) {
-    await appendWrite(db, now, {
-      kind: "upstream_deleted",
+    const upstream = nextUpstream(prior, "import:cmini", true);
+    const input: CommitInput = {
       layoutId,
-      name: record.name,
-      owner: record.owner,
+      creating: false,
+      currentN: record.n,
+      currentLayout: record,
+      currentFormats: new Map(),
+      layout: { kind: "upstream_deleted", name: record.name, owner: record.owner, created_at: record.created_at, deleted: true },
       modified_at: now(),
-      format: record.format,
-      payload: record.payload,
       actor: "system:cmini-import",
       via: "import:cmini",
-      source: { client: "system:cmini-import", version: null },
-      deleted: true,
-      upstream: nextUpstream(prior, "upstream_deleted", "import:cmini"),
-      expectRev: record.rev,
-    });
+      source: SYSTEM_SOURCE,
+      upstream,
+    };
+    await commitWrite(db, now, input);
     return;
   }
 
   if (!(await hasUpstreamDeletedInfo(db, layoutId))) {
-    await appendInfo(db, now, {
-      kind: "upstream_deleted",
-      layoutId,
-      actor: "system:cmini-import",
-      via: "import:cmini",
-      source: { client: "system:cmini-import", version: null },
-    });
+    await appendInfo(db, now, { kind: "upstream_deleted", layoutId, actor: "system:cmini-import", via: "import:cmini", source: SYSTEM_SOURCE });
   }
 }
 
@@ -448,16 +386,7 @@ export interface FetchedIdResult {
   errors: { id: string; path: string; message: string }[];
 }
 
-// The single entry point per fetched id (used by both cmini.ts's tick loop
-// and cases.test.ts directly): dispatches to applyNew/applyMapped/
-// applyDelete depending on the upstream id's current `import_map` state and
-// whether the fetch came back 404.
-export async function applyFetchedId(
-  db: Bindings["DB"],
-  now: Clock,
-  upstreamId: string,
-  raw: RawUpstreamDetail | "notfound",
-): Promise<FetchedIdResult> {
+export async function applyFetchedId(db: Bindings["DB"], now: Clock, upstreamId: string, raw: RawUpstreamDetail | "notfound"): Promise<FetchedIdResult> {
   if (raw === "notfound") {
     const layoutId = await importMapByUpstreamId(db, upstreamId);
     if (layoutId !== null) await applyDelete(db, now, layoutId);
@@ -484,12 +413,6 @@ export async function applyDeleteAction(db: Bindings["DB"], now: Clock, action: 
   await applyDelete(db, now, action.layoutId);
 }
 
-// GET /authors -> one read, one pure plan, compare-and-set writes (LDB-I15..
-// I17, `import/authors.ts`): a stored name that is still one of upstream's
-// names for its id is kept, a user-lane name is never touched, anything
-// else gets `preferredName`. No events; a second pass over the same
-// upstream writes nothing, so `authors_modified_at`/`last_seen_at` only
-// move when a stored name really changes.
 export async function applyAuthors(db: Bindings["DB"], now: Clock, authors: Record<string, string>): Promise<void> {
   const stored = await readStoredAuthors(db);
   await writeAuthorNames(db, now, planAuthorNames(authors, stored));

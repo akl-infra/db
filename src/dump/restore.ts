@@ -26,6 +26,7 @@ const TABLE_ORDER_DELETE = [
   // are independent tables, order irrelevant. `d1_migrations` is untouched.
   "events",
   "layout_revs",
+  "layout_formats",
   "likes",
   "import_map",
   "layouts",
@@ -89,14 +90,12 @@ export function restoreSql(dump: Dump): string[] {
         "id",
         "name",
         "owner",
-        "rev",
+        "n",
+        "layout_rev",
         "created_at",
         "modified_at",
         "deleted",
-        "format",
-        "payload_json",
         "like_count",
-        "has_magic",
         "upstream_source",
         "upstream_id",
         "upstream_state",
@@ -107,32 +106,35 @@ export function restoreSql(dump: Dump): string[] {
         id: r.id,
         name: r.name,
         owner: r.owner,
-        rev: r.rev,
+        n: r.n,
+        layout_rev: r.layout_rev,
         created_at: r.created_at,
         modified_at: r.modified_at,
         deleted: r.deleted,
-        format: r.format,
-        payload_json: r.payload_json,
         like_count: r.like_count,
-        has_magic: r.has_magic,
-        // 20-spark.md S3a (LDB-D1/D5 amended): a dump written before 0005
-        // simply has no such keys on its raw rows -- `?? null` in
-        // `chunkedInserts` treats that the same as present-and-NULL, so an
-        // old-shape dump restores every one of these NULL.
         upstream_source: r.upstream_source ?? null,
         upstream_id: r.upstream_id ?? null,
         upstream_state: r.upstream_state ?? null,
-        // 20-spark.md S3s: same treatment, one migration later.
         source_client: r.source_client ?? null,
         source_version: r.source_version ?? null,
       })),
     ),
   );
 
+  // 21-formats.md F2: one row per (layout, lineage) -- a tombstoned
+  // layout's format rows restore too (untouched by deletion, D3).
+  statements.push(
+    ...chunkedInserts(
+      "INSERT INTO layout_formats",
+      ["layout_id", "lineage", "format", "rev", "created_at", "modified_at", "payload_json", "has_magic", "source_client", "source_version"],
+      dump.layout_formats.map((r) => ({ ...r })),
+    ),
+  );
+
   statements.push(
     ...chunkedInserts(
       "INSERT INTO layout_revs",
-      ["layout_id", "rev", "event_seq", "format", "payload_json"],
+      ["layout_id", "n", "lineage", "rev", "event_seq", "format", "payload_json"],
       dump.layout_revs.map((r) => ({ ...r })),
     ),
   );
@@ -163,6 +165,7 @@ export function restoreSql(dump: Dump): string[] {
         "layout_id",
         "name",
         "owner",
+        "format",
         "rev",
         "actor",
         "via",
@@ -180,6 +183,7 @@ export function restoreSql(dump: Dump): string[] {
         layout_id: e.layout_id,
         name: e.name,
         owner: e.owner,
+        format: e.format ?? null, // 21-formats.md F2: absent from a pre-0009 dump -- `?? null` treats that as a layout-level event
         rev: e.rev,
         actor: e.actor,
         via: e.via,

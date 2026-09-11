@@ -65,18 +65,23 @@ const adminAddSchema = {
   },
 } as const;
 
-// PATCH (09 §2.6, §3 T4): at least one of {name, fingermap, board, magic},
-// no others -- `minProperties: 1` is the "at least one key" half, the same
-// `additionalProperties: false` the other schemas use is the "no others"
-// half. `board`/`magic` are validated as whole objects here; their format-
-// specific shape is the job of the record's format `edits` + the pipeline's
-// validate() re-run, not this schema.
+// PATCH (21-formats.md §2.2/§2.4): `{name}` (layout scope) OR `{format,
+// <at least one of fingermap/board/magic>}` (that format's scope) -- never
+// both (`400 mixed_patch`) or neither (`400 bad_request`/`format_required`).
+// This schema only enforces "the right keys, the right JSON types"
+// (`minProperties: 1`, `additionalProperties: false`); `core/write.ts`'s
+// `classifyPatch` is where mixing/format-required is actually refused, so
+// the error names the real reason rather than a generic shape mismatch.
+// `board`/`magic` are validated as whole objects here; their format-
+// specific shape is the job of the record's format `edits` + the
+// pipeline's validate() re-run, not this schema.
 const patchSchema = {
   type: "object",
   additionalProperties: false,
   minProperties: 1,
   properties: {
     name: { type: "string" },
+    format: { type: "string" },
     fingermap: { type: "object", additionalProperties: { type: "string" } },
     board: { type: "object" },
     magic: { type: "object" },
@@ -141,6 +146,7 @@ export interface AdminAddBody {
 
 export interface PatchBody {
   name?: string;
+  format?: string;
   fingermap?: Record<string, string>;
   board?: object;
   magic?: object;

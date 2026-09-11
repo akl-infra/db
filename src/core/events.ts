@@ -1,28 +1,31 @@
-// Records + events, the fold (07 §6 S4). `appendWrite` is the only code
-// under `src/` that writes `layouts`/`layout_revs` (checked by
-// tests/tools/onlywriter.test.ts); `records.ts` only reads. The fold rule
-// is uniform: a rev-bumping event sets the record to its `after` (record
-// minus payload) plus the payload stored for that rev in `layout_revs`;
-// `liked`/`unliked` move `like_count` by +-1; every other (informational)
-// event changes nothing.
+// Records + events, the fold (21-formats.md §2.1/§2.2). `commitWrite` is the
+// only code under `src/` that writes `layouts`/`layout_formats` (checked by
+// tests/tools/onlywriter.test.ts); `records.ts` only reads. Every
+// rev-bumping event has exactly one SCOPE (`format === null` = the layout;
+// otherwise a lineage) and bumps exactly that scope's rev (MF-2); a write
+// that changes both scopes (a create, some imports) appends one event per
+// scope, in the same D1 batch, serialized by ONE shared per-layout counter
+// `n` (`layout_revs`' PK `(layout_id, n)`, migrations/0009_formats.sql).
 import type { Bindings } from "../env";
 import { canonical } from "./canonical";
 import { nameTaken } from "./errors";
-import { type RecordRow, type Source, type Upstream, readById } from "./records";
+import { type FormatRow, type LayoutRow, type Source, type Upstream, readById } from "./records";
 import { ulid } from "ulidx";
 import type { Clock } from "./time";
 
-// A write lost the rev race: another write committed the same rev first
-// (the `layout_revs` PK refused the loser's batch). Routes turn this into
-// 409 stale with the winner's record (09 §2.3).
+// A write lost the rev race: another write to the SAME layout (either
+// scope) committed the next `n` first (the `layout_revs` PK refused the
+// loser's batch). The write pipeline (`core/write.ts`) turns this into a
+// retry (own scope unchanged) or `409 stale` (own scope moved).
 export class RevConflictError extends Error {
-  constructor(readonly layoutId: string, readonly rev: number) {
-    super(`rev ${rev} of ${layoutId} was written concurrently`);
+  constructor(readonly layoutId: string) {
+    super(`layout '${layoutId}' was written concurrently`);
   }
 }
 
 export type WriteKind =
   | "created"
+  | "format_added"
   | "updated"
   | "renamed"
   | "fingermap"
@@ -31,18 +34,10 @@ export type WriteKind =
   | "restored"
   | "imported"
   | "upstream_deleted";
-// 21-formats.md D12: "migrated" (the one-time record-migration write kind,
-// `core/migrate.ts`'s `migrateTick`) is deleted -- no row is ever stored
-// under a legacy format after the D8 wipe, so there is nothing left to
-// migrate.
 
 // "upstream_deleted" is deliberately in both WriteKind and InfoKind: a
-// following record's tombstoning is rev-bumping (appendWrite), a
-// non-following record's is informational (07 §6 S4's fold-rule note; S5's
-// case 9 is the caller that needed the Info half). The four `admin.*` kinds
-// (09 §3 T3) are informational too -- an admin action is never rev-bumping
-// -- but travel through `appendAdmin`, not `appendInfo` (they have no
-// `layoutId` to look a current record up by).
+// following layout's tombstoning is rev-bumping (layout scope), a
+// non-following layout's is informational.
 export type InfoKind =
   | "upstream_changed"
   | "import_conflict"
@@ -51,376 +46,389 @@ export type InfoKind =
   | "admin.removed"
   | "admin.import_paused"
   | "admin.import_resumed"
-  | "admin.client_registered" // 10 C1: POST /v1/admin/clients
-  | "admin.client_revoked" // 10 C1: DELETE /v1/admin/clients/{id}
-  | "admin.import_ticked" // X4 follow-up: POST /v1/admin/import/tick (manual cron kick)
-  | "admin.diff_ticked" // X4 follow-up: POST /v1/admin/diff/tick
-  | "admin.nightly_ticked"; // X4 follow-up 3: POST /v1/admin/nightly/tick (manual nightly-job-set kick)
-// 21-formats.md D12 deleted "admin.magic_stripped" (the M1 strip route)
-// and "admin.migrate_ticked" (the record migration) -- both are gone.
+  | "admin.client_registered"
+  | "admin.client_revoked"
+  | "admin.import_ticked"
+  | "admin.diff_ticked"
+  | "admin.nightly_ticked";
 
-// A record minus its payload -- what `before`/`after` store on an event and
-// what a list row carries (03 §2).
-export type RecordSansPayload = Omit<RecordRow, "payload">;
-
-export interface Write {
-  kind: WriteKind;
-  layoutId?: string; // absent = create
+// 21-formats.md §2.2: what a rev-bumping event's `after` (and `before`)
+// carry -- never a payload (that's `layout_revs`' job). A layout-scope
+// event's snapshot is the layout's own fields; a format-scope event's is
+// that format's row, PLUS `upstream` when THIS write forked/kept it (only
+// ever true for lineage `spark` or a layout-scope write -- MF-12). Folding
+// a layout's events in seq order, with payloads from `layout_revs`,
+// reproduces both tables exactly (MF-3).
+export interface LayoutSnapshot {
+  scope: "layout";
+  id: string;
   name: string;
   owner: string;
-  created_at?: string; // a create's own; on an update, only the cmini import names it (a following record mirrors upstream's, 2026-09-10) -- absent = keep the record's
+  layout_rev: number;
+  created_at: string;
   modified_at: string;
+  deleted: boolean;
+  like_count: number;
+  upstream: Upstream | null;
+  source: Source | null;
+}
+export interface FormatSnapshot {
+  scope: "format";
+  layout_id: string;
+  lineage: string;
   format: string;
+  rev: number;
+  created_at: string;
+  modified_at: string;
+  has_magic: boolean;
+  source: Source | null;
+  upstream?: Upstream | null;
+}
+export type EventSnapshot = LayoutSnapshot | FormatSnapshot;
+
+// One scope-write, fully specified by the caller (`core/write.ts`'s verb
+// functions each build this from a fresh read plus their own checks) --
+// this module never defaults an "omitted" field from a prior read, so
+// there is exactly one place (the verb function) that decides what a write
+// keeps vs. changes.
+export interface LayoutPart {
+  kind: WriteKind;
+  name: string;
+  owner: string;
+  created_at: string;
+  deleted: boolean;
+  detail?: object;
+}
+export interface FormatPart {
+  kind: WriteKind;
+  lineage: string;
+  format: string; // full id, e.g. 'spark/1'
   payload: unknown;
+  hasMagic: boolean;
+  detail?: object;
+}
+
+export interface CommitInput {
+  layoutId: string; // minted by the caller (ulid()) when creating
+  creating: boolean;
+  currentN: number; // 0 when creating
+  currentLayout: LayoutRow | null; // null when creating
+  currentFormats: Map<string, FormatRow>; // every format the layout currently has (empty when creating)
+  layout?: LayoutPart;
+  format?: FormatPart;
+  modified_at: string;
   actor: string;
   via: string;
   admin?: boolean;
-  detail?: object;
-  deleted?: boolean;
-  hasMagic?: boolean; // 07 §6 S4: "passed in by the caller ... default false"; S5/S6 compute it from the format
-  // 20-spark.md S3a (decision 5, LDB-I14): REQUIRED, not optional -- every
-  // call site must say what this write does to the record's upstream link,
-  // so tsc enumerates every one of them. `core/upstream.ts`'s
-  // `nextUpstream(prior, kind, via)` is the one function that computes it;
-  // every caller uses it (or, for the rare case with no prior record at
-  // all -- a plain user create -- passes `null` directly, which is what
-  // `nextUpstream(null, ...)` itself always answers anyway).
-  upstream: Upstream | null;
-  // 20-spark.md S3a (LDB-P14, §8 R-H4): when set, `appendWrite` throws
-  // `RevConflictError` BEFORE any write if the record isn't still at this
-  // rev -- closes the race where a system writer (import, strip, the S4
-  // migration) builds a payload from an earlier read, and a user write
-  // lands in between: without this, the system writer's own fresh re-read
-  // just advances the rev counter with no collision, silently clobbering
-  // the user's edit. User-facing routes don't need it: they already 409
-  // `stale` off `If-Match` before ever calling this, and two writers
-  // racing for the SAME target rev still collide on `layout_revs`'s PK
-  // regardless.
-  expectRev?: number;
-  // 20-spark.md S3s (decision 14, LDB-P15): REQUIRED, same reasoning as
-  // `upstream` above -- every write states who/what made it, so tsc
-  // enumerates every call site. `client` is proven (the actor's own
-  // `source_client`, or a system writer's literal `system:cmini-import`/
-  // `system:migration`), never a header or body field; `version` is the
-  // validated `X-Client-Version` or `null`. Stored on the event AND folded
-  // onto the `layouts` row (this function is rev-bumping writes only).
   source: Source;
+  // The FINAL upstream value this write leaves (already computed by the
+  // caller via `core/upstream.ts`'s `nextUpstream`, from the SAME fresh
+  // read `currentLayout` came from -- MF-12).
+  upstream: Upstream | null;
+  like_count?: number; // present only when a caller needs to seed a non-zero count at create (LDB-P9's tombstone-name inheritance runs a separate appendLike pass instead, so this is always omitted/0 in practice; kept for symmetry)
 }
 
+export interface CommitResult {
+  layout: LayoutRow;
+  formats: Map<string, FormatRow>;
+  seqs: number[];
+}
+
+function layoutSnapshot(l: {
+  id: string;
+  name: string;
+  owner: string;
+  layout_rev: number;
+  created_at: string;
+  modified_at: string;
+  deleted: boolean;
+  like_count: number;
+  upstream: Upstream | null;
+  source: Source | null;
+}): LayoutSnapshot {
+  return { scope: "layout", ...l };
+}
+
+function formatSnapshot(f: {
+  layout_id: string;
+  lineage: string;
+  format: string;
+  rev: number;
+  created_at: string;
+  modified_at: string;
+  has_magic: boolean;
+  source: Source | null;
+  upstream?: Upstream | null;
+}): FormatSnapshot {
+  return { scope: "format", ...f };
+}
+
+// One batch, one shared per-layout counter `n`: events (layout-scope first
+// when both are present, then format-scope) -> layout_revs (event_seq =
+// last_insert_rowid(), same connection) -> ONE `layouts` upsert reflecting
+// every part's effect -> an optional `layout_formats` upsert. `n`'s PK on
+// `layout_revs` is the concurrency guard for BOTH scopes at once (21-
+// formats.md §2.1: "restores today's serialization while clients still see
+// two revs") -- a loser's whole batch rolls back (events included, so
+// `seq` stays gapless) and surfaces as `RevConflictError`.
+export async function commitWrite(db: Bindings["DB"], now: Clock, input: CommitInput): Promise<CommitResult> {
+  if (input.layout === undefined && input.format === undefined) {
+    throw new Error("commitWrite: at least one of layout/format must be given");
+  }
+  const at = now();
+  const id = input.layoutId;
+  const partsCount = (input.layout !== undefined ? 1 : 0) + (input.format !== undefined ? 1 : 0);
+
+  // Name-clash pre-check (mirrors 07 §4's original reasoning): only a LIVE
+  // layout-scope write that leaves the layout live needs it -- a deleted
+  // write, or a pure format-scope write, never claims a name.
+  if (input.layout !== undefined && !input.layout.deleted) {
+    const clash = await db
+      .prepare("SELECT 1 FROM layouts WHERE deleted = 0 AND name = ? AND id != ? LIMIT 1")
+      .bind(input.layout.name, id)
+      .first();
+    if (clash !== null) throw nameTaken(input.layout.name);
+  }
+
+  const finalLayoutRev = input.layout !== undefined ? (input.creating ? 1 : input.currentLayout!.layout_rev + 1) : (input.currentLayout?.layout_rev ?? 0);
+  const finalLikeCount = input.like_count ?? input.currentLayout?.like_count ?? 0;
+  const finalName = input.layout?.name ?? input.currentLayout!.name;
+  const finalOwner = input.layout?.owner ?? input.currentLayout!.owner;
+  const finalCreatedAt = input.layout?.created_at ?? input.currentLayout!.created_at;
+  const finalDeleted = input.layout?.deleted ?? input.currentLayout!.deleted;
+  const finalModifiedAt = input.layout !== undefined ? input.modified_at : (input.currentLayout?.modified_at ?? input.modified_at);
+  const finalLayoutSource: Source | null = input.layout !== undefined ? input.source : (input.currentLayout?.source ?? null);
+
+  const existingFormat = input.format !== undefined ? input.currentFormats.get(input.format.lineage) ?? null : null;
+  const finalFormatRev = input.format !== undefined ? (existingFormat?.rev ?? 0) + 1 : 0;
+  const finalFormatCreatedAt = input.format !== undefined ? (existingFormat?.created_at ?? input.modified_at) : "";
+
+  const beforeLayout: LayoutSnapshot | null = input.currentLayout === null ? null : layoutSnapshot(input.currentLayout);
+  const beforeFormat: FormatSnapshot | null = existingFormat === null ? null : formatSnapshot(existingFormat);
+
+  const afterLayout: LayoutSnapshot = layoutSnapshot({
+    id,
+    name: finalName,
+    owner: finalOwner,
+    layout_rev: finalLayoutRev,
+    created_at: finalCreatedAt,
+    modified_at: finalModifiedAt,
+    deleted: finalDeleted,
+    like_count: finalLikeCount,
+    upstream: input.upstream,
+    source: finalLayoutSource,
+  });
+
+  // The format-scope event's snapshot carries `upstream` too (MF-3, MF-12)
+  // iff this format IS lineage `spark` -- the one lineage a format-scope
+  // write is allowed to fork/carry upstream through. When a layout part is
+  // ALSO present in the same batch, the layout event already carries the
+  // same value; this is harmless, idempotent overlap for the fold.
+  const formatTouchesUpstream = input.format !== undefined && input.format.lineage === "spark";
+  const afterFormat: FormatSnapshot | undefined =
+    input.format === undefined
+      ? undefined
+      : formatSnapshot({
+          layout_id: id,
+          lineage: input.format.lineage,
+          format: input.format.format,
+          rev: finalFormatRev,
+          created_at: finalFormatCreatedAt,
+          modified_at: input.modified_at,
+          has_magic: input.format.hasMagic,
+          source: input.source,
+          ...(formatTouchesUpstream ? { upstream: input.upstream } : {}),
+        });
+
+  const stmts: D1PreparedStatement[] = [];
+  const seqSlots: number[] = [];
+  let nCursor = input.currentN;
+
+  function pushEvent(kind: WriteKind, format: string | null, rev: number, before: EventSnapshot | null, after: EventSnapshot, detail: object | undefined) {
+    stmts.push(
+      db
+        .prepare(
+          `INSERT INTO events (at, kind, layout_id, name, owner, format, rev, actor, via, admin, detail_json, before_json, after_json, source_client, source_version)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(
+          at,
+          kind,
+          id,
+          finalName,
+          finalOwner,
+          format,
+          rev,
+          input.actor,
+          input.via,
+          input.admin === true ? 1 : 0,
+          detail === undefined ? null : canonical(detail),
+          before === null ? null : canonical(before),
+          canonical(after),
+          input.source.client,
+          input.source.version,
+        ),
+    );
+    seqSlots.push(stmts.length - 1);
+    nCursor += 1;
+    stmts.push(
+      db
+        .prepare(
+          `INSERT INTO layout_revs (layout_id, n, lineage, rev, event_seq, format, payload_json)
+           VALUES (?, ?, ?, ?, last_insert_rowid(), ?, ?)`,
+        )
+        .bind(id, nCursor, format === null ? null : lineageOf(format), rev, format, format === null ? null : canonical(input.format!.payload)),
+    );
+  }
+
+  function lineageOf(format: string): string {
+    const i = format.lastIndexOf("/");
+    return i === -1 ? format : format.slice(0, i);
+  }
+
+  if (input.layout !== undefined) {
+    pushEvent(input.layout.kind, null, finalLayoutRev, beforeLayout, afterLayout, input.layout.detail);
+  }
+  if (input.format !== undefined) {
+    pushEvent(input.format.kind, input.format.format, finalFormatRev, beforeFormat, afterFormat!, input.format.detail);
+  }
+
+  // ONE `layouts` upsert reflecting the final state after every part in
+  // this batch (n bumped once per part, whatever else changed).
+  stmts.push(
+    db
+      .prepare(
+        `INSERT INTO layouts (id, name, owner, n, layout_rev, created_at, modified_at, deleted, like_count, upstream_source, upstream_id, upstream_state, source_client, source_version)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           name = excluded.name, owner = excluded.owner, n = excluded.n, layout_rev = excluded.layout_rev,
+           created_at = excluded.created_at, modified_at = excluded.modified_at, deleted = excluded.deleted,
+           like_count = excluded.like_count,
+           upstream_source = excluded.upstream_source, upstream_id = excluded.upstream_id, upstream_state = excluded.upstream_state,
+           source_client = excluded.source_client, source_version = excluded.source_version`,
+      )
+      .bind(
+        id,
+        finalName,
+        finalOwner,
+        nCursor,
+        finalLayoutRev,
+        finalCreatedAt,
+        finalModifiedAt,
+        finalDeleted ? 1 : 0,
+        finalLikeCount,
+        input.upstream?.source ?? null,
+        input.upstream?.id ?? null,
+        input.upstream?.state ?? null,
+        finalLayoutSource?.client ?? null,
+        finalLayoutSource?.version ?? null,
+      ),
+  );
+
+  if (input.format !== undefined) {
+    stmts.push(
+      db
+        .prepare(
+          `INSERT INTO layout_formats (layout_id, lineage, format, rev, created_at, modified_at, payload_json, has_magic, source_client, source_version)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(layout_id, lineage) DO UPDATE SET
+             format = excluded.format, rev = excluded.rev, created_at = excluded.created_at, modified_at = excluded.modified_at,
+             payload_json = excluded.payload_json, has_magic = excluded.has_magic,
+             source_client = excluded.source_client, source_version = excluded.source_version`,
+        )
+        .bind(
+          id,
+          input.format.lineage,
+          input.format.format,
+          finalFormatRev,
+          finalFormatCreatedAt,
+          input.modified_at,
+          canonical(input.format.payload),
+          input.format.hasMagic ? 1 : 0,
+          input.source.client,
+          input.source.version,
+        ),
+    );
+  }
+
+  let results;
+  try {
+    results = await db.batch(stmts);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/UNIQUE constraint failed: layouts\.name/.test(msg)) throw nameTaken(finalName);
+    if (/UNIQUE constraint failed: layout_revs\./.test(msg)) throw new RevConflictError(id);
+    throw e;
+  }
+
+  const seqs = seqSlots.map((i) => {
+    const seq = results[i]?.meta.last_row_id;
+    if (seq === undefined) throw new Error("commitWrite: events insert returned no last_row_id");
+    return seq;
+  });
+
+  const layout: LayoutRow = {
+    id,
+    name: finalName,
+    owner: finalOwner,
+    n: nCursor,
+    layout_rev: finalLayoutRev,
+    created_at: finalCreatedAt,
+    modified_at: finalModifiedAt,
+    deleted: finalDeleted,
+    like_count: finalLikeCount,
+    upstream: input.upstream,
+    source: finalLayoutSource,
+  };
+  const formats = new Map(input.currentFormats);
+  if (input.format !== undefined) {
+    formats.set(input.format.lineage, {
+      layout_id: id,
+      lineage: input.format.lineage,
+      format: input.format.format,
+      rev: finalFormatRev,
+      created_at: finalFormatCreatedAt,
+      modified_at: input.modified_at,
+      payload: input.format.payload,
+      has_magic: input.format.hasMagic,
+      source: input.source,
+    });
+  }
+
+  return { layout, formats, seqs };
+}
+
+// Informational: `rev`/`format` NULL, `layouts`/`layout_formats` untouched.
 export interface Info {
   kind: InfoKind;
   layoutId: string;
   actor: string;
   via: string;
   detail?: object;
-  // 20-spark.md S3s: informational events carry the actor's source too
-  // (history should say who/what triggered them), but `appendInfo` never
-  // touches `layouts.source_client`/`source_version` -- only a rev-bumping
-  // write (`appendWrite`) moves the record's own fold.
   source: Source;
 }
 
-export interface Like {
-  kind: "liked" | "unliked";
-  layoutId: string;
-  userId: string;
-  via: string;
-  // LDB-P9 (design/layout-db/18-command-decisions.md §2 D1): a like
-  // inherited from a re-added name's tombstone carries `{from: <tombstone
-  // id>}` so a feed reader can tell an inherited like from a fresh one
-  // without a second lookup. Every OTHER caller of `appendLike` omits this
-  // (undefined -> the same `detail_json: NULL` every like event has always
-  // stored).
-  detail?: object;
-  // 20-spark.md S3s: same as `Info.source` -- carried on the event, never
-  // folded onto `layouts` (a like never moves `source_client`/`source_version`,
-  // same as it never moves `rev`/`upstream`).
-  source: Source;
-}
-
-// A parsed `events` row (03 §5's wire shape, D1's 0/1 and JSON-string
-// columns converted to real types).
-export interface Event {
-  seq: number;
-  at: string;
-  kind: string;
-  layout_id: string | null;
-  name: string | null;
-  owner: string | null;
-  rev: number | null; // the record's rev AFTER this event; null = no bump
-  actor: string;
-  via: string;
-  admin: boolean;
-  detail: unknown;
-  before: RecordSansPayload | null;
-  after: RecordSansPayload | null;
-  // 20-spark.md S3s (LDB-P15): this event's OWN source, always present --
-  // a NULL column (written before 0005) reads `{client: "legacy:" + via,
-  // version: null}`, using this SAME row's own `via` (no extra query,
-  // unlike `upstreamOf`'s legacy fallback).
-  source: Source;
-}
-
-export interface EventDbRow {
-  seq: number;
-  at: string;
-  kind: string;
-  layout_id: string | null;
-  name: string | null;
-  owner: string | null;
-  rev: number | null;
-  actor: string;
-  via: string;
-  admin: number;
-  detail_json: string | null;
-  before_json: string | null;
-  after_json: string | null;
-  source_client: string | null;
-  source_version: string | null;
-}
-
-// 20-spark.md S3s: the read-side NULL fallback (`row.source_client` absent
-// means this event was written before 0005) -- `legacy:<via>` rather than
-// a bare `null`, since every event (unlike a `layouts` row) always has its
-// own `via` to fall back on.
-export function sourceOfEvent(row: { source_client: string | null; source_version: string | null; via: string }): Source {
-  if (row.source_client === null) return { client: `legacy:${row.via}`, version: null };
-  return { client: row.source_client, version: row.source_version };
-}
-
-export function rowToEvent(row: EventDbRow): Event {
-  return {
-    seq: row.seq,
-    at: row.at,
-    kind: row.kind,
-    layout_id: row.layout_id,
-    name: row.name,
-    owner: row.owner,
-    rev: row.rev,
-    actor: row.actor,
-    via: row.via,
-    admin: row.admin !== 0,
-    detail: row.detail_json === null ? null : JSON.parse(row.detail_json),
-    before: row.before_json === null ? null : (JSON.parse(row.before_json) as RecordSansPayload),
-    after: row.after_json === null ? null : (JSON.parse(row.after_json) as RecordSansPayload),
-    source: sourceOfEvent(row),
-  };
-}
-
-function sansPayload(rec: RecordRow): RecordSansPayload {
-  const { payload: _payload, ...rest } = rec;
-  return rest;
-}
-
-// One batch: `events` (rev = previous + 1) -> `layout_revs` (event_seq =
-// last_insert_rowid(), the same D1 connection/transaction the whole batch
-// runs on, 07 §4) -> `layouts` (upsert keyed by id).
-//
-// Two constraints inside that batch are the concurrency guard, not the
-// pre-checks above it (09 §2.3): `layout_revs (layout_id, rev)` is a PK, so
-// two writes at the same rev cannot both commit -- the loser's batch rolls
-// back whole (events included, so `seq` stays gapless) and surfaces as
-// RevConflictError; and `layouts_name_live` is a partial UNIQUE index, so two
-// creates racing on one name fail the same way and surface as name_taken.
-// The upsert is `ON CONFLICT(id) DO UPDATE`, never `INSERT OR REPLACE`: OR
-// REPLACE resolves a UNIQUE conflict by DELETING the other row, which under
-// a name race would silently orphan the first record's events and revs.
-export async function appendWrite(
-  db: Bindings["DB"],
-  now: Clock,
-  w: Write,
-): Promise<{ record: RecordRow; seq: number }> {
-  const at = now();
-  const creating = w.layoutId === undefined;
-  const id = creating ? ulid() : w.layoutId!;
-
-  let current: RecordRow | null = null;
-  if (!creating) {
-    current = await readById(db, id);
-    if (current === null) {
-      throw new Error(`appendWrite: layoutId '${id}' does not exist`);
-    }
-    // LDB-P14: checked BEFORE any write -- the caller built `w.payload`
-    // (and `w.upstream`, via `nextUpstream(prior, ...)`) from a read taken
-    // at `expectRev`; if the record has moved since, that payload is
-    // stale and must never land, even though nothing here would otherwise
-    // collide (the natural `layout_revs` PK conflict only fires when two
-    // writers compute the SAME target rev -- a writer that unconditionally
-    // re-reads `current` fresh, as this function always does, never hits
-    // it on its own).
-    if (w.expectRev !== undefined && current.rev !== w.expectRev) {
-      throw new RevConflictError(id, w.expectRev + 1);
-    }
-  }
-
-  const deleted = w.deleted ?? false;
-  const name = w.name; // tombstones keep their literal name (01 §1); layouts_name_live
-  // (migrations/0001_init.sql) enforces uniqueness among LIVE records only
-
-  if (!deleted) {
-    // Case-insensitive collision against any OTHER live record (self-
-    // exclusion by id lets an update keep its own current name, and lets
-    // `renamed` and `imported`-revival reuse a name a tombstone isn't
-    // occupying live-wise even though it still carries it). A deleted
-    // write skips this: two records -- one live, one a tombstone -- may
-    // share a name; only claiming a LIVE slot for it needs the check
-    // (layouts_name_live's own WHERE clause would let the DB itself catch
-    // this too, but pre-checking gives the clean `name_taken` error).
-    const clash = await db
-      .prepare("SELECT 1 FROM layouts WHERE deleted = 0 AND name = ? AND id != ? LIMIT 1")
-      .bind(w.name, id)
-      .first();
-    if (clash !== null) throw nameTaken(w.name);
-  }
-
-  const rev = creating ? 1 : current!.rev + 1; // continues across deleted -> restored/imported/upstream_deleted
-  // An update keeps the record's created_at unless the write names one --
-  // only the cmini import does (import/apply.ts's applyMapped, following
-  // records): when cmini deletes and re-adds a layout under the same name
-  // between two ticks, upstream's created_at moves and a following record
-  // must move with it, or the daily diff flags it forever (2026-09-10:
-  // kate-2, eclipse-v2).
-  const created_at = creating ? (w.created_at ?? w.modified_at) : (w.created_at ?? current!.created_at);
-  const like_count = creating ? 0 : current!.like_count; // appendWrite never moves like_count
-  const has_magic = w.hasMagic ?? false;
-
-  const before: RecordSansPayload | null = current === null ? null : sansPayload(current);
-  const after: RecordSansPayload = {
-    id,
-    name,
-    owner: w.owner,
-    rev,
-    created_at,
-    modified_at: w.modified_at,
-    deleted,
-    like_count,
-    has_magic,
-    format: w.format,
-    upstream: w.upstream,
-    source: w.source,
-  };
-
-  const payloadJson = canonical(w.payload);
-
-  let results;
-  try {
-    results = await db.batch([
-    db
-      .prepare(
-        `INSERT INTO events (at, kind, layout_id, name, owner, rev, actor, via, admin, detail_json, before_json, after_json, source_client, source_version)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .bind(
-        at,
-        w.kind,
-        id,
-        name,
-        w.owner,
-        rev,
-        w.actor,
-        w.via,
-        w.admin === true ? 1 : 0,
-        w.detail === undefined ? null : canonical(w.detail),
-        before === null ? null : canonical(before),
-        canonical(after),
-        w.source.client,
-        w.source.version,
-      ),
-    db
-      .prepare(
-        `INSERT INTO layout_revs (layout_id, rev, event_seq, format, payload_json)
-         VALUES (?, ?, last_insert_rowid(), ?, ?)`,
-      )
-      .bind(id, rev, w.format, payloadJson),
-    db
-      .prepare(
-        `INSERT INTO layouts (id, name, owner, rev, created_at, modified_at, deleted, format, payload_json, like_count, has_magic, upstream_source, upstream_id, upstream_state, source_client, source_version)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET
-           name = excluded.name, owner = excluded.owner, rev = excluded.rev,
-           created_at = excluded.created_at, modified_at = excluded.modified_at, deleted = excluded.deleted,
-           format = excluded.format, payload_json = excluded.payload_json,
-           like_count = excluded.like_count, has_magic = excluded.has_magic,
-           upstream_source = excluded.upstream_source, upstream_id = excluded.upstream_id, upstream_state = excluded.upstream_state,
-           source_client = excluded.source_client, source_version = excluded.source_version`,
-      )
-      .bind(
-        id,
-        name,
-        w.owner,
-        rev,
-        created_at,
-        w.modified_at,
-        deleted ? 1 : 0,
-        w.format,
-        payloadJson,
-        like_count,
-        has_magic ? 1 : 0,
-        w.upstream?.source ?? null,
-        w.upstream?.id ?? null,
-        w.upstream?.state ?? null,
-        w.source.client,
-        w.source.version,
-      ),
-  ]);
-
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    if (/UNIQUE constraint failed: layouts\.name/.test(msg)) throw nameTaken(name);
-    if (/UNIQUE constraint failed: layout_revs\.layout_id, layout_revs\.rev/.test(msg)) throw new RevConflictError(id, rev);
-    throw e;
-  }
-
-  const seq = results[0]?.meta.last_row_id;
-  if (seq === undefined) throw new Error("appendWrite: events insert returned no last_row_id");
-
-  return { record: { ...after, payload: w.payload }, seq };
-}
-
-// Informational: `rev` NULL, `layouts` untouched. Still carries the
-// record's current name/owner (not just its id) so a feed reader doesn't
-// need a second lookup to know what the event is about.
 export async function appendInfo(db: Bindings["DB"], now: Clock, i: Info): Promise<{ seq: number }> {
   const current = await readById(db, i.layoutId);
   if (current === null) throw new Error(`appendInfo: layoutId '${i.layoutId}' does not exist`);
 
   const result = await db
     .prepare(
-      `INSERT INTO events (at, kind, layout_id, name, owner, rev, actor, via, admin, detail_json, before_json, after_json, source_client, source_version)
-       VALUES (?, ?, ?, ?, ?, NULL, ?, ?, 0, ?, NULL, NULL, ?, ?)`,
+      `INSERT INTO events (at, kind, layout_id, name, owner, format, rev, actor, via, admin, detail_json, before_json, after_json, source_client, source_version)
+       VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?, 0, ?, NULL, NULL, ?, ?)`,
     )
-    .bind(
-      now(),
-      i.kind,
-      i.layoutId,
-      current.name,
-      current.owner,
-      i.actor,
-      i.via,
-      i.detail === undefined ? null : canonical(i.detail),
-      i.source.client,
-      i.source.version,
-    )
+    .bind(now(), i.kind, i.layoutId, current.name, current.owner, i.actor, i.via, i.detail === undefined ? null : canonical(i.detail), i.source.client, i.source.version)
     .run();
 
   const seq = result.meta.last_row_id;
   return { seq };
 }
 
-// Admin actions (09 §3 T3): the third informational writer, after
-// appendInfo/appendLike. NULL layout_id/name/owner, rev NULL -- an admin
-// action is never rev-bumping and is never about one particular record
-// (`GET /v1/admin/admins`'s add/remove name a *user*, not a layout; pause/
-// resume name nothing). `admin` is always 1: every row this function
-// writes IS an admin action by definition, unlike `appendWrite`/`appendInfo`
-// where it depends on who the actor turned out to be. `via` is hardcoded
-// "discord": phase 2 has no client lane, so every admin actor got here
-// through the user lane (10 widens this if a bot ever gets admin caps).
 export async function appendAdmin(db: Bindings["DB"], now: Clock, a: { kind: InfoKind; actor: string; detail?: object }): Promise<{ seq: number }> {
   const result = await db
     .prepare(
-      `INSERT INTO events (at, kind, layout_id, name, owner, rev, actor, via, admin, detail_json, before_json, after_json)
-       VALUES (?, ?, NULL, NULL, NULL, NULL, ?, 'discord', 1, ?, NULL, NULL)`,
+      `INSERT INTO events (at, kind, layout_id, name, owner, format, rev, actor, via, admin, detail_json, before_json, after_json)
+       VALUES (?, ?, NULL, NULL, NULL, NULL, NULL, ?, 'discord', 1, ?, NULL, NULL)`,
     )
     .bind(now(), a.kind, a.actor, a.detail === undefined ? null : canonical(a.detail))
     .run();
@@ -430,21 +438,23 @@ export async function appendAdmin(db: Bindings["DB"], now: Clock, a: { kind: Inf
   return { seq };
 }
 
-// Idempotent: liking an already-liked record (or unliking one that isn't
-// liked) appends no event and leaves `like_count` untouched -- the only
-// case in this module with no batch at all.
-export async function appendLike(
-  db: Bindings["DB"],
-  now: Clock,
-  l: Like,
-): Promise<{ seq: number | null; like_count: number }> {
+export interface Like {
+  kind: "liked" | "unliked";
+  layoutId: string;
+  userId: string;
+  via: string;
+  detail?: object;
+  source: Source;
+}
+
+// Idempotent: liking an already-liked layout (or unliking one that isn't)
+// appends no event and leaves `like_count` untouched. Layout-level, same as
+// today -- no format is involved.
+export async function appendLike(db: Bindings["DB"], now: Clock, l: Like): Promise<{ seq: number | null; like_count: number }> {
   const current = await readById(db, l.layoutId);
   if (current === null) throw new Error(`appendLike: layoutId '${l.layoutId}' does not exist`);
 
-  const existing = await db
-    .prepare("SELECT 1 FROM likes WHERE layout_id = ? AND user_id = ?")
-    .bind(l.layoutId, l.userId)
-    .first();
+  const existing = await db.prepare("SELECT 1 FROM likes WHERE layout_id = ? AND user_id = ?").bind(l.layoutId, l.userId).first();
   const alreadyLiked = existing !== null;
   const wantsLike = l.kind === "liked";
 
@@ -454,14 +464,6 @@ export async function appendLike(
 
   const at = now();
 
-  // `like_count` is recomputed FROM the likes table inside the same batch,
-  // never carried in from the pre-read: two users liking at once each add
-  // their row and each set the count to what the table then holds, so no
-  // increment is lost. A same-user double-like races into the likes PK,
-  // which fails the whole batch (no event) -- that is the idempotent no-op,
-  // caught below. (A same-user double-UNlike can append two events; the
-  // count stays right because it is derived, and the fold treats the second
-  // as a no-op. Accepted: unlikes are rare.)
   let results;
   try {
     results = await db.batch([
@@ -470,24 +472,11 @@ export async function appendLike(
         : db.prepare("DELETE FROM likes WHERE layout_id = ? AND user_id = ?").bind(l.layoutId, l.userId),
       db
         .prepare(
-          `INSERT INTO events (at, kind, layout_id, name, owner, rev, actor, via, admin, detail_json, before_json, after_json, source_client, source_version)
-           VALUES (?, ?, ?, ?, ?, NULL, ?, ?, 0, ?, NULL, NULL, ?, ?)`,
+          `INSERT INTO events (at, kind, layout_id, name, owner, format, rev, actor, via, admin, detail_json, before_json, after_json, source_client, source_version)
+           VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?, 0, ?, NULL, NULL, ?, ?)`,
         )
-        .bind(
-          at,
-          l.kind,
-          l.layoutId,
-          current.name,
-          current.owner,
-          l.userId,
-          l.via,
-          l.detail === undefined ? null : canonical(l.detail),
-          l.source.client,
-          l.source.version,
-        ),
-      db
-        .prepare("UPDATE layouts SET like_count = (SELECT COUNT(*) FROM likes WHERE layout_id = ?) WHERE id = ?")
-        .bind(l.layoutId, l.layoutId),
+        .bind(at, l.kind, l.layoutId, current.name, current.owner, l.userId, l.via, l.detail === undefined ? null : canonical(l.detail), l.source.client, l.source.version),
+      db.prepare("UPDATE layouts SET like_count = (SELECT COUNT(*) FROM likes WHERE layout_id = ?) WHERE id = ?").bind(l.layoutId, l.layoutId),
       db.prepare("SELECT like_count FROM layouts WHERE id = ?").bind(l.layoutId),
     ]);
   } catch (e) {
@@ -505,61 +494,139 @@ export async function appendLike(
   return { seq, like_count: counted ?? current.like_count };
 }
 
-// A function boundary here (rather than inlining the spread in the loop
-// below) sidesteps a TS control-flow-analysis quirk: narrowing `state`
-// through its own reassignment inside a `for` loop resolves it to `never`
-// at the spread (confirmed against a minimal repro outside this file).
-function bumpLikeCount(prev: RecordSansPayload, delta: 1 | -1): RecordSansPayload {
-  return { ...prev, like_count: prev.like_count + delta };
+// A parsed `events` row (D1's 0/1 and JSON-string columns converted).
+export interface Event {
+  seq: number;
+  at: string;
+  kind: string;
+  layout_id: string | null;
+  name: string | null;
+  owner: string | null;
+  format: string | null;
+  rev: number | null;
+  actor: string;
+  via: string;
+  admin: boolean;
+  detail: unknown;
+  before: EventSnapshot | null;
+  after: EventSnapshot | null;
+  source: Source;
 }
 
-// Replays one record's own events (in seq order) against the payloads
-// stored for its revs. Returns null if the record was never written
-// (an empty event list).
-export function foldRecord(
-  events: Event[],
-  revs: Map<number, { format: string; payload: unknown }>,
-): RecordRow | null {
-  let state: RecordSansPayload | null = null;
-  let payload: unknown;
+export interface EventDbRow {
+  seq: number;
+  at: string;
+  kind: string;
+  layout_id: string | null;
+  name: string | null;
+  owner: string | null;
+  format: string | null;
+  rev: number | null;
+  actor: string;
+  via: string;
+  admin: number;
+  detail_json: string | null;
+  before_json: string | null;
+  after_json: string | null;
+  source_client: string | null;
+  source_version: string | null;
+}
+
+export function sourceOfEvent(row: { source_client: string | null; source_version: string | null; via: string }): Source {
+  if (row.source_client === null) return { client: `legacy:${row.via}`, version: null };
+  return { client: row.source_client, version: row.source_version };
+}
+
+export function rowToEvent(row: EventDbRow): Event {
+  return {
+    seq: row.seq,
+    at: row.at,
+    kind: row.kind,
+    layout_id: row.layout_id,
+    name: row.name,
+    owner: row.owner,
+    format: row.format,
+    rev: row.rev,
+    actor: row.actor,
+    via: row.via,
+    admin: row.admin !== 0,
+    detail: row.detail_json === null ? null : JSON.parse(row.detail_json),
+    before: row.before_json === null ? null : (JSON.parse(row.before_json) as EventSnapshot),
+    after: row.after_json === null ? null : (JSON.parse(row.after_json) as EventSnapshot),
+    source: sourceOfEvent(row),
+  };
+}
+
+// MF-3: folds one layout's events (seq order) plus its `layout_revs`
+// payloads into its `layouts` row and every `layout_formats` row. `revs`
+// keys on `(lineage-or-null, rev)`: null lineage for the layout scope.
+// `n` (the internal write counter) is never carried on an event snapshot
+// (§2.2's "after" is deliberately payload-and-`n`-free), so a fold can
+// reconstruct every OTHER `layouts` column but not `n` itself -- callers
+// that need `n` already have it from the row they read to get the events
+// in the first place.
+export interface FoldedLayout {
+  layout: Omit<LayoutRow, "n">;
+  formats: Map<string, FormatRow>;
+}
+
+// Function boundaries here (rather than inlining the spread in the loop)
+// sidestep a TS control-flow-analysis quirk: narrowing a `let` through its
+// own reassignment inside a loop resolves the spread's operand to `never`
+// at the call site (`core/events.ts`'s `bumpLikeCount` hit the same thing
+// before this rewrite).
+function withUpstream(l: LayoutSnapshot, upstream: Upstream | null): LayoutSnapshot {
+  return { ...l, upstream };
+}
+function withLikeDelta(l: LayoutSnapshot, delta: 1 | -1): LayoutSnapshot {
+  return { ...l, like_count: l.like_count + delta };
+}
+
+function revKey(lineage: string | null, rev: number): string {
+  return `${lineage ?? ""} ${rev}`;
+}
+
+export function foldLayout(events: Event[], revs: Map<string, { format: string | null; payload: unknown }>): FoldedLayout | null {
+  let layout: LayoutSnapshot | null = null;
+  const formats = new Map<string, FormatSnapshot>();
 
   for (const e of events) {
     if (e.rev !== null) {
-      if (e.after === null) throw new Error(`foldRecord: rev-bumping event (seq ${e.seq}) has no 'after'`);
-      const rev = revs.get(e.rev);
-      if (rev === undefined) throw new Error(`foldRecord: no layout_revs entry for rev ${e.rev}`);
-      state = e.after;
-      payload = rev.payload;
+      if (e.after === null) throw new Error(`foldLayout: rev-bumping event (seq ${e.seq}) has no 'after'`);
+      if (e.after.scope === "layout") {
+        layout = e.after;
+      } else {
+        const after = e.after;
+        formats.set(after.lineage, after);
+        if (after.upstream !== undefined && layout !== null) {
+          layout = withUpstream(layout, after.upstream);
+        }
+      }
     } else if (e.kind === "liked" || e.kind === "unliked") {
-      if (state === null) throw new Error(`foldRecord: like event (seq ${e.seq}) precedes any write`);
-      state = bumpLikeCount(state, e.kind === "liked" ? 1 : -1);
+      if (layout === null) throw new Error(`foldLayout: like event (seq ${e.seq}) precedes any write`);
+      layout = withLikeDelta(layout, e.kind === "liked" ? 1 : -1);
     }
-    // else: informational -- no state change
   }
 
-  return state === null ? null : { ...state, payload };
+  if (layout === null) return null;
+  const { scope: _s, ...layoutRow } = layout;
+  const formatRows = new Map<string, FormatRow>();
+  for (const [lin, snap] of formats) {
+    const rev = revs.get(revKey(lin, snap.rev));
+    if (rev === undefined) throw new Error(`foldLayout: no layout_revs entry for lineage '${lin}' rev ${snap.rev}`);
+    const { scope: _s2, upstream: _u, ...rest } = snap;
+    formatRows.set(lin, { ...rest, payload: rev.payload });
+  }
+  return { layout: layoutRow, formats: formatRows };
 }
 
-// X3 (12 §3 X3, §6.6): `/v1/changes` and the changelog page both narrow the
-// feed by `layout=` (resolved to an id by the caller -- `events_layout`
-// indexes `(layout_id, seq)`, so this filter rides the same index the
-// `seq > ?` scan already uses) and/or `actor=` (an unindexed scan -- 12
-// §3 X3 accepts that at this volume rather than adding an index no other
-// reader needs).
 export interface FeedFilter {
   layoutId?: string;
   actor?: string;
+  format?: string; // 21-formats.md §2.4: `/history`'s optional filter -- absent means all, not a default
 }
 
-// `since` exclusive; first event is seq 1 (`since=0` = everything); `next`
-// is the last seq returned; `limit` capped at 1000 (03 §5, 07 §6 S4).
-export async function feed(
-  db: Bindings["DB"],
-  since: number,
-  limit: number,
-  kinds?: string[],
-  filter?: FeedFilter,
-): Promise<{ next: number; items: Event[] }> {
+export async function feed(db: Bindings["DB"], since: number, limit: number, kinds?: string[], filter?: FeedFilter): Promise<{ next: number; items: Event[] }> {
   const cappedLimit = Math.min(limit, 1000);
   const params: unknown[] = [since];
   let sql = "SELECT * FROM events WHERE seq > ?";
@@ -575,13 +642,14 @@ export async function feed(
     sql += " AND actor = ?";
     params.push(filter.actor);
   }
+  if (filter?.format !== undefined) {
+    sql += " AND format = ?";
+    params.push(filter.format);
+  }
   sql += " ORDER BY seq ASC LIMIT ?";
   params.push(cappedLimit);
 
-  const { results } = await db
-    .prepare(sql)
-    .bind(...params)
-    .all<EventDbRow>();
+  const { results } = await db.prepare(sql).bind(...params).all<EventDbRow>();
   const items = results.map(rowToEvent);
   const next = items.length > 0 ? items[items.length - 1]!.seq : since;
   return { next, items };

@@ -34,6 +34,11 @@ export const walk = pureRegistry.walk;
 export const hasEdge = pureRegistry.hasEdge;
 export const chainViolations = pureRegistry.chainViolations;
 
+// 21-formats.md §2.5 (MF-10): re-exported for `core/write.ts`'s read
+// resolution and `routes/layouts.ts`'s list/get/rev routes.
+export const reachingLineages = pureRegistry.reachingLineages;
+export const outputSourceLineage = pureRegistry.outputSourceLineage;
+
 // get(id): resolves a registered id through the pure registry's
 // `resolveFormat`. `getFormat("cmini/1")` answers `undefined` (never
 // registered) and `getFormat("mana2/1")`'s WRITABILITY is `core/write.ts`'s
@@ -42,6 +47,11 @@ export const chainViolations = pureRegistry.chainViolations;
 export function get(id: string): FormatModule | undefined {
   return pureRegistry.resolveFormat(id)?.module;
 }
+
+// Re-exported for `core/write.ts`, which needs the `{module, label}` shape
+// itself (to distinguish "not registered" from "registered but not
+// writable"), not just the resolved module `get()` throws away.
+export const resolveFormat = pureRegistry.resolveFormat;
 
 export type TranslateResult = { payload: Payload } | { held: true; format: string; see?: string };
 

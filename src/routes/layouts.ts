@@ -1,29 +1,32 @@
-// GET /v1/layouts (list + `?full=1`), /v1/layouts/{ref}(?as=), /likes,
-// /history, /rev/{n}(?as=) (03 §2, 07 §6 S6).
+// GET /v1/layouts (list + `?full=1`), /v1/layouts/{ref}, /likes, /history,
+// /rev/{n} (21-formats.md §2.4). `?format=` is required wherever a payload
+// is returned or a layout could have several -- D4: no default.
 import { Hono, type Context } from "hono";
 import type { Bindings } from "../env";
 import { canonical } from "../core/canonical";
-import { badRequest, held, notFound, unknownFormat } from "../core/errors";
+import { badRequest, formatAbsent, formatRequired, held, notFound, unknownFormat } from "../core/errors";
 import { cachePut, conditional, etagFor, headSeq } from "../core/etag";
-import type { EventDbRow, RecordSansPayload } from "../core/events";
+import type { EventDbRow } from "../core/events";
 import { rowToEvent, sourceOfEvent } from "../core/events";
+import { resolveReadFormat, sourceLineageFor } from "../core/formatread";
 import {
-  byRef,
+  byRefWithFormats,
   decodeCursor,
+  formatsMapToWire,
+  fullWire,
+  layoutToWire,
   list as listRecords,
   type ListCursor,
-  type RecordRow,
   type SortKey,
 } from "../core/records";
-import { get as getFormat, list as listFormats, translate } from "../formats/registry";
+import { get as getFormat, translate } from "../formats/registry";
 
 const CACHE_CONTROL = "public, max-age=10";
 const SORT_KEYS: readonly SortKey[] = ["name", "modified_at", "created_at", "like_count"];
-const DEFAULT_FORMAT = "spark/1"; // 03 §1 (20-spark.md S2): every read that returns a payload defaults `as` here
 
-function sansPayload(rec: RecordRow): RecordSansPayload {
-  const { payload: _payload, ...rest } = rec;
-  return rest;
+function parseFormatRequired(raw: string | undefined): string {
+  if (raw === undefined) throw formatRequired();
+  return raw;
 }
 
 function parseLimit(raw: string | undefined): number {
@@ -60,8 +63,6 @@ function parseHasMagic(raw: string | undefined): boolean | undefined {
   return undefined;
 }
 
-// 10 C1: `?liked_by=<user_id>` -- same Discord-id shape every other actor
-// id on this service is checked against.
 const LIKED_BY_RE = /^\d{17,20}$/;
 function parseLikedBy(raw: string | undefined): string | undefined {
   if (raw === undefined) return undefined;
@@ -69,19 +70,14 @@ function parseLikedBy(raw: string | undefined): string | undefined {
   return raw;
 }
 
-// `?as=` validated against the registry up front so a bad format 400s
-// before any D1 read, on every route that takes it. 21-formats.md D5:
-// `?as=cmini/1` is no longer readable at all (no more `adapter:cmini`
-// alias) -- it 400s here exactly like any other unregistered id.
-function resolveAsFormat(raw: string | undefined): string {
-  const as = raw ?? DEFAULT_FORMAT;
-  if (getFormat(as) === undefined) {
-    throw unknownFormat(
-      as,
-      listFormats().map((f) => f.id),
-    );
-  }
-  return as;
+// Resolves `?format=F` to the SQL join's source lineage, 400ing on an
+// unregistered id and 404ing (format_absent) on a registered one no
+// stored lineage reaches (registry-level, independent of any one layout).
+function resolveSourceLineage(as: string): string {
+  const resolved = sourceLineageFor(as);
+  if ("unknown" in resolved) throw unknownFormat(as, resolved.known);
+  if ("absent" in resolved) throw formatAbsent(as);
+  return resolved.lineage;
 }
 
 export const layoutsRoute = new Hono<{ Bindings: Bindings }>();
@@ -89,45 +85,49 @@ export const layoutsRoute = new Hono<{ Bindings: Bindings }>();
 layoutsRoute.get("/v1/layouts", async (c) => {
   const db = c.env.DB;
   const full = c.req.query("full") === "1";
+  const format = parseFormatRequired(c.req.query("format"));
 
-  if (full) return handleFullDump(c);
+  if (full) return handleFullDump(c, format);
 
   const owner = c.req.query("owner");
-  const format = c.req.query("format");
   const hasMagic = parseHasMagic(c.req.query("has_magic"));
   const since = parseSince(c.req.query("since"));
   const likedBy = parseLikedBy(c.req.query("liked_by"));
   const sort = parseSort(c.req.query("sort"));
   const limit = parseLimit(c.req.query("limit"));
   const cursor = parseCursor(c.req.query("cursor"));
+  const sourceLineage = resolveSourceLineage(format);
 
   const seq = await headSeq(db);
-  const query = { owner, format, hasMagic, since, likedBy, sort, limit, cursor };
+  const query = { format, owner, hasMagic, since, likedBy, sort, limit, cursor };
   const etag = await etagFor(seq, query);
   const short = await conditional(c, etag, CACHE_CONTROL);
   if (short) return short;
 
-  const page = await listRecords(db, { owner, format, hasMagic, since, likedBy, sort, limit, cursor });
-  const res = c.json({ items: page.items.map(sansPayload), next_cursor: page.nextCursor });
+  const page = await listRecords(db, { sourceLineage, owner, hasMagic, since, likedBy, sort, limit, cursor });
+  const items = page.items.map(({ layout, format: row }) => {
+    const translated = row.format === format ? { payload: row.payload } : translate({ format: row.format, payload: row.payload }, format);
+    const summary = { rev: row.rev, created_at: row.created_at, modified_at: row.modified_at, has_magic: row.has_magic, source: row.source };
+    if ("held" in translated) {
+      return { ...layoutToWire(layout), formats: { [row.format]: summary }, held: true, format: translated.format, see: translated.see };
+    }
+    return {
+      ...layoutToWire(layout),
+      formats: { [row.format]: summary },
+      format,
+      payload: translated.payload,
+      ...(row.format !== format ? { derived_from: row.format } : {}),
+    };
+  });
+  const res = c.json({ items, next_cursor: page.nextCursor });
   res.headers.set("ETag", etag);
   res.headers.set("Cache-Control", CACHE_CONTROL);
   await cachePut(c, res.clone());
   return res;
 });
 
-// `?full=1&as=<f>`: every live record, translated, streamed in keyset
-// pages of 500 (07 §6 S6) so the response never buffers the whole corpus
-// in memory. A held record contributes its record fields (already minus
-// `payload`) plus `held: true` -- `format` is already the record's own
-// native format from that same spread, so nothing extra is added for it
-// (03 §1's "record fields plus held: true, format").
 const FULL_PAGE_SIZE = 500;
 
-// Likes ride inline on every record that carries a payload (detail and
-// `full=1`), sorted by user id -- cmini's own detail inlines `likes`, and
-// the site's sync and the D12 diff read them from the same response rather
-// than one `/likes` round trip per layout (W1's finding). List rows keep
-// only `like_count`. Chunked IN-lists: D1 allows <= 100 bound params.
 async function likesByLayout(db: Bindings["DB"], ids: string[]): Promise<Map<string, string[]>> {
   const out = new Map<string, string[]>(ids.map((id) => [id, []]));
   for (let i = 0; i < ids.length; i += 90) {
@@ -141,14 +141,13 @@ async function likesByLayout(db: Bindings["DB"], ids: string[]): Promise<Map<str
   return out;
 }
 
-
-async function handleFullDump(c: Context<{ Bindings: Bindings }>): Promise<Response> {
+async function handleFullDump(c: Context<{ Bindings: Bindings }>, format: string): Promise<Response> {
   const db = c.env.DB;
-  const as = resolveAsFormat(c.req.query("as"));
   const likedBy = parseLikedBy(c.req.query("liked_by"));
+  const sourceLineage = resolveSourceLineage(format);
 
   const seq = await headSeq(db);
-  const etag = await etagFor(seq, { full: 1, as, likedBy });
+  const etag = await etagFor(seq, { full: 1, format, likedBy });
   const short = await conditional(c, etag, CACHE_CONTROL);
   if (short) return short;
 
@@ -162,41 +161,32 @@ async function handleFullDump(c: Context<{ Bindings: Bindings }>): Promise<Respo
       let cursor: ListCursor | undefined;
       let first = true;
       for (;;) {
-        const page = await listRecords(db, { sort: "name", limit: FULL_PAGE_SIZE, cursor, likedBy });
-        const likes = await likesByLayout(db, page.items.map((r) => r.id));
-        for (const rec of page.items) {
-          const result = translate(rec, as);
-          const base = { ...sansPayload(rec), likes: likes.get(rec.id) ?? [] };
-          // The wire `format` field is always the record's own native
-          // format (21-formats.md D5/D12: no more aliases to relabel it
-          // to) -- a held item's comes from `base`'s own spread, a
-          // successful translation's is spelled out explicitly here.
+        const page = await listRecords(db, { sourceLineage, sort: "name", limit: FULL_PAGE_SIZE, cursor, likedBy });
+        const likes = await likesByLayout(db, page.items.map(({ layout }) => layout.id));
+        for (const { layout, format: row } of page.items) {
+          const translated = format === row.format ? { payload: row.payload } : translate({ format: row.format, payload: row.payload }, format);
+          const base = { ...layoutToWire(layout), likes: likes.get(layout.id) ?? [] };
           const body: Record<string, unknown> =
-            "held" in result ? { ...base, held: true } : { ...base, payload: result.payload, format: rec.format };
+            "held" in translated
+              ? { ...base, held: true, format: row.format }
+              : { ...base, payload: translated.payload, format, ...(row.format !== format ? { derived_from: row.format } : {}) };
           await writer.write(encoder.encode((first ? "" : ",") + canonical(body)));
           first = false;
         }
         if (page.nextCursor === null) break;
         const decoded = decodeCursor(page.nextCursor);
-        if (decoded === null) break; // unreachable: we just encoded it ourselves
+        if (decoded === null) break;
         cursor = decoded;
       }
       await writer.write(encoder.encode("]}"));
     } catch (e) {
-      console.error("full=1 dump stream failed", e); // never surfaced to the client -- the stream is already open
+      console.error("full=1 dump stream failed", e);
     } finally {
       await writer.close();
     }
   })();
-  c.executionCtx.waitUntil(pump); // keep the isolate alive for the writer loop even if the client stops reading
+  c.executionCtx.waitUntil(pump);
 
-  // No `cachePut` here: it would mean `await`ing the whole dump (a
-  // `Response.clone()`'d stream tees the SAME underlying writes, so
-  // `caches.default.put()` only resolves once `pump` has finished) before
-  // returning anything to the client, which defeats streaming entirely.
-  // The conditional() call above still gets the "consult" half of caching
-  // (a 304, or a prior cached response, short-circuits before any of this
-  // runs); the "put" half is skipped for this one streamed route.
   return new Response(readable, {
     headers: { "Content-Type": "application/json", ETag: etag, "Cache-Control": CACHE_CONTROL },
   });
@@ -205,52 +195,52 @@ async function handleFullDump(c: Context<{ Bindings: Bindings }>): Promise<Respo
 layoutsRoute.get("/v1/layouts/:ref", async (c) => {
   const db = c.env.DB;
   const ref = c.req.param("ref");
-  const as = resolveAsFormat(c.req.query("as"));
+  const format = parseFormatRequired(c.req.query("format"));
 
-  const rec = await byRef(db, ref);
-  if (rec === null) throw notFound(`no layout '${ref}'`, ref);
+  const lwf = await byRefWithFormats(db, ref);
+  if (lwf === null) throw notFound(`no layout '${ref}'`, ref);
 
-  const result = translate(rec, as);
-  if ("held" in result) throw held(result.format, result.see);
+  const resolved = resolveReadFormat(lwf.formats, format);
 
-  const likes = await likesByLayout(db, [rec.id]);
-  return c.json({ ...sansPayload(rec), likes: likes.get(rec.id) ?? [], payload: result.payload, format: rec.format });
+  const likes = await likesByLayout(db, [lwf.layout.id]);
+  return c.json({
+    ...fullWire(lwf.layout, lwf.formats, { format: resolved.format, payload: resolved.payload, derived_from: resolved.derived_from }),
+    likes: likes.get(lwf.layout.id) ?? [],
+  });
 });
 
 layoutsRoute.get("/v1/layouts/:ref/likes", async (c) => {
   const db = c.env.DB;
   const ref = c.req.param("ref");
-  const rec = await byRef(db, ref);
+  const rec = await byRefWithFormats(db, ref);
   if (rec === null) throw notFound(`no layout '${ref}'`, ref);
 
-  const { results } = await db
-    .prepare("SELECT user_id FROM likes WHERE layout_id = ? ORDER BY user_id ASC")
-    .bind(rec.id)
-    .all<{ user_id: string }>();
+  const { results } = await db.prepare("SELECT user_id FROM likes WHERE layout_id = ? ORDER BY user_id ASC").bind(rec.layout.id).all<{ user_id: string }>();
   return c.json({ user_ids: results.map((r) => r.user_id) });
 });
 
+// 21-formats.md §2.4: `?format=F` is an OPTIONAL filter on `/history`
+// (absent means every event, not a default -- D4's exception is explicit
+// here).
 layoutsRoute.get("/v1/layouts/:ref/history", async (c) => {
   const db = c.env.DB;
   const ref = c.req.param("ref");
-  const rec = await byRef(db, ref);
+  const format = c.req.query("format");
+  const rec = await byRefWithFormats(db, ref);
   if (rec === null) throw notFound(`no layout '${ref}'`, ref);
 
-  const { results } = await db
-    .prepare("SELECT * FROM events WHERE layout_id = ? ORDER BY seq ASC")
-    .bind(rec.id)
-    .all<EventDbRow>();
+  const sql = format === undefined ? "SELECT * FROM events WHERE layout_id = ? ORDER BY seq ASC" : "SELECT * FROM events WHERE layout_id = ? AND format = ? ORDER BY seq ASC";
+  const stmt = format === undefined ? db.prepare(sql).bind(rec.layout.id) : db.prepare(sql).bind(rec.layout.id, format);
+  const { results } = await stmt.all<EventDbRow>();
   const items = results.map(rowToEvent).map((e) => ({
     seq: e.seq,
+    format: e.format,
     rev: e.rev,
     at: e.at,
     actor: e.actor,
     via: e.via,
     kind: e.kind,
     admin: e.admin,
-    // 20-spark.md S3s (LDB-P15): per-event, via `rowToEvent`'s own
-    // `sourceOfEvent` -- a NULL `source_client` column (written before
-    // 0005) reads `{client: "legacy:" + via, version: null}`.
     source: e.source,
   }));
   return c.json(items);
@@ -259,37 +249,34 @@ layoutsRoute.get("/v1/layouts/:ref/history", async (c) => {
 layoutsRoute.get("/v1/layouts/:ref/rev/:n", async (c) => {
   const db = c.env.DB;
   const ref = c.req.param("ref");
-  const as = resolveAsFormat(c.req.query("as"));
+  const format = parseFormatRequired(c.req.query("format"));
   const nRaw = c.req.param("n");
   const n = Number(nRaw);
   if (!Number.isInteger(n) || n <= 0) throw badRequest(`invalid rev '${nRaw}' (expected a positive integer)`, "n");
 
-  const rec = await byRef(db, ref);
+  const rec = await byRefWithFormats(db, ref);
   if (rec === null) throw notFound(`no layout '${ref}'`, ref);
 
+  const mod = getFormat(format);
+  if (mod === undefined) throw badRequest(`unknown format '${format}'`, "format");
+  if (mod.role !== "stored") throw badRequest(`'${format}' is an output format -- it has no numbered history of its own`, "format");
+  const lin = format.slice(0, format.indexOf("/"));
+
   const [revRow, eventRow] = await Promise.all([
+    db.prepare("SELECT format, payload_json FROM layout_revs WHERE layout_id = ? AND lineage = ? AND rev = ?").bind(rec.layout.id, lin, n).first<{ format: string; payload_json: string }>(),
     db
-      .prepare("SELECT format, payload_json FROM layout_revs WHERE layout_id = ? AND rev = ?")
-      .bind(rec.id, n)
-      .first<{ format: string; payload_json: string }>(),
-    db
-      .prepare("SELECT after_json, via, source_client, source_version FROM events WHERE layout_id = ? AND rev = ?")
-      .bind(rec.id, n)
+      .prepare("SELECT after_json, via, source_client, source_version FROM events WHERE layout_id = ? AND format = ? AND rev = ?")
+      .bind(rec.layout.id, format, n)
       .first<{ after_json: string | null; via: string; source_client: string | null; source_version: string | null }>(),
   ]);
   if (revRow === null || eventRow === null || eventRow.after_json === null) {
-    throw notFound(`layout '${ref}' has no rev ${n}`, ref);
+    throw notFound(`layout '${ref}' has no rev ${n} of '${format}'`, ref);
   }
 
-  const after = JSON.parse(eventRow.after_json) as RecordSansPayload;
+  const after = JSON.parse(eventRow.after_json) as Record<string, unknown>;
   const payload: unknown = JSON.parse(revRow.payload_json);
-  const result = translate({ format: revRow.format, payload }, as);
+  const result = format === revRow.format ? { payload } : translate({ format: revRow.format, payload }, format);
   if ("held" in result) throw held(result.format, result.see);
 
-  // 20-spark.md S3s (LDB-P15): computed from THIS event's own row, not
-  // trusted straight off `after_json` -- an event written before 0005 has
-  // no `source` key in its stored `after` at all, so `sourceOfEvent`'s
-  // `legacy:<via>` fallback (using this same row's `via`) is what actually
-  // fills it in.
-  return c.json({ ...after, payload: result.payload, format: after.format, source: sourceOfEvent(eventRow) });
+  return c.json({ ...after, format, payload: result.payload, source: sourceOfEvent(eventRow) });
 });

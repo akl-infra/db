@@ -29,11 +29,15 @@ function escapeHtml(s: string): string {
     .replace(/'/g, "&#39;");
 }
 
+// `renamed`/`transferred` are always LAYOUT-scope kinds (21-formats.md
+// §2.2) -- `before`/`after` are `LayoutSnapshot`s whenever they fire, so
+// the scope check below is a type guard, not a real "could be a format
+// event" case.
 function fmtChange(e: Event): string {
-  if (e.kind === "renamed" && e.before !== null && e.after !== null) {
+  if (e.kind === "renamed" && e.before?.scope === "layout" && e.after?.scope === "layout") {
     return `${escapeHtml(e.before.name)} &rarr; ${escapeHtml(e.after.name)}`;
   }
-  if (e.kind === "transferred" && e.before !== null && e.after !== null) {
+  if (e.kind === "transferred" && e.before?.scope === "layout" && e.after?.scope === "layout") {
     return `${escapeHtml(e.before.owner)} &rarr; ${escapeHtml(e.after.owner)}`;
   }
   return "";

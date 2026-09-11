@@ -542,12 +542,13 @@ export function httpOurs(dbBaseUrl: string, fetchImpl?: FetchImpl, sleepImpl?: S
   const doSleep: SleepImpl = sleepImpl ?? realSleep;
   return {
     async *full() {
-      // 20-spark.md S3b: reads `?as=spark/1` (was `cmini/1`) -- comparison
-      // happens in spark now, and the item's own `upstream` (§8 R-H6) means
-      // no per-leftover `/history` follow-up is needed any more.
-      const raw = await fetchJsonRetried(doFetch, doSleep, HTTP_OURS_UA, `${dbBaseUrl}/v1/layouts?full=1&as=spark/1`);
+      // 21-formats.md §2.4: `?format=spark/1` (was `?as=spark/1`) -- D4
+      // dropped the default and renamed the parameter; comparison happens
+      // in spark now, and the item's own `upstream` (§8 R-H6) means no
+      // per-leftover `/history` follow-up is needed any more.
+      const raw = await fetchJsonRetried(doFetch, doSleep, HTTP_OURS_UA, `${dbBaseUrl}/v1/layouts?full=1&format=spark/1`);
       const ourFull = raw as OurFullResponse;
-      if (!Array.isArray(ourFull.items)) throw new Error(`${dbBaseUrl}/v1/layouts?full=1&as=spark/1 is not {items: [...]}`);
+      if (!Array.isArray(ourFull.items)) throw new Error(`${dbBaseUrl}/v1/layouts?full=1&format=spark/1 is not {items: [...]}`);
       for (const item of ourFull.items) {
         if (item.held === true || item.payload === undefined) {
           yield { held: item.name };

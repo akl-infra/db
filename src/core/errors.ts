@@ -101,6 +101,32 @@ export function internal(): ApiError {
   return new ApiError(500, { error: "internal", message: "internal error" });
 }
 
+// 21-formats.md §2.4 (D4: no default format). `?format=` absent on a route
+// that needs one to answer/change a payload.
+export function formatRequired(): ApiError {
+  return new ApiError(400, { error: "format_required", message: "a 'format' parameter is required" });
+}
+
+// A registered format (stored or output) the layout does not have and
+// cannot derive (no stored lineage reaches it, or it has no row of the
+// lineage named). Distinct from `unknown_format` (the id itself isn't
+// registered at all).
+export function formatAbsent(format: string): ApiError {
+  return new ApiError(404, { error: "format_absent", message: `this layout has no '${format}' format`, format });
+}
+
+// PUT with `If-None-Match: *` naming a lineage the layout already has.
+export function formatExists(format: string): ApiError {
+  return new ApiError(409, { error: "format_exists", message: `this layout already has a '${format}' format`, format });
+}
+
+// A PATCH body that mixes a layout-level field (`name`) with a format edit
+// (`fingermap`/`board`/`magic`) -- each write has exactly one scope and one
+// If-Match (21-formats.md §2.2).
+export function mixedPatch(): ApiError {
+  return new ApiError(400, { error: "mixed_patch", message: "a PATCH may change the layout's name, or one format's payload, never both at once" });
+}
+
 // The phase-2 user-lane errors (09 §2.1). `unauthorized` is no/malformed
 // `Authorization`; `tokenInvalid` is Discord itself saying 401 (cached up to
 // 60s, 09 §2.2). Both carry `WWW-Authenticate` -- the RFC 6750 way a client
@@ -182,11 +208,16 @@ export function ifMatchRequired(): ApiError {
   });
 }
 
-export function stale(record: Record<string, unknown> & { rev: number }, lastWrite: LastWrite): ApiError {
+// 21-formats.md §2.3: carries the write's own `scope` ("layout" or a
+// lineage), that scope's CURRENT rev, and the current record -- the
+// layout-level fields and `formats` always, plus `format`/`payload` when
+// the scope is a format (the caller builds `record` accordingly).
+export function stale(scope: string, rev: number, record: Record<string, unknown>, lastWrite: LastWrite): ApiError {
   return new ApiError(409, {
     error: "stale",
-    message: `record is at rev ${record.rev}, not the version you edited`,
-    rev: record.rev,
+    message: `'${scope}' is at rev ${rev}, not the version you edited`,
+    scope,
+    rev,
     record,
     last_write: lastWrite,
   });

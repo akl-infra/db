@@ -57,21 +57,26 @@ export function d1Ours(env: Bindings): OursSource {
     async *full() {
       let cursor: ListCursor | undefined;
       for (;;) {
-        const page = await listRecords(db, { sort: "name", limit: PAGE_SIZE, cursor });
+        // 21-formats.md §3 F2: the D12 diff still compares in spark only --
+        // a layout with no `spark/1` row simply never appears in this
+        // corpus (unreachable in F2: every stored row is spark/1; real once
+        // a second format lands, and `diffCorpus`'s own `missing`/`extra`
+        // bookkeeping already treats an absent entry correctly either way).
+        const page = await listRecords(db, { sourceLineage: "spark", sort: "name", limit: PAGE_SIZE, cursor });
         const likes = await likesFor(
           db,
-          page.items.map((r) => r.id),
+          page.items.map(({ layout }) => layout.id),
         );
-        for (const rec of page.items) {
+        for (const { layout, format } of page.items) {
           yield {
-            ref: rec.id,
-            name: rec.name,
-            owner: rec.owner,
-            created_at: rec.created_at,
-            modified_at: rec.modified_at,
-            likes: likes.get(rec.id) ?? [],
-            payload: rec.payload as SparkPayload,
-            upstream: rec.upstream ?? null,
+            ref: layout.id,
+            name: layout.name,
+            owner: layout.owner,
+            created_at: layout.created_at,
+            modified_at: layout.modified_at,
+            likes: likes.get(layout.id) ?? [],
+            payload: format.payload as SparkPayload,
+            upstream: layout.upstream ?? null,
           };
         }
         if (page.nextCursor === null) break;

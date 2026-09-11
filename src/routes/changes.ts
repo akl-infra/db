@@ -27,6 +27,7 @@ const CACHE_CONTROL = "public, max-age=10";
 // a gap fails both at compile time and at test time.
 const WRITE_KINDS_MAP: Record<WriteKind, true> = {
   created: true,
+  format_added: true,
   updated: true,
   renamed: true,
   fingermap: true,

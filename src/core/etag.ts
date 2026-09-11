@@ -76,7 +76,11 @@ export async function readHead(db: D1Database, stateKeys: readonly string[] = []
 // pre-deploy `If-None-Match` (or an edge-cached body, `caches.default`)
 // at an unchanged head seq would keep answering 304/a stale cached body
 // with the OLD shape forever.
-const WIRE_VERSION = 2;
+// 21-formats.md §2.3: bumped again -- several formats per layout, scoped
+// If-Match tokens, `layout_rev` replacing the bare `rev`, `?format=`
+// required. No cached 304/edge-cached body from before this slice can keep
+// serving the old shape at an unchanged head seq.
+const WIRE_VERSION = 3;
 
 export async function etagFor(headSeqValue: number, query: unknown): Promise<string> {
   const hash = await sha256Hex(canonical({ wireVersion: WIRE_VERSION, query: query ?? null }));

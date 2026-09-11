@@ -9,12 +9,12 @@ import type { Actor } from "../auth/actor";
 import type { Bindings } from "../env";
 import { badRequest, notFound } from "./errors";
 import { appendLike } from "./events";
-import { byRef, type RecordRow } from "./records";
+import { byRef, type LayoutRow } from "./records";
 import type { Clock } from "./time";
 
 const QWERTY_MESSAGE = "You can't like Qwerty :yellow_circle:";
 
-async function loadForLike(db: Bindings["DB"], ref: string): Promise<RecordRow> {
+async function loadForLike(db: Bindings["DB"], ref: string): Promise<LayoutRow> {
   const record = await byRef(db, ref);
   // A tombstone is reachable only by id (byRef's name path already excludes
   // it); either way it's not something you can like.

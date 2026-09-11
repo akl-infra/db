@@ -318,6 +318,29 @@ export function hasEdge(from: string, to: string): boolean {
   return false;
 }
 
+// 21-formats.md §2.5 (MF-10): "each output format is reachable from
+// exactly one stored lineage" -- every `role: "stored"` module whose
+// STRUCTURAL chain (`hasEdge`, not a live payload) reaches `as`. A
+// conforming registry always answers a list of length <= 1 for a
+// registered output format (0 means nothing has been wired up to it yet);
+// the stub lineage's deliberately-broken variant proves this catches a
+// SECOND source too (MF-10's own test).
+export function reachingLineages(as: string): string[] {
+  const mod = byId.get(as);
+  if (mod === undefined || mod.role !== "output") return [];
+  return REGISTRY.filter((m) => m.role === "stored" && hasEdge(m.id, as)).map((m) => m.id);
+}
+
+// The one stored lineage a `?format=<output>` read derives from, or
+// undefined when `as` isn't a registered output format or zero/more-than-
+// one stored lineage reaches it (both registry bugs MF-10 catches at test
+// time -- a read-time caller treats `undefined` as "nothing to derive
+// from", i.e. `404 format_absent`, never a 500).
+export function outputSourceLineage(as: string): string | undefined {
+  const reaching = reachingLineages(as);
+  return reaching.length === 1 ? reaching[0] : undefined;
+}
+
 // -- 20-spark.md S1's shared vocabulary (§3) --
 
 // resolveFormat(id): a native registered id resolves to itself (label ===

@@ -1,24 +1,25 @@
-// The write pipeline (09 §2.6): one function per verb, all sharing the same
-// spine -- resolve -> authorize -> check -> `appendWrite`. `src/routes/
-// write.ts` is glue only (parse the request, call one of these, `c.json`
-// the result) so LDB-W1 holds: no file under `src/routes/` prepares a D1
-// statement. This module DOES prepare statements (the name-clash re-read,
-// the `authors` existence check for transfer, the `last_write` lookup for a
-// `stale` body) -- LDB-W1 is a routes/-only boundary, `appendWrite`/
-// `appendLike` in `core/events.ts` stay the only code that writes `layouts`
-// (LDB-P1, tests/tools/onlywriter.test.ts).
+// The write pipeline (21-formats.md §2.2/§2.4): one function per verb, all
+// sharing the same spine -- resolve -> authorize -> check (scoped
+// If-Match) -> `commitWrite`, with a retry wrapper around the ones that can
+// race a DIFFERENT scope of the same layout. `src/routes/write.ts` is glue
+// only (parse the request, call one of these, `c.json` the result) so
+// LDB-W1 holds: no file under `src/routes/` prepares a D1 statement.
+import { ulid } from "ulidx";
 import type { Actor } from "../auth/actor";
 import type { Bindings } from "../env";
-import { get as getFormat, list as listFormats } from "../formats/registry";
-import { resolveFormat, translate, lineage, latestId, walk } from "../../formats/registry.ts";
-import { requireIfMatch, type IfMatch } from "./ifmatch";
+import { get as getFormat, latestId, lineage, list as listFormats, resolveFormat, walk } from "../formats/registry";
+import type { EditResult, FormatModule } from "../formats/registry";
+import { parseIfMatch, requireScopedIfMatch, type CheckedIfMatch, type IfMatch, type IfNoneMatch } from "./ifmatch";
 import {
   ApiError,
   badRequest,
-  formatBehind,
+  formatAbsent,
+  formatExists,
   formatNotWritable,
+  formatRequired,
   internal,
   invalidName,
+  mixedPatch,
   nameTaken,
   notFound,
   notOwner,
@@ -28,79 +29,107 @@ import {
   type ErrBody,
   type LastWrite,
 } from "./errors";
-import { appendLike, appendWrite, RevConflictError, rowToEvent, type EventDbRow, type Write } from "./events";
+import {
+  appendLike,
+  commitWrite,
+  RevConflictError,
+  rowToEvent,
+  type CommitInput,
+  type CommitResult,
+  type EventDbRow,
+} from "./events";
 import { checkName } from "./names";
-import { byRef, readById, readByName, toWire, type RecordRow } from "./records";
+import {
+  byRefWithFormats,
+  fullWire,
+  readByName,
+  type FormatRow,
+  type LayoutRow,
+  type LayoutWithFormats,
+  type Source,
+} from "./records";
 import type { Clock } from "./time";
-import { nextUpstream, upstreamOf } from "./upstream";
-import type { EditResult, FormatModule } from "../formats/registry";
+import { nextUpstream } from "./upstream";
 
 const TRANSFER_USER_ID_RE = /^\d{17,20}$/;
+const MAX_RETRIES = 3; // 21-formats.md §2.2: "retries up to 3 times"
 
-// Every write that carries an EXISTING record's payload forward (delete,
-// restore, transfer, the PATCH normalization below) recomputes `has_magic`
-// from the record's own current payload/format rather than trusting the
-// stored column verbatim -- `record.has_magic` could in principle disagree
-// (a bug in an earlier write, say). 21-formats.md D12 deleted the legacy
-// carry-forward conversion (`storedAsSpark`) this used to run first: after
-// the D8 wipe every stored row is already shaped as its own registered
-// format, so there is nothing left to convert. The record's own format is
-// always registered (LDB-T1's own bar), so this never actually throws --
-// the check only satisfies the type checker.
-function currentHasMagic(format: string, payload: unknown): boolean {
-  const module = getFormat(format);
-  if (module === undefined) throw internal();
-  return module.hasMagic(payload);
-}
-
-// byRef; a tombstone is reachable only by id and only when `allowDeleted`
-// (restore -- a tombstone has no live name, so byRef's own name lookup
-// already excludes it; this only matters for the id path). `admin: true`
-// iff the ownership check passed ONLY because the actor is an admin -- this
-// is exactly what a caller stamps onto the `Write`'s `admin` field (09
-// §2.6: "on the event only when the actor is not the owner").
+// byRef + every format the layout has, in one read (records.ts's
+// `byRefWithFormats`); a tombstone is reachable only by id and only when
+// `allowDeleted`.
 export async function loadForWrite(
   db: Bindings["DB"],
   ref: string,
   actor: Actor,
   opts: { allowDeleted: boolean },
-): Promise<{ record: RecordRow; admin: boolean }> {
-  const record = await byRef(db, ref);
-  if (record === null || (record.deleted && !opts.allowDeleted)) {
+): Promise<{ lwf: LayoutWithFormats; admin: boolean }> {
+  const lwf = await byRefWithFormats(db, ref);
+  if (lwf === null || (lwf.layout.deleted && !opts.allowDeleted)) {
     throw notFound(`no layout '${ref}'`, ref);
   }
-  if (record.owner === actor.user_id) return { record, admin: false };
-  if (actor.admin) return { record, admin: true };
-  throw notOwner(record.name, record.owner);
+  if (lwf.layout.owner === actor.user_id) return { lwf, admin: false };
+  if (actor.admin) return { lwf, admin: true };
+  throw notOwner(lwf.layout.name, lwf.layout.owner);
 }
 
-async function latestRevBumpingEvent(db: Bindings["DB"], layoutId: string): Promise<LastWrite> {
+async function latestRevBumpingEvent(db: Bindings["DB"], layoutId: string, format: string | null): Promise<LastWrite> {
   const row = await db
-    .prepare("SELECT * FROM events WHERE layout_id = ? AND rev IS NOT NULL ORDER BY seq DESC LIMIT 1")
-    .bind(layoutId)
+    .prepare("SELECT * FROM events WHERE layout_id = ? AND rev IS NOT NULL AND format IS ? ORDER BY seq DESC LIMIT 1")
+    .bind(layoutId, format)
     .first<EventDbRow>();
-  // Unreachable in practice: every record reaching this point was created
-  // by a rev-bumping write, so at least one such event always exists.
-  if (row === null) throw internal();
+  if (row === null) throw internal(); // unreachable: every record reaching this point was created by a rev-bumping write of this same scope
   const e = rowToEvent(row);
   return { seq: e.seq, at: e.at, actor: e.actor, via: e.via, kind: e.kind, admin: e.admin };
 }
 
-// The `If-Match` pre-check (09 §2.3 point 1): the record is already in
-// hand (from `loadForWrite`), so only `last_write` needs a read.
-export async function requireRev(db: Bindings["DB"], record: RecordRow, ifMatch: IfMatch): Promise<void> {
-  if (ifMatch.kind !== "rev" || ifMatch.rev === record.rev) return;
-  const lastWrite = await latestRevBumpingEvent(db, record.id);
-  throw stale(toWire(record) as Record<string, unknown> & { rev: number }, lastWrite);
+// The `If-Match` pre-check for the LAYOUT scope (21-formats.md §2.3, MF-11):
+// the layout is already in hand; only `last_write` needs a read on a
+// mismatch.
+async function requireLayoutRev(db: Bindings["DB"], layout: LayoutRow, checked: CheckedIfMatch, formats: Map<string, FormatRow>): Promise<void> {
+  if ("any" in checked) return;
+  if (checked.rev === layout.layout_rev) return;
+  const lastWrite = await latestRevBumpingEvent(db, layout.id, null);
+  throw stale("layout", layout.layout_rev, fullWire(layout, formats), lastWrite);
 }
 
-// 20-spark.md S2 (LDB-F16), narrowed by 21-formats.md D5/D12 (no more
-// aliases): every write resolves `format` through the registry and stores
-// natively (`module.id`, never the caller's own literal, though today that's
-// always the same string). `mana2/1` resolves but its `role` is `"output"`
-// -> `400 format_not_writable`; `cmini/1` and anything unregistered don't
-// resolve at all -> `400 unknown_format`, `known` listing registered ids
-// only.
+// Same for a FORMAT scope.
+async function requireFormatRev(db: Bindings["DB"], layout: LayoutRow, row: FormatRow, checked: CheckedIfMatch, formats: Map<string, FormatRow>): Promise<void> {
+  if ("any" in checked) return;
+  if (checked.rev === row.rev) return;
+  const lastWrite = await latestRevBumpingEvent(db, layout.id, row.format);
+  throw stale(row.lineage, row.rev, fullWire(layout, formats, { format: row.format, payload: row.payload }), lastWrite);
+}
+
+// 21-formats.md §2.2 (MF-6): a write reads its layout fresh, checks its OWN
+// scope's If-Match against that fresh read, and attempts the commit. If a
+// concurrent write to a DIFFERENT scope of the same layout took the next
+// `n` first, `commitWrite` throws `RevConflictError` -- `build()` is
+// called again (a fresh read, so if THIS scope changed underneath, the
+// If-Match check above now fails loudly with `409 stale`; if it didn't,
+// the retry naturally lands on the now-current `n`). System writers
+// (`expectN`) call `commitWrite` directly and never go through this.
+async function commitWithRetry(db: Bindings["DB"], now: Clock, build: () => Promise<CommitInput>): Promise<CommitResult> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const input = await build();
+    try {
+      return await commitWrite(db, now, input);
+    } catch (e) {
+      if (e instanceof RevConflictError) {
+        lastErr = e;
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : internal();
+}
+
+// 21-formats.md §2.4 (LDB-F16, narrowed to "no default"): every write
+// resolves `format` through the registry and stores natively. `mana2/1`
+// resolves but its `role` is `"output"` -> `400 format_not_writable`;
+// `cmini/1` and anything unregistered don't resolve at all -> `400
+// unknown_format`.
 export function validatePayload(format: string, payload: unknown): { module: FormatModule; hasMagic: boolean } {
   const resolved = resolveFormat(format);
   if (resolved === undefined) {
@@ -117,20 +146,9 @@ export function validatePayload(format: string, payload: unknown): { module: For
   return { module: resolved.module, hasMagic: resolved.module.hasMagic(payload) };
 }
 
-// 20-spark.md S5 (19 §2/§3 R2, LDB-P13): a record is stored at its
-// lineage's LATEST major, always -- a write naming an older major (already
-// validated against ITS OWN major above) is chained up here before the
-// commit, and `writtenAs` (-> the event's `detail.written_as`) names what
-// was actually sent. `walk` going UP a chain never holds (19 §3 R3: `down`
-// is the only direction that can lose anything), so this never itself
-// throws `held`/`format_behind` -- an existing record's R1 check (below,
-// `replaceLayout`) is what catches a genuinely blind overwrite, and a
-// fresh `POST` has no prior record to have been unreadable in the first
-// place (19 §3: "POST in an older major: same as R2's chain, no R1").
-// `hasMagic` is recomputed against the payload as actually STORED (the
-// chained major), same reasoning `currentHasMagic`/the carry-forward
-// writes below already use -- never the pre-chain value `validatePayload`
-// itself returned for the WRITTEN major.
+// 20-spark.md S5 (LDB-P13): a format is stored at its lineage's LATEST
+// major always -- a write naming an older major is chained up here before
+// the commit. `up` never holds (LDB-F18), so this never itself throws.
 function chainToLatest(module: FormatModule, payload: unknown): { format: string; payload: unknown; hasMagic: boolean; writtenAs?: string } {
   const latest = latestId(lineage(module.id));
   if (latest === undefined || latest === module.id) {
@@ -138,39 +156,22 @@ function chainToLatest(module: FormatModule, payload: unknown): { format: string
   }
   const chained = walk(module.id, latest, payload);
   if (typeof chained === "object" && chained !== null && (chained as { held?: unknown }).held === true) {
-    // Unreachable per LDB-F18's own chain contract (`up` never holds) --
-    // a format module that violates it is a bug caught at registration
-    // time (`chainViolations`), not something a write should ever surface.
-    throw internal();
+    throw internal(); // unreachable per LDB-F18's own chain contract
   }
   const latestModule = getFormat(latest);
   if (latestModule === undefined) throw internal();
   const validated = latestModule.validate(chained);
-  if (!validated.ok) throw internal(); // 19 §3: "a step that yields an invalid payload is a format bug: 500"
+  if (!validated.ok) throw internal();
   return { format: latest, payload: chained, hasMagic: latestModule.hasMagic(chained), writtenAs: module.id };
 }
 
-// Maps the two D1-constraint outcomes `appendWrite` surfaces (09 §2.3) onto
-// the route-facing errors: a lost rev race -> re-read the winner, 409
-// `stale`; a lost name race -> re-read the holder, 409 `name_taken` with
-// `holder` (the bare `nameTaken` `appendWrite` itself throws doesn't know
-// who holds the name, only that something does).
-async function commitWrite(db: Bindings["DB"], now: Clock, write: Write): Promise<{ record: RecordRow; seq: number }> {
+async function commitAndMapErrors(db: Bindings["DB"], now: Clock, build: () => Promise<CommitInput>, nameForClash?: string): Promise<CommitResult> {
   try {
-    return await appendWrite(db, now, write);
+    return await commitWithRetry(db, now, build);
   } catch (e) {
-    if (e instanceof RevConflictError) {
-      const current = await readById(db, e.layoutId);
-      if (current !== null) {
-        const lastWrite = await latestRevBumpingEvent(db, e.layoutId);
-        throw stale(toWire(current) as Record<string, unknown> & { rev: number }, lastWrite);
-      }
-    }
-    if (e instanceof ApiError && e.body.error === "name_taken" && e.body.holder === undefined) {
-      const holderRec = await readByName(db, write.name);
-      if (holderRec !== null) {
-        throw nameTaken(write.name, { id: holderRec.id, owner: holderRec.owner });
-      }
+    if (e instanceof ApiError && e.body.error === "name_taken" && e.body.holder === undefined && nameForClash !== undefined) {
+      const holderRec = await readByName(db, nameForClash);
+      if (holderRec !== null) throw nameTaken(nameForClash, { id: holderRec.id, owner: holderRec.owner });
     }
     throw e;
   }
@@ -182,356 +183,177 @@ export interface CreateBody {
   payload: unknown;
 }
 
-// LDB-P9 (design/layout-db/18-command-decisions.md §2 D1; saltorbit,
-// 2026-09-10: "tombstoned name carries likes for whoever takes it. it's a
-// quirk people like"): the name column has no per-status uniqueness
-// constraint beyond `layouts_name_live` (live rows only, migrations/
-// 0001_init.sql), so more than one tombstone can hold the same literal
-// name (case-insensitively -- the column's own COLLATE) over a record's
-// history. "The" tombstone a re-add inherits from is the most recently
-// modified one -- ties broken by `rev` (impossible in practice: two rows
-// can't share both `name` and `modified_at` unless one wrote the other,
-// which only rev can order).
 async function latestTombstoneIdByName(db: Bindings["DB"], name: string): Promise<string | null> {
   const row = await db
-    .prepare("SELECT id FROM layouts WHERE name = ? AND deleted = 1 ORDER BY modified_at DESC, rev DESC LIMIT 1")
+    .prepare("SELECT id FROM layouts WHERE name = ? AND deleted = 1 ORDER BY modified_at DESC, layout_rev DESC LIMIT 1")
     .bind(name)
     .first<{ id: string }>();
   return row?.id ?? null;
 }
 
 async function likeUserIds(db: Bindings["DB"], layoutId: string): Promise<string[]> {
-  const { results } = await db
-    .prepare("SELECT user_id FROM likes WHERE layout_id = ? ORDER BY user_id ASC")
-    .bind(layoutId)
-    .all<{ user_id: string }>();
+  const { results } = await db.prepare("SELECT user_id FROM likes WHERE layout_id = ? ORDER BY user_id ASC").bind(layoutId).all<{ user_id: string }>();
   return results.map((r) => r.user_id);
 }
 
-// POST /v1/layouts: any actor; check_name -> validate -> create (09 §3 T2).
-// LDB-P9: a name currently held by a tombstone (ANY owner, not just the
-// same actor -- Q3 in `18-command-decisions.md` §3 confirmed the
-// different-actor half) has its likes copied onto the new record as
-// `liked` events `via: "name_inherited"`, `detail: {from: <tombstone id>}`
-// -- read BEFORE the create's own write so a concurrent restore of that
-// SAME tombstone (LDB-P8, 30-day owner window or any-time admin) racing
-// this POST is decided by which one's D1 statement actually lands first,
-// same as any other race in this file; the tombstone itself keeps its own
-// likes and history untouched (appendLike never removes a like from its
-// SOURCE record) and stays restorable, which would then leave both records
-// carrying the same users' likes -- accepted, documented in `18`.
-export async function createLayout(
-  env: Bindings,
-  now: Clock,
-  actor: Actor,
-  body: CreateBody,
-  version: string | null,
-): Promise<{ record: RecordRow; seq: number }> {
+export interface WriteOutcome {
+  layout: LayoutRow;
+  formats: Map<string, FormatRow>;
+  format: string;
+  lineage: string;
+  payload: unknown;
+}
+export interface LayoutOnlyOutcome {
+  layout: LayoutRow;
+  formats: Map<string, FormatRow>;
+}
+
+// POST /v1/layouts: a create is TWO events in one batch (21-formats.md
+// §2.2) -- `created` (layout scope) then `format_added` (the named
+// format's scope). LDB-P9: a name currently held by a tombstone (any
+// owner) has its likes copied onto the new layout as `liked` events
+// `via: "name_inherited"`.
+export async function createLayout(env: Bindings, now: Clock, actor: Actor, body: CreateBody, version: string | null): Promise<WriteOutcome> {
+  const db = env.DB;
   const nameCheck = checkName(body.name);
   if (!nameCheck.ok) throw invalidName(body.name, nameCheck.message);
   const { module } = validatePayload(body.format, body.payload);
-  // 20-spark.md S5 (19 §3, LDB-P13): chained to the lineage's latest major
-  // -- with only one major ever registered, `chained.format === module.id`
-  // and this is a no-op, exactly today's behaviour.
   const chained = chainToLatest(module, body.payload);
+  const lin = lineage(chained.format);
 
-  const tombstoneId = await latestTombstoneIdByName(env.DB, body.name);
+  const tombstoneId = await latestTombstoneIdByName(db, body.name);
+  const source: Source = { client: actor.source_client, version };
+  const id = ulid();
+  const modified_at = now();
 
-  const source = { client: actor.source_client, version }; // 20-spark.md S3s (LDB-P15)
-
-  const result = await commitWrite(env.DB, now, {
-    kind: "created",
-    name: body.name,
-    owner: actor.user_id,
-    modified_at: now(),
-    format: chained.format, // native, chained-to-latest id (LDB-F16/P13)
-    payload: chained.payload,
+  const input: CommitInput = {
+    layoutId: id,
+    creating: true,
+    currentN: 0,
+    currentLayout: null,
+    currentFormats: new Map(),
+    layout: { kind: "created", name: body.name, owner: actor.user_id, created_at: modified_at, deleted: false },
+    format: {
+      kind: "format_added",
+      lineage: lin,
+      format: chained.format,
+      payload: chained.payload,
+      hasMagic: chained.hasMagic,
+      ...(chained.writtenAs !== undefined ? { detail: { written_as: chained.writtenAs } } : {}),
+    },
+    modified_at,
     actor: actor.user_id,
     via: actor.via,
-    hasMagic: chained.hasMagic,
-    upstream: nextUpstream(null, "created", actor.via), // no prior record -- always null (LDB-I14)
     source,
-    ...(chained.writtenAs !== undefined ? { detail: { written_as: chained.writtenAs } } : {}),
-  });
+    upstream: null, // a plain user create has no prior link -- nextUpstream(null, ...) is always null
+  };
 
-  if (tombstoneId === null) return result;
+  const result = await commitAndMapErrors(db, now, () => Promise.resolve(input), body.name);
 
-  // `record.like_count` was captured at rev 1 (always 0 for a fresh
-  // create) BEFORE these likes landed -- carried forward from the last
-  // `appendLike`'s own return (the same derived-from-`likes` count
-  // `appendLike` always answers, LDB-L1) so the response this returns
-  // reflects the inherited likes instead of silently under-reporting them
-  // until the next read.
-  let likeCount = result.record.like_count;
-  for (const userId of await likeUserIds(env.DB, tombstoneId)) {
-    ({ like_count: likeCount } = await appendLike(env.DB, now, {
-      kind: "liked",
-      layoutId: result.record.id,
-      userId,
-      via: "name_inherited",
-      detail: { from: tombstoneId },
-      source, // the CREATE's own source -- the inherited like is a side effect of it
-    }));
+  let layout = result.layout;
+  if (tombstoneId !== null) {
+    for (const userId of await likeUserIds(db, tombstoneId)) {
+      const r = await appendLike(db, now, { kind: "liked", layoutId: layout.id, userId, via: "name_inherited", detail: { from: tombstoneId }, source });
+      layout = { ...layout, like_count: r.like_count };
+    }
   }
-  return { record: { ...result.record, like_count: likeCount }, seq: result.seq };
+  return { layout, formats: result.formats, format: chained.format, lineage: lin, payload: chained.payload };
 }
 
-export interface ReplaceBody {
+export interface FormatBody {
   format: string;
   payload: unknown;
 }
 
-// PUT /v1/layouts/{ref}: owner or admin; whole payload replaced, name/
-// owner/created_at kept, format may change.
-//
-// 20-spark.md S2 (saltorbit's decision 6 + the lead's answer to §8 Q1): magic
-// edits fork like any user write now -- `isMagicOnlyReplace` and its
-// `detail.magic_only` marker are gone, so `modified_at` bumps here
-// unconditionally, same as every other PUT. `core/follows.ts`'s
-// `legacyFollows`/`followsUpstream` keeps reading the marker off
-// HISTORICAL events (LDB-I12, narrowed not deleted) -- nothing new ever
-// writes it again.
-export async function replaceLayout(
+// PUT /v1/layouts/{ref}: `If-None-Match: *` adds a NEW format to the
+// layout (`409 format_exists` if it already has that lineage); `If-Match`
+// replaces the format it names (`404 format_absent` if the layout doesn't
+// have it, checked against a fresh read every retry).
+export async function putFormat(
   env: Bindings,
   now: Clock,
   actor: Actor,
   ref: string,
-  body: ReplaceBody,
-  ifMatch: IfMatch,
+  body: FormatBody,
+  ifMatchHeader: IfMatch,
+  ifNoneMatchHeader: IfNoneMatch,
   version: string | null,
-): Promise<{ record: RecordRow; seq: number }> {
+): Promise<WriteOutcome> {
   const db = env.DB;
-  requireIfMatch(ifMatch);
-  const { record, admin } = await loadForWrite(db, ref, actor, { allowDeleted: false });
-  await requireRev(db, record, ifMatch);
-
-  // 20-spark.md S5 (19 §3 R1, LDB-P13): a write naming a format the record
-  // (as CURRENTLY stored) cannot be shown as -- the same `translate()` path
-  // a `GET ?as=` walks -- would be a blind overwrite: the client could
-  // never have read this record whole in that format, so a pure upcast of
-  // the write would silently drop whatever made it hold. Checked BEFORE
-  // `validatePayload` (the write's own format may otherwise validate fine
-  // on its own terms) and only when the write actually names a different
-  // format than the record's current one -- same format is never held
-  // against itself.
-  if (body.format !== record.format) {
-    const view = translate({ format: record.format, payload: record.payload }, body.format);
-    if ("held" in view) throw formatBehind(body.format, record.format, record.rev);
-  }
-
   const { module } = validatePayload(body.format, body.payload);
-  // R2: stored at the lineage's latest major, `detail.written_as` naming
-  // what was actually sent when it wasn't already latest (LDB-P13).
   const chained = chainToLatest(module, body.payload);
-  const prior = await upstreamOf(db, record);
+  const lin = lineage(chained.format);
 
-  return commitWrite(db, now, {
-    kind: "updated",
-    layoutId: record.id,
-    name: record.name,
-    owner: record.owner,
-    modified_at: now(),
-    format: chained.format,
-    payload: chained.payload,
-    actor: actor.user_id,
-    via: actor.via,
-    admin,
-    hasMagic: chained.hasMagic,
-    upstream: nextUpstream(prior, "updated", actor.via), // LDB-I14: a user write forks a following/forked record; null stays null
-    source: { client: actor.source_client, version }, // 20-spark.md S3s (LDB-P15)
-    ...(chained.writtenAs !== undefined ? { detail: { written_as: chained.writtenAs } } : {}),
-  });
+  const adding = ifNoneMatchHeader.kind === "any";
+  // 21-formats.md §2.4: replacing needs a scoped `If-Match` naming THIS
+  // format's own lineage (MF-11, checked before any read); adding needs
+  // only the explicit `If-None-Match: *` this function was called with.
+  if (!adding) requireScopedIfMatch(ifMatchHeader, lin);
+
+  const source: Source = { client: actor.source_client, version };
+
+  const build = async (): Promise<CommitInput> => {
+    const { lwf, admin } = await loadForWrite(db, ref, actor, { allowDeleted: false });
+    const existing = lwf.formats.get(lin) ?? null;
+
+    if (adding) {
+      if (existing !== null) throw formatExists(chained.format);
+    } else {
+      if (existing === null) throw formatAbsent(chained.format);
+      const checked = requireScopedIfMatch(ifMatchHeader, lin);
+      await requireFormatRev(db, lwf.layout, existing, checked, lwf.formats);
+    }
+
+    const touches = lin === "spark";
+    const upstream = nextUpstream(lwf.layout.upstream, actor.via, touches);
+
+    return {
+      layoutId: lwf.layout.id,
+      creating: false,
+      currentN: lwf.layout.n,
+      currentLayout: lwf.layout,
+      currentFormats: lwf.formats,
+      format: {
+        kind: adding ? "format_added" : "updated",
+        lineage: lin,
+        format: chained.format,
+        payload: chained.payload,
+        hasMagic: chained.hasMagic,
+        ...(chained.writtenAs !== undefined ? { detail: { written_as: chained.writtenAs } } : {}),
+      },
+      modified_at: now(),
+      actor: actor.user_id,
+      via: actor.via,
+      admin,
+      source,
+      upstream,
+    };
+  };
+
+  const result = await commitWithRetry(db, now, build);
+  return { layout: result.layout, formats: result.formats, format: chained.format, lineage: lin, payload: chained.payload };
 }
 
-// DELETE /v1/layouts/{ref}: owner or admin; tombstones (payload/format/name
-// kept, `deleted: true`); frees the name.
-export async function deleteLayout(
-  env: Bindings,
-  now: Clock,
-  actor: Actor,
-  ref: string,
-  ifMatch: IfMatch,
-  version: string | null,
-): Promise<{ record: RecordRow; seq: number }> {
-  const db = env.DB;
-  requireIfMatch(ifMatch);
-  const { record, admin } = await loadForWrite(db, ref, actor, { allowDeleted: false });
-  await requireRev(db, record, ifMatch);
-  const prior = await upstreamOf(db, record);
-
-  return commitWrite(db, now, {
-    kind: "deleted",
-    layoutId: record.id,
-    name: record.name,
-    owner: record.owner,
-    modified_at: now(),
-    format: record.format,
-    payload: record.payload,
-    actor: actor.user_id,
-    via: actor.via,
-    admin,
-    deleted: true,
-    hasMagic: currentHasMagic(record.format, record.payload),
-    upstream: nextUpstream(prior, "deleted", actor.via),
-    source: { client: actor.source_client, version }, // 20-spark.md S3s (LDB-P15)
-  });
-}
-
-export interface RestoreBody {
-  name?: string;
-}
-
-// POST /v1/layouts/{ref}/restore: `{ref}` must be the id (a tombstone has
-// no live name, so byRef's name path never finds one anyway); owner or
-// admin, no time limit (20-spark.md §1 decision 8 -- the 30-day owner
-// window is gone: tombstones were never pruned, so there is no storage
-// pressure the window was protecting against). No `If-Match` -- a
-// tombstone has one possible next state.
-//
-// Decision 9 (refined in review, §8 R-L1): the body is optional (absent,
-// `{}`, or `{name}`; the route's `parseRestoreBody` refuses anything else
-// with `400 bad_request`, LDB-A7). Without `name`, restoring under the
-// tombstone's own (possibly reclaimed) name answers `409 name_taken` with
-// `holder` exactly as any other name clash does (`commitWrite`'s own
-// catch). With a DIFFERENT `name`, it goes through `check_name` (LDB-N1
-// amended) and the event is `restored` with `detail: {renamed_from}`
-// (LDB-P8 amended) -- both records keep their own likes; a restore frees
-// no name (LDB-P4 untouched).
-//
-// `has_magic` is recomputed -- same reasoning as `deleteLayout`.
-export async function restoreLayout(
-  env: Bindings,
-  now: Clock,
-  actor: Actor,
-  ref: string,
-  body: RestoreBody = {},
-  version: string | null,
-): Promise<{ record: RecordRow; seq: number }> {
-  const db = env.DB;
-  const { record, admin } = await loadForWrite(db, ref, actor, { allowDeleted: true });
-
-  if (!record.deleted) {
-    throw badRequest(`'${record.name}' is not deleted`, "/ref");
-  }
-
-  let name = record.name;
-  let renamedFrom: string | undefined;
-  if (body.name !== undefined && body.name !== record.name) {
-    const nameCheck = checkName(body.name);
-    if (!nameCheck.ok) throw invalidName(body.name, nameCheck.message);
-    name = body.name;
-    renamedFrom = record.name;
-  }
-
-  const prior = await upstreamOf(db, record);
-
-  return commitWrite(db, now, {
-    kind: "restored",
-    layoutId: record.id,
-    name,
-    owner: record.owner,
-    modified_at: now(),
-    format: record.format,
-    payload: record.payload,
-    actor: actor.user_id,
-    via: actor.via, // forks a following/forked record (LDB-I14): this becomes the latest rev-bumping event
-    admin,
-    deleted: false,
-    hasMagic: currentHasMagic(record.format, record.payload),
-    upstream: nextUpstream(prior, "restored", actor.via),
-    source: { client: actor.source_client, version }, // 20-spark.md S3s (LDB-P15)
-    ...(renamedFrom !== undefined ? { detail: { renamed_from: renamedFrom } } : {}),
-  });
-}
-
-export interface TransferBody {
-  to: string;
-}
-
-// POST /v1/layouts/{ref}/transfer: owner or admin; `to` must name a known
-// user (an `authors` row -- an author, or anyone who has signed in once)
-// and differ from the current owner. `If-Match` is required (saltorbit's rule,
-// 2026-09-09: the client must name the version it saw) but its VALUE is
-// never checked against `record.rev` -- ownership has no draft to be
-// stale, so `requireIfMatch` (presence only) is all that runs here, not
-// `requireRev`.
-//
-// Recomputes `has_magic`, same reasoning as `deleteLayout`.
-export async function transferLayout(
-  env: Bindings,
-  now: Clock,
-  actor: Actor,
-  ref: string,
-  body: TransferBody,
-  ifMatch: IfMatch,
-  version: string | null,
-): Promise<{ record: RecordRow; seq: number }> {
-  const db = env.DB;
-  requireIfMatch(ifMatch);
-  const { record, admin } = await loadForWrite(db, ref, actor, { allowDeleted: false });
-
-  if (body.to === record.owner) throw badRequest("already the owner", "/to");
-  if (!TRANSFER_USER_ID_RE.test(body.to)) throw badRequest(`unknown user '${body.to}'`, "/to");
-  const author = await db.prepare("SELECT 1 FROM authors WHERE user_id = ?").bind(body.to).first();
-  if (author === null) throw badRequest(`unknown user '${body.to}'`, "/to");
-
-  const prior = await upstreamOf(db, record);
-
-  return commitWrite(db, now, {
-    kind: "transferred",
-    layoutId: record.id,
-    name: record.name,
-    owner: body.to,
-    modified_at: now(),
-    format: record.format,
-    payload: record.payload,
-    actor: actor.user_id,
-    via: actor.via,
-    admin,
-    hasMagic: currentHasMagic(record.format, record.payload),
-    upstream: nextUpstream(prior, "transferred", actor.via),
-    source: { client: actor.source_client, version }, // 20-spark.md S3s (LDB-P15)
-  });
-}
-
+// PATCH /v1/layouts/{ref}: either `{name}` (layout scope, `If-Match:
+// "layout:<n>"`) or `{format, fingermap | board | magic ...}` (that
+// format's scope). Both at once is `400 mixed_patch` (21-formats.md §2.2).
 export interface PatchBody {
   name?: string;
+  format?: string;
   fingermap?: Record<string, string>;
   board?: unknown;
   magic?: unknown;
 }
 
-const PATCH_FIELDS = ["name", "fingermap", "board", "magic"] as const;
-type PatchField = (typeof PATCH_FIELDS)[number];
-type PatchEditField = Exclude<PatchField, "name">;
+const FORMAT_EDIT_FIELDS = ["fingermap", "board", "magic"] as const;
+type FormatEditField = (typeof FORMAT_EDIT_FIELDS)[number];
 
-// `EditResult`'s error branch (registry.ts's `FormatEdits` contract): no
-// stored payload -- every registered format's schema is
-// `additionalProperties: false` with no top-level `error` key -- can ever
-// collide with this shape, so the presence of an `error` key alone
-// disambiguates it from a genuine payload.
 function isEditError(r: EditResult): r is { error: ErrBody } {
   return typeof r === "object" && r !== null && "error" in (r as object);
 }
 
-// Runs one PATCH verb's edit (09 §2.6): no `edits` entry for this format at
-// all, or the edit's own `{error}` answer, both refuse the verb -- with the
-// edit's own `invalid_payload` forwarded verbatim (it names its own path),
-// anything else collapsing to the generic `unsupported_for_format` naming
-// the format and verb. `p`/`arg`/the return are typed `any` (registry.ts's
-// own `Payload = any`, §5: "a format's payload shape is its own business")
-// -- `unknown` here would make every concrete `edits.set*` (declared with
-// the format's own narrower per-verb argument type, e.g. `map:
-// Record<string, string>`) fail assignment to this slot under
-// `strictFunctionTypes`.
 /* eslint-disable @typescript-eslint/no-explicit-any */
-function runEdit(
-  format: string,
-  verb: PatchEditField,
-  edit: ((p: any, arg: any) => EditResult) | undefined,
-  payload: any,
-  arg: any,
-): any {
+function runEdit(format: string, verb: FormatEditField, edit: ((p: any, arg: any) => EditResult) | undefined, payload: any, arg: any): any {
   if (edit === undefined) throw unsupportedForFormat(format, verb);
   const result = edit(payload, arg);
   if (isEditError(result)) {
@@ -542,88 +364,237 @@ function runEdit(
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
-// PATCH /v1/layouts/{ref}: owner or admin; one or more of {name, fingermap,
-// board, magic}, applied in that order to a clone of the current payload
-// via the record's format `edits` (09 §2.6, §3 T4), validated once as a
-// whole, one event: `renamed` when the body is exactly {name}, `fingermap`
-// when exactly {fingermap}, else `updated` with `detail: { fields }` in
-// application order. `name` goes through the same `check_name` POST uses;
-// it may differ from the current name only by case (still `renamed` --
-// `appendWrite`'s self-exclusion, §2.3, allows it).
-export async function patchLayout(
+// PATCH {name}: layout scope only.
+export async function renameLayout(env: Bindings, now: Clock, actor: Actor, ref: string, name: string, ifMatchHeader: IfMatch, version: string | null): Promise<LayoutOnlyOutcome> {
+  const db = env.DB;
+  const nameCheck = checkName(name);
+  if (!nameCheck.ok) throw invalidName(name, nameCheck.message);
+  requireScopedIfMatch(ifMatchHeader, "layout"); // MF-11: before any read
+  const source: Source = { client: actor.source_client, version };
+
+  const build = async (): Promise<CommitInput> => {
+    const { lwf, admin } = await loadForWrite(db, ref, actor, { allowDeleted: false });
+    const checked = requireScopedIfMatch(ifMatchHeader, "layout");
+    await requireLayoutRev(db, lwf.layout, checked, lwf.formats);
+    const upstream = nextUpstream(lwf.layout.upstream, actor.via, true);
+    return {
+      layoutId: lwf.layout.id,
+      creating: false,
+      currentN: lwf.layout.n,
+      currentLayout: lwf.layout,
+      currentFormats: lwf.formats,
+      layout: { kind: "renamed", name, owner: lwf.layout.owner, created_at: lwf.layout.created_at, deleted: false },
+      modified_at: now(),
+      actor: actor.user_id,
+      via: actor.via,
+      admin,
+      source,
+      upstream,
+    };
+  };
+
+  const result = await commitAndMapErrors(db, now, build, name);
+  return { layout: result.layout, formats: result.formats };
+}
+
+// PATCH {format, fingermap | board | magic}: applied in order to a clone
+// of that format's current payload, validated once as a whole, one event.
+export async function patchFormat(
   env: Bindings,
   now: Clock,
   actor: Actor,
   ref: string,
-  body: PatchBody,
-  ifMatch: IfMatch,
+  format: string,
+  edits: { fingermap?: Record<string, string>; board?: unknown; magic?: unknown },
+  ifMatchHeader: IfMatch,
   version: string | null,
-): Promise<{ record: RecordRow; seq: number }> {
+): Promise<WriteOutcome> {
   const db = env.DB;
-  requireIfMatch(ifMatch);
-  const { record, admin } = await loadForWrite(db, ref, actor, { allowDeleted: false });
-  await requireRev(db, record, ifMatch);
+  const lin = lineage(format);
+  requireScopedIfMatch(ifMatchHeader, lin); // MF-11: before any read
+  const source: Source = { client: actor.source_client, version };
 
-  // Every field in this PATCH (name/fingermap/board/magic) is applied
-  // against the record's own current format.
-  let format = record.format;
-  let payload: unknown = record.payload;
+  const build = async (): Promise<CommitInput> => {
+    const { lwf, admin } = await loadForWrite(db, ref, actor, { allowDeleted: false });
+    const existing = lwf.formats.get(lin);
+    if (existing === undefined) throw formatAbsent(format);
+    const module = getFormat(existing.format);
+    if (module === undefined) throw unknownFormat(existing.format, listFormats().map((f) => f.id));
 
-  const module = getFormat(format);
-  if (module === undefined) {
-    throw unknownFormat(
-      format,
-      listFormats().map((f) => f.id),
-    );
-  }
+    const checked = requireScopedIfMatch(ifMatchHeader, lin);
+    await requireFormatRev(db, lwf.layout, existing, checked, lwf.formats);
 
-  const fields = PATCH_FIELDS.filter((f) => body[f] !== undefined);
+    let payload: unknown = existing.payload;
+    const fields = FORMAT_EDIT_FIELDS.filter((f) => edits[f] !== undefined);
+    if (edits.fingermap !== undefined) payload = runEdit(existing.format, "fingermap", module.edits?.setFingermap, payload, edits.fingermap);
+    if (edits.board !== undefined) payload = runEdit(existing.format, "board", module.edits?.setBoard, payload, edits.board);
+    if (edits.magic !== undefined) payload = runEdit(existing.format, "magic", module.edits?.setMagic, payload, edits.magic);
 
-  let name = record.name;
-  if (body.name !== undefined) {
-    const nameCheck = checkName(body.name);
-    if (!nameCheck.ok) throw invalidName(body.name, nameCheck.message);
-    name = body.name;
-  }
+    const { hasMagic } = validatePayload(existing.format, payload);
+    const kind = fields.length === 1 && fields[0] === "fingermap" ? "fingermap" : "updated";
+    const touches = lin === "spark";
+    const upstream = nextUpstream(lwf.layout.upstream, actor.via, touches);
 
-  if (body.fingermap !== undefined) {
-    payload = runEdit(format, "fingermap", module.edits?.setFingermap, payload, body.fingermap);
-  }
-  if (body.board !== undefined) {
-    payload = runEdit(format, "board", module.edits?.setBoard, payload, body.board);
-  }
-  if (body.magic !== undefined) {
-    payload = runEdit(format, "magic", module.edits?.setMagic, payload, body.magic);
-  }
+    return {
+      layoutId: lwf.layout.id,
+      creating: false,
+      currentN: lwf.layout.n,
+      currentLayout: lwf.layout,
+      currentFormats: lwf.formats,
+      format: {
+        kind,
+        lineage: lin,
+        format: existing.format,
+        payload,
+        hasMagic,
+        ...(kind === "updated" ? { detail: { fields } } : {}),
+      },
+      modified_at: now(),
+      actor: actor.user_id,
+      via: actor.via,
+      admin,
+      source,
+      upstream,
+    };
+  };
 
-  const { hasMagic } = validatePayload(format, payload);
+  const result = await commitWithRetry(db, now, build);
+  const written = result.formats.get(lin)!;
+  return { layout: result.layout, formats: result.formats, format: written.format, lineage: lin, payload: written.payload };
+}
 
-  const kind = fields.length === 1 && fields[0] === "name" ? "renamed" : fields.length === 1 && fields[0] === "fingermap" ? "fingermap" : "updated";
+// DELETE /v1/layouts/{ref}: layout scope only -- formats are untouched
+// (D3: name/owner/likes/deletion are the layout's; a tombstone's own
+// formats stay exactly as they were, restorable).
+export async function deleteLayout(env: Bindings, now: Clock, actor: Actor, ref: string, ifMatchHeader: IfMatch, version: string | null): Promise<LayoutOnlyOutcome> {
+  const db = env.DB;
+  requireScopedIfMatch(ifMatchHeader, "layout");
+  const source: Source = { client: actor.source_client, version };
 
-  // 20-spark.md S2 (decision 6): magic edits fork like any other write now
-  // -- there is no more magic-only exemption on a NEW write. `modified_at`
-  // bumps unconditionally and no event ever writes `detail.magic_only`
-  // again (LDB-I12 narrowed: `core/follows.ts`'s `legacyFollows` keeps
-  // skipping the marker on HISTORICAL events only). S3a: `nextUpstream`
-  // forks the record the same way -- a magic-only PATCH is a user
-  // rev-bumping write like any other, no exemption at the upstream level
-  // either.
-  const prior = await upstreamOf(db, record);
+  const build = async (): Promise<CommitInput> => {
+    const { lwf, admin } = await loadForWrite(db, ref, actor, { allowDeleted: false });
+    const checked = requireScopedIfMatch(ifMatchHeader, "layout");
+    await requireLayoutRev(db, lwf.layout, checked, lwf.formats);
+    const upstream = nextUpstream(lwf.layout.upstream, actor.via, true);
+    return {
+      layoutId: lwf.layout.id,
+      creating: false,
+      currentN: lwf.layout.n,
+      currentLayout: lwf.layout,
+      currentFormats: lwf.formats,
+      layout: { kind: "deleted", name: lwf.layout.name, owner: lwf.layout.owner, created_at: lwf.layout.created_at, deleted: true },
+      modified_at: now(),
+      actor: actor.user_id,
+      via: actor.via,
+      admin,
+      source,
+      upstream,
+    };
+  };
 
-  return commitWrite(db, now, {
-    kind,
-    layoutId: record.id,
-    name,
-    owner: record.owner,
-    modified_at: now(),
-    format,
-    payload,
-    actor: actor.user_id,
-    via: actor.via,
-    admin,
-    hasMagic,
-    upstream: nextUpstream(prior, kind, actor.via),
-    source: { client: actor.source_client, version }, // 20-spark.md S3s (LDB-P15)
-    ...(kind === "updated" ? { detail: { fields } } : {}),
-  });
+  const result = await commitWithRetry(db, now, build);
+  return { layout: result.layout, formats: result.formats };
+}
+
+export interface RestoreBody {
+  name?: string;
+}
+
+// POST /v1/layouts/{ref}/restore: layout scope, no If-Match (a tombstone
+// has one possible next state); `{ref}` must be the id.
+export async function restoreLayout(env: Bindings, now: Clock, actor: Actor, ref: string, body: RestoreBody = {}, version: string | null): Promise<LayoutOnlyOutcome> {
+  const db = env.DB;
+  const source: Source = { client: actor.source_client, version };
+
+  const build = async (): Promise<CommitInput> => {
+    const { lwf, admin } = await loadForWrite(db, ref, actor, { allowDeleted: true });
+    if (!lwf.layout.deleted) throw badRequest(`'${lwf.layout.name}' is not deleted`, "/ref");
+
+    let name = lwf.layout.name;
+    let renamedFrom: string | undefined;
+    if (body.name !== undefined && body.name !== lwf.layout.name) {
+      const nameCheck = checkName(body.name);
+      if (!nameCheck.ok) throw invalidName(body.name, nameCheck.message);
+      name = body.name;
+      renamedFrom = lwf.layout.name;
+    }
+
+    const upstream = nextUpstream(lwf.layout.upstream, actor.via, true);
+    return {
+      layoutId: lwf.layout.id,
+      creating: false,
+      currentN: lwf.layout.n,
+      currentLayout: lwf.layout,
+      currentFormats: lwf.formats,
+      layout: {
+        kind: "restored",
+        name,
+        owner: lwf.layout.owner,
+        created_at: lwf.layout.created_at,
+        deleted: false,
+        ...(renamedFrom !== undefined ? { detail: { renamed_from: renamedFrom } } : {}),
+      },
+      modified_at: now(),
+      actor: actor.user_id,
+      via: actor.via,
+      admin,
+      source,
+      upstream,
+    };
+  };
+
+  const result = await commitAndMapErrors(db, now, build, body.name);
+  return { layout: result.layout, formats: result.formats };
+}
+
+export interface TransferBody {
+  to: string;
+}
+
+// POST /v1/layouts/{ref}/transfer: layout scope; `If-Match` is
+// presence-only (no draft to be stale against).
+export async function transferLayout(env: Bindings, now: Clock, actor: Actor, ref: string, body: TransferBody, ifMatchHeader: IfMatch, version: string | null): Promise<LayoutOnlyOutcome> {
+  const db = env.DB;
+  requireScopedIfMatch(ifMatchHeader, "layout");
+  const source: Source = { client: actor.source_client, version };
+
+  const build = async (): Promise<CommitInput> => {
+    const { lwf, admin } = await loadForWrite(db, ref, actor, { allowDeleted: false });
+
+    if (body.to === lwf.layout.owner) throw badRequest("already the owner", "/to");
+    if (!TRANSFER_USER_ID_RE.test(body.to)) throw badRequest(`unknown user '${body.to}'`, "/to");
+    const author = await db.prepare("SELECT 1 FROM authors WHERE user_id = ?").bind(body.to).first();
+    if (author === null) throw badRequest(`unknown user '${body.to}'`, "/to");
+
+    const upstream = nextUpstream(lwf.layout.upstream, actor.via, true);
+    return {
+      layoutId: lwf.layout.id,
+      creating: false,
+      currentN: lwf.layout.n,
+      currentLayout: lwf.layout,
+      currentFormats: lwf.formats,
+      layout: { kind: "transferred", name: lwf.layout.name, owner: body.to, created_at: lwf.layout.created_at, deleted: false },
+      modified_at: now(),
+      actor: actor.user_id,
+      via: actor.via,
+      admin,
+      source,
+      upstream,
+    };
+  };
+
+  const result = await commitWithRetry(db, now, build);
+  return { layout: result.layout, formats: result.formats };
+}
+
+// Shared by `routes/write.ts`'s PATCH handler: `{name}` and any of
+// {fingermap, board, magic} together is `400 mixed_patch`; the latter
+// without `format` is `400 format_required`.
+export function classifyPatch(body: PatchBody): { kind: "rename"; name: string } | { kind: "format"; format: string; edits: { fingermap?: Record<string, string>; board?: unknown; magic?: unknown } } {
+  const hasEdits = body.fingermap !== undefined || body.board !== undefined || body.magic !== undefined;
+  if (body.name !== undefined && hasEdits) throw mixedPatch();
+  if (body.name !== undefined) return { kind: "rename", name: body.name };
+  if (!hasEdits) throw badRequest("PATCH body must set 'name' or a format edit", "/");
+  if (body.format === undefined) throw formatRequired();
+  return { kind: "format", format: body.format, edits: { fingermap: body.fingermap, board: body.board, magic: body.magic } };
 }

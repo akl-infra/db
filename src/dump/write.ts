@@ -12,7 +12,7 @@ import { canonical } from "../core/canonical";
 import { readHead } from "../core/etag";
 import type { EventDbRow } from "../core/events";
 import { readMetaCore } from "../core/meta";
-import { rowToRecord, type LayoutDbRow } from "../core/records";
+import { rowToFormat, rowToLayout, type FormatDbRow, type LayoutDbRow } from "../core/records";
 import type { Clock } from "../core/time";
 import { list as listFormats } from "../formats/registry";
 import { translate as pureTranslate } from "../../formats/registry.ts";
@@ -21,10 +21,12 @@ const PAGE_SIZE = 500;
 
 export interface LayoutRevDbRow {
   layout_id: string;
+  n: number;
+  lineage: string | null;
   rev: number;
   event_seq: number;
-  format: string;
-  payload_json: string;
+  format: string | null;
+  payload_json: string | null;
 }
 export interface LikeDbRow {
   layout_id: string;
@@ -76,6 +78,7 @@ export interface Dump {
   date: string; // YYYY-MM-DD, from `now()`'s UTC date (07 §0.1: our clocks are always Z-suffixed ISO)
   meta: DumpMeta;
   records: LayoutDbRow[]; // the WHOLE `layouts` table, tombstones included -- events/layout_revs/import_map reference rows a live-only dump would drop
+  layout_formats: FormatDbRow[]; // 21-formats.md F2: every (layout, lineage) row, live or tombstoned layout alike
   layout_revs: LayoutRevDbRow[];
   likes: LikeDbRow[];
   authors: AuthorDbRow[];
@@ -179,14 +182,26 @@ async function computeMeta(db: Bindings["DB"]): Promise<DumpMeta> {
   return readMetaCore(db, await readHead(db));
 }
 
+// MF-13 (LDB-B10 with two tables): `meta` is read FIRST, and every table
+// page is read AFTER it (not in one `Promise.all` with `meta`'s own
+// queries) -- so every row this dump carries was written at or before
+// `meta.seq`'s snapshot instant. A `Promise.all` that started `meta` and
+// the table pages at the same moment could let a write land between them
+// and be reflected in, say, `layout_formats` but not in `meta.seq`,
+// putting the dump BEHIND its own claimed floor: booting from it and
+// draining `/v1/changes` from `meta.seq` would then miss that write
+// entirely (it precedes the drain's `since`, but the dump's own tables
+// don't carry it either).
 export async function buildDump(env: Bindings, now: Clock): Promise<Dump> {
   const db = env.DB;
   const date = now().slice(0, 10);
 
-  const [meta, records, layout_revs, likes, authors, admins, events, import_state, import_map] = await Promise.all([
-    computeMeta(db),
+  const meta = await computeMeta(db);
+
+  const [records, layout_formats, layout_revs, likes, authors, admins, events, import_state, import_map] = await Promise.all([
     pageBySingleKey<LayoutDbRow>(db, "layouts", "id"),
-    pageByCompositeKey<LayoutRevDbRow>(db, "layout_revs", "layout_id", "rev"),
+    pageByCompositeKey<FormatDbRow>(db, "layout_formats", "layout_id", "lineage"),
+    pageByCompositeKey<LayoutRevDbRow>(db, "layout_revs", "layout_id", "n"),
     pageByCompositeKey<LikeDbRow>(db, "likes", "layout_id", "user_id"),
     pageBySingleKey<AuthorDbRow>(db, "authors", "user_id"),
     pageBySingleKey<AdminDbRow>(db, "admins", "user_id"),
@@ -200,6 +215,7 @@ export async function buildDump(env: Bindings, now: Clock): Promise<Dump> {
     date,
     meta,
     records,
+    layout_formats,
     layout_revs,
     likes,
     authors,
@@ -219,32 +235,48 @@ export async function buildDump(env: Bindings, now: Clock): Promise<Dump> {
 // cross edge can't show it. Built straight from the SAME `dump.records`
 // page the main dump already paged, so this never re-queries D1.
 function buildLatestMajorFiles(dump: Dump): { format: string; file: LatestMajorFile }[] {
-  const liveRows = dump.records.filter((r) => r.deleted === 0);
+  const liveRows = dump.records.filter((r) => r.deleted === 0).map(rowToLayout);
+  const formatsByLayout = new Map<string, FormatDbRow[]>();
+  for (const row of dump.layout_formats) {
+    const list = formatsByLayout.get(row.layout_id);
+    if (list === undefined) formatsByLayout.set(row.layout_id, [row]);
+    else list.push(row);
+  }
   const storedFormats = listFormats()
     .filter((f) => f.role === "stored")
     .map((f) => f.id);
 
   return storedFormats.map((format) => {
-    const records: LatestMajorRecord[] = liveRows.map((row) => {
-      const rec = rowToRecord(row);
+    const lin = format.slice(0, format.lastIndexOf("/"));
+    const records: LatestMajorRecord[] = [];
+    for (const layout of liveRows) {
+      const fmtRow = (formatsByLayout.get(layout.id) ?? []).find((f) => f.lineage === lin);
+      if (fmtRow === undefined) continue; // this layout has no row of the lineage this file is about -- simply absent, not `held`
+      const fmt = rowToFormat(fmtRow);
       const common = {
-        id: rec.id,
-        name: rec.name,
-        owner: rec.owner,
-        rev: rec.rev,
-        created_at: rec.created_at,
-        modified_at: rec.modified_at,
-        like_count: rec.like_count,
-        has_magic: rec.has_magic,
+        id: layout.id,
+        name: layout.name,
+        owner: layout.owner,
+        rev: fmt.rev,
+        created_at: fmt.created_at,
+        modified_at: fmt.modified_at,
+        like_count: layout.like_count,
+        has_magic: fmt.has_magic,
       };
-      if (rec.format === format) return { ...common, payload: rec.payload };
-      const result = pureTranslate({ format: rec.format, payload: rec.payload }, format);
-      if ("held" in result) return { ...common, held: true, see: rec.format };
+      if (fmt.format === format) {
+        records.push({ ...common, payload: fmt.payload });
+        continue;
+      }
+      const result = pureTranslate({ format: fmt.format, payload: fmt.payload }, format);
+      if ("held" in result) {
+        records.push({ ...common, held: true, see: fmt.format });
+        continue;
+      }
       // "unknown" is unreachable here: `format` is drawn from `listFormats()`
       // itself, so it is always registered.
       if ("unknown" in result) throw new Error(`buildLatestMajorFiles: unreachable -- '${format}' resolved unknown`);
-      return { ...common, payload: result.payload };
-    });
+      records.push({ ...common, payload: result.payload });
+    }
     return {
       format,
       file: {
