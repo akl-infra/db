@@ -410,13 +410,18 @@ up to 5 per user. Real response
 
 Each POST carries the event JSON, `X-Akl-Webhook-Id`, `X-Akl-Seq`,
 `X-Akl-Timestamp`, `X-Akl-Signature: v1=<hex hmac-sha256(secret,
-`${timestamp}.${body}`)>`. Verify the HMAC, reject anything over 300s old. A
-`seq` may arrive twice (the after-write nudge and the cron drain can
-overlap) — treat any `seq` ≤ your highest applied as a no-op. Delivery is
-at-least-once and in order per hook, **never required for correctness**: a
-gap means poll `/v1/changes?since=` to fill it. Non-2xx (or >10s) schedules
-a retry at 1 min / 10 min / 1 h; 3 consecutive failures → `"failing"`
-(still retried hourly); failing past 7 days → `"disabled"`.
+`${timestamp}.${body}`)>`. Verify the HMAC, reject anything over 300s old.
+Delivery is at-least-once, in order, and never concurrent per hook (a lease
+keeps the after-write nudge and the cron drain — which overlap routinely —
+from ever both posting to the same hook at once, LDB-H6); it is still
+**never required for correctness**, a gap means poll `/v1/changes?since=`
+to fill it. A `seq` may arrive twice only after an outage on this end (a
+drain that dies mid-batch leaves the hook's lease held until it expires;
+the next drain re-delivers from the last committed cursor, possibly
+repeating the dead drain's own last, already-landed POST) — dedupe by
+`X-Akl-Seq`, treating any `seq` ≤ your highest applied as a no-op. Non-2xx
+(or >10s) schedules a retry at 1 min / 10 min / 1 h; 3 consecutive failures
+→ `"failing"` (still retried hourly); failing past 7 days → `"disabled"`.
 
 **The nightly dump** (`GET /v1/dump/latest.json`, written 03:00 UTC) is the
 full state — every table, the **whole** event log, not a tail:

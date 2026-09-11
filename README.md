@@ -206,7 +206,11 @@ actual recovery path either way).
 
 Each subscription is a cursor into the one event log, not a per-attempt
 queue: delivery is "advance the cursor by POSTing what lies past it",
-at-least-once and in order per hook. Every event past the cursor is
+at-least-once and IN ORDER per hook, and never concurrent per hook
+(LDB-H6): before touching a due hook's feed page or POSTing anything,
+`drain()` claims it with a short-lived lease, so the after-write nudge and
+the cron's own drain -- which overlap routinely -- never both have a POST
+in flight to the same hook at once. Every event past the cursor is
 POSTed as its `canonical()` JSON, in `seq` order, with:
 
 ```
@@ -220,20 +224,23 @@ X-Akl-Signature: v1=<hex hmac-sha256(secret, `${timestamp}.${body}`)>
 
 **Receiver contract:** verify `hex(hmac_sha256(secret, X-Akl-Timestamp +
 "." + raw_body)) == X-Akl-Signature`'s hex half (strip the `v1=` prefix
-first) and reject anything more than 300s old. A receiver MAY see one
-`seq` twice -- the after-write nudge and every `*/5` tick's own retry drain
-are safe to overlap, and a receiver that accepted a POST but timed out before
-answering looks identical to a dropped one from here -- so treat any `seq`
-at or below the highest one already applied as a no-op; a `seq` never
-arrives lower than one already seen from the same hook. A non-2xx answer
-(or a timeout past 10s) stops that hook's batch there and schedules a
-retry (backing off 1 min / 10 min / 1 h); three consecutive failed drains
-mark the subscription `failing` (still retried hourly, still visible via
-`GET /v1/webhooks`); a streak failing for more than 7 days marks it
-`disabled` (no further attempts). A gap in `seq` on a `disabled` hook (or
-any hook you suspect missed something) means poll `/v1/changes?since=` to
-fill it -- the feed is the ground truth a subscription is only ever a
-shortcut around (LDB-P3).
+first) and reject anything more than 300s old. A receiver may see one
+`seq` twice ONLY after an outage on this end -- a drain that dies (crashed,
+evicted) while holding a hook's lease leaves the hook waiting out the
+lease before the next drain reclaims it and re-delivers from the last
+committed cursor; if the dead drain's last POST had actually reached you
+first, that one `seq` arrives again. Outside of that, delivery is exactly
+once. Either way: dedupe by `X-Akl-Seq`, treating any `seq` at or below the
+highest one already applied as a no-op; a `seq` never arrives lower than
+one already seen from the same hook. A non-2xx answer (or a timeout past
+10s) stops that hook's batch there and schedules a retry (backing off 1
+min / 10 min / 1 h); three consecutive failed drains mark the subscription
+`failing` (still retried hourly, still visible via `GET /v1/webhooks`); a
+streak failing for more than 7 days marks it `disabled` (no further
+attempts). A gap in `seq` on a `disabled` hook (or any hook you suspect
+missed something) means poll `/v1/changes?since=` to fill it -- the feed
+is the ground truth a subscription is only ever a shortcut around
+(LDB-P3).
 
 ## Stream
 

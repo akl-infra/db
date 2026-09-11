@@ -180,6 +180,20 @@ CREATE INDEX webhooks_due ON webhooks(status, next_at);
 CREATE INDEX webhooks_owner ON webhooks(owner_user_id);
 ```
 
+**Amended (LDB-H6, `migrations/0008_webhook_lease.sql`, 2026-09-11):**
+`webhooks` gains `lease_id TEXT` and `lease_until TEXT`, both NULL when the
+hook is free. The cursor-only CAS below (step 3, as originally landed)
+turned out not to be enough: two overlapping drains reading the SAME
+`cursor` can both pass its `WHERE cursor = ?startCursor` guard and both
+POST the same range concurrently (interleaved delivery at the receiver), a
+failed batch with no cursor movement lets both drains compute
+`failures + 1` from the same stale read (a lost increment), and a short
+failing batch's commit can land after a longer concurrent success's and
+silently void it. `lease_id`/`lease_until` fix this at the root: see the
+amendment after the numbered steps below.
+
+
+
 **`src/core/webhooks.ts`** — all the SQL and the delivery loop; routes
 are glue (LDB-W1's rule extended: `grep prepare src/routes/webhooks.ts`
 is empty).
@@ -217,13 +231,64 @@ callers are safe to overlap):
    `changes = 0` → another drain moved the cursor: skip. A hook whose `failing_since < now − 7 d` is set to `'disabled'` in step 1's pass (one UPDATE, no POST); disabled hooks stay listed for their owner with `status`, `last_error`, `failing_since`.
 4. Returns `{ hooks, posted, failed, disabled }` (logged by the cron).
 
+**Amended (LDB-H6, 2026-09-11): claim-before-send lease.** Step 2 no
+longer reads a due hook's feed page or POSTs anything until step 1.5
+claims it:
+
+```sql
+UPDATE webhooks SET lease_id = ?newUlid, lease_until = ?now+90s
+  WHERE id = ? AND (lease_until IS NULL OR lease_until <= ?now)
+  RETURNING *
+```
+
+`changes = 0` (no row returned) → another drain already holds an
+unexpired lease: skip this hook this call, not an error. The `RETURNING *`
+row (not the possibly-stale `due` read) is what the batch is built from,
+so a drain never bases its work on a cursor/failures snapshot another
+drain has since moved past. Step 3's CAS moves from `cursor` to the
+lease: `WHERE id = ? AND lease_id = ?leaseId`, clearing both lease columns
+in the same statement:
+
+```sql
+-- success:
+UPDATE webhooks SET cursor = ?, failures = 0, failing_since = NULL, last_error = NULL,
+                     status = 'active', next_at = ?, lease_id = NULL, lease_until = NULL
+  WHERE id = ? AND lease_id = ?
+-- failure:
+UPDATE webhooks SET cursor = ?, failures = failures + 1, failing_since = COALESCE(failing_since, ?),
+                     last_error = ?, status = ?, next_at = ?, lease_id = NULL, lease_until = NULL
+  WHERE id = ? AND lease_id = ?
+```
+
+Only the drain holding `leaseId` can ever match, so two drains can never
+race the same commit, and `failures + 1` (computed from the row the claim
+returned) can never lose a concurrent increment -- nothing else is writing
+that row's counters while the lease is held. No POST may START once less
+than `POST_TIMEOUT_MS` (10 s) + a 5 s margin remains on the lease (real
+wall-clock time, tracked independently of the injected business clock a
+caller passes as `now`) -- a batch long enough to approach that bound
+stops there and commits what was delivered as a (possibly partial)
+success, so the lease is always released well before it could lapse under
+a live, healthy drain. The one case a lease outlives its holder is a
+drain that dies (crash, isolate eviction) between claiming and
+committing: the hook simply waits out `lease_until`, then the next drain
+reclaims it and redelivers from the last actually-committed cursor -- if
+the dead drain's own last POST had already landed, that one `seq` is the
+one possible duplicate. Quiet-tick cost is unchanged (LDB-H5: the `due`
+SELECT plus `headSeq`'s read, zero writes, since the claim only runs for
+hooks the SELECT found due); a delivered batch now costs exactly two
+`webhooks` UPDATEs (the claim, then the commit) instead of one.
+
 **Idempotency contract (documented in `README.md` § Webhooks, the public
-API doc):** a receiver may see a `seq` twice (an overlap between the nudge
-and the cron, or a timeout after the receiver accepted) and must treat a
-`seq` ≤ the highest it has already applied as a no-op; it never sees a
-lower `seq` after a higher one from the same hook; a gap in `seq` means
-the hook's `kinds`/`owner_filter` skipped events, or (after `disabled`) a
-gap to fill from `/v1/changes?since=` — D8. Signature check for receivers:
+API doc):** delivery is at-least-once, in order, and never concurrent per
+hook (LDB-H6's lease). A receiver may see a `seq` twice ONLY after a drain
+dies holding a hook's lease (its last POST may have already landed before
+it died) -- outside of that, every matching event reaches the receiver
+exactly once. Either way, the contract is the same: treat a `seq` ≤ the
+highest one already applied as a no-op; a `seq` never arrives lower than
+one already seen from the same hook. A gap in `seq` means the hook's
+`kinds`/`owner_filter` skipped events, or (after `disabled`) a gap to fill
+from `/v1/changes?since=` — D8. Signature check for receivers:
 `hex(hmac_sha256(secret, X-Akl-Timestamp + "." + raw_body)) == signature`,
 reject `|now − X-Akl-Timestamp| > 300 s`.
 
@@ -606,11 +671,12 @@ node scripts/report-drill.mjs --ok "$ok" --detail "{\"dump\":\"$url\"}"
 
 | id | invariant | enforced by |
 |---|---|---|
-| LDB-H1 | Webhook delivery is at-least-once and in order per hook: every matching event past a hook's cursor is POSTed with a valid signature before the cursor passes it; the cursor is advanced only by compare-and-set; a receiver deduping by `seq` sees each matching event exactly once | `tests/api/webhooks.test.ts` |
+| LDB-H1 | Webhook delivery is at-least-once and in order per hook: every matching event past a hook's cursor is POSTed with a valid signature before the cursor passes it, and never concurrently -- the cursor is advanced only by the drain holding that hook's lease (LDB-H6), never by a bare cursor CAS. A duplicate `seq` reaching a receiver is possible only after a drain dies holding a lease (its last POST may have landed before it died); otherwise every matching event is delivered exactly once | `tests/api/webhooks.test.ts` |
 | LDB-H2 | The stream is the feed: the frames of any stream, and of any chain of streams reconnected by `Last-Event-ID`, are exactly `/v1/changes`' items past the original `since`, in order, no gap, no duplicate; every stream closes at the bound with `next` | `tests/api/stream.test.ts` |
 | LDB-H3 | The changelog page shows exactly the feed's events for its parameters, with every interpolated value HTML-escaped | `tests/api/changelog.test.ts` |
 | LDB-H4 | A webhook secret never leaves the `webhooks` table: no response body, no event, no dump carries it | `tests/api/webhooks.test.ts` (scans), `tests/api/dump.test.ts` (`webhooks: []`) |
-| LDB-H5 | A drain with nothing to deliver writes zero D1 rows; a delivered batch writes exactly one `webhooks` row per hook | `tests/api/webhooks.test.ts` (statement counter) |
+| LDB-H5 | A drain with nothing to deliver writes zero D1 rows; a delivered batch writes exactly two `webhooks` rows per hook (the LDB-H6 lease claim, then the commit) | `tests/api/webhooks.test.ts` (statement counter) |
+| LDB-H6 (2026-09-11) | A hook is claimed (one CAS UPDATE on `lease_id`/`lease_until`) before `drain()` reads its feed page or POSTs anything, and `commitOutcome()` CASes on that same `lease_id` (never on `cursor`) and releases it in the same statement -- so no two drains ever have a POST in flight to the same hook at once, `failures`/`cursor` can never be lost or clobbered by a racing second attempt, and a hook another drain is mid-batch on is never disabled out from under it. The lease is real-time bounded and always NULL again once every concurrent `drain()` call touching a hook has resolved -- except when a drain dies while holding it, in which case the hook simply waits out `lease_until` before the next drain reclaims it | `tests/api/webhooks.test.ts` (`[LDB-H6] claim-before-send lease`: real interleaving, concurrent failures, the partial-failure-vs-success race, lease expiry, and a property test) |
 | LDB-P3 (now enforced) | A follower's state from webhooks alone (drops, reorders, duplicates) equals its state from the feed alone | `tests/events/feed.test.ts` |
 | LDB-F5 / F7 (mana2 rows) | `mana2 → akl → mana2` is identity under `normalizeMana2()`; `akl → mana2 → akl` is identity off the thumb row; every declared translation has a frozen golden | `tests/formats/mana2.test.ts`, `goldens.test.ts` |
 | LDB-F12 | The DB's `akl/1 → mana2/1` grid and thumb strings equal the site's `bridgecore.ConvertLayout` output for every cmini fixture (modulo trailing `skip`s) | `tests/formats/mana2-convert-parity.test.ts` + the frozen converter snapshot |

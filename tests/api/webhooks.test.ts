@@ -1,8 +1,11 @@
-// [LDB-H1] [LDB-H4] [LDB-H5] POST/GET/DELETE /v1/webhooks (12 §2.1, §3 X1):
-// CRUD auth matrix, validation, delivery (signature, retries/backoff,
-// failing/disabled), kinds/owner_filter, the global post budget, overlap
-// safety, and the "no secret ever leaks" scan.
+// [LDB-H1] [LDB-H4] [LDB-H5] [LDB-H6] POST/GET/DELETE /v1/webhooks (12
+// §2.1, §3 X1): CRUD auth matrix, validation, delivery (signature,
+// retries/backoff, failing/disabled), kinds/owner_filter, the global post
+// budget, the claim-before-send lease (real interleaving, concurrent
+// failures, the partial-failure-vs-success race, expiry), and the "no
+// secret ever leaks" scan.
 import { createExecutionContext, createScheduledController, env, waitOnExecutionContext } from "cloudflare:test";
+import fc from "fast-check";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Bindings } from "../../src/env";
 import { appendLike, appendWrite } from "../../src/core/events";
@@ -11,14 +14,16 @@ import {
   WEBHOOK_BACKOFF_S,
   WEBHOOK_DISABLE_AFTER_MS,
   WEBHOOK_FAILING_AFTER,
+  WEBHOOK_LEASE_MS,
   WEBHOOKS_PER_USER,
   drain,
   sign,
   type WebhookFetchImpl,
 } from "../../src/core/webhooks";
-import { fixedClock } from "../../src/core/time";
+import { fixedClock, steppingClock } from "../../src/core/time";
 import worker from "../../src/index";
 import { FakeUpstream } from "../import/fake-upstream";
+import { ulid } from "ulidx";
 import { actorFixture, pinTestClock, register, uniqueName, writeFetch } from "./write-support";
 
 // Only hour:minute (UTC) drives scheduled()'s dispatch since the cron
@@ -92,22 +97,28 @@ class FakeReceiver {
 }
 
 // A statement-counting proxy over a D1Database (LDB-H5's own mechanism,
-// following 09 §3 T1's pattern): counts every `.run()` a prepared
-// statement makes, through as many `.bind()` chains as the caller applies.
-// `webhooks.ts`'s SQL is exclusively `.prepare(...).bind(...).run()` /
-// `.first()` / `.all()` -- no `.batch()` -- so counting `.run()` alone is
-// exactly "how many write statements did this drain() issue".
-function wrapStmt(stmt: D1PreparedStatement, writes: { n: number }): D1PreparedStatement {
+// following 09 §3 T1's pattern): counts every EXECUTION of a mutating
+// (`UPDATE`/`INSERT`/`DELETE`) prepared statement, through as many
+// `.bind()` chains as the caller applies -- "exactly how many write
+// statements did this drain() issue". Counting has to key off the SQL text
+// itself, not the terminal method: LDB-H6's lease claim is an
+// `UPDATE ... RETURNING *` read back with `.first()`, not `.run()` --
+// still one real write against D1 -- so a proxy that only hooked `.run()`
+// would silently under-count it.
+function isMutatingSql(sql: string): boolean {
+  return /^\s*(UPDATE|INSERT|DELETE)\b/i.test(sql);
+}
+function wrapStmt(stmt: D1PreparedStatement, writes: { n: number }, sql: string): D1PreparedStatement {
   return new Proxy(stmt, {
     get(target, prop, receiver) {
-      if (prop === "run") {
+      if (prop === "run" || prop === "first" || prop === "all" || prop === "raw") {
         return async (...args: unknown[]) => {
-          writes.n++;
-          return (target.run as (...a: unknown[]) => unknown).apply(target, args);
+          if (isMutatingSql(sql)) writes.n++;
+          return (target[prop] as (...a: unknown[]) => unknown).apply(target, args);
         };
       }
       if (prop === "bind") {
-        return (...args: unknown[]) => wrapStmt((target.bind as (...a: unknown[]) => D1PreparedStatement).apply(target, args), writes);
+        return (...args: unknown[]) => wrapStmt((target.bind as (...a: unknown[]) => D1PreparedStatement).apply(target, args), writes, sql);
       }
       const val = Reflect.get(target, prop, receiver);
       return typeof val === "function" ? (val as (...a: unknown[]) => unknown).bind(target) : val;
@@ -118,7 +129,7 @@ function countingDb(real: D1Database): { db: D1Database; writes: () => number } 
   const writes = { n: 0 };
   const proxy = new Proxy(real, {
     get(target, prop, receiver) {
-      if (prop === "prepare") return (sql: string) => wrapStmt(target.prepare(sql), writes);
+      if (prop === "prepare") return (sql: string) => wrapStmt(target.prepare(sql), writes, sql);
       const val = Reflect.get(target, prop, receiver);
       return typeof val === "function" ? (val as (...a: unknown[]) => unknown).bind(target) : val;
     },
@@ -486,16 +497,17 @@ describe("[LDB-H1] [LDB-H4] [LDB-H5] webhooks", () => {
       expect(receiver.requests).toHaveLength(30);
     });
 
-    it("[LDB-H1] overlap: Promise.all([drain(), drain()]) against pending events -- the receiver sees every seq >=once in order, the cursor reaches the head", async () => {
+    it("[LDB-H1] [LDB-H6] overlap: Promise.all([drain(), drain()]) against pending events -- the lease means exactly one of them delivers, no duplicates, cursor reaches the head", async () => {
       const createHeaders = ownerHeaders();
       const createRes = await writeFetch("/v1/webhooks", "POST", createHeaders, VALID_BODY);
       const hook = await createRes.json<WebhookWire>();
-      for (let i = 0; i < 10; i++) await appendOne();
+      const expectedSeqs: number[] = [];
+      for (let i = 0; i < 10; i++) expectedSeqs.push((await appendOne()).seq);
 
       const receiver = new FakeReceiver();
       const head = await currentHeadSeq();
       const clock = fixedClock("2026-07-15T00:00:00.000Z");
-      await Promise.all([
+      const [a, b] = await Promise.all([
         drain(bindings, clock, { fetchImpl: receiver.fetchImpl, maxPosts: 25 }),
         drain(bindings, clock, { fetchImpl: receiver.fetchImpl, maxPosts: 25 }),
       ]);
@@ -508,20 +520,41 @@ describe("[LDB-H1] [LDB-H4] [LDB-H5] webhooks", () => {
         seqsPerHook.get(id)!.push(body.seq);
       }
       const seen = seqsPerHook.get(hook.id) ?? [];
-      // At-least-once: both drains read the SAME starting cursor before
-      // either commits its compare-and-set, so BOTH can (and here, do)
-      // deliver the whole pending range -- duplicates are expected, not a
-      // bug (LDB-P3 is what makes duplicates safe for a real subscriber).
-      // The real invariant is coverage (every pending seq reaches the
-      // receiver at least once) and that each individual drain's own run
-      // never posts out of order -- checked by splitting `seen` at its one
-      // decrease point (10 events, so at most a two-way split here).
-      expect(new Set(seen).size).toBe(10); // every one of the 10 pending events, at least once
-      const splitAt = seen.findIndex((s, i) => i > 0 && s < seen[i - 1]!);
-      const runs = splitAt === -1 ? [seen] : [seen.slice(0, splitAt), seen.slice(splitAt)];
-      for (const run of runs) {
-        expect(run).toEqual([...run].sort((a, b) => a - b));
-      }
+      // LDB-H6: the lease claim is one CAS UPDATE issued before either
+      // drain touches this hook's feed page -- whichever of the two wins
+      // it delivers the ENTIRE pending range (this run's receiver answers
+      // synchronously, so there's no window for the loser to sneak in a
+      // second, later claim once the winner is done); the other claims
+      // nothing for this hook and posts zero. Every one of the 10 pending
+      // events is delivered EXACTLY once, strictly increasing, never
+      // interleaved between the two calls.
+      expect(seen).toEqual(expectedSeqs);
+      expect([a.posted, b.posted].sort((x, y) => x - y)).toEqual([0, 10]); // one drain claimed and delivered everything, the other claimed nothing
+
+      const row = await db.prepare("SELECT cursor FROM webhooks WHERE id = ?").bind(hook.id).first<{ cursor: number }>();
+      expect(row!.cursor).toBe(head);
+    });
+
+    it("[LDB-H6] three overlapping drains against pending events: still exactly one delivers, no duplicates", async () => {
+      const createHeaders = ownerHeaders();
+      const createRes = await writeFetch("/v1/webhooks", "POST", createHeaders, VALID_BODY);
+      const hook = await createRes.json<WebhookWire>();
+      for (let i = 0; i < 12; i++) await appendOne();
+
+      const receiver = new FakeReceiver();
+      const head = await currentHeadSeq();
+      const clock = fixedClock("2026-07-15T12:00:00.000Z");
+      const results = await Promise.all([
+        drain(bindings, clock, { fetchImpl: receiver.fetchImpl, maxPosts: 25 }),
+        drain(bindings, clock, { fetchImpl: receiver.fetchImpl, maxPosts: 25 }),
+        drain(bindings, clock, { fetchImpl: receiver.fetchImpl, maxPosts: 25 }),
+      ]);
+
+      const seqs = receiver.requests.filter((r) => r.headers["X-Akl-Webhook-Id"] === hook.id).map((r) => (JSON.parse(r.body) as { seq: number }).seq);
+      expect(seqs).toHaveLength(12);
+      expect(new Set(seqs).size).toBe(12); // no duplicates
+      expect([...seqs].sort((x, y) => x - y)).toEqual(seqs); // strictly increasing, never interleaved
+      expect(results.filter((r) => r.posted > 0)).toHaveLength(1); // exactly one of the three actually claimed and delivered
 
       const row = await db.prepare("SELECT cursor FROM webhooks WHERE id = ?").bind(hook.id).first<{ cursor: number }>();
       expect(row!.cursor).toBe(head);
@@ -540,7 +573,7 @@ describe("[LDB-H1] [LDB-H4] [LDB-H5] webhooks", () => {
       expect(receiver.requests).toHaveLength(0);
     });
 
-    it("[LDB-H5] one delivered batch performs exactly one webhooks UPDATE", async () => {
+    it("[LDB-H5] one delivered batch performs exactly two webhooks UPDATEs (claim + commit)", async () => {
       const createHeaders = ownerHeaders();
       const createRes = await writeFetch("/v1/webhooks", "POST", createHeaders, VALID_BODY);
       await createRes.json<WebhookWire>();
@@ -551,9 +584,337 @@ describe("[LDB-H1] [LDB-H4] [LDB-H5] webhooks", () => {
       const { db: countedDb, writes } = countingDb(db);
       const receiver = new FakeReceiver();
       await drain({ ...bindings, DB: countedDb }, fixedClock("2026-07-17T00:00:00.000Z"), { fetchImpl: receiver.fetchImpl, maxPosts: 25 });
-      expect(writes()).toBe(1); // one hook, one UPDATE covering its whole (multi-event) batch
+      // LDB-H6: the lease claim (one UPDATE) before any POST, then one
+      // commitOutcome UPDATE covering the whole (multi-event) batch -- two
+      // total, not one per event and not one per feed page.
+      expect(writes()).toBe(2);
       expect(receiver.requests).toHaveLength(3);
     });
+  });
+
+  describe("[LDB-H6] claim-before-send lease", () => {
+    it("real interleaving: a second drain's claim fails while the first's POST is genuinely still in flight", async () => {
+      const createHeaders = ownerHeaders();
+      const createRes = await writeFetch("/v1/webhooks", "POST", createHeaders, VALID_BODY);
+      const hook = await createRes.json<WebhookWire>();
+      const expectedSeqs: number[] = [];
+      for (let i = 0; i < 4; i++) expectedSeqs.push((await appendOne()).seq);
+
+      const requests: number[] = [];
+      const pending: ((res: Response) => void)[] = [];
+      const deferredFetch: WebhookFetchImpl = async (_url, init) => {
+        requests.push((JSON.parse(init.body) as { seq: number }).seq);
+        return new Promise<Response>((resolve) => pending.push(resolve));
+      };
+
+      const clock = fixedClock("2026-07-18T00:00:00.000Z");
+      const drainA = drain(bindings, clock, { fetchImpl: deferredFetch, maxPosts: 25 });
+
+      // Pump the event loop (real ticks, not just a microtask flush -- the
+      // claim UPDATE and the feed SELECT are real async D1 calls) until A's
+      // first POST is genuinely in flight and blocked on `deferredFetch`'s
+      // still-unresolved promise. At this point A has ALREADY committed its
+      // claim (the claim happens before any POST is attempted) -- exactly
+      // the window a pre-lease drain() would have raced.
+      await waitUntil(() => requests.length >= 1);
+      expect(requests).toHaveLength(1);
+
+      // Drain B starts now, genuinely concurrently with A's in-flight POST.
+      const drainB = await drain(bindings, clock, { fetchImpl: deferredFetch, maxPosts: 25 });
+      expect(drainB.posted).toBe(0); // B's claim UPDATE matched zero rows -- A already holds the lease
+      expect(requests).toHaveLength(1); // B never started a POST of its own for this hook
+
+      // Release A's POSTs one at a time until its whole batch is delivered.
+      while (requests.length < expectedSeqs.length || pending.length > 0) {
+        const resolve = pending.shift();
+        if (resolve) resolve(new Response(null, { status: 200 }));
+        else await waitUntil(() => pending.length > 0 || requests.length >= expectedSeqs.length);
+      }
+      const drainAResult = await drainA;
+      expect(drainAResult.posted).toBe(4);
+      expect(requests).toEqual(expectedSeqs); // exactly once each, strictly in order -- never interleaved with B
+
+      const row = await db.prepare("SELECT cursor, lease_id, lease_until FROM webhooks WHERE id = ?").bind(hook.id).first<{ cursor: number; lease_id: string | null; lease_until: string | null }>();
+      expect(row!.cursor).toBe(expectedSeqs[expectedSeqs.length - 1]);
+      expect(row!.lease_id).toBeNull();
+      expect(row!.lease_until).toBeNull();
+    });
+
+    it("concurrent failures: two overlapping drains against a 500 receiver -- failures increments by exactly 1, not 2", async () => {
+      const createHeaders = ownerHeaders();
+      const createRes = await writeFetch("/v1/webhooks", "POST", createHeaders, VALID_BODY);
+      const hook = await createRes.json<WebhookWire>();
+      await appendOne();
+
+      const receiver = new FakeReceiver();
+      receiver.answer = 500;
+      const clock = fixedClock("2026-07-19T00:00:00.000Z");
+      await Promise.all([
+        drain(bindings, clock, { fetchImpl: receiver.fetchImpl, maxPosts: 25 }),
+        drain(bindings, clock, { fetchImpl: receiver.fetchImpl, maxPosts: 25 }),
+      ]);
+
+      // With the lease, only one of the two ever attempts delivery -- the
+      // other fails to claim and posts nothing. Before LDB-H6 this table's
+      // `failures` would read 2 (both drains read the same stale `failures`
+      // value and both wrote `+1` from it, a lost update).
+      expect(receiver.requests).toHaveLength(1);
+      const row = await db.prepare("SELECT failures, lease_id, lease_until FROM webhooks WHERE id = ?").bind(hook.id).first<{ failures: number; lease_id: string | null; lease_until: string | null }>();
+      expect(row!.failures).toBe(1);
+      expect(row!.lease_id).toBeNull();
+      expect(row!.lease_until).toBeNull();
+    });
+
+    it("the partial-failure-vs-success race (bug 3) cannot happen: any interleaving of two attempts ends in one of the two attempts' own outcomes, never a mix", async () => {
+      // Reproduces the pre-lease bug's exact shape: a hook with events
+      // 6..10 past its cursor. One "drain" delivers 6 and 7, then fails at
+      // 8 (a short, partially-failed batch); a concurrent one would have
+      // delivered 6..10 in full (a longer, fully successful batch). Before
+      // LDB-H6, whichever commitOutcome ran LAST won regardless of which
+      // attempt was more complete -- the short failing one could void the
+      // long successful one. With the lease there is only ever ONE
+      // in-flight attempt per hook, so this is exercised here as: the
+      // short/failing outcome and the long/successful outcome are each
+      // driven to completion by a SEPARATE drain() call that only starts
+      // once the previous one has fully committed and released the lease
+      // -- proving the two can never race for the same commit, only run in
+      // some serial order, one before the other.
+      const createHeaders = ownerHeaders();
+      const createRes = await writeFetch("/v1/webhooks", "POST", createHeaders, VALID_BODY);
+      const hook = await createRes.json<WebhookWire>();
+      const seqs: number[] = [];
+      for (let i = 0; i < 5; i++) seqs.push((await appendOne()).seq); // 6..10 (relative)
+
+      const receiver = new FakeReceiver();
+      let call = 0;
+      receiver.answer = () => {
+        call++;
+        return call === 3 ? 500 : 200; // fails on the 3rd POST (the batch's 3rd event)
+      };
+      const clock = fixedClock("2026-07-20T00:00:00.000Z");
+
+      // The short, partially-failed attempt (delivers seqs[0], seqs[1],
+      // fails at seqs[2]) runs to completion and commits/releases its lease
+      // BEFORE the second drain (which would deliver the rest in full) even
+      // starts -- serial by construction, exactly what the lease enforces
+      // for any two overlapping calls.
+      const first = await drain(bindings, clock, { fetchImpl: receiver.fetchImpl, maxPosts: 25 });
+      expect(first.failed).toBe(1);
+      const afterFirst = await db.prepare("SELECT cursor, failures, lease_id FROM webhooks WHERE id = ?").bind(hook.id).first<{ cursor: number; failures: number; lease_id: string | null }>();
+      expect(afterFirst!.cursor).toBe(seqs[1]); // exactly the two delivered events, not voided, not overwritten
+      expect(afterFirst!.failures).toBe(1);
+      expect(afterFirst!.lease_id).toBeNull(); // released -- available for the next attempt
+
+      receiver.answer = 200;
+      const second = await drain(bindings, fixedClock("2026-07-20T01:00:00.000Z"), { fetchImpl: receiver.fetchImpl, maxPosts: 25 });
+      expect(second.posted).toBe(3); // seqs[2..4], resuming exactly where the first left off
+      const final = await db.prepare("SELECT cursor, failures, status FROM webhooks WHERE id = ?").bind(hook.id).first<{ cursor: number; failures: number; status: string }>();
+      expect(final!.cursor).toBe(seqs[4]);
+      expect(final!.failures).toBe(0);
+      expect(final!.status).toBe("active");
+
+      // The receiver's own request log includes the FAILED 3rd attempt
+      // (seqs[2], answered 500) as well as its later successful retry --
+      // that one seq legitimately reaching the receiver twice is a normal
+      // retry-after-failure, not the bug this test is about. The bug-3
+      // invariant is about SUCCESSFUL (2xx) deliveries: each of the 5
+      // events reaches "delivered" exactly once, in order, across the two
+      // separate (never-overlapping) attempts combined.
+      const attempted = receiver.requests.map((r) => (JSON.parse(r.body) as { seq: number }).seq);
+      expect(attempted).toEqual([seqs[0], seqs[1], seqs[2], seqs[2], seqs[3], seqs[4]]);
+      const succeeded = receiver.requests.filter((_, i) => i !== 2).map((r) => (JSON.parse(r.body) as { seq: number }).seq); // every request except the one that got the 500
+      expect(succeeded).toEqual(seqs);
+    });
+
+    describe("lease expiry", () => {
+      it("a drain that dies holding a lease (crash after claim, before commit): a second drain before lease_until skips; after it, claims and delivers from the old cursor", async () => {
+        const createHeaders = ownerHeaders();
+        const createRes = await writeFetch("/v1/webhooks", "POST", createHeaders, VALID_BODY);
+        const hook = await createRes.json<WebhookWire>();
+        const seqs: number[] = [];
+        for (let i = 0; i < 3; i++) seqs.push((await appendOne()).seq);
+
+        // Simulate a drain that claimed the lease and then died before
+        // `commitOutcome` ever ran -- exactly the state a real crash (an
+        // uncaught throw, an isolate eviction) leaves behind: the lease
+        // columns set, cursor/failures untouched.
+        const t0 = new Date("2026-07-21T00:00:00.000Z").getTime();
+        const crashedLeaseId = ulid();
+        const leaseUntil = new Date(t0 + WEBHOOK_LEASE_MS).toISOString();
+        await db.prepare("UPDATE webhooks SET lease_id = ?, lease_until = ? WHERE id = ?").bind(crashedLeaseId, leaseUntil, hook.id).run();
+
+        const receiver = new FakeReceiver();
+        const beforeExpiry = await drain(bindings, fixedClock(new Date(t0 + WEBHOOK_LEASE_MS - 1000).toISOString()), { fetchImpl: receiver.fetchImpl, maxPosts: 25 });
+        expect(beforeExpiry.posted).toBe(0);
+        expect(receiver.requests).toHaveLength(0); // still held -- not due for a claim yet
+
+        const stillHeld = await db.prepare("SELECT lease_id FROM webhooks WHERE id = ?").bind(hook.id).first<{ lease_id: string | null }>();
+        expect(stillHeld!.lease_id).toBe(crashedLeaseId);
+
+        const afterExpiry = await drain(bindings, fixedClock(new Date(t0 + WEBHOOK_LEASE_MS + 1000).toISOString()), { fetchImpl: receiver.fetchImpl, maxPosts: 25 });
+        expect(afterExpiry.posted).toBe(3); // claims fresh, delivers from the cursor the crashed drain never advanced
+        const delivered = receiver.requests.map((r) => (JSON.parse(r.body) as { seq: number }).seq);
+        expect(delivered).toEqual(seqs);
+
+        const row = await db.prepare("SELECT cursor, lease_id, lease_until FROM webhooks WHERE id = ?").bind(hook.id).first<{ cursor: number; lease_id: string | null; lease_until: string | null }>();
+        expect(row!.cursor).toBe(seqs[2]);
+        expect(row!.lease_id).toBeNull();
+        expect(row!.lease_until).toBeNull();
+      });
+
+      it("a duplicate is possible only for the crashed drain's own in-flight POST, never for any other seq", async () => {
+        // The documented exception (README.md § Webhooks / webhooks.ts's
+        // module comment): if the crashed drain's LAST POST had actually
+        // reached the receiver before it died, that one seq is delivered
+        // again by the drain that reclaims the lease after expiry -- every
+        // other seq is still delivered exactly once.
+        const createHeaders = ownerHeaders();
+        const createRes = await writeFetch("/v1/webhooks", "POST", createHeaders, VALID_BODY);
+        const hook = await createRes.json<WebhookWire>();
+        const seqs: number[] = [];
+        for (let i = 0; i < 4; i++) seqs.push((await appendOne()).seq);
+
+        const receiver = new FakeReceiver();
+        // The crashed drain's own (never logged by this test's receiver --
+        // it used its own now-gone fetchImpl) in-flight POST of seqs[0]
+        // landed successfully, THEN it died before committing -- so the
+        // DB's cursor is still at the pre-batch value even though seqs[0]
+        // was, in fact, delivered once already.
+        const t0 = new Date("2026-07-22T00:00:00.000Z").getTime();
+        const crashedLeaseId = ulid();
+        await db
+          .prepare("UPDATE webhooks SET lease_id = ?, lease_until = ? WHERE id = ?")
+          .bind(crashedLeaseId, new Date(t0 + WEBHOOK_LEASE_MS).toISOString(), hook.id)
+          .run();
+        const preCrashDelivered = [seqs[0]!];
+
+        const reclaim = await drain(bindings, fixedClock(new Date(t0 + WEBHOOK_LEASE_MS + 1000).toISOString()), { fetchImpl: receiver.fetchImpl, maxPosts: 25 });
+        expect(reclaim.posted).toBe(4); // re-delivers from the OLD cursor: all 4 events, seqs[0] included
+        const reclaimedSeqs = receiver.requests.map((r) => (JSON.parse(r.body) as { seq: number }).seq);
+        expect(reclaimedSeqs).toEqual(seqs);
+
+        const allDeliveries = [...preCrashDelivered, ...reclaimedSeqs];
+        const counts = new Map<number, number>();
+        for (const s of allDeliveries) counts.set(s, (counts.get(s) ?? 0) + 1);
+        const duplicated = [...counts.entries()].filter(([, n]) => n > 1).map(([s]) => s);
+        expect(duplicated).toEqual([seqs[0]]); // the ONLY duplicate is the crashed drain's own in-flight POST
+        for (const s of seqs.slice(1)) expect(counts.get(s)).toBe(1);
+
+        const row = await db.prepare("SELECT cursor FROM webhooks WHERE id = ?").bind(hook.id).first<{ cursor: number }>();
+        expect(row!.cursor).toBe(seqs[3]);
+      });
+    });
+
+    it(
+      "[property] random events / receiver outcomes / concurrent drains / clock advances: per-hook delivery stays strictly increasing with no duplicates, failures tracks exactly the committed failed attempts, cursor reaches the head, and the lease is always released",
+      async () => {
+        await fc.assert(
+          fc.asyncProperty(
+            fc.integer({ min: 1, max: 15 }), // pending events
+            fc.integer({ min: 1, max: 3 }), // concurrent drain() calls issued per round
+            fc.integer({ min: 1, max: 2 ** 31 - 1 }), // rng seed
+            async (n, concurrency, seed) => {
+              const rng = mulberry32(seed);
+
+              // Isolated per fast-check run (07 §2's per-file, not per-`it`,
+              // storage): this property owns the whole `webhooks` table for
+              // its duration, same discipline as tests/events/feed.test.ts's
+              // own property test.
+              await db.prepare("DELETE FROM webhooks").run();
+              const writeClock = steppingClock("2026-08-01T00:00:00.000Z", 1000);
+              let counter = 0;
+              for (let i = 0; i < n; i++) {
+                await appendWrite(db, writeClock, {
+                  upstream: null,
+                  kind: "created",
+                  name: uniqueName(`wh-prop-${counter++}`),
+                  owner: "wh-prop-owner",
+                  modified_at: writeClock(),
+                  format: "cmini/1",
+                  payload: {},
+                  actor: "wh-prop-owner",
+                  via: "discord",
+                  source: { client: "discord-app:test", version: null },
+                  hasMagic: false,
+                });
+              }
+              const head = await headSeq(db);
+              const baseline = head - n; // this hook's starting cursor: strictly before every event just appended
+
+              const hookId = ulid();
+              const seedAt = "2026-08-01T00:00:00.000Z";
+              await db
+                .prepare(
+                  `INSERT INTO webhooks (id, owner_user_id, url, secret, kinds, owner_filter, status, cursor, failures, failing_since, next_at, last_error, created_at)
+                   VALUES (?, 'prop-owner', 'https://prop.example/hook', 'prop-secret-1234567890ab', NULL, NULL, 'active', ?, 0, NULL, ?, NULL, ?)`,
+                )
+                .bind(hookId, baseline, seedAt, seedAt)
+                .run();
+
+              const delivered: number[] = []; // every 2xx-accepted seq, across every round, in receipt order
+              const fakeFetch: WebhookFetchImpl = async (_url, init) => {
+                const body = JSON.parse(init.body) as { seq: number };
+                const r = rng();
+                if (r < 0.15) return new Response(null, { status: 500 });
+                if (r < 0.2) throw new Error("[property] simulated network failure");
+                delivered.push(body.seq);
+                return new Response(null, { status: 200 });
+              };
+
+              let attemptMs = new Date("2026-08-02T00:00:00.000Z").getTime();
+              let prevFailures = 0;
+              let iterations = 0;
+              for (;;) {
+                const clock = fixedClock(new Date(attemptMs).toISOString());
+                await Promise.all(Array.from({ length: concurrency }, () => drain(bindings, clock, { fetchImpl: fakeFetch, maxPosts: 50 })));
+
+                const row = await db
+                  .prepare("SELECT cursor, failures, lease_id, lease_until FROM webhooks WHERE id = ?")
+                  .bind(hookId)
+                  .first<{ cursor: number; failures: number; lease_id: string | null; lease_until: string | null }>();
+                // (d) the lease is always released by the time every
+                // concurrent drain() of the round has resolved -- no
+                // attempt is ever left holding it past its own commit.
+                expect(row!.lease_id).toBeNull();
+                expect(row!.lease_until).toBeNull();
+                // (c) each round in which the hook was still behind the
+                // head runs exactly one real attempt (the lease shuts out
+                // every other concurrent claimant) -- so `failures` either
+                // resets to 0 (that attempt fully succeeded) or advances by
+                // exactly 1 (it failed partway) from the previous round.
+                expect(row!.failures === 0 || row!.failures === prevFailures + 1).toBe(true);
+                prevFailures = row!.failures;
+
+                if (row!.cursor >= head) break;
+                attemptMs += 3_700_000; // past every WEBHOOK_BACKOFF_S tier (max 3600s)
+                iterations++;
+                if (iterations > 60) throw new Error("[property] drain loop did not converge within 60 rounds");
+              }
+
+              // (a) strictly increasing, no duplicates -- this run's `n`
+              // events are the only ones any drain() call here could ever
+              // see (the table was cleared above; nothing else writes to
+              // it), so `delivered` is exactly this hook's own sequence.
+              expect(new Set(delivered).size).toBe(delivered.length);
+              expect([...delivered].sort((a, b) => a - b)).toEqual(delivered);
+
+              // (b) final cursor = the head (every event eventually
+              // acknowledged, in order -- the loop above only exits once
+              // true).
+              const final = await db.prepare("SELECT cursor FROM webhooks WHERE id = ?").bind(hookId).first<{ cursor: number }>();
+              expect(final!.cursor).toBe(head);
+            },
+          ),
+          // 15 runs (feed.test.ts's own property test makes the same
+          // deliberate deviation from a textbook 100): each run drives up
+          // to 60 real D1-backed drain() rounds, so more runs would make
+          // this one `it` dominate the file's wall time without adding
+          // much beyond what 15 seeds across {n, concurrency} already
+          // exercises.
+          { numRuns: 15 },
+        );
+      },
+    );
   });
 
   describe("scheduled() wiring", () => {
@@ -600,6 +961,31 @@ describe("[LDB-H1] [LDB-H4] [LDB-H5] webhooks", () => {
     });
   });
 });
+
+// Polls a real event-loop tick (not just a microtask flush -- D1 calls in
+// this test runtime resolve through real async I/O) until `cond()` is true
+// or `maxTicks` is exhausted, for tests that need to observe a `drain()`
+// call genuinely blocked mid-await (LDB-H6's real-interleaving test).
+async function waitUntil(cond: () => boolean, maxTicks = 200): Promise<void> {
+  for (let i = 0; i < maxTicks && !cond(); i++) await new Promise((resolve) => setTimeout(resolve, 0));
+  if (!cond()) throw new Error("waitUntil: condition never became true");
+}
+
+// A tiny deterministic PRNG (mulberry32) so a property-test failure always
+// reproduces from the SAME (params, seed) pair fast-check reports, not from
+// `Math.random()` -- copied from tests/events/feed.test.ts's own LDB-P3
+// property test rather than exported, matching that file's precedent of
+// keeping this helper local to whichever property needs it.
+function mulberry32(seed: number): () => number {
+  let a = seed;
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
 
 // --- fixtures: append events directly (bypassing the route/nudge) so a
 // delivery test controls exactly when `drain()` runs. ---------------------

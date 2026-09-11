@@ -274,11 +274,16 @@ akl-webhook","secret":"a-throwaway-demo-secret-1234","kinds":["created",
 Each POST carries the full event JSON plus `X-Akl-Webhook-Id`, `X-Akl-Seq`,
 `X-Akl-Timestamp`, and `X-Akl-Signature: v1=<hex hmac-sha256(secret,
 \`${timestamp}.${body}\`)>`. **Receiver contract:** verify the HMAC (strip
-`v1=` first), reject anything > 300s old. A `seq` may arrive twice (the
-after-write nudge and the cron drain can overlap) — treat any `seq` ≤ your
-highest applied as a no-op; delivery is **at-least-once and in order per
-hook**, never required for correctness (`LDB-P3`) — a gap means poll
-`/v1/changes?since=` to fill it. A non-2xx (or > 10s) stops that hook's
+`v1=` first), reject anything > 300s old. Delivery is **at-least-once, in
+order, and never concurrent per hook** (`LDB-H6`'s lease keeps the
+after-write nudge and the cron drain — which overlap routinely — from ever
+both posting to the same hook at once), never required for correctness
+(`LDB-P3`) — a gap means poll `/v1/changes?since=` to fill it. A `seq` may
+arrive twice only after an outage on this end (a drain that dies mid-batch
+leaves the hook's lease held until it expires; the next drain re-delivers
+from the last committed cursor, possibly repeating the dead drain's own
+last, already-landed POST) — dedupe by `X-Akl-Seq`, treating any `seq` ≤
+your highest applied as a no-op. A non-2xx (or > 10s) stops that hook's
 batch and schedules a retry at 1 min / 10 min / 1 h; 3 consecutive failures
 → `"failing"` (still retried hourly); failing past 7 days → `"disabled"`
 (no further attempts, visible via `GET /v1/webhooks`).
