@@ -193,12 +193,12 @@ describe("tick()", () => {
 
     const realApplyFetchedId = applyModule.applyFetchedId;
     const applyFetchedIdSpy = vi.spyOn(applyModule, "applyFetchedId").mockImplementation(async (db, now, id, raw) => {
-      if (id === "abyss") throw new RevConflictError("some-layout-id", 2);
+      if (id === "abyss") throw new RevConflictError("some-layout-id");
       return realApplyFetchedId(db, now, id, raw);
     });
     const realApplyDeleteAction = applyModule.applyDeleteAction;
     const applyDeleteActionSpy = vi.spyOn(applyModule, "applyDeleteAction").mockImplementation(async (db, now, action) => {
-      throw new RevConflictError(action.layoutId, 2);
+      throw new RevConflictError(action.layoutId);
     });
 
     let result: Awaited<ReturnType<typeof tick>>;
@@ -212,7 +212,9 @@ describe("tick()", () => {
     expect(result.stats.raced).toBe(2); // abyss's update, graphite's delete
     expect(result.stats.errors).toEqual([]); // a race is never reported as a shape error
     // Neither raced write landed: abyss keeps its pre-tick content, graphite stays live.
-    const abyssRow = await db.prepare("SELECT payload_json FROM layouts WHERE name = 'abyss'").first<{ payload_json: string }>();
+    const abyssRow = await db
+      .prepare("SELECT payload_json FROM layout_formats f JOIN layouts l ON l.id = f.layout_id WHERE l.name = 'abyss' AND f.lineage = 'spark'")
+      .first<{ payload_json: string }>();
     expect((JSON.parse(abyssRow!.payload_json) as { board?: unknown }).board).not.toEqual({ kind: "ortho", cmini: "ortho" });
     const graphiteRow = await db.prepare("SELECT deleted FROM layouts WHERE name = 'graphite'").first<{ deleted: number }>();
     expect(graphiteRow?.deleted).toBe(0);
