@@ -24,7 +24,7 @@
 
 import type { Payload as SparkPayload, Position as SparkPosition, Board as SparkBoard } from "../../spark/1/index.ts";
 import type { MagicIntent } from "../../spark/1/magic.ts";
-import { computeRows } from "../../spark/1/magic.ts";
+import { computeRows, resolveRows } from "../../spark/1/magic.ts";
 import type { Payload as Mana2Payload, Board as Mana2Board, Rule as Mana2Rule } from "./index.ts";
 
 // 12-implementation-phase5.md §2.5 / core/stats.go's `fingerSuffixNames`.
@@ -483,7 +483,7 @@ export function fromSpark(p: SparkPayload): Mana2Payload {
     while (board.rowOrColumnStagger.length < width) board.rowOrColumnStagger.push(0);
   }
 
-  const rows = computeRows(p.magic, p.keys);
+  const rows = resolveRows(computeRows(p.magic, p.keys)); // LDB-F4: akl.gg's order, last wins
   const rules: Mana2Rule[] = dedupeRulesLastWins(rows.map((r) => ({ inputs: r.inputs, output: r.output })));
 
   const out: Mana2Payload = {

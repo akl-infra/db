@@ -239,7 +239,16 @@ Unknown tags are legal on read (kept as the row, shown as raw). `chiral`
 and `default:<c>` are the two tags cmini's vocabulary lacks today (#221
 §2); this format adds them.
 
-**Collision rule (D4).** Two lowered rows with the same `inputs` — whether
+**Collision rule (D4), amended 2026-09-11.** saltorbit: "layoutdb validation
+rules for the spark format should match what we already have with aklgg".
+Two rows from IDIOMS with the same `inputs` are resolved the way akl.gg's
+compile resolves them (`web/src/core/rules.ts` `magicRulesFlatCompile`):
+phase order scaffold < chiral < explicit rules < adaptive swaps, the last
+row wins. The text below (refusal, `except` hints) now applies only to a
+collision a raw `rules[]` row is part of; `except` stays valid and still
+removes a scaffold row. Original text:
+
+Two lowered rows with the same `inputs` — whether
 from two idioms, or an idiom and a raw rule — are refused at write time:
 
 ```
@@ -453,7 +462,7 @@ payload in the registry, only *to* one.
 | LDB-F1 | Every stored payload validates against its declared format's frozen schema; a write that does not is refused with the failing path. | API test per format fixture; property test over random mutations of fixtures (each single-field corruption is refused) |
 | LDB-F2 | `compileMagic()` is pure and deterministic: same payload → same rows in the same order, across server versions. | `.lowered.json` goldens per fixture, never edited |
 | LDB-F3 | Intent is never silently lowered on write: a record whose client sent idioms stores idioms. | API test: PUT with `adaptive_swaps` reads back with `adaptive_swaps` |
-| LDB-F4 | Lowering collisions are refused, never resolved. | matrix: idiom×idiom, idiom×raw, raw×raw |
+| LDB-F4 | Idiom×idiom overlaps resolve as akl.gg's compile does (scaffold < chiral < explicit < swap, last wins); a collision involving a raw row is refused. *Amended 2026-09-11 (saltorbit).* | matrix: idiom×idiom (resolved), idiom×raw, raw×raw (refused); akl.gg parity property |
 | LDB-F5 | `cmini → spark/1 → cmini` is identity on the `cminiDetail` projection (likes sorted) for every fixture and for the whole live set. **Narrowed by `LDB-I13`** (`20-spark.md` §4), which is now the operative wording for the adapter's exactness. | `roundtrip.test.ts` per PR; the daily D12 diff (LDB-P5) |
 | LDB-F6 | A format major, once merged, is immutable: schema not tightened, fixtures unchanged. `spark/1` itself is frozen once #307 merges (S1). | a test diffs `formats/**` against `main` and fails on any edit to a frozen file (additions allowed) |
 | LDB-F7 | Every registered format has ≥ 1 fixture, and for every translation it declares, a frozen `.<to>.json` golden the translation still reproduces. Extended by `LDB-F19` (19-upcast.md, S5) to every *reachable* format, not just a direct edge. | generated from the registry |

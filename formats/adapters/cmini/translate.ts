@@ -7,7 +7,7 @@
 // `liftRules`/`cminiBoardWord`), never the reverse -- spark/1/index.ts has
 // no import of this directory at all.
 import * as cmini1 from "./index.ts";
-import { computeRows, isScaffold, liftRules, type MagicIntent, type Row, type RawRule } from "../../spark/1/magic.ts";
+import { computeRows, isScaffold, liftRules, resolveRows, type MagicIntent, type Row, type RawRule } from "../../spark/1/magic.ts";
 import { cminiBoardWord } from "../../spark/1/index.ts";
 import type { Payload as SparkPayload, Position } from "../../spark/1/index.ts";
 
@@ -116,7 +116,7 @@ export function toCmini(p: SparkPayload): cmini1.Payload {
   };
   if (p.free !== undefined) out.free = p.free;
 
-  const rows = computeRows(p.magic, p.keys);
+  const rows = resolveRows(computeRows(p.magic, p.keys)); // LDB-F4: akl.gg's order, last wins
   if (rows.length > 0) {
     out.magic = rows.map(({ inputs, output, type }) => ({ inputs, output, type }));
   }

@@ -19,6 +19,7 @@ import rawSchema from "./schema.json" with { type: "json" };
 import {
   computeRows,
   findCollision,
+  resolveRows,
   isSingleChar,
   validateMagicSemantics,
   type AdaptiveSwap,
@@ -254,7 +255,7 @@ export function validate(p: unknown): ValidationResult {
 // every format's own compile step is now just a named export, not a
 // registry-dispatched method. Logic byte-identical to the old `lower()`.
 export function compileMagic(p: Payload): Row[] {
-  return computeRows(p.magic, p.keys).map(({ inputs, output, type }) => ({ inputs, output, type }));
+  return resolveRows(computeRows(p.magic, p.keys)).map(({ inputs, output, type }) => ({ inputs, output, type }));
 }
 
 export function hasMagic(p: Payload): boolean {

@@ -1,38 +1,21 @@
-// [LDB-F4] Lowering collisions (01-format.md §3, "D4") are refused, never
-// resolved, with `from` naming both sources and a `hint` naming the
-// `except` entry that would remove the collision whenever one side is a
-// scaffold row.
+// [LDB-F4] Lowering collisions (01-format.md §3, "D4"), as amended
+// 2026-09-11 (saltorbit: "layoutdb validation rules for the spark format should
+// match what we already have with aklgg"): rows produced by IDIOMS that
+// share `inputs` are resolved exactly as akl.gg's compile resolves them
+// (web/src/core/rules.ts `magicRulesFlatCompile`): phase order scaffold
+// (magic keys) < chiral scaffold < explicit rules < adaptive swaps, the
+// LAST row for an `inputs` wins. A collision a RAW `rules[]` row is part of
+// is still refused, with `from` naming both sources and a `hint` naming the
+// `except` entry that would remove it whenever the other side is a scaffold
+// row (akl.gg has no raw rows, so nothing there to match).
 //
-// The brief matrix is {repeat scaffold, default:<c> scaffold, explicit
-// rule, chiral scaffold, adaptive half, raw rule}². Most of the 36 cells
-// are STRUCTURALLY UNREACHABLE, not skipped for convenience -- worth
-// spelling out once, here, rather than silently:
-//   - repeat scaffold, default:<c> scaffold and explicit rule all share
-//     the shape `inputs = after + KEY`, where KEY is a specific magic
-//     key's own char. Two of them can only collide by sharing that KEY --
-//     but a single magic_keys[] entry has exactly one `default` (so
-//     "repeat vs default" on the same key is a contradiction in terms) and
-//     at most one rule per `after` (a second explicit rule for the same
-//     `after` is `duplicate rule.after`, refused by validateMagicSemantics
-//     BEFORE the collision check ever runs) -- so repeat×default,
-//     repeat×repeat, default×default, explicit×explicit and any of the
-//     three against a DIFFERENT magic key's version of itself cannot
-//     collide at all. The one live interaction inside this group is
-//     "explicit rule on key K, after A" vs "K's own scaffold row for A" --
-//     tested below as the documented NON-collision (the explicit rule
-//     replaces the scaffold row).
-//   - chiral scaffold vs itself: same reasoning (a second chiral_keys[]
-//     entry needs a different `key`, so its rows always end in a different
-//     char). A magic key and a chiral key can never be the same char
-//     either (validated separately), so magic-scaffold × chiral-scaffold
-//     cannot collide.
-//   - adaptive × adaptive: two swaps sharing a (trigger, member) pair is
-//     `adaptive_swaps entries collide`, again caught by
-//     validateMagicSemantics before the collision check runs.
-// What CAN collide is a magic/chiral key's own char being reused as an
-// ADAPTIVE SWAP MEMBER or a RAW RULE's literal second char (the bunya
-// pattern this format's own design doc walks through), or two raw rules
-// sharing a literal `inputs` outright. That's the matrix below.
+// Structurally unreachable pairs (unchanged): repeat/default/explicit rows
+// share `inputs = after + KEY` for one magic key, which has one `default`
+// and at most one rule per `after`; two chiral keys end in different
+// chars; a magic key and a chiral key are never the same char; two swaps
+// sharing (trigger, member) are refused by validateMagicSemantics first.
+// What CAN overlap is a magic/chiral key's own char reused as an adaptive
+// swap member (the bunya pattern) or a raw rule's second char.
 import { describe, expect, it } from "vitest";
 import * as spark1 from "../../formats/spark/1/index.ts";
 import type { Payload, Position } from "../../formats/spark/1/index.ts";
@@ -57,6 +40,15 @@ function payloadWith(magic: Payload["magic"]): Payload {
   return { keys: baseKeys(), magic };
 }
 
+// The idiom-overlap cases: validate() accepts, and the compiled rows carry
+// exactly one row for `inputs`, the akl.gg winner.
+function expectResolved(payload: Payload, inputs: string, output: string) {
+  const result = spark1.validate(payload);
+  expect(result).toEqual({ ok: true });
+  const rows = spark1.compileMagic(payload).filter((r) => r.inputs === inputs);
+  expect(rows.map((r) => r.output)).toEqual([output]);
+}
+
 function expectCollision(payload: Payload, expectFrom: [string, string] | "any", expectHint: { path: string; add: string } | "none" | "any" = "any") {
   const result = spark1.validate(payload);
   expect(result.ok).toBe(false);
@@ -72,33 +64,34 @@ function expectCollision(payload: Payload, expectFrom: [string, string] | "any",
   }
 }
 
-describe("magic_collision matrix (LDB-F4)", () => {
+describe("magic_collision matrix (LDB-F4, amended: idiom overlaps resolve as akl.gg does)", () => {
   // -- {repeat, default:<c>, explicit} scaffold/override vs adaptive half --
   // 'a' is the trigger; 'k' is BOTH the magic key's own char and one of the
   // adaptive swap's members -- the bunya pattern (01 §3).
 
-  it("[LDB-F4] repeat scaffold x adaptive half collide; hint excepts the scaffold", () => {
+  it("[LDB-F4] repeat scaffold x adaptive half: resolved, the swap wins (akl.gg's order)", () => {
     const payload = payloadWith({
       magic_keys: [{ key: "k", default: "repeat_previous" }],
       adaptive_swaps: [{ trigger: "a", swap: ["k", "b"] }],
     });
-    expectCollision(payload, ["magic_keys[0]", "adaptive_swaps[0]"], { path: "magic_keys[0].except", add: "a" });
+    // scaffold would be ak -> aa; the swap's k-half emits what b would: ab
+    expectResolved(payload, "ak", "ab");
   });
 
-  it("[LDB-F4] default:<c> scaffold x adaptive half collide; hint excepts the scaffold", () => {
+  it("[LDB-F4] default:<c> scaffold x adaptive half: resolved, the swap wins", () => {
     const payload = payloadWith({
       magic_keys: [{ key: "k", default: "z" }],
       adaptive_swaps: [{ trigger: "a", swap: ["k", "b"] }],
     });
-    expectCollision(payload, ["magic_keys[0]", "adaptive_swaps[0]"], { path: "magic_keys[0].except", add: "a" });
+    expectResolved(payload, "ak", "ab");
   });
 
-  it("[LDB-F4] explicit rule x adaptive half collide; no hint (neither side is a scaffold row)", () => {
+  it("[LDB-F4] explicit rule x adaptive half: resolved, the swap wins", () => {
     const payload = payloadWith({
       magic_keys: [{ key: "k", default: "none", rules: [{ after: "a", output: "az" }] }],
       adaptive_swaps: [{ trigger: "a", swap: ["k", "b"] }],
     });
-    expectCollision(payload, ["magic_keys[0].rules[0]", "adaptive_swaps[0]"], "none");
+    expectResolved(payload, "ak", "ab");
   });
 
   // -- {repeat, default:<c>, explicit} vs a raw rule naming the same inputs --
@@ -148,12 +141,26 @@ describe("magic_collision matrix (LDB-F4)", () => {
 
   // -- chiral scaffold vs adaptive half / raw rule --
 
-  it("[LDB-F4] chiral scaffold x adaptive half collide; hint excepts the scaffold", () => {
+  it("[LDB-F4] chiral scaffold x adaptive half: resolved, the swap wins", () => {
     const payload = payloadWith({
       chiral_keys: [{ key: "k", same: "z", opposite: "y" }],
       adaptive_swaps: [{ trigger: "a", swap: ["k", "b"] }],
     });
-    expectCollision(payload, ["chiral_keys[0]", "adaptive_swaps[0]"], { path: "chiral_keys[0].except", add: "a" });
+    expectResolved(payload, "ak", "ab");
+  });
+
+  it("[LDB-F4] gallyoid's shape (single-char default key vs several swaps on it): every overlap resolved, the swaps win", () => {
+    const payload = payloadWith({
+      magic_keys: [{ key: "d", default: "d", rules: [{ after: "b", output: "bl" }] }],
+      adaptive_swaps: [
+        { trigger: "t", swap: ["h", "d"] },
+        { trigger: "s", swap: ["h", "d"] },
+        { trigger: "c", swap: ["h", "d"] },
+      ],
+    });
+    for (const t of ["t", "s", "c"]) expectResolved(payload, `${t}d`, `${t}h`);
+    expectResolved(payload, "ed", "ed"); // no swap there: the scaffold row stays
+    expectResolved(payload, "bd", "bl"); // the explicit rule beats the scaffold
   });
 
   it("[LDB-F4] chiral scaffold x raw rule collide; hint excepts the scaffold", () => {

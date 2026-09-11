@@ -255,8 +255,54 @@ export function computeRows(magic: MagicIntent | undefined, keys: Record<string,
   return rows;
 }
 
+// LDB-F4, amended 2026-09-11 (saltorbit: "layoutdb validation rules for the
+// spark format should match what we already have with aklgg"): idiom rows
+// that share `inputs` are RESOLVED the way akl.gg's own compile
+// (web/src/core/rules.ts `magicRulesFlatCompile`) resolves them -- its
+// phase order is every magic key's scaffold rows (the LDB-F14 word-start
+// row included), then chiral scaffolds, then explicit `rules[]`
+// exceptions, then adaptive swaps, and the LAST row for an `inputs` wins
+// (mana2's own loader semantics). The raw escape hatch comes after all of
+// them and never takes part in a resolution: `findCollision` still refuses
+// any collision a raw row is part of (akl.gg has no raw rows at all).
+function phaseOf(from: string): number {
+  if (/^magic_keys\[\d+\]$/.test(from)) return 0;
+  if (/^chiral_keys\[\d+\]$/.test(from)) return 1;
+  if (/^magic_keys\[\d+\]\.rules\[\d+\]$/.test(from)) return 2;
+  if (/^adaptive_swaps\[\d+\]$/.test(from)) return 3;
+  return 4; // rules[i], the raw escape hatch
+}
+
+function isRaw(from: string): boolean {
+  return /^rules\[\d+\]$/.test(from);
+}
+
+// One row per `inputs`. The WINNER is the row akl.gg's compile keeps: the
+// last in its phase order (a later phase beats an earlier one; within a
+// phase, the later-emitted row). The row sits where computeRows first
+// emitted that `inputs`, so a payload without overlaps lowers byte for byte
+// as before the amendment (the frozen goldens, LDB-F2/F7, and every stored
+// record); akl.gg parity is as SETS of (inputs, output), mana2's loader
+// being order-insensitive once each `inputs` appears once.
+export function resolveRows(rows: LabeledRow[]): LabeledRow[] {
+  const winner = new Map<string, { row: LabeledRow; phase: number; idx: number }>();
+  rows.forEach((row, idx) => {
+    const phase = phaseOf(row.from);
+    const cur = winner.get(row.inputs);
+    if (!cur || phase > cur.phase || (phase === cur.phase && idx > cur.idx)) winner.set(row.inputs, { row, phase, idx });
+  });
+  const out: LabeledRow[] = [];
+  const seen = new Set<string>();
+  for (const r of rows) {
+    if (seen.has(r.inputs)) continue;
+    seen.add(r.inputs);
+    out.push(winner.get(r.inputs)!.row);
+  }
+  return out;
+}
+
 export function lower(magic: MagicIntent | undefined, keys: Record<string, Position>): Row[] {
-  return computeRows(magic, keys).map(({ inputs, output, type }) => ({ inputs, output, type }));
+  return resolveRows(computeRows(magic, keys)).map(({ inputs, output, type }) => ({ inputs, output, type }));
 }
 
 // Exported for translate.ts's import-time reconciliation (a leftover row
@@ -266,10 +312,11 @@ export function isScaffold(from: string): boolean {
   return /^(magic_keys|chiral_keys)\[\d+\]$/.test(from);
 }
 
-// Two rows with the same `inputs` -- refused at write time (01 §3, "D4").
-// `hint` names the `except` entry that would remove the collision whenever
-// one side is a scaffold row (the bunya `f@` case the design doc walks
-// through).
+// Two rows with the same `inputs` where one of them is a RAW `rules[]` row
+// -- refused at write time (01 §3, "D4", as amended 2026-09-11: idiom-only
+// overlaps are resolved by `resolveRows`, akl.gg's order). `hint` names the
+// `except` entry that would remove the collision whenever the other side is
+// a scaffold row.
 export function findCollision(rows: LabeledRow[]): CollisionInfo | null {
   const byInputs = new Map<string, LabeledRow[]>();
   for (const r of rows) {
@@ -279,7 +326,10 @@ export function findCollision(rows: LabeledRow[]): CollisionInfo | null {
   }
   for (const [inputs, group] of byInputs) {
     if (group.length < 2) continue;
-    const [first, second] = group as [LabeledRow, LabeledRow];
+    const rawIdx = group.findIndex((r) => isRaw(r.from));
+    if (rawIdx < 0) continue; // idiom rows only: resolved, never refused
+    const first = group[0]!;
+    const second = (rawIdx === 0 ? group[1] : group[rawIdx])!;
     const scaffoldFrom = isScaffold(first.from) ? first.from : isScaffold(second.from) ? second.from : undefined;
     const afterChar = [...inputs].slice(0, -1).join("");
     // LDB-F14: a bare space `after` is the word-start row's own signature
