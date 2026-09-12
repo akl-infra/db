@@ -62,6 +62,16 @@ async function seed(owner: string): Promise<Seeded> {
   return { id: layout.id, owner, layoutRev: layout.layout_rev, formatRev: formats.get("spark")!.rev };
 }
 
+// A snowflake-shaped id: `uniqueName()` interpolates a literal `-` (its
+// `${prefix}-${counter}` shape), which fails `TRANSFER_USER_ID_RE`'s
+// all-digits check outright -- transfer 400s before the race is even set
+// up (the case (b) bug the coordinator flagged). This stays pure digits.
+let uniqueSnowflakeCounter = 0;
+function uniqueSnowflake(): string {
+  uniqueSnowflakeCounter += 1;
+  return `900000000000${String(uniqueSnowflakeCounter).padStart(5, "0")}`; // 17 digits
+}
+
 async function seedAuthor(userId: string) {
   await db.prepare("INSERT OR IGNORE INTO authors (user_id, name, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?)").bind(userId, `user-${userId}`, clock(), clock()).run();
 }
@@ -118,7 +128,7 @@ describe("[MF-6] [LDB-P20] HTTP-level cross-scope races (H3)", () => {
 
   it("[MF-6] [LDB-P20] (b) PUT by the OLD owner racing a transfer that lands first -- 403 not_owner after retry", async () => {
     const OWNER = `mf6b-owner-${uniqueName("u")}`;
-    const NEW_OWNER = `30${uniqueName("").padStart(15, "0")}`.slice(0, 17); // 17-digit snowflake shape
+    const NEW_OWNER = uniqueSnowflake();
     await seedAuthor(NEW_OWNER);
     const seeded = await seed(OWNER);
     const fake = actorFixture();
