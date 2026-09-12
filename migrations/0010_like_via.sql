@@ -1,0 +1,19 @@
+-- B1 (design/layout-db/review/audit-db.md, LDB-B1): the cmini importer used
+-- to REPLACE a following layout's likes wholesale, emitting `unliked` for
+-- every local liker cmini's own snapshot didn't (yet) carry -- a silent
+-- revert of a real user action. Likes are now a UNION of cmini's and ours
+-- by user id (the importer only ever ADDS a missing like, never removes
+-- one, for a following layout or not); this column records where each
+-- surviving `likes` row came from, the same `via` vocabulary every other
+-- write already uses (`import:cmini`, `discord`, `client:<id>`).
+--
+-- `layoutdb is disposable` (CLAUDE.md, design/layout-db/review/LEDGER.md):
+-- a plain `ADD COLUMN ... DEFAULT` is fine here -- no backfill needed,
+-- since 0009 already wiped `likes` to empty and every row since has gone
+-- through `appendLike`'s own INSERT, which this same change makes always
+-- supply `via`. The default only ever matters for a `likes` row that
+-- somehow predates BOTH 0009's wipe and this migration in one live
+-- database (never true for a fresh/rebuilt one) -- 'import:cmini' names
+-- the likely source for that window (the importer, not a live user route,
+-- did almost all of the writing right after a wipe).
+ALTER TABLE likes ADD COLUMN via TEXT NOT NULL DEFAULT 'import:cmini';

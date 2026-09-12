@@ -33,6 +33,10 @@ export interface LikeDbRow {
   layout_id: string;
   user_id: string;
   at: string;
+  // LDB-B1 (migrations/0010): who/what this like came from. Absent from a
+  // dump written before 0010 -- restore.ts reads it as 'import:cmini'
+  // (0010's own column default), same pattern as `authors.name_source`.
+  via?: string;
 }
 export interface AuthorDbRow {
   user_id: string;

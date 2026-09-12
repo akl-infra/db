@@ -63,7 +63,7 @@ async function assertFoldMatchesRow(layoutId: string) {
 }
 
 describe("[LDB-L1] PUT/DELETE /v1/layouts/{ref}/like", () => {
-  it("like -> 200 {like_count: 1}, one 'liked' event, a likes row", async () => {
+  it("[LDB-L5] like -> 200 {like_count: 1}, one 'liked' event, a likes row", async () => {
     const record = await seed();
     const headers = ownerHeaders(`tok-${uniqueName("like")}`);
     const res = await writeFetch(`/v1/layouts/${record.id}/like`, "PUT", headers);
@@ -74,8 +74,12 @@ describe("[LDB-L1] PUT/DELETE /v1/layouts/{ref}/like", () => {
     expect(events.results).toHaveLength(1);
     expect(events.results[0]).toMatchObject({ kind: "liked", rev: null, actor: OWNER, via: "discord" });
 
-    const likeRow = await db.prepare("SELECT 1 FROM likes WHERE layout_id = ? AND user_id = ?").bind(record.id, OWNER).first();
+    // LDB-B1 (migrations/0010): the `likes` row itself carries `via`, the
+    // same value the event does -- so a later reconciliation can tell a
+    // real user's like from an imported one without guessing.
+    const likeRow = await db.prepare("SELECT via FROM likes WHERE layout_id = ? AND user_id = ?").bind(record.id, OWNER).first<{ via: string }>();
     expect(likeRow).not.toBeNull();
+    expect(likeRow!.via).toBe("discord");
     await assertFoldMatchesRow(record.id);
   });
 

@@ -41,6 +41,10 @@ export type WriteKind =
 export type InfoKind =
   | "upstream_changed"
   | "import_conflict"
+  // LDB-B5 (design/layout-db/review/audit-db.md B5): a non-conflict error
+  // from one id's apply, recorded so the tick can keep going instead of
+  // aborting -- `import/apply.ts`'s `recordImportError`.
+  | "import_error"
   | "upstream_deleted"
   | "admin.added"
   | "admin.removed"
@@ -535,8 +539,14 @@ export async function appendLike(db: Bindings["DB"], now: Clock, l: Like): Promi
       // statement in it sees the same answer.
       wantsLike
         ? db
-            .prepare("INSERT INTO likes (layout_id, user_id, at) SELECT ?, ?, ? WHERE EXISTS (SELECT 1 FROM layouts WHERE id = ? AND deleted = 0)")
-            .bind(l.layoutId, l.userId, at, l.layoutId)
+            // LDB-B1 (design/layout-db/review/audit-db.md B1): `via` records
+            // where THIS like came from -- the same vocabulary every other
+            // write already uses (`discord`, `client:<id>`, `import:cmini`
+            // for a union-add the cmini importer makes) -- so a later
+            // reconciliation can tell a real user's like from an imported
+            // one without guessing from `events`.
+            .prepare("INSERT INTO likes (layout_id, user_id, at, via) SELECT ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM layouts WHERE id = ? AND deleted = 0)")
+            .bind(l.layoutId, l.userId, at, l.via, l.layoutId)
         : db
             .prepare("DELETE FROM likes WHERE layout_id = ? AND user_id = ? AND EXISTS (SELECT 1 FROM layouts WHERE id = ? AND deleted = 0)")
             .bind(l.layoutId, l.userId, l.layoutId),

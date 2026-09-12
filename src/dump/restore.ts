@@ -141,7 +141,14 @@ export function restoreSql(dump: Dump): string[] {
   );
 
   statements.push(
-    ...chunkedInserts("INSERT INTO likes", ["layout_id", "user_id", "at"], dump.likes.map((r) => ({ ...r }))),
+    ...chunkedInserts(
+      "INSERT INTO likes",
+      ["layout_id", "user_id", "at", "via"],
+      // LDB-B1: `via` round-trips; a dump written before migrations/0010
+      // has none, and restores as 'import:cmini' (the column's own
+      // default -- NOT NULL, so `chunkedInserts`'s NULL won't do).
+      dump.likes.map((r) => ({ ...r, via: r.via ?? "import:cmini" })),
+    ),
   );
 
   statements.push(
