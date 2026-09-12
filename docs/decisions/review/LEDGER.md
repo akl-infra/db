@@ -86,6 +86,7 @@ Status: `todo` · `running (agent, branch)` · `review` · `landed <sha>` · `bl
 
 ## Log
 
+- 2026-09-12 · V0 landed (262d7d201); bot suite 1,100 green.
 - 2026-09-12 · **INCIDENT**: spark deploy of wave 2 (v33) never logged in; rolled back to v32 after ~7 min. Two image-build fixes landed first (submodule `.git` pointer breaks `git apply`; `ca-certificates` for the bake curl). B6 dispatched. Lesson: watch `fly logs` for `ready as` within 60 s after every spark deploy; rollback = `flyctl machine update <id> --image <previous release image>`.
 - 2026-09-12 · B3 landed (8ed066934). **Wave 2 complete**: bot suite 83 files / 1,063 passed / 0 failed in 19 s (live suite gated behind LIVE_TESTS). fly.toml set for the deploy (afa05096a). Next: deploy spark, then V1.
 - 2026-09-12 · B2 landed (6131ed5f3). spark client granted `feed:wait` on prod (direct D1 update). R2 secrets staged on spark-bot by saltorbit/lead.
