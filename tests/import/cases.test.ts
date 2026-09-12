@@ -258,14 +258,145 @@ describe("import case table (07 §6 S5, restated by 21-formats.md §2.2)", () =>
     expect((await readById(db, before!.id))!.layout_rev).toBe(2);
   });
 
-  it("[LDB-I2] case 5: mapped + following + ONLY likes differ -> like diff, no content write", async () => {
+  // B2 (design/layout-db/review/audit-db.md B2): an upstream rename onto a
+  // name a LIVE local layout already holds used to throw `name_taken`
+  // straight out of `commitWrite`, aborting the WHOLE tick (every id
+  // queued behind this one, forever, since `meta_token` never advanced
+  // past it). It now shadows the rename exactly like `applyNew`'s case 3:
+  // an `import_conflict` info event on the renamed (following) record,
+  // then the SAME write retried under `<name>~cmini`.
+  it("[LDB-I19] case 4 rename onto a name a LIVE local layout holds shadows instead of wedging the import", async () => {
+    const followingOwner = "8200000000000000001";
+    const holderOwner = "8200000000000000002";
+    const d1 = detail({ name: "RenameSrc", user: followingOwner, board: "ortho", keys: {} });
+    await applyFetchedId(db, clock, "caserename", d1);
+    const rec = await readByName(db, "RenameSrc");
+
+    // a live LOCAL layout already holds the name upstream is about to
+    // rename this SAME upstream id into.
+    const holder = await createUser("RenameDst", holderOwner);
+
+    const d2 = detail({ name: "RenameDst", user: followingOwner, board: "ortho", keys: {} });
+    const result = await applyFetchedId(db, clock, "caserename", d2);
+    expect(result.errors).toEqual([]); // never thrown, never reported as a shape error either
+
+    // the renamed record survives under a shadow name, still following
+    const shadow = await readById(db, rec!.id);
+    expect(shadow!.name).toBe("RenameDst~cmini");
+    expect(shadow!.deleted).toBe(false);
+    expect(shadow!.layout_rev).toBe(2);
+
+    // the holder that actually owns "RenameDst" is completely untouched
+    const holderAfter = await readById(db, holder.id);
+    expect(holderAfter!.name).toBe("RenameDst");
+    expect(holderAfter!.layout_rev).toBe(1);
+
+    const events = await eventsFor(rec!.id);
+    const conflict = events.find((e) => e.kind === "import_conflict");
+    expect(conflict).toBeDefined();
+    expect(JSON.parse(conflict!.detail_json!)).toMatchObject({ upstream_id: "caserename", upstream_name: "RenameDst", conflicts_with: holder.id });
+    expect(events.at(-1)).toMatchObject({ kind: "imported", format: null, rev: 2 });
+    expect(JSON.parse(events.at(-1)!.detail_json!)).toMatchObject({ shadowed: { upstream_name: "RenameDst" } });
+
+    // the tick is NOT wedged: a completely unrelated id in the SAME
+    // (conceptual) tick still imports normally.
+    const otherOwner = "8200000000000000003";
+    const other = detail({ name: "Unrelated-After-Rename", user: otherOwner, board: "ortho", keys: {} });
+    const otherResult = await applyFetchedId(db, clock, "caserename-other", other);
+    expect(otherResult.errors).toEqual([]);
+    expect(await readByName(db, "Unrelated-After-Rename")).not.toBeNull();
+  });
+
+  // B3 (design/layout-db/review/audit-db.md B3): `layoutFieldsDiffer` never
+  // looked at `deleted`, so a following tombstone re-listed upstream with
+  // otherwise-identical fields was never revived -- it stayed deleted and
+  // was re-fetched every tick forever. Restoring `deleted: false` is now
+  // itself a reason to write the layout scope.
+  it("[LDB-I20] a following tombstone re-listed upstream with identical fields is revived, not refetched forever", async () => {
+    const owner = "8100000000000000001";
+    const d1 = detail({ name: "Case-Revive", user: owner, board: "ortho", keys: {} });
+    await applyFetchedId(db, clock, "caserevive", d1);
+    const rec = await readByName(db, "Case-Revive");
+    expect(rec).not.toBeNull();
+
+    // upstream 404s -- tombstoned while following (case 8)
+    await applyFetchedId(db, clock, "caserevive", "notfound");
+    const tombstoned = await readById(db, rec!.id);
+    expect(tombstoned!.deleted).toBe(true);
+    expect(tombstoned!.layout_rev).toBe(2);
+    expect(await readByName(db, "Case-Revive")).toBeNull(); // name released
+
+    // upstream lists it again with the EXACT SAME content -- no field
+    // `layoutFieldsDiffer` itself compares (name/owner/created_at) changed,
+    // only `deleted` did.
+    const result = await applyFetchedId(db, clock, "caserevive", d1);
+    expect(result.errors).toEqual([]);
+
+    const revived = await readById(db, rec!.id);
+    expect(revived!.deleted).toBe(false);
+    expect(revived!.layout_rev).toBe(3);
+    expect((await readByName(db, "Case-Revive"))!.id).toBe(rec!.id); // the SAME record reclaims its name
+
+    const spark = await sparkOf(rec!.id);
+    expect(spark.rev).toBe(1); // payload never touched -- pure layout-scope revival
+
+    const events = await eventsFor(rec!.id);
+    expect(events.at(-1)).toMatchObject({ kind: "imported", format: null, rev: 3, actor: "system:cmini-import", via: "import:cmini" });
+
+    // idempotent: the identical content again writes nothing further
+    const again = await applyFetchedId(db, clock, "caserevive", d1);
+    expect(again.errors).toEqual([]);
+    expect((await readById(db, rec!.id))!.layout_rev).toBe(3);
+  });
+
+  // B2 + B3 together: a revival landing on a name since claimed locally.
+  it("[LDB-I19] [LDB-I20] a following tombstone's revival onto a name since claimed locally shadows instead of wedging", async () => {
+    const owner = "8300000000000000001";
+    const holderOwner = "8300000000000000002";
+    const d1 = detail({ name: "Case-ReviveClash", user: owner, board: "ortho", keys: {} });
+    await applyFetchedId(db, clock, "casereviveclash", d1);
+    const rec = await readByName(db, "Case-ReviveClash");
+
+    await applyFetchedId(db, clock, "casereviveclash", "notfound");
+    expect((await readById(db, rec!.id))!.deleted).toBe(true);
+
+    // the freed name is claimed by a brand-new, unrelated live local layout
+    const holder = await createUser("Case-ReviveClash", holderOwner);
+
+    // upstream re-lists the SAME id with the SAME content -- revival
+    // collides with the new holder's live claim on the name.
+    const result = await applyFetchedId(db, clock, "casereviveclash", d1);
+    expect(result.errors).toEqual([]);
+
+    const revived = await readById(db, rec!.id);
+    expect(revived!.deleted).toBe(false);
+    expect(revived!.name).toBe("Case-ReviveClash~cmini");
+
+    const holderAfter = await readById(db, holder.id);
+    expect(holderAfter!.name).toBe("Case-ReviveClash");
+    expect(holderAfter!.layout_rev).toBe(1); // untouched
+
+    const events = await eventsFor(rec!.id);
+    const conflict = events.find((e) => e.kind === "import_conflict");
+    expect(conflict).toBeDefined();
+    expect(JSON.parse(conflict!.detail_json!)).toMatchObject({ upstream_id: "casereviveclash", upstream_name: "Case-ReviveClash", conflicts_with: holder.id });
+  });
+
+  // B1 (design/layout-db/review/audit-db.md, LDB-L5 below): likes are a
+  // UNION of cmini's and ours by user id, for a following layout same as
+  // any other -- the importer only ever ADDS a missing like, never emits
+  // `unliked` (this replaces the old "wholesale replace, revert local
+  // likes" behavior this same test used to assert).
+  it("[LDB-I2] [LDB-L5] case 5: mapped + following + ONLY likes differ -> union add, no content write, no unlike", async () => {
     const owner = "5000000000000000001";
     const d1 = detail({ name: "Case5-Likes", user: owner, likes: ["5000000000000000011", "5000000000000000012"] });
     await applyFetchedId(db, clock, "case5", d1);
     const rec = await readByName(db, "Case5-Likes");
     expect(await likeIds(rec!.id)).toEqual(["5000000000000000011", "5000000000000000012"]);
 
-    // same content, likes changed: 11 removed, 13 added
+    // same content, upstream's own snapshot now shows 11 gone, 13 added --
+    // a real local liker (11) must survive; a new upstream liker (13) is
+    // unioned in.
     const d2 = detail({ name: "Case5-Likes", user: owner, likes: ["5000000000000000012", "5000000000000000013"] });
     const result = await applyFetchedId(db, clock, "case5", d2);
     expect(result.errors).toEqual([]);
@@ -275,8 +406,24 @@ describe("import case table (07 §6 S5, restated by 21-formats.md §2.2)", () =>
     expect((await sparkOf(rec!.id)).rev).toBe(1);
 
     const events = await eventsFor(rec!.id);
-    expect(events.map((e) => e.kind)).toEqual(["imported", "imported", "liked", "liked", "liked", "unliked"]);
-    expect(await likeIds(rec!.id)).toEqual(["5000000000000000012", "5000000000000000013"]);
+    // exactly one new `liked` (13) -- never an `unliked` for 11.
+    expect(events.map((e) => e.kind)).toEqual(["imported", "imported", "liked", "liked", "liked"]);
+    expect(await likeIds(rec!.id)).toEqual(["5000000000000000011", "5000000000000000012", "5000000000000000013"]);
+  });
+
+  it("[LDB-L5] the importer never emits `unliked` for a following layout even when upstream's own like list shrinks to empty", async () => {
+    const owner = "5100000000000000001";
+    const d1 = detail({ name: "Case5b-NeverUnlike", user: owner, likes: ["5100000000000000011", "5100000000000000012"] });
+    await applyFetchedId(db, clock, "case5b", d1);
+    const rec = await readByName(db, "Case5b-NeverUnlike");
+
+    const d2 = detail({ name: "Case5b-NeverUnlike", user: owner, likes: [] });
+    const result = await applyFetchedId(db, clock, "case5b", d2);
+    expect(result.errors).toEqual([]);
+
+    expect(await likeIds(rec!.id)).toEqual(["5100000000000000011", "5100000000000000012"]);
+    const events = await eventsFor(rec!.id);
+    expect(events.some((e) => e.kind === "unliked")).toBe(false);
   });
 
   // Coordinator review (MEDIUM, third batch): D13 L1/L2 made a repeat
@@ -300,33 +447,38 @@ describe("import case table (07 §6 S5, restated by 21-formats.md §2.2)", () =>
     expect(events.map((e) => e.kind)).toEqual(["imported", "imported", "liked", "liked"]);
   });
 
-  it("[LDB-I2] [LDB-P14] (b) a real unlike racing the importer's own unlike of the same user never aborts the tick", async () => {
+  // B1 (audit-db.md): the importer no longer ever unlikes, so the old
+  // scenario here (a real unlike racing the importer's OWN unlike attempt)
+  // no longer exists -- the remaining real race under union semantics is a
+  // real user liking a layout via `discord` at the exact moment the
+  // importer is unioning in that SAME upstream liker; either order must
+  // land on exactly one `liked` event, never an aborted tick.
+  it("[LDB-I2] [LDB-P14] [LDB-L5] a real like racing the importer's own union-add of the same user never aborts the tick", async () => {
     const owner = "9200000000000000001";
-    const d1 = detail({ name: "CaseRace-Likes", user: owner, likes: ["9200000000000000011"] });
+    const d1 = detail({ name: "CaseRace-Likes", user: owner, likes: [] });
     await applyFetchedId(db, clock, "caserace", d1);
     const rec = await readByName(db, "CaseRace-Likes");
-    expect(await likeIds(rec!.id)).toEqual(["9200000000000000011"]);
+    expect(await likeIds(rec!.id)).toEqual([]);
 
     // Force the race deterministically: `applyMapped` (apply.ts) reads
     // `localLikeIds` once, up front, then loops calling the real,
-    // cross-module `appendLike` (core/events.ts) per id that changed --
-    // spying on THAT import (unlike `currentLikeIds`, a same-file
-    // self-call a same-module spy can't intercept: verified by hand, an
-    // earlier version of this test spied on `currentLikeIds` and its
-    // mock never ran) lands cleanly on apply.ts's own call site. On the
-    // first call for this tick -- the importer's own (about to be stale)
-    // attempt to unlike this user -- run a REAL unlike for the same user
-    // via `discord` FIRST, using the original function, THEN let the
-    // importer's own original call proceed: it now finds the like already
-    // gone and throws `not_liked`, which `importAppendLike` (apply.ts)
-    // catches and swallows.
+    // cross-module `appendLike` (core/events.ts) per id that needs a
+    // union-add -- spying on THAT import (unlike `currentLikeIds`, a
+    // same-file self-call a same-module spy can't intercept) lands cleanly
+    // on apply.ts's own call site. On the first call for this tick -- the
+    // importer's own (about to be stale) attempt to union-add this user --
+    // run a REAL like for the same user via `discord` FIRST, using the
+    // original function, THEN let the importer's own original call
+    // proceed: it now finds the like already there and throws
+    // `already_liked`, which `importAppendLike` (apply.ts) catches and
+    // swallows.
     const original = eventsModule.appendLike;
     let fired = false;
     const spy = vi.spyOn(eventsModule, "appendLike").mockImplementation(async (...args) => {
       if (!fired) {
         fired = true;
         await original(db, clock, {
-          kind: "unliked",
+          kind: "liked",
           layoutId: rec!.id,
           userId: "9200000000000000011",
           via: "discord",
@@ -336,19 +488,19 @@ describe("import case table (07 §6 S5, restated by 21-formats.md §2.2)", () =>
       return original(...args);
     });
 
-    const d2 = detail({ name: "CaseRace-Likes", user: owner, likes: [] });
+    const d2 = detail({ name: "CaseRace-Likes", user: owner, likes: ["9200000000000000011"] });
     const result = await applyFetchedId(db, clock, "caserace", d2);
     spy.mockRestore();
     expect(result.errors).toEqual([]);
 
-    expect(await likeIds(rec!.id)).toEqual([]);
+    expect(await likeIds(rec!.id)).toEqual(["9200000000000000011"]);
     const events = await eventsFor(rec!.id);
-    const unliked = events.filter((e) => e.kind === "unliked");
-    // Exactly ONE unliked event (the real user's, via discord) -- the
-    // importer's own duplicate attempt hit `not_liked` and was swallowed,
-    // never a second event, never an aborted tick.
-    expect(unliked).toHaveLength(1);
-    expect(unliked[0]).toMatchObject({ actor: "9200000000000000011", via: "discord" });
+    const liked = events.filter((e) => e.kind === "liked");
+    // Exactly ONE liked event (the real user's, via discord) -- the
+    // importer's own duplicate attempt hit `already_liked` and was
+    // swallowed, never a second event, never an aborted tick.
+    expect(liked).toHaveLength(1);
+    expect(liked[0]).toMatchObject({ actor: "9200000000000000011", via: "discord" });
   });
 
   it("[LDB-I2] case 6: mapped + NOT following + content differs -> upstream_changed info, record untouched, not repeated", async () => {

@@ -53,12 +53,27 @@ describe("planTick", () => {
     if (result.kind === "ok") expect(result.fetch).toEqual(["a"]);
   });
 
-  it("mapped id with a changed like_count is fetched", () => {
+  // B1 (design/layout-db/review/audit-db.md B1): upstream showing MORE
+  // likes than we have is still a real signal (we might be missing one to
+  // union in) -- fetched same as before.
+  it("[LDB-L5] mapped id whose upstream like_count is HIGHER than ours is fetched", () => {
     const list = [entry({ id: "a", like_count: 5 })];
     const local = [row({ upstreamId: "a", layoutId: "L-a", like_count: 3 })];
     const result = planTick({ list, local, lastFull: RECENT, fullPassCursor: null, now: NOW });
     expect(result.kind).toBe("ok");
     if (result.kind === "ok") expect(result.fetch).toEqual(["a"]);
+  });
+
+  // B1: the importer never removes a like, so a LOCAL like_count higher
+  // than upstream's (extra likes made through us, which cmini's own count
+  // will never independently catch up to) must not force a fetch on its
+  // own -- that would re-fetch this id forever with nothing to apply.
+  it("[LDB-L5] mapped id whose LOCAL like_count is HIGHER than upstream's is not fetched on that account alone", () => {
+    const list = [entry({ id: "a", like_count: 3 })];
+    const local = [row({ upstreamId: "a", layoutId: "L-a", like_count: 5 })];
+    const result = planTick({ list, local, lastFull: RECENT, fullPassCursor: null, now: NOW });
+    expect(result.kind).toBe("ok");
+    if (result.kind === "ok") expect(result.fetch).toEqual([]);
   });
 
   it("a missing list like_count is treated as 0", () => {

@@ -95,7 +95,13 @@ export function planTick(input: PlanInput): PlanResult {
       fetchSet.add(entry.id);
       continue;
     }
-    if ((entry.like_count ?? 0) !== row.like_count) {
+    // LDB-B1 (design/layout-db/review/audit-db.md B1): likes are a union,
+    // never reverted, so a local like_count that's HIGHER than upstream's
+    // (extra likes made through us upstream will never see) is not itself
+    // a reason to fetch -- that would refetch this id forever with nothing
+    // to apply. Only upstream having MORE likes than we've recorded is a
+    // real signal we might be missing one to union in.
+    if ((entry.like_count ?? 0) > row.like_count) {
       fetchSet.add(entry.id);
       continue;
     }

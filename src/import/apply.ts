@@ -294,54 +294,91 @@ async function applyMapped(db: Bindings["DB"], now: Clock, upstreamId: string, d
   if (following) {
     const sparkRow = await db.prepare("SELECT * FROM layout_formats WHERE layout_id = ? AND lineage = ?").bind(record.id, SPARK_LINEAGE).first<{ payload_json: string }>();
     const currentSparkPayload: unknown = sparkRow === null ? {} : JSON.parse(sparkRow.payload_json);
-    const layoutDiffers = layoutFieldsDiffer(record, detail);
+    // B3 (audit-db.md): a following tombstone that upstream lists again is
+    // revived even when every field `layoutFieldsDiffer` itself compares
+    // (name/owner/created_at) is unchanged -- `deleted` is the one thing
+    // that differs, and `layoutFieldsDiffer` never looks at it (by design:
+    // it's also the layout-scope half of case 6's "is this new news"
+    // check, which must NOT fire on `deleted` alone for a non-following
+    // record). Folding `record.deleted` in here, only for the following
+    // path, is what makes an identical re-add still trigger the
+    // LAYOUT-scope write case 4 already knows how to make.
+    const layoutDiffers = layoutFieldsDiffer(record, detail) || record.deleted;
     const payloadDiffers = sparkPayloadDiffers(currentSparkPayload, detail);
 
     if (layoutDiffers || payloadDiffers) {
-      // Case 4: content differs -- one `imported` event per scope that
-      // actually changed, in ONE batch, guarded by this read's own `n`
-      // (21-formats.md §2.2).
+      // Case 4 (and B3's revival): content differs -- one `imported` event
+      // per scope that actually changed, in ONE batch, guarded by this
+      // read's own `n` (21-formats.md §2.2).
       const upstream = nextUpstream(prior, "import:cmini", true);
-      const input: CommitInput = {
+      const currentFormats = await formatsForLayout(db, record.id);
+      const formatPart: Partial<CommitInput> = payloadDiffers
+        ? (() => {
+            // LDB-I11 (M1): the layout's own `magic` survives byte-for-byte
+            // -- upstream never supplies one (already stripped), so
+            // whatever is carried forward is whatever the format row
+            // already held.
+            const existingMagic = (currentSparkPayload as akl1.Payload).magic;
+            const payload: akl1.Payload = { ...fromCmini(detail.payload), magic: existingMagic };
+            return {
+              format: { kind: "imported" as const, lineage: SPARK_LINEAGE, format: SPARK_FORMAT, payload, hasMagic: akl1.hasMagic(payload), detail: { source: "cmini", upstream_id: upstreamId } },
+            };
+          })()
+        : {};
+
+      // B2 (audit-db.md): an upstream rename -- or B3's revival, which
+      // writes the layout scope even when the name itself is unchanged --
+      // landing on a name a LIVE local layout already holds must never
+      // wedge the import. Built as a function of `name` so a `name_taken`
+      // catch below can retry under a shadow name exactly like
+      // `applyNew`'s case 3, instead of rethrowing and aborting the tick.
+      const buildInput = (name: string, extraDetail?: object): CommitInput => ({
         layoutId: record.id,
         creating: false,
         currentN: record.n,
         currentLayout: record,
-        currentFormats: new Map(), // unused by commitWrite except for computing the format's existing rev, read fresh below when needed
+        currentFormats,
         modified_at: detail.modified_at,
         actor: "system:cmini-import",
         via: "import:cmini",
         source: SYSTEM_SOURCE,
         upstream,
         ...(layoutDiffers
-          ? { layout: { kind: "imported", name: detail.name, owner: detail.owner, created_at: detail.created_at, deleted: false, detail: { source: "cmini", upstream_id: upstreamId } } }
+          ? { layout: { kind: "imported", name, owner: detail.owner, created_at: detail.created_at, deleted: false, detail: { source: "cmini", upstream_id: upstreamId, ...extraDetail } } }
           : {}),
-        ...(payloadDiffers
-          ? (() => {
-              // LDB-I11 (M1): the layout's own `magic` survives byte-for-byte
-              // -- upstream never supplies one (already stripped), so
-              // whatever is carried forward is whatever the format row
-              // already held.
-              const existingMagic = (currentSparkPayload as akl1.Payload).magic;
-              const payload: akl1.Payload = { ...fromCmini(detail.payload), magic: existingMagic };
-              return {
-                format: { kind: "imported" as const, lineage: SPARK_LINEAGE, format: SPARK_FORMAT, payload, hasMagic: akl1.hasMagic(payload), detail: { source: "cmini", upstream_id: upstreamId } },
-              };
-            })()
-          : {}),
-      };
-      // `currentFormats` must carry the layout's EXISTING format rows (for
-      // the spark row's own current rev, when this write touches it).
-      input.currentFormats = await formatsForLayout(db, record.id);
-      await commitWrite(db, now, input);
+        ...formatPart,
+      });
+
+      try {
+        await commitWrite(db, now, buildInput(detail.name));
+      } catch (e) {
+        if (!(e instanceof ApiError && e.body.error === "name_taken")) throw e;
+        // Never possible unless `layoutDiffers` (a pure format-scope write
+        // carries no `layout`, so `commitWrite`'s name-clash pre-check
+        // never runs) -- nothing was written yet (the check throws before
+        // the batch), so `record`/`currentFormats` are still good for the
+        // retry below.
+        const holder = await readByName(db, detail.name);
+        await appendInfo(db, now, {
+          kind: "import_conflict",
+          layoutId: record.id,
+          actor: "system:cmini-import",
+          via: "import:cmini",
+          source: SYSTEM_SOURCE,
+          detail: { upstream_id: upstreamId, upstream_name: detail.name, conflicts_with: holder?.id ?? null },
+        });
+        const shadowName = await freeShadowName(db, detail.name);
+        await commitWrite(db, now, buildInput(shadowName, { shadowed: { upstream_name: detail.name } }));
+      }
     }
 
-    // Case 5 (and the like half of case 4): likes replaced wholesale.
+    // Case 5 (and the like half of case 4/B3): UNION only -- add every
+    // upstream liker we don't already have. B1 (audit-db.md, saltorbit
+    // 2026-09-12): likes are a union of cmini's and ours by user id; the
+    // importer never emits `unliked` for a following layout (or any
+    // layout -- case 7 below already never did).
     for (const u of upstreamLikeIds) {
       if (!localLikeIds.has(u)) await importAppendLike(db, now, "liked", record.id, u);
-    }
-    for (const u of localLikeIds) {
-      if (!upstreamLikeIds.has(u)) await importAppendLike(db, now, "unliked", record.id, u);
     }
     return;
   }
@@ -440,4 +477,26 @@ export async function applyDeleteAction(db: Bindings["DB"], now: Clock, action: 
 export async function applyAuthors(db: Bindings["DB"], now: Clock, authors: Record<string, string>): Promise<void> {
   const stored = await readStoredAuthors(db);
   await writeAuthorNames(db, now, planAuthorNames(authors, stored));
+}
+
+// B5 (design/layout-db/review/audit-db.md B5): `import/cmini.ts`'s per-id
+// loop catches every non-`RevConflictError` thrown by `applyFetchedId` so
+// one bad id never aborts the rest of the tick; this is what "recorded"
+// means for that id instead -- an info event on whatever local layout it's
+// mapped to, so the failure is visible on the feed rather than silently
+// swallowed. A brand-new id (never reached `import_map`, e.g. `applyNew`
+// itself threw before inserting the map row) has no layout to attach an
+// event to; it's still counted by the caller, just with nothing written
+// here -- the same id will be replanned and retried next tick regardless.
+export async function recordImportError(db: Bindings["DB"], now: Clock, upstreamId: string, message: string): Promise<void> {
+  const layoutId = await importMapByUpstreamId(db, upstreamId);
+  if (layoutId === null) return;
+  await appendInfo(db, now, {
+    kind: "import_error",
+    layoutId,
+    actor: "system:cmini-import",
+    via: "import:cmini",
+    source: SYSTEM_SOURCE,
+    detail: { upstream_id: upstreamId, message },
+  });
 }
