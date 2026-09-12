@@ -130,7 +130,8 @@ type RawOp =
   | "import_update_both"
   | "import_delete"
   | "liked"
-  | "unliked";
+  | "unliked"
+  | "concurrent_pair";
 
 const ALL_OPS: RawOp[] = [
   "create_user",
@@ -149,6 +150,7 @@ const ALL_OPS: RawOp[] = [
   "import_delete",
   "liked",
   "unliked",
+  "concurrent_pair",
 ];
 
 // Coerces a raw pick into one that's actually applicable given the slot's
@@ -315,6 +317,61 @@ async function applyOp(clock: () => string, slots: Slot[], op: Op): Promise<void
     slot.owner = result.layout.owner;
     slot.deleted = result.layout.deleted;
     slot.upstream = expectUpstream("discord", true, result);
+    return;
+  }
+
+  // Coordinator review (M3, UN-HOLD): a real CONCURRENT pair on the SAME
+  // slot, driven through `Promise.all` so both build()s race for real --
+  // the same shape as [MF-6]'s own HTTP-level races
+  // (tests/api/mf6-http-races.test.ts case (a)), but exercised here as
+  // one step of the shared write model so per-step invariants (MF-1
+  // through MF-5, MF-12, LDB-L4) are checked after a pair too, not just
+  // after single ops. Picks a rename (layout scope) and a t-lineage
+  // replace (format scope, never touching upstream): both use
+  // If-Match:any, so the race is purely over the shared `layout_revs
+  // (layout_id, n)` PK -- one of them collides and commitWithRetry's own
+  // retry re-reads and re-lands it (real E3: "an edit based on its part's
+  // current version succeeds ... even when another part of the same
+  // layout is written in between"). Neither can fail on merits here (both
+  // If-Match:any), so both MUST land 200 -- if either doesn't, that's a
+  // real regression in the retry path, not a flaky test.
+  if (action === "concurrent_pair") {
+    const name = `wm-${op.slotIdx}-${unique()}`;
+    const tPayload = { a: uniqueCounter++ };
+    // `t` may or may not exist on this slot yet -- add (If-None-Match:*)
+    // when it doesn't, replace (If-Match:any) when it does, same coercion
+    // resolveOp already does for the sequential "add_t"/"replace_t" pair.
+    const tHasFormat = slot.formats.has("t");
+    const [renameResult, replaceResult] = await Promise.all([
+      renameLayout(bindings, clock, actorFor(slot.owner), slot.id, name, STAR, null),
+      putFormat(
+        bindings,
+        clock,
+        actorFor(slot.owner),
+        slot.id,
+        { format: "t/1", payload: tPayload },
+        tHasFormat ? STAR : NO_IF_MATCH,
+        tHasFormat ? NO_IF_NONE_MATCH : ADD,
+        null,
+      ),
+    ]);
+    // The shared `n` counter advances once per write regardless of scope
+    // -- whichever of the two committed SECOND (real order is
+    // nondeterministic; If-Match:any means it never matters which) holds
+    // the higher `n`.
+    slot.n = Math.max(renameResult.layout.n, replaceResult.layout.n);
+    slot.layoutRev = renameResult.layout.layout_rev;
+    slot.name = renameResult.layout.name;
+    slot.owner = renameResult.layout.owner;
+    slot.deleted = renameResult.layout.deleted;
+    // Only the rename touches upstream (layout scope); the t-lineage
+    // write's own `touches` is false, a no-op on upstream regardless of
+    // which of the two actually committed first (nextUpstream(_, _,
+    // false) === prior) -- so applying just the rename's own transition
+    // to the model's PRIOR upstream is correct independent of real order.
+    slot.upstream = expectUpstream("discord", true, renameResult);
+    const f = replaceResult.formats.get("t")!;
+    slot.formats.set("t", { lineage: "t", format: f.format, rev: f.rev, payload: f.payload });
     return;
   }
 
@@ -535,7 +592,7 @@ describe("[LDB-P1] [MF-1] [MF-2] [MF-3] [MF-5] [MF-12] the shared write model", 
           if (existedBefore && resolved !== null) {
             const after = await formatsForLayout(db, slot.id);
             const touchedLineages =
-              resolved === "add_t" || resolved === "replace_t"
+              resolved === "add_t" || resolved === "replace_t" || resolved === "concurrent_pair"
                 ? ["t"]
                 : resolved === "replace_spark" || resolved === "patch_fingermap_spark" || resolved === "import_update_spark"
                   ? ["spark"]
@@ -548,10 +605,11 @@ describe("[LDB-P1] [MF-1] [MF-2] [MF-3] [MF-5] [MF-12] the shared write model", 
             }
             // MF-1, the "stray row" half: `after` must never gain a
             // lineage `before` didn't have, other than the one(s) this
-            // step actually named (add_t is the only step allowed to grow
-            // the set at all).
+            // step actually named (add_t and concurrent_pair -- which may
+            // ADD `t` the same way add_t does -- are the only steps
+            // allowed to grow the set at all).
             const beforeLineages = new Set(before.keys());
-            const allowedNew = resolved === "add_t" ? new Set(["t"]) : new Set<string>();
+            const allowedNew = resolved === "add_t" || resolved === "concurrent_pair" ? new Set(["t"]) : new Set<string>();
             for (const lin of after.keys()) {
               if (beforeLineages.has(lin)) continue;
               expect(allowedNew.has(lin), `a '${resolved}' on slot ${op.slotIdx} created a STRAY new row in lineage '${lin}'`).toBe(true);
