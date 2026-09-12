@@ -1,8 +1,13 @@
-// The D12 mirror diff (07 §6 S8): compares every upstream cmini layout
-// against ours over HTTP, on the `cmini/1` projection. Used by both
-// `scripts/diff-upstream.mjs` (a plain Node CLI) and `tests/upstream-diff
-// .test.ts` (the daily job) / `tests/import/diff-unit.test.ts` (the offline
-// unit half).
+// The upstream mirror diff (design/layout-db/review/PROPOSAL.md §2.1,
+// LEDGER.md L4): shrunk from a full-corpus name-matched comparison to
+// "layout count equality + a sampled compare of N random following
+// layouts' content hash vs upstream converted to spark" -- the importer's
+// own per-tick plan (`import/plan.ts`) already compares state on every
+// write path; this diff exists only to catch a class of bug the importer
+// itself couldn't (a silent divergence that never triggers a re-fetch).
+// Used by both `scripts/diff-upstream.mjs` (a plain Node CLI) and
+// `tests/upstream-diff.test.ts` (the daily job) / `tests/import/diff-unit
+// .test.ts` (the offline unit half).
 //
 // Import-boundary note: this file's own relative imports use explicit
 // `.ts`/no-bundler-needed paths ON PURPOSE, unlike the rest of `src/import`
@@ -59,15 +64,10 @@ const BACKOFF_MS = [1000, 2000, 4000];
 // occasionally decoded one `\uXXXX`-escaped object key (e.g. `&`,
 // i.e. `&`) into a single raw backslash, while a second `JSON.parse` of
 // the SAME in-memory string (or of a substring re-sliced from it)
-// consistently came back correct -- caught only because `diff-upstream`
-// re-fetched and reparsed and got a DIFFERENT, correct answer, making the
-// "content differs" it briefly reported a false alarm from a parser
-// hiccup, not a real upstream/mirror difference. A silent, intermittent
-// false positive like that is exactly what would make LDB-P5's daily job
-// untrustworthy (red for no actionable reason) -- so every parse here is
-// self-checked against a second parse of the same bytes before it's
-// trusted, and a disagreement is treated as failure worth retrying the
-// whole fetch for, on the chance a fresh response parses cleanly.
+// consistently came back correct. A single-record fetch is far smaller
+// than the corpus dump this hazard was found on, but the guard is cheap
+// and this module no longer has any OTHER place that would have caught it,
+// so it stays.
 function parseJsonChecked(text: string, url: string): unknown {
   let first: unknown;
   let second: unknown;
@@ -163,11 +163,10 @@ export function pathDiff(a: unknown, b: unknown, path = ""): string | null {
   return JSON.stringify(a) === JSON.stringify(b) ? null : path || "/";
 }
 
-// The upstream/ours record shape the D12 diff compares (20-spark.md S3b):
+// The upstream/ours record shape the diff compares (20-spark.md S3b):
 // upstream's detail run through `fromCmini` (the SAME conversion the
-// importer writes with), and "ours" already spark-shaped (`d1Ours` via
-// `storedAsSpark`, `httpOurs` via `?as=spark/1`) -- comparison happens in
-// spark now, never cmini/1.
+// importer writes with), and "ours" already spark-shaped -- comparison
+// happens in spark now, never cmini/1.
 export interface SparkRecordLike {
   name: string;
   owner: string;
@@ -214,8 +213,7 @@ export interface ShapeErr {
 // record-like (name/owner/likes/created_at/modified_at/payload), or the
 // shape error that `cmini/1`'s own `validate()`, spark's own `validate()`
 // (20-spark.md S3b, LDB-I13), or record-field parsing found -- surfaced,
-// never papered over (07 §6 S8: "that is the D12 finding this slice exists
-// to surface").
+// never papered over.
 export type UpstreamParse = { ok: true; detail: SparkRecordLike } | { ok: false; error: ShapeErr };
 
 // Record-field parsing + `payload = raw minus record fields` + `cmini1
@@ -295,397 +293,200 @@ export interface DiffLine {
   message: string;
 }
 
-// Our side of one comparison: a `SparkRecordLike` plus the record's id
-// (`ref`) and its own `upstream` link, read straight off the wire/D1 (no
-// lazy per-record resolution any more -- 20-spark.md S3b, §8 R-H6: both
-// `httpOurs` and `d1Ours` already carry it as part of `full()`'s own
-// response/row).
+// Our side of one sampled comparison: a `SparkRecordLike` plus the
+// record's id (`ref`) and its own `upstream` link.
 export interface OursEntry extends SparkRecordLike {
   ref: string;
   upstream: UpstreamLink | null;
 }
 
-export interface UpstreamEntry {
-  name: string;
-  parsed: UpstreamParse;
-}
-
-export interface CorpusDiff {
-  matched: number;
-  missing: DiffLine[];
-  invalidUpstream: DiffLine[];
-  contentDiffs: DiffLine[];
-  extra: DiffLine[];
-  // Name-matched local records that are forked or unlinked (20-spark.md
-  // S3b, LDB-P5): informational, never a failure -- a forked record is by
-  // definition allowed to differ from upstream.
-  divergent: DiffLine[];
-  // Name-matched local records with NO upstream link at all (null). After the
-  // record migration this can't happen: every name-matched record has an
-  // `import_map` row, so a resolved link. Before it, a source that can't
-  // apply the legacy rule (`httpOurs`, over the wire) sees legacy rows as
-  // null. A FAILURE: "nothing compared" must never read as "clean"
-  // (2026-09-11 preview finding).
-  unresolved: DiffLine[];
-}
-
-// Pure: matches upstream entries to ours by `name.toLowerCase()` (03 §1's
-// id-first/name-second ref rule doesn't apply here -- upstream's `?full=1`
-// carries no id, 07 §0.1). A name-matched pair is content-compared only
-// when OUR side's `upstream.state === "following"` (LDB-P5's own wording,
-// decision 16: following is the only state the importer/diff ever act on);
-// otherwise it's `divergent`. Leftover local names are reported as `extra`
-// only when they're `following` (06 §2: a record here that follows
-// upstream but upstream no longer lists is a real mirror bug; one that
-// doesn't follow is expected local divergence and not reported at all).
-export function diffCorpus(upstream: Map<string, UpstreamEntry>, ours: Map<string, OursEntry>): CorpusDiff {
-  const missing: DiffLine[] = [];
-  const invalidUpstream: DiffLine[] = [];
-  const contentDiffs: DiffLine[] = [];
-  const divergent: DiffLine[] = [];
-  const unresolved: DiffLine[] = [];
-  let matched = 0;
-  const consumed = new Set<string>();
-
-  for (const [key, up] of upstream) {
-    const our = ours.get(key);
-    if (our === undefined) {
-      missing.push({ name: up.name, path: "/", message: "no local record by this name" });
-      continue;
-    }
-    consumed.add(key);
-    if (!up.parsed.ok) {
-      invalidUpstream.push({ name: up.name, path: up.parsed.error.path, message: up.parsed.error.message });
-      continue;
-    }
-    if (our.upstream === null) {
-      unresolved.push({ name: up.name, path: "/", message: "name-matched local record has no upstream link (a legacy row before the record migration, or a source that cannot resolve it)" });
-      continue;
-    }
-    if (our.upstream.state !== "following") {
-      divergent.push({ name: up.name, path: "/", message: "name-matched local record is forked from upstream" });
-      continue;
-    }
-    const cmp = compareRecords(up.parsed.detail, our);
-    if (!cmp.equal) {
-      contentDiffs.push({ name: up.name, path: cmp.path ?? "/", message: "content differs from upstream" });
-      continue;
-    }
-    matched++;
-  }
-
-  const extra: DiffLine[] = [];
-  for (const [key, our] of ours) {
-    if (consumed.has(key)) continue;
-    if (our.upstream?.state === "following") {
-      extra.push({
-        name: our.name,
-        path: "/",
-        message: "follows upstream but upstream no longer lists a layout by this name",
-      });
-    }
-  }
-
-  return { matched, missing, invalidUpstream, contentDiffs, extra, divergent, unresolved };
-}
-
-// Compared by ID, not by name: upstream's `/authors` is `name -> id` and
-// keeps EVERY historical name a user has ever had on file (a rename adds a
-// key, never replaces one -- confirmed against the real corpus, 07 §6 S5's
-// `applyAuthors` keeps ONE name per id in our `authors(user_id PK, name)`
-// row, "best-effort bookkeeping" -- since LDB-I15..I17 a stable one: the
-// stored name while upstream still lists it, else the code-point-greatest
-// of upstream's names, never over a user-lane name). A name-keyed
-// comparison over the real 4174-layout corpus reported 55 "missing" names
-// that were, every one, an id we already have under a *different* (more
-// current) name -- not a mirror gap, just this shape mismatch (07 §6 S8's
-// local proof found this; documented here so it isn't rediscovered as a
-// false alarm). The invariant that actually matters -- "we know every id
-// upstream currently attributes a layout to, and only those" -- is over
-// ids; `aliasCount` (informational, never fails the diff) is how many of
-// upstream's name entries are exactly that kind of old alias.
-export interface AuthorsDiff {
-  missing: { id: string; name: string }[]; // upstream ids we don't have at all (name is one upstream name for it)
-  extra: { id: string; name: string }[]; // our ids upstream doesn't have at all
-  aliasCount: number;
-}
-
-export function diffAuthors(upstream: Record<string, string>, ours: Record<string, string>): AuthorsDiff {
-  const upstreamNameById = new Map<string, string>(); // last-wins is fine -- purely for a readable label
-  for (const [name, id] of Object.entries(upstream)) upstreamNameById.set(id, name);
-  const oursNameById = new Map<string, string>();
-  for (const [name, id] of Object.entries(ours)) oursNameById.set(id, name);
-
-  const upstreamIds = new Set(upstreamNameById.keys());
-  const oursIds = new Set(oursNameById.keys());
-
-  const missing = [...upstreamIds]
-    .filter((id) => !oursIds.has(id))
-    .map((id) => ({ id, name: upstreamNameById.get(id)! }));
-  const extra = [...oursIds].filter((id) => !upstreamIds.has(id)).map((id) => ({ id, name: oursNameById.get(id)! }));
-  const aliasCount = Object.entries(upstream).filter(([name, id]) => oursIds.has(id) && oursNameById.get(id) !== name).length;
-
-  return { missing, extra, aliasCount };
-}
-
-// X4 (12 §3 X4): "our" side of the diff, behind an interface -- so the same
-// pure comparison core above can be driven either from a live HTTP mirror
-// (`httpOurs`, the CLI and the daily CI job) or straight from this
-// Worker's own D1 (`src/import/difftick.ts`'s `d1Ours`), with NO self-HTTP
-// from the diff cron (LDB-C4: the cron reading its own origin over HTTP
-// would need to be its own subrequest budget AND could deadlock a
-// single-invocation cron against itself under load). `full()` yields every
-// live record as a spark-shaped detail (`OursEntry`), or `{ held: string }`
-// naming a record that cannot translate to `spark/1` at all -- unreachable
-// today (every stored row already IS spark/1) but real once a second
-// stored lineage lands (F2), so `diffUpstream` reports it rather than
-// assuming it can't happen.
+// The shrunk "our side" (design/layout-db/review/PROPOSAL.md §2.1, LEDGER.md
+// L4): a cheap total count, plus a way to draw a random sample of live,
+// FOLLOWING layouts (the only ones the diff ever content-compares -- a
+// forked record is allowed to differ from upstream by definition, LDB-P5).
+// No full-corpus enumeration any more -- `d1Ours` (import/difftick.ts) picks
+// the sample with one D1 query; `httpOurs` below pages the (payload-free)
+// list route to find candidates, cheap even over HTTP.
 export interface OursSource {
-  full(): AsyncIterable<OursEntry | { held: string }>;
-  authors(): Promise<Record<string, string>>;
   layoutCount(): Promise<number>;
+  sampleFollowing(n: number): Promise<OursEntry[]>;
 }
 
 // ---------------------------------------------------------------------
 // I/O orchestration -- the live diff (`npm run diff-upstream`, the daily
-// job's tests/upstream-diff.test.ts, and (X4) the `0 4 * * *` cron via
+// job's tests/upstream-diff.test.ts, and the `0 4 * * *` cron via
 // `import/difftick.ts`'s `d1Ours`).
 // ---------------------------------------------------------------------
+
+export const DEFAULT_SAMPLE_SIZE = 50;
 
 export interface DiffOptions {
   upstreamUrl: string;
   ua: string;
   ours: OursSource;
+  sampleSize?: number; // default DEFAULT_SAMPLE_SIZE
   fetchImpl?: FetchImpl;
   sleepImpl?: SleepImpl;
 }
 
 export interface DiffSummary {
-  upstreamCount: number;
-  upstreamDupNames: number;
-  ourCount: number;
-  held: string[]; // our records that read back `held` for as=spark/1 (unreachable in phase 1; reported, not swallowed)
   layoutCount: { upstream: number; ours: number; equal: boolean };
-  authors: AuthorsDiff;
-  corpus: CorpusDiff;
+  sampleSize: number; // how many were actually sampled (<= requested, if the corpus is smaller)
+  matched: number;
+  // a sampled following layout upstream no longer answers for (fetch
+  // failed after retries -- deleted, renamed, or a real outage; the diff
+  // can't tell those apart from here, so it's reported either way)
+  missing: DiffLine[];
+  invalidUpstream: DiffLine[];
+  contentDiffs: DiffLine[];
   ok: boolean; // true iff every category above is empty/equal
 }
 
-interface RawFullResponse {
-  layouts: Record<string, unknown>[];
+function summaryIsOk(s: Omit<DiffSummary, "ok">): boolean {
+  return s.layoutCount.equal && s.missing.length === 0 && s.invalidUpstream.length === 0 && s.contentDiffs.length === 0;
 }
-interface OurFullItem {
+
+// X4 (12 §3 X4): `httpOurs` is what `scripts/diff-upstream.mjs` (the CLI)
+// and `tests/upstream-diff.test.ts` (the daily CI job) use, both of them
+// necessarily off-Worker (a CLI/CI job has no D1 binding to read directly).
+// The UA sent here is fixed, not `opts.ua`: these requests all address OUR
+// OWN Worker (`dbBaseUrl`), which -- unlike upstream -- never gates on
+// User-Agent, so there's nothing for a caller-supplied value to accomplish.
+const HTTP_OURS_UA = "akl-db-diff-ours/1.0";
+
+interface ListItem {
   id: string;
+  name: string;
+  upstream?: UpstreamLink | null;
+}
+interface ListPage {
+  items: ListItem[];
+  next_cursor: string | null;
+}
+interface DetailItem {
   name: string;
   owner: string;
   created_at: string;
   modified_at: string;
-  like_count: number;
-  likes?: string[]; // inline on newer builds (W1); older ones need the /likes fallback below
-  held?: boolean;
   payload?: unknown;
-  // 20-spark.md S3a: `sansPayload` carries this on every list/full=1 row --
-  // read straight off the wire, no `/history` lookup (§8 R-H6).
+  held?: boolean;
   upstream?: UpstreamLink | null;
 }
-interface OurFullResponse {
-  items: OurFullItem[];
-}
 
-// `likes` is inline on both `?full=1&as=cmini/1` items and `/v1/layouts/
-// {ref}?as=cmini/1` once it's added (W1, landing alongside this slice) --
-// use it when present; otherwise fall back to the separate `/likes`
-// endpoint this slice was written against, so `diff-upstream` works
-// against either shape without needing to know which one it's talking to.
-async function resolveOurLikes(
-  fetchImpl: FetchImpl,
-  sleepImpl: SleepImpl,
-  ua: string,
-  dbBaseUrl: string,
-  ref: string,
-  item: { likes?: string[]; like_count: number },
-): Promise<string[]> {
-  if (Array.isArray(item.likes)) return item.likes;
-  if (item.like_count <= 0) return [];
-  const likesRaw = await fetchJsonRetried(fetchImpl, sleepImpl, ua, `${dbBaseUrl}/v1/layouts/${encodeURIComponent(ref)}/likes`);
-  return (likesRaw as { user_ids: string[] }).user_ids;
+function pickRandom<T>(items: T[], n: number): T[] {
+  const pool = [...items];
+  const out: T[] = [];
+  while (out.length < n && pool.length > 0) {
+    const i = Math.floor(Math.random() * pool.length);
+    out.push(pool.splice(i, 1)[0]!);
+  }
+  return out;
 }
-
-// `divergent` (a name-matched local record that's forked or unlinked) is
-// informational only -- LDB-P5: it never gates `ok`.
-function summaryIsOk(s: Omit<DiffSummary, "ok">): boolean {
-  return (
-    s.held.length === 0 &&
-    s.layoutCount.equal &&
-    s.authors.missing.length === 0 &&
-    s.authors.extra.length === 0 &&
-    s.corpus.missing.length === 0 &&
-    s.corpus.invalidUpstream.length === 0 &&
-    s.corpus.contentDiffs.length === 0 &&
-    s.corpus.extra.length === 0 &&
-    s.corpus.unresolved.length === 0
-  );
-}
-
-// X4 (12 §3 X4): `httpOurs` is today's pre-refactor "our side" behaviour,
-// unchanged, just moved behind `OursSource` -- what `scripts/diff-upstream.mjs`
-// (the CLI) and `tests/upstream-diff.test.ts` (the daily CI job) still use,
-// both of them necessarily off-Worker (a CLI/CI job has no D1 binding to
-// read directly). The UA sent here is fixed, not `opts.ua`: these requests
-// all address OUR OWN Worker (`dbBaseUrl`), which -- unlike upstream (0.1)
-// -- never gates on User-Agent, so there's nothing for a caller-supplied
-// value to accomplish.
-const HTTP_OURS_UA = "akl-db-diff-ours/1.0";
 
 export function httpOurs(dbBaseUrl: string, fetchImpl?: FetchImpl, sleepImpl?: SleepImpl): OursSource {
   const doFetch: FetchImpl = fetchImpl ?? ((url, init) => fetch(url, init));
   const doSleep: SleepImpl = sleepImpl ?? realSleep;
   return {
-    async *full() {
-      // 21-formats.md §2.4: `?format=spark/1` (was `?as=spark/1`) -- D4
-      // dropped the default and renamed the parameter; comparison happens
-      // in spark now, and the item's own `upstream` (§8 R-H6) means no
-      // per-leftover `/history` follow-up is needed any more.
-      const raw = await fetchJsonRetried(doFetch, doSleep, HTTP_OURS_UA, `${dbBaseUrl}/v1/layouts?full=1&format=spark/1`);
-      const ourFull = raw as OurFullResponse;
-      if (!Array.isArray(ourFull.items)) throw new Error(`${dbBaseUrl}/v1/layouts?full=1&format=spark/1 is not {items: [...]}`);
-      for (const item of ourFull.items) {
-        if (item.held === true || item.payload === undefined) {
-          yield { held: item.name };
-          continue;
-        }
-        const likes = await resolveOurLikes(doFetch, doSleep, HTTP_OURS_UA, dbBaseUrl, item.id, item);
-        yield {
-          ref: item.id,
-          name: item.name,
-          owner: item.owner,
-          created_at: item.created_at,
-          modified_at: item.modified_at,
-          likes,
-          payload: item.payload as spark.Payload,
-          upstream: item.upstream ?? null,
-        };
-      }
-    },
-    async authors() {
-      return (await fetchJsonRetried(doFetch, doSleep, HTTP_OURS_UA, `${dbBaseUrl}/v1/authors`)) as Record<string, string>;
-    },
     async layoutCount() {
       const meta = (await fetchJsonRetried(doFetch, doSleep, HTTP_OURS_UA, `${dbBaseUrl}/v1/meta`)) as { layout_count?: number };
       return meta.layout_count ?? -1;
     },
+    async sampleFollowing(n) {
+      // The plain list route never carries a payload (07 §0.1) -- cheap to
+      // page in full just to find which ids are `following`.
+      const candidates: { id: string; name: string }[] = [];
+      let cursor: string | undefined;
+      for (;;) {
+        const qs = new URLSearchParams({ limit: "1000", format: "spark/1" });
+        if (cursor !== undefined) qs.set("cursor", cursor);
+        const page = (await fetchJsonRetried(doFetch, doSleep, HTTP_OURS_UA, `${dbBaseUrl}/v1/layouts?${qs.toString()}`)) as ListPage;
+        for (const item of page.items) {
+          if (item.upstream?.state === "following") candidates.push({ id: item.id, name: item.name });
+        }
+        if (!page.next_cursor) break;
+        cursor = page.next_cursor;
+      }
+
+      const picked = pickRandom(candidates, n);
+      const out: OursEntry[] = [];
+      for (const { id } of picked) {
+        const detail = (await fetchJsonRetried(
+          doFetch,
+          doSleep,
+          HTTP_OURS_UA,
+          `${dbBaseUrl}/v1/layouts/${encodeURIComponent(id)}?format=spark/1`,
+        )) as DetailItem;
+        if (detail.held === true || detail.payload === undefined) continue; // unreachable in phase 1 (spark/1 is the one stored lineage)
+        const likesRaw = (await fetchJsonRetried(
+          doFetch,
+          doSleep,
+          HTTP_OURS_UA,
+          `${dbBaseUrl}/v1/layouts/${encodeURIComponent(id)}/likes`,
+        )) as { user_ids: string[] };
+        out.push({
+          ref: id,
+          name: detail.name,
+          owner: detail.owner,
+          created_at: detail.created_at,
+          modified_at: detail.modified_at,
+          likes: likesRaw.user_ids,
+          payload: detail.payload as spark.Payload,
+          upstream: detail.upstream ?? null,
+        });
+      }
+      return out;
+    },
   };
 }
 
-// Fetches upstream, reads `opts.ours` for the other side, matches by name.
-// 20-spark.md S3b (§8 R-H6): follow status comes straight off each
-// `OursEntry.upstream`, read eagerly as part of `ours.full()` itself -- no
-// per-leftover `/history` follow-up any more. Never throws for a *content*
-// difference -- only for a network/shape failure the retries couldn't
-// recover from; the caller (script, daily test, or X4's cron) decides what
-// a thrown error means.
+// Fetches upstream's `/meta` and, for each sampled following layout, its
+// single-record detail -- never the whole upstream corpus (07 §6 S8's
+// `?full=1` engine-bug investigation no longer applies at this scale, but
+// the double-parse guard in `fetchJsonRetried`/`parseJsonChecked` stays
+// regardless). Never throws for a *content* difference -- only for a
+// layoutCount/sample fetch failure the retries couldn't recover from; the
+// caller (script, daily test, or the diff cron) decides what a thrown
+// error means.
 export async function diffUpstream(opts: DiffOptions): Promise<DiffSummary> {
   const fetchImpl: FetchImpl = opts.fetchImpl ?? ((url, init) => fetch(url, init));
   const sleepImpl: SleepImpl = opts.sleepImpl ?? realSleep;
   const { upstreamUrl, ua, ours } = opts;
+  const sampleSize = opts.sampleSize ?? DEFAULT_SAMPLE_SIZE;
 
-  const [upstreamFullRaw, upstreamAuthorsRaw, upstreamMetaRaw, ourAuthorsRaw, ourLayoutCount] = await Promise.all([
-    fetchJsonRetried(fetchImpl, sleepImpl, ua, `${upstreamUrl}/layouts?full=1`),
-    fetchJsonRetried(fetchImpl, sleepImpl, ua, `${upstreamUrl}/authors`),
+  const [upstreamMetaRaw, ourCount, sample] = await Promise.all([
     fetchJsonRetried(fetchImpl, sleepImpl, ua, `${upstreamUrl}/meta`),
-    ours.authors(),
     ours.layoutCount(),
+    ours.sampleFollowing(sampleSize),
   ]);
-
-  const upstreamFull = upstreamFullRaw as RawFullResponse;
-  if (!Array.isArray(upstreamFull.layouts)) throw new Error("upstream /layouts?full=1 is not {layouts: [...]}");
-
-  // Upstream's own dedupe rule (07 §0.1: names are unique among live
-  // records -- a duplicate here is itself a finding, so entries that
-  // collide are dropped from the comparable map and counted separately,
-  // same posture as `upstream.ts`'s `full()`.
-  const upstream = new Map<string, UpstreamEntry>();
-  const dupNames = new Set<string>();
-  for (const raw of upstreamFull.layouts) {
-    const name = typeof raw.name === "string" ? raw.name : undefined;
-    if (name === undefined) continue;
-    const key = name.toLowerCase();
-    if (upstream.has(key) || dupNames.has(key)) {
-      upstream.delete(key);
-      dupNames.add(key);
-      continue;
-    }
-    upstream.set(key, { name, parsed: parseUpstreamRaw(raw) });
-  }
-
-  const held: string[] = [];
-  const ours_ = new Map<string, OursEntry>();
-  for await (const item of ours.full()) {
-    if ("held" in item) {
-      held.push(item.held);
-      continue;
-    }
-    ours_.set(item.name.toLowerCase(), item);
-  }
-
-  const corpus = diffCorpus(upstream, ours_);
-
-  // A record the bulk comparison flags as differing gets ONE more look
-  // before being reported, through a FRESH single-record upstream fetch --
-  // rebuilt as a `SparkRecordLike`, re-compared. Why: this slice's own local
-  // proof (07 §6 S8) found that `JSON.parse` of the ~5 MB upstream `?full=1`
-  // body can -- reproduced identically under Node 24.20.0 and 26.8.1, so not
-  // specific to one Node build -- silently substitute a literal backslash
-  // for a `\uXXXX`-escaped key character (upstream's own `&`/`<`), and that
-  // the wrong decoding is sometimes STABLE across repeated parses of the
-  // very same bytes (so `parseJsonChecked`'s double-parse guard alone
-  // doesn't catch every case), while every small single-record fetch in
-  // that investigation parsed correctly, every time. That hazard is
-  // specific to a big single-string JSON.parse -- it lives on the UPSTREAM
-  // side only here: `ours` either never does one at all (`d1Ours`, X4:
-  // every record is a separate, small D1 read, `JSON.parse`d individually)
-  // or already ran the SAME double-parse-checked `fetchJsonRetried` while
-  // building `ours_` above (`httpOurs`) -- so a second fetch of OUR OWN
-  // side buys nothing further, and this reconfirmation re-reads only
-  // upstream, comparing against the `ours_` entry already in hand.
-  const confirmedContentDiffs: DiffLine[] = [];
-  let reconfirmedMatches = 0;
-  for (const diff of corpus.contentDiffs) {
-    const key = diff.name.toLowerCase();
-    const ourEntry = ours_.get(key);
-    if (ourEntry === undefined) {
-      confirmedContentDiffs.push(diff); // unreachable: `diff.name` came from `ours_` itself
-      continue;
-    }
-    const upRawSingle = await fetchJsonRetried(fetchImpl, sleepImpl, ua, `${upstreamUrl}/layouts/${encodeURIComponent(key)}`);
-    const upParsedSingle = parseUpstreamRaw(upRawSingle);
-    if (!upParsedSingle.ok) {
-      confirmedContentDiffs.push({ name: diff.name, path: upParsedSingle.error.path, message: upParsedSingle.error.message });
-      continue;
-    }
-    const recheck = compareRecords(upParsedSingle.detail, ourEntry);
-    if (recheck.equal) {
-      reconfirmedMatches++;
-    } else {
-      confirmedContentDiffs.push({
-        name: diff.name,
-        path: recheck.path ?? "/",
-        message: "content differs from upstream (confirmed via a fresh upstream refetch)",
-      });
-    }
-  }
-  corpus.contentDiffs = confirmedContentDiffs;
-  corpus.matched += reconfirmedMatches;
-
   const upstreamMeta = upstreamMetaRaw as { layout_count?: number };
-  const layoutCount = {
-    upstream: upstreamMeta.layout_count ?? -1,
-    ours: ourLayoutCount,
-    equal: upstreamMeta.layout_count === ourLayoutCount,
-  };
+  const layoutCount = { upstream: upstreamMeta.layout_count ?? -1, ours: ourCount, equal: upstreamMeta.layout_count === ourCount };
 
-  const authors = diffAuthors(upstreamAuthorsRaw as Record<string, string>, ourAuthorsRaw);
+  const missing: DiffLine[] = [];
+  const invalidUpstream: DiffLine[] = [];
+  const contentDiffs: DiffLine[] = [];
+  let matched = 0;
 
-  const summary = { upstreamCount: upstream.size, upstreamDupNames: dupNames.size, ourCount: ours_.size, held, layoutCount, authors, corpus };
+  for (const entry of sample) {
+    let raw: unknown;
+    try {
+      raw = await fetchJsonRetried(fetchImpl, sleepImpl, ua, `${upstreamUrl}/layouts/${encodeURIComponent(entry.name.toLowerCase())}`);
+    } catch (e) {
+      missing.push({ name: entry.name, path: "/", message: `upstream fetch failed: ${(e as Error).message}` });
+      continue;
+    }
+    const parsed = parseUpstreamRaw(raw);
+    if (!parsed.ok) {
+      invalidUpstream.push({ name: entry.name, path: parsed.error.path, message: parsed.error.message });
+      continue;
+    }
+    const cmp = compareRecords(parsed.detail, entry);
+    if (cmp.equal) {
+      matched++;
+    } else {
+      contentDiffs.push({ name: entry.name, path: cmp.path ?? "/", message: "content differs from upstream" });
+    }
+  }
+
+  const summary = { layoutCount, sampleSize: sample.length, matched, missing, invalidUpstream, contentDiffs };
   return { ...summary, ok: summaryIsOk(summary) };
 }

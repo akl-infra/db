@@ -1,6 +1,10 @@
-// [LDB-C4] [LDB-M1] The diff cron (12 §3 X4): `diffTick()` runs the D12
-// diff against OUR OWN D1 (`d1Ours`), never over HTTP, and writes
+// [LDB-C4] [LDB-M1] The diff cron (12 §3 X4): `diffTick()` runs the shrunk
+// upstream diff (LEDGER.md L4: layout count + a sampled compare) against
+// OUR OWN D1 (`d1Ours`), never over HTTP, and writes
 // `import_state['cmini.last_diff']` on every run -- success or failure.
+// Tests below pass an explicit `sampleSize` >= the fixture's own 100
+// records so the sample is exhaustive and deterministic (never flaky on
+// `ORDER BY RANDOM()`'s pick).
 import { createExecutionContext, createScheduledController, env, SELF, waitOnExecutionContext } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Bindings } from "../../src/env";
@@ -87,13 +91,14 @@ describe("diffTick()", () => {
     await tick(bindings, fixedClock("2026-07-01T00:00:00.000Z"), fake.fetchImpl, fake.sleepImpl); // seed our side from the same fixture
 
     const diffEnv = envWithSource(fake.baseUrl);
-    const record = await diffTick(diffEnv, fixedClock("2026-07-02T00:00:00.000Z"), strictUpstreamOnly(fake));
+    const record = await diffTick(diffEnv, fixedClock("2026-07-02T00:00:00.000Z"), strictUpstreamOnly(fake), 100);
 
     expect(record.ok).toBe(true);
     expect(record.at).toBe("2026-07-02T00:00:00.000Z");
-    expect(record.corpus?.matched).toBe(100);
-    expect(record.corpus?.missing).toBe(0);
-    expect(record.corpus?.content_diffs).toBe(0);
+    expect(record.sample_size).toBe(100);
+    expect(record.matched).toBe(100);
+    expect(record.missing).toBe(0);
+    expect(record.content_diffs).toBe(0);
     expect(record.layout_count).toEqual({ upstream: 100, ours: 100, equal: true });
 
     const stored = await importState("cmini.last_diff");
@@ -110,10 +115,10 @@ describe("diffTick()", () => {
     fake.mutateDetailByName("graphite", { board: "angle" });
 
     const diffEnv = envWithSource(fake.baseUrl);
-    const record = await diffTick(diffEnv, fixedClock("2026-07-04T00:00:00.000Z"), strictUpstreamOnly(fake));
+    const record = await diffTick(diffEnv, fixedClock("2026-07-04T00:00:00.000Z"), strictUpstreamOnly(fake), 100);
 
     expect(record.ok).toBe(false);
-    expect(record.corpus?.content_diffs).toBe(1);
+    expect(record.content_diffs).toBe(1);
     // 20-spark.md S3b: comparison happens in spark now, nested under
     // `payload` (unlike cmini/1's flat `board` word).
     expect(record.samples?.content_diffs).toEqual([{ name: "graphite", path: "/payload/board/cmini" }]);
@@ -130,7 +135,7 @@ describe("diffTick()", () => {
     expect(record.ok).toBe(false);
     expect(record.error).toBeDefined();
     expect(record.at).toBe("2026-07-05T00:00:00.000Z");
-    expect(record.corpus).toBeUndefined();
+    expect(record.matched).toBeUndefined();
 
     const stored = await importState("cmini.last_diff");
     expect(stored).toEqual(record);
@@ -176,10 +181,10 @@ describe("diffTick()", () => {
     const issued = reads() - before;
 
     expect(record.ok).toBe(true);
-    // 100 records at a 500-record page size: one list page, one likes
-    // chunk, plus the fixed handful of authors/layoutCount reads --
-    // nowhere near "one query per record" (100+), which is what a
-    // regression back to per-record I/O would look like here.
+    // LEDGER.md L4: one `layoutCount()` read, one `ORDER BY RANDOM() LIMIT
+    // n` sample read, one likes chunk -- nowhere near "one query per
+    // record" (100+), which is what a regression back to full-corpus
+    // enumeration would look like here.
     expect(issued).toBeLessThan(20);
   });
 });

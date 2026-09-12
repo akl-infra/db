@@ -1,11 +1,11 @@
-// [LDB-P5] The D12 mirror diff, live (07 §6 S8; §7's daily job; 20-spark.md
-// S3b): every FOLLOWING upstream cmini layout read back `?as=spark/1` must
-// equal upstream (converted through `fromCmini`) on the projection. Runs
-// ONLY when `DB_BASE_URL` is set (the daily job sets it to
-// the deployed service's origin) -- when set, this does NOT skip on a
-// network hiccup: it retries for up to 30 minutes, then fails loud. That's
-// the `ci-gate-split-256` lesson db.yml's own comments cite: "a skip nobody
-// reads is a pass".
+// [LDB-P5] The shrunk upstream mirror diff, live (LEDGER.md L4; the daily
+// job): layout count equality, plus a sampled compare of DEFAULT_SAMPLE_SIZE
+// random following layouts read back `?format=spark/1` against upstream
+// (converted through `fromCmini`) on the projection. Runs ONLY when
+// `DB_BASE_URL` is set (the daily job sets it to the deployed service's
+// origin) -- when set, this does NOT skip on a network hiccup: it retries
+// for up to 30 minutes, then fails loud. That's the `ci-gate-split-256`
+// lesson db.yml's own comments cite: "a skip nobody reads is a pass".
 import { describe, expect, it } from "vitest";
 import { diffUpstream, httpOurs, type DiffSummary } from "../src/import/diff";
 
@@ -43,7 +43,7 @@ async function diffUntilReachable(dbBaseUrl: string): Promise<DiffSummary> {
 
 describe.skipIf(DB_BASE_URL === undefined || DB_BASE_URL === "")("upstream diff (daily, live)", () => {
   it(
-    "[LDB-P5] [LDB-I13] every following record read ?as=spark/1 equals upstream on the projection",
+    "[LDB-P5] [LDB-I13] layout counts agree, and a random sample of following layouts equals upstream on the projection",
     async () => {
       const summary = await diffUntilReachable(DB_BASE_URL!);
       if (!summary.ok) {
@@ -52,26 +52,14 @@ describe.skipIf(DB_BASE_URL === undefined || DB_BASE_URL === "")("upstream diff 
         console.error(JSON.stringify(summary, null, 2));
       }
 
-      expect(summary.held, "held records: as=spark/1 should always be identity in phase 1").toEqual([]);
-      expect(summary.corpus.missing).toEqual([]);
-      expect(summary.corpus.invalidUpstream).toEqual([]);
-      expect(summary.corpus.contentDiffs).toEqual([]);
-      expect(summary.corpus.extra).toEqual([]);
-      // A name-matched record with no upstream link is a failure: over HTTP
-      // it means legacy rows the record migration hasn't reached yet.
-      expect(summary.corpus.unresolved).toEqual([]);
-      // `divergent` (a name-matched local record that's forked) is
-      // informational only, 20-spark.md S3b/LDB-P5 -- never asserted here.
       expect(summary.layoutCount).toEqual({
         upstream: summary.layoutCount.upstream,
         ours: summary.layoutCount.upstream,
         equal: true,
       });
-      expect(summary.authors.missing).toEqual([]);
-      expect(summary.authors.extra).toEqual([]);
-      // `aliasCount` is informational only (an old upstream name for an id
-      // we already have under a newer one, diffAuthors's own header note)
-      // -- never asserted here.
+      expect(summary.missing).toEqual([]);
+      expect(summary.invalidUpstream).toEqual([]);
+      expect(summary.contentDiffs).toEqual([]);
       expect(summary.ok).toBe(true);
     },
     TEST_TIMEOUT_MS,

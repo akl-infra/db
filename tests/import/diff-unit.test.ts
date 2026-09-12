@@ -1,19 +1,20 @@
-// [LDB-P5] The offline half of the D12 diff (07 §6 S8): `parseUpstreamRaw`
-// / `compareRecords` / `diffCorpus` from `src/import/diff.ts`, over the
-// frozen `upstream-100` snapshot -- no network, so this runs on every PR,
-// not just the daily job (`tests/upstream-diff.test.ts` owns the live half).
+// [LDB-P5] The offline half of the shrunk upstream mirror diff (LEDGER.md
+// L4): `parseUpstreamRaw` / `compareRecords` / `pathDiff` / `diffUpstream`
+// from `src/import/diff.ts`, over the frozen `upstream-100` snapshot -- no
+// network, so this runs on every PR, not just the daily job
+// (`tests/upstream-diff.test.ts` owns the live half).
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-  diffCorpus,
+  compareRecords,
+  diffUpstream,
   httpOurs,
   parseUpstreamRaw,
   pathDiff,
   type FetchImpl,
   type OursEntry,
   type OursSource,
-  type UpstreamEntry,
 } from "../../src/import/diff";
 
 const FIXTURE_DIR = path.join(import.meta.dirname, "..", "fixtures", "upstream-100");
@@ -27,34 +28,10 @@ function loadFixture(): Record<string, unknown>[] {
   return full.layouts;
 }
 
-// A raw fixture detail, parsed once, turned into both an `UpstreamEntry`
-// and (same content) an `OursEntry` -- the identity case every test below
-// starts from before mutating one side.
-function toUpstreamEntry(raw: Record<string, unknown>): UpstreamEntry {
-  const name = raw.name as string;
-  return { name, parsed: parseUpstreamRaw(raw) };
-}
-
-// Defaults to `following` -- the base fixture's whole premise is "ours
-// mirrors upstream exactly", so a fresh `OursEntry` built straight off a
-// raw upstream detail is, by construction, still following it. Individual
-// tests below override `upstream` to exercise `forked`/`null`/`extra`.
 function toOursEntry(raw: Record<string, unknown>, ref: string): OursEntry {
   const parsed = parseUpstreamRaw(raw);
   if (!parsed.ok) throw new Error(`fixture '${String(raw.name)}' failed parseUpstreamRaw: ${parsed.error.message}`);
   return { ...parsed.detail, ref, upstream: { source: "cmini", id: ref, state: "following" } };
-}
-
-function corpusMaps(raws: Record<string, unknown>[]): { upstream: Map<string, UpstreamEntry>; ours: Map<string, OursEntry> } {
-  const upstream = new Map<string, UpstreamEntry>();
-  const ours = new Map<string, OursEntry>();
-  for (const raw of raws) {
-    const name = raw.name as string;
-    const key = name.toLowerCase();
-    upstream.set(key, toUpstreamEntry(raw));
-    ours.set(key, toOursEntry(raw, `id-${key}`));
-  }
-  return { upstream, ours };
 }
 
 describe("parseUpstreamRaw over upstream-100", () => {
@@ -68,246 +45,111 @@ describe("parseUpstreamRaw over upstream-100", () => {
   // 20-spark.md S3b (LDB-I13): a detail that's schema-valid per cmini/1 but
   // fails spark's OWN (stricter) semantic validate is reported as an
   // `invalidUpstream`-shaped parse failure, never thrown. This is the same
-  // class of finding the daily diff surfaces as a `corpus.invalidUpstream`
-  // line for real upstream data (`tests/upstream-diff.test.ts`, live).
-  //
-  // 21-formats.md D10 deleted the one concrete divergence this test used
-  // to exercise (spark/1's `x`-size cap, where cmini's `tag`/`blame`/
-  // `combos`/`link` used to land): `fromCmini` now drops those four
-  // fields outright rather than reserving them anywhere spark validates,
-  // so there is no longer a way to make a cmini-schema-valid detail
-  // overflow a cap that no longer exists. A magic key missing from the
-  // layout (this test's OWN earlier divergence, before the cap) stopped
-  // diverging even earlier, LDB-F22 (2026-09-11): spark/1 accepts it now,
-  // matching akl.gg. No other field cmini's schema accepts and fromCmini
-  // preserves is validated any more stringently by spark than by cmini
-  // (both schemas agree on `keys`/`free`/`board`/`magic`'s shapes) --
-  // this specific negative example is retired with the field it depended
-  // on; LDB-I13's positive half ("every LIVE upstream detail's fromCmini
-  // conversion validates as spark") stays fully covered by `tests/formats
-  // /cmini-envelope.test.ts` and the daily `tests/upstream-diff.test.ts`,
-  // and `parseUpstreamRaw`'s own defensive `sparkCheck.ok` branch (never
-  // exercised live) is unchanged code, just currently unreachable by any
-  // known input shape.
+  // class of finding the daily diff surfaces as an `invalidUpstream` line
+  // for real upstream data (`tests/upstream-diff.test.ts`, live). No known
+  // fixture currently diverges (21-formats.md D10 retired the one
+  // constructed negative example this test used to carry, along with the
+  // `x` field it depended on) -- LDB-I13's positive half stays fully
+  // covered by `tests/formats/cmini-envelope.test.ts` and the daily
+  // `tests/upstream-diff.test.ts`, and `parseUpstreamRaw`'s own defensive
+  // `sparkCheck.ok` branch stays real, exercised code with no live example.
 });
 
-describe("diffCorpus over upstream-100 against itself", () => {
-  it("[LDB-P5] zero differences: every entry matches, none missing, none extra, none unresolved", () => {
+describe("compareRecords / pathDiff over upstream-100", () => {
+  it("[LDB-P5] identical records compare equal", () => {
     const raws = loadFixture();
-    const { upstream, ours } = corpusMaps(raws);
-    const result = diffCorpus(upstream, ours);
-    expect(result.missing).toEqual([]);
-    expect(result.invalidUpstream).toEqual([]);
-    expect(result.contentDiffs).toEqual([]);
-    expect(result.extra).toEqual([]);
-    expect(result.divergent).toEqual([]);
-    expect(result.matched).toBe(raws.length);
+    const graphite = raws.find((r) => r.name === "graphite")!;
+    const a = toOursEntry(graphite, "id-a");
+    const b = toOursEntry(graphite, "id-b"); // `ref` is never part of the compared projection
+    expect(compareRecords(a, b)).toEqual({ equal: true, path: null });
   });
 
   it("[LDB-P5] a mutated payload field is reported at its own path", () => {
     const raws = loadFixture();
-    const graphite = raws.find((r) => r.name === "graphite");
-    expect(graphite).toBeDefined();
-    const { upstream, ours } = corpusMaps(raws);
+    const graphite = raws.find((r) => r.name === "graphite")!;
+    const a = toOursEntry(graphite, "id-a");
 
-    // Mutate ONE key's row in the local copy only -- graphite's `keys` is
-    // known non-empty (07 §5.3: it's the repo's canonical fixture).
-    const mutated = structuredClone(graphite) as Record<string, unknown>;
+    const mutated = structuredClone(graphite);
     const keys = mutated.keys as Record<string, { row: number; col: number; finger: string }>;
     const firstChar = Object.keys(keys).sort()[0]!;
-    // Flip `finger` only -- leaves every key's (row, col) untouched, so
-    // this can never collide with `findDuplicatePosition`'s dedup check
-    // the way mutating `row`/`col` risked on a dense real layout.
     keys[firstChar]!.finger = keys[firstChar]!.finger === "LP" ? "LR" : "LP";
-    ours.set("graphite", toOursEntry(mutated, "id-graphite"));
+    const b = toOursEntry(mutated, "id-b");
 
-    const result = diffCorpus(upstream, ours);
-    expect(result.contentDiffs).toHaveLength(1);
-    expect(result.contentDiffs[0]!.name).toBe("graphite");
-    // 20-spark.md S3b: comparison happens in spark now, nested under
-    // `payload` (unlike cmini/1's flat `keys` top-level).
-    expect(result.contentDiffs[0]!.path).toBe(`/payload/keys/${firstChar}/finger`);
-    expect(result.matched).toBe(raws.length - 1);
+    const result = compareRecords(a, b);
+    expect(result.equal).toBe(false);
+    expect(result.path).toBe(`/payload/keys/${firstChar}/finger`);
   });
 
   it("[LDB-P5] a mutated top-level scalar (board) is reported under /payload/board", () => {
     const raws = loadFixture();
-    const { upstream, ours } = corpusMaps(raws);
-    const abyss = raws.find((r) => r.name === "abyss"); // angle, per 07 §5.3
-    expect(abyss).toBeDefined();
-    const mutated = { ...(abyss as Record<string, unknown>), board: "ortho" };
-    ours.set("abyss", toOursEntry(mutated, "id-abyss"));
+    const abyss = raws.find((r) => r.name === "abyss")!; // angle, per 07 §5.3
+    const a = toOursEntry(abyss, "id-a");
+    const mutated = { ...abyss, board: "ortho" };
+    const b = toOursEntry(mutated, "id-b");
 
-    const result = diffCorpus(upstream, ours);
-    const diff = result.contentDiffs.find((d) => d.name === "abyss");
-    // cmini's bare `board` word becomes spark's `{kind, stagger?, cmini}`
-    // object on both sides -- "angle" vs "ortho" disagree on every key, so
-    // `pathDiff`'s sorted-key walk reports the first one, `cmini`.
-    expect(diff?.path).toBe("/payload/board/cmini");
+    const result = compareRecords(a, b);
+    expect(result.equal).toBe(false);
+    expect(result.path).toBe("/payload/board/cmini");
   });
 
-  it("[LDB-P5] likes compared sorted -- reordering our copy's likes is NOT a difference", () => {
+  it("[LDB-P5] likes compared sorted -- reordering is NOT a difference", () => {
     const raws = loadFixture();
-    const { upstream, ours } = corpusMaps(raws);
-    const graphite = ours.get("graphite")!;
-    expect(graphite.likes.length).toBeGreaterThan(1); // 07 §5.3: graphite has real likes
-    ours.set("graphite", { ...graphite, likes: [...graphite.likes].reverse() });
+    const graphite = raws.find((r) => r.name === "graphite")!;
+    const a = toOursEntry(graphite, "id-a");
+    expect(a.likes.length).toBeGreaterThan(1); // 07 §5.3: graphite has real likes
+    const b = { ...a, likes: [...a.likes].reverse() };
 
-    const result = diffCorpus(upstream, ours);
-    expect(result.contentDiffs).toEqual([]);
-    expect(result.matched).toBe(raws.length);
+    expect(compareRecords(a, b)).toEqual({ equal: true, path: null });
   });
 
   it("[LDB-P5] a genuine likes difference IS reported, under /likes", () => {
     const raws = loadFixture();
-    const { upstream, ours } = corpusMaps(raws);
-    const graphite = ours.get("graphite")!;
-    ours.set("graphite", { ...graphite, likes: graphite.likes.slice(1) }); // drop one like
+    const graphite = raws.find((r) => r.name === "graphite")!;
+    const a = toOursEntry(graphite, "id-a");
+    const b = { ...a, likes: a.likes.slice(1) }; // drop one like
 
-    const result = diffCorpus(upstream, ours);
-    const diff = result.contentDiffs.find((d) => d.name === "graphite");
-    // Element-wise array compare (pathDiff), so a dropped element reports
-    // at whichever index first disagrees after the shift, not the whole
-    // array -- `/likes` itself, not a fixed sub-index.
-    expect(diff?.path).toMatch(/^\/likes(\/\d+)?$/);
+    const result = compareRecords(a, b);
+    expect(result.equal).toBe(false);
+    expect(result.path).toMatch(/^\/likes(\/\d+)?$/);
   });
 
-  // M1 (design/layout-db/17-magic-ownership.md §3): `compareRecords`
-  // (import/diff.ts) drops `magic` on both sides (20-spark.md S3b: in
-  // spark now, not cmini/1), so magic never surfaces as a mirror
-  // difference -- upstream's magic is never akl.gg's, and a followed
-  // record's own (nothing today; akl.gg's rules once M2 lands) is never
-  // one either.
-  it("[LDB-P5] [LDB-I11] our copy carrying DIFFERENT magic than upstream's is NOT a content difference", () => {
+  // M1 (design/layout-db/17-magic-ownership.md §3): `compareRecords` drops
+  // `magic` on both sides -- upstream's magic is never akl.gg's, and a
+  // followed record's own is never a mirror difference either.
+  it("[LDB-P5] [LDB-I11] different magic on each side is NOT a content difference", () => {
     const raws = loadFixture();
-    const { upstream, ours } = corpusMaps(raws);
-    const opal = raws.find((r) => r.name === "opal");
-    expect(opal).toBeDefined();
+    const opal = raws.find((r) => r.name === "opal")!;
     const opalMagic = (opal as { magic?: unknown[] }).magic;
     expect(opalMagic).toBeDefined();
     expect((opalMagic as unknown[]).length).toBeGreaterThan(0); // 07 §5.3: opal is a real magic fixture
 
-    const mutated = { ...(opal as Record<string, unknown>), magic: [{ inputs: "q◇", output: "qq", type: "repeat" }] };
-    ours.set("opal", toOursEntry(mutated, "id-opal"));
+    const a = toOursEntry(opal, "id-a");
+    const mutated = { ...opal, magic: [{ inputs: "q◇", output: "qq", type: "repeat" }] };
+    const b = toOursEntry(mutated, "id-b");
 
-    const result = diffCorpus(upstream, ours);
-    expect(result.contentDiffs).toEqual([]);
-    expect(result.matched).toBe(raws.length);
+    expect(compareRecords(a, b)).toEqual({ equal: true, path: null });
   });
 
-  it("[LDB-P5] [LDB-I11] our copy dropping magic entirely (upstream still has it) is NOT a content difference", () => {
+  it("[LDB-P5] [LDB-I11] one side dropping magic entirely is NOT a content difference", () => {
     const raws = loadFixture();
-    const { upstream, ours } = corpusMaps(raws);
-    const opal = raws.find((r) => r.name === "opal");
-    const { magic: _magic, ...withoutMagic } = opal as Record<string, unknown>;
-    ours.set("opal", toOursEntry(withoutMagic, "id-opal"));
+    const opal = raws.find((r) => r.name === "opal")!;
+    const a = toOursEntry(opal, "id-a");
+    const { magic: _magic, ...withoutMagic } = opal;
+    const b = toOursEntry(withoutMagic, "id-b");
 
-    const result = diffCorpus(upstream, ours);
-    expect(result.contentDiffs).toEqual([]);
-    expect(result.matched).toBe(raws.length);
+    expect(compareRecords(a, b)).toEqual({ equal: true, path: null });
   });
 
   it("[LDB-P5] [LDB-I11] a genuine non-magic difference is still reported even when magic ALSO differs", () => {
     const raws = loadFixture();
-    const { upstream, ours } = corpusMaps(raws);
-    const opal = raws.find((r) => r.name === "opal");
-    const mutated = { ...(opal as Record<string, unknown>), board: "ortho", magic: [{ inputs: "q◇", output: "qq", type: "repeat" }] };
-    ours.set("opal", toOursEntry(mutated, "id-opal"));
+    const opal = raws.find((r) => r.name === "opal")!;
+    const a = toOursEntry(opal, "id-a");
+    const mutated = { ...opal, board: "ortho", magic: [{ inputs: "q◇", output: "qq", type: "repeat" }] };
+    const b = toOursEntry(mutated, "id-b");
 
-    const result = diffCorpus(upstream, ours);
-    const diff = result.contentDiffs.find((d) => d.name === "opal");
-    expect(diff?.path).toBe("/payload/board/cmini"); // the real difference, never magic's own path
-  });
-
-  it("[LDB-P5] a missing local record is reported under 'missing'", () => {
-    const raws = loadFixture();
-    const { upstream, ours } = corpusMaps(raws);
-    ours.delete("graphite");
-
-    const result = diffCorpus(upstream, ours);
-    expect(result.missing).toEqual([{ name: "graphite", path: "/", message: "no local record by this name" }]);
-    expect(result.matched).toBe(raws.length - 1);
-  });
-
-  it("[LDB-P5] a local-only record that follows upstream is reported under 'extra'", () => {
-    const raws = loadFixture();
-    const { upstream, ours } = corpusMaps(raws);
-    const graphite = ours.get("graphite")!;
-    ours.set("ghost-of-graphite", { ...graphite, name: "ghost-of-graphite" }); // upstream: following, inherited from toOursEntry's default
-
-    const result = diffCorpus(upstream, ours);
-    expect(result.extra).toEqual([
-      {
-        name: "ghost-of-graphite",
-        path: "/",
-        message: "follows upstream but upstream no longer lists a layout by this name",
-      },
-    ]);
-  });
-
-  // 20-spark.md S3b (§8 R-H6): follow status is read straight off
-  // `OursEntry.upstream` -- there's no more "unresolved" state to wait on
-  // (every entry from `full()` already carries it), so both non-following
-  // states (forked, and no link at all) are exercised directly here.
-  it("[LDB-P5] a local-only FORKED record is skipped entirely (not extra, not a failure)", () => {
-    const raws = loadFixture();
-    const { upstream, ours } = corpusMaps(raws);
-    const graphite = ours.get("graphite")!;
-    ours.set("locally-owned", { ...graphite, name: "locally-owned", upstream: { source: "cmini", id: "id-locally-owned", state: "forked" } });
-
-    const result = diffCorpus(upstream, ours);
-    expect(result.extra).toEqual([]);
-  });
-
-  it("[LDB-P5] a local-only record with NO upstream link at all is skipped entirely (not extra, not a failure)", () => {
-    const raws = loadFixture();
-    const { upstream, ours } = corpusMaps(raws);
-    const graphite = ours.get("graphite")!;
-    ours.set("plain-local", { ...graphite, name: "plain-local", upstream: null });
-
-    const result = diffCorpus(upstream, ours);
-    expect(result.extra).toEqual([]);
-  });
-
-  it("[LDB-P5] an invalid upstream detail is reported under 'invalidUpstream' with its shape path, not thrown", () => {
-    const raws = loadFixture();
-    const { upstream, ours } = corpusMaps(raws);
-    upstream.set("graphite", { name: "graphite", parsed: { ok: false, error: { path: "/user", message: "boom" } } });
-
-    const result = diffCorpus(upstream, ours);
-    expect(result.invalidUpstream).toEqual([{ name: "graphite", path: "/user", message: "boom" }]);
-    expect(result.contentDiffs).toEqual([]);
-  });
-
-  // 20-spark.md S3b (LDB-P5 amended, decision 16): a name-matched local
-  // record that's forked (or unlinked) is never content-compared -- it's
-  // `divergent`, informational, and never a `contentDiffs`/failure entry,
-  // even when its content genuinely differs from upstream's.
-  it("[LDB-P5] a name-matched FORKED record is 'divergent', never a content diff, even when content differs", () => {
-    const raws = loadFixture();
-    const { upstream, ours } = corpusMaps(raws);
-    const graphite = ours.get("graphite")!;
-    ours.set("graphite", { ...graphite, upstream: { source: "cmini", id: "id-graphite", state: "forked" }, payload: { ...graphite.payload, board: { kind: "ortho", cmini: "ortho" } } });
-
-    const result = diffCorpus(upstream, ours);
-    expect(result.divergent).toEqual([
-      { name: "graphite", path: "/", message: "name-matched local record is forked from upstream" },
-    ]);
-    expect(result.contentDiffs).toEqual([]);
-    expect(result.matched).toBe(raws.length - 1);
-  });
-
-  it("[LDB-P5] a name-matched record with NO upstream link is 'unresolved' (a failure), never 'divergent' or a content diff", () => {
-    const raws = loadFixture();
-    const { upstream, ours } = corpusMaps(raws);
-    const graphite = ours.get("graphite")!;
-    ours.set("graphite", { ...graphite, upstream: null });
-
-    const result = diffCorpus(upstream, ours);
-    expect(result.unresolved).toHaveLength(1);
-    expect(result.unresolved[0]!.name).toBe("graphite");
-    expect(result.divergent).toEqual([]);
-    expect(result.contentDiffs).toEqual([]);
+    const result = compareRecords(a, b);
+    expect(result.equal).toBe(false);
+    expect(result.path).toBe("/payload/board/cmini"); // the real difference, never magic's own path
   });
 });
 
@@ -330,102 +172,196 @@ describe("pathDiff", () => {
   });
 });
 
-// X4 (12 §3 X4): `httpOurs` is the pre-X4 "our side" behaviour, moved
-// unchanged behind `OursSource` -- this is the moved code's own regression
-// suite, over a hand-built fake DB (no D1, no miniflare: `httpOurs` never
-// touches either, only `fetchImpl`, so this belongs in the "node" project
-// alongside the rest of this file).
-describe("httpOurs (X4: the moved HTTP-based OursSource)", () => {
+// LEDGER.md L4: `httpOurs` no longer enumerates the whole corpus -- it
+// pages the payload-free list to find `following` candidates, then reads
+// only the sampled ones' full detail + likes.
+describe("httpOurs (shrunk: count + a random sample of following layouts)", () => {
   const BASE = "https://ours.example";
 
-  // 20-spark.md S3b: `?full=1&as=spark/1` items -- spark-shaped payloads,
-  // each carrying its own `upstream` link straight on the wire (§8 R-H6:
-  // no more `/history` follow-up for follow status).
-  const OUR_ITEMS = [
-    {
-      id: "id-alpha",
+  const LIST_ITEMS = [
+    { id: "id-alpha", name: "alpha", upstream: { source: "cmini", id: "up-alpha", state: "following" } },
+    { id: "id-beta", name: "beta", upstream: { source: "cmini", id: "up-beta", state: "forked" } }, // never sampled
+    { id: "id-gamma", name: "gamma", upstream: null }, // never sampled
+  ];
+
+  const DETAIL_BY_ID: Record<string, unknown> = {
+    "id-alpha": {
       name: "alpha",
       owner: "111111111111111111",
       created_at: "2026-01-01T00:00:00Z",
       modified_at: "2026-01-02T00:00:00Z",
-      like_count: 0,
-      likes: [] as string[],
       payload: { board: { kind: "ortho", cmini: "ortho" }, keys: {} },
       upstream: { source: "cmini", id: "up-alpha", state: "following" },
     },
-    {
-      id: "id-beta",
-      name: "beta",
-      owner: "222222222222222222",
-      created_at: "2026-01-01T00:00:00Z",
-      modified_at: "2026-01-02T00:00:00Z",
-      like_count: 0,
-      held: true,
-    },
-    {
-      id: "id-gamma",
-      name: "gamma",
-      owner: "333333333333333333",
-      created_at: "2026-01-01T00:00:00Z",
-      modified_at: "2026-01-02T00:00:00Z",
-      like_count: 2,
-      // No inline `likes` -- forces the /likes fallback (the older-build
-      // shape `resolveOurLikes` still supports, unchanged by the move).
-      payload: { board: { kind: "ortho", cmini: "ortho" }, keys: {} },
-      upstream: { source: "cmini", id: "up-gamma", state: "forked" }, // a later human edit forked it
-    },
-  ];
+  };
 
   function fakeFetch(): FetchImpl {
     return async (url) => {
       const u = new URL(url);
-      if (u.pathname === "/v1/layouts" && u.searchParams.get("full") === "1") {
-        return new Response(JSON.stringify({ items: OUR_ITEMS }), { status: 200 });
-      }
-      if (u.pathname === "/v1/authors") {
-        return new Response(JSON.stringify({ alpha: "111111111111111111", gamma: "333333333333333333" }), { status: 200 });
+      if (u.pathname === "/v1/layouts" && u.searchParams.get("format") === "spark/1") {
+        return new Response(JSON.stringify({ items: LIST_ITEMS, next_cursor: null }), { status: 200 });
       }
       if (u.pathname === "/v1/meta") {
-        // alpha + gamma; `beta` is `held` and excluded, same as
-        // `/v1/meta.layout_count` (a held record is still a live record --
-        // this fixture's `2` is just what this fake chose to report, not a
-        // rule `httpOurs` enforces).
-        return new Response(JSON.stringify({ layout_count: 2 }), { status: 200 });
+        return new Response(JSON.stringify({ layout_count: 3 }), { status: 200 });
+      }
+      const detailMatch = /^\/v1\/layouts\/([^/]+)$/.exec(u.pathname);
+      if (detailMatch && u.searchParams.get("format") === "spark/1") {
+        const detail = DETAIL_BY_ID[detailMatch[1]!];
+        if (detail === undefined) throw new Error(`fakeFetch: no detail for ${detailMatch[1]}`);
+        return new Response(JSON.stringify(detail), { status: 200 });
       }
       const likesMatch = /^\/v1\/layouts\/([^/]+)\/likes$/.exec(u.pathname);
       if (likesMatch) {
-        return new Response(JSON.stringify({ user_ids: ["444444444444444444", "555555555555555555"] }), { status: 200 });
+        return new Response(JSON.stringify({ user_ids: ["444444444444444444"] }), { status: 200 });
       }
       throw new Error(`fakeFetch: unhandled ${url}`);
     };
   }
 
-  it("[LDB-P5] full() yields every live record as an OursEntry (with its own upstream link), plus the name of every held one", async () => {
-    const ours: OursSource = httpOurs(BASE, fakeFetch());
-    const entries: (OursEntry | { held: string })[] = [];
-    for await (const item of ours.full()) entries.push(item);
-
-    expect(entries).toHaveLength(3);
-    const alpha = entries.find((e) => "ref" in e && e.name === "alpha") as OursEntry;
-    expect(alpha.ref).toBe("id-alpha");
-    expect(alpha.owner).toBe("111111111111111111");
-    expect(alpha.upstream).toEqual({ source: "cmini", id: "up-alpha", state: "following" });
-
-    const heldEntry = entries.find((e) => "held" in e) as { held: string };
-    expect(heldEntry.held).toBe("beta");
-
-    const gamma = entries.find((e) => "ref" in e && e.name === "gamma") as OursEntry;
-    expect(gamma.likes).toEqual(["444444444444444444", "555555555555555555"]);
-    expect(gamma.upstream).toEqual({ source: "cmini", id: "up-gamma", state: "forked" });
-  });
-
-  it("[LDB-P5] authors() reproduces /v1/authors' {name: id} shape", async () => {
-    const ours = httpOurs(BASE, fakeFetch());
-    await expect(ours.authors()).resolves.toEqual({ alpha: "111111111111111111", gamma: "333333333333333333" });
-  });
-
   it("[LDB-P5] layoutCount() reproduces /v1/meta's layout_count", async () => {
     const ours = httpOurs(BASE, fakeFetch());
-    await expect(ours.layoutCount()).resolves.toBe(2);
+    await expect(ours.layoutCount()).resolves.toBe(3);
+  });
+
+  it("[LDB-P5] sampleFollowing() only ever picks `following` candidates, and reads their full detail + likes", async () => {
+    const ours: OursSource = httpOurs(BASE, fakeFetch());
+    const sample = await ours.sampleFollowing(10); // more than the one following candidate available
+    expect(sample).toHaveLength(1);
+    expect(sample[0]!.ref).toBe("id-alpha");
+    expect(sample[0]!.owner).toBe("111111111111111111");
+    expect(sample[0]!.likes).toEqual(["444444444444444444"]);
+  });
+
+  it("[LDB-P5] sampleFollowing(n) never returns more than n entries even with more candidates available", async () => {
+    const manyItems = Array.from({ length: 5 }, (_, i) => ({
+      id: `id-f${i}`,
+      name: `f${i}`,
+      upstream: { source: "cmini", id: `up-f${i}`, state: "following" },
+    }));
+    const detailById: Record<string, unknown> = {};
+    for (const item of manyItems) {
+      detailById[item.id] = {
+        name: item.name,
+        owner: "111111111111111111",
+        created_at: "2026-01-01T00:00:00Z",
+        modified_at: "2026-01-02T00:00:00Z",
+        payload: { board: { kind: "ortho", cmini: "ortho" }, keys: {} },
+        upstream: item.upstream,
+      };
+    }
+    const fetchImpl: FetchImpl = async (url) => {
+      const u = new URL(url);
+      if (u.pathname === "/v1/layouts" && u.searchParams.get("format") === "spark/1") {
+        return new Response(JSON.stringify({ items: manyItems, next_cursor: null }), { status: 200 });
+      }
+      const detailMatch = /^\/v1\/layouts\/([^/]+)$/.exec(u.pathname);
+      if (detailMatch) return new Response(JSON.stringify(detailById[detailMatch[1]!]), { status: 200 });
+      const likesMatch = /^\/v1\/layouts\/([^/]+)\/likes$/.exec(u.pathname);
+      if (likesMatch) return new Response(JSON.stringify({ user_ids: [] }), { status: 200 });
+      throw new Error(`fakeFetch: unhandled ${url}`);
+    };
+    const ours = httpOurs(BASE, fetchImpl);
+    const sample = await ours.sampleFollowing(3);
+    expect(sample).toHaveLength(3);
+  });
+});
+
+describe("diffUpstream (orchestration: count + sampled compare)", () => {
+  const raws = loadFixture();
+  const graphite = raws.find((r) => r.name === "graphite")!;
+
+  function fakeOurs(entries: OursEntry[], layoutCount: number): OursSource {
+    return {
+      async layoutCount() {
+        return layoutCount;
+      },
+      async sampleFollowing() {
+        return entries;
+      },
+    };
+  }
+
+  function fakeUpstreamFetch(byName: Map<string, unknown>, metaCount: number): FetchImpl {
+    return async (url) => {
+      const u = new URL(url);
+      if (u.pathname === "/meta") return new Response(JSON.stringify({ layout_count: metaCount }), { status: 200 });
+      const m = /^\/layouts\/([^/]+)$/.exec(u.pathname);
+      if (m) {
+        const raw = byName.get(decodeURIComponent(m[1]!));
+        if (raw === undefined) return new Response("not found", { status: 404 });
+        return new Response(JSON.stringify(raw), { status: 200 });
+      }
+      throw new Error(`fakeUpstreamFetch: unhandled ${url}`);
+    };
+  }
+
+  it("[LDB-P5] a matching sample + equal counts is ok", async () => {
+    const entry = toOursEntry(graphite, "id-graphite");
+    const byName = new Map([["graphite", graphite]]);
+    const summary = await diffUpstream({
+      upstreamUrl: "https://up.example",
+      ua: "test-ua",
+      ours: fakeOurs([entry], 100),
+      sampleSize: 1,
+      fetchImpl: fakeUpstreamFetch(byName, 100),
+      sleepImpl: async () => {},
+    });
+    expect(summary.ok).toBe(true);
+    expect(summary.layoutCount).toEqual({ upstream: 100, ours: 100, equal: true });
+    expect(summary.sampleSize).toBe(1);
+    expect(summary.matched).toBe(1);
+    expect(summary.contentDiffs).toEqual([]);
+  });
+
+  it("[LDB-P5] a layout_count mismatch fails ok even when the sample matches", async () => {
+    const entry = toOursEntry(graphite, "id-graphite");
+    const byName = new Map([["graphite", graphite]]);
+    const summary = await diffUpstream({
+      upstreamUrl: "https://up.example",
+      ua: "test-ua",
+      ours: fakeOurs([entry], 99),
+      sampleSize: 1,
+      fetchImpl: fakeUpstreamFetch(byName, 100),
+      sleepImpl: async () => {},
+    });
+    expect(summary.ok).toBe(false);
+    expect(summary.layoutCount.equal).toBe(false);
+  });
+
+  it("[LDB-P5] a content difference in the sample is reported and fails ok", async () => {
+    const entry = toOursEntry(graphite, "id-graphite");
+    // graphite's own fixture board is already "ortho" (07 §5.3) -- mutate a
+    // key's finger instead, a real, unambiguous content difference.
+    const mutated = structuredClone(graphite);
+    const keys = mutated.keys as Record<string, { row: number; col: number; finger: string }>;
+    const firstChar = Object.keys(keys).sort()[0]!;
+    keys[firstChar]!.finger = keys[firstChar]!.finger === "LP" ? "LR" : "LP";
+    const byName = new Map([["graphite", mutated]]);
+    const summary = await diffUpstream({
+      upstreamUrl: "https://up.example",
+      ua: "test-ua",
+      ours: fakeOurs([entry], 100),
+      sampleSize: 1,
+      fetchImpl: fakeUpstreamFetch(byName, 100),
+      sleepImpl: async () => {},
+    });
+    expect(summary.ok).toBe(false);
+    expect(summary.contentDiffs).toHaveLength(1);
+    expect(summary.contentDiffs[0]!.name).toBe("graphite");
+  });
+
+  it("[LDB-P5] a sampled name upstream no longer answers for is reported under 'missing'", async () => {
+    const entry = toOursEntry(graphite, "id-graphite");
+    const summary = await diffUpstream({
+      upstreamUrl: "https://up.example",
+      ua: "test-ua",
+      ours: fakeOurs([entry], 100),
+      sampleSize: 1,
+      fetchImpl: fakeUpstreamFetch(new Map(), 100), // upstream has nothing by this name -> 404
+      sleepImpl: async () => {},
+    });
+    expect(summary.ok).toBe(false);
+    expect(summary.missing).toHaveLength(1);
+    expect(summary.missing[0]!.name).toBe("graphite");
   });
 });
