@@ -40,10 +40,11 @@ Status: `todo` · `running (agent, branch)` · `review` · `landed <sha>` · `bl
 ### Wave 1 — layoutdb (`db/`), serial
 | id | slice | brief | status |
 |---|---|---|---|
-| L4 | **delete + long-poll** (running: impl-L4, worktree `.claude/worktrees/ldb-L4`, branch `ldb-L4`) | remove webhooks + lease (routes, core/webhooks.ts, drain job, migrations stay as empty tables or a drop migration — disposable, so a drop), SSE `routes/stream.ts`, Fly drill (`drill/`, `/v1/admin/drill`, `last_drill`), HTML `/admin/changelog`, per-major dump files (LDB-D6), multi-major chain machinery in `formats/registry.ts` + `write.ts` (assert one major per lineage), `[env.preview]` in wrangler.toml; shrink `import/diff.ts` to count + sampled compare. Add `wait=` long-poll to `/v1/changes` gated by client cap `feed:wait` (clients.caps), ≤ 25 s, 1 D1 read/s, ratelimited. Update INVARIANTS (remove rows, add LDB for long-poll gating), INTEGRATION.md, README. Suite green. | review — landed by lead 2026-09-12; chain machinery FROZEN not deleted (see log), /admin/changelog kept (bot history links to it) |
+| L4 | **delete + long-poll** (running: impl-L4, worktree `.claude/worktrees/ldb-L4`, branch `ldb-L4`) | remove webhooks + lease (routes, core/webhooks.ts, drain job, migrations stay as empty tables or a drop migration — disposable, so a drop), SSE `routes/stream.ts`, Fly drill (`drill/`, `/v1/admin/drill`, `last_drill`), HTML `/admin/changelog`, per-major dump files (LDB-D6), multi-major chain machinery in `formats/registry.ts` + `write.ts` (assert one major per lineage), `[env.preview]` in wrangler.toml; shrink `import/diff.ts` to count + sampled compare. Add `wait=` long-poll to `/v1/changes` gated by client cap `feed:wait` (clients.caps), ≤ 25 s, 1 D1 read/s, ratelimited. Update INVARIANTS (remove rows, add LDB for long-poll gating), INTEGRATION.md, README. Suite green. | landed c6c003142 (db 15,756 tests green on the integration branch); chain machinery FROZEN not deleted (follow-up L6), /admin/changelog kept (bot history links to it). **Do not deploy akl-db until B3 switches the bot off SSE** (keep-warm only; correctness unaffected). |
 | L1 | **import fixes** (running: impl-L1, isolation worktree) | B2 rename-collision → shadow name + `import_conflict` info event, never a wedge; B5 per-id try/catch, token stored only when every id succeeded or was recorded; B4 tick lock via CAS `import_state` row (10 min expiry; manual tick 409 while held); B3 revive tombstone on identical re-add (`deleted` in the differ); B1 likes union: importer adds missing likes, never `unliked`; likes get `via` column. Tests for each (property where it fits), INVARIANTS rows. | todo |
 | L2 | **backups** (running: impl-L2, isolation worktree) | dump runs on any tick when `last_dump_at` > 24 h (store in import_state), staleness in `/v1/meta.health`; dump + restore `clients`; README: Time Travel procedure; `db.yml` daily job `upload-artifact` the dump 30 d; stream `buildDump` or set `[limits]`; document the fresh-D1 restore rehearsal steps (saltorbit/lead runs it once and records minutes). | todo |
 | L3 | **Idempotency-Key** (running: impl-L3, isolation worktree) | optional header on every mutating route; table `idempotency(client_scope, key, response, at)` 24 h; same key → replay stored response; conformance fixtures; INVARIANTS. | todo |
+| L6 | **format chain freeze → delete** | delete the multi-major chain engine (`up/down/chainFn/chainViolations/path`, `chainToLatest`, `format_behind`, `written_as`, stub-lineage T2/T3 fixtures; LDB-F18/F19/P13) once a decision on how spark/2 will land is made — L4 froze it because put-format/held/list/docs-site tests exercise it. | todo (after W3) |
 | L5 | **moderation** | `bans` (checked in requireActor on writes, 403 banned), admin overrides as events `via: admin` (rename, transfer, set author name, set likes, restore), `link` field + `link_submissions` queue (submit by owner → pending; admin approve/reject → event; approved writes `layouts.link`). Wave 3. | todo |
 
 ### Wave 2 — spark (`bot/` absorbs `stats/` + `workers/data-writer/`), serial
@@ -57,7 +58,7 @@ Status: `todo` · `running (agent, branch)` · `review` · `landed <sha>` · `bl
 ### Wave 3 — akl.gg
 | id | slice | brief | status |
 |---|---|---|---|
-| A1 | pointer-only build as the only mode; owned-but-uncatalogued rows render from the record; pointer poll 60 s (+ until own publish covered); proxy timeout/body cap/`Secure`; delete `dispatchAfterWrite`. | todo |
+| A1 | (running: impl-A1, isolation worktree) pointer-only build as the only mode; owned-but-uncatalogued rows render from the record; pointer poll 60 s (+ until own publish covered); proxy timeout/body cap/`Secure`; delete `dispatchAfterWrite`. | todo |
 | A2 | the atomic flip (Pages prod `DB_BASE_URL`, CI var, pointer build, meta-watch removal) — **saltorbit runs**; then delete the prod stats path (workflows, D1 tables, Functions, scripts, `layout-dates.json`, `cmini-backup`), rotate `GITHUB_DISPATCH_TOKEN`. | todo |
 | A3 | S6 monthly reference harvest workflow (scratch line, diff, alarm). | todo |
 
@@ -77,6 +78,7 @@ Status: `todo` · `running (agent, branch)` · `review` · `landed <sha>` · `bl
 
 ## Log
 
+- 2026-09-12 · L4 landed (c6c003142). A1 launched (isolation worktree).
 - 2026-09-12 · L1, L2, L3, B1 launched in parallel (isolation worktrees) alongside L4.
 - 2026-09-12 · D1 (layoutdb architecture page) + D2 (ecosystem rewrite) landed; all four artifact pages measured in Chrome for SVG clipping and fixed.
 - 2026-09-12 · review round 1 (audits, requirements, proposal, data-flow) landed; saltorbit answered §6; long-poll, Fly, rebuild cadence, safety nets decided; implementation kicked off with L4 first.
