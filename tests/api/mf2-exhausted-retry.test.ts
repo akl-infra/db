@@ -19,6 +19,8 @@ import { commitWrite, RevConflictError, type CommitInput } from "../../src/core/
 import { fixedClock } from "../../src/core/time";
 import { ulid } from "ulidx";
 import { AKL_PAYLOAD, actorFixture, register, uniqueName, writeFetch } from "./write-support";
+import { registerForTest } from "../../formats/registry.ts";
+import { T1 } from "../formats/stub-lineage.ts";
 
 const db = (env as unknown as Bindings).DB;
 const clock = fixedClock("2026-07-23T00:00:00.000Z");
@@ -111,5 +113,40 @@ describe("[LDB-P23] M2: an exhausted commitWithRetry answers 409 stale, not a ra
     expect(body.error).toBe("stale");
     expect(body.scope).toBe("layout");
     expect(body.record).toMatchObject({ id: seeded.id });
+  });
+
+  // Coordinator review (LOW, third batch): an exhausted retry on a format
+  // ADD (`If-None-Match: *`) reaches `staleFromExhaustedRetry` with NO
+  // existing row for that lineage at all -- `latestRevBumpingEvent` used
+  // to assume one always exists and threw `internal()` (500) instead.
+  it("[LDB-P23] format ADD (If-None-Match: *) on a lineage this layout never had: same fallback, last_write: null, never a 500", async () => {
+    const OWNER = `mf2c-owner-${uniqueName("u")}`;
+    const seeded = await seed(OWNER);
+    const fake = actorFixture();
+    const headers = register(fake, `tok-${uniqueName("mf2c")}`, OWNER);
+    const unregisterT1 = registerForTest(T1);
+
+    const spy = vi.spyOn(eventsModule, "commitWrite").mockImplementation(async () => {
+      throw new RevConflictError(seeded.id);
+    });
+
+    const putRes = await writeFetch(`/v1/layouts/${seeded.id}`, "PUT", { ...headers, "If-None-Match": "*" }, { format: "t/1", payload: { v: 1, a: 1 } });
+    spy.mockRestore();
+    unregisterT1();
+
+    // Every attempt's own build() found no `t` row (nothing to be
+    // If-None-Match-stale against) -- only the exhausted-retries fallback
+    // fired, and it must still answer 409 stale, `last_write: null`,
+    // never a 500 from assuming a prior write that never happened.
+    expect(putRes.status).toBe(409);
+    const body = await putRes.json<{ error: string; scope: string; rev: number; record: Record<string, unknown>; last_write: unknown }>();
+    expect(body.error).toBe("stale");
+    expect(body.scope).toBe("t");
+    expect(body.rev).toBe(0);
+    expect(body.last_write).toBeNull();
+    expect(body.record).toMatchObject({ id: seeded.id });
+
+    const formatsRow = await db.prepare("SELECT 1 FROM layout_formats WHERE layout_id = ? AND lineage = 't'").bind(seeded.id).first();
+    expect(formatsRow, "nothing was actually written").toBeNull();
   });
 });

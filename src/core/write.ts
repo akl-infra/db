@@ -143,7 +143,13 @@ async function staleFromExhaustedRetry(db: Bindings["DB"], lastInput: CommitInpu
     const lineageId = lastInput.format.lineage;
     const row = formats.get(lineageId);
     const rev = row?.rev ?? 0;
-    const lastWrite = await latestRevBumpingEvent(db, layout.id, row?.format ?? lastInput.format.format);
+    // Coordinator review (LOW, third batch): an exhausted retry on a
+    // format ADD (`If-None-Match: *`) can reach here with NO existing row
+    // for this lineage at all -- there is no prior rev-bumping event for
+    // a format scope that has never been written, so `last_write` is
+    // `null` rather than a doomed `latestRevBumpingEvent` call (which
+    // assumes one always exists and 500s otherwise).
+    const lastWrite = row === undefined ? null : await latestRevBumpingEvent(db, layout.id, row.format);
     throw stale(lineageId, rev, fullWire(layout, formats, row !== undefined ? { format: row.format, payload: row.payload } : undefined), lastWrite);
   }
   const lastWrite = await latestRevBumpingEvent(db, layout.id, null);

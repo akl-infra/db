@@ -223,7 +223,12 @@ export function ifMatchRequired(): ApiError {
 // lineage), that scope's CURRENT rev, and the current record -- the
 // layout-level fields and `formats` always, plus `format`/`payload` when
 // the scope is a format (the caller builds `record` accordingly).
-export function stale(scope: string, rev: number, record: Record<string, unknown>, lastWrite: LastWrite): ApiError {
+// `lastWrite` is `null` in exactly one case (coordinator review, LOW,
+// third batch): an exhausted retry on a format ADD (`If-None-Match: *`)
+// that never actually lands -- there is no prior rev-bumping event for a
+// format scope that has never been written at all, so there is genuinely
+// no "last write" to report, never a 500 from trying to find one anyway.
+export function stale(scope: string, rev: number, record: Record<string, unknown>, lastWrite: LastWrite | null): ApiError {
   return new ApiError(409, {
     error: "stale",
     message: `'${scope}' is at rev ${rev}, not the version you edited`,
