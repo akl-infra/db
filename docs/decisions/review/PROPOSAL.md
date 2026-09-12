@@ -132,7 +132,20 @@ Each step ships alone; layoutdb may be wiped and rebuilt at any step (H12).
 5. **Moderation + `link`** in layoutdb, then the layoutdb website as its own design round.
 6. **Governance**: second admin row (violated since phase 2), domain in the `akl` account, `db.yml` prod deploy gated on a release branch rather than every PR push.
 
-## 6. Questions for saltorbit
+## 6. Questions for saltorbit — answered 2026-09-12
+
+| # | question | saltorbit's answer | consequence |
+|---|---|---|---|
+| 1 | two engine builds (native CLI publishes, wasm answers) | **yes** | nightly wasm-vs-CLI parity sample becomes an invariant |
+| 2 | likes on following layouts | **union**, "as long as we have author tracking on both" | every like row keeps `user_id` + a `via` (import vs client); the importer never emits `unliked` |
+| 3 | fuzzy `view` after a delete | **never match a deleted layout** | tombstones excluded from every resolver, fuzzy included; an exact-name miss on a tombstone says so |
+| 4 | machine / provider | asked back: "what makes the most sense? gcp or aws?" | recommendation below: stay on Fly (shared-cpu-2x 2 GB) now; Hetzner if cost or CPU throttling bites; not GCP/AWS |
+| 5 | retire the design corpus to `historical/` | **yes** | step 1 of the sequence |
+| 6 | `db.yml` deploys prod layoutdb on every push | **keep**: "not in use yet by the community, keep pushing to prod" | no release-branch gate until outside users exist |
+
+**Provider recommendation (Q4).** spark is one always-on Node process holding a Discord websocket, a small volume, and bursts of native compute. That wants a plain VM-shaped host, not a cloud platform. Fly stays for now: already deployed, `flyctl deploy` from CI works, volumes and private networking exist, and shared-cpu-2x 2 GB is ~$12. Its weakness is CPU throttling on shared tiers (the 36–522 s magic-compute spikes on the trial look like that); if the per-verb latency histogram from step 3 shows it, the choice is Fly performance-1x 2 GB (~$31) or a Hetzner CX32 (4 vCPU, 8 GB, ~€7) deployed as one Docker container over SSH from GitHub Actions. Hetzner wins on price-per-CPU by roughly ten to one at the cost of owning one VM (unattended upgrades, a compose file). GCP and AWS give the same VM at two to three times the price plus IAM/VPC overhead, and nothing here needs what they are good at. layoutdb stays on Cloudflare either way: Workers + D1 is the right shape for a request/response API, and the community account owns it.
+
+Original questions, for the record:
 
 1. **Publisher engine.** Native mana2 CLI for published numbers, wasm for the bot's immediate answers (two builds of one pinned Go source). OK, or do you want one engine even at 10× compute cost?
 2. **Likes on following layouts** (B1): fork the layout on a like, or union semantics with cmini's likes? Recommend union (a like never forks, never gets reverted).
