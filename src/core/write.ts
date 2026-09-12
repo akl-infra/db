@@ -110,20 +110,44 @@ async function requireFormatRev(db: Bindings["DB"], layout: LayoutRow, row: Form
 // the retry naturally lands on the now-current `n`). System writers
 // (`expectN`) call `commitWrite` directly and never go through this.
 async function commitWithRetry(db: Bindings["DB"], now: Clock, build: () => Promise<CommitInput>): Promise<CommitResult> {
-  let lastErr: unknown;
+  let lastInput: CommitInput | undefined;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     const input = await build();
+    lastInput = input;
     try {
       return await commitWrite(db, now, input);
     } catch (e) {
       if (e instanceof RevConflictError) {
-        lastErr = e;
         continue;
       }
       throw e;
     }
   }
-  throw lastErr instanceof Error ? lastErr : internal();
+  // Coordinator review (M2): every attempt's own `build()` re-reads the
+  // layout fresh and checks ITS scope's If-Match against that read -- a
+  // real staleness on this write's own scope already throws a proper
+  // `409 stale` from inside `build()` (requireLayoutRev/requireFormatRev)
+  // well before this point. Reaching here means every attempt's own
+  // If-Match matched, but something else kept winning the race on the
+  // shared `layout_revs (layout_id, n)` PK anyway (extreme contention).
+  // §2.3's own body shape still applies -- a fresh read, never a raw
+  // `RevConflictError` leaking through as an unmapped 500.
+  return await staleFromExhaustedRetry(db, lastInput!);
+}
+
+async function staleFromExhaustedRetry(db: Bindings["DB"], lastInput: CommitInput): Promise<never> {
+  const lwf = await byRefWithFormats(db, lastInput.layoutId);
+  if (lwf === null) throw internal(); // unreachable: this layout existed as of every build() attempt above
+  const { layout, formats } = lwf;
+  if (lastInput.format !== undefined) {
+    const lineageId = lastInput.format.lineage;
+    const row = formats.get(lineageId);
+    const rev = row?.rev ?? 0;
+    const lastWrite = await latestRevBumpingEvent(db, layout.id, row?.format ?? lastInput.format.format);
+    throw stale(lineageId, rev, fullWire(layout, formats, row !== undefined ? { format: row.format, payload: row.payload } : undefined), lastWrite);
+  }
+  const lastWrite = await latestRevBumpingEvent(db, layout.id, null);
+  throw stale("layout", layout.layout_rev, fullWire(layout, formats), lastWrite);
 }
 
 // 21-formats.md §2.4 (LDB-F16, narrowed to "no default"): every write
