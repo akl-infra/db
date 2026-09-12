@@ -310,6 +310,16 @@ export interface ListParams {
   sort: SortKey;
   limit: number;
   cursor?: ListCursor;
+  // Coordinator review (LOW, third batch): the plain list (no payload in
+  // its own wire shape, H1) doesn't need this query to fetch or parse
+  // `payload_json` at all UNLESS the caller could actually need to
+  // translate a row (an older major of a chained lineage, or an output
+  // format) -- routes/layouts.ts's plain-list handler passes `false` only
+  // when it can PROVE, from the registry alone (no DB read), that no row
+  // in the result can possibly need it. Defaults to `true` (unset ==
+  // fetch it) so `?full=1`'s own call, which always needs the payload, is
+  // unaffected.
+  withPayload?: boolean;
 }
 
 export interface ListItem {
@@ -391,9 +401,10 @@ export async function list(db: Bindings["DB"], params: ListParams): Promise<List
     args.push(params.cursor.sortValue, params.cursor.sortValue, params.cursor.id);
   }
 
+  const withPayload = params.withPayload !== false;
   const sql = `
     SELECT l.*, f.rev AS f_rev, f.format AS f_format, f.created_at AS f_created_at, f.modified_at AS f_modified_at,
-      f.payload_json AS f_payload_json, f.has_magic AS f_has_magic, f.source_client AS f_source_client, f.source_version AS f_source_version,
+      ${withPayload ? "f.payload_json AS f_payload_json," : ""} f.has_magic AS f_has_magic, f.source_client AS f_source_client, f.source_version AS f_source_version,
       ${sortColExpr} AS sort_value
     FROM layouts l JOIN layout_formats f ON f.layout_id = l.id
     WHERE ${where.join(" AND ")}
@@ -404,18 +415,34 @@ export async function list(db: Bindings["DB"], params: ListParams): Promise<List
   const { results } = await db.prepare(sql).bind(...args).all<ListJoinedRow>();
   const items: ListItem[] = results.map((row) => ({
     layout: rowToLayout(row),
-    format: rowToFormat({
-      layout_id: row.id,
-      lineage: params.sourceLineage,
-      format: row.f_format,
-      rev: row.f_rev,
-      created_at: row.f_created_at,
-      modified_at: row.f_modified_at,
-      payload_json: row.f_payload_json,
-      has_magic: row.f_has_magic,
-      source_client: row.f_source_client,
-      source_version: row.f_source_version,
-    }),
+    // `withPayload: false` skips `rowToFormat`'s own unconditional
+    // `JSON.parse(payload_json)` entirely -- there is no payload column
+    // in the row to parse, and nothing downstream may read `.payload`
+    // when the caller asked for this.
+    format: withPayload
+      ? rowToFormat({
+          layout_id: row.id,
+          lineage: params.sourceLineage,
+          format: row.f_format,
+          rev: row.f_rev,
+          created_at: row.f_created_at,
+          modified_at: row.f_modified_at,
+          payload_json: row.f_payload_json,
+          has_magic: row.f_has_magic,
+          source_client: row.f_source_client,
+          source_version: row.f_source_version,
+        })
+      : {
+          layout_id: row.id,
+          lineage: params.sourceLineage,
+          format: row.f_format,
+          rev: row.f_rev,
+          created_at: row.f_created_at,
+          modified_at: row.f_modified_at,
+          payload: undefined,
+          has_magic: row.f_has_magic !== 0,
+          source: sourceFromRow({ source_client: row.f_source_client, source_version: row.f_source_version }),
+        },
   }));
 
   let nextCursor: string | null = null;

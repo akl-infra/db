@@ -22,7 +22,7 @@ import {
   type ListCursor,
   type SortKey,
 } from "../core/records";
-import { get as getFormat, list as listFormats, translate } from "../formats/registry";
+import { get as getFormat, latestId, latestOf, list as listFormats, translate } from "../formats/registry";
 
 const CACHE_CONTROL = "public, max-age=10";
 const SORT_KEYS: readonly SortKey[] = ["name", "modified_at", "created_at", "like_count"];
@@ -120,7 +120,26 @@ layoutsRoute.get("/v1/layouts", async (c) => {
   const short = await conditional(c, etag, CACHE_CONTROL);
   if (short) return short;
 
-  const page = await listRecords(db, { sourceLineage, owner, hasMagic, since, likedBy, sort, limit, cursor });
+  // Coordinator review (LOW, third batch): the plain list never carries a
+  // payload (H1) -- `translate()` only ever ran to spot a HELD row, which
+  // needs the real payload (mana2's own held fixtures are genuinely
+  // payload-dependent: repeated letters, six thumbs, combos, ... -- there
+  // is no cheaper structural stand-in for that check). A row can only
+  // possibly need translating AT ALL when its own stored major differs
+  // from what was asked -- LDB-P13 stores a row at the latest major on
+  // every WRITE (`chainToLatest`), but that's an upgrade-on-touch, not a
+  // background migration: a row untouched since a NEWER major shipped can
+  // still genuinely sit at an OLDER one. So "requesting the latest major"
+  // alone doesn't prove every row matches it -- only "this lineage has
+  // EVER had exactly one registered major" does (nothing else could exist
+  // for a row to be stuck at). That's the one case this query skips
+  // selecting/parsing every row's `payload_json` for, proven from the
+  // registry alone, no DB read needed -- the moment a lineage ships a
+  // second major, this stops applying on its own, permanently. An older
+  // major of an already-chained lineage or an output format (mana2/1)
+  // still fetches and translates for real, exactly as before.
+  const withPayload = !(format === latestId(sourceLineage) && latestOf(sourceLineage) === 1);
+  const page = await listRecords(db, { sourceLineage, owner, hasMagic, since, likedBy, sort, limit, cursor, withPayload });
   // Coordinator review (H1): `formats` must list EVERY stored format the
   // layout has, not just the one lineage `list()`'s own JOIN filtered on
   // -- one batched query for the whole page, not one per row.

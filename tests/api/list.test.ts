@@ -15,7 +15,8 @@ import { commitWrite, type CommitInput } from "../../src/core/events";
 import { formatsForLayout, readById } from "../../src/core/records";
 import { fixedClock } from "../../src/core/time";
 import { registerForTest } from "../../formats/registry.ts";
-import { T1 } from "../formats/stub-lineage.ts";
+import { T1, T2, T3 } from "../formats/stub-lineage.ts";
+import { ulid } from "ulidx";
 
 beforeAll(async () => {
   await seedUpstream100();
@@ -213,6 +214,66 @@ describe("[H1] plain list: no payload, formats map is complete", () => {
     expect(item).toBeDefined();
     expect(Object.keys(item!.formats).sort()).toEqual(["spark/1", "t/1"]);
     expect(item!.payload).toBeDefined();
+  });
+});
+
+// [LDB-P13] Coordinator review (LOW, third batch): the plain list route
+// skips selecting/parsing every row's `payload_json` (and thus its own
+// `translate()` call) whenever it can prove, from the registry alone,
+// that no row could possibly need it -- which requires MORE than "the
+// caller asked for the latest major": `chainToLatest` upgrades a row's
+// stored major only on its OWN next write, never as a background
+// migration, so a row can genuinely sit at an older major indefinitely
+// once a newer one ships. This proves the guard actually checks
+// `latestOf(lineage) === 1` (only one major has EVER existed for this
+// lineage), not just "requesting today's latest" -- a record written
+// while `t` had only `t/1` registered, still genuinely stored as `t/1`
+// after `t/2`/`t/3` are registered (never re-written), must still
+// translate correctly on `?format=t/3` rather than skip its own payload
+// fetch and hand `translate()` `undefined`.
+describe("[LDB-P13] plain list still fetches/translates a row genuinely stuck at an older major of a NOW-chained lineage", () => {
+  it("[LDB-P13] a t/1-native row survives ?format=t/3 on the plain list once t/2 and t/3 are ALSO registered", async () => {
+    const unregisterT1 = registerForTest(T1);
+    let recordId: string;
+    try {
+      const input: CommitInput = {
+        layoutId: ulid(),
+        creating: true,
+        currentN: 0,
+        currentLayout: null,
+        currentFormats: new Map(),
+        layout: { kind: "created", name: "chained-list-stuck-old-major", owner: "900000000000000001", created_at: "2026-07-21T00:00:00.000Z", deleted: false },
+        format: { kind: "format_added", lineage: "t", format: "t/1", payload: { v: 1, a: 1 }, hasMagic: false },
+        modified_at: "2026-07-21T00:00:00.000Z",
+        actor: "900000000000000001",
+        via: "discord",
+        source: { client: "discord-app:test", version: null },
+        upstream: null,
+      };
+      const { layout } = await commitWrite(db, fixedClock("2026-07-21T00:00:00.000Z"), input);
+      recordId = layout.id;
+
+      // Register t/2 and t/3 AFTER the record above was written -- it is
+      // never re-written, so it is still genuinely stored as t/1 even
+      // though `latestOf("t")` is now 3.
+      const unregisterT2 = registerForTest(T2);
+      const unregisterT3 = registerForTest(T3);
+      try {
+        const res = await SELF.fetch("https://example.com/v1/layouts?format=t/3");
+        expect(res.status).toBe(200);
+        const body = await res.json<{ items: { id: string; format: string }[] }>();
+        const row = body.items.find((i) => i.id === recordId);
+        expect(row, "the t/1-native row must still appear under ?format=t/3").toBeDefined();
+        // up() never holds (LDB-F18) -- a correct translate() call proves
+        // the payload really was fetched, not skipped.
+        expect(row?.format).toBe("t/3");
+      } finally {
+        unregisterT3();
+        unregisterT2();
+      }
+    } finally {
+      unregisterT1();
+    }
   });
 });
 
