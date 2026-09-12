@@ -11,6 +11,7 @@
 - Every addition states its invariants and tests them (`db/INVARIANTS.md`, `bot/INVARIANTS.md`, catalog rows). User-facing copy (bot replies, site strings) is a `// COPY: sign-off pending` stand-in until saltorbit signs it.
 - Cheaper agents implement (Sonnet by default); the lead reviews every diff. **One file-editing agent at a time** (the worktree pin livelocks otherwise, see memory `subagent-worktree-isolation`). Lead's cross-worktree git goes through a scratchpad script.
 - Sync the live bot / db site only at natural pause points.
+- **saltorbit, 2026-09-12: "implement this new way fully. don't merge to main or disrupt existing shipping aklgg, but otherwise you should push updates to the db etc."** Prod layoutdb deploys, spark deploys and the db-alias site are ours to push as slices land.
 
 ## Decisions taken 2026-09-12 (beyond PROPOSAL.md §6)
 
@@ -32,8 +33,8 @@ Status: `todo` · `running (agent, branch)` · `review` · `landed <sha>` · `bl
 | id | slice | status |
 |---|---|---|
 | D0 | this ledger + REQUIREMENTS + PROPOSAL + data-flow page on the db preview | landed 89312ddb6 |
-| D1 | layoutdb-focused architecture doc for outside reviewers (common infra only; spark/1 format flagged as still open) | todo |
-| D2 | ecosystem page rewritten to the new target shape (or marked superseded); artifacts index accurate | todo |
+| D1 | layoutdb-focused architecture doc for outside reviewers (common infra only; spark/1 format flagged as still open; format rules table) | landed: `design/artifacts/layoutdb-arch.html`, /artifacts/layoutdb-arch/ |
+| D2 | ecosystem page rewritten to the new target shape; artifacts index accurate; every SVG measured in Chrome for clipping | landed |
 | D3 | retire `design/layout-db/00–22`, `design/pipeline-313/*` to `historical/` with one pointer; `REQUIREMENTS.md` becomes the standing file; CLAUDE.md pointer | todo (after D1) |
 
 ### Wave 1 — layoutdb (`db/`), serial
@@ -76,4 +77,5 @@ Status: `todo` · `running (agent, branch)` · `review` · `landed <sha>` · `bl
 
 ## Log
 
+- 2026-09-12 · D1 (layoutdb architecture page) + D2 (ecosystem rewrite) landed; all four artifact pages measured in Chrome for SVG clipping and fixed.
 - 2026-09-12 · review round 1 (audits, requirements, proposal, data-flow) landed; saltorbit answered §6; long-poll, Fly, rebuild cadence, safety nets decided; implementation kicked off with L4 first.
