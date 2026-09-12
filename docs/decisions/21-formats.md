@@ -192,6 +192,20 @@ D1's branch merges into `ldb-formats` first, so one deploy carries both. Prod ak
 - `scripts/e2e/bot_db_site.mjs --dry-run` re-recorded;
 - the trial site (`db.cmini-web.pages.dev`) publishing a draft and reading it back.
 
+### F4 — done (2026-09-12 ~04:05Z)
+
+`ldb-formats` @ 787619e65 (the webhook lease, F1, F2, F3a–c) is live on production layoutdb, the spark bot and the trial site. In order:
+
+- Fence re-checked: the `aklgg` Pages **production** env has no `DB_BASE_URL` (only the preview env does), so none of this reaches akl.gg.
+- Bot (`spark-bot`, machine 7841609c5d3628) and stats service (`aklgg-stats-preview`, 850dd3a4e57118) stopped.
+- Migrations 0008 (webhook lease) and 0009 (formats) applied to prod `akl-db`; Worker deployed, version 9a4ffb08-29c7-4663-a921-16d0bba3650d.
+- **Manual step, not in 0009:** 0009 drops and recreates `events`, which resets its AUTOINCREMENT. The stats pointer's `db_seq` (and every other follower's cursor) assumes `seq` only grows, so right after the migration `sqlite_sequence` for `events` was set back to the pre-wipe 13045. The first new event was 13046. Any future migration that recreates `events` must do the same (or carry it in the migration).
+- Re-imported from cmini through admin ticks (temp client 01M29V46BGK1FKV0NPWWJK23Y2, revoked after, key deleted): 4,175 layouts, 365 authors (kept by 0009).
+- Magic re-seeded from akl.gg's published `magic_rules.json` (88 entries): 81 written, 0 collisions, 0 invalid, 7 missing. The 7 are layouts cmini's own API no longer has (404 at `clemenpine.com/layoutapi/v3/layouts/<name>`): chime, duck, melody, rosewood, tanglewood (already gone this morning), and onyxia, signal (gone since).
+- Fresh dump `dump-2026-09-12.json.gz` (4,175 layouts); bot image `deployment-01M29VEAGYGZ5BSXQ788MWPE67` started from it; stats image `deployment-01M29VBG3G0NKG6HMYVJCHB29B` started on `/work/fresh-2026-09-12`; trial site redeployed (`bb3cefab`, alias `db.cmini-web.pages.dev`).
+- Verified live: spark-tester `!sp view graphite` answers; `like`, repeat `like` ("You've already liked this layout"), `unlike`, repeat `unlike` ("You've already unliked this layout") all behave per D13 at about 2.3 s round trip including Discord. e2e `--dry-run` against prod: layoutdb, the headless bot (boot 1.1 s, `view` 798 ms, `sfbs` 176 ms) and the site pass; D4 (bucket vs layoutdb) fails until the fresh stats service's first publish replaces the pre-wipe overlay's ids.
+- Open: the bot's "`<name>` has no spark/1 format (it has …)" reply is a COPY stand-in awaiting saltorbit's wording (unreachable until a second stored format exists).
+
 ## 4. Invariants
 
 Ids assigned by the F2 slice (2026-09-11), the next free number in `db/INVARIANTS.md` at the time (MF-8 excluded -- it's the bot's own job, F3a, and belongs in `bot/INVARIANTS.md` when that slice lands): MF-1=LDB-P16, MF-2=LDB-P17, MF-3=LDB-P18, MF-4=LDB-G11, MF-5=LDB-P19, MF-6=LDB-P20, MF-7=LDB-F25, MF-9=LDB-F23 (already existed, F1), MF-10=LDB-F26, MF-11=LDB-P21, MF-12=LDB-I18, MF-13=LDB-D7. "The write model" below is one `fast-check` model shared by MF-1, 2, 3, 5 and 12 (one shared test, `db/tests/events/fold.test.ts`'s `[LDB-P16] [LDB-P17] [LDB-P18] [LDB-P19] [LDB-I18]`-tagged case): random sequences of every write kind in §2.2 (user and import, both scopes, over spark and the test-only second lineage), including concurrent pairs. MF-6 turned out to need its own dedicated race tests instead (concurrency requires real interleaving, not a single-threaded random-sequence model), so it is NOT part of the shared write model despite the original plan grouping it there.
