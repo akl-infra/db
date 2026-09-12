@@ -6,20 +6,37 @@
 import type { Bindings } from "../env";
 import { badRequest, notFound } from "./errors";
 import { appendAdmin } from "./events";
-import { base64UrlToBytes } from "../auth/client";
+import { base64UrlToBytes, EXTRA_CAPS, parseCaps, SCOPE_CAPS } from "../auth/client";
 import type { Clock } from "./time";
 import { ulid } from "ulidx";
 
-export type ClientCaps = "act-as-user" | "act-as-owner-only";
-const CAPS: readonly ClientCaps[] = ["act-as-user", "act-as-owner-only"];
 const OWNER_ID_RE = /^\d{17,20}$/;
+
+// LEDGER.md L4: `caps` is a comma-separated set now (`auth/client.ts`'s
+// `parseCaps`/`SCOPE_CAPS`/`EXTRA_CAPS`) -- exactly ONE scope cap
+// (mutually exclusive: whom the client may act as) plus zero or more
+// extra caps (additive: `feed:wait` the first one). `"act-as-owner-only"`
+// alone, or `"act-as-owner-only,feed:wait"`, are both valid; `"feed:wait"`
+// alone (no scope cap) or two scope caps together are not.
+function validateCaps(raw: string): string | null {
+  const tokens = parseCaps(raw);
+  const scopeTokens = tokens.filter((t) => (SCOPE_CAPS as string[]).includes(t));
+  const unknown = tokens.filter((t) => !(SCOPE_CAPS as string[]).includes(t) && !(EXTRA_CAPS as string[]).includes(t));
+  if (scopeTokens.length !== 1) {
+    return `caps must name exactly one of ${SCOPE_CAPS.join(", ")}, plus any of ${EXTRA_CAPS.join(", ")}`;
+  }
+  if (unknown.length > 0) {
+    return `caps names unknown capability/ies: ${unknown.join(", ")}`;
+  }
+  return null;
+}
 
 export interface ClientRow {
   id: string;
   name: string;
   pubkey: string;
   owner_user_id: string;
-  caps: ClientCaps;
+  caps: string;
   discord_app_id: string | null;
   status: "active" | "revoked";
   created_at: string;
@@ -35,16 +52,18 @@ export interface RegisterClientBody {
 }
 
 // `pubkey` must decode to exactly the raw 32-byte Ed25519 public key (10 C1
-// §4); `caps` one of the two values; `owner_user_id` Discord-id shaped.
-// Bad-request `param` names the offending field, JSON-pointer style, like
-// every other write schema in this service.
+// §4); `caps` exactly one scope cap plus any extra caps (LEDGER.md L4);
+// `owner_user_id` Discord-id shaped. Bad-request `param` names the
+// offending field, JSON-pointer style, like every other write schema in
+// this service.
 export async function registerClient(db: Bindings["DB"], now: Clock, actorId: string, body: RegisterClientBody): Promise<ClientRow> {
   const pubkeyBytes = base64UrlToBytes(body.pubkey);
   if (pubkeyBytes === null || pubkeyBytes.length !== 32) {
     throw badRequest("pubkey must be base64url of exactly 32 bytes", "/pubkey");
   }
-  if (!(CAPS as string[]).includes(body.caps)) {
-    throw badRequest(`caps must be one of ${CAPS.join(", ")}`, "/caps");
+  const capsError = validateCaps(body.caps);
+  if (capsError !== null) {
+    throw badRequest(capsError, "/caps");
   }
   if (!OWNER_ID_RE.test(body.owner_user_id)) {
     throw badRequest("owner_user_id must be a 17-20 digit Discord id", "/owner_user_id");
@@ -55,7 +74,7 @@ export async function registerClient(db: Bindings["DB"], now: Clock, actorId: st
     name: body.name,
     pubkey: body.pubkey,
     owner_user_id: body.owner_user_id,
-    caps: body.caps as ClientCaps,
+    caps: body.caps,
     discord_app_id: body.discord_app_id ?? null,
     status: "active",
     created_at: now(),

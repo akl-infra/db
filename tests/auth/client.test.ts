@@ -9,7 +9,7 @@
 import { SELF, env } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { Bindings } from "../../src/env";
-import { pruneNonces, verifyClientRequest } from "../../src/auth/client";
+import { hasCap, parseCaps, pruneNonces, scopeCapOf, verifyClientRequest } from "../../src/auth/client";
 import { fixedClock } from "../../src/core/time";
 import {
   generateKeyPair,
@@ -58,6 +58,28 @@ let counter = 0;
 function uniqueId(prefix: string): string {
   return `${prefix}-${counter++}`;
 }
+
+// LEDGER.md L4: `caps` parsing/lookup helpers (pure, no D1/network).
+describe("[LDB-CH3] caps helpers (parseCaps/scopeCapOf/hasCap)", () => {
+  it("parseCaps splits, trims, and drops empty tokens", () => {
+    expect(parseCaps("act-as-user")).toEqual(["act-as-user"]);
+    expect(parseCaps("act-as-owner-only, feed:wait")).toEqual(["act-as-owner-only", "feed:wait"]);
+    expect(parseCaps("act-as-user,,feed:wait,")).toEqual(["act-as-user", "feed:wait"]);
+  });
+
+  it("scopeCapOf finds the one scope cap regardless of position, or undefined if none", () => {
+    expect(scopeCapOf("act-as-owner-only")).toBe("act-as-owner-only");
+    expect(scopeCapOf("feed:wait,act-as-user")).toBe("act-as-user");
+    expect(scopeCapOf("feed:wait")).toBeUndefined();
+    expect(scopeCapOf("")).toBeUndefined();
+  });
+
+  it("hasCap checks membership of one extra cap", () => {
+    expect(hasCap("act-as-owner-only,feed:wait", "feed:wait")).toBe(true);
+    expect(hasCap("act-as-owner-only", "feed:wait")).toBe(false);
+    expect(hasCap("", "feed:wait")).toBe(false);
+  });
+});
 
 describe("[LDB-A4] every client-signing vector is accepted", () => {
   beforeAll(async () => {
@@ -332,6 +354,37 @@ describe("[LDB-A5] act-as-owner-only refuses a foreign actor, accepts the owner"
 
     const strangerHeaders = await sign(stranger);
     const strangerReq = new Request("https://example.com/v1/me", { method: "GET", headers: strangerHeaders });
+    await expect(verifyClientRequest(db, NOW, strangerReq, new Uint8Array(0), {})).rejects.toMatchObject({
+      body: { error: "actor_not_allowed", actor: stranger, owner },
+    });
+  });
+
+  // LEDGER.md L4: `caps` is a comma-separated set now -- `act-as-owner-only`
+  // still enforces the owner-only restriction (and `Actor.client_caps`
+  // still carries the full string) even alongside an extra cap.
+  it("[LDB-CH3] act-as-owner-only PLUS feed:wait still refuses a foreign actor, still carries client_caps", async () => {
+    const { privateKey, pubkeyB64url } = await generateKeyPair();
+    const clientId = uniqueId("client-owneronly-waitcap");
+    const owner = "666666666666666666";
+    const stranger = "777777777777777777";
+    await seedClient(db, NOW, { id: clientId, pubkeyB64url, ownerUserId: owner, caps: "act-as-owner-only,feed:wait" });
+
+    const sign = (actor: string) =>
+      signHeaders({
+        privateKey,
+        clientId,
+        actor,
+        method: "GET",
+        pathWithQuery: "/v1/me",
+        timestamp: Math.floor(new Date(BASE_TS_ISO).getTime() / 1000),
+        nonce: crypto.getRandomValues(new Uint8Array(16)),
+      });
+
+    const ownerReq = new Request("https://example.com/v1/me", { method: "GET", headers: await sign(owner) });
+    const actor = await verifyClientRequest(db, NOW, ownerReq, new Uint8Array(0), {});
+    expect(actor.client_caps).toBe("act-as-owner-only,feed:wait");
+
+    const strangerReq = new Request("https://example.com/v1/me", { method: "GET", headers: await sign(stranger) });
     await expect(verifyClientRequest(db, NOW, strangerReq, new Uint8Array(0), {})).rejects.toMatchObject({
       body: { error: "actor_not_allowed", actor: stranger, owner },
     });

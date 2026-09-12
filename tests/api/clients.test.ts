@@ -39,7 +39,7 @@ function testUserId(): string {
   return `40000000000000${String(idCounter).padStart(3, "0")}`;
 }
 
-async function registerClient(pubkeyB64url: string, ownerUserId: string, caps: "act-as-user" | "act-as-owner-only" = "act-as-user") {
+async function registerClient(pubkeyB64url: string, ownerUserId: string, caps: string = "act-as-user") {
   return writeFetch("/v1/admin/clients", "POST", adminHeaders(`tok-${uniqueName("register")}`), {
     name: uniqueName("test-client"),
     pubkey: pubkeyB64url,
@@ -130,6 +130,41 @@ describe("[LDB-A5] POST /v1/admin/clients", () => {
       caps: "act-as-user",
     });
     expect(res.status).toBe(400);
+  });
+
+  // LEDGER.md L4: `caps` is a comma-separated set -- exactly one scope cap
+  // plus any extra caps (`feed:wait` the first one).
+  it("[LDB-CH3] caps with a scope cap plus feed:wait registers cleanly and is stored verbatim", async () => {
+    const { pubkeyB64url } = await generateKeyPair();
+    const res = await registerClient(pubkeyB64url, testUserId(), "act-as-owner-only,feed:wait");
+    expect(res.status, await res.clone().text()).toBe(201);
+    const body = await res.json<{ caps: string }>();
+    expect(body.caps).toBe("act-as-owner-only,feed:wait");
+  });
+
+  it("caps with no scope cap (feed:wait alone) -> 400 bad_request /caps", async () => {
+    const { pubkeyB64url } = await generateKeyPair();
+    const res = await registerClient(pubkeyB64url, testUserId(), "feed:wait");
+    expect(res.status).toBe(400);
+    const body = await res.json<{ error: string; param: string }>();
+    expect(body.error).toBe("bad_request");
+    expect(body.param).toBe("/caps");
+  });
+
+  it("caps with two scope caps together -> 400 bad_request /caps", async () => {
+    const { pubkeyB64url } = await generateKeyPair();
+    const res = await registerClient(pubkeyB64url, testUserId(), "act-as-user,act-as-owner-only");
+    expect(res.status).toBe(400);
+    const body = await res.json<{ error: string; param: string }>();
+    expect(body.param).toBe("/caps");
+  });
+
+  it("caps naming an unknown extra capability -> 400 bad_request /caps", async () => {
+    const { pubkeyB64url } = await generateKeyPair();
+    const res = await registerClient(pubkeyB64url, testUserId(), "act-as-user,not-a-real-cap");
+    expect(res.status).toBe(400);
+    const body = await res.json<{ error: string; param: string }>();
+    expect(body.param).toBe("/caps");
   });
 });
 

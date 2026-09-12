@@ -19,7 +19,10 @@ const WRITE_WINDOW_SECONDS = 600;
 // a real multi-user bot serving a busy channel exceeds one actor's rate, so
 // this is 5x the per-actor number, not equal to it.
 export const CLIENT_LIMIT = 5 * WRITE_LIMIT;
-const CLIENT_WINDOW_SECONDS = 600;
+// Exported: LEDGER.md L4's long-poll gate (`routes/changes.ts`) counts a
+// held `wait=` request against this SAME per-client counter/window --
+// one place naming "how the client-lane rate limit is shaped", never two.
+export const CLIENT_WINDOW_SECONDS = 600;
 
 // Test-only, like TEST_CLOCK below: the ratelimit and conformance suites pin
 // small limits so they can reach a 429 without thousands of writes.

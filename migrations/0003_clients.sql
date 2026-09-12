@@ -8,7 +8,7 @@ CREATE TABLE clients (
   name           TEXT NOT NULL,
   pubkey         TEXT NOT NULL,           -- base64url of the raw 32-byte Ed25519 public key
   owner_user_id  TEXT NOT NULL,           -- Discord id of the maintainer
-  caps           TEXT NOT NULL,           -- 'act-as-user' | 'act-as-owner-only'
+  caps           TEXT NOT NULL,           -- comma-separated (LEDGER.md L4): exactly one of 'act-as-user' | 'act-as-owner-only', plus any of 'feed:wait'
   discord_app_id TEXT,                    -- recorded for the human check (02 §3.3), never verified at runtime
   status         TEXT NOT NULL,           -- 'active' | 'revoked'
   created_at     TEXT NOT NULL, revoked_at TEXT

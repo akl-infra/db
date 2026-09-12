@@ -25,6 +25,12 @@ export interface Actor {
   // the literal `"discord"` on the user lane): this is what
   // `core/write.ts` folds onto every write's `source.client`.
   source_client: string;
+  // LEDGER.md L4: the client-lane row's own `caps` string (e.g.
+  // `"act-as-owner-only,feed:wait"`), verbatim -- undefined on the
+  // Discord/bearer lane, which has no such row. `routes/changes.ts`'s
+  // `wait=` gate reads this directly (`auth/client.ts`'s `hasCap`) rather
+  // than re-querying `clients` a second time.
+  client_caps?: string;
 }
 
 export type ActorVariables = { actor: Actor; sourceVersion: string | null };

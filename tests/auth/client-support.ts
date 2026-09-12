@@ -16,7 +16,11 @@ export interface SeedClientOpts {
   name?: string;
   pubkeyB64url: string;
   ownerUserId: string;
-  caps: "act-as-user" | "act-as-owner-only";
+  // A comma-separated set (LEDGER.md L4): exactly one scope cap
+  // (`act-as-user` | `act-as-owner-only`) plus any extra caps (e.g.
+  // `"act-as-owner-only,feed:wait"`) -- widened from a two-value union
+  // now that `caps` carries more than the scope alone.
+  caps: string;
   status?: "active" | "revoked";
   discordAppId?: string | null;
 }

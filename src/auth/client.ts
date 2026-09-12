@@ -24,6 +24,37 @@ const TIMESTAMP_RE = /^\d{1,12}$/;
 const ACTOR_RE = /^\d{17,20}$/;
 const SKEW_SECONDS = 300;
 
+// `clients.caps` (10 C1) is a comma-separated set: exactly one SCOPE cap
+// (mutually exclusive -- whom the client may act as) plus zero or more
+// EXTRA caps (additive capabilities, LEDGER.md L4's `feed:wait` the first
+// one). Stored as one TEXT column, e.g. `"act-as-owner-only,feed:wait"` --
+// no migration needed, the column already held a single scope-cap string.
+export type ScopeCap = "act-as-user" | "act-as-owner-only";
+export type ExtraCap = "feed:wait";
+export const SCOPE_CAPS: readonly ScopeCap[] = ["act-as-user", "act-as-owner-only"];
+export const EXTRA_CAPS: readonly ExtraCap[] = ["feed:wait"];
+
+export function parseCaps(raw: string): string[] {
+  return raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+// The one scope cap a `caps` string carries, or undefined if none of its
+// tokens is a registered scope cap (a malformed/legacy row -- callers
+// treat this the same as "no act-as-owner-only", i.e. permissive, since a
+// row that passed `registerClient`'s own validation always has exactly
+// one).
+export function scopeCapOf(caps: string): ScopeCap | undefined {
+  const tokens = parseCaps(caps);
+  return (SCOPE_CAPS as string[]).find((c) => tokens.includes(c)) as ScopeCap | undefined;
+}
+
+export function hasCap(caps: string, cap: ExtraCap): boolean {
+  return parseCaps(caps).includes(cap);
+}
+
 interface ClientRow {
   id: string;
   pubkey: string;
@@ -162,7 +193,7 @@ export async function verifyClientRequest(
   }
 
   // Step 6: caps.
-  if (client.caps === "act-as-owner-only" && actorRaw !== client.owner_user_id) {
+  if (scopeCapOf(client.caps) === "act-as-owner-only" && actorRaw !== client.owner_user_id) {
     throw actorNotAllowed(actorRaw, client.owner_user_id);
   }
 
@@ -193,6 +224,7 @@ export async function verifyClientRequest(
     // 20-spark.md S3s (LDB-P15): same string `via` already carries on this
     // lane -- the signed request already names the client unambiguously.
     source_client: `client:${client.id}`,
+    client_caps: client.caps,
   };
 }
 
