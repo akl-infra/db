@@ -78,10 +78,14 @@ interface Slot {
   layoutRev: number;
   upstream: Upstream | null;
   formats: Map<string, FormatSlot>;
+  // D13 L1/L2: appendLike no longer silently no-ops a repeat like/
+  // redundant unlike -- it throws -- so the model tracks who currently
+  // likes this slot, per user, to know which transition is valid.
+  likedBy: Set<string>;
 }
 
 function freshSlot(): Slot {
-  return { exists: false, deleted: false, id: "", name: "", owner: "", n: 0, layoutRev: 0, upstream: null, formats: new Map() };
+  return { exists: false, deleted: false, id: "", name: "", owner: "", n: 0, layoutRev: 0, upstream: null, formats: new Map(), likedBy: new Set() };
 }
 
 // Snowflake-SHAPED (transferLayout's own TRANSFER_USER_ID_RE, now
@@ -181,8 +185,18 @@ async function applyOp(clock: () => string, slots: Slot[], op: Op): Promise<void
 
   if (action === "liked" || action === "unliked") {
     if (!slot.exists) return;
+    const userId = `u${op.userIdPick}`;
+    // D13 L1/L2: a repeat like or a redundant unlike now throws instead
+    // of silently no-opping, so -- same coercion resolveOp already does
+    // for every other op -- always toggle to whichever transition is
+    // actually valid for THIS user's current state, regardless of which
+    // of "liked"/"unliked" the raw pick landed on.
+    const alreadyLiked = slot.likedBy.has(userId);
+    const kind = alreadyLiked ? "unliked" : "liked";
     const { appendLike } = await import("../../src/core/events");
-    await appendLike(db, clock, { kind: action, layoutId: slot.id, userId: `u${op.userIdPick}`, via: "discord", source: USER_SOURCE });
+    await appendLike(db, clock, { kind, layoutId: slot.id, userId, via: "discord", source: USER_SOURCE });
+    if (kind === "liked") slot.likedBy.add(userId);
+    else slot.likedBy.delete(userId);
     return;
   }
 
@@ -457,6 +471,12 @@ async function checkLayoutInvariants(layoutId: string): Promise<void> {
   // MF-5: at least one format, always.
   expect(actualFormats.size).toBeGreaterThanOrEqual(1);
 
+  // D13 L4: like_count always equals the number of distinct users in
+  // `likes` for the layout -- checked after every step, likes included,
+  // not just the ones this step's own op happened to touch.
+  const likeRows = await db.prepare("SELECT COUNT(DISTINCT user_id) AS n FROM likes WHERE layout_id = ?").bind(layoutId).first<{ n: number }>();
+  expect(actualLayout.like_count, "LDB-L4: like_count === COUNT(DISTINCT likes.user_id)").toBe(likeRows?.n ?? 0);
+
   // MF-2: rev partition + gaplessness.
   const revBumping = events.filter((e) => e.rev !== null);
   const layoutEvents = revBumping.filter((e) => e.format === null);
@@ -579,9 +599,19 @@ describe("[LDB-P1] [MF-1] [MF-2] [MF-3] [MF-5] [MF-12] the shared write model", 
 
     const before = await db.prepare("SELECT * FROM layouts WHERE id = ?").bind(layout.id).first<LayoutDbRow>();
     const { appendInfo, appendLike } = await import("../../src/core/events");
+    const { ApiError } = await import("../../src/core/errors");
     await appendInfo(db, clock, { kind: "upstream_changed", layoutId: layout.id, actor: "system:cmini-import", via: "import:cmini", source: IMPORT_SOURCE, detail: { note: "x" } });
     await appendLike(db, clock, { kind: "liked", layoutId: layout.id, userId: "u1", via: "discord", source: USER_SOURCE });
-    await appendLike(db, clock, { kind: "liked", layoutId: layout.id, userId: "u1", via: "discord", source: USER_SOURCE }); // repeat: idempotent no-op
+    // D13 L1: a repeat like now throws 409 already_liked instead of a
+    // silent no-op -- it still changes nothing.
+    let repeatErr: unknown;
+    try {
+      await appendLike(db, clock, { kind: "liked", layoutId: layout.id, userId: "u1", via: "discord", source: USER_SOURCE });
+    } catch (e) {
+      repeatErr = e;
+    }
+    expect(repeatErr).toBeInstanceOf(ApiError);
+    expect((repeatErr as InstanceType<typeof ApiError>).body).toMatchObject({ error: "already_liked" });
 
     const after = await db.prepare("SELECT * FROM layouts WHERE id = ?").bind(layout.id).first<LayoutDbRow>();
     expect(after!.layout_rev).toBe(before!.layout_rev);

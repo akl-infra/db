@@ -164,7 +164,7 @@ describe("races resolved inside the batch", () => {
     await invariantsHold();
   });
 
-  it("[LDB-P1] five users liking at once: like_count is 5 and five events exist; the same user twice at once is one like, one event", async () => {
+  it("[LDB-P1] [LDB-L1] five users liking at once: like_count is 5 and five events exist; the same user twice at once is one like, one 409 already_liked (D13 L1/E2)", async () => {
     const { layout } = await create("race-likes");
     const like = (userId: string) => appendLike(db, clock, { kind: "liked", layoutId: layout.id, userId, via: "discord", source: SOURCE });
 
@@ -173,8 +173,17 @@ describe("races resolved inside the batch", () => {
     const likeEvents = await db.prepare("SELECT COUNT(*) AS n FROM events WHERE layout_id = ? AND kind = 'liked'").bind(layout.id).first<{ n: number }>();
     expect(likeEvents?.n).toBe(5);
 
-    const dup = await Promise.all([like("u6"), like("u6")]);
-    expect(dup.filter((r) => r.seq !== null)).toHaveLength(1);
+    // D13 E2: of two edits based on the same version, exactly one
+    // succeeds -- applied to likes (L1), the `likes` table's own PK is
+    // what makes the loser's INSERT fail, and it surfaces as the same
+    // `already_liked` a sequential repeat would get, never a silent no-op.
+    const dup = await Promise.allSettled([like("u6"), like("u6")]);
+    const fulfilled = dup.filter((r) => r.status === "fulfilled");
+    const rejected = dup.filter((r) => r.status === "rejected");
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect((rejected[0] as PromiseRejectedResult).reason).toBeInstanceOf(ApiError);
+    expect(((rejected[0] as PromiseRejectedResult).reason as ApiError).body).toMatchObject({ error: "already_liked" });
     expect((await readById(db, layout.id))?.like_count).toBe(6);
     const rows = await db.prepare("SELECT COUNT(*) AS n FROM likes WHERE layout_id = ?").bind(layout.id).first<{ n: number }>();
     expect(rows?.n).toBe(6);

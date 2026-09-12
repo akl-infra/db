@@ -79,20 +79,22 @@ describe("[LDB-L1] PUT/DELETE /v1/layouts/{ref}/like", () => {
     await assertFoldMatchesRow(record.id);
   });
 
-  it("like again -> 200, no second event, count still 1", async () => {
+  it("[LDB-L1] like again -> 409 already_liked (D13 L1), no second event, count still 1, nothing else changes", async () => {
     const record = await seed();
     const headers = ownerHeaders(`tok-${uniqueName("like")}`);
     await writeFetch(`/v1/layouts/${record.id}/like`, "PUT", headers);
     const res = await writeFetch(`/v1/layouts/${record.id}/like`, "PUT", headers);
-    expect(res.status).toBe(200);
-    await expect(res.json()).resolves.toEqual({ like_count: 1 });
+    expect(res.status).toBe(409);
+    await expect(res.json()).resolves.toMatchObject({ error: "already_liked" });
 
     const events = await db.prepare("SELECT COUNT(*) AS n FROM events WHERE layout_id = ? AND kind = 'liked'").bind(record.id).first<{ n: number }>();
     expect(events?.n).toBe(1);
+    const row = await readById(db, record.id);
+    expect(row?.like_count).toBe(1);
     await assertFoldMatchesRow(record.id);
   });
 
-  it("unlike twice -> one 'unliked' event, count 0", async () => {
+  it("[LDB-L1] unlike twice -> one 'unliked' event, then 409 not_liked (D13 L2), count 0", async () => {
     const record = await seed();
     const headers = ownerHeaders(`tok-${uniqueName("like")}`);
     await writeFetch(`/v1/layouts/${record.id}/like`, "PUT", headers);
@@ -102,12 +104,24 @@ describe("[LDB-L1] PUT/DELETE /v1/layouts/{ref}/like", () => {
     await expect(first.json()).resolves.toEqual({ like_count: 0 });
 
     const second = await writeFetch(`/v1/layouts/${record.id}/like`, "DELETE", headers);
-    expect(second.status).toBe(200);
-    await expect(second.json()).resolves.toEqual({ like_count: 0 });
+    expect(second.status).toBe(409);
+    await expect(second.json()).resolves.toMatchObject({ error: "not_liked" });
 
     const events = await db.prepare("SELECT COUNT(*) AS n FROM events WHERE layout_id = ? AND kind = 'unliked'").bind(record.id).first<{ n: number }>();
     expect(events?.n).toBe(1);
+    const row = await readById(db, record.id);
+    expect(row?.like_count).toBe(0);
     await assertFoldMatchesRow(record.id);
+  });
+
+  it("[LDB-L1] unliking a layout never liked -> 409 not_liked, no event", async () => {
+    const record = await seed();
+    const headers = ownerHeaders(`tok-${uniqueName("never-liked")}`);
+    const res = await writeFetch(`/v1/layouts/${record.id}/like`, "DELETE", headers);
+    expect(res.status).toBe(409);
+    await expect(res.json()).resolves.toMatchObject({ error: "not_liked" });
+    const events = await db.prepare("SELECT COUNT(*) AS n FROM events WHERE layout_id = ? AND kind = 'unliked'").bind(record.id).first<{ n: number }>();
+    expect(events?.n).toBe(0);
   });
 
   it("[LDB-L1] layout_rev/modified_at/layouts_modified_at never move (nor a format's own rev/modified_at); like_count and meta.revision/seq do", async () => {
@@ -203,19 +217,45 @@ describe("[LDB-L1] PUT/DELETE /v1/layouts/{ref}/like", () => {
     await assertFoldMatchesRow(record.id);
   });
 
-  it("[LDB-L1] race: the same user liking twice at once -> one event, count 1, both 200", async () => {
+  it("[LDB-L1] race: the same user liking twice at once -> one event, count 1, exactly one 200 and one 409 already_liked (D13 E2)", async () => {
     const record = await seed();
     const fake = actorFixture();
     const headers = register(fake, `tok-${uniqueName("dup")}`, "race-dup-user");
 
     const [a, b] = await Promise.all([writeFetch(`/v1/layouts/${record.id}/like`, "PUT", headers), writeFetch(`/v1/layouts/${record.id}/like`, "PUT", headers)]);
-    expect(a.status).toBe(200);
-    expect(b.status).toBe(200);
+    const statuses = [a.status, b.status].sort();
+    expect(statuses).toEqual([200, 409]);
+    const loser = a.status === 409 ? a : b;
+    await expect(loser.json()).resolves.toMatchObject({ error: "already_liked" });
 
     const row = await readById(db, record.id);
     expect(row?.like_count).toBe(1);
     const events = await db.prepare("SELECT COUNT(*) AS n FROM events WHERE layout_id = ? AND kind = 'liked'").bind(record.id).first<{ n: number }>();
     expect(events?.n).toBe(1);
+    await assertFoldMatchesRow(record.id);
+  });
+
+  // D13 L3: "likes never change any version, so a like never fails an
+  // edit and an edit never fails a like." Races a like against a format
+  // write AND a rename to the same layout -- all three land.
+  it("[LDB-L3] a like races a format write and a rename -- all three land, none blocks another", async () => {
+    const record = await seed();
+    const headers = ownerHeaders(`tok-${uniqueName("l3")}`);
+    const newName = uniqueName("l3-renamed");
+
+    const [likeRes, patchRes, putRes] = await Promise.all([
+      writeFetch(`/v1/layouts/${record.id}/like`, "PUT", headers),
+      writeFetch(`/v1/layouts/${record.id}`, "PATCH", { ...headers, "If-Match": `"layout:${record.layout_rev}"` }, { name: newName }),
+      writeFetch(`/v1/layouts/${record.id}`, "PUT", { ...headers, "If-Match": '"spark:1"' }, { format: "spark/1", payload: { keys: { a: { row: 0, col: 0, finger: "LP" } } } }),
+    ]);
+
+    expect(likeRes.status, "L3: a like never fails an edit and an edit never fails a like").toBe(200);
+    expect(patchRes.status).toBe(200);
+    expect(putRes.status).toBe(200);
+
+    const row = await readById(db, record.id);
+    expect(row?.like_count).toBe(1);
+    expect(row?.name).toBe(newName);
     await assertFoldMatchesRow(record.id);
   });
 });

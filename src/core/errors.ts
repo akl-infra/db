@@ -127,6 +127,17 @@ export function mixedPatch(): ApiError {
   return new ApiError(400, { error: "mixed_patch", message: "a PATCH may change the layout's name, or one format's payload, never both at once" });
 }
 
+// 21-formats.md D13 L1/L2 (saltorbit, 2026-09-11): a like/unlike needs no
+// version (L3 -- it can never collide with an edit), but it does have its
+// own idempotency rule now: a repeat like, or an unlike with nothing to
+// undo, fails loudly instead of silently no-opping, and changes nothing.
+export function alreadyLiked(): ApiError {
+  return new ApiError(409, { error: "already_liked", message: "you've already liked this layout" });
+}
+export function notLiked(): ApiError {
+  return new ApiError(409, { error: "not_liked", message: "you haven't liked this layout" });
+}
+
 // The phase-2 user-lane errors (09 §2.1). `unauthorized` is no/malformed
 // `Authorization`; `tokenInvalid` is Discord itself saying 401 (cached up to
 // 60s, 09 §2.2). Both carry `WWW-Authenticate` -- the RFC 6750 way a client

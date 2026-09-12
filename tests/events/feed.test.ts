@@ -216,6 +216,11 @@ describe("LDB-P3: a webhook-only follower matches a feed-only follower", () => {
             const liveIds: string[] = [];
             const meta = new Map<string, { name: string; owner: string; n: number }>();
             const ownIds = new Set<string>();
+            // D13 L1/L2: appendLike no longer silently no-ops on a repeat
+            // like/redundant unlike (it throws), so this generator must
+            // track "p3-liker"'s own like state per layout and alternate
+            // liked/unliked instead of always firing "liked".
+            const likedByThisUser = new Set<string>();
             let counter = 0;
 
             async function createOne(): Promise<void> {
@@ -273,7 +278,10 @@ describe("LDB-P3: a webhook-only follower matches a feed-only follower", () => {
                 meta.delete(id);
               } else if (op === 3) {
                 const id = pick(liveIds);
-                await appendLike(db, writeClock, { kind: "liked", layoutId: id, userId: "p3-liker", via: "discord", source: SOURCE });
+                const alreadyLiked = likedByThisUser.has(id);
+                await appendLike(db, writeClock, { kind: alreadyLiked ? "unliked" : "liked", layoutId: id, userId: "p3-liker", via: "discord", source: SOURCE });
+                if (alreadyLiked) likedByThisUser.delete(id);
+                else likedByThisUser.add(id);
               } else {
                 await appendAdmin(db, writeClock, { kind: "admin.added", actor: "p3-admin", detail: { user_id: `p3-${counter++}` } });
               }
