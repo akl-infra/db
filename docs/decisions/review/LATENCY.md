@@ -98,7 +98,7 @@ Fly's `shared-cpu` tier lends a full core in bursts and throttles to a small bas
 | 0–1 | 1.6–2.2 s (28 layouts) |
 | 2–12 | 22–31 s, one at 251 s |
 
-A pure-CPU probe inside the machine during that stretch ran at **1/14th** of the laptop's single-core speed (200 M vs 2.78 B loop iterations in 2 s). At the throttled rate the 4,177-layout backlog is ~1.2 days instead of ~2.2 hours, and — the part that matters for R2 — any wasm compute a command needs is slowed the same way while the publisher is busy. Steady state (single-digit edits a minute) fits inside the burst; a backlog does not.
+A pure-CPU probe inside the machine during that stretch ran at **1/14th** of the laptop's single-core speed (200 M vs 2.78 B loop iterations in 2 s); the same probe right after a restart, with fresh burst credit, ran at 2.20 B — **11× faster than the throttled state**, 79% of the laptop. At the throttled rate the 4,177-layout backlog is ~1.2 days instead of ~2.2 hours, and — the part that matters for R2 — any wasm compute a command needs is slowed the same way while the publisher is busy. Steady state (single-digit edits a minute) fits inside the burst; a backlog does not.
 
 Options, in order of preference: run the machine as `performance-1x` (dedicated core, ~$31/mo, 2 GB) at least during the first pass and any full rebuild, and decide from the `/health.latency` histogram whether to keep it; or leave `shared-cpu-2x` and accept a day-long first pass with degraded bot compute during it. This is the data the proposal said the machine decision should wait for.
 
