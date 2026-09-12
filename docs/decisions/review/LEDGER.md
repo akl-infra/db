@@ -55,6 +55,8 @@ Status: `todo` · `running (agent, branch)` · `review` · `landed <sha>` · `bl
 | B3 | **boot + feed + write hardening** (running: impl-B3) | wasm + defs baked into image; boot from volume snapshot + cell store, catch up, warm default corpus, `ensureFresh` before login; long-poll client; write reconciliation after timeout/5xx + Idempotency-Key header; bounded table residency; LDB-B5 live parity off the deploy gate (nightly). | todo |
 | B4 | **safety nets** | S1, S2 (daily + boot), S4 (daily, magic always sampled), `/health` with last-run + age per check, 48 h rule, watchdog DM. | landed 7260dd2cc (LDB-B96..B101; S1 excludes layouts the replica is legitimately ahead of vs the nightly dump; publisher interface stubbed until B2 wires it) |
 
+| B5 | **overlay catalog parity** | B2's overlay `layouts.json`/`authors.json` rows carry only replica-derivable fields; the SPA's filters also need the Python-derived catalog fields (`upperrow`, `thumb`, `complete`, `vowel_hand`, meme-ness, …) that `scripts/build_web.py` computes. Do NOT re-derive in TS: add a small Python entrypoint (`scripts/overlay_rows.py`, reusing `build_web.py`'s functions exactly as the deleted `stats_service/overlay.py` did) that takes layoutdb records on stdin and emits catalog rows; the publisher shells to it per publish (python3 in the image). Golden test: rows byte-equal to a recorded Python output for the fixture layouts; property: every field the SPA reads (grep `web/src` for the catalog row type) is present. | todo (after B2 lands) |
+
 ### Wave 3 — akl.gg
 | id | slice | brief | status |
 |---|---|---|---|
