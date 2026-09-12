@@ -92,10 +92,10 @@ describe("db.yml wiring", () => {
     }
   });
 
-  it("[LDB-C1] push runs only on main (a PR branch runs once, on pull_request -- 2026-09-10, doubled runs and failure emails)", () => {
+  it("[LDB-C1] push runs only on main and the ldb-arch-review integration branch (other PR branches run once, on pull_request -- 2026-09-10, doubled runs and failure emails)", () => {
     const wf = loadWorkflow();
     const push = (wf.on as Record<string, { branches?: string[] }>).push;
-    expect(push?.branches).toEqual(["main"]);
+    expect(push?.branches).toEqual(["main", "ldb-arch-review"]);
   });
 
   it("[LDB-C1] the deploy job needs test, runs only on a push to main, and applies migrations before deploying", () => {
@@ -124,9 +124,10 @@ describe("db.yml wiring", () => {
     expect(jobText).toContain("CLOUDFLARE_DB_ACCOUNT_ID");
   });
 
-  it("[LDB-C1] the pr-deploy job needs test, runs only on the layout-db-pr pull request, and bookmarks, migrates and deploys the ONE layoutdb (prod akl-db) in that order", () => {
+  it("[LDB-C1] the pr-deploy job needs test, runs only on a push to the ldb-arch-review integration branch, and bookmarks, migrates and deploys the ONE layoutdb (prod akl-db) in that order", () => {
     // saltorbit 2026-09-11: "deploy to prod layoutdb" -- the preview layoutdb is
-    // retired, so a PR push deploys production, never akl-db-preview.
+    // retired; 2026-09-12: the integration branch is ldb-arch-review and a push
+    // there deploys production, never akl-db-preview.
     const wf = loadWorkflow();
     expect(wf.jobs.preview, "the retired preview job is back in db.yml").toBeUndefined();
     const job = wf.jobs["pr-deploy"];
@@ -135,8 +136,9 @@ describe("db.yml wiring", () => {
 
     expect(job.needs).toEqual(expect.stringContaining("test"));
     expect(job.if, "pr-deploy job has no `if:` guard").toBeTruthy();
-    expect(job.if).toContain("github.event_name == 'pull_request'");
-    expect(job.if).toContain("github.head_ref == 'layout-db-pr'");
+    expect(job.if).toContain("github.event_name == 'push'");
+    expect(job.if).toContain("github.ref == 'refs/heads/ldb-arch-review'");
+    expect((wf.on as Record<string, { branches?: string[] }>).push?.branches, "the integration branch must trigger the push run").toContain("ldb-arch-review");
 
     const steps = job.steps ?? [];
     const runSteps = steps.filter((s): s is Step & { run: string } => typeof s.run === "string");

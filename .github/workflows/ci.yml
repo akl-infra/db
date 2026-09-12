@@ -12,10 +12,10 @@ on:
       - "db/**"
       - ".github/workflows/db.yml"
   push:
-    # main only (2026-09-10): a branch with an open PR already runs on
-    # pull_request; running on push too doubled every run and every
-    # failure email. The pr-deploy job rides the PR event instead (below).
-    branches: [main]
+    # main, plus the layoutdb integration branch `ldb-arch-review` (2026-09-12):
+    # a push there runs the tests and then the pr-deploy job below, which
+    # deploys the ONE layoutdb, prod akl-db. Other branches ride pull_request.
+    branches: [main, ldb-arch-review]
     paths:
       - "db/**"
       - ".github/workflows/db.yml"
@@ -82,15 +82,16 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DB_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DB_ACCOUNT_ID }}
 
-  # A push to the layout-db-pr pull request deploys the ONE layoutdb, prod
-  # `akl-db` (saltorbit 2026-09-11: "everything should point to the production
-  # layoutdb" / "deploy to prod layoutdb"; the preview layoutdb is retired).
+  # A push to the layoutdb integration branch (`ldb-arch-review`, since the
+  # 2026-09-12 architecture review; was the layout-db-pr PR) deploys the ONE
+  # layoutdb, prod `akl-db` (saltorbit 2026-09-11: "everything should point to
+  # the production layoutdb"; 2026-09-12: "keep pushing to prod layoutdb").
   # Records a D1 time-travel bookmark first (the rollback point, printed in
   # the log), then migrations, then the Worker -- the same order as
   # `deploy`. Serialized with `deploy` so two runs never interleave.
   pr-deploy:
     needs: test
-    if: github.event_name == 'pull_request' && github.head_ref == 'layout-db-pr'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/ldb-arch-review'
     concurrency:
       group: db-prod-deploy
       cancel-in-progress: false
