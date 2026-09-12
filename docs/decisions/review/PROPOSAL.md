@@ -125,6 +125,23 @@ There is no weekly rebuild any more, on purpose. Cells are keyed by their inputs
 
 If you want a periodic safety net regardless, the honest version is a monthly `workflow_dispatch` of the full harvest compared against the live base and alarmed on any difference; it should find nothing, and finding something means a bug worth knowing about. Not required for correctness.
 
+**Who holds the long-poll (saltorbit, 2026-09-12).** Only the spark process. akl.gg does not: its browsers read static objects, and a held Worker request per open tab would put D1 in the hot path of every visitor, against H20. The site learns of changes from the pointer (a 15 s-cached static object polled every 60 s). If the site ever needs to be livelier than that, spark publishes a tiny `head.json` (pointer version + layoutdb seq) to R2 that tabs poll cheaply. Still static, still no held connections. The Pages Functions do not need the feed either; they only proxy writes.
+
+## 3c. Safety nets that don't need a full rebuild (saltorbit, 2026-09-12: "I've seen issues in the past")
+
+Ordered cheapest first. Each is a daily job in the spark process unless noted, alarms to the existing Discord DM watchdog plus a `/health` field, and each becomes an invariant with a test.
+
+| # | check | catches | cost |
+|---|---|---|---|
+| S1 | **Replica vs dump.** spark already pulls layoutdb's nightly dump for backup; diff it against the in-memory replica (every layout's name, owner, revs, payload hash, like count). Any difference → alarm and resync from the dump. | a missed or mis-folded feed event, the class of bug that bit the bot twice already | seconds, no compute |
+| S2 | **Coverage walk.** For every live layout: does the cell store hold cells for its *current* content hash, and does the published base ⊕ overlay carry a row with that hash and rev? Missing → recompute + republish. | a dropped compute, a partial publish, a layout edited during a fold | hashes only, seconds |
+| S3 | **Published-data smoke test**, run through the public R2 URL after every pointer swap: manifest present, `db_seq` ≤ layoutdb head, every catalog row's keys hash matches the hash its stat rows claim, no tombstoned ids, row counts match, CORS header present. | a half publish, a stale CDN object, the CORS bug the ecosystem page lists | one fetch set per publish |
+| S4 | **Spot recompute.** Daily, native CLI recomputes every layout edited in the last 24 h plus 30 random ones, all 108 cells, compared bit-for-bit to the stored cells; wasm computes the same sample and is compared to the CLI. | engine nondeterminism, a corrupted cell, wasm/CLI divergence | ~5 min of CLI on Fly |
+| S5 | **Fold replay inside layoutdb.** In the nightly dump job, replay the events of a random 5 % of layouts through `foldLayout` and compare to the folded rows (the property test the suite already has, run against production). Report in `/v1/meta.health`. | a write that committed rows the log does not explain | one D1 pass |
+| S6 | **Monthly full harvest on GitHub**, diffed against the live base and alarmed on any difference. The heavy net; should always be silent. | anything the above missed, including a bad `H` definition | ~68 min of Actions monthly |
+
+S1 and S2 are the ones that matter most: they turn "the feed is exactly-once" from an assumption into a daily-verified fact, with a self-heal. Together they are what lets the weekly rebuild go.
+
 ## 4. What I am *not* proposing, and why
 
 - **Not restarting layoutdb.** The data model is right and the moderation features want exactly an event log.
