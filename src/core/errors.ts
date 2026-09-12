@@ -309,21 +309,6 @@ export function actorNotAllowed(actor: string, owner: string): ApiError {
   });
 }
 
-// X1 (12 §2.1, §2.3): a 6th webhook subscription for one owner.
-export function tooManyWebhooks(limit: number): ApiError {
-  return new ApiError(409, {
-    error: "too_many_webhooks",
-    message: `at most ${limit} webhooks per user`,
-    limit,
-  });
-}
-
-// X1 (12 §2.2, §2.3): the stream is Paid-plan only and self-reports this
-// when `STREAM_MAX_MS` is configured to `0` (the Free-plan setting).
-export function streamUnavailable(): ApiError {
-  return new ApiError(503, { error: "stream_unavailable", message: "the change stream is not available on this deployment" });
-}
-
 // X4 follow-up: `POST /v1/admin/import/tick` refuses to run a manual tick
 // while the import is paused (`admin.import_paused`, `core/admins.ts`) --
 // the paused switch means "don't touch upstream", and a manual kick is

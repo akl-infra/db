@@ -12,10 +12,8 @@ import { canonical } from "../core/canonical";
 import { readHead } from "../core/etag";
 import type { EventDbRow } from "../core/events";
 import { readMetaCore } from "../core/meta";
-import { rowToFormat, rowToLayout, type FormatDbRow, type LayoutDbRow } from "../core/records";
+import type { FormatDbRow, LayoutDbRow } from "../core/records";
 import type { Clock } from "../core/time";
-import { list as listFormats } from "../formats/registry";
-import { translate as pureTranslate } from "../../formats/registry.ts";
 
 const PAGE_SIZE = 500;
 
@@ -87,7 +85,6 @@ export interface Dump {
   import_state: ImportStateDbRow[];
   import_map: ImportMapDbRow[];
   auth_cache: []; // never dumped -- holds only token hashes, and a rehost starts cold (09 §3)
-  webhooks: []; // never dumped -- holds `secret` verbatim; a rehost has no subscriptions, owners re-register (12 §2.1, LDB-H4)
 }
 
 export interface LatestJson {
@@ -98,36 +95,6 @@ export interface LatestJson {
   bytes: number;
   layout_count: number;
   seq: number;
-}
-
-// 20-spark.md S5 (19 §6.2, LDB-D6): "every layout at every major", the
-// dump's own surface for it. One entry per LIVE record (tombstones are
-// excluded here -- same convention `GET /v1/layouts` defaults to, and the
-// main dump's own `records`/`layout_revs` already carry every tombstone
-// for anyone who needs one); `payload` is the record's translation to this
-// file's own major, or, when the chain/cross edge holds for it, `held:
-// true` + `see` naming the record's own NATIVE format (never this file's
-// major -- a consumer reading `held` already knows which file it opened).
-export interface LatestMajorRecord {
-  id: string;
-  name: string;
-  owner: string;
-  rev: number;
-  created_at: string;
-  modified_at: string;
-  like_count: number;
-  has_magic: boolean;
-  payload?: unknown;
-  held?: true;
-  see?: string;
-}
-
-export interface LatestMajorFile {
-  version: 1;
-  date: string;
-  format: string; // this file's own major, e.g. "spark/1"
-  meta: { layout_count: number; seq: number };
-  records: LatestMajorRecord[];
 }
 
 // Single-column-PK keyset pager: `SELECT * FROM <table> WHERE <keyCol> > ?
@@ -224,79 +191,7 @@ export async function buildDump(env: Bindings, now: Clock): Promise<Dump> {
     import_state,
     import_map,
     auth_cache: [],
-    webhooks: [],
   };
-}
-
-// LDB-D6: one file per registered `role: "stored"` major (never an
-// `"output"` one like `mana2/1` -- that's what `?as=mana2/1` on the LIST
-// route is for, not a per-major snapshot of what's actually stored) --
-// every live `layouts` row translated to it, or `held` when the chain/
-// cross edge can't show it. Built straight from the SAME `dump.records`
-// page the main dump already paged, so this never re-queries D1.
-function buildLatestMajorFiles(dump: Dump): { format: string; file: LatestMajorFile }[] {
-  const liveRows = dump.records.filter((r) => r.deleted === 0).map(rowToLayout);
-  const formatsByLayout = new Map<string, FormatDbRow[]>();
-  for (const row of dump.layout_formats) {
-    const list = formatsByLayout.get(row.layout_id);
-    if (list === undefined) formatsByLayout.set(row.layout_id, [row]);
-    else list.push(row);
-  }
-  const storedFormats = listFormats()
-    .filter((f) => f.role === "stored")
-    .map((f) => f.id);
-
-  return storedFormats.map((format) => {
-    const lin = format.slice(0, format.lastIndexOf("/"));
-    const records: LatestMajorRecord[] = [];
-    for (const layout of liveRows) {
-      const own = (formatsByLayout.get(layout.id) ?? []).find((f) => f.lineage === lin);
-      // LDB-D6: when the layout doesn't store THIS file's own lineage, it
-      // still appears here -- `held: true` naming whichever OTHER stored
-      // lineage it does have (MF-5 guarantees at least one). Picking the
-      // first such row is a deliberate, deterministic (insertion-order)
-      // choice among several possible "native formats" when a layout
-      // stores more than one non-matching lineage; today's registry has no
-      // cross edge between any two stored lineages, so the result is
-      // `held` regardless of which one is picked.
-      const fmtRow = own ?? (formatsByLayout.get(layout.id) ?? [])[0];
-      if (fmtRow === undefined) continue; // MF-5: unreachable -- every live layout has >= 1 format row
-      const fmt = rowToFormat(fmtRow);
-      const common = {
-        id: layout.id,
-        name: layout.name,
-        owner: layout.owner,
-        rev: fmt.rev,
-        created_at: fmt.created_at,
-        modified_at: fmt.modified_at,
-        like_count: layout.like_count,
-        has_magic: fmt.has_magic,
-      };
-      if (fmt.format === format) {
-        records.push({ ...common, payload: fmt.payload });
-        continue;
-      }
-      const result = pureTranslate({ format: fmt.format, payload: fmt.payload }, format);
-      if ("held" in result) {
-        records.push({ ...common, held: true, see: fmt.format });
-        continue;
-      }
-      // "unknown" is unreachable here: `format` is drawn from `listFormats()`
-      // itself, so it is always registered.
-      if ("unknown" in result) throw new Error(`buildLatestMajorFiles: unreachable -- '${format}' resolved unknown`);
-      records.push({ ...common, payload: result.payload });
-    }
-    return {
-      format,
-      file: {
-        version: 1,
-        date: dump.date,
-        format,
-        meta: { layout_count: records.length, seq: dump.meta.seq },
-        records,
-      },
-    };
-  });
 }
 
 async function gzip(bytes: Uint8Array): Promise<Uint8Array> {
@@ -349,17 +244,6 @@ export async function writeDump(env: Bindings, now: Clock): Promise<{ key: strin
     seq: dump.meta.seq,
   };
   await env.DUMPS.put("latest.json", canonical(latest), { httpMetadata: { contentType: "application/json" } });
-
-  // LDB-D6: one `latest.<name>-<N>.json` (slash-free, R2-key-safe -- 19
-  // §11 Q4) per registered STORED major, plus its own sha256 sidecar; never
-  // gzipped (a consumer on that one major wants a plain fetch, same as
-  // `latest.json` itself). `latest.json` above is untouched by any of this.
-  for (const { format, file } of buildLatestMajorFiles(dump)) {
-    const majorKey = `latest.${format.replace("/", "-")}.json`;
-    const majorBytes = new TextEncoder().encode(canonical(file));
-    await env.DUMPS.put(majorKey, majorBytes, { httpMetadata: { contentType: "application/json" } });
-    await env.DUMPS.put(`${majorKey}.sha256`, await sha256Hex(majorBytes), { httpMetadata: { contentType: "text/plain" } });
-  }
 
   if (dump.date.slice(8, 10) === "01") {
     const monthKey = `monthly/dump-${dump.date.slice(0, 7)}.json.gz`;

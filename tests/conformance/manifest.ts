@@ -234,42 +234,6 @@ import adminImportResume403NotAdmin from "./admin-import/resume-403-not_admin.js
 import adminImportResume429 from "./admin-import/resume-429.json" with { type: "json" };
 import adminImportResume503IdentityUnavailable from "./admin-import/resume-503-identity_unavailable.json" with { type: "json" };
 
-// X1 (12 §3 X1, §4): webhooks + the SSE stream.
-import webhooksPost201 from "./webhooks/post-201.json" with { type: "json" };
-import webhooksPost401Unauthorized from "./webhooks/post-401-unauthorized.json" with { type: "json" };
-import webhooksPost401TokenInvalid from "./webhooks/post-401-token_invalid.json" with { type: "json" };
-import webhooksPost503IdentityUnavailable from "./webhooks/post-503-identity_unavailable.json" with { type: "json" };
-import webhooksPost400BadRequestUrl from "./webhooks/post-400-bad_request-url.json" with { type: "json" };
-import webhooksPost400BadRequestSecret from "./webhooks/post-400-bad_request-secret.json" with { type: "json" };
-import webhooksPost400BadRequestKinds from "./webhooks/post-400-bad_request-kinds.json" with { type: "json" };
-import webhooksPost400BadRequestOwnerFilter from "./webhooks/post-400-bad_request-owner_filter.json" with { type: "json" };
-import webhooksPost409TooManyWebhooks from "./webhooks/post-409-too_many_webhooks.json" with { type: "json" };
-import webhooksPost429 from "./webhooks/post-429.json" with { type: "json" };
-import webhooksGet200 from "./webhooks/get-200.json" with { type: "json" };
-import webhooksGet401Unauthorized from "./webhooks/get-401-unauthorized.json" with { type: "json" };
-import webhooksGet401TokenInvalid from "./webhooks/get-401-token_invalid.json" with { type: "json" };
-import webhooksGet503IdentityUnavailable from "./webhooks/get-503-identity_unavailable.json" with { type: "json" };
-import webhooksGet403NotAdmin from "./webhooks/get-403-not_admin.json" with { type: "json" };
-import webhooksDelete200 from "./webhooks/delete-200.json" with { type: "json" };
-import webhooksDelete401Unauthorized from "./webhooks/delete-401-unauthorized.json" with { type: "json" };
-import webhooksDelete401TokenInvalid from "./webhooks/delete-401-token_invalid.json" with { type: "json" };
-import webhooksDelete503IdentityUnavailable from "./webhooks/delete-503-identity_unavailable.json" with { type: "json" };
-import webhooksDelete404 from "./webhooks/delete-404.json" with { type: "json" };
-import webhooksDelete429 from "./webhooks/delete-429.json" with { type: "json" };
-
-import changesStream200 from "./changes-stream/200.json" with { type: "json" };
-import changesStream400BadRequest from "./changes-stream/400-bad_request.json" with { type: "json" };
-import changesStream503StreamUnavailable from "./changes-stream/503-stream_unavailable.json" with { type: "json" };
-
-// X4 (12 §3 X4, §4): the diff cron's `last_*` on /v1/meta is covered by
-// the extended meta/200 case above; these are the two new admin routes.
-import adminDrillPost200 from "./admin-drill/post-200.json" with { type: "json" };
-import adminDrillPost400BadRequest from "./admin-drill/post-400-bad_request.json" with { type: "json" };
-import adminDrillPost401TokenInvalid from "./admin-drill/post-401-token_invalid.json" with { type: "json" };
-import adminDrillPost401Unauthorized from "./admin-drill/post-401-unauthorized.json" with { type: "json" };
-import adminDrillPost403NotAdmin from "./admin-drill/post-403-not_admin.json" with { type: "json" };
-import adminDrillPost429 from "./admin-drill/post-429.json" with { type: "json" };
-import adminDrillPost503IdentityUnavailable from "./admin-drill/post-503-identity_unavailable.json" with { type: "json" };
 import adminHealth200 from "./admin-health/200.json" with { type: "json" };
 import adminHealth401Unauthorized from "./admin-health/401-unauthorized.json" with { type: "json" };
 import adminHealth401TokenInvalid from "./admin-health/401-token_invalid.json" with { type: "json" };
@@ -420,26 +384,6 @@ import clAdminClientsDeleteUnknownClient from "./admin-clients/delete-401-unknow
 import clAdminClientsDeleteClientRevoked from "./admin-clients/delete-401-client_revoked.json" with { type: "json" };
 import clAdminClientsDeleteStaleTimestamp from "./admin-clients/delete-401-stale_timestamp.json" with { type: "json" };
 import clAdminClientsDeleteReplay from "./admin-clients/delete-401-replay.json" with { type: "json" };
-import clWebhooksPostBadSignature from "./webhooks/post-401-bad_signature.json" with { type: "json" };
-import clWebhooksPostUnknownClient from "./webhooks/post-401-unknown_client.json" with { type: "json" };
-import clWebhooksPostClientRevoked from "./webhooks/post-401-client_revoked.json" with { type: "json" };
-import clWebhooksPostStaleTimestamp from "./webhooks/post-401-stale_timestamp.json" with { type: "json" };
-import clWebhooksPostReplay from "./webhooks/post-401-replay.json" with { type: "json" };
-import clWebhooksGetBadSignature from "./webhooks/get-401-bad_signature.json" with { type: "json" };
-import clWebhooksGetUnknownClient from "./webhooks/get-401-unknown_client.json" with { type: "json" };
-import clWebhooksGetClientRevoked from "./webhooks/get-401-client_revoked.json" with { type: "json" };
-import clWebhooksGetStaleTimestamp from "./webhooks/get-401-stale_timestamp.json" with { type: "json" };
-import clWebhooksGetReplay from "./webhooks/get-401-replay.json" with { type: "json" };
-import clWebhooksDeleteBadSignature from "./webhooks/delete-401-bad_signature.json" with { type: "json" };
-import clWebhooksDeleteUnknownClient from "./webhooks/delete-401-unknown_client.json" with { type: "json" };
-import clWebhooksDeleteClientRevoked from "./webhooks/delete-401-client_revoked.json" with { type: "json" };
-import clWebhooksDeleteStaleTimestamp from "./webhooks/delete-401-stale_timestamp.json" with { type: "json" };
-import clWebhooksDeleteReplay from "./webhooks/delete-401-replay.json" with { type: "json" };
-import clAdminDrillPostBadSignature from "./admin-drill/post-401-bad_signature.json" with { type: "json" };
-import clAdminDrillPostUnknownClient from "./admin-drill/post-401-unknown_client.json" with { type: "json" };
-import clAdminDrillPostClientRevoked from "./admin-drill/post-401-client_revoked.json" with { type: "json" };
-import clAdminDrillPostStaleTimestamp from "./admin-drill/post-401-stale_timestamp.json" with { type: "json" };
-import clAdminDrillPostReplay from "./admin-drill/post-401-replay.json" with { type: "json" };
 import clAdminHealthBadSignature from "./admin-health/401-bad_signature.json" with { type: "json" };
 import clAdminHealthUnknownClient from "./admin-health/401-unknown_client.json" with { type: "json" };
 import clAdminHealthClientRevoked from "./admin-health/401-client_revoked.json" with { type: "json" };
@@ -668,57 +612,12 @@ export const T6_CASES: ConformanceCase[] = [
   kase("admin-clients/delete-503-identity_unavailable", "/v1/admin/clients/:id", adminClientsDelete503IdentityUnavailable, true),
   kase("admin-clients/delete-200", "/v1/admin/clients/:id", adminClientsDelete200, true),
 
-  // X1 (12 §3 X1, §4). Ordered so `webhooks/get-200`'s own dedicated setup
-  // (a fresh actor, `conformance-other-token`) runs before
-  // `webhooks/post-409-too_many_webhooks` fills a DIFFERENT actor's cap --
-  // neither shares a webhook count with the other or with `post-201`'s
-  // CONFORMANCE_OWNER row.
-  kase("webhooks/post-201", "/v1/webhooks", webhooksPost201, true),
-  kase("webhooks/post-401-unauthorized", "/v1/webhooks", webhooksPost401Unauthorized, true),
-  kase("webhooks/post-401-token_invalid", "/v1/webhooks", webhooksPost401TokenInvalid, true),
-  kase("webhooks/post-503-identity_unavailable", "/v1/webhooks", webhooksPost503IdentityUnavailable, true),
-  kase("webhooks/post-400-bad_request-url", "/v1/webhooks", webhooksPost400BadRequestUrl, true),
-  kase("webhooks/post-400-bad_request-secret", "/v1/webhooks", webhooksPost400BadRequestSecret, true),
-  kase("webhooks/post-400-bad_request-kinds", "/v1/webhooks", webhooksPost400BadRequestKinds, true),
-  kase("webhooks/post-400-bad_request-owner_filter", "/v1/webhooks", webhooksPost400BadRequestOwnerFilter, true),
-  kase("webhooks/post-429", "/v1/webhooks", webhooksPost429, true),
-  kase("webhooks/get-200", "/v1/webhooks", webhooksGet200, true),
-  kase("webhooks/get-401-unauthorized", "/v1/webhooks", webhooksGet401Unauthorized, true),
-  kase("webhooks/get-401-token_invalid", "/v1/webhooks", webhooksGet401TokenInvalid, true),
-  kase("webhooks/get-503-identity_unavailable", "/v1/webhooks", webhooksGet503IdentityUnavailable, true),
-  kase("webhooks/get-403-not_admin", "/v1/webhooks", webhooksGet403NotAdmin, true),
-  kase("webhooks/post-409-too_many_webhooks", "/v1/webhooks", webhooksPost409TooManyWebhooks, true),
-  kase("webhooks/delete-401-unauthorized", "/v1/webhooks/:id", webhooksDelete401Unauthorized, true),
-  kase("webhooks/delete-401-token_invalid", "/v1/webhooks/:id", webhooksDelete401TokenInvalid, true),
-  kase("webhooks/delete-503-identity_unavailable", "/v1/webhooks/:id", webhooksDelete503IdentityUnavailable, true),
-  kase("webhooks/delete-404", "/v1/webhooks/:id", webhooksDelete404, true),
-  kase("webhooks/delete-429", "/v1/webhooks/:id", webhooksDelete429, true),
-  kase("webhooks/delete-200", "/v1/webhooks/:id", webhooksDelete200, true),
-
-  kase("changes-stream/400-bad_request", "/v1/changes/stream", changesStream400BadRequest),
-
-  // X4 (12 §3 X4, §4). `admin-health` is hand-ordered BEFORE `admin-drill`:
-  // its own `200` case asserts `{last_diff: null, last_drill: null}`, true
-  // only until `admin-drill/post-200` below (the one case in this suite
-  // that calls `recordDrill`) runs -- the same "count starts at a known
-  // value" reasoning `admin-admins/delete-409-last_admins`'s own block
-  // comment gives.
+  // X4 (12 §3 X4, §4).
   kase("admin-health/401-unauthorized", "/v1/admin/health", adminHealth401Unauthorized, true),
   kase("admin-health/401-token_invalid", "/v1/admin/health", adminHealth401TokenInvalid, true),
   kase("admin-health/503-identity_unavailable", "/v1/admin/health", adminHealth503IdentityUnavailable, true),
   kase("admin-health/403-not_admin", "/v1/admin/health", adminHealth403NotAdmin, true),
   kase("admin-health/200", "/v1/admin/health", adminHealth200, true),
-
-  // Same shape as admin-import/pause-* -- one admin-only POST route, no
-  // idempotent-200/201 or 409 case (a drill report is neither a create nor
-  // a named-resource write).
-  kase("admin-drill/post-401-unauthorized", "/v1/admin/drill", adminDrillPost401Unauthorized, true),
-  kase("admin-drill/post-401-token_invalid", "/v1/admin/drill", adminDrillPost401TokenInvalid, true),
-  kase("admin-drill/post-503-identity_unavailable", "/v1/admin/drill", adminDrillPost503IdentityUnavailable, true),
-  kase("admin-drill/post-403-not_admin", "/v1/admin/drill", adminDrillPost403NotAdmin, true),
-  kase("admin-drill/post-429", "/v1/admin/drill", adminDrillPost429, true),
-  kase("admin-drill/post-400-bad_request", "/v1/admin/drill", adminDrillPost400BadRequest, true),
-  kase("admin-drill/post-200", "/v1/admin/drill", adminDrillPost200, true),
 
   // X4 follow-up: manual cron triggers. `admin-import/tick-200` runs
   // BEFORE `tick-409-import_paused` (its own `setup` pauses the import,
@@ -863,26 +762,6 @@ export const CLIENT_LANE_CASES: ConformanceCase[] = [
   kase("admin-clients/delete-401-client_revoked", "/v1/admin/clients/:id", clAdminClientsDeleteClientRevoked, true),
   kase("admin-clients/delete-401-stale_timestamp", "/v1/admin/clients/:id", clAdminClientsDeleteStaleTimestamp, true),
   kase("admin-clients/delete-401-replay", "/v1/admin/clients/:id", clAdminClientsDeleteReplay, true),
-  kase("webhooks/post-401-bad_signature", "/v1/webhooks", clWebhooksPostBadSignature, true),
-  kase("webhooks/post-401-unknown_client", "/v1/webhooks", clWebhooksPostUnknownClient, true),
-  kase("webhooks/post-401-client_revoked", "/v1/webhooks", clWebhooksPostClientRevoked, true),
-  kase("webhooks/post-401-stale_timestamp", "/v1/webhooks", clWebhooksPostStaleTimestamp, true),
-  kase("webhooks/post-401-replay", "/v1/webhooks", clWebhooksPostReplay, true),
-  kase("webhooks/get-401-bad_signature", "/v1/webhooks", clWebhooksGetBadSignature, true),
-  kase("webhooks/get-401-unknown_client", "/v1/webhooks", clWebhooksGetUnknownClient, true),
-  kase("webhooks/get-401-client_revoked", "/v1/webhooks", clWebhooksGetClientRevoked, true),
-  kase("webhooks/get-401-stale_timestamp", "/v1/webhooks", clWebhooksGetStaleTimestamp, true),
-  kase("webhooks/get-401-replay", "/v1/webhooks", clWebhooksGetReplay, true),
-  kase("webhooks/delete-401-bad_signature", "/v1/webhooks/:id", clWebhooksDeleteBadSignature, true),
-  kase("webhooks/delete-401-unknown_client", "/v1/webhooks/:id", clWebhooksDeleteUnknownClient, true),
-  kase("webhooks/delete-401-client_revoked", "/v1/webhooks/:id", clWebhooksDeleteClientRevoked, true),
-  kase("webhooks/delete-401-stale_timestamp", "/v1/webhooks/:id", clWebhooksDeleteStaleTimestamp, true),
-  kase("webhooks/delete-401-replay", "/v1/webhooks/:id", clWebhooksDeleteReplay, true),
-  kase("admin-drill/post-401-bad_signature", "/v1/admin/drill", clAdminDrillPostBadSignature, true),
-  kase("admin-drill/post-401-unknown_client", "/v1/admin/drill", clAdminDrillPostUnknownClient, true),
-  kase("admin-drill/post-401-client_revoked", "/v1/admin/drill", clAdminDrillPostClientRevoked, true),
-  kase("admin-drill/post-401-stale_timestamp", "/v1/admin/drill", clAdminDrillPostStaleTimestamp, true),
-  kase("admin-drill/post-401-replay", "/v1/admin/drill", clAdminDrillPostReplay, true),
   kase("admin-health/401-bad_signature", "/v1/admin/health", clAdminHealthBadSignature, true),
   kase("admin-health/401-unknown_client", "/v1/admin/health", clAdminHealthUnknownClient, true),
   kase("admin-health/401-client_revoked", "/v1/admin/health", clAdminHealthClientRevoked, true),
@@ -984,8 +863,6 @@ export const CASES: ConformanceCase[] = [
   // comparison -- an open SSE response can't be byte-pinned) and its
   // Free-plan 503 (conformance.test.ts's own `it()` loop toggles
   // `STREAM_MAX_MS` around this one case's id, see there).
-  kase("changes-stream/200", "/v1/changes/stream", changesStream200),
-  kase("changes-stream/503-stream_unavailable", "/v1/changes/stream", changesStream503StreamUnavailable),
 
   ...T6_CASES,
 

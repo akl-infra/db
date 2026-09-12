@@ -9,7 +9,6 @@ import * as discordModule from "../../src/auth/discord";
 import { RevConflictError } from "../../src/core/events";
 import { fixedClock } from "../../src/core/time";
 import * as ratelimitModule from "../../src/core/ratelimit";
-import * as webhooksModule from "../../src/core/webhooks";
 import * as dumpModule from "../../src/dump/write";
 import * as applyModule from "../../src/import/apply";
 import * as cminiModule from "../../src/import/cmini";
@@ -282,8 +281,8 @@ describe("scheduled() wiring", () => {
   });
 
   // T1: hour=3 minute=0 also prunes expired auth_cache rows (09 §3 T1) --
-  // the same slot's import tick + webhook drain still run underneath it
-  // (fake stubbed so the tick doesn't itself fail).
+  // the same slot's import tick still runs underneath it (fake stubbed so
+  // the tick doesn't itself fail).
   it("the hour=3 minute=0 slot also prunes auth_cache", async () => {
     await db.batch([
       db
@@ -303,94 +302,13 @@ describe("scheduled() wiring", () => {
     expect(rows.results.map((r) => r.token_hash)).toEqual(["live"]);
   });
 
-  // X1 (12 §2.4, §3 X1): the webhook drain -- now dispatched on EVERY slot,
-  // not a separate `*/1` trigger. A minimal wiring check --
-  // tests/api/webhooks.test.ts's own "scheduled() wiring" describe covers
-  // the delivery behavior in depth.
-  it("every slot also drains due webhooks", async () => {
-    await db
-      .prepare(
-        `INSERT INTO webhooks (id, owner_user_id, url, secret, kinds, owner_filter, status, cursor, failures, failing_since, next_at, last_error, created_at)
-         VALUES ('wh-tick-1', 'u-tick', 'https://receiver.example/hook', 'tick-secret-1234567890ab', NULL, NULL, 'active', 0, 0, NULL, '2026-01-01T00:00:00.000Z', NULL, '2026-01-01T00:00:00.000Z')`,
-      )
-      .run();
-    await db
-      .prepare(
-        `INSERT INTO events (at, kind, layout_id, name, owner, rev, actor, via, admin)
-         VALUES ('2026-01-01T00:00:00.000Z', 'created', NULL, NULL, NULL, NULL, 'system:cmini-import', 'import:cmini', 0)`,
-      )
-      .run();
-
-    // Every slot now ALSO runs the import tick -- a combined stub (the
-    // same shape tests/api/admin.test.ts's manual-tick describe uses)
-    // answers cmini-shaped URLs from a real FakeUpstream and everything
-    // else (the webhook receiver) with a plain 200.
-    const fake = new FakeUpstream();
-    vi.stubGlobal("fetch", async (url: string, init?: { headers?: Record<string, string> }) => {
-      if (url.startsWith(fake.baseUrl)) return fake.fetchImpl(url, { headers: init?.headers ?? {} });
-      return new Response(null, { status: 200 });
-    });
-
-    const ctx = createExecutionContext();
-    const controller = createScheduledController({ cron: "*/5 * * * *", scheduledTime: atUTC(12, 0) });
-    await worker.scheduled(controller, bindings, ctx);
-    await waitOnExecutionContext(ctx);
-
-    const row = await db.prepare("SELECT cursor FROM webhooks WHERE id = 'wh-tick-1'").first<{ cursor: number }>();
-    expect(row!.cursor).toBeGreaterThan(0);
-  });
-
-  // The hour=3 minute=0 prune (auth_cache/ratelimit/nonces/dump) must not
-  // touch `webhooks` (12 §3 X1's own note: "the 0 3 prune leaves webhooks
-  // alone").
-  it("the hour=3 minute=0 slot leaves `webhooks` untouched", async () => {
-    await db
-      .prepare(
-        `INSERT INTO webhooks (id, owner_user_id, url, secret, kinds, owner_filter, status, cursor, failures, failing_since, next_at, last_error, created_at)
-         VALUES ('wh-prune-1', 'u-prune', 'https://receiver.example/hook', 'prune-secret-1234567890ab', NULL, NULL, 'active', 0, 0, NULL, '2026-01-01T00:00:00.000Z', NULL, '2026-01-01T00:00:00.000Z')`,
-      )
-      .run();
-    const fake = new FakeUpstream();
-    vi.stubGlobal("fetch", fake.fetchImpl);
-
-    const ctx = createExecutionContext();
-    const controller = createScheduledController({ cron: "*/5 * * * *", scheduledTime: atUTC(3, 0) });
-    await worker.scheduled(controller, bindings, ctx);
-    await waitOnExecutionContext(ctx);
-
-    const row = await db.prepare("SELECT id FROM webhooks WHERE id = 'wh-prune-1'").first();
-    expect(row).not.toBeNull();
-  });
-
-  it("[order] the import tick runs before the webhook drain within one invocation", async () => {
-    const order: string[] = [];
-    const tickSpy = vi.spyOn(cminiModule, "tick").mockImplementation(async () => {
-      order.push("tick");
-      return { quiet: true, stats: { at: "x", quiet: true } };
-    });
-    const drainSpy = vi.spyOn(webhooksModule, "drain").mockImplementation(async () => {
-      order.push("drain");
-      return { hooks: 0, posted: 0, failed: 0, disabled: 0 };
-    });
-
-    const ctx = createExecutionContext();
-    const controller = createScheduledController({ cron: "*/5 * * * *", scheduledTime: atUTC(12, 0) });
-    await worker.scheduled(controller, bindings, ctx);
-    await waitOnExecutionContext(ctx);
-
-    expect(order).toEqual(["tick", "drain"]);
-    expect(tickSpy).toHaveBeenCalledTimes(1);
-    expect(drainSpy).toHaveBeenCalledTimes(1);
-  });
-
-  // Fault isolation (src/index.ts's `runJob`): four previously-independent
-  // cron triggers must not become one shared failure domain just because
-  // they now share a dispatch -- a broken import tick (say, upstream down)
-  // must never stop the SAME invocation's webhook drain (or, at 3:00/4:00,
-  // the prune/dump/diff that share it).
-  it("[isolation] a thrown import-tick error is logged, not rethrown, and the same invocation's webhook drain still runs", async () => {
+  // Fault isolation (src/index.ts's `runJob`): previously-independent cron
+  // triggers must not become one shared failure domain just because they
+  // now share a dispatch -- a broken import tick (say, upstream down) must
+  // never stop the invocation itself, or the nightly/diff jobs sharing it
+  // at 3:00/4:00.
+  it("[isolation] a thrown import-tick error is logged, not rethrown, and the invocation still completes", async () => {
     const tickSpy = vi.spyOn(cminiModule, "tick").mockRejectedValue(new Error("boom"));
-    const drainSpy = vi.spyOn(webhooksModule, "drain").mockResolvedValue({ hooks: 0, posted: 0, failed: 0, disabled: 0 });
     const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
     const ctx = createExecutionContext();
@@ -399,14 +317,13 @@ describe("scheduled() wiring", () => {
     await waitOnExecutionContext(ctx);
 
     expect(tickSpy).toHaveBeenCalledTimes(1);
-    expect(drainSpy).toHaveBeenCalledTimes(1); // ran anyway, despite the tick's own failure
     expect(consoleErrorSpy).toHaveBeenCalled();
   });
 });
 
 // The clock dispatch as an enumerated invariant (12 §3 X4 follow-up 2):
-// every underlying job (`tick`, `drain`, the three prunes, `writeDump`,
-// `diffTick`) is mocked so this runs fast and touches no real D1/network --
+// every underlying job (`tick`, the three prunes, `writeDump`, `diffTick`)
+// is mocked so this runs fast and touches no real D1/network --
 // what's under test is `scheduled()`'s OWN routing from `scheduledTime` to
 // "which jobs run", not any one job's own behavior (already covered
 // elsewhere).
@@ -417,7 +334,6 @@ describe("scheduled() dispatch matrix", () => {
 
   it("[LDB-C5] [matrix] every 5-minute slot of a day (288 total) runs exactly the jobs its UTC hour:minute implies", async () => {
     const tickSpy = vi.spyOn(cminiModule, "tick").mockResolvedValue({ quiet: true, stats: { at: "x", quiet: true } });
-    const drainSpy = vi.spyOn(webhooksModule, "drain").mockResolvedValue({ hooks: 0, posted: 0, failed: 0, disabled: 0 });
     const pruneAuthSpy = vi.spyOn(discordModule, "pruneAuthCache").mockResolvedValue(undefined);
     const pruneRateSpy = vi.spyOn(ratelimitModule, "pruneRateLimits").mockResolvedValue(undefined);
     const pruneNonceSpy = vi.spyOn(clientModule, "pruneNonces").mockResolvedValue(undefined);
@@ -434,7 +350,6 @@ describe("scheduled() dispatch matrix", () => {
         const isDiff = hour === 4 && minute === 0;
         const before = {
           tick: tickSpy.mock.calls.length,
-          drain: drainSpy.mock.calls.length,
           prune: pruneAuthSpy.mock.calls.length,
           diff: diffSpy.mock.calls.length,
         };
@@ -444,10 +359,8 @@ describe("scheduled() dispatch matrix", () => {
         await worker.scheduled(controller, bindings, ctx);
         await waitOnExecutionContext(ctx);
 
-        // Every slot: exactly one more tick and one more drain, whatever
-        // else did or didn't run.
+        // Every slot: exactly one more tick, whatever else did or didn't run.
         expect(tickSpy.mock.calls.length, `${hour}:${minute} tick`).toBe(before.tick + 1);
-        expect(drainSpy.mock.calls.length, `${hour}:${minute} drain`).toBe(before.drain + 1);
         expect(pruneAuthSpy.mock.calls.length, `${hour}:${minute} prune`).toBe(before.prune + (isNightly ? 1 : 0));
         expect(diffSpy.mock.calls.length, `${hour}:${minute} diff`).toBe(before.diff + (isDiff ? 1 : 0));
 
@@ -458,7 +371,6 @@ describe("scheduled() dispatch matrix", () => {
 
     expect(slots).toBe(288);
     expect(tickSpy).toHaveBeenCalledTimes(288);
-    expect(drainSpy).toHaveBeenCalledTimes(288);
     // The four nightly jobs move together -- one row each, same count.
     expect(pruneAuthSpy).toHaveBeenCalledTimes(1);
     expect(pruneRateSpy).toHaveBeenCalledTimes(1);

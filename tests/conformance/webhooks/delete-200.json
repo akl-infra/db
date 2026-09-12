@@ -1,8 +1,0 @@
-{
-  "request": { "method": "DELETE", "path": "/v1/webhooks/conformance-webhook-delete-1", "bearer": "conformance-owner2-token" },
-  "response": {
-    "status": 200,
-    "headers": { "Content-Type": "application/json" },
-    "body": { "removed": "conformance-webhook-delete-1" }
-  }
-}

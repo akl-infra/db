@@ -1,8 +1,0 @@
-{
-  "request": { "method": "GET", "path": "/v1/webhooks", "bearer": "conformance-unavailable-token" },
-  "response": {
-    "status": 503,
-    "headers": { "Content-Type": "application/json" },
-    "body": { "error": "identity_unavailable", "message": "could not verify identity with Discord" }
-  }
-}

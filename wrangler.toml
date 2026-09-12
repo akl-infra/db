@@ -13,49 +13,19 @@ binding = "DUMPS"
 bucket_name = "akl-db-dumps"
 
 [triggers]
-crons = ["*/5 * * * *"] # ONE trigger for four jobs -- src/index.ts's scheduled() dispatches by event.scheduledTime, not event.cron
+crons = ["*/5 * * * *"] # ONE trigger for three jobs -- src/index.ts's scheduled() dispatches by event.scheduledTime, not event.cron
 
 [vars]
 IMPORT_SOURCE_URL = "https://clemenpine.com/layoutapi/v3"
 IMPORT_MAX_WRITES_PER_TICK = "500"
 IMPORT_UA = "akl-db-import/1.0"
 DISCORD_API_URL = "https://discord.com/api"
-WEBHOOK_MAX_POSTS = "25"
-STREAM_MAX_MS = "300000"
-STREAM_POLL_MS = "2000"
 
 [observability]
 enabled = true   # Workers Logs: keep console.error() from onError (the 500 path) queryable in the dashboard; 2026-09-09, after two untraceable 500s
 
-# Preview environment (09-implementation-phase2.md §3 T7): the site's
-# phase-2 UX work writes here, never at production `akl-db`. Wrangler
-# environments do NOT inherit d1_databases/r2_buckets/vars/triggers from the
-# top level -- every one of them is redeclared below with the preview
-# resource names (created 2026-09-09 in the community account); only `main`
-# and `compatibility_date`/`compatibility_flags` are inherited.
-[env.preview]
-name = "akl-db-preview"
-
-[[env.preview.d1_databases]]
-binding = "DB"
-database_name = "akl-db-preview"
-database_id = "d31147d4-ef1f-485e-bbed-c9f4a71f4d53"
-
-[[env.preview.r2_buckets]]
-binding = "DUMPS"
-bucket_name = "akl-db-dumps-preview"
-
-[env.preview.triggers]
-crons = ["*/5 * * * *"] # ONE trigger for four jobs -- src/index.ts's scheduled() dispatches by event.scheduledTime, not event.cron
-
-[env.preview.vars]
-IMPORT_SOURCE_URL = "https://clemenpine.com/layoutapi/v3"
-IMPORT_MAX_WRITES_PER_TICK = "500"
-IMPORT_UA = "akl-db-import/1.0"
-DISCORD_API_URL = "https://discord.com/api"
-WEBHOOK_MAX_POSTS = "25"
-STREAM_MAX_MS = "300000"
-STREAM_POLL_MS = "2000"
-
-[env.preview.observability]
-enabled = true
+# There is one layoutdb, production (design/layout-db/review/PROPOSAL.md
+# §2.1, LEDGER.md L4). The preview environment (`akl-db-preview`) was
+# retired 2026-09-11 -- nothing read it and it accepted no clients; H13
+# says one layoutdb. Do not re-add an `[env.preview]` block without a real
+# consumer.

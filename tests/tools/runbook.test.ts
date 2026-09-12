@@ -1,14 +1,10 @@
 // [LDB-G4] Every binding/var the Worker actually reads is documented in
 // README.md's secrets/bindings table, with a "how to regenerate" cell --
 // derived from wrangler.toml and a grep over src/ (not hand-copied), so a
-// new binding or var can't merge without a matching row. T7
-// (09-implementation-phase2.md §3) extends this over `[env.preview]`: every
-// `[env.*]` section must declare the same binding names and var keys as the
-// top level (Wrangler environments don't inherit them -- a binding present
-// at the top level and silently missing under an env block would deploy
-// that env's Worker with the binding undefined at runtime), and its D1/R2
-// resource names must be named in the README so a reader knows what
-// `akl-db-preview`/`akl-db-dumps-preview` (etc.) actually are.
+// new binding or var can't merge without a matching row. LEDGER.md L4
+// retired the `[env.preview]`-mirroring half of this row (LDB-C3) along
+// with the block itself -- there is one layoutdb, production, and no
+// `[env.*]` section left to check.
 import fs from "node:fs";
 import path from "node:path";
 import { parse } from "smol-toml";
@@ -97,38 +93,12 @@ describe("README secrets/bindings table", () => {
     ).toEqual([]);
   });
 
-  it("[LDB-G4] every [env.*] section redeclares the same binding names and var keys as the top level", () => {
+  // LEDGER.md L4: there is one layoutdb, production -- wrangler.toml has no
+  // `[env.*]` section any more, so this asserts its absence rather than
+  // its shape (a re-added `[env.preview]` should fail loudly here, same
+  // spirit as the deleted LDB-C3 suite it replaces).
+  it("[LDB-G4] wrangler.toml declares no [env.*] section (one layoutdb, production)", () => {
     const toml = loadToml();
-    const topNames = new Set(bindingsAndVars(toml));
-    expect(topNames.size).toBeGreaterThan(0);
-
-    const envs = toml.env ?? {};
-    expect(Object.keys(envs).length, "no [env.*] section in wrangler.toml").toBeGreaterThan(0);
-
-    for (const [envName, block] of Object.entries(envs)) {
-      const envNames = new Set(bindingsAndVars(block));
-      const missing = [...topNames].filter((n) => !envNames.has(n));
-      const extra = [...envNames].filter((n) => !topNames.has(n));
-      expect(missing, `[env.${envName}] is missing: ${missing.join(", ")}`).toEqual([]);
-      expect(extra, `[env.${envName}] declares names the top level doesn't have: ${extra.join(", ")}`).toEqual([]);
-    }
-  });
-
-  it("[LDB-G4] every [env.*] D1/R2 resource name is named in the README", () => {
-    const readme = fs.readFileSync(README_PATH, "utf8");
-    const toml = loadToml();
-    const envs = toml.env ?? {};
-    expect(Object.keys(envs).length, "no [env.*] section in wrangler.toml").toBeGreaterThan(0);
-
-    const missing: string[] = [];
-    for (const block of Object.values(envs)) {
-      for (const name of [
-        ...(block.d1_databases ?? []).map((d) => d.database_name),
-        ...(block.r2_buckets ?? []).map((r) => r.bucket_name),
-      ]) {
-        if (!readme.includes(name)) missing.push(name);
-      }
-    }
-    expect(missing, `README.md never names: ${missing.join(", ")}`).toEqual([]);
+    expect(Object.keys(toml.env ?? {})).toEqual([]);
   });
 });

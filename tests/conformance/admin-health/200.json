@@ -7,6 +7,6 @@
   "response": {
     "status": 200,
     "headers": { "Content-Type": "application/json" },
-    "body": { "last_diff": null, "last_drill": null }
+    "body": { "last_diff": null }
   }
 }

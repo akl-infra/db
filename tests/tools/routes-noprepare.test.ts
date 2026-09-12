@@ -5,16 +5,16 @@
 // scoped to the write route file T2 adds. Phase 1's READ routes
 // (`layouts.ts`, `authors.ts`, ...) are a different, already-shipped
 // design (07 §6 S6) that reads D1 directly and is not what LDB-W1 covers.
-// X1 (12 §3) extends the rule to `routes/webhooks.ts` (glue over
-// `core/webhooks.ts`) and `routes/stream.ts` (glue over `core/events.ts`'s
-// `feed()`) -- neither prepares a D1 statement of its own either.
+// LEDGER.md L4 deleted `routes/webhooks.ts` and `routes/stream.ts`
+// (the webhook subsystem and the SSE stream) -- this rule now covers
+// `write.ts` alone again.
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 const DB_ROOT = path.resolve(import.meta.dirname, "..", "..");
 const D1_PATTERN = /\.prepare\(|\.batch\(/;
-const NOPREPARE_FILES = ["write.ts", "webhooks.ts", "stream.ts"];
+const NOPREPARE_FILES = ["write.ts"];
 
 describe("routes/*.ts write boundary", () => {
   for (const name of NOPREPARE_FILES) {

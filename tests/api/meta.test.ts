@@ -26,10 +26,8 @@ describe("GET /v1/meta", () => {
       authors_version: 0, // migrations/0007's seed: no author has ever been written
       formats: ["spark/1", "mana2/1"],
       // X4 (12 §3 X4): {at, ok} | null off import_state's 'cmini.last_diff'
-      // / 'drill.last' rows -- neither exists before a diff tick / drill
-      // report has ever run.
+      // row -- it doesn't exist before a diff tick has ever run.
       last_diff: null,
-      last_drill: null,
     });
   });
 

@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import type { Bindings } from "./env";
-import { type ActorVariables, requireActorOnWrites, SAFE_METHODS } from "./auth/actor";
+import { type ActorVariables, requireActorOnWrites } from "./auth/actor";
 import { type AuthDeps, resolveActor } from "./auth/discord";
 import { rateLimitWrites } from "./auth/ratelimit";
 import { ApiError, internal } from "./core/errors";
@@ -9,11 +9,9 @@ import { runJob } from "./core/jobs";
 import { metaFormats, readMetaCore } from "./core/meta";
 import { runNightly } from "./core/nightly";
 import { systemClock } from "./core/time";
-import { drain as drainWebhooks, type WebhookFetchImpl } from "./core/webhooks";
 import type { FetchImpl } from "./import/upstream";
 import { tick as cminiTick } from "./import/cmini";
 import { diffTick, IMPORT_STATE_KEY as LAST_DIFF_KEY, type LastDiffRecord } from "./import/difftick";
-import { DRILL_KEY, type DrillRecord } from "./core/admins";
 import { adminRoute } from "./routes/admin";
 import { authorsRoute } from "./routes/authors";
 import { changelogRoute } from "./routes/changelog";
@@ -22,8 +20,6 @@ import { dumpRoute } from "./routes/dump";
 import { formatsRoute } from "./routes/formats";
 import { layoutsRoute } from "./routes/layouts";
 import { likesRoute } from "./routes/likes";
-import { streamRoute } from "./routes/stream";
-import { webhooksRoute } from "./routes/webhooks";
 import { writeRoute } from "./routes/write";
 
 const CACHE_CONTROL = "public, max-age=10";
@@ -48,78 +44,36 @@ app.use("/v1/*", requireActorOnWrites(authDeps));
 // listing them here.
 app.use("/v1/*", rateLimitWrites(authDeps.now));
 
-// Production fetchImpl for webhook delivery: real fetch, method+body+signal
-// aware (`WebhookFetchImpl`, core/webhooks.ts) unlike `authDeps.fetchImpl`
-// above (GET-only, headers-only -- upstream/Discord's own shape).
-const webhookFetchImpl: WebhookFetchImpl = (url, init) => fetch(url, init);
-
-// The nudge (12 §2.1): one middleware, registered after `rateLimitWrites`,
-// so every accepted write/like/admin action drains once, from one place --
-// no route or `core/write.ts` change. `c.res.ok` after `next()` is true
-// only for an accepted write (an error response short-circuits via
-// `app.onError`, which runs OUTSIDE this middleware's `next()` -- Hono
-// invokes error handlers by catching the thrown `ApiError`, so a refused
-// write never reaches this line at all, and `c.res` here is always the
-// success response when it does). The 30s `waitUntil` bound (0.1) is why
-// `WEBHOOK_MAX_POSTS` exists: a nudge posts a bounded batch, the `*/1` cron
-// finishes the rest.
-app.use("/v1/*", async (c, next) => {
-  await next();
-  if (!SAFE_METHODS.has(c.req.method) && c.res.ok) {
-    const drainPromise = drainWebhooks(c.env, systemClock, {
-      fetchImpl: webhookFetchImpl,
-      maxPosts: Number(c.env.WEBHOOK_MAX_POSTS),
-    });
-    c.executionCtx.waitUntil(drainPromise);
-    // Test-only observability, same shape as `TEST_CLOCK` (src/routes/
-    // write.ts): `SELF.fetch` does NOT wait on `waitUntil` promises before
-    // resolving, so a test whose fetch stub has a shorter lifetime than
-    // this drain (e.g. it unstubs in `afterEach`) can otherwise leave this
-    // promise's own delivery attempt to run against the REAL global fetch
-    // after the stub is gone -- in the sandboxed test runtime that's a
-    // request to nowhere, which workerd eventually kills as "hung"
-    // (harmless to test results, noisy in CI). `tests/api/write-support.ts`'s
-    // `writeFetch` awaits this after every call so no test needs to know
-    // about it; never read anywhere else, including in production (no
-    // `TEST_*` binding exists there to set it from).
-    (c.env as unknown as { TEST_LAST_NUDGE?: Promise<unknown> }).TEST_LAST_NUDGE = drainPromise;
-  }
-});
-
 // GET /v1/meta -- the service's head: counts, the event cursor, the
 // authors version, and the registered formats. Every field comes from a
 // real D1 query; a fresh database (no rows anywhere) answers the
 // all-zero/null body.
 //
 // The ETag (LDB-R9..R11) is computed from `readHead` (core/etag.ts) --
-// ONE D1 query: the event head, `authors_head`'s row, and (X4) the two
-// `import_state` records -- plus the in-memory format registry. That is
-// every input the body is a function of, and the body carries each of
-// them, so the ETag changes iff the body does:
-//   - `last_diff`/`last_drill` never bump `seq` (neither the diff cron nor
-//     a drill report appends an event, 12 §6.4); without them in the tag
-//     a poller could see 304 forever after a fresh diff/drill run
-//     (LDB-M1);
+// ONE D1 query: the event head, `authors_head`'s row, and the diff
+// bookkeeping record -- plus the in-memory format registry. That is every
+// input the body is a function of, and the body carries each of them, so
+// the ETag changes iff the body does:
+//   - `last_diff` never bumps `seq` (the diff cron appends no event, 12
+//     §6.4); without it in the tag a poller could see 304 forever after a
+//     fresh diff run (LDB-M1);
 //   - an author-only change (a new id or a rename, from the import or
 //     either auth lane) appends no event either; `authors_head` moves on
 //     exactly those (migrations/0007's triggers) and never on
 //     `last_seen_at` bookkeeping, so a sign-in that keeps its name still
 //     gets the bot's per-command check a 304.
 // A 304 costs that one query.
-const META_STATE_KEYS = [LAST_DIFF_KEY, DRILL_KEY] as const;
+const META_STATE_KEYS = [LAST_DIFF_KEY] as const;
 
 app.get("/v1/meta", async (c) => {
   const db = c.env.DB;
   const head = await readHead(db, META_STATE_KEYS);
-  const [diffRaw, drillRaw] = head.state;
+  const [diffRaw] = head.state;
   const diffRecord = diffRaw === null || diffRaw === undefined ? null : (JSON.parse(diffRaw) as LastDiffRecord);
-  const drillRecord = drillRaw === null || drillRaw === undefined ? null : (JSON.parse(drillRaw) as DrillRecord);
   const lastDiffWire = diffRecord === null ? null : { at: diffRecord.at, ok: diffRecord.ok };
-  const lastDrillWire = drillRecord === null ? null : { at: drillRecord.at, ok: drillRecord.ok };
   const etag = await etagFor(head.seq, {
     authors: head.authors,
     last_diff: lastDiffWire,
-    last_drill: lastDrillWire,
     formats: metaFormats(),
   });
   const short = await conditional(c, etag, CACHE_CONTROL);
@@ -128,7 +82,6 @@ app.get("/v1/meta", async (c) => {
   const res = c.json({
     ...(await readMetaCore(db, head)),
     last_diff: lastDiffWire,
-    last_drill: lastDrillWire,
   });
   res.headers.set("ETag", etag);
   res.headers.set("Cache-Control", CACHE_CONTROL);
@@ -147,14 +100,12 @@ app.get("/v1/me", async (c) => {
 app.route("/", layoutsRoute);
 app.route("/", authorsRoute);
 app.route("/", formatsRoute);
-app.route("/", changesRoute);
+app.route("/", changesRoute(authDeps));
 app.route("/", changelogRoute);
 app.route("/", dumpRoute);
 app.route("/", writeRoute);
 app.route("/", likesRoute);
 app.route("/", adminRoute(authDeps));
-app.route("/", webhooksRoute(authDeps));
-app.route("/", streamRoute);
 
 app.onError((err, c) => {
   if (err instanceof ApiError) {
@@ -167,7 +118,8 @@ app.onError((err, c) => {
 
 // ONE cron trigger (`*/5 * * * *`, wrangler.toml's `[triggers]`) -- what
 // used to be four separate cron strings (`*/1`, `*/5`, `0 3`, `0 4`) are
-// now four jobs dispatched off ONE five-minute tick's own
+// now three jobs (the `*/1` webhook drain is gone with the webhook
+// subsystem, LEDGER.md L4) dispatched off ONE five-minute tick's own
 // `event.scheduledTime` (UTC), not off `event.cron` (there is only one cron
 // string left to switch on). Why: four registered triggers on one Worker
 // is four independent things Cloudflare's own scheduler has to keep
@@ -188,16 +140,15 @@ app.onError((err, c) => {
 // S5 needed it (07 §6 S5's tick.test.ts drives this handler directly via
 // pool-workers' `createScheduledController`, which accepts a `scheduledTime`
 // override for exactly this file's own tests).
-// Fault isolation between the jobs bundled onto one invocation: four
-// separate cron triggers meant a broken one (say, upstream timing out)
-// could only ever wedge ITS OWN schedule -- webhook delivery, the nightly
-// prune, the diff, kept running on their own triggers regardless.
-// Collapsing onto one dispatch must not silently recreate a single point
-// of failure out of four previously-independent jobs, so each one is
-// caught and logged (`core/jobs.ts`'s `runJob`) rather than left to abort
-// every job still queued after it in the same invocation
-// (`tests/import/tick.test.ts`'s own "one job's failure doesn't block the
-// rest" case is the regression test).
+// Fault isolation between the jobs bundled onto one invocation: separate
+// cron triggers meant a broken one (say, upstream timing out) could only
+// ever wedge ITS OWN schedule -- the nightly prune, the diff, kept running
+// on their own triggers regardless. Collapsing onto one dispatch must not
+// silently recreate a single point of failure out of previously-
+// independent jobs, so each one is caught and logged (`core/jobs.ts`'s
+// `runJob`) rather than left to abort every job still queued after it in
+// the same invocation (`tests/import/tick.test.ts`'s own "one job's
+// failure doesn't block the rest" case is the regression test).
 async function scheduled(event: ScheduledController, env: Bindings, _ctx: ExecutionContext): Promise<void> {
   if (event.cron !== "*/5 * * * *") {
     throw new Error(`scheduled(): unrecognized cron '${event.cron}'`);
@@ -207,17 +158,7 @@ async function scheduled(event: ScheduledController, env: Bindings, _ctx: Execut
   const hour = at.getUTCHours();
   const minute = at.getUTCMinutes();
 
-  // Every tick: the import cron's own work first, then the webhook drain --
-  // so a subscription sees THIS SAME invocation's own import events
-  // (imported/upstream_changed/upstream_deleted/...) without waiting for
-  // the next five-minute slot. The reverse order has nothing to gain
-  // (drainWebhooks has no import events of its own to lose by running
-  // second) and would cost every import event one extra tick's worth of
-  // webhook latency for no reason -- so `cminiTick` runs first.
   await runJob("cmini-tick", () => cminiTick(env, systemClock));
-  await runJob("webhook-drain", () =>
-    drainWebhooks(env, systemClock, { fetchImpl: webhookFetchImpl, maxPosts: Number(env.WEBHOOK_MAX_POSTS) }),
-  );
 
   // The old `0 3 * * *`: prune + the nightly dump, delegated to
   // `core/nightly.ts`'s `runNightly` so this exact job list is also what

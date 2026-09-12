@@ -1,8 +1,0 @@
-{
-  "request": { "method": "POST", "path": "/v1/webhooks", "body": { "url": "https://receiver.example/hook", "secret": "conformance-webhook-secret-1" } },
-  "response": {
-    "status": 401,
-    "headers": { "Content-Type": "application/json", "WWW-Authenticate": "Bearer" },
-    "body": { "error": "unauthorized", "message": "authentication required" }
-  }
-}
