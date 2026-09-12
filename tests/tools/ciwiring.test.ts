@@ -205,6 +205,29 @@ describe("db.yml wiring", () => {
     expect(diffStep.toUpperCase()).not.toContain("SKIP");
   });
 
+  it("[LDB-C6] the daily job uploads the fetched dump as a 30-day-retention artifact, before the rehost drill runs", () => {
+    const wf = loadWorkflow();
+    const daily = wf.jobs.daily;
+    expect(daily, "no `daily` job in db.yml").toBeDefined();
+    if (!daily) throw new Error("unreachable: assertion above failed");
+
+    const steps = daily.steps ?? [];
+    const uploadIdx = steps.findIndex((s) => s.uses?.startsWith("actions/upload-artifact@"));
+    expect(uploadIdx, "no actions/upload-artifact step in the daily job").toBeGreaterThanOrEqual(0);
+    expect((steps[uploadIdx] as Step).with?.["retention-days"]).toBe(30);
+
+    const rehostIdx = steps.findIndex((s) => typeof s.run === "string" && /vitest run tests\/rehost\.test\.ts/.test(s.run));
+    expect(rehostIdx, "no rehost.test.ts step").toBeGreaterThanOrEqual(0);
+    expect(uploadIdx, "the dump must be uploaded before the rehost drill can mutate/consume it").toBeLessThan(rehostIdx);
+
+    // The uploaded path(s) actually name the fetched dump, not some
+    // unrelated artifact -- a passing upload step that uploads nothing
+    // useful would be worse than an obviously-missing one.
+    const uploadWith = (steps[uploadIdx] as Step).with ?? {};
+    const uploadPath = String(uploadWith.path ?? "");
+    expect(uploadPath).toMatch(/dump.*\.gz/);
+  });
+
   it("[LDB-G6] the split-dry-run job needs test, runs weekly + on workflow_dispatch, and runs scripts/split/split-db.sh --dry-run", () => {
     const wf = loadWorkflow();
     const job = wf.jobs["split-dry-run"];

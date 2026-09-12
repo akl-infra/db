@@ -145,11 +145,29 @@ jobs:
           cache-dependency-path: db/package-lock.json
       - name: Install dependencies
         run: npm ci
-      - name: Rehost drill against the live dump (LDB-G1)
+      # LDB-C6 (audit-db.md §H item 4, C.3): a copy of the live dump OFF
+      # Cloudflare -- free, 30-day retention -- before anything else touches
+      # it, so a corrupt/failed rehost drill below still leaves this run's
+      # artifact behind to diagnose from or restore from by hand.
+      - name: Fetch the live dump (off-account copy)
         run: |
           set -euo pipefail
           latest_json=$(curl -sf "${{ vars.DB_BASE_URL }}/v1/dump/latest.json")
+          echo "$latest_json" > latest.json
           rel_url=$(echo "$latest_json" | jq -r .url)
+          curl -sf "${{ vars.DB_BASE_URL }}${rel_url}" -o dump.json.gz
+      - name: Upload the dump artifact (LDB-C6, 30-day retention)
+        uses: actions/upload-artifact@v4
+        with:
+          name: layoutdb-dump-${{ github.run_id }}
+          path: |
+            db/latest.json
+            db/dump.json.gz
+          retention-days: 30
+      - name: Rehost drill against the live dump (LDB-G1)
+        run: |
+          set -euo pipefail
+          rel_url=$(jq -r .url latest.json)
           REHOST_DUMP_URL="${{ vars.DB_BASE_URL }}${rel_url}" npx vitest run tests/rehost.test.ts --project workers
       - name: Upstream diff (LDB-P5, S8)
         run: |
