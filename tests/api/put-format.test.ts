@@ -198,3 +198,70 @@ describe("[LDB-P13] property: the stored major never decreases under a random se
     });
   });
 });
+
+// Coordinator review (M5): PATCH's own `format` field used to be
+// completely ignored beyond computing its lineage for scoping -- every
+// edit silently applied to whatever major happened to be stored, no
+// matter what the caller actually named. Now it's resolved through the
+// registry (unknown_format / format_not_writable) and, when it names a
+// DIFFERENT major than what's stored, checked against the SAME LDB-P13 R1
+// rule `putFormat` runs (format_behind) -- all BEFORE any edit is applied.
+describe("[LDB-P13] PATCH validates the format it names (M5)", () => {
+  async function seedSpark() {
+    const res = await writeFetch("/v1/layouts", "POST", headers(), { name: uniqueName("patch-format-seed"), format: "spark/1", payload: { keys: { a: { row: 0, col: 0, finger: "LP" } } } });
+    const body = await res.json<{ id: string; formats: Record<string, { rev: number }> }>();
+    return { id: body.id, rev: body.formats["spark/1"]!.rev };
+  }
+
+  it("[LDB-P13] {format: 'spark/9', fingermap} -- an unregistered major -> 400 unknown_format, spark/1 untouched", async () => {
+    const seeded = await seedSpark();
+    const res = await writeFetch(`/v1/layouts/${seeded.id}`, "PATCH", { ...headers(), "If-Match": `"spark:${seeded.rev}"` }, { format: "spark/9", fingermap: { a: "LM" } });
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({ error: "unknown_format" });
+    const row = await db.prepare("SELECT rev, payload_json FROM layout_formats WHERE layout_id = ? AND lineage = 'spark'").bind(seeded.id).first<{ rev: number; payload_json: string }>();
+    expect(row!.rev).toBe(seeded.rev); // never edited
+    expect(JSON.parse(row!.payload_json)).toEqual({ keys: { a: { row: 0, col: 0, finger: "LP" } } });
+  });
+
+  it("[LDB-P13] {format: 'mana2/1', fingermap} on a spark/1-stored layout -> 400 format_not_writable (output format), untouched", async () => {
+    const seeded = await seedSpark();
+    // If-Match must name mana2/1's OWN lineage ("mana2") to get past
+    // MF-11's scope check (checked before any read, and before this
+    // route even resolves the named format) -- the rev value itself is
+    // irrelevant since format_not_writable fires before any rev compare.
+    const res = await writeFetch(`/v1/layouts/${seeded.id}`, "PATCH", { ...headers(), "If-Match": `"mana2:1"` }, { format: "mana2/1", fingermap: { a: "LM" } });
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({ error: "format_not_writable", format: "mana2/1" });
+    const row = await db.prepare("SELECT rev FROM layout_formats WHERE layout_id = ? AND lineage = 'spark'").bind(seeded.id).first<{ rev: number }>();
+    expect(row!.rev).toBe(seeded.rev);
+  });
+
+  it("[LDB-P13] naming an OLDER major that can't show the record's current content -> 409 format_behind, nothing applied", () =>
+    withStubLineage(async () => {
+      const res0 = await writeFetch("/v1/layouts", "POST", headers(), { name: uniqueName("patch-behind-seed"), format: "t/3", payload: { v: 3, a: 1, b: 0, c: true } });
+      const created = await res0.json<{ id: string; formats: Record<string, { rev: number }> }>();
+      const rev = created.formats["t/3"]!.rev;
+
+      // c===true: down_3 (t/3 -> t/2) holds, so naming the OLDER t/1 --
+      // which the caller may believe is still what's stored -- must never
+      // silently edit the record through a translated-down (impossible)
+      // view.
+      const res = await writeFetch(`/v1/layouts/${created.id}`, "PATCH", { ...headers(), "If-Match": `"t:${rev}"` }, { format: "t/1", fingermap: { a: "x" } });
+      expect(res.status).toBe(409);
+      await expect(res.json()).resolves.toMatchObject({ error: "format_behind", format: "t/1", see: "t/3" });
+
+      const row = await db.prepare("SELECT rev, format, payload_json FROM layout_formats WHERE layout_id = ? AND lineage = 't'").bind(created.id).first<{ rev: number; format: string; payload_json: string }>();
+      expect(row!.rev).toBe(rev); // never edited
+      expect(row!.format).toBe("t/3");
+      expect(JSON.parse(row!.payload_json)).toEqual({ v: 3, a: 1, b: 0, c: true });
+    }));
+
+  it("[LDB-P13] naming the SAME major the record is already stored at -- edit applies normally (no format_behind)", async () => {
+    const seeded = await seedSpark();
+    const res = await writeFetch(`/v1/layouts/${seeded.id}`, "PATCH", { ...headers(), "If-Match": `"spark:${seeded.rev}"` }, { format: "spark/1", fingermap: { a: "LM" } });
+    expect(res.status).toBe(200);
+    const body = await res.json<{ format: string; payload: { keys: Record<string, { finger: string }> } }>();
+    expect(body.format).toBe("spark/1");
+    expect(body.payload.keys["a"]!.finger).toBe("LM");
+  });
+});

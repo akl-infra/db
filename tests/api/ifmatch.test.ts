@@ -14,7 +14,19 @@ import type { Bindings } from "../../src/env";
 import { commitWrite, type CommitInput } from "../../src/core/events";
 import { fixedClock } from "../../src/core/time";
 import { ulid } from "ulidx";
+import { app } from "../../src/index";
 import { AKL_PAYLOAD, actorFixture, register, uniqueName, writeFetch } from "./write-support";
+
+// Coordinator review (M4): "enumerated from the router, not hand-listed"
+// -- same technique `tests/tools/docs-site.test.ts`'s `LDB-G10` uses
+// (`app.routes`, exported by `src/index.ts` for exactly this kind of
+// black-box enumeration). Every write route MF-11 claims to cover is
+// asserted present here FIRST: a route renamed or removed would fail this
+// check immediately, rather than the matrix below silently exercising
+// nothing for it.
+function routerHas(method: string, path: string): boolean {
+  return app.routes.some((r) => r.method === method && r.path === path);
+}
 
 const db = (env as unknown as Bindings).DB;
 const clock = fixedClock("2026-07-06T00:00:00.000Z");
@@ -23,6 +35,13 @@ const SOURCE = { client: "discord-app:test", version: null };
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+it("[MF-11] [LDB-P21] every scoped-If-Match write route this file's matrices cover is still registered", () => {
+  expect(routerHas("PUT", "/v1/layouts/:ref")).toBe(true);
+  expect(routerHas("PATCH", "/v1/layouts/:ref")).toBe(true);
+  expect(routerHas("DELETE", "/v1/layouts/:ref")).toBe(true);
+  expect(routerHas("POST", "/v1/layouts/:ref/transfer")).toBe(true);
 });
 
 async function seed() {
@@ -91,6 +110,22 @@ describe("[MF-11] If-Match on PUT (format scope: spark)", () => {
       }
     });
   }
+
+  // LOW (coordinator review): sending BOTH conditional headers at once is
+  // never a valid "pick one" -- refused outright, before either is acted
+  // on, same as any other malformed If-Match.
+  it("[MF-11] [LDB-P21] PUT with BOTH If-Match and If-None-Match: * -> 400 bad_request", async () => {
+    const record = await seed();
+    const headers = ownerHeaders(`tok-put-${uniqueName("dual")}`);
+    const res = await writeFetch(
+      `/v1/layouts/${record.id}`,
+      "PUT",
+      { ...headers, "If-Match": `"spark:${record.formatRev}"`, "If-None-Match": "*" },
+      { format: "spark/1", payload: AKL_PAYLOAD },
+    );
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({ error: "bad_request", param: "If-Match" });
+  });
 });
 
 describe("[MF-11] If-Match on DELETE (layout scope)", () => {
@@ -152,4 +187,130 @@ describe("[MF-11] If-Match on DELETE (layout scope)", () => {
     const events = await db.prepare("SELECT COUNT(*) AS n FROM events WHERE layout_id = ?").bind(record.id).first<{ n: number }>();
     expect(events?.n).toBe(3); // "created" + "format_added" + exactly one "updated"
   });
+});
+
+// Coordinator review (M4): "MF-11 covers every write route: PUT, both
+// PATCH kinds, DELETE, transfer" -- PATCH's two kinds are the SAME route,
+// exercised with each of its two mutually-exclusive body shapes, since
+// the SCOPE (and therefore the valid If-Match token) differs per shape.
+async function seedKeyed() {
+  const input: CommitInput = {
+    layoutId: ulid(),
+    creating: true,
+    currentN: 0,
+    currentLayout: null,
+    currentFormats: new Map(),
+    layout: { kind: "created", name: uniqueName("ifmatch-keyed-seed"), owner: OWNER, created_at: clock(), deleted: false },
+    format: { kind: "format_added", lineage: "spark", format: "spark/1", payload: { keys: { a: { row: 0, col: 0, finger: "LP" } } }, hasMagic: false },
+    modified_at: clock(),
+    actor: OWNER,
+    via: "discord",
+    source: SOURCE,
+    upstream: null,
+  };
+  const { layout, formats } = await commitWrite(db, clock, input);
+  return { id: layout.id, layoutRev: layout.layout_rev, formatRev: formats.get("spark")!.rev };
+}
+
+describe("[MF-11] If-Match on PATCH {format, fingermap} (format scope: spark)", () => {
+  const cases: { label: string; header: (rev: number) => string | undefined; status: number; code?: string }[] = [
+    { label: "absent", header: () => undefined, status: 400, code: "if_match_required" },
+    { label: "*", header: () => "*", status: 200 },
+    { label: '"spark:<rev>" (quoted, matching)', header: (rev) => `"spark:${rev}"`, status: 200 },
+    { label: '"spark:<rev-1>" (stale)', header: (rev) => `"spark:${rev - 1}"`, status: 409 },
+    { label: '"layout:<rev>" (WRONG scope -- MF-11)', header: () => `"layout:1"`, status: 400, code: "bad_request" },
+    { label: '"<rev>" (bare, unscoped)', header: (rev) => `"${rev}"`, status: 400, code: "bad_request" },
+  ];
+
+  for (const { label, header, status, code } of cases) {
+    it(`[MF-11] [LDB-P21] PATCH {format,fingermap} If-Match: ${label} -> ${status}`, async () => {
+      const record = await seedKeyed();
+      const headers = ownerHeaders(`tok-patchf-${uniqueName("t")}`);
+      const ifMatch = header(record.formatRev);
+      const res = await writeFetch(
+        `/v1/layouts/${record.id}`,
+        "PATCH",
+        { ...headers, ...(ifMatch !== undefined ? { "If-Match": ifMatch } : {}) },
+        { format: "spark/1", fingermap: { a: "LM" } },
+      );
+      expect(res.status, label).toBe(status);
+      if (status === 400 && code === "bad_request") {
+        await expect(res.json()).resolves.toMatchObject({ error: "bad_request", param: "If-Match" });
+      }
+      if (status === 400 && code === "if_match_required") {
+        await expect(res.json()).resolves.toMatchObject({ error: "if_match_required" });
+      }
+      if (status === 409) {
+        await expect(res.json()).resolves.toMatchObject({ error: "stale", scope: "spark" });
+      }
+    });
+  }
+});
+
+describe("[MF-11] If-Match on PATCH {name} (layout scope)", () => {
+  const cases: { label: string; header: (rev: number) => string | undefined; status: number; code?: string }[] = [
+    { label: "absent", header: () => undefined, status: 400, code: "if_match_required" },
+    { label: "*", header: () => "*", status: 200 },
+    { label: '"layout:<rev>" (quoted, matching)', header: (rev) => `"layout:${rev}"`, status: 200 },
+    { label: '"layout:<rev-1>" (stale)', header: (rev) => `"layout:${rev - 1}"`, status: 409 },
+    { label: '"spark:<rev>" (WRONG scope -- MF-11)', header: (rev) => `"spark:${rev}"`, status: 400, code: "bad_request" },
+    { label: '"<rev>" (bare, unscoped)', header: (rev) => `"${rev}"`, status: 400, code: "bad_request" },
+  ];
+
+  for (const { label, header, status, code } of cases) {
+    it(`[MF-11] [LDB-P21] PATCH {name} If-Match: ${label} -> ${status}`, async () => {
+      const record = await seed();
+      const headers = ownerHeaders(`tok-patchn-${uniqueName("t")}`);
+      const ifMatch = header(record.layoutRev);
+      const res = await writeFetch(`/v1/layouts/${record.id}`, "PATCH", { ...headers, ...(ifMatch !== undefined ? { "If-Match": ifMatch } : {}) }, { name: uniqueName("ifmatch-renamed") });
+      expect(res.status, label).toBe(status);
+      if (status === 400 && code === "bad_request") {
+        await expect(res.json()).resolves.toMatchObject({ error: "bad_request", param: "If-Match" });
+      }
+      if (status === 400 && code === "if_match_required") {
+        await expect(res.json()).resolves.toMatchObject({ error: "if_match_required" });
+      }
+      if (status === 409) {
+        await expect(res.json()).resolves.toMatchObject({ error: "stale", scope: "layout" });
+      }
+    });
+  }
+});
+
+describe("[MF-11] If-Match on transfer (layout scope, presence-only -- no staleness check)", () => {
+  const TARGET = "830000000000099001";
+
+  async function seedTargetAuthor() {
+    await db.prepare("INSERT OR IGNORE INTO authors (user_id, name, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?)").bind(TARGET, `user-${TARGET}`, clock(), clock()).run();
+  }
+
+  const cases: { label: string; header: (rev: number) => string | undefined; status: number; code?: string }[] = [
+    { label: "absent", header: () => undefined, status: 400, code: "if_match_required" },
+    { label: "*", header: () => "*", status: 200 },
+    { label: '"layout:<rev>" (matching)', header: (rev) => `"layout:${rev}"`, status: 200 },
+    // transfer's own If-Match is PRESENCE-only (core/write.ts's
+    // `transferLayout` never compares the token's rev against anything),
+    // so even a "stale" layout rev is accepted -- only the SCOPE is
+    // checked, never before any read.
+    { label: '"layout:<rev-1>" (wrong number, still accepted -- presence-only)', header: (rev) => `"layout:${rev - 1}"`, status: 200 },
+    { label: '"spark:<rev>" (WRONG scope -- MF-11)', header: (rev) => `"spark:${rev}"`, status: 400, code: "bad_request" },
+    { label: '"<rev>" (bare, unscoped)', header: (rev) => `"${rev}"`, status: 400, code: "bad_request" },
+  ];
+
+  for (const { label, header, status, code } of cases) {
+    it(`[MF-11] [LDB-P21] transfer If-Match: ${label} -> ${status}`, async () => {
+      await seedTargetAuthor();
+      const record = await seed();
+      const headers = ownerHeaders(`tok-transfer-${uniqueName("t")}`);
+      const ifMatch = header(record.layoutRev);
+      const res = await writeFetch(`/v1/layouts/${record.id}/transfer`, "POST", { ...headers, ...(ifMatch !== undefined ? { "If-Match": ifMatch } : {}) }, { to: TARGET });
+      expect(res.status, label).toBe(status);
+      if (status === 400 && code === "bad_request") {
+        await expect(res.json()).resolves.toMatchObject({ error: "bad_request", param: "If-Match" });
+      }
+      if (status === 400 && code === "if_match_required") {
+        await expect(res.json()).resolves.toMatchObject({ error: "if_match_required" });
+      }
+    });
+  }
 });

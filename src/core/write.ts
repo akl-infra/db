@@ -293,6 +293,13 @@ export async function putFormat(
   const lin = lineage(chained.format);
 
   const adding = ifNoneMatchHeader.kind === "any";
+  // Coordinator review (LOW): sending BOTH a real `If-Match` and
+  // `If-None-Match: *` at once is never a valid "pick one" -- refused
+  // before either is acted on, same as any other malformed If-Match,
+  // rather than silently picking "add" and ignoring the If-Match header.
+  if (adding && ifMatchHeader.kind !== "absent") {
+    throw badRequest("'If-Match' and 'If-None-Match: *' cannot both be sent -- If-Match replaces, If-None-Match: * adds", "If-Match");
+  }
   // 21-formats.md §2.4: replacing needs a scoped `If-Match` naming THIS
   // format's own lineage (MF-11, checked before any read); adding needs
   // only the explicit `If-None-Match: *` this function was called with.
@@ -433,12 +440,36 @@ export async function patchFormat(
   requireScopedIfMatch(ifMatchHeader, lin); // MF-11: before any read
   const source: Source = { client: actor.source_client, version };
 
+  // Coordinator review (M5): PATCH's own `format` field used to be
+  // completely ignored beyond computing its LINEAGE for scoping -- every
+  // edit silently applied to whatever major happened to be stored,
+  // regardless of what the caller actually named. `{format: "spark/9"}`
+  // must never edit `spark/1`. Resolve the NAMED format through the
+  // registry first, same as any other write (`unknown_format` if it isn't
+  // registered at all, `format_not_writable` if it's output-role, e.g.
+  // `mana2/1`) -- before touching the record at all.
+  const namedResolved = resolveFormat(format);
+  if (namedResolved === undefined) throw unknownFormat(format, listFormats().map((f) => f.id));
+  if (namedResolved.module.role === "output") throw formatNotWritable(format);
+
   const build = async (): Promise<CommitInput> => {
     const { lwf, admin } = await loadForWrite(db, ref, actor, { allowDeleted: false });
     const existing = lwf.formats.get(lin);
     if (existing === undefined) throw formatAbsent(format);
     const module = getFormat(existing.format);
     if (module === undefined) throw unknownFormat(existing.format, listFormats().map((f) => f.id));
+
+    // Coordinator review (M5, LDB-P13's own R1 rule -- the same one
+    // `putFormat` runs): if the NAMED format differs from what's actually
+    // stored, it must be able to show the stored content whole. Naming an
+    // OLDER major that can't (the record's current content already
+    // outgrew it) is `409 format_behind`, exactly like a PUT would refuse
+    // -- never a silent edit applied against a translated-down (and
+    // possibly lossy) view.
+    if (format !== existing.format) {
+      const view = translate({ format: existing.format, payload: existing.payload }, format);
+      if ("held" in view) throw formatBehind(format, existing.format, existing.rev);
+    }
 
     const checked = requireScopedIfMatch(ifMatchHeader, lin);
     await requireFormatRev(db, lwf.layout, existing, checked, lwf.formats);

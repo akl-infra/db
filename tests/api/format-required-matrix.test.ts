@@ -22,7 +22,8 @@ import type { Bindings } from "../../src/env";
 import { commitWrite, type CommitInput } from "../../src/core/events";
 import { fixedClock } from "../../src/core/time";
 import { ulid } from "ulidx";
-import { writeFetch } from "./write-support";
+import { app } from "../../src/index";
+import { actorFixture, register, writeFetch } from "./write-support";
 import { registerForTest } from "../../formats/registry.ts";
 import { T1 } from "../formats/stub-lineage.ts";
 
@@ -66,6 +67,24 @@ const ROUTES: RouteDesc[] = [
   { name: "GET /v1/layouts/:ref", path: (id, f) => `/v1/layouts/${id}${f !== undefined ? `?format=${f}` : ""}` },
   { name: "GET /v1/layouts/:ref/rev/:n", path: (id, f) => `/v1/layouts/${id}/rev/1${f !== undefined ? `?format=${f}` : ""}` },
 ];
+
+// Coordinator review (M4): "enumerated from the router, not hand-listed"
+// -- same `app.routes` technique `tests/tools/docs-site.test.ts`'s
+// `LDB-G10` uses. Asserted once, for every route both this file's own GET
+// matrix and the write-body matrix below cover, so a renamed/removed
+// route fails loudly here instead of the matrices silently exercising
+// nothing.
+function routerHas(method: string, path: string): boolean {
+  return app.routes.some((r) => r.method === method && r.path === path);
+}
+it("[MF-4] [LDB-G11] every route this file's matrices cover is still registered", () => {
+  expect(routerHas("GET", "/v1/layouts")).toBe(true);
+  expect(routerHas("GET", "/v1/layouts/:ref")).toBe(true);
+  expect(routerHas("GET", "/v1/layouts/:ref/rev/:n")).toBe(true);
+  expect(routerHas("POST", "/v1/layouts")).toBe(true);
+  expect(routerHas("PUT", "/v1/layouts/:ref")).toBe(true);
+  expect(routerHas("PATCH", "/v1/layouts/:ref")).toBe(true);
+});
 
 type StatusExp = { status: number; error?: string };
 type ListExp = StatusExp | "present" | "absent-from-list";
@@ -166,4 +185,40 @@ describe("[MF-4 = LDB-G11] format_required matrix: every format-bearing GET rout
       });
     }
   }
+});
+
+// Coordinator review (M4, D4): "cover POST/PUT/PATCH bodies too" -- a
+// write body missing `format` entirely answers the SAME dedicated
+// `400 format_required` a read route does, never a generic `bad_request`
+// naming `/format` as just another missing property (`src/routes/
+// schemas.ts`'s `checkBody` used to do exactly that for POST/PUT before
+// this fix).
+describe("[MF-4] [LDB-G11] format_required on write bodies (POST, PUT, PATCH)", () => {
+  function ownerHeaders(token: string) {
+    const fake = actorFixture();
+    return register(fake, token, OWNER);
+  }
+
+  it("[MF-4] [LDB-G11] POST /v1/layouts with no `format` -> 400 format_required", async () => {
+    const headers = ownerHeaders(`tok-${uniqueName("post")}`);
+    const res = await writeFetch("/v1/layouts", "POST", headers, { name: uniqueName("mf4-post"), payload: { keys: {} } });
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({ error: "format_required" });
+  });
+
+  it("[MF-4] [LDB-G11] PUT /v1/layouts/:ref with no `format` -> 400 format_required", async () => {
+    const id = await seed();
+    const headers = ownerHeaders(`tok-${uniqueName("put")}`);
+    const res = await writeFetch(`/v1/layouts/${id}`, "PUT", { ...headers, "If-Match": "*" }, { payload: { keys: {} } });
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({ error: "format_required" });
+  });
+
+  it("[MF-4] [LDB-G11] PATCH /v1/layouts/:ref with an edit key but no `format` -> 400 format_required", async () => {
+    const id = await seed();
+    const headers = ownerHeaders(`tok-${uniqueName("patch")}`);
+    const res = await writeFetch(`/v1/layouts/${id}`, "PATCH", { ...headers, "If-Match": "*" }, { fingermap: { a: "LM" } });
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({ error: "format_required" });
+  });
 });

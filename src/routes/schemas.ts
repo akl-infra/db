@@ -4,7 +4,7 @@
 // with `400 bad_request` and a `param` naming it (a JSON pointer) -- not
 // silently ignored (LDB-A7).
 import Ajv2020, { type ErrorObject, type ValidateFunction } from "ajv/dist/2020.js";
-import { badRequest } from "../core/errors";
+import { badRequest, formatRequired } from "../core/errors";
 
 const ajv = new Ajv2020({ allErrors: false, strict: true });
 
@@ -217,6 +217,17 @@ function checkBody<T>(validate: ValidateFunction<T>, body: unknown): T {
   if (validate(body)) return body;
   const err = validate.errors?.[0];
   if (err === undefined) throw badRequest("invalid request body", "/");
+  // Coordinator review (M4, D4): a body missing `format` entirely (POST,
+  // PUT) is `400 format_required`, the SAME dedicated code every other
+  // format-required route answers -- not a generic `bad_request` naming
+  // `/format` as just another missing property. PATCH's own `format` is
+  // conditionally required (only when an edit key is present) and already
+  // goes through `core/write.ts`'s `classifyPatch`, never this schema
+  // check, so this only ever fires for POST/PUT's unconditionally
+  // `required` list.
+  if (err.keyword === "required" && (err.params as { missingProperty: string }).missingProperty === "format") {
+    throw formatRequired();
+  }
   throw badRequest(ajv.errorsText([err], { dataVar: "body" }), paramFor(err));
 }
 
