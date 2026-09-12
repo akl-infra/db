@@ -190,6 +190,43 @@ change to it and resend with `If-Match` set to that scope's current rev.
 schema, but it's what lets an operator later find every write a given
 build of your client made (adoption guide §1.3, §5).
 
+**`Idempotency-Key` (L3): retry any write safely.** Every route above (plus
+likes) accepts an optional `Idempotency-Key` header, 1–128 printable ASCII
+characters, your own choice (a UUID is fine). Scope is per caller — your
+own client id on the Ed25519 lane, your own Discord user id on the bearer
+lane — so your key can never collide with anyone else's. Send the SAME key
+again within 24h for the SAME method+path+body and you get back the exact
+same response (status and body, byte-for-byte) with `Idempotency-Replayed:
+true`, and nothing is written a second time. Reuse the key for a
+DIFFERENT method/path/body and you get `422 idempotency_mismatch` instead
+— pick a fresh key per logical write. A key older than 24h is simply
+ignored (as if never sent). The rate limit is charged once, on the
+request that actually lands — a replay never spends another write.
+
+**The retry recipe:** generate one key per logical write attempt, before
+the first try. On a timeout, a `5xx`, or any other "I don't know if that
+landed" outcome, resend the EXACT same request with the SAME key — you
+either get the original success back (nothing double-applied) or, if it
+genuinely never landed, a fresh attempt runs for the first time. Never
+reuse a key for what is semantically a different write (a `swap!` after
+you've re-fetched a new rev is a NEW write — mint a new key), and never
+resend an old key with a changed body just to "fix" something — that's
+`422`, not a way to amend a prior write.
+
+```bash
+curl -sX PATCH …/v1/layouts/01M245…YFRJ -H 'Idempotency-Key: 4f2c-swap-1' \
+  -H 'If-Match: "spark:1"' -d '{"format":"spark/1","fingermap":{"a":"LM"}}' <signed>
+# 200 { …, "formats":{"spark/1":{"rev":2}} }        (request timed out client-side; landed anyway)
+
+curl -sX PATCH …/v1/layouts/01M245…YFRJ -H 'Idempotency-Key: 4f2c-swap-1' \
+  -H 'If-Match: "spark:1"' -d '{"format":"spark/1","fingermap":{"a":"LM"}}' <signed>  # retry, same key+body
+# 200 { …, "formats":{"spark/1":{"rev":2}} }  Idempotency-Replayed: true   (rev did NOT bump to 3)
+
+curl -sX PATCH …/v1/layouts/01M245…YFRJ -H 'Idempotency-Key: 4f2c-swap-1' \
+  -H 'If-Match: "spark:1"' -d '{"format":"spark/1","fingermap":{"a":"RP"}}' <signed>  # same key, different body
+# 422 {"error":"idempotency_mismatch","message":"this 'Idempotency-Key' was already used for a different request"}
+```
+
 ```bash
 curl -sX POST …/v1/layouts -H 'X-Client-Version: my-bot/1.0' -d '{"name":"ldb-integration-doc-demo",
   "format":"spark/1","payload":{"keys":{"a":{"row":1,"col":1,"finger":"LI"}}}}' <signed>
@@ -408,6 +445,7 @@ real examples in §4.
 | 401 | `replay` | nonce already used | `replay()` |
 | 403 | `actor_not_allowed` | this client may not act as this user | `actorNotAllowed(actor, owner)` |
 | 409 | `import_paused` | the cmini import is paused (POST /v1/admin/import/resume first) | `importPaused()` |
+| 422 | `idempotency_mismatch` | this 'Idempotency-Key' was already used for a different request | `idempotencyMismatch()` |
 | 429 | `rate_limited` | rate limit exceeded: ${limit} writes per ${windowSeconds}s | `rateLimited(limit, windowSeconds, retryAfter, scope)` |
 <!-- END GENERATED ERROR TABLE -->
 
