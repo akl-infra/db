@@ -53,7 +53,7 @@ Status: `todo` · `running (agent, branch)` · `review` · `landed <sha>` · `bl
 | B1 | **cell store + row tables + rank** | content-hash-keyed cell store persisted on `/data`; eager compute on rev bump (wasm, 39 cells); per-(corpus, space) row tables; `rank` sorts at once, footer stand-in for pending rows; delete `provenance.ts` + publish tracker + adoption resets; LDB-B rows. | landed 23435c60b (LDB-B90..B95; provenance deleted ~1.7k lines; seed script skipped; tier-2 sweeper folded into the engine budget) |
 | B2 | **publisher module** (running: impl-B2) | native mana2 CLI in the image (from `stats/Dockerfile`), computes 108 cells per changed layout into the same store (CLI wins), emits overlay (catalog, rules, authors, per-corpus stats) → R2 via S3 API token (verify conditional PUT; else keep data-writer), pointer CAS with `db_seq`, daily fold + GC, S3 smoke test as part of publish. Delete `scripts/stats_service/`, `stats/`, `workers/data-writer/` when green. | todo |
 | B3 | **boot + feed + write hardening** (running: impl-B3) | wasm + defs baked into image; boot from volume snapshot + cell store, catch up, warm default corpus, `ensureFresh` before login; long-poll client; write reconciliation after timeout/5xx + Idempotency-Key header; bounded table residency; LDB-B5 live parity off the deploy gate (nightly). | todo |
-| B4 | **safety nets** (running: impl-B4) | S1, S2 (daily + boot), S4 (daily, magic always sampled), `/health` with last-run + age per check, 48 h rule, watchdog DM. | todo |
+| B4 | **safety nets** | S1, S2 (daily + boot), S4 (daily, magic always sampled), `/health` with last-run + age per check, 48 h rule, watchdog DM. | landed 7260dd2cc (LDB-B96..B101; S1 excludes layouts the replica is legitimately ahead of vs the nightly dump; publisher interface stubbed until B2 wires it) |
 
 ### Wave 3 — akl.gg
 | id | slice | brief | status |
@@ -83,6 +83,7 @@ Status: `todo` · `running (agent, branch)` · `review` · `landed <sha>` · `bl
 
 ## Log
 
+- 2026-09-12 · A1 landed (0acdc368b, gates --fast pass); B4 landed (7260dd2cc). Remaining in flight: B2, B3.
 - 2026-09-12 · **Wave 1 DEPLOYED to prod akl-db** (Worker version 1fa2965c, migrations 0010–0013 applied; D1 bookmark taken first). Smoke: /v1/meta 200 with `health` (dump stale:true until the first catch-up tick), `?wait=` anonymous → `X-Wait-Ignored: unauthorized`, `/v1/changes/stream` 404 (live bot's keep-warm loops harmlessly until B3). `db.yml` pr-deploy now rides pushes to `ldb-arch-review` (91a81670e).
 - 2026-09-12 · L1 landed (515088dc6). Wave 1 complete: db suite 15,810 green on ldb-arch-review.
 - 2026-09-12 · L2 landed (850388595). Bot suite on the integration branch: 961 pass, 1 known red (LDB-B5 live parity, B3 gates it).
