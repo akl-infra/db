@@ -519,6 +519,7 @@ describe("POST /v1/admin/import/tick, POST /v1/admin/diff/tick, and POST /v1/adm
         "prune-auth-cache": "ok",
         "prune-rate-limits": "ok",
         "prune-nonces": "ok",
+        "prune-idempotency": "ok",
         "write-dump": "ok",
       });
       expect(body.dump).not.toBeNull();

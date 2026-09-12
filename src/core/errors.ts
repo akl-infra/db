@@ -319,6 +319,19 @@ export function importPaused(): ApiError {
   return new ApiError(409, { error: "import_paused", message: "the cmini import is paused (POST /v1/admin/import/resume first)" });
 }
 
+// L3 (design/layout-db/review/PROPOSAL.md §2.1): an `Idempotency-Key` reused
+// within its 24h window against a DIFFERENT method/path/body than the
+// request that first claimed it. Distinct from a genuine replay (same key,
+// same request -- the stored response is served, this is never thrown) --
+// this is the caller's own key hygiene bug, and nothing is written either
+// way.
+export function idempotencyMismatch(): ApiError {
+  return new ApiError(422, {
+    error: "idempotency_mismatch",
+    message: "this 'Idempotency-Key' was already used for a different request",
+  });
+}
+
 // The write rate limit (09 §2.5; 10 C1 D8 adds `scope` for the second,
 // per-client counter). `core/ratelimit.ts`'s `take()` is the one place that
 // counts; this is only the body/headers shape.

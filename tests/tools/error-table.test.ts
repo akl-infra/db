@@ -59,7 +59,7 @@ describe("db/INTEGRATION.md's error table is generated from errors.ts", () => {
     expect(new Set(codes).size).toBe(codes.length);
     for (const r of rows) {
       expect(r.code).toMatch(/^[a-z][a-z_]*$/);
-      expect(["400", "401", "403", "404", "409", "429", "500", "503"]).toContain(r.status);
+      expect(["400", "401", "403", "404", "409", "422", "429", "500", "503"]).toContain(r.status);
     }
   });
 });

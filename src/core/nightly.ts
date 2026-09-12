@@ -16,11 +16,12 @@ import { pruneNonces } from "../auth/client";
 import { pruneAuthCache } from "../auth/discord";
 import type { Bindings } from "../env";
 import { writeDump } from "../dump/write";
+import { pruneIdempotency } from "./idempotency";
 import { runJob } from "./jobs";
 import { pruneRateLimits } from "./ratelimit";
 import type { Clock } from "./time";
 
-export type NightlyJobName = "prune-auth-cache" | "prune-rate-limits" | "prune-nonces" | "write-dump";
+export type NightlyJobName = "prune-auth-cache" | "prune-rate-limits" | "prune-nonces" | "prune-idempotency" | "write-dump";
 export type NightlyJobStatus = "ok" | "error";
 
 export interface NightlyResult {
@@ -36,6 +37,7 @@ export async function runNightly(env: Bindings, now: Clock): Promise<NightlyResu
     "prune-auth-cache": "ok",
     "prune-rate-limits": "ok",
     "prune-nonces": "ok",
+    "prune-idempotency": "ok",
     "write-dump": "ok",
   };
   let dump: Awaited<ReturnType<typeof writeDump>> | null = null;
@@ -43,6 +45,10 @@ export async function runNightly(env: Bindings, now: Clock): Promise<NightlyResu
   if (!(await runJob("prune-auth-cache", () => pruneAuthCache(env.DB, now)))) jobs["prune-auth-cache"] = "error";
   if (!(await runJob("prune-rate-limits", () => pruneRateLimits(env.DB, now)))) jobs["prune-rate-limits"] = "error";
   if (!(await runJob("prune-nonces", () => pruneNonces(env.DB, now)))) jobs["prune-nonces"] = "error";
+  // L3: idempotency rows past their 24h window (`core/idempotency.ts`'s own
+  // `IDEMPOTENCY_WINDOW_MS`) -- housekeeping only, correctness never
+  // depends on this job having run (see that module's own comment).
+  if (!(await runJob("prune-idempotency", () => pruneIdempotency(env.DB, now)))) jobs["prune-idempotency"] = "error";
   if (
     !(await runJob("write-dump", async () => {
       dump = await writeDump(env, now);

@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { Bindings } from "./env";
 import { type ActorVariables, requireActorOnWrites } from "./auth/actor";
 import { type AuthDeps, resolveActor } from "./auth/discord";
+import { idempotencyKeys } from "./auth/idempotency";
 import { rateLimitWrites } from "./auth/ratelimit";
 import { ApiError, internal } from "./core/errors";
 import { cachePut, conditional, etagFor, readHead } from "./core/etag";
@@ -37,6 +38,14 @@ const authDeps: AuthDeps = { fetchImpl: ((url, init) => fetch(url, init)) as Fet
 // (09 §2.1) -- registered before any route, so no write route, present or
 // future, can be reached without it.
 app.use("/v1/*", requireActorOnWrites(authDeps));
+
+// The Idempotency-Key gate (L3, src/auth/idempotency.ts) -- mounted right
+// after the actor is resolved (it needs `c.get("actor")` for scoping) and
+// BEFORE the rate limit, so a genuine replay short-circuits before either
+// write-rate counter is ever touched ("charged once per key, not per
+// replay"). Scoped to `/v1/layouts*` internally; every other route is a
+// no-op pass-through regardless of whether the header is present.
+app.use("/v1/*", idempotencyKeys(systemClock));
 
 // The write rate limit (09 §2.5; 10 C1 D8 layers the per-client counter on
 // top) -- mounted right after the actor is resolved and before every route,
@@ -109,7 +118,7 @@ app.route("/", adminRoute(authDeps));
 
 app.onError((err, c) => {
   if (err instanceof ApiError) {
-    return c.json(err.body, err.status as 400 | 401 | 403 | 404 | 409 | 429 | 500 | 503, err.headers);
+    return c.json(err.body, err.status as 400 | 401 | 403 | 404 | 409 | 422 | 429 | 500 | 503, err.headers);
   }
   const e = internal();
   console.error(err); // never in the response body -- see core/errors.ts
