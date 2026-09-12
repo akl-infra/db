@@ -193,6 +193,21 @@ in the same invocation from running. `tests/import/tick.test.ts`'s
 slot of a day, and a property over any two slots 5 minutes apart) are this
 dispatch's own regression suite.
 
+**Dump/diff catch-up (LDB-D8).** hour=3/hour=4 are the PREFERRED slots for
+the dump/diff, but neither is exclusive to them any more: on every OTHER
+invocation, `scheduled()` reads `import_state`'s own record for each
+(`dump.last_at`, `cmini.last_diff`) and runs the job anyway if it is
+missing or its `at` is more than 24h before this tick -- a cron dispatch
+Cloudflare drops for the one slot that matters no longer skips a whole day
+silently; the very next successful tick (at most 5 minutes later) catches
+up instead. Under normal operation this never double-runs within 24h: a
+successful hour=3/hour=4 run leaves the record fresh, so the immediately
+following ticks' own catch-up checks are false. The diff is checked (and,
+if due, run) BEFORE the dump on every invocation, so a tick where both
+catch up at once has the dump's own snapshot already reflect the diff's
+fresh state rather than being one write behind it. `GET /v1/meta.health`
+(below) surfaces both records' staleness for monitoring.
+
 ## Rehost procedure
 
 Every night, at the `hour=3, minute=0` slot of the one `*/5 * * * *` cron
@@ -228,20 +243,100 @@ streams the object itself.
 5. Confirm: `curl <service>/v1/meta` and compare `layout_count`/`seq`
    against what `latest.json` claimed before the restore.
 
+**What a rehost DOES restore (LDB-D9):** `clients` -- registered bot
+pubkeys, caps and status. Unlike the now-deleted `webhooks` table
+(LEDGER.md L4), nothing on this table is a secret (10 C1 §4), so there is
+no reason for a rehost to lose every registered bot key and need the
+admin bootstrap redone; it is dumped and restored like any other table.
+
 **What a rehost does NOT restore:** `auth_cache` (never dumped -- it holds
 only token hashes with a <=5-minute lifetime; a rehost starts with a cold
-cache, so the next authenticated request just re-verifies with Discord) and
-`ratelimit` (rate-limit windows; starting empty only ever makes a request
-succeed sooner, never later). Both tables are wiped by `restoreSql`'s own
-`DELETE FROM` pass and never re-populated -- this is intentional, not a
-gap.
+cache, so the next authenticated request just re-verifies with Discord),
+`nonces` (never dumped -- the client-lane replay guard, <=300s lifetime by
+construction, so a rehost simply starts with no history of recent
+requests), and `ratelimit` (rate-limit windows; starting empty only ever
+makes a request succeed sooner, never later). All three tables are wiped
+by `restoreSql`'s own `DELETE FROM` pass and never re-populated -- this is
+intentional, not a gap. `dump.last_at` (LDB-D8, the dump's own scheduling
+bookkeeping) is likewise excluded from `import_state`'s dumped rows
+specifically -- a restored database starts eligible for an immediate
+catch-up dump instead of carrying a stale ex-deployment's memory of
+"already dumped".
 
 **The daily proof** (`.github/workflows/db.yml`'s `daily` job, 04:00 UTC):
-fetches the real `latest.json` from the deployed service, runs
-`tests/rehost.test.ts` against it (restores the dump into the job's own
-throwaway D1 and re-runs the whole conformance suite against the restored
-copy), and separately runs the upstream diff (S8). Both fail the job loudly
-on any problem -- neither is allowed to skip silently.
+fetches the real `latest.json` from the deployed service and uploads it as
+a 30-day-retention CI artifact (LDB-C6 -- a free, off-Cloudflare copy, so a
+lost/corrupted D1 + R2 account still has a rehostable dump sitting in
+Actions), runs `tests/rehost.test.ts` against it (restores the dump into
+the job's own throwaway D1 and re-runs the whole conformance suite against
+the restored copy), and separately runs the upstream diff (S8). Both fail
+the job loudly on any problem -- neither is allowed to skip silently.
+
+## Point-in-time restore with D1 Time Travel
+
+Cloudflare's D1 Time Travel gives 30 days of point-in-time restore on the
+Workers Paid plan, free, with no separate backup job -- it is a second,
+finer-grained safety net alongside the dump/restore above (RPO minutes
+instead of up to 24h, at the cost of restoring the WHOLE database to one
+instant, not individual tables or rows).
+
+```bash
+# Find restorable bookmarks (also printed by db.yml's pr-deploy job before
+# every deploy, as a rollback bookmark):
+npx wrangler d1 time-travel info akl-db
+
+# Restore to a specific bookmark or timestamp (`--timestamp` accepts an ISO
+# 8601 instant or a Unix epoch second):
+npx wrangler d1 time-travel restore akl-db --bookmark=<bookmark>
+npx wrangler d1 time-travel restore akl-db --timestamp=2026-09-12T03:00:00Z
+```
+
+**Caveat:** Time Travel restores the ENTIRE database to that instant --
+there is no way to restore just `layouts` or just one row. A restore
+also does not touch anything outside D1 (R2 dumps, the deployed Worker
+code, Fly/spark's own cell store) -- coordinate those separately if the
+restore point predates a schema migration or a code deploy that assumed
+one. Prefer this for "something is subtly wrong and I need last Tuesday
+back" over "I need one layout's history," which `GET /v1/changes` (the
+event log) already answers without touching D1's storage layer at all.
+
+## Fresh-D1 restore rehearsal
+
+A rehearsed checklist for "we lost the D1 database entirely, rebuild it
+from a dump" -- run this for real at least once (recorded: **not yet run**;
+whoever runs it first, log the date and minutes here) so the numbered
+procedure above is proven, not just written down. Do NOT run this against
+`akl-db`/prod -- a scratch D1 only.
+
+1. `npx wrangler d1 create akl-db-rehearsal` (or reuse a previous scratch
+   database). `rehost.mjs` always targets `akl-db` (or, with `--env
+   preview`, `akl-db-preview`) -- it has no "restore into an arbitrary
+   name" flag -- so a genuine fresh-D1 rehearsal needs a scratch
+   `[[d1_databases]]` entry (temporarily added to a throwaway copy of
+   `wrangler.toml`, never committed) naming `akl-db-rehearsal`, or drive
+   `wrangler d1` directly by database name/id as steps 2-5 below do (this
+   is the CLI-only path -- no wrangler.toml binding required for `d1
+   migrations apply`/`d1 execute` against a name you already have).
+2. `npx wrangler d1 migrations apply akl-db-rehearsal --remote` -- every
+   migration in `migrations/`, in order, against the empty database.
+3. Fetch a real dump (`curl -O <service>/v1/dump/latest.json`, follow its
+   `url`, gunzip it) and note its `meta.layout_count`/`meta.seq`.
+4. Render the restore SQL through the SAME code `restoreSql`/`restoreInto`
+   are tested through -- never a hand-written INSERT -- then apply it:
+   ```bash
+   node -e '
+     import("./src/dump/restore.ts").then(({ restoreSql }) => {
+       const dump = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+       require("fs").writeFileSync("restore.sql", restoreSql(dump).join(";\n") + ";\n");
+     });
+   ' <path-to-decompressed-dump.json>
+   npx wrangler d1 execute akl-db-rehearsal --remote --file restore.sql
+   ```
+5. Verify: `npx wrangler d1 execute akl-db-rehearsal --remote --command
+   "SELECT COUNT(*) FROM layouts WHERE deleted = 0"` equals the dump's
+   `meta.layout_count`; `SELECT MAX(seq) FROM events` equals `meta.seq`.
+6. Record how long steps 1-5 took (this is the rehost RTO estimate) and
+   `npx wrangler d1 delete akl-db-rehearsal` to clean up.
 
 ## Verify the mirror
 
@@ -295,6 +390,23 @@ admin-only, at `GET /v1/admin/health`.
 `.github/workflows/db.yml`'s `daily` job also runs `tests/rehost.test.ts`
 (the in-process rehost proof, above) alongside the live diff -- both fail
 the job loudly on any problem, neither is allowed to skip silently.
+
+**Staleness (LDB-M2).** `GET /v1/meta` also carries `health`:
+
+```json
+"health": {
+  "dump":  { "last_at": "2026-09-12T03:00:00.000Z", "seq": 526, "age_s": 3600, "stale": false },
+  "diff":  { "last_at": "2026-09-12T04:00:00.000Z", "age_s": 0, "stale": false }
+}
+```
+
+`stale` is `age_s > 48h` (twice the 24h catch-up threshold above, so a
+genuinely stuck job reads unambiguously differently from one merely between
+ticks); a record that has never run (`last_at: null`) is always
+`stale: true`. Deliberately NOT folded into the route's ETag -- `age_s`
+moves every second, and hashing it in would defeat the 304/edge-cache this
+route exists for; a client relying on a cached body sees a slightly stale
+`age_s`, bounded by the route's 10s `Cache-Control: max-age`.
 
 ### Manual cron triggers
 
