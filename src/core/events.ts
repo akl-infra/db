@@ -8,7 +8,7 @@
 // `n` (`layout_revs`' PK `(layout_id, n)`, migrations/0009_formats.sql).
 import type { Bindings } from "../env";
 import { canonical } from "./canonical";
-import { alreadyLiked as alreadyLikedError, nameTaken, notLiked as notLikedError } from "./errors";
+import { alreadyLiked as alreadyLikedError, nameTaken, notFound, notLiked as notLikedError } from "./errors";
 import { type FormatRow, type LayoutRow, type Source, type Upstream, readById } from "./records";
 import { ulid } from "ulidx";
 import type { Clock } from "./time";
@@ -477,18 +477,51 @@ export async function appendLike(db: Bindings["DB"], now: Clock, l: Like): Promi
 
   const at = now();
 
+  // Coordinator review (HIGH): the check above is a read BEFORE the
+  // batch -- for a LIKE, the `likes` table's own PK still makes the
+  // actual race atomic (caught below); for an UNLIKE there is no such
+  // constraint, so two concurrent unlikes from the same user could both
+  // pass the pre-batch check, both DELETE (the loser's own DELETE just
+  // removes 0 rows, no error), and both append an `unliked` event --
+  // the second caller wrongly gets 200 (breaks L2) and the fold subtracts
+  // twice (breaks MF-3). Fixed by making the EVENT insert itself
+  // conditional on the row it's about to react to STILL being true AT
+  // BATCH-COMMIT TIME (D1 batches serialize like any other writer
+  // transaction, so a losing batch re-evaluates this EXISTS/NOT EXISTS
+  // against the winner's already-committed state, not the stale pre-batch
+  // read) -- 0 rows inserted means this call's own premise no longer
+  // holds, and the DELETE/likes-count recompute below are then no-ops.
+  // The same EXISTS also folds in the LOW fix for a like racing a delete:
+  // a layout that's gone `deleted` by batch-commit time inserts nothing
+  // either, so a post-batch fresh read tells the two cases apart.
+  const eventInsertSql = `INSERT INTO events (at, kind, layout_id, name, owner, format, rev, actor, via, admin, detail_json, before_json, after_json, source_client, source_version)
+    SELECT ?, ?, ?, ?, ?, NULL, NULL, ?, ?, 0, ?, NULL, NULL, ?, ?
+    WHERE EXISTS (SELECT 1 FROM layouts WHERE id = ? AND deleted = 0)
+      AND ${wantsLike ? "NOT EXISTS" : "EXISTS"} (SELECT 1 FROM likes WHERE layout_id = ? AND user_id = ?)`;
+
   let results;
   try {
     results = await db.batch([
+      db
+        .prepare(eventInsertSql)
+        .bind(
+          at,
+          l.kind,
+          l.layoutId,
+          current.name,
+          current.owner,
+          l.userId,
+          l.via,
+          l.detail === undefined ? null : canonical(l.detail),
+          l.source.client,
+          l.source.version,
+          l.layoutId,
+          l.layoutId,
+          l.userId,
+        ),
       wantsLike
         ? db.prepare("INSERT INTO likes (layout_id, user_id, at) VALUES (?, ?, ?)").bind(l.layoutId, l.userId, at)
         : db.prepare("DELETE FROM likes WHERE layout_id = ? AND user_id = ?").bind(l.layoutId, l.userId),
-      db
-        .prepare(
-          `INSERT INTO events (at, kind, layout_id, name, owner, format, rev, actor, via, admin, detail_json, before_json, after_json, source_client, source_version)
-           VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?, 0, ?, NULL, NULL, ?, ?)`,
-        )
-        .bind(at, l.kind, l.layoutId, current.name, current.owner, l.userId, l.via, l.detail === undefined ? null : canonical(l.detail), l.source.client, l.source.version),
       db.prepare("UPDATE layouts SET like_count = (SELECT COUNT(*) FROM likes WHERE layout_id = ?) WHERE id = ?").bind(l.layoutId, l.layoutId),
       db.prepare("SELECT like_count FROM layouts WHERE id = ?").bind(l.layoutId),
     ]);
@@ -502,7 +535,16 @@ export async function appendLike(db: Bindings["DB"], now: Clock, l: Like): Promi
     throw e;
   }
 
-  const seq = results[1]?.meta.last_row_id;
+  if (results[0]?.meta.changes === 0) {
+    // The event insert's own WHERE clause didn't hold at batch-commit
+    // time -- find out which of its two conditions failed (a fresh read
+    // costs nothing extra on this rare, race-only path).
+    const fresh = await readById(db, l.layoutId);
+    if (fresh === null || fresh.deleted) throw notFound(`no layout '${current.name}'`, current.name);
+    throw wantsLike ? alreadyLikedError() : notLikedError();
+  }
+
+  const seq = results[0]?.meta.last_row_id;
   if (seq === undefined) throw new Error("appendLike: events insert returned no last_row_id");
   const counted = (results[3]?.results?.[0] as { like_count: number } | undefined)?.like_count;
   return { seq, like_count: counted ?? current.like_count };
