@@ -163,7 +163,7 @@ async function currentLikeIds(db: Bindings["DB"], layoutId: string): Promise<Set
 
 interface ImportMapRow {
   layoutId: string;
-  // B2 sticky shadow (migrations/0012): the last name UPSTREAM itself
+  // B2 sticky shadow (migrations/0013): the last name UPSTREAM itself
   // reported for this id -- null only for a row written before the
   // migration existed (falls back to the layout's own current `name`,
   // its only possible value at the time).
@@ -322,7 +322,7 @@ async function applyMapped(db: Bindings["DB"], now: Clock, upstreamId: string, d
   if (following) {
     const sparkRow = await db.prepare("SELECT * FROM layout_formats WHERE layout_id = ? AND lineage = ?").bind(record.id, SPARK_LINEAGE).first<{ payload_json: string }>();
     const currentSparkPayload: unknown = sparkRow === null ? {} : JSON.parse(sparkRow.payload_json);
-    // B2 sticky shadow (coordinator follow-up, migrations/0012): whether
+    // B2 sticky shadow (coordinator follow-up, migrations/0013): whether
     // upstream has renamed this id is decided against the LAST name
     // upstream itself reported (`import_map.upstream_name`), never against
     // our own `record.name` -- once a rename has been shadowed away

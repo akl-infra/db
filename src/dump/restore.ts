@@ -224,7 +224,7 @@ export function restoreSql(dump: Dump): string[] {
       "INSERT INTO import_map",
       ["upstream_id", "layout_id", "upstream_name"],
       // B2 sticky shadow: `upstream_name` round-trips; a dump written
-      // before migrations/0012 has none, and restores as NULL (the
+      // before migrations/0013 has none, and restores as NULL (the
       // column's own default -- `chunkedInserts` treats an explicit
       // `null` as NULL, unlike the NOT NULL columns elsewhere here that
       // need a real fallback value).

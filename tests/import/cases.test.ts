@@ -307,7 +307,7 @@ describe("import case table (07 §6 S5, restated by 21-formats.md §2.2)", () =>
     expect(await readByName(db, "Unrelated-After-Rename")).not.toBeNull();
   });
 
-  // B2 sticky shadow (coordinator follow-up, 2026-09-12, migrations/0012):
+  // B2 sticky shadow (coordinator follow-up, 2026-09-12, migrations/0013):
   // a standing rename collision must be shadowed ONCE, not every tick --
   // the old version of this fix compared upstream's name against the
   // layout's own (now permanently shadowed) `name`, which looked like "yet

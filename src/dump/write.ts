@@ -60,7 +60,7 @@ export interface ImportStateDbRow {
 export interface ImportMapDbRow {
   upstream_id: string;
   layout_id: string;
-  // B2 sticky shadow (migrations/0012): the last name UPSTREAM itself
+  // B2 sticky shadow (migrations/0013): the last name UPSTREAM itself
   // reported for this id. Absent from a dump written before 0012 --
   // restore.ts reads it as null (the column's own default).
   upstream_name?: string | null;
