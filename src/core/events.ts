@@ -8,7 +8,7 @@
 // `n` (`layout_revs`' PK `(layout_id, n)`, migrations/0009_formats.sql).
 import type { Bindings } from "../env";
 import { canonical } from "./canonical";
-import { nameTaken } from "./errors";
+import { alreadyLiked as alreadyLikedError, nameTaken, notLiked as notLikedError } from "./errors";
 import { type FormatRow, type LayoutRow, type Source, type Upstream, readById } from "./records";
 import { ulid } from "ulidx";
 import type { Clock } from "./time";
@@ -303,7 +303,7 @@ export async function commitWrite(db: Bindings["DB"], now: Clock, input: CommitI
          ON CONFLICT(id) DO UPDATE SET
            name = excluded.name, owner = excluded.owner, n = excluded.n, layout_rev = excluded.layout_rev,
            created_at = excluded.created_at, modified_at = excluded.modified_at, deleted = excluded.deleted,
-           like_count = excluded.like_count,
+           like_count = (SELECT COUNT(*) FROM likes WHERE layout_id = excluded.id),
            upstream_source = excluded.upstream_source, upstream_id = excluded.upstream_id, upstream_state = excluded.upstream_state,
            source_client = excluded.source_client, source_version = excluded.source_version`,
       )
@@ -351,6 +351,15 @@ export async function commitWrite(db: Bindings["DB"], now: Clock, input: CommitI
     );
   }
 
+  // M1: read `like_count` back in the SAME batch, after the `layouts`
+  // upsert's own self-healing subquery has run, so the value this call
+  // RETURNS to its own caller (the response body an ordinary write's
+  // caller sees) is the same live truth the row now holds -- never
+  // `finalLikeCount`, which can be a stale pre-read for any write that
+  // isn't itself about a like.
+  const likeCountStmtIdx = stmts.length;
+  stmts.push(db.prepare(`SELECT COUNT(*) as cnt FROM likes WHERE layout_id = ?`).bind(id));
+
   let results;
   try {
     results = await db.batch(stmts);
@@ -367,6 +376,8 @@ export async function commitWrite(db: Bindings["DB"], now: Clock, input: CommitI
     return seq;
   });
 
+  const trueLikeCount = (results[likeCountStmtIdx]?.results?.[0] as { cnt: number } | undefined)?.cnt ?? finalLikeCount;
+
   const layout: LayoutRow = {
     id,
     name: finalName,
@@ -376,7 +387,7 @@ export async function commitWrite(db: Bindings["DB"], now: Clock, input: CommitI
     created_at: finalCreatedAt,
     modified_at: finalModifiedAt,
     deleted: finalDeleted,
-    like_count: finalLikeCount,
+    like_count: trueLikeCount,
     upstream: input.upstream,
     source: finalLayoutSource,
   };
@@ -447,19 +458,21 @@ export interface Like {
   source: Source;
 }
 
-// Idempotent: liking an already-liked layout (or unliking one that isn't)
-// appends no event and leaves `like_count` untouched. Layout-level, same as
-// today -- no format is involved.
-export async function appendLike(db: Bindings["DB"], now: Clock, l: Like): Promise<{ seq: number | null; like_count: number }> {
+// D13 L1/L2 (saltorbit, 2026-09-11): a like/unlike needs no version (L3), but
+// it is no longer a silent no-op on repeat -- a repeat like fails with
+// `409 already_liked`, a redundant unlike with `409 not_liked`, and either
+// way NOTHING is written (no event, `like_count` untouched). Layout-level,
+// same as ever -- no format is involved.
+export async function appendLike(db: Bindings["DB"], now: Clock, l: Like): Promise<{ seq: number; like_count: number }> {
   const current = await readById(db, l.layoutId);
   if (current === null) throw new Error(`appendLike: layoutId '${l.layoutId}' does not exist`);
 
   const existing = await db.prepare("SELECT 1 FROM likes WHERE layout_id = ? AND user_id = ?").bind(l.layoutId, l.userId).first();
-  const alreadyLiked = existing !== null;
+  const isAlreadyLiked = existing !== null;
   const wantsLike = l.kind === "liked";
 
-  if (wantsLike === alreadyLiked) {
-    return { seq: null, like_count: current.like_count };
+  if (wantsLike === isAlreadyLiked) {
+    throw wantsLike ? alreadyLikedError() : notLikedError();
   }
 
   const at = now();
@@ -481,10 +494,11 @@ export async function appendLike(db: Bindings["DB"], now: Clock, l: Like): Promi
     ]);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    if (/UNIQUE constraint failed: likes\./.test(msg)) {
-      const row = await db.prepare("SELECT like_count FROM layouts WHERE id = ?").bind(l.layoutId).first<{ like_count: number }>();
-      return { seq: null, like_count: row?.like_count ?? current.like_count };
-    }
+    // L1 (E2's own rule, applied to likes): of two concurrent likes from
+    // the SAME user, exactly one succeeds -- the `likes` table's own
+    // (layout_id, user_id) PK is what makes that atomic; the loser gets
+    // the same `already_liked` a sequential repeat would.
+    if (/UNIQUE constraint failed: likes\./.test(msg)) throw alreadyLikedError();
     throw e;
   }
 
@@ -594,7 +608,20 @@ export function foldLayout(events: Event[], revs: Map<string, { format: string |
     if (e.rev !== null) {
       if (e.after === null) throw new Error(`foldLayout: rev-bumping event (seq ${e.seq}) has no 'after'`);
       if (e.after.scope === "layout") {
-        layout = e.after;
+        // M1 (coordinator review, 2026-09-11): `e.after.like_count` is
+        // whatever `commitWrite` baked in at THAT event's own write time,
+        // which can itself be stale -- any ordinary write that doesn't
+        // know about a concurrent like/unlike falls back to a pre-read
+        // `currentLayout.like_count` (see `finalLikeCount` above). The
+        // fold's own running tally, built from every `liked`/`unliked`
+        // event actually replayed so far via `withLikeDelta`, is the one
+        // value in this loop guaranteed to reflect every like event, so
+        // once the fold has one, keep it across a layout-scope event's
+        // adoption of `e.after` rather than reverting to the snapshot's
+        // baked-in count. Before the first layout-scope event there is no
+        // running tally yet, so `e.after.like_count` (necessarily 0, from
+        // the `created` event) is the only value available.
+        layout = layout === null ? e.after : { ...e.after, like_count: layout.like_count };
       } else {
         const after = e.after;
         formats.set(after.lineage, after);
