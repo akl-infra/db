@@ -6,9 +6,10 @@
 // payload-only change is a FORMAT-scope event; both together append one of
 // each, in one batch.
 import { env } from "cloudflare:test";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Bindings } from "../../src/env";
 import { commitWrite, type CommitInput } from "../../src/core/events";
+import * as eventsModule from "../../src/core/events";
 import { formatsForLayout, readById, readByName, type FormatRow, type LayoutRow } from "../../src/core/records";
 import { fixedClock } from "../../src/core/time";
 import { ulid } from "ulidx";
@@ -23,6 +24,10 @@ import fullSnapshot from "../fixtures/upstream-100/full.json" with { type: "json
 const db = (env as unknown as Bindings).DB;
 const clock = fixedClock("2026-06-01T00:00:00.000Z");
 const SOURCE = { client: "discord-app:test", version: null };
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 function detail(overrides: Partial<RawUpstreamDetail> & { name: string; user: string }): RawUpstreamDetail {
   return {
@@ -272,6 +277,78 @@ describe("import case table (07 §6 S5, restated by 21-formats.md §2.2)", () =>
     const events = await eventsFor(rec!.id);
     expect(events.map((e) => e.kind)).toEqual(["imported", "imported", "liked", "liked", "liked", "unliked"]);
     expect(await likeIds(rec!.id)).toEqual(["5000000000000000012", "5000000000000000013"]);
+  });
+
+  // Coordinator review (MEDIUM, third batch): D13 L1/L2 made a repeat
+  // like/redundant unlike a real thrown error -- the importer's own like
+  // sync must never let one abort a tick and strand every id queued
+  // behind it (LDB-P14). Two distinct ways it can happen:
+  it("[LDB-I2] [LDB-P14] (a) a repeated id in cmini's own (undeduped) likes array never aborts the import", async () => {
+    const d = detail({
+      name: "CaseDup-Likes",
+      user: "9100000000000000001",
+      likes: ["9100000000000000011", "9100000000000000011", "9100000000000000012"],
+    });
+    const result = await applyFetchedId(db, clock, "casedup", d);
+    expect(result.errors).toEqual([]);
+
+    const rec = await readByName(db, "CaseDup-Likes");
+    expect(await likeIds(rec!.id)).toEqual(["9100000000000000011", "9100000000000000012"]);
+    const events = await eventsFor(rec!.id);
+    // imported(layout) + imported(format) + exactly 2 liked events, not 3
+    // -- deduped before ever calling appendLike, not papered over after.
+    expect(events.map((e) => e.kind)).toEqual(["imported", "imported", "liked", "liked"]);
+  });
+
+  it("[LDB-I2] [LDB-P14] (b) a real unlike racing the importer's own unlike of the same user never aborts the tick", async () => {
+    const owner = "9200000000000000001";
+    const d1 = detail({ name: "CaseRace-Likes", user: owner, likes: ["9200000000000000011"] });
+    await applyFetchedId(db, clock, "caserace", d1);
+    const rec = await readByName(db, "CaseRace-Likes");
+    expect(await likeIds(rec!.id)).toEqual(["9200000000000000011"]);
+
+    // Force the race deterministically: `applyMapped` (apply.ts) reads
+    // `localLikeIds` once, up front, then loops calling the real,
+    // cross-module `appendLike` (core/events.ts) per id that changed --
+    // spying on THAT import (unlike `currentLikeIds`, a same-file
+    // self-call a same-module spy can't intercept: verified by hand, an
+    // earlier version of this test spied on `currentLikeIds` and its
+    // mock never ran) lands cleanly on apply.ts's own call site. On the
+    // first call for this tick -- the importer's own (about to be stale)
+    // attempt to unlike this user -- run a REAL unlike for the same user
+    // via `discord` FIRST, using the original function, THEN let the
+    // importer's own original call proceed: it now finds the like already
+    // gone and throws `not_liked`, which `importAppendLike` (apply.ts)
+    // catches and swallows.
+    const original = eventsModule.appendLike;
+    let fired = false;
+    const spy = vi.spyOn(eventsModule, "appendLike").mockImplementation(async (...args) => {
+      if (!fired) {
+        fired = true;
+        await original(db, clock, {
+          kind: "unliked",
+          layoutId: rec!.id,
+          userId: "9200000000000000011",
+          via: "discord",
+          source: SOURCE,
+        });
+      }
+      return original(...args);
+    });
+
+    const d2 = detail({ name: "CaseRace-Likes", user: owner, likes: [] });
+    const result = await applyFetchedId(db, clock, "caserace", d2);
+    spy.mockRestore();
+    expect(result.errors).toEqual([]);
+
+    expect(await likeIds(rec!.id)).toEqual([]);
+    const events = await eventsFor(rec!.id);
+    const unliked = events.filter((e) => e.kind === "unliked");
+    // Exactly ONE unliked event (the real user's, via discord) -- the
+    // importer's own duplicate attempt hit `not_liked` and was swallowed,
+    // never a second event, never an aborted tick.
+    expect(unliked).toHaveLength(1);
+    expect(unliked[0]).toMatchObject({ actor: "9200000000000000011", via: "discord" });
   });
 
   it("[LDB-I2] case 6: mapped + NOT following + content differs -> upstream_changed info, record untouched, not repeated", async () => {

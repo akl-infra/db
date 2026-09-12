@@ -16,6 +16,7 @@ import * as cmini1 from "../../formats/adapters/cmini/index";
 import * as akl1 from "../../formats/spark/1/index";
 import { fromCmini } from "../../formats/adapters/cmini/translate";
 import { canonical } from "../core/canonical";
+import { ApiError } from "../core/errors";
 import { appendInfo, appendLike, commitWrite, type CommitInput } from "../core/events";
 import { nextUpstream, upstreamOf } from "../core/upstream";
 import { formatsForLayout, readById, readByName, type LayoutRow } from "../core/records";
@@ -179,9 +180,32 @@ async function freeShadowName(db: Bindings["DB"], name: string): Promise<string>
   return candidate;
 }
 
+// Coordinator review (MEDIUM, third batch): D13 L1/L2 made a repeat
+// like/redundant unlike a real error, `appendLike` throws instead of
+// silently no-opping -- but the importer must never let that abort a
+// tick and strand every id queued behind it (LDB-P14). Two ways it can
+// happen even though every call site already guards on its own read of
+// current state: (a) cmini's own `likes` array is a plain, undeduped
+// array (parseUpstreamDetail), so a repeated id in ONE record's response
+// calls this twice for the same user; (b) a real user likes/unlikes
+// through the live API between this function's read and its own
+// `appendLike` call. Either lands on `already_liked`/`not_liked` --
+// exactly the state the importer wanted anyway, so both are swallowed
+// HERE ONLY. The public API (routes/likes.ts) stays strict (L1/L2).
+async function importAppendLike(db: Bindings["DB"], now: Clock, kind: "liked" | "unliked", layoutId: string, userId: string): Promise<void> {
+  try {
+    await appendLike(db, now, { kind, layoutId, userId, via: "import:cmini", source: SYSTEM_SOURCE });
+  } catch (e) {
+    if (e instanceof ApiError && (e.body.error === "already_liked" || e.body.error === "not_liked")) return;
+    throw e;
+  }
+}
+
 async function importLikes(db: Bindings["DB"], now: Clock, layoutId: string, userIds: string[]): Promise<void> {
-  for (const userId of userIds) {
-    await appendLike(db, now, { kind: "liked", layoutId, userId, via: "import:cmini", source: SYSTEM_SOURCE });
+  // (a) above: dedupe before ever calling appendLike, rather than relying
+  // on the catch to paper over a call this function could just not make.
+  for (const userId of new Set(userIds)) {
+    await importAppendLike(db, now, "liked", layoutId, userId);
   }
 }
 
@@ -314,10 +338,10 @@ async function applyMapped(db: Bindings["DB"], now: Clock, upstreamId: string, d
 
     // Case 5 (and the like half of case 4): likes replaced wholesale.
     for (const u of upstreamLikeIds) {
-      if (!localLikeIds.has(u)) await appendLike(db, now, { kind: "liked", layoutId: record.id, userId: u, via: "import:cmini", source: SYSTEM_SOURCE });
+      if (!localLikeIds.has(u)) await importAppendLike(db, now, "liked", record.id, u);
     }
     for (const u of localLikeIds) {
-      if (!upstreamLikeIds.has(u)) await appendLike(db, now, { kind: "unliked", layoutId: record.id, userId: u, via: "import:cmini", source: SYSTEM_SOURCE });
+      if (!upstreamLikeIds.has(u)) await importAppendLike(db, now, "unliked", record.id, u);
     }
     return;
   }
@@ -341,7 +365,7 @@ async function applyMapped(db: Bindings["DB"], now: Clock, upstreamId: string, d
   }
   // Case 7 (and the like half of case 6): union only, never unlike.
   for (const u of upstreamLikeIds) {
-    if (!localLikeIds.has(u)) await appendLike(db, now, { kind: "liked", layoutId: record.id, userId: u, via: "import:cmini", source: SYSTEM_SOURCE });
+    if (!localLikeIds.has(u)) await importAppendLike(db, now, "liked", record.id, u);
   }
 }
 
