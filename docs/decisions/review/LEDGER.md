@@ -62,6 +62,11 @@ Status: `todo` · `running (agent, branch)` · `review` · `landed <sha>` · `bl
 | A2 | the atomic flip (Pages prod `DB_BASE_URL`, CI var, pointer build, meta-watch removal) — **saltorbit runs**; then delete the prod stats path (workflows, D1 tables, Functions, scripts, `layout-dates.json`, `cmini-backup`), rotate `GITHUB_DISPATCH_TOKEN`. | todo |
 | A3 | S6 monthly reference harvest workflow (scratch line, diff, alarm). | todo |
 
+### Verification (saltorbit, 2026-09-12: "once you are done, run a latency analysis … bot, aklgg, anything you can think of. are we meeting spec?")
+| id | slice | brief | status |
+|---|---|---|---|
+| V1 | **latency analysis vs spec** | after B1–B4 and A1 land and are deployed: measure against PROPOSAL.md §3 targets. Bot: per-verb latency histogram (p50/p95/max) for view/stats/sfbs/add/swap!/rename/like/rank, cold first command after a restart, ruled (magic) layouts, under a burst (headless harness `bot/scripts/e2e-headless.mjs` + `scripts/e2e/bot_db_site.mjs`). layoutdb: `/v1/meta` 304 path, record GET, PUT round trip, long-poll wake latency, import tick duration. Publisher: edit → pointer swap (plain and magic layouts), daily fold time. Site: pointer age after an edit, own-publish visibility, page load in pointer mode (Lighthouse), tab poll pickup. Memory/CPU on the Fly machine over 24 h. Report as `design/layout-db/review/LATENCY.md` + a page on the site, with a pass/fail per requirement R1–R5 and what to change if anything fails. | todo (after wave 2 + A1) |
+
 ### Wave 4
 | id | slice | status |
 |---|---|---|
