@@ -4,13 +4,18 @@
 // `?full=1` streams every live record's payload, matching `fromCmini` of
 // the upstream fixture's own shape.
 import { SELF } from "cloudflare:test";
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import fullSnapshot from "../fixtures/upstream-100/full.json" with { type: "json" };
 import { canonical } from "../../src/core/canonical";
 import { parseUpstreamDetail } from "../../src/import/apply";
 import { fromCmini } from "../../formats/adapters/cmini/translate.ts";
 import type { RawUpstreamDetail } from "../../src/import/upstream";
 import { db, seedUpstream100 } from "./support";
+import { commitWrite, type CommitInput } from "../../src/core/events";
+import { formatsForLayout, readById } from "../../src/core/records";
+import { fixedClock } from "../../src/core/time";
+import { registerForTest } from "../../formats/registry.ts";
+import { T1 } from "../formats/stub-lineage.ts";
 
 beforeAll(async () => {
   await seedUpstream100();
@@ -135,6 +140,79 @@ describe("[LDB-F5] every filter equals a plain JS filter over the seed", () => {
     const res = await SELF.fetch(`https://example.com/v1/layouts?format=spark/1&since=${encodeURIComponent(since)}&limit=1000`);
     const body = await res.json<{ items: ListItem[] }>();
     expect(new Set(body.items.map((i) => i.id))).toEqual(expected);
+  });
+});
+
+// [H1] Coordinator review (2026-09-11): the plain list must not carry a
+// payload at all (21-formats.md §2.4: rows are the §2.3 fields MINUS
+// payload -- full=1 is the only route that adds it back), and `formats`
+// must list EVERY stored format a layout has, not just the one lineage
+// `?format=` joined on for filtering/translation. Exercised with a real
+// SECOND stored lineage (`tests/formats/stub-lineage.ts`'s `T1`,
+// registered for this file only) added to one seeded layout.
+describe("[H1] plain list: no payload, formats map is complete", () => {
+  const clock = fixedClock("2026-07-20T00:00:00.000Z");
+  let unregisterT1: () => void;
+  let twoFormatLayoutId: string;
+  let twoFormatLayoutOwner: string;
+
+  beforeAll(async () => {
+    unregisterT1 = registerForTest(T1);
+    const seedRows = await loadSeedRows();
+    const targetId = seedRows[0]!.id;
+    const current = await readById(db, targetId);
+    const currentFormats = await formatsForLayout(db, targetId);
+    const input: CommitInput = {
+      layoutId: targetId,
+      creating: false,
+      currentN: current!.n,
+      currentLayout: current,
+      currentFormats,
+      format: { kind: "format_added", lineage: "t", format: "t/1", payload: { v: 1, a: 1 }, hasMagic: false },
+      modified_at: clock(),
+      actor: current!.owner,
+      via: "discord",
+      source: { client: "discord-app:test", version: null },
+      upstream: current!.upstream,
+    };
+    await commitWrite(db, clock, input);
+    twoFormatLayoutId = targetId;
+    twoFormatLayoutOwner = current!.owner;
+  });
+
+  afterAll(() => {
+    unregisterT1();
+  });
+
+  it("[H1] a plain row carries no `payload` (and no `derived_from`) at all", async () => {
+    const res = await SELF.fetch("https://example.com/v1/layouts?format=spark/1&limit=1000");
+    expect(res.status).toBe(200);
+    const body = await res.json<{ items: Record<string, unknown>[] }>();
+    expect(body.items.length).toBeGreaterThan(0);
+    for (const item of body.items) {
+      expect(Object.prototype.hasOwnProperty.call(item, "payload")).toBe(false);
+      expect(Object.prototype.hasOwnProperty.call(item, "derived_from")).toBe(false);
+    }
+  });
+
+  it("[H1] formats includes a layout's SECOND stored lineage, not just the one ?format= filtered on", async () => {
+    const res = await SELF.fetch(`https://example.com/v1/layouts?format=spark/1&owner=${twoFormatLayoutOwner}&limit=1000`);
+    expect(res.status).toBe(200);
+    const body = await res.json<{ items: { id: string; formats: Record<string, { rev: number }> }[] }>();
+    const item = body.items.find((i) => i.id === twoFormatLayoutId);
+    expect(item, "the two-format layout must still appear under ?format=spark/1").toBeDefined();
+    expect(Object.keys(item!.formats).sort()).toEqual(["spark/1", "t/1"]);
+    expect(item!.formats["t/1"]!.rev).toBe(1);
+  });
+
+  it("[H1] ?full=1 also gets the complete formats map (in addition to its own payload)", async () => {
+    const res = await SELF.fetch("https://example.com/v1/layouts?full=1&format=spark/1");
+    expect(res.status).toBe(200);
+    const body = await res.json<{ items: { id: string; formats: Record<string, { rev: number }>; payload: unknown }[] }>();
+    const item = body.items.find((i) => i.id === twoFormatLayoutId);
+    expect(item).toBeDefined();
+    expect(Object.keys(item!.formats).sort()).toEqual(["spark/1", "t/1"]);
+    expect(item!.payload).toBeDefined();
   });
 });
 

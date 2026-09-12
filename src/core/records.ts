@@ -178,6 +178,26 @@ export async function formatsForLayout(db: Bindings["DB"], layoutId: string): Pr
   return out;
 }
 
+// Coordinator review (H1): the list route (plain and `full=1` alike) must
+// show EVERY stored format a layout has in its `formats` map, not just the
+// one lineage the request's `?format=` happened to join on for filtering
+// -- a layout with a second stored lineage (the test-only second lineage,
+// or a real future `lw/1`) must show BOTH in `formats` on every row. One
+// batched `IN (...)` query per PAGE (chunked the same way
+// `likesByLayout` already batches likes), never one query per layout.
+export async function formatsForLayouts(db: Bindings["DB"], layoutIds: string[]): Promise<Map<string, Map<string, FormatRow>>> {
+  const out = new Map<string, Map<string, FormatRow>>(layoutIds.map((id) => [id, new Map<string, FormatRow>()]));
+  for (let i = 0; i < layoutIds.length; i += 90) {
+    const chunk = layoutIds.slice(i, i + 90);
+    const { results } = await db
+      .prepare(`SELECT * FROM layout_formats WHERE layout_id IN (${chunk.map(() => "?").join(",")})`)
+      .bind(...chunk)
+      .all<FormatDbRow>();
+    for (const row of results) out.get(row.layout_id)!.set(row.lineage, rowToFormat(row));
+  }
+  return out;
+}
+
 export async function readFormat(db: Bindings["DB"], layoutId: string, lineage: string): Promise<FormatRow | null> {
   const row = await db.prepare("SELECT * FROM layout_formats WHERE layout_id = ? AND lineage = ?").bind(layoutId, lineage).first<FormatDbRow>();
   return row === null ? null : rowToFormat(row);

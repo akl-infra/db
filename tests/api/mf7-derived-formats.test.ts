@@ -87,10 +87,15 @@ describe("[MF-7 = LDB-F25] a ?format=mana2/1 read derives, never writes", () => 
 
     const res = await writeFetch(`/v1/layouts?owner=${OWNER}&format=mana2/1`, "GET");
     expect(res.status).toBe(200);
+    // Coordinator review (H1): the PLAIN list carries no `payload` at all
+    // -- and so no `derived_from` either, since there's no payload to have
+    // been derived FOR. `format` still names what the row is "about" (the
+    // requested id), matching the detail/full=1 routes. `?full=1` (below)
+    // is where `derived_from` actually appears, alongside the payload.
     const body = await res.json<{ items: { id: string; format: string; derived_from?: string }[] }>();
     const item = body.items.find((i) => i.id === id);
     expect(item?.format).toBe("mana2/1");
-    expect(item?.derived_from).toBe("spark/1");
+    expect(item === undefined ? undefined : Object.prototype.hasOwnProperty.call(item, "derived_from")).toBe(false);
 
     expect(await snapshot(id)).toEqual(before);
   });

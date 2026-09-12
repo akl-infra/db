@@ -148,7 +148,20 @@ describe("[MF-4 = LDB-G11] format_required matrix: every format-bearing GET rout
         const exp = isRev ? (scenario.rev ?? scenario.detail) : scenario.detail;
         expect(res.status).toBe(exp.status);
         if (exp.error !== undefined) {
-          await expect(res.json()).resolves.toMatchObject({ error: exp.error });
+          const body = await res.json<Record<string, unknown>>();
+          expect(body).toMatchObject({ error: exp.error });
+          // Coordinator review (H2): on a single-layout route,
+          // format_required/format_absent carry the layout's own fields
+          // and `formats` -- not just the bare error -- so a caller never
+          // needs a second request to learn what it already asked about.
+          if (exp.error === "format_required" || exp.error === "format_absent") {
+            expect(body, `${route.name} x ${scenario.name}: ${exp.error} must carry layout fields`).toMatchObject({
+              id,
+              name: expect.any(String),
+              layout_rev: expect.any(Number),
+              formats: expect.any(Object),
+            });
+          }
         }
       });
     }
