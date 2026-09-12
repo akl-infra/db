@@ -1,7 +1,7 @@
 {
   "request": {
     "method": "GET",
-    "path": "/v1/layouts/io/rev/999"
+    "path": "/v1/layouts/io/rev/999?format=spark/1"
   },
   "response": {
     "status": 404,
@@ -10,7 +10,7 @@
     },
     "body": {
       "error": "not_found",
-      "message": "layout 'io' has no rev 999",
+      "message": "layout 'io' has no rev 999 of 'spark/1'",
       "ref": "io"
     }
   }

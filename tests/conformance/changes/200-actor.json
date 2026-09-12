@@ -19,6 +19,7 @@
           "layout_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
           "name": "00------higgs",
           "owner": "621924065581465611",
+          "format": null,
           "rev": 1,
           "actor": "system:cmini-import",
           "via": "import:cmini",
@@ -29,24 +30,23 @@
           },
           "before": null,
           "after": {
-            "created_at": "2024-11-24T23:55:55Z",
-            "deleted": false,
-            "format": "spark/1",
-            "has_magic": false,
+            "scope": "layout",
             "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-            "like_count": 0,
-            "modified_at": "2024-11-24T23:55:55Z",
             "name": "00------higgs",
             "owner": "621924065581465611",
-            "rev": 1,
-            "source": {
-              "client": "system:cmini-import",
-              "version": null
-            },
+            "layout_rev": 1,
+            "created_at": "2024-11-24T23:55:55Z",
+            "modified_at": "2024-11-24T23:55:55Z",
+            "deleted": false,
+            "like_count": 0,
             "upstream": {
               "id": "00------higgs",
               "source": "cmini",
               "state": "following"
+            },
+            "source": {
+              "client": "system:cmini-import",
+              "version": null
             }
           },
           "source": {
@@ -59,36 +59,32 @@
           "at": "2026-06-01T00:00:00.000Z",
           "kind": "imported",
           "layout_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-          "name": "02_we've_been_in_this_room_too_long",
+          "name": "00------higgs",
           "owner": "621924065581465611",
+          "format": "spark/1",
           "rev": 1,
           "actor": "system:cmini-import",
           "via": "import:cmini",
           "admin": false,
-          "detail": {
-            "source": "cmini",
-            "upstream_id": "02_we've_been_in_this_room_too_long"
-          },
+          "detail": null,
           "before": null,
           "after": {
-            "created_at": "2024-11-24T23:55:55Z",
-            "deleted": false,
+            "scope": "format",
+            "layout_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "lineage": "spark",
             "format": "spark/1",
-            "has_magic": false,
-            "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-            "like_count": 0,
-            "modified_at": "2024-11-24T23:55:55Z",
-            "name": "02_we've_been_in_this_room_too_long",
-            "owner": "621924065581465611",
             "rev": 1,
+            "created_at": "2024-11-24T23:55:55Z",
+            "modified_at": "2024-11-24T23:55:55Z",
+            "has_magic": false,
+            "upstream": {
+              "id": "00------higgs",
+              "source": "cmini",
+              "state": "following"
+            },
             "source": {
               "client": "system:cmini-import",
               "version": null
-            },
-            "upstream": {
-              "id": "02_we've_been_in_this_room_too_long",
-              "source": "cmini",
-              "state": "following"
             }
           },
           "source": {
@@ -101,36 +97,36 @@
           "at": "2026-06-01T00:00:00.000Z",
           "kind": "imported",
           "layout_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-          "name": "40kwh",
-          "owner": "525231824465690645",
+          "name": "02_we've_been_in_this_room_too_long",
+          "owner": "621924065581465611",
+          "format": null,
           "rev": 1,
           "actor": "system:cmini-import",
           "via": "import:cmini",
           "admin": false,
           "detail": {
             "source": "cmini",
-            "upstream_id": "40kwh"
+            "upstream_id": "02_we've_been_in_this_room_too_long"
           },
           "before": null,
           "after": {
-            "created_at": "2026-01-07T00:00:02Z",
-            "deleted": false,
-            "format": "spark/1",
-            "has_magic": false,
+            "scope": "layout",
             "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "name": "02_we've_been_in_this_room_too_long",
+            "owner": "621924065581465611",
+            "layout_rev": 1,
+            "created_at": "2024-11-24T23:55:55Z",
+            "modified_at": "2024-11-24T23:55:55Z",
+            "deleted": false,
             "like_count": 0,
-            "modified_at": "2026-08-31T12:45:28Z",
-            "name": "40kwh",
-            "owner": "525231824465690645",
-            "rev": 1,
+            "upstream": {
+              "id": "02_we've_been_in_this_room_too_long",
+              "source": "cmini",
+              "state": "following"
+            },
             "source": {
               "client": "system:cmini-import",
               "version": null
-            },
-            "upstream": {
-              "id": "40kwh",
-              "source": "cmini",
-              "state": "following"
             }
           },
           "source": {

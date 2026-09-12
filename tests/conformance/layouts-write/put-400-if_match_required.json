@@ -4,9 +4,8 @@
     "path": "/v1/layouts/cw-put-noifmatch-1",
     "bearer": "conformance-owner2-token",
     "body": {
-      "format": "cmini/1",
+      "format": "spark/1",
       "payload": {
-        "board": "ortho",
         "keys": {}
       }
     },

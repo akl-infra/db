@@ -4,7 +4,7 @@
     "path": "/v1/layouts/cw-patch-nametaken-src-1",
     "bearer": "conformance-owner2-token",
     "headers": {
-      "If-Match": "\"1\""
+      "If-Match": "\"layout:1\""
     },
     "body": {
       "name": "cw-patch-nametaken-target-1"

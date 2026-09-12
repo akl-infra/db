@@ -10,7 +10,7 @@
     "headers": { "Content-Type": "application/json" },
     "body": {
       "error": "bad_request",
-      "message": "invalid 'If-Match' header 'W/\"3\"'",
+      "message": "invalid 'If-Match' header 'W/\"3\"' (expected a scoped token like \"layout:3\" or \"*\")",
       "param": "If-Match"
     }
   }

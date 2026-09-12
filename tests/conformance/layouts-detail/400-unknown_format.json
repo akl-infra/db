@@ -1,7 +1,7 @@
 {
   "request": {
     "method": "GET",
-    "path": "/v1/layouts/io?as=bogus/1"
+    "path": "/v1/layouts/io?format=bogus/1"
   },
   "response": {
     "status": 400,

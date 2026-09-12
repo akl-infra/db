@@ -4,7 +4,7 @@
     "path": "/v1/layouts/cw-patch-badname-1",
     "bearer": "conformance-owner-token",
     "headers": {
-      "If-Match": "\"1\""
+      "If-Match": "\"layout:1\""
     },
     "body": {
       "name": "_bad"

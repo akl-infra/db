@@ -7,9 +7,8 @@
       "If-Match": "*"
     },
     "body": {
-      "format": "cmini/1",
+      "format": "spark/1",
       "payload": {
-        "board": "ortho",
         "keys": {}
       }
     },

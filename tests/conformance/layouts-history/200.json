@@ -13,9 +13,24 @@
         "actor": "system:cmini-import",
         "admin": false,
         "at": "2026-06-01T00:00:00.000Z",
+        "format": null,
         "kind": "imported",
         "rev": 1,
-        "seq": 258,
+        "seq": 299,
+        "source": {
+          "client": "system:cmini-import",
+          "version": null
+        },
+        "via": "import:cmini"
+      },
+      {
+        "actor": "system:cmini-import",
+        "admin": false,
+        "at": "2026-06-01T00:00:00.000Z",
+        "format": "spark/1",
+        "kind": "imported",
+        "rev": 1,
+        "seq": 300,
         "source": {
           "client": "system:cmini-import",
           "version": null
@@ -26,9 +41,10 @@
         "actor": "813698873863962694",
         "admin": false,
         "at": "2026-06-01T00:00:00.000Z",
+        "format": null,
         "kind": "liked",
         "rev": null,
-        "seq": 259,
+        "seq": 301,
         "source": {
           "client": "system:cmini-import",
           "version": null
@@ -39,9 +55,10 @@
         "actor": "761732338744557568",
         "admin": false,
         "at": "2026-06-01T00:00:00.000Z",
+        "format": null,
         "kind": "liked",
         "rev": null,
-        "seq": 260,
+        "seq": 302,
         "source": {
           "client": "system:cmini-import",
           "version": null
@@ -52,9 +69,10 @@
         "actor": "424716784155754518",
         "admin": false,
         "at": "2026-06-01T00:00:00.000Z",
+        "format": null,
         "kind": "liked",
         "rev": null,
-        "seq": 261,
+        "seq": 303,
         "source": {
           "client": "system:cmini-import",
           "version": null
@@ -65,9 +83,10 @@
         "actor": "846826972898131998",
         "admin": false,
         "at": "2026-06-01T00:00:00.000Z",
+        "format": null,
         "kind": "liked",
         "rev": null,
-        "seq": 262,
+        "seq": 304,
         "source": {
           "client": "system:cmini-import",
           "version": null
@@ -78,9 +97,10 @@
         "actor": "621924065581465611",
         "admin": false,
         "at": "2026-06-01T00:00:00.000Z",
+        "format": null,
         "kind": "liked",
         "rev": null,
-        "seq": 263,
+        "seq": 305,
         "source": {
           "client": "system:cmini-import",
           "version": null
@@ -91,9 +111,10 @@
         "actor": "244547046240026628",
         "admin": false,
         "at": "2026-06-01T00:00:00.000Z",
+        "format": null,
         "kind": "liked",
         "rev": null,
-        "seq": 264,
+        "seq": 306,
         "source": {
           "client": "system:cmini-import",
           "version": null
@@ -104,9 +125,10 @@
         "actor": "1087436602466373673",
         "admin": false,
         "at": "2026-06-01T00:00:00.000Z",
+        "format": null,
         "kind": "liked",
         "rev": null,
-        "seq": 265,
+        "seq": 307,
         "source": {
           "client": "system:cmini-import",
           "version": null
@@ -117,9 +139,10 @@
         "actor": "307567726585708545",
         "admin": false,
         "at": "2026-06-01T00:00:00.000Z",
+        "format": null,
         "kind": "liked",
         "rev": null,
-        "seq": 266,
+        "seq": 308,
         "source": {
           "client": "system:cmini-import",
           "version": null
@@ -130,9 +153,10 @@
         "actor": "608048958329323536",
         "admin": false,
         "at": "2026-06-01T00:00:00.000Z",
+        "format": null,
         "kind": "liked",
         "rev": null,
-        "seq": 267,
+        "seq": 309,
         "source": {
           "client": "system:cmini-import",
           "version": null
@@ -143,9 +167,10 @@
         "actor": "243686907438039040",
         "admin": false,
         "at": "2026-06-01T00:00:00.000Z",
+        "format": null,
         "kind": "liked",
         "rev": null,
-        "seq": 268,
+        "seq": 310,
         "source": {
           "client": "system:cmini-import",
           "version": null
@@ -156,9 +181,10 @@
         "actor": "670365221038325760",
         "admin": false,
         "at": "2026-06-01T00:00:00.000Z",
+        "format": null,
         "kind": "liked",
         "rev": null,
-        "seq": 269,
+        "seq": 311,
         "source": {
           "client": "system:cmini-import",
           "version": null
@@ -169,9 +195,10 @@
         "actor": "333362365292740609",
         "admin": false,
         "at": "2026-06-01T00:00:00.000Z",
+        "format": null,
         "kind": "liked",
         "rev": null,
-        "seq": 270,
+        "seq": 312,
         "source": {
           "client": "system:cmini-import",
           "version": null
@@ -182,9 +209,10 @@
         "actor": "1004139554682441779",
         "admin": false,
         "at": "2026-06-01T00:00:00.000Z",
+        "format": null,
         "kind": "liked",
         "rev": null,
-        "seq": 271,
+        "seq": 313,
         "source": {
           "client": "system:cmini-import",
           "version": null
@@ -195,9 +223,10 @@
         "actor": "184412255822020608",
         "admin": false,
         "at": "2026-06-01T00:00:00.000Z",
+        "format": null,
         "kind": "liked",
         "rev": null,
-        "seq": 272,
+        "seq": 314,
         "source": {
           "client": "system:cmini-import",
           "version": null
@@ -208,9 +237,10 @@
         "actor": "347489972070252545",
         "admin": false,
         "at": "2026-06-01T00:00:00.000Z",
+        "format": null,
         "kind": "liked",
         "rev": null,
-        "seq": 273,
+        "seq": 315,
         "source": {
           "client": "system:cmini-import",
           "version": null

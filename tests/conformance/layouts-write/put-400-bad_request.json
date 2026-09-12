@@ -4,14 +4,14 @@
     "path": "/v1/layouts/01ARZ3NDEKTSV4RRFFQ69G5FAV",
     "bearer": "conformance-owner-token",
     "headers": { "If-Match": "W/\"3\"" },
-    "body": { "format": "cmini/1", "payload": { "board": "ortho", "keys": {} } }
+    "body": { "format": "spark/1", "payload": { "keys": {} } }
   },
   "response": {
     "status": 400,
     "headers": { "Content-Type": "application/json" },
     "body": {
       "error": "bad_request",
-      "message": "invalid 'If-Match' header 'W/\"3\"'",
+      "message": "invalid 'If-Match' header 'W/\"3\"' (expected a scoped token like \"layout:3\" or \"*\")",
       "param": "If-Match"
     }
   }

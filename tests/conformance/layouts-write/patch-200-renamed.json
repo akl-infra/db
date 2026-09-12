@@ -4,7 +4,7 @@
     "path": "/v1/layouts/cw-patch-renamed-1",
     "bearer": "conformance-owner2-token",
     "headers": {
-      "If-Match": "\"1\""
+      "If-Match": "\"layout:1\""
     },
     "body": {
       "name": "cw-patch-renamed-1-new"
@@ -28,26 +28,29 @@
     "status": 200,
     "headers": {
       "Content-Type": "application/json",
-      "ETag": "\"2\""
+      "ETag": "\"layout:2\""
     },
     "body": {
       "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
       "name": "cw-patch-renamed-1-new",
       "owner": "830000000000000001",
-      "rev": 2,
+      "layout_rev": 2,
       "created_at": "2026-06-20T00:00:00.000Z",
       "modified_at": "2026-06-20T00:00:00.000Z",
       "deleted": false,
       "like_count": 0,
-      "has_magic": false,
-      "format": "spark/1",
       "upstream": null,
-      "source": {
-        "client": "discord-app:app-default",
-        "version": null
-      },
-      "payload": {
-        "keys": {}
+      "formats": {
+        "spark/1": {
+          "rev": 1,
+          "created_at": "2026-06-20T00:00:00.000Z",
+          "modified_at": "2026-06-20T00:00:00.000Z",
+          "has_magic": false,
+          "source": {
+            "client": "discord-app:app-default",
+            "version": null
+          }
+        }
       }
     }
   }

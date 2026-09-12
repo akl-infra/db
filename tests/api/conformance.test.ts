@@ -105,16 +105,6 @@ const CONFORMANCE_WEBHOOK_DELETE_ID = "conformance-webhook-delete-1";
 const SPARK_PAYLOAD = { keys: {}, board: { kind: "ortho" as const, cmini: "ortho" as const } };
 const ID_PLACEHOLDERS: Record<string, string> = {};
 
-// NOTE (F2 follow-up owed): this whole file's fixtures (`tests/conformance/
-// **`, 357 JSON files) still encode the PRE-F2 wire shape (bare `rev`,
-// unscoped If-Match, no `formats` map, `?as=` instead of required
-// `?format=`, etc.) -- 21-formats.md's wire change is a deliberate,
-// documented one (LDB-R3), but regenerating 357 byte-exact fixtures (and
-// the request shapes that produce them) is a dedicated follow-up task of
-// its own, out of scope for this slice. This file is kept COMPILING
-// (`commitWrite` instead of the deleted `appendWrite`) so `db/`'s tsc gate
-// stays clean; its assertions are expected to fail at runtime until that
-// follow-up lands.
 async function seedLive(name: string) {
   const input: CommitInput = {
     layoutId: ulid(),

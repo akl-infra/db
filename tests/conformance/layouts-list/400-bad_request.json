@@ -1,7 +1,7 @@
 {
   "request": {
     "method": "GET",
-    "path": "/v1/layouts?limit=abc"
+    "path": "/v1/layouts?format=spark/1&limit=abc"
   },
   "response": {
     "status": 400,

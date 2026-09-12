@@ -4,9 +4,10 @@
     "path": "/v1/layouts/cw-patch-1",
     "bearer": "conformance-owner-token",
     "headers": {
-      "If-Match": "\"1\""
+      "If-Match": "\"spark:1\""
     },
     "body": {
+      "format": "spark/1",
       "fingermap": {
         "a": "RP"
       }
@@ -36,24 +37,31 @@
     "status": 200,
     "headers": {
       "Content-Type": "application/json",
-      "ETag": "\"2\""
+      "ETag": "\"spark:2\""
     },
     "body": {
       "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
       "name": "cw-patch-1",
       "owner": "800000000000000001",
-      "rev": 2,
+      "layout_rev": 1,
       "created_at": "2026-06-20T00:00:00.000Z",
       "modified_at": "2026-06-20T00:00:00.000Z",
       "deleted": false,
       "like_count": 0,
-      "has_magic": false,
-      "format": "spark/1",
       "upstream": null,
-      "source": {
-        "client": "discord-app:app-default",
-        "version": null
+      "formats": {
+        "spark/1": {
+          "rev": 2,
+          "created_at": "2026-06-20T00:00:00.000Z",
+          "modified_at": "2026-06-20T00:00:00.000Z",
+          "has_magic": false,
+          "source": {
+            "client": "discord-app:app-default",
+            "version": null
+          }
+        }
       },
+      "format": "spark/1",
       "payload": {
         "keys": {
           "a": {

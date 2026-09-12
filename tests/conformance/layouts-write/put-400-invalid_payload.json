@@ -4,7 +4,7 @@
     "path": "/v1/layouts/cw-put-badpayload-1",
     "bearer": "conformance-owner-token",
     "headers": {
-      "If-Match": "\"1\""
+      "If-Match": "\"spark:1\""
     },
     "body": {
       "format": "spark/1",
