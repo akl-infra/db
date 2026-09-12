@@ -68,22 +68,66 @@ const ROUTES: RouteDesc[] = [
   { name: "GET /v1/layouts/:ref/rev/:n", path: (id, f) => `/v1/layouts/${id}/rev/1${f !== undefined ? `?format=${f}` : ""}` },
 ];
 
-// Coordinator review (M4): "enumerated from the router, not hand-listed"
-// -- same `app.routes` technique `tests/tools/docs-site.test.ts`'s
-// `LDB-G10` uses. Asserted once, for every route both this file's own GET
-// matrix and the write-body matrix below cover, so a renamed/removed
-// route fails loudly here instead of the matrices silently exercising
-// nothing.
-function routerHas(method: string, path: string): boolean {
-  return app.routes.some((r) => r.method === method && r.path === path);
+// Coordinator review (third batch, MEDIUM): "M4 is only half done... Build
+// both lists FROM app.routes... Make the test FAIL when a registered
+// route has no matrix entry, so a new route can't slip past." The earlier
+// `routerHas` only checked that a hand-picked handful of routes still
+// exist -- it said nothing about a route ADDED to the router with no
+// corresponding matrix entry. This enumerates every `/v1/layouts*` route
+// the live router actually has and requires each one to be classified:
+// either it names its own format requirement (the GET matrix's `ROUTES`,
+// or a write route below expecting `format_required`), or it's in
+// `EXEMPT_ROUTES` with a stated reason. A route in neither list fails
+// this test, loudly, by name.
+const ALL_LAYOUTS_ROUTES = app.routes.filter((r) => r.path === "/v1/layouts" || r.path.startsWith("/v1/layouts/"));
+
+interface ExemptRoute {
+  method: string;
+  path: string;
+  reason: string;
 }
-it("[MF-4] [LDB-G11] every route this file's matrices cover is still registered", () => {
-  expect(routerHas("GET", "/v1/layouts")).toBe(true);
-  expect(routerHas("GET", "/v1/layouts/:ref")).toBe(true);
-  expect(routerHas("GET", "/v1/layouts/:ref/rev/:n")).toBe(true);
-  expect(routerHas("POST", "/v1/layouts")).toBe(true);
-  expect(routerHas("PUT", "/v1/layouts/:ref")).toBe(true);
-  expect(routerHas("PATCH", "/v1/layouts/:ref")).toBe(true);
+// Every `/v1/layouts*` route that concerns no format at all, or where
+// `?format=` is a documented, non-required exception (D4's own carve-out
+// for `/history`) -- each reason is the SAME one 21-formats.md §2.4/D4
+// gives, and each of these routes has its own dedicated coverage
+// elsewhere (never "exempt" meaning "untested").
+const EXEMPT_ROUTES: ExemptRoute[] = [
+  { method: "GET", path: "/v1/layouts/:ref/likes", reason: "a like list concerns no format at all" },
+  { method: "GET", path: "/v1/layouts/:ref/history", reason: "D4's own documented carve-out: ?format= is an optional FILTER here (absent means every event), never a default" },
+  { method: "PUT", path: "/v1/layouts/:ref/like", reason: "D13 L3: a like needs no version and concerns no format" },
+  { method: "DELETE", path: "/v1/layouts/:ref/like", reason: "D13 L3: an unlike needs no version and concerns no format" },
+  { method: "DELETE", path: "/v1/layouts/:ref", reason: "delete is layout-scope only (name/owner/deletion); it concerns no format" },
+  { method: "POST", path: "/v1/layouts/:ref/restore", reason: "restore is layout-scope only; it concerns no format" },
+  { method: "POST", path: "/v1/layouts/:ref/transfer", reason: "transfer is layout-scope only; it concerns no format" },
+];
+
+// Write routes whose BODY names a format and must answer `400
+// format_required` without one (this file's own write-body describe
+// block below exercises each). PATCH is included even though a `{name}`
+// PATCH (layout scope) needs none -- `checkBody`'s ajv schema requires
+// `format` only for PATCH bodies that also name an edit key
+// (`classifyPatch`), which is exactly what the PATCH case below tests.
+const FORMAT_REQUIRED_WRITE_ROUTES: { method: string; path: string }[] = [
+  { method: "POST", path: "/v1/layouts" },
+  { method: "PUT", path: "/v1/layouts/:ref" },
+  { method: "PATCH", path: "/v1/layouts/:ref" },
+];
+
+// The GET matrix's own `ROUTES` (below) are keyed by name + a path
+// BUILDER (they need a real id/format substituted in), not a bare
+// (method, path) pair -- restated here as plain router coordinates so
+// this classification list is a flat, checkable set.
+const FORMAT_REQUIRED_GET_ROUTES: { method: string; path: string }[] = [
+  { method: "GET", path: "/v1/layouts" },
+  { method: "GET", path: "/v1/layouts/:ref" },
+  { method: "GET", path: "/v1/layouts/:ref/rev/:n" },
+];
+
+it("[MF-4] [LDB-G11] every /v1/layouts* route the router has is classified here: format-required, or exempt with a stated reason", () => {
+  expect(ALL_LAYOUTS_ROUTES.length).toBeGreaterThan(0);
+  const classified = new Set([...FORMAT_REQUIRED_GET_ROUTES, ...FORMAT_REQUIRED_WRITE_ROUTES, ...EXEMPT_ROUTES].map((r) => `${r.method} ${r.path}`));
+  const unclassified = ALL_LAYOUTS_ROUTES.filter((r) => !classified.has(`${r.method} ${r.path}`)).map((r) => `${r.method} ${r.path}`);
+  expect(unclassified, "a route was added to the router with no format-requirement classification in this file").toEqual([]);
 });
 
 type StatusExp = { status: number; error?: string };

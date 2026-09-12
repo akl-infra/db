@@ -17,16 +17,48 @@ import { ulid } from "ulidx";
 import { app } from "../../src/index";
 import { AKL_PAYLOAD, actorFixture, register, uniqueName, writeFetch } from "./write-support";
 
-// Coordinator review (M4): "enumerated from the router, not hand-listed"
-// -- same technique `tests/tools/docs-site.test.ts`'s `LDB-G10` uses
-// (`app.routes`, exported by `src/index.ts` for exactly this kind of
-// black-box enumeration). Every write route MF-11 claims to cover is
-// asserted present here FIRST: a route renamed or removed would fail this
-// check immediately, rather than the matrix below silently exercising
-// nothing for it.
-function routerHas(method: string, path: string): boolean {
-  return app.routes.some((r) => r.method === method && r.path === path);
+// Coordinator review (third batch, MEDIUM): "M4 is only half done...
+// routerHas only checks that the listed routes exist. Build both lists
+// FROM app.routes... Make the test FAIL when a registered route has no
+// matrix entry." The earlier `routerHas` only confirmed a hand-picked
+// handful still exist -- it never noticed a NEW write route added with no
+// If-Match coverage. This enumerates every `/v1/layouts*` WRITE route
+// (the only kind If-Match concerns at all) the live router actually has,
+// and requires each to be classified: covered by one of this file's own
+// matrices below, or `EXEMPT_ROUTES` with a stated reason (E4/L3: no
+// version concept at all).
+const ALL_LAYOUTS_WRITE_ROUTES = app.routes.filter(
+  (r) => (r.path === "/v1/layouts" || r.path.startsWith("/v1/layouts/")) && r.method !== "GET",
+);
+
+interface ExemptRoute {
+  method: string;
+  path: string;
+  reason: string;
 }
+const EXEMPT_ROUTES: ExemptRoute[] = [
+  { method: "POST", path: "/v1/layouts", reason: "D13 E4: creating a layout needs no version at all" },
+  { method: "PUT", path: "/v1/layouts/:ref/like", reason: "D13 L3: a like needs no version" },
+  { method: "DELETE", path: "/v1/layouts/:ref/like", reason: "D13 L3: an unlike needs no version" },
+  { method: "POST", path: "/v1/layouts/:ref/restore", reason: "restoreLayout takes no ifMatchHeader at all -- the optional body is {name?} only, no version check (20-spark.md decision 8/9)" },
+];
+
+// This file's own matrices, restated as plain router coordinates (each
+// describe block below is keyed by a human label, not a bare (method,
+// path) pair) so the classification list is a flat, checkable set.
+const MATRIX_COVERED_ROUTES: { method: string; path: string }[] = [
+  { method: "PUT", path: "/v1/layouts/:ref" },
+  { method: "DELETE", path: "/v1/layouts/:ref" },
+  { method: "PATCH", path: "/v1/layouts/:ref" }, // both {format,...} and {name} matrices below target this one route
+  { method: "POST", path: "/v1/layouts/:ref/transfer" },
+];
+
+it("[MF-11] [LDB-P21] every /v1/layouts* WRITE route the router has is classified here: an If-Match matrix, or exempt with a stated reason", () => {
+  expect(ALL_LAYOUTS_WRITE_ROUTES.length).toBeGreaterThan(0);
+  const classified = new Set([...MATRIX_COVERED_ROUTES, ...EXEMPT_ROUTES].map((r) => `${r.method} ${r.path}`));
+  const unclassified = ALL_LAYOUTS_WRITE_ROUTES.filter((r) => !classified.has(`${r.method} ${r.path}`)).map((r) => `${r.method} ${r.path}`);
+  expect(unclassified, "a write route was added to the router with no If-Match classification in this file").toEqual([]);
+});
 
 const db = (env as unknown as Bindings).DB;
 const clock = fixedClock("2026-07-06T00:00:00.000Z");
@@ -35,13 +67,6 @@ const SOURCE = { client: "discord-app:test", version: null };
 
 afterEach(() => {
   vi.unstubAllGlobals();
-});
-
-it("[MF-11] [LDB-P21] every scoped-If-Match write route this file's matrices cover is still registered", () => {
-  expect(routerHas("PUT", "/v1/layouts/:ref")).toBe(true);
-  expect(routerHas("PATCH", "/v1/layouts/:ref")).toBe(true);
-  expect(routerHas("DELETE", "/v1/layouts/:ref")).toBe(true);
-  expect(routerHas("POST", "/v1/layouts/:ref/transfer")).toBe(true);
 });
 
 async function seed() {
