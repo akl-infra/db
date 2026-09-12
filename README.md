@@ -429,7 +429,7 @@ append one `admin.*` event to the public feed (`admin.import_ticked` /
 
 | route | body | 200 response | other statuses |
 |---|---|---|---|
-| `POST /v1/admin/import/tick` | none | `{ ran: true, ...tick()'s own TickStats }` (`quiet`/`applied`/`full_pass`/... -- `src/import/cmini.ts`'s `TickResult.stats`, unchanged) | `409 import_paused` if the import is paused (`POST .../resume` first); the usual admin `401`/`403`/`429`/`503` |
+| `POST /v1/admin/import/tick` | none | `{ ran: true, ...tick()'s own TickStats }` (`quiet`/`applied`/`full_pass`/... -- `src/import/cmini.ts`'s `TickResult.stats`, unchanged) | `409 import_paused` if the import is paused (`POST .../resume` first); `409 import_running` if another tick already holds the `cmini.running` lock (below); the usual admin `401`/`403`/`429`/`503` |
 | `POST /v1/admin/diff/tick` | none | `{ ran: true, ...diffTick()'s own LastDiffRecord }` (`ok`/`corpus`/`samples`/... -- the same shape `import_state['cmini.last_diff']` stores) | the usual admin `401`/`403`/`429`/`503` (no "paused" state exists for the diff) |
 | `POST /v1/admin/nightly/tick` | none | `{ ran: true, at, jobs: { "prune-auth-cache": "ok"\|"error", "prune-rate-limits": "ok"\|"error", "prune-nonces": "ok"\|"error", "write-dump": "ok"\|"error" }, dump: writeDump()'s own { key, latest } or null }` -- `src/core/nightly.ts`'s `runNightly`, the SAME job list `scheduled()`'s `hour=3, minute=0` branch runs, each job guarded (`core/jobs.ts`'s `runJob`) so one failing never skips the rest | the usual admin `401`/`403`/`429`/`503` (no "paused" state exists for this job set either) |
 
@@ -595,3 +595,21 @@ npx wrangler d1 execute akl-db --remote --config wrangler.toml \
 
 Delete the row (or set it to anything other than the string `'1'`) to
 resume -- there is no separate "resume" command.
+
+### The import lock
+
+LDB-B4 (design/layout-db/review/audit-db.md B4): `tick()` takes
+`import_state['cmini.running'] = {at, id}` (a CAS INSERT, or a CAS UPDATE
+once the held value is >10 minutes old) before doing any real work, and
+releases it in a `finally`. A `*/5` cron invocation that finds it already
+held just logs `skipped_locked` and returns quietly (the next slot tries
+again); `POST /v1/admin/import/tick` answers `409 import_running` instead.
+If a Worker instance dies mid-tick (never runs its `finally`), the lock
+self-heals after 10 minutes -- no manual clear is normally needed, but the
+same `DELETE` used for `cmini.stalled` above works if you want it gone
+sooner:
+
+```bash
+npx wrangler d1 execute akl-db --remote --config wrangler.toml \
+  --command "DELETE FROM import_state WHERE key = 'cmini.running'"
+```

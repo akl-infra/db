@@ -425,7 +425,7 @@ describe("POST /v1/admin/import/tick, POST /v1/admin/diff/tick, and POST /v1/adm
     // B4 (design/layout-db/review/audit-db.md B4): the manual route
     // surfaces `tick()`'s own lock (`import_state['cmini.running']`) as a
     // loud 409 instead of a silent `{ran: true, skipped_locked: true}}`.
-    it("[LDB-C6] 409 import_running while another tick already holds the cmini.running lock (not expired), and appends no event", async () => {
+    it("[LDB-C7] 409 import_running while another tick already holds the cmini.running lock (not expired), and appends no event", async () => {
       const discord = new FakeDiscord();
       const upstream = new FakeUpstream();
       // Earlier tests in this describe already imported this same fixture
@@ -453,7 +453,7 @@ describe("POST /v1/admin/import/tick, POST /v1/admin/diff/tick, and POST /v1/adm
       }
     });
 
-    it("[LDB-C6] an EXPIRED cmini.running lock (>10 minutes old) is reclaimed -- the manual tick runs normally, 200", async () => {
+    it("[LDB-C7] an EXPIRED cmini.running lock (>10 minutes old) is reclaimed -- the manual tick runs normally, 200", async () => {
       const discord = new FakeDiscord();
       const upstream = new FakeUpstream();
       upstream.bumpMeta(); // see the previous test's own comment

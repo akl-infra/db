@@ -320,8 +320,8 @@ describe("tick()", () => {
   // `*/5` cron and a manual admin kick both landing while a slow tick is
   // still running) had no lock. `import_state['cmini.running']` now gates
   // the whole tick body.
-  describe("[LDB-C6] the import lock (import_state['cmini.running'])", () => {
-    it("[LDB-C6] a tick finds the lock already held (not expired) and skips quietly, touching nothing", async () => {
+  describe("[LDB-C7] the import lock (import_state['cmini.running'])", () => {
+    it("[LDB-C7] a tick finds the lock already held (not expired) and skips quietly, touching nothing", async () => {
       const fake = new FakeUpstream();
       const clock = fixedClock("2026-06-12T00:00:00.000Z");
 
@@ -339,7 +339,7 @@ describe("tick()", () => {
       expect(JSON.parse(lockRow!.value)).toMatchObject({ id: "other-invocation" }); // untouched -- still the other holder's
     });
 
-    it("[LDB-C6] an expired lock (>10 minutes old) is reclaimed and the tick proceeds normally", async () => {
+    it("[LDB-C7] an expired lock (>10 minutes old) is reclaimed and the tick proceeds normally", async () => {
       const fake = new FakeUpstream();
       const t0 = fixedClock("2026-06-13T00:00:00.000Z");
       const staleAt = "2026-06-12T23:49:00.000Z"; // 11 minutes before t0()
@@ -359,7 +359,7 @@ describe("tick()", () => {
       expect(lockRow).toBeNull();
     });
 
-    it("[LDB-C6] a lock held just under 10 minutes is still held; exactly 10 minutes counts as expired", async () => {
+    it("[LDB-C7] a lock held just under 10 minutes is still held; exactly 10 minutes counts as expired", async () => {
       const fake = new FakeUpstream();
       const t0 = fixedClock("2026-06-13T12:00:00.000Z");
 
@@ -382,7 +382,7 @@ describe("tick()", () => {
       expect(await liveLayoutCount()).toBe(100);
     });
 
-    it("[LDB-C6] the lock is released even when the tick body throws, so the next tick can still acquire it", async () => {
+    it("[LDB-C7] the lock is released even when the tick body throws, so the next tick can still acquire it", async () => {
       const fake = new FakeUpstream();
       const clock = fixedClock("2026-06-14T00:00:00.000Z");
 
@@ -400,7 +400,7 @@ describe("tick()", () => {
       expect(await liveLayoutCount()).toBe(100);
     });
 
-    it("[LDB-C6] a quiet tick (meta token unchanged) never touches the lock at all", async () => {
+    it("[LDB-C7] a quiet tick (meta token unchanged) never touches the lock at all", async () => {
       const fake = new FakeUpstream();
       const clock = fixedClock("2026-06-15T00:00:00.000Z");
       await tick(bindings, clock, fake.fetchImpl, fake.sleepImpl); // real tick, lock taken+released

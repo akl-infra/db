@@ -305,8 +305,8 @@ for a create or an import) — each event's own `format` field says which:
 one (`format_added`/`updated`/`fingermap`/`imported`) — carrying
 `before`/`after` (scope-shaped: layout fields, or that one format's own)
 plus per-event `source`; `liked`/`unliked` move only `like_count`;
-`upstream_changed`/`import_conflict`/`admin.*` are informational. `kinds=`
-filters to a comma list. Every layout also carries a top-level `upstream`
+`upstream_changed`/`import_conflict`/`import_error`/`admin.*` are
+informational. `kinds=` filters to a comma list. Every layout also carries a top-level `upstream`
 field — **transitional**, tied to the one-time cmini import, layout-level
 (a write to lineage `spark` or the layout itself moves it; any other
 format never does); don't build client behavior on it (adoption guide §4,
@@ -457,6 +457,7 @@ real examples in §4.
 | 409 | `import_paused` | the cmini import is paused (POST /v1/admin/import/resume first) | `importPaused()` |
 | 422 | `idempotency_mismatch` | this 'Idempotency-Key' was already used for a different request | `idempotencyMismatch()` |
 | 409 | `idempotency_in_progress` | a request with this 'Idempotency-Key' is already being processed | `idempotencyInProgress()` |
+| 409 | `import_running` | an import tick is already running (it holds the cmini.running lock) | `importRunning()` |
 | 429 | `rate_limited` | rate limit exceeded: ${limit} writes per ${windowSeconds}s | `rateLimited(limit, windowSeconds, retryAfter, scope)` |
 <!-- END GENERATED ERROR TABLE -->
 

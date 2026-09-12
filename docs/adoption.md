@@ -453,8 +453,8 @@ changed and on which scope. `liked`/`unliked` move only `like_count` by ±1
 own `after` either (a writer's own read of it can go stale; keep your own
 running tally from `liked`/`unliked` events alone if you mirror it, the
 same way `foldLayout` does server-side); everything else
-(`upstream_changed`, `import_conflict`, `admin.*`) is informational and
-changes nothing in your local copy.
+(`upstream_changed`, `import_conflict`, `import_error`, `admin.*`) is
+informational and changes nothing in your local copy.
 
 **Long-poll** (LEDGER.md L4; replaces the retired SSE stream and webhooks):
 `GET /v1/changes?since=<seq>&wait=<seconds>` — when `wait` is present, the
@@ -727,6 +727,7 @@ it as generated, not hand-edited):
 | 409 | `import_paused` | the cmini import is paused (POST /v1/admin/import/resume first) | `importPaused()` |
 | 422 | `idempotency_mismatch` | this 'Idempotency-Key' was already used for a different request | `idempotencyMismatch()` |
 | 409 | `idempotency_in_progress` | a request with this 'Idempotency-Key' is already being processed | `idempotencyInProgress()` |
+| 409 | `import_running` | an import tick is already running (it holds the cmini.running lock) | `importRunning()` |
 | 429 | `rate_limited` | rate limit exceeded: ${limit} writes per ${windowSeconds}s | `rateLimited(limit, windowSeconds, retryAfter, scope)` |
 
 **Two more codes exist in the *format* layer**, not in the table above
