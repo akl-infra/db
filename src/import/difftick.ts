@@ -158,3 +158,16 @@ export async function lastDiff(db: Bindings["DB"]): Promise<LastDiffRecord | nul
   const row = await db.prepare("SELECT value FROM import_state WHERE key = ?").bind(IMPORT_STATE_KEY).first<{ value: string }>();
   return row === null ? null : (JSON.parse(row.value) as LastDiffRecord);
 }
+
+// LDB-D8: same catch-up rule `dump/write.ts`'s `dumpDue` states for the
+// nightly dump -- hour=4 stays the preferred slot (`src/index.ts`'s
+// `scheduled()`), but any OTHER tick runs the diff too once
+// `cmini.last_diff` is missing or >24h old, so a dropped hour=4 dispatch is
+// caught within one tick of the next successful one instead of silently
+// skipping a day. Pure (no D1/clock read), same reason `dumpDue` is.
+const DIFF_STALE_MS = 24 * 60 * 60 * 1000;
+
+export function diffDue(record: LastDiffRecord | null, nowIso: string): boolean {
+  if (record === null) return true;
+  return Date.parse(nowIso) - Date.parse(record.at) > DIFF_STALE_MS;
+}

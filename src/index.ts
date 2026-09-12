@@ -6,13 +6,14 @@ import { idempotencyKeys } from "./auth/idempotency";
 import { rateLimitWrites } from "./auth/ratelimit";
 import { ApiError, internal } from "./core/errors";
 import { cachePut, conditional, etagFor, readHead } from "./core/etag";
+import { dumpDue, DUMP_STATE_KEY, readDumpState, writeDump, type DumpState } from "./dump/write";
 import { runJob } from "./core/jobs";
 import { metaFormats, readMetaCore } from "./core/meta";
 import { runNightly } from "./core/nightly";
 import { systemClock } from "./core/time";
 import type { FetchImpl } from "./import/upstream";
 import { tick as cminiTick } from "./import/cmini";
-import { diffTick, IMPORT_STATE_KEY as LAST_DIFF_KEY, type LastDiffRecord } from "./import/difftick";
+import { diffDue, diffTick, lastDiff, IMPORT_STATE_KEY as LAST_DIFF_KEY, type LastDiffRecord } from "./import/difftick";
 import { adminRoute } from "./routes/admin";
 import { authorsRoute } from "./routes/authors";
 import { changelogRoute } from "./routes/changelog";
@@ -59,10 +60,12 @@ app.use("/v1/*", rateLimitWrites(authDeps.now));
 // all-zero/null body.
 //
 // The ETag (LDB-R9..R11) is computed from `readHead` (core/etag.ts) --
-// ONE D1 query: the event head, `authors_head`'s row, and the diff
-// bookkeeping record -- plus the in-memory format registry. That is every
-// input the body is a function of, and the body carries each of them, so
-// the ETag changes iff the body does:
+// ONE D1 query: the event head, `authors_head`'s row, and (X4) two
+// `import_state` records (`last_diff`, and LDB-D8's own `dump.last_at`,
+// read here only to answer `health.dump.seq`/`.last_at` below, NOT hashed
+// into the tag -- see the `health` comment) -- plus the in-memory format
+// registry. That is every input the BODY's `last_diff`/counts are a
+// function of, so the ETag changes iff those change:
 //   - `last_diff` never bumps `seq` (the diff cron appends no event, 12
 //     §6.4); without it in the tag a poller could see 304 forever after a
 //     fresh diff run (LDB-M1);
@@ -72,13 +75,36 @@ app.use("/v1/*", rateLimitWrites(authDeps.now));
 //     `last_seen_at` bookkeeping, so a sign-in that keeps its name still
 //     gets the bot's per-command check a 304.
 // A 304 costs that one query.
-const META_STATE_KEYS = [LAST_DIFF_KEY] as const;
+const META_STATE_KEYS = [LAST_DIFF_KEY, DUMP_STATE_KEY] as const;
+
+// LDB-M2: `health.dump`/`health.diff` -- `{last_at, [seq,] age_s, stale}`,
+// `stale` past 48h (twice the 24h catch-up threshold, LDB-D8, so a genuinely
+// stuck job is unambiguous from one merely between ticks). Deliberately
+// NOT folded into the ETag above: `age_s` moves every second, so hashing it
+// in would defeat every 304/edge-cache hit this route exists for -- a
+// client that only ever sees a cached body gets a slightly stale `age_s`
+// (bounded by `CACHE_CONTROL`'s max-age), acceptable for an hours-scale
+// signal. A `null last_at` (never run) reports `stale: true`.
+const HEALTH_STALE_MS = 48 * 60 * 60 * 1000;
+
+interface HealthField {
+  last_at: string | null;
+  age_s: number | null;
+  stale: boolean;
+}
+
+function healthOf(lastAt: string | null, nowIso: string): HealthField {
+  if (lastAt === null) return { last_at: null, age_s: null, stale: true };
+  const age_s = Math.floor((Date.parse(nowIso) - Date.parse(lastAt)) / 1000);
+  return { last_at: lastAt, age_s, stale: age_s * 1000 > HEALTH_STALE_MS };
+}
 
 app.get("/v1/meta", async (c) => {
   const db = c.env.DB;
   const head = await readHead(db, META_STATE_KEYS);
-  const [diffRaw] = head.state;
+  const [diffRaw, dumpRaw] = head.state;
   const diffRecord = diffRaw === null || diffRaw === undefined ? null : (JSON.parse(diffRaw) as LastDiffRecord);
+  const dumpState = dumpRaw === null || dumpRaw === undefined ? null : (JSON.parse(dumpRaw) as DumpState);
   const lastDiffWire = diffRecord === null ? null : { at: diffRecord.at, ok: diffRecord.ok };
   const etag = await etagFor(head.seq, {
     authors: head.authors,
@@ -88,9 +114,17 @@ app.get("/v1/meta", async (c) => {
   const short = await conditional(c, etag, CACHE_CONTROL);
   if (short) return short;
 
+  const nowIso = authDeps.now();
+  const dumpHealth = healthOf(dumpState?.at ?? null, nowIso);
+  const health = {
+    dump: { last_at: dumpHealth.last_at, seq: dumpState?.seq ?? null, age_s: dumpHealth.age_s, stale: dumpHealth.stale },
+    diff: healthOf(diffRecord?.at ?? null, nowIso),
+  };
+
   const res = c.json({
     ...(await readMetaCore(db, head)),
     last_diff: lastDiffWire,
+    health,
   });
   res.headers.set("ETag", etag);
   res.headers.set("Cache-Control", CACHE_CONTROL);
@@ -169,19 +203,38 @@ async function scheduled(event: ScheduledController, env: Bindings, _ctx: Execut
 
   await runJob("cmini-tick", () => cminiTick(env, systemClock));
 
+  // LDB-D8: the diff runs BEFORE the dump on every invocation (not just
+  // production's disjoint hour=4/hour=3 slots) so that on the rare tick
+  // where BOTH catch up at once, the dump's own `import_state` snapshot
+  // (built inside `runNightly`/`writeDump` below) already reflects the
+  // diff's freshly-written `cmini.last_diff` row instead of being one
+  // write behind it -- a "producer before snapshotter" ordering, the one
+  // pair of jobs here that can otherwise observe each other's state.
+  //
+  // The old `0 4 * * *`: hour=4 stays the preferred slot; any other tick
+  // runs the diff anyway once `cmini.last_diff` (12 §3 X4) is missing or
+  // >24h old (LDB-D8), so a dropped hour=4 dispatch is caught within one
+  // tick of the next successful one instead of silently skipping a day.
+  if (hour === 4 && minute === 0) {
+    await runJob("diff-tick", () => diffTick(env, systemClock));
+  } else if (diffDue(await lastDiff(env.DB), at.toISOString())) {
+    await runJob("diff-tick", () => diffTick(env, systemClock));
+  }
+
   // The old `0 3 * * *`: prune + the nightly dump, delegated to
   // `core/nightly.ts`'s `runNightly` so this exact job list is also what
   // `POST /v1/admin/nightly/tick` (routes/admin.ts) runs -- one job list,
   // two callers, never a second copy to drift out of sync (each of the
   // four still runs even if an earlier one this same minute throws --
-  // `runNightly`'s own `runJob` guard).
+  // `runNightly`'s own `runJob` guard). hour=3 stays the preferred slot,
+  // unconditional (also where the three prunes run, on their own
+  // unrelated-to-catch-up daily cadence); any other tick runs the dump
+  // anyway once `dump.last_at` (`dump/write.ts`) is missing or >24h old
+  // (LDB-D8) -- same dropped-dispatch protection as the diff, above.
   if (hour === 3 && minute === 0) {
     await runNightly(env, systemClock);
-  }
-
-  // The old `0 4 * * *`: the diff cron (12 §3 X4).
-  if (hour === 4 && minute === 0) {
-    await runJob("diff-tick", () => diffTick(env, systemClock));
+  } else if (dumpDue(await readDumpState(env.DB), at.toISOString())) {
+    await runJob("dump-catchup", () => writeDump(env, systemClock));
   }
 }
 

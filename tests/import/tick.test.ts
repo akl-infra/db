@@ -10,10 +10,12 @@ import { RevConflictError } from "../../src/core/events";
 import { fixedClock } from "../../src/core/time";
 import * as ratelimitModule from "../../src/core/ratelimit";
 import * as dumpModule from "../../src/dump/write";
+import { dumpDue } from "../../src/dump/write";
 import * as applyModule from "../../src/import/apply";
 import * as cminiModule from "../../src/import/cmini";
 import { tick } from "../../src/import/cmini";
 import * as difftickModule from "../../src/import/difftick";
+import { diffDue } from "../../src/import/difftick";
 import worker from "../../src/index";
 import { FakeUpstream } from "./fake-upstream";
 
@@ -44,6 +46,19 @@ async function liveLayoutCount(): Promise<number> {
 // vitest-pool-workers isolates storage per TEST FILE, not per `it` (07 §2):
 // every test in this file shares one D1. The fixture reuses the same real
 // upstream ids/names across tests, so each test needs a clean slate.
+//
+// LDB-D8: the "scheduled() wiring"/"scheduled() dispatch matrix" describes
+// below drive `scheduled()` at every hour of `atUTC`'s fictional 2026-07-15
+// -- a FRESH `dump.last_at`/`cmini.last_diff` (absent) is "due" immediately
+// on the very first tick of any hour, which is correct catch-up behavior
+// but would make an ordinary "safe hour" test (atUTC(12, 0), say) ALSO run
+// a real writeDump/diffTick, unrelated to what that test means to check.
+// Seeding both as "just run, at the top of this same fictional day" keeps
+// every test in this file that never explicitly exercises catch-up (LDB-D8's
+// own describe below does, with an explicitly STALE seed instead) on the
+// pre-LDB-D8 behavior: dump/diff only at their preferred hour=3/hour=4
+// slot, exactly as `[LDB-C5]`'s matrix asserts.
+const SAME_DAY_START = "2026-07-15T00:00:00.000Z";
 beforeEach(async () => {
   await db.batch([
     db.prepare("DELETE FROM events"),
@@ -53,6 +68,10 @@ beforeEach(async () => {
     db.prepare("DELETE FROM authors"),
     db.prepare("DELETE FROM import_map"),
     db.prepare("DELETE FROM import_state"),
+    db
+      .prepare("INSERT INTO import_state (key, value) VALUES ('dump.last_at', ?)")
+      .bind(JSON.stringify({ at: SAME_DAY_START, seq: 0, key: "seed-dump-2026-07-15.json.gz" })),
+    db.prepare("INSERT INTO import_state (key, value) VALUES ('cmini.last_diff', ?)").bind(JSON.stringify({ at: SAME_DAY_START, ok: true })),
   ]);
 });
 
@@ -395,5 +414,108 @@ describe("scheduled() dispatch matrix", () => {
         return !(isNightly(hour, minute) && isNightly(nextHour, nextMinute));
       }),
     );
+  });
+});
+
+// LDB-D8: a dropped hour=3/hour=4 dispatch must not skip a whole day (H
+// item 3, audit-db.md §C/D) -- any tick catches up once the relevant
+// `import_state` record is missing or >24h old, and never re-runs within
+// 24h of a real one.
+describe("[LDB-D8] dump/diff catch-up", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const ISO_DAY_MS = 24 * 60 * 60 * 1000;
+
+  it("[LDB-D8] [property] dumpDue/diffDue: due iff never run, or run more than 24h before now", () => {
+    fc.assert(
+      fc.property(fc.option(fc.integer({ min: 0, max: 3 * ISO_DAY_MS })), fc.integer({ min: 0, max: 3 * ISO_DAY_MS }), (ageMs, nowOffsetMs) => {
+        const now = new Date(nowOffsetMs).toISOString();
+        if (ageMs === null) {
+          expect(dumpDue(null, now)).toBe(true);
+          expect(diffDue(null, now)).toBe(true);
+          return;
+        }
+        const at = new Date(nowOffsetMs - ageMs).toISOString();
+        const expected = ageMs > ISO_DAY_MS;
+        expect(dumpDue({ at, seq: 0, key: "k" }, now)).toBe(expected);
+        expect(diffDue({ at, ok: true }, now)).toBe(expected);
+      }),
+    );
+  });
+
+  it("[LDB-D8] a non-preferred-hour tick runs the dump when `dump.last_at` is missing", async () => {
+    // The shared beforeEach seeds a fresh `dump.last_at` -- clear it back to
+    // "never dumped" for this one test.
+    await db.prepare("DELETE FROM import_state WHERE key = 'dump.last_at'").run();
+    const dumpSpy = vi.spyOn(dumpModule, "writeDump").mockResolvedValue({} as Awaited<ReturnType<typeof dumpModule.writeDump>>);
+
+    const ctx = createExecutionContext();
+    const controller = createScheduledController({ cron: "*/5 * * * *", scheduledTime: atUTC(12, 0) }); // not hour=3
+    await worker.scheduled(controller, bindings, ctx);
+    await waitOnExecutionContext(ctx);
+
+    expect(dumpSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("[LDB-D8] a non-preferred-hour tick runs the dump when `dump.last_at` is >24h old, but not when it's fresh", async () => {
+    const dumpSpy = vi.spyOn(dumpModule, "writeDump").mockResolvedValue({} as Awaited<ReturnType<typeof dumpModule.writeDump>>);
+
+    await db
+      .prepare("UPDATE import_state SET value = ? WHERE key = 'dump.last_at'")
+      .bind(JSON.stringify({ at: "2026-07-13T23:00:00.000Z", seq: 0, key: "stale" })) // >24h before 07-15 12:00
+      .run();
+    const staleCtx = createExecutionContext();
+    await worker.scheduled(createScheduledController({ cron: "*/5 * * * *", scheduledTime: atUTC(12, 0) }), bindings, staleCtx);
+    await waitOnExecutionContext(staleCtx);
+    expect(dumpSpy).toHaveBeenCalledTimes(1); // caught up
+
+    // Never twice within 24h: immediately after, even at another
+    // non-preferred hour, it does NOT fire again -- `writeDump`'s mock
+    // never actually wrote `dump.last_at`, so re-seed a fresh record the
+    // way a real `writeDump` would have, then prove the SAME invocation
+    // pattern stays quiet.
+    await db
+      .prepare("UPDATE import_state SET value = ? WHERE key = 'dump.last_at'")
+      .bind(JSON.stringify({ at: "2026-07-15T12:00:00.000Z", seq: 1, key: "fresh" }))
+      .run();
+    const freshCtx = createExecutionContext();
+    await worker.scheduled(createScheduledController({ cron: "*/5 * * * *", scheduledTime: atUTC(13, 0) }), bindings, freshCtx);
+    await waitOnExecutionContext(freshCtx);
+    expect(dumpSpy).toHaveBeenCalledTimes(1); // still 1 -- not re-run
+  });
+
+  it("[LDB-D8] the same catch-up rule applies to the diff", async () => {
+    const diffSpy = vi.spyOn(difftickModule, "diffTick").mockResolvedValue({ at: "x", ok: true });
+
+    await db
+      .prepare("UPDATE import_state SET value = ? WHERE key = 'cmini.last_diff'")
+      .bind(JSON.stringify({ at: "2026-07-13T23:00:00.000Z", ok: true }))
+      .run();
+    const ctx = createExecutionContext();
+    await worker.scheduled(createScheduledController({ cron: "*/5 * * * *", scheduledTime: atUTC(12, 0) }), bindings, ctx); // not hour=4
+    await waitOnExecutionContext(ctx);
+
+    expect(diffSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("[LDB-D8] the diff runs before the dump on a tick where both catch up (the dump's own snapshot then includes the fresh diff state)", async () => {
+    await db.prepare("DELETE FROM import_state WHERE key IN ('dump.last_at', 'cmini.last_diff')").run();
+    const order: string[] = [];
+    vi.spyOn(difftickModule, "diffTick").mockImplementation(async () => {
+      order.push("diff");
+      return { at: "x", ok: true };
+    });
+    vi.spyOn(dumpModule, "writeDump").mockImplementation(async () => {
+      order.push("dump");
+      return {} as Awaited<ReturnType<typeof dumpModule.writeDump>>;
+    });
+
+    const ctx = createExecutionContext();
+    await worker.scheduled(createScheduledController({ cron: "*/5 * * * *", scheduledTime: atUTC(12, 0) }), bindings, ctx);
+    await waitOnExecutionContext(ctx);
+
+    expect(order).toEqual(["diff", "dump"]);
   });
 });

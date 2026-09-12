@@ -1,4 +1,6 @@
-// Nightly dump (07 §6 S7, cron `0 3 * * *`): a whole-state snapshot, not a
+// Nightly dump (07 §6 S7; LDB-D8 amended: hour=3 is the preferred slot, but
+// any tick catches up once `dump.last_at` is missing or >24h old, `src/
+// index.ts`'s `scheduled()`): a whole-state snapshot, not a
 // tail -- a rehosted service must be able to answer `/v1/changes?since=0`
 // (LDB-P6), so `events` carries the WHOLE log. Every table is paged in
 // keysets of 500 (mirrors `core/records.ts`'s own cursor style) straight
@@ -9,6 +11,7 @@
 // that plain-row shape is what keeps the dump byte-stable for the sha256.
 import type { Bindings } from "../env";
 import { canonical } from "../core/canonical";
+import type { ClientRow } from "../core/clients";
 import { readHead } from "../core/etag";
 import type { EventDbRow } from "../core/events";
 import { readMetaCore } from "../core/meta";
@@ -55,6 +58,14 @@ export interface ImportMapDbRow {
   layout_id: string;
 }
 
+// LDB-D9: registered client pubkeys/caps -- public data (10 C1 §4: no
+// `secret`-shaped column exists on this table at all, unlike `webhooks`),
+// so unlike `auth_cache`/`nonces`/`ratelimit`/`webhooks` there is no reason
+// to drop it. Dumping it (and `restore.ts` re-inserting it) is what makes a
+// rehost keep every bot's registered key instead of needing the admin
+// bootstrap redone from scratch.
+export type ClientDbRow = ClientRow;
+
 export interface DumpMeta {
   layout_count: number;
   author_count: number;
@@ -82,8 +93,20 @@ export interface Dump {
   authors: AuthorDbRow[];
   admins: AdminDbRow[];
   events: EventDbRow[]; // the WHOLE log, not a tail (LDB-P6)
+  // LDB-D8: every row EXCEPT this dump's own scheduling bookkeeping key
+  // (`dump.last_at`, `dumpDue()` below) -- that key records when THIS VERY
+  // dump was written, so including it would make the dump depend on
+  // itself (buildDump reads state before writeDump's post-write state
+  // update, so a dump never carries its own `dump.last_at` regardless, but
+  // TWO dumps taken back-to-back for the same underlying data would still
+  // disagree on this one row, since the second read the first's fresh
+  // write -- excluding it keeps the dump a pure function of DATA, not of
+  // "when did I last dump". A rehost consequently starts with no memory of
+  // ever having dumped, which is correct: catch-up (LDB-D8) runs promptly
+  // rather than waiting out a stale window it never earned.
   import_state: ImportStateDbRow[];
   import_map: ImportMapDbRow[];
+  clients: ClientDbRow[]; // LDB-D9: public pubkeys/caps, restored (dump/restore.ts)
   auth_cache: []; // never dumped -- holds only token hashes, and a rehost starts cold (09 §3)
 }
 
@@ -165,7 +188,7 @@ export async function buildDump(env: Bindings, now: Clock): Promise<Dump> {
 
   const meta = await computeMeta(db);
 
-  const [records, layout_formats, layout_revs, likes, authors, admins, events, import_state, import_map] = await Promise.all([
+  const [records, layout_formats, layout_revs, likes, authors, admins, events, import_state_all, import_map, clients] = await Promise.all([
     pageBySingleKey<LayoutDbRow>(db, "layouts", "id"),
     pageByCompositeKey<FormatDbRow>(db, "layout_formats", "layout_id", "lineage"),
     pageByCompositeKey<LayoutRevDbRow>(db, "layout_revs", "layout_id", "n"),
@@ -175,7 +198,14 @@ export async function buildDump(env: Bindings, now: Clock): Promise<Dump> {
     pageBySingleKey<EventDbRow>(db, "events", "seq"),
     pageBySingleKey<ImportStateDbRow>(db, "import_state", "key"),
     pageBySingleKey<ImportMapDbRow>(db, "import_map", "upstream_id"),
+    pageBySingleKey<ClientDbRow>(db, "clients", "id"),
   ]);
+
+  // LDB-D8: `dump.last_at` is this dump's OWN scheduling bookkeeping (see
+  // the `Dump.import_state` comment above) -- filtered out here, not left
+  // for `restoreSql` to special-case, so a restored database has no memory
+  // of a dump that predates it.
+  const import_state = import_state_all.filter((r) => r.key !== DUMP_STATE_KEY);
 
   return {
     version: 1,
@@ -190,8 +220,53 @@ export async function buildDump(env: Bindings, now: Clock): Promise<Dump> {
     events,
     import_state,
     import_map,
+    clients,
     auth_cache: [],
   };
+}
+
+// --- LDB-D8: dump catch-up scheduling -------------------------------------
+//
+// The nightly dump used to run only when a cron invocation's own
+// `event.scheduledTime` landed at exactly hour=3 minute=0 -- a dispatch
+// Cloudflare dropped for that one slot (observed for real, 2026-09-09, a
+// 9-hour outage) skipped the WHOLE day with no retry and no alarm beyond a
+// stale `latest.json`. `import_state['dump.last_at']` now records
+// `{at, seq, key}` on every successful write (`writeDump`'s last step
+// below); `scheduled()` (`src/index.ts`) still prefers the hour=3 slot (via
+// `runNightly`, unconditionally -- also where prunes run), but checks this
+// record on every OTHER tick and runs the dump anyway once it is missing or
+// >24h old, so a dropped slot is caught within one 5-minute tick of the
+// next successful dispatch instead of losing a day. `dumpDue`'s own
+// half-open `> 24h` (not `>=`) means a dump exactly 24h old is not yet due
+// -- the next tick, 5 minutes later, will be.
+export interface DumpState {
+  at: string;
+  seq: number;
+  key: string;
+}
+
+export const DUMP_STATE_KEY = "dump.last_at"; // exported for `/v1/meta`'s one-query head (src/index.ts), same reason `import/difftick.ts`'s IMPORT_STATE_KEY is
+const DUMP_STALE_MS = 24 * 60 * 60 * 1000;
+
+export async function readDumpState(db: Bindings["DB"]): Promise<DumpState | null> {
+  const row = await db.prepare("SELECT value FROM import_state WHERE key = ?").bind(DUMP_STATE_KEY).first<{ value: string }>();
+  return row === null ? null : (JSON.parse(row.value) as DumpState);
+}
+
+async function writeDumpState(db: Bindings["DB"], state: DumpState): Promise<void> {
+  await db
+    .prepare("INSERT INTO import_state (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+    .bind(DUMP_STATE_KEY, canonical(state))
+    .run();
+}
+
+// Pure (no D1, no clock read of its own) so `tests/import/tick.test.ts` can
+// property-test it directly: due iff never written, or written >24h before
+// `nowIso`.
+export function dumpDue(state: DumpState | null, nowIso: string): boolean {
+  if (state === null) return true;
+  return Date.parse(nowIso) - Date.parse(state.at) > DUMP_STALE_MS;
 }
 
 async function gzip(bytes: Uint8Array): Promise<Uint8Array> {
@@ -223,13 +298,21 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
 
 // Builds the dump, gzips it, sha256's the gzip bytes, and writes
 // `dump-YYYY-MM-DD.json.gz` + `latest.json` (+ `monthly/dump-YYYY-MM.json.gz`
-// on the 1st) to R2. Called from `scheduled()`'s `0 3 * * *` branch, after
-// `pruneAuthCache` (index.ts).
+// on the 1st) to R2. Called from `scheduled()`'s hour=3 branch (via
+// `runNightly`, after `pruneAuthCache`) or, on any other tick, LDB-D8's own
+// catch-up check (`src/index.ts`).
 export async function writeDump(env: Bindings, now: Clock): Promise<{ key: string; latest: LatestJson }> {
   const dump = await buildDump(env, now);
   const bytes = new TextEncoder().encode(canonical(dump));
   const gz = await gzip(bytes);
   const sha256 = await sha256Hex(gz);
+
+  // LDB risk C.9 (audit-db.md §H item 9): `buildDump` materializes the
+  // whole DB in Worker memory before this point -- not urgent below ~50k
+  // events (today's ~4k layouts), but a size regression should be visible
+  // in the logs well before it becomes a CPU/memory cliff, so every write
+  // logs its own uncompressed/gzipped byte counts.
+  console.log(`writeDump: seq=${dump.meta.seq} layouts=${dump.meta.layout_count} bytes=${bytes.byteLength} gzip_bytes=${gz.byteLength}`);
 
   const key = `dump-${dump.date}.json.gz`;
   await env.DUMPS.put(key, gz, { httpMetadata: { contentType: "application/gzip" } });
@@ -249,6 +332,13 @@ export async function writeDump(env: Bindings, now: Clock): Promise<{ key: strin
     const monthKey = `monthly/dump-${dump.date.slice(0, 7)}.json.gz`;
     await env.DUMPS.put(monthKey, gz, { httpMetadata: { contentType: "application/gzip" } });
   }
+
+  // LDB-D8: recorded LAST, only once every object above has been written
+  // successfully -- a throw partway through (an R2 hiccup, say) leaves the
+  // previous `dump.last_at` in place, so the NEXT tick's catch-up check
+  // still sees this attempt as not having happened and retries, rather
+  // than wrongly believing a dump exists that was never fully written.
+  await writeDumpState(env.DB, { at: now(), seq: dump.meta.seq, key });
 
   return { key, latest };
 }

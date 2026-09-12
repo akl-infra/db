@@ -29,3 +29,13 @@ enabled = true   # Workers Logs: keep console.error() from onError (the 500 path
 # retired 2026-09-11 -- nothing read it and it accepted no clients; H13
 # says one layoutdb. Do not re-add an `[env.preview]` block without a real
 # consumer.
+
+# LDB risk C.9 (audit-db.md §H item 9): `buildDump` materializes the whole
+# DB in Worker memory before gzipping -- not urgent below ~50k events
+# (today's ~4k layouts), but the default CPU budget is tighter than a
+# larger dump would need. Raised on the Workers Paid plan already in use
+# (`akl-db` bills $5/mo per PROPOSAL.md §3); `writeDump`'s own size log
+# line is the signal for when this needs revisiting for real (streaming
+# the gzip instead of materializing it).
+[limits]
+cpu_ms = 30000
