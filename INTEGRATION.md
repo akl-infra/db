@@ -203,6 +203,16 @@ DIFFERENT method/path/body and you get `422 idempotency_mismatch` instead
 ignored (as if never sent). The rate limit is charged once, on the
 request that actually lands — a replay never spends another write.
 
+A key is claimed the instant the first request carrying it arrives, before
+that request's own write even runs — so a second, truly concurrent request
+with the SAME key (a client that fired a retry a little too eagerly, in
+flight at the same time as the original) gets `409
+idempotency_in_progress` rather than racing it. This clears itself up:
+either wait a moment and retry, or just wait for the original request's
+own response. A claim that's gone quiet for about a minute (the reserving
+request's own process died, most likely) is treated as abandoned and a new
+attempt with that key takes over.
+
 **The retry recipe:** generate one key per logical write attempt, before
 the first try. On a timeout, a `5xx`, or any other "I don't know if that
 landed" outcome, resend the EXACT same request with the SAME key — you
@@ -446,6 +456,7 @@ real examples in §4.
 | 403 | `actor_not_allowed` | this client may not act as this user | `actorNotAllowed(actor, owner)` |
 | 409 | `import_paused` | the cmini import is paused (POST /v1/admin/import/resume first) | `importPaused()` |
 | 422 | `idempotency_mismatch` | this 'Idempotency-Key' was already used for a different request | `idempotencyMismatch()` |
+| 409 | `idempotency_in_progress` | a request with this 'Idempotency-Key' is already being processed | `idempotencyInProgress()` |
 | 429 | `rate_limited` | rate limit exceeded: ${limit} writes per ${windowSeconds}s | `rateLimited(limit, windowSeconds, retryAfter, scope)` |
 <!-- END GENERATED ERROR TABLE -->
 

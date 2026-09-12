@@ -73,30 +73,133 @@ export async function getIdempotency(db: Bindings["DB"], scope: string, key: str
   return await db.prepare("SELECT * FROM idempotency WHERE scope = ? AND key = ?").bind(scope, key).first<IdempotencyRow>();
 }
 
-// Upsert, not a bare INSERT: by the time the middleware calls this, either
-// no row existed for (scope, key), or the one that did was already found
-// expired (`getIdempotency` + `isExpired`, checked by the caller first) --
-// so overwriting it is always the right move, and the statement itself is
-// safe to run twice with the same arguments (a crash between the write
-// committing and this call landing just means the client's own retry
-// lands here again with byte-identical values).
-export async function storeIdempotency(db: Bindings["DB"], row: IdempotencyRow): Promise<void> {
-  await db
+// LDB-K7: a reservation -- `status = 0`, `response_body = ''` -- claims
+// the (scope, key) pair BEFORE the handler ever runs, so two concurrent
+// requests carrying the same fresh key can't both slip past the
+// mismatch/replay check (which only ever saw a row AFTER a write
+// committed) and both execute. `PENDING_STATUS` is never a real HTTP
+// status (100 is the lowest legal one), so it can never be confused with
+// a genuinely stored response.
+export const PENDING_STATUS = 0;
+// How long a reservation is trusted before it's considered abandoned (the
+// reserving request's own instance crashed, or is simply still running) --
+// much shorter than the 24h key window: this is "is anyone plausibly still
+// working on this", not "has this key expired".
+export const PENDING_STALE_MS = 60_000;
+
+export function isPending(row: { status: number }): boolean {
+  return row.status === PENDING_STATUS;
+}
+
+export function isStalePending(row: { at: string }, now: Clock, staleMs: number = PENDING_STALE_MS): boolean {
+  return new Date(now()).getTime() - new Date(row.at).getTime() >= staleMs;
+}
+
+interface ClaimInput {
+  scope: string;
+  key: string;
+  method: string;
+  path: string;
+  request_hash: string;
+  at: string;
+}
+
+// The reservation itself: an INSERT that only lands when nothing at all is
+// stored yet for (scope, key). Returns whether THIS call claimed it.
+export async function reserveIdempotency(db: Bindings["DB"], row: ClaimInput): Promise<boolean> {
+  const result = await db
     .prepare(
       `INSERT INTO idempotency (scope, key, method, path, request_hash, status, response_body, at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(scope, key) DO UPDATE SET
-         method = excluded.method, path = excluded.path, request_hash = excluded.request_hash,
-         status = excluded.status, response_body = excluded.response_body, at = excluded.at`,
+       VALUES (?, ?, ?, ?, ?, ${PENDING_STATUS}, '', ?)
+       ON CONFLICT(scope, key) DO NOTHING`,
     )
-    .bind(row.scope, row.key, row.method, row.path, row.request_hash, row.status, row.response_body, row.at)
+    .bind(row.scope, row.key, row.method, row.path, row.request_hash, row.at)
+    .run();
+  return (result.meta.changes ?? 0) > 0;
+}
+
+// Reclaims a row already known to be abandoned -- a 24h-expired one
+// (whether it finished or not) or a >60s-old still-pending one (its
+// reserver crashed or is otherwise never coming back). `expectedAt` is a
+// compare-and-swap guard on the exact `at` this caller read: two callers
+// racing to take over the SAME stale row can't both succeed (the first to
+// land changes `at`, so the second's own WHERE matches zero rows and it
+// re-reads to find a fresh reservation instead -- `acquireIdempotencySlot`
+// loops on exactly that).
+export async function takeOverIdempotency(db: Bindings["DB"], row: ClaimInput & { expectedAt: string }): Promise<boolean> {
+  const result = await db
+    .prepare(
+      `UPDATE idempotency SET method = ?, path = ?, request_hash = ?, status = ${PENDING_STATUS}, response_body = '', at = ?
+       WHERE scope = ? AND key = ? AND at = ?`,
+    )
+    .bind(row.method, row.path, row.request_hash, row.at, row.scope, row.key, row.expectedAt)
+    .run();
+  return (result.meta.changes ?? 0) > 0;
+}
+
+// The reserving request finished normally (2xx/4xx-except-429): the row
+// becomes a real, replayable response.
+export async function completeIdempotency(db: Bindings["DB"], scope: string, key: string, status: number, responseBody: string, at: string): Promise<void> {
+  await db
+    .prepare("UPDATE idempotency SET status = ?, response_body = ?, at = ? WHERE scope = ? AND key = ?")
+    .bind(status, responseBody, at, scope, key)
     .run();
 }
 
+// The reserving request ended 429/5xx: the whole point of NOT storing
+// those (`shouldStoreStatus`) is that a retry should get a fresh judgement
+// -- so the reservation itself is dropped rather than left dangling
+// pending (which would otherwise just sit there and either wrongly
+// `409 idempotency_in_progress` a legitimate retry for up to 60s, or, once
+// stale, get silently taken over anyway; deleting it outright is simpler
+// and immediate).
+export async function deleteIdempotency(db: Bindings["DB"], scope: string, key: string): Promise<void> {
+  await db.prepare("DELETE FROM idempotency WHERE scope = ? AND key = ?").bind(scope, key).run();
+}
+
+export type AcquireResult = { kind: "replay"; row: IdempotencyRow } | { kind: "mismatch" } | { kind: "in_progress" } | { kind: "acquired" };
+
+const MAX_ACQUIRE_ATTEMPTS = 5;
+
+// LDB-K1/K2/K7: the whole decision, one call. Attempts the reservation
+// INSERT directly (the common case -- a brand-new key -- costs exactly one
+// write, no read); on conflict (something is already stored for this
+// (scope, key)) it reads that row and either replays it, refuses it as a
+// mismatch, refuses it as still in progress, or -- if it's abandoned --
+// takes it over and retries the whole decision, bounded so a persistent
+// three-way race can't spin forever (each attempt only fails because
+// SOME other caller just won the exact same race, so real contention this
+// deep is not expected in practice).
+export async function acquireIdempotencySlot(db: Bindings["DB"], now: Clock, req: { scope: string; key: string; method: string; path: string; hash: string }): Promise<AcquireResult> {
+  for (let attempt = 0; attempt < MAX_ACQUIRE_ATTEMPTS; attempt++) {
+    const claim: ClaimInput = { scope: req.scope, key: req.key, method: req.method, path: req.path, request_hash: req.hash, at: now() };
+    if (await reserveIdempotency(db, claim)) return { kind: "acquired" };
+
+    const row = await getIdempotency(db, req.scope, req.key);
+    if (row === null) continue; // raced a concurrent 429/5xx cleanup (deleteIdempotency) -- try reserving again
+
+    if (isExpired(row, now)) {
+      if (await takeOverIdempotency(db, { ...claim, expectedAt: row.at })) return { kind: "acquired" };
+      continue;
+    }
+    if (!isPending(row)) {
+      const matches = row.method === req.method && row.path === req.path && row.request_hash === req.hash;
+      return matches ? { kind: "replay", row } : { kind: "mismatch" };
+    }
+    if (isStalePending(row, now)) {
+      if (await takeOverIdempotency(db, { ...claim, expectedAt: row.at })) return { kind: "acquired" };
+      continue;
+    }
+    return { kind: "in_progress" };
+  }
+  throw new Error("acquireIdempotencySlot: exhausted retries -- persistent contention on one (scope, key)");
+}
+
 // Nightly (`core/nightly.ts`) housekeeping only -- correctness never
-// depends on this having run: `getIdempotency` + `isExpired` already treat
-// an old row as absent, and `storeIdempotency`'s upsert already overwrites
-// it cleanly the next time that (scope, key) pair is used.
+// depends on this having run: a 24h-expired row (`isExpired`) or a >60s
+// stale pending one (`isStalePending`) is already treated as free by
+// `acquireIdempotencySlot` on its own, taken over the next time that
+// (scope, key) pair is used.
 export async function pruneIdempotency(db: Bindings["DB"], now: Clock): Promise<void> {
   const cutoff = new Date(new Date(now()).getTime() - IDEMPOTENCY_WINDOW_MS).toISOString();
   await db.prepare("DELETE FROM idempotency WHERE at < ?").bind(cutoff).run();

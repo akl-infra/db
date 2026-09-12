@@ -726,6 +726,7 @@ it as generated, not hand-edited):
 | 403 | `actor_not_allowed` | this client may not act as this user | `actorNotAllowed(actor, owner)` |
 | 409 | `import_paused` | the cmini import is paused (POST /v1/admin/import/resume first) | `importPaused()` |
 | 422 | `idempotency_mismatch` | this 'Idempotency-Key' was already used for a different request | `idempotencyMismatch()` |
+| 409 | `idempotency_in_progress` | a request with this 'Idempotency-Key' is already being processed | `idempotencyInProgress()` |
 | 429 | `rate_limited` | rate limit exceeded: ${limit} writes per ${windowSeconds}s | `rateLimited(limit, windowSeconds, retryAfter, scope)` |
 
 **Two more codes exist in the *format* layer**, not in the table above

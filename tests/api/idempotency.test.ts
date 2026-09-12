@@ -1,16 +1,19 @@
-// [LDB-K1]..[LDB-K6] `Idempotency-Key` (L3, design/layout-db/review/
+// [LDB-K1]..[LDB-K7] `Idempotency-Key` (L3, design/layout-db/review/
 // PROPOSAL.md §2.1): a replay of the same `(scope, key)` for the SAME
 // method+path+body within 24h returns the stored response verbatim and
 // writes nothing; a reuse with a DIFFERENT request is `422
 // idempotency_mismatch`, also writing nothing; different actor scopes
 // (client id / Discord user id) are independent; a key older than 24h is
 // ignored; a request with no header is entirely unaffected; the write-rate
-// counter is charged once per key, never again on a replay.
+// counter is charged once per key, never again on a replay; two genuinely
+// concurrent identical requests never both land (LDB-K7: the key is
+// reserved before either handler runs).
 import { env } from "cloudflare:test";
 import fc from "fast-check";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Bindings } from "../../src/env";
 import { commitWrite, rowToEvent, type CommitInput, type EventDbRow } from "../../src/core/events";
+import { reserveIdempotency } from "../../src/core/idempotency";
 import { fixedClock, type Clock } from "../../src/core/time";
 import { ulid } from "ulidx";
 import { generateKeyPair, seedClient, signHeaders } from "../auth/client-support";
@@ -337,5 +340,121 @@ describe("[LDB-K6] [property] a sequence of writes, each sent 1-3 times with the
       }),
       { numRuns: 8 },
     );
+  });
+});
+
+describe("[LDB-K7] the key is reserved before the handler runs -- no concurrent double-apply", () => {
+  it("[LDB-K7] two truly concurrent identical requests: exactly one write lands, one event, the loser gets 409 in_progress or the replay", async () => {
+    const owner = uniqueName("idem-race-owner");
+    const fake = actorFixture();
+    const headers = register(fake, `tok-${uniqueName("idem-race")}`, owner);
+    const seeded = await seed(owner);
+    const key = uniqueName("idem-race-key");
+    const reqHeaders = { ...headers, "If-Match": '"layout:1"', "Idempotency-Key": key };
+    const name = uniqueName("idem-race-renamed");
+
+    const [a, b] = await Promise.all([
+      writeFetch(`/v1/layouts/${seeded.id}`, "PATCH", reqHeaders, { name }),
+      writeFetch(`/v1/layouts/${seeded.id}`, "PATCH", reqHeaders, { name }),
+    ]);
+
+    // Never both "acquired and ran the handler": the loser is EITHER a
+    // replay of the winner's own 200 (Idempotency-Replayed: true) or a
+    // fresh 409 idempotency_in_progress -- never a second real write, and
+    // never anything else (in particular, never 409 stale, which is what
+    // the SECOND request would get if it were mistakenly allowed to run
+    // the handler for real against the now-already-renamed layout).
+    const statuses = [a.status, b.status].sort((x, y) => x - y);
+    expect(statuses[0], `got statuses ${JSON.stringify(statuses)}`).toBe(200);
+    expect([200, 409], `got statuses ${JSON.stringify(statuses)}`).toContain(statuses[1]);
+
+    if (a.status === 200 && b.status === 200) {
+      const [bodyA, bodyB] = await Promise.all([a.clone().json(), b.clone().json()]);
+      expect(bodyA).toEqual(bodyB);
+      // Exactly one of the two carries the replay marker -- the OTHER is
+      // the real, acquired write.
+      const replayedFlags = [a.headers.get("Idempotency-Replayed"), b.headers.get("Idempotency-Replayed")];
+      expect(replayedFlags.filter((f) => f === "true")).toHaveLength(1);
+    } else {
+      const loser = a.status === 409 ? a : b;
+      const loserBody = await loser.json<{ error: string }>();
+      expect(loserBody.error).toBe("idempotency_in_progress");
+    }
+
+    // Whatever the two responses were, exactly ONE real write happened.
+    expect(await eventsOf(seeded.id, "renamed")).toHaveLength(1);
+  });
+
+  it("[LDB-K7] PUT /v1/layouts/{ref}/like: two concurrent identical likes never both count", async () => {
+    const owner = uniqueName("idem-race-like-owner");
+    const fake = actorFixture();
+    const headers = register(fake, `tok-${uniqueName("idem-race-like")}`, owner);
+    const seeded = await seed(owner);
+    const key = uniqueName("idem-race-like-key");
+    const reqHeaders = { ...headers, "Idempotency-Key": key };
+
+    const [a, b] = await Promise.all([writeFetch(`/v1/layouts/${seeded.id}/like`, "PUT", reqHeaders), writeFetch(`/v1/layouts/${seeded.id}/like`, "PUT", reqHeaders)]);
+
+    for (const res of [a, b]) expect([200, 409]).toContain(res.status);
+    expect(await eventsOf(seeded.id, "liked")).toHaveLength(1);
+    const likeCount = await db.prepare("SELECT like_count FROM layouts WHERE id = ?").bind(seeded.id).first<{ like_count: number }>();
+    expect(likeCount?.like_count).toBe(1);
+  });
+
+  it("[LDB-K7] a pending reservation older than ~60s (but well under the 24h key window) is treated as abandoned and taken over", async () => {
+    const owner = uniqueName("idem-stale-owner");
+    const fake = actorFixture();
+    const headers = register(fake, `tok-${uniqueName("idem-stale")}`, owner);
+    const seeded = await seed(owner);
+    const key = uniqueName("idem-stale-key");
+    const path = `/v1/layouts/${seeded.id}`;
+    const scope = `user:${owner}`;
+
+    // Pin "now" so the reservation's own `at` can be placed EXACTLY 90s in
+    // the past -- stale by the ~60s pending bound, but nowhere near the
+    // 24h key-expiry bound (LDB-K4), so this exercises the pending-
+    // takeover branch specifically, not the "key expired" one.
+    const t0 = "2026-09-10T00:00:00.000Z";
+    pinTestClock(bindings as unknown as { TEST_CLOCK?: Clock }, fixedClock(t0));
+    const staleAt = new Date(new Date(t0).getTime() - 90_000).toISOString();
+
+    // Simulate a crashed reserver: a pending row (status 0) with that
+    // stale `at`, inserted directly (bypassing HTTP) the same way
+    // `acquireIdempotencySlot`'s own reservation would.
+    const claimed = await reserveIdempotency(db, { scope, key, method: "PATCH", path, request_hash: "stale-hash-does-not-matter", at: staleAt });
+    expect(claimed).toBe(true);
+
+    // A real request now is NOT blocked by the abandoned reservation -- it
+    // takes it over and proceeds like a fresh acquire.
+    const res = await writeFetch(path, "PATCH", { ...headers, "If-Match": '"layout:1"', "Idempotency-Key": key }, { name: uniqueName("idem-stale-renamed") });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Idempotency-Replayed")).toBeNull();
+    expect(await eventsOf(seeded.id, "renamed")).toHaveLength(1);
+
+    const row = await db.prepare("SELECT status FROM idempotency WHERE scope = ? AND key = ?").bind(scope, key).first<{ status: number }>();
+    expect(row?.status).toBe(200); // completed for real, no longer pending
+  });
+
+  it("[LDB-K7] a 429/5xx response drops the reservation so a retry with the same key runs completely fresh", async () => {
+    (bindings as unknown as { TEST_RATE_LIMITS?: { write: number; client: number } }).TEST_RATE_LIMITS = { write: 1, client: 10 };
+    const owner = uniqueName("idem-drop-owner");
+    const fake = actorFixture();
+    const headers = register(fake, `tok-${uniqueName("idem-drop")}`, owner);
+    const seeded = await seed(owner);
+    // Exhaust the (very low) per-actor limit with an unrelated write first.
+    await writeFetch(`/v1/layouts/${seeded.id}`, "PATCH", { ...headers, "If-Match": '"layout:1"' }, { name: uniqueName("idem-drop-burn") });
+
+    const key = uniqueName("idem-drop-key");
+    const reqHeaders = { ...headers, "If-Match": '"layout:2"', "Idempotency-Key": key };
+    const name = uniqueName("idem-drop-renamed");
+
+    const limited = await writeFetch(`/v1/layouts/${seeded.id}`, "PATCH", reqHeaders, { name });
+    expect(limited.status).toBe(429);
+
+    // The reservation was dropped, not left pending -- nothing in the
+    // table for this (scope, key) at all.
+    const scope = `user:${owner}`;
+    const gone = await db.prepare("SELECT 1 FROM idempotency WHERE scope = ? AND key = ?").bind(scope, key).first();
+    expect(gone).toBeNull();
   });
 });

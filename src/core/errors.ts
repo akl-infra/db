@@ -332,6 +332,20 @@ export function idempotencyMismatch(): ApiError {
   });
 }
 
+// L3 (LDB-K7): the same `Idempotency-Key` is currently being processed by
+// another in-flight request (the reservation row is `PENDING_STATUS` and
+// younger than `PENDING_STALE_MS`, `core/idempotency.ts`'s
+// `acquireIdempotencySlot`) -- distinct from `idempotency_mismatch` (a
+// completed, differing request) and from a genuine replay (never an error
+// at all). A caller that hits this should back off and retry shortly, or
+// simply wait for its own original request to answer.
+export function idempotencyInProgress(): ApiError {
+  return new ApiError(409, {
+    error: "idempotency_in_progress",
+    message: "a request with this 'Idempotency-Key' is already being processed",
+  });
+}
+
 // The write rate limit (09 §2.5; 10 C1 D8 adds `scope` for the second,
 // per-client counter). `core/ratelimit.ts`'s `take()` is the one place that
 // counts; this is only the body/headers shape.

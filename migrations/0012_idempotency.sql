@@ -11,6 +11,14 @@
 -- idempotency_mismatch`, also writing nothing; a row 24h or older is
 -- ignored (and eligible for `pruneIdempotency`, called nightly and
 -- opportunistically overwritten on next use of that same key).
+--
+-- LDB-K7: `status = 0` (never a real HTTP status) with `response_body =
+-- ''` is a RESERVATION, inserted before the handler runs at all (closes
+-- the race where two concurrent identical requests could both see nothing
+-- stored yet and both proceed) -- a fresh one refuses a same-key request
+-- with `409 idempotency_in_progress`; one older than ~60s is presumed
+-- abandoned and is taken over (`takeOverIdempotency`'s compare-and-swap on
+-- its own `at`) rather than left to jam the key forever.
 CREATE TABLE idempotency (
   scope         TEXT NOT NULL,
   key           TEXT NOT NULL,
