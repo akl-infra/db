@@ -1,0 +1,19 @@
+-- B2 sticky shadow (design/layout-db/review/audit-db.md B2; coordinator
+-- follow-up 2026-09-12: "the B2 rough edge is a real problem -- an
+-- import_conflict event plus a rename every 5 minutes forever, escalating
+-- ~cmini2, ~cmini3..."). A shadow rename must be assigned ONCE, not
+-- re-attempted (and re-collided) on every tick a standing conflict
+-- persists. This column records the LAST name UPSTREAM itself reported
+-- for this id -- never the layout's own (possibly shadowed) `name` --
+-- so `import/apply.ts`'s following-path collision check can tell "upstream
+-- actually renamed this again" from "upstream still wants the same name it
+-- already lost the race for". `import/plan.ts`'s own "name changed" fetch
+-- trigger reads it the same way, so a standing collision stops being
+-- re-fetched forever too.
+--
+-- `layoutdb is disposable` (CLAUDE.md, design/layout-db/review/LEDGER.md):
+-- a plain `ADD COLUMN` needs no backfill -- `apply.ts` sets it on every
+-- `insertImportMap` call from here on, and a NULL (a pre-migration row)
+-- falls back to the layout's own current `name` (correct as long as
+-- nothing shadowed it before this migration existed, which nothing did).
+ALTER TABLE import_map ADD COLUMN upstream_name TEXT NULL;

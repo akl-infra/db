@@ -88,14 +88,15 @@ async function clearState(db: Bindings["DB"], key: string): Promise<void> {
 async function loadLocalMap(db: Bindings["DB"]): Promise<LocalMapRow[]> {
   const { results } = await db
     .prepare(
-      `SELECT m.upstream_id AS upstreamId, m.layout_id AS layoutId, l.name AS name,
+      `SELECT m.upstream_id AS upstreamId, m.layout_id AS layoutId, m.upstream_name AS upstreamName, l.name AS name,
               l.modified_at AS modified_at, l.like_count AS like_count, l.deleted AS deleted
        FROM import_map m JOIN layouts l ON l.id = m.layout_id`,
     )
-    .all<{ upstreamId: string; layoutId: string; name: string; modified_at: string; like_count: number; deleted: number }>();
+    .all<{ upstreamId: string; layoutId: string; upstreamName: string | null; name: string; modified_at: string; like_count: number; deleted: number }>();
   return results.map((r) => ({
     upstreamId: r.upstreamId,
     layoutId: r.layoutId,
+    upstreamName: r.upstreamName,
     name: r.name,
     modified_at: r.modified_at,
     like_count: r.like_count,

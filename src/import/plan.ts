@@ -7,6 +7,12 @@ export interface LocalMapRow {
   upstreamId: string;
   layoutId: string;
   name: string;
+  // B2 sticky shadow (design/layout-db/review/audit-db.md B2, migrations/
+  // 0012): the last name UPSTREAM itself reported for this id, distinct
+  // from `name` (the layout's own current name, which may be a stable
+  // shadow permanently different from what upstream calls it). Null for a
+  // pre-migration row -- falls back to `name`.
+  upstreamName: string | null;
   modified_at: string;
   like_count: number;
   deleted: boolean;
@@ -105,7 +111,12 @@ export function planTick(input: PlanInput): PlanResult {
       fetchSet.add(entry.id);
       continue;
     }
-    if (row.name !== entry.name) {
+    // B2 sticky shadow: compare against the last name UPSTREAM reported
+    // (`upstreamName`), never our own possibly-shadowed `name` -- a
+    // following layout's stable shadow otherwise looks "changed" forever
+    // and gets re-fetched (and, absent apply.ts's own sticky fix, re-
+    // collided) every tick.
+    if ((row.upstreamName ?? row.name) !== entry.name) {
       fetchSet.add(entry.id);
       continue;
     }

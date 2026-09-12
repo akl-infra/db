@@ -161,13 +161,37 @@ async function currentLikeIds(db: Bindings["DB"], layoutId: string): Promise<Set
   return new Set(results.map((r) => r.user_id));
 }
 
-async function importMapByUpstreamId(db: Bindings["DB"], upstreamId: string): Promise<string | null> {
-  const row = await db.prepare("SELECT layout_id FROM import_map WHERE upstream_id = ?").bind(upstreamId).first<{ layout_id: string }>();
-  return row?.layout_id ?? null;
+interface ImportMapRow {
+  layoutId: string;
+  // B2 sticky shadow (migrations/0012): the last name UPSTREAM itself
+  // reported for this id -- null only for a row written before the
+  // migration existed (falls back to the layout's own current `name`,
+  // its only possible value at the time).
+  upstreamName: string | null;
 }
 
-async function insertImportMap(db: Bindings["DB"], upstreamId: string, layoutId: string): Promise<void> {
-  await db.prepare("INSERT INTO import_map (upstream_id, layout_id) VALUES (?, ?)").bind(upstreamId, layoutId).run();
+async function importMapRow(db: Bindings["DB"], upstreamId: string): Promise<ImportMapRow | null> {
+  const row = await db.prepare("SELECT layout_id, upstream_name FROM import_map WHERE upstream_id = ?").bind(upstreamId).first<{ layout_id: string; upstream_name: string | null }>();
+  if (row === null) return null;
+  return { layoutId: row.layout_id, upstreamName: row.upstream_name };
+}
+
+async function importMapByUpstreamId(db: Bindings["DB"], upstreamId: string): Promise<string | null> {
+  const row = await importMapRow(db, upstreamId);
+  return row?.layoutId ?? null;
+}
+
+// `upstreamName` is upstream's OWN reported name at creation time -- for a
+// shadowed create (`applyNew`'s case 3) this is the CONTESTED name, never
+// the shadow name the layout is actually stored under, so the following
+// path's sticky-collision check (`applyMapped`) has the right baseline
+// from the very first tick.
+async function insertImportMap(db: Bindings["DB"], upstreamId: string, layoutId: string, upstreamName: string): Promise<void> {
+  await db.prepare("INSERT INTO import_map (upstream_id, layout_id, upstream_name) VALUES (?, ?, ?)").bind(upstreamId, layoutId, upstreamName).run();
+}
+
+async function updateImportMapUpstreamName(db: Bindings["DB"], upstreamId: string, upstreamName: string): Promise<void> {
+  await db.prepare("UPDATE import_map SET upstream_name = ? WHERE upstream_id = ?").bind(upstreamName, upstreamId).run();
 }
 
 async function freeShadowName(db: Bindings["DB"], name: string): Promise<string> {
@@ -239,7 +263,7 @@ async function applyNew(db: Bindings["DB"], now: Clock, upstreamId: string, deta
 
   if (existing === null) {
     const layout = await importCreate(db, now, upstreamId, detail.name, detail);
-    await insertImportMap(db, upstreamId, layout.id);
+    await insertImportMap(db, upstreamId, layout.id, detail.name);
     await importLikes(db, now, layout.id, detail.likes);
     return;
   }
@@ -247,7 +271,7 @@ async function applyNew(db: Bindings["DB"], now: Clock, upstreamId: string, deta
   if (existing.owner === detail.owner) {
     // Case 2: name held by a live local record, same owner -- map it,
     // treat as not-following, tell the owner what upstream has.
-    await insertImportMap(db, upstreamId, existing.id);
+    await insertImportMap(db, upstreamId, existing.id, detail.name);
     await appendInfo(db, now, {
       kind: "upstream_changed",
       layoutId: existing.id,
@@ -270,7 +294,11 @@ async function applyNew(db: Bindings["DB"], now: Clock, upstreamId: string, deta
   });
   const shadowName = await freeShadowName(db, detail.name);
   const layout = await importCreate(db, now, upstreamId, shadowName, detail, { shadowed: { upstream_name: detail.name } });
-  await insertImportMap(db, upstreamId, layout.id);
+  // B2 sticky shadow: `upstream_name` is the CONTESTED name ("detail.name"),
+  // never the shadow name the layout actually lives under -- so a
+  // following tick where upstream keeps reporting this SAME name doesn't
+  // look like a fresh rename and re-collide (`applyMapped`'s own check).
+  await insertImportMap(db, upstreamId, layout.id, detail.name);
   await importLikes(db, now, layout.id, detail.likes);
 }
 
@@ -285,7 +313,7 @@ async function latestUpstreamChangedNoLikes(db: Bindings["DB"], layoutId: string
 }
 
 // Case 4/5/6/7: the upstream id is mapped to an existing layout.
-async function applyMapped(db: Bindings["DB"], now: Clock, upstreamId: string, detail: ParsedUpstreamDetail, record: LayoutRow): Promise<void> {
+async function applyMapped(db: Bindings["DB"], now: Clock, upstreamId: string, detail: ParsedUpstreamDetail, record: LayoutRow, recordedUpstreamName: string | null): Promise<void> {
   const prior = await upstreamOf(db, record);
   const following = prior?.state === "following";
   const localLikeIds = await currentLikeIds(db, record.id);
@@ -294,16 +322,24 @@ async function applyMapped(db: Bindings["DB"], now: Clock, upstreamId: string, d
   if (following) {
     const sparkRow = await db.prepare("SELECT * FROM layout_formats WHERE layout_id = ? AND lineage = ?").bind(record.id, SPARK_LINEAGE).first<{ payload_json: string }>();
     const currentSparkPayload: unknown = sparkRow === null ? {} : JSON.parse(sparkRow.payload_json);
+    // B2 sticky shadow (coordinator follow-up, migrations/0012): whether
+    // upstream has renamed this id is decided against the LAST name
+    // upstream itself reported (`import_map.upstream_name`), never against
+    // our own `record.name` -- once a rename has been shadowed away
+    // (`record.name` permanently different from what upstream calls it),
+    // comparing against `record.name` would treat every following tick as
+    // "another rename to attempt", re-colliding and escalating
+    // `~cmini2`, `~cmini3`, ... forever. A pre-migration row (null) falls
+    // back to the layout's own name (its only possible value at the time).
+    const upstreamNameKnown = recordedUpstreamName ?? record.name;
+    const nameChangedUpstream = upstreamNameKnown !== detail.name;
     // B3 (audit-db.md): a following tombstone that upstream lists again is
-    // revived even when every field `layoutFieldsDiffer` itself compares
-    // (name/owner/created_at) is unchanged -- `deleted` is the one thing
-    // that differs, and `layoutFieldsDiffer` never looks at it (by design:
-    // it's also the layout-scope half of case 6's "is this new news"
-    // check, which must NOT fire on `deleted` alone for a non-following
-    // record). Folding `record.deleted` in here, only for the following
-    // path, is what makes an identical re-add still trigger the
-    // LAYOUT-scope write case 4 already knows how to make.
-    const layoutDiffers = layoutFieldsDiffer(record, detail) || record.deleted;
+    // revived even when every field this compares (name/owner/created_at)
+    // is otherwise unchanged -- `deleted` is the one thing that differs.
+    // Folding `record.deleted` in here, only for the following path, is
+    // what makes an identical re-add still trigger the LAYOUT-scope write
+    // case 4 already knows how to make.
+    const layoutDiffers = nameChangedUpstream || record.owner !== detail.owner || record.created_at !== detail.created_at || record.deleted;
     const payloadDiffers = sparkPayloadDiffers(currentSparkPayload, detail);
 
     if (layoutDiffers || payloadDiffers) {
@@ -326,12 +362,11 @@ async function applyMapped(db: Bindings["DB"], now: Clock, upstreamId: string, d
           })()
         : {};
 
-      // B2 (audit-db.md): an upstream rename -- or B3's revival, which
-      // writes the layout scope even when the name itself is unchanged --
-      // landing on a name a LIVE local layout already holds must never
-      // wedge the import. Built as a function of `name` so a `name_taken`
-      // catch below can retry under a shadow name exactly like
-      // `applyNew`'s case 3, instead of rethrowing and aborting the tick.
+      // B2 (audit-db.md): an upstream rename landing on a name a LIVE
+      // local layout already holds must never wedge the import. Built as
+      // a function of `name` so a `name_taken` catch below can retry
+      // under a shadow name exactly like `applyNew`'s case 3, instead of
+      // rethrowing and aborting the tick.
       const buildInput = (name: string, extraDetail?: object): CommitInput => ({
         layoutId: record.id,
         creating: false,
@@ -349,15 +384,23 @@ async function applyMapped(db: Bindings["DB"], now: Clock, upstreamId: string, d
         ...formatPart,
       });
 
+      // B2 sticky shadow: the name THIS write attempts is upstream's own
+      // (new) name only when upstream actually renamed since last time --
+      // that's the one case worth a fresh collision check. Otherwise
+      // (owner/created_at/deleted changed, or a revival, with upstream's
+      // name unchanged) keep OUR OWN current name -- already reconciled,
+      // possibly a standing shadow -- so an unrelated field change can
+      // never re-attempt (and re-lose) the same rename.
+      const targetName = nameChangedUpstream ? detail.name : record.name;
+
       try {
-        await commitWrite(db, now, buildInput(detail.name));
+        await commitWrite(db, now, buildInput(targetName));
       } catch (e) {
         if (!(e instanceof ApiError && e.body.error === "name_taken")) throw e;
-        // Never possible unless `layoutDiffers` (a pure format-scope write
-        // carries no `layout`, so `commitWrite`'s name-clash pre-check
-        // never runs) -- nothing was written yet (the check throws before
-        // the batch), so `record`/`currentFormats` are still good for the
-        // retry below.
+        // Only reachable when `targetName === detail.name` (our own
+        // current name can never collide with itself) -- nothing was
+        // written yet (the clash check throws before the batch), so
+        // `record`/`currentFormats` are still good for the retry below.
         const holder = await readByName(db, detail.name);
         await appendInfo(db, now, {
           kind: "import_conflict",
@@ -370,6 +413,15 @@ async function applyMapped(db: Bindings["DB"], now: Clock, upstreamId: string, d
         const shadowName = await freeShadowName(db, detail.name);
         await commitWrite(db, now, buildInput(shadowName, { shadowed: { upstream_name: detail.name } }));
       }
+
+      // B2 sticky shadow: record upstream's name as of THIS tick so the
+      // next one compares against it, not our own name -- once recorded,
+      // a standing collision (upstream still wants the SAME name) is
+      // never treated as a fresh rename again, shadowed or not, and never
+      // auto-reclaims the name later even if it frees up (a shadow is
+      // stable once assigned; only upstream reporting a DIFFERENT name
+      // reopens the question).
+      if (nameChangedUpstream) await updateImportMapUpstreamName(db, upstreamId, detail.name);
     }
 
     // Case 5 (and the like half of case 4/B3): UNION only -- add every
@@ -459,13 +511,13 @@ export async function applyFetchedId(db: Bindings["DB"], now: Clock, upstreamId:
     return { errors: [{ id: upstreamId, path: parsed.error.path, message: parsed.error.message }] };
   }
 
-  const layoutId = await importMapByUpstreamId(db, upstreamId);
-  if (layoutId === null) {
+  const mapRow = await importMapRow(db, upstreamId);
+  if (mapRow === null) {
     await applyNew(db, now, upstreamId, parsed.detail);
   } else {
-    const record = await readById(db, layoutId);
-    if (record === null) throw new Error(`applyFetchedId: import_map points to missing layout '${layoutId}'`);
-    await applyMapped(db, now, upstreamId, parsed.detail, record);
+    const record = await readById(db, mapRow.layoutId);
+    if (record === null) throw new Error(`applyFetchedId: import_map points to missing layout '${mapRow.layoutId}'`);
+    await applyMapped(db, now, upstreamId, parsed.detail, record, mapRow.upstreamName);
   }
   return { errors: [] };
 }

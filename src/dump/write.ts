@@ -33,7 +33,7 @@ export interface LikeDbRow {
   layout_id: string;
   user_id: string;
   at: string;
-  // LDB-B1 (migrations/0010): who/what this like came from. Absent from a
+  // LDB-B1 (migrations/0011): who/what this like came from. Absent from a
   // dump written before 0010 -- restore.ts reads it as 'import:cmini'
   // (0010's own column default), same pattern as `authors.name_source`.
   via?: string;
@@ -60,6 +60,10 @@ export interface ImportStateDbRow {
 export interface ImportMapDbRow {
   upstream_id: string;
   layout_id: string;
+  // B2 sticky shadow (migrations/0012): the last name UPSTREAM itself
+  // reported for this id. Absent from a dump written before 0012 --
+  // restore.ts reads it as null (the column's own default).
+  upstream_name?: string | null;
 }
 
 // LDB-D9: registered client pubkeys/caps -- public data (10 C1 §4: no

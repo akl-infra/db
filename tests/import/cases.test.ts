@@ -307,6 +307,75 @@ describe("import case table (07 §6 S5, restated by 21-formats.md §2.2)", () =>
     expect(await readByName(db, "Unrelated-After-Rename")).not.toBeNull();
   });
 
+  // B2 sticky shadow (coordinator follow-up, 2026-09-12, migrations/0012):
+  // a standing rename collision must be shadowed ONCE, not every tick --
+  // the old version of this fix compared upstream's name against the
+  // layout's own (now permanently shadowed) `name`, which looked like "yet
+  // another rename to attempt" forever, minting `~cmini2`, `~cmini3`, ...
+  // on every tick upstream kept reporting the SAME contested name.
+  it("[LDB-I19] a standing rename collision writes the shadow ONCE -- repeated ticks with the same colliding upstream name make no further writes", async () => {
+    const followingOwner = "8400000000000000001";
+    const holderOwner = "8400000000000000002";
+    const d1 = detail({ name: "StickySrc", user: followingOwner, board: "ortho", keys: {} });
+    await applyFetchedId(db, clock, "sticky", d1);
+    const rec = await readByName(db, "StickySrc");
+
+    await createUser("StickyDst", holderOwner);
+    const d2 = detail({ name: "StickyDst", user: followingOwner, board: "ortho", keys: {} });
+
+    // Tick 1 of the "same colliding name" sequence: the first collision --
+    // exactly one shadow write, one `import_conflict` event.
+    const r1 = await applyFetchedId(db, clock, "sticky", d2);
+    expect(r1.errors).toEqual([]);
+    const afterFirst = await readById(db, rec!.id);
+    expect(afterFirst!.name).toBe("StickyDst~cmini");
+    expect(afterFirst!.layout_rev).toBe(2);
+    const eventsAfterFirst = await eventsFor(rec!.id);
+    expect(eventsAfterFirst.filter((e) => e.kind === "import_conflict")).toHaveLength(1);
+    expect(eventsAfterFirst.filter((e) => e.kind === "imported" && e.format === null)).toHaveLength(2); // create + the one shadow rename
+
+    // Tick 2: upstream reports the SAME "StickyDst" again -- no new write,
+    // no new event, no `~cmini2`.
+    const r2 = await applyFetchedId(db, clock, "sticky", d2);
+    expect(r2.errors).toEqual([]);
+    expect(await eventsFor(rec!.id)).toHaveLength(eventsAfterFirst.length);
+    expect((await readById(db, rec!.id))!.name).toBe("StickyDst~cmini");
+    expect((await readById(db, rec!.id))!.layout_rev).toBe(2);
+
+    // Tick 3: same again -- still nothing.
+    const r3 = await applyFetchedId(db, clock, "sticky", d2);
+    expect(r3.errors).toEqual([]);
+    const eventsAfterThird = await eventsFor(rec!.id);
+    expect(eventsAfterThird).toHaveLength(eventsAfterFirst.length);
+    expect(eventsAfterThird.filter((e) => e.kind === "import_conflict")).toHaveLength(1); // still exactly one, ever
+    expect((await readById(db, rec!.id))!.name).toBe("StickyDst~cmini"); // never ~cmini2, ~cmini3, ...
+  });
+
+  it("[LDB-I19] once shadowed, the record does NOT auto-rename back even after the taken name frees up", async () => {
+    const followingOwner = "8500000000000000001";
+    const holderOwner = "8500000000000000002";
+    const d1 = detail({ name: "StableSrc", user: followingOwner, board: "ortho", keys: {} });
+    await applyFetchedId(db, clock, "stable", d1);
+    const rec = await readByName(db, "StableSrc");
+
+    const holder = await createUser("StableDst", holderOwner);
+    const d2 = detail({ name: "StableDst", user: followingOwner, board: "ortho", keys: {} });
+    await applyFetchedId(db, clock, "stable", d2);
+    expect((await readById(db, rec!.id))!.name).toBe("StableDst~cmini");
+
+    // the taken name frees up (the holder is gone) -- a shadow name is
+    // stable once assigned; the owner can rename it, the importer never
+    // does. (Bypassing the event log here is a test-setup shortcut, not
+    // something under test -- any real free of the name works the same.)
+    await db.prepare("UPDATE layouts SET deleted = 1 WHERE id = ?").bind(holder.id).run();
+
+    // upstream still reports the SAME "StableDst" it always has -- this is
+    // NOT a fresh rename, so the shadow must not be touched.
+    const result = await applyFetchedId(db, clock, "stable", d2);
+    expect(result.errors).toEqual([]);
+    expect((await readById(db, rec!.id))!.name).toBe("StableDst~cmini");
+  });
+
   // B3 (design/layout-db/review/audit-db.md B3): `layoutFieldsDiffer` never
   // looked at `deleted`, so a following tombstone re-listed upstream with
   // otherwise-identical fields was never revived -- it stayed deleted and

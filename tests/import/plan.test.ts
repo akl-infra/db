@@ -14,13 +14,20 @@ function entry(patch: Partial<UpstreamListEntry> & { id: string }): UpstreamList
 }
 
 function row(patch: Partial<LocalMapRow> & { upstreamId: string; layoutId: string }): LocalMapRow {
-  return {
+  const merged = {
     name: patch.upstreamId,
     modified_at: "2026-01-01T00:00:00Z",
     like_count: 0,
     deleted: false,
     ...patch,
   };
+  // Default `upstreamName` to whatever `name` ended up being, so every
+  // existing case (unconcerned with B2's sticky shadow) keeps comparing
+  // as if the two were the same value, same as before this field existed.
+  // A test that wants the two to diverge (the sticky-shadow cases) passes
+  // `upstreamName` explicitly in `patch` -- `merged` already carries it
+  // then (the spread below only overrides a key that's actually present).
+  return { upstreamName: merged.name, ...merged };
 }
 
 describe("planTick", () => {

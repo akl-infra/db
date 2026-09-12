@@ -74,7 +74,7 @@ describe("[LDB-L1] PUT/DELETE /v1/layouts/{ref}/like", () => {
     expect(events.results).toHaveLength(1);
     expect(events.results[0]).toMatchObject({ kind: "liked", rev: null, actor: OWNER, via: "discord" });
 
-    // LDB-B1 (migrations/0010): the `likes` row itself carries `via`, the
+    // LDB-B1 (migrations/0011): the `likes` row itself carries `via`, the
     // same value the event does -- so a later reconciliation can tell a
     // real user's like from an imported one without guessing.
     const likeRow = await db.prepare("SELECT via FROM likes WHERE layout_id = ? AND user_id = ?").bind(record.id, OWNER).first<{ via: string }>();
