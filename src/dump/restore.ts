@@ -33,8 +33,10 @@ const TABLE_ORDER_DELETE = [
   "authors",
   "admins",
   "import_state",
+  "clients", // LDB-D9: dumped and restored below -- pubkeys/caps are public, no reason to drop them
   "auth_cache",
   "ratelimit",
+  "nonces", // never dumped (replay guard, <=300s lifetime by construction -- 09 §2.5); deleted here too so a restore starts with no history of recent requests
 ] as const;
 
 // A conservative multi-row-INSERT chunk size: mirrors `core/events.ts`'s own
@@ -214,9 +216,35 @@ export function restoreSql(dump: Dump): string[] {
     ...chunkedInserts("INSERT INTO import_map", ["upstream_id", "layout_id"], dump.import_map.map((r) => ({ ...r }))),
   );
 
-  // `auth_cache`/`ratelimit`: deleted above, nothing re-inserted -- a
-  // rehost starts with a cold auth cache and no rate-limit windows (never
-  // part of the dump, 07 §6 S7).
+  // LDB-D9: `clients` round-trips (pubkeys, caps, status) -- unlike the
+  // now-deleted `webhooks` table (LEDGER.md L4), nothing here is a secret
+  // (10 C1 §4), so there is no reason for a rehost to lose every
+  // registered bot key and need the admin bootstrap redone.
+  statements.push(
+    ...chunkedInserts(
+      "INSERT INTO clients",
+      ["id", "name", "pubkey", "owner_user_id", "caps", "discord_app_id", "status", "created_at", "revoked_at"],
+      dump.clients.map((r) => ({
+        id: r.id,
+        name: r.name,
+        pubkey: r.pubkey,
+        owner_user_id: r.owner_user_id,
+        caps: r.caps,
+        discord_app_id: r.discord_app_id ?? null,
+        status: r.status,
+        created_at: r.created_at,
+        revoked_at: r.revoked_at ?? null,
+      })),
+    ),
+  );
+
+  // `auth_cache`/`ratelimit`/`nonces`: deleted above, nothing re-inserted --
+  // a rehost starts with a cold auth cache, no rate-limit windows and no
+  // replay-guard rows (none of the three is ever part of the dump, 07 §6
+  // S7); `dump.last_at` (LDB-D8) is excluded from `dump.import_state`
+  // itself (`dump/write.ts`'s own comment), so it needs no special-casing
+  // here either -- a restored database simply starts eligible for an
+  // immediate catch-up dump, which is correct.
 
   // `authors_head` (migrations/0007, LDB-R9, LDB-D1 amended): never
   // deleted above (its triggers need the row), and the `authors` deletes

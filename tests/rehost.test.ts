@@ -101,9 +101,21 @@ describe("rehost drill", () => {
   // the event log to a tail) would desync one of those, not just look wrong
   // in isolation. `tests/api/dump.test.ts` covers the OTHER two clauses
   // (the `latest.json` sha256, the monthly-key timing) directly.
-  it("[LDB-G1] [LDB-P6] [LDB-D1] [MF-3] [LDB-P18] [LDB-P11] restoreSql reproduces the exact dumped state", async () => {
+  it("[LDB-G1] [LDB-P6] [LDB-D1] [MF-3] [LDB-P18] [LDB-P11] [LDB-D9] restoreSql reproduces the exact dumped state", async () => {
     const remoteUrl = bindings.TEST_REHOST_DUMP_URL;
     const usingRemote = remoteUrl !== "";
+
+    // LDB-D9: a registered client, planted BEFORE the dump is taken (local
+    // mode only -- remote mode dumps whatever's really registered on the
+    // deployed service, which this test doesn't control either way).
+    if (!usingRemote) {
+      await db
+        .prepare(
+          `INSERT INTO clients (id, name, pubkey, owner_user_id, caps, discord_app_id, status, created_at, revoked_at)
+           VALUES ('cl-rehost-test', 'rehost-test-client', 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', '800000000000000001', 'act-as-user', 'discord-app-1', 'active', '2026-07-01T00:00:00.000Z', NULL)`,
+        )
+        .run();
+    }
 
     // Local mode only: capture the live state BEFORE touching anything, so
     // restoring the dump taken from it can be checked for exact agreement.
@@ -115,7 +127,25 @@ describe("rehost drill", () => {
       changesBefore = await (await SELF.fetch("https://example.com/v1/changes?since=0&limit=1000")).text();
     }
 
+    // LDB-D9: `clients` is dumped -- unlike `auth_cache`/`nonces`/
+    // `ratelimit`/`webhooks`, none of which ever appear here (LDB-H4 covers
+    // `webhooks` specifically; the other three are simply never fields on
+    // `Dump` at all).
+    if (!usingRemote) {
+      expect(dump.clients.some((c) => c.id === "cl-rehost-test" && c.status === "active" && c.caps === "act-as-user")).toBe(true);
+    }
+
     await restoreInto(db, dump);
+
+    // LDB-D9: the restored `clients` table equals exactly what the dump
+    // carried -- a rehost keeps every registered bot key.
+    const restoredClients = await db
+      .prepare("SELECT id, name, pubkey, owner_user_id, caps, discord_app_id, status, created_at, revoked_at FROM clients ORDER BY id ASC")
+      .all();
+    expect(canonical(restoredClients.results)).toBe(canonical(dump.clients));
+    if (!usingRemote) {
+      expect(restoredClients.results.some((r) => (r as { id: string }).id === "cl-rehost-test")).toBe(true);
+    }
 
     // MF-3 replay: every dumped layout equals the fold of its own events
     // against the payloads `layout_revs` stored for each scope -- the same
@@ -168,21 +198,26 @@ describe("rehost drill", () => {
 
     // Every conformance case, replayed against the RESTORED database --
     // proves a rehosted service actually serves the real API, not just that
-    // its rows look right in isolation.
-    //
-    // NOTE (F2 follow-up owed, same as tests/api/conformance.test.ts's own
-    // note): every case's fixture still encodes the PRE-F2 wire shape, so
-    // this loop is expected to fail at runtime until that dedicated
-    // regeneration pass lands -- kept running (not skipped) so it starts
-    // passing the moment the fixtures are fixed, per this repo's "a skip
-    // nobody reads is a pass" rule.
+    // its rows look right in isolation. (This loop used to carry a stale
+    // "expected to fail until F2's fixture regen lands" note; that
+    // regeneration landed and every non-excluded case here passes.)
     for (const kase of CASES) {
       // X1: `changes-stream/503-stream_unavailable` needs `STREAM_MAX_MS`
       // toggled to `"0"` for its one request only -- conformance.test.ts's
       // own `it()` loop does that around this specific id; this replay has
       // no equivalent hook, so it's excluded the same deliberate way the
       // dump/needsSeed cases are.
-      if (kase.id.startsWith("dump") || kase.needsSeed || kase.id === "changes-stream/503-stream_unavailable") {
+      //
+      // LDB-D8: `runCronAndReadDump()` above drives the REAL `scheduled()`
+      // at hour=3 -- the dump's own preferred slot, but NOT the diff's
+      // (hour=4) -- so the diff only runs here because it was due (fresh
+      // D1, `cmini.last_diff` absent) and caught up on this same tick. That
+      // makes this restored database's `/v1/meta.last_diff`/`.health`
+      // genuinely non-null, unlike `meta/200`'s static fixture (recorded
+      // for a database that has never run either job) -- excluded for the
+      // same reason `dump`/`needsSeed` cases are: it is a real, deliberate
+      // difference this replay creates, not a shape regression.
+      if (kase.id.startsWith("dump") || kase.needsSeed || kase.id === "changes-stream/503-stream_unavailable" || kase.id === "meta/200") {
         continue;
       }
       await assertConformanceCase(kase);
