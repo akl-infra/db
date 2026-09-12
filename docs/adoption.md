@@ -124,10 +124,13 @@ one (a build id, a semver tag, anything that changes when you ship).
 
 **Registration is admin-only** — there is no self-service sign-up. Reach an
 admin with your Ed25519 public key (raw 32 bytes, base64url), the
-`owner_user_id` you'll act for by default, and the `caps` you need
-(`act-as-user` to assert any Discord user id — a real multi-user bot; or
-`act-as-owner-only` to assert only your own `owner_user_id` — a personal
-script). The admin runs:
+`owner_user_id` you'll act for by default, and the `caps` you need. `caps`
+is a comma-separated set (LEDGER.md L4): exactly one SCOPE cap —
+`act-as-user` to assert any Discord user id (a real multi-user bot), or
+`act-as-owner-only` to assert only your own `owner_user_id` (a personal
+script) — plus, optionally, `feed:wait` if you want `GET /v1/changes` to
+honor `wait=` for you (§4) — e.g. `"act-as-owner-only,feed:wait"`. The
+admin runs:
 
 ```bash
 POST /v1/admin/clients
@@ -399,8 +402,8 @@ id for a format-scope event (`rev` is then that format's own rev):
 
 ## 4. Stay current
 
-**The change feed is ground truth** — a poll, a dump, a webhook are all
-shortcuts around it, never a second source of truth.
+**The change feed is ground truth** — a poll or a dump are shortcuts around
+it, never a second source of truth.
 
 ```
 GET /v1/changes?since=<seq>&limit=<≤1000>&kinds=created,updated,…&layout=&actor=
@@ -453,37 +456,18 @@ same way `foldLayout` does server-side); everything else
 (`upstream_changed`, `import_conflict`, `admin.*`) is informational and
 changes nothing in your local copy.
 
-**SSE**: `GET /v1/changes/stream?since=&kinds=` is the same feed pushed
-instead of polled (needs the Workers Paid plan; `503 stream_unavailable`
-otherwise). Reconnect with `Last-Event-ID: <cursor>` (what `EventSource`
-sends automatically); a `: ping` comment arrives every 25s idle; the stream
-closes with `event: close` / `data: {"next":<cursor>}` after `STREAM_MAX_MS`
-(default 5 min) — reconnect with that cursor for no gap or duplicate.
-
-**Webhooks** — `POST /v1/webhooks { url, secret, kinds?, owner_filter? }`,
-up to 5 per user. Real response
-(`db/tests/conformance/webhooks/post-201.json`, trimmed):
-
-```json
-{ "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "owner_user_id": "830000000000000001",
-  "url": "https://receiver.example/hook", "kinds": null, "status": "active",
-  "cursor": 483, "failures": 0, "failing_since": null, "created_at": "…" }
-```
-
-Each POST carries the event JSON, `X-Akl-Webhook-Id`, `X-Akl-Seq`,
-`X-Akl-Timestamp`, `X-Akl-Signature: v1=<hex hmac-sha256(secret,
-`${timestamp}.${body}`)>`. Verify the HMAC, reject anything over 300s old.
-Delivery is at-least-once, in order, and never concurrent per hook (a lease
-keeps the after-write nudge and the cron drain — which overlap routinely —
-from ever both posting to the same hook at once, LDB-H6); it is still
-**never required for correctness**, a gap means poll `/v1/changes?since=`
-to fill it. A `seq` may arrive twice only after an outage on this end (a
-drain that dies mid-batch leaves the hook's lease held until it expires;
-the next drain re-delivers from the last committed cursor, possibly
-repeating the dead drain's own last, already-landed POST) — dedupe by
-`X-Akl-Seq`, treating any `seq` ≤ your highest applied as a no-op. Non-2xx
-(or >10s) schedules a retry at 1 min / 10 min / 1 h; 3 consecutive failures
-→ `"failing"` (still retried hourly); failing past 7 days → `"disabled"`.
+**Long-poll** (LEDGER.md L4; replaces the retired SSE stream and webhooks):
+`GET /v1/changes?since=<seq>&wait=<seconds>` — when `wait` is present, the
+Worker holds the request open, checking the event head about once a
+second, and answers with the normal `/v1/changes` page as soon as `since`
+is exceeded or `wait` elapses (whichever first; `wait` is clamped to 25s).
+`wait` is honoured only for a request signed on the client lane (§2 above)
+whose registered `caps` include `feed:wait` — ask an admin for it (§7); any
+other caller naming `wait` gets the immediate, unheld answer, plus a
+response header `X-Wait-Ignored: unauthorized` (never an error). A held
+request still counts against your client's normal rate limit (§4). Poll
+`since=` without `wait` (the default, unauthenticated behavior) for the
+same immediate, `Cache-Control`-able page every other client gets.
 
 **The nightly dump** (`GET /v1/dump/latest.json`, written 03:00 UTC) is the
 full state — every table (including `layout_formats`, one row per format a
@@ -500,14 +484,6 @@ layout stores), the **whole** event log, not a tail:
 past that `seq` but never one *behind* it — booting from the dump then
 draining `/v1/changes?since=<seq>` always reaches exactly the live state,
 with no gap.
-
-**Per-major dump files** (decision 10 of `20-spark.md`, LDB-D6) — one per
-registered *stored* major, at `GET /v1/dump/latest.<lineage>-<N>.json` (plus
-a `.sha256` sidecar) — exist for exactly the case in §8: fetching every
-record's payload as of a specific major without needing every client to
-walk the chain itself. With only `spark/1` stored today this is
-`latest.spark-1.json`; a hypothetical `spark/2` would add
-`latest.spark-2.json` alongside it, never replacing it.
 
 **`upstream` is transitional — do not build on it.** Every record carries a
 top-level `upstream: {source: "cmini", id, state: "following" | "forked"} |
@@ -748,8 +724,6 @@ it as generated, not hand-edited):
 | 401 | `stale_timestamp` | request timestamp is outside the accepted window | `staleTimestamp(skew)` |
 | 401 | `replay` | nonce already used | `replay()` |
 | 403 | `actor_not_allowed` | this client may not act as this user | `actorNotAllowed(actor, owner)` |
-| 409 | `too_many_webhooks` | at most ${limit} webhooks per user | `tooManyWebhooks(limit)` |
-| 503 | `stream_unavailable` | the change stream is not available on this deployment | `streamUnavailable()` |
 | 409 | `import_paused` | the cmini import is paused (POST /v1/admin/import/resume first) | `importPaused()` |
 | 429 | `rate_limited` | rate limit exceeded: ${limit} writes per ${windowSeconds}s | `rateLimited(limit, windowSeconds, retryAfter, scope)` |
 
@@ -998,16 +972,12 @@ silently drift from what `db/src/index.ts` actually registers.
 | GET | `/v1/authors/:user_id` | none | — | 200 | `not_found` |
 | GET | `/v1/formats` | none | — | 200 | — |
 | GET | `/v1/formats/:name/:major/schema.json` | none | — | 200 | `not_found` |
-| GET | `/v1/changes` | none | — | 200 | `bad_request`, `not_found` |
-| GET | `/v1/changes/stream` | none | — | 200 (SSE) | `stream_unavailable`, `bad_request`, `not_found` |
+| GET | `/v1/changes` | none (`wait=` needs `feed:wait`) | — | 200 | `bad_request`, `not_found` |
 | GET | `/admin/changelog` | none | — | 200 (HTML) | `bad_request`, `not_found` |
 | GET | `/v1/dump` | none | — | 302 | `not_found` |
 | GET | `/v1/dump/latest.json` | none | — | 200 | `not_found` |
 | GET | `/v1/dump/monthly/:key` | none | — | 200 | `not_found` |
 | GET | `/v1/dump/:key` | none | — | 200 | `not_found` |
-| POST | `/v1/webhooks` | user | `{url, secret, kinds?, owner_filter?}` | 201 | `bad_request`, `too_many_webhooks`, lane errors |
-| GET | `/v1/webhooks` | user (`admin` with `?all=1`) | — | 200 | `not_admin`, lane errors |
-| DELETE | `/v1/webhooks/:id` | user | — | 200 | `not_found`, lane errors |
 | GET | `/v1/admin/admins` | admin | — | 200 | `not_admin`, lane errors |
 | POST | `/v1/admin/admins` | admin | `{user_id, note?}` | 200/201 | `bad_request`, `not_admin`, lane errors |
 | DELETE | `/v1/admin/admins/:user_id` | admin | — | 200 | `not_admin`, `last_admins`, lane errors |
@@ -1019,7 +989,6 @@ silently drift from what `db/src/index.ts` actually registers.
 | POST | `/v1/admin/clients` | admin | `{name, pubkey, owner_user_id, caps, discord_app_id?}` | 201 | `bad_request`, `not_admin`, lane errors |
 | DELETE | `/v1/admin/clients/:id` | admin | — | 200 | `not_admin`, `not_found`, lane errors |
 | GET | `/v1/admin/clients` | admin | — | 200 | `not_admin`, lane errors |
-| POST | `/v1/admin/drill` | admin | `{ok, detail?}` | 200 | `bad_request`, `not_admin`, lane errors |
 | GET | `/v1/admin/health` | admin | — | 200 | `not_admin`, lane errors |
 
 "lane errors" (every `user`/`admin`/`client` row) means whichever lane you

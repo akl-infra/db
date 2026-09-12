@@ -140,9 +140,11 @@ write's event (and the record's own latest one) now carries as
   /v1/admin/clients { name, pubkey, owner_user_id, caps, discord_app_id? }`,
   `02-auth.md` §3.1, `04-governance.md` §1) — no self-service sign-up; ask an
   admin (§7) for a client with your public key, an `owner_user_id`, and the
-  `caps` you need: `act-as-user` (may assert any Discord user id — a real
-  multi-user bot) or `act-as-owner-only` (only its own `owner_user_id` — a
-  personal script). Every write is attributed to your client id on the
+  `caps` you need — a comma-separated set (LEDGER.md L4): exactly one of
+  `act-as-user` (may assert any Discord user id — a real multi-user bot) or
+  `act-as-owner-only` (only its own `owner_user_id` — a personal script),
+  plus optionally `feed:wait` (honors `GET /v1/changes?wait=`, `db/docs/
+  adoption.md` §4). Every write is attributed to your client id on the
   public feed and changelog (`GET /admin/changelog`, both via `source.client`
   and the write's own `actor`) — a compromised key is one query to find and
   one call to revoke (`DELETE /v1/admin/clients/{id}`), effective immediately
@@ -405,8 +407,6 @@ real examples in §4.
 | 401 | `stale_timestamp` | request timestamp is outside the accepted window | `staleTimestamp(skew)` |
 | 401 | `replay` | nonce already used | `replay()` |
 | 403 | `actor_not_allowed` | this client may not act as this user | `actorNotAllowed(actor, owner)` |
-| 409 | `too_many_webhooks` | at most ${limit} webhooks per user | `tooManyWebhooks(limit)` |
-| 503 | `stream_unavailable` | the change stream is not available on this deployment | `streamUnavailable()` |
 | 409 | `import_paused` | the cmini import is paused (POST /v1/admin/import/resume first) | `importPaused()` |
 | 429 | `rate_limited` | rate limit exceeded: ${limit} writes per ${windowSeconds}s | `rateLimited(limit, windowSeconds, retryAfter, scope)` |
 <!-- END GENERATED ERROR TABLE -->

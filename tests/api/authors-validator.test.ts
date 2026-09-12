@@ -379,7 +379,7 @@ async function preparesFor(path: string, headers: Record<string, string> = {}): 
 }
 
 describe("[LDB-R9] a conditional request costs one D1 query", () => {
-  it("[LDB-R9] /v1/meta: a 304 prepares exactly one statement (seq + authors_head + last_diff + last_drill in one query); a 200 at most four", async () => {
+  it("[LDB-R9] /v1/meta: a 304 prepares exactly one statement (seq + authors_head + last_diff in one query); a 200 at most four", async () => {
     const first = await preparesFor("/v1/meta");
     expect(first.status).toBe(200);
     expect(first.prepares).toBeLessThanOrEqual(4);
