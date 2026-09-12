@@ -1,15 +1,71 @@
 // tick() (07 §6 S5): meta gate -> plan -> fetch -> apply -> authors ->
 // state. A thrown error anywhere in here leaves `cmini.meta_token`
 // unchanged, so the next cron invocation reruns the whole tick.
+import { ulid } from "ulidx";
 import type { Bindings } from "../env";
 import { canonical } from "../core/canonical";
 import { RevConflictError } from "../core/events";
 import type { Clock } from "../core/time";
-import { applyAuthors, applyDeleteAction, applyFetchedId } from "./apply";
+import { applyAuthors, applyDeleteAction, applyFetchedId, recordImportError } from "./apply";
 import { planTick, type LocalMapRow } from "./plan";
 import { UpstreamClient, type FetchImpl, type RawUpstreamDetail, type SleepImpl } from "./upstream";
 
 const FULL_THRESHOLD = 50; // 07 §6 S5: ?full=1 when more than this many ids need fetching
+
+// B4 (design/layout-db/review/audit-db.md B4): overlapping ticks (the
+// `*/5` cron and a manual `POST /v1/admin/import/tick` both landing while
+// a slow tick -- up to 500 per-id GETs with 1/2/4s backoff -- is still
+// running) had no lock at all. `import_state['cmini.running']` is a plain
+// CAS: an INSERT wins outright; if the row is already there, an UPDATE
+// only wins if it still matches the exact stale value this reader just
+// saw (so a second expiry-recovery attempt racing the first can't also
+// win) AND the held lock is actually past its TTL. `release` deletes the
+// row only if it still holds OUR OWN value, so a lock this invocation lost
+// to an expiry-recovery elsewhere is never yanked out from under the
+// invocation that legitimately holds it now.
+const LOCK_KEY = "cmini.running";
+const LOCK_TTL_MS = 10 * 60 * 1000;
+
+interface RunningLock {
+  at: string;
+  id: string;
+}
+
+async function tryAcquireRunningLock(db: Bindings["DB"], nowIso: string): Promise<string | null> {
+  const value = canonical({ at: nowIso, id: ulid() } satisfies RunningLock);
+
+  const insert = await db
+    .prepare("INSERT INTO import_state (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING")
+    .bind(LOCK_KEY, value)
+    .run();
+  if ((insert.meta.changes ?? 0) > 0) return value;
+
+  const row = await db.prepare("SELECT value FROM import_state WHERE key = ?").bind(LOCK_KEY).first<{ value: string }>();
+  if (row === null) {
+    // The holder released between our failed INSERT and this read -- one
+    // more try; if that also loses, someone else got in first.
+    const retry = await db
+      .prepare("INSERT INTO import_state (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING")
+      .bind(LOCK_KEY, value)
+      .run();
+    return (retry.meta.changes ?? 0) > 0 ? value : null;
+  }
+
+  const held = JSON.parse(row.value) as RunningLock;
+  if (Date.parse(nowIso) - Date.parse(held.at) < LOCK_TTL_MS) {
+    return null; // still held, not expired
+  }
+
+  const cas = await db
+    .prepare("UPDATE import_state SET value = ? WHERE key = ? AND value = ?")
+    .bind(value, LOCK_KEY, row.value)
+    .run();
+  return (cas.meta.changes ?? 0) > 0 ? value : null;
+}
+
+async function releaseRunningLock(db: Bindings["DB"], value: string): Promise<void> {
+  await db.prepare("DELETE FROM import_state WHERE key = ? AND value = ?").bind(LOCK_KEY, value).run();
+}
 
 async function getState(db: Bindings["DB"], key: string): Promise<string | null> {
   const row = await db.prepare("SELECT value FROM import_state WHERE key = ?").bind(key).first<{ value: string }>();
@@ -67,6 +123,14 @@ export interface TickStats {
   // thrown out of `tick()`. The record itself is untouched (whatever the
   // user write left it at); the next tick re-evaluates it from scratch.
   raced?: number;
+  // B5 (design/layout-db/review/audit-db.md B5): a non-conflict error from
+  // one id's apply -- caught, recorded as an `import_error` info event
+  // (`recordImportError`), counted here, never thrown out of `tick()`.
+  errored?: number;
+  // B4: this invocation found `import_state['cmini.running']` already
+  // held (and not expired) and skipped the whole tick body rather than
+  // race the holder.
+  skipped_locked?: boolean;
 }
 
 export interface TickResult {
@@ -94,6 +158,22 @@ export async function tick(
     return { quiet: true, stats: { at: now(), quiet: true } };
   }
 
+  // B4: only the real (non-quiet) tick body needs the lock -- a quiet
+  // "the token hasn't moved" return above touches no table.
+  const lockValue = await tryAcquireRunningLock(db, now());
+  if (lockValue === null) {
+    console.log(`import tick: skipped_locked ('${LOCK_KEY}' already held)`);
+    return { quiet: true, stats: { at: now(), quiet: true, skipped_locked: true } };
+  }
+
+  try {
+    return await runTick(env, db, now, client, metaToken);
+  } finally {
+    await releaseRunningLock(db, lockValue);
+  }
+}
+
+async function runTick(env: Bindings, db: Bindings["DB"], now: Clock, client: UpstreamClient, metaToken: string): Promise<TickResult> {
   const listEntries = await client.list();
   const local = await loadLocalMap(db);
   const lastFull = await getState(db, "cmini.last_full");
@@ -148,18 +228,27 @@ export async function tick(
   const errors: { id: string; path: string; message: string }[] = [];
   let applied = 0;
   let raced = 0;
+  let errored = 0;
   for (const id of toProcess) {
     const raw = detailsById.get(id)!;
     try {
       const result = await applyFetchedId(db, now, id, raw);
       errors.push(...result.errors);
     } catch (e) {
-      // 20-spark.md S3b (LDB-P14, §8 R-H4): a user write landed between this
-      // system write's read and its own write -- caught per id, counted,
-      // never thrown out of the tick; the next tick re-evaluates this id
-      // from a fresh read.
-      if (!(e instanceof RevConflictError)) throw e;
-      raced++;
+      if (e instanceof RevConflictError) {
+        // 20-spark.md S3b (LDB-P14, §8 R-H4): a user write landed between
+        // this system write's read and its own write -- caught per id,
+        // counted, never thrown out of the tick; the next tick
+        // re-evaluates this id from a fresh read.
+        raced++;
+      } else {
+        // B5: any OTHER error from this one id (a real bug, a D1 hiccup,
+        // an unhandled `name_taken` outside apply.ts's own B2 handling)
+        // must not strand every id queued behind it -- recorded, counted,
+        // the loop continues.
+        await recordImportError(db, now, id, e instanceof Error ? e.message : String(e));
+        errored++;
+      }
     }
     applied++;
   }
@@ -171,8 +260,12 @@ export async function tick(
         await applyDeleteAction(db, now, del);
         deletesApplied++;
       } catch (e) {
-        if (!(e instanceof RevConflictError)) throw e;
-        raced++;
+        if (e instanceof RevConflictError) {
+          raced++;
+        } else {
+          await recordImportError(db, now, del.upstreamId, e instanceof Error ? e.message : String(e));
+          errored++;
+        }
       }
     }
     await clearState(db, "cmini.stalled");
@@ -218,6 +311,7 @@ export async function tick(
     full_pass: plan.isFullPass,
     fully_applied: fullyApplied,
     raced,
+    errored,
   };
   await setState(db, "cmini.last_tick", canonical(stats));
 

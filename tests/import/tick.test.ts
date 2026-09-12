@@ -16,6 +16,7 @@ import * as cminiModule from "../../src/import/cmini";
 import { tick } from "../../src/import/cmini";
 import * as difftickModule from "../../src/import/difftick";
 import { diffDue } from "../../src/import/difftick";
+import * as planModule from "../../src/import/plan";
 import worker from "../../src/index";
 import { FakeUpstream } from "./fake-upstream";
 
@@ -261,6 +262,159 @@ describe("tick()", () => {
     expect(stored).not.toBeNull();
     const parsed = JSON.parse(stored!.value) as { errors: { id: string }[] };
     expect(parsed.errors.some((e) => e.id === "graphite")).toBe(true);
+  });
+
+  // B5 (design/layout-db/review/audit-db.md B5): any non-conflict error
+  // thrown by one id's `applyFetchedId` (a real bug, a D1 hiccup -- not a
+  // `RevConflictError`, which is `raced`'s own job) used to propagate
+  // straight out of `tick()`, aborting every id queued behind it AND
+  // leaving `cmini.meta_token` unmoved (so the next tick reruns the whole
+  // backlog, hitting the same bad id forever). It's now caught per id,
+  // recorded as an `import_error` info event, and counted -- the tick
+  // still completes and stores the token.
+  it("[LDB-I21] a non-conflict error from one id's apply is recorded, counted, and never aborts the tick -- the meta token still stores", async () => {
+    const fake = new FakeUpstream();
+    const clock = fixedClock("2026-06-11T00:00:00.000Z");
+    await tick(bindings, clock, fake.fetchImpl, fake.sleepImpl); // 100 imported
+
+    const targetName = "abyss";
+    const abyssId = fake.ids().find((id) => fake.listEntry(id).name === targetName)!;
+    fake.mutateDetailByName(targetName, { board: "ortho" });
+    // `planTick` decides "fetch" off the LIST entry's own modified_at --
+    // the list entry must move too, or abyss would never be re-selected.
+    fake.mutateListEntry(abyssId, { modified_at: "2026-06-11T01:00:00.000Z" });
+    fake.bumpMeta();
+
+    const realApplyFetchedId = applyModule.applyFetchedId;
+    const applyFetchedIdSpy = vi.spyOn(applyModule, "applyFetchedId").mockImplementation(async (db, now, id, raw) => {
+      if (id === abyssId) throw new Error("boom: simulated apply failure");
+      return realApplyFetchedId(db, now, id, raw);
+    });
+
+    let result: Awaited<ReturnType<typeof tick>>;
+    try {
+      result = await tick(bindings, clock, fake.fetchImpl, fake.sleepImpl);
+    } finally {
+      applyFetchedIdSpy.mockRestore();
+    }
+
+    expect(result.stats.errored).toBe(1);
+    expect(result.stats.raced ?? 0).toBe(0);
+    expect(result.stats.errors).toEqual([]); // a thrown error is never reported as a shape error
+
+    const abyssRow = await db.prepare("SELECT id FROM layouts WHERE name = ?").bind(targetName).first<{ id: string }>();
+    const errEvents = await db
+      .prepare("SELECT detail_json FROM events WHERE layout_id = ? AND kind = 'import_error'")
+      .bind(abyssRow!.id)
+      .all<{ detail_json: string }>();
+    expect(errEvents.results).toHaveLength(1);
+    expect(JSON.parse(errEvents.results[0]!.detail_json)).toMatchObject({ upstream_id: abyssId, message: expect.stringContaining("boom") });
+
+    // the tick still stored the meta token (never wedged) -- a following
+    // tick against the SAME (unchanged since) upstream state is quiet.
+    const again = await tick(bindings, clock, fake.fetchImpl, fake.sleepImpl);
+    expect(again.quiet).toBe(true);
+  });
+
+  // B4 (design/layout-db/review/audit-db.md B4): overlapping ticks (the
+  // `*/5` cron and a manual admin kick both landing while a slow tick is
+  // still running) had no lock. `import_state['cmini.running']` now gates
+  // the whole tick body.
+  describe("[LDB-C6] the import lock (import_state['cmini.running'])", () => {
+    it("[LDB-C6] a tick finds the lock already held (not expired) and skips quietly, touching nothing", async () => {
+      const fake = new FakeUpstream();
+      const clock = fixedClock("2026-06-12T00:00:00.000Z");
+
+      await db
+        .prepare("INSERT INTO import_state (key, value) VALUES ('cmini.running', ?)")
+        .bind(JSON.stringify({ at: clock(), id: "other-invocation" }))
+        .run();
+
+      const result = await tick(bindings, clock, fake.fetchImpl, fake.sleepImpl);
+      expect(result.quiet).toBe(true);
+      expect(result.stats.skipped_locked).toBe(true);
+      expect(await liveLayoutCount()).toBe(0); // the tick body never ran
+
+      const lockRow = await db.prepare("SELECT value FROM import_state WHERE key = 'cmini.running'").first<{ value: string }>();
+      expect(JSON.parse(lockRow!.value)).toMatchObject({ id: "other-invocation" }); // untouched -- still the other holder's
+    });
+
+    it("[LDB-C6] an expired lock (>10 minutes old) is reclaimed and the tick proceeds normally", async () => {
+      const fake = new FakeUpstream();
+      const t0 = fixedClock("2026-06-13T00:00:00.000Z");
+      const staleAt = "2026-06-12T23:49:00.000Z"; // 11 minutes before t0()
+
+      await db
+        .prepare("INSERT INTO import_state (key, value) VALUES ('cmini.running', ?)")
+        .bind(JSON.stringify({ at: staleAt, id: "dead-invocation" }))
+        .run();
+
+      const result = await tick(bindings, t0, fake.fetchImpl, fake.sleepImpl);
+      expect(result.quiet).toBe(false);
+      expect(result.stats.skipped_locked).toBeUndefined();
+      expect(await liveLayoutCount()).toBe(100); // the tick body ran normally
+
+      // released after a successful tick -- nothing left held
+      const lockRow = await db.prepare("SELECT value FROM import_state WHERE key = 'cmini.running'").first();
+      expect(lockRow).toBeNull();
+    });
+
+    it("[LDB-C6] a lock held just under 10 minutes is still held; exactly 10 minutes counts as expired", async () => {
+      const fake = new FakeUpstream();
+      const t0 = fixedClock("2026-06-13T12:00:00.000Z");
+
+      // 9m59s: still held.
+      await db
+        .prepare("INSERT INTO import_state (key, value) VALUES ('cmini.running', ?)")
+        .bind(JSON.stringify({ at: "2026-06-13T11:50:01.000Z", id: "borderline-invocation" }))
+        .run();
+      const stillHeld = await tick(bindings, t0, fake.fetchImpl, fake.sleepImpl);
+      expect(stillHeld.stats.skipped_locked).toBe(true);
+      expect(await liveLayoutCount()).toBe(0);
+
+      // exactly 10m: reclaimed, tick proceeds.
+      await db
+        .prepare("UPDATE import_state SET value = ? WHERE key = 'cmini.running'")
+        .bind(JSON.stringify({ at: "2026-06-13T11:50:00.000Z", id: "borderline-invocation" }))
+        .run();
+      const reclaimed = await tick(bindings, t0, fake.fetchImpl, fake.sleepImpl);
+      expect(reclaimed.stats.skipped_locked).toBeUndefined();
+      expect(await liveLayoutCount()).toBe(100);
+    });
+
+    it("[LDB-C6] the lock is released even when the tick body throws, so the next tick can still acquire it", async () => {
+      const fake = new FakeUpstream();
+      const clock = fixedClock("2026-06-14T00:00:00.000Z");
+
+      const planSpy = vi.spyOn(planModule, "planTick").mockImplementationOnce(() => {
+        throw new Error("boom: simulated tick-body failure");
+      });
+      await expect(tick(bindings, clock, fake.fetchImpl, fake.sleepImpl)).rejects.toThrow("boom");
+      planSpy.mockRestore();
+
+      const lockRow = await db.prepare("SELECT value FROM import_state WHERE key = 'cmini.running'").first();
+      expect(lockRow).toBeNull(); // released in `finally` despite the throw
+
+      const result = await tick(bindings, clock, fake.fetchImpl, fake.sleepImpl);
+      expect(result.stats.skipped_locked).toBeUndefined(); // acquires cleanly, runs normally
+      expect(await liveLayoutCount()).toBe(100);
+    });
+
+    it("[LDB-C6] a quiet tick (meta token unchanged) never touches the lock at all", async () => {
+      const fake = new FakeUpstream();
+      const clock = fixedClock("2026-06-15T00:00:00.000Z");
+      await tick(bindings, clock, fake.fetchImpl, fake.sleepImpl); // real tick, lock taken+released
+
+      const before = await db.prepare("SELECT value FROM import_state WHERE key = 'cmini.running'").first();
+      expect(before).toBeNull();
+
+      const result = await tick(bindings, clock, fake.fetchImpl, fake.sleepImpl); // token unchanged -> quiet
+      expect(result.quiet).toBe(true);
+      expect(result.stats.skipped_locked).toBeUndefined();
+
+      const after = await db.prepare("SELECT value FROM import_state WHERE key = 'cmini.running'").first();
+      expect(after).toBeNull(); // still never touched
+    });
   });
 });
 

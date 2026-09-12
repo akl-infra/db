@@ -346,6 +346,16 @@ export function idempotencyInProgress(): ApiError {
   });
 }
 
+// LDB-B4 (design/layout-db/review/audit-db.md B4): `POST /v1/admin/import/
+// tick` refuses to start a second tick while one is already running --
+// `import/cmini.ts`'s `tick()` itself takes the `import_state['cmini.
+// running']` lock and reports back whether it got skipped; the route turns
+// that into a loud, distinguishable 409 instead of a silent `{ran: true,
+// skipped_locked: true}}` the caller has to notice on its own.
+export function importRunning(): ApiError {
+  return new ApiError(409, { error: "import_running", message: "an import tick is already running (it holds the cmini.running lock)" });
+}
+
 // The write rate limit (09 §2.5; 10 C1 D8 adds `scope` for the second,
 // per-client counter). `core/ratelimit.ts`'s `take()` is the one place that
 // counts; this is only the body/headers shape.

@@ -10,7 +10,7 @@ import { type AuthDeps, resolveActor } from "../auth/discord";
 import type { Bindings } from "../env";
 import * as admins from "../core/admins";
 import * as clients from "../core/clients";
-import { badRequest, importPaused, notAdmin } from "../core/errors";
+import { badRequest, importPaused, importRunning, notAdmin } from "../core/errors";
 import { runNightly } from "../core/nightly";
 import { systemClock, type Clock } from "../core/time";
 import { tick as cminiTick } from "../import/cmini";
@@ -110,6 +110,12 @@ export function adminRoute(authDeps: AuthDeps) {
     if (await admins.isImportPaused(c.env.DB)) throw importPaused();
     const now = resolveNow(c.env);
     const result = await cminiTick(c.env, now, resolveTickFetchImpl(c.env) as UpstreamFetchImpl | undefined);
+    // B4 (design/layout-db/review/audit-db.md B4): `tick()` itself took the
+    // `cmini.running` lock and found it already held -- a cron overlap
+    // would just skip quietly (that's the whole point of the lock for the
+    // unattended path), but a manual kick should tell its caller loudly
+    // rather than report `{ran: true}` for a tick that never actually ran.
+    if (result.stats.skipped_locked) throw importRunning();
     await admins.recordManualTick(c.env.DB, now, actor.user_id, "import", result.stats);
     return c.json({ ran: true, ...result.stats });
   });

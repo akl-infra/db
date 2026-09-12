@@ -422,6 +422,59 @@ describe("POST /v1/admin/import/tick, POST /v1/admin/diff/tick, and POST /v1/adm
       }
     });
 
+    // B4 (design/layout-db/review/audit-db.md B4): the manual route
+    // surfaces `tick()`'s own lock (`import_state['cmini.running']`) as a
+    // loud 409 instead of a silent `{ran: true, skipped_locked: true}}`.
+    it("[LDB-C6] 409 import_running while another tick already holds the cmini.running lock (not expired), and appends no event", async () => {
+      const discord = new FakeDiscord();
+      const upstream = new FakeUpstream();
+      // Earlier tests in this describe already imported this same fixture
+      // and stored `cmini.meta_token` -- bump the revision so THIS tick
+      // isn't quiet-gated before it ever reaches the lock check.
+      upstream.bumpMeta();
+      stubCombinedFetch(discord, upstream);
+      (bindings as unknown as { IMPORT_SOURCE_URL: string }).IMPORT_SOURCE_URL = upstream.baseUrl;
+
+      await db
+        .prepare("INSERT INTO import_state (key, value) VALUES ('cmini.running', ?)")
+        .bind(JSON.stringify({ at: clock(), id: "other-invocation" }))
+        .run();
+      try {
+        const before = await eventCount("admin.import_ticked");
+        const res = await writeFetch("/v1/admin/import/tick", "POST", adminHeadersFor(discord, `tok-${uniqueName("tick-locked")}`));
+        expect(res.status).toBe(409);
+        await expect(res.json()).resolves.toMatchObject({ error: "import_running" });
+        expect(await eventCount("admin.import_ticked")).toBe(before);
+        // the lock itself is untouched -- still the other holder's
+        const lockRow = await db.prepare("SELECT value FROM import_state WHERE key = 'cmini.running'").first<{ value: string }>();
+        expect(JSON.parse(lockRow!.value)).toMatchObject({ id: "other-invocation" });
+      } finally {
+        await db.prepare("DELETE FROM import_state WHERE key = 'cmini.running'").run();
+      }
+    });
+
+    it("[LDB-C6] an EXPIRED cmini.running lock (>10 minutes old) is reclaimed -- the manual tick runs normally, 200", async () => {
+      const discord = new FakeDiscord();
+      const upstream = new FakeUpstream();
+      upstream.bumpMeta(); // see the previous test's own comment
+      stubCombinedFetch(discord, upstream);
+      (bindings as unknown as { IMPORT_SOURCE_URL: string }).IMPORT_SOURCE_URL = upstream.baseUrl;
+
+      const staleAt = new Date(Date.parse(clock()) - 11 * 60 * 1000).toISOString();
+      await db.prepare("INSERT INTO import_state (key, value) VALUES ('cmini.running', ?)").bind(JSON.stringify({ at: staleAt, id: "dead-invocation" })).run();
+
+      const before = await eventCount("admin.import_ticked");
+      const res = await writeFetch("/v1/admin/import/tick", "POST", adminHeadersFor(discord, `tok-${uniqueName("tick-stale-lock")}`));
+      expect(res.status).toBe(200);
+      const body = await res.json<{ ran: boolean; skipped_locked?: boolean }>();
+      expect(body.ran).toBe(true);
+      expect(body.skipped_locked).toBeUndefined();
+      expect(await eventCount("admin.import_ticked")).toBe(before + 1);
+
+      const lockRow = await db.prepare("SELECT value FROM import_state WHERE key = 'cmini.running'").first();
+      expect(lockRow).toBeNull(); // released after the (now successful) tick
+    });
+
     it("shares one implementation with every '*/5' tick (a spy on import/cmini.ts's tick sees both call sites)", async () => {
       const discord = new FakeDiscord();
       const upstream = new FakeUpstream();
