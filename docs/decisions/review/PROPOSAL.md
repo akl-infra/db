@@ -24,7 +24,7 @@ Keep layoutdb's core and the bot's replica design; **throw out the rest of the s
  │  static assets (later): the layoutdb website — public read-only + admin view       │
  └──────────▲──────────────────────▲───────────────────────────────▲──────────────────┘
             │ bearer (user token)  │ Ed25519, acts for user        │ bearer (admin)
-            │ PUT/POST If-Match    │ + GET /v1/changes every 2 s   │
+            │ PUT/POST If-Match    │ + GET /v1/changes?wait (long)│
             │                      │ + GET /v1/meta per command     │
  ┌──────────┴──────────┐  ┌────────┴──────────────────────────┐  ┌─┴──────────────────┐
  │ akl.gg (Pages)      │  │ spark (ONE Fly machine, saltorbit's)  │  │ layoutdb website   │
@@ -56,7 +56,7 @@ Legend: **keep** = as built · **fix** = defect, same design · **change** = red
 | nightly dump only if the 03:00 slot fires; `clients` never dumped or restored; no off-account copy; Time Travel unused | **fix** | RPO up to 24 h and worse after a cron outage the account already had (db §C/§D) |
 | `Idempotency-Key` on mutating routes (24 h key→response cache) | **new** | client-neutral fix for the bot's lost-response double-apply hazard (bot §H3); benefits every client |
 | moderation: `bans` table checked in `requireActor`; admin routes for rename / transfer / set-author-name / set-likes / restore, recorded as events with `via: admin`; `link` field + `link_submissions` queue (pending → approved/rejected by an admin, approval writes the field as an event) | **new** | H22/H23; the event log already gives the audit trail and rollback H14 asks for |
-| webhooks + lease, SSE stream, Fly drill + `/v1/admin/drill`, HTML `/admin/changelog`, per-major dump files, multi-major chain engine (`up/down/walk/path`, `format_behind`, `written_as`) | **delete** | no consumer; ~2.5k src + ~4k test lines of surface for a spark/2 and third parties that don't exist (db §F). SSE goes because the bot's keep-warm becomes a 2 s `/v1/changes?since=` poll, which is what SSE was internally anyway |
+| webhooks + lease, SSE stream, Fly drill + `/v1/admin/drill`, HTML `/admin/changelog`, per-major dump files, multi-major chain engine (`up/down/walk/path`, `format_behind`, `written_as`) | **delete** | no consumer; ~2.5k src + ~4k test lines of surface for a spark/2 and third parties that don't exist (db §F). SSE goes because the bot's keep-warm becomes a **long-poll** `GET /v1/changes?since=&wait=25s` (saltorbit, 2026-09-12): the Worker holds the request, checks D1 once a second, returns on the first event. `wait=` is honoured only for registered clients (Ed25519 lane) carrying a `feed:wait` capability, capped at 25 s, counted against the client's rate limit; anonymous callers get the immediate answer. Sub-second latency at ~3.5k requests/day |
 | daily upstream diff (900 lines) | **change** | shrink to a count + sampled compare; the importer's per-tick plan already compares state |
 | `akl-db-preview` Worker + D1 | **delete** | H13, one layoutdb |
 | the layoutdb website (public read-only + admin moderation view) | **new, own design round** | static assets on the Worker or a Pages project in the `akl` account; signs in with Discord itself, calls `/v1` as a normal client (saltorbit, today) |
@@ -111,6 +111,20 @@ Legend: **keep** = as built · **fix** = defect, same design · **change** = red
 
 **Cost.** Workers Paid $5 · Fly shared-cpu-2x 2 GB + volume ≈ $12 · R2 < $1 · Pages free · CI back under the free tier by dropping the data work from pushes. **≈ $18/mo** (≈ $35 with a performance-1x machine), versus the branch's projected $5 + $8 bot + ~$62 stats machine ≈ $75.
 
+## 3b. Rebuild cadence (saltorbit asked 2026-09-12: "where do we do weekly rebuilds?")
+
+There is no weekly rebuild any more, on purpose. Cells are keyed by their inputs (keys, board, rules, engine pin, corpus, space), so a stale number can only come from a bug, never from time passing. What remains:
+
+| job | where | when | what |
+|---|---|---|---|
+| incremental compute | spark publisher (native CLI) | on every rev bump | the changed layout's 108 cells → overlay → pointer |
+| daily fold | spark publisher | ~03:30 UTC | base ⊕ overlay → new base (no compute); GC objects no retained pointer names after 24 h; wasm-vs-CLI parity sample of ~20 random layouts, plus a CLI recompute of those 20 against their stored cells (a drift alarm, cheap) |
+| full harvest | GitHub Actions `workflow_dispatch` (the existing 13-way matrix, ~68 min) | only when `H` changes: engine pin/patches, corpora, build script | publishes a new base under the new `H`; spark deploys with the matching engine; the site bundle follows |
+| corpus-only artifacts (n-gram tables, words, examples) | the same full harvest | with `H` | layout-independent, so they never need a per-edit path |
+| layoutdb nightly dump | Worker cron | any tick when the last dump is > 24 h old | backup, §3 |
+
+If you want a periodic safety net regardless, the honest version is a monthly `workflow_dispatch` of the full harvest compared against the live base and alarmed on any difference; it should find nothing, and finding something means a bug worth knowing about. Not required for correctness.
+
 ## 4. What I am *not* proposing, and why
 
 - **Not restarting layoutdb.** The data model is right and the moderation features want exactly an event log.
@@ -139,7 +153,7 @@ Each step ships alone; layoutdb may be wiped and rebuilt at any step (H12).
 | 1 | two engine builds (native CLI publishes, wasm answers) | **yes** | nightly wasm-vs-CLI parity sample becomes an invariant |
 | 2 | likes on following layouts | **union**, "as long as we have author tracking on both" | every like row keeps `user_id` + a `via` (import vs client); the importer never emits `unliked` |
 | 3 | fuzzy `view` after a delete | **never match a deleted layout** | tombstones excluded from every resolver, fuzzy included; an exact-name miss on a tombstone says so |
-| 4 | machine / provider | asked back: "what makes the most sense? gcp or aws?" | recommendation below: stay on Fly (shared-cpu-2x 2 GB) now; Hetzner if cost or CPU throttling bites; not GCP/AWS |
+| 4 | machine / provider | **stay on Fly for now** (2026-09-12, after the recommendation below) | shared-cpu-2x 2 GB; revisit with the latency histogram |
 | 5 | retire the design corpus to `historical/` | **yes** | step 1 of the sequence |
 | 6 | `db.yml` deploys prod layoutdb on every push | **keep**: "not in use yet by the community, keep pushing to prod" | no release-branch gate until outside users exist |
 
