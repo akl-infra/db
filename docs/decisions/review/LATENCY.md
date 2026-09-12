@@ -76,11 +76,13 @@ Before B6/B7 the same image never logged in (two incidents: boot awaited the eag
 | overlay `layouts.json` | 1.8 MB | 255 ms |
 | `db.cmini-web.pages.dev/` (HTML) | — | 108 ms |
 
-**Edit → visible for everyone else: not measured yet.** The pointer moved at 19:18Z today — by the *old* Python stats service, which was still running beside the new publisher (two writers; the new publisher's CAS correctly lost 5 swaps). The old app is now scaled to zero. The new publisher's first pass is computing every layout whose content hash isn't in the published index (all 4,177: the old base carries no hashes), one layout at a time with the native CLI at nice 10; per-layout CLI time on this machine goes into round 2.
+**Edit → visible for everyone else: not measured yet, and the first pass is too slow as deployed.** The pointer moved at 19:18Z today — by the *old* Python stats service, which was still running beside the new publisher (two writers; the new publisher's CAS correctly lost 5 swaps). The old app is now scaled to zero. The new publisher's first pass is computing every layout whose content hash isn't in the published index (all 4,177: the old base carries no hashes), one layout at a time with the native CLI at nice 10. Measured: **~55 s per layout** (work dirs at 19:53:21 and 19:54:15) versus the old service's 3.5 s with `--jobs 2`, and `publishPlan` publishes only after the whole plan computes — so the first pointer swap would have come days later. Fix in flight (B8): ≤ 25 layouts per tick then publish, recent edits first, `--jobs 2`, shared work dirs, and the wasm sweep yields to the CLI during a backlog pass.
 
 ## 6 · Feed wake latency (long-poll)
 
-Round 1 measured the **fallback**: the loop's first request went out before Discord login with the client ULID as its actor, layoutdb refused it, and the process polled every 2 s for life (`feed_wake_ms` p50 in the 2,048 ms bucket, max 2,759 ms, n=6 — event timestamp to fold, including the detail GET). Fixed the same hour: `BOT_USER_ID` set, and the loop now retries `wait=` on `clientReady` and every 10 min. Round 2 reads `feed_wake_ms` under real long-poll.
+First measurement caught the **fallback**: the loop's first request went out before Discord login with the client ULID as its actor, layoutdb refused it, and the process polled every 2 s for life (`feed_wake_ms` p50 in the 2,048 ms bucket, max 2,759 ms, n=6 — event timestamp to fold, including the detail GET). Fixed the same hour (`BOT_USER_ID` set; the loop retries `wait=` on `clientReady` and every 10 min) and redeployed.
+
+**Under real long-poll** (n=6 events from a write burst): p50 in the 512–1,024 ms bucket, max 1,432 ms. That is the Worker's once-a-second head check (0–1,000 ms) plus the bot's detail GET (~50 ms) plus timestamp granularity. Meets the "about 2 s" the design assumed; a 250 ms check interval in the Worker would bring it to ~300 ms for four D1 reads a second per held connection (B9 c).
 
 ## 7 · Resources (Fly, shared-cpu-2x 2 GB)
 
