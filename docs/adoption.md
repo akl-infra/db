@@ -684,12 +684,17 @@ curl -sX POST …/v1/layouts/01ARZ3ND…/restore <signed> -d '{"name":"my-layout
 Real success (`db/tests/conformance/layouts-write/restore-200.json`,
 trimmed): `200 {"…","deleted":false,"layout_rev":3}`.
 
-**Likes** — idempotent, never bump `layout_rev`/`modified_at`/a format's own
-`rev`/`modified_at`, always return the current count:
+**Likes** — need no `If-Match` (they never bump `layout_rev`/`modified_at`/a
+format's own `rev`/`modified_at`, and never fail or are failed by an edit to
+the same layout). A repeat like, or an unlike with nothing to undo, is no
+longer a silent no-op: it fails loudly and changes nothing, so a client
+always knows whether its own request was the one that changed the count:
 
 ```bash
 curl -sX PUT …/v1/layouts/01ARZ3ND…/like <signed>      # 200 {"like_count":1}
+curl -sX PUT …/v1/layouts/01ARZ3ND…/like <signed>      # 409 already_liked (unchanged)
 curl -sX DELETE …/v1/layouts/01ARZ3ND…/like <signed>    # 200 {"like_count":0}
+curl -sX DELETE …/v1/layouts/01ARZ3ND…/like <signed>    # 409 not_liked (unchanged)
 ```
 
 ## 6. Limits and errors
@@ -721,6 +726,8 @@ it as generated, not hand-edited):
 | 404 | `format_absent` | this layout has no '${format}' format | `formatAbsent(format)` |
 | 409 | `format_exists` | this layout already has a '${format}' format | `formatExists(format)` |
 | 400 | `mixed_patch` | a PATCH may change the layout's name, or one format's payload, never both at once | `mixedPatch()` |
+| 409 | `already_liked` | you've already liked this layout | `alreadyLiked()` |
+| 409 | `not_liked` | you haven't liked this layout | `notLiked()` |
 | 401 | `unauthorized` | authentication required | `unauthorized()` |
 | 401 | `token_invalid` | *(caller-supplied -- this function's own `message` parameter)* | `tokenInvalid(message)` |
 | 400 | `invalid_client_version` | invalid 'X-Client-Version' header '${raw}' (expected <= 64 chars of [A-Za-z0-9._+/:-]) | `invalidClientVersion(raw)` |
@@ -982,8 +989,8 @@ silently drift from what `db/src/index.ts` actually registers.
 | DELETE | `/v1/layouts/:ref` | user | — + `If-Match: "layout:<n>"` | 200 | `if_match_required`, `bad_request`, `not_owner`, `not_found`, `stale`, lane errors |
 | POST | `/v1/layouts/:ref/restore` | user | `{name?}` (optional) | 200 | `bad_request`, `invalid_name`, `not_owner`, `not_found`, `name_taken`, lane errors |
 | POST | `/v1/layouts/:ref/transfer` | user | `{to}` + `If-Match` | 200 | `if_match_required`, `bad_request`, `not_owner`, `not_found`, lane errors |
-| PUT | `/v1/layouts/:ref/like` | user | — | 200 | `not_found`, lane errors |
-| DELETE | `/v1/layouts/:ref/like` | user | — | 200 | `not_found`, lane errors |
+| PUT | `/v1/layouts/:ref/like` | user | — | 200 | `not_found`, `bad_request`, `already_liked`, lane errors |
+| DELETE | `/v1/layouts/:ref/like` | user | — | 200 | `not_found`, `not_liked`, lane errors |
 | GET | `/v1/authors` | none | — | 200 | `bad_request` |
 | GET | `/v1/authors/:user_id` | none | — | 200 | `not_found` |
 | GET | `/v1/formats` | none | — | 200 | — |

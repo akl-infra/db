@@ -1,4 +1,4 @@
-// [LDB-P21] Coordinator review (M1): `commitWrite`'s own `layouts` upsert
+// [LDB-P22] Coordinator review (M1): `commitWrite`'s own `layouts` upsert
 // used to bind a STALE pre-read `like_count` (`finalLikeCount`, falling
 // back to `input.currentLayout.like_count` for any write that isn't
 // itself about a like) into `like_count = excluded.like_count` -- an
@@ -93,8 +93,8 @@ async function assertFoldMatchesRowAndLikeCount(layoutId: string) {
   expect(row!.like_count, "LDB-L4: like_count === COUNT(DISTINCT likes.user_id)").toBe(likeRows?.n ?? 0);
 }
 
-describe("[LDB-P21] M1: a like landing between a write's read and its commit is never reverted", () => {
-  it("a like injected mid-write survives the write's own upsert; fold == row; like_count == COUNT(likes)", async () => {
+describe("[LDB-P22] M1: a like landing between a write's read and its commit is never reverted", () => {
+  it("[LDB-P22] [LDB-L4] a like injected mid-write survives the write's own upsert; fold == row; like_count == COUNT(likes)", async () => {
     const OWNER = `mf1-owner-${uniqueName("u")}`;
     const seeded = await seed(OWNER);
     // One shared FakeDiscord for both actors (see the unlike test below
@@ -126,7 +126,7 @@ describe("[LDB-P21] M1: a like landing between a write's read and its commit is 
     await assertFoldMatchesRowAndLikeCount(seeded.id);
   });
 
-  it("an UNLIKE injected mid-write also survives the write's own upsert", async () => {
+  it("[LDB-P22] [LDB-L4] an UNLIKE injected mid-write also survives the write's own upsert", async () => {
     const OWNER = `mf1b-owner-${uniqueName("u")}`;
     const seeded = await seed(OWNER);
     // One shared FakeDiscord for both actors -- actorFixture() re-stubs

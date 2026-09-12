@@ -219,6 +219,21 @@ Ids assigned by the F2 slice (2026-09-11), the next free number in `db/INVARIANT
 | LDB-P14 | restated: `expectRev` becomes `expectN`; any write to the layout since the system writer's read aborts it. | existing tests, updated |
 | LDB-B65 | restated: the bot folds a snapshot only if both its `layout_rev` and its spark `rev` are ≥ the cached ones; a tombstone guard is on `layout_rev`. Sound because each GET is one snapshot (§2.3) and both revs only grow, so any two snapshots are ordered in both. | existing property test, extended to two revs |
 
+### D13 (write requirements) -- invariant ids
+
+D13 formalizes what MF-2, MF-6 and MF-11 already implement (E1-E4) and changes likes from a silent no-op to a real success/fail split (L1-L4). Ids assigned when D13 landed (coordinator review, 2026-09-11), the next free numbers in `db/INVARIANTS.md` at the time: LDB-P22, LDB-P23, LDB-L2, LDB-L3, LDB-L4 (LDB-L1 itself amended in place, same as MF-9 restated an existing id above).
+
+| D13 item | id | restates / new | enforced by |
+|---|---|---|---|
+| E1 (an edit names its part's version; a stale one fails `409 stale`, nothing written) | LDB-P2 | restated -- already `db/INVARIANTS.md`'s own claim for the scoped If-Match/stale mechanics | `tests/api/ifmatch.test.ts`, `tests/api/write.test.ts` |
+| E2 (of two edits to the same part at the same version, exactly one succeeds) | LDB-P20 (MF-6) | restated | `tests/events/races.test.ts`; also `tests/events/races.test.ts`'s like-race case (E2 applied to likes, L1) |
+| E3 (an edit at the current version succeeds even when another part is written in between, unless it fails on its own merits -- the server-side retry) | LDB-P23 | new | `tests/api/mf2-exhausted-retry.test.ts`, `tests/events/fold.test.ts`'s `concurrent_pair` op |
+| E4 (creating a layout needs no version; fails only on a taken name) | -- | existing behavior, predates this registry (`POST /v1/layouts` never asks for `If-Match`; `commitWrite`'s own name-clash pre-check is the only way create fails on merits) -- no dedicated id assigned, restating it under LDB-P2 (E1) would overstate what it says | `tests/api/write.test.ts`, `tests/api/conformance.test.ts` |
+| L1 (a like needs no version; a repeat fails `409 already_liked`, changes nothing) | LDB-L1 | amended in place | `tests/api/likes.test.ts`, `tests/events/races.test.ts` |
+| L2 (an unlike needs no version; a redundant one fails `409 not_liked`) | LDB-L2 | new | `tests/api/likes.test.ts` |
+| L3 (likes never change any version -- never fail an edit, never fail on one) | LDB-L3 | new | `tests/api/likes.test.ts` (`[LDB-L3]`) |
+| L4 (`like_count` always equals `COUNT(DISTINCT likes.user_id)`) | LDB-L4 | new | `tests/events/fold.test.ts` (checked after every step), `tests/api/mf1-like-race.test.ts` (`[LDB-P22]`, the M1 self-healing fix this depends on) |
+
 ## 5. Docs
 
 | doc | what changes |

@@ -94,7 +94,7 @@ describe("[LDB-L1] PUT/DELETE /v1/layouts/{ref}/like", () => {
     await assertFoldMatchesRow(record.id);
   });
 
-  it("[LDB-L1] unlike twice -> one 'unliked' event, then 409 not_liked (D13 L2), count 0", async () => {
+  it("[LDB-L1] [LDB-L2] unlike twice -> one 'unliked' event, then 409 not_liked (D13 L2), count 0", async () => {
     const record = await seed();
     const headers = ownerHeaders(`tok-${uniqueName("like")}`);
     await writeFetch(`/v1/layouts/${record.id}/like`, "PUT", headers);
@@ -114,7 +114,7 @@ describe("[LDB-L1] PUT/DELETE /v1/layouts/{ref}/like", () => {
     await assertFoldMatchesRow(record.id);
   });
 
-  it("[LDB-L1] unliking a layout never liked -> 409 not_liked, no event", async () => {
+  it("[LDB-L2] unliking a layout never liked -> 409 not_liked, no event", async () => {
     const record = await seed();
     const headers = ownerHeaders(`tok-${uniqueName("never-liked")}`);
     const res = await writeFetch(`/v1/layouts/${record.id}/like`, "DELETE", headers);

@@ -383,6 +383,8 @@ real examples in §4.
 | 404 | `format_absent` | this layout has no '${format}' format | `formatAbsent(format)` |
 | 409 | `format_exists` | this layout already has a '${format}' format | `formatExists(format)` |
 | 400 | `mixed_patch` | a PATCH may change the layout's name, or one format's payload, never both at once | `mixedPatch()` |
+| 409 | `already_liked` | you've already liked this layout | `alreadyLiked()` |
+| 409 | `not_liked` | you haven't liked this layout | `notLiked()` |
 | 401 | `unauthorized` | authentication required | `unauthorized()` |
 | 401 | `token_invalid` | *(caller-supplied -- this function's own `message` parameter)* | `tokenInvalid(message)` |
 | 400 | `invalid_client_version` | invalid 'X-Client-Version' header '${raw}' (expected <= 64 chars of [A-Za-z0-9._+/:-]) | `invalidClientVersion(raw)` |

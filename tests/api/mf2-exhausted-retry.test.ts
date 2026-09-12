@@ -1,4 +1,4 @@
-// [LDB-P22] Coordinator review (M2): every `commitWithRetry` attempt's own
+// [LDB-P23] Coordinator review (M2): every `commitWithRetry` attempt's own
 // `build()` re-reads the layout fresh and checks ITS OWN scope's If-Match
 // against that read -- a real staleness on the caller's own scope already
 // throws a proper `409 stale` from inside `build()` well before retries
@@ -54,8 +54,8 @@ async function seed(owner: string): Promise<Seeded> {
   return { id: layout.id, owner, formatRev: formats.get("spark")!.rev };
 }
 
-describe("[LDB-P22] M2: an exhausted commitWithRetry answers 409 stale, not a raw RevConflictError", () => {
-  it("format-scope PUT: every attempt collides on `n` -> 409 stale with a fresh read, layout fields included", async () => {
+describe("[LDB-P23] M2: an exhausted commitWithRetry answers 409 stale, not a raw RevConflictError", () => {
+  it("[LDB-P23] format-scope PUT: every attempt collides on `n` -> 409 stale with a fresh read, layout fields included", async () => {
     const OWNER = `mf2-owner-${uniqueName("u")}`;
     const seeded = await seed(OWNER);
     const fake = actorFixture();
@@ -93,7 +93,7 @@ describe("[LDB-P22] M2: an exhausted commitWithRetry answers 409 stale, not a ra
     expect(formatsRow?.rev).toBe(seeded.formatRev);
   });
 
-  it("layout-scope PATCH (rename): same exhausted-retry fallback, layout scope reported", async () => {
+  it("[LDB-P23] layout-scope PATCH (rename): same exhausted-retry fallback, layout scope reported", async () => {
     const OWNER = `mf2b-owner-${uniqueName("u")}`;
     const seeded = await seed(OWNER);
     const fake = actorFixture();

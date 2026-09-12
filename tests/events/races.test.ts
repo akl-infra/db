@@ -96,6 +96,43 @@ describe("races resolved inside the batch", () => {
     await invariantsHold();
   });
 
+  // D13 E2, the LAYOUT-scope half (the format-scope half is the test just
+  // above): "of two edits to the same part based on the same version,
+  // exactly one succeeds." Two renames from the same read must behave
+  // exactly like two format updates from the same rev.
+  it("[MF-6] [LDB-P20] [LDB-P23] two renames racing from the same layout_rev: exactly one wins, the loser is a RevConflictError, layout_rev advances once", async () => {
+    const { layout } = await create("race-layout-rev");
+    const rename = async (name: string) => {
+      const current = (await readById(db, layout.id))!;
+      const formats = await formatsForLayout(db, layout.id);
+      const input: CommitInput = {
+        layoutId: layout.id,
+        creating: false,
+        currentN: current.n,
+        currentLayout: current,
+        currentFormats: formats,
+        layout: { kind: "renamed", name, owner: current.owner, created_at: current.created_at, deleted: false },
+        modified_at: clock(),
+        actor: layout.owner,
+        via: "discord",
+        source: SOURCE,
+        upstream: current.upstream,
+      };
+      return commitWrite(db, clock, input);
+    };
+    const outcomes = await Promise.allSettled([rename("race-layout-rev-a"), rename("race-layout-rev-b")]);
+    const won = outcomes.filter((o) => o.status === "fulfilled");
+    const lost = outcomes.filter((o) => o.status === "rejected");
+    expect(won).toHaveLength(1);
+    expect(lost).toHaveLength(1);
+    expect((lost[0] as PromiseRejectedResult).reason).toBeInstanceOf(RevConflictError);
+    const final = await readById(db, layout.id);
+    expect(final!.layout_rev).toBe(2);
+    const winnerName = (won[0] as PromiseFulfilledResult<Awaited<ReturnType<typeof rename>>>).value.layout.name;
+    expect(final!.name).toBe(winnerName);
+    await invariantsHold();
+  });
+
   // [MF-6] "writers on different scopes both land": a layout-scope rename
   // and a format-scope replace, fired concurrently on the same layout, must
   // BOTH commit -- the `n` counter serializes them (one gets n+1, the other
