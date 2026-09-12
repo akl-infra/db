@@ -523,9 +523,23 @@ export async function appendLike(db: Bindings["DB"], now: Clock, l: Like): Promi
           l.layoutId,
           l.userId,
         ),
+      // Coordinator review (follow-up on the HIGH fix, 3e52dc5b9): the
+      // event insert was gated on `layouts.deleted = 0`, but these two
+      // statements were NOT -- a like racing a delete could still INSERT
+      // a likes row (and have it counted) on a tombstone with no event
+      // (row != fold, MF-3; the stray like is then inherited by the next
+      // layout of that name, LDB-P9); an unlike racing a delete could
+      // still DELETE a real like row with no event. Gated on the SAME
+      // live condition, re-evaluated at batch-commit time like the event
+      // insert's own -- the whole batch is one transaction, so every
+      // statement in it sees the same answer.
       wantsLike
-        ? db.prepare("INSERT INTO likes (layout_id, user_id, at) VALUES (?, ?, ?)").bind(l.layoutId, l.userId, at)
-        : db.prepare("DELETE FROM likes WHERE layout_id = ? AND user_id = ?").bind(l.layoutId, l.userId),
+        ? db
+            .prepare("INSERT INTO likes (layout_id, user_id, at) SELECT ?, ?, ? WHERE EXISTS (SELECT 1 FROM layouts WHERE id = ? AND deleted = 0)")
+            .bind(l.layoutId, l.userId, at, l.layoutId)
+        : db
+            .prepare("DELETE FROM likes WHERE layout_id = ? AND user_id = ? AND EXISTS (SELECT 1 FROM layouts WHERE id = ? AND deleted = 0)")
+            .bind(l.layoutId, l.userId, l.layoutId),
       db.prepare("UPDATE layouts SET like_count = (SELECT COUNT(*) FROM likes WHERE layout_id = ?) WHERE id = ?").bind(l.layoutId, l.layoutId),
       db.prepare("SELECT like_count FROM layouts WHERE id = ?").bind(l.layoutId),
     ]);
