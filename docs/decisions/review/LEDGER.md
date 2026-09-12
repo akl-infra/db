@@ -50,10 +50,10 @@ Status: `todo` · `running (agent, branch)` · `review` · `landed <sha>` · `bl
 ### Wave 2 — spark (`bot/` absorbs `stats/` + `workers/data-writer/`), serial
 | id | slice | brief | status |
 |---|---|---|---|
-| B1 | **cell store + row tables + rank** (running: impl-B1, isolation worktree) | content-hash-keyed cell store persisted on `/data`; eager compute on rev bump (wasm, 39 cells); per-(corpus, space) row tables; `rank` sorts at once, footer stand-in for pending rows; delete `provenance.ts` + publish tracker + adoption resets; LDB-B rows. | todo |
-| B2 | **publisher module** | native mana2 CLI in the image (from `stats/Dockerfile`), computes 108 cells per changed layout into the same store (CLI wins), emits overlay (catalog, rules, authors, per-corpus stats) → R2 via S3 API token (verify conditional PUT; else keep data-writer), pointer CAS with `db_seq`, daily fold + GC, S3 smoke test as part of publish. Delete `scripts/stats_service/`, `stats/`, `workers/data-writer/` when green. | todo |
-| B3 | **boot + feed + write hardening** | wasm + defs baked into image; boot from volume snapshot + cell store, catch up, warm default corpus, `ensureFresh` before login; long-poll client; write reconciliation after timeout/5xx + Idempotency-Key header; bounded table residency; LDB-B5 live parity off the deploy gate (nightly). | todo |
-| B4 | **safety nets** | S1, S2 (daily + boot), S4 (daily, magic always sampled), `/health` with last-run + age per check, 48 h rule, watchdog DM. | todo |
+| B1 | **cell store + row tables + rank** | content-hash-keyed cell store persisted on `/data`; eager compute on rev bump (wasm, 39 cells); per-(corpus, space) row tables; `rank` sorts at once, footer stand-in for pending rows; delete `provenance.ts` + publish tracker + adoption resets; LDB-B rows. | landed 23435c60b (LDB-B90..B95; provenance deleted ~1.7k lines; seed script skipped; tier-2 sweeper folded into the engine budget) |
+| B2 | **publisher module** (running: impl-B2) | native mana2 CLI in the image (from `stats/Dockerfile`), computes 108 cells per changed layout into the same store (CLI wins), emits overlay (catalog, rules, authors, per-corpus stats) → R2 via S3 API token (verify conditional PUT; else keep data-writer), pointer CAS with `db_seq`, daily fold + GC, S3 smoke test as part of publish. Delete `scripts/stats_service/`, `stats/`, `workers/data-writer/` when green. | todo |
+| B3 | **boot + feed + write hardening** (running: impl-B3) | wasm + defs baked into image; boot from volume snapshot + cell store, catch up, warm default corpus, `ensureFresh` before login; long-poll client; write reconciliation after timeout/5xx + Idempotency-Key header; bounded table residency; LDB-B5 live parity off the deploy gate (nightly). | todo |
+| B4 | **safety nets** (running: impl-B4) | S1, S2 (daily + boot), S4 (daily, magic always sampled), `/health` with last-run + age per check, 48 h rule, watchdog DM. | todo |
 
 ### Wave 3 — akl.gg
 | id | slice | brief | status |
@@ -83,6 +83,7 @@ Status: `todo` · `running (agent, branch)` · `review` · `landed <sha>` · `bl
 
 ## Log
 
+- 2026-09-12 · B1 landed (23435c60b); B2, B3, B4 launched in parallel. L1/L2 rebasing.
 - 2026-09-12 · L3 landed (5b5a96ea0).
 - 2026-09-12 · L4 landed (c6c003142). A1 launched (isolation worktree).
 - 2026-09-12 · L1, L2, L3, B1 launched in parallel (isolation worktrees) alongside L4.
