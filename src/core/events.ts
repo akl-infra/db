@@ -59,6 +59,13 @@ export type InfoKind =
 // ever true for lineage `spark` or a layout-scope write -- MF-12). Folding
 // a layout's events in seq order, with payloads from `layout_revs`,
 // reproduces both tables exactly (MF-3).
+// Coordinator review (LOW, third batch): `like_count` is deliberately NOT
+// part of a layout-scope event's own snapshot. A rev-bumping write's own
+// `like_count` is whatever it read (or self-healed to, M1) at ITS commit
+// time, which a feed/webhook reader taking straight off the event would
+// see as a wrong, frozen count the moment a like/unlike lands after --
+// likes are their own source of truth for counts (`liked`/`unliked`
+// events), never a layout-scope event's `after`.
 export interface LayoutSnapshot {
   scope: "layout";
   id: string;
@@ -68,7 +75,6 @@ export interface LayoutSnapshot {
   created_at: string;
   modified_at: string;
   deleted: boolean;
-  like_count: number;
   upstream: Upstream | null;
   source: Source | null;
 }
@@ -142,7 +148,6 @@ function layoutSnapshot(l: {
   created_at: string;
   modified_at: string;
   deleted: boolean;
-  like_count: number;
   upstream: Upstream | null;
   source: Source | null;
 }): LayoutSnapshot {
@@ -214,7 +219,6 @@ export async function commitWrite(db: Bindings["DB"], now: Clock, input: CommitI
     created_at: finalCreatedAt,
     modified_at: finalModifiedAt,
     deleted: finalDeleted,
-    like_count: finalLikeCount,
     upstream: input.upstream,
     source: finalLayoutSource,
   });
@@ -634,9 +638,6 @@ export interface FoldedLayout {
 function withUpstream(l: LayoutSnapshot, upstream: Upstream | null): LayoutSnapshot {
   return { ...l, upstream };
 }
-function withLikeDelta(l: LayoutSnapshot, delta: 1 | -1): LayoutSnapshot {
-  return { ...l, like_count: l.like_count + delta };
-}
 
 function revKey(lineage: string | null, rev: number): string {
   return `${lineage ?? ""} ${rev}`;
@@ -645,25 +646,19 @@ function revKey(lineage: string | null, rev: number): string {
 export function foldLayout(events: Event[], revs: Map<string, { format: string | null; payload: unknown }>): FoldedLayout | null {
   let layout: LayoutSnapshot | null = null;
   const formats = new Map<string, FormatSnapshot>();
+  // Coordinator review (LOW, third batch): `like_count` no longer lives
+  // on any event's own `after` snapshot at all (see LayoutSnapshot's own
+  // comment) -- likes are their own source of truth for counts, so this
+  // tracks the running tally independently of `layout`, purely from every
+  // `liked`/`unliked` event actually replayed, and attaches it to the
+  // fold's OUTPUT once at the end, never to an intermediate snapshot.
+  let likeCount = 0;
 
   for (const e of events) {
     if (e.rev !== null) {
       if (e.after === null) throw new Error(`foldLayout: rev-bumping event (seq ${e.seq}) has no 'after'`);
       if (e.after.scope === "layout") {
-        // M1 (coordinator review, 2026-09-11): `e.after.like_count` is
-        // whatever `commitWrite` baked in at THAT event's own write time,
-        // which can itself be stale -- any ordinary write that doesn't
-        // know about a concurrent like/unlike falls back to a pre-read
-        // `currentLayout.like_count` (see `finalLikeCount` above). The
-        // fold's own running tally, built from every `liked`/`unliked`
-        // event actually replayed so far via `withLikeDelta`, is the one
-        // value in this loop guaranteed to reflect every like event, so
-        // once the fold has one, keep it across a layout-scope event's
-        // adoption of `e.after` rather than reverting to the snapshot's
-        // baked-in count. Before the first layout-scope event there is no
-        // running tally yet, so `e.after.like_count` (necessarily 0, from
-        // the `created` event) is the only value available.
-        layout = layout === null ? e.after : { ...e.after, like_count: layout.like_count };
+        layout = e.after;
       } else {
         const after = e.after;
         formats.set(after.lineage, after);
@@ -673,7 +668,7 @@ export function foldLayout(events: Event[], revs: Map<string, { format: string |
       }
     } else if (e.kind === "liked" || e.kind === "unliked") {
       if (layout === null) throw new Error(`foldLayout: like event (seq ${e.seq}) precedes any write`);
-      layout = withLikeDelta(layout, e.kind === "liked" ? 1 : -1);
+      likeCount += e.kind === "liked" ? 1 : -1;
     }
   }
 
@@ -686,7 +681,7 @@ export function foldLayout(events: Event[], revs: Map<string, { format: string |
     const { scope: _s2, upstream: _u, ...rest } = snap;
     formatRows.set(lin, { ...rest, payload: rev.payload });
   }
-  return { layout: layoutRow, formats: formatRows };
+  return { layout: { ...layoutRow, like_count: likeCount }, formats: formatRows };
 }
 
 export interface FeedFilter {

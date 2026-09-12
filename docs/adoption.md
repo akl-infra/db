@@ -446,9 +446,12 @@ creates — apply both to build the full local copy of a brand-new layout. Read 
 `/rev/{n}?format=<that format>` if you keep payloads, or just re-`GET` the
 record with `?format=` — `after` alone is enough to know *that* something
 changed and on which scope. `liked`/`unliked` move only `like_count` by ±1
-(layout-scope, no rev bump); everything else (`upstream_changed`,
-`import_conflict`, `admin.*`) is informational and changes nothing in your
-local copy.
+(layout-scope, no rev bump) -- `like_count` is never part of any event's
+own `after` either (a writer's own read of it can go stale; keep your own
+running tally from `liked`/`unliked` events alone if you mirror it, the
+same way `foldLayout` does server-side); everything else
+(`upstream_changed`, `import_conflict`, `admin.*`) is informational and
+changes nothing in your local copy.
 
 **SSE**: `GET /v1/changes/stream?since=&kinds=` is the same feed pushed
 instead of polled (needs the Workers Paid plan; `503 stream_unavailable`

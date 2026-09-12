@@ -147,29 +147,32 @@ interface FoldableEvent {
   after: EventSnapshot | null;
 }
 
-function withLikeDelta(l: EventSnapshot, delta: 1 | -1): EventSnapshot {
-  return l.scope === "layout" ? { ...l, like_count: l.like_count + delta } : l;
-}
-
-function foldMetaByLayout(events: FoldableEvent[]): Map<string, EventSnapshot> {
+// Coordinator review (LOW, third batch): `like_count` no longer lives on
+// any event's own `after` snapshot (core/events.ts's `LayoutSnapshot`) --
+// this test's own restricted layout-scope fold tracks it the same way the
+// real `foldLayout` now does, as a running tally kept OUTSIDE `state`
+// (never re-baked into a layout-scope event's own snapshot) and attached
+// to the stored per-layout result once at the end.
+function foldMetaByLayout(events: FoldableEvent[]): Map<string, EventSnapshot & { like_count: number }> {
   const byLayout = new Map<string, FoldableEvent[]>();
   for (const e of events) {
     if (e.layout_id === null) continue;
     if (!byLayout.has(e.layout_id)) byLayout.set(e.layout_id, []);
     byLayout.get(e.layout_id)!.push(e);
   }
-  const out = new Map<string, EventSnapshot>();
+  const out = new Map<string, EventSnapshot & { like_count: number }>();
   for (const [layoutId, evs] of byLayout) {
     evs.sort((a, b) => a.seq - b.seq);
     let state: EventSnapshot | null = null;
+    let likeCount = 0;
     for (const e of evs) {
       if (e.rev !== null && e.format === null) {
         state = e.after; // this test only tracks the LAYOUT scope's own state
       } else if (state !== null && (e.kind === "liked" || e.kind === "unliked")) {
-        state = withLikeDelta(state, e.kind === "liked" ? 1 : -1);
+        likeCount += e.kind === "liked" ? 1 : -1;
       }
     }
-    if (state !== null) out.set(layoutId, state);
+    if (state !== null) out.set(layoutId, { ...state, like_count: likeCount });
   }
   return out;
 }

@@ -328,9 +328,12 @@ re-fetch the whole corpus over the API. **Verify-then-serve:** if you cache
   `/v1/changes/stream` (or polling `since=`), applying `before`/`after`.
 - **Mirroring the whole DB.** `GET /v1/dump/latest.json` → fetch+gunzip the
   named object → load `records`/`likes`/`authors`/`events` → remember its
-  `seq` → `GET /v1/changes?since=<seq>` in a loop, applying each event's
-  `after` (or `like_count` deltas) to converge to the live head, then keep
-  following the feed or the stream.
+  `seq` → `GET /v1/changes?since=<seq>` in a loop, applying each rev-bumping
+  event's own `after` to converge to the live head. `like_count` is NOT
+  part of any event's `after` (a writer's own pre-read of it can go stale,
+  and a mirror reading it off an event would see a wrong, frozen count the
+  moment a like/unlike lands after) — keep your own running tally purely
+  from `liked`/`unliked` events instead, the same way `foldLayout` does.
 - **Publishing from a web app.** Discord OAuth the user server-side (never
   the browser), hold their token, proxy `POST`/`PATCH`/`PUT` through your
   backend with `Authorization: Bearer <their token>` — user lane, no client
