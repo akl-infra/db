@@ -1,12 +1,23 @@
 // [LDB-P1] [MF-1 = LDB-P16] [MF-2 = LDB-P17] [MF-3 = LDB-P18] [MF-5 = LDB-P19]
 // [MF-12 = LDB-I18] THE shared write model (21-formats.md §4): random
 // sequences of every §2.2 write kind -- user and import, both scopes (the
-// layout and two lineages, `spark` and the test-only stub `t/1`) -- driven
-// straight through `commitWrite` (this file stays at the pipeline level,
-// like `tests/events/races.test.ts` does for HTTP-level races). After each
+// layout and two lineages, `spark` and the test-only stub `t/1`). Coordinator
+// review (M3): every USER-lane op is driven through the REAL verb functions
+// in `core/write.ts` (`createLayout`, `putFormat` -- both the replace AND
+// the `If-None-Match: *` add path, `patchFormat` including a real
+// `fingermap` edit, `renameLayout`, `transferLayout`, `deleteLayout`,
+// `restoreLayout`), against a synthetic actor, `If-Match: *` throughout
+// (concurrency/If-Match-matching itself is `tests/events/races.test.ts`'s
+// [MF-6] and `tests/api/ifmatch.test.ts`'s [MF-11] job, not this file's) --
+// this exercises the verbs' own validation/chaining/edits/upstream logic,
+// not just `commitWrite`'s. Only the IMPORT-lane ops call `commitWrite`
+// directly, matching `import/apply.ts`'s own real code path (a system
+// writer, never routed through the HTTP verb functions). After each
 // sequence, for every touched layout:
 //   MF-1  every OTHER format's row is byte-equal before/after each step
-//         that didn't name it, and a layout-scope step changes no format
+//         that didn't name it, a layout-scope step changes no format row,
+//         AND no step ever creates a stray row in a lineage it didn't name
+//         (checked over the full row set, not just rows that pre-existed)
 //   MF-2  every rev-bumping event has exactly one scope; layout_revs.n is
 //         gapless per layout; each lineage's own rev is gapless from 1;
 //         layout_rev equals the layout-scope event count
@@ -18,10 +29,13 @@
 //         `nextUpstream`
 import { env } from "cloudflare:test";
 import type { Bindings } from "../../src/env";
+import type { Actor } from "../../src/auth/actor";
+import type { IfMatch, IfNoneMatch } from "../../src/core/ifmatch";
 import fc from "fast-check";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { commitWrite, foldLayout, rowToEvent, type CommitInput, type Event } from "../../src/core/events";
 import { formatsForLayout, readById, rowToFormat, rowToLayout, type FormatDbRow, type FormatRow, type LayoutDbRow, type LayoutRow, type Upstream } from "../../src/core/records";
+import { createLayout, deleteLayout, patchFormat, putFormat, renameLayout, restoreLayout, transferLayout } from "../../src/core/write";
 import { nextUpstream } from "../../src/core/upstream";
 import { steppingClock } from "../../src/core/time";
 import { registerForTest } from "../../formats/registry.ts";
@@ -29,6 +43,7 @@ import { T1 } from "../formats/stub-lineage.ts";
 import { ulid } from "ulidx";
 
 const db = (env as unknown as Bindings).DB;
+const bindings = env as unknown as Bindings;
 
 const unregister = registerForTest(T1); // the test-only SECOND stored lineage (21-formats.md §3 F2)
 afterAll(unregister);
@@ -41,7 +56,7 @@ function unique(): string {
   return `u${uniqueCounter++}`;
 }
 
-// -- The model's own state, kept in lockstep with what `commitWrite` is
+// -- The model's own state, kept in lockstep with what the real verbs are
 // actually told (this file applies every op strictly sequentially, so
 // there is never a real race between the model's bookkeeping and the DB
 // -- concurrency itself is `tests/events/races.test.ts`'s [MF-6] job). --
@@ -69,8 +84,31 @@ function freshSlot(): Slot {
   return { exists: false, deleted: false, id: "", name: "", owner: "", n: 0, layoutRev: 0, upstream: null, formats: new Map() };
 }
 
-const OWNER_A = "owner-a";
-const OWNER_B = "owner-b";
+// Snowflake-SHAPED (transferLayout's own TRANSFER_USER_ID_RE, now
+// actually exercised since this model drives the real verb).
+const OWNER_A = "800000000000000101";
+const OWNER_B = "800000000000000102";
+const STAR: IfMatch = { kind: "any" };
+const NO_IF_MATCH: IfMatch = { kind: "absent" };
+const ADD: IfNoneMatch = { kind: "any" };
+const NO_IF_NONE_MATCH: IfNoneMatch = { kind: "absent" };
+
+function actorFor(userId: string): Actor {
+  return { user_id: userId, name: `user-${userId}`, via: "discord", admin: false, source_client: "discord-app:test" };
+}
+
+// Coordinator review (M3): fingermap edits need an existing key to
+// retarget, so every spark payload the model ever creates keeps this ONE
+// key throughout -- unlike the old model's empty `{keys: {}}` seed, which
+// could never exercise a real `patchFormat` fingermap edit at all.
+const SPARK_SEED_PAYLOAD = { keys: { a: { row: 0, col: 0, finger: "LP" as const } } };
+
+beforeAll(async () => {
+  // transferLayout's own build() requires `to` to be a known author.
+  const now = new Date().toISOString();
+  await db.prepare("INSERT OR IGNORE INTO authors (user_id, name, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?)").bind(OWNER_A, "owner-a", now, now).run();
+  await db.prepare("INSERT OR IGNORE INTO authors (user_id, name, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?)").bind(OWNER_B, "owner-b", now, now).run();
+});
 
 type RawOp =
   | "create_user"
@@ -78,12 +116,14 @@ type RawOp =
   | "add_t"
   | "replace_spark"
   | "replace_t"
+  | "patch_fingermap_spark"
   | "rename"
   | "transfer"
   | "delete"
   | "restore"
   | "import_update_layout"
   | "import_update_spark"
+  | "import_update_both"
   | "import_delete"
   | "liked"
   | "unliked";
@@ -94,12 +134,14 @@ const ALL_OPS: RawOp[] = [
   "add_t",
   "replace_spark",
   "replace_t",
+  "patch_fingermap_spark",
   "rename",
   "transfer",
   "delete",
   "restore",
   "import_update_layout",
   "import_update_spark",
+  "import_update_both",
   "import_delete",
   "liked",
   "unliked",
@@ -111,13 +153,16 @@ function resolveOp(slot: Slot, raw: RawOp): RawOp | null {
   if (!slot.exists) return raw.startsWith("create_") ? raw : "create_user";
   if (slot.deleted) {
     if (raw === "restore") return "restore";
-    if (raw === "import_update_layout" || raw === "import_update_spark") return slot.upstream?.state === "following" ? null : null; // no writes to a tombstone's formats/layout other than restore
-    return "restore";
+    return "restore"; // no writes to a tombstone's formats/layout other than restore
   }
   if (raw === "create_user" || raw === "create_import" || raw === "restore") return null; // already live
   if (raw === "add_t" && slot.formats.has("t")) return "replace_t"; // already has it -- replace instead
   if (raw === "replace_t" && !slot.formats.has("t")) return "add_t";
-  if ((raw === "import_update_layout" || raw === "import_update_spark" || raw === "import_delete") && slot.upstream?.state !== "following") {
+  if (raw === "patch_fingermap_spark" && !slot.formats.has("spark")) return "replace_spark"; // unreachable in practice (every slot gets spark at create) but keep resolveOp total
+  if (
+    (raw === "import_update_layout" || raw === "import_update_spark" || raw === "import_update_both" || raw === "import_delete") &&
+    slot.upstream?.state !== "following"
+  ) {
     return "rename"; // not following -- import writes are meaningless here, substitute an ordinary user write
   }
   return raw;
@@ -141,25 +186,43 @@ async function applyOp(clock: () => string, slots: Slot[], op: Op): Promise<void
     return;
   }
 
-  if (action === "create_user" || action === "create_import") {
-    const isImport = action === "create_import";
+  if (action === "create_user") {
+    const name = `wm-${op.slotIdx}-${unique()}`;
+    const result = await createLayout(bindings, clock, actorFor(OWNER_A), { name, format: "spark/1", payload: SPARK_SEED_PAYLOAD }, null);
+    slot.exists = true;
+    slot.deleted = false;
+    slot.id = result.layout.id;
+    slot.name = result.layout.name;
+    slot.owner = result.layout.owner;
+    slot.n = result.layout.n;
+    slot.layoutRev = result.layout.layout_rev;
+    slot.upstream = result.layout.upstream;
+    const f = result.formats.get("spark")!;
+    slot.formats = new Map([["spark", { lineage: "spark", format: f.format, rev: f.rev, payload: f.payload }]]);
+    return;
+  }
+
+  if (action === "create_import") {
+    // The importer's own real code path never goes through the HTTP verb
+    // functions (`import/apply.ts` calls `commitWrite` directly, built
+    // from its own fresh read) -- matched here, not routed through
+    // `createLayout`.
     const name = `wm-${op.slotIdx}-${unique()}`;
     const owner = OWNER_A;
     const modified_at = clock();
-    const payload = { keys: {} };
-    const upstream: Upstream | null = isImport ? { source: "cmini", id: `up-${op.slotIdx}-${unique()}`, state: "following" } : null;
+    const upstream: Upstream = { source: "cmini", id: `up-${op.slotIdx}-${unique()}`, state: "following" };
     const input: CommitInput = {
       layoutId: ulid(),
       creating: true,
       currentN: 0,
       currentLayout: null,
       currentFormats: new Map(),
-      layout: { kind: isImport ? "imported" : "created", name, owner, created_at: modified_at, deleted: false },
-      format: { kind: isImport ? "imported" : "format_added", lineage: "spark", format: "spark/1", payload, hasMagic: false },
+      layout: { kind: "imported", name, owner, created_at: modified_at, deleted: false },
+      format: { kind: "imported", lineage: "spark", format: "spark/1", payload: SPARK_SEED_PAYLOAD, hasMagic: false },
       modified_at,
-      actor: isImport ? "system:cmini-import" : "tester",
-      via: isImport ? "import:cmini" : "discord",
-      source: isImport ? IMPORT_SOURCE : USER_SOURCE,
+      actor: "system:cmini-import",
+      via: "import:cmini",
+      source: IMPORT_SOURCE,
       upstream,
     };
     const result = await commitWrite(db, clock, input);
@@ -171,71 +234,119 @@ async function applyOp(clock: () => string, slots: Slot[], op: Op): Promise<void
     slot.n = result.layout.n;
     slot.layoutRev = result.layout.layout_rev;
     slot.upstream = result.layout.upstream;
-    slot.formats = new Map([["spark", { lineage: "spark", format: "spark/1", rev: 1, payload }]]);
+    const f = result.formats.get("spark")!;
+    slot.formats = new Map([["spark", { lineage: "spark", format: f.format, rev: f.rev, payload: f.payload }]]);
     return;
   }
 
-  const current = (await readById(db, slot.id))!;
-  const currentFormats = await formatsForLayout(db, slot.id);
+  // Coordinator review (mutation check, M3): MF-12 must be checked against
+  // an INDEPENDENT oracle, not against whatever the verb itself returned
+  // -- copying `result.layout.upstream` straight into the model would make
+  // the later `live!.upstream === slot.upstream` check a tautology (it
+  // would pass even if the real `touches` logic were broken, since both
+  // sides trace back to the same call). `expectUpstream` computes the
+  // SAME `nextUpstream` the pipeline calls, but from the model's own
+  // independent `via`/`touches` determination, and asserts the verb's own
+  // result matches it immediately (tight locality) as well as feeding
+  // `slot.upstream` from now on. Confirmed sensitive by temporarily
+  // hard-coding `touches = false` in both `putFormat` and `patchFormat`
+  // (core/write.ts) and re-running this file: the mutation goes red here
+  // (MF-12), reverted after -- see the F2 report for this session's note.
+  function expectUpstream(via: string, touches: boolean, result: { layout: { upstream: Upstream | null } }): Upstream | null {
+    const expected = nextUpstream(slot.upstream, via, touches);
+    expect(result.layout.upstream, `MF-12: nextUpstream(prior, '${via}', ${touches})`).toEqual(expected);
+    return expected;
+  }
 
-  if (action === "add_t" || action === "replace_spark" || action === "replace_t") {
-    const lineage = action === "add_t" ? "t" : action === "replace_spark" ? "spark" : "t";
-    const format = lineage === "spark" ? "spark/1" : "t/1";
-    const payload = lineage === "spark" ? { keys: {}, magic: { notes: unique() } } : { a: uniqueCounter++ };
-    const touches = lineage === "spark";
-    const upstream = nextUpstream(current.upstream, "discord", touches);
-    const input: CommitInput = {
-      layoutId: slot.id,
-      creating: false,
-      currentN: current.n,
-      currentLayout: current,
-      currentFormats,
-      format: { kind: action === "add_t" ? "format_added" : "updated", lineage, format, payload, hasMagic: false },
-      modified_at: clock(),
-      actor: "tester",
-      via: "discord",
-      source: USER_SOURCE,
-      upstream,
-    };
-    const result = await commitWrite(db, clock, input);
+  if (action === "add_t") {
+    const result = await putFormat(bindings, clock, actorFor(slot.owner), slot.id, { format: "t/1", payload: { a: uniqueCounter++ } }, NO_IF_MATCH, ADD, null);
     slot.n = result.layout.n;
-    slot.upstream = result.layout.upstream;
+    slot.upstream = expectUpstream("discord", false, result);
+    const f = result.formats.get("t")!;
+    slot.formats.set("t", { lineage: "t", format: f.format, rev: f.rev, payload: f.payload });
+    return;
+  }
+
+  if (action === "replace_spark" || action === "replace_t") {
+    const lineage = action === "replace_spark" ? "spark" : "t";
+    const format = lineage === "spark" ? "spark/1" : "t/1";
+    const payload = lineage === "spark" ? { ...SPARK_SEED_PAYLOAD, magic: { notes: unique() } } : { a: uniqueCounter++ };
+    const result = await putFormat(bindings, clock, actorFor(slot.owner), slot.id, { format, payload }, STAR, NO_IF_NONE_MATCH, null);
+    slot.n = result.layout.n;
+    slot.upstream = expectUpstream("discord", lineage === "spark", result);
     const f = result.formats.get(lineage)!;
     slot.formats.set(lineage, { lineage, format: f.format, rev: f.rev, payload: f.payload });
     return;
   }
 
-  if (action === "rename" || action === "transfer" || action === "delete" || action === "restore") {
-    const kind = action === "rename" ? "renamed" : action === "transfer" ? "transferred" : action === "delete" ? "deleted" : "restored";
-    const name = action === "rename" ? `wm-${op.slotIdx}-${unique()}` : slot.name;
-    const owner = action === "transfer" ? (slot.owner === OWNER_A ? OWNER_B : OWNER_A) : slot.owner;
-    const deleted = action === "delete";
-    const upstream = nextUpstream(current.upstream, "discord", true);
-    const input: CommitInput = {
-      layoutId: slot.id,
-      creating: false,
-      currentN: current.n,
-      currentLayout: current,
-      currentFormats,
-      layout: { kind, name, owner, created_at: current.created_at, deleted: action === "restore" ? false : deleted },
-      modified_at: clock(),
-      actor: "tester",
-      via: "discord",
-      source: USER_SOURCE,
-      upstream,
-    };
-    const result = await commitWrite(db, clock, input);
+  if (action === "patch_fingermap_spark") {
+    // Coordinator review (M3): a real `patchFormat` fingermap edit, not
+    // just `putFormat`'s whole-payload replace -- exercises the edits
+    // pipeline (`module.edits.setFingermap`) through the real verb.
+    const finger = (["LP", "LR", "LM", "LI"] as const)[uniqueCounter++ % 4]!;
+    const result = await patchFormat(bindings, clock, actorFor(slot.owner), slot.id, "spark/1", { fingermap: { a: finger } }, STAR, null);
+    slot.n = result.layout.n;
+    slot.upstream = expectUpstream("discord", true, result);
+    const f = result.formats.get("spark")!;
+    slot.formats.set("spark", { lineage: "spark", format: f.format, rev: f.rev, payload: f.payload });
+    return;
+  }
+
+  if (action === "rename") {
+    const name = `wm-${op.slotIdx}-${unique()}`;
+    const result = await renameLayout(bindings, clock, actorFor(slot.owner), slot.id, name, STAR, null);
     slot.n = result.layout.n;
     slot.layoutRev = result.layout.layout_rev;
     slot.name = result.layout.name;
     slot.owner = result.layout.owner;
     slot.deleted = result.layout.deleted;
-    slot.upstream = result.layout.upstream;
+    slot.upstream = expectUpstream("discord", true, result);
     return;
   }
 
-  if (action === "import_update_layout" || action === "import_update_spark" || action === "import_delete") {
+  if (action === "transfer") {
+    const to = slot.owner === OWNER_A ? OWNER_B : OWNER_A;
+    const result = await transferLayout(bindings, clock, actorFor(slot.owner), slot.id, { to }, STAR, null);
+    slot.n = result.layout.n;
+    slot.layoutRev = result.layout.layout_rev;
+    slot.name = result.layout.name;
+    slot.owner = result.layout.owner;
+    slot.deleted = result.layout.deleted;
+    slot.upstream = expectUpstream("discord", true, result);
+    return;
+  }
+
+  if (action === "delete") {
+    const result = await deleteLayout(bindings, clock, actorFor(slot.owner), slot.id, STAR, null);
+    slot.n = result.layout.n;
+    slot.layoutRev = result.layout.layout_rev;
+    slot.name = result.layout.name;
+    slot.owner = result.layout.owner;
+    slot.deleted = result.layout.deleted;
+    slot.upstream = expectUpstream("discord", true, result);
+    return;
+  }
+
+  if (action === "restore") {
+    const result = await restoreLayout(bindings, clock, actorFor(slot.owner), slot.id, {}, null);
+    slot.n = result.layout.n;
+    slot.layoutRev = result.layout.layout_rev;
+    slot.name = result.layout.name;
+    slot.owner = result.layout.owner;
+    slot.deleted = result.layout.deleted;
+    slot.upstream = expectUpstream("discord", true, result);
+    return;
+  }
+
+  // -- Import-lane ops below: real `commitWrite` calls, matching
+  // `import/apply.ts`'s own code path (never the HTTP verb functions). --
+  const current = (await readById(db, slot.id))!;
+  const currentFormats = await formatsForLayout(db, slot.id);
+
+  if (action === "import_update_layout" || action === "import_update_spark" || action === "import_update_both" || action === "import_delete") {
     const upstream = nextUpstream(current.upstream, "import:cmini", true);
+    const layoutPart = { kind: "imported" as const, name: `wm-${op.slotIdx}-${unique()}`, owner: current.owner, created_at: current.created_at, deleted: false };
+    const formatPart = { kind: "imported" as const, lineage: "spark", format: "spark/1", payload: { ...SPARK_SEED_PAYLOAD, magic: { notes: unique() } }, hasMagic: false };
     const input: CommitInput =
       action === "import_delete"
         ? {
@@ -258,26 +369,46 @@ async function applyOp(clock: () => string, slots: Slot[], op: Op): Promise<void
               currentN: current.n,
               currentLayout: current,
               currentFormats,
-              layout: { kind: "imported", name: `wm-${op.slotIdx}-${unique()}`, owner: current.owner, created_at: current.created_at, deleted: false },
+              layout: layoutPart,
               modified_at: clock(),
               actor: "system:cmini-import",
               via: "import:cmini",
               source: IMPORT_SOURCE,
               upstream,
             }
-          : {
-              layoutId: slot.id,
-              creating: false,
-              currentN: current.n,
-              currentLayout: current,
-              currentFormats,
-              format: { kind: "imported", lineage: "spark", format: "spark/1", payload: { keys: {}, magic: { notes: unique() } }, hasMagic: false },
-              modified_at: clock(),
-              actor: "system:cmini-import",
-              via: "import:cmini",
-              source: IMPORT_SOURCE,
-              upstream,
-            };
+          : action === "import_update_spark"
+            ? {
+                layoutId: slot.id,
+                creating: false,
+                currentN: current.n,
+                currentLayout: current,
+                currentFormats,
+                format: formatPart,
+                modified_at: clock(),
+                actor: "system:cmini-import",
+                via: "import:cmini",
+                source: IMPORT_SOURCE,
+                upstream,
+              }
+            : {
+                // Coordinator review (M3): "an import update that changes
+                // BOTH scopes in one batch" -- mirrors `import/apply.ts`'s
+                // own `applyMapped` case (a name change AND a payload
+                // change in the SAME upstream tick), one event per scope,
+                // one batch.
+                layoutId: slot.id,
+                creating: false,
+                currentN: current.n,
+                currentLayout: current,
+                currentFormats,
+                layout: layoutPart,
+                format: formatPart,
+                modified_at: clock(),
+                actor: "system:cmini-import",
+                via: "import:cmini",
+                source: IMPORT_SOURCE,
+                upstream,
+              };
     const result = await commitWrite(db, clock, input);
     slot.n = result.layout.n;
     slot.layoutRev = result.layout.layout_rev;
@@ -285,7 +416,7 @@ async function applyOp(clock: () => string, slots: Slot[], op: Op): Promise<void
     slot.owner = result.layout.owner;
     slot.deleted = result.layout.deleted;
     slot.upstream = result.layout.upstream;
-    if (action === "import_update_spark") {
+    if (action === "import_update_spark" || action === "import_update_both") {
       const f = result.formats.get("spark")!;
       slot.formats.set("spark", { lineage: "spark", format: f.format, rev: f.rev, payload: f.payload });
     }
@@ -352,7 +483,7 @@ async function checkLayoutInvariants(layoutId: string): Promise<void> {
 }
 
 describe("[LDB-P1] [MF-1] [MF-2] [MF-3] [MF-5] [MF-12] the shared write model", () => {
-  it("[LDB-P16] [LDB-P17] [LDB-P18] [LDB-P19] [LDB-I18] random write sequences over the layout scope and two lineages fold correctly, one format never touching another, and upstream forking exactly per lineage", async () => {
+  it("[LDB-P16] [LDB-P17] [LDB-P18] [LDB-P19] [LDB-I18] random write sequences over the layout scope and two lineages fold correctly, one format never touching another (not even a stray new row), and upstream forking exactly per lineage", async () => {
     const clock = steppingClock("2026-01-01T00:00:00.000Z", 1000);
 
     const opArb = fc.record({
@@ -367,22 +498,46 @@ describe("[LDB-P1] [MF-1] [MF-2] [MF-3] [MF-5] [MF-12] the shared write model", 
 
         for (const op of ops) {
           const slot = slots[op.slotIdx]!;
-          // MF-1: snapshot every OTHER format's row before the op, verify
-          // untouched after -- run inline (not a separate pass) so it
-          // covers every step, not just the final state.
-          const before = slot.exists ? await formatsForLayout(db, slot.id) : new Map<string, FormatRow>();
+          // MF-1: snapshot EVERY format row before the op, verify after
+          // that (a) every row untouched by this op is byte-equal, and
+          // (b) no NEW row appeared in a lineage this op didn't name --
+          // run inline (not a separate pass) so it covers every step, not
+          // just the final state.
+          const existedBefore = slot.exists;
+          const before = existedBefore ? await formatsForLayout(db, slot.id) : new Map<string, FormatRow>();
           const resolved = resolveOp(slot, op.raw);
           await applyOp(clock, slots, op);
-          if (slot.exists && resolved !== null) {
+          // A create (`resolved` starts with "create_") populates the
+          // layout's very first format row(s) from nothing -- there is no
+          // "before" to compare against and no "touched lineage" concept
+          // that applies to it, so the untouched/stray-row checks below
+          // only make sense for a slot that already existed.
+          if (existedBefore && resolved !== null) {
             const after = await formatsForLayout(db, slot.id);
-            const touchedLineage =
-              resolved === "add_t" || resolved === "replace_t" ? "t" : resolved === "replace_spark" || resolved === "import_update_spark" ? "spark" : null;
+            const touchedLineages =
+              resolved === "add_t" || resolved === "replace_t"
+                ? ["t"]
+                : resolved === "replace_spark" || resolved === "patch_fingermap_spark" || resolved === "import_update_spark"
+                  ? ["spark"]
+                  : resolved === "import_update_both"
+                    ? ["spark"]
+                    : [];
             for (const [lin, row] of before) {
-              if (lin === touchedLineage) continue;
+              if (touchedLineages.includes(lin)) continue;
               expect(after.get(lin), `lineage '${lin}' untouched by a '${resolved}' on slot ${op.slotIdx}`).toEqual(row);
             }
+            // MF-1, the "stray row" half: `after` must never gain a
+            // lineage `before` didn't have, other than the one(s) this
+            // step actually named (add_t is the only step allowed to grow
+            // the set at all).
+            const beforeLineages = new Set(before.keys());
+            const allowedNew = resolved === "add_t" ? new Set(["t"]) : new Set<string>();
+            for (const lin of after.keys()) {
+              if (beforeLineages.has(lin)) continue;
+              expect(allowedNew.has(lin), `a '${resolved}' on slot ${op.slotIdx} created a STRAY new row in lineage '${lin}'`).toBe(true);
+            }
             // A pure layout-scope write changes NO format row at all.
-            if (touchedLineage === null && ["rename", "transfer", "delete", "restore", "import_update_layout", "import_delete"].includes(resolved)) {
+            if (touchedLineages.length === 0 && ["rename", "transfer", "delete", "restore", "import_update_layout", "import_delete"].includes(resolved)) {
               expect(after).toEqual(before);
             }
           }
@@ -392,9 +547,9 @@ describe("[LDB-P1] [MF-1] [MF-2] [MF-3] [MF-5] [MF-12] the shared write model", 
           if (!slot.exists) continue;
           await checkLayoutInvariants(slot.id);
 
-          // MF-12: the model's own `upstream` bookkeeping (built via the
-          // SAME `nextUpstream` the write pipeline uses) must equal the
-          // live row -- in particular, every `t`-lineage write left
+          // MF-12: the model's own `upstream` bookkeeping (tracked off
+          // each verb/commitWrite call's own returned layout) must equal
+          // the live row -- in particular, every `t`-lineage write left
           // `upstream` byte-identical to what it was before that write.
           const live = await readById(db, slot.id);
           expect(live!.upstream).toEqual(slot.upstream);
