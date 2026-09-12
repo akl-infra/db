@@ -89,8 +89,22 @@ First measurement caught the **fallback**: the loop's first request went out bef
 - RSS 640–700 MB at rest with the first-boot sweep running (35% of 1,968 MB); the sweep uses ~23% of one core at the default idle gap.
 - The first-boot cell sweep (4,177 layouts × 39 cells in wasm, table-major) and the publisher's first CLI pass (4,177 × 108 cells) both run in the background; the bot answered within budget throughout (harness runs happened during them).
 
+## 7b · Shared CPU: the burst budget is real
+
+Fly's `shared-cpu` tier lends a full core in bursts and throttles to a small baseline under sustained load. Measured on the publisher's first backlog pass (2 vCPU, CLI at `--jobs 2`, wasm sweep paused):
+
+| minute after boot | native compute per layout (108 cells) |
+|---|---|
+| 0–1 | 1.6–2.2 s (28 layouts) |
+| 2–12 | 22–31 s, one at 251 s |
+
+A pure-CPU probe inside the machine during that stretch ran at **1/14th** of the laptop's single-core speed (200 M vs 2.78 B loop iterations in 2 s). At the throttled rate the 4,177-layout backlog is ~1.2 days instead of ~2.2 hours, and — the part that matters for R2 — any wasm compute a command needs is slowed the same way while the publisher is busy. Steady state (single-digit edits a minute) fits inside the burst; a backlog does not.
+
+Options, in order of preference: run the machine as `performance-1x` (dedicated core, ~$31/mo, 2 GB) at least during the first pass and any full rebuild, and decide from the `/health.latency` histogram whether to keep it; or leave `shared-cpu-2x` and accept a day-long first pass with degraded bot compute during it. This is the data the proposal said the machine decision should wait for.
+
 ## 8 · What to change (round 1)
 
 1. Nothing blocks the requirements. Two real defects were found by measuring and fixed today: the long-poll actor before login, and the two boot hangs.
-2. Round 2 (after the first CLI pass finishes): read `/health.latency` after a day of real commands; `feed_wake_ms` under long-poll; publisher `published overlay` timings for a plain and a magic layout; `flyctl` CPU/memory over 24 h. Then decide the machine size with data (the shared-cpu-2x is holding so far).
-3. Add the harness run to CI as a nightly against prod layoutdb with `--author` = a dedicated test user, so the numbers above are tracked, not one-off.
+2. Machine: see §7b — recommend `performance-1x` for the backlog pass; keep or revert with round-2 data.
+3. Round 2 (after the first CLI pass finishes): read `/health.latency` after a day of real commands; `feed_wake_ms` under long-poll; publisher `published overlay` timings for a plain and a magic layout; `flyctl` CPU/memory over 24 h. Then decide the machine size with data (the shared-cpu-2x is holding so far).
+4. Add the harness run to CI as a nightly against prod layoutdb with `--author` = a dedicated test user, so the numbers above are tracked, not one-off.
