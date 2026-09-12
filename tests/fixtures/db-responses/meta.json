@@ -10,5 +10,18 @@
   "spark/1",
   "mana2/1"
  ],
- "last_diff": null
+ "last_diff": null,
+ "health": {
+  "dump": {
+   "last_at": null,
+   "seq": null,
+   "age_s": null,
+   "stale": true
+  },
+  "diff": {
+   "last_at": null,
+   "age_s": null,
+   "stale": true
+  }
+ }
 }

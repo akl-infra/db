@@ -28,6 +28,12 @@ describe("GET /v1/meta", () => {
       // X4 (12 §3 X4): {at, ok} | null off import_state's 'cmini.last_diff'
       // row -- it doesn't exist before a diff tick has ever run.
       last_diff: null,
+      // LDB-M2: neither the dump nor the diff has ever run -- `stale: true`
+      // is the "never run" case, not just "old".
+      health: {
+        dump: { last_at: null, seq: null, age_s: null, stale: true },
+        diff: { last_at: null, age_s: null, stale: true },
+      },
     });
   });
 
@@ -68,5 +74,76 @@ describe("GET /v1/meta", () => {
     const eventRow = await db.prepare("SELECT MAX(seq) AS seq, MAX(at) AS at FROM events").first<{ seq: number; at: string }>();
     expect(body.seq).toBe(eventRow!.seq);
     expect(body.revision).toBe(eventRow!.at);
+  });
+});
+
+// LDB-M2: `health.dump`/`health.diff` -- real wall-clock arithmetic
+// (`/v1/index.ts`'s `/v1/meta` route always reads `authDeps.now` ==
+// `systemClock`, never `TEST_CLOCK`), so these seed `import_state` rows at
+// a fixed OFFSET from `Date.now()` rather than a fixed date.
+describe("[LDB-M2] GET /v1/meta health", () => {
+  async function setImportState(key: string, value: unknown): Promise<void> {
+    await db
+      .prepare("INSERT INTO import_state (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+      .bind(key, JSON.stringify(value))
+      .run();
+  }
+
+  // `health` is deliberately NOT part of the ETag (`src/index.ts`'s own
+  // comment) -- these tests seed `import_state` and re-fetch WITHOUT
+  // touching `seq`/`authors`/`last_diff`/`last_drill`/formats, so the ETag
+  // is identical across sub-tests in this describe and `caches.default`
+  // would otherwise hand back a PRIOR test's cached body (same ETag, same
+  // request URL). A unique query string per call defeats that cache
+  // lookup (`conditional()` matches by the whole request, query included)
+  // without needing any cache-busting machinery in the route itself.
+  let metaCallN = 0;
+  async function fetchMeta(): Promise<Response> {
+    metaCallN++;
+    return SELF.fetch(`https://example.com/v1/meta?_health_test=${metaCallN}`);
+  }
+
+  it("[LDB-M2] a recent dump/diff report stale:false with the recorded seq and a small age_s", async () => {
+    const at = new Date(Date.now() - 60_000).toISOString(); // 1 minute ago
+    await setImportState("dump.last_at", { at, seq: 42, key: "dump-2026-01-01.json.gz" });
+    await setImportState("cmini.last_diff", { at, ok: true });
+
+    const body = await (await fetchMeta()).json<{
+      health: { dump: { last_at: string; seq: number; age_s: number; stale: boolean }; diff: { last_at: string; age_s: number; stale: boolean } };
+    }>();
+
+    expect(body.health.dump.last_at).toBe(at);
+    expect(body.health.dump.seq).toBe(42);
+    expect(body.health.dump.stale).toBe(false);
+    expect(body.health.dump.age_s).toBeGreaterThanOrEqual(60);
+    expect(body.health.dump.age_s).toBeLessThan(120);
+
+    expect(body.health.diff.last_at).toBe(at);
+    expect(body.health.diff.stale).toBe(false);
+    expect(body.health.diff.age_s).toBeGreaterThanOrEqual(60);
+  });
+
+  it("[LDB-M2] a dump/diff older than 48h reports stale:true", async () => {
+    const at = new Date(Date.now() - 49 * 3600 * 1000).toISOString(); // 49h ago
+    await setImportState("dump.last_at", { at, seq: 7, key: "dump-old.json.gz" });
+    await setImportState("cmini.last_diff", { at, ok: true });
+
+    const body = await (await fetchMeta()).json<{
+      health: { dump: { stale: boolean }; diff: { stale: boolean } };
+    }>();
+
+    expect(body.health.dump.stale).toBe(true);
+    expect(body.health.diff.stale).toBe(true);
+  });
+
+  it("[LDB-M2] just under 48h old is not yet stale", async () => {
+    // Comfortably short of the 48h line (not an exact-boundary comparison,
+    // which would be flaky against the real clock `/v1/meta` reads) --
+    // proves `stale` isn't tripping early.
+    const at = new Date(Date.now() - 47.5 * 3600 * 1000).toISOString();
+    await setImportState("dump.last_at", { at, seq: 1, key: "dump-boundary.json.gz" });
+
+    const body = await (await fetchMeta()).json<{ health: { dump: { stale: boolean } } }>();
+    expect(body.health.dump.stale).toBe(false);
   });
 });
