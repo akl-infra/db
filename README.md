@@ -233,6 +233,77 @@ catch up at once has the dump's own snapshot already reflect the diff's
 fresh state rather than being one write behind it. `GET /v1/meta.health`
 (below) surfaces both records' staleness for monitoring.
 
+## Rogue trusted client
+
+A client registered `act-as-user` (§1.1 of `docs/adoption.md`) can assert
+*any* Discord user's identity -- that trust is the client's to keep, and
+the layer below assumes it's kept. saltorbit, 2026-09-13: "do we have recourse
+if [a trusted client] crashes out and abuses their trusted powers to wipe
+everything?" Two layers of recourse exist; work through them in order.
+
+**0. Automatic backstop, before you do anything.** Every registered
+client's DESTRUCTIVE writes (delete, rename, transfer, a format
+replacement via `PUT`/`PATCH` on an EXISTING record, clearing an approved
+link -- never a create, a like, or a format ADD) are counted against a
+rolling 1-hour budget, `max(200, 5% of the live catalog)`
+(`src/core/destructive-budget.ts`). A client that blows through it is
+auto-suspended (`clients.status = 'suspended'`, distinct from `revoked`):
+every further request from it -- reads included -- gets `403
+client_suspended` from the moment it trips, and the trip itself is a
+public, `admin`-kind event (`admin.client_suspended`, actor
+`system:budget-guard`) on `GET /admin/changelog`. This bounds a rogue
+client's worst case to a small slice of the catalog per hour instead of
+the whole thing in the ~10 minutes `CLIENT_LIMIT` (`src/auth/
+ratelimit.ts`, 5000 writes/10min) would otherwise allow -- but it is a
+backstop, not a substitute for the steps below: it does nothing about
+damage already done before it tripped, and a client causing damage slowly
+enough (or spread across many hours) never trips it at all.
+
+**1. Detect.** `GET /v1/meta`'s `health.clients.suspended` lists anyone
+currently auto-suspended (`{id, name, at, reason}`) -- check this first,
+it costs nothing. Otherwise, the existing revocation story
+(`docs/adoption.md` §1.1/§2.1) still applies: every write is permanently
+attributed to its client id on `GET /admin/changes`/`GET
+/admin/changelog`, so a client behaving badly is one query away
+(`?actor=` or eyeballing `source.client` on the feed).
+
+**2. Suspend or revoke.** If it's not already auto-suspended,
+`POST /v1/admin/clients/{id}/suspend` (admin lane, optional `{reason}`)
+stops it immediately without losing the registration -- prefer this over
+`DELETE /v1/admin/clients/{id}` (revoke) whenever you expect to want it
+back: revoke is **terminal** (an admin can never move a revoked client to
+`suspended` or `active` again; re-onboarding needs a fresh registration,
+a new key). Either way, `clients.status` is read fresh on every request
+(LDB-A9/LDB-A11) -- no cache window.
+
+**3. Dry-run the damage.** `POST /v1/admin/clients/{id}/revert
+{"since": "<ISO timestamp>", "dry_run": true}` walks every destructive
+write that client made at/after `since` and reports, per event, what it
+WOULD do: `reverted` (safe to undo), `skipped_no_op` (already back to
+that state), or `skipped_newer_write_by_other` (someone else's later,
+legitimate edit sits on top of it -- never touched). Nothing is written.
+Read the plan before acting on it.
+
+**4. Revert.** The same call with `dry_run: false` (or omitted) actually
+undoes it: a tombstone restored, a rename/transfer undone, a format
+payload rolled back to its prior `layout_revs` row **as a new revision**
+(history is never rewritten -- every payload that ever existed stays
+findable at its own rev), a cleared link restored. Bounded per call (a
+`next` cursor -- keep calling with it until `next` is `null`); idempotent
+(running it again reverts nothing new, so it's safe to retry or to run
+opportunistically); every reverted write is its own event, attributed to
+`system:revert` and naming the admin and the original event's `seq`, so
+the revert itself is on the public changelog too.
+
+**5. Last resort: restore from backup.** If the damage predates your
+`since` window, or predates the client's own registration somehow, or
+`revert` can't reach it (an OTHER actor's later write blocked it, and
+that write itself needs undoing by hand) -- the nightly R2 dump
+(`GET /v1/dump/latest.json`, "Rehost procedure" below) is the full event
+log and every table, gzipped, off the account. `tests/rehost.test.ts` runs
+this exact restore path daily against the real deployed dump, so it is
+never a cold, untested path when you actually need it.
+
 ## Rehost procedure
 
 Every night, at the `hour=3, minute=0` slot of the one `*/5 * * * *` cron
