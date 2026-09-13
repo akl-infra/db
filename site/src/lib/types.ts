@@ -134,3 +134,43 @@ export interface ApiErrorBody {
   message?: string;
   [k: string]: unknown;
 }
+
+// ── Moderation (L5, db/docs/adoption.md §10) ─────────────────────────────
+
+export interface BanRow {
+  user_id: string;
+  name: string | null; // joined from authors, not stored
+  by: string;
+  at: string;
+  reason: string | null;
+}
+
+export type LinkSubmissionStatus = "pending" | "approved" | "rejected" | "superseded";
+
+export interface LinkSubmission {
+  id: string;
+  layout_id: string;
+  url: string;
+  submitted_by: string;
+  submitted_at: string;
+  status: LinkSubmissionStatus;
+  decided_by: string | null;
+  decided_at: string | null;
+  reason: string | null;
+}
+
+export interface AdminRow {
+  user_id: string;
+  added_by: string | null;
+  added_at: string;
+  note: string | null;
+}
+
+/** Any of these responses MAY carry a `seq` for the event they just
+ * appended -- none observed in the live routes do today (every admin/owner
+ * route's response is a row/record shape, not the raw event), but the
+ * plan asks the UI to show one when present, so every action result is
+ * read through this rather than assumed absent. */
+export interface MaybeSeq {
+  seq?: number;
+}

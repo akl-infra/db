@@ -3,9 +3,12 @@
 // request (the CSRF header server/proxy.ts checks) and centralizes error
 // shape handling so every page/component gets the same `ApiResult`.
 import type {
+  AdminRow,
   Author,
+  BanRow,
   ChangesPage,
   LayoutRecord,
+  LinkSubmission,
   MeResponse,
 } from "./lib/types.ts";
 
@@ -150,10 +153,10 @@ export function transferLayout(ref: string, to: string, ifMatch: string): Promis
     body: JSON.stringify({ to }),
   });
 }
-export function getLink(ref: string): Promise<ApiResult<{ link: string | null; pending: unknown }>> {
+export function getLink(ref: string): Promise<ApiResult<{ link: string | null; pending: LinkSubmission | null }>> {
   return request(`/api/v1/layouts/${encodeURIComponent(ref)}/link`);
 }
-export function submitLink(ref: string, url: string): Promise<ApiResult<unknown>> {
+export function submitLink(ref: string, url: string): Promise<ApiResult<{ link: string } | { submission: LinkSubmission }>> {
   return request(`/api/v1/layouts/${encodeURIComponent(ref)}/link`, { method: "PUT", body: JSON.stringify({ url }) });
 }
 export function clearLink(ref: string): Promise<ApiResult<{ link: null }>> {
@@ -162,10 +165,10 @@ export function clearLink(ref: string): Promise<ApiResult<{ link: null }>> {
 
 // ── Admin-only (W1b UI, §4 contract) ─────────────────────────────────────
 
-export function adminListBans(): Promise<ApiResult<{ bans: unknown[] }>> {
+export function adminListBans(): Promise<ApiResult<{ bans: BanRow[] }>> {
   return request("/api/v1/admin/bans");
 }
-export function adminBanUser(userId: string, reason?: string): Promise<ApiResult<unknown>> {
+export function adminBanUser(userId: string, reason?: string): Promise<ApiResult<BanRow>> {
   return request(`/api/v1/admin/bans/${encodeURIComponent(userId)}`, {
     method: "PUT",
     body: JSON.stringify({ reason }),
@@ -174,7 +177,7 @@ export function adminBanUser(userId: string, reason?: string): Promise<ApiResult
 export function adminUnbanUser(userId: string): Promise<ApiResult<{ unbanned: string }>> {
   return request(`/api/v1/admin/bans/${encodeURIComponent(userId)}`, { method: "DELETE" });
 }
-export function adminSetLikes(ref: string, count: number): Promise<ApiResult<{ like_count: number }>> {
+export function adminSetLikes(ref: string, count: number): Promise<ApiResult<{ like_count: number; like_rows: number; like_adjust: number }>> {
   return request(`/api/v1/admin/layouts/${encodeURIComponent(ref)}/likes`, {
     method: "PUT",
     body: JSON.stringify({ count }),
@@ -186,36 +189,36 @@ export function adminSetAuthorName(userId: string, name: string): Promise<ApiRes
     body: JSON.stringify({ name }),
   });
 }
-export function adminLinkQueue(status = "pending"): Promise<ApiResult<{ submissions: unknown[] }>> {
+export function adminLinkQueue(status = "pending"): Promise<ApiResult<{ submissions: LinkSubmission[] }>> {
   return request(`/api/v1/admin/link-queue?status=${encodeURIComponent(status)}`);
 }
-export function adminApproveLink(id: string): Promise<ApiResult<{ link: string }>> {
+export function adminApproveLink(id: string): Promise<ApiResult<{ link: string | null }>> {
   return request(`/api/v1/admin/link-queue/${encodeURIComponent(id)}/approve`, { method: "POST" });
 }
-export function adminRejectLink(id: string, reason?: string): Promise<ApiResult<unknown>> {
+export function adminRejectLink(id: string, reason?: string): Promise<ApiResult<{ submission: LinkSubmission }>> {
   return request(`/api/v1/admin/link-queue/${encodeURIComponent(id)}/reject`, {
     method: "POST",
     body: JSON.stringify({ reason }),
   });
 }
-export function adminListAdmins(): Promise<ApiResult<unknown[]>> {
+export function adminListAdmins(): Promise<ApiResult<AdminRow[]>> {
   return request("/api/v1/admin/admins");
 }
-export function adminAddAdmin(userId: string, note?: string): Promise<ApiResult<unknown>> {
+export function adminAddAdmin(userId: string, note?: string): Promise<ApiResult<AdminRow>> {
   return request("/api/v1/admin/admins", { method: "POST", body: JSON.stringify({ user_id: userId, note }) });
 }
-export function adminRemoveAdmin(userId: string): Promise<ApiResult<unknown>> {
+export function adminRemoveAdmin(userId: string): Promise<ApiResult<{ removed: string }>> {
   return request(`/api/v1/admin/admins/${encodeURIComponent(userId)}`, { method: "DELETE" });
 }
-export function adminImportPause(): Promise<ApiResult<unknown>> {
+export function adminImportPause(): Promise<ApiResult<{ paused: boolean }>> {
   return request("/api/v1/admin/import/pause", { method: "POST" });
 }
-export function adminImportResume(): Promise<ApiResult<unknown>> {
+export function adminImportResume(): Promise<ApiResult<{ paused: boolean }>> {
   return request("/api/v1/admin/import/resume", { method: "POST" });
 }
-export function adminImportTick(): Promise<ApiResult<unknown>> {
+export function adminImportTick(): Promise<ApiResult<{ ran: boolean; [k: string]: unknown }>> {
   return request("/api/v1/admin/import/tick", { method: "POST" });
 }
-export function adminHealth(): Promise<ApiResult<unknown>> {
+export function adminHealth(): Promise<ApiResult<Record<string, unknown>>> {
   return request("/api/v1/admin/health");
 }
