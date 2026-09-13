@@ -81,7 +81,6 @@ describe("[SITE-14] If-Match is never sent on like, link, or any admin route", (
       () => api.adminListBans(),
       () => api.adminBanUser("u1", "reason"),
       () => api.adminUnbanUser("u1"),
-      () => api.adminSetLikes("ref", 3),
       () => api.adminSetAuthorName("u1", "name"),
       () => api.adminLinkQueue("pending"),
       () => api.adminApproveLink("id1"),

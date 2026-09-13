@@ -75,8 +75,6 @@ export const copy = {
     linkPending: (url: string) => `Pending review: ${url}`,
     linkQueued: "Submitted -- an admin will review this link",
     linkSetImmediately: "Link approved immediately (admin action)",
-    setLikes: "Set likes",
-    setLikesPrompt: "New like count",
     confirm: "Confirm",
     cancel: "Cancel",
     staleNotice: "This record changed since it was loaded here",

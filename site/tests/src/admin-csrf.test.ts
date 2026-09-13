@@ -35,7 +35,6 @@ describe("[SITE-13] every admin* mutation targets /api/v1/admin/* with the CSRF 
   const mutations: Array<[string, () => Promise<unknown>]> = [
     ["adminBanUser", () => api.adminBanUser("u1", "reason")],
     ["adminUnbanUser", () => api.adminUnbanUser("u1")],
-    ["adminSetLikes", () => api.adminSetLikes("ref", 3)],
     ["adminSetAuthorName", () => api.adminSetAuthorName("u1", "name")],
     ["adminApproveLink", () => api.adminApproveLink("id1")],
     ["adminRejectLink", () => api.adminRejectLink("id1", "reason")],

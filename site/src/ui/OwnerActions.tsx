@@ -12,7 +12,6 @@ import {
   transferLayout,
   unlikeLayout,
 } from "../api.ts";
-import { adminSetLikes } from "../api.ts";
 import type { ApiResult } from "../api.ts";
 import type { LayoutRecord, LinkSubmission } from "../lib/types.ts";
 import { createAsync } from "../lib/asyncData.ts";
@@ -29,7 +28,7 @@ const OwnerActions: Component<{
   layout: LayoutRecord;
   liked: boolean | undefined; // undefined = not signed in, or not yet known
   canManage: boolean; // owner OR admin
-  isAdmin: boolean; // site admin -- unlocks "Set likes" and immediate link approval
+  isAdmin: boolean; // site admin -- unlocks immediate link approval (no like-count override: likes are always per-user rows, saltorbit 2026-09-13)
   onChanged: () => void;
 }> = (props) => {
   const ifMatch = () => `"layout:${props.layout.layout_rev}"`;
@@ -167,24 +166,6 @@ const OwnerActions: Component<{
     setLinkNotice(null);
     setLinkRefresh((n) => n + 1);
     props.onChanged();
-  };
-
-  // ── admin-only: set likes ─────────────────────────────────────────
-  const [likesOpen, setLikesOpen] = createSignal(false);
-  const [likesValue, setLikesValue] = createSignal(String(props.layout.like_count));
-  const [likesPending, setLikesPending] = createSignal(false);
-  const [likesError, setLikesError] = createSignal<string | null>(null);
-
-  const doSetLikes = async () => {
-    const n = Number(likesValue());
-    if (!Number.isInteger(n) || n < 0) {
-      setLikesError(copy.actions.setLikesPrompt);
-      return;
-    }
-    setLikesPending(true);
-    const result = await adminSetLikes(props.layout.id, n);
-    setLikesPending(false);
-    handleResult(result, setLikesError, () => setLikesOpen(false));
   };
 
   return (
@@ -325,36 +306,6 @@ const OwnerActions: Component<{
           </Show>
           <Show when={transferError()}>{(msg) => <span class="akl-inline-error">{msg()}</span>}</Show>
         </div>
-
-        {/* admin-only: set likes */}
-        <Show when={props.isAdmin}>
-          <div class="akl-action-row">
-            <Show
-              when={likesOpen()}
-              fallback={
-                <button class="akl-btn" onClick={() => setLikesOpen(true)}>
-                  {copy.actions.setLikes}
-                </button>
-              }
-            >
-              <input
-                type="number"
-                min="0"
-                aria-label={copy.actions.setLikesPrompt}
-                placeholder={copy.actions.setLikesPrompt}
-                value={likesValue()}
-                onInput={(e) => setLikesValue(e.currentTarget.value)}
-              />
-              <button class="akl-btn" disabled={likesPending()} onClick={() => void doSetLikes()}>
-                {copy.actions.confirm}
-              </button>
-              <button class="akl-btn-ghost" disabled={likesPending()} onClick={() => setLikesOpen(false)}>
-                {copy.actions.cancel}
-              </button>
-            </Show>
-            <Show when={likesError()}>{(msg) => <span class="akl-inline-error">{msg()}</span>}</Show>
-          </div>
-        </Show>
 
         {/* link */}
         <div class="akl-action-row akl-link-actions">
