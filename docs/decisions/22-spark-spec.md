@@ -1,22 +1,17 @@
 # 22 — spark/1 spec (normative, as implemented)
 
 This is the normative specification of `spark/1`, the one stored layout
-format (`db/formats/spark/1/`). It follows the skeleton proposed by
-`design/layout-db/24-spark-wire-review.md` and folds in every round-2
-resolution in that review. Every rule below is backed by the schema, a
+format (`db/formats/spark/1/`). Every rule below is backed by the schema, a
 `validate()` branch, an invariant id (`LDB-F..`/`LDB-P..`), or a golden
-file, cited in small print under the rule. Where the code and an earlier
-design decision disagree, the disagreement is recorded in the final **Open
-discrepancies** section instead of being silently resolved here.
-
-`01-format.md`, `20-spark.md` and `23-geometry.md` are design history and
-are not rewritten; this page is what the code does today.
+file, cited in small print under the rule. Known gaps between this page
+and the code are tracked in `design/layout-db/review/LEDGER.md` (row S1)
+rather than resolved silently here.
 
 ## 0. Status and versioning
 
-`spark/1` is edited in place until layoutdb's first outside adopter
-(`design/layout-db/21-formats.md` D11). Today the frozen-fixture list is
-empty, so no fixture is protected from a same-slice edit.
+`spark/1` is edited in place until layoutdb's first outside adopter. Today
+the frozen-fixture list is empty, so no fixture is protected from a
+same-slice edit.
 
 *Enforced by: `db/tests/formats/frozen.test.ts` (empty list); `db/INVARIANTS.md` LDB-F6 (suspended).*
 
@@ -26,12 +21,12 @@ Anything that changes a golden is a new major. A pinned major keeps
 reading and writing (the promise `db/docs/adoption.md` §8 makes for a
 future major).
 
-*This rule is a review policy, not yet a mechanical gate: `frozen.test.ts` only compares against an explicit list that is empty today, so nothing in CI currently stops a same-major edit from changing a golden. See Open discrepancies.*
+*This rule is a review policy, not yet a mechanical gate: `frozen.test.ts` only compares against an explicit list that is empty today, so nothing in CI currently stops a same-major edit from changing a golden (LEDGER.md row S1).*
 
 akl.gg and the spark bot read and write `spark/1`. Nothing requires any
 other client to.
 
-*`design/layout-db/21-formats.md` §2.6 "who reads what"; `db/docs/adoption.md` §1.*
+*`db/docs/adoption.md` §1.*
 
 Owner: `DB` (+ akl.gg). Changes go through `db/formats/spark/1/OWNERS`.
 
@@ -46,14 +41,14 @@ below.
 | `id` (ULID, the identity: see §2's note on identity), `name`, `owner`, `layout_rev`, `created_at`, `modified_at`, `deleted`, `like_count`, `link`, `upstream`, `source` | `keys`, `board`, `magic?` |
 | `formats["spark/1"]`: `{rev, created_at, modified_at, has_magic, source}` | |
 
-*Envelope shape: `db/src/core/records.ts:26-63` (`LayoutRow`, `FormatRow`); wire example: `design/layout-db/21-formats.md` §2.3.*
+*Envelope shape: `db/src/core/records.ts:26-63` (`LayoutRow`, `FormatRow`).*
 
 Identity is the record's id, an ULID minted at creation, never the name. A
 rename keeps the id, rev chain, likes and history. `{ref}` in a route
 resolves by id first, then by name; a lookup by name is a lookup, not an
 identity.
 
-*`db/src/core/records.ts:65-69` (`isUlidShaped`, `ULID_RE`); `design/artifacts/spark-format-notes.html` item 14.*
+*`db/src/core/records.ts:65-69` (`isUlidShaped`, `ULID_RE`).*
 
 Two payload fields the earlier design proposed were dropped entirely
 rather than kept as non-semantic: `magic.notes` and `magic.updated`. No
@@ -87,7 +82,7 @@ A `char` is one Unicode code point, compared exactly as stored: no
 case-folding, no Unicode normalization (writers should send NFC), no
 locale rules, nothing reserved. `"E"` and `"e"` are different keys.
 
-*Intended design: `design/layout-db/24-spark-wire-review.md` finding 11. Enforcement scope, as implemented, is narrower: see Open discrepancies — `validate()` only checks single-code-point-ness for characters a magic construct NAMES (`isSingleChar`, `db/formats/spark/1/magic.ts:37-39`, called from `validateMagicSemantics`), never for a plain `keys[].char` entry.*
+*Enforcement scope, as implemented, is narrower (LEDGER.md row S1): `validate()` only checks single-code-point-ness for characters a magic construct NAMES (`isSingleChar`, `db/formats/spark/1/magic.ts:37-39`, called from `validateMagicSemantics`), never for a plain `keys[].char` entry.*
 
 `" "` (a literal space) is refused as a `char` value on any `keys` entry,
 pending #333's declared space thumb. mana2's own `space` token becomes a
@@ -133,7 +128,7 @@ must have **at most one** entry among `keys`' char-bearing entries. Zero is
 fine (a named key need not be on the layout at all, LDB-F22): it simply
 gets no scaffold row. More than one is refused.
 
-*`db/formats/spark/1/index.ts:218-260` (`collectMagicChars`, `validateMagicKeysUnique`); error `400 magic_needs_unique_key`, path `/keys` — see Open discrepancies for why this is not `/keys/<i>`. LDB-F33.*
+*`db/formats/spark/1/index.ts:218-260` (`collectMagicChars`, `validateMagicKeysUnique`); error `400 magic_needs_unique_key`, path `/keys` — not `/keys/<i>` (LEDGER.md row S1). LDB-F33.*
 
 A plain duplicate character that no magic construct names carries no such
 requirement, **unless** its own entries span both hands. In that case any
@@ -142,7 +137,7 @@ against, so it is refused for that chiral key unless the chiral key
 excepts the character, or a raw `rules[]` row already covers the exact
 `(character, chiral key)` pair.
 
-*`db/formats/spark/1/index.ts:163-210` (`bothHandsChars`, `validateChiralHandAmbiguity`); error `400 magic_needs_unique_key`, path `/keys`. LDB-F33; `design/layout-db/24-spark-wire-review.md` round 2 §C.*
+*`db/formats/spark/1/index.ts:163-210` (`bothHandsChars`, `validateChiralHandAmbiguity`); error `400 magic_needs_unique_key`, path `/keys`. LDB-F33.*
 
 A magic-named or chiral-hand-ambiguous character that is refused this way
 still resolves automatically for the case the format DOES allow: an
@@ -205,7 +200,7 @@ fingers happen to read as `angle` on an `ortho` board is accepted. "Angle
 enforces for its own `fingers!`/`board!` verbs, not something `validate()`
 checks.
 
-*`db/formats/spark/1/geometry.ts:143-190` (`classifyFingering`, `FINGERING_REFS`). LDB-F27, LDB-F30, LDB-F32. Explicit drop of the write-time rule: `db/formats/spark/1/index.ts:262-270`'s own comment ("Rule 4 ... is NOT enforced here"); `design/layout-db/24-spark-wire-review.md` finding 10.*
+*`db/formats/spark/1/geometry.ts:143-190` (`classifyFingering`, `FINGERING_REFS`). LDB-F27, LDB-F30, LDB-F32. Explicit drop of the write-time rule: `db/formats/spark/1/index.ts:262-270`'s own comment ("Rule 4 ... is NOT enforced here").*
 
 ## 5. Magic
 
@@ -276,7 +271,7 @@ idiom-produced words (`repeat`, `magic`, `chiral`, `adaptive`, or a
 `default:<c>` shape) is refused: only the importer's own lift may produce
 those tags.
 
-*`db/formats/spark/1/magic.ts:292-294` (emission), `:777-797` (the reservation check, `400 reserved_rule_type`). See Open discrepancies: this check has no dedicated test or fixture and is not a registered `LDB-F..` id.*
+*`db/formats/spark/1/magic.ts:292-294` (emission), `:777-797` (the reservation check, `400 reserved_rule_type`) — no dedicated test or fixture and no registered `LDB-F..` id yet (LEDGER.md row S1).*
 
 ### 5.3 Expansion order and collisions
 
@@ -298,7 +293,7 @@ another key's context, overlapping contexts) is outside what this format
 records. An author who needs that distinction authors in a format that has
 the disambiguator; `spark/1` does not.
 
-*Design resolution: `design/layout-db/24-spark-wire-review.md` finding 3, round 2 resolved-rule row 3. Structurally: `computeRows`'s `keys: Record<string, Position>` is addressed by character, never by physical key (`db/formats/spark/1/magic.ts:152-155`, `handOf`).*
+*Structurally: `computeRows`'s `keys: Record<string, Position>` is addressed by character, never by physical key (`db/formats/spark/1/magic.ts:152-155`, `handOf`).*
 
 ### 5.5 Duplicates, sentinels
 
@@ -308,7 +303,7 @@ tagged union, never a bare string: `{kind: "repeat"}` or `{kind: "char",
 char: "e"}`; absent means none. The strings `"none"` and `"repeat_previous"`,
 and a bare character string, are refused by the schema.
 
-*Schema: `db/formats/spark/1/schema.json:70-79` (`magicDefault`, `chiralValue`, `oneOf` with `additionalProperties: false` per branch). Types and guards: `db/formats/spark/1/magic.ts:46-59` (`isRepeatTag`, `isCharTag`), `:61-93` (`MagicDefault`, `ChiralKey`). Design resolution: `design/layout-db/24-spark-wire-review.md` finding 6, round 2 §F (the `kind` spelling, over the reviewer's `{repeat: true}` alternative).*
+*Schema: `db/formats/spark/1/schema.json:70-79` (`magicDefault`, `chiralValue`, `oneOf` with `additionalProperties: false` per branch). Types and guards: `db/formats/spark/1/magic.ts:46-59` (`isRepeatTag`, `isCharTag`), `:61-93` (`MagicDefault`, `ChiralKey`).*
 
 ## 6. Validation
 
@@ -336,7 +331,7 @@ above. `setFingermap` additionally refuses a named character that is not
 on the layout, or that has more than one entry (it cannot tell which one a
 bare `char -> finger` map means).
 
-*`db/formats/spark/1/edits.ts:28-41`; error `invalid_payload`, path `/keys` (see Open discrepancies).*
+*`db/formats/spark/1/edits.ts:28-41`; error `invalid_payload`, path `/keys` (LEDGER.md row S1).*
 
 ## 7. Lowering to `mana2/1`
 
@@ -372,8 +367,7 @@ side, the rows it produced are not.
 ## 8. Import from cmini
 
 `db/formats/adapters/cmini/translate.ts`'s `fromCmini` is the only
-conversion into `spark/1` from outside the format; there is no reverse
-(`toCmini` was deleted, `design/layout-db/21-formats.md` D5).
+conversion into `spark/1` from outside the format; there is no reverse.
 
 Board word table:
 
@@ -384,7 +378,7 @@ Board word table:
 | `ortho` | `ortho` |
 | `mini` | `ortho` |
 
-*`db/formats/adapters/cmini/translate.ts:26-31` (`WORD_TABLE`). No angle-family bump: `design/layout-db/24-spark-wire-review.md` finding 10; LDB-F31.*
+*`db/formats/adapters/cmini/translate.ts:26-31` (`WORD_TABLE`). No angle-family bump: LDB-F31.*
 
 A `TB` finger, or an `LT`/`RT` whose column disagrees with `col < 5 =>
 LT else RT`, is relabelled by that rule (the last time this ever runs); an
@@ -409,7 +403,10 @@ uses `PATCH`, never `PUT`, so it never has to round-trip fields it cannot
 parse. A client validates against the schema served at `GET
 /v1/formats/spark/1/schema.json`, never a copy it vendored itself.
 
-*Design resolution: `design/layout-db/24-spark-wire-review.md` round 2 item 7. Schema route: `db/src/routes/formats.ts:44-52`. See Open discrepancies: the served schema itself is `additionalProperties: false` everywhere, which is in tension with "readers ignore unknown fields" for a client that actually validates against it as instructed.*
+*Schema route: `db/src/routes/formats.ts:44-52` — the served schema itself
+is `additionalProperties: false` everywhere, in tension with "readers
+ignore unknown fields" for a client that validates against it as
+instructed (LEDGER.md row S1).*
 
 ## 10. What it cannot express
 
