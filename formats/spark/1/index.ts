@@ -108,9 +108,178 @@ export interface ErrBody {
 
 export type ValidationResult = { ok: true } | { ok: false; error: ErrBody };
 
-const ajv = new Ajv2020({ allErrors: false, strict: true });
+// LDB-F35 (design/layout-db/22-spark-spec.md §6): `export const schema`
+// above is `rawSchema` verbatim -- what `GET /v1/formats/spark/1/
+// schema.json` serves, byte-identical to schema.json on disk, pinned by
+// `tests/conformance/formats-schema/200.json`. The validator itself
+// compiles a separate, never-exported CLONE with ajv's `discriminator`
+// keyword added to `magicDefault` (so `chiralValue`, its `$ref`, gets it
+// too) -- a hint that changes WHICH oneOf branch ajv reports an error
+// from, never which payloads validate (every discriminator branch here
+// was already `type: "object"`; `additionalProperties: false` and each
+// branch's own `required`/`const` on `kind` already made the branches
+// mutually exclusive) or what the served schema document says. Keeping
+// this out of schema.json means this row costs no WIRE_VERSION bump and
+// touches no conformance fixture -- a client vendoring or diffing the
+// served schema sees no change at all.
+function withDiscriminatorHint(s: typeof rawSchema): object {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- schema.json's shape isn't typed; this only ever runs once, over $defs.magicDefault
+  const clone = structuredClone(s) as any;
+  const magicDefault = clone.$defs.magicDefault;
+  magicDefault.type = "object";
+  magicDefault.discriminator = { propertyName: "kind" };
+  return clone;
+}
+const validationSchema = withDiscriminatorHint(rawSchema);
+
+// Two compiled validators off `validationSchema`, not one. `ajvValidate`
+// (allErrors: false) is the fast path every write pays for -- unchanged
+// from before this row, still one pass, still stops at the first schema
+// violation, so a VALID payload (the common case) costs exactly what it
+// always did. `ajvValidateAll` (allErrors: true) only ever runs after
+// `ajvValidate` has already failed (the rarer, off-happy-path case): it
+// re-validates the same payload to collect every branch's errors, which
+// `pickMostSpecificError` below needs to tell an incidental union-branch
+// artifact from the real fault. `discriminator: true` (both instances)
+// makes ajv resolve `magicDefault`'s `kind`-tagged union to the ONE branch
+// `kind` names and validate only that branch -- most of what used to need
+// `pickMostSpecificError`'s branch-grouping logic at all, for exactly the
+// union that motivated this row (chiralKey.same/opposite's own `| null`
+// union has no discriminant to give ajv -- one side is a bare `null` type
+// -- so it still goes through the general picker below).
+const ajv = new Ajv2020({ allErrors: false, strict: true, discriminator: true });
 addFormats(ajv);
-const ajvValidate = ajv.compile(rawSchema);
+const ajvValidate = ajv.compile(validationSchema);
+
+const ajvAll = new Ajv2020({ allErrors: true, strict: true, discriminator: true });
+addFormats(ajvAll);
+const ajvValidateAll = ajvAll.compile(validationSchema);
+
+// LDB-F35: ajv error keywords that only ever record union bookkeeping --
+// "this data didn't match exactly one/any branch" -- never the reason a
+// branch itself failed. Always noise, on every union, discriminated or
+// not (a non-discriminated oneOf, e.g. chiralKey.same|opposite's `| null`,
+// still emits one of these once none of its branches match).
+const UNION_BOOKKEEPING_KEYWORDS = new Set(["oneOf", "anyOf", "if", "then"]);
+
+// Keyword specificity, most to least, for breaking a same-depth tie
+// between two surviving candidates (rare: it takes two genuinely
+// independent faults at the same instancePath depth, e.g. a payload
+// mutation-tested by mutations.test.ts's generated matrix landing two
+// leaf changes at once, which the matrix itself never does, or a
+// non-discriminated union like chiralKey.same|opposite failing on both a
+// content error AND the sibling `null` branch's own type mismatch).
+// type/const/enum/format-ish keywords name the value itself; additionalProperties
+// and required name a shape gap one level up and, by construction, are
+// exactly the keywords a wrong union branch produces incidentally -- kept
+// last so a genuine required/additionalProperties fault on the RIGHT
+// branch (nothing more specific to prefer over it) still wins on depth
+// alone against nothing, but never displaces a same-depth, more specific
+// sibling.
+const KEYWORD_RANK: Record<string, number> = {
+  type: 0,
+  const: 0,
+  enum: 0,
+  format: 1,
+  pattern: 1,
+  minLength: 1,
+  maxLength: 1,
+  minimum: 1,
+  maximum: 1,
+  minItems: 1,
+  maxItems: 1,
+  discriminator: 1,
+  required: 2,
+  additionalProperties: 3,
+};
+
+function keywordRank(keyword: string): number {
+  return KEYWORD_RANK[keyword] ?? 1;
+}
+
+// `instancePath` depth as "how many '/'-separated segments" -- not a
+// structural JSON depth (a pointer segment can itself contain an escaped
+// "/"), just a total order deep enough to tell "/magic/magic_keys/0/default"
+// (a container) from "/magic/magic_keys/0/default/char" (its own field)
+// apart, which is all `pickMostSpecificError` needs it for.
+function pointerDepth(instancePath: string): number {
+  return instancePath.split("/").length;
+}
+
+// The schemaPath prefix identifying which union BRANCH (not just which
+// union) an error belongs to -- "#/.../oneOf/1/properties/char/type" ->
+// "#/.../oneOf/1" -- so errors from the same branch group together
+// regardless of which of that branch's own keywords produced them.
+function branchKeyOf(schemaPath: string): string | null {
+  const m = /^(.*\/(?:oneOf|anyOf)\/\d+)(?:\/|$)/.exec(schemaPath);
+  return m ? m[1]! : null;
+}
+
+// [LDB-F35] Most-specific-error selection over a FULL ajv error list
+// (`allErrors: true`): a `oneOf`/`anyOf` with no matching branch reports
+// one error per branch it tried plus a bookkeeping "must match exactly
+// one/any schema" error -- `errors[0]` (the old behaviour) is whichever
+// branch ajv happened to evaluate first, not necessarily the branch the
+// author meant to satisfy. This groups errors by the union branch they
+// came from (`branchKeyOf`), drops any branch whose OWN discriminating
+// field failed a `const`/`enum` check (that branch was never a candidate
+// -- its other errors, e.g. an incidental `additionalProperties`, are
+// noise from evaluating a schema the payload was never trying to match),
+// drops the bookkeeping keywords outright, and returns the deepest
+// `instancePath` left (ties broken by `keywordRank`, then by the error's
+// own position in ajv's array -- deterministic for a fixed schema and ajv
+// version, independent of `allErrors`' internal branch-evaluation order,
+// per LDB-F37).
+function pickMostSpecificError(errors: import("ajv").ErrorObject[]): import("ajv").ErrorObject {
+  const branches = new Map<string, import("ajv").ErrorObject[]>();
+  for (const e of errors) {
+    const bk = branchKeyOf(e.schemaPath);
+    if (bk === null) continue;
+    const group = branches.get(bk);
+    if (group) group.push(e);
+    else branches.set(bk, [e]);
+  }
+  const wrongBranches = new Set<string>();
+  for (const [bk, group] of branches) {
+    if (group.some((e) => e.keyword === "const" || e.keyword === "enum")) wrongBranches.add(bk);
+  }
+
+  function candidatesOf(pool: import("ajv").ErrorObject[]): import("ajv").ErrorObject[] {
+    return pool.filter((e) => {
+      if (UNION_BOOKKEEPING_KEYWORDS.has(e.keyword)) return false;
+      const bk = branchKeyOf(e.schemaPath);
+      return bk === null || !wrongBranches.has(bk);
+    });
+  }
+
+  // Fall back in stages so this never returns nothing: first the errors
+  // that survive both filters; if every error belonged to a wrong branch
+  // (a `kind` naming neither branch at all), fall back to every
+  // non-bookkeeping error; if even that is empty (only bookkeeping
+  // errors, which shouldn't happen but `errors` is untrusted input from
+  // ajv's own runtime), fall back to the raw list.
+  const candidates = candidatesOf(errors);
+  const pool = candidates.length > 0 ? candidates : errors.filter((e) => !UNION_BOOKKEEPING_KEYWORDS.has(e.keyword));
+  const finalPool = pool.length > 0 ? pool : errors;
+
+  let best = finalPool[0]!;
+  let bestIndex = errors.indexOf(best);
+  for (let i = 1; i < finalPool.length; i++) {
+    const e = finalPool[i]!;
+    const eDepth = pointerDepth(e.instancePath);
+    const bestDepth = pointerDepth(best.instancePath);
+    const eIndex = errors.indexOf(e);
+    const better =
+      eDepth > bestDepth ||
+      (eDepth === bestDepth && keywordRank(e.keyword) < keywordRank(best.keyword)) ||
+      (eDepth === bestDepth && keywordRank(e.keyword) === keywordRank(best.keyword) && eIndex < bestIndex);
+    if (better) {
+      best = e;
+      bestIndex = eIndex;
+    }
+  }
+  return best;
+}
 
 interface DupPosition {
   row: number;
@@ -320,7 +489,16 @@ function validateGeometry(p: Payload): ErrBody | null {
 // `additionalProperties: false` now refuses a payload that carries one.
 export function validate(p: unknown): ValidationResult {
   if (!ajvValidate(p)) {
-    const err = ajvValidate.errors?.[0];
+    // [LDB-F35] The fast (allErrors: false) pass already told us the
+    // payload is invalid; re-run the allErrors:true validator on the SAME
+    // payload only now, off the happy path, to see every branch's errors
+    // and pick the most specific one -- `ajvValidate.errors?.[0]` alone
+    // (the old behaviour) was whichever error ajv's single-error mode
+    // happened to stop on, not necessarily the one naming the real fault
+    // inside a `oneOf`/`anyOf` union.
+    ajvValidateAll(p);
+    const errs = ajvValidateAll.errors ?? ajvValidate.errors ?? [];
+    const err = errs.length > 0 ? pickMostSpecificError(errs) : undefined;
     return {
       ok: false,
       error: {

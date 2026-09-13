@@ -324,6 +324,8 @@ error}`. Checks run in this order, each stopping at the first failure:
 
 *`db/formats/spark/1/index.ts:321-378` (`validate`), in this exact order. Checks 6-9 read `payload.magic` only when present.*
 
+Check 1's reported error is the MOST SPECIFIC ajv error for the violation, never just the first one ajv happens to produce (LDB-F35).
+
 PATCH edits (`setFingermap`, `setBoard`, `setMagic`,
 `db/formats/spark/1/edits.ts`) apply their own change and then rely on the
 pipeline re-running `validate()` on the result; they duplicate none of the
