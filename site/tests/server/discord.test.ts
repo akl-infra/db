@@ -94,9 +94,14 @@ describe("callback", () => {
 });
 
 describe("logout", () => {
-  it("clears the session cookie", async () => {
-    const res = await app.request("/auth/logout", { method: "POST" }, configured);
+  it("[SITE-3] clears the session cookie when the CSRF header is present", async () => {
+    const res = await app.request("/auth/logout", { method: "POST", headers: { "X-Requested-With": "akldb" } }, configured);
     expect(res.status).toBe(200);
     expect(res.headers.get("set-cookie")).toContain("Max-Age=0");
+  });
+  it("[SITE-3] refuses a cross-site POST (no CSRF header): 403, cookie untouched", async () => {
+    const res = await app.request("/auth/logout", { method: "POST" }, configured);
+    expect(res.status).toBe(403);
+    expect(res.headers.get("set-cookie")).toBeNull();
   });
 });

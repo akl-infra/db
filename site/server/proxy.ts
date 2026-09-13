@@ -27,7 +27,9 @@ function json(obj: unknown, status: number, headers: Record<string, string> = {}
   return new Response(JSON.stringify(obj), { status, headers: { "Content-Type": "application/json", ...headers } });
 }
 
-function csrfOk(req: Request): boolean {
+// Exported: `/auth/logout` (discord.ts) applies the same gate -- a cross-site
+// form POST must not be able to log a user out.
+export function csrfOk(req: Request): boolean {
   if (req.headers.get("X-Requested-With") !== "akldb") return false;
   const secFetchSite = req.headers.get("Sec-Fetch-Site");
   // Absent (older browser / non-fetch client) is allowed through -- the

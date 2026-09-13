@@ -85,7 +85,7 @@ Status: `todo` · `running (agent, branch)` · `review` · `landed <sha>` · `bl
 ### Wave 4
 | id | slice | status |
 |---|---|---|
-| W1 | **akldb.org** — the DB's own website (public read-only + moderation view); plan `design/akldb-site/01-plan.md`; Worker `akldb-site` in account `akl`, dir `dbsite/`. W1a scaffold+public+auth+proxy, W1b owner+admin UI | running (Sonnet, 2026-09-12) |
+| W1 | **akldb.org** — the DB's own website (public read-only + moderation view); plan `design/akldb-site/01-plan.md`; Worker `akldb-site` in account `akl`, dir `dbsite/`. W1a scaffold+public+auth+proxy **landed 5367d484f** (SITE-1..11; + lead fix: logout CSRF gate); W1b owner+admin UI after L5 | running (W1b pending L5) |
 | W2 | governance: second admin row, domain in `akl` account | todo (saltorbit) |
 | W3 | spark/1 format discussion (saltorbit: "not done yet") — own design round | todo |
 
@@ -98,6 +98,7 @@ Status: `todo` · `running (agent, branch)` · `review` · `landed <sha>` · `bl
 
 ## Log
 
+- 2026-09-13 · **W1a landed** (5367d484f): `db/site/` Worker `akldb-site` (sealed-cookie session, Discord OAuth, `/api/v1/*` proxy, public pages Home/Layout/Author/Changes/Docs), CI `site` job in db.yml, boundary + ciwiring extended; 65 site tests, db suite 15,813 green. Chrome QA found+fixed: `next_cursor` paging (list truncated at 1000/4179), a `ref` prop colliding with Solid's ref-forwarding, docs mobile overflow. Lead review fix: `/auth/logout` needs the CSRF header. Infra done earlier the same night: akldb.org zone active in `akl`, Worker created (placeholder), custom domains bound, 3 secrets set. First real deploy = this push's CI.
 - 2026-09-13 03:50Z · B17 dry run #1: compute 4,179 layouts in **963 s** on performance-8x (as predicted), catalog rows derived, then ONE 30 s R2 PUT timeout killed the run (R2 slow; the live bot's upload phase was 129 s the same tick). Fixed LDB-B216 (PUT retries w/ backoff, 412 = landed, `REBUILD_S3_TIMEOUT_MS` 180 s, failure summary keeps counts). Wrapper fixed too (`--`, live env copy, Machine ID parse, bash). Deploying v48, then dry run #2.
 - 2026-09-13 03:40Z · Real Discord round (spark-tester → prod, 49 commands, during a tick + the rebuild): 19/49 over 1 s, image 5–6 s — CPU starvation on 1 vCPU (worker thread shares the core), not handler time. LATENCY §11. Plan: finish the backlog with B17 (dry run at 3,200/4,179 in 734 s), then re-measure at steady state; passes never on the bot machine again.
 - 2026-09-13 · B16b+B17 landed; bot 1,268 green (the `[LDB-B200]` notify-dedup test flaked once under full-suite load, passes alone and on rerun — harden later). Deploying v47 so the image has `dist/rebuild.js` + the `--layouts` Python; then `DRY_RUN=1 bash scripts/rebuild-on-fly.sh`.

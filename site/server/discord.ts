@@ -14,6 +14,7 @@
 // entirely rather than show a button that 404s.
 import { Hono } from "hono";
 import type { Env } from "./env.ts";
+import { csrfOk } from "./proxy.ts";
 import {
   MAX_SESSION_SECONDS,
   OAUTH_STATE_COOKIE,
@@ -142,6 +143,9 @@ discordRoutes.get("/auth/callback", async (c) => {
 });
 
 discordRoutes.post("/auth/logout", (c) => {
+  // SITE-3 applies here too: a cross-site POST (a plain HTML form can't set
+  // X-Requested-With) must not be able to sign a user out.
+  if (!csrfOk(c.req.raw)) return c.json({ error: "csrf", message: "missing or invalid CSRF headers" }, 403);
   return c.json({ ok: true }, 200, { "Set-Cookie": clearSessionCookieHeader() });
 });
 
