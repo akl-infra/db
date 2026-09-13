@@ -480,9 +480,8 @@ machine-readable (`db/tests/conformance/formats-list/200.json`, trimmed):
 `role` tells you whether a write may store this format (`"stored"`) or only
 ever appears on read (`"output"`, §5). `lineage`/`major`/`latest` are what a
 client checks to detect a new major without parsing the id string itself
-(§8). `aliases` names every transitional alias whose target is this format
-— always `[]` today; kept on the wire shape for a future one, not currently
-in use (see below). `can_translate_to` is the full reachable set — for an
+(§8). `aliases` names every alias whose target is this format — always
+`[]` today, no format currently has one. `can_translate_to` is the full reachable set — for an
 output format this is always exactly the empty set (nothing translates OUT
 of a derived format); **each output format is itself reachable from exactly
 one stored lineage** (`spark/1` -> `mana2/1` today) — a second stored
@@ -644,16 +643,30 @@ OTHER format the layout has, and no layout-level field. Each scope has its
 own `If-Match` token (§below) and its own rev; a create is the one write
 that touches both scopes at once, in a single request.
 
-**`spark/1` payloads.** `payload.keys` maps a one-code-point char to
-`{row, col, finger}` (finger ∈ `LP LR LM LI RI RM RR RP LT RT TB`); `free`
-is a list of the same shape for board positions that exist but hold no
-character; `board` names the geometry (`{kind: "rowstag"|"colstag"|"ortho",
-stagger?, cmini?}`); `magic` is optional and carries **intent**
-(`magic_keys`/`chiral_keys`/`adaptive_swaps`, plus a raw `rules[]` escape
-hatch) — never the flattened rows an analyzer reads (that's what
-`?format=mana2/1` is for, §3/§7). Full shape and every validation rule:
-`design/layout-db/01-format.md` §2/§2.1; the schema itself:
+**`spark/1` payloads.** `payload.keys` is a required, ordered array of
+`{char?, row, col, finger}` entries — `char` is optional (absent means a
+free position that still needs a finger); the same character may appear on
+more than one entry (a mirrored key). `finger` is one of `LP LR LM LI RI RM
+RR RP LT RT`. `board` is a single required word: `ansi`, `iso`, `ortho`, or
+`colstag` — there is no board object and no default. `magic` is optional
+and carries **intent** (`magic_keys`/`chiral_keys`/`adaptive_swaps`, plus a
+raw `rules[]` escape hatch) — never the flattened rows an analyzer reads
+(that's what `?format=mana2/1` is for, §3/§7). A magic key's `default`
+(and a chiral key's `same`/`opposite`) is a kind-tagged sentinel, never a
+bare string: `{"kind":"repeat"}` repeats the preceding character, or
+`{"kind":"char","char":"e"}` emits a literal one. The schema itself:
 `GET /v1/formats/spark/1/schema.json`.
+
+```json spark-payload
+{ "keys": [ { "char": "a", "row": 0, "col": 0, "finger": "LP" },
+            { "char": "@", "row": 0, "col": 1, "finger": "LR" },
+            { "row": 0, "col": 2, "finger": "LM" } ],
+  "board": "ansi",
+  "magic": { "magic_keys": [ { "key": "@", "default": { "kind": "repeat" } } ] } }
+```
+
+`a` and `@` are ordinary keys; the third entry has no `char`, so it is a
+free position; `@`'s magic default repeats whichever character preceded it.
 
 **Creating** — one request, two events (layout + format, §4), one response
 carrying both (real fixture,
@@ -662,12 +675,12 @@ several-formats-per-layout):
 
 ```bash
 curl -sX POST …/v1/layouts -H 'X-Client-Version: my-bot/1.0' <signed-or-bearer> -d '
-{"name":"my-layout","format":"spark/1","payload":{"keys":{}}}'
+{"name":"my-layout","format":"spark/1","payload":{"keys":[],"board":"ansi"}}'
 # 201 {"id":"01ARZ3ND…","name":"my-layout","owner":"800000000000000001","layout_rev":1,
-#      "created_at":"…","modified_at":"…","deleted":false,"like_count":0,"upstream":null,
+#      "created_at":"…","modified_at":"…","deleted":false,"like_count":0,"link":null,"upstream":null,
 #      "formats":{"spark/1":{"rev":1,"created_at":"…","modified_at":"…","has_magic":false,
 #                             "source":{"client":"discord-app:app-default","version":null}}},
-#      "format":"spark/1","payload":{"keys":{}}}
+#      "format":"spark/1","payload":{"keys":[],"board":"ansi"}}
 ```
 
 **Scoped `If-Match` and `409 stale`.** Every write against an *existing*
@@ -692,7 +705,7 @@ current rev:
 ```
 
 A write to one scope never races a write to the OTHER scope of the same
-layout — both land (§4's model, `MF-6`).
+layout — both land (`LDB-P20`).
 
 **`PUT` also ADDS a format the layout doesn't have yet**: send
 `If-None-Match: *` instead of `If-Match` to add lineage `body.format` names,
@@ -713,8 +726,8 @@ applied in the order `fingermap, board, magic`:
 
 ```bash
 curl -sX PATCH …/v1/layouts/01ARZ3ND… -H 'If-Match: "spark:1"' <signed> \
-  -d '{"format":"spark/1","fingermap":{"a":"LM"}}'
-# 200 {"…","format":"spark/1","payload":{"keys":{"a":{"col":1,"finger":"LM","row":1}}}}
+  -d '{"format":"spark/1","fingermap":{"a":"RP"}}'
+# 200 {"…","format":"spark/1","payload":{"keys":[{"char":"a","row":0,"col":0,"finger":"RP"}],"board":"ansi"}}
 ```
 
 A `{name}` body writes a `renamed` event (layout scope, `If-Match:
@@ -851,10 +864,10 @@ because they come from a format module's own `validate()`, not one of
 - `invalid_payload` — the format's `validate()` refused the payload, with a
   JSON-pointer `path` naming exactly where
   (`db/tests/conformance/layouts-write/patch-400-invalid_payload.json`):
-  `{"error":"invalid_payload","message":"fingermap names a char not in this layout's keys: \"z\"","path":"/keys/z"}`.
+  `{"error":"invalid_payload","message":"fingermap names a char not in this layout's keys: \"z\"","path":"/keys"}`.
 - `magic_collision` — two lowered magic rows fire on the same trigger; `from`
   names both sources, `hint` (when one side is a scaffold row) suggests the
-  `except` fix (`design/layout-db/01-format.md` §3 "D4").
+  `except` fix.
 
 Every route × status pair above has a frozen conformance fixture under
 `db/tests/conformance/` — read the one for your exact case for a byte-exact
@@ -996,8 +1009,7 @@ implementation).
 A layout can hold several stored formats at once (§3, e.g. a future
 `lw/1` for layouts.wiki) — this is a normal addition too, following the
 same directory/registry shape above with `role: "stored"`. Two rules keep
-derivation unambiguous when more than one stored lineage exists (§4 of
-`design/layout-db/21-formats.md`, `MF-10`):
+derivation unambiguous when more than one stored lineage exists (`LDB-F26`):
 
 - **Each output format (`mana2/1`) is reachable from exactly one stored
   lineage.** If your new format also wants to reach `mana2/1`, that edge
@@ -1107,7 +1119,7 @@ silently drift from what `db/src/index.ts` actually registers.
 | POST | `/v1/admin/diff/tick` | admin | — | 200 | `not_admin`, lane errors |
 | POST | `/v1/admin/nightly/tick` | admin | — | 200 | `not_admin`, lane errors |
 | POST | `/v1/admin/dump` | admin | — | 200 (`{seq, layout_count, written_at}`) | `not_admin`, lane errors |
-| POST | `/v1/admin/magic-seed` | admin | `{ref, magic}` | 200 (`{id, name, rev, has_magic, upstream}`) — a SYSTEM write (`system:magic-seed` / `seed:aklgg`) that never forks the record (23-geometry.md §10.1) | `bad_request`, `not_admin`, `not_found`, `invalid_payload`, `magic_collision`, lane errors |
+| POST | `/v1/admin/magic-seed` | admin | `{ref, magic}` | 200 (`{id, name, rev, has_magic, upstream}`) — a SYSTEM write (`system:magic-seed` / `seed:aklgg`) that never forks the record | `bad_request`, `not_admin`, `not_found`, `invalid_payload`, `magic_collision`, lane errors |
 | POST | `/v1/admin/clients` | admin | `{name, pubkey, owner_user_id, caps, discord_app_id?}` | 201 | `bad_request`, `not_admin`, lane errors |
 | DELETE | `/v1/admin/clients/:id` | admin | — | 200 | `not_admin`, `not_found`, lane errors |
 | GET | `/v1/admin/clients` | admin | — | 200 | `not_admin`, lane errors |
@@ -1143,12 +1155,10 @@ be banned — `PUT` on a current admin is `409 cannot_ban_admin`. `GET
 /v1/me` always reports the caller's own `banned` (and `admin`) fresh,
 never cached.
 
-**No like-count override** (H24, 2026-09-13): `like_count` is always
-exactly `COUNT(DISTINCT user_id) FROM likes` for the layout — an earlier
-admin "overwrite likes" route (`PUT /v1/admin/layouts/:ref/likes`) was
-removed entirely so mods can never move it and every like is always tied
-to the user who made it. `PUT/DELETE /v1/layouts/:ref/like` are the only
-writers of `like_count`.
+**No like-count override:** `like_count` is always exactly
+`COUNT(DISTINCT user_id) FROM likes` for the layout — no admin route can
+set or adjust it, so every like is always tied to the user who made it.
+`PUT/DELETE /v1/layouts/:ref/like` are the only writers of `like_count`.
 
 **Author name override** (`PUT /v1/admin/authors/:user_id`, body
 `{name}`): sets the one name `/v1/authors` shows for that Discord id and
