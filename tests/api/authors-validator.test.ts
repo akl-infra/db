@@ -402,10 +402,18 @@ async function preparesFor(path: string, headers: Record<string, string> = {}): 
 }
 
 describe("[LDB-R9] a conditional request costs one D1 query", () => {
-  it("[LDB-R9] /v1/meta: a 304 prepares exactly one statement (seq + authors_head + last_diff in one query); a 200 at most four", async () => {
+  // [LDB-A12] rogue-trusted-client hardening (2026-09-13): a 200 gained one
+  // more prepare -- `core/clients.ts`'s `clientsHealth` (`health.clients`,
+  // deliberately outside the ETag same as `health.dump`/`health.diff`)
+  // reads the (tiny, admin-curated) `clients` table for any currently-
+  // suspended rows; a second, batched `import_state` lookup only runs when
+  // that first query finds at least one (never on this fresh-DB case). Was
+  // <= 4, now <= 5 -- the 304 path is completely unaffected (still exactly
+  // 1: `conditional()` returns before `readMetaCore`/`clientsHealth` ever run).
+  it("[LDB-R9] [LDB-A12] /v1/meta: a 304 prepares exactly one statement (seq + authors_head + last_diff in one query); a 200 at most five", async () => {
     const first = await preparesFor("/v1/meta");
     expect(first.status).toBe(200);
-    expect(first.prepares).toBeLessThanOrEqual(4);
+    expect(first.prepares).toBeLessThanOrEqual(5);
     const etag = (await get("/v1/meta")).headers.get("ETag")!;
     const again = await preparesFor("/v1/meta", { "If-None-Match": etag });
     expect(again).toEqual({ status: 304, prepares: 1 });

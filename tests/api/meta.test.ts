@@ -13,7 +13,7 @@ const db = bindings.DB;
 // superseded by tests/api/conformance.test.ts (S6); the invariant id moves
 // with it (see the S1 table in 07-implementation-phase1.md).
 describe("GET /v1/meta", () => {
-  it("answers the zero body on a fresh database", async () => {
+  it("[LDB-A12] answers the zero body on a fresh database (incl. an empty health.clients)", async () => {
     const res = await SELF.fetch("https://example.com/v1/meta");
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toContain("application/json");
@@ -37,6 +37,12 @@ describe("GET /v1/meta", () => {
         // [LDB-M3] never stalled, never ticked, and the kill switch reads
         // the wrangler.toml default ("on") -- deletes_disabled: false.
         import: { stalled: null, deletes_24h: 0, deletes_budget_24h: 20, deletes_planned: null, deletes_applied: null, deletes_disabled: false },
+        // [LDB-A12] saltorbit 2026-09-13 (rogue-trusted-client hardening): no
+        // client has ever been suspended on a fresh database.
+        clients: {
+          suspended: [],
+          budget: { base: 200, pct: 0.05, window_seconds: 3600, live_layouts: 0, effective: 200 },
+        },
       },
       // [LDB-V3] design/layout-db/25-api-versioning.md: the API's own
       // version block -- distinct from `formats` above (a stored/output

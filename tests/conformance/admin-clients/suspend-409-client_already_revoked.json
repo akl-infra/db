@@ -1,0 +1,16 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/admin/clients/conformance-client-revoked-1/suspend",
+    "bearer": "conformance-admin-token",
+    "body": {}
+  },
+  "response": {
+    "status": 409,
+    "headers": { "Content-Type": "application/json" },
+    "body": {
+      "error": "client_already_revoked",
+      "message": "this client is revoked; revoke is terminal and cannot be undone by suspend/reactivate"
+    }
+  }
+}

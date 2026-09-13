@@ -1,0 +1,12 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/admin/clients/conformance-client-reactivate-1/reactivate",
+    "bearer": "conformance-owner-token"
+  },
+  "response": {
+    "status": 403,
+    "headers": { "Content-Type": "application/json" },
+    "body": { "error": "not_admin", "message": "admin only" }
+  }
+}

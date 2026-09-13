@@ -48,7 +48,11 @@ export function destructiveThreshold(liveLayoutCount: number): number {
   return Math.max(DESTRUCTIVE_BUDGET_BASE, Math.ceil(liveLayoutCount * DESTRUCTIVE_BUDGET_PCT));
 }
 
-function windowKey(clientId: string): string {
+// Exported so `core/clients.ts`'s `reactivateClient` can clear a
+// reactivated client's own counter row (a fresh slate, rather than
+// instantly re-tripping on the very next destructive write within the
+// SAME clock-hour it was reactivated in).
+export function destructiveBudgetKey(clientId: string): string {
   return `destructive:${clientId}`;
 }
 
@@ -77,7 +81,7 @@ export function destructiveBudgetStatement(db: Bindings["DB"], now: Clock, clien
          window_start = excluded.window_start
        RETURNING n, window_start, (SELECT COUNT(*) FROM layouts WHERE deleted = 0) AS live_layouts`,
     )
-    .bind(windowKey(clientId), windowStart);
+    .bind(destructiveBudgetKey(clientId), windowStart);
 }
 
 // Decodes the `D1Result` at whatever index the caller pushed the

@@ -125,6 +125,14 @@ export async function readHead(db: D1Database, stateKeys: readonly string[] = []
 //   `/v1/meta.health.import` block (stalled/deletes_24h/budget/planned/applied/
 //   disabled), `POST /v1/admin/import/unstall`, `POST /v1/admin/import/
 //   restore-deleted`, event kind `admin.import_unstalled`. Additive.
+// 10 (2026-09-13): rogue-trusted-client hardening (db/README.md's "Rogue
+//   trusted client" runbook) -- `GET /v1/meta`'s `health` gained
+//   `clients: {suspended, budget}`; three new admin routes (`POST
+//   /v1/admin/clients/{id}/suspend`, `/reactivate`, `/revert`); `clients
+//   .status` gained a new value, `suspended` (`GET /v1/admin/clients`'
+//   own `status` field can now read it). Additive only -- no existing
+//   field, route or status value changed meaning.
+export const WIRE_VERSION = 10;
 export const WIRE_VERSION = 9;
 
 export async function etagFor(headSeqValue: number, query: unknown): Promise<string> {

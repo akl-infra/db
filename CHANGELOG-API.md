@@ -27,6 +27,17 @@ the other (`[LDB-V5]`).
 
 ## 1.9 — 2026-09-13
 
+Rogue-trusted-client hardening (`db/README.md`'s "Rogue trusted client"
+runbook): `GET /v1/meta`'s `health` gained `clients: {suspended, budget}`
+(a list of currently-suspended clients and the destructive-write budget
+that suspends them). Three new admin routes: `POST
+/v1/admin/clients/{id}/suspend`, `POST /v1/admin/clients/{id}/reactivate`,
+`POST /v1/admin/clients/{id}/revert`. `clients.status` (`GET
+/v1/admin/clients`) gained a new value, `suspended`, alongside the existing
+`active`/`revoked`. Two new error codes: `client_suspended` (403, a
+suspended client's request) and `client_already_revoked` (409, a
+suspend/reactivate attempt against a terminally-revoked client). No
+existing field, route, or status value changed meaning.
 Hostile or vanished upstream defenses. `GET /v1/meta` gains
 `health.import` (`stalled`, `deletes_24h`, `deletes_budget_24h`,
 `deletes_planned`, `deletes_applied`, `deletes_disabled`). New admin

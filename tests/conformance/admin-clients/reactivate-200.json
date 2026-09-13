@@ -1,0 +1,17 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/admin/clients/conformance-client-reactivate-1/reactivate",
+    "bearer": "conformance-admin-token"
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "body": {
+      "id": "conformance-client-reactivate-1",
+      "status": "active",
+      "suspended_at": null,
+      "reason": null
+    }
+  }
+}

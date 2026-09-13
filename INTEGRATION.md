@@ -413,6 +413,7 @@ format's own `validate()`, e.g. `db/formats/spark/1/index.ts`), not here:
 real examples in §4.
 
 <!-- BEGIN GENERATED ERROR TABLE (db/scripts/gen-error-table.mjs) -->
+
 | status | error | message | thrown by |
 |---|---|---|---|
 | 400 | `bad_request` | *(caller-supplied -- this function's own `message` parameter)* | `badRequest(message, param)` |
@@ -443,6 +444,8 @@ real examples in §4.
 | 401 | `bad_signature` | the client signature is missing or invalid | `badSignature()` |
 | 401 | `unknown_client` | unknown client | `unknownClient()` |
 | 401 | `client_revoked` | this client has been revoked | `clientRevoked()` |
+| 403 | `client_suspended` | this client is suspended (an admin can reactivate it) | `clientSuspended()` |
+| 409 | `client_already_revoked` | this client is revoked; revoke is terminal and cannot be undone by suspend/reactivate | `clientAlreadyRevoked()` |
 | 401 | `stale_timestamp` | request timestamp is outside the accepted window | `staleTimestamp(skew)` |
 | 401 | `replay` | nonce already used | `replay()` |
 | 403 | `actor_not_allowed` | this client may not act as this user | `actorNotAllowed(actor, owner)` |
@@ -454,6 +457,7 @@ real examples in §4.
 | 409 | `cannot_ban_admin` | an admin cannot be banned | `cannotBanAdmin()` |
 | 400 | `invalid_link` | *(caller-supplied -- this function's own `message` parameter)* | `invalidLink(message)` |
 | 429 | `rate_limited` | rate limit exceeded: ${limit} writes per ${windowSeconds}s | `rateLimited(limit, windowSeconds, retryAfter, scope)` |
+
 <!-- END GENERATED ERROR TABLE -->
 
 Every route × status/code above has a frozen request/response fixture under

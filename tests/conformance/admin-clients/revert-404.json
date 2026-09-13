@@ -1,0 +1,17 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/admin/clients/conformance-client-nonexistent/revert",
+    "bearer": "conformance-admin-token",
+    "body": { "since": "2026-01-01T00:00:00.000Z" }
+  },
+  "response": {
+    "status": 404,
+    "headers": { "Content-Type": "application/json" },
+    "body": {
+      "error": "not_found",
+      "message": "no client 'conformance-client-nonexistent'",
+      "ref": "conformance-client-nonexistent"
+    }
+  }
+}

@@ -16,16 +16,16 @@ async function sha256Hex(s: string): Promise<string> {
 }
 
 // 21-formats.md §2.3 (LDB-R1 amended again): `WIRE_VERSION` is folded into
-// the hashed query -- a white-box check that the CURRENT constant is 7
-// (bumped by design/layout-db/25-api-versioning.md: `GET /v1/meta` gained
-// `api`/`deprecations`, `CHANGELOG-API.md` 1.7 -- LDB-V1/V5's own re-export
-// of this constant as the public API_MINOR is what makes this bump also a
-// versioning-policy event, not just a cache-buster) and is actually part
-// of what gets hashed, not merely present in a comment. Replicates
-// `etagFor`'s own formula with a literal `wireVersion: 7` -- if a future
-// slice bumps the real constant without bumping this test, the two hashes
-// diverge and this fails, which is the point: a version bump is a
-// deliberate, visible edit here too.
+// the hashed query -- a white-box check that the CURRENT constant is 9
+// (bumped by the rogue-trusted-client hardening slice, 2026-09-13:
+// `GET /v1/meta`'s `health` gained `clients`, `CHANGELOG-API.md` 1.9 --
+// LDB-V1/V5's own re-export of this constant as the public API_MINOR is
+// what makes this bump also a versioning-policy event, not just a
+// cache-buster) and is actually part of what gets hashed, not merely
+// present in a comment. Replicates `etagFor`'s own formula with a literal
+// `wireVersion: 9` -- if a future slice bumps the real constant without
+// bumping this test, the two hashes diverge and this fails, which is the
+// point: a version bump is a deliberate, visible edit here too.
 describe("[LDB-R1] WIRE_VERSION is folded into the ETag hash", () => {
   it("[LDB-R1] etagFor(seq, query) reproduces exactly the wireVersion:9-folded hash", async () => {
     const seq = 42;

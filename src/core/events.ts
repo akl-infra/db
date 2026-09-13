@@ -59,11 +59,11 @@ export type InfoKind =
   | "admin.import_resumed"
   | "admin.client_registered"
   | "admin.client_revoked"
-  // saltorbit 2026-09-13 ("rogue trusted client" hardening): distinct from
-  // `client_revoked` (terminal) -- a suspension is re-activatable by an
+  // saltorbit 2026-09-13 (rogue-trusted-client hardening): distinct from
+  // client_revoked (terminal) -- a suspension is re-activatable by an
   // admin, whether it was tripped automatically (the destructive-write
-  // budget, `actor: "system:budget-guard"`) or triggered by hand
-  // (`POST /v1/admin/clients/:id/suspend`).
+  // budget, actor system:budget-guard) or triggered by hand (POST
+  // /v1/admin/clients/{id}/suspend).
   | "admin.client_suspended"
   | "admin.client_reactivated"
   | "admin.import_ticked"

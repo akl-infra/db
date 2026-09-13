@@ -1720,6 +1720,313 @@
     }
   },
   {
+    "id": "admin-clients/reactivate-200",
+    "method": "POST",
+    "route": "/v1/admin/clients/:id/reactivate",
+    "auth": "unlisted",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "id": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "null"
+        },
+        "status": {
+          "type": "string"
+        },
+        "suspended_at": {
+          "type": "null"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-clients/reactivate-401-unauthorized",
+    "method": "POST",
+    "route": "/v1/admin/clients/:id/reactivate",
+    "auth": "unlisted",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-clients/reactivate-403-not_admin",
+    "method": "POST",
+    "route": "/v1/admin/clients/:id/reactivate",
+    "auth": "unlisted",
+    "status": 403,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-clients/reactivate-404",
+    "method": "POST",
+    "route": "/v1/admin/clients/:id/reactivate",
+    "auth": "unlisted",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-clients/reactivate-409-client_already_revoked",
+    "method": "POST",
+    "route": "/v1/admin/clients/:id/reactivate",
+    "auth": "unlisted",
+    "status": 409,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-clients/revert-200",
+    "method": "POST",
+    "route": "/v1/admin/clients/:id/revert",
+    "auth": "unlisted",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "client_id": {
+          "type": "string"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "items": {
+          "type": "array",
+          "item": null
+        },
+        "next": {
+          "type": "null"
+        },
+        "scanned": {
+          "type": "number"
+        },
+        "since": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-clients/revert-400-bad_request",
+    "method": "POST",
+    "route": "/v1/admin/clients/:id/revert",
+    "auth": "unlisted",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "param": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-clients/revert-401-unauthorized",
+    "method": "POST",
+    "route": "/v1/admin/clients/:id/revert",
+    "auth": "unlisted",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-clients/revert-403-not_admin",
+    "method": "POST",
+    "route": "/v1/admin/clients/:id/revert",
+    "auth": "unlisted",
+    "status": 403,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-clients/revert-404",
+    "method": "POST",
+    "route": "/v1/admin/clients/:id/revert",
+    "auth": "unlisted",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-clients/suspend-200",
+    "method": "POST",
+    "route": "/v1/admin/clients/:id/suspend",
+    "auth": "unlisted",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "id": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "suspended_at": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-clients/suspend-401-unauthorized",
+    "method": "POST",
+    "route": "/v1/admin/clients/:id/suspend",
+    "auth": "unlisted",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-clients/suspend-403-not_admin",
+    "method": "POST",
+    "route": "/v1/admin/clients/:id/suspend",
+    "auth": "unlisted",
+    "status": 403,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-clients/suspend-404",
+    "method": "POST",
+    "route": "/v1/admin/clients/:id/suspend",
+    "auth": "unlisted",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-clients/suspend-409-client_already_revoked",
+    "method": "POST",
+    "route": "/v1/admin/clients/:id/suspend",
+    "auth": "unlisted",
+    "status": 409,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
     "id": "admin-diff/tick-200",
     "method": "POST",
     "route": "/v1/admin/diff/tick",
@@ -9547,6 +9854,35 @@
         "health": {
           "type": "object",
           "fields": {
+            "clients": {
+              "type": "object",
+              "fields": {
+                "budget": {
+                  "type": "object",
+                  "fields": {
+                    "base": {
+                      "type": "number"
+                    },
+                    "effective": {
+                      "type": "number"
+                    },
+                    "live_layouts": {
+                      "type": "number"
+                    },
+                    "pct": {
+                      "type": "number"
+                    },
+                    "window_seconds": {
+                      "type": "number"
+                    }
+                  }
+                },
+                "suspended": {
+                  "type": "array",
+                  "item": null
+                }
+              }
+            },
             "diff": {
               "type": "object",
               "fields": {

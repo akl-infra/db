@@ -4,7 +4,7 @@
 // lives here, and every action is an `admin.*` event (`appendAdmin`) so the
 // public changelog sees it the same way it sees any other admin write.
 import type { Bindings } from "../env";
-import { budgetSummary, destructiveThreshold, DESTRUCTIVE_WINDOW_SECONDS, type BudgetSummary } from "./destructive-budget";
+import { budgetSummary, destructiveBudgetKey, destructiveThreshold, DESTRUCTIVE_WINDOW_SECONDS, type BudgetSummary } from "./destructive-budget";
 import { badRequest, notFound } from "./errors";
 import { appendAdmin } from "./events";
 import { base64UrlToBytes, EXTRA_CAPS, parseCaps, SCOPE_CAPS } from "../auth/client";
@@ -224,6 +224,12 @@ export async function reactivateClient(db: Bindings["DB"], now: Clock, actorId: 
   await db.batch([
     db.prepare("UPDATE clients SET status = 'active' WHERE id = ?").bind(id),
     db.prepare("DELETE FROM import_state WHERE key = ?").bind(suspendStateKey(id)),
+    // A clean slate: without this, a client reactivated mid-window (the
+    // common case -- an admin investigates and clears it soon after the
+    // trip) would re-trip on its very next destructive write, since the
+    // counter that got it suspended is still sitting at/above threshold
+    // for the rest of that clock hour.
+    db.prepare("DELETE FROM ratelimit WHERE key = ?").bind(destructiveBudgetKey(id)),
   ]);
   await appendAdmin(db, now, { kind: "admin.client_reactivated", actor: actorId, detail: { id } });
   return { id, status: "active", suspended_at: null, reason: null };

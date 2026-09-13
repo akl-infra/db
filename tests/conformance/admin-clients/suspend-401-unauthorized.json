@@ -1,0 +1,11 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/admin/clients/conformance-client-suspend-1/suspend"
+  },
+  "response": {
+    "status": 401,
+    "headers": { "Content-Type": "application/json", "WWW-Authenticate": "Bearer" },
+    "body": { "error": "unauthorized", "message": "authentication required" }
+  }
+}

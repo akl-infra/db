@@ -1,0 +1,18 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/admin/clients/conformance-client-suspend-1/suspend",
+    "bearer": "conformance-admin-token",
+    "body": {}
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "body": {
+      "id": "conformance-client-suspend-1",
+      "status": "suspended",
+      "suspended_at": "2026-06-20T00:00:00.000Z",
+      "reason": "manual admin suspension"
+    }
+  }
+}

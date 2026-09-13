@@ -117,6 +117,23 @@ import adminClientsDelete403NotAdmin from "./admin-clients/delete-403-not_admin.
 import adminClientsDelete404 from "./admin-clients/delete-404.json" with { type: "json" };
 import adminClientsDelete429 from "./admin-clients/delete-429.json" with { type: "json" };
 import adminClientsDelete503IdentityUnavailable from "./admin-clients/delete-503-identity_unavailable.json" with { type: "json" };
+// [LDB-A11] [LDB-A13] rogue-trusted-client hardening (2026-09-13):
+// suspend/reactivate/revert.
+import adminClientsSuspend200 from "./admin-clients/suspend-200.json" with { type: "json" };
+import adminClientsSuspend401Unauthorized from "./admin-clients/suspend-401-unauthorized.json" with { type: "json" };
+import adminClientsSuspend403NotAdmin from "./admin-clients/suspend-403-not_admin.json" with { type: "json" };
+import adminClientsSuspend404 from "./admin-clients/suspend-404.json" with { type: "json" };
+import adminClientsSuspend409ClientAlreadyRevoked from "./admin-clients/suspend-409-client_already_revoked.json" with { type: "json" };
+import adminClientsReactivate200 from "./admin-clients/reactivate-200.json" with { type: "json" };
+import adminClientsReactivate401Unauthorized from "./admin-clients/reactivate-401-unauthorized.json" with { type: "json" };
+import adminClientsReactivate403NotAdmin from "./admin-clients/reactivate-403-not_admin.json" with { type: "json" };
+import adminClientsReactivate404 from "./admin-clients/reactivate-404.json" with { type: "json" };
+import adminClientsReactivate409ClientAlreadyRevoked from "./admin-clients/reactivate-409-client_already_revoked.json" with { type: "json" };
+import adminClientsRevert200 from "./admin-clients/revert-200.json" with { type: "json" };
+import adminClientsRevert400BadRequest from "./admin-clients/revert-400-bad_request.json" with { type: "json" };
+import adminClientsRevert401Unauthorized from "./admin-clients/revert-401-unauthorized.json" with { type: "json" };
+import adminClientsRevert403NotAdmin from "./admin-clients/revert-403-not_admin.json" with { type: "json" };
+import adminClientsRevert404 from "./admin-clients/revert-404.json" with { type: "json" };
 import adminClientsGet401TokenInvalid from "./admin-clients/get-401-token_invalid.json" with { type: "json" };
 import adminClientsGet503IdentityUnavailable from "./admin-clients/get-503-identity_unavailable.json" with { type: "json" };
 
@@ -1028,6 +1045,26 @@ export const CASES: ConformanceCase[] = [
   kase("admin-clients/200", "/v1/admin/clients", adminClientsOk, true),
   kase("admin-clients/403", "/v1/admin/clients", adminClientsForbidden, true),
   kase("admin-clients/401", "/v1/admin/clients", adminClientsUnauthorized, true),
+
+  // [LDB-A11] [LDB-A13] rogue-trusted-client hardening (2026-09-13):
+  // suspend/reactivate/revert -- declared AFTER admin-clients/200's own
+  // listing snapshot above (which pins `conformance-client-suspend-1` as
+  // still `active`), since `suspend-200` mutates it.
+  kase("admin-clients/suspend-200", "/v1/admin/clients/:id/suspend", adminClientsSuspend200, true),
+  kase("admin-clients/suspend-401-unauthorized", "/v1/admin/clients/:id/suspend", adminClientsSuspend401Unauthorized, true),
+  kase("admin-clients/suspend-403-not_admin", "/v1/admin/clients/:id/suspend", adminClientsSuspend403NotAdmin, true),
+  kase("admin-clients/suspend-404", "/v1/admin/clients/:id/suspend", adminClientsSuspend404, true),
+  kase("admin-clients/suspend-409-client_already_revoked", "/v1/admin/clients/:id/suspend", adminClientsSuspend409ClientAlreadyRevoked, true),
+  kase("admin-clients/reactivate-200", "/v1/admin/clients/:id/reactivate", adminClientsReactivate200, true),
+  kase("admin-clients/reactivate-401-unauthorized", "/v1/admin/clients/:id/reactivate", adminClientsReactivate401Unauthorized, true),
+  kase("admin-clients/reactivate-403-not_admin", "/v1/admin/clients/:id/reactivate", adminClientsReactivate403NotAdmin, true),
+  kase("admin-clients/reactivate-404", "/v1/admin/clients/:id/reactivate", adminClientsReactivate404, true),
+  kase("admin-clients/reactivate-409-client_already_revoked", "/v1/admin/clients/:id/reactivate", adminClientsReactivate409ClientAlreadyRevoked, true),
+  kase("admin-clients/revert-200", "/v1/admin/clients/:id/revert", adminClientsRevert200, true),
+  kase("admin-clients/revert-400-bad_request", "/v1/admin/clients/:id/revert", adminClientsRevert400BadRequest, true),
+  kase("admin-clients/revert-401-unauthorized", "/v1/admin/clients/:id/revert", adminClientsRevert401Unauthorized, true),
+  kase("admin-clients/revert-403-not_admin", "/v1/admin/clients/:id/revert", adminClientsRevert403NotAdmin, true),
+  kase("admin-clients/revert-404", "/v1/admin/clients/:id/revert", adminClientsRevert404, true),
 
   kase("me/200-signed", "/v1/me", me200Signed, true),
 
