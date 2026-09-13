@@ -63,3 +63,30 @@ describe("[SITE-12] no akl.gg link-out in the client bundle", () => {
     expect(offenders.map((f) => path.basename(f))).toEqual([]);
   });
 });
+
+// [SITE-37] LDB-A14 (saltorbit, 2026-09-13, "rogue trusted client" hardening):
+// "I don't want to give destructive clients a handbook" -- the destructive-
+// write budget/threshold that trips an automatic suspension is never
+// displayed or described anywhere on akldb.org, application code or copy.
+// Same isolated-exception shape as SITE-7/SITE-12: `db/docs/adoption.md`'s
+// own public rate-limit prose ("1000 writes / 10 minutes per actor... an
+// additional 5000 / 10 minutes per client id... one person's own budget")
+// is a PRE-EXISTING, unrelated, publicly-documented general rate limit --
+// not the destructive-write abuse-containment threshold LDB-A14 guards --
+// and lives only in the isolated docs-content chunk, exactly like the
+// hostname/akl.gg literals above.
+describe("[SITE-37] no budget/threshold string (LDB-A14) outside the docs-content chunk", () => {
+  it("builds, then finds no /budget|threshold/i match in any application bundle chunk", () => {
+    execFileSync("npx", ["vite", "build"], { cwd: SITE_ROOT, stdio: "pipe" });
+    const NEEDLE = /budget|threshold/i;
+    const offenders = walk(DIST_DIR).filter(
+      (f) => /\.(js|css|html)$/.test(f) && !path.basename(f).startsWith("docs-content") && NEEDLE.test(fs.readFileSync(f, "utf8")),
+    );
+    expect(offenders.map((f) => path.basename(f))).toEqual([]);
+    // And the one known, unrelated exception really is still there (this
+    // test isn't vacuously passing because the docs chunk failed to build).
+    const docsChunk = walk(DIST_DIR).find((f) => path.basename(f).startsWith("docs-content") && /\.(js|css|html)$/.test(f));
+    expect(docsChunk).toBeDefined();
+    expect(NEEDLE.test(fs.readFileSync(docsChunk!, "utf8"))).toBe(true);
+  });
+});

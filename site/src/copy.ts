@@ -187,6 +187,8 @@ export const copy = {
     tabLinkQueue: "Link queue",
     tabAdmins: "Admins",
     tabImport: "Import",
+    // UNSIGNED COPY (clients moderation, 2026-09-13) -- awaiting saltorbit
+    tabClients: "Clients",
     layouts: {
       searchPlaceholder: "Layout name or id",
       searchButton: "Search",
@@ -253,6 +255,26 @@ export const copy = {
       running: "Import is running",
       healthTitle: "Health",
       healthLoadError: "Could not load health from akldb",
+    },
+    // UNSIGNED COPY (clients moderation, 2026-09-13) -- awaiting saltorbit
+    clients: {
+      loadError: "Could not load the client list from akldb",
+      empty: "No clients registered",
+      colClient: "Client",
+      colOwner: "Owner",
+      colCaps: "Capabilities",
+      colStatus: "Status",
+      colSuspended: "Suspended",
+      colRevoked: "Revoked",
+      statusActive: "Active",
+      statusSuspended: "Suspended",
+      statusRevoked: "Revoked",
+      suspendedAt: (at: string) => `Since ${at}`,
+      suspendButton: "Suspend",
+      reactivateButton: "Reactivate",
+      revokeButton: "Revoke",
+      revokeConfirmNotice: "This cannot be undone.",
+      clientAlreadyRevoked: "This client is already revoked",
     },
   },
   notFound: {

@@ -165,6 +165,55 @@ export interface AdminRow {
   note: string | null;
 }
 
+// ── Trusted-client moderation (LDB-A10..A14, `db/INVARIANTS.md`) ─────────
+
+export type ClientStatus = "active" | "revoked" | "suspended";
+
+/** `GET /v1/admin/clients`'s row shape exactly (`db/src/core/clients.ts`'s
+ * `ClientRow` -- `listClients`'s own SELECT). Deliberately does NOT carry
+ * `suspended_at`/`reason`: those live only in `import_state`, keyed per
+ * client, and never appear on this route -- only on the public
+ * `GET /v1/meta`'s `health.clients.suspended` (`SuspendedClientInfo`,
+ * below). LDB-A14: the destructive-write BUDGET/THRESHOLD that triggers an
+ * automatic suspension is never part of either shape, and this type must
+ * never grow a field for it. */
+export interface ClientRow {
+  id: string;
+  name: string;
+  pubkey: string;
+  owner_user_id: string;
+  caps: string;
+  discord_app_id: string | null;
+  status: ClientStatus;
+  created_at: string;
+  revoked_at: string | null;
+}
+
+/** One entry of `GET /v1/meta`'s `health.clients.suspended` (LDB-A12) --
+ * the only place `at`/`reason` for a suspension are public at all. */
+export interface SuspendedClientInfo {
+  id: string;
+  name: string;
+  at: string | null;
+  reason: string | null;
+}
+
+/** The shared response shape of suspend/reactivate (`ClientStatusResult`,
+ * `db/src/core/clients.ts`). */
+export interface ClientStatusResult {
+  id: string;
+  status: ClientStatus;
+  suspended_at: string | null;
+  reason: string | null;
+}
+
+/** `DELETE /v1/admin/clients/:id`'s response shape (revoke -- terminal). */
+export interface ClientRevokeResult {
+  id: string;
+  status: "revoked";
+  revoked_at: string;
+}
+
 /** Any of these responses MAY carry a `seq` for the event they just
  * appended -- none observed in the live routes do today (every admin/owner
  * route's response is a row/record shape, not the raw event), but the

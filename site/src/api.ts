@@ -8,9 +8,13 @@ import type {
   Author,
   BanRow,
   ChangesPage,
+  ClientRevokeResult,
+  ClientRow,
+  ClientStatusResult,
   LayoutRecord,
   LinkSubmission,
   MeResponse,
+  SuspendedClientInfo,
 } from "./lib/types.ts";
 
 export type ApiResult<T> = { ok: true; data: T } | { ok: false; status: number; error: string; message?: string };
@@ -126,6 +130,18 @@ export function getHeadSeq(): Promise<ApiResult<{ seq: number }>> {
   return request<{ seq: number }>("/api/v1/meta");
 }
 
+/** `GET /v1/meta`'s `health.clients` (LDB-A12), the only PUBLIC place a
+ * suspension's `at`/`reason` are exposed -- `GET /v1/admin/clients` itself
+ * carries neither (`ClientRow`'s own comment). Only this narrow slice of
+ * the route's much larger body is typed/read; nothing here is admin-only,
+ * so this is a safe, ordinary (non-`X-Requested-With`) GET like
+ * `getHeadSeq`. */
+export async function getMetaHealthClients(): Promise<ApiResult<{ suspended: SuspendedClientInfo[] }>> {
+  const result = await request<{ health: { clients: { suspended: SuspendedClientInfo[] } } }>("/api/v1/meta");
+  if (!result.ok) return result;
+  return { ok: true, data: result.data.health.clients };
+}
+
 export function getChanges(since = 0, limit = 50): Promise<ApiResult<ChangesPage>> {
   return request<ChangesPage>(`/api/v1/changes?since=${since}&limit=${limit}`);
 }
@@ -213,6 +229,30 @@ export function adminAddAdmin(userId: string, note?: string): Promise<ApiResult<
 export function adminRemoveAdmin(userId: string): Promise<ApiResult<{ removed: string }>> {
   return request(`/api/v1/admin/admins/${encodeURIComponent(userId)}`, { method: "DELETE" });
 }
+export function adminListClients(): Promise<ApiResult<ClientRow[]>> {
+  return request("/api/v1/admin/clients");
+}
+
+// [LDB-A11] `reason` is optional (the DB defaults it to "manual admin
+// suspension" when omitted) -- `JSON.stringify({ reason })` drops the key
+// entirely when `reason` is `undefined`, matching the DB's own conformance
+// fixture body for the no-reason case (`{}`, `db/tests/conformance/
+// admin-clients/suspend-200.json`) rather than sending `{"reason":null}`.
+export function adminSuspendClient(id: string, reason?: string): Promise<ApiResult<ClientStatusResult>> {
+  return request(`/api/v1/admin/clients/${encodeURIComponent(id)}/suspend`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+}
+export function adminReactivateClient(id: string): Promise<ApiResult<ClientStatusResult>> {
+  return request(`/api/v1/admin/clients/${encodeURIComponent(id)}/reactivate`, { method: "POST" });
+}
+// Terminal: DELETE is revoke, same as `deleteLayout`'s verb but with no
+// `If-Match` (client rows aren't rev'd the way layouts are, `SITE-14`).
+export function adminRevokeClient(id: string): Promise<ApiResult<ClientRevokeResult>> {
+  return request(`/api/v1/admin/clients/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
 export function adminImportPause(): Promise<ApiResult<{ paused: boolean }>> {
   return request("/api/v1/admin/import/pause", { method: "POST" });
 }

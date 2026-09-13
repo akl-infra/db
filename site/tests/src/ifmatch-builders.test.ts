@@ -92,6 +92,10 @@ describe("[SITE-14] If-Match is never sent on like, link, or any admin route", (
       () => api.adminImportResume(),
       () => api.adminImportTick(),
       () => api.adminHealth(),
+      () => api.adminListClients(),
+      () => api.adminSuspendClient("c1", "reason"),
+      () => api.adminReactivateClient("c1"),
+      () => api.adminRevokeClient("c1"),
     ];
     for (const call of calls) {
       stubFetch();

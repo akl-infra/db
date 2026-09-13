@@ -313,6 +313,18 @@ h2 {
   color: var(--accent);
 }
 
+/* Admin console, Clients tab: a suspended client's row stays visually
+   distinct from active/revoked ones even after the initial sort groups
+   suspended rows first (LDB-A10..A14 "rogue trusted client" hardening).
+   `--danger-wash` already covers both themes (`:root`'s light values plus
+   the dark overrides above), so this needs no separate dark-mode rule. */
+.akl-row-suspended td {
+  background: var(--danger-wash);
+}
+.akl-row-suspended:hover td {
+  background: var(--danger-wash);
+}
+
 /* Whole-row click target (Home's layout list, [SITE-20]): delegation on the
    <tr> (src/lib/rowclick.ts) -- NO positioned overlay. Safari does not treat
    a `position: relative` <tr> as a containing block, so an `inset: 0`

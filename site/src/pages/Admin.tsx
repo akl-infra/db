@@ -9,8 +9,9 @@ import BansTab from "./admin/BansTab.tsx";
 import LinkQueueTab from "./admin/LinkQueueTab.tsx";
 import AdminsTab from "./admin/AdminsTab.tsx";
 import ImportTab from "./admin/ImportTab.tsx";
+import ClientsTab from "./admin/ClientsTab.tsx";
 
-type Tab = "layouts" | "authors" | "bans" | "linkQueue" | "admins" | "import";
+type Tab = "layouts" | "authors" | "bans" | "linkQueue" | "admins" | "import" | "clients";
 
 /** Route `/admin` (design/akldb-site/01-plan.md §5): the real moderation
  * console. The gate is unchanged from W1a and stays the security-relevant
@@ -57,6 +58,9 @@ const Admin: Component = () => {
               <button aria-current={tab() === "import" ? "true" : undefined} onClick={() => setTab("import")}>
                 {copy.admin.tabImport}
               </button>
+              <button aria-current={tab() === "clients" ? "true" : undefined} onClick={() => setTab("clients")}>
+                {copy.admin.tabClients}
+              </button>
             </div>
 
             <Show when={tab() === "layouts"}>
@@ -76,6 +80,9 @@ const Admin: Component = () => {
             </Show>
             <Show when={tab() === "import"}>
               <ImportTab />
+            </Show>
+            <Show when={tab() === "clients"}>
+              <ClientsTab />
             </Show>
           </div>
         </Show>

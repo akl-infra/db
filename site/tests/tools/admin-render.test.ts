@@ -58,6 +58,10 @@ describe("[SITE-18] Admin.tsx renders no moderation markup without admin:true", 
     expect(html).not.toContain(copy.admin.tabBans);
     expect(html).not.toContain(copy.admin.layouts.searchPlaceholder);
     expect(html).not.toContain(copy.admin.bans.banButton);
+    // LDB-A10..A14: the Clients section (trusted-client moderation) never
+    // mounts for a non-admin either -- same "absent, not hidden" posture
+    // as every other tab.
+    expect(html).not.toContain(copy.admin.tabClients);
   });
 
   it("a signed-out visitor sees only the not-admin page", async () => {
@@ -72,5 +76,9 @@ describe("[SITE-18] Admin.tsx renders no moderation markup without admin:true", 
     expect(html).toContain(copy.admin.tabLayouts);
     expect(html).toContain(copy.admin.tabBans);
     expect(html).toContain(copy.admin.layouts.searchPlaceholder);
+    // The Clients tab BUTTON is part of the tab bar shown to every admin
+    // (its content, like every other non-default tab's, mounts only once
+    // selected -- covered by [SITE-35]'s pure-logic test, not SSR here).
+    expect(html).toContain(copy.admin.tabClients);
   });
 });
