@@ -20,14 +20,83 @@ import { SELF, createExecutionContext, createScheduledController, env, waitOnExe
 import { describe, expect, it, vi } from "vitest";
 import type { Bindings } from "../src/env";
 import { canonical } from "../src/core/canonical";
-import { type EventDbRow, foldLayout, rowToEvent } from "../src/core/events";
+import { appendLikeAdjust, appendLinkChange, type EventDbRow, foldLayout, rowToEvent } from "../src/core/events";
 import { rowToFormat, rowToLayout, type FormatDbRow, type LayoutDbRow } from "../src/core/records";
-import type { Dump, LayoutRevDbRow } from "../src/dump/write";
+import { fixedClock } from "../src/core/time";
+import type { BanDbRow, Dump, LayoutRevDbRow, LinkSubmissionDbRow } from "../src/dump/write";
 import { restoreInto } from "../src/dump/restore";
+import { ulid } from "ulidx";
 import worker from "../src/index";
 import { FakeUpstream } from "./import/fake-upstream";
 import { assertConformanceCase, seedUpstream100 } from "./api/support";
 import { CASES } from "./conformance/manifest";
+
+// [LDB-MD8] §4.5: the two new L5 moderation tables/columns, planted before
+// the dump the same way LDB-D9's `clients` row is above -- a real ban, a
+// real pending submission, a real approved link and a non-zero
+// `like_adjust`, each asserted byte-exact after the restore. Two DISTINCT
+// layouts (never the same one) so the approved-link write's own sweep
+// (`appendLinkChange` supersedes every OTHER pending submission for ITS
+// layout) can never accidentally touch the pending one this test also
+// plants.
+const REHOST_BAN_USER = "870000000000000001";
+async function plantModerationState(db: Bindings["DB"]): Promise<{ likeLayoutId: string; pendingLayoutId: string; linkLayoutId: string }> {
+  const clock = fixedClock("2026-08-01T02:00:00.000Z");
+  // Three BRAND NEW layouts, never a real upstream-100 record -- every
+  // conformance fixture's own request targets a fixed, real seeded name
+  // (e.g. "changes/200-layout" pins a layout's exact event history), so
+  // reusing one of THOSE for a moderation plant would append an event the
+  // fixture never expects and break the CASES replay below. `commitWrite`
+  // directly (never the HTTP route), same pattern the shared write model
+  // (tests/events/fold.test.ts) uses for a system-authored create.
+  async function freshLayout(name: string): Promise<string> {
+    const { commitWrite } = await import("../src/core/events");
+    const input = {
+      layoutId: ulid(),
+      creating: true,
+      currentN: 0,
+      currentLayout: null,
+      currentFormats: new Map(),
+      layout: { kind: "created" as const, name, owner: "800000000000000001", created_at: clock(), deleted: false },
+      format: { kind: "format_added" as const, lineage: "spark", format: "spark/1", payload: { keys: {} }, hasMagic: false },
+      modified_at: clock(),
+      actor: "800000000000000001",
+      via: "discord",
+      source: { client: "discord-app:test", version: null },
+      upstream: null,
+    };
+    const { layout } = await commitWrite(db, clock, input);
+    return layout.id;
+  }
+
+  const likeLayoutId = await freshLayout("rehost-plant-like");
+  const pendingLayoutId = await freshLayout("rehost-plant-pending");
+  const linkLayoutId = await freshLayout("rehost-plant-link");
+
+  await db
+    .prepare("INSERT INTO bans (user_id, by, at, reason) VALUES (?, ?, ?, ?)")
+    .bind(REHOST_BAN_USER, "800000000000000001", clock(), "rehost drill plant")
+    .run();
+
+  await appendLikeAdjust(db, clock, { layoutId: likeLayoutId, actor: "800000000000000001", via: "discord", source: { client: "discord-app:test", version: null }, count: 7 });
+
+  await db
+    .prepare("INSERT INTO link_submissions (id, layout_id, url, submitted_by, submitted_at, status, decided_by, decided_at, reason) VALUES (?, ?, ?, ?, ?, 'pending', NULL, NULL, NULL)")
+    .bind(ulid(), pendingLayoutId, "https://example.org/rehost-pending", "800000000000000001", clock())
+    .run();
+
+  await appendLinkChange(db, clock, {
+    layoutId: linkLayoutId,
+    kind: "link_approved",
+    link: "https://example.org/rehost-approved",
+    actor: "800000000000000001",
+    via: "discord",
+    admin: true,
+    source: { client: "discord-app:test", version: null },
+  });
+
+  return { likeLayoutId, pendingLayoutId, linkLayoutId };
+}
 
 const bindings = env as unknown as Bindings & { TEST_REHOST_DUMP_URL: string };
 const db = bindings.DB;
@@ -42,8 +111,9 @@ async function gunzipJson<T>(gz: ArrayBuffer): Promise<T> {
 // read straight from the `DUMPS` binding (not the HTTP route -- the dump
 // itself is the thing under test here, not the route layer, which
 // tests/api/dump.test.ts already covers).
-async function runCronAndReadDump(): Promise<Dump> {
+async function runCronAndReadDump(afterSeed?: () => Promise<void>): Promise<Dump> {
   await seedUpstream100();
+  if (afterSeed !== undefined) await afterSeed();
 
   // The cron consolidation (12 §3 X4 follow-up 2): every dispatch now ALSO
   // runs an import tick before the dump -- `seedUpstream100()` above
@@ -101,7 +171,7 @@ describe("rehost drill", () => {
   // the event log to a tail) would desync one of those, not just look wrong
   // in isolation. `tests/api/dump.test.ts` covers the OTHER two clauses
   // (the `latest.json` sha256, the monthly-key timing) directly.
-  it("[LDB-G1] [LDB-P6] [LDB-D1] [MF-3] [LDB-P18] [LDB-P11] [LDB-D9] restoreSql reproduces the exact dumped state", async () => {
+  it("[LDB-G1] [LDB-P6] [LDB-D1] [MF-3] [LDB-P18] [LDB-P11] [LDB-D9] [LDB-MD3] [LDB-MD8] restoreSql reproduces the exact dumped state", async () => {
     const remoteUrl = bindings.TEST_REHOST_DUMP_URL;
     const usingRemote = remoteUrl !== "";
 
@@ -121,10 +191,30 @@ describe("rehost drill", () => {
     // restoring the dump taken from it can be checked for exact agreement.
     let metaBefore: unknown;
     let changesBefore: string | undefined;
-    const dump = usingRemote ? await fetchRemoteDump(remoteUrl) : await runCronAndReadDump();
+    let moderationIds: { likeLayoutId: string; pendingLayoutId: string; linkLayoutId: string } | undefined;
+    const dump = usingRemote
+      ? await fetchRemoteDump(remoteUrl)
+      : await runCronAndReadDump(async () => {
+          moderationIds = await plantModerationState(db);
+        });
     if (!usingRemote) {
       metaBefore = await (await SELF.fetch("https://example.com/v1/meta")).json();
       changesBefore = await (await SELF.fetch("https://example.com/v1/changes?since=0&limit=1000")).text();
+    }
+
+    // [LDB-MD8] §4.5: the planted state actually made it into the dump's
+    // `bans`/`link_submissions` arrays and `records`' own `like_adjust`/
+    // `link` columns -- before restore even runs, so a restore that merely
+    // happened to leave stale pre-existing rows in place could never pass
+    // this by accident.
+    if (!usingRemote) {
+      const ids = moderationIds!;
+      expect(dump.bans.some((b) => b.user_id === REHOST_BAN_USER && b.reason === "rehost drill plant")).toBe(true);
+      expect(dump.link_submissions.some((s) => s.layout_id === ids.pendingLayoutId && s.status === "pending" && s.url === "https://example.org/rehost-pending")).toBe(true);
+      const likeRecord = dump.records.find((r) => r.id === ids.likeLayoutId);
+      expect(likeRecord?.like_adjust).toBe(7);
+      const linkRecord = dump.records.find((r) => r.id === ids.linkLayoutId);
+      expect(linkRecord?.link).toBe("https://example.org/rehost-approved");
     }
 
     // LDB-D9: `clients` is dumped -- unlike `auth_cache`/`nonces`/
@@ -145,6 +235,26 @@ describe("rehost drill", () => {
     expect(canonical(restoredClients.results)).toBe(canonical(dump.clients));
     if (!usingRemote) {
       expect(restoredClients.results.some((r) => (r as { id: string }).id === "cl-rehost-test")).toBe(true);
+    }
+
+    // [LDB-MD8] the ban, the pending submission, the approved link and the
+    // non-zero `like_adjust` all round-trip byte-exact.
+    if (!usingRemote) {
+      const ids = moderationIds!;
+      const restoredBans = await db.prepare("SELECT user_id, by, at, reason FROM bans ORDER BY user_id ASC").all<BanDbRow>();
+      expect(canonical(restoredBans.results)).toBe(canonical(dump.bans));
+      expect(restoredBans.results.some((b) => b.user_id === REHOST_BAN_USER && b.reason === "rehost drill plant")).toBe(true);
+
+      const restoredSubmissions = await db
+        .prepare("SELECT id, layout_id, url, submitted_by, submitted_at, status, decided_by, decided_at, reason FROM link_submissions ORDER BY id ASC")
+        .all<LinkSubmissionDbRow>();
+      expect(canonical(restoredSubmissions.results)).toBe(canonical(dump.link_submissions));
+      expect(restoredSubmissions.results.some((s) => s.layout_id === ids.pendingLayoutId && s.status === "pending")).toBe(true);
+
+      const likeLayout = await db.prepare("SELECT like_adjust FROM layouts WHERE id = ?").bind(ids.likeLayoutId).first<{ like_adjust: number }>();
+      expect(likeLayout?.like_adjust).toBe(7);
+      const linkLayout = await db.prepare("SELECT link FROM layouts WHERE id = ?").bind(ids.linkLayoutId).first<{ link: string | null }>();
+      expect(linkLayout?.link).toBe("https://example.org/rehost-approved");
     }
 
     // MF-3 replay: every dumped layout equals the fold of its own events
