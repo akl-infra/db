@@ -247,3 +247,23 @@ Over 1 s: total 11 / 49, **handler 6 / 49 — all six are writes.** The Discord 
 **Where the write's second is** (headless harness on the machine, per phase): fresh check 70–510 ms (65 when the conditional GET is a 304; 300–500 when the record changed and the full record comes back), resolve 120 ms, **layoutdb PUT 640–760 ms**. The same PUT was 360–510 ms from the laptop in round 1, and `/v1/meta` is 65 ms from Fly — so the Worker's per-D1-statement round trips dominate a write and a changed-record read. Cheapest lever, tried first: **Smart Placement** for the Worker (`[placement] mode = "smart"`, deployed 05:45Z) so it runs next to D1 for D1-heavy requests; re-measured below (§14a). Next levers if that is not enough: batch the write's D1 statements into one `db.batch()`, and skip the post-write full-record re-read (the write response already carries the record).
 
 **R2 for writes, honest reading**: 1.0–1.3 s of bot-side time today, ≈ 1.4–1.75 s to the user's eyes with the Discord post. The "about a second" target is met for every read and missed by 0.1–0.3 s for writes before Smart Placement.
+
+### 14a · The write second is geography
+
+After Smart Placement (05:45Z, minutes old): unchanged — PUT 680–780 ms, changed-record GET 290–450 ms from the machine. From the laptop at the same time: **record GET 25 ms, create 277 ms, delete 250 ms, `/v1/meta` 73 ms.**
+
+| | laptop | Fly machine |
+|---|---|---|
+| Cloudflare edge reached (`cf-ray`) | **DEN** | **IAD** |
+| D1 `running_in_region` | WNAM (western North America) | WNAM |
+| `/v1/meta` (one tiny read) | 25–73 ms | 65 ms |
+| one record GET (several D1 queries) | 25 ms | 300–500 ms |
+| one write PUT (many D1 statements) | 250–280 ms | 640–780 ms |
+
+The Worker runs at the edge the client reaches. From IAD every D1 statement is a cross-country round trip (~60–70 ms); a record read is several, a write is roughly ten. From DEN the same statements are local. So the bot's write cost is not code, it is the 2,500 km between IAD and WNAM, paid once per D1 statement.
+
+Two fixes, either sufficient:
+1. **Move the spark machine to a western Fly region** (`den` is nearest to both the DEN edge and WNAM; `sea`/`sjc`/`lax` also work). Deterministic and immediate: every layoutdb call becomes laptop-like (write handler ≈ 400 ms, read fresh check ≈ 25 ms); the Discord reply post from the west costs perhaps 30 ms more. Needs a volume in the new region (`fly volumes create --snapshot-id … --region den` from the current volume's latest snapshot, or accept losing `/data` — only per-user corpus preferences and rebuildable caches live there), then `fly machine clone --region den` and destroy the IAD machine. A quiet-hour task with saltorbit aware.
+2. **Smart Placement** (already on): should move the Worker to WNAM for D1-heavy requests once it has observed enough traffic — re-check tomorrow. Even then the client→edge hop from IAD stays.
+
+Recommendation: do (1) tomorrow; keep (2) on. Expected after (1): writes ≈ 0.4 s bot time + 0.3 s post ≈ 0.7 s to the user — inside the target.
