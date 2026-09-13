@@ -261,13 +261,12 @@ curl -sX PATCH …/v1/layouts/01M245…YFRJ -H 'Idempotency-Key: 4f2c-swap-1' \
 
 ```bash
 curl -sX POST …/v1/layouts -H 'X-Client-Version: my-bot/1.0' -d '{"name":"ldb-integration-doc-demo",
-  "format":"spark/1","payload":{"keys":{"a":{"row":1,"col":1,"finger":"LI"}}}}' <signed>
+  "format":"spark/1","payload":{"keys":[{"char":"a","row":1,"col":1,"finger":"LI"}],"board":"ansi"}}' <signed>
 # 201 {"id":"01M245Q4J76A4PKAP2QX02YFRJ","name":"ldb-integration-doc-demo","layout_rev":1,
-#      "formats":{"spark/1":{"rev":1,"…":"…"}},"format":"spark/1","payload":{"keys":{"a": …}}}
-# (the same call with "format":"akl/1" now 400s "unknown_format" -- §1: no more alias)
+#      "formats":{"spark/1":{"rev":1,"…":"…"}},"format":"spark/1","payload":{"keys":[{"char":"a", …}],"board":"ansi"}}
 
 curl -sX PATCH …/v1/layouts/01M245…YFRJ -H 'If-Match: "spark:1"' -d '{"format":"spark/1","fingermap":{"a":"LM"}}' <signed>
-# 200 { …, "format":"spark/1", "payload":{"keys":{"a":{"col":1,"finger":"LM","row":1}}} }
+# 200 { …, "format":"spark/1", "payload":{"keys":[{"char":"a","row":1,"col":1,"finger":"LM"}],"board":"ansi"} }
 
 curl -sX PATCH …/v1/layouts/01M245…YFRJ -H 'If-Match: "spark:1"' -d '{"format":"spark/1","fingermap":{"a":"LI"}}' <signed>  # replayed
 # 409 {"error":"stale","scope":"spark","rev":2,"record":{ …,"formats":{"spark/1":{"rev":2}} },
@@ -293,20 +292,17 @@ sequence.
   stranger's. `curl -sX POST …/v1/layouts -d '{"name":"graphite", …}' <signed>`
   → `409 {"error":"name_taken","holder":{"id":"01M23DDW…","owner":"130544188818194432"}}`
 - `400 magic_collision` — two lowered rows fire on the same trigger (an idiom
-  vs an idiom, or vs a raw `rules[]` entry, `01-format.md` §3 "D4"); `from`
-  names both sources, `hint` (when one side is a scaffold row) suggests the
-  `except` fix. Live proof (adaptive swap `t:[h,e]` vs a raw `th→te` rule):
+  vs an idiom, or vs a raw `rules[]` entry); `from` names both sources,
+  `hint` (when one side is a scaffold row) suggests the `except` fix. Live
+  proof (adaptive swap `t:[h,e]` vs a raw `th→te` rule):
   `400 {"error":"magic_collision","inputs":"th","from":["adaptive_swaps[0]","rules[0]"],"path":"/magic/rules/0"}`
 - `400 invalid_payload` — the format's own `validate()` refused it, with a
   JSON-pointer `path`. Check locally, same function the server runs (or
-  `import { validate } from '@akl/layout-formats/spark/1'` from JS — there
-  is no `./akl/1` or `./cmini/1` package subpath any more, `21-formats.md`
-  D12):
-  `echo '{"keys":{"a":{"row":9,"col":1,"finger":"LI"}}}' | node
+  `import { validate } from '@akl/layout-formats/spark/1'` from JS):
+  `echo '{"keys":[{"row":9,"col":1,"finger":"LI"}],"board":"ansi"}' | node
   db/scripts/validate-akl1-payload.mjs` →
-  `{"ok":false,"error":{"error":"invalid_payload","message":"payload/keys/a/row must be <= 4","path":"/keys/a/row"}}`
-  (the script's own name is unchanged; it validates against `spark/1`'s
-  schema).
+  `{"ok":false,"error":{"error":"invalid_payload","message":"payload/keys/0/row must be <= 4","path":"/keys/0/row"}}`
+  (against `spark/1`'s schema).
 - `400 format_not_writable` / `409 format_behind` — `mana2/1` can never be
   written (it's produced on read only), and a blind `PUT` in an older major
   that has genuinely outgrown it is refused rather than silently losing
@@ -328,11 +324,11 @@ one (`format_added`/`updated`/`fingermap`/`imported`) — carrying
 `before`/`after` (scope-shaped: layout fields, or that one format's own)
 plus per-event `source`; `liked`/`unliked` move only `like_count`;
 `upstream_changed`/`import_conflict`/`import_error`/`admin.*` are
-informational. `kinds=` filters to a comma list. Every layout also carries a top-level `upstream`
-field — **transitional**, tied to the one-time cmini import, layout-level
-(a write to lineage `spark` or the layout itself moves it; any other
-format never does); don't build client behavior on it (adoption guide §4,
-`20-spark.md` decision 16).
+informational. `kinds=` filters to a comma list. Every layout also carries
+a top-level `upstream` field — **transitional**, tied to the one-time
+cmini import, layout-level (a write to lineage `spark` or the layout
+itself moves it; any other format never does); don't build client
+behavior on it (adoption guide §4).
 
 ```bash
 curl -s '…/v1/changes?since=6260&limit=3'
@@ -340,63 +336,38 @@ curl -s '…/v1/changes?since=6260&limit=3'
 #                        {"seq":6262,"kind":"deleted","format":null, …,"before":{"scope":"layout", …,"layout_rev":3},"after":{"scope":"layout", …,"layout_rev":4}}, …]}
 ```
 
-**SSE** (`GET /v1/changes/stream?since=&kinds=`) is the same feed pushed
-instead of polled — needs the Workers Paid plan (`STREAM_MAX_MS=0` on Free
-answers `503 stream_unavailable` instead). Reconnect with `Last-Event-ID:
-<cursor>` (what `EventSource` sends automatically, overriding `?since=`); a
-`: ping` comment arrives every 25s idle; the stream closes with `event:
-close` + `data: {"next":<cursor>}` after `STREAM_MAX_MS` (default 5 min) —
-reconnect with that cursor for no gap or duplicate.
+**Regular poll** — the call above, on a timer; cache the `ETag` and send it
+back as `If-None-Match` to get a cheap `304` on a quiet tick (adoption
+guide §4, §2's ETag/304 note above).
 
-```bash
-curl -N '…/v1/changes/stream?since=6260&kinds=liked,deleted,restored'
-# id: 6261
-# event: liked
-# data: {"actor":"999999999999999999", …,"kind":"liked","seq":6261, …}
-```
-
-**Webhooks** — up to 5/user (`POST /v1/webhooks { url, secret, kinds?,
-owner_filter? }`; `url` must be `https://`, not an IP literal; `secret`
-16-256 chars): `curl -sX POST …/v1/webhooks -d '{"url":"https://example.com/
-akl-webhook","secret":"a-throwaway-demo-secret-1234","kinds":["created",
-"updated"]}' <signed>` → `201 {"id":"01M24609AR7068V4228CKJHGYZ",
-"owner_user_id":"…","status":"active","cursor":6265, …}`.
-
-Each POST carries the full event JSON plus `X-Akl-Webhook-Id`, `X-Akl-Seq`,
-`X-Akl-Timestamp`, and `X-Akl-Signature: v1=<hex hmac-sha256(secret,
-\`${timestamp}.${body}\`)>`. **Receiver contract:** verify the HMAC (strip
-`v1=` first), reject anything > 300s old. Delivery is **at-least-once, in
-order, and never concurrent per hook** (`LDB-H6`'s lease keeps the
-after-write nudge and the cron drain — which overlap routinely — from ever
-both posting to the same hook at once), never required for correctness
-(`LDB-P3`) — a gap means poll `/v1/changes?since=` to fill it. A `seq` may
-arrive twice only after an outage on this end (a drain that dies mid-batch
-leaves the hook's lease held until it expires; the next drain re-delivers
-from the last committed cursor, possibly repeating the dead drain's own
-last, already-landed POST) — dedupe by `X-Akl-Seq`, treating any `seq` ≤
-your highest applied as a no-op. A non-2xx (or > 10s) stops that hook's
-batch and schedules a retry at 1 min / 10 min / 1 h; 3 consecutive failures
-→ `"failing"` (still retried hourly); failing past 7 days → `"disabled"`
-(no further attempts, visible via `GET /v1/webhooks`).
+**Long-poll** — `GET /v1/changes?since=<seq>&wait=<seconds>`, signed on the
+client lane (§3): the Worker holds the request open, checking the event
+head about once a second, and answers with the normal `/v1/changes` page as
+soon as `since` is exceeded or `wait` elapses (whichever first; `wait` is
+clamped to 25s). Any registered client gets this, no extra cap; any other
+caller naming `wait` gets the immediate, unheld answer instead, plus
+`X-Wait-Ignored: unauthorized` (never an error). Full mechanics and a
+signed example: adoption guide §4.
 
 **The nightly dump** (`GET /v1/dump/latest.json`, 03:00 UTC) is the full
 state — every table, the **whole** event log, not a tail:
 `curl -s …/v1/dump/latest.json` → `{"date":"2026-09-09",
 "key":"dump-2026-09-09.json.gz","url":"/v1/dump/dump-2026-09-09.json.gz",
 "sha256":"baf8c25e…","bytes":1240439,"layout_count":4176,"seq":6213}`.
-**Fold-after-dump** (the pattern the site's own mirror uses, `13-ledger.md`):
-load the dump, then `GET /v1/changes?since=<dump's seq>` to catch up — never
-re-fetch the whole corpus over the API. **Verify-then-serve:** if you cache
-`/v1/meta` yourself, `GET` it with `If-None-Match: "<your cached etag>"` — a
-`304` proves your cache is still current for free (one indexed read).
+**Fold-after-dump**: load the dump, then `GET /v1/changes?since=<dump's
+seq>` to catch up — never re-fetch the whole corpus over the API.
+**Verify-then-serve:** if you cache `/v1/meta` yourself, `GET` it with
+`If-None-Match: "<your cached etag>"` — a `304` proves your cache is still
+current for free (one indexed read).
 
 ## 6. Recipes
 
 - **A bot answering `!view <name>`.** No durable cache beyond your own
   `changes` cursor. `GET /v1/layouts/{name}?format=<your format>`; `404` →
   "no such layout" (or `format_absent` if the layout exists but never
-  stored that format); render `payload`. Keep a local cache warm by following
-  `/v1/changes/stream` (or polling `since=`), applying `before`/`after`.
+  stored that format); render `payload`. Keep a local cache warm by
+  long-polling `/v1/changes?wait=` (or polling `since=` on a timer),
+  applying `before`/`after`.
 - **Mirroring the whole DB.** `GET /v1/dump/latest.json` → fetch+gunzip the
   named object → load `records`/`likes`/`authors`/`events` → remember its
   `seq` → `GET /v1/changes?since=<seq>` in a loop, applying each rev-bumping
@@ -414,22 +385,21 @@ re-fetch the whole corpus over the API. **Verify-then-serve:** if you cache
 ## 7. Governance & etiquette
 
 Imports from cmini keep a record's stored `upstream.state` at `"following"`
-until a person writes it — any rev-bumping user write forks it (decision 6
-of `20-spark.md`; magic edits included, since the old magic-only exemption
-is retired). `upstream` is a stored field folded from events
+until a person writes it — any rev-bumping user write forks it, magic edits
+included. `upstream` is a stored field folded from events
 (`core/upstream.ts`'s `nextUpstream`), not derived from `via` — and it is
 **transitional**: it exists only while the one-time cmini import runs, and
-is removed once that import is retired (`20-spark.md` §6b; adoption guide
-§4). Admins (a D1 table, never a code constant, `LDB-G2`) can register/
-revoke clients, add/remove other admins (never below 2, `LDB-A6`),
-force-transfer or delete/restore any record, and pause the cmini import —
-every admin action is a public event (`admin: true`) on the same feed and
-changelog everyone else's writes are on. **To register a client**, reach an
-admin with your public key and the `owner_user_id`/`caps` you need (§3
-above) — there's no other path. **Etiquette:** read the API, don't scrape the site's
-HTML for what `/v1/layouts` already serves; respect `Retry-After` on a
-`429` rather than retrying immediately; prefer webhooks or the stream over
-tight polling once you're past prototyping.
+is removed once that import is retired (adoption guide §4). Admins (a D1
+table, never a code constant, `LDB-G2`) can register/revoke clients,
+add/remove other admins (never below 2, `LDB-A6`), force-transfer or
+delete/restore any record, and pause the cmini import — every admin action
+is a public event (`admin: true`) on the same feed and changelog everyone
+else's writes are on. **To register a client**, reach an admin with your
+public key and the `owner_user_id`/`caps` you need (§3 above) — there's no
+other path. **Etiquette:** read the API, don't scrape the site's HTML for
+what `/v1/layouts` already serves; respect `Retry-After` on a `429` rather
+than retrying immediately; prefer long-polling over tight regular polling
+once you're past prototyping.
 
 ## 8. Error-code appendix
 
@@ -488,6 +458,4 @@ real examples in §4.
 
 Every route × status/code above has a frozen request/response fixture under
 `db/tests/conformance/` (`LDB-R3`: a changed fixture is a documented API
-change) — read the one for your case for an exact body shape. `client_revoked`
-above was hit live while writing this guide, once the demo client used for
-§4 was revoked at the end of the proof run.
+change) — read the one for your case for an exact body shape.
