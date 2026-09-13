@@ -1,8 +1,15 @@
-// [SITE-35] `db/tests/fixtures/db-responses/admin-clients.json` -- what the
-// akldb.org admin console's Clients section (db/site/src/pages/admin/
-// ClientsTab.tsx) renders from, pinned against the REAL routes rather than
-// hand-typed (same discipline as `authors.json`/`meta.json`/etc. next to
-// it, `fixture-export.test.ts`'s own header doc). One deliberate departure
+// `db/tests/fixtures/db-responses/admin-clients.json` -- what the akldb.org
+// admin console's Clients section (`db/site/src/pages/admin/
+// ClientsTab.tsx`, [SITE-35]/[SITE-36] in `db/site/INVARIANTS.md`) renders
+// from, pinned against the REAL routes rather than hand-typed (same
+// discipline as `authors.json`/`meta.json`/etc. next to it,
+// `fixture-export.test.ts`'s own header doc). This test is scoped to
+// db/tests/ (not db/site/tests/), so it carries no `[SITE-*]` tag of its
+// own -- db/site's `tests/tools/invariants.test.ts` only scans db/site/
+// tests/, and the actual SITE-35/36 enforcement is a db/site-side render
+// test reading this same committed fixture. This file's only job is
+// keeping that fixture honest against the live DB routes. One deliberate
+// departure
 // from that file: `GET /v1/admin/clients` (`core/clients.ts`'s
 // `listClients`) does NOT carry `suspended_at`/`reason` -- those live only
 // in `import_state` and surface through the PUBLIC `GET /v1/meta`'s
@@ -15,7 +22,7 @@
 // under the "workers" vitest project, same no-real-filesystem constraint):
 // flip RECORD to true, run
 //   npx vitest run tests/api/admin-clients-site-fixture.test.ts --reporter=verbose > /tmp/site-fixture.out
-// then slice the one `===SITE-35-FIXTURE-START:admin-clients.json===` /
+// then slice the one `===ADMIN-CLIENTS-FIXTURE-START:admin-clients.json===` /
 // `-END-` block into db/tests/fixtures/db-responses/admin-clients.json,
 // flip RECORD back to false, and re-run to confirm the checked-in file
 // still matches (this test asserts against its own committed copy on every
@@ -90,7 +97,7 @@ function normalizeClientIds(value: unknown): unknown {
   return walk(value);
 }
 
-describe("[SITE-35] admin-clients.json pins GET /v1/admin/clients + GET /v1/meta.health.clients.suspended", () => {
+describe("admin-clients.json pins GET /v1/admin/clients + GET /v1/meta.health.clients.suspended", () => {
   it("records/checks the combined fixture the site's Clients tab renders from", async () => {
     // One of each status the ClientsTab must render: active, suspended
     // (with a reason), revoked (terminal).
@@ -132,9 +139,9 @@ describe("[SITE-35] admin-clients.json pins GET /v1/admin/clients + GET /v1/meta
 
     if (RECORD) {
       // eslint-disable-next-line no-console -- RECORD-mode-only, see header doc
-      console.log(`===SITE-35-FIXTURE-START:admin-clients.json===\n${JSON.stringify(combined, null, 1)}\n===SITE-35-FIXTURE-END:admin-clients.json===`);
+      console.log(`===ADMIN-CLIENTS-FIXTURE-START:admin-clients.json===\n${JSON.stringify(combined, null, 1)}\n===ADMIN-CLIENTS-FIXTURE-END:admin-clients.json===`);
       return;
     }
-    expect(combined, "[SITE-35] admin-clients.json fixture drifted from the live routes").toEqual(adminClientsFixture);
+    expect(combined, "admin-clients.json fixture drifted from the live routes").toEqual(adminClientsFixture);
   });
 });
