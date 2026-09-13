@@ -3,3 +3,8 @@ dist/
 .dev.vars
 node_modules/
 src/generated/
+# W1c: scripts/build-docs.mjs writes the raw db/docs/adoption.md copy here
+# on every predev/prebuild/pretest/pretypecheck run -- Vite copies public/
+# verbatim into dist/, so this is what serves /adoption.md (SITE-30).
+# Never hand-edited, never committed.
+public/
