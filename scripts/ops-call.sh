@@ -10,7 +10,7 @@
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 M="$1"; P="$2"; BODY="${3:-}"
-BASE=https://akl-db.akl-58a.workers.dev; ENVF="$ROOT/db/.env.ops"
+BASE=https://api.akldb.org; ENVF="$ROOT/db/.env.ops"
 for a in "$@"; do [ "$a" = "--preview" ] && { BASE=https://akl-db-preview.akl-58a.workers.dev; ENVF="$ROOT/db/.env.ops.preview"; }; done
 [ "$BODY" = "--preview" ] && BODY=""
 ACTOR="${OPS_ACTOR:-184412255822020608}"

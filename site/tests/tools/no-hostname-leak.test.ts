@@ -12,7 +12,10 @@ import { describe, expect, it } from "vitest";
 
 const SITE_ROOT = path.resolve(import.meta.dirname, "..", "..");
 const DIST_DIR = path.join(SITE_ROOT, "dist");
-const HOSTNAME_NEEDLE = "akl-db.akl-58a"; // the real production hostname's distinctive prefix
+// The real production hostnames: api.akldb.org (saltorbit 2026-09-13, the
+// documented base URL) and the workers.dev origin it kept answering on. A
+// chunk naming EITHER outside the docs-content chunk is a leak.
+const HOSTNAME_NEEDLES = ["api.akldb.org", "akl-db.akl-58a"];
 
 function walk(dir: string): string[] {
   const out: string[] = [];
@@ -35,7 +38,7 @@ describe("[SITE-7] no hardcoded akl-db hostname in the client bundle", () => {
     const offenders = files.filter((f) => {
       if (!/\.(js|css|html)$/.test(f)) return false;
       const content = fs.readFileSync(f, "utf8");
-      return content.includes(HOSTNAME_NEEDLE);
+      return HOSTNAME_NEEDLES.some((needle) => content.includes(needle));
     });
 
     const unexpected = offenders.filter((f) => !path.basename(f).startsWith("docs-content"));
