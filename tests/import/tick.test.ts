@@ -316,6 +316,165 @@ describe("tick()", () => {
     expect(again.quiet).toBe(true);
   });
 
+  // LDB-I22 (saltorbit 2026-09-13, hostile-upstream concern): the per-tick
+  // bound (LDB-I3, max(5, 5%)) alone lets a "slow drip" through -- this
+  // proves the ROLLING 24h budget catches exactly that, end to end
+  // (real D1-backed `countDeletesAppliedSince`, not just planTick's own
+  // pure unit tests).
+  describe("[LDB-I22] the rolling 24h delete budget", () => {
+    it("[LDB-I22] 4 rounds of 5 deletes (within the per-tick bound each time) apply in full; the 5th, which would push the rolling total to 25, stalls entirely -- [LDB-M3] cmini.stalled reflects it", async () => {
+      const fake = new FakeUpstream();
+      const t0 = fixedClock("2026-06-11T12:00:00.000Z");
+      await tick(bindings, t0, fake.fetchImpl, fake.sleepImpl); // 100 imported
+
+      // 100 live records: per-tick bound = max(5, 5%) = 5 throughout (the
+      // corpus only shrinks by 5 each round, never enough to change the
+      // floor); rolling budget = max(20, 2%) = 20 throughout too.
+      const ids = fake.ids();
+      for (let round = 0; round < 4; round++) {
+        for (const id of ids.slice(round * 5, round * 5 + 5)) fake.removeFromList(id);
+        fake.bumpMeta();
+        const result = await tick(bindings, t0, fake.fetchImpl, fake.sleepImpl);
+        expect(result.stats.deletes_planned, `round ${round}`).toBe(5);
+        expect(result.stats.deletes_applied, `round ${round}`).toBe(5);
+        expect(result.stats.delete_stalled, `round ${round}`).toBeNull();
+      }
+      expect(await liveLayoutCount()).toBe(80); // 100 - 4*5
+
+      // Round 5: 5 more unlisted ids -- within the PER-TICK bound (5) on
+      // its own, but 20 (already applied) + 5 = 25 > the rolling budget
+      // (20) -- stalled entirely, never partially applied.
+      for (const id of ids.slice(20, 25)) fake.removeFromList(id);
+      fake.bumpMeta();
+      const stalled = await tick(bindings, t0, fake.fetchImpl, fake.sleepImpl);
+      expect(stalled.stats.deletes_planned).toBe(5);
+      expect(stalled.stats.deletes_applied).toBe(0);
+      expect(stalled.stats.delete_stalled).toMatch(/rolling 24h budget/);
+      expect(await liveLayoutCount()).toBe(80); // unchanged
+
+      // `cmini.stalled` itself (what `/v1/meta`'s health.import surfaces --
+      // tested end to end with real-relative timestamps in meta.test.ts,
+      // since that route's `nowIso` is real wall-clock, never this test's
+      // fictional `fixedClock`).
+      const stalledState = await db.prepare("SELECT value FROM import_state WHERE key = 'cmini.stalled'").first<{ value: string }>();
+      expect(stalledState).not.toBeNull();
+      expect(JSON.parse(stalledState!.value).reason).toMatch(/rolling 24h budget/);
+    });
+  });
+
+  // LDB-I23: `IMPORT_DELETES=off` -- the kill switch for a hostile/broken
+  // upstream. Zero tombstones regardless of the listing, with the same
+  // stalled-style visibility LDB-I3/I22 use.
+  describe("[LDB-I23] IMPORT_DELETES kill switch", () => {
+    function envWithDeletesOff(): Bindings {
+      return { ...bindings, IMPORT_DELETES: "off" };
+    }
+
+    it("[LDB-I23] a real delete candidate is never tombstoned while the switch is off, and re-stalls visibly", async () => {
+      const fake = new FakeUpstream();
+      const t0 = fixedClock("2026-06-11T18:00:00.000Z");
+      const offEnv = envWithDeletesOff();
+      await tick(offEnv, t0, fake.fetchImpl, fake.sleepImpl); // 100 imported
+
+      const targetName = fake.listEntry("graphite").name;
+      fake.removeFromList("graphite");
+      fake.bumpMeta();
+      const result = await tick(offEnv, t0, fake.fetchImpl, fake.sleepImpl);
+
+      expect(result.stats.deletes_disabled).toBe(true);
+      expect(result.stats.deletes_planned).toBe(1);
+      expect(result.stats.deletes_applied).toBe(0);
+      expect(result.stats.delete_stalled).toMatch(/IMPORT_DELETES=off/);
+
+      const row = await db.prepare("SELECT deleted FROM layouts WHERE name = ?").bind(targetName).first<{ deleted: number }>();
+      expect(row?.deleted).toBe(0); // never tombstoned
+
+      const stalledState = await db.prepare("SELECT value FROM import_state WHERE key = 'cmini.stalled'").first<{ value: string }>();
+      expect(stalledState).not.toBeNull();
+
+      // The next tick, still off, re-evaluates from scratch and re-stalls
+      // identically -- the switch is a standing state, not a one-shot skip.
+      fake.bumpMeta();
+      const again = await tick(offEnv, t0, fake.fetchImpl, fake.sleepImpl);
+      expect(again.stats.deletes_applied).toBe(0);
+      expect(again.stats.delete_stalled).toMatch(/IMPORT_DELETES=off/);
+
+      // Flipping it back on lets the SAME pending delete through on the
+      // very next tick.
+      fake.bumpMeta();
+      const backOn = await tick(bindings, t0, fake.fetchImpl, fake.sleepImpl);
+      expect(backOn.stats.deletes_applied).toBe(1);
+      expect(backOn.stats.delete_stalled).toBeNull();
+      const rowAfter = await db.prepare("SELECT deleted FROM layouts WHERE name = ?").bind(targetName).first<{ deleted: number }>();
+      expect(rowAfter?.deleted).toBe(1);
+    });
+
+    it("[LDB-I23] never blocks fetches, and reports no stall when nothing is actually pending to delete", async () => {
+      const fake = new FakeUpstream();
+      const t0 = fixedClock("2026-06-11T19:00:00.000Z");
+      const offEnv = envWithDeletesOff();
+      const result = await tick(offEnv, t0, fake.fetchImpl, fake.sleepImpl); // 100 imported, nothing to delete
+      expect(result.stats.deletes_disabled).toBe(true);
+      expect(result.stats.deletes_planned).toBe(0);
+      expect(result.stats.delete_stalled).toBeNull(); // nothing was actually suppressed
+      expect(await liveLayoutCount()).toBe(100);
+    });
+
+    it("[LDB-I23] does not stall the whole tick -- an unrelated fetch still lands while a delete is suppressed", async () => {
+      const fake = new FakeUpstream();
+      const t0 = fixedClock("2026-06-11T20:00:00.000Z");
+      const offEnv = envWithDeletesOff();
+      await tick(offEnv, t0, fake.fetchImpl, fake.sleepImpl); // 100 imported
+
+      fake.removeFromList("graphite"); // suppressed delete candidate
+      const abyssId = fake.ids().find((id) => fake.listEntry(id).name === "abyss")!;
+      fake.mutateDetailByName("abyss", { board: "ortho" });
+      fake.mutateListEntry(abyssId, { modified_at: "2026-06-11T20:30:00.000Z" });
+      fake.bumpMeta();
+
+      const result = await tick(offEnv, t0, fake.fetchImpl, fake.sleepImpl);
+      expect(result.stats.deletes_applied).toBe(0);
+      expect(result.stats.applied).toBeGreaterThan(0); // abyss's own fetch still landed
+      const abyssRow = await db
+        .prepare("SELECT payload_json FROM layout_formats f JOIN layouts l ON l.id = f.layout_id WHERE l.name = 'abyss' AND f.lineage = 'spark'")
+        .first<{ payload_json: string }>();
+      expect((JSON.parse(abyssRow!.payload_json) as { board?: unknown }).board).toBe("ortho");
+    });
+  });
+
+  // LDB-I6 explicit cases (saltorbit 2026-09-13's hostile-upstream ask):
+  // "upstream empty or gone" must never delete anything.
+  describe("[LDB-I6] upstream empty / gone", () => {
+    it("[LDB-I6] an upstream that empties its ENTIRE listing collapses the tick and deletes nothing", async () => {
+      const fake = new FakeUpstream();
+      const t0 = fixedClock("2026-06-11T21:00:00.000Z");
+      await tick(bindings, t0, fake.fetchImpl, fake.sleepImpl); // 100 imported
+
+      for (const id of fake.ids()) fake.removeFromList(id);
+      fake.bumpMeta();
+      const result = await tick(bindings, t0, fake.fetchImpl, fake.sleepImpl);
+      expect(result.stats.collapsed).toBe(true);
+      expect(await liveLayoutCount()).toBe(100); // untouched
+    });
+
+    it("[LDB-I6] a non-2xx listing throws, applies nothing, and the lock is released for the next attempt", async () => {
+      const fake = new FakeUpstream();
+      const t0 = fixedClock("2026-06-11T22:00:00.000Z");
+      await tick(bindings, t0, fake.fetchImpl, fake.sleepImpl); // 100 imported
+      fake.bumpMeta();
+      fake.failNextRequestsMatching("/layouts", 3); // exhausts list()'s own retry budget (LDB-I8)
+
+      await expect(tick(bindings, t0, fake.fetchImpl, fake.sleepImpl)).rejects.toThrow();
+      expect(await liveLayoutCount()).toBe(100); // untouched -- the tick threw before any write
+
+      // the lock was released in `finally` despite the throw -- a fresh
+      // attempt right after (no more forced failures) proceeds normally.
+      const recovered = await tick(bindings, t0, fake.fetchImpl, fake.sleepImpl);
+      expect(recovered.quiet).toBe(false);
+      expect(await liveLayoutCount()).toBe(100);
+    });
+  });
+
   // B4 (design/layout-db/review/audit-db.md B4): overlapping ticks (the
   // `*/5` cron and a manual admin kick both landing while a slow tick is
   // still running) had no lock. `import_state['cmini.running']` now gates

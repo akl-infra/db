@@ -8,8 +8,11 @@
 import { createExecutionContext, createScheduledController, env, waitOnExecutionContext } from "cloudflare:test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Bindings } from "../../src/env";
+import type { Actor } from "../../src/auth/actor";
+import type { IfMatch } from "../../src/core/ifmatch";
 import { type EventDbRow, feed, rowToEvent } from "../../src/core/events";
 import { fixedClock } from "../../src/core/time";
+import { deleteLayout } from "../../src/core/write";
 import * as nightlyModule from "../../src/core/nightly";
 import * as cminiModule from "../../src/import/cmini";
 import { tick } from "../../src/import/cmini";
@@ -741,6 +744,255 @@ describe("POST /v1/admin/import/tick, POST /v1/admin/diff/tick, and POST /v1/adm
         testEnv.TEST_CLOCK = savedTestClock;
         vi.unstubAllGlobals();
       }
+    });
+  });
+
+  // LDB-I25 (saltorbit 2026-09-13, hostile-upstream recovery tooling): a
+  // deliberate manual override, not a fix -- clears `cmini.stalled` and
+  // logs it, but the next tick re-plans from scratch.
+  describe("[LDB-I25] POST /v1/admin/import/unstall", () => {
+    async function seedStalled(reason: string): Promise<{ at: string; reason: string }> {
+      const state = { at: clock(), reason };
+      await db
+        .prepare("INSERT INTO import_state (key, value) VALUES ('cmini.stalled', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+        .bind(JSON.stringify(state))
+        .run();
+      return state;
+    }
+
+    it("[LDB-I25] anonymous 401, non-admin 403, admin 200 -> {unstalled:true, was_stalled}; clears cmini.stalled and logs one admin.import_unstalled event (admin=1, rev NULL)", async () => {
+      const discord = new FakeDiscord();
+      vi.stubGlobal("fetch", discord.fetchImpl);
+      const seeded = await seedStalled("test: pending deletions exceed the bound");
+
+      const anon = await writeFetch("/v1/admin/import/unstall", "POST", {});
+      expect(anon.status).toBe(401);
+
+      const user = await writeFetch("/v1/admin/import/unstall", "POST", userHeadersFor(discord, `tok-${uniqueName("unstall-user")}`));
+      expect(user.status).toBe(403);
+
+      const before = await eventCount("admin.import_unstalled");
+      const res = await writeFetch("/v1/admin/import/unstall", "POST", adminHeadersFor(discord, `tok-${uniqueName("unstall-admin")}`));
+      expect(res.status).toBe(200);
+      const body = await res.json<{ unstalled: boolean; was_stalled: { at: string; reason: string } | null }>();
+      expect(body.unstalled).toBe(true);
+      expect(body.was_stalled).toEqual(seeded);
+
+      expect(await db.prepare("SELECT 1 FROM import_state WHERE key = 'cmini.stalled'").first()).toBeNull();
+      expect(await eventCount("admin.import_unstalled")).toBe(before + 1);
+
+      const { items } = await feed(db, 0, 10000);
+      const unstallEvent = items.filter((e) => e.kind === "admin.import_unstalled").at(-1)!;
+      expect(unstallEvent.admin).toBe(true);
+      expect(unstallEvent.rev).toBeNull();
+      expect(unstallEvent.layout_id).toBeNull();
+    });
+
+    it("[LDB-I25] unstalling when nothing is stalled is a harmless no-op that still logs, was_stalled: null", async () => {
+      const discord = new FakeDiscord();
+      vi.stubGlobal("fetch", discord.fetchImpl);
+      await db.prepare("DELETE FROM import_state WHERE key = 'cmini.stalled'").run();
+
+      const before = await eventCount("admin.import_unstalled");
+      const res = await writeFetch("/v1/admin/import/unstall", "POST", adminHeadersFor(discord, `tok-${uniqueName("unstall-noop")}`));
+      expect(res.status).toBe(200);
+      const body = await res.json<{ unstalled: boolean; was_stalled: unknown }>();
+      expect(body.unstalled).toBe(true);
+      expect(body.was_stalled).toBeNull();
+      expect(await eventCount("admin.import_unstalled")).toBe(before + 1);
+    });
+
+    it("[LDB-I25] unstall -> re-stall: clears cmini.stalled, but the very next tick re-stalls immediately when the underlying condition still holds", async () => {
+      const fake = new FakeUpstream();
+      const importClock = fixedClock("2026-07-16T00:00:00.000Z");
+      await tick(bindings, importClock, fake.fetchImpl, fake.sleepImpl); // 100 imported
+
+      // Well past the per-tick bound (max(5, 5%)=5) -- a real stall.
+      for (const id of fake.ids().slice(0, 50)) fake.removeFromList(id);
+      fake.bumpMeta();
+      const stalledTick = await tick(bindings, importClock, fake.fetchImpl, fake.sleepImpl);
+      expect(stalledTick.stats.delete_stalled).not.toBeNull();
+      expect(await db.prepare("SELECT 1 FROM import_state WHERE key = 'cmini.stalled'").first()).not.toBeNull();
+
+      const discord = new FakeDiscord();
+      vi.stubGlobal("fetch", discord.fetchImpl);
+      const res = await writeFetch("/v1/admin/import/unstall", "POST", adminHeadersFor(discord, `tok-${uniqueName("unstall-restall")}`));
+      expect(res.status).toBe(200);
+      expect(await db.prepare("SELECT 1 FROM import_state WHERE key = 'cmini.stalled'").first()).toBeNull();
+
+      // Nothing about the upstream changed -- the SAME 50 ids are still
+      // missing -- so the very next tick re-evaluates from scratch and
+      // re-stalls immediately, no grace period.
+      vi.stubGlobal("fetch", async (url: string, init?: { headers?: Record<string, string> }) => fake.fetchImpl(url, { headers: init?.headers ?? {} }));
+      fake.bumpMeta();
+      const again = await tick(bindings, importClock, fake.fetchImpl, fake.sleepImpl);
+      expect(again.stats.delete_stalled).not.toBeNull();
+      expect(await db.prepare("SELECT 1 FROM import_state WHERE key = 'cmini.stalled'").first()).not.toBeNull();
+    });
+  });
+
+  // LDB-I26: bulk-restore `upstream_deleted` tombstones since a timestamp
+  // -- the last-resort recovery for damage that got past the automatic
+  // guards, or landed while the kill switch was off.
+  describe("[LDB-I26] POST /v1/admin/import/restore-deleted", () => {
+    // Each `it()` below picks a DISTINCT `upstreamIndex` (never reused
+    // across tests in this describe): `tick()` freely re-imports the SAME
+    // upstream-100 fixture in every test (D1 storage is per-FILE, not
+    // per-`it`, 07 §2), so a target one test genuinely restores (a real
+    // user-lane write, which FORKS it, LDB-I14) must never be the SAME
+    // target another test tombstones and expects to still be `following`
+    // upstream.
+    async function tombstoneUpstream(upstreamIndex: number): Promise<{ fake: FakeUpstream; importClock: ReturnType<typeof fixedClock>; sinceIso: string; layoutId: string; owner: string; name: string }> {
+      const fake = new FakeUpstream();
+      const importClock = fixedClock("2026-07-17T00:00:00.000Z");
+      await tick(bindings, importClock, fake.fetchImpl, fake.sleepImpl); // 100 imported
+      const upstreamId = fake.ids()[upstreamIndex]!;
+      const name = fake.listEntry(upstreamId).name;
+      const before = await db.prepare("SELECT id, owner FROM layouts WHERE name = ?").bind(name).first<{ id: string; owner: string }>();
+
+      fake.set404(upstreamId);
+      fake.removeFromList(upstreamId);
+      fake.bumpMeta();
+      await tick(bindings, importClock, fake.fetchImpl, fake.sleepImpl); // real, rev-bumping upstream_deleted
+
+      const row = await db.prepare("SELECT deleted FROM layouts WHERE id = ?").bind(before!.id).first<{ deleted: number }>();
+      expect(row?.deleted).toBe(1);
+      return { fake, importClock, sinceIso: "2026-07-16T00:00:00.000Z", layoutId: before!.id, owner: before!.owner, name };
+    }
+
+    it("[LDB-I26] anonymous 401, non-admin 403, a malformed `since` -> 400 bad_request", async () => {
+      const discord = new FakeDiscord();
+      vi.stubGlobal("fetch", discord.fetchImpl);
+
+      const anon = await writeFetch("/v1/admin/import/restore-deleted", "POST", {}, { since: "2000-01-01T00:00:00Z" });
+      expect(anon.status).toBe(401);
+
+      const user = await writeFetch(
+        "/v1/admin/import/restore-deleted",
+        "POST",
+        userHeadersFor(discord, `tok-${uniqueName("restore-user")}`),
+        { since: "2000-01-01T00:00:00Z" },
+      );
+      expect(user.status).toBe(403);
+
+      const bad = await writeFetch(
+        "/v1/admin/import/restore-deleted",
+        "POST",
+        adminHeadersFor(discord, `tok-${uniqueName("restore-bad-since")}`),
+        { since: "not-a-timestamp" },
+      );
+      expect(bad.status).toBe(400);
+      const badBody = await bad.json<{ error: string; param: string }>();
+      expect(badBody.error).toBe("bad_request");
+      expect(badBody.param).toBe("/since");
+    });
+
+    it("[LDB-I26] dry_run lists the candidate without writing anything; a real call restores it; a second real call restores nothing new (idempotent)", async () => {
+      const { sinceIso, layoutId } = await tombstoneUpstream(0);
+      const discord = new FakeDiscord();
+      vi.stubGlobal("fetch", discord.fetchImpl);
+
+      const dry = await writeFetch(
+        "/v1/admin/import/restore-deleted",
+        "POST",
+        adminHeadersFor(discord, `tok-${uniqueName("restore-dry")}`),
+        { since: sinceIso, dry_run: true },
+      );
+      expect(dry.status).toBe(200);
+      const dryBody = await dry.json<{ dry_run: boolean; count: number; would_restore: { id: string; name: string }[] }>();
+      expect(dryBody.dry_run).toBe(true);
+      expect(dryBody.would_restore.some((r) => r.id === layoutId)).toBe(true);
+      // dry-run touches nothing.
+      expect((await db.prepare("SELECT deleted FROM layouts WHERE id = ?").bind(layoutId).first<{ deleted: number }>())!.deleted).toBe(1);
+
+      const real = await writeFetch(
+        "/v1/admin/import/restore-deleted",
+        "POST",
+        adminHeadersFor(discord, `tok-${uniqueName("restore-real")}`),
+        { since: sinceIso },
+      );
+      expect(real.status).toBe(200);
+      const realBody = await real.json<{ dry_run: boolean; count: number; restored: { id: string; name: string }[]; errors: unknown[] }>();
+      expect(realBody.dry_run).toBe(false);
+      expect(realBody.errors).toEqual([]);
+      expect(realBody.restored.some((r) => r.id === layoutId)).toBe(true);
+      expect((await db.prepare("SELECT deleted FROM layouts WHERE id = ?").bind(layoutId).first<{ deleted: number }>())!.deleted).toBe(0);
+
+      // idempotent: the SAME call again restores nothing new -- the target
+      // is already live, so it drops out of the candidate list entirely.
+      const again = await writeFetch(
+        "/v1/admin/import/restore-deleted",
+        "POST",
+        adminHeadersFor(discord, `tok-${uniqueName("restore-again")}`),
+        { since: sinceIso },
+      );
+      const againBody = await again.json<{ count: number; restored: unknown[] }>();
+      expect(againBody.restored.some((r) => (r as { id: string }).id === layoutId)).toBe(false);
+    });
+
+    it("[LDB-I26] never restores a layout the OWNER deleted after a restore (kind: 'deleted', not 'upstream_deleted')", async () => {
+      const { sinceIso, layoutId, owner } = await tombstoneUpstream(1);
+      const discord = new FakeDiscord();
+      vi.stubGlobal("fetch", discord.fetchImpl);
+
+      // First restore-deleted call: legitimately restores it.
+      const first = await writeFetch(
+        "/v1/admin/import/restore-deleted",
+        "POST",
+        adminHeadersFor(discord, `tok-${uniqueName("restore-owner-1")}`),
+        { since: sinceIso },
+      );
+      const firstBody = await first.json<{ restored: { id: string }[] }>();
+      expect(firstBody.restored.some((r) => r.id === layoutId)).toBe(true);
+
+      // The OWNER (a real user write, not the importer) deletes it again --
+      // `layouts.layout_rev`'s latest layout-scope event is now `kind:
+      // 'deleted'`, not `upstream_deleted`.
+      const record = await db.prepare("SELECT n, layout_rev FROM layouts WHERE id = ?").bind(layoutId).first<{ n: number; layout_rev: number }>();
+      const actor: Actor = { user_id: owner, name: `user-${owner}`, via: "discord", admin: false, banned: false, source_client: "discord-app:test" };
+      const STAR: IfMatch = { kind: "any" };
+      await deleteLayout(bindings, clock, actor, layoutId, STAR, null);
+      expect((await db.prepare("SELECT deleted FROM layouts WHERE id = ?").bind(layoutId).first<{ deleted: number }>())!.deleted).toBe(1);
+
+      // A second restore-deleted call over the SAME window must NOT touch
+      // it -- the latest layout event is now the owner's own `deleted`.
+      const second = await writeFetch(
+        "/v1/admin/import/restore-deleted",
+        "POST",
+        adminHeadersFor(discord, `tok-${uniqueName("restore-owner-2")}`),
+        { since: sinceIso, dry_run: true },
+      );
+      const secondBody = await second.json<{ would_restore: { id: string }[] }>();
+      expect(secondBody.would_restore.some((r) => r.id === layoutId)).toBe(false);
+      expect((await db.prepare("SELECT deleted FROM layouts WHERE id = ?").bind(layoutId).first<{ deleted: number }>())!.deleted).toBe(1);
+      void record; // (kept for readability of the arrange step above; not asserted on directly)
+    });
+
+    it("[LDB-I26] bounded per call: `limit` caps how many this ONE call restores", async () => {
+      const fake = new FakeUpstream();
+      const importClock = fixedClock("2026-07-18T00:00:00.000Z");
+      await tick(bindings, importClock, fake.fetchImpl, fake.sleepImpl); // 100 imported
+
+      // Indices 2/3/4 -- never touched by an earlier test in this
+      // describe (0 and 1 are each other tests' own targets above).
+      const targets = fake.ids().slice(2, 5);
+      for (const id of targets) fake.set404(id);
+      for (const id of targets) fake.removeFromList(id);
+      fake.bumpMeta();
+      await tick(bindings, importClock, fake.fetchImpl, fake.sleepImpl); // 3 real tombstones (well under the per-tick/rolling bounds)
+
+      const discord = new FakeDiscord();
+      vi.stubGlobal("fetch", discord.fetchImpl);
+      const res = await writeFetch(
+        "/v1/admin/import/restore-deleted",
+        "POST",
+        adminHeadersFor(discord, `tok-${uniqueName("restore-limit")}`),
+        { since: "2026-07-16T00:00:00.000Z", limit: 1 },
+      );
+      expect(res.status).toBe(200);
+      const body = await res.json<{ count: number; restored: unknown[] }>();
+      expect(body.count).toBe(1);
+      expect(body.restored).toHaveLength(1);
     });
   });
 });

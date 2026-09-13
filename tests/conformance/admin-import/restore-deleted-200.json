@@ -1,0 +1,13 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/admin/import/restore-deleted",
+    "bearer": "conformance-admin-token",
+    "body": { "since": "2000-01-01T00:00:00.000Z", "dry_run": true }
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "body": { "dry_run": true, "count": 0, "would_restore": [] }
+  }
+}

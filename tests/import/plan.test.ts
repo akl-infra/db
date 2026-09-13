@@ -1,8 +1,10 @@
-// [LDB-I3] [LDB-I6] planTick: table-driven over every rule in
-// 07 §6 S5, plus the ≥24h full-pass trigger and both stall conditions.
+// [LDB-I3] [LDB-I6] [LDB-I22] planTick: table-driven over every rule in
+// 07 §6 S5, plus the ≥24h full-pass trigger and every stall condition
+// (per-tick prune bound, rolling 24h delete budget, list collapse).
 // Purity: same input -> same output, no D1 (this file never touches `env`).
+import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import { planTick, type LocalMapRow } from "../../src/import/plan";
+import { planTick, rollingDeleteBudget, ROLLING_DELETE_BUDGET_MIN, ROLLING_DELETE_BUDGET_PCT, type LocalMapRow } from "../../src/import/plan";
 import type { UpstreamListEntry } from "../../src/import/upstream";
 
 const NOW = "2026-09-08T12:00:00.000Z";
@@ -278,5 +280,107 @@ describe("planTick", () => {
       expect(result.isFullPass).toBe(true);
       expect(result.fetchFullPassOnly).toEqual(["a"]); // "a" > "" (the empty-string sentinel)
     }
+  });
+
+  // [LDB-I6] explicit "upstream vanished" case (saltorbit 2026-09-13's hostile-
+  // upstream ask): a genuinely EMPTY list against a live corpus is already
+  // caught by the collapse guard above (`0 < 0.5 * liveCount` for any
+  // `liveCount > 0`) -- this pins that fact explicitly, by name, rather
+  // than leaving it as an incidental consequence of the half-bound test.
+  it("[LDB-I6] an upstream returning a completely empty list (liveCount > 0) collapses, deletes nothing", () => {
+    const local = Array.from({ length: 20 }, (_, i) => row({ upstreamId: `id-${i}`, layoutId: `L-${i}` }));
+    const result = planTick({ list: [], local, lastFull: RECENT, fullPassCursor: null, now: NOW });
+    expect(result.kind).toBe("collapsed");
+  });
+
+  describe("[LDB-I22] rolling 24h delete budget", () => {
+    it("[LDB-I22] rollingDeleteBudget mirrors the per-tick bound's own max(floor, pct) shape", () => {
+      expect(rollingDeleteBudget(0)).toBe(ROLLING_DELETE_BUDGET_MIN);
+      expect(rollingDeleteBudget(100)).toBe(Math.max(ROLLING_DELETE_BUDGET_MIN, ROLLING_DELETE_BUDGET_PCT * 100));
+      expect(rollingDeleteBudget(100_000)).toBe(ROLLING_DELETE_BUDGET_PCT * 100_000); // well past the floor
+    });
+
+    it("[LDB-I22] deletes within the per-tick bound but over the rolling budget stall (fetches still proceed)", () => {
+      // 1000 live records: per-tick bound = max(5, 50) = 50; rolling budget
+      // = max(20, 20) = 20. 10 unlisted ids is within BOTH the per-tick
+      // bound and (on its own) the rolling budget -- but with 15 already
+      // applied in the trailing 24h, 15 + 10 = 25 > 20 must stall.
+      const local = Array.from({ length: 1000 }, (_, i) => row({ upstreamId: `id-${i}`, layoutId: `L-${i}` }));
+      const listed = [
+        ...local.slice(0, 990).map((r) => entry({ id: r.upstreamId })),
+        entry({ id: "brand-new" }),
+      ];
+      const result = planTick({ list: listed, local, lastFull: RECENT, fullPassCursor: null, now: NOW, deletesAppliedLast24h: 15 });
+      expect(result.kind).toBe("ok");
+      if (result.kind === "ok") {
+        expect(result.delete).toEqual([]);
+        expect(result.deleteStalled).not.toBeNull();
+        expect(result.deleteStalled?.reason).toMatch(/rolling 24h budget/);
+        expect(result.fetch).toContain("brand-new"); // unrelated fetches are unaffected
+      }
+    });
+
+    it("[LDB-I22] deletes landing exactly at the rolling budget are applied, not stalled", () => {
+      // 1000 live records: rolling budget = max(20, 20) = 20. 10 already
+      // applied + 10 pending = exactly 20 -- allowed.
+      const local = Array.from({ length: 1000 }, (_, i) => row({ upstreamId: `id-${i}`, layoutId: `L-${i}` }));
+      const listed = local.slice(0, 990).map((r) => entry({ id: r.upstreamId }));
+      const result = planTick({ list: listed, local, lastFull: RECENT, fullPassCursor: null, now: NOW, deletesAppliedLast24h: 10 });
+      expect(result.kind).toBe("ok");
+      if (result.kind === "ok") {
+        expect(result.delete.length).toBe(10);
+        expect(result.deleteStalled).toBeNull();
+      }
+    });
+
+    it("[LDB-I22] omitting deletesAppliedLast24h behaves exactly as 0 (backward compatible with every pre-existing call site)", () => {
+      const local = Array.from({ length: 100 }, (_, i) => row({ upstreamId: `id-${i}`, layoutId: `L-${i}` }));
+      const listed = local.slice(0, 95).map((r) => entry({ id: r.upstreamId }));
+      const withOmitted = planTick({ list: listed, local, lastFull: RECENT, fullPassCursor: null, now: NOW });
+      const withZero = planTick({ list: listed, local, lastFull: RECENT, fullPassCursor: null, now: NOW, deletesAppliedLast24h: 0 });
+      expect(withOmitted).toEqual(withZero);
+    });
+
+    // [property] the applied-deletion count for THIS tick, added to
+    // whatever was already applied in the trailing 24h, never exceeds
+    // rollingDeleteBudget(liveCount) -- over random live-set sizes, random
+    // subsets unlisted (delete candidates), and a random prior 24h count
+    // that is itself a LEGITIMATE prior state (<= the budget: what any
+    // well-behaved sequence of earlier ticks, each honoring this same
+    // invariant, could actually have left behind -- an already-over-budget
+    // prior count could only exist from a bug THIS check exists to
+    // prevent, so it's out of the scope of this property, not a case it
+    // needs to tolerate).
+    it("[LDB-I22] [property] deletesAppliedLast24h + applied-this-tick never exceeds rollingDeleteBudget(liveCount)", () => {
+      fc.assert(
+        fc.property(
+          fc.integer({ min: 0, max: 500 }), // liveCount
+          fc.integer({ min: 0, max: 500 }), // unlistedCount (delete candidates), independent of liveCount on purpose
+          fc.integer({ min: 0, max: 1000 }), // raw prior-applied draw, clamped below to a legitimate value
+          (liveCount, rawUnlisted, rawPriorApplied) => {
+            const unlistedCount = Math.min(rawUnlisted, liveCount);
+            const deletesAppliedLast24h = Math.min(rawPriorApplied, Math.floor(rollingDeleteBudget(liveCount)));
+            const local = Array.from({ length: liveCount }, (_, i) => row({ upstreamId: `id-${i}`, layoutId: `L-${i}` }));
+            // List every live id EXCEPT the last `unlistedCount` of them --
+            // never emptier than half of live (LDB-I6's OWN collapse guard
+            // is a distinct rule; this property is scoped to the delete
+            // budget alone, so keep the listing large enough never to trip
+            // it, whatever `unlistedCount` is: half of live is the floor,
+            // so listing everything but the deletes always stays >= half
+            // as long as unlistedCount <= liveCount / 2, which the fixed
+            // 990/1000-style margin above doesn't generally hold for
+            // small random sizes -- pad the list back up with harmless
+            // extra live ids instead of relying on that margin.
+            const listedLocal = local.slice(0, liveCount - unlistedCount).map((r) => entry({ id: r.upstreamId }));
+            const filler = Array.from({ length: liveCount }, (_, i) => entry({ id: `filler-${i}` }));
+            const list = [...listedLocal, ...filler];
+            const result = planTick({ list, local, lastFull: RECENT, fullPassCursor: null, now: NOW, deletesAppliedLast24h });
+            if (result.kind === "collapsed") return; // LDB-I6's own guard, out of scope here
+            const appliedThisTick = result.delete.length;
+            expect(deletesAppliedLast24h + appliedThisTick).toBeLessThanOrEqual(rollingDeleteBudget(liveCount));
+          },
+        ),
+      );
+    });
   });
 });

@@ -632,6 +632,19 @@ const REQUIRED: Record<string, RequiredCase[]> = {
   ],
   "POST /v1/admin/import/pause": [{ status: 200 }, ...A, { status: 403, code: ERROR_CODES.not_admin }, RL],
   "POST /v1/admin/import/resume": [{ status: 200 }, ...A, { status: 403, code: ERROR_CODES.not_admin }, RL],
+  // LDB-I25: lifts `cmini.stalled` deliberately -- no extra state to
+  // refuse on (unlike pause/resume's own "paused" gate is a SEPARATE key
+  // this route never reads), same shape as pause/resume otherwise.
+  "POST /v1/admin/import/unstall": [{ status: 200 }, ...A, { status: 403, code: ERROR_CODES.not_admin }, RL],
+  // LDB-I26: bulk-restore `upstream_deleted` tombstones since a timestamp;
+  // the one extra case is a malformed/missing `since`.
+  "POST /v1/admin/import/restore-deleted": [
+    { status: 200 },
+    ...A,
+    { status: 400, code: ERROR_CODES.bad_request },
+    { status: 403, code: ERROR_CODES.not_admin },
+    RL,
+  ],
   // X4 follow-up: manual cron triggers.
   "POST /v1/admin/import/tick": [
     { status: 200 },

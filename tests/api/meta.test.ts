@@ -34,6 +34,9 @@ describe("GET /v1/meta", () => {
       health: {
         dump: { last_at: null, seq: null, age_s: null, stale: true },
         diff: { last_at: null, age_s: null, stale: true },
+        // [LDB-M3] never stalled, never ticked, and the kill switch reads
+        // the wrangler.toml default ("on") -- deletes_disabled: false.
+        import: { stalled: null, deletes_24h: 0, deletes_budget_24h: 20, deletes_planned: null, deletes_applied: null, deletes_disabled: false },
       },
       // [LDB-V3] design/layout-db/25-api-versioning.md: the API's own
       // version block -- distinct from `formats` above (a stored/output
@@ -160,5 +163,64 @@ describe("[LDB-M2] GET /v1/meta health", () => {
 
     const body = await (await fetchMeta()).json<{ health: { dump: { stale: boolean } } }>();
     expect(body.health.dump.stale).toBe(false);
+  });
+
+  // [LDB-M3] `health.import` (2026-09-13, hostile/vanished-upstream
+  // visibility): same real-wall-clock posture as dump/diff above -- the
+  // rolling 24h delete count is a live D1 query against `events.at`, so
+  // these seed rows at a fixed OFFSET from `Date.now()`, never a fixed date.
+  it("[LDB-M3] stalled reflects cmini.stalled, renamed at -> since", async () => {
+    const since = new Date(Date.now() - 60_000).toISOString();
+    await setImportState("cmini.stalled", { at: since, reason: "test: pending deletions exceed the bound" });
+
+    const body = await (await fetchMeta()).json<{ health: { import: { stalled: { since: string; reason: string } | null } } }>();
+    expect(body.health.import.stalled).toEqual({ since, reason: "test: pending deletions exceed the bound" });
+  });
+
+  it("[LDB-M3] stalled is null once cleared", async () => {
+    await db.prepare("DELETE FROM import_state WHERE key = 'cmini.stalled'").run();
+    const body = await (await fetchMeta()).json<{ health: { import: { stalled: unknown } } }>();
+    expect(body.health.import.stalled).toBeNull();
+  });
+
+  it("[LDB-M3] deletes_planned/applied come from cmini.last_tick", async () => {
+    await setImportState("cmini.last_tick", { at: new Date().toISOString(), quiet: false, deletes_planned: 7, deletes_applied: 3 });
+    const body = await (await fetchMeta()).json<{ health: { import: { deletes_planned: number | null; deletes_applied: number | null } } }>();
+    expect(body.health.import.deletes_planned).toBe(7);
+    expect(body.health.import.deletes_applied).toBe(3);
+  });
+
+  it("[LDB-M3] deletes_planned/applied are null before any tick has ever run", async () => {
+    await db.prepare("DELETE FROM import_state WHERE key = 'cmini.last_tick'").run();
+    const body = await (await fetchMeta()).json<{ health: { import: { deletes_planned: number | null; deletes_applied: number | null } } }>();
+    expect(body.health.import.deletes_planned).toBeNull();
+    expect(body.health.import.deletes_applied).toBeNull();
+  });
+
+  async function insertUpstreamDeletedEvent(at: string, rev: number | null): Promise<void> {
+    await db
+      .prepare(
+        `INSERT INTO events (at, kind, layout_id, name, owner, format, rev, actor, via, admin, detail_json, before_json, after_json, source_client, source_version)
+         VALUES (?, 'upstream_deleted', NULL, NULL, NULL, NULL, ?, 'system:cmini-import', 'import:cmini', 0, NULL, NULL, NULL, NULL, NULL)`,
+      )
+      .bind(at, rev)
+      .run();
+  }
+
+  it("[LDB-M3] deletes_24h counts only REAL (rev-bumping) tombstones within the trailing 24h", async () => {
+    const within = new Date(Date.now() - 60_000).toISOString(); // 1 minute ago
+    const tooOld = new Date(Date.now() - 25 * 3600 * 1000).toISOString(); // 25h ago
+    await insertUpstreamDeletedEvent(within, 1); // real tombstone, within window -- counted
+    await insertUpstreamDeletedEvent(within, 2); // real tombstone, within window -- counted
+    await insertUpstreamDeletedEvent(within, null); // informational-only (not-following) -- NOT counted
+    await insertUpstreamDeletedEvent(tooOld, 3); // real tombstone, but outside the 24h window -- NOT counted
+
+    const body = await (await fetchMeta()).json<{ health: { import: { deletes_24h: number } } }>();
+    expect(body.health.import.deletes_24h).toBe(2);
+  });
+
+  it("[LDB-M3] deletes_budget_24h is max(20, 2% of live layout_count)", async () => {
+    const body = await (await fetchMeta()).json<{ layout_count: number; health: { import: { deletes_budget_24h: number } } }>();
+    expect(body.health.import.deletes_budget_24h).toBe(Math.max(20, 0.02 * body.layout_count));
   });
 });

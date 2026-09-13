@@ -22,6 +22,14 @@
    "last_at": null,
    "age_s": null,
    "stale": true
+  },
+  "import": {
+   "stalled": null,
+   "deletes_24h": 0,
+   "deletes_budget_24h": 20,
+   "deletes_planned": 0,
+   "deletes_applied": 0,
+   "deletes_disabled": false
   }
  },
  "api": {

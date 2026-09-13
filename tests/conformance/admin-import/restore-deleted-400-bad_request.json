@@ -1,0 +1,17 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/admin/import/restore-deleted",
+    "bearer": "conformance-admin-token",
+    "body": { "since": "not-a-timestamp" }
+  },
+  "response": {
+    "status": 400,
+    "headers": { "Content-Type": "application/json" },
+    "body": {
+      "error": "bad_request",
+      "message": "`since` must be an ISO 8601 timestamp string",
+      "param": "/since"
+    }
+  }
+}
