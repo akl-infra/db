@@ -359,6 +359,27 @@ export function importRunning(): ApiError {
 // The write rate limit (09 §2.5; 10 C1 D8 adds `scope` for the second,
 // per-client counter). `core/ratelimit.ts`'s `take()` is the one place that
 // counts; this is only the body/headers shape.
+// L5 moderation (design/akldb-site/01-plan.md §4.1): a banned actor's
+// non-safe request. Reads are never gated (S7) -- this is a write-only
+// refusal, thrown from `requireActorOnWrites` once `Actor.banned` is true.
+export function banned(): ApiError {
+  return new ApiError(403, { error: "banned", message: "this account is banned from writing" });
+}
+
+// §4.1: an admin is never `banned` (a role rule, not just a refusal) --
+// `PUT /v1/admin/bans/:user_id` on a user who is currently an admin is
+// refused loudly rather than silently recording a ban that `roleOf` would
+// immediately un-apply.
+export function cannotBanAdmin(): ApiError {
+  return new ApiError(409, { error: "cannot_ban_admin", message: "an admin cannot be banned" });
+}
+
+// §4.4: the pure link validator's refusal -- not `https:`, has embedded
+// credentials, too long, or not a URL at all.
+export function invalidLink(message: string): ApiError {
+  return new ApiError(400, { message, error: "invalid_link" });
+}
+
 export function rateLimited(limit: number, windowSeconds: number, retryAfter: number, scope: "actor" | "client"): ApiError {
   return new ApiError(
     429,

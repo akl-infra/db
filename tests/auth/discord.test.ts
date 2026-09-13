@@ -89,7 +89,7 @@ describe("resolveBearer()", () => {
     const { clock } = mutableClock("2026-09-09T00:00:00.000Z");
 
     const actor = await resolveBearer(db, clock, "tok-a", fake.fetchImpl, BASE_URL);
-    expect(actor).toEqual({ user_id: "1001", name: "Alice A", via: "discord", admin: false, source_client: "discord-app:app-default" });
+    expect(actor).toEqual({ user_id: "1001", name: "Alice A", via: "discord", admin: false, banned: false, source_client: "discord-app:app-default" });
     expect(fake.requestLog.length).toBe(1);
     expect(fake.requestLog[0]!.authorization).toBe("Bearer tok-a");
 

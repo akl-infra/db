@@ -24,9 +24,13 @@
 import type { Bindings } from "../env";
 import type { Clock } from "../core/time";
 
-// `authors.name_source` (migrations/0006_author_name_source.sql).
-export type NameSource = "import" | "user" | "client";
-export const NAME_SOURCES: readonly NameSource[] = ["import", "user", "client"];
+// `authors.name_source` (migrations/0006_author_name_source.sql). L5
+// (§4.3, LDB-MD4) adds a fourth source: `admin` -- an admin's own display-
+// name override (`PUT /v1/admin/authors/:user_id`), stickier than every
+// other source: neither a sign-in (`auth/discord.ts`) nor an import pass
+// (this file's own `planAuthorNames`/`writeAuthorNames`) may overwrite it.
+export type NameSource = "import" | "user" | "client" | "admin";
+export const NAME_SOURCES: readonly NameSource[] = ["import", "user", "client", "admin"];
 
 export interface StoredAuthor {
   name: string;
@@ -105,7 +109,7 @@ export function planAuthorNames(
       writes.push({ kind: "insert", userId, name: preferredName(names) });
       continue;
     }
-    if (row.source === "user") continue; // LDB-I17: the user lane's name wins
+    if (row.source === "user" || row.source === "admin") continue; // LDB-I17/[LDB-MD4]: the user lane's name, or an admin override, wins
     if (names.includes(row.name)) continue; // LDB-I15: still one of upstream's names -- keep it
     writes.push({ kind: "rename", userId, from: row.name, to: preferredName(names) });
   }
@@ -124,7 +128,7 @@ export function foldAuthorWrites(
     const row = out.get(w.userId);
     if (w.kind === "insert") {
       if (row === undefined) out.set(w.userId, { name: w.name, source: "import" });
-    } else if (row !== undefined && row.name === w.from && row.source !== "user") {
+    } else if (row !== undefined && row.name === w.from && row.source !== "user" && row.source !== "admin") {
       out.set(w.userId, { name: w.to, source: "import" });
     }
   }
@@ -164,7 +168,7 @@ export async function writeAuthorNames(db: Bindings["DB"], now: Clock, writes: r
       : db
           .prepare(
             `UPDATE authors SET name = ?, name_source = 'import', last_seen_at = ?
-             WHERE user_id = ? AND name = ? AND name_source <> 'user'`,
+             WHERE user_id = ? AND name = ? AND name_source NOT IN ('user', 'admin')`,
           )
           .bind(w.to, at, w.userId, w.from),
   );

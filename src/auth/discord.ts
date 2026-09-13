@@ -12,6 +12,7 @@ import type { Clock } from "../core/time";
 import type { FetchImpl } from "../import/upstream";
 import type { Actor } from "./actor";
 import { type ClientDeps, verifyClientRequest } from "./client";
+import { roleOf } from "./roles";
 
 export interface AuthDeps extends ClientDeps {
   fetchImpl: FetchImpl;
@@ -55,13 +56,6 @@ async function sha256Hex(input: string): Promise<string> {
 
 function addSeconds(iso: string, seconds: number): string {
   return new Date(new Date(iso).getTime() + seconds * 1000).toISOString();
-}
-
-// One read per authenticated request (09 §2.2 step 3) -- never cached, so a
-// promotion/demotion takes effect on the actor's very next request.
-async function isAdmin(db: Bindings["DB"], userId: string): Promise<boolean> {
-  const row = await db.prepare("SELECT 1 FROM admins WHERE user_id = ? LIMIT 1").bind(userId).first();
-  return row !== null;
 }
 
 // Nightly (`0 3 * * *`, wired into src/index.ts's `scheduled()`): drop
@@ -111,8 +105,8 @@ export async function resolveBearer(
   if (cached !== null && cached.expires_at > at) {
     if (cached.ok === 0) throw tokenInvalid();
     if (cached.app_id !== null) {
-      const admin = await isAdmin(db, cached.user_id!);
-      return { user_id: cached.user_id!, name: cached.name!, via: "discord", admin, source_client: `discord-app:${cached.app_id}` };
+      const roles = await roleOf(db, cached.user_id!);
+      return { user_id: cached.user_id!, name: cached.name!, via: "discord", ...roles, source_client: `discord-app:${cached.app_id}` };
     }
     // else: LDB-A2 amended -- fall through to a fresh Discord call, same
     // as a cold/expired cache row.
@@ -193,15 +187,24 @@ export async function resolveBearer(
       .prepare(
         // LDB-I17: the user lane always sets its own name and marks it
         // `name_source = 'user'` -- the one mark the cmini import never
-        // overwrites (`import/authors.ts`).
+        // overwrites (`import/authors.ts`). §4.3 (LDB-MD4): an `admin`
+        // override is STICKIER than that -- this WHERE guard is what keeps
+        // an admin-set name from being overwritten by the very next
+        // sign-in. `last_seen_at` still needs to move on every sign-in
+        // regardless (bookkeeping, LDB-R11), so the second statement below
+        // moves it on exactly the rows this one's WHERE clause skipped.
         `INSERT INTO authors (user_id, name, first_seen_at, last_seen_at, name_source) VALUES (?, ?, ?, ?, 'user')
-         ON CONFLICT(user_id) DO UPDATE SET name = excluded.name, name_source = 'user', last_seen_at = excluded.last_seen_at`,
+         ON CONFLICT(user_id) DO UPDATE SET name = excluded.name, name_source = 'user', last_seen_at = excluded.last_seen_at
+         WHERE authors.name_source <> 'admin'`,
       )
       .bind(user.id, name, at, at),
+    db
+      .prepare("UPDATE authors SET last_seen_at = ? WHERE user_id = ? AND name_source = 'admin'")
+      .bind(at, user.id),
   ]);
 
-  const admin = await isAdmin(db, user.id);
-  return { user_id: user.id, name, via: "discord", admin, source_client: `discord-app:${appId}` };
+  const roles = await roleOf(db, user.id);
+  return { user_id: user.id, name, via: "discord", ...roles, source_client: `discord-app:${appId}` };
 }
 
 // The two-lane dispatcher (09 §2.1; 10 C1 §1 D9: on any route, not just

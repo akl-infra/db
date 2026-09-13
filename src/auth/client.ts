@@ -19,6 +19,7 @@ import {
   unknownClient,
 } from "../core/errors";
 import type { Clock } from "../core/time";
+import { roleOf } from "./roles";
 
 const TIMESTAMP_RE = /^\d{1,12}$/;
 const ACTOR_RE = /^\d{17,20}$/;
@@ -214,13 +215,13 @@ export async function verifyClientRequest(
     )
     .bind(actorRaw, actorRaw, at, at)
     .first<{ name: string }>();
-  const adminRow = await db.prepare("SELECT 1 FROM admins WHERE user_id = ?").bind(actorRaw).first();
+  const roles = await roleOf(db, actorRaw);
 
   return {
     user_id: actorRaw,
     name: authorRow?.name ?? actorRaw,
     via: `client:${client.id}`,
-    admin: adminRow !== null,
+    ...roles,
     // 20-spark.md S3s (LDB-P15): same string `via` already carries on this
     // lane -- the signed request already names the client unambiguously.
     source_client: `client:${client.id}`,

@@ -22,6 +22,8 @@ import { dumpRoute } from "./routes/dump";
 import { formatsRoute } from "./routes/formats";
 import { layoutsRoute } from "./routes/layouts";
 import { likesRoute } from "./routes/likes";
+import { linksRoute } from "./routes/links";
+import { moderationRoute } from "./routes/moderation";
 import { writeRoute } from "./routes/write";
 
 const CACHE_CONTROL = "public, max-age=10";
@@ -137,7 +139,9 @@ app.get("/v1/meta", async (c) => {
 // of going through requireActorOnWrites (which skips GET/HEAD/OPTIONS).
 app.get("/v1/me", async (c) => {
   const actor = await resolveActor(c.env, c.req, authDeps);
-  return c.json({ user_id: actor.user_id, name: actor.name, via: actor.via, admin: actor.admin });
+  // [LDB-MD10] `banned` (like `admin`) is proven fresh every call, never
+  // cached, and `/v1/me` is never refused by it (reads unaffected, §4.1).
+  return c.json({ user_id: actor.user_id, name: actor.name, via: actor.via, admin: actor.admin, banned: actor.banned });
 });
 
 app.route("/", layoutsRoute);
@@ -148,7 +152,9 @@ app.route("/", changelogRoute);
 app.route("/", dumpRoute);
 app.route("/", writeRoute);
 app.route("/", likesRoute);
+app.route("/", linksRoute(authDeps));
 app.route("/", adminRoute(authDeps));
+app.route("/", moderationRoute(authDeps));
 
 app.onError((err, c) => {
   if (err instanceof ApiError) {

@@ -14,7 +14,10 @@ import { describe, expect, it } from "vitest";
 
 const DB_ROOT = path.resolve(import.meta.dirname, "..", "..");
 const D1_PATTERN = /\.prepare\(|\.batch\(/;
-const NOPREPARE_FILES = ["write.ts"];
+// L5 moderation (§4): `moderation.ts` (bans, likes-override, author-
+// rename) and `links.ts` (link + queue) join `write.ts` -- every D1
+// statement for those verbs lives in `core/moderation.ts`/`core/links.ts`.
+const NOPREPARE_FILES = ["write.ts", "moderation.ts", "links.ts"];
 
 describe("routes/*.ts write boundary", () => {
   for (const name of NOPREPARE_FILES) {

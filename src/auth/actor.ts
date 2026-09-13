@@ -5,7 +5,7 @@
 // route in src/index.ts, so no write route can be reached without it.
 import type { MiddlewareHandler } from "hono";
 import type { Bindings } from "../env";
-import { invalidClientVersion } from "../core/errors";
+import { banned as bannedError, invalidClientVersion } from "../core/errors";
 import { type AuthDeps, resolveActor } from "./discord";
 
 // `via` widens to the client lane (10 C1): `"discord"` from a Discord
@@ -16,6 +16,10 @@ export interface Actor {
   name: string;
   via: "discord" | `client:${string}`;
   admin: boolean;
+  // [LDB-MD1] [LDB-MD10] §4.1: proven fresh every request, same as `admin`
+  // (`auth/roles.ts`'s `roleOf`, never cached) -- an admin is never
+  // `banned`, whatever `bans` holds.
+  banned: boolean;
   // 20-spark.md S3s (decision 14, LDB-P15): PROVEN, never declared --
   // `` `discord-app:${app id}` `` on the user lane (the Discord OAuth2
   // application the bearer token was issued to, `auth/discord.ts`'s
@@ -65,6 +69,11 @@ export function requireActorOnWrites(
     // `c.req.arrayBuffer()`, which Hono caches on `c.req` -- reading the raw
     // Request's own stream here would leave nothing for that cache to reuse.
     const actor = await resolveActor(c.env, c.req, deps);
+    // [LDB-MD1] §4.1: one line, covers every non-safe /v1/* route present
+    // and future by placement (the same argument index.ts's 401 gate
+    // makes) -- likes included, since this runs before every route
+    // handler, `routes/likes.ts` among them.
+    if (actor.banned) throw bannedError();
     const sourceVersion = parseClientVersion(c.req.header("X-Client-Version") ?? null);
     c.set("actor", actor);
     c.set("sourceVersion", sourceVersion);

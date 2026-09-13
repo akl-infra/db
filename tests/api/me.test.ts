@@ -25,14 +25,14 @@ afterEach(() => {
 });
 
 describe("GET /v1/me", () => {
-  it("answers { user_id, name, via, admin } for a resolved actor", async () => {
+  it("answers { user_id, name, via, admin, banned } for a resolved actor", async () => {
     const fake = new FakeDiscord();
     fake.setAnswer("tok-1", { kind: "ok", id: "2001", username: "finn", global_name: "Finn F" });
     vi.stubGlobal("fetch", fake.fetchImpl);
 
     const res = await SELF.fetch(ME_URL, { headers: { Authorization: "Bearer tok-1" } });
     expect(res.status).toBe(200);
-    await expect(res.json()).resolves.toEqual({ user_id: "2001", name: "Finn F", via: "discord", admin: false });
+    await expect(res.json()).resolves.toEqual({ user_id: "2001", name: "Finn F", via: "discord", admin: false, banned: false });
   });
 
   it("[LDB-A2] admin is true iff a row in admins, read fresh (not cached with identity)", async () => {

@@ -214,7 +214,7 @@ describe("[LDB-I15] [LDB-I16] [LDB-I17] the name rule (pure)", () => {
     );
   });
 
-  it("[LDB-I15] [LDB-I17] outcome: user-lane rows and unlisted ids are untouched, a listed name is kept, every other listed id ends on preferredName", () => {
+  it("[LDB-I15] [LDB-I17] [LDB-MD4] outcome: user-lane AND admin-lane rows and unlisted ids are untouched, a listed name is kept, every other listed id ends on preferredName", () => {
     fc.assert(
       fc.property(storedArb, entriesArb, (stored, entries) => {
         const upstream = asUpstream(entries);
@@ -225,17 +225,22 @@ describe("[LDB-I15] [LDB-I16] [LDB-I17] the name rule (pure)", () => {
         for (const w of writes) {
           const before = stored.get(w.userId);
           if (w.kind === "insert") expect(before).toBeUndefined();
-          else expect(before?.source).not.toBe("user");
+          else {
+            expect(before?.source).not.toBe("user");
+            // [LDB-MD4] an admin override is exactly as sticky as the user
+            // lane's own name -- the import never rewrites it either.
+            expect(before?.source).not.toBe("admin");
+          }
         }
         for (const [id, before] of stored) {
           const names = listed.get(id);
-          if (names === undefined || before.source === "user" || names.includes(before.name)) {
+          if (names === undefined || before.source === "user" || before.source === "admin" || names.includes(before.name)) {
             expect(after.get(id)).toEqual(before);
           }
         }
         for (const [id, names] of listed) {
           const before = stored.get(id);
-          if (before?.source === "user") continue;
+          if (before?.source === "user" || before?.source === "admin") continue;
           if (before !== undefined && names.includes(before.name)) continue;
           expect(after.get(id)).toEqual({ name: preferredName(names), source: "import" });
         }
@@ -266,6 +271,7 @@ describe("[LDB-I15] [LDB-I16] [LDB-I17] the name rule (pure)", () => {
       [{ name: VALORANCE, source: "client" }, "val0rance"], // the client lane's placeholder is replaced
       [{ name: "Valiant", source: "user" }, "Valiant"], // the user lane's name wins
       [{ name: "valorance_old", source: "import" }, "val0rance"], // a name upstream no longer lists
+      [{ name: "Admin Pick", source: "admin" }, "Admin Pick"], // [LDB-MD4] an admin override wins too
     ];
     const orders = [
       ["val0rance", "Valorance", "va1orance"],

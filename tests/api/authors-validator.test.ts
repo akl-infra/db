@@ -23,7 +23,9 @@ import type { Bindings } from "../../src/env";
 import { verifyClientRequest } from "../../src/auth/client";
 import { resolveBearer } from "../../src/auth/discord";
 import { canonical } from "../../src/core/canonical";
+import type { Actor } from "../../src/auth/actor";
 import { appendAdmin } from "../../src/core/events";
+import { renameAuthor } from "../../src/core/moderation";
 import type { Clock } from "../../src/core/time";
 import { restoreInto } from "../../src/dump/restore";
 import { buildDump } from "../../src/dump/write";
@@ -71,6 +73,15 @@ async function clientLane(actor: string): Promise<void> {
 
 async function event(): Promise<void> {
   await appendAdmin(db, clock, { kind: "admin.import_ticked", actor: "system:test" });
+}
+
+// [LDB-MD4] L5 moderation (§4.3): an admin override IS an author-only
+// change too -- it moves `authors_head` (a real `name`/`name_source`
+// UPDATE) but appends an event with `layout_id: NULL`, so it never bumps
+// the event seq, same as a sign-in or an import pass.
+const MODERATOR: Actor = { user_id: "900000000000000001", name: "moderator", via: "discord", admin: true, banned: false, source_client: "discord-app:test" };
+async function adminRename(userId: string, name: string): Promise<void> {
+  await renameAuthor(db, clock, MODERATOR, null, userId, name);
 }
 
 // Bookkeeping at the table level: moves `last_seen_at` and sets `name` to
@@ -268,6 +279,12 @@ function authorOnlyChanges(): ChangeCase[] {
     { kind: "the client lane first sees an id", id: e, setup: async () => {}, change: () => clientLane(e), expectName: e },
   ];
 }
+// [LDB-MD4] L5 §4.3: an admin rename does NOT belong in the list above --
+// unlike every other author-only change here, `renameAuthor` (`core/
+// moderation.ts`) appends a real `admin.author_renamed` event (LDB-MD7:
+// every moderation action is an event), so it moves the event seq too --
+// this list's whole premise ("author-only": zero event delta) doesn't
+// hold for it. Covered instead by its own dedicated describe block below.
 
 describe("[LDB-R10] a conditional GET after an author-only change is never 304; the edge cache never serves the old body", () => {
   for (const route of ROUTES) {
@@ -316,6 +333,12 @@ function bookkeeping(): KeepCase[] {
     { kind: "a direct last_seen_at update and a name set to itself", setup: () => importPass({ touched: e }), keep: () => touch(e) },
   ];
 }
+// [LDB-MD4] L5 §4.3: an admin rename to the name a row already holds
+// does NOT belong in the list above either -- `renameAuthor` still
+// appends a real event even when nothing changes (LDB-MD7), so `/v1/meta`
+// (seq-keyed) correctly does NOT stay 304, unlike every case in this list.
+// `authors_head` itself (the OTHER validator) is unaffected -- covered by
+// the dedicated describe block below.
 
 describe("[LDB-R11] bookkeeping never moves either validator", () => {
   for (const route of ROUTES) {
@@ -416,5 +439,37 @@ describe("[LDB-D1] [LDB-R9] the dump carries authors_head and a restore sets it 
     await restoreInto(db, old);
     const oldHead = await db.prepare("SELECT version, modified_at FROM authors_head WHERE id = 1").first<{ version: number; modified_at: string | null }>();
     expect(oldHead).toEqual({ version: 0, modified_at: dump.meta.authors_modified_at });
+  });
+});
+
+// [LDB-MD4] L5 §4.3: literal, standalone proof (the two matrices above
+// exercise `adminRename` through the generic change-kind/bookkeeping
+// loops, whose own `it()` titles are template-interpolated and so can
+// never carry a static `[LDB-MD4]` tag for tests/tools/invariants.test.ts
+// to find).
+describe("[LDB-MD4] an admin-sourced author name survives sign-ins and import passes", () => {
+  it("[LDB-MD4] moves authors_head; a later sign-in under a different Discord name never overwrites it; the import never renames it either", async () => {
+    const id = freshId();
+    await signIn(id, "before-admin");
+    const before = (await oracle()).version;
+
+    await adminRename(id, "sticky-admin-name");
+    expect((await oracle()).version).toBeGreaterThan(before);
+    expect((await oracle()).byId[id]).toBe("sticky-admin-name");
+
+    await signIn(id, "totally-different-handle");
+    expect((await oracle()).byId[id]).toBe("sticky-admin-name");
+
+    await importPass({ "yet-another-name": id });
+    expect((await oracle()).byId[id]).toBe("sticky-admin-name");
+  });
+
+  it("[LDB-MD4] a rename to the name the row already holds moves neither authors_head nor last_seen_at's own bookkeeping surface", async () => {
+    const id = freshId();
+    await signIn(id, "steady-name");
+    await adminRename(id, "steady-name");
+    const before = (await oracle()).version;
+    await adminRename(id, "steady-name");
+    expect((await oracle()).version).toBe(before);
   });
 });

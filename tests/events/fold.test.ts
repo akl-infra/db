@@ -82,10 +82,17 @@ interface Slot {
   // redundant unlike -- it throws -- so the model tracks who currently
   // likes this slot, per user, to know which transition is valid.
   likedBy: Set<string>;
+  // [LDB-MD2] [LDB-MD3] L5 moderation: the admin's own like-count
+  // adjustment and the layout's approved link, each a fold of the latest
+  // `admin.likes_set` / `link_approved` / `link_cleared` event -- tracked
+  // here the same way `upstream` is, so `checkLayoutInvariants` can assert
+  // the live row against an INDEPENDENT oracle, not the verb's own return.
+  likeAdjust: number;
+  link: string | null;
 }
 
 function freshSlot(): Slot {
-  return { exists: false, deleted: false, id: "", name: "", owner: "", n: 0, layoutRev: 0, upstream: null, formats: new Map(), likedBy: new Set() };
+  return { exists: false, deleted: false, id: "", name: "", owner: "", n: 0, layoutRev: 0, upstream: null, formats: new Map(), likedBy: new Set(), likeAdjust: 0, link: null };
 }
 
 // Snowflake-SHAPED (transferLayout's own TRANSFER_USER_ID_RE, now
@@ -98,7 +105,7 @@ const ADD: IfNoneMatch = { kind: "any" };
 const NO_IF_NONE_MATCH: IfNoneMatch = { kind: "absent" };
 
 function actorFor(userId: string): Actor {
-  return { user_id: userId, name: `user-${userId}`, via: "discord", admin: false, source_client: "discord-app:test" };
+  return { user_id: userId, name: `user-${userId}`, via: "discord", admin: false, banned: false, source_client: "discord-app:test" };
 }
 
 // Coordinator review (M3): fingermap edits need an existing key to
@@ -131,7 +138,10 @@ type RawOp =
   | "import_delete"
   | "liked"
   | "unliked"
-  | "concurrent_pair";
+  | "concurrent_pair"
+  | "likes_set"
+  | "link_approve"
+  | "link_clear";
 
 const ALL_OPS: RawOp[] = [
   "create_user",
@@ -151,6 +161,9 @@ const ALL_OPS: RawOp[] = [
   "liked",
   "unliked",
   "concurrent_pair",
+  "likes_set",
+  "link_approve",
+  "link_clear",
 ];
 
 // Coerces a raw pick into one that's actually applicable given the slot's
@@ -199,6 +212,37 @@ async function applyOp(clock: () => string, slots: Slot[], op: Op): Promise<void
     await appendLike(db, clock, { kind, layoutId: slot.id, userId, via: "discord", source: USER_SOURCE });
     if (kind === "liked") slot.likedBy.add(userId);
     else slot.likedBy.delete(userId);
+    return;
+  }
+
+  // [LDB-MD2] [LDB-MD3] L5 moderation: an admin overwrites the displayed
+  // like count -- `like_adjust` is whatever `appendLikeAdjust` actually
+  // computed (count - the model's own `likedBy.size`, which IS the real
+  // row count since every like/unlike here goes through the same
+  // `appendLike` this model already tracks).
+  if (action === "likes_set") {
+    if (!slot.exists) return;
+    const { appendLikeAdjust } = await import("../../src/core/events");
+    const count = uniqueCounter++ % 7;
+    const result = await appendLikeAdjust(db, clock, { layoutId: slot.id, actor: "moderator", via: "discord", source: USER_SOURCE, count });
+    slot.likeAdjust = result.like_adjust;
+    return;
+  }
+
+  if (action === "link_approve") {
+    if (!slot.exists) return;
+    const { appendLinkChange } = await import("../../src/core/events");
+    const link = `https://example.org/${unique()}`;
+    const result = await appendLinkChange(db, clock, { layoutId: slot.id, kind: "link_approved", link, actor: "moderator", via: "discord", admin: true, source: USER_SOURCE });
+    slot.link = result.link;
+    return;
+  }
+
+  if (action === "link_clear") {
+    if (!slot.exists) return;
+    const { appendLinkChange } = await import("../../src/core/events");
+    const result = await appendLinkChange(db, clock, { layoutId: slot.id, kind: "link_cleared", link: null, actor: "moderator", via: "discord", admin: true, source: USER_SOURCE });
+    slot.link = result.link;
     return;
   }
 
@@ -512,7 +556,10 @@ async function checkLayoutInvariants(layoutId: string): Promise<void> {
   const events: Event[] = eventRows.results.map(rowToEvent);
   const revs = await revsMapFor(layoutId);
 
-  // MF-3: replay equals the live rows.
+  // MF-3: replay equals the live rows -- [LDB-MD3] this now includes
+  // `like_adjust`/`link`, folded from `admin.likes_set`/`link_approved`/
+  // `link_cleared` events, since `folded.layout`/`actualLayoutSansN` both
+  // carry them and are compared `toEqual` below.
   const folded = foldLayout(events, revs);
   expect(folded).not.toBeNull();
   const actualLayoutRow = await db.prepare("SELECT * FROM layouts WHERE id = ?").bind(layoutId).first<LayoutDbRow>();
@@ -528,11 +575,13 @@ async function checkLayoutInvariants(layoutId: string): Promise<void> {
   // MF-5: at least one format, always.
   expect(actualFormats.size).toBeGreaterThanOrEqual(1);
 
-  // D13 L4: like_count always equals the number of distinct users in
-  // `likes` for the layout -- checked after every step, likes included,
-  // not just the ones this step's own op happened to touch.
+  // [LDB-MD2] D13 L4, restated by L5 §4.2: like_count always equals
+  // max(0, COUNT(DISTINCT likes.user_id) + like_adjust) -- checked after
+  // every step, likes-set included, not just the ones this step's own op
+  // happened to touch. Byte-identical to the pre-L5 identity for any
+  // layout no admin has ever touched (like_adjust defaults to 0).
   const likeRows = await db.prepare("SELECT COUNT(DISTINCT user_id) AS n FROM likes WHERE layout_id = ?").bind(layoutId).first<{ n: number }>();
-  expect(actualLayout.like_count, "LDB-L4: like_count === COUNT(DISTINCT likes.user_id)").toBe(likeRows?.n ?? 0);
+  expect(actualLayout.like_count, "[LDB-MD2] like_count === max(0, COUNT(DISTINCT likes.user_id) + like_adjust)").toBe(Math.max(0, (likeRows?.n ?? 0) + actualLayout.like_adjust));
 
   // MF-2: rev partition + gaplessness.
   const revBumping = events.filter((e) => e.rev !== null);
@@ -560,7 +609,7 @@ async function checkLayoutInvariants(layoutId: string): Promise<void> {
 }
 
 describe("[LDB-P1] [MF-1] [MF-2] [MF-3] [MF-5] [MF-12] the shared write model", () => {
-  it("[LDB-P16] [LDB-P17] [LDB-P18] [LDB-P19] [LDB-I18] [LDB-L4] [LDB-P23] random write sequences over the layout scope and two lineages fold correctly, one format never touching another (not even a stray new row), upstream forking exactly per lineage, like_count staying exact, and a concurrent pair on one slot never dropping either write", async () => {
+  it("[LDB-P16] [LDB-P17] [LDB-P18] [LDB-P19] [LDB-I18] [LDB-L4] [LDB-P23] [LDB-MD2] [LDB-MD3] random write sequences over the layout scope and two lineages fold correctly, one format never touching another (not even a stray new row), upstream forking exactly per lineage, like_count/like_adjust/link staying exact, and a concurrent pair on one slot never dropping either write", async () => {
     const clock = steppingClock("2026-01-01T00:00:00.000Z", 1000);
 
     const opArb = fc.record({
@@ -615,7 +664,7 @@ describe("[LDB-P1] [MF-1] [MF-2] [MF-3] [MF-5] [MF-12] the shared write model", 
               expect(allowedNew.has(lin), `a '${resolved}' on slot ${op.slotIdx} created a STRAY new row in lineage '${lin}'`).toBe(true);
             }
             // A pure layout-scope write changes NO format row at all.
-            if (touchedLineages.length === 0 && ["rename", "transfer", "delete", "restore", "import_update_layout", "import_delete"].includes(resolved)) {
+            if (touchedLineages.length === 0 && ["rename", "transfer", "delete", "restore", "import_update_layout", "import_delete", "likes_set", "link_approve", "link_clear"].includes(resolved)) {
               expect(after).toEqual(before);
             }
           }
@@ -631,6 +680,13 @@ describe("[LDB-P1] [MF-1] [MF-2] [MF-3] [MF-5] [MF-12] the shared write model", 
           // `upstream` byte-identical to what it was before that write.
           const live = await readById(db, slot.id);
           expect(live!.upstream).toEqual(slot.upstream);
+          // [LDB-MD3] Same independent-oracle check for the model's own
+          // `likeAdjust`/`link` bookkeeping (tracked off each
+          // `appendLikeAdjust`/`appendLinkChange` call's own return, never
+          // re-derived from the live row itself -- a real mutation check,
+          // not a tautology).
+          expect(live!.like_adjust).toEqual(slot.likeAdjust);
+          expect(live!.link).toEqual(slot.link);
         }
       }),
       { numRuns: 150 },

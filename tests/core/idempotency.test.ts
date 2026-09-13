@@ -18,7 +18,7 @@ import {
 } from "../../src/core/idempotency";
 
 function actor(via: Actor["via"], user_id = "800000000000000001"): Actor {
-  return { user_id, name: "n", via, admin: false, source_client: via === "discord" ? "discord-app:test" : via };
+  return { user_id, name: "n", via, admin: false, banned: false, source_client: via === "discord" ? "discord-app:test" : via };
 }
 
 describe("[LDB-K5] isValidIdempotencyKey", () => {

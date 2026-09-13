@@ -95,6 +95,57 @@ const patchSchema = {
 // likewise just "a string" here -- its real membership check is
 // `core/clients.ts`'s `validateCaps`, same deferred-validation pattern as
 // `pubkey`'s byte length.
+// L5 moderation (§4.1): `PUT /v1/admin/bans/:user_id`.
+const banSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    reason: { type: "string", maxLength: 500 },
+  },
+} as const;
+
+// §4.2: `PUT /v1/admin/layouts/:ref/likes`.
+const likesSetSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["count"],
+  properties: {
+    count: { type: "integer", minimum: 0 },
+  },
+} as const;
+
+// §4.3: `PUT /v1/admin/authors/:user_id`.
+const authorRenameSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["name"],
+  properties: {
+    name: { type: "string", minLength: 1, maxLength: 64 },
+  },
+} as const;
+
+// §4.4: `PUT /v1/layouts/:ref/link`. `url`'s deep shape (https:, no
+// credentials, length) is `core/links.ts`'s `validateLinkUrl` job -- this
+// schema only enforces "a string is present", same deferred-validation
+// split `pubkey`/`caps` already use above.
+const linkSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["url"],
+  properties: {
+    url: { type: "string" },
+  },
+} as const;
+
+// §4.4: `POST /v1/admin/link-queue/:id/reject`.
+const linkRejectSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    reason: { type: "string", maxLength: 500 },
+  },
+} as const;
+
 const registerClientSchema = {
   type: "object",
   additionalProperties: false,
@@ -148,6 +199,26 @@ export interface RegisterClientBody {
   discord_app_id?: string;
 }
 
+export interface BanBody {
+  reason?: string;
+}
+
+export interface LikesSetBody {
+  count: number;
+}
+
+export interface AuthorRenameBody {
+  name: string;
+}
+
+export interface LinkBody {
+  url: string;
+}
+
+export interface LinkRejectBody {
+  reason?: string;
+}
+
 const validateCreate = ajv.compile<CreateBody>(createSchema);
 const validateReplace = ajv.compile<ReplaceBody>(replaceSchema);
 const validateRestore = ajv.compile<RestoreBody>(restoreSchema);
@@ -155,6 +226,11 @@ const validateTransfer = ajv.compile<TransferBody>(transferSchema);
 const validateAdminAdd = ajv.compile<AdminAddBody>(adminAddSchema);
 const validatePatch = ajv.compile<PatchBody>(patchSchema);
 const validateRegisterClient = ajv.compile<RegisterClientBody>(registerClientSchema);
+const validateBan = ajv.compile<BanBody>(banSchema);
+const validateLikesSet = ajv.compile<LikesSetBody>(likesSetSchema);
+const validateAuthorRename = ajv.compile<AuthorRenameBody>(authorRenameSchema);
+const validateLink = ajv.compile<LinkBody>(linkSchema);
+const validateLinkReject = ajv.compile<LinkRejectBody>(linkRejectSchema);
 
 // ajv reports an extra/missing key at the PARENT's instancePath with the
 // key name in `params`, not as part of the path itself -- this stitches
@@ -217,4 +293,24 @@ export function parsePatchBody(body: unknown): PatchBody {
 
 export function parseRegisterClientBody(body: unknown): RegisterClientBody {
   return checkBody(validateRegisterClient, body);
+}
+
+export function parseBanBody(body: unknown): BanBody {
+  return checkBody(validateBan, body);
+}
+
+export function parseLikesSetBody(body: unknown): LikesSetBody {
+  return checkBody(validateLikesSet, body);
+}
+
+export function parseAuthorRenameBody(body: unknown): AuthorRenameBody {
+  return checkBody(validateAuthorRename, body);
+}
+
+export function parseLinkBody(body: unknown): LinkBody {
+  return checkBody(validateLink, body);
+}
+
+export function parseLinkRejectBody(body: unknown): LinkRejectBody {
+  return checkBody(validateLinkReject, body);
 }
