@@ -11,6 +11,7 @@ import { runJob } from "./core/jobs";
 import { metaFormats, readMetaCore } from "./core/meta";
 import { runNightly } from "./core/nightly";
 import { systemClock } from "./core/time";
+import { API_MAJOR, API_MINOR, API_VERSION_HEADER, apiVersionString, deprecationHeadersFor, withApiVersionHeader } from "./core/version";
 import type { FetchImpl } from "./import/upstream";
 import { tick as cminiTick } from "./import/cmini";
 import { diffDue, diffTick, lastDiff, IMPORT_STATE_KEY as LAST_DIFF_KEY, type LastDiffRecord } from "./import/difftick";
@@ -36,6 +37,33 @@ const app = new Hono<{ Bindings: Bindings; Variables: ActorVariables }>();
 // black-box `SELF.fetch` request (same pattern `import/cmini.ts`'s default
 // param and tests/import/tick.test.ts's `vi.stubGlobal` already use).
 const authDeps: AuthDeps = { fetchImpl: ((url, init) => fetch(url, init)) as FetchImpl, now: systemClock };
+
+// [LDB-V2] design/layout-db/25-api-versioning.md "Policy" (b): every
+// response, success or error, carries `X-AKLDB-API: <major>.<minor>`
+// (`core/version.ts`) -- registered FIRST (wraps every other middleware
+// and every route) and applied here, in ONE place, so no individual route
+// file has to remember to set it (the write-path files this slice must not
+// touch -- write.ts/events.ts/idempotency.ts/likes.ts -- carry none of
+// this). Rebuilds the Response (never mutates `c.res.headers` in place --
+// a response `core/etag.ts`'s `conditional()` served from `caches.default`
+// can have read-only headers in some runtimes) so a cached 304, a fresh
+// 200, and everything in between all leave this middleware with the same
+// header, regardless of which internal branch produced them. A deprecated
+// route (none today, `core/version.ts`'s `DEPRECATIONS`) also gets
+// `Deprecation`/`Sunset` here, never scattered per-route.
+app.use("*", async (c, next) => {
+  await next();
+  if (c.res) {
+    let res = withApiVersionHeader(c.res);
+    const dep = deprecationHeadersFor(c.req.method, c.req.routePath);
+    if (Object.keys(dep).length > 0) {
+      const headers = new Headers(res.headers);
+      for (const [name, value] of Object.entries(dep)) headers.set(name, value);
+      res = new Response(res.body, { status: res.status, statusText: res.statusText, headers });
+    }
+    c.res = res;
+  }
+});
 
 // Gates every non-GET/HEAD/OPTIONS request under /v1/* on a resolved actor
 // (09 §2.1) -- registered before any route, so no write route, present or
@@ -127,6 +155,21 @@ app.get("/v1/meta", async (c) => {
     ...(await readMetaCore(db, head)),
     last_diff: lastDiffWire,
     health,
+    // [LDB-V3] design/layout-db/25-api-versioning.md "Policy" (b): the
+    // API's own version, distinct from a FORMAT's major (`formats` above
+    // is the registry's ids, unrelated). `minor` is `WIRE_VERSION`
+    // (core/etag.ts) -- already folded into this route's own ETag, so a
+    // client polling `/v1/meta` sees this move exactly when the ETag does.
+    // No `formats: {...}` sub-map here on purpose: `GET /v1/formats`
+    // already carries each format's lineage/major/latest (LDB-F18/F19),
+    // code-checked; duplicating it here would be a second copy that could
+    // disagree with the first.
+    api: { major: API_MAJOR, minor: API_MINOR },
+    // Always `[]` today (`core/version.ts`'s `DEPRECATIONS`) -- present
+    // unconditionally so a client can start reading it before the first
+    // real deprecation ever lands, rather than needing a schema change the
+    // day one does.
+    deprecations: [],
   });
   res.headers.set("ETag", etag);
   res.headers.set("Cache-Control", CACHE_CONTROL);
@@ -156,13 +199,20 @@ app.route("/", linksRoute(authDeps));
 app.route("/", adminRoute(authDeps));
 app.route("/", moderationRoute(authDeps));
 
+// [LDB-V2] `onError` builds its own Response directly (`c.json(...)`),
+// which happens AFTER a thrown error has already unwound past the global
+// version-header middleware above (its `await next()` rejects, so the
+// code that would set the header there never runs for an error) -- so
+// every error body sets `X-AKLDB-API` itself, right here, the one other
+// place a response is ever constructed.
 app.onError((err, c) => {
+  const headers = { ...(err instanceof ApiError ? err.headers : undefined), [API_VERSION_HEADER]: apiVersionString() };
   if (err instanceof ApiError) {
-    return c.json(err.body, err.status as 400 | 401 | 403 | 404 | 409 | 422 | 429 | 500 | 503, err.headers);
+    return c.json(err.body, err.status as 400 | 401 | 403 | 404 | 409 | 422 | 429 | 500 | 503, headers);
   }
   const e = internal();
   console.error(err); // never in the response body -- see core/errors.ts
-  return c.json(e.body, 500);
+  return c.json(e.body, 500, headers);
 });
 
 // ONE cron trigger (`*/5 * * * *`, wrangler.toml's `[triggers]`) -- what

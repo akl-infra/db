@@ -16,20 +16,21 @@ async function sha256Hex(s: string): Promise<string> {
 }
 
 // 21-formats.md §2.3 (LDB-R1 amended again): `WIRE_VERSION` is folded into
-// the hashed query -- a white-box check that the CURRENT constant is 6
-// (bumped by design/layout-db/23-geometry.md: spark/1's own payload shape
-// changed -- `keys` an ordered array, `board` one required word, `TB`
-// dropped, magic's sentinels tagged) and is actually part of what gets
-// hashed, not merely present in a comment. Replicates `etagFor`'s own
-// formula with a literal `wireVersion: 6` -- if a future slice bumps the
-// real constant without bumping this test, the two hashes diverge and this
-// fails, which is the point: a version bump is a deliberate, visible edit
-// here too.
+// the hashed query -- a white-box check that the CURRENT constant is 7
+// (bumped by design/layout-db/25-api-versioning.md: `GET /v1/meta` gained
+// `api`/`deprecations`, `CHANGELOG-API.md` 1.7 -- LDB-V1/V5's own re-export
+// of this constant as the public API_MINOR is what makes this bump also a
+// versioning-policy event, not just a cache-buster) and is actually part
+// of what gets hashed, not merely present in a comment. Replicates
+// `etagFor`'s own formula with a literal `wireVersion: 7` -- if a future
+// slice bumps the real constant without bumping this test, the two hashes
+// diverge and this fails, which is the point: a version bump is a
+// deliberate, visible edit here too.
 describe("[LDB-R1] WIRE_VERSION is folded into the ETag hash", () => {
-  it("[LDB-R1] etagFor(seq, query) reproduces exactly the wireVersion:6-folded hash", async () => {
+  it("[LDB-R1] etagFor(seq, query) reproduces exactly the wireVersion:7-folded hash", async () => {
     const seq = 42;
     const query = { a: 1, b: "x" };
-    const expectedHash = await sha256Hex(canonical({ wireVersion: 6, query }));
+    const expectedHash = await sha256Hex(canonical({ wireVersion: 7, query }));
     const expected = `"${seq}:${expectedHash.slice(0, 16)}"`;
     expect(await etagFor(seq, query)).toBe(expected);
   });

@@ -90,7 +90,23 @@ export async function readHead(db: D1Database, stateKeys: readonly string[] = []
 // finger dropped, magic's `default`/`same`/`opposite` tagged instead of
 // bare strings) -- no cached 304/edge-cached body from before this slice
 // can keep serving the old spark/1 shape at an unchanged head seq.
-const WIRE_VERSION = 6;
+//
+// [LDB-V1] 2026-09-13 (design/layout-db/25-api-versioning.md): this
+// counter IS the API's own minor version, exported as `WIRE_VERSION` and
+// re-exposed by `core/version.ts` as `API_MINOR` -- every one of the
+// comments above is a real changelog entry of a `/v1` wire-shape change,
+// which is exactly what a client-facing minor version is supposed to
+// enumerate. Giving the API a second, independently-bumped counter would
+// let the two drift (one bumped, the other forgotten); reusing this one
+// makes that structurally impossible. From here on, an entry above (or a
+// new one) is also a line in `db/CHANGELOG-API.md` -- `tests/contract/
+// contract.test.ts`'s [LDB-V5] case fails the build otherwise. Bumped 6 ->
+// 7 by the versioning slice itself (`db/CHANGELOG-API.md` 1.7): `GET
+// /v1/meta` gained `api: {major, minor}` and `deprecations: []`, and every
+// response (success or error) gained the `X-AKLDB-API` header
+// (`core/version.ts`) -- additive, so this is the FIRST entry made under
+// the policy it introduces, not exempt from it.
+export const WIRE_VERSION = 7;
 
 export async function etagFor(headSeqValue: number, query: unknown): Promise<string> {
   const hash = await sha256Hex(canonical({ wireVersion: WIRE_VERSION, query: query ?? null }));

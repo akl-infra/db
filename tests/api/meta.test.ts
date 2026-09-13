@@ -4,6 +4,7 @@ import type { Bindings } from "../../src/env";
 import { fixedClock } from "../../src/core/time";
 import { tick } from "../../src/import/cmini";
 import { FakeUpstream } from "../import/fake-upstream";
+import { API_MAJOR, API_MINOR, API_VERSION_HEADER, apiVersionString } from "../../src/core/version";
 
 const bindings = env as unknown as Bindings;
 const db = bindings.DB;
@@ -34,7 +35,21 @@ describe("GET /v1/meta", () => {
         dump: { last_at: null, seq: null, age_s: null, stale: true },
         diff: { last_at: null, age_s: null, stale: true },
       },
+      // [LDB-V3] design/layout-db/25-api-versioning.md: the API's own
+      // version block -- distinct from `formats` above (a stored/output
+      // FORMAT's own major, unrelated). `minor` is `WIRE_VERSION`
+      // (core/etag.ts), already folded into this route's own ETag.
+      api: { major: 1, minor: API_MINOR },
+      deprecations: [],
     });
+  });
+
+  it("[LDB-V3] carries X-AKLDB-API on every response, matching the body's own api block", async () => {
+    const res = await SELF.fetch("https://example.com/v1/meta");
+    expect(res.headers.get(API_VERSION_HEADER)).toBe(apiVersionString());
+    const body = await res.json<{ api: { major: number; minor: number } }>();
+    expect(body.api).toEqual({ major: API_MAJOR, minor: API_MINOR });
+    expect(`${body.api.major}.${body.api.minor}`).toBe(res.headers.get(API_VERSION_HEADER));
   });
 
   it("[LDB-R2] after the fixture import, counts and seq/revision equal the tables", async () => {
