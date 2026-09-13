@@ -38,6 +38,17 @@ export interface PlanInput {
   // crowding out the ones still unprocessed).
   fullPassCursor: string | null;
   now: string; // ISO
+  // LDB-I22 (saltorbit 2026-09-13, "concerned about the cmini owner crashing
+  // out and deleting their db when this goes live"): the count of
+  // `upstream_deleted` TOMBSTONES this service has actually APPLIED
+  // (rev-bumping, `import/apply.ts`'s `applyDelete` following branch --
+  // never the informational not-following variant) in the trailing 24h,
+  // as of `now`. Passed in rather than read here so `planTick` stays a
+  // plain function of its input (the caller, `import/cmini.ts`, computes
+  // it with one indexed D1 query); defaults to 0 so every pre-existing
+  // caller/test that never heard of this budget keeps behaving exactly as
+  // it did before this field existed.
+  deletesAppliedLast24h?: number;
 }
 
 export type PlanResult =
@@ -54,11 +65,39 @@ export type PlanResult =
       fetch: string[];
       fetchFullPassOnly: string[];
       delete: DeleteAction[]; // empty when bounded out (see deleteStalled)
-      deleteStalled: { reason: string } | null;
+      // LDB-M3: `count` is how many WOULD have been deleted this tick --
+      // kept even though `delete` itself is emptied out, so a caller (the
+      // health endpoint) can report the real severity of a stall instead
+      // of a misleading 0.
+      deleteStalled: { reason: string; count: number } | null;
       isFullPass: boolean;
     };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+// LDB-I22: the rolling 24h delete budget. The per-tick bound (LDB-I3,
+// `bound` below) alone lets a "slow drip" through -- 5% of live records
+// every 5-minute tick, 288 ticks/day, is the whole corpus gone in a day.
+// This bounds the TOTAL applied in any trailing 24h window instead, same
+// floor-or-percentage shape as the per-tick bound so both read the same
+// way. Numbers (saltorbit 2026-09-13's ask, chosen from the catalog's real
+// churn): production's entire event history (45,257 events as of
+// 2026-09-13, `GET /v1/changes?kinds=upstream_deleted` paged to
+// completion) contains ZERO `upstream_deleted` events of any kind, ever --
+// cmini layouts essentially never get deleted upstream in practice, so
+// there is no real daily figure to beat, only headroom to bound a
+// hypothetical hostile/broken upstream against. `max(20, 2% of live)`
+// mirrors the per-tick bound's own `max(5, 5%)` shape at four ticks'
+// worth of percentage and four times the floor -- generous next to an
+// observed real maximum of 0/day, while still capping a worst-case
+// mass-deletion day at ~2% of the corpus instead of ~100% (5% x 288
+// ticks) the old per-tick-only guard allowed.
+export const ROLLING_DELETE_BUDGET_MIN = 20;
+export const ROLLING_DELETE_BUDGET_PCT = 0.02;
+
+export function rollingDeleteBudget(liveCount: number): number {
+  return Math.max(ROLLING_DELETE_BUDGET_MIN, ROLLING_DELETE_BUDGET_PCT * liveCount);
+}
 
 function isFullPassDue(lastFull: string | null, now: string): boolean {
   if (lastFull === null) return true;
@@ -66,7 +105,7 @@ function isFullPassDue(lastFull: string | null, now: string): boolean {
 }
 
 export function planTick(input: PlanInput): PlanResult {
-  const { list, local, lastFull, fullPassCursor, now } = input;
+  const { list, local, lastFull, fullPassCursor, now, deletesAppliedLast24h = 0 } = input;
 
   const liveLocal = local.filter((r) => !r.deleted);
   const liveCount = liveLocal.length;
@@ -136,12 +175,29 @@ export function planTick(input: PlanInput): PlanResult {
 
   const bound = Math.max(5, 0.05 * liveCount);
   let del = deleteCandidates;
-  let deleteStalled: { reason: string } | null = null;
+  let deleteStalled: { reason: string; count: number } | null = null;
   if (deleteCandidates.length > bound) {
     del = [];
     deleteStalled = {
-      reason: `${deleteCandidates.length} pending deletions exceed the bound (max(5, 5% of ${liveCount}) = ${bound})`,
+      reason: `${deleteCandidates.length} pending deletions exceed the per-tick bound (max(5, 5% of ${liveCount}) = ${bound})`,
+      count: deleteCandidates.length,
     };
+  } else {
+    // LDB-I22: even within the per-tick bound, applying these would push
+    // the ROLLING 24h total over budget -- stall ALL of this tick's
+    // deletes (never partially apply the difference) exactly like the
+    // per-tick guard does, so the two behave identically from a caller's
+    // point of view (one `deleteStalled` shape either way).
+    const budget = rollingDeleteBudget(liveCount);
+    if (deletesAppliedLast24h + deleteCandidates.length > budget) {
+      del = [];
+      deleteStalled = {
+        reason:
+          `${deletesAppliedLast24h} deletions already applied in the trailing 24h plus ${deleteCandidates.length} pending ` +
+          `would exceed the rolling 24h budget (max(${ROLLING_DELETE_BUDGET_MIN}, ${ROLLING_DELETE_BUDGET_PCT * 100}% of ${liveCount}) = ${budget})`,
+        count: deleteCandidates.length,
+      };
+    }
   }
 
   return {

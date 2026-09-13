@@ -32,6 +32,7 @@ crons = ["*/5 * * * *"] # ONE trigger for three jobs -- src/index.ts's scheduled
 IMPORT_SOURCE_URL = "https://clemenpine.com/layoutapi/v3"
 IMPORT_MAX_WRITES_PER_TICK = "500"
 IMPORT_UA = "akl-db-import/1.0"
+IMPORT_DELETES = "on" # "off" = kill switch: the importer never tombstones anything (LDB-I23)
 DISCORD_API_URL = "https://discord.com/api"
 
 [observability]

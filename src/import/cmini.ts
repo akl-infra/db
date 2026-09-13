@@ -26,6 +26,13 @@ const FULL_THRESHOLD = 50; // 07 §6 S5: ?full=1 when more than this many ids ne
 const LOCK_KEY = "cmini.running";
 const LOCK_TTL_MS = 10 * 60 * 1000;
 
+// Exported for `/v1/meta`'s health block (src/index.ts) and the recovery
+// routes (`import/recovery.ts`) -- same reason `import/difftick.ts`'s
+// `IMPORT_STATE_KEY`/`dump/write.ts`'s `DUMP_STATE_KEY` are exported
+// rather than re-typed as string literals at each call site.
+export const STALLED_STATE_KEY = "cmini.stalled";
+export const LAST_TICK_STATE_KEY = "cmini.last_tick";
+
 interface RunningLock {
   at: string;
   id: string;
@@ -104,6 +111,33 @@ async function loadLocalMap(db: Bindings["DB"]): Promise<LocalMapRow[]> {
   }));
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// LDB-I22: the rolling-window input `planTick` needs -- a real tombstone
+// (rev-bumping, `import/apply.ts`'s `applyDelete` following branch) with
+// `at` inside the trailing 24h from `nowIso`. Deliberately `rev IS NOT
+// NULL` (the same column `hasUpstreamDeletedInfo` above tests the inverse
+// of): the informational `upstream_deleted` event a NOT-following record
+// gets (no tombstone, nothing to restore) must never count against a
+// budget that exists to bound real deletions.
+export async function countDeletesAppliedSince(db: Bindings["DB"], sinceIso: string): Promise<number> {
+  const row = await db
+    .prepare("SELECT COUNT(*) AS n FROM events WHERE kind = 'upstream_deleted' AND rev IS NOT NULL AND at >= ?")
+    .bind(sinceIso)
+    .first<{ n: number }>();
+  return row?.n ?? 0;
+}
+
+// LDB-I23: `IMPORT_DELETES` (env var, default "on") -- a kill switch for a
+// hostile/broken upstream: "off" makes the importer never tombstone
+// anything, this tick or any other, regardless of what the listing says.
+// Read at the tick level (not inside `planTick`, which stays a pure
+// function of list/local/budget) so it can be flipped without touching
+// the plan/budget logic at all.
+export function importDeletesEnabled(env: Bindings): boolean {
+  return env.IMPORT_DELETES !== "off";
+}
+
 export interface TickStats {
   at: string;
   quiet: boolean;
@@ -132,6 +166,10 @@ export interface TickStats {
   // held (and not expired) and skipped the whole tick body rather than
   // race the holder.
   skipped_locked?: boolean;
+  // LDB-I23: `IMPORT_DELETES=off` was in effect for this tick -- every
+  // planned delete (`deletes_planned` still reports what `planTick` would
+  // have applied) was skipped, never just some of them.
+  deletes_disabled?: boolean;
 }
 
 export interface TickResult {
@@ -179,12 +217,16 @@ async function runTick(env: Bindings, db: Bindings["DB"], now: Clock, client: Up
   const local = await loadLocalMap(db);
   const lastFull = await getState(db, "cmini.last_full");
   const fullPassCursor = await getState(db, "cmini.full_pass_cursor");
-  const plan = planTick({ list: listEntries, local, lastFull, fullPassCursor, now: now() });
+  const nowIso = now();
+  // LDB-I22: one indexed read, the rolling window's own budget input --
+  // `planTick` stays pure and just takes the resulting count.
+  const deletesAppliedLast24h = await countDeletesAppliedSince(db, new Date(Date.parse(nowIso) - DAY_MS).toISOString());
+  const plan = planTick({ list: listEntries, local, lastFull, fullPassCursor, now: nowIso, deletesAppliedLast24h });
 
   if (plan.kind === "collapsed") {
     const stats: TickStats = { at: now(), quiet: false, collapsed: true, reason: plan.reason };
-    await setState(db, "cmini.stalled", canonical({ at: now(), reason: plan.reason }));
-    await setState(db, "cmini.last_tick", canonical(stats));
+    await setState(db, STALLED_STATE_KEY, canonical({ at: now(), reason: plan.reason }));
+    await setState(db, LAST_TICK_STATE_KEY, canonical(stats));
     return { quiet: false, stats };
   }
 
@@ -254,8 +296,19 @@ async function runTick(env: Bindings, db: Bindings["DB"], now: Clock, client: Up
     applied++;
   }
 
+  // LDB-I23: the kill switch is checked BEFORE the plan's own stall
+  // verdict -- "off" means zero tombstones regardless of what `planTick`
+  // decided, never a partial "some of this tick's deletes went through".
+  const deletesEnabled = importDeletesEnabled(env);
   let deletesApplied = 0;
-  if (plan.deleteStalled === null) {
+  let deleteStallReason: string | null = null;
+  if (!deletesEnabled) {
+    if (plan.delete.length > 0) {
+      deleteStallReason = `IMPORT_DELETES=off (kill switch): ${plan.delete.length} pending deletion(s) skipped, 0 applied`;
+    }
+  } else if (plan.deleteStalled !== null) {
+    deleteStallReason = plan.deleteStalled.reason;
+  } else {
     for (const del of plan.delete) {
       try {
         await applyDeleteAction(db, now, del);
@@ -269,15 +322,17 @@ async function runTick(env: Bindings, db: Bindings["DB"], now: Clock, client: Up
         }
       }
     }
-    await clearState(db, "cmini.stalled");
+  }
+  if (deleteStallReason !== null) {
+    await setState(db, STALLED_STATE_KEY, canonical({ at: now(), reason: deleteStallReason }));
   } else {
-    await setState(db, "cmini.stalled", canonical({ at: now(), reason: plan.deleteStalled.reason }));
+    await clearState(db, STALLED_STATE_KEY);
   }
 
   const authors = await client.authors();
   await applyAuthors(db, now, authors);
 
-  const fullyApplied = fullyProcessedFetch && plan.deleteStalled === null;
+  const fullyApplied = fullyProcessedFetch && deleteStallReason === null;
 
   // Sweep progress: decoupled from `fullyApplied` on purpose. A full pass
   // is "the re-verification of already-imported records", not "the whole
@@ -306,15 +361,22 @@ async function runTick(env: Bindings, db: Bindings["DB"], now: Clock, client: Up
     used_full: usedFull,
     applied,
     errors,
-    deletes_planned: plan.delete.length,
+    // LDB-M3: when `planTick` itself stalled (LDB-I3/I22), `plan.delete` is
+    // already emptied out for safety -- `deleteStalled.count` is the real
+    // "how many were pending" figure a caller (`/v1/meta`'s health block)
+    // needs to gauge severity; the kill switch's own branch never touches
+    // `plan.deleteStalled`, so `plan.delete.length` there is still the
+    // real (un-zeroed) candidate count.
+    deletes_planned: plan.deleteStalled?.count ?? plan.delete.length,
     deletes_applied: deletesApplied,
-    delete_stalled: plan.deleteStalled?.reason ?? null,
+    delete_stalled: deleteStallReason,
     full_pass: plan.isFullPass,
     fully_applied: fullyApplied,
     raced,
     errored,
+    deletes_disabled: !deletesEnabled,
   };
-  await setState(db, "cmini.last_tick", canonical(stats));
+  await setState(db, LAST_TICK_STATE_KEY, canonical(stats));
 
   // The meta token is only stored once a tick has applied everything it
   // planned -- a write-capped tick recomputes the same plan next time
