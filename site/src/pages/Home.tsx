@@ -5,6 +5,7 @@ import { listLayouts } from "../api.ts";
 import { onLinkClick } from "../router.ts";
 import { createAsync } from "../lib/asyncData.ts";
 import type { LayoutRecord } from "../lib/types.ts";
+import AuthorRef from "../ui/AuthorRef.tsx";
 
 type MagicFilter = "any" | "only" | "none";
 type SortKey = "likes" | "modified" | "name";
@@ -95,18 +96,31 @@ const Home: Component = () => {
                 <For each={filtered()}>
                   {(row) => {
                     const layoutHref = `/l/${encodeURIComponent(row.name)}`;
-                    const authorHref = `/a/${encodeURIComponent(row.owner)}`;
                     return (
                       <tr>
+                        {/* saltorbit, 2026-09-13: the whole row opens the layout.
+                            `akl-row-link` is a real <a> stretched over the
+                            entire <tr> by styles.css's `::after` overlay
+                            (`position: relative` on the row, `inset: 0` on
+                            the pseudo-element) -- native anchor semantics do
+                            the rest for free: it's in the tab order and
+                            Enter activates it (keyboard), and a middle-click
+                            or a modified click (cmd/ctrl/shift) opens a new
+                            tab exactly as any other link would, because
+                            `onLinkClick` (router.ts) returns before calling
+                            `preventDefault()` for anything but a plain,
+                            unmodified left click ([SITE-19]). The Owner
+                            column's own link stacks above the overlay
+                            (styles.css: any non-`akl-row-link` anchor inside
+                            `.akl-table` gets `z-index: 1`) so clicking an
+                            owner's name still goes to their author page. */}
                         <td data-col={copy.home.colName}>
-                          <a href={layoutHref} onClick={(e) => onLinkClick(e, layoutHref)}>
+                          <a href={layoutHref} class="akl-row-link" onClick={(e) => onLinkClick(e, layoutHref)}>
                             {row.name}
                           </a>
                         </td>
                         <td data-col={copy.home.colOwner}>
-                          <a href={authorHref} onClick={(e) => onLinkClick(e, authorHref)}>
-                            {row.owner}
-                          </a>
+                          <AuthorRef userId={row.owner} linked />
                         </td>
                         <td data-col={copy.home.colLikes}>{row.like_count}</td>
                         <td data-col={copy.home.colModified}>{row.modified_at.slice(0, 10)}</td>

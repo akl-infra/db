@@ -38,7 +38,9 @@ const AuthorPage: Component<AuthorPageProps> = (props) => {
       </Show>
       <Show when={authorErrorMessage()}>{(msg) => <div class="akl-error">{msg()}</div>}</Show>
       <Show when={authorData()} keyed>
-        {(data) => <h1>{copy.author.title(data.name)}</h1>}
+        {(data) => (
+          <h1 title={data.user_id}>{copy.author.title(data.name)}</h1>
+        )}
       </Show>
 
       <Show when={layoutRows()} keyed>
