@@ -43,5 +43,7 @@ cpu_ms = 30000
 # 2026-09-13 (LATENCY.md §14): a write PUT costs 640-760 ms and a changed-record GET 300-500 ms
 # from Fly iad, vs /v1/meta at 65 ms -- per-D1-statement distance dominates. Smart Placement runs
 # the Worker next to D1 for these D1-heavy requests. Reversible: delete this block.
-[placement]
-mode = "smart"
+# [placement] mode = "smart" was enabled 2026-09-13 06:27Z (D1 latency); REMOVED the same day:
+# after two later deploys (versions e6f2b6bd, 64626574 at 100%) the production hostname kept
+# serving the 06:27 version (5343a268) -- old schema, missing routes -- while each version's
+# preview URL served the right code. Re-enable only with a verified deploy afterwards.
