@@ -100,6 +100,7 @@ Status: `todo` · `running (agent, branch)` · `review` · `landed <sha>` · `bl
 
 ## Log
 
+- 2026-09-13 04:50Z · **Found LDB-B217**: the index loader merged base/overlay per FILE, so the overlay's layouts.json hid the base's 4,179 rows → after the rebuild the live publisher re-queued everything (pre-existing; masked while the base had no hashes). Fixed + test. Deploying v49 = B217 + batch compute ON + shared-cpu-2x + S3 timeout 120 s (saltorbit: "do this").
 - 2026-09-13 04:35Z · Post-swap: pointer intact (new base + a 25-layout overlay from the live tick that was in flight). Live publisher did NOT re-plan (stale in-memory index → B20); restarted the machine to reload the index. Steady-state tester round queued after the restart.
 - 2026-09-13 04:23Z · **First real B17 rebuild swapped the pointer** (16.8 min, 4,179/4,179, smoke ok). Live bot RSS 1.36 GB (69 %) right after — watch; expected to drop once its overlay state resets on re-plan.
 - 2026-09-13 04:20Z · B17 dry run #2 succeeded (15.6 min, all 4,179; oracle equivalent). Real rebuild launched — swaps the pointer to a fresh full base, emptying the live publisher's backlog (and the contention behind LATENCY §11). Then: steady-state re-measure with the tester bot.
