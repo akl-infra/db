@@ -230,6 +230,59 @@ describe("db.yml wiring", () => {
     expect(uploadPath).toMatch(/dump.*\.gz/);
   });
 
+  it("[LDB-C1] the site job needs test, runs from db/site, and builds+tests unconditionally", () => {
+    const wf = loadWorkflow();
+    const site = wf.jobs.site;
+    expect(site, "no `site` job in db.yml").toBeDefined();
+    if (!site) throw new Error("unreachable: assertion above failed");
+
+    const needs = Array.isArray(site.needs) ? site.needs : [site.needs];
+    expect(needs).toContain("test");
+
+    const workingDir =
+      site.defaults?.run?.["working-directory"] ??
+      site.steps?.find((s) => typeof s.run === "string")?.["working-directory"];
+    expect(workingDir).toBe("db/site");
+
+    const runSteps = (site.steps ?? []).filter((s): s is Step & { run: string } => typeof s.run === "string");
+    const runs = runSteps.map((s) => s.run);
+    expect(runs.some((r) => /\bnpm ci\b/.test(r))).toBe(true);
+    expect(runs.some((r) => /\bnpm run typecheck\b/.test(r))).toBe(true);
+    expect(runs.some((r) => /\bnpm test\b/.test(r))).toBe(true);
+    expect(runs.some((r) => /\bnpm run build\b/.test(r))).toBe(true);
+
+    // The build/test steps have no `if:` guard -- they run on every PR/push
+    // this job triggers on, unlike the deploy step below.
+    for (const step of runSteps) {
+      if (/wrangler deploy/.test(step.run)) continue;
+      expect(step.if, `step '${step.name ?? step.run}' should run unconditionally`).toBeUndefined();
+    }
+  });
+
+  it("[LDB-C1] the site job's deploy step runs only on a push to ldb-arch-review, references both secrets, and shares no concurrency group with db-prod-deploy", () => {
+    const wf = loadWorkflow();
+    const site = wf.jobs.site;
+    expect(site, "no `site` job in db.yml").toBeDefined();
+    if (!site) throw new Error("unreachable: assertion above failed");
+
+    const deployStep = (site.steps ?? []).find((s) => typeof s.run === "string" && /wrangler deploy/.test(s.run));
+    expect(deployStep, "no 'wrangler deploy' step in the site job").toBeDefined();
+    if (!deployStep) throw new Error("unreachable: assertion above failed");
+
+    expect(deployStep.if, "the site job's deploy step has no `if:` guard").toBeTruthy();
+    expect(deployStep.if).toContain("github.event_name == 'push'");
+    expect(deployStep.if).toContain("github.ref == 'refs/heads/ldb-arch-review'");
+
+    const stepText = JSON.stringify(deployStep);
+    expect(stepText).toContain("CLOUDFLARE_DB_TOKEN");
+    expect(stepText).toContain("CLOUDFLARE_DB_ACCOUNT_ID");
+
+    const c = (site as { concurrency?: { group?: string; "cancel-in-progress"?: boolean } }).concurrency;
+    expect(c?.group, "site job concurrency group").toBe("akldb-site-deploy");
+    expect(c?.["cancel-in-progress"], "site job concurrency cancel-in-progress").toBe(false);
+    expect(c?.group).not.toBe("db-prod-deploy");
+  });
+
   it("[LDB-G6] the split-dry-run job needs test, runs weekly + on workflow_dispatch, and runs scripts/split/split-db.sh --dry-run", () => {
     const wf = loadWorkflow();
     const job = wf.jobs["split-dry-run"];

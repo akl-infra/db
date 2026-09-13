@@ -87,7 +87,13 @@ describe("db/ import boundary", () => {
     // db/tests/fixtures/**'s sample data (bot/tests/transforms.test.ts and
     // friends) are not a production cross-boundary import, and bot's own
     // boundary test (LDB-B6) doesn't scan its own tests/ either.
-    const dirs = ["web/src", "scripts", "functions", "workers", "tools", "bot/src"].map((d) =>
+    // `db/site/src`, `db/site/server` join too (design/akldb-site/
+    // 01-plan.md §4.7 item 16): they sit INSIDE db/, but the site is meant
+    // to be a client of the public wire like any outside adopter, so this
+    // scan's "does anything reach into a db/ implementation path" question
+    // applies to them for symmetry even though they aren't literally
+    // outside the directory.
+    const dirs = ["web/src", "scripts", "functions", "workers", "tools", "bot/src", "db/site/src", "db/site/server"].map((d) =>
       path.join(REPO_ROOT, d),
     );
     const files = dirs.flatMap((d) => walk(d));
@@ -98,6 +104,35 @@ describe("db/ import boundary", () => {
       for (const spec of extractSpecifiers(source)) {
         if (spec.includes("/db/") || spec.includes("db/formats") || /(^|\/)db$/.test(spec)) {
           violations.push(`${path.relative(REPO_ROOT, file)}: imports '${spec}'`);
+        }
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+
+  it("[LDB-G5] nothing under db/site/src or db/site/server resolves into db/src/** or db/formats/** (the site is a client)", () => {
+    // db/site/** is inside db/, so an fs READ of db/docs/adoption.md
+    // (scripts/build-docs.mjs, S8) is not a crossing at all -- and isn't
+    // caught by this regex scan anyway (it's a plain `fs.readFileSync`
+    // call, never an `import`/`require` specifier). What this narrower
+    // check catches is the site's frontend/server code reaching into the
+    // DB's own IMPLEMENTATION (db/src, db/formats) by relative path instead
+    // of treating it as a normal outside adopter would: the public wire
+    // only. `db/site`'s own package.json declares no dependency on either.
+    const files = [...walk(path.join(DB_ROOT, "site", "src")), ...walk(path.join(DB_ROOT, "site", "server"))];
+    expect(files.length).toBeGreaterThan(0);
+
+    const forbidden = [path.join(DB_ROOT, "src"), path.join(DB_ROOT, "formats")];
+    const violations: string[] = [];
+    for (const file of files) {
+      const source = fs.readFileSync(file, "utf8");
+      for (const spec of extractSpecifiers(source)) {
+        if (!spec.startsWith(".")) continue; // bare specifier -- an npm package, not a boundary crossing
+        const resolved = path.resolve(path.dirname(file), spec);
+        for (const forbiddenDir of forbidden) {
+          if (resolved === forbiddenDir || resolved.startsWith(forbiddenDir + path.sep)) {
+            violations.push(`${path.relative(REPO_ROOT, file)}: imports '${spec}' -> ${path.relative(DB_ROOT, resolved)}`);
+          }
         }
       }
     }

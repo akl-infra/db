@@ -124,6 +124,52 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DB_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DB_ACCOUNT_ID }}
 
+  # akldb.org's own Worker (design/akldb-site/01-plan.md §6, W1a). Its own
+  # package.json under db/site/ -- `paths: db/**` above already covers it,
+  # no trigger edit needed. Builds+tests on every PR/push that touches
+  # db/**; deploys only on a push to the integration branch, gated inside
+  # THIS job (not a separate needs:site job) so a deploy never runs without
+  # the build/test steps immediately before it in the same run.
+  site:
+    needs: test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: db/site
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: db/site/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Test
+        run: npm test
+      - name: Build
+        run: npm run build
+      # Same integration-branch trigger as `pr-deploy` above, but its own
+      # concurrency group (`akldb-site-deploy`, not `db-prod-deploy`) -- this
+      # Worker and akl-db are two independent deploys and must never block
+      # each other, only themselves. GitHub Actions concurrency is job-
+      # scoped (there's no such thing as a step-level group), so the whole
+      # job -- test/build included -- shares it, same as `deploy`/
+      # `pr-deploy` above; the only real-world effect is that two pushes to
+      # `ldb-arch-review` in quick succession run this job's tests serially
+      # rather than in parallel, which is harmless.
+      - name: Deploy
+        if: github.ref == 'refs/heads/ldb-arch-review' && github.event_name == 'push'
+        run: npx wrangler deploy --config wrangler.toml
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DB_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DB_ACCOUNT_ID }}
+    concurrency:
+      group: akldb-site-deploy
+      cancel-in-progress: false
+
   # `schedule`/`workflow_dispatch` only (never on a PR/push) -- real network
   # against the deployed service, on ${{ vars.DB_BASE_URL }} (a repo/org
   # variable naming the live origin, e.g. https://akl-db.<account>.workers.dev).
