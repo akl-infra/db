@@ -199,3 +199,35 @@ performance-8x, 16 GB, `REBUILD_JOBS=8`: dump 1.6 s → **all 4,179 layouts comp
 **Compared to the live pass**: 4,179 layouts would have taken ≈ 10.5 h on the bot machine at 25 per 4-min tick (and starved commands the whole time, §11). The rebuild machine does it in 16 min without touching the bot's CPU. Passes belong there from now on.
 
 **Real rebuild (04:06–04:23Z)**: 1,009 s total — compute 883 s, upload 116 s, pre-swap smoke 2.3 s, pointer swap 3.3 s, post-swap smoke 1.2 s. Pointer now `{base: 20260913T042115Z-d83b197cd674, overlay: null, db_seq: 24001}`; the db-alias site serves it (200 in 71 ms). The live publisher's next tick re-plans against the new base (its backlog of 3,352 becomes the handful of layouts changed after seq 24001).
+
+## 13 · Round 2 close-out: steady state, real Discord commands (v50, 04:57Z)
+
+Conditions: publisher idle (base rebuilt, nothing to compute), eager wasm sweep running in the background (3,236 layouts still missing wasm cells after the rebuild — B21), machine **performance-1x**. The spark-tester bot posted the same 49 commands (one every ~1 s).
+
+| what | value |
+|---|---|
+| loop stalls over 1 s during the round | **0** (loop lag p50 20 / p95 23 / p99 24 / max 825 ms) |
+| heap | 270 / 298 MB (cap 1,400 MB) — GC was never the problem (§13a) |
+| commands over 1 s | 12 / 49; over 5 s: **0** |
+| median per-verb total (handler start → reply posted) | 419 ms; p90 1,556 ms |
+| `help` (does no work) | 443 ms = the Discord reply POST floor from Fly |
+| reads: view / stats / rank | 1,067 / 574 / 430 (view's 520 ms was the `/v1/meta` check on a cold connection) |
+| writes: like / rename / add / swap! / remove | 1.1–1.9 s (layoutdb PUT ≈ 400 ms + reply POST ≈ 400 ms + Discord rate-limit queueing) |
+| sfbs / examples | 4.3 / 4.2 s with fresh 60 ms, compute 0, no stall |
+| tester-side round trip | p50 608 ms, p95 4,367, max 4,759 |
+
+**What the 4 s on `sfbs`/`examples` is**: not CPU (no stall), not layoutdb (fresh 60 ms), not compute. Both verbs post the longest replies, and the tester fires 49 commands into ONE channel in about a minute — Discord's per-channel send bucket (5 messages / 5 s) makes discord.js queue the replies, and `total` is measured to "reply posted". Every long total in this round has the same shape (tiny measured phases, large remainder). The same lesson was learned on 2026-09-12 and forgotten; this time it is pinned down as **B22**: split the record into `handlerMs` (reply ready) and `postMs` (Discord send), keep the >1 s violations with their phases (today only >5 s are kept, so this round's twelve left no detail), and give the tester harness a pacing flag so a measurement never trips the bucket.
+
+### 13a · What tonight ruled out, in order
+1. **Publisher main-thread work** (111 s smoke stall, 46 s merge): fixed (LDB-B180, B12). Real, and gone.
+2. **CPU contention with the CLI child on 1 vCPU**: real during a pass; passes now run on the throwaway machine (B17), the child is at nice 10 (B15).
+3. **GC pressure**: ruled out — heap sits at 270 MB under a 1,400 MB cap; the 4–7 s idle stalls persisted after raising it (LDB-B218 keeps the heap visible).
+4. **shared-cpu-2x**: FAILS at steady state — CPU probe 45 M iterations / 2 s (vs 2.2 B unthrottled), 4–7 s stalls in phase `idle`. The eager wasm sweep alone spends the burst credits. performance-1x is pinned in fly.toml; B21 (seed the cell store from the published base, so the sweep has nothing to do) is the path back to shared.
+5. **Discord send-bucket queueing under the tester's burst**: the remaining >1 s totals — an artefact of measuring 49 commands per minute, to be separated out by B22.
+
+### Verdict after round 2
+- **R1 (correct, ordered)**: PASS — 49/49 answered correctly in every round.
+- **R2 (≈ 1 s per command)**: **PASS for the bot's own work** at steady state on performance-1x — handler time is tens of ms for reads, ≈ 400–500 ms for writes (one layoutdb PUT), zero main-thread stalls; **the Discord reply POST adds ≈ 400 ms** from Fly `iad` that no bot change removes. **FAIL on shared-cpu-2x** (throttling) and **FAIL during an on-machine bulk pass** (both now avoided by configuration: performance-1x pinned, passes on the rebuild machine). B22 is needed before a clean number can be quoted for the write verbs under load.
+- **R3 (incremental sorts)**: PASS (`rank` 430 ms total, 67 ms handler).
+- **R4 (publish checks layoutdb)**: PASS.
+- **R5 (site freshness)**: edit → published pointer ≈ 3–6 min at steady state (one small tick), 16 min for a whole-catalog rebuild; the < 1 min target needs B16's small ticks to skip the fixed ~2 min upload/smoke overhead (fold cadence, B18) — open.
