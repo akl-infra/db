@@ -490,6 +490,196 @@ h2 {
   font-size: 13px;
 }
 
+/* ── docs overhaul (W1c): brief, diagrams, copy-as-markdown ───────────── */
+
+.akl-docs-toc {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  margin-bottom: 24px;
+}
+.akl-docs-toc a {
+  color: var(--ink-muted);
+  text-decoration: none;
+}
+.akl-docs-toc a:hover,
+.akl-docs-toc a:focus-visible {
+  color: var(--accent);
+}
+@media (min-width: 700px) {
+  .akl-docs-toc {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 18px;
+    position: sticky;
+    top: 0;
+    background: var(--bg);
+    z-index: 5;
+    padding-block: 10px;
+    border-bottom: 1px solid var(--border);
+  }
+}
+
+.akl-docs-brief h3 {
+  font-family: var(--font-display);
+  font-size: 15px;
+  margin: 24px 0 10px;
+}
+
+/* Tables/code blocks scroll inside their own container, never the page
+   (CLAUDE.md's own CSS rule; design/akldb-site/01-plan.md §5). */
+.akl-docs-scroll {
+  overflow-x: auto;
+  margin-bottom: 12px;
+}
+
+.akl-docs-lanes,
+.akl-docs-endpoints {
+  border-collapse: collapse;
+  width: max-content;
+  min-width: 100%;
+  font-size: 13px;
+}
+.akl-docs-lanes th,
+.akl-docs-lanes td,
+.akl-docs-endpoints th,
+.akl-docs-endpoints td {
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+.akl-docs-endpoints code {
+  font-family: var(--font-body);
+  font-size: 12px;
+}
+
+.akl-docs-endpoint-group {
+  margin-bottom: 18px;
+}
+.akl-docs-endpoint-group h4 {
+  font-family: var(--font-display);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-muted);
+  margin: 0 0 6px;
+}
+
+.akl-docs-notes {
+  margin: 20px 0 0;
+  font-size: 13px;
+}
+.akl-docs-notes dt {
+  font-weight: 600;
+  margin-top: 10px;
+}
+.akl-docs-notes dd {
+  margin: 2px 0 0;
+  color: var(--ink-muted);
+}
+
+.akl-docs-diagram-section {
+  margin-top: 32px;
+}
+
+.akl-diagram-frame {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px;
+  background: var(--surface);
+}
+.akl-diagram {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+}
+.akl-diagram-lifeline {
+  stroke: var(--border);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+}
+.akl-diagram-box {
+  fill: var(--surface);
+  stroke: var(--border);
+  stroke-width: 1;
+}
+.akl-diagram-arrow {
+  stroke: var(--ink-muted);
+  color: var(--ink-muted); /* the marker's `fill="currentColor"` reads this */
+  stroke-width: 1.4;
+  fill: none;
+}
+.akl-diagram-label {
+  font-family: var(--font-body);
+  font-size: 12px;
+  fill: var(--ink);
+}
+.akl-diagram-label-strong {
+  font-weight: 700;
+}
+
+.akl-docs-guide-section {
+  margin-top: 32px;
+}
+.akl-docs-guide-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 0;
+}
+.akl-docs-guide-actions button {
+  font-family: var(--font-body);
+  font-size: 13px;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 7px 12px;
+  cursor: pointer;
+}
+.akl-docs-guide-actions button:hover,
+.akl-docs-guide-actions button:focus-visible {
+  border-color: var(--accent);
+}
+.akl-docs-guide-actions a {
+  font-size: 13px;
+}
+.akl-docs-copy-status {
+  font-size: 13px;
+  margin: 0 0 12px;
+}
+.akl-docs-copy-fallback {
+  display: block;
+  width: 100%;
+  min-height: 120px;
+  font-family: var(--font-body);
+  font-size: 12px;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px;
+  margin-bottom: 12px;
+  box-sizing: border-box;
+}
+.akl-docs-copy-fallback[hidden] {
+  display: none;
+}
+
+.akl-docs-errors {
+  margin-top: 32px;
+}
+.akl-docs-link-button {
+  display: inline-block;
+  font-size: 13px;
+  margin-top: 6px;
+}
+
 /* ── admin placeholder ──────────────────────────────────────────────── */
 
 .akl-admin-tabs {
