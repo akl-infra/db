@@ -166,3 +166,26 @@ Whole tick: 364 s. **The 111 s stall is the smoke test's tombstone-leak check**:
 **After LDB-B180 (v43, first full tick, 02:35–02:41Z)**: smoke phase 151 s → **39 s**, the 111 s stall is gone; worst stall now **2.3 s** (8 stalls per tick, all 1.0–2.3 s: seven in `compute` = parsing the CLI's result JSON on the main thread, one in `upload`). Loop lag since boot p95 80 / p99 97 / max 2,487 ms. Per tick: compute 203 s, derive-rows 0.4 s, merge-overlay 45 s, upload 48 s, smoke 39 s = 335 s. Remaining blocking work is what B12 moves off-thread (merge-overlay, smoke parse, the per-layout CLI-result parse); B16 then cuts the compute phase itself.
 
 **After B12 (v45, first full tick 02:41–02:45Z, performance-1x)**: **0 stalls over 1 s**; loop lag since boot p50 20 / p95 26 / p99 49 / **max 473 ms**. Tick 254 s: compute 147 s, derive-rows 0.2 s, merge-overlay 23 s (was 46: now awaited on the worker thread), upload 47 s, smoke 37 s. RSS 705 MB (the worker thread adds ≈ 150 MB). **R2 during a publish: the main thread no longer blocks for more than half a second** — the remaining latency risk is CPU contention with the CLI child (now at nice 10, B15) on the single core, to be re-measured with the per-verb harness after B14/B16 deploy. Incident 3 (v44's wrong worker path, ≈ 1 h of failed ticks) sits between these two readings.
+
+## 11 · Round 2: REAL Discord commands (spark-tester bot → production spark, v47, 03:33–03:36Z)
+
+`bot/scripts/e2e.mjs` (`E2E_ALLOW_PRODUCTION=1`, prefix `!sp`) posted the 49-command default scenario into the test server; the live bot's own `/health.latency` recorded each command (`total` = handler start → reply posted to Discord, so it INCLUDES the Discord REST round trip, unlike §10's harness). Conditions: a publisher tick was in progress the whole time (compute 180 s, merge-overlay 33 s, upload 129 s — R2 slowed by the concurrent rebuild machine's uploads), AND the throwaway rebuild was running in the same app (separate machine, shared bucket).
+
+| verb | total ms | of which fresh / compute | verb | total ms | fresh / compute |
+|---|---|---|---|---|---|
+| image (×2) | **5,971 / 5,279** | render 5,158 / 4,840 | view | 1,167 | 496 / 372 |
+| inrolls | 4,040 | 62 / 0 | history | 1,136 | 142 / 0 |
+| unlike | 2,561 | 148 / 0 | spacegrams (×3) | 1,087 | 70 / 0 |
+| unangle | 2,198 | 72 / 0 | fingers | 1,011 | 294 / 388 |
+| rename | 1,948 | 424 / 0 | outrolls | 954 | 350 / 0 |
+| setfingermap | 1,809 | 425 / 0 | sfbs | 822 | 69 / 0 |
+| compare | 1,777 | 113 / 0 | magic | 790 | 399 / 0 |
+| rank | 1,654 | 72 / 0 | help (no work at all) | **507** | 0 / 0 |
+| like / add / swap! / remove | 1,531 / 1,522 / 1,517 / 1,353 | db writes | stats / list / likes | 413 / 352 / 276 | |
+| cycle / random | 1,211 / 1,207 | compute ≈ 50 | 20 other read verbs | 290–640 | |
+
+Tester-side Discord round trip (message posted → reply seen): p50 751 ms, p95 4,254 ms, max 6,146 ms, 49/49 answered.
+
+**Reading it.** `help` does nothing and still took 507 ms: that is the Discord reply POST from the machine under load — the floor every verb pays on top of §10's 70 ms handler numbers. The verbs over 1 s are not the handler either (fresh/compute columns are small): they are **CPU starvation on the single performance vCPU**. B12 moved the merge/hash work to a worker THREAD, which on a 1-vCPU machine still competes with the main thread for the same core; the CLI child is at nice 10 but the worker thread is not, and R2 uploads (129 s this tick) keep the worker busy. `image` is the extreme case: a 430 ms PNG render (§10) became 4.8–5.2 s.
+
+**R2 verdict, live, during a backlog pass on 1 vCPU: FAIL** — 19 of 49 over 1 s, 2 over 5 s. Two fixes, in order: (1) **finish the backlog via the rebuild machine** (B17, running now): once the base is rebuilt and swapped, the live publisher has nothing to compute and steady state has no contention — re-run this scenario then; (2) for any future pass, run `performance-2x` so the worker thread and the CLI child have a second core (`fly.toml` pin, ~2× the machine cost only for the pass), or keep passes off the bot entirely (B17 is exactly that). R1/R3/R4 pass (every reply correct and ordered; `rank` answered from row tables).
