@@ -36,7 +36,7 @@ These rank above every row below; where a past decision conflicts with this orde
 | H19 | Nothing ships to akl.gg users until the DB is a strict superset of what the site shows from cmini (verified by diff). | LDB-00 D12 | 09-08 |
 | H20 | Site stays an SPA over bulk static files "for now … i just want to simplify where possible"; no live channel to the site. | HR R5 | 09-11 |
 | H21 | Sync the live bot and trial site with in-flight work only at natural pause points, never when painful. | mem:sync-at-pause-points | 09-11 |
-| H22 | The DB will eventually have its **own website**: mostly read-only for the public, plus a **moderation view** where admins overwrite likes, change authors, ban users, rename layouts, etc. | saltorbit, 2026-09-12 (arch review session) | 09-12 |
+| H22 | The DB will eventually have its **own website**: mostly read-only for the public, plus a **moderation view** where admins change authors, ban users, rename layouts, etc. | saltorbit, 2026-09-12 (arch review session) | 09-12 |
 | H23 | Layouts gain a **`link` field** (user-submitted URL to the layout's GitHub etc.) that passes through a **moderation queue** before it shows. | saltorbit, 2026-09-12 (arch review session) | 09-12 |
 
 ## §2 saltorbit's decisions
@@ -139,3 +139,5 @@ These rank above every row below; where a past decision conflicts with this orde
 17. **Migration cadence.** Cron (LDB-19) → operator-driven (decision 11) → deleted (LDB-21 D12).
 18. **`layout-dates.json`.** Open (LDB-06) → closed, no backfill (LDB-12 §0.6) → reopened (LDB-12 §8 Q5).
 19. **`link` field.** Rejected in the round-1 review ("let's delete this too", LDB-00 §6, D2; cmini's `link` kept only for import fidelity, then dropped with `x` in LDB-21 D10; bot `link` verb dropped in LDB-18). Partially reversed 2026-09-12 (H23): a moderated, user-submitted `link` returns as a first-class field.
+
+**Decision 2026-09-13 (saltorbit): moderators must NOT be able to override or adjust like counts** ("I take it back. Mods should not be able to override the like count"). `like_count` is the count of `likes` rows and nothing else. Reverses the 2026-09-12 wording of H22; moderation keeps bans, rename, author change, restore and the moderated `link` field.
