@@ -97,7 +97,7 @@ Status: `todo` · `running (agent, branch)` · `review` · `landed <sha>` · `bl
 
 ## Log
 
-- 2026-09-13 · B16b+B17 landed; bot 1,268 green (the `[LDB-B200]` notify-dedup test flaked once under full-suite load, passes alone and on rerun — harden later). Deploying v47 so the image has `dist/rebuild.js` + the `--layouts` Python; then `DRY_RUN=1 sh scripts/rebuild-on-fly.sh`.
+- 2026-09-13 · B16b+B17 landed; bot 1,268 green (the `[LDB-B200]` notify-dedup test flaked once under full-suite load, passes alone and on rerun — harden later). Deploying v47 so the image has `dist/rebuild.js` + the `--layouts` Python; then `DRY_RUN=1 bash scripts/rebuild-on-fly.sh`.
 - 2026-09-13 · B14 landed (S2 waits for the publisher index / reports "unknown" when degraded; S4 compares like-with-like by stored engine; worker crash → one alert, rejections routed; watchdog onset memory persisted to /data across restarts). Deploying v46 = B14 + B16a (batch flag OFF) + LDB-B168 DM mirror.
 - 2026-09-13 · B16a landed. B16b (wiring, `PUBLISHER_BATCH_COMPUTE` flag default off until the on-machine oracle passes) + B17 (rebuild entry + `scripts/rebuild-on-fly.sh`) dispatched as one slice.
 - 2026-09-13 · v45 first tick: publish ok, **0 stalls**, loop-lag max 473 ms, merge-overlay 46 → 23 s. B12 confirmed in production. LDB-B168 (alert DMs mirrored to stderr) committed, ships with the next deploy; a persistent log monitor now mirrors the DMs into the lead session.
