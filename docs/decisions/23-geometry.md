@@ -28,7 +28,7 @@ discussion" item of `review/LEDGER.md` plus the parked `D4`/`D8` round of
 | space thumb | not now → #333 |
 | akl.gg | the §6 concept "sounds good" |
 | landing | edit spark/1 in place, wipe + re-import |
-| duplicate keys | "the bijection thing sounds bad. we should be able to support duplicate keys, at least in the format" → `keys` becomes a LIST (`{char?, row, col, finger}`), `free` folds in as char-less entries, the same char may appear on several entries; chars named by magic must be unique; the mana2 lowering keeps the first occurrence in (row, col) order and emits the rest as `skip` |
+| duplicate keys | "the bijection thing sounds bad. we should be able to support duplicate keys, at least in the format" → `keys` becomes an ORDERED LIST (`{char?, row, col, finger}`), `free` folds in as char-less entries, the same char may appear on several entries; a char named by magic has at most one entry (review 24 F5: a two-handed char needs `except` or a raw rule); the mana2 lowering keeps the FIRST ENTRY in list order and emits the rest as `skip` |
 
 **Scope:** what a record says about its physical board, its fingering and
 its thumb keys; how the bot takes that in (`add`, `board`, `fingers`); how
@@ -120,8 +120,11 @@ refuses duplicate letters): the primary is the analysed key, later ones are
 emitted as `skip` cells; a documented loss (LDB-F5), revisable when an
 analyzer can pick by cost. Magic scaffolds enumerate distinct chars; a char
 whose entries span both hands must be in a chiral key's `except` or have an
-explicit rule (24 F5). Magic sentinels are tagged (24 F6): `default` is
-`{repeat: true}` | `{char}` | absent, same for chiral `same`/`opposite`.
+explicit rule (24 F5). Magic sentinels are tagged with a `kind` discriminator (24 F6, round 2):
+`default` is `{kind: "repeat"}` | `{kind: "char", char: "e"}` | absent
+(= none), same for chiral `same`/`opposite`; `magic.notes`/`updated` are
+dropped (24 round 2 A). `fromCmini` emits `keys` sorted by `(row, col)`;
+full-payload writers preserve fetched order (24 round 2 D).
 
 ### 4.1 The kinds
 
@@ -447,7 +450,7 @@ D11); layoutdb is disposable; no outside client reads spark yet. Unblocks
 | LDB-F29 | For every valid payload, `fromSpark` puts a key in the left thumb string iff its finger is `LT` — the label, never the column | property test |
 | LDB-F30 | Physical coordinates (`(kind, row, col) → (x, y)`), `handSplit(keys)` and `classifyFingering(keys)` are each ONE function exported by the format package; the site's drawer, the bot's grid/image and the mana2 lowering call them (the lowering's `rowOrColumnStagger` and row-string split reproduce them on every fixture) | parity test over fixtures; archlint: no second definition |
 | LDB-F31 | `fromCmini` maps the board word by §4.6's table — including the angle-family bump to `ansi` — and changes nothing else (extends LDB-F23) | `mf9-fromcmini`; a fixture per bumped case |
-| LDB-F33 | `keys` is a list: the same `char` may appear on several entries and no two entries share `(row, col)`; a char named anywhere in `magic` is unique on the layout (`400 magic_needs_unique_key`); `fromSpark` analyses the first occurrence in `(row, col)` order and emits later duplicates as `skip` (LDB-F17 holds) | fixture with two `y`s + its goldens; mutation matrix; property test over random duplicate insertions |
+| LDB-F33 | `keys` is an ordered list: the same `char` may appear on several entries and no two entries share `(row, col)`; a char named anywhere in `magic` has at most one entry, and a char whose entries span both hands is refused for the chiral scaffold unless in `except` or covered by a raw rule (`400 magic_needs_unique_key`); `fromSpark` analyses the first entry in list order and emits later duplicates as `skip` (LDB-F17 holds); `canonical()` preserves array order and `fromCmini` emits `(row, col)` order | fixture with two `y`s + its goldens; mutation matrix; property test over random duplicate insertions |
 | LDB-F32 | `classifyFingering` returns `angle`/`nokwts`/`meteorite`/`standard` exactly when the left-hand fingers of rows 0–2 equal the reference (right hand `RI RI RM RR RP`), else `custom`; identical in the format package, the site build and the bot | shared table + parity test over the catalog against today's `layouts.json` `fingermap` |
 | LDB-B15x | `parseAddGrid` never reads the board from indentation: the same grid under any leading-space pattern yields the same `board` (the angle indent → `angle` only, and only without a fingering word); trailing vocabulary words are consumed right-to-left and the remainder is the name; the wide gap sets default fingers per hand; every thumb key gets its own `(col, finger)`; the reply names every inferred fact | property test over random indents/word orders; golden replies |
 | LDB-B15y | `fingers! x <name>` writes exactly the reference over the covered columns and nothing else; `fingers x <name>` then `fingers! x <name>` produce the same keys (preview = write); refused off `ansi` | property test |
