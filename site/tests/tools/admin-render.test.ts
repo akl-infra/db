@@ -31,7 +31,7 @@ async function renderAdminAs(me: MeResponse): Promise<string> {
     vi.fn((input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input.toString();
       if (url.includes("/auth/me")) return Promise.resolve(jsonResponse(me));
-      if (url.includes("/api/v1/authors")) return Promise.resolve(jsonResponse([]));
+      if (url.includes("/api/v1/authors")) return Promise.resolve(jsonResponse({})); // {"<user_id>": "<name>"}, not an array
       return Promise.resolve(jsonResponse({}));
     }),
   );

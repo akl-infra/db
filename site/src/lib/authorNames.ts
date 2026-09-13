@@ -21,9 +21,9 @@ const [authorMap, setAuthorMap] = createSignal<ReadonlyMap<string, string>>(new 
 export async function loadAuthorNames(): Promise<void> {
   const result = await getAuthors();
   if (!result.ok) return; // keep whatever was cached (or empty); every lookup still falls back to the id
-  const next = new Map<string, string>();
-  for (const a of result.data) next.set(a.user_id, a.name);
-  setAuthorMap(next);
+  // `getAuthors()` is `{ "<user_id>": "<name>" }` (`?by=id`) -- already
+  // exactly the shape this cache wants, so no per-row loop is needed.
+  setAuthorMap(new Map(Object.entries(result.data)));
 }
 
 /** Reactive: re-renders any consumer once `loadAuthorNames()` resolves. */

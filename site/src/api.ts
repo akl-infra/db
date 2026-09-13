@@ -105,8 +105,16 @@ export function getLikes(ref: string): Promise<ApiResult<{ likes: string[] }>> {
   return request(`/api/v1/layouts/${encodeURIComponent(ref)}/likes`);
 }
 
-export function getAuthors(): Promise<ApiResult<Author[]>> {
-  return request<Author[]>("/api/v1/authors");
+/** `GET /v1/authors` is NOT an array -- it's a lossless id-keyed map,
+ * `{ "<user_id>": "<name>" }`, with `?by=id` (the default, `by=name`,
+ * collapses two ids sharing a name into one entry, `db/src/routes/
+ * authors.ts:19-23`). Found while Chrome-QA'ing W1b's author-name
+ * resolution against the real DB: an earlier version of this function
+ * (typed `Author[]`) parsed the real response as an array and threw on
+ * every `for...of` over it -- silently, since `lib/authorNames.ts`'s
+ * `loadAuthorNames()` swallows a failed fetch but not a thrown iteration. */
+export function getAuthors(): Promise<ApiResult<Record<string, string>>> {
+  return request<Record<string, string>>("/api/v1/authors?by=id");
 }
 
 export function getAuthor(userId: string): Promise<ApiResult<Author>> {
