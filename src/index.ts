@@ -4,6 +4,7 @@ import { type ActorVariables, requireActorOnWrites } from "./auth/actor";
 import { type AuthDeps, resolveActor } from "./auth/discord";
 import { idempotencyKeys } from "./auth/idempotency";
 import { rateLimitWrites } from "./auth/ratelimit";
+import { clientsHealth } from "./core/clients";
 import { ApiError, internal } from "./core/errors";
 import { cachePut, conditional, etagFor, readHead } from "./core/etag";
 import { dumpDue, DUMP_STATE_KEY, readDumpState, writeDump, type DumpState } from "./dump/write";
@@ -171,6 +172,13 @@ app.get("/v1/meta", async (c) => {
 
   const dumpHealth = healthOf(dumpState?.at ?? null, nowIso);
   const metaCore = await readMetaCore(db, head);
+  // [LDB-A12] saltorbit 2026-09-13 ("rogue trusted client" hardening):
+  // `health.clients` -- same posture as `health.dump`/`health.diff` above
+  // (computed only on a cache MISS; deliberately outside the ETag, since
+  // `readMetaCore`'s own `layout_count` is reused rather than a second
+  // query, and the suspended list only moves on an admin/system event that
+  // ALSO bumps `seq`, so a poller never gets a stale 304 for it either).
+  const clientsHealthWire = await clientsHealth(db, metaCore.layout_count);
   const health = {
     dump: { last_at: dumpHealth.last_at, seq: dumpState?.seq ?? null, age_s: dumpHealth.age_s, stale: dumpHealth.stale },
     diff: healthOf(diffRecord?.at ?? null, nowIso),
@@ -182,6 +190,7 @@ app.get("/v1/meta", async (c) => {
       deletes_applied: lastTick?.deletes_applied ?? null,
       deletes_disabled: !importDeletesEnabled(c.env),
     },
+    clients: clientsHealthWire,
   };
 
   const res = c.json({

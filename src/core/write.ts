@@ -7,6 +7,8 @@
 import { ulid } from "ulidx";
 import type { Actor } from "../auth/actor";
 import type { Bindings } from "../env";
+import { checkDestructiveBudget } from "./clients";
+import { clientIdFromVia } from "./destructive-budget";
 import { get as getFormat, latestId, lineage, list as listFormats, resolveFormat, translate, walk } from "../formats/registry";
 import type { EditResult, FormatModule } from "../formats/registry";
 import { parseIfMatch, requireScopedIfMatch, type CheckedIfMatch, type IfMatch, type IfNoneMatch } from "./ifmatch";
@@ -54,6 +56,17 @@ import { nextUpstream } from "./upstream";
 
 const TRANSFER_USER_ID_RE = /^\d{17,20}$/;
 const MAX_RETRIES = 3; // 21-formats.md §2.2: "retries up to 3 times"
+
+// saltorbit 2026-09-13 ("rogue trusted client" hardening, [LDB-A10]): the
+// bare client id (never the `client:<id>` `via` string) for a client-lane
+// actor, or `undefined` on the Discord/bearer lane -- ONLY this module's
+// verb functions decide whether a given write is DESTRUCTIVE (add-vs-
+// replace on a format is a call-site fact `commitWrite` itself can't
+// infer), so this is the one place a `CommitInput.destructiveBudget` gets
+// built.
+function destructiveClientOf(actor: Actor): string | undefined {
+  return clientIdFromVia(actor.via);
+}
 
 // byRef + every format the layout has, in one read (records.ts's
 // `byRefWithFormats`); a tombstone is reachable only by id and only when
@@ -115,7 +128,17 @@ async function commitWithRetry(db: Bindings["DB"], now: Clock, build: () => Prom
     const input = await build();
     lastInput = input;
     try {
-      return await commitWrite(db, now, input);
+      const result = await commitWrite(db, now, input);
+      // [LDB-A10] the ONE place every destructive, client-lane write
+      // passes through on its way out -- checked AFTER the commit (the
+      // tripping write itself always lands; every request after it is
+      // refused, `403 client_suspended`, `auth/client.ts`). A losing
+      // retry attempt above never reaches here (its whole batch, counter
+      // increment included, rolled back with everything else).
+      if (result.budgetProbe !== undefined) {
+        await checkDestructiveBudget(db, now, result.budgetProbe);
+      }
+      return result;
     } catch (e) {
       if (e instanceof RevConflictError) {
         continue;
@@ -384,6 +407,13 @@ export async function putFormat(
 
     const touches = lin === "spark";
     const upstream = nextUpstream(lwf.layout.upstream, actor.via, touches);
+    // [LDB-A10]: replacing an EXISTING format's payload is destructive
+    // (the old payload is only reachable again via a bulk revert, from
+    // `layout_revs`, never by re-reading -- LDB-F16 owns "no default
+    // format" but nothing hands the old bytes back on a plain retry).
+    // Adding a NEW lineage is never destructive -- nothing existing is
+    // overwritten -- same posture as `createLayout`.
+    const clientId = !adding ? destructiveClientOf(actor) : undefined;
 
     return {
       layoutId: lwf.layout.id,
@@ -405,6 +435,7 @@ export async function putFormat(
       admin,
       source,
       upstream,
+      ...(clientId !== undefined ? { destructiveBudget: { clientId } } : {}),
     };
   };
 
@@ -455,6 +486,7 @@ export async function renameLayout(env: Bindings, now: Clock, actor: Actor, ref:
     const checked = requireScopedIfMatch(ifMatchHeader, "layout");
     await requireLayoutRev(db, lwf.layout, checked, lwf.formats);
     const upstream = nextUpstream(lwf.layout.upstream, actor.via, true);
+    const clientId = destructiveClientOf(actor);
     return {
       layoutId: lwf.layout.id,
       creating: false,
@@ -468,6 +500,10 @@ export async function renameLayout(env: Bindings, now: Clock, actor: Actor, ref:
       admin,
       source,
       upstream,
+      // [LDB-A10]: renaming a live layout is destructive (it releases the
+      // old name, LDB-P4 -- reversible only via a bulk revert, never a
+      // retry).
+      ...(clientId !== undefined ? { destructiveBudget: { clientId } } : {}),
     };
   };
 
@@ -536,6 +572,11 @@ export async function patchFormat(
     const kind = fields.length === 1 && fields[0] === "fingermap" ? "fingermap" : "updated";
     const touches = lin === "spark";
     const upstream = nextUpstream(lwf.layout.upstream, actor.via, touches);
+    // [LDB-A10]: patchFormat only ever edits an EXISTING format
+    // (`formatAbsent` above, if it isn't there) -- always a replacement,
+    // so always destructive on the client lane, same as `putFormat`'s own
+    // non-adding branch.
+    const clientId = destructiveClientOf(actor);
 
     return {
       layoutId: lwf.layout.id,
@@ -557,6 +598,7 @@ export async function patchFormat(
       admin,
       source,
       upstream,
+      ...(clientId !== undefined ? { destructiveBudget: { clientId } } : {}),
     };
   };
 
@@ -620,6 +662,7 @@ export async function deleteLayout(env: Bindings, now: Clock, actor: Actor, ref:
     const checked = requireScopedIfMatch(ifMatchHeader, "layout");
     await requireLayoutRev(db, lwf.layout, checked, lwf.formats);
     const upstream = nextUpstream(lwf.layout.upstream, actor.via, true);
+    const clientId = destructiveClientOf(actor);
     return {
       layoutId: lwf.layout.id,
       creating: false,
@@ -633,6 +676,10 @@ export async function deleteLayout(env: Bindings, now: Clock, actor: Actor, ref:
       admin,
       source,
       upstream,
+      // [LDB-A10]: the archetypal destructive write -- restorable
+      // (LDB-P8), but only by the owner/an admin noticing, or a bulk
+      // revert.
+      ...(clientId !== undefined ? { destructiveBudget: { clientId } } : {}),
     };
   };
 
@@ -715,6 +762,7 @@ export async function transferLayout(env: Bindings, now: Clock, actor: Actor, re
     if (author === null) throw badRequest(`unknown user '${body.to}'`, "/to");
 
     const upstream = nextUpstream(lwf.layout.upstream, actor.via, true);
+    const clientId = destructiveClientOf(actor);
     return {
       layoutId: lwf.layout.id,
       creating: false,
@@ -728,6 +776,10 @@ export async function transferLayout(env: Bindings, now: Clock, actor: Actor, re
       admin,
       source,
       upstream,
+      // [LDB-A10]: giving away someone's layout to another user is
+      // destructive from the original owner's point of view -- they lose
+      // write access to it outright.
+      ...(clientId !== undefined ? { destructiveBudget: { clientId } } : {}),
     };
   };
 

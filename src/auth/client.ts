@@ -14,6 +14,7 @@ import {
   actorNotAllowed,
   badSignature,
   clientRevoked,
+  clientSuspended,
   replay,
   staleTimestamp,
   unknownClient,
@@ -161,6 +162,13 @@ export async function verifyClientRequest(
     .first<ClientRow>();
   if (client === null) throw unknownClient();
   if (client.status === "revoked") throw clientRevoked();
+  // saltorbit 2026-09-13 ("rogue trusted client" hardening): checked live, on
+  // every request, exactly like `revoked` above -- never cached (same
+  // posture LDB-A9 already established for `status`). Distinct error code
+  // (`403 client_suspended`, not the 401 `client_revoked`) so a client
+  // library can tell "an admin can undo this" from "this key is dead for
+  // good".
+  if (client.status === "suspended") throw clientSuspended();
 
   // Step 3: the clock.
   const nowSeconds = Math.floor(new Date(now()).getTime() / 1000);

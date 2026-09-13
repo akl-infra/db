@@ -7,6 +7,8 @@
 import { ulid } from "ulidx";
 import type { Actor } from "../auth/actor";
 import type { Bindings } from "../env";
+import { checkDestructiveBudget } from "./clients";
+import { clientIdFromVia } from "./destructive-budget";
 import { invalidLink, notFound } from "./errors";
 import { appendInfo, appendLinkChange, appendModeration } from "./events";
 import type { Source } from "./records";
@@ -134,7 +136,12 @@ export async function submitLink(
 // (`link_cleared` event) -- `appendLinkChange`'s own sweep also supersedes
 // any pending submission for this layout (§4.4).
 export async function clearLink(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, layoutId: string, isAdminActor: boolean): Promise<{ link: null }> {
-  await appendLinkChange(db, now, {
+  // [LDB-A10] ("rogue trusted client" hardening): clearing an approved
+  // link is destructive -- the owner's submission history stays queryable
+  // (LDB-MD5) but the PUBLIC wire loses it outright until re-approved or
+  // reverted.
+  const clientId = clientIdFromVia(actor.via);
+  const { budgetProbe } = await appendLinkChange(db, now, {
     layoutId,
     kind: "link_cleared",
     link: null,
@@ -142,7 +149,9 @@ export async function clearLink(db: Bindings["DB"], now: Clock, actor: Actor, ve
     via: actor.via,
     admin: isAdminActor,
     source: sourceOf(actor, version),
+    ...(clientId !== undefined ? { destructiveBudget: { clientId } } : {}),
   });
+  if (budgetProbe !== undefined) await checkDestructiveBudget(db, now, budgetProbe);
   return { link: null };
 }
 

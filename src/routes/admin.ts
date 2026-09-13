@@ -10,8 +10,9 @@ import { type AuthDeps, resolveActor } from "../auth/discord";
 import type { Bindings } from "../env";
 import * as admins from "../core/admins";
 import * as clients from "../core/clients";
-import { badRequest, importPaused, importRunning, notAdmin } from "../core/errors";
+import { badRequest, clientAlreadyRevoked, importPaused, importRunning, notAdmin } from "../core/errors";
 import { runNightly } from "../core/nightly";
+import { revertClientWrites } from "../core/revert";
 import { systemClock, fixedClock, type Clock } from "../core/time";
 import { writeDump } from "../dump/write";
 import { restoreLayout, seedMagic } from "../core/write";
@@ -52,6 +53,21 @@ async function readJson(req: { json(): Promise<unknown> }): Promise<unknown> {
     return await req.json();
   } catch {
     throw badRequest("request body must be valid JSON", "/");
+  }
+}
+
+// `POST .../suspend` takes an optional `{reason}` -- an empty/absent body
+// is a normal call (a human clicking a button rarely types a reason), so
+// this tolerates that instead of `readJson`'s "must be valid JSON" refusal.
+async function readJsonOptional(req: { text(): Promise<string> }): Promise<Record<string, unknown>> {
+  const text = await req.text();
+  if (text.trim().length === 0) return {};
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error();
+    return parsed as Record<string, unknown>;
+  } catch {
+    throw badRequest("request body must be a valid JSON object", "/");
   }
 }
 
@@ -286,6 +302,59 @@ export function adminRoute(authDeps: AuthDeps) {
     const actor = await resolveActor(c.env, c.req, authDeps);
     if (!actor.admin) throw notAdmin();
     return c.json(await clients.listClients(c.env.DB));
+  });
+
+  // [LDB-A11] saltorbit 2026-09-13 ("rogue trusted client" hardening): an
+  // EXPLICIT, admin-triggered suspend -- distinct from the automatic
+  // destructive-write-budget trip (`core/clients.ts`'s
+  // `checkDestructiveBudget`, `actor: "system:budget-guard"`), same
+  // underlying `suspendClient`. Idempotent past the first suspend
+  // (`revokeClient`'s own shape); refuses to touch a REVOKED client
+  // (revoke is terminal).
+  route.post("/v1/admin/clients/:id/suspend", async (c) => {
+    const actor = c.get("actor");
+    if (!actor.admin) throw notAdmin();
+    const id = c.req.param("id");
+    const body = await readJsonOptional(c.req);
+    const reason = typeof body.reason === "string" && body.reason.length > 0 ? body.reason : "manual admin suspension";
+    const result = await clients.suspendClient(c.env.DB, resolveNow(c.env), actor.user_id, id, reason);
+    if (result === null) throw clients.unknownClientId(id);
+    if (result.status === "revoked") throw clientAlreadyRevoked();
+    return c.json(result);
+  });
+
+  // [LDB-A11] the reverse: only `suspended -> active` moves; idempotent on
+  // an already-active client, refused on a revoked one.
+  route.post("/v1/admin/clients/:id/reactivate", async (c) => {
+    const actor = c.get("actor");
+    if (!actor.admin) throw notAdmin();
+    const id = c.req.param("id");
+    const result = await clients.reactivateClient(c.env.DB, resolveNow(c.env), actor.user_id, id);
+    if (result === null) throw clients.unknownClientId(id);
+    if (result.status === "revoked") throw clientAlreadyRevoked();
+    return c.json(result);
+  });
+
+  // [LDB-A13] the bulk-undo half of the runbook: walks this client's own
+  // destructive writes since `since` (newest -> oldest) and reverts each
+  // one from its own history -- `dry_run: true` returns the plan only,
+  // writing nothing. Bounded per call (`next`, an event seq cursor);
+  // idempotent (a second run reverts nothing new); never touches a record
+  // this client didn't write, and never overrides a later write some
+  // OTHER actor made on the same scope (`core/revert.ts`'s own header).
+  route.post("/v1/admin/clients/:id/revert", async (c) => {
+    const actor = c.get("actor");
+    if (!actor.admin) throw notAdmin();
+    const id = c.req.param("id");
+    const known = await clients.listClients(c.env.DB);
+    if (!known.some((k) => k.id === id)) throw clients.unknownClientId(id);
+    const body = (await readJson(c.req)) as { since?: unknown; dry_run?: unknown; cursor?: unknown; limit?: unknown };
+    if (typeof body.since !== "string" || body.since.length === 0) throw badRequest("`since` must be a non-empty ISO timestamp string", "/since");
+    const dryRun = body.dry_run === true;
+    const cursor = typeof body.cursor === "number" ? body.cursor : undefined;
+    const limit = typeof body.limit === "number" ? body.limit : undefined;
+    const result = await revertClientWrites(c.env.DB, resolveNow(c.env), actor.user_id, id, body.since, { dryRun, cursor, limit });
+    return c.json(result);
   });
 
   // 12 §3 X4: the full `last_diff` body -- `/v1/meta` only ever serves

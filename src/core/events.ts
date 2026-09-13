@@ -8,6 +8,7 @@
 // `n` (`layout_revs`' PK `(layout_id, n)`, migrations/0009_formats.sql).
 import type { Bindings } from "../env";
 import { canonical } from "./canonical";
+import { destructiveBudgetStatement, readDestructiveBudgetRow, type DestructiveBudgetRow } from "./destructive-budget";
 import { alreadyLiked as alreadyLikedError, nameTaken, notFound, notLiked as notLikedError } from "./errors";
 import { type FormatRow, type LayoutRow, type Source, type Upstream, readById } from "./records";
 import { ulid } from "ulidx";
@@ -58,6 +59,13 @@ export type InfoKind =
   | "admin.import_resumed"
   | "admin.client_registered"
   | "admin.client_revoked"
+  // saltorbit 2026-09-13 ("rogue trusted client" hardening): distinct from
+  // `client_revoked` (terminal) -- a suspension is re-activatable by an
+  // admin, whether it was tripped automatically (the destructive-write
+  // budget, `actor: "system:budget-guard"`) or triggered by hand
+  // (`POST /v1/admin/clients/:id/suspend`).
+  | "admin.client_suspended"
+  | "admin.client_reactivated"
   | "admin.import_ticked"
   | "admin.diff_ticked"
   | "admin.nightly_ticked"
@@ -170,12 +178,26 @@ export interface CommitInput {
   // read `currentLayout` came from -- MF-12).
   upstream: Upstream | null;
   like_count?: number; // present only when a caller needs to seed a non-zero count at create (LDB-P9's tombstone-name inheritance runs a separate appendLike pass instead, so this is always omitted/0 in practice; kept for symmetry)
+  // saltorbit 2026-09-13 ("rogue trusted client" hardening): set by
+  // `core/write.ts`'s verb functions ONLY for a destructive write
+  // (delete/rename/transfer/format-replace) made on the CLIENT lane --
+  // `core/write.ts` decides destructiveness (only it knows add-vs-replace
+  // for a format write), this module just folds one extra counting
+  // statement into its own batch when asked. `clientId` is the bare
+  // client id (never the `client:<id>` `via` string).
+  destructiveBudget?: { clientId: string };
 }
 
 export interface CommitResult {
   layout: LayoutRow;
   formats: Map<string, FormatRow>;
   seqs: number[];
+  // Present iff `input.destructiveBudget` was set -- `core/write.ts`'s
+  // `commitWithRetry` reads this AFTER the batch commits to decide whether
+  // to suspend the client (`core/clients.ts`'s `checkDestructiveBudget`),
+  // kept out of this module to avoid a clients.ts <-> events.ts import
+  // cycle (clients.ts already imports `appendAdmin` from here).
+  budgetProbe?: { clientId: string; countInWindow: number; liveLayouts: number };
 }
 
 function layoutSnapshot(l: {
@@ -411,6 +433,20 @@ export async function commitWrite(db: Bindings["DB"], now: Clock, input: CommitI
   const likeCountStmtIdx = stmts.length;
   stmts.push(db.prepare(`SELECT like_count, link FROM layouts WHERE id = ?`).bind(id));
 
+  // saltorbit 2026-09-13 ("rogue trusted client" hardening): folded into this
+  // SAME batch -- LDB-L8's own accounting counts one `.batch()` call
+  // regardless of its statement count, so this costs zero extra D1 round
+  // trips on top of what the write already pays (LDB-L8 bounds this
+  // module's own tests must stay green: `destructiveBudget` is only ever
+  // set for a destructive write on the client lane, so an ordinary/discord
+  // write -- everything L8's own suite exercises -- never adds this
+  // statement at all).
+  let budgetStmtIdx: number | undefined;
+  if (input.destructiveBudget !== undefined) {
+    budgetStmtIdx = stmts.length;
+    stmts.push(destructiveBudgetStatement(db, now, input.destructiveBudget.clientId));
+  }
+
   let results;
   try {
     results = await db.batch(stmts);
@@ -459,7 +495,15 @@ export async function commitWrite(db: Bindings["DB"], now: Clock, input: CommitI
     });
   }
 
-  return { layout, formats, seqs };
+  let budgetProbe: CommitResult["budgetProbe"];
+  if (input.destructiveBudget !== undefined && budgetStmtIdx !== undefined) {
+    const row: DestructiveBudgetRow | null = readDestructiveBudgetRow(results[budgetStmtIdx]);
+    if (row !== null) {
+      budgetProbe = { clientId: input.destructiveBudget.clientId, countInWindow: row.n, liveLayouts: row.live_layouts };
+    }
+  }
+
+  return { layout, formats, seqs, budgetProbe };
 }
 
 // Informational: `rev`/`format` NULL, `layouts`/`layout_formats` untouched.
@@ -574,9 +618,16 @@ export interface LinkChange {
   admin: boolean;
   source: Source;
   submissionId?: string; // the submission THIS approval decides, if any
+  detail?: object; // e.g. a bulk revert's {revert_of_seq, admin} attribution
+  // saltorbit 2026-09-13 ("rogue trusted client" hardening): set only for a
+  // `link_cleared` made on the client lane -- see `CommitInput`'s own
+  // field (`commitWrite`, above) for the full rationale; same shape, same
+  // "fold into this batch" mechanism, so a link removal costs zero extra
+  // D1 round trips beyond what this function already pays.
+  destructiveBudget?: { clientId: string };
 }
 
-export async function appendLinkChange(db: Bindings["DB"], now: Clock, l: LinkChange): Promise<{ seq: number; link: string | null }> {
+export async function appendLinkChange(db: Bindings["DB"], now: Clock, l: LinkChange): Promise<{ seq: number; link: string | null; budgetProbe?: { clientId: string; countInWindow: number; liveLayouts: number } }> {
   const current = await readById(db, l.layoutId);
   if (current === null) throw new Error(`appendLinkChange: layoutId '${l.layoutId}' does not exist`);
 
@@ -586,10 +637,24 @@ export async function appendLinkChange(db: Bindings["DB"], now: Clock, l: LinkCh
     db
       .prepare(
         `INSERT INTO events (at, kind, layout_id, name, owner, format, rev, actor, via, admin, detail_json, before_json, after_json, source_client, source_version)
-         VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, NULL, NULL, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, NULL, ?, ?, ?)`,
       )
-      .bind(at, l.kind, l.layoutId, current.name, current.owner, l.actor, l.via, l.admin ? 1 : 0, canonical({ scope: "link", link: l.link }), l.source.client, l.source.version),
+      .bind(
+        at,
+        l.kind,
+        l.layoutId,
+        current.name,
+        current.owner,
+        l.actor,
+        l.via,
+        l.admin ? 1 : 0,
+        l.detail === undefined ? null : canonical(l.detail),
+        canonical({ scope: "link", link: l.link }),
+        l.source.client,
+        l.source.version,
+      ),
   ];
+  const eventStmtIdx = 1;
   if (l.submissionId !== undefined) {
     stmts.push(
       db
@@ -603,10 +668,23 @@ export async function appendLinkChange(db: Bindings["DB"], now: Clock, l: LinkCh
       .bind(l.actor, at, l.layoutId, l.submissionId ?? ""),
   );
 
+  let budgetStmtIdx: number | undefined;
+  if (l.destructiveBudget !== undefined) {
+    budgetStmtIdx = stmts.length;
+    stmts.push(destructiveBudgetStatement(db, now, l.destructiveBudget.clientId));
+  }
+
   const results = await db.batch(stmts);
-  const seq = results[1]?.meta.last_row_id;
+  const seq = results[eventStmtIdx]?.meta.last_row_id;
   if (seq === undefined) throw new Error("appendLinkChange: events insert returned no last_row_id");
-  return { seq, link: l.link };
+
+  let budgetProbe: { clientId: string; countInWindow: number; liveLayouts: number } | undefined;
+  if (l.destructiveBudget !== undefined && budgetStmtIdx !== undefined) {
+    const row = readDestructiveBudgetRow(results[budgetStmtIdx]);
+    if (row !== null) budgetProbe = { clientId: l.destructiveBudget.clientId, countInWindow: row.n, liveLayouts: row.live_layouts };
+  }
+
+  return { seq, link: l.link, budgetProbe };
 }
 
 export interface Like {

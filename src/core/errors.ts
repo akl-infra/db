@@ -288,6 +288,25 @@ export function clientRevoked(): ApiError {
   );
 }
 
+// saltorbit 2026-09-13 ("rogue trusted client" hardening): distinct from
+// `client_revoked` -- a suspended client is re-activatable by an admin
+// (`POST /v1/admin/clients/:id/reactivate`), whether the suspension was
+// automatic (the destructive-write budget tripped) or manual.
+export function clientSuspended(): ApiError {
+  return new ApiError(
+    403,
+    { error: "client_suspended", message: "this client is suspended (an admin can reactivate it)" },
+    { "WWW-Authenticate": "Bearer" },
+  );
+}
+
+// `POST /v1/admin/clients/:id/suspend|reactivate` against a REVOKED client
+// -- revoke is terminal (10 C1, restated 2026-09-13): neither route may
+// move a revoked client to any other status.
+export function clientAlreadyRevoked(): ApiError {
+  return new ApiError(409, { error: "client_already_revoked", message: "this client is revoked; revoke is terminal and cannot be undone by suspend/reactivate" });
+}
+
 export function staleTimestamp(skew: number): ApiError {
   return new ApiError(
     401,

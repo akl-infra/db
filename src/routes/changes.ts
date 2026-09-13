@@ -56,6 +56,8 @@ const INFO_KINDS_MAP: Record<InfoKind, true> = {
   "admin.import_resumed": true,
   "admin.client_registered": true,
   "admin.client_revoked": true,
+  "admin.client_suspended": true,
+  "admin.client_reactivated": true,
   "admin.import_ticked": true,
   "admin.diff_ticked": true,
   "admin.nightly_ticked": true,
