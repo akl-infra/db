@@ -349,6 +349,41 @@ h2 {
   }
 }
 
+.akl-payload-block {
+  margin: 18px 0 8px;
+}
+.akl-payload-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.akl-payload-toggle,
+.akl-payload-copy {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--ink);
+  cursor: pointer;
+}
+.akl-payload-toggle {
+  border: none;
+  padding-left: 0;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 18px;
+}
+.akl-payload-caret {
+  display: inline-block;
+  width: 1em;
+  color: var(--ink-muted);
+}
+.akl-payload-block .akl-payload {
+  margin-top: 10px;
+}
 .akl-payload {
   background: var(--surface);
   border: 1px solid var(--border);

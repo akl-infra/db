@@ -43,6 +43,8 @@ export const copy = {
     notFound: "This layout does not exist, or has been deleted",
     loadError: "Could not load this layout from akldb",
     owner: "Owner",
+    copyPayload: "Copy",
+    copied: "Copied",
     likes: "Likes",
     created: "Created",
     modified: "Modified",

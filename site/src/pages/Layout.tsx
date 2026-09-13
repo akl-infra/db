@@ -1,5 +1,5 @@
 import type { Component } from "solid-js";
-import { For, Show, createMemo } from "solid-js";
+import { For, Show, createMemo, createSignal } from "solid-js";
 import { copy } from "../copy.ts";
 import { getLayout, getLayoutHistory } from "../api.ts";
 import { onLinkClick } from "../router.ts";
@@ -94,12 +94,36 @@ const LayoutPage: Component<LayoutPageProps> = (props) => {
                 stored format is shown as plain text, exactly as the DB
                 holds it (canonical JSON), and nothing links out to akl.gg. */}
             <Show when={data.payload}>
-              {(payload) => (
-                <>
-                  <h2>{data.format}</h2>
-                  <pre class="akl-payload">{JSON.stringify(payload(), null, 2)}</pre>
-                </>
-              )}
+              {(payload) => {
+                // saltorbit, 2026-09-13: collapsed by default, with a copy button.
+                const text = () => JSON.stringify(payload(), null, 2);
+                const [open, setOpen] = createSignal(false);
+                const [copied, setCopied] = createSignal(false);
+                const copyText = async () => {
+                  try {
+                    await navigator.clipboard.writeText(text());
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 1500);
+                  } catch {
+                    setCopied(false);
+                  }
+                };
+                return (
+                  <div class="akl-payload-block">
+                    <div class="akl-payload-bar">
+                      <button type="button" class="akl-payload-toggle" aria-expanded={open() ? "true" : "false"} onClick={() => { setOpen(!open()); }}>
+                        <span class="akl-payload-caret" aria-hidden="true">{open() ? "▾" : "▸"}</span> {data.format}
+                      </button>
+                      <button type="button" class="akl-payload-copy" onClick={copyText}>
+                        {copied() ? copy.layout.copied : copy.layout.copyPayload}
+                      </button>
+                    </div>
+                    <Show when={open()}>
+                      <pre class="akl-payload">{text()}</pre>
+                    </Show>
+                  </div>
+                );
+              }}
             </Show>
 
             <h2>{copy.layout.historyTitle}</h2>
