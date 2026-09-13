@@ -49,7 +49,6 @@ export const copy = {
     formats: "Formats stored",
     linkLabel: "External link",
     noLink: "No external link on file",
-    analyzeOnAklgg: "Analyze on akl.gg",
     historyTitle: "History",
     historyEmpty: "No recorded events for this layout",
     historyLoadMore: "Load older events",

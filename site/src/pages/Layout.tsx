@@ -3,10 +3,8 @@ import { For, Show, createMemo } from "solid-js";
 import { copy } from "../copy.ts";
 import { getLayout, getLayoutHistory } from "../api.ts";
 import { onLinkClick } from "../router.ts";
-import { aklggAnalyzeUrl } from "../lib/aklgg.ts";
 import { safeExternalLink } from "../lib/safelink.ts";
 import { createAsync } from "../lib/asyncData.ts";
-import Board from "../ui/Board.tsx";
 
 interface LayoutPageProps {
   // NOT named `ref`: that's a reserved JSX attribute name on components in
@@ -29,10 +27,6 @@ const LayoutPage: Component<LayoutPageProps> = (props) => {
   const link = createMemo(() => {
     const r = record.data();
     return r?.ok ? safeExternalLink(r.data.link) : null;
-  });
-  const analyzeHref = createMemo(() => {
-    const r = record.data();
-    return r?.ok ? aklggAnalyzeUrl(r.data.name) : "https://akl.gg/";
   });
   const historyItems = createMemo(() => {
     const h = history.data();
@@ -66,7 +60,6 @@ const LayoutPage: Component<LayoutPageProps> = (props) => {
           <>
             <h1>{data.name}</h1>
             <div class="akl-layout-head">
-              <Show when={data.payload}>{(payload) => <Board payload={payload()} />}</Show>
               <dl class="akl-meta-list">
                 <dt>{copy.layout.owner}</dt>
                 <dd>
@@ -94,14 +87,20 @@ const LayoutPage: Component<LayoutPageProps> = (props) => {
                     )}
                   </Show>
                 </dd>
-                <dt></dt>
-                <dd>
-                  <a class="akl-link-btn" href={analyzeHref()} target="_blank" rel="noopener">
-                    {copy.layout.analyzeOnAklgg}
-                  </a>
-                </dd>
               </dl>
             </div>
+
+            {/* saltorbit, 2026-09-13: the site is not a layout renderer -- the
+                stored format is shown as plain text, exactly as the DB
+                holds it (canonical JSON), and nothing links out to akl.gg. */}
+            <Show when={data.payload}>
+              {(payload) => (
+                <>
+                  <h2>{data.format}</h2>
+                  <pre class="akl-payload">{JSON.stringify(payload(), null, 2)}</pre>
+                </>
+              )}
+            </Show>
 
             <h2>{copy.layout.historyTitle}</h2>
             <Show when={historyItems().length > 0} fallback={<div class="akl-empty">{copy.layout.historyEmpty}</div>}>

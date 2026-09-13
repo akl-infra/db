@@ -45,3 +45,18 @@ describe("[SITE-7] no hardcoded akl-db hostname in the client bundle", () => {
     expect(offenders.some((f) => path.basename(f).startsWith("docs-content"))).toBe(true);
   });
 });
+
+// [SITE-12] saltorbit, 2026-09-13: akldb.org does not link out to akl.gg and
+// does not render layouts -- it shows the record and the stored format as
+// plain text. The bundle must carry no akl.gg URL and no board component.
+describe("[SITE-12] no akl.gg link-out in the client bundle", () => {
+  it("builds, then finds no akl.gg literal in any bundle chunk", () => {
+    execFileSync("npx", ["vite", "build"], { cwd: SITE_ROOT, stdio: "pipe" });
+    // The docs chunk is the adoption guide's own prose (it names akl.gg as
+    // one client of the DB) -- isolated exactly as SITE-7 isolates it.
+    const offenders = walk(DIST_DIR).filter(
+      (f) => /\.(js|css|html)$/.test(f) && !path.basename(f).startsWith("docs-content") && fs.readFileSync(f, "utf8").includes("akl.gg"),
+    );
+    expect(offenders.map((f) => path.basename(f))).toEqual([]);
+  });
+});
