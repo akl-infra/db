@@ -61,6 +61,12 @@ export type InfoKind =
   | "admin.import_ticked"
   | "admin.diff_ticked"
   | "admin.nightly_ticked"
+  // LDB-I25 (saltorbit 2026-09-13, hostile/vanished-upstream recovery tooling):
+  // `POST /v1/admin/import/unstall` -- clears `cmini.stalled` deliberately.
+  // Documented as a MANUAL override, not a fix: the next tick re-plans
+  // from scratch, so an upstream still short-listing or still mass-
+  // deleting re-stalls immediately (`import/recovery.ts`).
+  | "admin.import_unstalled"
   // L5 moderation (design/akldb-site/01-plan.md §4): bans are actor-scoped
   // (`layout_id` NULL, `appendAdmin`) -- author-rename/link are
   // layout-scoped (`appendModeration`/`appendLinkChange`, `layout_id` set,

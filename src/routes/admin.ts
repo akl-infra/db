@@ -14,10 +14,11 @@ import { badRequest, importPaused, importRunning, notAdmin } from "../core/error
 import { runNightly } from "../core/nightly";
 import { systemClock, fixedClock, type Clock } from "../core/time";
 import { writeDump } from "../dump/write";
-import { seedMagic } from "../core/write";
+import { restoreLayout, seedMagic } from "../core/write";
 import { tick as cminiTick } from "../import/cmini";
 import type { FetchImpl as DiffFetchImpl } from "../import/diff";
 import { diffTick, lastDiff } from "../import/difftick";
+import { listRestorableUpstreamDeleted, unstallImport } from "../import/recovery";
 import type { FetchImpl as UpstreamFetchImpl } from "../import/upstream";
 import { parseAdminAddBody, parseRegisterClientBody } from "./schemas";
 
@@ -120,6 +121,80 @@ export function adminRoute(authDeps: AuthDeps) {
     if (result.stats.skipped_locked) throw importRunning();
     await admins.recordManualTick(c.env.DB, now, actor.user_id, "import", result.stats);
     return c.json({ ran: true, ...result.stats });
+  });
+
+  // LDB-I25 (hostile/vanished-upstream recovery, design/HARD-REQUIREMENTS.md's
+  // spirit -- saltorbit 2026-09-13): lift `cmini.stalled` deliberately. This is
+  // a MANUAL OVERRIDE, not a fix -- the next tick (cron or `.../import/
+  // tick` above) re-plans from scratch, so an upstream that is STILL
+  // short-listing (LDB-I6) or STILL mass-deleting (LDB-I3/I22) re-stalls
+  // immediately, on that very next tick. No "was it even stalled" pre-
+  // check: unstalling a non-stalled import is a harmless no-op that still
+  // logs (an operator's explicit action is worth the changelog either way).
+  route.post("/v1/admin/import/unstall", async (c) => {
+    const actor = c.get("actor");
+    if (!actor.admin) throw notAdmin();
+    const now = resolveNow(c.env);
+    // `seq` deliberately not in the response -- same posture as
+    // `DELETE /v1/admin/admins/:user_id` above (it discards `admins.remove`'s
+    // own `{seq}` too): an internal event-log counter, order-dependent
+    // across an entire test run, not something a fixed conformance fixture
+    // should ever pin.
+    const { wasStalled } = await unstallImport(c.env.DB, now, actor.user_id, actor.via);
+    return c.json({ unstalled: true, was_stalled: wasStalled });
+  });
+
+  // LDB-I26: bulk-restore `upstream_deleted` tombstones since a timestamp
+  // -- the last-resort recovery for a hostile/broken upstream that got
+  // past the automatic guards before they existed, or while the kill
+  // switch (`IMPORT_DELETES=off`, LDB-I23) was off. Reuses `restoreLayout`
+  // (core/write.ts) per record -- the exact same path an owner's own
+  // restore takes, one write per layout, never a bespoke bulk-write path.
+  // `since` is required (an ISO instant); `limit` bounds how many this ONE
+  // call restores (never the whole history in one shot); `dry_run: true`
+  // answers with the candidate list and touches no data at all.
+  const RESTORE_DELETED_DEFAULT_LIMIT = 200;
+  const RESTORE_DELETED_MAX_LIMIT = 500;
+  route.post("/v1/admin/import/restore-deleted", async (c) => {
+    const actor = c.get("actor");
+    if (!actor.admin) throw notAdmin();
+    const body = (await readJson(c.req)) as { since?: unknown; limit?: unknown; dry_run?: unknown };
+    if (typeof body.since !== "string" || Number.isNaN(Date.parse(body.since))) {
+      throw badRequest("`since` must be an ISO 8601 timestamp string", "/since");
+    }
+    const sinceIso = new Date(body.since).toISOString();
+    let limit = RESTORE_DELETED_DEFAULT_LIMIT;
+    if (body.limit !== undefined) {
+      if (typeof body.limit !== "number" || !Number.isInteger(body.limit) || body.limit <= 0) {
+        throw badRequest("`limit` must be a positive integer", "/limit");
+      }
+      limit = body.limit;
+    }
+    limit = Math.min(limit, RESTORE_DELETED_MAX_LIMIT);
+    const dryRun = body.dry_run === true;
+
+    const candidates = await listRestorableUpstreamDeleted(c.env.DB, sinceIso, limit);
+    if (dryRun) {
+      return c.json({
+        dry_run: true,
+        count: candidates.length,
+        would_restore: candidates.map((r) => ({ id: r.layoutId, name: r.name, deleted_at: r.deletedAt })),
+      });
+    }
+
+    const now = resolveNow(c.env);
+    const version = c.get("sourceVersion");
+    const restored: { id: string; name: string }[] = [];
+    const errors: { id: string; name: string; message: string }[] = [];
+    for (const candidate of candidates) {
+      try {
+        const result = await restoreLayout(c.env, now, actor, candidate.layoutId, {}, version);
+        restored.push({ id: result.layout.id, name: result.layout.name });
+      } catch (e) {
+        errors.push({ id: candidate.layoutId, name: candidate.name, message: e instanceof Error ? e.message : String(e) });
+      }
+    }
+    return c.json({ dry_run: false, count: restored.length, restored, errors });
   });
 
   // Same treatment for the diff cron (`0 4 * * *`, `import/difftick.ts`) --

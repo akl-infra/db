@@ -1120,6 +1120,8 @@ silently drift from what `db/src/index.ts` actually registers.
 | POST | `/v1/admin/import/pause` | admin | — | 200 | `not_admin`, lane errors |
 | POST | `/v1/admin/import/resume` | admin | — | 200 | `not_admin`, lane errors |
 | POST | `/v1/admin/import/tick` | admin | — | 200 | `not_admin`, `import_paused`, lane errors |
+| POST | `/v1/admin/import/unstall` | admin | — | 200 (`{unstalled, was_stalled}`) — clears `cmini.stalled` deliberately; the next tick re-evaluates from scratch | `not_admin`, lane errors |
+| POST | `/v1/admin/import/restore-deleted` | admin | `{since, limit?, dry_run?}` | 200 (`{dry_run, count, restored\|would_restore, errors?}`) — bulk-restores `upstream_deleted` tombstones since `since`, bounded by `limit` (max 500), never an owner's own delete | `bad_request`, `not_admin`, lane errors |
 | POST | `/v1/admin/diff/tick` | admin | — | 200 | `not_admin`, lane errors |
 | POST | `/v1/admin/nightly/tick` | admin | — | 200 | `not_admin`, lane errors |
 | POST | `/v1/admin/dump` | admin | — | 200 (`{seq, layout_count, written_at}`) | `not_admin`, lane errors |
