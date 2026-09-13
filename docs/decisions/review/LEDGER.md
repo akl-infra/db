@@ -45,7 +45,7 @@ Status: `todo` · `running (agent, branch)` · `review` · `landed <sha>` · `bl
 | L2 | **backups** | dump runs on any tick when `last_dump_at` > 24 h (store in import_state), staleness in `/v1/meta.health`; dump + restore `clients`; README: Time Travel procedure; `db.yml` daily job `upload-artifact` the dump 30 d; stream `buildDump` or set `[limits]`; document the fresh-D1 restore rehearsal steps (saltorbit/lead runs it once and records minutes). | landed 850388595 (LDB-D8/D9/M2/C6; `[limits] cpu_ms`; CI artifact; runbook written, fresh-D1 rehearsal NOT yet run) |
 | L3 | **Idempotency-Key** | optional header on every mutating route; table `idempotency(client_scope, key, response, at)` 24 h; same key → replay stored response; conformance fixtures; INVARIANTS. | todo |
 | L6 | **format chain freeze → delete** | delete the multi-major chain engine (`up/down/chainFn/chainViolations/path`, `chainToLatest`, `format_behind`, `written_as`, stub-lineage T2/T3 fixtures; LDB-F18/F19/P13) once a decision on how spark/2 will land is made — L4 froze it because put-format/held/list/docs-site tests exercise it. | todo (after W3) |
-| L5 | **moderation** | `bans` (checked in requireActor on writes, 403 banned), admin overrides as events `via: admin` (rename, transfer, set author name, set likes, restore), `link` field + `link_submissions` queue (submit by owner → pending; admin approve/reject → event; approved writes `layouts.link`). Wave 3. | todo |
+| L5 | **moderation** | `bans` (checked in requireActor on writes, 403 banned), admin overrides as events `via: admin` (rename, transfer, set author name, set likes, restore), `link` field + `link_submissions` queue (submit by owner → pending; admin approve/reject → event; approved writes `layouts.link`). Wave 3. Contract: `design/akldb-site/01-plan.md` §4. | running (Sonnet, 2026-09-12) |
 
 ### Wave 2 — spark (`bot/` absorbs `stats/` + `workers/data-writer/`), serial
 | id | slice | brief | status |
@@ -84,7 +84,7 @@ Status: `todo` · `running (agent, branch)` · `review` · `landed <sha>` · `bl
 ### Wave 4
 | id | slice | status |
 |---|---|---|
-| W1 | layoutdb website (public read-only + moderation view) — own design round first | todo |
+| W1 | **akldb.org** — the DB's own website (public read-only + moderation view); plan `design/akldb-site/01-plan.md`; Worker `akldb-site` in account `akl`, dir `dbsite/`. W1a scaffold+public+auth+proxy, W1b owner+admin UI | running (Sonnet, 2026-09-12) |
 | W2 | governance: second admin row, domain in `akl` account | todo (saltorbit) |
 | W3 | spark/1 format discussion (saltorbit: "not done yet") — own design round | todo |
 
@@ -97,6 +97,8 @@ Status: `todo` · `running (agent, branch)` · `review` · `landed <sha>` · `bl
 
 ## Log
 
+- 2026-09-13 · v45 first tick: publish ok, **0 stalls**, loop-lag max 473 ms, merge-overlay 46 → 23 s. B12 confirmed in production. LDB-B168 (alert DMs mirrored to stderr) committed, ships with the next deploy; a persistent log monitor now mirrors the DMs into the lead session.
+- 2026-09-12 · **Naming: the product is now `akldb`, site `akldb.org`** (saltorbit). W1 + L5 kicked off from `design/akldb-site/01-plan.md` (Fable-reviewed plan): L5 and W1a in parallel Sonnet worktrees, W1b after both land. `akldb.org` DNS still at Namecheap — saltorbit adds the zone to the `akl` account (§7 of the plan).
 - 2026-09-13 03:35Z · **INCIDENT 3** (v44, ~02:38–03:30Z): B12's `defaultPublisherWorkerUrl` said `./worker.js` (dist root) while the build emits `dist/publisher/worker.js` → every tick failed "Cannot find module /app/dist/worker.js" + an `unhandledRejection` from the crash path; the bot itself kept answering. Fix LDB-B167 (92356a8c4, dist-relative like the engine worker) deployed as v45 03:33Z. Lesson: a worker-URL change needs a built-dist assertion, not just unit tests (B167's test checks `dist/publisher/worker.js` exists beside `dist/main.js`). B14 dispatched (S2 waits for the publisher index, S4 like-with-like by cell source, worker-crash rejections routed, watchdog onset memory persisted across restarts).
 - 2026-09-13 03:10Z · B12 landed: publisher heavy JSON/hash work on a `worker_threads` worker (main-thread gap ≤ 100 ms on 105 MB deltas in tests); B15 folded in. Deploying as v44 (fly.toml now pins performance-1x). B16a (grouped compute, Python + batchCompute.ts) running; B16b wiring + B17 next.
 - 2026-09-13 03:00Z · **Found**: the v42/v43 deploys reverted the machine to fly.toml's `shared-cpu-2x` (a deploy applies `[[vm]]`) — the machine has been throttled again since 01:56Z, which explains compute 203 s/tick and the p95 contention in LATENCY §10. Resized back to performance-1x and pinned in fly.toml for the pass. LATENCY §10 numbers were taken on shared-cpu-2x, not performance-1x — re-run after B12.
