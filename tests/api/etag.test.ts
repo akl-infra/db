@@ -27,10 +27,10 @@ async function sha256Hex(s: string): Promise<string> {
 // diverge and this fails, which is the point: a version bump is a
 // deliberate, visible edit here too.
 describe("[LDB-R1] WIRE_VERSION is folded into the ETag hash", () => {
-  it("[LDB-R1] etagFor(seq, query) reproduces exactly the wireVersion:8-folded hash", async () => {
+  it("[LDB-R1] etagFor(seq, query) reproduces exactly the wireVersion:9-folded hash", async () => {
     const seq = 42;
     const query = { a: 1, b: "x" };
-    const expectedHash = await sha256Hex(canonical({ wireVersion: 8, query }));
+    const expectedHash = await sha256Hex(canonical({ wireVersion: 9, query }));
     const expected = `"${seq}:${expectedHash.slice(0, 16)}"`;
     expect(await etagFor(seq, query)).toBe(expected);
   });

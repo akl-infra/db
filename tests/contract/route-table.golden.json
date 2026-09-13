@@ -2361,6 +2361,241 @@
     }
   },
   {
+    "id": "admin-import/restore-deleted-200",
+    "method": "POST",
+    "route": "/v1/admin/import/restore-deleted",
+    "auth": "admin",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "count": {
+          "type": "number"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "would_restore": {
+          "type": "array",
+          "item": null
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/restore-deleted-400-bad_request",
+    "method": "POST",
+    "route": "/v1/admin/import/restore-deleted",
+    "auth": "admin",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "param": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/restore-deleted-401-bad_signature",
+    "method": "POST",
+    "route": "/v1/admin/import/restore-deleted",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/restore-deleted-401-client_revoked",
+    "method": "POST",
+    "route": "/v1/admin/import/restore-deleted",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/restore-deleted-401-replay",
+    "method": "POST",
+    "route": "/v1/admin/import/restore-deleted",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/restore-deleted-401-stale_timestamp",
+    "method": "POST",
+    "route": "/v1/admin/import/restore-deleted",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/restore-deleted-401-token_invalid",
+    "method": "POST",
+    "route": "/v1/admin/import/restore-deleted",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/restore-deleted-401-unauthorized",
+    "method": "POST",
+    "route": "/v1/admin/import/restore-deleted",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/restore-deleted-401-unknown_client",
+    "method": "POST",
+    "route": "/v1/admin/import/restore-deleted",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/restore-deleted-403-not_admin",
+    "method": "POST",
+    "route": "/v1/admin/import/restore-deleted",
+    "auth": "admin",
+    "status": 403,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/restore-deleted-429",
+    "method": "POST",
+    "route": "/v1/admin/import/restore-deleted",
+    "auth": "admin",
+    "status": 429,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "number"
+        },
+        "message": {
+          "type": "string"
+        },
+        "retry_after": {
+          "type": "number"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "window_seconds": {
+          "type": "number"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/restore-deleted-503-identity_unavailable",
+    "method": "POST",
+    "route": "/v1/admin/import/restore-deleted",
+    "auth": "admin",
+    "status": 503,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
     "id": "admin-import/resume-200",
     "method": "POST",
     "route": "/v1/admin/import/resume",
@@ -2784,6 +3019,216 @@
     "id": "admin-import/tick-503-identity_unavailable",
     "method": "POST",
     "route": "/v1/admin/import/tick",
+    "auth": "admin",
+    "status": 503,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/unstall-200",
+    "method": "POST",
+    "route": "/v1/admin/import/unstall",
+    "auth": "admin",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "unstalled": {
+          "type": "boolean"
+        },
+        "was_stalled": {
+          "type": "null"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/unstall-401-bad_signature",
+    "method": "POST",
+    "route": "/v1/admin/import/unstall",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/unstall-401-client_revoked",
+    "method": "POST",
+    "route": "/v1/admin/import/unstall",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/unstall-401-replay",
+    "method": "POST",
+    "route": "/v1/admin/import/unstall",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/unstall-401-stale_timestamp",
+    "method": "POST",
+    "route": "/v1/admin/import/unstall",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/unstall-401-token_invalid",
+    "method": "POST",
+    "route": "/v1/admin/import/unstall",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/unstall-401-unauthorized",
+    "method": "POST",
+    "route": "/v1/admin/import/unstall",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/unstall-401-unknown_client",
+    "method": "POST",
+    "route": "/v1/admin/import/unstall",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/unstall-403-not_admin",
+    "method": "POST",
+    "route": "/v1/admin/import/unstall",
+    "auth": "admin",
+    "status": 403,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/unstall-429",
+    "method": "POST",
+    "route": "/v1/admin/import/unstall",
+    "auth": "admin",
+    "status": 429,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "number"
+        },
+        "message": {
+          "type": "string"
+        },
+        "retry_after": {
+          "type": "number"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "window_seconds": {
+          "type": "number"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/unstall-503-identity_unavailable",
+    "method": "POST",
+    "route": "/v1/admin/import/unstall",
     "auth": "admin",
     "status": 503,
     "shape": {
@@ -9130,6 +9575,29 @@
                 },
                 "stale": {
                   "type": "boolean"
+                }
+              }
+            },
+            "import": {
+              "type": "object",
+              "fields": {
+                "deletes_24h": {
+                  "type": "number"
+                },
+                "deletes_applied": {
+                  "type": "number"
+                },
+                "deletes_budget_24h": {
+                  "type": "number"
+                },
+                "deletes_disabled": {
+                  "type": "boolean"
+                },
+                "deletes_planned": {
+                  "type": "number"
+                },
+                "stalled": {
+                  "type": "null"
                 }
               }
             }

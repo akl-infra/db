@@ -121,7 +121,11 @@ export async function readHead(db: D1Database, stateKeys: readonly string[] = []
 //   signed on the client lane -- the `feed:wait` extra cap is implied, never
 //   required (saltorbit: "any registered client should get this by default").
 //   Response shapes unchanged; the route table's auth column changed.
-export const WIRE_VERSION = 8;
+// 9 (2026-09-13): hostile/vanished-upstream defenses (LDB-I22/I23/I25/I26/M3):
+//   `/v1/meta.health.import` block (stalled/deletes_24h/budget/planned/applied/
+//   disabled), `POST /v1/admin/import/unstall`, `POST /v1/admin/import/
+//   restore-deleted`, event kind `admin.import_unstalled`. Additive.
+export const WIRE_VERSION = 9;
 
 export async function etagFor(headSeqValue: number, query: unknown): Promise<string> {
   const hash = await sha256Hex(canonical({ wireVersion: WIRE_VERSION, query: query ?? null }));

@@ -25,6 +25,15 @@ this file just gives them a public, versioned home. From here on, a
 `WIRE_VERSION` bump and a line here land in the SAME PR, never one without
 the other (`[LDB-V5]`).
 
+## 1.9 — 2026-09-13
+
+Hostile or vanished upstream defenses. `GET /v1/meta` gains
+`health.import` (`stalled`, `deletes_24h`, `deletes_budget_24h`,
+`deletes_planned`, `deletes_applied`, `deletes_disabled`). New admin
+routes `POST /v1/admin/import/unstall` and `POST /v1/admin/import/
+restore-deleted {since, limit?, dry_run?}`. New event kind
+`admin.import_unstalled`. Additive.
+
 ## 1.8 — 2026-09-13
 
 `GET /v1/changes?wait=` is honoured for every request signed on the client
