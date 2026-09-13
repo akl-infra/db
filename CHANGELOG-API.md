@@ -25,6 +25,14 @@ this file just gives them a public, versioned home. From here on, a
 `WIRE_VERSION` bump and a line here land in the SAME PR, never one without
 the other (`[LDB-V5]`).
 
+## 1.8 — 2026-09-13
+
+`GET /v1/changes?wait=` is honoured for every request signed on the client
+lane. The `feed:wait` extra cap is still accepted in a client's `caps` but
+no longer required (it is implied). Unauthenticated and bearer callers are
+unchanged: `wait=` is ignored with `X-Wait-Ignored: unauthorized`. No
+response shape changed.
+
 ## 1.7 — 2026-09-13
 
 The versioning policy itself (`design/layout-db/25-api-versioning.md`):

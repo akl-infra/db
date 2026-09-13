@@ -106,7 +106,11 @@ export async function readHead(db: D1Database, stateKeys: readonly string[] = []
 // response (success or error) gained the `X-AKLDB-API` header
 // (`core/version.ts`) -- additive, so this is the FIRST entry made under
 // the policy it introduces, not exempt from it.
-export const WIRE_VERSION = 7;
+// 8 (2026-09-13): `GET /v1/changes?wait=` is honoured for EVERY request
+//   signed on the client lane -- the `feed:wait` extra cap is implied, never
+//   required (saltorbit: "any registered client should get this by default").
+//   Response shapes unchanged; the route table's auth column changed.
+export const WIRE_VERSION = 8;
 
 export async function etagFor(headSeqValue: number, query: unknown): Promise<string> {
   const hash = await sha256Hex(canonical({ wireVersion: WIRE_VERSION, query: query ?? null }));

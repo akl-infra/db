@@ -3504,7 +3504,7 @@
     "id": "changes/200",
     "method": "GET",
     "route": "/v1/changes",
-    "auth": "none (`wait=` needs `feed:wait`)",
+    "auth": "none (`wait=` needs a registered client)",
     "status": 200,
     "shape": {
       "type": "object",
@@ -3639,7 +3639,7 @@
     "id": "changes/200-actor",
     "method": "GET",
     "route": "/v1/changes",
-    "auth": "none (`wait=` needs `feed:wait`)",
+    "auth": "none (`wait=` needs a registered client)",
     "status": 200,
     "shape": {
       "type": "object",
@@ -3774,7 +3774,7 @@
     "id": "changes/200-layout",
     "method": "GET",
     "route": "/v1/changes",
-    "auth": "none (`wait=` needs `feed:wait`)",
+    "auth": "none (`wait=` needs a registered client)",
     "status": 200,
     "shape": {
       "type": "object",
@@ -3909,7 +3909,7 @@
     "id": "changes/304",
     "method": "GET",
     "route": "/v1/changes",
-    "auth": "none (`wait=` needs `feed:wait`)",
+    "auth": "none (`wait=` needs a registered client)",
     "status": 304,
     "shape": null
   },
@@ -3917,7 +3917,7 @@
     "id": "changes/400-bad_request-kinds",
     "method": "GET",
     "route": "/v1/changes",
-    "auth": "none (`wait=` needs `feed:wait`)",
+    "auth": "none (`wait=` needs a registered client)",
     "status": 400,
     "shape": {
       "type": "object",
@@ -3938,7 +3938,7 @@
     "id": "changes/400-bad_request-since",
     "method": "GET",
     "route": "/v1/changes",
-    "auth": "none (`wait=` needs `feed:wait`)",
+    "auth": "none (`wait=` needs a registered client)",
     "status": 400,
     "shape": {
       "type": "object",
@@ -3959,7 +3959,7 @@
     "id": "changes/404",
     "method": "GET",
     "route": "/v1/changes",
-    "auth": "none (`wait=` needs `feed:wait`)",
+    "auth": "none (`wait=` needs a registered client)",
     "status": 404,
     "shape": {
       "type": "object",
