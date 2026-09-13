@@ -14,7 +14,7 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
-    "types": ["vite/client", "@cloudflare/workers-types"]
+    "types": ["node", "vite/client", "@cloudflare/workers-types"]
   },
   "include": ["src", "server", "scripts", "tests", "vite.config.ts"]
 }
