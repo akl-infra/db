@@ -114,6 +114,7 @@ Status: `todo` · `running (agent, branch)` · `review` · `landed <sha>` · `bl
 
 ## Log
 
+- 2026-09-13 10:50Z · **Complete base published**: `20260913T104711Z-e5fac4119679` (167 files, 571 MB, uploaded in ~3 min), pointer swapped (db_seq 45251, overlay null), bot restarted → index 4,177 published, S2 clean. cmini-web-19 redeploys the db-alias site from ≥ fad402ed3 (step 6 retry). B28b (unify ids on the DB id inside rebuild.js) is the follow-up.
 - 2026-09-13 10:35Z · B29 landed + deploying: engine worker recycled through B95's reboot path when wasm linear memory > 384 MB (checked every 5 computes / 30 s), counters on /health.
 - 2026-09-13 10:15Z · **Memory mystery solved by B25's breakdown**: 781 MB is the wasm engine's linear memory (never shrinks), grown by the eager sweep. B29 dispatched (byte cap + recycle). B25 row: growth attributed.
 - 2026-09-13 09:50Z · Cutover step 6 blocked: db-alias site empty — the rebuilt base lacks the catalog artifacts (B28). Agent building a complete base; publish + pointer swap to follow.
