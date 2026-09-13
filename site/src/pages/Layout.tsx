@@ -103,7 +103,13 @@ const LayoutPage: Component<LayoutPageProps> = (props) => {
         ← {copy.layout.backToHome}
       </a>
 
-      <Show when={record.loading()}>
+      {/* Only while there's no data to show YET -- once the first fetch (by
+          the URL's own ref) resolves, the split-effect above re-fetches the
+          SAME record by its `id` (so a later rename/delete keeps working);
+          `record.loading()` goes true again for that second fetch even
+          though `recordData()` still correctly holds the first result, so
+          gating on `loading()` alone would flash "…" OVER real content. */}
+      <Show when={record.loading() && !recordData()}>
         <p class="akl-muted">…</p>
       </Show>
 
