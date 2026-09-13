@@ -82,6 +82,11 @@ export default defineConfig(async () => {
               "tests/import/diff-unit.test.ts",
               "tests/upstream-diff.test.ts",
               "tests/drill/**/*.test.ts",
+              // [LDB-V4..V6] the route-table contract: pure over `CASES`
+              // (static import), `adoption.md` (fs) and `db-responses/`
+              // fixtures (static import) -- no D1/miniflare needed, so it
+              // belongs here alongside docs-site.test.ts, not "workers".
+              "tests/contract/**/*.test.ts",
             ],
           },
         },

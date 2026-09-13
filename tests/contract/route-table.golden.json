@@ -1,0 +1,9194 @@
+[
+  {
+    "id": "admin-admins/200",
+    "method": "GET",
+    "route": "/v1/admin/admins",
+    "auth": "admin",
+    "status": 200,
+    "shape": {
+      "type": "array",
+      "item": {
+        "type": "object",
+        "fields": {
+          "added_at": {
+            "type": "string"
+          },
+          "added_by": {
+            "type": "null"
+          },
+          "note": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-admins/401",
+    "method": "GET",
+    "route": "/v1/admin/admins",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-admins/403",
+    "method": "GET",
+    "route": "/v1/admin/admins",
+    "auth": "admin",
+    "status": 403,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-admins/delete-200",
+    "method": "DELETE",
+    "route": "/v1/admin/admins/:user_id",
+    "auth": "admin",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "removed": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-admins/delete-401-bad_signature",
+    "method": "DELETE",
+    "route": "/v1/admin/admins/:user_id",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-admins/delete-401-client_revoked",
+    "method": "DELETE",
+    "route": "/v1/admin/admins/:user_id",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-admins/delete-401-replay",
+    "method": "DELETE",
+    "route": "/v1/admin/admins/:user_id",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-admins/delete-401-stale_timestamp",
+    "method": "DELETE",
+    "route": "/v1/admin/admins/:user_id",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-admins/delete-401-token_invalid",
+    "method": "DELETE",
+    "route": "/v1/admin/admins/:user_id",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-admins/delete-401-unauthorized",
+    "method": "DELETE",
+    "route": "/v1/admin/admins/:user_id",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-admins/delete-401-unknown_client",
+    "method": "DELETE",
+    "route": "/v1/admin/admins/:user_id",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-admins/delete-403-not_admin",
+    "method": "DELETE",
+    "route": "/v1/admin/admins/:user_id",
+    "auth": "admin",
+    "status": 403,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-admins/delete-404",
+    "method": "DELETE",
+    "route": "/v1/admin/admins/:user_id",
+    "auth": "admin",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-admins/delete-409-last_admins",
+    "method": "DELETE",
+    "route": "/v1/admin/admins/:user_id",
+    "auth": "admin",
+    "status": 409,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "count": {
+          "type": "number"
+        },
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-admins/delete-429",
+    "method": "DELETE",
+    "route": "/v1/admin/admins/:user_id",
+    "auth": "admin",
+    "status": 429,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "number"
+        },
+        "message": {
+          "type": "string"
+        },
+        "retry_after": {
+          "type": "number"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "window_seconds": {
+          "type": "number"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-admins/delete-503-identity_unavailable",
+    "method": "DELETE",
+    "route": "/v1/admin/admins/:user_id",
+    "auth": "admin",
+    "status": 503,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-admins/get-401-bad_signature",
+    "method": "GET",
+    "route": "/v1/admin/admins",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-admins/get-401-client_revoked",
+    "method": "GET",
+    "route": "/v1/admin/admins",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-admins/get-401-replay",
+    "method": "GET",
+    "route": "/v1/admin/admins",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-admins/get-401-stale_timestamp",
+    "method": "GET",
+    "route": "/v1/admin/admins",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-admins/get-401-token_invalid",
+    "method": "GET",
+    "route": "/v1/admin/admins",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-admins/get-401-unknown_client",
+    "method": "GET",
+    "route": "/v1/admin/admins",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-admins/get-503-identity_unavailable",
+    "method": "GET",
+    "route": "/v1/admin/admins",
+    "auth": "admin",
+    "status": 503,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-admins/post-200-idempotent",
+    "method": "POST",
+    "route": "/v1/admin/admins",
+    "auth": "admin",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "added_at": {
+          "type": "string"
+        },
+        "added_by": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        },
+        "user_id": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-admins/post-201",
+    "method": "POST",
+    "route": "/v1/admin/admins",
+    "auth": "admin",
+    "status": 201,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "added_at": {
+          "type": "string"
+        },
+        "added_by": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        },
+        "user_id": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-admins/post-400-bad_request",
+    "method": "POST",
+    "route": "/v1/admin/admins",
+    "auth": "admin",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "param": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-admins/post-401-bad_signature",
+    "method": "POST",
+    "route": "/v1/admin/admins",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-admins/post-401-client_revoked",
+    "method": "POST",
+    "route": "/v1/admin/admins",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-admins/post-401-replay",
+    "method": "POST",
+    "route": "/v1/admin/admins",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-admins/post-401-stale_timestamp",
+    "method": "POST",
+    "route": "/v1/admin/admins",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-admins/post-401-token_invalid",
+    "method": "POST",
+    "route": "/v1/admin/admins",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-admins/post-401-unauthorized",
+    "method": "POST",
+    "route": "/v1/admin/admins",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-admins/post-401-unknown_client",
+    "method": "POST",
+    "route": "/v1/admin/admins",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-admins/post-403-not_admin",
+    "method": "POST",
+    "route": "/v1/admin/admins",
+    "auth": "admin",
+    "status": 403,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-admins/post-429",
+    "method": "POST",
+    "route": "/v1/admin/admins",
+    "auth": "admin",
+    "status": 429,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "number"
+        },
+        "message": {
+          "type": "string"
+        },
+        "retry_after": {
+          "type": "number"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "window_seconds": {
+          "type": "number"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-admins/post-503-identity_unavailable",
+    "method": "POST",
+    "route": "/v1/admin/admins",
+    "auth": "admin",
+    "status": 503,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-authors/put-200",
+    "method": "PUT",
+    "route": "/v1/admin/authors/:user_id",
+    "auth": "admin",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "name": {
+          "type": "string"
+        },
+        "name_source": {
+          "type": "string"
+        },
+        "user_id": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-authors/put-400-bad_request",
+    "method": "PUT",
+    "route": "/v1/admin/authors/:user_id",
+    "auth": "admin",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "param": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-authors/put-401-unauthorized",
+    "method": "PUT",
+    "route": "/v1/admin/authors/:user_id",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-authors/put-403-not_admin",
+    "method": "PUT",
+    "route": "/v1/admin/authors/:user_id",
+    "auth": "admin",
+    "status": 403,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-authors/put-404",
+    "method": "PUT",
+    "route": "/v1/admin/authors/:user_id",
+    "auth": "admin",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-bans/delete-200",
+    "method": "DELETE",
+    "route": "/v1/admin/bans/:user_id",
+    "auth": "admin",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "unbanned": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-bans/delete-401-unauthorized",
+    "method": "DELETE",
+    "route": "/v1/admin/bans/:user_id",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-bans/delete-403-not_admin",
+    "method": "DELETE",
+    "route": "/v1/admin/bans/:user_id",
+    "auth": "admin",
+    "status": 403,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-bans/delete-404",
+    "method": "DELETE",
+    "route": "/v1/admin/bans/:user_id",
+    "auth": "admin",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-bans/get-200",
+    "method": "GET",
+    "route": "/v1/admin/bans",
+    "auth": "admin",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "bans": {
+          "type": "array",
+          "item": null
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-bans/get-401-unauthorized",
+    "method": "GET",
+    "route": "/v1/admin/bans",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-bans/get-403-not_admin",
+    "method": "GET",
+    "route": "/v1/admin/bans",
+    "auth": "admin",
+    "status": 403,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-bans/put-200-idempotent",
+    "method": "PUT",
+    "route": "/v1/admin/bans/:user_id",
+    "auth": "admin",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "at": {
+          "type": "string"
+        },
+        "by": {
+          "type": "string"
+        },
+        "name": {
+          "type": "null"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "user_id": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-bans/put-201",
+    "method": "PUT",
+    "route": "/v1/admin/bans/:user_id",
+    "auth": "admin",
+    "status": 201,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "at": {
+          "type": "string"
+        },
+        "by": {
+          "type": "string"
+        },
+        "name": {
+          "type": "null"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "user_id": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-bans/put-401-unauthorized",
+    "method": "PUT",
+    "route": "/v1/admin/bans/:user_id",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-bans/put-403-not_admin",
+    "method": "PUT",
+    "route": "/v1/admin/bans/:user_id",
+    "auth": "admin",
+    "status": 403,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-bans/put-409-cannot_ban_admin",
+    "method": "PUT",
+    "route": "/v1/admin/bans/:user_id",
+    "auth": "admin",
+    "status": 409,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-clients/200",
+    "method": "GET",
+    "route": "/v1/admin/clients",
+    "auth": "admin",
+    "status": 200,
+    "shape": {
+      "type": "array",
+      "item": {
+        "type": "object",
+        "fields": {
+          "caps": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "discord_app_id": {
+            "type": "null"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "owner_user_id": {
+            "type": "string"
+          },
+          "pubkey": {
+            "type": "string"
+          },
+          "revoked_at": {
+            "type": "null"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-clients/401",
+    "method": "GET",
+    "route": "/v1/admin/clients",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-clients/403",
+    "method": "GET",
+    "route": "/v1/admin/clients",
+    "auth": "admin",
+    "status": 403,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-clients/delete-200",
+    "method": "DELETE",
+    "route": "/v1/admin/clients/:id",
+    "auth": "admin",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "id": {
+          "type": "string"
+        },
+        "revoked_at": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-clients/delete-401-bad_signature",
+    "method": "DELETE",
+    "route": "/v1/admin/clients/:id",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-clients/delete-401-client_revoked",
+    "method": "DELETE",
+    "route": "/v1/admin/clients/:id",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-clients/delete-401-replay",
+    "method": "DELETE",
+    "route": "/v1/admin/clients/:id",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-clients/delete-401-stale_timestamp",
+    "method": "DELETE",
+    "route": "/v1/admin/clients/:id",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-clients/delete-401-token_invalid",
+    "method": "DELETE",
+    "route": "/v1/admin/clients/:id",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-clients/delete-401-unauthorized",
+    "method": "DELETE",
+    "route": "/v1/admin/clients/:id",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-clients/delete-401-unknown_client",
+    "method": "DELETE",
+    "route": "/v1/admin/clients/:id",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-clients/delete-403-not_admin",
+    "method": "DELETE",
+    "route": "/v1/admin/clients/:id",
+    "auth": "admin",
+    "status": 403,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-clients/delete-404",
+    "method": "DELETE",
+    "route": "/v1/admin/clients/:id",
+    "auth": "admin",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-clients/delete-429",
+    "method": "DELETE",
+    "route": "/v1/admin/clients/:id",
+    "auth": "admin",
+    "status": 429,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "number"
+        },
+        "message": {
+          "type": "string"
+        },
+        "retry_after": {
+          "type": "number"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "window_seconds": {
+          "type": "number"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-clients/delete-503-identity_unavailable",
+    "method": "DELETE",
+    "route": "/v1/admin/clients/:id",
+    "auth": "admin",
+    "status": 503,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-clients/get-401-bad_signature",
+    "method": "GET",
+    "route": "/v1/admin/clients",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-clients/get-401-client_revoked",
+    "method": "GET",
+    "route": "/v1/admin/clients",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-clients/get-401-replay",
+    "method": "GET",
+    "route": "/v1/admin/clients",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-clients/get-401-stale_timestamp",
+    "method": "GET",
+    "route": "/v1/admin/clients",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-clients/get-401-token_invalid",
+    "method": "GET",
+    "route": "/v1/admin/clients",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-clients/get-401-unknown_client",
+    "method": "GET",
+    "route": "/v1/admin/clients",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-clients/get-503-identity_unavailable",
+    "method": "GET",
+    "route": "/v1/admin/clients",
+    "auth": "admin",
+    "status": 503,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-clients/post-201",
+    "method": "POST",
+    "route": "/v1/admin/clients",
+    "auth": "admin",
+    "status": 201,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "caps": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "discord_app_id": {
+          "type": "null"
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "owner_user_id": {
+          "type": "string"
+        },
+        "pubkey": {
+          "type": "string"
+        },
+        "revoked_at": {
+          "type": "null"
+        },
+        "status": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-clients/post-400-bad_request",
+    "method": "POST",
+    "route": "/v1/admin/clients",
+    "auth": "admin",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "param": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-clients/post-401-bad_signature",
+    "method": "POST",
+    "route": "/v1/admin/clients",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-clients/post-401-client_revoked",
+    "method": "POST",
+    "route": "/v1/admin/clients",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-clients/post-401-replay",
+    "method": "POST",
+    "route": "/v1/admin/clients",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-clients/post-401-stale_timestamp",
+    "method": "POST",
+    "route": "/v1/admin/clients",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-clients/post-401-token_invalid",
+    "method": "POST",
+    "route": "/v1/admin/clients",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-clients/post-401-unauthorized",
+    "method": "POST",
+    "route": "/v1/admin/clients",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-clients/post-401-unknown_client",
+    "method": "POST",
+    "route": "/v1/admin/clients",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-clients/post-403-not_admin",
+    "method": "POST",
+    "route": "/v1/admin/clients",
+    "auth": "admin",
+    "status": 403,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-clients/post-429",
+    "method": "POST",
+    "route": "/v1/admin/clients",
+    "auth": "admin",
+    "status": 429,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "number"
+        },
+        "message": {
+          "type": "string"
+        },
+        "retry_after": {
+          "type": "number"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "window_seconds": {
+          "type": "number"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-clients/post-503-identity_unavailable",
+    "method": "POST",
+    "route": "/v1/admin/clients",
+    "auth": "admin",
+    "status": 503,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-diff/tick-200",
+    "method": "POST",
+    "route": "/v1/admin/diff/tick",
+    "auth": "admin",
+    "status": 200,
+    "shape": null
+  },
+  {
+    "id": "admin-diff/tick-401-bad_signature",
+    "method": "POST",
+    "route": "/v1/admin/diff/tick",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-diff/tick-401-client_revoked",
+    "method": "POST",
+    "route": "/v1/admin/diff/tick",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-diff/tick-401-replay",
+    "method": "POST",
+    "route": "/v1/admin/diff/tick",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-diff/tick-401-stale_timestamp",
+    "method": "POST",
+    "route": "/v1/admin/diff/tick",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-diff/tick-401-token_invalid",
+    "method": "POST",
+    "route": "/v1/admin/diff/tick",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-diff/tick-401-unauthorized",
+    "method": "POST",
+    "route": "/v1/admin/diff/tick",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-diff/tick-401-unknown_client",
+    "method": "POST",
+    "route": "/v1/admin/diff/tick",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-diff/tick-403-not_admin",
+    "method": "POST",
+    "route": "/v1/admin/diff/tick",
+    "auth": "admin",
+    "status": 403,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-diff/tick-429",
+    "method": "POST",
+    "route": "/v1/admin/diff/tick",
+    "auth": "admin",
+    "status": 429,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "number"
+        },
+        "message": {
+          "type": "string"
+        },
+        "retry_after": {
+          "type": "number"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "window_seconds": {
+          "type": "number"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-diff/tick-503-identity_unavailable",
+    "method": "POST",
+    "route": "/v1/admin/diff/tick",
+    "auth": "admin",
+    "status": 503,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-dump/post-200",
+    "method": "POST",
+    "route": "/v1/admin/dump",
+    "auth": "admin",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "layout_count": {
+          "type": "number"
+        },
+        "seq": {
+          "type": "number"
+        },
+        "written_at": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-dump/post-401-unauthorized",
+    "method": "POST",
+    "route": "/v1/admin/dump",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-dump/post-403-not_admin",
+    "method": "POST",
+    "route": "/v1/admin/dump",
+    "auth": "admin",
+    "status": 403,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-health/200",
+    "method": "GET",
+    "route": "/v1/admin/health",
+    "auth": "admin",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "last_diff": {
+          "type": "null"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-health/401-bad_signature",
+    "method": "GET",
+    "route": "/v1/admin/health",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-health/401-client_revoked",
+    "method": "GET",
+    "route": "/v1/admin/health",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-health/401-replay",
+    "method": "GET",
+    "route": "/v1/admin/health",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-health/401-stale_timestamp",
+    "method": "GET",
+    "route": "/v1/admin/health",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-health/401-token_invalid",
+    "method": "GET",
+    "route": "/v1/admin/health",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-health/401-unauthorized",
+    "method": "GET",
+    "route": "/v1/admin/health",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-health/401-unknown_client",
+    "method": "GET",
+    "route": "/v1/admin/health",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-health/403-not_admin",
+    "method": "GET",
+    "route": "/v1/admin/health",
+    "auth": "admin",
+    "status": 403,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-health/503-identity_unavailable",
+    "method": "GET",
+    "route": "/v1/admin/health",
+    "auth": "admin",
+    "status": 503,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/pause-200",
+    "method": "POST",
+    "route": "/v1/admin/import/pause",
+    "auth": "admin",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "paused": {
+          "type": "boolean"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/pause-401-bad_signature",
+    "method": "POST",
+    "route": "/v1/admin/import/pause",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/pause-401-client_revoked",
+    "method": "POST",
+    "route": "/v1/admin/import/pause",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/pause-401-replay",
+    "method": "POST",
+    "route": "/v1/admin/import/pause",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/pause-401-stale_timestamp",
+    "method": "POST",
+    "route": "/v1/admin/import/pause",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/pause-401-token_invalid",
+    "method": "POST",
+    "route": "/v1/admin/import/pause",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/pause-401-unauthorized",
+    "method": "POST",
+    "route": "/v1/admin/import/pause",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/pause-401-unknown_client",
+    "method": "POST",
+    "route": "/v1/admin/import/pause",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/pause-403-not_admin",
+    "method": "POST",
+    "route": "/v1/admin/import/pause",
+    "auth": "admin",
+    "status": 403,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/pause-429",
+    "method": "POST",
+    "route": "/v1/admin/import/pause",
+    "auth": "admin",
+    "status": 429,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "number"
+        },
+        "message": {
+          "type": "string"
+        },
+        "retry_after": {
+          "type": "number"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "window_seconds": {
+          "type": "number"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/pause-503-identity_unavailable",
+    "method": "POST",
+    "route": "/v1/admin/import/pause",
+    "auth": "admin",
+    "status": 503,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/resume-200",
+    "method": "POST",
+    "route": "/v1/admin/import/resume",
+    "auth": "admin",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "paused": {
+          "type": "boolean"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/resume-401-bad_signature",
+    "method": "POST",
+    "route": "/v1/admin/import/resume",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/resume-401-client_revoked",
+    "method": "POST",
+    "route": "/v1/admin/import/resume",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/resume-401-replay",
+    "method": "POST",
+    "route": "/v1/admin/import/resume",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/resume-401-stale_timestamp",
+    "method": "POST",
+    "route": "/v1/admin/import/resume",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/resume-401-token_invalid",
+    "method": "POST",
+    "route": "/v1/admin/import/resume",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/resume-401-unauthorized",
+    "method": "POST",
+    "route": "/v1/admin/import/resume",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/resume-401-unknown_client",
+    "method": "POST",
+    "route": "/v1/admin/import/resume",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/resume-403-not_admin",
+    "method": "POST",
+    "route": "/v1/admin/import/resume",
+    "auth": "admin",
+    "status": 403,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/resume-429",
+    "method": "POST",
+    "route": "/v1/admin/import/resume",
+    "auth": "admin",
+    "status": 429,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "number"
+        },
+        "message": {
+          "type": "string"
+        },
+        "retry_after": {
+          "type": "number"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "window_seconds": {
+          "type": "number"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/resume-503-identity_unavailable",
+    "method": "POST",
+    "route": "/v1/admin/import/resume",
+    "auth": "admin",
+    "status": 503,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/tick-200",
+    "method": "POST",
+    "route": "/v1/admin/import/tick",
+    "auth": "admin",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "at": {
+          "type": "string"
+        },
+        "quiet": {
+          "type": "boolean"
+        },
+        "ran": {
+          "type": "boolean"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/tick-401-bad_signature",
+    "method": "POST",
+    "route": "/v1/admin/import/tick",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/tick-401-client_revoked",
+    "method": "POST",
+    "route": "/v1/admin/import/tick",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/tick-401-replay",
+    "method": "POST",
+    "route": "/v1/admin/import/tick",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/tick-401-stale_timestamp",
+    "method": "POST",
+    "route": "/v1/admin/import/tick",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/tick-401-token_invalid",
+    "method": "POST",
+    "route": "/v1/admin/import/tick",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/tick-401-unauthorized",
+    "method": "POST",
+    "route": "/v1/admin/import/tick",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/tick-401-unknown_client",
+    "method": "POST",
+    "route": "/v1/admin/import/tick",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/tick-403-not_admin",
+    "method": "POST",
+    "route": "/v1/admin/import/tick",
+    "auth": "admin",
+    "status": 403,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/tick-409-import_paused",
+    "method": "POST",
+    "route": "/v1/admin/import/tick",
+    "auth": "admin",
+    "status": 409,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/tick-429",
+    "method": "POST",
+    "route": "/v1/admin/import/tick",
+    "auth": "admin",
+    "status": 429,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "number"
+        },
+        "message": {
+          "type": "string"
+        },
+        "retry_after": {
+          "type": "number"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "window_seconds": {
+          "type": "number"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-import/tick-503-identity_unavailable",
+    "method": "POST",
+    "route": "/v1/admin/import/tick",
+    "auth": "admin",
+    "status": 503,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-link-queue/approve-401-unauthorized",
+    "method": "POST",
+    "route": "/v1/admin/link-queue/:id/approve",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-link-queue/approve-403-not_admin",
+    "method": "POST",
+    "route": "/v1/admin/link-queue/:id/approve",
+    "auth": "admin",
+    "status": 403,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-link-queue/approve-404",
+    "method": "POST",
+    "route": "/v1/admin/link-queue/:id/approve",
+    "auth": "admin",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-link-queue/get-200",
+    "method": "GET",
+    "route": "/v1/admin/link-queue",
+    "auth": "admin",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "submissions": {
+          "type": "array",
+          "item": null
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-link-queue/get-400-bad_request",
+    "method": "GET",
+    "route": "/v1/admin/link-queue",
+    "auth": "admin",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "param": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-link-queue/get-401-unauthorized",
+    "method": "GET",
+    "route": "/v1/admin/link-queue",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-link-queue/get-403-not_admin",
+    "method": "GET",
+    "route": "/v1/admin/link-queue",
+    "auth": "admin",
+    "status": 403,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-link-queue/reject-400-bad_request",
+    "method": "POST",
+    "route": "/v1/admin/link-queue/:id/reject",
+    "auth": "admin",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "param": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-link-queue/reject-401-unauthorized",
+    "method": "POST",
+    "route": "/v1/admin/link-queue/:id/reject",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-link-queue/reject-403-not_admin",
+    "method": "POST",
+    "route": "/v1/admin/link-queue/:id/reject",
+    "auth": "admin",
+    "status": 403,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-link-queue/reject-404",
+    "method": "POST",
+    "route": "/v1/admin/link-queue/:id/reject",
+    "auth": "admin",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-magic-seed/post-400-bad_request",
+    "method": "POST",
+    "route": "/v1/admin/magic-seed",
+    "auth": "admin",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-magic-seed/post-401-unauthorized",
+    "method": "POST",
+    "route": "/v1/admin/magic-seed",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-magic-seed/post-403-not_admin",
+    "method": "POST",
+    "route": "/v1/admin/magic-seed",
+    "auth": "admin",
+    "status": 403,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-nightly/tick-200",
+    "method": "POST",
+    "route": "/v1/admin/nightly/tick",
+    "auth": "admin",
+    "status": 200,
+    "shape": null
+  },
+  {
+    "id": "admin-nightly/tick-401-bad_signature",
+    "method": "POST",
+    "route": "/v1/admin/nightly/tick",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-nightly/tick-401-client_revoked",
+    "method": "POST",
+    "route": "/v1/admin/nightly/tick",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-nightly/tick-401-replay",
+    "method": "POST",
+    "route": "/v1/admin/nightly/tick",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-nightly/tick-401-stale_timestamp",
+    "method": "POST",
+    "route": "/v1/admin/nightly/tick",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-nightly/tick-401-token_invalid",
+    "method": "POST",
+    "route": "/v1/admin/nightly/tick",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-nightly/tick-401-unauthorized",
+    "method": "POST",
+    "route": "/v1/admin/nightly/tick",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-nightly/tick-401-unknown_client",
+    "method": "POST",
+    "route": "/v1/admin/nightly/tick",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-nightly/tick-403-not_admin",
+    "method": "POST",
+    "route": "/v1/admin/nightly/tick",
+    "auth": "admin",
+    "status": 403,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-nightly/tick-429",
+    "method": "POST",
+    "route": "/v1/admin/nightly/tick",
+    "auth": "admin",
+    "status": 429,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "number"
+        },
+        "message": {
+          "type": "string"
+        },
+        "retry_after": {
+          "type": "number"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "window_seconds": {
+          "type": "number"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-nightly/tick-503-identity_unavailable",
+    "method": "POST",
+    "route": "/v1/admin/nightly/tick",
+    "auth": "admin",
+    "status": 503,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "authors-detail/200",
+    "method": "GET",
+    "route": "/v1/authors/:user_id",
+    "auth": "none",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "layout_count": {
+          "type": "number"
+        },
+        "liked_count": {
+          "type": "number"
+        },
+        "name": {
+          "type": "string"
+        },
+        "user_id": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "authors-detail/404",
+    "method": "GET",
+    "route": "/v1/authors/:user_id",
+    "auth": "none",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "authors-list/200",
+    "method": "GET",
+    "route": "/v1/authors",
+    "auth": "none",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        ".phillip": {
+          "type": "string"
+        },
+        "5quidwyrm": {
+          "type": "string"
+        },
+        "_heart.": {
+          "type": "string"
+        },
+        "aaaazmuh": {
+          "type": "string"
+        },
+        "acas": {
+          "type": "string"
+        },
+        "aoi_buh": {
+          "type": "string"
+        },
+        "astral3089": {
+          "type": "string"
+        },
+        "clemenpine": {
+          "type": "string"
+        },
+        "cmini": {
+          "type": "string"
+        },
+        "deeroh": {
+          "type": "string"
+        },
+        "diego_villalobos": {
+          "type": "string"
+        },
+        "galileotime": {
+          "type": "string"
+        },
+        "haonoke": {
+          "type": "string"
+        },
+        "lenchog": {
+          "type": "string"
+        },
+        "lilith.eve": {
+          "type": "string"
+        },
+        "mateyerba": {
+          "type": "string"
+        },
+        "milk_can": {
+          "type": "string"
+        },
+        "mocna": {
+          "type": "string"
+        },
+        "nathrema": {
+          "type": "string"
+        },
+        "novachromatic": {
+          "type": "string"
+        },
+        "oxey_": {
+          "type": "string"
+        },
+        "paper2222": {
+          "type": "string"
+        },
+        "reeve_.": {
+          "type": "string"
+        },
+        "rzssh": {
+          "type": "string"
+        },
+        "semilin": {
+          "type": "string"
+        },
+        "strawberryturtle": {
+          "type": "string"
+        },
+        "stronglytyped": {
+          "type": "string"
+        },
+        "wawakittyy": {
+          "type": "string"
+        },
+        "whorf": {
+          "type": "string"
+        },
+        "yzide01": {
+          "type": "string"
+        },
+        "zak.7": {
+          "type": "string"
+        },
+        "zweihandxr": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "authors-list/304",
+    "method": "GET",
+    "route": "/v1/authors",
+    "auth": "none",
+    "status": 304,
+    "shape": null
+  },
+  {
+    "id": "authors-list/400",
+    "method": "GET",
+    "route": "/v1/authors",
+    "auth": "none",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "param": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "changelog/200",
+    "method": "GET",
+    "route": "/admin/changelog",
+    "auth": "none",
+    "status": 200,
+    "shape": null
+  },
+  {
+    "id": "changelog/304",
+    "method": "GET",
+    "route": "/admin/changelog",
+    "auth": "none",
+    "status": 304,
+    "shape": null
+  },
+  {
+    "id": "changelog/400-bad_request",
+    "method": "GET",
+    "route": "/admin/changelog",
+    "auth": "none",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "param": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "changelog/404",
+    "method": "GET",
+    "route": "/admin/changelog",
+    "auth": "none",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "changes/200",
+    "method": "GET",
+    "route": "/v1/changes",
+    "auth": "none (`wait=` needs `feed:wait`)",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "items": {
+          "type": "array",
+          "item": {
+            "type": "object",
+            "fields": {
+              "actor": {
+                "type": "string"
+              },
+              "admin": {
+                "type": "boolean"
+              },
+              "after": {
+                "type": "object",
+                "fields": {
+                  "created_at": {
+                    "type": "string"
+                  },
+                  "deleted": {
+                    "type": "boolean"
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "layout_rev": {
+                    "type": "number"
+                  },
+                  "modified_at": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "owner": {
+                    "type": "string"
+                  },
+                  "scope": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "type": "object",
+                    "fields": {
+                      "client": {
+                        "type": "string"
+                      },
+                      "version": {
+                        "type": "null"
+                      }
+                    }
+                  },
+                  "upstream": {
+                    "type": "object",
+                    "fields": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "source": {
+                        "type": "string"
+                      },
+                      "state": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              },
+              "at": {
+                "type": "string"
+              },
+              "before": {
+                "type": "null"
+              },
+              "detail": {
+                "type": "object",
+                "fields": {
+                  "source": {
+                    "type": "string"
+                  },
+                  "upstream_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              "format": {
+                "type": "null"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "layout_id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "owner": {
+                "type": "string"
+              },
+              "rev": {
+                "type": "number"
+              },
+              "seq": {
+                "type": "number"
+              },
+              "source": {
+                "type": "object",
+                "fields": {
+                  "client": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "type": "null"
+                  }
+                }
+              },
+              "via": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "next": {
+          "type": "number"
+        }
+      }
+    }
+  },
+  {
+    "id": "changes/200-actor",
+    "method": "GET",
+    "route": "/v1/changes",
+    "auth": "none (`wait=` needs `feed:wait`)",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "items": {
+          "type": "array",
+          "item": {
+            "type": "object",
+            "fields": {
+              "actor": {
+                "type": "string"
+              },
+              "admin": {
+                "type": "boolean"
+              },
+              "after": {
+                "type": "object",
+                "fields": {
+                  "created_at": {
+                    "type": "string"
+                  },
+                  "deleted": {
+                    "type": "boolean"
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "layout_rev": {
+                    "type": "number"
+                  },
+                  "modified_at": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "owner": {
+                    "type": "string"
+                  },
+                  "scope": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "type": "object",
+                    "fields": {
+                      "client": {
+                        "type": "string"
+                      },
+                      "version": {
+                        "type": "null"
+                      }
+                    }
+                  },
+                  "upstream": {
+                    "type": "object",
+                    "fields": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "source": {
+                        "type": "string"
+                      },
+                      "state": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              },
+              "at": {
+                "type": "string"
+              },
+              "before": {
+                "type": "null"
+              },
+              "detail": {
+                "type": "object",
+                "fields": {
+                  "source": {
+                    "type": "string"
+                  },
+                  "upstream_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              "format": {
+                "type": "null"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "layout_id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "owner": {
+                "type": "string"
+              },
+              "rev": {
+                "type": "number"
+              },
+              "seq": {
+                "type": "number"
+              },
+              "source": {
+                "type": "object",
+                "fields": {
+                  "client": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "type": "null"
+                  }
+                }
+              },
+              "via": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "next": {
+          "type": "number"
+        }
+      }
+    }
+  },
+  {
+    "id": "changes/200-layout",
+    "method": "GET",
+    "route": "/v1/changes",
+    "auth": "none (`wait=` needs `feed:wait`)",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "items": {
+          "type": "array",
+          "item": {
+            "type": "object",
+            "fields": {
+              "actor": {
+                "type": "string"
+              },
+              "admin": {
+                "type": "boolean"
+              },
+              "after": {
+                "type": "object",
+                "fields": {
+                  "created_at": {
+                    "type": "string"
+                  },
+                  "deleted": {
+                    "type": "boolean"
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "layout_rev": {
+                    "type": "number"
+                  },
+                  "modified_at": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "owner": {
+                    "type": "string"
+                  },
+                  "scope": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "type": "object",
+                    "fields": {
+                      "client": {
+                        "type": "string"
+                      },
+                      "version": {
+                        "type": "null"
+                      }
+                    }
+                  },
+                  "upstream": {
+                    "type": "object",
+                    "fields": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "source": {
+                        "type": "string"
+                      },
+                      "state": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              },
+              "at": {
+                "type": "string"
+              },
+              "before": {
+                "type": "null"
+              },
+              "detail": {
+                "type": "object",
+                "fields": {
+                  "source": {
+                    "type": "string"
+                  },
+                  "upstream_id": {
+                    "type": "string"
+                  }
+                }
+              },
+              "format": {
+                "type": "null"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "layout_id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "owner": {
+                "type": "string"
+              },
+              "rev": {
+                "type": "number"
+              },
+              "seq": {
+                "type": "number"
+              },
+              "source": {
+                "type": "object",
+                "fields": {
+                  "client": {
+                    "type": "string"
+                  },
+                  "version": {
+                    "type": "null"
+                  }
+                }
+              },
+              "via": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "next": {
+          "type": "number"
+        }
+      }
+    }
+  },
+  {
+    "id": "changes/304",
+    "method": "GET",
+    "route": "/v1/changes",
+    "auth": "none (`wait=` needs `feed:wait`)",
+    "status": 304,
+    "shape": null
+  },
+  {
+    "id": "changes/400-bad_request-kinds",
+    "method": "GET",
+    "route": "/v1/changes",
+    "auth": "none (`wait=` needs `feed:wait`)",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "param": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "changes/400-bad_request-since",
+    "method": "GET",
+    "route": "/v1/changes",
+    "auth": "none (`wait=` needs `feed:wait`)",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "param": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "changes/404",
+    "method": "GET",
+    "route": "/v1/changes",
+    "auth": "none (`wait=` needs `feed:wait`)",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "dump-key/404",
+    "method": "GET",
+    "route": "/v1/dump/:key",
+    "auth": "none",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "dump-latest/404",
+    "method": "GET",
+    "route": "/v1/dump/latest.json",
+    "auth": "none",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "dump-monthly/404",
+    "method": "GET",
+    "route": "/v1/dump/monthly/:key",
+    "auth": "none",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "dump/404",
+    "method": "GET",
+    "route": "/v1/dump",
+    "auth": "none",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "formats-list/200",
+    "method": "GET",
+    "route": "/v1/formats",
+    "auth": "none",
+    "status": 200,
+    "shape": {
+      "type": "array",
+      "item": {
+        "type": "object",
+        "fields": {
+          "aliases": {
+            "type": "array",
+            "item": null
+          },
+          "can_translate_to": {
+            "type": "array",
+            "item": {
+              "type": "string"
+            }
+          },
+          "description": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "latest": {
+            "type": "boolean"
+          },
+          "lineage": {
+            "type": "string"
+          },
+          "major": {
+            "type": "number"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "formats-schema/200",
+    "method": "GET",
+    "route": "/v1/formats/:name/:major/schema.json",
+    "auth": "none",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "$defs": {
+          "type": "object",
+          "fields": {
+            "adaptiveSwap": {
+              "type": "object",
+              "fields": {
+                "additionalProperties": {
+                  "type": "boolean"
+                },
+                "properties": {
+                  "type": "object",
+                  "fields": {
+                    "swap": {
+                      "type": "object",
+                      "fields": {
+                        "items": {
+                          "type": "object",
+                          "fields": {
+                            "type": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "maxItems": {
+                          "type": "number"
+                        },
+                        "minItems": {
+                          "type": "number"
+                        },
+                        "type": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "trigger": {
+                      "type": "object",
+                      "fields": {
+                        "type": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                },
+                "required": {
+                  "type": "array",
+                  "item": {
+                    "type": "string"
+                  }
+                },
+                "type": {
+                  "type": "string"
+                }
+              }
+            },
+            "chiralKey": {
+              "type": "object",
+              "fields": {
+                "additionalProperties": {
+                  "type": "boolean"
+                },
+                "properties": {
+                  "type": "object",
+                  "fields": {
+                    "except": {
+                      "type": "object",
+                      "fields": {
+                        "items": {
+                          "type": "object",
+                          "fields": {
+                            "type": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "type": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "key": {
+                      "type": "object",
+                      "fields": {
+                        "type": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "opposite": {
+                      "type": "object",
+                      "fields": {
+                        "oneOf": {
+                          "type": "array",
+                          "item": {
+                            "type": "object",
+                            "fields": {
+                              "$ref": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "same": {
+                      "type": "object",
+                      "fields": {
+                        "oneOf": {
+                          "type": "array",
+                          "item": {
+                            "type": "object",
+                            "fields": {
+                              "$ref": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "required": {
+                  "type": "array",
+                  "item": {
+                    "type": "string"
+                  }
+                },
+                "type": {
+                  "type": "string"
+                }
+              }
+            },
+            "chiralValue": {
+              "type": "object",
+              "fields": {
+                "$ref": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                }
+              }
+            },
+            "key": {
+              "type": "object",
+              "fields": {
+                "additionalProperties": {
+                  "type": "boolean"
+                },
+                "properties": {
+                  "type": "object",
+                  "fields": {
+                    "char": {
+                      "type": "object",
+                      "fields": {
+                        "type": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "col": {
+                      "type": "object",
+                      "fields": {
+                        "minimum": {
+                          "type": "number"
+                        },
+                        "type": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "finger": {
+                      "type": "object",
+                      "fields": {
+                        "enum": {
+                          "type": "array",
+                          "item": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "row": {
+                      "type": "object",
+                      "fields": {
+                        "maximum": {
+                          "type": "number"
+                        },
+                        "minimum": {
+                          "type": "number"
+                        },
+                        "type": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                },
+                "required": {
+                  "type": "array",
+                  "item": {
+                    "type": "string"
+                  }
+                },
+                "type": {
+                  "type": "string"
+                }
+              }
+            },
+            "magic": {
+              "type": "object",
+              "fields": {
+                "additionalProperties": {
+                  "type": "boolean"
+                },
+                "properties": {
+                  "type": "object",
+                  "fields": {
+                    "adaptive_swaps": {
+                      "type": "object",
+                      "fields": {
+                        "items": {
+                          "type": "object",
+                          "fields": {
+                            "$ref": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "type": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "chiral_keys": {
+                      "type": "object",
+                      "fields": {
+                        "items": {
+                          "type": "object",
+                          "fields": {
+                            "$ref": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "type": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "magic_keys": {
+                      "type": "object",
+                      "fields": {
+                        "items": {
+                          "type": "object",
+                          "fields": {
+                            "$ref": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "type": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "rules": {
+                      "type": "object",
+                      "fields": {
+                        "items": {
+                          "type": "object",
+                          "fields": {
+                            "$ref": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "type": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                },
+                "type": {
+                  "type": "string"
+                }
+              }
+            },
+            "magicDefault": {
+              "type": "object",
+              "fields": {
+                "description": {
+                  "type": "string"
+                },
+                "oneOf": {
+                  "type": "array",
+                  "item": {
+                    "type": "object",
+                    "fields": {
+                      "additionalProperties": {
+                        "type": "boolean"
+                      },
+                      "properties": {
+                        "type": "object",
+                        "fields": {
+                          "kind": {
+                            "type": "object",
+                            "fields": {
+                              "const": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "required": {
+                        "type": "array",
+                        "item": {
+                          "type": "string"
+                        }
+                      },
+                      "type": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "magicKey": {
+              "type": "object",
+              "fields": {
+                "additionalProperties": {
+                  "type": "boolean"
+                },
+                "properties": {
+                  "type": "object",
+                  "fields": {
+                    "default": {
+                      "type": "object",
+                      "fields": {
+                        "$ref": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "except": {
+                      "type": "object",
+                      "fields": {
+                        "items": {
+                          "type": "object",
+                          "fields": {
+                            "type": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "type": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "key": {
+                      "type": "object",
+                      "fields": {
+                        "type": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "rules": {
+                      "type": "object",
+                      "fields": {
+                        "items": {
+                          "type": "object",
+                          "fields": {
+                            "$ref": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "type": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                },
+                "required": {
+                  "type": "array",
+                  "item": {
+                    "type": "string"
+                  }
+                },
+                "type": {
+                  "type": "string"
+                }
+              }
+            },
+            "magicKeyRule": {
+              "type": "object",
+              "fields": {
+                "additionalProperties": {
+                  "type": "boolean"
+                },
+                "properties": {
+                  "type": "object",
+                  "fields": {
+                    "after": {
+                      "type": "object",
+                      "fields": {
+                        "type": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "output": {
+                      "type": "object",
+                      "fields": {
+                        "type": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                },
+                "required": {
+                  "type": "array",
+                  "item": {
+                    "type": "string"
+                  }
+                },
+                "type": {
+                  "type": "string"
+                }
+              }
+            },
+            "rawRule": {
+              "type": "object",
+              "fields": {
+                "additionalProperties": {
+                  "type": "boolean"
+                },
+                "properties": {
+                  "type": "object",
+                  "fields": {
+                    "inputs": {
+                      "type": "object",
+                      "fields": {
+                        "minLength": {
+                          "type": "number"
+                        },
+                        "type": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "note": {
+                      "type": "object",
+                      "fields": {
+                        "type": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "output": {
+                      "type": "object",
+                      "fields": {
+                        "minLength": {
+                          "type": "number"
+                        },
+                        "type": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "type": {
+                      "type": "object",
+                      "fields": {
+                        "type": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                },
+                "required": {
+                  "type": "array",
+                  "item": {
+                    "type": "string"
+                  }
+                },
+                "type": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "$id": {
+          "type": "string"
+        },
+        "$schema": {
+          "type": "string"
+        },
+        "additionalProperties": {
+          "type": "boolean"
+        },
+        "description": {
+          "type": "string"
+        },
+        "properties": {
+          "type": "object",
+          "fields": {
+            "board": {
+              "type": "object",
+              "fields": {
+                "enum": {
+                  "type": "array",
+                  "item": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "keys": {
+              "type": "object",
+              "fields": {
+                "items": {
+                  "type": "object",
+                  "fields": {
+                    "$ref": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "type": {
+                  "type": "string"
+                }
+              }
+            },
+            "magic": {
+              "type": "object",
+              "fields": {
+                "$ref": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "required": {
+          "type": "array",
+          "item": {
+            "type": "string"
+          }
+        },
+        "title": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "formats-schema/404",
+    "method": "GET",
+    "route": "/v1/formats/:name/:major/schema.json",
+    "auth": "none",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-detail/200",
+    "method": "GET",
+    "route": "/v1/layouts/:ref",
+    "auth": "none",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "created_at": {
+          "type": "string"
+        },
+        "deleted": {
+          "type": "boolean"
+        },
+        "format": {
+          "type": "string"
+        },
+        "formats": {
+          "type": "object",
+          "fields": {
+            "spark/1": {
+              "type": "object",
+              "fields": {
+                "created_at": {
+                  "type": "string"
+                },
+                "has_magic": {
+                  "type": "boolean"
+                },
+                "modified_at": {
+                  "type": "string"
+                },
+                "rev": {
+                  "type": "number"
+                },
+                "source": {
+                  "type": "object",
+                  "fields": {
+                    "client": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "id": {
+          "type": "string"
+        },
+        "layout_rev": {
+          "type": "number"
+        },
+        "like_count": {
+          "type": "number"
+        },
+        "likes": {
+          "type": "array",
+          "item": {
+            "type": "string"
+          }
+        },
+        "link": {
+          "type": "null"
+        },
+        "modified_at": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string"
+        },
+        "payload": {
+          "type": "object",
+          "fields": {
+            "board": {
+              "type": "string"
+            },
+            "keys": {
+              "type": "array",
+              "item": {
+                "type": "object",
+                "fields": {
+                  "char": {
+                    "type": "string"
+                  },
+                  "col": {
+                    "type": "number"
+                  },
+                  "finger": {
+                    "type": "string"
+                  },
+                  "row": {
+                    "type": "number"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "upstream": {
+          "type": "object",
+          "fields": {
+            "id": {
+              "type": "string"
+            },
+            "source": {
+              "type": "string"
+            },
+            "state": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-detail/400-cmini",
+    "method": "GET",
+    "route": "/v1/layouts/:ref",
+    "auth": "none",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "format": {
+          "type": "string"
+        },
+        "known": {
+          "type": "array",
+          "item": {
+            "type": "string"
+          }
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-detail/400-unknown_format",
+    "method": "GET",
+    "route": "/v1/layouts/:ref",
+    "auth": "none",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "format": {
+          "type": "string"
+        },
+        "known": {
+          "type": "array",
+          "item": {
+            "type": "string"
+          }
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-detail/404",
+    "method": "GET",
+    "route": "/v1/layouts/:ref",
+    "auth": "none",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-history/200",
+    "method": "GET",
+    "route": "/v1/layouts/:ref/history",
+    "auth": "none",
+    "status": 200,
+    "shape": {
+      "type": "array",
+      "item": {
+        "type": "object",
+        "fields": {
+          "actor": {
+            "type": "string"
+          },
+          "admin": {
+            "type": "boolean"
+          },
+          "at": {
+            "type": "string"
+          },
+          "format": {
+            "type": "null"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "rev": {
+            "type": "number"
+          },
+          "seq": {
+            "type": "number"
+          },
+          "source": {
+            "type": "object",
+            "fields": {
+              "client": {
+                "type": "string"
+              },
+              "version": {
+                "type": "null"
+              }
+            }
+          },
+          "via": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-history/404",
+    "method": "GET",
+    "route": "/v1/layouts/:ref/history",
+    "auth": "none",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-like/delete-200",
+    "method": "DELETE",
+    "route": "/v1/layouts/:ref/like",
+    "auth": "user",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "like_count": {
+          "type": "number"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-like/delete-400-qwerty",
+    "method": "DELETE",
+    "route": "/v1/layouts/:ref/like",
+    "auth": "user",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "param": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-like/delete-401-bad_signature",
+    "method": "DELETE",
+    "route": "/v1/layouts/:ref/like",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-like/delete-401-client_revoked",
+    "method": "DELETE",
+    "route": "/v1/layouts/:ref/like",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-like/delete-401-replay",
+    "method": "DELETE",
+    "route": "/v1/layouts/:ref/like",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-like/delete-401-stale_timestamp",
+    "method": "DELETE",
+    "route": "/v1/layouts/:ref/like",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-like/delete-401-token_invalid",
+    "method": "DELETE",
+    "route": "/v1/layouts/:ref/like",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-like/delete-401-unauthorized",
+    "method": "DELETE",
+    "route": "/v1/layouts/:ref/like",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-like/delete-401-unknown_client",
+    "method": "DELETE",
+    "route": "/v1/layouts/:ref/like",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-like/delete-404",
+    "method": "DELETE",
+    "route": "/v1/layouts/:ref/like",
+    "auth": "user",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-like/delete-429",
+    "method": "DELETE",
+    "route": "/v1/layouts/:ref/like",
+    "auth": "user",
+    "status": 429,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "number"
+        },
+        "message": {
+          "type": "string"
+        },
+        "retry_after": {
+          "type": "number"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "window_seconds": {
+          "type": "number"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-like/delete-503-identity_unavailable",
+    "method": "DELETE",
+    "route": "/v1/layouts/:ref/like",
+    "auth": "user",
+    "status": 503,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-like/put-200",
+    "method": "PUT",
+    "route": "/v1/layouts/:ref/like",
+    "auth": "user",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "like_count": {
+          "type": "number"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-like/put-400-qwerty",
+    "method": "PUT",
+    "route": "/v1/layouts/:ref/like",
+    "auth": "user",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "param": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-like/put-401-bad_signature",
+    "method": "PUT",
+    "route": "/v1/layouts/:ref/like",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-like/put-401-client_revoked",
+    "method": "PUT",
+    "route": "/v1/layouts/:ref/like",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-like/put-401-replay",
+    "method": "PUT",
+    "route": "/v1/layouts/:ref/like",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-like/put-401-stale_timestamp",
+    "method": "PUT",
+    "route": "/v1/layouts/:ref/like",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-like/put-401-token_invalid",
+    "method": "PUT",
+    "route": "/v1/layouts/:ref/like",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-like/put-401-unauthorized",
+    "method": "PUT",
+    "route": "/v1/layouts/:ref/like",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-like/put-401-unknown_client",
+    "method": "PUT",
+    "route": "/v1/layouts/:ref/like",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-like/put-404",
+    "method": "PUT",
+    "route": "/v1/layouts/:ref/like",
+    "auth": "user",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-like/put-429",
+    "method": "PUT",
+    "route": "/v1/layouts/:ref/like",
+    "auth": "user",
+    "status": 429,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "number"
+        },
+        "message": {
+          "type": "string"
+        },
+        "retry_after": {
+          "type": "number"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "window_seconds": {
+          "type": "number"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-like/put-503-identity_unavailable",
+    "method": "PUT",
+    "route": "/v1/layouts/:ref/like",
+    "auth": "user",
+    "status": 503,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-likes/200",
+    "method": "GET",
+    "route": "/v1/layouts/:ref/likes",
+    "auth": "none",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "user_ids": {
+          "type": "array",
+          "item": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-likes/404",
+    "method": "GET",
+    "route": "/v1/layouts/:ref/likes",
+    "auth": "none",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-link/delete-200",
+    "method": "DELETE",
+    "route": "/v1/layouts/:ref/link",
+    "auth": "user (owner or admin)",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "link": {
+          "type": "null"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-link/delete-401-unauthorized",
+    "method": "DELETE",
+    "route": "/v1/layouts/:ref/link",
+    "auth": "user (owner or admin)",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-link/delete-403-not_owner",
+    "method": "DELETE",
+    "route": "/v1/layouts/:ref/link",
+    "auth": "user (owner or admin)",
+    "status": 403,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-link/delete-404",
+    "method": "DELETE",
+    "route": "/v1/layouts/:ref/link",
+    "auth": "user (owner or admin)",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-link/get-200-pending",
+    "method": "GET",
+    "route": "/v1/layouts/:ref/link",
+    "auth": "user (owner or admin)",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "link": {
+          "type": "null"
+        },
+        "pending": {
+          "type": "object",
+          "fields": {
+            "decided_at": {
+              "type": "null"
+            },
+            "decided_by": {
+              "type": "null"
+            },
+            "id": {
+              "type": "string"
+            },
+            "layout_id": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "null"
+            },
+            "status": {
+              "type": "string"
+            },
+            "submitted_at": {
+              "type": "string"
+            },
+            "submitted_by": {
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-link/get-401-unauthorized",
+    "method": "GET",
+    "route": "/v1/layouts/:ref/link",
+    "auth": "user (owner or admin)",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-link/get-403-not_owner",
+    "method": "GET",
+    "route": "/v1/layouts/:ref/link",
+    "auth": "user (owner or admin)",
+    "status": 403,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-link/get-404",
+    "method": "GET",
+    "route": "/v1/layouts/:ref/link",
+    "auth": "user (owner or admin)",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-link/put-200-admin-approved",
+    "method": "PUT",
+    "route": "/v1/layouts/:ref/link",
+    "auth": "user (owner or admin)",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "link": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-link/put-202",
+    "method": "PUT",
+    "route": "/v1/layouts/:ref/link",
+    "auth": "user (owner or admin)",
+    "status": 202,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "submission": {
+          "type": "object",
+          "fields": {
+            "decided_at": {
+              "type": "null"
+            },
+            "decided_by": {
+              "type": "null"
+            },
+            "id": {
+              "type": "string"
+            },
+            "layout_id": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "null"
+            },
+            "status": {
+              "type": "string"
+            },
+            "submitted_at": {
+              "type": "string"
+            },
+            "submitted_by": {
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-link/put-400-bad_request",
+    "method": "PUT",
+    "route": "/v1/layouts/:ref/link",
+    "auth": "user (owner or admin)",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "param": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-link/put-400-invalid_link",
+    "method": "PUT",
+    "route": "/v1/layouts/:ref/link",
+    "auth": "user (owner or admin)",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-link/put-401-unauthorized",
+    "method": "PUT",
+    "route": "/v1/layouts/:ref/link",
+    "auth": "user (owner or admin)",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-link/put-403-not_owner",
+    "method": "PUT",
+    "route": "/v1/layouts/:ref/link",
+    "auth": "user (owner or admin)",
+    "status": 403,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-link/put-404",
+    "method": "PUT",
+    "route": "/v1/layouts/:ref/link",
+    "auth": "user (owner or admin)",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-list/200",
+    "method": "GET",
+    "route": "/v1/layouts",
+    "auth": "none",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "items": {
+          "type": "array",
+          "item": {
+            "type": "object",
+            "fields": {
+              "created_at": {
+                "type": "string"
+              },
+              "deleted": {
+                "type": "boolean"
+              },
+              "format": {
+                "type": "string"
+              },
+              "formats": {
+                "type": "object",
+                "fields": {
+                  "spark/1": {
+                    "type": "object",
+                    "fields": {
+                      "created_at": {
+                        "type": "string"
+                      },
+                      "has_magic": {
+                        "type": "boolean"
+                      },
+                      "modified_at": {
+                        "type": "string"
+                      },
+                      "rev": {
+                        "type": "number"
+                      },
+                      "source": {
+                        "type": "object",
+                        "fields": {
+                          "client": {
+                            "type": "string"
+                          },
+                          "version": {
+                            "type": "null"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "id": {
+                "type": "string"
+              },
+              "layout_rev": {
+                "type": "number"
+              },
+              "like_count": {
+                "type": "number"
+              },
+              "link": {
+                "type": "null"
+              },
+              "modified_at": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "owner": {
+                "type": "string"
+              },
+              "upstream": {
+                "type": "object",
+                "fields": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "source": {
+                    "type": "string"
+                  },
+                  "state": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "next_cursor": {
+          "type": "null"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-list/304",
+    "method": "GET",
+    "route": "/v1/layouts",
+    "auth": "none",
+    "status": 304,
+    "shape": null
+  },
+  {
+    "id": "layouts-list/400-bad_request",
+    "method": "GET",
+    "route": "/v1/layouts",
+    "auth": "none",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "param": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-list/400-unknown_format",
+    "method": "GET",
+    "route": "/v1/layouts",
+    "auth": "none",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "format": {
+          "type": "string"
+        },
+        "known": {
+          "type": "array",
+          "item": {
+            "type": "string"
+          }
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-rev/200",
+    "method": "GET",
+    "route": "/v1/layouts/:ref/rev/:n",
+    "auth": "none",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "created_at": {
+          "type": "string"
+        },
+        "format": {
+          "type": "string"
+        },
+        "has_magic": {
+          "type": "boolean"
+        },
+        "modified_at": {
+          "type": "string"
+        },
+        "payload": {
+          "type": "object",
+          "fields": {
+            "board": {
+              "type": "string"
+            },
+            "keys": {
+              "type": "array",
+              "item": {
+                "type": "object",
+                "fields": {
+                  "char": {
+                    "type": "string"
+                  },
+                  "col": {
+                    "type": "number"
+                  },
+                  "finger": {
+                    "type": "string"
+                  },
+                  "row": {
+                    "type": "number"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "rev": {
+          "type": "number"
+        },
+        "source": {
+          "type": "object",
+          "fields": {
+            "client": {
+              "type": "string"
+            },
+            "version": {
+              "type": "null"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-rev/400-bad_request",
+    "method": "GET",
+    "route": "/v1/layouts/:ref/rev/:n",
+    "auth": "none",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "param": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-rev/400-unknown_format",
+    "method": "GET",
+    "route": "/v1/layouts/:ref/rev/:n",
+    "auth": "none",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "format": {
+          "type": "string"
+        },
+        "known": {
+          "type": "array",
+          "item": {
+            "type": "string"
+          }
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-rev/404",
+    "method": "GET",
+    "route": "/v1/layouts/:ref/rev/:n",
+    "auth": "none",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/delete-200",
+    "method": "DELETE",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "created_at": {
+          "type": "string"
+        },
+        "deleted": {
+          "type": "boolean"
+        },
+        "formats": {
+          "type": "object",
+          "fields": {
+            "spark/1": {
+              "type": "object",
+              "fields": {
+                "created_at": {
+                  "type": "string"
+                },
+                "has_magic": {
+                  "type": "boolean"
+                },
+                "modified_at": {
+                  "type": "string"
+                },
+                "rev": {
+                  "type": "number"
+                },
+                "source": {
+                  "type": "object",
+                  "fields": {
+                    "client": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "id": {
+          "type": "string"
+        },
+        "layout_rev": {
+          "type": "number"
+        },
+        "like_count": {
+          "type": "number"
+        },
+        "link": {
+          "type": "null"
+        },
+        "modified_at": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string"
+        },
+        "upstream": {
+          "type": "null"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/delete-400-bad_request",
+    "method": "DELETE",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "param": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/delete-400-if_match_required",
+    "method": "DELETE",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/delete-401-bad_signature",
+    "method": "DELETE",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/delete-401-client_revoked",
+    "method": "DELETE",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/delete-401-replay",
+    "method": "DELETE",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/delete-401-stale_timestamp",
+    "method": "DELETE",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/delete-401-token_invalid",
+    "method": "DELETE",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/delete-401-unauthorized",
+    "method": "DELETE",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/delete-401-unknown_client",
+    "method": "DELETE",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/delete-403-not_owner",
+    "method": "DELETE",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 403,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/delete-404",
+    "method": "DELETE",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/delete-409-stale",
+    "method": "DELETE",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 409,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "last_write": {
+          "type": "object",
+          "fields": {
+            "actor": {
+              "type": "string"
+            },
+            "admin": {
+              "type": "boolean"
+            },
+            "at": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string"
+            },
+            "seq": {
+              "type": "number"
+            },
+            "via": {
+              "type": "string"
+            }
+          }
+        },
+        "message": {
+          "type": "string"
+        },
+        "record": {
+          "type": "object",
+          "fields": {
+            "created_at": {
+              "type": "string"
+            },
+            "deleted": {
+              "type": "boolean"
+            },
+            "formats": {
+              "type": "object",
+              "fields": {
+                "spark/1": {
+                  "type": "object",
+                  "fields": {
+                    "created_at": {
+                      "type": "string"
+                    },
+                    "has_magic": {
+                      "type": "boolean"
+                    },
+                    "modified_at": {
+                      "type": "string"
+                    },
+                    "rev": {
+                      "type": "number"
+                    },
+                    "source": {
+                      "type": "object",
+                      "fields": {
+                        "client": {
+                          "type": "string"
+                        },
+                        "version": {
+                          "type": "null"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "id": {
+              "type": "string"
+            },
+            "layout_rev": {
+              "type": "number"
+            },
+            "like_count": {
+              "type": "number"
+            },
+            "link": {
+              "type": "null"
+            },
+            "modified_at": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "owner": {
+              "type": "string"
+            },
+            "upstream": {
+              "type": "null"
+            }
+          }
+        },
+        "rev": {
+          "type": "number"
+        },
+        "scope": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/delete-429",
+    "method": "DELETE",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 429,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "number"
+        },
+        "message": {
+          "type": "string"
+        },
+        "retry_after": {
+          "type": "number"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "window_seconds": {
+          "type": "number"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/delete-503-identity_unavailable",
+    "method": "DELETE",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 503,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/patch-200",
+    "method": "PATCH",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "created_at": {
+          "type": "string"
+        },
+        "deleted": {
+          "type": "boolean"
+        },
+        "format": {
+          "type": "string"
+        },
+        "formats": {
+          "type": "object",
+          "fields": {
+            "spark/1": {
+              "type": "object",
+              "fields": {
+                "created_at": {
+                  "type": "string"
+                },
+                "has_magic": {
+                  "type": "boolean"
+                },
+                "modified_at": {
+                  "type": "string"
+                },
+                "rev": {
+                  "type": "number"
+                },
+                "source": {
+                  "type": "object",
+                  "fields": {
+                    "client": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "id": {
+          "type": "string"
+        },
+        "layout_rev": {
+          "type": "number"
+        },
+        "like_count": {
+          "type": "number"
+        },
+        "link": {
+          "type": "null"
+        },
+        "modified_at": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string"
+        },
+        "payload": {
+          "type": "object",
+          "fields": {
+            "board": {
+              "type": "string"
+            },
+            "keys": {
+              "type": "array",
+              "item": {
+                "type": "object",
+                "fields": {
+                  "char": {
+                    "type": "string"
+                  },
+                  "col": {
+                    "type": "number"
+                  },
+                  "finger": {
+                    "type": "string"
+                  },
+                  "row": {
+                    "type": "number"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "upstream": {
+          "type": "null"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/patch-200-renamed",
+    "method": "PATCH",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "created_at": {
+          "type": "string"
+        },
+        "deleted": {
+          "type": "boolean"
+        },
+        "formats": {
+          "type": "object",
+          "fields": {
+            "spark/1": {
+              "type": "object",
+              "fields": {
+                "created_at": {
+                  "type": "string"
+                },
+                "has_magic": {
+                  "type": "boolean"
+                },
+                "modified_at": {
+                  "type": "string"
+                },
+                "rev": {
+                  "type": "number"
+                },
+                "source": {
+                  "type": "object",
+                  "fields": {
+                    "client": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "id": {
+          "type": "string"
+        },
+        "layout_rev": {
+          "type": "number"
+        },
+        "like_count": {
+          "type": "number"
+        },
+        "link": {
+          "type": "null"
+        },
+        "modified_at": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string"
+        },
+        "upstream": {
+          "type": "null"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/patch-200-updated",
+    "method": "PATCH",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "created_at": {
+          "type": "string"
+        },
+        "deleted": {
+          "type": "boolean"
+        },
+        "format": {
+          "type": "string"
+        },
+        "formats": {
+          "type": "object",
+          "fields": {
+            "spark/1": {
+              "type": "object",
+              "fields": {
+                "created_at": {
+                  "type": "string"
+                },
+                "has_magic": {
+                  "type": "boolean"
+                },
+                "modified_at": {
+                  "type": "string"
+                },
+                "rev": {
+                  "type": "number"
+                },
+                "source": {
+                  "type": "object",
+                  "fields": {
+                    "client": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "id": {
+          "type": "string"
+        },
+        "layout_rev": {
+          "type": "number"
+        },
+        "like_count": {
+          "type": "number"
+        },
+        "link": {
+          "type": "null"
+        },
+        "modified_at": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string"
+        },
+        "payload": {
+          "type": "object",
+          "fields": {
+            "board": {
+              "type": "string"
+            },
+            "keys": {
+              "type": "array",
+              "item": {
+                "type": "object",
+                "fields": {
+                  "char": {
+                    "type": "string"
+                  },
+                  "col": {
+                    "type": "number"
+                  },
+                  "finger": {
+                    "type": "string"
+                  },
+                  "row": {
+                    "type": "number"
+                  }
+                }
+              }
+            },
+            "magic": {
+              "type": "object",
+              "fields": {
+                "rules": {
+                  "type": "array",
+                  "item": null
+                }
+              }
+            }
+          }
+        },
+        "upstream": {
+          "type": "null"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/patch-400-bad_request",
+    "method": "PATCH",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "param": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/patch-400-if_match_required",
+    "method": "PATCH",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/patch-400-invalid_name",
+    "method": "PATCH",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/patch-400-invalid_payload",
+    "method": "PATCH",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/patch-401-bad_signature",
+    "method": "PATCH",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/patch-401-client_revoked",
+    "method": "PATCH",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/patch-401-replay",
+    "method": "PATCH",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/patch-401-stale_timestamp",
+    "method": "PATCH",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/patch-401-token_invalid",
+    "method": "PATCH",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/patch-401-unauthorized",
+    "method": "PATCH",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/patch-401-unknown_client",
+    "method": "PATCH",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/patch-403-not_owner",
+    "method": "PATCH",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 403,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/patch-404",
+    "method": "PATCH",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/patch-409-name_taken",
+    "method": "PATCH",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 409,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "holder": {
+          "type": "object",
+          "fields": {
+            "id": {
+              "type": "string"
+            },
+            "owner": {
+              "type": "string"
+            }
+          }
+        },
+        "message": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/patch-409-stale",
+    "method": "PATCH",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 409,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "last_write": {
+          "type": "object",
+          "fields": {
+            "actor": {
+              "type": "string"
+            },
+            "admin": {
+              "type": "boolean"
+            },
+            "at": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string"
+            },
+            "seq": {
+              "type": "number"
+            },
+            "via": {
+              "type": "string"
+            }
+          }
+        },
+        "message": {
+          "type": "string"
+        },
+        "record": {
+          "type": "object",
+          "fields": {
+            "created_at": {
+              "type": "string"
+            },
+            "deleted": {
+              "type": "boolean"
+            },
+            "formats": {
+              "type": "object",
+              "fields": {
+                "spark/1": {
+                  "type": "object",
+                  "fields": {
+                    "created_at": {
+                      "type": "string"
+                    },
+                    "has_magic": {
+                      "type": "boolean"
+                    },
+                    "modified_at": {
+                      "type": "string"
+                    },
+                    "rev": {
+                      "type": "number"
+                    },
+                    "source": {
+                      "type": "object",
+                      "fields": {
+                        "client": {
+                          "type": "string"
+                        },
+                        "version": {
+                          "type": "null"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "id": {
+              "type": "string"
+            },
+            "layout_rev": {
+              "type": "number"
+            },
+            "like_count": {
+              "type": "number"
+            },
+            "link": {
+              "type": "null"
+            },
+            "modified_at": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "owner": {
+              "type": "string"
+            },
+            "upstream": {
+              "type": "null"
+            }
+          }
+        },
+        "rev": {
+          "type": "number"
+        },
+        "scope": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/patch-429",
+    "method": "PATCH",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 429,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "number"
+        },
+        "message": {
+          "type": "string"
+        },
+        "retry_after": {
+          "type": "number"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "window_seconds": {
+          "type": "number"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/patch-503-identity_unavailable",
+    "method": "PATCH",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 503,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/post-201",
+    "method": "POST",
+    "route": "/v1/layouts",
+    "auth": "user",
+    "status": 201,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "created_at": {
+          "type": "string"
+        },
+        "deleted": {
+          "type": "boolean"
+        },
+        "format": {
+          "type": "string"
+        },
+        "formats": {
+          "type": "object",
+          "fields": {
+            "spark/1": {
+              "type": "object",
+              "fields": {
+                "created_at": {
+                  "type": "string"
+                },
+                "has_magic": {
+                  "type": "boolean"
+                },
+                "modified_at": {
+                  "type": "string"
+                },
+                "rev": {
+                  "type": "number"
+                },
+                "source": {
+                  "type": "object",
+                  "fields": {
+                    "client": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "id": {
+          "type": "string"
+        },
+        "layout_rev": {
+          "type": "number"
+        },
+        "like_count": {
+          "type": "number"
+        },
+        "link": {
+          "type": "null"
+        },
+        "modified_at": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string"
+        },
+        "payload": {
+          "type": "object",
+          "fields": {
+            "board": {
+              "type": "string"
+            },
+            "keys": {
+              "type": "array",
+              "item": null
+            }
+          }
+        },
+        "upstream": {
+          "type": "null"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/post-400-bad_request",
+    "method": "POST",
+    "route": "/v1/layouts",
+    "auth": "user",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "param": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/post-400-invalid_name",
+    "method": "POST",
+    "route": "/v1/layouts",
+    "auth": "user",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/post-400-invalid_payload",
+    "method": "POST",
+    "route": "/v1/layouts",
+    "auth": "user",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/post-400-unknown_format",
+    "method": "POST",
+    "route": "/v1/layouts",
+    "auth": "user",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "format": {
+          "type": "string"
+        },
+        "known": {
+          "type": "array",
+          "item": {
+            "type": "string"
+          }
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/post-401-bad_signature",
+    "method": "POST",
+    "route": "/v1/layouts",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/post-401-client_revoked",
+    "method": "POST",
+    "route": "/v1/layouts",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/post-401-replay",
+    "method": "POST",
+    "route": "/v1/layouts",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/post-401-stale_timestamp",
+    "method": "POST",
+    "route": "/v1/layouts",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/post-401-token_invalid",
+    "method": "POST",
+    "route": "/v1/layouts",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/post-401-unauthorized",
+    "method": "POST",
+    "route": "/v1/layouts",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/post-401-unknown_client",
+    "method": "POST",
+    "route": "/v1/layouts",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/post-409-name_taken",
+    "method": "POST",
+    "route": "/v1/layouts",
+    "auth": "user",
+    "status": 409,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "holder": {
+          "type": "object",
+          "fields": {
+            "id": {
+              "type": "string"
+            },
+            "owner": {
+              "type": "string"
+            }
+          }
+        },
+        "message": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/post-503-identity_unavailable",
+    "method": "POST",
+    "route": "/v1/layouts",
+    "auth": "user",
+    "status": 503,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/put-200",
+    "method": "PUT",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "created_at": {
+          "type": "string"
+        },
+        "deleted": {
+          "type": "boolean"
+        },
+        "format": {
+          "type": "string"
+        },
+        "formats": {
+          "type": "object",
+          "fields": {
+            "spark/1": {
+              "type": "object",
+              "fields": {
+                "created_at": {
+                  "type": "string"
+                },
+                "has_magic": {
+                  "type": "boolean"
+                },
+                "modified_at": {
+                  "type": "string"
+                },
+                "rev": {
+                  "type": "number"
+                },
+                "source": {
+                  "type": "object",
+                  "fields": {
+                    "client": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "id": {
+          "type": "string"
+        },
+        "layout_rev": {
+          "type": "number"
+        },
+        "like_count": {
+          "type": "number"
+        },
+        "link": {
+          "type": "null"
+        },
+        "modified_at": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string"
+        },
+        "payload": {
+          "type": "object",
+          "fields": {
+            "board": {
+              "type": "string"
+            },
+            "keys": {
+              "type": "array",
+              "item": null
+            }
+          }
+        },
+        "upstream": {
+          "type": "null"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/put-400-bad_request",
+    "method": "PUT",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "param": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/put-400-if_match_required",
+    "method": "PUT",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/put-400-invalid_payload",
+    "method": "PUT",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/put-400-unknown_format",
+    "method": "PUT",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "format": {
+          "type": "string"
+        },
+        "known": {
+          "type": "array",
+          "item": {
+            "type": "string"
+          }
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/put-401-bad_signature",
+    "method": "PUT",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/put-401-client_revoked",
+    "method": "PUT",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/put-401-replay",
+    "method": "PUT",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/put-401-stale_timestamp",
+    "method": "PUT",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/put-401-token_invalid",
+    "method": "PUT",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/put-401-unauthorized",
+    "method": "PUT",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/put-401-unknown_client",
+    "method": "PUT",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/put-403-not_owner",
+    "method": "PUT",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 403,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/put-404",
+    "method": "PUT",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/put-409-stale",
+    "method": "PUT",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 409,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "last_write": {
+          "type": "object",
+          "fields": {
+            "actor": {
+              "type": "string"
+            },
+            "admin": {
+              "type": "boolean"
+            },
+            "at": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string"
+            },
+            "seq": {
+              "type": "number"
+            },
+            "via": {
+              "type": "string"
+            }
+          }
+        },
+        "message": {
+          "type": "string"
+        },
+        "record": {
+          "type": "object",
+          "fields": {
+            "created_at": {
+              "type": "string"
+            },
+            "deleted": {
+              "type": "boolean"
+            },
+            "format": {
+              "type": "string"
+            },
+            "formats": {
+              "type": "object",
+              "fields": {
+                "spark/1": {
+                  "type": "object",
+                  "fields": {
+                    "created_at": {
+                      "type": "string"
+                    },
+                    "has_magic": {
+                      "type": "boolean"
+                    },
+                    "modified_at": {
+                      "type": "string"
+                    },
+                    "rev": {
+                      "type": "number"
+                    },
+                    "source": {
+                      "type": "object",
+                      "fields": {
+                        "client": {
+                          "type": "string"
+                        },
+                        "version": {
+                          "type": "null"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "id": {
+              "type": "string"
+            },
+            "layout_rev": {
+              "type": "number"
+            },
+            "like_count": {
+              "type": "number"
+            },
+            "link": {
+              "type": "null"
+            },
+            "modified_at": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "owner": {
+              "type": "string"
+            },
+            "payload": {
+              "type": "object",
+              "fields": {
+                "board": {
+                  "type": "string"
+                },
+                "keys": {
+                  "type": "array",
+                  "item": null
+                },
+                "magic": {
+                  "type": "object",
+                  "fields": {
+                    "magic_keys": {
+                      "type": "array",
+                      "item": {
+                        "type": "object",
+                        "fields": {
+                          "except": {
+                            "type": "array",
+                            "item": {
+                              "type": "string"
+                            }
+                          },
+                          "key": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "upstream": {
+              "type": "null"
+            }
+          }
+        },
+        "rev": {
+          "type": "number"
+        },
+        "scope": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/put-429",
+    "method": "PUT",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 429,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "number"
+        },
+        "message": {
+          "type": "string"
+        },
+        "retry_after": {
+          "type": "number"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "window_seconds": {
+          "type": "number"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/put-503-identity_unavailable",
+    "method": "PUT",
+    "route": "/v1/layouts/:ref",
+    "auth": "user",
+    "status": 503,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/restore-200",
+    "method": "POST",
+    "route": "/v1/layouts/:ref/restore",
+    "auth": "user",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "created_at": {
+          "type": "string"
+        },
+        "deleted": {
+          "type": "boolean"
+        },
+        "formats": {
+          "type": "object",
+          "fields": {
+            "spark/1": {
+              "type": "object",
+              "fields": {
+                "created_at": {
+                  "type": "string"
+                },
+                "has_magic": {
+                  "type": "boolean"
+                },
+                "modified_at": {
+                  "type": "string"
+                },
+                "rev": {
+                  "type": "number"
+                },
+                "source": {
+                  "type": "object",
+                  "fields": {
+                    "client": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "id": {
+          "type": "string"
+        },
+        "layout_rev": {
+          "type": "number"
+        },
+        "like_count": {
+          "type": "number"
+        },
+        "link": {
+          "type": "null"
+        },
+        "modified_at": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string"
+        },
+        "upstream": {
+          "type": "null"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/restore-400-not_deleted",
+    "method": "POST",
+    "route": "/v1/layouts/:ref/restore",
+    "auth": "user",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "param": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/restore-401-bad_signature",
+    "method": "POST",
+    "route": "/v1/layouts/:ref/restore",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/restore-401-client_revoked",
+    "method": "POST",
+    "route": "/v1/layouts/:ref/restore",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/restore-401-replay",
+    "method": "POST",
+    "route": "/v1/layouts/:ref/restore",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/restore-401-stale_timestamp",
+    "method": "POST",
+    "route": "/v1/layouts/:ref/restore",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/restore-401-token_invalid",
+    "method": "POST",
+    "route": "/v1/layouts/:ref/restore",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/restore-401-unauthorized",
+    "method": "POST",
+    "route": "/v1/layouts/:ref/restore",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/restore-401-unknown_client",
+    "method": "POST",
+    "route": "/v1/layouts/:ref/restore",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/restore-403-not_owner",
+    "method": "POST",
+    "route": "/v1/layouts/:ref/restore",
+    "auth": "user",
+    "status": 403,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/restore-404",
+    "method": "POST",
+    "route": "/v1/layouts/:ref/restore",
+    "auth": "user",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/restore-409-name_taken",
+    "method": "POST",
+    "route": "/v1/layouts/:ref/restore",
+    "auth": "user",
+    "status": 409,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "holder": {
+          "type": "object",
+          "fields": {
+            "id": {
+              "type": "string"
+            },
+            "owner": {
+              "type": "string"
+            }
+          }
+        },
+        "message": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/restore-429",
+    "method": "POST",
+    "route": "/v1/layouts/:ref/restore",
+    "auth": "user",
+    "status": 429,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "number"
+        },
+        "message": {
+          "type": "string"
+        },
+        "retry_after": {
+          "type": "number"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "window_seconds": {
+          "type": "number"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/restore-503-identity_unavailable",
+    "method": "POST",
+    "route": "/v1/layouts/:ref/restore",
+    "auth": "user",
+    "status": 503,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/transfer-200",
+    "method": "POST",
+    "route": "/v1/layouts/:ref/transfer",
+    "auth": "user",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "created_at": {
+          "type": "string"
+        },
+        "deleted": {
+          "type": "boolean"
+        },
+        "formats": {
+          "type": "object",
+          "fields": {
+            "spark/1": {
+              "type": "object",
+              "fields": {
+                "created_at": {
+                  "type": "string"
+                },
+                "has_magic": {
+                  "type": "boolean"
+                },
+                "modified_at": {
+                  "type": "string"
+                },
+                "rev": {
+                  "type": "number"
+                },
+                "source": {
+                  "type": "object",
+                  "fields": {
+                    "client": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "id": {
+          "type": "string"
+        },
+        "layout_rev": {
+          "type": "number"
+        },
+        "like_count": {
+          "type": "number"
+        },
+        "link": {
+          "type": "null"
+        },
+        "modified_at": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string"
+        },
+        "upstream": {
+          "type": "null"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/transfer-400-bad_request",
+    "method": "POST",
+    "route": "/v1/layouts/:ref/transfer",
+    "auth": "user",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "param": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/transfer-400-if_match_required",
+    "method": "POST",
+    "route": "/v1/layouts/:ref/transfer",
+    "auth": "user",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/transfer-401-bad_signature",
+    "method": "POST",
+    "route": "/v1/layouts/:ref/transfer",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/transfer-401-client_revoked",
+    "method": "POST",
+    "route": "/v1/layouts/:ref/transfer",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/transfer-401-replay",
+    "method": "POST",
+    "route": "/v1/layouts/:ref/transfer",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/transfer-401-stale_timestamp",
+    "method": "POST",
+    "route": "/v1/layouts/:ref/transfer",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/transfer-401-token_invalid",
+    "method": "POST",
+    "route": "/v1/layouts/:ref/transfer",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/transfer-401-unauthorized",
+    "method": "POST",
+    "route": "/v1/layouts/:ref/transfer",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/transfer-401-unknown_client",
+    "method": "POST",
+    "route": "/v1/layouts/:ref/transfer",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/transfer-403-not_owner",
+    "method": "POST",
+    "route": "/v1/layouts/:ref/transfer",
+    "auth": "user",
+    "status": 403,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/transfer-404",
+    "method": "POST",
+    "route": "/v1/layouts/:ref/transfer",
+    "auth": "user",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/transfer-429",
+    "method": "POST",
+    "route": "/v1/layouts/:ref/transfer",
+    "auth": "user",
+    "status": 429,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "number"
+        },
+        "message": {
+          "type": "string"
+        },
+        "retry_after": {
+          "type": "number"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "window_seconds": {
+          "type": "number"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-write/transfer-503-identity_unavailable",
+    "method": "POST",
+    "route": "/v1/layouts/:ref/transfer",
+    "auth": "user",
+    "status": 503,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "me/200",
+    "method": "GET",
+    "route": "/v1/me",
+    "auth": "none (401 if unauthenticated)",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "admin": {
+          "type": "boolean"
+        },
+        "banned": {
+          "type": "boolean"
+        },
+        "name": {
+          "type": "string"
+        },
+        "user_id": {
+          "type": "string"
+        },
+        "via": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "me/200-signed",
+    "method": "GET",
+    "route": "/v1/me",
+    "auth": "none (401 if unauthenticated)",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "admin": {
+          "type": "boolean"
+        },
+        "banned": {
+          "type": "boolean"
+        },
+        "name": {
+          "type": "string"
+        },
+        "user_id": {
+          "type": "string"
+        },
+        "via": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "me/401",
+    "method": "GET",
+    "route": "/v1/me",
+    "auth": "none (401 if unauthenticated)",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "me/401-bad_signature",
+    "method": "GET",
+    "route": "/v1/me",
+    "auth": "none (401 if unauthenticated)",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "me/401-client_revoked",
+    "method": "GET",
+    "route": "/v1/me",
+    "auth": "none (401 if unauthenticated)",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "me/401-replay",
+    "method": "GET",
+    "route": "/v1/me",
+    "auth": "none (401 if unauthenticated)",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "me/401-stale_timestamp",
+    "method": "GET",
+    "route": "/v1/me",
+    "auth": "none (401 if unauthenticated)",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "me/401-token_invalid",
+    "method": "GET",
+    "route": "/v1/me",
+    "auth": "none (401 if unauthenticated)",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "me/401-unknown_client",
+    "method": "GET",
+    "route": "/v1/me",
+    "auth": "none (401 if unauthenticated)",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "me/503-identity_unavailable",
+    "method": "GET",
+    "route": "/v1/me",
+    "auth": "none (401 if unauthenticated)",
+    "status": 503,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "meta/200",
+    "method": "GET",
+    "route": "/v1/meta",
+    "auth": "none",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "api": {
+          "type": "object",
+          "fields": {
+            "major": {
+              "type": "number"
+            },
+            "minor": {
+              "type": "number"
+            }
+          }
+        },
+        "author_count": {
+          "type": "number"
+        },
+        "authors_modified_at": {
+          "type": "string"
+        },
+        "authors_version": {
+          "type": "number"
+        },
+        "deprecations": {
+          "type": "array",
+          "item": null
+        },
+        "formats": {
+          "type": "array",
+          "item": {
+            "type": "string"
+          }
+        },
+        "health": {
+          "type": "object",
+          "fields": {
+            "diff": {
+              "type": "object",
+              "fields": {
+                "age_s": {
+                  "type": "null"
+                },
+                "last_at": {
+                  "type": "null"
+                },
+                "stale": {
+                  "type": "boolean"
+                }
+              }
+            },
+            "dump": {
+              "type": "object",
+              "fields": {
+                "age_s": {
+                  "type": "null"
+                },
+                "last_at": {
+                  "type": "null"
+                },
+                "seq": {
+                  "type": "null"
+                },
+                "stale": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        },
+        "last_diff": {
+          "type": "null"
+        },
+        "layout_count": {
+          "type": "number"
+        },
+        "layouts_modified_at": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "seq": {
+          "type": "number"
+        }
+      }
+    }
+  },
+  {
+    "id": "meta/304",
+    "method": "GET",
+    "route": "/v1/meta",
+    "auth": "none",
+    "status": 304,
+    "shape": null
+  },
+  {
+    "id": "ratelimit/429",
+    "method": "POST",
+    "route": "/v1/layouts",
+    "auth": "user",
+    "status": 429,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "number"
+        },
+        "message": {
+          "type": "string"
+        },
+        "retry_after": {
+          "type": "number"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "window_seconds": {
+          "type": "number"
+        }
+      }
+    }
+  }
+]
