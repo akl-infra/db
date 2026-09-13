@@ -1,0 +1,5 @@
+# Copy to .dev.vars (gitignored) for `npx wrangler dev`. See README.md's
+# vars/secrets table for what each one does and how to get a value.
+DISCORD_CLIENT_ID=
+DISCORD_CLIENT_SECRET=
+SESSION_SECRET=change-me-to-32-plus-random-bytes-for-local-dev-only

@@ -1,0 +1,34 @@
+{
+  "name": "akldb-site",
+  "private": true,
+  "type": "module",
+  "description": "akldb.org -- the community layout database's own website (design/akldb-site/01-plan.md, W1a). A Cloudflare Worker (Hono) serving /auth/* and /api/v1/* plus a Vite/SolidJS static build. Its own package.json: no workspace, no dependency on ../web or ../src (db/tests/tools/boundary.test.ts's SITE-9 rule).",
+  "scripts": {
+    "predev": "node scripts/build-docs.mjs",
+    "dev": "vite",
+    "prebuild": "node scripts/build-docs.mjs",
+    "build": "vite build",
+    "preview": "vite preview",
+    "pretest": "node scripts/build-docs.mjs",
+    "test": "vitest run",
+    "pretypecheck": "node scripts/build-docs.mjs",
+    "typecheck": "tsc --noEmit",
+    "deploy": "npm run build && wrangler deploy",
+    "wrangler-dev": "npm run build && wrangler dev"
+  },
+  "dependencies": {
+    "@solidjs/web": "2.0.0-rc.1",
+    "hono": "^4.13.0",
+    "marked": "9.1.6",
+    "solid-js": "2.0.0-rc.1"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260908.1",
+    "@solidjs/vite-plugin": "3.0.0-next.32",
+    "fast-check": "^4.9.0",
+    "typescript": "^5.9.3",
+    "vite": "^8.2.2",
+    "vitest": "^4.1.11",
+    "wrangler": "^4.130.0"
+  }
+}

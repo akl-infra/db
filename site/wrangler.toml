@@ -1,0 +1,36 @@
+name = "akldb-site"
+main = "server/index.ts"
+compatibility_date = "2026-08-22" # same date akl-db pins (db/wrangler.toml) -- newest the installed workerd/miniflare supports
+compatibility_flags = ["nodejs_compat"]
+
+# The akldb.org zone is live in the akl account and these two custom domains
+# are bound to this Worker (2026-09-12, mid-slice update from the lead --
+# design/akldb-site/01-plan.md §7 step 3 is done). `workers_dev = true`
+# stays on alongside them: a custom domain route disables the workers.dev
+# subdomain by default, but the Discord application's redirect list still
+# names https://akldb-site.akl-58a.workers.dev/auth/callback as its second
+# (pre-domain-cutover) URI, so that origin has to keep answering.
+workers_dev = true
+
+[[routes]]
+pattern = "akldb.org"
+custom_domain = true
+
+[[routes]]
+pattern = "www.akldb.org"
+custom_domain = true
+
+[assets]
+directory = "./dist"
+not_found_handling = "single-page-application"
+run_worker_first = ["/auth/*", "/api/*"]
+
+[vars]
+DB_BASE_URL = "https://akl-db.akl-58a.workers.dev"
+SITE_NAME = "akldb"
+
+[observability]
+enabled = true
+
+# Secrets (not committed, already set on the deployed Worker): DISCORD_CLIENT_ID,
+# DISCORD_CLIENT_SECRET, SESSION_SECRET -- see README.md's vars/secrets table.
