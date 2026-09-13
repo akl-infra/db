@@ -313,27 +313,6 @@ h2 {
   color: var(--accent);
 }
 
-/* Whole-row click target (Home's layout list, [SITE-19]): `akl-row-link` is
-   a real <a> whose `::after` is stretched over the entire <tr> via the
-   row's own `position: relative` -- native anchor semantics (tab order,
-   Enter, middle-click/cmd-click opening a new tab) come for free, no JS
-   delegation needed. Any OTHER link in the row (the Owner column) needs its
-   own stacking context above that overlay so it stays independently
-   clickable. */
-.akl-table tbody tr {
-  position: relative;
-  cursor: pointer;
-}
-.akl-row-link::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-}
-.akl-table td a:not(.akl-row-link) {
-  position: relative;
-  z-index: 1;
-}
-
 /* Narrow phones: collapse the table into a stacked list rather than
    scrolling horizontally (the page must never scroll sideways). */
 @media (max-width: 560px) {
@@ -737,17 +716,139 @@ h2 {
   margin-top: 6px;
 }
 
-/* ── admin placeholder ──────────────────────────────────────────────── */
+/* ── owner + admin actions (W1b) ───────────────────────────────────── */
+
+.akl-owner-actions {
+  margin-top: 12px;
+}
+.akl-action-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.akl-btn,
+.akl-btn-ghost {
+  font-family: var(--font-body);
+  font-size: 13px;
+  border-radius: 4px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+.akl-btn {
+  background: var(--accent);
+  color: var(--accent-contrast);
+  border: none;
+}
+.akl-btn:hover {
+  filter: brightness(1.08);
+}
+.akl-btn:disabled {
+  background: var(--border);
+  color: var(--ink-muted);
+  cursor: default;
+}
+.akl-btn-danger {
+  background: var(--danger);
+  color: #fff;
+}
+.akl-btn-ghost {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--ink);
+}
+.akl-btn-ghost:disabled {
+  color: var(--ink-muted);
+  cursor: default;
+}
+.akl-action-row input[type="text"],
+.akl-action-row input[type="number"] {
+  font-family: var(--font-body);
+  font-size: 13px;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 10px;
+  min-width: 0;
+  flex: 1 1 200px;
+}
+.akl-inline-error {
+  color: var(--danger);
+  font-size: 13px;
+}
+.akl-link-actions h3 {
+  font-family: var(--font-display);
+  font-size: 15px;
+  margin: 0 0 8px;
+}
+
+/* ── admin console ──────────────────────────────────────────────────── */
 
 .akl-admin-tabs {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 20px;
+  padding-bottom: 0;
   list-style: none;
-  margin: 0;
-  padding: 0;
+  padding-left: 0;
 }
-.akl-admin-tabs li {
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 12px 14px;
-  margin-bottom: 8px;
+.akl-admin-tabs button {
+  font-family: var(--font-body);
+  font-size: 13px;
+  background: none;
+  border: none;
   color: var(--ink-muted);
+  padding: 8px 12px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+.akl-admin-tabs button[aria-current="true"] {
+  color: var(--ink);
+  border-bottom-color: var(--accent);
+}
+.akl-admin-tabs button:hover {
+  color: var(--ink);
+}
+.akl-status-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.akl-status-chips button {
+  font-family: var(--font-body);
+  font-size: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 12px;
+  color: var(--ink-muted);
+  cursor: pointer;
+}
+.akl-status-chips button[aria-current="true"] {
+  background: var(--accent-wash);
+  color: var(--ink);
+  border-color: var(--accent);
+}
+.akl-kv {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 14px;
+  font-size: 13px;
+  margin: 0;
+}
+.akl-kv dt {
+  color: var(--ink-muted);
+}
+.akl-kv dd {
+  margin: 0;
+  overflow-wrap: break-word;
+}
+.akl-seq-note {
+  color: var(--ink-muted);
+  font-size: 12px;
 }

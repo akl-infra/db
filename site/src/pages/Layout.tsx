@@ -1,10 +1,14 @@
 import type { Component } from "solid-js";
-import { For, Show, createMemo, createSignal } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal } from "solid-js";
 import { copy } from "../copy.ts";
-import { getLayout, getLayoutHistory } from "../api.ts";
+import { getLayout, getLayoutHistory, getLikes } from "../api.ts";
 import { onLinkClick } from "../router.ts";
 import { safeExternalLink } from "../lib/safelink.ts";
 import { createAsync } from "../lib/asyncData.ts";
+import { meResource } from "../session.ts";
+import { canSeeAdmin } from "../lib/adminGate.ts";
+import AuthorRef from "../ui/AuthorRef.tsx";
+import OwnerActions from "../ui/OwnerActions.tsx";
 
 interface LayoutPageProps {
   // NOT named `ref`: that's a reserved JSX attribute name on components in
@@ -17,8 +21,62 @@ interface LayoutPageProps {
 }
 
 const LayoutPage: Component<LayoutPageProps> = (props) => {
-  const record = createAsync(() => props.layoutRef, getLayout);
+  // Once loaded, every re-fetch below (after an owner/admin action, or a
+  // manual reload after a 409 `stale`) addresses the layout by its OWN
+  // `id`, not the ref the URL happened to use -- `byRef` resolves an id
+  // first and, unlike its name lookup, doesn't filter `deleted = 0`, so a
+  // rename or a delete never strands this page on a ref that stops
+  // resolving (OwnerActions.tsx carries the same reasoning for the writes
+  // themselves).
+  const [refreshRef, setRefreshRef] = createSignal<string | undefined>(undefined);
+  const [refreshTick, setRefreshTick] = createSignal(0);
+  function refresh(): void {
+    setRefreshTick((t) => t + 1);
+  }
+
+  const record = createAsync(
+    () => [refreshRef() ?? props.layoutRef, refreshTick()] as const,
+    ([ref]) => getLayout(ref),
+  );
   const history = createAsync(() => props.layoutRef, (ref) => getLayoutHistory(ref));
+
+  const recordData = createMemo(() => {
+    const r = record.data();
+    return r?.ok ? r.data : undefined;
+  });
+
+  // Split effect (design/SOLID-CONVENTIONS.md rule 8a): `compute` is the
+  // only place that reads the reactive `id` (establishing the dependency);
+  // `apply` runs untracked and does the one-time imperative pin -- reading
+  // `refreshRef()` there is a plain snapshot, not a subscription, so
+  // pinning doesn't re-trigger itself.
+  createEffect(
+    () => recordData()?.id,
+    (id) => {
+      if (id !== undefined && refreshRef() === undefined) setRefreshRef(id);
+    },
+  );
+
+  const likes = createAsync(
+    () => recordData()?.id,
+    (id) => (id ? getLikes(id) : Promise.resolve({ ok: true as const, data: { likes: [] } })),
+  );
+
+  const me = () => meResource();
+  const liked = createMemo<boolean | undefined>(() => {
+    const userId = me()?.user?.user_id;
+    if (!userId) return undefined;
+    const l = likes.data();
+    if (!l?.ok) return undefined;
+    return l.data.likes.includes(userId);
+  });
+  const isOwner = createMemo(() => {
+    const userId = me()?.user?.user_id;
+    const data = recordData();
+    return !!userId && !!data && userId === data.owner;
+  });
+  const isAdmin = createMemo(() => canSeeAdmin(me()));
+  const canManage = createMemo(() => isOwner() || isAdmin());
 
   const formatIds = createMemo(() => {
     const r = record.data();
@@ -37,10 +95,6 @@ const LayoutPage: Component<LayoutPageProps> = (props) => {
     const r = record.data();
     if (!r || r.ok) return null;
     return r.status === 404 ? copy.layout.notFound : copy.layout.loadError;
-  });
-  const recordData = createMemo(() => {
-    const r = record.data();
-    return r?.ok ? r.data : undefined;
   });
 
   return (
@@ -63,9 +117,7 @@ const LayoutPage: Component<LayoutPageProps> = (props) => {
               <dl class="akl-meta-list">
                 <dt>{copy.layout.owner}</dt>
                 <dd>
-                  <a href={`/a/${encodeURIComponent(data.owner)}`} onClick={(e) => onLinkClick(e, `/a/${encodeURIComponent(data.owner)}`)}>
-                    {data.owner}
-                  </a>
+                  <AuthorRef userId={data.owner} linked />
                 </dd>
                 <dt>{copy.layout.likes}</dt>
                 <dd>{data.like_count}</dd>
@@ -126,6 +178,14 @@ const LayoutPage: Component<LayoutPageProps> = (props) => {
               }}
             </Show>
 
+            <Show when={me()} keyed>
+              {(m) => (
+                <Show when={m.user} fallback={<p class="akl-muted">{copy.actions.signInToManage}</p>}>
+                  <OwnerActions layout={data} liked={liked()} canManage={canManage()} isAdmin={isAdmin()} onChanged={refresh} />
+                </Show>
+              )}
+            </Show>
+
             <h2>{copy.layout.historyTitle}</h2>
             <Show when={historyItems().length > 0} fallback={<div class="akl-empty">{copy.layout.historyEmpty}</div>}>
               <ul class="akl-history-list">
@@ -134,7 +194,14 @@ const LayoutPage: Component<LayoutPageProps> = (props) => {
                     <li>
                       <span class="akl-history-when">{ev.at}</span>
                       <span>{ev.kind}</span>
-                      <span class="akl-muted">{ev.actor}</span>
+                      {/* saltorbit, 2026-09-13: "liked"/"unliked" rows may keep
+                          showing the raw actor id -- every other kind shows
+                          the resolved display name. */}
+                      <Show when={ev.kind !== "liked" && ev.kind !== "unliked"} fallback={<span class="akl-muted">{ev.actor}</span>}>
+                        <span class="akl-muted">
+                          <AuthorRef userId={ev.actor} linked />
+                        </span>
+                      </Show>
                     </li>
                   )}
                 </For>
