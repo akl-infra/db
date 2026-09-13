@@ -7,6 +7,10 @@
 // marker above is removed by saltorbit himself.
 
 export const copy = {
+  app: {
+    pageError: "This page hit an error:",
+    retry: "Try again",
+  },
   siteName: "akldb",
   header: {
     tagline: "the community layout database",

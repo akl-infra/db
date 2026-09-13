@@ -2,6 +2,7 @@ import type { Component } from "solid-js";
 import { For, Show, createEffect, createMemo, createSignal } from "solid-js";
 import { copy } from "../copy.ts";
 import { getLayout, getLayoutHistory, getLikes } from "../api.ts";
+import { isLikedBy } from "../lib/likes.ts";
 import { onLinkClick } from "../router.ts";
 import { safeExternalLink } from "../lib/safelink.ts";
 import { createAsync } from "../lib/asyncData.ts";
@@ -59,7 +60,7 @@ const LayoutPage: Component<LayoutPageProps> = (props) => {
 
   const likes = createAsync(
     () => recordData()?.id,
-    (id) => (id ? getLikes(id) : Promise.resolve({ ok: true as const, data: { likes: [] } })),
+    (id) => (id ? getLikes(id) : Promise.resolve({ ok: true as const, data: { user_ids: [] } })),
   );
 
   const me = () => meResource();
@@ -68,7 +69,7 @@ const LayoutPage: Component<LayoutPageProps> = (props) => {
     if (!userId) return undefined;
     const l = likes.data();
     if (!l?.ok) return undefined;
-    return l.data.likes.includes(userId);
+    return isLikedBy(l.data, userId);
   });
   const isOwner = createMemo(() => {
     const userId = me()?.user?.user_id;

@@ -1,5 +1,6 @@
 import type { Component } from "solid-js";
-import { Show } from "solid-js";
+import { Errored, Show } from "solid-js";
+import { copy } from "./copy.ts";
 import Header from "./ui/Header.tsx";
 import Home from "./pages/Home.tsx";
 import Layout from "./pages/Layout.tsx";
@@ -20,6 +21,21 @@ const App: Component = () => {
     <div class="akl-app">
       <Header />
       <main>
+        {/* SITE-22 (Solid 2's `Errored`, the old ErrorBoundary): a throw anywhere inside a page (a wire-shape surprise,
+            a bad record) must never take the header/nav down with it --
+            Solid disposes the whole root on an uncaught error otherwise
+            (production 2026-09-13). The boundary is keyed on the route so
+            navigating away always resets it. */}
+        <Errored
+          fallback={(err, reset) => (
+            <div class="akl-error">
+              {copy.app.pageError} <code>{String((err() as { message?: string })?.message ?? err())}</code>{" "}
+              <button class="akl-btn-ghost" onClick={() => reset()}>
+                {copy.app.retry}
+              </button>
+            </div>
+          )}
+        >
         <Show when={currentRoute().name === "home"}>
           <Home />
         </Show>
@@ -41,6 +57,7 @@ const App: Component = () => {
         <Show when={currentRoute().name === "notFound"}>
           <NotFound />
         </Show>
+        </Errored>
       </main>
     </div>
   );

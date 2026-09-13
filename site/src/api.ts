@@ -2,6 +2,7 @@
 // akl-db directly -- S3). Adds `X-Requested-With: akldb` on every non-safe
 // request (the CSRF header server/proxy.ts checks) and centralizes error
 // shape handling so every page/component gets the same `ApiResult`.
+import type { LikesWire } from "./lib/likes.ts";
 import type {
   AdminRow,
   Author,
@@ -101,7 +102,7 @@ export function getLayoutHistory(ref: string, format?: string): Promise<ApiResul
   return request(`/api/v1/layouts/${encodeURIComponent(ref)}/history${qs}`);
 }
 
-export function getLikes(ref: string): Promise<ApiResult<{ likes: string[] }>> {
+export function getLikes(ref: string): Promise<ApiResult<LikesWire>> {
   return request(`/api/v1/layouts/${encodeURIComponent(ref)}/likes`);
 }
 
