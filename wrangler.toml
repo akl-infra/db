@@ -3,6 +3,19 @@ main = "src/index.ts"
 compatibility_date = "2026-08-22" # newest date the installed workerd/miniflare (wrangler ^4.130.0) supports as of this writing; bump when the toolchain does
 compatibility_flags = ["nodejs_compat"]
 
+# api.akldb.org (saltorbit, 2026-09-13: "can we change this to api.akldb.org") -- the
+# public hostname for the API; the zone lives in the akl account beside the
+# site's akldb.org/www.akldb.org (db/site/wrangler.toml). `workers_dev = true`
+# keeps https://akl-db.akl-58a.workers.dev answering: every deployed client
+# (spark's DB_BASE_URL on Fly, the site Worker's DB_BASE_URL var, akl.gg's
+# pointer-mode config) still names it until each is repointed at a deploy of
+# its own. A custom-domain route alone would silently disable that subdomain.
+workers_dev = true
+
+[[routes]]
+pattern = "api.akldb.org"
+custom_domain = true
+
 [[d1_databases]]
 binding = "DB"
 database_name = "akl-db"
