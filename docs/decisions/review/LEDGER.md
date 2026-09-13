@@ -92,6 +92,7 @@ Status: `todo` · `running (agent, branch)` · `review` · `landed <sha>` · `bl
 
 ## Log
 
+- 2026-09-13 · #330 fix verified in Chrome on a local build (forced init failure: 3 created / 3 terminated, cooldown-bounded; success path computes) → PR #332 `fix/330-swap-worker-leak` against main (saltorbit merges). Heap-analysis scripts kept in `review/scripts/heap{diff,new,maps}.mjs`.
 - 2026-09-13 · LATENCY.md §9 interim: performance-1x publisher ≈ 25 layouts / 4 min (≈ 10.5 h first pass); feed timeouts proven to be bot-side event-loop stalls (laptop long-poll 25.4 s flat); B11 dispatched. Spark still on v41 (B10 undeployed: deploy denied by the permission classifier twice; saltorbit runs it).
 - 2026-09-13 · #330 root cause found (Chrome + Safari `footprint`): `web/src/data/swap-engine.ts` never terminates a swap worker whose init handshake failed, and every compute/hover kick retries with a fresh worker → worker-per-attempt; 9 leaked timed-out workers = +327 MB renderer RSS (≈ 36 MB each, wasm + Go runtime, invisible to heap snapshots); saltorbit's 4-day Safari tab had 6 worker threads. Fix agent on a branch off main (terminate on failure + backoff + 60 s worker-side ready wait).
 - 2026-09-12 · B10 landed (b8cb1f2e6): bot 1,168 green. spark-bot resized to performance-1x for the backlog pass (saltorbit: yes). Spark deploy of B10 blocked by the permission classifier; publisher continues on v41.

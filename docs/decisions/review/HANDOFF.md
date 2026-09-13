@@ -47,7 +47,7 @@ Docs: REQUIREMENTS, PROPOSAL, LATENCY, LEDGER, four artifact pages (all measured
 
 1. **Machine size** (saltorbit) — LATENCY.md §7b.
 2. **V1 round 2**: after real Discord usage, read `/health.latency` p50/p95 per verb on Fly; `feed_wake_ms`; steady-state edit → pointer (expected < 1 min); 24 h memory/CPU. Write it into LATENCY.md and the artifacts page (a LATENCY page is not yet an artifact — make one and add it to `design/artifacts/index.json`; test `web/tests/tools/artifacts.test.mjs`).
-3. **#330 akl.gg tab memory growth** (production Safari tab reached 3 GB in ~4 days). Pre-existing, but A1's 60 s poll would amplify it — fix before A2. Repro plan in the issue.
+3. **#330 (PR #332 open, fix verified; merge before A2) akl.gg tab memory growth** (production Safari tab reached 3 GB in ~4 days). Pre-existing, but A1's 60 s poll would amplify it — fix before A2. Repro plan in the issue.
 4. **B9 follow-ups**: S1 should log divergent ids; Worker long-poll check interval 1 s → 250 ms (wake p50 ≈ 1 s today); delete `aklgg-stats-preview` and `aklgg-data-writer-preview`; the `history.json` written per tick has `db_seq: None` (bug in `recordHistory`).
 5. **A2 the production flip** (saltorbit runs): Pages prod `DB_BASE_URL`, CI var, pointer-only build, remove meta-watch — one atomic change; then delete the prod stats path + rotate `GITHUB_DISPATCH_TOKEN`. **A3** monthly reference harvest (S6).
 6. **L5 moderation** (bans, admin overrides, `link` + queue) → **W1 layoutdb website** (own design round) → **W3 spark/1 format discussion** (saltorbit: not done) → **L6** delete the frozen format-chain machinery once spark/2's shape is decided → **W2** second admin + domain.

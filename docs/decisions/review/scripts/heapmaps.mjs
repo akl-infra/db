@@ -1,0 +1,17 @@
+// list the biggest Map/Set/Array containers in a snapshot by element count, with a retainer chain each
+import fs from 'node:fs';
+const s=JSON.parse(fs.readFileSync(process.argv[2],'utf8')); const f=s.snapshot.meta.node_fields, ef=s.snapshot.meta.edge_fields; const w=f.length, ew=ef.length; const types=s.snapshot.meta.node_types[0], etypes=s.snapshot.meta.edge_types[0];
+const n=s.nodes,e=s.edges,st=s.strings; const iT=f.indexOf('type'),iN=f.indexOf('name'),iE=f.indexOf('edge_count'),iS=f.indexOf('self_size'); const eT=ef.indexOf('type'),eN=ef.indexOf('name_or_index'),eTo=ef.indexOf('to_node');
+const N=n.length/w; const firstEdge=new Int32Array(N+1); { let off=0; for(let k=0;k<N;k++){ firstEdge[k]=off; off+=n[k*w+iE]*ew; } firstEdge[N]=off; }
+const retCount=new Int32Array(N); for(let k=0;k<N;k++) for(let o=firstEdge[k];o<firstEdge[k+1];o+=ew){ if(etypes[e[o+eT]]==='weak') continue; retCount[e[o+eTo]/w]++; }
+const retStart=new Int32Array(N+1); for(let k=0;k<N;k++) retStart[k+1]=retStart[k]+retCount[k]; const ret=new Int32Array(retStart[N]); const fill=new Int32Array(N);
+for(let k=0;k<N;k++) for(let o=firstEdge[k];o<firstEdge[k+1];o+=ew){ if(etypes[e[o+eT]]==='weak') continue; const to=e[o+eTo]/w; ret[retStart[to]+fill[to]++]=k; }
+const name=k=>types[n[k*w+iT]]+' '+st[n[k*w+iN]];
+// approximate retained size: BFS from node through non-weak edges, counting nodes with exactly one retainer path... too heavy; instead sum self sizes of nodes reachable within depth 4 that have retCount<=2
+function approxRetained(root,depth){ const seen=new Set([root]); let q=[root]; let total=n[root*w+iS]; for(let d=0;d<depth;d++){ const nq=[]; for(const k of q){ for(let o=firstEdge[k];o<firstEdge[k+1];o+=ew){ const t=etypes[e[o+eT]]; if(t==='weak'||t==='shortcut') continue; const to=e[o+eTo]/w; if(seen.has(to)) continue; const nt=types[n[to*w+iT]]; if(nt==='code'||nt==='closure'||nt==='synthetic'||nt==='hidden'&&st[n[to*w+iN]].startsWith('system / Map')) continue; if(retCount[to]>3) continue; seen.add(to); total+=n[to*w+iS]; nq.push(to);} } q=nq; if(seen.size>2_000_000) break; } return {total,count:seen.size}; }
+const cands=[]; for(let k=0;k<N;k++){ const t=types[n[k*w+iT]]; const nm=st[n[k*w+iN]]; if((t==='object'&&(nm==='Map'||nm==='Set'||nm==='Array'))){ let ec=0; // element count: Map/Set via hidden table edge; Array via elements
+  for(let o=firstEdge[k];o<firstEdge[k+1];o+=ew){ const en=etypes[e[o+eT]]==='internal'||etypes[e[o+eT]]==='hidden'?st[e[o+eN]]:''; if(en==='table'||en==='elements'){ const to=e[o+eTo]/w; ec=n[to*w+iE]; } } if(ec>=200) cands.push({k,ec,nm}); } }
+cands.sort((a,b)=>b.ec-a.ec);
+function chain(k,depth){ const out=[]; let cur=k; const seen=new Set(); for(let d=0;d<depth;d++){ seen.add(cur); const rs=retStart[cur],re=retStart[cur+1]; let pick=-1; for(let i=rs;i<re;i++){ const r=ret[i]; if(!seen.has(r)){ pick=r; break; } } if(pick<0) break; let en='?'; for(let o=firstEdge[pick];o<firstEdge[pick+1];o+=ew){ if(e[o+eTo]/w===cur){ const t=etypes[e[o+eT]]; en=(t==='element'||t==='hidden')?'['+e[o+eN]+']':st[e[o+eN]]; break; } } out.push(`${name(pick)} .${en}`); cur=pick; } return out; }
+const top=cands.slice(0,40).map(c=>({...c,...approxRetained(c.k,6)})).sort((a,b)=>b.total-a.total).slice(0,14);
+for(const c of top){ console.log(`\n== ${c.nm} entries=${c.ec} approxRetained=${(c.total/1e6).toFixed(1)}MB nodes=${c.count}`); for(const l of chain(c.k,10)) console.log('   <- '+l.slice(0,130)); }
