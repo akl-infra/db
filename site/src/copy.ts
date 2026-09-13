@@ -13,7 +13,7 @@ export const copy = {
   },
   siteName: "akldb",
   header: {
-    tagline: "the community layout database",
+    tagline: "the community akldb",
     navHome: "Layouts",
     navChanges: "Event log", // saltorbit 2026-09-13 (was "Changes")
     navDocs: "Docs",

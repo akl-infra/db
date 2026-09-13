@@ -129,6 +129,6 @@ describe("[SITE-34] the Docs page has exactly one H1 and every TOC anchor resolv
 
   it("[SITE-34] the guide's own leading heading is demoted to <h2> before it's embedded (never a second <h1>, collapsed or not)", () => {
     expect(docsHtml.includes("<h1>")).toBe(false);
-    expect(docsHtml.startsWith("<h2>Adopting the layout database API</h2>")).toBe(true);
+    expect(docsHtml.startsWith("<h2>Adopting the akldb API</h2>")).toBe(true);
   });
 });
