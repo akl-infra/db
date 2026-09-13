@@ -78,12 +78,12 @@ export interface MagicKey {
   except?: string[];
 }
 
-// Same tagged treatment for the "repeat_previous" sentinel ONLY -- a literal
-// same/opposite character stays a bare string (never wrapped), since it was
-// never ambiguous with "repeat_previous" (a multi-character string) or
-// "none" (same/opposite have never had a "none" sentinel -- absent/null
-// already meant that).
-export type ChiralValue = string | { kind: "repeat" };
+// design/layout-db/24-spark-wire-review.md finding 6, round 2's resolution
+// item F: the SAME kind-tagged union as MagicDefault -- a literal
+// same/opposite character is `{kind: "char", char: "e"}`, never a bare
+// string; same/opposite have never had a "none" sentinel (absent/null
+// already means that), so there is no third tag.
+export type ChiralValue = MagicDefault;
 
 export interface ChiralKey {
   key: string;
@@ -278,7 +278,7 @@ export function computeRows(magic: MagicIntent | undefined, keys: Record<string,
       if (h === null || kh === null) continue; // no hand on either side -> this construct produces nothing here (a documented zero-row case, 01 §4.1 in the interop writeup)
       const val = h === kh ? ck.same : ck.opposite;
       if (val == null) continue; // undefined or null: absent, as on akl.gg
-      const output = c + (isRepeatTag(val) ? c : val);
+      const output = c + (isRepeatTag(val) ? c : val.char);
       rows.push({ inputs: c + ck.key, output, type: "chiral", from: `chiral_keys[${i}]` });
     }
   });
@@ -542,9 +542,10 @@ export function liftRules(rows: Row[], keys: Record<string, Position>): { lifted
     }
     // Internal bookkeeping above still uses the "repeat_previous" string as
     // its own sentinel (never leaves this function) -- converted to the
-    // tagged `{repeat: true}` shape only at the point of writing the real
-    // `ChiralKey` (24-spark-wire-review.md finding 6).
-    const toChiralValue = (v: string): ChiralValue => (v === "repeat_previous" ? { kind: "repeat" } : v);
+    // tagged `{kind: "repeat"}` / `{kind: "char", char}` shape only at the
+    // point of writing the real `ChiralKey` (24-spark-wire-review.md finding
+    // 6, round 2's resolution item F: same tagged union as MagicDefault).
+    const toChiralValue = (v: string): ChiralValue => (v === "repeat_previous" ? { kind: "repeat" } : { kind: "char", char: v });
     const ck: ChiralKey = { key: k };
     if (sides.same.size === 1) ck.same = toChiralValue([...sides.same][0]!);
     if (sides.opposite.size === 1) ck.opposite = toChiralValue([...sides.opposite][0]!);
@@ -723,11 +724,17 @@ export function validateMagicSemantics(
     if (same == null && opposite == null) {
       return { message: `chiral_keys[].${JSON.stringify(key)} must set at least one of 'same'/'opposite'`, path: base };
     }
-    if (same != null && !isRepeatTag(same) && (typeof same !== "string" || same.length === 0)) {
-      return { message: `chiral_keys[].same must be a non-empty string or {"kind":"repeat"}, got ${JSON.stringify(same)}`, path: `${base}/same` };
+    if (same != null && !isRepeatTag(same) && !isCharTag(same)) {
+      return {
+        message: `chiral_keys[].same must be {"kind":"repeat"}, {"kind":"char","char":"<single character>"}, null, or omitted, got ${JSON.stringify(same)}`,
+        path: `${base}/same`,
+      };
     }
-    if (opposite != null && !isRepeatTag(opposite) && (typeof opposite !== "string" || opposite.length === 0)) {
-      return { message: `chiral_keys[].opposite must be a non-empty string or {"kind":"repeat"}, got ${JSON.stringify(opposite)}`, path: `${base}/opposite` };
+    if (opposite != null && !isRepeatTag(opposite) && !isCharTag(opposite)) {
+      return {
+        message: `chiral_keys[].opposite must be {"kind":"repeat"}, {"kind":"char","char":"<single character>"}, null, or omitted, got ${JSON.stringify(opposite)}`,
+        path: `${base}/opposite`,
+      };
     }
 
     const except = ck.except ?? [];

@@ -82,9 +82,9 @@ describe("spark/1 magic validation == akl.gg's gate (LDB-F22)", () => {
       { magic_keys: [{ key: "a", rules: [{ after: "b", output: "bx" }, { after: "b", output: "by" }] }] }, // duplicate after
       { magic_keys: [{ key: "a", rules: [{ after: "b", output: "b" }] }] }, // output shorter than two
       { magic_keys: [{ key: "a", rules: [{ after: "b", output: "cb" }] }] }, // output doesn't start with after
-      { magic_keys: [{ key: "a" }], chiral_keys: [{ key: "a", same: "x" }] }, // magic and chiral at once
-      { chiral_keys: [{ key: "h", same: "x" }, { key: "h", same: "y" }] }, // duplicate chiral key
-      { chiral_keys: [{ key: "h", same: "" }] }, // empty same
+      { magic_keys: [{ key: "a" }], chiral_keys: [{ key: "a", same: { kind: "char", char: "x" } }] }, // magic and chiral at once
+      { chiral_keys: [{ key: "h", same: { kind: "char", char: "x" } }, { key: "h", same: { kind: "char", char: "y" } }] }, // duplicate chiral key
+      { chiral_keys: [{ key: "h", same: { kind: "char", char: "" } }] }, // empty char (same/opposite use the same tagged union as magic_keys[].default now -- no bare-string same/opposite left to be "empty")
       { adaptive_swaps: [{ trigger: "a", swap: ["b", "b"] }] }, // swap names one character twice
       { adaptive_swaps: [{ trigger: "a", swap: ["b", "c"] }, { trigger: "a", swap: ["b", "d"] }] }, // (trigger, member) twice
       { adaptive_swaps: [{ trigger: "ab", swap: ["b", "c"] }] }, // trigger not a single character

@@ -133,119 +133,119 @@
       },
       {
         "inputs": ",/",
-        "output": ",ee"
+        "output": ",e"
       },
       {
         "inputs": "./",
-        "output": ".ee"
+        "output": ".e"
       },
       {
         "inputs": "//",
-        "output": "/ee"
+        "output": "/e"
       },
       {
         "inputs": ";/",
-        "output": ";ee"
+        "output": ";e"
       },
       {
         "inputs": "a/",
-        "output": "aei"
+        "output": "ai"
       },
       {
         "inputs": "b/",
-        "output": "bei"
+        "output": "bi"
       },
       {
         "inputs": "c/",
-        "output": "cei"
+        "output": "ci"
       },
       {
         "inputs": "d/",
-        "output": "dei"
+        "output": "di"
       },
       {
         "inputs": "e/",
-        "output": "eei"
+        "output": "ei"
       },
       {
         "inputs": "f/",
-        "output": "fei"
+        "output": "fi"
       },
       {
         "inputs": "g/",
-        "output": "gei"
+        "output": "gi"
       },
       {
         "inputs": "h/",
-        "output": "hee"
+        "output": "he"
       },
       {
         "inputs": "i/",
-        "output": "iee"
+        "output": "ie"
       },
       {
         "inputs": "j/",
-        "output": "jee"
+        "output": "je"
       },
       {
         "inputs": "k/",
-        "output": "kee"
+        "output": "ke"
       },
       {
         "inputs": "l/",
-        "output": "lee"
+        "output": "le"
       },
       {
         "inputs": "n/",
-        "output": "nee"
+        "output": "ne"
       },
       {
         "inputs": "o/",
-        "output": "oee"
+        "output": "oe"
       },
       {
         "inputs": "p/",
-        "output": "pee"
+        "output": "pe"
       },
       {
         "inputs": "q/",
-        "output": "qei"
+        "output": "qi"
       },
       {
         "inputs": "r/",
-        "output": "rei"
+        "output": "ri"
       },
       {
         "inputs": "s/",
-        "output": "sei"
+        "output": "si"
       },
       {
         "inputs": "t/",
-        "output": "tei"
+        "output": "ti"
       },
       {
         "inputs": "u/",
-        "output": "uee"
+        "output": "ue"
       },
       {
         "inputs": "v/",
-        "output": "vei"
+        "output": "vi"
       },
       {
         "inputs": "w/",
-        "output": "wei"
+        "output": "wi"
       },
       {
         "inputs": "x/",
-        "output": "xei"
+        "output": "xi"
       },
       {
         "inputs": "y/",
-        "output": "yee"
+        "output": "ye"
       },
       {
         "inputs": "z/",
-        "output": "zei"
+        "output": "zi"
       },
       {
         "inputs": "nh",

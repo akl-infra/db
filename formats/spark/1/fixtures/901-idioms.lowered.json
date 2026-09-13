@@ -136,147 +136,147 @@
   },
   {
     "inputs": ",/",
-    "output": ",ee",
+    "output": ",e",
     "type": "chiral"
   },
   {
     "inputs": "./",
-    "output": ".ee",
+    "output": ".e",
     "type": "chiral"
   },
   {
     "inputs": "//",
-    "output": "/ee",
+    "output": "/e",
     "type": "chiral"
   },
   {
     "inputs": ";/",
-    "output": ";ee",
+    "output": ";e",
     "type": "chiral"
   },
   {
     "inputs": "a/",
-    "output": "aei",
+    "output": "ai",
     "type": "chiral"
   },
   {
     "inputs": "b/",
-    "output": "bei",
+    "output": "bi",
     "type": "chiral"
   },
   {
     "inputs": "c/",
-    "output": "cei",
+    "output": "ci",
     "type": "chiral"
   },
   {
     "inputs": "d/",
-    "output": "dei",
+    "output": "di",
     "type": "chiral"
   },
   {
     "inputs": "e/",
-    "output": "eei",
+    "output": "ei",
     "type": "chiral"
   },
   {
     "inputs": "f/",
-    "output": "fei",
+    "output": "fi",
     "type": "chiral"
   },
   {
     "inputs": "g/",
-    "output": "gei",
+    "output": "gi",
     "type": "chiral"
   },
   {
     "inputs": "h/",
-    "output": "hee",
+    "output": "he",
     "type": "chiral"
   },
   {
     "inputs": "i/",
-    "output": "iee",
+    "output": "ie",
     "type": "chiral"
   },
   {
     "inputs": "j/",
-    "output": "jee",
+    "output": "je",
     "type": "chiral"
   },
   {
     "inputs": "k/",
-    "output": "kee",
+    "output": "ke",
     "type": "chiral"
   },
   {
     "inputs": "l/",
-    "output": "lee",
+    "output": "le",
     "type": "chiral"
   },
   {
     "inputs": "n/",
-    "output": "nee",
+    "output": "ne",
     "type": "chiral"
   },
   {
     "inputs": "o/",
-    "output": "oee",
+    "output": "oe",
     "type": "chiral"
   },
   {
     "inputs": "p/",
-    "output": "pee",
+    "output": "pe",
     "type": "chiral"
   },
   {
     "inputs": "q/",
-    "output": "qei",
+    "output": "qi",
     "type": "chiral"
   },
   {
     "inputs": "r/",
-    "output": "rei",
+    "output": "ri",
     "type": "chiral"
   },
   {
     "inputs": "s/",
-    "output": "sei",
+    "output": "si",
     "type": "chiral"
   },
   {
     "inputs": "t/",
-    "output": "tei",
+    "output": "ti",
     "type": "chiral"
   },
   {
     "inputs": "u/",
-    "output": "uee",
+    "output": "ue",
     "type": "chiral"
   },
   {
     "inputs": "v/",
-    "output": "vei",
+    "output": "vi",
     "type": "chiral"
   },
   {
     "inputs": "w/",
-    "output": "wei",
+    "output": "wi",
     "type": "chiral"
   },
   {
     "inputs": "x/",
-    "output": "xei",
+    "output": "xi",
     "type": "chiral"
   },
   {
     "inputs": "y/",
-    "output": "yee",
+    "output": "ye",
     "type": "chiral"
   },
   {
     "inputs": "z/",
-    "output": "zei",
+    "output": "zi",
     "type": "chiral"
   },
   {

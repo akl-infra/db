@@ -51,8 +51,8 @@
     "chiral_keys": [
       {
         "key": "/",
-        "same": "ee",
-        "opposite": "ei",
+        "same": { "kind": "char", "char": "e" },
+        "opposite": { "kind": "char", "char": "i" },
         "except": [
           "m"
         ]

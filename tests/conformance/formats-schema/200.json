@@ -85,11 +85,8 @@
           ]
         },
         "chiralValue": {
-          "description": "A literal character stays a bare string; only the 'repeat previous' sentinel is tagged (the same `{kind:\"repeat\"}` shape as magicDefault's repeat variant).",
-          "oneOf": [
-            { "type": "string" },
-            { "type": "object", "additionalProperties": false, "required": ["kind"], "properties": { "kind": { "const": "repeat" } } }
-          ]
+          "description": "design/layout-db/24-spark-wire-review.md finding 6, round 2's resolution item F: the SAME kind-tagged union as magicDefault -- a literal character is `{kind:\"char\",char}`, never a bare string; the 'repeat previous' sentinel is `{kind:\"repeat\"}`.",
+          "$ref": "#/$defs/magicDefault"
         },
         "magicKeyRule": {
           "type": "object",

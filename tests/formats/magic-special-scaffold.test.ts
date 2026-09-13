@@ -57,7 +57,7 @@ describe("magic scaffold excludes every special char, not just its own (LDB-F15)
   it("[LDB-F15] a literal-default magic key's scaffold skips a chiral key's own char", () => {
     const magic: MagicIntent = {
       magic_keys: [{ key: "*", default: { kind: "char", char: "z" } }],
-      chiral_keys: [{ key: "c", same: "x", opposite: "y" }],
+      chiral_keys: [{ key: "c", same: { kind: "char", char: "x" }, opposite: { kind: "char", char: "y" } }],
     };
     const rows = computeRows(magic, baseKeys());
     expect(rows.find((r) => r.inputs === "c*")).toBeUndefined(); // 'c' is itself a chiral key -- excluded
@@ -88,19 +88,19 @@ describe("magic scaffold excludes every special char, not just its own (LDB-F15)
 
 describe("chiral scaffold includes the chiral key's own char (LDB-F15)", () => {
   it("[LDB-F15] same-hand self row: chiral key + itself takes `same` (same hand as itself, trivially)", () => {
-    const magic: MagicIntent = { chiral_keys: [{ key: "c", same: "x", opposite: "y" }] };
+    const magic: MagicIntent = { chiral_keys: [{ key: "c", same: { kind: "char", char: "x" }, opposite: { kind: "char", char: "y" } }] };
     const rows = computeRows(magic, baseKeys());
     expect(rows.find((r) => r.inputs === "cc")).toEqual({ inputs: "cc", output: "cx", type: "chiral", from: "chiral_keys[0]" });
   });
 
   it("[LDB-F15] self row doubles under repeat_previous, same as any other char", () => {
-    const magic: MagicIntent = { chiral_keys: [{ key: "c", same: { kind: "repeat" }, opposite: "y" }] };
+    const magic: MagicIntent = { chiral_keys: [{ key: "c", same: { kind: "repeat" }, opposite: { kind: "char", char: "y" } }] };
     const rows = computeRows(magic, baseKeys());
     expect(rows.find((r) => r.inputs === "cc")).toEqual({ inputs: "cc", output: "cc", type: "chiral", from: "chiral_keys[0]" });
   });
 
   it("[LDB-F15] no self row when only `opposite` is set -- the self case is always same-hand, which has no value to emit", () => {
-    const magic: MagicIntent = { chiral_keys: [{ key: "c", opposite: "y" }] };
+    const magic: MagicIntent = { chiral_keys: [{ key: "c", opposite: { kind: "char", char: "y" } }] };
     const rows = computeRows(magic, baseKeys());
     expect(rows.find((r) => r.inputs === "cc")).toBeUndefined();
   });
@@ -108,7 +108,7 @@ describe("chiral scaffold includes the chiral key's own char (LDB-F15)", () => {
   it("[LDB-F15] a magic key's own char is still a perfectly good chiral scaffold char -- specialChars does not apply to chiral", () => {
     const magic: MagicIntent = {
       magic_keys: [{ key: "b", rules: [{ after: "r", output: "r." }] }],
-      chiral_keys: [{ key: "c", same: "x", opposite: "y" }],
+      chiral_keys: [{ key: "c", same: { kind: "char", char: "x" }, opposite: { kind: "char", char: "y" } }],
     };
     const rows = computeRows(magic, baseKeys());
     // 'b' and 'c' are on the left hand (LEFT fingers, index < 10) -- same hand as 'c' itself.
@@ -116,7 +116,7 @@ describe("chiral scaffold includes the chiral key's own char (LDB-F15)", () => {
   });
 
   it("[LDB-F15] except on the chiral key suppresses its own self row too", () => {
-    const magic: MagicIntent = { chiral_keys: [{ key: "c", same: "x", opposite: "y", except: ["c"] }] };
+    const magic: MagicIntent = { chiral_keys: [{ key: "c", same: { kind: "char", char: "x" }, opposite: { kind: "char", char: "y" }, except: ["c"] }] };
     const rows = computeRows(magic, baseKeys());
     expect(rows.find((r) => r.inputs === "cc")).toBeUndefined();
   });
@@ -178,7 +178,7 @@ describe("liftRules promotes an orphaned special-char-after row into an explicit
 describe("findCollision under the wider scaffold (LDB-F15)", () => {
   it("[LDB-F15] a chiral self row collides with a raw rule on the same inputs; the except hint actually resolves it", () => {
     const magic: MagicIntent = {
-      chiral_keys: [{ key: "c", same: "x", opposite: "y" }],
+      chiral_keys: [{ key: "c", same: { kind: "char", char: "x" }, opposite: { kind: "char", char: "y" } }],
       rules: [{ inputs: "cc", output: "cz" }],
     };
     const rows = computeRows(magic, baseKeys());
@@ -189,7 +189,7 @@ describe("findCollision under the wider scaffold (LDB-F15)", () => {
 
     // Applying the hint actually removes the collision (unlike LDB-F14's
     // word-start row, this scaffold source DOES honour `except`).
-    const fixed: MagicIntent = { ...magic, chiral_keys: [{ key: "c", same: "x", opposite: "y", except: ["c"] }] };
+    const fixed: MagicIntent = { ...magic, chiral_keys: [{ key: "c", same: { kind: "char", char: "x" }, opposite: { kind: "char", char: "y" }, except: ["c"] }] };
     expect(findCollision(computeRows(fixed, baseKeys()))).toBeNull();
   });
 

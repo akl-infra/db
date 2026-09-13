@@ -49,7 +49,9 @@ describe("intent survives store + read (LDB-F3)", () => {
         except: ["q"],
       },
     ]);
-    expect(payload.magic?.chiral_keys).toEqual([{ key: "/", same: "ee", opposite: "ei", except: ["m"] }]);
+    expect(payload.magic?.chiral_keys).toEqual([
+      { key: "/", same: { kind: "char", char: "e" }, opposite: { kind: "char", char: "i" }, except: ["m"] },
+    ]);
     expect(payload.magic?.rules?.length).toBe(2);
   });
 

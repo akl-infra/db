@@ -140,14 +140,19 @@ const ALLOWED: Record<string, Set<string>> = {
     // Key.char is optional (23-geometry.md's duplicate-characters follow-up
     // -- absent means a free position); deleting or blanking it is always a
     // valid transform. Shares this "char" bucket with magic_keys[].default's
-    // OWN `char` sub-field (24-spark-wire-review.md finding 6's tagged
-    // shape) purely by fieldKind's naive last-segment naming -- THAT
-    // instance needs the opposite verdict, handled by the dedicated
-    // `isMagicDefaultChar` skip below rather than here.
+    // and chiral_keys[].same/opposite's OWN `char` sub-field
+    // (24-spark-wire-review.md finding 6, round 2's resolution item F: the
+    // SAME kind-tagged union) purely by fieldKind's naive last-segment
+    // naming -- THOSE instances need the opposite verdict, handled by the
+    // dedicated `isTaggedValueChar` skip below rather than here.
     "char:delete",
     "char:empty string",
-    "same:delete", // chiral_keys[] needs only ONE of same/opposite -- 901-idioms sets both
-    "opposite:delete",
+    // chiral_keys[] needs only ONE of same/opposite -- 901-idioms sets both
+    // -- but with same/opposite now nested tagged objects (never a bare
+    // scalar leaf), the generic walker never generates a "delete the whole
+    // same/opposite field" mutation to allow; that construct (one side
+    // absent, the other a valid tagged value) is covered directly by
+    // magic-aklgg-validation.test.ts's [LDB-F22] cases instead.
     "type:delete", // magic.rules[]' optional `type` (defaults to "raw")
     "type:empty string",
     "note:delete", // magic.rules[]' optional `note`
@@ -282,21 +287,23 @@ describe("payload mutations", () => {
               it.skip(`[LDB-F1] ${fixture.stem} ${leaf.pointer} empty string -- combos on this fixture reference this row's own keys, see mana2.test.ts`, () => {});
               continue;
             }
-            // spark/1's magic_keys[].default, when it holds `{char: <c>}`
-            // (24-spark-wire-review.md finding 6's tagged shape), shares the
-            // generic "char" field-kind bucket with Payload.keys[i].char
-            // (now optional -- a free position) purely by fieldKind's naive
-            // last-segment naming: it can't tell "this /default/char" from
-            // "this /keys/N/char" apart. The two need OPPOSITE verdicts --
+            // spark/1's magic_keys[].default and chiral_keys[].same/opposite,
+            // when they hold `{kind: "char", char: <c>}` (24-spark-wire-
+            // review.md finding 6, round 2's resolution item F: the SAME
+            // tagged union for both), share the generic "char" field-kind
+            // bucket with Payload.keys[i].char (now optional -- a free
+            // position) purely by fieldKind's naive last-segment naming: it
+            // can't tell "this /default/char" or "this /same|opposite/char"
+            // from "this /keys/N/char" apart. They need OPPOSITE verdicts --
             // deleting or blanking a KEY's char is a valid free position
-            // (ALLOWED, above); deleting or blanking a MAGIC DEFAULT's char
+            // (ALLOWED, above); deleting or blanking a tagged value's char
             // leaves it matching neither half of the tagged-union schema
-            // (`{repeat:true}` or `{char:<single character>}`), correctly
-            // REFUSED. Asserted directly here (not a blanket ALLOWED/
-            // deferred skip) since the verdict is uniform and known.
-            const isMagicDefaultChar = format.id === "spark/1" && kind === "char" && /\/default\/char$/.test(leaf.pointer);
-            if (isMagicDefaultChar && (mutation === "delete" || mutation === "empty string")) {
-              it(`[LDB-F1] ${fixture.stem} ${leaf.pointer} ${mutation} -- a magic default with no char left is refused (shares the 'char' bucket with Key.char, which IS allowed)`, () => {
+            // (`{kind:"repeat"}` or `{kind:"char", char:<single character>}`),
+            // correctly REFUSED. Asserted directly here (not a blanket
+            // ALLOWED/deferred skip) since the verdict is uniform and known.
+            const isTaggedValueChar = format.id === "spark/1" && kind === "char" && /\/(default|same|opposite)\/char$/.test(leaf.pointer);
+            if (isTaggedValueChar && (mutation === "delete" || mutation === "empty string")) {
+              it(`[LDB-F1] ${fixture.stem} ${leaf.pointer} ${mutation} -- a tagged char value with no char left is refused (shares the 'char' bucket with Key.char, which IS allowed)`, () => {
                 const mutated = applyMutation(fixture.payload, leaf, mutation);
                 const result = format.validate(mutated);
                 expect(result.ok).toBe(false);

@@ -141,7 +141,7 @@ describe("magic_collision matrix (LDB-F4, amended: idiom overlaps resolve as akl
 
   it("[LDB-F4] chiral scaffold x adaptive half: resolved, the swap wins", () => {
     const payload = payloadWith({
-      chiral_keys: [{ key: "k", same: "z", opposite: "y" }],
+      chiral_keys: [{ key: "k", same: { kind: "char", char: "z" }, opposite: { kind: "char", char: "y" } }],
       adaptive_swaps: [{ trigger: "a", swap: ["k", "b"] }],
     });
     expectResolved(payload, "ak", "ab");
@@ -163,7 +163,7 @@ describe("magic_collision matrix (LDB-F4, amended: idiom overlaps resolve as akl
 
   it("[LDB-F4] chiral scaffold x raw rule collide; hint excepts the scaffold", () => {
     const payload = payloadWith({
-      chiral_keys: [{ key: "k", same: "z", opposite: "y" }],
+      chiral_keys: [{ key: "k", same: { kind: "char", char: "z" }, opposite: { kind: "char", char: "y" } }],
       rules: [{ inputs: "ak", output: "aq" }],
     });
     expectCollision(payload, ["chiral_keys[0]", "rules[0]"], { path: "chiral_keys[0].except", add: "a" });

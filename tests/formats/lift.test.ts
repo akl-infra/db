@@ -100,12 +100,14 @@ function genMagicIntent(g: fc.GeneratorValue, keys: Record<string, Position>): M
   const chiral_keys = chiralKeyChars.map((key) => {
     const same = g(fc.constantFrom, "repeat_previous", ...VALUE_POOL);
     const opposite = g(fc.constantFrom, "repeat_previous", ...VALUE_POOL);
-    // Same tagging, but ONLY for the "repeat_previous" sentinel -- a literal
-    // value stays a bare string (finding 6).
+    // design/layout-db/24-spark-wire-review.md finding 6, round 2's
+    // resolution item F: same/opposite use the SAME kind-tagged union as
+    // magic_keys[].default -- a literal value is `{kind: "char", char}`,
+    // never a bare string.
     return {
       key,
-      same: same === "repeat_previous" ? ({ kind: "repeat" as const }) : same,
-      opposite: opposite === "repeat_previous" ? ({ kind: "repeat" as const }) : opposite,
+      same: same === "repeat_previous" ? ({ kind: "repeat" as const }) : ({ kind: "char" as const, char: same }),
+      opposite: opposite === "repeat_previous" ? ({ kind: "repeat" as const }) : ({ kind: "char" as const, char: opposite }),
     };
   });
 
