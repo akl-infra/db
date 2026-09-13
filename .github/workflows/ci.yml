@@ -36,7 +36,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: db/package-lock.json
+          cache-dependency-path: package-lock.json
       - name: Install dependencies
         run: npm ci
       - name: Typecheck
@@ -60,7 +60,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: db/package-lock.json
+          cache-dependency-path: package-lock.json
       - name: Install dependencies
         run: npm ci
       - name: Apply D1 migrations (remote)
@@ -94,7 +94,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: db/package-lock.json
+          cache-dependency-path: package-lock.json
       - name: Install dependencies
         run: npm ci
       - name: Record the D1 rollback bookmark
@@ -134,7 +134,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: db/site/package-lock.json
+          cache-dependency-path: site/package-lock.json
       - name: Install dependencies
         run: npm ci
       - name: Typecheck
@@ -178,7 +178,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: db/package-lock.json
+          cache-dependency-path: package-lock.json
       - name: Install dependencies
         run: npm ci
       # LDB-C6 (audit-db.md §H item 4, C.3): a copy of the live dump OFF
