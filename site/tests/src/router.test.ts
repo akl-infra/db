@@ -32,7 +32,7 @@ describe("router: parsePath/pathFor round-trip", () => {
   });
 });
 
-// [SITE-19] the Home list's whole-row click target (design/akldb-site/
+// [SITE-20] the Home list's whole-row click target (design/akldb-site/
 // 01-plan.md's W1b, saltorbit 2026-09-13) is a single real <a> stretched over
 // the row via CSS (styles.css's `akl-row-link`/`::after`) -- there is no
 // separate row-level click handler to test, so the guarantee this
@@ -73,7 +73,7 @@ async function freshRouter(pathname = "/") {
   return { ...mod, pushed };
 }
 
-describe("[SITE-19] onLinkClick: unmodified click navigates, modified click is left alone", () => {
+describe("[SITE-20] onLinkClick: unmodified click navigates, modified click is left alone", () => {
   afterEach(() => vi.unstubAllGlobals());
 
   it("an unmodified left click prevents default and pushes the new route", async () => {

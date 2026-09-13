@@ -1,4 +1,4 @@
-// [SITE-19] the Home list's whole-row click target is a real <a> (class
+// [SITE-20] the Home list's whole-row click target is a real <a> (class
 // `akl-row-link`) wired to the same guarded `onLinkClick` every other link
 // on the site uses, stretched over the row by styles.css -- not a separate
 // ad-hoc row click handler that could swallow a modified click or skip
@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 
 const SITE_ROOT = path.resolve(import.meta.dirname, "..", "..");
 
-describe("[SITE-19] Home row is a stretched real link", () => {
+describe("[SITE-20] Home row is a stretched real link", () => {
   it("Home.tsx's name cell renders a real <a class=\"akl-row-link\"> wired to onLinkClick", () => {
     const source = fs.readFileSync(path.join(SITE_ROOT, "src", "pages", "Home.tsx"), "utf8");
     expect(source).toMatch(/<a\s+href=\{layoutHref\}\s+class="akl-row-link"\s+onClick=\{\(e\) => onLinkClick\(e, layoutHref\)\}/);

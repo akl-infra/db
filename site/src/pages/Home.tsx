@@ -109,7 +109,7 @@ const Home: Component = () => {
                             tab exactly as any other link would, because
                             `onLinkClick` (router.ts) returns before calling
                             `preventDefault()` for anything but a plain,
-                            unmodified left click ([SITE-19]). The Owner
+                            unmodified left click ([SITE-20]). The Owner
                             column's own link stacks above the overlay
                             (styles.css: any non-`akl-row-link` anchor inside
                             `.akl-table` gets `z-index: 1`) so clicking an
