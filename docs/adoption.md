@@ -185,6 +185,30 @@ influences `client` — it exists so an operator can later find every write a
 given build of your client made, which is the whole point of sending a real
 one (a build id, a semver tag, anything that changes when you ship).
 
+### 1.4 The API's own version
+
+Every response carries `X-AKLDB-API: <major>.<minor>` — the HTTP API's
+own version, distinct from a stored FORMAT's own major (`spark/1`,
+`GET /v1/formats` — §3). `GET /v1/meta` carries the same numbers under
+`api: {major, minor}`, plus `deprecations: []` (a list of `{route,
+since, sunset, message}` — always present, even empty).
+
+`/v1`'s major never changes without a `/v2` registering beside it — a
+pinned `/v1` integration never breaks in place. The minor increments on
+every additive change (a new optional field, a new route, a new
+tolerated enum value); `db/CHANGELOG-API.md` has one dated line per
+minor. A client that only reads fields it knows about, and never
+assumes a payload contains ONLY the fields it expects (§7's reader
+obligations), needs nothing from this section to keep working — the
+version numbers are for debugging ("which server build answered this")
+and for noticing a real breaking change coming, via a future `/v2`, well
+before you'd hit one by surprise.
+
+A route entry may also carry `Deprecation: <date>` and `Sunset: <date>`
+headers (RFC 8594-style) — at least 90 days apart. Nothing carries them
+today; if a route ever does, stop building against it before its
+`Sunset` date.
+
 ## 2. Register
 
 ### 2.1 Client lane: registration and the signing recipe
