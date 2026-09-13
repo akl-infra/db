@@ -11,8 +11,17 @@ const [me, setMe] = createSignal<MeResponse | undefined>(undefined);
 
 export const meResource = me;
 
+// Set once `setMeForDevMock` (below) wins: `void refreshMe()` below fires
+// its `/auth/me` fetch at import time, before `index.tsx`'s dev-mock guard
+// runs -- without this flag, that already-in-flight (real, signed-out)
+// response would resolve a tick later and silently clobber the mock. Dead
+// in production (never set), so `refreshMe()`'s behavior there is
+// unchanged.
+let devMockActive = false;
+
 export async function refreshMe(): Promise<void> {
   const result = await getMe();
+  if (devMockActive) return;
   setMe(result.ok ? result.data : { user: null, signin: false });
 }
 
@@ -22,7 +31,9 @@ void refreshMe();
  * imported only behind a build-time-dead `import.meta.env.DEV` branch, so
  * this export reaches production too, but nothing in a production bundle
  * ever calls it). Bypasses the network round trip entirely -- unlike
- * `refreshMe()`, there is no `/auth/me` to disagree with it. */
+ * `refreshMe()`, there is no `/auth/me` to disagree with it; once called,
+ * it also wins any `refreshMe()` already in flight (see `devMockActive`). */
 export function setMeForDevMock(mock: MeResponse): void {
+  devMockActive = true;
   setMe(mock);
 }

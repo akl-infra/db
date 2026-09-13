@@ -10,7 +10,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 const SITE_ROOT = path.resolve(import.meta.dirname, "..", "..");
 
@@ -63,5 +63,43 @@ describe("[SITE-16] no dev mock switch in the production bundle", () => {
     } finally {
       fs.rmSync(outDir, { recursive: true, force: true });
     }
+  });
+});
+
+// Regression: `session.ts`'s `void refreshMe()` fires its `/auth/me` fetch
+// at import time, BEFORE `index.tsx`'s `if (import.meta.env.DEV)
+// applyDevMock()` guard even runs -- a real Chrome QA bug caught while
+// writing this slice: the mock briefly "took" (`setMeForDevMock` runs
+// synchronously right after) and then a tick later the already-in-flight
+// `refreshMe()` resolved with the real (signed-out) `/auth/me` answer and
+// silently overwrote it. `devMockActive` in session.ts is the fix -- this
+// pins the exact race with a manually-resolved fetch promise.
+describe("dev mock wins a `refreshMe()` already in flight", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("setMeForDevMock is not clobbered by a slower, already-started refreshMe()", async () => {
+    vi.resetModules();
+    let resolveMeFetch: (r: Response) => void;
+    const pendingMeFetch = new Promise<Response>((resolve) => {
+      resolveMeFetch = resolve;
+    });
+    vi.stubGlobal("fetch", vi.fn(() => pendingMeFetch));
+
+    // Importing session.ts fires `void refreshMe()`, which awaits the
+    // still-pending fetch above -- exactly the "already in flight" state a
+    // real page load leaves it in by the time `applyDevMock()` runs.
+    const session = await import("../../src/session.ts");
+
+    session.setMeForDevMock({ user: { user_id: "1", name: "Dev admin (mock)", via: "discord", admin: true }, signin: true });
+    expect(session.meResource()?.user?.admin).toBe(true);
+
+    // The slow, real `/auth/me` now resolves -- signed out, as it would
+    // against an unconfigured local Discord app.
+    resolveMeFetch!(new Response(JSON.stringify({ user: null, signin: false }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(session.meResource()?.user?.admin).toBe(true); // still the mock, not clobbered
   });
 });
