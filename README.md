@@ -287,6 +287,17 @@ the job's own throwaway D1 and re-runs the whole conformance suite against
 the restored copy), and separately runs the upstream diff (S8). Both fail
 the job loudly on any problem -- neither is allowed to skip silently.
 
+## Weekly backup in GitHub (db-backup.yml)
+
+`.github/workflows/db-backup.yml` (saltorbit, 2026-09-13: "at least weekly backups
+in github") runs Sundays 06:00 UTC and on demand: it fetches
+`/v1/dump/latest.json` + the dump from https://api.akldb.org, verifies the
+sha256, and stores both as assets of a GitHub Release tagged
+`akldb-backup-<UTC date>` in this repo -- kept indefinitely, outside
+Cloudflare and outside the git history. Restore from one the same way as
+from an R2 dump (below). The daily 30-day artifact (LDB-C6) stays as the
+finer-grained copy.
+
 ## Point-in-time restore with D1 Time Travel
 
 Cloudflare's D1 Time Travel gives 30 days of point-in-time restore on the
