@@ -151,9 +151,15 @@ a {
   color: var(--ink);
 }
 
-.akl-signin {
+/* `a.akl-signin` sits inside .akl-nav, whose `.akl-nav a` rule (0,1,1)
+   outranks a lone class (0,1,0) -- without the compound selector the
+   sign-in link inherited the muted nav color on top of the accent fill
+   (unreadable in dark mode; saltorbit, 2026-09-13). */
+.akl-signin,
+.akl-nav a.akl-signin {
   background: var(--accent);
   color: var(--accent-contrast);
+  text-decoration: none;
   border: none;
   border-radius: 4px;
   padding: 7px 14px;
@@ -161,7 +167,10 @@ a {
   font-size: 13px;
   cursor: pointer;
 }
-.akl-signin:hover {
+.akl-signin:hover,
+.akl-nav a.akl-signin:hover,
+.akl-nav a.akl-signin:focus-visible {
+  color: var(--accent-contrast);
   filter: brightness(1.08);
 }
 .akl-signin[disabled] {
