@@ -80,7 +80,9 @@ export async function readHead(db: D1Database, stateKeys: readonly string[] = []
 // If-Match tokens, `layout_rev` replacing the bare `rev`, `?format=`
 // required. No cached 304/edge-cached body from before this slice can keep
 // serving the old shape at an unchanged head seq.
-const WIRE_VERSION = 3;
+// L5 moderation (§4.5, LDB-MD3): bumped 3 -> 4 -- every layout wire shape
+// gains `like_adjust`/`link`.
+const WIRE_VERSION = 4;
 
 export async function etagFor(headSeqValue: number, query: unknown): Promise<string> {
   const hash = await sha256Hex(canonical({ wireVersion: WIRE_VERSION, query: query ?? null }));

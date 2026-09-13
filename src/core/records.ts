@@ -40,6 +40,16 @@ export interface LayoutRow {
   modified_at: string;
   deleted: boolean;
   like_count: number;
+  // L5 moderation (§4.2, LDB-MD2/MD3): the admin's own adjustment, folded
+  // from the latest `admin.likes_set` event. `like_count` above is always
+  // `max(0, COUNT(likes) + like_adjust)` -- this field is exposed
+  // separately (`layoutToWire`) so a client can show "N likes (+/-k
+  // admin)" without re-deriving it.
+  like_adjust: number;
+  // §4.4 (LDB-MD3/MD5): the layout's APPROVED link, or null. Folded from
+  // the latest `link_approved`/`link_cleared` event -- a pending/rejected/
+  // superseded submission never reaches this field.
+  link: string | null;
   upstream: Upstream | null;
   source: Source | null;
 }
@@ -81,6 +91,8 @@ export interface LayoutDbRow {
   modified_at: string;
   deleted: number;
   like_count: number;
+  like_adjust: number;
+  link: string | null;
   upstream_source: string | null;
   upstream_id: string | null;
   upstream_state: string | null;
@@ -128,6 +140,8 @@ export function rowToLayout(row: LayoutDbRow): LayoutRow {
     modified_at: row.modified_at,
     deleted: row.deleted !== 0,
     like_count: row.like_count,
+    like_adjust: row.like_adjust,
+    link: row.link,
     upstream: upstreamFromRow(row),
     source: sourceFromRow(row),
   };
@@ -470,6 +484,12 @@ export function layoutToWire(l: LayoutRow): Record<string, unknown> {
     modified_at: l.modified_at,
     deleted: l.deleted,
     like_count: l.like_count,
+    // §4.2/§4.4 (LDB-MD3): public by construction -- `like_adjust` is just
+    // the difference between `likes.length` and `like_count`, and `link`
+    // is the approved value only (pending/rejected/superseded never
+    // reach any public wire, LDB-MD5).
+    like_adjust: l.like_adjust,
+    link: l.link,
     upstream: l.upstream,
   };
 }

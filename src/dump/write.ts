@@ -65,6 +65,26 @@ export interface ImportMapDbRow {
   // restore.ts reads it as null (the column's own default).
   upstream_name?: string | null;
 }
+// L5 moderation (§4.5, migrations/0014): two more `Dump` arrays -- both
+// small, admin-authored tables, dumped/restored whole like every other
+// non-event-log table here.
+export interface BanDbRow {
+  user_id: string;
+  by: string;
+  at: string;
+  reason: string | null;
+}
+export interface LinkSubmissionDbRow {
+  id: string;
+  layout_id: string;
+  url: string;
+  submitted_by: string;
+  submitted_at: string;
+  status: string;
+  decided_by: string | null;
+  decided_at: string | null;
+  reason: string | null;
+}
 
 // LDB-D9: registered client pubkeys/caps -- public data (10 C1 §4: no
 // `secret`-shaped column exists on this table at all, unlike `webhooks`),
@@ -116,6 +136,8 @@ export interface Dump {
   import_map: ImportMapDbRow[];
   clients: ClientDbRow[]; // LDB-D9: public pubkeys/caps, restored (dump/restore.ts)
   auth_cache: []; // never dumped -- holds only token hashes, and a rehost starts cold (09 §3)
+  bans: BanDbRow[]; // [LDB-MD8] §4.5
+  link_submissions: LinkSubmissionDbRow[]; // [LDB-MD8] §4.5
 }
 
 export interface LatestJson {
@@ -196,7 +218,7 @@ export async function buildDump(env: Bindings, now: Clock): Promise<Dump> {
 
   const meta = await computeMeta(db);
 
-  const [records, layout_formats, layout_revs, likes, authors, admins, events, import_state_all, import_map, clients] = await Promise.all([
+  const [records, layout_formats, layout_revs, likes, authors, admins, events, import_state_all, import_map, clients, bans, link_submissions] = await Promise.all([
     pageBySingleKey<LayoutDbRow>(db, "layouts", "id"),
     pageByCompositeKey<FormatDbRow>(db, "layout_formats", "layout_id", "lineage"),
     pageByCompositeKey<LayoutRevDbRow>(db, "layout_revs", "layout_id", "n"),
@@ -207,6 +229,8 @@ export async function buildDump(env: Bindings, now: Clock): Promise<Dump> {
     pageBySingleKey<ImportStateDbRow>(db, "import_state", "key"),
     pageBySingleKey<ImportMapDbRow>(db, "import_map", "upstream_id"),
     pageBySingleKey<ClientDbRow>(db, "clients", "id"),
+    pageBySingleKey<BanDbRow>(db, "bans", "user_id"),
+    pageBySingleKey<LinkSubmissionDbRow>(db, "link_submissions", "id"),
   ]);
 
   // LDB-D8: `dump.last_at` is this dump's OWN scheduling bookkeeping (see
@@ -230,6 +254,8 @@ export async function buildDump(env: Bindings, now: Clock): Promise<Dump> {
     import_map,
     clients,
     auth_cache: [],
+    bans,
+    link_submissions,
   };
 }
 

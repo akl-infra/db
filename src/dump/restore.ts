@@ -28,12 +28,14 @@ const TABLE_ORDER_DELETE = [
   "layout_revs",
   "layout_formats",
   "likes",
+  "link_submissions", // [LDB-MD8] §4.5: references a layout_id, before the parent
   "import_map",
   "layouts",
   "authors",
   "admins",
   "import_state",
   "clients", // LDB-D9: dumped and restored below -- pubkeys/caps are public, no reason to drop them
+  "bans", // [LDB-MD8] §4.5
   "auth_cache",
   "ratelimit",
   "nonces", // never dumped (replay guard, <=300s lifetime by construction -- 09 §2.5); deleted here too so a restore starts with no history of recent requests
@@ -97,6 +99,8 @@ export function restoreSql(dump: Dump): string[] {
         "modified_at",
         "deleted",
         "like_count",
+        "like_adjust",
+        "link",
         "upstream_source",
         "upstream_id",
         "upstream_state",
@@ -113,6 +117,11 @@ export function restoreSql(dump: Dump): string[] {
         modified_at: r.modified_at,
         deleted: r.deleted,
         like_count: r.like_count,
+        // [LDB-MD8] §4.5: round-trip; a dump written before migrations/0014
+        // has neither -- `?? 0`/`?? null` treat that as "no admin override
+        // has ever run", exactly what a pre-0014 database's own rows mean.
+        like_adjust: r.like_adjust ?? 0,
+        link: r.link ?? null,
         upstream_source: r.upstream_source ?? null,
         upstream_id: r.upstream_id ?? null,
         upstream_state: r.upstream_state ?? null,
@@ -251,6 +260,28 @@ export function restoreSql(dump: Dump): string[] {
         created_at: r.created_at,
         revoked_at: r.revoked_at ?? null,
       })),
+    ),
+  );
+
+  // [LDB-MD8] §4.5: `bans`/`link_submissions` round-trip whole, same
+  // shape every other small admin-authored table here uses -- absent
+  // entirely from a dump written before migrations/0014 (`?? []` at the
+  // call site in dump/write.ts's own reader would be wrong; here the
+  // arrays themselves are simply empty for such a dump, nothing to
+  // default per-row).
+  statements.push(
+    ...chunkedInserts(
+      "INSERT INTO bans",
+      ["user_id", "by", "at", "reason"],
+      (dump.bans ?? []).map((r) => ({ ...r })),
+    ),
+  );
+
+  statements.push(
+    ...chunkedInserts(
+      "INSERT INTO link_submissions",
+      ["id", "layout_id", "url", "submitted_by", "submitted_at", "status", "decided_by", "decided_at", "reason"],
+      (dump.link_submissions ?? []).map((r) => ({ ...r })),
     ),
   );
 

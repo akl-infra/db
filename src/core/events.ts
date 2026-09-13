@@ -54,7 +54,19 @@ export type InfoKind =
   | "admin.client_revoked"
   | "admin.import_ticked"
   | "admin.diff_ticked"
-  | "admin.nightly_ticked";
+  | "admin.nightly_ticked"
+  // L5 moderation (design/akldb-site/01-plan.md §4): bans are actor-scoped
+  // (`layout_id` NULL, `appendAdmin`) -- likes-override/author-rename/link
+  // are layout-scoped (`appendModeration`/`appendLikeAdjust`/
+  // `appendLinkChange`, `layout_id` set, `rev` NULL).
+  | "admin.user_banned"
+  | "admin.user_unbanned"
+  | "admin.likes_set"
+  | "admin.author_renamed"
+  | "link_submitted"
+  | "link_approved"
+  | "link_rejected"
+  | "link_cleared";
 
 // 21-formats.md §2.2: what a rev-bumping event's `after` (and `before`)
 // carry -- never a payload (that's `layout_revs`' job). A layout-scope
@@ -94,7 +106,20 @@ export interface FormatSnapshot {
   source: Source | null;
   upstream?: Upstream | null;
 }
-export type EventSnapshot = LayoutSnapshot | FormatSnapshot;
+// L5 moderation (§4.2/§4.4, LDB-MD3): the `after` of an `admin.likes_set` /
+// `link_approved` / `link_cleared` event -- never a full `LayoutSnapshot`
+// (these are `rev: NULL` info events, no scope's rev bumps), just the one
+// folded field each carries. `foldLayout` reads these by `kind`, not by
+// `rev !== null` (the layout/format branch above), so there is no overlap.
+export interface LikeAdjustSnapshot {
+  scope: "like_adjust";
+  like_adjust: number;
+}
+export interface LinkSnapshot {
+  scope: "link";
+  link: string | null;
+}
+export type EventSnapshot = LayoutSnapshot | FormatSnapshot | LikeAdjustSnapshot | LinkSnapshot;
 
 // One scope-write, fully specified by the caller (`core/write.ts`'s verb
 // functions each build this from a fresh read plus their own checks) --
@@ -303,15 +328,24 @@ export async function commitWrite(db: Bindings["DB"], now: Clock, input: CommitI
 
   // ONE `layouts` upsert reflecting the final state after every part in
   // this batch (n bumped once per part, whatever else changed).
+  // §4.2 (LDB-MD2): `like_count` self-heals to `MAX(0, COUNT(likes) +
+  // like_adjust)` on every rev-bumping write, never the raw count --
+  // `like_adjust` itself is left OUT of the SET clause entirely (an
+  // ordinary write never touches it; only `appendLikeAdjust` does) so its
+  // bare, unqualified reference here resolves to the CONFLICTING row's
+  // CURRENT value (SQLite's own upsert semantics), not `excluded`'s. A
+  // fresh create has no prior row to read, so its own `VALUES` supplies 0
+  // directly. `link` is likewise never touched by an ordinary write (only
+  // `appendLinkChange` may -- LDB-P1's onlywriter test names both).
   stmts.push(
     db
       .prepare(
-        `INSERT INTO layouts (id, name, owner, n, layout_rev, created_at, modified_at, deleted, like_count, upstream_source, upstream_id, upstream_state, source_client, source_version)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO layouts (id, name, owner, n, layout_rev, created_at, modified_at, deleted, like_count, like_adjust, link, upstream_source, upstream_id, upstream_state, source_client, source_version)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            name = excluded.name, owner = excluded.owner, n = excluded.n, layout_rev = excluded.layout_rev,
            created_at = excluded.created_at, modified_at = excluded.modified_at, deleted = excluded.deleted,
-           like_count = (SELECT COUNT(*) FROM likes WHERE layout_id = excluded.id),
+           like_count = MAX(0, (SELECT COUNT(*) FROM likes WHERE layout_id = excluded.id) + layouts.like_adjust),
            upstream_source = excluded.upstream_source, upstream_id = excluded.upstream_id, upstream_state = excluded.upstream_state,
            source_client = excluded.source_client, source_version = excluded.source_version`,
       )
@@ -359,14 +393,15 @@ export async function commitWrite(db: Bindings["DB"], now: Clock, input: CommitI
     );
   }
 
-  // M1: read `like_count` back in the SAME batch, after the `layouts`
-  // upsert's own self-healing subquery has run, so the value this call
-  // RETURNS to its own caller (the response body an ordinary write's
-  // caller sees) is the same live truth the row now holds -- never
-  // `finalLikeCount`, which can be a stale pre-read for any write that
-  // isn't itself about a like.
+  // M1: read `like_count`/`like_adjust`/`link` back in the SAME batch,
+  // after the `layouts` upsert's own self-healing subquery has run, so the
+  // value this call RETURNS to its own caller (the response body an
+  // ordinary write's caller sees) is the same live truth the row now holds
+  // -- never `finalLikeCount`, which can be a stale pre-read for any write
+  // that isn't itself about a like. §4.2: reads the COLUMN (already
+  // folding in `like_adjust`), never the raw `likes` count.
   const likeCountStmtIdx = stmts.length;
-  stmts.push(db.prepare(`SELECT COUNT(*) as cnt FROM likes WHERE layout_id = ?`).bind(id));
+  stmts.push(db.prepare(`SELECT like_count, like_adjust, link FROM layouts WHERE id = ?`).bind(id));
 
   let results;
   try {
@@ -384,7 +419,8 @@ export async function commitWrite(db: Bindings["DB"], now: Clock, input: CommitI
     return seq;
   });
 
-  const trueLikeCount = (results[likeCountStmtIdx]?.results?.[0] as { cnt: number } | undefined)?.cnt ?? finalLikeCount;
+  const selfHealed = results[likeCountStmtIdx]?.results?.[0] as { like_count: number; like_adjust: number; link: string | null } | undefined;
+  const trueLikeCount = selfHealed?.like_count ?? finalLikeCount;
 
   const layout: LayoutRow = {
     id,
@@ -396,6 +432,8 @@ export async function commitWrite(db: Bindings["DB"], now: Clock, input: CommitI
     modified_at: finalModifiedAt,
     deleted: finalDeleted,
     like_count: trueLikeCount,
+    like_adjust: selfHealed?.like_adjust ?? 0,
+    link: selfHealed?.link ?? null,
     upstream: input.upstream,
     source: finalLayoutSource,
   };
@@ -443,18 +481,183 @@ export async function appendInfo(db: Bindings["DB"], now: Clock, i: Info): Promi
   return { seq };
 }
 
-export async function appendAdmin(db: Bindings["DB"], now: Clock, a: { kind: InfoKind; actor: string; detail?: object }): Promise<{ seq: number }> {
+// [LDB-MD7] `via`/`source` default to the pre-L5 hard-coded values so
+// EVERY existing call site (admins.ts's add/remove/pause/resume/manual
+// ticks) is byte-for-byte unchanged -- L5's own new callers (bans,
+// author-rename) pass the actor's real lane explicitly (LDB-A5: every
+// event carries the actor's own lane).
+export async function appendAdmin(
+  db: Bindings["DB"],
+  now: Clock,
+  a: { kind: InfoKind; actor: string; via?: string; source?: Source; detail?: object },
+): Promise<{ seq: number }> {
   const result = await db
     .prepare(
-      `INSERT INTO events (at, kind, layout_id, name, owner, format, rev, actor, via, admin, detail_json, before_json, after_json)
-       VALUES (?, ?, NULL, NULL, NULL, NULL, NULL, ?, 'discord', 1, ?, NULL, NULL)`,
+      `INSERT INTO events (at, kind, layout_id, name, owner, format, rev, actor, via, admin, detail_json, before_json, after_json, source_client, source_version)
+       VALUES (?, ?, NULL, NULL, NULL, NULL, NULL, ?, ?, 1, ?, NULL, NULL, ?, ?)`,
     )
-    .bind(now(), a.kind, a.actor, a.detail === undefined ? null : canonical(a.detail))
+    .bind(now(), a.kind, a.actor, a.via ?? "discord", a.detail === undefined ? null : canonical(a.detail), a.source?.client ?? null, a.source?.version ?? null)
     .run();
 
   const seq = result.meta.last_row_id;
   if (seq === undefined) throw new Error("appendAdmin: events insert returned no last_row_id");
   return { seq };
+}
+
+// [LDB-MD7] The layout-scoped sibling of `appendAdmin` (§4.4's reviewer
+// note 6): an admin action against ONE layout that carries an `after`
+// snapshot of its own (`admin.likes_set` uses `appendLikeAdjust` instead,
+// since it ALSO writes `layouts` itself -- LDB-P1 confines that to one
+// function). `rev` stays NULL (never rev-bumping); always `admin: 1` --
+// every caller of this function IS a moderation action by definition
+// (`link_rejected` today).
+export interface Moderation {
+  kind: InfoKind;
+  layoutId: string;
+  actor: string;
+  via: string;
+  source: Source;
+  detail?: object;
+  after?: object;
+}
+
+export async function appendModeration(db: Bindings["DB"], now: Clock, m: Moderation): Promise<{ seq: number }> {
+  const current = await readById(db, m.layoutId);
+  if (current === null) throw new Error(`appendModeration: layoutId '${m.layoutId}' does not exist`);
+
+  const result = await db
+    .prepare(
+      `INSERT INTO events (at, kind, layout_id, name, owner, format, rev, actor, via, admin, detail_json, before_json, after_json, source_client, source_version)
+       VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?, 1, ?, NULL, ?, ?, ?)`,
+    )
+    .bind(
+      now(),
+      m.kind,
+      m.layoutId,
+      current.name,
+      current.owner,
+      m.actor,
+      m.via,
+      m.detail === undefined ? null : canonical(m.detail),
+      m.after === undefined ? null : canonical(m.after),
+      m.source.client,
+      m.source.version,
+    )
+    .run();
+
+  const seq = result.meta.last_row_id;
+  if (seq === undefined) throw new Error("appendModeration: events insert returned no last_row_id");
+  return { seq };
+}
+
+// [LDB-MD2] [LDB-MD3] [LDB-MD7] §4.2: the ONLY writer of `layouts.link_adjust`
+// -- sets it so that, at this instant, `like_count` reads back as exactly
+// `count`. Pre-reads `rows = COUNT(likes)`, then ONE batch: the `layouts`
+// UPDATE, the `admin.likes_set` event (carrying `after.like_adjust` so
+// `foldLayout` replays this exactly, MF-3), and a fresh `like_count` read.
+// A like racing between the pre-read and the batch leaves the displayed
+// count one off the typed number -- correct under the rule (S5: an
+// ADJUSTMENT, not a pin) and still replay-exact (the bound `adjust` is
+// both the column and the event's `after`).
+export interface LikeAdjust {
+  layoutId: string;
+  actor: string;
+  via: string;
+  source: Source;
+  count: number;
+}
+
+export async function appendLikeAdjust(db: Bindings["DB"], now: Clock, l: LikeAdjust): Promise<{ seq: number; like_count: number; like_adjust: number }> {
+  const current = await readById(db, l.layoutId);
+  if (current === null) throw new Error(`appendLikeAdjust: layoutId '${l.layoutId}' does not exist`);
+
+  const rowsRow = await db.prepare("SELECT COUNT(*) AS n FROM likes WHERE layout_id = ?").bind(l.layoutId).first<{ n: number }>();
+  const rows = rowsRow?.n ?? 0;
+  const adjust = l.count - rows;
+  const at = now();
+
+  const results = await db.batch([
+    db
+      .prepare("UPDATE layouts SET like_adjust = ?, like_count = MAX(0, (SELECT COUNT(*) FROM likes WHERE layout_id = ?) + ?) WHERE id = ?")
+      .bind(adjust, l.layoutId, adjust, l.layoutId),
+    db
+      .prepare(
+        `INSERT INTO events (at, kind, layout_id, name, owner, format, rev, actor, via, admin, detail_json, before_json, after_json, source_client, source_version)
+         VALUES (?, 'admin.likes_set', ?, ?, ?, NULL, NULL, ?, ?, 1, ?, NULL, ?, ?, ?)`,
+      )
+      .bind(
+        at,
+        l.layoutId,
+        current.name,
+        current.owner,
+        l.actor,
+        l.via,
+        canonical({ count: l.count, rows, adjust }),
+        canonical({ scope: "like_adjust", like_adjust: adjust }),
+        l.source.client,
+        l.source.version,
+      ),
+    db.prepare("SELECT like_count FROM layouts WHERE id = ?").bind(l.layoutId),
+  ]);
+
+  const seq = results[1]?.meta.last_row_id;
+  if (seq === undefined) throw new Error("appendLikeAdjust: events insert returned no last_row_id");
+  const like_count = (results[2]?.results?.[0] as { like_count: number } | undefined)?.like_count ?? Math.max(0, rows + adjust);
+  return { seq, like_count, like_adjust: adjust };
+}
+
+// [LDB-MD3] [LDB-MD5] [LDB-MD7] §4.4: the ONLY writer of `layouts.link`
+// (LDB-P1, `tests/tools/onlywriter.test.ts`'s allow-list names this
+// function's home file, never `core/links.ts`). One batch: the `layouts`
+// UPDATE, the `link_approved`/`link_cleared` event (`after.link` so
+// `foldLayout` replays exactly), and -- always, not just on approve -- a
+// sweep that supersedes every OTHER still-pending submission for this
+// layout (covers both "approving supersedes any other pending submission"
+// and "clearing supersedes the pending submission it had", with no
+// separate event for that bookkeeping, same as a fresh owner submission
+// superseding an older pending one).
+export interface LinkChange {
+  layoutId: string;
+  kind: "link_approved" | "link_cleared";
+  link: string | null;
+  actor: string;
+  via: string;
+  admin: boolean;
+  source: Source;
+  submissionId?: string; // the submission THIS approval decides, if any
+}
+
+export async function appendLinkChange(db: Bindings["DB"], now: Clock, l: LinkChange): Promise<{ seq: number; link: string | null }> {
+  const current = await readById(db, l.layoutId);
+  if (current === null) throw new Error(`appendLinkChange: layoutId '${l.layoutId}' does not exist`);
+
+  const at = now();
+  const stmts: D1PreparedStatement[] = [
+    db.prepare("UPDATE layouts SET link = ? WHERE id = ?").bind(l.link, l.layoutId),
+    db
+      .prepare(
+        `INSERT INTO events (at, kind, layout_id, name, owner, format, rev, actor, via, admin, detail_json, before_json, after_json, source_client, source_version)
+         VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, NULL, NULL, ?, ?, ?)`,
+      )
+      .bind(at, l.kind, l.layoutId, current.name, current.owner, l.actor, l.via, l.admin ? 1 : 0, canonical({ scope: "link", link: l.link }), l.source.client, l.source.version),
+  ];
+  if (l.submissionId !== undefined) {
+    stmts.push(
+      db
+        .prepare("UPDATE link_submissions SET status = 'approved', decided_by = ?, decided_at = ? WHERE id = ? AND status = 'pending'")
+        .bind(l.actor, at, l.submissionId),
+    );
+  }
+  stmts.push(
+    db
+      .prepare("UPDATE link_submissions SET status = 'superseded', decided_by = ?, decided_at = ? WHERE layout_id = ? AND status = 'pending' AND id != ?")
+      .bind(l.actor, at, l.layoutId, l.submissionId ?? ""),
+  );
+
+  const results = await db.batch(stmts);
+  const seq = results[1]?.meta.last_row_id;
+  if (seq === undefined) throw new Error("appendLinkChange: events insert returned no last_row_id");
+  return { seq, link: l.link };
 }
 
 export interface Like {
@@ -550,7 +753,10 @@ export async function appendLike(db: Bindings["DB"], now: Clock, l: Like): Promi
         : db
             .prepare("DELETE FROM likes WHERE layout_id = ? AND user_id = ? AND EXISTS (SELECT 1 FROM layouts WHERE id = ? AND deleted = 0)")
             .bind(l.layoutId, l.userId, l.layoutId),
-      db.prepare("UPDATE layouts SET like_count = (SELECT COUNT(*) FROM likes WHERE layout_id = ?) WHERE id = ?").bind(l.layoutId, l.layoutId),
+      // §4.2 (LDB-MD2): folds in the admin's own adjustment, never the raw count.
+      db
+        .prepare("UPDATE layouts SET like_count = MAX(0, (SELECT COUNT(*) FROM likes WHERE layout_id = ?) + like_adjust) WHERE id = ?")
+        .bind(l.layoutId, l.layoutId),
       db.prepare("SELECT like_count FROM layouts WHERE id = ?").bind(l.layoutId),
     ]);
   } catch (e) {
@@ -677,22 +883,36 @@ export function foldLayout(events: Event[], revs: Map<string, { format: string |
   // `liked`/`unliked` event actually replayed, and attaches it to the
   // fold's OUTPUT once at the end, never to an intermediate snapshot.
   let likeCount = 0;
+  // [LDB-MD2] [LDB-MD3] §4.2/§4.4: `like_adjust`/`link` are folds of the
+  // latest `admin.likes_set` / `link_approved` / `link_cleared` event's
+  // `after` -- tracked the same way `likeCount` is, independent of
+  // `layout`, and attached to the fold's output once at the end.
+  let likeAdjust = 0;
+  let link: string | null = null;
 
   for (const e of events) {
     if (e.rev !== null) {
       if (e.after === null) throw new Error(`foldLayout: rev-bumping event (seq ${e.seq}) has no 'after'`);
       if (e.after.scope === "layout") {
         layout = e.after;
-      } else {
+      } else if (e.after.scope === "format") {
         const after = e.after;
         formats.set(after.lineage, after);
         if (after.upstream !== undefined && layout !== null) {
           layout = withUpstream(layout, after.upstream);
         }
+      } else {
+        throw new Error(`foldLayout: rev-bumping event (seq ${e.seq}) has an unexpected 'after' scope`);
       }
     } else if (e.kind === "liked" || e.kind === "unliked") {
       if (layout === null) throw new Error(`foldLayout: like event (seq ${e.seq}) precedes any write`);
       likeCount += e.kind === "liked" ? 1 : -1;
+    } else if (e.kind === "admin.likes_set") {
+      if (e.after === null || e.after.scope !== "like_adjust") throw new Error(`foldLayout: admin.likes_set event (seq ${e.seq}) has no like_adjust 'after'`);
+      likeAdjust = e.after.like_adjust;
+    } else if (e.kind === "link_approved" || e.kind === "link_cleared") {
+      if (e.after === null || e.after.scope !== "link") throw new Error(`foldLayout: ${e.kind} event (seq ${e.seq}) has no link 'after'`);
+      link = e.after.link;
     }
   }
 
@@ -705,7 +925,10 @@ export function foldLayout(events: Event[], revs: Map<string, { format: string |
     const { scope: _s2, upstream: _u, ...rest } = snap;
     formatRows.set(lin, { ...rest, payload: rev.payload });
   }
-  return { layout: { ...layoutRow, like_count: likeCount }, formats: formatRows };
+  return {
+    layout: { ...layoutRow, like_count: Math.max(0, likeCount + likeAdjust), like_adjust: likeAdjust, link },
+    formats: formatRows,
+  };
 }
 
 export interface FeedFilter {

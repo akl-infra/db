@@ -59,6 +59,16 @@ const INFO_KINDS_MAP: Record<InfoKind, true> = {
   "admin.import_ticked": true,
   "admin.diff_ticked": true,
   "admin.nightly_ticked": true,
+  // L5 moderation (§4): bans (actor-scoped), likes-override/author-rename
+  // (layout-scoped), the link queue (layout-scoped).
+  "admin.user_banned": true,
+  "admin.user_unbanned": true,
+  "admin.likes_set": true,
+  "admin.author_renamed": true,
+  link_submitted: true,
+  link_approved: true,
+  link_rejected: true,
+  link_cleared: true,
 };
 const LIKE_KINDS_MAP: Record<"liked" | "unliked", true> = { liked: true, unliked: true };
 
