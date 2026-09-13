@@ -25,8 +25,6 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    defaults:
-      run:
     steps:
       # fetch-depth 0: frozen.test.ts (S2) diffs against origin/main to
       # enforce LDB-F6 (merged format majors are immutable) -- a shallow
@@ -56,8 +54,6 @@ jobs:
       group: db-prod-deploy
       cancel-in-progress: false
     runs-on: ubuntu-latest
-    defaults:
-      run:
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -92,8 +88,6 @@ jobs:
       group: db-prod-deploy
       cancel-in-progress: false
     runs-on: ubuntu-latest
-    defaults:
-      run:
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -176,8 +170,6 @@ jobs:
   daily:
     if: (github.event_name == 'schedule' && github.event.schedule == '0 4 * * *') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    defaults:
-      run:
     steps:
       - uses: actions/checkout@v5
         with:
