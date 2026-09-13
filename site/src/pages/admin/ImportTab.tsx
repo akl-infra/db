@@ -3,6 +3,7 @@ import { For, Show, createSignal } from "solid-js";
 import { copy } from "../../copy.ts";
 import { adminHealth, adminImportPause, adminImportResume, adminImportTick } from "../../api.ts";
 import { createAsync } from "../../lib/asyncData.ts";
+import { loadErrorMessage } from "../../lib/apiError.ts";
 
 type Action = "pause" | "resume" | "tick";
 
@@ -55,6 +56,7 @@ const ImportTab: Component = () => {
     const h = health.data();
     return h?.ok ? flatten(h.data) : [];
   };
+  const loadError = (): string | null => loadErrorMessage(health.data(), copy.admin.import.healthLoadError);
 
   return (
     <div>
@@ -73,10 +75,10 @@ const ImportTab: Component = () => {
       </div>
 
       <h2>{copy.admin.import.healthTitle}</h2>
-      <Show when={health.error()}>
-        <div class="akl-error">{copy.admin.import.healthLoadError}</div>
+      <Show when={health.error() || loadError()}>
+        <div class="akl-error">{loadError() ?? copy.admin.import.healthLoadError}</div>
       </Show>
-      <Show when={!health.loading() && !health.error()}>
+      <Show when={!health.loading() && !health.error() && !loadError()}>
         <dl class="akl-kv">
           <For each={rows()}>
             {([k, v]) => (

@@ -3,6 +3,7 @@ import { For, Show, createSignal } from "solid-js";
 import { copy } from "../../copy.ts";
 import { adminAddAdmin, adminListAdmins, adminRemoveAdmin } from "../../api.ts";
 import { createAsync } from "../../lib/asyncData.ts";
+import { loadErrorMessage } from "../../lib/apiError.ts";
 import AuthorRef from "../../ui/AuthorRef.tsx";
 
 /** Admin console, Admins tab (`GET/POST/DELETE /v1/admin/admins`): list,
@@ -25,6 +26,7 @@ const AdminsTab: Component = () => {
     const r = admins.data();
     return r?.ok ? r.data : [];
   };
+  const loadError = (): string | null => loadErrorMessage(admins.data(), copy.admin.admins.loadError);
 
   async function add(): Promise<void> {
     const id = userId().trim();
@@ -65,11 +67,11 @@ const AdminsTab: Component = () => {
         <Show when={addError()}>{(msg) => <span class="akl-inline-error">{msg()}</span>}</Show>
       </div>
 
-      <Show when={admins.error()}>
-        <div class="akl-error">{copy.admin.admins.loadError}</div>
+      <Show when={admins.error() || loadError()}>
+        <div class="akl-error">{loadError() ?? copy.admin.admins.loadError}</div>
       </Show>
       <Show when={removeError()}>{(msg) => <div class="akl-inline-error">{msg()}</div>}</Show>
-      <Show when={!admins.loading() && !admins.error()}>
+      <Show when={!admins.loading() && !admins.error() && !loadError()}>
         <Show when={rows().length > 0} fallback={<div class="akl-empty">{copy.admin.admins.empty}</div>}>
           <table class="akl-table">
             <thead>

@@ -4,6 +4,7 @@ import { copy } from "../../copy.ts";
 import { adminApproveLink, adminLinkQueue, adminRejectLink } from "../../api.ts";
 import type { LinkSubmission, LinkSubmissionStatus } from "../../lib/types.ts";
 import { createAsync } from "../../lib/asyncData.ts";
+import { loadErrorMessage } from "../../lib/apiError.ts";
 import AuthorRef from "../../ui/AuthorRef.tsx";
 import { onLinkClick } from "../../router.ts";
 
@@ -38,6 +39,7 @@ const LinkQueueTab: Component = () => {
     const r = queue.data();
     return r?.ok ? r.data.submissions : [];
   };
+  const loadError = (): string | null => loadErrorMessage(queue.data(), copy.admin.linkQueue.loadError);
 
   const [pendingId, setPendingId] = createSignal<string | null>(null);
   const [rejectOpenId, setRejectOpenId] = createSignal<string | null>(null);
@@ -82,10 +84,10 @@ const LinkQueueTab: Component = () => {
         </For>
       </div>
 
-      <Show when={queue.error()}>
-        <div class="akl-error">{copy.admin.linkQueue.loadError}</div>
+      <Show when={queue.error() || loadError()}>
+        <div class="akl-error">{loadError() ?? copy.admin.linkQueue.loadError}</div>
       </Show>
-      <Show when={!queue.loading() && !queue.error()}>
+      <Show when={!queue.loading() && !queue.error() && !loadError()}>
         <Show when={rows().length > 0} fallback={<div class="akl-empty">{copy.admin.linkQueue.empty}</div>}>
           <table class="akl-table">
             <thead>

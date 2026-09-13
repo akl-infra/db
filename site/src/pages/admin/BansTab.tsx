@@ -4,6 +4,7 @@ import { copy } from "../../copy.ts";
 import { adminBanUser, adminListBans, adminUnbanUser } from "../../api.ts";
 import type { BanRow } from "../../lib/types.ts";
 import { createAsync } from "../../lib/asyncData.ts";
+import { loadErrorMessage } from "../../lib/apiError.ts";
 import AuthorRef from "../../ui/AuthorRef.tsx";
 
 /** Admin console, Bans tab (db/docs/adoption.md §10): list, ban with an
@@ -25,6 +26,7 @@ const BansTab: Component = () => {
     const r = bans.data();
     return r?.ok ? r.data.bans : [];
   };
+  const loadError = (): string | null => loadErrorMessage(bans.data(), copy.admin.bans.loadError);
 
   async function ban(): Promise<void> {
     const id = userId().trim();
@@ -60,10 +62,10 @@ const BansTab: Component = () => {
         <Show when={banError()}>{(msg) => <span class="akl-inline-error">{msg()}</span>}</Show>
       </div>
 
-      <Show when={bans.error()}>
-        <div class="akl-error">{copy.admin.bans.loadError}</div>
+      <Show when={bans.error() || loadError()}>
+        <div class="akl-error">{loadError() ?? copy.admin.bans.loadError}</div>
       </Show>
-      <Show when={!bans.loading() && !bans.error()}>
+      <Show when={!bans.loading() && !bans.error() && !loadError()}>
         <Show when={rows().length > 0} fallback={<div class="akl-empty">{copy.admin.bans.empty}</div>}>
           <table class="akl-table">
             <thead>
