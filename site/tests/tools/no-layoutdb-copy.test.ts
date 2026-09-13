@@ -1,4 +1,4 @@
-// [SITE-35] The site names the product "akldb" -- saltorbit, 2026-09-13
+// [SITE-38] The site names the product "akldb" -- saltorbit, 2026-09-13
 // ("akldb everywhere"). "layoutdb"/"layout-db"/"the layout database" (the
 // internal/historical name) must never reach a viewer: not `copy.ts` (the
 // ONE place SITE-5 lets a 3+-word string live) and not the built client
@@ -50,13 +50,13 @@ function copyStrings(): string[] {
   return out;
 }
 
-describe("[SITE-35] akldb.org never says \"layoutdb\"/\"layout database\"", () => {
-  it("[SITE-35] every copy.ts string (including the kinds/rename/link function outputs) is clear of the banned pattern", () => {
+describe("[SITE-38] akldb.org never says \"layoutdb\"/\"layout database\"", () => {
+  it("[SITE-38] every copy.ts string (including the kinds/rename/link function outputs) is clear of the banned pattern", () => {
     const offenders = copyStrings().filter((s) => BANNED.test(s));
     expect(offenders).toEqual([]);
   });
 
-  it("[SITE-35] the built bundle -- EVERY chunk, docs-content included -- has no occurrence of the banned pattern", () => {
+  it("[SITE-38] the built bundle -- EVERY chunk, docs-content included -- has no occurrence of the banned pattern", () => {
     execFileSync("npx", ["vite", "build"], { cwd: SITE_ROOT, stdio: "pipe" });
     expect(fs.existsSync(DIST_DIR)).toBe(true);
 
