@@ -20,7 +20,7 @@ export const copy = {
     signedInAs: (name: string) => `Signed in as ${name}`,
   },
   home: {
-    title: "Every layout in akldb",
+    title: "Layouts", // signed off by saltorbit 2026-09-13 (was "Every layout in akldb")
     searchPlaceholder: "Search layout names",
     authorPlaceholder: "Filter by author id",
     sortLikes: "Most liked",
