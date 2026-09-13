@@ -184,6 +184,7 @@ those are taken.
 | `IMPORT_SOURCE_URL` | var | `src/import/upstream.ts` (S5) | `wrangler.toml`'s `[vars]`; defaults to `https://clemenpine.com/layoutapi/v3` |
 | `IMPORT_MAX_WRITES_PER_TICK` | var | `src/import/apply.ts` (S5) | `wrangler.toml`'s `[vars]`; default `500` |
 | `IMPORT_UA` | var | `src/import/upstream.ts` (S5) | `wrangler.toml`'s `[vars]`; every upstream request must send it (0.1: the default UA is 403'd) |
+| `IMPORT_DELETES` | var | `src/import/cmini.ts` (`importDeletesEnabled`, LDB-I23) | `wrangler.toml`'s `[vars]`; default `"on"`; `"off"` is the hostile-upstream kill switch -- the importer never tombstones anything while set |
 | `DISCORD_API_URL` | var | `src/auth/discord.ts` (T1) | `wrangler.toml`'s `[vars]`; default `https://discord.com/api`; tests inject `fetchImpl` directly and never resolve this URL |
 | `CLOUDFLARE_DB_TOKEN` | repo secret (CI) | `.github/workflows/db.yml`'s `deploy` job (S7) | a Cloudflare API token with Workers Scripts + D1 + R2 edit, separate from the site's Pages token |
 | `CLOUDFLARE_DB_ACCOUNT_ID` | repo secret (CI) | `.github/workflows/db.yml`'s `deploy` job (S7) | the NEW community account's id (00 §1) -- NOT the site's `CLOUDFLARE_ACCOUNT_ID` |
@@ -612,15 +613,99 @@ prefix after 90 days (hand-configured once, `00 §1`/`08-infrastructure.md`
 indefinitely (the long-term archive), and `latest.json` is a single,
 always-current object nothing ever expires.
 
-### Clearing `cmini.stalled`
+### Hostile or vanished upstream
 
-The import stalls itself (`import_state` key `cmini.stalled`, a JSON
-`{at, reason}`) instead of applying a tick's deletes when a tick would
-tombstone more than `max(5, 5%)` of live records, or when the upstream list
-came back suspiciously short (07 §6 S5's collapse/prune guards, LDB-I3/I6)
--- a real upstream outage or bug should never silently mass-delete the
-mirror. To clear it once you've confirmed the state is legitimate (not an
-upstream bug):
+saltorbit, 2026-09-13: "i am concerned about the cmini owner crashing out and
+deleting their db when this goes live." The importer mirrors cmini every 5
+minutes; these are the layers that keep a bad upstream (a hostile deletion
+spree, an outage, a broken response shape) from mass-deleting our own
+mirror, from what an admin sees, to the last-resort recovery.
+
+**What stalls automatically** (`import_state` key `cmini.stalled`, a JSON
+`{at, reason}`, instead of applying that tick's deletes):
+
+- **LDB-I3, the per-tick bound**: more than `max(5, 5%)` of live records
+  unlisted in ONE tick stalls that tick's deletes entirely (never partial).
+- **LDB-I6, the collapse guard**: an upstream listing shorter than half the
+  live record count -- including a genuinely EMPTY list, or upstream
+  vanishing behind a non-2xx/malformed response (`import/upstream.ts`
+  throws after 3 retries, which aborts the WHOLE tick before anything is
+  written, no state change at all) -- stalls the whole tick, fetches
+  included, not just deletes.
+- **LDB-I22, the rolling 24h budget**: `max(20, 2%)` of live records may be
+  tombstoned in ANY trailing 24h window (not just one tick) -- closes the
+  "slow drip" the per-tick bound alone allows (5% every 5-minute tick, 288
+  ticks/day, empties the whole corpus in a day). Same `cmini.stalled` key,
+  same never-partial behavior. The two numbers were picked against the
+  catalog's real churn: production's entire event history (45,257 events,
+  2026-09-13) contains ZERO `upstream_deleted` events, ever -- `max(20,
+  2%)` is generous next to that observed 0/day maximum while still capping
+  a worst-case day at ~2% of the corpus instead of ~100%.
+
+None of these are a "fix" -- they're a pause button. A real deletion is
+still a tombstone either way (layout-level, formats untouched, restorable
+by id at any time, LDB-P8) once it does apply.
+
+**What an admin sees** -- `GET /v1/meta`'s `health.import` (LDB-M3):
+
+```json
+"import": {
+  "stalled": { "since": "2026-09-13T12:00:00.000Z", "reason": "..." } ,
+  "deletes_24h": 12,
+  "deletes_budget_24h": 84,
+  "deletes_planned": 5,
+  "deletes_applied": 0,
+  "deletes_disabled": false
+}
+```
+
+`stalled` is `null` when nothing is stalled. `deletes_planned`/
+`deletes_applied` are the LAST tick's own figures (0 applied while stalled
+or while the kill switch is on, even if several were planned).
+`deletes_disabled` mirrors the `IMPORT_DELETES` var below. The bot's
+watchdog and the akldb.org admin console read this block; `stalled` is
+folded into the ETag (a poller sees it move), `deletes_24h`/
+`deletes_budget_24h` are not (continuously time-dependent, like
+`health.dump/diff`'s own `age_s`).
+
+**The three recovery calls** (`db/scripts/ops-call.sh`, admin lane):
+
+```bash
+# Lift a stall deliberately. NOT a fix: the very next tick re-plans from
+# the SAME inputs and re-stalls immediately if the upstream is STILL bad.
+sh db/scripts/ops-call.sh POST /v1/admin/import/unstall
+
+# Bulk-restore upstream_deleted tombstones since a timestamp. dry_run
+# first to see the candidate list; omit it to actually restore (bounded by
+# `limit`, capped at 500 per call, safe to call again -- idempotent, and
+# never touches a layout the OWNER deleted themselves).
+sh db/scripts/ops-call.sh POST /v1/admin/import/restore-deleted '{"since":"2026-09-13T00:00:00Z","dry_run":true}'
+sh db/scripts/ops-call.sh POST /v1/admin/import/restore-deleted '{"since":"2026-09-13T00:00:00Z"}'
+
+# The kill switch: stop the importer from ever tombstoning anything,
+# regardless of the listing, until you flip it back. A wrangler.toml edit
+# + deploy (there is no runtime toggle route -- this is the "I don't trust
+# upstream at all right now" lever, left outside the API on purpose).
+# Edit wrangler.toml's [vars]: IMPORT_DELETES = "off", then:
+npx wrangler deploy --config wrangler.toml
+```
+
+A cleared stall or a restored tombstone can also be done by hand (below),
+but the admin routes are event-logged and preferred.
+
+**Restore-from-backup, the last resort**: if the importer's own guards and
+the recovery routes above aren't enough (the damage predates this guard
+existing, or came from something else entirely), the daily R2 dump, the
+30-day CI artifact, the weekly GitHub release, and D1 Time Travel are the
+fallback layers -- see "Weekly backup in GitHub" and "Point-in-time
+restore" below, in that order of preference (Time Travel restores the
+WHOLE database to one instant; the others let you re-apply just what a
+dump's `restoreSql` produces).
+
+### Clearing `cmini.stalled` by hand
+
+Prefer `POST /v1/admin/import/unstall` (above) -- it's event-logged. The
+raw D1 statement, if you need it directly:
 
 ```bash
 npx wrangler d1 execute akl-db --remote --config wrangler.toml \

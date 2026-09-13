@@ -40,6 +40,12 @@ sh db/scripts/ops-call.sh POST /v1/admin/diff/tick         # ours vs cmini -> /v
 sh db/scripts/ops-call.sh GET  /v1/admin/health
 sh db/scripts/ops-call.sh POST /v1/admin/clients '{"name":..,"pubkey":..,"owner_user_id":..,"caps":"act-as-user"}'
 
+# hostile/vanished-upstream recovery (LDB-I25/I26, 2026-09-13; db/README.md's
+# "Hostile or vanished upstream" runbook has the full picture)
+sh db/scripts/ops-call.sh POST /v1/admin/import/unstall                                           # lifts cmini.stalled -- NOT a fix, the next tick re-evaluates and can re-stall
+sh db/scripts/ops-call.sh POST /v1/admin/import/restore-deleted '{"since":"2026-09-13T00:00:00Z","dry_run":true}'  # see what a bulk restore would touch
+sh db/scripts/ops-call.sh POST /v1/admin/import/restore-deleted '{"since":"2026-09-13T00:00:00Z"}'                 # actually restore (bounded, idempotent, never an owner's own delete)
+
 # deploy (from the branch checkout; db/ needs `npm ci` and `npm run build:formats` once)
 cd db && npx wrangler d1 migrations apply akl-db --remote --config wrangler.toml && npx wrangler deploy --config wrangler.toml
 cd db && npx wrangler deploy --env preview --config wrangler.toml
