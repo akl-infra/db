@@ -13,6 +13,8 @@ import { describe, expect, it } from "vitest";
 import { repoLayout } from "./repo.ts";
 
 const WORKFLOW_PATH = repoLayout().workflowPath;
+// "db/" while db/ lived inside the site's tree; "" since the 2026-09-13 split made it the root.
+const P = repoLayout().dbPrefix;
 
 interface Step {
   uses?: string;
@@ -53,16 +55,16 @@ function collectUses(doc: unknown, out: string[] = []): string[] {
 }
 
 describe("db.yml wiring", () => {
-  it("[LDB-C1] triggers on pull_request and push, scoped to db/** and the workflow file", () => {
+  it("[LDB-C1] triggers on pull_request and push, scoped to the db tree (and, inside the site's tree, the workflow file)", () => {
     const wf = loadWorkflow();
     for (const trigger of ["pull_request", "push"] as const) {
       const paths = wf.on?.[trigger]?.paths ?? [];
-      expect(paths).toContain("db/**");
-      expect(paths).toContain(".github/workflows/db.yml");
+      expect(paths).toContain(`${P}**`);
+      if (P) expect(paths).toContain(".github/workflows/db.yml");
     }
   });
 
-  it("[LDB-C1] the test job installs deps, typechecks and tests, working from db/", () => {
+  it("[LDB-C1] the test job installs deps, typechecks and tests, working from the db tree", () => {
     const wf = loadWorkflow();
     const test = wf.jobs.test;
     expect(test, "no `test` job in db.yml").toBeDefined();
@@ -71,7 +73,7 @@ describe("db.yml wiring", () => {
     const workingDir =
       test.defaults?.run?.["working-directory"] ??
       test.steps?.find((s) => typeof s.run === "string")?.["working-directory"];
-    expect(workingDir).toBe("db");
+    expect(workingDir).toBe(P ? "db" : undefined);
 
     const runs = (test.steps ?? []).map((s) => s.run).filter((r): r is string => typeof r === "string");
     expect(runs.some((r) => /\bnpm ci\b/.test(r))).toBe(true);
@@ -242,7 +244,7 @@ describe("db.yml wiring", () => {
     const workingDir =
       site.defaults?.run?.["working-directory"] ??
       site.steps?.find((s) => typeof s.run === "string")?.["working-directory"];
-    expect(workingDir).toBe("db/site");
+    expect(workingDir).toBe(`${P}site`);
 
     const runSteps = (site.steps ?? []).filter((s): s is Step & { run: string } => typeof s.run === "string");
     const runs = runSteps.map((s) => s.run);
@@ -283,36 +285,6 @@ describe("db.yml wiring", () => {
     expect(c?.group).not.toBe("db-prod-deploy");
   });
 
-  it("[LDB-G6] the split-dry-run job needs test, runs weekly + on workflow_dispatch, and runs scripts/split/split-db.sh --dry-run", () => {
-    const wf = loadWorkflow();
-    const job = wf.jobs["split-dry-run"];
-    expect(job, "no `split-dry-run` job in db.yml").toBeDefined();
-    if (!job) throw new Error("unreachable: assertion above failed");
-
-    const needs = Array.isArray(job.needs) ? job.needs : [job.needs];
-    expect(needs).toContain("test");
-
-    expect(job.if, "split-dry-run job has no `if:` guard").toBeDefined();
-    expect(job.if).toContain("schedule");
-    expect(job.if).toContain("workflow_dispatch");
-    // Its own cron, not daily's -- a weekly job firing every day would be
-    // a silent behavior change nothing here would ever catch otherwise.
-    const schedules = (wf.on?.schedule as unknown as { cron: string }[] | undefined) ?? [];
-    expect(schedules.length, "no `schedule` triggers at all").toBeGreaterThanOrEqual(2);
-    const dailyCron = wf.jobs.daily?.if ?? "";
-    const ownCron = schedules.map((s) => s.cron).find((cron) => !dailyCron.includes(cron));
-    expect(ownCron, "no schedule distinct from daily's own cron").toBeDefined();
-    expect(job.if).toContain(ownCron);
-
-    const runs = (job.steps ?? []).map((s) => s.run).filter((r): r is string => typeof r === "string");
-    expect(runs.some((r) => /sh scripts\/split\/split-db\.sh --dry-run/.test(r)), "no split-db.sh --dry-run step").toBe(
-      true,
-    );
-
-    const checkout = job.steps?.find((s) => s.uses?.startsWith("actions/checkout@"));
-    expect(checkout, "no actions/checkout step").toBeDefined();
-    expect(checkout?.with?.["fetch-depth"], "needs full history to filter-repo").toBe(0);
-  });
 
   // [LDB-G6] repoLayout()'s prefix logic (tests/tools/repo.ts, 12 §3 X5
   // item 5), unit-tested on both branches against a scratch temp dir --
