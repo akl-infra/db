@@ -13,7 +13,8 @@ import { runNightly } from "./core/nightly";
 import { systemClock } from "./core/time";
 import { API_MAJOR, API_MINOR, API_VERSION_HEADER, apiVersionString, deprecationHeadersFor, withApiVersionHeader } from "./core/version";
 import type { FetchImpl } from "./import/upstream";
-import { tick as cminiTick } from "./import/cmini";
+import { importDeletesEnabled, tick as cminiTick, LAST_TICK_STATE_KEY, STALLED_STATE_KEY, type TickStats } from "./import/cmini";
+import { rollingDeleteBudget } from "./import/plan";
 import { diffDue, diffTick, lastDiff, IMPORT_STATE_KEY as LAST_DIFF_KEY, type LastDiffRecord } from "./import/difftick";
 import { adminRoute } from "./routes/admin";
 import { authorsRoute } from "./routes/authors";
@@ -105,7 +106,7 @@ app.use("/v1/*", rateLimitWrites(authDeps.now));
 //     `last_seen_at` bookkeeping, so a sign-in that keeps its name still
 //     gets the bot's per-command check a 304.
 // A 304 costs that one query.
-const META_STATE_KEYS = [LAST_DIFF_KEY, DUMP_STATE_KEY] as const;
+const META_STATE_KEYS = [LAST_DIFF_KEY, DUMP_STATE_KEY, STALLED_STATE_KEY, LAST_TICK_STATE_KEY] as const;
 
 // LDB-M2: `health.dump`/`health.diff` -- `{last_at, [seq,] age_s, stale}`,
 // `stale` past 48h (twice the 24h catch-up threshold, LDB-D8, so a genuinely
@@ -116,6 +117,7 @@ const META_STATE_KEYS = [LAST_DIFF_KEY, DUMP_STATE_KEY] as const;
 // (bounded by `CACHE_CONTROL`'s max-age), acceptable for an hours-scale
 // signal. A `null last_at` (never run) reports `stale: true`.
 const HEALTH_STALE_MS = 48 * 60 * 60 * 1000;
+const ROLLING_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 interface HealthField {
   last_at: string | null;
@@ -129,30 +131,61 @@ function healthOf(lastAt: string | null, nowIso: string): HealthField {
   return { last_at: lastAt, age_s, stale: age_s * 1000 > HEALTH_STALE_MS };
 }
 
+// LDB-M3 (2026-09-13, hostile/vanished-upstream visibility -- saltorbit:
+// "concerned about the cmini owner crashing out and deleting their db"):
+// `health.import`'s shape. `stalled` is folded into the ETag below (same
+// reasoning as `last_diff`, LDB-M1: it's a DISCRETE value that only
+// changes on a real tick, never per-second, so a poller must see it move
+// or it could 304 forever right after a collapse/stall that itself
+// appends zero events). `deletes_24h`/`deletes_budget_24h` are the
+// opposite -- continuously time-dependent (a delete rolls OFF the
+// trailing 24h window as wall-clock time passes, with no discrete event
+// marking it), same class as `health.dump/diff`'s own `age_s` -- so, like
+// those, they stay OUT of the ETag on purpose.
+interface StalledWire {
+  since: string;
+  reason: string;
+}
+
 app.get("/v1/meta", async (c) => {
   const db = c.env.DB;
-  const head = await readHead(db, META_STATE_KEYS);
-  const [diffRaw, dumpRaw] = head.state;
+  const nowIso = authDeps.now();
+  const sinceIso = new Date(Date.parse(nowIso) - ROLLING_WINDOW_MS).toISOString();
+  const head = await readHead(db, META_STATE_KEYS, sinceIso);
+  const [diffRaw, dumpRaw, stalledRaw, lastTickRaw] = head.state;
   const diffRecord = diffRaw === null || diffRaw === undefined ? null : (JSON.parse(diffRaw) as LastDiffRecord);
   const dumpState = dumpRaw === null || dumpRaw === undefined ? null : (JSON.parse(dumpRaw) as DumpState);
+  const stalled: StalledWire | null =
+    stalledRaw === null || stalledRaw === undefined ? null : (({ at, reason }: { at: string; reason: string }) => ({ since: at, reason }))(JSON.parse(stalledRaw));
+  const lastTick: TickStats | null = lastTickRaw === null || lastTickRaw === undefined ? null : (JSON.parse(lastTickRaw) as TickStats);
   const lastDiffWire = diffRecord === null ? null : { at: diffRecord.at, ok: diffRecord.ok };
   const etag = await etagFor(head.seq, {
     authors: head.authors,
     last_diff: lastDiffWire,
     formats: metaFormats(),
+    import_stalled: stalled,
+    import_last_tick: lastTick,
   });
   const short = await conditional(c, etag, CACHE_CONTROL);
   if (short) return short;
 
-  const nowIso = authDeps.now();
   const dumpHealth = healthOf(dumpState?.at ?? null, nowIso);
+  const metaCore = await readMetaCore(db, head);
   const health = {
     dump: { last_at: dumpHealth.last_at, seq: dumpState?.seq ?? null, age_s: dumpHealth.age_s, stale: dumpHealth.stale },
     diff: healthOf(diffRecord?.at ?? null, nowIso),
+    import: {
+      stalled,
+      deletes_24h: head.deletes24h,
+      deletes_budget_24h: rollingDeleteBudget(metaCore.layout_count),
+      deletes_planned: lastTick?.deletes_planned ?? null,
+      deletes_applied: lastTick?.deletes_applied ?? null,
+      deletes_disabled: !importDeletesEnabled(c.env),
+    },
   };
 
   const res = c.json({
-    ...(await readMetaCore(db, head)),
+    ...metaCore,
     last_diff: lastDiffWire,
     health,
     // [LDB-V3] design/layout-db/25-api-versioning.md "Policy" (b): the

@@ -43,22 +43,32 @@ export interface Head {
   // `import_state.value` for each of `readHead`'s `stateKeys`, in order
   // (`null` when the key has no row).
   state: (string | null)[];
+  // LDB-M3/LDB-I22: the rolling-24h `upstream_deleted` tombstone count, as
+  // of `deletesSinceIso` -- folded into this SAME query (one more scalar
+  // subquery) rather than a separate `.prepare()` call, so `/v1/meta`'s
+  // own "at most 4 prepares" budget (LDB-R9) doesn't grow. 0 when
+  // `deletesSinceIso` wasn't passed (every caller but `/v1/meta`).
+  deletes24h: number;
 }
 
 // `/v1/meta`'s whole validator in ONE round trip: the event head
-// (`MAX(seq)` on the INTEGER PRIMARY KEY), `authors_head`'s row, and one
-// `import_state` primary-key lookup per `stateKeys` entry -- each a
-// scalar subquery, so a 304 costs one D1 query of indexed reads.
-export async function readHead(db: D1Database, stateKeys: readonly string[] = []): Promise<Head> {
+// (`MAX(seq)` on the INTEGER PRIMARY KEY), `authors_head`'s row, one
+// `import_state` primary-key lookup per `stateKeys` entry, and (when asked)
+// the rolling delete count -- each a scalar subquery, so a 304 costs one
+// D1 query of indexed reads.
+export async function readHead(db: D1Database, stateKeys: readonly string[] = [], deletesSinceIso?: string): Promise<Head> {
   const cols = [
     "(SELECT MAX(seq) FROM events) AS seq",
     "(SELECT version FROM authors_head WHERE id = 1) AS authors_version",
     "(SELECT modified_at FROM authors_head WHERE id = 1) AS authors_modified_at",
     ...stateKeys.map((_, i) => `(SELECT value FROM import_state WHERE key = ?${i + 1}) AS state_${i}`),
+    ...(deletesSinceIso !== undefined
+      ? [`(SELECT COUNT(*) FROM events WHERE kind = 'upstream_deleted' AND rev IS NOT NULL AND at >= ?${stateKeys.length + 1}) AS deletes_24h`]
+      : []),
   ];
   const row = await db
     .prepare(`SELECT ${cols.join(", ")}`)
-    .bind(...stateKeys)
+    .bind(...stateKeys, ...(deletesSinceIso !== undefined ? [deletesSinceIso] : []))
     .first<Record<string, string | number | null>>();
   return {
     seq: (row?.seq as number | null) ?? 0,
@@ -67,6 +77,7 @@ export async function readHead(db: D1Database, stateKeys: readonly string[] = []
       modifiedAt: (row?.authors_modified_at as string | null) ?? null,
     },
     state: stateKeys.map((_, i) => (row?.[`state_${i}`] as string | null | undefined) ?? null),
+    deletes24h: deletesSinceIso !== undefined ? ((row?.deletes_24h as number | null) ?? 0) : 0,
   };
 }
 
