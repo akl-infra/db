@@ -490,7 +490,11 @@ lead session owns the spark deploy, rebuild and restart; saltorbit picks the hou
 2. Window opens: `wrangler d1 time-travel info akl-db` (rollback bookmark);
    off-account copy of `/v1/dump/latest.json` + the gz (cheap insurance).
 3. Fast-forward `ldb-geometry` into `ldb-arch-review` (push = prod Worker
-   deploy with the new `validate`).
+   deploy with the new `validate`). **STOP THE OLD BOT FIRST** (`flyctl
+   machine stop <machine> -a spark-bot`): learned 2026-09-13 — the old
+   reader consuming thousands of delete + new-shape create events during
+   the import stalled its main thread 5–16 s, timed out `/v1/meta` and
+   pushed RSS to 83 %. The new image starts it again at step 5.
 4. Wipe the live tables (the F4 recipe from `ldb-formats`; `sqlite_sequence`
    for `events` reset per the 0009 gotcha is moot on a wipe) and run the
    cmini import to completion (every page — check `/v1/meta` import state
