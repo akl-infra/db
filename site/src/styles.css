@@ -313,25 +313,13 @@ h2 {
   color: var(--accent);
 }
 
-/* Whole-row click target (Home's layout list, [SITE-20]): `akl-row-link` is
-   a real <a> whose `::after` is stretched over the entire <tr> via the
-   row's own `position: relative` -- native anchor semantics (tab order,
-   Enter, middle-click/cmd-click opening a new tab) come for free, no JS
-   delegation needed. Any OTHER link in the row (the Owner column) needs its
-   own stacking context above that overlay so it stays independently
-   clickable. */
+/* Whole-row click target (Home's layout list, [SITE-20]): delegation on the
+   <tr> (src/lib/rowclick.ts) -- NO positioned overlay. Safari does not treat
+   a `position: relative` <tr> as a containing block, so an `inset: 0`
+   pseudo-element on the row's link anchored to the document instead and the
+   last row's overlay swallowed every click on the page (2026-09-13). */
 .akl-table tbody tr {
-  position: relative;
   cursor: pointer;
-}
-.akl-row-link::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-}
-.akl-table td a:not(.akl-row-link) {
-  position: relative;
-  z-index: 1;
 }
 
 /* Narrow phones: collapse the table into a stacked list rather than

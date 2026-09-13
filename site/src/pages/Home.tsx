@@ -3,6 +3,7 @@ import { For, Show, createMemo, createSignal } from "solid-js";
 import { copy } from "../copy.ts";
 import { listLayouts } from "../api.ts";
 import { onLinkClick } from "../router.ts";
+import { rowClick } from "../lib/rowclick.ts";
 import { createAsync } from "../lib/asyncData.ts";
 import type { LayoutRecord } from "../lib/types.ts";
 import AuthorRef from "../ui/AuthorRef.tsx";
@@ -97,23 +98,16 @@ const Home: Component = () => {
                   {(row) => {
                     const layoutHref = `/l/${encodeURIComponent(row.name)}`;
                     return (
-                      <tr>
+                      <tr onClick={(e) => rowClick(e, layoutHref)}>
                         {/* saltorbit, 2026-09-13: the whole row opens the layout.
-                            `akl-row-link` is a real <a> stretched over the
-                            entire <tr> by styles.css's `::after` overlay
-                            (`position: relative` on the row, `inset: 0` on
-                            the pseudo-element) -- native anchor semantics do
-                            the rest for free: it's in the tab order and
-                            Enter activates it (keyboard), and a middle-click
-                            or a modified click (cmd/ctrl/shift) opens a new
-                            tab exactly as any other link would, because
-                            `onLinkClick` (router.ts) returns before calling
-                            `preventDefault()` for anything but a plain,
-                            unmodified left click ([SITE-20]). The Owner
-                            column's own link stacks above the overlay
-                            (styles.css: any non-`akl-row-link` anchor inside
-                            `.akl-table` gets `z-index: 1`) so clicking an
-                            owner's name still goes to their author page. */}
+                            The name cell keeps a real <a> (tab order, Enter,
+                            middle/modified click open a new tab); a plain
+                            click anywhere ELSE in the row is delegated by
+                            `rowClick` (src/lib/rowclick.ts) to the same
+                            `onLinkClick`, unless it landed on another link
+                            (the Owner column). No positioned overlay -- see
+                            rowclick.ts for the Safari bug that ruled it out
+                            ([SITE-20]). */}
                         <td data-col={copy.home.colName}>
                           <a href={layoutHref} class="akl-row-link" onClick={(e) => onLinkClick(e, layoutHref)}>
                             {row.name}
