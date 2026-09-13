@@ -39,6 +39,11 @@ export async function likeLayout(
     // 20-spark.md S3s: carried on the event, never folded onto `layouts`
     // (a like never moves `source_client`/`source_version`).
     source: { client: actor.source_client, version },
+    // LDB-L8b: `loadForLike` just read this row (to check `deleted`/the
+    // qwerty refusal) -- hand it straight to `appendLike` so a like/unlike
+    // costs exactly ONE read (this one) plus its own commit batch, never
+    // two reads of the same row.
+    current: record,
   });
   return { like_count };
 }
@@ -57,6 +62,7 @@ export async function unlikeLayout(
     userId: actor.user_id,
     via: actor.via,
     source: { client: actor.source_client, version },
+    current: record,
   });
   return { like_count };
 }

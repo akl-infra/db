@@ -31,7 +31,7 @@ import {
   type LastWrite,
 } from "./errors";
 import {
-  appendLike,
+  appendInheritedLikes,
   commitWrite,
   RevConflictError,
   rowToEvent,
@@ -221,17 +221,24 @@ export interface CreateBody {
   payload: unknown;
 }
 
-async function latestTombstoneIdByName(db: Bindings["DB"], name: string): Promise<string | null> {
-  const row = await db
-    .prepare("SELECT id FROM layouts WHERE name = ? AND deleted = 1 ORDER BY modified_at DESC, layout_rev DESC LIMIT 1")
+// LDB-L8c: one query instead of two (`latestTombstoneIdByName` +
+// `likeUserIds`, before this) -- a CTE picks the same "latest tombstone of
+// this name" row `latestTombstoneIdByName` did, then LEFT JOINs its likes
+// so a name with no tombstone (zero rows back), a tombstone with none
+// (one row, `user_id` null), and a tombstone with likes (one row per
+// liker) are all told apart from the SAME single round trip.
+async function tombstoneLikers(db: Bindings["DB"], name: string): Promise<{ tombstoneId: string | null; userIds: string[] }> {
+  const { results } = await db
+    .prepare(
+      `WITH t AS (SELECT id FROM layouts WHERE name = ? AND deleted = 1 ORDER BY modified_at DESC, layout_rev DESC LIMIT 1)
+       SELECT t.id AS tombstone_id, lk.user_id AS user_id FROM t LEFT JOIN likes lk ON lk.layout_id = t.id ORDER BY lk.user_id ASC`,
+    )
     .bind(name)
-    .first<{ id: string }>();
-  return row?.id ?? null;
-}
-
-async function likeUserIds(db: Bindings["DB"], layoutId: string): Promise<string[]> {
-  const { results } = await db.prepare("SELECT user_id FROM likes WHERE layout_id = ? ORDER BY user_id ASC").bind(layoutId).all<{ user_id: string }>();
-  return results.map((r) => r.user_id);
+    .all<{ tombstone_id: string; user_id: string | null }>();
+  if (results.length === 0) return { tombstoneId: null, userIds: [] };
+  const tombstoneId = results[0]!.tombstone_id;
+  const userIds = results.filter((r): r is { tombstone_id: string; user_id: string } => r.user_id !== null).map((r) => r.user_id);
+  return { tombstoneId, userIds };
 }
 
 export interface WriteOutcome {
@@ -259,7 +266,6 @@ export async function createLayout(env: Bindings, now: Clock, actor: Actor, body
   const chained = chainToLatest(module, body.payload);
   const lin = lineage(chained.format);
 
-  const tombstoneId = await latestTombstoneIdByName(db, body.name);
   const source: Source = { client: actor.source_client, version };
   const id = ulid();
   const modified_at = now();
@@ -286,14 +292,30 @@ export async function createLayout(env: Bindings, now: Clock, actor: Actor, body
     upstream: null, // a plain user create has no prior link -- nextUpstream(null, ...) is always null
   };
 
-  const result = await commitAndMapErrors(db, now, () => Promise.resolve(input));
+  // LDB-L8c: the tombstone/likers lookup and the create's own commit touch
+  // entirely disjoint rows (a would-be OLD tombstone vs. the brand-new
+  // id), so they run CONCURRENTLY rather than one after the other -- both
+  // are still separate D1 round trips (the lookup is read-only and can't
+  // travel inside `commitWrite`'s own batch, which is built from `input`
+  // alone and has no reason to know about tombstone inheritance), but
+  // overlapping them halves the wall-clock cost of paying for both.
+  const [{ tombstoneId, userIds }, result] = await Promise.all([tombstoneLikers(db, body.name), commitAndMapErrors(db, now, () => Promise.resolve(input))]);
 
   let layout = result.layout;
-  if (tombstoneId !== null) {
-    for (const userId of await likeUserIds(db, tombstoneId)) {
-      const r = await appendLike(db, now, { kind: "liked", layoutId: layout.id, userId, via: "name_inherited", detail: { from: tombstoneId }, source });
-      layout = { ...layout, like_count: r.like_count };
-    }
+  if (tombstoneId !== null && userIds.length > 0) {
+    // LDB-L8c: every inherited like used to be its own `appendLike` call
+    // (a read, a pre-check, a batch EACH -- 3 D1 round trips per liker).
+    // One batch instead, however many likers.
+    const { like_count } = await appendInheritedLikes(db, now, {
+      layoutId: layout.id,
+      name: layout.name,
+      owner: layout.owner,
+      userIds,
+      via: "name_inherited",
+      detail: { from: tombstoneId },
+      source,
+    });
+    layout = { ...layout, like_count };
   }
   return { layout, formats: result.formats, format: chained.format, lineage: lin, payload: chained.payload };
 }
@@ -681,11 +703,15 @@ export async function transferLayout(env: Bindings, now: Clock, actor: Actor, re
   const source: Source = { client: actor.source_client, version };
 
   const build = async (): Promise<CommitInput> => {
-    const { lwf, admin } = await loadForWrite(db, ref, actor, { allowDeleted: false });
+    if (!TRANSFER_USER_ID_RE.test(body.to)) throw badRequest(`unknown user '${body.to}'`, "/to");
+    // LDB-L8d: `loadForWrite`'s own read and the `to` author-existence
+    // check touch different tables and neither depends on the other's
+    // result -- run them concurrently rather than sequentially so their
+    // two D1 round trips overlap in wall time (the count is unchanged;
+    // only the wall-clock cost is).
+    const [{ lwf, admin }, author] = await Promise.all([loadForWrite(db, ref, actor, { allowDeleted: false }), db.prepare("SELECT 1 FROM authors WHERE user_id = ?").bind(body.to).first()]);
 
     if (body.to === lwf.layout.owner) throw badRequest("already the owner", "/to");
-    if (!TRANSFER_USER_ID_RE.test(body.to)) throw badRequest(`unknown user '${body.to}'`, "/to");
-    const author = await db.prepare("SELECT 1 FROM authors WHERE user_id = ?").bind(body.to).first();
     if (author === null) throw badRequest(`unknown user '${body.to}'`, "/to");
 
     const upstream = nextUpstream(lwf.layout.upstream, actor.via, true);

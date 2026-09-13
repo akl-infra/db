@@ -216,17 +216,19 @@ export async function commitWrite(db: Bindings["DB"], now: Clock, input: CommitI
   const id = input.layoutId;
   const partsCount = (input.layout !== undefined ? 1 : 0) + (input.format !== undefined ? 1 : 0);
 
-  // Name-clash pre-check (mirrors 07 §4's original reasoning): only a LIVE
-  // layout-scope write that leaves the layout live needs it -- a deleted
-  // write, or a pure format-scope write, never claims a name.
-  if (input.layout !== undefined && !input.layout.deleted) {
-    const clash = await db
-      .prepare("SELECT 1 FROM layouts WHERE deleted = 0 AND name = ? AND id != ? LIMIT 1")
-      .bind(input.layout.name, id)
-      .first();
-    if (clash !== null) throw nameTaken(input.layout.name);
-  }
-
+  // LDB-L8a: no separate name-clash pre-read. `layouts_name_live` (a
+  // partial UNIQUE index on `name WHERE deleted = 0`, migrations/
+  // 0001_init.sql/0009_formats.sql) is the ONLY enforcement point
+  // (tests/events/races.test.ts's own header: "the concurrency guard lives
+  // INSIDE the write batch, not in the pre-checks") -- a live layout-scope
+  // write that would clash fails the batch below with `UNIQUE constraint
+  // failed: layouts.name`, caught right after `db.batch()` and mapped to
+  // the exact same `nameTaken()` this pre-check used to throw. Removing it
+  // saves one D1 round trip on every create/rename/restore/transfer's
+  // common (non-colliding) path, at no behavioral cost: the constraint
+  // already had to hold for correctness (two concurrent writes can't both
+  // pass a pre-check), so this pre-check was read-then-hope-nothing-races,
+  // never the actual guard.
   const finalLayoutRev = input.layout !== undefined ? (input.creating ? 1 : input.currentLayout!.layout_rev + 1) : (input.currentLayout?.layout_rev ?? 0);
   const finalLikeCount = input.like_count ?? input.currentLayout?.like_count ?? 0;
   const finalName = input.layout?.name ?? input.currentLayout!.name;
@@ -608,6 +610,16 @@ export interface Like {
   via: string;
   detail?: object;
   source: Source;
+  // LDB-L8b: when the caller already has a fresh `LayoutRow` for
+  // `layoutId` in hand (`core/likes.ts`'s `loadForLike` reads it anyway,
+  // to check `deleted`/the qwerty refusal before calling this), pass it
+  // here so this function doesn't re-read the same row a second time.
+  // Omitted, this reads it itself (every existing caller: the tombstone
+  // name-inheritance loop in `core/write.ts`, `import/apply.ts`, and every
+  // direct test call) -- behavior-identical either way, since `current` is
+  // used only for its `name`/`owner` (denormalized onto the event row) and
+  // the `like_count` fallback below.
+  current?: LayoutRow;
 }
 
 // D13 L1/L2 (saltorbit, 2026-09-11): a like/unlike needs no version (L3), but
@@ -615,37 +627,36 @@ export interface Like {
 // `409 already_liked`, a redundant unlike with `409 not_liked`, and either
 // way NOTHING is written (no event, `like_count` untouched). Layout-level,
 // same as ever -- no format is involved.
+//
+// LDB-L8b (review/LEDGER.md L8): no pre-batch "am I already liked?" read
+// any more -- straight to the guarded batch below, whose own EXISTS/
+// NOT EXISTS conditions already decide the exact same already_liked/
+// not_liked outcome at commit time (`results[0].meta.changes === 0`
+// below), race or no race. This is not a behavior change (every caller
+// already tolerated this outcome, since a CONCURRENT request could always
+// reach the batch's guard first); it's one fewer D1 round trip on every
+// like/unlike, not just the racing ones.
 export async function appendLike(db: Bindings["DB"], now: Clock, l: Like): Promise<{ seq: number; like_count: number }> {
-  const current = await readById(db, l.layoutId);
+  const current = l.current ?? (await readById(db, l.layoutId));
   if (current === null) throw new Error(`appendLike: layoutId '${l.layoutId}' does not exist`);
 
-  const existing = await db.prepare("SELECT 1 FROM likes WHERE layout_id = ? AND user_id = ?").bind(l.layoutId, l.userId).first();
-  const isAlreadyLiked = existing !== null;
   const wantsLike = l.kind === "liked";
-
-  if (wantsLike === isAlreadyLiked) {
-    throw wantsLike ? alreadyLikedError() : notLikedError();
-  }
-
   const at = now();
 
-  // Coordinator review (HIGH): the check above is a read BEFORE the
-  // batch -- for a LIKE, the `likes` table's own PK still makes the
-  // actual race atomic (caught below); for an UNLIKE there is no such
-  // constraint, so two concurrent unlikes from the same user could both
-  // pass the pre-batch check, both DELETE (the loser's own DELETE just
-  // removes 0 rows, no error), and both append an `unliked` event --
-  // the second caller wrongly gets 200 (breaks L2) and the fold subtracts
-  // twice (breaks MF-3). Fixed by making the EVENT insert itself
-  // conditional on the row it's about to react to STILL being true AT
-  // BATCH-COMMIT TIME (D1 batches serialize like any other writer
-  // transaction, so a losing batch re-evaluates this EXISTS/NOT EXISTS
-  // against the winner's already-committed state, not the stale pre-batch
-  // read) -- 0 rows inserted means this call's own premise no longer
-  // holds, and the DELETE/likes-count recompute below are then no-ops.
-  // The same EXISTS also folds in the LOW fix for a like racing a delete:
-  // a layout that's gone `deleted` by batch-commit time inserts nothing
-  // either, so a post-batch fresh read tells the two cases apart.
+  // Coordinator review (HIGH): two concurrent unlikes from the same user
+  // could both DELETE (the loser's own DELETE just removes 0 rows, no
+  // error) and both append an `unliked` event -- the second caller
+  // wrongly gets 200 (breaks L2) and the fold subtracts twice (breaks
+  // MF-3). Fixed by making the EVENT insert itself conditional on the row
+  // it's about to react to STILL being true AT BATCH-COMMIT TIME (D1
+  // batches serialize like any other writer transaction, so a losing
+  // batch re-evaluates this EXISTS/NOT EXISTS against the winner's
+  // already-committed state) -- 0 rows inserted means this call's own
+  // premise no longer holds, and the DELETE/likes-count recompute below
+  // are then no-ops. The same EXISTS also folds in the LOW fix for a like
+  // racing a delete: a layout that's gone `deleted` by batch-commit time
+  // inserts nothing either, so a post-batch fresh read tells the two
+  // cases apart.
   const eventInsertSql = `INSERT INTO events (at, kind, layout_id, name, owner, format, rev, actor, via, admin, detail_json, before_json, after_json, source_client, source_version)
     SELECT ?, ?, ?, ?, ?, NULL, NULL, ?, ?, 0, ?, NULL, NULL, ?, ?
     WHERE EXISTS (SELECT 1 FROM layouts WHERE id = ? AND deleted = 0)
@@ -724,6 +735,68 @@ export async function appendLike(db: Bindings["DB"], now: Clock, l: Like): Promi
   if (seq === undefined) throw new Error("appendLike: events insert returned no last_row_id");
   const counted = (results[3]?.results?.[0] as { like_count: number } | undefined)?.like_count;
   return { seq, like_count: counted ?? current.like_count };
+}
+
+// LDB-L8c (review/LEDGER.md L8): `core/write.ts`'s `createLayout`, when a
+// tombstoned name it's reclaiming (LDB-P9) had likes, used to copy them
+// one `appendLike` call at a time -- a read, a pre-check and a batch EACH,
+// so reclaiming a well-liked name cost 3x its liker count in D1 round
+// trips. This is the same outcome (one `liked` event per former liker,
+// `via`/`detail` shared, plus a real `likes` row copied for each) in ONE
+// batch, however many likers -- `userIds` must be non-empty (callers
+// already only reach this when it is, LDB-P9's own "nothing to inherit"
+// case never calls it at all).
+export async function appendInheritedLikes(
+  db: Bindings["DB"],
+  now: Clock,
+  a: { layoutId: string; name: string; owner: string; userIds: string[]; via: string; detail: object; source: Source },
+): Promise<{ like_count: number }> {
+  const at = now();
+  const detailJson = canonical(a.detail);
+
+  // One `liked` event per former liker -- same shape `appendLike`'s own
+  // event insert would have written (LDB-P9's feed/changes readers see no
+  // difference), same live-layout guard, and ALSO guarded against a real,
+  // direct like from this exact user landing in the tiny window between
+  // the create's own commit and this batch (rare, but the guard costs
+  // nothing and keeps `likes`' PK from ever seeing a duplicate attempt).
+  const eventStmts = a.userIds.map((userId) =>
+    db
+      .prepare(
+        `INSERT INTO events (at, kind, layout_id, name, owner, format, rev, actor, via, admin, detail_json, before_json, after_json, source_client, source_version)
+         SELECT ?, 'liked', ?, ?, ?, NULL, NULL, ?, ?, 0, ?, NULL, NULL, ?, ?
+         WHERE EXISTS (SELECT 1 FROM layouts WHERE id = ? AND deleted = 0)
+           AND NOT EXISTS (SELECT 1 FROM likes WHERE layout_id = ? AND user_id = ?)`,
+      )
+      .bind(at, a.layoutId, a.name, a.owner, userId, a.via, detailJson, a.source.client, a.source.version, a.layoutId, a.layoutId, userId),
+  );
+
+  // The `likes` rows themselves, copied one INSERT per liker (same guard)
+  // -- kept per-user, not one bulk `INSERT ... SELECT FROM likes WHERE
+  // layout_id = tombstone`, so a like that lands mid-batch-window for ONE
+  // specific user is skipped for that user alone rather than silently
+  // deciding the whole copy atomically one way or the other.
+  const likeStmts = a.userIds.map((userId) =>
+    db
+      .prepare(
+        `INSERT INTO likes (layout_id, user_id, at, via)
+         SELECT ?, ?, ?, ?
+         WHERE EXISTS (SELECT 1 FROM layouts WHERE id = ? AND deleted = 0)
+           AND NOT EXISTS (SELECT 1 FROM likes WHERE layout_id = ? AND user_id = ?)`,
+      )
+      .bind(a.layoutId, userId, at, a.via, a.layoutId, a.layoutId, userId),
+  );
+
+  const results = await db.batch([
+    ...eventStmts,
+    ...likeStmts,
+    db.prepare("UPDATE layouts SET like_count = (SELECT COUNT(*) FROM likes WHERE layout_id = ?) WHERE id = ?").bind(a.layoutId, a.layoutId),
+    db.prepare("SELECT like_count FROM layouts WHERE id = ?").bind(a.layoutId),
+  ]);
+
+  const last = results[results.length - 1];
+  const counted = (last?.results?.[0] as { like_count: number } | undefined)?.like_count;
+  return { like_count: counted ?? 0 };
 }
 
 // A parsed `events` row (D1's 0/1 and JSON-string columns converted).

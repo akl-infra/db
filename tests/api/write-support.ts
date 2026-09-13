@@ -91,3 +91,77 @@ export async function writeFetch(
   await awaitPendingNudge();
   return res;
 }
+
+// LDB-L8/review/LEDGER.md L8: a counting instrument for "how many D1 round
+// trips did this write cost", used by tests/api/l8-roundtrips.test.ts's
+// per-route matrix. `env.DB` here is the SAME binding object the SELF
+// worker reads `c.env.DB` from (pool-workers runs both in one isolate --
+// write-support.ts's own `pinTestClock` already relies on this for
+// `TEST_CLOCK`), so wrapping it once, before a request, counts every real
+// network call the Worker's own code makes: `.first()/.all()/.run()/
+// .raw()` on a prepared statement (one D1 round trip each) and `.batch()`
+// on the binding itself (one round trip REGARDLESS of how many statements
+// it carries -- that's the whole point of batching). `.prepare()`/`.bind()`
+// are purely local (no network), so they're passed through uncounted.
+export interface D1RoundTripCounter {
+  readonly count: number;
+  reset(): void;
+  restore(): void;
+}
+
+type AnyFn = (...args: unknown[]) => unknown;
+const ROUND_TRIP_METHODS = new Set(["first", "all", "run", "raw"]);
+
+function wrapStatement(stmt: D1PreparedStatement, counter: { n: number }): D1PreparedStatement {
+  return new Proxy(stmt, {
+    get(target, prop, _receiver) {
+      const value = Reflect.get(target, prop, target) as unknown;
+      if (typeof value !== "function") return value;
+      const fn = value as AnyFn;
+      if (prop === "bind") {
+        return (...args: unknown[]) => wrapStatement(fn.apply(target, args) as D1PreparedStatement, counter);
+      }
+      if (typeof prop === "string" && ROUND_TRIP_METHODS.has(prop)) {
+        return (...args: unknown[]) => {
+          counter.n += 1;
+          return fn.apply(target, args);
+        };
+      }
+      return fn.bind(target);
+    },
+  });
+}
+
+export function countD1RoundTrips(bindings: { DB: D1Database }): D1RoundTripCounter {
+  const real = bindings.DB;
+  const counter = { n: 0 };
+
+  const wrapped = new Proxy(real, {
+    get(target, prop, _receiver) {
+      const value = Reflect.get(target, prop, target) as unknown;
+      if (prop === "prepare") {
+        return (...args: unknown[]) => wrapStatement((target.prepare as AnyFn).apply(target, args) as D1PreparedStatement, counter);
+      }
+      if (prop === "batch") {
+        return (...args: unknown[]) => {
+          counter.n += 1;
+          return (target.batch as AnyFn).apply(target, args);
+        };
+      }
+      return typeof value === "function" ? (value as AnyFn).bind(target) : value;
+    },
+  }) as D1Database;
+
+  bindings.DB = wrapped;
+  return {
+    get count() {
+      return counter.n;
+    },
+    reset() {
+      counter.n = 0;
+    },
+    restore() {
+      bindings.DB = real;
+    },
+  };
+}
