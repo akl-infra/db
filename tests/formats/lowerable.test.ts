@@ -17,8 +17,14 @@ import * as spark1 from "../../formats/spark/1/index.ts";
 
 const SPARK_FIXTURES_DIR = path.resolve(import.meta.dirname, "..", "..", "formats", "spark", "1", "fixtures");
 
+// LDB-F39 (2026-09-13): `parity-vectors.json` is a LIST of 300 golden
+// vectors (`scripts/gen-spark-parity-vectors.mjs`), not a single base
+// Payload -- excluded here the same way `tests/formats/validated-shapes.ts`
+// excludes it from its own (separately-duplicated, self-contained-test
+// posture) copy of this function.
 function isBaseFixtureFile(filename: string): boolean {
   if (!filename.endsWith(".json")) return false;
+  if (filename === "parity-vectors.json") return false;
   return !filename.slice(0, -".json".length).includes(".");
 }
 

@@ -16,6 +16,7 @@
     "pick-fixtures": "node scripts/pick-fixtures.mjs",
     "goldens": "node scripts/goldens.mjs",
     "gen-vectors": "node scripts/gen-vectors.mjs",
+    "gen-spark-parity-vectors": "node scripts/gen-spark-parity-vectors.mjs",
     "build:formats": "cd formats && tsup"
   },
   "dependencies": {

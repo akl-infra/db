@@ -198,8 +198,14 @@ describe("[LDB-F37] error selection is deterministic", () => {
 // invalid write ever pays for). Pinned LOOSELY (a generous absolute
 // ceiling, not a tight percentage, to survive slower CI hardware without
 // chasing noise) at a multiple comfortably above 2x either number.
+// LDB-F39 (2026-09-13): `parity-vectors.json` is a LIST of 300 golden
+// vectors (`scripts/gen-spark-parity-vectors.mjs`), not a single base
+// Payload -- by far the largest FILE in this directory, which would
+// otherwise make `largestFixtureStem()` below pick it as "the largest
+// spark/1 fixture" and hand it to `spark1.validate()` as if it were one.
 function isBaseFixtureFile(filename: string): boolean {
   if (!filename.endsWith(".json")) return false;
+  if (filename === "parity-vectors.json") return false;
   return !filename.slice(0, -".json".length).includes(".");
 }
 

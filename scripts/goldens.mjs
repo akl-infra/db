@@ -101,9 +101,14 @@ function writeJson(file, data) {
 // Base fixture files are `NNN-<id>.json`; goldens are
 // `NNN-<id>.lowered.json` / `NNN-<id>.<to-format>.json` -- one extra "."
 // segment distinguishes them (same predicate tests/formats/goldens.test.ts
-// uses).
+// uses). LDB-F39 (2026-09-13): `formats/spark/1/fixtures/parity-vectors
+// .json` is a LIST of 300 golden vectors (`scripts/
+// gen-spark-parity-vectors.mjs`), not a single base Payload -- excluded
+// here by name, the same way `tests/formats/validated-shapes.ts` excludes
+// it from its own copy of this predicate.
 function isBaseFixtureFile(filename) {
   if (!filename.endsWith(".json")) return false;
+  if (filename === "parity-vectors.json") return false;
   return !filename.slice(0, -".json".length).includes(".");
 }
 

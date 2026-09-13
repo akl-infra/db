@@ -90,8 +90,20 @@ export function validatedShapes(): ValidatedShape[] {
 // format; the cmini adapter is never a `to[...]` target of anything).
 export { getFormat };
 
+// LDB-F39 (2026-09-13): `formats/spark/1/fixtures/parity-vectors.json` is a
+// LIST of 300 `{keys, magic, expected}` golden vectors (`scripts/
+// gen-spark-parity-vectors.mjs`), not a single base Payload -- it lives
+// alongside spark/1's real base fixtures deliberately (it IS a spark/1
+// fixture, in the sense that it's frozen the same way and lives under the
+// same major, LDB-F6), but every "generated per format x fixture" suite in
+// this directory (mutations/goldens/edits) would otherwise pick it up as if
+// it were one, mutate/lower/golden-check fields that don't exist on it, and
+// fail in bulk. Named out here, the one place that would otherwise matter.
+const NOT_A_BASE_FIXTURE = new Set(["parity-vectors.json"]);
+
 export function isBaseFixtureFile(filename: string): boolean {
   if (!filename.endsWith(".json")) return false;
+  if (NOT_A_BASE_FIXTURE.has(filename)) return false;
   return !filename.slice(0, -".json".length).includes(".");
 }
 
