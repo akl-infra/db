@@ -24,6 +24,7 @@ discussion" item of `review/LEDGER.md` plus the parked `D4`/`D8` round of
 | lookup / preview / write | `board stand` (lookup, no argument) · `board stand iso` · `board! stand iso`; same trio for `fingers` |
 | fingerings | `fingers! stand angle` ("great"), plus `nokwts` and `meteorite`, "which should apply the fingermap and the visual ascii stagger" — with the two looks saltorbit gave (§5.4); "angle is only compatible with ansi"; cmini's angle indent still implies `angle` on old pastes ("implicit angle is great") |
 | looks | **flat** for everything ("represented normally, including qwerty etc, and including weird layouts" — graphite's three rows flush); only `angle` gets rows 0–1 flush + row 2 in by one, only `nokwts` and `meteorite` get the full 0/1/2 stagger (round 3 correction: "only nokwts and meteorite should be fully staggered like that"; "meteorite, like aguacero, should present more like [nokwts]") |
+| format vs bot rules | "the format should be able to represent things even if the bot doesn't want to" (saltorbit, after review 24 F10): the format never refuses a write over a derived label; "angle only on ansi" is a bot rule for `fingers!`/`board!` |
 | space thumb | not now → #333 |
 | akl.gg | the §6 concept "sounds good" |
 | landing | edit spark/1 in place, wipe + re-import |
