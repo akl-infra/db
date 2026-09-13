@@ -9857,26 +9857,6 @@
             "clients": {
               "type": "object",
               "fields": {
-                "budget": {
-                  "type": "object",
-                  "fields": {
-                    "base": {
-                      "type": "number"
-                    },
-                    "effective": {
-                      "type": "number"
-                    },
-                    "live_layouts": {
-                      "type": "number"
-                    },
-                    "pct": {
-                      "type": "number"
-                    },
-                    "window_seconds": {
-                      "type": "number"
-                    }
-                  }
-                },
                 "suspended": {
                   "type": "array",
                   "item": null
@@ -9921,9 +9901,6 @@
                   "type": "number"
                 },
                 "deletes_applied": {
-                  "type": "number"
-                },
-                "deletes_budget_24h": {
                   "type": "number"
                 },
                 "deletes_disabled": {

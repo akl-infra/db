@@ -4,7 +4,7 @@
 // lives here, and every action is an `admin.*` event (`appendAdmin`) so the
 // public changelog sees it the same way it sees any other admin write.
 import type { Bindings } from "../env";
-import { budgetSummary, destructiveBudgetKey, destructiveThreshold, DESTRUCTIVE_WINDOW_SECONDS, type BudgetSummary } from "./destructive-budget";
+import { destructiveBudgetKey, destructiveThreshold, DESTRUCTIVE_WINDOW_SECONDS } from "./destructive-budget";
 import { badRequest, notFound } from "./errors";
 import { appendAdmin } from "./events";
 import { base64UrlToBytes, EXTRA_CAPS, parseCaps, SCOPE_CAPS } from "../auth/client";
@@ -272,9 +272,12 @@ export interface SuspendedClientInfo {
   reason: string | null;
 }
 
+// saltorbit 2026-09-13: the thresholds themselves are NEVER on a public route
+// ("I don't want to give destructive clients a handbook on how to get
+// around it") -- only the suspended list is public (a suspension is on the
+// changelog anyway). [LDB-A14]
 export interface ClientsHealth {
   suspended: SuspendedClientInfo[];
-  budget: BudgetSummary;
 }
 
 export async function clientsHealth(db: Bindings["DB"], liveLayoutCount: number): Promise<ClientsHealth> {
@@ -292,5 +295,6 @@ export async function clientsHealth(db: Bindings["DB"], liveLayoutCount: number)
     const state = states.get(suspendStateKey(r.id));
     return { id: r.id, name: r.name, at: state?.at ?? null, reason: state?.reason ?? null };
   });
-  return { suspended, budget: budgetSummary(liveLayoutCount) };
+  void liveLayoutCount; // kept in the signature for the call site; the budget is admin-internal (LDB-A14)
+  return { suspended };
 }

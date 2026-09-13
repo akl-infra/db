@@ -36,13 +36,11 @@ describe("GET /v1/meta", () => {
         diff: { last_at: null, age_s: null, stale: true },
         // [LDB-M3] never stalled, never ticked, and the kill switch reads
         // the wrangler.toml default ("on") -- deletes_disabled: false.
-        import: { stalled: null, deletes_24h: 0, deletes_budget_24h: 20, deletes_planned: null, deletes_applied: null, deletes_disabled: false },
+        import: { stalled: null, deletes_24h: 0, deletes_planned: null, deletes_applied: null, deletes_disabled: false },
         // [LDB-A12] saltorbit 2026-09-13 (rogue-trusted-client hardening): no
         // client has ever been suspended on a fresh database.
-        clients: {
-          suspended: [],
-          budget: { base: 200, pct: 0.05, window_seconds: 3600, live_layouts: 0, effective: 200 },
-        },
+        // [LDB-A14] saltorbit: no threshold is ever public -- only the suspended list.
+        clients: { suspended: [] },
       },
       // [LDB-V3] design/layout-db/25-api-versioning.md: the API's own
       // version block -- distinct from `formats` above (a stored/output
@@ -225,8 +223,11 @@ describe("[LDB-M2] GET /v1/meta health", () => {
     expect(body.health.import.deletes_24h).toBe(2);
   });
 
-  it("[LDB-M3] deletes_budget_24h is max(20, 2% of live layout_count)", async () => {
-    const body = await (await fetchMeta()).json<{ layout_count: number; health: { import: { deletes_budget_24h: number } } }>();
-    expect(body.health.import.deletes_budget_24h).toBe(Math.max(20, 0.02 * body.layout_count));
+  it("[LDB-A14] no budget/threshold field is ever on the public /v1/meta (saltorbit: no handbook for destructive clients)", async () => {
+    const text = await (await fetchMeta()).text();
+    expect(text).not.toMatch(/budget|threshold|window_seconds|"pct"|"effective"/);
+    const body = JSON.parse(text) as { health: { import: Record<string, unknown>; clients: Record<string, unknown> } };
+    expect(Object.keys(body.health.import).sort()).toEqual(["deletes_24h", "deletes_applied", "deletes_disabled", "deletes_planned", "stalled"]);
+    expect(Object.keys(body.health.clients)).toEqual(["suspended"]);
   });
 });

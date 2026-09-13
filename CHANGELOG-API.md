@@ -25,6 +25,13 @@ this file just gives them a public, versioned home. From here on, a
 `WIRE_VERSION` bump and a line here land in the SAME PR, never one without
 the other (`[LDB-V5]`).
 
+## 1.11 — 2026-09-13
+
+Corrective removal: `GET /v1/meta`'s `health.clients.budget` (from 1.10) and
+`health.import.deletes_budget_24h` (from 1.9) are gone. `health.clients`
+is `{suspended}` only. The thresholds are deliberately not public. Both
+fields had been live for under two hours with no reader.
+
 ## 1.10 — 2026-09-13
 
 Rogue-trusted-client hardening (`db/README.md`'s "Rogue trusted client"

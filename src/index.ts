@@ -15,7 +15,6 @@ import { systemClock } from "./core/time";
 import { API_MAJOR, API_MINOR, API_VERSION_HEADER, apiVersionString, deprecationHeadersFor, withApiVersionHeader } from "./core/version";
 import type { FetchImpl } from "./import/upstream";
 import { importDeletesEnabled, tick as cminiTick, LAST_TICK_STATE_KEY, STALLED_STATE_KEY, type TickStats } from "./import/cmini";
-import { rollingDeleteBudget } from "./import/plan";
 import { diffDue, diffTick, lastDiff, IMPORT_STATE_KEY as LAST_DIFF_KEY, type LastDiffRecord } from "./import/difftick";
 import { adminRoute } from "./routes/admin";
 import { authorsRoute } from "./routes/authors";
@@ -185,7 +184,6 @@ app.get("/v1/meta", async (c) => {
     import: {
       stalled,
       deletes_24h: head.deletes24h,
-      deletes_budget_24h: rollingDeleteBudget(metaCore.layout_count),
       deletes_planned: lastTick?.deletes_planned ?? null,
       deletes_applied: lastTick?.deletes_applied ?? null,
       deletes_disabled: !importDeletesEnabled(c.env),

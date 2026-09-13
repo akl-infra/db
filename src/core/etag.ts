@@ -132,7 +132,12 @@ export async function readHead(db: D1Database, stateKeys: readonly string[] = []
 //   .status` gained a new value, `suspended` (`GET /v1/admin/clients`'
 //   own `status` field can now read it). Additive only -- no existing
 //   field, route or status value changed meaning.
-export const WIRE_VERSION = 10;
+// 11 (2026-09-13): `health.clients.budget` and `health.import.deletes_budget_24h`
+//   REMOVED from `/v1/meta` hours after 1.9/1.10 introduced them (saltorbit: no
+//   public handbook for destructive clients / hostile upstreams). A corrective
+//   removal, not a /v2: both fields were live under two hours and no client
+//   ever read them (LDB-A14).
+export const WIRE_VERSION = 11;
 
 export async function etagFor(headSeqValue: number, query: unknown): Promise<string> {
   const hash = await sha256Hex(canonical({ wireVersion: WIRE_VERSION, query: query ?? null }));
