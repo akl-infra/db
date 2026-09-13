@@ -114,6 +114,7 @@ Status: `todo` · `running (agent, branch)` · `review` · `landed <sha>` · `bl
 
 ## Log
 
+- 2026-09-13 11:00Z · **CUTOVER COMPLETE** (cmini-web-19 verified step 6): db.cmini-web.pages.dev (deployment 9878d28c from d0aeea9c8) boots from base `20260913T104711Z-e5fac4119679`, 3,763/4,125 layouts listed (meme filter; the 14-row delta vs the old base = the wipe), stats populated, no console errors. Prod layoutdb on the new spark/1, spark on the new reader in lax with the wasm cap, pointer on a complete base. Open: B28b (ids), B26, B27, L8/L9/I1/#333 (other sessions), delete the stopped iad machine + volume after 24 h.
 - 2026-09-13 10:50Z · **Complete base published**: `20260913T104711Z-e5fac4119679` (167 files, 571 MB, uploaded in ~3 min), pointer swapped (db_seq 45251, overlay null), bot restarted → index 4,177 published, S2 clean. cmini-web-19 redeploys the db-alias site from ≥ fad402ed3 (step 6 retry). B28b (unify ids on the DB id inside rebuild.js) is the follow-up.
 - 2026-09-13 10:35Z · B29 landed + deploying: engine worker recycled through B95's reboot path when wasm linear memory > 384 MB (checked every 5 computes / 30 s), counters on /health.
 - 2026-09-13 10:15Z · **Memory mystery solved by B25's breakdown**: 781 MB is the wasm engine's linear memory (never shrinks), grown by the eager sweep. B29 dispatched (byte cap + recycle). B25 row: growth attributed.
