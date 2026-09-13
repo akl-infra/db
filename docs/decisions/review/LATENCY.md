@@ -136,3 +136,27 @@ Options, in order of preference: run the machine as `performance-1x` (dedicated 
 Whole tick: 364 s. **The 111 s stall is the smoke test's tombstone-leak check**: a tombstones × files loop that re-parsed every multi-MB overlay table once per tombstoned id. Fixed as LDB-B180 (one parse per table, `setImmediate` yield between files; commit 5bdf9216b, deployed with B13). Until B12 lands, the remaining per-tick blocking is the one-parse-per-table smoke pass plus the merge-overlay stringify/parse (tens of seconds spread over many files, each individually under a second or two).
 
 **Verdict for R2 during the backlog pass**: FAIL before the LDB-B180 fix — a command arriving in the 111 s window every ~6 min waited it out. After the fix the worst single block should be a few seconds (to be re-measured); B12 (worker thread) is what brings it under the 1 s target.
+
+## 10 · Round 2: bot verbs ON the Fly machine (v43, performance-1x, publisher backlog running, reps=5)
+
+`bot/scripts/measure-latency.mjs` via `fly ssh console` (B13): the real headless runtime booted beside the live bot (1.7 s, 4,179 records), same code path as a Discord command minus the gateway hop (add ≈ 50–150 ms each way for Discord itself). Numbers in ms.
+
+| verb | p50 | p95 | max | fresh | compute | note |
+|---|---|---|---|---|---|---|
+| view (cold, first after boot) | 137 | — | 137 | 69 | 0 | |
+| view | 70 | 108 | 108 | 76 | 0 | |
+| stats | 71 | 76 | 76 | 69 | 0 | |
+| sfbs | 79 | 325 | 325 | 68 | 0 | |
+| image (PNG) | 428 | 489 | 489 | 66 | 0 | render on 1 vCPU |
+| compare | 75 | **3,069** | 3,069 | 74 | 595 | one rep computed a missing cell set: 595 ms wasm + ≈ 2.4 s waiting |
+| view (magic) | 67 | 70 | 70 | 65 | 0 | |
+| stats (magic) | 70 | 74 | 74 | 71 | 0 | |
+| sfbs (magic) | 70 | **1,031** | 1,031 | 69 | 0 | one slow rep, no compute — CPU contention |
+| magic | 74 | 106 | 106 | 76 | 0 | |
+| rank | 70 | 78 | 78 | 69 | 0 | instant (row tables) |
+
+**Reading it.** The floor is the `/v1/meta` freshness check: 65–76 ms from Fly `iad` to the Worker (vs 21 ms from the laptop — the edge the machine reaches is slower; still fine). Every verb's p50 is under 80 ms except `image` (428 ms). **The p95 outliers are CPU contention, not code**: the machine has ONE performance vCPU and the publisher's native CLI child runs at 100 % of it for ~120 s of every ~6 min tick, so any command that needs CPU (a wasm compute for `compare`, PNG rendering, a big sfbs list) can take 2–3× longer while a compute is in flight, and the 1–1.5 s `compute`-phase stalls (§9b) land on top. Two cheap fixes, either is enough: (a) spawn the CLI child at lower OS priority (`os.setPriority(child.pid, 15)` — the bot always wins the CPU), (b) run `performance-2x` during backlog passes so the child has its own core. Recommend (a) now (B15) and (b) only for future full passes.
+
+**R2 verdict (Fly-side, during the backlog)**: PASS at p50 for every verb; FAIL at p95 for `compare` (3.1 s) and `sfbs` on a magic layout (1.0 s) while the publisher computes. Expected PASS at steady state (no CLI child running) — to be confirmed after the pass finishes. **R1/R3/R4 unchanged (pass).**
+
+**Caveats.** Three deploys tonight (v42 01:56Z, v43 02:24Z) each restarted the machine mid-tick and cost the publisher its in-flight tick (each is ≈ 6 min of work); the pointer did not advance between 01:59:52Z and 02:24Z. Deploy between ticks or accept the loss — the publisher recovers on its own (LDB-B142). The edit→pointer measurement started at 01:59:51Z is confounded by those restarts; re-run once the machine has been up for a full tick.
