@@ -1,7 +1,6 @@
 # 23 — Boards, fingerings and thumbs: explicit in spark, explicit at the bot (round 3, decided)
 
-**Status:** decided 2026-09-13 except the items in §8; implementation
-starts from §10. Branch `ldb-geometry` (worktree
+**Status:** decided 2026-09-13 ("let's go ahead and implement"); Q1–Q3 in §8 carry defaults; implementation runs from §10. Branch `ldb-geometry` (worktree
 `.claude/worktrees/ldb-geometry`, off `ldb-arch-review`). Rendered options
 at `design/artifacts/ldb-geometry.html` (artifact link in
 `design/artifacts/index.json`). This is the `W3` "spark/1 format
@@ -24,7 +23,7 @@ discussion" item of `review/LEDGER.md` plus the parked `D4`/`D8` round of
 | `add` grammar | geometry as trailing words on the command line: `!sp add mine iso` ("fantastic") |
 | lookup / preview / write | `board stand` (lookup, no argument) · `board stand iso` · `board! stand iso`; same trio for `fingers` |
 | fingerings | `fingers! stand angle` ("great"), plus `nokwts` and `meteorite`, "which should apply the fingermap and the visual ascii stagger" — with the two looks saltorbit gave (§5.4); "angle is only compatible with ansi"; cmini's angle indent still implies `angle` on old pastes ("implicit angle is great") |
-| everything else | "represented normally, including qwerty etc, and including weird layouts" |
+| looks | **flat** for everything ("represented normally, including qwerty etc, and including weird layouts" — graphite's three rows flush); only `angle` gets rows 0–1 flush + row 2 in by one, only `nokwts` and `meteorite` get the full 0/1/2 stagger (round 3 correction: "only nokwts and meteorite should be fully staggered like that"; "meteorite, like aguacero, should present more like [nokwts]") |
 | space thumb | not now → #333 |
 | akl.gg | the §6 concept "sounds good" |
 | landing | edit spark/1 in place, wipe + re-import |
@@ -111,8 +110,8 @@ Not added: `stagger`, `split`, `space` (#333), a fingering name.
 
 | kind | physical x of `(row, col)` | text grid | meant for |
 |---|---|---|---|
-| `ansi` | `col + [0, .25, .75][row]` | rows in by 0/1/2 (today's `stagger` look) | every row-staggered board; the **default** |
-| `iso` | `col + [0, .25, -.25][row]`; row 2's col 0 is the ISO key, so row 2 is one column wider | rows 0–1 in by one relative to row 2 (the ISO key sticks out left) | ANSI + the key between Shift and Z |
+| `ansi` | `col + [0, .25, .75][row]` | flat (the look comes from the fingering, §5.4) | every row-staggered board; the **default** |
+| `iso` | `col + [0, .25, -.25][row]` — z at col 1 lands at 0.75, exactly its ANSI spot; the only new thing is the ISO key at col 0, x = −0.25 | flat, row 2 out-dented by one cell so the ISO key sticks out left and z stays under q | ANSI + one extra key between Shift and Z, nothing else moves |
 | `ortho` | `col` | flat | grids, ortholinear boards |
 | `colstag` | `col` (stats and text as ortho) | flat | column-staggered splits; the word is for renderers and readers, not for amounts |
 
@@ -142,10 +141,10 @@ The four named fingerings are the site's `FINGERMAP_REFS` (= `build_web.py`
 
 | name | row 0 left | row 1 left | row 2 left | boards | text look (§5.4) |
 |---|---|---|---|---|---|
-| `standard` | `LP LR LM LI LI` | same | same | any | the board's own |
+| `standard` | `LP LR LM LI LI` | same | same | any | flat |
 | `angle` (site: "angle mod") | standard | standard | `LR LM LI LI LI` | **ansi only** | the angle look |
-| `nokwts` | `LP LR LM LM LI` | standard | `LP LR LI LI LI` | **ansi only** | the normal ansi look |
-| `meteorite` | `LP LR LM LM LI` | standard | `LR LM LI LI LI` | **ansi only** | the angle look (its bottom row is the angle mod's) — §8 Q2 |
+| `nokwts` | `LP LR LM LM LI` | standard | `LP LR LI LI LI` | **ansi only** | full stagger 0/1/2 |
+| `meteorite` | `LP LR LM LM LI` | standard | `LR LM LI LI LI` | **ansi only** | full stagger 0/1/2, like nokwts (saltorbit: "meteorite, like aguacero, should present more like [nokwts]") |
 
 Anything else is `custom` (the site's `other`), written as a digit matrix.
 The name is classified from the keys at read time (site build, bot reply)
@@ -273,17 +272,22 @@ z x c v b n  m , . / - =
 
 Old pastes keep their meaning: cmini's angle indent (rows 0–1 flush, row 2
 in by one) still means `angle` when no fingering word is given; any other
-indentation is cosmetic. An ISO grid is written the way it looks — row 2
-out-dented by one:
+indentation is cosmetic. Finger rows are tokenised per row (a key's column
+is its token index; `~` is a free position; the wide gap is the hand
+split), so an ISO grid is simply row 2 with one more key at the front —
+typed flush or out-dented, both parse the same:
 
 ```
 !sp add mine iso
 ```
-  q w e r t  y u i o p
-  a s d f g  h j k l ;
+q w e r t  y u i o p
+a s d f g  h j k l ;
 \ z x c v b  n m , . /
 ```
 ```
+
+→ `\` at row 2 col 0 (`LP`), `z` at col 1 (`LP`), … `b` at col 5 (`LI`),
+`n` at col 6 (`RI`). The reply out-dents row 2 so z sits under q.
 
 **Thumb keys** are a fourth line, each key under the column it sits in;
 the hand is the side of the gap. Every key gets its own column and label
@@ -329,23 +333,21 @@ columns beyond keep their fingers (an 11th column stays `RP`, as
 
 ### 5.4 Text grid: the looks (decided)
 
-Two looks on `ansi`, chosen by the derived fingering; everything else
-"represented normally":
+The look is a function of the **derived fingering alone** — the board word
+never changes the ascii grid (it changes the image, the site and the
+stats). Everything is flat unless the fingering says otherwise:
 
-| board × fingering | look |
-|---|---|
-| `ansi` × `angle` (and `meteorite`, §8 Q2) | rows 0–1 flush, row 2 in by one |
-| `ansi` × anything else (`standard`, `nokwts`, `custom`, qwerty, weird layouts) | rows in by 0/1/2 |
-| `iso` | rows 0–1 in by one, row 2 flush (its col 0 the ISO key) |
-| `ortho`, `colstag` | flat |
-
-saltorbit's two references, verbatim:
+| fingering | look | example (saltorbit's, verbatim) |
+|---|---|---|
+| `standard`, `custom`, anything else — "including qwerty etc, and including weird layouts" | flat (rows flush) | `graphite` below |
+| `angle` | rows 0–1 flush, row 2 in by one | `maya` below |
+| `nokwts`, `meteorite` | full stagger: rows in by 0/1/2 | `nokwts` below |
 
 ```
-nokwts (stronglytyped) (13 likes)
-  z b r l f  j y o u '  
-   n t h s m  c d e i a ,
-    q x w k v  p g / . ;  
+graphite (stronglytyped) (78 likes)
+  b l d w z  ' f o u j ; =
+  n r t s g  y h a e i ,  
+  q x m c v  k p . - /    
 ```
 
 ```
@@ -355,8 +357,22 @@ maya (lelazsq) (21 likes)
    x m c w z  p y ' / .
 ```
 
-The hand gap in the grid sits at `handSplit(keys)` (today's fixed
-`j === 4` padding in `render/matrix.ts` goes).
+```
+nokwts (stronglytyped) (13 likes)
+  z b r l f  j y o u '
+   n t h s m  c d e i a ,
+    q x w k v  p g / . ;  
+```
+
+`iso` is the one board-driven touch: flat, with row 2 out-dented by one
+cell so the ISO key sticks out left and z stays under q. The hand gap sits
+at `handSplit(keys)` per row (today's fixed `j === 4` padding in
+`render/matrix.ts` goes).
+
+Consequence to know: the 180 cmini-`stagger` layouts whose fingering is
+`standard`/`other` are drawn 0/1/2 today and will be flat after import;
+that is the rule as given ("only nokwts and meteorite should be fully
+staggered like that").
 
 ## 6. akl.gg: publishing and reading these (concept agreed; later)
 
@@ -367,7 +383,7 @@ thumb keys on a thumb row. Needed: (1) a **board row on the publish sheet**
 board (`rowstag` → `ansi`, `ortho` → `ortho`); the angle/nokwts/meteorite
 chips disable off `ansi`; (2) the bench assigns `LT`/`RT` **when a key is
 dropped** on the thumb row (side of the gap at drop time) and keeps it;
-(3) `iso` on the bench = row 2 grows a col-0 seat. `toAkl1` writes `board`
+(3) `iso` on the bench = row 2 grows a col-0 seat at x = −0.25; nothing else moves. `toAkl1` writes `board`
 (one word) and the per-key fingers; nothing else new.
 
 **Read (`fromAkl1`, the card, compare).** (1) The card header gets the kind
@@ -397,9 +413,8 @@ D11); layoutdb is disposable; no outside client reads spark yet. Unblocks
 | # | question | default if unanswered |
 |---|---|---|
 | Q1 | are `nokwts` and `meteorite` ansi-only like `angle`? (§4.3) | yes — each carries the ansi visual; anything else is digits |
-| Q2 | `meteorite`'s look: the angle look (its bottom row is the angle mod's) or the normal one? cmini today: 26 `stagger`, 20 `angle` | the angle look (one derived predicate: row 2 starts `LR`) |
-| Q3 | copy (P8): the words as typed (`angle` vs `angle mod`; verb `fingers` vs `fingermap`), the reply's `· iso · angle · 2 thumbs` line, the error texts (`angle is only for ansi boards`, `e sits in the gap`) | ship as `// COPY: sign-off pending` stand-ins, as the LEDGER rule says |
-| Q4 | thumb-key edits on an existing layout stay on the site (P6) | yes |
+| Q2 | copy (P8): the words as typed (`angle` vs `angle mod`; verb `fingers` vs `fingermap`), the reply's `· iso · angle · 2 thumbs` line, the error texts (`angle is only for ansi boards`, `e sits in the gap`) | ship as `// COPY: sign-off pending` stand-ins, as the LEDGER rule says |
+| Q3 | thumb-key edits on an existing layout stay on the site (P6) | yes |
 
 ## 9. Invariants this adds (ids provisional; registry `db/INVARIANTS.md`, `bot/INVARIANTS.md`, `design/INVARIANTS.md`)
 
@@ -413,7 +428,7 @@ D11); layoutdb is disposable; no outside client reads spark yet. Unblocks
 | LDB-F32 | `classifyFingering` returns `angle`/`nokwts`/`meteorite`/`standard` exactly when the left-hand fingers of rows 0–2 equal the reference (right hand `RI RI RM RR RP`), else `custom`; identical in the format package, the site build and the bot | shared table + parity test over the catalog against today's `layouts.json` `fingermap` |
 | LDB-B15x | `parseAddGrid` never reads the board from indentation: the same grid under any leading-space pattern yields the same `board` (the angle indent → `angle` only, and only without a fingering word); trailing vocabulary words are consumed right-to-left and the remainder is the name; the wide gap sets default fingers per hand; every thumb key gets its own `(col, finger)`; the reply names every inferred fact | property test over random indents/word orders; golden replies |
 | LDB-B15y | `fingers! x <name>` writes exactly the reference over the covered columns and nothing else; `fingers x <name>` then `fingers! x <name>` produce the same keys (preview = write); refused off `ansi` | property test |
-| LDB-B15z | `board <name>` / `fingers <name>` with no argument never write, and the text grid's look is a pure function of `(board, classifyFingering(keys))` per §5.4 — saltorbit's two reference grids are goldens | golden test with the verbatim grids |
+| LDB-B15z | `board <name>` / `fingers <name>` with no argument never write, and the text grid's look is a pure function of `classifyFingering(keys)` (plus the `iso` out-dent) per §5.4 — saltorbit's three reference grids (graphite, maya, nokwts) are goldens | golden test with the verbatim grids |
 | I-xxx (site) | the Board toggle draws and computes every `ansi` layout as rowstag and `ortho`/`colstag` as ortho unchanged; `native` exists iff `board = iso`; a key dropped on the thumb row keeps the label assigned at drop time | matrix row per kind |
 
 ## 10. Order of work
