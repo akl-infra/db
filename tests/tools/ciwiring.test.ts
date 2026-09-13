@@ -230,14 +230,14 @@ describe("db.yml wiring", () => {
     expect(uploadPath).toMatch(/dump.*\.gz/);
   });
 
-  it("[LDB-C1] the site job needs test, runs from db/site, and builds+tests unconditionally", () => {
+  it("[LDB-C1] the site job does NOT wait on the db suite (own gate; LDB-G5 keeps it code-independent), runs from db/site, and builds+tests unconditionally", () => {
     const wf = loadWorkflow();
     const site = wf.jobs.site;
     expect(site, "no `site` job in db.yml").toBeDefined();
     if (!site) throw new Error("unreachable: assertion above failed");
 
-    const needs = Array.isArray(site.needs) ? site.needs : [site.needs];
-    expect(needs).toContain("test");
+    // 2026-09-13: deliberately independent of `test` -- see db.yml's comment.
+    expect(site.needs).toBeUndefined();
 
     const workingDir =
       site.defaults?.run?.["working-directory"] ??

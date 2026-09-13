@@ -79,11 +79,11 @@ const Changes: Component = () => {
               <For each={items()}>
                 {(ev) => (
                   <tr>
-                    <td data-col={copy.changes.whenColumn}>{ev.at}</td>
-                    <td data-col={copy.changes.kindColumn}>{ev.kind}</td>
-                    <td data-col={copy.changes.scopeColumn}>{ev.format ?? copy.changes.scopeLayout}</td>
+                    <td class="akl-nowrap" data-col={copy.changes.whenColumn}>{ev.at}</td>
+                    <td class="akl-nowrap" data-col={copy.changes.kindColumn}>{ev.kind}</td>
+                    <td class="akl-nowrap" data-col={copy.changes.scopeColumn}>{ev.format ?? copy.changes.scopeLayout}</td>
                     <td data-col={copy.changes.layoutColumn}>{ev.name ?? ev.layout_id}</td>
-                    <td data-col={copy.changes.actorColumn}>{ev.actor}</td>
+                    <td class="akl-nowrap" data-col={copy.changes.actorColumn}>{ev.actor}</td>
                   </tr>
                 )}
               </For>

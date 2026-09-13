@@ -131,7 +131,10 @@ jobs:
   # THIS job (not a separate needs:site job) so a deploy never runs without
   # the build/test steps immediately before it in the same run.
   site:
-    needs: test
+    # No `needs: test`: the site has its own typecheck/test/build gate below
+    # and shares no code with the Worker (LDB-G5 forbids it), so waiting on
+    # the 15k-test db suite only widened the window in which a stale CI
+    # deploy could land AFTER a newer hand deploy (2026-09-13, twice).
     runs-on: ubuntu-latest
     defaults:
       run:

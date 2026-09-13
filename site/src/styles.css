@@ -294,6 +294,13 @@ h2 {
   overflow-wrap: break-word;
   word-break: break-word;
 }
+/* Event log / list cells that must never break mid-word on desktop (a
+   timestamp split across two lines, "importe|d", "spark/|1" -- saltorbit,
+   2026-09-13). The layout-name column may still wrap; the mobile
+   stacked layout below overrides this back to normal wrapping. */
+.akl-table td.akl-nowrap {
+  white-space: nowrap;
+}
 .akl-table tr:hover td {
   background: var(--accent-wash);
 }
@@ -315,7 +322,8 @@ h2 {
   .akl-table,
   .akl-table tbody,
   .akl-table tr,
-  .akl-table td {
+  .akl-table td,
+  .akl-table td.akl-nowrap {
     display: block;
     width: 100%;
   }
