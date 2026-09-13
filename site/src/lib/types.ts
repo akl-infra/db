@@ -66,7 +66,6 @@ export interface LayoutRecord {
   modified_at: string;
   deleted: boolean;
   like_count: number;
-  like_adjust?: number;
   link?: string | null;
   upstream: { source: string; id: string; state: "following" | "forked" } | null;
   formats: Record<string, LayoutFormatMeta>;

@@ -186,12 +186,6 @@ export function adminBanUser(userId: string, reason?: string): Promise<ApiResult
 export function adminUnbanUser(userId: string): Promise<ApiResult<{ unbanned: string }>> {
   return request(`/api/v1/admin/bans/${encodeURIComponent(userId)}`, { method: "DELETE" });
 }
-export function adminSetLikes(ref: string, count: number): Promise<ApiResult<{ like_count: number; like_rows: number; like_adjust: number }>> {
-  return request(`/api/v1/admin/layouts/${encodeURIComponent(ref)}/likes`, {
-    method: "PUT",
-    body: JSON.stringify({ count }),
-  });
-}
 export function adminSetAuthorName(userId: string, name: string): Promise<ApiResult<Author>> {
   return request(`/api/v1/admin/authors/${encodeURIComponent(userId)}`, {
     method: "PUT",
