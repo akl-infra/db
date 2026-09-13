@@ -27,7 +27,7 @@ not_found_handling = "single-page-application"
 run_worker_first = ["/auth/*", "/api/*"]
 
 [vars]
-DB_BASE_URL = "https://akl-db.akl-58a.workers.dev"
+DB_BASE_URL = "https://api.akldb.org"
 SITE_NAME = "akldb"
 
 [observability]
