@@ -5,56 +5,124 @@ or an AI agent building any of those — written to be followed by a human or
 handed whole to an agent. Every claim below names the source file it comes
 from; every request/response shown is either a real conformance fixture
 (`db/tests/conformance/`, trimmed) or built directly from the same error
-factory / schema the server runs, never invented.
+factory / schema the server runs, never invented. A fenced block marked
+` ```json spark-payload ` is a literal `spark/1` payload, checked by
+`db/tests/tools/adoption-examples.test.ts` against the real `validate()`.
 
 ```
 production   https://api.akldb.org   <- the one layoutdb
 ```
 
-There is one layoutdb, production. The preview environment
-(`akl-db-preview`) was retired on 2026-09-11: nothing reads it and it
-accepts no clients. Develop against production, and ask before writing
-there.
+There is one layoutdb, production. Develop against production, and ask
+before writing there.
 
-## 0. Quick start for agents
+## 0. Quickstart
 
-The fastest path to a working client: read one layout, then write one.
+One short example per basic operation. `?format=` is required on every
+route that returns a payload — there is no default, and omitting it is
+`400 format_required`. Full mechanics for each are in the sections named
+below.
 
-**Read** — no auth, ever:
+**1. Read a layout** — no auth, ever (§3):
 
 ```bash
-curl -s https://api.akldb.org/v1/layouts/io?format=spark/1
+curl -s 'https://api.akldb.org/v1/layouts/io?format=spark/1'
 ```
 
-returns the layout's own fields, a `formats` map (rev/timestamps/`has_magic`
-per format this layout actually has stored), and the ONE requested format's
-`payload` in its native `spark/1` shape (`?format=mana2/1` for the
-analyzer-facing lowered shape instead — §3). **`?format=` is required on
-every route that returns a payload** — there is no default; omitting it is
-`400 format_required`. A `404 { "error": "not_found" }` means no such
-id/name; a `404 { "error": "format_absent" }` means the layout exists but
-doesn't have (and can't derive) the format you asked for; nothing else to
-handle for a read-only client.
-
-**Write** — every write needs an authenticated actor (§1) and, against an
-*existing* record, an `If-Match` header naming the SCOPE and rev you read:
-`"layout:<layout_rev>"` for a layout-level write (rename, delete, transfer),
-or `"<lineage>:<rev>"` for a format write (e.g. `"spark:7"`) — never a bare
-number any more (§5). The signed (client-lane) shape, the one a Discord bot
-uses:
+**2. List / search** — no auth, ever; filters and paging in §3:
 
 ```bash
-curl -sX POST https://api.akldb.org/v1/layouts \
+curl -s 'https://api.akldb.org/v1/layouts?format=spark/1&sort=modified_at&limit=20'
+```
+
+**3. Write as a signed-in user** — hold their Discord access token
+server-side (scope `identify`), proxy the write through your backend (§1.2,
+§5):
+
+```bash
+TOKEN='<discord access token>'
+curl -sX POST https://api.akldb.org/v1/layouts -H "Authorization: Bearer $TOKEN" \
+  -H 'X-Client-Version: my-app/1.0' \
+  -d '{"name":"my-layout","format":"spark/1","payload":{"keys":[],"board":"ansi"}}'
+# 201 {"id":"...", "formats":{"spark/1":{"rev":1,"..."}}, ...}; to edit later,
+# read the layout for its current rev, then:
+curl -sX PUT https://api.akldb.org/v1/layouts/<id> -H "Authorization: Bearer $TOKEN" \
+  -H 'If-Match: "spark:<rev>"' \
+  -d '{"format":"spark/1","payload":{"keys":[],"board":"ansi"}}'
+```
+
+**4. Read, then write, as a trusted client** — an Ed25519 keypair stands in
+for a Discord token (§1.1, §2.1). This builds the five signed headers
+exactly as the Worker verifies them, then `PUT`s the layout back unchanged
+(a real edit would change `payload` first):
+
+```js
+// Node 20+ (Web Crypto is a global); no Buffer, so this runs in a Worker too.
+const CLIENT_ID = "<client id>";
+const CLIENT_PRIVATE_KEY = "<base64url pkcs8 private key>"; // bot/scripts/gen-key.mjs mints one
+const LAYOUT = "<id-or-name>";
+const ACTOR = "<discord user id>";
+
+const b64url = (b) => btoa(String.fromCharCode(...b)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+const unb64url = (s) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+
+async function signedFetch(method, pathWithQuery, bodyText, extraHeaders = {}) {
+  const key = await crypto.subtle.importKey("pkcs8", unb64url(CLIENT_PRIVATE_KEY), { name: "Ed25519" }, false, ["sign"]);
+  const bodyHash = b64url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(bodyText ?? ""))));
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const nonce = b64url(crypto.getRandomValues(new Uint8Array(16)));
+  const signingString = `akl-v1\n${method}\n${pathWithQuery}\n${timestamp}\n${nonce}\n${ACTOR}\n${bodyHash}`;
+  const signature = b64url(new Uint8Array(await crypto.subtle.sign("Ed25519", key, new TextEncoder().encode(signingString))));
+  return fetch(`https://api.akldb.org${pathWithQuery}`, {
+    method,
+    headers: { "X-Akl-Client": CLIENT_ID, "X-Akl-Timestamp": timestamp, "X-Akl-Nonce": nonce,
+               "X-Akl-Actor": ACTOR, "X-Akl-Signature": signature, ...extraHeaders,
+               ...(bodyText ? { "Content-Type": "application/json" } : {}) },
+    body: bodyText,
+  });
+}
+
+const current = await (await fetch(`https://api.akldb.org/v1/layouts/${LAYOUT}?format=spark/1`)).json();
+const rev = current.formats["spark/1"].rev;
+const body = JSON.stringify({ format: "spark/1", payload: current.payload });
+const res = await signedFetch("PUT", `/v1/layouts/${LAYOUT}`, body, { "If-Match": `"spark:${rev}"` });
+```
+
+The signature itself is checked against `db/tests/vectors/client-signing.json`
+(§2.1) — build your signer against that file and you know it's correct
+before ever calling the live service.
+
+**5. Regular poll** — no auth; cache the `ETag` to skip empty answers (§4):
+
+```bash
+curl -sD - -o /dev/null 'https://api.akldb.org/v1/changes?since=0&limit=100'   # note the ETag header
+curl -s -o /dev/null -w '%{http_code}\n' -H 'If-None-Match: "<etag from above>"' \
+  'https://api.akldb.org/v1/changes?since=0&limit=100'   # 304 once nothing changed
+```
+
+**6. Long poll** — a registered client only, signed the same way as #4; the
+Worker holds the request open instead of you polling on a timer (§4):
+
+```bash
+curl -s 'https://api.akldb.org/v1/changes?since=<seq>&wait=25' \
   -H 'X-Akl-Client: <client id>' -H 'X-Akl-Timestamp: <unix seconds>' \
   -H 'X-Akl-Nonce: <16 random bytes, base64url>' -H 'X-Akl-Actor: <discord user id>' \
-  -H 'X-Akl-Signature: <base64url ed25519 signature>' \
-  -H 'X-Client-Version: your-bot/1.0' \
-  -d '{"name":"my-layout","format":"spark/1","payload":{"keys":{}}}'
+  -H 'X-Akl-Signature: <base64url ed25519 signature>'
 ```
 
-The signing recipe is §2.1; the signature itself is checked against
-`db/tests/vectors/client-signing.json` (§2.1) — build your signer against
-that file and you know it's correct before ever calling the live service.
+**7. Like / unlike** — needs an authenticated actor, never an `If-Match`
+(§5):
+
+```bash
+curl -sX PUT https://api.akldb.org/v1/layouts/<id>/like -H "Authorization: Bearer $TOKEN"      # 200 {"like_count":1}
+curl -sX DELETE https://api.akldb.org/v1/layouts/<id>/like -H "Authorization: Bearer $TOKEN"   # 200 {"like_count":0}
+```
+
+**8. Head sequence** — the cheapest poll of all, no auth (§4):
+
+```bash
+curl -s https://api.akldb.org/v1/meta
+```
 
 **Where the machine-readable pieces live**, so an agent never has to guess a
 shape:
@@ -106,9 +174,8 @@ Discord application issued — the DB confirms this by calling Discord's own
 ### 1.3 Every edit records its source client
 
 Every rev-bumping write's event — and the record's own latest one — carries
-`source: { client, version }` (`03-api.md` §5, decision 14 of
-`20-spark.md`). `client` is **proven**, never a header or body field you
-control: `` `client:<your client id>` `` on the client lane, `` `discord-app:<your
+`source: { client, version }`. `client` is **proven**, never a header or
+body field you control: `` `client:<your client id>` `` on the client lane, `` `discord-app:<your
 Discord application id>` `` on the user lane (from `GET /oauth2/@me`'s
 `application.id`, not anything you assert). `version` is exactly what you
 declare in `X-Client-Version` on every non-`GET`/`HEAD`/`OPTIONS` request —
