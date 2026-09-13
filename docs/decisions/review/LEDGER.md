@@ -25,6 +25,8 @@
 | tombstones | never match in any resolver, fuzzy `view` included. |
 | engines | native mana2 CLI publishes; wasm answers; nightly parity sample. |
 
+**2026-09-13 ~09:15Z — geometry/format round LANDED and CUT OVER (cmini-web-19).** `ldb-geometry` fast-forwarded into `ldb-arch-review` (b64c1c7c2): spark/1 = `board` one word (ansi|iso|ortho|colstag), `keys` an ordered list with duplicates, no `TB`/`free`/`notes`, kind-tagged magic sentinels, WIRE_VERSION 6 (LDB-F27..F33, P24); site codec/drawers/publish chips (I-383..387); bot add/board/fingers verbs, text looks, SNAPSHOT_VERSION 4 (LDB-B230..B235); design/layout-db/23-geometry.md + 24-spark-wire-review.md. Prod: wiped + re-imported (4,177; seq 45251; dump forced via the new `POST /v1/admin/dump`), magic re-seeded from akl.gg's 82 rule sets via `POST /v1/admin/magic-seed` (system lane, all `following`). Two lessons: Cloudflare Smart Placement pinned the prod hostname to the version it was enabled with (two later deploys served old code until `[placement]` was removed — never re-enable on akl-db without a version-preview check); stop the old bot BEFORE the wipe. Open follow-ups: L8 (batched writes), L9 (bridge thumbs by label), I1 (identity by id in clients), spec page rewrite per 24's skeleton, #333.
+
 ## Waves and slices
 
 Status: `todo` · `running (agent, branch)` · `review` · `landed <sha>` · `blocked (why)`.
