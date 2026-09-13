@@ -197,8 +197,8 @@ jobs:
         with:
           name: layoutdb-dump-${{ github.run_id }}
           path: |
-            db/latest.json
-            db/dump.json.gz
+            latest.json
+            dump.json.gz
           retention-days: 30
       - name: Rehost drill against the live dump (LDB-G1)
         run: |
