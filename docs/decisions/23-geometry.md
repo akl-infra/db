@@ -113,10 +113,14 @@ the `free` list, the char-keyed `keys` map. Not added: `stagger`, `split`,
 (`magic_keys[].key`, `chiral_keys[].key`, adaptive triggers/swaps, rule
 `after` chars, `except[]`) must be unique on the layout
 (`400 magic_needs_unique_key`) — magic with duplicates is undefined.
-Lowering to mana2 (which refuses duplicate letters): the first occurrence
-in `(row, col)` order is the analysed key, later ones are emitted as `skip`
-cells; a documented loss (LDB-F5), revisable when an analyzer can pick by
-cost.
+`keys` is an ORDERED list: the first entry for a char is its primary
+(review 24 F5 — author priority, not geometry). Lowering to mana2 (which
+refuses duplicate letters): the primary is the analysed key, later ones are
+emitted as `skip` cells; a documented loss (LDB-F5), revisable when an
+analyzer can pick by cost. Magic scaffolds enumerate distinct chars; a char
+whose entries span both hands must be in a chiral key's `except` or have an
+explicit rule (24 F5). Magic sentinels are tagged (24 F6): `default` is
+`{repeat: true}` | `{char}` | absent, same for chiral `same`/`opposite`.
 
 ### 4.1 The kinds
 
@@ -173,8 +177,10 @@ ISO angle mod is `iso` + the `LP LR LM LI LI LI` row typed as
 2. On `iso`, row 2 may be one column wider than rows 0–1.
 3. Finger rows are 0–2 (plus 3 when no key on row 3 is a thumb — the 22
    number-row layouts); a thumb key never sits on rows 0–2.
-4. A layout whose fingers classify as `angle`/`nokwts`/`meteorite` has
-   `board: ansi` (`400 fingering_needs_ansi`).
+4. ~~fingering needs ansi~~ — dropped per review 24 F10: the classifier
+   is a derived label and never refuses a write; the BOT enforces "angle
+   only on ansi" for its `fingers!`/`board!` verbs (§5.2). `" "` is refused
+   as a `char` pending #333 (24 F11).
 5. Everything spark/1 checks today (single code point, no duplicate
    `(row, col)`, magic references, lowering collision).
 
@@ -197,7 +203,7 @@ regenerated from the relabelled import).
 |---|---|
 | `board: stagger` | `ansi` |
 | `board: angle` | `ansi` (the angle mod is already in the keys' fingers) |
-| `board: ortho`, `board: mini` | `ortho` — **except** when the fingers classify as `angle`/`nokwts`/`meteorite` (7 + 21 + 5 layouts), which become `ansi` so rule 4.4-4 holds; an `import_board` info event names them |
+| `board: ortho`, `board: mini` | `ortho` — faithful, always (the angle-family bump was dropped with rule 4.4-4; the 33 such layouts keep `ortho` and their angle look) |
 | finger `TB`, or `LT`/`RT` disagreeing with the column | relabelled by `col < 5`, the last time it runs; an `import_relabel` info event names the key |
 
 ### 4.7 Worked examples
@@ -332,7 +338,7 @@ writes are owner-only:
 |---|---|
 | `board <name>` | lookup: the kind, the grid drawn per §5.4 |
 | `board <name> iso` | preview the layout on that board (`(was ortho)` noted); `not saved` footer |
-| `board! <name> iso` | write `board`; refused with the reason when the layout's fingering is ansi-only and the target isn't `ansi` |
+| `board! <name> iso` | write `board`; refused by the BOT (not the format) with the reason when the layout's fingering is `angle`/`nokwts`/`meteorite` and the target isn't `ansi` |
 | `fingers <name>` | lookup: the fingering name (`angle`, `nokwts`, …, or `custom`) + today's coloured `fingermap` grids (`fingermap` stays as an alias) |
 | `fingers <name> nokwts` | preview with that fingering applied — fingers and the look |
 | `fingers! <name> nokwts` | write the keys' fingers from the reference; refused on a non-`ansi` board |
