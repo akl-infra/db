@@ -1,0 +1,100 @@
+# 24 — spark/1 as a wire format: an independent review
+
+**Status:** review, 2026-09-12, before the first outside adopter. Reviewed: `22-spark-spec.md` (as shipped), `23-geometry.md` (this week's decisions, including §4 "Duplicates"), `db/formats/spark/1/*`, `db/formats/mana2/1/translate.ts`, `db/formats/adapters/cmini/translate.ts`, `db/formats/registry.ts`, `db/docs/adoption.md`, the `spark-format-notes` page, `01`/`19`/`20`/`21`, and the 2026-09-10..12 Discord thread with xsznix and zak. Code is "today"; `23` is "where it's going". Nothing here is a decision; every recommendation names the smallest change.
+
+## Verdict
+
+spark/1 plus this week's decisions is a sound *stored* format for a community layout database with several clients: the envelope/payload split is right, strict write-time validation is right, "intent above, one flat lowering below" is right, and the board simplification removes more inference than it adds. It is not yet a sound *wire contract*, for three reasons that are cheap to fix now and expensive after an adopter: (1) the magic section's semantics live in `magic.ts` rather than the spec — phase order, last-wins, character-identity contexts, the `"none"`/`"repeat_previous"` sentinels — so a second implementer cannot reproduce the lowering from the document; (2) the duplicate-keys decision is under-specified exactly where neon needs it: "chars named by magic are unique" does not cover the chiral scaffold, which needs the *hand* of every layout char, and a duplicated char with keys on both hands is precisely neon's case; (3) the versioning rule ("additive optional = same major") cannot see the change that matters most — meaning changes under an unchanged shape, of which "`LT` at col 7 is now a left thumb" is this week's example. Before the first adopter: write the magic contract into the spec (findings 1–4), close the duplicates hole (5), replace the sentinels (6), state the reader obligations and the golden-identity versioning rule (7–8), and reserve `" "` (11). Everything else — `from=` for a second lineage, an authoritative-format hint, the `link` field, `magic.notes` — can wait, provided the spec says it is deferred rather than silently decided.
+
+## Findings
+
+### 1. The magic contract is in the code, not the spec
+
+**Issue.** `22` §3 says `magic` holds intent and `compileMagic` derives rows; it says nothing about *which* rows. The scaffold rules (LDB-F14 word-start row, LDB-F15 global special-char exclusion, chiral self-row), the phase order (`magic.ts:271-277`: scaffold < chiral < explicit rule < adaptive < raw), last-wins within a phase (`resolveRows`), and "a raw row in any collision is refused" (`findCollision`) are all only in `magic.ts` and `db/INVARIANTS.md`. **Hurts:** any second client that lowers (mana2 users reading `?format=spark/1`, LW projecting onto spark, a future non-TS bot) — two clients lowering one payload will disagree, which is the one thing a wire format exists to prevent. **Fix:** move the phase-order paragraph and the three scaffold rules into `22` §3 verbatim (notes item 6 says the same; I add: the tags table from `01` §3 belongs there too, since `type` is on the wire in `mana2/1`).
+
+### 2. State the one concept; make the idioms sugar over it
+
+**Issue.** xsznix's model — a repeat key with contextual bindings layered on; magic, skip-magic, adaptives, sequence transforms as one concept — is *already what `computeRows` is*: every idiom expands to `bind(context, key) → output` rows and `rules[]` is that primitive exposed raw. The spec presents them as "two vocabularies" (notes item 7) and never says the idioms are macros. **Hurts:** authors (when does an adaptive vs a rule apply — xsznix 04:11), and every adopter who must decide whether `rules[]` is trusted or opaque. **Fix:** one paragraph in §3: *the primitive is a binding `(context, key) → output` (context = the preceding emitted character, or `' '` at word start; `rules[].inputs` allows a longer context); `magic_keys`, `chiral_keys`, `adaptive_swaps` are macros whose expansions are listed below; `compileMagic` is the expansion; expansion order and last-wins are the contract.* This keeps saltorbit's author-focus (the sugar stays, validated) and removes the smell xsznix named ("UB between the authoring layer and the IR", 04:16): the IR is defined, in the same document, as the expansion. It costs no shape change.
+
+### 3. Keystroke vs character identity: state the default and the boundary
+
+**Issue.** `after: "n"` is undefined between "key n was pressed" and "char n was emitted". akl.gg implements character identity (I-108: magic arms off the emitted char); keymaxx makes it explicit (Discord 04:55); saltorbit chose "pick a default" (04:58). The spec says nothing. **Why character identity is the only honest default here:** the analyzers this format lowers to see *text*, never keystrokes — mana2 inverts `output → inputs` over the corpus — so any analyzer-visible semantics is character identity by construction; keystroke identity only diverges on chained magic (`n*` emitting `nl`, then `*` after that `l`), which no consumer of spark can observe. **Hurts:** LW/keymaxx when projecting (they need to know what they are projecting onto), and authors of chained magic who believe the record captures their firmware. **Fix:** two sentences in §3: contexts are character identity; behaviour that differs between character- and keystroke-identity firmware (chained magic, overlapping contexts) is outside what this format records — an author who needs it authors in a format that has the disambiguator. That is the downscoping saltorbit asked for, written down instead of implied.
+
+### 4. `rules[]` — keep it, as the primitive, not as "opaque"
+
+**Issue.** Notes item 7 offers "opaque, never lifted, never merged" or deletion. Neither matches the code: raw rows *do* take part in the lowering (phase 4) and collide with idioms by design (`magic_collision`), and `fromCmini` writes leftovers there (`adapters/cmini/translate.ts:92-94`) so ~every imported record with 3-code-point rows depends on it. **Fix:** per finding 2, `rules[]` is the primitive: appended last, never resolved against an idiom row (a collision involving a raw row is refused — keep), lifted only by `liftRules` on import. Disagreement with the notes: not opaque, and not deleted.
+
+### 5. Duplicates: the uniqueness rule is one hand short
+
+**Issue.** `23` §4 allows the same `char` on several entries and requires only that chars *named* by magic be unique. But the chiral scaffold enumerates *every* layout char and asks its hand (`magic.ts:236-245`, `handOf` = `keys[ch].finger`); with a list, `handOf` must pick an entry. neon's two `y`s are on opposite hands — that is the point of the duplication — so for a chiral key `;` the row `y;` is undefined, and neon is the motivating example. The repeat scaffold (`layoutChars`) also enumerates chars; with duplicates it must dedupe or emit `y*→yy` twice (a same-phase self-collision, resolved silently by last-wins). **Hurts:** the exact layouts the change is for; analyzer parity. **Fix (smallest):** (a) scaffolds enumerate *distinct* chars; (b) a chiral scaffold skips a char whose entries span both hands unless that char is in `except` or has an explicit rule — and `validate()` says so with a path (`magic_needs_unique_key` extended: "y is on both hands; add it to except or give it a rule"); (c) `handOf` for a char on one hand only is well defined. Also: **first-occurrence-in-(row,col)** ties "which key is analysed" to geometry, the opposite of intent. Smaller and stronger: *the list is ordered; the first entry for a char is its primary; the lowering analyses the primary and emits the rest as `skip`*. The importer and the bot already write in reading order, so nothing changes for the 99 %, and neon's author can put the analysed `y` first without a new field. (`canonical()` leaves arrays in place, so ordering survives storage.) Note honestly in §7 that the `skip` lowering is *worse* for neon than the stand-in-char hack (all `y` traffic lands on one hand); the hack can coexist, and mana2's own advice is "implement duplicates through magic". Two consequences to spec: `PATCH {fingermap: {y: …}}` (`edits.ts:25-38`, keyed by char) must refuse a duplicated char rather than pick one; JSON-pointer error paths become `/keys/<index>` (the conformance fixture `patch-400-invalid_payload.json` has `/keys/z`).
+
+### 6. Stringly sentinels: `"repeat_previous"`, `"none"`, and chiral `same`/`opposite`
+
+**Issue.** `magicKey.default` is `string` (`schema.json:77`) with two magic words (`magic.ts:35`: `repeat_previous`, `none`) or a literal char. The spec documents `repeat_previous` and "absent = none" but `liftRules` *stores* `default: "none"` (`magic.ts:402`), so imported records carry a sentinel the spec never mentions. `chiral.same`/`opposite` are any non-empty string (`magic.ts:676-681`) and also accept `"repeat_previous"` (`:243`); the `01` example shows `"same": "ee"`, which today would emit `c + "ee"`. **Hurts:** every future client, and the format's own schema (a JSON Schema cannot check any of this). **Fix:** tag it now, while the DB is disposable: `default?: {repeat: true} | {char: "e"}` (absent = none; refuse `"none"`), and the same shape for `same`/`opposite`. Agree with notes item 8; extend it to the chiral fields and to killing `"none"`.
+
+### 7. `additionalProperties: false` is right; the *reader* rule is missing
+
+**Issue.** Strict server-side validation is correct (xsznix 11:44: extensions need write-time validation; D3 gives clients their own formats instead of `x`). But the same-major "additive optional" rule (`01` §5) plus adoption.md §3 ("validate client-side against the schema") means a client with a vendored schema rejects valid records after any additive change, and a client doing read-modify-write with a stale struct drops the new field on `PUT` — `If-Match` cannot catch that. **Hurts:** adopters and the format's ability to ever add a field. **Fix:** two obligations in the spec's first screen: *readers ignore unknown fields (only the server refuses them); a client that does not understand every field of a record uses `PATCH`, never `PUT`.* Agree with notes item 10; this is the half it lacks.
+
+### 8. Versioning: shape rules cannot see meaning changes
+
+**Issue.** This week's changes include a meaning change under an unchanged shape: `finger: "LT"` at col 7 used to be re-anchored by column (`translate.ts:414-416`), now it *is* a left thumb (`23` §4.2). No schema diff shows it. "Additive optional = same major" (notes item 11) would call it a minor. **Hurts:** future migrations and any client pinned to a major. **Fix:** the mechanical rule the covenant already supports: *a same-major change leaves every existing fixture's `.lowered.json` and `.mana2-1.json` goldens byte-identical (LDB-F2/F7); anything that changes a golden is a new major.* Keep D11's in-place editing until the adopter, then this rule. On L6 (delete the chain code): fine, but the *promise* in adoption.md §8 — a pinned major keeps reading and writing — is what xsznix agreed to ("your schema version determines pinned behaviour", 16:00); keep the contract text and reinstate a mechanism before spark/2. Note the tension: R3 "down is held or lossless" means a spark/1-pinned bot would get `held` for a duplicated-key record — exactly the "nope, use the other bot" outcome xsznix flagged (13:35).
+
+### 9. Record vs payload: a table, plus three strays
+
+**Issue.** The split is right (name, owner, likes, timestamps, `upstream`, `formats{rev, has_magic, source}` in the envelope; keys/board/magic in the payload) but is documented only in `21` §2.3 and adoption.md. Three strays: `magic.notes`/`magic.updated` are record-ish free text living inside the payload (`schema.json:51-52`, "nothing compiles them"); `has_magic` is payload-derived but lives in the envelope (fine, say so); `owner` is a snowflake with no display name on the record (clients need `/v1/authors/{id}`). **Fix:** the two-row table at the top of `22` (notes item 13), plus: `notes`/`updated` are declared non-semantic (ignored by lowering, not compared for identity), and the deferred envelope items are listed by name — moderated `link`, a display name, a layout date distinct from record `created_at` — so an adopter knows they are coming rather than absent.
+
+### 10. Derived hand split and fingering name: label yes, refusal no
+
+**Issue.** Deriving `handSplit`/`classifyFingering` is right (one function, never stored). But `23` §4.4-4 turns the *classifier* into a write rule (`400 fingering_needs_ansi`): a layout whose left-hand fingers happen to match `angle` is refused on `ortho`. That is a rule about the bot's ASCII look leaking into the wire format; an adopter writing ortho + custom fingers that coincidentally match a reference gets a 400 they cannot understand. Also `23` §4.4-3 and notes item 2 disagree (row-3 non-thumb keys allowed vs refused). **Fix:** keep the classifier for labels and rendering; drop rule 4 from `validate()` (the bot may still refuse `fingers! x angle` off ansi as a *bot* rule); keep `23`'s row-3 allowance (lossless import, `01` §2.1's original reasoning).
+
+### 11. Character identity: reserve `" "`, say the rest in one sentence
+
+**Issue.** One code point, no normalization: `é` precomposed passes, `e`+U+0301 is refused as two code points (good, loud), compatibility forms pass (`ﬁ`, fullwidth). Case: `Y`/`Q` appear as keys in `upstream-100` fixtures beside `y`/`q`; nothing says what a capital means. `" "`: `23` says space is not a key (#333), yet `mana2/1 → spark` maps `space` to a `" "` key (`translate.ts:109`) and `computeRows` special-cases `" " in keys` (`magic.ts:216`) — two code paths already disagree. `~`: a bot/cmini convention, not reserved by spark. **Fix:** §2 "Identity": chars compared by code point as stored, no normalization (writers should send NFC), case-sensitive, no shift layer, no reserved characters; `" "` is refused in `char` until #333 defines it. Agree with notes item 3, plus the space refusal.
+
+### 12. A second stored format: what the registry must not assume
+
+**Issue.** `FormatModule` requires `schema: object` (JSON Schema, `registry.ts:95`), `hasMagic` (`:107`), and `edits` whose `board`/`magic` "arrive shaped as spark/1's object — the API's one board vocabulary regardless of the record's own format" (`:78-81`). LW will be TOML or a DSL with no canonical representation (xsznix 15:47, 05:19); keymaxx is an IR. Storing them as `payload: "<text>"` with `schema: {type: "string"}` works, but `hasMagic` forces a parse and the PATCH vocabulary is spark's. MF-10 ("each output reachable from exactly one stored lineage") means a second lineage cannot serve `?format=mana2/1` at all, and `21` §2.5 "stored formats are never derived" forbids the on-demand spark projection saltorbit and xsznix agreed on (13:58: generated on demand, suppressed by an authored one — "yep"). **Fix:** the registry must not assume JSON-object payloads, spark's PATCH vocabulary, or a mana2 edge; make `hasMagic` and `edits` optional (`unsupported_for_format` already exists), and decide `?format=mana2/1&from=<lineage>` now (per-record: unambiguous when the layout stores one lineage, `from=` required otherwise). Reword "never derived" as "no derivation edge is registered today" so it is not enshrined as an invariant.
+
+### 13. Board: fine; say the coordinate function is the contract
+
+`board` as one word with fixed stagger (`23` §4.1) is the right call. The spec must carry the `(kind, row, col) → (x, y)` table itself (LDB-F30 makes it one function; a wire spec needs the numbers), state that `colstag` is geometry-for-renderers only (stats as ortho), and list the non-goals. No change beyond prose.
+
+## What the Discord discussion asked for that the format does not deliver
+
+| ask | delivered? | should it? |
+|---|---|---|
+| one underlying concept for magic/adaptive/skip/sequence (xsznix 04:07) | in the code (`computeRows`), not in the spec | yes — finding 2, prose only |
+| explicit keystroke/character disambiguator (04:55) | no | no (saltorbit's call); state the default and the boundary — finding 3 |
+| defined overlap/application order (04:14) | code + invariants, not spec | yes — finding 1 |
+| duplicate letters (neon, 12:11) | decided this week | yes; close the chiral-hand hole — finding 5 |
+| compat projections on demand, suppressed by an authored one (13:58) | mana2 only; spark-from-LW forbidden by `21` §2.5 | later, but don't enshrine the prohibition — finding 12 |
+| an authoritative/preferred-format hint per layout (13:59) | no (D3: formats independent) | not now; document `formats[f].modified_at`+`source` as the freshness signal |
+| opaque bytes + a validation/lowering module per format (15:48) | mostly (`FormatModule`) | yes; drop the JSON-object and `hasMagic` assumptions — finding 12 |
+| adapters between schema revs, pinned behaviour (15:58–16:00) | designed (19), frozen, slated for deletion (L6) | keep the contract; reinstate before spark/2 — finding 8 |
+| preferred space side / named magic keys (zak 21:42) | #333 deferred; magic keys are chars | fine; say so in §5 |
+| moderated `link`, view counts, mod queue (21:44+) | envelope, planned | envelope only; list as deferred — finding 9 |
+
+## Explicit disagreements with the notes page
+
+- **Item 1** (first occurrence in `(row, col)`): prefer list order = author priority; and the uniqueness rule must cover the chiral scaffold's hand lookup (finding 5).
+- **Item 2** (refuse non-thumb keys on row ≥ 3, drop at import): disagree; `23` §4.4-3 already allows them, and the import should stay lossless (finding 10).
+- **Item 7** (`rules[]` opaque, or deleted): neither — it is the primitive, with the collision rule kept (finding 4).
+- **Item 11** ("additive optional = same major"): inadequate; use golden identity (finding 8).
+- **Item 12** ("or leave it out entirely"): say it — "akl.gg and the bot read `spark/1`; nothing requires another client to" is one line adopters need.
+- **Settled table, "named fingerings require `board: ansi`"**: as a *write* rule, disagree (finding 10).
+
+## Proposed skeleton for `22-spark-spec.md`
+
+0. **Status and versioning.** `spark/1` is edited in place until the first outside adopter (D11); after that, a change is same-major iff every existing fixture's goldens stay byte-identical; a pinned major keeps reading and writing (adoption §8).
+1. **Record vs payload.** The two-row table; `notes`/`updated` are non-semantic; deferred envelope fields listed by name.
+2. **Identity.** A `char` is one code point, compared as stored (no normalization, case-sensitive, no shift layer, nothing reserved, `" "` refused pending #333). A position is `(row, col)`, integers, unique across `keys`.
+3. **Keys.** `keys` is an ordered list of `{char?, row, col, finger}`; no `char` = a free position; the same `char` may appear several times and its first entry is the primary.
+4. **Board and thumbs.** Four words; the `(kind, row, col) → (x, y)` table; `LT`/`RT` is the hand; `handSplit` and the fingering name are derived labels and never refuse a write.
+5. **Magic.** 5.1 the primitive binding; 5.2 each idiom and its exact expansion; 5.3 expansion order and last-wins, raw rows refused on collision; 5.4 contexts are character identity and what lies outside; 5.5 duplicates: scaffolds enumerate distinct chars, a two-handed char needs `except` or a rule.
+6. **Validation.** Schema, then the ordered cross-field checks, each with its error code and path.
+7. **Lowering to `mana2/1`.** Never held; the board table; duplicates → primary analysed, rest `skip` (a documented loss).
+8. **Import from cmini.** The guesses, each with its info event.
+9. **Reader and writer obligations.** Ignore unknown fields on read; `PATCH` when you don't understand every field; validate against the served schema.
+10. **What it cannot express**, with the issue number for each deferred item.
+11. **Worked examples** (extracted and tested, LDB-F24): plain, iso, colstag with thumbs, duplicates + magic.
