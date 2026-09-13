@@ -231,3 +231,19 @@ Conditions: publisher idle (base rebuilt, nothing to compute), eager wasm sweep 
 - **R3 (incremental sorts)**: PASS (`rank` 430 ms total, 67 ms handler).
 - **R4 (publish checks layoutdb)**: PASS.
 - **R5 (site freshness)**: edit → published pointer ≈ 3–6 min at steady state (one small tick), 16 min for a whole-catalog rebuild; the < 1 min target needs B16's small ticks to skip the fixed ~2 min upload/smoke overhead (fold cadence, B18) — open.
+
+## 14 · B22: handler vs Discord post, paced round (v51, performance-1x, publisher idle, 05:33Z)
+
+The latency record now splits `total` into `handler` (reply ready) and `post` (discord.js send). The tester posted 49 commands with `--pace 1500` (never trips Discord's 5-per-5-s channel bucket). 0 loop stalls; loop lag max 1,011 ms; heap 418/470 MB.
+
+| | handler | post (Discord send) | total |
+|---|---|---|---|
+| **reads** (median of per-verb max, 30+ verbs) | **79 ms** | 297 ms | ≈ 420 ms |
+| reads, worst cases | sfbs 630 · image 584 · likes 613 (cold fresh) · view 301 (cold fresh) | up to 756 | ≤ 1,268 |
+| **writes** like / unlike / rename / swap! / setfingermap / add / remove | **1,277 / 1,249 / 1,156 / 1,133 / 1,108 / 1,043 / 996** | 254–756 | 1,411–1,752 |
+
+Over 1 s: total 11 / 49, **handler 6 / 49 — all six are writes.** The Discord post is 250–750 ms per reply from Fly `iad` and is not the bot's to fix.
+
+**Where the write's second is** (headless harness on the machine, per phase): fresh check 70–510 ms (65 when the conditional GET is a 304; 300–500 when the record changed and the full record comes back), resolve 120 ms, **layoutdb PUT 640–760 ms**. The same PUT was 360–510 ms from the laptop in round 1, and `/v1/meta` is 65 ms from Fly — so the Worker's per-D1-statement round trips dominate a write and a changed-record read. Cheapest lever, tried first: **Smart Placement** for the Worker (`[placement] mode = "smart"`, deployed 05:45Z) so it runs next to D1 for D1-heavy requests; re-measured below (§14a). Next levers if that is not enough: batch the write's D1 statements into one `db.batch()`, and skip the post-write full-record re-read (the write response already carries the record).
+
+**R2 for writes, honest reading**: 1.0–1.3 s of bot-side time today, ≈ 1.4–1.75 s to the user's eyes with the Discord post. The "about a second" target is met for every read and missed by 0.1–0.3 s for writes before Smart Placement.
