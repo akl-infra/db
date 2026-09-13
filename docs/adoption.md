@@ -252,6 +252,40 @@ No header, or a token Discord rejects:
 `GET /v1/me` is the cheapest way to prove your whole auth chain works before
 writing anything.
 
+### 2.3 Becoming a trusted client
+
+The client lane (§2.1) is for a program that already trusts its own source
+of Discord identities — a bot reading `message.author.id`, an importer, any
+automation — and needs to write to akldb *as that user* without ever
+holding that user's own Discord token. It buys you two things a bearer
+token cannot: acting for a user (or, with `act-as-user`, any user) who
+never signed in to your app at all, and `feed:wait` long-polling on `GET
+/v1/changes` (§4) instead of polling on a timer.
+
+**Registration is manual — there is no self-service sign-up** (§2.1 has the
+full mechanics). To become a trusted client, reach an akldb admin with:
+
+- an Ed25519 public key (raw 32 bytes, base64url) — the private key never
+  leaves your host, ever;
+- your client's name;
+- your Discord application id, if you have one (`discord_app_id`, optional
+  — lets an admin cross-reference your bot in Discord's own developer
+  portal; it plays no part in verifying any request);
+- the Discord user id of whoever maintains this client (`owner_user_id` —
+  see §2.1 for what this constrains under `act-as-owner-only`);
+- which scope cap you need: `act-as-user` for a real multi-user bot, or
+  `act-as-owner-only` for a personal script that only ever acts for
+  yourself — plus `feed:wait` on top if you want long-polling.
+
+[contact: ask an akldb admin — channel TBD]
+
+The admin runs `POST /v1/admin/clients` (§2.1) and hands back your client
+id (`X-Akl-Client` on every signed request from then on). Before calling
+the live service, build your signer against
+`db/tests/vectors/client-signing.json` (§2.1) and confirm it reproduces
+every vector byte for byte — that file, not this guide's prose, is the
+interop contract.
+
 ## 3. Read (no auth, ever)
 
 ```bash
