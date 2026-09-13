@@ -476,37 +476,28 @@ D11); layoutdb is disposable; no outside client reads spark yet. Unblocks
 Each step is a Sonnet slice off `ldb-geometry`, reviewed here, per the
 LEDGER's standing rules.
 
-### 10.1 Cutover runbook (prod), agreed with the ldb-arch-review lead session 2026-09-13
+### 10.1 Cutover runbook (prod), 2026-09-13
 
-No wipe: ids are the identity (§0, saltorbit) and native layoutdb layouts must
-survive, so prod moves by CONVERTING the dump in place and restoring it
-verbatim (`db/src/dump/restore.ts` `restoreSql` deletes every table and
-re-inserts rows with their original ids, revs, likes, events and `seq`;
-`db/scripts/rehost.mjs --dump <file> --remote` runs it against live
-`akl-db`). Published cells are keyed by payload hash, so they are rebuilt;
-ids are not reassigned. saltorbit picks the hour ("is now OK" is his call).
+saltorbit: "i don't care about wiping the db and starting over. the akldb
+layout is not actively in use yet." So: wipe + fresh cmini import (new ids;
+the few native rows are accepted losses). Published cells are keyed by
+layout id and payload hash, so they are rebuilt after. The ldb-arch-review
+lead session owns the spark deploy, rebuild and restart; saltorbit picks the hour.
 
-1. Pre-flight, days before: db + bot + site green together on
-   `ldb-geometry`; dry run on a fresh LOCAL D1 (`npm run import -- --once
-   --fixture`, `db/scripts/convert-spark-shape.mjs`, `rehost.mjs --dump
-   <converted> --local` with the new Worker, db suite + real requests);
-   confirm the converted prod dump's SQL passes `wrangler d1 execute
-   --file`'s size limits locally.
+1. Pre-flight: db + bot + site green together on `ldb-geometry`; the
+   importer's full run proven on the new shape against a fresh local D1
+   (`npm run import -- --once --fixture`).
 2. Window opens: `wrangler d1 time-travel info akl-db` (rollback bookmark);
-   off-account copy of `/v1/dump/latest.json` + the gz; set
-   `WRITES_FROZEN=1` on the Worker (503 on every mutating route).
+   off-account copy of `/v1/dump/latest.json` + the gz (cheap insurance).
 3. Fast-forward `ldb-geometry` into `ldb-arch-review` (push = prod Worker
    deploy with the new `validate`).
-4. Convert the fresh dump (every `layout_revs.payload_json` AND every event
-   payload; `dump.meta` version bumped); `rehost.mjs --dump <converted>
-   --remote`; spot-read a few layouts by id; unset `WRITES_FROZEN`.
-5. Spark deploy (ldb-arch-review lead; `flyctl deploy` from a clean tree,
-   `performance-1x`); the new bot invalidates the volume snapshot whose
-   payload format version differs and rebuilds its replica from the dump.
-6. `bash scripts/rebuild-on-fly.sh` (~17 min; fresh base for the converted
-   payloads, pointer swap) then `flyctl machine restart` the bot so its
-   published index reloads.
+4. Wipe the live tables (the F4 recipe from `ldb-formats`; `sqlite_sequence`
+   for `events` reset per the 0009 gotcha is moot on a wipe) and run the
+   cmini import to completion; spot-read a few layouts.
+5. Spark deploy (`flyctl deploy` from a clean tree, `performance-1x`); the
+   new bot invalidates a volume snapshot whose payload format version
+   differs and rebuilds its replica from the dump (or the snapshot file is
+   deleted on the volume before the restart).
+6. `bash scripts/rebuild-on-fly.sh` (~17 min; fresh base, pointer swap)
+   then `flyctl machine restart` the bot so its published index reloads.
 7. db-alias site build last (after the pointer swap); akl.gg prod untouched.
-
-Writes between the copy in step 2 and the restore in step 4 are lost by
-construction; the freeze makes that zero.
