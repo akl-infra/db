@@ -1,196 +1,438 @@
-# 22 — spark/1 spec (as shipped, F1)
+# 22 — spark/1 spec (normative, as implemented)
 
-The current, accurate spec for `spark/1` — the one stored format today,
-though `21-formats.md` (F2, 2026-09-11) lets a layout hold a second one
-alongside it (`lw/1`, illustrative, `architecture.md`'s "Adding a second
-format" section) — after `21-formats.md` F1 (2026-09-11) removed the
-transitional `akl/1` alias, `?as=cmini/1`, and the free-form `x` field.
-`01-format.md` §2 and `20-spark.md` describe the earlier design and its
-ledger; where they disagree with this page, this page is what the code
-does today (each carries a dated note pointing here). This page is
-deliberately narrower than either: it is the format's reference, not the
-plan that produced it. Everything below is `spark/1`'s OWN payload shape
-and validation rules -- unaffected by how many OTHER formats a layout
-might also store (`db/docs/adoption.md` §3/§5 has the wire-level
-`?format=`/`If-Match` mechanics that changed with F2).
+This is the normative specification of `spark/1`, the one stored layout
+format (`db/formats/spark/1/`). It follows the skeleton proposed by
+`design/layout-db/24-spark-wire-review.md` and folds in every round-2
+resolution in that review. Every rule below is backed by the schema, a
+`validate()` branch, an invariant id (`LDB-F..`/`LDB-P..`), or a golden
+file, cited in small print under the rule. Where the code and an earlier
+design decision disagree, the disagreement is recorded in the final **Open
+discrepancies** section instead of being silently resolved here.
 
-## 1. What it is
+`01-format.md`, `20-spark.md` and `23-geometry.md` are design history and
+are not rewritten; this page is what the code does today.
 
-`spark/1` (`db/formats/spark/1/index.ts`) is a **stored** format (`role:
-"stored"`), owned by `DB (+ akl.gg)`. It joins three existing shapes
-rather than inventing new ones: cmini's positions (one array now,
-`design/layout-db/23-geometry.md`'s duplicate-characters follow-up folded
-the old separate `free` list into it), the board geometry `#261`/
-`23-geometry.md` introduced, and the magic-rules authoring shape from
-`design/magic-rules/02-schema.md`, plus a raw-rule escape hatch. It is
-what akl.gg writes and what most clients read.
+## 0. Status and versioning
 
-## 2. Payload shape
+`spark/1` is edited in place until layoutdb's first outside adopter
+(`design/layout-db/21-formats.md` D11). Today the frozen-fixture list is
+empty, so no fixture is protected from a same-slice edit.
 
-```
-Payload
-├─ keys: Key[]                        -- required, one entry per PHYSICAL position
-├─ board: Board                       -- required, one word (§4)
-└─ magic?: MagicIntent
+*Enforced by: `db/tests/formats/frozen.test.ts` (empty list); `db/INVARIANTS.md` LDB-F6 (suspended).*
 
-Key
-├─ char?: string        -- one code point; ABSENT means a free position (no
-│                           separate `free` array any more -- one list). The
-│                           SAME char may repeat across several entries (a
-│                           duplicate letter, e.g. a mirrored key on both
-│                           hands) -- see §4.8.
-├─ row: integer, 0..4
-├─ col: integer, >= 0
-└─ finger: one of LP LR LM LI RI RM RR RP LT RT
+After the first outside adopter, a change is same-major iff every existing
+fixture's `.lowered.json` and `.mana2-1.json` golden stays byte-identical.
+Anything that changes a golden is a new major. A pinned major keeps
+reading and writing (the promise `db/docs/adoption.md` §8 makes for a
+future major).
 
-Board
-└─ "ansi" | "iso" | "ortho" | "colstag"   -- one word; no stagger amounts, no
-                                             split -- both are derived (§4)
+*This rule is a review policy, not yet a mechanical gate: `frozen.test.ts` only compares against an explicit list that is empty today, so nothing in CI currently stops a same-major edit from changing a golden. See Open discrepancies.*
 
-MagicIntent
-├─ magic_keys?: MagicKey[]
-├─ chiral_keys?: ChiralKey[]
-├─ adaptive_swaps?: AdaptiveSwap[]
-└─ rules?: RawRule[]        -- the escape hatch, mana2's own flat vocabulary
-                               (`notes`/`updated` are DROPPED --
-                               24-spark-wire-review.md round 2 item 2:
-                               no writer ever produced them)
-```
+akl.gg and the spark bot read and write `spark/1`. Nothing requires any
+other client to.
 
-`db/formats/spark/1/schema.json` is the normative shape check
-(`additionalProperties: false` everywhere — an unknown field, `x` included,
-is a `400 invalid_payload`, not silently dropped). Everything a plain JSON
-Schema can't express — single-code-point-ness, a rule's `output` starting
-with its own `after`, no duplicate `(row, col)` across `keys`, a
-magic-named character being unique among `keys` (§4.8), the iso-width board
-rule (§4), magic referencing real keys, the lowering having no collision —
-is `validate()`'s job (`index.ts`), in that order. `validate()` never
-throws; every failure is `{ ok: false, error }`. **Restated by
-design/layout-db/24-spark-wire-review.md finding 10:** the fourth §4.4 rule
-this page used to state ("angle/nokwts/meteorite needs board: ansi") is
-dropped from `validate()` entirely — `classifyFingering` is a derived,
-read-time label, never a write-time refusal; the bot enforces that rule for
-its own `fingers!`/`board!` verbs instead.
+*`design/layout-db/21-formats.md` §2.6 "who reads what"; `db/docs/adoption.md` §1.*
 
-No `x` field. `21-formats.md` D10 removed spark/1's free-form,
-client-namespaced escape hatch entirely: no format's `to`/`from` writes
-one, the one format that ever read it (`toCmini`, deleted by D5) is gone,
-and after the 2026-09-11 wipe no stored row carries one. A client that
-needs to keep its own extras alongside a layout owns that state itself —
-it is not the DB's job to shuttle it.
+Owner: `DB` (+ akl.gg). Changes go through `db/formats/spark/1/OWNERS`.
 
-**Identity (24-spark-wire-review.md finding 11):** a `char` is refused if it
-is a space (`" "`) — pending `#333`'s declared space thumb, spark/1 has no
-idiom for a space key yet, only mana2's own `space` token (which becomes a
-free position on import instead, a documented loss). Characters are
-compared by exact code point as stored: no case-folding, no Unicode
-normalization, no locale-awareness — `"E"` and `"e"` are different keys.
+## 1. Record vs payload
 
-## 3. Magic: intent vs. lowering
+A layout is one record. The record's own fields (its **envelope**) are
+independent of any format it stores; `spark/1` is only the payload shape
+below.
 
-`magic` holds **authoring intent**, never the flattened rows an analyzer
-consumes. `compileMagic(payload)` (in `magic.ts`, formerly `lower()`)
-derives those on demand — `GET .../{ref}?format=mana2/1` is the one format
-that ever asks for them; the registry never stores a lowering in place of
-what was written (LDB-F3). Three deliberate differences from the Python
-tool this ported from, plus one real-data-forced fourth, are in
-`spark/1/README.md` and `magic.ts`'s own header.
+| envelope (layout identity, format-independent) | payload (`spark/1`'s own shape) |
+|---|---|
+| `id` (ULID, the identity: see §2's note on identity), `name`, `owner`, `layout_rev`, `created_at`, `modified_at`, `deleted`, `like_count`, `link`, `upstream`, `source` | `keys`, `board`, `magic?` |
+| `formats["spark/1"]`: `{rev, created_at, modified_at, has_magic, source}` | |
 
-## 4. Board geometry
+*Envelope shape: `db/src/core/records.ts:26-63` (`LayoutRow`, `FormatRow`); wire example: `design/layout-db/21-formats.md` §2.3.*
 
-`board` is one required word — `ansi`, `iso`, `ortho` or `colstag`
-(design/layout-db/23-geometry.md §4.1) — never an object: no stagger
-amounts, no split column, both are derived, never stored. The kind fixes
-the physical stagger (`db/formats/spark/1/geometry.ts`'s
-`STAGGER_BY_KIND`): `ansi` is cmini's ANSI row stagger (`[0, 0.25, 0.75]`);
-`iso` shifts row 2 the OTHER way (`[0, 0.25, -0.25]`) and gets one extra key
-at col 0; `ortho`/`colstag` are flat (`[0, 0, 0]`) — a colstag board's
-per-column amounts have no place in the record at all (23-geometry.md §4.1:
-"colstag does not get to set stagger"). The hand split (`handSplit()`) and
-the named-fingering classification (`classifyFingering()`) are likewise
-pure functions of `(board, keys)`, never stored.
+Identity is the record's id, an ULID minted at creation, never the name. A
+rename keeps the id, rev chain, likes and history. `{ref}` in a route
+resolves by id first, then by name; a lookup by name is a lookup, not an
+identity.
 
-`cminiBoardWord(board)` derives the cmini word a board renders as, for
-clients (the bot) that still speak cmini's vocabulary: `ansi`/`iso` →
-`"stagger"` (cmini can't distinguish them, or tell ANSI stagger from the old
-`"angle"` word — the angle mod is a FINGERING now, not a board word, §4.3);
-`ortho`/`colstag` → `"ortho"` (colstag's shape has no cmini analogue).
-`"mini"` is never produced any more.
+*`db/src/core/records.ts:65-69` (`isUlidShaped`, `ULID_RE`); `design/artifacts/spark-format-notes.html` item 14.*
 
-**Validation (`validate()`, §4.4 of 23-geometry.md, in order):** (1) `board`
-is one of the four words (the schema's `enum`); (2) on `iso`, row 2 may be at
-most one column wider than rows 0-1 (never an error for narrower or equal);
-(3) a thumb key (`LT`/`RT`) never sits on a finger row (0-2). §4.4's ORIGINAL
-fourth rule ("angle/nokwts/meteorite needs board: ansi") is NOT enforced
-here any more (24-spark-wire-review.md finding 10) — see the note above.
+Two payload fields the earlier design proposed were dropped entirely
+rather than kept as non-semantic: `magic.notes` and `magic.updated`. No
+writer ever produced them (neither the importer nor `liftRules`), and a
+field that is "non-semantic" but still bumps `payload_json`'s canonical
+bytes (and so a format rev) on every touch is a contradiction on the wire.
+The schema refuses both outright.
 
-## 4.8 Duplicate characters
+*`db/formats/spark/1/magic.ts:107-119`; `db/formats/spark/1/schema.json` (`magic`'s `additionalProperties: false`, lines 32-52).*
 
-`keys` is one array of positions (§2), not a char-keyed map, exactly so the
-same character can sit on more than one physical position (a mirrored key
-on both hands, e.g. a `y` on each side of a symmetric-ish layout). The only
-constraint: every character a MAGIC construct actually *names* — a magic or
-chiral key's own `key`, an adaptive swap's `trigger` or either `swap[]`
-member, a magic key rule's `after`, any `except[]` entry — must be unique
-among `keys`' char-bearing entries; magic addresses a layout by character,
-so a named char with more than one occurrence is genuinely ambiguous.
-Refused `400 magic_needs_unique_key`, naming the character (at MOST one
-entry — zero is fine: a char no magic construct's own scaffold enumerates
-just never gets a row for it, no error). A plain duplicate letter that no
-magic construct references carries no such requirement — UNLESS its own
-entries span both hands, in which case any `chiral_keys[]` whose scaffold
-would enumerate it is refused the same way (a chiral scaffold needs one
-well-defined hand per char) unless that key excepts the char OR a raw
-`rules[]` row already covers the exact `(char, chiral key)` pair (chiral
-keys have no `rules[]` of their own to carve this out any other way).
+Two envelope fields the review round found genuinely missing are now
+implemented, not deferred:
 
-Both the magic-key/chiral-key board-char scaffold and the chiral self-row
-enumeration reach EVERY layout char, thumb-key chars included (LDB-F15's
-"every layout key" has always meant every key, not just the three finger
-rows) — a magic key on a thumb, or a thumb char used as a chiral scaffold
-target, is ordinary. Two thumb rows are allowed (row 3 AND row 4, both
-`>= 3`); a renderer places them by column, same as a single thumb row. A
-free entry (no `char`) still requires `finger` — there is no "positionless"
-entry.
+- **A display name for `owner`.** `GET /v1/authors` and `GET
+  /v1/authors/{user_id}` map a Discord snowflake to a name and back.
+  *`db/src/routes/authors.ts`.*
+- **A moderated `link`.** `link: string | null` on the envelope is the
+  layout's approved link; a pending, rejected or superseded value never
+  reaches it or any public wire shape. The importer can also approve a
+  link automatically from cmini's own `link` field.
+  *`db/src/core/records.ts:46-49`; `db/INVARIANTS.md` LDB-MD3, LDB-MD5.*
 
-Lowering to `mana2/1` (which refuses duplicate letters outright) resolves a
-duplicate by picking the FIRST ENTRY FOR THAT CHAR IN LIST ORDER
-(24-spark-wire-review.md finding 5 — `keys`' own array order, NEVER
-resorted or canonicalised by row/col) as the analysed key; every later
-occurrence of that same character becomes a `skip` cell — the position
-survives (and its finger, for stats), the character does not. A documented,
-permanent `LDB-F5` loss, not a hold.
+Still genuinely deferred, by name: a layout date distinct from the
+record's own `created_at` (cmini's own authoring date, when it differs
+from when layoutdb first imported the layout), and view counts. Neither
+has a column, a route or an invariant today.
 
-## 5. What it can't express
+## 2. Identity
 
-Layers, combos, hold-taps, per-key timing, alternate fingerings (`#148` —
-an additive minor once that design closes). Those belong to advanced
-formats until an idiom for them is proven in one (`01-format.md` §4).
+A `char` is one Unicode code point, compared exactly as stored: no
+case-folding, no Unicode normalization (writers should send NFC), no
+locale rules, nothing reserved. `"E"` and `"e"` are different keys.
 
-## 6. Importing from cmini
+*Intended design: `design/layout-db/24-spark-wire-review.md` finding 11. Enforcement scope, as implemented, is narrower: see Open discrepancies — `validate()` only checks single-code-point-ness for characters a magic construct NAMES (`isSingleChar`, `db/formats/spark/1/magic.ts:37-39`, called from `validateMagicSemantics`), never for a plain `keys[].char` entry.*
+
+`" "` (a literal space) is refused as a `char` value on any `keys` entry,
+pending #333's declared space thumb. mana2's own `space` token becomes a
+free position on import instead (a documented, permanent loss, §8).
+
+*`db/formats/spark/1/index.ts:277-281` (`validateGeometry`'s first check, `400 invalid_payload`).*
+
+A position is `(row, col)`, both integers (`row` 0 to 4, `col` >= 0). No
+two `keys` entries may share a position; the same character may still sit
+on more than one position (a duplicate letter, §3).
+
+*Schema: `db/formats/spark/1/schema.json:24-25`. Uniqueness: `db/formats/spark/1/index.ts:123-134` (`findDuplicatePosition`, `400 invalid_payload`, path `/keys/<i>` of the second entry).*
+
+## 3. Keys
+
+`keys` is a required, ordered array. Each entry is `{char?, row, col,
+finger}`. `row`, `col` and `finger` are required on every entry, including
+a free position (no `char`): there is no "positionless" entry, and a free
+position still needs a finger for the hand split and the mana2 fingermap.
+
+*Schema: `db/formats/spark/1/schema.json:18-29` (`required: ["row","col","finger"]`).*
+
+`finger` is one of `LP LR LM LI RI RM RR RP LT RT`. `TB` is not in the
+enum: it never reaches storage. The importer resolves every `TB` (and
+every `LT`/`RT` whose column disagrees with its side) to `LT`/`RT` by
+column at import time (§8); nothing downstream ever sees `TB` again.
+
+*Schema: `db/formats/spark/1/schema.json:26-28`. LDB-F28.*
+
+The same character may appear on more than one entry (a mirrored key on
+both hands, e.g. two `y`s). `keys` is never resorted or canonicalised by
+position: **array order is the contract.** For a character with more than
+one entry, the first entry in list order (never the lowest `(row, col)`)
+is its primary; every later entry for that character is a secondary
+occurrence (what happens to it on lowering is §7).
+
+*`db/formats/spark/1/index.ts:136-153` (`charMap`, the primary-selection rule used by validation, magic lookups and the mana2 lowering); LDB-F33; `db/formats/mana2/1/translate.ts` (the reciprocal "list order is the analysed key" rule at the duplicate-lowering site, around line 432).*
+
+A character that a magic construct actually **names** — a magic key's own
+`key`, a chiral key's own `key`, an adaptive swap's `trigger` or either
+`swap[]` member, a magic key rule's `after`, or any `except[]` entry —
+must have **at most one** entry among `keys`' char-bearing entries. Zero is
+fine (a named key need not be on the layout at all, LDB-F22): it simply
+gets no scaffold row. More than one is refused.
+
+*`db/formats/spark/1/index.ts:218-260` (`collectMagicChars`, `validateMagicKeysUnique`); error `400 magic_needs_unique_key`, path `/keys` — see Open discrepancies for why this is not `/keys/<i>`. LDB-F33.*
+
+A plain duplicate character that no magic construct names carries no such
+requirement, **unless** its own entries span both hands. In that case any
+`chiral_keys[]` entry would have no well-defined hand to enumerate it
+against, so it is refused for that chiral key unless the chiral key
+excepts the character, or a raw `rules[]` row already covers the exact
+`(character, chiral key)` pair.
+
+*`db/formats/spark/1/index.ts:163-210` (`bothHandsChars`, `validateChiralHandAmbiguity`); error `400 magic_needs_unique_key`, path `/keys`. LDB-F33; `design/layout-db/24-spark-wire-review.md` round 2 §C.*
+
+A magic-named or chiral-hand-ambiguous character that is refused this way
+still resolves automatically for the case the format DOES allow: an
+explicit rule for a two-handed character fires on whichever physical key
+produced the emitted character, since a lowered row's context is the
+emitted character (§5.4), which carries no hand. This is not a special
+case anyone codes; it falls out of character-identity contexts.
+
+## 4. Board and thumbs
+
+`board` is a required, single word: one of `ansi`, `iso`, `ortho`,
+`colstag`. There is no default at the wire level; every payload states its
+own board. (A bot command line may default an unstated board word to
+`ansi` at authoring time; that is a client convenience, not a format
+default.)
+
+*Schema: `db/formats/spark/1/schema.json:8,14` (`required: ["keys","board"]`; the enum).*
+
+**The coordinate function is the contract.** Physical `(x, y)` for a
+`(kind, row, col)` position:
+
+| kind | x | y | notes |
+|---|---|---|---|
+| `ansi` | `col + [0, 0.25, 0.75][min(row,2)]` | `row` | cmini's ANSI row stagger; the default board |
+| `iso` | `col + [0, 0.25, -0.25][min(row,2)]` | `row` | row 2 shifts left instead of right; an ISO key is simply an extra `keys` entry, no special column reserved for it |
+| `ortho` | `col` | `row` | flat |
+| `colstag` | `col` | `row` | flat; the word is for renderers, never for per-column stagger amounts |
+
+*`db/formats/spark/1/geometry.ts:44-58` (`STAGGER_BY_KIND`, `coords`). LDB-F30 (one function, exported, no second port inside `db/`).*
+
+On `iso`, row 2 may be at most one column wider than rows 0-1 (never an
+error for equal or narrower width, and checked on no other board).
+
+*`db/formats/spark/1/index.ts:283-296` (`validateGeometry`, rule 2); `400 invalid_payload`. LDB-F27.*
+
+**The hand split is derived, never stored.** `handSplit(keys)` is, over
+finger rows (row <= 2) that have both a left-hand and a right-hand entry,
+the minimum "one past the last left-hand column" across those rows; the
+default is column 5 when no row qualifies. The mana2 lowering splits every
+row string at this column.
+
+*`db/formats/spark/1/geometry.ts:60-108` (`handSplitRows`, `handSplit`). LDB-F30.*
+
+**Thumbs.** A thumb key is any entry whose `finger` is `LT` or `RT`; it
+must sit on row >= 3 (never on a finger row, 0-2). Two thumb rows (3 and
+4) are both legal; a non-thumb key on row 3 is also legal (the 22 real
+number-row layouts). **The label is the hand**: a key's finger being `LT`
+or `RT` is what makes it a left or right thumb, at whatever column it
+sits, never re-derived by column.
+
+*Row restriction: `db/formats/spark/1/index.ts:298-310` (`validateGeometry`, rule 3), comment explicitly notes rows >= 3 are otherwise unrestricted. LDB-F27. Label-is-hand: `db/formats/mana2/1/translate.ts` (`fromSpark`'s thumb-string split checks `finger === "LT"` / `"RT"` directly, no column re-anchoring) and `LDB-F29`.*
+
+**Named fingerings are derived labels, never stored, and never refuse a
+write.** `classifyFingering(keys)` classifies a layout's rows 0-2 against
+four fixed references (`standard`, `angle`, `nokwts`, `meteorite`, left
+hand only; the right hand is always `RI RI RM RR RP`), else `custom`. The
+board word never gates this classification at write time: a payload whose
+fingers happen to read as `angle` on an `ortho` board is accepted. "Angle
+(or nokwts/meteorite) only makes sense on ansi" is a rule the **bot**
+enforces for its own `fingers!`/`board!` verbs, not something `validate()`
+checks.
+
+*`db/formats/spark/1/geometry.ts:143-190` (`classifyFingering`, `FINGERING_REFS`). LDB-F27, LDB-F30, LDB-F32. Explicit drop of the write-time rule: `db/formats/spark/1/index.ts:262-270`'s own comment ("Rule 4 ... is NOT enforced here"); `design/layout-db/24-spark-wire-review.md` finding 10.*
+
+## 5. Magic
+
+### 5.1 The primitive
+
+Every idiom `magic` expresses expands to one shape: a binding `(context,
+key) -> output`, where context is the character emitted immediately
+before `key` was pressed, or `' '` at word start. `rules[].inputs` is that
+same pair spelled out directly (a two-code-point string: context then
+key). `magic_keys`, `chiral_keys` and `adaptive_swaps` are macros over this
+one primitive; `compileMagic()` is the expansion.
+
+*`db/formats/spark/1/magic.ts:189-297` (`computeRows`, the one function that performs every expansion).*
+
+### 5.2 Idioms and their expansions
+
+**Magic keys** (`magic_keys[]`, each `{key, default?, rules?, except?}`).
+For every other layout character `c` not excluded (see 5.5's exclusion
+rule) and not in `except`:
+
+- `default: {kind: "repeat"}` emits the row `c+key -> c+c`, tag `repeat`.
+- `default: {kind: "char", char: "e"}` emits `c+key -> c+e`, tag `default:e`.
+- no `default` emits nothing for `c`.
+
+A literal (`char`) default additionally emits one word-start row, `'
+'+key -> ' '+default.char` (not gated by `except`, since the site's own
+scaffold this ports has no such list for this one row); a repeat default
+gets no such row (repeating a space types text nobody analyzes).
+
+*`db/formats/spark/1/magic.ts:219-260`. LDB-F14 (the word-start row), LDB-F15 (the exclusion rule, below).*
+
+`magic_keys[].rules[]` (each `{after, output}`) is an explicit override:
+it emits `after+key -> output` directly, and REPLACES that key's own
+scaffold row for the same `after` rather than colliding with it.
+
+*`db/formats/spark/1/magic.ts:257-259`.*
+
+**Chiral keys** (`chiral_keys[]`, each `{key, same?, opposite?, except?}`).
+For every layout character `c` with a resolvable hand, not in `except`:
+emits `c+key -> c+(c or same/opposite's char)`, using `same` when `c` is
+on the chiral key's own hand, `opposite` otherwise. The chiral key's own
+character is itself enumerated (it is always on its own hand, so it always
+takes `same`), producing a self row `key+key`.
+
+*`db/formats/spark/1/magic.ts:272-284`. LDB-F15.*
+
+**Adaptive swaps** (`adaptive_swaps[]`, each `{trigger, swap: [a, b]}`)
+emit two rows: `trigger+a -> trigger+(what b emits after trigger)` and the
+mirror. "What b emits after trigger" is `b`'s own character unless `b` is
+itself a magic key with a rule or default for that trigger, in which case
+that rule's/default's output character is used instead.
+
+*`db/formats/spark/1/magic.ts:169-180` (`emission`), `:286-290`.*
+
+**The exclusion rule (LDB-F15).** Every magic key's own character and
+every chiral key's own character is excluded from every OTHER key's
+board-character scaffold, globally, not just from its own. This is why a
+character that is itself a magic key still needs an explicit rule (not the
+scaffold) to get a row from another key's default.
+
+*`db/formats/spark/1/magic.ts:196-218` (`specialChars`, built once and passed to every scaffold loop).*
+
+**`rules[]` is the primitive, exposed raw**, not a second vocabulary: it
+is appended in author order after every idiom, addresses `(inputs,
+output)` directly, and is never resolved against an idiom row on a
+collision (5.3). A client writing `rules[].type` as one of the reserved,
+idiom-produced words (`repeat`, `magic`, `chiral`, `adaptive`, or a
+`default:<c>` shape) is refused: only the importer's own lift may produce
+those tags.
+
+*`db/formats/spark/1/magic.ts:292-294` (emission), `:777-797` (the reservation check, `400 reserved_rule_type`). See Open discrepancies: this check has no dedicated test or fixture and is not a registered `LDB-F..` id.*
+
+### 5.3 Expansion order and collisions
+
+Rows from every idiom are resolved by phase, lowest to highest: magic-key
+scaffold (0) < chiral-key scaffold (1) < magic-key explicit rules (2) <
+adaptive swaps (3). Within one `inputs`, the later phase wins; within one
+phase, the later-emitted row wins. `rules[]` (phase 4, the raw escape
+hatch) never takes part in this resolution: **any collision that includes
+a raw row is refused**, never resolved by phase.
+
+*`db/formats/spark/1/magic.ts:299-343` (`phaseOf`, `resolveRows`), `:356-390` (`findCollision`); error `400 magic_collision`, naming both sources and, for a scaffold/raw collision, an `except` hint. LDB-F4.*
+
+### 5.4 Contexts are character identity
+
+A row's context is the character the layout emits, never which physical
+key produced it. Behaviour that differs between character-identity and
+keystroke-identity firmware (chained magic where one key's output feeds
+another key's context, overlapping contexts) is outside what this format
+records. An author who needs that distinction authors in a format that has
+the disambiguator; `spark/1` does not.
+
+*Design resolution: `design/layout-db/24-spark-wire-review.md` finding 3, round 2 resolved-rule row 3. Structurally: `computeRows`'s `keys: Record<string, Position>` is addressed by character, never by physical key (`db/formats/spark/1/magic.ts:152-155`, `handOf`).*
+
+### 5.5 Duplicates, sentinels
+
+See §3 for the uniqueness rule itself (LDB-F33). `default` (on a magic
+key) and `same`/`opposite` (on a chiral key) are a `kind`-discriminated
+tagged union, never a bare string: `{kind: "repeat"}` or `{kind: "char",
+char: "e"}`; absent means none. The strings `"none"` and `"repeat_previous"`,
+and a bare character string, are refused by the schema.
+
+*Schema: `db/formats/spark/1/schema.json:70-79` (`magicDefault`, `chiralValue`, `oneOf` with `additionalProperties: false` per branch). Types and guards: `db/formats/spark/1/magic.ts:46-59` (`isRepeatTag`, `isCharTag`), `:61-93` (`MagicDefault`, `ChiralKey`). Design resolution: `design/layout-db/24-spark-wire-review.md` finding 6, round 2 §F (the `kind` spelling, over the reviewer's `{repeat: true}` alternative).*
+
+## 6. Validation
+
+`validate(p)` never throws; it returns `{ok: true}` or `{ok: false,
+error}`. Checks run in this order, each stopping at the first failure:
+
+| # | check | error | path |
+|---|---|---|---|
+| 1 | JSON Schema (`schema.json`, `additionalProperties: false` everywhere) | `invalid_payload` | the failing instance path |
+| 2 | no two `keys` entries share `(row, col)` | `invalid_payload` | `/keys/<i>` of the second entry |
+| 3 | a `char` is never `" "` | `invalid_payload` | `/keys/<i>` |
+| 4 | on `iso`, row 2 is at most one column wider than rows 0-1 | `invalid_payload` | `/keys` |
+| 5 | no `LT`/`RT` finger on rows 0-2 | `invalid_payload` | `/keys/<i>` |
+| 6 | every magic-named character has at most one entry (§3) | `magic_needs_unique_key` | `/keys` |
+| 7 | a both-hands duplicate is excepted or ruled for every chiral key that would enumerate it (§3) | `magic_needs_unique_key` | `/keys` |
+| 8 | magic semantics (single-code-point fields, rule shapes, no duplicate `after`, no magic/chiral key sharing a character, reserved `rules[].type` words) | `invalid_payload` or `reserved_rule_type` | `/magic/...` |
+| 9 | the lowering has no collision (5.3) | `magic_collision` | the later side's `/magic/...` pointer |
+
+*`db/formats/spark/1/index.ts:321-378` (`validate`), in this exact order. Checks 6-9 read `payload.magic` only when present.*
+
+PATCH edits (`setFingermap`, `setBoard`, `setMagic`,
+`db/formats/spark/1/edits.ts`) apply their own change and then rely on the
+pipeline re-running `validate()` on the result; they duplicate none of the
+above. `setFingermap` additionally refuses a named character that is not
+on the layout, or that has more than one entry (it cannot tell which one a
+bare `char -> finger` map means).
+
+*`db/formats/spark/1/edits.ts:28-41`; error `invalid_payload`, path `/keys` (see Open discrepancies).*
+
+## 7. Lowering to `mana2/1`
+
+`spark1.to["mana2/1"]` (`fromSpark`) never holds for a payload
+`validate()` accepts: mana2's vocabulary is a strict subset of what
+`spark/1` can express, never a lossy write target on the way up.
+
+*`db/formats/mana2/1/translate.ts`. LDB-F17, `db/tests/formats/lowerable.test.ts`.*
+
+The board table reverses §4's coordinate function: `ansi`/`iso` become
+`isRowStaggered: true` with the matching `STAGGER_BY_KIND` amounts (`iso`
+keeping its 11-token row 2 as mana2's own `stand_iso` shape expects);
+`ortho`/`colstag` become `isRowStaggered: false` with an all-zero stagger.
+Row strings split at `handSplit(keys)`. Thumb strings are built purely
+from the finger label (`LT`/`RT`), by column within each side.
+
+*`db/formats/mana2/1/translate.ts:400-423` (`boardFromSpark`), `:453-460` (thumb-string assembly by finger label).*
+
+**Duplicate characters are a documented, permanent loss.** For a character
+with more than one `keys` entry, the primary (§3, first in list order) is
+the analysed key; every later occurrence lowers to a `skip` cell: the
+position (and its finger, for stats) survives, the character does not.
+
+*`db/formats/mana2/1/translate.ts:419-432` (comment and implementation); `db/formats/spark/1/fixtures/905-duplicate-chars.{json,mana2-1.json}` (the `y` at row 1 col 4 becomes `skip`). LDB-F33.*
+
+An empty layout still lowers: it emits a single empty-string `fingers`
+row, since mana2's own schema requires at least one row. Magic intent is
+flattened to `magic.rules[]`: the idiom vocabulary is gone on the mana2
+side, the rows it produced are not.
+
+*`db/docs/adoption.md` §7 "Lowering to `mana2/1`".*
+
+## 8. Import from cmini
 
 `db/formats/adapters/cmini/translate.ts`'s `fromCmini` is the only
-conversion into `spark/1` from outside the format (D5 deleted the
-reverse). It is exact on everything `spark/1` has a place for — the
-`(char, row, col, finger)` multiset (over `keys`' entries, `char` absent
-for what used to be a separate `free` array) — the board word by the fixed
-table in §4 (`stagger`/`angle` → `ansi`, `ortho`/`mini` → `ortho`; NO
-angle-family bump any more, 24-spark-wire-review.md finding 10 — import is
-faithful to the word alone) — and drops, permanently, exactly four
-cmini-only fields it has no place for: `tag`, `blame`, `combos`, `link`. It
-also relabels every `TB` finger, or `LT`/`RT`
-thumb whose column disagrees with `col < 5 => LT else RT` (cmini never has
-duplicate characters, so this relabelling is unambiguous). `db/tests/
-formats/mf9-fromcmini.test.ts` (LDB-F23, MF-9) is the invariant: run over
-every `upstream-100` fixture layout, checked against a test-local
-projection of cmini's own shape (not a resurrected `toCmini`).
+conversion into `spark/1` from outside the format; there is no reverse
+(`toCmini` was deleted, `design/layout-db/21-formats.md` D5).
 
-## 7. Worked example
+Board word table:
 
-A minimal but complete, schema-valid, `validate()`-passing `spark/1`
-payload — extracted and checked by `db/tests/formats/spec-example.test.ts`
-against this file's own copy, so this block can never silently drift from
-what the code actually accepts:
+| cmini | spark |
+|---|---|
+| `stagger` | `ansi` |
+| `angle` | `ansi` (the angle mod is already in the keys' own fingers) |
+| `ortho` | `ortho` |
+| `mini` | `ortho` |
+
+*`db/formats/adapters/cmini/translate.ts:26-31` (`WORD_TABLE`). No angle-family bump: `design/layout-db/24-spark-wire-review.md` finding 10; LDB-F31.*
+
+A `TB` finger, or an `LT`/`RT` whose column disagrees with `col < 5 =>
+LT else RT`, is relabelled by that rule (the last time this ever runs); an
+`import_relabel` info event names every relabelled key.
+
+*`db/formats/adapters/cmini/translate.ts:33-39`; LDB-F28.*
+
+`fromCmini` is exact on the `(char, row, col, finger)` multiset (mod the
+relabel above) and drops exactly four cmini-only fields it has no payload
+idiom for: `tag`, `blame`, `combos`, and `magic.rules[].note`. `link` is
+NOT dropped: it is carried to the record's own envelope by a separate
+importer path (`importLink`), moderated the same way an admin-approved
+link is, never written into the payload.
+
+*`db/formats/adapters/cmini/translate.ts:180-190`; `db/src/import/apply.ts:242-355` (`importLink`, `latestLinkVia`). LDB-F23 (MF-9), LDB-MD3. Test: `db/tests/formats/mf9-fromcmini.test.ts` over `upstream-100`.*
+
+## 9. Reader and writer obligations
+
+Readers ignore unknown fields on a payload; only the server refuses them
+at write time. A client that does not understand every field of a record
+uses `PATCH`, never `PUT`, so it never has to round-trip fields it cannot
+parse. A client validates against the schema served at `GET
+/v1/formats/spark/1/schema.json`, never a copy it vendored itself.
+
+*Design resolution: `design/layout-db/24-spark-wire-review.md` round 2 item 7. Schema route: `db/src/routes/formats.ts:44-52`. See Open discrepancies: the served schema itself is `additionalProperties: false` everywhere, which is in tension with "readers ignore unknown fields" for a client that actually validates against it as instructed.*
+
+## 10. What it cannot express
+
+| not expressible | tracked as |
+|---|---|
+| layers, combos, hold-taps, per-key timing | `01-format.md` §4 (advanced formats, not this one) |
+| alternate fingerings | `#148` |
+| a declared space thumb / space as a `char` | `#333` |
+| per-column stagger amounts, key wells, chorded input | `23-geometry.md` non-goals |
+
+## 11. Worked examples
+
+Extracted and pinned by `db/tests/formats/spec-example.test.ts` (`[LDB-F24]`):
+every fenced JSON block below is parsed straight from this file and run
+through the real `validate()`, so this section can never silently drift
+from what the code accepts. Ran with:
+
+```
+cd db && npx vitest run tests/formats/spec-example.test.ts
+```
+
+**Example 1: plain ANSI, a duplicate character, tagged magic, a free
+position.**
 
 ```json
 {
@@ -216,20 +458,135 @@ what the code actually accepts:
 }
 ```
 
-Reading it: `@` sits at the top-left key, row 0, left ring finger. Typing
-`n` then `@` lowers, via `compileMagic`, to a rule emitting `nl` — the `@`
-key's *default* behavior (`{"kind": "repeat"}`, meaning "repeat whatever was
-typed before it" — design/layout-db/24-spark-wire-review.md finding 6's
-tagged sentinel, round 2's `kind`-discriminated spelling, replacing the old
-bare string `"repeat_previous"`) applies to every OTHER preceding key. The
-board is
-`ansi` (row-staggered, `0, 0.25, 0.75` key-widths). `e` sits on TWO
-positions (row 1 and row 2, both left index) — a duplicate character, valid
-because nothing in `magic` names `e` (§4.8); lowering to `mana2/1` would
-keep only the row-1 occurrence as the analysed `e`, the row-2 one becoming
-a `skip` cell. The one entry with no `char` (row 2, col 5) is a free
-position — a key cmini's board has, but this layout leaves empty.
+`@` sits at row 0, left ring finger. Typing `n` then `@` lowers to a rule
+emitting `nl`; `@`'s default (`{"kind": "repeat"}`) repeats every OTHER
+preceding key. `e` has two entries (row 1 and row 2, both left index): a
+duplicate character, valid because nothing in `magic` names `e`; lowering
+would keep the row-1 occurrence and turn the row-2 one into a `skip` cell.
+The entry with no `char` (row 2, col 5) is a free position.
 
-## Owner
+**Example 2: `iso`, a free position, one thumb key** (a real, tested
+fixture: `db/formats/mana2/1/fixtures/003-stand_iso.spark-1.json`, mana2's
+own `stand_iso` layout round-tripped into `spark/1`).
 
-`DB` (+ akl.gg). Changes go through `OWNERS`, same as the format itself.
+```json
+{
+  "keys": [
+    { "char": "f", "row": 0, "col": 0, "finger": "LP" },
+    { "char": "m", "row": 0, "col": 1, "finger": "LR" },
+    { "char": "z", "row": 0, "col": 5, "finger": "RI" },
+    { "char": ".", "row": 0, "col": 9, "finger": "RP" },
+    { "char": "q", "row": 2, "col": 0, "finger": "LP" },
+    { "char": "g", "row": 2, "col": 4, "finger": "LI" },
+    { "row": 2, "col": 5, "finger": "LI" },
+    { "char": ",", "row": 2, "col": 10, "finger": "RP" },
+    { "row": 3, "col": 4, "finger": "LT" }
+  ],
+  "board": "iso"
+}
+```
+
+Row 2 runs 11 columns wide (cols 0-10), one wider than rows 0-1 (10 wide):
+legal under §4's iso-width rule. The `(row: 2, col: 5)` entry is a free
+position, sitting exactly where the ISO board's extra key falls. The
+`(row: 3, col: 4)` entry, finger `LT`, is a thumb key with no `char`
+assigned.
+
+**Example 3: `colstag`, six thumb keys across one thumb row** (a real,
+tested fixture: `db/formats/spark/1/fixtures/900-colstag.json`).
+
+```json
+{
+  "keys": [
+    { "char": "q", "row": 0, "col": 0, "finger": "LP" },
+    { "char": "y", "row": 0, "col": 5, "finger": "LI" },
+    { "char": "u", "row": 0, "col": 6, "finger": "RI" },
+    { "char": "]", "row": 0, "col": 11, "finger": "RP" },
+    { "char": "1", "row": 3, "col": 3, "finger": "LT" },
+    { "char": "2", "row": 3, "col": 4, "finger": "LT" },
+    { "char": "3", "row": 3, "col": 5, "finger": "LT" },
+    { "char": "4", "row": 3, "col": 6, "finger": "RT" },
+    { "char": "5", "row": 3, "col": 7, "finger": "RT" },
+    { "char": "6", "row": 3, "col": 8, "finger": "RT" }
+  ],
+  "board": "colstag"
+}
+```
+
+(Rows 1-2 are omitted here for brevity; the real fixture has the full
+30-key main grid.) `handSplit` reads as column 6 (the last left-hand
+column in the main rows is 5). All six thumbs sit on row 3, three per
+side, ordered by column; nothing about a `colstag` board changes how a
+thumb is expressed.
+
+## Open discrepancies
+
+For the lead to decide; not resolved by this rewrite.
+
+1. **`keys[].char` single-code-point-ness is not checked by `validate()`.**
+   `schema.json:23` leaves `char` an unconstrained string, and `index.ts`'s
+   `validate()` never calls `isSingleChar` over a plain `keys` entry;
+   `isSingleChar` (`magic.ts:37-39`) is only ever invoked from
+   `validateMagicSemantics`, which walks `magic_keys`/`chiral_keys`/
+   `adaptive_swaps`, never `payload.keys` itself. A payload with `{char:
+   "ab", row: 0, col: 0, finger: "LP"}` (or `char: ""`) validates today as
+   long as nothing in `magic` references it. §2's normative rule ("a `char`
+   is one code point") describes the design intent and the enforcement
+   that exists for magic-referenced characters; it is not enforced for an
+   ordinary key. No fixture or test proves either the presence or the
+   absence of this check.
+
+2. **No request-body size cap exists.** `design/layout-db/
+   24-spark-wire-review.md` round 2 §H1 asked for a stated cap (64 KiB of
+   canonical bytes, "an order of magnitude over every fixture"), with its
+   own error code and fixture, before the first outside adopter. Nothing
+   in `db/src` bounds a `POST`/`PUT` body, `keys.length`, or
+   `rules.length` (checked: no `MAX_BODY`/`bodyLimit`/byte-length check
+   anywhere under `db/src`).
+
+3. **`from=<lineage>` is not reserved in code.** Round 2 §B asked the
+   server to accept `from=spark` on `?format=mana2/1` as a documented
+   no-op and refuse any other value with `400 bad_request`, so a client
+   could start sending the parameter now. `db/src/routes/layouts.ts` reads
+   no `from` query parameter anywhere; `db/docs/adoption.md:932` still
+   only says the parameter is "not designed yet."
+
+4. **Error paths into `keys` are not `/keys/<i>`.** Round 2 §D said "every
+   error path into `keys` indexes the request body as sent" (i.e.
+   `/keys/<i>`), and §C's resolved rule for finding 5 explicitly names
+   `/keys/<i>` as the path for `magic_needs_unique_key`. As implemented,
+   both `validateMagicKeysUnique`/`validateChiralHandAmbiguity`
+   (`index.ts:218-260`, `:163-210`) and `setFingermap`'s duplicate-char
+   refusal (`edits.ts:28-41`) report the bare path `/keys`, naming the
+   offending character in the message instead. `mutations.test.ts:402`
+   pins the bare `/keys` path, so this is the tested, intentional current
+   behaviour, not an oversight in one spot; it just does not match the
+   round-2 text.
+
+5. **`reserved_rule_type` has no dedicated test, fixture, or invariant
+   id.** The refusal itself is implemented (`magic.ts:777-797`, round 2
+   §H3's ask), but `grep -a -rln "reserved_rule_type" db/tests` finds
+   nothing, and `db/INVARIANTS.md` has no row for it. A client-supplied
+   `rules[].type` of `"repeat"`, `"magic"`, `"chiral"`, `"adaptive"`, or a
+   `default:<c>` shape is refused today, but nothing in CI would catch a
+   regression that silently stopped refusing it.
+
+6. **`db/INVARIANTS.md`'s LDB-F22 row text is stale.** It still reads
+   "`notes`/`updated` are strings" (line 113); round 2 item A dropped both
+   fields entirely, and the schema now refuses them
+   (`additionalProperties: false`). The rest of LDB-F22's claim (named
+   keys need not be on the layout; a null chiral value reads as absent)
+   still holds and is still the citation this page uses for §3's "zero is
+   fine" rule; only that one clause is out of date.
+
+7. **The served schema's own strictness is in tension with "readers
+   ignore unknown fields."** §9 tells a client to validate against `GET
+   /v1/formats/spark/1/schema.json` (`db/src/routes/formats.ts:44-52`
+   serves the raw ajv schema, `additionalProperties: false` everywhere).
+   A client that does exactly that will reject a payload carrying any
+   field added after the client last fetched the schema, the same problem
+   `design/layout-db/24-spark-wire-review.md` finding 7 raised for a
+   vendored copy. Nothing resolves this for a client that follows §9's own
+   instruction to fetch live rather than vendor; it is moot only because
+   `spark/1` has never actually gained a field since any outside client
+   existed (there is no outside client yet, §0).
