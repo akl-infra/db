@@ -43,10 +43,26 @@ npm run dev                # terminal 2: Vite, HMR for src/**, proxies /auth + /
 
 Visit the Vite dev server's own port for HMR, or `wrangler dev`'s port for
 the whole Worker as it will actually run in production. `npm run build`
-also runs `scripts/build-docs.mjs` (a `prebuild`/`predev` hook) — it reads
-`../docs/adoption.md` and writes the gitignored `src/generated/docs.html.ts`
-that `pages/Docs.tsx` renders; it fails loudly if that source file is
-missing, never silently serving an empty Docs page.
+also runs `scripts/build-docs.mjs` (a `prebuild`/`predev`/`pretest`/
+`pretypecheck` hook) — it reads `../docs/adoption.md` and writes two
+gitignored outputs: `src/generated/docs.html.ts` (the rendered HTML plus
+the parsed §9 endpoint table, `baseUrl`, and the raw markdown, all consumed
+by `pages/Docs.tsx`) and `public/adoption.md` (the same raw markdown,
+verbatim — Vite copies `public/` straight into `dist/`, so this is what
+serves `https://akldb.org/adoption.md`, SITE-30). It fails loudly if the
+source file is missing, never silently serving an empty Docs page.
+
+`pages/Docs.tsx` is more than a raw-HTML dump (W1c, design/akldb-site's
+Docs overhaul): an on-page endpoint brief generated from the guide's own
+§9 table (never hand-copied, SITE-31), two hand-authored inline-SVG
+sequence diagrams (`ui/diagrams/AuthOwnership.tsx`, `ui/diagrams/
+TrustedClient.tsx`, built on the shared geometry/text-fit primitives in
+`ui/diagrams/sequence.ts`), and a "Copy as Markdown" button whose payload
+is exactly the served `/adoption.md` (SITE-32). The rendered guide itself
+is fetched lazily (a dynamic `import()`, not a static one) specifically so
+its ~140KB of content — the real akl-db hostname included — never ships in
+the app's default bundle; see `pages/Docs.tsx`'s own header comment if
+that ever needs revisiting.
 
 ## Deploy
 
