@@ -144,9 +144,13 @@ authorization rule reads only that field. There are two ways to become one.
 
 ### 1.1 Client lane — a Discord bot (or any program acting for many users)
 
-You (the bot) present *yourself* — an Ed25519 key an admin registered for
-you — and *assert* which Discord user the request is for. This is right
-when your program already trusts `message.author.id` (Discord delivered the
+You (the bot) present *yourself* — an Ed25519 keypair: you generate it and
+keep the **private** key, using it to sign each request's headers; an
+admin registers only the matching **public** key for you (§2.1). The
+public key is not a secret — anyone may see it; only the private key,
+which never leaves your host, can produce a signature it accepts. You also
+*assert* which Discord user the request is for. This is right when your
+program already trusts `message.author.id` (Discord delivered the
 message) and cannot present that user's own token.
 
 **What it proves**: that the request really came from your registered key
