@@ -103,6 +103,7 @@ Status: `todo` · `running (agent, branch)` · `review` · `landed <sha>` · `bl
 
 ## Log
 
+- 2026-09-13 06:15Z · **H24** (saltorbit): likes are per-user rows, never a settable number — recorded; import-plan like_count comparison flagged for audit (handed to the import/moderation owners via cmini-web-19).
 - 2026-09-13 06:10Z · **saltorbit reversed the like override**: moderators may not change like counts. Relayed to cmini-web-19 → 6b (authors of ldb-b197) to REMOVE it rather than fix the S1 divergence. REQUIREMENTS.md updated.
 - 2026-09-13 06:00Z · B22 landed. Other sessions are pushing to ldb-arch-review too (akldb-site slices; `c900dc0a3` bot like-override left tsc/eslint red — fixed here). Deploying v51, then a `--pace 1500` tester round for the clean write-verb numbers.
 - 2026-09-13 05:40Z · Cutover for the spark/1 rewrite (cmini-web-19, runbook in `design/layout-db/23-geometry.md` §10), saltorbit via that session: wipe + fresh cmini import is fine (layoutdb not in use; native rows lost, accepted). Order: push ldb-arch-review (Worker) → wipe + import → **force a dump** (daily otherwise; both rebuild.js and the bot boot read it — flagged) → my spark deploy → `rebuild-on-fly.sh` + machine restart → db-alias site build. Bot slice there bumps SNAPSHOT_VERSION so the replica never boots from an old-shape snapshot; it starts after B22 lands.
