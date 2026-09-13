@@ -1,0 +1,45 @@
+{
+ "clients": [
+  {
+   "id": "SITE-FIXTURE-CLIENT-1",
+   "name": "site-fixture-active",
+   "pubkey": "KsG4a3kPQ2f74uSL0Ra4QRWDq84lNtJ63mhZ9OLNU1c",
+   "owner_user_id": "800000000000000101",
+   "caps": "act-as-user",
+   "discord_app_id": null,
+   "status": "active",
+   "created_at": "2026-09-13T00:00:00.000Z",
+   "revoked_at": null
+  },
+  {
+   "id": "SITE-FIXTURE-CLIENT-2",
+   "name": "site-fixture-suspend",
+   "pubkey": "KsG4a3kPQ2f74uSL0Ra4QRWDq84lNtJ63mhZ9OLNU1c",
+   "owner_user_id": "800000000000000102",
+   "caps": "act-as-user",
+   "discord_app_id": null,
+   "status": "suspended",
+   "created_at": "2026-09-13T00:00:00.000Z",
+   "revoked_at": null
+  },
+  {
+   "id": "SITE-FIXTURE-CLIENT-3",
+   "name": "site-fixture-revoke",
+   "pubkey": "KsG4a3kPQ2f74uSL0Ra4QRWDq84lNtJ63mhZ9OLNU1c",
+   "owner_user_id": "800000000000000103",
+   "caps": "act-as-user",
+   "discord_app_id": null,
+   "status": "revoked",
+   "created_at": "2026-09-13T00:00:00.000Z",
+   "revoked_at": "2026-09-13T00:00:00.000Z"
+  }
+ ],
+ "suspended": [
+  {
+   "id": "SITE-FIXTURE-CLIENT-2",
+   "name": "site-fixture-suspend",
+   "at": "2026-09-13T00:00:00.000Z",
+   "reason": "site fixture: manual suspension for QA"
+  }
+ ]
+}
