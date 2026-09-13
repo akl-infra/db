@@ -4,72 +4,59 @@
 Discord bot, a web app, a script, or an agent — written to be followed by a
 human or handed whole to an agent, and machine-checked against the live
 router and the error factories (`LDB-G10`). This file is the older,
-narrower integration note: it exists now for its cross-references into the
-design docs (`00-plan.md`, `01-format.md`, `02-auth.md`, `03-api.md`,
-`04-governance.md`) and for the generated error-code appendix (§8, checked
-by `LDB-G8`) that the adoption guide's own §6 points back at as "the same
-table `db/INTEGRATION.md` carries". Where a section below would otherwise
-repeat the guide, it links to the guide's section instead of restating it.
-
-Updated 2026-09-11 (20-spark.md).
+narrower integration note: it exists now for the generated error-code
+appendix (§8, checked by `LDB-G8`) that the adoption guide's own §6 points
+back at as "the same table `db/INTEGRATION.md` carries". Where a section
+below would otherwise repeat the guide, it links to the guide's section
+instead of restating it.
 
 A guide for a new client — a bot, a site, a script — that wants to read or
-write keyboard layouts through `akl-db`, the community-owned layout database
-(`design/layout-db/00-plan.md`). No prior familiarity with this repo needed:
-every claim below is tied to a route, a source file, or a test.
+write keyboard layouts through `akl-db`, the community-owned layout
+database. No prior familiarity with this repo needed: every claim below is
+tied to a route, a source file, or a test.
 
 ```
 production   https://api.akldb.org   <- the one layoutdb
 ```
 
-There is one layoutdb, production. The preview environment
-(`akl-db-preview`) was retired on 2026-09-11: nothing reads it and it
-accepts no clients. **Develop against production**, and ask before writing
-there.
+There is one layoutdb, production. **Develop against production**, and ask
+before writing there.
 
 ## 1. What this is
 
 A Cloudflare Worker + D1 database mirroring cmini's keyboard layouts,
 extended with ownership, likes and full history, open to any client that
-authenticates as a Discord user (`00-plan.md` §1) — started as a one-way
-import from cmini, now accepts writes directly. JSON in and out, UTF-8,
-`/v1` prefix, CORS `*` on every read (writes are gated by identity, not
-CORS, `03-api.md` §1).
+authenticates as a Discord user. JSON in and out, UTF-8, `/v1` prefix, CORS
+`*` on every read (writes are gated by identity, not CORS).
 
 **Several formats per layout, one stored today.** A layout can hold more
-than one format (`design/layout-db/21-formats.md`, F2, 2026-09-11), each
-its own row (`layout_formats`) with its own rev, independent of every
-other format the layout has and of the layout's own name/owner/deletion
-(`layout_rev`). `spark/1` — `akl/1` renamed, the same payload shape byte
-for byte (`design/layout-db/20-spark.md` decision 1) — is the one
-**stored** format today; `mana2/1` is an **output-only, derived** shape:
-produced from whichever ONE stored lineage reaches it (`spark/1` today) on
-a read that names it explicitly (`?format=mana2/1`), never stored — a
-write naming it is `400 format_not_writable`. cmini is an import *source*,
-not a format lineage: the importer converts each upstream detail to spark
-on arrival, touching the layout's own fields and lineage `spark` only.
-There is no `akl/1` alias, and no `?as=` query parameter at all any more
-(`design/layout-db/21-formats.md` D4/D5/D12, F1/F2 — the alias was
-transitional and the 2026-09-11 wipe left no row to carry it forward;
-`?as=` is renamed `?format=` and made **required**, no default). `GET
-.../{ref}?format=cmini/1` (or `akl/1`) answers exactly like any other
-unregistered format id (404 `unknown_format`). **Every client reads and
-writes `spark/1` by name, explicitly, every time.**
+than one format, each its own row (`layout_formats`) with its own rev,
+independent of every other format the layout has and of the layout's own
+name/owner/deletion (`layout_rev`). `spark/1` is the one **stored** format
+today; `mana2/1` is an **output-only, derived** shape: produced from
+whichever ONE stored lineage reaches it (`spark/1` today) on a read that
+names it explicitly (`?format=mana2/1`), never stored — a write naming it
+is `400 format_not_writable`. cmini is an import *source*, not a format
+lineage: the importer converts each upstream detail to spark on arrival,
+touching the layout's own fields and lineage `spark` only. `?format=` is
+the one query parameter that names a format, everywhere, and it is
+**required** on every route that returns a payload — no default. **Every
+client reads and writes `spark/1` by name, explicitly, every time.**
 
 **Versioning and compatibility.** `/v1` changes only on a breaking change to
 the record envelope (`id/name/owner/layout_rev/formats/…`) — never happened
 yet. A registered format major is never removed, its schema never
-tightened, its fixtures never edited (`01-format.md` §5, `LDB-F6`); an
-incompatible shape is a new major (`spark/2`), not a break of `/v1` — the
-adoption guide §8 covers how a client detects and migrates across one.
-Every read that returns a payload **requires** `?format=<format>` — no
-default; a layout that doesn't have (and can't derive) the format you
-asked for is `404 format_absent`; a record whose stored content can't be
-translated to the format you asked for comes back `409 { error: "held",
-held: true, format, see? }` (`held()` in `src/core/errors.ts`) instead of
-an error that looks like your request was wrong — the record exists, your
-format just can't show it yet. Read and write `spark/1` if you have no
-opinion; `GET /v1/formats` is the live registry (adoption guide §3).
+tightened, its fixtures never edited (`LDB-F6`); an incompatible shape is a
+new major (`spark/2`), not a break of `/v1` — the adoption guide §8 covers
+how a client detects and migrates across one. Every read that returns a
+payload **requires** `?format=<format>` — no default; a layout that doesn't
+have (and can't derive) the format you asked for is `404 format_absent`; a
+record whose stored content can't be translated to the format you asked
+for comes back `409 { error: "held", held: true, format, see? }`
+(`held()` in `src/core/errors.ts`) instead of an error that looks like your
+request was wrong — the record exists, your format just can't show it yet.
+Read and write `spark/1` if you have no opinion; `GET /v1/formats` is the
+live registry (adoption guide §3).
 
 ## 1b. Versioning
 
@@ -111,17 +98,18 @@ Every route, its real trimmed request/response shapes, and the required
 `?format=<format>` / `held` / `format_absent` mechanics are in the adoption
 guide §3 — not repeated here. In
 short: `GET /v1/meta` is the one call a poller makes on a quiet tick (`seq`
-is the event-log head, `revision` that event's timestamp, `03-api.md` §2);
+is the event-log head, `revision` that event's timestamp);
 `GET /v1/layouts` lists records (list rows carry every field except
-`payload`; params below); `GET /v1/layouts?full=1&as=<format>` streams every
-live record with its translated payload and sorted `likes` — the sync route
-a mirror uses (§6) — a held record there carries `held: true` and no
-`payload` rather than erroring the whole response; `{ref}` in a path is an
-id (ULID) or a name, case-insensitive (a ULID-shaped ref is tried as an id
-first) — an unknown ref is `404 not_found` (never a 200 with an empty body),
-and a tombstoned name is `404` by name, `200` by id, restorable (§4).
+`payload`; params below); `GET /v1/layouts?full=1&format=<format>` streams
+every live record with its translated payload and sorted `likes` — the
+sync route a mirror uses (§6) — a held record there carries `held: true`
+and no `payload` rather than erroring the whole response; `{ref}` in a path
+is an id (ULID) or a name, case-insensitive (a ULID-shaped ref is tried as
+an id first) — an unknown ref is `404 not_found` (never a 200 with an
+empty body), and a tombstoned name is `404` by name, `200` by id,
+restorable (§4).
 
-Params (`src/routes/layouts.ts`, `03-api.md` §2):
+Params (`src/routes/layouts.ts`):
 
 | param | meaning |
 |---|---|
@@ -129,7 +117,7 @@ Params (`src/routes/layouts.ts`, `03-api.md` §2):
 | `liked_by=<user_id>` | composes with any filter, and with `full=1` |
 | `sort=name\|modified_at\|created_at\|like_count` | default `name` asc, case-insensitive; `like_count` is desc |
 | `limit=<n>` (≤ 1000, default 100), `cursor=<opaque>` | a full keyset walk visits every live record exactly once (`LDB-R4`) |
-| `as=<format>` | `full=1` only — a list row never carries a payload |
+| `format=<format>` | required with `full=1` too — a list row never carries a payload |
 
 **ETag/304.** `/v1/meta`, `/v1/layouts` (list and `full=1`), `/v1/changes` and
 `/v1/authors` carry `Cache-Control: public, max-age=10` and a strong `ETag`
@@ -150,8 +138,8 @@ Every request resolves to one `Actor` (`src/auth/actor.ts`): `{ user_id,
 via, admin, source_client }` — every authorization rule reads only
 `user_id`. `source_client` is the proven provenance every rev-bumping
 write's event (and the record's own latest one) now carries as
-`source: {client, version}` (decision 14 of `20-spark.md`; adoption guide
-§1.3) — never a header or body field a caller controls.
+`source: {client, version}` (adoption guide §1.3) — never a header or body
+field a caller controls.
 
 - **User lane** — a person, through their own client:
   `Authorization: Bearer <discord access token>` (scope `identify` is
@@ -171,28 +159,28 @@ write's event (and the record's own latest one) now carries as
   already knows which user sent a message; it can't present that user's
   token, so it presents *itself* (an admin-registered Ed25519 key) and
   *asserts* the user id. **Registration is admin-only** (`POST
-  /v1/admin/clients { name, pubkey, owner_user_id, caps, discord_app_id? }`,
-  `02-auth.md` §3.1, `04-governance.md` §1) — no self-service sign-up; ask an
-  admin (§7) for a client with your public key, an `owner_user_id`, and the
-  `caps` you need — a comma-separated set (LEDGER.md L4): exactly one of
-  `act-as-user` (may assert any Discord user id — a real multi-user bot) or
-  `act-as-owner-only` (only its own `owner_user_id` — a personal script),
-  either of which may long-poll `GET /v1/changes?wait=` (`db/docs/
-  adoption.md` §4; no extra cap). Every write is attributed to your client id on the
-  public feed and changelog (`GET /admin/changelog`, both via `source.client`
-  and the write's own `actor`) — a compromised key is one query to find and
-  one call to revoke (`DELETE /v1/admin/clients/{id}`), effective immediately
-  (`clients.status` is read every request, never cached, `LDB-A9`).
+  /v1/admin/clients { name, pubkey, owner_user_id, caps, discord_app_id? }`)
+  — no self-service sign-up; ask an admin (§7) for a client with your
+  public key, an `owner_user_id`, and the `caps` you need — a
+  comma-separated set: exactly one of `act-as-user` (may assert any
+  Discord user id — a real multi-user bot) or `act-as-owner-only` (only its
+  own `owner_user_id` — a personal script), either of which may long-poll
+  `GET /v1/changes?wait=` (`db/docs/adoption.md` §4; no extra cap). Every
+  write is attributed to your client id on the public feed and changelog
+  (`GET /admin/changelog`, both via `source.client` and the write's own
+  `actor`) — a compromised key is one query to find and one call to revoke
+  (`DELETE /v1/admin/clients/{id}`), effective immediately (`clients.status`
+  is read every request, never cached, `LDB-A9`).
 
-  The five-header signing recipe (`signingString` in `src/auth/client.ts`,
-  `02-auth.md` §3.2), the server's ordered checks (`verifyClientRequest`),
-  and working, tested JS/Python signers are all in the adoption guide §2.1
-  — don't re-derive the recipe by hand; build your signer against the
-  frozen vector file, `db/tests/vectors/client-signing.json` (`LDB-A4`), and
-  diff. `bot/scripts/sign.mjs` wraps the JS signer as a CLI (prints `-H`
-  flags for `curl`); `db/scripts/ops-call.sh` wraps that for a maintainer's
-  own signed admin calls — both read `CLIENT_ID`/`CLIENT_PRIVATE_KEY` from
-  the environment, never a flag.
+  The five-header signing recipe (`signingString` in `src/auth/client.ts`),
+  the server's ordered checks (`verifyClientRequest`), and working, tested
+  JS/Python signers are all in the adoption guide §2.1 — don't re-derive the
+  recipe by hand; build your signer against the frozen vector file,
+  `db/tests/vectors/client-signing.json` (`LDB-A4`), and diff.
+  `bot/scripts/sign.mjs` wraps the JS signer as a CLI (prints `-H` flags for
+  `curl`); `db/scripts/ops-call.sh` wraps that for a maintainer's own signed
+  admin calls — both read `CLIENT_ID`/`CLIENT_PRIVATE_KEY` from the
+  environment, never a flag.
 
 ## 4. Writing
 
