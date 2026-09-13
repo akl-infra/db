@@ -377,7 +377,11 @@ function resolvePath(path: string): string {
 
 describe("conformance fixtures", () => {
   for (const kase of CASES) {
-    it(kase.id, async () => {
+    // [LDB-V2]: `assertConformanceCase` (tests/api/support.ts) asserts
+    // `X-AKLDB-API` on every one of these ~350+ (route, status) cases --
+    // tagged on the title itself so this loop IS the invariant's own
+    // matrix test, not a separate hand-picked sample.
+    it(`[LDB-V2] ${kase.id}`, async () => {
       // T3's admin-admins/*, T5's layouts-like/*/ratelimit/*, and T6's
       // A-group/403/404/409 cases across every route are all seeded by the
       // same lazy fixture set as T2's layouts-write/* -- one memoized seed,

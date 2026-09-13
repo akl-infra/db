@@ -15,6 +15,7 @@ import { tick } from "../../src/import/cmini";
 import { FakeUpstream } from "../import/fake-upstream";
 import { importPrivateKeyPkcs8, signHeaders, vectors } from "../auth/client-support";
 import type { ConformanceCase, ConformanceStep } from "../conformance/manifest";
+import { API_VERSION_HEADER, apiVersionString } from "../../src/core/version";
 
 // 10 C1: the well-known client every `signed` conformance step (manifest.ts)
 // authenticates against -- a fixed, non-ULID id (not `registerClient`'s
@@ -157,6 +158,15 @@ export async function assertConformanceCase(kase: ConformanceCase, resolvePath?:
   const { res, primingEtag } = await runConformanceRequest(kase.request, resolvePath);
 
   expect(res.status, kase.id).toBe(kase.response.status);
+
+  // [LDB-V2] design/layout-db/25-api-versioning.md "Policy" (b): every
+  // response, success or error, carries `X-AKLDB-API`. Asserted HERE
+  // (rather than per-fixture) so it runs for all ~350+ conformance cases
+  // (conformance.test.ts's per-case loop, tagged `[LDB-V2]`) AND for
+  // `tests/rehost.test.ts`'s replay against a RESTORED database, which
+  // calls this exact function -- one real matrix over (route, status)
+  // pairs including every error code, not just the success path.
+  expect(res.headers.get(API_VERSION_HEADER), `${kase.id}: ${API_VERSION_HEADER} header`).toBe(apiVersionString());
 
   for (const [name, expected] of Object.entries(kase.response.headers ?? {})) {
     expect(res.headers.get(name), `${kase.id}: header '${name}'`).toBe(expected);
