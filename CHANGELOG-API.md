@@ -25,7 +25,7 @@ this file just gives them a public, versioned home. From here on, a
 `WIRE_VERSION` bump and a line here land in the SAME PR, never one without
 the other (`[LDB-V5]`).
 
-## 1.9 — 2026-09-13
+## 1.10 — 2026-09-13
 
 Rogue-trusted-client hardening (`db/README.md`'s "Rogue trusted client"
 runbook): `GET /v1/meta`'s `health` gained `clients: {suspended, budget}`
@@ -38,6 +38,9 @@ that suspends them). Three new admin routes: `POST
 suspended client's request) and `client_already_revoked` (409, a
 suspend/reactivate attempt against a terminally-revoked client). No
 existing field, route, or status value changed meaning.
+
+## 1.9 — 2026-09-13
+
 Hostile or vanished upstream defenses. `GET /v1/meta` gains
 `health.import` (`stalled`, `deletes_24h`, `deletes_budget_24h`,
 `deletes_planned`, `deletes_applied`, `deletes_disabled`). New admin

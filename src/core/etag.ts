@@ -133,7 +133,6 @@ export async function readHead(db: D1Database, stateKeys: readonly string[] = []
 //   own `status` field can now read it). Additive only -- no existing
 //   field, route or status value changed meaning.
 export const WIRE_VERSION = 10;
-export const WIRE_VERSION = 9;
 
 export async function etagFor(headSeqValue: number, query: unknown): Promise<string> {
   const hash = await sha256Hex(canonical({ wireVersion: WIRE_VERSION, query: query ?? null }));

@@ -1723,7 +1723,7 @@
     "id": "admin-clients/reactivate-200",
     "method": "POST",
     "route": "/v1/admin/clients/:id/reactivate",
-    "auth": "unlisted",
+    "auth": "admin",
     "status": 200,
     "shape": {
       "type": "object",
@@ -1747,7 +1747,7 @@
     "id": "admin-clients/reactivate-401-unauthorized",
     "method": "POST",
     "route": "/v1/admin/clients/:id/reactivate",
-    "auth": "unlisted",
+    "auth": "admin",
     "status": 401,
     "shape": {
       "type": "object",
@@ -1765,7 +1765,7 @@
     "id": "admin-clients/reactivate-403-not_admin",
     "method": "POST",
     "route": "/v1/admin/clients/:id/reactivate",
-    "auth": "unlisted",
+    "auth": "admin",
     "status": 403,
     "shape": {
       "type": "object",
@@ -1783,7 +1783,7 @@
     "id": "admin-clients/reactivate-404",
     "method": "POST",
     "route": "/v1/admin/clients/:id/reactivate",
-    "auth": "unlisted",
+    "auth": "admin",
     "status": 404,
     "shape": {
       "type": "object",
@@ -1804,7 +1804,7 @@
     "id": "admin-clients/reactivate-409-client_already_revoked",
     "method": "POST",
     "route": "/v1/admin/clients/:id/reactivate",
-    "auth": "unlisted",
+    "auth": "admin",
     "status": 409,
     "shape": {
       "type": "object",
@@ -1822,7 +1822,7 @@
     "id": "admin-clients/revert-200",
     "method": "POST",
     "route": "/v1/admin/clients/:id/revert",
-    "auth": "unlisted",
+    "auth": "admin",
     "status": 200,
     "shape": {
       "type": "object",
@@ -1853,7 +1853,7 @@
     "id": "admin-clients/revert-400-bad_request",
     "method": "POST",
     "route": "/v1/admin/clients/:id/revert",
-    "auth": "unlisted",
+    "auth": "admin",
     "status": 400,
     "shape": {
       "type": "object",
@@ -1874,7 +1874,7 @@
     "id": "admin-clients/revert-401-unauthorized",
     "method": "POST",
     "route": "/v1/admin/clients/:id/revert",
-    "auth": "unlisted",
+    "auth": "admin",
     "status": 401,
     "shape": {
       "type": "object",
@@ -1892,7 +1892,7 @@
     "id": "admin-clients/revert-403-not_admin",
     "method": "POST",
     "route": "/v1/admin/clients/:id/revert",
-    "auth": "unlisted",
+    "auth": "admin",
     "status": 403,
     "shape": {
       "type": "object",
@@ -1910,7 +1910,7 @@
     "id": "admin-clients/revert-404",
     "method": "POST",
     "route": "/v1/admin/clients/:id/revert",
-    "auth": "unlisted",
+    "auth": "admin",
     "status": 404,
     "shape": {
       "type": "object",
@@ -1931,7 +1931,7 @@
     "id": "admin-clients/suspend-200",
     "method": "POST",
     "route": "/v1/admin/clients/:id/suspend",
-    "auth": "unlisted",
+    "auth": "admin",
     "status": 200,
     "shape": {
       "type": "object",
@@ -1955,7 +1955,7 @@
     "id": "admin-clients/suspend-401-unauthorized",
     "method": "POST",
     "route": "/v1/admin/clients/:id/suspend",
-    "auth": "unlisted",
+    "auth": "admin",
     "status": 401,
     "shape": {
       "type": "object",
@@ -1973,7 +1973,7 @@
     "id": "admin-clients/suspend-403-not_admin",
     "method": "POST",
     "route": "/v1/admin/clients/:id/suspend",
-    "auth": "unlisted",
+    "auth": "admin",
     "status": 403,
     "shape": {
       "type": "object",
@@ -1991,7 +1991,7 @@
     "id": "admin-clients/suspend-404",
     "method": "POST",
     "route": "/v1/admin/clients/:id/suspend",
-    "auth": "unlisted",
+    "auth": "admin",
     "status": 404,
     "shape": {
       "type": "object",
@@ -2012,7 +2012,7 @@
     "id": "admin-clients/suspend-409-client_already_revoked",
     "method": "POST",
     "route": "/v1/admin/clients/:id/suspend",
-    "auth": "unlisted",
+    "auth": "admin",
     "status": 409,
     "shape": {
       "type": "object",

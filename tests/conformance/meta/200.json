@@ -40,11 +40,21 @@
           "deletes_planned": 0,
           "deletes_applied": 0,
           "deletes_disabled": false
+        },
+        "clients": {
+          "suspended": [],
+          "budget": {
+            "base": 200,
+            "pct": 0.05,
+            "window_seconds": 3600,
+            "live_layouts": 100,
+            "effective": 200
+          }
         }
       },
       "api": {
         "major": 1,
-        "minor": 9
+        "minor": 10
       },
       "deprecations": []
     }

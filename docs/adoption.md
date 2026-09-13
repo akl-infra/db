@@ -849,6 +849,8 @@ it as generated, not hand-edited):
 | 401 | `bad_signature` | the client signature is missing or invalid | `badSignature()` |
 | 401 | `unknown_client` | unknown client | `unknownClient()` |
 | 401 | `client_revoked` | this client has been revoked | `clientRevoked()` |
+| 403 | `client_suspended` | this client is suspended (an admin can reactivate it) | `clientSuspended()` |
+| 409 | `client_already_revoked` | this client is revoked; revoke is terminal and cannot be undone by suspend/reactivate | `clientAlreadyRevoked()` |
 | 401 | `stale_timestamp` | request timestamp is outside the accepted window | `staleTimestamp(skew)` |
 | 401 | `replay` | nonce already used | `replay()` |
 | 403 | `actor_not_allowed` | this client may not act as this user | `actorNotAllowed(actor, owner)` |
@@ -1129,6 +1131,9 @@ silently drift from what `db/src/index.ts` actually registers.
 | POST | `/v1/admin/clients` | admin | `{name, pubkey, owner_user_id, caps, discord_app_id?}` | 201 | `bad_request`, `not_admin`, lane errors |
 | DELETE | `/v1/admin/clients/:id` | admin | — | 200 | `not_admin`, `not_found`, lane errors |
 | GET | `/v1/admin/clients` | admin | — | 200 | `not_admin`, lane errors |
+| POST | `/v1/admin/clients/:id/suspend` | admin | `{reason?}` | 200 (`{id, status, suspended_at, reason}`) | `not_admin`, `not_found`, `client_already_revoked`, lane errors |
+| POST | `/v1/admin/clients/:id/reactivate` | admin | — | 200 (`{id, status, suspended_at, reason}`) | `not_admin`, `not_found`, `client_already_revoked`, lane errors |
+| POST | `/v1/admin/clients/:id/revert` | admin | `{since, dry_run?, cursor?, limit?}` | 200 (`{client_id, since, dry_run, scanned, items, next}`) | `bad_request`, `not_admin`, `not_found`, lane errors |
 | GET | `/v1/admin/health` | admin | — | 200 | `not_admin`, lane errors |
 | GET | `/v1/admin/bans` | admin | — | 200 | `not_admin`, lane errors |
 | PUT | `/v1/admin/bans/:user_id` | admin | `{reason?}` | 200/201 | `not_admin`, `cannot_ban_admin`, lane errors |

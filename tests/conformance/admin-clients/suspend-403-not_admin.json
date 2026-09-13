@@ -2,7 +2,7 @@
   "request": {
     "method": "POST",
     "path": "/v1/admin/clients/conformance-client-suspend-1/suspend",
-    "bearer": "conformance-owner-token"
+    "bearer": "conformance-modnonadmin-token"
   },
   "response": {
     "status": 403,
