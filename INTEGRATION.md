@@ -19,7 +19,7 @@ write keyboard layouts through `akl-db`, the community-owned layout database
 every claim below is tied to a route, a source file, or a test.
 
 ```
-production   https://akl-db.akl-58a.workers.dev   <- the one layoutdb
+production   https://api.akldb.org   <- the one layoutdb
 ```
 
 There is one layoutdb, production. The preview environment
@@ -143,8 +143,8 @@ write's event (and the record's own latest one) now carries as
   `caps` you need — a comma-separated set (LEDGER.md L4): exactly one of
   `act-as-user` (may assert any Discord user id — a real multi-user bot) or
   `act-as-owner-only` (only its own `owner_user_id` — a personal script),
-  plus optionally `feed:wait` (honors `GET /v1/changes?wait=`, `db/docs/
-  adoption.md` §4). Every write is attributed to your client id on the
+  either of which may long-poll `GET /v1/changes?wait=` (`db/docs/
+  adoption.md` §4; no extra cap). Every write is attributed to your client id on the
   public feed and changelog (`GET /admin/changelog`, both via `source.client`
   and the write's own `actor`) — a compromised key is one query to find and
   one call to revoke (`DELETE /v1/admin/clients/{id}`), effective immediately

@@ -5,7 +5,6 @@ import { Hono } from "hono";
 import type { Bindings } from "../env";
 import type { AuthDeps } from "../auth/discord";
 import { resolveActor } from "../auth/discord";
-import { hasCap } from "../auth/client";
 import { CLIENT_LIMIT, CLIENT_WINDOW_SECONDS } from "../auth/ratelimit";
 import { ApiError, badRequest, notFound, rateLimited } from "../core/errors";
 import { cachePut, conditional, etagFor, headSeq } from "../core/etag";
@@ -108,8 +107,8 @@ export function parseKinds(raw: string | undefined): string[] | undefined {
   return kinds;
 }
 
-// LEDGER.md L4: `wait=<seconds>`, honoured only for a registered client
-// with the `feed:wait` capability (checked by the route handler, not
+// LEDGER.md L4: `wait=<seconds>`, honoured for every registered client
+// (any verified client-lane request; checked by the route handler, not
 // here) -- this only parses+clamps the number itself. `undefined` means
 // the param was absent; any parseable number (including 0 or a negative
 // one) clamps into `[0, MAX_WAIT_SECONDS]`.
@@ -161,17 +160,18 @@ export function changesRoute(authDeps: AuthDeps) {
 
     let waitIgnored = false;
     if (waitRequested !== undefined) {
-      // Only the Ed25519 client lane, carrying `feed:wait`, ever gets a
-      // held response (saltorbit, 2026-09-12) -- every other caller (no
-      // headers at all, a Discord bearer, a client without the cap, or a
-      // client-lane request that fails to verify) gets the SAME immediate
+      // Only the Ed25519 client lane ever gets a held response (saltorbit,
+      // 2026-09-12; 2026-09-13: "any registered client should get this by
+      // default" -- the `feed:wait` cap is no longer required, only
+      // accepted) -- every other caller (no headers at all, a Discord
+      // bearer, or a client-lane request that fails to verify) gets the SAME immediate
       // answer any plain `/v1/changes` call would, plus a header saying
       // so, never an error: a `wait=` is a hint this route MAY act on,
       // not a promise every caller must authenticate for.
       let honored = false;
       try {
         const requestActor = await resolveActor(c.env, c.req, authDeps);
-        if (requestActor.via.startsWith("client:") && hasCap(requestActor.client_caps ?? "", "feed:wait")) {
+        if (requestActor.via.startsWith("client:")) {
           // 12 §2.5-style counting (auth/ratelimit.ts): a held long-poll
           // counts against the SAME per-client counter/window a write
           // would -- real rate limiting, a 429 when exceeded, not a

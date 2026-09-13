@@ -8,7 +8,7 @@ from; every request/response shown is either a real conformance fixture
 factory / schema the server runs, never invented.
 
 ```
-production   https://akl-db.akl-58a.workers.dev   <- the one layoutdb
+production   https://api.akldb.org   <- the one layoutdb
 ```
 
 There is one layoutdb, production. The preview environment
@@ -23,7 +23,7 @@ The fastest path to a working client: read one layout, then write one.
 **Read** — no auth, ever:
 
 ```bash
-curl -s https://akl-db.akl-58a.workers.dev/v1/layouts/io?format=spark/1
+curl -s https://api.akldb.org/v1/layouts/io?format=spark/1
 ```
 
 returns the layout's own fields, a `formats` map (rev/timestamps/`has_magic`
@@ -44,7 +44,7 @@ number any more (§5). The signed (client-lane) shape, the one a Discord bot
 uses:
 
 ```bash
-curl -sX POST https://akl-db.akl-58a.workers.dev/v1/layouts \
+curl -sX POST https://api.akldb.org/v1/layouts \
   -H 'X-Akl-Client: <client id>' -H 'X-Akl-Timestamp: <unix seconds>' \
   -H 'X-Akl-Nonce: <16 random bytes, base64url>' -H 'X-Akl-Actor: <discord user id>' \
   -H 'X-Akl-Signature: <base64url ed25519 signature>' \
@@ -128,9 +128,8 @@ admin with your Ed25519 public key (raw 32 bytes, base64url), the
 is a comma-separated set (LEDGER.md L4): exactly one SCOPE cap —
 `act-as-user` to assert any Discord user id (a real multi-user bot), or
 `act-as-owner-only` to assert only your own `owner_user_id` (a personal
-script) — plus, optionally, `feed:wait` if you want `GET /v1/changes` to
-honor `wait=` for you (§4) — e.g. `"act-as-owner-only,feed:wait"`. The
-admin runs:
+script). Every registered client may long-poll `GET /v1/changes?wait=`
+(§4); no extra cap is needed. The admin runs:
 
 ```bash
 POST /v1/admin/clients
@@ -236,7 +235,7 @@ moment you send it:
 
 ```bash
 curl -s -H 'Authorization: Bearer <discord access token>' \
-  https://akl-db.akl-58a.workers.dev/v1/me
+  https://api.akldb.org/v1/me
 # {"user_id":"800000000000000001","name":"conformance-owner","via":"discord","admin":false}
 ```
 
@@ -259,8 +258,8 @@ of Discord identities — a bot reading `message.author.id`, an importer, any
 automation — and needs to write to akldb *as that user* without ever
 holding that user's own Discord token. It buys you two things a bearer
 token cannot: acting for a user (or, with `act-as-user`, any user) who
-never signed in to your app at all, and `feed:wait` long-polling on `GET
-/v1/changes` (§4) instead of polling on a timer.
+never signed in to your app at all, and long-polling on `GET
+/v1/changes?wait=` (§4) instead of polling on a timer.
 
 **Registration is manual — there is no self-service sign-up** (§2.1 has the
 full mechanics). To become a trusted client, reach an akldb admin with:
@@ -275,7 +274,7 @@ full mechanics). To become a trusted client, reach an akldb admin with:
   see §2.1 for what this constrains under `act-as-owner-only`);
 - which scope cap you need: `act-as-user` for a real multi-user bot, or
   `act-as-owner-only` for a personal script that only ever acts for
-  yourself — plus `feed:wait` on top if you want long-polling.
+  yourself. Long-polling comes with any registration.
 
 [contact: ask an akldb admin — channel TBD]
 
@@ -495,8 +494,8 @@ informational and changes nothing in your local copy.
 Worker holds the request open, checking the event head about once a
 second, and answers with the normal `/v1/changes` page as soon as `since`
 is exceeded or `wait` elapses (whichever first; `wait` is clamped to 25s).
-`wait` is honoured only for a request signed on the client lane (§2 above)
-whose registered `caps` include `feed:wait` — ask an admin for it (§7); any
+`wait` is honoured for any request signed on the client lane (§2 above) —
+every registered client, no extra cap; any
 other caller naming `wait` gets the immediate, unheld answer, plus a
 response header `X-Wait-Ignored: unauthorized` (never an error). A held
 request still counts against your client's normal rate limit (§4). Poll
@@ -1015,7 +1014,7 @@ silently drift from what `db/src/index.ts` actually registers.
 | GET | `/v1/authors/:user_id` | none | — | 200 | `not_found` |
 | GET | `/v1/formats` | none | — | 200 | — |
 | GET | `/v1/formats/:name/:major/schema.json` | none | — | 200 | `not_found` |
-| GET | `/v1/changes` | none (`wait=` needs `feed:wait`) | — | 200 | `bad_request`, `not_found` |
+| GET | `/v1/changes` | none (`wait=` needs a registered client) | — | 200 | `bad_request`, `not_found` |
 | GET | `/admin/changelog` | none | — | 200 (HTML) | `bad_request`, `not_found` |
 | GET | `/v1/dump` | none | — | 302 | `not_found` |
 | GET | `/v1/dump/latest.json` | none | — | 200 | `not_found` |

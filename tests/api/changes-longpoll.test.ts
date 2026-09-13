@@ -1,5 +1,5 @@
 // [LDB-CH1..CH5] GET /v1/changes?wait= (LEDGER.md L4): a long-poll,
-// honoured only for a registered client with the `feed:wait` capability.
+// honoured for every registered client (the `feed:wait` cap is legacy, implied).
 // `TEST_LONGPOLL_SLEEP` (a miniflare binding pinned per test, `src/routes/
 // changes.ts`'s `resolveSleep`) replaces the real 1s `setTimeout` so these
 // run fast and deterministic -- no real waiting anywhere in this file.
@@ -71,7 +71,7 @@ describe("[LDB-CH1..CH5] GET /v1/changes?wait= gating and behavior", () => {
     expect(body.next).toBe(beforeBody.next); // the immediate page, nothing waited for
   });
 
-  it("[LDB-CH3] a signed client WITHOUT feed:wait is also ignored (immediate + header)", async () => {
+  it("[LDB-CH3] a signed client WITHOUT the (legacy, now implied) feed:wait cap is honoured like any registered client (saltorbit 2026-09-13)", async () => {
     const { privateKey, pubkeyB64url } = await generateKeyPair();
     const clientId = `test-client-nowait-${crypto.randomUUID()}`;
     const actor = "800000000000000101";
@@ -79,7 +79,7 @@ describe("[LDB-CH1..CH5] GET /v1/changes?wait= gating and behavior", () => {
 
     const res = await signedGetChanges(privateKey, clientId, actor, "?wait=5");
     expect(res.status).toBe(200);
-    expect(res.headers.get("X-Wait-Ignored")).toBe("unauthorized");
+    expect(res.headers.get("X-Wait-Ignored")).toBeNull();
   });
 
   it("[LDB-CH1] [LDB-CH5] with nothing happening, a held wait returns the immediate page within its budget, at <= wait+1 D1 head-reads", async () => {
