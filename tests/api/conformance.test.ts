@@ -760,6 +760,11 @@ const REQUIRED: Record<string, RequiredCase[]> = {
     { status: 401, code: ERROR_CODES.unauthorized },
     { status: 403, code: ERROR_CODES.not_admin },
   ],
+  "POST /v1/admin/magic-seed": [
+    { status: 400, code: ERROR_CODES.bad_request },
+    { status: 401, code: ERROR_CODES.unauthorized },
+    { status: 403, code: ERROR_CODES.not_admin },
+  ],
 };
 describe("conformance enumeration", () => {
   // `app.routes` also lists the two `app.use("/v1/*", ...)` middleware

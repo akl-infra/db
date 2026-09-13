@@ -573,6 +573,46 @@ describe("POST /v1/admin/import/tick, POST /v1/admin/diff/tick, and POST /v1/adm
     });
   });
 
+  // design/layout-db/23-geometry.md §10.1: the one-time magic re-seed route.
+  describe("POST /v1/admin/magic-seed", () => {
+    it("[LDB-P24] anonymous 401, non-admin 403, admin 200 as a SYSTEM write (system:magic-seed / seed:aklgg, admin false) that sets has_magic and leaves upstream following; an invalid candidate is refused with nothing written", async () => {
+      const name = uniqueName("seed-target");
+      const payload = { keys: [{ char: "a", row: 1, col: 0, finger: "LP" }, { char: "b", row: 1, col: 5, finger: "RI" }, { char: "@", row: 0, col: 1, finger: "LR" }], board: "ansi" };
+      const created = await writeFetch("/v1/layouts", "POST", userHeaders(`tok-${uniqueName("seed-owner")}`), { name, format: "spark/1", payload });
+      expect(created.status).toBe(201);
+      const magic = { magic_keys: [{ key: "@", default: { kind: "repeat" }, rules: [{ after: "a", output: "ab" }] }] };
+
+      const anon = await writeFetch("/v1/admin/magic-seed", "POST", {}, { ref: name, magic });
+      expect(anon.status).toBe(401);
+      const user = await writeFetch("/v1/admin/magic-seed", "POST", userHeaders(`tok-${uniqueName("seed-user")}`), { ref: name, magic });
+      expect(user.status).toBe(403);
+
+      const bad = await writeFetch("/v1/admin/magic-seed", "POST", adminHeaders(`tok-${uniqueName("seed-admin")}`), { ref: name, magic: { magic_keys: [{ key: "@", default: "repeat_previous" }] } });
+      expect(bad.status).toBe(400);
+      const untouched = await (await writeFetch(`/v1/layouts/${encodeURIComponent(name)}?format=spark/1`, "GET")).json<{ formats: Record<string, { rev: number; has_magic: boolean }> }>();
+      expect(untouched.formats["spark/1"]!.has_magic).toBe(false);
+      expect(untouched.formats["spark/1"]!.rev).toBe(1);
+
+      const ok = await writeFetch("/v1/admin/magic-seed", "POST", adminHeaders(`tok-${uniqueName("seed-admin")}`), { ref: name, magic });
+      expect(ok.status).toBe(200);
+      const body = await ok.json<{ id: string; name: string; rev: number; has_magic: boolean; upstream: unknown }>();
+      expect(body.name).toBe(name);
+      expect(body.rev).toBe(2);
+      expect(body.has_magic).toBe(true);
+      expect(body.upstream).toBeNull(); // a bot-created record has no upstream; the seed never invents one
+
+      const after = await (await writeFetch(`/v1/layouts/${encodeURIComponent(name)}?format=spark/1`, "GET")).json<{ payload: { magic?: unknown }; formats: Record<string, { rev: number; has_magic: boolean }> }>();
+      expect(after.payload.magic).toEqual(magic);
+      expect(after.formats["spark/1"]!.has_magic).toBe(true);
+
+      const ev = await db
+        .prepare("SELECT actor, via, admin FROM events WHERE layout_id = ? AND rev IS NOT NULL ORDER BY seq DESC LIMIT 1")
+        .bind(body.id)
+        .first<{ actor: string; via: string; admin: number }>();
+      expect(ev).toEqual({ actor: "system:magic-seed", via: "seed:aklgg", admin: 0 });
+    });
+  });
+
   describe("POST /v1/admin/nightly/tick", () => {
     it("[LDB-A5] anonymous 401, non-admin 403, admin 200 -> { ran: true, at, jobs, dump }; logs admin.nightly_ticked", async () => {
       const discord = new FakeDiscord();

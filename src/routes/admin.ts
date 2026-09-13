@@ -14,6 +14,7 @@ import { badRequest, importPaused, importRunning, notAdmin } from "../core/error
 import { runNightly } from "../core/nightly";
 import { systemClock, fixedClock, type Clock } from "../core/time";
 import { writeDump } from "../dump/write";
+import { seedMagic } from "../core/write";
 import { tick as cminiTick } from "../import/cmini";
 import type { FetchImpl as DiffFetchImpl } from "../import/diff";
 import { diffTick, lastDiff } from "../import/difftick";
@@ -168,6 +169,22 @@ export function adminRoute(authDeps: AuthDeps) {
     const at = resolveNow(c.env)();
     const { latest } = await writeDump(c.env, fixedClock(at));
     return c.json({ seq: latest.seq, layout_count: latest.layout_count, written_at: at });
+  });
+
+  // design/layout-db/23-geometry.md §10.1: the one-time magic re-seed after a
+  // wipe (system lane inside, admin lane outside) -- `{ ref, magic }` ->
+  // `core/write.ts`'s `seedMagic` (actor `system:magic-seed`, via
+  // `seed:aklgg`, keeps/sets `upstream.state = following`). Returns the
+  // record's spark/1 rev and `has_magic` like any format write would.
+  route.post("/v1/admin/magic-seed", async (c) => {
+    const actor = c.get("actor");
+    if (!actor.admin) throw notAdmin();
+    const body = (await readJson(c.req)) as { ref?: unknown; magic?: unknown };
+    if (typeof body.ref !== "string" || body.ref.length === 0) throw badRequest("`ref` must be a non-empty string");
+    if (body.magic === null || typeof body.magic !== "object" || Array.isArray(body.magic)) throw badRequest("`magic` must be an object");
+    const out = await seedMagic(c.env, resolveNow(c.env), body.ref, body.magic, null);
+    const row = out.formats.get("spark")!;
+    return c.json({ id: out.layout.id, name: out.layout.name, rev: row.rev, has_magic: row.has_magic, upstream: out.layout.upstream });
   });
 
   // 10 C1: the client lane's registration routes. `pubkey` never appears in

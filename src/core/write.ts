@@ -543,6 +543,48 @@ export async function patchFormat(
   return { layout: result.layout, formats: result.formats, format: written.format, lineage: lin, payload: written.payload };
 }
 
+// design/layout-db/23-geometry.md §10.1 (the 2026-09-13 cutover): the
+// one-time magic RE-SEED after a wipe + fresh cmini import, from akl.gg's
+// published rule sets. A SYSTEM write (20-spark.md decision 14: "only system
+// writes -- import, one-time migrations -- never fork"): actor
+// `system:magic-seed`, via `seed:aklgg`, and the record's `upstream` state is
+// set to `following` (a seed is not an author's edit, so a record that an
+// earlier, mistaken user-lane seed had forked is un-forked by it). Admin
+// lane only (`routes/admin.ts`); the candidate `magic` goes through the
+// stored format's own `setMagic` edit + `validate()` exactly like a PATCH.
+export async function seedMagic(env: Bindings, now: Clock, ref: string, magic: unknown, version: string | null): Promise<WriteOutcome> {
+  const db = env.DB;
+  const lin = "spark";
+  const source: Source = { client: "system:magic-seed", version };
+  const build = async (): Promise<CommitInput> => {
+    const lwf = await byRefWithFormats(db, ref);
+    if (lwf === null || lwf.layout.deleted) throw notFound(`no layout '${ref}'`, ref);
+    const existing = lwf.formats.get(lin);
+    if (existing === undefined) throw formatAbsent("spark/1");
+    const module = getFormat(existing.format);
+    if (module === undefined) throw unknownFormat(existing.format, listFormats().map((f) => f.id));
+    const payload = runEdit(existing.format, "magic", module.edits?.setMagic, existing.payload, magic);
+    const { hasMagic } = validatePayload(existing.format, payload);
+    return {
+      layoutId: lwf.layout.id,
+      creating: false,
+      currentN: lwf.layout.n,
+      currentLayout: lwf.layout,
+      currentFormats: lwf.formats,
+      format: { kind: "updated", lineage: lin, format: existing.format, payload, hasMagic, detail: { fields: ["magic"], seed: "aklgg" } },
+      modified_at: now(),
+      actor: "system:magic-seed",
+      via: "seed:aklgg",
+      admin: false,
+      source,
+      upstream: lwf.layout.upstream === null ? null : { ...lwf.layout.upstream, state: "following" },
+    };
+  };
+  const result = await commitWithRetry(db, now, build);
+  const written = result.formats.get(lin)!;
+  return { layout: result.layout, formats: result.formats, format: written.format, lineage: lin, payload: written.payload };
+}
+
 // DELETE /v1/layouts/{ref}: layout scope only -- formats are untouched
 // (D3: name/owner/likes/deletion are the layout's; a tombstone's own
 // formats stay exactly as they were, restorable).

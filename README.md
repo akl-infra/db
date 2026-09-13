@@ -460,6 +460,7 @@ per-record content worth logging on the public feed).
 | route | body | 200 response | other statuses |
 |---|---|---|---|
 | `POST /v1/admin/dump` | none | `{ seq, layout_count, written_at }` (`writeDump()`'s own `latest.json` fields, plus the clock value it was written at) | the usual admin `401`/`403`/`429`/`503` |
+| `POST /v1/admin/magic-seed` | `{ ref, magic }` | `{ id, name, rev, has_magic, upstream }` -- the record's `magic` replaced through spark/1's `setMagic` + `validate()`, written as `system:magic-seed` via `seed:aklgg` (a one-time migration: never forks, sets `upstream.state` back to `following`; design/layout-db/23-geometry.md §10.1, 20-spark.md decision 14) | `400 bad_request`/`invalid_payload`/`magic_collision`, `404`, the usual admin `401`/`403`/`429`/`503` |
 
 ### Magic rules seed (one-time, M2)
 

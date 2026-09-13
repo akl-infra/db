@@ -131,6 +131,7 @@ const ENDPOINT_PURPOSES = {
   "POST /v1/admin/import/tick": "Run one cmini import tick immediately.",
   "POST /v1/admin/diff/tick": "Run one upstream-diff tick immediately.",
   "POST /v1/admin/nightly/tick": "Run one nightly dump tick immediately.",
+  "POST /v1/admin/magic-seed": "Re-seed one record's magic from akl.gg's published rule sets as a system write that keeps the record following upstream (one-time, after a wipe).",
   "POST /v1/admin/dump": "Write a dump of the whole database now (the same path the nightly job takes) and return its seq and layout count.",
   "POST /v1/admin/clients": "Register a new trusted client: its Ed25519 public key, owner, and capabilities.",
   "DELETE /v1/admin/clients/:id": "Revoke a trusted client immediately.",

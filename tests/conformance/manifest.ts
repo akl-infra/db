@@ -455,6 +455,9 @@ import modAdminLinkQueueReject403NotAdmin from "./admin-link-queue/reject-403-no
 import modAdminDumpPost200 from "./admin-dump/post-200.json" with { type: "json" };
 import modAdminDumpPost401Unauthorized from "./admin-dump/post-401-unauthorized.json" with { type: "json" };
 import modAdminDumpPost403NotAdmin from "./admin-dump/post-403-not_admin.json" with { type: "json" };
+import modAdminMagicSeedPost400 from "./admin-magic-seed/post-400-bad_request.json" with { type: "json" };
+import modAdminMagicSeedPost401 from "./admin-magic-seed/post-401-unauthorized.json" with { type: "json" };
+import modAdminMagicSeedPost403 from "./admin-magic-seed/post-403-not_admin.json" with { type: "json" };
 
 export interface ConformanceStep {
   method: string;
@@ -884,6 +887,9 @@ export const MODERATION_CASES: ConformanceCase[] = [
   kase("admin-dump/post-200", "/v1/admin/dump", modAdminDumpPost200, true),
   kase("admin-dump/post-401-unauthorized", "/v1/admin/dump", modAdminDumpPost401Unauthorized, true),
   kase("admin-dump/post-403-not_admin", "/v1/admin/dump", modAdminDumpPost403NotAdmin, true),
+  kase("admin-magic-seed/post-400-bad_request", "/v1/admin/magic-seed", modAdminMagicSeedPost400, true),
+  kase("admin-magic-seed/post-401-unauthorized", "/v1/admin/magic-seed", modAdminMagicSeedPost401, true),
+  kase("admin-magic-seed/post-403-not_admin", "/v1/admin/magic-seed", modAdminMagicSeedPost403, true),
 ];
 
 export const CASES: ConformanceCase[] = [
