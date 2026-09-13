@@ -97,6 +97,7 @@ Status: `todo` · `running (agent, branch)` · `review` · `landed <sha>` · `bl
 
 ## Log
 
+- 2026-09-13 03:00Z · **Found**: the v42/v43 deploys reverted the machine to fly.toml's `shared-cpu-2x` (a deploy applies `[[vm]]`) — the machine has been throttled again since 01:56Z, which explains compute 203 s/tick and the p95 contention in LATENCY §10. Resized back to performance-1x and pinned in fly.toml for the pass. LATENCY §10 numbers were taken on shared-cpu-2x, not performance-1x — re-run after B12.
 - 2026-09-13 02:50Z · v43 first tick: smoke 151 → 39 s, worst stall 111 s → 2.3 s (LDB-B180 confirmed in production). Remaining 1–2.3 s stalls are CLI-result parse + merge → B12.
 - 2026-09-13 02:40Z · edit→visible during backlog ≈ 20 min (deploy-confounded; LATENCY §10). B16 (grouped compute, scaling tick size) designed with saltorbit; queued after B12.
 - 2026-09-13 02:30Z · v43 deployed (LDB-B180 smoke fix + B13). Fly-side per-verb harness run: p50 65–80 ms every verb (image 428); p95 outliers compare 3.1 s / sfbs-magic 1.0 s = CPU contention with the CLI child on 1 vCPU → B15. LATENCY.md §10. Deploy restarts cost the publisher two in-flight ticks (pointer frozen 01:59→02:24Z).
