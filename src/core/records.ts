@@ -39,13 +39,10 @@ export interface LayoutRow {
   created_at: string;
   modified_at: string;
   deleted: boolean;
+  // H24 (2026-09-13): `like_count` is ONLY `COUNT(DISTINCT user_id) FROM
+  // likes` for this layout -- mods cannot override it (the admin
+  // `like_adjust` override shipped in L5 was removed; see db/README.md).
   like_count: number;
-  // L5 moderation (§4.2, LDB-MD2/MD3): the admin's own adjustment, folded
-  // from the latest `admin.likes_set` event. `like_count` above is always
-  // `max(0, COUNT(likes) + like_adjust)` -- this field is exposed
-  // separately (`layoutToWire`) so a client can show "N likes (+/-k
-  // admin)" without re-deriving it.
-  like_adjust: number;
   // §4.4 (LDB-MD3/MD5): the layout's APPROVED link, or null. Folded from
   // the latest `link_approved`/`link_cleared` event -- a pending/rejected/
   // superseded submission never reaches this field.
@@ -91,6 +88,9 @@ export interface LayoutDbRow {
   modified_at: string;
   deleted: number;
   like_count: number;
+  // H24: physically still on the `layouts` table (migrations/0015, a dead
+  // column left in place -- SQLite can't drop it in D1 reliably) but no
+  // code reads or writes it any more; deliberately absent from `LayoutRow`.
   like_adjust: number;
   link: string | null;
   upstream_source: string | null;
@@ -140,7 +140,6 @@ export function rowToLayout(row: LayoutDbRow): LayoutRow {
     modified_at: row.modified_at,
     deleted: row.deleted !== 0,
     like_count: row.like_count,
-    like_adjust: row.like_adjust,
     link: row.link,
     upstream: upstreamFromRow(row),
     source: sourceFromRow(row),
@@ -484,11 +483,8 @@ export function layoutToWire(l: LayoutRow): Record<string, unknown> {
     modified_at: l.modified_at,
     deleted: l.deleted,
     like_count: l.like_count,
-    // §4.2/§4.4 (LDB-MD3): public by construction -- `like_adjust` is just
-    // the difference between `likes.length` and `like_count`, and `link`
-    // is the approved value only (pending/rejected/superseded never
-    // reach any public wire, LDB-MD5).
-    like_adjust: l.like_adjust,
+    // §4.4 (LDB-MD3): `link` is the approved value only (pending/rejected/
+    // superseded never reach any public wire, LDB-MD5).
     link: l.link,
     upstream: l.upstream,
   };

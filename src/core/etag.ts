@@ -81,8 +81,10 @@ export async function readHead(db: D1Database, stateKeys: readonly string[] = []
 // required. No cached 304/edge-cached body from before this slice can keep
 // serving the old shape at an unchanged head seq.
 // L5 moderation (§4.5, LDB-MD3): bumped 3 -> 4 -- every layout wire shape
-// gains `like_adjust`/`link`.
-const WIRE_VERSION = 4;
+// gained `like_adjust`/`link`. H24 (2026-09-13): bumped 4 -> 5 -- the admin
+// like-count override was removed, so `like_adjust` disappears from every
+// layout wire shape again (`link` stays).
+const WIRE_VERSION = 5;
 
 export async function etagFor(headSeqValue: number, query: unknown): Promise<string> {
   const hash = await sha256Hex(canonical({ wireVersion: WIRE_VERSION, query: query ?? null }));

@@ -105,6 +105,21 @@ there is no prior version to name. Design: `design/layout-db/
 09-implementation-phase2.md` §2.1 (the error vocabulary), §2.3 (`If-Match`
 mechanics), `design/layout-db/21-formats.md` §2.2/§2.3 (the scoped rewrite).
 
+## Dead columns
+
+`layouts.like_adjust` (added by `migrations/0014_moderation.sql`) is a dead
+column since `migrations/0015_drop_like_adjust.sql` (H24, saltorbit
+2026-09-13): the admin like-count override it backed was removed entirely
+("mods should not be able to override the like count" / "likes should
+always be tied to the users who liked it, not be just an opaque number you
+can set") -- `like_count` is once again exactly `COUNT(DISTINCT user_id)
+FROM likes` and no code reads or writes `like_adjust` any more. It stays
+physically on the table, `NOT NULL DEFAULT 0`, rather than being dropped --
+D1's migration tooling can't reliably drop a SQLite column in place, and
+this DB is disposable (wiped + re-imported at cutover, `design/layout-db/
+review/` conventions), so a harmless dead column is the simpler, safer
+path over a full `layouts` table recreation.
+
 ## Run locally
 
 ```bash

@@ -56,12 +56,13 @@ export type InfoKind =
   | "admin.diff_ticked"
   | "admin.nightly_ticked"
   // L5 moderation (design/akldb-site/01-plan.md §4): bans are actor-scoped
-  // (`layout_id` NULL, `appendAdmin`) -- likes-override/author-rename/link
-  // are layout-scoped (`appendModeration`/`appendLikeAdjust`/
-  // `appendLinkChange`, `layout_id` set, `rev` NULL).
+  // (`layout_id` NULL, `appendAdmin`) -- author-rename/link are
+  // layout-scoped (`appendModeration`/`appendLinkChange`, `layout_id` set,
+  // `rev` NULL). The like-count override's own kind (admin dot likes_set)
+  // was retired H24 (2026-09-13) -- see `foldLayout`'s comment for the
+  // historical-event fallback.
   | "admin.user_banned"
   | "admin.user_unbanned"
-  | "admin.likes_set"
   | "admin.author_renamed"
   | "link_submitted"
   | "link_approved"
@@ -106,20 +107,16 @@ export interface FormatSnapshot {
   source: Source | null;
   upstream?: Upstream | null;
 }
-// L5 moderation (§4.2/§4.4, LDB-MD3): the `after` of an `admin.likes_set` /
-// `link_approved` / `link_cleared` event -- never a full `LayoutSnapshot`
-// (these are `rev: NULL` info events, no scope's rev bumps), just the one
-// folded field each carries. `foldLayout` reads these by `kind`, not by
-// `rev !== null` (the layout/format branch above), so there is no overlap.
-export interface LikeAdjustSnapshot {
-  scope: "like_adjust";
-  like_adjust: number;
-}
+// L5 moderation (§4.4, LDB-MD3): the `after` of a `link_approved` /
+// `link_cleared` event -- never a full `LayoutSnapshot` (these are
+// `rev: NULL` info events, no scope's rev bumps), just the one folded field
+// it carries. `foldLayout` reads these by `kind`, not by `rev !== null`
+// (the layout/format branch above), so there is no overlap.
 export interface LinkSnapshot {
   scope: "link";
   link: string | null;
 }
-export type EventSnapshot = LayoutSnapshot | FormatSnapshot | LikeAdjustSnapshot | LinkSnapshot;
+export type EventSnapshot = LayoutSnapshot | FormatSnapshot | LinkSnapshot;
 
 // One scope-write, fully specified by the caller (`core/write.ts`'s verb
 // functions each build this from a fresh read plus their own checks) --
@@ -328,24 +325,22 @@ export async function commitWrite(db: Bindings["DB"], now: Clock, input: CommitI
 
   // ONE `layouts` upsert reflecting the final state after every part in
   // this batch (n bumped once per part, whatever else changed).
-  // §4.2 (LDB-MD2): `like_count` self-heals to `MAX(0, COUNT(likes) +
-  // like_adjust)` on every rev-bumping write, never the raw count --
-  // `like_adjust` itself is left OUT of the SET clause entirely (an
-  // ordinary write never touches it; only `appendLikeAdjust` does) so its
-  // bare, unqualified reference here resolves to the CONFLICTING row's
-  // CURRENT value (SQLite's own upsert semantics), not `excluded`'s. A
-  // fresh create has no prior row to read, so its own `VALUES` supplies 0
-  // directly. `link` is likewise never touched by an ordinary write (only
-  // `appendLinkChange` may -- LDB-P1's onlywriter test names both).
+  // H24 (2026-09-13): `like_count` self-heals to `COUNT(DISTINCT user_id)
+  // FROM likes` on every rev-bumping write, never the raw pre-read count --
+  // `like_adjust` is a dead column (migrations/0015) that no code reads or
+  // writes any more; a fresh create has no prior row to read, so its own
+  // `VALUES` supplies the pre-read count directly. `link` is likewise never
+  // touched by an ordinary write (only `appendLinkChange` may -- LDB-P1's
+  // onlywriter test names both).
   stmts.push(
     db
       .prepare(
-        `INSERT INTO layouts (id, name, owner, n, layout_rev, created_at, modified_at, deleted, like_count, like_adjust, link, upstream_source, upstream_id, upstream_state, source_client, source_version)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?, ?, ?, ?, ?)
+        `INSERT INTO layouts (id, name, owner, n, layout_rev, created_at, modified_at, deleted, like_count, link, upstream_source, upstream_id, upstream_state, source_client, source_version)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            name = excluded.name, owner = excluded.owner, n = excluded.n, layout_rev = excluded.layout_rev,
            created_at = excluded.created_at, modified_at = excluded.modified_at, deleted = excluded.deleted,
-           like_count = MAX(0, (SELECT COUNT(*) FROM likes WHERE layout_id = excluded.id) + layouts.like_adjust),
+           like_count = (SELECT COUNT(*) FROM likes WHERE layout_id = excluded.id),
            upstream_source = excluded.upstream_source, upstream_id = excluded.upstream_id, upstream_state = excluded.upstream_state,
            source_client = excluded.source_client, source_version = excluded.source_version`,
       )
@@ -393,15 +388,14 @@ export async function commitWrite(db: Bindings["DB"], now: Clock, input: CommitI
     );
   }
 
-  // M1: read `like_count`/`like_adjust`/`link` back in the SAME batch,
-  // after the `layouts` upsert's own self-healing subquery has run, so the
-  // value this call RETURNS to its own caller (the response body an
-  // ordinary write's caller sees) is the same live truth the row now holds
-  // -- never `finalLikeCount`, which can be a stale pre-read for any write
-  // that isn't itself about a like. §4.2: reads the COLUMN (already
-  // folding in `like_adjust`), never the raw `likes` count.
+  // M1: read `like_count`/`link` back in the SAME batch, after the
+  // `layouts` upsert's own self-healing subquery has run, so the value
+  // this call RETURNS to its own caller (the response body an ordinary
+  // write's caller sees) is the same live truth the row now holds --
+  // never `finalLikeCount`, which can be a stale pre-read for any write
+  // that isn't itself about a like.
   const likeCountStmtIdx = stmts.length;
-  stmts.push(db.prepare(`SELECT like_count, like_adjust, link FROM layouts WHERE id = ?`).bind(id));
+  stmts.push(db.prepare(`SELECT like_count, link FROM layouts WHERE id = ?`).bind(id));
 
   let results;
   try {
@@ -419,7 +413,7 @@ export async function commitWrite(db: Bindings["DB"], now: Clock, input: CommitI
     return seq;
   });
 
-  const selfHealed = results[likeCountStmtIdx]?.results?.[0] as { like_count: number; like_adjust: number; link: string | null } | undefined;
+  const selfHealed = results[likeCountStmtIdx]?.results?.[0] as { like_count: number; link: string | null } | undefined;
   const trueLikeCount = selfHealed?.like_count ?? finalLikeCount;
 
   const layout: LayoutRow = {
@@ -432,7 +426,6 @@ export async function commitWrite(db: Bindings["DB"], now: Clock, input: CommitI
     modified_at: finalModifiedAt,
     deleted: finalDeleted,
     like_count: trueLikeCount,
-    like_adjust: selfHealed?.like_adjust ?? 0,
     link: selfHealed?.link ?? null,
     upstream: input.upstream,
     source: finalLayoutSource,
@@ -506,11 +499,9 @@ export async function appendAdmin(
 
 // [LDB-MD7] The layout-scoped sibling of `appendAdmin` (§4.4's reviewer
 // note 6): an admin action against ONE layout that carries an `after`
-// snapshot of its own (`admin.likes_set` uses `appendLikeAdjust` instead,
-// since it ALSO writes `layouts` itself -- LDB-P1 confines that to one
-// function). `rev` stays NULL (never rev-bumping); always `admin: 1` --
-// every caller of this function IS a moderation action by definition
-// (`link_rejected` today).
+// snapshot of its own. `rev` stays NULL (never rev-bumping); always
+// `admin: 1` -- every caller of this function IS a moderation action by
+// definition (`link_rejected` today).
 export interface Moderation {
   kind: InfoKind;
   layoutId: string;
@@ -548,62 +539,6 @@ export async function appendModeration(db: Bindings["DB"], now: Clock, m: Modera
   const seq = result.meta.last_row_id;
   if (seq === undefined) throw new Error("appendModeration: events insert returned no last_row_id");
   return { seq };
-}
-
-// [LDB-MD2] [LDB-MD3] [LDB-MD7] §4.2: the ONLY writer of `layouts.link_adjust`
-// -- sets it so that, at this instant, `like_count` reads back as exactly
-// `count`. Pre-reads `rows = COUNT(likes)`, then ONE batch: the `layouts`
-// UPDATE, the `admin.likes_set` event (carrying `after.like_adjust` so
-// `foldLayout` replays this exactly, MF-3), and a fresh `like_count` read.
-// A like racing between the pre-read and the batch leaves the displayed
-// count one off the typed number -- correct under the rule (S5: an
-// ADJUSTMENT, not a pin) and still replay-exact (the bound `adjust` is
-// both the column and the event's `after`).
-export interface LikeAdjust {
-  layoutId: string;
-  actor: string;
-  via: string;
-  source: Source;
-  count: number;
-}
-
-export async function appendLikeAdjust(db: Bindings["DB"], now: Clock, l: LikeAdjust): Promise<{ seq: number; like_count: number; like_adjust: number }> {
-  const current = await readById(db, l.layoutId);
-  if (current === null) throw new Error(`appendLikeAdjust: layoutId '${l.layoutId}' does not exist`);
-
-  const rowsRow = await db.prepare("SELECT COUNT(*) AS n FROM likes WHERE layout_id = ?").bind(l.layoutId).first<{ n: number }>();
-  const rows = rowsRow?.n ?? 0;
-  const adjust = l.count - rows;
-  const at = now();
-
-  const results = await db.batch([
-    db
-      .prepare("UPDATE layouts SET like_adjust = ?, like_count = MAX(0, (SELECT COUNT(*) FROM likes WHERE layout_id = ?) + ?) WHERE id = ?")
-      .bind(adjust, l.layoutId, adjust, l.layoutId),
-    db
-      .prepare(
-        `INSERT INTO events (at, kind, layout_id, name, owner, format, rev, actor, via, admin, detail_json, before_json, after_json, source_client, source_version)
-         VALUES (?, 'admin.likes_set', ?, ?, ?, NULL, NULL, ?, ?, 1, ?, NULL, ?, ?, ?)`,
-      )
-      .bind(
-        at,
-        l.layoutId,
-        current.name,
-        current.owner,
-        l.actor,
-        l.via,
-        canonical({ count: l.count, rows, adjust }),
-        canonical({ scope: "like_adjust", like_adjust: adjust }),
-        l.source.client,
-        l.source.version,
-      ),
-    db.prepare("SELECT like_count FROM layouts WHERE id = ?").bind(l.layoutId),
-  ]);
-
-  const seq = results[1]?.meta.last_row_id;
-  if (seq === undefined) throw new Error("appendLikeAdjust: events insert returned no last_row_id");
-  const like_count = (results[2]?.results?.[0] as { like_count: number } | undefined)?.like_count ?? Math.max(0, rows + adjust);
-  return { seq, like_count, like_adjust: adjust };
 }
 
 // [LDB-MD3] [LDB-MD5] [LDB-MD7] §4.4: the ONLY writer of `layouts.link`
@@ -753,9 +688,10 @@ export async function appendLike(db: Bindings["DB"], now: Clock, l: Like): Promi
         : db
             .prepare("DELETE FROM likes WHERE layout_id = ? AND user_id = ? AND EXISTS (SELECT 1 FROM layouts WHERE id = ? AND deleted = 0)")
             .bind(l.layoutId, l.userId, l.layoutId),
-      // §4.2 (LDB-MD2): folds in the admin's own adjustment, never the raw count.
+      // H24 (2026-09-13): `like_count` is exactly `COUNT(*) FROM likes` --
+      // no adjustment, no admin override.
       db
-        .prepare("UPDATE layouts SET like_count = MAX(0, (SELECT COUNT(*) FROM likes WHERE layout_id = ?) + like_adjust) WHERE id = ?")
+        .prepare("UPDATE layouts SET like_count = (SELECT COUNT(*) FROM likes WHERE layout_id = ?) WHERE id = ?")
         .bind(l.layoutId, l.layoutId),
       db.prepare("SELECT like_count FROM layouts WHERE id = ?").bind(l.layoutId),
     ]);
@@ -883,11 +819,10 @@ export function foldLayout(events: Event[], revs: Map<string, { format: string |
   // `liked`/`unliked` event actually replayed, and attaches it to the
   // fold's OUTPUT once at the end, never to an intermediate snapshot.
   let likeCount = 0;
-  // [LDB-MD2] [LDB-MD3] §4.2/§4.4: `like_adjust`/`link` are folds of the
-  // latest `admin.likes_set` / `link_approved` / `link_cleared` event's
-  // `after` -- tracked the same way `likeCount` is, independent of
-  // `layout`, and attached to the fold's output once at the end.
-  let likeAdjust = 0;
+  // [LDB-MD3] §4.4: `link` is a fold of the latest `link_approved` /
+  // `link_cleared` event's `after` -- tracked the same way `likeCount` is,
+  // independent of `layout`, and attached to the fold's output once at
+  // the end.
   let link: string | null = null;
 
   for (const e of events) {
@@ -908,8 +843,9 @@ export function foldLayout(events: Event[], revs: Map<string, { format: string |
       if (layout === null) throw new Error(`foldLayout: like event (seq ${e.seq}) precedes any write`);
       likeCount += e.kind === "liked" ? 1 : -1;
     } else if (e.kind === "admin.likes_set") {
-      if (e.after === null || e.after.scope !== "like_adjust") throw new Error(`foldLayout: admin.likes_set event (seq ${e.seq}) has no like_adjust 'after'`);
-      likeAdjust = e.after.like_adjust;
+      // Retired (H24, 2026-09-13): the admin like-count override is gone,
+      // but a pre-existing event log (or a dump taken before this change)
+      // may still carry this kind -- ignore it rather than throw.
     } else if (e.kind === "link_approved" || e.kind === "link_cleared") {
       if (e.after === null || e.after.scope !== "link") throw new Error(`foldLayout: ${e.kind} event (seq ${e.seq}) has no link 'after'`);
       link = e.after.link;
@@ -926,7 +862,7 @@ export function foldLayout(events: Event[], revs: Map<string, { format: string |
     formatRows.set(lin, { ...rest, payload: rev.payload });
   }
   return {
-    layout: { ...layoutRow, like_count: Math.max(0, likeCount + likeAdjust), like_adjust: likeAdjust, link },
+    layout: { ...layoutRow, like_count: Math.max(0, likeCount), link },
     formats: formatRows,
   };
 }

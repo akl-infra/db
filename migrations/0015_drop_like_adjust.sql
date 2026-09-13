@@ -1,0 +1,33 @@
+-- H24 (saltorbit, 2026-09-13, design/layout-db/review/REQUIREMENTS.md):
+-- "mods should not be able to override the like count" / "likes should
+-- always be tied to the users who liked it, not be just an opaque number
+-- you can set" -- the admin like-count override shipped in L5
+-- (migrations/0014_moderation.sql) is removed entirely. `like_count` is
+-- once again ONLY `COUNT(DISTINCT user_id) FROM likes` for the layout
+-- (`core/events.ts`'s `commitWrite`/`appendLike`/`foldLayout`); no route,
+-- event or import can move it any other way (LDB-L4/LDB-P22, restored).
+--
+-- This migration deliberately does NOT drop `layouts.like_adjust`.
+-- SQLite/D1 has no `ALTER TABLE ... DROP COLUMN` that this migration
+-- tool can run reliably against a live, populated table -- the only real
+-- way to drop it is a full `layouts` table recreation (new table, copy
+-- every other column, swap, drop old), which is more risk than a genuinely
+-- dead column justifies here: layoutdb is disposable
+-- (mem:layoutdb-is-disposable) and gets wiped + re-imported wholesale at
+-- cutover anyway. So `like_adjust` stays physically on `layouts`,
+-- `NOT NULL DEFAULT 0`, permanently unused from this point on:
+--   - no route, event fold, or dump/restore path reads or writes it for
+--     any purpose (`dump/restore.ts` always writes literal 0 to it,
+--     ignoring whatever a carried-over dump says);
+--   - `core/records.ts`'s `LayoutRow` (the app-level type) no longer
+--     exposes it at all -- only the raw `LayoutDbRow` (SELECT * shape)
+--     still declares it, because the column is still physically there;
+--   - every layout wire shape drops `like_adjust` (WIRE_VERSION 4 -> 5,
+--     `core/etag.ts`).
+-- See db/README.md's "Dead columns" section.
+--
+-- A migration file with no SQL statement at all is rejected by D1's own
+-- migration runner ("SQL code did not contain a statement") -- this is a
+-- deliberate, genuinely-no-op statement (touches zero rows) purely so this
+-- migration has one, and the migration sequence stays gapless.
+UPDATE layouts SET like_adjust = like_adjust WHERE 1 = 0;

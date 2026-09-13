@@ -1,19 +1,19 @@
-// L5 moderation (§4.1-§4.3): bans, the like-count override, the author
-// display-name override. Glue only -- no D1 statement here (LDB-W1,
+// L5 moderation (§4.1, §4.3): bans, the author display-name override.
+// Glue only -- no D1 statement here (LDB-W1,
 // `tests/tools/routes-noprepare.test.ts`): every verb lives in
 // `core/moderation.ts`. `requireAdmin` here is exactly `routes/admin.ts`'s
 // own pattern (`if (!actor.admin) throw notAdmin()`); the GET route
 // resolves its own actor the same way `GET /v1/admin/admins` does (only
-// non-GET methods pass through `requireActorOnWrites`).
+// non-GET methods pass through `requireActorOnWrites`). (H24, 2026-09-13:
+// the like-count override route, §4.2, was removed.)
 import { Hono } from "hono";
 import type { ActorVariables } from "../auth/actor";
 import { type AuthDeps, resolveActor } from "../auth/discord";
 import type { Bindings } from "../env";
 import * as moderation from "../core/moderation";
-import { badRequest, notAdmin, notFound } from "../core/errors";
-import { byRef } from "../core/records";
+import { badRequest, notAdmin } from "../core/errors";
 import { systemClock, type Clock } from "../core/time";
-import { parseAuthorRenameBody, parseBanBody, parseLikesSetBody } from "./schemas";
+import { parseAuthorRenameBody, parseBanBody } from "./schemas";
 
 // Same test-only escape hatch every other write route uses (`src/routes/
 // write.ts`'s `resolveNow`) -- absent in production.
@@ -52,16 +52,6 @@ export function moderationRoute(authDeps: AuthDeps) {
     const userId = c.req.param("user_id");
     await moderation.unban(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), userId);
     return c.json({ unbanned: userId });
-  });
-
-  route.put("/v1/admin/layouts/:ref/likes", async (c) => {
-    const actor = c.get("actor");
-    if (!actor.admin) throw notAdmin();
-    const body = parseLikesSetBody(await readJson(c.req));
-    const record = await byRef(c.env.DB, c.req.param("ref"));
-    if (record === null) throw notFound(`no layout '${c.req.param("ref")}'`, c.req.param("ref"));
-    const result = await moderation.setLikeCount(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), record.id, body.count);
-    return c.json(result);
   });
 
   route.put("/v1/admin/authors/:user_id", async (c) => {

@@ -117,10 +117,12 @@ export function restoreSql(dump: Dump): string[] {
         modified_at: r.modified_at,
         deleted: r.deleted,
         like_count: r.like_count,
-        // [LDB-MD8] §4.5: round-trip; a dump written before migrations/0014
-        // has neither -- `?? 0`/`?? null` treat that as "no admin override
-        // has ever run", exactly what a pre-0014 database's own rows mean.
-        like_adjust: r.like_adjust ?? 0,
+        // H24 (2026-09-13): `like_adjust` is a dead column (migrations/
+        // 0015) -- a dump taken before this change (or one that still
+        // carries the raw physical column) may include it, but restore
+        // ignores whatever value it has and always writes 0; the column
+        // stays NOT NULL DEFAULT 0 and no code reads it any more.
+        like_adjust: 0,
         link: r.link ?? null,
         upstream_source: r.upstream_source ?? null,
         upstream_id: r.upstream_id ?? null,

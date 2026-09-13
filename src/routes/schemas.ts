@@ -104,16 +104,6 @@ const banSchema = {
   },
 } as const;
 
-// §4.2: `PUT /v1/admin/layouts/:ref/likes`.
-const likesSetSchema = {
-  type: "object",
-  additionalProperties: false,
-  required: ["count"],
-  properties: {
-    count: { type: "integer", minimum: 0 },
-  },
-} as const;
-
 // §4.3: `PUT /v1/admin/authors/:user_id`.
 const authorRenameSchema = {
   type: "object",
@@ -203,10 +193,6 @@ export interface BanBody {
   reason?: string;
 }
 
-export interface LikesSetBody {
-  count: number;
-}
-
 export interface AuthorRenameBody {
   name: string;
 }
@@ -227,7 +213,6 @@ const validateAdminAdd = ajv.compile<AdminAddBody>(adminAddSchema);
 const validatePatch = ajv.compile<PatchBody>(patchSchema);
 const validateRegisterClient = ajv.compile<RegisterClientBody>(registerClientSchema);
 const validateBan = ajv.compile<BanBody>(banSchema);
-const validateLikesSet = ajv.compile<LikesSetBody>(likesSetSchema);
 const validateAuthorRename = ajv.compile<AuthorRenameBody>(authorRenameSchema);
 const validateLink = ajv.compile<LinkBody>(linkSchema);
 const validateLinkReject = ajv.compile<LinkRejectBody>(linkRejectSchema);
@@ -297,10 +282,6 @@ export function parseRegisterClientBody(body: unknown): RegisterClientBody {
 
 export function parseBanBody(body: unknown): BanBody {
   return checkBody(validateBan, body);
-}
-
-export function parseLikesSetBody(body: unknown): LikesSetBody {
-  return checkBody(validateLikesSet, body);
 }
 
 export function parseAuthorRenameBody(body: unknown): AuthorRenameBody {

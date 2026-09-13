@@ -59,11 +59,11 @@ const INFO_KINDS_MAP: Record<InfoKind, true> = {
   "admin.import_ticked": true,
   "admin.diff_ticked": true,
   "admin.nightly_ticked": true,
-  // L5 moderation (§4): bans (actor-scoped), likes-override/author-rename
-  // (layout-scoped), the link queue (layout-scoped).
+  // L5 moderation (§4): bans (actor-scoped), author-rename (layout-scoped),
+  // the link queue (layout-scoped). ("admin.likes_set" retired H24
+  // 2026-09-13 -- the like-count override is gone.)
   "admin.user_banned": true,
   "admin.user_unbanned": true,
-  "admin.likes_set": true,
   "admin.author_renamed": true,
   link_submitted: true,
   link_approved: true,

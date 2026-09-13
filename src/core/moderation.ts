@@ -1,16 +1,15 @@
-// L5 moderation (design/akldb-site/01-plan.md §4.1-§4.3): bans, the
-// admin "overwrite likes" adjustment, and the author display-name
-// override. `src/routes/moderation.ts` is glue only (LDB-W1) -- every D1
-// statement for these verbs lives here, same discipline `core/admins.ts`
-// follows for admins-as-data. `LDB-P1`'s onlywriter test allows this file
-// to write `bans`/`authors` but never `layouts` -- the like-adjust write
-// goes through `core/events.ts`'s `appendLikeAdjust` (the only writer of
-// `layouts.like_adjust`, same boundary `like_count` already has).
+// L5 moderation (design/akldb-site/01-plan.md §4.1, §4.3): bans and the
+// author display-name override. `src/routes/moderation.ts` is glue only
+// (LDB-W1) -- every D1 statement for these verbs lives here, same
+// discipline `core/admins.ts` follows for admins-as-data. `LDB-P1`'s
+// onlywriter test allows this file to write `bans`/`authors` but never
+// `layouts`. (H24, 2026-09-13: the admin like-count override, §4.2, was
+// removed -- mods cannot move `like_count`; see `core/events.ts`.)
 import type { Actor } from "../auth/actor";
 import type { Bindings } from "../env";
 import { isAdmin } from "./admins";
 import { cannotBanAdmin, notFound } from "./errors";
-import { appendAdmin, appendLikeAdjust } from "./events";
+import { appendAdmin } from "./events";
 import type { Source } from "./records";
 import type { Clock } from "./time";
 
@@ -94,24 +93,6 @@ export async function unban(db: Bindings["DB"], now: Clock, actor: Actor, versio
     detail: { user_id: userId },
   });
   return { seq };
-}
-
-// --- §4.2 like override -------------------------------------------------
-
-// PUT /v1/admin/layouts/:ref/likes: `count` becomes the DISPLAYED count at
-// this instant (S5: an adjustment, not a pin -- later likes/unlikes still
-// move it). `ref` is resolved by the ROUTE (byRef, 404 not_found) so this
-// function takes a bare layoutId, same split `core/likes.ts` uses.
-export async function setLikeCount(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, layoutId: string, count: number): Promise<{ like_count: number; like_rows: number; like_adjust: number }> {
-  const { like_count, like_adjust } = await appendLikeAdjust(db, now, {
-    layoutId,
-    actor: actor.user_id,
-    via: actor.via,
-    source: sourceOf(actor, version),
-    count,
-  });
-  const rowsRow = await db.prepare("SELECT COUNT(*) AS n FROM likes WHERE layout_id = ?").bind(layoutId).first<{ n: number }>();
-  return { like_count, like_rows: rowsRow?.n ?? 0, like_adjust };
 }
 
 // --- §4.3 author display-name override ----------------------------------

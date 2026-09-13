@@ -3,8 +3,7 @@
 // (LDB-W1) -- every D1 statement for these verbs lives here. `LDB-P1`'s
 // onlywriter test allows this file to write `link_submissions` but NEVER
 // `layouts` -- `layouts.link` is written only by `core/events.ts`'s
-// `appendLinkChange` (the same boundary `like_count`/`like_adjust`
-// already follow).
+// `appendLinkChange` (the same boundary `like_count` already follows).
 import { ulid } from "ulidx";
 import type { Actor } from "../auth/actor";
 import type { Bindings } from "../env";
