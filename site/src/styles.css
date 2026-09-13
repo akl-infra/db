@@ -625,6 +625,42 @@ h2 {
 .akl-docs-guide-section {
   margin-top: 32px;
 }
+.akl-docs-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.akl-docs-head h1 {
+  margin: 0;
+}
+.akl-docs-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.akl-docs-copy-button {
+  font-family: var(--font-body);
+  font-size: 13px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 7px 14px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.akl-docs-copy-button:hover,
+.akl-docs-copy-button:focus-visible {
+  filter: brightness(1.08);
+}
+.akl-docs-copy-button[disabled] {
+  background: var(--border);
+  border-color: var(--border);
+  color: var(--ink-muted);
+  cursor: default;
+}
 .akl-docs-guide-actions {
   display: flex;
   flex-wrap: wrap;

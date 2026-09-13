@@ -102,7 +102,31 @@ const Docs: Component = () => {
 
   return (
     <div class="akl-docs-page">
-      <h1>{copy.docs.title}</h1>
+      {/* saltorbit, 2026-09-13: "Copy as Markdown" lives top-right, next to the
+          title, so an agent or a reader finds it without scrolling. The
+          full guide's own row keeps the raw-file link and the show/hide. */}
+      <div class="akl-docs-head">
+        <h1>{copy.docs.title}</h1>
+        <div class="akl-docs-head-actions">
+          <Show when={copyStatus() === "copied"}>
+            <span class="akl-docs-copy-status">{copy.docs.copyButtonCopied}</span>
+          </Show>
+          <Show when={copyStatus() === "failed"}>
+            <a href="#docs-adoption-guide" class="akl-docs-copy-status akl-error">{copy.docs.copyButtonFailed}</a>
+          </Show>
+          <button
+            type="button"
+            class="akl-docs-copy-button"
+            disabled={docsModule() === undefined}
+            onClick={() => {
+              const mod = docsModule();
+              if (mod !== undefined) void handleCopy(mod.adoptionMarkdown);
+            }}
+          >
+            {copy.docs.copyButtonLabel}
+          </button>
+        </div>
+      </div>
 
       <nav class="akl-docs-toc">
         <a href="#docs-brief">{copy.docs.tocBrief}</a>
@@ -221,17 +245,11 @@ const Docs: Component = () => {
           {(mod) => (
             <>
               <div class="akl-docs-guide-actions">
-                <button type="button" onClick={() => handleCopy(mod.adoptionMarkdown)}>
-                  {copy.docs.copyButtonLabel}
-                </button>
                 <a href="/adoption.md">{copy.docs.rawLinkLabel}</a>
                 <button type="button" onClick={() => setShowGuide((v) => !v)}>
                   {showGuide() ? copy.docs.hideGuideLabel : copy.docs.showGuideLabel}
                 </button>
               </div>
-              <Show when={copyStatus() === "copied"}>
-                <p class="akl-docs-copy-status">{copy.docs.copyButtonCopied}</p>
-              </Show>
               <Show when={copyStatus() === "failed"}>
                 <p class="akl-docs-copy-status akl-error">{copy.docs.copyButtonFailed}</p>
               </Show>
