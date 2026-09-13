@@ -216,7 +216,7 @@ today; if a route ever does, stop building against it before its
 **Registration is admin-only** — there is no self-service sign-up. Reach an
 admin with your Ed25519 public key (raw 32 bytes, base64url), the
 `owner_user_id` you'll act for by default, and the `caps` you need. `caps`
-is a comma-separated set (LEDGER.md L4): exactly one SCOPE cap —
+is a comma-separated set: exactly one SCOPE cap —
 `act-as-user` to assert any Discord user id (a real multi-user bot), or
 `act-as-owner-only` to assert only your own `owner_user_id` (a personal
 script). Every registered client may long-poll `GET /v1/changes?wait=`
@@ -232,7 +232,7 @@ Real response shape (`db/tests/conformance/admin-clients/post-201.json`,
 trimmed):
 
 ```json
-{ "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "name": "my-bot",
+{ "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "name": "conformance test bot",
   "pubkey": "KsG4a3kPQ2f74uSL0Ra4QRWDq84lNtJ63mhZ9OLNU1c",
   "owner_user_id": "800000000000000020", "caps": "act-as-user",
   "discord_app_id": null, "status": "active",
@@ -287,14 +287,14 @@ brand-new one you write — must reproduce byte for byte. One real vector
 
 ```json
 {
-  "name": "post-layouts-body",
+  "name": "patch-layouts-body",
   "client_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-  "method": "POST", "path": "/v1/layouts",
-  "timestamp": "1788000000", "nonce": "vyB9xATKxJgAYDeVXMPxrA",
+  "method": "PATCH", "path": "/v1/layouts/01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "timestamp": "1788000000", "nonce": "_F5pXcvw_2-49CoZJqwsXA",
   "actor": "184412255822020608",
-  "body": "{\"name\":\"test-layout\",\"format\":\"akl/1\",\"payload\":{\"keys\":{}}}",
-  "signing_string": "akl-v1\nPOST\n/v1/layouts\n1788000000\nvyB9xATKxJgAYDeVXMPxrA\n184412255822020608\n0vt-bo2cbitFAdlT6qDD1irLrvi5HZ_5ruFRTPF2fmM",
-  "signature_b64url": "WibgcXRcJee4dyEHQXnTd0M8f0H3BRUsSAzhCkX5LRO2ye3_tAJzQonA-1Jq0HGwRI4SmE2QNzSrXEhRa9K1BQ"
+  "body": "{\"name\":\"renamed-layout\"}",
+  "signing_string": "akl-v1\nPATCH\n/v1/layouts/01ARZ3NDEKTSV4RRFFQ69G5FAV\n1788000000\n_F5pXcvw_2-49CoZJqwsXA\n184412255822020608\ngVabpvsqzaXjDjtgiOJN6e_Cmqg5auvNNCqC1_e6_bA",
+  "signature_b64url": "nVoDtwRiMmNZCOHOJQ3P-CmgMOTUC1Euqjr71hpFC7aRcCmiUdJOhNbGDVQVUtkK2cGumNO40NViVsWpElcHDw"
 }
 ```
 
@@ -402,8 +402,8 @@ is required everywhere a payload is returned — there is no default**
 exception, an optional filter, absent meaning "every event"). Two formats
 are registered today:
 
-- **`spark/1`** — the one *stored* shape: cmini's `keys` map, board
-  geometry, and an authoring shape for magic rules that keeps intent
+- **`spark/1`** — the one *stored* shape: cmini's ordered `keys` list, a
+  board word, and an authoring shape for magic rules that keeps intent
   (`magic_keys`/`chiral_keys`/`adaptive_swaps`), not flattened rows.
 - **`mana2/1`** — an **output-only, derived** shape: a mana2 `.jsonc`
   layout object (`layout.fingers`/`thumbs` row strings, `board`, flat
@@ -420,7 +420,7 @@ trimmed, `?format=spark/1`):
   "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "name": "io",
   "owner": "761732338744557568", "layout_rev": 1,
   "created_at": "2022-12-07T23:24:35Z", "modified_at": "2022-12-07T23:24:35Z",
-  "deleted": false, "like_count": 15,
+  "deleted": false, "like_count": 15, "link": null,
   "upstream": { "source": "cmini", "id": "io", "state": "following" },
   "formats": {
     "spark/1": { "rev": 1, "created_at": "2022-12-07T23:24:35Z",
@@ -428,8 +428,8 @@ trimmed, `?format=spark/1`):
                  "source": { "client": "system:cmini-import", "version": null } }
   },
   "format": "spark/1",
-  "payload": { "keys": { "a": { "row": 1, "col": 6, "finger": "RI" }, "…": "…" },
-               "board": { "kind": "ortho", "cmini": "ortho" } },
+  "payload": { "keys": [ { "char": "a", "row": 1, "col": 6, "finger": "RI" }, "…" ],
+               "board": "ortho" },
   "likes": ["184412255822020608", "…"]
 }
 ```
@@ -492,24 +492,13 @@ one you mean, not designed yet, so it can't happen silently. `GET
 2020-12) a payload must satisfy — validate client-side against it before
 ever sending a write, the same schema the server itself runs
 (`db/scripts/validate-akl1-payload.mjs` is a Node CLI shim over the exact
-same `validate()`; the script's own name is historical, it validates
-against `spark/1`'s current schema).
+same `validate()`, against `spark/1`'s current schema).
 
-**No more `akl/1` alias, no more `?as=`.** `spark/1` is `akl/1` renamed —
-same payload shape, byte for byte (`design/layout-db/20-spark.md` decision
-1). `akl/1` worked as a transitional alias while the bot, the preview site
-and publish-ux moved to `spark/1`'s own name; `21-formats.md` D5/D12
-deleted the alias mechanism entirely once every client had (2026-09-11).
-`format=akl/1` (query or body) now answers/refuses exactly like any other
-unregistered format id (`400`/`404 unknown_format`, §6's error table).
-`21-formats.md` D4 additionally renamed the query parameter itself: `?as=`
-is gone, `?format=` is the one name everywhere, and it is now **required**
-(§3 above) rather than defaulting to `spark/1` — there is no relabeling,
-and `format` in a response always equals exactly what you asked for (the
+**`format` in a response always equals exactly what you asked for**: the
 layout's own stored data if it has that format, `derived_from` naming the
 real source if it doesn't and the format is derivable, or `404
-format_absent` if neither). **Every client reads and writes `spark/1` by
-name, explicitly, every time.**
+format_absent` if neither — there is no relabeling. **Every client reads
+and writes `spark/1` by name, explicitly, every time.**
 
 **`history` and `rev/{n}` carry `source` too** — per-event provenance, not
 just per-record (`db/tests/conformance/layouts-history/200.json`, trimmed).
@@ -580,8 +569,7 @@ same way `foldLayout` does server-side); everything else
 (`upstream_changed`, `import_conflict`, `import_error`, `admin.*`) is
 informational and changes nothing in your local copy.
 
-**Long-poll** (LEDGER.md L4; replaces the retired SSE stream and webhooks):
-`GET /v1/changes?since=<seq>&wait=<seconds>` — when `wait` is present, the
+**Long-poll**: `GET /v1/changes?since=<seq>&wait=<seconds>` — when `wait` is present, the
 Worker holds the request open, checking the event head about once a
 second, and answers with the normal `/v1/changes` page as soon as `since`
 is exceeded or `wait` elapses (whichever first; `wait` is clamped to 25s).
@@ -613,18 +601,17 @@ with no gap.
 top-level `upstream: {source: "cmini", id, state: "following" | "forked"} |
 null` field, folded from the cmini-import events. It answers exactly one
 question — "does the importer still own this record's keys and board" — for
-exactly as long as the one-time cmini import keeps running
-(`design/layout-db/20-spark.md` decision 16). There is no general
-layout-from-layout fork concept here, no re-follow, and nothing outside the
-importer and the daily upstream diff reads it for any decision. **Follow
-state is layout-level**: a write to the layout itself, or to lineage
-`spark` specifically, forks it (user write) or keeps it following (import
-write); a write to any OTHER format (`lw/1`, say) never touches `upstream`
-at all. When the import is retired the field, its rule, and
+exactly as long as the one-time cmini import keeps running. There is no
+general layout-from-layout fork concept here, no re-follow, and nothing
+outside the importer and the daily upstream diff reads it for any decision.
+**Follow state is layout-level**: a write to the layout itself, or to
+lineage `spark` specifically, forks it (user write) or keeps it following
+(import write); a write to any OTHER format (`lw/1`, say) never touches
+`upstream` at all. When the import is retired the field, its rule, and
 every invariant that mentions it (`LDB-I13`/`I14`/`P5`/`P11`'s upstream
-half) are removed in one migration (`20-spark.md` §6b) — a client that
-keyed any behavior on `upstream.state` today has that behavior silently stop
-meaning anything the day that lands. Fold it into your local copy if you
+half) are removed in one migration — a client that keyed any behavior on
+`upstream.state` today has that behavior silently stop meaning anything the
+day that lands. Fold it into your local copy if you
 like (it costs nothing extra — it's already on every record and event), but
 don't gate a feature on it.
 
