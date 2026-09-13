@@ -9,7 +9,7 @@ rather than resolved silently here.
 
 ## 0. Status and versioning
 
-`spark/1` is edited in place until layoutdb's first outside adopter. Today
+`spark/1` is edited in place until akldb's first outside adopter. Today
 the frozen-fixture list is empty, so no fixture is protected from a
 same-slice edit.
 
@@ -73,7 +73,7 @@ implemented, not deferred:
 
 Still genuinely deferred, by name: a layout date distinct from the
 record's own `created_at` (cmini's own authoring date, when it differs
-from when layoutdb first imported the layout), and view counts. Neither
+from when akldb first imported the layout), and view counts. Neither
 has a column, a route or an invariant today.
 
 ## 2. Identity

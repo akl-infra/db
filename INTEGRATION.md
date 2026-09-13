@@ -1,4 +1,4 @@
-# Integrating with the akl layout database
+# Integrating with akldb
 
 **`db/docs/adoption.md` is the primary guide for building a client** — a
 Discord bot, a web app, a script, or an agent — written to be followed by a
@@ -11,15 +11,15 @@ below would otherwise repeat the guide, it links to the guide's section
 instead of restating it.
 
 A guide for a new client — a bot, a site, a script — that wants to read or
-write keyboard layouts through `akl-db`, the community-owned layout
-database. No prior familiarity with this repo needed: every claim below is
-tied to a route, a source file, or a test.
+write keyboard layouts through `akl-db`, the community-owned akldb. No
+prior familiarity with this repo needed: every claim below is tied to a
+route, a source file, or a test.
 
 ```
-production   https://api.akldb.org   <- the one layoutdb
+production   https://api.akldb.org   <- the one akldb
 ```
 
-There is one layoutdb, production. **Develop against production**, and ask
+There is one akldb, production. **Develop against production**, and ask
 before writing there.
 
 ## 1. What this is

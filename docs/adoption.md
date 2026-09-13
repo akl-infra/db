@@ -1,4 +1,4 @@
-# Adopting the layout database API
+# Adopting the akldb API
 
 A guide for a new client of `akl-db` — a Discord bot, a web app, a script,
 or an AI agent building any of those — written to be followed by a human or
@@ -10,10 +10,10 @@ factory / schema the server runs, never invented. A fenced block marked
 `db/tests/tools/adoption-examples.test.ts` against the real `validate()`.
 
 ```
-production   https://api.akldb.org   <- the one layoutdb
+production   https://api.akldb.org   <- the one akldb
 ```
 
-There is one layoutdb, production. Develop against production, and ask
+There is one akldb, production. Develop against production, and ask
 before writing there.
 
 ## 0. Quickstart
@@ -1030,7 +1030,7 @@ derivation unambiguous when more than one stored lineage exists (`LDB-F26`):
 - **Stored formats are never derived from each other on read.** An edge
   FROM your new format TO `spark/1` (or vice versa), if you write one, is a
   package function your own clients call themselves (`@akl/layout-formats`)
-  — layoutdb's `GET …?format=spark/1` always means "this layout's own
+  — akldb's `GET …?format=spark/1` always means "this layout's own
   `spark/1` row", never something translated over from another lineage.
   `?format=<your format>` on a layout that never wrote it is `404
   format_absent`, not a silent derivation.
