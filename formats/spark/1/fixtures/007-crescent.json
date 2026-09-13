@@ -1,58 +1,65 @@
 {
-  "keys": {
-    "_": {
-      "row": 2,
-      "col": 3,
-      "finger": "LI"
-    },
-    "a": {
-      "row": 1,
-      "col": 6,
-      "finger": "RI"
-    },
-    "c": {
+  "keys": [
+    {
+      "char": "c",
       "row": 1,
       "col": 0,
       "finger": "LP"
     },
-    "e": {
-      "row": 1,
-      "col": 7,
-      "finger": "RM"
-    },
-    "i": {
-      "row": 1,
-      "col": 9,
-      "finger": "RP"
-    },
-    "n": {
-      "row": 2,
-      "col": 6,
-      "finger": "RI"
-    },
-    "r": {
+    {
+      "char": "r",
       "row": 1,
       "col": 1,
       "finger": "LR"
     },
-    "s": {
+    {
+      "char": "s",
       "row": 1,
       "col": 2,
       "finger": "LM"
     },
-    "t": {
+    {
+      "char": "t",
       "row": 1,
       "col": 3,
       "finger": "LI"
     },
-    "u": {
+    {
+      "char": "a",
+      "row": 1,
+      "col": 6,
+      "finger": "RI"
+    },
+    {
+      "char": "e",
+      "row": 1,
+      "col": 7,
+      "finger": "RM"
+    },
+    {
+      "char": "u",
       "row": 1,
       "col": 8,
       "finger": "RR"
+    },
+    {
+      "char": "i",
+      "row": 1,
+      "col": 9,
+      "finger": "RP"
+    },
+    {
+      "char": "_",
+      "row": 2,
+      "col": 3,
+      "finger": "LI"
+    },
+    {
+      "char": "n",
+      "row": 2,
+      "col": 6,
+      "finger": "RI"
     }
-  },
-  "board": {
-    "kind": "ortho",
-    "cmini": "ortho"
-  }
+  ],
+  "board": "ortho"
 }

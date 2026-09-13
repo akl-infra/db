@@ -22,21 +22,15 @@
 // level (a tap-hold's first slot may be a directional; nothing nests
 // inside a directial or on a hold), and no vendored file goes deeper.
 
-import type { Payload as SparkPayload, Position as SparkPosition, Board as SparkBoard } from "../../spark/1/index.ts";
+import type { Payload as SparkPayload } from "../../spark/1/index.ts";
 import type { MagicIntent } from "../../spark/1/magic.ts";
 import { computeRows, resolveRows } from "../../spark/1/magic.ts";
+import { STAGGER_BY_KIND, type Board as SparkBoard, type Key as SparkPosition } from "../../spark/1/geometry.ts";
 import type { Payload as Mana2Payload, Board as Mana2Board, Rule as Mana2Rule } from "./index.ts";
 
 // 12-implementation-phase5.md §2.5 / core/stats.go's `fingerSuffixNames`.
 export const FINGER_BY_DIGIT = ["LP", "LR", "LM", "LI", "LT", "RT", "RI", "RM", "RR", "RP"] as const;
 export const DIGIT_BY_FINGER: Record<string, number> = Object.fromEntries(FINGER_BY_DIGIT.map((f, i) => [f, i]));
-
-// `TB` has no mana2 digit -- §2.5: "TB -> 4 when col < 4.5 else 5" (the
-// site's `PhysicalThumbSide`, bridgecore/cmini.go), used only in the
-// spark/1 -> mana2/1 direction (mana2 itself never emits TB).
-export function thumbDigitForCol(col: number): number {
-  return col < 4.5 ? 4 : 5;
-}
 
 export interface Held {
   held: true;
@@ -252,17 +246,28 @@ export function dedupeRulesLastWins(rules: Mana2Rule[]): Mana2Rule[] {
   return order.map((inputs) => byInputs.get(inputs)!);
 }
 
+function arraysEqual(a: number[], b: number[]): boolean {
+  return a.length === b.length && a.every((v, i) => v === b[i]);
+}
+
+// design/layout-db/23-geometry.md §4.5 (toSpark, tests-only -- mana2/1 is
+// output-only, nothing is ever imported FROM it in production): a rowstag
+// board whose first 3 entries equal STAGGER_BY_KIND.ansi/.iso becomes that
+// kind; all-zero (either row- or column-staggered) becomes ortho;
+// `isRowStaggered: false` with a non-zero stagger becomes colstag; any
+// OTHER row-staggered shape becomes ansi -- a documented, lossy default
+// (LDB-F5's widened loss list), not a hold.
 function boardToSpark(board: Mana2Board): SparkBoard {
   const stagger = board.rowOrColumnStagger;
   if (board.isRowStaggered) {
-    if (stagger.every((v) => v === 0)) return { kind: "ortho", cmini: "ortho" };
+    if (stagger.every((v) => v === 0)) return "ortho";
     const first3 = stagger.slice(0, 3);
-    const out: SparkBoard = { kind: "rowstag", stagger: [...first3] };
-    if (first3.length === 3 && first3[0] === 0 && first3[1] === 0.25 && first3[2] === 0.75) out.cmini = "stagger";
-    return out;
+    if (arraysEqual(first3, STAGGER_BY_KIND.ansi)) return "ansi";
+    if (arraysEqual(first3, STAGGER_BY_KIND.iso)) return "iso";
+    return "ansi"; // documented loss: an unrecognised row stagger has no other spark/1 idiom
   }
-  if (stagger.every((v) => v === 0)) return { kind: "ortho", cmini: "ortho" };
-  return { kind: "colstag", stagger: [...stagger] };
+  if (stagger.every((v) => v === 0)) return "ortho";
+  return "colstag";
 }
 
 // Held when a rowstag board's stagger has entries past the 3rd that
@@ -303,10 +308,14 @@ function parseThumbSide(raw: string | undefined): { cells: ThumbCell[] } | Held 
   return { cells };
 }
 
-// to["spark/1"] (mana2 -> spark/1). Assumes `p` already validates.
+// to["spark/1"] (mana2 -> spark/1). Assumes `p` already validates. mana2's
+// own loader refuses duplicate characters (`checkGrammarAndDuplicates`), so
+// every entry this builds gets its own char -- never two entries sharing
+// one (design/layout-db/23-geometry.md's duplicate-characters follow-up:
+// `SparkPayload.keys` is one array now, char optional, the old separate
+// `free` array folded in).
 export function toSpark(p: Mana2Payload): SparkPayload | Held {
-  const keys: Record<string, SparkPosition> = {};
-  const free: SparkPosition[] = [];
+  const keys: SparkPosition[] = [];
 
   const fingers = p.layout.fingers;
   const fingermap = p.fingermap;
@@ -317,8 +326,12 @@ export function toSpark(p: Mana2Payload): SparkPayload | Held {
       if (resolution.heldReason) return { held: true, reason: resolution.heldReason };
       const digit = Number(fingermap[y]!.trim().split(/\s+/).filter(Boolean)[x]);
       const finger = FINGER_BY_DIGIT[digit]!;
-      if (resolution.isSkip) free.push({ row: y, col: x, finger });
-      else keys[resolution.tap!] = { row: y, col: x, finger };
+      // design/layout-db/24-spark-wire-review.md finding 11 (D, identity):
+      // spark/1 refuses a space (" ") as a `char` -- a mana2 `space` token
+      // becomes a free position instead (the finger/position survive, the
+      // fact that it types a space doesn't), a documented loss.
+      if (resolution.isSkip || resolution.tap === " ") keys.push({ row: y, col: x, finger });
+      else keys.push({ char: resolution.tap!, row: y, col: x, finger });
     }
   }
 
@@ -333,13 +346,14 @@ export function toSpark(p: Mana2Payload): SparkPayload | Held {
   const n = left.cells.length;
   left.cells.forEach((cell, i) => {
     const col = 4 - (n - 1 - i);
-    if (cell.char === undefined) free.push({ row: thumbRow, col, finger: "LT" });
-    else keys[cell.char] = { row: thumbRow, col, finger: "LT" };
+    // Same space -> free-position rule as the main grid above.
+    if (cell.char === undefined || cell.char === " ") keys.push({ row: thumbRow, col, finger: "LT" });
+    else keys.push({ char: cell.char, row: thumbRow, col, finger: "LT" });
   });
   right.cells.forEach((cell, j) => {
     const col = 5 + j;
-    if (cell.char === undefined) free.push({ row: thumbRow, col, finger: "RT" });
-    else keys[cell.char] = { row: thumbRow, col, finger: "RT" };
+    if (cell.char === undefined || cell.char === " ") keys.push({ row: thumbRow, col, finger: "RT" });
+    else keys.push({ char: cell.char, row: thumbRow, col, finger: "RT" });
   });
 
   if ((p.combos?.length ?? 0) > 0) return { held: true, reason: "combos have no akl/1 idiom" };
@@ -359,7 +373,6 @@ export function toSpark(p: Mana2Payload): SparkPayload | Held {
   // `layers` have no spark/1 idiom and are dropped here (a documented
   // loss since 21-formats.md D10 -- see the `Mana2Extra` comment above).
   const out: SparkPayload = { keys, board };
-  if (free.length > 0) out.free = free;
   if (magic) out.magic = magic;
   return out;
 }
@@ -382,18 +395,22 @@ interface ThumbEntry {
 }
 
 // colstag's per-column padding (to the true width) happens in the caller,
-// which is the only place that knows `maxCol`.
-function boardFromSpark(board: SparkBoard | undefined, numMainRows: number): { isRowStaggered: boolean; rowOrColumnStagger: number[] } {
-  if (board === undefined || board.kind === "ortho") {
-    return { isRowStaggered: true, rowOrColumnStagger: new Array(numMainRows).fill(0) };
+// which is the only place that knows `maxCol`. design/layout-db/
+// 23-geometry.md §4.5: the stagger is now a FIXED function of the kind
+// (geometry.ts's `STAGGER_BY_KIND`) -- nothing in the payload overrides it,
+// so there is no `board.stagger` to read any more. `ansi`/`iso`/`ortho` all
+// row-stagger (padded to `numMainRows`, repeating row 2's own offset for
+// any row past it -- exactly `coords()`'s own rule); `colstag` column-
+// staggers, always flat (padded to the true width by the caller, which is
+// the only place that knows it).
+function boardFromSpark(kind: SparkBoard, numMainRows: number): { isRowStaggered: boolean; rowOrColumnStagger: number[] } {
+  if (kind === "colstag") {
+    return { isRowStaggered: false, rowOrColumnStagger: [] };
   }
-  if (board.kind === "rowstag") {
-    const stagger = board.stagger ?? [];
-    const padded = [...stagger];
-    while (padded.length < numMainRows) padded.push(padded.length > 0 ? padded[padded.length - 1]! : 0);
-    return { isRowStaggered: true, rowOrColumnStagger: padded };
-  }
-  return { isRowStaggered: false, rowOrColumnStagger: board.stagger ? [...board.stagger] : [] };
+  const base = STAGGER_BY_KIND[kind];
+  const padded: number[] = [...base];
+  while (padded.length < numMainRows) padded.push(padded[padded.length - 1]!);
+  return { isRowStaggered: true, rowOrColumnStagger: padded };
 }
 
 // from["spark/1"] (spark/1 -> mana2/1). Mirrors the site's ConvertLayout
@@ -403,24 +420,50 @@ function boardFromSpark(board: SparkBoard | undefined, numMainRows: number): { i
 // column with neither a key nor a `free` entry (fingermap digit 0 for
 // those, since there is no finger to report), trailing `skip`s of a row
 // trimmed so mana2's own vendored files round-trip byte-for-byte; thumb
-// keys (finger LT/RT/TB, on ANY row) re-anchor by `col < 4.5` into the
-// compact mana2 thumb-string convention, sorted by (col, row).
+// keys (finger LT/RT, §4.2: the label IS the hand, on ANY row >= 3) go
+// straight to their own side's string BY LABEL, never re-anchored by
+// column any more (design/layout-db/23-geometry.md §4.5 -- `LDB-F29`),
+// sorted by (col, row) within that side.
+// design/layout-db/23-geometry.md's duplicate-characters follow-up
+// (24-spark-wire-review.md finding 5, the coordinator's correction): mana2
+// refuses duplicate letters (`checkGrammarAndDuplicates`), so a spark/1
+// layout with the same char on more than one position needs a policy for
+// which occurrence survives the hop. "The first entry for that char in
+// LIST ORDER is the analysed key; later duplicates are emitted as `skip`
+// cells" (the position exists, no character) -- `keys` is an ORDERED list,
+// never resorted by (row, col) or anything else -- a documented LDB-F5
+// loss, matching `spark/1/index.ts`'s own `charMap` convention for the same
+// reason (one shared rule, two independent implementations -- format
+// modules stay self-contained, 07 §5).
+function firstOccurrencePerChar(keys: SparkPosition[]): Map<string, SparkPosition> {
+  const out = new Map<string, SparkPosition>();
+  for (const k of keys) {
+    if (k.char === undefined) continue;
+    if (!out.has(k.char)) out.set(k.char, k);
+  }
+  return out;
+}
+
 export function fromSpark(p: SparkPayload): Mana2Payload {
   const main: MainEntry[] = [];
   const left: ThumbEntry[] = [];
   const right: ThumbEntry[] = [];
 
   function place(row: number, col: number, char: string | undefined, finger: string): void {
-    if (finger === "LT" || finger === "RT" || finger === "TB") {
-      const side = col < 4.5 ? left : right;
-      side.push({ col, row, char });
+    if (finger === "LT") {
+      left.push({ col, row, char });
+    } else if (finger === "RT") {
+      right.push({ col, row, char });
     } else {
       main.push({ row, col, char, finger });
     }
   }
 
-  for (const [ch, pos] of Object.entries(p.keys)) place(pos.row, pos.col, ch, pos.finger);
-  for (const pos of p.free ?? []) place(pos.row, pos.col, undefined, pos.finger);
+  const analysed = firstOccurrencePerChar(p.keys); // char -> the one entry (by reference) that keeps its char
+  for (const k of p.keys) {
+    const keepsChar = k.char !== undefined && analysed.get(k.char) === k;
+    place(k.row, k.col, keepsChar ? k.char : undefined, k.finger);
+  }
 
   // mana2's own schema requires >=1 fingers row (every vendored file has
   // 1-5) -- a genuinely empty spark/1 layout (0 keys, 52 live upstream
@@ -478,7 +521,13 @@ export function fromSpark(p: SparkPayload): Mana2Payload {
     while (board.rowOrColumnStagger.length < width) board.rowOrColumnStagger.push(0);
   }
 
-  const rows = resolveRows(computeRows(p.magic, p.keys)); // LDB-F4: akl.gg's order, last wins
+  // magic.ts's own vocabulary is still char-keyed (`Record<string,
+  // Position>`) -- built from the SAME `analysed` first-occurrence map the
+  // grid above uses, so magic addresses the identical position a duplicate
+  // char's surviving occurrence sits at.
+  const magicKeysMap: Record<string, { row: number; col: number; finger: string }> = {};
+  for (const [ch, pos] of analysed) magicKeysMap[ch] = { row: pos.row, col: pos.col, finger: pos.finger };
+  const rows = resolveRows(computeRows(p.magic, magicKeysMap)); // LDB-F4: akl.gg's order, last wins
   const rules: Mana2Rule[] = dedupeRulesLastWins(rows.map((r) => ({ inputs: r.inputs, output: r.output })));
 
   const out: Mana2Payload = {

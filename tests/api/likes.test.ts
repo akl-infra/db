@@ -250,7 +250,7 @@ describe("[LDB-L1] PUT/DELETE /v1/layouts/{ref}/like", () => {
     const [likeRes, patchRes, putRes] = await Promise.all([
       writeFetch(`/v1/layouts/${record.id}/like`, "PUT", headers),
       writeFetch(`/v1/layouts/${record.id}`, "PATCH", { ...headers, "If-Match": `"layout:${record.layout_rev}"` }, { name: newName }),
-      writeFetch(`/v1/layouts/${record.id}`, "PUT", { ...headers, "If-Match": '"spark:1"' }, { format: "spark/1", payload: { keys: { a: { row: 0, col: 0, finger: "LP" } } } }),
+      writeFetch(`/v1/layouts/${record.id}`, "PUT", { ...headers, "If-Match": '"spark:1"' }, { format: "spark/1", payload: { keys: [{ char: "a", row: 0, col: 0, finger: "LP" }], board: "ansi" } }),
     ]);
 
     expect(likeRes.status, "L3: a like never fails an edit and an edit never fails a like").toBe(200);

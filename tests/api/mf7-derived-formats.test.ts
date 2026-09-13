@@ -33,7 +33,7 @@ async function seed(): Promise<string> {
     currentLayout: null,
     currentFormats: new Map(),
     layout: { kind: "created", name: uniqueName("mf7"), owner: OWNER, created_at: clock(), deleted: false },
-    format: { kind: "format_added", lineage: "spark", format: "spark/1", payload: { keys: { a: { finger: "L1", row: 1, col: 1 } } }, hasMagic: false },
+    format: { kind: "format_added", lineage: "spark", format: "spark/1", payload: { keys: [{ char: "a", finger: "LP", row: 1, col: 1 }], board: "ansi" }, hasMagic: false },
     modified_at: clock(),
     actor: OWNER,
     via: "discord",

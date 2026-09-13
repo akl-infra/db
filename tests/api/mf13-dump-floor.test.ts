@@ -47,7 +47,7 @@ async function seed(): Promise<{ id: string; layoutRev: number }> {
     currentLayout: null,
     currentFormats: new Map(),
     layout: { kind: "created", name: uniqueName("mf13"), owner: OWNER, created_at: clock(), deleted: false },
-    format: { kind: "format_added", lineage: "spark", format: "spark/1", payload: { keys: {} }, hasMagic: false },
+    format: { kind: "format_added", lineage: "spark", format: "spark/1", payload: { keys: [], board: "ansi" }, hasMagic: false },
     modified_at: clock(),
     actor: OWNER,
     via: "discord",

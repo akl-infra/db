@@ -1,170 +1,197 @@
 {
-  "keys": {
-    "'": {
+  "keys": [
+    {
+      "char": "j",
+      "row": 0,
+      "col": 0,
+      "finger": "LP"
+    },
+    {
+      "char": "h",
+      "row": 0,
+      "col": 1,
+      "finger": "LR"
+    },
+    {
+      "char": "o",
+      "row": 0,
+      "col": 2,
+      "finger": "LM"
+    },
+    {
+      "char": "u",
+      "row": 0,
+      "col": 3,
+      "finger": "LI"
+    },
+    {
+      "char": "x",
+      "row": 0,
+      "col": 4,
+      "finger": "LI"
+    },
+    {
+      "char": "k",
+      "row": 0,
+      "col": 5,
+      "finger": "RI"
+    },
+    {
+      "char": "y",
+      "row": 0,
+      "col": 6,
+      "finger": "RM"
+    },
+    {
+      "char": "c",
+      "row": 0,
+      "col": 7,
+      "finger": "RM"
+    },
+    {
+      "char": "f",
+      "row": 0,
+      "col": 8,
+      "finger": "RR"
+    },
+    {
+      "char": "b",
+      "row": 0,
+      "col": 9,
+      "finger": "RP"
+    },
+    {
+      "char": "i",
+      "row": 1,
+      "col": 0,
+      "finger": "LP"
+    },
+    {
+      "char": "e",
+      "row": 1,
+      "col": 1,
+      "finger": "LR"
+    },
+    {
+      "char": "a",
+      "row": 1,
+      "col": 2,
+      "finger": "LM"
+    },
+    {
+      "char": "r",
+      "row": 1,
+      "col": 3,
+      "finger": "LI"
+    },
+    {
+      "char": ".",
+      "row": 1,
+      "col": 4,
+      "finger": "LI"
+    },
+    {
+      "char": "p",
+      "row": 1,
+      "col": 5,
+      "finger": "RI"
+    },
+    {
+      "char": "d",
+      "row": 1,
+      "col": 6,
+      "finger": "RI"
+    },
+    {
+      "char": "t",
+      "row": 1,
+      "col": 7,
+      "finger": "RM"
+    },
+    {
+      "char": "s",
+      "row": 1,
+      "col": 8,
+      "finger": "RR"
+    },
+    {
+      "char": "n",
+      "row": 1,
+      "col": 9,
+      "finger": "RP"
+    },
+    {
+      "char": ";",
+      "row": 2,
+      "col": 0,
+      "finger": "LP"
+    },
+    {
+      "char": "z",
+      "row": 2,
+      "col": 1,
+      "finger": "LR"
+    },
+    {
+      "char": ",",
+      "row": 2,
+      "col": 2,
+      "finger": "LI"
+    },
+    {
+      "char": "l",
+      "row": 2,
+      "col": 3,
+      "finger": "LI"
+    },
+    {
+      "char": "'",
       "row": 2,
       "col": 4,
       "finger": "LI"
     },
-    "*": {
+    {
+      "char": "w",
+      "row": 2,
+      "col": 5,
+      "finger": "RI"
+    },
+    {
+      "char": "m",
+      "row": 2,
+      "col": 6,
+      "finger": "RI"
+    },
+    {
+      "char": "g",
+      "row": 2,
+      "col": 7,
+      "finger": "RI"
+    },
+    {
+      "char": "v",
+      "row": 2,
+      "col": 8,
+      "finger": "RR"
+    },
+    {
+      "char": "q",
+      "row": 2,
+      "col": 9,
+      "finger": "RP"
+    },
+    {
+      "char": "*",
       "row": 3,
       "col": 0,
       "finger": "LT"
-    },
-    ",": {
-      "row": 2,
-      "col": 2,
-      "finger": "LI"
-    },
-    ".": {
-      "row": 1,
-      "col": 4,
-      "finger": "LI"
-    },
-    ";": {
-      "row": 2,
-      "col": 0,
-      "finger": "LP"
-    },
-    "a": {
-      "row": 1,
-      "col": 2,
-      "finger": "LM"
-    },
-    "b": {
-      "row": 0,
-      "col": 9,
-      "finger": "RP"
-    },
-    "c": {
-      "row": 0,
-      "col": 7,
-      "finger": "RM"
-    },
-    "d": {
-      "row": 1,
-      "col": 6,
-      "finger": "RI"
-    },
-    "e": {
-      "row": 1,
-      "col": 1,
-      "finger": "LR"
-    },
-    "f": {
-      "row": 0,
-      "col": 8,
-      "finger": "RR"
-    },
-    "g": {
-      "row": 2,
-      "col": 7,
-      "finger": "RI"
-    },
-    "h": {
-      "row": 0,
-      "col": 1,
-      "finger": "LR"
-    },
-    "i": {
-      "row": 1,
-      "col": 0,
-      "finger": "LP"
-    },
-    "j": {
-      "row": 0,
-      "col": 0,
-      "finger": "LP"
-    },
-    "k": {
-      "row": 0,
-      "col": 5,
-      "finger": "RI"
-    },
-    "l": {
-      "row": 2,
-      "col": 3,
-      "finger": "LI"
-    },
-    "m": {
-      "row": 2,
-      "col": 6,
-      "finger": "RI"
-    },
-    "n": {
-      "row": 1,
-      "col": 9,
-      "finger": "RP"
-    },
-    "o": {
-      "row": 0,
-      "col": 2,
-      "finger": "LM"
-    },
-    "p": {
-      "row": 1,
-      "col": 5,
-      "finger": "RI"
-    },
-    "q": {
-      "row": 2,
-      "col": 9,
-      "finger": "RP"
-    },
-    "r": {
-      "row": 1,
-      "col": 3,
-      "finger": "LI"
-    },
-    "s": {
-      "row": 1,
-      "col": 8,
-      "finger": "RR"
-    },
-    "t": {
-      "row": 1,
-      "col": 7,
-      "finger": "RM"
-    },
-    "u": {
-      "row": 0,
-      "col": 3,
-      "finger": "LI"
-    },
-    "v": {
-      "row": 2,
-      "col": 8,
-      "finger": "RR"
-    },
-    "w": {
-      "row": 2,
-      "col": 5,
-      "finger": "RI"
-    },
-    "x": {
-      "row": 0,
-      "col": 4,
-      "finger": "LI"
-    },
-    "y": {
-      "row": 0,
-      "col": 6,
-      "finger": "RM"
-    },
-    "z": {
-      "row": 2,
-      "col": 1,
-      "finger": "LR"
     }
-  },
-  "board": {
-    "kind": "ortho",
-    "cmini": "ortho"
-  },
+  ],
+  "board": "ortho",
   "magic": {
     "magic_keys": [
       {
         "key": "*",
-        "default": "repeat_previous",
         "rules": [
           {
             "after": "'",
@@ -227,6 +254,9 @@
             "output": "ze"
           }
         ],
+        "default": {
+          "kind": "repeat"
+        },
         "except": [
           ",",
           ";"
@@ -234,7 +264,6 @@
       },
       {
         "key": "b",
-        "default": "none",
         "rules": [
           {
             "after": "r",
@@ -244,7 +273,6 @@
       },
       {
         "key": "d",
-        "default": "none",
         "rules": [
           {
             "after": "t",
@@ -254,7 +282,6 @@
       },
       {
         "key": "j",
-        "default": "none",
         "rules": [
           {
             "after": "r",
@@ -272,7 +299,6 @@
       },
       {
         "key": "q",
-        "default": "none",
         "rules": [
           {
             "after": "a",
@@ -286,7 +312,6 @@
       },
       {
         "key": "v",
-        "default": "none",
         "rules": [
           {
             "after": "m",

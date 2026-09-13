@@ -3,7 +3,14 @@
     "method": "POST",
     "path": "/v1/layouts",
     "bearer": "conformance-owner-token",
-    "body": { "name": "_cw-bad", "format": "cmini/1", "payload": { "board": "ortho", "keys": {} } }
+    "body": {
+      "name": "_cw-bad",
+      "format": "cmini/1",
+      "payload": {
+        "board": "ortho",
+        "keys": []
+      }
+    }
   },
   "response": {
     "status": 400,

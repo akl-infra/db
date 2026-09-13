@@ -1,7 +1,4 @@
 {
-  "keys": {},
-  "board": {
-    "kind": "ortho",
-    "cmini": "ortho"
-  }
+  "keys": [],
+  "board": "ortho"
 }

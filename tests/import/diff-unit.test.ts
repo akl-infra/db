@@ -35,9 +35,18 @@ function toOursEntry(raw: Record<string, unknown>, ref: string): OursEntry {
 }
 
 describe("parseUpstreamRaw over upstream-100", () => {
-  it("[LDB-P5] every fixture detail parses ok (LDB-F11 already covers schema validity; this checks the record-field half too)", () => {
+  it("[LDB-P5] every fixture detail parses ok, except the one known LDB-F27 case (LDB-F11 already covers schema validity; this checks the record-field half too)", () => {
     for (const raw of loadFixture()) {
       const parsed = parseUpstreamRaw(raw);
+      // design/layout-db/23-geometry.md §4.4-3 (LDB-F27): 'test12222' has a
+      // thumb-labelled key physically on a finger row (0-2) -- fromCmini
+      // preserves the multiset exactly (LDB-F23) rather than inventing a
+      // fix, so it fails spark's own (stricter) validate() by design; see
+      // `tests/formats/cmini-envelope.test.ts`'s own dedicated case.
+      if (raw.name === "test12222") {
+        expect(parsed.ok).toBe(false);
+        continue;
+      }
       expect(parsed.ok, `'${String(raw.name)}': ${!parsed.ok ? parsed.error.message : ""}`).toBe(true);
     }
   });
@@ -46,13 +55,12 @@ describe("parseUpstreamRaw over upstream-100", () => {
   // fails spark's OWN (stricter) semantic validate is reported as an
   // `invalidUpstream`-shaped parse failure, never thrown. This is the same
   // class of finding the daily diff surfaces as an `invalidUpstream` line
-  // for real upstream data (`tests/upstream-diff.test.ts`, live). No known
-  // fixture currently diverges (21-formats.md D10 retired the one
-  // constructed negative example this test used to carry, along with the
-  // `x` field it depended on) -- LDB-I13's positive half stays fully
-  // covered by `tests/formats/cmini-envelope.test.ts` and the daily
+  // for real upstream data (`tests/upstream-diff.test.ts`, live).
+  // design/layout-db/23-geometry.md's LDB-F27 gave this test its first real
+  // example ('test12222', asserted above) -- LDB-I13's positive half stays
+  // fully covered by `tests/formats/cmini-envelope.test.ts` and the daily
   // `tests/upstream-diff.test.ts`, and `parseUpstreamRaw`'s own defensive
-  // `sparkCheck.ok` branch stays real, exercised code with no live example.
+  // `sparkCheck.ok` branch is now exercised, real code, not just reachable.
 });
 
 describe("compareRecords / pathDiff over upstream-100", () => {
@@ -77,7 +85,12 @@ describe("compareRecords / pathDiff over upstream-100", () => {
 
     const result = compareRecords(a, b);
     expect(result.equal).toBe(false);
-    expect(result.path).toBe(`/payload/keys/${firstChar}/finger`);
+    // design/layout-db/23-geometry.md's duplicate-characters follow-up:
+    // spark/1's `keys` is an ARRAY now (index-addressed), not a char-keyed
+    // map -- find the char's own index in the CONVERTED payload.
+    const idx = a.payload.keys.findIndex((k) => k.char === firstChar);
+    expect(idx).toBeGreaterThanOrEqual(0);
+    expect(result.path).toBe(`/payload/keys/${idx}/finger`);
   });
 
   it("[LDB-P5] a mutated top-level scalar (board) is reported under /payload/board", () => {
@@ -89,7 +102,9 @@ describe("compareRecords / pathDiff over upstream-100", () => {
 
     const result = compareRecords(a, b);
     expect(result.equal).toBe(false);
-    expect(result.path).toBe("/payload/board/cmini");
+    // design/layout-db/23-geometry.md §4: `board` is one plain word now,
+    // not an object with its own `.cmini` sub-field.
+    expect(result.path).toBe("/payload/board");
   });
 
   it("[LDB-P5] likes compared sorted -- reordering is NOT a difference", () => {
@@ -149,7 +164,7 @@ describe("compareRecords / pathDiff over upstream-100", () => {
 
     const result = compareRecords(a, b);
     expect(result.equal).toBe(false);
-    expect(result.path).toBe("/payload/board/cmini"); // the real difference, never magic's own path
+    expect(result.path).toBe("/payload/board"); // the real difference, never magic's own path
   });
 });
 
@@ -190,7 +205,7 @@ describe("httpOurs (shrunk: count + a random sample of following layouts)", () =
       owner: "111111111111111111",
       created_at: "2026-01-01T00:00:00Z",
       modified_at: "2026-01-02T00:00:00Z",
-      payload: { board: { kind: "ortho", cmini: "ortho" }, keys: {} },
+      payload: { board: "ortho", keys: [] },
       upstream: { source: "cmini", id: "up-alpha", state: "following" },
     },
   };
@@ -245,7 +260,7 @@ describe("httpOurs (shrunk: count + a random sample of following layouts)", () =
         owner: "111111111111111111",
         created_at: "2026-01-01T00:00:00Z",
         modified_at: "2026-01-02T00:00:00Z",
-        payload: { board: { kind: "ortho", cmini: "ortho" }, keys: {} },
+        payload: { board: "ortho", keys: [] },
         upstream: item.upstream,
       };
     }

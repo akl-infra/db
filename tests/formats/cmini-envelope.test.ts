@@ -67,11 +67,26 @@ describe("cmini/1 envelope over the live snapshot", () => {
     // `applyNew` would reject; this is the live proof over the frozen
     // snapshot (the daily diff's `invalidUpstream` line is the same
     // invariant's runtime guard against a future upstream detail this
-    // snapshot doesn't cover).
+    // snapshot doesn't cover). design/layout-db/23-geometry.md §4.4-3
+    // (LDB-F27) is the ONE known, real exception in this snapshot:
+    // 'test12222' has a thumb-labelled key physically on a finger row
+    // (0-2) -- `fromCmini` preserves the (row, col, finger) multiset
+    // exactly (LDB-F23) rather than inventing a fix, so its projection
+    // fails spark/1's OWN (stricter) validate() by design. LDB-I13's own
+    // text anticipates exactly this ("a detail that's schema-valid per
+    // cmini/1 but fails spark's own semantic validate"): the live daily
+    // diff (`tests/upstream-diff.test.ts`) reports it as `invalidUpstream`
+    // rather than throwing, and this test asserts that SAME specific
+    // failure rather than papering over it as a generic "still valid".
     it(`[LDB-I13] '${detail.name}': fromCmini(payload) validates as spark`, () => {
       const payload = payloadFrom(detail) as cmini1.Payload;
       const sparkPayload = fromCmini(payload);
       const result = spark.validate(sparkPayload);
+      if (detail.name === "test12222") {
+        expect(result.ok).toBe(false);
+        if (!result.ok) expect(result.error.message).toContain("is a thumb -- it can't sit on row");
+        return;
+      }
       expect(result.ok, !result.ok ? result.error.message : undefined).toBe(true);
     });
   }

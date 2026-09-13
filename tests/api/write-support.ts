@@ -17,7 +17,9 @@ export const BOOTSTRAP_ADMIN = "184412255822020608";
 // `AKL_PAYLOAD`/`format: "akl/1"` instead -- never this constant, which
 // would 400 `unknown_format`.
 export const CMINI_PAYLOAD = { board: "ortho" as const, keys: {} };
-export const AKL_PAYLOAD = { keys: {} };
+// design/layout-db/23-geometry.md: `board` is required now (one word);
+// its own duplicate-characters follow-up made `keys` an array.
+export const AKL_PAYLOAD = { keys: [], board: "ansi" as const };
 
 // 21-formats.md §2.3: scoped If-Match/write-ETag tokens -- `"layout:3"`,
 // `"spark:7"`.

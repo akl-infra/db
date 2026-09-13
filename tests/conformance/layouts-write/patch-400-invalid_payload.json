@@ -21,13 +21,15 @@
           "name": "cw-patch-badpayload-1",
           "format": "spark/1",
           "payload": {
-            "keys": {
-              "a": {
+            "keys": [
+              {
+                "char": "a",
                 "row": 0,
                 "col": 0,
                 "finger": "LP"
               }
-            }
+            ],
+            "board": "ansi"
           }
         }
       }
@@ -41,7 +43,7 @@
     "body": {
       "error": "invalid_payload",
       "message": "fingermap names a char not in this layout's keys: \"z\"",
-      "path": "/keys/z"
+      "path": "/keys"
     }
   }
 }

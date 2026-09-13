@@ -12,7 +12,8 @@ import * as admins from "../core/admins";
 import * as clients from "../core/clients";
 import { badRequest, importPaused, importRunning, notAdmin } from "../core/errors";
 import { runNightly } from "../core/nightly";
-import { systemClock, type Clock } from "../core/time";
+import { systemClock, fixedClock, type Clock } from "../core/time";
+import { writeDump } from "../dump/write";
 import { tick as cminiTick } from "../import/cmini";
 import type { FetchImpl as DiffFetchImpl } from "../import/diff";
 import { diffTick, lastDiff } from "../import/difftick";
@@ -149,6 +150,24 @@ export function adminRoute(authDeps: AuthDeps) {
     const result = await runNightly(c.env, now);
     await admins.recordManualTick(c.env.DB, now, actor.user_id, "nightly", { at: result.at, jobs: result.jobs, dump: result.dump });
     return c.json(result);
+  });
+
+  // The cutover follow-up (design/layout-db/23-geometry.md, "admin dump
+  // route"): a way to write a fresh daily dump ON DEMAND, via the EXACT
+  // SAME path `scheduled()`'s hour=3 nightly job (and LDB-D8's own
+  // catch-up check) uses (`dump/write.ts`'s `writeDump`) -- needed because
+  // the cutover imports into a wiped DB and the bot/site rebuild boot from
+  // the daily dump, so an operator can't wait for the next 03:00Z tick.
+  // `at` is captured once and threaded through as a FIXED clock so the
+  // response's `written_at` is byte-identical to what `writeDump` itself
+  // records as `dump.last_at`/`latest.json`'s own timestamp, never two
+  // separately-sampled "now"s that could disagree by a few milliseconds.
+  route.post("/v1/admin/dump", async (c) => {
+    const actor = c.get("actor");
+    if (!actor.admin) throw notAdmin();
+    const at = resolveNow(c.env)();
+    const { latest } = await writeDump(c.env, fixedClock(at));
+    return c.json({ seq: latest.seq, layout_count: latest.layout_count, written_at: at });
   });
 
   // 10 C1: the client lane's registration routes. `pubkey` never appears in

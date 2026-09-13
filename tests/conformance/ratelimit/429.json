@@ -8,7 +8,7 @@
       "format": "cmini/1",
       "payload": {
         "board": "ortho",
-        "keys": {}
+        "keys": []
       }
     },
     "setup": [
@@ -21,7 +21,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -34,7 +34,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -47,7 +47,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -60,7 +60,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -73,7 +73,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -86,7 +86,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -99,7 +99,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -112,7 +112,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -125,7 +125,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -138,7 +138,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -151,7 +151,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -164,7 +164,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -177,7 +177,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -190,7 +190,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -203,7 +203,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -216,7 +216,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -229,7 +229,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -242,7 +242,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -255,7 +255,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -268,7 +268,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -281,7 +281,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -294,7 +294,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -307,7 +307,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -320,7 +320,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -333,7 +333,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -346,7 +346,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -359,7 +359,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -372,7 +372,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -385,7 +385,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -398,7 +398,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -411,7 +411,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -424,7 +424,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -437,7 +437,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -450,7 +450,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -463,7 +463,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -476,7 +476,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -489,7 +489,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -502,7 +502,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -515,7 +515,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -528,7 +528,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -541,7 +541,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -554,7 +554,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -567,7 +567,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -580,7 +580,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -593,7 +593,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -606,7 +606,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -619,7 +619,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -632,7 +632,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -645,7 +645,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -658,7 +658,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -671,7 +671,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -684,7 +684,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -697,7 +697,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -710,7 +710,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -723,7 +723,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -736,7 +736,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -749,7 +749,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -762,7 +762,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -775,7 +775,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       },
@@ -788,7 +788,7 @@
           "format": "cmini/1",
           "payload": {
             "board": "ortho",
-            "keys": {}
+            "keys": []
           }
         }
       }

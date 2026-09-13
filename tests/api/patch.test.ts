@@ -27,7 +27,7 @@ const SOURCE = { client: "discord-app:test", version: null };
 
 // Seeded with one real key ("a") -- PATCH's fingermap tests need a char to
 // name.
-const AKL_KEYED = { keys: { a: { row: 0, col: 0, finger: "LP" } } };
+const AKL_KEYED = { keys: [{ char: "a", row: 0, col: 0, finger: "LP" }], board: "ansi" };
 
 interface Seeded {
   id: string;
@@ -137,9 +137,9 @@ describe("[LDB-P1] PATCH {format, fingermap|board|magic}: that format's scope", 
     const headers = ownerHeaders(`tok-${uniqueName("fm")}`);
     const res = await patch(record.id, headers, { format: "spark/1", fingermap: { a: "RP" } }, `"spark:${record.formatRev}"`);
     expect(res.status).toBe(200);
-    const body = await res.json<{ formats: Record<string, { rev: number }>; payload: { keys: Record<string, { finger: string }> } }>();
+    const body = await res.json<{ formats: Record<string, { rev: number }>; payload: { keys: { char?: string; finger: string }[] } }>();
     expect(body.formats["spark/1"]!.rev).toBe(record.formatRev + 1);
-    expect(body.payload.keys.a?.finger).toBe("RP");
+    expect(body.payload.keys.find((k) => k.char === "a")?.finger).toBe("RP");
     const events = await eventsFor(record.id);
     expect(events.at(-1)).toMatchObject({ kind: "fingermap", actor: OWNER, admin: false, detail: null, format: "spark/1" });
   });
@@ -149,13 +149,13 @@ describe("[LDB-P1] PATCH {format, fingermap|board|magic}: that format's scope", 
     const headers = ownerHeaders(`tok-${uniqueName("fm-bad")}`);
     const res = await patch(record.id, headers, { format: "spark/1", fingermap: { z: "RP" } }, `"spark:${record.formatRev}"`);
     expect(res.status).toBe(400);
-    await expect(res.json()).resolves.toMatchObject({ error: "invalid_payload", path: "/keys/z" });
+    await expect(res.json()).resolves.toMatchObject({ error: "invalid_payload", path: "/keys" });
   });
 
   it("board alone -> 200, kind updated, detail.fields = ['board']", async () => {
     const record = await seed();
     const headers = ownerHeaders(`tok-${uniqueName("board")}`);
-    const board = { kind: "rowstag", stagger: [0, 0.25, 0.75], cmini: "stagger" };
+    const board = "iso";
     const res = await patch(record.id, headers, { format: "spark/1", board }, `"spark:${record.formatRev}"`);
     expect(res.status).toBe(200);
     const events = await eventsFor(record.id);
@@ -179,22 +179,22 @@ describe("[LDB-P1] PATCH {format, fingermap|board|magic}: that format's scope", 
   it("fingermap AND board together -> one event 'updated', detail.fields = ['fingermap','board']", async () => {
     const record = await seed();
     const headers = ownerHeaders(`tok-${uniqueName("combo-fmt")}`);
-    const board = { kind: "ortho" };
+    const board = "ortho";
     const res = await patch(record.id, headers, { format: "spark/1", fingermap: { a: "RP" }, board }, `"spark:${record.formatRev}"`);
     expect(res.status).toBe(200);
     const events = await eventsFor(record.id);
     expect(events.at(-1)).toMatchObject({ kind: "updated", detail: { fields: ["fingermap", "board"] } });
-    const body = await res.json<{ payload: { keys: Record<string, { finger: string }>; board: unknown } }>();
-    expect(body.payload.keys.a?.finger).toBe("RP");
+    const body = await res.json<{ payload: { keys: { char?: string; finger: string }[]; board: unknown } }>();
+    expect(body.payload.keys.find((k) => k.char === "a")?.finger).toBe("RP");
     expect(body.payload.board).toEqual(board);
   });
 
   it("a failing later verb (a fingermap naming a char not in keys) leaves the earlier one (board) unapplied -- one batch or nothing", async () => {
     const record = await seed();
     const headers = ownerHeaders(`tok-${uniqueName("partial")}`);
-    const res = await patch(record.id, headers, { format: "spark/1", board: { kind: "ortho" }, fingermap: { z: "RP" } }, `"spark:${record.formatRev}"`);
+    const res = await patch(record.id, headers, { format: "spark/1", board: "ortho", fingermap: { z: "RP" } }, `"spark:${record.formatRev}"`);
     expect(res.status).toBe(400);
-    await expect(res.json()).resolves.toMatchObject({ error: "invalid_payload", path: "/keys/z" });
+    await expect(res.json()).resolves.toMatchObject({ error: "invalid_payload", path: "/keys" });
 
     const row = await db.prepare("SELECT rev FROM layout_formats WHERE layout_id = ? AND lineage = 'spark'").bind(record.id).first<{ rev: number }>();
     expect(row?.rev).toBe(record.formatRev);

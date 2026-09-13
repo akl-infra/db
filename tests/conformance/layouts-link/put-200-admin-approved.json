@@ -15,11 +15,8 @@
           "name": "mod-link-2",
           "format": "spark/1",
           "payload": {
-            "keys": {},
-            "board": {
-              "kind": "ortho",
-              "cmini": "ortho"
-            }
+            "keys": [],
+            "board": "ortho"
           }
         }
       }

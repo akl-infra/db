@@ -16,19 +16,20 @@ async function sha256Hex(s: string): Promise<string> {
 }
 
 // 21-formats.md §2.3 (LDB-R1 amended again): `WIRE_VERSION` is folded into
-// the hashed query -- a white-box check that the CURRENT constant is 5
-// (bumped by H24, 2026-09-13: the admin like-count override was removed,
-// so `like_adjust` disappears from every layout wire shape again -- `link`
-// stays) and is actually part of what gets hashed, not merely present in a
-// comment. Replicates `etagFor`'s own formula with a literal
-// `wireVersion: 5` -- if a future slice bumps the real constant without
-// bumping this test, the two hashes diverge and this fails, which is the
-// point: a version bump is a deliberate, visible edit here too.
+// the hashed query -- a white-box check that the CURRENT constant is 6
+// (bumped by design/layout-db/23-geometry.md: spark/1's own payload shape
+// changed -- `keys` an ordered array, `board` one required word, `TB`
+// dropped, magic's sentinels tagged) and is actually part of what gets
+// hashed, not merely present in a comment. Replicates `etagFor`'s own
+// formula with a literal `wireVersion: 6` -- if a future slice bumps the
+// real constant without bumping this test, the two hashes diverge and this
+// fails, which is the point: a version bump is a deliberate, visible edit
+// here too.
 describe("[LDB-R1] WIRE_VERSION is folded into the ETag hash", () => {
-  it("[LDB-R1] etagFor(seq, query) reproduces exactly the wireVersion:5-folded hash", async () => {
+  it("[LDB-R1] etagFor(seq, query) reproduces exactly the wireVersion:6-folded hash", async () => {
     const seq = 42;
     const query = { a: 1, b: "x" };
-    const expectedHash = await sha256Hex(canonical({ wireVersion: 5, query }));
+    const expectedHash = await sha256Hex(canonical({ wireVersion: 6, query }));
     const expected = `"${seq}:${expectedHash.slice(0, 16)}"`;
     expect(await etagFor(seq, query)).toBe(expected);
   });

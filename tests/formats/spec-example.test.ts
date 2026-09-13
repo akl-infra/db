@@ -47,7 +47,7 @@ describe("[LDB-F24] 22-spark-spec.md's worked example", () => {
     expect(validate(example)).toEqual({ ok: true });
   });
 
-  it("[LDB-F24] matches the doc's own prose about it (the '@' key, the board, the free position)", () => {
+  it("[LDB-F24] matches the doc's own prose about it (the '@' key, the board, the duplicate 'e', the free position)", () => {
     if (skipIfSplit()) {
       expect(hasSiteTree).toBe(false);
       return;
@@ -56,12 +56,14 @@ describe("[LDB-F24] 22-spark-spec.md's worked example", () => {
     const example = extractWorkedExample(md) as Payload;
 
     // "@ sits at the top-left key, row 0, left ring finger"
-    expect(example.keys["@"]).toEqual({ row: 0, col: 1, finger: "LR" });
-    // "The board is ANSI-staggered ... and renders as cmini's "angle" word"
-    expect(example.board).toEqual({ kind: "rowstag", stagger: [0, 0.25, 0.75], cmini: "angle" });
+    expect(example.keys.find((k) => k.char === "@")).toEqual({ char: "@", row: 0, col: 1, finger: "LR" });
+    // "The board is ansi (row-staggered, 0, 0.25, 0.75 key-widths)"
+    expect(example.board).toBe("ansi");
     // "typing n then @ lowers ... to a rule emitting nl"
     expect(example.magic?.magic_keys?.[0]).toMatchObject({ key: "@", rules: [{ after: "n", output: "nl" }] });
-    // "The one free position is a hole in the layout"
-    expect(example.free).toHaveLength(1);
+    // "'e' sits on TWO positions ... a duplicate character"
+    expect(example.keys.filter((k) => k.char === "e")).toHaveLength(2);
+    // "The one entry with no char ... is a free position"
+    expect(example.keys.filter((k) => k.char === undefined)).toHaveLength(1);
   });
 });

@@ -208,7 +208,7 @@ describe("[LDB-P13] property: the stored major never decreases under a random se
 // rule `putFormat` runs (format_behind) -- all BEFORE any edit is applied.
 describe("[LDB-P13] PATCH validates the format it names (M5)", () => {
   async function seedSpark() {
-    const res = await writeFetch("/v1/layouts", "POST", headers(), { name: uniqueName("patch-format-seed"), format: "spark/1", payload: { keys: { a: { row: 0, col: 0, finger: "LP" } } } });
+    const res = await writeFetch("/v1/layouts", "POST", headers(), { name: uniqueName("patch-format-seed"), format: "spark/1", payload: { keys: [{ char: "a", row: 0, col: 0, finger: "LP" }], board: "ansi" } });
     const body = await res.json<{ id: string; formats: Record<string, { rev: number }> }>();
     return { id: body.id, rev: body.formats["spark/1"]!.rev };
   }
@@ -220,7 +220,7 @@ describe("[LDB-P13] PATCH validates the format it names (M5)", () => {
     await expect(res.json()).resolves.toMatchObject({ error: "unknown_format" });
     const row = await db.prepare("SELECT rev, payload_json FROM layout_formats WHERE layout_id = ? AND lineage = 'spark'").bind(seeded.id).first<{ rev: number; payload_json: string }>();
     expect(row!.rev).toBe(seeded.rev); // never edited
-    expect(JSON.parse(row!.payload_json)).toEqual({ keys: { a: { row: 0, col: 0, finger: "LP" } } });
+    expect(JSON.parse(row!.payload_json)).toEqual({ keys: [{ char: "a", row: 0, col: 0, finger: "LP" }], board: "ansi" });
   });
 
   it("[LDB-P13] {format: 'mana2/1', fingermap} on a spark/1-stored layout -> 400 format_not_writable (output format), untouched", async () => {
@@ -260,8 +260,8 @@ describe("[LDB-P13] PATCH validates the format it names (M5)", () => {
     const seeded = await seedSpark();
     const res = await writeFetch(`/v1/layouts/${seeded.id}`, "PATCH", { ...headers(), "If-Match": `"spark:${seeded.rev}"` }, { format: "spark/1", fingermap: { a: "LM" } });
     expect(res.status).toBe(200);
-    const body = await res.json<{ format: string; payload: { keys: Record<string, { finger: string }> } }>();
+    const body = await res.json<{ format: string; payload: { keys: { char?: string; finger: string }[] } }>();
     expect(body.format).toBe("spark/1");
-    expect(body.payload.keys["a"]!.finger).toBe("LM");
+    expect(body.payload.keys.find((k) => k.char === "a")?.finger).toBe("LM");
   });
 });

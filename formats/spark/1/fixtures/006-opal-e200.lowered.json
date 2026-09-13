@@ -67,11 +67,11 @@
   {
     "inputs": "he*",
     "output": "her",
-    "type": "magic"
+    "type": "raw"
   },
   {
     "inputs": "ra*",
     "output": "ral",
-    "type": "magic"
+    "type": "raw"
   }
 ]

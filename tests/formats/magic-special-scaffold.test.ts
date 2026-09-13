@@ -45,8 +45,8 @@ describe("magic scaffold excludes every special char, not just its own (LDB-F15)
   it("[LDB-F15] a repeat_previous magic key's scaffold skips another magic key's own char", () => {
     const magic: MagicIntent = {
       magic_keys: [
-        { key: "*", default: "repeat_previous" },
-        { key: "b", default: "none", rules: [{ after: "r", output: "r." }] },
+        { key: "*", default: { kind: "repeat" } },
+        { key: "b", rules: [{ after: "r", output: "r." }] },
       ],
     };
     const rows = computeRows(magic, baseKeys());
@@ -56,7 +56,7 @@ describe("magic scaffold excludes every special char, not just its own (LDB-F15)
 
   it("[LDB-F15] a literal-default magic key's scaffold skips a chiral key's own char", () => {
     const magic: MagicIntent = {
-      magic_keys: [{ key: "*", default: "z" }],
+      magic_keys: [{ key: "*", default: { kind: "char", char: "z" } }],
       chiral_keys: [{ key: "c", same: "x", opposite: "y" }],
     };
     const rows = computeRows(magic, baseKeys());
@@ -67,8 +67,8 @@ describe("magic scaffold excludes every special char, not just its own (LDB-F15)
   it("[LDB-F15] an explicit magic_keys[].rules[] entry still fires unconditionally, even at another special key's char", () => {
     const magic: MagicIntent = {
       magic_keys: [
-        { key: "*", default: "repeat_previous", rules: [{ after: "b", output: "bq" }] },
-        { key: "b", default: "none", rules: [{ after: "r", output: "r." }] },
+        { key: "*", default: { kind: "repeat" }, rules: [{ after: "b", output: "bq" }] },
+        { key: "b", rules: [{ after: "r", output: "r." }] },
       ],
     };
     const rows = computeRows(magic, baseKeys());
@@ -78,7 +78,7 @@ describe("magic scaffold excludes every special char, not just its own (LDB-F15)
 
   it("[LDB-F15] except still governs every remaining board char (unaffected by the wider special-char exclusion)", () => {
     const magic: MagicIntent = {
-      magic_keys: [{ key: "*", default: "repeat_previous", except: ["a"] }],
+      magic_keys: [{ key: "*", default: { kind: "repeat" }, except: ["a"] }],
     };
     const rows = computeRows(magic, baseKeys());
     expect(rows.find((r) => r.inputs === "a*")).toBeUndefined();
@@ -94,7 +94,7 @@ describe("chiral scaffold includes the chiral key's own char (LDB-F15)", () => {
   });
 
   it("[LDB-F15] self row doubles under repeat_previous, same as any other char", () => {
-    const magic: MagicIntent = { chiral_keys: [{ key: "c", same: "repeat_previous", opposite: "y" }] };
+    const magic: MagicIntent = { chiral_keys: [{ key: "c", same: { kind: "repeat" }, opposite: "y" }] };
     const rows = computeRows(magic, baseKeys());
     expect(rows.find((r) => r.inputs === "cc")).toEqual({ inputs: "cc", output: "cc", type: "chiral", from: "chiral_keys[0]" });
   });
@@ -107,7 +107,7 @@ describe("chiral scaffold includes the chiral key's own char (LDB-F15)", () => {
 
   it("[LDB-F15] a magic key's own char is still a perfectly good chiral scaffold char -- specialChars does not apply to chiral", () => {
     const magic: MagicIntent = {
-      magic_keys: [{ key: "b", default: "none", rules: [{ after: "r", output: "r." }] }],
+      magic_keys: [{ key: "b", rules: [{ after: "r", output: "r." }] }],
       chiral_keys: [{ key: "c", same: "x", opposite: "y" }],
     };
     const rows = computeRows(magic, baseKeys());
@@ -127,8 +127,8 @@ describe("liftRules promotes an orphaned special-char-after row into an explicit
     const keys = baseKeys();
     const original: MagicIntent = {
       magic_keys: [
-        { key: "*", default: "repeat_previous" },
-        { key: "b", default: "none", rules: [{ after: "r", output: "r." }] },
+        { key: "*", default: { kind: "repeat" } },
+        { key: "b", rules: [{ after: "r", output: "r." }] },
       ],
     };
     // A REAL lower() of this idiom (today's, already fixed) never carries
@@ -144,10 +144,10 @@ describe("liftRules promotes an orphaned special-char-after row into an explicit
     const { lifted, leftovers } = liftRules(rows, keys);
     expect(leftovers).toEqual([]);
     const star = lifted.magic_keys.find((m) => m.key === "*")!;
-    expect(star.default).toBe("repeat_previous");
+    expect(star.default).toEqual({ kind: "repeat" });
     expect(star.rules).toEqual([{ after: "b", output: "bb" }]); // NOT folded into the default -- 'b' is excluded from '*''s scaffold now
     const b = lifted.magic_keys.find((m) => m.key === "b")!;
-    expect(b.default).toBe("none");
+    expect(b.default).toBeUndefined();
     expect(b.rules).toEqual([{ after: "r", output: "r." }]);
 
     // Round trip: relowering the lifted idiom reproduces the exact same
@@ -170,7 +170,7 @@ describe("liftRules promotes an orphaned special-char-after row into an explicit
     const { lifted, leftovers } = liftRules(rows, keys);
     expect(leftovers).toEqual([]);
     const star = lifted.magic_keys.find((m) => m.key === "*")!;
-    expect(star.default).toBe("z");
+    expect(star.default).toEqual({ kind: "char", char: "z" });
     expect(star.rules).toEqual([{ after: "b", output: "bz" }]);
   });
 });
@@ -196,8 +196,8 @@ describe("findCollision under the wider scaffold (LDB-F15)", () => {
   it("[LDB-F15] a special-char scaffold row can no longer exist to collide with anything -- the promoted explicit rule collides like any other explicit rule instead (no hint)", () => {
     const magic: MagicIntent = {
       magic_keys: [
-        { key: "*", default: "repeat_previous", rules: [{ after: "b", output: "bq" }] },
-        { key: "b", default: "none", rules: [{ after: "r", output: "r." }] },
+        { key: "*", default: { kind: "repeat" }, rules: [{ after: "b", output: "bq" }] },
+        { key: "b", rules: [{ after: "r", output: "r." }] },
       ],
       rules: [{ inputs: "b*", output: "bz" }],
     };

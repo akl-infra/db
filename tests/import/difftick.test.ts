@@ -93,11 +93,21 @@ describe("diffTick()", () => {
     const diffEnv = envWithSource(fake.baseUrl);
     const record = await diffTick(diffEnv, fixedClock("2026-07-02T00:00:00.000Z"), strictUpstreamOnly(fake), 100);
 
-    expect(record.ok).toBe(true);
+    // design/layout-db/23-geometry.md's LDB-F27 (a thumb key must sit on a
+    // thumb row) postdates this fixture: `upstream-100`'s `test12222` has a
+    // thumb-labelled key physically on a finger row, so its `fromCmini`
+    // projection now fails spark's own stricter `validate()` -- the SAME
+    // known, permanent exception `tests/formats/cmini-envelope.test.ts`'s
+    // `[LDB-I13]` case documents, reported here as ONE `invalidUpstream`
+    // entry (never thrown), so an exhaustive (sampleSize:100) "identical
+    // mirror" run is no longer all-`matched`/`ok:true` -- it is exactly
+    // one short, forever, until test12222 itself is fixed upstream.
+    expect(record.ok).toBe(false);
     expect(record.at).toBe("2026-07-02T00:00:00.000Z");
     expect(record.sample_size).toBe(100);
-    expect(record.matched).toBe(100);
+    expect(record.matched).toBe(99);
     expect(record.missing).toBe(0);
+    expect(record.invalid_upstream).toBe(1);
     expect(record.content_diffs).toBe(0);
     expect(record.layout_count).toEqual({ upstream: 100, ours: 100, equal: true });
 
@@ -119,9 +129,14 @@ describe("diffTick()", () => {
 
     expect(record.ok).toBe(false);
     expect(record.content_diffs).toBe(1);
-    // 20-spark.md S3b: comparison happens in spark now, nested under
-    // `payload` (unlike cmini/1's flat `board` word).
-    expect(record.samples?.content_diffs).toEqual([{ name: "graphite", path: "/payload/board/cmini" }]);
+    // 20-spark.md S3b: comparison happens in spark now, at the flat
+    // `board` word directly (design/layout-db/23-geometry.md dropped the
+    // old `board.cmini` nesting -- `board` IS the one word now).
+    expect(record.samples?.content_diffs).toEqual([{ name: "graphite", path: "/payload/board" }]);
+    // LDB-F27 (see the "identical mirror" test's own comment): test12222
+    // is ALSO an invalidUpstream entry on every exhaustive sample now,
+    // independent of graphite's mutation.
+    expect(record.invalid_upstream).toBe(1);
   });
 
   it("[LDB-C4] a fake refusing every attempt writes { ok: false, error } -- a stale `at` never hides an outage", async () => {
@@ -177,10 +192,16 @@ describe("diffTick()", () => {
     const { db: proxyDb, reads } = countingDb(db);
     const diffEnv = { ...envWithSource(fake.baseUrl), DB: proxyDb };
     const before = reads();
-    const record = await diffTick(diffEnv, fixedClock("2026-07-09T00:00:00.000Z"), strictUpstreamOnly(fake));
+    // Explicit, exhaustive sampleSize (see the "identical mirror" test's
+    // own LDB-F27 comment): the default 50-of-100 `ORDER BY RANDOM()` pick
+    // would make `record.ok`/`matched` flaky now that test12222 is a
+    // permanent, known invalidUpstream entry -- this test cares about the
+    // QUERY COUNT, not that value, so pin the sample instead of asserting
+    // around it.
+    const record = await diffTick(diffEnv, fixedClock("2026-07-09T00:00:00.000Z"), strictUpstreamOnly(fake), 100);
     const issued = reads() - before;
 
-    expect(record.ok).toBe(true);
+    expect(record.sample_size).toBe(100);
     // LEDGER.md L4: one `layoutCount()` read, one `ORDER BY RANDOM() LIMIT
     // n` sample read, one likes chunk -- nowhere near "one query per
     // record" (100+), which is what a regression back to full-corpus
@@ -213,6 +234,12 @@ describe("scheduled() wiring", () => {
 
     const stored = await importState("cmini.last_diff");
     expect(stored).not.toBeNull();
-    expect((stored as { ok: boolean }).ok).toBe(true);
+    // Not `ok: true`: `scheduled()` has no hook to pin diffTick's sample
+    // size, and the default random 50-of-100 pick may or may not land on
+    // test12222 (the LDB-F27 permanent invalidUpstream entry the
+    // "identical mirror" test's own comment explains) -- this test is
+    // about ROUTING (the cron slot reaches diffTick at all), proven by a
+    // record actually landing with a real sample, not by its `ok` value.
+    expect((stored as { sample_size?: number }).sample_size).toBeGreaterThan(0);
   });
 });

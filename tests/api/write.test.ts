@@ -220,7 +220,7 @@ describe("[LDB-A7] PUT /v1/layouts/{ref}: owner or admin", () => {
       `/v1/layouts/${record.id}`,
       "PUT",
       { ...headers, "If-Match": `"spark:${record.formatRev}"` },
-      { format: "spark/1", payload: { keys: { a: { row: 0, col: 0, finger: "LP" } }, magic: { rules: [{ inputs: "aa", output: "ab" }] } } },
+      { format: "spark/1", payload: { keys: [{ char: "a", row: 0, col: 0, finger: "LP" }], board: "ansi", magic: { rules: [{ inputs: "aa", output: "ab" }] } } },
     );
     expect(res.status).toBe(200);
     const events = await eventsFor(record.id);

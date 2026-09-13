@@ -14,10 +14,11 @@ import { ulid } from "ulidx";
 import type { Bindings } from "../env";
 import * as cmini1 from "../../formats/adapters/cmini/index";
 import * as akl1 from "../../formats/spark/1/index";
-import { fromCmini } from "../../formats/adapters/cmini/translate";
+import { fromCmini, describeImportChanges } from "../../formats/adapters/cmini/translate";
 import { canonical } from "../core/canonical";
 import { ApiError } from "../core/errors";
-import { appendInfo, appendLike, commitWrite, type CommitInput } from "../core/events";
+import { appendInfo, appendLike, appendLinkChange, commitWrite, type CommitInput } from "../core/events";
+import { validateLinkUrl } from "../core/links";
 import { nextUpstream, upstreamOf } from "../core/upstream";
 import { formatsForLayout, readById, readByName, type LayoutRow } from "../core/records";
 import type { Clock } from "../core/time";
@@ -233,6 +234,87 @@ async function importLikes(db: Bindings["DB"], now: Clock, layoutId: string, use
   }
 }
 
+// L5 moderation follow-up (§4.4, LDB-MD3/MD5): the latest `link_approved`/
+// `link_cleared` event's own `via` -- null when the layout has never had
+// one. Used only to decide whether the importer still "owns" this
+// layout's link (its own prior auto-carry) or an admin has since taken it
+// over, in which case the import must never touch it again.
+async function latestLinkVia(db: Bindings["DB"], layoutId: string): Promise<string | null> {
+  const row = await db
+    .prepare("SELECT via FROM events WHERE layout_id = ? AND kind IN ('link_approved', 'link_cleared') ORDER BY seq DESC LIMIT 1")
+    .bind(layoutId)
+    .first<{ via: string }>();
+  return row?.via ?? null;
+}
+
+// LDB-I1 (a full re-pass with unchanged content appends zero new events):
+// without this, a cmini `link` that's ALWAYS invalid (never https, say)
+// would re-append `import_error` on EVERY tick forever, since `importLink`
+// itself has no other state to compare a rejected value against (only an
+// ACCEPTED one lands in `layouts.link`). Dedupes against the layout's own
+// latest `import_error` event, keyed by this specific rejection's raw
+// value -- an unrelated import_error (a real apply failure) is simply
+// treated as "not the same rejection", so this repeats once more rather
+// than staying silent, which is the safe direction to err in.
+async function latestRejectedLink(db: Bindings["DB"], layoutId: string): Promise<string | undefined> {
+  const row = await db
+    .prepare("SELECT detail_json FROM events WHERE layout_id = ? AND kind = 'import_error' ORDER BY seq DESC LIMIT 1")
+    .bind(layoutId)
+    .first<{ detail_json: string | null }>();
+  if (row?.detail_json === undefined || row.detail_json === null) return undefined;
+  const parsed = JSON.parse(row.detail_json) as { link_rejected?: string };
+  return parsed.link_rejected;
+}
+
+// design/layout-db/23-geometry.md's link-approval-on-import follow-up
+// (LDB-MD3/MD5, LDB-F23): cmini's own `link` field is carried onto the
+// record as an already-APPROVED link -- the import itself is treated as
+// the verification, never queued as a pending submission -- but only for
+// as long as the importer itself is the one who last decided this
+// layout's link (`via === "import:cmini"`, or no decision yet). Once an
+// admin has approved/cleared a link by hand, every later import tick
+// leaves it alone even if cmini's own field keeps changing.
+async function importLink(db: Bindings["DB"], now: Clock, upstreamId: string, layoutId: string, currentLink: string | null, cminiLink: string | undefined): Promise<void> {
+  let next: string | null;
+  if (cminiLink === undefined) {
+    next = null;
+  } else {
+    const validated = validateLinkUrl(cminiLink);
+    if (!validated.ok) {
+      // Skip with an info log -- not https, too long, or carrying
+      // credentials -- rather than let a bad upstream value ever reach
+      // `layouts.link`. Reported once per distinct rejected value, not on
+      // every tick (LDB-I1: a full re-pass with unchanged content appends
+      // zero new events).
+      if ((await latestRejectedLink(db, layoutId)) !== cminiLink) {
+        await appendInfo(db, now, {
+          kind: "import_error",
+          layoutId,
+          actor: "system:cmini-import",
+          via: "import:cmini",
+          source: SYSTEM_SOURCE,
+          detail: { upstream_id: upstreamId, message: `cmini link rejected: ${validated.message}`, link_rejected: cminiLink },
+        });
+      }
+      return;
+    }
+    next = validated.url;
+  }
+  if (next === currentLink) return; // no change -- nothing to record
+  const via = await latestLinkVia(db, layoutId);
+  if (via !== null && via !== "import:cmini") return; // an admin decision stands, never overridden
+
+  await appendLinkChange(db, now, {
+    layoutId,
+    kind: next === null ? "link_cleared" : "link_approved",
+    link: next,
+    actor: "system:cmini-import",
+    via: "import:cmini",
+    admin: false,
+    source: SYSTEM_SOURCE,
+  });
+}
+
 // Case 1/3: create both scopes in one batch (21-formats.md §2.2's "cmini
 // import: create" row -- `imported` (layout) then `imported` (spark/1)).
 async function importCreate(db: Bindings["DB"], now: Clock, upstreamId: string, name: string, detail: ParsedUpstreamDetail, extraDetail?: object): Promise<LayoutRow> {
@@ -253,6 +335,24 @@ async function importCreate(db: Bindings["DB"], now: Clock, upstreamId: string, 
     upstream: { source: "cmini", id: upstreamId, state: "following" },
   };
   const { layout } = await commitWrite(db, now, input);
+  // design/layout-db/23-geometry.md §4.6 (LDB-F28): name every key/free
+  // position `fromCmini` relabelled (a `TB` finger, or an `LT`/`RT` thumb
+  // disagreeing with its column) -- informational only, no rev bump.
+  const changes = describeImportChanges(detail.payload);
+  if (changes.relabeled.length > 0) {
+    await appendInfo(db, now, {
+      kind: "import_relabel",
+      layoutId: layout.id,
+      actor: "system:cmini-import",
+      via: "import:cmini",
+      source: SYSTEM_SOURCE,
+      detail: { relabeled: changes.relabeled },
+    });
+  }
+  // Link-approval-on-import follow-up (LDB-MD3/MD5, LDB-F23): a brand-new
+  // import always starts with `link: null`, so this only ever fires when
+  // cmini's own record already carries one.
+  await importLink(db, now, upstreamId, layout.id, null, detail.payload.link);
   return layout;
 }
 
@@ -414,6 +514,25 @@ async function applyMapped(db: Bindings["DB"], now: Clock, upstreamId: string, d
         await commitWrite(db, now, buildInput(shadowName, { shadowed: { upstream_name: detail.name } }));
       }
 
+      // design/layout-db/23-geometry.md §4.6 (LDB-F28): only relevant when
+      // the format scope actually changed this tick (`payloadDiffers`) --
+      // `fromCmini` is deterministic, so a payload that DIDN'T change never
+      // has a NEW relabel to report either (the same relabel, if any, was
+      // already recorded on a prior tick).
+      if (payloadDiffers) {
+        const changes = describeImportChanges(detail.payload);
+        if (changes.relabeled.length > 0) {
+          await appendInfo(db, now, {
+            kind: "import_relabel",
+            layoutId: record.id,
+            actor: "system:cmini-import",
+            via: "import:cmini",
+            source: SYSTEM_SOURCE,
+            detail: { relabeled: changes.relabeled },
+          });
+        }
+      }
+
       // B2 sticky shadow: record upstream's name as of THIS tick so the
       // next one compares against it, not our own name -- once recorded,
       // a standing collision (upstream still wants the SAME name) is
@@ -432,6 +551,12 @@ async function applyMapped(db: Bindings["DB"], now: Clock, upstreamId: string, d
     for (const u of upstreamLikeIds) {
       if (!localLikeIds.has(u)) await importAppendLike(db, now, "liked", record.id, u);
     }
+    // Link-approval-on-import follow-up (LDB-MD3/MD5, LDB-F23): checked
+    // every following tick, independent of `layoutDiffers`/`payloadDiffers`
+    // -- cmini's `link` field can change on its own -- but never for a
+    // layout whose link an admin has since taken over (`importLink`'s own
+    // `latestLinkVia` guard).
+    await importLink(db, now, upstreamId, record.id, record.link, detail.payload.link);
     return;
   }
 

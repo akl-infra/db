@@ -45,6 +45,12 @@ export type InfoKind =
   // from one id's apply, recorded so the tick can keep going instead of
   // aborting -- `import/apply.ts`'s `recordImportError`.
   | "import_error"
+  // design/layout-db/23-geometry.md §4.6 (LDB-F28): `fromCmini` relabelled
+  // a `TB` finger, or an `LT`/`RT` thumb whose column disagreed with the
+  // `col < 5 => LT else RT` rule -- `import/apply.ts` records one of these
+  // per id whose `describeImportChanges(...).relabeled` is non-empty,
+  // naming every relabelled key/free position in `detail`.
+  | "import_relabel"
   | "upstream_deleted"
   | "admin.added"
   | "admin.removed"

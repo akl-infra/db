@@ -15,7 +15,8 @@
           "name": "cw-delete-stale-1",
           "format": "spark/1",
           "payload": {
-            "keys": {}
+            "keys": [],
+            "board": "ansi"
           }
         }
       },
@@ -78,7 +79,7 @@
         }
       },
       "last_write": {
-        "seq": 565,
+        "seq": 578,
         "at": "2026-06-20T00:00:00.000Z",
         "actor": "830000000000000001",
         "via": "discord",

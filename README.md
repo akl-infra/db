@@ -448,6 +448,19 @@ append one `admin.*` event to the public feed (`admin.import_ticked` /
 | `POST /v1/admin/diff/tick` | none | `{ ran: true, ...diffTick()'s own LastDiffRecord }` (`ok`/`corpus`/`samples`/... -- the same shape `import_state['cmini.last_diff']` stores) | the usual admin `401`/`403`/`429`/`503` (no "paused" state exists for the diff) |
 | `POST /v1/admin/nightly/tick` | none | `{ ran: true, at, jobs: { "prune-auth-cache": "ok"\|"error", "prune-rate-limits": "ok"\|"error", "prune-nonces": "ok"\|"error", "write-dump": "ok"\|"error" }, dump: writeDump()'s own { key, latest } or null }` -- `src/core/nightly.ts`'s `runNightly`, the SAME job list `scheduled()`'s `hour=3, minute=0` branch runs, each job guarded (`core/jobs.ts`'s `runJob`) so one failing never skips the rest | the usual admin `401`/`403`/`429`/`503` (no "paused" state exists for this job set either) |
 
+`POST /v1/admin/dump` is a fourth, narrower manual trigger: it calls
+`dump/write.ts`'s `writeDump` directly (the exact same path the nightly
+job's `write-dump` step and LDB-D8's own catch-up check use), needed
+because the layoutdb cutover imports into a wiped DB and the bot/site
+rebuild boot from the daily dump -- an operator can't wait for the next
+`hour=3, minute=0` slot right after a wipe-and-reimport. Unlike the three
+tick routes above, it appends no `admin.*` event (a dump write carries no
+per-record content worth logging on the public feed).
+
+| route | body | 200 response | other statuses |
+|---|---|---|---|
+| `POST /v1/admin/dump` | none | `{ seq, layout_count, written_at }` (`writeDump()`'s own `latest.json` fields, plus the clock value it was written at) | the usual admin `401`/`403`/`429`/`503` |
+
 ### Magic rules seed (one-time, M2)
 
 `design/layout-db/17-magic-ownership.md` §4 M2: the one-time migration that

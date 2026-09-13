@@ -83,8 +83,14 @@ export async function readHead(db: D1Database, stateKeys: readonly string[] = []
 // L5 moderation (§4.5, LDB-MD3): bumped 3 -> 4 -- every layout wire shape
 // gained `like_adjust`/`link`. H24 (2026-09-13): bumped 4 -> 5 -- the admin
 // like-count override was removed, so `like_adjust` disappears from every
-// layout wire shape again (`link` stays).
-const WIRE_VERSION = 5;
+// layout wire shape again (`link` stays). design/layout-db/23-geometry.md
+// (LDB-F27..F33): bumped 5 -> 6 -- spark/1's own payload shape changed
+// (`keys` a char-keyed map -> an ordered array with optional `char`,
+// `board` a `{kind, stagger, cmini}` object -> one required word, the `TB`
+// finger dropped, magic's `default`/`same`/`opposite` tagged instead of
+// bare strings) -- no cached 304/edge-cached body from before this slice
+// can keep serving the old spark/1 shape at an unchanged head seq.
+const WIRE_VERSION = 6;
 
 export async function etagFor(headSeqValue: number, query: unknown): Promise<string> {
   const hash = await sha256Hex(canonical({ wireVersion: WIRE_VERSION, query: query ?? null }));

@@ -18,7 +18,8 @@
           "name": "cw-patch-renamed-1",
           "format": "spark/1",
           "payload": {
-            "keys": {}
+            "keys": [],
+            "board": "ansi"
           }
         }
       }

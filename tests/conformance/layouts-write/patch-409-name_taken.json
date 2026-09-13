@@ -18,7 +18,8 @@
           "name": "cw-patch-nametaken-target-1",
           "format": "spark/1",
           "payload": {
-            "keys": {}
+            "keys": [],
+            "board": "ansi"
           }
         }
       },
@@ -30,7 +31,8 @@
           "name": "cw-patch-nametaken-src-1",
           "format": "spark/1",
           "payload": {
-            "keys": {}
+            "keys": [],
+            "board": "ansi"
           }
         }
       }

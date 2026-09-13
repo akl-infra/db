@@ -9,10 +9,11 @@
     "body": {
       "format": "spark/1",
       "payload": {
-        "keys": {},
+        "keys": [],
         "magic": {
-          "notes": "stale"
-        }
+          "magic_keys": [{ "key": "s", "except": ["x"] }]
+        },
+        "board": "ansi"
       }
     },
     "setup": [
@@ -26,10 +27,11 @@
         "body": {
           "format": "spark/1",
           "payload": {
-            "keys": {},
+            "keys": [],
             "magic": {
-              "notes": "bump"
-            }
+              "magic_keys": [{ "key": "b", "except": ["x"] }]
+            },
+            "board": "ansi"
           }
         }
       }
@@ -70,14 +72,15 @@
         },
         "format": "spark/1",
         "payload": {
-          "keys": {},
+          "keys": [],
           "magic": {
-            "notes": "bump"
-          }
+            "magic_keys": [{ "key": "b", "except": ["x"] }]
+          },
+          "board": "ansi"
         }
       },
       "last_write": {
-        "seq": 549,
+        "seq": 562,
         "at": "2026-06-20T00:00:00.000Z",
         "actor": "800000000000000001",
         "via": "discord",

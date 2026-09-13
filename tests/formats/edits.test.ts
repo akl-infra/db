@@ -34,9 +34,23 @@ function fixturesFor(formatId: string): Fixture[] {
   return fixturesIn(dir) as Fixture[];
 }
 
+// design/layout-db/23-geometry.md's duplicate-characters follow-up:
+// `Payload.keys` is an array now (char optional). A char that appears on
+// MORE than one entry is excluded from this map entirely -- `setFingermap`
+// itself refuses a named char with more than one match (24-spark-wire-
+// review.md finding 5), so "the identity map" can only ever cover chars it
+// could actually round-trip.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function fingermapOf(p: any): Record<string, string> {
-  return Object.fromEntries(Object.entries(p.keys as Record<string, { finger: string }>).map(([c, pos]) => [c, pos.finger]));
+  const counts = new Map<string, number>();
+  for (const k of p.keys as { char?: string; finger: string }[]) {
+    if (k.char !== undefined) counts.set(k.char, (counts.get(k.char) ?? 0) + 1);
+  }
+  const out: Record<string, string> = {};
+  for (const k of p.keys as { char?: string; finger: string }[]) {
+    if (k.char !== undefined && counts.get(k.char) === 1) out[k.char] = k.finger;
+  }
+  return out;
 }
 
 function isEditError(r: unknown): r is { error: { error: string; message: string; path?: string } } {
@@ -55,7 +69,7 @@ function unwrap<T>(result: T | { error: unknown }): T {
   return result as T;
 }
 
-const FINGERS = ["LP", "LR", "LM", "LI", "RI", "RM", "RR", "RP", "LT", "RT", "TB"];
+const FINGERS = ["LP", "LR", "LM", "LI", "RI", "RM", "RR", "RP", "LT", "RT"];
 // mana2/1's own `setFingermap` operates over `layout.fingers` ROW STRINGS,
 // not a `p.keys` map (it has none) -- `fingermapOf`/the "not in keys"/
 // "bad finger word" assertions below all assume spark/1's shape. Excluded
@@ -88,44 +102,52 @@ describe("format edits (LDB-E1)", () => {
           });
         }
 
-        it("[LDB-E1] a fingermap naming a char not in keys -> invalid_payload at /keys/<c>", () => {
+        it("[LDB-E1] a fingermap naming a char not in keys -> invalid_payload at /keys", () => {
           const fixture = fixtures[0]!;
-          const ghost = "\u0001"; // a control character, never a real layout key across any fixture
-          expect(ghost in fixture.payload.keys).toBe(false);
+          const ghost = ""; // a control character, never a real layout key across any fixture
+          expect((fixture.payload.keys as { char?: string }[]).some((k) => k.char === ghost)).toBe(false);
           const before = structuredClone(fixture.payload);
           const result = edits.setFingermap!(fixture.payload, { [ghost]: "LP" });
           expect(fixture.payload).toEqual(before); // purity even on refusal
-          expect(result).toEqual({ error: { error: "invalid_payload", message: expect.any(String), path: `/keys/${ghost}` } });
+          expect(result).toEqual({ error: { error: "invalid_payload", message: expect.any(String), path: "/keys" } });
         });
 
-        it("[LDB-E1] a bad finger word is left to validate()'s re-run: error at /keys/<c>/finger", () => {
-          const fixture = fixtures.find((f) => Object.keys(f.payload.keys).length > 0)!;
-          const ch = Object.keys(fixture.payload.keys)[0]!;
+        it("[LDB-E1] a fingermap naming a char on more than one position is refused (24-spark-wire-review.md finding 5) -- can't tell which one you mean", () => {
+          const fixture = fixtures[0]!;
+          const dupChar = ""; // a control character, never real -- appended twice on purpose
+          const withDup = { ...fixture.payload, keys: [...fixture.payload.keys, { char: dupChar, row: 4, col: 20, finger: "LP" }, { char: dupChar, row: 4, col: 21, finger: "RP" }] };
+          const result = edits.setFingermap!(withDup, { [dupChar]: "LP" });
+          expect(result).toEqual({ error: { error: "invalid_payload", message: expect.any(String), path: "/keys" } });
+        });
+
+        it("[LDB-E1] a bad finger word is left to validate()'s re-run", () => {
+          const fixture = fixtures.find((f) => (f.payload.keys as { char?: string }[]).some((k) => k.char !== undefined))!;
+          const keys = fixture.payload.keys as { char?: string; finger: string }[];
+          const ch = keys.find((k) => k.char !== undefined)!.char!;
           const result = edits.setFingermap!(fixture.payload, { [ch]: "NOT_A_FINGER" });
           expect(isEditError(result)).toBe(false);
           if (!isEditError(result)) {
             const validation = format.validate(result);
             expect(validation.ok).toBe(false);
-            if (!validation.ok) {
-              const pointer = `/keys/${ch}/finger`;
-              expect([pointer, `/keys/${ch}`]).toContain(validation.error.path);
-            }
           }
         });
 
         it("[LDB-E1] a partial fingermap changes exactly the named chars", () => {
-          const fixture = fixtures.find((f) => Object.keys(f.payload.keys).length >= 2)!;
-          const chars = Object.keys(fixture.payload.keys);
+          const fixture = fixtures.find((f) => (f.payload.keys as { char?: string }[]).filter((k) => k.char !== undefined).length >= 2)!;
+          const keys = fixture.payload.keys as { char?: string; row: number; col: number; finger: string }[];
+          const chars = keys.filter((k) => k.char !== undefined).map((k) => k.char!);
           const [changed, untouched] = [chars[0]!, chars[1]!];
-          const newFinger = fixture.payload.keys[changed].finger === "LP" ? "RP" : "LP";
+          const changedBefore = keys.find((k) => k.char === changed)!;
+          const newFinger = changedBefore.finger === "LP" ? "RP" : "LP";
           const result = edits.setFingermap!(fixture.payload, { [changed]: newFinger });
           expect(isEditError(result)).toBe(false);
           if (!isEditError(result)) {
-            expect(result.keys[changed].finger).toBe(newFinger);
-            expect(result.keys[untouched]).toEqual(fixture.payload.keys[untouched]);
+            const resultKeys = result.keys as { char?: string; row: number; col: number; finger: string }[];
+            expect(resultKeys.find((k) => k.char === changed)!.finger).toBe(newFinger);
+            expect(resultKeys.find((k) => k.char === untouched)).toEqual(keys.find((k) => k.char === untouched));
             for (const ch of chars) {
               if (ch === changed) continue;
-              expect(result.keys[ch]).toEqual(fixture.payload.keys[ch]);
+              expect(resultKeys.find((k) => k.char === ch)).toEqual(keys.find((k) => k.char === ch));
             }
           }
         });
@@ -136,11 +158,7 @@ describe("format edits (LDB-E1)", () => {
               fc.uniqueArray(fc.string({ minLength: 1, maxLength: 1 }), { minLength: 1, maxLength: 6 }),
               fc.array(fc.constantFrom(...FINGERS), { minLength: 1, maxLength: 6 }),
               (chars, fingers) => {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const keys: Record<string, any> = {};
-                chars.forEach((c, i) => {
-                  keys[c] = { row: 0, col: i, finger: fingers[i % fingers.length] };
-                });
+                const keys = chars.map((c, i) => ({ char: c, row: 0, col: i, finger: fingers[i % fingers.length]! }));
                 const base = { keys };
                 const map: Record<string, string> = {};
                 chars.forEach((c, i) => {
@@ -281,7 +299,7 @@ describe("mana2/1 setFingermap (LDB-E1)", () => {
 
   it("[LDB-E1] property: setFingermap then fingermapOf recovers the map, for random single-row layouts", () => {
     const digitByFinger: Record<string, number> = { LP: 0, LR: 1, LM: 2, LI: 3, LT: 4, RT: 5, RI: 6, RM: 7, RR: 8, RP: 9 };
-    const nonThumbFingers = FINGERS.filter((f) => f !== "TB" && f !== "LT" && f !== "RT");
+    const nonThumbFingers = FINGERS.filter((f) => f !== "LT" && f !== "RT");
     fc.assert(
       fc.property(
         fc.uniqueArray(

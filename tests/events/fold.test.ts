@@ -112,7 +112,7 @@ function actorFor(userId: string): Actor {
 // retarget, so every spark payload the model ever creates keeps this ONE
 // key throughout -- unlike the old model's empty `{keys: {}}` seed, which
 // could never exercise a real `patchFormat` fingermap edit at all.
-const SPARK_SEED_PAYLOAD = { keys: { a: { row: 0, col: 0, finger: "LP" as const } } };
+const SPARK_SEED_PAYLOAD = { keys: [{ char: "a", row: 0, col: 0, finger: "LP" as const }], board: "ansi" as const };
 
 beforeAll(async () => {
   // transferLayout's own build() requires `to` to be a known author.
@@ -314,7 +314,10 @@ async function applyOp(clock: () => string, slots: Slot[], op: Op): Promise<void
   if (action === "replace_spark" || action === "replace_t") {
     const lineage = action === "replace_spark" ? "spark" : "t";
     const format = lineage === "spark" ? "spark/1" : "t/1";
-    const payload = lineage === "spark" ? { ...SPARK_SEED_PAYLOAD, magic: { notes: unique() } } : { a: uniqueCounter++ };
+    // `magic.notes` was dropped entirely (design/layout-db/24-spark-wire-
+    // review.md round 2 item 2) -- a raw rule with a unique output is the
+    // new way to make each replace's magic content genuinely different.
+    const payload = lineage === "spark" ? { ...SPARK_SEED_PAYLOAD, magic: { rules: [{ inputs: "zz", output: unique() }] } } : { a: uniqueCounter++ };
     const result = await putFormat(bindings, clock, actorFor(slot.owner), slot.id, { format, payload }, STAR, NO_IF_NONE_MATCH, null);
     slot.n = result.layout.n;
     slot.upstream = expectUpstream("discord", lineage === "spark", result);
@@ -445,7 +448,7 @@ async function applyOp(clock: () => string, slots: Slot[], op: Op): Promise<void
   if (action === "import_update_layout" || action === "import_update_spark" || action === "import_update_both" || action === "import_delete") {
     const upstream = nextUpstream(current.upstream, "import:cmini", true);
     const layoutPart = { kind: "imported" as const, name: `wm-${op.slotIdx}-${unique()}`, owner: current.owner, created_at: current.created_at, deleted: false };
-    const formatPart = { kind: "imported" as const, lineage: "spark", format: "spark/1", payload: { ...SPARK_SEED_PAYLOAD, magic: { notes: unique() } }, hasMagic: false };
+    const formatPart = { kind: "imported" as const, lineage: "spark", format: "spark/1", payload: { ...SPARK_SEED_PAYLOAD, magic: { rules: [{ inputs: "zz", output: unique() }] } }, hasMagic: false };
     const input: CommitInput =
       action === "import_delete"
         ? {
@@ -684,7 +687,7 @@ describe("[LDB-P1] [MF-1] [MF-2] [MF-3] [MF-5] [MF-12] the shared write model", 
       currentLayout: null,
       currentFormats: new Map(),
       layout: { kind: "created", name: `alone-${unique()}`, owner: OWNER_A, created_at: clock(), deleted: false },
-      format: { kind: "format_added", lineage: "spark", format: "spark/1", payload: { keys: {} }, hasMagic: false },
+      format: { kind: "format_added", lineage: "spark", format: "spark/1", payload: { keys: [], board: "ansi" }, hasMagic: false },
       modified_at: clock(),
       actor: "tester",
       via: "discord",

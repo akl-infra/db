@@ -49,6 +49,7 @@ const INFO_KINDS_MAP: Record<InfoKind, true> = {
   upstream_changed: true,
   import_conflict: true,
   import_error: true,
+  import_relabel: true,
   upstream_deleted: true, // deliberately in both maps -- see WriteKind/InfoKind's own header note (core/events.ts)
   "admin.added": true,
   "admin.removed": true,

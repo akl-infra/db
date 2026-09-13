@@ -89,13 +89,24 @@ function genMagicIntent(g: fc.GeneratorValue, keys: Record<string, Position>): M
     const nRules = g(fc.integer, { min: minRules, max: Math.max(minRules, Math.min(3, remaining.length)) });
     const afters = g(fc.shuffledSubarray, remaining, { minLength: nRules, maxLength: nRules });
     const rules = afters.map((after: string) => ({ after, output: after + g(fc.constantFrom, ...CHAR_POOL) }));
-    return { key, default: dflt, rules };
+    // design/layout-db/24-spark-wire-review.md finding 6: tagged sentinels
+    // -- "none" is now just an omitted `default` (never a string), the
+    // OTHER two sentinel kinds this generator picks between are `{repeat:
+    // true}` and `{char: <c>}`.
+    const taggedDefault = dflt === "none" ? undefined : dflt === "repeat_previous" ? ({ kind: "repeat" as const }) : { kind: "char" as const, char: dflt };
+    return { key, default: taggedDefault, rules };
   });
 
   const chiral_keys = chiralKeyChars.map((key) => {
     const same = g(fc.constantFrom, "repeat_previous", ...VALUE_POOL);
     const opposite = g(fc.constantFrom, "repeat_previous", ...VALUE_POOL);
-    return { key, same, opposite };
+    // Same tagging, but ONLY for the "repeat_previous" sentinel -- a literal
+    // value stays a bare string (finding 6).
+    return {
+      key,
+      same: same === "repeat_previous" ? ({ kind: "repeat" as const }) : same,
+      opposite: opposite === "repeat_previous" ? ({ kind: "repeat" as const }) : opposite,
+    };
   });
 
   const adaptive_swaps: { trigger: string; swap: [string, string] }[] = [];

@@ -15,6 +15,7 @@
 // this file's coverage is unchanged by the move.
 import { describe, expect, it } from "vitest";
 import { validatedShapes, fixturesIn } from "./validated-shapes.ts";
+import * as spark1 from "../../formats/spark/1/index.ts";
 
 // -- JSON Pointer helpers (RFC 6901) --
 function pointerSeg(seg: string): string {
@@ -136,15 +137,21 @@ const ALLOWED: Record<string, Set<string>> = {
     "type:empty string",
   ]),
   "spark/1": new Set([
-    "default:delete", // magic_keys[].default (falls back to "none"); can only REMOVE rows, never collide
-    "cmini:delete", // board.cmini (derived when absent, 01 §6.2)
+    // Key.char is optional (23-geometry.md's duplicate-characters follow-up
+    // -- absent means a free position); deleting or blanking it is always a
+    // valid transform. Shares this "char" bucket with magic_keys[].default's
+    // OWN `char` sub-field (24-spark-wire-review.md finding 6's tagged
+    // shape) purely by fieldKind's naive last-segment naming -- THAT
+    // instance needs the opposite verdict, handled by the dedicated
+    // `isMagicDefaultChar` skip below rather than here.
+    "char:delete",
+    "char:empty string",
     "same:delete", // chiral_keys[] needs only ONE of same/opposite -- 901-idioms sets both
     "opposite:delete",
     "type:delete", // magic.rules[]' optional `type` (defaults to "raw")
     "type:empty string",
     "note:delete", // magic.rules[]' optional `note`
     "note:empty string",
-    "stagger:negative number", // 01 §2.1 only constrains stagger's LENGTH, not its per-entry sign
   ]),
   "mana2/1": new Set([
     "fingers:empty string", // an empty layout.fingers row is a real state (zero keys that row) -- fromAkl produces one for a main row with no keys
@@ -275,6 +282,27 @@ describe("payload mutations", () => {
               it.skip(`[LDB-F1] ${fixture.stem} ${leaf.pointer} empty string -- combos on this fixture reference this row's own keys, see mana2.test.ts`, () => {});
               continue;
             }
+            // spark/1's magic_keys[].default, when it holds `{char: <c>}`
+            // (24-spark-wire-review.md finding 6's tagged shape), shares the
+            // generic "char" field-kind bucket with Payload.keys[i].char
+            // (now optional -- a free position) purely by fieldKind's naive
+            // last-segment naming: it can't tell "this /default/char" from
+            // "this /keys/N/char" apart. The two need OPPOSITE verdicts --
+            // deleting or blanking a KEY's char is a valid free position
+            // (ALLOWED, above); deleting or blanking a MAGIC DEFAULT's char
+            // leaves it matching neither half of the tagged-union schema
+            // (`{repeat:true}` or `{char:<single character>}`), correctly
+            // REFUSED. Asserted directly here (not a blanket ALLOWED/
+            // deferred skip) since the verdict is uniform and known.
+            const isMagicDefaultChar = format.id === "spark/1" && kind === "char" && /\/default\/char$/.test(leaf.pointer);
+            if (isMagicDefaultChar && (mutation === "delete" || mutation === "empty string")) {
+              it(`[LDB-F1] ${fixture.stem} ${leaf.pointer} ${mutation} -- a magic default with no char left is refused (shares the 'char' bucket with Key.char, which IS allowed)`, () => {
+                const mutated = applyMutation(fixture.payload, leaf, mutation);
+                const result = format.validate(mutated);
+                expect(result.ok).toBe(false);
+              });
+              continue;
+            }
             const isAllowed = isCombosInputsElement || allowed.has(`${kind}:${mutation}`);
             it(`[LDB-F1] ${fixture.stem} ${leaf.pointer} ${mutation}${isAllowed ? " (allowed)" : ""}`, () => {
               const mutated = applyMutation(fixture.payload, leaf, mutation);
@@ -335,4 +363,73 @@ describe("payload mutations", () => {
       }
     });
   }
+});
+
+// [LDB-F27] spark/1's own real (non-schema) geometry rules (design/layout-
+// db/23-geometry.md §4.4): the board enum itself is the schema's job (the
+// generated matrix above already exercises deleting/corrupting `board`),
+// but the iso-row-2-width rule and the thumb-row rule are hand-written
+// checks in `validateGeometry` -- each gets its own refusing fixture here,
+// dedicated rather than folded into the generic per-leaf matrix (neither
+// rule is a single-leaf mutation: iso's is a cross-row width comparison,
+// the thumb-row rule is a cross-field finger/row check).
+describe("[LDB-F27] spark/1's real (non-schema) geometry rules", () => {
+  it("[LDB-F27] board must be one of ansi/iso/ortho/colstag -- anything else is refused", () => {
+    const result = spark1.validate({ keys: [], board: "not-a-board" });
+    expect(result.ok).toBe(false);
+  });
+
+  it("[LDB-F27] iso: row 2 more than one column wider than rows 0-1 is refused", () => {
+    const payload = {
+      board: "iso",
+      keys: [
+        { char: "a", row: 0, col: 0, finger: "LP" },
+        { char: "b", row: 1, col: 0, finger: "LP" },
+        { char: "c", row: 2, col: 0, finger: "LP" },
+        { char: "d", row: 2, col: 1, finger: "LR" },
+        { char: "e", row: 2, col: 2, finger: "LM" },
+      ],
+    };
+    const result = spark1.validate(payload);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.path).toBe("/keys");
+  });
+
+  it("[LDB-F27] a thumb finger (LT/RT) on a finger row (0-2) is refused; row 3+ is fine", () => {
+    const onFingerRow = spark1.validate({ board: "ansi", keys: [{ char: "a", row: 2, col: 0, finger: "LT" }] });
+    expect(onFingerRow.ok).toBe(false);
+    const onThumbRow = spark1.validate({ board: "ansi", keys: [{ char: "a", row: 3, col: 0, finger: "LT" }] });
+    expect(onThumbRow.ok).toBe(true);
+  });
+});
+
+// [LDB-F33] design/layout-db/23-geometry.md's duplicate-characters follow-
+// up: a char any magic construct NAMES is refused once it appears on more
+// than one `keys` entry (`magic_needs_unique_key`); a plain duplicate no
+// magic construct names is unrestricted.
+describe("[LDB-F33] magic-named chars must be unique among keys", () => {
+  it("[LDB-F33] a magic key's own `key` char appearing on two entries is refused magic_needs_unique_key", () => {
+    const payload = {
+      board: "ansi",
+      keys: [
+        { char: "z", row: 0, col: 0, finger: "LP" },
+        { char: "z", row: 1, col: 0, finger: "LP" },
+      ],
+      magic: { magic_keys: [{ key: "z", default: { kind: "repeat" } }] },
+    };
+    const result = spark1.validate(payload);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.error).toBe("magic_needs_unique_key");
+  });
+
+  it("[LDB-F33] a plain duplicate char no magic construct names is unrestricted", () => {
+    const payload = {
+      board: "ansi",
+      keys: [
+        { char: "z", row: 0, col: 0, finger: "LP" },
+        { char: "z", row: 1, col: 0, finger: "LP" },
+      ],
+    };
+    expect(spark1.validate(payload).ok).toBe(true);
+  });
 });

@@ -44,7 +44,7 @@ describe("intent survives store + read (LDB-F3)", () => {
     expect(payload.magic?.magic_keys).toEqual([
       {
         key: ";",
-        default: "repeat_previous",
+        default: { kind: "repeat" },
         rules: [{ after: "t", output: "th" }],
         except: ["q"],
       },

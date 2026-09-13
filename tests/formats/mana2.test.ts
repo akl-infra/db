@@ -147,48 +147,67 @@ describe("algorithm rows (12-implementation-phase5.md §2.5, exact)", () => {
     return t as SparkPayload;
   }
 
-  it("hours: e at {row:3,col:5,finger:RT}, space at {row:3,col:4,finger:LT}", () => {
+  function keyOf(a: SparkPayload, ch: string) {
+    return a.keys.find((k) => k.char === ch);
+  }
+
+  it("hours: e at {row:3,col:5,finger:RT}, space (mana2's own token) becomes a free position at {row:3,col:4,finger:LT} (LDB-F11, finding 11: spark refuses a space char)", () => {
     const a = spark("001-hours");
-    expect(a.keys["e"]).toEqual({ row: 3, col: 5, finger: "RT" });
-    expect(a.keys[" "]).toEqual({ row: 3, col: 4, finger: "LT" });
+    expect(keyOf(a, "e")).toEqual({ char: "e", row: 3, col: 5, finger: "RT" });
+    expect(a.keys).toContainEqual({ row: 3, col: 4, finger: "LT" });
+    expect(keyOf(a, " ")).toBeUndefined();
   });
 
   it("chantries: l {row:3,col:3,finger:LT}, h {row:3,col:4,finger:LT}", () => {
     const a = spark("006-chantries");
-    expect(a.keys["l"]).toEqual({ row: 3, col: 3, finger: "LT" });
-    expect(a.keys["h"]).toEqual({ row: 3, col: 4, finger: "LT" });
+    expect(keyOf(a, "l")).toEqual({ char: "l", row: 3, col: 3, finger: "LT" });
+    expect(keyOf(a, "h")).toEqual({ char: "h", row: 3, col: 4, finger: "LT" });
   });
 
-  it("stand_iso: free[0] = {row:2,col:5,finger:LI}", () => {
+  it("stand_iso: a free entry at {row:2,col:5,finger:LI}", () => {
     const a = spark("003-stand_iso");
-    expect(a.free).toContainEqual({ row: 2, col: 5, finger: "LI" });
+    expect(a.keys).toContainEqual({ row: 2, col: 5, finger: "LI" });
   });
 
   it("cyclone: row 2 col 0 is 'k' with LR", () => {
     const a = spark("008-cyclone");
-    expect(a.keys["k"]).toMatchObject({ row: 2, col: 0, finger: "LR" });
+    expect(keyOf(a, "k")).toMatchObject({ row: 2, col: 0, finger: "LR" });
   });
 
   it("graphite: columns reach 11", () => {
     const a = spark("002-graphite");
-    const maxCol = Math.max(...Object.values(a.keys).map((k) => k.col), ...(a.free ?? []).map((k) => k.col));
+    const maxCol = Math.max(...a.keys.map((k) => k.col));
     expect(maxCol).toBe(11);
   });
 
-  it("whirl: colstag with 10 entries", () => {
+  it("whirl: colstag (design/layout-db/23-geometry.md §4.1: the WORD survives, the per-column amounts don't -- colstag has nowhere to store them any more)", () => {
     const a = spark("004-whirl");
-    expect(a.board?.kind).toBe("colstag");
-    expect(a.board?.stagger).toHaveLength(10);
+    expect(a.board).toBe("colstag");
   });
 
   it("bunya: ortho", () => {
     const a = spark("005-bunya");
-    expect(a.board).toEqual({ kind: "ortho", cmini: "ortho" });
+    expect(a.board).toBe("ortho");
   });
 
   it("904-dup-rules: keeps the last rule", () => {
     const t = spark("904-dup-rules");
     expect(t.magic?.rules).toEqual([{ inputs: "th", output: "te", type: "raw" }]);
+  });
+
+  // [LDB-F29] [LDB-F33] 905-duplicate-chars (spark/1 -- a hand-written
+  // fixture, not mana2-derived): 'y' appears twice, on OPPOSITE hands
+  // (row 0 col 5, RI; row 1 col 4, LI), with no magic referencing it -- a
+  // plain duplicate letter, valid on its own (§4.8). `fromSpark` keeps only
+  // the FIRST occurrence IN LIST ORDER (row 0's) as the analysed 'y'; the
+  // second becomes a `skip` cell, its finger (LI, digit 3) still recorded.
+  it("[LDB-F29] [LDB-F33] 905-duplicate-chars: fromSpark keeps the first-listed 'y', the second becomes skip", () => {
+    const payload = JSON.parse(fs.readFileSync(path.join(SPARK_FIXTURES_DIR, "905-duplicate-chars.json"), "utf8")) as SparkPayload;
+    expect(spark1.validate(payload).ok).toBe(true);
+    const m = fromSpark(payload);
+    expect(m.layout.fingers[0]).toBe("q w e r t y u i o p");
+    expect(m.layout.fingers[1]).toBe("a s d f skip h j k l ;");
+    expect(m.fingermap[1]!.trim().split(/\s+/)[4]).toBe("3"); // LI's digit -- the skip cell still reports the right finger
   });
 
   const heldCases: Array<[string, string]> = [
@@ -208,26 +227,27 @@ describe("algorithm rows (12-implementation-phase5.md §2.5, exact)", () => {
 
   // 21-formats.md D10: spark/1's free-form `x` field (and this pair's own
   // `x.mana2` hatch, which used to carry these two fields across the hop
-  // exactly) is gone. `toSpark` no longer holds on them -- it just drops
-  // them, a documented loss (`db/formats/mana2/1/translate.ts`'s own
-  // `Mana2Extra` comment) -- so these fixtures still translate, but the
-  // field itself no longer survives; see the round-trip exclusion below
-  // for the resulting default-value assertion.
+  // exactly) is gone. 23-geometry.md then replaced `board` itself with a
+  // plain word -- there is no `board` OBJECT left at all to carry a
+  // `splitAngle`/`mirrorLeftRowStagger` property on, so these two fixtures'
+  // own point (the hatch used to exist for exactly these fields) is even
+  // more thoroughly moot than D10 alone made it. Still not held -- both
+  // still translate to a plain board word.
   const hatchCases: Array<[string, string]> = [
     ["901-splitangle-hatch", "splitAngle"],
     ["902-mirror-hatch", "mirrorLeftRowStagger"],
   ];
   for (const [name, field] of hatchCases) {
-    it(`${name}: NOT held -- board.${field} is silently dropped (D10: no more x.mana2 hatch)`, () => {
+    it(`${name}: NOT held -- board.${field} has nowhere left to go (no more board object at all, 23-geometry.md)`, () => {
       const a = spark(name);
       expect(isHeldResult(a)).toBe(false);
-      expect(a.board).not.toHaveProperty(field);
+      expect(typeof a.board).toBe("string");
     });
   }
 
   it("905-colstag-zeros: derives to ortho", () => {
     const a = spark("905-colstag-zeros");
-    expect(a.board).toEqual({ kind: "ortho", cmini: "ortho" });
+    expect(a.board).toBe("ortho");
   });
 });
 
@@ -250,9 +270,21 @@ function cellCount(row: string): number {
 // `mirrorLeftRowStagger: false`/`splitAngle: 0` as absent; key order (a
 // plain JS object comparison already ignores property order -- only array
 // order is significant, and no array here is reordered by this function).
+// design/layout-db/24-spark-wire-review.md finding 11 (D, identity): a
+// space (" ") is refused as a spark/1 `char`, so a mana2 `space` token
+// becomes a free position (mana2's own "skip") on the mana2 -> spark hop --
+// a NEW, permanent, documented loss (mana2/1/translate.ts's own `toSpark`
+// comment) that affects nearly every vendored fixture (most keyboards have
+// a spacebar). Canonicalised away here exactly like the OTHER documented
+// losses this function already folds (mirrorLeftRowStagger, splitAngle,
+// etc.) -- "space" and "skip" compare equal for this round trip's purposes.
+function dropSpaceToken(token: string): string {
+  return token === "space" ? "skip" : token;
+}
+
 function normalizeMana2(m: Mana2Payload): unknown {
-  const fingers = m.layout.fingers.map((r) => tokensOf(r).join(" "));
-  const thumbs = m.layout.thumbs?.map((r) => tokensOf(r).join(" "));
+  const fingers = m.layout.fingers.map((r) => tokensOf(r).map(dropSpaceToken).join(" "));
+  const thumbs = m.layout.thumbs?.map((r) => tokensOf(r).map(dropSpaceToken).join(" "));
   const fingermap = m.fingermap.map((row, y) => {
     const n = cellCount(m.layout.fingers[y] ?? "");
     return tokensOf(row).slice(0, n).join(" ");
@@ -293,28 +325,37 @@ describe("mana2/1 -> akl/1 -> mana2/1 (every non-held fixture, modulo normalizeM
       const m = JSON.parse(fs.readFileSync(path.join(dir, file), "utf8")) as Mana2Payload;
       const check = mana2_1.validate(m);
       if (!check.ok) continue; // shouldn't happen here; the envelope test above is the authority
-      // Five fixtures are DESIGNED (or, for `opaline`, discovered) to be
-      // lossy, not round-trip clean -- `904-dup-rules` (last-wins dedup at
-      // the FIRST hop discards the earlier duplicate forever),
+      // Nine fixtures are DESIGNED (or, for `opaline`/`nastic`, discovered)
+      // to be lossy, not round-trip clean -- `904-dup-rules` (last-wins
+      // dedup at the FIRST hop discards the earlier duplicate forever),
       // `905-colstag-zeros` (an all-zero colstag collapses to "ortho",
       // which comes back isRowStaggered: true, not the original false --
-      // the same asymmetry documented for `board.kind: "ortho"`
-      // generally), `901-splitangle-hatch`/`902-mirror-hatch` (21-formats
-      // .md D10: spark/1 has nowhere left to carry `board.splitAngle`/
-      // `mirrorLeftRowStagger` across the hop, so they silently reset to
-      // their defaults -- see the `hatchCases` block above), and the
-      // vendored `opaline` (its own `magic.magicKeys: []` -- an explicit
-      // empty array, distinct from absent/null -- comes back `null`,
-      // D10's same loss: `normalizeMana2` treats `null` as absent but `[]`
-      // as present, so this one real file's empty array can never survive
-      // the hop now that there's nowhere to carry it). The first four are
-      // asserted exactly, by name, in the "algorithm rows" describe block
-      // above; `opaline` alone has no dedicated re-assertion (an empty
-      // `magicKeys` carries no information worth pinning beyond "it's
-      // gone, like the others"). All five are excluded here so this
-      // generic loop's identity claim stays true for what it actually
-      // claims.
-      if (["904-dup-rules", "905-colstag-zeros", "901-splitangle-hatch", "902-mirror-hatch", "opaline"].includes(stem)) continue;
+      // the same asymmetry documented for `board: "ortho"` generally),
+      // `901-splitangle-hatch`/`902-mirror-hatch` (23-geometry.md: spark/1
+      // has no board OBJECT left at all, so there's nowhere to carry
+      // `board.splitAngle`/`mirrorLeftRowStagger` across the hop -- they
+      // silently reset to their defaults, see the `hatchCases` block
+      // above), the vendored `opaline` (its own `magic.magicKeys: []` -- an
+      // explicit empty array, distinct from absent/null -- comes back
+      // `null`, D10's same loss: `normalizeMana2` treats `null` as absent
+      // but `[]` as present, so this one real file's empty array can never
+      // survive the hop now that there's nowhere to carry it),
+      // `nstd-repeat`/`whirl` (vendored)/`004-whirl` (named) -- three real
+      // GENUINELY column-staggered mana2 files (design/layout-db/
+      // 23-geometry.md §4.1: "colstag does not get to set stagger" -- spark's
+      // colstag has NO stagger amounts to preserve at all any more, only the
+      // WORD, so their real per-column offsets are lost the moment they
+      // reach spark and come back all-zero), and the vendored `nastic`
+      // (its own `[0, 0, 0.5]` row stagger matches neither `ansi` nor `iso`
+      // nor all-zero -- `boardToSpark`'s documented fallback maps ANY other
+      // row-staggered shape to `ansi`, LDB-F5's widened loss list, so its
+      // real amounts don't survive either). The first four are asserted
+      // exactly, by name, in the "algorithm rows" describe block above;
+      // `opaline` and the four stagger-losing files have no dedicated
+      // re-assertion (there's nothing left worth pinning beyond "it's gone,
+      // like the others"). All nine are excluded here so this generic
+      // loop's identity claim stays true for what it actually claims.
+      if (["904-dup-rules", "905-colstag-zeros", "901-splitangle-hatch", "902-mirror-hatch", "opaline", "nstd-repeat", "whirl", "004-whirl", "nastic"].includes(stem)) continue;
       const translated = toSpark(m);
       if (isHeldResult(translated)) continue; // held fixtures have no round trip to check here (algorithm-row assertions cover them)
 
@@ -332,32 +373,39 @@ describe("mana2/1 -> akl/1 -> mana2/1 (every non-held fixture, modulo normalizeM
 // fixture: identity OFF the thumb row (12 §5's own invariant wording),
 // with the enumerated thumb re-anchoring asserted exactly, not skipped --
 
-function expectedBoard(board: SparkBoard | undefined, _numMainRows: number): SparkBoard {
-  // ortho (or board absent) -> fromAkl's isRowStaggered:true, all-zero
-  // stagger -> toAkl's OWN all-zero-collapses-to-ortho rule (12 §2.5's
-  // table: "isRowStaggered: true, stagger all zero -> board: {kind:ortho,
-  // cmini:ortho}") gives back EXACTLY "ortho" again -- a fully lossless
-  // hop for this corner, not the asymmetric "becomes rowstag+zeros" loss
-  // an earlier round of this format had before that all-zero rule existed.
-  if (board === undefined || board.kind === "ortho") {
-    return { kind: "ortho", cmini: "ortho" };
+// design/layout-db/23-geometry.md §4.1: a colstag board's per-column shape
+// has no place in mana2's OWN row-staggered/flat vocabulary AT ALL any more
+// (spark's colstag carries no amounts to preserve) -- it comes back
+// "ortho" (isRowStaggered: true, all-zero stagger -> boardToSpark's own
+// all-zero rule). `ansi`/`iso`/`ortho` all round-trip losslessly (the
+// stagger is a FIXED function of the kind on both sides now).
+function expectedBoard(board: SparkBoard): SparkBoard {
+  return board === "colstag" ? "ortho" : board;
+}
+
+// design/layout-db/23-geometry.md's duplicate-characters follow-up
+// (24-spark-wire-review.md finding 5): "the first entry for a char in LIST
+// ORDER" wins for a repeated char -- `keys` is never resorted by (row,
+// col) or anything else. The SAME rule `mana2/1/translate.ts`'s own
+// `firstOccurrencePerChar` applies, reimplemented independently here (test
+// stays self-contained) so magic lowering addresses the identical position
+// a real hop would.
+function firstOccurrencePerChar(keys: SparkPayload["keys"]): Set<SparkPayload["keys"][number]> {
+  const seen = new Set<string>();
+  const analysed = new Set<SparkPayload["keys"][number]>();
+  for (const k of keys) {
+    if (k.char === undefined || seen.has(k.char)) continue;
+    seen.add(k.char);
+    analysed.add(k);
   }
-  if (board.kind === "colstag") {
-    const out: SparkBoard = { kind: "colstag" };
-    if (board.stagger) out.stagger = board.stagger;
-    return out;
-  }
-  const out: SparkBoard = { kind: "rowstag" };
-  if (board.stagger) {
-    const first3 = board.stagger.slice(0, 3);
-    out.stagger = first3;
-    if (first3.length === 3 && first3[0] === 0 && first3[1] === 0.25 && first3[2] === 0.75) out.cmini = "stagger";
-  }
-  return out;
+  return analysed;
 }
 
 function expectedMagic(p: SparkPayload): SparkPayload["magic"] {
-  const rows = computeRows(p.magic, p.keys);
+  const analysed = firstOccurrencePerChar(p.keys);
+  const charMap: Record<string, { row: number; col: number; finger: string }> = {};
+  for (const k of analysed) if (k.char !== undefined) charMap[k.char] = { row: k.row, col: k.col, finger: k.finger };
+  const rows = computeRows(p.magic, charMap);
   if (rows.length === 0) return undefined;
   return { rules: rows.map((r) => ({ inputs: r.inputs, output: r.output, type: "raw" })) };
 }
@@ -369,28 +417,29 @@ interface ThumbEntry {
 }
 
 function isThumbFinger(f: string): boolean {
-  return f === "LT" || f === "RT" || f === "TB";
+  return f === "LT" || f === "RT";
 }
 
-// Non-thumb keys/free/board/lower(magic) are identity; thumb keys
-// re-anchor by `col < 4.5` into mana2's compact convention and back out
-// at fixed columns 4/5 (§2.5's own thumb formula) -- NOT the same
-// row/col they started at, and never `TB` again (mana2 has no such
-// finger). Predicted here by literally re-deriving what `fromAkl`'s own
-// grouping+sort+re-anchor step produces, then feeding it through
-// `toAkl`'s own reverse formula -- the exact mechanism, not a guess.
+// Non-thumb keys/board/lower(magic) are identity (modulo the duplicate-char
+// collapse below); thumb keys go to their own side BY LABEL (§4.5 --
+// `LDB-F29`, no more `col < 4.5` re-anchoring) and come back out at fixed
+// columns 4/5 (§2.5's own thumb formula) -- NOT the same row/col they
+// started at. Predicted here by literally re-deriving what `fromAkl`'s own
+// grouping+sort step produces, then feeding it through `toAkl`'s own
+// reverse formula -- the exact mechanism, not a guess.
 function adjustForMana2RoundTrip(a: SparkPayload): SparkPayload {
+  const analysed = firstOccurrencePerChar(a.keys);
   const mainEntries: Array<{ row: number; col: number; char?: string; finger: string }> = [];
   const left: ThumbEntry[] = [];
   const right: ThumbEntry[] = [];
 
-  for (const [ch, pos] of Object.entries(a.keys)) {
-    if (isThumbFinger(pos.finger)) (pos.col < 4.5 ? left : right).push({ col: pos.col, row: pos.row, char: ch });
-    else mainEntries.push({ row: pos.row, col: pos.col, char: ch, finger: pos.finger });
-  }
-  for (const pos of a.free ?? []) {
-    if (isThumbFinger(pos.finger)) (pos.col < 4.5 ? left : right).push({ col: pos.col, row: pos.row });
-    else mainEntries.push({ row: pos.row, col: pos.col, finger: pos.finger });
+  for (const k of a.keys) {
+    // A later occurrence of a duplicate char loses its char here, exactly
+    // like `fromSpark`'s own `firstOccurrencePerChar` -- it becomes a plain
+    // gap cell (position + finger survive, character doesn't, LDB-F5).
+    const char = k.char !== undefined && analysed.has(k) ? k.char : undefined;
+    if (isThumbFinger(k.finger)) (k.finger === "LT" ? left : right).push({ col: k.col, row: k.row, char });
+    else mainEntries.push({ row: k.row, col: k.col, char, finger: k.finger });
   }
 
   const numMainRows = Math.max(mainEntries.length === 0 ? 0 : Math.max(...mainEntries.map((e) => e.row)) + 1, 1);
@@ -398,17 +447,18 @@ function adjustForMana2RoundTrip(a: SparkPayload): SparkPayload {
   const thumbRow = numMainRows;
   const sortSide = (side: ThumbEntry[]): ThumbEntry[] => [...side].sort((x, y) => (x.col !== y.col ? x.col - y.col : x.row - y.row));
 
-  // Exactly `fromAkl`'s own main-row grid: every column 0..maxCol that
-  // has neither a key nor a `free` entry becomes a "skip" cell (finger
-  // digit 0 = LP, since there is no finger to report); an EXISTING
-  // `free` entry is ALSO a "skip" cell (its own finger is what gets
-  // reported). Trailing skip cells (from either source, indistinguishable
-  // once lowered to a token string) are trimmed -- so a column past the
-  // row's LAST REAL KEY simply vanishes, key or gap alike, and a
-  // surviving gap-or-free cell reappears as a NEW `free` entry (finger LP
-  // for a pure gap, the original finger for a genuine `free` entry).
-  const outKeys: SparkPayload["keys"] = {};
-  const outFree: SparkPayload["keys"][string][] = [];
+  // Exactly `fromAkl`'s own main-row grid: every column 0..maxCol that has
+  // neither a key nor a gap entry becomes a "skip" cell (finger digit 0 =
+  // LP, since there is no finger to report); an EXISTING gap entry
+  // (originally free, OR a demoted duplicate) is ALSO a "skip" cell (its
+  // own finger is what gets reported). Trailing skip cells (from either
+  // source, indistinguishable once lowered to a token string) are trimmed
+  // -- so a column past the row's LAST REAL KEY simply vanishes, key or
+  // gap alike, and a surviving gap cell reappears as a NEW char-less entry
+  // (finger LP for a pure gap, the original finger for a genuine one). ONE
+  // array, in the SAME row-major, then-left-thumbs, then-right-thumbs
+  // order `toSpark` itself pushes in -- array order matters for `toEqual`.
+  const out: SparkPayload["keys"] = [];
   for (let r = 0; r < numMainRows; r++) {
     const byCol = new Map<number, { char?: string; finger: string }>();
     for (const e of mainEntries) if (e.row === r) byCol.set(e.col, { char: e.char, finger: e.finger });
@@ -419,34 +469,32 @@ function adjustForMana2RoundTrip(a: SparkPayload): SparkPayload {
     }
     for (let c = 0; c < width; c++) {
       const e = byCol.get(c);
-      if (e && e.char !== undefined) outKeys[e.char] = { row: r, col: c, finger: e.finger };
-      else outFree.push({ row: r, col: c, finger: e ? e.finger : "LP" });
+      if (e && e.char !== undefined) out.push({ char: e.char, row: r, col: c, finger: e.finger });
+      else out.push({ row: r, col: c, finger: e ? e.finger : "LP" });
     }
   }
 
   sortSide(left).forEach((e, i) => {
     const col = 4 - (sortSide(left).length - 1 - i);
-    if (e.char === undefined) outFree.push({ row: thumbRow, col, finger: "LT" });
-    else outKeys[e.char] = { row: thumbRow, col, finger: "LT" };
+    if (e.char === undefined) out.push({ row: thumbRow, col, finger: "LT" });
+    else out.push({ char: e.char, row: thumbRow, col, finger: "LT" });
   });
   sortSide(right).forEach((e, j) => {
     const col = 5 + j;
-    if (e.char === undefined) outFree.push({ row: thumbRow, col, finger: "RT" });
-    else outKeys[e.char] = { row: thumbRow, col, finger: "RT" };
+    if (e.char === undefined) out.push({ row: thumbRow, col, finger: "RT" });
+    else out.push({ char: e.char, row: thumbRow, col, finger: "RT" });
   });
 
-  const numMainRowsForBoard = numMainRows;
-  const board = expectedBoard(a.board, numMainRowsForBoard);
-  const out: SparkPayload = { keys: outKeys, board };
-  if (outFree.length > 0) out.free = outFree;
+  const board = expectedBoard(a.board);
+  const result: SparkPayload = { keys: out, board };
   const magic = expectedMagic(a);
-  if (magic) out.magic = magic;
+  if (magic) result.magic = magic;
   // 21-formats.md D10: spark/1 has no `x` field any more, so a spark ->
   // mana2 -> spark round trip no longer carries anything extra -- `toSpark`
   // silently drops `mirrorLeftRowStagger`/`splitAngle`/`magicKeys`/
   // `layers` instead of capturing them (mana2/1/translate.ts's own
   // `Mana2Extra` comment documents this loss).
-  return out;
+  return result;
 }
 
 // `010-test12222` ("both thumbs; thumb fingers on rows 0-2", 07 §5.3) is
@@ -463,12 +511,6 @@ function assertMana2RoundTrip(stem: string, a: SparkPayload): void {
   const m = fromSpark(a);
   expect(mana2_1.validate(m).ok).toBe(true);
   const back = toSpark(m);
-
-  if (stem === "010-test12222") {
-    expect(isHeldResult(back)).toBe(true);
-    if (isHeldResult(back)) expect(back.reason).toBe("more than five keys on one thumb");
-    return;
-  }
   expect(isHeldResult(back)).toBe(false);
   expect(back).toEqual(adjustForMana2RoundTrip(a));
 }
@@ -483,23 +525,44 @@ describe("akl/1 -> mana2/1 -> akl/1 (every akl/1 fixture, thumb re-anchoring ass
   for (const file of files) {
     const stem = file.slice(0, -".json".length);
     const a = JSON.parse(fs.readFileSync(path.join(SPARK_FIXTURES_DIR, file), "utf8")) as SparkPayload;
-    it(`[LDB-F5] '${stem}': identity off the thumb row`, () => assertMana2RoundTrip(stem, a));
+    it(`[LDB-F5] [LDB-F30] '${stem}': identity off the thumb row`, () => assertMana2RoundTrip(stem, a));
   }
 
-  it("test12222: rows 0-2 thumb fingers re-anchor toward cols 4/5 before hitting the >5-per-side held limit", () => {
-    const a = JSON.parse(fs.readFileSync(path.join(SPARK_FIXTURES_DIR, "010-test12222.json"), "utf8")) as SparkPayload;
-    const hadThumbOffMainRows = Object.values(a.keys).some((k) => isThumbFinger(k.finger) && k.row < 3);
-    expect(hadThumbOffMainRows).toBe(true);
+  // `010-test12222` ("both thumbs; thumb fingers on rows 0-2", 07 §5.3) is
+  // real cmini data where a thumb-labelled key physically sits on a FINGER
+  // row (0-2) -- exactly what design/layout-db/23-geometry.md §4.4-3 now
+  // refuses (LDB-F27): `fromCmini` still preserves the (row, col, finger)
+  // multiset exactly (LDB-F23) rather than inventing a fix, so its spark
+  // projection fails spark/1's own validate() and never becomes a real
+  // `formats/spark/1/fixtures/010-test12222.json` base fixture (`scripts/
+  // goldens.mjs` skips writing it). Read here straight from the cmini
+  // adapter's own golden instead, which still exists (cmini's schema has no
+  // such row rule) -- the >5-keys-on-one-thumb-side held case this fixture
+  // was originally picked for survives regardless: §4.6's relabel (by
+  // column) puts all 9 of its thumb-ish keys on ONE side (RT, every one at
+  // col >= 5), no re-anchoring needed to trigger it any more.
+  it("test12222: a real cmini layout with 9 same-side thumb-labelled keys is held (more than five keys on one thumb)", () => {
+    const a = JSON.parse(fs.readFileSync(path.join(CMINI_FIXTURES_DIR, "010-test12222.spark-1.json"), "utf8")) as SparkPayload;
+    expect(spark1.validate(a).ok).toBe(false); // the known LDB-F27 case, not a fixture regression
+    const ltCount = a.keys.filter((k) => k.finger === "LT").length;
+    const rtCount = a.keys.filter((k) => k.finger === "RT").length;
+    expect(Math.max(ltCount, rtCount)).toBeGreaterThan(5);
     const held = toSpark(fromSpark(a));
-    expect(isHeldResult(held)).toBe(true); // see MESSY_STEMS's comment -- this fixture has >5 keys on one re-anchored thumb side
+    expect(isHeldResult(held)).toBe(true);
+    if (isHeldResult(held)) expect(held.reason).toBe("more than five keys on one thumb");
   });
 
-  it("adept: TB re-anchors by column, never TB again", () => {
-    const a = JSON.parse(fs.readFileSync(path.join(SPARK_FIXTURES_DIR, "009-adept.json"), "utf8")) as SparkPayload;
-    const hadTb = Object.values(a.keys).some((k) => k.finger === "TB") || (a.free ?? []).some((k) => k.finger === "TB");
+  // LDB-F28: `TB` never reaches storage -- `fromCmini` relabels it (and any
+  // disagreeing LT/RT) at import, before the payload is ever written, so
+  // the regenerated `009-adept.json` base fixture already has none; this
+  // checks that against adept's own CMINI-side golden (still `TB`-bearing,
+  // cmini's schema is unaffected by this slice).
+  it("[LDB-F28] adept: TB never reaches the stored spark fixture", () => {
+    const cminiSide = JSON.parse(fs.readFileSync(path.join(CMINI_FIXTURES_DIR, "009-adept.json"), "utf8")) as { keys: Record<string, { finger: string }> };
+    const hadTb = Object.values(cminiSide.keys).some((k) => k.finger === "TB");
     expect(hadTb).toBe(true);
-    const back = toSpark(fromSpark(a)) as SparkPayload;
-    const stillTb = Object.values(back.keys).some((k) => k.finger === "TB") || (back.free ?? []).some((k) => k.finger === "TB");
+    const sparkSide = JSON.parse(fs.readFileSync(path.join(SPARK_FIXTURES_DIR, "009-adept.json"), "utf8")) as SparkPayload;
+    const stillTb = sparkSide.keys.some((k) => k.finger === "TB");
     expect(stillTb).toBe(false);
   });
 });

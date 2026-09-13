@@ -749,6 +749,17 @@ const REQUIRED: Record<string, RequiredCase[]> = {
     { status: 403, code: ERROR_CODES.not_admin },
     { status: 404, code: ERROR_CODES.not_found },
   ],
+
+  // The cutover follow-up (design/layout-db/23-geometry.md, "admin dump
+  // route"): same lighter treatment as the L5 moderation rows just above
+  // (unauthorized + the route's own domain error, not `...A`) -- needed
+  // so the cutover's wipe-and-reimport can boot the bot/site from a fresh
+  // dump without waiting for the next `hour=3, minute=0` slot.
+  "POST /v1/admin/dump": [
+    { status: 200 },
+    { status: 401, code: ERROR_CODES.unauthorized },
+    { status: 403, code: ERROR_CODES.not_admin },
+  ],
 };
 describe("conformance enumeration", () => {
   // `app.routes` also lists the two `app.use("/v1/*", ...)` middleware

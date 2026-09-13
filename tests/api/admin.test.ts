@@ -17,7 +17,7 @@ import * as difftickModule from "../../src/import/difftick";
 import worker from "../../src/index";
 import { FakeDiscord } from "../auth/fake-discord";
 import { FakeUpstream } from "../import/fake-upstream";
-import { BOOTSTRAP_ADMIN, actorFixture, pinTestClock, register, uniqueName, writeFetch } from "./write-support";
+import { AKL_PAYLOAD, BOOTSTRAP_ADMIN, actorFixture, pinTestClock, register, uniqueName, writeFetch } from "./write-support";
 
 const bindings = env as unknown as Bindings;
 const db = bindings.DB;
@@ -541,6 +541,35 @@ describe("POST /v1/admin/import/tick, POST /v1/admin/diff/tick, and POST /v1/adm
       const res = await writeFetch("/v1/admin/diff/tick", "POST", adminHeadersFor(discord, `tok-${uniqueName("diff-spy")}`));
       expect(res.status).toBe(200);
       expect(spy.mock.calls.length).toBe(before + 2);
+    });
+  });
+
+  // The cutover follow-up (design/layout-db/23-geometry.md, "admin dump
+  // route"): writes a dump on demand, via the exact same path the hour=3
+  // nightly job (`writeDump`) uses -- needed because the cutover imports
+  // into a wiped DB and the bot/site rebuild boot from the daily dump.
+  describe("POST /v1/admin/dump", () => {
+    it("anonymous 401, non-admin 403, admin 200 -> {seq, layout_count, written_at}, and /v1/dump/latest.json reflects it", async () => {
+      await writeFetch("/v1/layouts", "POST", { ...adminHeaders(`tok-${uniqueName("dump-seed-owner")}`) }, { name: uniqueName("dump-seed"), format: "spark/1", payload: AKL_PAYLOAD });
+
+      const anon = await writeFetch("/v1/admin/dump", "POST", {});
+      expect(anon.status).toBe(401);
+
+      const user = await writeFetch("/v1/admin/dump", "POST", userHeaders(`tok-${uniqueName("dump-user")}`));
+      expect(user.status).toBe(403);
+
+      const admin = await writeFetch("/v1/admin/dump", "POST", adminHeaders(`tok-${uniqueName("dump-admin")}`));
+      expect(admin.status).toBe(200);
+      const body = await admin.json<{ seq: number; layout_count: number; written_at: string }>();
+      expect(typeof body.seq).toBe("number");
+      expect(body.layout_count).toBeGreaterThan(0);
+      expect(typeof body.written_at).toBe("string");
+
+      const latestRes = await writeFetch("/v1/dump/latest.json", "GET");
+      expect(latestRes.status).toBe(200);
+      const latest = await latestRes.json<{ seq: number; layout_count: number }>();
+      expect(latest.seq).toBe(body.seq);
+      expect(latest.layout_count).toBe(body.layout_count);
     });
   });
 

@@ -1,181 +1,198 @@
 {
-  "keys": {
-    "q": {
+  "keys": [
+    {
+      "char": "q",
       "row": 0,
       "col": 0,
       "finger": "LP"
     },
-    "g": {
+    {
+      "char": "g",
       "row": 0,
       "col": 1,
       "finger": "LR"
     },
-    "d": {
+    {
+      "char": "d",
       "row": 0,
       "col": 2,
       "finger": "LM"
     },
-    "f": {
+    {
+      "char": "f",
       "row": 0,
       "col": 3,
       "finger": "LI"
     },
-    "v": {
+    {
+      "char": "v",
       "row": 0,
       "col": 4,
       "finger": "LI"
     },
-    "z": {
+    {
+      "char": "z",
       "row": 0,
       "col": 5,
       "finger": "RI"
     },
-    "l": {
+    {
+      "char": "l",
       "row": 0,
       "col": 6,
       "finger": "RI"
     },
-    "u": {
+    {
+      "char": "u",
       "row": 0,
       "col": 7,
       "finger": "RM"
     },
-    "o": {
+    {
+      "char": "o",
       "row": 0,
       "col": 8,
       "finger": "RR"
     },
-    "y": {
+    {
+      "char": "y",
       "row": 0,
       "col": 9,
       "finger": "RP"
     },
-    "n": {
+    {
+      "char": "n",
       "row": 1,
       "col": 0,
       "finger": "LP"
     },
-    "s": {
+    {
+      "char": "s",
       "row": 1,
       "col": 1,
       "finger": "LR"
     },
-    "t": {
+    {
+      "char": "t",
       "row": 1,
       "col": 2,
       "finger": "LM"
     },
-    "h": {
+    {
+      "char": "h",
       "row": 1,
       "col": 3,
       "finger": "LI"
     },
-    "m": {
+    {
+      "char": "m",
       "row": 1,
       "col": 4,
       "finger": "LI"
     },
-    "'": {
+    {
+      "char": "'",
       "row": 1,
       "col": 5,
       "finger": "RI"
     },
-    "r": {
+    {
+      "char": "r",
       "row": 1,
       "col": 6,
       "finger": "RI"
     },
-    "e": {
+    {
+      "char": "e",
       "row": 1,
       "col": 7,
       "finger": "RM"
     },
-    "a": {
+    {
+      "char": "a",
       "row": 1,
       "col": 8,
       "finger": "RR"
     },
-    "i": {
+    {
+      "char": "i",
       "row": 1,
       "col": 9,
       "finger": "RP"
     },
-    "b": {
+    {
+      "char": "b",
       "row": 2,
       "col": 0,
       "finger": "LP"
     },
-    "c": {
+    {
+      "char": "c",
       "row": 2,
       "col": 1,
       "finger": "LR"
     },
-    "p": {
+    {
+      "char": "p",
       "row": 2,
       "col": 2,
       "finger": "LM"
     },
-    "w": {
+    {
+      "char": "w",
       "row": 2,
       "col": 3,
       "finger": "LI"
     },
-    "k": {
+    {
+      "char": "k",
       "row": 2,
       "col": 4,
       "finger": "LI"
     },
-    "x": {
+    {
+      "char": "x",
       "row": 2,
       "col": 5,
       "finger": "RI"
     },
-    "j": {
+    {
+      "char": "j",
       "row": 2,
       "col": 6,
       "finger": "RI"
     },
-    ";": {
+    {
+      "char": ";",
       "row": 2,
       "col": 7,
       "finger": "RM"
     },
-    ".": {
+    {
+      "char": ".",
       "row": 2,
       "col": 8,
       "finger": "RR"
     },
-    ",": {
+    {
+      "char": ",",
       "row": 2,
       "col": 9,
       "finger": "RP"
     },
-    " ": {
+    {
       "row": 3,
       "col": 4,
       "finger": "LT"
     },
-    "*": {
+    {
+      "char": "*",
       "row": 3,
       "col": 5,
       "finger": "RT"
     }
-  },
-  "board": {
-    "kind": "colstag",
-    "stagger": [
-      0,
-      -0.3,
-      -0.4,
-      -0.3,
-      -0.2,
-      -0.2,
-      -0.3,
-      -0.4,
-      -0.3,
-      0
-    ]
-  },
+  ],
+  "board": "colstag",
   "magic": {
     "rules": [
       {

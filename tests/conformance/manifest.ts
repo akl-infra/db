@@ -448,6 +448,13 @@ import modAdminLinkQueueReject404 from "./admin-link-queue/reject-404.json" with
 import modAdminLinkQueueReject400BadRequest from "./admin-link-queue/reject-400-bad_request.json" with { type: "json" };
 import modAdminLinkQueueReject401Unauthorized from "./admin-link-queue/reject-401-unauthorized.json" with { type: "json" };
 import modAdminLinkQueueReject403NotAdmin from "./admin-link-queue/reject-403-not_admin.json" with { type: "json" };
+// The cutover follow-up (design/layout-db/23-geometry.md, "admin dump
+// route"): same lighter treatment as the L5 moderation rows just above
+// (unauthorized + the route's own domain error, not the full A-group
+// sweep -- LDB-A1 already proves every non-GET route 401s structurally).
+import modAdminDumpPost200 from "./admin-dump/post-200.json" with { type: "json" };
+import modAdminDumpPost401Unauthorized from "./admin-dump/post-401-unauthorized.json" with { type: "json" };
+import modAdminDumpPost403NotAdmin from "./admin-dump/post-403-not_admin.json" with { type: "json" };
 
 export interface ConformanceStep {
   method: string;
@@ -870,6 +877,13 @@ export const MODERATION_CASES: ConformanceCase[] = [
   kase("admin-link-queue/reject-400-bad_request", "/v1/admin/link-queue/:id/reject", modAdminLinkQueueReject400BadRequest, true),
   kase("admin-link-queue/reject-401-unauthorized", "/v1/admin/link-queue/:id/reject", modAdminLinkQueueReject401Unauthorized, true),
   kase("admin-link-queue/reject-403-not_admin", "/v1/admin/link-queue/:id/reject", modAdminLinkQueueReject403NotAdmin, true),
+  // The cutover follow-up (design/layout-db/23-geometry.md): placed dead
+  // last, same as every other row here -- its 200 case performs a REAL
+  // dump write (R2 + import_state), which no earlier-recorded fixture
+  // (meta/200, the dump.test.ts suite's own routes, etc.) ever re-reads.
+  kase("admin-dump/post-200", "/v1/admin/dump", modAdminDumpPost200, true),
+  kase("admin-dump/post-401-unauthorized", "/v1/admin/dump", modAdminDumpPost401Unauthorized, true),
+  kase("admin-dump/post-403-not_admin", "/v1/admin/dump", modAdminDumpPost403NotAdmin, true),
 ];
 
 export const CASES: ConformanceCase[] = [

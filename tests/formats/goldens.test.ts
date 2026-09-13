@@ -53,6 +53,17 @@ describe("format goldens", () => {
             // (the Worker registry wrapper) resolves it, aliases included.
             const targetFormat = getFormat(target);
             expect(targetFormat).toBeDefined();
+            // design/layout-db/23-geometry.md §4.4-3 (LDB-F27): the ONE
+            // known real exception -- cmini/1's 010-test12222 has a
+            // thumb-labelled key physically on a finger row, so its
+            // `to["spark/1"]` golden (frozen above, exact by design) fails
+            // spark/1's OWN stricter validate() on purpose (LDB-F23 still
+            // holds: the multiset itself is exact). See
+            // tests/formats/cmini-envelope.test.ts's dedicated case.
+            if (format.id === "cmini/1" && target === "spark/1" && fixture.stem === "010-test12222") {
+              expect(targetFormat?.validate(translated).ok).toBe(false);
+              return;
+            }
             expect(targetFormat?.validate(translated).ok).toBe(true);
           });
         }

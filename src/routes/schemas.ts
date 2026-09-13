@@ -72,8 +72,10 @@ const adminAddSchema = {
 // (`minProperties: 1`, `additionalProperties: false`); `core/write.ts`'s
 // `classifyPatch` is where mixing/format-required is actually refused, so
 // the error names the real reason rather than a generic shape mismatch.
-// `board`/`magic` are validated as whole objects here; their format-
-// specific shape is the job of the record's format `edits` + the
+// `board`/`magic` are validated as whole VALUES here (`board` is just
+// present, no type constraint -- design/layout-db/23-geometry.md made
+// spark/1's own `board` a plain string word, no longer an object); their
+// format-specific shape is the job of the record's format `edits` + the
 // pipeline's validate() re-run, not this schema.
 const patchSchema = {
   type: "object",
@@ -83,7 +85,7 @@ const patchSchema = {
     name: { type: "string" },
     format: { type: "string" },
     fingermap: { type: "object", additionalProperties: { type: "string" } },
-    board: { type: "object" },
+    board: {},
     magic: { type: "object" },
   },
 } as const;

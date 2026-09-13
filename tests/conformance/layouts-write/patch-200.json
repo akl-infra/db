@@ -21,13 +21,15 @@
           "name": "cw-patch-1",
           "format": "spark/1",
           "payload": {
-            "keys": {
-              "a": {
+            "keys": [
+              {
+                "char": "a",
                 "row": 0,
                 "col": 0,
                 "finger": "LP"
               }
-            }
+            ],
+            "board": "ansi"
           }
         }
       }
@@ -64,13 +66,15 @@
       },
       "format": "spark/1",
       "payload": {
-        "keys": {
-          "a": {
+        "keys": [
+          {
+            "char": "a",
+            "row": 0,
             "col": 0,
-            "finger": "RP",
-            "row": 0
+            "finger": "RP"
           }
-        }
+        ],
+        "board": "ansi"
       }
     }
   }

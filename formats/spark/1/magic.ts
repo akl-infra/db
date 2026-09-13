@@ -32,12 +32,30 @@
 // pass at all).
 import type { Position } from "./index.ts";
 
-export const VALID_DEFAULTS = new Set(["repeat_previous", "none"]);
-
 // One Unicode code point, not one UTF-16 code unit (rules.mjs's own
 // isSingleChar comment: a plain .length would split an astral character).
 export function isSingleChar(value: unknown): value is string {
   return typeof value === "string" && [...value].length === 1;
+}
+
+// design/layout-db/24-spark-wire-review.md's format review round 2
+// (§Resolution item 1, superseding the round-1 `{repeat:true}|{char}`
+// shape): tagged-shape guards for `MagicDefault`/`ChiralValue`, discriminated
+// by a `kind` field, shared by validation and computation so neither can
+// drift from what the other accepts.
+export function isRepeatTag(v: unknown): v is { kind: "repeat" } {
+  return typeof v === "object" && v !== null && !Array.isArray(v) && (v as { kind?: unknown }).kind === "repeat" && Object.keys(v as object).length === 1;
+}
+
+export function isCharTag(v: unknown): v is { kind: "char"; char: string } {
+  return (
+    typeof v === "object" &&
+    v !== null &&
+    !Array.isArray(v) &&
+    (v as { kind?: unknown }).kind === "char" &&
+    isSingleChar((v as { char?: unknown }).char) &&
+    Object.keys(v as object).length === 2
+  );
 }
 
 export interface MagicKeyRule {
@@ -45,17 +63,32 @@ export interface MagicKeyRule {
   output: string;
 }
 
+// design/layout-db/24-spark-wire-review.md finding 6 (F6), round 2's
+// resolution item 1: tagged sentinels, not bare strings -- `{kind:
+// "repeat"}` (was the string "repeat_previous") or `{kind: "char", char:
+// "e"}` (was a bare single-character string). Absent means "none" (was the
+// string "none") -- there is no explicit "none" tag at all any more, the
+// field is simply omitted.
+export type MagicDefault = { kind: "repeat" } | { kind: "char"; char: string };
+
 export interface MagicKey {
   key: string;
-  default?: string;
+  default?: MagicDefault;
   rules?: MagicKeyRule[];
   except?: string[];
 }
 
+// Same tagged treatment for the "repeat_previous" sentinel ONLY -- a literal
+// same/opposite character stays a bare string (never wrapped), since it was
+// never ambiguous with "repeat_previous" (a multi-character string) or
+// "none" (same/opposite have never had a "none" sentinel -- absent/null
+// already meant that).
+export type ChiralValue = string | { kind: "repeat" };
+
 export interface ChiralKey {
   key: string;
-  same?: string | null; // null reads as absent, as akl.gg's validator does (`!= null`)
-  opposite?: string | null;
+  same?: ChiralValue | null; // null reads as absent, as akl.gg's validator does (`!= null`)
+  opposite?: ChiralValue | null;
   except?: string[];
 }
 
@@ -71,15 +104,18 @@ export interface RawRule {
   note?: string;
 }
 
+// design/layout-db/24-spark-wire-review.md round 2's resolution item 2:
+// `notes`/`updated` are DROPPED from the payload entirely (no writer ever
+// produced them -- neither the importer nor `liftRules` -- and a
+// non-semantic field that still bumps `payload_json = canonical(payload)`
+// on every touch contradicts that invariant). The schema refuses them now
+// (additionalProperties: false already covers this once the properties are
+// gone).
 export interface MagicIntent {
   magic_keys?: MagicKey[];
   chiral_keys?: ChiralKey[];
   adaptive_swaps?: AdaptiveSwap[];
   rules?: RawRule[];
-  // akl.gg's rule sets carry these two free-text fields (functions/_lib/
-  // rules.mjs checks only that they are strings); nothing compiles them.
-  notes?: string;
-  updated?: string;
 }
 
 export interface Row {
@@ -136,8 +172,9 @@ function emission(m: MagicIntent, keys: Record<string, Position>, trigger: strin
     for (const r of mk.rules ?? []) {
       if (r.after === trigger) return [...r.output].length === 2 ? [...r.output][1]! : member;
     }
-    const d = mk.default ?? "none";
-    return d === "repeat_previous" ? trigger : d === "none" ? member : d;
+    const d = mk.default;
+    if (d === undefined) return member;
+    return isRepeatTag(d) ? trigger : d.char;
   }
   return member;
 }
@@ -182,13 +219,14 @@ export function computeRows(magic: MagicIntent | undefined, keys: Record<string,
   magicKeys.forEach((mk, i) => {
     const exceptSet = new Set(mk.except ?? []);
     const explicitAfters = new Set((mk.rules ?? []).map((r) => r.after));
-    const dflt = mk.default ?? "none";
+    const dflt = mk.default; // undefined = "none" (24-spark-wire-review.md finding 6: tagged, not a string sentinel)
     for (const c of layoutChars(keys, specialChars)) {
       if (exceptSet.has(c) || explicitAfters.has(c)) continue; // an explicit rule for this `after` REPLACES the scaffold row -- not a collision (01 §3)
-      if (dflt === "repeat_previous") {
+      if (dflt === undefined) continue;
+      if (isRepeatTag(dflt)) {
         rows.push({ inputs: c + mk.key, output: c + c, type: "repeat", from: `magic_keys[${i}]` });
-      } else if (dflt !== "none" && isSingleChar(dflt)) {
-        rows.push({ inputs: c + mk.key, output: c + dflt, type: `default:${dflt}`, from: `magic_keys[${i}]` });
+      } else {
+        rows.push({ inputs: c + mk.key, output: c + dflt.char, type: `default:${dflt.char}`, from: `magic_keys[${i}]` });
       }
     }
     // LDB-F14 (design/layout-db/01-format.md §3, db/INVARIANTS.md): the
@@ -213,8 +251,8 @@ export function computeRows(magic: MagicIntent | undefined, keys: Record<string,
     //     whitespace from its board enumeration for the same reason) --
     //     in that case the loop above already emitted (and except-gated)
     //     the ' '+key row, so this dedicated push would only duplicate it.
-    if (dflt !== "repeat_previous" && dflt !== "none" && isSingleChar(dflt) && !explicitAfters.has(" ") && !(" " in keys)) {
-      rows.push({ inputs: " " + mk.key, output: " " + dflt, type: `default:${dflt}`, from: `magic_keys[${i}]` });
+    if (dflt !== undefined && !isRepeatTag(dflt) && !explicitAfters.has(" ") && !(" " in keys)) {
+      rows.push({ inputs: " " + mk.key, output: " " + dflt.char, type: `default:${dflt.char}`, from: `magic_keys[${i}]` });
     }
     (mk.rules ?? []).forEach((r, j) => {
       rows.push({ inputs: r.after + mk.key, output: r.output, type: "magic", from: `magic_keys[${i}].rules[${j}]` });
@@ -240,7 +278,7 @@ export function computeRows(magic: MagicIntent | undefined, keys: Record<string,
       if (h === null || kh === null) continue; // no hand on either side -> this construct produces nothing here (a documented zero-row case, 01 §4.1 in the interop writeup)
       const val = h === kh ? ck.same : ck.opposite;
       if (val == null) continue; // undefined or null: absent, as on akl.gg
-      const output = c + (val === "repeat_previous" ? c : val);
+      const output = c + (isRepeatTag(val) ? c : val);
       rows.push({ inputs: c + ck.key, output, type: "chiral", from: `chiral_keys[${i}]` });
     }
   });
@@ -399,7 +437,9 @@ export function liftRules(rows: Row[], keys: Record<string, Position>): { lifted
   function mk(k: string): MagicKey {
     let m = magicKeys.get(k);
     if (!m) {
-      m = { key: k, default: "none", rules: [] };
+      // 24-spark-wire-review.md finding 6: `default` OMITTED means "none"
+      // now -- never written as a string sentinel.
+      m = { key: k, rules: [] };
       magicKeys.set(k, m);
     }
     return m;
@@ -442,11 +482,11 @@ export function liftRules(rows: Row[], keys: Record<string, Position>): { lifted
         continue;
       }
       const m = mk(k);
-      if (m.default !== "none" && m.default !== "repeat_previous") {
+      if (m.default !== undefined && !isRepeatTag(m.default)) {
         leftovers.push(r);
         continue;
       }
-      m.default = "repeat_previous";
+      m.default = { kind: "repeat" };
     } else if (t.startsWith("default:")) {
       const d = t.slice("default:".length);
       if ([...d].length !== 1 || r.output !== after + d) {
@@ -458,11 +498,11 @@ export function liftRules(rows: Row[], keys: Record<string, Position>): { lifted
         continue;
       }
       const m = mk(k);
-      if (m.default !== "none" && m.default !== d) {
+      if (m.default !== undefined && !(isCharTag(m.default) && m.default.char === d)) {
         leftovers.push(r);
         continue;
       }
-      m.default = d;
+      m.default = { kind: "char", char: d };
     } else {
       mk(k).rules!.push({ after, output: r.output });
     }
@@ -500,9 +540,14 @@ export function liftRules(rows: Row[], keys: Record<string, Position>): { lifted
       leftovers.push(...items.map((i) => i.row));
       continue;
     }
+    // Internal bookkeeping above still uses the "repeat_previous" string as
+    // its own sentinel (never leaves this function) -- converted to the
+    // tagged `{repeat: true}` shape only at the point of writing the real
+    // `ChiralKey` (24-spark-wire-review.md finding 6).
+    const toChiralValue = (v: string): ChiralValue => (v === "repeat_previous" ? { kind: "repeat" } : v);
     const ck: ChiralKey = { key: k };
-    if (sides.same.size === 1) ck.same = [...sides.same][0];
-    if (sides.opposite.size === 1) ck.opposite = [...sides.opposite][0];
+    if (sides.same.size === 1) ck.same = toChiralValue([...sides.same][0]!);
+    if (sides.opposite.size === 1) ck.opposite = toChiralValue([...sides.opposite][0]!);
     chiralKeys.set(k, ck);
   }
 
@@ -586,6 +631,11 @@ export function liftRules(rows: Row[], keys: Record<string, Position>): { lifted
 export interface SemanticError {
   message: string;
   path: string;
+  // Optional override of the default "invalid_payload" error code
+  // (index.ts's validate() uses this when present) -- design/layout-db/
+  // 24-spark-wire-review.md round 2's `reserved_rule_type` is the one case
+  // today.
+  code?: string;
 }
 
 // Ported from validateRuleSet, restricted to what schema.json (draft
@@ -610,10 +660,10 @@ export function validateMagicSemantics(
     if (!isSingleChar(mk.key)) return { message: "magic_keys[].key must be a single character", path: `${base}/key` };
     magicKeyChars.add(mk.key);
 
-    const dflt = mk.default ?? "none";
-    if (!(VALID_DEFAULTS.has(dflt) || isSingleChar(dflt))) {
+    const dflt = mk.default;
+    if (dflt !== undefined && !isRepeatTag(dflt) && !isCharTag(dflt)) {
       return {
-        message: `magic_keys[].default must be one of ${JSON.stringify([...VALID_DEFAULTS].sort())} or a single character, got ${JSON.stringify(dflt)}`,
+        message: `magic_keys[].default must be {"kind":"repeat"}, {"kind":"char","char":"<single character>"}, or omitted, got ${JSON.stringify(dflt)}`,
         path: `${base}/default`,
       };
     }
@@ -673,11 +723,11 @@ export function validateMagicSemantics(
     if (same == null && opposite == null) {
       return { message: `chiral_keys[].${JSON.stringify(key)} must set at least one of 'same'/'opposite'`, path: base };
     }
-    if (same != null && (typeof same !== "string" || same.length === 0)) {
-      return { message: `chiral_keys[].same must be a non-empty string, got ${JSON.stringify(same)}`, path: `${base}/same` };
+    if (same != null && !isRepeatTag(same) && (typeof same !== "string" || same.length === 0)) {
+      return { message: `chiral_keys[].same must be a non-empty string or {"kind":"repeat"}, got ${JSON.stringify(same)}`, path: `${base}/same` };
     }
-    if (opposite != null && (typeof opposite !== "string" || opposite.length === 0)) {
-      return { message: `chiral_keys[].opposite must be a non-empty string, got ${JSON.stringify(opposite)}`, path: `${base}/opposite` };
+    if (opposite != null && !isRepeatTag(opposite) && (typeof opposite !== "string" || opposite.length === 0)) {
+      return { message: `chiral_keys[].opposite must be a non-empty string or {"kind":"repeat"}, got ${JSON.stringify(opposite)}`, path: `${base}/opposite` };
     }
 
     const except = ck.except ?? [];
@@ -688,10 +738,10 @@ export function validateMagicSemantics(
     }
   }
 
-  for (const field of ["notes", "updated"] as const) {
-    const v = magic[field];
-    if (v !== undefined && typeof v !== "string") return { message: `'${field}' must be a string`, path: `/magic/${field}` };
-  }
+  // `notes`/`updated` were dropped entirely by design/layout-db/
+  // 24-spark-wire-review.md round 2's resolution item 2 -- the schema's
+  // `additionalProperties: false` now refuses them outright, so there is
+  // nothing left to semantically validate here.
 
   const seenPairs = new Set<string>();
   for (let i = 0; i < swaps.length; i++) {
@@ -714,6 +764,27 @@ export function validateMagicSemantics(
         };
       }
       seenPairs.add(pairKey);
+    }
+  }
+
+  // design/layout-db/24-spark-wire-review.md round 2's resolution item 5:
+  // "raw means raw" -- `magic.rules[]` (the escape hatch) is written by a
+  // CLIENT, and only the importer's own `liftRules`/`computeRows` machinery
+  // may ever produce a tagged row (`repeat`, `magic`, `chiral`, `adaptive`,
+  // or a `default:<c>` shape). A client-supplied raw rule naming one of
+  // these reserved words as its own `type` is refused -- it would otherwise
+  // silently impersonate a scaffold/override row no idiom actually
+  // produced. `400 reserved_rule_type`, naming the offending value.
+  const rawRules = magic.rules ?? [];
+  for (let i = 0; i < rawRules.length; i++) {
+    const t = rawRules[i]!.type;
+    if (t === undefined) continue;
+    if (t === "repeat" || t === "magic" || t === "chiral" || t === "adaptive" || /^default:.+$/.test(t)) {
+      return {
+        message: `rules[].type ${JSON.stringify(t)} is reserved for idiom-produced rows -- a raw rule may not claim it`,
+        path: `/magic/rules/${i}/type`,
+        code: "reserved_rule_type",
+      };
     }
   }
 

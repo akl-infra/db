@@ -3,12 +3,22 @@
     "method": "PUT",
     "path": "/v1/layouts/cw-put-404-nonexistent",
     "bearer": "conformance-owner-token",
-    "headers": { "If-Match": "*" },
-    "body": { "format": "spark/1", "payload": { "keys": {} } }
+    "headers": {
+      "If-Match": "*"
+    },
+    "body": {
+      "format": "spark/1",
+      "payload": {
+        "keys": [],
+        "board": "ansi"
+      }
+    }
   },
   "response": {
     "status": 404,
-    "headers": { "Content-Type": "application/json" },
+    "headers": {
+      "Content-Type": "application/json"
+    },
     "body": {
       "error": "not_found",
       "message": "no layout 'cw-put-404-nonexistent'",

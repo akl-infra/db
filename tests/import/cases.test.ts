@@ -764,6 +764,90 @@ describe("[LDB-I11] an import write preserves the record's own magic", () => {
   });
 });
 
+// Link-approval-on-import (design/layout-db/23-geometry.md follow-up,
+// LDB-MD3/MD5/MD9): cmini's own `link` field is carried onto the record as
+// an already-APPROVED link -- the import itself counts as verification --
+// for as long as the importer itself is the one who last decided the
+// layout's link; an admin's own decision, once made, is never overridden.
+describe("[LDB-MD3] [LDB-MD5] link-approval-on-import (23-geometry.md follow-up)", () => {
+  it("[LDB-MD3] a fresh import with an https link auto-approves it (via: import:cmini, not queued)", async () => {
+    const d = detail({ name: "LinkNew", user: "1000000000000000201", link: "https://example.com/a" });
+    const result = await applyFetchedId(db, clock, "link-new", d);
+    expect(result.errors).toEqual([]);
+
+    const rec = await readByName(db, "LinkNew");
+    expect(rec!.link).toBe("https://example.com/a");
+    const events = await eventsFor(rec!.id);
+    const linkEvent = events.find((e) => e.kind === "link_approved");
+    expect(linkEvent).toBeDefined();
+    expect(linkEvent!.via).toBe("import:cmini");
+    expect(linkEvent!.actor).toBe("system:cmini-import");
+  });
+
+  it("[LDB-MD3] a following layout whose upstream link changes gets re-approved automatically", async () => {
+    const d1 = detail({ name: "LinkChange", user: "1000000000000000202", link: "https://example.com/first" });
+    await applyFetchedId(db, clock, "link-change", d1);
+    expect((await readByName(db, "LinkChange"))!.link).toBe("https://example.com/first");
+
+    const d2 = detail({ name: "LinkChange", user: "1000000000000000202", link: "https://example.com/second" });
+    const result = await applyFetchedId(db, clock, "link-change", d2);
+    expect(result.errors).toEqual([]);
+    expect((await readByName(db, "LinkChange"))!.link).toBe("https://example.com/second");
+  });
+
+  it("[LDB-MD3] upstream dropping its link clears the approved one (link_cleared)", async () => {
+    const d1 = detail({ name: "LinkDrop", user: "1000000000000000203", link: "https://example.com/gone-soon" });
+    await applyFetchedId(db, clock, "link-drop", d1);
+    const rec1 = await readByName(db, "LinkDrop");
+    expect(rec1!.link).toBe("https://example.com/gone-soon");
+
+    const d2 = detail({ name: "LinkDrop", user: "1000000000000000203" }); // no `link` field this tick
+    await applyFetchedId(db, clock, "link-drop", d2);
+    const rec2 = await readByName(db, "LinkDrop");
+    expect(rec2!.link).toBeNull();
+    const events = await eventsFor(rec2!.id);
+    expect(events.find((e) => e.kind === "link_cleared")).toBeDefined();
+  });
+
+  it("[LDB-MD9] a non-https upstream link is skipped (import_error info event), never reaching layouts.link", async () => {
+    const d = detail({ name: "LinkBad", user: "1000000000000000204", link: "http://example.com/insecure" });
+    const result = await applyFetchedId(db, clock, "link-bad", d);
+    expect(result.errors).toEqual([]);
+
+    const rec = await readByName(db, "LinkBad");
+    expect(rec!.link).toBeNull();
+    const events = await eventsFor(rec!.id);
+    expect(events.some((e) => e.kind === "link_approved")).toBe(false);
+    expect(events.some((e) => e.kind === "import_error")).toBe(true);
+  });
+
+  it("[LDB-MD5] an admin-approved link is never overridden by a later import tick", async () => {
+    const d1 = detail({ name: "LinkAdmin", user: "1000000000000000205", link: "https://example.com/imported" });
+    await applyFetchedId(db, clock, "link-admin", d1);
+    const rec1 = await readByName(db, "LinkAdmin");
+    expect(rec1!.link).toBe("https://example.com/imported");
+
+    // An admin hand-approves a DIFFERENT link, out of band.
+    await eventsModule.appendLinkChange(db, clock, {
+      layoutId: rec1!.id,
+      kind: "link_approved",
+      link: "https://example.com/admin-picked",
+      actor: "moderator",
+      via: "discord",
+      admin: true,
+      source: SOURCE,
+    });
+
+    // Upstream keeps changing its own link -- the import must leave the
+    // admin's decision alone.
+    const d2 = detail({ name: "LinkAdmin", user: "1000000000000000205", link: "https://example.com/upstream-changed-again" });
+    const result = await applyFetchedId(db, clock, "link-admin", d2);
+    expect(result.errors).toEqual([]);
+    const rec2 = await readByName(db, "LinkAdmin");
+    expect(rec2!.link).toBe("https://example.com/admin-picked"); // unchanged by the import
+  });
+});
+
 describe("[LDB-I5] imported names are stored verbatim from the live snapshot", () => {
   const list = (listSnapshot as { layouts: { id: string; name: string }[] }).layouts;
   const full = (fullSnapshot as { layouts: RawUpstreamDetail[] }).layouts;

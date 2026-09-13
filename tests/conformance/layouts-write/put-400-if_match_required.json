@@ -6,7 +6,8 @@
     "body": {
       "format": "spark/1",
       "payload": {
-        "keys": {}
+        "keys": [],
+        "board": "ansi"
       }
     },
     "setup": [
@@ -18,7 +19,8 @@
           "name": "cw-put-noifmatch-1",
           "format": "spark/1",
           "payload": {
-            "keys": {}
+            "keys": [],
+            "board": "ansi"
           }
         }
       }

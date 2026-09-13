@@ -11,35 +11,39 @@ import type { Payload, Board, MagicIntent, ErrBody } from "./index.ts";
 
 export type EditResult = Payload | { error: ErrBody };
 
-function pointerSeg(raw: string): string {
-  return raw.replace(/~/g, "~0").replace(/\//g, "~1");
-}
-
 function invalidPayload(message: string, path: string): { error: ErrBody } {
   return { error: { error: "invalid_payload", message, path } };
 }
 
 // char -> finger; a named char that isn't one of this layout's keys is
-// refused (`invalid_payload`, path `/keys/<c>`) -- a bad FINGER WORD is
-// left to the pipeline's validate() re-run (01 §2.1's finger enum), not
-// checked here. Partial maps only change the named chars.
+// refused (`invalid_payload`, path `/keys`) -- a bad FINGER WORD is left to
+// the pipeline's validate() re-run (01 §2.1's finger enum), not checked
+// here. Partial maps only change the named chars. `Payload.keys` is an
+// ARRAY now (design/layout-db/23-geometry.md's duplicate-characters
+// follow-up, 24-spark-wire-review.md finding 5): a named char that matches
+// MORE than one entry is refused too -- there is no way to know which
+// occurrence a bare char->finger map means, so this edit can't silently
+// pick one (a layout with a genuine duplicate needs `setBoard`/a direct
+// payload write instead, which addresses entries by position, not char).
 export function setFingermap(p: Payload, map: Record<string, string>): EditResult {
   for (const ch of Object.keys(map)) {
-    if (!(ch in p.keys)) {
-      return invalidPayload(`fingermap names a char not in this layout's keys: ${JSON.stringify(ch)}`, `/keys/${pointerSeg(ch)}`);
+    const matches = p.keys.filter((k) => k.char === ch).length;
+    if (matches === 0) {
+      return invalidPayload(`fingermap names a char not in this layout's keys: ${JSON.stringify(ch)}`, "/keys");
+    }
+    if (matches > 1) {
+      return invalidPayload(`fingermap names ${JSON.stringify(ch)}, which appears on more than one position -- setFingermap can't tell which one you mean`, "/keys");
     }
   }
   const out: Payload = structuredClone(p);
-  // `ch` was already confirmed present in `p.keys` above (`out` is its
-  // clone) -- the `!` just tells `noUncheckedIndexedAccess` what the loop
-  // already checked.
-  for (const [ch, finger] of Object.entries(map)) out.keys[ch] = { ...out.keys[ch]!, finger };
+  out.keys = out.keys.map((k) => (k.char !== undefined && k.char in map ? { ...k, finger: map[k.char]! } : k));
   return out;
 }
 
-// The board vocabulary IS spark/1's own (01 §2) -- validated as a whole by
-// the pipeline's validate() re-run (board.stagger length, board.cmini
-// agreement), nothing extra checked here.
+// The board vocabulary IS spark/1's own (design/layout-db/23-geometry.md
+// §4.1, one word) -- validated as a whole by the pipeline's validate()
+// re-run (the four-word enum, the iso width rule, the ansi-only fingering
+// rule), nothing extra checked here.
 export function setBoard(p: Payload, board: unknown): EditResult {
   const out: Payload = structuredClone(p);
   out.board = structuredClone(board) as Board;

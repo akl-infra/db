@@ -31,26 +31,26 @@ function spaceRow(rows: ReturnType<typeof computeRows>, key: string) {
 
 describe("magic word-start row (LDB-F14)", () => {
   it("[LDB-F14] a literal default gets a ' '+key -> ' '+default row, type default:<c>, from the key's own scaffold", () => {
-    const magic: MagicIntent = { magic_keys: [{ key: "k", default: "y" }] };
+    const magic: MagicIntent = { magic_keys: [{ key: "k", default: { kind: "char", char: "y" } }] };
     const rows = computeRows(magic, baseKeys());
     const row = spaceRow(rows, "k");
     expect(row).toEqual({ inputs: " k", output: " y", type: "default:y", from: "magic_keys[0]" });
   });
 
   it("[LDB-F14] repeat_previous gets NO word-start row (repeating a space types text nobody analyzes)", () => {
-    const magic: MagicIntent = { magic_keys: [{ key: "k", default: "repeat_previous" }] };
+    const magic: MagicIntent = { magic_keys: [{ key: "k", default: { kind: "repeat" } }] };
     const rows = computeRows(magic, baseKeys());
     expect(spaceRow(rows, "k")).toBeUndefined();
   });
 
-  it("[LDB-F14] default: 'none' gets no word-start row", () => {
-    const magic: MagicIntent = { magic_keys: [{ key: "k", default: "none" }] };
+  it("[LDB-F14] an omitted default gets no word-start row", () => {
+    const magic: MagicIntent = { magic_keys: [{ key: "k" }] };
     const rows = computeRows(magic, baseKeys());
     expect(spaceRow(rows, "k")).toBeUndefined();
   });
 
   it("[LDB-F14] except does NOT suppress the word-start row -- unlike every board-char row, the site has no except to consult for it", () => {
-    const magic: MagicIntent = { magic_keys: [{ key: "k", default: "y", except: [" ", "a"] }] };
+    const magic: MagicIntent = { magic_keys: [{ key: "k", default: { kind: "char", char: "y" }, except: [" ", "a"] }] };
     const rows = computeRows(magic, baseKeys());
     // 'a' IS suppressed (an ordinary board char, except honoured as usual)...
     expect(rows.find((r) => r.inputs === "ak")).toBeUndefined();
@@ -60,7 +60,7 @@ describe("magic word-start row (LDB-F14)", () => {
 
   it("[LDB-F14] an explicit magic_keys[].rules[] entry for after=' ' REPLACES the word-start row (same carve-out as any board char)", () => {
     const magic: MagicIntent = {
-      magic_keys: [{ key: "k", default: "y", rules: [{ after: " ", output: " q" }] }],
+      magic_keys: [{ key: "k", default: { kind: "char", char: "y" }, rules: [{ after: " ", output: " q" }] }],
     };
     const rows = computeRows(magic, baseKeys());
     const wordStartRows = rows.filter((r) => r.inputs === " k");
@@ -72,7 +72,7 @@ describe("magic word-start row (LDB-F14)", () => {
 
   it("[LDB-F14] a raw rule on ' '+key collides with the word-start row like any other row, WITHOUT a hint (except can't fix it)", () => {
     const magic: MagicIntent = {
-      magic_keys: [{ key: "k", default: "y" }],
+      magic_keys: [{ key: "k", default: { kind: "char", char: "y" } }],
       rules: [{ inputs: " k", output: " z" }],
     };
     const rows = computeRows(magic, baseKeys());
@@ -85,7 +85,7 @@ describe("magic word-start row (LDB-F14)", () => {
 
   it("[LDB-F14] except: [' '] does not remove the raw-rule collision either (except never governs this row)", () => {
     const magic: MagicIntent = {
-      magic_keys: [{ key: "k", default: "y", except: [" "] }],
+      magic_keys: [{ key: "k", default: { kind: "char", char: "y" }, except: [" "] }],
       rules: [{ inputs: " k", output: " z" }],
     };
     const rows = computeRows(magic, baseKeys());
@@ -95,8 +95,8 @@ describe("magic word-start row (LDB-F14)", () => {
   it("[LDB-F14] two magic keys with different literal defaults each get their own word-start row, independently", () => {
     const magic: MagicIntent = {
       magic_keys: [
-        { key: "k", default: "y" },
-        { key: "l", default: "z" },
+        { key: "k", default: { kind: "char", char: "y" } },
+        { key: "l", default: { kind: "char", char: "z" } },
       ],
     };
     const rows = computeRows(magic, baseKeys());
@@ -107,7 +107,7 @@ describe("magic word-start row (LDB-F14)", () => {
 
   it("[LDB-F14] a layout where ' ' is itself a genuine key does not double-emit the row (guarded against duplication)", () => {
     const keys = { ...baseKeys(), " ": { row: 3, col: 0, finger: "LT" } };
-    const magic: MagicIntent = { magic_keys: [{ key: "k", default: "y" }] };
+    const magic: MagicIntent = { magic_keys: [{ key: "k", default: { kind: "char", char: "y" } }] };
     const rows = computeRows(magic, keys as Record<string, Position>);
     const wordStartRows = rows.filter((r) => r.inputs === " k");
     expect(wordStartRows).toHaveLength(1); // from the ordinary board-char loop, not duplicated by the dedicated push
@@ -116,20 +116,20 @@ describe("magic word-start row (LDB-F14)", () => {
 
   it("[LDB-F14] [LDB-F8] liftRules absorbs the word-start row back into the idiom -- no leftover, default recovered exactly", () => {
     const keys = baseKeys();
-    const magic: MagicIntent = { magic_keys: [{ key: "k", default: "y" }] };
+    const magic: MagicIntent = { magic_keys: [{ key: "k", default: { kind: "char", char: "y" } }] };
     const rows = computeRows(magic, keys);
     const { lifted, leftovers } = liftRules(
       rows.map(({ inputs, output, type }) => ({ inputs, output, type })),
       keys,
     );
     expect(leftovers).toEqual([]);
-    expect(lifted.magic_keys).toEqual([{ key: "k", default: "y", rules: [] }]);
+    expect(lifted.magic_keys).toEqual([{ key: "k", default: { kind: "char", char: "y" }, rules: [] }]);
   });
 
   it("[LDB-F14] [LDB-F8] liftRules absorbs the word-start row even when it is the ONLY row for that key (every board char excepted)", () => {
     const keys = baseKeys();
     const boardChars = Object.keys(keys).filter((c) => c !== "k");
-    const magic: MagicIntent = { magic_keys: [{ key: "k", default: "y", except: boardChars }] };
+    const magic: MagicIntent = { magic_keys: [{ key: "k", default: { kind: "char", char: "y" }, except: boardChars }] };
     const rows = computeRows(magic, keys);
     expect(rows).toEqual([{ inputs: " k", output: " y", type: "default:y", from: "magic_keys[0]" }]);
     const { lifted, leftovers } = liftRules(
@@ -137,6 +137,6 @@ describe("magic word-start row (LDB-F14)", () => {
       keys,
     );
     expect(leftovers).toEqual([]);
-    expect(lifted.magic_keys).toEqual([{ key: "k", default: "y", rules: [] }]);
+    expect(lifted.magic_keys).toEqual([{ key: "k", default: { kind: "char", char: "y" }, rules: [] }]);
   });
 });

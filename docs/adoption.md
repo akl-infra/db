@@ -1029,6 +1029,7 @@ silently drift from what `db/src/index.ts` actually registers.
 | POST | `/v1/admin/import/tick` | admin | — | 200 | `not_admin`, `import_paused`, lane errors |
 | POST | `/v1/admin/diff/tick` | admin | — | 200 | `not_admin`, lane errors |
 | POST | `/v1/admin/nightly/tick` | admin | — | 200 | `not_admin`, lane errors |
+| POST | `/v1/admin/dump` | admin | — | 200 (`{seq, layout_count, written_at}`) | `not_admin`, lane errors |
 | POST | `/v1/admin/clients` | admin | `{name, pubkey, owner_user_id, caps, discord_app_id?}` | 201 | `bad_request`, `not_admin`, lane errors |
 | DELETE | `/v1/admin/clients/:id` | admin | — | 200 | `not_admin`, `not_found`, lane errors |
 | GET | `/v1/admin/clients` | admin | — | 200 | `not_admin`, lane errors |

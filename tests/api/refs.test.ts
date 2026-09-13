@@ -91,7 +91,7 @@ describe("[LDB-P8] a ULID-shaped name doesn't break reachability", () => {
       currentLayout: null,
       currentFormats: new Map(),
       layout: { kind: "created", name: ulidShapedName, owner: "1", created_at: "2026-06-06T00:00:00.000Z", deleted: false },
-      format: { kind: "format_added", lineage: "spark", format: "spark/1", payload: { keys: {} }, hasMagic: false },
+      format: { kind: "format_added", lineage: "spark", format: "spark/1", payload: { keys: [], board: "ansi" }, hasMagic: false },
       modified_at: "2026-06-06T00:00:00.000Z",
       actor: "1",
       via: "discord",
