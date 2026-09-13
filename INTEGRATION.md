@@ -71,6 +71,40 @@ an error that looks like your request was wrong — the record exists, your
 format just can't show it yet. Read and write `spark/1` if you have no
 opinion; `GET /v1/formats` is the live registry (adoption guide §3).
 
+## 1b. Versioning
+
+`design/layout-db/25-api-versioning.md` is the full audit + policy;
+this is the short version a client actually needs. Every response —
+success or error, every route — carries `X-AKLDB-API: <major>.<minor>`.
+`GET /v1/meta` carries the same numbers, plus a deprecation list:
+
+```json
+"api": { "major": 1, "minor": 7 },
+"deprecations": []
+```
+
+`major` (the `/v1` in the URL) is the compatibility promise: only
+additive changes land under it (a new optional field, a new route, a new
+tolerated enum value — §1's own reader obligations, "ignore unknown
+fields; use PATCH if you don't understand every field"). A removal,
+rename, or meaning change under an unchanged shape is a NEW major,
+registered beside `/v1`, never edited in place — none exists yet. `minor`
+increments on every additive change; `db/CHANGELOG-API.md` has one dated
+line per minor, and `db/tests/contract/route-table.golden.json` is the
+machine-checked proof that a shape change can't land without one (a diff
+against it fails the build with the exact bump/changelog steps to take,
+or says outright that the change is breaking and needs a `/v2` instead).
+
+A `deprecations` entry (none today) would carry `{route, since, sunset,
+message}` and its route's own responses would carry `Deprecation`/
+`Sunset` HTTP-date headers, at least 90 days apart — stop building
+against a route once its `Sunset` date is reached.
+
+This is a different version from a stored FORMAT's own major (`spark/1`,
+§1 above, `GET /v1/formats` — that's the payload one record's `formats`
+map carries; this is the envelope and route surface every response, of
+any format, rides in). The two change independently.
+
 ## 2. Reading (no auth, ever)
 
 Every route, its real trimmed request/response shapes, and the required

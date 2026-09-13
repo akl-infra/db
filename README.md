@@ -21,6 +21,15 @@ its design-doc cross-references and the generated error-code appendix.
 Both docs, plus the rest of `design/layout-db/*.md`, are rendered onto the
 site as the `/layoutdb/` hub (`design/layout-db/build_site.mjs`, `LDB-G9`).
 
+## API versioning
+
+The HTTP API's own version (distinct from a stored format's own major,
+below): `design/layout-db/25-api-versioning.md` is the audit + policy
+(`/v1` additive-only, `X-AKLDB-API` header + `GET /v1/meta`'s `api` block,
+the `tests/contract/` golden, `CHANGELOG-API.md`). `db/CHANGELOG-API.md`
+is the dated changelog; `db/INTEGRATION.md`'s "Versioning" section is the
+client-facing summary.
+
 ## Formats
 
 **A layout can hold several formats at once** (`design/layout-db/
