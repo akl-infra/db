@@ -704,13 +704,6 @@ const REQUIRED: Record<string, RequiredCase[]> = {
     { status: 403, code: ERROR_CODES.not_admin },
     { status: 404, code: ERROR_CODES.not_found },
   ],
-  "PUT /v1/admin/layouts/:ref/likes": [
-    { status: 200 },
-    { status: 400, code: ERROR_CODES.bad_request },
-    { status: 401, code: ERROR_CODES.unauthorized },
-    { status: 403, code: ERROR_CODES.not_admin },
-    { status: 404, code: ERROR_CODES.not_found },
-  ],
   "PUT /v1/admin/authors/:user_id": [
     { status: 200 },
     { status: 400, code: ERROR_CODES.bad_request },

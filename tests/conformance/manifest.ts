@@ -418,11 +418,6 @@ import modAdminBansDelete401Unauthorized from "./admin-bans/delete-401-unauthori
 import modAdminBansDelete403NotAdmin from "./admin-bans/delete-403-not_admin.json" with { type: "json" };
 import modAdminBansGet401Unauthorized from "./admin-bans/get-401-unauthorized.json" with { type: "json" };
 import modAdminBansGet403NotAdmin from "./admin-bans/get-403-not_admin.json" with { type: "json" };
-import modAdminLayoutLikesPut200 from "./admin-layout-likes/put-200.json" with { type: "json" };
-import modAdminLayoutLikesPut400BadRequest from "./admin-layout-likes/put-400-bad_request.json" with { type: "json" };
-import modAdminLayoutLikesPut404 from "./admin-layout-likes/put-404.json" with { type: "json" };
-import modAdminLayoutLikesPut401Unauthorized from "./admin-layout-likes/put-401-unauthorized.json" with { type: "json" };
-import modAdminLayoutLikesPut403NotAdmin from "./admin-layout-likes/put-403-not_admin.json" with { type: "json" };
 import modAdminAuthorsPut200 from "./admin-authors/put-200.json" with { type: "json" };
 import modAdminAuthorsPut400BadRequest from "./admin-authors/put-400-bad_request.json" with { type: "json" };
 import modAdminAuthorsPut404 from "./admin-authors/put-404.json" with { type: "json" };
@@ -845,11 +840,6 @@ export const MODERATION_CASES: ConformanceCase[] = [
   kase("admin-bans/delete-403-not_admin", "/v1/admin/bans/:user_id", modAdminBansDelete403NotAdmin, true),
   kase("admin-bans/get-401-unauthorized", "/v1/admin/bans", modAdminBansGet401Unauthorized, true),
   kase("admin-bans/get-403-not_admin", "/v1/admin/bans", modAdminBansGet403NotAdmin, true),
-  kase("admin-layout-likes/put-200", "/v1/admin/layouts/:ref/likes", modAdminLayoutLikesPut200, true),
-  kase("admin-layout-likes/put-400-bad_request", "/v1/admin/layouts/:ref/likes", modAdminLayoutLikesPut400BadRequest, true),
-  kase("admin-layout-likes/put-404", "/v1/admin/layouts/:ref/likes", modAdminLayoutLikesPut404, true),
-  kase("admin-layout-likes/put-401-unauthorized", "/v1/admin/layouts/:ref/likes", modAdminLayoutLikesPut401Unauthorized, true),
-  kase("admin-layout-likes/put-403-not_admin", "/v1/admin/layouts/:ref/likes", modAdminLayoutLikesPut403NotAdmin, true),
   kase("admin-authors/put-200", "/v1/admin/authors/:user_id", modAdminAuthorsPut200, true),
   kase("admin-authors/put-400-bad_request", "/v1/admin/authors/:user_id", modAdminAuthorsPut400BadRequest, true),
   kase("admin-authors/put-404", "/v1/admin/authors/:user_id", modAdminAuthorsPut404, true),

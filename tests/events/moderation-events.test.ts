@@ -1,13 +1,14 @@
 // [LDB-MD7] L5 moderation (design/akldb-site/01-plan.md §4): every
 // moderation action is exactly one event, `admin: 1`, `via`/`source` the
 // actor's own lane -- `appendAdmin` (bans, author-rename), `appendModeration`
-// (link_rejected) and `appendLikeAdjust`/`appendLinkChange` (the layout-
-// scoped writers that also touch `layouts` itself) all carry it through,
-// extending LDB-A5.
+// (link_rejected) and `appendLinkChange` (the layout-scoped writer that
+// also touches `layouts` itself) all carry it through, extending LDB-A5.
+// (H24, 2026-09-13: `appendLikeAdjust`/`admin.likes_set` were removed with
+// the admin like-count override -- this file no longer covers them.)
 import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import type { Bindings } from "../../src/env";
-import { appendAdmin, appendLikeAdjust, appendLinkChange, appendModeration, commitWrite, rowToEvent, type CommitInput, type EventDbRow } from "../../src/core/events";
+import { appendAdmin, appendLinkChange, appendModeration, commitWrite, rowToEvent, type CommitInput, type EventDbRow } from "../../src/core/events";
 import { fixedClock } from "../../src/core/time";
 import { ulid } from "ulidx";
 
@@ -84,18 +85,6 @@ describe("[LDB-MD7] every moderation writer carries the actor's own lane", () =>
     expect(e.detail).toEqual({ submission_id: "sub-1", reason: "spam" });
   });
 
-  it("[LDB-MD7] appendLikeAdjust: layout-scoped, admin: 1, via/source the actor's own, after carries like_adjust", async () => {
-    const layoutId = await createLayout();
-    const { seq } = await appendLikeAdjust(db, clock, { layoutId, actor: "an-admin", via: "discord", source: SOURCE, count: 3 });
-    const e = await lastEvent(seq);
-    expect(e.kind).toBe("admin.likes_set");
-    expect(e.admin).toBe(true);
-    expect(e.rev).toBeNull();
-    expect(e.via).toBe("discord");
-    expect(e.source).toEqual(SOURCE);
-    expect(e.after).toEqual({ scope: "like_adjust", like_adjust: 3 });
-  });
-
   it("[LDB-MD7] appendLinkChange: layout-scoped, admin flag reflects the caller, via/source the actor's own, after carries link", async () => {
     const layoutId = await createLayout();
     const { seq } = await appendLinkChange(db, clock, {
@@ -116,15 +105,11 @@ describe("[LDB-MD7] every moderation writer carries the actor's own lane", () =>
     expect(e.after).toEqual({ scope: "link", link: "https://example.org/x" });
   });
 
-  it("[LDB-MD7] every moderation action is exactly ONE event -- appendLikeAdjust/appendLinkChange never append a second row", async () => {
+  it("[LDB-MD7] every moderation action is exactly ONE event -- appendLinkChange never appends a second row", async () => {
     const layoutId = await createLayout();
     const before = await db.prepare("SELECT COUNT(*) AS n FROM events").first<{ n: number }>();
-    await appendLikeAdjust(db, clock, { layoutId, actor: "an-admin", via: "discord", source: SOURCE, count: 1 });
-    const afterLikes = await db.prepare("SELECT COUNT(*) AS n FROM events").first<{ n: number }>();
-    expect((afterLikes?.n ?? 0) - (before?.n ?? 0)).toBe(1);
-
     await appendLinkChange(db, clock, { layoutId, kind: "link_approved", link: "https://example.org/one-event", actor: "an-admin", via: "discord", admin: true, source: SOURCE });
     const afterLink = await db.prepare("SELECT COUNT(*) AS n FROM events").first<{ n: number }>();
-    expect((afterLink?.n ?? 0) - (afterLikes?.n ?? 0)).toBe(1);
+    expect((afterLink?.n ?? 0) - (before?.n ?? 0)).toBe(1);
   });
 });

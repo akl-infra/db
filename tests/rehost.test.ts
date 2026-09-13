@@ -20,7 +20,7 @@ import { SELF, createExecutionContext, createScheduledController, env, waitOnExe
 import { describe, expect, it, vi } from "vitest";
 import type { Bindings } from "../src/env";
 import { canonical } from "../src/core/canonical";
-import { appendLikeAdjust, appendLinkChange, type EventDbRow, foldLayout, rowToEvent } from "../src/core/events";
+import { appendLike, appendLinkChange, type EventDbRow, foldLayout, rowToEvent } from "../src/core/events";
 import { rowToFormat, rowToLayout, type FormatDbRow, type LayoutDbRow } from "../src/core/records";
 import { fixedClock } from "../src/core/time";
 import type { BanDbRow, Dump, LayoutRevDbRow, LinkSubmissionDbRow } from "../src/dump/write";
@@ -33,12 +33,12 @@ import { CASES } from "./conformance/manifest";
 
 // [LDB-MD8] §4.5: the two new L5 moderation tables/columns, planted before
 // the dump the same way LDB-D9's `clients` row is above -- a real ban, a
-// real pending submission, a real approved link and a non-zero
-// `like_adjust`, each asserted byte-exact after the restore. Two DISTINCT
-// layouts (never the same one) so the approved-link write's own sweep
-// (`appendLinkChange` supersedes every OTHER pending submission for ITS
-// layout) can never accidentally touch the pending one this test also
-// plants.
+// real pending submission, a real approved link and (H24, 2026-09-13:
+// replacing the retired admin like-count override) two real `likes` rows,
+// each asserted byte-exact after the restore. Two DISTINCT layouts (never
+// the same one) so the approved-link write's own sweep (`appendLinkChange`
+// supersedes every OTHER pending submission for ITS layout) can never
+// accidentally touch the pending one this test also plants.
 const REHOST_BAN_USER = "870000000000000001";
 async function plantModerationState(db: Bindings["DB"]): Promise<{ likeLayoutId: string; pendingLayoutId: string; linkLayoutId: string }> {
   const clock = fixedClock("2026-08-01T02:00:00.000Z");
@@ -78,7 +78,9 @@ async function plantModerationState(db: Bindings["DB"]): Promise<{ likeLayoutId:
     .bind(REHOST_BAN_USER, "800000000000000001", clock(), "rehost drill plant")
     .run();
 
-  await appendLikeAdjust(db, clock, { layoutId: likeLayoutId, actor: "800000000000000001", via: "discord", source: { client: "discord-app:test", version: null }, count: 7 });
+  const likeSource = { client: "discord-app:test", version: null };
+  await appendLike(db, clock, { kind: "liked", layoutId: likeLayoutId, userId: "800000000000000002", via: "discord", source: likeSource });
+  await appendLike(db, clock, { kind: "liked", layoutId: likeLayoutId, userId: "800000000000000003", via: "discord", source: likeSource });
 
   await db
     .prepare("INSERT INTO link_submissions (id, layout_id, url, submitted_by, submitted_at, status, decided_by, decided_at, reason) VALUES (?, ?, ?, ?, ?, 'pending', NULL, NULL, NULL)")
@@ -203,16 +205,19 @@ describe("rehost drill", () => {
     }
 
     // [LDB-MD8] §4.5: the planted state actually made it into the dump's
-    // `bans`/`link_submissions` arrays and `records`' own `like_adjust`/
+    // `bans`/`link_submissions` arrays and `records`' own `like_count`/
     // `link` columns -- before restore even runs, so a restore that merely
     // happened to leave stale pre-existing rows in place could never pass
-    // this by accident.
+    // this by accident. (H24, 2026-09-13: `like_count` here is exactly the
+    // two `likes` rows planted above -- no admin adjustment exists any
+    // more.)
     if (!usingRemote) {
       const ids = moderationIds!;
       expect(dump.bans.some((b) => b.user_id === REHOST_BAN_USER && b.reason === "rehost drill plant")).toBe(true);
       expect(dump.link_submissions.some((s) => s.layout_id === ids.pendingLayoutId && s.status === "pending" && s.url === "https://example.org/rehost-pending")).toBe(true);
       const likeRecord = dump.records.find((r) => r.id === ids.likeLayoutId);
-      expect(likeRecord?.like_adjust).toBe(7);
+      expect(likeRecord?.like_count).toBe(2);
+      expect(dump.likes.filter((l) => l.layout_id === ids.likeLayoutId)).toHaveLength(2);
       const linkRecord = dump.records.find((r) => r.id === ids.linkLayoutId);
       expect(linkRecord?.link).toBe("https://example.org/rehost-approved");
     }
@@ -238,7 +243,7 @@ describe("rehost drill", () => {
     }
 
     // [LDB-MD8] the ban, the pending submission, the approved link and the
-    // non-zero `like_adjust` all round-trip byte-exact.
+    // two real likes all round-trip byte-exact.
     if (!usingRemote) {
       const ids = moderationIds!;
       const restoredBans = await db.prepare("SELECT user_id, by, at, reason FROM bans ORDER BY user_id ASC").all<BanDbRow>();
@@ -251,8 +256,8 @@ describe("rehost drill", () => {
       expect(canonical(restoredSubmissions.results)).toBe(canonical(dump.link_submissions));
       expect(restoredSubmissions.results.some((s) => s.layout_id === ids.pendingLayoutId && s.status === "pending")).toBe(true);
 
-      const likeLayout = await db.prepare("SELECT like_adjust FROM layouts WHERE id = ?").bind(ids.likeLayoutId).first<{ like_adjust: number }>();
-      expect(likeLayout?.like_adjust).toBe(7);
+      const likeLayout = await db.prepare("SELECT like_count FROM layouts WHERE id = ?").bind(ids.likeLayoutId).first<{ like_count: number }>();
+      expect(likeLayout?.like_count).toBe(2);
       const linkLayout = await db.prepare("SELECT link FROM layouts WHERE id = ?").bind(ids.linkLayoutId).first<{ link: string | null }>();
       expect(linkLayout?.link).toBe("https://example.org/rehost-approved");
     }

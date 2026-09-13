@@ -1036,7 +1036,6 @@ silently drift from what `db/src/index.ts` actually registers.
 | GET | `/v1/admin/bans` | admin | — | 200 | `not_admin`, lane errors |
 | PUT | `/v1/admin/bans/:user_id` | admin | `{reason?}` | 200/201 | `not_admin`, `cannot_ban_admin`, lane errors |
 | DELETE | `/v1/admin/bans/:user_id` | admin | — | 200 | `not_admin`, `not_found`, lane errors |
-| PUT | `/v1/admin/layouts/:ref/likes` | admin | `{count}` | 200 | `bad_request`, `not_admin`, `not_found`, lane errors |
 | PUT | `/v1/admin/authors/:user_id` | admin | `{name}` | 200 | `bad_request`, `not_admin`, `not_found`, lane errors |
 | GET | `/v1/admin/link-queue` | admin | — | 200 | `bad_request`, `not_admin`, lane errors |
 | POST | `/v1/admin/link-queue/:id/approve` | admin | — | 200 | `not_admin`, `not_found`, lane errors |
@@ -1051,11 +1050,12 @@ every one of them with its exact body shape.
 
 ## 10. Moderation
 
-An admin (`GET /v1/me`'s `admin: true`) can ban a user, override a
-layout's displayed like count, override an author's display name, and
-decide a submitted `link`. Every action here appends an event
-(`admin: true`), so it shows up in `/v1/changes`/`/admin/changelog` like
-any other write.
+An admin (`GET /v1/me`'s `admin: true`) can ban a user, override an
+author's display name, and decide a submitted `link`. Every action here
+appends an event (`admin: true`), so it shows up in
+`/v1/changes`/`/admin/changelog` like any other write. There is
+deliberately no way for an admin to move a layout's `like_count` — see
+"No like-count override" below.
 
 **Bans** (`GET/PUT/DELETE /v1/admin/bans[/:user_id]`): a banned user's
 non-safe request (any method other than GET/HEAD/OPTIONS, likes included)
@@ -1064,12 +1064,12 @@ be banned — `PUT` on a current admin is `409 cannot_ban_admin`. `GET
 /v1/me` always reports the caller's own `banned` (and `admin`) fresh,
 never cached.
 
-**Like override** (`PUT /v1/admin/layouts/:ref/likes`, body `{count}`):
-sets the layout's *displayed* like count to `count` at that instant —
-`like_count = max(0, real like rows + like_adjust)`, so real likes/unlikes
-still move the number afterward. The response carries `like_count`,
-`like_rows` (the real count) and `like_adjust` (the difference); every
-layout wire shape also carries `like_adjust` next to `like_count`.
+**No like-count override** (H24, 2026-09-13): `like_count` is always
+exactly `COUNT(DISTINCT user_id) FROM likes` for the layout — an earlier
+admin "overwrite likes" route (`PUT /v1/admin/layouts/:ref/likes`) was
+removed entirely so mods can never move it and every like is always tied
+to the user who made it. `PUT/DELETE /v1/layouts/:ref/like` are the only
+writers of `like_count`.
 
 **Author name override** (`PUT /v1/admin/authors/:user_id`, body
 `{name}`): sets the one name `/v1/authors` shows for that Discord id and

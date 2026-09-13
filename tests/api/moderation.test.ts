@@ -1,7 +1,8 @@
 // [LDB-MD1] [LDB-MD4] [LDB-MD10] L5 moderation (design/akldb-site/01-plan.md
-// §4.1-§4.3): bans, the like-count override, the author display-name
-// override. Black-box via SELF.fetch, same pattern tests/api/admin.test.ts
-// uses for T3's admin routes.
+// §4.1, §4.3): bans, the author display-name override. Black-box via
+// SELF.fetch, same pattern tests/api/admin.test.ts uses for T3's admin
+// routes. (H24, 2026-09-13: the like-count override, §4.2, was removed --
+// see the "[H24] no admin like-count override exists" describe below.)
 import { env } from "cloudflare:test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Bindings } from "../../src/env";
@@ -151,38 +152,33 @@ describe("[LDB-MD1] bans", () => {
   });
 });
 
-describe("[LDB-MD2] like override", () => {
-  it("[LDB-MD2] sets the displayed like_count to exactly count, real likes/unlikes still move it after", async () => {
+// H24 (saltorbit, 2026-09-13): the admin like-count override (§4.2, `PUT
+// /v1/admin/layouts/:ref/likes`) was removed entirely -- mods must never be
+// able to move `like_count` away from `COUNT(DISTINCT user_id) FROM likes`,
+// and likes must always be tied to the users who liked, never an opaque
+// admin-set number. The route itself is gone (404, same as any unknown
+// path); a real like/unlike is the only thing that ever moves the count.
+describe("[H24] no admin like-count override exists", () => {
+  it("PUT /v1/admin/layouts/:ref/likes is gone -- 404, not a route", async () => {
     const owner = testUserId();
     const layoutId = await createLayout(owner);
-    const admin = adminHeaders("tok-likes-admin");
-
+    const admin = adminHeaders("tok-likes-admin-h24");
     const res = await writeFetch(`/v1/admin/layouts/${layoutId}/likes`, "PUT", admin, { count: 5 });
-    expect(res.status).toBe(200);
-    await expect(res.json()).resolves.toEqual({ like_count: 5, like_rows: 0, like_adjust: 5 });
+    expect(res.status).toBe(404);
+  });
 
-    const liker = userHeaders("tok-likes-liker", testUserId());
+  it("like_count only ever moves via a real like/unlike, tied to the liking user", async () => {
+    const owner = testUserId();
+    const layoutId = await createLayout(owner);
+    const liker = userHeaders("tok-likes-liker-h24", testUserId());
+
     const like = await writeFetch(`/v1/layouts/${layoutId}/like`, "PUT", liker);
     expect(like.status).toBe(200);
-    await expect(like.json()).resolves.toEqual({ like_count: 6 });
+    await expect(like.json()).resolves.toEqual({ like_count: 1 });
 
     const unlike = await writeFetch(`/v1/layouts/${layoutId}/like`, "DELETE", liker);
-    await expect(unlike.json()).resolves.toEqual({ like_count: 5 });
-  });
-
-  it("negative count is 400 bad_request; unknown layout is 404 not_found", async () => {
-    const admin = adminHeaders("tok-likes-bad");
-    const bad = await writeFetch("/v1/admin/layouts/whatever/likes", "PUT", admin, { count: -1 });
-    expect(bad.status).toBe(400);
-    const missing = await writeFetch("/v1/admin/layouts/no-such-layout-xyz/likes", "PUT", admin, { count: 1 });
-    expect(missing.status).toBe(404);
-  });
-
-  it("a non-admin gets 403 not_admin", async () => {
-    const owner = testUserId();
-    const layoutId = await createLayout(owner);
-    const res = await writeFetch(`/v1/admin/layouts/${layoutId}/likes`, "PUT", userHeaders("tok-likes-nonadmin", testUserId()), { count: 1 });
-    expect(res.status).toBe(403);
+    expect(unlike.status).toBe(200);
+    await expect(unlike.json()).resolves.toEqual({ like_count: 0 });
   });
 });
 
