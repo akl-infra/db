@@ -493,7 +493,13 @@ lead session owns the spark deploy, rebuild and restart; saltorbit picks the hou
    deploy with the new `validate`).
 4. Wipe the live tables (the F4 recipe from `ldb-formats`; `sqlite_sequence`
    for `events` reset per the 0009 gotcha is moot on a wipe) and run the
-   cmini import to completion; spot-read a few layouts.
+   cmini import to completion (every page — check `/v1/meta` import state
+   before moving on); spot-read a few layouts.
+4b. FORCE A DUMP: `POST /v1/admin/dump` (new in the format slice), then
+   confirm `/v1/dump/latest.json` has `seq` ≥ the import's head seq and
+   `layout_count` ≈ the import count. Both the bot's fresh replica boot and
+   `rebuild-on-fly.sh` read that dump; without this they would load the
+   PRE-wipe catalog (the scheduled dump is daily at 03:00 UTC).
 5. Spark deploy (`flyctl deploy` from a clean tree, `performance-1x`); the
    new bot invalidates a volume snapshot whose payload format version
    differs and rebuilds its replica from the dump (or the snapshot file is
