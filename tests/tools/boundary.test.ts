@@ -80,14 +80,20 @@ describe("db/ import boundary", () => {
     // `bot/src` joins the scan (12 §3 X5 item 3): it used to import
     // db/formats/** BY PATH (tsconfig `@formats/*`, LDB-B6's narrow named
     // exception) and so had to stay excluded here or this test would have
-    // fought that exception; now that it consumes @akl/layout-formats as a
-    // real package (file: link today, published later), the exception is
-    // gone and bot/src gets the same guarantee everything else here has.
-    // `bot/tests` is deliberately NOT scanned: fixture-only reads of
-    // db/tests/fixtures/**'s sample data (bot/tests/transforms.test.ts and
-    // friends) are not a production cross-boundary import, and bot's own
-    // boundary test (LDB-B6) doesn't scan its own tests/ either.
-    // `db/site/src`, `db/site/server` join too (design/akldb-site/
+    // fought that exception; it then briefly consumed a real
+    // `file:`-linked package (`@akl/layout-formats`) instead. **2026-09-13
+    // (saltorbit: "the bot is a third-party client of the layout DB like any
+    // other"): that package is GONE -- bot/src reaches db/ by neither path
+    // nor package any more, ever (`db/` is moving to its own repo soon;
+    // "no favoritism holds in code").** `bot/src/spark/format.ts` is the
+    // bot's own hand-maintained reading of the public spark/1 wire format
+    // instead. `bot/tests` now largely gets the SAME guarantee via bot's own
+    // boundary test (LDB-B6, tightened the same day) rather than this one --
+    // with ONE deliberate, gated exception that test itself carves out:
+    // `bot/tests/tools/sparkFormatParity.test.ts` (LDB-B334), which compares
+    // the bot's copy of a few pure geometry functions against db's own while
+    // db/ still happens to be a sibling directory, skipping cleanly once it
+    // isn't. `db/site/src`, `db/site/server` join too (design/akldb-site/
     // 01-plan.md §4.7 item 16): they sit INSIDE db/, but the site is meant
     // to be a client of the public wire like any outside adopter, so this
     // scan's "does anything reach into a db/ implementation path" question
