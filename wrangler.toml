@@ -39,3 +39,9 @@ enabled = true   # Workers Logs: keep console.error() from onError (the 500 path
 # the gzip instead of materializing it).
 [limits]
 cpu_ms = 30000
+
+# 2026-09-13 (LATENCY.md §14): a write PUT costs 640-760 ms and a changed-record GET 300-500 ms
+# from Fly iad, vs /v1/meta at 65 ms -- per-D1-statement distance dominates. Smart Placement runs
+# the Worker next to D1 for these D1-heavy requests. Reversible: delete this block.
+[placement]
+mode = "smart"
