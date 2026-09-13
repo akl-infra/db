@@ -41,6 +41,10 @@ const EXEMPT_ROUTES: ExemptRoute[] = [
   { method: "PUT", path: "/v1/layouts/:ref/like", reason: "D13 L3: a like needs no version" },
   { method: "DELETE", path: "/v1/layouts/:ref/like", reason: "D13 L3: an unlike needs no version" },
   { method: "POST", path: "/v1/layouts/:ref/restore", reason: "restoreLayout takes no ifMatchHeader at all -- the optional body is {name?} only, no version check (20-spark.md decision 8/9)" },
+  // L5 moderation (§4.4): `link` is not a rev'd write (no `layout_revs`
+  // row, `modified_at` untouched) -- no `If-Match` concept applies.
+  { method: "PUT", path: "/v1/layouts/:ref/link", reason: "§4.4: link is not a rev'd write -- no version to name" },
+  { method: "DELETE", path: "/v1/layouts/:ref/link", reason: "§4.4: link is not a rev'd write -- no version to name" },
 ];
 
 // This file's own matrices, restated as plain router coordinates (each

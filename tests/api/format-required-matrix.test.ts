@@ -99,6 +99,11 @@ const EXEMPT_ROUTES: ExemptRoute[] = [
   { method: "DELETE", path: "/v1/layouts/:ref", reason: "delete is layout-scope only (name/owner/deletion); it concerns no format" },
   { method: "POST", path: "/v1/layouts/:ref/restore", reason: "restore is layout-scope only; it concerns no format" },
   { method: "POST", path: "/v1/layouts/:ref/transfer", reason: "transfer is layout-scope only; it concerns no format" },
+  // L5 moderation (§4.4): `link` is a layout-level field, not a format --
+  // it concerns no payload/format at all.
+  { method: "GET", path: "/v1/layouts/:ref/link", reason: "link is a layout-level field; it concerns no format" },
+  { method: "PUT", path: "/v1/layouts/:ref/link", reason: "link is a layout-level field; it concerns no format" },
+  { method: "DELETE", path: "/v1/layouts/:ref/link", reason: "link is a layout-level field; it concerns no format" },
 ];
 
 // Write routes whose BODY names a format and must answer `400
