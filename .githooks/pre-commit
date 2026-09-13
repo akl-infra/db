@@ -1,0 +1,11 @@
+#!/bin/sh
+# Refuse commits under any identity other than the repo's own. Wired by
+# scripts/install-hooks.sh (core.hooksPath=.githooks). The public repo carries
+# one contributor identity; a commit under a personal one is a mistake.
+name=$(git config user.name); email=$(git config user.email)
+case "$email" in
+  hi@akl.gg) exit 0 ;;
+esac
+echo "pre-commit: refusing identity '$name <$email>' -- this repo commits as 'saltorbit <hi@akl.gg>'." >&2
+echo "  fix: git config user.name saltorbit && git config user.email hi@akl.gg" >&2
+exit 1

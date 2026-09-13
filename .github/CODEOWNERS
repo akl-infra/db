@@ -2,6 +2,6 @@
 # One line per format major, from db/formats/<name>/<major>/OWNERS
 # (design/layout-db/04-governance.md, LDB-G3).
 
-db/formats/adapters/cmini/ @saltorbit
-db/formats/mana2/1/ @saltorbit
-db/formats/spark/1/ @saltorbit
+formats/adapters/cmini/ @saltorbit
+formats/mana2/1/ @saltorbit
+formats/spark/1/ @saltorbit
