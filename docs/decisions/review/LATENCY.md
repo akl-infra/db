@@ -267,3 +267,15 @@ Two fixes, either sufficient:
 2. **Smart Placement** (already on): should move the Worker to WNAM for D1-heavy requests once it has observed enough traffic — re-check tomorrow. Even then the client→edge hop from IAD stays.
 
 Recommendation: do (1) tomorrow; keep (2) on. Expected after (1): writes ≈ 0.4 s bot time + 0.3 s post ≈ 0.7 s to the user — inside the target.
+
+### 14b · After the move to `lax` (06:06Z) — and what the write second really is
+
+| | Fly `iad` (before) | Fly `lax` (after) | laptop via DEN |
+|---|---|---|---|
+| `/v1/meta` freshness check | 65–75 ms | 55–62 ms | 25–73 ms |
+| changed-record GET | 300–500 ms | 270–430 ms | — |
+| write PUT (`db` phase) | 640–780 ms | **530–700 ms** | create 277–343 ms; +70–100 ms with an Idempotency-Key; delete 260–315 ms |
+
+The move bought ~15 %, not the 2.5× §14a predicted. §14a's "250 ms laptop write" was a PUT the Worker rejected with 400 before touching D1 — a bad oracle, now corrected: a real create from the laptop is 280–430 ms. So the Worker's own write path is ≈ 300 ms wherever the client is (several sequential D1 statements: event append, fold, rev row, format row), the Idempotency-Key reserve adds ≈ 80 ms, and the client→edge→D1 path adds another 150–250 ms from Fly. **Lever that remains: fewer D1 round trips per write in the Worker** — one `db.batch()` for reserve + append + fold (`db/src/core/events.ts appendWrite`, after the spark/1 format work that is rewriting that file lands), and on the bot side skip the post-write full-record GET (270–430 ms, the response already carries the record). Together those should take a write from ≈ 1.1 s to ≈ 0.5 s of bot time.
+
+Machine state after the move: `lax` machine `86de22fee000e8` on volume `vol_vp26w21jgw97ddw4` (fresh snapshot of the old one); the `iad` machine and volume are stopped, kept 24 h as rollback. First boot in lax: RSS 1,326 MB with a 389 MB heap — the off-heap share (cell store now full, two worker threads, wasm) is being broken down by B25 after the 82 % alert on the old machine.
