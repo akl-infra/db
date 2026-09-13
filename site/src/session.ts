@@ -17,3 +17,12 @@ export async function refreshMe(): Promise<void> {
 }
 
 void refreshMe();
+
+/** Dev-only escape hatch for `lib/devMock.ts` ([SITE-16]: that module is
+ * imported only behind a build-time-dead `import.meta.env.DEV` branch, so
+ * this export reaches production too, but nothing in a production bundle
+ * ever calls it). Bypasses the network round trip entirely -- unlike
+ * `refreshMe()`, there is no `/auth/me` to disagree with it. */
+export function setMeForDevMock(mock: MeResponse): void {
+  setMe(mock);
+}
