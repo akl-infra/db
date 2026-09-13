@@ -120,3 +120,19 @@ Options, in order of preference: run the machine as `performance-1x` (dedicated 
 **Per-verb command histogram**: still empty (no Discord commands since the 00:41Z restart). Round 2 proper waits on real usage or a Fly-side headless run (`bot/scripts/measure-latency.mjs` via `fly ssh console`).
 
 **Health-field staleness found**: `/health.publisher.last_run_at` and `publisher_last_tick_at` read 00:41Z while ticks completed at 01:09–01:17Z (set once per multi-tick pass, not per tick) → B11.
+
+### 9b · Loop-lag histogram, first read (v42, B11 live, performance-1x, 01:56–02:13Z)
+
+`/health.loop_lag_ms` since boot: p50 20 ms (the histogram's resolution floor), p95 80, p99 85, **max 111,132 ms**. 12 stalls over 1 s in 17 min, all inside publisher phases:
+
+| phase (per tick) | wall time | stalls > 1 s |
+|---|---|---|
+| compute (25 layouts, child process) | 119 s | 1.0–1.6 s each, ~8 per tick — parsing the CLI's JSON result on the main thread |
+| derive-rows (python) | 0.3 s | — |
+| merge-overlay | 46 s | (below the 1 s threshold individually; B12 moves it off-thread) |
+| upload | 48 s | 1.2 s |
+| smoke | 151 s | **111 s** (one per tick) |
+
+Whole tick: 364 s. **The 111 s stall is the smoke test's tombstone-leak check**: a tombstones × files loop that re-parsed every multi-MB overlay table once per tombstoned id. Fixed as LDB-B180 (one parse per table, `setImmediate` yield between files; commit 5bdf9216b, deployed with B13). Until B12 lands, the remaining per-tick blocking is the one-parse-per-table smoke pass plus the merge-overlay stringify/parse (tens of seconds spread over many files, each individually under a second or two).
+
+**Verdict for R2 during the backlog pass**: FAIL before the LDB-B180 fix — a command arriving in the 111 s window every ~6 min waited it out. After the fix the worst single block should be a few seconds (to be re-measured); B12 (worker thread) is what brings it under the 1 s target.
