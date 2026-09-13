@@ -1,0 +1,474 @@
+/* akldb.org design tokens (design/akldb-site/01-plan.md §5: "distinctive,
+   quiet; one accent; dark and light; phone width works"). Palette concept:
+   printed-circuit-board green -- the one material every mechanical keyboard
+   this database catalogs is built on -- read against a paper-grey ground in
+   light mode and a PCB-black ground in dark mode. Structure over decoration:
+   hairline borders and monospace data columns instead of card/shadow kit. */
+
+:root {
+  --bg: #eef0ec;
+  --surface: #ffffff;
+  --ink: #1b1e1c;
+  --ink-muted: #5b6058;
+  --border: #d8dbd3;
+  --accent: #2f5d50;
+  --accent-contrast: #ffffff;
+  --accent-wash: #e3ece8;
+  --danger: #b23a2e;
+  --danger-wash: #f6e6e3;
+
+  --font-display: "Space Grotesk", "Segoe UI", sans-serif;
+  --font-body: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #14170f;
+    --surface: #1d211a;
+    --ink: #e9ece4;
+    --ink-muted: #9ca396;
+    --border: #2c3126;
+    --accent: #7fd9a5;
+    --accent-contrast: #0e120d;
+    --accent-wash: #202b23;
+    --danger: #e18579;
+    --danger-wash: #2c1c19;
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #14170f;
+  --surface: #1d211a;
+  --ink: #e9ece4;
+  --ink-muted: #9ca396;
+  --border: #2c3126;
+  --accent: #7fd9a5;
+  --accent-contrast: #0e120d;
+  --accent-wash: #202b23;
+  --danger: #e18579;
+  --danger-wash: #2c1c19;
+  color-scheme: dark;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.55;
+  /* Belt-and-suspenders: the page itself must never scroll horizontally
+     (design/akldb-site/01-plan.md §5); only a table or a docs code block
+     may, inside its own `overflow-x: auto` container below. `overflow-wrap`
+     covers the recurring real cause on this data-heavy a site -- a long
+     unbroken token (a Discord snowflake id, a compact JSON example) with
+     nowhere else to break -- everywhere at once, rather than one container
+     at a time as each one turns up in QA. */
+  overflow-x: hidden;
+  overflow-wrap: break-word;
+}
+
+a {
+  color: var(--accent);
+}
+
+.akl-app {
+  max-width: 960px;
+  margin: 0 auto;
+  padding-inline: 20px;
+  padding-block: 0 48px;
+}
+
+/* ── header ─────────────────────────────────────────────────────────── */
+
+.akl-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-block: 20px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 28px;
+  flex-wrap: wrap;
+}
+
+.akl-brand {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.akl-brand-name {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 22px;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.akl-brand-tagline {
+  color: var(--ink-muted);
+  font-size: 13px;
+}
+
+.akl-nav {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  font-size: 14px;
+}
+
+/* Narrow phones: stack brand above nav instead of letting the nav's own
+   items wrap into a ragged second line with the sign-in pill stranded
+   alone -- one clean break instead of several. */
+@media (max-width: 560px) {
+  .akl-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .akl-nav {
+    width: 100%;
+    justify-content: space-between;
+  }
+}
+
+.akl-nav a {
+  color: var(--ink-muted);
+  text-decoration: none;
+}
+.akl-nav a[aria-current="page"] {
+  color: var(--ink);
+  border-bottom: 2px solid var(--accent);
+  padding-bottom: 2px;
+}
+.akl-nav a:hover,
+.akl-nav a:focus-visible {
+  color: var(--ink);
+}
+
+.akl-signin {
+  background: var(--accent);
+  color: var(--accent-contrast);
+  border: none;
+  border-radius: 4px;
+  padding: 7px 14px;
+  font-family: var(--font-body);
+  font-size: 13px;
+  cursor: pointer;
+}
+.akl-signin:hover {
+  filter: brightness(1.08);
+}
+.akl-signin[disabled] {
+  background: var(--border);
+  color: var(--ink-muted);
+  cursor: default;
+}
+
+.akl-signed-in {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--ink-muted);
+}
+.akl-signed-in button {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 5px 10px;
+  font-family: var(--font-body);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+/* ── generic page bits ─────────────────────────────────────────────── */
+
+h1,
+h2 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 0 0 16px;
+}
+h1 {
+  font-size: 26px;
+}
+h2 {
+  font-size: 18px;
+  margin-top: 32px;
+}
+
+.akl-muted {
+  color: var(--ink-muted);
+}
+
+.akl-empty,
+.akl-error {
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  padding: 20px;
+  color: var(--ink-muted);
+  font-size: 14px;
+}
+.akl-error {
+  border-color: var(--danger);
+  background: var(--danger-wash);
+  color: var(--danger);
+}
+
+.akl-badge {
+  display: inline-block;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 9px;
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+
+.akl-link-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 12px;
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+/* ── home / directory list ─────────────────────────────────────────── */
+
+.akl-filters {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.akl-filters input,
+.akl-filters select {
+  font-family: var(--font-body);
+  font-size: 13px;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 7px 10px;
+}
+.akl-filters input[type="text"] {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.akl-count {
+  color: var(--ink-muted);
+  font-size: 13px;
+  margin-bottom: 10px;
+}
+
+.akl-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.akl-table th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--ink-muted);
+  border-bottom: 1px solid var(--border);
+  padding: 6px 8px;
+  white-space: nowrap;
+}
+.akl-table td {
+  border-bottom: 1px solid var(--border);
+  padding: 8px;
+  vertical-align: top;
+  /* An owner id is a long unbroken digit string -- on the mobile stacked
+     layout below (its own column no longer constrains its width) it needs
+     somewhere to break, or it forces real horizontal page scroll. */
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+.akl-table tr:hover td {
+  background: var(--accent-wash);
+}
+.akl-table a {
+  text-decoration: none;
+  color: var(--ink);
+  font-weight: 500;
+}
+.akl-table a:hover {
+  color: var(--accent);
+}
+
+/* Narrow phones: collapse the table into a stacked list rather than
+   scrolling horizontally (the page must never scroll sideways). */
+@media (max-width: 560px) {
+  .akl-table thead {
+    display: none;
+  }
+  .akl-table,
+  .akl-table tbody,
+  .akl-table tr,
+  .akl-table td {
+    display: block;
+    width: 100%;
+  }
+  .akl-table tr {
+    border-bottom: 1px solid var(--border);
+    padding: 10px 0;
+  }
+  .akl-table td {
+    border: none;
+    padding: 2px 0;
+  }
+  .akl-table td[data-col]::before {
+    content: attr(data-col);
+    display: inline-block;
+    width: 84px;
+    color: var(--ink-muted);
+  }
+}
+
+/* ── layout detail ─────────────────────────────────────────────────── */
+
+.akl-layout-head {
+  display: grid;
+  grid-template-columns: minmax(0, 340px) 1fr;
+  gap: 28px;
+  align-items: start;
+}
+@media (max-width: 700px) {
+  .akl-layout-head {
+    grid-template-columns: 1fr;
+  }
+}
+
+.akl-board {
+  display: grid;
+  gap: 4px;
+  aspect-ratio: 3 / 1.1;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+}
+.akl-board-key {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 14px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.akl-meta-list {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 14px;
+  font-size: 14px;
+  margin: 0;
+}
+.akl-meta-list dt {
+  color: var(--ink-muted);
+}
+.akl-meta-list dd {
+  margin: 0;
+  word-break: break-word;
+}
+
+.akl-history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 13px;
+  border-top: 1px solid var(--border);
+}
+.akl-history-list li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.akl-history-list li > * {
+  /* Flex items default to `min-width: auto`, which refuses to shrink below
+     an unbroken actor id's own content width -- the classic flexbox
+     overflow trap. `min-width: 0` lets `overflow-wrap: break-word` (set
+     globally on body) actually take effect inside a flex item. */
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+.akl-history-when {
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+
+/* ── docs ───────────────────────────────────────────────────────────── */
+
+.akl-docs {
+  font-size: 14px;
+  line-height: 1.7;
+}
+.akl-docs :is(h1, h2, h3) {
+  font-family: var(--font-display);
+}
+/* An inline `code` span (an error code, a compact JSON example) has no
+   space to break on and would otherwise force real page-level horizontal
+   scroll on a phone -- unlike a `pre` block, it isn't its own scroll
+   container, so it needs to wrap instead. `pre code` below restores the
+   no-wrap-scroll-instead behavior for actual code blocks. */
+.akl-docs code {
+  overflow-wrap: break-word;
+}
+.akl-docs pre code {
+  overflow-wrap: normal;
+}
+.akl-docs pre {
+  max-width: 100%;
+  overflow-x: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+}
+.akl-docs code {
+  font-family: var(--font-body);
+}
+.akl-docs table {
+  display: block;
+  max-width: 100%;
+  width: max-content;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+.akl-docs th,
+.akl-docs td {
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
+/* ── admin placeholder ──────────────────────────────────────────────── */
+
+.akl-admin-tabs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.akl-admin-tabs li {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  color: var(--ink-muted);
+}

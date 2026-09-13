@@ -1,0 +1,101 @@
+// COPY: sign-off pending
+//
+// Every user-facing string on akldb.org lives here (design/akldb-site/
+// 01-plan.md §5, SITE-5: a string of 3+ words anywhere else under src/ is a
+// build-time test failure). CLAUDE.md's copy rule ("never touch user-facing
+// copy... without saltorbit's sign-off") applies to this whole file until the
+// marker above is removed by saltorbit himself.
+
+export const copy = {
+  siteName: "akldb",
+  header: {
+    tagline: "the community layout database",
+    navHome: "Layouts",
+    navChanges: "Changes",
+    navDocs: "Docs",
+    navAdmin: "Moderation",
+    signIn: "Sign in with Discord",
+    signInUnavailable: "Sign-in is not configured yet",
+    signOut: "Sign out",
+    signedInAs: (name: string) => `Signed in as ${name}`,
+  },
+  home: {
+    title: "Every layout in akldb",
+    searchPlaceholder: "Search layout names",
+    authorPlaceholder: "Filter by author id",
+    sortLikes: "Most liked",
+    sortModified: "Recently modified",
+    sortName: "Name",
+    magicAny: "Any",
+    magicOnly: "Magic only",
+    magicNone: "No magic",
+    loading: "Loading every layout, this can take a moment",
+    loadError: "Could not load the layout list from akldb",
+    empty: "No layouts match this filter",
+    countSuffix: (n: number) => `${n} layouts`,
+    colName: "Name",
+    colOwner: "Owner",
+    colLikes: "Likes",
+    colModified: "Modified",
+  },
+  layout: {
+    backToHome: "Back to all layouts",
+    notFound: "This layout does not exist, or has been deleted",
+    loadError: "Could not load this layout from akldb",
+    owner: "Owner",
+    likes: "Likes",
+    created: "Created",
+    modified: "Modified",
+    formats: "Formats stored",
+    linkLabel: "External link",
+    noLink: "No external link on file",
+    analyzeOnAklgg: "Analyze on akl.gg",
+    historyTitle: "History",
+    historyEmpty: "No recorded events for this layout",
+    historyLoadMore: "Load older events",
+  },
+  author: {
+    title: (name: string) => `Layouts by ${name}`,
+    notFound: "No author found for this id",
+    loadError: "Could not load this author from akldb",
+    empty: "This author has no layouts on record",
+  },
+  changes: {
+    title: "Recent changes",
+    loadError: "Could not load the change feed from akldb",
+    empty: "Nothing has changed yet",
+    loadMore: "Load older changes",
+    kindColumn: "Kind",
+    scopeColumn: "Scope",
+    scopeLayout: "layout",
+    layoutColumn: "Layout",
+    actorColumn: "Actor",
+    whenColumn: "When",
+  },
+  docs: {
+    title: "Adopting the akldb API",
+    loadError: "The API guide could not be rendered for this build",
+  },
+  admin: {
+    title: "Moderation",
+    comingSoon: "Moderation lands in the next slice of this project",
+    tabsIntro: "The moderation console will cover these areas",
+    tabLayouts: "Layouts (rename, transfer, delete, restore, likes, link)",
+    tabAuthors: "Authors (display name override)",
+    tabBans: "Bans (list, ban with reason, unban)",
+    tabLinkQueue: "Link queue (approve or reject a submitted link)",
+    tabAdmins: "Admins (list, add, remove)",
+    tabImport: "Import (pause, resume, tick, health)",
+    notAdmin: "This page is only visible to akldb admins",
+  },
+  notFound: {
+    title: "Page not found",
+    body: "There is nothing at this address",
+    backHome: "Go back to the layout list",
+  },
+  common: {
+    unknown: "unknown",
+    yes: "yes",
+    no: "no",
+  },
+} as const;
