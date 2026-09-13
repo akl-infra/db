@@ -10,6 +10,15 @@ export interface Env {
   DISCORD_CLIENT_ID?: string;
   DISCORD_CLIENT_SECRET?: string;
   SESSION_SECRET?: string;
+  // wrangler.toml's `[assets]` binding -- `index.ts`'s `notFound` fallback
+  // (a local `wrangler dev` quirk found during W1b's own Chrome QA: local
+  // dev invoked this Worker for EVERY path, including ones `run_worker_
+  // first` lists as assets-first, so relying on the platform to serve
+  // static assets without the Worker's help isn't safe locally). Optional:
+  // absent in every `tests/server/*.test.ts` call (`app.request(path, {},
+  // env)` passes a bare `Env` with no `ASSETS`), which is exactly when the
+  // fallback below must still answer its OLD plain 404 instead of throwing.
+  ASSETS?: Fetcher;
 }
 
 export const BUILD_VERSION = "1.0";

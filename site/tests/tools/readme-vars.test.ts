@@ -26,7 +26,15 @@ const SERVER_SOURCE = walkServerSource();
 // never committed).
 const VARS_KEYS = [...WRANGLER_TOML.matchAll(/^(\w+)\s*=/gm)]
   .map((m) => m[1]!)
-  .filter((k) => !["name", "main", "compatibility_date", "compatibility_flags", "directory", "not_found_handling", "run_worker_first", "enabled", "pattern", "custom_domain", "workers_dev"].includes(k));
+  .filter(
+    (k) =>
+      // `binding` (the `[assets]` binding NAME, `ASSETS`) is TOML structure
+      // like the other `[assets]`/`[[routes]]` keys already excluded here --
+      // not a var this Worker's code reads by name via `env.<KEY>`.
+      !["name", "main", "compatibility_date", "compatibility_flags", "directory", "binding", "not_found_handling", "run_worker_first", "enabled", "pattern", "custom_domain", "workers_dev"].includes(
+        k,
+      ),
+  );
 const SECRET_KEYS = ["DISCORD_CLIENT_ID", "DISCORD_CLIENT_SECRET", "SESSION_SECRET"];
 
 describe("[SITE-8] README documents every var/secret", () => {
