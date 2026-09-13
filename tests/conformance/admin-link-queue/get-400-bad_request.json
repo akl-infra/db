@@ -1,0 +1,18 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/admin/link-queue?status=bogus",
+    "bearer": "conformance-admin-token"
+  },
+  "response": {
+    "status": 400,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "error": "bad_request",
+      "message": "unknown 'status' value 'bogus' (expected one of pending, approved, rejected, superseded)",
+      "param": "status"
+    }
+  }
+}

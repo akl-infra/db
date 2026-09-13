@@ -1,0 +1,18 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/admin/link-queue/nonexistent-submission-id/reject",
+    "bearer": "conformance-modnonadmin-token",
+    "body": {}
+  },
+  "response": {
+    "status": 403,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "error": "not_admin",
+      "message": "admin only"
+    }
+  }
+}

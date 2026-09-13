@@ -1,0 +1,28 @@
+{
+  "request": {
+    "method": "PUT",
+    "path": "/v1/admin/authors/830000000000000001",
+    "bearer": "conformance-admin-token",
+    "body": {
+      "name": "Renamed Owner2"
+    },
+    "setup": [
+      {
+        "method": "GET",
+        "path": "/v1/me",
+        "bearer": "conformance-owner2-token"
+      }
+    ]
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "user_id": "830000000000000001",
+      "name": "Renamed Owner2",
+      "name_source": "admin"
+    }
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "request": {
+    "method": "PUT",
+    "path": "/v1/layouts/mod-link-2/link",
+    "bearer": "conformance-admin-token",
+    "body": {
+      "url": "https://example.org/mod-link-2"
+    },
+    "setup": [
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-owner2-token",
+        "body": {
+          "name": "mod-link-2",
+          "format": "spark/1",
+          "payload": {
+            "keys": {},
+            "board": {
+              "kind": "ortho",
+              "cmini": "ortho"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "link": "https://example.org/mod-link-2"
+    }
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/layouts/mod-link-1/link",
+    "bearer": "conformance-owner2-token"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "link": null,
+      "pending": {
+        "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "layout_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "url": "https://example.org/mod-link-1",
+        "submitted_by": "830000000000000001",
+        "submitted_at": "2026-06-20T00:00:00.000Z",
+        "status": "pending",
+        "decided_by": null,
+        "decided_at": null,
+        "reason": null
+      }
+    }
+  }
+}

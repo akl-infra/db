@@ -728,6 +728,9 @@ it as generated, not hand-edited):
 | 422 | `idempotency_mismatch` | this 'Idempotency-Key' was already used for a different request | `idempotencyMismatch()` |
 | 409 | `idempotency_in_progress` | a request with this 'Idempotency-Key' is already being processed | `idempotencyInProgress()` |
 | 409 | `import_running` | an import tick is already running (it holds the cmini.running lock) | `importRunning()` |
+| 403 | `banned` | this account is banned from writing | `banned()` |
+| 409 | `cannot_ban_admin` | an admin cannot be banned | `cannotBanAdmin()` |
+| 400 | `invalid_link` | *(caller-supplied -- this function's own `message` parameter)* | `invalidLink(message)` |
 | 429 | `rate_limited` | rate limit exceeded: ${limit} writes per ${windowSeconds}s | `rateLimited(limit, windowSeconds, retryAfter, scope)` |
 
 **Two more codes exist in the *format* layer**, not in the table above
@@ -971,6 +974,9 @@ silently drift from what `db/src/index.ts` actually registers.
 | POST | `/v1/layouts/:ref/transfer` | user | `{to}` + `If-Match` | 200 | `if_match_required`, `bad_request`, `not_owner`, `not_found`, lane errors |
 | PUT | `/v1/layouts/:ref/like` | user | — | 200 | `not_found`, `bad_request`, `already_liked`, lane errors |
 | DELETE | `/v1/layouts/:ref/like` | user | — | 200 | `not_found`, `not_liked`, lane errors |
+| GET | `/v1/layouts/:ref/link` | user (owner or admin) | — | 200 | `not_found`, `not_owner`, lane errors |
+| PUT | `/v1/layouts/:ref/link` | user (owner or admin) | `{url}` | 200 (admin: approved) / 202 (owner: queued) | `bad_request`, `invalid_link`, `not_owner`, `not_found`, lane errors |
+| DELETE | `/v1/layouts/:ref/link` | user (owner or admin) | — | 200 | `not_owner`, `not_found`, lane errors |
 | GET | `/v1/authors` | none | — | 200 | `bad_request` |
 | GET | `/v1/authors/:user_id` | none | — | 200 | `not_found` |
 | GET | `/v1/formats` | none | — | 200 | — |
@@ -993,6 +999,14 @@ silently drift from what `db/src/index.ts` actually registers.
 | DELETE | `/v1/admin/clients/:id` | admin | — | 200 | `not_admin`, `not_found`, lane errors |
 | GET | `/v1/admin/clients` | admin | — | 200 | `not_admin`, lane errors |
 | GET | `/v1/admin/health` | admin | — | 200 | `not_admin`, lane errors |
+| GET | `/v1/admin/bans` | admin | — | 200 | `not_admin`, lane errors |
+| PUT | `/v1/admin/bans/:user_id` | admin | `{reason?}` | 200/201 | `not_admin`, `cannot_ban_admin`, lane errors |
+| DELETE | `/v1/admin/bans/:user_id` | admin | — | 200 | `not_admin`, `not_found`, lane errors |
+| PUT | `/v1/admin/layouts/:ref/likes` | admin | `{count}` | 200 | `bad_request`, `not_admin`, `not_found`, lane errors |
+| PUT | `/v1/admin/authors/:user_id` | admin | `{name}` | 200 | `bad_request`, `not_admin`, `not_found`, lane errors |
+| GET | `/v1/admin/link-queue` | admin | — | 200 | `bad_request`, `not_admin`, lane errors |
+| POST | `/v1/admin/link-queue/:id/approve` | admin | — | 200 | `not_admin`, `not_found`, lane errors |
+| POST | `/v1/admin/link-queue/:id/reject` | admin | `{reason?}` | 200 | `bad_request`, `not_admin`, `not_found`, lane errors |
 
 "lane errors" (every `user`/`admin`/`client` row) means whichever lane you
 used: the user lane can answer `unauthorized`/`token_invalid`/
@@ -1000,3 +1014,42 @@ used: the user lane can answer `unauthorized`/`token_invalid`/
 `unknown_client`/`client_revoked`/`stale_timestamp`/`replay`/
 `actor_not_allowed`; either lane can answer `rate_limited`. §6's table has
 every one of them with its exact body shape.
+
+## 10. Moderation
+
+An admin (`GET /v1/me`'s `admin: true`) can ban a user, override a
+layout's displayed like count, override an author's display name, and
+decide a submitted `link`. Every action here appends an event
+(`admin: true`), so it shows up in `/v1/changes`/`/admin/changelog` like
+any other write.
+
+**Bans** (`GET/PUT/DELETE /v1/admin/bans[/:user_id]`): a banned user's
+non-safe request (any method other than GET/HEAD/OPTIONS, likes included)
+is refused with `403 banned`; reads are never refused. An admin can never
+be banned — `PUT` on a current admin is `409 cannot_ban_admin`. `GET
+/v1/me` always reports the caller's own `banned` (and `admin`) fresh,
+never cached.
+
+**Like override** (`PUT /v1/admin/layouts/:ref/likes`, body `{count}`):
+sets the layout's *displayed* like count to `count` at that instant —
+`like_count = max(0, real like rows + like_adjust)`, so real likes/unlikes
+still move the number afterward. The response carries `like_count`,
+`like_rows` (the real count) and `like_adjust` (the difference); every
+layout wire shape also carries `like_adjust` next to `like_count`.
+
+**Author name override** (`PUT /v1/admin/authors/:user_id`, body
+`{name}`): sets the one name `/v1/authors` shows for that Discord id and
+marks it sticky — neither a later sign-in nor the cmini import will
+rename it again. There is no "clear override" route; an admin sets it
+again to change it.
+
+**`link`** (`PUT/DELETE/GET /v1/layouts/:ref/link`, body `{url}` for
+`PUT`): the layout's owner submits a URL (must be `https:`, no embedded
+credentials, ≤ 2048 characters, or `400 invalid_link`); an admin's own
+`PUT` is approved immediately, an owner's is queued (`202`, one pending
+submission per layout — a fresh submission supersedes an older pending
+one). `GET /v1/admin/link-queue?status=` (default `pending`) lists
+submissions; `POST .../approve` or `.../reject` (body `{reason?}`)
+decides one. Only an *approved* link ever appears on a public wire
+(`layoutToWire`'s `link` field) — a pending, rejected or superseded URL
+is visible only to the owner/admin (`GET .../link`) and the admin queue.

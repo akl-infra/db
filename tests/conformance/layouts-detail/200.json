@@ -17,6 +17,8 @@
       "modified_at": "2022-12-07T23:24:35Z",
       "deleted": false,
       "like_count": 15,
+      "like_adjust": 0,
+      "link": null,
       "upstream": {
         "source": "cmini",
         "id": "io",

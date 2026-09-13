@@ -1,0 +1,38 @@
+{
+  "request": {
+    "method": "PUT",
+    "path": "/v1/layouts/mod-link-3/link",
+    "bearer": "conformance-owner2-token",
+    "body": {
+      "url": "ftp://bad.example"
+    },
+    "setup": [
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-owner2-token",
+        "body": {
+          "name": "mod-link-3",
+          "format": "spark/1",
+          "payload": {
+            "keys": {},
+            "board": {
+              "kind": "ortho",
+              "cmini": "ortho"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "response": {
+    "status": 400,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "error": "invalid_link",
+      "message": "'url' must use https:"
+    }
+  }
+}

@@ -20,6 +20,8 @@
           "modified_at": "2026-08-31T12:45:28Z",
           "deleted": false,
           "like_count": 1,
+      "like_adjust": 0,
+      "link": null,
           "format": "spark/1",
           "formats": {
             "spark/1": {
@@ -48,6 +50,8 @@
           "modified_at": "2026-08-31T12:45:28Z",
           "deleted": false,
           "like_count": 1,
+      "like_adjust": 0,
+      "link": null,
           "format": "spark/1",
           "formats": {
             "spark/1": {

@@ -1,0 +1,18 @@
+{
+  "request": {
+    "method": "DELETE",
+    "path": "/v1/layouts/mod-link-1/link",
+    "bearer": "conformance-other-token"
+  },
+  "response": {
+    "status": 403,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "error": "not_owner",
+      "message": "you don't own a layout named 'mod-link-1'",
+      "owner": "830000000000000001"
+    }
+  }
+}

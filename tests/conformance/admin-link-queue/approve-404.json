@@ -1,0 +1,18 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/admin/link-queue/nonexistent-submission-id/approve",
+    "bearer": "conformance-admin-token"
+  },
+  "response": {
+    "status": 404,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "error": "not_found",
+      "message": "no link submission 'nonexistent-submission-id'",
+      "ref": "nonexistent-submission-id"
+    }
+  }
+}

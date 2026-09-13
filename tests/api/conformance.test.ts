@@ -204,6 +204,19 @@ async function seedWriteFixtures(): Promise<void> {
     username: "conformance-owner2",
     global_name: null,
   });
+  // L5 moderation's own `*-403-not_admin` cases (manifest.ts's
+  // `MODERATION_CASES`, placed dead last in `CASES`): by the time they
+  // run, `conformance-owner-token`'s write window (this file's own
+  // `TEST_RATE_LIMITS: {write: 60, ...}`) is already exhausted by every
+  // earlier T2-T6 case that used it, so a non-GET request with it 429s
+  // before ever reaching the `notAdmin()` check this fixture means to
+  // prove -- a fresh actor with an empty window sidesteps that entirely.
+  fake.setAnswer("conformance-modnonadmin-token", {
+    kind: "ok",
+    id: "840000000000000077",
+    username: "conformance-modnonadmin",
+    global_name: null,
+  });
   vi.stubGlobal("fetch", fake.fetchImpl);
   (bindings as unknown as { TEST_CLOCK?: Clock }).TEST_CLOCK = fixedClock(CONFORMANCE_CLOCK_ISO);
   // The fixtures' 429 cases are reached by piling up this file's own writes,
@@ -662,6 +675,87 @@ const REQUIRED: Record<string, RequiredCase[]> = {
 
   // --- phase 5: the diff cron's health route (12 §3 X4) -------------------
   "GET /v1/admin/health": [{ status: 200 }, ...A, { status: 403, code: ERROR_CODES.not_admin }],
+
+  // --- L5 moderation (design/akldb-site/01-plan.md §4) --------------------
+  // Deliberately NOT `...A`-spread: unlike every route above, these are
+  // proven against real per-route setup (a fresh ban, a fresh layout, a
+  // fresh submission) rather than a static header sweep, so the fixture
+  // set here is `unauthorized` + the route's own domain errors, not the
+  // full 8-code client-lane+bearer sweep -- LDB-A1 (tests/auth/routes.test.ts)
+  // already proves EVERY non-GET route 401s with no/bad/rejected auth
+  // structurally, by walking the live router; the 3 GET routes below
+  // (`bans`, `link-queue`, layout `link`) resolve their own actor exactly
+  // like `GET /v1/admin/admins` already does, and get a real `unauthorized`
+  // case each. `[LDB-A4]`'s "every route in the sweep pins every
+  // client-lane 401 code" test only applies to a route whose REQUIRED
+  // entry contains every one of `A`'s pairs -- omitting `...A` here means
+  // these rows are simply outside that sweep, not a gap it silently misses.
+  "GET /v1/admin/bans": [{ status: 200 }, { status: 401, code: ERROR_CODES.unauthorized }, { status: 403, code: ERROR_CODES.not_admin }],
+  "PUT /v1/admin/bans/:user_id": [
+    { status: 201 },
+    { status: 200 },
+    { status: 401, code: ERROR_CODES.unauthorized },
+    { status: 403, code: ERROR_CODES.not_admin },
+    { status: 409, code: "cannot_ban_admin" },
+  ],
+  "DELETE /v1/admin/bans/:user_id": [
+    { status: 200 },
+    { status: 401, code: ERROR_CODES.unauthorized },
+    { status: 403, code: ERROR_CODES.not_admin },
+    { status: 404, code: ERROR_CODES.not_found },
+  ],
+  "PUT /v1/admin/layouts/:ref/likes": [
+    { status: 200 },
+    { status: 400, code: ERROR_CODES.bad_request },
+    { status: 401, code: ERROR_CODES.unauthorized },
+    { status: 403, code: ERROR_CODES.not_admin },
+    { status: 404, code: ERROR_CODES.not_found },
+  ],
+  "PUT /v1/admin/authors/:user_id": [
+    { status: 200 },
+    { status: 400, code: ERROR_CODES.bad_request },
+    { status: 401, code: ERROR_CODES.unauthorized },
+    { status: 403, code: ERROR_CODES.not_admin },
+    { status: 404, code: ERROR_CODES.not_found },
+  ],
+  "GET /v1/layouts/:ref/link": [
+    { status: 200 },
+    { status: 401, code: ERROR_CODES.unauthorized },
+    { status: 403, code: ERROR_CODES.not_owner },
+    { status: 404, code: ERROR_CODES.not_found },
+  ],
+  "PUT /v1/layouts/:ref/link": [
+    { status: 200 },
+    { status: 202 },
+    { status: 400, code: ERROR_CODES.bad_request },
+    { status: 400, code: "invalid_link" },
+    { status: 401, code: ERROR_CODES.unauthorized },
+    { status: 403, code: ERROR_CODES.not_owner },
+    { status: 404, code: ERROR_CODES.not_found },
+  ],
+  "DELETE /v1/layouts/:ref/link": [
+    { status: 200 },
+    { status: 401, code: ERROR_CODES.unauthorized },
+    { status: 403, code: ERROR_CODES.not_owner },
+    { status: 404, code: ERROR_CODES.not_found },
+  ],
+  "GET /v1/admin/link-queue": [
+    { status: 200 },
+    { status: 400, code: ERROR_CODES.bad_request },
+    { status: 401, code: ERROR_CODES.unauthorized },
+    { status: 403, code: ERROR_CODES.not_admin },
+  ],
+  "POST /v1/admin/link-queue/:id/approve": [
+    { status: 401, code: ERROR_CODES.unauthorized },
+    { status: 403, code: ERROR_CODES.not_admin },
+    { status: 404, code: ERROR_CODES.not_found },
+  ],
+  "POST /v1/admin/link-queue/:id/reject": [
+    { status: 400, code: ERROR_CODES.bad_request },
+    { status: 401, code: ERROR_CODES.unauthorized },
+    { status: 403, code: ERROR_CODES.not_admin },
+    { status: 404, code: ERROR_CODES.not_found },
+  ],
 };
 describe("conformance enumeration", () => {
   // `app.routes` also lists the two `app.use("/v1/*", ...)` middleware

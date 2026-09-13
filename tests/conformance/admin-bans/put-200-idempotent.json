@@ -1,0 +1,33 @@
+{
+  "request": {
+    "method": "PUT",
+    "path": "/v1/admin/bans/840000000000000002",
+    "bearer": "conformance-admin-token",
+    "body": {
+      "reason": "second reason"
+    },
+    "setup": [
+      {
+        "method": "PUT",
+        "path": "/v1/admin/bans/840000000000000002",
+        "bearer": "conformance-admin-token",
+        "body": {
+          "reason": "first reason"
+        }
+      }
+    ]
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "user_id": "840000000000000002",
+      "name": null,
+      "by": "184412255822020608",
+      "at": "2026-06-20T00:00:00.000Z",
+      "reason": "second reason"
+    }
+  }
+}

@@ -398,6 +398,62 @@ import clAdminHealthReplay from "./admin-health/401-replay.json" with { type: "j
 // A single request as `runRequest` fires it -- shared by the main
 // (asserted) request and, for a write case, its `setup` steps (fired first
 // and discarded: e.g. the first of two POSTs that produces a name clash).
+// L5 moderation (design/akldb-site/01-plan.md §4): bans, the like-count
+// override, the author display-name override, `link` + its moderation
+// queue -- one fixture per (route, status[, code]), generated the same
+// hand-authored-JSON way every other route's own set is (no script:
+// these need real setup per case, not a static header sweep). Placed
+// dead last in CASES (see MODERATION_CASES' own comment below) so they
+// never disturb an earlier fixture's pinned counters.
+import modAdminLinkQueueGet200 from "./admin-link-queue/get-200.json" with { type: "json" };
+import modAdminBansGet200 from "./admin-bans/get-200.json" with { type: "json" };
+import modAdminBansPut201 from "./admin-bans/put-201.json" with { type: "json" };
+import modAdminBansPut200Idempotent from "./admin-bans/put-200-idempotent.json" with { type: "json" };
+import modAdminBansPut409CannotBanAdmin from "./admin-bans/put-409-cannot_ban_admin.json" with { type: "json" };
+import modAdminBansPut401Unauthorized from "./admin-bans/put-401-unauthorized.json" with { type: "json" };
+import modAdminBansPut403NotAdmin from "./admin-bans/put-403-not_admin.json" with { type: "json" };
+import modAdminBansDelete200 from "./admin-bans/delete-200.json" with { type: "json" };
+import modAdminBansDelete404 from "./admin-bans/delete-404.json" with { type: "json" };
+import modAdminBansDelete401Unauthorized from "./admin-bans/delete-401-unauthorized.json" with { type: "json" };
+import modAdminBansDelete403NotAdmin from "./admin-bans/delete-403-not_admin.json" with { type: "json" };
+import modAdminBansGet401Unauthorized from "./admin-bans/get-401-unauthorized.json" with { type: "json" };
+import modAdminBansGet403NotAdmin from "./admin-bans/get-403-not_admin.json" with { type: "json" };
+import modAdminLayoutLikesPut200 from "./admin-layout-likes/put-200.json" with { type: "json" };
+import modAdminLayoutLikesPut400BadRequest from "./admin-layout-likes/put-400-bad_request.json" with { type: "json" };
+import modAdminLayoutLikesPut404 from "./admin-layout-likes/put-404.json" with { type: "json" };
+import modAdminLayoutLikesPut401Unauthorized from "./admin-layout-likes/put-401-unauthorized.json" with { type: "json" };
+import modAdminLayoutLikesPut403NotAdmin from "./admin-layout-likes/put-403-not_admin.json" with { type: "json" };
+import modAdminAuthorsPut200 from "./admin-authors/put-200.json" with { type: "json" };
+import modAdminAuthorsPut400BadRequest from "./admin-authors/put-400-bad_request.json" with { type: "json" };
+import modAdminAuthorsPut404 from "./admin-authors/put-404.json" with { type: "json" };
+import modAdminAuthorsPut401Unauthorized from "./admin-authors/put-401-unauthorized.json" with { type: "json" };
+import modAdminAuthorsPut403NotAdmin from "./admin-authors/put-403-not_admin.json" with { type: "json" };
+import modLayoutsLinkPut202 from "./layouts-link/put-202.json" with { type: "json" };
+import modLayoutsLinkGet200Pending from "./layouts-link/get-200-pending.json" with { type: "json" };
+import modLayoutsLinkPut200AdminApproved from "./layouts-link/put-200-admin-approved.json" with { type: "json" };
+import modLayoutsLinkDelete200 from "./layouts-link/delete-200.json" with { type: "json" };
+import modLayoutsLinkPut400InvalidLink from "./layouts-link/put-400-invalid_link.json" with { type: "json" };
+import modLayoutsLinkPut400BadRequest from "./layouts-link/put-400-bad_request.json" with { type: "json" };
+import modLayoutsLinkPut403NotOwner from "./layouts-link/put-403-not_owner.json" with { type: "json" };
+import modLayoutsLinkPut404 from "./layouts-link/put-404.json" with { type: "json" };
+import modLayoutsLinkGet403NotOwner from "./layouts-link/get-403-not_owner.json" with { type: "json" };
+import modLayoutsLinkGet404 from "./layouts-link/get-404.json" with { type: "json" };
+import modLayoutsLinkDelete403NotOwner from "./layouts-link/delete-403-not_owner.json" with { type: "json" };
+import modLayoutsLinkDelete404 from "./layouts-link/delete-404.json" with { type: "json" };
+import modLayoutsLinkPut401Unauthorized from "./layouts-link/put-401-unauthorized.json" with { type: "json" };
+import modLayoutsLinkGet401Unauthorized from "./layouts-link/get-401-unauthorized.json" with { type: "json" };
+import modLayoutsLinkDelete401Unauthorized from "./layouts-link/delete-401-unauthorized.json" with { type: "json" };
+import modAdminLinkQueueGet400BadRequest from "./admin-link-queue/get-400-bad_request.json" with { type: "json" };
+import modAdminLinkQueueGet401Unauthorized from "./admin-link-queue/get-401-unauthorized.json" with { type: "json" };
+import modAdminLinkQueueGet403NotAdmin from "./admin-link-queue/get-403-not_admin.json" with { type: "json" };
+import modAdminLinkQueueApprove404 from "./admin-link-queue/approve-404.json" with { type: "json" };
+import modAdminLinkQueueApprove401Unauthorized from "./admin-link-queue/approve-401-unauthorized.json" with { type: "json" };
+import modAdminLinkQueueApprove403NotAdmin from "./admin-link-queue/approve-403-not_admin.json" with { type: "json" };
+import modAdminLinkQueueReject404 from "./admin-link-queue/reject-404.json" with { type: "json" };
+import modAdminLinkQueueReject400BadRequest from "./admin-link-queue/reject-400-bad_request.json" with { type: "json" };
+import modAdminLinkQueueReject401Unauthorized from "./admin-link-queue/reject-401-unauthorized.json" with { type: "json" };
+import modAdminLinkQueueReject403NotAdmin from "./admin-link-queue/reject-403-not_admin.json" with { type: "json" };
+
 export interface ConformanceStep {
   method: string;
   path: string;
@@ -769,6 +825,63 @@ export const CLIENT_LANE_CASES: ConformanceCase[] = [
   kase("admin-health/401-replay", "/v1/admin/health", clAdminHealthReplay, true),
 ];
 
+// L5 moderation: order matters -- "admin-link-queue/get-200" and
+// "admin-bans/get-200" must run before anything else here creates a
+// row in their own table (the empty-list case would otherwise see
+// whatever an earlier case left behind); every other case either creates
+// its own state via its own `setup` or names a ref/id that deliberately
+// never exists.
+export const MODERATION_CASES: ConformanceCase[] = [
+  kase("admin-link-queue/get-200", "/v1/admin/link-queue", modAdminLinkQueueGet200, true),
+  kase("admin-bans/get-200", "/v1/admin/bans", modAdminBansGet200, true),
+  kase("admin-bans/put-201", "/v1/admin/bans/:user_id", modAdminBansPut201, true),
+  kase("admin-bans/put-200-idempotent", "/v1/admin/bans/:user_id", modAdminBansPut200Idempotent, true),
+  kase("admin-bans/put-409-cannot_ban_admin", "/v1/admin/bans/:user_id", modAdminBansPut409CannotBanAdmin, true),
+  kase("admin-bans/put-401-unauthorized", "/v1/admin/bans/:user_id", modAdminBansPut401Unauthorized, true),
+  kase("admin-bans/put-403-not_admin", "/v1/admin/bans/:user_id", modAdminBansPut403NotAdmin, true),
+  kase("admin-bans/delete-200", "/v1/admin/bans/:user_id", modAdminBansDelete200, true),
+  kase("admin-bans/delete-404", "/v1/admin/bans/:user_id", modAdminBansDelete404, true),
+  kase("admin-bans/delete-401-unauthorized", "/v1/admin/bans/:user_id", modAdminBansDelete401Unauthorized, true),
+  kase("admin-bans/delete-403-not_admin", "/v1/admin/bans/:user_id", modAdminBansDelete403NotAdmin, true),
+  kase("admin-bans/get-401-unauthorized", "/v1/admin/bans", modAdminBansGet401Unauthorized, true),
+  kase("admin-bans/get-403-not_admin", "/v1/admin/bans", modAdminBansGet403NotAdmin, true),
+  kase("admin-layout-likes/put-200", "/v1/admin/layouts/:ref/likes", modAdminLayoutLikesPut200, true),
+  kase("admin-layout-likes/put-400-bad_request", "/v1/admin/layouts/:ref/likes", modAdminLayoutLikesPut400BadRequest, true),
+  kase("admin-layout-likes/put-404", "/v1/admin/layouts/:ref/likes", modAdminLayoutLikesPut404, true),
+  kase("admin-layout-likes/put-401-unauthorized", "/v1/admin/layouts/:ref/likes", modAdminLayoutLikesPut401Unauthorized, true),
+  kase("admin-layout-likes/put-403-not_admin", "/v1/admin/layouts/:ref/likes", modAdminLayoutLikesPut403NotAdmin, true),
+  kase("admin-authors/put-200", "/v1/admin/authors/:user_id", modAdminAuthorsPut200, true),
+  kase("admin-authors/put-400-bad_request", "/v1/admin/authors/:user_id", modAdminAuthorsPut400BadRequest, true),
+  kase("admin-authors/put-404", "/v1/admin/authors/:user_id", modAdminAuthorsPut404, true),
+  kase("admin-authors/put-401-unauthorized", "/v1/admin/authors/:user_id", modAdminAuthorsPut401Unauthorized, true),
+  kase("admin-authors/put-403-not_admin", "/v1/admin/authors/:user_id", modAdminAuthorsPut403NotAdmin, true),
+  kase("layouts-link/put-202", "/v1/layouts/:ref/link", modLayoutsLinkPut202, true),
+  kase("layouts-link/get-200-pending", "/v1/layouts/:ref/link", modLayoutsLinkGet200Pending, true),
+  kase("layouts-link/put-200-admin-approved", "/v1/layouts/:ref/link", modLayoutsLinkPut200AdminApproved, true),
+  kase("layouts-link/delete-200", "/v1/layouts/:ref/link", modLayoutsLinkDelete200, true),
+  kase("layouts-link/put-400-invalid_link", "/v1/layouts/:ref/link", modLayoutsLinkPut400InvalidLink, true),
+  kase("layouts-link/put-400-bad_request", "/v1/layouts/:ref/link", modLayoutsLinkPut400BadRequest, true),
+  kase("layouts-link/put-403-not_owner", "/v1/layouts/:ref/link", modLayoutsLinkPut403NotOwner, true),
+  kase("layouts-link/put-404", "/v1/layouts/:ref/link", modLayoutsLinkPut404, true),
+  kase("layouts-link/get-403-not_owner", "/v1/layouts/:ref/link", modLayoutsLinkGet403NotOwner, true),
+  kase("layouts-link/get-404", "/v1/layouts/:ref/link", modLayoutsLinkGet404, true),
+  kase("layouts-link/delete-403-not_owner", "/v1/layouts/:ref/link", modLayoutsLinkDelete403NotOwner, true),
+  kase("layouts-link/delete-404", "/v1/layouts/:ref/link", modLayoutsLinkDelete404, true),
+  kase("layouts-link/put-401-unauthorized", "/v1/layouts/:ref/link", modLayoutsLinkPut401Unauthorized, true),
+  kase("layouts-link/get-401-unauthorized", "/v1/layouts/:ref/link", modLayoutsLinkGet401Unauthorized, true),
+  kase("layouts-link/delete-401-unauthorized", "/v1/layouts/:ref/link", modLayoutsLinkDelete401Unauthorized, true),
+  kase("admin-link-queue/get-400-bad_request", "/v1/admin/link-queue", modAdminLinkQueueGet400BadRequest, true),
+  kase("admin-link-queue/get-401-unauthorized", "/v1/admin/link-queue", modAdminLinkQueueGet401Unauthorized, true),
+  kase("admin-link-queue/get-403-not_admin", "/v1/admin/link-queue", modAdminLinkQueueGet403NotAdmin, true),
+  kase("admin-link-queue/approve-404", "/v1/admin/link-queue/:id/approve", modAdminLinkQueueApprove404, true),
+  kase("admin-link-queue/approve-401-unauthorized", "/v1/admin/link-queue/:id/approve", modAdminLinkQueueApprove401Unauthorized, true),
+  kase("admin-link-queue/approve-403-not_admin", "/v1/admin/link-queue/:id/approve", modAdminLinkQueueApprove403NotAdmin, true),
+  kase("admin-link-queue/reject-404", "/v1/admin/link-queue/:id/reject", modAdminLinkQueueReject404, true),
+  kase("admin-link-queue/reject-400-bad_request", "/v1/admin/link-queue/:id/reject", modAdminLinkQueueReject400BadRequest, true),
+  kase("admin-link-queue/reject-401-unauthorized", "/v1/admin/link-queue/:id/reject", modAdminLinkQueueReject401Unauthorized, true),
+  kase("admin-link-queue/reject-403-not_admin", "/v1/admin/link-queue/:id/reject", modAdminLinkQueueReject403NotAdmin, true),
+];
+
 export const CASES: ConformanceCase[] = [
   kase("meta/200", "/v1/meta", metaOk),
   kase("meta/304", "/v1/meta", meta304),
@@ -867,4 +980,6 @@ export const CASES: ConformanceCase[] = [
   ...T6_CASES,
 
   ...CLIENT_LANE_CASES,
+
+  ...MODERATION_CASES,
 ];

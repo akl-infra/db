@@ -1,0 +1,21 @@
+{
+  "request": {
+    "method": "PUT",
+    "path": "/v1/admin/authors/840000000000000099",
+    "bearer": "conformance-admin-token",
+    "body": {
+      "name": ""
+    }
+  },
+  "response": {
+    "status": 400,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "error": "bad_request",
+      "message": "body/name must NOT have fewer than 1 characters",
+      "param": "/name"
+    }
+  }
+}

@@ -458,6 +458,9 @@ real examples in §4.
 | 422 | `idempotency_mismatch` | this 'Idempotency-Key' was already used for a different request | `idempotencyMismatch()` |
 | 409 | `idempotency_in_progress` | a request with this 'Idempotency-Key' is already being processed | `idempotencyInProgress()` |
 | 409 | `import_running` | an import tick is already running (it holds the cmini.running lock) | `importRunning()` |
+| 403 | `banned` | this account is banned from writing | `banned()` |
+| 409 | `cannot_ban_admin` | an admin cannot be banned | `cannotBanAdmin()` |
+| 400 | `invalid_link` | *(caller-supplied -- this function's own `message` parameter)* | `invalidLink(message)` |
 | 429 | `rate_limited` | rate limit exceeded: ${limit} writes per ${windowSeconds}s | `rateLimited(limit, windowSeconds, retryAfter, scope)` |
 <!-- END GENERATED ERROR TABLE -->
 

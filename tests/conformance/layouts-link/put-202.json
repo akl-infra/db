@@ -1,0 +1,47 @@
+{
+  "request": {
+    "method": "PUT",
+    "path": "/v1/layouts/mod-link-1/link",
+    "bearer": "conformance-owner2-token",
+    "body": {
+      "url": "https://example.org/mod-link-1"
+    },
+    "setup": [
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-owner2-token",
+        "body": {
+          "name": "mod-link-1",
+          "format": "spark/1",
+          "payload": {
+            "keys": {},
+            "board": {
+              "kind": "ortho",
+              "cmini": "ortho"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "response": {
+    "status": 202,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "submission": {
+        "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "layout_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "url": "https://example.org/mod-link-1",
+        "submitted_by": "830000000000000001",
+        "submitted_at": "2026-06-20T00:00:00.000Z",
+        "status": "pending",
+        "decided_by": null,
+        "decided_at": null,
+        "reason": null
+      }
+    }
+  }
+}

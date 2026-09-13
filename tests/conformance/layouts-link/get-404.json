@@ -1,0 +1,18 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/layouts/mod-link-missing/link",
+    "bearer": "conformance-owner2-token"
+  },
+  "response": {
+    "status": 404,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "error": "not_found",
+      "message": "no layout 'mod-link-missing'",
+      "ref": "mod-link-missing"
+    }
+  }
+}

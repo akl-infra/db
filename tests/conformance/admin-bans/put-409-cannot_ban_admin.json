@@ -1,0 +1,18 @@
+{
+  "request": {
+    "method": "PUT",
+    "path": "/v1/admin/bans/184412255822020608",
+    "bearer": "conformance-admin-token",
+    "body": {}
+  },
+  "response": {
+    "status": 409,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "error": "cannot_ban_admin",
+      "message": "an admin cannot be banned"
+    }
+  }
+}

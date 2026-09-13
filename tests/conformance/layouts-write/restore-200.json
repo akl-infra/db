@@ -19,6 +19,8 @@
       "modified_at": "2026-06-20T00:00:00.000Z",
       "deleted": false,
       "like_count": 0,
+      "like_adjust": 0,
+      "link": null,
       "upstream": null,
       "formats": {
         "spark/1": {

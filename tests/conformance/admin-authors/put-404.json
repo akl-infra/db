@@ -1,0 +1,21 @@
+{
+  "request": {
+    "method": "PUT",
+    "path": "/v1/admin/authors/840000000000000098",
+    "bearer": "conformance-admin-token",
+    "body": {
+      "name": "X"
+    }
+  },
+  "response": {
+    "status": 404,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "error": "not_found",
+      "message": "no author '840000000000000098'",
+      "ref": "840000000000000098"
+    }
+  }
+}

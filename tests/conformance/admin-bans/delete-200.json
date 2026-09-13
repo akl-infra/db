@@ -1,0 +1,24 @@
+{
+  "request": {
+    "method": "DELETE",
+    "path": "/v1/admin/bans/840000000000000004",
+    "bearer": "conformance-admin-token",
+    "setup": [
+      {
+        "method": "PUT",
+        "path": "/v1/admin/bans/840000000000000004",
+        "bearer": "conformance-admin-token",
+        "body": {}
+      }
+    ]
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "unbanned": "840000000000000004"
+    }
+  }
+}
