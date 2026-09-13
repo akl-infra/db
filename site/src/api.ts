@@ -110,6 +110,10 @@ export function getAuthor(userId: string): Promise<ApiResult<Author>> {
   return request<Author>(`/api/v1/authors/${encodeURIComponent(userId)}`);
 }
 
+export function getHeadSeq(): Promise<ApiResult<{ seq: number }>> {
+  return request<{ seq: number }>("/api/v1/meta");
+}
+
 export function getChanges(since = 0, limit = 50): Promise<ApiResult<ChangesPage>> {
   return request<ChangesPage>(`/api/v1/changes?since=${since}&limit=${limit}`);
 }

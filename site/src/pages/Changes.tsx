@@ -1,32 +1,53 @@
 import type { Component } from "solid-js";
 import { For, Show, createSignal, onSettled } from "solid-js";
 import { copy } from "../copy.ts";
-import { getChanges } from "../api.ts";
+import { getChanges, getHeadSeq } from "../api.ts";
+import { windowBelow } from "../lib/eventlog.ts";
 import type { ChangeEvent } from "../lib/types.ts";
 
 const PAGE_SIZE = 50;
 
 const Changes: Component = () => {
   const [items, setItems] = createSignal<ChangeEvent[]>([]);
-  const [cursor, setCursor] = createSignal(0);
+  // `hi` = the exclusive-upper edge of the next window to fetch, walking
+  // DOWN from the head seq (src/lib/eventlog.ts, SITE-19). null until
+  // /v1/meta has told us where the head is.
+  const [hi, setHi] = createSignal<number | null>(null);
   const [loading, setLoading] = createSignal(false);
   const [error, setError] = createSignal(false);
   const [done, setDone] = createSignal(false);
 
   const loadMore = async () => {
     setLoading(true);
-    const result = await getChanges(cursor(), PAGE_SIZE);
+    let top = hi();
+    if (top === null) {
+      const meta = await getHeadSeq();
+      if (!meta.ok) {
+        setLoading(false);
+        setError(true);
+        return;
+      }
+      top = meta.data.seq;
+    }
+    const w = windowBelow(top, PAGE_SIZE);
+    if (w.limit === 0) {
+      setLoading(false);
+      setHi(0);
+      setDone(true);
+      return;
+    }
+    const result = await getChanges(w.since, w.limit);
     setLoading(false);
     if (!result.ok) {
       setError(true);
       return;
     }
-    // Newest first for display: /v1/changes pages oldest-to-newest by seq,
-    // so each page is reversed and appended after the previous (already-
-    // reversed, already-newer) pages.
+    // Newest first for display: /v1/changes answers the window (since, hi]
+    // oldest-to-newest, so each window is reversed and appended after the
+    // previous (already-reversed, already-newer) windows.
     setItems((prev) => [...prev, ...result.data.items.slice().reverse()]);
-    if (result.data.items.length < PAGE_SIZE) setDone(true);
-    setCursor(result.data.next);
+    setHi(w.nextHi);
+    if (w.nextHi === 0) setDone(true);
   };
 
   onSettled(() => {
