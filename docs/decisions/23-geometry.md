@@ -27,6 +27,7 @@ discussion" item of `review/LEDGER.md` plus the parked `D4`/`D8` round of
 | space thumb | not now → #333 |
 | akl.gg | the §6 concept "sounds good" |
 | landing | edit spark/1 in place, wipe + re-import |
+| duplicate keys | "the bijection thing sounds bad. we should be able to support duplicate keys, at least in the format" → `keys` becomes a LIST (`{char?, row, col, finger}`), `free` folds in as char-less entries, the same char may appear on several entries; chars named by magic must be unique; the mana2 lowering keeps the first occurrence in (row, col) order and emits the rest as `skip` |
 
 **Scope:** what a record says about its physical board, its fingering and
 its thumb keys; how the bot takes that in (`add`, `board`, `fingers`); how
@@ -92,19 +93,30 @@ word and tightens `Position.finger`.
 
 ```
 Payload
-├─ keys: Record<char, Position>      -- unchanged (fingers per key ARE the fingering)
-├─ free?: Position[]                 -- unchanged
+├─ keys: Key[]                       -- a LIST (was a char-keyed map); fingers per key ARE the fingering
 ├─ board: "ansi" | "iso" | "ortho" | "colstag"   -- REQUIRED, one word
 └─ magic?: MagicIntent               -- unchanged
 
-Position
+Key
+├─ char?: string                     -- one code point; ABSENT = a free position (was the `free` list)
 ├─ row: 0..4                         -- unchanged
 ├─ col: integer >= 0                 -- unchanged (absolute column, thumbs too)
 └─ finger: LP LR LM LI RI RM RR RP LT RT   -- TB REMOVED
 ```
 
-Gone: `board.kind/stagger/cmini` (the object), `rowstag`, `mini`, `TB`.
-Not added: `stagger`, `split`, `space` (#333), a fingering name.
+Gone: `board.kind/stagger/cmini` (the object), `rowstag`, `mini`, `TB`,
+the `free` list, the char-keyed `keys` map. Not added: `stagger`, `split`,
+`space` (#333), a fingering name.
+
+**Duplicates.** The same `char` may appear on several entries (neon's two
+`y`s); no two entries share `(row, col)`. A char named by magic intent
+(`magic_keys[].key`, `chiral_keys[].key`, adaptive triggers/swaps, rule
+`after` chars, `except[]`) must be unique on the layout
+(`400 magic_needs_unique_key`) — magic with duplicates is undefined.
+Lowering to mana2 (which refuses duplicate letters): the first occurrence
+in `(row, col)` order is the analysed key, later ones are emitted as `skip`
+cells; a documented loss (LDB-F5), revisable when an analyzer can pick by
+cost.
 
 ### 4.1 The kinds
 
@@ -190,12 +202,15 @@ regenerated from the relabelled import).
 
 ### 4.7 Worked examples
 
-ANSI, angle mod, one thumb key each side:
+ANSI, angle mod, one thumb key each side, a free position, a duplicated `y`:
 
 ```json
-{ "keys": { "z": { "row": 2, "col": 0, "finger": "LR" }, "…": {},
-             "e": { "row": 3, "col": 3, "finger": "LT" },
-             "r": { "row": 3, "col": 6, "finger": "RT" } },
+{ "keys": [ { "char": "z", "row": 2, "col": 0, "finger": "LR" }, "…",
+            { "char": "y", "row": 0, "col": 5, "finger": "RI" },
+            { "char": "y", "row": 2, "col": 4, "finger": "LI" },
+            { "row": 2, "col": 9, "finger": "RP" },
+            { "char": "e", "row": 3, "col": 3, "finger": "LT" },
+            { "char": "r", "row": 3, "col": 6, "finger": "RT" } ],
   "board": "ansi" }
 ```
 
@@ -203,9 +218,9 @@ ISO with the ISO angle mod (mana2's `stand_iso`): row 2 has 11 keys, col 0
 is the ISO key, fingers `LP LR LM LI LI LI | RI RI RM RR RP` (custom digits):
 
 ```json
-{ "keys": { "q": { "row": 2, "col": 0, "finger": "LP" },
-             "k": { "row": 2, "col": 1, "finger": "LR" }, "…": {} },
-  "free": [ { "row": 2, "col": 5, "finger": "LI" } ],
+{ "keys": [ { "char": "q", "row": 2, "col": 0, "finger": "LP" },
+            { "char": "k", "row": 2, "col": 1, "finger": "LR" }, "…",
+            { "row": 2, "col": 5, "finger": "LI" } ],
   "board": "iso" }
 ```
 
@@ -213,9 +228,9 @@ Colstag 3×6+3 (corne): 12-wide rows, left fingers on cols 0–5 (so
 `handSplit` = 6), three thumbs per side:
 
 ```json
-{ "keys": { "q": { "row": 0, "col": 0, "finger": "LP" }, "…": {},
-             "y": { "row": 0, "col": 5, "finger": "LI" },
-             "u": { "row": 0, "col": 6, "finger": "RI" } },
+{ "keys": [ { "char": "q", "row": 0, "col": 0, "finger": "LP" }, "…",
+            { "char": "y", "row": 0, "col": 5, "finger": "LI" },
+            { "char": "u", "row": 0, "col": 6, "finger": "RI" } ],
   "board": "colstag" }
 ```
 
@@ -425,6 +440,7 @@ D11); layoutdb is disposable; no outside client reads spark yet. Unblocks
 | LDB-F29 | For every valid payload, `fromSpark` puts a key in the left thumb string iff its finger is `LT` — the label, never the column | property test |
 | LDB-F30 | Physical coordinates (`(kind, row, col) → (x, y)`), `handSplit(keys)` and `classifyFingering(keys)` are each ONE function exported by the format package; the site's drawer, the bot's grid/image and the mana2 lowering call them (the lowering's `rowOrColumnStagger` and row-string split reproduce them on every fixture) | parity test over fixtures; archlint: no second definition |
 | LDB-F31 | `fromCmini` maps the board word by §4.6's table — including the angle-family bump to `ansi` — and changes nothing else (extends LDB-F23) | `mf9-fromcmini`; a fixture per bumped case |
+| LDB-F33 | `keys` is a list: the same `char` may appear on several entries and no two entries share `(row, col)`; a char named anywhere in `magic` is unique on the layout (`400 magic_needs_unique_key`); `fromSpark` analyses the first occurrence in `(row, col)` order and emits later duplicates as `skip` (LDB-F17 holds) | fixture with two `y`s + its goldens; mutation matrix; property test over random duplicate insertions |
 | LDB-F32 | `classifyFingering` returns `angle`/`nokwts`/`meteorite`/`standard` exactly when the left-hand fingers of rows 0–2 equal the reference (right hand `RI RI RM RR RP`), else `custom`; identical in the format package, the site build and the bot | shared table + parity test over the catalog against today's `layouts.json` `fingermap` |
 | LDB-B15x | `parseAddGrid` never reads the board from indentation: the same grid under any leading-space pattern yields the same `board` (the angle indent → `angle` only, and only without a fingering word); trailing vocabulary words are consumed right-to-left and the remainder is the name; the wide gap sets default fingers per hand; every thumb key gets its own `(col, finger)`; the reply names every inferred fact | property test over random indents/word orders; golden replies |
 | LDB-B15y | `fingers! x <name>` writes exactly the reference over the covered columns and nothing else; `fingers x <name>` then `fingers! x <name>` produce the same keys (preview = write); refused off `ansi` | property test |
