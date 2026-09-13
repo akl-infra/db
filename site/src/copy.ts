@@ -11,7 +11,7 @@ export const copy = {
   header: {
     tagline: "the community layout database",
     navHome: "Layouts",
-    navChanges: "Changes",
+    navChanges: "Event log", // saltorbit 2026-09-13 (was "Changes")
     navDocs: "Docs",
     navAdmin: "Moderation",
     signIn: "Sign in with Discord",
@@ -60,10 +60,10 @@ export const copy = {
     empty: "This author has no layouts on record",
   },
   changes: {
-    title: "Recent changes",
+    title: "Event log",
     loadError: "Could not load the change feed from akldb",
     empty: "Nothing has changed yet",
-    loadMore: "Load older changes",
+    loadMore: "Load older events",
     kindColumn: "Kind",
     scopeColumn: "Scope",
     scopeLayout: "layout",
