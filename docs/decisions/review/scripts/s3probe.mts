@@ -1,0 +1,13 @@
+import { createS3Client } from '~/git/akl/aklgg/.claude/worktrees/ldb-arch-review/bot/src/publisher/s3.ts';
+const e = process.env;
+const s3 = createS3Client({ endpoint: e.R2_ENDPOINT!, bucket: e.R2_BUCKET!, accessKeyId: e.R2_ACCESS_KEY_ID!, secretAccessKey: e.R2_SECRET_ACCESS_KEY!, region: 'auto' });
+const key = 'lines/2cb8a634dffbebc1469476d4c4c1f011bba0e194215f1c1f65dbadddf3654024/cas-probe.json';
+const body = Buffer.from(JSON.stringify({ t: 1 }));
+const c = await s3.putObject(key, body, { contentType: 'application/json', ifNoneMatch: '*' });
+console.log('create', JSON.stringify(c));
+const g = await s3.getObject(key);
+console.log('get etag', g && JSON.stringify({ etag: (g as any).etag }));
+const u = await s3.putObject(key, Buffer.from(JSON.stringify({ t: 2 })), { contentType: 'application/json', ifMatch: (g as any).etag });
+console.log('update If-Match', JSON.stringify(u));
+const real = await s3.getObject('lines/2cb8a634dffbebc1469476d4c4c1f011bba0e194215f1c1f65dbadddf3654024/current.json');
+console.log('real pointer etag', (real as any)?.etag);
