@@ -108,3 +108,15 @@ Options, in order of preference: run the machine as `performance-1x` (dedicated 
 2. Machine: see §7b — recommend `performance-1x` for the backlog pass; keep or revert with round-2 data.
 3. Round 2 (after the first CLI pass finishes): read `/health.latency` after a day of real commands; `feed_wake_ms` under long-poll; publisher `published overlay` timings for a plain and a magic layout; `flyctl` CPU/memory over 24 h. Then decide the machine size with data (the shared-cpu-2x is holding so far).
 4. Add the harness run to CI as a nightly against prod layoutdb with `--author` = a dedicated test user, so the numbers above are tracked, not one-off.
+
+## 9 · Round 2, interim (2026-09-13 00:40–01:30Z, `spark-bot` resized to performance-1x 2 GB at 00:41Z)
+
+**Publisher throughput on performance-1x**: 25 layouts per tick every ~4 min (ticks 7/8/9 at 01:09/01:13/01:17Z). Per-layout native compute is a flat 3.2–3.5 s (single-threaded; `--jobs 2` buys nothing on 1 vCPU), so 25 computes ≈ 83 s; the remaining ~150 s per tick is publish work (last compute → overlay stamp ≈ 36 s; overlay stamp → tick logged ≈ 94 s: uploads, pointer CAS, smoke, history). Backlog 3,948 at 01:17Z → **≈ 10.5 h** for the first pass (not the 2–3 h round 1 predicted from the unthrottled 1.6 s/layout sample). performance-2x would roughly halve the compute half only.
+
+**Feed long-poll timeouts are event-loop stalls, not layoutdb**: three signed `GET /v1/changes?since=<head>&wait=25` from the laptop returned in 25.41–25.45 s each (ttfb = total; body 25 B); with `since=<head-1>` the same GET returned in 190–620 ms. Yet the bot aborted the same request at its 32 s bound with reported elapsed 33.9 s (performance-1x) and 34–53 s (shared-cpu-2x, throttled). A timer firing 2–20 s late means the Node main thread was blocked that long — the publisher's synchronous overlay work (row derivation, table merge, multi-MB `JSON.stringify`) runs on the bot's thread. **This is an R2 risk**: a command arriving during such a stretch waits it out. B10 quiets the alert (45 s bound, no DM) but does not remove the stall; B11 adds a `loop_lag_ms` histogram + per-tick phase timings to `/health` so round 2 can measure the stalls directly; B12 (proposed) moves the overlay JSON work off the main thread (worker_threads) or chunks it.
+
+**Feed wake** (`/health.feed_wake_ms`, n=9 since the resize): p50 2,048 ms bucket, p95 8,192 ms bucket, max 6,354 ms — worse than round 1's ≈ 1 s, consistent with the stalls above.
+
+**Per-verb command histogram**: still empty (no Discord commands since the 00:41Z restart). Round 2 proper waits on real usage or a Fly-side headless run (`bot/scripts/measure-latency.mjs` via `fly ssh console`).
+
+**Health-field staleness found**: `/health.publisher.last_run_at` and `publisher_last_tick_at` read 00:41Z while ticks completed at 01:09–01:17Z (set once per multi-tick pass, not per tick) → B11.
