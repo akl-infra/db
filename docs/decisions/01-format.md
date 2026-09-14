@@ -178,12 +178,14 @@ them is proven in one.
   `output` starts with `after`, no duplicate `after` per key, no duplicate
   `trigger`+member pair, a key is magic or chiral never both,
   `repeat_previous` sentinel). *Amended 2026-09-11 (saltorbit: "layoutdb
-  validation right now should match aklgg validation"; LDB-F22):* the keys
-  a rule set names (`magic_keys[].key`, `chiral_keys[].key`,
-  `adaptive_swaps[].trigger`/`.swap[]`) need **not** exist in `keys`, as on
-  akl.gg (issue #321 would add that check to both together); `notes` and
-  `updated` are accepted as strings; a `null` chiral `same`/`opposite` reads
-  as absent. `except[]` entries are single code points. A rule's `after` need **not** be a key (opal's `?◇`
+  validation right now should match aklgg validation"; LDB-F22):* a `null`
+  chiral `same`/`opposite` reads as absent. *Amended again 2026-09-13
+  (saltorbit/aklgg#322, added to akl.gg's validator at the same time):* the
+  keys a rule set names (`magic_keys[].key`, `chiral_keys[].key`,
+  `adaptive_swaps[].trigger`/`.swap[]`) must exist in `keys` (the scaffold
+  needs their hand/position). `notes` and `updated` are refused (dropped
+  from the payload, 24-spark-wire-review.md round 2 item 2).
+  `except[]` entries are single code points. A rule's `after` need **not** be a key (opal's `?◇`
   row names a char the layout does not carry — 07 §0.1).
 - `magic.rules[]`: `inputs` ≥ 2 code points, `output` non-empty; no
   duplicate `inputs`; chars need not be keys.

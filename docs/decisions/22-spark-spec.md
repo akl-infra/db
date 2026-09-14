@@ -124,9 +124,13 @@ occurrence (what happens to it on lowering is §7).
 A character that a magic construct actually **names** — a magic key's own
 `key`, a chiral key's own `key`, an adaptive swap's `trigger` or either
 `swap[]` member, a magic key rule's `after`, or any `except[]` entry —
-must have **at most one** entry among `keys`' char-bearing entries. Zero is
-fine (a named key need not be on the layout at all, LDB-F22): it simply
-gets no scaffold row. More than one is refused.
+must have **at most one** entry among `keys`' char-bearing entries. More
+than one is refused. A magic key, a chiral key, a swap trigger and a swap
+member must also have **at least one**: a rule set that names a key the
+layout doesn't have is refused (`400 invalid_payload`, `... is not one of
+this layout's keys`, LDB-F22; `formats/spark/1/magic.ts`
+`validateMagicSemantics`). A rule's `after` or an `except[]` entry may have
+zero: it simply gets no scaffold row.
 
 *`db/formats/spark/1/index.ts:218-260` (`collectMagicChars`, `validateMagicKeysUnique`); error `400 magic_needs_unique_key`, path `/keys` — not `/keys/<i>` (LEDGER.md row S1). LDB-F33.*
 

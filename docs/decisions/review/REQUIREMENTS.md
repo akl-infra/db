@@ -30,7 +30,7 @@ These rank above every row below; where a past decision conflicts with this orde
 | H13 | One layoutdb (prod `akl-db`); no preview layoutdb. Only prod akl.gg is fenced (Pages prod env, `cb-magic`, akl.gg zone, main's workflows, meta-watch). | mem:one-layoutdb; P313-02 START HERE | 09-11 |
 | H14 | Every edit carries a proven source client (`client:<id>`, `discord-app:<id>`, `system:*`) "so we know what happened and can facilitate better rollbacks". | LDB-20 §1.14 | 09-10 |
 | H15 | Magic rules: only akl.gg's; cmini's dropped on the floor. akl.gg publishes its rules to the DB and keeps its editor (PUT never becomes 410). | LDB-17 header; LDB-11 W6 3(b); bot LDB-B24 | 09-10 |
-| H16 | spark/1 validation matches akl.gg's validation exactly ("take the rules as is"). | P313-02 §6b; LDB-F22 | 09-11 |
+| H16 | spark/1 validation matches akl.gg's validation exactly ("take the rules as is"). *Amended 09-13 (saltorbit/aklgg#322): both now refuse a rule set that names a key the layout doesn't have; the two published sets that did are fixed in the data, not grandfathered.* | P313-02 §6b; LDB-F22 | 09-11 |
 | H17 | Never repeat unvalidated user strings in bot replies (abuse vector). | LDB-16 header; #304 | 09-10 |
 | H18 | Nothing merges to `main`; nothing deploys to prod akl.gg but saltorbit. Prod layoutdb migrations/deploys are delegated. User-facing copy needs sign-off. | P313-02 "Standing rules"; mem:prod-layoutdb-deploys-ok | 09-11 |
 | H19 | Nothing ships to akl.gg users until the DB is a strict superset of what the site shows from cmini (verified by diff). | LDB-00 D12 | 09-08 |

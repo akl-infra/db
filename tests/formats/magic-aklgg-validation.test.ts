@@ -4,17 +4,20 @@
 // aklgg validation"). spark/1 keeps two additions akl.gg has no shape for
 // (`except[]`, the raw `rules[]` escape hatch); every other difference was
 // removed:
-//   - the keys a rule set names need not be on the layout
-//     (adaptative-magic-sturdy's and jazz's upper-case swaps; issue #321
-//     would add the check to both validators together);
+//   - every key a rule set names (a magic key, a chiral key, a swap trigger
+//     or member) must be one of the layout's keys -- added to both
+//     validators together (saltorbit/aklgg#322, 2026-09-13), which is what
+//     refuses adaptative-magic-sturdy's and jazz's upper-case swaps;
 //   - a `null` chiral `same`/`opposite` reads as absent.
 // design/layout-db/24-spark-wire-review.md round 2's resolution item 2:
 // `notes`/`updated` are DROPPED from the payload entirely now (no writer
 // ever produced them) -- the schema refuses them outright, a divergence
 // from akl.gg's own gate (which still accepts them) that this file used to
 // paper over by accepting them too.
-// The compile side (the same rows as akl.gg's compile, over generated rule
-// sets) is bot/tests/magic/spark-parity.test.ts (LDB-B78).
+// Generated coverage of the same rule, and the compile side (the same rows
+// as akl.gg's compile), are the parity vectors: tests/formats/
+// spark-parity-vectors.test.ts (LDB-F39) and bot/tests/magic/
+// spark-parity.test.ts (LDB-B78).
 import { describe, expect, it } from "vitest";
 import * as spark1 from "../../formats/spark/1/index.ts";
 import type { Payload, Key } from "../../formats/spark/1/index.ts";
@@ -28,32 +31,53 @@ const KEYS: Key[] = [
   { char: "i", row: 1, col: 7, finger: "RM" },
 ];
 
-function check(magic: unknown) {
-  return spark1.validate({ keys: KEYS, board: "ansi", magic } as unknown as Payload);
+function check(magic: unknown, keys: Key[] = KEYS) {
+  return spark1.validate({ keys, board: "ansi", magic } as unknown as Payload);
+}
+
+function refusal(magic: unknown, keys: Key[] = KEYS) {
+  const result = check(magic, keys);
+  return result.ok ? null : { message: result.error.message, path: result.error.path };
 }
 
 describe("spark/1 magic validation == akl.gg's gate (LDB-F22)", () => {
-  it("[LDB-F22] a magic key, chiral key, swap trigger or swap member need not be on the layout", () => {
-    expect(check({ magic_keys: [{ key: "*", default: { kind: "repeat" } }] })).toEqual({ ok: true });
-    expect(check({ chiral_keys: [{ key: "#", same: { kind: "repeat" } }] })).toEqual({ ok: true });
-    expect(check({ adaptive_swaps: [{ trigger: "C", swap: ["M", "K"] }] })).toEqual({ ok: true });
-    expect(check({ adaptive_swaps: [{ trigger: "a", swap: ["M", "d"] }] })).toEqual({ ok: true });
+  it("[LDB-F22] a magic key, chiral key, swap trigger or swap member must be on the layout", () => {
+    expect(refusal({ magic_keys: [{ key: "*", default: { kind: "repeat" } }] })).toEqual({
+      message: `magic_keys[].key "*" is not one of this layout's keys`,
+      path: "/magic/magic_keys/0/key",
+    });
+    expect(refusal({ chiral_keys: [{ key: "#", same: { kind: "repeat" } }] })).toEqual({
+      message: `chiral_keys[].key "#" is not one of this layout's keys`,
+      path: "/magic/chiral_keys/0/key",
+    });
+    expect(refusal({ adaptive_swaps: [{ trigger: "C", swap: ["a", "b"] }] })).toEqual({
+      message: `adaptive_swaps[].trigger "C" is not one of this layout's keys`,
+      path: "/magic/adaptive_swaps/0/trigger",
+    });
+    expect(refusal({ adaptive_swaps: [{ trigger: "a", swap: ["b", "M"] }] })).toEqual({
+      message: `adaptive_swaps[].swap member "M" is not one of this layout's keys`,
+      path: "/magic/adaptive_swaps/0/swap",
+    });
+    // The same shapes with every named key on the layout are accepted.
+    expect(check({ magic_keys: [{ key: "a", default: { kind: "repeat" } }] })).toEqual({ ok: true });
+    expect(check({ chiral_keys: [{ key: "h", same: { kind: "repeat" } }] })).toEqual({ ok: true });
+    expect(check({ adaptive_swaps: [{ trigger: "c", swap: ["a", "b"] }, { trigger: "a", swap: ["b", "d"] }] })).toEqual({ ok: true });
   });
 
-  it("[LDB-F22] adaptative-magic-sturdy's published rules validate verbatim, and its off-layout swaps compile as akl.gg compiles them", () => {
-    const magic = {
-      adaptive_swaps: [
-        { swap: ["M", "K"], trigger: "C" },
-        { swap: ["P", "L"], trigger: "M" },
-      ],
+  it("[LDB-F22] adaptative-magic-sturdy's upper-case swaps are refused; lower-cased, as published after #322's fix, they validate and compile", () => {
+    const keys: Key[] = [...KEYS, { char: "m", row: 0, col: 2, finger: "LM" }, { char: "k", row: 2, col: 2, finger: "LM" }, { char: "*", row: 0, col: 6, finger: "RI" }];
+    const published = (swap: (s: string) => string) => ({
+      adaptive_swaps: [{ swap: [swap("M"), swap("K")], trigger: swap("C") }],
       chiral_keys: [],
       magic_keys: [{ default: { kind: "repeat" }, key: "*", rules: [{ after: "a", output: "ao" }] }],
-    };
-    expect(check(magic)).toEqual({ ok: true });
-    const rows = spark1.compileMagic({ keys: KEYS, magic } as unknown as Payload);
-    expect(rows.filter((r) => r.inputs === "CM" || r.inputs === "CK").map((r) => [r.inputs, r.output]).sort()).toEqual([
-      ["CK", "CM"],
-      ["CM", "CK"],
+    });
+    expect(refusal(published((s) => s), keys)?.message).toBe(`adaptive_swaps[].trigger "C" is not one of this layout's keys`);
+    const lower = published((s) => s.toLowerCase());
+    expect(check(lower, keys)).toEqual({ ok: true });
+    const rows = spark1.compileMagic({ keys, magic: lower } as unknown as Payload);
+    expect(rows.filter((r) => r.inputs === "cm" || r.inputs === "ck").map((r) => [r.inputs, r.output]).sort()).toEqual([
+      ["ck", "cm"],
+      ["cm", "ck"],
     ]);
   });
 
@@ -89,6 +113,7 @@ describe("spark/1 magic validation == akl.gg's gate (LDB-F22)", () => {
       { adaptive_swaps: [{ trigger: "a", swap: ["b", "c"] }, { trigger: "a", swap: ["b", "d"] }] }, // (trigger, member) twice
       { adaptive_swaps: [{ trigger: "ab", swap: ["b", "c"] }] }, // trigger not a single character
       { magic_keys: [{ key: "a", chiral_rules: [] }] }, // the retired chiral_rules sub-shape
+      { adaptive_swaps: [{ trigger: "C", swap: ["M", "K"] }] }, // off-layout trigger and members (#322)
     ];
     for (const magic of refused) expect(check(magic).ok, JSON.stringify(magic)).toBe(false);
   });

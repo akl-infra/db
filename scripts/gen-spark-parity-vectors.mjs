@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // Generates + freezes db/formats/spark/1/fixtures/parity-vectors.json (300
 // seeded fast-check cases: `{keys, magic, expected}`, `expected =
-// compileMagic({keys, board: 'ansi', magic})`) -- the interop contract
+// compileMagic({keys, board: 'ansi', magic})`, then 60 refused ones:
+// `{keys, magic, refused: {message, path}}`, a valid rule set plus one key
+// that isn't on the layout, `refused` being spark1.validate()'s error) -- the interop contract
 // between spark/1's own magic compiler and akl.gg's `magicRulesFlatCompile`
 // (`@akl/core/rules`), now that bot/ no longer depends on this package at
 // all (saltorbit, 2026-09-13: "the bot is a third-party client of the layout DB
@@ -44,16 +46,20 @@ const NUM_RUNS = 300;
 // ruleSetArb): only rule sets akl.gg's gate (functions/_lib/rules.mjs
 // `validateRuleSet`) accepts -- single-character keys and afters, one rule
 // per `after` per key, outputs that start with their `after`, a key never
-// both magic and chiral, no two swaps sharing a (trigger, member) -- plus
-// layoutdb's own rule that every key a rule set names is on the layout.
+// both magic and chiral, no two swaps sharing a (trigger, member), and
+// every key a rule set names on the layout (LDB-F22).
 // ---------------------------------------------------------------------
 const POOL = [...'abcdefghijklmnopqrst'];
 // design/layout-db/23-geometry.md §4.2: `TB` is gone from the finger
 // vocabulary (the label IS the hand).
 const FINGERS = ['LP', 'LR', 'LM', 'LI', 'RI', 'RM', 'RR', 'RP'];
-// Characters no generated layout carries: akl.gg's gate never checks that a
-// named key is on the layout, and neither does spark/1 (LDB-F22).
+// Characters no generated layout carries -- the refused vectors' one bad key
+// (LDB-F22: every named key must be on the layout, on both sides). The
+// upper-case ones are adaptative-magic-sturdy's shape: `C` named where the
+// layout has `c`.
 const OFF = ['C', 'M', 'K', '*', '@'];
+const REFUSED_SEED = SEED + 1;
+const NUM_REFUSED = 60;
 
 const layoutArb = fc
   .uniqueArray(fc.constantFrom(...POOL), { minLength: 4, maxLength: 12 })
@@ -65,7 +71,7 @@ const layoutArb = fc
 function ruleSetArb(cells) {
   const chars = cells.map((k) => k.c);
   const ch = fc.constantFrom(...chars);
-  const named = fc.oneof({ weight: 4, arbitrary: ch }, { weight: 1, arbitrary: fc.constantFrom(...OFF) });
+  const named = ch;
   const emitted = fc.constantFrom(...chars, 'y', "'", ' ');
   const magicKeyArb = (key) =>
     fc.record({
@@ -116,6 +122,27 @@ function ruleSetArb(cells) {
 
 const casesArb = layoutArb.chain((cells) => fc.tuple(fc.constant(cells), ruleSetArb(cells)));
 
+// A valid case plus one off-layout key, appended where it's the first thing
+// validation trips on: a new magic key, a new chiral key, or a new swap whose
+// trigger or one member is off the layout (the other two chars are on it).
+const refusedArb = casesArb.chain(([cells, rs]) => {
+  const chars = cells.map((k) => k.c);
+  return fc
+    .record({
+      where: fc.constantFrom('magic_key', 'chiral_key', 'trigger', 'member'),
+      off: fc.constantFrom(...OFF),
+      on: fc.shuffledSubarray(chars, { minLength: 2, maxLength: 2 }),
+    })
+    .map(({ where, off, on: [a, b] }) => {
+      const bad = { magic_keys: [...rs.magic_keys], chiral_keys: [...rs.chiral_keys], adaptive_swaps: [...rs.adaptive_swaps] };
+      if (where === 'magic_key') bad.magic_keys.push({ key: off, default: 'repeat_previous', rules: [] });
+      if (where === 'chiral_key') bad.chiral_keys.push({ key: off, same: 'repeat_previous' });
+      if (where === 'trigger') bad.adaptive_swaps.push({ trigger: off, swap: [a, b] });
+      if (where === 'member') bad.adaptive_swaps.push({ trigger: a, swap: [b, off] });
+      return [cells, bad];
+    });
+});
+
 function sparkKeys(cells) {
   return cells.map((k) => ({ char: k.c, row: k.row, col: k.col, finger: k.finger }));
 }
@@ -156,9 +183,20 @@ function buildVector([cells, rs]) {
   return { keys, magic, expected };
 }
 
+function buildRefusedVector([cells, rs]) {
+  const keys = sparkKeys(cells);
+  const magic = toSparkMagic(rs);
+  const validation = spark1.validate({ keys, board: 'ansi', magic });
+  if (validation.ok || !validation.error.message.endsWith("is not one of this layout's keys")) {
+    throw new Error(`refused case wasn't refused for its off-layout key: ${JSON.stringify(validation)}\nmagic: ${JSON.stringify(magic)}`);
+  }
+  return { keys, magic, refused: { message: validation.error.message, path: validation.error.path } };
+}
+
 function build() {
   const samples = fc.sample(casesArb, { numRuns: NUM_RUNS, seed: SEED });
-  return samples.map(buildVector);
+  const refused = fc.sample(refusedArb, { numRuns: NUM_REFUSED, seed: REFUSED_SEED });
+  return [...samples.map(buildVector), ...refused.map(buildRefusedVector)];
 }
 
 function main() {

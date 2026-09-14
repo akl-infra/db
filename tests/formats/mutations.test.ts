@@ -310,6 +310,29 @@ describe("payload mutations", () => {
               });
               continue;
             }
+            // A key's char is a free position (ALLOWED above) EXCEPT when it's
+            // the only entry for a char the magic names as a magic/chiral key
+            // or a swap trigger/member: taking it off leaves the rule set
+            // naming a key the layout doesn't have, refused at the magic's
+            // own path (LDB-F22, saltorbit/aklgg#322).
+            if (format.id === "spark/1" && kind === "char" && /^\/keys\/\d+\/char$/.test(leaf.pointer) && (mutation === "delete" || mutation === "empty string")) {
+              const payload = fixture.payload as { keys: { char?: string }[]; magic?: { magic_keys?: { key: string }[]; chiral_keys?: { key: string }[]; adaptive_swaps?: { trigger: string; swap: string[] }[] } };
+              const char = payload.keys[Number(leaf.segs[1])]?.char;
+              const m = payload.magic ?? {};
+              const named = new Set([
+                ...(m.magic_keys ?? []).map((mk) => mk.key),
+                ...(m.chiral_keys ?? []).map((ck) => ck.key),
+                ...(m.adaptive_swaps ?? []).flatMap((sw) => [sw.trigger, ...sw.swap]),
+              ]);
+              if (char !== undefined && named.has(char) && payload.keys.filter((k) => k.char === char).length === 1) {
+                it(`[LDB-F1][LDB-F22] ${fixture.stem} ${leaf.pointer} ${mutation} -- ${JSON.stringify(char)} is named by the magic, so it can't leave the layout`, () => {
+                  const result = format.validate(applyMutation(fixture.payload, leaf, mutation));
+                  expect(result.ok).toBe(false);
+                  if (!result.ok) expect(result.error.message).toMatch(/is not one of this layout's keys$/);
+                });
+                continue;
+              }
+            }
             const isAllowed = isCombosInputsElement || allowed.has(`${kind}:${mutation}`);
             it(`[LDB-F1] ${fixture.stem} ${leaf.pointer} ${mutation}${isAllowed ? " (allowed)" : ""}`, () => {
               const mutated = applyMutation(fixture.payload, leaf, mutation);

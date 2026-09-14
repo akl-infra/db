@@ -9,7 +9,7 @@
     "body": {
       "format": "spark/1",
       "payload": {
-        "keys": [],
+        "keys": [{ "char": "b", "row": 1, "col": 0, "finger": "LP" }, { "char": "s", "row": 1, "col": 1, "finger": "LR" }],
         "magic": {
           "magic_keys": [{ "key": "s", "except": ["x"] }]
         },
@@ -27,7 +27,7 @@
         "body": {
           "format": "spark/1",
           "payload": {
-            "keys": [],
+            "keys": [{ "char": "b", "row": 1, "col": 0, "finger": "LP" }, { "char": "s", "row": 1, "col": 1, "finger": "LR" }],
             "magic": {
               "magic_keys": [{ "key": "b", "except": ["x"] }]
             },
@@ -72,7 +72,7 @@
         },
         "format": "spark/1",
         "payload": {
-          "keys": [],
+          "keys": [{ "char": "b", "row": 1, "col": 0, "finger": "LP" }, { "char": "s", "row": 1, "col": 1, "finger": "LR" }],
           "magic": {
             "magic_keys": [{ "key": "b", "except": ["x"] }]
           },
