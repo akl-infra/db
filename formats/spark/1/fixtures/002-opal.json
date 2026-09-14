@@ -188,7 +188,7 @@
         "rules": [
           {
             "after": "u",
-            "output": "uo"
+            "emit": "o"
           }
         ]
       },
@@ -197,7 +197,7 @@
         "rules": [
           {
             "after": "'",
-            "output": "'l"
+            "emit": "l"
           }
         ]
       },
@@ -206,7 +206,7 @@
         "rules": [
           {
             "after": "'",
-            "output": "'f"
+            "emit": "f"
           }
         ]
       },
@@ -215,7 +215,7 @@
         "rules": [
           {
             "after": "j",
-            "output": "ju"
+            "emit": "u"
           }
         ]
       },
@@ -224,7 +224,7 @@
         "rules": [
           {
             "after": "u",
-            "output": "ue"
+            "emit": "e"
           }
         ]
       },
@@ -233,7 +233,7 @@
         "rules": [
           {
             "after": "j",
-            "output": "jn"
+            "emit": "n"
           }
         ]
       },
@@ -242,119 +242,119 @@
         "rules": [
           {
             "after": "'",
-            "output": "''"
+            "emit": "'"
           },
           {
             "after": ".",
-            "output": ".."
+            "emit": "."
           },
           {
             "after": "?",
-            "output": "??"
+            "emit": "?"
           },
           {
             "after": "a",
-            "output": "ay"
+            "emit": "y"
           },
           {
             "after": "b",
-            "output": "bb"
+            "emit": "b"
           },
           {
             "after": "c",
-            "output": "cc"
+            "emit": "c"
           },
           {
             "after": "d",
-            "output": "dd"
+            "emit": "d"
           },
           {
             "after": "e",
-            "output": "ee"
+            "emit": "e"
           },
           {
             "after": "f",
-            "output": "ff"
+            "emit": "f"
           },
           {
             "after": "g",
-            "output": "gg"
+            "emit": "g"
           },
           {
             "after": "h",
-            "output": "hr"
+            "emit": "r"
           },
           {
             "after": "i",
-            "output": "ik"
+            "emit": "k"
           },
           {
             "after": "j",
-            "output": "jo"
+            "emit": "o"
           },
           {
             "after": "k",
-            "output": "ke"
+            "emit": "e"
           },
           {
             "after": "l",
-            "output": "ll"
+            "emit": "l"
           },
           {
             "after": "m",
-            "output": "mm"
+            "emit": "m"
           },
           {
             "after": "n",
-            "output": "nn"
+            "emit": "n"
           },
           {
             "after": "o",
-            "output": "oo"
+            "emit": "o"
           },
           {
             "after": "p",
-            "output": "pp"
+            "emit": "p"
           },
           {
             "after": "q",
-            "output": "qq"
+            "emit": "q"
           },
           {
             "after": "r",
-            "output": "rl"
+            "emit": "l"
           },
           {
             "after": "s",
-            "output": "ss"
+            "emit": "s"
           },
           {
             "after": "t",
-            "output": "tt"
+            "emit": "t"
           },
           {
             "after": "u",
-            "output": "u'"
+            "emit": "'"
           },
           {
             "after": "v",
-            "output": "vv"
+            "emit": "v"
           },
           {
             "after": "w",
-            "output": "ww"
+            "emit": "w"
           },
           {
             "after": "x",
-            "output": "xx"
+            "emit": "x"
           },
           {
             "after": "y",
-            "output": "ye"
+            "emit": "e"
           },
           {
             "after": "z",
-            "output": "zz"
+            "emit": "z"
           }
         ]
       }

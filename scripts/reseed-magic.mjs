@@ -85,6 +85,21 @@ export function candidateFrom(ruleSet) {
     const tagged = tagWireValue(mk.default);
     if (tagged === null) delete mk.default;
     else mk.default = tagged;
+    // design/layout-db/27-magic-emit.md: akl.gg still authors `{after,
+    // output}` with `output` repeating the context (its own validator
+    // guarantees `output` starts with `after`); spark/1's rule is `{after,
+    // emit}`, what the key emits after the context. A rule that does not
+    // extend its context (impossible past akl.gg's gate; guarded anyway)
+    // cannot be a magic-key rule and is demoted to the raw escape hatch.
+    if (Array.isArray(mk.rules)) {
+      const kept = [];
+      for (const r of mk.rules) {
+        if (typeof r?.after !== "string" || typeof r?.output !== "string") continue;
+        if (r.output.startsWith(r.after) && r.output.length > r.after.length) kept.push({ after: r.after, emit: r.output.slice(r.after.length) });
+        else (out.rules ??= []).push({ inputs: r.after + mk.key, output: r.output });
+      }
+      mk.rules = kept;
+    }
   }
   for (const ck of out.chiral_keys ?? []) {
     for (const field of ["same", "opposite"]) {

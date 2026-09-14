@@ -165,7 +165,10 @@ function tagChiral(bare) {
 
 function toSparkMagic(rs) {
   return {
-    magic_keys: rs.magic_keys.map((mk) => ({ key: mk.key, default: tagDefault(mk.default), rules: mk.rules })),
+    // design/layout-db/27-magic-emit.md: spark/1's rule is `{after, emit}` --
+    // the generator above still produces akl.gg's own `{after, output}` (output
+    // = after + emitted), so strip the context here.
+    magic_keys: rs.magic_keys.map((mk) => ({ key: mk.key, default: tagDefault(mk.default), rules: mk.rules.map((r) => ({ after: r.after, emit: r.output.slice(r.after.length) })) })),
     chiral_keys: rs.chiral_keys.map((ck) => ({ key: ck.key, same: tagChiral(ck.same), opposite: tagChiral(ck.opposite) })),
     adaptive_swaps: rs.adaptive_swaps,
   };

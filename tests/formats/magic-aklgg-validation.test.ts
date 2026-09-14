@@ -69,7 +69,7 @@ describe("spark/1 magic validation == akl.gg's gate (LDB-F22)", () => {
     const published = (swap: (s: string) => string) => ({
       adaptive_swaps: [{ swap: [swap("M"), swap("K")], trigger: swap("C") }],
       chiral_keys: [],
-      magic_keys: [{ default: { kind: "repeat" }, key: "*", rules: [{ after: "a", output: "ao" }] }],
+      magic_keys: [{ default: { kind: "repeat" }, key: "*", rules: [{ after: "a", emit: "o" }] }],
     });
     expect(refusal(published((s) => s), keys)?.message).toBe(`adaptive_swaps[].trigger "C" is not one of this layout's keys`);
     const lower = published((s) => s.toLowerCase());
@@ -99,13 +99,14 @@ describe("spark/1 magic validation == akl.gg's gate (LDB-F22)", () => {
     expect(check({ chiral_keys: [{ key: "h" }] }).ok).toBe(false);
   });
 
-  it("[LDB-F22] every refusal akl.gg's gate makes is still made", () => {
+  it("[LDB-F22] [LDB-F41] every refusal akl.gg's gate makes is still made (plus the emit-shape refusals)", () => {
     const refused: unknown[] = [
       { magic_keys: [{ key: "ab" }] }, // key not a single character
       { magic_keys: [{ key: "a", default: "sometimes" }] }, // default not a tagged {repeat:true}/{char:<c>} shape (a bare string, even a single character, is refused by the schema now)
-      { magic_keys: [{ key: "a", rules: [{ after: "b", output: "bx" }, { after: "b", output: "by" }] }] }, // duplicate after
-      { magic_keys: [{ key: "a", rules: [{ after: "b", output: "b" }] }] }, // output shorter than two
-      { magic_keys: [{ key: "a", rules: [{ after: "b", output: "cb" }] }] }, // output doesn't start with after
+      { magic_keys: [{ key: "a", rules: [{ after: "b", emit: "x" }, { after: "b", emit: "y" }] }] }, // duplicate after
+      { magic_keys: [{ key: "a", rules: [{ after: "b", emit: "" }] }] }, // empty emit (27-magic-emit.md: the key must emit something)
+      { magic_keys: [{ key: "a", rules: [{ after: "", emit: "b" }] }] }, // empty after (a context is at least one code point)
+      { magic_keys: [{ key: "a", rules: [{ after: "b", output: "bc" }] }] }, // the retired {after, output} shape -- refused by the schema, never silently read as an emission
       { magic_keys: [{ key: "a" }], chiral_keys: [{ key: "a", same: { kind: "char", char: "x" } }] }, // magic and chiral at once
       { chiral_keys: [{ key: "h", same: { kind: "char", char: "x" } }, { key: "h", same: { kind: "char", char: "y" } }] }, // duplicate chiral key
       { chiral_keys: [{ key: "h", same: { kind: "char", char: "" } }] }, // empty char (same/opposite use the same tagged union as magic_keys[].default now -- no bare-string same/opposite left to be "empty")

@@ -583,7 +583,7 @@ describe("POST /v1/admin/import/tick, POST /v1/admin/diff/tick, and POST /v1/adm
       const payload = { keys: [{ char: "a", row: 1, col: 0, finger: "LP" }, { char: "b", row: 1, col: 5, finger: "RI" }, { char: "@", row: 0, col: 1, finger: "LR" }] };
       const created = await writeFetch("/v1/layouts", "POST", userHeaders(`tok-${uniqueName("seed-owner")}`), { name, format: "spark/1", payload });
       expect(created.status).toBe(201);
-      const magic = { magic_keys: [{ key: "@", default: { kind: "repeat" }, rules: [{ after: "a", output: "ab" }] }] };
+      const magic = { magic_keys: [{ key: "@", default: { kind: "repeat" }, rules: [{ after: "a", emit: "b" }] }] };
 
       const anon = await writeFetch("/v1/admin/magic-seed", "POST", {}, { ref: name, magic });
       expect(anon.status).toBe(401);

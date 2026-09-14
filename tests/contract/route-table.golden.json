@@ -5271,20 +5271,29 @@
                 "additionalProperties": {
                   "type": "boolean"
                 },
+                "description": {
+                  "type": "string"
+                },
                 "properties": {
                   "type": "object",
                   "fields": {
                     "after": {
                       "type": "object",
                       "fields": {
+                        "minLength": {
+                          "type": "number"
+                        },
                         "type": {
                           "type": "string"
                         }
                       }
                     },
-                    "output": {
+                    "emit": {
                       "type": "object",
                       "fields": {
+                        "minLength": {
+                          "type": "number"
+                        },
                         "type": {
                           "type": "string"
                         }
@@ -8820,7 +8829,23 @@
               "fields": {
                 "keys": {
                   "type": "array",
-                  "item": null
+                  "item": {
+                    "type": "object",
+                    "fields": {
+                      "char": {
+                        "type": "string"
+                      },
+                      "col": {
+                        "type": "number"
+                      },
+                      "finger": {
+                        "type": "string"
+                      },
+                      "row": {
+                        "type": "number"
+                      }
+                    }
+                  }
                 },
                 "magic": {
                   "type": "object",

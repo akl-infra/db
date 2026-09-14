@@ -188,27 +188,27 @@
         "rules": [
           {
             "after": "a",
-            "output": "ay"
+            "emit": "y"
           },
           {
             "after": "h",
-            "output": "hr"
+            "emit": "r"
           },
           {
             "after": "j",
-            "output": "jo"
+            "emit": "o"
           },
           {
             "after": "r",
-            "output": "rl"
+            "emit": "l"
           },
           {
             "after": "u",
-            "output": "u'"
+            "emit": "'"
           },
           {
             "after": "y",
-            "output": "ye"
+            "emit": "e"
           }
         ],
         "default": {

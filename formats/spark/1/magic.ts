@@ -60,9 +60,20 @@ export function isCharTag(v: unknown): v is { kind: "char"; char: string } {
   );
 }
 
+// design/layout-db/27-magic-emit.md (saltorbit + xsznix, 2026-09-13): a
+// rule says what the key EMITS after a context, never the context again.
+// `after` is the preceding n-gram (one or more code points -- "th" is a
+// legal context), `emit` is what the key produces there (one or more code
+// points). The lowered row is always `after + key -> after + emit`: a magic
+// key never rewrites its context; a row that would (`a* -> xy`) is not a
+// magic-key rule at all and lives in the raw `rules[]` escape hatch. The
+// field is `emit`, not the old `output`, on purpose: the meaning changed,
+// so the name did too (24-spark-wire-review.md finding 8 -- never a meaning
+// change under an unchanged name), and the schema's `additionalProperties:
+// false` refuses an old-shape `{after, output}` rule outright.
 export interface MagicKeyRule {
   after: string;
-  output: string;
+  emit: string;
 }
 
 // design/layout-db/24-spark-wire-review.md finding 6 (F6), round 2's
@@ -172,7 +183,7 @@ function emission(m: MagicIntent, keys: Record<string, Position>, trigger: strin
   for (const mk of m.magic_keys ?? []) {
     if (mk.key !== member) continue;
     for (const r of mk.rules ?? []) {
-      if (r.after === trigger) return [...r.output].length === 2 ? [...r.output][1]! : member;
+      if (r.after === trigger) return r.emit;
     }
     const d = mk.default;
     if (d === undefined) return member;
@@ -257,7 +268,7 @@ export function computeRows(magic: MagicIntent | undefined, keys: Record<string,
       rows.push({ inputs: " " + mk.key, output: " " + dflt.char, type: `default:${dflt.char}`, from: `magic_keys[${i}]` });
     }
     (mk.rules ?? []).forEach((r, j) => {
-      rows.push({ inputs: r.after + mk.key, output: r.output, type: "magic", from: `magic_keys[${i}].rules[${j}]` });
+      rows.push({ inputs: r.after + mk.key, output: r.after + r.emit, type: "magic", from: `magic_keys[${i}].rules[${j}]` });
     });
   });
 
@@ -480,7 +491,7 @@ export function liftRules(rows: Row[], keys: Record<string, Position>): { lifted
         continue;
       }
       if (after !== " " && specialChars.has(after)) {
-        mk(k).rules!.push({ after, output: r.output });
+        mk(k).rules!.push({ after, emit: after }); // r.output === after + after, checked above
         continue;
       }
       const m = mk(k);
@@ -496,7 +507,7 @@ export function liftRules(rows: Row[], keys: Record<string, Position>): { lifted
         continue;
       }
       if (after !== " " && specialChars.has(after)) {
-        mk(k).rules!.push({ after, output: r.output });
+        mk(k).rules!.push({ after, emit: d }); // r.output === after + d, checked above
         continue;
       }
       const m = mk(k);
@@ -506,7 +517,17 @@ export function liftRules(rows: Row[], keys: Record<string, Position>): { lifted
       }
       m.default = { kind: "char", char: d };
     } else {
-      mk(k).rules!.push({ after, output: r.output });
+      // 27-magic-emit.md: a magic-key rule only ever EMITS after its
+      // context. A "magic"-tagged row whose output does not start with its
+      // own context (`a* -> xy`) rewrites the context, which no
+      // `magic_keys[].rules[]` entry can express any more -- it stays a
+      // leftover (the raw escape hatch), exactly as any other
+      // unproducible row does.
+      if (!r.output.startsWith(after) || r.output.length === after.length) {
+        leftovers.push(r);
+        continue;
+      }
+      mk(k).rules!.push({ after, emit: r.output.slice(after.length) });
     }
   }
 
@@ -680,21 +701,19 @@ export function validateMagicSemantics(
       const rule = rules[j]!;
       const rbase = `${base}/rules/${j}`;
       const after = rule.after;
-      if (!isSingleChar(after)) return { message: `rule.after must be a single character, got ${JSON.stringify(after)}`, path: `${rbase}/after` };
+      // 27-magic-emit.md: `after` is an n-gram (one or more code points),
+      // `emit` what the key produces there (one or more code points).
+      if (typeof after !== "string" || after.length === 0) {
+        return { message: `rule.after must be a non-empty string (the context the key follows), got ${JSON.stringify(after)}`, path: `${rbase}/after` };
+      }
       if (seenAfter.has(after)) {
         return { message: `duplicate rule.after ${JSON.stringify(after)} for magic key ${JSON.stringify(mk.key)}`, path: `${rbase}/after` };
       }
       seenAfter.add(after);
-      if (typeof rule.output !== "string" || [...rule.output].length < 2) {
+      if (typeof rule.emit !== "string" || rule.emit.length === 0) {
         return {
-          message: `rule.output must be at least two characters (the trigger plus what it emits), got ${JSON.stringify(rule.output)}`,
-          path: `${rbase}/output`,
-        };
-      }
-      if ([...rule.output][0] !== after) {
-        return {
-          message: `rule.output ${JSON.stringify(rule.output)} must start with rule.after ${JSON.stringify(after)} (the W-B' editor derives after from output's first code point)`,
-          path: `${rbase}/output`,
+          message: `rule.emit must be a non-empty string (what the key emits after ${JSON.stringify(after)}), got ${JSON.stringify(rule.emit)}`,
+          path: `${rbase}/emit`,
         };
       }
     }

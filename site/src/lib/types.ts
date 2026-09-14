@@ -14,7 +14,7 @@ export interface SparkPosition {
 
 export interface SparkMagicKeyRule {
   after: string;
-  output: string;
+  emit: string; // what the key emits after `after` (design/layout-db/27-magic-emit.md)
 }
 
 export interface SparkMagicKey {

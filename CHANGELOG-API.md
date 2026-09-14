@@ -25,6 +25,23 @@ this file just gives them a public, versioned home. From here on, a
 `WIRE_VERSION` bump and a line here land in the SAME PR, never one without
 the other (`[LDB-V5]`).
 
+## 1.13 — 2026-09-13
+
+A `spark/1` magic key's rule is `{after, emit}` (`design/layout-db/
+27-magic-emit.md`, saltorbit + xsznix: a rule says what the key emits after
+a context, never the context again): `emit` is what the key produces after
+the n-gram `after`, the lowered row is `after+key -> after+emit`, and both
+fields are non-empty strings -- `after` may now be more than one code point.
+The old `{after, output}` (with `output` repeating the context) is refused
+by the schema (`400 invalid_payload`), never silently re-read. A row that
+would rewrite its context is not a magic-key rule; it lives in the raw
+`rules[]` escape hatch, where the cmini import now leaves such rows. Every
+stored payload is rewritten in place by migration `0017_magic_emit.sql`
+(`emit = output` minus the leading `after`; revs untouched; no re-import).
+`?format=mana2/1` output is unchanged: the same rows lower from the new
+shape. Same in-place format change class as 1.6 and 1.12 (`21-formats.md`
+D11).
+
 ## 1.12 — 2026-09-13
 
 `spark/1` has no `board` field any more (`design/layout-db/26-no-board.md`,

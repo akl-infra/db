@@ -222,9 +222,16 @@ gets no such row (repeating a space types text nobody analyzes).
 
 *`db/formats/spark/1/magic.ts:219-260`. LDB-F14 (the word-start row), LDB-F15 (the exclusion rule, below).*
 
-`magic_keys[].rules[]` (each `{after, output}`) is an explicit override:
-it emits `after+key -> output` directly, and REPLACES that key's own
-scaffold row for the same `after` rather than colliding with it.
+`magic_keys[].rules[]` (each `{after, emit}`, `design/layout-db/
+27-magic-emit.md`) is an explicit override: after the n-gram `after` the
+key emits `emit`, so it lowers to `after+key -> after+emit` directly, and
+REPLACES that key's own scaffold row for the same `after` rather than
+colliding with it. `after` is any non-empty string (a longer context such
+as `th` is legal and replaces no scaffold row); `emit` is any non-empty
+string. A magic key never rewrites its context -- a row that would
+(`a* -> xy`) is a raw `rules[]` entry, not a magic-key rule. The old
+`{after, output}` shape (with `output` repeating the context) is refused
+by the schema, never re-read.
 
 *`db/formats/spark/1/magic.ts:257-259`.*
 
@@ -309,7 +316,7 @@ error}`. Checks run in this order, each stopping at the first failure:
 | 5 | no `LT`/`RT` finger on rows 0-2 | `invalid_payload` | `/keys/<i>` |
 | 6 | every magic-named character has at most one entry (§3) | `magic_needs_unique_key` | `/keys` |
 | 7 | a both-hands duplicate is excepted or ruled for every chiral key that would enumerate it (§3) | `magic_needs_unique_key` | `/keys` |
-| 8 | magic semantics (single-code-point fields, rule shapes, no duplicate `after`, no magic/chiral key sharing a character, reserved `rules[].type` words) | `invalid_payload` or `reserved_rule_type` | `/magic/...` |
+| 8 | magic semantics (single-code-point fields, rule shapes -- `after`/`emit` non-empty, no duplicate `after`, no magic/chiral key sharing a character, reserved `rules[].type` words) | `invalid_payload` or `reserved_rule_type` | `/magic/...` |
 | 9 | the lowering has no collision (5.3) | `magic_collision` | the later side's `/magic/...` pointer |
 
 *`db/formats/spark/1/index.ts:321-378` (`validate`), in this exact order. Checks 6-9 read `payload.magic` only when present.*
@@ -439,7 +446,7 @@ position.**
       {
         "key": "@",
         "default": { "kind": "repeat" },
-        "rules": [{ "after": "n", "output": "nl" }],
+        "rules": [{ "after": "n", "emit": "l" }],
         "except": []
       }
     ]

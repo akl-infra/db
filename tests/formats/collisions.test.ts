@@ -86,7 +86,7 @@ describe("magic_collision matrix (LDB-F4, amended: idiom overlaps resolve as akl
 
   it("[LDB-F4] explicit rule x adaptive half: resolved, the swap wins", () => {
     const payload = payloadWith({
-      magic_keys: [{ key: "k", rules: [{ after: "a", output: "az" }] }],
+      magic_keys: [{ key: "k", rules: [{ after: "a", emit: "z" }] }],
       adaptive_swaps: [{ trigger: "a", swap: ["k", "b"] }],
     });
     expectResolved(payload, "ak", "ab");
@@ -112,7 +112,7 @@ describe("magic_collision matrix (LDB-F4, amended: idiom overlaps resolve as akl
 
   it("[LDB-F4] explicit rule x raw rule collide; no hint", () => {
     const payload = payloadWith({
-      magic_keys: [{ key: "k", rules: [{ after: "a", output: "az" }] }],
+      magic_keys: [{ key: "k", rules: [{ after: "a", emit: "z" }] }],
       rules: [{ inputs: "ak", output: "ay" }],
     });
     expectCollision(payload, ["magic_keys[0].rules[0]", "rules[0]"], "none");
@@ -123,7 +123,7 @@ describe("magic_collision matrix (LDB-F4, amended: idiom overlaps resolve as akl
 
   it("[LDB-F4] repeat scaffold + an explicit override for the SAME after: not a collision", () => {
     const payload = payloadWith({
-      magic_keys: [{ key: "k", default: { kind: "repeat" }, rules: [{ after: "a", output: "az" }] }],
+      magic_keys: [{ key: "k", default: { kind: "repeat" }, rules: [{ after: "a", emit: "z" }] }],
     });
     const result = spark1.validate(payload);
     expect(result.ok).toBe(true);
@@ -131,7 +131,7 @@ describe("magic_collision matrix (LDB-F4, amended: idiom overlaps resolve as akl
 
   it("[LDB-F4] default:<c> scaffold + an explicit override for the SAME after: not a collision", () => {
     const payload = payloadWith({
-      magic_keys: [{ key: "k", default: { kind: "char", char: "z" }, rules: [{ after: "a", output: "aq" }] }],
+      magic_keys: [{ key: "k", default: { kind: "char", char: "z" }, rules: [{ after: "a", emit: "q" }] }],
     });
     const result = spark1.validate(payload);
     expect(result.ok).toBe(true);
@@ -149,7 +149,7 @@ describe("magic_collision matrix (LDB-F4, amended: idiom overlaps resolve as akl
 
   it("[LDB-F4] gallyoid's shape (single-char default key vs several swaps on it): every overlap resolved, the swaps win", () => {
     const payload = payloadWith({
-      magic_keys: [{ key: "d", default: { kind: "char", char: "d" }, rules: [{ after: "b", output: "bl" }] }],
+      magic_keys: [{ key: "d", default: { kind: "char", char: "d" }, rules: [{ after: "b", emit: "l" }] }],
       adaptive_swaps: [
         { trigger: "t", swap: ["h", "d"] },
         { trigger: "s", swap: ["h", "d"] },

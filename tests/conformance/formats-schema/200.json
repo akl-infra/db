@@ -88,12 +88,13 @@
           "$ref": "#/$defs/magicDefault"
         },
         "magicKeyRule": {
+          "description": "design/layout-db/27-magic-emit.md: after the n-gram `after`, the key emits `emit` -- the lowered row is `after+key -> after+emit`. A magic key never rewrites its context (a row that would is a raw `rules[]` entry). `emit` replaced the old `output` (which repeated the context) on purpose: new meaning, new name.",
           "type": "object",
           "additionalProperties": false,
-          "required": ["after", "output"],
+          "required": ["after", "emit"],
           "properties": {
-            "after": { "type": "string" },
-            "output": { "type": "string" }
+            "after": { "type": "string", "minLength": 1 },
+            "emit": { "type": "string", "minLength": 1 }
           }
         },
         "chiralKey": {

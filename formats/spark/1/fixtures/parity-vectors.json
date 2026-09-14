@@ -37,11 +37,11 @@
           "rules": [
             {
               "after": "k",
-              "output": "kk"
+              "emit": "k"
             },
             {
               "after": "d",
-              "output": "dl"
+              "emit": "l"
             }
           ]
         }
@@ -114,11 +114,11 @@
           "rules": [
             {
               "after": "k",
-              "output": "kq"
+              "emit": "q"
             },
             {
               "after": " ",
-              "output": " '"
+              "emit": "'"
             }
           ]
         }
@@ -308,11 +308,11 @@
           "rules": [
             {
               "after": "g",
-              "output": "g'"
+              "emit": "'"
             },
             {
               "after": "b",
-              "output": "bh"
+              "emit": "h"
             }
           ]
         }
@@ -417,19 +417,19 @@
           "rules": [
             {
               "after": "l",
-              "output": "ld"
+              "emit": "d"
             },
             {
               "after": "f",
-              "output": "fy"
+              "emit": "y"
             },
             {
               "after": "h",
-              "output": "hl"
+              "emit": "l"
             },
             {
               "after": "e",
-              "output": "ee"
+              "emit": "e"
             }
           ]
         }
@@ -736,7 +736,7 @@
           "rules": [
             {
               "after": "s",
-              "output": "ss"
+              "emit": "s"
             }
           ]
         }
@@ -986,19 +986,19 @@
           "rules": [
             {
               "after": "f",
-              "output": "fr"
+              "emit": "r"
             },
             {
               "after": "k",
-              "output": "kb"
+              "emit": "b"
             },
             {
               "after": "t",
-              "output": "tr"
+              "emit": "r"
             },
             {
               "after": " ",
-              "output": " o"
+              "emit": "o"
             }
           ]
         }
@@ -1179,19 +1179,19 @@
           "rules": [
             {
               "after": " ",
-              "output": " e"
+              "emit": "e"
             },
             {
               "after": "c",
-              "output": "cq"
+              "emit": "q"
             },
             {
               "after": "n",
-              "output": "nb"
+              "emit": "b"
             },
             {
               "after": "e",
-              "output": "eb"
+              "emit": "b"
             }
           ]
         },
@@ -1204,19 +1204,19 @@
           "rules": [
             {
               "after": "q",
-              "output": "q'"
+              "emit": "'"
             },
             {
               "after": " ",
-              "output": " q"
+              "emit": "q"
             },
             {
               "after": "o",
-              "output": "oy"
+              "emit": "y"
             },
             {
               "after": "b",
-              "output": "b "
+              "emit": " "
             }
           ]
         }
@@ -1409,11 +1409,11 @@
           "rules": [
             {
               "after": "d",
-              "output": "d "
+              "emit": " "
             },
             {
               "after": "o",
-              "output": "o'"
+              "emit": "'"
             }
           ]
         },
@@ -1571,19 +1571,19 @@
           "rules": [
             {
               "after": "a",
-              "output": "am"
+              "emit": "m"
             },
             {
               "after": "b",
-              "output": "bl"
+              "emit": "l"
             },
             {
               "after": "l",
-              "output": "lm"
+              "emit": "m"
             },
             {
               "after": "e",
-              "output": "e'"
+              "emit": "'"
             }
           ]
         },
@@ -1596,19 +1596,19 @@
           "rules": [
             {
               "after": "b",
-              "output": "b'"
+              "emit": "'"
             },
             {
               "after": "q",
-              "output": "qa"
+              "emit": "a"
             },
             {
               "after": "h",
-              "output": "hh"
+              "emit": "h"
             },
             {
               "after": "m",
-              "output": "ma"
+              "emit": "a"
             }
           ]
         }
@@ -1904,19 +1904,19 @@
           "rules": [
             {
               "after": "p",
-              "output": "py"
+              "emit": "y"
             },
             {
               "after": "h",
-              "output": "hj"
+              "emit": "j"
             },
             {
               "after": "s",
-              "output": "sm"
+              "emit": "m"
             },
             {
               "after": "j",
-              "output": "js"
+              "emit": "s"
             }
           ]
         },
@@ -1925,7 +1925,7 @@
           "rules": [
             {
               "after": "c",
-              "output": "ch"
+              "emit": "h"
             }
           ]
         }
@@ -2174,19 +2174,19 @@
           "rules": [
             {
               "after": "j",
-              "output": "ja"
+              "emit": "a"
             },
             {
               "after": "p",
-              "output": "ph"
+              "emit": "h"
             },
             {
               "after": "r",
-              "output": "ra"
+              "emit": "a"
             },
             {
               "after": "a",
-              "output": "a "
+              "emit": " "
             }
           ]
         }
@@ -2382,11 +2382,11 @@
           "rules": [
             {
               "after": "b",
-              "output": "bs"
+              "emit": "s"
             },
             {
               "after": "f",
-              "output": "ff"
+              "emit": "f"
             }
           ]
         }
@@ -2660,19 +2660,19 @@
           "rules": [
             {
               "after": "d",
-              "output": "db"
+              "emit": "b"
             },
             {
               "after": "i",
-              "output": "ia"
+              "emit": "a"
             },
             {
               "after": " ",
-              "output": " '"
+              "emit": "'"
             },
             {
               "after": "f",
-              "output": "fi"
+              "emit": "i"
             }
           ]
         }
@@ -2922,19 +2922,19 @@
           "rules": [
             {
               "after": "b",
-              "output": "b "
+              "emit": " "
             },
             {
               "after": "q",
-              "output": "qo"
+              "emit": "o"
             },
             {
               "after": "i",
-              "output": "iy"
+              "emit": "y"
             },
             {
               "after": "s",
-              "output": "si"
+              "emit": "i"
             }
           ]
         },
@@ -3131,19 +3131,19 @@
           "rules": [
             {
               "after": "a",
-              "output": "ao"
+              "emit": "o"
             },
             {
               "after": "b",
-              "output": "bb"
+              "emit": "b"
             },
             {
               "after": " ",
-              "output": " s"
+              "emit": "s"
             },
             {
               "after": "s",
-              "output": "ss"
+              "emit": "s"
             }
           ]
         }
@@ -3306,11 +3306,11 @@
           "rules": [
             {
               "after": " ",
-              "output": " '"
+              "emit": "'"
             },
             {
               "after": "d",
-              "output": "dr"
+              "emit": "r"
             }
           ]
         }
@@ -3516,19 +3516,19 @@
           "rules": [
             {
               "after": "h",
-              "output": "hy"
+              "emit": "y"
             },
             {
               "after": " ",
-              "output": " h"
+              "emit": "h"
             },
             {
               "after": "o",
-              "output": "oy"
+              "emit": "y"
             },
             {
               "after": "c",
-              "output": "cc"
+              "emit": "c"
             }
           ]
         },
@@ -3537,7 +3537,7 @@
           "rules": [
             {
               "after": "n",
-              "output": "ns"
+              "emit": "s"
             }
           ]
         }
@@ -3772,19 +3772,19 @@
           "rules": [
             {
               "after": "e",
-              "output": "e "
+              "emit": " "
             },
             {
               "after": " ",
-              "output": " a"
+              "emit": "a"
             },
             {
               "after": "c",
-              "output": "ce"
+              "emit": "e"
             },
             {
               "after": "q",
-              "output": "qe"
+              "emit": "e"
             }
           ]
         }
@@ -3949,19 +3949,19 @@
           "rules": [
             {
               "after": "d",
-              "output": "db"
+              "emit": "b"
             },
             {
               "after": "s",
-              "output": "s'"
+              "emit": "'"
             },
             {
               "after": "o",
-              "output": "od"
+              "emit": "d"
             },
             {
               "after": "f",
-              "output": "f "
+              "emit": " "
             }
           ]
         }
@@ -4158,11 +4158,11 @@
           "rules": [
             {
               "after": "l",
-              "output": "lj"
+              "emit": "j"
             },
             {
               "after": "n",
-              "output": "nc"
+              "emit": "c"
             }
           ]
         }
@@ -4321,11 +4321,11 @@
           "rules": [
             {
               "after": "h",
-              "output": "hb"
+              "emit": "b"
             },
             {
               "after": "m",
-              "output": "ms"
+              "emit": "s"
             }
           ]
         }
@@ -4581,15 +4581,15 @@
           "rules": [
             {
               "after": "i",
-              "output": "il"
+              "emit": "l"
             },
             {
               "after": "m",
-              "output": "mp"
+              "emit": "p"
             },
             {
               "after": " ",
-              "output": " '"
+              "emit": "'"
             }
           ]
         }
@@ -4813,11 +4813,11 @@
           "rules": [
             {
               "after": "p",
-              "output": "pf"
+              "emit": "f"
             },
             {
               "after": "d",
-              "output": "dp"
+              "emit": "p"
             }
           ]
         }
@@ -5124,7 +5124,7 @@
           "rules": [
             {
               "after": " ",
-              "output": " f"
+              "emit": "f"
             }
           ]
         }
@@ -5615,19 +5615,19 @@
           "rules": [
             {
               "after": " ",
-              "output": " b"
+              "emit": "b"
             },
             {
               "after": "k",
-              "output": "kl"
+              "emit": "l"
             },
             {
               "after": "c",
-              "output": "cs"
+              "emit": "s"
             },
             {
               "after": "o",
-              "output": "ok"
+              "emit": "k"
             }
           ]
         },
@@ -5950,7 +5950,7 @@
           "rules": [
             {
               "after": " ",
-              "output": " a"
+              "emit": "a"
             }
           ]
         }
@@ -6082,11 +6082,11 @@
           "rules": [
             {
               "after": "e",
-              "output": "ey"
+              "emit": "y"
             },
             {
               "after": "j",
-              "output": "je"
+              "emit": "e"
             }
           ]
         }
@@ -6153,15 +6153,15 @@
           "rules": [
             {
               "after": "a",
-              "output": "aa"
+              "emit": "a"
             },
             {
               "after": "n",
-              "output": "na"
+              "emit": "a"
             },
             {
               "after": " ",
-              "output": " y"
+              "emit": "y"
             }
           ]
         }
@@ -6303,11 +6303,11 @@
           "rules": [
             {
               "after": "h",
-              "output": "he"
+              "emit": "e"
             },
             {
               "after": "p",
-              "output": "pp"
+              "emit": "p"
             }
           ]
         }
@@ -6724,7 +6724,7 @@
           "rules": [
             {
               "after": "i",
-              "output": "i "
+              "emit": " "
             }
           ]
         }
@@ -6960,11 +6960,11 @@
           "rules": [
             {
               "after": " ",
-              "output": " m"
+              "emit": "m"
             },
             {
               "after": "n",
-              "output": "nm"
+              "emit": "m"
             }
           ]
         }
@@ -7148,7 +7148,7 @@
           "rules": [
             {
               "after": "g",
-              "output": "g'"
+              "emit": "'"
             }
           ]
         }
@@ -7284,11 +7284,11 @@
           "rules": [
             {
               "after": " ",
-              "output": "  "
+              "emit": " "
             },
             {
               "after": "t",
-              "output": "ti"
+              "emit": "i"
             }
           ]
         }
@@ -7368,11 +7368,11 @@
           "rules": [
             {
               "after": "q",
-              "output": "qy"
+              "emit": "y"
             },
             {
               "after": "b",
-              "output": "by"
+              "emit": "y"
             }
           ]
         }
@@ -7581,7 +7581,7 @@
           "rules": [
             {
               "after": "t",
-              "output": "tr"
+              "emit": "r"
             }
           ]
         }
@@ -7727,11 +7727,11 @@
           "rules": [
             {
               "after": "q",
-              "output": "qq"
+              "emit": "q"
             },
             {
               "after": "t",
-              "output": "tk"
+              "emit": "k"
             }
           ]
         }
@@ -7862,19 +7862,19 @@
           "rules": [
             {
               "after": "r",
-              "output": "r "
+              "emit": " "
             },
             {
               "after": "k",
-              "output": "kk"
+              "emit": "k"
             },
             {
               "after": " ",
-              "output": " i"
+              "emit": "i"
             },
             {
               "after": "p",
-              "output": "py"
+              "emit": "y"
             }
           ]
         },
@@ -7887,11 +7887,11 @@
           "rules": [
             {
               "after": "p",
-              "output": "pp"
+              "emit": "p"
             },
             {
               "after": " ",
-              "output": "  "
+              "emit": " "
             }
           ]
         }
@@ -8043,11 +8043,11 @@
           "rules": [
             {
               "after": "f",
-              "output": "fk"
+              "emit": "k"
             },
             {
               "after": "k",
-              "output": "ky"
+              "emit": "y"
             }
           ]
         }
@@ -8232,7 +8232,7 @@
           "rules": [
             {
               "after": "f",
-              "output": "fk"
+              "emit": "k"
             }
           ]
         }
@@ -8407,11 +8407,11 @@
           "rules": [
             {
               "after": "h",
-              "output": "h'"
+              "emit": "'"
             },
             {
               "after": " ",
-              "output": " m"
+              "emit": "m"
             }
           ]
         }
@@ -8749,15 +8749,15 @@
           "rules": [
             {
               "after": "h",
-              "output": "hy"
+              "emit": "y"
             },
             {
               "after": "k",
-              "output": "kp"
+              "emit": "p"
             },
             {
               "after": "j",
-              "output": "j "
+              "emit": " "
             }
           ]
         },
@@ -8766,15 +8766,15 @@
           "rules": [
             {
               "after": "b",
-              "output": "bf"
+              "emit": "f"
             },
             {
               "after": "f",
-              "output": "fk"
+              "emit": "k"
             },
             {
               "after": "h",
-              "output": "h'"
+              "emit": "'"
             }
           ]
         }
@@ -9105,7 +9105,7 @@
           "rules": [
             {
               "after": "l",
-              "output": "l "
+              "emit": " "
             }
           ]
         },
@@ -9117,7 +9117,7 @@
           "rules": [
             {
               "after": "a",
-              "output": "aa"
+              "emit": "a"
             }
           ]
         }
@@ -9768,11 +9768,11 @@
           "rules": [
             {
               "after": "j",
-              "output": "j "
+              "emit": " "
             },
             {
               "after": "k",
-              "output": "ki"
+              "emit": "i"
             }
           ]
         },
@@ -9785,11 +9785,11 @@
           "rules": [
             {
               "after": "k",
-              "output": "k'"
+              "emit": "'"
             },
             {
               "after": "j",
-              "output": "jh"
+              "emit": "h"
             }
           ]
         }
@@ -10405,11 +10405,11 @@
           "rules": [
             {
               "after": "g",
-              "output": "go"
+              "emit": "o"
             },
             {
               "after": "o",
-              "output": "os"
+              "emit": "s"
             }
           ]
         },
@@ -10421,7 +10421,7 @@
           "rules": [
             {
               "after": "g",
-              "output": "gg"
+              "emit": "g"
             }
           ]
         }
@@ -10559,19 +10559,19 @@
           "rules": [
             {
               "after": "r",
-              "output": "ro"
+              "emit": "o"
             },
             {
               "after": "c",
-              "output": "co"
+              "emit": "o"
             },
             {
               "after": "p",
-              "output": "pb"
+              "emit": "b"
             },
             {
               "after": "o",
-              "output": "o "
+              "emit": " "
             }
           ]
         }
@@ -10719,7 +10719,7 @@
           "rules": [
             {
               "after": "k",
-              "output": "ks"
+              "emit": "s"
             }
           ]
         }
@@ -11082,19 +11082,19 @@
           "rules": [
             {
               "after": " ",
-              "output": " n"
+              "emit": "n"
             },
             {
               "after": "q",
-              "output": "qf"
+              "emit": "f"
             },
             {
               "after": "o",
-              "output": "o "
+              "emit": " "
             },
             {
               "after": "p",
-              "output": "pf"
+              "emit": "f"
             }
           ]
         }
@@ -11311,15 +11311,15 @@
           "rules": [
             {
               "after": "q",
-              "output": "qp"
+              "emit": "p"
             },
             {
               "after": "r",
-              "output": "rp"
+              "emit": "p"
             },
             {
               "after": "c",
-              "output": "cq"
+              "emit": "q"
             }
           ]
         }
@@ -11469,7 +11469,7 @@
           "rules": [
             {
               "after": "e",
-              "output": "el"
+              "emit": "l"
             }
           ]
         },
@@ -11481,19 +11481,19 @@
           "rules": [
             {
               "after": "o",
-              "output": "ol"
+              "emit": "l"
             },
             {
               "after": "a",
-              "output": "ac"
+              "emit": "c"
             },
             {
               "after": "c",
-              "output": "ce"
+              "emit": "e"
             },
             {
               "after": "l",
-              "output": "lc"
+              "emit": "c"
             }
           ]
         }
@@ -11650,15 +11650,15 @@
           "rules": [
             {
               "after": " ",
-              "output": " f"
+              "emit": "f"
             },
             {
               "after": "o",
-              "output": "oh"
+              "emit": "h"
             },
             {
               "after": "d",
-              "output": "dy"
+              "emit": "y"
             }
           ]
         }
@@ -11854,11 +11854,11 @@
           "rules": [
             {
               "after": "i",
-              "output": "iy"
+              "emit": "y"
             },
             {
               "after": "c",
-              "output": "ci"
+              "emit": "i"
             }
           ]
         }
@@ -11931,15 +11931,15 @@
           "rules": [
             {
               "after": "k",
-              "output": "k'"
+              "emit": "'"
             },
             {
               "after": "o",
-              "output": "oy"
+              "emit": "y"
             },
             {
               "after": "a",
-              "output": "ak"
+              "emit": "k"
             }
           ]
         }
@@ -12091,11 +12091,11 @@
           "rules": [
             {
               "after": "a",
-              "output": "ak"
+              "emit": "k"
             },
             {
               "after": "t",
-              "output": "t "
+              "emit": " "
             }
           ]
         },
@@ -12104,11 +12104,11 @@
           "rules": [
             {
               "after": "a",
-              "output": "as"
+              "emit": "s"
             },
             {
               "after": "t",
-              "output": "tf"
+              "emit": "f"
             }
           ]
         }
@@ -12354,15 +12354,15 @@
           "rules": [
             {
               "after": "l",
-              "output": "lk"
+              "emit": "k"
             },
             {
               "after": "k",
-              "output": "kf"
+              "emit": "f"
             },
             {
               "after": "o",
-              "output": "or"
+              "emit": "r"
             }
           ]
         }
@@ -12611,11 +12611,11 @@
           "rules": [
             {
               "after": "o",
-              "output": "oj"
+              "emit": "j"
             },
             {
               "after": "m",
-              "output": "m "
+              "emit": " "
             }
           ]
         }
@@ -13457,7 +13457,7 @@
           "rules": [
             {
               "after": "r",
-              "output": "rf"
+              "emit": "f"
             }
           ]
         },
@@ -13466,15 +13466,15 @@
           "rules": [
             {
               "after": "i",
-              "output": "io"
+              "emit": "o"
             },
             {
               "after": "d",
-              "output": "do"
+              "emit": "o"
             },
             {
               "after": "f",
-              "output": "fy"
+              "emit": "y"
             }
           ]
         }
@@ -13691,11 +13691,11 @@
           "rules": [
             {
               "after": "s",
-              "output": "sc"
+              "emit": "c"
             },
             {
               "after": "e",
-              "output": "er"
+              "emit": "r"
             }
           ]
         },
@@ -13952,7 +13952,7 @@
           "rules": [
             {
               "after": "m",
-              "output": "m "
+              "emit": " "
             }
           ]
         }
@@ -14135,7 +14135,7 @@
           "rules": [
             {
               "after": "t",
-              "output": "tc"
+              "emit": "c"
             }
           ]
         }
@@ -14258,7 +14258,7 @@
           "rules": [
             {
               "after": "d",
-              "output": "dc"
+              "emit": "c"
             }
           ]
         }
@@ -14353,11 +14353,11 @@
           "rules": [
             {
               "after": "s",
-              "output": "se"
+              "emit": "e"
             },
             {
               "after": "l",
-              "output": "l'"
+              "emit": "'"
             }
           ]
         }
@@ -14667,11 +14667,11 @@
           "rules": [
             {
               "after": "o",
-              "output": "ot"
+              "emit": "t"
             },
             {
               "after": "n",
-              "output": "ny"
+              "emit": "y"
             }
           ]
         }
@@ -14874,19 +14874,19 @@
           "rules": [
             {
               "after": "b",
-              "output": "bl"
+              "emit": "l"
             },
             {
               "after": " ",
-              "output": " p"
+              "emit": "p"
             },
             {
               "after": "p",
-              "output": "py"
+              "emit": "y"
             },
             {
               "after": "e",
-              "output": "e'"
+              "emit": "'"
             }
           ]
         },
@@ -14898,15 +14898,15 @@
           "rules": [
             {
               "after": "m",
-              "output": "mj"
+              "emit": "j"
             },
             {
               "after": " ",
-              "output": " '"
+              "emit": "'"
             },
             {
               "after": "p",
-              "output": "py"
+              "emit": "y"
             }
           ]
         }
@@ -15115,11 +15115,11 @@
           "rules": [
             {
               "after": "t",
-              "output": "tj"
+              "emit": "j"
             },
             {
               "after": "m",
-              "output": "mj"
+              "emit": "j"
             }
           ]
         }
@@ -15346,19 +15346,19 @@
           "rules": [
             {
               "after": " ",
-              "output": " o"
+              "emit": "o"
             },
             {
               "after": "o",
-              "output": "o'"
+              "emit": "'"
             },
             {
               "after": "n",
-              "output": "no"
+              "emit": "o"
             },
             {
               "after": "a",
-              "output": "ay"
+              "emit": "y"
             }
           ]
         }
@@ -15516,7 +15516,7 @@
           "rules": [
             {
               "after": "a",
-              "output": "ak"
+              "emit": "k"
             }
           ]
         }
@@ -15807,7 +15807,7 @@
           "rules": [
             {
               "after": "n",
-              "output": "nj"
+              "emit": "j"
             }
           ]
         }
@@ -15961,19 +15961,19 @@
           "rules": [
             {
               "after": "k",
-              "output": "km"
+              "emit": "m"
             },
             {
               "after": "c",
-              "output": "cp"
+              "emit": "p"
             },
             {
               "after": "q",
-              "output": "q "
+              "emit": " "
             },
             {
               "after": "s",
-              "output": "sy"
+              "emit": "y"
             }
           ]
         },
@@ -15982,19 +15982,19 @@
           "rules": [
             {
               "after": "c",
-              "output": "c "
+              "emit": " "
             },
             {
               "after": "l",
-              "output": "lk"
+              "emit": "k"
             },
             {
               "after": "q",
-              "output": "qq"
+              "emit": "q"
             },
             {
               "after": "k",
-              "output": "kp"
+              "emit": "p"
             }
           ]
         }
@@ -16153,15 +16153,15 @@
           "rules": [
             {
               "after": " ",
-              "output": " p"
+              "emit": "p"
             },
             {
               "after": "p",
-              "output": "pg"
+              "emit": "g"
             },
             {
               "after": "g",
-              "output": "gp"
+              "emit": "p"
             }
           ]
         }
@@ -16306,11 +16306,11 @@
           "rules": [
             {
               "after": "h",
-              "output": "hy"
+              "emit": "y"
             },
             {
               "after": "n",
-              "output": "ns"
+              "emit": "s"
             }
           ]
         }
@@ -16591,11 +16591,11 @@
           "rules": [
             {
               "after": "t",
-              "output": "t'"
+              "emit": "'"
             },
             {
               "after": " ",
-              "output": " j"
+              "emit": "j"
             }
           ]
         }
@@ -16716,7 +16716,7 @@
           "rules": [
             {
               "after": "i",
-              "output": "ii"
+              "emit": "i"
             }
           ]
         }
@@ -16851,11 +16851,11 @@
           "rules": [
             {
               "after": "g",
-              "output": "gd"
+              "emit": "d"
             },
             {
               "after": " ",
-              "output": "  "
+              "emit": " "
             }
           ]
         },
@@ -16868,7 +16868,7 @@
           "rules": [
             {
               "after": "g",
-              "output": "gm"
+              "emit": "m"
             }
           ]
         }
@@ -17105,7 +17105,7 @@
           "rules": [
             {
               "after": "e",
-              "output": "ej"
+              "emit": "j"
             }
           ]
         },
@@ -17291,11 +17291,11 @@
           "rules": [
             {
               "after": "m",
-              "output": "mr"
+              "emit": "r"
             },
             {
               "after": "e",
-              "output": "ef"
+              "emit": "f"
             }
           ]
         },
@@ -17307,7 +17307,7 @@
           "rules": [
             {
               "after": " ",
-              "output": " l"
+              "emit": "l"
             }
           ]
         }
@@ -17526,19 +17526,19 @@
           "rules": [
             {
               "after": "h",
-              "output": "hf"
+              "emit": "f"
             },
             {
               "after": "k",
-              "output": "ki"
+              "emit": "i"
             },
             {
               "after": " ",
-              "output": " '"
+              "emit": "'"
             },
             {
               "after": "o",
-              "output": "oy"
+              "emit": "y"
             }
           ]
         }
@@ -17853,19 +17853,19 @@
           "rules": [
             {
               "after": "n",
-              "output": "n "
+              "emit": " "
             },
             {
               "after": "i",
-              "output": "ii"
+              "emit": "i"
             },
             {
               "after": "g",
-              "output": "ge"
+              "emit": "e"
             },
             {
               "after": "e",
-              "output": "eh"
+              "emit": "h"
             }
           ]
         }
@@ -18020,7 +18020,7 @@
           "rules": [
             {
               "after": "j",
-              "output": "jq"
+              "emit": "q"
             }
           ]
         },
@@ -18221,7 +18221,7 @@
           "rules": [
             {
               "after": "p",
-              "output": "py"
+              "emit": "y"
             }
           ]
         }
@@ -18395,15 +18395,15 @@
           "rules": [
             {
               "after": "s",
-              "output": "sy"
+              "emit": "y"
             },
             {
               "after": "f",
-              "output": "ff"
+              "emit": "f"
             },
             {
               "after": "c",
-              "output": "cf"
+              "emit": "f"
             }
           ]
         }
@@ -18591,11 +18591,11 @@
           "rules": [
             {
               "after": "h",
-              "output": "h'"
+              "emit": "'"
             },
             {
               "after": "c",
-              "output": "ch"
+              "emit": "h"
             }
           ]
         }
@@ -18738,11 +18738,11 @@
           "rules": [
             {
               "after": "q",
-              "output": "qq"
+              "emit": "q"
             },
             {
               "after": "g",
-              "output": "gg"
+              "emit": "g"
             }
           ]
         },
@@ -18754,11 +18754,11 @@
           "rules": [
             {
               "after": " ",
-              "output": " q"
+              "emit": "q"
             },
             {
               "after": "g",
-              "output": "gm"
+              "emit": "m"
             }
           ]
         }
@@ -18991,19 +18991,19 @@
           "rules": [
             {
               "after": "o",
-              "output": "oh"
+              "emit": "h"
             },
             {
               "after": "a",
-              "output": "al"
+              "emit": "l"
             },
             {
               "after": " ",
-              "output": " c"
+              "emit": "c"
             },
             {
               "after": "r",
-              "output": "ra"
+              "emit": "a"
             }
           ]
         },
@@ -19260,19 +19260,19 @@
           "rules": [
             {
               "after": "o",
-              "output": "oy"
+              "emit": "y"
             },
             {
               "after": "t",
-              "output": "to"
+              "emit": "o"
             },
             {
               "after": " ",
-              "output": " y"
+              "emit": "y"
             },
             {
               "after": "n",
-              "output": "ny"
+              "emit": "y"
             }
           ]
         }
@@ -19804,11 +19804,11 @@
           "rules": [
             {
               "after": "p",
-              "output": "p'"
+              "emit": "'"
             },
             {
               "after": "i",
-              "output": "ir"
+              "emit": "r"
             }
           ]
         }
@@ -20092,15 +20092,15 @@
           "rules": [
             {
               "after": "q",
-              "output": "qb"
+              "emit": "b"
             },
             {
               "after": " ",
-              "output": " f"
+              "emit": "f"
             },
             {
               "after": "c",
-              "output": "co"
+              "emit": "o"
             }
           ]
         },
@@ -20113,7 +20113,7 @@
           "rules": [
             {
               "after": " ",
-              "output": " c"
+              "emit": "c"
             }
           ]
         }
@@ -20309,11 +20309,11 @@
           "rules": [
             {
               "after": " ",
-              "output": " a"
+              "emit": "a"
             },
             {
               "after": "b",
-              "output": "bn"
+              "emit": "n"
             }
           ]
         },
@@ -20326,7 +20326,7 @@
           "rules": [
             {
               "after": "e",
-              "output": "ey"
+              "emit": "y"
             }
           ]
         }
@@ -20530,15 +20530,15 @@
           "rules": [
             {
               "after": "j",
-              "output": "j "
+              "emit": " "
             },
             {
               "after": "r",
-              "output": "ry"
+              "emit": "y"
             },
             {
               "after": " ",
-              "output": "  "
+              "emit": " "
             }
           ]
         },
@@ -20551,7 +20551,7 @@
           "rules": [
             {
               "after": "o",
-              "output": "oo"
+              "emit": "o"
             }
           ]
         }
@@ -20673,11 +20673,11 @@
           "rules": [
             {
               "after": "i",
-              "output": "ij"
+              "emit": "j"
             },
             {
               "after": "j",
-              "output": "j'"
+              "emit": "'"
             }
           ]
         },
@@ -20690,15 +20690,15 @@
           "rules": [
             {
               "after": "j",
-              "output": "jj"
+              "emit": "j"
             },
             {
               "after": "i",
-              "output": "i "
+              "emit": " "
             },
             {
               "after": "q",
-              "output": "qo"
+              "emit": "o"
             }
           ]
         }
@@ -20940,7 +20940,7 @@
           "rules": [
             {
               "after": "e",
-              "output": "ey"
+              "emit": "y"
             }
           ]
         }
@@ -21084,7 +21084,7 @@
           "rules": [
             {
               "after": "i",
-              "output": "ic"
+              "emit": "c"
             }
           ]
         }
@@ -21325,7 +21325,7 @@
           "rules": [
             {
               "after": "n",
-              "output": "ny"
+              "emit": "y"
             }
           ]
         },
@@ -21635,11 +21635,11 @@
           "rules": [
             {
               "after": " ",
-              "output": " '"
+              "emit": "'"
             },
             {
               "after": "n",
-              "output": "n'"
+              "emit": "'"
             }
           ]
         }
@@ -21938,11 +21938,11 @@
           "rules": [
             {
               "after": "g",
-              "output": "gf"
+              "emit": "f"
             },
             {
               "after": "l",
-              "output": "lm"
+              "emit": "m"
             }
           ]
         }
@@ -22102,11 +22102,11 @@
           "rules": [
             {
               "after": "h",
-              "output": "hc"
+              "emit": "c"
             },
             {
               "after": "c",
-              "output": "cj"
+              "emit": "j"
             }
           ]
         },
@@ -22119,19 +22119,19 @@
           "rules": [
             {
               "after": "c",
-              "output": "cd"
+              "emit": "d"
             },
             {
               "after": "h",
-              "output": "h'"
+              "emit": "'"
             },
             {
               "after": " ",
-              "output": " c"
+              "emit": "c"
             },
             {
               "after": "j",
-              "output": "jh"
+              "emit": "h"
             }
           ]
         }
@@ -22326,11 +22326,11 @@
           "rules": [
             {
               "after": "m",
-              "output": "mi"
+              "emit": "i"
             },
             {
               "after": "i",
-              "output": "ij"
+              "emit": "j"
             }
           ]
         },
@@ -22342,19 +22342,19 @@
           "rules": [
             {
               "after": "t",
-              "output": "t'"
+              "emit": "'"
             },
             {
               "after": "k",
-              "output": "ko"
+              "emit": "o"
             },
             {
               "after": "q",
-              "output": "qk"
+              "emit": "k"
             },
             {
               "after": " ",
-              "output": " e"
+              "emit": "e"
             }
           ]
         }
@@ -22573,11 +22573,11 @@
           "rules": [
             {
               "after": "j",
-              "output": "jk"
+              "emit": "k"
             },
             {
               "after": " ",
-              "output": " k"
+              "emit": "k"
             }
           ]
         }
@@ -23004,15 +23004,15 @@
           "rules": [
             {
               "after": "f",
-              "output": "fo"
+              "emit": "o"
             },
             {
               "after": "o",
-              "output": "ok"
+              "emit": "k"
             },
             {
               "after": " ",
-              "output": " o"
+              "emit": "o"
             }
           ]
         }
@@ -23152,7 +23152,7 @@
           "rules": [
             {
               "after": " ",
-              "output": " l"
+              "emit": "l"
             }
           ]
         }
@@ -23318,11 +23318,11 @@
           "rules": [
             {
               "after": "f",
-              "output": "fd"
+              "emit": "d"
             },
             {
               "after": "e",
-              "output": "ek"
+              "emit": "k"
             }
           ]
         }
@@ -23442,11 +23442,11 @@
           "rules": [
             {
               "after": "j",
-              "output": "jy"
+              "emit": "y"
             },
             {
               "after": " ",
-              "output": " o"
+              "emit": "o"
             }
           ]
         }
@@ -23699,11 +23699,11 @@
           "rules": [
             {
               "after": " ",
-              "output": " i"
+              "emit": "i"
             },
             {
               "after": "h",
-              "output": "hr"
+              "emit": "r"
             }
           ]
         }
@@ -24053,7 +24053,7 @@
           "rules": [
             {
               "after": " ",
-              "output": " a"
+              "emit": "a"
             }
           ]
         }
@@ -24241,11 +24241,11 @@
           "rules": [
             {
               "after": "n",
-              "output": "ni"
+              "emit": "i"
             },
             {
               "after": "i",
-              "output": "i "
+              "emit": " "
             }
           ]
         }
@@ -24502,19 +24502,19 @@
           "rules": [
             {
               "after": "d",
-              "output": "dt"
+              "emit": "t"
             },
             {
               "after": "s",
-              "output": "sq"
+              "emit": "q"
             },
             {
               "after": " ",
-              "output": " i"
+              "emit": "i"
             },
             {
               "after": "f",
-              "output": "fi"
+              "emit": "i"
             }
           ]
         }
@@ -24816,15 +24816,15 @@
           "rules": [
             {
               "after": "s",
-              "output": "sd"
+              "emit": "d"
             },
             {
               "after": "b",
-              "output": "by"
+              "emit": "y"
             },
             {
               "after": "d",
-              "output": "df"
+              "emit": "f"
             }
           ]
         },
@@ -24833,7 +24833,7 @@
           "rules": [
             {
               "after": " ",
-              "output": " y"
+              "emit": "y"
             }
           ]
         }
@@ -25115,11 +25115,11 @@
           "rules": [
             {
               "after": "n",
-              "output": "ny"
+              "emit": "y"
             },
             {
               "after": "o",
-              "output": "oy"
+              "emit": "y"
             }
           ]
         },
@@ -25128,7 +25128,7 @@
           "rules": [
             {
               "after": "o",
-              "output": "or"
+              "emit": "r"
             }
           ]
         }
@@ -25398,15 +25398,15 @@
           "rules": [
             {
               "after": " ",
-              "output": " r"
+              "emit": "r"
             },
             {
               "after": "b",
-              "output": "bb"
+              "emit": "b"
             },
             {
               "after": "e",
-              "output": "ee"
+              "emit": "e"
             }
           ]
         }
@@ -25550,11 +25550,11 @@
           "rules": [
             {
               "after": "h",
-              "output": "hk"
+              "emit": "k"
             },
             {
               "after": "a",
-              "output": "ay"
+              "emit": "y"
             }
           ]
         },
@@ -25800,7 +25800,7 @@
           "rules": [
             {
               "after": "a",
-              "output": "an"
+              "emit": "n"
             }
           ]
         },
@@ -25974,7 +25974,7 @@
           "rules": [
             {
               "after": "r",
-              "output": "rc"
+              "emit": "c"
             }
           ]
         },
@@ -25986,15 +25986,15 @@
           "rules": [
             {
               "after": "a",
-              "output": "al"
+              "emit": "l"
             },
             {
               "after": "r",
-              "output": "rl"
+              "emit": "l"
             },
             {
               "after": "s",
-              "output": "sl"
+              "emit": "l"
             }
           ]
         }
@@ -26235,19 +26235,19 @@
           "rules": [
             {
               "after": "s",
-              "output": "sa"
+              "emit": "a"
             },
             {
               "after": "e",
-              "output": "ea"
+              "emit": "a"
             },
             {
               "after": " ",
-              "output": " b"
+              "emit": "b"
             },
             {
               "after": "a",
-              "output": "a "
+              "emit": " "
             }
           ]
         }
@@ -26424,15 +26424,15 @@
           "rules": [
             {
               "after": "g",
-              "output": "gy"
+              "emit": "y"
             },
             {
               "after": "e",
-              "output": "e'"
+              "emit": "'"
             },
             {
               "after": "f",
-              "output": "fr"
+              "emit": "r"
             }
           ]
         },
@@ -26441,19 +26441,19 @@
           "rules": [
             {
               "after": "m",
-              "output": "mt"
+              "emit": "t"
             },
             {
               "after": "d",
-              "output": "do"
+              "emit": "o"
             },
             {
               "after": "p",
-              "output": "p "
+              "emit": " "
             },
             {
               "after": "h",
-              "output": "h'"
+              "emit": "'"
             }
           ]
         }
@@ -26668,19 +26668,19 @@
           "rules": [
             {
               "after": "n",
-              "output": "ne"
+              "emit": "e"
             },
             {
               "after": "a",
-              "output": "ab"
+              "emit": "b"
             },
             {
               "after": "g",
-              "output": "gd"
+              "emit": "d"
             },
             {
               "after": "d",
-              "output": "do"
+              "emit": "o"
             }
           ]
         },
@@ -26693,15 +26693,15 @@
           "rules": [
             {
               "after": "n",
-              "output": "ns"
+              "emit": "s"
             },
             {
               "after": "j",
-              "output": "jd"
+              "emit": "d"
             },
             {
               "after": "i",
-              "output": "ii"
+              "emit": "i"
             }
           ]
         }
@@ -26994,7 +26994,7 @@
           "rules": [
             {
               "after": "r",
-              "output": "r'"
+              "emit": "'"
             }
           ]
         }
@@ -27214,15 +27214,15 @@
           "rules": [
             {
               "after": "h",
-              "output": "hp"
+              "emit": "p"
             },
             {
               "after": "e",
-              "output": "ee"
+              "emit": "e"
             },
             {
               "after": "p",
-              "output": "pe"
+              "emit": "e"
             }
           ]
         }
@@ -27340,15 +27340,15 @@
           "rules": [
             {
               "after": "d",
-              "output": "d'"
+              "emit": "'"
             },
             {
               "after": "g",
-              "output": "gg"
+              "emit": "g"
             },
             {
               "after": "s",
-              "output": "sf"
+              "emit": "f"
             }
           ]
         }
@@ -27475,11 +27475,11 @@
           "rules": [
             {
               "after": "k",
-              "output": "k "
+              "emit": " "
             },
             {
               "after": " ",
-              "output": "  "
+              "emit": " "
             }
           ]
         },
@@ -27492,19 +27492,19 @@
           "rules": [
             {
               "after": " ",
-              "output": " d"
+              "emit": "d"
             },
             {
               "after": "d",
-              "output": "dk"
+              "emit": "k"
             },
             {
               "after": "a",
-              "output": "aa"
+              "emit": "a"
             },
             {
               "after": "k",
-              "output": "ky"
+              "emit": "y"
             }
           ]
         }
@@ -27775,15 +27775,15 @@
           "rules": [
             {
               "after": "g",
-              "output": "gy"
+              "emit": "y"
             },
             {
               "after": "a",
-              "output": "ao"
+              "emit": "o"
             },
             {
               "after": " ",
-              "output": " o"
+              "emit": "o"
             }
           ]
         }
@@ -28066,11 +28066,11 @@
           "rules": [
             {
               "after": "a",
-              "output": "ab"
+              "emit": "b"
             },
             {
               "after": "m",
-              "output": "mg"
+              "emit": "g"
             }
           ]
         }
@@ -28372,19 +28372,19 @@
           "rules": [
             {
               "after": "m",
-              "output": "mi"
+              "emit": "i"
             },
             {
               "after": "h",
-              "output": "hh"
+              "emit": "h"
             },
             {
               "after": " ",
-              "output": " s"
+              "emit": "s"
             },
             {
               "after": "l",
-              "output": "l'"
+              "emit": "'"
             }
           ]
         }
@@ -28700,7 +28700,7 @@
           "rules": [
             {
               "after": "p",
-              "output": "pt"
+              "emit": "t"
             }
           ]
         }
@@ -28812,11 +28812,11 @@
           "rules": [
             {
               "after": "q",
-              "output": "qi"
+              "emit": "i"
             },
             {
               "after": "a",
-              "output": "ab"
+              "emit": "b"
             }
           ]
         }
@@ -29000,11 +29000,11 @@
           "rules": [
             {
               "after": "s",
-              "output": "sl"
+              "emit": "l"
             },
             {
               "after": "k",
-              "output": "ky"
+              "emit": "y"
             }
           ]
         }
@@ -29309,19 +29309,19 @@
           "rules": [
             {
               "after": "q",
-              "output": "qj"
+              "emit": "j"
             },
             {
               "after": "j",
-              "output": "jj"
+              "emit": "j"
             },
             {
               "after": "f",
-              "output": "fy"
+              "emit": "y"
             },
             {
               "after": "h",
-              "output": "hy"
+              "emit": "y"
             }
           ]
         }
@@ -29531,11 +29531,11 @@
           "rules": [
             {
               "after": "l",
-              "output": "lj"
+              "emit": "j"
             },
             {
               "after": "n",
-              "output": "n "
+              "emit": " "
             }
           ]
         }
@@ -29845,15 +29845,15 @@
           "rules": [
             {
               "after": "e",
-              "output": "eb"
+              "emit": "b"
             },
             {
               "after": "c",
-              "output": "ce"
+              "emit": "e"
             },
             {
               "after": "p",
-              "output": "py"
+              "emit": "y"
             }
           ]
         }
@@ -29975,19 +29975,19 @@
           "rules": [
             {
               "after": " ",
-              "output": " y"
+              "emit": "y"
             },
             {
               "after": "s",
-              "output": "si"
+              "emit": "i"
             },
             {
               "after": "o",
-              "output": "ot"
+              "emit": "t"
             },
             {
               "after": "t",
-              "output": "te"
+              "emit": "e"
             }
           ]
         }
@@ -30308,7 +30308,7 @@
           "rules": [
             {
               "after": "a",
-              "output": "ab"
+              "emit": "b"
             }
           ]
         },
@@ -30701,7 +30701,7 @@
           "rules": [
             {
               "after": "k",
-              "output": "kj"
+              "emit": "j"
             }
           ]
         }
@@ -31157,7 +31157,7 @@
           "rules": [
             {
               "after": "e",
-              "output": "ef"
+              "emit": "f"
             }
           ]
         }
@@ -31277,11 +31277,11 @@
           "rules": [
             {
               "after": "o",
-              "output": "or"
+              "emit": "r"
             },
             {
               "after": "s",
-              "output": "sn"
+              "emit": "n"
             }
           ]
         }
@@ -31462,15 +31462,15 @@
           "rules": [
             {
               "after": "j",
-              "output": "j'"
+              "emit": "'"
             },
             {
               "after": "f",
-              "output": "fj"
+              "emit": "j"
             },
             {
               "after": "k",
-              "output": "kn"
+              "emit": "n"
             }
           ]
         },
@@ -31479,7 +31479,7 @@
           "rules": [
             {
               "after": "f",
-              "output": "fj"
+              "emit": "j"
             }
           ]
         }
@@ -31629,11 +31629,11 @@
           "rules": [
             {
               "after": "c",
-              "output": "c "
+              "emit": " "
             },
             {
               "after": "a",
-              "output": "a "
+              "emit": " "
             }
           ]
         }
@@ -31764,7 +31764,7 @@
           "rules": [
             {
               "after": "h",
-              "output": "hh"
+              "emit": "h"
             }
           ]
         }
@@ -31895,19 +31895,19 @@
           "rules": [
             {
               "after": " ",
-              "output": " y"
+              "emit": "y"
             },
             {
               "after": "b",
-              "output": "bm"
+              "emit": "m"
             },
             {
               "after": "q",
-              "output": "qq"
+              "emit": "q"
             },
             {
               "after": "r",
-              "output": "rr"
+              "emit": "r"
             }
           ]
         }
@@ -32197,15 +32197,15 @@
           "rules": [
             {
               "after": "t",
-              "output": "tt"
+              "emit": "t"
             },
             {
               "after": "c",
-              "output": "ck"
+              "emit": "k"
             },
             {
               "after": "k",
-              "output": "kr"
+              "emit": "r"
             }
           ]
         },
@@ -32860,19 +32860,19 @@
           "rules": [
             {
               "after": "r",
-              "output": "rf"
+              "emit": "f"
             },
             {
               "after": "b",
-              "output": "bl"
+              "emit": "l"
             },
             {
               "after": " ",
-              "output": " '"
+              "emit": "'"
             },
             {
               "after": "m",
-              "output": "mi"
+              "emit": "i"
             }
           ]
         }
@@ -33194,11 +33194,11 @@
           "rules": [
             {
               "after": "d",
-              "output": "dd"
+              "emit": "d"
             },
             {
               "after": " ",
-              "output": "  "
+              "emit": " "
             }
           ]
         },
@@ -33779,15 +33779,15 @@
           "rules": [
             {
               "after": "p",
-              "output": "p'"
+              "emit": "'"
             },
             {
               "after": "k",
-              "output": "kk"
+              "emit": "k"
             },
             {
               "after": "m",
-              "output": "mc"
+              "emit": "c"
             }
           ]
         }
@@ -33989,15 +33989,15 @@
           "rules": [
             {
               "after": "n",
-              "output": "ng"
+              "emit": "g"
             },
             {
               "after": "p",
-              "output": "pn"
+              "emit": "n"
             },
             {
               "after": "q",
-              "output": "qn"
+              "emit": "n"
             }
           ]
         },
@@ -34006,11 +34006,11 @@
           "rules": [
             {
               "after": " ",
-              "output": " p"
+              "emit": "p"
             },
             {
               "after": "m",
-              "output": "mh"
+              "emit": "h"
             }
           ]
         }
@@ -34208,19 +34208,19 @@
           "rules": [
             {
               "after": " ",
-              "output": " k"
+              "emit": "k"
             },
             {
               "after": "h",
-              "output": "hi"
+              "emit": "i"
             },
             {
               "after": "o",
-              "output": "oh"
+              "emit": "h"
             },
             {
               "after": "k",
-              "output": "kh"
+              "emit": "h"
             }
           ]
         },
@@ -34229,11 +34229,11 @@
           "rules": [
             {
               "after": "q",
-              "output": "qd"
+              "emit": "d"
             },
             {
               "after": "h",
-              "output": "hd"
+              "emit": "d"
             }
           ]
         }
@@ -34377,11 +34377,11 @@
           "rules": [
             {
               "after": "i",
-              "output": "ik"
+              "emit": "k"
             },
             {
               "after": "b",
-              "output": "b'"
+              "emit": "'"
             }
           ]
         }
@@ -34470,19 +34470,19 @@
           "rules": [
             {
               "after": "m",
-              "output": "mh"
+              "emit": "h"
             },
             {
               "after": "e",
-              "output": "eo"
+              "emit": "o"
             },
             {
               "after": "b",
-              "output": "b "
+              "emit": " "
             },
             {
               "after": "h",
-              "output": "hg"
+              "emit": "g"
             }
           ]
         },
@@ -34793,11 +34793,11 @@
           "rules": [
             {
               "after": "d",
-              "output": "ds"
+              "emit": "s"
             },
             {
               "after": "m",
-              "output": "ms"
+              "emit": "s"
             }
           ]
         }
@@ -35131,7 +35131,7 @@
           "rules": [
             {
               "after": "r",
-              "output": "r "
+              "emit": " "
             }
           ]
         }
@@ -35296,7 +35296,7 @@
           "rules": [
             {
               "after": "i",
-              "output": "ig"
+              "emit": "g"
             }
           ]
         }
@@ -35484,15 +35484,15 @@
           "rules": [
             {
               "after": "t",
-              "output": "ti"
+              "emit": "i"
             },
             {
               "after": "r",
-              "output": "r'"
+              "emit": "'"
             },
             {
               "after": "p",
-              "output": "py"
+              "emit": "y"
             }
           ]
         }
@@ -35787,7 +35787,7 @@
           "rules": [
             {
               "after": "j",
-              "output": "jl"
+              "emit": "l"
             }
           ]
         },
@@ -35796,7 +35796,7 @@
           "rules": [
             {
               "after": "j",
-              "output": "jn"
+              "emit": "n"
             }
           ]
         }
@@ -36370,19 +36370,19 @@
           "rules": [
             {
               "after": "f",
-              "output": "f "
+              "emit": " "
             },
             {
               "after": "o",
-              "output": "oi"
+              "emit": "i"
             },
             {
               "after": "j",
-              "output": "jh"
+              "emit": "h"
             },
             {
               "after": "l",
-              "output": "lb"
+              "emit": "b"
             }
           ]
         }
@@ -36579,11 +36579,11 @@
           "rules": [
             {
               "after": "e",
-              "output": "en"
+              "emit": "n"
             },
             {
               "after": "m",
-              "output": "m "
+              "emit": " "
             }
           ]
         }
@@ -37207,15 +37207,15 @@
           "rules": [
             {
               "after": "b",
-              "output": "bb"
+              "emit": "b"
             },
             {
               "after": "e",
-              "output": "e'"
+              "emit": "'"
             },
             {
               "after": " ",
-              "output": " r"
+              "emit": "r"
             }
           ]
         }
@@ -37461,15 +37461,15 @@
           "rules": [
             {
               "after": "k",
-              "output": "kd"
+              "emit": "d"
             },
             {
               "after": "o",
-              "output": "od"
+              "emit": "d"
             },
             {
               "after": "r",
-              "output": "ro"
+              "emit": "o"
             }
           ]
         }
@@ -37796,15 +37796,15 @@
           "rules": [
             {
               "after": "d",
-              "output": "dr"
+              "emit": "r"
             },
             {
               "after": "s",
-              "output": "sd"
+              "emit": "d"
             },
             {
               "after": "q",
-              "output": "ql"
+              "emit": "l"
             }
           ]
         }
@@ -38198,7 +38198,7 @@
           "rules": [
             {
               "after": "n",
-              "output": "ns"
+              "emit": "s"
             }
           ]
         },
@@ -38504,7 +38504,7 @@
           "rules": [
             {
               "after": "a",
-              "output": "ac"
+              "emit": "c"
             }
           ]
         }
@@ -38681,11 +38681,11 @@
           "rules": [
             {
               "after": "m",
-              "output": "mf"
+              "emit": "f"
             },
             {
               "after": "h",
-              "output": "hb"
+              "emit": "b"
             }
           ]
         }
@@ -38895,19 +38895,19 @@
           "rules": [
             {
               "after": "s",
-              "output": "s'"
+              "emit": "'"
             },
             {
               "after": "r",
-              "output": "rl"
+              "emit": "l"
             },
             {
               "after": "p",
-              "output": "pb"
+              "emit": "b"
             },
             {
               "after": "l",
-              "output": "lb"
+              "emit": "b"
             }
           ]
         }
@@ -39100,7 +39100,7 @@
           "rules": [
             {
               "after": "e",
-              "output": "e'"
+              "emit": "'"
             }
           ]
         }
@@ -39428,7 +39428,7 @@
           "rules": [
             {
               "after": "d",
-              "output": "df"
+              "emit": "f"
             }
           ]
         }
@@ -39520,15 +39520,15 @@
           "rules": [
             {
               "after": "e",
-              "output": "ec"
+              "emit": "c"
             },
             {
               "after": "k",
-              "output": "kf"
+              "emit": "f"
             },
             {
               "after": " ",
-              "output": " k"
+              "emit": "k"
             }
           ]
         }
@@ -39792,11 +39792,11 @@
           "rules": [
             {
               "after": "d",
-              "output": "dl"
+              "emit": "l"
             },
             {
               "after": "s",
-              "output": "s'"
+              "emit": "'"
             }
           ]
         }
@@ -39989,15 +39989,15 @@
           "rules": [
             {
               "after": "l",
-              "output": "ll"
+              "emit": "l"
             },
             {
               "after": "g",
-              "output": "gg"
+              "emit": "g"
             },
             {
               "after": "f",
-              "output": "fm"
+              "emit": "m"
             }
           ]
         }
@@ -40124,7 +40124,7 @@
           "rules": [
             {
               "after": "k",
-              "output": "km"
+              "emit": "m"
             }
           ]
         },
@@ -40137,19 +40137,19 @@
           "rules": [
             {
               "after": "p",
-              "output": "pb"
+              "emit": "b"
             },
             {
               "after": "q",
-              "output": "qf"
+              "emit": "f"
             },
             {
               "after": "l",
-              "output": "l'"
+              "emit": "'"
             },
             {
               "after": "r",
-              "output": "rk"
+              "emit": "k"
             }
           ]
         }
@@ -40523,7 +40523,7 @@
           "rules": [
             {
               "after": "n",
-              "output": "nn"
+              "emit": "n"
             }
           ]
         }
@@ -40684,7 +40684,7 @@
           "rules": [
             {
               "after": "p",
-              "output": "pb"
+              "emit": "b"
             }
           ]
         }
@@ -40762,19 +40762,19 @@
           "rules": [
             {
               "after": "f",
-              "output": "fy"
+              "emit": "y"
             },
             {
               "after": "e",
-              "output": "ed"
+              "emit": "d"
             },
             {
               "after": "d",
-              "output": "dd"
+              "emit": "d"
             },
             {
               "after": "m",
-              "output": "my"
+              "emit": "y"
             }
           ]
         }
@@ -40962,11 +40962,11 @@
           "rules": [
             {
               "after": "a",
-              "output": "ab"
+              "emit": "b"
             },
             {
               "after": "b",
-              "output": "b'"
+              "emit": "'"
             }
           ]
         },
@@ -40975,11 +40975,11 @@
           "rules": [
             {
               "after": "a",
-              "output": "aa"
+              "emit": "a"
             },
             {
               "after": "l",
-              "output": "ly"
+              "emit": "y"
             }
           ]
         }
@@ -41131,7 +41131,7 @@
           "rules": [
             {
               "after": " ",
-              "output": " i"
+              "emit": "i"
             }
           ]
         },
@@ -41144,19 +41144,19 @@
           "rules": [
             {
               "after": "c",
-              "output": "cr"
+              "emit": "r"
             },
             {
               "after": "r",
-              "output": "ri"
+              "emit": "i"
             },
             {
               "after": "i",
-              "output": "i "
+              "emit": " "
             },
             {
               "after": "a",
-              "output": "af"
+              "emit": "f"
             }
           ]
         }
@@ -41451,11 +41451,11 @@
           "rules": [
             {
               "after": "j",
-              "output": "jl"
+              "emit": "l"
             },
             {
               "after": "m",
-              "output": "mf"
+              "emit": "f"
             }
           ]
         }
@@ -41542,15 +41542,15 @@
           "rules": [
             {
               "after": "g",
-              "output": "gi"
+              "emit": "i"
             },
             {
               "after": "b",
-              "output": "bm"
+              "emit": "m"
             },
             {
               "after": "p",
-              "output": "p "
+              "emit": " "
             }
           ]
         }
@@ -41657,11 +41657,11 @@
           "rules": [
             {
               "after": "g",
-              "output": "gi"
+              "emit": "i"
             },
             {
               "after": "j",
-              "output": "jy"
+              "emit": "y"
             }
           ]
         }
@@ -41942,15 +41942,15 @@
           "rules": [
             {
               "after": "o",
-              "output": "oo"
+              "emit": "o"
             },
             {
               "after": "h",
-              "output": "hb"
+              "emit": "b"
             },
             {
               "after": "t",
-              "output": "th"
+              "emit": "h"
             }
           ]
         }
@@ -42097,7 +42097,7 @@
           "rules": [
             {
               "after": "f",
-              "output": "fy"
+              "emit": "y"
             }
           ]
         },
@@ -42331,19 +42331,19 @@
           "rules": [
             {
               "after": "m",
-              "output": "mf"
+              "emit": "f"
             },
             {
               "after": "f",
-              "output": "fb"
+              "emit": "b"
             },
             {
               "after": "d",
-              "output": "dn"
+              "emit": "n"
             },
             {
               "after": " ",
-              "output": " d"
+              "emit": "d"
             }
           ]
         }
@@ -42590,15 +42590,15 @@
           "rules": [
             {
               "after": " ",
-              "output": " j"
+              "emit": "j"
             },
             {
               "after": "j",
-              "output": "jj"
+              "emit": "j"
             },
             {
               "after": "i",
-              "output": "i'"
+              "emit": "'"
             }
           ]
         }
@@ -42782,19 +42782,19 @@
           "rules": [
             {
               "after": "r",
-              "output": "ry"
+              "emit": "y"
             },
             {
               "after": "d",
-              "output": "dd"
+              "emit": "d"
             },
             {
               "after": " ",
-              "output": " q"
+              "emit": "q"
             },
             {
               "after": "p",
-              "output": "p "
+              "emit": " "
             }
           ]
         }
@@ -42897,15 +42897,15 @@
           "rules": [
             {
               "after": "f",
-              "output": "fg"
+              "emit": "g"
             },
             {
               "after": "b",
-              "output": "b'"
+              "emit": "'"
             },
             {
               "after": "q",
-              "output": "qk"
+              "emit": "k"
             }
           ]
         }
@@ -43072,15 +43072,15 @@
           "rules": [
             {
               "after": " ",
-              "output": " t"
+              "emit": "t"
             },
             {
               "after": "f",
-              "output": "fd"
+              "emit": "d"
             },
             {
               "after": "t",
-              "output": "t "
+              "emit": " "
             }
           ]
         },
@@ -43093,7 +43093,7 @@
           "rules": [
             {
               "after": "f",
-              "output": "fy"
+              "emit": "y"
             }
           ]
         }
@@ -43210,15 +43210,15 @@
           "rules": [
             {
               "after": "k",
-              "output": "kq"
+              "emit": "q"
             },
             {
               "after": "t",
-              "output": "tt"
+              "emit": "t"
             },
             {
               "after": "m",
-              "output": "m'"
+              "emit": "'"
             }
           ]
         }
@@ -43395,19 +43395,19 @@
           "rules": [
             {
               "after": "c",
-              "output": "ci"
+              "emit": "i"
             },
             {
               "after": "s",
-              "output": "sl"
+              "emit": "l"
             },
             {
               "after": "j",
-              "output": "j'"
+              "emit": "'"
             },
             {
               "after": "n",
-              "output": "n "
+              "emit": " "
             }
           ]
         }
@@ -43610,11 +43610,11 @@
           "rules": [
             {
               "after": "b",
-              "output": "b'"
+              "emit": "'"
             },
             {
               "after": "i",
-              "output": "iy"
+              "emit": "y"
             }
           ]
         }
@@ -43991,7 +43991,7 @@
           "rules": [
             {
               "after": " ",
-              "output": " k"
+              "emit": "k"
             }
           ]
         }
@@ -44172,7 +44172,7 @@
           "rules": [
             {
               "after": "d",
-              "output": "d'"
+              "emit": "'"
             }
           ]
         }
@@ -44335,15 +44335,15 @@
           "rules": [
             {
               "after": " ",
-              "output": "  "
+              "emit": " "
             },
             {
               "after": "c",
-              "output": "c "
+              "emit": " "
             },
             {
               "after": "g",
-              "output": "gy"
+              "emit": "y"
             }
           ]
         }
@@ -44419,7 +44419,7 @@
           "rules": [
             {
               "after": "k",
-              "output": "ko"
+              "emit": "o"
             }
           ]
         },
@@ -44645,11 +44645,11 @@
           "rules": [
             {
               "after": "t",
-              "output": "tp"
+              "emit": "p"
             },
             {
               "after": "j",
-              "output": "jg"
+              "emit": "g"
             }
           ]
         },
@@ -44807,11 +44807,11 @@
           "rules": [
             {
               "after": "p",
-              "output": "pd"
+              "emit": "d"
             },
             {
               "after": "g",
-              "output": "gy"
+              "emit": "y"
             }
           ]
         },
@@ -45112,15 +45112,15 @@
           "rules": [
             {
               "after": "e",
-              "output": "ei"
+              "emit": "i"
             },
             {
               "after": "a",
-              "output": "ap"
+              "emit": "p"
             },
             {
               "after": "m",
-              "output": "m "
+              "emit": " "
             }
           ]
         }
@@ -45242,11 +45242,11 @@
           "rules": [
             {
               "after": "o",
-              "output": "oq"
+              "emit": "q"
             },
             {
               "after": "d",
-              "output": "dd"
+              "emit": "d"
             }
           ]
         }
@@ -45362,7 +45362,7 @@
           "rules": [
             {
               "after": " ",
-              "output": " y"
+              "emit": "y"
             }
           ]
         }
@@ -45489,7 +45489,7 @@
           "rules": [
             {
               "after": "q",
-              "output": "qe"
+              "emit": "e"
             }
           ]
         },
@@ -45501,7 +45501,7 @@
           "rules": [
             {
               "after": "j",
-              "output": "jn"
+              "emit": "n"
             }
           ]
         },
@@ -45710,7 +45710,7 @@
           "rules": [
             {
               "after": "p",
-              "output": "pp"
+              "emit": "p"
             }
           ]
         }
@@ -45992,19 +45992,19 @@
           "rules": [
             {
               "after": "o",
-              "output": "ok"
+              "emit": "k"
             },
             {
               "after": "g",
-              "output": "gy"
+              "emit": "y"
             },
             {
               "after": "d",
-              "output": "dh"
+              "emit": "h"
             },
             {
               "after": "m",
-              "output": "mq"
+              "emit": "q"
             }
           ]
         },
@@ -46070,15 +46070,15 @@
           "rules": [
             {
               "after": "d",
-              "output": "d "
+              "emit": " "
             },
             {
               "after": "m",
-              "output": "m "
+              "emit": " "
             },
             {
               "after": "c",
-              "output": "cb"
+              "emit": "b"
             }
           ]
         }
@@ -46162,7 +46162,7 @@
           "rules": [
             {
               "after": "m",
-              "output": "m "
+              "emit": " "
             }
           ]
         }
@@ -46396,11 +46396,11 @@
           "rules": [
             {
               "after": "d",
-              "output": "dr"
+              "emit": "r"
             },
             {
               "after": "i",
-              "output": "ie"
+              "emit": "e"
             }
           ]
         }
@@ -46492,7 +46492,7 @@
           "rules": [
             {
               "after": "g",
-              "output": "gj"
+              "emit": "j"
             }
           ]
         }
@@ -46675,19 +46675,19 @@
           "rules": [
             {
               "after": "j",
-              "output": "jb"
+              "emit": "b"
             },
             {
               "after": " ",
-              "output": " t"
+              "emit": "t"
             },
             {
               "after": "t",
-              "output": "tj"
+              "emit": "j"
             },
             {
               "after": "n",
-              "output": "nb"
+              "emit": "b"
             }
           ]
         },
@@ -46947,15 +46947,15 @@
           "rules": [
             {
               "after": "c",
-              "output": "c "
+              "emit": " "
             },
             {
               "after": "l",
-              "output": "lq"
+              "emit": "q"
             },
             {
               "after": "b",
-              "output": "bc"
+              "emit": "c"
             }
           ]
         },
@@ -47090,19 +47090,19 @@
           "rules": [
             {
               "after": "c",
-              "output": "cc"
+              "emit": "c"
             },
             {
               "after": "r",
-              "output": "rr"
+              "emit": "r"
             },
             {
               "after": "m",
-              "output": "mm"
+              "emit": "m"
             },
             {
               "after": "q",
-              "output": "q "
+              "emit": " "
             }
           ]
         },
@@ -47115,15 +47115,15 @@
           "rules": [
             {
               "after": "r",
-              "output": "r'"
+              "emit": "'"
             },
             {
               "after": "q",
-              "output": "q'"
+              "emit": "'"
             },
             {
               "after": " ",
-              "output": " j"
+              "emit": "j"
             }
           ]
         },
@@ -47396,7 +47396,7 @@
           "rules": [
             {
               "after": "s",
-              "output": "sh"
+              "emit": "h"
             }
           ]
         }
@@ -47819,11 +47819,11 @@
           "rules": [
             {
               "after": "s",
-              "output": "ss"
+              "emit": "s"
             },
             {
               "after": "r",
-              "output": "rr"
+              "emit": "r"
             }
           ]
         }
@@ -47917,19 +47917,19 @@
           "rules": [
             {
               "after": "n",
-              "output": "na"
+              "emit": "a"
             },
             {
               "after": "l",
-              "output": "lb"
+              "emit": "b"
             },
             {
               "after": "b",
-              "output": "ba"
+              "emit": "a"
             },
             {
               "after": "q",
-              "output": "qy"
+              "emit": "y"
             }
           ]
         }
@@ -48048,15 +48048,15 @@
           "rules": [
             {
               "after": "h",
-              "output": "hd"
+              "emit": "d"
             },
             {
               "after": "r",
-              "output": "rj"
+              "emit": "j"
             },
             {
               "after": "a",
-              "output": "ar"
+              "emit": "r"
             }
           ]
         },
@@ -48128,7 +48128,7 @@
           "rules": [
             {
               "after": "f",
-              "output": "f'"
+              "emit": "'"
             }
           ]
         },
@@ -48140,7 +48140,7 @@
           "rules": [
             {
               "after": "f",
-              "output": "fy"
+              "emit": "y"
             }
           ]
         }
@@ -48234,11 +48234,11 @@
           "rules": [
             {
               "after": " ",
-              "output": "  "
+              "emit": " "
             },
             {
               "after": "c",
-              "output": "cl"
+              "emit": "l"
             }
           ]
         },
@@ -48250,11 +48250,11 @@
           "rules": [
             {
               "after": "c",
-              "output": "cc"
+              "emit": "c"
             },
             {
               "after": " ",
-              "output": " '"
+              "emit": "'"
             }
           ]
         },
@@ -48360,15 +48360,15 @@
           "rules": [
             {
               "after": "q",
-              "output": "qh"
+              "emit": "h"
             },
             {
               "after": "i",
-              "output": "iq"
+              "emit": "q"
             },
             {
               "after": "s",
-              "output": "sf"
+              "emit": "f"
             }
           ]
         },
@@ -48380,7 +48380,7 @@
           "rules": [
             {
               "after": "r",
-              "output": "ry"
+              "emit": "y"
             }
           ]
         }
@@ -48498,11 +48498,11 @@
           "rules": [
             {
               "after": " ",
-              "output": " '"
+              "emit": "'"
             },
             {
               "after": "j",
-              "output": "jt"
+              "emit": "t"
             }
           ]
         }
@@ -48842,19 +48842,19 @@
           "rules": [
             {
               "after": "r",
-              "output": "r'"
+              "emit": "'"
             },
             {
               "after": "a",
-              "output": "ay"
+              "emit": "y"
             },
             {
               "after": "d",
-              "output": "dc"
+              "emit": "c"
             },
             {
               "after": "t",
-              "output": "tt"
+              "emit": "t"
             }
           ]
         }
@@ -48944,7 +48944,7 @@
           "rules": [
             {
               "after": " ",
-              "output": " p"
+              "emit": "p"
             }
           ]
         }
@@ -49059,7 +49059,7 @@
           "rules": [
             {
               "after": "p",
-              "output": "p'"
+              "emit": "'"
             }
           ]
         }
@@ -49245,7 +49245,7 @@
           "rules": [
             {
               "after": "j",
-              "output": "jj"
+              "emit": "j"
             }
           ]
         }
@@ -49311,11 +49311,11 @@
           "rules": [
             {
               "after": "i",
-              "output": "ir"
+              "emit": "r"
             },
             {
               "after": "s",
-              "output": "s "
+              "emit": " "
             }
           ]
         }
@@ -49406,7 +49406,7 @@
           "rules": [
             {
               "after": " ",
-              "output": " p"
+              "emit": "p"
             }
           ]
         }
@@ -49516,15 +49516,15 @@
           "rules": [
             {
               "after": "f",
-              "output": "fj"
+              "emit": "j"
             },
             {
               "after": "b",
-              "output": "bl"
+              "emit": "l"
             },
             {
               "after": "j",
-              "output": "jk"
+              "emit": "k"
             }
           ]
         },
@@ -49533,11 +49533,11 @@
           "rules": [
             {
               "after": "i",
-              "output": "if"
+              "emit": "f"
             },
             {
               "after": "k",
-              "output": "ky"
+              "emit": "y"
             }
           ]
         },
@@ -49685,19 +49685,19 @@
           "rules": [
             {
               "after": "h",
-              "output": "hm"
+              "emit": "m"
             },
             {
               "after": "m",
-              "output": "mm"
+              "emit": "m"
             },
             {
               "after": "c",
-              "output": "ch"
+              "emit": "h"
             },
             {
               "after": "k",
-              "output": "kp"
+              "emit": "p"
             }
           ]
         }

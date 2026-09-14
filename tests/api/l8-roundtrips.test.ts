@@ -203,7 +203,7 @@ describe("[LDB-L8] D1 round trips per successful write -- one row per route", ()
   it("[LDB-L8] admin magic-seed (seedMagic): <= 2", async () => {
     const name = uniqueName("l8-magic-seed");
     const created = await seed(OWNER, name);
-    const { count } = await countedCall((b) => seedMagic(b, clock, created.layout.id, { magic_keys: [{ key: "a", default: { kind: "repeat" }, rules: [{ after: "a", output: "ab" }] }] }, null));
+    const { count } = await countedCall((b) => seedMagic(b, clock, created.layout.id, { magic_keys: [{ key: "a", default: { kind: "repeat" }, rules: [{ after: "a", emit: "b" }] }] }, null));
     expect(count).toBeLessThanOrEqual(2);
   });
 });

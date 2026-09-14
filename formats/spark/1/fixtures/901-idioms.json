@@ -39,7 +39,7 @@
         "rules": [
           {
             "after": "t",
-            "output": "th"
+            "emit": "h"
           }
         ],
         "except": [

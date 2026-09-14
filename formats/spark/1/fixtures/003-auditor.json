@@ -194,63 +194,63 @@
         "rules": [
           {
             "after": "'",
-            "output": "'r"
+            "emit": "r"
           },
           {
             "after": ".",
-            "output": ".."
+            "emit": "."
           },
           {
             "after": "a",
-            "output": "ay"
+            "emit": "y"
           },
           {
             "after": "b",
-            "output": "bb"
+            "emit": "b"
           },
           {
             "after": "c",
-            "output": "ct"
+            "emit": "t"
           },
           {
             "after": "d",
-            "output": "dd"
+            "emit": "d"
           },
           {
             "after": "h",
-            "output": "he"
+            "emit": "e"
           },
           {
             "after": "i",
-            "output": "ic"
+            "emit": "c"
           },
           {
             "after": "j",
-            "output": "jj"
+            "emit": "j"
           },
           {
             "after": "q",
-            "output": "qq"
+            "emit": "q"
           },
           {
             "after": "r",
-            "output": "rl"
+            "emit": "l"
           },
           {
             "after": "u",
-            "output": "ul"
+            "emit": "l"
           },
           {
             "after": "v",
-            "output": "vv"
+            "emit": "v"
           },
           {
             "after": "y",
-            "output": "yt"
+            "emit": "t"
           },
           {
             "after": "z",
-            "output": "ze"
+            "emit": "e"
           }
         ],
         "default": {
@@ -266,7 +266,7 @@
         "rules": [
           {
             "after": "r",
-            "output": "r."
+            "emit": "."
           }
         ]
       },
@@ -275,7 +275,7 @@
         "rules": [
           {
             "after": "t",
-            "output": "ts"
+            "emit": "s"
           }
         ]
       },
@@ -284,15 +284,15 @@
         "rules": [
           {
             "after": "r",
-            "output": "ru"
+            "emit": "u"
           },
           {
             "after": "s",
-            "output": "sy"
+            "emit": "y"
           },
           {
             "after": "u",
-            "output": "ur"
+            "emit": "r"
           }
         ]
       },
@@ -301,11 +301,11 @@
         "rules": [
           {
             "after": "a",
-            "output": "ak"
+            "emit": "k"
           },
           {
             "after": "u",
-            "output": "u'"
+            "emit": "'"
           }
         ]
       },
@@ -314,7 +314,7 @@
         "rules": [
           {
             "after": "m",
-            "output": "mp"
+            "emit": "p"
           }
         ]
       }

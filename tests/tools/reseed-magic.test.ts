@@ -62,7 +62,7 @@ const PROD_TWIRL: RuleSet = {
 };
 // ... and this is the same rule set as spark/1 stores it.
 const WIRE_TWIRL: RuleSet = {
-  magic_keys: [{ key: "*", default: { kind: "repeat" }, rules: [{ after: "'", output: "'r" }] }],
+  magic_keys: [{ key: "*", default: { kind: "repeat" }, rules: [{ after: "'", emit: "r" }] }],
   adaptive_swaps: [{ trigger: "n", swap: ["g", "h"] }],
 };
 
@@ -165,6 +165,16 @@ describe("[LDB-P25] the candidate: akl.gg's rule set as spark/1 stores it", () =
       chiral_keys: [{ key: "y", same: { kind: "repeat" }, opposite: { kind: "char", char: "y" } }, { key: "q" }],
       adaptive_swaps: WIRE_TWIRL.adaptive_swaps,
     });
+  });
+
+  it("[LDB-P25] [LDB-F41] converts akl.gg's {after, output} rules to spark/1's {after, emit}; a rule that does not extend its context is demoted to a raw rules[] row", () => {
+    const candidate = candidateFrom({
+      magic_keys: [{ key: "*", default: "repeat_previous", rules: [{ after: "a", output: "ab" }, { after: "th", output: "the" }, { after: "x", output: "zz" }] }],
+      chiral_keys: [],
+      adaptive_swaps: [],
+    }) as unknown as { magic_keys: { rules: unknown[] }[]; rules?: unknown[] };
+    expect(candidate.magic_keys[0]!.rules).toEqual([{ after: "a", emit: "b" }, { after: "th", emit: "e" }]);
+    expect(candidate.rules).toEqual([{ inputs: "x*", output: "zz" }]);
   });
 
   it("[LDB-P25] compares equal to the stored magic whatever the key order, and treats an empty list like an absent field", () => {

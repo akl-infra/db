@@ -45,7 +45,7 @@ describe("intent survives store + read (LDB-F3)", () => {
       {
         key: ";",
         default: { kind: "repeat" },
-        rules: [{ after: "t", output: "th" }],
+        rules: [{ after: "t", emit: "h" }],
         except: ["q"],
       },
     ]);

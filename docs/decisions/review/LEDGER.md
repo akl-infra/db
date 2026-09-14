@@ -29,6 +29,8 @@
 
 **2026-09-13 — no-board round (saltorbit: "remove the board type from spark/1 ... and from akl.gg on publish").** `design/layout-db/26-no-board.md`: spark/1 = `{keys, magic?}`, no `board`; the iso width rule, `coords`/`STAGGER_BY_KIND`/`cminiBoardWord`, `PATCH {board}` and `setBoard` deleted; `fromCmini` drops cmini's word; `toSpark` drops the mana2 board (908 no longer held); `fromSpark` always emits the ANSI row stagger (`DEFAULT_ROW_STAGGER`); WIRE_VERSION 12 (CHANGELOG 1.12); migration 0016 strips stored rows in place (no wipe); LDB-F40 added, LDB-F31 retired, F5/F23/F24/F27/F30 restated; `frozen.test.ts` back to D11's explicit (empty) FROZEN list. Site: publish sheet board picker + `toAkl1`'s `board` gone. Bot: `board`/`board!`, `add`'s board words, `fingers!`'s ansi rule, the iso out-dent gone; engine/overlay use the fixed `stagger` word.
 
+**2026-09-13 — magic-emit round (xsznix: "`after: a, output: ab` mixes context and output"; saltorbit: "(ngram-in, ngram-out)").** `design/layout-db/27-magic-emit.md`: `magic_keys[].rules[]` is `{after, emit}` (row `after+key -> after+emit`; `after` an n-gram; the old `{after, output}` refused by the schema); `liftRules` leaves a context-rewriting row raw; reseed converts on the way in; migration 0017 rewrites stored rows in place; WIRE_VERSION 13 (CHANGELOG 1.13); LDB-F41. Site converts at the codec (workbench still authors `{after, output}` -- the editor change is a later step); bot follows via `@akl/core/rules` + re-vendored parity vectors.
+
 ## Waves and slices
 
 Status: `todo` · `running (agent, branch)` · `review` · `landed <sha>` · `blocked (why)`.

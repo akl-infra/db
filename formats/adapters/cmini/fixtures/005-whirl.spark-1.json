@@ -194,19 +194,19 @@
         "rules": [
           {
             "after": ".",
-            "output": "..."
+            "emit": ".."
           },
           {
             "after": "g",
-            "output": "gs"
+            "emit": "s"
           },
           {
             "after": "u",
-            "output": "ue"
+            "emit": "e"
           },
           {
             "after": "w",
-            "output": "wh"
+            "emit": "h"
           }
         ],
         "default": {

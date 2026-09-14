@@ -73,7 +73,7 @@ describe("[LDB-F24] 22-spark-spec.md's worked examples (§11)", () => {
     expect(example.keys.find((k) => k.char === "@")).toEqual({ char: "@", row: 0, col: 1, finger: "LR" });
     expect("board" in example).toBe(false); // 26-no-board.md: no such field
     // "typing n then @ lowers to a rule emitting nl"
-    expect(example.magic?.magic_keys?.[0]).toMatchObject({ key: "@", rules: [{ after: "n", output: "nl" }] });
+    expect(example.magic?.magic_keys?.[0]).toMatchObject({ key: "@", rules: [{ after: "n", emit: "l" }] });
     // "'e' has two entries ... a duplicate character"
     expect(example.keys.filter((k) => k.char === "e")).toHaveLength(2);
     // "The entry with no char ... is a free position"

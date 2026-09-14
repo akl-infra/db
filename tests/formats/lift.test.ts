@@ -88,7 +88,7 @@ function genMagicIntent(g: fc.GeneratorValue, keys: Record<string, Position>): M
     const minRules = dflt === "none" ? 1 : 0;
     const nRules = g(fc.integer, { min: minRules, max: Math.max(minRules, Math.min(3, remaining.length)) });
     const afters = g(fc.shuffledSubarray, remaining, { minLength: nRules, maxLength: nRules });
-    const rules = afters.map((after: string) => ({ after, output: after + g(fc.constantFrom, ...CHAR_POOL) }));
+    const rules = afters.map((after: string) => ({ after, emit: g(fc.constantFrom, ...CHAR_POOL) }));
     // design/layout-db/24-spark-wire-review.md finding 6: tagged sentinels
     // -- "none" is now just an omitted `default` (never a string), the
     // OTHER two sentinel kinds this generator picks between are `{repeat:
@@ -148,7 +148,7 @@ function canonicalIntent(m: MagicIntent): unknown {
 }
 
 describe("liftRules(lower(m)) == (m, []) -- valid akl idioms", () => {
-  it("[LDB-F8] [LDB-F14] property: 200 random 20-35 key layouts x idiom sets (a third of magic keys get a literal default, exercising the word-start row)", () => {
+  it("[LDB-F8] [LDB-F14] [LDB-F41] property: 200 random 20-35 key layouts x idiom sets (a third of magic keys get a literal default, exercising the word-start row)", () => {
     fc.assert(
       fc.property(fc.gen(), (g) => {
         const keys = genLayout(g);

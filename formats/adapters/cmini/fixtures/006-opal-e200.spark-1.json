@@ -188,27 +188,27 @@
         "rules": [
           {
             "after": "a",
-            "output": "ar"
+            "emit": "r"
           },
           {
             "after": "h",
-            "output": "hr"
+            "emit": "r"
           },
           {
             "after": "i",
-            "output": "ik"
+            "emit": "k"
           },
           {
             "after": "k",
-            "output": "ke"
+            "emit": "e"
           },
           {
             "after": "n",
-            "output": "nk"
+            "emit": "k"
           },
           {
             "after": "r",
-            "output": "rk"
+            "emit": "k"
           }
         ],
         "default": {

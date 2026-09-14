@@ -402,6 +402,36 @@ describe("payload mutations", () => {
 // `validateGeometry` -- a dedicated refusing fixture rather than a row in
 // the generic per-leaf matrix (it is a cross-field finger/row check, not a
 // single-leaf mutation).
+// [LDB-F41] design/layout-db/27-magic-emit.md: a magic key's rule is
+// `{after, emit}`; the retired `{after, output}` is refused by the schema
+// (never silently re-read as an emission), `after` may be an n-gram, and
+// the lowered row is `after+key -> after+emit`.
+describe("[LDB-F41] magic_keys[].rules[] is {after, emit}", () => {
+  const keys = [
+    { char: "a", row: 0, col: 0, finger: "LP" },
+    { char: "t", row: 0, col: 1, finger: "LR" },
+    { char: "h", row: 0, col: 2, finger: "LM" },
+    { char: "*", row: 0, col: 3, finger: "LI" },
+  ];
+  it("[LDB-F41] the old {after, output} shape is refused by the schema", () => {
+    const result = spark1.validate({ keys, magic: { magic_keys: [{ key: "*", rules: [{ after: "a", output: "ab" }] }] } });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.path).toBe("/magic/magic_keys/0/rules/0");
+  });
+  it("[LDB-F41] an empty after or emit is refused", () => {
+    expect(spark1.validate({ keys, magic: { magic_keys: [{ key: "*", rules: [{ after: "", emit: "b" }] }] } }).ok).toBe(false);
+    expect(spark1.validate({ keys, magic: { magic_keys: [{ key: "*", rules: [{ after: "a", emit: "" }] }] } }).ok).toBe(false);
+  });
+  it("[LDB-F41] a single-char and an n-gram context both lower to after+key -> after+emit", () => {
+    const payload = { keys, magic: { magic_keys: [{ key: "*", default: { kind: "repeat" as const }, rules: [{ after: "a", emit: "b" }, { after: "th", emit: "e" }] }] } };
+    expect(spark1.validate(payload).ok).toBe(true);
+    const rows = spark1.compileMagic(payload);
+    expect(rows.find((r) => r.inputs === "a*")).toEqual({ inputs: "a*", output: "ab", type: "magic" });
+    expect(rows.find((r) => r.inputs === "th*")).toEqual({ inputs: "th*", output: "the", type: "magic" });
+    expect(rows.find((r) => r.inputs === "h*")).toEqual({ inputs: "h*", output: "hh", type: "repeat" }); // the n-gram rule replaces no scaffold row
+  });
+});
+
 describe("[LDB-F27] spark/1's real (non-schema) geometry rules", () => {
   it("[LDB-F40] a `board` field is refused by the schema -- spark/1 has no board (design/layout-db/26-no-board.md)", () => {
     for (const board of ["ansi", "iso", "ortho", "colstag", { kind: "ansi" }]) {

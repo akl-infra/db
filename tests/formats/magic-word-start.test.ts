@@ -60,7 +60,7 @@ describe("magic word-start row (LDB-F14)", () => {
 
   it("[LDB-F14] an explicit magic_keys[].rules[] entry for after=' ' REPLACES the word-start row (same carve-out as any board char)", () => {
     const magic: MagicIntent = {
-      magic_keys: [{ key: "k", default: { kind: "char", char: "y" }, rules: [{ after: " ", output: " q" }] }],
+      magic_keys: [{ key: "k", default: { kind: "char", char: "y" }, rules: [{ after: " ", emit: "q" }] }],
     };
     const rows = computeRows(magic, baseKeys());
     const wordStartRows = rows.filter((r) => r.inputs === " k");

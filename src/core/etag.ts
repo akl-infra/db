@@ -143,7 +143,13 @@ export async function readHead(db: D1Database, stateKeys: readonly string[] = []
 //   key, `PATCH` loses its `board` edit, `?format=mana2/1` always lowers to
 //   the ANSI row stagger. No cached 304/edge-cached body from before this
 //   slice can keep serving a payload WITH `board` at an unchanged head seq.
-export const WIRE_VERSION = 12;
+// 13 (2026-09-13): design/layout-db/27-magic-emit.md -- a magic key's rule is
+//   `{after, emit}` (what the key emits after its context), no longer
+//   `{after, output}` with `output` repeating the context; `after` may be an
+//   n-gram. Same class as 6/12 (the stored format edited in place, D11). No
+//   cached 304/edge-cached body from before this slice can keep serving a
+//   payload with the old rule shape at an unchanged head seq.
+export const WIRE_VERSION = 13;
 
 export async function etagFor(headSeqValue: number, query: unknown): Promise<string> {
   const hash = await sha256Hex(canonical({ wireVersion: WIRE_VERSION, query: query ?? null }));
