@@ -1,0 +1,25 @@
+-- Import freshness tracking (saltorbit 2026-09-14: "24 live `following`
+-- records are re-fetched from cmini on EVERY import tick, forever"). This
+-- column records the `modified_at` UPSTREAM last reported for this id, as
+-- last FETCHED AND APPLIED -- whether or not the apply actually wrote
+-- anything. Two ways today's `layouts.modified_at` alone fails to track
+-- that: `commitWrite` (core/events.ts) only moves it when a write has a
+-- LAYOUT part, so a content-only re-import (format part only) leaves it at
+-- its old value; and when upstream changes something spark/1 does not
+-- carry at all (the board word, docs/decisions/26-no-board.md), `applyMapped`
+-- writes nothing, so nothing moves it either way. Either way, comparing
+-- against `layouts.modified_at` (`import/plan.ts`'s fetch trigger) never
+-- catches up, and the id is refetched on every tick forever.
+--
+-- `import/plan.ts` compares upstream's listed `modified_at` against THIS
+-- column instead (`import/apply.ts` sets it on every successful fetch-and-
+-- apply, `applyFetchedId`), falling back to the layout's own `modified_at`
+-- when NULL -- a pre-migration row, or one whose id hasn't been fetched
+-- since this landed -- which is exactly today's behaviour: no backfill, no
+-- re-fetch storm on deploy, and a stuck row corrects itself the next time
+-- it's fetched.
+--
+-- Additive (docs/decisions/21-formats.md D8, amended 2026-09-14: akldb is no
+-- longer disposable, migrations never drop or backfill) -- a plain `ADD
+-- COLUMN`, no backfill needed for the reason above.
+ALTER TABLE import_map ADD COLUMN upstream_modified_at TEXT NULL;

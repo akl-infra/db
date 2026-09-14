@@ -103,6 +103,23 @@ describe("compareRecords / pathDiff over upstream-100", () => {
     expect(compareRecords(a, b)).toEqual({ equal: true, path: null });
   });
 
+  // LDB-P5, amended 2026-09-14: `modified_at` is dropped from the
+  // projection entirely -- akldb's own `modified_at` is layout-scope time,
+  // not a mirror of upstream's (LDB-I24 tracks freshness separately, via
+  // `import_map.upstream_modified_at`, which this public-API diff can't
+  // see), so a record differing ONLY in `modified_at` must still compare
+  // equal rather than being reported as a content difference.
+  it("[LDB-P5] a record differing ONLY in modified_at compares equal", () => {
+    const raws = loadFixture();
+    const graphite = raws.find((r) => r.name === "graphite")!;
+    const a = toOursEntry(graphite, "id-a");
+    const mutated = { ...graphite, modified_at: "1999-01-01T00:00:00Z" };
+    const b = toOursEntry(mutated, "id-b");
+
+    expect(a.modified_at).not.toBe(b.modified_at);
+    expect(compareRecords(a, b)).toEqual({ equal: true, path: null });
+  });
+
   it("[LDB-P5] likes compared sorted -- reordering is NOT a difference", () => {
     const raws = loadFixture();
     const graphite = raws.find((r) => r.name === "graphite")!;

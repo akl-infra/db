@@ -29,7 +29,10 @@ function row(patch: Partial<LocalMapRow> & { upstreamId: string; layoutId: strin
   // A test that wants the two to diverge (the sticky-shadow cases) passes
   // `upstreamName` explicitly in `patch` -- `merged` already carries it
   // then (the spread below only overrides a key that's actually present).
-  return { upstreamName: merged.name, ...merged };
+  // Same trick for `upstreamModifiedAt` (LDB-I24): defaults to whatever
+  // `modified_at` ended up being, so every existing case keeps comparing
+  // as if `plan.ts` still read `row.modified_at` directly.
+  return { upstreamName: merged.name, upstreamModifiedAt: merged.modified_at, ...merged };
 }
 
 describe("planTick", () => {
@@ -60,6 +63,39 @@ describe("planTick", () => {
     const result = planTick({ list, local, lastFull: RECENT, fullPassCursor: null, now: NOW });
     expect(result.kind).toBe("ok");
     if (result.kind === "ok") expect(result.fetch).toEqual(["a"]);
+  });
+
+  // LDB-I24 (migrations/0018): the fetch trigger compares against
+  // `upstreamModifiedAt` (the last `modified_at` upstream reported as of
+  // our last fetch-and-apply), never the layout's own `modified_at`
+  // directly -- a stale LAYOUT `modified_at` that already caught up on the
+  // upstream side (the common case once LDB-I24 lands: a content-only or
+  // spark-drops-it reimport moves `upstream_modified_at` but not
+  // `layouts.modified_at`) must not re-fetch forever.
+  it("[LDB-I24] a stale layout modified_at is NOT fetched once upstreamModifiedAt has caught up", () => {
+    const list = [entry({ id: "a", modified_at: "2026-02-01T00:00:00Z" })];
+    const local = [
+      row({ upstreamId: "a", layoutId: "L-a", modified_at: "2026-01-01T00:00:00Z", upstreamModifiedAt: "2026-02-01T00:00:00Z" }),
+    ];
+    const result = planTick({ list, local, lastFull: RECENT, fullPassCursor: null, now: NOW });
+    expect(result.kind).toBe("ok");
+    if (result.kind === "ok") expect(result.fetch).toEqual([]);
+  });
+
+  // A pre-migration row (upstreamModifiedAt: null) falls back to the
+  // layout's own modified_at -- exactly today's behaviour, both directions.
+  it("[LDB-I24] upstreamModifiedAt: null falls back to the layout's own modified_at", () => {
+    const listChanged = [entry({ id: "a", modified_at: "2026-02-01T00:00:00Z" })];
+    const localStale = [row({ upstreamId: "a", layoutId: "L-a", modified_at: "2026-01-01T00:00:00Z", upstreamModifiedAt: null })];
+    const changedResult = planTick({ list: listChanged, local: localStale, lastFull: RECENT, fullPassCursor: null, now: NOW });
+    expect(changedResult.kind).toBe("ok");
+    if (changedResult.kind === "ok") expect(changedResult.fetch).toEqual(["a"]);
+
+    const listSame = [entry({ id: "a", modified_at: "2026-01-01T00:00:00Z" })];
+    const localSame = [row({ upstreamId: "a", layoutId: "L-a", modified_at: "2026-01-01T00:00:00Z", upstreamModifiedAt: null })];
+    const sameResult = planTick({ list: listSame, local: localSame, lastFull: RECENT, fullPassCursor: null, now: NOW });
+    expect(sameResult.kind).toBe("ok");
+    if (sameResult.kind === "ok") expect(sameResult.fetch).toEqual([]);
   });
 
   // B1 (design/layout-db/review/audit-db.md B1): upstream showing MORE

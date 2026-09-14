@@ -91,19 +91,33 @@ async function clearState(db: Bindings["DB"], key: string): Promise<void> {
 }
 
 // `import_map` joined to its record's (name, modified_at, like_count,
-// deleted) -- exactly planTick's `local` input (07 §6 S5).
+// deleted) -- exactly planTick's `local` input (07 §6 S5). LDB-I24
+// (migrations/0018): also carries `import_map.upstream_modified_at`, the
+// last `modified_at` UPSTREAM itself reported as of our last fetch-and-
+// apply of this id -- see `LocalMapRow.upstreamModifiedAt`'s own comment.
 async function loadLocalMap(db: Bindings["DB"]): Promise<LocalMapRow[]> {
   const { results } = await db
     .prepare(
-      `SELECT m.upstream_id AS upstreamId, m.layout_id AS layoutId, m.upstream_name AS upstreamName, l.name AS name,
+      `SELECT m.upstream_id AS upstreamId, m.layout_id AS layoutId, m.upstream_name AS upstreamName,
+              m.upstream_modified_at AS upstreamModifiedAt, l.name AS name,
               l.modified_at AS modified_at, l.like_count AS like_count, l.deleted AS deleted
        FROM import_map m JOIN layouts l ON l.id = m.layout_id`,
     )
-    .all<{ upstreamId: string; layoutId: string; upstreamName: string | null; name: string; modified_at: string; like_count: number; deleted: number }>();
+    .all<{
+      upstreamId: string;
+      layoutId: string;
+      upstreamName: string | null;
+      upstreamModifiedAt: string | null;
+      name: string;
+      modified_at: string;
+      like_count: number;
+      deleted: number;
+    }>();
   return results.map((r) => ({
     upstreamId: r.upstreamId,
     layoutId: r.layoutId,
     upstreamName: r.upstreamName,
+    upstreamModifiedAt: r.upstreamModifiedAt,
     name: r.name,
     modified_at: r.modified_at,
     like_count: r.like_count,

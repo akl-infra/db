@@ -11,6 +11,7 @@ import { fixedClock } from "../../src/core/time";
 import * as ratelimitModule from "../../src/core/ratelimit";
 import * as dumpModule from "../../src/dump/write";
 import { dumpDue } from "../../src/dump/write";
+import { restoreInto } from "../../src/dump/restore";
 import * as applyModule from "../../src/import/apply";
 import * as cminiModule from "../../src/import/cmini";
 import { tick } from "../../src/import/cmini";
@@ -333,6 +334,134 @@ describe("tick()", () => {
     // tick against the SAME (unchanged since) upstream state is quiet.
     const again = await tick(bindings, clock, fake.fetchImpl, fake.sleepImpl);
     expect(again.quiet).toBe(true);
+  });
+
+  // LDB-I24 (migrations/0018): before this fix, `layouts.modified_at` never
+  // caught up with upstream's when an upstream change writes nothing at
+  // all -- an upstream cmini change confined to the board word (spark/1
+  // carries no board, docs/decisions/26-no-board.md) plus its own bumped
+  // `modified_at` is a real listed change (fetched once), but leaves
+  // nothing for `applyMapped` to write (`layoutDiffers`/`payloadDiffers`
+  // both false), so the OLD plan.ts (comparing against `layouts.modified_at`
+  // directly) would re-fetch the SAME id forever. `import_map.upstream_
+  // modified_at` is what actually catches up (`applyFetchedId` records it
+  // regardless of whether the apply wrote anything), so the following tick
+  // does not fetch it again.
+  it("[LDB-I24] a board-only upstream change (spark/1 drops it) is fetched once, then not re-fetched", async () => {
+    const fake = new FakeUpstream();
+    const clock = fixedClock("2026-06-12T00:00:00.000Z");
+    await tick(bindings, clock, fake.fetchImpl, fake.sleepImpl); // 100 imported
+
+    const targetName = "abyss";
+    const targetId = fake.ids().find((id) => fake.listEntry(id).name === targetName)!;
+    const detailUrlPattern = new RegExp(`/layouts/${targetId}$`);
+
+    const currentBoard = fake.detailByName(targetName).board as string;
+    // Both the LIST entry's own `modified_at` (what `planTick` selects on)
+    // and the DETAIL's own `modified_at` (what `applyFetchedId` actually
+    // records into `upstream_modified_at`) must move -- a real upstream
+    // record bump touches both at once.
+    fake.mutateDetailByName(targetName, { board: currentBoard === "ortho" ? "angle" : "ortho", modified_at: "2026-06-12T01:00:00.000Z" });
+    fake.mutateListEntry(targetId, { modified_at: "2026-06-12T01:00:00.000Z" });
+    fake.bumpMeta();
+    fake.requestLog.length = 0;
+
+    const first = await tick(bindings, clock, fake.fetchImpl, fake.sleepImpl);
+    expect(first.quiet).toBe(false);
+    expect(fake.requestLog.filter((r) => detailUrlPattern.test(r.url))).toHaveLength(1); // fetched exactly once
+    const row = await db.prepare("SELECT upstream_modified_at FROM import_map WHERE upstream_id = ?").bind(targetId).first<{ upstream_modified_at: string }>();
+    expect(row!.upstream_modified_at).toBe("2026-06-12T01:00:00.000Z"); // caught up even though nothing was written
+
+    // Nothing else changed -- open the meta gate again with no new content
+    // change, so a following tick with the SAME list entry must not
+    // re-select this id.
+    fake.bumpMeta();
+    fake.requestLog.length = 0;
+    const second = await tick(bindings, clock, fake.fetchImpl, fake.sleepImpl);
+    expect(second.quiet).toBe(false); // the gate was open (bumpMeta), but nothing was planned for THIS id
+    expect(fake.requestLog.filter((r) => detailUrlPattern.test(r.url))).toHaveLength(0); // not re-fetched
+  });
+
+  // LDB-I24: a REAL content change (one spark/1 carries) is re-imported as
+  // before, and -- since a following write also moves `layouts.modified_at`
+  // itself in this case -- the following tick still does not re-fetch it,
+  // proving the new `upstream_modified_at` signal agrees with the old
+  // `layouts.modified_at` one whenever a write actually happens.
+  it("[LDB-I24] a real content change is re-imported once, then not re-fetched", async () => {
+    const fake = new FakeUpstream();
+    const clock = fixedClock("2026-06-12T12:00:00.000Z");
+    await tick(bindings, clock, fake.fetchImpl, fake.sleepImpl); // 100 imported
+
+    const targetName = "abyss";
+    const targetId = fake.ids().find((id) => fake.listEntry(id).name === targetName)!;
+    const detailUrlPattern = new RegExp(`/layouts/${targetId}$`);
+
+    const flipped = flipFirstKeyFinger(fake, targetName);
+    // The list entry AND the detail's own `modified_at` both move, same as
+    // a real upstream edit would.
+    fake.mutateDetailByName(targetName, { modified_at: "2026-06-12T13:00:00.000Z" });
+    fake.mutateListEntry(targetId, { modified_at: "2026-06-12T13:00:00.000Z" });
+    fake.bumpMeta();
+    fake.requestLog.length = 0;
+
+    const first = await tick(bindings, clock, fake.fetchImpl, fake.sleepImpl);
+    expect(first.quiet).toBe(false);
+    expect(fake.requestLog.filter((r) => detailUrlPattern.test(r.url))).toHaveLength(1);
+    const abyssRow = await db
+      .prepare("SELECT payload_json FROM layout_formats f JOIN layouts l ON l.id = f.layout_id WHERE l.name = ? AND f.lineage = 'spark'")
+      .bind(targetName)
+      .first<{ payload_json: string }>();
+    expect(storedFinger(abyssRow!.payload_json, flipped.char)).toBe(flipped.finger);
+    const mapRow = await db.prepare("SELECT upstream_modified_at FROM import_map WHERE upstream_id = ?").bind(targetId).first<{ upstream_modified_at: string }>();
+    expect(mapRow!.upstream_modified_at).toBe("2026-06-12T13:00:00.000Z");
+
+    fake.bumpMeta();
+    fake.requestLog.length = 0;
+    const second = await tick(bindings, clock, fake.fetchImpl, fake.sleepImpl);
+    expect(second.quiet).toBe(false);
+    expect(fake.requestLog.filter((r) => detailUrlPattern.test(r.url))).toHaveLength(0);
+  });
+
+  // LDB-I24: `import_map.upstream_modified_at` round-trips through
+  // dump/restore like `upstream_name` (migrations/0013) already does.
+  it("[LDB-I24] upstream_modified_at round-trips through buildDump/restoreInto", async () => {
+    const fake = new FakeUpstream();
+    const clock = fixedClock("2026-06-13T00:00:00.000Z");
+    await tick(bindings, clock, fake.fetchImpl, fake.sleepImpl); // 100 imported, import_map populated
+
+    const targetId = fake.ids().find((id) => fake.listEntry(id).name === "abyss")!;
+    const before = await db.prepare("SELECT upstream_modified_at FROM import_map WHERE upstream_id = ?").bind(targetId).first<{ upstream_modified_at: string }>();
+    expect(before!.upstream_modified_at).not.toBeNull();
+
+    const dump = await dumpModule.buildDump(bindings, clock);
+    const dumpedRow = dump.import_map.find((r) => r.upstream_id === targetId);
+    expect(dumpedRow?.upstream_modified_at).toBe(before!.upstream_modified_at);
+
+    await restoreInto(db, dump);
+    const after = await db.prepare("SELECT upstream_modified_at FROM import_map WHERE upstream_id = ?").bind(targetId).first<{ upstream_modified_at: string }>();
+    expect(after!.upstream_modified_at).toBe(before!.upstream_modified_at);
+  });
+
+  // A dump written before migrations/0018 has no `upstream_modified_at` key
+  // on its `import_map` rows at all -- `restore.ts`'s own `?? null` fallback
+  // (the same one `upstream_name` already relies on) must restore it as
+  // NULL, not throw or coerce it to some other value.
+  it("[LDB-I24] a dump row without upstream_modified_at (pre-0018 shape) restores as NULL", async () => {
+    const fake = new FakeUpstream();
+    const clock = fixedClock("2026-06-13T01:00:00.000Z");
+    await tick(bindings, clock, fake.fetchImpl, fake.sleepImpl);
+
+    const targetId = fake.ids().find((id) => fake.listEntry(id).name === "abyss")!;
+    const dump = await dumpModule.buildDump(bindings, clock);
+    const legacyImportMap = dump.import_map.map((r) => {
+      if (r.upstream_id !== targetId) return r;
+      const { upstream_modified_at: _dropped, ...rest } = r; // simulate a pre-0018 dump row
+      return rest;
+    });
+
+    await restoreInto(db, { ...dump, import_map: legacyImportMap });
+    const restored = await db.prepare("SELECT upstream_modified_at FROM import_map WHERE upstream_id = ?").bind(targetId).first<{ upstream_modified_at: string | null }>();
+    expect(restored!.upstream_modified_at).toBeNull();
   });
 
   // LDB-I22 (saltorbit 2026-09-13, hostile-upstream concern): the per-tick

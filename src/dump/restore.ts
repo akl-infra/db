@@ -233,13 +233,15 @@ export function restoreSql(dump: Dump): string[] {
   statements.push(
     ...chunkedInserts(
       "INSERT INTO import_map",
-      ["upstream_id", "layout_id", "upstream_name"],
+      ["upstream_id", "layout_id", "upstream_name", "upstream_modified_at"],
       // B2 sticky shadow: `upstream_name` round-trips; a dump written
       // before migrations/0013 has none, and restores as NULL (the
       // column's own default -- `chunkedInserts` treats an explicit
       // `null` as NULL, unlike the NOT NULL columns elsewhere here that
       // need a real fallback value).
-      dump.import_map.map((r) => ({ ...r, upstream_name: r.upstream_name ?? null })),
+      // LDB-I24: `upstream_modified_at` round-trips the same way; a dump
+      // written before migrations/0018 has none, and restores as NULL.
+      dump.import_map.map((r) => ({ ...r, upstream_name: r.upstream_name ?? null, upstream_modified_at: r.upstream_modified_at ?? null })),
     ),
   );
 

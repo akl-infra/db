@@ -64,6 +64,11 @@ export interface ImportMapDbRow {
   // reported for this id. Absent from a dump written before 0012 --
   // restore.ts reads it as null (the column's own default).
   upstream_name?: string | null;
+  // LDB-I24 (migrations/0018): the last `modified_at` UPSTREAM itself
+  // reported for this id, as of our last fetch-and-apply. Absent from a
+  // dump written before 0018 -- restore.ts reads it as null (the column's
+  // own default).
+  upstream_modified_at?: string | null;
 }
 // L5 moderation (§4.5, migrations/0014): two more `Dump` arrays -- both
 // small, admin-authored tables, dumped/restored whole like every other

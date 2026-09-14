@@ -14,6 +14,16 @@ export interface LocalMapRow {
   // pre-migration row -- falls back to `name`.
   upstreamName: string | null;
   modified_at: string;
+  // LDB-I24 (migrations/0018): the `modified_at` UPSTREAM last reported for
+  // this id, as of the last fetch-and-apply -- distinct from `modified_at`
+  // above (the LAYOUT's own `modified_at`, which only moves on a
+  // layout-scope write and so can lag upstream forever: a content-only
+  // reimport touches format only, and some upstream changes -- the board
+  // word, docs/decisions/26-no-board.md -- write nothing at all). Null for
+  // a pre-migration row, or one not yet fetched since -- falls back to
+  // `modified_at`, the same shape as `upstreamName`'s own fallback to
+  // `name` just below.
+  upstreamModifiedAt: string | null;
   like_count: number;
   deleted: boolean;
 }
@@ -136,7 +146,14 @@ export function planTick(input: PlanInput): PlanResult {
       fetchSet.add(entry.id); // new upstream id
       continue;
     }
-    if (row.modified_at !== entry.modified_at) {
+    // LDB-I24: compared against the last `modified_at` UPSTREAM itself
+    // reported as of our last fetch-and-apply of this id (`upstreamModifiedAt`),
+    // never the layout's own `modified_at` directly -- that can lag
+    // upstream forever (a content-only reimport, or an upstream change
+    // spark/1 doesn't carry, moves neither). Null (pre-migration, or not
+    // yet fetched since) falls back to the layout's own `modified_at`,
+    // same fallback shape as B2's `upstreamName ?? name` a few lines below.
+    if ((row.upstreamModifiedAt ?? row.modified_at) !== entry.modified_at) {
       fetchSet.add(entry.id);
       continue;
     }

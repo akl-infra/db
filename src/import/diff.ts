@@ -180,13 +180,14 @@ export interface SparkRecordLike {
 // (order-insensitive), `magic` dropped on both sides (LDB-I10/I11: upstream's
 // magic is never akl.gg's, and a followed record's own -- nothing today;
 // akl.gg's rules once M2 lands -- is never a mirror difference either).
+// `modified_at` itself is NOT part of the projection (LDB-P5, amended
+// 2026-09-14: see that invariant's own note for why).
 function projectSparkNoMagic(record: SparkRecordLike): unknown {
   const { magic: _magic, ...payload } = record.payload;
   return {
     name: record.name,
     owner: record.owner,
     created_at: record.created_at,
-    modified_at: record.modified_at,
     likes: [...record.likes].sort(),
     payload,
   };
@@ -194,7 +195,14 @@ function projectSparkNoMagic(record: SparkRecordLike): unknown {
 
 // LDB-P5 (M1, design/layout-db/17-magic-ownership.md §3): the projection
 // compared is magic-less on BOTH sides, the same rule `import/apply.ts`'s
-// own change detection applies.
+// own change detection applies. **Amended 2026-09-14**: also `modified_at`-
+// less on both sides -- akldb's `modified_at` is its own layout-scope time
+// (it moves only on a name/owner/deletion write, `core/events.ts`'s
+// `commitWrite`), not a mirror of upstream's; the importer's own freshness
+// is tracked by `import_map.upstream_modified_at` instead (LDB-I24), which
+// this public-API-only diff has no way to see. Comparing it here just
+// reported real content as "differs" for the same 24 live records LDB-I24
+// itself exists to stop re-fetching forever.
 export function compareRecords(upstream: SparkRecordLike, ours: SparkRecordLike): { equal: boolean; path: string | null } {
   const u = projectSparkNoMagic(upstream);
   const o = projectSparkNoMagic(ours);

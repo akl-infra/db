@@ -186,13 +186,34 @@ async function importMapByUpstreamId(db: Bindings["DB"], upstreamId: string): Pr
 // shadowed create (`applyNew`'s case 3) this is the CONTESTED name, never
 // the shadow name the layout is actually stored under, so the following
 // path's sticky-collision check (`applyMapped`) has the right baseline
-// from the very first tick.
-async function insertImportMap(db: Bindings["DB"], upstreamId: string, layoutId: string, upstreamName: string): Promise<void> {
-  await db.prepare("INSERT INTO import_map (upstream_id, layout_id, upstream_name) VALUES (?, ?, ?)").bind(upstreamId, layoutId, upstreamName).run();
+// from the very first tick. `upstreamModifiedAt` (migrations/0018) is
+// upstream's `modified_at` as of THIS fetch -- `applyFetchedId` also sets
+// it directly after this call returns, but passing it here too means a
+// brand-new row never has a NULL-fallback gap between insert and that
+// follow-up write.
+async function insertImportMap(db: Bindings["DB"], upstreamId: string, layoutId: string, upstreamName: string, upstreamModifiedAt: string): Promise<void> {
+  await db
+    .prepare("INSERT INTO import_map (upstream_id, layout_id, upstream_name, upstream_modified_at) VALUES (?, ?, ?, ?)")
+    .bind(upstreamId, layoutId, upstreamName, upstreamModifiedAt)
+    .run();
 }
 
 async function updateImportMapUpstreamName(db: Bindings["DB"], upstreamId: string, upstreamName: string): Promise<void> {
   await db.prepare("UPDATE import_map SET upstream_name = ? WHERE upstream_id = ?").bind(upstreamName, upstreamId).run();
+}
+
+// LDB-I24 (migrations/0018): recorded after EVERY successful fetch-and-
+// apply (`applyFetchedId`, following writes, following no-ops, forked/
+// informational paths, and name-collision shadows alike) -- whether or not
+// the apply actually wrote anything, since `layouts.modified_at` itself
+// only moves on a layout-scope write (`core/events.ts`'s `commitWrite`) and
+// upstream can change something spark/1 doesn't carry at all (the board
+// word, docs/decisions/26-no-board.md) with nothing to write in the first
+// place. Never called on the `"notfound"` (delete) path, and never when
+// parsing failed or apply threw -- the next tick must retry those from the
+// same stale value.
+async function recordUpstreamModifiedAt(db: Bindings["DB"], upstreamId: string, upstreamModifiedAt: string): Promise<void> {
+  await db.prepare("UPDATE import_map SET upstream_modified_at = ? WHERE upstream_id = ?").bind(upstreamModifiedAt, upstreamId).run();
 }
 
 async function freeShadowName(db: Bindings["DB"], name: string): Promise<string> {
@@ -363,7 +384,7 @@ async function applyNew(db: Bindings["DB"], now: Clock, upstreamId: string, deta
 
   if (existing === null) {
     const layout = await importCreate(db, now, upstreamId, detail.name, detail);
-    await insertImportMap(db, upstreamId, layout.id, detail.name);
+    await insertImportMap(db, upstreamId, layout.id, detail.name, detail.modified_at);
     await importLikes(db, now, layout.id, detail.likes);
     return;
   }
@@ -371,7 +392,7 @@ async function applyNew(db: Bindings["DB"], now: Clock, upstreamId: string, deta
   if (existing.owner === detail.owner) {
     // Case 2: name held by a live local record, same owner -- map it,
     // treat as not-following, tell the owner what upstream has.
-    await insertImportMap(db, upstreamId, existing.id, detail.name);
+    await insertImportMap(db, upstreamId, existing.id, detail.name, detail.modified_at);
     await appendInfo(db, now, {
       kind: "upstream_changed",
       layoutId: existing.id,
@@ -398,7 +419,7 @@ async function applyNew(db: Bindings["DB"], now: Clock, upstreamId: string, deta
   // never the shadow name the layout actually lives under -- so a
   // following tick where upstream keeps reporting this SAME name doesn't
   // look like a fresh rename and re-collide (`applyMapped`'s own check).
-  await insertImportMap(db, upstreamId, layout.id, detail.name);
+  await insertImportMap(db, upstreamId, layout.id, detail.name, detail.modified_at);
   await importLikes(db, now, layout.id, detail.likes);
 }
 
@@ -644,6 +665,13 @@ export async function applyFetchedId(db: Bindings["DB"], now: Clock, upstreamId:
     if (record === null) throw new Error(`applyFetchedId: import_map points to missing layout '${mapRow.layoutId}'`);
     await applyMapped(db, now, upstreamId, parsed.detail, record, mapRow.upstreamName);
   }
+  // LDB-I24: recorded once the apply above has returned WITHOUT throwing --
+  // a following write, a following no-op, a forked/informational path, and
+  // a name-collision shadow all reach here alike. Never reached on the
+  // `"notfound"`/parse-failure returns above, and never if `applyNew`/
+  // `applyMapped` itself threw (e.g. `RevConflictError`, LDB-P14): those
+  // must leave this id's stale value in place so the next tick retries it.
+  await recordUpstreamModifiedAt(db, upstreamId, parsed.detail.modified_at);
   return { errors: [] };
 }
 
