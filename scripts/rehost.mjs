@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// `npm run rehost -- --dump <file|url> [--local|--remote] [--force] [--env preview]`
+// `npm run rehost -- --dump <file|url> [--local|--remote] [--force] [--env preview] [--wipe=akl-db] [--accept-loss]`
 // (07-implementation-phase1.md §6 S7; 04-governance.md §4's rehost drill).
 // Applies migrations, then restores a dump's full event log into D1 via
 // `wrangler d1 execute --file` -- `restoreSql()` (src/dump/restore.ts)
@@ -12,12 +12,26 @@
 // the identifier every wrangler call names and `--env preview` itself must
 // travel together.
 //
+// akldb is no longer disposable (docs/decisions/21-formats.md D8, amended
+// 2026-09-14) -- a `--remote` run naming no `--env` targets PRODUCTION
+// `akl-db` directly, so it gets two extra guards `--local`/`--env preview`
+// don't need:
+//   1. `--wipe=akl-db` (the literal database name) must be passed, checked
+//      BEFORE anything else runs (no dump load, no migrations) -- a typo'd
+//      or missing flag refuses loudly instead of silently overwriting prod.
+//   2. Before restoring, the live production `/v1/meta` is fetched and its
+//      `seq` compared against the dump's own `meta.seq` -- if the live
+//      service has moved on since the dump was taken, restoring it would
+//      lose real event history. Refused unless `--accept-loss` is passed;
+//      both numbers are always printed either way.
+//
 // Imports `../src/dump/restore.ts` directly -- Node 24's native TypeScript
 // support strips its (purely erasable) type annotations at load time, no
 // build step needed for this plain-Node script.
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import process from "node:process";
 import url from "node:url";
 import zlib from "node:zlib";
 import { restoreSql } from "../src/dump/restore.ts";
@@ -27,15 +41,66 @@ const DB_ROOT = path.join(SCRIPTS_DIR, "..");
 const RESTORE_SQL_PATH = path.join(DB_ROOT, ".rehost-restore.sql");
 
 function parseArgs(argv) {
-  const out = { dump: null, remote: false, force: false, env: null };
+  const out = { dump: null, remote: false, force: false, env: null, wipe: null, acceptLoss: false };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--dump") out.dump = argv[++i];
     else if (argv[i] === "--remote") out.remote = true;
     else if (argv[i] === "--local") out.remote = false;
     else if (argv[i] === "--force") out.force = true;
     else if (argv[i] === "--env") out.env = argv[++i];
+    else if (argv[i] === "--wipe") out.wipe = argv[++i];
+    else if (argv[i].startsWith("--wipe=")) out.wipe = argv[i].slice("--wipe=".length);
+    else if (argv[i] === "--accept-loss") out.acceptLoss = true;
   }
   return out;
+}
+
+// The production-target guards below (docs/decisions/21-formats.md D8,
+// amended 2026-09-14) apply to exactly one combination: `--remote` with no
+// `--env` -- that's the only invocation that ever touches production
+// `akl-db` (`--local` and `--env preview` are unaffected, and stay exactly
+// as they were). Exported so tests/tools/rehost-guard.test.ts can drive
+// these decisions directly, with no wrangler/fetch involved.
+export function isProductionTarget(remote, env) {
+  return remote === true && (env === null || env === undefined);
+}
+
+// Guard 1: refused before the dump is even loaded, let alone migrations
+// applied -- `wipe` must be the literal database name, not just any truthy
+// flag, so this can't be fat-fingered into a no-op.
+export function checkWipeFlag(remote, env, wipe) {
+  if (!isProductionTarget(remote, env)) return null;
+  if (wipe !== "akl-db") {
+    return (
+      "rehost.mjs: refusing -- a --remote run with no --env targets PRODUCTION 'akl-db' directly. " +
+      "Pass --wipe=akl-db to confirm you mean to overwrite it. " +
+      "(Would have applied every migration to akl-db and then restored the dump into it.)"
+    );
+  }
+  return null;
+}
+
+// Guard 2: refused only when the LIVE service is strictly ahead of the
+// dump being restored -- an equal or behind live seq means the dump is at
+// least as fresh, nothing to lose. `--accept-loss` overrides.
+export function checkSeqLoss(remote, env, liveSeq, dumpSeq, acceptLoss) {
+  if (!isProductionTarget(remote, env)) return null;
+  if (liveSeq > dumpSeq && !acceptLoss) {
+    return (
+      `rehost.mjs: refusing -- live akl-db is at seq ${liveSeq}, ahead of this dump's seq ${dumpSeq}. ` +
+      `Restoring would lose ${liveSeq - dumpSeq} event(s) of real history. Pass --accept-loss to restore anyway.`
+    );
+  }
+  return null;
+}
+
+// `DB_BASE_URL` (same env var `diff-upstream.mjs`/`reseed-magic.mjs` read)
+// names the origin; this always appends `/v1/meta`. Defaults to the real
+// production origin -- there is no local equivalent to default to, since
+// this URL is only ever fetched for the production-target guard above.
+export function metaUrlFor(dbBaseUrl) {
+  const base = (dbBaseUrl ?? "https://api.akldb.org").replace(/\/+$/, "");
+  return `${base}/v1/meta`;
 }
 
 async function loadDump(spec) {
@@ -76,12 +141,21 @@ function d1Query(d1Name, remote, env, sql) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (!args.dump) {
-    console.log("usage: npm run rehost -- --dump <file|url> [--local|--remote] [--force] [--env preview]");
+    console.log("usage: npm run rehost -- --dump <file|url> [--local|--remote] [--force] [--env preview] [--wipe=akl-db] [--accept-loss]");
     console.log("  (07-implementation-phase1.md §6 S7 / 04-governance.md §4; 09-implementation-phase2.md §3 T7)");
+    console.log("  --wipe=akl-db and --accept-loss are required only for a --remote run with no --env (production akl-db).");
     process.exit(1);
   }
   const mode = args.remote ? "--remote" : "--local";
   const d1Name = args.env === "preview" ? "akl-db-preview" : "akl-db";
+
+  // Guard 1 (production only): refused before the dump is loaded or a
+  // single migration is applied.
+  const wipeRefusal = checkWipeFlag(args.remote, args.env, args.wipe);
+  if (wipeRefusal) {
+    console.error(wipeRefusal);
+    process.exit(1);
+  }
 
   console.log(`rehost.mjs: loading dump from ${args.dump}`);
   const dump = await loadDump(args.dump);
@@ -99,6 +173,25 @@ async function main() {
       `rehost.mjs: refusing -- 'layouts' (${mode}) already has ${existingCount} row(s). Pass --force to restore over it anyway.`,
     );
     process.exit(1);
+  }
+
+  // Guard 2 (production only): compare the LIVE service's seq against the
+  // dump's own meta.seq before restoring -- printed either way, whether or
+  // not it ends up refusing.
+  if (isProductionTarget(args.remote, args.env)) {
+    const metaUrl = metaUrlFor(process.env.DB_BASE_URL);
+    console.log(`rehost.mjs: checking live seq before restoring production akl-db (${metaUrl})`);
+    const metaRes = await fetch(metaUrl);
+    if (!metaRes.ok) throw new Error(`GET ${metaUrl} -> ${metaRes.status}`);
+    const liveMeta = await metaRes.json();
+    const liveSeq = liveMeta.seq;
+    const dumpSeq = dump.meta.seq;
+    console.log(`rehost.mjs: live seq=${liveSeq} dump seq=${dumpSeq}`);
+    const seqRefusal = checkSeqLoss(args.remote, args.env, liveSeq, dumpSeq, args.acceptLoss);
+    if (seqRefusal) {
+      console.error(seqRefusal);
+      process.exit(1);
+    }
   }
 
   const statements = restoreSql(dump);
@@ -121,7 +214,12 @@ async function main() {
   );
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+// Guarded so tests/tools/rehost-guard.test.ts can import this module for
+// its exported pure functions without running the CLI (same convention
+// scripts/reseed-magic.mjs's own `main()` guard uses).
+if (process.argv[1] && import.meta.url === url.pathToFileURL(process.argv[1]).href) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

@@ -342,14 +342,22 @@ streams the object itself.
    first if you want to sanity-check the dump before touching anything real
    (this is exactly what `tests/rehost.test.ts`'s local half does every
    test run, and what this slice's own DoD proof used).
-3. `npm run rehost -- --dump <file|url> --remote [--force]` against the
-   real `akl-db` -- needs `CLOUDFLARE_API_TOKEN`/`CLOUDFLARE_ACCOUNT_ID` in
-   the environment (the same credentials `CLOUDFLARE_DB_TOKEN`/
+3. `npm run rehost -- --dump <file|url> --remote --wipe=akl-db [--force] [--accept-loss]`
+   against the real `akl-db` -- needs `CLOUDFLARE_API_TOKEN`/`CLOUDFLARE_ACCOUNT_ID`
+   in the environment (the same credentials `CLOUDFLARE_DB_TOKEN`/
    `CLOUDFLARE_DB_ACCOUNT_ID` name as repo secrets; export them locally
    under those exact wrangler-recognized names to run this by hand). The
    script refuses when `layouts` already has rows, unless you pass
    `--force` -- a rehost is meant to be a from-scratch recovery, not a
-   silent overwrite of a live, healthy database.
+   silent overwrite of a live, healthy database. **akldb is no longer
+   disposable** (docs/decisions/21-formats.md D8, amended 2026-09-14), so a
+   `--remote` run naming no `--env` (i.e. production `akl-db`) additionally
+   refuses -- before touching anything -- unless `--wipe=akl-db` (the
+   literal database name) is passed, and refuses again, right before
+   restoring, if the live service's `/v1/meta` `seq` is ahead of the dump's
+   own `meta.seq` (a real loss of event history) unless `--accept-loss` is
+   also passed; both seqs are printed either way. Neither flag is needed
+   for `--local` or `--env preview`.
 4. `npm run deploy` (or push to `main` and let CI's `deploy` job do it) to
    point the Worker's code at the restored data, if this was a full
    from-scratch rehost (new account, lost database, etc.) rather than a
