@@ -21,7 +21,7 @@ const db = bindings.DB;
 const clock = fixedClock("2026-09-13T00:00:00.000Z");
 const SINCE = "2026-01-01T00:00:00.000Z";
 const DISCORD_SOURCE: Source = { client: "discord-app:test", version: null };
-const SPARK_PAYLOAD = (n: number) => ({ keys: [{ char: String.fromCharCode(97 + n), row: 0, col: n, finger: "LP" as const }], board: "ansi" as const });
+const SPARK_PAYLOAD = (n: number) => ({ keys: [{ char: String.fromCharCode(97 + n), row: 0, col: n, finger: "LP" as const }] });
 
 let uniqueCounter = 0;
 function uniqueName(prefix: string): string {

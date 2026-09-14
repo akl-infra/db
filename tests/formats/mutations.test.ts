@@ -395,40 +395,27 @@ describe("payload mutations", () => {
   }
 });
 
-// [LDB-F27] spark/1's own real (non-schema) geometry rules (design/layout-
-// db/23-geometry.md §4.4): the board enum itself is the schema's job (the
-// generated matrix above already exercises deleting/corrupting `board`),
-// but the iso-row-2-width rule and the thumb-row rule are hand-written
-// checks in `validateGeometry` -- each gets its own refusing fixture here,
-// dedicated rather than folded into the generic per-leaf matrix (neither
-// rule is a single-leaf mutation: iso's is a cross-row width comparison,
-// the thumb-row rule is a cross-field finger/row check).
+// [LDB-F27] spark/1's own real (non-schema) geometry rule (design/layout-
+// db/23-geometry.md §4.4 minus everything a board word carried --
+// 26-no-board.md deleted the board enum and the iso-row-2-width rule with
+// the field): the thumb-row rule is a hand-written check in
+// `validateGeometry` -- a dedicated refusing fixture rather than a row in
+// the generic per-leaf matrix (it is a cross-field finger/row check, not a
+// single-leaf mutation).
 describe("[LDB-F27] spark/1's real (non-schema) geometry rules", () => {
-  it("[LDB-F27] board must be one of ansi/iso/ortho/colstag -- anything else is refused", () => {
-    const result = spark1.validate({ keys: [], board: "not-a-board" });
-    expect(result.ok).toBe(false);
-  });
-
-  it("[LDB-F27] iso: row 2 more than one column wider than rows 0-1 is refused", () => {
-    const payload = {
-      board: "iso",
-      keys: [
-        { char: "a", row: 0, col: 0, finger: "LP" },
-        { char: "b", row: 1, col: 0, finger: "LP" },
-        { char: "c", row: 2, col: 0, finger: "LP" },
-        { char: "d", row: 2, col: 1, finger: "LR" },
-        { char: "e", row: 2, col: 2, finger: "LM" },
-      ],
-    };
-    const result = spark1.validate(payload);
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.path).toBe("/keys");
+  it("[LDB-F40] a `board` field is refused by the schema -- spark/1 has no board (design/layout-db/26-no-board.md)", () => {
+    for (const board of ["ansi", "iso", "ortho", "colstag", { kind: "ansi" }]) {
+      const result = spark1.validate({ keys: [], board });
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error).toMatchObject({ error: "invalid_payload", path: "/" });
+    }
+    expect(spark1.validate({ keys: [] }).ok).toBe(true);
   });
 
   it("[LDB-F27] a thumb finger (LT/RT) on a finger row (0-2) is refused; row 3+ is fine", () => {
-    const onFingerRow = spark1.validate({ board: "ansi", keys: [{ char: "a", row: 2, col: 0, finger: "LT" }] });
+    const onFingerRow = spark1.validate({ keys: [{ char: "a", row: 2, col: 0, finger: "LT" }] });
     expect(onFingerRow.ok).toBe(false);
-    const onThumbRow = spark1.validate({ board: "ansi", keys: [{ char: "a", row: 3, col: 0, finger: "LT" }] });
+    const onThumbRow = spark1.validate({ keys: [{ char: "a", row: 3, col: 0, finger: "LT" }] });
     expect(onThumbRow.ok).toBe(true);
   });
 });
@@ -440,7 +427,6 @@ describe("[LDB-F27] spark/1's real (non-schema) geometry rules", () => {
 describe("[LDB-F33] magic-named chars must be unique among keys", () => {
   it("[LDB-F33] a magic key's own `key` char appearing on two entries is refused magic_needs_unique_key", () => {
     const payload = {
-      board: "ansi",
       keys: [
         { char: "z", row: 0, col: 0, finger: "LP" },
         { char: "z", row: 1, col: 0, finger: "LP" },
@@ -454,7 +440,6 @@ describe("[LDB-F33] magic-named chars must be unique among keys", () => {
 
   it("[LDB-F33] a plain duplicate char no magic construct names is unrestricted", () => {
     const payload = {
-      board: "ansi",
       keys: [
         { char: "z", row: 0, col: 0, finger: "LP" },
         { char: "z", row: 1, col: 0, finger: "LP" },

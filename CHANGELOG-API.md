@@ -25,6 +25,24 @@ this file just gives them a public, versioned home. From here on, a
 `WIRE_VERSION` bump and a line here land in the SAME PR, never one without
 the other (`[LDB-V5]`).
 
+## 1.12 — 2026-09-13
+
+`spark/1` has no `board` field any more (`design/layout-db/26-no-board.md`,
+saltorbit: a record says where its keys sit, never what board it is drawn
+on -- that is the reader's choice). Every stored `spark/1` payload and
+every `payload` in a `?format=spark/1` response loses the key; a write
+carrying one is `400 invalid_payload` (the schema's `additionalProperties:
+false`); `PATCH /v1/layouts/{ref}`'s format edits are `{fingermap, magic}`
+only and a body naming `board` is `400 bad_request`; `?format=mana2/1`'s
+derived `board` is always the ANSI row stagger (`[0, 0.25, 0.75]`, padded
+to the row count). The cmini import drops cmini's own board word. The same
+class of change as 1.6: the stored format's OWN shape moving under
+`21-formats.md` D11 (edited in place until the first outside adopter) plus
+the one envelope field that only existed to edit it -- recorded here, with
+a `WIRE_VERSION` bump, rather than as a `/v2`, on the standing "the DB is
+disposable until its first outside adopter" rule. Migration `0016_no_board.sql` strips the key from every
+stored row so no re-import is needed.
+
 ## 1.11 — 2026-09-13
 
 Corrective removal: `GET /v1/meta`'s `health.clients.budget` (from 1.10) and

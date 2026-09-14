@@ -32,6 +32,5 @@
     { "char": "/", "row": 2, "col": 9, "finger": "RP" },
     { "char": "'", "row": 3, "col": 4, "finger": "LT" },
     { "char": "-", "row": 3, "col": 5, "finger": "RT" }
-  ],
-  "board": "ansi"
+  ]
 }

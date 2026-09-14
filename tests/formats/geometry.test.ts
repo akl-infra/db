@@ -1,49 +1,16 @@
-// [LDB-F30] `db/formats/spark/1/geometry.ts` is the ONE definition of
-// physical coordinates (`coords`), the hand split (`handSplit`/
-// `handSplitRows`) and the named-fingering classification
-// (`classifyFingering`) -- the site's drawer, the bot's grid/image and the
-// mana2 lowering all call these, never re-derive them (design/layout-db/
-// 23-geometry.md §3/§4.1/§4.3). This file is the unit-level proof for the
+// [LDB-F30] `db/formats/spark/1/geometry.ts` is the ONE definition of the
+// hand split (`handSplit`/`handSplitRows`) and the named-fingering
+// classification (`classifyFingering`) -- the site's drawer, the bot's
+// grid/image and the mana2 lowering all call these, never re-derive them
+// (design/layout-db/23-geometry.md §3/§4.1/§4.3; the board-keyed
+// `coords`/`STAGGER_BY_KIND` went with the board field, 26-no-board.md). This file is the unit-level proof for the
 // pure functions themselves; `mf9-fromcmini.test.ts`/`mana2.test.ts` prove
 // they're actually USED where they need to be, and the one-off parity
 // script (db's own classifier vs the 4,191-layout catalog's stored
 // `fingermap` field) is reported in the slice's own writeup rather than
 // committed as a test (it reads `web/data/*.json`, outside this package).
 import { describe, expect, it } from "vitest";
-import { KINDS, STAGGER_BY_KIND, coords, handSplit, handSplitRows, classifyFingering, gridIndent, FINGERING_REFS, type Key } from "../../formats/spark/1/geometry.ts";
-
-describe("KINDS / STAGGER_BY_KIND (§4.1)", () => {
-  it("[LDB-F30] the four kinds, each with its own fixed 3-entry stagger", () => {
-    expect(KINDS).toEqual(["ansi", "iso", "ortho", "colstag"]);
-    expect(STAGGER_BY_KIND.ansi).toEqual([0, 0.25, 0.75]);
-    expect(STAGGER_BY_KIND.iso).toEqual([0, 0.25, -0.25]);
-    expect(STAGGER_BY_KIND.ortho).toEqual([0, 0, 0]);
-    expect(STAGGER_BY_KIND.colstag).toEqual([0, 0, 0]);
-  });
-});
-
-describe("coords (§4.1)", () => {
-  it("[LDB-F30] ansi: row 1 shifts +0.25, row 2 shifts +0.75", () => {
-    expect(coords("ansi", 0, 5)).toEqual({ x: 5, y: 0 });
-    expect(coords("ansi", 1, 5)).toEqual({ x: 5.25, y: 1 });
-    expect(coords("ansi", 2, 5)).toEqual({ x: 5.75, y: 2 });
-  });
-
-  it("[LDB-F30] iso: row 2 shifts -0.25 (the new key at col 0 sits at x=-0.25; col 1 lands at 0.75, its ANSI spot)", () => {
-    expect(coords("iso", 2, 0)).toEqual({ x: -0.25, y: 2 });
-    expect(coords("iso", 2, 1)).toEqual({ x: 0.75, y: 2 });
-  });
-
-  it("[LDB-F30] ortho/colstag are flat", () => {
-    expect(coords("ortho", 2, 4)).toEqual({ x: 4, y: 2 });
-    expect(coords("colstag", 2, 4)).toEqual({ x: 4, y: 2 });
-  });
-
-  it("[LDB-F30] a row past 2 (a number row / a thumb row) reuses row 2's own offset", () => {
-    expect(coords("ansi", 3, 5)).toEqual({ x: 5.75, y: 3 });
-    expect(coords("ansi", 4, 5)).toEqual({ x: 5.75, y: 4 });
-  });
-});
+import { handSplit, handSplitRows, classifyFingering, gridIndent, FINGERING_REFS, type Key } from "../../formats/spark/1/geometry.ts";
 
 // -- handSplit / handSplitRows (§4.1, the coordinator's parity note) --
 

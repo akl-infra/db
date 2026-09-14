@@ -54,8 +54,10 @@ query parameter at all any more (`design/layout-db/21-formats.md` D4/D5/D12):
 `?format=` is the one name everywhere, and it is **required** on every
 route that returns a payload -- there is no default, `400
 format_required` without one. `spark/1` also lost its free-form `x` field
-in the F1 slice (D10) -- see `design/layout-db/22-spark-spec.md` for the
-current spec. `GET /v1/formats` is the live registry (`role`,
+in the F1 slice (D10) and its `board` field in `design/layout-db/
+26-no-board.md` (a record never says what board it is drawn on -- that is
+the reader's choice; migration `0016_no_board.sql` stripped stored rows in
+place) -- see `design/layout-db/22-spark-spec.md` for the current spec. `GET /v1/formats` is the live registry (`role`,
 `can_translate_to`, and an `aliases` field kept for wire compatibility but
 always `[]` now that there are none).
 
@@ -79,7 +81,7 @@ see `db/formats/registry.ts` and `db/docs/adoption.md` §7/§8.
 **`upstream` is transitional.** Every record carries `upstream: {source:
 "cmini", id, state: "following" | "forked"} | null`, folded from import and
 write events (`core/upstream.ts`'s `nextUpstream`) -- it answers exactly one
-question, "does the importer still own this record's keys and board", for
+question, "does the importer still own this record's keys", for
 exactly as long as the one-time cmini import keeps running. Nothing outside
 the importer, the daily upstream diff, and the one-time record migration
 reads it for any decision; it is retired along with the import

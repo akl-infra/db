@@ -75,9 +75,9 @@ export interface FormatEdits {
   // partial maps are fine. A bad finger word is left to the pipeline's
   // validate() re-run, not checked here.
   setFingermap?(p: Payload, map: Record<string, string>): EditResult;
-  // `board` arrives shaped as spark/1's board object (01 §2) -- the API's
-  // one board vocabulary regardless of the record's own format.
-  setBoard?(p: Payload, board: unknown): EditResult;
+  // (`setBoard` is gone with spark/1's `board` field, design/layout-db/
+  // 26-no-board.md -- a PATCH body naming `board` is refused by the route
+  // schema before any edit runs.)
   // `magic` arrives shaped as spark/1's magic object (01 §2).
   setMagic?(p: Payload, magic: unknown): EditResult;
 }

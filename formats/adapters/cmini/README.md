@@ -16,14 +16,14 @@ and no way to reach this shape from the API at all -- `GET .../{ref}
 constant (below) stays for identity/testing purposes only; it was never
 re-registered after `20-spark.md` S1 unregistered it, and D5 finished the
 job by deleting the export path S1 had left in place. What `fromCmini`
-drops on the way in (`tag`, `blame`, `combos`, `link` -- fields `spark/1`
-has no place for) is permanent: nothing downstream of the DB ever sees
-them again. `db/tests/formats/mf9-fromcmini.test.ts` (LDB-F23, MF-9) is
-the invariant that replaces the old cmini round trip: over every
+drops on the way in (`tag`, `blame`, `combos`, `link`, and since
+`design/layout-db/26-no-board.md` the `board` word -- fields `spark/1` has
+no place for) is permanent: nothing downstream of the DB ever sees them
+again. `db/tests/formats/mf9-fromcmini.test.ts` (LDB-F23, MF-9) is the
+invariant that replaces the old cmini round trip: over every
 `upstream-100` fixture layout, the `(char, row, col, finger)` multiset
-survives exactly, the board word maps to `spark/1`'s `board.kind` by a
-fixed table, and the fields dropped are exactly those four -- nothing else
-vanishes or leaks in.
+survives exactly, and the fields dropped are exactly those five -- nothing
+else vanishes or leaks in.
 
 ## What it can't express
 
@@ -36,9 +36,9 @@ There is deliberately **no thumb-row rule and no non-empty-keys rule** in
 
 Going OUT (import -> `spark/1`) loses `tag`/`blame`/`combos`/`link` (D10,
 D5 -- `spark/1` has no free-form `x` bag to carry them in anymore, and
-nothing reads them back) and normalises the board word into `spark/1`'s
-`board` object via the fixed table `cminiBoardWord`'s inverse
-(`boardFromCmini`) uses.
+nothing reads them back) and the `board` word (26-no-board.md: `spark/1`
+has no board field; the angle mod it sometimes named is already in the
+keys' own fingers).
 
 ## Owner
 

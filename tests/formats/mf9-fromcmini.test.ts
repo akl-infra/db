@@ -8,14 +8,14 @@
 // `keys` array entries (`char` absent = free position, 23-geometry.md's
 // duplicate-characters follow-up) MODULO the §4.6 relabel (a `TB` finger,
 // or an `LT`/`RT` thumb whose column disagrees with `col < 5 => LT else
-// RT`, is relabelled -- the last time this ever runs, LDB-F28), cmini's
-// board word maps to spark's `board` by the fixed table `translate.ts`'s
-// own `WORD_TABLE` implements (24-spark-wire-review.md finding 10: NO
-// angle-family bump any more -- import is faithful to the word alone), and
-// the fields dropped are exactly `tag`, `blame`, `combos`, `link` (D10's
-// own cost list -- these have no spark/1 idiom, and, since D10 also
-// deleted spark/1's free-form `x`, there is nowhere left to reserve them
-// either).
+// RT`, is relabelled -- the last time this ever runs, LDB-F28), and the
+// fields dropped are exactly `tag`, `blame`, `combos`, `link` (D10's own
+// cost list -- these have no spark/1 idiom, and, since D10 also deleted
+// spark/1's free-form `x`, there is nowhere left to reserve them either)
+// plus `board` (design/layout-db/26-no-board.md: spark/1 has no board
+// field at all, so cmini's word is dropped like the rest -- 24-spark-wire-
+// review.md finding 10's "faithful to the word alone" table is gone with
+// it, LDB-F31 retired).
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -37,20 +37,8 @@ function cminiPayloadFrom(raw: Record<string, unknown>): CminiPayload {
   return payload as unknown as CminiPayload;
 }
 
-// The fixed cmini board word -> spark board table (design/layout-db/
-// 23-geometry.md §4.6, 24-spark-wire-review.md finding 10 -- no
-// angle-family bump, import is faithful to the word alone). Computed
-// independently here (not by importing translate.ts's own `WORD_TABLE`) so
-// this test can't share a bug with the code it checks.
-const WORD_KIND: Record<CminiPayload["board"], "ansi" | "ortho"> = {
-  stagger: "ansi",
-  angle: "ansi",
-  ortho: "ortho",
-  mini: "ortho",
-};
-
-// §4.6's relabel rule, reimplemented independently (self-contained, same
-// reasoning as the board table above): a `TB`, or an `LT`/`RT` disagreeing
+// §4.6's relabel rule, reimplemented independently (self-contained, so
+// this test can't share a bug with the code it checks): a `TB`, or an `LT`/`RT` disagreeing
 // with its column, is relabelled by `col < 5 => LT else RT`.
 function relabelFinger(finger: string, col: number): string {
   if (finger !== "TB" && finger !== "LT" && finger !== "RT") return finger;
@@ -74,8 +62,10 @@ function cminiPositionMultiset(keys: Record<string, Position>, free: Position[] 
   return out;
 }
 
-const SPARK_ALLOWED_FIELDS = new Set(["keys", "board", "magic"]);
-const CMINI_ONLY_FIELDS = new Set(["tag", "blame", "combos", "link"]);
+// `board` is cmini-only too since design/layout-db/26-no-board.md: spark/1
+// has no board field, so cmini's word is dropped on import like the rest.
+const SPARK_ALLOWED_FIELDS = new Set(["keys", "magic"]);
+const CMINI_ONLY_FIELDS = new Set(["tag", "blame", "combos", "link", "board"]);
 
 describe("[LDB-F23] fromCmini is exact where spark has a place (MF-9)", () => {
   const fixture = JSON.parse(
@@ -93,11 +83,7 @@ describe("[LDB-F23] fromCmini is exact where spark has a place (MF-9)", () => {
       expect(positionMultiset(spark.keys)).toEqual(cminiPositionMultiset(cmini.keys, cmini.free));
     });
 
-    it(`[LDB-F23] [LDB-F31] '${name}': the board word maps to spark's board by the fixed table`, () => {
-      expect(spark.board).toBe(WORD_KIND[cmini.board]);
-    });
-
-    it(`[LDB-F23] '${name}': the fields dropped are exactly tag, blame, combos, link -- nothing else survives or vanishes`, () => {
+    it(`[LDB-F23] [LDB-F40] '${name}': the fields dropped are exactly tag, blame, combos, link, board -- nothing else survives or vanishes`, () => {
       const sparkKeys = new Set(Object.keys(spark));
       for (const field of CMINI_ONLY_FIELDS) {
         expect(sparkKeys.has(field), `spark payload unexpectedly carries '${field}'`).toBe(false);

@@ -66,17 +66,17 @@ const adminAddSchema = {
 } as const;
 
 // PATCH (21-formats.md §2.2/§2.4): `{name}` (layout scope) OR `{format,
-// <at least one of fingermap/board/magic>}` (that format's scope) -- never
-// both (`400 mixed_patch`) or neither (`400 bad_request`/`format_required`).
+// <at least one of fingermap/magic>}` (that format's scope) -- never both
+// (`400 mixed_patch`) or neither (`400 bad_request`/`format_required`).
 // This schema only enforces "the right keys, the right JSON types"
 // (`minProperties: 1`, `additionalProperties: false`); `core/write.ts`'s
 // `classifyPatch` is where mixing/format-required is actually refused, so
 // the error names the real reason rather than a generic shape mismatch.
-// `board`/`magic` are validated as whole VALUES here (`board` is just
-// present, no type constraint -- design/layout-db/23-geometry.md made
-// spark/1's own `board` a plain string word, no longer an object); their
-// format-specific shape is the job of the record's format `edits` + the
-// pipeline's validate() re-run, not this schema.
+// `magic` is validated as a whole VALUE here; its format-specific shape is
+// the job of the record's format `edits` + the pipeline's validate()
+// re-run, not this schema. `board` is no longer a key at all (design/
+// layout-db/26-no-board.md: spark/1 has no board field) -- a body naming
+// it fails `additionalProperties` like any other unknown key.
 const patchSchema = {
   type: "object",
   additionalProperties: false,
@@ -85,7 +85,6 @@ const patchSchema = {
     name: { type: "string" },
     format: { type: "string" },
     fingermap: { type: "object", additionalProperties: { type: "string" } },
-    board: {},
     magic: { type: "object" },
   },
 } as const;
@@ -179,7 +178,6 @@ export interface PatchBody {
   name?: string;
   format?: string;
   fingermap?: Record<string, string>;
-  board?: object;
   magic?: object;
 }
 

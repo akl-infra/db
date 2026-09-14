@@ -208,7 +208,7 @@ describe("[LDB-P13] property: the stored major never decreases under a random se
 // rule `putFormat` runs (format_behind) -- all BEFORE any edit is applied.
 describe("[LDB-P13] PATCH validates the format it names (M5)", () => {
   async function seedSpark() {
-    const res = await writeFetch("/v1/layouts", "POST", headers(), { name: uniqueName("patch-format-seed"), format: "spark/1", payload: { keys: [{ char: "a", row: 0, col: 0, finger: "LP" }], board: "ansi" } });
+    const res = await writeFetch("/v1/layouts", "POST", headers(), { name: uniqueName("patch-format-seed"), format: "spark/1", payload: { keys: [{ char: "a", row: 0, col: 0, finger: "LP" }] } });
     const body = await res.json<{ id: string; formats: Record<string, { rev: number }> }>();
     return { id: body.id, rev: body.formats["spark/1"]!.rev };
   }
@@ -220,7 +220,7 @@ describe("[LDB-P13] PATCH validates the format it names (M5)", () => {
     await expect(res.json()).resolves.toMatchObject({ error: "unknown_format" });
     const row = await db.prepare("SELECT rev, payload_json FROM layout_formats WHERE layout_id = ? AND lineage = 'spark'").bind(seeded.id).first<{ rev: number; payload_json: string }>();
     expect(row!.rev).toBe(seeded.rev); // never edited
-    expect(JSON.parse(row!.payload_json)).toEqual({ keys: [{ char: "a", row: 0, col: 0, finger: "LP" }], board: "ansi" });
+    expect(JSON.parse(row!.payload_json)).toEqual({ keys: [{ char: "a", row: 0, col: 0, finger: "LP" }] });
   });
 
   it("[LDB-P13] {format: 'mana2/1', fingermap} on a spark/1-stored layout -> 400 format_not_writable (output format), untouched", async () => {

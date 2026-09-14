@@ -1,6 +1,6 @@
 // [LDB-P1] [LDB-N1] [LDB-P7] PATCH /v1/layouts/{ref} (21-formats.md
 // §2.2/§2.4): EITHER `{name}` (layout scope, `If-Match: "layout:<rev>"`) OR
-// `{format, <one or more of fingermap/board/magic>}` (that format's scope,
+// `{format, <one or more of fingermap/magic>}` (that format's scope,
 // `If-Match: "<lineage>:<rev>"`) -- applied in order to a clone of the
 // format's payload via its `edits`, validated once as a whole, one event:
 // `renamed`/`fingermap` for exactly that one field, `updated` with
@@ -27,7 +27,7 @@ const SOURCE = { client: "discord-app:test", version: null };
 
 // Seeded with one real key ("a") -- PATCH's fingermap tests need a char to
 // name.
-const AKL_KEYED = { keys: [{ char: "a", row: 0, col: 0, finger: "LP" }], board: "ansi" };
+const AKL_KEYED = { keys: [{ char: "a", row: 0, col: 0, finger: "LP" }] };
 
 interface Seeded {
   id: string;
@@ -131,7 +131,7 @@ describe("[LDB-P1] PATCH {name}: layout scope", () => {
   });
 });
 
-describe("[LDB-P1] PATCH {format, fingermap|board|magic}: that format's scope", () => {
+describe("[LDB-P1] PATCH {format, fingermap|magic}: that format's scope", () => {
   it("fingermap alone -> 200, kind fingermap, format rev + 1, only the named char changes", async () => {
     const record = await seed();
     const headers = ownerHeaders(`tok-${uniqueName("fm")}`);
@@ -152,52 +152,40 @@ describe("[LDB-P1] PATCH {format, fingermap|board|magic}: that format's scope", 
     await expect(res.json()).resolves.toMatchObject({ error: "invalid_payload", path: "/keys" });
   });
 
-  it("board alone -> 200, kind updated, detail.fields = ['board']", async () => {
+  it("[LDB-F40] board -> 400 bad_request: spark/1 has no board field (design/layout-db/26-no-board.md), so the PATCH schema refuses the key before any edit runs", async () => {
     const record = await seed();
     const headers = ownerHeaders(`tok-${uniqueName("board")}`);
-    const board = "iso";
-    const res = await patch(record.id, headers, { format: "spark/1", board }, `"spark:${record.formatRev}"`);
-    expect(res.status).toBe(200);
-    const events = await eventsFor(record.id);
-    expect(events.at(-1)).toMatchObject({ kind: "updated", detail: { fields: ["board"] } });
-    const body = await res.json<{ payload: { board: unknown } }>();
-    expect(body.payload.board).toEqual(board);
-  });
-
-  it("magic on spark/1 -> 200, kind updated, plain detail.fields, no magic_only marker", async () => {
-    const record = await seed();
-    const headers = ownerHeaders(`tok-${uniqueName("magic")}`);
-    const res = await patch(record.id, headers, { format: "spark/1", magic: { rules: [{ inputs: "aa", output: "ab" }] } }, `"spark:${record.formatRev}"`);
-    expect(res.status).toBe(200);
-    const events = await eventsFor(record.id);
-    expect(events.at(-1)).toMatchObject({ kind: "updated", detail: { fields: ["magic"] } });
-    expect((events.at(-1)?.detail as { magic_only?: unknown } | null)?.magic_only).toBeUndefined();
-    const body = await res.json<{ payload: { magic: { rules: unknown[] } } }>();
-    expect(body.payload.magic.rules).toHaveLength(1);
-  });
-
-  it("fingermap AND board together -> one event 'updated', detail.fields = ['fingermap','board']", async () => {
-    const record = await seed();
-    const headers = ownerHeaders(`tok-${uniqueName("combo-fmt")}`);
-    const board = "ortho";
-    const res = await patch(record.id, headers, { format: "spark/1", fingermap: { a: "RP" }, board }, `"spark:${record.formatRev}"`);
-    expect(res.status).toBe(200);
-    const events = await eventsFor(record.id);
-    expect(events.at(-1)).toMatchObject({ kind: "updated", detail: { fields: ["fingermap", "board"] } });
-    const body = await res.json<{ payload: { keys: { char?: string; finger: string }[]; board: unknown } }>();
-    expect(body.payload.keys.find((k) => k.char === "a")?.finger).toBe("RP");
-    expect(body.payload.board).toEqual(board);
-  });
-
-  it("a failing later verb (a fingermap naming a char not in keys) leaves the earlier one (board) unapplied -- one batch or nothing", async () => {
-    const record = await seed();
-    const headers = ownerHeaders(`tok-${uniqueName("partial")}`);
-    const res = await patch(record.id, headers, { format: "spark/1", board: "ortho", fingermap: { z: "RP" } }, `"spark:${record.formatRev}"`);
+    const res = await patch(record.id, headers, { format: "spark/1", board: "iso" }, `"spark:${record.formatRev}"`);
     expect(res.status).toBe(400);
-    await expect(res.json()).resolves.toMatchObject({ error: "invalid_payload", path: "/keys" });
-
+    await expect(res.json()).resolves.toMatchObject({ error: "bad_request" });
     const row = await db.prepare("SELECT rev FROM layout_formats WHERE layout_id = ? AND lineage = 'spark'").bind(record.id).first<{ rev: number }>();
     expect(row?.rev).toBe(record.formatRev);
+    expect(await eventsFor(record.id)).toHaveLength(2); // untouched
+  });
+
+  it("fingermap AND magic together -> one event 'updated', detail.fields = ['fingermap','magic']", async () => {
+    const record = await seed();
+    const headers = ownerHeaders(`tok-${uniqueName("fm-magic")}`);
+    const magic = { rules: [{ inputs: "aa", output: "ab" }] };
+    const res = await patch(record.id, headers, { format: "spark/1", fingermap: { a: "RP" }, magic }, `"spark:${record.formatRev}"`);
+    expect(res.status).toBe(200);
+    const events = await eventsFor(record.id);
+    expect(events.at(-1)).toMatchObject({ kind: "updated", detail: { fields: ["fingermap", "magic"] } });
+    const body = await res.json<{ payload: { keys: { char?: string; finger: string }[]; magic: unknown } }>();
+    expect(body.payload.keys.find((k) => k.char === "a")?.finger).toBe("RP");
+    expect(body.payload.magic).toEqual(magic);
+  });
+
+  it("a failing later verb (a magic rule missing its output) leaves the earlier one (fingermap) unapplied -- one batch or nothing", async () => {
+    const record = await seed();
+    const headers = ownerHeaders(`tok-${uniqueName("atomic")}`);
+    const res = await patch(record.id, headers, { format: "spark/1", fingermap: { a: "RP" }, magic: { rules: [{ inputs: "aa" }] } }, `"spark:${record.formatRev}"`);
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({ error: "invalid_payload" });
+
+    const row = await db.prepare("SELECT rev, payload_json FROM layout_formats WHERE layout_id = ? AND lineage = 'spark'").bind(record.id).first<{ rev: number; payload_json: string }>();
+    expect(row?.rev).toBe(record.formatRev);
+    expect((JSON.parse(row!.payload_json) as { keys: { char?: string; finger: string }[] }).keys.find((k) => k.char === "a")?.finger).toBe("LP");
     const events = await eventsFor(record.id);
     expect(events).toHaveLength(2); // just the seed's own created + format_added -- nothing appended
   });
@@ -261,7 +249,7 @@ describe("[LDB-P1] PATCH {format, fingermap|board|magic}: that format's scope", 
 
 // `unsupported_for_format` on PATCH is GENUINELY UNREACHABLE here, not just
 // untested: every stored record is spark/1, and spark's own `edits` covers
-// fingermap/board/magic uniformly, never refusing any of them. `runEdit`'s
+// fingermap/magic uniformly, never refusing any of them. `runEdit`'s
 // `edit === undefined` branch is still real code (a future format module
 // that omits an edit still gets refused this way); `tests/formats/
 // edits.test.ts` covers the format-level half.
@@ -276,10 +264,10 @@ describe("[LDB-P7] mixed_patch: name can never combine with a format edit", () =
     expect(await eventsFor(record.id)).toHaveLength(2); // untouched
   });
 
-  it("{name, board} without format -> still 400 mixed_patch (not format_required -- mixing wins)", async () => {
+  it("{name, magic} without format -> still 400 mixed_patch (not format_required -- mixing wins)", async () => {
     const record = await seed();
     const headers = ownerHeaders(`tok-${uniqueName("mixed2")}`);
-    const res = await patch(record.id, headers, { name: uniqueName("mixed-name-2"), board: { kind: "ortho" } }, `"layout:${record.layoutRev}"`);
+    const res = await patch(record.id, headers, { name: uniqueName("mixed-name-2"), magic: { rules: [] } }, `"layout:${record.layoutRev}"`);
     expect(res.status).toBe(400);
     await expect(res.json()).resolves.toMatchObject({ error: "mixed_patch" });
   });

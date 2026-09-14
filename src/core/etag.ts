@@ -137,7 +137,13 @@ export async function readHead(db: D1Database, stateKeys: readonly string[] = []
 //   public handbook for destructive clients / hostile upstreams). A corrective
 //   removal, not a /v2: both fields were live under two hours and no client
 //   ever read them (LDB-A14).
-export const WIRE_VERSION = 11;
+// 12 (2026-09-13): design/layout-db/26-no-board.md -- spark/1's `board` field
+//   is gone (the format is edited in place, 21-formats.md D11, same as 6
+//   above): every stored payload and every `?format=spark/1` body loses the
+//   key, `PATCH` loses its `board` edit, `?format=mana2/1` always lowers to
+//   the ANSI row stagger. No cached 304/edge-cached body from before this
+//   slice can keep serving a payload WITH `board` at an unchanged head seq.
+export const WIRE_VERSION = 12;
 
 export async function etagFor(headSeqValue: number, query: unknown): Promise<string> {
   const hash = await sha256Hex(canonical({ wireVersion: WIRE_VERSION, query: query ?? null }));

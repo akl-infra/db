@@ -81,7 +81,7 @@ function recordBody(r: FakeRecord) {
     name: r.name,
     upstream: r.upstreamState === null ? null : { source: "cmini", id: r.name, state: r.upstreamState },
     format: "spark/1",
-    payload: { board: "ortho", keys: [], ...(r.magic === null ? {} : { magic: r.magic }) },
+    payload: { keys: [], ...(r.magic === null ? {} : { magic: r.magic }) },
     formats: {
       "spark/1": {
         rev: r.rev ?? 1,

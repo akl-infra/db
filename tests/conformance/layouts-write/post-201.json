@@ -7,8 +7,7 @@
       "name": "cw-post-ok-1",
       "format": "spark/1",
       "payload": {
-        "keys": [],
-        "board": "ansi"
+        "keys": []
       }
     }
   },
@@ -43,8 +42,7 @@
       },
       "format": "spark/1",
       "payload": {
-        "keys": [],
-        "board": "ansi"
+        "keys": []
       }
     }
   }

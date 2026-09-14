@@ -210,7 +210,10 @@ describe("import case table (07 §6 S5, restated by 21-formats.md §2.2)", () =>
     expect(before!.layout_rev).toBe(1);
     expect((await sparkOf(before!.id)).rev).toBe(1);
 
-    const d2 = detail({ name: "Case4-Content", user: owner, board: "angle", keys: {}, modified_at: "2026-02-01T00:00:00Z" });
+    // A key added upstream: a change that reaches the stored spark/1
+    // payload (a cmini board-word change alone would not -- spark/1 has no
+    // board, design/layout-db/26-no-board.md).
+    const d2 = detail({ name: "Case4-Content", user: owner, board: "ortho", keys: { a: { row: 1, col: 0, finger: "LP" } }, modified_at: "2026-02-01T00:00:00Z" });
     const result = await applyFetchedId(db, clock, "case4", d2);
     expect(result.errors).toEqual([]);
 
@@ -219,7 +222,7 @@ describe("import case table (07 §6 S5, restated by 21-formats.md §2.2)", () =>
     const spark = await sparkOf(before!.id);
     expect(spark.rev).toBe(2);
     expect(spark.format).toBe("spark/1");
-    expect((spark.payload as { board: unknown }).board).toEqual(fromCmini(d2 as unknown as CminiPayload).board);
+    expect((spark.payload as { keys: unknown }).keys).toEqual(fromCmini(d2 as unknown as CminiPayload).keys);
 
     const events = await eventsFor(before!.id);
     expect(events.map((e) => ({ kind: e.kind, format: e.format }))).toEqual([
@@ -579,13 +582,13 @@ describe("import case table (07 §6 S5, restated by 21-formats.md §2.2)", () =>
     const rec = await readByName(db, "Case6-NotFollow");
     await humanTouch(rec!.id);
 
-    const d2 = detail({ name: "Case6-NotFollow", user: owner, board: "angle" });
+    const d2 = detail({ name: "Case6-NotFollow", user: owner, board: "ortho", keys: { a: { row: 1, col: 0, finger: "LP" } } });
     const result = await applyFetchedId(db, clock, "case6", d2);
     expect(result.errors).toEqual([]);
 
     const spark = await sparkOf(rec!.id);
-    // still d1's board, untouched by the info event.
-    expect((spark.payload as { board: unknown }).board).toEqual(fromCmini(d1 as unknown as CminiPayload).board);
+    // still d1's keys, untouched by the info event.
+    expect((spark.payload as { keys: unknown }).keys).toEqual(fromCmini(d1 as unknown as CminiPayload).keys);
 
     const events = await eventsFor(rec!.id);
     expect(events.map((e) => e.kind)).toEqual(["imported", "imported", "updated", "upstream_changed"]);

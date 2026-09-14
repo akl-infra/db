@@ -2,16 +2,15 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://akl-db/formats/spark/1/schema.json",
   "title": "spark/1 payload",
-  "description": "The common format (design/layout-db/22-spark-spec.md, design/layout-db/23-geometry.md §4): cmini's positions, the board geometry #261/23-geometry.md introduced (one required word -- ansi, iso, ortho or colstag; no stagger amounts, no split, they're derived, §4.1), the magic-rules authoring shape from design/magic-rules/02-schema.md, plus a raw-rule escape hatch. 21-formats.md D10 dropped the free-form `x` field; 23-geometry.md dropped the `board` object (kind/stagger/cmini) and the `TB` finger (§4.2: a thumb key's label IS its hand), and its own duplicate-characters follow-up replaced the char-keyed `keys` map (plus a separate `free` array) with ONE array of positions -- `char` optional (absent = free), and the SAME char may appear on more than one entry. Single-code-point-ness, cross-field agreement and referential checks (no two entries share (row, col), a magic-named char has at most one entry, the iso width rule, etc.) are NOT expressible here -- they live in formats/spark/1/index.ts's validate().",
+  "description": "The common format (design/layout-db/22-spark-spec.md): cmini's positions, the magic-rules authoring shape from design/magic-rules/02-schema.md, plus a raw-rule escape hatch. There is NO board field (design/layout-db/26-no-board.md): a record says where its keys sit and which finger presses each, never what physical board it is drawn on -- the board is the reader's own choice (the site's rowstag/ortho comparison view, the bot's engine context), so 23-geometry.md's one-word `board` is gone along with its object predecessor. 21-formats.md D10 dropped the free-form `x` field; 23-geometry.md dropped the `TB` finger (its section 4.2: a thumb key's label IS its hand), and its own duplicate-characters follow-up replaced the char-keyed `keys` map (plus a separate `free` array) with ONE array of positions -- `char` optional (absent = free), and the SAME char may appear on more than one entry. Single-code-point-ness, cross-field agreement and referential checks (no two entries share (row, col), a magic-named char has at most one entry, etc.) are NOT expressible here -- they live in formats/spark/1/index.ts's validate().",
   "type": "object",
   "additionalProperties": false,
-  "required": ["keys", "board"],
+  "required": ["keys"],
   "properties": {
     "keys": {
       "type": "array",
       "items": { "$ref": "#/$defs/key" }
     },
-    "board": { "enum": ["ansi", "iso", "ortho", "colstag"] },
     "magic": { "$ref": "#/$defs/magic" }
   },
   "$defs": {

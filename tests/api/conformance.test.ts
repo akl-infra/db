@@ -100,11 +100,10 @@ const CONFORMANCE_CLIENT_REACTIVATE_ID = "conformance-client-reactivate-1";
 // 21-formats.md D12: every stored row is spark/1 now -- `cmini/1` is
 // unregistered, so a record seeded under that literal would 500 the
 // moment any write path (transfer, delete, restore, PATCH) recomputes
-// `has_magic` via the registry. Same shape `fromCmini({board: "ortho",
-// keys: {}})` used to produce, so every fixture's expected payload (baked
-// in when this file's seeds really were cmini/1, carried forward through
-// `storedAsSpark`) stays byte-identical.
-const SPARK_PAYLOAD = { keys: {}, board: { kind: "ortho" as const, cmini: "ortho" as const } };
+// `has_magic` via the registry. The minimal spark/1 payload (no `board`
+// since design/layout-db/26-no-board.md), so every fixture's expected
+// payload stays byte-identical to what a real empty layout stores.
+const SPARK_PAYLOAD = { keys: [] as never[] };
 const ID_PLACEHOLDERS: Record<string, string> = {};
 
 async function seedLive(name: string) {
@@ -576,7 +575,7 @@ const REQUIRED: Record<string, RequiredCase[]> = {
   ],
   // 20-spark.md S2: `unsupported_for_format` dropped -- genuinely
   // unreachable now that `patchLayout` normalizes every record to spark
-  // first (spark's own `edits` covers fingermap/board/magic uniformly);
+  // first (spark's own `edits` covers fingermap/magic uniformly);
   // see manifest.ts's own note where the fixture was removed.
   "PATCH /v1/layouts/:ref": [
     { status: 200 },

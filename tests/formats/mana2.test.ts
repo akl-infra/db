@@ -21,10 +21,10 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import * as spark1 from "../../formats/spark/1/index.ts";
 import { computeRows } from "../../formats/spark/1/magic.ts";
-import type { Payload as SparkPayload, Board as SparkBoard } from "../../formats/spark/1/index.ts";
+import type { Payload as SparkPayload } from "../../formats/spark/1/index.ts";
 import * as mana2_1 from "../../formats/mana2/1/index.ts";
 import type { Payload as Mana2Payload } from "../../formats/mana2/1/index.ts";
-import { parseRow, toSpark, fromSpark } from "../../formats/mana2/1/translate.ts";
+import { parseRow, toSpark, fromSpark, DEFAULT_ROW_STAGGER } from "../../formats/mana2/1/translate.ts";
 
 const VENDORED_DIR = path.resolve(import.meta.dirname, "..", "fixtures", "mana2-vendored");
 const MANA2_FIXTURES_DIR = path.resolve(import.meta.dirname, "..", "..", "formats", "mana2", "1", "fixtures");
@@ -186,14 +186,11 @@ describe("algorithm rows (12-implementation-phase5.md §2.5, exact)", () => {
     expect(maxCol).toBe(11);
   });
 
-  it("whirl: colstag (design/layout-db/23-geometry.md §4.1: the WORD survives, the per-column amounts don't -- colstag has nowhere to store them any more)", () => {
-    const a = spark("004-whirl");
-    expect(a.board).toBe("colstag");
-  });
-
-  it("bunya: ortho", () => {
-    const a = spark("005-bunya");
-    expect(a.board).toBe("ortho");
+  it("[LDB-F40] whirl (column-staggered) and bunya (ortho): toSpark carries no board at all (design/layout-db/26-no-board.md)", () => {
+    for (const name of ["004-whirl", "005-bunya", "001-hours"]) {
+      const a = spark(name);
+      expect("board" in a).toBe(false);
+    }
   });
 
   it("904-dup-rules: keeps the last rule", () => {
@@ -216,12 +213,30 @@ describe("algorithm rows (12-implementation-phase5.md §2.5, exact)", () => {
     expect(m.fingermap[1]!.trim().split(/\s+/)[4]).toBe("3"); // LI's digit -- the skip cell still reports the right finger
   });
 
+  // [LDB-F40] design/layout-db/26-no-board.md: spark/1 says nothing about
+  // the board, so `fromSpark`'s mana2 `board` is a FIXED default -- the
+  // ANSI row stagger (`DEFAULT_ROW_STAGGER`, what the site's own default
+  // comparison view draws), padded to the layout's own row count by
+  // repeating row 2's offset; never `isRowStaggered: false`, never read
+  // from the payload.
+  it("[LDB-F40] fromSpark's board is the fixed ANSI row stagger for every spark/1 fixture", () => {
+    const files = fs.readdirSync(SPARK_FIXTURES_DIR).filter(isBaseFixtureFile).sort();
+    expect(files.length).toBeGreaterThan(0);
+    for (const file of files) {
+      const payload = JSON.parse(fs.readFileSync(path.join(SPARK_FIXTURES_DIR, file), "utf8")) as SparkPayload;
+      const m = fromSpark(payload);
+      const rows = m.layout.fingers.length;
+      const expected = [...DEFAULT_ROW_STAGGER];
+      while (expected.length < rows) expected.push(expected[expected.length - 1]!);
+      expect(m.board, file).toEqual({ isRowStaggered: true, rowOrColumnStagger: expected, mirrorLeftRowStagger: false, splitAngle: 0 });
+    }
+  });
+
   const heldCases: Array<[string, string]> = [
     ["900-held-combos", "combos have no akl/1 idiom"],
     ["903-held-sixthumbs", "more than five keys on one thumb"],
     ["906-held-taphold", "tap-hold token has no akl/1 idiom"],
     ["907-held-directional", "directional token has no akl/1 idiom"],
-    ["908-held-stagger-mismatch", "rowstag stagger entries past the third must equal the third"],
   ];
   for (const [name, reason] of heldCases) {
     it(`${name}: held -- ${reason}`, () => {
@@ -232,29 +247,27 @@ describe("algorithm rows (12-implementation-phase5.md §2.5, exact)", () => {
   }
 
   // 21-formats.md D10: spark/1's free-form `x` field (and this pair's own
-  // `x.mana2` hatch, which used to carry these two fields across the hop
+  // `x.mana2` hatch, which used to carry these fields across the hop
   // exactly) is gone. 23-geometry.md then replaced `board` itself with a
-  // plain word -- there is no `board` OBJECT left at all to carry a
-  // `splitAngle`/`mirrorLeftRowStagger` property on, so these two fixtures'
-  // own point (the hatch used to exist for exactly these fields) is even
-  // more thoroughly moot than D10 alone made it. Still not held -- both
-  // still translate to a plain board word.
-  const hatchCases: Array<[string, string]> = [
+  // plain word, and 26-no-board.md removed the field entirely -- there is
+  // no `board` on the spark side AT ALL to carry a `splitAngle`/
+  // `mirrorLeftRowStagger` property, a per-column stagger, or the old
+  // "entries past the third must equal the third" hold (908, which used to
+  // be held) on. None of these is held -- every one translates to a plain
+  // board-less payload; the whole mana2 board is a documented loss.
+  const boardLossCases: Array<[string, string]> = [
     ["901-splitangle-hatch", "splitAngle"],
     ["902-mirror-hatch", "mirrorLeftRowStagger"],
+    ["905-colstag-zeros", "an all-zero column stagger"],
+    ["908-stagger-mismatch", "a row stagger whose 4th entry disagrees with the 3rd"],
   ];
-  for (const [name, field] of hatchCases) {
-    it(`${name}: NOT held -- board.${field} has nowhere left to go (no more board object at all, 23-geometry.md)`, () => {
+  for (const [name, what] of boardLossCases) {
+    it(`[LDB-F40] ${name}: NOT held -- ${what} has nowhere to go (spark/1 has no board, 26-no-board.md)`, () => {
       const a = spark(name);
       expect(isHeldResult(a)).toBe(false);
-      expect(typeof a.board).toBe("string");
+      expect("board" in a).toBe(false);
     });
   }
-
-  it("905-colstag-zeros: derives to ortho", () => {
-    const a = spark("905-colstag-zeros");
-    expect(a.board).toBe("ortho");
-  });
 });
 
 // -- half 3: mana2 -> akl -> mana2, every valid vendored file + every
@@ -295,16 +308,12 @@ function normalizeMana2(m: Mana2Payload): unknown {
     const n = cellCount(m.layout.fingers[y] ?? "");
     return tokensOf(row).slice(0, n).join(" ");
   });
-  const isRowStaggered = m.board.isRowStaggered;
-  const width = m.layout.fingers.length === 0 ? 0 : Math.max(...m.layout.fingers.map((r) => cellCount(r)));
-  const staggerLimit = isRowStaggered ? m.layout.fingers.length : width;
-  const stagger = m.board.rowOrColumnStagger.slice(0, staggerLimit);
-
-  const board: Record<string, unknown> = { isRowStaggered, rowOrColumnStagger: stagger };
-  if (m.board.mirrorLeftRowStagger) board.mirrorLeftRowStagger = true;
-  if (m.board.splitAngle) board.splitAngle = m.board.splitAngle;
-
-  const out: Record<string, unknown> = { layout: { fingers }, fingermap, board };
+  // design/layout-db/26-no-board.md: spark/1 carries no board, so mana2's
+  // `board` object never survives the hop (the lowering back always emits
+  // the fixed ANSI row stagger, `DEFAULT_ROW_STAGGER`) -- a documented
+  // loss, left out of the identity comparison entirely; `fromSpark`'s own
+  // fixed output is pinned by the "[LDB-F40] fromSpark's board" test below.
+  const out: Record<string, unknown> = { layout: { fingers }, fingermap };
   if (thumbs && thumbs.some((t) => t.length > 0)) (out.layout as Record<string, unknown>).thumbs = thumbs;
   if (m.magic) {
     const rules = m.magic.rules ?? [];
@@ -331,37 +340,22 @@ describe("mana2/1 -> akl/1 -> mana2/1 (every non-held fixture, modulo normalizeM
       const m = JSON.parse(fs.readFileSync(path.join(dir, file), "utf8")) as Mana2Payload;
       const check = mana2_1.validate(m);
       if (!check.ok) continue; // shouldn't happen here; the envelope test above is the authority
-      // Nine fixtures are DESIGNED (or, for `opaline`/`nastic`, discovered)
-      // to be lossy, not round-trip clean -- `904-dup-rules` (last-wins
-      // dedup at the FIRST hop discards the earlier duplicate forever),
-      // `905-colstag-zeros` (an all-zero colstag collapses to "ortho",
-      // which comes back isRowStaggered: true, not the original false --
-      // the same asymmetry documented for `board: "ortho"` generally),
-      // `901-splitangle-hatch`/`902-mirror-hatch` (23-geometry.md: spark/1
-      // has no board OBJECT left at all, so there's nowhere to carry
-      // `board.splitAngle`/`mirrorLeftRowStagger` across the hop -- they
-      // silently reset to their defaults, see the `hatchCases` block
-      // above), the vendored `opaline` (its own `magic.magicKeys: []` -- an
-      // explicit empty array, distinct from absent/null -- comes back
+      // Two fixtures are DESIGNED (or, for `opaline`, discovered) to be
+      // lossy off the board, not round-trip clean -- `904-dup-rules`
+      // (last-wins dedup at the FIRST hop discards the earlier duplicate
+      // forever) and the vendored `opaline` (its own `magic.magicKeys: []`
+      // -- an explicit empty array, distinct from absent/null -- comes back
       // `null`, D10's same loss: `normalizeMana2` treats `null` as absent
       // but `[]` as present, so this one real file's empty array can never
-      // survive the hop now that there's nowhere to carry it),
-      // `nstd-repeat`/`whirl` (vendored)/`004-whirl` (named) -- three real
-      // GENUINELY column-staggered mana2 files (design/layout-db/
-      // 23-geometry.md §4.1: "colstag does not get to set stagger" -- spark's
-      // colstag has NO stagger amounts to preserve at all any more, only the
-      // WORD, so their real per-column offsets are lost the moment they
-      // reach spark and come back all-zero), and the vendored `nastic`
-      // (its own `[0, 0, 0.5]` row stagger matches neither `ansi` nor `iso`
-      // nor all-zero -- `boardToSpark`'s documented fallback maps ANY other
-      // row-staggered shape to `ansi`, LDB-F5's widened loss list, so its
-      // real amounts don't survive either). The first four are asserted
-      // exactly, by name, in the "algorithm rows" describe block above;
-      // `opaline` and the four stagger-losing files have no dedicated
-      // re-assertion (there's nothing left worth pinning beyond "it's gone,
-      // like the others"). All nine are excluded here so this generic
+      // survive the hop now that there's nowhere to carry it). Every
+      // BOARD-shaped loss that used to be listed here too (`905-colstag-
+      // zeros`, the two hatch fixtures, the three genuinely column-staggered
+      // files, `nastic`'s odd row stagger) is now the same one loss for
+      // every fixture -- spark/1 has no board (26-no-board.md), so
+      // `normalizeMana2` no longer compares it at all and those fixtures
+      // round-trip like any other. Both are excluded here so this generic
       // loop's identity claim stays true for what it actually claims.
-      if (["904-dup-rules", "905-colstag-zeros", "901-splitangle-hatch", "902-mirror-hatch", "opaline", "nstd-repeat", "whirl", "004-whirl", "nastic"].includes(stem)) continue;
+      if (["904-dup-rules", "opaline"].includes(stem)) continue;
       const translated = toSpark(m);
       if (isHeldResult(translated)) continue; // held fixtures have no round trip to check here (algorithm-row assertions cover them)
 
@@ -378,16 +372,6 @@ describe("mana2/1 -> akl/1 -> mana2/1 (every non-held fixture, modulo normalizeM
 // -- half 4: akl/1 -> mana2/1 -> akl/1, every akl/1 AND cmini/1(-derived)
 // fixture: identity OFF the thumb row (12 §5's own invariant wording),
 // with the enumerated thumb re-anchoring asserted exactly, not skipped --
-
-// design/layout-db/23-geometry.md §4.1: a colstag board's per-column shape
-// has no place in mana2's OWN row-staggered/flat vocabulary AT ALL any more
-// (spark's colstag carries no amounts to preserve) -- it comes back
-// "ortho" (isRowStaggered: true, all-zero stagger -> boardToSpark's own
-// all-zero rule). `ansi`/`iso`/`ortho` all round-trip losslessly (the
-// stagger is a FIXED function of the kind on both sides now).
-function expectedBoard(board: SparkBoard): SparkBoard {
-  return board === "colstag" ? "ortho" : board;
-}
 
 // design/layout-db/23-geometry.md's duplicate-characters follow-up
 // (24-spark-wire-review.md finding 5): "the first entry for a char in LIST
@@ -491,8 +475,7 @@ function adjustForMana2RoundTrip(a: SparkPayload): SparkPayload {
     else out.push({ char: e.char, row: thumbRow, col, finger: "RT" });
   });
 
-  const board = expectedBoard(a.board);
-  const result: SparkPayload = { keys: out, board };
+  const result: SparkPayload = { keys: out };
   const magic = expectedMagic(a);
   if (magic) result.magic = magic;
   // 21-formats.md D10: spark/1 has no `x` field any more, so a spark ->

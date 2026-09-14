@@ -118,25 +118,43 @@ describe("diffTick()", () => {
   it("[LDB-C4] one upstream layout mutated after import is reported as a content diff, with a sample", async () => {
     const fake = new FakeUpstream();
     await tick(bindings, fixedClock("2026-07-03T00:00:00.000Z"), fake.fetchImpl, fake.sleepImpl);
-    // graphite's fixture board is "ortho" (07 §5.3) -- "angle" is a
-    // different valid `cmini/1` board enum value, so this is a genuine
-    // CONTENT difference, not a shape failure that would land in
-    // `invalidUpstream` instead.
-    fake.mutateDetailByName("graphite", { board: "angle" });
+    // A key's finger flipped: a genuine CONTENT difference that reaches the
+    // stored spark/1 payload (a cmini board-word change alone no longer
+    // does -- design/layout-db/26-no-board.md, see the next case), not a
+    // shape failure that would land in `invalidUpstream` instead.
+    const keys = structuredClone(fake.detailByName("graphite").keys) as Record<string, { row: number; col: number; finger: string }>;
+    const firstChar = Object.keys(keys).sort()[0]!;
+    keys[firstChar]!.finger = keys[firstChar]!.finger === "LP" ? "LR" : "LP";
+    fake.mutateDetailByName("graphite", { keys });
 
     const diffEnv = envWithSource(fake.baseUrl);
     const record = await diffTick(diffEnv, fixedClock("2026-07-04T00:00:00.000Z"), strictUpstreamOnly(fake), 100);
 
     expect(record.ok).toBe(false);
     expect(record.content_diffs).toBe(1);
-    // 20-spark.md S3b: comparison happens in spark now, at the flat
-    // `board` word directly (design/layout-db/23-geometry.md dropped the
-    // old `board.cmini` nesting -- `board` IS the one word now).
-    expect(record.samples?.content_diffs).toEqual([{ name: "graphite", path: "/payload/board" }]);
+    // 20-spark.md S3b: comparison happens in spark, so the path indexes
+    // the converted keys LIST (`/payload/keys/<i>/finger`), never cmini's
+    // own char-keyed map.
+    expect(record.samples?.content_diffs).toEqual([{ name: "graphite", path: expect.stringMatching(/^\/payload\/keys\/\d+\/finger$/) }]);
     // LDB-F27 (see the "identical mirror" test's own comment): test12222
     // is ALSO an invalidUpstream entry on every exhaustive sample now,
     // independent of graphite's mutation.
     expect(record.invalid_upstream).toBe(1);
+  });
+
+  it("[LDB-C4] [LDB-F40] an upstream BOARD-word change alone is NOT a content diff -- spark/1 carries no board (design/layout-db/26-no-board.md)", async () => {
+    const fake = new FakeUpstream();
+    await tick(bindings, fixedClock("2026-07-03T00:00:00.000Z"), fake.fetchImpl, fake.sleepImpl);
+    // graphite's fixture board is "ortho" (07 §5.3); "angle" is a different
+    // valid cmini word for the SAME keys -- dropped on import, so nothing
+    // stored can differ.
+    fake.mutateDetailByName("graphite", { board: "angle" });
+
+    const diffEnv = envWithSource(fake.baseUrl);
+    const record = await diffTick(diffEnv, fixedClock("2026-07-04T00:00:00.000Z"), strictUpstreamOnly(fake), 100);
+
+    expect(record.content_diffs).toBe(0);
+    expect(record.samples?.content_diffs ?? []).toEqual([]);
   });
 
   it("[LDB-C4] a fake refusing every attempt writes { ok: false, error } -- a stale `at` never hides an outage", async () => {

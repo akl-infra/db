@@ -25,7 +25,7 @@
 import type { Payload as SparkPayload } from "../../spark/1/index.ts";
 import type { MagicIntent } from "../../spark/1/magic.ts";
 import { computeRows, resolveRows } from "../../spark/1/magic.ts";
-import { STAGGER_BY_KIND, type Board as SparkBoard, type Key as SparkPosition } from "../../spark/1/geometry.ts";
+import type { Key as SparkPosition } from "../../spark/1/geometry.ts";
 import type { Payload as Mana2Payload, Board as Mana2Board, Rule as Mana2Rule } from "./index.ts";
 
 // 12-implementation-phase5.md §2.5 / core/stats.go's `fingerSuffixNames`.
@@ -207,23 +207,19 @@ export function parseRow(row: string): RowCell[] | ParseError {
 // mana2/1 -> spark/1
 // ---------------------------------------------------------------------
 
-// Everything mana2 carries that spark/1 has no idiom for: `board
-// .mirrorLeftRowStagger`/`board.splitAngle` (rendering-only tilt/mirror
-// hints -- neither changes what a position/character/board-shape IS,
-// only how a client draws the board) and `magic.magicKeys`/`layers`
-// (mana2-only bookkeeping). 12 §2.5 originally held all four; this pair
-// used to preserve them exactly through spark/1's now-deleted free-form
-// `x` field (21-formats.md D10 dropped it -- there is no cmini export
-// left to preserve fidelity for, and D10's own cost list already accepts
-// this kind of rendering/bookkeeping loss for cmini's `tag`/`blame`/
-// `link`). Since D10, `toSpark` silently drops all four instead: a
-// documented loss, not a hold (MF-9's sibling for this pair -- see
-// `901-splitangle-hatch`/`902-mirror-hatch` in mana2.test.ts, which name
-// the two fields this actually affects; `magicKeys`/`layers` have no
-// non-null vendored fixture to lose anything from in practice).
+// Everything mana2 carries that spark/1 has no idiom for: the WHOLE
+// `board` object (design/layout-db/26-no-board.md: spark/1 has no board
+// field at all -- `isRowStaggered`/`rowOrColumnStagger` included, not just
+// the `mirrorLeftRowStagger`/`splitAngle` rendering hints D10 already
+// dropped) and `magic.magicKeys`/`layers` (mana2-only bookkeeping). 12 §2.5
+// originally held all of these; the hatch that used to carry them
+// (spark/1's free-form `x`) went with 21-formats.md D10, whose own cost
+// list already accepts this kind of rendering/bookkeeping loss for cmini's
+// `tag`/`blame`/`link`. `toSpark` silently drops them: a documented loss,
+// not a hold (MF-9's sibling for this pair -- see `901-splitangle-hatch`/
+// `902-mirror-hatch`/`908-stagger-mismatch` in mana2.test.ts).
 export interface Mana2Extra {
-  mirrorLeftRowStagger?: boolean;
-  splitAngle?: number;
+  board?: Mana2Board;
   magicKeys?: string[] | null;
   layers?: unknown;
 }
@@ -244,46 +240,6 @@ export function dedupeRulesLastWins(rules: Mana2Rule[]): Mana2Rule[] {
     order.push(r.inputs);
   }
   return order.map((inputs) => byInputs.get(inputs)!);
-}
-
-function arraysEqual(a: number[], b: number[]): boolean {
-  return a.length === b.length && a.every((v, i) => v === b[i]);
-}
-
-// design/layout-db/23-geometry.md §4.5 (toSpark, tests-only -- mana2/1 is
-// output-only, nothing is ever imported FROM it in production): a rowstag
-// board whose first 3 entries equal STAGGER_BY_KIND.ansi/.iso becomes that
-// kind; all-zero (either row- or column-staggered) becomes ortho;
-// `isRowStaggered: false` with a non-zero stagger becomes colstag; any
-// OTHER row-staggered shape becomes ansi -- a documented, lossy default
-// (LDB-F5's widened loss list), not a hold.
-function boardToSpark(board: Mana2Board): SparkBoard {
-  const stagger = board.rowOrColumnStagger;
-  if (board.isRowStaggered) {
-    if (stagger.every((v) => v === 0)) return "ortho";
-    const first3 = stagger.slice(0, 3);
-    if (arraysEqual(first3, STAGGER_BY_KIND.ansi)) return "ansi";
-    if (arraysEqual(first3, STAGGER_BY_KIND.iso)) return "iso";
-    return "ansi"; // documented loss: an unrecognised row stagger has no other spark/1 idiom
-  }
-  if (stagger.every((v) => v === 0)) return "ortho";
-  return "colstag";
-}
-
-// Held when a rowstag board's stagger has entries past the 3rd that
-// DISAGREE with the 3rd (12 §2.5: "entries past the 3rd must equal the
-// 3rd (the site's padding rule) else held"). Colstag/ortho have no such
-// rule (the site derives their width from the layout itself, not a fixed
-// 3).
-function staggerHeldReason(board: Mana2Board): string | null {
-  if (!board.isRowStaggered) return null;
-  const s = board.rowOrColumnStagger;
-  if (s.length <= 3) return null;
-  const third = s[2];
-  for (let i = 3; i < s.length; i++) {
-    if (s[i] !== third) return "rowstag stagger entries past the third must equal the third";
-  }
-  return null;
 }
 
 interface ThumbCell {
@@ -358,21 +314,16 @@ export function toSpark(p: Mana2Payload): SparkPayload | Held {
 
   if ((p.combos?.length ?? 0) > 0) return { held: true, reason: "combos have no akl/1 idiom" };
 
-  const staggerHeld = staggerHeldReason(p.board);
-  if (staggerHeld) return { held: true, reason: staggerHeld };
-
-  const board = boardToSpark(p.board);
-
   const rules = dedupeRulesLastWins(p.magic?.rules ?? []);
   let magic: MagicIntent | undefined;
   if (rules.length > 0) {
     magic = { rules: rules.map((r) => ({ inputs: r.inputs, output: r.output, type: "raw" })) };
   }
 
-  // `board.mirrorLeftRowStagger`/`board.splitAngle`/`magic.magicKeys`/
-  // `layers` have no spark/1 idiom and are dropped here (a documented
-  // loss since 21-formats.md D10 -- see the `Mana2Extra` comment above).
-  const out: SparkPayload = { keys, board };
+  // `board` (all of it), `magic.magicKeys` and `layers` have no spark/1
+  // idiom and are dropped here (a documented loss -- see the `Mana2Extra`
+  // comment above).
+  const out: SparkPayload = { keys };
   if (magic) out.magic = magic;
   return out;
 }
@@ -394,21 +345,17 @@ interface ThumbEntry {
   char?: string;
 }
 
-// colstag's per-column padding (to the true width) happens in the caller,
-// which is the only place that knows `maxCol`. design/layout-db/
-// 23-geometry.md §4.5: the stagger is now a FIXED function of the kind
-// (geometry.ts's `STAGGER_BY_KIND`) -- nothing in the payload overrides it,
-// so there is no `board.stagger` to read any more. `ansi`/`iso`/`ortho` all
-// row-stagger (padded to `numMainRows`, repeating row 2's own offset for
-// any row past it -- exactly `coords()`'s own rule); `colstag` column-
-// staggers, always flat (padded to the true width by the caller, which is
-// the only place that knows it).
-function boardFromSpark(kind: SparkBoard, numMainRows: number): { isRowStaggered: boolean; rowOrColumnStagger: number[] } {
-  if (kind === "colstag") {
-    return { isRowStaggered: false, rowOrColumnStagger: [] };
-  }
-  const base = STAGGER_BY_KIND[kind];
-  const padded: number[] = [...base];
+// design/layout-db/26-no-board.md: spark/1 carries no board, so the
+// mana2 `board` this lowering emits is a FIXED default, never read from the
+// payload -- the ANSI row stagger (`[0, 0.25, 0.75]`, what the old
+// `STAGGER_BY_KIND.ansi` said and what the site's own default comparison
+// view, `rowstag`, draws), padded to `numMainRows` by repeating row 2's
+// own offset for any row past it. A reader that wants another board edits
+// the file it downloaded; the DB never guesses one from the keys.
+export const DEFAULT_ROW_STAGGER: readonly [number, number, number] = [0, 0.25, 0.75];
+
+function defaultBoard(numMainRows: number): { isRowStaggered: boolean; rowOrColumnStagger: number[] } {
+  const padded: number[] = [...DEFAULT_ROW_STAGGER];
   while (padded.length < numMainRows) padded.push(padded[padded.length - 1]!);
   return { isRowStaggered: true, rowOrColumnStagger: padded };
 }
@@ -504,22 +451,18 @@ export function fromSpark(p: SparkPayload): Mana2Payload {
   const leftTokens = sortSide(left).map((e) => (e.char === undefined ? "skip" : e.char === " " ? "space" : e.char));
   const rightTokens = sortSide(right).map((e) => (e.char === undefined ? "skip" : e.char === " " ? "space" : e.char));
 
-  // No `x` on `p` to recover `mirrorLeftRowStagger`/`splitAngle`/
-  // `magicKeys`/`layers` from any more (21-formats.md D10) -- every
-  // derivation from a stored spark/1 record answers each field's default,
-  // same as a genuinely mana2-native layout that never set it.
-  const derivedBoard = boardFromSpark(p.board, numMainRows);
+  // Nothing on `p` says what board this is (26-no-board.md) and no `x` to
+  // recover `mirrorLeftRowStagger`/`splitAngle`/`magicKeys`/`layers` from
+  // (21-formats.md D10) -- every derivation from a stored spark/1 record
+  // answers each field's default, same as a genuinely mana2-native layout
+  // that never set it.
+  const derivedBoard = defaultBoard(numMainRows);
   const board: Mana2Board = {
     isRowStaggered: derivedBoard.isRowStaggered,
     rowOrColumnStagger: derivedBoard.rowOrColumnStagger,
     mirrorLeftRowStagger: false,
     splitAngle: 0,
   };
-  if (!derivedBoard.isRowStaggered) {
-    // colstag: pad the per-column array to the true width with 0.
-    const width = maxCol + 1;
-    while (board.rowOrColumnStagger.length < width) board.rowOrColumnStagger.push(0);
-  }
 
   // magic.ts's own vocabulary is still char-keyed (`Record<string,
   // Position>`) -- built from the SAME `analysed` first-occurrence map the

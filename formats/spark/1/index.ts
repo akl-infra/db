@@ -1,30 +1,31 @@
 // spark/1 -- the one stored format (design/layout-db/20-spark.md §1 decision
 // 1; was `akl/1`, renamed byte-for-byte -- the payload shape is unchanged).
-// cmini's `keys` map, the board geometry #261/23-geometry.md introduced, the
-// magic-rules authoring shape, and a raw-rule escape hatch (21-formats.md
-// D10 dropped the free-form `x` field -- there is no cmini export left to
-// round-trip through it, and nothing else ever used it). Self-contained
-// (07 §5): no import of src/formats/registry.ts, and every local import
-// carries an explicit `.ts` extension so scripts/goldens.mjs can resolve
-// this module with plain Node ESM (see that script's own comment).
+// cmini's `keys` map, the magic-rules authoring shape, and a raw-rule
+// escape hatch (21-formats.md D10 dropped the free-form `x` field -- there
+// is no cmini export left to round-trip through it, and nothing else ever
+// used it). Self-contained (07 §5): no import of src/formats/registry.ts,
+// and every local import carries an explicit `.ts` extension so
+// scripts/goldens.mjs can resolve this module with plain Node ESM (see that
+// script's own comment).
 //
-// design/layout-db/23-geometry.md (round 3, "boards and thumbs explicit"):
-// `board` is now one required word (ansi/iso/ortho/colstag, §4.1) instead of
-// an object with stagger amounts and a cmini hint -- physical coordinates,
-// the hand split and the named-fingering classification are ALL pure
-// functions of `(board, keys)` now, exported by ./geometry.ts (LDB-F30: one
-// definition, no second port inside this format package). `TB` is gone from
-// `Position.finger` (§4.2): a thumb key's label IS its physical hand,
+// design/layout-db/26-no-board.md: there is NO `board` field. 23-geometry.md
+// had made it one required word (ansi/iso/ortho/colstag) in place of the
+// older object; saltorbit's call (2026-09-13) is that a record never says
+// what physical board it is drawn or analysed on -- that is the READER's
+// choice (the site's rowstag/ortho comparison view, the bot's engine
+// context), so the word is gone, and with it every board-derived rule (the
+// iso width check) and helper (`coords`, `STAGGER_BY_KIND`, `cminiBoardWord`).
+// The hand split and the named-fingering classification are pure functions
+// of `keys` alone, exported by ./geometry.ts (LDB-F30: one definition, no
+// second port inside this format package). `TB` is gone from
+// `Position.finger` (23 §4.2): a thumb key's label IS its physical hand,
 // nothing left to disambiguate.
 //
 // `fromCmini` (the cmini IMPORT) lives at
 // `db/formats/adapters/cmini/translate.ts` (20-spark.md S1): cmini is an
 // import source now, not a registered format, so the conversion lives with
 // the adapter, not here. `toCmini` (the export) was deleted entirely by
-// 21-formats.md D5. This format still exports the pure board-word helper
-// used to (`cminiBoardWord`, was the private `deriveCminiWord`) -- kept
-// because `bot/`'s own board-word reads still call it directly (see that
-// module's callers).
+// 21-formats.md D5.
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 import rawSchema from "./schema.json" with { type: "json" };
@@ -40,7 +41,7 @@ import {
   type MagicKey,
   type RawRule,
 } from "./magic.ts";
-import { classifyFingering, type Board, type Key } from "./geometry.ts";
+import type { Key } from "./geometry.ts";
 // mana2/1's OWN translate.ts is the one place spark/1 <-> mana2/1 is
 // implemented (12-implementation-phase5.md §2.5) -- this reciprocal
 // registration just re-exports those two functions under spark/1's own
@@ -57,7 +58,7 @@ export const id: `${string}/${number}` = "spark/1";
 // why this is a plain export rather than parsed from OWNERS/README.md).
 export const owner = "DB (+ akl.gg)";
 export const description =
-  "The one stored format: cmini's keys map, #261's board geometry, an authoring shape for magic rules, and a raw-rule escape hatch. What akl.gg writes and most clients read.";
+  "The one stored format: cmini's keys map (row/col/finger per key, no board -- the reader picks one), an authoring shape for magic rules, and a raw-rule escape hatch. What akl.gg writes and most clients read.";
 export const schema: object = rawSchema;
 export const role: "stored" | "output" = "stored";
 
@@ -73,11 +74,11 @@ export interface Position {
   finger: string;
 }
 
-export type { Board, Key };
+export type { Key };
 export type { MagicIntent, MagicKey, ChiralKey, AdaptiveSwap, RawRule };
 // Re-exported for clients (the bot, LDB-F30: one definition of every
 // geometric fact) -- purely additive.
-export { KINDS, STAGGER_BY_KIND, coords, handSplit, handSplitRows, classifyFingering, gridIndent, FINGERING_REFS } from "./geometry.ts";
+export { handSplit, handSplitRows, classifyFingering, gridIndent, FINGERING_REFS } from "./geometry.ts";
 export type { NamedFingering, Fingering } from "./geometry.ts";
 
 // keys: one entry per PHYSICAL position -- `char` absent means a free
@@ -90,7 +91,6 @@ export type { NamedFingering, Fingering } from "./geometry.ts";
 // requirement.
 export interface Payload {
   keys: Key[];
-  board: Board;
   magic?: MagicIntent;
 }
 
@@ -378,12 +378,6 @@ function validateChiralHandAmbiguity(p: Payload): ErrBody | null {
   return null;
 }
 
-function rowWidth(keys: Key[], row: number): number {
-  let width = 0;
-  for (const p of keys) if (p.row === row) width = Math.max(width, p.col + 1);
-  return width;
-}
-
 // design/layout-db/23-geometry.md's duplicate-characters follow-up: every
 // char a magic construct NAMES (a magic/chiral key's own char, an adaptive
 // swap's trigger or either swap member, a magic key rule's `after`, any
@@ -428,15 +422,14 @@ function validateMagicKeysUnique(p: Payload): ErrBody | null {
   return null;
 }
 
-// design/layout-db/23-geometry.md §4.4: board-geometry checks, run after the
-// schema and the duplicate-position check, in the doc's own order (2-3;
-// rule 1, "board is one of the four words", is the schema's `enum` job
-// already). Rule 4 ("angle/nokwts/meteorite needs board: ansi") is NOT
-// enforced here (design/layout-db/24-spark-wire-review.md finding 10, the
-// coordinator's amendment): `classifyFingering` is a derived, read-time
-// label, never a write-time refusal -- the BOT enforces "angle only on
-// ansi" for its own `fingers!`/`board!` verbs instead. `classifyFingering`
-// stays exported for that (and for the site/pipeline).
+// design/layout-db/23-geometry.md §4.4's geometry checks, run after the
+// schema and the duplicate-position check -- minus everything that needed
+// a board word (design/layout-db/26-no-board.md): rule 1 (the four-word
+// enum) and rule 2 (the iso row-2 width) are gone with the field, and rule
+// 4 ("angle/nokwts/meteorite needs board: ansi") was never enforced here
+// anyway (24-spark-wire-review.md finding 10: `classifyFingering` is a
+// derived, read-time label, never a write-time refusal). What is left is
+// the space refusal and the thumb-row rule, both pure functions of `keys`.
 function validateGeometry(p: Payload): ErrBody | null {
   // design/layout-db/24-spark-wire-review.md finding 11 (F11, identity): a
   // space (" ") is refused as a `char` -- pending #333's declared space
@@ -446,21 +439,6 @@ function validateGeometry(p: Payload): ErrBody | null {
   for (let i = 0; i < p.keys.length; i++) {
     if (p.keys[i]!.char === " ") {
       return { error: "invalid_payload", message: "a space (' ') is not a valid key character (pending #333)", path: `/keys/${i}` };
-    }
-  }
-
-  // §4.4-2: on iso, row 2 may be at most one column wider than rows 0-1 --
-  // never an error for EQUAL or NARROWER, and never checked on any other
-  // board (only iso has an extra key that can widen row 2 at all, §4.1).
-  if (p.board === "iso") {
-    const base = Math.max(rowWidth(p.keys, 0), rowWidth(p.keys, 1));
-    const w2 = rowWidth(p.keys, 2);
-    if (base > 0 && w2 > base + 1) {
-      return {
-        error: "invalid_payload",
-        message: `iso row 2 is ${w2} column(s) wide, more than one wider than rows 0-1 (${base})`,
-        path: "/keys",
-      };
     }
   }
 
@@ -482,7 +460,7 @@ function validateGeometry(p: Payload): ErrBody | null {
 }
 
 // validate: schema -> the ported validateRuleSet rules + 01 §2.1's additions
-// (positions, board, magic referencing real keys, `except` single code
+// (positions, magic referencing real keys, `except` single code
 // points) -> the lower()/collision check (07 §5). Never throws. 21-formats
 // .md D10 dropped the free-form `x` field (and its byte-cap check,
 // `validateX`/`canonicalBytes`, that used to run here) -- the schema's
@@ -565,25 +543,6 @@ export function compileMagic(p: Payload): Row[] {
 
 export function hasMagic(p: Payload): boolean {
   return compileMagic(p).length > 0;
-}
-
-// design/layout-db/23-geometry.md §4.6: `board` is one word now, no
-// object/hint to carry a distinct cmini spelling through -- ansi and iso
-// both render as cmini's one word for "row-staggered" ("stagger"; cmini's
-// vocabulary can't tell ansi from iso, or "stagger" from the old "angle"
-// board word, apart at all -- the angle MOD is a fingering now, not a board
-// word, §4.3); ortho and colstag both render as "ortho" (colstag's per-
-// column shape has no cmini analogue). "mini"/"angle" are never produced
-// any more (they were cmini-only spellings for what is now just "ortho"/
-// "ansi" -- §4.6's word table). Was the private `deriveCminiWord` in
-// translate.ts before fromCmini moved to the adapter (20-spark.md S1);
-// stayed exported after `toCmini` (the adapter's own caller) was deleted
-// entirely (21-formats.md D5) because `bot/`'s own board-word reads
-// (`cache/cells.ts`, `cache/provenance.ts`) call it directly -- kept
-// through this slice for the same reason (bot's own rewrite is a later
-// slice, order-of-work step 2).
-export function cminiBoardWord(board: Board): "stagger" | "ortho" {
-  return board === "ansi" || board === "iso" ? "stagger" : "ortho";
 }
 
 // spark/1 -> mana2/1 never holds (12 §2.5's held cases are all in the

@@ -121,7 +121,7 @@ export function formatExists(format: string): ApiError {
 }
 
 // A PATCH body that mixes a layout-level field (`name`) with a format edit
-// (`fingermap`/`board`/`magic`) -- each write has exactly one scope and one
+// (`fingermap`/`magic`) -- each write has exactly one scope and one
 // If-Match (21-formats.md §2.2).
 export function mixedPatch(): ApiError {
   return new ApiError(400, { error: "mixed_patch", message: "a PATCH may change the layout's name, or one format's payload, never both at once" });

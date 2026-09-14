@@ -28,8 +28,7 @@
                 "col": 0,
                 "finger": "LP"
               }
-            ],
-            "board": "ansi"
+            ]
           }
         }
       }
@@ -76,8 +75,7 @@
         ],
         "magic": {
           "rules": []
-        },
-        "board": "ansi"
+        }
       }
     }
   }

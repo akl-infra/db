@@ -81,7 +81,7 @@ import layoutsWriteTransferOk from "./layouts-write/transfer-200.json" with { ty
 // adds PATCH to REQUIRED). `unsupported_for_format` had a case here too
 // (a hint-less colstag board on a cmini/1 record) until 20-spark.md S2:
 // `patchLayout` now runs every record through `storedAsSpark` first, so
-// `edits` is always spark's own (fingermap/board/magic uniformly
+// `edits` is always spark's own (fingermap/magic uniformly
 // supported) -- the refusal is genuinely unreachable with today's one
 // stored format, and REQUIRED's own PATCH row drops the code with it
 // (tests/api/conformance.test.ts).

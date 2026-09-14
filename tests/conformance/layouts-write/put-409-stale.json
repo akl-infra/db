@@ -12,8 +12,7 @@
         "keys": [{ "char": "b", "row": 1, "col": 0, "finger": "LP" }, { "char": "s", "row": 1, "col": 1, "finger": "LR" }],
         "magic": {
           "magic_keys": [{ "key": "s", "except": ["x"] }]
-        },
-        "board": "ansi"
+        }
       }
     },
     "setup": [
@@ -30,8 +29,7 @@
             "keys": [{ "char": "b", "row": 1, "col": 0, "finger": "LP" }, { "char": "s", "row": 1, "col": 1, "finger": "LR" }],
             "magic": {
               "magic_keys": [{ "key": "b", "except": ["x"] }]
-            },
-            "board": "ansi"
+            }
           }
         }
       }
@@ -75,8 +73,7 @@
           "keys": [{ "char": "b", "row": 1, "col": 0, "finger": "LP" }, { "char": "s", "row": 1, "col": 1, "finger": "LR" }],
           "magic": {
             "magic_keys": [{ "key": "b", "except": ["x"] }]
-          },
-          "board": "ansi"
+          }
         }
       },
       "last_write": {

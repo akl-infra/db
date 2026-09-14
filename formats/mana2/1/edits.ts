@@ -1,9 +1,10 @@
 // mana2/1's PATCH edits (09-implementation-phase2.md §2.6, §3 T4;
 // 12-implementation-phase5.md §2.5's decision #9): `setFingermap` only.
-// `setBoard`/`setMagic` have no entry here at all -- registry.ts's
-// FormatEdits: an absent entry IS the refusal (`unsupported_for_format`) --
-// a mana user edits the `.jsonc` file directly for those, this format
-// never invents a second write path for them.
+// `setMagic` has no entry here at all -- registry.ts's FormatEdits: an
+// absent entry IS the refusal (`unsupported_for_format`) -- a mana user
+// edits the `.jsonc` file directly for that, this format never invents a
+// second write path for it. (There is no `setBoard` verb anywhere any more:
+// spark/1 has no board field, design/layout-db/26-no-board.md.)
 //
 // mana2/1 has no `keys` map (spark/1's `setFingermap` doc comment: "every
 // named char must already be one of p.keys" does not apply verbatim

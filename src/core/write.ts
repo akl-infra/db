@@ -444,17 +444,16 @@ export async function putFormat(
 }
 
 // PATCH /v1/layouts/{ref}: either `{name}` (layout scope, `If-Match:
-// "layout:<n>"`) or `{format, fingermap | board | magic ...}` (that
-// format's scope). Both at once is `400 mixed_patch` (21-formats.md §2.2).
+// "layout:<n>"`) or `{format, fingermap | magic ...}` (that format's
+// scope; `board` left with spark/1's field, design/layout-db/26-no-board.md). Both at once is `400 mixed_patch` (21-formats.md §2.2).
 export interface PatchBody {
   name?: string;
   format?: string;
   fingermap?: Record<string, string>;
-  board?: unknown;
   magic?: unknown;
 }
 
-const FORMAT_EDIT_FIELDS = ["fingermap", "board", "magic"] as const;
+const FORMAT_EDIT_FIELDS = ["fingermap", "magic"] as const;
 type FormatEditField = (typeof FORMAT_EDIT_FIELDS)[number];
 
 function isEditError(r: EditResult): r is { error: ErrBody } {
@@ -511,15 +510,15 @@ export async function renameLayout(env: Bindings, now: Clock, actor: Actor, ref:
   return { layout: result.layout, formats: result.formats };
 }
 
-// PATCH {format, fingermap | board | magic}: applied in order to a clone
-// of that format's current payload, validated once as a whole, one event.
+// PATCH {format, fingermap | magic}: applied in order to a clone of that
+// format's current payload, validated once as a whole, one event.
 export async function patchFormat(
   env: Bindings,
   now: Clock,
   actor: Actor,
   ref: string,
   format: string,
-  edits: { fingermap?: Record<string, string>; board?: unknown; magic?: unknown },
+  edits: { fingermap?: Record<string, string>; magic?: unknown },
   ifMatchHeader: IfMatch,
   version: string | null,
 ): Promise<WriteOutcome> {
@@ -565,7 +564,6 @@ export async function patchFormat(
     let payload: unknown = existing.payload;
     const fields = FORMAT_EDIT_FIELDS.filter((f) => edits[f] !== undefined);
     if (edits.fingermap !== undefined) payload = runEdit(existing.format, "fingermap", module.edits?.setFingermap, payload, edits.fingermap);
-    if (edits.board !== undefined) payload = runEdit(existing.format, "board", module.edits?.setBoard, payload, edits.board);
     if (edits.magic !== undefined) payload = runEdit(existing.format, "magic", module.edits?.setMagic, payload, edits.magic);
 
     const { hasMagic } = validatePayload(existing.format, payload);
@@ -788,13 +786,13 @@ export async function transferLayout(env: Bindings, now: Clock, actor: Actor, re
 }
 
 // Shared by `routes/write.ts`'s PATCH handler: `{name}` and any of
-// {fingermap, board, magic} together is `400 mixed_patch`; the latter
-// without `format` is `400 format_required`.
-export function classifyPatch(body: PatchBody): { kind: "rename"; name: string } | { kind: "format"; format: string; edits: { fingermap?: Record<string, string>; board?: unknown; magic?: unknown } } {
-  const hasEdits = body.fingermap !== undefined || body.board !== undefined || body.magic !== undefined;
+// {fingermap, magic} together is `400 mixed_patch`; the latter without
+// `format` is `400 format_required`.
+export function classifyPatch(body: PatchBody): { kind: "rename"; name: string } | { kind: "format"; format: string; edits: { fingermap?: Record<string, string>; magic?: unknown } } {
+  const hasEdits = body.fingermap !== undefined || body.magic !== undefined;
   if (body.name !== undefined && hasEdits) throw mixedPatch();
   if (body.name !== undefined) return { kind: "rename", name: body.name };
   if (!hasEdits) throw badRequest("PATCH body must set 'name' or a format edit", "/");
   if (body.format === undefined) throw formatRequired();
-  return { kind: "format", format: body.format, edits: { fingermap: body.fingermap, board: body.board, magic: body.magic } };
+  return { kind: "format", format: body.format, edits: { fingermap: body.fingermap, magic: body.magic } };
 }

@@ -7,7 +7,6 @@
       "name": "cw-ratelimit-seed",
       "format": "cmini/1",
       "payload": {
-        "board": "ortho",
         "keys": []
       }
     },
@@ -20,7 +19,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -33,7 +31,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -46,7 +43,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -59,7 +55,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -72,7 +67,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -85,7 +79,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -98,7 +91,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -111,7 +103,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -124,7 +115,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -137,7 +127,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -150,7 +139,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -163,7 +151,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -176,7 +163,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -189,7 +175,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -202,7 +187,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -215,7 +199,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -228,7 +211,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -241,7 +223,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -254,7 +235,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -267,7 +247,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -280,7 +259,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -293,7 +271,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -306,7 +283,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -319,7 +295,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -332,7 +307,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -345,7 +319,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -358,7 +331,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -371,7 +343,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -384,7 +355,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -397,7 +367,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -410,7 +379,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -423,7 +391,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -436,7 +403,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -449,7 +415,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -462,7 +427,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -475,7 +439,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -488,7 +451,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -501,7 +463,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -514,7 +475,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -527,7 +487,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -540,7 +499,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -553,7 +511,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -566,7 +523,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -579,7 +535,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -592,7 +547,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -605,7 +559,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -618,7 +571,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -631,7 +583,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -644,7 +595,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -657,7 +607,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -670,7 +619,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -683,7 +631,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -696,7 +643,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -709,7 +655,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -722,7 +667,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -735,7 +679,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -748,7 +691,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -761,7 +703,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -774,7 +715,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }
@@ -787,7 +727,6 @@
           "name": "cw-ratelimit-seed",
           "format": "cmini/1",
           "payload": {
-            "board": "ortho",
             "keys": []
           }
         }

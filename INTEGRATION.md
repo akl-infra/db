@@ -189,7 +189,7 @@ POST   /v1/layouts                  { name, format, payload }                   
 PUT    /v1/layouts/{ref}            { format, payload }        If-Match (replace) or          → 200
                                                                  If-None-Match: * (add)
 PATCH  /v1/layouts/{ref}            { name } If-Match: "layout:<n>", or                       → 200
-                                     { format, fingermap?/board?/magic? } If-Match: "<lineage>:<n>"
+                                     { format, fingermap?/magic? } If-Match: "<lineage>:<n>"
 DELETE /v1/layouts/{ref}                                    If-Match: "layout:<n>"           → 200 (tombstone)
 POST   /v1/layouts/{ref}/transfer   { to }                  If-Match: "layout:<n>" or *      → 200
 POST   /v1/layouts/{ref}/restore    { name? }  (owner or admin, no time limit)                → 200
@@ -261,12 +261,12 @@ curl -sX PATCH …/v1/layouts/01M245…YFRJ -H 'Idempotency-Key: 4f2c-swap-1' \
 
 ```bash
 curl -sX POST …/v1/layouts -H 'X-Client-Version: my-bot/1.0' -d '{"name":"ldb-integration-doc-demo",
-  "format":"spark/1","payload":{"keys":[{"char":"a","row":1,"col":1,"finger":"LI"}],"board":"ansi"}}' <signed>
+  "format":"spark/1","payload":{"keys":[{"char":"a","row":1,"col":1,"finger":"LI"}]}}' <signed>
 # 201 {"id":"01M245Q4J76A4PKAP2QX02YFRJ","name":"ldb-integration-doc-demo","layout_rev":1,
-#      "formats":{"spark/1":{"rev":1,"…":"…"}},"format":"spark/1","payload":{"keys":[{"char":"a", …}],"board":"ansi"}}
+#      "formats":{"spark/1":{"rev":1,"…":"…"}},"format":"spark/1","payload":{"keys":[{"char":"a", …}]}}
 
 curl -sX PATCH …/v1/layouts/01M245…YFRJ -H 'If-Match: "spark:1"' -d '{"format":"spark/1","fingermap":{"a":"LM"}}' <signed>
-# 200 { …, "format":"spark/1", "payload":{"keys":[{"char":"a","row":1,"col":1,"finger":"LM"}],"board":"ansi"} }
+# 200 { …, "format":"spark/1", "payload":{"keys":[{"char":"a","row":1,"col":1,"finger":"LM"}]} }
 
 curl -sX PATCH …/v1/layouts/01M245…YFRJ -H 'If-Match: "spark:1"' -d '{"format":"spark/1","fingermap":{"a":"LI"}}' <signed>  # replayed
 # 409 {"error":"stale","scope":"spark","rev":2,"record":{ …,"formats":{"spark/1":{"rev":2}} },
@@ -299,7 +299,7 @@ sequence.
 - `400 invalid_payload` — the format's own `validate()` refused it, with a
   JSON-pointer `path`. Check locally, same function the server runs (or
   `import { validate } from '@akl/layout-formats/spark/1'` from JS):
-  `echo '{"keys":[{"row":9,"col":1,"finger":"LI"}],"board":"ansi"}' | node
+  `echo '{"keys":[{"row":9,"col":1,"finger":"LI"}]}' | node
   db/scripts/validate-akl1-payload.mjs` →
   `{"ok":false,"error":{"error":"invalid_payload","message":"payload/keys/0/row must be <= 4","path":"/keys/0/row"}}`
   (against `spark/1`'s schema).

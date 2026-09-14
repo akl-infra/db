@@ -35,7 +35,7 @@ function baseKeys(): Key[] {
 }
 
 function payloadWith(magic: Payload["magic"]): Payload {
-  return { keys: baseKeys(), board: "ansi", magic };
+  return { keys: baseKeys(), magic };
 }
 
 // The idiom-overlap cases: validate() accepts, and the compiled rows carry

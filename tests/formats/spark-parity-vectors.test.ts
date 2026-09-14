@@ -58,7 +58,7 @@ describe("spark/1 compileMagic vs its own frozen parity vectors (LDB-F39, twin o
 
   it("[LDB-F39] compileMagic reproduces every accepted vector's own expected row set", () => {
     for (const [i, vector] of ACCEPTED.entries()) {
-      const payload: Payload = { keys: vector.keys, board: "ansi", magic: vector.magic };
+      const payload: Payload = { keys: vector.keys, magic: vector.magic };
       const validation = spark1.validate(payload);
       expect(validation.ok, `vector #${i}: validate()`).toBe(true);
       const actual = spark1.compileMagic(payload);
@@ -68,7 +68,7 @@ describe("spark/1 compileMagic vs its own frozen parity vectors (LDB-F39, twin o
 
   it("[LDB-F39][LDB-F22] validate() refuses every refused vector with its own frozen error, and they cover all four named-key positions", () => {
     for (const [i, vector] of REFUSED.entries()) {
-      const validation = spark1.validate({ keys: vector.keys, board: "ansi", magic: vector.magic } as Payload);
+      const validation = spark1.validate({ keys: vector.keys, magic: vector.magic } as Payload);
       expect(validation.ok, `refused vector #${i}`).toBe(false);
       if (validation.ok) continue;
       expect({ message: validation.error.message, path: validation.error.path }, `refused vector #${i}`).toEqual(vector.refused);

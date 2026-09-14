@@ -61,7 +61,7 @@ describe("[LDB-F24] 22-spark-spec.md's worked examples (§11)", () => {
     }
   });
 
-  it("[LDB-F24] example 1 matches the doc's own prose (the '@' key, the board, the duplicate 'e', the free position)", () => {
+  it("[LDB-F24] example 1 matches the doc's own prose (the '@' key, the duplicate 'e', the free position; no board field)", () => {
     if (skipIfSplit()) {
       expect(hasSiteTree).toBe(false);
       return;
@@ -71,7 +71,7 @@ describe("[LDB-F24] 22-spark-spec.md's worked examples (§11)", () => {
 
     // "@ sits at row 0, left ring finger"
     expect(example.keys.find((k) => k.char === "@")).toEqual({ char: "@", row: 0, col: 1, finger: "LR" });
-    expect(example.board).toBe("ansi");
+    expect("board" in example).toBe(false); // 26-no-board.md: no such field
     // "typing n then @ lowers to a rule emitting nl"
     expect(example.magic?.magic_keys?.[0]).toMatchObject({ key: "@", rules: [{ after: "n", output: "nl" }] });
     // "'e' has two entries ... a duplicate character"
@@ -80,7 +80,7 @@ describe("[LDB-F24] 22-spark-spec.md's worked examples (§11)", () => {
     expect(example.keys.filter((k) => k.char === undefined)).toHaveLength(1);
   });
 
-  it("[LDB-F24] example 2 is iso with a free position and a thumb key", () => {
+  it("[LDB-F24] example 2 has an 11-wide row 2, a free position and a thumb key", () => {
     if (skipIfSplit()) {
       expect(hasSiteTree).toBe(false);
       return;
@@ -88,12 +88,13 @@ describe("[LDB-F24] 22-spark-spec.md's worked examples (§11)", () => {
     const md = fs.readFileSync(SPEC_PATH, "utf8");
     const example = extractWorkedExamples(md)[1] as Payload;
 
-    expect(example.board).toBe("iso");
+    expect("board" in example).toBe(false);
+    expect(Math.max(...example.keys.filter((k) => k.row === 2).map((k) => k.col))).toBe(10);
     expect(example.keys.some((k) => k.char === undefined)).toBe(true);
     expect(example.keys.some((k) => k.finger === "LT")).toBe(true);
   });
 
-  it("[LDB-F24] example 3 is colstag with six thumb keys, three per side", () => {
+  it("[LDB-F24] example 3 has six thumb keys, three per side", () => {
     if (skipIfSplit()) {
       expect(hasSiteTree).toBe(false);
       return;
@@ -101,7 +102,7 @@ describe("[LDB-F24] 22-spark-spec.md's worked examples (§11)", () => {
     const md = fs.readFileSync(SPEC_PATH, "utf8");
     const example = extractWorkedExamples(md)[2] as Payload;
 
-    expect(example.board).toBe("colstag");
+    expect("board" in example).toBe(false);
     expect(example.keys.filter((k) => k.finger === "LT")).toHaveLength(3);
     expect(example.keys.filter((k) => k.finger === "RT")).toHaveLength(3);
   });

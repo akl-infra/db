@@ -27,7 +27,7 @@
 // import.
 //
 // Usage: node db/scripts/validate-akl1-payload.mjs < payload.json
-//   input:  a full akl/1 payload object ({ keys, board?, magic?, free?, x? })
+//   input:  a full spark/1 payload object ({ keys, magic? } -- no board since 26-no-board.md)
 //   output: the ValidationResult JSON validate() returns --
 //           { ok: true } or { ok: false, error: { error, message, ... } }
 import { validate } from '../formats/spark/1/index.ts';

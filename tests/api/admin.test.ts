@@ -580,7 +580,7 @@ describe("POST /v1/admin/import/tick, POST /v1/admin/diff/tick, and POST /v1/adm
   describe("POST /v1/admin/magic-seed", () => {
     it("[LDB-P24] anonymous 401, non-admin 403, admin 200 as a SYSTEM write (system:magic-seed / seed:aklgg, admin false) that sets has_magic and leaves upstream following; an invalid candidate is refused with nothing written", async () => {
       const name = uniqueName("seed-target");
-      const payload = { keys: [{ char: "a", row: 1, col: 0, finger: "LP" }, { char: "b", row: 1, col: 5, finger: "RI" }, { char: "@", row: 0, col: 1, finger: "LR" }], board: "ansi" };
+      const payload = { keys: [{ char: "a", row: 1, col: 0, finger: "LP" }, { char: "b", row: 1, col: 5, finger: "RI" }, { char: "@", row: 0, col: 1, finger: "LR" }] };
       const created = await writeFetch("/v1/layouts", "POST", userHeaders(`tok-${uniqueName("seed-owner")}`), { name, format: "spark/1", payload });
       expect(created.status).toBe(201);
       const magic = { magic_keys: [{ key: "@", default: { kind: "repeat" }, rules: [{ after: "a", output: "ab" }] }] };

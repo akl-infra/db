@@ -90,7 +90,7 @@ describe("[LDB-G7] @akl/layout-formats packages db/formats", () => {
         fs.writeFileSync(path.join(tmpDir, "package.json"), JSON.stringify({ name: "ldb-g7-probe", private: true, type: "module" }));
         execFileSync("npm", ["install", "--no-audit", "--no-fund", tarballPath], { cwd: tmpDir, stdio: "pipe" });
 
-        const probeScript = `import("@akl/layout-formats/spark/1").then((m) => { const r = m.validate({ keys: [], board: "ansi" }); if (!r.ok) { console.error(JSON.stringify(r)); process.exit(1); } process.exit(0); }).catch((e) => { console.error(e); process.exit(1); });`;
+        const probeScript = `import("@akl/layout-formats/spark/1").then((m) => { const r = m.validate({ keys: [] }); if (!r.ok) { console.error(JSON.stringify(r)); process.exit(1); } process.exit(0); }).catch((e) => { console.error(e); process.exit(1); });`;
         execFileSync("node", ["-e", probeScript], { cwd: tmpDir, stdio: "pipe" });
       } finally {
         fs.rmSync(tarballPath, { force: true });

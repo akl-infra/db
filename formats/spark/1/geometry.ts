@@ -1,10 +1,13 @@
-// spark/1's board geometry (design/layout-db/23-geometry.md §3/§4, LDB-F30):
-// ONE definition of physical coordinates, the hand split and the named
-// fingering classification -- the site's drawer, the bot's grid/image and
-// the mana2 lowering all call these, never re-derive them. "Infer once, at
-// the door; store it explicitly; never infer at read time" (§3): `board` is
-// one of four words (§4.1), the fingering name is a pure derived label
-// (§4.3), never stored.
+// spark/1's geometry (design/layout-db/23-geometry.md §3/§4 minus the
+// board, design/layout-db/26-no-board.md; LDB-F30): ONE definition of the
+// hand split and the named fingering classification -- the site's drawer,
+// the bot's grid/image and the mana2 lowering all call these, never
+// re-derive them. There is no board word any more (26-no-board.md): a
+// record says where its keys sit and which finger presses each; what
+// physical board it is drawn or analysed on is the READER's choice (the
+// site's rowstag/ortho comparison view, the bot's engine context), so the
+// old `KINDS`/`Board`/`STAGGER_BY_KIND`/`coords` exports are gone with it.
+// The fingering name is a pure derived label (§4.3), never stored.
 //
 // Self-contained like every other file in this format package (07 §5): no
 // import of src/formats/registry.ts, explicit `.ts` extensions so
@@ -13,9 +16,6 @@
 // here rather than imported from `./index.ts` at runtime, so this module has
 // zero runtime dependencies of its own -- index.ts imports VALUES from here,
 // never the reverse.
-
-export const KINDS = ["ansi", "iso", "ortho", "colstag"] as const;
-export type Board = (typeof KINDS)[number];
 
 // One entry per PHYSICAL position (design/layout-db/23-geometry.md's
 // duplicate-characters follow-up, folded into this round rather than done
@@ -31,30 +31,6 @@ export interface Key {
   row: number;
   col: number;
   finger: string;
-}
-
-// §4.1's table: the stagger is a fixed function of the kind, nothing in the
-// record overrides it. `ansi`: cmini's row-staggered ANSI shape (row 1 a
-// quarter key right, row 2 three-quarters). `iso`: row 2 shifts LEFT a
-// quarter key instead of right -- z (col 1) lands at 0.75, exactly its ANSI
-// spot; only the new ISO key at col 0 (x = -0.25) is new. `ortho`/`colstag`:
-// flat -- colstag's per-column amounts have no place in this fixed,
-// per-ROW table (the word is for renderers/readers, not stagger amounts,
-// §4.1: "colstag does not get to set stagger").
-export const STAGGER_BY_KIND: Record<Board, [number, number, number]> = {
-  ansi: [0, 0.25, 0.75],
-  iso: [0, 0.25, -0.25],
-  ortho: [0, 0, 0],
-  colstag: [0, 0, 0],
-};
-
-// coords: physical (x, y) of a (row, col) on a given board kind. Rows past 2
-// reuse row 2's own offset (there is no row-3+ entry in STAGGER_BY_KIND --
-// the thumb row and any number row both sit at whatever offset row 2 uses).
-export function coords(kind: Board, row: number, col: number): { x: number; y: number } {
-  const stagger = STAGGER_BY_KIND[kind];
-  const rowIdx = Math.min(row, 2);
-  return { x: col + stagger[rowIdx]!, y: row };
 }
 
 // §4.1: "for each finger row, the gap sits after the last column whose key
@@ -149,7 +125,7 @@ export const FINGERING_REFS: Record<NamedFingering, [string[], string[], string[
 // named row absent) is 'custom' (the site's 'other'). Thumbs (LT/RT) are
 // excluded from the position map, same as the python's `p.finger not in
 // ('LT', 'RT')`. A key OUTSIDE this fixed 3x10 grid (row >= 3, or col >= 10
-// on an iso/wider row) is simply never looked at either way, same as the
+// on a wider row) is simply never looked at either way, same as the
 // python (`ref.items()` only ever names (row, col) pairs inside the grid).
 export function classifyFingering(keys: Key[]): Fingering {
   // Only CHARACTER entries participate (build_web.py's `classify_fingermap`
@@ -190,12 +166,10 @@ export function classifyFingering(keys: Key[]): Fingering {
 }
 
 // gridIndent: §5.4's text-grid look, as a pure function of the derived
-// fingering alone (the board word never changes the ascii grid). Flat
+// fingering alone (there is no board word to change the ascii grid). Flat
 // (0/0/0) for standard/custom/anything else; `angle` is rows 0-1 flush, row
 // 2 in by one; `nokwts`/`meteorite` are the full 0/1/2 stagger (saltorbit:
-// "meteorite, like aguacero, should present more like [nokwts]"). The ISO
-// out-dent (row 2 sticking out left by one cell) is the bot's own concern,
-// layered on top of this, not part of this function (§5.4's own note).
+// "meteorite, like aguacero, should present more like [nokwts]").
 export function gridIndent(fingering: Fingering): [number, number, number] {
   switch (fingering) {
     case "angle":

@@ -15,8 +15,7 @@
           "name": "cw-transfer-noifmatch-1",
           "format": "spark/1",
           "payload": {
-            "keys": [],
-            "board": "ansi"
+            "keys": []
           }
         }
       }

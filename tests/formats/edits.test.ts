@@ -6,7 +6,7 @@
 // (`validated-shapes.ts`) for the generic loop below, since a bare
 // `listFormats()` (this file's convention pre-20-spark.md S1) would
 // silently stop covering the cmini adapter once it left the registry;
-// the four dedicated per-format blocks (board/magic, and mana2's own
+// the dedicated per-format blocks (magic, and mana2's own
 // setFingermap, all excluded from the generic loop for reasons stated at
 // each) keep their own tiny fixture loader, same as before.
 import fs from "node:fs";
@@ -74,8 +74,8 @@ const FINGERS = ["LP", "LR", "LM", "LI", "RI", "RM", "RR", "RP", "LT", "RT"];
 // not a `p.keys` map (it has none) -- `fingermapOf`/the "not in keys"/
 // "bad finger word" assertions below all assume spark/1's shape. Excluded
 // here in favour of its own describe block (mana2/1 setFingermap, below),
-// the same pattern this file already uses for board/magic (spark/1
-// setBoard, spark/1 setMagic are their own blocks, never squeezed into
+// the same pattern this file already uses for magic (spark/1 setMagic is
+// its own block, never squeezed into
 // this generic one). 21-formats.md D5 deleted the cmini adapter's own
 // `edits.ts` entirely (a `cmini/1` record no longer exists to PATCH), so
 // spark/1 is the only member of this generic loop now.
@@ -186,21 +186,12 @@ describe("format edits (LDB-E1)", () => {
 // no longer exists to PATCH, so there is no "cmini/1 setBoard" block here
 // any more.
 
-// -- board (spark/1): the board vocabulary is spark/1's own, validated as
-// a whole by the pipeline's validate() re-run.
-describe("spark/1 setBoard (LDB-E1)", () => {
-  for (const fixture of fixturesFor("spark/1")) {
-    it(`[LDB-E1] ${fixture.stem} setBoard(p.board) is identity and pure`, () => {
-      const before = structuredClone(fixture.payload);
-      const result = spark1.edits!.setBoard!(fixture.payload, fixture.payload.board);
-      expect(fixture.payload).toEqual(before); // purity
-      expect(isEditError(result)).toBe(false);
-      if (!isEditError(result)) {
-        expect(result).toEqual(fixture.payload);
-        expect(spark1.validate(result).ok).toBe(true);
-      }
-    });
-  }
+// -- board: there is no `setBoard` any more (design/layout-db/26-no-board.md:
+// spark/1 has no board field; the route schema refuses the key first).
+describe("spark/1 has no board edit (LDB-F40)", () => {
+  it("[LDB-F40] `edits` exposes exactly setFingermap and setMagic", () => {
+    expect(Object.keys(spark1.edits!).sort()).toEqual(["setFingermap", "setMagic"]);
+  });
 });
 
 // -- magic (spark/1 -- the only format PATCH{magic} was ever going to

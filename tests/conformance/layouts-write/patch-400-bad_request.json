@@ -13,8 +13,7 @@
           "name": "cw-patch-bad-1",
           "format": "spark/1",
           "payload": {
-            "keys": [],
-            "board": "ansi"
+            "keys": []
           }
         }
       }

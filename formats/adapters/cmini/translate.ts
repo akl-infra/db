@@ -10,25 +10,16 @@
 // this directory at all.
 import * as cmini1 from "./index.ts";
 import { computeRows, isScaffold, liftRules, type MagicIntent, type Row, type RawRule } from "../../spark/1/magic.ts";
-import type { Board, Key } from "../../spark/1/geometry.ts";
+import type { Key } from "../../spark/1/geometry.ts";
 import type { Payload as SparkPayload, Position } from "../../spark/1/index.ts";
 
-// design/layout-db/23-geometry.md §4.6's word table: cmini's `stagger`/
-// `angle` both land on `ansi` (the angle mod is already baked into `keys`'
-// cols/fingers, as cmini itself stores it -- the geometry word is the same
-// ANSI shape either way, and the angle mod itself is a FINGERING now, not a
-// board word); `ortho`/`mini` both land on `ortho`. design/layout-db/
-// 24-spark-wire-review.md finding 10 (the coordinator's amendment): import
-// is faithful to this table alone -- there is NO angle-family bump to
-// `ansi` any more (validate() no longer enforces "angle/nokwts/meteorite
-// needs board: ansi" at all; that rule moved to the bot's own `fingers!`/
-// `board!` verbs).
-const WORD_TABLE: Record<cmini1.Payload["board"], Board> = {
-  stagger: "ansi",
-  angle: "ansi",
-  ortho: "ortho",
-  mini: "ortho",
-};
+// cmini's `board` word (`stagger`/`angle`/`ortho`/`mini`) is DROPPED on
+// import (design/layout-db/26-no-board.md): spark/1 has no board field --
+// the angle mod is already baked into `keys`' cols/fingers as cmini itself
+// stores it (a fingering, never a board word, 23-geometry.md §4.3), and
+// which physical board a layout is drawn or analysed on is the reader's
+// own choice. MF-9 (db/tests/formats/mf9-fromcmini.test.ts) names `board`
+// among the fields this import is allowed to lose.
 
 // §4.6: a `TB` finger, or an `LT`/`RT` thumb whose column disagrees with the
 // rule below, is relabelled -- the last time this ever runs (spark/1 itself
@@ -148,8 +139,7 @@ function convert(p: cmini1.Payload): { payload: SparkPayload; changes: ImportCha
   const { keys, relabeled: relabeledKeys } = relabelKeys(p.keys);
   const { free, relabeled: relabeledFree } = relabelFree(p.free);
 
-  const board: Board = WORD_TABLE[p.board];
-  const out: SparkPayload = { keys: toKeyArray(keys, free), board };
+  const out: SparkPayload = { keys: toKeyArray(keys, free) };
 
   const rows = cmini1.rows(p); // typed rows, `type` defaulted to "raw" (the adapter's own rows())
   if (rows.length > 0) {
@@ -178,15 +168,15 @@ function convert(p: cmini1.Payload): { payload: SparkPayload; changes: ImportCha
 }
 
 // fromCmini (01 §6.1, design/layout-db/23-geometry.md §4.6): the import.
-// `tag`/`blame`/`combos`/`link` have no spark/1 idiom (spark's escape hatch
-// is for magic rows, not these) and, since 21-formats.md D10 dropped
-// spark/1's free-form `x` field, are dropped here rather than reserved
-// anywhere -- MF-9 (db/tests/formats/mf9-fromcmini.test.ts) is the
-// invariant that replaces the old `toCmini(fromCmini(x))` round trip: it
-// states exactly these four fields as the ones fromCmini is allowed to
-// drop (LDB-F23/LDB-F31 -- the relabel is the one EXTRA change this round
-// adds on top of that exactness claim; 24-spark-wire-review.md finding 10
-// dropped the board-bump this comment used to also name).
+// `tag`/`blame`/`combos`/`link`/`board` have no spark/1 idiom (spark's
+// escape hatch is for magic rows, not these) and, since 21-formats.md D10
+// dropped spark/1's free-form `x` field, are dropped here rather than
+// reserved anywhere -- MF-9 (db/tests/formats/mf9-fromcmini.test.ts) is
+// the invariant that replaces the old `toCmini(fromCmini(x))` round trip:
+// it states exactly these five fields as the ones fromCmini is allowed to
+// drop (LDB-F23 -- the relabel is the one EXTRA change 23-geometry.md
+// added on top of that exactness claim; `board` joined the list with
+// design/layout-db/26-no-board.md, retiring LDB-F31's word table).
 export function fromCmini(p: cmini1.Payload): SparkPayload {
   return convert(p).payload;
 }

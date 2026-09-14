@@ -32,7 +32,7 @@ const KEYS: Key[] = [
 ];
 
 function check(magic: unknown, keys: Key[] = KEYS) {
-  return spark1.validate({ keys, board: "ansi", magic } as unknown as Payload);
+  return spark1.validate({ keys, magic } as unknown as Payload);
 }
 
 function refusal(magic: unknown, keys: Key[] = KEYS) {

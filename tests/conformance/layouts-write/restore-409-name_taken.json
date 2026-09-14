@@ -12,8 +12,7 @@
           "name": "cw-restore-taken-1",
           "format": "spark/1",
           "payload": {
-            "keys": [],
-            "board": "ansi"
+            "keys": []
           }
         }
       }

@@ -24,8 +24,7 @@
           "name": "cw-put-badpayload-1",
           "format": "spark/1",
           "payload": {
-            "keys": [],
-            "board": "ansi"
+            "keys": []
           }
         }
       }
@@ -38,8 +37,8 @@
     },
     "body": {
       "error": "invalid_payload",
-      "message": "payload/board must be equal to one of the allowed values",
-      "path": "/board"
+      "message": "payload must NOT have additional properties",
+      "path": "/"
     }
   }
 }

@@ -19,8 +19,8 @@
     "isRowStaggered": true,
     "rowOrColumnStagger": [
       0,
-      0,
-      0
+      0.25,
+      0.75
     ],
     "mirrorLeftRowStagger": false,
     "splitAngle": 0

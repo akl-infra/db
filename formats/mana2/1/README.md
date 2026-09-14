@@ -53,10 +53,7 @@ exact function/line each claim comes from.
 | left thumb cell `i` of `n` (`n<=5`) | `row=fingers.length, col=4-(n-1-i), finger:"LT"` | no |
 | right thumb cell `j` | same row, `col=5+j, finger:"RT"` | no |
 | `n>5` on one thumb side | -- | **held**: "more than five keys on one thumb" |
-| `isRowStaggered:true`, stagger all zero | `board:{kind:"ortho",cmini:"ortho"}` | no |
-| `isRowStaggered:true`, stagger `[a,b,c,...]` | `board:{kind:"rowstag",stagger:[a,b,c]}` (+`cmini:"stagger"` iff exactly `[0,0.25,0.75]`); entries past the 3rd must equal the 3rd | else **held**: "rowstag stagger entries past the third must equal the third" |
-| `isRowStaggered:false`, stagger all zero | `board:{kind:"ortho",cmini:"ortho"}` | no |
-| `isRowStaggered:false`, stagger non-zero | `board:{kind:"colstag",stagger:[...]}` | no |
+| `board` (any shape: row- or column-staggered, any amounts, `mirrorLeftRowStagger`, `splitAngle`) | -- (dropped: `spark/1` has no board field, `design/layout-db/26-no-board.md`; the lowering back always emits the ANSI row stagger `[0,0.25,0.75]`, `translate.ts`'s `DEFAULT_ROW_STAGGER`) | no -- a documented loss, never held (the old "entries past the 3rd must equal the 3rd" hold went with the field) |
 | `magic.rules` (duplicate `inputs` -> last wins, mana2's own load-time semantics) | `magic.rules[] = {inputs,output,type:"raw"}`, same order, no lift (untyped rows are never lifted without the author, `01-format.md` §3) | no (dedup happens first) |
 | non-empty `combos` | -- | **held**: "combos have no akl/1 idiom" |
 | `mirrorLeftRowStagger`/`splitAngle`/`magicKeys`/`layers` | carried into `x.mana2` (below), NEVER held -- this format's own override of `12 §2.5`'s table, approved because the hatch preserves them exactly | no |

@@ -3,10 +3,17 @@
 The one stored format (`design/layout-db/20-spark.md` §1 decision 1; was
 `akl/1`, renamed byte-for-byte -- the payload shape is unchanged): what
 akl.gg writes and what most clients read. Joins the site's existing shapes
-rather than inventing new ones -- cmini's `keys`/`free` map, the board
-geometry from `#261`, and the magic-rules authoring shape from
-`design/magic-rules/02-schema.md`, plus a raw-rule escape hatch (`magic.
-rules[]`). No free-form `x` bag (dropped by `design/layout-db/
+rather than inventing new ones -- cmini's `keys`/`free` map and the
+magic-rules authoring shape from `design/magic-rules/02-schema.md`, plus a
+raw-rule escape hatch (`magic.rules[]`). **No board field**
+(`design/layout-db/26-no-board.md`): a record says where its keys sit and
+which finger presses each, never what physical board it is drawn or
+analysed on -- that is the reader's own choice (the site's rowstag/ortho
+comparison view, the bot's engine context). 23-geometry.md's one-word
+`board` (and the object before it) is gone, together with the iso width
+rule, `coords`/`STAGGER_BY_KIND` and `cminiBoardWord`; `geometry.ts` keeps
+the hand split and the fingering classification, both functions of `keys`
+alone. No free-form `x` bag (dropped by `design/layout-db/
 21-formats.md` D10, lead's call: after the D8 wipe no stored row carries
 one, no format's `to`/`from` writes one, and the one reader -- the cmini
 adapter's now-deleted `toCmini` -- is gone too, so there is nothing left
@@ -40,10 +47,8 @@ implemented (`fromCmini` = 01 §6.1; moved out of this directory by
 20-spark.md S1 -- cmini is an import source now, not a registered format,
 and D5, `21-formats.md`, deleted the `toCmini` direction and the
 `?as=cmini/1` read path entirely -- there is no `cmini <-> spark/1` round
-trip anymore, only cmini -> spark/1). This format only exports the pure
-`cminiBoardWord` helper (the inverse of the adapter's own internal
-`boardFromCmini`, used to test the mapping both ways); the dependency runs
-adapter -> spark, never the reverse.
+trip anymore, only cmini -> spark/1). The dependency runs adapter -> spark,
+never the reverse.
 
 ## What it can't express
 
@@ -59,22 +64,18 @@ them in since D10, and nothing downstream reads them if there were):
 
 - `tag`, `blame`, `combos`, `link` -- cmini-only fields `spark/1` has no
   place for.
-- `board.kind: "colstag"` has no cmini word to translate FROM in the first
-  place (cmini never produces one); going the other way (a `spark/1`
-  colstag board rendered as cmini's word for display, not stored) is
-  `cminiBoardWord`'s job, not `fromCmini`'s.
-- A `rowstag` board's `stagger` is always normalised to the ANSI amount
-  `[0, 0.25, 0.75]` (cmini has no other way to describe a row-staggered
-  board).
+- `board` -- cmini's `stagger`/`angle`/`ortho`/`mini` word. `spark/1` has
+  no board field (26-no-board.md); the angle mod is already in the keys'
+  own fingers (a fingering, 23-geometry.md §4.3), and which board a
+  layout is drawn on is the reader's choice.
 - `magic.rules[].note` has no cmini idiom and is dropped.
 
 `db/tests/formats/mf9-fromcmini.test.ts` (LDB-F23, MF-9,
 `design/layout-db/21-formats.md` §4) is the invariant that replaces the
 old `toCmini` round-trip test: over every `upstream-100` fixture layout,
-the `(char, row, col, finger)` multiset survives `fromCmini` exactly, the
-board word maps to `spark/1`'s `board.kind` by the fixed table above, and
-the fields dropped are exactly `tag`/`blame`/`combos`/`link` -- nothing
-else vanishes or leaks in.
+the `(char, row, col, finger)` multiset survives `fromCmini` exactly, and
+the fields dropped are exactly `tag`/`blame`/`combos`/`link`/`board` --
+nothing else vanishes or leaks in.
 
 ## Owner
 

@@ -112,7 +112,7 @@ function actorFor(userId: string): Actor {
 // retarget, so every spark payload the model ever creates keeps this ONE
 // key throughout -- unlike the old model's empty `{keys: {}}` seed, which
 // could never exercise a real `patchFormat` fingermap edit at all.
-const SPARK_SEED_PAYLOAD = { keys: [{ char: "a", row: 0, col: 0, finger: "LP" as const }], board: "ansi" as const };
+const SPARK_SEED_PAYLOAD = { keys: [{ char: "a", row: 0, col: 0, finger: "LP" as const }] };
 
 beforeAll(async () => {
   // transferLayout's own build() requires `to` to be a known author.
@@ -687,7 +687,7 @@ describe("[LDB-P1] [MF-1] [MF-2] [MF-3] [MF-5] [MF-12] the shared write model", 
       currentLayout: null,
       currentFormats: new Map(),
       layout: { kind: "created", name: `alone-${unique()}`, owner: OWNER_A, created_at: clock(), deleted: false },
-      format: { kind: "format_added", lineage: "spark", format: "spark/1", payload: { keys: [], board: "ansi" }, hasMagic: false },
+      format: { kind: "format_added", lineage: "spark", format: "spark/1", payload: { keys: [] }, hasMagic: false },
       modified_at: clock(),
       actor: "tester",
       via: "discord",

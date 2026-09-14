@@ -110,7 +110,7 @@ describe("[MF-6] [LDB-P20] HTTP-level cross-scope races (H3)", () => {
       `/v1/layouts/${seeded.id}`,
       "PUT",
       { ...headers, "If-Match": `"spark:${seeded.formatRev}"` },
-      { format: "spark/1", payload: { keys: [{ char: "a", row: 0, col: 0, finger: "LP" }], board: "ansi" } },
+      { format: "spark/1", payload: { keys: [{ char: "a", row: 0, col: 0, finger: "LP" }] } },
     );
     spy.mockRestore();
 
@@ -143,7 +143,7 @@ describe("[MF-6] [LDB-P20] HTTP-level cross-scope races (H3)", () => {
       `/v1/layouts/${seeded.id}`,
       "PUT",
       { ...headers, "If-Match": `"spark:${seeded.formatRev}"` },
-      { format: "spark/1", payload: { keys: [{ char: "a", row: 0, col: 0, finger: "LP" }], board: "ansi" } },
+      { format: "spark/1", payload: { keys: [{ char: "a", row: 0, col: 0, finger: "LP" }] } },
     );
     spy.mockRestore();
 
@@ -176,7 +176,7 @@ describe("[MF-6] [LDB-P20] HTTP-level cross-scope races (H3)", () => {
       `/v1/layouts/${seeded.id}`,
       "PUT",
       { ...headers, "If-Match": `"spark:${seeded.formatRev}"` },
-      { format: "spark/1", payload: { keys: [{ char: "a", row: 0, col: 0, finger: "LP" }], board: "ansi" } },
+      { format: "spark/1", payload: { keys: [{ char: "a", row: 0, col: 0, finger: "LP" }] } },
     );
     spy.mockRestore();
 

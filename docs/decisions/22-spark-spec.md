@@ -150,32 +150,20 @@ produced the emitted character, since a lowered row's context is the
 emitted character (§5.4), which carries no hand. This is not a special
 case anyone codes; it falls out of character-identity contexts.
 
-## 4. Board and thumbs
+## 4. Geometry and thumbs
 
-`board` is a required, single word: one of `ansi`, `iso`, `ortho`,
-`colstag`. There is no default at the wire level; every payload states its
-own board. (A bot command line may default an unstated board word to
-`ansi` at authoring time; that is a client convenience, not a format
-default.)
+**There is no `board` field.** A payload says where every key sits (`row`,
+`col`) and which finger presses it; it never says what physical board it
+is drawn or analysed on. That is the reader's own choice -- akl.gg's
+rowstag/ortho comparison view, the bot's engine context, a mana user's
+own `.jsonc` -- and never a property of the record
+(`design/layout-db/26-no-board.md`, saltorbit 2026-09-13, reversing
+`23-geometry.md`'s one-word `board`). A payload carrying `board` is refused
+(`400 invalid_payload`, path `/`, the schema's `additionalProperties:
+false`). An ISO layout's extra key is simply one more `keys` entry (row 2
+running 11 wide); nothing else about it is recorded.
 
-*Schema: `db/formats/spark/1/schema.json:8,14` (`required: ["keys","board"]`; the enum).*
-
-**The coordinate function is the contract.** Physical `(x, y)` for a
-`(kind, row, col)` position:
-
-| kind | x | y | notes |
-|---|---|---|---|
-| `ansi` | `col + [0, 0.25, 0.75][min(row,2)]` | `row` | cmini's ANSI row stagger; the default board |
-| `iso` | `col + [0, 0.25, -0.25][min(row,2)]` | `row` | row 2 shifts left instead of right; an ISO key is simply an extra `keys` entry, no special column reserved for it |
-| `ortho` | `col` | `row` | flat |
-| `colstag` | `col` | `row` | flat; the word is for renderers, never for per-column stagger amounts |
-
-*`db/formats/spark/1/geometry.ts:44-58` (`STAGGER_BY_KIND`, `coords`). LDB-F30 (one function, exported, no second port inside `db/`).*
-
-On `iso`, row 2 may be at most one column wider than rows 0-1 (never an
-error for equal or narrower width, and checked on no other board).
-
-*`db/formats/spark/1/index.ts:283-296` (`validateGeometry`, rule 2); `400 invalid_payload`. LDB-F27.*
+*Schema: `db/formats/spark/1/schema.json` (`required: ["keys"]`, no `board` property). LDB-F40.*
 
 **The hand split is derived, never stored.** `handSplit(keys)` is, over
 finger rows (row <= 2) that have both a left-hand and a right-hand entry,
@@ -197,12 +185,10 @@ sits, never re-derived by column.
 **Named fingerings are derived labels, never stored, and never refuse a
 write.** `classifyFingering(keys)` classifies a layout's rows 0-2 against
 four fixed references (`standard`, `angle`, `nokwts`, `meteorite`, left
-hand only; the right hand is always `RI RI RM RR RP`), else `custom`. The
-board word never gates this classification at write time: a payload whose
-fingers happen to read as `angle` on an `ortho` board is accepted. "Angle
-(or nokwts/meteorite) only makes sense on ansi" is a rule the **bot**
-enforces for its own `fingers!`/`board!` verbs, not something `validate()`
-checks.
+hand only; the right hand is always `RI RI RM RR RP`), else `custom`.
+Nothing gates this classification at write time (there is no board word
+to gate it on, §4): a payload whose fingers happen to read as `angle` is
+accepted whatever it is later drawn on.
 
 *`db/formats/spark/1/geometry.ts:143-190` (`classifyFingering`, `FINGERING_REFS`). LDB-F27, LDB-F30, LDB-F32. Explicit drop of the write-time rule: `db/formats/spark/1/index.ts:262-270`'s own comment ("Rule 4 ... is NOT enforced here").*
 
@@ -330,7 +316,7 @@ error}`. Checks run in this order, each stopping at the first failure:
 
 Check 1's reported error is the MOST SPECIFIC ajv error for the violation, never just the first one ajv happens to produce (LDB-F35).
 
-PATCH edits (`setFingermap`, `setBoard`, `setMagic`,
+PATCH edits (`setFingermap`, `setMagic`,
 `db/formats/spark/1/edits.ts`) apply their own change and then rely on the
 pipeline re-running `validate()` on the result; they duplicate none of the
 above. `setFingermap` additionally refuses a named character that is not
@@ -347,14 +333,15 @@ bare `char -> finger` map means).
 
 *`db/formats/mana2/1/translate.ts`. LDB-F17, `db/tests/formats/lowerable.test.ts`.*
 
-The board table reverses §4's coordinate function: `ansi`/`iso` become
-`isRowStaggered: true` with the matching `STAGGER_BY_KIND` amounts (`iso`
-keeping its 11-token row 2 as mana2's own `stand_iso` shape expects);
-`ortho`/`colstag` become `isRowStaggered: false` with an all-zero stagger.
-Row strings split at `handSplit(keys)`. Thumb strings are built purely
-from the finger label (`LT`/`RT`), by column within each side.
+The mana2 `board` is a fixed default, never read from the payload (§4:
+there is nothing to read): `isRowStaggered: true` with the ANSI row stagger
+`[0, 0.25, 0.75]` padded to the layout's own row count (row 2's offset
+repeated), `mirrorLeftRowStagger: false`, `splitAngle: 0`. An 11-wide row
+2 (an ISO layout) stays 11 tokens wide, as mana2's own `stand_iso` shape
+expects. Row strings split at `handSplit(keys)`. Thumb strings are built
+purely from the finger label (`LT`/`RT`), by column within each side.
 
-*`db/formats/mana2/1/translate.ts:400-423` (`boardFromSpark`), `:453-460` (thumb-string assembly by finger label).*
+*`db/formats/mana2/1/translate.ts` (`DEFAULT_ROW_STAGGER`, `defaultBoard`; thumb-string assembly by finger label). LDB-F40.*
 
 **Duplicate characters are a documented, permanent loss.** For a character
 with more than one `keys` entry, the primary (§3, first in list order) is
@@ -447,7 +434,6 @@ position.**
     { "char": "@", "row": 0, "col": 1, "finger": "LR" },
     { "row": 2, "col": 5, "finger": "RI" }
   ],
-  "board": "ansi",
   "magic": {
     "magic_keys": [
       {
@@ -468,9 +454,10 @@ duplicate character, valid because nothing in `magic` names `e`; lowering
 would keep the row-1 occurrence and turn the row-2 one into a `skip` cell.
 The entry with no `char` (row 2, col 5) is a free position.
 
-**Example 2: `iso`, a free position, one thumb key** (a real, tested
-fixture: `db/formats/mana2/1/fixtures/003-stand_iso.spark-1.json`, mana2's
-own `stand_iso` layout round-tripped into `spark/1`).
+**Example 2: an ISO-shaped layout (row 2 one column wider), a free
+position, one thumb key** (a real, tested fixture:
+`db/formats/mana2/1/fixtures/003-stand_iso.spark-1.json`, mana2's own
+`stand_iso` layout round-tripped into `spark/1`).
 
 ```json
 {
@@ -484,19 +471,19 @@ own `stand_iso` layout round-tripped into `spark/1`).
     { "row": 2, "col": 5, "finger": "LI" },
     { "char": ",", "row": 2, "col": 10, "finger": "RP" },
     { "row": 3, "col": 4, "finger": "LT" }
-  ],
-  "board": "iso"
+  ]
 }
 ```
 
-Row 2 runs 11 columns wide (cols 0-10), one wider than rows 0-1 (10 wide):
-legal under §4's iso-width rule. The `(row: 2, col: 5)` entry is a free
-position, sitting exactly where the ISO board's extra key falls. The
-`(row: 3, col: 4)` entry, finger `LT`, is a thumb key with no `char`
-assigned.
+Row 2 runs 11 columns wide (cols 0-10), one wider than rows 0-1 (10 wide)
+-- the ISO shape, expressed by the keys alone; no board word says so (§4).
+The `(row: 2, col: 5)` entry is a free position, sitting exactly where an
+ISO board's extra key falls. The `(row: 3, col: 4)` entry, finger `LT`, is
+a thumb key with no `char` assigned.
 
-**Example 3: `colstag`, six thumb keys across one thumb row** (a real,
-tested fixture: `db/formats/spark/1/fixtures/900-colstag.json`).
+**Example 3: a 12-wide (column-staggered) layout, six thumb keys across
+one thumb row** (a real, tested fixture:
+`db/formats/spark/1/fixtures/900-colstag.json`).
 
 ```json
 {
@@ -511,13 +498,12 @@ tested fixture: `db/formats/spark/1/fixtures/900-colstag.json`).
     { "char": "4", "row": 3, "col": 6, "finger": "RT" },
     { "char": "5", "row": 3, "col": 7, "finger": "RT" },
     { "char": "6", "row": 3, "col": 8, "finger": "RT" }
-  ],
-  "board": "colstag"
+  ]
 }
 ```
 
 (Rows 1-2 are omitted here for brevity; the real fixture has the full
 30-key main grid.) `handSplit` reads as column 6 (the last left-hand
 column in the main rows is 5). All six thumbs sit on row 3, three per
-side, ordered by column; nothing about a `colstag` board changes how a
-thumb is expressed.
+side, ordered by column; nothing about the board a reader draws this on
+changes how a thumb is expressed.

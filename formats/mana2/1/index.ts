@@ -18,7 +18,7 @@ export const id: `${string}/${number}` = "mana2/1";
 // why this is a plain export rather than parsed from OWNERS/README.md).
 export const owner = "DB maintainers (a mirror of mana2's loader at the vendored submodule commit -- see README.md; Zak's handle added when confirmed, 12 §1)";
 export const description =
-  "A mana2 .jsonc layout object (layout.fingers/thumbs, board, fingermap, magic.rules) -- mana's own write format. Tap-hold/directional tokens, >5 keys on one thumb, non-empty combos, and rowstag stagger past the 3rd entry disagreeing with it are held for spark/1.";
+  "A mana2 .jsonc layout object (layout.fingers/thumbs, board, fingermap, magic.rules) -- mana's own write format. Tap-hold/directional tokens, >5 keys on one thumb and non-empty combos are held for spark/1; the board object is dropped (spark/1 has none, the lowering back always emits the ANSI row stagger).";
 export const schema: object = rawSchema;
 export const role: "stored" | "output" = "output";
 
@@ -295,6 +295,6 @@ export const from: Record<string, (p: Payload) => Payload> = {};
 export { toSpark, fromSpark } from "./translate.ts";
 
 // registry.ts's optional PATCH slot (09 §3 T4) -- see edits.ts.
-// `setFingermap` only: `setBoard`/`setMagic` are `unsupported_for_format`
-// (12 §2.5's decision #9 -- a mana user edits the file, not the API).
+// `setFingermap` only: `setMagic` is `unsupported_for_format` (12 §2.5's
+// decision #9 -- a mana user edits the file, not the API).
 export { edits } from "./edits.ts";

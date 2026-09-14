@@ -199,10 +199,10 @@ describe("[MF-11] If-Match on DELETE (layout scope)", () => {
     const fake = actorFixture();
     const headers = register(fake, "tok-race", OWNER);
     // `magic.notes` was dropped entirely (24-spark-wire-review.md round 2
-    // item 2) -- `board` is the differentiator between the two racing
-    // writes now, still just a plain word, still schema-valid with no keys.
+    // item 2) and `board` with it (26-no-board.md) -- the one key's char
+    // is the differentiator between the two racing writes now.
     const put = (v: number) =>
-      writeFetch(`/v1/layouts/${record.id}`, "PUT", { ...headers, "If-Match": `"spark:${record.formatRev}"` }, { format: "spark/1", payload: { ...AKL_PAYLOAD, board: v === 1 ? "ansi" : "colstag" } });
+      writeFetch(`/v1/layouts/${record.id}`, "PUT", { ...headers, "If-Match": `"spark:${record.formatRev}"` }, { format: "spark/1", payload: { ...AKL_PAYLOAD, keys: [{ char: v === 1 ? "a" : "b", row: 0, col: 0, finger: "LP" }] } });
 
     const [a, b] = await Promise.all([put(1), put(2)]);
     const statuses = [a.status, b.status].sort();
@@ -210,11 +210,11 @@ describe("[MF-11] If-Match on DELETE (layout scope)", () => {
 
     const winner = a.status === 200 ? a : b;
     const loser = a.status === 200 ? b : a;
-    const winnerBody = await winner.json<{ formats: Record<string, { rev: number }>; payload: { board?: string } }>();
-    const loserBody = await loser.json<{ record: { formats: Record<string, { rev: number }>; payload: { board?: string } } }>();
+    const winnerBody = await winner.json<{ formats: Record<string, { rev: number }>; payload: { keys: unknown } }>();
+    const loserBody = await loser.json<{ record: { formats: Record<string, { rev: number }>; payload: { keys: unknown } } }>();
     expect(winnerBody.formats["spark/1"]!.rev).toBe(record.formatRev + 1);
     expect(loserBody.record.formats["spark/1"]!.rev).toBe(winnerBody.formats["spark/1"]!.rev);
-    expect(loserBody.record.payload.board).toBe(winnerBody.payload.board);
+    expect(loserBody.record.payload.keys).toEqual(winnerBody.payload.keys);
 
     const events = await db.prepare("SELECT COUNT(*) AS n FROM events WHERE layout_id = ?").bind(record.id).first<{ n: number }>();
     expect(events?.n).toBe(3); // "created" + "format_added" + exactly one "updated"
@@ -233,7 +233,7 @@ async function seedKeyed() {
     currentLayout: null,
     currentFormats: new Map(),
     layout: { kind: "created", name: uniqueName("ifmatch-keyed-seed"), owner: OWNER, created_at: clock(), deleted: false },
-    format: { kind: "format_added", lineage: "spark", format: "spark/1", payload: { keys: [{ char: "a", row: 0, col: 0, finger: "LP" }], board: "ansi" }, hasMagic: false },
+    format: { kind: "format_added", lineage: "spark", format: "spark/1", payload: { keys: [{ char: "a", row: 0, col: 0, finger: "LP" }] }, hasMagic: false },
     modified_at: clock(),
     actor: OWNER,
     via: "discord",

@@ -76,6 +76,25 @@ beforeEach(async () => {
   ]);
 });
 
+
+// design/layout-db/26-no-board.md: cmini's board word is dropped on import,
+// so a board-only upstream change is NOT a content change any more -- the
+// tests below that need "abyss changed upstream" flip one key's finger
+// instead, a change that does reach the stored spark/1 payload.
+function flipFirstKeyFinger(fake: FakeUpstream, name: string): { char: string; finger: string } {
+  const keys = structuredClone(fake.detailByName(name).keys) as Record<string, { row: number; col: number; finger: string }>;
+  const char = Object.keys(keys).sort()[0]!;
+  const finger = keys[char]!.finger === "LP" ? "LR" : "LP";
+  keys[char]!.finger = finger;
+  fake.mutateDetailByName(name, { keys });
+  return { char, finger };
+}
+
+function storedFinger(payloadJson: string, char: string): string | undefined {
+  const payload = JSON.parse(payloadJson) as { keys: { char?: string; finger: string }[] };
+  return payload.keys.find((k) => k.char === char)?.finger;
+}
+
 describe("tick()", () => {
   it("[LDB-I1] importing the fixture twice: the second tick is quiet, zero new events", async () => {
     const fake = new FakeUpstream();
@@ -203,7 +222,7 @@ describe("tick()", () => {
     fake.set404("graphite");
     fake.removeFromList("graphite"); // graphite is now a delete case
     const abyssId = fake.ids().find((id) => fake.listEntry(id).name === "abyss")!;
-    fake.mutateDetailByName("abyss", { board: "ortho" });
+    const flipped = flipFirstKeyFinger(fake, "abyss");
     // `planTick` decides "fetch" off the LIST entry's own modified_at/
     // like_count, not the detail -- the list entry must move too, or abyss
     // would never be selected for re-fetch this tick.
@@ -234,7 +253,7 @@ describe("tick()", () => {
     const abyssRow = await db
       .prepare("SELECT payload_json FROM layout_formats f JOIN layouts l ON l.id = f.layout_id WHERE l.name = 'abyss' AND f.lineage = 'spark'")
       .first<{ payload_json: string }>();
-    expect((JSON.parse(abyssRow!.payload_json) as { board?: unknown }).board).not.toEqual({ kind: "ortho", cmini: "ortho" });
+    expect(storedFinger(abyssRow!.payload_json, flipped.char)).not.toBe(flipped.finger);
     const graphiteRow = await db.prepare("SELECT deleted FROM layouts WHERE name = 'graphite'").first<{ deleted: number }>();
     expect(graphiteRow?.deleted).toBe(0);
 
@@ -279,7 +298,7 @@ describe("tick()", () => {
 
     const targetName = "abyss";
     const abyssId = fake.ids().find((id) => fake.listEntry(id).name === targetName)!;
-    fake.mutateDetailByName(targetName, { board: "ortho" });
+    flipFirstKeyFinger(fake, targetName);
     // `planTick` decides "fetch" off the LIST entry's own modified_at --
     // the list entry must move too, or abyss would never be re-selected.
     fake.mutateListEntry(abyssId, { modified_at: "2026-06-11T01:00:00.000Z" });
@@ -428,7 +447,7 @@ describe("tick()", () => {
 
       fake.removeFromList("graphite"); // suppressed delete candidate
       const abyssId = fake.ids().find((id) => fake.listEntry(id).name === "abyss")!;
-      fake.mutateDetailByName("abyss", { board: "ortho" });
+      const flipped = flipFirstKeyFinger(fake, "abyss");
       fake.mutateListEntry(abyssId, { modified_at: "2026-06-11T20:30:00.000Z" });
       fake.bumpMeta();
 
@@ -438,7 +457,7 @@ describe("tick()", () => {
       const abyssRow = await db
         .prepare("SELECT payload_json FROM layout_formats f JOIN layouts l ON l.id = f.layout_id WHERE l.name = 'abyss' AND f.lineage = 'spark'")
         .first<{ payload_json: string }>();
-      expect((JSON.parse(abyssRow!.payload_json) as { board?: unknown }).board).toBe("ortho");
+      expect(storedFinger(abyssRow!.payload_json, flipped.char)).toBe(flipped.finger);
     });
   });
 

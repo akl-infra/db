@@ -5380,17 +5380,6 @@
         "properties": {
           "type": "object",
           "fields": {
-            "board": {
-              "type": "object",
-              "fields": {
-                "enum": {
-                  "type": "array",
-                  "item": {
-                    "type": "string"
-                  }
-                }
-              }
-            },
             "keys": {
               "type": "object",
               "fields": {
@@ -5534,9 +5523,6 @@
         "payload": {
           "type": "object",
           "fields": {
-            "board": {
-              "type": "string"
-            },
             "keys": {
               "type": "array",
               "item": {
@@ -6743,9 +6729,6 @@
         "payload": {
           "type": "object",
           "fields": {
-            "board": {
-              "type": "string"
-            },
             "keys": {
               "type": "array",
               "item": {
@@ -7374,9 +7357,6 @@
         "payload": {
           "type": "object",
           "fields": {
-            "board": {
-              "type": "string"
-            },
             "keys": {
               "type": "array",
               "item": {
@@ -7555,9 +7535,6 @@
         "payload": {
           "type": "object",
           "fields": {
-            "board": {
-              "type": "string"
-            },
             "keys": {
               "type": "array",
               "item": {
@@ -8114,9 +8091,6 @@
         "payload": {
           "type": "object",
           "fields": {
-            "board": {
-              "type": "string"
-            },
             "keys": {
               "type": "array",
               "item": null
@@ -8470,9 +8444,6 @@
         "payload": {
           "type": "object",
           "fields": {
-            "board": {
-              "type": "string"
-            },
             "keys": {
               "type": "array",
               "item": null
@@ -8847,9 +8818,6 @@
             "payload": {
               "type": "object",
               "fields": {
-                "board": {
-                  "type": "string"
-                },
                 "keys": {
                   "type": "array",
                   "item": null

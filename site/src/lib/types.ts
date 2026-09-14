@@ -12,12 +12,6 @@ export interface SparkPosition {
   finger: Finger;
 }
 
-export interface SparkBoard {
-  kind: "rowstag" | "colstag" | "ortho";
-  stagger?: number[];
-  cmini?: "stagger" | "angle" | "ortho" | "mini";
-}
-
 export interface SparkMagicKeyRule {
   after: string;
   output: string;
@@ -33,7 +27,6 @@ export interface SparkMagicKey {
 export interface SparkPayload {
   keys: Record<string, SparkPosition>;
   free?: SparkPosition[];
-  board?: SparkBoard;
   magic?: {
     notes?: string;
     updated?: string;

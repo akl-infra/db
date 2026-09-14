@@ -25,7 +25,6 @@
    "name": "00------higgs",
    "owner": "621924065581465611",
    "payload": {
-    "board": "ortho",
     "keys": []
    },
    "upstream": {
@@ -59,7 +58,6 @@
    "name": "02_we've_been_in_this_room_too_long",
    "owner": "621924065581465611",
    "payload": {
-    "board": "ortho",
     "keys": []
    },
    "upstream": {
@@ -93,7 +91,6 @@
    "name": "40kwh",
    "owner": "525231824465690645",
    "payload": {
-    "board": "ansi",
     "keys": [
      {
       "char": "v",
@@ -314,7 +311,6 @@
    "name": "5quid-nhrl2",
    "owner": "766194884095901746",
    "payload": {
-    "board": "ansi",
     "keys": [
      {
       "char": "b",
@@ -541,7 +537,6 @@
    "name": "abyss",
    "owner": "766194884095901746",
    "payload": {
-    "board": "ansi",
     "keys": [
      {
       "char": "y",
@@ -764,7 +759,6 @@
    "name": "adept",
    "owner": "169285177481101312",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "/",
@@ -985,7 +979,6 @@
    "name": "AdNW",
    "owner": "1085579430623199292",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "k",
@@ -1220,7 +1213,6 @@
    "name": "apple",
    "owner": "226128695377526784",
    "payload": {
-    "board": "ansi",
     "keys": [
      {
       "char": "v",
@@ -1443,7 +1435,6 @@
    "name": "apt26",
    "owner": "169285177481101312",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "w",
@@ -1660,7 +1651,6 @@
    "name": "auditor",
    "owner": "782784290769207336",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "j",
@@ -1881,7 +1871,6 @@
    "name": "auditor-old",
    "owner": "782784290769207336",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": ".",
@@ -2102,7 +2091,6 @@
    "name": "auditors",
    "owner": "782784290769207336",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "j",
@@ -2325,7 +2313,6 @@
    "name": "babymak-pipis",
    "owner": "554549441458077697",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "d",
@@ -2516,7 +2503,6 @@
    "name": "bevel",
    "owner": "782784290769207336",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "v",
@@ -2754,7 +2740,6 @@
    "name": "bunya",
    "owner": "761732338744557568",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "b",
@@ -2986,7 +2971,6 @@
    "name": "crescent",
    "owner": "514971722626367517",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "c",
@@ -3081,7 +3065,6 @@
    "name": "csthyou",
    "owner": "581630432265895957",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "v",
@@ -3317,7 +3300,6 @@
    "name": "dhorf",
    "owner": "239371209202991105",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "v",
@@ -3532,7 +3514,6 @@
    "name": "dina-test",
    "owner": "782784290769207336",
    "payload": {
-    "board": "ansi",
     "keys": [
      {
       "char": "b",
@@ -3747,7 +3728,6 @@
    "name": "dmini-thumb-test",
    "owner": "184412255822020608",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "b",
@@ -3968,7 +3948,6 @@
    "name": "dmini-thumb-test-2",
    "owner": "184412255822020608",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "b",
@@ -4189,7 +4168,6 @@
    "name": "dmini-thumb-test-3",
    "owner": "184412255822020608",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "b",
@@ -4410,7 +4388,6 @@
    "name": "dmini-thumb-test-4",
    "owner": "184412255822020608",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "b",
@@ -4631,7 +4608,6 @@
    "name": "dmini-thumb-test-6",
    "owner": "184412255822020608",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "b",
@@ -4852,7 +4828,6 @@
    "name": "dmini-thumb-test-7",
    "owner": "184412255822020608",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "b",
@@ -5079,7 +5054,6 @@
    "name": "echo",
    "owner": "82004107568615424",
    "payload": {
-    "board": "ansi",
     "keys": [
      {
       "char": "f",
@@ -5312,7 +5286,6 @@
    "name": "eclipse",
    "owner": "1451323852658577581",
    "payload": {
-    "board": "ansi",
     "keys": [
      {
       "char": "b",
@@ -5527,7 +5500,6 @@
    "name": "eclipse-themb",
    "owner": "990947281857577002",
    "payload": {
-    "board": "ansi",
     "keys": [
      {
       "char": "b",
@@ -5748,7 +5720,6 @@
    "name": "eclipse-v2",
    "owner": "1451323852658577581",
    "payload": {
-    "board": "ansi",
     "keys": [
      {
       "char": "b",
@@ -5965,7 +5936,6 @@
    "name": "eclipse-v3",
    "owner": "1451323852658577581",
    "payload": {
-    "board": "ansi",
     "keys": [
      {
       "char": "b",
@@ -6180,7 +6150,6 @@
    "name": "eclipseortho",
    "owner": "990947281857577002",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "b",
@@ -6395,7 +6364,6 @@
    "name": "fhmb-test",
    "owner": "782784290769207336",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "p",
@@ -6616,7 +6584,6 @@
    "name": "finch",
    "owner": "581630432265895957",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "v",
@@ -6837,7 +6804,6 @@
    "name": "for-duo",
    "owner": "782784290769207336",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "q",
@@ -7052,7 +7018,6 @@
    "name": "for-duo-2",
    "owner": "782784290769207336",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "q",
@@ -7267,7 +7232,6 @@
    "name": "for-duo-3",
    "owner": "782784290769207336",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "q",
@@ -7561,7 +7525,6 @@
    "name": "graphite",
    "owner": "130544188818194432",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "b",
@@ -7794,7 +7757,6 @@
    "name": "graphite-vimified",
    "owner": "132132319518523393",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "b",
@@ -8015,7 +7977,6 @@
    "name": "haul",
    "owner": "1216940789460893763",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "z",
@@ -8250,7 +8211,6 @@
    "name": "inky-nyoom",
    "owner": "766194884095901746",
    "payload": {
-    "board": "ansi",
     "keys": [
      {
       "char": "k",
@@ -8554,7 +8514,6 @@
    "name": "inqwerted",
    "owner": "474550534301548556",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "t",
@@ -8791,7 +8750,6 @@
    "name": "io",
    "owner": "761732338744557568",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": ",",
@@ -9006,7 +8964,6 @@
    "name": "jeep",
    "owner": "525811617473101824",
    "payload": {
-    "board": "ansi",
     "keys": [
      {
       "char": "у",
@@ -9233,7 +9190,6 @@
    "name": "kai-nokwts",
    "owner": "782784290769207336",
    "payload": {
-    "board": "ansi",
     "keys": [
      {
       "char": "b",
@@ -9454,7 +9410,6 @@
    "name": "kairos",
    "owner": "82004107568615424",
    "payload": {
-    "board": "ansi",
     "keys": [
      {
       "char": "v",
@@ -9681,7 +9636,6 @@
    "name": "kate-2",
    "owner": "782784290769207336",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "w",
@@ -9902,7 +9856,6 @@
    "name": "kinda-dina",
    "owner": "782784290769207336",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "b",
@@ -10123,7 +10076,6 @@
    "name": "knight-you",
    "owner": "782784290769207336",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "b",
@@ -10344,7 +10296,6 @@
    "name": "kormite",
    "owner": "226128695377526784",
    "payload": {
-    "board": "ansi",
     "keys": [
      {
       "char": "v",
@@ -10577,7 +10528,6 @@
    "name": "magnetite",
    "owner": "226128695377526784",
    "payload": {
-    "board": "ansi",
     "keys": [
      {
       "char": "v",
@@ -10813,7 +10763,6 @@
    "name": "mantra",
    "owner": "260844740797399050",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "щ",
@@ -11034,7 +10983,6 @@
    "name": "marble",
    "owner": "226128695377526784",
    "payload": {
-    "board": "ansi",
     "keys": [
      {
       "char": "v",
@@ -11267,7 +11215,6 @@
    "name": "mistyfun",
    "owner": "581630432265895957",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "v",
@@ -11488,7 +11435,6 @@
    "name": "mistynail",
    "owner": "581630432265895957",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "v",
@@ -11715,7 +11661,6 @@
    "name": "neon",
    "owner": "525811617473101824",
    "payload": {
-    "board": "ansi",
     "keys": [
      {
       "char": "y",
@@ -11942,7 +11887,6 @@
    "name": "night-e",
    "owner": "782784290769207336",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "b",
@@ -12172,7 +12116,6 @@
    "name": "nightcore",
    "owner": "766194884095901746",
    "payload": {
-    "board": "ansi",
     "keys": [
      {
       "char": "b",
@@ -12399,7 +12342,6 @@
    "name": "Niro",
    "owner": "1085579430623199292",
    "payload": {
-    "board": "ansi",
     "keys": [
      {
       "char": "q",
@@ -12620,7 +12562,6 @@
    "name": "ntabv6",
    "owner": "264738939288420353",
    "payload": {
-    "board": "ansi",
     "keys": [
      {
       "char": "q",
@@ -12843,7 +12784,6 @@
    "name": "onyx",
    "owner": "226128695377526784",
    "payload": {
-    "board": "ansi",
     "keys": [
      {
       "char": "b",
@@ -13088,7 +13028,6 @@
    "name": "opal",
    "owner": "383900587877597186",
    "payload": {
-    "board": "ansi",
     "keys": [
      {
       "char": "b",
@@ -13303,7 +13242,6 @@
    "name": "opal-dario",
    "owner": "184412255822020608",
    "payload": {
-    "board": "ansi",
     "keys": [
      {
       "char": "b",
@@ -13518,7 +13456,6 @@
    "name": "opal-e200",
    "owner": "1203272268449579041",
    "payload": {
-    "board": "ansi",
     "keys": [
      {
       "char": "b",
@@ -13736,7 +13673,6 @@
    "name": "opalbetter",
    "owner": "1203272268449579041",
    "payload": {
-    "board": "ansi",
     "keys": [
      {
       "char": "b",
@@ -13957,7 +13893,6 @@
    "name": "opaline",
    "owner": "383900587877597186",
    "payload": {
-    "board": "ansi",
     "keys": [
      {
       "char": "b",
@@ -14184,7 +14119,6 @@
    "name": "opaline-meteorited",
    "owner": "525231824465690645",
    "payload": {
-    "board": "ansi",
     "keys": [
      {
       "char": "b",
@@ -14411,7 +14345,6 @@
    "name": "oxeytest64",
    "owner": "383900587877597186",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "v",
@@ -14632,7 +14565,6 @@
    "name": "oxeytest65",
    "owner": "383900587877597186",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "j",
@@ -14853,7 +14785,6 @@
    "name": "oxeytest66",
    "owner": "383900587877597186",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "j",
@@ -15074,7 +15005,6 @@
    "name": "oxeytest76",
    "owner": "383900587877597186",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "j",
@@ -15312,7 +15242,6 @@
    "name": "racket",
    "owner": "761732338744557568",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "f",
@@ -15533,7 +15462,6 @@
    "name": "raincsth",
    "owner": "581630432265895957",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "v",
@@ -15754,7 +15682,6 @@
    "name": "rightrollv2",
    "owner": "264738939288420353",
    "payload": {
-    "board": "ansi",
     "keys": [
      {
       "char": "p",
@@ -15975,7 +15902,6 @@
    "name": "rightrollv3",
    "owner": "264738939288420353",
    "payload": {
-    "board": "ansi",
     "keys": [
      {
       "char": "w",
@@ -16196,7 +16122,6 @@
    "name": "rnhsy",
    "owner": "990947281857577002",
    "payload": {
-    "board": "ansi",
     "keys": [
      {
       "char": "q",
@@ -16411,7 +16336,6 @@
    "name": "rnhsye",
    "owner": "990947281857577002",
    "payload": {
-    "board": "ansi",
     "keys": [
      {
       "char": "q",
@@ -16632,7 +16556,6 @@
    "name": "rosellae",
    "owner": "424828064988528651",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "b",
@@ -16847,7 +16770,6 @@
    "name": "rosellaeacc",
    "owner": "424828064988528651",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "ö",
@@ -17020,7 +16942,6 @@
    "name": "rosellaenav",
    "owner": "424828064988528651",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "⏮",
@@ -17223,7 +17144,6 @@
    "name": "rosellaesym",
    "owner": "424828064988528651",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "ñ",
@@ -17410,7 +17330,6 @@
    "name": "sanrie-cmini-test2",
    "owner": "584442680725995540",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "v",
@@ -17615,7 +17534,6 @@
    "name": "shale",
    "owner": "226128695377526784",
    "payload": {
-    "board": "ansi",
     "keys": [
      {
       "char": "v",
@@ -17848,7 +17766,6 @@
    "name": "shtc",
    "owner": "782784290769207336",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "v",
@@ -18072,7 +17989,6 @@
    "name": "slate",
    "owner": "226128695377526784",
    "payload": {
-    "board": "ansi",
     "keys": [
      {
       "char": "v",
@@ -18311,7 +18227,6 @@
    "name": "smiemak",
    "owner": "341813193464872991",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "f",
@@ -18526,7 +18441,6 @@
    "name": "Soul",
    "owner": "1085579430623199292",
    "payload": {
-    "board": "ansi",
     "keys": [
      {
       "char": "q",
@@ -18753,7 +18667,6 @@
    "name": "sunstone",
    "owner": "383900587877597186",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "v",
@@ -18980,7 +18893,6 @@
    "name": "swift",
    "owner": "82004107568615424",
    "payload": {
-    "board": "ansi",
     "keys": [
      {
       "char": "w",
@@ -19207,7 +19119,6 @@
    "name": "sy-thumb",
    "owner": "782784290769207336",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "b",
@@ -19428,7 +19339,6 @@
    "name": "tenders",
    "owner": "525811617473101824",
    "payload": {
-    "board": "ansi",
     "keys": [
      {
       "char": "y",
@@ -19657,7 +19567,6 @@
    "name": "tendon25b",
    "owner": "773077222189432843",
    "payload": {
-    "board": "ansi",
     "keys": [
      {
       "char": ",",
@@ -19896,7 +19805,6 @@
    "name": "test12222",
    "owner": "264738939288420353",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "'",
@@ -20117,7 +20025,6 @@
    "name": "thumb-u-test",
    "owner": "782784290769207336",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "v",
@@ -20338,7 +20245,6 @@
    "name": "thumb-u-xb",
    "owner": "782784290769207336",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "v",
@@ -20559,7 +20465,6 @@
    "name": "tomato",
    "owner": "226128695377526784",
    "payload": {
-    "board": "ansi",
     "keys": [
      {
       "char": "v",
@@ -20800,7 +20705,6 @@
    "name": "vylet",
    "owner": "119825772901957632",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "w",
@@ -21027,7 +20931,6 @@
    "name": "vylet-v4",
    "owner": "119825772901957632",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "w",
@@ -21262,7 +21165,6 @@
    "name": "whirl",
    "owner": "1204708988298461234",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "q",
@@ -21494,7 +21396,6 @@
    "name": "whorf",
    "owner": "426851559952089088",
    "payload": {
-    "board": "ortho",
     "keys": [
      {
       "char": "f",
@@ -21715,7 +21616,6 @@
    "name": "workman-rowstagger",
    "owner": "383900587877597186",
    "payload": {
-    "board": "ansi",
     "keys": [
      {
       "char": "q",

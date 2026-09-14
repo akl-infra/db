@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Generates + freezes db/formats/spark/1/fixtures/parity-vectors.json (300
 // seeded fast-check cases: `{keys, magic, expected}`, `expected =
-// compileMagic({keys, board: 'ansi', magic})`, then 60 refused ones:
+// compileMagic({keys, magic})`, then 60 refused ones:
 // `{keys, magic, refused: {message, path}}`, a valid rule set plus one key
 // that isn't on the layout, `refused` being spark1.validate()'s error) -- the interop contract
 // between spark/1's own magic compiler and akl.gg's `magicRulesFlatCompile`
@@ -174,7 +174,7 @@ function toSparkMagic(rs) {
 function buildVector([cells, rs]) {
   const keys = sparkKeys(cells);
   const magic = toSparkMagic(rs);
-  const payload = { keys, board: 'ansi', magic };
+  const payload = { keys, magic };
   const validation = spark1.validate(payload);
   if (!validation.ok) {
     throw new Error(`generated payload failed spark1.validate(): ${JSON.stringify(validation.error)}\npayload: ${JSON.stringify(payload)}`);
@@ -186,7 +186,7 @@ function buildVector([cells, rs]) {
 function buildRefusedVector([cells, rs]) {
   const keys = sparkKeys(cells);
   const magic = toSparkMagic(rs);
-  const validation = spark1.validate({ keys, board: 'ansi', magic });
+  const validation = spark1.validate({ keys, magic });
   if (validation.ok || !validation.error.message.endsWith("is not one of this layout's keys")) {
     throw new Error(`refused case wasn't refused for its off-layout key: ${JSON.stringify(validation)}\nmagic: ${JSON.stringify(magic)}`);
   }

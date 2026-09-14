@@ -93,18 +93,14 @@ describe("compareRecords / pathDiff over upstream-100", () => {
     expect(result.path).toBe(`/payload/keys/${idx}/finger`);
   });
 
-  it("[LDB-P5] a mutated top-level scalar (board) is reported under /payload/board", () => {
+  it("[LDB-P5] [LDB-F40] a mutated upstream board word is NOT a difference -- spark/1 carries no board (design/layout-db/26-no-board.md)", () => {
     const raws = loadFixture();
     const abyss = raws.find((r) => r.name === "abyss")!; // angle, per 07 §5.3
     const a = toOursEntry(abyss, "id-a");
     const mutated = { ...abyss, board: "ortho" };
     const b = toOursEntry(mutated, "id-b");
 
-    const result = compareRecords(a, b);
-    expect(result.equal).toBe(false);
-    // design/layout-db/23-geometry.md §4: `board` is one plain word now,
-    // not an object with its own `.cmini` sub-field.
-    expect(result.path).toBe("/payload/board");
+    expect(compareRecords(a, b)).toEqual({ equal: true, path: null });
   });
 
   it("[LDB-P5] likes compared sorted -- reordering is NOT a difference", () => {
@@ -159,12 +155,15 @@ describe("compareRecords / pathDiff over upstream-100", () => {
     const raws = loadFixture();
     const opal = raws.find((r) => r.name === "opal")!;
     const a = toOursEntry(opal, "id-a");
-    const mutated = { ...opal, board: "ortho", magic: [{ inputs: "q◇", output: "qq", type: "repeat" }] };
+    const keys = structuredClone(opal.keys) as Record<string, { row: number; col: number; finger: string }>;
+    const firstChar = Object.keys(keys).sort()[0]!;
+    keys[firstChar]!.finger = keys[firstChar]!.finger === "LP" ? "LR" : "LP";
+    const mutated = { ...opal, keys, magic: [{ inputs: "q◇", output: "qq", type: "repeat" }] };
     const b = toOursEntry(mutated, "id-b");
 
     const result = compareRecords(a, b);
     expect(result.equal).toBe(false);
-    expect(result.path).toBe("/payload/board"); // the real difference, never magic's own path
+    expect(result.path).toMatch(/^\/payload\/keys\/\d+\/finger$/); // the real difference, never magic's own path
   });
 });
 
@@ -205,7 +204,7 @@ describe("httpOurs (shrunk: count + a random sample of following layouts)", () =
       owner: "111111111111111111",
       created_at: "2026-01-01T00:00:00Z",
       modified_at: "2026-01-02T00:00:00Z",
-      payload: { board: "ortho", keys: [] },
+      payload: { keys: [] },
       upstream: { source: "cmini", id: "up-alpha", state: "following" },
     },
   };
@@ -260,7 +259,7 @@ describe("httpOurs (shrunk: count + a random sample of following layouts)", () =
         owner: "111111111111111111",
         created_at: "2026-01-01T00:00:00Z",
         modified_at: "2026-01-02T00:00:00Z",
-        payload: { board: "ortho", keys: [] },
+        payload: { keys: [] },
         upstream: item.upstream,
       };
     }

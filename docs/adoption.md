@@ -43,12 +43,12 @@ server-side (scope `identify`), proxy the write through your backend (§1.2,
 TOKEN='<discord access token>'
 curl -sX POST https://api.akldb.org/v1/layouts -H "Authorization: Bearer $TOKEN" \
   -H 'X-Client-Version: my-app/1.0' \
-  -d '{"name":"my-layout","format":"spark/1","payload":{"keys":[],"board":"ansi"}}'
+  -d '{"name":"my-layout","format":"spark/1","payload":{"keys":[]}}'
 # 201 {"id":"...", "formats":{"spark/1":{"rev":1,"..."}}, ...}; to edit later,
 # read the layout for its current rev, then:
 curl -sX PUT https://api.akldb.org/v1/layouts/<id> -H "Authorization: Bearer $TOKEN" \
   -H 'If-Match: "spark:<rev>"' \
-  -d '{"format":"spark/1","payload":{"keys":[],"board":"ansi"}}'
+  -d '{"format":"spark/1","payload":{"keys":[]}}'
 ```
 
 **4. Read, then write, as a trusted client** — an Ed25519 keypair stands in
@@ -406,12 +406,14 @@ is required everywhere a payload is returned — there is no default**
 exception, an optional filter, absent meaning "every event"). Two formats
 are registered today:
 
-- **`spark/1`** — the one *stored* shape: cmini's ordered `keys` list, a
-  board word, and an authoring shape for magic rules that keeps intent
-  (`magic_keys`/`chiral_keys`/`adaptive_swaps`), not flattened rows.
+- **`spark/1`** — the one *stored* shape: cmini's ordered `keys` list and
+  an authoring shape for magic rules that keeps intent
+  (`magic_keys`/`chiral_keys`/`adaptive_swaps`), not flattened rows. No
+  board word (decision `26-no-board.md`): which board a layout is
+  drawn or analysed on is the reader's own choice, never the record's.
 - **`mana2/1`** — an **output-only, derived** shape: a mana2 `.jsonc`
-  layout object (`layout.fingers`/`thumbs` row strings, `board`, flat
-  `magic.rules[]`). Never stored — derived from whichever ONE stored
+  layout object (`layout.fingers`/`thumbs` row strings, a `board` that is
+  always the ANSI row stagger, flat `magic.rules[]`). Never stored — derived from whichever ONE stored
   format is registered to reach it (`spark/1` today; §7's "For format
   authors" has the mechanics) on every read that asks for it explicitly.
   Never written (`400 format_not_writable`, §5).
@@ -432,8 +434,7 @@ trimmed, `?format=spark/1`):
                  "source": { "client": "system:cmini-import", "version": null } }
   },
   "format": "spark/1",
-  "payload": { "keys": [ { "char": "a", "row": 1, "col": 6, "finger": "RI" }, "…" ],
-               "board": "ortho" },
+  "payload": { "keys": [ { "char": "a", "row": 1, "col": 6, "finger": "RI" }, "…" ] },
   "likes": ["184412255822020608", "…"]
 }
 ```
@@ -603,7 +604,7 @@ with no gap.
 **`upstream` is transitional — do not build on it.** Every record carries a
 top-level `upstream: {source: "cmini", id, state: "following" | "forked"} |
 null` field, folded from the cmini-import events. It answers exactly one
-question — "does the importer still own this record's keys and board" — for
+question — "does the importer still own this record's keys" — for
 exactly as long as the one-time cmini import keeps running. There is no
 general layout-from-layout fork concept here, no re-follow, and nothing
 outside the importer and the daily upstream diff reads it for any decision.
@@ -629,7 +630,7 @@ POST   /v1/layouts                  { name, format, payload }                   
 PUT    /v1/layouts/{ref}            { format, payload }        If-Match (replace)   → 200
                                                                  If-None-Match: * (add) → 200
 PATCH  /v1/layouts/{ref}            { name } If-Match: "layout:<n>"                 → 200
-                                     { format, fingermap?/board?/magic? } If-Match: "<lineage>:<n>" → 200
+                                     { format, fingermap?/magic? } If-Match: "<lineage>:<n>" → 200
 DELETE /v1/layouts/{ref}                                    If-Match: "layout:<n>" → 200 (tombstone)
 POST   /v1/layouts/{ref}/transfer   { to }                  If-Match: "layout:<n>" or * → 200
 POST   /v1/layouts/{ref}/restore    { name? }  (owner or admin, no time limit)      → 200
@@ -651,8 +652,8 @@ that touches both scopes at once, in a single request.
 `{char?, row, col, finger}` entries — `char` is optional (absent means a
 free position that still needs a finger); the same character may appear on
 more than one entry (a mirrored key). `finger` is one of `LP LR LM LI RI RM
-RR RP LT RT`. `board` is a single required word: `ansi`, `iso`, `ortho`, or
-`colstag` — there is no board object and no default. `magic` is optional
+RR RP LT RT`. There is no `board` field at all (a payload carrying one is
+refused): a record never says what board it is drawn on. `magic` is optional
 and carries **intent** (`magic_keys`/`chiral_keys`/`adaptive_swaps`, plus a
 raw `rules[]` escape hatch) — never the flattened rows an analyzer reads
 (that's what `?format=mana2/1` is for, §3/§7). A magic key's `default`
@@ -665,7 +666,6 @@ bare string: `{"kind":"repeat"}` repeats the preceding character, or
 { "keys": [ { "char": "a", "row": 0, "col": 0, "finger": "LP" },
             { "char": "@", "row": 0, "col": 1, "finger": "LR" },
             { "row": 0, "col": 2, "finger": "LM" } ],
-  "board": "ansi",
   "magic": { "magic_keys": [ { "key": "@", "default": { "kind": "repeat" } } ] } }
 ```
 
@@ -679,12 +679,12 @@ several-formats-per-layout):
 
 ```bash
 curl -sX POST …/v1/layouts -H 'X-Client-Version: my-bot/1.0' <signed-or-bearer> -d '
-{"name":"my-layout","format":"spark/1","payload":{"keys":[],"board":"ansi"}}'
+{"name":"my-layout","format":"spark/1","payload":{"keys":[]}}'
 # 201 {"id":"01ARZ3ND…","name":"my-layout","owner":"800000000000000001","layout_rev":1,
 #      "created_at":"…","modified_at":"…","deleted":false,"like_count":0,"link":null,"upstream":null,
 #      "formats":{"spark/1":{"rev":1,"created_at":"…","modified_at":"…","has_magic":false,
 #                             "source":{"client":"discord-app:app-default","version":null}}},
-#      "format":"spark/1","payload":{"keys":[],"board":"ansi"}}
+#      "format":"spark/1","payload":{"keys":[]}}
 ```
 
 **Scoped `If-Match` and `409 stale`.** Every write against an *existing*
@@ -726,12 +726,12 @@ format_absent` if the layout doesn't have that lineage yet (use
 
 **`PATCH` is either `{name}` (layout scope) or `{format, …edits}` (that
 format's scope) — never both at once**, one event, one or more edits
-applied in the order `fingermap, board, magic`:
+applied in the order `fingermap, magic`:
 
 ```bash
 curl -sX PATCH …/v1/layouts/01ARZ3ND… -H 'If-Match: "spark:1"' <signed> \
   -d '{"format":"spark/1","fingermap":{"a":"RP"}}'
-# 200 {"…","format":"spark/1","payload":{"keys":[{"char":"a","row":0,"col":0,"finger":"RP"}],"board":"ansi"}}
+# 200 {"…","format":"spark/1","payload":{"keys":[{"char":"a","row":0,"col":0,"finger":"RP"}]}}
 ```
 
 A `{name}` body writes a `renamed` event (layout scope, `If-Match:
@@ -746,7 +746,7 @@ can never mean both:
 400 { "error": "mixed_patch", "message": "a PATCH may change the layout's name, or one format's payload, never both at once" }
 ```
 
-An edit key (`fingermap`/`board`/`magic`) with no `format` named is `400
+An edit key (`fingermap`/`magic`) with no `format` named is `400
 format_required`; a body with neither `name` nor any edit key at all is
 `400 bad_request`.
 
@@ -908,7 +908,7 @@ rewrite. The contract every registered `FormatModule` satisfies
   never out of one via `from`.
 - `hasMagic(p)`: pure, `boolean`.
 
-`edits` (PATCH helpers: `setFingermap?`, `setBoard?`, `setMagic?`) is the
+`edits` (PATCH helpers: `setFingermap?`, `setMagic?`) is the
 one contract member that is optional at major 1 (unused there — spark/1's
 own `edits` is exported anyway, but a stub major-1 module may omit it, `db/
 tests/formats/stub-lineage.ts`'s `T1`) and required from major 2 onward,
@@ -926,7 +926,7 @@ alongside `up`/`down` — the three below.
   fixture `q` at `N-1`, `up(q)` never holds, always validates at `N`, and
   `down(up(q)) === q` (up is injective).
 - `edits`: required, not optional, once major > 1 (the PATCH pipeline needs
-  somewhere to apply a `board`/`magic`/`fingermap` edit against the stored
+  somewhere to apply a `magic`/`fingermap` edit against the stored
   major).
 
 `chainViolations(mod)` (`db/formats/registry.ts`) is the one runtime check
@@ -1097,7 +1097,7 @@ silently drift from what `db/src/index.ts` actually registers.
 | GET | `/v1/layouts/:ref/rev/:n` | none | — | 200 | `format_required`, `unknown_format`, `bad_request`, `held`, `not_found` |
 | POST | `/v1/layouts` | user | `{name, format, payload}` | 201 | `bad_request`, `invalid_name`, `unknown_format`, `format_not_writable`, `invalid_payload`, `magic_collision`, `name_taken`, lane errors |
 | PUT | `/v1/layouts/:ref` | user | `{format, payload}` + `If-Match` (replace) or `If-None-Match: *` (add) | 200 | `if_match_required`, `bad_request`, `unknown_format`, `format_not_writable`, `format_behind`, `format_absent`, `format_exists`, `invalid_payload`, `magic_collision`, `not_owner`, `not_found`, `stale`, lane errors |
-| PATCH | `/v1/layouts/:ref` | user | `{name}` (layout scope) or `{format, fingermap?, board?, magic?}` (that format's scope) + `If-Match` | 200 | `if_match_required`, `bad_request`, `mixed_patch`, `format_required`, `invalid_name`, `invalid_payload`, `unsupported_for_format`, `not_owner`, `not_found`, `name_taken`, `stale`, lane errors |
+| PATCH | `/v1/layouts/:ref` | user | `{name}` (layout scope) or `{format, fingermap?, magic?}` (that format's scope) + `If-Match` | 200 | `if_match_required`, `bad_request`, `mixed_patch`, `format_required`, `invalid_name`, `invalid_payload`, `unsupported_for_format`, `not_owner`, `not_found`, `name_taken`, `stale`, lane errors |
 | DELETE | `/v1/layouts/:ref` | user | — + `If-Match: "layout:<n>"` | 200 | `if_match_required`, `bad_request`, `not_owner`, `not_found`, `stale`, lane errors |
 | POST | `/v1/layouts/:ref/restore` | user | `{name?}` (optional) | 200 | `bad_request`, `invalid_name`, `not_owner`, `not_found`, `name_taken`, lane errors |
 | POST | `/v1/layouts/:ref/transfer` | user | `{to}` + `If-Match` | 200 | `if_match_required`, `bad_request`, `not_owner`, `not_found`, lane errors |

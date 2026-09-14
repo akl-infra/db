@@ -149,7 +149,7 @@ async function fire(lane: Lane, verb: Verb, versionHeader: string | undefined): 
     }
     case "replace": {
       const seed = await seedRecord(owner);
-      const body = { format: "spark/1", payload: { keys: [{ char: "a", row: 0, col: 0, finger: "LP" }], board: "ansi" } };
+      const body = { format: "spark/1", payload: { keys: [{ char: "a", row: 0, col: 0, finger: "LP" }] } };
       const path = `/v1/layouts/${seed.id}`;
       const headers =
         lane === "discord"

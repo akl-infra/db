@@ -45,7 +45,7 @@ const TRANSFER_TO = "800000000000000202";
 const STAR: IfMatch = { kind: "any" };
 const ADD: IfNoneMatch = { kind: "any" };
 const NO_IF_NONE_MATCH: IfNoneMatch = { kind: "absent" };
-const SPARK_PAYLOAD = { keys: [{ char: "a", row: 0, col: 0, finger: "LP" as const }], board: "ansi" as const };
+const SPARK_PAYLOAD = { keys: [{ char: "a", row: 0, col: 0, finger: "LP" as const }] };
 
 let uniqueCounter = 0;
 function uniqueName(prefix: string): string {
@@ -118,7 +118,7 @@ describe("[LDB-L8] D1 round trips per successful write -- one row per route", ()
     const name = uniqueName("l8-put-replace");
     const created = await seed(OWNER, name);
     const { count } = await countedCall((b) =>
-      putFormat(b, clock, actorFor(OWNER), created.layout.id, { format: "spark/1", payload: { ...SPARK_PAYLOAD, board: "iso" as const } }, STAR, { kind: "absent" }, null),
+      putFormat(b, clock, actorFor(OWNER), created.layout.id, { format: "spark/1", payload: { ...SPARK_PAYLOAD, keys: [{ char: "b", row: 0, col: 1, finger: "LR" as const }] } }, STAR, { kind: "absent" }, null),
     );
     expect(count).toBeLessThanOrEqual(2);
   });

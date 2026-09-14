@@ -112,7 +112,7 @@ describe("[LDB-P22] M1: a like landing between a write's read and its commit is 
       `/v1/layouts/${seeded.id}`,
       "PUT",
       { ...ownerHeaders, "If-Match": `"spark:${seeded.formatRev}"` },
-      { format: "spark/1", payload: { keys: [{ char: "a", row: 0, col: 0, finger: "LP" }], board: "ansi" } },
+      { format: "spark/1", payload: { keys: [{ char: "a", row: 0, col: 0, finger: "LP" }] } },
     );
     spy.mockRestore();
 
@@ -151,7 +151,7 @@ describe("[LDB-P22] M1: a like landing between a write's read and its commit is 
       `/v1/layouts/${seeded.id}`,
       "PUT",
       { ...ownerHeaders, "If-Match": `"spark:${seeded.formatRev}"` },
-      { format: "spark/1", payload: { keys: [{ char: "a", row: 0, col: 0, finger: "LP" }], board: "ansi" } },
+      { format: "spark/1", payload: { keys: [{ char: "a", row: 0, col: 0, finger: "LP" }] } },
     );
     spy.mockRestore();
 

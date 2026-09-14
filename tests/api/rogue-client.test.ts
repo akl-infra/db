@@ -47,7 +47,7 @@ async function seedLayout(owner: string, name: string): Promise<{ id: string }> 
     currentLayout: null,
     currentFormats: new Map(),
     layout: { kind: "created", name, owner, created_at: CLOCK_ISO, deleted: false },
-    format: { kind: "format_added", lineage: "spark", format: "spark/1", payload: { keys: [], board: "ansi" as const }, hasMagic: false },
+    format: { kind: "format_added", lineage: "spark", format: "spark/1", payload: { keys: [] }, hasMagic: false },
     modified_at: CLOCK_ISO,
     actor: owner,
     via: "discord",
@@ -191,7 +191,7 @@ describe("[LDB-A10] [LDB-A11] rogue-trusted-client hardening: destructive-write 
     const client = await freshClient();
     await seedCounterOneBelowThreshold(client.clientId, 0); // one below threshold, from renames/deletes/etc only
 
-    const body = JSON.stringify({ name: uniqueName("rogue-create"), format: "spark/1", payload: { keys: [], board: "ansi" } });
+    const body = JSON.stringify({ name: uniqueName("rogue-create"), format: "spark/1", payload: { keys: [] } });
     const headers = await signHeaders({
       privateKey: client.privateKey,
       clientId: client.clientId,

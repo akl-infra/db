@@ -7,8 +7,7 @@
       "name": "cw-post-dup-1",
       "format": "spark/1",
       "payload": {
-        "keys": [],
-        "board": "ansi"
+        "keys": []
       }
     },
     "setup": [
@@ -20,8 +19,7 @@
           "name": "cw-post-dup-1",
           "format": "spark/1",
           "payload": {
-            "keys": [],
-            "board": "ansi"
+            "keys": []
           }
         }
       }

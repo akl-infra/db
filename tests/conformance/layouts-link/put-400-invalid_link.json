@@ -15,8 +15,7 @@
           "name": "mod-link-3",
           "format": "spark/1",
           "payload": {
-            "keys": [],
-            "board": "ortho"
+            "keys": []
           }
         }
       }

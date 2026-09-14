@@ -71,7 +71,7 @@ describe("[LDB-P23] M2: an exhausted commitWithRetry answers 409 stale, not a ra
       `/v1/layouts/${seeded.id}`,
       "PUT",
       { ...headers, "If-Match": `"spark:${seeded.formatRev}"` },
-      { format: "spark/1", payload: { keys: [{ char: "a", row: 0, col: 0, finger: "LP" }], board: "ansi" } },
+      { format: "spark/1", payload: { keys: [{ char: "a", row: 0, col: 0, finger: "LP" }] } },
     );
     spy.mockRestore();
 
