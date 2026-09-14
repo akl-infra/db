@@ -209,5 +209,3 @@ jobs:
         run: |
           set -euo pipefail
           DB_BASE_URL="${{ vars.DB_BASE_URL }}" npx vitest run tests/upstream-diff.test.ts --project node
-
-  # `workflow_dispatch`/the weekly Sunday cron only (12 §3 X5 item 6,
