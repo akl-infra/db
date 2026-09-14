@@ -200,9 +200,9 @@ function projectSparkNoMagic(record: SparkRecordLike): unknown {
 // (it moves only on a name/owner/deletion write, `core/events.ts`'s
 // `commitWrite`), not a mirror of upstream's; the importer's own freshness
 // is tracked by `import_map.upstream_modified_at` instead (LDB-I24), which
-// this public-API-only diff has no way to see. Comparing it here just
-// reported real content as "differs" for the same 24 live records LDB-I24
-// itself exists to stop re-fetching forever.
+// this public-API-only diff has no way to see. Comparing it here flagged
+// records whose content was identical to upstream's, exactly the ones
+// LDB-I24 itself exists to stop re-fetching forever.
 export function compareRecords(upstream: SparkRecordLike, ours: SparkRecordLike): { equal: boolean; path: string | null } {
   const u = projectSparkNoMagic(upstream);
   const o = projectSparkNoMagic(ours);

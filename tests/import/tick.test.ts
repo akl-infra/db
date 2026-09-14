@@ -383,10 +383,11 @@ describe("tick()", () => {
   });
 
   // LDB-I24: a REAL content change (one spark/1 carries) is re-imported as
-  // before, and -- since a following write also moves `layouts.modified_at`
-  // itself in this case -- the following tick still does not re-fetch it,
-  // proving the new `upstream_modified_at` signal agrees with the old
-  // `layouts.modified_at` one whenever a write actually happens.
+  // before -- but a content-only write has no layout part, so it does NOT
+  // move `layouts.modified_at` (`core/events.ts`'s `commitWrite`). The old
+  // plan.ts, comparing against that, re-fetched this id on every tick
+  // forever (the live `packet`/`dopamine` case, 2026-09-14); with
+  // `upstream_modified_at` caught up, the following tick leaves it alone.
   it("[LDB-I24] a real content change is re-imported once, then not re-fetched", async () => {
     const fake = new FakeUpstream();
     const clock = fixedClock("2026-06-12T12:00:00.000Z");

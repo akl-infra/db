@@ -1,6 +1,6 @@
--- Import freshness tracking (saltorbit 2026-09-14: "24 live `following`
--- records are re-fetched from cmini on EVERY import tick, forever"). This
--- column records the `modified_at` UPSTREAM last reported for this id, as
+-- Import freshness tracking (found 2026-09-14 chasing the daily job's
+-- upstream diff: 24 live `following` records were being re-fetched from
+-- cmini on EVERY import tick, forever). This column records the `modified_at` UPSTREAM last reported for this id, as
 -- last FETCHED AND APPLIED -- whether or not the apply actually wrote
 -- anything. Two ways today's `layouts.modified_at` alone fails to track
 -- that: `commitWrite` (core/events.ts) only moves it when a write has a
@@ -20,6 +20,6 @@
 -- it's fetched.
 --
 -- Additive (docs/decisions/21-formats.md D8, amended 2026-09-14: akldb is no
--- longer disposable, migrations never drop or backfill) -- a plain `ADD
--- COLUMN`, no backfill needed for the reason above.
+-- longer disposable; tests/tools/migrations-additive.test.ts) -- a plain
+-- `ADD COLUMN`, and no backfill needed for the reason above.
 ALTER TABLE import_map ADD COLUMN upstream_modified_at TEXT NULL;
