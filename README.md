@@ -394,16 +394,25 @@ the job's own throwaway D1 and re-runs the whole conformance suite against
 the restored copy), and separately runs the upstream diff (S8). Both fail
 the job loudly on any problem -- neither is allowed to skip silently.
 
-## Weekly backup in GitHub (db-backup.yml)
+## Backups
 
-`.github/workflows/db-backup.yml` (saltorbit, 2026-09-13: "at least weekly backups
-in github") runs Sundays 06:00 UTC and on demand: it fetches
-`/v1/dump/latest.json` + the dump from https://api.akldb.org, verifies the
-sha256, and stores both as assets of a GitHub Release tagged
-`akldb-backup-<UTC date>` in this repo -- kept indefinitely, outside
-Cloudflare and outside the git history. Restore from one the same way as
-from an R2 dump (below). The daily 30-day artifact (LDB-C6) stays as the
-finer-grained copy.
+Three layers, from finest-grained to coarsest, all outside a single
+Cloudflare account:
+
+- **Nightly R2 dump** (above): `dump-YYYY-MM-DD.json.gz` + `latest.json`,
+  gzipped, every table and the whole event log -- the "Rehost procedure"
+  section above is how to restore one. The daily job also uploads the
+  fetched dump as a 30-day-retention CI artifact (LDB-C6), a free copy off
+  the Cloudflare account entirely.
+- **D1 Time Travel** (below): 30 days of point-in-time restore, free on the
+  Workers Paid plan, no separate backup job -- restores the WHOLE database
+  to one instant, never just a table or a row.
+- **`akl-infra/db-backup`**: a nightly git-committed snapshot of the public
+  dump's current state -- records, formats, likes, authors and the other
+  small tables, one file per table, kept indefinitely in that repo's own
+  history. No event log and no revision history of its own (that's what
+  the R2 dump and Time Travel are for) -- a point-in-time copy, not
+  material for replay.
 
 ## Point-in-time restore with D1 Time Travel
 
@@ -737,12 +746,12 @@ but the admin routes are event-logged and preferred.
 
 **Restore-from-backup, the last resort**: if the importer's own guards and
 the recovery routes above aren't enough (the damage predates this guard
-existing, or came from something else entirely), the daily R2 dump, the
-30-day CI artifact, the weekly GitHub release, and D1 Time Travel are the
-fallback layers -- see "Weekly backup in GitHub" and "Point-in-time
-restore" below, in that order of preference (Time Travel restores the
-WHOLE database to one instant; the others let you re-apply just what a
-dump's `restoreSql` produces).
+existing, or came from something else entirely), the daily R2 dump (with
+its 30-day CI artifact copy), the `akl-infra/db-backup` nightly snapshot,
+and D1 Time Travel are the fallback layers -- see "Backups" and
+"Point-in-time restore" below, in that order of preference (Time Travel
+restores the WHOLE database to one instant; the others let you re-apply
+just what a dump's `restoreSql` produces).
 
 ### Clearing `cmini.stalled` by hand
 
