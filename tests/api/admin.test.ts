@@ -7,12 +7,13 @@
 // `rev NULL`, `layout_id NULL`, and is visible through `/v1/changes`.
 import { createExecutionContext, createScheduledController, env, waitOnExecutionContext } from "cloudflare:test";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { ulid } from "ulidx";
 import type { Bindings } from "../../src/env";
 import type { Actor } from "../../src/auth/actor";
 import type { IfMatch } from "../../src/core/ifmatch";
-import { type EventDbRow, feed, rowToEvent } from "../../src/core/events";
+import { type CommitInput, type EventDbRow, commitWrite, feed, rowToEvent } from "../../src/core/events";
 import { fixedClock } from "../../src/core/time";
-import { deleteLayout } from "../../src/core/write";
+import { deleteLayout, seedMagic } from "../../src/core/write";
 import * as nightlyModule from "../../src/core/nightly";
 import * as cminiModule from "../../src/import/cmini";
 import { tick } from "../../src/import/cmini";
@@ -613,6 +614,64 @@ describe("POST /v1/admin/import/tick, POST /v1/admin/diff/tick, and POST /v1/adm
         .bind(body.id)
         .first<{ actor: string; via: string; admin: number }>();
       expect(ev).toEqual({ actor: "system:magic-seed", via: "seed:aklgg", admin: 0 });
+    });
+
+    // [LDB-P26] docs/decisions/26-magic-reseed.md §3, added 2026-09-14
+    // (akldb is no longer disposable): `seedMagic`'s own guard, exercised
+    // directly against `core/write.ts` (bypassing HTTP) so a forked/
+    // system-written fixture can be built with `commitWrite` exactly like
+    // tests/events/upstream.test.ts's own `createLayout` does, rather than
+    // driving a real cmini import + user edit just to reach the same
+    // states. The `ok` case above already covers the OTHER allowed branch
+    // (no magic, not forked, written by a real user) end to end over HTTP.
+    const VALID_SPARK_PAYLOAD = { keys: [{ char: "a", row: 1, col: 0, finger: "LP" }, { char: "b", row: 1, col: 5, finger: "RI" }] };
+    const VALID_MAGIC = { magic_keys: [{ key: "a", default: { kind: "repeat" } }] };
+
+    function seedGuardFixture(opts: { sourceClient: string; hasMagic: boolean; upstream: CommitInput["upstream"]; payload?: unknown }) {
+      const input: CommitInput = {
+        layoutId: ulid(),
+        creating: true,
+        currentN: 0,
+        currentLayout: null,
+        currentFormats: new Map(),
+        layout: { kind: "created", name: uniqueName("seed-guard"), owner: "owner-seed-guard", created_at: clock(), deleted: false },
+        format: { kind: "format_added", lineage: "spark", format: "spark/1", payload: opts.payload ?? VALID_SPARK_PAYLOAD, hasMagic: opts.hasMagic },
+        modified_at: clock(),
+        actor: "owner-seed-guard",
+        via: "discord",
+        source: { client: opts.sourceClient, version: null },
+        upstream: opts.upstream,
+      };
+      return commitWrite(db, clock, input);
+    }
+
+    it("[LDB-P26] allows re-seeding a record whose spark/1 row was last written by a system client, even with magic already set and even forked", async () => {
+      const { layout } = await seedGuardFixture({ sourceClient: "system:cmini-import", hasMagic: true, upstream: { source: "cmini", id: "up-1", state: "forked" } });
+      const out = await seedMagic(bindings, clock, layout.id, VALID_MAGIC, null);
+      expect(out.formats.get(out.lineage)!.has_magic).toBe(true);
+      expect(out.layout.upstream).toEqual({ source: "cmini", id: "up-1", state: "following" });
+    });
+
+    it("[LDB-P26] refuses 409 magic_edited when the spark/1 row's magic was last written by a real client", async () => {
+      const { layout } = await seedGuardFixture({ sourceClient: "discord-app:test-guard", hasMagic: true, upstream: null });
+      await expect(seedMagic(bindings, clock, layout.id, VALID_MAGIC, null)).rejects.toMatchObject({
+        status: 409,
+        body: { error: "magic_edited", client: "discord-app:test-guard" },
+      });
+      const after = await db.prepare("SELECT rev FROM layout_formats WHERE layout_id = ? AND lineage = 'spark'").bind(layout.id).first<{ rev: number }>();
+      expect(after?.rev).toBe(1); // nothing written
+    });
+
+    it("[LDB-P26] refuses 409 magic_edited for a forked layout with no magic, even though a fresh unforked/no-magic record is allowed", async () => {
+      const { layout } = await seedGuardFixture({ sourceClient: "discord-app:test-guard", hasMagic: false, upstream: { source: "cmini", id: "up-2", state: "forked" } });
+      await expect(seedMagic(bindings, clock, layout.id, VALID_MAGIC, null)).rejects.toMatchObject({
+        status: 409,
+        body: { error: "magic_edited", client: "discord-app:test-guard" },
+      });
+
+      const { layout: unforked } = await seedGuardFixture({ sourceClient: "discord-app:test-guard", hasMagic: false, upstream: null });
+      const out = await seedMagic(bindings, clock, unforked.id, VALID_MAGIC, null);
+      expect(out.formats.get(out.lineage)!.has_magic).toBe(true);
     });
   });
 
