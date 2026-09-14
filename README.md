@@ -144,6 +144,17 @@ npm test                            # both vitest projects (workers + node)
 npm run typecheck
 ```
 
+**Migrations are additive.** `docs/decisions/21-formats.md` D8, amended
+2026-09-14 (saltorbit: "we can't lose data anymore - people may start
+making edits"): akldb is never wiped any more, so every migration in
+`migrations/` from here on may only ever add -- no `DROP TABLE`, no
+`DELETE FROM`, never a `CREATE TABLE events` recreating the log. Rewriting
+stored rows in place (an `UPDATE` over `payload_json`, as `0016_no_board.sql`
+and `0017_magic_emit.sql` did) is still fine. `tests/tools/
+migrations-additive.test.ts` (LDB-G15) enforces this against every
+migration file not on its own closed, checked allowlist of the
+pre-2026-09-14 files that legitimately contained one of those statements.
+
 `diff-upstream` is real (S8, see "Verify the mirror" below). `profile-upstream`
 (prints the `07 §0.1` measured table), `pick-fixtures` (regenerates
 `tests/fixtures/upstream-100/` -- run once, its output is frozen) and
