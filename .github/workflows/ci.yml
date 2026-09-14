@@ -210,4 +210,36 @@ jobs:
           set -euo pipefail
           DB_BASE_URL="${{ vars.DB_BASE_URL }}" npx vitest run tests/upstream-diff.test.ts --project node
 
+  # docs/decisions/26-magic-reseed.md: until akl.gg's own rules editor writes
+  # to akldb, a published rule set lands in the site's D1 first. This job
+  # keeps every record's `magic` equal to what akl.gg publishes --
+  # `scripts/reseed-magic.mjs` reads akl.gg's public index and akldb's
+  # public reads, and seeds only what differs AND is safe (LDB-P25: a
+  # person's akldb write is never clobbered, a fork never undone). Same
+  # schedule/dispatch gate as `daily`; its own job so a reseed failure and
+  # a rehost-drill failure never hide each other. Retired the day akl.gg
+  # prod reads and writes akldb only (26 §5).
+  reseed-magic:
+    if: (github.event_name == 'schedule' && github.event.schedule == '0 4 * * *') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: akldb-reseed-magic
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Reseed magic from akl.gg (LDB-P25)
+        run: npm run reseed-magic
+        env:
+          DB_BASE_URL: ${{ vars.DB_BASE_URL }}
+          RESEED_CLIENT_ID: ${{ secrets.RESEED_CLIENT_ID }}
+          RESEED_CLIENT_PRIVATE_KEY: ${{ secrets.RESEED_CLIENT_PRIVATE_KEY }}
+          RESEED_ACTOR: ${{ vars.RESEED_ACTOR }}
+
   # `workflow_dispatch`/the weekly Sunday cron only (12 §3 X5 item 6,

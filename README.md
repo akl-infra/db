@@ -189,6 +189,9 @@ those are taken.
 | `CLOUDFLARE_DB_TOKEN` | repo secret (CI) | `.github/workflows/db.yml`'s `deploy` job (S7) | a Cloudflare API token with Workers Scripts + D1 + R2 edit, separate from the site's Pages token |
 | `CLOUDFLARE_DB_ACCOUNT_ID` | repo secret (CI) | `.github/workflows/db.yml`'s `deploy` job (S7) | the NEW community account's id (00 §1) -- NOT the site's `CLOUDFLARE_ACCOUNT_ID` |
 | `DB_BASE_URL` | repo/org variable (CI) | `.github/workflows/db.yml`'s `daily` job (S7) | the deployed service's own origin, e.g. `https://akl-db.<account>.workers.dev`; set once the service is deployed |
+| `RESEED_CLIENT_ID` | repo secret (CI) | `.github/workflows/db.yml`'s `reseed-magic` job (docs/decisions/26-magic-reseed.md) | the ops client's id -- a plain admin-actor client registered via `POST /v1/admin/clients` (not `act-as-owner-only`: the seed writes records owned by many users) |
+| `RESEED_CLIENT_PRIVATE_KEY` | repo secret (CI) | same job | that client's base64url PKCS8 Ed25519 private key (`bot/scripts/gen-key.mjs` in saltorbit/aklgg mints one); rotate by registering a new client and revoking the old |
+| `RESEED_ACTOR` | repo variable (CI) | same job | the admin Discord user id the seed acts as (`X-Akl-Actor`; the route is admin-only). A variable, not a constant in code (LDB-G2) |
 | `TEST_ROUTES` | test-only miniflare binding | `src/index.ts`'s throwaway `/v1/__test/write` route | set unconditionally in `vitest.config.ts`; never present outside tests |
 | `TEST_MIGRATIONS` | test-only miniflare binding | `tests/setup-workers.ts` | built from `migrations/` by `vitest.config.ts` at test-run time; never present outside tests |
 | `TEST_REHOST_DUMP_URL` | test-only miniflare binding | `tests/rehost.test.ts` (S7) | threads the real `REHOST_DUMP_URL` env var (set only by db.yml's `daily` job) into the miniflare Worker; empty string locally, so `npm test` always runs the local (cron-driven) half of the rehost drill |
@@ -552,128 +555,73 @@ per-record content worth logging on the public feed).
 | route | body | 200 response | other statuses |
 |---|---|---|---|
 | `POST /v1/admin/dump` | none | `{ seq, layout_count, written_at }` (`writeDump()`'s own `latest.json` fields, plus the clock value it was written at) | the usual admin `401`/`403`/`429`/`503` |
-| `POST /v1/admin/magic-seed` | `{ ref, magic }` | `{ id, name, rev, has_magic, upstream }` -- the record's `magic` replaced through spark/1's `setMagic` + `validate()`, written as `system:magic-seed` via `seed:aklgg` (a one-time migration: never forks, sets `upstream.state` back to `following`; design/layout-db/23-geometry.md §10.1, 20-spark.md decision 14) | `400 bad_request`/`invalid_payload`/`magic_collision`, `404`, the usual admin `401`/`403`/`429`/`503` |
+| `POST /v1/admin/magic-seed` | `{ ref, magic }` | `{ id, name, rev, has_magic, upstream }` -- the record's `magic` replaced through spark/1's `setMagic` + `validate()`, written as `system:magic-seed` via `seed:aklgg` (a system write: never forks, sets `upstream.state` back to `following`; design/layout-db/23-geometry.md §10.1, 20-spark.md decision 14). Its one caller is the periodic reseed (`scripts/reseed-magic.mjs`, "Magic rules reseed" below), which guards it (LDB-P25) -- calling it by hand on a record a person has edited in akldb clobbers their magic and un-forks the record | `400 bad_request`/`invalid_payload`/`magic_collision`, `404`, the usual admin `401`/`403`/`429`/`503` |
 
-### Magic rules seed (one-time, M2)
+### Magic rules reseed (periodic, from akl.gg prod)
 
-`design/layout-db/17-magic-ownership.md` §4 M2: the one-time migration that
-seeds every record's `magic` from akl.gg's own rule sets, the last time
-akl.gg's copy is read as a source -- from then on akl.gg's rules editor
-writes `PATCH /v1/layouts/{id} {magic}` directly (M3). **Prerequisite:
-LDB-I12 (magic-only writes never fork a record from upstream, `18
--command-decisions.md` §2 item 1) must already be deployed** -- this script
-writes through `PUT` (a whole-payload replace, not `PATCH`; see below for
-why), and without LDB-I12 every migrated record would stop receiving
-upstream's `!cmini` key edits the moment this script touched it.
-
-**Historical since `spark/1` (2026-09):** this migration already ran; its
-prerequisite is retired going forward. Decision 6 of
-`design/layout-db/20-spark.md` retires LDB-I12's magic-only exemption, and
-the `isMagicOnlyReplace` check and `detail.magic_only` event marker this
-section's mechanics describe below were deleted in the same rewrite. A
-magic-only write today forks like any other user edit and bumps
-`modified_at`. **Further update (2026-09-11, `21-formats.md` D12, F1):**
-`legacyFollows`/`core/follows.ts`, `isMagicOnlyReplace`, and the
-`magic_only` event marker are deleted outright now, not just retired in
-behavior, and LDB-I12's own registry row is gone from `INVARIANTS.md`
-(retired, `legacyFollows` no longer exists to define even historically --
-see that file's retirement log). Nothing in this section is meant to run
-again -- it's kept for the record of what M2 did and why.
-
-**What `scripts/migrate_magic_rules_to_db.py` does, per layout id** in
-`web/data/magic_rules.json` (the nightly build's served rule sets, seed ⊕
-D1):
-
-1. `GET {base_url}/v1/layouts/{id}?as=akl/1` -- unauthenticated. A 404 is
-   logged `missing` and skipped (the layout isn't in the DB).
-2. The candidate `magic` is the rule set stripped to
-   `{magic_keys, chiral_keys, adaptive_swaps}` (akl/1's schema has no room
-   for the seed file's `updated`/`notes`). If the record's current
-   `payload.magic` already equals the candidate byte-for-byte, it's
-   `skipped_identical` -- no request sent.
-3. Collision detection runs **locally**, zero network traffic, via the
-   real akl/1 `validate()` (`db/formats/akl/1/index.ts`, through the
-   `db/scripts/validate-akl1-payload.mjs` node shim) against
-   `{...record.payload, magic: candidate}` -- the same function
-   `core/write.ts`'s `validatePayload` runs server-side. A `magic_collision`
-   with a hint (the scaffold-vs-idiom case) has the hint applied and is
-   re-checked once; still colliding, or no hint at all, is `collision`.
-   Any OTHER validation failure (observed once in production: a rule set
-   naming a key the layout's CURRENT board doesn't have) is its own
-   `invalid` bucket, never folded into `collision`.
-4. **Live mode only** (`--dry-run` sends no write, ever): `PUT
-   {base_url}/v1/layouts/{id}` `{format: "akl/1", payload}` `If-Match:
-   "<rev>"`, client-lane signed. This is a whole-payload PUT rather than a
-   `PATCH {magic}` because the script reads the record through `?as=akl/1`
-   (so it can run ONE local `validate()` regardless of the record's
-   underlying stored format) and writes that same translated shape back --
-   but the payload it sends never touches anything except `magic`: keys/
-   board/free/x are exactly what the `?as=akl/1` read already produced
-   (identity for an `akl/1` record, `fromCmini`'s lossless translation for
-   a `cmini/1` one). `core/write.ts`'s `replaceLayout` recognizes this shape
-   (`isMagicOnlyReplace`: the new payload minus `magic` equals the record's
-   own current content minus `magic`, translated to a common format first
-   when the format changed) and marks the resulting event `magic_only` the
-   same way a `PATCH {magic}` does -- this is "the migration's equivalent"
-   LDB-I12's own registry row names. A `409 stale` re-GETs and retries the
-   write once against the fresh record; any OTHER non-2xx response aborts
-   the whole run loudly (a one-shot admin tool, not something that should
-   paper over a local/server disagreement).
-
-**What it logs**: one `{id}: {bucket}` line to stdout per layout, and
-`migrate-report.json` (`--report` to change the path): `{migrated: [...],
-missing: [...], collision: [...], invalid: [...], skipped_identical:
-[...]}`. `--dry-run` marks every `migrated` entry `"dry_run": true` (a
-preview, not a confirmation -- no write was actually sent).
-
-**Verify**: `scripts/verify_magic_migration.py --base-url <same base-url>
---migrate-report migrate-report.json` -- for every id in
-`magic_rules.json`, compares the site's OWN compiler output
-(`magicRulesFlatCompile`, via a real node shim) against the DB's
-`?as=mana2/1` lowered rows (`payload.magic.rules`) as a set of `(inputs,
-output)` pairs -- moved off `?as=cmini/1` once `spark/1 -> mana2/1` never
-held and the cmini adapter's alias was slated for removal (now gone
-entirely, `21-formats.md` D5) -- and fails if `migrate-report.json` still
-has any `missing`/`collision` entry. Exit 0 only when every layout matches
-and the report has nothing unresolved.
-
-**After LDB-I12 lands, this seed forks nothing**: every migrated record's
-last write is `magic_only`, so `followsUpstream` reads straight through it
-to whatever rev-bumping event came before -- a record that was following
-`!cmini` (`via: import:cmini`) keeps following it, and the very next import
-tick that sees upstream's keys change writes them through, carrying the
-just-seeded `magic` forward untouched (`import/apply.ts`'s `akl/1` branch
-of case 4, LDB-I11/I12).
-
-**⚠ saltorbit, once, per target DB -- never run by an agent, never against a
-remote from this checkout.** Register an ops client via `POST
-/v1/admin/clients` (an existing admin registers it, `bot/scripts/gen-key.mjs`
-mints the keypair): `act-as-owner-only` is NOT right here (this writes to
-records owned by many different users) -- register it as a plain
-admin-actor client instead (whatever `POST /v1/admin/clients` shape 10 C1
-gives an unrestricted client; see `INTEGRATION.md`'s client-lane
-section), then:
+`docs/decisions/26-magic-reseed.md`. akl.gg prod still writes a published
+rule set to its own D1 table first (its rules editor's akldb mode exists but
+is not flipped on in production yet -- 17-magic-ownership.md §4 M3 "waits
+only on W6's env-var flips"). Until that flip, akldb's copy of every rule
+set is kept current by a reseed, not a one-shot migration:
 
 ```bash
-cd db
-python3 ../scripts/migrate_magic_rules_to_db.py \
-  --base-url "$DB_BASE_URL" \
-  --actor <the ops Discord user id every migrated write is attributed to> \
-  --client-id <the registered client id> \
-  --private-key-env MIGRATION_PRIVATE_KEY
-# reads web/data/magic_rules.json, writes ./migrate-report.json (repo root)
-
-python3 ../scripts/verify_magic_migration.py \
-  --base-url "$DB_BASE_URL" \
-  --migrate-report ../migrate-report.json
+npm run reseed-magic -- --dry-run   # reads only; prints what it would seed
+npm run reseed-magic                # live (needs the RESEED_* env below)
 ```
 
-Run `--dry-run` first (add the flag to the first command) and read its
-report -- `collision`/`invalid`/`missing` entries need saltorbit's call before a
-live run (17 §4 M2: "the 10 layouts whose rules the seed would fork" need a
-decision first). The live run is idempotent: re-running it after a partial
-or fully successful pass sends zero further writes for anything already
-`skipped_identical`.
+`.github/workflows/db.yml`'s `reseed-magic` job runs the live form daily
+(04:00 UTC, with `daily`) and on `workflow_dispatch` -- dispatch it right
+before flipping akl.gg prod to akldb so nothing is behind. Env: `DB_BASE_URL`,
+`RESEED_CLIENT_ID`, `RESEED_CLIENT_PRIVATE_KEY`, `RESEED_ACTOR` (the table
+under "Secrets and bindings"); `AKLGG_RULES_URL` overrides the source
+(default `https://akl.gg/api/magic-rules`, the site's public index of every
+published rule set, `{<layout id>: <rule set>}`).
+
+**Per rule set** (`scripts/reseed-magic.mjs`, LDB-P25):
+
+1. `GET /v1/layouts/{id}?format=spark/1`, public. 404 -> `missing`: akl.gg
+   publishes rule sets for layouts akldb has no record of (deleted from
+   cmini, or workbench experiments that never became a layout; 29 of 111 on
+   2026-09-14). Reported every run, never created -- a record needs an
+   owner, and that is a decision, not a reseed.
+2. The candidate is the rule set stripped to `{magic_keys, chiral_keys,
+   adaptive_swaps}` and retagged from akl.gg's bare-string default vocabulary
+   to spark/1's tagged union (`repeat_previous` -> `{kind: "repeat"}`, a
+   char -> `{kind: "char", char}`, `none`/empty -> the field omitted).
+   Equal to the record's current `magic` (key order and empty lists
+   ignored) -> `identical`, nothing sent. A re-run after a full pass is
+   zero writes.
+3. **The guard**, from that public read alone: the record is seeded only if
+   its spark/1 row's `source.client` is `system:magic-seed` or
+   `system:cmini-import`, OR it has no magic and is not forked. Anything
+   else means a person wrote to this record in akldb since the last seed
+   (the bot's `!magic`, a rename, a key edit) -- their magic is never
+   overwritten by akl.gg's copy, and a fork they made is never undone by
+   the seed route's `following` reset. Reported as `edited`.
+4. Live only: `POST /v1/admin/magic-seed {ref: <record id>, magic}`,
+   client-lane signed as `RESEED_ACTOR`. `400 magic_collision` /
+   `invalid_payload` are the DB's own refusals: reported, and the run exits
+   1 so a human looks -- akl.gg's rules must land verbatim, never
+   auto-amended with a hint. One `429` is waited out (`Retry-After`) and
+   retried; any other answer aborts the run.
+
+`missing` and `edited` are expected outcomes (printed per id, counted in the
+summary line), not failures. `collision`/`invalid` fail the job.
+
+**Retirement**: the day akl.gg prod's `DB_BASE_URL` is set (its
+`/api/magic-rules` then reads akldb, so this job would only ever find
+`identical`), delete the job, the script, its test and LDB-C8/LDB-P25;
+`POST /v1/admin/magic-seed` stays as the post-wipe recovery tool it was
+built as (23-geometry.md §10.1).
+
+**History**: the one-time migration this replaces (`scripts/
+migrate_magic_rules_to_db.py` in saltorbit/aklgg, 17 §4 M2, W5) ran once
+after the 2026-09-13 wipe: 88 entries, 81 written. Its "the last time
+akl.gg's copy is read as a source" turned out to be premature -- the site
+kept publishing to D1, and by 2026-09-14 three records were behind and one
+new layout had rules akldb never saw. The retired procedure is in git
+history (this file, before 26-magic-reseed.md).
 
 ### R2 lifecycle
 

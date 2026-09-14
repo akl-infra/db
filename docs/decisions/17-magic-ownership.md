@@ -187,6 +187,14 @@ for stats either way.
 Order: M1 done; M2 done (2026-09-10); M3's sync half done (2026-09-10);
 M3's live half done (2026-09-10, waits only on W6's env-var flips).
 
+**2026-09-14, `26-magic-reseed.md`:** M2's "the last time akl.gg's copy is
+read as a source" did not hold -- the M3 live half is built but akl.gg prod's
+`DB_BASE_URL` is not flipped, so the site keeps publishing to D1 and the
+records drift. Until the flip, akl.gg prod is reseeded into akldb daily
+(`scripts/reseed-magic.mjs`, LDB-P25/LDB-C8), guarded so an akldb-side edit
+is never clobbered. The reseed retires with the flip; the D1 table retires
+with saltorbit/aklgg#1.
+
 ## 5. What this changes for the bot
 
 Nothing beyond LDB-B24: its `rulesFor(rec)` reads an `akl/1` record's
