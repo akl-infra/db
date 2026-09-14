@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 
 const ALLOWED = new Set([
   "saltorbit <hi@akl.gg>",
+  "saltorbit <saltorbit@outermail.com>", // saltorbit, 2026-09-13: "also this is ok"
   "cmini-live-sync[bot] <actions@github.com>",
   "magic-rules-backup[bot] <actions@github.com>",
   "Claude Code <noreply@anthropic.com>",
