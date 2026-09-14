@@ -9,12 +9,12 @@
 // a copy regression here or a re-introduced occurrence in adoption.md.
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { copy } from "../../src/copy.ts";
 
 const SITE_ROOT = path.resolve(import.meta.dirname, "..", "..");
-const DIST_DIR = path.join(SITE_ROOT, "dist");
 const BANNED = /layout[- ]?db|layout database/i;
 
 function walk(dir: string): string[] {
@@ -57,13 +57,21 @@ describe("[SITE-38] akldb.org never says \"layoutdb\"/\"layout database\"", () =
   });
 
   it("[SITE-38] the built bundle -- EVERY chunk, docs-content included -- has no occurrence of the banned pattern", () => {
-    execFileSync("npx", ["vite", "build"], { cwd: SITE_ROOT, stdio: "pipe" });
-    expect(fs.existsSync(DIST_DIR)).toBe(true);
+    // Its own OS-tmp `--outDir`, never the shared `dist/` (the race
+    // no-dev-mock.test.ts describes): building into `dist/` while another
+    // test file's build emptied it is how this test once walked a `dist/`
+    // holding 0 files (CI, 2026-09-14).
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "akldb-site-banned-"));
+    try {
+      execFileSync("npx", ["vite", "build", "--outDir", outDir, "--emptyOutDir"], { cwd: SITE_ROOT, stdio: "pipe" });
 
-    const files = walk(DIST_DIR).filter((f) => /\.(js|css|html)$/.test(f));
-    expect(files.length).toBeGreaterThan(0);
+      const files = walk(outDir).filter((f) => /\.(js|css|html)$/.test(f));
+      expect(files.length).toBeGreaterThan(0);
 
-    const offenders = files.filter((f) => BANNED.test(fs.readFileSync(f, "utf8")));
-    expect(offenders.map((f) => path.relative(DIST_DIR, f))).toEqual([]);
-  });
+      const offenders = files.filter((f) => BANNED.test(fs.readFileSync(f, "utf8")));
+      expect(offenders.map((f) => path.relative(outDir, f))).toEqual([]);
+    } finally {
+      fs.rmSync(outDir, { recursive: true, force: true });
+    }
+  }, 60_000); // a real build: seconds, more with other files' builds running alongside
 });

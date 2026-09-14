@@ -63,7 +63,7 @@ describe("[SITE-16] no dev mock switch in the production bundle", () => {
     } finally {
       fs.rmSync(outDir, { recursive: true, force: true });
     }
-  });
+  }, 60_000); // a real build: seconds, more with other files' builds running alongside
 });
 
 // Regression: `session.ts`'s `void refreshMe()` fires its `/auth/me` fetch

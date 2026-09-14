@@ -1,17 +1,17 @@
 // [SITE-7] the built application bundle has no reference to akl-db's
 // hostname except via DB_BASE_URL at the edge (server-side only). Runs the
-// real build, then greps dist/ -- excluding the docs-content chunk (vite
+// real build, then greps it -- excluding the docs-content chunk (vite
 // .config.ts's manualChunks split), whose whole JOB is to render db/docs/
 // adoption.md's real API guide verbatim, hostname included (S8). This
 // proves the actual application code -- session/proxy/api/pages -- never
 // hardcodes the DB origin anywhere outside that one intentional exception.
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const SITE_ROOT = path.resolve(import.meta.dirname, "..", "..");
-const DIST_DIR = path.join(SITE_ROOT, "dist");
 // The real production hostnames: api.akldb.org (saltorbit 2026-09-13, the
 // documented base URL) and the workers.dev origin it kept answering on. A
 // chunk naming EITHER outside the docs-content chunk is a leak.
@@ -27,9 +27,22 @@ function walk(dir: string): string[] {
   return out;
 }
 
+// ONE build for every check in this file (it used to be three), into its
+// own OS-tmp `--outDir`, never the shared `dist/`: test files run in
+// parallel, and two builds into one `dist/` race -- vite empties it first
+// (the race no-dev-mock.test.ts describes; it bit no-layoutdb-copy.test.ts
+// in CI on 2026-09-14).
+let DIST_DIR = "";
+beforeAll(() => {
+  DIST_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "akldb-site-leak-"));
+  execFileSync("npx", ["vite", "build", "--outDir", DIST_DIR, "--emptyOutDir"], { cwd: SITE_ROOT, stdio: "pipe" });
+}, 60_000); // a real build: seconds, more with other files' builds running alongside
+afterAll(() => {
+  if (DIST_DIR !== "") fs.rmSync(DIST_DIR, { recursive: true, force: true });
+});
+
 describe("[SITE-7] no hardcoded akl-db hostname in the client bundle", () => {
   it("builds, then finds the literal only in the isolated docs-content chunk", () => {
-    execFileSync("npx", ["vite", "build"], { cwd: SITE_ROOT, stdio: "pipe" });
     expect(fs.existsSync(DIST_DIR)).toBe(true);
 
     const files = walk(DIST_DIR);
@@ -54,7 +67,6 @@ describe("[SITE-7] no hardcoded akl-db hostname in the client bundle", () => {
 // plain text. The bundle must carry no akl.gg URL and no board component.
 describe("[SITE-12] no akl.gg link-out in the client bundle", () => {
   it("builds, then finds no akl.gg literal in any bundle chunk", () => {
-    execFileSync("npx", ["vite", "build"], { cwd: SITE_ROOT, stdio: "pipe" });
     // The docs chunk is the adoption guide's own prose (it names akl.gg as
     // one client of the DB) -- isolated exactly as SITE-7 isolates it.
     const offenders = walk(DIST_DIR).filter(
@@ -77,7 +89,6 @@ describe("[SITE-12] no akl.gg link-out in the client bundle", () => {
 // hostname/akl.gg literals above.
 describe("[SITE-37] no budget/threshold string (LDB-A14) outside the docs-content chunk", () => {
   it("builds, then finds no /budget|threshold/i match in any application bundle chunk", () => {
-    execFileSync("npx", ["vite", "build"], { cwd: SITE_ROOT, stdio: "pipe" });
     const NEEDLE = /budget|threshold/i;
     const offenders = walk(DIST_DIR).filter(
       (f) => /\.(js|css|html)$/.test(f) && !path.basename(f).startsWith("docs-content") && NEEDLE.test(fs.readFileSync(f, "utf8")),
