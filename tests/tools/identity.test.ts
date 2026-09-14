@@ -23,9 +23,25 @@ function git(args: string[]): string {
   }
 }
 
+// A merge commit GitHub itself made (committer `GitHub <noreply@github.com>`,
+// two parents) carries as its AUTHOR GitHub's own rendering of the account
+// that pressed the button -- the account's GitHub email, which no commit
+// in this repo was ever authored with. On a `pull_request` run that is the
+// synthetic `refs/pull/N/merge` commit CI checks out (never part of any
+// branch); on `main` it is a web-UI merge. Either way the identity to
+// audit is in the commits BEHIND it, so the walk starts from its parents
+// and the synthetic commit's own author is not counted. Its committer
+// (GitHub) is on the allow-list regardless.
+const GITHUB_COMMITTER = "GitHub <noreply@github.com>";
+function auditRoots(): string[] {
+  const [committer, parents] = git(["log", "-1", "--format=%cn <%ce>%n%P", "HEAD"]).split("\n");
+  const parentList = (parents ?? "").split(" ").filter(Boolean);
+  return committer === GITHUB_COMMITTER && parentList.length >= 2 ? parentList : ["HEAD"];
+}
+
 describe("[LDB-G40] one contributor identity, no personal traces", () => {
   it("every identity reachable from HEAD is on the allow-list", () => {
-    const ids = new Set(git(["log", "--format=%an <%ae>%n%cn <%ce>", "HEAD"]).split("\n").filter(Boolean));
+    const ids = new Set(git(["log", "--format=%an <%ae>%n%cn <%ce>", ...auditRoots()]).split("\n").filter(Boolean));
     expect([...ids].filter((id) => !ALLOWED.has(id))).toEqual([]);
   });
   it("no tracked file names a home directory", () => {
