@@ -318,6 +318,23 @@ describe("[LDB-P25] one pass over akl.gg's index", () => {
     await expect(reseedMagic({ baseUrl: broken.BASE, rulesUrl: broken.RULES_URL, fetchImpl: broken.fetchImpl, sign, log: quiet })).rejects.toThrow(/unexpected seed response 500/);
   });
 
+  it("[LDB-P25] [LDB-P26] a 409 magic_edited from the DB's own Worker-side guard (added 2026-09-14) is classified edited, not a failure", async () => {
+    // The Worker now enforces the same guard this script already applies
+    // client-side (docs/decisions/26-magic-reseed.md §3) -- this only fires
+    // for real when someone edits the record in the window between our
+    // read and this POST, but the classification is what's under test here.
+    const sign = fixedSigner("c3n-MHUOLraqLSy4lX8rIw", "1788000000", "01ARZ3NDEKTSV4RRFFQ69G5FAV", "184412255822020608");
+    const idx = { whirl: PROD_TWIRL };
+    const recs = records.filter((r) => r.name === "whirl");
+    const raced = fakeWorld(idx, recs, () => ({
+      status: 409,
+      body: { error: "magic_edited", message: "this record's magic was last written by client:01RACER; a seed never overwrites a person's edit", client: "client:01RACER" },
+    }));
+    const report = await reseedMagic({ baseUrl: raced.BASE, rulesUrl: raced.RULES_URL, fetchImpl: raced.fetchImpl, sign, log: quiet });
+    expect(summarize(report)).toEqual({ seeded: 0, identical: 0, edited: 1, missing: 0, collision: 0, invalid: 0 });
+    expect(report.edited[0]).toMatchObject({ id: "whirl", reason: expect.stringContaining("client:01RACER") });
+  });
+
   it("[LDB-P25] a live run without a signer is refused before any request", async () => {
     const world = fakeWorld(index, records);
     await expect(reseedMagic({ baseUrl: world.BASE, rulesUrl: world.RULES_URL, fetchImpl: world.fetchImpl, log: quiet })).rejects.toThrow(/needs a signer/);

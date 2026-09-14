@@ -861,6 +861,7 @@ it as generated, not hand-edited):
 | 403 | `banned` | this account is banned from writing | `banned()` |
 | 409 | `cannot_ban_admin` | an admin cannot be banned | `cannotBanAdmin()` |
 | 400 | `invalid_link` | *(caller-supplied -- this function's own `message` parameter)* | `invalidLink(message)` |
+| 409 | `magic_edited` | this record's magic was last written by ${client}; a seed never overwrites a person's edit | `magicEdited(client)` |
 | 429 | `rate_limited` | rate limit exceeded: ${limit} writes per ${windowSeconds}s | `rateLimited(limit, windowSeconds, retryAfter, scope)` |
 
 **Two more codes exist in the *format* layer**, not in the table above
@@ -1127,7 +1128,7 @@ silently drift from what `db/src/index.ts` actually registers.
 | POST | `/v1/admin/diff/tick` | admin | — | 200 | `not_admin`, lane errors |
 | POST | `/v1/admin/nightly/tick` | admin | — | 200 | `not_admin`, lane errors |
 | POST | `/v1/admin/dump` | admin | — | 200 (`{seq, layout_count, written_at}`) | `not_admin`, lane errors |
-| POST | `/v1/admin/magic-seed` | admin | `{ref, magic}` | 200 (`{id, name, rev, has_magic, upstream}`) — a SYSTEM write (`system:magic-seed` / `seed:aklgg`) that never forks the record | `bad_request`, `not_admin`, `not_found`, `invalid_payload`, `magic_collision`, lane errors |
+| POST | `/v1/admin/magic-seed` | admin | `{ref, magic}` | 200 (`{id, name, rev, has_magic, upstream}`) — a SYSTEM write (`system:magic-seed` / `seed:aklgg`) that never forks the record | `bad_request`, `not_admin`, `not_found`, `invalid_payload`, `magic_collision`, `magic_edited`, lane errors |
 | POST | `/v1/admin/clients` | admin | `{name, pubkey, owner_user_id, caps, discord_app_id?}` | 201 | `bad_request`, `not_admin`, lane errors |
 | DELETE | `/v1/admin/clients/:id` | admin | — | 200 | `not_admin`, `not_found`, lane errors |
 | GET | `/v1/admin/clients` | admin | — | 200 | `not_admin`, lane errors |

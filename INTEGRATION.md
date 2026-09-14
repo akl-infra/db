@@ -456,6 +456,7 @@ real examples in §4.
 | 403 | `banned` | this account is banned from writing | `banned()` |
 | 409 | `cannot_ban_admin` | an admin cannot be banned | `cannotBanAdmin()` |
 | 400 | `invalid_link` | *(caller-supplied -- this function's own `message` parameter)* | `invalidLink(message)` |
+| 409 | `magic_edited` | this record's magic was last written by ${client}; a seed never overwrites a person's edit | `magicEdited(client)` |
 | 429 | `rate_limited` | rate limit exceeded: ${limit} writes per ${windowSeconds}s | `rateLimited(limit, windowSeconds, retryAfter, scope)` |
 
 <!-- END GENERATED ERROR TABLE -->

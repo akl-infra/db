@@ -84,6 +84,20 @@ field and a new error code through the `/v1` contract (25-api-versioning)
 for a job that is retired with the flip. Not worth it; revisit if the
 reseed ever outlives the flip.
 
+**Added 2026-09-14** (akldb is no longer disposable, docs/decisions/
+21-formats.md D8 amended the same day): the "not worth it" above was about
+this job's own narrow window, not about every caller of `POST
+/v1/admin/magic-seed` -- the route is admin-only but not scoped to this
+job, and a hand-run call (or a future second caller) had no guard of its
+own at all. The SAME check now also runs Worker-side, in `core/write.ts`'s
+`seedMagic`: it refuses `409 magic_edited` (LDB-P26) under the exact same
+two conditions this script's `editedReason` already checks, before writing
+anything. This script keeps its own client-side guard too (it avoids a
+pointless request for a record it can already tell is `edited` from the
+public read alone) and now classifies a `409 magic_edited` response the
+same way -- `edited`, not a failure (`tests/tools/reseed-magic.test.ts`,
+LDB-P25).
+
 Refusals are the DB's: `400 magic_collision` / `invalid_payload` are
 reported and fail the job. The one-time migration applied the DB's
 collision hint automatically (01-format.md D4); the reseed does not --

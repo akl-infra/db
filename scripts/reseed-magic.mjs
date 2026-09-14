@@ -41,8 +41,12 @@
 //      client-lane signed. 200 -> `seeded`; `400 magic_collision` /
 //      `400 invalid_payload` -> `collision` / `invalid` (the DB's own
 //      refusal, reported and failed on -- akl.gg's rules must land verbatim,
-//      never auto-amended); one `429` is waited out and retried; any other
-//      answer aborts the run.
+//      never auto-amended); `409 magic_edited` (added 2026-09-14, docs/
+//      decisions/26-magic-reseed.md §3: the Worker now enforces step 3's
+//      guard itself) -> `edited`, exactly like step 3 finding the same
+//      thing first -- this only fires when someone edited the record in
+//      the window between our read and this POST; one `429` is waited out
+//      and retried; any other answer aborts the run.
 //
 // Exit 1 if anything landed in `collision` or `invalid` (a human decides),
 // 0 otherwise -- `missing` and `edited` are expected outcomes, printed so
@@ -263,6 +267,16 @@ export async function reseedMagic({ baseUrl, rulesUrl = DEFAULT_RULES_URL, fetch
       const bucket = body.error === "magic_collision" ? "collision" : "invalid";
       report[bucket].push({ id, error: body });
       log(`${id}: ${bucket} -- ${body.message ?? ""}`);
+    } else if (status === 409 && body?.error === "magic_edited") {
+      // docs/decisions/26-magic-reseed.md §3 (added 2026-09-14): the
+      // Worker now enforces this script's own `editedReason` guard too --
+      // this branch only fires when someone edited the record in the
+      // (seconds-wide) window between our read and this POST, so it's the
+      // same `edited` outcome `editedReason` above would have reported had
+      // it seen the edit first, never a failure.
+      const reason = body?.message ?? "the DB's own guard refused: magic_edited";
+      report.edited.push({ id, reason });
+      log(`${id}: edited in akldb since our read (${reason}) -- left alone`);
     } else {
       throw new Error(`${id}: unexpected seed response ${status}: ${JSON.stringify(body).slice(0, 300)}`);
     }

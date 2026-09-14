@@ -399,6 +399,19 @@ export function invalidLink(message: string): ApiError {
   return new ApiError(400, { message, error: "invalid_link" });
 }
 
+// docs/decisions/26-magic-reseed.md §3, added 2026-09-14 (akldb is no
+// longer disposable): `core/write.ts`'s `seedMagic` guard, moved in from
+// what `scripts/reseed-magic.mjs`'s own `editedReason` used to enforce
+// client-side alone. `client` names whoever's write this record's spark/1
+// row (or its fork) was last attributed to.
+export function magicEdited(client: string): ApiError {
+  return new ApiError(409, {
+    error: "magic_edited",
+    message: `this record's magic was last written by ${client}; a seed never overwrites a person's edit`,
+    client,
+  });
+}
+
 export function rateLimited(limit: number, windowSeconds: number, retryAfter: number, scope: "actor" | "client"): ApiError {
   return new ApiError(
     429,

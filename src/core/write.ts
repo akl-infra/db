@@ -22,6 +22,7 @@ import {
   formatRequired,
   internal,
   invalidName,
+  magicEdited,
   mixedPatch,
   nameTaken,
   notFound,
@@ -50,6 +51,7 @@ import {
   type LayoutRow,
   type LayoutWithFormats,
   type Source,
+  type Upstream,
 } from "./records";
 import type { Clock } from "./time";
 import { nextUpstream } from "./upstream";
@@ -605,6 +607,28 @@ export async function patchFormat(
   return { layout: result.layout, formats: result.formats, format: written.format, lineage: lin, payload: written.payload };
 }
 
+// docs/decisions/26-magic-reseed.md §3, added 2026-09-14 (akldb is no
+// longer disposable): the guard `scripts/reseed-magic.mjs`'s own
+// `editedReason` applied client-side, from the public read alone, is now
+// enforced HERE too -- a seed a person's own PATCH raced (or a caller
+// other than the periodic reseed) can no longer clobber a person's magic
+// or un-fork their record. Seeding is safe only if the spark/1 row's last
+// writer was a system client (the seed itself, or the cmini import
+// carrying a seeded magic forward -- the import never writes a forked
+// record), OR the row has no magic AND the layout is not forked (a fresh
+// import, a bot-native record: nothing to clobber, nothing to un-fork).
+// Returns the reason to refuse with (the writer's client id, or a fixed
+// fallback for a legacy row with no recorded source), or `null` if seeding
+// is safe -- mirrors `scripts/reseed-magic.mjs`'s own `editedReason`.
+const MAGIC_SEED_SYSTEM_CLIENTS = new Set(["system:magic-seed", "system:cmini-import"]);
+export function magicSeedRefusalReason(existingSource: Source | null, hasMagic: boolean, upstream: Upstream | null): string | null {
+  const client = existingSource?.client ?? null;
+  if (client !== null && MAGIC_SEED_SYSTEM_CLIENTS.has(client)) return null;
+  const forked = upstream?.state === "forked";
+  if (!hasMagic && !forked) return null;
+  return client ?? "an unrecorded client";
+}
+
 // design/layout-db/23-geometry.md §10.1 (the 2026-09-13 cutover): the
 // one-time magic RE-SEED after a wipe + fresh cmini import, from akl.gg's
 // published rule sets. A SYSTEM write (20-spark.md decision 14: "only system
@@ -614,6 +638,10 @@ export async function patchFormat(
 // earlier, mistaken user-lane seed had forked is un-forked by it). Admin
 // lane only (`routes/admin.ts`); the candidate `magic` goes through the
 // stored format's own `setMagic` edit + `validate()` exactly like a PATCH.
+// **Amended 2026-09-14** (`magicSeedRefusalReason` above): refuses with
+// `409 magic_edited` before touching anything if the guard says this
+// record's magic was last written by a person, or the layout is forked
+// with no magic to justify un-forking it.
 export async function seedMagic(env: Bindings, now: Clock, ref: string, magic: unknown, version: string | null): Promise<WriteOutcome> {
   const db = env.DB;
   const lin = "spark";
@@ -623,6 +651,8 @@ export async function seedMagic(env: Bindings, now: Clock, ref: string, magic: u
     if (lwf === null || lwf.layout.deleted) throw notFound(`no layout '${ref}'`, ref);
     const existing = lwf.formats.get(lin);
     if (existing === undefined) throw formatAbsent("spark/1");
+    const refusal = magicSeedRefusalReason(existing.source, existing.has_magic, lwf.layout.upstream);
+    if (refusal !== null) throw magicEdited(refusal);
     const module = getFormat(existing.format);
     if (module === undefined) throw unknownFormat(existing.format, listFormats().map((f) => f.id));
     const payload = runEdit(existing.format, "magic", module.edits?.setMagic, existing.payload, magic);
