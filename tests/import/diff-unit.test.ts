@@ -215,9 +215,6 @@ describe("httpOurs (shrunk: count + a random sample of following layouts)", () =
       if (u.pathname === "/v1/layouts" && u.searchParams.get("format") === "spark/1") {
         return new Response(JSON.stringify({ items: LIST_ITEMS, next_cursor: null }), { status: 200 });
       }
-      if (u.pathname === "/v1/meta") {
-        return new Response(JSON.stringify({ layout_count: 3 }), { status: 200 });
-      }
       const detailMatch = /^\/v1\/layouts\/([^/]+)$/.exec(u.pathname);
       if (detailMatch && u.searchParams.get("format") === "spark/1") {
         const detail = DETAIL_BY_ID[detailMatch[1]!];
@@ -232,9 +229,22 @@ describe("httpOurs (shrunk: count + a random sample of following layouts)", () =
     };
   }
 
-  it("[LDB-P5] layoutCount() reproduces /v1/meta's layout_count", async () => {
+  // No `/v1/meta` in `fakeFetch`: its `layout_count` counts akldb-native
+  // layouts too (LDB-P5, amended 2026-09-14), so reading it would throw here.
+  it("[LDB-P5] linkedLayoutCount() counts listed layouts linked to upstream, following or forked -- never an akldb-native one", async () => {
     const ours = httpOurs(BASE, fakeFetch());
-    await expect(ours.layoutCount()).resolves.toBe(3);
+    await expect(ours.linkedLayoutCount()).resolves.toBe(2); // alpha + beta, not gamma
+  });
+
+  it("[LDB-P5] the count and the sample share ONE walk of the list", async () => {
+    let listCalls = 0;
+    const inner = fakeFetch();
+    const ours = httpOurs(BASE, async (url, init) => {
+      if (new URL(url).pathname === "/v1/layouts") listCalls++;
+      return inner(url, init);
+    });
+    await Promise.all([ours.linkedLayoutCount(), ours.sampleFollowing(10)]);
+    expect(listCalls).toBe(1);
   });
 
   it("[LDB-P5] sampleFollowing() only ever picks `following` candidates, and reads their full detail + likes", async () => {
@@ -284,10 +294,10 @@ describe("diffUpstream (orchestration: count + sampled compare)", () => {
   const raws = loadFixture();
   const graphite = raws.find((r) => r.name === "graphite")!;
 
-  function fakeOurs(entries: OursEntry[], layoutCount: number): OursSource {
+  function fakeOurs(entries: OursEntry[], linkedCount: number): OursSource {
     return {
-      async layoutCount() {
-        return layoutCount;
+      async linkedLayoutCount() {
+        return linkedCount;
       },
       async sampleFollowing() {
         return entries;

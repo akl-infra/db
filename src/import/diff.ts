@@ -301,14 +301,18 @@ export interface OursEntry extends SparkRecordLike {
 }
 
 // The shrunk "our side" (design/layout-db/review/PROPOSAL.md §2.1, LEDGER.md
-// L4): a cheap total count, plus a way to draw a random sample of live,
+// L4): a cheap count, plus a way to draw a random sample of live,
 // FOLLOWING layouts (the only ones the diff ever content-compares -- a
 // forked record is allowed to differ from upstream by definition, LDB-P5).
 // No full-corpus enumeration any more -- `d1Ours` (import/difftick.ts) picks
 // the sample with one D1 query; `httpOurs` below pages the (payload-free)
 // list route to find candidates, cheap even over HTTP.
 export interface OursSource {
-  layoutCount(): Promise<number>;
+  // Live layouts LINKED to upstream (`following` or `forked`) -- the only
+  // ones upstream's own `layout_count` can account for. A layout created in
+  // akldb itself (bot, client) has no upstream and never counts: akldb is a
+  // superset of upstream, not a mirror of it (LDB-P5, amended 2026-09-14).
+  linkedLayoutCount(): Promise<number>;
   sampleFollowing(n: number): Promise<OursEntry[]>;
 }
 
@@ -386,27 +390,36 @@ function pickRandom<T>(items: T[], n: number): T[] {
 export function httpOurs(dbBaseUrl: string, fetchImpl?: FetchImpl, sleepImpl?: SleepImpl): OursSource {
   const doFetch: FetchImpl = fetchImpl ?? ((url, init) => fetch(url, init));
   const doSleep: SleepImpl = sleepImpl ?? realSleep;
+  // The plain list route never carries a payload (07 §0.1) and never lists
+  // a tombstone (core/records.ts) -- cheap to page in full. Walked ONCE per
+  // `httpOurs`: `diffUpstream` asks for the count and the sample together,
+  // and both read it. (`/v1/meta.layout_count` is no use for the count: it
+  // counts akldb-native layouts too.)
+  let listed: Promise<ListItem[]> | undefined;
+  function listAll(): Promise<ListItem[]> {
+    if (listed === undefined) {
+      listed = (async () => {
+        const items: ListItem[] = [];
+        let cursor: string | undefined;
+        for (;;) {
+          const qs = new URLSearchParams({ limit: "1000", format: "spark/1" });
+          if (cursor !== undefined) qs.set("cursor", cursor);
+          const page = (await fetchJsonRetried(doFetch, doSleep, HTTP_OURS_UA, `${dbBaseUrl}/v1/layouts?${qs.toString()}`)) as ListPage;
+          items.push(...page.items);
+          if (!page.next_cursor) break;
+          cursor = page.next_cursor;
+        }
+        return items;
+      })();
+    }
+    return listed;
+  }
   return {
-    async layoutCount() {
-      const meta = (await fetchJsonRetried(doFetch, doSleep, HTTP_OURS_UA, `${dbBaseUrl}/v1/meta`)) as { layout_count?: number };
-      return meta.layout_count ?? -1;
+    async linkedLayoutCount() {
+      return (await listAll()).filter((item) => (item.upstream ?? null) !== null).length;
     },
     async sampleFollowing(n) {
-      // The plain list route never carries a payload (07 §0.1) -- cheap to
-      // page in full just to find which ids are `following`.
-      const candidates: { id: string; name: string }[] = [];
-      let cursor: string | undefined;
-      for (;;) {
-        const qs = new URLSearchParams({ limit: "1000", format: "spark/1" });
-        if (cursor !== undefined) qs.set("cursor", cursor);
-        const page = (await fetchJsonRetried(doFetch, doSleep, HTTP_OURS_UA, `${dbBaseUrl}/v1/layouts?${qs.toString()}`)) as ListPage;
-        for (const item of page.items) {
-          if (item.upstream?.state === "following") candidates.push({ id: item.id, name: item.name });
-        }
-        if (!page.next_cursor) break;
-        cursor = page.next_cursor;
-      }
-
+      const candidates = (await listAll()).filter((item) => item.upstream?.state === "following");
       const picked = pickRandom(candidates, n);
       const out: OursEntry[] = [];
       for (const { id } of picked) {
@@ -455,7 +468,7 @@ export async function diffUpstream(opts: DiffOptions): Promise<DiffSummary> {
 
   const [upstreamMetaRaw, ourCount, sample] = await Promise.all([
     fetchJsonRetried(fetchImpl, sleepImpl, ua, `${upstreamUrl}/meta`),
-    ours.layoutCount(),
+    ours.linkedLayoutCount(),
     ours.sampleFollowing(sampleSize),
   ]);
   const upstreamMeta = upstreamMetaRaw as { layout_count?: number };

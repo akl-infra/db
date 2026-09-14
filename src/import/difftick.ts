@@ -43,8 +43,10 @@ async function likesFor(db: Bindings["DB"], ids: string[]): Promise<Map<string, 
 export function d1Ours(env: Bindings): OursSource {
   const db = env.DB;
   return {
-    async layoutCount() {
-      const row = await db.prepare("SELECT COUNT(*) AS n FROM layouts WHERE deleted = 0").first<{ n: number }>();
+    async linkedLayoutCount() {
+      // `upstream_source IS NOT NULL` is exactly `upstreamFromRow`'s own
+      // "has an upstream" test (core/records.ts).
+      const row = await db.prepare("SELECT COUNT(*) AS n FROM layouts WHERE deleted = 0 AND upstream_source IS NOT NULL").first<{ n: number }>();
       return row?.n ?? 0;
     },
     async sampleFollowing(n) {

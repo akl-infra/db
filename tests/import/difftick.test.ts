@@ -115,6 +115,24 @@ describe("diffTick()", () => {
     expect(stored).toEqual(record);
   });
 
+  it("[LDB-C4] [LDB-P5] a layout created in akldb itself (no upstream link) never counts against upstream's layout_count", async () => {
+    const fake = new FakeUpstream();
+    await tick(bindings, fixedClock("2026-07-01T00:00:00.000Z"), fake.fetchImpl, fake.sleepImpl);
+    // An akldb-native record (bot/client `POST /v1/layouts`): no `upstream_*`
+    // columns -- the shape of the 5 live ones that turned the daily job red
+    // on 2026-09-14. Only its `layouts` row matters to the count.
+    await db
+      .prepare(
+        `INSERT INTO layouts (id, name, owner, n, layout_rev, created_at, modified_at, source_client)
+         VALUES ('01NATIVE0000000000000000AA', 'native-test', '111111111111111111', 1, 1, '2026-07-01T12:00:00.000Z', '2026-07-01T12:00:00.000Z', 'discord-app:test')`,
+      )
+      .run();
+
+    const record = await diffTick(envWithSource(fake.baseUrl), fixedClock("2026-07-02T00:00:00.000Z"), strictUpstreamOnly(fake), 100);
+    expect(record.layout_count).toEqual({ upstream: 100, ours: 100, equal: true });
+    expect(record.sample_size).toBe(100); // not sampled either: only `following` layouts are
+  });
+
   it("[LDB-C4] one upstream layout mutated after import is reported as a content diff, with a sample", async () => {
     const fake = new FakeUpstream();
     await tick(bindings, fixedClock("2026-07-03T00:00:00.000Z"), fake.fetchImpl, fake.sleepImpl);
@@ -220,7 +238,7 @@ describe("diffTick()", () => {
     const issued = reads() - before;
 
     expect(record.sample_size).toBe(100);
-    // LEDGER.md L4: one `layoutCount()` read, one `ORDER BY RANDOM() LIMIT
+    // LEDGER.md L4: one `linkedLayoutCount()` read, one `ORDER BY RANDOM() LIMIT
     // n` sample read, one likes chunk -- nowhere near "one query per
     // record" (100+), which is what a regression back to full-corpus
     // enumeration would look like here.

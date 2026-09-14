@@ -300,8 +300,12 @@ describe("rehost drill", () => {
     if (usingRemote) {
       // No local "before" exists -- the dump's own `meta` is the ground
       // truth (it was computed from the exact same tables the dump's
-      // `records`/`events` came from).
-      const metaAfter = await (await SELF.fetch("https://example.com/v1/meta")).json();
+      // `records`/`events` came from). That `meta` is `readMetaCore` alone
+      // (dump/write.ts's `computeMeta`); `/v1/meta` adds this instance's own
+      // live state on top (src/index.ts), which no dump carries -- drop
+      // exactly those keys, so any new DATA key must still round-trip.
+      const metaAfter = await (await SELF.fetch("https://example.com/v1/meta")).json<Record<string, unknown>>();
+      for (const k of ["last_diff", "health", "api", "deprecations"]) delete metaAfter[k];
       expect(metaAfter).toEqual(dump.meta);
     } else {
       const metaAfter = await (await SELF.fetch("https://example.com/v1/meta")).json();
@@ -316,7 +320,14 @@ describe("rehost drill", () => {
     // its rows look right in isolation. (This loop used to carry a stale
     // "expected to fail until F2's fixture regen lands" note; that
     // regeneration landed and every non-excluded case here passes.)
-    for (const kase of CASES) {
+    //
+    // Local mode only: every case is pinned byte-exact to the `upstream-100`
+    // seed (its request names seeded layouts; `layouts-list/200` expects 2
+    // matches where the live corpus had 91 on 2026-09-14), so against a
+    // restored LIVE dump the replay can only ever fail. Remote mode's proof
+    // is everything above: every table byte-exact, every record's fold,
+    // and `meta`.
+    for (const kase of usingRemote ? [] : CASES) {
       // X1: `changes-stream/503-stream_unavailable` needs `STREAM_MAX_MS`
       // toggled to `"0"` for its one request only -- conformance.test.ts's
       // own `it()` loop does that around this specific id; this replay has

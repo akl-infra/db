@@ -194,7 +194,8 @@ async function pageByCompositeKey<T>(db: Bindings["DB"], table: string, col1: st
   return out;
 }
 
-// `src/index.ts`'s `GET /v1/meta` body minus `last_diff`/`last_drill`:
+// `src/index.ts`'s `GET /v1/meta` body minus the live state it adds on top
+// (`last_diff`, `health`, `api`, `deprecations`):
 // the SAME `readMetaCore` (core/meta.ts), so the two can't drift;
 // `tests/api/dump.test.ts` also compares a dump's `meta` against a live
 // `/v1/meta` call.
