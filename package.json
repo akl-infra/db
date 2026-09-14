@@ -12,6 +12,7 @@
     "deploy": "wrangler deploy --config wrangler.toml",
     "rehost": "node scripts/rehost.mjs",
     "diff-upstream": "node scripts/diff-upstream.mjs",
+    "reseed-magic": "node scripts/reseed-magic.mjs",
     "profile-upstream": "node scripts/profile-upstream.mjs",
     "pick-fixtures": "node scripts/pick-fixtures.mjs",
     "goldens": "node scripts/goldens.mjs",
