@@ -209,31 +209,6 @@ describe("db.yml wiring", () => {
     expect(diffStep.toUpperCase()).not.toContain("SKIP");
   });
 
-  it("[LDB-C8] the reseed-magic job runs scripts/reseed-magic.mjs LIVE (no --dry-run) on schedule/dispatch only, with the ops client from secrets and the actor from a variable", () => {
-    const wf = loadWorkflow();
-    const job = wf.jobs["reseed-magic"];
-    expect(job, "no `reseed-magic` job in db.yml").toBeDefined();
-    if (!job) throw new Error("unreachable: assertion above failed");
-
-    expect(job.if, "reseed-magic job has no `if:` guard").toBeDefined();
-    expect(job.if).toContain("schedule");
-    expect(job.if).toContain("workflow_dispatch");
-    // Two dispatches must never interleave their seeds.
-    expect((job as { concurrency?: { "cancel-in-progress"?: boolean } }).concurrency?.["cancel-in-progress"]).toBe(false);
-
-    const step = (job.steps ?? []).find((s) => typeof s.run === "string" && /npm run reseed-magic|scripts\/reseed-magic\.mjs/.test(s.run));
-    expect(step, "no step running the reseed").toBeDefined();
-    if (!step) throw new Error("unreachable: assertion above failed");
-    expect(step.run).not.toMatch(/--dry-run/);
-    expect(String(step.run).toUpperCase()).not.toContain("SKIP");
-
-    const env = (step.env ?? {}) as Record<string, string>;
-    expect(env.DB_BASE_URL).toMatch(/vars\.DB_BASE_URL/);
-    expect(env.RESEED_CLIENT_ID).toMatch(/secrets\.RESEED_CLIENT_ID/);
-    expect(env.RESEED_CLIENT_PRIVATE_KEY, "the private key is a secret, never a variable").toMatch(/secrets\.RESEED_CLIENT_PRIVATE_KEY/);
-    expect(env.RESEED_ACTOR, "LDB-G2: the admin actor is configuration, never a constant").toMatch(/vars\.RESEED_ACTOR/);
-  });
-
   it("[LDB-C6] the daily job uploads the fetched dump as a 30-day-retention artifact, before the rehost drill runs", () => {
     const wf = loadWorkflow();
     const daily = wf.jobs.daily;

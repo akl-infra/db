@@ -204,9 +204,7 @@ those are taken.
 | `CLOUDFLARE_DB_TOKEN` | repo secret (CI) | `.github/workflows/db.yml`'s `deploy` job (S7) | a Cloudflare API token with Workers Scripts + D1 + R2 edit, separate from the site's Pages token |
 | `CLOUDFLARE_DB_ACCOUNT_ID` | repo secret (CI) | `.github/workflows/db.yml`'s `deploy` job (S7) | the NEW community account's id (00 §1) -- NOT the site's `CLOUDFLARE_ACCOUNT_ID` |
 | `DB_BASE_URL` | repo/org variable (CI) | `.github/workflows/db.yml`'s `daily` job (S7) | the deployed service's own origin, e.g. `https://akl-db.<account>.workers.dev`; set once the service is deployed |
-| `RESEED_CLIENT_ID` | repo secret (CI) | `.github/workflows/db.yml`'s `reseed-magic` job (docs/decisions/26-magic-reseed.md) | the ops client's id -- a plain admin-actor client registered via `POST /v1/admin/clients` (not `act-as-owner-only`: the seed writes records owned by many users) |
-| `RESEED_CLIENT_PRIVATE_KEY` | repo secret (CI) | same job | that client's base64url PKCS8 Ed25519 private key (`bot/scripts/gen-key.mjs` in saltorbit/aklgg mints one); rotate by registering a new client and revoking the old |
-| `RESEED_ACTOR` | repo variable (CI) | same job | the admin Discord user id the seed acts as (`X-Akl-Actor`; the route is admin-only). A variable, not a constant in code (LDB-G2) |
+| `CLIENT_ID` / `CLIENT_PRIVATE_KEY` / `OPS_ACTOR` | `db.env.ops` beside the clones (never in a repo; `db.env.ops.preview` for the preview DB) | `scripts/ops-call.sh`, `scripts/client-sign.mjs`, `npm run reseed-magic` | the maintainer's ops client (`act-as-owner-only`, owner = the admin it acts as): its `id` and base64url PKCS8 Ed25519 private key from registration (`POST /v1/admin/clients`, or a direct `clients` insert when no signer exists yet -- the 2026-09-14 bootstrap after the split lost `db/.env.ops`), plus the admin's Discord user id. A lost key cannot be recovered: register a new client, revoke the old |
 | `TEST_ROUTES` | test-only miniflare binding | `src/index.ts`'s throwaway `/v1/__test/write` route | set unconditionally in `vitest.config.ts`; never present outside tests |
 | `TEST_MIGRATIONS` | test-only miniflare binding | `tests/setup-workers.ts` | built from `migrations/` by `vitest.config.ts` at test-run time; never present outside tests |
 | `TEST_REHOST_DUMP_URL` | test-only miniflare binding | `tests/rehost.test.ts` (S7) | threads the real `REHOST_DUMP_URL` env var (set only by db.yml's `daily` job) into the miniflare Worker; empty string locally, so `npm test` always runs the local (cron-driven) half of the rehost drill |
@@ -613,16 +611,28 @@ set is kept current by a reseed, not a one-shot migration:
 
 ```bash
 npm run reseed-magic -- --dry-run   # reads only; prints what it would seed
-npm run reseed-magic                # live (needs the RESEED_* env below)
+npm run reseed-magic                # live (needs the ops client env below)
 ```
 
-`.github/workflows/db.yml`'s `reseed-magic` job runs the live form daily
-(04:00 UTC, with `daily`) and on `workflow_dispatch` -- dispatch it right
-before flipping akl.gg prod to akldb so nothing is behind. Env: `DB_BASE_URL`,
-`RESEED_CLIENT_ID`, `RESEED_CLIENT_PRIVATE_KEY`, `RESEED_ACTOR` (the table
-under "Secrets and bindings"); `AKLGG_RULES_URL` overrides the source
-(default `https://akl.gg/api/magic-rules`, the site's public index of every
-published rule set, `{<layout id>: <rule set>}`).
+Run by hand (saltorbit: "i will want to run it by hand"), from a checkout
+with the ops client's key in the environment -- at the latest right before
+flipping akl.gg prod to akldb, and whenever rules were published on the
+site in between:
+
+```bash
+DB_BASE_URL=https://api.akldb.org \
+CLIENT_ID=<the ops client id> \
+CLIENT_PRIVATE_KEY=<its base64url PKCS8 Ed25519 private key> \
+OPS_ACTOR=<the admin Discord user id the seed acts as> \
+npm run reseed-magic
+```
+
+The client is a plain admin-actor client registered via `POST
+/v1/admin/clients` (not `act-as-owner-only`: the seed writes records owned
+by many users); the key never leaves the operator's shell (02-auth.md §3).
+`AKLGG_RULES_URL` overrides the source (default
+`https://akl.gg/api/magic-rules`, the site's public index of every published
+rule set, `{<layout id>: <rule set>}`).
 
 **Per rule set** (`scripts/reseed-magic.mjs`, LDB-P25):
 
@@ -646,18 +656,18 @@ published rule set, `{<layout id>: <rule set>}`).
    overwritten by akl.gg's copy, and a fork they made is never undone by
    the seed route's `following` reset. Reported as `edited`.
 4. Live only: `POST /v1/admin/magic-seed {ref: <record id>, magic}`,
-   client-lane signed as `RESEED_ACTOR`. `400 magic_collision` /
+   client-lane signed as `OPS_ACTOR`. `400 magic_collision` /
    `invalid_payload` are the DB's own refusals: reported, and the run exits
    1 so a human looks -- akl.gg's rules must land verbatim, never
    auto-amended with a hint. One `429` is waited out (`Retry-After`) and
    retried; any other answer aborts the run.
 
 `missing` and `edited` are expected outcomes (printed per id, counted in the
-summary line), not failures. `collision`/`invalid` fail the job.
+summary line), not failures. `collision`/`invalid` exit 1.
 
 **Retirement**: the day akl.gg prod's `DB_BASE_URL` is set (its
-`/api/magic-rules` then reads akldb, so this job would only ever find
-`identical`), delete the job, the script, its test and LDB-C8/LDB-P25;
+`/api/magic-rules` then reads akldb, so a run would only ever find
+`identical`), delete the script, its test and LDB-P25;
 `POST /v1/admin/magic-seed` stays as the post-wipe recovery tool it was
 built as (23-geometry.md §10.1).
 
@@ -733,19 +743,19 @@ folded into the ETag (a poller sees it move), `deletes_24h`/
 `deletes_budget_24h` are not (continuously time-dependent, like
 `health.dump/diff`'s own `age_s`).
 
-**The three recovery calls** (`db/scripts/ops-call.sh`, admin lane):
+**The three recovery calls** (`scripts/ops-call.sh`, admin lane; it reads the ops client from `db.env.ops` beside the clones, see "Secrets and bindings"):
 
 ```bash
 # Lift a stall deliberately. NOT a fix: the very next tick re-plans from
 # the SAME inputs and re-stalls immediately if the upstream is STILL bad.
-sh db/scripts/ops-call.sh POST /v1/admin/import/unstall
+sh scripts/ops-call.sh POST /v1/admin/import/unstall
 
 # Bulk-restore upstream_deleted tombstones since a timestamp. dry_run
 # first to see the candidate list; omit it to actually restore (bounded by
 # `limit`, capped at 500 per call, safe to call again -- idempotent, and
 # never touches a layout the OWNER deleted themselves).
-sh db/scripts/ops-call.sh POST /v1/admin/import/restore-deleted '{"since":"2026-09-13T00:00:00Z","dry_run":true}'
-sh db/scripts/ops-call.sh POST /v1/admin/import/restore-deleted '{"since":"2026-09-13T00:00:00Z"}'
+sh scripts/ops-call.sh POST /v1/admin/import/restore-deleted '{"since":"2026-09-13T00:00:00Z","dry_run":true}'
+sh scripts/ops-call.sh POST /v1/admin/import/restore-deleted '{"since":"2026-09-13T00:00:00Z"}'
 
 # The kill switch: stop the importer from ever tombstoning anything,
 # regardless of the listing, until you flip it back. A wrangler.toml edit

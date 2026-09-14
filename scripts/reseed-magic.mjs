@@ -8,14 +8,19 @@
 //   npm run reseed-magic              # live: seeds every record that differs
 //   npm run reseed-magic -- --dry-run # reads only; prints what it would seed
 //
-// Environment (the CI job in .github/workflows/ci.yml sets all of these):
+// Run by hand (saltorbit, 2026-09-14: "i will want to run it by hand") --
+// before flipping akl.gg prod to akldb at the latest, and whenever rules
+// were published on the site in between. Environment:
 //   DB_BASE_URL                 the akldb origin, e.g. https://api.akldb.org
 //   AKLGG_RULES_URL             akl.gg's public index of published rule sets
 //                               (default https://akl.gg/api/magic-rules --
 //                               `{<layout id>: <rule set>}`, no auth)
-//   RESEED_CLIENT_ID            the ops client's id (client lane, 02-auth §3)
-//   RESEED_CLIENT_PRIVATE_KEY   its base64url PKCS8 Ed25519 private key
-//   RESEED_ACTOR                the admin Discord user id the seed acts as
+//   CLIENT_ID / CLIENT_PRIVATE_KEY / OPS_ACTOR -- the ops client and the
+//                               admin it acts as, the SAME three variables
+//                               scripts/ops-call.sh and the bot read (a
+//                               `db/.env.ops` file works unchanged): the
+//                               client's id, its base64url PKCS8 Ed25519
+//                               private key, and the admin Discord user id
 //                               (`POST /v1/admin/magic-seed` is admin-only;
 //                               LDB-G2: never a constant in code)
 //
@@ -52,14 +57,12 @@
 // 0 otherwise -- `missing` and `edited` are expected outcomes, printed so
 // they are read, never failed on.
 //
-// Plain Node: the signing string is duplicated from src/auth/client.ts
-// (`signingString`, byte for byte -- the same copy scripts/gen-vectors.mjs
-// keeps, and tests/auth/client.test.ts proves the vectors) because a bare
-// `node` run cannot import the Worker's TS. Everything else is exported so
+// Plain Node (a bare `node` run cannot import the Worker's TS); the signer
+// is scripts/client-sign.mjs's. Everything is exported so
 // tests/tools/reseed-magic.test.ts drives the whole run with a fake fetch.
-import crypto from "node:crypto";
 import process from "node:process";
 import url from "node:url";
+import { signerFromEnv } from "./client-sign.mjs";
 
 export const DEFAULT_RULES_URL = "https://akl.gg/api/magic-rules";
 export const USER_AGENT = "akl-db-reseed/1.0";
@@ -162,28 +165,10 @@ export function editedReason(record) {
 
 // --- signing -------------------------------------------------------------------
 
-// src/auth/client.ts's `signingString`, byte for byte (02-auth.md §3.2).
-export function signingString(method, pathWithQuery, timestamp, nonce, actor, bodyHashB64url) {
-  return `akl-v1\n${method.toUpperCase()}\n${pathWithQuery}\n${timestamp}\n${nonce}\n${actor}\n${bodyHashB64url}`;
-}
-
-export function makeSigner({ clientId, privateKeyB64url, actor, now = () => Date.now(), randomNonce = () => crypto.randomBytes(16) }) {
-  const key = crypto.createPrivateKey({ key: Buffer.from(privateKeyB64url, "base64url"), format: "der", type: "pkcs8" });
-  return function sign(method, pathWithQuery, bodyBytes) {
-    const timestamp = String(Math.floor(now() / 1000));
-    const nonce = Buffer.from(randomNonce()).toString("base64url");
-    const bodyHash = crypto.createHash("sha256").update(bodyBytes).digest("base64url");
-    const message = signingString(method, pathWithQuery, timestamp, nonce, actor, bodyHash);
-    const signature = crypto.sign(null, Buffer.from(message, "utf8"), key).toString("base64url");
-    return {
-      "X-Akl-Client": clientId,
-      "X-Akl-Timestamp": timestamp,
-      "X-Akl-Nonce": nonce,
-      "X-Akl-Actor": actor,
-      "X-Akl-Signature": signature,
-    };
-  };
-}
+// scripts/client-sign.mjs owns the signer (shared with scripts/ops-call.sh);
+// re-exported so tests/tools/reseed-magic.test.ts proves it against the
+// Worker's own vectors from this module's surface.
+export { makeSigner, signingString } from "./client-sign.mjs";
 
 // --- the run -----------------------------------------------------------------------
 
@@ -290,7 +275,7 @@ export function summarize(report) {
 
 function usage(msg) {
   console.error(`error: ${msg}`);
-  console.error("usage: node scripts/reseed-magic.mjs [--dry-run]  (env: DB_BASE_URL, RESEED_CLIENT_ID, RESEED_CLIENT_PRIVATE_KEY, RESEED_ACTOR, optional AKLGG_RULES_URL)");
+  console.error("usage: node scripts/reseed-magic.mjs [--dry-run]  (env: DB_BASE_URL, CLIENT_ID, CLIENT_PRIVATE_KEY, OPS_ACTOR -- the same as ops-call.sh -- and optional AKLGG_RULES_URL)");
   process.exit(2);
 }
 
@@ -300,9 +285,11 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
   if (!baseUrl) usage("DB_BASE_URL is required");
   let sign = null;
   if (!dryRun) {
-    const { RESEED_CLIENT_ID: clientId, RESEED_CLIENT_PRIVATE_KEY: privateKeyB64url, RESEED_ACTOR: actor } = env;
-    if (!clientId || !privateKeyB64url || !actor) usage("RESEED_CLIENT_ID, RESEED_CLIENT_PRIVATE_KEY and RESEED_ACTOR are required for a live run");
-    sign = makeSigner({ clientId, privateKeyB64url, actor });
+    try {
+      sign = signerFromEnv(env);
+    } catch (err) {
+      usage(`${err instanceof Error ? err.message : String(err)} -- required for a live run`);
+    }
   }
   const report = await reseedMagic({ baseUrl, rulesUrl: env.AKLGG_RULES_URL || DEFAULT_RULES_URL, sign, dryRun });
   console.log(`reseed-magic${dryRun ? " (dry run)" : ""}: ${JSON.stringify(summarize(report))}`);

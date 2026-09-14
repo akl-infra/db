@@ -177,9 +177,10 @@ field a caller controls.
   JS/Python signers are all in the adoption guide §2.1 — don't re-derive the
   recipe by hand; build your signer against the frozen vector file,
   `db/tests/vectors/client-signing.json` (`LDB-A4`), and diff.
-  `bot/scripts/sign.mjs` wraps the JS signer as a CLI (prints `-H` flags for
-  `curl`); `db/scripts/ops-call.sh` wraps that for a maintainer's own signed
-  admin calls — both read `CLIENT_ID`/`CLIENT_PRIVATE_KEY` from the
+  `scripts/client-sign.mjs` in this repo wraps the same signer as a CLI
+  (prints one `Name: value` header line per signed header, for `curl -H`);
+  `scripts/ops-call.sh` wraps that for a maintainer's own signed admin
+  calls — both read `CLIENT_ID`/`CLIENT_PRIVATE_KEY`/`OPS_ACTOR` from the
   environment, never a flag.
 
 ## 4. Writing
