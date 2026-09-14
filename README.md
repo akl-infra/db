@@ -396,8 +396,8 @@ the job loudly on any problem -- neither is allowed to skip silently.
 
 ## Backups
 
-Three layers, from finest-grained to coarsest, all outside a single
-Cloudflare account:
+Three layers, from finest-grained to coarsest; the R2 dump and Time Travel
+live in the akl Cloudflare account, the CI artifact and `db-backup` do not:
 
 - **Nightly R2 dump** (above): `dump-YYYY-MM-DD.json.gz` + `latest.json`,
   gzipped, every table and the whole event log -- the "Rehost procedure"
@@ -445,10 +445,23 @@ event log) already answers without touching D1's storage layer at all.
 ## Fresh-D1 restore rehearsal
 
 A rehearsed checklist for "we lost the D1 database entirely, rebuild it
-from a dump" -- run this for real at least once (recorded: **not yet run**;
-whoever runs it first, log the date and minutes here) so the numbered
-procedure above is proven, not just written down. Do NOT run this against
+from a dump" -- run this for real at least once so the numbered procedure
+above is proven, not just written down. Do NOT run this against
 `akl-db`/prod -- a scratch D1 only.
+
+**Log.** First run 2026-09-14 ~04:55Z (saltorbit's session, the day akldb
+stopped being disposable): scratch `akl-db-rehearsal` on the akl account,
+migrations 0001-0017 applied through a throwaway copy of `wrangler.toml`
+(`database_name`/`database_id` swapped, `migrations_dir` set absolute),
+`dump-2026-09-14.json.gz` (sha256 matched `latest.json`, `meta.seq` 45322,
+4184 layouts) rendered through `restoreSql` to 3 777 statements and applied
+with one `d1 execute --file`. The execute itself took about 5 s; the whole
+drill, download included, under five minutes wall. Every count matched the
+dump: 4184 live layouts, 4187 rows with tombstones, `MAX(seq)` 45322,
+10 819 events, 8 506 revisions, 2 050 likes, 1 admin. Scratch database
+deleted afterwards; `akl-db` untouched. One gotcha: `latest.json`'s `url`
+is origin-relative (`/v1/dump/dump-YYYY-MM-DD.json.gz`), so prefix the
+service origin before fetching it.
 
 1. `npx wrangler d1 create akl-db-rehearsal` (or reuse a previous scratch
    database). `rehost.mjs` always targets `akl-db` (or, with `--env
@@ -462,7 +475,8 @@ procedure above is proven, not just written down. Do NOT run this against
 2. `npx wrangler d1 migrations apply akl-db-rehearsal --remote` -- every
    migration in `migrations/`, in order, against the empty database.
 3. Fetch a real dump (`curl -O <service>/v1/dump/latest.json`, follow its
-   `url`, gunzip it) and note its `meta.layout_count`/`meta.seq`.
+   `url` -- origin-relative, prefix `<service>` -- gunzip it) and note its
+   `meta.layout_count`/`meta.seq`.
 4. Render the restore SQL through the SAME code `restoreSql`/`restoreInto`
    are tested through -- never a hand-written INSERT -- then apply it:
    ```bash
