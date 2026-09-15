@@ -200,6 +200,7 @@ those are taken.
 | `IMPORT_MAX_WRITES_PER_TICK` | var | `src/import/apply.ts` (S5) | `wrangler.toml`'s `[vars]`; default `500` |
 | `IMPORT_UA` | var | `src/import/upstream.ts` (S5) | `wrangler.toml`'s `[vars]`; every upstream request must send it (0.1: the default UA is 403'd) |
 | `IMPORT_DELETES` | var | `src/import/cmini.ts` (`importDeletesEnabled`, LDB-I23) | `wrangler.toml`'s `[vars]`; default `"on"`; `"off"` is the hostile-upstream kill switch -- the importer never tombstones anything while set |
+| `IMPORT_ENABLED` | var | `src/import/cmini.ts` (`importEnabled`, LDB-I27) | `wrangler.toml`'s `[vars]`; default `"on"`; `"off"` is the hostile/vanished-upstream kill switch -- skips the cmini tick AND the diff tick entirely, before any fetch; currently `"off"` (2026-09-15: cmini's own API was taken down by its owner) |
 | `DISCORD_API_URL` | var | `src/auth/discord.ts` (T1) | `wrangler.toml`'s `[vars]`; default `https://discord.com/api`; tests inject `fetchImpl` directly and never resolve this URL |
 | `CLOUDFLARE_DB_TOKEN` | repo secret (CI) | `.github/workflows/db.yml`'s `deploy` job (S7) | a Cloudflare API token with Workers Scripts + D1 + R2 edit, separate from the site's Pages token |
 | `CLOUDFLARE_DB_ACCOUNT_ID` | repo secret (CI) | `.github/workflows/db.yml`'s `deploy` job (S7) | the NEW community account's id (00 §1) -- NOT the site's `CLOUDFLARE_ACCOUNT_ID` |
@@ -545,12 +546,21 @@ admin-only, at `GET /v1/admin/health`.
 (the in-process rehost proof, above) alongside the live diff -- both fail
 the job loudly on any problem, neither is allowed to skip silently.
 
+**Currently switched off (LDB-I27, 2026-09-15).** cmini's own upstream
+(`https://clemenpine.com/layoutapi/v3`) was taken down by its owner --
+`IMPORT_ENABLED = "off"` in `wrangler.toml` skips the cmini tick and this
+diff tick entirely (no fetch to it at all, cron or manual), and `db.yml`'s
+`Upstream diff` step is gated `if: false` for the same reason. The nightly
+dump and prunes are unaffected. Flip both back (`IMPORT_ENABLED = "on"`,
+deploy; delete/flip the workflow step's `if: false`) once the upstream
+answers again -- see INVARIANTS.md's LDB-I27 row.
+
 **Staleness (LDB-M2).** `GET /v1/meta` also carries `health`:
 
 ```json
 "health": {
   "dump":  { "last_at": "2026-09-12T03:00:00.000Z", "seq": 526, "age_s": 3600, "stale": false },
-  "diff":  { "last_at": "2026-09-12T04:00:00.000Z", "age_s": 0, "stale": false }
+  "diff":  { "last_at": "2026-09-12T04:00:00.000Z", "age_s": 0, "stale": false, "disabled": false }
 }
 ```
 
@@ -561,6 +571,13 @@ ticks); a record that has never run (`last_at: null`) is always
 moves every second, and hashing it in would defeat the 304/edge-cache this
 route exists for; a client relying on a cached body sees a slightly stale
 `age_s`, bounded by the route's 10s `Cache-Control: max-age`.
+
+**Deliberately switched off (LDB-I27).** `diff.disabled` mirrors the
+`IMPORT_ENABLED` var (below) -- while it's `"off"`, the diff tick never
+runs, `diff.last_at`/`age_s` simply freeze at whatever they last were, and
+`diff.stale` is forced `false` (a frozen, EXPECTED gap must not read the
+same as a genuinely stuck job). `health.import.disabled` is the same
+signal, folded into that block too.
 
 ### Manual cron triggers
 
@@ -730,16 +747,20 @@ by id at any time, LDB-P8) once it does apply.
   "deletes_budget_24h": 84,
   "deletes_planned": 5,
   "deletes_applied": 0,
-  "deletes_disabled": false
+  "deletes_disabled": false,
+  "disabled": false
 }
 ```
 
 `stalled` is `null` when nothing is stalled. `deletes_planned`/
 `deletes_applied` are the LAST tick's own figures (0 applied while stalled
 or while the kill switch is on, even if several were planned).
-`deletes_disabled` mirrors the `IMPORT_DELETES` var below. The bot's
-watchdog and the akldb.org admin console read this block; `stalled` is
-folded into the ETag (a poller sees it move), `deletes_24h`/
+`deletes_disabled` mirrors the `IMPORT_DELETES` var below. `disabled`
+(LDB-I27) mirrors `IMPORT_ENABLED` -- while it's `"off"` the cmini tick
+never runs at all (not just tombstones), so `deletes_planned`/
+`deletes_applied`/`stalled` all freeze at whatever they last were too. The
+bot's watchdog and the akldb.org admin console read this block; `stalled`
+is folded into the ETag (a poller sees it move), `deletes_24h`/
 `deletes_budget_24h` are not (continuously time-dependent, like
 `health.dump/diff`'s own `age_s`).
 
@@ -762,6 +783,13 @@ sh scripts/ops-call.sh POST /v1/admin/import/restore-deleted '{"since":"2026-09-
 # + deploy (there is no runtime toggle route -- this is the "I don't trust
 # upstream at all right now" lever, left outside the API on purpose).
 # Edit wrangler.toml's [vars]: IMPORT_DELETES = "off", then:
+npx wrangler deploy --config wrangler.toml
+
+# The upstream kill switch (LDB-I27): stop EVERY contact with cmini's own
+# API, not just tombstones -- for when the upstream itself is hostile,
+# broken, or (2026-09-15) simply gone. Same shape, same lever:
+# Edit wrangler.toml's [vars]: IMPORT_ENABLED = "off" (or back to "on"),
+# then:
 npx wrangler deploy --config wrangler.toml
 ```
 

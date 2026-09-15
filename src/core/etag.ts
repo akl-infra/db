@@ -149,7 +149,12 @@ export async function readHead(db: D1Database, stateKeys: readonly string[] = []
 //   n-gram. Same class as 6/12 (the stored format edited in place, D11). No
 //   cached 304/edge-cached body from before this slice can keep serving a
 //   payload with the old rule shape at an unchanged head seq.
-export const WIRE_VERSION = 13;
+// 14 (2026-09-15, LDB-I27, saltorbit: "pine has taken down his api"): cmini's
+//   own upstream is gone -- `GET /v1/meta`'s `health.diff` and
+//   `health.import` each gain a `disabled` boolean (mirrors the new
+//   `IMPORT_ENABLED` kill switch, forces `health.diff.stale` false while
+//   it's off). Additive only.
+export const WIRE_VERSION = 14;
 
 export async function etagFor(headSeqValue: number, query: unknown): Promise<string> {
   const hash = await sha256Hex(canonical({ wireVersion: WIRE_VERSION, query: query ?? null }));

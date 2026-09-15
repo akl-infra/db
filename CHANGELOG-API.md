@@ -25,6 +25,18 @@ this file just gives them a public, versioned home. From here on, a
 `WIRE_VERSION` bump and a line here land in the SAME PR, never one without
 the other (`[LDB-V5]`).
 
+## 1.14 — 2026-09-15
+
+LDB-I27 (saltorbit: "pine has taken down his api" -- cmini's own upstream,
+`https://clemenpine.com/layoutapi/v3`, was taken down by its owner): a new
+`IMPORT_ENABLED` kill switch (`wrangler.toml`'s `[vars]`, default `"on"`,
+currently `"off"`) skips the cmini import tick and the upstream diff tick
+entirely, before any fetch. `GET /v1/meta`'s `health.diff` and
+`health.import` each gain a `disabled` boolean mirroring it -- while it's
+`"off"`, `health.diff.stale` is forced `false` (a deliberate, expected gap
+must not read the same as a genuinely stuck job) and `disabled: true` says
+why instead. Additive only; the nightly dump and prunes are unaffected.
+
 ## 1.13 — 2026-09-13
 
 A `spark/1` magic key's rule is `{after, emit}` (`design/layout-db/

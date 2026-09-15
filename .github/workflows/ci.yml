@@ -206,6 +206,14 @@ jobs:
           rel_url=$(jq -r .url latest.json)
           REHOST_DUMP_URL="${{ vars.DB_BASE_URL }}${rel_url}" npx vitest run tests/rehost.test.ts --project workers
       - name: Upstream diff (LDB-P5, S8)
+        # LDB-I27 (saltorbit, 2026-09-15: "pine has taken down his api"):
+        # cmini's own upstream (https://clemenpine.com/layoutapi/v3) was
+        # taken down by its owner -- this step calls it directly over real
+        # HTTP (outside the Worker's own IMPORT_ENABLED env entirely), so it
+        # is gated here instead. Flip back to `if: true` (or delete this
+        # line) once the upstream answers again; see INVARIANTS.md's
+        # LDB-I27 row and wrangler.toml's own IMPORT_ENABLED switch.
+        if: false
         run: |
           set -euo pipefail
           DB_BASE_URL="${{ vars.DB_BASE_URL }}" npx vitest run tests/upstream-diff.test.ts --project node

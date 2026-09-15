@@ -9862,6 +9862,9 @@
                 "age_s": {
                   "type": "null"
                 },
+                "disabled": {
+                  "type": "boolean"
+                },
                 "last_at": {
                   "type": "null"
                 },
@@ -9901,6 +9904,9 @@
                 },
                 "deletes_planned": {
                   "type": "number"
+                },
+                "disabled": {
+                  "type": "boolean"
                 },
                 "stalled": {
                   "type": "null"

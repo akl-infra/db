@@ -12,6 +12,7 @@ import { canonical } from "../core/canonical";
 import { rowToLayout, type LayoutDbRow } from "../core/records";
 import type { Clock } from "../core/time";
 import type { Payload as SparkPayload } from "../../formats/spark/1/index.ts";
+import { importEnabled } from "./cmini";
 import { DEFAULT_SAMPLE_SIZE, diffUpstream, type DiffSummary, type FetchImpl, type OursEntry, type OursSource } from "./diff";
 
 export const IMPORT_STATE_KEY = "cmini.last_diff"; // exported for `/v1/meta`'s one-query head (src/index.ts)
@@ -101,6 +102,11 @@ export interface LastDiffRecord {
     content_diffs: { name: string; path: string }[];
   };
   error?: string;
+  // LDB-I27: `IMPORT_ENABLED=off` was in effect for this call -- no fetch
+  // was attempted, every field above is absent, and (unlike a real success
+  // or failure) NOTHING is written to `import_state` for it -- see
+  // `diffTick`'s own comment on why the previous real record is left alone.
+  disabled?: boolean;
 }
 
 function summaryToLastDiff(at: string, durationMs: number, summary: DiffSummary): LastDiffRecord {
@@ -137,6 +143,18 @@ async function writeImportState(db: Bindings["DB"], key: string, value: string):
 // relying on `ORDER BY RANDOM()` to happen to pick a specific mutated row.
 export async function diffTick(env: Bindings, now: Clock, fetchImpl?: FetchImpl, sampleSize?: number): Promise<LastDiffRecord> {
   const at = now();
+
+  // LDB-I27: same switch `import/cmini.ts`'s `tick()` reads, checked before
+  // any fetch (cron, or the manual `POST /v1/admin/diff/tick` -- both call
+  // this same function). Deliberately writes NOTHING to `import_state`: the
+  // previous real `cmini.last_diff` record (if any) is left exactly as it
+  // was, so a poller sees a frozen `at`/age growing, not a fabricated fresh
+  // "checked, nothing to report" timestamp -- `/v1/meta`'s own
+  // `health.diff.disabled` flag (src/index.ts) is what explains why.
+  if (!importEnabled(env)) {
+    return { at, ok: true, disabled: true };
+  }
+
   const startedAt = Date.now();
   try {
     const summary = await diffUpstream({

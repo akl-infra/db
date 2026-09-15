@@ -152,6 +152,21 @@ export function importDeletesEnabled(env: Bindings): boolean {
   return env.IMPORT_DELETES !== "off";
 }
 
+// LDB-I27 (saltorbit, 2026-09-15: "pine has taken down his api" -- cmini's
+// own upstream, https://clemenpine.com/layoutapi/v3, was taken down by its
+// owner): `IMPORT_ENABLED` (env var, default "on") -- a kill switch for a
+// hostile/vanished upstream, distinct from `IMPORT_DELETES` above: "off"
+// stops EVERY contact with the upstream (this tick's own `client.meta()`
+// call included), not just tombstones. Checked at the very top of `tick()`,
+// before the meta gate, the running lock, or any D1 read/write, so "off"
+// costs nothing and touches nothing -- same reasoning `importDeletesEnabled`
+// gives for reading its own switch at the tick level rather than deeper in
+// the plan/apply logic. `import/difftick.ts`'s `diffTick` reads the same
+// switch, for the same reason.
+export function importEnabled(env: Bindings): boolean {
+  return env.IMPORT_ENABLED !== "off";
+}
+
 export interface TickStats {
   at: string;
   quiet: boolean;
@@ -184,6 +199,10 @@ export interface TickStats {
   // planned delete (`deletes_planned` still reports what `planTick` would
   // have applied) was skipped, never just some of them.
   deletes_disabled?: boolean;
+  // LDB-I27: `IMPORT_ENABLED=off` was in effect for this call -- the tick
+  // returned immediately, before any fetch or D1 read/write; every other
+  // field above is absent (there is nothing else to report).
+  disabled?: boolean;
 }
 
 export interface TickResult {
@@ -198,6 +217,13 @@ export async function tick(
   sleepImpl?: SleepImpl,
 ): Promise<TickResult> {
   const db = env.DB;
+
+  // LDB-I27: checked BEFORE the meta gate, the running lock, or any D1
+  // read/write -- "off" must cost nothing and touch nothing, not even a
+  // read of `cmini.paused`.
+  if (!importEnabled(env)) {
+    return { quiet: true, stats: { at: now(), quiet: true, disabled: true } };
+  }
 
   if ((await getState(db, "cmini.paused")) === "1") {
     return { quiet: true, stats: { at: now(), quiet: true } };

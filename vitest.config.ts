@@ -43,6 +43,17 @@ export default defineConfig(async () => {
                   // cases, only the numbers differ.
                   STREAM_MAX_MS: "500",
                   STREAM_POLL_MS: "20",
+                  // LDB-I27: overrides wrangler.toml's production
+                  // IMPORT_ENABLED ("off" since 2026-09-15 -- cmini's own
+                  // upstream is down) back to "on" for this whole suite, the
+                  // same reasoning STREAM_MAX_MS/STREAM_POLL_MS above give --
+                  // the import/diff test suite (tests/import/**, LDB-I1..I27)
+                  // exercises real tick/diff behavior against FakeUpstream
+                  // and expects it to run by default; only the
+                  // "[LDB-I27] IMPORT_ENABLED kill switch" describes
+                  // themselves override this back to "off" per test, the
+                  // same pattern the LDB-I23 IMPORT_DELETES describe uses.
+                  IMPORT_ENABLED: "on",
                 },
               },
             }),

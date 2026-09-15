@@ -33,10 +33,13 @@ describe("GET /v1/meta", () => {
       // is the "never run" case, not just "old".
       health: {
         dump: { last_at: null, seq: null, age_s: null, stale: true },
-        diff: { last_at: null, age_s: null, stale: true },
-        // [LDB-M3] never stalled, never ticked, and the kill switch reads
-        // the wrangler.toml default ("on") -- deletes_disabled: false.
-        import: { stalled: null, deletes_24h: 0, deletes_planned: null, deletes_applied: null, deletes_disabled: false },
+        // [LDB-I27] this test's own env (`vitest.config.ts`'s miniflare
+        // override) reads IMPORT_ENABLED "on", unlike wrangler.toml's live
+        // "off" -- disabled: false.
+        diff: { last_at: null, age_s: null, stale: true, disabled: false },
+        // [LDB-M3] never stalled, never ticked, and the kill switches read
+        // this test's own "on" override -- deletes_disabled/disabled: false.
+        import: { stalled: null, deletes_24h: 0, deletes_planned: null, deletes_applied: null, deletes_disabled: false, disabled: false },
         // [LDB-A12] saltorbit 2026-09-13 (rogue-trusted-client hardening): no
         // client has ever been suspended on a fresh database.
         // [LDB-A14] saltorbit: no threshold is ever public -- only the suspended list.
@@ -169,6 +172,32 @@ describe("[LDB-M2] GET /v1/meta health", () => {
     expect(body.health.dump.stale).toBe(false);
   });
 
+  // LDB-I27: a deliberately switched-off upstream must not trip the SAME
+  // `stale` alarm an unexpectedly stuck one would -- `health.diff.disabled`
+  // says why instead, and `stale` is forced false regardless of age.
+  // `IMPORT_ENABLED` is mutated directly on the live `env` binding (same
+  // runtime-override pattern `src/routes/write.ts`'s `TEST_CLOCK` uses,
+  // `tests/api/write.test.ts`'s `pinTestClock`) rather than via
+  // `vitest.config.ts`'s miniflare binding (fixed for the whole file/run).
+  it("[LDB-I27] health.diff.disabled suppresses the stale alarm while IMPORT_ENABLED=off, and reads false while on", async () => {
+    const at = new Date(Date.now() - 49 * 3600 * 1000).toISOString(); // 49h ago -- would be stale
+    await setImportState("cmini.last_diff", { at, ok: true });
+    const mutableEnv = bindings as unknown as { IMPORT_ENABLED: string };
+
+    mutableEnv.IMPORT_ENABLED = "off";
+    try {
+      const body = await (await fetchMeta()).json<{ health: { diff: { stale: boolean; disabled: boolean } } }>();
+      expect(body.health.diff.disabled).toBe(true);
+      expect(body.health.diff.stale).toBe(false); // suppressed -- would be true if enabled
+    } finally {
+      mutableEnv.IMPORT_ENABLED = "on";
+    }
+
+    const backOn = await (await fetchMeta()).json<{ health: { diff: { stale: boolean; disabled: boolean } } }>();
+    expect(backOn.health.diff.disabled).toBe(false);
+    expect(backOn.health.diff.stale).toBe(true); // the real 49h-old record reasserts itself
+  });
+
   // [LDB-M3] `health.import` (2026-09-13, hostile/vanished-upstream
   // visibility): same real-wall-clock posture as dump/diff above -- the
   // rolling 24h delete count is a live D1 query against `events.at`, so
@@ -223,11 +252,31 @@ describe("[LDB-M2] GET /v1/meta health", () => {
     expect(body.health.import.deletes_24h).toBe(2);
   });
 
+  it("[LDB-I27] health.import.disabled mirrors IMPORT_ENABLED, read fresh every request", async () => {
+    const mutableEnv = bindings as unknown as { IMPORT_ENABLED: string };
+    mutableEnv.IMPORT_ENABLED = "off";
+    try {
+      const body = await (await fetchMeta()).json<{ health: { import: { disabled: boolean } } }>();
+      expect(body.health.import.disabled).toBe(true);
+    } finally {
+      mutableEnv.IMPORT_ENABLED = "on";
+    }
+    const backOn = await (await fetchMeta()).json<{ health: { import: { disabled: boolean } } }>();
+    expect(backOn.health.import.disabled).toBe(false);
+  });
+
   it("[LDB-A14] no budget/threshold field is ever on the public /v1/meta (saltorbit: no handbook for destructive clients)", async () => {
     const text = await (await fetchMeta()).text();
     expect(text).not.toMatch(/budget|threshold|window_seconds|"pct"|"effective"/);
     const body = JSON.parse(text) as { health: { import: Record<string, unknown>; clients: Record<string, unknown> } };
-    expect(Object.keys(body.health.import).sort()).toEqual(["deletes_24h", "deletes_applied", "deletes_disabled", "deletes_planned", "stalled"]);
+    expect(Object.keys(body.health.import).sort()).toEqual([
+      "deletes_24h",
+      "deletes_applied",
+      "deletes_disabled",
+      "deletes_planned",
+      "disabled",
+      "stalled",
+    ]);
     expect(Object.keys(body.health.clients)).toEqual(["suspended"]);
   });
 });

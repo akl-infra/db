@@ -14,7 +14,7 @@ import { runNightly } from "./core/nightly";
 import { systemClock } from "./core/time";
 import { API_MAJOR, API_MINOR, API_VERSION_HEADER, apiVersionString, deprecationHeadersFor, withApiVersionHeader } from "./core/version";
 import type { FetchImpl } from "./import/upstream";
-import { importDeletesEnabled, tick as cminiTick, LAST_TICK_STATE_KEY, STALLED_STATE_KEY, type TickStats } from "./import/cmini";
+import { importDeletesEnabled, importEnabled, tick as cminiTick, LAST_TICK_STATE_KEY, STALLED_STATE_KEY, type TickStats } from "./import/cmini";
 import { diffDue, diffTick, lastDiff, IMPORT_STATE_KEY as LAST_DIFF_KEY, type LastDiffRecord } from "./import/difftick";
 import { adminRoute } from "./routes/admin";
 import { authorsRoute } from "./routes/authors";
@@ -170,6 +170,15 @@ app.get("/v1/meta", async (c) => {
   if (short) return short;
 
   const dumpHealth = healthOf(dumpState?.at ?? null, nowIso);
+  // LDB-I27: the upstream is switched off deliberately (2026-09-15, cmini's
+  // own API taken down by its owner) -- neither the cmini tick nor the diff
+  // tick has contacted it since, and never will while `IMPORT_ENABLED=off`.
+  // `health.diff`'s own `stale` alarm exists to flag an UNEXPECTED gap
+  // (LDB-M2); a deliberate, switched-off gap must not trip it, so `stale`
+  // is forced false and `disabled: true` says why explicitly instead.
+  const upstreamEnabled = importEnabled(c.env);
+  const diffHealthRaw = healthOf(diffRecord?.at ?? null, nowIso);
+  const diffHealth = { ...diffHealthRaw, stale: upstreamEnabled ? diffHealthRaw.stale : false, disabled: !upstreamEnabled };
   const metaCore = await readMetaCore(db, head);
   // [LDB-A12] saltorbit 2026-09-13 ("rogue trusted client" hardening):
   // `health.clients` -- same posture as `health.dump`/`health.diff` above
@@ -180,13 +189,17 @@ app.get("/v1/meta", async (c) => {
   const clientsHealthWire = await clientsHealth(db, metaCore.layout_count);
   const health = {
     dump: { last_at: dumpHealth.last_at, seq: dumpState?.seq ?? null, age_s: dumpHealth.age_s, stale: dumpHealth.stale },
-    diff: healthOf(diffRecord?.at ?? null, nowIso),
+    diff: diffHealth,
     import: {
       stalled,
       deletes_24h: head.deletes24h,
       deletes_planned: lastTick?.deletes_planned ?? null,
       deletes_applied: lastTick?.deletes_applied ?? null,
       deletes_disabled: !importDeletesEnabled(c.env),
+      // LDB-I27: the cmini tick itself is switched off (distinct from
+      // `deletes_disabled`'s narrower `IMPORT_DELETES`) -- read fresh every
+      // request, same posture as `deletes_disabled`.
+      disabled: !upstreamEnabled,
     },
     clients: clientsHealthWire,
   };

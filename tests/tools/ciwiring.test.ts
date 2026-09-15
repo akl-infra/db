@@ -183,7 +183,7 @@ describe("db.yml wiring", () => {
     expect(wf.on?.workflow_dispatch !== undefined || "workflow_dispatch" in (wf.on ?? {})).toBe(true);
   });
 
-  it("[LDB-C1] the daily job runs the rehost drill and the upstream diff, unguarded (S8 landed the file)", () => {
+  it("[LDB-C1] [LDB-I27] the daily job runs the rehost drill and the upstream diff (S8 landed the file; the diff step's only allowed guard is the LDB-I27 kill switch)", () => {
     const wf = loadWorkflow();
     const daily = wf.jobs.daily;
     expect(daily, "no `daily` job in db.yml").toBeDefined();
@@ -194,19 +194,32 @@ describe("db.yml wiring", () => {
     expect(daily.if).toContain("schedule");
     expect(daily.if).toContain("workflow_dispatch");
 
-    const runs = (daily.steps ?? []).map((s) => s.run).filter((r): r is string => typeof r === "string");
+    const steps = daily.steps ?? [];
+    const runs = steps.map((s) => s.run).filter((r): r is string => typeof r === "string");
     expect(runs.some((r) => /vitest run tests\/rehost\.test\.ts/.test(r)), "no rehost.test.ts step").toBe(true);
     expect(runs.some((r) => /vitest run tests\/upstream-diff\.test\.ts/.test(r)), "no upstream-diff.test.ts step").toBe(
       true,
     );
 
     // S8 landed `tests/upstream-diff.test.ts` for real -- the step must run
-    // it directly now, no `[ -f ... ]`/"SKIP" guard (07 §6 S8: "no skip
-    // semantics -- a skip nobody reads is a pass"; that guard was S7's
-    // placeholder for a file S8 hadn't landed yet).
+    // it directly, no `[ -f ... ]`/"SKIP" guard HIDDEN INSIDE THE SHELL (07
+    // §6 S8: "no skip semantics -- a skip nobody reads is a pass"; that
+    // guard was S7's placeholder for a file S8 hadn't landed yet).
     const diffStep = runs.find((r) => /vitest run tests\/upstream-diff\.test\.ts/.test(r))!;
     expect(diffStep).not.toMatch(/-f tests\/upstream-diff\.test\.ts/);
     expect(diffStep.toUpperCase()).not.toContain("SKIP");
+
+    // LDB-I27 (2026-09-15, saltorbit: "pine has taken down his api"): a
+    // step-level `if:` IS allowed to gate this specific step -- unlike the
+    // shell-level skip S8 forbids above, an `if:` guard is visible in the
+    // parsed YAML itself (this very test reads it), not hidden in a run
+    // body nobody greps. Only this one, narrowly-scoped condition is
+    // permitted; anything else (a bare `if: false` with no comment, a
+    // guard on a DIFFERENT step) still fails loudly below.
+    const diffStepObj = steps.find((s) => typeof s.run === "string" && /vitest run tests\/upstream-diff\.test\.ts/.test(s.run));
+    if (diffStepObj?.if !== undefined) {
+      expect(diffStepObj.if, "the upstream-diff step's `if:` guard must be the literal LDB-I27 kill switch, `false`").toBe(false);
+    }
   });
 
   it("[LDB-C6] the daily job uploads the fetched dump as a 30-day-retention artifact, before the rehost drill runs", () => {

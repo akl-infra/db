@@ -192,6 +192,46 @@ describe("diffTick()", () => {
     expect(stored).toEqual(record);
   });
 
+  // LDB-I27 (saltorbit 2026-09-15: "pine has taken down his api"): the
+  // upstream kill switch `import/cmini.ts`'s `tick()` reads is checked here
+  // too -- same function, cron or the manual `POST /v1/admin/diff/tick`.
+  it("[LDB-I27] a disabled diffTick makes zero upstream fetches and never touches cmini.last_diff", async () => {
+    const fake = new FakeUpstream();
+    const diffEnv: Bindings = { ...envWithSource(fake.baseUrl), IMPORT_ENABLED: "off" };
+    await tick(bindings, fixedClock("2026-07-05T12:00:00.000Z"), fake.fetchImpl, fake.sleepImpl);
+    const before = await importState("cmini.last_diff");
+
+    const noFetch: FetchImpl = () => {
+      throw new Error("diffTick fetched while IMPORT_ENABLED=off");
+    };
+    const record = await diffTick(diffEnv, fixedClock("2026-07-05T13:00:00.000Z"), noFetch);
+
+    expect(record).toEqual({ at: "2026-07-05T13:00:00.000Z", ok: true, disabled: true });
+    // The previous real record is left exactly as it was -- never
+    // overwritten with a synthetic "checked, nothing to report" entry.
+    const after = await importState("cmini.last_diff");
+    expect(after).toEqual(before);
+  });
+
+  it("[LDB-I27] flipping it back on runs diffTick exactly as if it had never been off", async () => {
+    const fake = new FakeUpstream();
+    const diffEnv = envWithSource(fake.baseUrl);
+    await tick(bindings, fixedClock("2026-07-05T14:00:00.000Z"), fake.fetchImpl, fake.sleepImpl);
+
+    const disabled = await diffTick({ ...diffEnv, IMPORT_ENABLED: "off" }, fixedClock("2026-07-05T15:00:00.000Z"));
+    expect(disabled.disabled).toBe(true);
+
+    // Not `ok: true` -- `upstream-100`'s own `test12222` is a known,
+    // permanent `invalidUpstream` entry (the first test above's own
+    // comment) -- what matters here is that a REAL run happened at all
+    // (unlike the disabled call above) and its record was persisted.
+    const backOn = await diffTick(diffEnv, fixedClock("2026-07-05T16:00:00.000Z"), strictUpstreamOnly(fake), 100);
+    expect(backOn.disabled).toBeUndefined();
+    expect(backOn.sample_size).toBe(100);
+    const stored = await importState("cmini.last_diff");
+    expect(stored).toEqual(backOn);
+  });
+
   it("[LDB-M1] /v1/meta.last_diff equals {at, ok} after a run, and the ETag changes with it", async () => {
     const fake = new FakeUpstream();
     await tick(bindings, fixedClock("2026-07-06T00:00:00.000Z"), fake.fetchImpl, fake.sleepImpl);

@@ -591,6 +591,66 @@ describe("tick()", () => {
     });
   });
 
+  // LDB-I27 (saltorbit 2026-09-15: "pine has taken down his api"): the
+  // upstream kill switch -- distinct from LDB-I23's IMPORT_DELETES above,
+  // this stops EVERY contact with cmini's own API, not just tombstones.
+  describe("[LDB-I27] IMPORT_ENABLED kill switch", () => {
+    function envWithImportOff(): Bindings {
+      return { ...bindings, IMPORT_ENABLED: "off" };
+    }
+
+    it("[LDB-I27] a disabled tick makes zero upstream fetches and zero D1 writes, and reports disabled: true", async () => {
+      const fake = new FakeUpstream();
+      const t0 = fixedClock("2026-06-12T00:00:00.000Z");
+      const offEnv = envWithImportOff();
+
+      let fetchCalls = 0;
+      const countingFetch: typeof fake.fetchImpl = (...args) => {
+        fetchCalls++;
+        return fake.fetchImpl(...args);
+      };
+
+      const result = await tick(offEnv, t0, countingFetch, fake.sleepImpl);
+      expect(result.quiet).toBe(true);
+      expect(result.stats.disabled).toBe(true);
+      expect(fetchCalls).toBe(0);
+      expect(await liveLayoutCount()).toBe(0);
+
+      // Untouched: not even the running lock (`cmini.running`) or the meta
+      // token were written -- only the shared beforeEach's own seed rows
+      // (`dump.last_at`/`cmini.last_diff`, unrelated to this tick) remain.
+      const stateRows = await db.prepare("SELECT key FROM import_state").all<{ key: string }>();
+      expect(stateRows.results.map((r) => r.key).sort()).toEqual(["cmini.last_diff", "dump.last_at"]);
+    });
+
+    it("[LDB-I27] flipping it back on runs the tick exactly as if it had never been off", async () => {
+      const fake = new FakeUpstream();
+      const t0 = fixedClock("2026-06-12T01:00:00.000Z");
+      const offEnv = envWithImportOff();
+
+      const disabled = await tick(offEnv, t0, fake.fetchImpl, fake.sleepImpl);
+      expect(disabled.stats.disabled).toBe(true);
+      expect(await liveLayoutCount()).toBe(0);
+
+      const backOn = await tick(bindings, t0, fake.fetchImpl, fake.sleepImpl);
+      expect(backOn.stats.disabled).toBeUndefined();
+      expect(await liveLayoutCount()).toBe(100);
+    });
+
+    it("[LDB-I27] the manual `POST /v1/admin/import/tick` trigger shares the exact same switch (LDB-A5)", async () => {
+      // tick() is the ONE function both the cron and the manual admin route
+      // call (routes/admin.ts's `route.post("/v1/admin/import/tick", ...)`)
+      // -- proving the switch here proves it for the manual route too,
+      // same reasoning LDB-A5/LDB-I25's own comments give.
+      const fake = new FakeUpstream();
+      const t0 = fixedClock("2026-06-12T02:00:00.000Z");
+      const offEnv = envWithImportOff();
+      const result = await tick(offEnv, t0, fake.fetchImpl, fake.sleepImpl);
+      expect(result.stats.skipped_locked).toBeUndefined();
+      expect(result.stats.disabled).toBe(true);
+    });
+  });
+
   // LDB-I6 explicit cases (saltorbit 2026-09-13's hostile-upstream ask):
   // "upstream empty or gone" must never delete anything.
   describe("[LDB-I6] upstream empty / gone", () => {

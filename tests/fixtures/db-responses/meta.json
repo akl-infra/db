@@ -21,14 +21,16 @@
   "diff": {
    "last_at": null,
    "age_s": null,
-   "stale": true
+   "stale": true,
+   "disabled": false
   },
   "import": {
    "stalled": null,
    "deletes_24h": 0,
    "deletes_planned": 0,
    "deletes_applied": 0,
-   "deletes_disabled": false
+   "deletes_disabled": false,
+   "disabled": false
   },
   "clients": {
    "suspended": []
@@ -36,7 +38,7 @@
  },
  "api": {
   "major": 1,
-  "minor": 13
+  "minor": 14
  },
  "deprecations": []
 }
