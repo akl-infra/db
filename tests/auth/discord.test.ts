@@ -89,26 +89,62 @@ describe("resolveBearer()", () => {
     const { clock } = mutableClock("2026-09-09T00:00:00.000Z");
 
     const actor = await resolveBearer(db, clock, "tok-a", fake.fetchImpl, BASE_URL);
-    expect(actor).toEqual({ user_id: "1001", name: "Alice A", via: "discord", admin: false, banned: false, source_client: "discord-app:app-default" });
+    expect(actor).toEqual({ user_id: "1001", name: "alice", via: "discord", admin: false, banned: false, source_client: "discord-app:app-default" });
     expect(fake.requestLog.length).toBe(1);
     expect(fake.requestLog[0]!.authorization).toBe("Bearer tok-a");
 
     const author = await authorRow("1001");
     expect(author).toEqual({
-      name: "Alice A",
+      name: "alice",
       first_seen_at: "2026-09-09T00:00:00.000Z",
       last_seen_at: "2026-09-09T00:00:00.000Z",
     });
   });
 
-  it("[LDB-A2] global_name null falls back to username", async () => {
+  // saltorbit/aklgg#352: `global_name` (Discord's changeable display
+  // name/nickname) is never stored, even when Discord sends one that
+  // differs from `username` -- the stable, unique handle is the only
+  // source for both auth_cache.name and authors.name.
+  it("[LDB-A2] global_name is ignored entirely -- auth_cache and authors both get the stable username", async () => {
     const fake = new FakeDiscord();
-    fake.setAnswer("tok-b", { kind: "ok", id: "1002", username: "bobby", global_name: null });
+    fake.setAnswer("tok-b", { kind: "ok", id: "1002", username: "bobby", global_name: "xX_Bobby_Xx" });
     const { clock } = mutableClock("2026-09-09T00:00:00.000Z");
 
     const actor = await resolveBearer(db, clock, "tok-b", fake.fetchImpl, BASE_URL);
     expect(actor.name).toBe("bobby");
     expect((await authorRow("1002"))?.name).toBe("bobby");
+
+    const hash = await sha256Hex("tok-b");
+    const cacheRow = await db.prepare("SELECT name FROM auth_cache WHERE token_hash = ?").bind(hash).first<{ name: string }>();
+    expect(cacheRow?.name).toBe("bobby");
+  });
+
+  it("[LDB-A2] [LDB-MD4] an admin-set name is untouched by a sign-in, even though auth_cache.name still gets the fresh username", async () => {
+    const fake = new FakeDiscord();
+    fake.setAnswer("tok-b2", { kind: "ok", id: "1002", username: "bobby-renamed", global_name: "Bobby!" });
+    const now = "2026-09-09T00:00:00.000Z";
+    await db
+      .prepare(
+        "INSERT INTO authors (user_id, name, first_seen_at, last_seen_at, name_source) VALUES ('1002', 'Admin Override', ?, ?, 'admin')",
+      )
+      .bind(now, now)
+      .run();
+    const { clock } = mutableClock("2026-09-09T00:10:00.000Z");
+
+    const actor = await resolveBearer(db, clock, "tok-b2", fake.fetchImpl, BASE_URL);
+
+    // The actor's own `name` and the cache row both reflect Discord's
+    // (username-only) answer for this sign-in...
+    expect(actor.name).toBe("bobby-renamed");
+    const hash = await sha256Hex("tok-b2");
+    const cacheRow = await db.prepare("SELECT name FROM auth_cache WHERE token_hash = ?").bind(hash).first<{ name: string }>();
+    expect(cacheRow?.name).toBe("bobby-renamed");
+
+    // ...but the authors row stays exactly as the admin set it (LDB-MD4's
+    // stickier-than-sign-in guard), last_seen_at bumped regardless.
+    const author = await authorRow("1002");
+    expect(author?.name).toBe("Admin Override");
+    expect(author?.last_seen_at).toBe("2026-09-09T00:10:00.000Z");
   });
 
   it("[LDB-A2] a second call inside 300s makes no Discord request; at 300s+1 it does", async () => {

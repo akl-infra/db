@@ -32,10 +32,12 @@ interface AuthCacheRow {
   expires_at: string;
 }
 
+// saltorbit/aklgg#352: `username` is Discord's stable, unique handle --
+// the only field stored as an author's name. `global_name` (a changeable
+// display name/nickname) is deliberately never read or kept here.
 interface DiscordUser {
   id: string;
   username: string;
-  global_name: string | null;
 }
 
 // 20-spark.md S3s (decision 14): `GET /oauth2/@me`'s body -- "the same
@@ -172,9 +174,9 @@ export async function resolveBearer(
   if (typeof rawUser.id !== "string" || typeof rawUser.username !== "string") {
     throw identityUnavailable();
   }
-  const user: DiscordUser = { id: rawUser.id, username: rawUser.username, global_name: rawUser.global_name ?? null };
+  const user: DiscordUser = { id: rawUser.id, username: rawUser.username };
 
-  const name = user.global_name ?? user.username;
+  const name = user.username;
 
   await db.batch([
     db

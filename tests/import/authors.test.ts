@@ -395,7 +395,10 @@ describe("[LDB-I17] precedence across the three writers of authors.name", () => 
   async function userLane(userId: string, name: string, at: string): Promise<void> {
     const fake = new FakeDiscord();
     const token = `tok-authors-${tokenCounter++}`;
-    fake.setAnswer(token, { kind: "ok", id: userId, username: name.toLowerCase(), global_name: name });
+    // saltorbit/aklgg#352: the user lane stores `username` only, never
+    // `global_name` -- `username` is `name` here so this helper's callers
+    // (which assert on `name` verbatim) keep working unchanged.
+    fake.setAnswer(token, { kind: "ok", id: userId, username: name, global_name: `${name} (display)` });
     await resolveBearer(db, fixedClock(at), token, fake.fetchImpl, DISCORD_URL);
   }
 

@@ -32,7 +32,7 @@ describe("GET /v1/me", () => {
 
     const res = await SELF.fetch(ME_URL, { headers: { Authorization: "Bearer tok-1" } });
     expect(res.status).toBe(200);
-    await expect(res.json()).resolves.toEqual({ user_id: "2001", name: "Finn F", via: "discord", admin: false, banned: false });
+    await expect(res.json()).resolves.toEqual({ user_id: "2001", name: "finn", via: "discord", admin: false, banned: false });
   });
 
   it("[LDB-A2] admin is true iff a row in admins, read fresh (not cached with identity)", async () => {
