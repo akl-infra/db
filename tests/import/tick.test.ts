@@ -815,6 +815,20 @@ describe("scheduled() wiring", () => {
     expect(await liveLayoutCount()).toBe(100);
   });
 
+  it("[LDB-I27] does not dispatch the importer or upstream diff while IMPORT_ENABLED is off", async () => {
+    const tickSpy = vi.spyOn(cminiModule, "tick");
+    const diffSpy = vi.spyOn(difftickModule, "diffTick");
+    const offEnv: Bindings = { ...bindings, IMPORT_ENABLED: "off" };
+
+    const ctx = createExecutionContext();
+    const controller = createScheduledController({ cron: "*/5 * * * *", scheduledTime: atUTC(4, 0) });
+    await worker.scheduled(controller, offEnv, ctx);
+    await waitOnExecutionContext(ctx);
+
+    expect(tickSpy).not.toHaveBeenCalled();
+    expect(diffSpy).not.toHaveBeenCalled();
+  });
+
   it("a cron string other than '*/5 * * * *' still throws", async () => {
     const ctx = createExecutionContext();
     const controller = createScheduledController({ cron: "*/1 * * * *" });
@@ -944,6 +958,14 @@ describe("scheduled() dispatch matrix", () => {
 // `import_state` record is missing or >24h old, and never re-runs within
 // 24h of a real one.
 describe("[LDB-D8] dump/diff catch-up", () => {
+  beforeEach(() => {
+    // These tests exercise scheduled()'s dump/diff catch-up routing, not
+    // the importer (covered above with FakeUpstream). Never let an
+    // unrelated real upstream request make a routing assertion depend on
+    // cmini's availability or consume the whole test timeout in retries.
+    vi.spyOn(cminiModule, "tick").mockResolvedValue({ quiet: true, stats: { at: "x", quiet: true } });
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
   });

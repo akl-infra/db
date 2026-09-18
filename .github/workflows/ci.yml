@@ -24,6 +24,11 @@ on:
 
 jobs:
   test:
+    # The scheduled run is reserved for `daily` below. PR/push CI already
+    # covers this suite; rerunning all ~15k tests nightly only wastes runner
+    # time and can send an unrelated failure notification for a healthy
+    # backup/rehost run.
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       # fetch-depth 0: frozen.test.ts (S2) diffs against origin/main to
@@ -124,6 +129,9 @@ jobs:
     # and shares no code with the Worker (LDB-G5 forbids it), so waiting on
     # the 15k-test db suite only widened the window in which a stale CI
     # deploy could land AFTER a newer hand deploy (2026-09-13, twice).
+    # Like `test`, this is PR/push CI, not part of the scheduled live-data
+    # proof. The schedule should launch only `daily` below.
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
     defaults:
       run:

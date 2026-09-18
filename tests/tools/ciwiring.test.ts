@@ -183,6 +183,18 @@ describe("db.yml wiring", () => {
     expect(wf.on?.workflow_dispatch !== undefined || "workflow_dispatch" in (wf.on ?? {})).toBe(true);
   });
 
+  it("[LDB-C1] scheduled runs execute only the daily job, never the PR/push test or site gates", () => {
+    const wf = loadWorkflow();
+    for (const name of ["test", "site"]) {
+      const condition = wf.jobs[name]?.if;
+      expect(condition, `${name} job has no event guard`).toBeDefined();
+      expect(condition, name).toContain("github.event_name == 'pull_request'");
+      expect(condition, name).toContain("github.event_name == 'push'");
+      expect(condition, name).not.toContain("schedule");
+      expect(condition, name).not.toContain("workflow_dispatch");
+    }
+  });
+
   it("[LDB-C1] [LDB-I27] the daily job runs the rehost drill and the upstream diff (S8 landed the file; the diff step's only allowed guard is the LDB-I27 kill switch)", () => {
     const wf = loadWorkflow();
     const daily = wf.jobs.daily;

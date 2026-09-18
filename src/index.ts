@@ -310,24 +310,30 @@ async function scheduled(event: ScheduledController, env: Bindings, _ctx: Execut
   const hour = at.getUTCHours();
   const minute = at.getUTCMinutes();
 
-  await runJob("cmini-tick", () => cminiTick(env, systemClock));
+  // LDB-I27: keep the import switch at the dispatch boundary too. tick()
+  // and diffTick() retain their own guards for manual/direct callers, but
+  // a scheduled invocation with the upstream disabled does not even call
+  // either function or read diff catch-up state.
+  if (importEnabled(env)) {
+    await runJob("cmini-tick", () => cminiTick(env, systemClock));
 
-  // LDB-D8: the diff runs BEFORE the dump on every invocation (not just
-  // production's disjoint hour=4/hour=3 slots) so that on the rare tick
-  // where BOTH catch up at once, the dump's own `import_state` snapshot
-  // (built inside `runNightly`/`writeDump` below) already reflects the
-  // diff's freshly-written `cmini.last_diff` row instead of being one
-  // write behind it -- a "producer before snapshotter" ordering, the one
-  // pair of jobs here that can otherwise observe each other's state.
-  //
-  // The old `0 4 * * *`: hour=4 stays the preferred slot; any other tick
-  // runs the diff anyway once `cmini.last_diff` (12 §3 X4) is missing or
-  // >24h old (LDB-D8), so a dropped hour=4 dispatch is caught within one
-  // tick of the next successful one instead of silently skipping a day.
-  if (hour === 4 && minute === 0) {
-    await runJob("diff-tick", () => diffTick(env, systemClock));
-  } else if (diffDue(await lastDiff(env.DB), at.toISOString())) {
-    await runJob("diff-tick", () => diffTick(env, systemClock));
+    // LDB-D8: the diff runs BEFORE the dump on every invocation (not just
+    // production's disjoint hour=4/hour=3 slots) so that on the rare tick
+    // where BOTH catch up at once, the dump's own `import_state` snapshot
+    // (built inside `runNightly`/`writeDump` below) already reflects the
+    // diff's freshly-written `cmini.last_diff` row instead of being one
+    // write behind it -- a "producer before snapshotter" ordering, the one
+    // pair of jobs here that can otherwise observe each other's state.
+    //
+    // The old `0 4 * * *`: hour=4 stays the preferred slot; any other tick
+    // runs the diff anyway once `cmini.last_diff` (12 §3 X4) is missing or
+    // >24h old (LDB-D8), so a dropped hour=4 dispatch is caught within one
+    // tick of the next successful one instead of silently skipping a day.
+    if (hour === 4 && minute === 0) {
+      await runJob("diff-tick", () => diffTick(env, systemClock));
+    } else if (diffDue(await lastDiff(env.DB), at.toISOString())) {
+      await runJob("diff-tick", () => diffTick(env, systemClock));
+    }
   }
 
   // The old `0 3 * * *`: prune + the nightly dump, delegated to
