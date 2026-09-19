@@ -18,10 +18,10 @@
 //   7-8  the same write pipeline the user lane uses (`core/write.ts`'s
 //        `commitWrite`) -- `Actor.via` is `` `client:<id>` `` on this lane,
 //        recorded on the event same as any other.
-//   9-11 `db/docs/adoption.md` §4's long-poll: `wait=` honoured only for a
-//        client whose `caps` include `feed:wait`, the Worker checking the
-//        event head "about once a second" until `since` is exceeded or
-//        `wait` elapses (clamped to 25 s).
+//   9-11 `db/docs/adoption.md` §4's long-poll: `wait=` honoured for any
+//        request signed on the client lane, no extra cap needed, the
+//        Worker checking the event head "about once a second" until
+//        `since` is exceeded or `wait` elapses (clamped to 25 s).
 //
 // Text-fit: see AuthOwnership.tsx's own header for the shared method
 // (`sequence.ts`'s `checkFit`/`checkLaneFit`, `tests/ui/diagrams.test.ts`,
@@ -48,7 +48,7 @@ export const TRUSTED_CLIENT_STEPS: StepInput[] = [
   { kind: "self", lane: "akldb", label: "caps: act-as-user or owner" },
   { kind: "arrow", from: "akldb", to: "d1", label: "commitWrite: append event, bump rev" },
   { kind: "arrow", from: "akldb", to: "client", label: "200/201 (same write pipeline)" },
-  { kind: "arrow", from: "client", to: "akldb", label: "GET /v1/changes?wait=25 (feed:wait)" },
+  { kind: "arrow", from: "client", to: "akldb", label: "GET /v1/changes?wait=25 (client lane)" },
   { kind: "arrow", from: "akldb", to: "d1", label: "poll the event head, ~1/s" },
   { kind: "arrow", from: "akldb", to: "client", label: "answers when since or wait is due" },
 ];

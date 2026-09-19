@@ -4,10 +4,10 @@ A guide for a new client of `akl-db` — a Discord bot, a web app, a script,
 or an AI agent building any of those — written to be followed by a human or
 handed whole to an agent. Every claim below names the source file it comes
 from; every request/response shown is either a real conformance fixture
-(`db/tests/conformance/`, trimmed) or built directly from the same error
+(`tests/conformance/`, trimmed) or built directly from the same error
 factory / schema the server runs, never invented. A fenced block marked
 ` ```json spark-payload ` is a literal `spark/1` payload, checked by
-`db/tests/tools/adoption-examples.test.ts` against the real `validate()`.
+`tests/tools/adoption-examples.test.ts` against the real `validate()`.
 
 ```
 production   https://api.akldb.org   <- the one akldb
@@ -59,7 +59,7 @@ exactly as the Worker verifies them, then `PUT`s the layout back unchanged
 ```js
 // Node 20+ (Web Crypto is a global); no Buffer, so this runs in a Worker too.
 const CLIENT_ID = "<client id>";
-const CLIENT_PRIVATE_KEY = "<base64url pkcs8 private key>"; // bot/scripts/gen-key.mjs mints one
+const CLIENT_PRIVATE_KEY = "<base64url pkcs8 private key>"; // saltorbit/aklgg's bot/scripts/gen-key.mjs mints one
 const LAYOUT = "<id-or-name>";
 const ACTOR = "<discord user id>";
 
@@ -88,7 +88,7 @@ const body = JSON.stringify({ format: "spark/1", payload: current.payload });
 const res = await signedFetch("PUT", `/v1/layouts/${LAYOUT}`, body, { "If-Match": `"spark:${rev}"` });
 ```
 
-The signature itself is checked against `db/tests/vectors/client-signing.json`
+The signature itself is checked against `tests/vectors/client-signing.json`
 (§2.1) — build your signer against that file and you know it's correct
 before ever calling the live service.
 
@@ -131,16 +131,17 @@ shape:
 |---|---|
 | Payload schemas (JSON Schema, draft 2020-12) | `GET /v1/formats/{name}/{N}/schema.json` — `spark/1`, `mana2/1` today |
 | The full endpoint table (method, path, auth, body, statuses) | §9 below |
-| The full error-code table | §6 below (generated from `db/src/core/errors.ts`, same table `db/INTEGRATION.md` carries) |
-| Client-lane signing test vectors | `db/tests/vectors/client-signing.json` |
-| Real request/response shapes, one file per (route, status) | `db/tests/conformance/` — every example in this guide is trimmed from one of these |
+| The full error-code table | §6 below (generated from `src/core/errors.ts`, same table `INTEGRATION.md` carries) |
+| Client-lane signing test vectors | `tests/vectors/client-signing.json` |
+| Real request/response shapes, one file per (route, status) | `tests/conformance/` — every example in this guide is trimmed from one of these |
 | The registry itself, machine-readable | `GET /v1/formats` (§3) |
 
 ## 1. Pick a lane
 
-Every request ends up as one `Actor` (`src/auth/actor.ts`): `{ user_id, via,
-admin, source_client }`. `user_id` is a Discord snowflake and every
-authorization rule reads only that field. There are two ways to become one.
+Every request ends up as one `Actor` (`src/auth/actor.ts`): `{ user_id, name,
+via, admin, banned, source_client }` (plus `client_caps` on the client
+lane). `user_id` is a Discord snowflake and every authorization rule reads
+only that field. There are two ways to become one.
 
 ### 1.1 Client lane — a Discord bot (or any program acting for many users)
 
@@ -200,7 +201,7 @@ since, sunset, message}` — always present, even empty).
 `/v1`'s major never changes without a `/v2` registering beside it — a
 pinned `/v1` integration never breaks in place. The minor increments on
 every additive change (a new optional field, a new route, a new
-tolerated enum value); `db/CHANGELOG-API.md` has one dated line per
+tolerated enum value); `CHANGELOG-API.md` has one dated line per
 minor. A client that only reads fields it knows about, and never
 assumes a payload contains ONLY the fields it expects (§7's reader
 obligations), needs nothing from this section to keep working — the
@@ -232,7 +233,7 @@ POST /v1/admin/clients
   "owner_user_id": "<your discord user id>", "caps": "act-as-user" }
 ```
 
-Real response shape (`db/tests/conformance/admin-clients/post-201.json`,
+Real response shape (`tests/conformance/admin-clients/post-201.json`,
 trimmed):
 
 ```json
@@ -250,7 +251,7 @@ effective immediately — `clients.status` is read fresh on every request,
 never cached).
 
 **Signing a request** — five headers, one string
-(`signingString` in `db/src/auth/client.ts`):
+(`signingString` in `src/auth/client.ts`):
 
 ```
 X-Akl-Client:    <client id>
@@ -275,15 +276,16 @@ The server's checks, in order, each throwing before the route ever runs
 |---|---|
 | the 5 headers are present and shaped right (nonce/signature decode, actor is a 17-20-digit id) | `401 bad_signature` |
 | the client id is known | `401 unknown_client` |
-| `clients.status == "active"` | `401 client_revoked` |
+| `clients.status != "revoked"` | `401 client_revoked` |
+| `clients.status != "suspended"` (an admin can reactivate) | `403 client_suspended` |
 | `\|now − timestamp\| <= 300s` | `401 stale_timestamp` (`skew` in the body) |
 | the Ed25519 signature verifies under the registered key | `401 bad_signature` |
-| the nonce is unseen for this client in the last 10 minutes (a D1 INSERT's own primary key) | `401 replay` |
+| the nonce has never been used by this client (a D1 INSERT's own primary key; used nonces are kept at least 15 minutes, pruned nightly) | `401 replay` |
 | `act-as-owner-only` ⇒ `X-Akl-Actor == owner_user_id` | `403 actor_not_allowed` |
 
-(every `401` above also carries `WWW-Authenticate: Bearer`.)
+(every `401` above, and the `403 client_suspended`, also carries `WWW-Authenticate: Bearer`.)
 
-**Interop is a frozen vector file**: `db/tests/vectors/client-signing.json`
+**Interop is a frozen vector file**: `tests/vectors/client-signing.json`
 holds thirteen `(key, request, expected signing_string, expected signature)`
 tuples every signer — the Worker's own verifier, the bot's TS client, a
 brand-new one you write — must reproduce byte for byte. One real vector
@@ -302,12 +304,13 @@ brand-new one you write — must reproduce byte for byte. One real vector
 }
 ```
 
-The vector's own seed key is `db/tests/vectors/client-signing.json`'s
+The vector's own seed key is `tests/vectors/client-signing.json`'s
 `keys[0]`: `seed_hex` (raw Ed25519 private seed) and `pkcs8_b64url` (the same
 key, PKCS8-wrapped — what Web Crypto's `crypto.subtle.importKey('pkcs8', …)`
-takes). `bot/src/client/sign.ts` and `bot/src/client/http.ts` are a real,
-tested implementation of this whole recipe worth reading end to end — a
-Web-Crypto-only signer (Node, a Worker, or a browser, unchanged) that:
+takes). `saltorbit/aklgg`'s `bot/src/client/sign.ts` and
+`bot/src/client/http.ts` are a real, tested implementation of this whole
+recipe worth reading end to end — a Web-Crypto-only signer (Node, a
+Worker, or a browser, unchanged) that:
 
 1. builds `signingString(method, pathWithQuery, timestamp, nonce, actor,
    bodyHashB64url)` exactly as above;
@@ -317,9 +320,10 @@ Web-Crypto-only signer (Node, a Worker, or a browser, unchanged) that:
 3. sends `If-Match` whenever the caller supplies one, quoted exactly;
 4. on a request timeout, returns a synthetic `{status: 0, error: "timeout"}`
    rather than throwing, so a caller's generic error-body handling covers it
-   for free (`bot/src/client/http.ts`'s own header comment has the full
-   reasoning, including the operator-alerting hooks around it — not part of
-   the protocol itself, but a good model for a production client).
+   for free (`saltorbit/aklgg`'s `bot/src/client/http.ts`'s own header
+   comment has the full reasoning, including the operator-alerting hooks
+   around it — not part of the protocol itself, but a good model for a
+   production client).
 
 ### 2.2 User lane: Discord OAuth
 
@@ -331,7 +335,7 @@ moment you send it:
 ```bash
 curl -s -H 'Authorization: Bearer <discord access token>' \
   https://api.akldb.org/v1/me
-# {"user_id":"800000000000000001","name":"conformance-owner","via":"discord","admin":false}
+# {"user_id":"800000000000000001","name":"conformance-owner","via":"discord","admin":false,"banned":false}
 ```
 
 No header, or a token Discord rejects:
@@ -376,7 +380,7 @@ full mechanics). To become a trusted client, reach an akldb admin with:
 The admin runs `POST /v1/admin/clients` (§2.1) and hands back your client
 id (`X-Akl-Client` on every signed request from then on). Before calling
 the live service, build your signer against
-`db/tests/vectors/client-signing.json` (§2.1) and confirm it reproduces
+`tests/vectors/client-signing.json` (§2.1) and confirm it reproduces
 every vector byte for byte — that file, not this guide's prose, is the
 interop contract.
 
@@ -418,7 +422,7 @@ are registered today:
   authors" has the mechanics) on every read that asks for it explicitly.
   Never written (`400 format_not_writable`, §5).
 
-Real detail response (`db/tests/conformance/layouts-detail/200.json`,
+Real detail response (`tests/conformance/layouts-detail/200.json`,
 trimmed, `?format=spark/1`):
 
 ```json
@@ -469,7 +473,7 @@ particular record's content is too new for, §8):
 `?full=1&format=<format>` streams every live record; a held one there
 carries `held: true` and its record fields, no `payload`, instead of
 erroring the whole response. `GET /v1/formats` is the registry itself,
-machine-readable (`db/tests/conformance/formats-list/200.json`, trimmed):
+machine-readable (`tests/conformance/formats-list/200.json`, trimmed):
 
 ```json
 [
@@ -495,7 +499,7 @@ one you mean, not designed yet, so it can't happen silently. `GET
 /v1/formats/{name}/{N}/schema.json` serves the literal JSON Schema (draft
 2020-12) a payload must satisfy — validate client-side against it before
 ever sending a write, the same schema the server itself runs
-(`db/scripts/validate-akl1-payload.mjs` is a Node CLI shim over the exact
+(`scripts/validate-akl1-payload.mjs` is a Node CLI shim over the exact
 same `validate()`, against `spark/1`'s current schema).
 
 **`format` in a response always equals exactly what you asked for**: the
@@ -505,16 +509,16 @@ format_absent` if neither — there is no relabeling. **Every client reads
 and writes `spark/1` by name, explicitly, every time.**
 
 **`history` and `rev/{n}` carry `source` too** — per-event provenance, not
-just per-record (`db/tests/conformance/layouts-history/200.json`, trimmed).
+just per-record (`tests/conformance/layouts-history/200.json`, trimmed).
 `format` on an event names which scope it touched: `null` for a
 layout-level event (`rev` is then that write's `layout_rev`), or a format
 id for a format-scope event (`rev` is then that format's own rev):
 
 ```json
-[ { "seq": 258, "format": "spark/1", "rev": 1, "at": "2026-06-01T00:00:00.000Z",
-    "actor": "system:cmini-import", "via": "import:cmini", "kind": "format_added",
+[ { "seq": 307, "format": "spark/1", "rev": 1, "at": "2026-06-01T00:00:00.000Z",
+    "actor": "system:cmini-import", "via": "import:cmini", "kind": "imported",
     "admin": false, "source": { "client": "system:cmini-import", "version": null } },
-  { "seq": 259, "format": null, "rev": null, "kind": "liked", "…": "…" } ]
+  { "seq": 308, "format": null, "rev": null, "kind": "liked", "…": "…" } ]
 ```
 
 ## 4. Stay current
@@ -528,7 +532,7 @@ GET /v1/changes?since=<seq>&limit=<≤1000>&kinds=created,updated,…&layout=&ac
 ```
 
 `since` is exclusive (`since=0` = everything); pass `next` back as your next
-`since`. Real page (`db/tests/conformance/changes/200.json`, trimmed):
+`since`. Real page (`tests/conformance/changes/200.json`, trimmed):
 
 ```json
 { "next": 3, "items": [
@@ -562,15 +566,18 @@ format id is that format's own scope (bumps that format's `rev`; `after` is
 payload-implying fields, never another format's). A new layout always appends TWO events in the same batch, one per scope —
 `created` (layout) + `format_added` (format) for a client's `POST
 /v1/layouts`, or `imported` on both scopes for one the cmini import
-creates — apply both to build the full local copy of a brand-new layout. Read the payload for a given rev via
+created (the import is switched off today) — apply both to build the full
+local copy of a brand-new layout. Read the payload for a given rev via
 `/rev/{n}?format=<that format>` if you keep payloads, or just re-`GET` the
 record with `?format=` — `after` alone is enough to know *that* something
 changed and on which scope. `liked`/`unliked` move only `like_count` by ±1
 (layout-scope, no rev bump) -- `like_count` is never part of any event's
 own `after` either (a writer's own read of it can go stale; keep your own
 running tally from `liked`/`unliked` events alone if you mirror it, the
-same way `foldLayout` does server-side); everything else
-(`upstream_changed`, `import_conflict`, `import_error`, `admin.*`) is
+same way `foldLayout` does server-side); `link_approved`/`link_cleared`
+(no rev bump) set the record's `link` to their `after.link`; everything
+else (`upstream_changed`, `import_conflict`, `import_error`,
+`import_relabel`, `link_submitted`/`link_rejected`, `admin.*`) is
 informational and changes nothing in your local copy.
 
 **Long-poll**: `GET /v1/changes?since=<seq>&wait=<seconds>` — when `wait` is present, the
@@ -604,18 +611,22 @@ with no gap.
 **`upstream` is transitional — do not build on it.** Every record carries a
 top-level `upstream: {source: "cmini", id, state: "following" | "forked"} |
 null` field, folded from the cmini-import events. It answers exactly one
-question — "does the importer still own this record's keys" — for
-exactly as long as the one-time cmini import keeps running. There is no
-general layout-from-layout fork concept here, no re-follow, and nothing
-outside the importer and the daily upstream diff reads it for any decision.
+question — "does the importer still own this record's keys" — for records
+the cmini import created. The cmini import has been switched off since
+2026-09-15 (its upstream was taken down; `GET /v1/meta`'s
+`health.import.disabled`), so no import write touches it any more. There
+is no general layout-from-layout fork concept here, no re-follow, and
+nothing outside the importer, the daily upstream diff and the admin magic
+seed (`POST /v1/admin/magic-seed`, which answers `409 magic_edited` rather
+than un-fork a record a person forked) reads it for any decision.
 **Follow state is layout-level**: a write to the layout itself, or to
 lineage `spark` specifically, forks it (user write) or keeps it following
 (import write); a write to any OTHER format (`lw/1`, say) never touches
-`upstream` at all. When the import is retired the field, its rule, and
-every invariant that mentions it (`LDB-I13`/`I14`/`P5`/`P11`'s upstream
-half) are removed in one migration — a client that keyed any behavior on
-`upstream.state` today has that behavior silently stop meaning anything the
-day that lands. Fold it into your local copy if you
+`upstream` at all; an admin magic seed (`system:magic-seed`) sets it back
+to `following` too. The field will not be removed from `/v1` — a removal
+would be a `/v2` change (§1.4) — but once the import is retired it simply
+stops meaning anything, which is why a client should not key behaviour on
+`upstream.state`. Fold it into your local copy if you
 like (it costs nothing extra — it's already on every record and event), but
 don't gate a feature on it.
 
@@ -635,6 +646,8 @@ DELETE /v1/layouts/{ref}                                    If-Match: "layout:<n
 POST   /v1/layouts/{ref}/transfer   { to }                  If-Match: "layout:<n>" or * → 200
 POST   /v1/layouts/{ref}/restore    { name? }  (owner or admin, no time limit)      → 200
 PUT / DELETE /v1/layouts/{ref}/like                                                 → 200 { like_count }
+PUT    /v1/layouts/{ref}/link       { url }  (owner or admin)   → 200 (admin: approved) / 202 (owner: queued)
+DELETE /v1/layouts/{ref}/link       (owner or admin)                                → 200
 ```
 
 **Every write carries `X-Client-Version`** (§1.3) — not required by the
@@ -644,9 +657,11 @@ schema, but every example below sends one, and you should too.
 (rename, transfer, delete, restore) touches name/owner/deletion and nothing
 else; a **format-scope** write (`PUT`, or a `PATCH` naming `format`) touches
 exactly ONE format's payload/rev/`has_magic` and nothing else — including no
-OTHER format the layout has, and no layout-level field. Each scope has its
-own `If-Match` token (§below) and its own rev; a create is the one write
-that touches both scopes at once, in a single request.
+OTHER format the layout has, and no layout-level field, except that a
+`spark/1` write by anyone but the import marks an imported layout's
+`upstream.state` as `forked` (`src/core/write.ts`, `src/core/upstream.ts`).
+Each scope has its own `If-Match` token (§below) and its own rev; a create
+is the one write that touches both scopes at once, in a single request.
 
 **`spark/1` payloads.** `payload.keys` is a required, ordered array of
 `{char?, row, col, finger}` entries — `char` is optional (absent means a
@@ -674,7 +689,7 @@ free position; `@`'s magic default repeats whichever character preceded it.
 
 **Creating** — one request, two events (layout + format, §4), one response
 carrying both (real fixture,
-`db/tests/conformance/layouts-write/post-201.json`, shape updated for
+`tests/conformance/layouts-write/post-201.json`, shape updated for
 several-formats-per-layout):
 
 ```bash
@@ -694,7 +709,9 @@ for a layout-scope write, `"<lineage>:<rev>"` (e.g. `"spark:7"`) for a
 format-scope write — or `If-Match: *` (overwrite on purpose, stated
 explicitly, any scope). A bare unscoped number, or the WRONG scope's token,
 is `400 bad_request` — checked before any read. Absent entirely →
-`400 if_match_required`. A same-scope mismatch is `409 stale` with the
+`400 if_match_required`. A same-scope mismatch is `409 stale` (except
+`transfer`, whose `If-Match` is presence-only: it must be present and name
+the `layout` scope, but its rev is not compared) with the
 **winning** record already in the body, naming which scope raced — no
 second request needed, just re-apply your change to it and resend with its
 current rev:
@@ -737,10 +754,11 @@ curl -sX PATCH …/v1/layouts/01ARZ3ND… -H 'If-Match: "spark:1"' <signed> \
 A `{name}` body writes a `renamed` event (layout scope, `If-Match:
 "layout:<n>"`); a `{format, fingermap}` body a `fingermap` event; anything
 else naming `format` (including several edits at once) an `updated` event
-with `detail.fields` naming which keys changed. **`{name, format}` (or any
-mix of a rename with a format edit) in one body is `400 mixed_patch`** —
-they're different scopes with different `If-Match` tokens, so one request
-can never mean both:
+with `detail.fields` naming which keys changed. **Any mix of a rename with
+a format edit (`{name, fingermap}`, `{name, magic}`, with or without
+`format`) in one body is `400 mixed_patch`** — they're different scopes
+with different `If-Match` tokens, so one request can never mean both (a
+`{name, format}` body with no edit key is just a rename, `format` ignored):
 
 ```json
 400 { "error": "mixed_patch", "message": "a PATCH may change the layout's name, or one format's payload, never both at once" }
@@ -788,7 +806,7 @@ curl -sX POST …/v1/layouts/01ARZ3ND…/restore <signed>       # no body
 curl -sX POST …/v1/layouts/01ARZ3ND…/restore <signed> -d '{"name":"my-layout-v2"}'
 ```
 
-Real success (`db/tests/conformance/layouts-write/restore-200.json`,
+Real success (`tests/conformance/layouts-write/restore-200.json`,
 trimmed): `200 {"…","deleted":false,"layout_rev":3}`.
 
 **Likes** — need no `If-Match` (they never bump `layout_rev`/`modified_at`/a
@@ -814,8 +832,8 @@ one person's own budget). `429 rate_limited` carries `Retry-After` (seconds)
 and `scope` (`"actor"` or `"client"`, naming which counter tripped).
 
 **The full error table**, generated from `src/core/errors.ts`'s own
-`ApiError` factories exactly as `db/INTEGRATION.md`'s own appendix is
-(`db/scripts/gen-error-table.mjs`; `db/tests/tools/docs-site.test.ts`'s
+`ApiError` factories exactly as `INTEGRATION.md`'s own appendix is
+(`scripts/gen-error-table.mjs`; `tests/tools/docs-site.test.ts`'s
 `LDB-G10` fails the build if this table drifts from that source, so treat
 it as generated, not hand-edited):
 
@@ -864,20 +882,24 @@ it as generated, not hand-edited):
 | 409 | `magic_edited` | this record's magic was last written by ${client}; a seed never overwrites a person's edit | `magicEdited(client)` |
 | 429 | `rate_limited` | rate limit exceeded: ${limit} writes per ${windowSeconds}s | `rateLimited(limit, windowSeconds, retryAfter, scope)` |
 
-**Two more codes exist in the *format* layer**, not in the table above
+**Three more codes exist in the *format* layer**, not in the table above
 because they come from a format module's own `validate()`, not one of
-`errors.ts`'s factories — both always `400`:
+`errors.ts`'s factories — all always `400`:
 
 - `invalid_payload` — the format's `validate()` refused the payload, with a
   JSON-pointer `path` naming exactly where
-  (`db/tests/conformance/layouts-write/patch-400-invalid_payload.json`):
+  (`tests/conformance/layouts-write/patch-400-invalid_payload.json`):
   `{"error":"invalid_payload","message":"fingermap names a char not in this layout's keys: \"z\"","path":"/keys"}`.
 - `magic_collision` — two lowered magic rows fire on the same trigger; `from`
   names both sources, `hint` (when one side is a scaffold row) suggests the
   `except` fix.
+- `magic_needs_unique_key` — a character magic names (a magic or chiral
+  key, a rule's `after`, an `except` entry, an adaptive-swap member) sits
+  on more than one position, or a both-hands duplicate isn't covered for a
+  chiral key; `path` is `/keys`.
 
 Every route × status pair above has a frozen conformance fixture under
-`db/tests/conformance/` — read the one for your exact case for a byte-exact
+`tests/conformance/` — read the one for your exact case for a byte-exact
 body shape.
 
 ## 7. For format authors
@@ -885,7 +907,7 @@ body shape.
 `spark/1` is not the only shape this service can ever hold — a new format,
 or a new major of `spark/1` itself, is a normal (reviewed) addition, not a
 rewrite. The contract every registered `FormatModule` satisfies
-(`db/formats/registry.ts`):
+(`formats/registry.ts`):
 
 ### Every stored format exports
 
@@ -911,8 +933,8 @@ rewrite. The contract every registered `FormatModule` satisfies
 
 `edits` (PATCH helpers: `setFingermap?`, `setMagic?`) is the
 one contract member that is optional at major 1 (unused there — spark/1's
-own `edits` is exported anyway, but a stub major-1 module may omit it, `db/
-tests/formats/stub-lineage.ts`'s `T1`) and required from major 2 onward,
+own `edits` is exported anyway, but a stub major-1 module may omit it,
+`tests/formats/stub-lineage.ts`'s `T1`) and required from major 2 onward,
 alongside `up`/`down` — the three below.
 
 ### Additionally, for a major > 1 of an existing lineage
@@ -930,14 +952,14 @@ alongside `up`/`down` — the three below.
   somewhere to apply a `magic`/`fingermap` edit against the stored
   major).
 
-`chainViolations(mod)` (`db/formats/registry.ts`) is the one runtime check
+`chainViolations(mod)` (`formats/registry.ts`) is the one runtime check
 of all of this: for `major(mod.id) > 1`, the previous major of the same
 lineage must already be registered and `up`/`down`/`edits` must all be
 present; `to`/`from` may never name the module's own lineage, at any major.
-`db/tests/formats/chain.test.ts` proves both directions — every real
+`tests/formats/chain.test.ts` proves both directions — every real
 registered module (`spark/1`, `mana2/1`, each major 1 today) has zero
 violations, **and** a deliberately-broken stub lineage
-(`db/tests/formats/stub-lineage.ts`'s `t/1 -> t/2 -> t/3`, missing `up`,
+(`tests/formats/stub-lineage.ts`'s `t/1 -> t/2 -> t/3`, missing `up`,
 missing `down`, missing `edits`, a lineage gap, a self-lineage edge) is
 caught by name for each broken piece — the same fixtures this guide's own
 `LDB-G10` test reads to keep this checklist honest (§9's own note).
@@ -947,7 +969,7 @@ caught by name for each broken piece — the same fixtures this guide's own
 A registered format is one directory:
 
 ```
-db/formats/<name>/<major>/
+formats/<name>/<major>/
   schema.json      JSON Schema for the payload (draft 2020-12)
   index.ts         exports the FormatModule contract above
   fixtures/        frozen: NNN-<name>.json (+ .lowered.json goldens, + .<to-format>.json per declared translation)
@@ -955,50 +977,50 @@ db/formats/<name>/<major>/
   README.md        what this format is for, what it cannot express
 ```
 
-Wiring: add the module to the `REGISTRY` array in `db/formats/registry.ts`
+Wiring: add the module to the `REGISTRY` array in `formats/registry.ts`
 — that one array is the whole registration; `GET /v1/formats`, the write
 path's `resolveFormat`, and the package's `exports` map
-(`db/tests/tools/package.test.ts`, `LDB-G7`) all derive from it, so nothing
+(`tests/tools/package.test.ts`, `LDB-G7`) all derive from it, so nothing
 else needs to learn the new id by name. Tests that must pass before it
 merges: every fixture validates and round-trips through its own
 `.lowered.json` golden (`LDB-F1`/`F2`); every declared translation
-reproduces its frozen `.<to>.json` golden (`LDB-F7`); once merged, the
-format is frozen — no schema tightening, no fixture edits, ever
-(`LDB-F6`). A stored format that carries magic needs its own compile step
-(spark's own `compileMagic`) named and tested the same way spark's is
+reproduces its frozen `.<to>.json` golden (`LDB-F7`); once a major is
+listed in `FROZEN` (`tests/formats/frozen.test.ts`, `LDB-F6`) its schema
+and fixtures can no longer change — that list is empty today, so `spark/1`
+is still edited in place (announced in `CHANGELOG-API.md`) until the first
+outside adopter. A stored format that carries magic needs its own compile
+step (spark's own `compileMagic`) named and tested the same way spark's is
 (`LDB-F2`); one that reaches major 2 needs the chain contract above
 (`LDB-F18`/`F19`).
 
 ### Adding a new major of an existing format
 
-Same directory shape, one major up (`db/formats/<name>/<N>/`), plus `up`/
+Same directory shape, one major up (`formats/<name>/<N>/`), plus `up`/
 `down`/`edits` as above. The previous major's directory is never touched —
-its fixtures are frozen (`LDB-F6`) and its `up`/`down` steps are what every
-older-stored record chains *through*, not around. Once the new major is
-registered:
-
-- the nightly dump gains a new per-major file,
-  `latest.<name>-<N>.json` (+`.sha256`), alongside the older major's own —
-  never replacing it (`LDB-D6`, §4 above).
-- a `PUT` naming the older major is chained up to the new latest
-  automatically (`detail.written_as` records what was actually sent), or
-  refused `409 format_behind` first if the record's current content could
-  never have been read whole in that older major (§5).
+its fixtures should be frozen (`LDB-F6`, once its major is listed in
+`FROZEN`) and its `up`/`down` steps are what every older-stored record
+chains *through*, not around. Once the new major is registered, a `PUT`
+naming the older major is chained up to the new latest automatically
+(`detail.written_as` records what was actually sent), or refused `409
+format_behind` first if the record's current content could never have
+been read whole in that older major (§5).
 
 ### Lowering to `mana2/1`
 
 `spark/1`'s `to["mana2/1"]` (named export `fromSpark`,
-`db/formats/mana2/1/translate.ts`) is what `?format=mana2/1` and the
+`formats/mana2/1/translate.ts`) is what `?format=mana2/1` and the
 analyzer pipeline both call. **It must never hold for a valid `spark/1` payload**
 (`LDB-F17`) — the held cases documented on `mana2/1`'s own README are all in
 the *other* direction (`mana2/1 -> spark/1`, a tap-hold token, a directional
-token, more than five keys on one thumb, a non-empty `combos`, a rowstag
-stagger mismatch): mana2's own vocabulary is a strict subset of what
-`spark/1` can express on the way down, never a lossy write target on the way
-up. What may genuinely be *absent* on the mana2 side without holding: an
-empty layout emits a single empty-string `fingers` row (mana2's own schema
-requires ≥ 1); `magic` intent is flattened to `magic.rules[]` (the idiom is
-gone, the rows are not — this is the whole point of "lowering", §3 above).
+token, more than five keys on one thumb, a non-empty `combos`): mana2's own
+vocabulary is a strict subset of what `spark/1` can express on the way
+down, never a lossy write target on the way up. What may genuinely be
+*absent* on the mana2 side without holding: an empty layout emits a single
+empty-string `fingers` row (mana2's own schema requires ≥ 1); `magic`
+intent is flattened to `magic.rules[]` (the idiom is gone, the rows are
+not — this is the whole point of "lowering", §3 above); `board` is always
+dropped, never held (`spark/1` has no board field) — and on the way down
+the emitted `board` is always the fixed ANSI row stagger `[0, 0.25, 0.75]`.
 Test it against the real mana2 loader, not a re-implementation of its rules:
 `scripts/check-convert-parity.mjs` runs the site's own compiled engine
 (`swapengine.convertLayout`) over every fixture and freezes a snapshot
@@ -1065,12 +1087,13 @@ fall back to by omitting it). There is no server-side flag to flip — the
 chain (§7) makes both majors simultaneously readable for as long as you
 need.
 
-**Testing it**: the per-major dump files (§4) let you fetch every record's
-payload as of a specific major directly, without walking `?format=` one id
-at a time — compare your new-major reader against `latest.<lineage>-<old
-N>.json` and `latest.<lineage>-<new N>.json` side by side. Before any real
-second major exists, the stub lineage `db/tests/formats/stub-lineage.ts`'s
-`t/1 -> t/2 -> t/3` (exercised by `db/tests/formats/chain.test.ts`) is the
+**Testing it**: compare your new-major reader's `?format=<new major>`
+answers against `?format=<old major>` for the same records — walking
+`?format=` one id at a time is the only way to fetch every record's
+payload as of a specific major (there is no longer a per-major dump file,
+`LDB-D6` retired it). Before any real second major exists, the stub
+lineage `tests/formats/stub-lineage.ts`'s
+`t/1 -> t/2 -> t/3` (exercised by `tests/formats/chain.test.ts`) is the
 concrete worked example of everything in this section — every property
 above (`format_behind`, chained writes, `written_as`, held-vs-lossless
 `down`) is proven there today, against fixtures, well before `spark/1`
@@ -1079,13 +1102,13 @@ itself ever needs a second major.
 ## 9. The endpoint table
 
 One row per public route, method and path exactly as the router defines
-them (`db/src/index.ts` + `db/src/routes/*.ts`; a `:param` segment is a
+them (`src/index.ts` + `src/routes/*.ts`; a `:param` segment is a
 path parameter, not literal text). `auth`: `none` (no header needed),
 `user` (Discord bearer or client lane, §1), `client` (client lane only —
 none of today's routes require this), `admin` (either lane, but the
 resolved actor must be an admin). This table is machine-checked against the
-live router (`db/tests/tools/docs-site.test.ts`'s `LDB-G10`) — it cannot
-silently drift from what `db/src/index.ts` actually registers.
+live router (`tests/tools/docs-site.test.ts`'s `LDB-G10`) — it cannot
+silently drift from what `src/index.ts` actually registers.
 
 | METHOD | PATH | auth | body | success | errors |
 |---|---|---|---|---|---|
@@ -1095,10 +1118,10 @@ silently drift from what `db/src/index.ts` actually registers.
 | GET | `/v1/layouts/:ref` | none | — | 200 | `format_required`, `unknown_format`, `format_absent`, `held`, `not_found` |
 | GET | `/v1/layouts/:ref/likes` | none | — | 200 | `not_found` |
 | GET | `/v1/layouts/:ref/history` | none | — | 200 | `not_found` |
-| GET | `/v1/layouts/:ref/rev/:n` | none | — | 200 | `format_required`, `unknown_format`, `bad_request`, `held`, `not_found` |
-| POST | `/v1/layouts` | user | `{name, format, payload}` | 201 | `bad_request`, `invalid_name`, `unknown_format`, `format_not_writable`, `invalid_payload`, `magic_collision`, `name_taken`, lane errors |
-| PUT | `/v1/layouts/:ref` | user | `{format, payload}` + `If-Match` (replace) or `If-None-Match: *` (add) | 200 | `if_match_required`, `bad_request`, `unknown_format`, `format_not_writable`, `format_behind`, `format_absent`, `format_exists`, `invalid_payload`, `magic_collision`, `not_owner`, `not_found`, `stale`, lane errors |
-| PATCH | `/v1/layouts/:ref` | user | `{name}` (layout scope) or `{format, fingermap?, magic?}` (that format's scope) + `If-Match` | 200 | `if_match_required`, `bad_request`, `mixed_patch`, `format_required`, `invalid_name`, `invalid_payload`, `unsupported_for_format`, `not_owner`, `not_found`, `name_taken`, `stale`, lane errors |
+| GET | `/v1/layouts/:ref/rev/:n` | none | — | 200 | `format_required`, `unknown_format`, `format_absent`, `bad_request`, `held`, `not_found` |
+| POST | `/v1/layouts` | user | `{name, format, payload}` | 201 | `bad_request`, `invalid_name`, `format_required`, `unknown_format`, `format_not_writable`, `invalid_payload`, `magic_collision`, `magic_needs_unique_key`, `name_taken`, lane errors |
+| PUT | `/v1/layouts/:ref` | user | `{format, payload}` + `If-Match` (replace) or `If-None-Match: *` (add) | 200 | `if_match_required`, `bad_request`, `format_required`, `unknown_format`, `format_not_writable`, `format_behind`, `format_absent`, `format_exists`, `invalid_payload`, `magic_collision`, `magic_needs_unique_key`, `not_owner`, `not_found`, `stale`, lane errors |
+| PATCH | `/v1/layouts/:ref` | user | `{name}` (layout scope) or `{format, fingermap?, magic?}` (that format's scope) + `If-Match` | 200 | `if_match_required`, `bad_request`, `mixed_patch`, `format_required`, `unknown_format`, `format_not_writable`, `format_absent`, `format_behind`, `invalid_name`, `invalid_payload`, `magic_collision`, `magic_needs_unique_key`, `unsupported_for_format`, `not_owner`, `not_found`, `name_taken`, `stale`, lane errors |
 | DELETE | `/v1/layouts/:ref` | user | — + `If-Match: "layout:<n>"` | 200 | `if_match_required`, `bad_request`, `not_owner`, `not_found`, `stale`, lane errors |
 | POST | `/v1/layouts/:ref/restore` | user | `{name?}` (optional) | 200 | `bad_request`, `invalid_name`, `not_owner`, `not_found`, `name_taken`, lane errors |
 | POST | `/v1/layouts/:ref/transfer` | user | `{to}` + `If-Match` | 200 | `if_match_required`, `bad_request`, `not_owner`, `not_found`, lane errors |
@@ -1111,7 +1134,7 @@ silently drift from what `db/src/index.ts` actually registers.
 | GET | `/v1/authors/:user_id` | none | — | 200 | `not_found` |
 | GET | `/v1/formats` | none | — | 200 | — |
 | GET | `/v1/formats/:name/:major/schema.json` | none | — | 200 | `not_found` |
-| GET | `/v1/changes` | none (`wait=` needs a registered client) | — | 200 | `bad_request`, `not_found` |
+| GET | `/v1/changes` | none (`wait=` needs a registered client) | — | 200 | `bad_request`, `not_found`, `rate_limited` |
 | GET | `/admin/changelog` | none | — | 200 (HTML) | `bad_request`, `not_found` |
 | GET | `/v1/dump` | none | — | 302 | `not_found` |
 | GET | `/v1/dump/latest.json` | none | — | 200 | `not_found` |
@@ -1119,16 +1142,16 @@ silently drift from what `db/src/index.ts` actually registers.
 | GET | `/v1/dump/:key` | none | — | 200 | `not_found` |
 | GET | `/v1/admin/admins` | admin | — | 200 | `not_admin`, lane errors |
 | POST | `/v1/admin/admins` | admin | `{user_id, note?}` | 200/201 | `bad_request`, `not_admin`, lane errors |
-| DELETE | `/v1/admin/admins/:user_id` | admin | — | 200 | `not_admin`, `last_admins`, lane errors |
+| DELETE | `/v1/admin/admins/:user_id` | admin | — | 200 | `not_admin`, `not_found`, `last_admins`, lane errors |
 | POST | `/v1/admin/import/pause` | admin | — | 200 | `not_admin`, lane errors |
 | POST | `/v1/admin/import/resume` | admin | — | 200 | `not_admin`, lane errors |
-| POST | `/v1/admin/import/tick` | admin | — | 200 | `not_admin`, `import_paused`, lane errors |
+| POST | `/v1/admin/import/tick` | admin | — | 200 | `not_admin`, `import_paused`, `import_running`, lane errors |
 | POST | `/v1/admin/import/unstall` | admin | — | 200 (`{unstalled, was_stalled}`) — clears `cmini.stalled` deliberately; the next tick re-evaluates from scratch | `not_admin`, lane errors |
 | POST | `/v1/admin/import/restore-deleted` | admin | `{since, limit?, dry_run?}` | 200 (`{dry_run, count, restored\|would_restore, errors?}`) — bulk-restores `upstream_deleted` tombstones since `since`, bounded by `limit` (max 500), never an owner's own delete | `bad_request`, `not_admin`, lane errors |
 | POST | `/v1/admin/diff/tick` | admin | — | 200 | `not_admin`, lane errors |
 | POST | `/v1/admin/nightly/tick` | admin | — | 200 | `not_admin`, lane errors |
 | POST | `/v1/admin/dump` | admin | — | 200 (`{seq, layout_count, written_at}`) | `not_admin`, lane errors |
-| POST | `/v1/admin/magic-seed` | admin | `{ref, magic}` | 200 (`{id, name, rev, has_magic, upstream}`) — a SYSTEM write (`system:magic-seed` / `seed:aklgg`) that never forks the record | `bad_request`, `not_admin`, `not_found`, `invalid_payload`, `magic_collision`, `magic_edited`, lane errors |
+| POST | `/v1/admin/magic-seed` | admin | `{ref, magic}` | 200 (`{id, name, rev, has_magic, upstream}`) — a SYSTEM write (`system:magic-seed` / `seed:aklgg`) that never forks the record | `bad_request`, `not_admin`, `not_found`, `format_absent`, `invalid_payload`, `magic_collision`, `magic_needs_unique_key`, `magic_edited`, lane errors |
 | POST | `/v1/admin/clients` | admin | `{name, pubkey, owner_user_id, caps, discord_app_id?}` | 201 | `bad_request`, `not_admin`, lane errors |
 | DELETE | `/v1/admin/clients/:id` | admin | — | 200 | `not_admin`, `not_found`, lane errors |
 | GET | `/v1/admin/clients` | admin | — | 200 | `not_admin`, lane errors |
@@ -1147,9 +1170,12 @@ silently drift from what `db/src/index.ts` actually registers.
 "lane errors" (every `user`/`admin`/`client` row) means whichever lane you
 used: the user lane can answer `unauthorized`/`token_invalid`/
 `identity_unavailable`; the client lane can answer `bad_signature`/
-`unknown_client`/`client_revoked`/`stale_timestamp`/`replay`/
-`actor_not_allowed`; either lane can answer `rate_limited`. §6's table has
-every one of them with its exact body shape.
+`unknown_client`/`client_revoked`/`client_suspended`/`stale_timestamp`/
+`replay`/`actor_not_allowed`; any non-GET request on either lane can
+answer `banned`, `invalid_client_version` and `rate_limited` (plus
+`idempotency_mismatch`/`idempotency_in_progress` on `/v1/layouts*` when
+`Idempotency-Key` is sent). §6's table has every one of them with its
+exact body shape.
 
 ## 10. Moderation
 

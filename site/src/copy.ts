@@ -162,7 +162,7 @@ export const copy = {
     errorShapeBody: 'Every error answers {"error": "<code>", "message": "<text>"}, plus any extra fields that error code carries.',
     errorTableLinkLabel: "Show the full error table in the guide below",
     moderationHeading: "Moderation",
-    moderationBody: "An admin can ban a user, override a layout's like count or an author's display name, and approve or reject a submitted link -- every action appends an event to the public feed.",
+    moderationBody: "An admin can ban a user, override an author's display name, and approve or reject a submitted link -- every action appends an event to the public feed.",
     copyButtonLabel: "Copy as Markdown",
     copyButtonCopied: "Copied to your clipboard",
     copyButtonFailed: "Could not use the clipboard -- select the text below and copy it",
@@ -176,7 +176,7 @@ export const copy = {
     trustedClientHeading: "How a trusted Discord client works",
     trustedClientCaption: "A registered client (an Ed25519 keypair, an admin-created row naming its capabilities) signs each request and asserts the Discord user it acts for -- the same write pipeline runs afterward, and a long-poll keeps it current without a timer.",
     trustedClientAriaLabel:
-      "Sequence diagram: a registered client reads a Discord user id from an incoming message, signs a request with its own Ed25519 key over the method, path, timestamp, nonce, actor and body hash, and sends five X-Akl- headers to akldb. akldb verifies the signature against the client's stored public key, inserts the nonce as its own replay check, and confirms the client's capabilities allow acting as that user. The request then runs the same write pipeline a bearer-token write would, appending an event and answering 200 or 201. Afterward the client can long-poll GET /v1/changes with wait=25, which a client with the feed:wait capability holds open, checking the event head about once a second, until new events exist or the wait elapses.",
+      "Sequence diagram: a registered client reads a Discord user id from an incoming message, signs a request with its own Ed25519 key over the method, path, timestamp, nonce, actor and body hash, and sends five X-Akl- headers to akldb. akldb verifies the signature against the client's stored public key, inserts the nonce as its own replay check, and confirms the client's capabilities allow acting as that user. The request then runs the same write pipeline a bearer-token write would, appending an event and answering 200 or 201. Afterward the client can long-poll GET /v1/changes with wait=25, which akldb holds open for any registered client, checking the event head about once a second, until new events exist or the wait elapses.",
   },
   admin: {
     title: "Moderation",
