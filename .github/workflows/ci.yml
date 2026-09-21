@@ -12,10 +12,10 @@ on:
     paths:
       - "**"
   push:
-    # main, plus the layoutdb integration branch `ldb-arch-review` (2026-09-12):
-    # a push there runs the tests and then the pr-deploy job below, which
-    # deploys the ONE layoutdb, prod akl-db. Other branches ride pull_request.
-    branches: [main, ldb-arch-review]
+    # main only: a push there runs the tests and then the deploy job below.
+    # Other branches ride pull_request. (The `ldb-arch-review` integration
+    # branch and its pr-deploy job are gone since the 2026-09-13 split.)
+    branches: [main]
     paths:
       - "**"
   schedule:
@@ -49,46 +49,23 @@ jobs:
       - name: Test
         run: npm test
 
-  # Push to main only: apply migrations, then deploy. Same order a rehost
-  # uses (07 §6 S7) -- a deploy never ships code expecting a column/table a
-  # freshly-created remote D1 (or one behind on migrations) doesn't have yet.
+  # Push to main only: checkpoint, apply migrations, then deploy. Same order
+  # a rehost uses (07 §6 S7) -- a deploy never ships code expecting a
+  # column/table a freshly-created remote D1 (or one behind on migrations)
+  # doesn't have yet.
+  #
+  # The checkpoint (akl-infra/db#8) comes first, because a migration on a
+  # main push is the one step here that can destroy data: (1) the D1
+  # time-travel bookmark, printed in the log -- the whole-database rollback
+  # point; (2) a FRESH dump through POST /v1/admin/dump (the nightly's own
+  # `writeDump`), signed as the ops client -- without it the backup below
+  # would only re-read last night's dump; (3) akl-infra/db-backup's `backup`
+  # workflow, dispatched and WAITED on, so the snapshot of that dump is a
+  # git commit before anything is migrated. Any of the three failing stops
+  # the job before migrations -- a deploy never runs uncheckpointed.
   deploy:
     needs: test
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    concurrency:
-      group: db-prod-deploy
-      cancel-in-progress: false
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: package-lock.json
-      - name: Install dependencies
-        run: npm ci
-      - name: Apply D1 migrations (remote)
-        run: npx wrangler d1 migrations apply akl-db --remote --config wrangler.toml
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DB_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DB_ACCOUNT_ID }}
-      - name: Deploy
-        run: npx wrangler deploy --config wrangler.toml
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DB_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DB_ACCOUNT_ID }}
-
-  # A push to the layoutdb integration branch (`ldb-arch-review`, since the
-  # 2026-09-12 architecture review; was the layout-db-pr PR) deploys the ONE
-  # layoutdb, prod `akl-db` (saltorbit 2026-09-11: "everything should point to
-  # the production layoutdb"; 2026-09-12: "keep pushing to prod layoutdb").
-  # Records a D1 time-travel bookmark first (the rollback point, printed in
-  # the log), then migrations, then the Worker -- the same order as
-  # `deploy`. Serialized with `deploy` so two runs never interleave.
-  pr-deploy:
-    needs: test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/ldb-arch-review'
     concurrency:
       group: db-prod-deploy
       cancel-in-progress: false
@@ -107,6 +84,16 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DB_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DB_ACCOUNT_ID }}
+      - name: Write a fresh dump
+        run: sh scripts/predeploy-dump.sh
+        env:
+          CLIENT_ID: ${{ secrets.OPS_CLIENT_ID }}
+          CLIENT_PRIVATE_KEY: ${{ secrets.OPS_CLIENT_PRIVATE_KEY }}
+          OPS_ACTOR: ${{ secrets.OPS_ACTOR }}
+      - name: Snapshot it in akl-infra/db-backup
+        run: sh scripts/predeploy-backup.sh
+        env:
+          GH_TOKEN: ${{ secrets.BACKUP_DISPATCH_TOKEN }}
       - name: Apply D1 migrations (remote)
         run: npx wrangler d1 migrations apply akl-db --remote --config wrangler.toml
         env:
@@ -121,7 +108,7 @@ jobs:
   # akldb.org's own Worker (design/akldb-site/01-plan.md §6, W1a). Its own
   # package.json under db/site/ -- `paths: db/**` above already covers it,
   # no trigger edit needed. Builds+tests on every PR/push that touches
-  # db/**; deploys only on a push to the integration branch, gated inside
+  # db/**; deploys only on a push to main, gated inside
   # THIS job (not a separate needs:site job) so a deploy never runs without
   # the build/test steps immediately before it in the same run.
   site:
@@ -151,17 +138,19 @@ jobs:
         run: npm test
       - name: Build
         run: npm run build
-      # Same integration-branch trigger as `pr-deploy` above, but its own
+      # Same main-push trigger as `deploy` above (until 2026-09-20 it sat on
+      # the `ldb-arch-review` branch, so once that branch was deleted
+      # akldb.org stopped deploying from CI), but its own
       # concurrency group (`akldb-site-deploy`, not `db-prod-deploy`) -- this
       # Worker and akl-db are two independent deploys and must never block
       # each other, only themselves. GitHub Actions concurrency is job-
       # scoped (there's no such thing as a step-level group), so the whole
-      # job -- test/build included -- shares it, same as `deploy`/
-      # `pr-deploy` above; the only real-world effect is that two pushes to
-      # `ldb-arch-review` in quick succession run this job's tests serially
+      # job -- test/build included -- shares it, same as `deploy`
+      # above; the only real-world effect is that two pushes to
+      # `main` in quick succession run this job's tests serially
       # rather than in parallel, which is harmless.
       - name: Deploy
-        if: github.ref == 'refs/heads/ldb-arch-review' && github.event_name == 'push'
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: npx wrangler deploy --config wrangler.toml
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DB_TOKEN }}

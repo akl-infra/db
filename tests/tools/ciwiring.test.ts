@@ -15,6 +15,7 @@ import { repoLayout } from "./repo.ts";
 const WORKFLOW_PATH = repoLayout().workflowPath;
 // "db/" while db/ lived inside the site's tree; "" since the 2026-09-13 split made it the root.
 const P = repoLayout().dbPrefix;
+const SCRIPTS_DIR = path.resolve(path.dirname(WORKFLOW_PATH), "../..", P, "scripts");
 
 interface Step {
   uses?: string;
@@ -94,10 +95,10 @@ describe("db.yml wiring", () => {
     }
   });
 
-  it("[LDB-C1] push runs only on main and the ldb-arch-review integration branch (other PR branches run once, on pull_request -- 2026-09-10, doubled runs and failure emails)", () => {
+  it("[LDB-C1] push runs only on main (other PR branches run once, on pull_request -- 2026-09-10, doubled runs and failure emails)", () => {
     const wf = loadWorkflow();
     const push = (wf.on as Record<string, { branches?: string[] }>).push;
-    expect(push?.branches).toEqual(["main", "ldb-arch-review"]);
+    expect(push?.branches).toEqual(["main"]);
   });
 
   it("[LDB-C1] the deploy job needs test, runs only on a push to main, and applies migrations before deploying", () => {
@@ -126,55 +127,59 @@ describe("db.yml wiring", () => {
     expect(jobText).toContain("CLOUDFLARE_DB_ACCOUNT_ID");
   });
 
-  it("[LDB-C1] the pr-deploy job needs test, runs only on a push to the ldb-arch-review integration branch, and bookmarks, migrates and deploys the ONE layoutdb (prod akl-db) in that order", () => {
-    // saltorbit 2026-09-11: "deploy to prod layoutdb" -- the preview layoutdb is
-    // retired; 2026-09-12: the integration branch is ldb-arch-review and a push
-    // there deploys production, never akl-db-preview.
+  it("[LDB-C1] the deploy job checkpoints before it migrates: D1 bookmark, a fresh signed dump, then the db-backup snapshot, each of them ahead of migrations (akl-infra/db#8)", () => {
     const wf = loadWorkflow();
-    expect(wf.jobs.preview, "the retired preview job is back in db.yml").toBeUndefined();
-    const job = wf.jobs["pr-deploy"];
-    expect(job, "no `pr-deploy` job in db.yml").toBeDefined();
-    if (!job) throw new Error("unreachable: assertion above failed");
-
-    expect(job.needs).toEqual(expect.stringContaining("test"));
-    expect(job.if, "pr-deploy job has no `if:` guard").toBeTruthy();
-    expect(job.if).toContain("github.event_name == 'push'");
-    expect(job.if).toContain("github.ref == 'refs/heads/ldb-arch-review'");
-    expect((wf.on as Record<string, { branches?: string[] }>).push?.branches, "the integration branch must trigger the push run").toContain("ldb-arch-review");
-
-    const steps = job.steps ?? [];
+    const steps = wf.jobs.deploy?.steps ?? [];
     const runSteps = steps.filter((s): s is Step & { run: string } => typeof s.run === "string");
     const bookmarkIdx = runSteps.findIndex((s) => /d1 time-travel info akl-db\b/.test(s.run));
+    const dumpIdx = runSteps.findIndex((s) => /scripts\/predeploy-dump\.sh/.test(s.run));
+    const backupIdx = runSteps.findIndex((s) => /scripts\/predeploy-backup\.sh/.test(s.run));
     const migrationsIdx = runSteps.findIndex((s) => /d1 migrations apply akl-db --remote/.test(s.run));
-    const deployIdx = runSteps.findIndex((s) => /wrangler deploy/.test(s.run));
     expect(bookmarkIdx, "no 'd1 time-travel info akl-db' (rollback bookmark) step").toBeGreaterThanOrEqual(0);
-    expect(migrationsIdx, "no 'd1 migrations apply akl-db --remote' step").toBeGreaterThanOrEqual(0);
-    expect(deployIdx, "no 'wrangler deploy' step").toBeGreaterThanOrEqual(0);
-    expect(bookmarkIdx, "the bookmark must be taken before migrations").toBeLessThan(migrationsIdx);
-    expect(migrationsIdx, "migrations must run before deploy").toBeLessThan(deployIdx);
-
-    const jobText = JSON.stringify(job);
-    expect(jobText).not.toContain("akl-db-preview");
-    expect(jobText).not.toContain("--env preview");
-    expect(jobText).toContain("CLOUDFLARE_DB_TOKEN");
-    expect(jobText).toContain("CLOUDFLARE_DB_ACCOUNT_ID");
-  });
-
-  it("[LDB-C1] pr-deploy and deploy share one non-cancelling concurrency group (two prod deploys never interleave)", () => {
-    const wf = loadWorkflow();
-    for (const name of ["deploy", "pr-deploy"]) {
-      const c = (wf.jobs[name] as { concurrency?: { group?: string; "cancel-in-progress"?: boolean } } | undefined)?.concurrency;
-      expect(c?.group, name).toBe("db-prod-deploy");
-      expect(c?.["cancel-in-progress"], name).toBe(false);
+    expect(dumpIdx, "no predeploy-dump.sh step").toBeGreaterThanOrEqual(0);
+    expect(backupIdx, "no predeploy-backup.sh step").toBeGreaterThanOrEqual(0);
+    expect(dumpIdx, "the backup would snapshot last night's dump, not a fresh one").toBeLessThan(backupIdx);
+    for (const [name, idx] of [["bookmark", bookmarkIdx], ["dump", dumpIdx], ["backup", backupIdx]] as const) {
+      expect(idx, `the ${name} checkpoint must come before migrations`).toBeLessThan(migrationsIdx);
     }
+    // A checkpoint step that may fail without failing the job is no gate.
+    for (const idx of [bookmarkIdx, dumpIdx, backupIdx]) {
+      const step = runSteps[idx] as Step & { "continue-on-error"?: unknown; if?: unknown };
+      expect(step["continue-on-error"], step.run).toBeUndefined();
+      expect(step.if, step.run).toBeUndefined();
+    }
+    const dumpText = JSON.stringify(runSteps[dumpIdx]);
+    for (const secret of ["OPS_CLIENT_ID", "OPS_CLIENT_PRIVATE_KEY", "OPS_ACTOR"]) expect(dumpText).toContain(secret);
+    expect(JSON.stringify(runSteps[backupIdx])).toContain("BACKUP_DISPATCH_TOKEN");
   });
 
-  it("[LDB-C1] the deploy job's `if:` is unchanged by the pr-deploy job (main-push only)", () => {
+  it("[LDB-C1] the checkpoint scripts fail closed: predeploy-dump.sh curls with -f, predeploy-backup.sh waits with --exit-status and then confirms the committed manifest names the API's latest dump", () => {
+    const dump = fs.readFileSync(path.join(SCRIPTS_DIR, "predeploy-dump.sh"), "utf8");
+    expect(dump).toMatch(/curl -f\S* .*\/v1\/admin\/dump/);
+    const backup = fs.readFileSync(path.join(SCRIPTS_DIR, "predeploy-backup.sh"), "utf8");
+    expect(backup).toMatch(/gh workflow run backup\.yml/);
+    expect(backup).toMatch(/gh run watch .*--exit-status/);
+    expect(backup).toMatch(/^set -eu$/m);
+    const watchAt = backup.search(/gh run watch/);
+    const confirmAt = backup.search(/"\$want" = "\$got"/);
+    expect(confirmAt, "no sha256 confirmation against db-backup's manifest.json").toBeGreaterThan(watchAt);
+    expect(backup).toContain("source_sha256");
+    expect(backup).toContain("/v1/dump/latest.json");
+  });
+
+  it("[LDB-C1] there is ONE prod deploy job, main-push only, in a non-cancelling concurrency group (the ldb-arch-review pr-deploy job is gone)", () => {
     const wf = loadWorkflow();
+    expect(wf.jobs.preview, "the retired preview job is back in db.yml").toBeUndefined();
+    expect(wf.jobs["pr-deploy"], "the retired pr-deploy job is back in db.yml").toBeUndefined();
     const deploy = wf.jobs.deploy;
     expect(deploy?.if).toContain("refs/heads/main");
     expect(deploy?.if).toContain("github.event_name == 'push'");
-    expect(deploy?.if).not.toContain("worktree-layout-db");
+    const c = (deploy as { concurrency?: { group?: string; "cancel-in-progress"?: boolean } } | undefined)?.concurrency;
+    expect(c?.group).toBe("db-prod-deploy");
+    expect(c?.["cancel-in-progress"]).toBe(false);
+    const jobText = JSON.stringify(deploy);
+    expect(jobText).not.toContain("akl-db-preview");
+    expect(jobText).not.toContain("--env preview");
   });
 
   it("[LDB-C1] triggers on schedule and workflow_dispatch (for the daily job)", () => {
@@ -286,7 +291,7 @@ describe("db.yml wiring", () => {
     }
   });
 
-  it("[LDB-C1] the site job's deploy step runs only on a push to ldb-arch-review, references both secrets, and shares no concurrency group with db-prod-deploy", () => {
+  it("[LDB-C1] the site job's deploy step runs only on a push to main, references both secrets, and shares no concurrency group with db-prod-deploy", () => {
     const wf = loadWorkflow();
     const site = wf.jobs.site;
     expect(site, "no `site` job in db.yml").toBeDefined();
@@ -298,7 +303,7 @@ describe("db.yml wiring", () => {
 
     expect(deployStep.if, "the site job's deploy step has no `if:` guard").toBeTruthy();
     expect(deployStep.if).toContain("github.event_name == 'push'");
-    expect(deployStep.if).toContain("github.ref == 'refs/heads/ldb-arch-review'");
+    expect(deployStep.if).toContain("github.ref == 'refs/heads/main'");
 
     const stepText = JSON.stringify(deployStep);
     expect(stepText).toContain("CLOUDFLARE_DB_TOKEN");
