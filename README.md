@@ -204,6 +204,8 @@ those are taken.
 | `DISCORD_API_URL` | var | `src/auth/discord.ts` (T1) | `wrangler.toml`'s `[vars]`; default `https://discord.com/api`; tests inject `fetchImpl` directly and never resolve this URL |
 | `CLOUDFLARE_DB_TOKEN` | repo secret (CI) | `.github/workflows/db.yml`'s `deploy` job (S7) | a Cloudflare API token with Workers Scripts + D1 + R2 edit, separate from the site's Pages token |
 | `CLOUDFLARE_DB_ACCOUNT_ID` | repo secret (CI) | `.github/workflows/db.yml`'s `deploy` job (S7) | the NEW community account's id (00 §1) -- NOT the site's `CLOUDFLARE_ACCOUNT_ID` |
+| `OPS_CLIENT_ID` / `OPS_CLIENT_PRIVATE_KEY` / `OPS_ACTOR` | repo secrets (CI) | `.github/workflows/ci.yml`'s `deploy` job -> `scripts/predeploy-dump.sh` | an admin ops client's `CLIENT_ID` / `CLIENT_PRIVATE_KEY` / `OPS_ACTOR` (the row below), used for ONE call: the signed `POST /v1/admin/dump` that writes a fresh dump before every deploy (akl-infra/db#8). Prefer a client registered for CI alone, so revoking it never costs the maintainer their own key |
+| `BACKUP_DISPATCH_TOKEN` | repo secret (CI) | `.github/workflows/ci.yml`'s `deploy` job -> `scripts/predeploy-backup.sh` | a fine-grained GitHub token on `akl-infra/db-backup` ONLY, `Actions: read and write` + `Contents: read`: dispatches its `backup` workflow, waits for it, and reads back `manifest.json` to confirm the snapshot names the fresh dump. Missing or expired = the deploy job stops before migrations |
 | `DB_BASE_URL` | repo/org variable (CI) | `.github/workflows/db.yml`'s `daily` job (S7) | the deployed service's own origin, e.g. `https://akl-db.<account>.workers.dev`; set once the service is deployed |
 | `CLIENT_ID` / `CLIENT_PRIVATE_KEY` / `OPS_ACTOR` | `db.env.ops` beside the clones (never in a repo; `db.env.ops.preview` for the preview DB) | `scripts/ops-call.sh`, `scripts/client-sign.mjs`, `npm run reseed-magic` | the maintainer's ops client (`act-as-owner-only`, owner = the admin it acts as): its `id` and base64url PKCS8 Ed25519 private key from registration (`POST /v1/admin/clients`, or a direct `clients` insert when no signer exists yet -- the 2026-09-14 bootstrap after the split lost `db/.env.ops`), plus the admin's Discord user id. A lost key cannot be recovered: register a new client, revoke the old |
 | `TEST_ROUTES` | test-only miniflare binding | `src/index.ts`'s throwaway `/v1/__test/write` route | set unconditionally in `vitest.config.ts`; never present outside tests |
@@ -422,7 +424,7 @@ instead of up to 24h, at the cost of restoring the WHOLE database to one
 instant, not individual tables or rows).
 
 ```bash
-# Find restorable bookmarks (also printed by db.yml's pr-deploy job before
+# Find restorable bookmarks (also printed by ci.yml's deploy job before
 # every deploy, as a rollback bookmark):
 npx wrangler d1 time-travel info akl-db
 
