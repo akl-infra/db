@@ -333,6 +333,30 @@ describe("payload mutations", () => {
                 continue;
               }
             }
+            // [LDB-F42] The row-minus-one decision (2026-09-21) widened
+            // Key.row's minimum to -1, so the generic "negative number"
+            // mutation (which always sets the leaf to literal -1) no longer
+            // has a UNIFORM verdict for `row` the way ALLOWED/refused pairs
+            // elsewhere in this matrix do: it's a valid payload UNLESS the
+            // mutated entry is a thumb (LT/RT can't sit on a finger row,
+            // LDB-F27 -- row -1 is one, same as 0-2) or it collides with an
+            // entry already sitting on row -1 at the same column (the
+            // ordinary duplicate-position check). Both are re-derived here,
+            // not hand-waved into a blanket ALLOWED entry, so this stays
+            // honest about exactly when row:-1 is/isn't accepted.
+            if (format.id === "spark/1" && kind === "row" && mutation === "negative number" && /^\/keys\/\d+\/row$/.test(leaf.pointer)) {
+              const payload = fixture.payload as { keys: { row: number; col: number; finger: string }[] };
+              const idx = Number(leaf.segs[1]);
+              const entry = payload.keys[idx]!;
+              const isThumb = entry.finger === "LT" || entry.finger === "RT";
+              const collides = payload.keys.some((k, i) => i !== idx && k.row === -1 && k.col === entry.col);
+              const expectOk = !isThumb && !collides;
+              it(`[LDB-F1][LDB-F42] ${fixture.stem} ${leaf.pointer} negative number -- row -1 is valid unless it's a thumb finger or collides with an existing row -1 entry`, () => {
+                const result = format.validate(applyMutation(fixture.payload, leaf, "negative number"));
+                expect(result.ok).toBe(expectOk);
+              });
+              continue;
+            }
             const isAllowed = isCombosInputsElement || allowed.has(`${kind}:${mutation}`);
             it(`[LDB-F1] ${fixture.stem} ${leaf.pointer} ${mutation}${isAllowed ? " (allowed)" : ""}`, () => {
               const mutated = applyMutation(fixture.payload, leaf, mutation);
@@ -442,11 +466,56 @@ describe("[LDB-F27] spark/1's real (non-schema) geometry rules", () => {
     expect(spark1.validate({ keys: [] }).ok).toBe(true);
   });
 
-  it("[LDB-F27] a thumb finger (LT/RT) on a finger row (0-2) is refused; row 3+ is fine", () => {
+  it("[LDB-F27] a thumb finger (LT/RT) on a finger row (-1..2) is refused; row 3+ is fine", () => {
     const onFingerRow = spark1.validate({ keys: [{ char: "a", row: 2, col: 0, finger: "LT" }] });
     expect(onFingerRow.ok).toBe(false);
     const onThumbRow = spark1.validate({ keys: [{ char: "a", row: 3, col: 0, finger: "LT" }] });
     expect(onThumbRow.ok).toBe(true);
+  });
+
+  it("[LDB-F42] a thumb finger (LT/RT) on row -1 (the number row) is refused, same as rows 0-2", () => {
+    const result = spark1.validate({ keys: [{ char: "a", row: -1, col: 0, finger: "LT" }] });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.message).toMatch(/rows -1\.\.2 are finger rows/);
+  });
+});
+
+// [LDB-F42] design/layout-db's row-minus-one decision (2026-09-21): a row
+// ABOVE the 3x10 alpha block is stored as `row: -1` (the number row), not
+// by shifting every other row down and not by bottom-anchoring the stagger
+// -- rows 0/1/2 keep their one meaning everywhere. Only ONE row above
+// exists: -1 is the new minimum, row -2 stays refused.
+describe("[LDB-F42] row -1 (the number row)", () => {
+  it("the schema accepts row -1 on an ordinary (non-thumb) key", () => {
+    const result = spark1.validate({ keys: [{ char: "1", row: -1, col: 0, finger: "LP" }] });
+    expect(result.ok).toBe(true);
+  });
+
+  it("the schema refuses row -2 -- -1 is the new minimum, not -2", () => {
+    const result = spark1.validate({ keys: [{ char: "1", row: -2, col: 0, finger: "LP" }] });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.path).toBe("/keys/0/row");
+  });
+
+  it("the duplicate-position check works with negative rows", () => {
+    const result = spark1.validate({
+      keys: [
+        { char: "1", row: -1, col: 0, finger: "LP" },
+        { char: "!", row: -1, col: 0, finger: "LR" },
+      ],
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.message).toMatch(/duplicate position row -1 col 0/);
+  });
+
+  it("two different columns on row -1 never collide", () => {
+    const result = spark1.validate({
+      keys: [
+        { char: "1", row: -1, col: 0, finger: "LP" },
+        { char: "2", row: -1, col: 1, finger: "LR" },
+      ],
+    });
+    expect(result.ok).toBe(true);
   });
 });
 

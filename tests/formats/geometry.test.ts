@@ -10,7 +10,7 @@
 // `fingermap` field) is reported in the slice's own writeup rather than
 // committed as a test (it reads `web/data/*.json`, outside this package).
 import { describe, expect, it } from "vitest";
-import { handSplit, handSplitRows, classifyFingering, gridIndent, FINGERING_REFS, type Key } from "../../formats/spark/1/geometry.ts";
+import { handSplit, handSplitRows, handSplitForRow, classifyFingering, gridIndent, FINGERING_REFS, type Key } from "../../formats/spark/1/geometry.ts";
 
 // -- handSplit / handSplitRows (§4.1, the coordinator's parity note) --
 
@@ -73,6 +73,50 @@ describe("handSplit / handSplitRows (§4.1)", () => {
     ];
     expect(handSplitRows(keys)).toEqual([5, 5, 6]);
     expect(handSplit(keys)).toBe(5);
+  });
+});
+
+// -- handSplitForRow (§4.1, the row-minus-one decision, 2026-09-21) --
+
+describe("[LDB-F42] handSplitForRow", () => {
+  it("works for row -1 (the number row), same rule as any other row", () => {
+    const keys: Key[] = [
+      k("1", -1, 0, "LP"), k("2", -1, 1, "LR"), k("3", -1, 2, "LM"), k("4", -1, 3, "LI"), k("5", -1, 4, "LI"),
+      k("6", -1, 5, "RI"), k("7", -1, 6, "RI"), k("8", -1, 7, "RM"), k("9", -1, 8, "RR"), k("0", -1, 9, "RP"),
+    ];
+    expect(handSplitForRow(keys, -1)).toBe(5);
+  });
+
+  it("row -1 falls back to DEFAULT_SPLIT (5) when it has no L* entry", () => {
+    expect(handSplitForRow([], -1)).toBe(5);
+    expect(handSplitForRow([k("6", -1, 5, "RI")], -1)).toBe(5);
+  });
+
+  it("row -1's split is independent of every other row's", () => {
+    const keys: Key[] = [k("1", -1, 2, "LM"), k("q", 0, 0, "LP")]; // row -1 splits at 3, row 0 at 1 -- neither moves the other
+    expect(handSplitForRow(keys, -1)).toBe(3);
+    expect(handSplitForRow(keys, 0)).toBe(1);
+  });
+
+  it("a thumb (LT/RT) on row -1 never counts, even though its label starts with L/R", () => {
+    const keys: Key[] = [k("1", -1, 0, "LP"), k("z", -1, 9, "LT")]; // a stray thumb far to the right must not move row -1's split
+    expect(handSplitForRow(keys, -1)).toBe(1);
+  });
+
+  it("[LDB-F42] handSplitRows(keys)[r] === handSplitForRow(keys, r) for every row handSplitRows covers", () => {
+    const keys: Key[] = [
+      k("1", -1, 0, "LP"), k("2", -1, 5, "RI"),
+      k("q", 0, 0, "LP"), k("w", 0, 1, "LR"), k("e", 0, 2, "LM"), k("r", 0, 3, "LI"), k("t", 0, 4, "LI"),
+      k("y", 0, 5, "RI"), k("u", 0, 6, "RI"), k("i", 0, 7, "RM"), k("o", 0, 8, "RR"), k("p", 0, 9, "RP"),
+      k("a", 1, 0, "LP"), k("z", 2, 0, "LR"),
+    ];
+    const rows = handSplitRows(keys);
+    for (let r = 0; r < rows.length; r++) expect(rows[r]).toBe(handSplitForRow(keys, r));
+    // `handSplitRows` never grows a slot for row -1 (contract, geometry.ts's
+    // own comment) -- a caller wanting it calls `handSplitForRow` directly,
+    // which the loop above never does at index -1.
+    expect(rows.length).toBe(3); // max(2, highest row seen) + 1 -- row -1 isn't "the highest row"
+    expect(handSplitForRow(keys, -1)).toBe(1); // reachable, just not through handSplitRows' own array
   });
 });
 

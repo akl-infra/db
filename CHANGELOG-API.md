@@ -25,6 +25,28 @@ this file just gives them a public, versioned home. From here on, a
 `WIRE_VERSION` bump and a line here land in the SAME PR, never one without
 the other (`[LDB-V5]`).
 
+## 1.15 — 2026-09-21
+
+The row-minus-one decision (LDB-F42, saltorbit/aklgg#398 part 2): `spark/1`'s
+`Key.row` minimum widens from 0 to -1 (maximum stays 4) -- a row ABOVE the
+3x10 alpha block is now storable as `row: -1` (the number row), instead of
+being folded into the bottom (row 3+) as before. Rows 0/1/2 keep their one
+meaning everywhere (top/home/bottom of the alpha block); rejected
+alternatives were shifting every row down so the new top row becomes 0, and
+bottom-anchoring the stagger by row count -- only ONE row above the alpha
+block exists, so -1 is the new minimum, never -2. `validate()`'s thumb-row
+rule (a thumb finger, LT/RT, never sits on a finger row) now reads rows
+-1..2 as finger rows -- a thumb on row -1 is refused exactly like a thumb on
+rows 0-2. `?format=mana2/1`'s lowering places a number row first
+(`layout.fingers[0]`, ascending stored row) with a `-0.5` `rowOrColumnStagger`
+entry (one key-width further out than row 0, the direction rows 1/2 step IN
+by). A client validating a fetched record against a cached copy of the OLD
+schema (`row` minimum 0) rejects a record that now has a number row --
+readers should treat `row` as a signed integer >= -1, not assume 0 is the
+minimum. Additive only: no existing field, route or stored payload changes
+meaning, and no migration rewrites any existing row (nothing stored had
+row -1 before this).
+
 ## 1.14 — 2026-09-15
 
 LDB-I27 (saltorbit: "pine has taken down his api" -- cmini's own upstream,

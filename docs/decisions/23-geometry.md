@@ -100,7 +100,7 @@ Payload
 
 Key
 ├─ char?: string                     -- one code point; ABSENT = a free position (was the `free` list)
-├─ row: 0..4                         -- unchanged
+├─ row: -1..4                        -- widened from 0..4 by the row-minus-one decision (§4.1a, below)
 ├─ col: integer >= 0                 -- unchanged (absolute column, thumbs too)
 └─ finger: LP LR LM LI RI RM RR RP LT RT   -- TB REMOVED
 ```
@@ -142,7 +142,39 @@ row, the gap sits after the last column whose key has a left-hand finger
 right-hand column, `5` when a row has no right-hand key. One function,
 `handSplit(keys)`, exported by the format package (§9 F30).
 
+#### 4.1a Row −1: the number row (decided 2026-09-21)
+
+A row ABOVE the 3×10 alpha block is stored as `row: -1` — rows 0/1/2 keep
+their one meaning everywhere (top/home/bottom of the alpha block); below
+the alpha block is thumbs, unchanged. Only ONE row above the alpha block
+exists: −1 is the new minimum, never −2. Rejected alternatives: shifting
+every row down so the new top row becomes 0 (breaks every existing
+consumer's assumption that row 0 is the alpha block's own top row, for
+every layout that never had a number row); bottom-anchoring the stagger by
+row count (loses the distinction between "a number row" and "a 4th finger
+row below the alpha block", which the 22 pre-existing number-row layouts
+already used row 3 for, ambiguously — see §4.6, `fromCmini` never produces
+row −1). Physical x of `(row, col)`, added to §4.1's table:
+
+| kind | physical x of `(-1, col)` |
+|---|---|
+| `ansi` | `col - .5` |
+| `iso` | `col - .5` |
+| `ortho`, `colstag` | `col` (flat, same as every other row) |
+
+`handSplit(keys)`/`handSplitRows(keys)` (§4.1's own functions) are
+UNCHANGED — row −1 is outside `handSplitRows`' 0-indexed array and outside
+`handSplit`'s rows-0-2 board-split candidates, same as it was always
+outside both. A new function, `handSplitForRow(keys, row)`, is the same
+per-row rule as one call for ANY row, including −1. `classifyFingering`
+(§4.3) is also unchanged: row −1 is outside its fixed 3×10 grid and is
+never looked at, same as row 3+ already was.
+
 ### 4.2 Thumbs
+
+A thumb key is refused on row −1 the same as on rows 0–2 (§4.4 rule 3,
+below) — row −1 is a finger row, not a thumb row; a thumb key still only
+ever sits on a row ≥ 3.
 
 - A thumb key is any key whose finger is `LT` or `RT`, on any row ≥ 3. Its
   `col` is its absolute column, the same axis as the finger rows.
@@ -179,8 +211,9 @@ ISO angle mod is `iso` + the `LP LR LM LI LI LI` row typed as
 
 1. `board` is one of the four words.
 2. On `iso`, row 2 may be one column wider than rows 0–1.
-3. Finger rows are 0–2 (plus 3 when no key on row 3 is a thumb — the 22
-   number-row layouts); a thumb key never sits on rows 0–2.
+3. Finger rows are −1..2 (plus 3 when no key on row 3 is a thumb — the 22
+   number-row layouts, now more naturally expressed on row −1 instead, §4.1a);
+   a thumb key never sits on rows −1..2.
 4. ~~fingering needs ansi~~ — dropped per review 24 F10: the classifier
    is a derived label and never refuses a write; the BOT enforces "angle
    only on ansi" for its `fingers!`/`board!` verbs (§5.2). `" "` is refused
@@ -192,7 +225,7 @@ ISO angle mod is `iso` + the `LP LR LM LI LI LI` row typed as
 
 | kind | `isRowStaggered` | `rowOrColumnStagger` |
 |---|---|---|
-| `ansi` | true | `[0, .25, .75]` |
+| `ansi` | true | `[0, .25, .75]`, `-0.5` PREPENDED when the layout has a row −1 (§4.1a) |
 | `iso` | true | `[0, .25, -.25]`; row 2's 11 tokens as-is (mana2's own `stand_iso` shape) |
 | `ortho`, `colstag` | true | `[0, 0, 0]` |
 
@@ -200,6 +233,16 @@ Row strings split at `handSplit(keys)` (today: "after the 5th column").
 Thumb strings: left = `LT` keys by column, right = `RT` keys by column
 (today's `col < 4.5` re-anchoring goes; `LDB-F12`'s parity fixture is
 regenerated from the relabelled import).
+
+Row ORDER is ascending stored row (§4.1a): row −1, when present, becomes
+`layout.fingers[0]`/`fingermap[0]`, and every row from 0 up shifts its own
+array index up by one. `toSpark` (mana2 → spark, the reverse direction) is
+NOT taught this: a mana2 array index always reconstructs as that same row
+number, unconditionally — mana2's own rows carry no "this one is physically
+above" signal to recover −1 from. A spark → mana2 → spark round trip of a
+number-row layout therefore loses row identity on the way back (every row
+shifts down by one), the same class of loss a 4th finger row already caused
+before this decision (§9 F42).
 
 ### 4.6 Import from cmini (`fromCmini`), the one place that still guesses
 
@@ -511,3 +554,15 @@ lead session owns the spark deploy, rebuild and restart; saltorbit picks the hou
 6. `bash scripts/rebuild-on-fly.sh` (~17 min; fresh base, pointer swap)
    then `flyctl machine restart` the bot so its published index reloads.
 7. db-alias site build last (after the pointer swap); akl.gg prod untouched.
+
+### 10.2 Row −1, the number row (decided 2026-09-21)
+
+saltorbit/aklgg#398 part 2: a row ABOVE the 3×10 alpha block is now stored
+as `row: -1` (§4.1a) instead of being folded onto row 3+ below it (the 22
+pre-existing number-row layouts' own workaround). Rejected: shifting every
+row down so the new top row becomes 0 (breaks row 0/1/2's fixed meaning for
+every OTHER layout); bottom-anchoring the stagger by row count (keeps the
+ambiguity between "a number row" and "a genuine 4th finger row" the old
+row-3 workaround already had). `Key.row`'s schema minimum widens from 0 to
+−1 (`WIRE_VERSION` 15, `CHANGELOG-API.md` 1.15, `LDB-F42`) — additive, no
+migration (nothing stored ever had row −1 before this).
