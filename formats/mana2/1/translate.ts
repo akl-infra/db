@@ -354,16 +354,44 @@ interface ThumbEntry {
 // the file it downloaded; the DB never guesses one from the keys.
 export const DEFAULT_ROW_STAGGER: readonly [number, number, number] = [0, 0.25, 0.75];
 
-function defaultBoard(numMainRows: number): { isRowStaggered: boolean; rowOrColumnStagger: number[] } {
-  const padded: number[] = [...DEFAULT_ROW_STAGGER];
-  while (padded.length < numMainRows) padded.push(padded[padded.length - 1]!);
+// staggerForRow: the ANSI physical-x offset for one STORED spark row (the
+// row-minus-one decision, 2026-09-21): rows 0/1/2 are `DEFAULT_ROW_STAGGER`
+// unchanged, any finger row >= 3 repeats row 2's own 0.75 (unchanged), and
+// row -1 (the number row above the 3x10 alpha block) is -0.5 -- one key
+// width further out than row 0, the same direction row 1/2 step IN by.
+function staggerForRow(row: number): number {
+  if (row === -1) return -0.5;
+  if (row <= 0) return DEFAULT_ROW_STAGGER[0];
+  if (row === 1) return DEFAULT_ROW_STAGGER[1];
+  return DEFAULT_ROW_STAGGER[2]; // row >= 2
+}
+
+// defaultBoard: `rowOrColumnStagger` covers physical rows minRow..max(2,
+// maxRow) -- NEVER just minRow..maxRow (numMainRows' own range) -- so a
+// layout with fewer than 3 finger rows still gets rows 0-2's worth of
+// stagger, exactly like the pre-row-minus-one code always padded to at
+// least `DEFAULT_ROW_STAGGER`'s own length (3) regardless of how few
+// `fingers` rows a short layout actually had. mana2's own `isRowStaggered`
+// rule only requires `rowOrColumnStagger.length >= fingers.length` (never
+// equality, core/load_layout.go's own `checkStaggerLength`), so this
+// over-covering is valid mana2/1, and -- unlike a version keyed to
+// `numMainRows` alone -- it keeps every EXISTING record's lowering
+// byte-identical (this slice is additive-only, `CHANGELOG-API.md` 1.15):
+// for minRow = 0 (no number row) this is exactly the old behavior; a
+// number row (minRow = -1) prepends one `-0.5` entry ahead of it.
+function defaultBoard(minRow: number, maxRow: number): { isRowStaggered: boolean; rowOrColumnStagger: number[] } {
+  const staggerLen = Math.max(2, maxRow) - minRow + 1;
+  const padded: number[] = [];
+  for (let i = 0; i < staggerLen; i++) padded.push(staggerForRow(minRow + i));
   return { isRowStaggered: true, rowOrColumnStagger: padded };
 }
 
 // from["spark/1"] (spark/1 -> mana2/1). Mirrors the site's ConvertLayout
 // (tools/mana2bridge/bridgecore/convert.go): a grid over the NON-thumb
-// keys/free (rows 0..maxRow, cols 0..maxCol, absolute -- no compaction,
-// matching cmini's own absolute-column convention), a `skip` for any
+// keys/free (rows minRow..maxRow, cols 0..maxCol, absolute -- no compaction,
+// matching cmini's own absolute-column convention; minRow is -1 when the
+// layout has a number row, 0 otherwise -- the row-minus-one decision), a
+// `skip` for any
 // column with neither a key nor a `free` entry (fingermap digit 0 for
 // those, since there is no finger to report), trailing `skip`s of a row
 // trimmed so mana2's own vendored files round-trip byte-for-byte; thumb
@@ -416,12 +444,25 @@ export function fromSpark(p: SparkPayload): Mana2Payload {
   // 1-5) -- a genuinely empty spark/1 layout (0 keys, 52 live upstream
   // layouts, 07-implementation-phase1.md §0.1) still needs ONE row to
   // stay schema-valid; an empty string represents "no keys" faithfully.
-  const numMainRows = Math.max(main.length === 0 ? 0 : Math.max(...main.map((e) => e.row)) + 1, 1);
+  //
+  // Row order is ASCENDING STORED ROW (the row-minus-one decision,
+  // 2026-09-21): mana2's `fingers`/`fingermap` arrays are 0-indexed and
+  // top-to-bottom, but a stored spark row can now be -1 (the number row
+  // above the 3x10 alpha block), which is physically the FIRST row, not
+  // array index 0's usual row 0. `minRow` is -1 when the layout has any
+  // number-row entry, 0 otherwise (never less than -1 -- validate() already
+  // refused that) -- array index `i` is always physical row `minRow + i`,
+  // so index 0 is row -1 when present, matching the physical top-to-bottom
+  // order every other row already used.
+  const minRow = main.length === 0 ? 0 : Math.min(0, ...main.map((e) => e.row));
+  const maxRow = main.length === 0 ? -1 : Math.max(...main.map((e) => e.row));
+  const numMainRows = Math.max(maxRow - minRow + 1, 1);
   const maxCol = main.length === 0 ? -1 : Math.max(...main.map((e) => e.col));
 
   const fingers: string[] = [];
   const fingermap: string[] = [];
-  for (let r = 0; r < numMainRows; r++) {
+  for (let i = 0; i < numMainRows; i++) {
+    const r = minRow + i;
     const byCol = new Map<number, MainEntry>();
     for (const e of main) if (e.row === r) byCol.set(e.col, e);
     const tokens: string[] = [];
@@ -456,7 +497,7 @@ export function fromSpark(p: SparkPayload): Mana2Payload {
   // (21-formats.md D10) -- every derivation from a stored spark/1 record
   // answers each field's default, same as a genuinely mana2-native layout
   // that never set it.
-  const derivedBoard = defaultBoard(numMainRows);
+  const derivedBoard = defaultBoard(minRow, maxRow);
   const board: Mana2Board = {
     isRowStaggered: derivedBoard.isRowStaggered,
     rowOrColumnStagger: derivedBoard.rowOrColumnStagger,

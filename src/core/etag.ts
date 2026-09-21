@@ -154,7 +154,17 @@ export async function readHead(db: D1Database, stateKeys: readonly string[] = []
 //   `health.import` each gain a `disabled` boolean (mirrors the new
 //   `IMPORT_ENABLED` kill switch, forces `health.diff.stale` false while
 //   it's off). Additive only.
-export const WIRE_VERSION = 14;
+// 15 (2026-09-21, LDB-F42, the row-minus-one decision): `spark/1`'s `Key.row`
+//   minimum widens from 0 to -1 (maximum unchanged at 4) -- a row ABOVE the
+//   3x10 alpha block is now storable as `row: -1` (the number row); rows
+//   0/1/2 keep their existing meaning everywhere. A client validating a
+//   fetched record against a cached copy of the OLD schema (minimum 0)
+//   rejects a record that now has a number row -- readers should treat
+//   `row` as a signed integer >= -1, not assume 0 is the minimum. Purely
+//   additive to `/v1` (a domain widening, not a shape change): no existing
+//   field, route or stored payload changes meaning, and no migration
+//   rewrites any existing row (nothing stored ever had row -1 before this).
+export const WIRE_VERSION = 15;
 
 export async function etagFor(headSeqValue: number, query: unknown): Promise<string> {
   const hash = await sha256Hex(canonical({ wireVersion: WIRE_VERSION, query: query ?? null }));

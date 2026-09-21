@@ -39,25 +39,39 @@ export interface Key {
 // always agrees with the fixed col4|col5 boundary every legacy reader used).
 const DEFAULT_SPLIT = 5;
 
-// handSplitRows: per finger row (0..max(2, highest row seen)), 1 + the max
-// column among ALL entries (a free position counts too -- it has a finger,
-// §4.1: "keys and free positions") whose finger starts with 'L' -- thumbs
-// (LT/RT) are excluded even though their label also starts with 'L'/'R'
-// (§4.1: "not thumbs"). DEFAULT_SPLIT when a row has no L* entry at all.
-// Exported separately from `handSplit` (the board split, below) for a
-// lowering that needs the PER-ROW value (`classifyFingering` here; the
-// coordinator's own parity note keeps these two as separate calls, matching
-// the site's port -- LDB-F30, one definition, numerically identical).
+// handSplitForRow: the LOCAL split for exactly ONE row (any row, including
+// -1, the number row above the 3x10 alpha block -- design/layout-db's
+// row-minus-one decision, 2026-09-21): 1 + the max column among ALL entries
+// on that row (a free position counts too -- it has a finger, §4.1: "keys
+// and free positions") whose finger starts with 'L' -- thumbs (LT/RT) are
+// excluded even though their label also starts with 'L'/'R' (§4.1: "not
+// thumbs"). DEFAULT_SPLIT when the row has no L* entry at all. Factored out
+// of `handSplitRows` (below) so a caller wanting row -1's split alone (never
+// part of `handSplitRows`' own array, which stays 0-indexed by contract)
+// doesn't have to grow or renumber that array to reach it.
+export function handSplitForRow(keys: Key[], row: number): number {
+  let maxLeftCol = -1;
+  for (const p of keys) {
+    if (p.row !== row || p.finger === "LT" || p.finger === "RT") continue;
+    if (p.finger.startsWith("L")) maxLeftCol = Math.max(maxLeftCol, p.col);
+  }
+  return maxLeftCol >= 0 ? maxLeftCol + 1 : DEFAULT_SPLIT;
+}
+
+// handSplitRows: per finger row (0..max(2, highest row seen)), `handSplitForRow`
+// for that row. Index i IS row i -- this array never grows a slot for row -1
+// (a caller that needs row -1's split calls `handSplitForRow(keys, -1)`
+// directly; row -1 is outside this array's own 0-indexed contract, same as
+// it's outside `classifyFingering`'s fixed 3x10 grid, below). Exported
+// separately from `handSplit` (the board split, below) for a lowering that
+// needs the PER-ROW value (`classifyFingering` here; the coordinator's own
+// parity note keeps these two as separate calls, matching the site's port --
+// LDB-F30, one definition, numerically identical).
 export function handSplitRows(keys: Key[]): number[] {
   const maxRow = Math.max(2, ...keys.map((p) => p.row));
   const rows: number[] = [];
   for (let row = 0; row <= maxRow; row++) {
-    let maxLeftCol = -1;
-    for (const p of keys) {
-      if (p.row !== row || p.finger === "LT" || p.finger === "RT") continue;
-      if (p.finger.startsWith("L")) maxLeftCol = Math.max(maxLeftCol, p.col);
-    }
-    rows.push(maxLeftCol >= 0 ? maxLeftCol + 1 : DEFAULT_SPLIT);
+    rows.push(handSplitForRow(keys, row));
   }
   return rows;
 }
@@ -65,8 +79,10 @@ export function handSplitRows(keys: Key[]): number[] {
 // handSplit: THE board's hand split -- the minimum, over finger rows (row
 // <= 2) that have BOTH an L* entry and an R* entry, of that row's local
 // split (`handSplitRows`); DEFAULT_SPLIT (5) when no row qualifies,
-// including an entirely empty layout. Returns the bare number (not an
-// object) to match the site's own port number-for-number (LDB-F30).
+// including an entirely empty layout. UNCHANGED by row -1 (the number row):
+// the loop below starts at row 0, so row -1 never becomes a candidate, same
+// as `classifyFingering`'s fixed 3x10 grid below. Returns the bare number
+// (not an object) to match the site's own port number-for-number (LDB-F30).
 export function handSplit(keys: Key[]): number {
   const maxRow = Math.max(2, ...keys.map((p) => p.row));
   const candidates: number[] = [];

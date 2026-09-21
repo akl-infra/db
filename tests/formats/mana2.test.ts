@@ -213,21 +213,39 @@ describe("algorithm rows (12-implementation-phase5.md §2.5, exact)", () => {
     expect(m.fingermap[1]!.trim().split(/\s+/)[4]).toBe("3"); // LI's digit -- the skip cell still reports the right finger
   });
 
-  // [LDB-F40] design/layout-db/26-no-board.md: spark/1 says nothing about
-  // the board, so `fromSpark`'s mana2 `board` is a FIXED default -- the
-  // ANSI row stagger (`DEFAULT_ROW_STAGGER`, what the site's own default
-  // comparison view draws), padded to the layout's own row count by
-  // repeating row 2's offset; never `isRowStaggered: false`, never read
-  // from the payload.
-  it("[LDB-F40] fromSpark's board is the fixed ANSI row stagger for every spark/1 fixture", () => {
+  // [LDB-F40] [LDB-F42] design/layout-db/26-no-board.md: spark/1 says
+  // nothing about the board, so `fromSpark`'s mana2 `board` is a FIXED
+  // default -- the ANSI row stagger (`DEFAULT_ROW_STAGGER`, what the site's
+  // own default comparison view draws), covering physical rows
+  // minRow..max(2, maxRow) -- NEVER just `fingers.length`'s own range, so a
+  // layout with fewer than 3 finger rows still gets rows 0-2's worth of
+  // stagger, padding by repeating row 2's offset past that; never
+  // `isRowStaggered: false`, never read from the payload. The row-minus-one
+  // decision (2026-09-21) adds one more physical row BEFORE row 0: -1 (the
+  // number row), offset -0.5, whenever a fixture has any non-thumb key on
+  // it -- this is additive-only (`CHANGELOG-API.md` 1.15): a fixture with
+  // no row -1 gets EXACTLY the same stagger array as before this decision.
+  // `expectedStaggerRow` below is this file's own independent restatement
+  // of `translate.ts`'s `staggerForRow`, not a call into it (a test
+  // re-deriving the rule catches a regression in the rule itself, not just
+  // its own call site).
+  function expectedStaggerRow(physicalRow: number): number {
+    if (physicalRow === -1) return -0.5;
+    if (physicalRow <= 0) return DEFAULT_ROW_STAGGER[0];
+    if (physicalRow === 1) return DEFAULT_ROW_STAGGER[1];
+    return DEFAULT_ROW_STAGGER[2]; // row >= 2
+  }
+  it("[LDB-F40] [LDB-F42] fromSpark's board is the fixed ANSI row stagger for every spark/1 fixture", () => {
     const files = fs.readdirSync(SPARK_FIXTURES_DIR).filter(isBaseFixtureFile).sort();
     expect(files.length).toBeGreaterThan(0);
     for (const file of files) {
       const payload = JSON.parse(fs.readFileSync(path.join(SPARK_FIXTURES_DIR, file), "utf8")) as SparkPayload;
       const m = fromSpark(payload);
-      const rows = m.layout.fingers.length;
-      const expected = [...DEFAULT_ROW_STAGGER];
-      while (expected.length < rows) expected.push(expected[expected.length - 1]!);
+      const mainRows = payload.keys.filter((k) => k.finger !== "LT" && k.finger !== "RT").map((k) => k.row);
+      const minRow = mainRows.length === 0 ? 0 : Math.min(0, ...mainRows);
+      const maxRow = mainRows.length === 0 ? -1 : Math.max(...mainRows);
+      const staggerLen = Math.max(2, maxRow) - minRow + 1;
+      const expected = Array.from({ length: staggerLen }, (_, i) => expectedStaggerRow(minRow + i));
       expect(m.board, file).toEqual({ isRowStaggered: true, rowOrColumnStagger: expected, mirrorLeftRowStagger: false, splitAngle: 0 });
     }
   });
@@ -432,7 +450,23 @@ function adjustForMana2RoundTrip(a: SparkPayload): SparkPayload {
     else mainEntries.push({ row: k.row, col: k.col, char, finger: k.finger });
   }
 
-  const numMainRows = Math.max(mainEntries.length === 0 ? 0 : Math.max(...mainEntries.map((e) => e.row)) + 1, 1);
+  // [LDB-F42] row-minus-one decision, 2026-09-21: `fromSpark` orders rows
+  // minRow..maxRow ascending (minRow is -1 when `a` has a number row, 0
+  // otherwise) -- but `toSpark` (mana2 -> spark, unchanged by this
+  // decision, see formats/mana2/1/translate.ts's own header note) has no
+  // idea a mana2 array index ever meant anything but "row = that index" --
+  // it always reconstructs row `i` for array index `i`, starting at 0. A
+  // layout with a number row therefore does NOT round-trip its row values
+  // through mana2 identically any more: rows shift down by one (row -1
+  // becomes 0, row 0 becomes 1, ...), same shift a 4th finger row (old row
+  // 3) already caused before this decision existed. `minRow`/`maxRow` below
+  // pick out which SOURCE rows contribute entries and in what order; the
+  // reconstructed `out` array's own `row` field is the loop index `i`
+  // itself (below), never `minRow + i` -- that's the one-line difference
+  // from a same-numbering round trip, and it's what actually happens.
+  const minRow = mainEntries.length === 0 ? 0 : Math.min(0, ...mainEntries.map((e) => e.row));
+  const maxRow = mainEntries.length === 0 ? -1 : Math.max(...mainEntries.map((e) => e.row));
+  const numMainRows = Math.max(maxRow - minRow + 1, 1);
   const maxCol = mainEntries.length === 0 ? -1 : Math.max(...mainEntries.map((e) => e.col));
   const thumbRow = numMainRows;
   const sortSide = (side: ThumbEntry[]): ThumbEntry[] => [...side].sort((x, y) => (x.col !== y.col ? x.col - y.col : x.row - y.row));
@@ -449,9 +483,10 @@ function adjustForMana2RoundTrip(a: SparkPayload): SparkPayload {
   // array, in the SAME row-major, then-left-thumbs, then-right-thumbs
   // order `toSpark` itself pushes in -- array order matters for `toEqual`.
   const out: SparkPayload["keys"] = [];
-  for (let r = 0; r < numMainRows; r++) {
+  for (let i = 0; i < numMainRows; i++) {
+    const srcRow = minRow + i; // the SOURCE row this array index draws from
     const byCol = new Map<number, { char?: string; finger: string }>();
-    for (const e of mainEntries) if (e.row === r) byCol.set(e.col, { char: e.char, finger: e.finger });
+    for (const e of mainEntries) if (e.row === srcRow) byCol.set(e.col, { char: e.char, finger: e.finger });
     let width = 0;
     for (let c = 0; c <= maxCol; c++) {
       const e = byCol.get(c);
@@ -459,8 +494,11 @@ function adjustForMana2RoundTrip(a: SparkPayload): SparkPayload {
     }
     for (let c = 0; c < width; c++) {
       const e = byCol.get(c);
-      if (e && e.char !== undefined) out.push({ char: e.char, row: r, col: c, finger: e.finger });
-      else out.push({ row: r, col: c, finger: e ? e.finger : "LP" });
+      // The OUTPUT row is the array index `i` itself, never `srcRow` --
+      // see the comment above `minRow`: `toSpark` reconstructs row = array
+      // index, unconditionally.
+      if (e && e.char !== undefined) out.push({ char: e.char, row: i, col: c, finger: e.finger });
+      else out.push({ row: i, col: c, finger: e ? e.finger : "LP" });
     }
   }
 
