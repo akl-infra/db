@@ -173,7 +173,18 @@ export async function readHead(db: D1Database, stateKeys: readonly string[] = []
 //   the 18 catalog layouts whose cmini magic key(s) (`@`/`*`) were imported
 //   at row >= 3 under a placeholder non-thumb finger; they are thumb keys.
 //   Additive only.
-export const WIRE_VERSION = 16;
+// 17 (2026-09-21, LDB-F42, the row-minus-one decision): `spark/1`'s
+//   `Key.row` minimum widens from 0 to -1 (maximum unchanged at 4) -- a row
+//   ABOVE the 3x10 alpha block is now storable as `row: -1` (the number
+//   row); rows 0/1/2 keep their existing meaning everywhere. A client
+//   validating a fetched record against a cached copy of the OLD schema
+//   (minimum 0) rejects a record that now has a number row -- readers
+//   should treat `row` as a signed integer >= -1, not assume 0 is the
+//   minimum. Purely additive to `/v1` (a domain widening, not a shape
+//   change): no existing field, route or stored payload changes meaning,
+//   and no migration rewrites any existing row (nothing stored ever had
+//   row -1 before this).
+export const WIRE_VERSION = 17;
 
 export async function etagFor(headSeqValue: number, query: unknown): Promise<string> {
   const hash = await sha256Hex(canonical({ wireVersion: WIRE_VERSION, query: query ?? null }));

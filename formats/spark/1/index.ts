@@ -442,15 +442,19 @@ function validateGeometry(p: Payload): ErrBody | null {
     }
   }
 
-  // §4.4-3: a thumb key (LT/RT) never sits on a finger row (0-2) -- the 22
-  // number-row layouts put a NON-thumb key on row 3, so row 3+ stays
-  // otherwise unrestricted (§4.2: "any row >= 3").
+  // §4.4-3: a thumb key (LT/RT) never sits on a finger row (-1..2, since the
+  // row-minus-one decision widened the schema's row minimum to -1 for the
+  // number row above the 3x10 alpha block -- rows -1/0/1/2 keep their one
+  // meaning everywhere) -- the 22 number-row layouts put a NON-thumb key on
+  // row 3 (or, now, row -1), so row 3+ stays otherwise unrestricted (§4.2:
+  // "any row >= 3"). `pos.row <= 2` already covers row -1 with no change:
+  // -1 <= 2 is true, so a thumb on the number row is refused the same way.
   for (let i = 0; i < p.keys.length; i++) {
     const pos = p.keys[i]!;
     if ((pos.finger === "LT" || pos.finger === "RT") && pos.row <= 2) {
       return {
         error: "invalid_payload",
-        message: `finger '${pos.finger}' is a thumb -- it can't sit on row ${pos.row} (rows 0-2 are finger rows)`,
+        message: `finger '${pos.finger}' is a thumb -- it can't sit on row ${pos.row} (rows -1..2 are finger rows)`,
         path: `/keys/${i}`,
       };
     }
