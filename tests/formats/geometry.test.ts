@@ -1,7 +1,7 @@
 // [LDB-F30] `db/formats/spark/1/geometry.ts` is the ONE definition of the
-// hand split (`handSplit`/`handSplitRows`) and the named-fingering
-// classification (`classifyFingering`) -- the site's drawer, the bot's
-// grid/image and the mana2 lowering all call these, never re-derive them
+// named-fingering classification (`classifyFingering`) -- never re-derived
+// inside db/ (there is no hand split here any more: where to draw the gap is
+// each client's own decision, 2026-09-24)
 // (design/layout-db/23-geometry.md §3/§4.1/§4.3; the board-keyed
 // `coords`/`STAGGER_BY_KIND` went with the board field, 26-no-board.md). This file is the unit-level proof for the
 // pure functions themselves; `mf9-fromcmini.test.ts`/`mana2.test.ts` prove
@@ -10,71 +10,11 @@
 // `fingermap` field) is reported in the slice's own writeup rather than
 // committed as a test (it reads `web/data/*.json`, outside this package).
 import { describe, expect, it } from "vitest";
-import { handSplit, handSplitRows, classifyFingering, gridIndent, FINGERING_REFS, type Key } from "../../formats/spark/1/geometry.ts";
-
-// -- handSplit / handSplitRows (§4.1, the coordinator's parity note) --
+import { classifyFingering, gridIndent, FINGERING_REFS, type Key } from "../../formats/spark/1/geometry.ts";
 
 function k(char: string | undefined, row: number, col: number, finger: string): Key {
   return { char, row, col, finger };
 }
-
-describe("handSplit / handSplitRows (§4.1)", () => {
-  it("[LDB-F30] the ordinary 10-wide board: split 5 on every row", () => {
-    const keys: Key[] = [
-      k("q", 0, 0, "LP"), k("w", 0, 1, "LR"), k("e", 0, 2, "LM"), k("r", 0, 3, "LI"), k("t", 0, 4, "LI"),
-      k("y", 0, 5, "RI"), k("u", 0, 6, "RI"), k("i", 0, 7, "RM"), k("o", 0, 8, "RR"), k("p", 0, 9, "RP"),
-    ];
-    expect(handSplit(keys)).toBe(5);
-    expect(handSplitRows(keys)).toEqual([5, 5, 5]);
-  });
-
-  it("[LDB-F30] empty keys -> 5 (undeterminable, every row)", () => {
-    expect(handSplit([])).toBe(5);
-    expect(handSplitRows([])).toEqual([5, 5, 5]);
-  });
-
-  it("[LDB-F30] a free (char-less) entry counts the same as a keyed one", () => {
-    const keys: Key[] = [k(undefined, 0, 0, "LP"), k(undefined, 0, 1, "LR"), k("y", 0, 5, "RI")];
-    expect(handSplitRows(keys)[0]).toBe(2);
-  });
-
-  it("[LDB-F30] thumbs (LT/RT) never count, even though their label starts with L/R", () => {
-    const keys: Key[] = [k("a", 0, 0, "LP"), k("z", 3, 9, "LT")]; // a stray thumb far to the right must not move row 0's split
-    expect(handSplitRows(keys)[0]).toBe(1);
-  });
-
-  it("[LDB-F30] a row with an L* entry but no R* entry never qualifies as a board-split candidate", () => {
-    const keys: Key[] = [k("a", 0, 3, "LI")]; // row 0: left only, no right -- not a candidate
-    expect(handSplit(keys)).toBe(5); // falls through to the default
-    expect(handSplitRows(keys)).toEqual([4, 5, 5]);
-  });
-
-  // The coordinator's own disagreeing-rows fixture: an 11-wide row 0 (right
-  // hand starting at col 5, an extra RP-ish column tacked on past it, which
-  // doesn't move the SPLIT itself) alongside a 12-wide colstag-style row 1
-  // whose right hand starts at col 6 -- the board split is the MINIMUM
-  // across qualifying rows, so it's 5 (row 0), not 6 (row 1).
-  it("[LDB-F30] disagreeing rows: board split is the MINIMUM over qualifying rows", () => {
-    const keys: Key[] = [
-      // row 0: ordinary 10-wide split-at-5, plus one more right-hand key at col 10 (doesn't change the split)
-      k("a", 0, 4, "LI"), k("b", 0, 5, "RI"), k("c", 0, 10, "RP"),
-      // row 1: a 12-wide colstag-style row, left hand fills cols 0-5, right hand starts at col 6
-      k("d", 1, 5, "LI"), k("e", 1, 6, "RI"),
-    ];
-    expect(handSplitRows(keys)).toEqual([5, 6, 5]); // row 2 has no entries -> default 5
-    expect(handSplit(keys)).toBe(5); // min(5, 6) -- row 0 wins
-  });
-
-  it("[LDB-F30] iso's row 2 (6 left columns, split 6) doesn't affect the board split when rows 0-1 split at 5", () => {
-    const keys: Key[] = [
-      k("q", 0, 0, "LP"), k("w", 0, 1, "LR"), k("e", 0, 2, "LM"), k("r", 0, 3, "LI"), k("t", 0, 4, "LI"), k("y", 0, 5, "RI"),
-      k("a", 1, 0, "LP"), k("s", 1, 1, "LR"), k("d", 1, 2, "LM"), k("f", 1, 3, "LI"), k("g", 1, 4, "LI"), k("h", 1, 5, "RI"),
-      k("iso", 2, 0, "LP"), k("z", 2, 1, "LR"), k("x", 2, 2, "LM"), k("c", 2, 3, "LI"), k("v", 2, 4, "LI"), k("b", 2, 5, "LI"), k("n", 2, 6, "RI"),
-    ];
-    expect(handSplitRows(keys)).toEqual([5, 5, 6]);
-    expect(handSplit(keys)).toBe(5);
-  });
-});
 
 // -- classifyFingering (§4.3) --
 
@@ -142,7 +82,7 @@ describe("classifyFingering (§4.3)", () => {
     expect(classifyFingering(layout)).toBe("standard");
   });
 
-  it("[LDB-F30] [LDB-F32] the reference grid is FIXED at cols 0-4/5-9, never derived from handSplit/handSplitRows -- confirmed against the real scripts/build_web.py source (a prior port anchored the right hand at each row's own split instead, which measurably diverged from the site's own stored labels on real catalog layouts; the slice's own parity script caught it)", () => {
+  it("[LDB-F30] [LDB-F32] the reference grid is FIXED at cols 0-4/5-9, never derived from a hand split -- confirmed against the real scripts/build_web.py source (a prior port anchored the right hand at each row's own split instead, which measurably diverged from the site's own stored labels on real catalog layouts; the slice's own parity script caught it)", () => {
     // iso's real extra row-2 key (col 5, an L-hand finger physically between
     // the fixed left and right halves) breaks every reference's right-hand
     // match at col 5 (expected RI) -- 'custom', never 'standard', because

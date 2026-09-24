@@ -141,6 +141,9 @@ row, the gap sits after the last column whose key has a left-hand finger
 (`L*`); the board's split column is the minimum over rows 0–2 of the first
 right-hand column, `5` when a row has no right-hand key. One function,
 `handSplit(keys)`, exported by the format package (§9 F30).
+*(Superseded 2026-09-24: the format package no longer exports a hand split.
+Nothing in akldb read it; where to draw the gap is each client's drawing
+decision, made from the fingers — 22-spark-spec.md, LDB-F30.)*
 
 ### 4.2 Thumbs
 

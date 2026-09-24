@@ -165,13 +165,12 @@ running 11 wide); nothing else about it is recorded.
 
 *Schema: `db/formats/spark/1/schema.json` (`required: ["keys"]`, no `board` property). LDB-F40.*
 
-**The hand split is derived, never stored.** `handSplit(keys)` is, over
-finger rows (row <= 2) that have both a left-hand and a right-hand entry,
-the minimum "one past the last left-hand column" across those rows; the
-default is column 5 when no row qualifies. The mana2 lowering splits every
-row string at this column.
-
-*`db/formats/spark/1/geometry.ts:60-108` (`handSplitRows`, `handSplit`). LDB-F30.*
+**There is no hand split in the format.** Every finger-row entry's
+`finger` says which hand it belongs to; where a client draws the gap
+between the hands is that client's own decision. (Until 2026-09-24 the
+format package exported a `handSplit`/`handSplitRows` for clients to
+mirror; nothing in akldb used them, and their minimum-over-rows rule drew
+a row with a hole next to the gap one column early.)
 
 **Thumbs.** A thumb key is any entry whose `finger` is `LT` or `RT`; it
 must sit on row >= 3 (never on a finger row, 0-2). Two thumb rows (3 and
@@ -345,7 +344,7 @@ there is nothing to read): `isRowStaggered: true` with the ANSI row stagger
 `[0, 0.25, 0.75]` padded to the layout's own row count (row 2's offset
 repeated), `mirrorLeftRowStagger: false`, `splitAngle: 0`. An 11-wide row
 2 (an ISO layout) stays 11 tokens wide, as mana2's own `stand_iso` shape
-expects. Row strings split at `handSplit(keys)`. Thumb strings are built
+expects. Thumb strings are built
 purely from the finger label (`LT`/`RT`), by column within each side.
 
 *`db/formats/mana2/1/translate.ts` (`DEFAULT_ROW_STAGGER`, `defaultBoard`; thumb-string assembly by finger label). LDB-F40.*
@@ -510,7 +509,6 @@ one thumb row** (a real, tested fixture:
 ```
 
 (Rows 1-2 are omitted here for brevity; the real fixture has the full
-30-key main grid.) `handSplit` reads as column 6 (the last left-hand
-column in the main rows is 5). All six thumbs sit on row 3, three per
+30-key main grid.) The left hand's last main-row column is 5. All six thumbs sit on row 3, three per
 side, ordered by column; nothing about the board a reader draws this on
 changes how a thumb is expressed.

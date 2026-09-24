@@ -33,62 +33,19 @@ export interface Key {
   finger: string;
 }
 
-// §4.1: "for each finger row, the gap sits after the last column whose key
-// has a left-hand finger (L*)"; DEFAULT_SPLIT (5) when a row has no L* key
-// at all (undeterminable -- the ordinary 10-wide-board case, where this
-// always agrees with the fixed col4|col5 boundary every legacy reader used).
-const DEFAULT_SPLIT = 5;
-
-// handSplitRows: per finger row (0..max(2, highest row seen)), 1 + the max
-// column among ALL entries (a free position counts too -- it has a finger,
-// §4.1: "keys and free positions") whose finger starts with 'L' -- thumbs
-// (LT/RT) are excluded even though their label also starts with 'L'/'R'
-// (§4.1: "not thumbs"). DEFAULT_SPLIT when a row has no L* entry at all.
-// Exported separately from `handSplit` (the board split, below) for a
-// lowering that needs the PER-ROW value (`classifyFingering` here; the
-// coordinator's own parity note keeps these two as separate calls, matching
-// the site's port -- LDB-F30, one definition, numerically identical).
-export function handSplitRows(keys: Key[]): number[] {
-  const maxRow = Math.max(2, ...keys.map((p) => p.row));
-  const rows: number[] = [];
-  for (let row = 0; row <= maxRow; row++) {
-    let maxLeftCol = -1;
-    for (const p of keys) {
-      if (p.row !== row || p.finger === "LT" || p.finger === "RT") continue;
-      if (p.finger.startsWith("L")) maxLeftCol = Math.max(maxLeftCol, p.col);
-    }
-    rows.push(maxLeftCol >= 0 ? maxLeftCol + 1 : DEFAULT_SPLIT);
-  }
-  return rows;
-}
-
-// handSplit: THE board's hand split -- the minimum, over finger rows (row
-// <= 2) that have BOTH an L* entry and an R* entry, of that row's local
-// split (`handSplitRows`); DEFAULT_SPLIT (5) when no row qualifies,
-// including an entirely empty layout. Returns the bare number (not an
-// object) to match the site's own port number-for-number (LDB-F30).
-export function handSplit(keys: Key[]): number {
-  const maxRow = Math.max(2, ...keys.map((p) => p.row));
-  const candidates: number[] = [];
-  for (let row = 0; row <= Math.min(2, maxRow); row++) {
-    let maxLeftCol = -1;
-    let hasRight = false;
-    for (const p of keys) {
-      if (p.row !== row || p.finger === "LT" || p.finger === "RT") continue;
-      if (p.finger.startsWith("L")) maxLeftCol = Math.max(maxLeftCol, p.col);
-      else if (p.finger.startsWith("R")) hasRight = true;
-    }
-    if (maxLeftCol >= 0 && hasRight) candidates.push(maxLeftCol + 1);
-  }
-  return candidates.length > 0 ? Math.min(...candidates) : DEFAULT_SPLIT;
-}
+// No hand split here: where a client draws the gap between the hands is
+// that client's own drawing decision, made from the fingers every key
+// already carries (2026-09-24 -- `handSplit`/`handSplitRows` were exported
+// for the site and bot to mirror, but nothing in akldb itself ever called
+// them; the minimum-over-rows rule they fixed drew a row with a hole next to
+// the gap a column early).
 
 // §4.3's four references, left hand only (cols 0-4) -- the right hand is
 // always RI RI RM RR RP at a FIXED cols 5-9, exactly `scripts/build_web.py`'s
 // `_build_fingermap_refs()` (`enumerate(right, start=5)`, never derived from
-// `handSplitRows`) -- confirmed against the real Python source by the
+// a hand split) -- confirmed against the real Python source by the
 // slice's own parity script (db/formats/spark/1's own writeup): an earlier
-// draft of this port anchored the right hand at each row's OWN handSplit
+// draft of this port anchored the right hand at each row's OWN hand-split
 // column instead, which reads as a reasonable generalization but is NOT
 // what the site actually does, and measurably diverged on real catalog
 // layouts whose left-hand extent falls short of col 4 on some row (`alpha`,
@@ -118,7 +75,7 @@ export const FINGERING_REFS: Record<NamedFingering, [string[], string[], string[
 
 // classifyFingering: build_web.py's `classify_fingermap`, exactly -- a
 // FIXED 3x10 grid (rows 0-2, cols 0-9: cols 0-4 the left-hand reference,
-// cols 5-9 always RI RI RM RR RP, never derived from handSplitRows/handSplit
+// cols 5-9 always RI RI RM RR RP, never derived from a hand split
 // -- see the reference table's own comment above). Missing cells (no key at
 // that row/col) never contradict a reference; a layout matching exactly one
 // reference is named that; zero or several matches (ambiguous, e.g. every
@@ -130,8 +87,7 @@ export const FINGERING_REFS: Record<NamedFingering, [string[], string[], string[
 export function classifyFingering(keys: Key[]): Fingering {
   // Only CHARACTER entries participate (build_web.py's `classify_fingermap`
   // reads `ll.keys.values()` -- cmini's own char map, never a free
-  // position); a free position (no `char`) is skipped here even though
-  // `handSplit`/`handSplitRows` count it.
+  // position); a free position (no `char`) is skipped here.
   const pos = new Map<string, string>();
   for (const p of keys) {
     if (p.char === undefined || p.finger === "LT" || p.finger === "RT") continue;

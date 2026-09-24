@@ -78,7 +78,7 @@ export type { Key };
 export type { MagicIntent, MagicKey, ChiralKey, AdaptiveSwap, RawRule };
 // Re-exported for clients (the bot, LDB-F30: one definition of every
 // geometric fact) -- purely additive.
-export { handSplit, handSplitRows, classifyFingering, gridIndent, FINGERING_REFS } from "./geometry.ts";
+export { classifyFingering, gridIndent, FINGERING_REFS } from "./geometry.ts";
 export type { NamedFingering, Fingering } from "./geometry.ts";
 
 // keys: one entry per PHYSICAL position -- `char` absent means a free
