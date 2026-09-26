@@ -29,7 +29,6 @@ import { renameAuthor } from "../../src/core/moderation";
 import type { Clock } from "../../src/core/time";
 import { restoreInto } from "../../src/dump/restore";
 import { buildDump } from "../../src/dump/write";
-import { applyAuthors } from "../../src/import/apply";
 import { generateKeyPair, seedClient, signHeaders } from "../auth/client-support";
 import { FakeDiscord } from "../auth/fake-discord";
 
@@ -55,10 +54,6 @@ beforeAll(async () => {
 });
 
 // --- the real writers ------------------------------------------------------
-
-async function importPass(upstream: Record<string, string>): Promise<void> {
-  await applyAuthors(db, clock, upstream);
-}
 
 async function signIn(userId: string, name: string): Promise<void> {
   const token = `tok-${tokenCounter++}`; // a fresh token: a cached one never reaches the authors write
@@ -133,16 +128,12 @@ const NAMES = ["alice", "bob", "carol", "Alice", "dave"]; // "alice"/"Alice" and
 
 type Op =
   | { kind: "event" }
-  | { kind: "import"; upstream: Record<string, string> }
   | { kind: "signIn"; id: string; name: string }
   | { kind: "client"; id: string }
   | { kind: "touch"; id: string };
 
 const opArb: fc.Arbitrary<Op> = fc.oneof(
   fc.constant<Op>({ kind: "event" }),
-  fc
-    .array(fc.tuple(fc.constantFrom(...NAMES), fc.constantFrom(...IDS)), { minLength: 1, maxLength: 5 })
-    .map((pairs): Op => ({ kind: "import", upstream: Object.fromEntries(pairs) })),
   fc.record({ id: fc.constantFrom(...IDS), name: fc.constantFrom(...NAMES) }).map((r): Op => ({ kind: "signIn", ...r })),
   fc.constantFrom(...IDS).map((id): Op => ({ kind: "client", id })),
   fc.constantFrom(...IDS).map((id): Op => ({ kind: "touch", id })),
@@ -150,7 +141,6 @@ const opArb: fc.Arbitrary<Op> = fc.oneof(
 
 async function apply(op: Op): Promise<void> {
   if (op.kind === "event") await event();
-  else if (op.kind === "import") await importPass(op.upstream);
   else if (op.kind === "signIn") await signIn(op.id, op.name);
   else if (op.kind === "client") await clientLane(op.id);
   else await touch(op.id);
@@ -162,7 +152,7 @@ function asSent(etag: string, step: number): string {
   return step % 2 === 0 ? etag : `W/${etag}`;
 }
 
-describe("[LDB-R9] [LDB-R10] [LDB-R11] property: events, import passes, sign-ins, client-lane requests and bookkeeping", () => {
+describe("[LDB-R9] [LDB-R10] [LDB-R11] property: events, sign-ins, client-lane requests and bookkeeping", () => {
   it(
     "[LDB-R9] [LDB-R10] [LDB-R11] each step moves a route's ETag iff it moved that route's body; a conditional GET is 304 iff nothing it shows changed; equal tags mean equal bodies",
     async () => {
@@ -260,22 +250,10 @@ let caseIdCounter = 200000000000000000n;
 const freshId = (): string => String(caseIdCounter++);
 
 function authorOnlyChanges(): ChangeCase[] {
-  const a = freshId();
-  const b = freshId();
   const c = freshId();
-  const d = freshId();
   const e = freshId();
   return [
-    { kind: "the import adds a new id", id: a, setup: async () => {}, change: () => importPass({ "new-author": a }), expectName: "new-author" },
-    {
-      kind: "the import renames an id whose stored name upstream no longer lists",
-      id: b,
-      setup: () => importPass({ "old-name": b }),
-      change: () => importPass({ "new-name": b }),
-      expectName: "new-name",
-    },
     { kind: "a sign-in renames a user", id: c, setup: () => signIn(c, "before-signin"), change: () => signIn(c, "after-signin"), expectName: "after-signin" },
-    { kind: "the import replaces a client-lane placeholder", id: d, setup: () => clientLane(d), change: () => importPass({ "real-name": d }), expectName: "real-name" },
     { kind: "the client lane first sees an id", id: e, setup: async () => {}, change: () => clientLane(e), expectName: e },
   ];
 }
@@ -321,16 +299,12 @@ interface KeepCase {
 
 function bookkeeping(): KeepCase[] {
   const a = freshId();
-  const b = freshId();
   const c = freshId();
-  const d = freshId();
   const e = freshId();
   return [
     { kind: "a sign-in that keeps its name (last_seen_at only)", setup: () => signIn(a, "steady"), keep: () => signIn(a, "steady") },
-    { kind: "a sign-in whose name equals the import's (name_source import -> user only)", setup: () => importPass({ shared: b }), keep: () => signIn(b, "shared") },
     { kind: "a repeat client-lane request", setup: () => clientLane(c), keep: () => clientLane(c) },
-    { kind: "an import pass that writes nothing", setup: () => importPass({ same: d, alias: d }), keep: () => importPass({ alias: d, same: d }) },
-    { kind: "a direct last_seen_at update and a name set to itself", setup: () => importPass({ touched: e }), keep: () => touch(e) },
+    { kind: "a direct last_seen_at update and a name set to itself", setup: () => signIn(e, "touched"), keep: () => touch(e) },
   ];
 }
 // [LDB-MD4] L5 §4.3: an admin rename to the name a row already holds
@@ -431,7 +405,7 @@ describe("[LDB-R9] a conditional request costs one D1 query", () => {
 
 describe("[LDB-D1] [LDB-R9] the dump carries authors_head and a restore sets it exactly", () => {
   it("[LDB-D1] [LDB-R9] dump meta's author fields equal /v1/meta's; restoring sets authors_head to them despite the triggers; a pre-0007 dump restores as version 0", async () => {
-    await importPass({ "dump-author": freshId() });
+    await signIn(freshId(), "dump-author");
     const live = (await (await get("/v1/meta")).json()) as { authors_version: number; authors_modified_at: string | null; author_count: number };
     const dump = await buildDump(bindings, clock);
     expect(dump.meta.authors_version).toBe(live.authors_version);
@@ -455,8 +429,8 @@ describe("[LDB-D1] [LDB-R9] the dump carries authors_head and a restore sets it 
 // loops, whose own `it()` titles are template-interpolated and so can
 // never carry a static `[LDB-MD4]` tag for tests/tools/invariants.test.ts
 // to find).
-describe("[LDB-MD4] an admin-sourced author name survives sign-ins and import passes", () => {
-  it("[LDB-MD4] moves authors_head; a later sign-in under a different Discord name never overwrites it; the import never renames it either", async () => {
+describe("[LDB-MD4] an admin-sourced author name survives sign-ins", () => {
+  it("[LDB-MD4] moves authors_head; a later sign-in under a different Discord name never overwrites it", async () => {
     const id = freshId();
     await signIn(id, "before-admin");
     const before = (await oracle()).version;
@@ -466,9 +440,6 @@ describe("[LDB-MD4] an admin-sourced author name survives sign-ins and import pa
     expect((await oracle()).byId[id]).toBe("sticky-admin-name");
 
     await signIn(id, "totally-different-handle");
-    expect((await oracle()).byId[id]).toBe("sticky-admin-name");
-
-    await importPass({ "yet-another-name": id });
     expect((await oracle()).byId[id]).toBe("sticky-admin-name");
   });
 

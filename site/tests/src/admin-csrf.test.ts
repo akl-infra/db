@@ -46,9 +46,6 @@ describe("[SITE-13] every admin* mutation targets /api/v1/admin/* with the CSRF 
     ["adminRejectLink", () => api.adminRejectLink("id1", "reason")],
     ["adminAddAdmin", () => api.adminAddAdmin("u1", "note")],
     ["adminRemoveAdmin", () => api.adminRemoveAdmin("u1")],
-    ["adminImportPause", () => api.adminImportPause()],
-    ["adminImportResume", () => api.adminImportResume()],
-    ["adminImportTick", () => api.adminImportTick()],
     ["adminSuspendClient", () => api.adminSuspendClient("c1", "reason")],
     ["adminReactivateClient", () => api.adminReactivateClient("c1")],
     ["adminRevokeClient", () => api.adminRevokeClient("c1")],
@@ -67,7 +64,6 @@ describe("[SITE-13] every admin* mutation targets /api/v1/admin/* with the CSRF 
     ["adminListBans", () => api.adminListBans()],
     ["adminLinkQueue", () => api.adminLinkQueue("pending")],
     ["adminListAdmins", () => api.adminListAdmins()],
-    ["adminHealth", () => api.adminHealth()],
     ["adminListClients", () => api.adminListClients()],
   ];
 

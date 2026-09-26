@@ -1,9 +1,12 @@
-// [LDB-I14] [LDB-P11] [LDB-P14] `core/upstream.ts` against real D1:
+// [LDB-I14] `core/upstream.ts` against real D1:
 // `upstreamOf`'s plain field read (21-formats.md D12 deleted the legacy
 // `import_map`/`legacyFollows` fallback this used to fall back to), the
-// fold identity (P11: the row's `upstream` equals the latest rev-bumping
-// event's after.upstream, over EITHER scope -- MF-12), and the system-
-// writer race guard (P14) -- now implemented by `commitWrite`'s own
+// fold identity (the row's `upstream` equals the latest rev-bumping
+// event's after.upstream, over EITHER scope -- MF-12; the fold's own id,
+// LDB-P11, is retired -- 2026-09-26, the cmini importer removed -- but
+// this coverage stays real, unretired code), and the system-writer race
+// guard (its own id, LDB-P14, is retired the same way) -- now implemented
+// by `commitWrite`'s own
 // `layout_revs` PK on a stale `currentN`, with no separate `expectN` field
 // (a stale base always collides on an already-committed row at that `n`).
 // `tests/core/upstream.test.ts` covers `nextUpstream` itself as a pure
@@ -90,8 +93,8 @@ describe("[LDB-I14] upstreamOf: a plain read of the layout's own field", () => {
   });
 });
 
-describe("[LDB-P11] upstream is a fold", () => {
-  it("[MF-12] [LDB-P11] the row's `upstream` equals the latest rev-bumping event's after.upstream, through a following -> forked transition on a FORMAT-scope write", async () => {
+describe("upstream is a fold", () => {
+  it("[MF-12] the row's `upstream` equals the latest rev-bumping event's after.upstream, through a following -> forked transition on a FORMAT-scope write", async () => {
     const name = `fold-${unique()}`;
     const initial: Upstream = { source: "cmini", id: "fold-up-1", state: "following" };
     const { layout: created } = await createLayout(name, initial, true);
@@ -110,7 +113,7 @@ describe("[LDB-P11] upstream is a fold", () => {
     expect(await upstreamOf(db, rec!)).toEqual(rec!.upstream);
   });
 
-  it("[LDB-P11] a row with a NULL `upstream` field reads null, even with an import_map row (21-formats.md D12: the legacy fallback is gone)", async () => {
+  it("a row with a NULL `upstream` field reads null, even with an import_map row (21-formats.md D12: the legacy fallback is gone)", async () => {
     const name = `null-upstream-${unique()}`;
     const { layout } = await createLayout(name, null, true);
     await insertImportMapRow(`would-have-been-legacy-${unique()}`, layout.id);
@@ -120,8 +123,8 @@ describe("[LDB-P11] upstream is a fold", () => {
   });
 });
 
-describe("[LDB-P14] a stale base closes the system-writer/user-write race", () => {
-  it("[LDB-P14] a system write built from a stale `n` throws RevConflictError before landing, and the user's write survives", async () => {
+describe("a stale base closes the system-writer/user-write race", () => {
+  it("a system write built from a stale `n` throws RevConflictError before landing, and the user's write survives", async () => {
     const name = `race-${unique()}`;
     const { layout: created } = await createLayout(name, { source: "cmini", id: "race-up-1", state: "following" }, true);
     const staleN = created.n; // what a system writer read BEFORE the user's write below landed
@@ -140,7 +143,7 @@ describe("[LDB-P14] a stale base closes the system-writer/user-write race", () =
     expect(finalRec!.upstream).toEqual({ source: "cmini", id: "race-up-1", state: "forked" }); // stays forked
   });
 
-  it("[LDB-P14] a system write whose base `n` IS current commits normally", async () => {
+  it("a system write whose base `n` IS current commits normally", async () => {
     const name = `race-ok-${unique()}`;
     const { layout: created } = await createLayout(name, { source: "cmini", id: "race-up-2", state: "following" }, true);
     const { formats } = await updateSpark(created.id, created.n, { v: 1 }, "import:cmini", { source: "cmini", id: "race-up-2", state: "following" });
@@ -153,7 +156,7 @@ describe("[LDB-P14] a stale base closes the system-writer/user-write race", () =
   // Whatever order they land in, a system write only ever succeeds when
   // its base `n` is STILL current at the moment it runs; it never clobbers
   // a user write that beat it there.
-  it("[LDB-P14] property: a system write commits iff its base `n` is still current when it runs", async () => {
+  it("property: a system write commits iff its base `n` is still current when it runs", async () => {
     await fc.assert(
       fc.asyncProperty(fc.integer({ min: 0, max: 5 }), async (userWritesBeforeSystemWrite) => {
         const name = `race-prop-${unique()}`;

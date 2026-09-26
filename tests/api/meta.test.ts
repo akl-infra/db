@@ -1,9 +1,7 @@
 import { env, SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import type { Bindings } from "../../src/env";
-import { fixedClock } from "../../src/core/time";
-import { tick } from "../../src/import/cmini";
-import { FakeUpstream } from "../import/fake-upstream";
+import { seedUpstream100 } from "./support";
 import { API_MAJOR, API_MINOR, API_VERSION_HEADER, apiVersionString } from "../../src/core/version";
 
 const bindings = env as unknown as Bindings;
@@ -33,13 +31,14 @@ describe("GET /v1/meta", () => {
       // is the "never run" case, not just "old".
       health: {
         dump: { last_at: null, seq: null, age_s: null, stale: true },
-        // [LDB-I27] this test's own env (`vitest.config.ts`'s miniflare
-        // override) reads IMPORT_ENABLED "on", unlike wrangler.toml's live
-        // "off" -- disabled: false.
-        diff: { last_at: null, age_s: null, stale: true, disabled: false },
-        // [LDB-M3] never stalled, never ticked, and the kill switches read
-        // this test's own "on" override -- deletes_disabled/disabled: false.
-        import: { stalled: null, deletes_24h: 0, deletes_planned: null, deletes_applied: null, deletes_disabled: false, disabled: false },
+        // [LDB-X2] the cmini importer is gone for good (pine's own upstream
+        // dead since 2026-09-15) -- `health.diff` is now PERMANENTLY
+        // disabled: true, and its `stale` alarm is forced false regardless
+        // of age (a permanently-off job must never read as "stuck").
+        diff: { last_at: null, age_s: null, stale: false, disabled: true },
+        // [LDB-M3] [LDB-X2] never stalled, never ticked, and `disabled` is
+        // now a literal `true` (no more IMPORT_ENABLED to read).
+        import: { stalled: null, deletes_24h: 0, deletes_planned: null, deletes_applied: null, deletes_disabled: false, disabled: true },
         // [LDB-A12] saltorbit 2026-09-13 (rogue-trusted-client hardening): no
         // client has ever been suspended on a fresh database.
         // [LDB-A14] saltorbit: no threshold is ever public -- only the suspended list.
@@ -62,10 +61,12 @@ describe("GET /v1/meta", () => {
     expect(`${body.api.major}.${body.api.minor}`).toBe(res.headers.get(API_VERSION_HEADER));
   });
 
-  it("[LDB-R2] after the fixture import, counts and seq/revision equal the tables", async () => {
-    const fake = new FakeUpstream();
-    const clock = fixedClock("2026-06-11T00:00:00.000Z");
-    await tick(bindings, clock, fake.fetchImpl, fake.sleepImpl);
+  it("[LDB-R2] after restoring the frozen upstream-100 seed, counts and seq/revision equal the tables", async () => {
+    // [LDB-X3] the cmini importer that used to PRODUCE this state is gone
+    // (pine's own upstream permanently dead since 2026-09-15) -- this
+    // restores the frozen dump instead (`support.ts`'s `seedUpstream100`),
+    // byte-identical to what that import run once produced.
+    await seedUpstream100();
 
     const res = await SELF.fetch("https://example.com/v1/meta");
     const body = await res.json<{
@@ -79,14 +80,12 @@ describe("GET /v1/meta", () => {
 
     // LDB-R2 amended (migrations/0007): the author fields are
     // `authors_head`'s row -- one trigger bump per author insert (32 of
-    // them on a fresh table) and the inserts' own clock -- and
-    // `author_count` is the table's.
+    // them on a fresh table) -- and `author_count` is the table's.
     const headRow = await db.prepare("SELECT version, modified_at FROM authors_head WHERE id = 1").first<{ version: number; modified_at: string | null }>();
     const countRow = await db.prepare("SELECT COUNT(*) AS n FROM authors").first<{ n: number }>();
     expect(body.authors_version).toBe(headRow!.version);
     expect(body.authors_version).toBe(32);
     expect(body.authors_modified_at).toBe(headRow!.modified_at);
-    expect(body.authors_modified_at).toBe("2026-06-11T00:00:00.000Z");
     expect(body.author_count).toBe(countRow!.n);
     expect(body.layout_count).toBe(100);
     // authors.json has 48 name entries but only 32 distinct user ids (9
@@ -148,17 +147,21 @@ describe("[LDB-M2] GET /v1/meta health", () => {
     expect(body.health.diff.age_s).toBeGreaterThanOrEqual(60);
   });
 
-  it("[LDB-M2] a dump/diff older than 48h reports stale:true", async () => {
+  // [LDB-X2] `health.diff` is permanently disabled -- its `stale` alarm
+  // stays forced false regardless of age (a permanently-off job must never
+  // read as "stuck"); only `health.dump` still has a real staleness check.
+  it("[LDB-M2] a dump older than 48h reports stale:true; the permanently-disabled diff never does", async () => {
     const at = new Date(Date.now() - 49 * 3600 * 1000).toISOString(); // 49h ago
     await setImportState("dump.last_at", { at, seq: 7, key: "dump-old.json.gz" });
     await setImportState("cmini.last_diff", { at, ok: true });
 
     const body = await (await fetchMeta()).json<{
-      health: { dump: { stale: boolean }; diff: { stale: boolean } };
+      health: { dump: { stale: boolean }; diff: { stale: boolean; disabled: boolean } };
     }>();
 
     expect(body.health.dump.stale).toBe(true);
-    expect(body.health.diff.stale).toBe(true);
+    expect(body.health.diff.stale).toBe(false);
+    expect(body.health.diff.disabled).toBe(true);
   });
 
   it("[LDB-M2] just under 48h old is not yet stale", async () => {
@@ -172,30 +175,17 @@ describe("[LDB-M2] GET /v1/meta health", () => {
     expect(body.health.dump.stale).toBe(false);
   });
 
-  // LDB-I27: a deliberately switched-off upstream must not trip the SAME
-  // `stale` alarm an unexpectedly stuck one would -- `health.diff.disabled`
-  // says why instead, and `stale` is forced false regardless of age.
-  // `IMPORT_ENABLED` is mutated directly on the live `env` binding (same
-  // runtime-override pattern `src/routes/write.ts`'s `TEST_CLOCK` uses,
-  // `tests/api/write.test.ts`'s `pinTestClock`) rather than via
-  // `vitest.config.ts`'s miniflare binding (fixed for the whole file/run).
-  it("[LDB-I27] health.diff.disabled suppresses the stale alarm while IMPORT_ENABLED=off, and reads false while on", async () => {
-    const at = new Date(Date.now() - 49 * 3600 * 1000).toISOString(); // 49h ago -- would be stale
+  // [LDB-X2] `IMPORT_ENABLED` no longer exists as a binding -- `health.diff.
+  // disabled` is now a literal `true`, byte-identical to what `IMPORT_
+  // ENABLED=off` already produced right before this change, and the `stale`
+  // alarm stays suppressed regardless of the recorded age.
+  it("[LDB-X2] health.diff.disabled is permanently true; its stale alarm never fires", async () => {
+    const at = new Date(Date.now() - 49 * 3600 * 1000).toISOString(); // 49h ago -- would be stale if live
     await setImportState("cmini.last_diff", { at, ok: true });
-    const mutableEnv = bindings as unknown as { IMPORT_ENABLED: string };
 
-    mutableEnv.IMPORT_ENABLED = "off";
-    try {
-      const body = await (await fetchMeta()).json<{ health: { diff: { stale: boolean; disabled: boolean } } }>();
-      expect(body.health.diff.disabled).toBe(true);
-      expect(body.health.diff.stale).toBe(false); // suppressed -- would be true if enabled
-    } finally {
-      mutableEnv.IMPORT_ENABLED = "on";
-    }
-
-    const backOn = await (await fetchMeta()).json<{ health: { diff: { stale: boolean; disabled: boolean } } }>();
-    expect(backOn.health.diff.disabled).toBe(false);
-    expect(backOn.health.diff.stale).toBe(true); // the real 49h-old record reasserts itself
+    const body = await (await fetchMeta()).json<{ health: { diff: { stale: boolean; disabled: boolean } } }>();
+    expect(body.health.diff.disabled).toBe(true);
+    expect(body.health.diff.stale).toBe(false);
   });
 
   // [LDB-M3] `health.import` (2026-09-13, hostile/vanished-upstream
@@ -252,17 +242,12 @@ describe("[LDB-M2] GET /v1/meta health", () => {
     expect(body.health.import.deletes_24h).toBe(2);
   });
 
-  it("[LDB-I27] health.import.disabled mirrors IMPORT_ENABLED, read fresh every request", async () => {
-    const mutableEnv = bindings as unknown as { IMPORT_ENABLED: string };
-    mutableEnv.IMPORT_ENABLED = "off";
-    try {
-      const body = await (await fetchMeta()).json<{ health: { import: { disabled: boolean } } }>();
-      expect(body.health.import.disabled).toBe(true);
-    } finally {
-      mutableEnv.IMPORT_ENABLED = "on";
-    }
-    const backOn = await (await fetchMeta()).json<{ health: { import: { disabled: boolean } } }>();
-    expect(backOn.health.import.disabled).toBe(false);
+  // [LDB-X2] no `IMPORT_ENABLED` binding exists any more -- `disabled` is a
+  // literal `true`, byte-identical to what `IMPORT_ENABLED=off` already
+  // produced right before this change.
+  it("[LDB-X2] health.import.disabled is permanently true", async () => {
+    const body = await (await fetchMeta()).json<{ health: { import: { disabled: boolean } } }>();
+    expect(body.health.import.disabled).toBe(true);
   });
 
   it("[LDB-A14] no budget/threshold field is ever on the public /v1/meta (saltorbit: no handbook for destructive clients)", async () => {

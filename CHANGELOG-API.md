@@ -25,6 +25,33 @@ this file just gives them a public, versioned home. From here on, a
 `WIRE_VERSION` bump and a line here land in the SAME PR, never one without
 the other (`[LDB-V5]`).
 
+## 1.15 — 2026-09-26
+
+REMOVAL, not additive -- done in place under `/v1`, on the same "no
+consumer" basis the webhooks/SSE removal used (LEDGER.md L4;
+`design/layout-db/25-api-versioning.md`'s own audit finding 8 and its
+"Policy" section both name this as the legitimate exception: proving no
+client used a route). The cmini importer is gone for good -- pine's own
+upstream (`https://clemenpine.com/layoutapi/v3`) has been permanently
+dead since 2026-09-15 (LDB-I27, 1.14), the one-time import it ran finished
+long before that, and nothing but this repo's own akldb.org admin console
+ever called any of the routes below (never akl.gg, never the bot, never
+any outside adopter -- `21-formats.md` D11's own "until the first outside
+adopter" framing). Removed: `POST /v1/admin/import/pause`, `POST
+/v1/admin/import/resume`, `POST /v1/admin/import/tick`, `POST
+/v1/admin/import/unstall`, `POST /v1/admin/import/restore-deleted`, `POST
+/v1/admin/diff/tick`, `GET /v1/admin/health`; error codes `import_paused`,
+`import_running`. Unchanged, no shape change: `GET /v1/meta`'s
+`last_diff`/`health.diff`/`health.import` stay on the wire exactly as
+1.14 left them, now unconditionally `disabled: true` (a literal, not a
+live `IMPORT_ENABLED` switch, which no longer exists) -- byte-identical to
+what `IMPORT_ENABLED=off` already produced. Every layout's `upstream`
+field stays, frozen at whatever value it last held. Every
+`admin.import_*`/`admin.diff_*` event kind stays valid, queryable
+history -- nothing emits them any more. `POST /v1/admin/nightly/tick`,
+`POST /v1/admin/dump`, `POST /v1/admin/magic-seed` and every admin-admins/
+admin-clients route are unaffected.
+
 ## 1.14 — 2026-09-15
 
 LDB-I27 (saltorbit: "pine has taken down his api" -- cmini's own upstream,

@@ -138,7 +138,6 @@ path over a full `layouts` table recreation.
 ```bash
 cd db && npm ci
 npm run migrate                     # wrangler d1 migrations apply akl-db --local
-npm run import -- --once --fixture  # S5: a 100-layout snapshot, offline
 npm run dev                         # wrangler dev; GET http://localhost:8787/v1/meta
 npm test                            # both vitest projects (workers + node)
 npm run typecheck
@@ -155,40 +154,22 @@ migrations-additive.test.ts` (LDB-G15) enforces this against every
 migration file not on its own closed, checked allowlist of the
 pre-2026-09-14 files that legitimately contained one of those statements.
 
-`diff-upstream` is real (S8, see "Verify the mirror" below). `profile-upstream`
-(prints the `07 §0.1` measured table), `pick-fixtures` (regenerates
-`tests/fixtures/upstream-100/` -- run once, its output is frozen) and
 `goldens -- --write` (writes `db/formats/*/*/fixtures/` and their derived
-goldens -- also run once per new fixture, never to regenerate one that
-already merged) are real (S2). `import` is real (S5, see below). `deploy`
-and `rehost` are real (S7, see "Rehost procedure" below); `deploy` is
-normally run by CI (`.github/workflows/db.yml`'s `deploy` job), not by hand.
+goldens -- run once per new fixture, never to regenerate one that already
+merged) is real (S2). `deploy` and `rehost` are real (S7, see "Rehost
+procedure" below); `deploy` is normally run by CI
+(`.github/workflows/db.yml`'s `deploy` job), not by hand.
 
-### `npm run import -- --once [--fixture]`
-
-Drives exactly one cmini import tick (`src/import/cmini.ts`'s `tick()`)
-against the LOCAL D1 (`npm run migrate` first). `scripts/import.mjs` starts
-`wrangler dev --test-scheduled` and hits its `/__scheduled?cron=*/5+*+*+*+*`
-endpoint -- the same mechanism 07 §8 documents by hand
-(`wrangler dev --test-scheduled` + `curl
-"http://localhost:8787/__scheduled?cron=*/5+*+*+*+*"`), just scripted.
-
-- **`--fixture`**: serves `tests/fixtures/upstream-100/{list,full,authors}.json`
-  from a tiny in-process HTTP server and points the dev Worker's
-  `IMPORT_SOURCE_URL` at it for this run only (`wrangler dev --var`,
-  wrangler.toml itself is untouched) -- fully offline, safe to run
-  repeatedly. A fresh local D1 ends up with `layout_count: 100`,
-  `author_count: 32` (authors.json has 48 name entries but only 32 distinct
-  user ids -- some users have more than one recorded name; `authors`'s
-  PRIMARY KEY is `user_id`, so 32 is the correct row count); running it
-  again reports a fast, event-count-unchanged ("quiet") tick.
-- without `--fixture`: hits the real upstream
-  (`IMPORT_SOURCE_URL` from `wrangler.toml`, `https://clemenpine.com/
-  layoutapi/v3` by default) -- a real tick against production data.
-
-Ports default to 8787 (wrangler dev) and 8788 (the fixture server);
-override with `IMPORT_SCRIPT_WRANGLER_PORT`/`IMPORT_SCRIPT_FIXTURE_PORT` if
-those are taken.
+The cmini importer (`npm run import`, `npm run diff-upstream`,
+`npm run profile-upstream`, `npm run pick-fixtures`) is gone -- pine's own
+upstream (`https://clemenpine.com/layoutapi/v3`) has been permanently dead
+since 2026-09-15 (LDB-I27), and the one-time import it ran is long
+finished. `tests/fixtures/upstream-100/` (the frozen snapshot those
+scripts used to regenerate) and `formats/adapters/cmini/` stay: the
+fixtures back format goldens and `tests/api/list.test.ts`'s own `[LDB-F5]`
+case, and the cmini adapter itself is a published, kept format lineage.
+See `db/CHANGELOG-API.md` for the removal and `db/INVARIANTS.md`'s retired
+section for the invariants it used to satisfy.
 
 ## Secrets and bindings
 
@@ -196,11 +177,6 @@ those are taken.
 |---|---|---|---|
 | `DB` | D1 binding | `src/index.ts` (and everywhere under `src/core`, `src/import`, `src/dump`, `src/auth`) | `wrangler d1 create akl-db`; paste the id into `wrangler.toml`'s `[[d1_databases]]` |
 | `DUMPS` | R2 binding | `src/dump/write.ts`, `src/routes/dump.ts` (S7) | `wrangler r2 bucket create akl-db-dumps`; the 90-day lifecycle rule on `dump-*` is set by hand in the R2 bucket's dashboard/API (`monthly/` is exempt -- no prefix match) |
-| `IMPORT_SOURCE_URL` | var | `src/import/upstream.ts` (S5) | `wrangler.toml`'s `[vars]`; defaults to `https://clemenpine.com/layoutapi/v3` |
-| `IMPORT_MAX_WRITES_PER_TICK` | var | `src/import/apply.ts` (S5) | `wrangler.toml`'s `[vars]`; default `500` |
-| `IMPORT_UA` | var | `src/import/upstream.ts` (S5) | `wrangler.toml`'s `[vars]`; every upstream request must send it (0.1: the default UA is 403'd) |
-| `IMPORT_DELETES` | var | `src/import/cmini.ts` (`importDeletesEnabled`, LDB-I23) | `wrangler.toml`'s `[vars]`; default `"on"`; `"off"` is the hostile-upstream kill switch -- the importer never tombstones anything while set |
-| `IMPORT_ENABLED` | var | `src/import/cmini.ts` (`importEnabled`, LDB-I27) | `wrangler.toml`'s `[vars]`; default `"on"`; `"off"` is the hostile/vanished-upstream kill switch -- skips the cmini tick AND the diff tick entirely, before any fetch; currently `"off"` (2026-09-15: cmini's own API was taken down by its owner) |
 | `DISCORD_API_URL` | var | `src/auth/discord.ts` (T1) | `wrangler.toml`'s `[vars]`; default `https://discord.com/api`; tests inject `fetchImpl` directly and never resolve this URL |
 | `CLOUDFLARE_DB_TOKEN` | repo secret (CI) | `.github/workflows/db.yml`'s `deploy` job (S7) | a Cloudflare API token with Workers Scripts + D1 + R2 edit, separate from the site's Pages token |
 | `CLOUDFLARE_DB_ACCOUNT_ID` | repo secret (CI) | `.github/workflows/db.yml`'s `deploy` job (S7) | the NEW community account's id (00 §1) -- NOT the site's `CLOUDFLARE_ACCOUNT_ID` |
@@ -214,41 +190,36 @@ those are taken.
 
 ONE cron trigger, `*/5 * * * *` (`wrangler.toml`'s `[triggers]`), drives
 every scheduled job -- `src/index.ts`'s `scheduled()` reads `event
-.scheduledTime` (UTC) to decide which of the four run on a given
-invocation, not `event.cron` (there is only one cron string left to
-route on). This replaced four separate cron triggers (`*/1`, `*/5`, `0 3`,
-`0 4`) because Cloudflare's own dispatch has, at least once, simply
-stopped firing for this Worker's registered triggers with no error
-anywhere but a stale `/v1/meta` -- one trigger is one fewer thing that can
-silently wedge, and `POST /v1/admin/import/tick` / `.../diff/tick` (below)
-give an operator a manual way around it either way.
+.scheduledTime` (UTC) to decide whether hour=3, minute=0 has arrived, not
+`event.cron` (there is only one cron string to route on). One trigger
+(rather than several) because Cloudflare's own dispatch has, at least
+once, simply stopped firing for this Worker's registered triggers with no
+error anywhere but a stale `/v1/meta` -- `POST /v1/admin/nightly/tick`
+(below) gives an operator a manual way around it either way.
 
-| every invocation | hour=3, minute=0 also | hour=4, minute=0 also |
-|---|---|---|
-| the import tick (`cminiTick`) | `pruneAuthCache`, `pruneRateLimits`, `pruneNonces`, `writeDump` (the nightly dump, below) | `diffTick` (the diff cron, below) |
+| every invocation | hour=3, minute=0 also |
+|---|---|
+| (nothing unconditional any more -- see LDB-D8 catch-up below) | `pruneAuthCache`, `pruneRateLimits`, `pruneNonces`, `writeDump` (the nightly dump, below) |
 
-Each of the (up to five) jobs one invocation can run is caught and logged
-independently (`src/index.ts`'s `runJob`) -- one job throwing (an upstream
-outage during the import tick, say) never stops the others queued after it
-in the same invocation from running. `tests/import/tick.test.ts`'s
-`[isolation]` case and its `[matrix]`/`[property]` cases (every 5-minute
-slot of a day, and a property over any two slots 5 minutes apart) are this
-dispatch's own regression suite.
+[LDB-X2] Two more columns used to exist here -- the cmini import tick, run
+on every invocation, and the diff cron at hour=4/minute=0 -- deleted along
+with the importer itself (pine's own upstream has been permanently dead
+since 2026-09-15, LDB-I27).
 
-**Dump/diff catch-up (LDB-D8).** hour=3/hour=4 are the PREFERRED slots for
-the dump/diff, but neither is exclusive to them any more: on every OTHER
-invocation, `scheduled()` reads `import_state`'s own record for each
-(`dump.last_at`, `cmini.last_diff`) and runs the job anyway if it is
-missing or its `at` is more than 24h before this tick -- a cron dispatch
-Cloudflare drops for the one slot that matters no longer skips a whole day
-silently; the very next successful tick (at most 5 minutes later) catches
-up instead. Under normal operation this never double-runs within 24h: a
-successful hour=3/hour=4 run leaves the record fresh, so the immediately
-following ticks' own catch-up checks are false. The diff is checked (and,
-if due, run) BEFORE the dump on every invocation, so a tick where both
-catch up at once has the dump's own snapshot already reflect the diff's
-fresh state rather than being one write behind it. `GET /v1/meta.health`
-(below) surfaces both records' staleness for monitoring.
+Each of the (up to four) nightly jobs one invocation can run is caught and
+logged independently (`src/index.ts`'s `runJob`) -- one job throwing never
+stops the others queued after it in the same invocation from running.
+
+**Dump catch-up (LDB-D8).** hour=3 is the PREFERRED slot for the dump, but
+it isn't exclusive to it any more: on every OTHER invocation,
+`scheduled()` reads `import_state`'s own `dump.last_at` record and runs
+the job anyway if it is missing or its `at` is more than 24h before this
+tick -- a cron dispatch Cloudflare drops for the one slot that matters no
+longer skips a whole day silently; the very next successful tick (at most
+5 minutes later) catches up instead. Under normal operation this never
+double-runs within 24h: a successful hour=3 run leaves the record fresh,
+so the immediately following ticks' own catch-up checks are false.
+`GET /v1/meta.health.dump` (below) surfaces its staleness for monitoring.
 
 ## Rogue trusted client
 
@@ -493,124 +464,41 @@ service origin before fetching it.
 6. Record how long steps 1-5 took (this is the rehost RTO estimate) and
    `npx wrangler d1 delete akl-db-rehearsal` to clean up.
 
-## Verify the mirror
-
-`npm run diff-upstream` (`scripts/diff-upstream.mjs`, logic in `src/import/
-diff.ts`, LDB-P5) is the shrunk upstream diff (LEDGER.md L4): it compares
-our `layout_count` to upstream's `/meta`, then draws a random sample (50 by
-default, `DIFF_SAMPLE_SIZE` to override) of our own live, `following`
-layouts and content-compares each against a fresh single-record upstream
-fetch on the `spark/1` projection (likes sorted, magic excluded) -- never
-the whole upstream corpus. A sampled name upstream no longer answers for is
-reported `missing`; a genuine content mismatch is `contentDiffs`, with the
-first differing JSON path. Exits 1 on any real difference (a count
-mismatch, a missing sampled layout, or a content diff).
-
-```bash
-npm run migrate                      # fresh local D1
-npm run dev                          # in a second terminal: wrangler dev on :8787
-
-# drive the import cron by hand against the real upstream until it's caught
-# up (the write cap is 500/tick -- 07 §0.1's ~4200 layouts take ~9 ticks;
-# `/v1/meta` converges when a tick reports `quiet: true`, i.e. two ticks in
-# a row leave `layout_count` unchanged):
-curl "http://localhost:8787/__scheduled?cron=*/5+*+*+*+*"   # repeat, waiting for each tick to finish
-curl http://localhost:8787/v1/meta                          # check layout_count against upstream's own /meta
-
-npm run diff-upstream                # DB_BASE_URL defaults to http://localhost:8787
-```
-
-Against the deployed service: `DB_BASE_URL=https://akl-db.<account>.workers.dev npm run diff-upstream`.
-The daily job (`.github/workflows/db.yml`) runs the same comparison as
-`tests/upstream-diff.test.ts` (`DB_BASE_URL` set to the live origin) --
-real network, retries for 30 minutes on an unreachable service, then fails
-(never skips); `tests/import/diff-unit.test.ts` runs the offline half
-(the same comparison logic over the frozen `tests/fixtures/upstream-100/`
-snapshot) on every PR.
-
-### Diff cron (hour=4, minute=0 slot of the one `*/5 * * * *` trigger)
-
-A second copy of the same shrunk comparison above, run automatically every
-day at 04:00 UTC by the Worker itself (`src/import/difftick.ts`'s
-`diffTick`), against our OWN D1 -- no HTTP, in either direction (LDB-C4):
-`d1Ours` (`src/import/difftick.ts`) draws its sample with one `ORDER BY
-RANDOM() LIMIT n` query joined to each layout's `spark/1` row, plus one
-chunked likes read -- never a full-corpus page. Every run -- success or
-failure -- writes `import_state['cmini.last_diff']`; `GET /v1/meta`
-exposes it as `last_diff: {at, ok} | null` (LDB-M1); the full summary
-(`layout_count`/`sample_size`/`matched`/`missing`/`invalid_upstream`/
-`content_diffs`, plus up to 10 samples of each kind of mismatch) is
-admin-only, at `GET /v1/admin/health`.
-
-`.github/workflows/db.yml`'s `daily` job also runs `tests/rehost.test.ts`
-(the in-process rehost proof, above) alongside the live diff -- both fail
-the job loudly on any problem, neither is allowed to skip silently.
-
-**Currently switched off (LDB-I27, 2026-09-15).** cmini's own upstream
-(`https://clemenpine.com/layoutapi/v3`) was taken down by its owner --
-`IMPORT_ENABLED = "off"` in `wrangler.toml` skips the cmini tick and this
-diff tick entirely (no fetch to it at all, cron or manual), and `db.yml`'s
-`Upstream diff` step is gated `if: false` for the same reason. The nightly
-dump and prunes are unaffected. Flip both back (`IMPORT_ENABLED = "on"`,
-deploy; delete/flip the workflow step's `if: false`) once the upstream
-answers again -- see INVARIANTS.md's LDB-I27 row.
-
-**Staleness (LDB-M2).** `GET /v1/meta` also carries `health`:
-
-```json
-"health": {
-  "dump":  { "last_at": "2026-09-12T03:00:00.000Z", "seq": 526, "age_s": 3600, "stale": false },
-  "diff":  { "last_at": "2026-09-12T04:00:00.000Z", "age_s": 0, "stale": false, "disabled": false }
-}
-```
-
-`stale` is `age_s > 48h` (twice the 24h catch-up threshold above, so a
-genuinely stuck job reads unambiguously differently from one merely between
-ticks); a record that has never run (`last_at: null`) is always
-`stale: true`. Deliberately NOT folded into the route's ETag -- `age_s`
-moves every second, and hashing it in would defeat the 304/edge-cache this
-route exists for; a client relying on a cached body sees a slightly stale
-`age_s`, bounded by the route's 10s `Cache-Control: max-age`.
-
-**Deliberately switched off (LDB-I27).** `diff.disabled` mirrors the
-`IMPORT_ENABLED` var (below) -- while it's `"off"`, the diff tick never
-runs, `diff.last_at`/`age_s` simply freeze at whatever they last were, and
-`diff.stale` is forced `false` (a frozen, EXPECTED gap must not read the
-same as a genuinely stuck job). `health.import.disabled` is the same
-signal, folded into that block too.
-
-### Manual cron triggers
+## Manual cron triggers
 
 Cloudflare's cron dispatch has, at least once, simply stopped firing for
 this Worker's registered triggers (zero scheduled invocations over 25
 minutes observed on the deployed service, no error surfaced anywhere but a
-stale `/v1/meta`) -- these three routes let an admin force a tick without
-waiting it out. `wrangler dev --test-scheduled`'s `/__scheduled` endpoint
-also ignores a `?time=` override, so there is no LOCAL way to drive the
-`hour=3, minute=0` nightly slot either -- `POST /v1/admin/nightly/tick`
-exists mainly for that: an operator who needs a fresh dump written (a
-rehost drill, say) has no other way to force one short of waiting for a
-real 03:00Z. All three call the EXACT SAME function(s) `scheduled()` calls
-for the real cron (`tests/api/admin.test.ts` asserts this with a spy shared
-across both call sites for each route), so there is no second
-implementation of any tick to drift out of sync with the real one; all
-three are admin-only, rate-limited the same as every other write here, and
-append one `admin.*` event to the public feed (`admin.import_ticked` /
-`admin.diff_ticked` / `admin.nightly_ticked`).
+stale `/v1/meta`) -- this route lets an admin force the nightly job set
+without waiting it out. `wrangler dev --test-scheduled`'s `/__scheduled`
+endpoint also ignores a `?time=` override, so there is no LOCAL way to
+drive the `hour=3, minute=0` nightly slot either -- `POST
+/v1/admin/nightly/tick` exists mainly for that: an operator who needs a
+fresh dump written (a rehost drill, say) has no other way to force one
+short of waiting for a real 03:00Z. It calls the EXACT SAME function
+`scheduled()` calls for the real cron (`tests/api/admin.test.ts` asserts
+this with a spy shared across both call sites), so there is no second
+implementation to drift out of sync with the real one; it is admin-only,
+rate-limited the same as every other write here, and appends one
+`admin.nightly_ticked` event to the public feed.
+
+[LDB-X2] Two more manual triggers used to live here -- `POST
+/v1/admin/import/tick` and `POST /v1/admin/diff/tick`, the cmini import
+tick and the upstream diff tick's own manual kicks -- deleted along with
+the importer itself (pine's own upstream has been permanently dead since
+2026-09-15, LDB-I27; see `CHANGELOG-API.md` for the removal).
 
 | route | body | 200 response | other statuses |
 |---|---|---|---|
-| `POST /v1/admin/import/tick` | none | `{ ran: true, ...tick()'s own TickStats }` (`quiet`/`applied`/`full_pass`/... -- `src/import/cmini.ts`'s `TickResult.stats`, unchanged) | `409 import_paused` if the import is paused (`POST .../resume` first); `409 import_running` if another tick already holds the `cmini.running` lock (below); the usual admin `401`/`403`/`429`/`503` |
-| `POST /v1/admin/diff/tick` | none | `{ ran: true, ...diffTick()'s own LastDiffRecord }` (`ok`/`corpus`/`samples`/... -- the same shape `import_state['cmini.last_diff']` stores) | the usual admin `401`/`403`/`429`/`503` (no "paused" state exists for the diff) |
-| `POST /v1/admin/nightly/tick` | none | `{ ran: true, at, jobs: { "prune-auth-cache": "ok"\|"error", "prune-rate-limits": "ok"\|"error", "prune-nonces": "ok"\|"error", "write-dump": "ok"\|"error" }, dump: writeDump()'s own { key, latest } or null }` -- `src/core/nightly.ts`'s `runNightly`, the SAME job list `scheduled()`'s `hour=3, minute=0` branch runs, each job guarded (`core/jobs.ts`'s `runJob`) so one failing never skips the rest | the usual admin `401`/`403`/`429`/`503` (no "paused" state exists for this job set either) |
+| `POST /v1/admin/nightly/tick` | none | `{ ran: true, at, jobs: { "prune-auth-cache": "ok"\|"error", "prune-rate-limits": "ok"\|"error", "prune-nonces": "ok"\|"error", "write-dump": "ok"\|"error" }, dump: writeDump()'s own { key, latest } or null }` -- `src/core/nightly.ts`'s `runNightly`, the SAME job list `scheduled()`'s `hour=3, minute=0` branch runs, each job guarded (`core/jobs.ts`'s `runJob`) so one failing never skips the rest | the usual admin `401`/`403`/`429`/`503` (no "paused" state exists for this job set) |
 
-`POST /v1/admin/dump` is a fourth, narrower manual trigger: it calls
+`POST /v1/admin/dump` is a second, narrower manual trigger: it calls
 `dump/write.ts`'s `writeDump` directly (the exact same path the nightly
 job's `write-dump` step and LDB-D8's own catch-up check use), needed
 because the layoutdb cutover imports into a wiped DB and the bot/site
 rebuild boot from the daily dump -- an operator can't wait for the next
-`hour=3, minute=0` slot right after a wipe-and-reimport. Unlike the three
-tick routes above, it appends no `admin.*` event (a dump write carries no
+`hour=3, minute=0` slot right after a wipe-and-reimport. Unlike the tick
+route above, it appends no `admin.*` event (a dump write carries no
 per-record content worth logging on the public feed).
 
 | route | body | 200 response | other statuses |
@@ -705,148 +593,29 @@ prefix after 90 days (hand-configured once, `00 §1`/`08-infrastructure.md`
 indefinitely (the long-term archive), and `latest.json` is a single,
 always-current object nothing ever expires.
 
-### Hostile or vanished upstream
+## The cmini importer (removed)
 
-saltorbit, 2026-09-13: "i am concerned about the cmini owner crashing out and
-deleting their db when this goes live." The importer mirrors cmini every 5
-minutes; these are the layers that keep a bad upstream (a hostile deletion
-spree, an outage, a broken response shape) from mass-deleting our own
-mirror, from what an admin sees, to the last-resort recovery.
+[LDB-X2] The cmini importer -- the mirror that used to keep akldb's
+records in sync with cmini's own upstream (`https://clemenpine.com/
+layoutapi/v3`), its daily diff cron, the hostile/vanished-upstream
+defenses (`cmini.stalled`, the delete-rate stall, the collapse guard, the
+`cmini.running` lock), and the pause/resume/unstall/restore-deleted admin
+routes that managed it -- is gone for good. Pine's own upstream has been
+permanently dead since 2026-09-15 (LDB-I27), the one-time import it ran
+finished long before that, and `21-formats.md`/`26-magic-reseed.md`'s own
+"until the first outside adopter" framing never depended on it staying.
 
-**What stalls automatically** (`import_state` key `cmini.stalled`, a JSON
-`{at, reason}`, instead of applying that tick's deletes):
-
-- **LDB-I3, the per-tick bound**: more than `max(5, 5%)` of live records
-  unlisted in ONE tick stalls that tick's deletes entirely (never partial).
-- **LDB-I6, the collapse guard**: an upstream listing shorter than half the
-  live record count -- including a genuinely EMPTY list, or upstream
-  vanishing behind a non-2xx/malformed response (`import/upstream.ts`
-  throws after 3 retries, which aborts the WHOLE tick before anything is
-  written, no state change at all) -- stalls the whole tick, fetches
-  included, not just deletes.
-- **LDB-I22, the rolling 24h budget**: `max(20, 2%)` of live records may be
-  tombstoned in ANY trailing 24h window (not just one tick) -- closes the
-  "slow drip" the per-tick bound alone allows (5% every 5-minute tick, 288
-  ticks/day, empties the whole corpus in a day). Same `cmini.stalled` key,
-  same never-partial behavior. The two numbers were picked against the
-  catalog's real churn: production's entire event history (45,257 events,
-  2026-09-13) contains ZERO `upstream_deleted` events, ever -- `max(20,
-  2%)` is generous next to that observed 0/day maximum while still capping
-  a worst-case day at ~2% of the corpus instead of ~100%.
-
-None of these are a "fix" -- they're a pause button. A real deletion is
-still a tombstone either way (layout-level, formats untouched, restorable
-by id at any time, LDB-P8) once it does apply.
-
-**What an admin sees** -- `GET /v1/meta`'s `health.import` (LDB-M3):
-
-```json
-"import": {
-  "stalled": { "since": "2026-09-13T12:00:00.000Z", "reason": "..." } ,
-  "deletes_24h": 12,
-  "deletes_budget_24h": 84,
-  "deletes_planned": 5,
-  "deletes_applied": 0,
-  "deletes_disabled": false,
-  "disabled": false
-}
-```
-
-`stalled` is `null` when nothing is stalled. `deletes_planned`/
-`deletes_applied` are the LAST tick's own figures (0 applied while stalled
-or while the kill switch is on, even if several were planned).
-`deletes_disabled` mirrors the `IMPORT_DELETES` var below. `disabled`
-(LDB-I27) mirrors `IMPORT_ENABLED` -- while it's `"off"` the cmini tick
-never runs at all (not just tombstones), so `deletes_planned`/
-`deletes_applied`/`stalled` all freeze at whatever they last were too. The
-bot's watchdog and the akldb.org admin console read this block; `stalled`
-is folded into the ETag (a poller sees it move), `deletes_24h`/
-`deletes_budget_24h` are not (continuously time-dependent, like
-`health.dump/diff`'s own `age_s`).
-
-**The three recovery calls** (`scripts/ops-call.sh`, admin lane; it reads the ops client from `db.env.ops` beside the clones, see "Secrets and bindings"):
-
-```bash
-# Lift a stall deliberately. NOT a fix: the very next tick re-plans from
-# the SAME inputs and re-stalls immediately if the upstream is STILL bad.
-sh scripts/ops-call.sh POST /v1/admin/import/unstall
-
-# Bulk-restore upstream_deleted tombstones since a timestamp. dry_run
-# first to see the candidate list; omit it to actually restore (bounded by
-# `limit`, capped at 500 per call, safe to call again -- idempotent, and
-# never touches a layout the OWNER deleted themselves).
-sh scripts/ops-call.sh POST /v1/admin/import/restore-deleted '{"since":"2026-09-13T00:00:00Z","dry_run":true}'
-sh scripts/ops-call.sh POST /v1/admin/import/restore-deleted '{"since":"2026-09-13T00:00:00Z"}'
-
-# The kill switch: stop the importer from ever tombstoning anything,
-# regardless of the listing, until you flip it back. A wrangler.toml edit
-# + deploy (there is no runtime toggle route -- this is the "I don't trust
-# upstream at all right now" lever, left outside the API on purpose).
-# Edit wrangler.toml's [vars]: IMPORT_DELETES = "off", then:
-npx wrangler deploy --config wrangler.toml
-
-# The upstream kill switch (LDB-I27): stop EVERY contact with cmini's own
-# API, not just tombstones -- for when the upstream itself is hostile,
-# broken, or (2026-09-15) simply gone. Same shape, same lever:
-# Edit wrangler.toml's [vars]: IMPORT_ENABLED = "off" (or back to "on"),
-# then:
-npx wrangler deploy --config wrangler.toml
-```
-
-A cleared stall or a restored tombstone can also be done by hand (below),
-but the admin routes are event-logged and preferred.
-
-**Restore-from-backup, the last resort**: if the importer's own guards and
-the recovery routes above aren't enough (the damage predates this guard
-existing, or came from something else entirely), the daily R2 dump (with
-its 30-day CI artifact copy), the `akl-infra/db-backup` nightly snapshot,
-and D1 Time Travel are the fallback layers -- see "Backups" and
-"Point-in-time restore" below, in that order of preference (Time Travel
-restores the WHOLE database to one instant; the others let you re-apply
-just what a dump's `restoreSql` produces).
-
-### Clearing `cmini.stalled` by hand
-
-Prefer `POST /v1/admin/import/unstall` (above) -- it's event-logged. The
-raw D1 statement, if you need it directly:
-
-```bash
-npx wrangler d1 execute akl-db --remote --config wrangler.toml \
-  --command "DELETE FROM import_state WHERE key = 'cmini.stalled'"
-```
-
-The next tick re-plans from scratch and applies its deletes normally; it
-does not remember that it was ever stalled.
-
-### Pausing the import
-
-Set `import_state.cmini.paused = '1'`; every tick then returns immediately
-(`src/import/cmini.ts`'s `tick()`, first check) without contacting upstream
-or touching the database:
-
-```bash
-npx wrangler d1 execute akl-db --remote --config wrangler.toml \
-  --command "INSERT INTO import_state (key, value) VALUES ('cmini.paused', '1')
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value"
-```
-
-Delete the row (or set it to anything other than the string `'1'`) to
-resume -- there is no separate "resume" command.
-
-### The import lock
-
-LDB-B4 (design/layout-db/review/audit-db.md B4): `tick()` takes
-`import_state['cmini.running'] = {at, id}` (a CAS INSERT, or a CAS UPDATE
-once the held value is >10 minutes old) before doing any real work, and
-releases it in a `finally`. A `*/5` cron invocation that finds it already
-held just logs `skipped_locked` and returns quietly (the next slot tries
-again); `POST /v1/admin/import/tick` answers `409 import_running` instead.
-If a Worker instance dies mid-tick (never runs its `finally`), the lock
-self-heals after 10 minutes -- no manual clear is normally needed, but the
-same `DELETE` used for `cmini.stalled` above works if you want it gone
-sooner:
-
-```bash
-npx wrangler d1 execute akl-db --remote --config wrangler.toml \
-  --command "DELETE FROM import_state WHERE key = 'cmini.running'"
-```
+What this removed, and what it did NOT touch: `CHANGELOG-API.md`'s entry
+for this change has the full list; `INVARIANTS.md`'s retired section has
+every invariant id the importer used to satisfy. In short -- gone: `src/
+import/*`, the admin routes above `import/tick`/`diff/tick`/`unstall`/
+`restore-deleted`/`GET .../health` was, the `IMPORT_*` wrangler vars, the
+`scripts/import.mjs`/`diff-upstream.mjs`/`pick-fixtures.mjs`/
+`profile-upstream.mjs` scripts. Frozen, on the wire forever as historical
+data: every record's `upstream` field, `GET /v1/meta`'s `last_diff` and
+`health.diff`/`health.import` (permanently `disabled: true` now, not a
+live switch), every `admin.import_*`/`admin.diff_*` event kind (still
+queryable history; nothing emits them any more). Untouched: `formats/
+adapters/cmini/` (the published format adapter cmini detail payloads still
+translate through) and `tests/fixtures/upstream-100/` (format goldens and
+`tests/api/list.test.ts`'s own `[LDB-F5]` case still use it).

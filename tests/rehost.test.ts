@@ -27,7 +27,6 @@ import type { BanDbRow, Dump, LayoutRevDbRow, LinkSubmissionDbRow } from "../src
 import { restoreInto } from "../src/dump/restore";
 import { ulid } from "ulidx";
 import worker from "../src/index";
-import { FakeUpstream } from "./import/fake-upstream";
 import { assertConformanceCase, seedUpstream100 } from "./api/support";
 import { CASES } from "./conformance/manifest";
 
@@ -117,16 +116,8 @@ async function runCronAndReadDump(afterSeed?: () => Promise<void>): Promise<Dump
   await seedUpstream100();
   if (afterSeed !== undefined) await afterSeed();
 
-  // The cron consolidation (12 §3 X4 follow-up 2): every dispatch now ALSO
-  // runs an import tick before the dump -- `seedUpstream100()` above
-  // imported directly (bypassing HTTP, no global fetch stub of its own), so
-  // without one here the tick's upstream call would hit the real,
-  // unstubbed `fetch` in this sandbox. A fresh `FakeUpstream` serves the
-  // identical fixture already imported (its `/meta` `revision` is a fixed
-  // "seed-1", not random, matching the stored `cmini.meta_token`), so the
-  // tick is fast and quiet.
-  const fake = new FakeUpstream();
-  vi.stubGlobal("fetch", fake.fetchImpl);
+  // [LDB-X2] the cmini importer is gone -- `scheduled()` no longer makes any
+  // upstream call of its own, so no fetch stub is needed here any more.
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-08-01T03:00:00.000Z")); // the 1st -- exercises the monthly key too
   try {
@@ -136,7 +127,6 @@ async function runCronAndReadDump(afterSeed?: () => Promise<void>): Promise<Dump
     await waitOnExecutionContext(ctx);
   } finally {
     vi.useRealTimers();
-    vi.unstubAllGlobals();
   }
 
   const latestObj = await bindings.DUMPS.get("latest.json");
@@ -173,21 +163,9 @@ describe("rehost drill", () => {
   // the event log to a tail) would desync one of those, not just look wrong
   // in isolation. `tests/api/dump.test.ts` covers the OTHER two clauses
   // (the `latest.json` sha256, the monthly-key timing) directly.
-  it("[LDB-G1] [LDB-P6] [LDB-D1] [MF-3] [LDB-P18] [LDB-P11] [LDB-D9] [LDB-MD3] [LDB-MD8] restoreSql reproduces the exact dumped state", async () => {
+  it("[LDB-G1] [LDB-P6] [LDB-D1] [MF-3] [LDB-P18] [LDB-D9] [LDB-MD3] [LDB-MD8] restoreSql reproduces the exact dumped state", async () => {
     const remoteUrl = bindings.TEST_REHOST_DUMP_URL;
     const usingRemote = remoteUrl !== "";
-
-    // LDB-D9: a registered client, planted BEFORE the dump is taken (local
-    // mode only -- remote mode dumps whatever's really registered on the
-    // deployed service, which this test doesn't control either way).
-    if (!usingRemote) {
-      await db
-        .prepare(
-          `INSERT INTO clients (id, name, pubkey, owner_user_id, caps, discord_app_id, status, created_at, revoked_at)
-           VALUES ('cl-rehost-test', 'rehost-test-client', 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', '800000000000000001', 'act-as-user', 'discord-app-1', 'active', '2026-07-01T00:00:00.000Z', NULL)`,
-        )
-        .run();
-    }
 
     // Local mode only: capture the live state BEFORE touching anything, so
     // restoring the dump taken from it can be checked for exact agreement.
@@ -197,6 +175,16 @@ describe("rehost drill", () => {
     const dump = usingRemote
       ? await fetchRemoteDump(remoteUrl)
       : await runCronAndReadDump(async () => {
+          // LDB-D9: a registered client, planted BEFORE the dump is taken --
+          // AFTER `seedUpstream100()`'s own `restoreInto` (which wipes and
+          // replaces the `clients` table along with everything else), so
+          // this row survives to be the one the dump actually captures.
+          await db
+            .prepare(
+              `INSERT INTO clients (id, name, pubkey, owner_user_id, caps, discord_app_id, status, created_at, revoked_at)
+               VALUES ('cl-rehost-test', 'rehost-test-client', 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', '800000000000000001', 'act-as-user', 'discord-app-1', 'active', '2026-07-01T00:00:00.000Z', NULL)`,
+            )
+            .run();
           moderationIds = await plantModerationState(db);
         });
     if (!usingRemote) {

@@ -3,13 +3,13 @@
 // (09 §2.1) widens at 10 C1 into a two-lane dispatcher -- `Authorization`
 // present -> this lane; else `X-Akl-Client` present -> the client lane
 // (`./client.ts`); both -> 400; neither -> 401. `fetchImpl` is injected
-// exactly as the import's is (`FetchImpl` from `import/upstream.ts`,
-// reused) -- tests fake Discord with a plain function, never the network.
+// (`FetchImpl`, `core/fetch.ts`) -- tests fake Discord with a plain
+// function, never the network.
 import type { HonoRequest } from "hono";
 import type { Bindings } from "../env";
 import { badRequest, identityUnavailable, tokenInvalid, unauthorized } from "../core/errors";
+import type { FetchImpl } from "../core/fetch";
 import type { Clock } from "../core/time";
-import type { FetchImpl } from "../import/upstream";
 import type { Actor } from "./actor";
 import { type ClientDeps, verifyClientRequest } from "./client";
 import { roleOf } from "./roles";
@@ -187,9 +187,9 @@ export async function resolveBearer(
       .bind(hash, user.id, name, appId, addSeconds(at, CACHE_OK_SECONDS)),
     db
       .prepare(
-        // LDB-I17: the user lane always sets its own name and marks it
-        // `name_source = 'user'` -- the one mark the cmini import never
-        // overwrites (`import/authors.ts`). §4.3 (LDB-MD4): an `admin`
+        // LDB-I17 (historical -- the cmini importer this row's `name_source`
+        // vocabulary predates is gone): the user lane always sets its own
+        // name and marks it `name_source = 'user'`. §4.3 (LDB-MD4): an `admin`
         // override is STICKIER than that -- this WHERE guard is what keeps
         // an admin-set name from being overwritten by the very next
         // sign-in. `last_seen_at` still needs to move on every sign-in

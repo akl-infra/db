@@ -31,7 +31,6 @@ import { createExecutionContext, createScheduledController, SELF, env, waitOnExe
 import { describe, expect, it, vi } from "vitest";
 import type { Bindings } from "../../src/env";
 import worker from "../../src/index";
-import { FakeUpstream } from "../import/fake-upstream";
 import { seedUpstream100 } from "./support";
 
 const bindings = env as unknown as Bindings;
@@ -52,15 +51,10 @@ function bytesToBase64(bytes: Uint8Array): string {
 // pinning the system clock, `createScheduledController`'s own default
 // `scheduledTime` (`Date.now()`) already lands on hour=3, minute=0, so no
 // explicit override is needed here, only the cron consolidation's single
-// string (12 §3 X4 follow-up 2). Every dispatch now ALSO runs an import
-// tick before the dump -- a `FakeUpstream` stub keeps that fast and
-// deterministic instead of retrying against an unstubbed `fetch` for
-// several real seconds.
+// string (12 §3 X4 follow-up 2).
 async function runDumpCron(dateIso: string): Promise<void> {
   vi.useFakeTimers();
   vi.setSystemTime(new Date(dateIso));
-  const fake = new FakeUpstream();
-  vi.stubGlobal("fetch", fake.fetchImpl);
   try {
     const ctx = createExecutionContext();
     const controller = createScheduledController({ cron: "*/5 * * * *" });
@@ -68,7 +62,6 @@ async function runDumpCron(dateIso: string): Promise<void> {
     await waitOnExecutionContext(ctx);
   } finally {
     vi.useRealTimers();
-    vi.unstubAllGlobals();
   }
 }
 

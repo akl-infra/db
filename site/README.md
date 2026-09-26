@@ -108,10 +108,9 @@ the W1a pages already. **Owner actions** (`likeLayout`, `unlikeLayout`,
 `getLink`, `submitLink`, `clearLink`) and **admin actions**
 (`adminListBans`, `adminBanUser`, `adminUnbanUser`, `adminSetLikes`,
 `adminSetAuthorName`, `adminLinkQueue`, `adminApproveLink`,
-`adminRejectLink`, `adminListAdmins`, `adminAddAdmin`, `adminRemoveAdmin`,
-`adminImportPause`/`Resume`/`Tick`, `adminHealth`) are typed and ready but
-have **no UI** — that's W1b, per design/akldb-site/01-plan.md's slice split.
-`src/pages/Admin.tsx` is a placeholder ("moderation lands in the next
-slice") gated on `/auth/me`'s `admin: true`; replace its body with the real
-tabs (Layouts/Authors/Bans/Link queue/Admins/Import) without touching the
-admin-gate logic itself.
+`adminRejectLink`, `adminListAdmins`, `adminAddAdmin`, `adminRemoveAdmin`)
+are typed and ready but have **no UI** — that's W1b, per
+design/akldb-site/01-plan.md's slice split. `src/pages/Admin.tsx` is a
+placeholder ("moderation lands in the next slice") gated on `/auth/me`'s
+`admin: true`; replace its body with the real tabs (Layouts/Authors/Bans/
+Link queue/Admins) without touching the admin-gate logic itself.

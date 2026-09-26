@@ -63,7 +63,7 @@ async function assertFoldMatchesRow(layoutId: string) {
 }
 
 describe("[LDB-L1] PUT/DELETE /v1/layouts/{ref}/like", () => {
-  it("[LDB-L5] like -> 200 {like_count: 1}, one 'liked' event, a likes row", async () => {
+  it("like -> 200 {like_count: 1}, one 'liked' event, a likes row", async () => {
     const record = await seed();
     const headers = ownerHeaders(`tok-${uniqueName("like")}`);
     const res = await writeFetch(`/v1/layouts/${record.id}/like`, "PUT", headers);

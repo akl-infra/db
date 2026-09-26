@@ -10,9 +10,9 @@ import { expect } from "vitest";
 import type { Bindings } from "../../src/env";
 import { base64UrlToBytes } from "../../src/auth/client";
 import { canonical } from "../../src/core/canonical";
-import { fixedClock } from "../../src/core/time";
-import { tick } from "../../src/import/cmini";
-import { FakeUpstream } from "../import/fake-upstream";
+import { restoreInto } from "../../src/dump/restore";
+import type { Dump } from "../../src/dump/write";
+import frozenSeed from "../fixtures/seed-upstream-100.dump.json" with { type: "json" };
 import { importPrivateKeyPkcs8, signHeaders, vectors } from "../auth/client-support";
 import type { ConformanceCase, ConformanceStep } from "../conformance/manifest";
 import { API_VERSION_HEADER, apiVersionString } from "../../src/core/version";
@@ -35,15 +35,22 @@ export const db = bindings.DB;
 
 export const SEED_CLOCK_ISO = "2026-06-01T00:00:00.000Z";
 
-// Seeds the whole `upstream-100` fixture through the real import pipeline
-// (07 §6 S5's `tick()`) -- the same path production uses, so what these
-// tests read back is exactly what an imported record looks like, not a
-// hand-built stand-in. Returns the `FakeUpstream` in case a test wants to
-// mutate it and tick again.
-export async function seedUpstream100(clockIso: string = SEED_CLOCK_ISO): Promise<FakeUpstream> {
-  const fake = new FakeUpstream();
-  await tick(bindings, fixedClock(clockIso), fake.fetchImpl, fake.sleepImpl);
-  return fake;
+// [LDB-X3] The `upstream-100` seed, frozen: the cmini importer that used to
+// PRODUCE this state (`tick()` against `FakeUpstream`, 07 §6 S5) is gone --
+// pine's upstream (`https://clemenpine.com/layoutapi/v3`) has been
+// permanently dead since 2026-09-15 (LDB-I27), so the importer that talked
+// to it was removed. `tests/fixtures/seed-upstream-100.dump.json` is a
+// full `Dump` (`src/dump/write.ts`) captured from ONE real run of that
+// pipeline before it was deleted -- every row (layouts, formats, revs,
+// likes, authors, events, import_state/import_map, clients, admins)
+// byte-identical to what the importer used to produce, replayed here via
+// the SAME `restoreInto` a real rehost uses (LDB-G1/P6) instead of
+// re-running an import that no longer exists. This keeps every downstream
+// fixture/golden/conformance case reading this seed unchanged.
+// `[LDB-X3]` (`tests/tools/freeze-seed.test.ts`) proves restoring this
+// fixture is deterministic and stable.
+export async function seedUpstream100(): Promise<void> {
+  await restoreInto(bindings.DB, frozenSeed as unknown as Dump);
 }
 
 const ULID_RE = /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/i;

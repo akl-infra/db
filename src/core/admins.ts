@@ -1,8 +1,7 @@
-// Admins as data (09 §3 T3): list/add/remove, and the cmini import's
-// pause/resume switch. Every admin action is an event (`appendAdmin`,
-// `core/events.ts`) so the public changelog sees it (03 §7) the same way it
-// sees any other write. `src/routes/admin.ts` is glue only -- every D1
-// statement for these verbs lives here.
+// Admins as data (09 §3 T3): list/add/remove. Every admin action is an
+// event (`appendAdmin`, `core/events.ts`) so the public changelog sees it
+// (03 §7) the same way it sees any other write. `src/routes/admin.ts` is
+// glue only -- every D1 statement for these verbs lives here.
 import type { Bindings } from "../env";
 import { appendAdmin, type InfoKind } from "./events";
 import { lastAdmins, notFound } from "./errors";
@@ -80,61 +79,26 @@ export async function remove(db: Bindings["DB"], now: Clock, actorId: string, us
   return { seq };
 }
 
-// `import/cmini.ts`'s `tick()` reads exactly this key ('1' = paused) before
-// doing anything else -- this is the whole of what pause/resume do to the
-// import; T3 does not touch tick() itself.
-const PAUSE_KEY = "cmini.paused";
-
-export async function setImportPaused(db: Bindings["DB"], now: Clock, actorId: string, paused: boolean): Promise<{ seq: number }> {
-  if (paused) {
-    await db
-      .prepare("INSERT INTO import_state (key, value) VALUES (?, '1') ON CONFLICT(key) DO UPDATE SET value = '1'")
-      .bind(PAUSE_KEY)
-      .run();
-  } else {
-    await db.prepare("DELETE FROM import_state WHERE key = ?").bind(PAUSE_KEY).run();
-  }
-  const kind: InfoKind = paused ? "admin.import_paused" : "admin.import_resumed";
-  const { seq } = await appendAdmin(db, now, { kind, actor: actorId });
-  return { seq };
-}
-
-// X4 follow-up: `POST /v1/admin/import/tick`'s own pre-check -- reads the
-// exact same key `tick()` itself reads (07 §6 S5's own first check), so a
-// manual kick answers `409 import_paused` immediately rather than paying
-// for a tick call that would have quietly no-op'd anyway.
-export async function isImportPaused(db: Bindings["DB"]): Promise<boolean> {
-  const row = await db.prepare("SELECT value FROM import_state WHERE key = ?").bind(PAUSE_KEY).first<{ value: string }>();
-  return row?.value === "1";
-}
-
-// X4 follow-up: the manual-trigger routes (`POST /v1/admin/import/tick`,
-// `POST /v1/admin/diff/tick`, and -- X4 follow-up 3 -- `POST /v1/admin/
-// nightly/tick`) are event-logged the same way pause/resume are -- an
-// operator manually kicking a cron is an admin action worth the public
-// changelog seeing, same posture as everything else in this file. `detail`
-// carries the tick's own summary (`TickStats`/`LastDiffRecord`/
-// `{at, jobs, dump}`) -- already the exact shape `cmini.last_tick`/
-// `cmini.last_diff` store uncapped (or, for `nightly`, small: `jobs` is
-// four one-word statuses and `dump` is `{key, latest}`, never the dump's
-// own multi-MB body), so no new size concern here.
-// 21-formats.md D12 deleted the M1 strip route (`admin.magic_stripped`,
-// `which: "strip_cmini_magic"`) and the record migration (`admin
-// .migrate_ticked`, `which: "migrate"`) -- both were one-time cleanups
-// this manual-trigger kind list no longer needs.
-const MANUAL_TICK_KIND: Record<"import" | "diff" | "nightly", InfoKind> = {
-  import: "admin.import_ticked",
-  diff: "admin.diff_ticked",
+// X4 follow-up: the manual-trigger route (`POST /v1/admin/nightly/tick`,
+// X4 follow-up 3) is event-logged -- an operator manually kicking a cron
+// is an admin action worth the public changelog seeing, same posture as
+// everything else in this file. `detail` carries the tick's own summary
+// (`{at, jobs, dump}`), small: `jobs` is four one-word statuses and `dump`
+// is `{key, latest}`, never the dump's own multi-MB body.
+//
+// [LDB-X2] `import`/`diff` used to be two more `which` values here (the
+// cmini import tick and the upstream diff tick's own manual-kick routes,
+// `POST /v1/admin/import/tick`/`POST /v1/admin/diff/tick`) -- both deleted
+// along with the importer (pine's own upstream has been permanently dead
+// since 2026-09-15, LDB-I27). `admin.import_ticked`/`admin.diff_ticked`
+// stay valid `InfoKind` values (`core/events.ts`'s `KNOWN_KINDS`) purely
+// as history: real events from before this change still fold and replay
+// correctly; nothing emits either kind any more.
+const MANUAL_TICK_KIND: Record<"nightly", InfoKind> = {
   nightly: "admin.nightly_ticked",
 };
 
-export async function recordManualTick(
-  db: Bindings["DB"],
-  now: Clock,
-  actorId: string,
-  which: "import" | "diff" | "nightly",
-  detail: object,
-): Promise<{ seq: number }> {
+export async function recordManualTick(db: Bindings["DB"], now: Clock, actorId: string, which: "nightly", detail: object): Promise<{ seq: number }> {
   const { seq } = await appendAdmin(db, now, { kind: MANUAL_TICK_KIND[which], actor: actorId, detail });
   return { seq };
 }

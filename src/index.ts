@@ -13,9 +13,7 @@ import { metaFormats, readMetaCore } from "./core/meta";
 import { runNightly } from "./core/nightly";
 import { systemClock } from "./core/time";
 import { API_MAJOR, API_MINOR, API_VERSION_HEADER, apiVersionString, deprecationHeadersFor, withApiVersionHeader } from "./core/version";
-import type { FetchImpl } from "./import/upstream";
-import { importDeletesEnabled, importEnabled, tick as cminiTick, LAST_TICK_STATE_KEY, STALLED_STATE_KEY, type TickStats } from "./import/cmini";
-import { diffDue, diffTick, lastDiff, IMPORT_STATE_KEY as LAST_DIFF_KEY, type LastDiffRecord } from "./import/difftick";
+import type { FetchImpl } from "./core/fetch";
 import { adminRoute } from "./routes/admin";
 import { authorsRoute } from "./routes/authors";
 import { changelogRoute } from "./routes/changelog";
@@ -35,8 +33,7 @@ const app = new Hono<{ Bindings: Bindings; Variables: ActorVariables }>();
 // Production deps for the user lane: real fetch, real clock. Tests never
 // exercise this path directly -- they inject their own fake `fetchImpl`
 // against `resolveBearer`/`resolveActor`, or stub the global `fetch` for a
-// black-box `SELF.fetch` request (same pattern `import/cmini.ts`'s default
-// param and tests/import/tick.test.ts's `vi.stubGlobal` already use).
+// black-box `SELF.fetch` request.
 const authDeps: AuthDeps = { fetchImpl: ((url, init) => fetch(url, init)) as FetchImpl, now: systemClock };
 
 // [LDB-V2] design/layout-db/25-api-versioning.md "Policy" (b): every
@@ -106,7 +103,32 @@ app.use("/v1/*", rateLimitWrites(authDeps.now));
 //     `last_seen_at` bookkeeping, so a sign-in that keeps its name still
 //     gets the bot's per-command check a 304.
 // A 304 costs that one query.
+//
+// `LAST_DIFF_KEY`/`STALLED_STATE_KEY`/`LAST_TICK_STATE_KEY` are plain
+// `import_state` key strings the (now-deleted) cmini importer used to
+// write -- kept here as bare literals (not imported from importer code
+// that no longer exists) purely so `/v1/meta`'s `last_diff`/`health.diff`/
+// `health.import` keep reading back whatever those keys were frozen at on
+// 2026-09-15 (LDB-I27: pine's own upstream went down permanently, the
+// importer that talked to it was removed by `db/CHANGELOG-API.md`'s entry
+// for this change) -- see `[LDB-X2]`.
+const LAST_DIFF_KEY = "cmini.last_diff";
+const STALLED_STATE_KEY = "cmini.stalled";
+const LAST_TICK_STATE_KEY = "cmini.last_tick";
 const META_STATE_KEYS = [LAST_DIFF_KEY, DUMP_STATE_KEY, STALLED_STATE_KEY, LAST_TICK_STATE_KEY] as const;
+
+// The two narrow shapes `/v1/meta` still reads out of those frozen
+// `import_state` rows -- not the (deleted) importer's own full
+// `LastDiffRecord`/`TickStats` types, just the fields this route ever
+// surfaced.
+interface FrozenDiffRecord {
+  at: string;
+  ok: boolean;
+}
+interface FrozenTickStats {
+  deletes_planned?: number;
+  deletes_applied?: number;
+}
 
 // LDB-M2: `health.dump`/`health.diff` -- `{last_at, [seq,] age_s, stale}`,
 // `stale` past 48h (twice the 24h catch-up threshold, LDB-D8, so a genuinely
@@ -153,11 +175,11 @@ app.get("/v1/meta", async (c) => {
   const sinceIso = new Date(Date.parse(nowIso) - ROLLING_WINDOW_MS).toISOString();
   const head = await readHead(db, META_STATE_KEYS, sinceIso);
   const [diffRaw, dumpRaw, stalledRaw, lastTickRaw] = head.state;
-  const diffRecord = diffRaw === null || diffRaw === undefined ? null : (JSON.parse(diffRaw) as LastDiffRecord);
+  const diffRecord = diffRaw === null || diffRaw === undefined ? null : (JSON.parse(diffRaw) as FrozenDiffRecord);
   const dumpState = dumpRaw === null || dumpRaw === undefined ? null : (JSON.parse(dumpRaw) as DumpState);
   const stalled: StalledWire | null =
     stalledRaw === null || stalledRaw === undefined ? null : (({ at, reason }: { at: string; reason: string }) => ({ since: at, reason }))(JSON.parse(stalledRaw));
-  const lastTick: TickStats | null = lastTickRaw === null || lastTickRaw === undefined ? null : (JSON.parse(lastTickRaw) as TickStats);
+  const lastTick: FrozenTickStats | null = lastTickRaw === null || lastTickRaw === undefined ? null : (JSON.parse(lastTickRaw) as FrozenTickStats);
   const lastDiffWire = diffRecord === null ? null : { at: diffRecord.at, ok: diffRecord.ok };
   const etag = await etagFor(head.seq, {
     authors: head.authors,
@@ -170,15 +192,19 @@ app.get("/v1/meta", async (c) => {
   if (short) return short;
 
   const dumpHealth = healthOf(dumpState?.at ?? null, nowIso);
-  // LDB-I27: the upstream is switched off deliberately (2026-09-15, cmini's
-  // own API taken down by its owner) -- neither the cmini tick nor the diff
-  // tick has contacted it since, and never will while `IMPORT_ENABLED=off`.
-  // `health.diff`'s own `stale` alarm exists to flag an UNEXPECTED gap
-  // (LDB-M2); a deliberate, switched-off gap must not trip it, so `stale`
-  // is forced false and `disabled: true` says why explicitly instead.
-  const upstreamEnabled = importEnabled(c.env);
+  // [LDB-X2] The cmini importer is gone for good (LDB-I27: pine's own
+  // upstream has been permanently dead since 2026-09-15) -- `health.diff`/
+  // `health.import` stay on the
+  // wire (nothing reads `import_state`'s frozen rows for anything but
+  // display any more) but are now PERMANENTLY disabled rather than
+  // switchable: no `IMPORT_ENABLED` var exists to read any more, so this is
+  // a literal `true`/`false`, not a live env check. Byte-identical to what
+  // `IMPORT_ENABLED=off` already produced right before this change:
+  // `health.diff`'s own `stale` alarm (LDB-M2) stays forced false (a
+  // permanently-off job must never read as "stuck"), `disabled: true` says
+  // why.
   const diffHealthRaw = healthOf(diffRecord?.at ?? null, nowIso);
-  const diffHealth = { ...diffHealthRaw, stale: upstreamEnabled ? diffHealthRaw.stale : false, disabled: !upstreamEnabled };
+  const diffHealth = { ...diffHealthRaw, stale: false, disabled: true };
   const metaCore = await readMetaCore(db, head);
   // [LDB-A12] saltorbit 2026-09-13 ("rogue trusted client" hardening):
   // `health.clients` -- same posture as `health.dump`/`health.diff` above
@@ -195,11 +221,12 @@ app.get("/v1/meta", async (c) => {
       deletes_24h: head.deletes24h,
       deletes_planned: lastTick?.deletes_planned ?? null,
       deletes_applied: lastTick?.deletes_applied ?? null,
-      deletes_disabled: !importDeletesEnabled(c.env),
-      // LDB-I27: the cmini tick itself is switched off (distinct from
-      // `deletes_disabled`'s narrower `IMPORT_DELETES`) -- read fresh every
-      // request, same posture as `deletes_disabled`.
-      disabled: !upstreamEnabled,
+      // [LDB-X2] Frozen at its last live value (`IMPORT_DELETES="on"` in
+      // wrangler.toml the whole time `IMPORT_ENABLED` was "off") -- no
+      // `IMPORT_DELETES` var exists any more either, so this is a literal
+      // `false`, byte-identical to what reading it produced before.
+      deletes_disabled: false,
+      disabled: true,
     },
     clients: clientsHealthWire,
   };
@@ -269,38 +296,30 @@ app.onError((err, c) => {
 });
 
 // ONE cron trigger (`*/5 * * * *`, wrangler.toml's `[triggers]`) -- what
-// used to be four separate cron strings (`*/1`, `*/5`, `0 3`, `0 4`) are
-// now three jobs (the `*/1` webhook drain is gone with the webhook
-// subsystem, LEDGER.md L4) dispatched off ONE five-minute tick's own
+// used to be four separate cron strings (`*/1`, `*/5`, `0 3`, `0 4`) driving
+// as many as three jobs (the `*/1` webhook drain went with the webhook
+// subsystem, LEDGER.md L4; the cmini import tick and the upstream diff
+// tick went with the importer itself, `[LDB-X2]`, pine's own upstream
+// having been permanently dead since 2026-09-15) are now just the nightly
+// prune/dump job set, dispatched off ONE five-minute tick's own
 // `event.scheduledTime` (UTC), not off `event.cron` (there is only one cron
-// string left to switch on). Why: four registered triggers on one Worker
-// is four independent things Cloudflare's own scheduler has to keep
-// dispatching correctly, and it has -- at least once, observed on the
-// deployed service -- simply stopped firing all of them with no error
-// surfaced anywhere but a stale `/v1/meta` (the same production incident
-// the manual `/v1/admin/*/tick` routes exist for); one trigger is one
-// fewer thing that dispatch can silently wedge on, and every job's own
-// due-or-not decision is a pure function of the clock, testable as a flat
-// enumeration below (`tests/import/tick.test.ts`'s own matrix) rather than
-// scattered across which of four cron strings happened to fire.
+// string left to switch on). Why one trigger, even now that there's only
+// one job left: four registered triggers on one Worker is four independent
+// things Cloudflare's own scheduler has to keep dispatching correctly, and
+// it has -- at least once, observed on the deployed service -- simply
+// stopped firing all of them with no error surfaced anywhere but a stale
+// `/v1/meta` (the same production incident `POST /v1/admin/nightly/tick`
+// exists for); one trigger is one fewer thing that dispatch can silently
+// wedge on.
 //
 // `ScheduledController` (not the legacy service-worker-format
 // `ScheduledEvent`) is what a modules-format Worker's `scheduled` export
 // actually receives -- S1's original annotation typechecked only because
 // `@cloudflare/workers-types`'s stable index.d.ts doesn't carry
 // `ScheduledController` at all, so nothing here caught the mismatch until
-// S5 needed it (07 §6 S5's tick.test.ts drives this handler directly via
+// S5 needed it (07 §6 S5's own tests drive this handler directly via
 // pool-workers' `createScheduledController`, which accepts a `scheduledTime`
 // override for exactly this file's own tests).
-// Fault isolation between the jobs bundled onto one invocation: separate
-// cron triggers meant a broken one (say, upstream timing out) could only
-// ever wedge ITS OWN schedule -- the nightly prune, the diff, kept running
-// on their own triggers regardless. Collapsing onto one dispatch must not
-// silently recreate a single point of failure out of previously-
-// independent jobs, so each one is caught and logged (`core/jobs.ts`'s
-// `runJob`) rather than left to abort every job still queued after it in
-// the same invocation (`tests/import/tick.test.ts`'s own "one job's
-// failure doesn't block the rest" case is the regression test).
 async function scheduled(event: ScheduledController, env: Bindings, _ctx: ExecutionContext): Promise<void> {
   if (event.cron !== "*/5 * * * *") {
     throw new Error(`scheduled(): unrecognized cron '${event.cron}'`);
@@ -310,32 +329,12 @@ async function scheduled(event: ScheduledController, env: Bindings, _ctx: Execut
   const hour = at.getUTCHours();
   const minute = at.getUTCMinutes();
 
-  // LDB-I27: keep the import switch at the dispatch boundary too. tick()
-  // and diffTick() retain their own guards for manual/direct callers, but
-  // a scheduled invocation with the upstream disabled does not even call
-  // either function or read diff catch-up state.
-  if (importEnabled(env)) {
-    await runJob("cmini-tick", () => cminiTick(env, systemClock));
-
-    // LDB-D8: the diff runs BEFORE the dump on every invocation (not just
-    // production's disjoint hour=4/hour=3 slots) so that on the rare tick
-    // where BOTH catch up at once, the dump's own `import_state` snapshot
-    // (built inside `runNightly`/`writeDump` below) already reflects the
-    // diff's freshly-written `cmini.last_diff` row instead of being one
-    // write behind it -- a "producer before snapshotter" ordering, the one
-    // pair of jobs here that can otherwise observe each other's state.
-    //
-    // The old `0 4 * * *`: hour=4 stays the preferred slot; any other tick
-    // runs the diff anyway once `cmini.last_diff` (12 §3 X4) is missing or
-    // >24h old (LDB-D8), so a dropped hour=4 dispatch is caught within one
-    // tick of the next successful one instead of silently skipping a day.
-    if (hour === 4 && minute === 0) {
-      await runJob("diff-tick", () => diffTick(env, systemClock));
-    } else if (diffDue(await lastDiff(env.DB), at.toISOString())) {
-      await runJob("diff-tick", () => diffTick(env, systemClock));
-    }
-  }
-
+  // [LDB-X2] The cmini import tick and the upstream diff tick both used to
+  // run here (LDB-I27's kill switch had already turned both off since
+  // 2026-09-15 -- pine's own upstream is gone for good). This dispatch now
+  // only ever runs the nightly dump/prune job set below; there is nothing
+  // left here to gate on an import switch.
+  //
   // The old `0 3 * * *`: prune + the nightly dump, delegated to
   // `core/nightly.ts`'s `runNightly` so this exact job list is also what
   // `POST /v1/admin/nightly/tick` (routes/admin.ts) runs -- one job list,

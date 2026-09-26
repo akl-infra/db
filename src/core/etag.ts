@@ -154,7 +154,21 @@ export async function readHead(db: D1Database, stateKeys: readonly string[] = []
 //   `health.import` each gain a `disabled` boolean (mirrors the new
 //   `IMPORT_ENABLED` kill switch, forces `health.diff.stale` false while
 //   it's off). Additive only.
-export const WIRE_VERSION = 14;
+// 15 (2026-09-26, LDB-X2): the cmini importer removed for good (pine's own
+//   upstream has been permanently dead since 1.14/LDB-I27, and stays that
+//   way) -- REMOVAL, not additive, done in place under /v1 on the same
+//   "no consumer" basis the webhooks/SSE removal used (LEDGER.md L4,
+//   `25-api-versioning.md` §2's finding 8, this doc's own policy): every
+//   route here is admin-only, consumed only by this repo's own site.
+//   Gone: `POST /v1/admin/import/{pause,resume,tick,unstall,
+//   restore-deleted}`, `POST /v1/admin/diff/tick`, `GET /v1/admin/health`,
+//   error codes `import_paused`/`import_running`. `health.diff`/
+//   `health.import` STAY on `/v1/meta` (no shape change), now
+//   unconditionally `disabled: true` rather than a live switch -- byte-
+//   identical to what `IMPORT_ENABLED=off` already produced. `upstream`
+//   stays on every layout, frozen. Every `admin.import_*`/`admin.diff_*`
+//   event kind stays valid, queryable history.
+export const WIRE_VERSION = 15;
 
 export async function etagFor(headSeqValue: number, query: unknown): Promise<string> {
   const hash = await sha256Hex(canonical({ wireVersion: WIRE_VERSION, query: query ?? null }));

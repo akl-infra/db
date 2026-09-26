@@ -29,17 +29,6 @@ bucket_name = "akl-db-dumps"
 crons = ["*/5 * * * *"] # ONE trigger for three jobs -- src/index.ts's scheduled() dispatches by event.scheduledTime, not event.cron
 
 [vars]
-IMPORT_SOURCE_URL = "https://clemenpine.com/layoutapi/v3"
-IMPORT_MAX_WRITES_PER_TICK = "500"
-IMPORT_UA = "akl-db-import/1.0"
-IMPORT_DELETES = "on" # "off" = kill switch: the importer never tombstones anything (LDB-I23)
-# LDB-I27 (saltorbit, 2026-09-15: "pine has taken down his api"): cmini's own
-# upstream (https://clemenpine.com/layoutapi/v3) is gone -- "off" skips the
-# cmini import tick AND the upstream diff tick entirely (no fetch to
-# IMPORT_SOURCE_URL at all, cron or manual `/v1/admin/*/tick`); the nightly
-# dump/prunes are unaffected. Flip back to "on" -- the one-line change --
-# once the upstream answers again; see INVARIANTS.md's LDB-I27 row.
-IMPORT_ENABLED = "off"
 DISCORD_API_URL = "https://discord.com/api"
 
 [observability]

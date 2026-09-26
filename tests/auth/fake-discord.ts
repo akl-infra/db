@@ -1,10 +1,9 @@
 // A fake Discord `GET /oauth2/@me`, with a request log and per-token
 // scripted answers -- the test double `resolveBearer`'s injected
 // `fetchImpl` talks to (09 §2.2; 20-spark.md S3s widens this from
-// `/users/@me`, mirroring tests/import/fake-upstream.ts's pattern: a plain
-// function implementing the Fetch API shape, no `cloudflare:test`
-// `fetchMock`).
-import type { FetchImpl } from "../../src/import/upstream";
+// `/users/@me`): a plain function implementing the Fetch API shape, no
+// `cloudflare:test` `fetchMock`.
+import type { FetchImpl } from "../../src/core/fetch";
 
 const DEFAULT_APP_ID = "app-default";
 

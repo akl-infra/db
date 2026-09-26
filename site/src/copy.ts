@@ -186,7 +186,6 @@ export const copy = {
     tabBans: "Bans",
     tabLinkQueue: "Link queue",
     tabAdmins: "Admins",
-    tabImport: "Import",
     // UNSIGNED COPY (clients moderation, 2026-09-13) -- awaiting saltorbit
     tabClients: "Clients",
     layouts: {
@@ -203,7 +202,7 @@ export const copy = {
       currentName: (name: string) => `Current name: ${name}`,
       newNamePrompt: "New display name",
       rename: "Rename",
-      renamed: "Name updated. Sign-ins and the cmini import will no longer overwrite it.",
+      renamed: "Name updated. Sign-ins will no longer overwrite it.",
     },
     bans: {
       loadError: "Could not load the ban list from akldb",
@@ -246,15 +245,6 @@ export const copy = {
       addButton: "Add admin",
       removeButton: "Remove",
       lastAdmin: "The last admin cannot be removed",
-    },
-    import: {
-      pause: "Pause import",
-      resume: "Resume import",
-      tick: "Run import now",
-      paused: "Import is paused",
-      running: "Import is running",
-      healthTitle: "Health",
-      healthLoadError: "Could not load health from akldb",
     },
     // UNSIGNED COPY (clients moderation, 2026-09-13) -- awaiting saltorbit
     clients: {

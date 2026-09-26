@@ -238,82 +238,23 @@ import adminAdminsDelete404 from "./admin-admins/delete-404.json" with { type: "
 import adminAdminsPost400BadRequest from "./admin-admins/post-400-bad_request.json" with { type: "json" };
 import adminAdminsPost403NotAdmin from "./admin-admins/post-403-not_admin.json" with { type: "json" };
 import adminAdminsDelete403NotAdmin from "./admin-admins/delete-403-not_admin.json" with { type: "json" };
-import adminImportPause200 from "./admin-import/pause-200.json" with { type: "json" };
-import adminImportPause401TokenInvalid from "./admin-import/pause-401-token_invalid.json" with { type: "json" };
-import adminImportPause401Unauthorized from "./admin-import/pause-401-unauthorized.json" with { type: "json" };
-import adminImportPause403NotAdmin from "./admin-import/pause-403-not_admin.json" with { type: "json" };
-import adminImportPause429 from "./admin-import/pause-429.json" with { type: "json" };
-import adminImportPause503IdentityUnavailable from "./admin-import/pause-503-identity_unavailable.json" with { type: "json" };
-import adminImportResume200 from "./admin-import/resume-200.json" with { type: "json" };
-import adminImportResume401TokenInvalid from "./admin-import/resume-401-token_invalid.json" with { type: "json" };
-import adminImportResume401Unauthorized from "./admin-import/resume-401-unauthorized.json" with { type: "json" };
-import adminImportResume403NotAdmin from "./admin-import/resume-403-not_admin.json" with { type: "json" };
-import adminImportResume429 from "./admin-import/resume-429.json" with { type: "json" };
-import adminImportResume503IdentityUnavailable from "./admin-import/resume-503-identity_unavailable.json" with { type: "json" };
 
-import adminHealth200 from "./admin-health/200.json" with { type: "json" };
-import adminHealth401Unauthorized from "./admin-health/401-unauthorized.json" with { type: "json" };
-import adminHealth401TokenInvalid from "./admin-health/401-token_invalid.json" with { type: "json" };
-import adminHealth403NotAdmin from "./admin-health/403-not_admin.json" with { type: "json" };
-import adminHealth503IdentityUnavailable from "./admin-health/503-identity_unavailable.json" with { type: "json" };
-
-// X4 follow-up: manual triggers for the '*/5' import cron and the '0 4'
-// diff cron.
-import adminImportTick200 from "./admin-import/tick-200.json" with { type: "json" };
-import adminImportTick401TokenInvalid from "./admin-import/tick-401-token_invalid.json" with { type: "json" };
-import adminImportTick401Unauthorized from "./admin-import/tick-401-unauthorized.json" with { type: "json" };
-import adminImportTick403NotAdmin from "./admin-import/tick-403-not_admin.json" with { type: "json" };
-import adminImportTick409ImportPaused from "./admin-import/tick-409-import_paused.json" with { type: "json" };
-import adminImportTick429 from "./admin-import/tick-429.json" with { type: "json" };
-import adminImportTick503IdentityUnavailable from "./admin-import/tick-503-identity_unavailable.json" with { type: "json" };
-
-// M1 (LDB-I10, design/layout-db/17-magic-ownership.md §4): the one-time
-// cmini-magic strip pass, same shape as admin-import/tick above.
-
-import adminDiffTick200 from "./admin-diff/tick-200.json" with { type: "json" };
-import adminDiffTick401TokenInvalid from "./admin-diff/tick-401-token_invalid.json" with { type: "json" };
-import adminDiffTick401Unauthorized from "./admin-diff/tick-401-unauthorized.json" with { type: "json" };
-import adminDiffTick403NotAdmin from "./admin-diff/tick-403-not_admin.json" with { type: "json" };
-import adminDiffTick429 from "./admin-diff/tick-429.json" with { type: "json" };
-import adminDiffTick503IdentityUnavailable from "./admin-diff/tick-503-identity_unavailable.json" with { type: "json" };
-
+// [LDB-X2] The manual cmini-import-tick/diff-tick/unstall/restore-deleted
+// admin routes (`POST /v1/admin/import/*`, `POST /v1/admin/diff/tick`) and
+// `GET /v1/admin/health` -- and every fixture below that named them -- are
+// gone along with the importer itself (pine's own upstream has been
+// permanently dead since 2026-09-15, LDB-I27; "no consumer" removal, same
+// posture LEDGER.md L4 used for webhooks -- see `db/CHANGELOG-API.md`).
+//
 // X4 follow-up 3: the manual nightly-job-set trigger (the three prunes +
-// the R2 dump, `core/nightly.ts`'s `runNightly`) -- same shape as
-// admin-import/tick and admin-diff/tick above, no "paused" state.
+// the R2 dump, `core/nightly.ts`'s `runNightly`) -- admin-only POST, no
+// "paused" state -- is unaffected and stays.
 import adminNightlyTick200 from "./admin-nightly/tick-200.json" with { type: "json" };
 import adminNightlyTick401TokenInvalid from "./admin-nightly/tick-401-token_invalid.json" with { type: "json" };
 import adminNightlyTick401Unauthorized from "./admin-nightly/tick-401-unauthorized.json" with { type: "json" };
 import adminNightlyTick403NotAdmin from "./admin-nightly/tick-403-not_admin.json" with { type: "json" };
 import adminNightlyTick429 from "./admin-nightly/tick-429.json" with { type: "json" };
 import adminNightlyTick503IdentityUnavailable from "./admin-nightly/tick-503-identity_unavailable.json" with { type: "json" };
-
-// LDB-I25/LDB-I26 (2026-09-13, hostile/vanished-upstream recovery tooling):
-// unstall lifts `cmini.stalled` deliberately, same shape as pause/resume
-// above (admin-only POST, no extra state pre-check); restore-deleted bulk-
-// restores `upstream_deleted` tombstones since a timestamp and has one
-// extra case (`400 bad_request` on a malformed/missing `since`).
-import adminImportUnstall200 from "./admin-import/unstall-200.json" with { type: "json" };
-import adminImportUnstall401TokenInvalid from "./admin-import/unstall-401-token_invalid.json" with { type: "json" };
-import adminImportUnstall401Unauthorized from "./admin-import/unstall-401-unauthorized.json" with { type: "json" };
-import adminImportUnstall403NotAdmin from "./admin-import/unstall-403-not_admin.json" with { type: "json" };
-import adminImportUnstall429 from "./admin-import/unstall-429.json" with { type: "json" };
-import adminImportUnstall503IdentityUnavailable from "./admin-import/unstall-503-identity_unavailable.json" with { type: "json" };
-import adminImportRestoreDeleted200 from "./admin-import/restore-deleted-200.json" with { type: "json" };
-import adminImportRestoreDeleted400BadRequest from "./admin-import/restore-deleted-400-bad_request.json" with { type: "json" };
-import adminImportRestoreDeleted401TokenInvalid from "./admin-import/restore-deleted-401-token_invalid.json" with { type: "json" };
-import adminImportRestoreDeleted401Unauthorized from "./admin-import/restore-deleted-401-unauthorized.json" with { type: "json" };
-import adminImportRestoreDeleted403NotAdmin from "./admin-import/restore-deleted-403-not_admin.json" with { type: "json" };
-import adminImportRestoreDeleted429 from "./admin-import/restore-deleted-429.json" with { type: "json" };
-import adminImportRestoreDeleted503IdentityUnavailable from "./admin-import/restore-deleted-503-identity_unavailable.json" with { type: "json" };
-
-// 20-spark.md S4 (LDB-A5 amended, LDB-P12): the operator-driven record
-// migration's manual trigger. No "paused" gate (not gated on the import
-// pause -- expectRev makes the two safe to interleave); same shape as
-// admin-diff/tick and admin-nightly/tick above. The 200 case's response
-// body is intentionally unasserted (same reasoning as diff/nightly's own
-// 200 fixtures): the migration report's counts depend on every legacy-
-// format record any earlier case in this file happened to create, so it
-// sends `dry_run: true` to stay a no-op regardless.
 
 // LDB-A4 follow-up: the client lane's own five 401 codes (bad_signature,
 // unknown_client, client_revoked, stale_timestamp, replay), swept over
@@ -380,26 +321,6 @@ import clAdminAdminsDeleteUnknownClient from "./admin-admins/delete-401-unknown_
 import clAdminAdminsDeleteClientRevoked from "./admin-admins/delete-401-client_revoked.json" with { type: "json" };
 import clAdminAdminsDeleteStaleTimestamp from "./admin-admins/delete-401-stale_timestamp.json" with { type: "json" };
 import clAdminAdminsDeleteReplay from "./admin-admins/delete-401-replay.json" with { type: "json" };
-import clAdminImportPauseBadSignature from "./admin-import/pause-401-bad_signature.json" with { type: "json" };
-import clAdminImportPauseUnknownClient from "./admin-import/pause-401-unknown_client.json" with { type: "json" };
-import clAdminImportPauseClientRevoked from "./admin-import/pause-401-client_revoked.json" with { type: "json" };
-import clAdminImportPauseStaleTimestamp from "./admin-import/pause-401-stale_timestamp.json" with { type: "json" };
-import clAdminImportPauseReplay from "./admin-import/pause-401-replay.json" with { type: "json" };
-import clAdminImportResumeBadSignature from "./admin-import/resume-401-bad_signature.json" with { type: "json" };
-import clAdminImportResumeUnknownClient from "./admin-import/resume-401-unknown_client.json" with { type: "json" };
-import clAdminImportResumeClientRevoked from "./admin-import/resume-401-client_revoked.json" with { type: "json" };
-import clAdminImportResumeStaleTimestamp from "./admin-import/resume-401-stale_timestamp.json" with { type: "json" };
-import clAdminImportResumeReplay from "./admin-import/resume-401-replay.json" with { type: "json" };
-import clAdminImportTickBadSignature from "./admin-import/tick-401-bad_signature.json" with { type: "json" };
-import clAdminImportTickUnknownClient from "./admin-import/tick-401-unknown_client.json" with { type: "json" };
-import clAdminImportTickClientRevoked from "./admin-import/tick-401-client_revoked.json" with { type: "json" };
-import clAdminImportTickStaleTimestamp from "./admin-import/tick-401-stale_timestamp.json" with { type: "json" };
-import clAdminImportTickReplay from "./admin-import/tick-401-replay.json" with { type: "json" };
-import clAdminDiffTickBadSignature from "./admin-diff/tick-401-bad_signature.json" with { type: "json" };
-import clAdminDiffTickUnknownClient from "./admin-diff/tick-401-unknown_client.json" with { type: "json" };
-import clAdminDiffTickClientRevoked from "./admin-diff/tick-401-client_revoked.json" with { type: "json" };
-import clAdminDiffTickStaleTimestamp from "./admin-diff/tick-401-stale_timestamp.json" with { type: "json" };
-import clAdminDiffTickReplay from "./admin-diff/tick-401-replay.json" with { type: "json" };
 import clAdminNightlyTickBadSignature from "./admin-nightly/tick-401-bad_signature.json" with { type: "json" };
 import clAdminNightlyTickUnknownClient from "./admin-nightly/tick-401-unknown_client.json" with { type: "json" };
 import clAdminNightlyTickClientRevoked from "./admin-nightly/tick-401-client_revoked.json" with { type: "json" };
@@ -410,16 +331,6 @@ import clAdminNightlyTickReplay from "./admin-nightly/tick-401-replay.json" with
 // the generator: safe only against a manifest with no CLIENT_LANE_CASES
 // block yet -- a NEW route since then is added by hand, matching the
 // generator's exact fixture shape).
-import clAdminImportUnstallBadSignature from "./admin-import/unstall-401-bad_signature.json" with { type: "json" };
-import clAdminImportUnstallUnknownClient from "./admin-import/unstall-401-unknown_client.json" with { type: "json" };
-import clAdminImportUnstallClientRevoked from "./admin-import/unstall-401-client_revoked.json" with { type: "json" };
-import clAdminImportUnstallStaleTimestamp from "./admin-import/unstall-401-stale_timestamp.json" with { type: "json" };
-import clAdminImportUnstallReplay from "./admin-import/unstall-401-replay.json" with { type: "json" };
-import clAdminImportRestoreDeletedBadSignature from "./admin-import/restore-deleted-401-bad_signature.json" with { type: "json" };
-import clAdminImportRestoreDeletedUnknownClient from "./admin-import/restore-deleted-401-unknown_client.json" with { type: "json" };
-import clAdminImportRestoreDeletedClientRevoked from "./admin-import/restore-deleted-401-client_revoked.json" with { type: "json" };
-import clAdminImportRestoreDeletedStaleTimestamp from "./admin-import/restore-deleted-401-stale_timestamp.json" with { type: "json" };
-import clAdminImportRestoreDeletedReplay from "./admin-import/restore-deleted-401-replay.json" with { type: "json" };
 import clAdminClientsGetBadSignature from "./admin-clients/get-401-bad_signature.json" with { type: "json" };
 import clAdminClientsGetUnknownClient from "./admin-clients/get-401-unknown_client.json" with { type: "json" };
 import clAdminClientsGetClientRevoked from "./admin-clients/get-401-client_revoked.json" with { type: "json" };
@@ -435,11 +346,6 @@ import clAdminClientsDeleteUnknownClient from "./admin-clients/delete-401-unknow
 import clAdminClientsDeleteClientRevoked from "./admin-clients/delete-401-client_revoked.json" with { type: "json" };
 import clAdminClientsDeleteStaleTimestamp from "./admin-clients/delete-401-stale_timestamp.json" with { type: "json" };
 import clAdminClientsDeleteReplay from "./admin-clients/delete-401-replay.json" with { type: "json" };
-import clAdminHealthBadSignature from "./admin-health/401-bad_signature.json" with { type: "json" };
-import clAdminHealthUnknownClient from "./admin-health/401-unknown_client.json" with { type: "json" };
-import clAdminHealthClientRevoked from "./admin-health/401-client_revoked.json" with { type: "json" };
-import clAdminHealthStaleTimestamp from "./admin-health/401-stale_timestamp.json" with { type: "json" };
-import clAdminHealthReplay from "./admin-health/401-replay.json" with { type: "json" };
 // M1: appended at the end (scripts/gen-client-lane-sweep.mjs's own ROUTES
 // comment) -- a new A-group route's five client-lane 401 cases always join
 // here, never inserted alongside an earlier route.
@@ -690,18 +596,6 @@ export const T6_CASES: ConformanceCase[] = [
   kase("admin-admins/post-400-bad_request", "/v1/admin/admins", adminAdminsPost400BadRequest, true),
   kase("admin-admins/post-403-not_admin", "/v1/admin/admins", adminAdminsPost403NotAdmin, true),
   kase("admin-admins/delete-403-not_admin", "/v1/admin/admins/:user_id", adminAdminsDelete403NotAdmin, true),
-  kase("admin-import/pause-200", "/v1/admin/import/pause", adminImportPause200, true),
-  kase("admin-import/pause-401-token_invalid", "/v1/admin/import/pause", adminImportPause401TokenInvalid, true),
-  kase("admin-import/pause-401-unauthorized", "/v1/admin/import/pause", adminImportPause401Unauthorized, true),
-  kase("admin-import/pause-403-not_admin", "/v1/admin/import/pause", adminImportPause403NotAdmin, true),
-  kase("admin-import/pause-429", "/v1/admin/import/pause", adminImportPause429, true),
-  kase("admin-import/pause-503-identity_unavailable", "/v1/admin/import/pause", adminImportPause503IdentityUnavailable, true),
-  kase("admin-import/resume-200", "/v1/admin/import/resume", adminImportResume200, true),
-  kase("admin-import/resume-401-token_invalid", "/v1/admin/import/resume", adminImportResume401TokenInvalid, true),
-  kase("admin-import/resume-401-unauthorized", "/v1/admin/import/resume", adminImportResume401Unauthorized, true),
-  kase("admin-import/resume-403-not_admin", "/v1/admin/import/resume", adminImportResume403NotAdmin, true),
-  kase("admin-import/resume-429", "/v1/admin/import/resume", adminImportResume429, true),
-  kase("admin-import/resume-503-identity_unavailable", "/v1/admin/import/resume", adminImportResume503IdentityUnavailable, true),
 
   // 10 C1: the client-lane admin routes' own A-group + write-verb rows,
   // following T6's shape (no 409 -- client ids are freshly minted ULIDs,
@@ -725,33 +619,6 @@ export const T6_CASES: ConformanceCase[] = [
   kase("admin-clients/delete-200", "/v1/admin/clients/:id", adminClientsDelete200, true),
 
   // X4 (12 §3 X4, §4).
-  kase("admin-health/401-unauthorized", "/v1/admin/health", adminHealth401Unauthorized, true),
-  kase("admin-health/401-token_invalid", "/v1/admin/health", adminHealth401TokenInvalid, true),
-  kase("admin-health/503-identity_unavailable", "/v1/admin/health", adminHealth503IdentityUnavailable, true),
-  kase("admin-health/403-not_admin", "/v1/admin/health", adminHealth403NotAdmin, true),
-  kase("admin-health/200", "/v1/admin/health", adminHealth200, true),
-
-  // X4 follow-up: manual cron triggers. `admin-import/tick-200` runs
-  // BEFORE `tick-409-import_paused` (its own `setup` pauses the import,
-  // and nothing after this point needs it unpaused again -- same
-  // hand-ordering reasoning admin-admins/delete-409-last_admins's own
-  // block comment gives).
-  kase("admin-import/tick-401-unauthorized", "/v1/admin/import/tick", adminImportTick401Unauthorized, true),
-  kase("admin-import/tick-401-token_invalid", "/v1/admin/import/tick", adminImportTick401TokenInvalid, true),
-  kase("admin-import/tick-503-identity_unavailable", "/v1/admin/import/tick", adminImportTick503IdentityUnavailable, true),
-  kase("admin-import/tick-403-not_admin", "/v1/admin/import/tick", adminImportTick403NotAdmin, true),
-  kase("admin-import/tick-429", "/v1/admin/import/tick", adminImportTick429, true),
-  kase("admin-import/tick-200", "/v1/admin/import/tick", adminImportTick200, true),
-
-
-  kase("admin-import/tick-409-import_paused", "/v1/admin/import/tick", adminImportTick409ImportPaused, true),
-
-  kase("admin-diff/tick-401-unauthorized", "/v1/admin/diff/tick", adminDiffTick401Unauthorized, true),
-  kase("admin-diff/tick-401-token_invalid", "/v1/admin/diff/tick", adminDiffTick401TokenInvalid, true),
-  kase("admin-diff/tick-503-identity_unavailable", "/v1/admin/diff/tick", adminDiffTick503IdentityUnavailable, true),
-  kase("admin-diff/tick-403-not_admin", "/v1/admin/diff/tick", adminDiffTick403NotAdmin, true),
-  kase("admin-diff/tick-429", "/v1/admin/diff/tick", adminDiffTick429, true),
-  kase("admin-diff/tick-200", "/v1/admin/diff/tick", adminDiffTick200, true),
 
   // X4 follow-up 3: the manual nightly-job-set trigger.
   kase("admin-nightly/tick-401-unauthorized", "/v1/admin/nightly/tick", adminNightlyTick401Unauthorized, true),
@@ -760,23 +627,6 @@ export const T6_CASES: ConformanceCase[] = [
   kase("admin-nightly/tick-403-not_admin", "/v1/admin/nightly/tick", adminNightlyTick403NotAdmin, true),
   kase("admin-nightly/tick-429", "/v1/admin/nightly/tick", adminNightlyTick429, true),
   kase("admin-nightly/tick-200", "/v1/admin/nightly/tick", adminNightlyTick200, true),
-
-  // LDB-I25: unstall -- same shape as pause/resume.
-  kase("admin-import/unstall-401-unauthorized", "/v1/admin/import/unstall", adminImportUnstall401Unauthorized, true),
-  kase("admin-import/unstall-401-token_invalid", "/v1/admin/import/unstall", adminImportUnstall401TokenInvalid, true),
-  kase("admin-import/unstall-503-identity_unavailable", "/v1/admin/import/unstall", adminImportUnstall503IdentityUnavailable, true),
-  kase("admin-import/unstall-403-not_admin", "/v1/admin/import/unstall", adminImportUnstall403NotAdmin, true),
-  kase("admin-import/unstall-429", "/v1/admin/import/unstall", adminImportUnstall429, true),
-  kase("admin-import/unstall-200", "/v1/admin/import/unstall", adminImportUnstall200, true),
-
-  // LDB-I26: bulk-restore `upstream_deleted` tombstones since a timestamp.
-  kase("admin-import/restore-deleted-401-unauthorized", "/v1/admin/import/restore-deleted", adminImportRestoreDeleted401Unauthorized, true),
-  kase("admin-import/restore-deleted-401-token_invalid", "/v1/admin/import/restore-deleted", adminImportRestoreDeleted401TokenInvalid, true),
-  kase("admin-import/restore-deleted-503-identity_unavailable", "/v1/admin/import/restore-deleted", adminImportRestoreDeleted503IdentityUnavailable, true),
-  kase("admin-import/restore-deleted-403-not_admin", "/v1/admin/import/restore-deleted", adminImportRestoreDeleted403NotAdmin, true),
-  kase("admin-import/restore-deleted-400-bad_request", "/v1/admin/import/restore-deleted", adminImportRestoreDeleted400BadRequest, true),
-  kase("admin-import/restore-deleted-429", "/v1/admin/import/restore-deleted", adminImportRestoreDeleted429, true),
-  kase("admin-import/restore-deleted-200", "/v1/admin/import/restore-deleted", adminImportRestoreDeleted200, true),
 ];
 
 // LDB-A4 follow-up: the client lane's own five 401 codes, swept over
@@ -851,41 +701,11 @@ export const CLIENT_LANE_CASES: ConformanceCase[] = [
   kase("admin-admins/delete-401-client_revoked", "/v1/admin/admins/:user_id", clAdminAdminsDeleteClientRevoked, true),
   kase("admin-admins/delete-401-stale_timestamp", "/v1/admin/admins/:user_id", clAdminAdminsDeleteStaleTimestamp, true),
   kase("admin-admins/delete-401-replay", "/v1/admin/admins/:user_id", clAdminAdminsDeleteReplay, true),
-  kase("admin-import/pause-401-bad_signature", "/v1/admin/import/pause", clAdminImportPauseBadSignature, true),
-  kase("admin-import/pause-401-unknown_client", "/v1/admin/import/pause", clAdminImportPauseUnknownClient, true),
-  kase("admin-import/pause-401-client_revoked", "/v1/admin/import/pause", clAdminImportPauseClientRevoked, true),
-  kase("admin-import/pause-401-stale_timestamp", "/v1/admin/import/pause", clAdminImportPauseStaleTimestamp, true),
-  kase("admin-import/pause-401-replay", "/v1/admin/import/pause", clAdminImportPauseReplay, true),
-  kase("admin-import/resume-401-bad_signature", "/v1/admin/import/resume", clAdminImportResumeBadSignature, true),
-  kase("admin-import/resume-401-unknown_client", "/v1/admin/import/resume", clAdminImportResumeUnknownClient, true),
-  kase("admin-import/resume-401-client_revoked", "/v1/admin/import/resume", clAdminImportResumeClientRevoked, true),
-  kase("admin-import/resume-401-stale_timestamp", "/v1/admin/import/resume", clAdminImportResumeStaleTimestamp, true),
-  kase("admin-import/resume-401-replay", "/v1/admin/import/resume", clAdminImportResumeReplay, true),
-  kase("admin-import/tick-401-bad_signature", "/v1/admin/import/tick", clAdminImportTickBadSignature, true),
-  kase("admin-import/tick-401-unknown_client", "/v1/admin/import/tick", clAdminImportTickUnknownClient, true),
-  kase("admin-import/tick-401-client_revoked", "/v1/admin/import/tick", clAdminImportTickClientRevoked, true),
-  kase("admin-import/tick-401-stale_timestamp", "/v1/admin/import/tick", clAdminImportTickStaleTimestamp, true),
-  kase("admin-import/tick-401-replay", "/v1/admin/import/tick", clAdminImportTickReplay, true),
-  kase("admin-diff/tick-401-bad_signature", "/v1/admin/diff/tick", clAdminDiffTickBadSignature, true),
-  kase("admin-diff/tick-401-unknown_client", "/v1/admin/diff/tick", clAdminDiffTickUnknownClient, true),
-  kase("admin-diff/tick-401-client_revoked", "/v1/admin/diff/tick", clAdminDiffTickClientRevoked, true),
-  kase("admin-diff/tick-401-stale_timestamp", "/v1/admin/diff/tick", clAdminDiffTickStaleTimestamp, true),
-  kase("admin-diff/tick-401-replay", "/v1/admin/diff/tick", clAdminDiffTickReplay, true),
   kase("admin-nightly/tick-401-bad_signature", "/v1/admin/nightly/tick", clAdminNightlyTickBadSignature, true),
   kase("admin-nightly/tick-401-unknown_client", "/v1/admin/nightly/tick", clAdminNightlyTickUnknownClient, true),
   kase("admin-nightly/tick-401-client_revoked", "/v1/admin/nightly/tick", clAdminNightlyTickClientRevoked, true),
   kase("admin-nightly/tick-401-stale_timestamp", "/v1/admin/nightly/tick", clAdminNightlyTickStaleTimestamp, true),
   kase("admin-nightly/tick-401-replay", "/v1/admin/nightly/tick", clAdminNightlyTickReplay, true),
-  kase("admin-import/unstall-401-bad_signature", "/v1/admin/import/unstall", clAdminImportUnstallBadSignature, true),
-  kase("admin-import/unstall-401-unknown_client", "/v1/admin/import/unstall", clAdminImportUnstallUnknownClient, true),
-  kase("admin-import/unstall-401-client_revoked", "/v1/admin/import/unstall", clAdminImportUnstallClientRevoked, true),
-  kase("admin-import/unstall-401-stale_timestamp", "/v1/admin/import/unstall", clAdminImportUnstallStaleTimestamp, true),
-  kase("admin-import/unstall-401-replay", "/v1/admin/import/unstall", clAdminImportUnstallReplay, true),
-  kase("admin-import/restore-deleted-401-bad_signature", "/v1/admin/import/restore-deleted", clAdminImportRestoreDeletedBadSignature, true),
-  kase("admin-import/restore-deleted-401-unknown_client", "/v1/admin/import/restore-deleted", clAdminImportRestoreDeletedUnknownClient, true),
-  kase("admin-import/restore-deleted-401-client_revoked", "/v1/admin/import/restore-deleted", clAdminImportRestoreDeletedClientRevoked, true),
-  kase("admin-import/restore-deleted-401-stale_timestamp", "/v1/admin/import/restore-deleted", clAdminImportRestoreDeletedStaleTimestamp, true),
-  kase("admin-import/restore-deleted-401-replay", "/v1/admin/import/restore-deleted", clAdminImportRestoreDeletedReplay, true),
   kase("admin-clients/get-401-bad_signature", "/v1/admin/clients", clAdminClientsGetBadSignature, true),
   kase("admin-clients/get-401-unknown_client", "/v1/admin/clients", clAdminClientsGetUnknownClient, true),
   kase("admin-clients/get-401-client_revoked", "/v1/admin/clients", clAdminClientsGetClientRevoked, true),
@@ -901,11 +721,6 @@ export const CLIENT_LANE_CASES: ConformanceCase[] = [
   kase("admin-clients/delete-401-client_revoked", "/v1/admin/clients/:id", clAdminClientsDeleteClientRevoked, true),
   kase("admin-clients/delete-401-stale_timestamp", "/v1/admin/clients/:id", clAdminClientsDeleteStaleTimestamp, true),
   kase("admin-clients/delete-401-replay", "/v1/admin/clients/:id", clAdminClientsDeleteReplay, true),
-  kase("admin-health/401-bad_signature", "/v1/admin/health", clAdminHealthBadSignature, true),
-  kase("admin-health/401-unknown_client", "/v1/admin/health", clAdminHealthUnknownClient, true),
-  kase("admin-health/401-client_revoked", "/v1/admin/health", clAdminHealthClientRevoked, true),
-  kase("admin-health/401-stale_timestamp", "/v1/admin/health", clAdminHealthStaleTimestamp, true),
-  kase("admin-health/401-replay", "/v1/admin/health", clAdminHealthReplay, true),
 ];
 
 // L5 moderation: order matters -- "admin-link-queue/get-200" and

@@ -252,16 +252,3 @@ export function adminReactivateClient(id: string): Promise<ApiResult<ClientStatu
 export function adminRevokeClient(id: string): Promise<ApiResult<ClientRevokeResult>> {
   return request(`/api/v1/admin/clients/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
-
-export function adminImportPause(): Promise<ApiResult<{ paused: boolean }>> {
-  return request("/api/v1/admin/import/pause", { method: "POST" });
-}
-export function adminImportResume(): Promise<ApiResult<{ paused: boolean }>> {
-  return request("/api/v1/admin/import/resume", { method: "POST" });
-}
-export function adminImportTick(): Promise<ApiResult<{ ran: boolean; [k: string]: unknown }>> {
-  return request("/api/v1/admin/import/tick", { method: "POST" });
-}
-export function adminHealth(): Promise<ApiResult<Record<string, unknown>>> {
-  return request("/api/v1/admin/health");
-}

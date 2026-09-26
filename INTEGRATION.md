@@ -414,7 +414,6 @@ format's own `validate()`, e.g. `db/formats/spark/1/index.ts`), not here:
 real examples in §4.
 
 <!-- BEGIN GENERATED ERROR TABLE (db/scripts/gen-error-table.mjs) -->
-
 | status | error | message | thrown by |
 |---|---|---|---|
 | 400 | `bad_request` | *(caller-supplied -- this function's own `message` parameter)* | `badRequest(message, param)` |
@@ -450,16 +449,13 @@ real examples in §4.
 | 401 | `stale_timestamp` | request timestamp is outside the accepted window | `staleTimestamp(skew)` |
 | 401 | `replay` | nonce already used | `replay()` |
 | 403 | `actor_not_allowed` | this client may not act as this user | `actorNotAllowed(actor, owner)` |
-| 409 | `import_paused` | the cmini import is paused (POST /v1/admin/import/resume first) | `importPaused()` |
 | 422 | `idempotency_mismatch` | this 'Idempotency-Key' was already used for a different request | `idempotencyMismatch()` |
 | 409 | `idempotency_in_progress` | a request with this 'Idempotency-Key' is already being processed | `idempotencyInProgress()` |
-| 409 | `import_running` | an import tick is already running (it holds the cmini.running lock) | `importRunning()` |
 | 403 | `banned` | this account is banned from writing | `banned()` |
 | 409 | `cannot_ban_admin` | an admin cannot be banned | `cannotBanAdmin()` |
 | 400 | `invalid_link` | *(caller-supplied -- this function's own `message` parameter)* | `invalidLink(message)` |
 | 409 | `magic_edited` | this record's magic was last written by ${client}; a seed never overwrites a person's edit | `magicEdited(client)` |
 | 429 | `rate_limited` | rate limit exceeded: ${limit} writes per ${windowSeconds}s | `rateLimited(limit, windowSeconds, retryAfter, scope)` |
-
 <!-- END GENERATED ERROR TABLE -->
 
 Every route × status/code above has a frozen request/response fixture under

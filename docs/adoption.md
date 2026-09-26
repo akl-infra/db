@@ -608,27 +608,30 @@ past that `seq` but never one *behind* it — booting from the dump then
 draining `/v1/changes?since=<seq>` always reaches exactly the live state,
 with no gap.
 
-**`upstream` is transitional — do not build on it.** Every record carries a
+**`upstream` is historical — do not build on it.** Every record carries a
 top-level `upstream: {source: "cmini", id, state: "following" | "forked"} |
-null` field, folded from the cmini-import events. It answers exactly one
-question — "does the importer still own this record's keys" — for records
-the cmini import created. The cmini import has been switched off since
-2026-09-15 (its upstream was taken down; `GET /v1/meta`'s
-`health.import.disabled`), so no import write touches it any more. There
-is no general layout-from-layout fork concept here, no re-follow, and
-nothing outside the importer, the daily upstream diff and the admin magic
-seed (`POST /v1/admin/magic-seed`, which answers `409 magic_edited` rather
-than un-fork a record a person forked) reads it for any decision.
-**Follow state is layout-level**: a write to the layout itself, or to
-lineage `spark` specifically, forks it (user write) or keeps it following
-(import write); a write to any OTHER format (`lw/1`, say) never touches
-`upstream` at all; an admin magic seed (`system:magic-seed`) sets it back
-to `following` too. The field will not be removed from `/v1` — a removal
-would be a `/v2` change (§1.4) — but once the import is retired it simply
-stops meaning anything, which is why a client should not key behaviour on
-`upstream.state`. Fold it into your local copy if you
-like (it costs nothing extra — it's already on every record and event), but
-don't gate a feature on it.
+null` field, folded from the (now-deleted) cmini importer's events. It used
+to answer one question — "does the importer still own this record's
+keys" — for records the importer created. The importer itself is gone for
+good (2026-09-26; its upstream, `https://clemenpine.com/layoutapi/v3`, had
+already been permanently dead since 2026-09-15, `GET /v1/meta`'s
+`health.import.disabled: true`), so no write anywhere sets a fresh
+`upstream.state: "following"` any more — the field simply stays frozen at
+whatever value each record last held. There is no general
+layout-from-layout fork concept here, no re-follow, and nothing but the
+admin magic seed (`POST /v1/admin/magic-seed`, which answers `409
+magic_edited` rather than un-fork a record a person forked) reads it for
+any decision today. **Follow state is layout-level**: historically, a
+write to the layout itself, or to lineage `spark` specifically, forked it
+(user write) or kept it following (import write); a write to any OTHER
+format (`lw/1`, say) never touched `upstream` at all; an admin magic seed
+(`system:magic-seed`) still sets it back to `following` on a record with
+no magic and no fork. The field is NOT removed from `/v1` — a removal
+would be a `/v2` change (§1.4) — it simply stays on the wire forever as
+historical data, meaning nothing new from here on, which is why a client
+should not key behaviour on `upstream.state`. Fold it into your local copy
+if you like (it costs nothing extra — it's already on every record and
+event), but don't gate a feature on it.
 
 **Fold-after-dump**: load the dump, then `GET /v1/changes?since=<dump's
 seq>` to catch up — never re-fetch the whole corpus over the API once you
@@ -872,10 +875,8 @@ it as generated, not hand-edited):
 | 401 | `stale_timestamp` | request timestamp is outside the accepted window | `staleTimestamp(skew)` |
 | 401 | `replay` | nonce already used | `replay()` |
 | 403 | `actor_not_allowed` | this client may not act as this user | `actorNotAllowed(actor, owner)` |
-| 409 | `import_paused` | the cmini import is paused (POST /v1/admin/import/resume first) | `importPaused()` |
 | 422 | `idempotency_mismatch` | this 'Idempotency-Key' was already used for a different request | `idempotencyMismatch()` |
 | 409 | `idempotency_in_progress` | a request with this 'Idempotency-Key' is already being processed | `idempotencyInProgress()` |
-| 409 | `import_running` | an import tick is already running (it holds the cmini.running lock) | `importRunning()` |
 | 403 | `banned` | this account is banned from writing | `banned()` |
 | 409 | `cannot_ban_admin` | an admin cannot be banned | `cannotBanAdmin()` |
 | 400 | `invalid_link` | *(caller-supplied -- this function's own `message` parameter)* | `invalidLink(message)` |
@@ -1143,12 +1144,6 @@ silently drift from what `src/index.ts` actually registers.
 | GET | `/v1/admin/admins` | admin | — | 200 | `not_admin`, lane errors |
 | POST | `/v1/admin/admins` | admin | `{user_id, note?}` | 200/201 | `bad_request`, `not_admin`, lane errors |
 | DELETE | `/v1/admin/admins/:user_id` | admin | — | 200 | `not_admin`, `not_found`, `last_admins`, lane errors |
-| POST | `/v1/admin/import/pause` | admin | — | 200 | `not_admin`, lane errors |
-| POST | `/v1/admin/import/resume` | admin | — | 200 | `not_admin`, lane errors |
-| POST | `/v1/admin/import/tick` | admin | — | 200 | `not_admin`, `import_paused`, `import_running`, lane errors |
-| POST | `/v1/admin/import/unstall` | admin | — | 200 (`{unstalled, was_stalled}`) — clears `cmini.stalled` deliberately; the next tick re-evaluates from scratch | `not_admin`, lane errors |
-| POST | `/v1/admin/import/restore-deleted` | admin | `{since, limit?, dry_run?}` | 200 (`{dry_run, count, restored\|would_restore, errors?}`) — bulk-restores `upstream_deleted` tombstones since `since`, bounded by `limit` (max 500), never an owner's own delete | `bad_request`, `not_admin`, lane errors |
-| POST | `/v1/admin/diff/tick` | admin | — | 200 | `not_admin`, lane errors |
 | POST | `/v1/admin/nightly/tick` | admin | — | 200 | `not_admin`, lane errors |
 | POST | `/v1/admin/dump` | admin | — | 200 (`{seq, layout_count, written_at}`) | `not_admin`, lane errors |
 | POST | `/v1/admin/magic-seed` | admin | `{ref, magic}` | 200 (`{id, name, rev, has_magic, upstream}`) — a SYSTEM write (`system:magic-seed` / `seed:aklgg`) that never forks the record | `bad_request`, `not_admin`, `not_found`, `format_absent`, `invalid_payload`, `magic_collision`, `magic_needs_unique_key`, `magic_edited`, lane errors |
@@ -1158,7 +1153,6 @@ silently drift from what `src/index.ts` actually registers.
 | POST | `/v1/admin/clients/:id/suspend` | admin | `{reason?}` | 200 (`{id, status, suspended_at, reason}`) | `not_admin`, `not_found`, `client_already_revoked`, lane errors |
 | POST | `/v1/admin/clients/:id/reactivate` | admin | — | 200 (`{id, status, suspended_at, reason}`) | `not_admin`, `not_found`, `client_already_revoked`, lane errors |
 | POST | `/v1/admin/clients/:id/revert` | admin | `{since, dry_run?, cursor?, limit?}` | 200 (`{client_id, since, dry_run, scanned, items, next}`) | `bad_request`, `not_admin`, `not_found`, lane errors |
-| GET | `/v1/admin/health` | admin | — | 200 | `not_admin`, lane errors |
 | GET | `/v1/admin/bans` | admin | — | 200 | `not_admin`, lane errors |
 | PUT | `/v1/admin/bans/:user_id` | admin | `{reason?}` | 200/201 | `not_admin`, `cannot_ban_admin`, lane errors |
 | DELETE | `/v1/admin/bans/:user_id` | admin | — | 200 | `not_admin`, `not_found`, lane errors |
@@ -1200,9 +1194,9 @@ set or adjust it, so every like is always tied to the user who made it.
 
 **Author name override** (`PUT /v1/admin/authors/:user_id`, body
 `{name}`): sets the one name `/v1/authors` shows for that Discord id and
-marks it sticky — neither a later sign-in nor the cmini import will
-rename it again. There is no "clear override" route; an admin sets it
-again to change it.
+marks it sticky — no later sign-in will rename it again (the cmini import
+that used to also respect this is gone). There is no "clear override"
+route; an admin sets it again to change it.
 
 **`link`** (`PUT/DELETE/GET /v1/layouts/:ref/link`, body `{url}` for
 `PUT`): the layout's owner submits a URL (must be `https:`, no embedded

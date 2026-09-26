@@ -328,16 +328,6 @@ export function actorNotAllowed(actor: string, owner: string): ApiError {
   });
 }
 
-// X4 follow-up: `POST /v1/admin/import/tick` refuses to run a manual tick
-// while the import is paused (`admin.import_paused`, `core/admins.ts`) --
-// the paused switch means "don't touch upstream", and a manual kick is
-// exactly that, so it's refused the same way a write against a stale rev
-// is: loudly, not silently turned into a no-op the caller has to notice by
-// its own empty summary.
-export function importPaused(): ApiError {
-  return new ApiError(409, { error: "import_paused", message: "the cmini import is paused (POST /v1/admin/import/resume first)" });
-}
-
 // L3 (design/layout-db/review/PROPOSAL.md §2.1): an `Idempotency-Key` reused
 // within its 24h window against a DIFFERENT method/path/body than the
 // request that first claimed it. Distinct from a genuine replay (same key,
@@ -363,16 +353,6 @@ export function idempotencyInProgress(): ApiError {
     error: "idempotency_in_progress",
     message: "a request with this 'Idempotency-Key' is already being processed",
   });
-}
-
-// LDB-B4 (design/layout-db/review/audit-db.md B4): `POST /v1/admin/import/
-// tick` refuses to start a second tick while one is already running --
-// `import/cmini.ts`'s `tick()` itself takes the `import_state['cmini.
-// running']` lock and reports back whether it got skipped; the route turns
-// that into a loud, distinguishable 409 instead of a silent `{ran: true,
-// skipped_locked: true}}` the caller has to notice on its own.
-export function importRunning(): ApiError {
-  return new ApiError(409, { error: "import_running", message: "an import tick is already running (it holds the cmini.running lock)" });
 }
 
 // The write rate limit (09 §2.5; 10 C1 D8 adds `scope` for the second,

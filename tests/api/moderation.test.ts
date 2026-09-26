@@ -202,21 +202,6 @@ describe("[LDB-MD4] author display-name override", () => {
     expect(row).toEqual({ name: "Admin Picked Name", name_source: "admin" });
   });
 
-  it("[LDB-MD4] survives a later cmini import pass under a different name", async () => {
-    const userId = testUserId();
-    const admin = adminHeaders("tok-author-admin-import");
-    // Seed a plain 'import'-sourced row first (as the cmini import would).
-    const now = clock();
-    await db.prepare("INSERT INTO authors (user_id, name, first_seen_at, last_seen_at, name_source) VALUES (?, ?, ?, ?, 'import')").bind(userId, "old-import-name", now, now).run();
-    await writeFetch(`/v1/admin/authors/${userId}`, "PUT", admin, { name: "Sticky Admin Name" });
-
-    const { applyAuthors } = await import("../../src/import/apply");
-    await applyAuthors(db, clock, { "brand-new-import-name": userId });
-
-    const row = await db.prepare("SELECT name, name_source FROM authors WHERE user_id = ?").bind(userId).first<{ name: string; name_source: string }>();
-    expect(row).toEqual({ name: "Sticky Admin Name", name_source: "admin" });
-  });
-
   it("empty name is 400 bad_request; unknown user is 404 not_found", async () => {
     const admin = adminHeaders("tok-author-bad");
     const bad = await writeFetch("/v1/admin/authors/whatever", "PUT", admin, { name: "" });
