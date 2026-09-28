@@ -284,8 +284,11 @@ export function restoreSql(dump: Dump): string[] {
   statements.push(
     ...chunkedInserts(
       "INSERT INTO link_submissions",
-      ["id", "layout_id", "url", "submitted_by", "submitted_at", "status", "decided_by", "decided_at", "reason"],
-      (dump.link_submissions ?? []).map((r) => ({ ...r })),
+      ["id", "layout_id", "url", "submitted_by", "submitted_at", "status", "decided_by", "decided_at", "reason", "notified_at"],
+      // [LDB-MD11] `notified_at` (migrations/0019) is absent from a dump
+      // written before it existed -- read as null, same fallback
+      // `upstream_name`/`upstream_modified_at` use above.
+      (dump.link_submissions ?? []).map((r) => ({ ...r, notified_at: r.notified_at ?? null })),
     ),
   );
 

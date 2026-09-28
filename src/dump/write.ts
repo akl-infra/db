@@ -89,6 +89,13 @@ export interface LinkSubmissionDbRow {
   decided_by: string | null;
   decided_at: string | null;
   reason: string | null;
+  // Mod-queue Discord notify (migrations/0019, LDB-MD11): internal claim/
+  // sent bookkeeping, dumped and restored so a rehost doesn't forget which
+  // submissions were already announced and re-notify the whole backlog.
+  // Absent from a dump written before 0019 -- restore.ts reads it as null
+  // (the column's own default), same pattern `upstream_name`/
+  // `upstream_modified_at` above use.
+  notified_at?: string | null;
 }
 
 // LDB-D9: registered client pubkeys/caps -- public data (10 C1 §4: no

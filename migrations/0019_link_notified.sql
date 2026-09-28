@@ -1,0 +1,21 @@
+-- Mod-queue Discord notify (saltorbit 2026-09-28, LDB-MD11/LDB-MD12,
+-- src/core/modqueue.ts): `notified_at` marks a `link_submissions` row as
+-- announced to the mod-queue Discord channel -- it doubles as the CLAIM
+-- `notifyPending` uses (`UPDATE ... WHERE notified_at IS NULL AND
+-- status = 'pending'`, `changes == 1` means this call won) so a pending
+-- submission is announced at most once ever, even with the submit-path
+-- and the cron-path racing each other (LDB-MD11). Never on any public
+-- wire (`core/links.ts`'s `pendingSubmission`/`loadSubmission`/
+-- `listQueue` select explicit column lists that omit it) -- purely
+-- internal bookkeeping for the notifier.
+--
+-- Additive (LDB-G15/`tests/tools/migrations-additive.test.ts`: `ADD
+-- COLUMN` plus a plain `UPDATE`, neither forbidden -- only `DROP TABLE`/
+-- `DELETE FROM`/`TRUNCATE`/`DROP COLUMN`/recreating `events` are). The
+-- backfill below sets every row that already exists to its own
+-- `submitted_at` the instant this migration applies, so turning the
+-- feature on (setting `MODQUEUE_DISCORD_WEBHOOK`) never floods the
+-- channel with the whole pre-existing backlog -- only a submission whose
+-- row is INSERTed after this runs is ever a notify candidate.
+ALTER TABLE link_submissions ADD COLUMN notified_at TEXT NULL;
+UPDATE link_submissions SET notified_at = submitted_at WHERE notified_at IS NULL;
