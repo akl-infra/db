@@ -168,7 +168,12 @@ export async function readHead(db: D1Database, stateKeys: readonly string[] = []
 //   identical to what `IMPORT_ENABLED=off` already produced. `upstream`
 //   stays on every layout, frozen. Every `admin.import_*`/`admin.diff_*`
 //   event kind stays valid, queryable history.
-export const WIRE_VERSION = 15;
+// 16 (LDB-I28, docs/decisions/23-geometry.md §4.6a): new admin route
+//   `POST /v1/admin/relabel-magic-thumbs` -- the one-off pass that corrects
+//   the 21 catalog layouts whose cmini magic key(s) (`@`/`*`) were imported
+//   at row >= 3 under a placeholder non-thumb finger; they are thumb keys.
+//   Additive only.
+export const WIRE_VERSION = 16;
 
 export async function etagFor(headSeqValue: number, query: unknown): Promise<string> {
   const hash = await sha256Hex(canonical({ wireVersion: WIRE_VERSION, query: query ?? null }));

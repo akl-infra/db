@@ -2546,6 +2546,206 @@
     }
   },
   {
+    "id": "admin-relabel-magic-thumbs/200",
+    "method": "POST",
+    "route": "/v1/admin/relabel-magic-thumbs",
+    "auth": "admin",
+    "status": 200,
+    "shape": null
+  },
+  {
+    "id": "admin-relabel-magic-thumbs/401-bad_signature",
+    "method": "POST",
+    "route": "/v1/admin/relabel-magic-thumbs",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-relabel-magic-thumbs/401-client_revoked",
+    "method": "POST",
+    "route": "/v1/admin/relabel-magic-thumbs",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-relabel-magic-thumbs/401-replay",
+    "method": "POST",
+    "route": "/v1/admin/relabel-magic-thumbs",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-relabel-magic-thumbs/401-stale_timestamp",
+    "method": "POST",
+    "route": "/v1/admin/relabel-magic-thumbs",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-relabel-magic-thumbs/401-token_invalid",
+    "method": "POST",
+    "route": "/v1/admin/relabel-magic-thumbs",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-relabel-magic-thumbs/401-unauthorized",
+    "method": "POST",
+    "route": "/v1/admin/relabel-magic-thumbs",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-relabel-magic-thumbs/401-unknown_client",
+    "method": "POST",
+    "route": "/v1/admin/relabel-magic-thumbs",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-relabel-magic-thumbs/403-not_admin",
+    "method": "POST",
+    "route": "/v1/admin/relabel-magic-thumbs",
+    "auth": "admin",
+    "status": 403,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-relabel-magic-thumbs/429",
+    "method": "POST",
+    "route": "/v1/admin/relabel-magic-thumbs",
+    "auth": "admin",
+    "status": 429,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "number"
+        },
+        "message": {
+          "type": "string"
+        },
+        "retry_after": {
+          "type": "number"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "window_seconds": {
+          "type": "number"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-relabel-magic-thumbs/503-identity_unavailable",
+    "method": "POST",
+    "route": "/v1/admin/relabel-magic-thumbs",
+    "auth": "admin",
+    "status": 503,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
     "id": "authors-detail/200",
     "method": "GET",
     "route": "/v1/authors/:user_id",

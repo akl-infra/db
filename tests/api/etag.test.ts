@@ -16,21 +16,21 @@ async function sha256Hex(s: string): Promise<string> {
 }
 
 // 21-formats.md §2.3 (LDB-R1 amended again): `WIRE_VERSION` is folded into
-// the hashed query -- a white-box check that the CURRENT constant is 15
-// (bumped by the cmini-importer-removal slice, 2026-09-26:
-// `CHANGELOG-API.md` 1.15 -- LDB-V1/V5's own re-export of this constant as
+// the hashed query -- a white-box check that the CURRENT constant is 16
+// (bumped by LDB-I28, the magic-thumb relabel admin route:
+// `CHANGELOG-API.md` 1.16 -- LDB-V1/V5's own re-export of this constant as
 // the public API_MINOR is what makes this bump also a versioning-policy
 // event, not just a cache-buster) and is actually part of what gets
 // hashed, not merely present in a comment. Replicates `etagFor`'s own
-// formula with a literal `wireVersion: 15` -- if a future slice bumps the
+// formula with a literal `wireVersion: 16` -- if a future slice bumps the
 // real constant without bumping this test, the two hashes diverge and
 // this fails, which is the point: a version bump is a deliberate, visible
 // edit here too.
 describe("[LDB-R1] WIRE_VERSION is folded into the ETag hash", () => {
-  it("[LDB-R1] etagFor(seq, query) reproduces exactly the wireVersion:15-folded hash", async () => {
+  it("[LDB-R1] etagFor(seq, query) reproduces exactly the wireVersion:16-folded hash", async () => {
     const seq = 42;
     const query = { a: 1, b: "x" };
-    const expectedHash = await sha256Hex(canonical({ wireVersion: 15, query }));
+    const expectedHash = await sha256Hex(canonical({ wireVersion: 16, query }));
     const expected = `"${seq}:${expectedHash.slice(0, 16)}"`;
     expect(await etagFor(seq, query)).toBe(expected);
   });

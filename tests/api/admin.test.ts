@@ -265,7 +265,7 @@ describe("[LDB-P6] admin events on the public feed", () => {
 // cron -- proven below by a spy shared across both call sites, not just by
 // code review -- so there is no second implementation of the tick to drift
 // out of sync with the real one.
-describe("POST /v1/admin/dump, POST /v1/admin/magic-seed, and POST /v1/admin/nightly/tick", () => {
+describe("POST /v1/admin/dump, POST /v1/admin/magic-seed, POST /v1/admin/nightly/tick, and POST /v1/admin/relabel-magic-thumbs", () => {
   afterEach(() => {
     vi.restoreAllMocks(); // vi.unstubAllGlobals() (this file's own top-level afterEach) does not cover vi.spyOn
   });
@@ -533,5 +533,139 @@ describe("POST /v1/admin/dump, POST /v1/admin/magic-seed, and POST /v1/admin/nig
     });
   });
 
+  // [LDB-I28] docs/decisions/23-geometry.md §4.6a: the one-off pass that
+  // corrects a cmini-imported magic key (`@`/`*`) sitting on row >= 3 under
+  // a placeholder non-thumb finger. Same commitWrite-direct fixture style
+  // as `seedGuardFixture` above -- a real cmini import call site would
+  // already relabel this on the way in (had one still existed); this
+  // seeds the record VERBATIM to reproduce the pre-rule shape production
+  // holds for the 21 affected layouts today.
+  describe("POST /v1/admin/relabel-magic-thumbs", () => {
+    function seedLegacyRecord(opts: { hasFinger?: string; upstream: CommitInput["upstream"]; payload: { keys: unknown[] } }) {
+      const input: CommitInput = {
+        layoutId: ulid(),
+        creating: true,
+        currentN: 0,
+        currentLayout: null,
+        currentFormats: new Map(),
+        layout: { kind: "imported", name: uniqueName("relabel-legacy"), owner: "9300000000000000001", created_at: clock(), deleted: false, detail: { source: "cmini", upstream_id: "relabel-legacy-up" } },
+        format: { kind: "imported", lineage: "spark", format: "spark/1", payload: opts.payload, hasMagic: false },
+        modified_at: clock(),
+        actor: "system:relabel-magic-thumbs-test-seed",
+        via: "test:seed",
+        source: { client: "system:relabel-magic-thumbs-test-seed", version: null },
+        upstream: opts.upstream,
+      };
+      return commitWrite(db, clock, input);
+    }
+
+    it("[LDB-I28] anonymous 401, non-admin 403, admin 200 -> {dry_run: false, relabeled_layouts, relabeled_keys, layouts}", async () => {
+      const discord = new FakeDiscord();
+      vi.stubGlobal("fetch", discord.fetchImpl);
+
+      const anon = await writeFetch("/v1/admin/relabel-magic-thumbs", "POST", {});
+      expect(anon.status).toBe(401);
+      const user = await writeFetch("/v1/admin/relabel-magic-thumbs", "POST", userHeadersFor(discord, `tok-${uniqueName("relabel-user")}`));
+      expect(user.status).toBe(403);
+
+      const admin = await writeFetch("/v1/admin/relabel-magic-thumbs", "POST", adminHeadersFor(discord, `tok-${uniqueName("relabel-admin")}`));
+      expect(admin.status).toBe(200);
+      const body = await admin.json<{ dry_run: boolean; relabeled_layouts: number; relabeled_keys: number; layouts: unknown[] }>();
+      expect(body.dry_run).toBe(false);
+      expect(typeof body.relabeled_layouts).toBe("number");
+      expect(typeof body.relabeled_keys).toBe("number");
+      expect(Array.isArray(body.layouts)).toBe(true);
+    });
+
+    it("[LDB-I28] corrects a legacy following record over HTTP: RT stored, rev bumped, still following, an `imported`/system:relabel-magic-thumbs event logged; a second call (dry-run or real) finds nothing left", async () => {
+      const { layout } = await seedLegacyRecord({
+        upstream: { source: "cmini", id: uniqueName("relabel-legacy-up"), state: "following" },
+        payload: { keys: [{ char: "a", row: 0, col: 0, finger: "LP" }, { char: "@", row: 3, col: 6, finger: "LP" }] },
+      });
+
+      const discord = new FakeDiscord();
+      vi.stubGlobal("fetch", discord.fetchImpl);
+      const admin = await writeFetch("/v1/admin/relabel-magic-thumbs", "POST", adminHeadersFor(discord, `tok-${uniqueName("relabel-admin")}`));
+      expect(admin.status).toBe(200);
+      const body = await admin.json<{ relabeled_layouts: number; relabeled_keys: number; layouts: { layout_id: string; name: string; keys: unknown[] }[] }>();
+      expect(body.relabeled_layouts).toBeGreaterThanOrEqual(1);
+      const mine = body.layouts.find((l) => l.layout_id === layout.id);
+      expect(mine).toEqual({ layout_id: layout.id, name: layout.name, keys: [{ key: "@", row: 3, col: 6, from: "LP", to: "RT" }] });
+
+      const after = await (await writeFetch(`/v1/layouts/${layout.id}?format=spark/1`, "GET")).json<{ payload: { keys: { char: string; finger: string }[] }; formats: Record<string, { rev: number }>; upstream: { state: string } }>();
+      expect(after.payload.keys.find((k) => k.char === "@")!.finger).toBe("RT");
+      expect(after.formats["spark/1"]!.rev).toBe(2);
+      expect(after.upstream.state).toBe("following");
+
+      const ev = await db
+        .prepare("SELECT kind, actor, via, admin FROM events WHERE layout_id = ? AND rev IS NOT NULL ORDER BY seq DESC LIMIT 1")
+        .bind(layout.id)
+        .first<{ kind: string; actor: string; via: string; admin: number }>();
+      expect(ev).toEqual({ kind: "imported", actor: "system:relabel-magic-thumbs", via: "admin:relabel-magic-thumbs", admin: 0 });
+
+      // Idempotent: this SAME layout is no longer in either a dry-run's or
+      // a real second call's plan.
+      const dryAgain = await writeFetch("/v1/admin/relabel-magic-thumbs?dry_run=1", "POST", adminHeadersFor(discord, `tok-${uniqueName("relabel-admin")}`));
+      const dryBody = await dryAgain.json<{ dry_run: boolean; layouts: { layout_id: string }[] }>();
+      expect(dryBody.dry_run).toBe(true);
+      expect(dryBody.layouts.some((l) => l.layout_id === layout.id)).toBe(false);
+
+      const realAgain = await writeFetch("/v1/admin/relabel-magic-thumbs", "POST", adminHeadersFor(discord, `tok-${uniqueName("relabel-admin")}`));
+      const realAgainBody = await realAgain.json<{ layouts: { layout_id: string }[] }>();
+      expect(realAgainBody.layouts.some((l) => l.layout_id === layout.id)).toBe(false);
+      const revAfter = await (await writeFetch(`/v1/layouts/${layout.id}?format=spark/1`, "GET")).json<{ formats: Record<string, { rev: number }> }>();
+      expect(revAfter.formats["spark/1"]!.rev).toBe(2); // unchanged -- the second call wrote nothing for this layout
+    });
+
+    it("[LDB-I28] dry_run (query or body) reports the plan but writes nothing", async () => {
+      const { layout } = await seedLegacyRecord({
+        upstream: { source: "cmini", id: uniqueName("relabel-legacy-up"), state: "following" },
+        payload: { keys: [{ char: "*", row: 3, col: 6, finger: "LP" }] },
+      });
+      const discord = new FakeDiscord();
+      vi.stubGlobal("fetch", discord.fetchImpl);
+
+      const dry = await writeFetch("/v1/admin/relabel-magic-thumbs", "POST", adminHeadersFor(discord, `tok-${uniqueName("relabel-admin")}`), { dry_run: true });
+      expect(dry.status).toBe(200);
+      const dryBody = await dry.json<{ dry_run: boolean; layouts: { layout_id: string; keys: unknown[] }[] }>();
+      expect(dryBody.dry_run).toBe(true);
+      const mine = dryBody.layouts.find((l) => l.layout_id === layout.id);
+      expect(mine).toEqual({ layout_id: layout.id, name: layout.name, keys: [{ key: "*", row: 3, col: 6, from: "LP", to: "RT" }] });
+
+      const untouched = await (await writeFetch(`/v1/layouts/${layout.id}?format=spark/1`, "GET")).json<{ payload: { keys: { char: string; finger: string }[] }; formats: Record<string, { rev: number }> }>();
+      expect(untouched.payload.keys.find((k) => k.char === "*")!.finger).toBe("LP"); // still wrong -- dry run wrote nothing
+      expect(untouched.formats["spark/1"]!.rev).toBe(1);
+    });
+
+    it("[LDB-I28] a record that has stopped following upstream (forked) is untouched", async () => {
+      const { layout } = await seedLegacyRecord({
+        upstream: { source: "cmini", id: uniqueName("relabel-legacy-up"), state: "forked" },
+        payload: { keys: [{ char: "@", row: 3, col: 6, finger: "LP" }] },
+      });
+      const discord = new FakeDiscord();
+      vi.stubGlobal("fetch", discord.fetchImpl);
+      const admin = await writeFetch("/v1/admin/relabel-magic-thumbs", "POST", adminHeadersFor(discord, `tok-${uniqueName("relabel-admin")}`));
+      const body = await admin.json<{ layouts: { layout_id: string }[] }>();
+      expect(body.layouts.some((l) => l.layout_id === layout.id)).toBe(false);
+
+      const after = await (await writeFetch(`/v1/layouts/${layout.id}?format=spark/1`, "GET")).json<{ payload: { keys: { char: string; finger: string }[] } }>();
+      expect(after.payload.keys.find((k) => k.char === "@")!.finger).toBe("LP");
+    });
+
+    it("[LDB-I28] a genuine extra finger row (digit char, not a magic char) is untouched", async () => {
+      const { layout } = await seedLegacyRecord({
+        upstream: { source: "cmini", id: uniqueName("relabel-legacy-up"), state: "following" },
+        payload: { keys: [{ char: "2", row: 3, col: 0, finger: "LP" }, { char: "8", row: 3, col: 6, finger: "RP" }] },
+      });
+      const discord = new FakeDiscord();
+      vi.stubGlobal("fetch", discord.fetchImpl);
+      const admin = await writeFetch("/v1/admin/relabel-magic-thumbs", "POST", adminHeadersFor(discord, `tok-${uniqueName("relabel-admin")}`));
+      const body = await admin.json<{ layouts: { layout_id: string }[] }>();
+      expect(body.layouts.some((l) => l.layout_id === layout.id)).toBe(false);
+
+      const after = await (await writeFetch(`/v1/layouts/${layout.id}?format=spark/1`, "GET")).json<{ payload: { keys: { char: string; finger: string }[] } }>();
+      expect(after.payload.keys).toEqual([{ char: "2", row: 3, col: 0, finger: "LP" }, { char: "8", row: 3, col: 6, finger: "RP" }]);
+    });
+  });
 });
 

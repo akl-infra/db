@@ -1147,6 +1147,7 @@ silently drift from what `src/index.ts` actually registers.
 | POST | `/v1/admin/nightly/tick` | admin | — | 200 | `not_admin`, lane errors |
 | POST | `/v1/admin/dump` | admin | — | 200 (`{seq, layout_count, written_at}`) | `not_admin`, lane errors |
 | POST | `/v1/admin/magic-seed` | admin | `{ref, magic}` | 200 (`{id, name, rev, has_magic, upstream}`) — a SYSTEM write (`system:magic-seed` / `seed:aklgg`) that never forks the record | `bad_request`, `not_admin`, `not_found`, `format_absent`, `invalid_payload`, `magic_collision`, `magic_needs_unique_key`, `magic_edited`, lane errors |
+| POST | `/v1/admin/relabel-magic-thumbs` | admin | `{dry_run?}` (or `?dry_run=1`) | 200 (`{dry_run, relabeled_layouts, relabeled_keys, layouts}`) — one-off pass (LDB-I28): a magic key (`@`/`*`) cmini stored at row >= 3 under a placeholder non-thumb finger is relabelled to the thumb it actually is, as an `imported` rev bump (`system:relabel-magic-thumbs` / `admin:relabel-magic-thumbs`); paginates the whole corpus to completion, idempotent, dry-run writes nothing | `not_admin`, lane errors |
 | POST | `/v1/admin/clients` | admin | `{name, pubkey, owner_user_id, caps, discord_app_id?}` | 201 | `bad_request`, `not_admin`, lane errors |
 | DELETE | `/v1/admin/clients/:id` | admin | — | 200 | `not_admin`, `not_found`, lane errors |
 | GET | `/v1/admin/clients` | admin | — | 200 | `not_admin`, lane errors |

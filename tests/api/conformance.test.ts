@@ -763,6 +763,10 @@ const REQUIRED: Record<string, RequiredCase[]> = {
     { status: 401, code: ERROR_CODES.unauthorized },
     { status: 403, code: ERROR_CODES.not_admin },
   ],
+  // LDB-I28 (docs/decisions/23-geometry.md §4.6a): same shape as `POST
+  // /v1/admin/nightly/tick` above -- admin-only, no "paused" gate (the
+  // cmini importer that gate used to guard is gone for good, LDB-X2).
+  "POST /v1/admin/relabel-magic-thumbs": [{ status: 200 }, ...A, { status: 403, code: ERROR_CODES.not_admin }, RL],
 };
 describe("conformance enumeration", () => {
   // `app.routes` also lists the two `app.use("/v1/*", ...)` middleware

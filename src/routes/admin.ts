@@ -12,6 +12,7 @@ import * as admins from "../core/admins";
 import * as clients from "../core/clients";
 import { badRequest, clientAlreadyRevoked, notAdmin } from "../core/errors";
 import { runNightly } from "../core/nightly";
+import { relabelMagicThumbs } from "../core/relabelMagicThumbs";
 import { revertClientWrites } from "../core/revert";
 import { systemClock, fixedClock, type Clock } from "../core/time";
 import { writeDump } from "../dump/write";
@@ -129,6 +130,25 @@ export function adminRoute(authDeps: AuthDeps) {
     const out = await seedMagic(c.env, resolveNow(c.env), body.ref, body.magic, null);
     const row = out.formats.get("spark")!;
     return c.json({ id: out.layout.id, name: out.layout.name, rev: row.rev, has_magic: row.has_magic, upstream: out.layout.upstream });
+  });
+
+  // [LDB-I28] (docs/decisions/23-geometry.md §4.6a): the one-off admin pass
+  // that corrects the 21 catalog layouts whose cmini magic key(s) (`@`/`*`)
+  // were imported at row >= 3 under a placeholder non-thumb finger -- they
+  // ARE thumb keys. Same shape as `POST /v1/admin/magic-seed` above (a
+  // one-off SYSTEM data fix, admin lane only, no "paused" gate -- the
+  // cmini importer that gate used to guard is gone for good, LDB-X2).
+  // `?dry_run=1` (or `{"dry_run": true}` in the body) returns the exact
+  // same `{relabeled_layouts, relabeled_keys, layouts}` shape the real run
+  // would produce, writing nothing. Idempotent: a record this pass already
+  // fixed has nothing left to relabel on a repeat call.
+  route.post("/v1/admin/relabel-magic-thumbs", async (c) => {
+    const actor = c.get("actor");
+    if (!actor.admin) throw notAdmin();
+    const body = await readJsonOptional(c.req);
+    const dryRun = c.req.query("dry_run") === "1" || c.req.query("dry_run") === "true" || body.dry_run === true;
+    const result = await relabelMagicThumbs(c.env.DB, resolveNow(c.env), dryRun);
+    return c.json(result);
   });
 
   // 10 C1: the client lane's registration routes. `pubkey` never appears in

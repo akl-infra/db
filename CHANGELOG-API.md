@@ -25,6 +25,18 @@ this file just gives them a public, versioned home. From here on, a
 `WIRE_VERSION` bump and a line here land in the SAME PR, never one without
 the other (`[LDB-V5]`).
 
+## 1.16 — 2026-09-28
+
+LDB-I28: new admin route `POST /v1/admin/relabel-magic-thumbs`
+(`{dry_run, relabeled_layouts, relabeled_keys, layouts}`) -- a one-off,
+idempotent, paginate-to-completion pass that corrects the 21 catalog
+layouts imported from cmini before `docs/decisions/23-geometry.md` §4.6a
+existed: a magic key (`@`/`*`) stored at row >= 3 under a placeholder
+non-thumb finger is relabelled to the thumb it actually is, as an
+`imported` rev bump. `?dry_run=1` (or `{"dry_run": true}`) returns the
+same shape without writing. Same admin-only, no-"paused"-gate shape as
+`POST /v1/admin/magic-seed`. Additive.
+
 ## 1.15 — 2026-09-26
 
 REMOVAL, not additive -- done in place under `/v1`, on the same "no

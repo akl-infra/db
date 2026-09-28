@@ -213,6 +213,51 @@ regenerated from the relabelled import).
 | `board: ortho`, `board: mini` | `ortho` — faithful, always (the angle-family bump was dropped with rule 4.4-4; the 33 such layouts keep `ortho` and their angle look) |
 | finger `TB`, or `LT`/`RT` disagreeing with the column | relabelled by `col < 5`, the last time it runs; an `import_relabel` info event names the key |
 
+### 4.6a A magic key at row >= 3 is a thumb key (LDB-I28, saltorbit)
+
+cmini stores a layout's magic key(s) (`@`, and `*` when there is a second
+one) on row >= 3 under a PLACEHOLDER non-thumb finger -- typically `LP` at
+col 6 (`magikarp`'s `@` is `RP` at col 7) -- because cmini's own schema has
+nowhere else to put a key that isn't really on the alpha block. Every
+reader (the bot's grid, the site's drawer) used to draw row >= 3 as the
+thumb row regardless of finger, so this looked right by accident; #398
+(aklgg, "the number row is row -1") made row >= 3 drawn BY FINGER instead,
+which is what exposed it: 21 layouts in the live catalog hold `@`/`*` as a
+row-3 PINKY key (20 with exactly `@` at col 6; `magikarp` also has `*` at
+col 6 and `@` at col 7), 22 keys in all.
+
+The rule: a key at row >= 3 whose finger is not already a thumb label
+(`LT`/`RT`/`TB`) AND whose char is one of cmini's magic chars (`@`/`*`) is
+relabelled by the SAME column rule §4.6 already uses (`col < 5 => LT`,
+else `RT`). A `free` position never has a char, so this half of the rule
+can never apply to one. A genuine extra finger row that doesn't use
+`@`/`*` as its char (horifreq's digit row `2854367=[]`, scuare's 8-key row
+3, whirl-30's `k`) is untouched -- the rule keys off the CHAR, never the
+row alone.
+
+Unlike §4.6, this rule is NOT folded into `formats/adapters/cmini/
+translate.ts`'s `fromCmini`/`relabelFinger`: the cmini importer that ever
+called `fromCmini` is gone for good (LDB-X2, 2026-09-26), so there is no
+live import path left for an import-time rule to protect, and `fromCmini`'s
+own exactness claims (LDB-F23/F28/F31) stay exactly as pinned. Instead
+`core/relabelMagicThumbs.ts` implements the rule standalone, over an
+ALREADY-STORED spark/1 `keys` array. Since the 21 affected layouts were
+imported before this rule existed, their stored records are wrong today. A
+one-off admin pass, `POST /v1/admin/relabel-magic-thumbs`
+(`src/routes/admin.ts`), scans every live, upstream-following record with a
+`spark/1` format, runs the rule over its stored `keys`, and -- for every
+record that actually changes -- writes the correction back as an
+`imported` rev bump (`kind: "imported"`, `actor:
+"system:relabel-magic-thumbs"`, `via: "admin:relabel-magic-thumbs"`,
+`detail.reason: "magic_thumb_relabeled"`), the same write shape
+`import/apply.ts` used to use for its own case-4 reimport, so `/v1/changes`
+consumers (the bot, the site sync) refold it exactly like any other
+system-sourced update. `?dry_run=1` reports the same plan (which layouts,
+which keys) without writing. Idempotent: a record the pass already fixed
+has nothing left to relabel on a later call. A record that has stopped
+following upstream is untouched -- its fingers are the owner's now
+(17-magic-ownership.md §3's own rule).
+
 ### 4.7 Worked examples
 
 ANSI, angle mod, one thumb key each side, a free position, a duplicated `y`:
