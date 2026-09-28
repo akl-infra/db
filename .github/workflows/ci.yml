@@ -120,17 +120,13 @@ jobs:
 
   # akldb.org's own Worker (design/akldb-site/01-plan.md §6, W1a). Its own
   # package.json under db/site/ -- `paths: db/**` above already covers it,
-  # no trigger edit needed. Builds+tests on every PR/push that touches
-  # db/**; deploys only on a push to main, gated inside
-  # THIS job (not a separate needs:site job) so a deploy never runs without
-  # the build/test steps immediately before it in the same run.
+  # no trigger edit needed. Typechecks, tests and builds on every PR/push;
+  # `site-deploy` below is the only thing that ships it.
   site:
     # No `needs: test`: the site has its own typecheck/test/build gate below
-    # and shares no code with the Worker (LDB-G5 forbids it), so waiting on
-    # the 15k-test db suite only widened the window in which a stale CI
-    # deploy could land AFTER a newer hand deploy (2026-09-13, twice).
-    # Like `test`, this is PR/push CI, not part of the scheduled live-data
-    # proof. The schedule should launch only `daily` below.
+    # and shares no code with the Worker (LDB-G5 forbids it). Like `test`,
+    # this is PR/push CI, not part of the scheduled live-data proof. The
+    # schedule should launch only `daily` below.
     if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
     defaults:
@@ -151,27 +147,43 @@ jobs:
         run: npm test
       - name: Build
         run: npm run build
-      # A push to main deploys akldb.org, same trigger as `deploy` above
-      # (saltorbit 2026-09-28: it was still gated on the retired
-      # `ldb-arch-review` branch, so no push to main had shipped the site
-      # since the branch was retired -- akldb.org only moved on hand
-      # deploys). Its own concurrency group (`akldb-site-deploy`, not `db-prod-deploy`) -- this
-      # Worker and akl-db are two independent deploys and must never block
-      # each other, only themselves. GitHub Actions concurrency is job-
-      # scoped (there's no such thing as a step-level group), so the whole
-      # job -- test/build included -- shares it, same as `deploy`/
-      # `pr-deploy` above; the only real-world effect is that two pushes to
-      # main in quick succession run this job's tests serially
-      # rather than in parallel, which is harmless.
+
+  # A push to main deploys akldb.org -- only once BOTH its own gate (`site`)
+  # and the API's (`deploy`, which itself needs the db `test` suite) have
+  # passed (saltorbit 2026-09-28: "deploy site only if tests etc work"), so
+  # the site never ships ahead of, or without, the API it calls. Until
+  # 2026-09-28 this was a step inside `site` gated on the retired
+  # `ldb-arch-review` branch, so no push to main shipped the site at all.
+  # Its own concurrency group (`akldb-site-deploy`, not `db-prod-deploy`):
+  # the two Workers are independent deploys and must never block each
+  # other, only themselves. Rebuilds from the same commit rather than
+  # passing `dist/` between jobs -- the build is seconds.
+  site-deploy:
+    needs: [site, deploy]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    concurrency:
+      group: akldb-site-deploy
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Build
+        run: npm run build
       - name: Deploy
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: npx wrangler deploy --config wrangler.toml
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DB_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DB_ACCOUNT_ID }}
-    concurrency:
-      group: akldb-site-deploy
-      cancel-in-progress: false
 
   # `schedule`/`workflow_dispatch` only (never on a PR/push) -- real network
   # against the deployed service, on ${{ vars.DB_BASE_URL }} (a repo/org

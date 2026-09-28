@@ -257,7 +257,7 @@ describe("db.yml wiring", () => {
     expect(uploadPath).toMatch(/dump.*\.gz/);
   });
 
-  it("[LDB-C1] the site job does NOT wait on the db suite (own gate; LDB-G5 keeps it code-independent), runs from db/site, and builds+tests unconditionally", () => {
+  it("[LDB-C1] the site job does NOT wait on the db suite (own gate; LDB-G5 keeps it code-independent), runs from db/site, builds+tests unconditionally, and never deploys", () => {
     const wf = loadWorkflow();
     const site = wf.jobs.site;
     expect(site, "no `site` job in db.yml").toBeDefined();
@@ -278,36 +278,48 @@ describe("db.yml wiring", () => {
     expect(runs.some((r) => /\bnpm test\b/.test(r))).toBe(true);
     expect(runs.some((r) => /\bnpm run build\b/.test(r))).toBe(true);
 
-    // The build/test steps have no `if:` guard -- they run on every PR/push
-    // this job triggers on, unlike the deploy step below.
+    // Every step runs unconditionally, and nothing in this job deploys --
+    // shipping is `site-deploy`'s job alone (below).
     for (const step of runSteps) {
-      if (/wrangler deploy/.test(step.run)) continue;
+      expect(step.run, "the site job must not deploy").not.toMatch(/wrangler deploy/);
       expect(step.if, `step '${step.name ?? step.run}' should run unconditionally`).toBeUndefined();
     }
   });
 
-  it("[LDB-C1] the site job's deploy step runs only on a push to main, references both secrets, and shares no concurrency group with db-prod-deploy", () => {
+  it("[LDB-C1] akldb.org deploys only from site-deploy: a push to main, after BOTH the site gate and the API deploy passed, with both secrets and its own concurrency group", () => {
     const wf = loadWorkflow();
-    const site = wf.jobs.site;
-    expect(site, "no `site` job in db.yml").toBeDefined();
-    if (!site) throw new Error("unreachable: assertion above failed");
+    const job = wf.jobs["site-deploy"];
+    expect(job, "no `site-deploy` job in db.yml").toBeDefined();
+    if (!job) throw new Error("unreachable: assertion above failed");
 
-    const deployStep = (site.steps ?? []).find((s) => typeof s.run === "string" && /wrangler deploy/.test(s.run));
-    expect(deployStep, "no 'wrangler deploy' step in the site job").toBeDefined();
-    if (!deployStep) throw new Error("unreachable: assertion above failed");
+    // saltorbit 2026-09-28: "deploy site only if tests etc work".
+    expect(job.needs).toEqual(["site", "deploy"]);
+    expect(wf.jobs.deploy?.needs, "deploy must itself wait on the db suite").toBe("test");
+    expect(job.if).toContain("github.event_name == 'push'");
+    expect(job.if).toContain("github.ref == 'refs/heads/main'");
 
-    expect(deployStep.if, "the site job's deploy step has no `if:` guard").toBeTruthy();
-    expect(deployStep.if).toContain("github.event_name == 'push'");
-    expect(deployStep.if).toContain("github.ref == 'refs/heads/main'");
+    const runs = (job.steps ?? []).map((s) => s.run).filter((r): r is string => typeof r === "string");
+    const buildIdx = runs.findIndex((r) => /\bnpm run build\b/.test(r));
+    const deployIdx = runs.findIndex((r) => /wrangler deploy/.test(r));
+    expect(buildIdx, "site-deploy must build dist/ before deploying it").toBeGreaterThanOrEqual(0);
+    expect(deployIdx).toBeGreaterThan(buildIdx);
+    expect(job.defaults?.run?.["working-directory"]).toBe(`${P}site`);
 
-    const stepText = JSON.stringify(deployStep);
-    expect(stepText).toContain("CLOUDFLARE_DB_TOKEN");
-    expect(stepText).toContain("CLOUDFLARE_DB_ACCOUNT_ID");
+    const deployText = JSON.stringify((job.steps ?? []).find((s) => typeof s.run === "string" && /wrangler deploy/.test(s.run)));
+    expect(deployText).toContain("CLOUDFLARE_DB_TOKEN");
+    expect(deployText).toContain("CLOUDFLARE_DB_ACCOUNT_ID");
 
-    const c = (site as { concurrency?: { group?: string; "cancel-in-progress"?: boolean } }).concurrency;
-    expect(c?.group, "site job concurrency group").toBe("akldb-site-deploy");
-    expect(c?.["cancel-in-progress"], "site job concurrency cancel-in-progress").toBe(false);
+    const c = (job as { concurrency?: { group?: string; "cancel-in-progress"?: boolean } }).concurrency;
+    expect(c?.group, "site-deploy concurrency group").toBe("akldb-site-deploy");
+    expect(c?.["cancel-in-progress"]).toBe(false);
     expect(c?.group).not.toBe("db-prod-deploy");
+
+    // No other job ships the site.
+    for (const [name, other] of Object.entries(wf.jobs)) {
+      if (name === "site-deploy") continue;
+      const text = JSON.stringify(other);
+      if (/wrangler deploy/.test(text)) expect(text, `${name} must not deploy the site`).not.toContain("working-directory\":\"site");
+    }
   });
 
 
