@@ -286,7 +286,7 @@ describe("db.yml wiring", () => {
     }
   });
 
-  it("[LDB-C1] the site job's deploy step runs only on a push to ldb-arch-review, references both secrets, and shares no concurrency group with db-prod-deploy", () => {
+  it("[LDB-C1] the site job's deploy step runs only on a push to main, references both secrets, and shares no concurrency group with db-prod-deploy", () => {
     const wf = loadWorkflow();
     const site = wf.jobs.site;
     expect(site, "no `site` job in db.yml").toBeDefined();
@@ -298,7 +298,7 @@ describe("db.yml wiring", () => {
 
     expect(deployStep.if, "the site job's deploy step has no `if:` guard").toBeTruthy();
     expect(deployStep.if).toContain("github.event_name == 'push'");
-    expect(deployStep.if).toContain("github.ref == 'refs/heads/ldb-arch-review'");
+    expect(deployStep.if).toContain("github.ref == 'refs/heads/main'");
 
     const stepText = JSON.stringify(deployStep);
     expect(stepText).toContain("CLOUDFLARE_DB_TOKEN");

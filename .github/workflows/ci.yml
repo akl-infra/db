@@ -121,7 +121,7 @@ jobs:
   # akldb.org's own Worker (design/akldb-site/01-plan.md §6, W1a). Its own
   # package.json under db/site/ -- `paths: db/**` above already covers it,
   # no trigger edit needed. Builds+tests on every PR/push that touches
-  # db/**; deploys only on a push to the integration branch, gated inside
+  # db/**; deploys only on a push to main, gated inside
   # THIS job (not a separate needs:site job) so a deploy never runs without
   # the build/test steps immediately before it in the same run.
   site:
@@ -151,17 +151,20 @@ jobs:
         run: npm test
       - name: Build
         run: npm run build
-      # Same integration-branch trigger as `pr-deploy` above, but its own
-      # concurrency group (`akldb-site-deploy`, not `db-prod-deploy`) -- this
+      # A push to main deploys akldb.org, same trigger as `deploy` above
+      # (saltorbit 2026-09-28: it was still gated on the retired
+      # `ldb-arch-review` branch, so no push to main had shipped the site
+      # since the branch was retired -- akldb.org only moved on hand
+      # deploys). Its own concurrency group (`akldb-site-deploy`, not `db-prod-deploy`) -- this
       # Worker and akl-db are two independent deploys and must never block
       # each other, only themselves. GitHub Actions concurrency is job-
       # scoped (there's no such thing as a step-level group), so the whole
       # job -- test/build included -- shares it, same as `deploy`/
       # `pr-deploy` above; the only real-world effect is that two pushes to
-      # `ldb-arch-review` in quick succession run this job's tests serially
+      # main in quick succession run this job's tests serially
       # rather than in parallel, which is harmless.
       - name: Deploy
-        if: github.ref == 'refs/heads/ldb-arch-review' && github.event_name == 'push'
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: npx wrangler deploy --config wrangler.toml
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DB_TOKEN }}
