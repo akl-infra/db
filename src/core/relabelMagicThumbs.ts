@@ -1,5 +1,5 @@
 // [LDB-I28] (saltorbit, docs/decisions/23-geometry.md §4.6a): a one-off
-// admin data fix for 21 catalog layouts imported from cmini before this
+// admin data fix for 18 catalog layouts imported from cmini before this
 // rule existed. cmini stores a layout's magic key(s) (`@`, and `*` when
 // there's a second one) on row >= 3 under a PLACEHOLDER non-thumb finger
 // (typically `LP` at col 6, `magikarp`'s `@` also has `RP` at col 7) --
@@ -34,7 +34,7 @@
 //
 // Idempotent (a record already corrected has nothing left to relabel) and
 // paginates the whole corpus to completion within one call -- the corpus
-// this pass will ever touch is small (21 layouts today), so there is no
+// this pass will ever touch is small (18 layouts today), so there is no
 // reason to make an operator call it more than once. A record that has
 // stopped following upstream is left untouched: its fingers are the
 // owner's now (17-magic-ownership.md §3's own rule, the same guard the
@@ -50,7 +50,7 @@ import type { Clock } from "./time";
 const SPARK_LINEAGE = "spark";
 // Same D1-statement-budget reasoning as the deleted importer's own
 // per-page sizes: comfortably inside one Worker invocation, however many
-// pages the live corpus needs (21 layouts today).
+// pages the live corpus needs (18 layouts today).
 const PAGE_SIZE = 500;
 const THUMB_FINGERS = new Set(["LT", "RT", "TB"]);
 const MAGIC_CHARS = new Set(["@", "*"]);

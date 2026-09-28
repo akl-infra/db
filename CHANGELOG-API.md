@@ -29,7 +29,7 @@ the other (`[LDB-V5]`).
 
 LDB-I28: new admin route `POST /v1/admin/relabel-magic-thumbs`
 (`{dry_run, relabeled_layouts, relabeled_keys, layouts}`) -- a one-off,
-idempotent, paginate-to-completion pass that corrects the 21 catalog
+idempotent, paginate-to-completion pass that corrects the 18 catalog
 layouts imported from cmini before `docs/decisions/23-geometry.md` §4.6a
 existed: a magic key (`@`/`*`) stored at row >= 3 under a placeholder
 non-thumb finger is relabelled to the thumb it actually is, as an

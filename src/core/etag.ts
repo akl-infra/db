@@ -170,7 +170,7 @@ export async function readHead(db: D1Database, stateKeys: readonly string[] = []
 //   event kind stays valid, queryable history.
 // 16 (LDB-I28, docs/decisions/23-geometry.md §4.6a): new admin route
 //   `POST /v1/admin/relabel-magic-thumbs` -- the one-off pass that corrects
-//   the 21 catalog layouts whose cmini magic key(s) (`@`/`*`) were imported
+//   the 18 catalog layouts whose cmini magic key(s) (`@`/`*`) were imported
 //   at row >= 3 under a placeholder non-thumb finger; they are thumb keys.
 //   Additive only.
 export const WIRE_VERSION = 16;

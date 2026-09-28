@@ -539,7 +539,7 @@ describe("POST /v1/admin/dump, POST /v1/admin/magic-seed, POST /v1/admin/nightly
   // as `seedGuardFixture` above -- a real cmini import call site would
   // already relabel this on the way in (had one still existed); this
   // seeds the record VERBATIM to reproduce the pre-rule shape production
-  // holds for the 21 affected layouts today.
+  // holds for the 18 affected layouts today.
   describe("POST /v1/admin/relabel-magic-thumbs", () => {
     function seedLegacyRecord(opts: { hasFinger?: string; upstream: CommitInput["upstream"]; payload: { keys: unknown[] } }) {
       const input: CommitInput = {

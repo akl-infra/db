@@ -222,7 +222,7 @@ nowhere else to put a key that isn't really on the alpha block. Every
 reader (the bot's grid, the site's drawer) used to draw row >= 3 as the
 thumb row regardless of finger, so this looked right by accident; #398
 (aklgg, "the number row is row -1") made row >= 3 drawn BY FINGER instead,
-which is what exposed it: 21 layouts in the live catalog hold `@`/`*` as a
+which is what exposed it: 18 layouts in the live catalog hold `@`/`*` as a
 row-3 PINKY key (20 with exactly `@` at col 6; `magikarp` also has `*` at
 col 6 and `@` at col 7), 22 keys in all.
 
@@ -241,7 +241,7 @@ called `fromCmini` is gone for good (LDB-X2, 2026-09-26), so there is no
 live import path left for an import-time rule to protect, and `fromCmini`'s
 own exactness claims (LDB-F23/F28/F31) stay exactly as pinned. Instead
 `core/relabelMagicThumbs.ts` implements the rule standalone, over an
-ALREADY-STORED spark/1 `keys` array. Since the 21 affected layouts were
+ALREADY-STORED spark/1 `keys` array. Since the 18 affected layouts were
 imported before this rule existed, their stored records are wrong today. A
 one-off admin pass, `POST /v1/admin/relabel-magic-thumbs`
 (`src/routes/admin.ts`), scans every live, upstream-following record with a

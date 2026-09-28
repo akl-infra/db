@@ -133,7 +133,7 @@ export function adminRoute(authDeps: AuthDeps) {
   });
 
   // [LDB-I28] (docs/decisions/23-geometry.md §4.6a): the one-off admin pass
-  // that corrects the 21 catalog layouts whose cmini magic key(s) (`@`/`*`)
+  // that corrects the 18 catalog layouts whose cmini magic key(s) (`@`/`*`)
   // were imported at row >= 3 under a placeholder non-thumb finger -- they
   // ARE thumb keys. Same shape as `POST /v1/admin/magic-seed` above (a
   // one-off SYSTEM data fix, admin lane only, no "paused" gate -- the
