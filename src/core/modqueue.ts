@@ -31,13 +31,14 @@ interface Candidate {
 }
 
 // Discord markdown control characters a user-sourced string (a layout
-// name, a Discord display name) could carry -- backslash-escaped so it
+// name, a Discord display name) could carry, `[`/`]` included so a name
+// can never form a masked link -- backslash-escaped so it
 // renders as literal text instead of breaking out into formatting.
 function escapeMarkdown(s: string): string {
-  return s.replace(/[\\`*_~|>]/g, (ch) => `\\${ch}`);
+  return s.replace(/[\\`*_~|>[\]]/g, (ch) => `\\${ch}`);
 }
 
-// Exported for the pure unit tests (`tests/core/modqueue.test.ts`) -- no
+// Exported for the pure escaping cases in `tests/auth/modqueue.test.ts` -- no
 // DB, no clock, table-tested like `core/links.ts`'s own `validateLinkUrl`.
 // `layout_id` is the message's "ref" -- a ULID, exactly what `GET /v1/
 // layouts/:ref` accepts (`core/records.ts`'s `isUlidShaped`), so a

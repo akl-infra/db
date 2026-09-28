@@ -228,10 +228,10 @@ describe("[LDB-MD11] [LDB-MD12] notifyPending", () => {
       layout_id: "01BX5ZZKBKACTAV9WEVGEMMVRY",
       url: "https://example.org/x",
       submitted_by: "900000000000000020",
-      layout_name: "*bold* `code` _under_ ~tilde~ |pipe| >quote",
+      layout_name: "*bold* `code` _under_ ~tilde~ |pipe| >quote [masked](https://evil.example)",
       submitter_name: "*Evil* \\Name`",
     });
-    expect(content).toContain("\\*bold\\* \\`code\\` \\_under\\_ \\~tilde\\~ \\|pipe\\| \\>quote");
+    expect(content).toContain("\\*bold\\* \\`code\\` \\_under\\_ \\~tilde\\~ \\|pipe\\| \\>quote \\[masked\\](https://evil.example)");
     expect(content).toContain("\\*Evil\\* \\\\Name\\`");
     expect(content).toContain("<https://example.org/x>");
     expect(content).toContain("01ARZ3NDEKTSV4RRFFQ69G5FAV");
