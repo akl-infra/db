@@ -96,7 +96,7 @@ export const copy = {
     title: "Event log",
     loadError: "Could not load the change feed from akldb",
     empty: "Nothing has changed yet",
-    loadMore: "Load older events",
+    loading: "Loading older events…",
     kindColumn: "Kind",
     scopeColumn: "Scope",
     scopeLayout: "layout",

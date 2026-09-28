@@ -1,5 +1,5 @@
 import type { Component } from "solid-js";
-import { For, Show, createSignal, onSettled } from "solid-js";
+import { For, Show, createSignal, onCleanup, onSettled } from "solid-js";
 import { copy } from "../copy.ts";
 import { getChanges, getHeadSeq } from "../api.ts";
 import { windowBelow } from "../lib/eventlog.ts";
@@ -26,6 +26,9 @@ const Changes: Component = () => {
   const [done, setDone] = createSignal(false);
 
   const loadMore = async () => {
+    // The scroll sentinel below can fire again while a window is still in
+    // flight; one fetch at a time keeps the windows adjacent (SITE-19).
+    if (loading() || done() || error()) return;
     setLoading(true);
     let top = hi();
     if (top === null) {
@@ -57,6 +60,30 @@ const Changes: Component = () => {
     setHi(w.nextHi);
     if (w.nextHi === 0) setDone(true);
   };
+
+  // Infinite scroll: a sentinel after the table loads the next (older)
+  // window whenever it comes within a screen of the viewport. An observer
+  // only reports CHANGES in intersection, so after each window lands the
+  // sentinel is re-observed -- that re-reports its current state, which is
+  // what keeps a tall screen (still showing the sentinel) filling up.
+  let observer: IntersectionObserver | undefined;
+  const observeSentinel = (el: HTMLDivElement) => {
+    observer?.disconnect();
+    observer = new IntersectionObserver(
+      (entries) => {
+        if (loading() || !entries.some((e) => e.isIntersecting)) return;
+        void loadMore().then(() => {
+          if (!done() && observer) {
+            observer.unobserve(el);
+            observer.observe(el);
+          }
+        });
+      },
+      { rootMargin: "0px 0px 100% 0px" },
+    );
+    observer.observe(el);
+  };
+  onCleanup(() => observer?.disconnect());
 
   onSettled(() => {
     void loadMore();
@@ -124,9 +151,9 @@ const Changes: Component = () => {
           </table>
         </Show>
         <Show when={!done() && items().length > 0}>
-          <button class="akl-link-btn" onClick={loadMore} disabled={loading()}>
-            {copy.changes.loadMore}
-          </button>
+          <div ref={observeSentinel} class="akl-empty" aria-live="polite">
+            {loading() ? copy.changes.loading : ""}
+          </div>
         </Show>
       </Show>
     </div>
