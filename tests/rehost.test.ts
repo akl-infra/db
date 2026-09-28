@@ -239,7 +239,7 @@ describe("rehost drill", () => {
       expect(restoredBans.results.some((b) => b.user_id === REHOST_BAN_USER && b.reason === "rehost drill plant")).toBe(true);
 
       const restoredSubmissions = await db
-        .prepare("SELECT id, layout_id, url, submitted_by, submitted_at, status, decided_by, decided_at, reason FROM link_submissions ORDER BY id ASC")
+        .prepare("SELECT id, layout_id, url, submitted_by, submitted_at, status, decided_by, decided_at, reason, notified_at FROM link_submissions ORDER BY id ASC")
         .all<LinkSubmissionDbRow>();
       expect(canonical(restoredSubmissions.results)).toBe(canonical(dump.link_submissions));
       expect(restoredSubmissions.results.some((s) => s.layout_id === ids.pendingLayoutId && s.status === "pending")).toBe(true);
