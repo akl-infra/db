@@ -249,4 +249,18 @@ describe("[LDB-MD11] [LDB-MD12] notifyPending", () => {
     });
     expect(content).toContain("900000000000000021");
   });
+
+  it("[LDB-MD11] buildMessageContent links the layout's akldb.org page and the admin link-queue tab, both embed-suppressed", () => {
+    const content = buildMessageContent({
+      id: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      layout_id: "01BX5ZZKBKACTAV9WEVGEMMVRY",
+      url: "https://example.org/x",
+      submitted_by: "900000000000000022",
+      layout_name: "plain-name",
+      submitter_name: null,
+    });
+    expect(content).toContain("[plain-name](<https://akldb.org/l/01BX5ZZKBKACTAV9WEVGEMMVRY>)");
+    expect(content).toContain("[Open the mod queue](<https://akldb.org/admin?tab=links>)");
+    expect(content).not.toMatch(/(?<!<)https:\/\/(?!\S*>)/); // every URL sits inside <...>
+  });
 });

@@ -3,6 +3,7 @@ import { Show, createSignal } from "solid-js";
 import { copy } from "../copy.ts";
 import { meResource } from "../session.ts";
 import { canSeeAdmin } from "../lib/adminGate.ts";
+import { adminTabFromSearch, searchForAdminTab, type AdminTab } from "../lib/adminTab.ts";
 import LayoutsTab from "./admin/LayoutsTab.tsx";
 import AuthorsTab from "./admin/AuthorsTab.tsx";
 import BansTab from "./admin/BansTab.tsx";
@@ -10,7 +11,7 @@ import LinkQueueTab from "./admin/LinkQueueTab.tsx";
 import AdminsTab from "./admin/AdminsTab.tsx";
 import ClientsTab from "./admin/ClientsTab.tsx";
 
-type Tab = "layouts" | "authors" | "bans" | "linkQueue" | "admins" | "clients";
+type Tab = AdminTab;
 
 /** Route `/admin` (design/akldb-site/01-plan.md §5): the real moderation
  * console. The gate is unchanged from W1a and stays the security-relevant
@@ -22,7 +23,15 @@ type Tab = "layouts" | "authors" | "bans" | "linkQueue" | "admins" | "clients";
  * ([SITE-18]). `meResource()` always comes from a fresh `/auth/me` ->
  * `/v1/me` round trip (server/discord.ts), never a cached admin flag. */
 const Admin: Component = () => {
-  const [tab, setTab] = createSignal<Tab>("layouts");
+  // [SITE-39] `/admin?tab=links` (the mod-queue Discord notice's link)
+  // opens straight on that tab; switching tabs keeps the URL in step
+  // (replaceState -- a tab switch is not a history entry) so a copied
+  // `/admin` URL always reopens the tab it was copied from.
+  const [tab, setTabSignal] = createSignal<Tab>(adminTabFromSearch(typeof location !== "undefined" ? location.search : ""));
+  const setTab = (next: Tab) => {
+    setTabSignal(next);
+    if (typeof history !== "undefined") history.replaceState(null, "", `${location.pathname}${searchForAdminTab(next)}`);
+  };
 
   return (
     <Show when={meResource()} keyed>

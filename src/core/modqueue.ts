@@ -40,15 +40,20 @@ function escapeMarkdown(s: string): string {
 
 // Exported for the pure escaping cases in `tests/auth/modqueue.test.ts` -- no
 // DB, no clock, table-tested like `core/links.ts`'s own `validateLinkUrl`.
-// `layout_id` is the message's "ref" -- a ULID, exactly what `GET /v1/
-// layouts/:ref` accepts (`core/records.ts`'s `isUlidShaped`), so a
-// moderator can look the layout up directly. The url is wrapped in `<>`
-// so Discord never expands it into an embed; the submitter's Discord
-// display name (when known) is escaped, the submitted-by user id (the
-// fallback) never needs it -- it's a numeric snowflake, never free text.
+// The layout name links to its akldb.org page (`/l/<layout_id>`, a ULID --
+// what the site's router and `GET /v1/layouts/:ref` both accept) and the
+// second line links straight to the admin console's link-queue tab
+// (`/admin?tab=links`, the site's SITE-39), where the submission is
+// approved or rejected. Every URL is wrapped in `<>` so Discord never
+// expands it into an embed; the submitter's Discord display name (when
+// known) is escaped, the submitted-by user id (the fallback) never needs
+// it -- it's a numeric snowflake, never free text.
+export const SITE_ORIGIN = "https://akldb.org";
+
 export function buildMessageContent(c: Candidate): string {
   const who = c.submitter_name !== null ? escapeMarkdown(c.submitter_name) : c.submitted_by;
-  return `Pending link submission on **${escapeMarkdown(c.layout_name)}** (\`${c.layout_id}\`) by ${who}: <${c.url}> -- submission \`${c.id}\``;
+  const layout = `[${escapeMarkdown(c.layout_name)}](<${SITE_ORIGIN}/l/${c.layout_id}>)`;
+  return `New link submission on **${layout}** by ${who}: <${c.url}>\n[Open the mod queue](<${SITE_ORIGIN}/admin?tab=links>) · submission \`${c.id}\``;
 }
 
 async function claim(db: Bindings["DB"], at: string, id: string): Promise<boolean> {
