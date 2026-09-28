@@ -55,9 +55,16 @@ function sourceOf(actor: Actor, version: string | null): Source {
   return { client: actor.source_client, version };
 }
 
+// [LDB-MD11] The explicit column list (never `SELECT *`) is what keeps
+// `notified_at` -- mod-queue-notify's own claim bookkeeping,
+// `core/modqueue.ts` -- off every wire this row ever reaches (`getLink`,
+// `submitLink`'s "already pending" read); a bare `SELECT *` would leak it
+// into a client response the moment the column existed.
+const SUBMISSION_COLUMNS = "id, layout_id, url, submitted_by, submitted_at, status, decided_by, decided_at, reason";
+
 async function pendingSubmission(db: Bindings["DB"], layoutId: string): Promise<LinkSubmissionRow | null> {
   return db
-    .prepare("SELECT * FROM link_submissions WHERE layout_id = ? AND status = 'pending' ORDER BY submitted_at DESC LIMIT 1")
+    .prepare(`SELECT ${SUBMISSION_COLUMNS} FROM link_submissions WHERE layout_id = ? AND status = 'pending' ORDER BY submitted_at DESC LIMIT 1`)
     .bind(layoutId)
     .first<LinkSubmissionRow>();
 }
@@ -162,9 +169,12 @@ export type QueueStatus = "pending" | "approved" | "rejected" | "superseded";
 // touch submissions -- a pending one on a tombstone is simply hidden until
 // restore).
 export async function listQueue(db: Bindings["DB"], status: QueueStatus): Promise<LinkSubmissionRow[]> {
+  const cols = SUBMISSION_COLUMNS.split(", ")
+    .map((c) => `s.${c}`)
+    .join(", ");
   const { results } = await db
     .prepare(
-      `SELECT s.* FROM link_submissions s JOIN layouts l ON l.id = s.layout_id
+      `SELECT ${cols} FROM link_submissions s JOIN layouts l ON l.id = s.layout_id
        WHERE s.status = ? AND l.deleted = 0
        ORDER BY s.submitted_at ASC`,
     )
@@ -174,7 +184,7 @@ export async function listQueue(db: Bindings["DB"], status: QueueStatus): Promis
 }
 
 async function loadSubmission(db: Bindings["DB"], id: string): Promise<LinkSubmissionRow> {
-  const row = await db.prepare("SELECT * FROM link_submissions WHERE id = ?").bind(id).first<LinkSubmissionRow>();
+  const row = await db.prepare(`SELECT ${SUBMISSION_COLUMNS} FROM link_submissions WHERE id = ?`).bind(id).first<LinkSubmissionRow>();
   if (row === null) throw notFound(`no link submission '${id}'`, id);
   return row;
 }

@@ -10,6 +10,7 @@ import { cachePut, conditional, etagFor, readHead } from "./core/etag";
 import { dumpDue, DUMP_STATE_KEY, readDumpState, writeDump, type DumpState } from "./dump/write";
 import { runJob } from "./core/jobs";
 import { metaFormats, readMetaCore } from "./core/meta";
+import { notifyPending } from "./core/modqueue";
 import { runNightly } from "./core/nightly";
 import { systemClock } from "./core/time";
 import { API_MAJOR, API_MINOR, API_VERSION_HEADER, apiVersionString, deprecationHeadersFor, withApiVersionHeader } from "./core/version";
@@ -328,6 +329,17 @@ async function scheduled(event: ScheduledController, env: Bindings, _ctx: Execut
   const at = new Date(event.scheduledTime);
   const hour = at.getUTCHours();
   const minute = at.getUTCMinutes();
+
+  // [LDB-MD11] Mod-queue Discord notify: every 5-minute tick, not just
+  // hour=3 -- a pending submission waits at most one tick for the cron
+  // half of its at-most-once-ever guarantee (the submit route's own
+  // `waitUntil` call, `src/routes/links.ts`, is the other half, for the
+  // common case where it isn't needed at all). `runJob` isolates it the
+  // same way every other job here is isolated: it never skips the hour=3
+  // job set below, and `notifyPending` itself never throws regardless.
+  // Not gated by an import-style feature flag -- `MODQUEUE_DISCORD_WEBHOOK`
+  // (LDB-MD12) is that gate, checked inside `notifyPending` itself.
+  await runJob("modqueue-notify", () => notifyPending(env.DB, env, systemClock));
 
   // [LDB-X2] The cmini import tick and the upstream diff tick both used to
   // run here (LDB-I27's kill switch had already turned both off since
