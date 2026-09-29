@@ -429,19 +429,13 @@ function validateMagicKeysUnique(p: Payload): ErrBody | null {
 // 4 ("angle/nokwts/meteorite needs board: ansi") was never enforced here
 // anyway (24-spark-wire-review.md finding 10: `classifyFingering` is a
 // derived, read-time label, never a write-time refusal). What is left is
-// the space refusal and the thumb-row rule, both pure functions of `keys`.
+// the thumb-row rule, a pure function of `keys` -- the former space
+// refusal (finding 11, F11) is closed by #333: a space (" ") is now an
+// ordinary `char` like any other (positions, duplicates, magic references
+// all follow the same rules; see formats/spark/1/magic.ts's `computeRows`
+// for the one place " " stays special -- it never enters the compiled
+// board-char scaffold).
 function validateGeometry(p: Payload): ErrBody | null {
-  // design/layout-db/24-spark-wire-review.md finding 11 (F11, identity): a
-  // space (" ") is refused as a `char` -- pending #333's declared space
-  // thumb, spark/1 has no idiom for a space KEY yet (only mana2's `space`
-  // token, which becomes a free position on import instead, see
-  // `db/formats/mana2/1/translate.ts`).
-  for (let i = 0; i < p.keys.length; i++) {
-    if (p.keys[i]!.char === " ") {
-      return { error: "invalid_payload", message: "a space (' ') is not a valid key character (pending #333)", path: `/keys/${i}` };
-    }
-  }
-
   // §4.4-3: a thumb key (LT/RT) never sits on a finger row (-1..2, since the
   // row-minus-one decision widened the schema's row minimum to -1 for the
   // number row above the 3x10 alpha block -- rows -1/0/1/2 keep their one

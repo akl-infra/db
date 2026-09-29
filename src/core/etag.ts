@@ -184,7 +184,13 @@ export async function readHead(db: D1Database, stateKeys: readonly string[] = []
 //   change): no existing field, route or stored payload changes meaning,
 //   and no migration rewrites any existing row (nothing stored ever had
 //   row -1 before this).
-export const WIRE_VERSION = 17;
+// 18 (2026-09-29, LDB-F43, #333 closed): a space (`" "`) is accepted as
+//   an ordinary `keys[].char` -- `validate()` no longer refuses it. Purely
+//   additive to `/v1` (a domain widening, exactly like 17's row -1): no
+//   existing field, route or stored payload changes meaning, no migration
+//   touches any stored row (nothing stored ever had a `" "` key before
+//   this, since every prior write attempting one was refused).
+export const WIRE_VERSION = 18;
 
 export async function etagFor(headSeqValue: number, query: unknown): Promise<string> {
   const hash = await sha256Hex(canonical({ wireVersion: WIRE_VERSION, query: query ?? null }));

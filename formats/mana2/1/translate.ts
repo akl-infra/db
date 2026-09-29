@@ -282,11 +282,12 @@ export function toSpark(p: Mana2Payload): SparkPayload | Held {
       if (resolution.heldReason) return { held: true, reason: resolution.heldReason };
       const digit = Number(fingermap[y]!.trim().split(/\s+/).filter(Boolean)[x]);
       const finger = FINGER_BY_DIGIT[digit]!;
-      // design/layout-db/24-spark-wire-review.md finding 11 (D, identity):
-      // spark/1 refuses a space (" ") as a `char` -- a mana2 `space` token
-      // becomes a free position instead (the finger/position survive, the
-      // fact that it types a space doesn't), a documented loss.
-      if (resolution.isSkip || resolution.tap === " ") keys.push({ row: y, col: x, finger });
+      // design/layout-db/24-spark-wire-review.md finding 11 (F11, now
+      // closed by #333): a mana2 `space` token becomes a real spark/1
+      // `char: " "` key here -- only `skip` (no token at all) becomes a
+      // free position. Lossless both ways with `fromSpark`'s own
+      // `e.char === " " ? "space" : e.char` below.
+      if (resolution.isSkip) keys.push({ row: y, col: x, finger });
       else keys.push({ char: resolution.tap!, row: y, col: x, finger });
     }
   }
@@ -302,13 +303,14 @@ export function toSpark(p: Mana2Payload): SparkPayload | Held {
   const n = left.cells.length;
   left.cells.forEach((cell, i) => {
     const col = 4 - (n - 1 - i);
-    // Same space -> free-position rule as the main grid above.
-    if (cell.char === undefined || cell.char === " ") keys.push({ row: thumbRow, col, finger: "LT" });
+    // Same rule as the main grid above: only an actual skip (no char at
+    // all) becomes a free position; a space token keeps its char " ".
+    if (cell.char === undefined) keys.push({ row: thumbRow, col, finger: "LT" });
     else keys.push({ char: cell.char, row: thumbRow, col, finger: "LT" });
   });
   right.cells.forEach((cell, j) => {
     const col = 5 + j;
-    if (cell.char === undefined || cell.char === " ") keys.push({ row: thumbRow, col, finger: "RT" });
+    if (cell.char === undefined) keys.push({ row: thumbRow, col, finger: "RT" });
     else keys.push({ char: cell.char, row: thumbRow, col, finger: "RT" });
   });
 

@@ -208,3 +208,59 @@ describe("findCollision under the wider scaffold (LDB-F15)", () => {
     expect(collision!.hint).toBeUndefined(); // neither side is a scaffold row
   });
 });
+
+// [LDB-F43] #333 closed (2026-09-29): a " " key never enters the compiled
+// board-char scaffold, whether or not the layout has one. Property: the
+// rows `computeRows` produces for a layout WITH a " " key are byte-for-byte
+// identical to the rows for the SAME layout WITHOUT one, for a default
+// row, a repeat row, and an explicit `after: " "` magic rule alike -- the
+// only row after a space is still the dedicated LDB-F14 word-start push.
+describe("[LDB-F43] a \" \" key never changes the compiled rows (#333)", () => {
+  function keysWithSpace(): Record<string, Position> {
+    return { ...baseKeys(), " ": { row: 3, col: 4, finger: "LT" } };
+  }
+
+  it("[LDB-F43] a literal-default magic key: identical rows with vs. without a \" \" key", () => {
+    const magic: MagicIntent = { magic_keys: [{ key: "*", default: { kind: "char", char: "z" } }] };
+    const withSpace = computeRows(magic, keysWithSpace());
+    const withoutSpace = computeRows(magic, baseKeys());
+    expect(withSpace).toEqual(withoutSpace);
+    // The only row keyed on " " is the LDB-F14 word-start push, present
+    // either way (it is a pure function of `magic`, not of `keys`).
+    expect(withSpace.filter((r) => r.inputs.startsWith(" "))).toEqual([{ inputs: " *", output: " z", type: "default:z", from: "magic_keys[0]" }]);
+  });
+
+  it("[LDB-F43] a repeat_previous magic key: identical rows with vs. without a \" \" key (no word-start row for repeat)", () => {
+    const magic: MagicIntent = { magic_keys: [{ key: "*", default: { kind: "repeat" } }] };
+    const withSpace = computeRows(magic, keysWithSpace());
+    const withoutSpace = computeRows(magic, baseKeys());
+    expect(withSpace).toEqual(withoutSpace);
+    expect(withSpace.filter((r) => r.inputs.startsWith(" "))).toEqual([]);
+  });
+
+  it("[LDB-F43] an explicit `after: \" \"` magic rule: identical rows with vs. without a \" \" key, the explicit rule replaces the LDB-F14 scaffold row (not a collision)", () => {
+    const magic: MagicIntent = { magic_keys: [{ key: "*", default: { kind: "char", char: "z" }, rules: [{ after: " ", emit: "Q" }] }] };
+    const withSpace = computeRows(magic, keysWithSpace());
+    const withoutSpace = computeRows(magic, baseKeys());
+    expect(withSpace).toEqual(withoutSpace);
+    expect(withSpace.filter((r) => r.inputs.startsWith(" "))).toEqual([{ inputs: " *", output: " Q", type: "magic", from: "magic_keys[0].rules[0]" }]);
+    expect(findCollision(withSpace)).toBeNull();
+  });
+
+  it("[LDB-F43] a chiral key's scaffold never enumerates \" \" as a board char either way", () => {
+    const magic: MagicIntent = { chiral_keys: [{ key: "c", same: { kind: "char", char: "x" }, opposite: { kind: "char", char: "y" } }] };
+    const withSpace = computeRows(magic, keysWithSpace());
+    const withoutSpace = computeRows(magic, baseKeys());
+    expect(withSpace).toEqual(withoutSpace);
+    expect(withSpace.some((r) => r.inputs.includes(" "))).toBe(false);
+  });
+
+  it("[LDB-F43] liftRules round-trips the LDB-F14 word-start row the same way regardless of a live \" \" key", () => {
+    const magic: MagicIntent = { magic_keys: [{ key: "*", default: { kind: "char", char: "z" } }] };
+    const rowsWithSpace = computeRows(magic, keysWithSpace());
+    const rowsWithoutSpace = computeRows(magic, baseKeys());
+    const liftedWithSpace = liftRules(rowsWithSpace, keysWithSpace());
+    const liftedWithoutSpace = liftRules(rowsWithoutSpace, baseKeys());
+    expect(liftedWithSpace).toEqual(liftedWithoutSpace);
+  });
+});

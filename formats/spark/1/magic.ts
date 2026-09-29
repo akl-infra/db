@@ -170,9 +170,17 @@ function handOf(keys: Record<string, Position>, ch: string): "L" | "R" | null {
 // The layout's own keys, sorted by CODE POINT (not the default UTF-16
 // code-unit string sort, which can misorder at the BMP/astral boundary) --
 // the port note's "iterates keys sorted by code point, keep that order".
+//
+// #333: a space (" ") never enters this scaffold, whether or not the
+// layout has a " " key -- matching the site compiler's own
+// magicScaffoldChars (web/src/core/rules.ts + magicScaffold.ts in aklgg),
+// which excludes whitespace from its board enumeration. This keeps the
+// compiled rows for a layout WITH a " " key identical to the same layout
+// WITHOUT one: the only row after a space is still the dedicated LDB-F14
+// word-start push below, never a per-board-char row for " " itself.
 function layoutChars(keys: Record<string, Position>, exclude: Set<string>): string[] {
   return Object.keys(keys)
-    .filter((c) => !exclude.has(c))
+    .filter((c) => !exclude.has(c) && !/\s/.test(c))
     .sort((a, b) => a.codePointAt(0)! - b.codePointAt(0)!);
 }
 
@@ -258,13 +266,15 @@ export function computeRows(magic: MagicIntent | undefined, keys: Record<string,
     //   - IS suppressed by an explicit magic_keys[].rules[] entry whose
     //     `after` is a bare space, same "explicit replaces scaffold"
     //     carve-out board chars already get (01 §3).
-    //   - Guarded against literal duplication on the vanishing chance a
-    //     layout's own `keys` assigns a real position to the ' ' character
-    //     itself (no fixture does; the site's magicScaffoldChars excludes
-    //     whitespace from its board enumeration for the same reason) --
-    //     in that case the loop above already emitted (and except-gated)
-    //     the ' '+key row, so this dedicated push would only duplicate it.
-    if (dflt !== undefined && !isRepeatTag(dflt) && !explicitAfters.has(" ") && !(" " in keys)) {
+    //   - No literal-duplication guard needed even when the layout's own
+    //     `keys` assigns a real position to the ' ' character itself
+    //     (#333): `layoutChars` above excludes ALL whitespace from its
+    //     board enumeration unconditionally, so the loop above never
+    //     emits a ' '+key row regardless of whether ' ' is a live key --
+    //     this push is the only source of one, keeping the compiled rows
+    //     for a layout WITH a ' ' key identical to the same layout WITHOUT
+    //     one (default, repeat and explicit `after: " "` alike).
+    if (dflt !== undefined && !isRepeatTag(dflt) && !explicitAfters.has(" ")) {
       rows.push({ inputs: " " + mk.key, output: " " + dflt.char, type: `default:${dflt.char}`, from: `magic_keys[${i}]` });
     }
     (mk.rules ?? []).forEach((r, j) => {

@@ -25,6 +25,16 @@ this file just gives them a public, versioned home. From here on, a
 `WIRE_VERSION` bump and a line here land in the SAME PR, never one without
 the other (`[LDB-V5]`).
 
+## 1.18 — 2026-09-29
+
+LDB-F43: `#333` closed -- a space (`" "`, U+0020) is now accepted as an
+ordinary `spark/1` `keys[].char` value (position, duplicates and magic
+references all follow the same rules any other char follows); `validate()`
+no longer refuses it. No payload shape change. `mana2/1`'s `space` token
+now round-trips losslessly to a real spark `" "` key and back, both
+directions (`?format=mana2/1` reads and mana2 imports alike). Newly
+accepted values only -- additive.
+
 ## 1.16 — 2026-09-28
 
 LDB-I28: new admin route `POST /v1/admin/relabel-magic-thumbs`

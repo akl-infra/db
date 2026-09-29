@@ -157,11 +157,11 @@ describe("algorithm rows (12-implementation-phase5.md §2.5, exact)", () => {
     return a.keys.find((k) => k.char === ch);
   }
 
-  it("hours: e at {row:3,col:5,finger:RT}, space (mana2's own token) becomes a free position at {row:3,col:4,finger:LT} (LDB-F11, finding 11: spark refuses a space char)", () => {
+  it("[LDB-F43] hours: e at {row:3,col:5,finger:RT}, space (mana2's own token) becomes a real \" \" key at {row:3,col:4,finger:LT} (wire-review finding 11, #333 closed)", () => {
     const a = spark("001-hours");
     expect(keyOf(a, "e")).toEqual({ char: "e", row: 3, col: 5, finger: "RT" });
-    expect(a.keys).toContainEqual({ row: 3, col: 4, finger: "LT" });
-    expect(keyOf(a, " ")).toBeUndefined();
+    expect(a.keys).toContainEqual({ char: " ", row: 3, col: 4, finger: "LT" });
+    expect(keyOf(a, " ")).toEqual({ char: " ", row: 3, col: 4, finger: "LT" });
   });
 
   it("chantries: l {row:3,col:3,finger:LT}, h {row:3,col:4,finger:LT}", () => {
@@ -307,21 +307,16 @@ function cellCount(row: string): number {
 // `mirrorLeftRowStagger: false`/`splitAngle: 0` as absent; key order (a
 // plain JS object comparison already ignores property order -- only array
 // order is significant, and no array here is reordered by this function).
-// design/layout-db/24-spark-wire-review.md finding 11 (D, identity): a
-// space (" ") is refused as a spark/1 `char`, so a mana2 `space` token
-// becomes a free position (mana2's own "skip") on the mana2 -> spark hop --
-// a NEW, permanent, documented loss (mana2/1/translate.ts's own `toSpark`
-// comment) that affects nearly every vendored fixture (most keyboards have
-// a spacebar). Canonicalised away here exactly like the OTHER documented
-// losses this function already folds (mirrorLeftRowStagger, splitAngle,
-// etc.) -- "space" and "skip" compare equal for this round trip's purposes.
-function dropSpaceToken(token: string): string {
-  return token === "space" ? "skip" : token;
-}
-
+// design/layout-db/24-spark-wire-review.md finding 11 (D, identity),
+// #333 closed: a mana2 `space` token now becomes a real spark `" "` key
+// at that position on the mana2 -> spark hop, and `fromSpark` emits
+// `space` back for it -- a genuine identity, no canonicalisation needed
+// (there used to be a `dropSpaceToken` here folding "space" into "skip",
+// the same way the OTHER documented losses below are folded; #333 removed
+// it because there is no loss left to fold).
 function normalizeMana2(m: Mana2Payload): unknown {
-  const fingers = m.layout.fingers.map((r) => tokensOf(r).map(dropSpaceToken).join(" "));
-  const thumbs = m.layout.thumbs?.map((r) => tokensOf(r).map(dropSpaceToken).join(" "));
+  const fingers = m.layout.fingers.map((r) => tokensOf(r).join(" "));
+  const thumbs = m.layout.thumbs?.map((r) => tokensOf(r).join(" "));
   const fingermap = m.fingermap.map((row, y) => {
     const n = cellCount(m.layout.fingers[y] ?? "");
     return tokensOf(row).slice(0, n).join(" ");

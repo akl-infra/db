@@ -48,7 +48,7 @@
       },
       "api": {
         "major": 1,
-        "minor": 17
+        "minor": 18
       },
       "deprecations": []
     }

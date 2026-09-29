@@ -480,6 +480,86 @@ describe("[LDB-F27] spark/1's real (non-schema) geometry rules", () => {
   });
 });
 
+// [LDB-F43] #333 closed (2026-09-29): a space (" ", U+0020) is an ordinary
+// `char` like any other -- no refusal, no special-cased schema/geometry
+// rule for it any more.
+describe("[LDB-F43] a space (\" \") is an ordinary char", () => {
+  it("[LDB-F43] a single ' ' key on a finger row validates", () => {
+    const result = spark1.validate({ keys: [{ char: " ", row: 0, col: 0, finger: "LP" }] });
+    expect(result.ok).toBe(true);
+  });
+
+  it("[LDB-F43] a ' ' key on a thumb row validates, same as any other char", () => {
+    const result = spark1.validate({ keys: [{ char: " ", row: 3, col: 0, finger: "LT" }] });
+    expect(result.ok).toBe(true);
+  });
+
+  it("[LDB-F43] a ' ' key on a finger row with an LT/RT finger is refused BY THE THUMB-ROW RULE, not a space-specific one", () => {
+    const result = spark1.validate({ keys: [{ char: " ", row: 2, col: 0, finger: "LT" }] });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.message).toMatch(/rows -1\.\.2 are finger rows/);
+  });
+
+  it("[LDB-F43] ' ' may duplicate across positions, same as any other char", () => {
+    const result = spark1.validate({
+      keys: [
+        { char: " ", row: 3, col: 0, finger: "LT" },
+        { char: " ", row: 3, col: 9, finger: "RT" },
+      ],
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it("[LDB-F43] ' ' still can't share a position with another key (the ordinary duplicate-position rule)", () => {
+    const result = spark1.validate({
+      keys: [
+        { char: " ", row: 0, col: 0, finger: "LP" },
+        { char: "a", row: 0, col: 0, finger: "LR" },
+      ],
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.message).toMatch(/duplicate position row 0 col 0/);
+  });
+
+  it("[LDB-F43] a magic key's own `key` may be ' ' -- follows the ordinary magic-needs-unique-key rule, not a space-specific refusal", () => {
+    const payload = {
+      keys: [
+        { char: " ", row: 3, col: 0, finger: "LT" },
+        { char: " ", row: 3, col: 9, finger: "RT" },
+      ],
+      magic: { magic_keys: [{ key: " ", default: { kind: "repeat" } }] },
+    };
+    const result = spark1.validate(payload);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatchObject({ error: "magic_needs_unique_key" });
+  });
+
+  it("[LDB-F43] a chiral key's own `key` may be ' ', with a single unique entry", () => {
+    const payload = {
+      keys: [{ char: " ", row: 3, col: 0, finger: "LT" }],
+      magic: { chiral_keys: [{ key: " ", same: { kind: "repeat" } }] },
+    };
+    const result = spark1.validate(payload);
+    expect(result.ok).toBe(true);
+  });
+
+  it("[LDB-F43] a rule's `after` may be ' ' (word-start context), and an adaptive-swap member may be ' '", () => {
+    const payload = {
+      keys: [
+        { char: " ", row: 3, col: 0, finger: "LT" },
+        { char: "a", row: 0, col: 0, finger: "LP" },
+        { char: "b", row: 0, col: 1, finger: "LR" },
+      ],
+      magic: {
+        rules: [{ inputs: " a", output: " A", type: "raw" }],
+        adaptive_swaps: [{ trigger: "b", swap: [" ", "a"] }],
+      },
+    };
+    const result = spark1.validate(payload);
+    expect(result.ok).toBe(true);
+  });
+});
+
 // [LDB-F42] design/layout-db's row-minus-one decision (2026-09-21): a row
 // ABOVE the 3x10 alpha block is stored as `row: -1` (the number row), not
 // by shifting every other row down and not by bottom-anchoring the stagger

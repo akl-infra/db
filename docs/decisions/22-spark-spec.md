@@ -84,11 +84,36 @@ locale rules, nothing reserved. `"E"` and `"e"` are different keys.
 
 *Enforcement scope, as implemented, is narrower (LEDGER.md row S1): `validate()` only checks single-code-point-ness for characters a magic construct NAMES (`isSingleChar`, `db/formats/spark/1/magic.ts:37-39`, called from `validateMagicSemantics`), never for a plain `keys[].char` entry.*
 
-`" "` (a literal space) is refused as a `char` value on any `keys` entry,
-pending #333's declared space thumb. mana2's own `space` token becomes a
-free position on import instead (a documented, permanent loss, §8).
+`" "` (a literal space, U+0020) is an ordinary `char` value like any
+other, closing F11/#333: it may sit on a position, may duplicate (the
+same rules as any other char, §3), and may be named by a magic construct
+(a magic key's own `key`, a chiral key's `key`, an adaptive swap's `swap`
+member, or a rule's `after`) -- all under the same rules any char
+follows. No payload shape change and no format-version bump: every
+payload valid before #333 stays valid. mana2's own `space` token becomes
+a real `" "` key at that position on import, main grid and thumbs alike
+-- lossless both ways with the export direction (§7).
 
-*`db/formats/spark/1/index.ts:277-281` (`validateGeometry`'s first check, `400 invalid_payload`).*
+*`db/formats/spark/1/index.ts` (the former `validateGeometry` refusal, removed); `db/formats/mana2/1/translate.ts` (`toSpark`/`fromSpark`).*
+
+One behaviour is deliberately unchanged by #333: a layout that has a `" "`
+key never gets the scoring engine's IMPLICIT spacebar (akl.gg's
+"spacegrams" thumb) -- spacegrams-on scoring uses the layout's own placed
+`" "` key instead of guessing a thumb. This is the scoring engine's
+behaviour (akl.gg, not this repo); stated here because it is the reason a
+`" "` key changes what a client computes from a record, not the record
+itself.
+
+`computeRows` (`db/formats/spark/1/magic.ts`) never lets a `" "` key
+into the compiled board-char scaffold: `layoutChars` excludes all
+whitespace unconditionally, matching the site compiler's own
+`magicScaffoldChars` (aklgg `web/src/core/rules.ts` +
+`magicScaffold.ts`, which excludes whitespace from its own board
+enumeration). The only default row after a space stays the existing
+LDB-F14 extra row (`" "+key -> " "+default`, never for `repeat`) --
+compiled rows for a layout WITH a `" "` key are therefore byte-for-byte
+identical to the same layout WITHOUT one, for default, repeat, and an
+explicit `after: " "` magic rule alike.
 
 A position is `(row, col)`, both integers (`row` 0 to 4, `col` >= 0). No
 two `keys` entries may share a position; the same character may still sit
@@ -413,7 +438,6 @@ instructed (LEDGER.md row S1).*
 |---|---|
 | layers, combos, hold-taps, per-key timing | `01-format.md` §4 (advanced formats, not this one) |
 | alternate fingerings | `#148` |
-| a declared space thumb / space as a `char` | `#333` |
 | per-column stagger amounts, key wells, chorded input | `23-geometry.md` non-goals |
 
 ## 11. Worked examples
