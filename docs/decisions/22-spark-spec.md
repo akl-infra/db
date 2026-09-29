@@ -96,7 +96,7 @@ a real `" "` key at that position on import, main grid and thumbs alike
 
 *`db/formats/spark/1/index.ts` (the former `validateGeometry` refusal, removed); `db/formats/mana2/1/translate.ts` (`toSpark`/`fromSpark`).*
 
-One behaviour is deliberately unchanged by #333: a layout that has a `" "`
+One rule for clients comes with #333: a layout that has a `" "`
 key never gets the scoring engine's IMPLICIT spacebar (akl.gg's
 "spacegrams" thumb) -- spacegrams-on scoring uses the layout's own placed
 `" "` key instead of guessing a thumb. This is the scoring engine's
