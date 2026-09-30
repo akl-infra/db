@@ -1,5 +1,10 @@
 # 23 — Boards, fingerings and thumbs: explicit in spark, explicit at the bot (round 3, decided)
 
+**Superseded in part by `26-no-board.md`** (2026-09-13, the same day):
+this doc's board decisions (the one-word `board` field, its geometry) were
+reversed — `spark/1` has no board field at all. Its fingering and thumb
+decisions stand untouched.
+
 **Status:** decided 2026-09-13 ("let's go ahead and implement"); Q1–Q3 in §8 carry defaults; implementation runs from §10. Branch `ldb-geometry` (worktree
 `.claude/worktrees/ldb-geometry`, off `ldb-arch-review`). Rendered options
 at `design/artifacts/ldb-geometry.html` (artifact link in

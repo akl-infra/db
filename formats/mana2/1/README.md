@@ -58,29 +58,23 @@ exact function/line each claim comes from.
 | non-empty `combos` | -- | **held**: "combos have no akl/1 idiom" |
 | `mirrorLeftRowStagger`/`splitAngle`/`magicKeys`/`layers` | carried into `x.mana2` (below), NEVER held -- this format's own override of `12 §2.5`'s table, approved because the hatch preserves them exactly | no |
 
-## `x.mana2` -- the escape hatch (`01-format.md` §6.1's `x.cmini` pattern)
+## The old `x.mana2` escape hatch is gone
 
-`12 §2.5` says `mirrorLeftRowStagger`/`splitAngle`/`magicKeys`/`layers` are
-held. This format overrides that for exactly those four fields: akl/1 has
-no idiom for any of them, but none of them change what a position/
-character/board-SHAPE actually is (unlike a tap-hold or a >5-thumb
-cluster, which change what akl/1 would even need to represent), so holding
-the whole payload over them would refuse translation for information that
-doesn't matter to akl/1's own model. `to["akl/1"]` carries whichever of
-the four were PRESENT on the source payload (at any value, including
-`false`/`0`/`null`) into `x.mana2`, keyed by presence
-(`"k" in extra`, never `!== undefined`). `from["akl/1"]` restores them
-when present, else defaults to `false`/`0`/`null`/`null` (mana2's own
-zero values). Board geometry itself (`isRowStaggered`/
-`rowOrColumnStagger`) does NOT need `x.mana2` -- see "Round trips" below
-for why the plain akl-facing `board.kind`/`stagger` already carries it
-losslessly for every real (3-row) vendored file.
-
-Because `from["akl/1"]` NEVER leaves these four fields unset (defaulting
-when no hint exists), a payload that started with no `x` at all still
-gains a NEW `x.mana2` the moment it passes through `akl/1 -> mana2/1 ->
-akl/1` -- harmless (it always agrees with the returned board/etc.) but
-real, and asserted exactly (not glossed over) in `mana2.test.ts`.
+`12 §2.5` said `mirrorLeftRowStagger`/`splitAngle`/`magicKeys`/`layers` were
+held, and this format used to override that for exactly those four fields:
+akl/1 had no idiom for any of them, but none of them change what a
+position/character actually is (unlike a tap-hold or a >5-thumb cluster,
+which change what akl/1 would even need to represent), so a hatch named
+`x.mana2` carried whichever of the four were present on the source payload
+across the hop untouched. That hatch depended on spark/1's own free-form
+`x` field, which `21-formats.md` D10 dropped; `26-no-board.md` then
+removed `board` itself, `isRowStaggered`/`rowOrColumnStagger` included.
+There is nowhere left to carry any of this: `toSpark` now silently drops
+the whole mana2 `board` object plus `magic.magicKeys`/`layers` (a
+documented loss, the `Mana2Extra` comment in `translate.ts`), and
+`fromSpark` always emits the fixed default board described under "Round
+trips" below rather than reading one back from anywhere. None of it is
+held -- every payload still translates, just without a board.
 
 ## Duplicate `magic.rules[].inputs`: last wins, not refused
 
@@ -162,12 +156,18 @@ all-zero colstag derives to ortho, same as an all-zero rowstag).
 ## Round trips (`mana2.test.ts`)
 
 **`mana2/1 -> akl/1 -> mana2/1`** is identity under `normalizeMana2()`
-(trim each row; drop fingermap digits past a row's own cell count; drop
-stagger entries past the rows/width; treat `layers:null`/`magicKeys:null`/
-`mirrorLeftRowStagger:false`/`splitAngle:0` as absent; object key order)
-for every valid vendored file and every non-held hand fixture -- `904` and
-`905` are excluded from the generic loop (they are DESIGNED to be lossy;
-asserted exactly by name instead, see above).
+(trim each row; drop fingermap digits past a row's own cell count; treat
+`layers:null`/`magicKeys:null` as absent; object key order) for every
+valid vendored file and every non-held hand fixture -- `board` is left out
+of the comparison entirely (spark/1 has no board at all, `26-no-board.md`,
+so `fromSpark` always emits the same fixed default board regardless of
+what the source mana2 file said, and every board-shaped fixture that used
+to need a special case here now round-trips like any other). Two fixtures
+still don't: `904-dup-rules` (last-wins dedup discards the earlier
+duplicate at the first hop) and the vendored `opaline` (its `magicKeys: []`
+comes back `null`, since `normalizeMana2` treats `null` as absent but `[]`
+as present) -- both excluded from the generic loop, asserted exactly by
+name instead, see above.
 
 **`akl/1 -> mana2/1 -> akl/1`** is identity off the thumb row for every
 `akl/1` and `cmini/1`-derived fixture, with two real, byte-exact

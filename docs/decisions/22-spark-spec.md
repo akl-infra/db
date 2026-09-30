@@ -393,16 +393,16 @@ side, the rows it produced are not.
 `db/formats/adapters/cmini/translate.ts`'s `fromCmini` is the only
 conversion into `spark/1` from outside the format; there is no reverse.
 
-Board word table:
+cmini's own `board` word (`stagger`/`angle`/`ortho`/`mini`) is dropped on
+import, not translated to anything (`26-no-board.md`): spark/1 has no
+board field, the angle mod is already baked into the keys' own cols/
+fingers as cmini stores it (a fingering, never a board word, §4.3), and
+which physical board a layout is drawn or analysed on is the reader's own
+choice. The word table this section used to carry (cmini's board word to
+a spark-side `ansi`/`ortho` value) was retired with `26-no-board.md`;
+there is nothing left to map it to (LDB-F31, retired).
 
-| cmini | spark |
-|---|---|
-| `stagger` | `ansi` |
-| `angle` | `ansi` (the angle mod is already in the keys' own fingers) |
-| `ortho` | `ortho` |
-| `mini` | `ortho` |
-
-*`db/formats/adapters/cmini/translate.ts:26-31` (`WORD_TABLE`). No angle-family bump: LDB-F31.*
+*`db/formats/adapters/cmini/translate.ts:16-22`.*
 
 A `TB` finger, or an `LT`/`RT` whose column disagrees with `col < 5 =>
 LT else RT`, is relabelled by that rule (the last time this ever runs); an
