@@ -86,6 +86,12 @@ const patchSchema = {
     format: { type: "string" },
     fingermap: { type: "object", additionalProperties: { type: "string" } },
     magic: { type: "object" },
+    // design/alts/07-format.md: `alts`/`combos` arrive as the WHOLE array
+    // (spark/1's own top-level shape) -- validated as a whole value here
+    // (loosely, like `magic`), the record shape itself is the format's own
+    // edits + the pipeline's validate() re-run.
+    alts: { type: "array" },
+    combos: { type: "array" },
   },
 } as const;
 
@@ -179,6 +185,8 @@ export interface PatchBody {
   format?: string;
   fingermap?: Record<string, string>;
   magic?: object;
+  alts?: unknown[];
+  combos?: unknown[];
 }
 
 export interface RegisterClientBody {

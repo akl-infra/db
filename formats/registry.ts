@@ -80,6 +80,11 @@ export interface FormatEdits {
   // schema before any edit runs.)
   // `magic` arrives shaped as spark/1's magic object (01 §2).
   setMagic?(p: Payload, magic: unknown): EditResult;
+  // design/alts/07-format.md: `alts`/`combos` arrive as the whole array
+  // (spark/1's own top-level shape), validated as a whole by the
+  // pipeline's validate() re-run, same as `setMagic`.
+  setAlts?(p: Payload, alts: unknown): EditResult;
+  setCombos?(p: Payload, combos: unknown): EditResult;
 }
 
 export interface FormatModule {

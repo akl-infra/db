@@ -7,7 +7,7 @@
 // Never mutates `p` -- structured-clones first; the pipeline re-runs
 // validate() on the result afterward, so an edit only needs to apply the
 // change, not duplicate the format's own rules.
-import type { Payload, MagicIntent, ErrBody } from "./index.ts";
+import type { Payload, MagicIntent, Alt, Combo, ErrBody } from "./index.ts";
 
 export type EditResult = Payload | { error: ErrBody };
 
@@ -49,4 +49,19 @@ export function setMagic(p: Payload, magic: unknown): EditResult {
   return out;
 }
 
-export const edits = { setFingermap, setMagic };
+// design/alts/07-format.md: `alts`/`combos` are validated as a whole VALUE
+// by the pipeline's validate() re-run, exactly like `setMagic` -- nothing
+// extra checked here.
+export function setAlts(p: Payload, alts: unknown): EditResult {
+  const out: Payload = structuredClone(p);
+  out.alts = structuredClone(alts) as Alt[];
+  return out;
+}
+
+export function setCombos(p: Payload, combos: unknown): EditResult {
+  const out: Payload = structuredClone(p);
+  out.combos = structuredClone(combos) as Combo[];
+  return out;
+}
+
+export const edits = { setFingermap, setMagic, setAlts, setCombos };

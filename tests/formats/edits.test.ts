@@ -189,8 +189,8 @@ describe("format edits (LDB-E1)", () => {
 // -- board: there is no `setBoard` any more (design/layout-db/26-no-board.md:
 // spark/1 has no board field; the route schema refuses the key first).
 describe("spark/1 has no board edit (LDB-F40)", () => {
-  it("[LDB-F40] `edits` exposes exactly setFingermap and setMagic", () => {
-    expect(Object.keys(spark1.edits!).sort()).toEqual(["setFingermap", "setMagic"]);
+  it("[LDB-F40] [LDB-F46] `edits` exposes exactly setFingermap, setMagic, setAlts and setCombos", () => {
+    expect(Object.keys(spark1.edits!).sort()).toEqual(["setAlts", "setCombos", "setFingermap", "setMagic"]);
   });
 });
 
@@ -207,6 +207,47 @@ describe("spark/1 setMagic (LDB-E1)", () => {
       expect(spark1.compileMagic(payload)).toEqual(spark1.compileMagic({ ...fixture.payload, magic: m }));
     });
   }
+});
+
+// design/alts/07-format.md, LDB-F46: setAlts/setCombos are the same shape
+// as setMagic -- pure, and the pipeline's validate() re-run (not this
+// function) is what checks the new value. No fixture carries `alts`/
+// `combos` yet (they're spark-native additions, never produced by any
+// import/translation), so these use a small payload built in-line rather
+// than `fixturesFor("spark/1")`.
+describe("spark/1 setAlts/setCombos (LDB-E1, LDB-F46)", () => {
+  const BASE = {
+    keys: [
+      { char: "g", row: 1, col: 4, finger: "LM" },
+      { char: "s", row: 1, col: 2, finger: "LR" },
+    ],
+  };
+
+  it("[LDB-F46] setAlts is pure and sets the field", () => {
+    const before = structuredClone(BASE);
+    const alts = [{ key: "g", finger: "LI", when: [{ text: "g", at: 0 }] }];
+    const result = spark1.edits!.setAlts!(BASE, alts);
+    expect(BASE).toEqual(before); // purity
+    const payload = unwrap<Parameters<typeof spark1.validate>[0]>(result);
+    expect(payload).toEqual({ ...BASE, alts });
+    expect(spark1.validate(payload)).toEqual({ ok: true });
+  });
+
+  it("[LDB-F46] setCombos is pure and sets the field", () => {
+    const before = structuredClone(BASE);
+    const combos = [{ keys: ["g", "s"], output: "th" }];
+    const result = spark1.edits!.setCombos!(BASE, combos);
+    expect(BASE).toEqual(before); // purity
+    const payload = unwrap<Parameters<typeof spark1.validate>[0]>(result);
+    expect(payload).toEqual({ ...BASE, combos });
+    expect(spark1.validate(payload)).toEqual({ ok: true });
+  });
+
+  it("[LDB-F46] setAlts with an invalid value fails the pipeline's own validate() re-run (the edit itself never checks)", () => {
+    const result = spark1.edits!.setAlts!(BASE, [{ key: "z", finger: "LI", when: [{ text: "z", at: 0 }] }]);
+    const payload = unwrap<Parameters<typeof spark1.validate>[0]>(result);
+    expect(spark1.validate(payload).ok).toBe(false);
+  });
 });
 
 // -- mana2/1 setFingermap: its own block (excluded from the generic loop

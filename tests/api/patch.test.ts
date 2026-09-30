@@ -176,6 +176,59 @@ describe("[LDB-P1] PATCH {format, fingermap|magic}: that format's scope", () => 
     expect(body.payload.magic).toEqual(magic);
   });
 
+  it("[LDB-F46] alts alone -> 200, has_alts true, payload.alts set, kind updated", async () => {
+    const record = await seed();
+    const headers = ownerHeaders(`tok-${uniqueName("alts")}`);
+    const alts = [{ key: "a", finger: "RP", when: [{ text: "a", at: 0 }] }];
+    const res = await patch(record.id, headers, { format: "spark/1", alts }, `"spark:${record.formatRev}"`);
+    expect(res.status).toBe(200);
+    const body = await res.json<{ formats: Record<string, { rev: number; has_alts: boolean; has_combos: boolean }>; payload: { alts: unknown } }>();
+    expect(body.formats["spark/1"]!.rev).toBe(record.formatRev + 1);
+    expect(body.formats["spark/1"]!.has_alts).toBe(true);
+    expect(body.formats["spark/1"]!.has_combos).toBe(false);
+    expect(body.payload.alts).toEqual(alts);
+    const events = await eventsFor(record.id);
+    expect(events.at(-1)).toMatchObject({ kind: "updated", detail: { fields: ["alts"] } });
+  });
+
+  it("[LDB-F46] combos alone -> 200, has_combos true, payload.combos set (two-key seed)", async () => {
+    const twoKeyed = { keys: [{ char: "a", row: 0, col: 0, finger: "LP" }, { char: "b", row: 0, col: 1, finger: "RP" }] };
+    const input: CommitInput = {
+      layoutId: ulid(),
+      creating: true,
+      currentN: 0,
+      currentLayout: null,
+      currentFormats: new Map(),
+      layout: { kind: "created", name: uniqueName("patch-combos-seed"), owner: OWNER, created_at: clock(), deleted: false },
+      format: { kind: "format_added", lineage: "spark", format: "spark/1", payload: twoKeyed, hasMagic: false },
+      modified_at: clock(),
+      actor: OWNER,
+      via: "discord",
+      source: SOURCE,
+      upstream: null,
+    };
+    const { layout, formats } = await commitWrite(db, clock, input);
+    const formatRev = formats.get("spark")!.rev;
+
+    const headers = ownerHeaders(`tok-${uniqueName("combos")}`);
+
+    // Same char twice is refused by combos[].keys' own "two distinct
+    // characters" rule -- proves the pipeline's validate() re-run actually
+    // ran over the edited payload, not just that setCombos wrote the field.
+    const bad = await patch(layout.id, headers, { format: "spark/1", combos: [{ keys: ["a", "a"], output: "x" }] }, `"spark:${formatRev}"`);
+    expect(bad.status).toBe(400);
+    await expect(bad.json()).resolves.toMatchObject({ error: "invalid_payload", path: "/combos/0/keys" });
+
+    const combos = [{ keys: ["a", "b"], output: "x" }];
+    const res = await patch(layout.id, headers, { format: "spark/1", combos }, `"spark:${formatRev}"`);
+    expect(res.status).toBe(200);
+    const body = await res.json<{ formats: Record<string, { rev: number; has_alts: boolean; has_combos: boolean }>; payload: { combos: unknown } }>();
+    expect(body.formats["spark/1"]!.rev).toBe(formatRev + 1);
+    expect(body.formats["spark/1"]!.has_combos).toBe(true);
+    expect(body.formats["spark/1"]!.has_alts).toBe(false);
+    expect(body.payload.combos).toEqual(combos);
+  });
+
   it("a failing later verb (a magic rule missing its output) leaves the earlier one (fingermap) unapplied -- one batch or nothing", async () => {
     const record = await seed();
     const headers = ownerHeaders(`tok-${uniqueName("atomic")}`);

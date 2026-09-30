@@ -471,9 +471,13 @@ export interface PatchBody {
   format?: string;
   fingermap?: Record<string, string>;
   magic?: unknown;
+  // design/alts/07-format.md: the WHOLE array, same convention `magic`
+  // uses (validated as a whole by the pipeline's validate() re-run).
+  alts?: unknown;
+  combos?: unknown;
 }
 
-const FORMAT_EDIT_FIELDS = ["fingermap", "magic"] as const;
+const FORMAT_EDIT_FIELDS = ["fingermap", "magic", "alts", "combos"] as const;
 type FormatEditField = (typeof FORMAT_EDIT_FIELDS)[number];
 
 function isEditError(r: EditResult): r is { error: ErrBody } {
@@ -538,7 +542,7 @@ export async function patchFormat(
   actor: Actor,
   ref: string,
   format: string,
-  edits: { fingermap?: Record<string, string>; magic?: unknown },
+  edits: { fingermap?: Record<string, string>; magic?: unknown; alts?: unknown; combos?: unknown },
   ifMatchHeader: IfMatch,
   version: string | null,
 ): Promise<WriteOutcome> {
@@ -585,6 +589,8 @@ export async function patchFormat(
     const fields = FORMAT_EDIT_FIELDS.filter((f) => edits[f] !== undefined);
     if (edits.fingermap !== undefined) payload = runEdit(existing.format, "fingermap", module.edits?.setFingermap, payload, edits.fingermap);
     if (edits.magic !== undefined) payload = runEdit(existing.format, "magic", module.edits?.setMagic, payload, edits.magic);
+    if (edits.alts !== undefined) payload = runEdit(existing.format, "alts", module.edits?.setAlts, payload, edits.alts);
+    if (edits.combos !== undefined) payload = runEdit(existing.format, "combos", module.edits?.setCombos, payload, edits.combos);
 
     const { hasMagic, hasAlts, hasCombos } = validatePayload(existing.format, payload);
     const kind = fields.length === 1 && fields[0] === "fingermap" ? "fingermap" : "updated";
@@ -836,13 +842,15 @@ export async function transferLayout(env: Bindings, now: Clock, actor: Actor, re
 }
 
 // Shared by `routes/write.ts`'s PATCH handler: `{name}` and any of
-// {fingermap, magic} together is `400 mixed_patch`; the latter without
-// `format` is `400 format_required`.
-export function classifyPatch(body: PatchBody): { kind: "rename"; name: string } | { kind: "format"; format: string; edits: { fingermap?: Record<string, string>; magic?: unknown } } {
-  const hasEdits = body.fingermap !== undefined || body.magic !== undefined;
+// {fingermap, magic, alts, combos} together is `400 mixed_patch`; the
+// latter without `format` is `400 format_required`.
+export function classifyPatch(
+  body: PatchBody,
+): { kind: "rename"; name: string } | { kind: "format"; format: string; edits: { fingermap?: Record<string, string>; magic?: unknown; alts?: unknown; combos?: unknown } } {
+  const hasEdits = body.fingermap !== undefined || body.magic !== undefined || body.alts !== undefined || body.combos !== undefined;
   if (body.name !== undefined && hasEdits) throw mixedPatch();
   if (body.name !== undefined) return { kind: "rename", name: body.name };
   if (!hasEdits) throw badRequest("PATCH body must set 'name' or a format edit", "/");
   if (body.format === undefined) throw formatRequired();
-  return { kind: "format", format: body.format, edits: { fingermap: body.fingermap, magic: body.magic } };
+  return { kind: "format", format: body.format, edits: { fingermap: body.fingermap, magic: body.magic, alts: body.alts, combos: body.combos } };
 }
