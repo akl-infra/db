@@ -11,7 +11,15 @@
       "type": "array",
       "items": { "$ref": "#/$defs/key" }
     },
-    "magic": { "$ref": "#/$defs/magic" }
+    "magic": { "$ref": "#/$defs/magic" },
+    "alts": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/alt" }
+    },
+    "combos": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/combo" }
+    }
   },
   "$defs": {
     "key": {
@@ -124,6 +132,51 @@
         "output": { "type": "string", "minLength": 1 },
         "type": { "type": "string" },
         "note": { "type": "string" }
+      }
+    },
+    "altPattern": {
+      "description": "design/alts/07-format.md: 1-3 CODE POINTS (never UTF-16 units -- ajv's minLength/maxLength count the latter, which would wrongly reject or admit astral text; deliberately no maxLength here, same reason rawRule.output/magicKeyRule.after/emit have none) with the alt's own key at `at`; the exact code-point bound and the `_`-off-the-key-position/reach rules live in index.ts's validate().",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "at"],
+      "properties": {
+        "text": { "type": "string", "minLength": 1 },
+        "at": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "alt": {
+      "description": "design/alts/07-format.md: an alternate fingering for one layout key -- `finger` fires instead of the key's own finger whenever the typed context matches a `when` pattern and no `except` pattern.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "finger", "when"],
+      "properties": {
+        "key": { "type": "string" },
+        "finger": {
+          "enum": ["LP", "LR", "LM", "LI", "RI", "RM", "RR", "RP", "LT", "RT"]
+        },
+        "when": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/altPattern" }
+        },
+        "except": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/altPattern" }
+        }
+      }
+    },
+    "combo": {
+      "description": "design/alts/07-format.md: a two-key chord. Both members are the layout's own chars (index.ts's validate()); `output` need not be. `output` is 1-2 CODE POINTS, checked in index.ts (no maxLength here, same reason altPattern.text has none).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["keys", "output"],
+      "properties": {
+        "keys": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "output": { "type": "string", "minLength": 1 }
       }
     }
   }

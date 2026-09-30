@@ -81,6 +81,39 @@ export type { MagicIntent, MagicKey, ChiralKey, AdaptiveSwap, RawRule };
 export { classifyFingering, gridIndent, FINGERING_REFS } from "./geometry.ts";
 export type { NamedFingering, Fingering } from "./geometry.ts";
 
+// design/alts/07-format.md (round 4, slice D): a per-context alternate
+// fingering for one layout key. `key` resolves through `charMap` (first
+// occurrence, like a raw `rules[].after` reference -- no uniqueness
+// requirement, unlike a magic/chiral key's own char). `when`/`except` are
+// each `{text, at}` patterns: `text` is 1-3 code points with `key` itself
+// at code-point index `at` (so the pattern reaches at most 2 code points
+// either side of the key); `_` is a wildcard everywhere in `text` except
+// at `at` itself, which must be the literal key character. The alt fires
+// on a `when` match with no `except` match; two alts on the same key with
+// different fingers may not have `when` patterns that co-match (equal
+// reach on both sides after aligning on the key, every position equal or a
+// wildcard on either side) -- that would leave it ambiguous which finger
+// applies.
+export interface AltPattern {
+  text: string;
+  at: number;
+}
+export interface Alt {
+  key: string;
+  finger: string;
+  when: AltPattern[];
+  except?: AltPattern[];
+}
+
+// design/alts/07-format.md: a two-key chord -- both `keys` members are this
+// layout's own chars (charMap, no uniqueness requirement, same as an alt's
+// `key`); `output` need not be a layout char at all. No duplicate unordered
+// `keys` pair and no duplicate `output` across the whole `combos` array.
+export interface Combo {
+  keys: [string, string];
+  output: string;
+}
+
 // keys: one entry per PHYSICAL position -- `char` absent means a free
 // position (the old separate `free` array is gone, folded in here). The
 // same `char` may repeat across several entries (duplicate letters, e.g. a
@@ -88,10 +121,14 @@ export type { NamedFingering, Fingering } from "./geometry.ts";
 // unique among these entries (`validateMagicKeysUnique` below,
 // `magic_needs_unique_key`) since magic addresses a layout by character, not
 // by position -- a plain, magic-unreferenced duplicate has no such
-// requirement.
+// requirement. `alts`/`combos` (design/alts/07-format.md) are both
+// additive, optional, absent when empty (same convention `magic` uses):
+// readers ignore them if they don't understand them (adoption.md §7).
 export interface Payload {
   keys: Key[];
   magic?: MagicIntent;
+  alts?: Alt[];
+  combos?: Combo[];
 }
 
 export interface Row {
@@ -457,6 +494,162 @@ function validateGeometry(p: Payload): ErrBody | null {
   return null;
 }
 
+// design/alts/07-format.md: one `when`/`except` pattern. `text` is 1-3 code
+// points with `key` at code-point index `at` (so the pattern reaches at
+// most 2 code points either side of the key -- the two rules are the same
+// constraint, stated twice in the design doc; both are checked here so a
+// future relaxation of one doesn't silently relax the other). `_` may
+// appear anywhere in `text` except at `at` itself (that position must be
+// the literal key character -- checked directly, so a `_` there is refused
+// by the same "does not have key at position" message a wrong literal
+// character would get).
+function validateAltPattern(pat: AltPattern, key: string, base: string): ErrBody | null {
+  const cps = [...pat.text];
+  if (cps.length < 1 || cps.length > 3) {
+    return { error: "invalid_payload", message: `alts[].when/except text must be 1-3 code points, got ${JSON.stringify(pat.text)}`, path: `${base}/text` };
+  }
+  if (!Number.isInteger(pat.at) || pat.at < 0 || pat.at > cps.length - 1) {
+    return { error: "invalid_payload", message: `alts[].when/except 'at' (${pat.at}) is out of range for text ${JSON.stringify(pat.text)}`, path: `${base}/at` };
+  }
+  if (cps[pat.at] !== key) {
+    return { error: "invalid_payload", message: `alts[].when/except text ${JSON.stringify(pat.text)} does not have key ${JSON.stringify(key)} at position ${pat.at}`, path: `${base}/at` };
+  }
+  const leftReach = pat.at;
+  const rightReach = cps.length - 1 - pat.at;
+  if (leftReach > 2 || rightReach > 2) {
+    return { error: "invalid_payload", message: `alts[].when/except text ${JSON.stringify(pat.text)} reaches more than 2 positions from the key`, path: `${base}/text` };
+  }
+  return null;
+}
+
+// Two `when` patterns "co-match" (design/alts/07-format.md) when, aligned on
+// their own key position (so relative offset 0 is the key in both), they
+// cover the exact same reach on both sides and every aligned position is
+// either equal or a wildcard on either side -- ambiguous for two alts on
+// the same key with different fingers, since both would fire on the same
+// typed context.
+function patternsCoMatch(a: AltPattern, b: AltPattern): boolean {
+  const ca = [...a.text];
+  const cb = [...b.text];
+  const leftA = a.at;
+  const rightA = ca.length - 1 - a.at;
+  const leftB = b.at;
+  const rightB = cb.length - 1 - b.at;
+  if (leftA !== leftB || rightA !== rightB) return false;
+  for (let off = -leftA; off <= rightA; off++) {
+    const ca_ = ca[a.at + off]!;
+    const cb_ = cb[b.at + off]!;
+    if (ca_ !== cb_ && ca_ !== "_" && cb_ !== "_") return false;
+  }
+  return true;
+}
+
+// design/alts/07-format.md: `alts[].key` resolves through `charMap` (first
+// occurrence, no uniqueness requirement -- unlike a magic/chiral key's own
+// char, an alt's key is a plain positional reference, not something magic
+// addresses by identity); `finger` must differ from that key's own finger
+// (the schema's enum already refuses a non-finger word); each `when`/
+// `except` pattern is checked by `validateAltPattern`; no duplicate pattern
+// text within one alt's own `when` union `except`; `when` is non-empty; two
+// alts on the SAME key with DIFFERENT fingers may not have co-matching
+// `when` patterns (`except` is never compared -- only `when` decides
+// whether an alt fires at all).
+function validateAlts(alts: Alt[] | undefined, keys: Record<string, Position>): ErrBody | null {
+  if (alts === undefined) return null;
+  const byKey = new Map<string, { finger: string; index: number }[]>();
+  for (let i = 0; i < alts.length; i++) {
+    const alt = alts[i]!;
+    const base = `/alts/${i}`;
+    if (!(alt.key in keys)) {
+      return { error: "invalid_payload", message: `alts[].key ${JSON.stringify(alt.key)} is not one of this layout's keys`, path: `${base}/key` };
+    }
+    if (alt.finger === keys[alt.key]!.finger) {
+      return {
+        error: "invalid_payload",
+        message: `alts[].finger ${JSON.stringify(alt.finger)} for key ${JSON.stringify(alt.key)} must differ from the key's own finger`,
+        path: `${base}/finger`,
+      };
+    }
+    if (alt.when.length === 0) {
+      return { error: "invalid_payload", message: `alts[].when must be non-empty (key ${JSON.stringify(alt.key)})`, path: `${base}/when` };
+    }
+
+    const seenPatterns = new Set<string>();
+    const whenList: AltPattern[] = [];
+    for (const [field, list] of [
+      ["when", alt.when],
+      ["except", alt.except ?? []],
+    ] as const) {
+      for (let j = 0; j < list.length; j++) {
+        const pat = list[j]!;
+        const patErr = validateAltPattern(pat, alt.key, `${base}/${field}/${j}`);
+        if (patErr) return patErr;
+        if (seenPatterns.has(pat.text)) {
+          return { error: "invalid_payload", message: `duplicate alts[].when/except text ${JSON.stringify(pat.text)} for key ${JSON.stringify(alt.key)}`, path: `${base}/${field}/${j}` };
+        }
+        seenPatterns.add(pat.text);
+        if (field === "when") whenList.push(pat);
+      }
+    }
+
+    const priorForKey = byKey.get(alt.key) ?? [];
+    for (const prior of priorForKey) {
+      if (prior.finger === alt.finger) continue;
+      const priorAlt = alts[prior.index]!;
+      for (const priorWhen of priorAlt.when) {
+        for (const thisWhen of whenList) {
+          if (patternsCoMatch(priorWhen, thisWhen)) {
+            return {
+              error: "invalid_payload",
+              message: `alts[].key ${JSON.stringify(alt.key)} has two fingerings (${JSON.stringify(prior.finger)}, ${JSON.stringify(alt.finger)}) whose 'when' patterns co-match -- ambiguous which finger applies`,
+              path: `${base}/when`,
+            };
+          }
+        }
+      }
+    }
+    byKey.set(alt.key, [...priorForKey, { finger: alt.finger, index: i }]);
+  }
+  return null;
+}
+
+// design/alts/07-format.md: `combos[].keys` is exactly two DISTINCT layout
+// chars (charMap, no uniqueness requirement -- same as an alt's `key`); no
+// duplicate unordered `keys` pair across the whole array; `output` is 1-2
+// code points; no duplicate `output` across the whole array. Output chars
+// need not be keys (nothing checks them against `keys` at all).
+function validateCombos(combos: Combo[] | undefined, keys: Record<string, Position>): ErrBody | null {
+  if (combos === undefined) return null;
+  const seenPairs = new Set<string>();
+  const seenOutputs = new Set<string>();
+  for (let i = 0; i < combos.length; i++) {
+    const combo = combos[i]!;
+    const base = `/combos/${i}`;
+    const [a, b] = combo.keys;
+    if (!isSingleChar(a)) return { error: "invalid_payload", message: `combos[].keys must each be a single character, got ${JSON.stringify(a)}`, path: `${base}/keys/0` };
+    if (!isSingleChar(b)) return { error: "invalid_payload", message: `combos[].keys must each be a single character, got ${JSON.stringify(b)}`, path: `${base}/keys/1` };
+    if (a === b) return { error: "invalid_payload", message: `combos[].keys must name two distinct characters, got ${JSON.stringify(a)} twice`, path: `${base}/keys` };
+    if (!(a in keys)) return { error: "invalid_payload", message: `combos[].keys ${JSON.stringify(a)} is not one of this layout's keys`, path: `${base}/keys/0` };
+    if (!(b in keys)) return { error: "invalid_payload", message: `combos[].keys ${JSON.stringify(b)} is not one of this layout's keys`, path: `${base}/keys/1` };
+
+    const pairKey = [a, b].sort().join("\u0000");
+    if (seenPairs.has(pairKey)) {
+      return { error: "invalid_payload", message: `combos entries collide on the same pair of keys (${JSON.stringify(a)}, ${JSON.stringify(b)})`, path: `${base}/keys` };
+    }
+    seenPairs.add(pairKey);
+
+    const outCps = [...combo.output];
+    if (outCps.length < 1 || outCps.length > 2) {
+      return { error: "invalid_payload", message: `combos[].output must be 1-2 code points, got ${JSON.stringify(combo.output)}`, path: `${base}/output` };
+    }
+    if (seenOutputs.has(combo.output)) {
+      return { error: "invalid_payload", message: `duplicate combos[].output ${JSON.stringify(combo.output)}`, path: `${base}/output` };
+    }
+    seenOutputs.add(combo.output);
+  }
+  return null;
+}
+
 // validate: schema -> the ported validateRuleSet rules + 01 §2.1's additions
 // (positions, magic referencing real keys, `except` single code
 // points) -> the lower()/collision check (07 §5). Never throws. 21-formats
@@ -512,6 +705,12 @@ export function validate(p: unknown): ValidationResult {
   const magicErr = validateMagicSemantics(payload.magic, keys);
   if (magicErr) return { ok: false, error: { error: magicErr.code ?? "invalid_payload", message: magicErr.message, path: magicErr.path } };
 
+  const altsErr = validateAlts(payload.alts, keys);
+  if (altsErr) return { ok: false, error: altsErr };
+
+  const combosErr = validateCombos(payload.combos, keys);
+  if (combosErr) return { ok: false, error: combosErr };
+
   const rows = computeRows(payload.magic, keys);
   const collision = findCollision(rows);
   if (collision) {
@@ -541,6 +740,17 @@ export function compileMagic(p: Payload): Row[] {
 
 export function hasMagic(p: Payload): boolean {
   return compileMagic(p).length > 0;
+}
+
+// design/alts/07-format.md: envelope flags beside `has_magic` (optional on
+// `FormatModule` -- registry.ts's own comment; mana2/1 doesn't implement
+// either, it has no `alts`/`combos` of its own to report).
+export function hasAlts(p: Payload): boolean {
+  return (p.alts?.length ?? 0) > 0;
+}
+
+export function hasCombos(p: Payload): boolean {
+  return (p.combos?.length ?? 0) > 0;
 }
 
 // spark/1 -> mana2/1 never holds (12 §2.5's held cases are all in the

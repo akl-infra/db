@@ -3652,6 +3652,129 @@
                 }
               }
             },
+            "alt": {
+              "type": "object",
+              "fields": {
+                "additionalProperties": {
+                  "type": "boolean"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "properties": {
+                  "type": "object",
+                  "fields": {
+                    "except": {
+                      "type": "object",
+                      "fields": {
+                        "items": {
+                          "type": "object",
+                          "fields": {
+                            "$ref": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "type": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "finger": {
+                      "type": "object",
+                      "fields": {
+                        "enum": {
+                          "type": "array",
+                          "item": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "key": {
+                      "type": "object",
+                      "fields": {
+                        "type": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "when": {
+                      "type": "object",
+                      "fields": {
+                        "items": {
+                          "type": "object",
+                          "fields": {
+                            "$ref": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "type": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                },
+                "required": {
+                  "type": "array",
+                  "item": {
+                    "type": "string"
+                  }
+                },
+                "type": {
+                  "type": "string"
+                }
+              }
+            },
+            "altPattern": {
+              "type": "object",
+              "fields": {
+                "additionalProperties": {
+                  "type": "boolean"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "properties": {
+                  "type": "object",
+                  "fields": {
+                    "at": {
+                      "type": "object",
+                      "fields": {
+                        "minimum": {
+                          "type": "number"
+                        },
+                        "type": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "text": {
+                      "type": "object",
+                      "fields": {
+                        "minLength": {
+                          "type": "number"
+                        },
+                        "type": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                },
+                "required": {
+                  "type": "array",
+                  "item": {
+                    "type": "string"
+                  }
+                },
+                "type": {
+                  "type": "string"
+                }
+              }
+            },
             "chiralKey": {
               "type": "object",
               "fields": {
@@ -3737,6 +3860,64 @@
                   "type": "string"
                 },
                 "description": {
+                  "type": "string"
+                }
+              }
+            },
+            "combo": {
+              "type": "object",
+              "fields": {
+                "additionalProperties": {
+                  "type": "boolean"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "properties": {
+                  "type": "object",
+                  "fields": {
+                    "keys": {
+                      "type": "object",
+                      "fields": {
+                        "items": {
+                          "type": "object",
+                          "fields": {
+                            "type": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "maxItems": {
+                          "type": "number"
+                        },
+                        "minItems": {
+                          "type": "number"
+                        },
+                        "type": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "output": {
+                      "type": "object",
+                      "fields": {
+                        "minLength": {
+                          "type": "number"
+                        },
+                        "type": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                },
+                "required": {
+                  "type": "array",
+                  "item": {
+                    "type": "string"
+                  }
+                },
+                "type": {
                   "type": "string"
                 }
               }
@@ -4122,6 +4303,38 @@
         "properties": {
           "type": "object",
           "fields": {
+            "alts": {
+              "type": "object",
+              "fields": {
+                "items": {
+                  "type": "object",
+                  "fields": {
+                    "$ref": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "type": {
+                  "type": "string"
+                }
+              }
+            },
+            "combos": {
+              "type": "object",
+              "fields": {
+                "items": {
+                  "type": "object",
+                  "fields": {
+                    "$ref": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "type": {
+                  "type": "string"
+                }
+              }
+            },
             "keys": {
               "type": "object",
               "fields": {
