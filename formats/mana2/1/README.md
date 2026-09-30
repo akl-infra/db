@@ -56,7 +56,7 @@ exact function/line each claim comes from.
 | `board` (any shape: row- or column-staggered, any amounts, `mirrorLeftRowStagger`, `splitAngle`) | -- (dropped: `spark/1` has no board field, `design/layout-db/26-no-board.md`; the lowering back always emits the ANSI row stagger `[0,0.25,0.75]`, `translate.ts`'s `DEFAULT_ROW_STAGGER`) | no -- a documented loss, never held (the old "entries past the 3rd must equal the 3rd" hold went with the field) |
 | `magic.rules` (duplicate `inputs` -> last wins, mana2's own load-time semantics) | `magic.rules[] = {inputs,output,type:"raw"}`, same order, no lift (untyped rows are never lifted without the author, `01-format.md` §3) | no (dedup happens first) |
 | non-empty `combos` | -- | **held**: "combos have no akl/1 idiom" |
-| `mirrorLeftRowStagger`/`splitAngle`/`magicKeys`/`layers` | carried into `x.mana2` (below), NEVER held -- this format's own override of `12 §2.5`'s table, approved because the hatch preserves them exactly | no |
+| `magicKeys`/`layers` | -- (dropped, like `board` above: the `x.mana2` hatch that used to carry them is gone, see below) | no -- a documented loss, never held |
 
 ## The old `x.mana2` escape hatch is gone
 
@@ -149,7 +149,7 @@ case a 75-file corpus of REAL layouts happens not to exercise:
 `900-held-combos`, `903-held-sixthumbs`, `906-held-taphold`,
 `907-held-directional`, `908-held-stagger-mismatch` (all held, each for
 its own reason); `901-splitangle-hatch`/`902-mirror-hatch` (non-default
-`splitAngle`/`mirrorLeftRowStagger`, `x.mana2` round trip, NOT held);
+`splitAngle`/`mirrorLeftRowStagger`: dropped with the board, NOT held);
 `904-dup-rules` (duplicate `inputs`, last wins); `905-colstag-zeros` (an
 all-zero colstag derives to ortho, same as an all-zero rowstag).
 
@@ -228,12 +228,14 @@ sides before comparing, never silently.
 ## What it still can't express
 
 Layers and combos ride opaque (`layers`/`combos` are read/written
-verbatim, in `x.mana2`/schema respectively, but never interpreted --
+verbatim within `mana2/1`, but never interpreted, and `layers` is
+dropped on the way to `spark/1` --
 mana2's own docs call both "todo"); per-key timing; alternate fingerings.
 `combos` chars are checked against the layout's own resolved keys
 (`0.4`'s "every char must be a key"); non-empty `combos` is always
-**held** for `akl/1` (no override -- unlike the four `x.mana2` fields,
-combos genuinely change what a translated record would need to express).
+**held** for `akl/1` (unlike `board`/`magicKeys`/`layers`, which are
+dropped, combos genuinely change what a translated record would need to
+express).
 
 ## Owner
 
