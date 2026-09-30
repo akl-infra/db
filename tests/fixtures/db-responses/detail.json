@@ -20,6 +20,8 @@
     "created_at": "2024-11-24T23:55:55Z",
     "modified_at": "2024-11-24T23:55:55Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -53,6 +55,8 @@
     "created_at": "2024-11-24T23:55:55Z",
     "modified_at": "2024-11-24T23:55:55Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -86,6 +90,8 @@
     "created_at": "2026-08-31T12:45:28Z",
     "modified_at": "2026-08-31T12:45:28Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -306,6 +312,8 @@
     "created_at": "2026-09-07T11:41:29Z",
     "modified_at": "2026-09-07T11:41:29Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -532,6 +540,8 @@
     "created_at": "2026-08-24T01:01:10Z",
     "modified_at": "2026-08-24T01:01:10Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -764,6 +774,8 @@
     "created_at": "2026-08-31T13:33:00Z",
     "modified_at": "2026-08-31T13:33:00Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -984,6 +996,8 @@
     "created_at": "2026-08-31T13:33:00Z",
     "modified_at": "2026-08-31T13:33:00Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -1204,6 +1218,8 @@
     "created_at": "2026-08-31T12:45:28Z",
     "modified_at": "2026-08-31T12:45:28Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -1424,6 +1440,8 @@
     "created_at": "2026-08-31T12:45:28Z",
     "modified_at": "2026-08-31T12:45:28Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -1646,6 +1664,8 @@
     "created_at": "2026-08-31T19:42:13Z",
     "modified_at": "2026-08-31T19:42:13Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -1868,6 +1888,8 @@
     "created_at": "2026-08-31T12:45:28Z",
     "modified_at": "2026-08-31T12:45:28Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -2086,6 +2108,8 @@
     "created_at": "2026-09-03T21:12:51Z",
     "modified_at": "2026-09-03T21:12:51Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -2306,6 +2330,8 @@
     "created_at": "2026-08-31T13:02:25Z",
     "modified_at": "2026-08-31T13:02:25Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -2526,6 +2552,8 @@
     "created_at": "2026-09-03T21:16:57Z",
     "modified_at": "2026-09-03T21:16:57Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -2746,6 +2774,8 @@
     "created_at": "2026-09-06T11:12:46Z",
     "modified_at": "2026-09-06T11:12:46Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -2938,6 +2968,8 @@
     "created_at": "2026-08-31T23:08:42Z",
     "modified_at": "2026-08-31T23:08:42Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -3158,6 +3190,8 @@
     "created_at": "2026-09-03T00:25:08Z",
     "modified_at": "2026-09-03T00:25:08Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -3395,6 +3429,8 @@
     "created_at": "2026-08-28T17:18:26Z",
     "modified_at": "2026-08-28T17:18:26Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -3500,6 +3536,8 @@
     "created_at": "2026-09-05T23:49:11Z",
     "modified_at": "2026-09-05T23:49:11Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -3720,6 +3758,8 @@
     "created_at": "2026-09-07T15:22:37Z",
     "modified_at": "2026-09-07T15:22:37Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -3949,6 +3989,8 @@
     "created_at": "2026-09-09T00:43:52Z",
     "modified_at": "2026-09-09T00:43:52Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -4163,6 +4205,8 @@
     "created_at": "2026-08-31T13:04:38Z",
     "modified_at": "2026-08-31T13:04:38Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -4383,6 +4427,8 @@
     "created_at": "2026-08-31T13:23:32Z",
     "modified_at": "2026-08-31T13:23:32Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -4603,6 +4649,8 @@
     "created_at": "2026-08-31T16:05:27Z",
     "modified_at": "2026-08-31T16:05:27Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -4823,6 +4871,8 @@
     "created_at": "2026-08-31T16:47:20Z",
     "modified_at": "2026-08-31T16:47:20Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -5043,6 +5093,8 @@
     "created_at": "2026-08-31T19:03:22Z",
     "modified_at": "2026-08-31T19:03:22Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -5263,6 +5315,8 @@
     "created_at": "2026-09-01T15:55:37Z",
     "modified_at": "2026-09-01T15:55:37Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -5483,6 +5537,8 @@
     "created_at": "2026-09-05T21:45:47Z",
     "modified_at": "2026-09-05T21:45:47Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -5709,6 +5765,8 @@
     "created_at": "2026-09-08T17:50:52Z",
     "modified_at": "2026-09-08T17:50:52Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -5935,6 +5993,8 @@
     "created_at": "2026-09-08T18:10:59Z",
     "modified_at": "2026-09-08T18:10:59Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -6155,6 +6215,8 @@
     "created_at": "2026-09-07T22:35:17Z",
     "modified_at": "2026-09-07T22:35:17Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -6369,6 +6431,8 @@
     "created_at": "2026-09-08T17:51:05Z",
     "modified_at": "2026-09-08T17:51:05Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -6585,6 +6649,8 @@
     "created_at": "2026-09-07T18:59:07Z",
     "modified_at": "2026-09-07T18:59:07Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -6799,6 +6865,8 @@
     "created_at": "2026-09-09T01:04:13Z",
     "modified_at": "2026-09-09T01:04:13Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -7019,6 +7087,8 @@
     "created_at": "2026-09-05T03:28:40Z",
     "modified_at": "2026-09-05T03:28:40Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -7239,6 +7309,8 @@
     "created_at": "2026-09-06T19:44:48Z",
     "modified_at": "2026-09-06T19:44:48Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -7453,6 +7525,8 @@
     "created_at": "2026-09-06T19:51:27Z",
     "modified_at": "2026-09-06T19:51:27Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -7667,6 +7741,8 @@
     "created_at": "2026-09-06T20:24:31Z",
     "modified_at": "2026-09-06T20:24:31Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -7881,6 +7957,8 @@
     "created_at": "2026-09-03T00:25:05Z",
     "modified_at": "2026-09-03T00:25:05Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -8192,6 +8270,8 @@
     "created_at": "2026-09-07T09:56:58Z",
     "modified_at": "2026-09-07T09:56:58Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -8412,6 +8492,8 @@
     "created_at": "2024-05-12T00:00:02Z",
     "modified_at": "2024-05-12T00:00:02Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -8644,6 +8726,8 @@
     "created_at": "2026-09-04T02:55:12Z",
     "modified_at": "2026-09-04T02:55:12Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -8872,6 +8956,8 @@
     "created_at": "2026-09-03T00:25:27Z",
     "modified_at": "2026-09-03T00:25:27Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -9169,6 +9255,8 @@
     "created_at": "2022-12-07T23:24:35Z",
     "modified_at": "2022-12-07T23:24:35Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -9399,6 +9487,8 @@
     "created_at": "2026-09-03T02:39:08Z",
     "modified_at": "2026-09-03T02:39:08Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -9625,6 +9715,8 @@
     "created_at": "2026-08-31T12:55:52Z",
     "modified_at": "2026-08-31T12:55:52Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -9845,6 +9937,8 @@
     "created_at": "2026-09-08T19:07:01Z",
     "modified_at": "2026-09-08T19:07:01Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -10071,6 +10165,8 @@
     "created_at": "2026-09-09T00:51:30Z",
     "modified_at": "2026-09-09T00:51:30Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -10291,6 +10387,8 @@
     "created_at": "2026-09-08T16:15:22Z",
     "modified_at": "2026-09-08T16:15:22Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -10511,6 +10609,8 @@
     "created_at": "2026-09-08T16:11:19Z",
     "modified_at": "2026-09-08T16:11:19Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -10731,6 +10831,8 @@
     "created_at": "2026-09-07T05:25:46Z",
     "modified_at": "2026-09-07T05:25:46Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -10963,6 +11065,8 @@
     "created_at": "2026-09-05T21:25:43Z",
     "modified_at": "2026-09-05T21:25:43Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -11195,6 +11299,8 @@
     "created_at": "2026-09-05T15:25:32Z",
     "modified_at": "2026-09-05T15:25:32Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -11418,6 +11524,8 @@
     "created_at": "2026-09-07T05:57:26Z",
     "modified_at": "2026-09-07T05:57:26Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -11650,6 +11758,8 @@
     "created_at": "2026-09-05T21:54:30Z",
     "modified_at": "2026-09-05T21:54:30Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -11870,6 +11980,8 @@
     "created_at": "2026-09-05T06:09:05Z",
     "modified_at": "2026-09-05T06:09:05Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -12090,6 +12202,8 @@
     "created_at": "2026-09-03T05:04:25Z",
     "modified_at": "2026-09-03T05:04:25Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -12322,6 +12436,8 @@
     "created_at": "2026-09-07T22:23:45Z",
     "modified_at": "2026-09-07T22:23:45Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -12548,6 +12664,8 @@
     "created_at": "2026-09-07T11:45:19Z",
     "modified_at": "2026-09-07T11:45:19Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -12777,6 +12895,8 @@
     "created_at": "2026-09-07T07:57:12Z",
     "modified_at": "2026-09-07T07:57:12Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -12997,6 +13117,8 @@
     "created_at": "2026-09-07T05:51:13Z",
     "modified_at": "2026-09-07T05:51:13Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -13231,6 +13353,8 @@
     "created_at": "2026-09-08T06:14:44Z",
     "modified_at": "2026-09-08T06:14:44Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -13457,6 +13581,8 @@
     "created_at": "2026-08-29T13:58:14Z",
     "modified_at": "2026-08-29T13:58:14Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -13671,6 +13797,8 @@
     "created_at": "2026-09-04T21:12:03Z",
     "modified_at": "2026-09-04T21:12:03Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -13885,6 +14013,8 @@
     "created_at": "2026-09-08T19:25:06Z",
     "modified_at": "2026-09-08T19:25:06Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -14102,6 +14232,8 @@
     "created_at": "2026-09-08T06:14:35Z",
     "modified_at": "2026-09-08T06:14:35Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -14334,6 +14466,8 @@
     "created_at": "2026-09-06T22:12:46Z",
     "modified_at": "2026-09-06T22:12:46Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -14560,6 +14694,8 @@
     "created_at": "2026-08-31T12:45:29Z",
     "modified_at": "2026-08-31T12:45:29Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -14780,6 +14916,8 @@
     "created_at": "2026-08-31T12:45:29Z",
     "modified_at": "2026-08-31T12:45:29Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -15000,6 +15138,8 @@
     "created_at": "2026-08-31T12:45:29Z",
     "modified_at": "2026-08-31T12:45:29Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -15220,6 +15360,8 @@
     "created_at": "2026-08-31T12:45:29Z",
     "modified_at": "2026-08-31T12:45:29Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -15440,6 +15582,8 @@
     "created_at": "2026-09-02T17:20:55Z",
     "modified_at": "2026-09-02T17:20:55Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -15677,6 +15821,8 @@
     "created_at": "2026-09-06T00:19:11Z",
     "modified_at": "2026-09-06T00:19:11Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -15897,6 +16043,8 @@
     "created_at": "2026-09-01T10:46:08Z",
     "modified_at": "2026-09-01T10:46:08Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -16117,6 +16265,8 @@
     "created_at": "2026-09-03T08:56:36Z",
     "modified_at": "2026-09-03T08:56:36Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -16337,6 +16487,8 @@
     "created_at": "2026-09-07T21:37:36Z",
     "modified_at": "2026-09-07T21:37:36Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -16551,6 +16703,8 @@
     "created_at": "2026-09-07T21:36:59Z",
     "modified_at": "2026-09-07T21:36:59Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -16771,6 +16925,8 @@
     "created_at": "2026-08-31T17:14:02Z",
     "modified_at": "2026-08-31T17:14:02Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -16985,6 +17141,8 @@
     "created_at": "2026-09-07T12:02:10Z",
     "modified_at": "2026-09-07T12:02:10Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -17157,6 +17315,8 @@
     "created_at": "2026-09-05T08:32:31Z",
     "modified_at": "2026-09-05T08:32:31Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -17359,6 +17519,8 @@
     "created_at": "2026-09-05T08:31:56Z",
     "modified_at": "2026-09-05T08:31:56Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -17543,6 +17705,8 @@
     "created_at": "2026-02-27T00:00:03Z",
     "modified_at": "2026-02-27T00:00:03Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -17747,6 +17911,8 @@
     "created_at": "2026-09-09T00:30:21Z",
     "modified_at": "2026-09-09T00:30:21Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -17981,6 +18147,8 @@
     "created_at": "2026-09-09T01:11:51Z",
     "modified_at": "2026-09-09T01:11:51Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -18201,6 +18369,8 @@
     "created_at": "2026-09-09T00:20:41Z",
     "modified_at": "2026-09-09T00:20:41Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -18436,6 +18606,8 @@
     "created_at": "2026-09-08T17:34:58Z",
     "modified_at": "2026-09-08T17:34:58Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -18656,6 +18828,8 @@
     "created_at": "2026-09-05T11:50:52Z",
     "modified_at": "2026-09-05T11:50:52Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -18888,6 +19062,8 @@
     "created_at": "2026-09-08T19:01:34Z",
     "modified_at": "2026-09-08T19:01:34Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -19114,6 +19290,8 @@
     "created_at": "2026-09-09T01:03:25Z",
     "modified_at": "2026-09-09T01:03:25Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -19334,6 +19512,8 @@
     "created_at": "2026-09-03T04:59:17Z",
     "modified_at": "2026-09-03T04:59:17Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -19560,6 +19740,8 @@
     "created_at": "2026-09-03T20:21:56Z",
     "modified_at": "2026-09-03T20:21:56Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -19800,6 +19982,8 @@
     "created_at": "2026-08-30T10:00:15Z",
     "modified_at": "2026-08-30T10:00:15Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -20020,6 +20204,8 @@
     "created_at": "2026-09-08T15:59:52Z",
     "modified_at": "2026-09-08T15:59:52Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -20240,6 +20426,8 @@
     "created_at": "2026-09-09T01:13:31Z",
     "modified_at": "2026-09-09T01:13:31Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -20460,6 +20648,8 @@
     "created_at": "2026-08-31T19:42:06Z",
     "modified_at": "2026-08-31T19:42:06Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -20686,6 +20876,8 @@
     "created_at": "2026-08-31T15:14:24Z",
     "modified_at": "2026-08-31T15:14:24Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -20926,6 +21118,8 @@
     "created_at": "2026-09-02T02:11:47Z",
     "modified_at": "2026-09-02T02:11:47Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -21146,6 +21340,8 @@
     "created_at": "2026-08-31T12:45:29Z",
     "modified_at": "2026-08-31T12:45:29Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -21380,6 +21576,8 @@
     "created_at": "2026-09-07T16:34:15Z",
     "modified_at": "2026-09-07T16:34:15Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -21611,6 +21809,8 @@
     "created_at": "2026-09-05T07:43:12Z",
     "modified_at": "2026-09-05T07:43:12Z",
     "has_magic": false,
+    "has_alts": false,
+    "has_combos": false,
     "source": {
      "client": "system:cmini-import",
      "version": null

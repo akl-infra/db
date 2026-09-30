@@ -66,6 +66,15 @@ function parseHasMagic(raw: string | undefined): boolean | undefined {
   return undefined;
 }
 
+// design/alts/07-format.md: `?has_alts=`/`?has_combos=`, mirroring
+// `?has_magic=` exactly.
+function parseHasAlts(raw: string | undefined): boolean | undefined {
+  return parseHasMagic(raw);
+}
+function parseHasCombos(raw: string | undefined): boolean | undefined {
+  return parseHasMagic(raw);
+}
+
 const LIKED_BY_RE = /^\d{17,20}$/;
 function parseLikedBy(raw: string | undefined): string | undefined {
   if (raw === undefined) return undefined;
@@ -107,6 +116,8 @@ layoutsRoute.get("/v1/layouts", async (c) => {
 
   const owner = c.req.query("owner");
   const hasMagic = parseHasMagic(c.req.query("has_magic"));
+  const hasAlts = parseHasAlts(c.req.query("has_alts"));
+  const hasCombos = parseHasCombos(c.req.query("has_combos"));
   const since = parseSince(c.req.query("since"));
   const likedBy = parseLikedBy(c.req.query("liked_by"));
   const sort = parseSort(c.req.query("sort"));
@@ -115,7 +126,7 @@ layoutsRoute.get("/v1/layouts", async (c) => {
   const sourceLineage = resolveSourceLineage(format);
 
   const seq = await headSeq(db);
-  const query = { format, owner, hasMagic, since, likedBy, sort, limit, cursor };
+  const query = { format, owner, hasMagic, hasAlts, hasCombos, since, likedBy, sort, limit, cursor };
   const etag = await etagFor(seq, query);
   const short = await conditional(c, etag, CACHE_CONTROL);
   if (short) return short;
@@ -139,7 +150,7 @@ layoutsRoute.get("/v1/layouts", async (c) => {
   // major of an already-chained lineage or an output format (mana2/1)
   // still fetches and translates for real, exactly as before.
   const withPayload = !(format === latestId(sourceLineage) && latestOf(sourceLineage) === 1);
-  const page = await listRecords(db, { sourceLineage, owner, hasMagic, since, likedBy, sort, limit, cursor, withPayload });
+  const page = await listRecords(db, { sourceLineage, owner, hasMagic, hasAlts, hasCombos, since, likedBy, sort, limit, cursor, withPayload });
   // Coordinator review (H1): `formats` must list EVERY stored format the
   // layout has, not just the one lineage `list()`'s own JOIN filtered on
   // -- one batched query for the whole page, not one per row.

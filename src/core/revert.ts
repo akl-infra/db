@@ -236,6 +236,11 @@ async function revertFormatScope(db: Bindings["DB"], now: Clock, adminActorId: s
       format: prevRevRow.format,
       payload: targetPayload,
       hasMagic: module.hasMagic(targetPayload),
+      // design/alts/07-format.md: recomputed from the RESTORED payload,
+      // same as hasMagic above -- a revert never carries over the
+      // overwritten row's own flags.
+      hasAlts: module.hasAlts?.(targetPayload) ?? false,
+      hasCombos: module.hasCombos?.(targetPayload) ?? false,
       detail: { revert_of_seq: row.seq, admin: adminActorId, reverted_client: sourceClient, restored_rev: before.rev },
     },
     modified_at: now(),

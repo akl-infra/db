@@ -62,6 +62,12 @@ export interface FormatRow {
   modified_at: string;
   payload: unknown;
   has_magic: boolean;
+  // design/alts/07-format.md: beside `has_magic`, same convention (a
+  // stored, per-write-recomputed summary of the payload's own content --
+  // never trusted from a client, always `module.hasAlts?.(payload) ??
+  // false` / `hasCombos`).
+  has_alts: boolean;
+  has_combos: boolean;
   source: Source | null;
 }
 
@@ -109,6 +115,8 @@ export interface FormatDbRow {
   modified_at: string;
   payload_json: string;
   has_magic: number;
+  has_alts: number;
+  has_combos: number;
   source_client: string | null;
   source_version: string | null;
 }
@@ -156,6 +164,8 @@ export function rowToFormat(row: FormatDbRow): FormatRow {
     modified_at: row.modified_at,
     payload: JSON.parse(row.payload_json) as unknown,
     has_magic: row.has_magic !== 0,
+    has_alts: row.has_alts !== 0,
+    has_combos: row.has_combos !== 0,
     source: sourceFromRow(row),
   };
 }
@@ -236,6 +246,8 @@ interface JoinedRow extends LayoutDbRow {
   f_modified_at: string | null;
   f_payload_json: string | null;
   f_has_magic: number | null;
+  f_has_alts: number | null;
+  f_has_combos: number | null;
   f_source_client: string | null;
   f_source_version: string | null;
 }
@@ -244,7 +256,8 @@ const JOIN_SELECT = `
   SELECT l.*,
     f.layout_id AS f_layout_id, f.lineage AS f_lineage, f.format AS f_format, f.rev AS f_rev,
     f.created_at AS f_created_at, f.modified_at AS f_modified_at, f.payload_json AS f_payload_json,
-    f.has_magic AS f_has_magic, f.source_client AS f_source_client, f.source_version AS f_source_version
+    f.has_magic AS f_has_magic, f.has_alts AS f_has_alts, f.has_combos AS f_has_combos,
+    f.source_client AS f_source_client, f.source_version AS f_source_version
   FROM layouts l LEFT JOIN layout_formats f ON f.layout_id = l.id
 `;
 
@@ -259,6 +272,8 @@ function joinedToFormat(row: JoinedRow): FormatRow | null {
     modified_at: row.f_modified_at ?? row.modified_at,
     payload_json: row.f_payload_json,
     has_magic: row.f_has_magic ?? 0,
+    has_alts: row.f_has_alts ?? 0,
+    has_combos: row.f_has_combos ?? 0,
     source_client: row.f_source_client,
     source_version: row.f_source_version,
   });
@@ -318,6 +333,10 @@ export interface ListParams {
   sourceLineage: string;
   owner?: string;
   hasMagic?: boolean;
+  // design/alts/07-format.md: `?has_alts=`/`?has_combos=`, mirroring
+  // `?has_magic=` exactly (same column family, same filter shape).
+  hasAlts?: boolean;
+  hasCombos?: boolean;
   since?: string; // max(layouts.modified_at, format.modified_at) > since
   likedBy?: string;
   sort: SortKey;
@@ -377,6 +396,8 @@ interface ListJoinedRow extends LayoutDbRow {
   f_modified_at: string;
   f_payload_json: string;
   f_has_magic: number;
+  f_has_alts: number;
+  f_has_combos: number;
   f_source_client: string | null;
   f_source_version: string | null;
   sort_value: string | number;
@@ -400,6 +421,14 @@ export async function list(db: Bindings["DB"], params: ListParams): Promise<List
     where.push("f.has_magic = ?");
     args.push(params.hasMagic ? 1 : 0);
   }
+  if (params.hasAlts !== undefined) {
+    where.push("f.has_alts = ?");
+    args.push(params.hasAlts ? 1 : 0);
+  }
+  if (params.hasCombos !== undefined) {
+    where.push("f.has_combos = ?");
+    args.push(params.hasCombos ? 1 : 0);
+  }
   if (params.since !== undefined) {
     where.push(`${sortExpr("modified_at")} > ?`);
     args.push(params.since);
@@ -417,7 +446,8 @@ export async function list(db: Bindings["DB"], params: ListParams): Promise<List
   const withPayload = params.withPayload !== false;
   const sql = `
     SELECT l.*, f.rev AS f_rev, f.format AS f_format, f.created_at AS f_created_at, f.modified_at AS f_modified_at,
-      ${withPayload ? "f.payload_json AS f_payload_json," : ""} f.has_magic AS f_has_magic, f.source_client AS f_source_client, f.source_version AS f_source_version,
+      ${withPayload ? "f.payload_json AS f_payload_json," : ""} f.has_magic AS f_has_magic, f.has_alts AS f_has_alts, f.has_combos AS f_has_combos,
+      f.source_client AS f_source_client, f.source_version AS f_source_version,
       ${sortColExpr} AS sort_value
     FROM layouts l JOIN layout_formats f ON f.layout_id = l.id
     WHERE ${where.join(" AND ")}
@@ -442,6 +472,8 @@ export async function list(db: Bindings["DB"], params: ListParams): Promise<List
           modified_at: row.f_modified_at,
           payload_json: row.f_payload_json,
           has_magic: row.f_has_magic,
+          has_alts: row.f_has_alts,
+          has_combos: row.f_has_combos,
           source_client: row.f_source_client,
           source_version: row.f_source_version,
         })
@@ -454,6 +486,8 @@ export async function list(db: Bindings["DB"], params: ListParams): Promise<List
           modified_at: row.f_modified_at,
           payload: undefined,
           has_magic: row.f_has_magic !== 0,
+          has_alts: row.f_has_alts !== 0,
+          has_combos: row.f_has_combos !== 0,
           source: sourceFromRow({ source_client: row.f_source_client, source_version: row.f_source_version }),
         },
   }));
@@ -496,6 +530,8 @@ export function formatSummaryToWire(f: FormatRow): Record<string, unknown> {
     created_at: f.created_at,
     modified_at: f.modified_at,
     has_magic: f.has_magic,
+    has_alts: f.has_alts,
+    has_combos: f.has_combos,
     source: f.source,
   };
 }

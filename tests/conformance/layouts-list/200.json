@@ -27,6 +27,8 @@
               "rev": 1,
               "created_at": "2026-08-31T12:45:28Z",
               "modified_at": "2026-08-31T12:45:28Z",
+              "has_alts": false,
+              "has_combos": false,
               "has_magic": false,
               "source": {
                 "client": "system:cmini-import",
@@ -56,6 +58,8 @@
               "rev": 1,
               "created_at": "2026-08-31T12:45:28Z",
               "modified_at": "2026-08-31T12:45:28Z",
+              "has_alts": false,
+              "has_combos": false,
               "has_magic": false,
               "source": {
                 "client": "system:cmini-import",

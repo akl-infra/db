@@ -41,7 +41,7 @@
 // retired M1 strip pass used).
 import type { Bindings } from "../env";
 import type { Key } from "../../formats/spark/1/geometry";
-import { hasMagic, type Payload } from "../../formats/spark/1/index";
+import { hasMagic, hasAlts, hasCombos, type Payload } from "../../formats/spark/1/index";
 import { commitWrite, type CommitInput } from "./events";
 import { decodeCursor, list, type ListCursor } from "./records";
 import { readByIdWithFormats } from "./records";
@@ -144,6 +144,12 @@ export async function relabelMagicThumbs(db: Bindings["DB"], now: Clock, dryRun:
           format: sparkRow.format,
           payload: newPayload,
           hasMagic: hasMagic(newPayload),
+          // design/alts/07-format.md: this pass only ever touches `keys`'
+          // fingers -- `alts`/`combos` are untouched, but recomputed fresh
+          // from the payload anyway (never carried over from the stale
+          // row), same posture `hasMagic` above already has.
+          hasAlts: hasAlts(newPayload),
+          hasCombos: hasCombos(newPayload),
           detail: { reason: "magic_thumb_relabeled", relabeled },
         },
         modified_at: now(),

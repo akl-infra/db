@@ -124,6 +124,15 @@ export interface FormatSnapshot {
   created_at: string;
   modified_at: string;
   has_magic: boolean;
+  // design/alts/07-format.md: beside `has_magic`, folded the same way --
+  // OPTIONAL here (unlike `has_magic`, which existed since layout_formats'
+  // own inception): a historical event's `after_json` predating this field
+  // simply never had the key at all, so a replay must tolerate its
+  // absence -- `foldLayout` below is the one place that defaults it
+  // (`?? false`), same as `rowToLayout`'s own `?? null`/`?? "following"`
+  // fallbacks for other retrofitted columns.
+  has_alts?: boolean;
+  has_combos?: boolean;
   source: Source | null;
   upstream?: Upstream | null;
 }
@@ -157,6 +166,14 @@ export interface FormatPart {
   format: string; // full id, e.g. 'spark/1'
   payload: unknown;
   hasMagic: boolean;
+  // design/alts/07-format.md: beside `hasMagic`, same convention (computed
+  // by the caller from the payload actually being written -- never
+  // trusted from a client). Optional, defaulting to `false` (unlike
+  // `hasMagic`, required from day one) so the many direct `commitWrite`
+  // callers across tests/ that predate this field don't all need touching
+  // -- none of their payloads carry `alts`/`combos` anyway.
+  hasAlts?: boolean;
+  hasCombos?: boolean;
   detail?: object;
 }
 
@@ -222,6 +239,8 @@ function formatSnapshot(f: {
   created_at: string;
   modified_at: string;
   has_magic: boolean;
+  has_alts: boolean;
+  has_combos: boolean;
   source: Source | null;
   upstream?: Upstream | null;
 }): FormatSnapshot {
@@ -302,6 +321,8 @@ export async function commitWrite(db: Bindings["DB"], now: Clock, input: CommitI
           created_at: finalFormatCreatedAt,
           modified_at: input.modified_at,
           has_magic: input.format.hasMagic,
+          has_alts: input.format.hasAlts ?? false,
+          has_combos: input.format.hasCombos ?? false,
           source: input.source,
           ...(formatTouchesUpstream ? { upstream: input.upstream } : {}),
         });
@@ -402,11 +423,11 @@ export async function commitWrite(db: Bindings["DB"], now: Clock, input: CommitI
     stmts.push(
       db
         .prepare(
-          `INSERT INTO layout_formats (layout_id, lineage, format, rev, created_at, modified_at, payload_json, has_magic, source_client, source_version)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `INSERT INTO layout_formats (layout_id, lineage, format, rev, created_at, modified_at, payload_json, has_magic, has_alts, has_combos, source_client, source_version)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(layout_id, lineage) DO UPDATE SET
              format = excluded.format, rev = excluded.rev, created_at = excluded.created_at, modified_at = excluded.modified_at,
-             payload_json = excluded.payload_json, has_magic = excluded.has_magic,
+             payload_json = excluded.payload_json, has_magic = excluded.has_magic, has_alts = excluded.has_alts, has_combos = excluded.has_combos,
              source_client = excluded.source_client, source_version = excluded.source_version`,
         )
         .bind(
@@ -418,6 +439,8 @@ export async function commitWrite(db: Bindings["DB"], now: Clock, input: CommitI
           input.modified_at,
           canonical(input.format.payload),
           input.format.hasMagic ? 1 : 0,
+          input.format.hasAlts ? 1 : 0,
+          input.format.hasCombos ? 1 : 0,
           input.source.client,
           input.source.version,
         ),
@@ -491,6 +514,8 @@ export async function commitWrite(db: Bindings["DB"], now: Clock, input: CommitI
       modified_at: input.modified_at,
       payload: input.format.payload,
       has_magic: input.format.hasMagic,
+      has_alts: input.format.hasAlts ?? false,
+      has_combos: input.format.hasCombos ?? false,
       source: input.source,
     });
   }
@@ -1022,7 +1047,11 @@ export function foldLayout(events: Event[], revs: Map<string, { format: string |
     const rev = revs.get(revKey(lin, snap.rev));
     if (rev === undefined) throw new Error(`foldLayout: no layout_revs entry for lineage '${lin}' rev ${snap.rev}`);
     const { scope: _s2, upstream: _u, ...rest } = snap;
-    formatRows.set(lin, { ...rest, payload: rev.payload });
+    // design/alts/07-format.md: a historical event's `after_json` predating
+    // has_alts/has_combos simply lacks the keys -- default false, same
+    // fallback the stored-column read path (`rowToFormat`) never needs
+    // (its column is backfilled) but a pure event replay does.
+    formatRows.set(lin, { ...rest, has_alts: rest.has_alts ?? false, has_combos: rest.has_combos ?? false, payload: rev.payload });
   }
   return {
     layout: { ...layoutRow, like_count: Math.max(0, likeCount), link },

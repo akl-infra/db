@@ -186,7 +186,7 @@ async function staleFromExhaustedRetry(db: Bindings["DB"], lastInput: CommitInpu
 // resolves but its `role` is `"output"` -> `400 format_not_writable`;
 // `cmini/1` and anything unregistered don't resolve at all -> `400
 // unknown_format`.
-export function validatePayload(format: string, payload: unknown): { module: FormatModule; hasMagic: boolean } {
+export function validatePayload(format: string, payload: unknown): { module: FormatModule; hasMagic: boolean; hasAlts: boolean; hasCombos: boolean } {
   const resolved = resolveFormat(format);
   if (resolved === undefined) {
     throw unknownFormat(
@@ -199,16 +199,23 @@ export function validatePayload(format: string, payload: unknown): { module: For
   }
   const result = resolved.module.validate(payload);
   if (!result.ok) throw new ApiError(400, result.error);
-  return { module: resolved.module, hasMagic: resolved.module.hasMagic(payload) };
+  return {
+    module: resolved.module,
+    hasMagic: resolved.module.hasMagic(payload),
+    // design/alts/07-format.md: optional on FormatModule (only spark/1
+    // implements them) -- `?? false` for any other stored format.
+    hasAlts: resolved.module.hasAlts?.(payload) ?? false,
+    hasCombos: resolved.module.hasCombos?.(payload) ?? false,
+  };
 }
 
 // 20-spark.md S5 (LDB-P13): a format is stored at its lineage's LATEST
 // major always -- a write naming an older major is chained up here before
 // the commit. `up` never holds (LDB-F18), so this never itself throws.
-function chainToLatest(module: FormatModule, payload: unknown): { format: string; payload: unknown; hasMagic: boolean; writtenAs?: string } {
+function chainToLatest(module: FormatModule, payload: unknown): { format: string; payload: unknown; hasMagic: boolean; hasAlts: boolean; hasCombos: boolean; writtenAs?: string } {
   const latest = latestId(lineage(module.id));
   if (latest === undefined || latest === module.id) {
-    return { format: module.id, payload, hasMagic: module.hasMagic(payload) };
+    return { format: module.id, payload, hasMagic: module.hasMagic(payload), hasAlts: module.hasAlts?.(payload) ?? false, hasCombos: module.hasCombos?.(payload) ?? false };
   }
   const chained = walk(module.id, latest, payload);
   if (typeof chained === "object" && chained !== null && (chained as { held?: unknown }).held === true) {
@@ -218,7 +225,14 @@ function chainToLatest(module: FormatModule, payload: unknown): { format: string
   if (latestModule === undefined) throw internal();
   const validated = latestModule.validate(chained);
   if (!validated.ok) throw internal();
-  return { format: latest, payload: chained, hasMagic: latestModule.hasMagic(chained), writtenAs: module.id };
+  return {
+    format: latest,
+    payload: chained,
+    hasMagic: latestModule.hasMagic(chained),
+    hasAlts: latestModule.hasAlts?.(chained) ?? false,
+    hasCombos: latestModule.hasCombos?.(chained) ?? false,
+    writtenAs: module.id,
+  };
 }
 
 // `nameTaken()`'s own thrown body always carries the clashing `name`
@@ -308,6 +322,8 @@ export async function createLayout(env: Bindings, now: Clock, actor: Actor, body
       format: chained.format,
       payload: chained.payload,
       hasMagic: chained.hasMagic,
+      hasAlts: chained.hasAlts,
+      hasCombos: chained.hasCombos,
       ...(chained.writtenAs !== undefined ? { detail: { written_as: chained.writtenAs } } : {}),
     },
     modified_at,
@@ -429,6 +445,8 @@ export async function putFormat(
         format: chained.format,
         payload: chained.payload,
         hasMagic: chained.hasMagic,
+        hasAlts: chained.hasAlts,
+        hasCombos: chained.hasCombos,
         ...(chained.writtenAs !== undefined ? { detail: { written_as: chained.writtenAs } } : {}),
       },
       modified_at: now(),
@@ -568,7 +586,7 @@ export async function patchFormat(
     if (edits.fingermap !== undefined) payload = runEdit(existing.format, "fingermap", module.edits?.setFingermap, payload, edits.fingermap);
     if (edits.magic !== undefined) payload = runEdit(existing.format, "magic", module.edits?.setMagic, payload, edits.magic);
 
-    const { hasMagic } = validatePayload(existing.format, payload);
+    const { hasMagic, hasAlts, hasCombos } = validatePayload(existing.format, payload);
     const kind = fields.length === 1 && fields[0] === "fingermap" ? "fingermap" : "updated";
     const touches = lin === "spark";
     const upstream = nextUpstream(lwf.layout.upstream, actor.via, touches);
@@ -590,6 +608,8 @@ export async function patchFormat(
         format: existing.format,
         payload,
         hasMagic,
+        hasAlts,
+        hasCombos,
         ...(kind === "updated" ? { detail: { fields } } : {}),
       },
       modified_at: now(),
@@ -656,14 +676,14 @@ export async function seedMagic(env: Bindings, now: Clock, ref: string, magic: u
     const module = getFormat(existing.format);
     if (module === undefined) throw unknownFormat(existing.format, listFormats().map((f) => f.id));
     const payload = runEdit(existing.format, "magic", module.edits?.setMagic, existing.payload, magic);
-    const { hasMagic } = validatePayload(existing.format, payload);
+    const { hasMagic, hasAlts, hasCombos } = validatePayload(existing.format, payload);
     return {
       layoutId: lwf.layout.id,
       creating: false,
       currentN: lwf.layout.n,
       currentLayout: lwf.layout,
       currentFormats: lwf.formats,
-      format: { kind: "updated", lineage: lin, format: existing.format, payload, hasMagic, detail: { fields: ["magic"], seed: "aklgg" } },
+      format: { kind: "updated", lineage: lin, format: existing.format, payload, hasMagic, hasAlts, hasCombos, detail: { fields: ["magic"], seed: "aklgg" } },
       modified_at: now(),
       actor: "system:magic-seed",
       via: "seed:aklgg",

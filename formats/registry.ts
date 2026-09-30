@@ -105,6 +105,12 @@ export interface FormatModule {
   to: Record<string, (p: Payload) => Payload | Held>;
   from: Record<string, (p: Payload) => Payload>;
   hasMagic(p: Payload): boolean;
+  // design/alts/07-format.md (round 4, slice D): optional, unlike
+  // `hasMagic` -- only spark/1 has `alts`/`combos` of its own to report;
+  // mana2/1 (output-only, never stored) implements neither. A caller reads
+  // these as `module.hasAlts?.(payload) ?? false`.
+  hasAlts?(p: Payload): boolean;
+  hasCombos?(p: Payload): boolean;
   edits?: FormatEdits;
   // 20-spark.md S5 (19 §4.1's directory contract, LDB-F18): the ONLY two
   // within-lineage converters a major ever ships. `up_N: <L>/<N-1> ->

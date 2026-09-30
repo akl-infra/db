@@ -138,8 +138,12 @@ export function restoreSql(dump: Dump): string[] {
   statements.push(
     ...chunkedInserts(
       "INSERT INTO layout_formats",
-      ["layout_id", "lineage", "format", "rev", "created_at", "modified_at", "payload_json", "has_magic", "source_client", "source_version"],
-      dump.layout_formats.map((r) => ({ ...r })),
+      ["layout_id", "lineage", "format", "rev", "created_at", "modified_at", "payload_json", "has_magic", "has_alts", "has_combos", "source_client", "source_version"],
+      // design/alts/07-format.md: `has_alts`/`has_combos` round-trip; a dump
+      // written before migrations/0020 has neither column, and restores as
+      // 0 (the column's own default) -- same fallback pattern
+      // `upstream_name`/`notified_at` above use.
+      dump.layout_formats.map((r) => ({ ...r, has_alts: r.has_alts ?? 0, has_combos: r.has_combos ?? 0 })),
     ),
   );
 

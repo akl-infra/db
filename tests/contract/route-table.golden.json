@@ -4424,6 +4424,12 @@
                 "created_at": {
                   "type": "string"
                 },
+                "has_alts": {
+                  "type": "boolean"
+                },
+                "has_combos": {
+                  "type": "boolean"
+                },
                 "has_magic": {
                   "type": "boolean"
                 },
@@ -5536,6 +5542,12 @@
                       "created_at": {
                         "type": "string"
                       },
+                      "has_alts": {
+                        "type": "boolean"
+                      },
+                      "has_combos": {
+                        "type": "boolean"
+                      },
                       "has_magic": {
                         "type": "boolean"
                       },
@@ -5815,6 +5827,12 @@
               "fields": {
                 "created_at": {
                   "type": "string"
+                },
+                "has_alts": {
+                  "type": "boolean"
+                },
+                "has_combos": {
+                  "type": "boolean"
                 },
                 "has_magic": {
                   "type": "boolean"
@@ -6130,6 +6148,12 @@
                     "created_at": {
                       "type": "string"
                     },
+                    "has_alts": {
+                      "type": "boolean"
+                    },
+                    "has_combos": {
+                      "type": "boolean"
+                    },
                     "has_magic": {
                       "type": "boolean"
                     },
@@ -6264,6 +6288,12 @@
                 "created_at": {
                   "type": "string"
                 },
+                "has_alts": {
+                  "type": "boolean"
+                },
+                "has_combos": {
+                  "type": "boolean"
+                },
                 "has_magic": {
                   "type": "boolean"
                 },
@@ -6364,6 +6394,12 @@
                 "created_at": {
                   "type": "string"
                 },
+                "has_alts": {
+                  "type": "boolean"
+                },
+                "has_combos": {
+                  "type": "boolean"
+                },
                 "has_magic": {
                   "type": "boolean"
                 },
@@ -6441,6 +6477,12 @@
               "fields": {
                 "created_at": {
                   "type": "string"
+                },
+                "has_alts": {
+                  "type": "boolean"
+                },
+                "has_combos": {
+                  "type": "boolean"
                 },
                 "has_magic": {
                   "type": "boolean"
@@ -6864,6 +6906,12 @@
                     "created_at": {
                       "type": "string"
                     },
+                    "has_alts": {
+                      "type": "boolean"
+                    },
+                    "has_combos": {
+                      "type": "boolean"
+                    },
                     "has_magic": {
                       "type": "boolean"
                     },
@@ -6997,6 +7045,12 @@
               "fields": {
                 "created_at": {
                   "type": "string"
+                },
+                "has_alts": {
+                  "type": "boolean"
+                },
+                "has_combos": {
+                  "type": "boolean"
                 },
                 "has_magic": {
                   "type": "boolean"
@@ -7350,6 +7404,12 @@
               "fields": {
                 "created_at": {
                   "type": "string"
+                },
+                "has_alts": {
+                  "type": "boolean"
+                },
+                "has_combos": {
+                  "type": "boolean"
                 },
                 "has_magic": {
                   "type": "boolean"
@@ -7725,6 +7785,12 @@
                     "created_at": {
                       "type": "string"
                     },
+                    "has_alts": {
+                      "type": "boolean"
+                    },
+                    "has_combos": {
+                      "type": "boolean"
+                    },
                     "has_magic": {
                       "type": "boolean"
                     },
@@ -7902,6 +7968,12 @@
               "fields": {
                 "created_at": {
                   "type": "string"
+                },
+                "has_alts": {
+                  "type": "boolean"
+                },
+                "has_combos": {
+                  "type": "boolean"
                 },
                 "has_magic": {
                   "type": "boolean"
@@ -8246,6 +8318,12 @@
               "fields": {
                 "created_at": {
                   "type": "string"
+                },
+                "has_alts": {
+                  "type": "boolean"
+                },
+                "has_combos": {
+                  "type": "boolean"
                 },
                 "has_magic": {
                   "type": "boolean"
