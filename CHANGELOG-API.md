@@ -36,13 +36,16 @@ convention `magic`'s own sub-arrays use. `formats["spark/1"]` gains
 (including the ETag query); `PATCH /v1/layouts/{ref}` gains edit verbs
 `alts`/`combos` (whole-array replacement, same shape as `magic`).
 `?format=mana2/1` reads: `fromSpark` emits mana2's own `combos:
-[{inputs: [a, b], output}]` from a spark two-key combo (never for `alts`,
-which has no mana2 idiom); `toSpark` (mana2 -> spark import direction)
-lifts a mana2 combo whose `inputs` is exactly two single-character layout
-keys, held otherwise. The cmini adapter no longer drops `combos` on
-import. No existing field, route or stored payload changes meaning, and
-`migrations/0020_alts_combos.sql` only adds columns (backfilled to a
-no-op for every row stored before this slice).
+[{inputs: [a + b], output}]` from a spark two-key combo -- the two keys
+concatenated into one two-rune chord string, mana2's own `inputs` being an
+array of alternative chords, never one array element per key (never for
+`alts`, which has no mana2 idiom); `toSpark` (mana2 -> spark import
+direction) lifts a mana2 combo whose `inputs` is exactly one string of
+exactly two layout keys, held otherwise (more than one alternative chord,
+or a chord naming other than two keys). The cmini adapter no longer drops
+`combos` on import. No existing field, route or stored payload changes
+meaning, and `migrations/0020_alts_combos.sql` only adds columns
+(backfilled to a no-op for every row stored before this slice).
 
 ## 1.18 — 2026-09-29
 

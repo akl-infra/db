@@ -314,15 +314,17 @@ export function toSpark(p: Mana2Payload): SparkPayload | Held {
     else keys.push({ char: cell.char, row: thumbRow, col, finger: "RT" });
   });
 
-  // design/alts/07-format.md (round 4, slice D): a mana2 combo whose
-  // `inputs` is exactly two SINGLE-character, first-occurrence keys of
-  // THIS layout lifts to spark/1's own `{keys: [a, b], output}` -- mana2's
-  // own `checkCombos` already guarantees every char within every
-  // `inputs[j]` is one of this layout's resolved keys (`0.4`), so the only
-  // ways this can fail are structural (not exactly two members, or a
-  // member that isn't itself a single character) -- held, never dropped
-  // silently, same posture the pre-existing hold used to have for every
-  // combo.
+  // design/alts/07-format.md (round 4, slice D), corrected against
+  // vendor/mana2/core/load_layout.go's `addCombos`: each STRING in
+  // `combo.inputs` is one CHORD -- every rune in that one string is
+  // pressed together -- and several strings are ALTERNATIVE chords that
+  // all produce the same `output` (never several keys pressed one after
+  // another, and never several unrelated single-key chords). A mana2
+  // combo lifts to spark/1's own `{keys: [a, b], output}` iff it has
+  // EXACTLY ONE input string of EXACTLY two code points, both
+  // first-occurrence keys of this layout -- anything else (more than one
+  // alternative-chord string, or a chord naming any count other than two
+  // keys) has no spark/1 idiom at all and is held, never dropped silently.
   const layoutChars = new Set<string>();
   for (const k of keys) if (k.char !== undefined) layoutChars.add(k.char);
 
@@ -330,9 +332,10 @@ export function toSpark(p: Mana2Payload): SparkPayload | Held {
   if (p.combos && p.combos.length > 0) {
     const lifted: SparkCombo[] = [];
     for (const combo of p.combos) {
-      if (combo.inputs.length !== 2) return { held: true, reason: "combos with more than two keys have no spark/1 idiom" };
-      const [a, b] = combo.inputs;
-      if ([...a!].length !== 1 || [...b!].length !== 1) return { held: true, reason: "a multi-character combo member has no spark/1 idiom" };
+      if (combo.inputs.length !== 1) return { held: true, reason: "combos with more than one alternative chord have no spark/1 idiom" };
+      const chord = [...combo.inputs[0]!];
+      if (chord.length !== 2) return { held: true, reason: "a chord with other than two keys has no spark/1 idiom" };
+      const [a, b] = chord;
       if (!layoutChars.has(a!) || !layoutChars.has(b!)) return { held: true, reason: "combo references a key not on this layout" };
       lifted.push({ keys: [a!, b!], output: combo.output });
     }
@@ -548,11 +551,17 @@ export function fromSpark(p: SparkPayload): Mana2Payload {
     layers: null,
   };
   if (leftTokens.length > 0 || rightTokens.length > 0) out.layout.thumbs = [leftTokens.join(" "), rightTokens.join(" ")];
-  // design/alts/07-format.md: emitted only when non-empty, so every
+  // design/alts/07-format.md, corrected against vendor/mana2/core/
+  // load_layout.go's `addCombos`: mana2's `inputs` is an array of
+  // ALTERNATIVE CHORD strings (each string's runes pressed together), not
+  // one element per key -- a spark two-key combo is ONE chord, so it lowers
+  // to a ONE-ELEMENT `inputs` array holding the two keys CONCATENATED into
+  // a single string (`[a + b]`), never `[a, b]` (which would mean two
+  // separate one-key chords). Emitted only when non-empty, so every
   // combo-free fixture's golden stays byte-identical -- `alts` has no
   // mana2 idiom at all and is a documented loss (never emitted here).
   if (p.combos && p.combos.length > 0) {
-    out.combos = p.combos.map((c) => ({ inputs: [c.keys[0], c.keys[1]], output: c.output }));
+    out.combos = p.combos.map((c) => ({ inputs: [c.keys[0] + c.keys[1]], output: c.output }));
   }
   return out;
 }

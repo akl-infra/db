@@ -1,4 +1,4 @@
 {
   "held": true,
-  "reason": "combos with more than two keys have no spark/1 idiom"
+  "reason": "a chord with other than two keys has no spark/1 idiom"
 }

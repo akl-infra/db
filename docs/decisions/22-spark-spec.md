@@ -440,16 +440,24 @@ side, the rows it produced are not.
 
 *`db/docs/adoption.md` §7 "Lowering to `mana2/1`".*
 
-**`combos` lowers verbatim; `alts` has no mana2 idiom at all and is a
-documented, permanent, ONE-DIRECTIONAL loss** (design/alts/07-format.md,
-2026-09-30): a spark `combos[].{keys: [a, b], output}` entry becomes
-mana2's own `combos[].{inputs: [a, b], output}`, emitted only when
-non-empty (a combo-free fixture's golden stays byte-identical); `alts` is
-simply never read by `fromSpark` at all, so a layout's alternate
-fingerings never reach a `?format=mana2/1` reader. This keeps `fromSpark`
-total and never-held (LDB-F17 unaffected): a two-key combo always lowers,
-and dropping `alts` silently is the same posture the duplicate-character
-skip cell and the whole mana2 `board` object already have above.
+**`combos` lowers to a single-chord `inputs` array; `alts` has no mana2
+idiom at all and is a documented, permanent, ONE-DIRECTIONAL loss**
+(design/alts/07-format.md, 2026-09-30, corrected against
+`vendor/mana2/core/load_layout.go`'s `addCombos`): mana2's own
+`combos[].inputs` is an array of ALTERNATIVE CHORD strings -- every rune
+within ONE string is pressed together, and several strings are
+alternative ways to produce the same `output` -- never one array element
+per key. A spark `combos[].{keys: [a, b], output}` entry therefore becomes
+mana2's own `combos[].{inputs: [a + b], output}` (the two keys
+CONCATENATED into one two-rune string, a ONE-element array), never
+`{inputs: [a, b]}` (which would mean two unrelated single-key chords),
+emitted only when non-empty (a combo-free fixture's golden stays
+byte-identical); `alts` is simply never read by `fromSpark` at all, so a
+layout's alternate fingerings never reach a `?format=mana2/1` reader. This
+keeps `fromSpark` total and never-held (LDB-F17 unaffected): a two-key
+combo always lowers, and dropping `alts` silently is the same posture the
+duplicate-character skip cell and the whole mana2 `board` object already
+have above.
 
 *`db/formats/mana2/1/translate.ts`'s `fromSpark`/`toSpark`. LDB-F47.*
 

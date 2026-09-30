@@ -23,9 +23,7 @@
   "combos": [
     {
       "inputs": [
-        "a",
-        "b",
-        "c"
+        "abc"
       ],
       "output": "abc"
     }

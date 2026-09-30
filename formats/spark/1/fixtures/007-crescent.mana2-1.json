@@ -29,232 +29,199 @@
   "combos": [
     {
       "inputs": [
-        "c",
-        "r"
+        "cr"
       ],
       "output": "w"
     },
     {
       "inputs": [
-        "c",
-        "s"
+        "cs"
       ],
       "output": "f"
     },
     {
       "inputs": [
-        "c",
-        "t"
+        "ct"
       ],
       "output": "g"
     },
     {
       "inputs": [
-        "c",
-        "n"
+        "cn"
       ],
       "output": "q"
     },
     {
       "inputs": [
-        "c",
-        "a"
+        "ca"
       ],
       "output": "'"
     },
     {
       "inputs": [
-        "c",
-        "e"
+        "ce"
       ],
       "output": "#"
     },
     {
       "inputs": [
-        "c",
-        "u"
+        "cu"
       ],
       "output": "y"
     },
     {
       "inputs": [
-        "c",
-        "i"
+        "ci"
       ],
       "output": "p"
     },
     {
       "inputs": [
-        "r",
-        "s"
+        "rs"
       ],
       "output": "x"
     },
     {
       "inputs": [
-        "r",
-        "t"
+        "rt"
       ],
       "output": "j"
     },
     {
       "inputs": [
-        "r",
-        "n"
+        "rn"
       ],
       "output": "l"
     },
     {
       "inputs": [
-        "r",
-        "a"
+        "ra"
       ],
       "output": "!"
     },
     {
       "inputs": [
-        "r",
-        "e"
+        "re"
       ],
       "output": "@"
     },
     {
       "inputs": [
-        "r",
-        "u"
+        "ru"
       ],
       "output": "_"
     },
     {
       "inputs": [
-        "r",
-        "i"
+        "ri"
       ],
       "output": ","
     },
     {
       "inputs": [
-        "s",
-        "t"
+        "st"
       ],
       "output": "d"
     },
     {
       "inputs": [
-        "s",
-        "n"
+        "sn"
       ],
       "output": "z"
     },
     {
       "inputs": [
-        "s",
-        "a"
+        "sa"
       ],
       "output": "`"
     },
     {
       "inputs": [
-        "s",
-        "u"
+        "su"
       ],
       "output": "v"
     },
     {
       "inputs": [
-        "s",
-        "i"
+        "si"
       ],
       "output": "b"
     },
     {
       "inputs": [
-        "t",
-        "n"
+        "tn"
       ],
       "output": "m"
     },
     {
       "inputs": [
-        "t",
-        "u"
+        "tu"
       ],
       "output": "k"
     },
     {
       "inputs": [
-        "t",
-        "i"
+        "ti"
       ],
       "output": "/"
     },
     {
       "inputs": [
-        "n",
-        "a"
+        "na"
       ],
       "output": "("
     },
     {
       "inputs": [
-        "n",
-        "e"
+        "ne"
       ],
       "output": ")"
     },
     {
       "inputs": [
-        "n",
-        "u"
+        "nu"
       ],
       "output": "h"
     },
     {
       "inputs": [
-        "n",
-        "i"
+        "ni"
       ],
       "output": "?"
     },
     {
       "inputs": [
-        "a",
-        "e"
+        "ae"
       ],
       "output": "o"
     },
     {
       "inputs": [
-        "a",
-        "u"
+        "au"
       ],
       "output": "-"
     },
     {
       "inputs": [
-        "a",
-        "i"
+        "ai"
       ],
       "output": "."
     },
     {
       "inputs": [
-        "e",
-        "u"
+        "eu"
       ],
       "output": "\""
     },
     {
       "inputs": [
-        "e",
-        "i"
+        "ei"
       ],
       "output": ":"
     },
     {
       "inputs": [
-        "u",
-        "i"
+        "ui"
       ],
       "output": ";"
     }

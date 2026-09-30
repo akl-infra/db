@@ -265,14 +265,25 @@ describe("payload mutations", () => {
             // match `magic.rules[].inputs` (schema-required, minLength 2,
             // correctly refused) if added to ALLOWED by that name --
             // matched on the full leaf pointer instead so only the combos
-            // path is affected. "every char must be a key" is vacuous
-            // over a shrunk/emptied trigger string, so both mutations
-            // still validate.
+            // path is affected. `inputs[j]` is one ALTERNATIVE CHORD string
+            // (vendor/mana2/core/load_layout.go's `addCombos`, corrected
+            // 2026-09-30): "empty string" blanks that one chord to a
+            // no-op -- "every char must be a key" is vacuous over an empty
+            // string, so it always still validates, however many
+            // alternatives remain. "delete" REMOVES an alternative
+            // entirely, which only still validates against the schema's
+            // `inputs` `minItems: 1` when at least one alternative is left
+            // over -- refused, correctly, when it was the only one (900/909
+            // both have exactly one).
+            const comboInputsLength = (() => {
+              if (!(format.id === "mana2/1" && kind === "inputs" && leaf.pointer.startsWith("/combos/"))) return undefined;
+              const m = /^\/combos\/(\d+)\/inputs\/\d+$/.exec(leaf.pointer);
+              if (!m) return undefined;
+              return (fixture.payload as { combos?: { inputs: string[] }[] }).combos?.[Number(m[1])]?.inputs.length;
+            })();
             const isCombosInputsElement =
-              format.id === "mana2/1" &&
-              kind === "inputs" &&
-              leaf.pointer.startsWith("/combos/") &&
-              (mutation === "delete" || mutation === "empty string"); // "wrong type" still correctly refused (schema requires a string)
+              comboInputsLength !== undefined &&
+              (mutation === "empty string" || (mutation === "delete" && comboInputsLength > 1)); // "wrong type" still correctly refused (schema requires a string)
             // `900-combo-2key`/`909-held-combo3`'s combos reference the same
             // row `fingers:empty string` would otherwise be free to blank
             // out (both a general mana2/1 allowance AND this fixture's own

@@ -254,12 +254,17 @@ describe("algorithm rows (12-implementation-phase5.md §2.5, exact)", () => {
     ["903-held-sixthumbs", "more than five keys on one thumb"],
     ["906-held-taphold", "tap-hold token has no akl/1 idiom"],
     ["907-held-directional", "directional token has no akl/1 idiom"],
-    // [LDB-F47] design/alts/07-format.md: a TWO-key combo (900-combo-2key,
-    // covered below in the non-held goldens/round-trip describes instead)
-    // now lifts to spark/1's own `combos` field -- only a combo naming MORE
-    // than two keys (mana2's own schema allows any `inputs.length >= 1`)
-    // still has no spark/1 idiom.
-    ["909-held-combo3", "combos with more than two keys have no spark/1 idiom"],
+    // [LDB-F47] design/alts/07-format.md, corrected against vendor/mana2/
+    // core/load_layout.go's `addCombos`: `inputs` is an array of
+    // ALTERNATIVE CHORD strings (each string's runes pressed together
+    // simultaneously), not one element per key. A combo with exactly ONE
+    // input string of exactly two code points (900-combo-2key, covered
+    // below in the non-held goldens/round-trip describes instead) lifts to
+    // spark/1's own `combos` field -- a chord naming other than two keys
+    // (909) or more than one alternative-chord string (910) still has no
+    // spark/1 idiom.
+    ["909-held-combo3", "a chord with other than two keys has no spark/1 idiom"],
+    ["910-held-combo-alt", "combos with more than one alternative chord have no spark/1 idiom"],
   ];
   for (const [name, reason] of heldCases) {
     it(`[LDB-F47] ${name}: held -- ${reason}`, () => {
