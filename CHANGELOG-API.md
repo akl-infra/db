@@ -25,6 +25,25 @@ this file just gives them a public, versioned home. From here on, a
 `WIRE_VERSION` bump and a line here land in the SAME PR, never one without
 the other (`[LDB-V5]`).
 
+## 1.19 — 2026-09-30
+
+LDB-F44..F47, design/alts/07-format.md (round 4, slice D): `spark/1` gains
+two additive optional top-level fields, `alts` (per-context alternate
+fingerings) and `combos` (two-key chords), both absent when empty, same
+convention `magic`'s own sub-arrays use. `formats["spark/1"]` gains
+`has_alts`/`has_combos` beside `has_magic`; `GET /v1/layouts` gains
+`?has_alts=`/`?has_combos=` list filters mirroring `?has_magic=` exactly
+(including the ETag query); `PATCH /v1/layouts/{ref}` gains edit verbs
+`alts`/`combos` (whole-array replacement, same shape as `magic`).
+`?format=mana2/1` reads: `fromSpark` emits mana2's own `combos:
+[{inputs: [a, b], output}]` from a spark two-key combo (never for `alts`,
+which has no mana2 idiom); `toSpark` (mana2 -> spark import direction)
+lifts a mana2 combo whose `inputs` is exactly two single-character layout
+keys, held otherwise. The cmini adapter no longer drops `combos` on
+import. No existing field, route or stored payload changes meaning, and
+`migrations/0020_alts_combos.sql` only adds columns (backfilled to a
+no-op for every row stored before this slice).
+
 ## 1.18 — 2026-09-29
 
 LDB-F43: `#333` closed -- a space (`" "`, U+0020) is now accepted as an

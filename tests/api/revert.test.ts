@@ -194,6 +194,40 @@ describe("[LDB-A13] core/revert.ts: revertClientWrites", () => {
     expect(await eventCount()).toBe(countAfterFirst);
   });
 
+  it("[LDB-P27] design/alts/07-format.md: a reverted format replacement recomputes has_alts/has_combos from the RESTORED payload, never carrying over the overwritten row's own flags", async () => {
+    const owner = "900000000000000915";
+    const layoutId = await createLive(owner, uniqueName("revert-combos"));
+    const before = await readFormat(db, layoutId, "spark");
+    expect(before?.has_combos).toBe(false);
+
+    const combosPayload = { keys: [{ char: "a", row: 0, col: 0, finger: "LP" as const }, { char: "b", row: 0, col: 1, finger: "RP" as const }], combos: [{ keys: ["a", "b"] as [string, string], output: "x" }] };
+    const current = await readById(db, layoutId);
+    const formats = await formatsForLayout(db, layoutId);
+    const input: CommitInput = {
+      layoutId,
+      creating: false,
+      currentN: current!.n,
+      currentLayout: current,
+      currentFormats: formats,
+      format: { kind: "updated", lineage: "spark", format: "spark/1", payload: combosPayload, hasMagic: false, hasAlts: false, hasCombos: true },
+      modified_at: clock(),
+      actor: "900000000000000900",
+      via: "client:R-COMBOS-1",
+      source: { client: "client:R-COMBOS-1", version: null },
+      upstream: null,
+    };
+    await commitWrite(db, clock, input);
+    const replaced = await readFormat(db, layoutId, "spark");
+    expect(replaced?.has_combos).toBe(true);
+
+    const result = await revertClientWrites(db, clock, "admin-1", "R-COMBOS-1", SINCE, { dryRun: false });
+    expect(result.items[0]?.outcome).toBe("reverted");
+    const rolledBack = await readFormat(db, layoutId, "spark");
+    expect(rolledBack?.payload).toEqual(SPARK_PAYLOAD(0));
+    expect(rolledBack?.has_combos).toBe(false); // recomputed from the restored (combo-free) payload, not carried over
+    expect(rolledBack?.has_alts).toBe(false);
+  });
+
   it("[LDB-A13] a cleared link is restored to what it was before the clear", async () => {
     const owner = "900000000000000915";
     const layoutId = await createLive(owner, uniqueName("revert-link"));

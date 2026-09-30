@@ -388,7 +388,7 @@ interop contract.
 
 ```bash
 GET /v1/meta
-GET /v1/layouts?owner=&format=<REQUIRED>&has_magic=&since=<iso>&liked_by=&sort=&limit=&cursor=
+GET /v1/layouts?owner=&format=<REQUIRED>&has_magic=&has_alts=&has_combos=&since=<iso>&liked_by=&sort=&limit=&cursor=
 GET /v1/layouts?full=1&format=<REQUIRED>          # every live record, streamed
 GET /v1/layouts/{ref}?format=<REQUIRED>            # {ref} = id (ULID) or name, case-insensitive
 GET /v1/layouts/{ref}/likes
@@ -403,7 +403,7 @@ GET /v1/formats/{name}/{N}/schema.json
 **A layout can hold several formats at once** (`spark/1` today; a future
 `lw/1` for layouts.wiki, §7's own worked example). `formats` on every
 layout response lists every format it actually has stored — id, rev,
-timestamps, `has_magic`, `source` — but returns no `payload` there; to read
+timestamps, `has_magic`, `has_alts`, `has_combos`, `source` — but returns no `payload` there; to read
 a payload you name exactly which format with `?format=<format id>`. **This
 is required everywhere a payload is returned — there is no default**
 (`400 format_required` without one; `/history` is the one deliberate
@@ -412,9 +412,12 @@ are registered today:
 
 - **`spark/1`** — the one *stored* shape: cmini's ordered `keys` list and
   an authoring shape for magic rules that keeps intent
-  (`magic_keys`/`chiral_keys`/`adaptive_swaps`), not flattened rows. No
-  board word (decision `26-no-board.md`): which board a layout is
-  drawn or analysed on is the reader's own choice, never the record's.
+  (`magic_keys`/`chiral_keys`/`adaptive_swaps`), not flattened rows, plus
+  two additive optional fields, `alts` (per-context alternate fingerings)
+  and `combos` (two-key chords), both absent when empty
+  (design/alts/07-format.md). No board word (decision `26-no-board.md`):
+  which board a layout is drawn or analysed on is the reader's own choice,
+  never the record's.
 - **`mana2/1`** — an **output-only, derived** shape: a mana2 `.jsonc`
   layout object (`layout.fingers`/`thumbs` row strings, a `board` that is
   always the ANSI row stagger, flat `magic.rules[]`). Never stored — derived from whichever ONE stored
@@ -746,7 +749,8 @@ format_absent` if the layout doesn't have that lineage yet (use
 
 **`PATCH` is either `{name}` (layout scope) or `{format, …edits}` (that
 format's scope) — never both at once**, one event, one or more edits
-applied in the order `fingermap, magic`:
+applied in the order `fingermap, magic, alts, combos` (`alts`/`combos`
+replace the whole array, same as `magic`, design/alts/07-format.md):
 
 ```bash
 curl -sX PATCH …/v1/layouts/01ARZ3ND… -H 'If-Match: "spark:1"' <signed> \
@@ -758,8 +762,9 @@ A `{name}` body writes a `renamed` event (layout scope, `If-Match:
 "layout:<n>"`); a `{format, fingermap}` body a `fingermap` event; anything
 else naming `format` (including several edits at once) an `updated` event
 with `detail.fields` naming which keys changed. **Any mix of a rename with
-a format edit (`{name, fingermap}`, `{name, magic}`, with or without
-`format`) in one body is `400 mixed_patch`** — they're different scopes
+a format edit (`{name, fingermap}`, `{name, magic}`, `{name, alts}`,
+`{name, combos}`, with or without `format`) in one body is `400
+mixed_patch`** — they're different scopes
 with different `If-Match` tokens, so one request can never mean both (a
 `{name, format}` body with no edit key is just a rename, `format` ignored):
 
@@ -767,9 +772,9 @@ with different `If-Match` tokens, so one request can never mean both (a
 400 { "error": "mixed_patch", "message": "a PATCH may change the layout's name, or one format's payload, never both at once" }
 ```
 
-An edit key (`fingermap`/`magic`) with no `format` named is `400
-format_required`; a body with neither `name` nor any edit key at all is
-`400 bad_request`.
+An edit key (`fingermap`/`magic`/`alts`/`combos`) with no `format` named is
+`400 format_required`; a body with neither `name` nor any edit key at all
+is `400 bad_request`.
 
 **`format_behind`** (only matters once a format grows a second major, §8):
 a `PUT` naming an older major of that lineage's own is refused with `409
@@ -1122,7 +1127,7 @@ silently drift from what `src/index.ts` actually registers.
 | GET | `/v1/layouts/:ref/rev/:n` | none | — | 200 | `format_required`, `unknown_format`, `format_absent`, `bad_request`, `held`, `not_found` |
 | POST | `/v1/layouts` | user | `{name, format, payload}` | 201 | `bad_request`, `invalid_name`, `format_required`, `unknown_format`, `format_not_writable`, `invalid_payload`, `magic_collision`, `magic_needs_unique_key`, `name_taken`, lane errors |
 | PUT | `/v1/layouts/:ref` | user | `{format, payload}` + `If-Match` (replace) or `If-None-Match: *` (add) | 200 | `if_match_required`, `bad_request`, `format_required`, `unknown_format`, `format_not_writable`, `format_behind`, `format_absent`, `format_exists`, `invalid_payload`, `magic_collision`, `magic_needs_unique_key`, `not_owner`, `not_found`, `stale`, lane errors |
-| PATCH | `/v1/layouts/:ref` | user | `{name}` (layout scope) or `{format, fingermap?, magic?}` (that format's scope) + `If-Match` | 200 | `if_match_required`, `bad_request`, `mixed_patch`, `format_required`, `unknown_format`, `format_not_writable`, `format_absent`, `format_behind`, `invalid_name`, `invalid_payload`, `magic_collision`, `magic_needs_unique_key`, `unsupported_for_format`, `not_owner`, `not_found`, `name_taken`, `stale`, lane errors |
+| PATCH | `/v1/layouts/:ref` | user | `{name}` (layout scope) or `{format, fingermap?, magic?, alts?, combos?}` (that format's scope) + `If-Match` | 200 | `if_match_required`, `bad_request`, `mixed_patch`, `format_required`, `unknown_format`, `format_not_writable`, `format_absent`, `format_behind`, `invalid_name`, `invalid_payload`, `magic_collision`, `magic_needs_unique_key`, `unsupported_for_format`, `not_owner`, `not_found`, `name_taken`, `stale`, lane errors |
 | DELETE | `/v1/layouts/:ref` | user | — + `If-Match: "layout:<n>"` | 200 | `if_match_required`, `bad_request`, `not_owner`, `not_found`, `stale`, lane errors |
 | POST | `/v1/layouts/:ref/restore` | user | `{name?}` (optional) | 200 | `bad_request`, `invalid_name`, `not_owner`, `not_found`, `name_taken`, lane errors |
 | POST | `/v1/layouts/:ref/transfer` | user | `{to}` + `If-Match` | 200 | `if_match_required`, `bad_request`, `not_owner`, `not_found`, lane errors |

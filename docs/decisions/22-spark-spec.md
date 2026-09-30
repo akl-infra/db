@@ -326,6 +326,55 @@ and a bare character string, are refused by the schema.
 
 *Schema: `db/formats/spark/1/schema.json:70-79` (`magicDefault`, `chiralValue`, `oneOf` with `additionalProperties: false` per branch). Types and guards: `db/formats/spark/1/magic.ts:46-59` (`isRepeatTag`, `isCharTag`), `:61-93` (`MagicDefault`, `ChiralKey`).*
 
+## 5a. Alts
+
+design/alts/07-format.md (round 4, slice D, 2026-09-30, closing `#148`):
+`alts[]`, each `{key, finger, when, except?}`, is a per-context alternate
+fingering for one layout key -- `finger` fires instead of the key's own
+whenever the typed context matches a `when` pattern and no `except`
+pattern. `key` resolves through `charMap` (§3's first-occurrence rule),
+with no uniqueness requirement of its own: unlike a magic/chiral key's own
+char, an alt's key is a plain positional reference, not something magic
+addresses by identity. `finger` is one of §3's finger enum and must differ
+from that key's own finger (an alt fingering that repeats the default one
+is meaningless).
+
+A `when`/`except` entry is `{text, at}`: `text` is 1-3 code points with the
+key's own character at code-point index `at` (so the pattern reaches at
+most 2 code points either side of the key -- both bounds are checked;
+holding `text` to 1-3 code points is what actually binds the reach, since
+it is always the tighter of the two given `at` must be a valid index into
+`text`); `_` is a wildcard everywhere in `text` except at `at` itself,
+which must be the literal key character. No duplicate pattern `text`
+within one alt's own `when` union `except`. `when` must be non-empty --
+an alt with no trigger fires nowhere and is refused outright. Two alts on
+the SAME key with DIFFERENT fingers may not have `when` patterns that
+CO-MATCH: aligned on their own key position, equal reach on both sides,
+and every aligned position either equal or a wildcard on either side --
+such a pair would leave it ambiguous which finger applies to a typed
+context matching both, so it is refused rather than resolved by any
+priority rule (unlike magic's own phase order, 5.3). `except` is never
+compared for co-matching, only `when` (it decides whether an alt fires at
+all).
+
+`alts` is absent when empty, same convention `magic`'s own sub-arrays use.
+
+*Schema: `db/formats/spark/1/schema.json`'s `alt`/`altPattern` `$def`s (no `maxLength` on `text` -- code-point exactness is not expressible in JSON Schema, same reason `rawRule.output`/`magicKeyRule.after`/`emit` have none). Semantics: `db/formats/spark/1/index.ts`'s `validateAlts`/`validateAltPattern`/`patternsCoMatch`. LDB-F44.*
+
+## 5b. Combos
+
+A `combos[]` entry, `{keys: [a, b], output}`, is a two-key chord: pressing
+`a` and `b` together emits `output` instead of either key's own character.
+Both `keys` members are this layout's own chars (`charMap`, no uniqueness
+requirement, same as an alt's `key`) and must name two DISTINCT
+characters; no duplicate unordered `keys` pair across the whole array
+(`{a, b}` and `{b, a}` are the same pair). `output` is 1-2 code points; no
+duplicate `output` across the array. Output characters need not
+themselves be layout keys -- nothing checks them against `keys` at all.
+`combos` is absent when empty.
+
+*Schema: `db/formats/spark/1/schema.json`'s `combo` `$def` (no `maxLength` on `output`, same reasoning as `alts[].when/except.text`). Semantics: `db/formats/spark/1/index.ts`'s `validateCombos`. LDB-F44.*
+
 ## 6. Validation
 
 `validate(p)` never throws; it returns `{ok: true}` or `{ok: false,
@@ -341,18 +390,21 @@ error}`. Checks run in this order, each stopping at the first failure:
 | 6 | every magic-named character has at most one entry (§3) | `magic_needs_unique_key` | `/keys` |
 | 7 | a both-hands duplicate is excepted or ruled for every chiral key that would enumerate it (§3) | `magic_needs_unique_key` | `/keys` |
 | 8 | magic semantics (single-code-point fields, rule shapes -- `after`/`emit` non-empty, no duplicate `after`, no magic/chiral key sharing a character, reserved `rules[].type` words) | `invalid_payload` or `reserved_rule_type` | `/magic/...` |
+| 8a | `alts[]` semantics (§5a) -- key on the layout, finger differs from the key's own, pattern shape, no duplicate pattern, `when` non-empty, no co-matching `when`s between two fingerings of the same key | `invalid_payload` | `/alts/...` |
+| 8b | `combos[]` semantics (§5b) -- two distinct layout keys, no duplicate pair, output length, no duplicate output | `invalid_payload` | `/combos/...` |
 | 9 | the lowering has no collision (5.3) | `magic_collision` | the later side's `/magic/...` pointer |
 
-*`db/formats/spark/1/index.ts:321-378` (`validate`), in this exact order. Checks 6-9 read `payload.magic` only when present.*
+*`db/formats/spark/1/index.ts:321-378` (`validate`), in this exact order. Checks 6-9 read `payload.magic` only when present; 8a/8b read `payload.alts`/`payload.combos` only when present (design/alts/07-format.md, LDB-F44, added 2026-09-30 -- this table's numbering keeps checks 1-9's own numbers for the pre-existing rows rather than renumbering the whole sequence).*
 
 Check 1's reported error is the MOST SPECIFIC ajv error for the violation, never just the first one ajv happens to produce (LDB-F35).
 
-PATCH edits (`setFingermap`, `setMagic`,
+PATCH edits (`setFingermap`, `setMagic`, `setAlts`, `setCombos`,
 `db/formats/spark/1/edits.ts`) apply their own change and then rely on the
 pipeline re-running `validate()` on the result; they duplicate none of the
 above. `setFingermap` additionally refuses a named character that is not
 on the layout, or that has more than one entry (it cannot tell which one a
-bare `char -> finger` map means).
+bare `char -> finger` map means). `setAlts`/`setCombos` replace the whole
+array with the PATCH body's own value, same as `setMagic` (LDB-F46).
 
 *`db/formats/spark/1/edits.ts:28-41`; error `invalid_payload`, path `/keys` (LEDGER.md row S1).*
 
@@ -388,6 +440,19 @@ side, the rows it produced are not.
 
 *`db/docs/adoption.md` §7 "Lowering to `mana2/1`".*
 
+**`combos` lowers verbatim; `alts` has no mana2 idiom at all and is a
+documented, permanent, ONE-DIRECTIONAL loss** (design/alts/07-format.md,
+2026-09-30): a spark `combos[].{keys: [a, b], output}` entry becomes
+mana2's own `combos[].{inputs: [a, b], output}`, emitted only when
+non-empty (a combo-free fixture's golden stays byte-identical); `alts` is
+simply never read by `fromSpark` at all, so a layout's alternate
+fingerings never reach a `?format=mana2/1` reader. This keeps `fromSpark`
+total and never-held (LDB-F17 unaffected): a two-key combo always lowers,
+and dropping `alts` silently is the same posture the duplicate-character
+skip cell and the whole mana2 `board` object already have above.
+
+*`db/formats/mana2/1/translate.ts`'s `fromSpark`/`toSpark`. LDB-F47.*
+
 ## 8. Import from cmini
 
 `db/formats/adapters/cmini/translate.ts`'s `fromCmini` is the only
@@ -411,11 +476,16 @@ LT else RT`, is relabelled by that rule (the last time this ever runs); an
 *`db/formats/adapters/cmini/translate.ts:33-39`; LDB-F28.*
 
 `fromCmini` is exact on the `(char, row, col, finger)` multiset (mod the
-relabel above) and drops exactly four cmini-only fields it has no payload
-idiom for: `tag`, `blame`, `combos`, and `magic.rules[].note`. `link` is
-NOT dropped: it is carried to the record's own envelope by a separate
-importer path (`importLink`), moderated the same way an admin-approved
-link is, never written into the payload.
+relabel above) and drops exactly three cmini-only fields it has no payload
+idiom for: `tag`, `blame`, and `magic.rules[].note`. `link` is NOT dropped:
+it is carried to the record's own envelope by a separate importer path
+(`importLink`), moderated the same way an admin-approved link is, never
+written into the payload. **`combos` is no longer on this dropped list**
+(amended by design/alts/07-format.md, 2026-09-30, LDB-F47): cmini's own
+`{inputs: "ab", output}` (a 2-code-point `inputs` string) lifts into
+spark/1's own `combos[].{keys: ["a", "b"], output}` verbatim -- `crescent`
+(33 combos) and `finch` (8) are the two `upstream-100` layouts this
+touches.
 
 *`db/formats/adapters/cmini/translate.ts:180-190`; `db/src/import/apply.ts:242-355` (`importLink`, `latestLinkVia`). LDB-F23 (MF-9), LDB-MD3. Test: `db/tests/formats/mf9-fromcmini.test.ts` over `upstream-100`.*
 
@@ -432,13 +502,25 @@ is `additionalProperties: false` everywhere, in tension with "readers
 ignore unknown fields" for a client that validates against it as
 instructed (LEDGER.md row S1).*
 
+`alts` and `combos` (§5a/§5b) are exactly the kind of field this section's
+rule exists for: a client written before design/alts/07-format.md landed
+sees an unfamiliar key on a payload it reads and, per the rule above,
+ignores it rather than erroring -- no format-version bump, no `/v2`,
+nothing to opt into. Such a client is stale only in the sense that it
+never surfaces a layout's alts/combos; it never mis-parses one.
+
 ## 10. What it cannot express
 
 | not expressible | tracked as |
 |---|---|
-| layers, combos, hold-taps, per-key timing | `01-format.md` §4 (advanced formats, not this one) |
-| alternate fingerings | `#148` |
-| per-column stagger amounts, key wells, chorded input | `23-geometry.md` non-goals |
+| layers, hold-taps, per-key timing | `01-format.md` §4 (advanced formats, not this one) |
+| per-column stagger amounts, key wells | `23-geometry.md` non-goals |
+
+**`combos` (two-key chords, §5b) and `alts` (per-context alternate
+fingerings, §5a) shipped** design/alts/07-format.md, 2026-09-30, closing
+`#148` -- removed from this table. "Chorded input" beyond a two-key combo
+(three or more keys at once) is still not expressible (`toSpark` holds a
+mana2 combo naming more than two keys, §7).
 
 ## 11. Worked examples
 
@@ -473,7 +555,13 @@ position.**
         "except": []
       }
     ]
-  }
+  },
+  "alts": [
+    { "key": "a", "finger": "RI", "when": [{ "text": "na", "at": 1 }] }
+  ],
+  "combos": [
+    { "keys": ["a", "n"], "output": "an" }
+  ]
 }
 ```
 
@@ -482,7 +570,9 @@ emitting `nl`; `@`'s default (`{"kind": "repeat"}`) repeats every OTHER
 preceding key. `e` has two entries (row 1 and row 2, both left index): a
 duplicate character, valid because nothing in `magic` names `e`; lowering
 would keep the row-1 occurrence and turn the row-2 one into a `skip` cell.
-The entry with no `char` (row 2, col 5) is a free position.
+The entry with no `char` (row 2, col 5) is a free position. `alts` gives
+`a` (right ring by default) the alternate finger RI whenever it follows
+`n` (§5a); `combos` chords `a`+`n` into `an` (§5b).
 
 **Example 2: an ISO-shaped layout (row 2 one column wider), a free
 position, one thumb key** (a real, tested fixture:

@@ -190,7 +190,18 @@ export async function readHead(db: D1Database, stateKeys: readonly string[] = []
 //   existing field, route or stored payload changes meaning, no migration
 //   touches any stored row (nothing stored ever had a `" "` key before
 //   this, since every prior write attempting one was refused).
-export const WIRE_VERSION = 18;
+// 19 (2026-09-30, LDB-F44..F47, design/alts/07-format.md): spark/1 gains
+//   two additive optional top-level fields, `alts` (per-context alternate
+//   fingerings) and `combos` (two-key chords), plus their `has_alts`/
+//   `has_combos` envelope flags beside `has_magic` (`formats["spark/1"]`,
+//   `?has_alts=`/`?has_combos=` list filters) and PATCH edits `setAlts`/
+//   `setCombos`. mana2/1's `fromSpark`/`toSpark` gain a two-key-combo
+//   lifting; the cmini adapter no longer drops `combos`. Purely additive:
+//   every payload valid before this stays valid and reads the same;
+//   `migrations/0020_alts_combos.sql` only adds columns/indexes, backfilled
+//   to a no-op for every existing row (nothing stored could carry either
+//   field before this slice).
+export const WIRE_VERSION = 19;
 
 export async function etagFor(headSeqValue: number, query: unknown): Promise<string> {
   const hash = await sha256Hex(canonical({ wireVersion: WIRE_VERSION, query: query ?? null }));
