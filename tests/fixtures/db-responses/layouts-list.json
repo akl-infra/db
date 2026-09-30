@@ -488,7 +488,7 @@
       "modified_at": "2026-08-28T17:18:26Z",
       "has_magic": false,
       "has_alts": false,
-      "has_combos": false,
+      "has_combos": true,
       "source": {
        "client": "system:cmini-import",
        "version": null
@@ -1015,7 +1015,7 @@
       "modified_at": "2026-09-05T03:28:40Z",
       "has_magic": false,
       "has_alts": false,
-      "has_combos": false,
+      "has_combos": true,
       "source": {
        "client": "system:cmini-import",
        "version": null

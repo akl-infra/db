@@ -1,0 +1,73 @@
+{
+  "keys": [
+    {
+      "char": "a",
+      "row": 0,
+      "col": 0,
+      "finger": "LP"
+    },
+    {
+      "char": "b",
+      "row": 0,
+      "col": 1,
+      "finger": "LR"
+    },
+    {
+      "char": "c",
+      "row": 0,
+      "col": 2,
+      "finger": "LM"
+    },
+    {
+      "char": "d",
+      "row": 0,
+      "col": 3,
+      "finger": "LI"
+    },
+    {
+      "char": "e",
+      "row": 0,
+      "col": 4,
+      "finger": "LI"
+    },
+    {
+      "char": "f",
+      "row": 0,
+      "col": 5,
+      "finger": "RI"
+    },
+    {
+      "char": "g",
+      "row": 0,
+      "col": 6,
+      "finger": "RI"
+    },
+    {
+      "char": "h",
+      "row": 0,
+      "col": 7,
+      "finger": "RM"
+    },
+    {
+      "char": "i",
+      "row": 0,
+      "col": 8,
+      "finger": "RR"
+    },
+    {
+      "char": "j",
+      "row": 0,
+      "col": 9,
+      "finger": "RP"
+    }
+  ],
+  "combos": [
+    {
+      "keys": [
+        "a",
+        "b"
+      ],
+      "output": "ab"
+    }
+  ]
+}

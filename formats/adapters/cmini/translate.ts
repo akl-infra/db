@@ -164,19 +164,33 @@ function convert(p: cmini1.Payload): { payload: SparkPayload; changes: ImportCha
     if (Object.keys(magic).length > 0) out.magic = magic;
   }
 
+  // design/alts/07-format.md (round 4, slice D): cmini's `combos` --
+  // `{inputs, output}` with `inputs` a 2-code-point string (a chord of two
+  // keys) -- is no longer dropped: lifted verbatim into spark/1's own
+  // `{keys: [a, b], output}` shape. `alts` has no cmini idiom at all and
+  // stays undefined.
+  if (p.combos && p.combos.length > 0) {
+    out.combos = p.combos.map((c) => {
+      const chars = [...c.inputs];
+      return { keys: [chars[0]!, chars[1]!] as [string, string], output: c.output };
+    });
+  }
+
   return { payload: out, changes: { relabeled: [...relabeledKeys, ...relabeledFree] } };
 }
 
 // fromCmini (01 §6.1, design/layout-db/23-geometry.md §4.6): the import.
-// `tag`/`blame`/`combos`/`link`/`board` have no spark/1 idiom (spark's
-// escape hatch is for magic rows, not these) and, since 21-formats.md D10
-// dropped spark/1's free-form `x` field, are dropped here rather than
-// reserved anywhere -- MF-9 (db/tests/formats/mf9-fromcmini.test.ts) is
-// the invariant that replaces the old `toCmini(fromCmini(x))` round trip:
-// it states exactly these five fields as the ones fromCmini is allowed to
-// drop (LDB-F23 -- the relabel is the one EXTRA change 23-geometry.md
-// added on top of that exactness claim; `board` joined the list with
+// `tag`/`blame`/`link`/`board` have no spark/1 idiom (spark's escape hatch
+// is for magic rows, not these) and, since 21-formats.md D10 dropped
+// spark/1's free-form `x` field, are dropped here rather than reserved
+// anywhere -- MF-9 (db/tests/formats/mf9-fromcmini.test.ts) is the
+// invariant that replaces the old `toCmini(fromCmini(x))` round trip: it
+// states exactly these four fields as the ones fromCmini is allowed to
+// drop (LDB-F23 -- the relabel is the one EXTRA change 23-geometry.md added
+// on top of that exactness claim; `board` joined the list with
 // design/layout-db/26-no-board.md, retiring LDB-F31's word table).
+// **Amended by LDB-F47, 2026-09-30** (design/alts/07-format.md): `combos`
+// is no longer dropped -- lifted into spark/1's own `combos` field, above.
 export function fromCmini(p: cmini1.Payload): SparkPayload {
   return convert(p).payload;
 }

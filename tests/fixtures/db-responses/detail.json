@@ -3430,7 +3430,7 @@
     "modified_at": "2026-08-28T17:18:26Z",
     "has_magic": false,
     "has_alts": false,
-    "has_combos": false,
+    "has_combos": true,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -3439,6 +3439,239 @@
   },
   "format": "spark/1",
   "payload": {
+   "combos": [
+    {
+     "keys": [
+      "c",
+      "r"
+     ],
+     "output": "w"
+    },
+    {
+     "keys": [
+      "c",
+      "s"
+     ],
+     "output": "f"
+    },
+    {
+     "keys": [
+      "c",
+      "t"
+     ],
+     "output": "g"
+    },
+    {
+     "keys": [
+      "c",
+      "n"
+     ],
+     "output": "q"
+    },
+    {
+     "keys": [
+      "c",
+      "a"
+     ],
+     "output": "'"
+    },
+    {
+     "keys": [
+      "c",
+      "e"
+     ],
+     "output": "#"
+    },
+    {
+     "keys": [
+      "c",
+      "u"
+     ],
+     "output": "y"
+    },
+    {
+     "keys": [
+      "c",
+      "i"
+     ],
+     "output": "p"
+    },
+    {
+     "keys": [
+      "r",
+      "s"
+     ],
+     "output": "x"
+    },
+    {
+     "keys": [
+      "r",
+      "t"
+     ],
+     "output": "j"
+    },
+    {
+     "keys": [
+      "r",
+      "n"
+     ],
+     "output": "l"
+    },
+    {
+     "keys": [
+      "r",
+      "a"
+     ],
+     "output": "!"
+    },
+    {
+     "keys": [
+      "r",
+      "e"
+     ],
+     "output": "@"
+    },
+    {
+     "keys": [
+      "r",
+      "u"
+     ],
+     "output": "_"
+    },
+    {
+     "keys": [
+      "r",
+      "i"
+     ],
+     "output": ","
+    },
+    {
+     "keys": [
+      "s",
+      "t"
+     ],
+     "output": "d"
+    },
+    {
+     "keys": [
+      "s",
+      "n"
+     ],
+     "output": "z"
+    },
+    {
+     "keys": [
+      "s",
+      "a"
+     ],
+     "output": "`"
+    },
+    {
+     "keys": [
+      "s",
+      "u"
+     ],
+     "output": "v"
+    },
+    {
+     "keys": [
+      "s",
+      "i"
+     ],
+     "output": "b"
+    },
+    {
+     "keys": [
+      "t",
+      "n"
+     ],
+     "output": "m"
+    },
+    {
+     "keys": [
+      "t",
+      "u"
+     ],
+     "output": "k"
+    },
+    {
+     "keys": [
+      "t",
+      "i"
+     ],
+     "output": "/"
+    },
+    {
+     "keys": [
+      "n",
+      "a"
+     ],
+     "output": "("
+    },
+    {
+     "keys": [
+      "n",
+      "e"
+     ],
+     "output": ")"
+    },
+    {
+     "keys": [
+      "n",
+      "u"
+     ],
+     "output": "h"
+    },
+    {
+     "keys": [
+      "n",
+      "i"
+     ],
+     "output": "?"
+    },
+    {
+     "keys": [
+      "a",
+      "e"
+     ],
+     "output": "o"
+    },
+    {
+     "keys": [
+      "a",
+      "u"
+     ],
+     "output": "-"
+    },
+    {
+     "keys": [
+      "a",
+      "i"
+     ],
+     "output": "."
+    },
+    {
+     "keys": [
+      "e",
+      "u"
+     ],
+     "output": "\""
+    },
+    {
+     "keys": [
+      "e",
+      "i"
+     ],
+     "output": ":"
+    },
+    {
+     "keys": [
+      "u",
+      "i"
+     ],
+     "output": ";"
+    }
+   ],
    "keys": [
     {
      "char": "c",
@@ -7088,7 +7321,7 @@
     "modified_at": "2026-09-05T03:28:40Z",
     "has_magic": false,
     "has_alts": false,
-    "has_combos": false,
+    "has_combos": true,
     "source": {
      "client": "system:cmini-import",
      "version": null
@@ -7097,6 +7330,64 @@
   },
   "format": "spark/1",
   "payload": {
+   "combos": [
+    {
+     "keys": [
+      "y",
+      "w"
+     ],
+     "output": "q"
+    },
+    {
+     "keys": [
+      "l",
+      "y"
+     ],
+     "output": "v"
+    },
+    {
+     "keys": [
+      "x",
+      "g"
+     ],
+     "output": "z"
+    },
+    {
+     "keys": [
+      "g",
+      "d"
+     ],
+     "output": "j"
+    },
+    {
+     "keys": [
+      "h",
+      "'"
+     ],
+     "output": "\\"
+    },
+    {
+     "keys": [
+      ".",
+      "'"
+     ],
+     "output": "/"
+    },
+    {
+     "keys": [
+      "f",
+      "o"
+     ],
+     "output": "`"
+    },
+    {
+     "keys": [
+      "o",
+      ","
+     ],
+     "output": ";"
+    }
+   ],
    "keys": [
     {
      "char": "v",

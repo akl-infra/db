@@ -25,5 +25,238 @@
     "rules": [],
     "magicKeys": null
   },
-  "layers": null
+  "layers": null,
+  "combos": [
+    {
+      "inputs": [
+        "c",
+        "r"
+      ],
+      "output": "w"
+    },
+    {
+      "inputs": [
+        "c",
+        "s"
+      ],
+      "output": "f"
+    },
+    {
+      "inputs": [
+        "c",
+        "t"
+      ],
+      "output": "g"
+    },
+    {
+      "inputs": [
+        "c",
+        "n"
+      ],
+      "output": "q"
+    },
+    {
+      "inputs": [
+        "c",
+        "a"
+      ],
+      "output": "'"
+    },
+    {
+      "inputs": [
+        "c",
+        "e"
+      ],
+      "output": "#"
+    },
+    {
+      "inputs": [
+        "c",
+        "u"
+      ],
+      "output": "y"
+    },
+    {
+      "inputs": [
+        "c",
+        "i"
+      ],
+      "output": "p"
+    },
+    {
+      "inputs": [
+        "r",
+        "s"
+      ],
+      "output": "x"
+    },
+    {
+      "inputs": [
+        "r",
+        "t"
+      ],
+      "output": "j"
+    },
+    {
+      "inputs": [
+        "r",
+        "n"
+      ],
+      "output": "l"
+    },
+    {
+      "inputs": [
+        "r",
+        "a"
+      ],
+      "output": "!"
+    },
+    {
+      "inputs": [
+        "r",
+        "e"
+      ],
+      "output": "@"
+    },
+    {
+      "inputs": [
+        "r",
+        "u"
+      ],
+      "output": "_"
+    },
+    {
+      "inputs": [
+        "r",
+        "i"
+      ],
+      "output": ","
+    },
+    {
+      "inputs": [
+        "s",
+        "t"
+      ],
+      "output": "d"
+    },
+    {
+      "inputs": [
+        "s",
+        "n"
+      ],
+      "output": "z"
+    },
+    {
+      "inputs": [
+        "s",
+        "a"
+      ],
+      "output": "`"
+    },
+    {
+      "inputs": [
+        "s",
+        "u"
+      ],
+      "output": "v"
+    },
+    {
+      "inputs": [
+        "s",
+        "i"
+      ],
+      "output": "b"
+    },
+    {
+      "inputs": [
+        "t",
+        "n"
+      ],
+      "output": "m"
+    },
+    {
+      "inputs": [
+        "t",
+        "u"
+      ],
+      "output": "k"
+    },
+    {
+      "inputs": [
+        "t",
+        "i"
+      ],
+      "output": "/"
+    },
+    {
+      "inputs": [
+        "n",
+        "a"
+      ],
+      "output": "("
+    },
+    {
+      "inputs": [
+        "n",
+        "e"
+      ],
+      "output": ")"
+    },
+    {
+      "inputs": [
+        "n",
+        "u"
+      ],
+      "output": "h"
+    },
+    {
+      "inputs": [
+        "n",
+        "i"
+      ],
+      "output": "?"
+    },
+    {
+      "inputs": [
+        "a",
+        "e"
+      ],
+      "output": "o"
+    },
+    {
+      "inputs": [
+        "a",
+        "u"
+      ],
+      "output": "-"
+    },
+    {
+      "inputs": [
+        "a",
+        "i"
+      ],
+      "output": "."
+    },
+    {
+      "inputs": [
+        "e",
+        "u"
+      ],
+      "output": "\""
+    },
+    {
+      "inputs": [
+        "e",
+        "i"
+      ],
+      "output": ":"
+    },
+    {
+      "inputs": [
+        "u",
+        "i"
+      ],
+      "output": ";"
+    }
+  ]
 }

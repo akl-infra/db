@@ -9,13 +9,17 @@
 // duplicate-characters follow-up) MODULO the §4.6 relabel (a `TB` finger,
 // or an `LT`/`RT` thumb whose column disagrees with `col < 5 => LT else
 // RT`, is relabelled -- the last time this ever runs, LDB-F28), and the
-// fields dropped are exactly `tag`, `blame`, `combos`, `link` (D10's own
-// cost list -- these have no spark/1 idiom, and, since D10 also deleted
-// spark/1's free-form `x`, there is nowhere left to reserve them either)
-// plus `board` (design/layout-db/26-no-board.md: spark/1 has no board
-// field at all, so cmini's word is dropped like the rest -- 24-spark-wire-
-// review.md finding 10's "faithful to the word alone" table is gone with
-// it, LDB-F31 retired).
+// fields dropped are exactly `tag`, `blame`, `link` (D10's own cost list --
+// these have no spark/1 idiom, and, since D10 also deleted spark/1's
+// free-form `x`, there is nowhere left to reserve them either) plus `board`
+// (design/layout-db/26-no-board.md: spark/1 has no board field at all, so
+// cmini's word is dropped like the rest -- 24-spark-wire-review.md finding
+// 10's "faithful to the word alone" table is gone with it, LDB-F31
+// retired). **Amended by LDB-F47, 2026-09-30** (design/alts/07-format.md):
+// `combos` is REMOVED from this dropped-field list -- it is lifted into
+// spark/1's own `combos` field now (`crescent`/`finch`, the two
+// `upstream-100` layouts that carry one, are the only fixtures this
+// touches).
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -64,8 +68,8 @@ function cminiPositionMultiset(keys: Record<string, Position>, free: Position[] 
 
 // `board` is cmini-only too since design/layout-db/26-no-board.md: spark/1
 // has no board field, so cmini's word is dropped on import like the rest.
-const SPARK_ALLOWED_FIELDS = new Set(["keys", "magic"]);
-const CMINI_ONLY_FIELDS = new Set(["tag", "blame", "combos", "link", "board"]);
+const SPARK_ALLOWED_FIELDS = new Set(["keys", "magic", "combos"]);
+const CMINI_ONLY_FIELDS = new Set(["tag", "blame", "link", "board"]);
 
 describe("[LDB-F23] fromCmini is exact where spark has a place (MF-9)", () => {
   const fixture = JSON.parse(
@@ -83,7 +87,7 @@ describe("[LDB-F23] fromCmini is exact where spark has a place (MF-9)", () => {
       expect(positionMultiset(spark.keys)).toEqual(cminiPositionMultiset(cmini.keys, cmini.free));
     });
 
-    it(`[LDB-F23] [LDB-F40] '${name}': the fields dropped are exactly tag, blame, combos, link, board -- nothing else survives or vanishes`, () => {
+    it(`[LDB-F23] [LDB-F40] [LDB-F47] '${name}': the fields dropped are exactly tag, blame, link, board -- nothing else survives or vanishes`, () => {
       const sparkKeys = new Set(Object.keys(spark));
       for (const field of CMINI_ONLY_FIELDS) {
         expect(sparkKeys.has(field), `spark payload unexpectedly carries '${field}'`).toBe(false);

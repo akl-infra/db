@@ -62,7 +62,7 @@ describe("mana2/1 goldens (LDB-F7)", () => {
     const check = mana2_1.validate(payload);
     if (!check.ok) continue; // shouldn't happen among base fixtures; the envelope describe is the authority
 
-    // A held golden (e.g. 900-held-combos.spark-1.json) is the `{held,
+    // A held golden (e.g. 909-held-combo3.spark-1.json) is the `{held,
     // reason}` object itself, written verbatim (scripts/goldens.mjs's own
     // rule) -- compared as-is, same as a real payload; only a non-held
     // translation gets the extra "validates as spark/1" check.
@@ -251,13 +251,18 @@ describe("algorithm rows (12-implementation-phase5.md §2.5, exact)", () => {
   });
 
   const heldCases: Array<[string, string]> = [
-    ["900-held-combos", "combos have no akl/1 idiom"],
     ["903-held-sixthumbs", "more than five keys on one thumb"],
     ["906-held-taphold", "tap-hold token has no akl/1 idiom"],
     ["907-held-directional", "directional token has no akl/1 idiom"],
+    // [LDB-F47] design/alts/07-format.md: a TWO-key combo (900-combo-2key,
+    // covered below in the non-held goldens/round-trip describes instead)
+    // now lifts to spark/1's own `combos` field -- only a combo naming MORE
+    // than two keys (mana2's own schema allows any `inputs.length >= 1`)
+    // still has no spark/1 idiom.
+    ["909-held-combo3", "combos with more than two keys have no spark/1 idiom"],
   ];
   for (const [name, reason] of heldCases) {
-    it(`${name}: held -- ${reason}`, () => {
+    it(`[LDB-F47] ${name}: held -- ${reason}`, () => {
       const t = toSpark(load(name));
       expect(isHeldResult(t)).toBe(true);
       if (isHeldResult(t)) expect(t.reason).toBe(reason);
@@ -511,6 +516,13 @@ function adjustForMana2RoundTrip(a: SparkPayload): SparkPayload {
   const result: SparkPayload = { keys: out };
   const magic = expectedMagic(a);
   if (magic) result.magic = magic;
+  // design/alts/07-format.md, LDB-F47: `combos` survive a spark -> mana2 ->
+  // spark round trip verbatim -- neither hop touches them beyond the
+  // straight `{keys:[a,b],output} <-> {inputs:[a,b],output}` shape change,
+  // and no fixture this function covers has a combo naming a char that
+  // gets demoted by the duplicate-char rule above (crescent's 33 combos
+  // all name unique letters).
+  if (a.combos && a.combos.length > 0) result.combos = a.combos;
   // 21-formats.md D10: spark/1 has no `x` field any more, so a spark ->
   // mana2 -> spark round trip no longer carries anything extra -- `toSpark`
   // silently drops `mirrorLeftRowStagger`/`splitAngle`/`magicKeys`/
@@ -547,7 +559,7 @@ describe("akl/1 -> mana2/1 -> akl/1 (every akl/1 fixture, thumb re-anchoring ass
   for (const file of files) {
     const stem = file.slice(0, -".json".length);
     const a = JSON.parse(fs.readFileSync(path.join(SPARK_FIXTURES_DIR, file), "utf8")) as SparkPayload;
-    it(`[LDB-F5] [LDB-F30] '${stem}': identity off the thumb row`, () => assertMana2RoundTrip(stem, a));
+    it(`[LDB-F5] [LDB-F30] [LDB-F47] '${stem}': identity off the thumb row`, () => assertMana2RoundTrip(stem, a));
   }
 
   // `010-test12222` ("both thumbs; thumb fingers on rows 0-2", 07 §5.3) is
@@ -596,7 +608,7 @@ describe("akl/1 -> mana2/1 -> akl/1 (every cmini-derived fixture, via the cmini/
     const stem = file.slice(0, -".spark-1.json".length);
     const a = JSON.parse(fs.readFileSync(path.join(CMINI_FIXTURES_DIR, file), "utf8")) as SparkPayload;
 
-    it(`[LDB-F5] cmini-derived '${stem}': identity off the thumb row`, () => {
+    it(`[LDB-F5] [LDB-F47] cmini-derived '${stem}': identity off the thumb row`, () => {
       if (spark1.validate(a).ok !== true) return; // a held/incomplete golden shape; nothing to assert here
       assertMana2RoundTrip(stem, a);
     });

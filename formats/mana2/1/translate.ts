@@ -22,7 +22,7 @@
 // level (a tap-hold's first slot may be a directional; nothing nests
 // inside a directial or on a hold), and no vendored file goes deeper.
 
-import type { Payload as SparkPayload } from "../../spark/1/index.ts";
+import type { Payload as SparkPayload, Combo as SparkCombo } from "../../spark/1/index.ts";
 import type { MagicIntent } from "../../spark/1/magic.ts";
 import { computeRows, resolveRows } from "../../spark/1/magic.ts";
 import type { Key as SparkPosition } from "../../spark/1/geometry.ts";
@@ -314,7 +314,30 @@ export function toSpark(p: Mana2Payload): SparkPayload | Held {
     else keys.push({ char: cell.char, row: thumbRow, col, finger: "RT" });
   });
 
-  if ((p.combos?.length ?? 0) > 0) return { held: true, reason: "combos have no akl/1 idiom" };
+  // design/alts/07-format.md (round 4, slice D): a mana2 combo whose
+  // `inputs` is exactly two SINGLE-character, first-occurrence keys of
+  // THIS layout lifts to spark/1's own `{keys: [a, b], output}` -- mana2's
+  // own `checkCombos` already guarantees every char within every
+  // `inputs[j]` is one of this layout's resolved keys (`0.4`), so the only
+  // ways this can fail are structural (not exactly two members, or a
+  // member that isn't itself a single character) -- held, never dropped
+  // silently, same posture the pre-existing hold used to have for every
+  // combo.
+  const layoutChars = new Set<string>();
+  for (const k of keys) if (k.char !== undefined) layoutChars.add(k.char);
+
+  let combos: SparkCombo[] | undefined;
+  if (p.combos && p.combos.length > 0) {
+    const lifted: SparkCombo[] = [];
+    for (const combo of p.combos) {
+      if (combo.inputs.length !== 2) return { held: true, reason: "combos with more than two keys have no spark/1 idiom" };
+      const [a, b] = combo.inputs;
+      if ([...a!].length !== 1 || [...b!].length !== 1) return { held: true, reason: "a multi-character combo member has no spark/1 idiom" };
+      if (!layoutChars.has(a!) || !layoutChars.has(b!)) return { held: true, reason: "combo references a key not on this layout" };
+      lifted.push({ keys: [a!, b!], output: combo.output });
+    }
+    combos = lifted;
+  }
 
   const rules = dedupeRulesLastWins(p.magic?.rules ?? []);
   let magic: MagicIntent | undefined;
@@ -327,6 +350,7 @@ export function toSpark(p: Mana2Payload): SparkPayload | Held {
   // comment above).
   const out: SparkPayload = { keys };
   if (magic) out.magic = magic;
+  if (combos) out.combos = combos;
   return out;
 }
 
@@ -524,5 +548,11 @@ export function fromSpark(p: SparkPayload): Mana2Payload {
     layers: null,
   };
   if (leftTokens.length > 0 || rightTokens.length > 0) out.layout.thumbs = [leftTokens.join(" "), rightTokens.join(" ")];
+  // design/alts/07-format.md: emitted only when non-empty, so every
+  // combo-free fixture's golden stays byte-identical -- `alts` has no
+  // mana2 idiom at all and is a documented loss (never emitted here).
+  if (p.combos && p.combos.length > 0) {
+    out.combos = p.combos.map((c) => ({ inputs: [c.keys[0], c.keys[1]], output: c.output }));
+  }
   return out;
 }

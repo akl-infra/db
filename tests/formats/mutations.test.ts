@@ -273,16 +273,22 @@ describe("payload mutations", () => {
               kind === "inputs" &&
               leaf.pointer.startsWith("/combos/") &&
               (mutation === "delete" || mutation === "empty string"); // "wrong type" still correctly refused (schema requires a string)
-            // `900-held-combos`'s combos reference the same row
-            // `fingers:empty string` would otherwise be free to blank out
-            // (both a general mana2/1 allowance AND this fixture's own
+            // `900-combo-2key`/`909-held-combo3`'s combos reference the same
+            // row `fingers:empty string` would otherwise be free to blank
+            // out (both a general mana2/1 allowance AND this fixture's own
             // combos content, in tension only here) -- emptying the row
             // removes the combo's own referenced keys, correctly refused
-            // by checkCombos. Fixture-specific, not a blanket verdict for
-            // `fingers:empty string` (every other fixture has no combos to
-            // collide with), so it is the ONE skip, not a change to the
-            // shared ALLOWED set.
-            const isEmptiedComboRow = kind === "fingers" && mutation === "empty string" && fixture.stem.startsWith("900-") && leaf.pointer === "/layout/fingers/0";
+            // by checkCombos. Fixture-specific (any fixture whose own
+            // combos name a char from this exact row), not a blanket
+            // verdict for `fingers:empty string` (every other fixture has
+            // no combos to collide with), so it is the ONE skip, not a
+            // change to the shared ALLOWED set.
+            const isEmptiedComboRow =
+              format.id === "mana2/1" &&
+              kind === "fingers" &&
+              mutation === "empty string" &&
+              leaf.pointer === "/layout/fingers/0" &&
+              ((fixture.payload as { combos?: { inputs: string[] }[] }).combos?.length ?? 0) > 0;
             if (isEmptiedComboRow) {
               it.skip(`[LDB-F1] ${fixture.stem} ${leaf.pointer} empty string -- combos on this fixture reference this row's own keys, see mana2.test.ts`, () => {});
               continue;
@@ -316,16 +322,26 @@ describe("payload mutations", () => {
             // naming a key the layout doesn't have, refused at the magic's
             // own path (LDB-F22, saltorbit/aklgg#322).
             if (format.id === "spark/1" && kind === "char" && /^\/keys\/\d+\/char$/.test(leaf.pointer) && (mutation === "delete" || mutation === "empty string")) {
-              const payload = fixture.payload as { keys: { char?: string }[]; magic?: { magic_keys?: { key: string }[]; chiral_keys?: { key: string }[]; adaptive_swaps?: { trigger: string; swap: string[] }[] } };
+              const payload = fixture.payload as {
+                keys: { char?: string }[];
+                magic?: { magic_keys?: { key: string }[]; chiral_keys?: { key: string }[]; adaptive_swaps?: { trigger: string; swap: string[] }[] };
+                combos?: { keys: [string, string] }[];
+              };
               const char = payload.keys[Number(leaf.segs[1])]?.char;
               const m = payload.magic ?? {};
               const named = new Set([
                 ...(m.magic_keys ?? []).map((mk) => mk.key),
                 ...(m.chiral_keys ?? []).map((ck) => ck.key),
                 ...(m.adaptive_swaps ?? []).flatMap((sw) => [sw.trigger, ...sw.swap]),
+                // design/alts/07-format.md, LDB-F47: `combos[].keys` names a
+                // layout char too (crescent, imported from cmini, has 33 of
+                // them covering most of its alpha block) -- the SAME "can't
+                // leave the layout" refusal applies, just a different named
+                // construct than magic's.
+                ...(payload.combos ?? []).flatMap((c) => c.keys),
               ]);
               if (char !== undefined && named.has(char) && payload.keys.filter((k) => k.char === char).length === 1) {
-                it(`[LDB-F1][LDB-F22] ${fixture.stem} ${leaf.pointer} ${mutation} -- ${JSON.stringify(char)} is named by the magic, so it can't leave the layout`, () => {
+                it(`[LDB-F1][LDB-F22][LDB-F47] ${fixture.stem} ${leaf.pointer} ${mutation} -- ${JSON.stringify(char)} is named by magic/combos, so it can't leave the layout`, () => {
                   const result = format.validate(applyMutation(fixture.payload, leaf, mutation));
                   expect(result.ok).toBe(false);
                   if (!result.ok) expect(result.error.message).toMatch(/is not one of this layout's keys$/);

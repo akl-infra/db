@@ -18,7 +18,7 @@ export const id: `${string}/${number}` = "mana2/1";
 // why this is a plain export rather than parsed from OWNERS/README.md).
 export const owner = "DB maintainers (a mirror of mana2's loader at the vendored submodule commit -- see README.md; Zak's handle added when confirmed, 12 §1)";
 export const description =
-  "A mana2 .jsonc layout object (layout.fingers/thumbs, board, fingermap, magic.rules) -- mana's own write format. Tap-hold/directional tokens, >5 keys on one thumb and non-empty combos are held for spark/1; the board object is dropped (spark/1 has none, the lowering back always emits the ANSI row stagger).";
+  "A mana2 .jsonc layout object (layout.fingers/thumbs, board, fingermap, magic.rules, combos) -- mana's own write format. Tap-hold/directional tokens, >5 keys on one thumb and a combo other than a two-key chord are held for spark/1; the board object is dropped (spark/1 has none, the lowering back always emits the ANSI row stagger).";
 export const schema: object = rawSchema;
 export const role: "stored" | "output" = "output";
 
