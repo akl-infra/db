@@ -28,7 +28,7 @@ the other (`[LDB-V5]`).
 ## 1.19 — 2026-09-30
 
 LDB-F44..F47, design/alts/07-format.md (round 4, slice D): `spark/1` gains
-two additive optional top-level fields, `alts` (per-gram alternate
+two additive optional top-level fields, `alts` (per-ngram alternate
 fingerings) and `combos` (two-key chords), both absent when empty, same
 convention `magic`'s own sub-arrays use. `formats["spark/1"]` gains
 `has_alts`/`has_combos` beside `has_magic`; `GET /v1/layouts` gains
@@ -51,13 +51,13 @@ meaning, and `migrations/0020_alts_combos.sql` only adds columns
 rewritten in place rather than given its own heading, the same posture a
 stored format's own major takes "until the first outside adopter",
 `21-formats.md` D11 / `22-spark-spec.md` §0):** `alts` is an array with one
-entry per gram, `{gram, fingers}`. `gram` is 2 or 3 code points; `_` is a
-wildcard allowed only as the middle of a 3-code-point gram; every other
+entry per ngram, `{ngram, fingers}`. `ngram` is 2 or 3 code points; `_` is a
+wildcard allowed only as the middle of a 3-code-point ngram; every other
 code point must be a character on the layout. `fingers` is a non-empty
-object mapping a position in the gram (a decimal string) to the finger that
+object mapping a position in the ngram (a decimal string) to the finger that
 types that position's character instead of the layout's own; each value
 must differ from that character's own finger and each key must name a
-non-wildcard position within the gram. No two entries share a `gram`.
+non-wildcard position within the ngram. No two entries share a `ngram`.
 Unknown properties are refused. The per-key shape drafted earlier on this
 branch (`key`, `finger`, `when`, `except`, `guard`, per-pattern `fingers`)
 never shipped and has no compatibility path. `GET

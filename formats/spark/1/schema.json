@@ -135,12 +135,12 @@
       }
     },
     "alt": {
-      "description": "design/alts/07-format.md: an alternate fingering for one GRAM (2 or 3 code points; `_` is a wildcard, only as the middle of a 3-code-point gram). `fingers` maps a position in the gram (a decimal string) to the finger that types that position's character instead of the layout's own. Deliberately loose here (any string key, any string value, no length bound on gram -- code points, not UTF-16 units, are what count): every real rule depends on the layout's keys or on the gram itself and so lives, with path-naming messages, in index.ts's validateAlts. `fingers` must be non-empty.",
+      "description": "design/alts/07-format.md: an alternate fingering for one NGRAM (2 or 3 code points; `_` is a wildcard, only as the middle of a 3-code-point ngram). `fingers` maps a position in the ngram (a decimal string) to the finger that types that position's character instead of the layout's own. Deliberately loose here (any string key, any string value, no length bound on ngram -- code points, not UTF-16 units, are what count): every real rule depends on the layout's keys or on the ngram itself and so lives, with path-naming messages, in index.ts's validateAlts. `fingers` must be non-empty.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["gram", "fingers"],
+      "required": ["ngram", "fingers"],
       "properties": {
-        "gram": { "type": "string" },
+        "ngram": { "type": "string" },
         "fingers": {
           "type": "object",
           "minProperties": 1,
@@ -149,7 +149,7 @@
       }
     },
     "combo": {
-      "description": "design/alts/07-format.md: a two-key chord. Both members are the layout's own chars (index.ts's validate()); `output` need not be. `output` is 1-2 CODE POINTS, checked in index.ts (no maxLength here, same reason alt.gram has none).",
+      "description": "design/alts/07-format.md: a two-key chord. Both members are the layout's own chars (index.ts's validate()); `output` need not be. `output` is 1-2 CODE POINTS, checked in index.ts (no maxLength here, same reason alt.ngram has none).",
       "type": "object",
       "additionalProperties": false,
       "required": ["keys", "output"],

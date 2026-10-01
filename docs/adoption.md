@@ -413,7 +413,7 @@ are registered today:
 - **`spark/1`** — the one *stored* shape: cmini's ordered `keys` list and
   an authoring shape for magic rules that keeps intent
   (`magic_keys`/`chiral_keys`/`adaptive_swaps`), not flattened rows, plus
-  two additive optional fields, `alts` (per-gram alternate fingerings)
+  two additive optional fields, `alts` (per-ngram alternate fingerings)
   and `combos` (two-key chords), both absent when empty
   (design/alts/07-format.md). No board word (decision `26-no-board.md`):
   which board a layout is drawn or analysed on is the reader's own choice,

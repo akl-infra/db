@@ -3683,7 +3683,7 @@
                         }
                       }
                     },
-                    "gram": {
+                    "ngram": {
                       "type": "object",
                       "fields": {
                         "type": {

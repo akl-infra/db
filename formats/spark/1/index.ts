@@ -81,15 +81,15 @@ export type { MagicIntent, MagicKey, ChiralKey, AdaptiveSwap, RawRule };
 export { classifyFingering, gridIndent, FINGERING_REFS } from "./geometry.ts";
 export type { NamedFingering, Fingering } from "./geometry.ts";
 
-// design/alts/07-format.md: one alternate fingering per GRAM. `gram` is
+// design/alts/07-format.md: one alternate fingering per NGRAM. `ngram` is
 // 2 or 3 code points; `_` is a wildcard (any key) and may only be the
-// middle code point of a 3-code-point gram, so every gram holds at least
-// two literal layout characters. `fingers` maps a position in the gram (a
+// middle code point of a 3-code-point ngram, so every ngram holds at least
+// two literal layout characters. `fingers` maps a position in the ngram (a
 // decimal string) to the finger that types that position's character
 // INSTEAD of the layout's own finger for it. No per-context excepts, no
-// guard flag: the product thinks in grams.
+// guard flag: the product thinks in ngrams.
 export interface Alt {
-  gram: string;
+  ngram: string;
   fingers: Record<string, string>;
 }
 
@@ -487,20 +487,20 @@ function validateGeometry(p: Payload): ErrBody | null {
 // values need the identical check with a custom, path-naming message).
 const FINGER_WORDS = new Set(["LP", "LR", "LM", "LI", "RI", "RM", "RR", "RP", "LT", "RT"]);
 
-// design/alts/07-format.md: one alt per gram. Per alt, in index order and
+// design/alts/07-format.md: one alt per ngram. Per alt, in index order and
 // in this order (first violation wins, each names its own path):
-//   1. `gram` is 2 or 3 code points                       -> /alts/i/gram
-//   2. `_` only at the middle of a 3-code-point gram      -> /alts/i/gram
-//      (so every gram has >= 2 literal code points; the "at least two
+//   1. `ngram` is 2 or 3 code points                       -> /alts/i/ngram
+//   2. `_` only at the middle of a 3-code-point ngram      -> /alts/i/ngram
+//      (so every ngram has >= 2 literal code points; the "at least two
 //      non-wildcards" rule follows from 1 and 2 and needs no check of its own)
-//   3. every literal code point is a key on this layout   -> /alts/i/gram
+//   3. every literal code point is a key on this layout   -> /alts/i/ngram
 //      (charMap, first occurrence, same as combos[].keys)
 //   4. each `fingers` key is an integer string            -> /alts/i/fingers/<k>
-//   5. ... within the gram's length                       -> /alts/i/fingers/<k>
+//   5. ... within the ngram's length                       -> /alts/i/fingers/<k>
 //   6. ... naming a non-wildcard position                 -> /alts/i/fingers/<k>
 //   7. the value is one of this format's fingers          -> /alts/i/fingers/<k>
 //   8. ... and differs from that character's own finger   -> /alts/i/fingers/<k>
-//   9. no two alts share a `gram`                         -> /alts/i/gram
+//   9. no two alts share a `ngram`                         -> /alts/i/ngram
 // `fingers` non-emptiness is the schema's rule (`minProperties`).
 function validateAlts(alts: Alt[] | undefined, keys: Record<string, Position>): ErrBody | null {
   if (alts === undefined) return null;
@@ -508,22 +508,22 @@ function validateAlts(alts: Alt[] | undefined, keys: Record<string, Position>): 
   for (let i = 0; i < alts.length; i++) {
     const alt = alts[i]!;
     const base = `/alts/${i}`;
-    const cps = [...alt.gram];
+    const cps = [...alt.ngram];
     if (cps.length < 2 || cps.length > 3) {
-      return { error: "invalid_payload", message: `alts[].gram must be 2 or 3 code points, got ${JSON.stringify(alt.gram)}`, path: `${base}/gram` };
+      return { error: "invalid_payload", message: `alts[].ngram must be 2 or 3 code points, got ${JSON.stringify(alt.ngram)}`, path: `${base}/ngram` };
     }
     for (let p = 0; p < cps.length; p++) {
       if (cps[p] === "_" && !(cps.length === 3 && p === 1)) {
         return {
           error: "invalid_payload",
-          message: `alts[].gram ${JSON.stringify(alt.gram)} has a wildcard '_' at position ${p}; '_' is allowed only as the middle of a 3-code-point gram`,
-          path: `${base}/gram`,
+          message: `alts[].ngram ${JSON.stringify(alt.ngram)} has a wildcard '_' at position ${p}; '_' is allowed only as the middle of a 3-code-point ngram`,
+          path: `${base}/ngram`,
         };
       }
     }
     for (const cp of cps) {
       if (cp !== "_" && !(cp in keys)) {
-        return { error: "invalid_payload", message: `alts[].gram ${JSON.stringify(alt.gram)} has ${JSON.stringify(cp)}, which is not one of this layout's keys`, path: `${base}/gram` };
+        return { error: "invalid_payload", message: `alts[].ngram ${JSON.stringify(alt.ngram)} has ${JSON.stringify(cp)}, which is not one of this layout's keys`, path: `${base}/ngram` };
       }
     }
     for (const posKey of Object.keys(alt.fingers)) {
@@ -533,11 +533,11 @@ function validateAlts(alts: Alt[] | undefined, keys: Record<string, Position>): 
       }
       const idx = Number(posKey);
       if (idx > cps.length - 1) {
-        return { error: "invalid_payload", message: `alts[].fingers key ${JSON.stringify(posKey)} is out of range for gram ${JSON.stringify(alt.gram)}`, path: fbase };
+        return { error: "invalid_payload", message: `alts[].fingers key ${JSON.stringify(posKey)} is out of range for ngram ${JSON.stringify(alt.ngram)}`, path: fbase };
       }
       const ch = cps[idx]!;
       if (ch === "_") {
-        return { error: "invalid_payload", message: `alts[].fingers key ${JSON.stringify(posKey)} is the wildcard position of gram ${JSON.stringify(alt.gram)}`, path: fbase };
+        return { error: "invalid_payload", message: `alts[].fingers key ${JSON.stringify(posKey)} is the wildcard position of ngram ${JSON.stringify(alt.ngram)}`, path: fbase };
       }
       const finger = alt.fingers[posKey]!;
       if (!FINGER_WORDS.has(finger)) {
@@ -551,10 +551,10 @@ function validateAlts(alts: Alt[] | undefined, keys: Record<string, Position>): 
         };
       }
     }
-    if (seen.has(alt.gram)) {
-      return { error: "invalid_payload", message: `duplicate alts[].gram ${JSON.stringify(alt.gram)}`, path: `${base}/gram` };
+    if (seen.has(alt.ngram)) {
+      return { error: "invalid_payload", message: `duplicate alts[].ngram ${JSON.stringify(alt.ngram)}`, path: `${base}/ngram` };
     }
-    seen.add(alt.gram);
+    seen.add(alt.ngram);
   }
   return null;
 }
