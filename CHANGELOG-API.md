@@ -28,7 +28,7 @@ the other (`[LDB-V5]`).
 ## 1.19 — 2026-09-30
 
 LDB-F44..F47, design/alts/07-format.md (round 4, slice D): `spark/1` gains
-two additive optional top-level fields, `alts` (per-context alternate
+two additive optional top-level fields, `alts` (per-gram alternate
 fingerings) and `combos` (two-key chords), both absent when empty, same
 convention `magic`'s own sub-arrays use. `formats["spark/1"]` gains
 `has_alts`/`has_combos` beside `has_magic`; `GET /v1/layouts` gains
@@ -47,18 +47,24 @@ or a chord naming other than two keys). The cmini adapter no longer drops
 meaning, and `migrations/0020_alts_combos.sql` only adds columns
 (backfilled to a no-op for every row stored before this slice).
 
-**Amended in place, still 2026-09-30 (round 4, slice E -- this minor has not
-shipped yet, so it is extended rather than given its own heading, the same
-posture a stored format's own major takes "until the first outside
-adopter", `21-formats.md` D11 / `22-spark-spec.md` §0):** `alt`'s `$def`
-gains `guard?: boolean`
-(absent means false; carries no meaning here at all -- the analyzer
-interprets it) and `altPattern`'s `$def` gains `fingers?`, an object
-mapping a pattern position index (a decimal string key) to a finger,
-overriding the physical source of one of that pattern's own wildcard
-positions. Both strictly additive: a record without them validates and
-lowers exactly as before. `GET /v1/formats/spark/1/schema.json` reflects
-both; no route, no field, and no stored payload's MEANING changes.
+**Shape of `alts`, as of 2026-10-01 (this minor has not shipped, so it is
+rewritten in place rather than given its own heading, the same posture a
+stored format's own major takes "until the first outside adopter",
+`21-formats.md` D11 / `22-spark-spec.md` §0):** `alts` is an array with one
+entry per gram, `{gram, fingers}`. `gram` is 2 or 3 code points; `_` is a
+wildcard allowed only as the middle of a 3-code-point gram; every other
+code point must be a character on the layout. `fingers` is a non-empty
+object mapping a position in the gram (a decimal string) to the finger that
+types that position's character instead of the layout's own; each value
+must differ from that character's own finger and each key must name a
+non-wildcard position within the gram. No two entries share a `gram`.
+Unknown properties are refused. The per-key shape drafted earlier on this
+branch (`key`, `finger`, `when`, `except`, `guard`, per-pattern `fingers`)
+never shipped and has no compatibility path. `GET
+/v1/formats/spark/1/schema.json` reflects the new `alt` `$def`; the
+envelope's `has_alts`, the `?has_alts=` filter and the PATCH `alts` verb are
+unchanged. `?format=mana2/1` still never emits `alts`. A record without
+`alts` is unaffected.
 
 ## 1.18 — 2026-09-29
 
