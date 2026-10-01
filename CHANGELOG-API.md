@@ -47,6 +47,19 @@ or a chord naming other than two keys). The cmini adapter no longer drops
 meaning, and `migrations/0020_alts_combos.sql` only adds columns
 (backfilled to a no-op for every row stored before this slice).
 
+**Amended in place, still 2026-09-30 (round 4, slice E -- this minor has not
+shipped yet, so it is extended rather than given its own heading, the same
+posture a stored format's own major takes "until the first outside
+adopter", `21-formats.md` D11 / `22-spark-spec.md` §0):** `alt`'s `$def`
+gains `guard?: boolean`
+(absent means false; carries no meaning here at all -- the analyzer
+interprets it) and `altPattern`'s `$def` gains `fingers?`, an object
+mapping a pattern position index (a decimal string key) to a finger,
+overriding the physical source of one of that pattern's own wildcard
+positions. Both strictly additive: a record without them validates and
+lowers exactly as before. `GET /v1/formats/spark/1/schema.json` reflects
+both; no route, no field, and no stored payload's MEANING changes.
+
 ## 1.18 — 2026-09-29
 
 LDB-F43: `#333` closed -- a space (`" "`, U+0020) is now accepted as an

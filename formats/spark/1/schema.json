@@ -134,18 +134,24 @@
         "note": { "type": "string" }
       }
     },
+    "altPatternFingers": {
+      "description": "design/alts/07-format.md round 4, slice E: per-position finger overrides for one when/except pattern's own WILDCARD positions -- keyed by pattern position index (a decimal string key) and valued by a finger from the same enum key.finger/alt.finger use. Deliberately loose here (any string key, any string value), same posture altPattern.text/at themselves have: the key must be an integer string within THIS pattern's own length, must not be the pattern's own `at`, must land on a `_` in `text`, and the value must be one of this format's own fingers -- none of that is expressible against a sibling field in JSON Schema, so all of it (with a path-naming message) lives in index.ts's validateAltPatternFingers. Empty (`{}`) is accepted -- no optional container in alts is refused for being empty (except/when's own non-emptiness is a required-field rule, not a convention every optional container follows); omit the field instead if there is nothing to say.",
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
     "altPattern": {
-      "description": "design/alts/07-format.md: 1-5 CODE POINTS (never UTF-16 units -- ajv's minLength/maxLength count the latter, which would wrongly reject or admit astral text; deliberately no maxLength here, same reason rawRule.output/magicKeyRule.after/emit have none) with the alt's own key at `at`; the exact code-point bound and the `_`-off-the-key-position/reach rules live in index.ts's validate().",
+      "description": "design/alts/07-format.md: 1-5 CODE POINTS (never UTF-16 units -- ajv's minLength/maxLength count the latter, which would wrongly reject or admit astral text; deliberately no maxLength here, same reason rawRule.output/magicKeyRule.after/emit have none) with the alt's own key at `at`; the exact code-point bound and the `_`-off-the-key-position/reach rules live in index.ts's validate(). `fingers` (round 4, slice E) is optional, see altPatternFingers.",
       "type": "object",
       "additionalProperties": false,
       "required": ["text", "at"],
       "properties": {
         "text": { "type": "string", "minLength": 1 },
-        "at": { "type": "integer", "minimum": 0 }
+        "at": { "type": "integer", "minimum": 0 },
+        "fingers": { "$ref": "#/$defs/altPatternFingers" }
       }
     },
     "alt": {
-      "description": "design/alts/07-format.md: an alternate fingering for one layout key -- `finger` fires instead of the key's own finger whenever the typed context matches a `when` pattern and no `except` pattern.",
+      "description": "design/alts/07-format.md: an alternate fingering for one layout key -- `finger` fires instead of the key's own finger whenever the typed context matches a `when` pattern and no `except` pattern. `guard` (round 4, slice E) is optional and absent means false; this schema carries no other meaning for it -- the analyzer interprets it.",
       "type": "object",
       "additionalProperties": false,
       "required": ["key", "finger", "when"],
@@ -154,6 +160,7 @@
         "finger": {
           "enum": ["LP", "LR", "LM", "LI", "RI", "RM", "RR", "RP", "LT", "RT"]
         },
+        "guard": { "type": "boolean" },
         "when": {
           "type": "array",
           "items": { "$ref": "#/$defs/altPattern" }

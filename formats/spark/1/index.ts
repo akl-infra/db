@@ -97,13 +97,36 @@ export type { NamedFingering, Fingering } from "./geometry.ts";
 // reach on both sides after aligning on the key, every position equal or a
 // wildcard on either side) -- that would leave it ambiguous which finger
 // applies.
+//
+// Round 4, slice E (design/alts/07-format.md): two further additive,
+// optional fields, both DB-opaque (no semantics beyond their own shape --
+// the analyzer interprets them, same posture `magic.rules[].type` already
+// has for its own free-form word).
+//
+// `guard?: boolean` on the alt itself -- absent means false.
+//
+// `fingers?: Record<string, string>` on a `when`/`except` pattern --
+// per-position finger overrides for the pattern's own WILDCARD positions,
+// keyed by pattern position index (a decimal string key) and valued by a
+// finger from this format's own finger enum. `validateAltPatternFingers`
+// below refuses a key that is not an integer string within the pattern's
+// own length, that names the pattern's own `at` (the key's own position
+// needs no override -- it is already pinned), that lands on a non-wildcard
+// `text` position (a literal character's physical source is already
+// unambiguous via `charMap`'s first-occurrence rule), or a value that is
+// not one of this format's fingers. An empty `fingers: {}` is accepted,
+// same as every other optional container in `alts` (e.g. `except: []`) --
+// nothing here is refused for being empty except `when` itself, whose
+// non-emptiness is a required-field rule, not a general convention.
 export interface AltPattern {
   text: string;
   at: number;
+  fingers?: Record<string, string>;
 }
 export interface Alt {
   key: string;
   finger: string;
+  guard?: boolean;
   when: AltPattern[];
   except?: AltPattern[];
 }
@@ -526,6 +549,64 @@ function validateAltPattern(pat: AltPattern, key: string, base: string): ErrBody
   return null;
 }
 
+// This format's own finger words -- the same enum schema.json duplicates
+// between `key.finger` and `alt.finger` (there is no shared TS source for
+// it; `fingers`' values need the identical check with a custom, path-naming
+// message, so it is duplicated a third time here rather than imported from
+// a schema that is typed as `object`, not a literal union).
+const FINGER_WORDS = new Set(["LP", "LR", "LM", "LI", "RI", "RM", "RR", "RP", "LT", "RT"]);
+
+// design/alts/07-format.md round 4, slice E: `when`/`except.fingers`, keyed
+// by pattern position index. schema.json's `altPatternFingers` is
+// deliberately loose (any string key, any string value) -- same posture
+// `validateAltPattern`'s own `text`/`at` checks already have against a
+// loosely-typed schema -- so every real rule, all dependent on the SIBLING
+// `text`/`at` fields and so not schema-expressible, is checked here, in the
+// order design/alts/07-format.md states them: the key must be an integer
+// string within THIS pattern's own length; the position must not be the
+// pattern's own `at` (the key's own position is already pinned, nothing to
+// override); `text` must hold `_` there (a literal character's physical
+// source is already unambiguous via `charMap`'s first-occurrence rule,
+// nothing to disambiguate); the value must be one of this format's own
+// fingers.
+function validateAltPatternFingers(pat: AltPattern, base: string): ErrBody | null {
+  if (pat.fingers === undefined) return null;
+  const cps = [...pat.text];
+  for (const posKey of Object.keys(pat.fingers)) {
+    const fbase = `${base}/fingers/${posKey}`;
+    if (!/^(?:0|[1-9][0-9]*)$/.test(posKey)) {
+      return { error: "invalid_payload", message: `alts[].when/except fingers key ${JSON.stringify(posKey)} must be an integer string`, path: fbase };
+    }
+    const idx = Number(posKey);
+    if (idx > cps.length - 1) {
+      return {
+        error: "invalid_payload",
+        message: `alts[].when/except fingers key ${JSON.stringify(posKey)} is out of range for text ${JSON.stringify(pat.text)}`,
+        path: fbase,
+      };
+    }
+    if (idx === pat.at) {
+      return {
+        error: "invalid_payload",
+        message: `alts[].when/except fingers key ${JSON.stringify(posKey)} is the pattern's own key position ('at' ${pat.at}) -- it never takes a finger override`,
+        path: fbase,
+      };
+    }
+    if (cps[idx] !== "_") {
+      return {
+        error: "invalid_payload",
+        message: `alts[].when/except fingers key ${JSON.stringify(posKey)} is not a wildcard in text ${JSON.stringify(pat.text)}`,
+        path: fbase,
+      };
+    }
+    const finger = pat.fingers[posKey]!;
+    if (!FINGER_WORDS.has(finger)) {
+      return { error: "invalid_payload", message: `alts[].when/except fingers value ${JSON.stringify(finger)} for position ${posKey} is not a valid finger`, path: fbase };
+    }
+  }
+  return null;
+}
+
 // Two `when` patterns "co-match" (design/alts/07-format.md) when, aligned on
 // their own key position (so relative offset 0 is the key in both), they
 // cover the exact same reach on both sides and every aligned position is
@@ -552,12 +633,13 @@ function patternsCoMatch(a: AltPattern, b: AltPattern): boolean {
 // occurrence, no uniqueness requirement -- unlike a magic/chiral key's own
 // char, an alt's key is a plain positional reference, not something magic
 // addresses by identity); `finger` must differ from that key's own finger
-// (the schema's enum already refuses a non-finger word); each `when`/
-// `except` pattern is checked by `validateAltPattern`; no duplicate pattern
-// text within one alt's own `when` union `except`; `when` is non-empty; two
-// alts on the SAME key with DIFFERENT fingers may not have co-matching
-// `when` patterns (`except` is never compared -- only `when` decides
-// whether an alt fires at all).
+// (the schema's enum already refuses a non-finger word); `guard` has no
+// semantics here at all (DB-opaque, schema-typed only); each `when`/
+// `except` pattern is checked by `validateAltPattern` then
+// `validateAltPatternFingers`; no duplicate pattern text within one alt's
+// own `when` union `except`; `when` is non-empty; two alts on the SAME key
+// with DIFFERENT fingers may not have co-matching `when` patterns (`except`
+// is never compared -- only `when` decides whether an alt fires at all).
 function validateAlts(alts: Alt[] | undefined, keys: Record<string, Position>): ErrBody | null {
   if (alts === undefined) return null;
   const byKey = new Map<string, { finger: string; index: number }[]>();
@@ -588,6 +670,8 @@ function validateAlts(alts: Alt[] | undefined, keys: Record<string, Position>): 
         const pat = list[j]!;
         const patErr = validateAltPattern(pat, alt.key, `${base}/${field}/${j}`);
         if (patErr) return patErr;
+        const fingersErr = validateAltPatternFingers(pat, `${base}/${field}/${j}`);
+        if (fingersErr) return fingersErr;
         if (seenPatterns.has(pat.text)) {
           return { error: "invalid_payload", message: `duplicate alts[].when/except text ${JSON.stringify(pat.text)} for key ${JSON.stringify(alt.key)}`, path: `${base}/${field}/${j}` };
         }

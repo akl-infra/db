@@ -3691,6 +3691,14 @@
                         }
                       }
                     },
+                    "guard": {
+                      "type": "object",
+                      "fields": {
+                        "type": {
+                          "type": "string"
+                        }
+                      }
+                    },
                     "key": {
                       "type": "object",
                       "fields": {
@@ -3751,6 +3759,14 @@
                         }
                       }
                     },
+                    "fingers": {
+                      "type": "object",
+                      "fields": {
+                        "$ref": {
+                          "type": "string"
+                        }
+                      }
+                    },
                     "text": {
                       "type": "object",
                       "fields": {
@@ -3769,6 +3785,25 @@
                   "item": {
                     "type": "string"
                   }
+                },
+                "type": {
+                  "type": "string"
+                }
+              }
+            },
+            "altPatternFingers": {
+              "type": "object",
+              "fields": {
+                "additionalProperties": {
+                  "type": "object",
+                  "fields": {
+                    "type": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "description": {
+                  "type": "string"
                 },
                 "type": {
                   "type": "string"

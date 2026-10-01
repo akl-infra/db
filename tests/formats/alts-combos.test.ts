@@ -183,6 +183,103 @@ describe("[LDB-F44] spark/1 alts", () => {
   });
 });
 
+// [LDB-F44] design/alts/07-format.md round 4, slice E: two further additive,
+// optional fields -- `alts[].guard` (DB-opaque, schema-typed only -- the
+// analyzer interprets it, nothing here checks it beyond `boolean`) and
+// `when`/`except.fingers` (per-position finger overrides on a pattern's own
+// wildcard positions, validated by `validateAltPatternFingers`).
+describe("[LDB-F44] spark/1 alts: guard and when/except.fingers", () => {
+  it("[LDB-F44] the full example (guard + a when pattern's fingers override) validates", () => {
+    const alts: Alt[] = [
+      {
+        key: "g",
+        finger: "RI",
+        guard: true,
+        when: [
+          { text: "gs", at: 0 },
+          { text: "_g", at: 1, fingers: { "0": "LM" } },
+        ],
+        except: [{ text: "egs", at: 1 }],
+      },
+    ];
+    expect(spark1.validate(payloadWith({ alts })).ok).toBe(true);
+  });
+
+  it("[LDB-F44] guard defaults to absent/false and is accepted either way", () => {
+    expect(spark1.validate(payloadWith({ alts: [{ key: "g", finger: "RI", when: [{ text: "g", at: 0 }] }] })).ok).toBe(true);
+    expect(spark1.validate(payloadWith({ alts: [{ key: "g", finger: "RI", guard: false, when: [{ text: "g", at: 0 }] }] })).ok).toBe(
+      true,
+    );
+  });
+
+  it("[LDB-F44] an empty fingers object is accepted, same as every other optional container in alts", () => {
+    expect(
+      spark1.validate(payloadWith({ alts: [{ key: "g", finger: "RI", when: [{ text: "_g", at: 1, fingers: {} }] }] })).ok,
+    ).toBe(true);
+  });
+
+  it("[LDB-F44] a fingers key must be an integer string", () => {
+    expect(
+      refusal({ alts: [{ key: "g", finger: "RI", when: [{ text: "_g", at: 1, fingers: { x: "LM" } }] }] }),
+    ).toEqual({
+      message: `alts[].when/except fingers key "x" must be an integer string`,
+      path: "/alts/0/when/0/fingers/x",
+    });
+  });
+
+  it("[LDB-F44] a fingers key must be within the pattern's own length", () => {
+    expect(
+      refusal({ alts: [{ key: "g", finger: "RI", when: [{ text: "_g", at: 1, fingers: { "2": "LM" } }] }] }),
+    ).toEqual({
+      message: `alts[].when/except fingers key "2" is out of range for text "_g"`,
+      path: "/alts/0/when/0/fingers/2",
+    });
+  });
+
+  it("[LDB-F44] a fingers key may not be the pattern's own 'at'", () => {
+    expect(
+      refusal({ alts: [{ key: "g", finger: "RI", when: [{ text: "_g", at: 1, fingers: { "1": "LM" } }] }] }),
+    ).toEqual({
+      message: `alts[].when/except fingers key "1" is the pattern's own key position ('at' 1) -- it never takes a finger override`,
+      path: "/alts/0/when/0/fingers/1",
+    });
+  });
+
+  it("[LDB-F44] a fingers key must land on a wildcard ('_') in text", () => {
+    expect(
+      refusal({ alts: [{ key: "g", finger: "RI", when: [{ text: "egs", at: 1, fingers: { "0": "LM" } }] }] }),
+    ).toEqual({
+      message: `alts[].when/except fingers key "0" is not a wildcard in text "egs"`,
+      path: "/alts/0/when/0/fingers/0",
+    });
+  });
+
+  it("[LDB-F44] a fingers value must be a valid finger", () => {
+    expect(
+      refusal({ alts: [{ key: "g", finger: "RI", when: [{ text: "_g", at: 1, fingers: { "0": "ZZ" } }] }] }),
+    ).toEqual({
+      message: `alts[].when/except fingers value "ZZ" for position 0 is not a valid finger`,
+      path: "/alts/0/when/0/fingers/0",
+    });
+  });
+
+  it("[LDB-F44] a record without guard/fingers validates and lowers to mana2/1 byte-identically to before this slice", () => {
+    const payload = payloadWith({
+      alts: [{ key: "g", finger: "LI", when: [{ text: "gs", at: 0 }] }],
+      combos: [{ keys: ["g", "s"], output: "th" }],
+    });
+    expect(spark1.validate(payload)).toEqual({ ok: true });
+    expect(spark1.to["mana2/1"]!(payload)).toEqual({
+      layout: { fingers: ["", "skip skip s e g skip n f"] },
+      fingermap: ["", "0 0 2 3 2 0 6 7"],
+      board: { isRowStaggered: true, rowOrColumnStagger: [0, 0.25, 0.75], mirrorLeftRowStagger: false, splitAngle: 0 },
+      magic: { rules: [], magicKeys: null },
+      layers: null,
+      combos: [{ inputs: ["gs"], output: "th" }],
+    });
+  });
+});
+
 describe("[LDB-F44] spark/1 combos", () => {
   it("[LDB-F44] a valid combo validates", () => {
     expect(spark1.validate(payloadWith({ combos: [{ keys: ["g", "s"], output: "th" }] })).ok).toBe(true);

@@ -359,7 +359,26 @@ all).
 
 `alts` is absent when empty, same convention `magic`'s own sub-arrays use.
 
-*Schema: `db/formats/spark/1/schema.json`'s `alt`/`altPattern` `$def`s (no `maxLength` on `text` -- code-point exactness is not expressible in JSON Schema, same reason `rawRule.output`/`magicKeyRule.after`/`emit` have none). Semantics: `db/formats/spark/1/index.ts`'s `validateAlts`/`validateAltPattern`/`patternsCoMatch`. LDB-F44.*
+Round 4, slice E adds two further additive, optional fields, both carrying
+NO semantics in the DB itself -- the analyzer interprets them:
+
+- `alts[].guard?: boolean`, absent meaning false.
+- `when[].fingers?`/`except[].fingers?`: an object mapping a pattern
+  position index (a decimal string key) to a finger from the same enum
+  `key.finger`/`alt.finger` use -- a per-position override for the physical
+  source of one of the pattern's own WILDCARD characters (an ambiguous
+  context character `charMap` can't pin to a single position/finger on its
+  own, e.g. a both-hands duplicate). Every key must be an integer string
+  within THIS pattern's own length; the position must not be the pattern's
+  own `at` (the key's own position is already pinned, nothing to
+  override); `text` must hold `_` there (a literal character's physical
+  source is already unambiguous via `charMap`'s first-occurrence rule); the
+  value must be one of this format's own fingers. An empty `fingers: {}` is
+  accepted -- no optional container in `alts` is refused for being empty
+  (`when`'s own non-emptiness is a required-field rule, not a general
+  convention); omit the field instead if there is nothing to say.
+
+*Schema: `db/formats/spark/1/schema.json`'s `alt`/`altPattern`/`altPatternFingers` `$def`s (no `maxLength` on `text` -- code-point exactness is not expressible in JSON Schema, same reason `rawRule.output`/`magicKeyRule.after`/`emit` have none; `altPatternFingers` is deliberately loose, same posture `text`/`at` have, since its real rules all depend on the sibling `text`/`at` fields). Semantics: `db/formats/spark/1/index.ts`'s `validateAlts`/`validateAltPattern`/`validateAltPatternFingers`/`patternsCoMatch`. LDB-F44.*
 
 ## 5b. Combos
 
