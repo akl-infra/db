@@ -2,7 +2,7 @@
 // additive optional top-level fields, `alts` and `combos`. Every rule 07
 // states is exercised here, positive and negative, path-checked -- the same
 // convention magic-aklgg-validation.test.ts uses for spark/1's other
-// cross-field checks (schema.json can't express any of these; they all live
+// cross-field checks (schema.json can't express most of these; they live
 // in index.ts's validate()).
 import { describe, expect, it } from "vitest";
 import * as spark1 from "../../formats/spark/1/index.ts";
@@ -25,247 +25,180 @@ function refusal(extra: { alts?: Alt[]; combos?: Combo[] }) {
   return result.ok ? null : { message: result.error.message, path: result.error.path };
 }
 
-describe("[LDB-F44] spark/1 alts", () => {
-  it("[LDB-F44] a valid alt (when + except, different finger) validates", () => {
+describe("[LDB-F44] spark/1 alts (one entry per gram)", () => {
+  it("[LDB-F44] valid grams validate: 3-char, wildcard middle, 2-char, several fingers", () => {
     const alts: Alt[] = [
-      {
-        key: "g",
-        finger: "LI",
-        when: [
-          { text: "gs", at: 0 },
-          { text: "g_s", at: 0 },
-        ],
-        except: [{ text: "egs", at: 1 }],
-      },
+      { gram: "egs", fingers: { "0": "LP", "1": "LR" } },
+      { gram: "n_f", fingers: { "2": "RI" } },
+      { gram: "gs", fingers: { "1": "RP" } },
     ];
     expect(spark1.validate(payloadWith({ alts })).ok).toBe(true);
   });
 
-  it("[LDB-F44] alts[].key must be one of the layout's keys", () => {
-    expect(refusal({ alts: [{ key: "z", finger: "RP", when: [{ text: "z", at: 0 }] }] })).toEqual({
-      message: `alts[].key "z" is not one of this layout's keys`,
-      path: "/alts/0/key",
+  it("[LDB-F44] a gram must be 2 or 3 code points: 1 is refused", () => {
+    expect(refusal({ alts: [{ gram: "g", fingers: { "0": "LI" } }] })).toEqual({
+      message: `alts[].gram must be 2 or 3 code points, got "g"`,
+      path: "/alts/0/gram",
     });
   });
 
-  it("[LDB-F44] alts[].finger must differ from the key's own finger", () => {
-    expect(refusal({ alts: [{ key: "g", finger: "LM", when: [{ text: "g", at: 0 }] }] })).toEqual({
-      message: `alts[].finger "LM" for key "g" must differ from the key's own finger`,
-      path: "/alts/0/finger",
+  it("[LDB-F44] a gram must be 2 or 3 code points: 4 is refused", () => {
+    expect(refusal({ alts: [{ gram: "egsn", fingers: { "0": "LP" } }] })).toEqual({
+      message: `alts[].gram must be 2 or 3 code points, got "egsn"`,
+      path: "/alts/0/gram",
     });
   });
 
-  it("[LDB-F44] alts[].when must be non-empty", () => {
-    expect(refusal({ alts: [{ key: "g", finger: "LI", when: [] }] })).toEqual({
-      message: `alts[].when must be non-empty (key "g")`,
-      path: "/alts/0/when",
+  it("[LDB-F44] the empty gram is refused", () => {
+    expect(refusal({ alts: [{ gram: "", fingers: { "0": "LP" } }] })?.path).toBe("/alts/0/gram");
+  });
+
+  it("[LDB-F44] astral code points count once, not as UTF-16 units", () => {
+    // two astral code points are a 2-code-point gram (4 UTF-16 units): the
+    // length check passes and the layout-key check is what refuses them.
+    expect(refusal({ alts: [{ gram: "\u{1F600}\u{1F601}", fingers: { "0": "LP" } }] })).toEqual({
+      message: `alts[].gram "\u{1F600}\u{1F601}" has "\u{1F600}", which is not one of this layout's keys`,
+      path: "/alts/0/gram",
     });
   });
 
-  it("[LDB-F44] a pattern must be 1-5 code points", () => {
-    expect(refusal({ alts: [{ key: "g", finger: "LI", when: [{ text: "abcdeg", at: 5 }] }] })).toEqual({
-      message: `alts[].when/except text must be 1-5 code points, got "abcdeg"`,
-      path: "/alts/0/when/0/text",
+  it("[LDB-F44] '_' at the start of a 3-code-point gram is refused", () => {
+    expect(refusal({ alts: [{ gram: "_gs", fingers: { "1": "LI" } }] })).toEqual({
+      message: `alts[].gram "_gs" has a wildcard '_' at position 0; '_' is allowed only as the middle of a 3-code-point gram`,
+      path: "/alts/0/gram",
     });
   });
 
-  it("[LDB-F44] a 5-char pattern with the key in the middle (reach 2,2) validates", () => {
-    expect(spark1.validate(payloadWith({ alts: [{ key: "g", finger: "LI", when: [{ text: "abgde", at: 2 }] }] })).ok).toBe(
-      true,
+  it("[LDB-F44] '_' at the end of a 3-code-point gram is refused", () => {
+    expect(refusal({ alts: [{ gram: "gs_", fingers: { "0": "LI" } }] })).toEqual({
+      message: `alts[].gram "gs_" has a wildcard '_' at position 2; '_' is allowed only as the middle of a 3-code-point gram`,
+      path: "/alts/0/gram",
+    });
+  });
+
+  it("[LDB-F44] '_' in a 2-code-point gram is refused (so is an all-wildcard gram)", () => {
+    expect(refusal({ alts: [{ gram: "g_", fingers: { "0": "LI" } }] })?.path).toBe("/alts/0/gram");
+    expect(refusal({ alts: [{ gram: "_g", fingers: { "1": "LI" } }] })?.path).toBe("/alts/0/gram");
+    expect(refusal({ alts: [{ gram: "___", fingers: { "0": "LI" } }] })?.path).toBe("/alts/0/gram");
+    expect(refusal({ alts: [{ gram: "__", fingers: { "0": "LI" } }] })?.path).toBe("/alts/0/gram");
+  });
+
+  it("[LDB-F44] every non-wildcard code point must be one of the layout's keys", () => {
+    expect(refusal({ alts: [{ gram: "gzs", fingers: { "0": "LI" } }] })).toEqual({
+      message: `alts[].gram "gzs" has "z", which is not one of this layout's keys`,
+      path: "/alts/0/gram",
+    });
+    expect(refusal({ alts: [{ gram: "g_z", fingers: { "0": "LI" } }] })).toEqual({
+      message: `alts[].gram "g_z" has "z", which is not one of this layout's keys`,
+      path: "/alts/0/gram",
+    });
+  });
+
+  it("[LDB-F44] fingers must be non-empty (schema rule)", () => {
+    const result = spark1.validate(payloadWith({ alts: [{ gram: "gs", fingers: {} }] }));
+    expect(result.ok).toBe(false);
+    expect(result.ok ? null : result.error.path).toBe("/alts/0/fingers");
+  });
+
+  it("[LDB-F44] fingers is required (schema rule)", () => {
+    const result = spark1.validate(payloadWith({ alts: [{ gram: "gs" } as unknown as Alt] }));
+    expect(result.ok).toBe(false);
+    expect(result.ok ? null : result.error.path).toBe("/alts/0");
+  });
+
+  it("[LDB-F44] every old-shape field is an unknown property", () => {
+    for (const extra of [{ key: "g" }, { finger: "LI" }, { when: [] }, { except: [] }, { guard: true }]) {
+      const result = spark1.validate(payloadWith({ alts: [{ gram: "gs", fingers: { "0": "LI" }, ...extra } as unknown as Alt] }));
+      expect(result.ok, JSON.stringify(extra)).toBe(false);
+    }
+    // an old-shape entry has no gram and is refused as a whole.
+    const old = spark1.validate(
+      payloadWith({ alts: [{ key: "g", finger: "LI", when: [{ text: "gs", at: 0 }] } as unknown as Alt] }),
     );
-  });
-
-  it("[LDB-F44] a 4-char pattern with the key first (right reach 3) is refused", () => {
-    expect(refusal({ alts: [{ key: "g", finger: "LI", when: [{ text: "gabc", at: 0 }] }] })).toEqual({
-      message: `alts[].when/except text "gabc" reaches more than 2 positions from the key`,
-      path: "/alts/0/when/0/text",
-    });
-  });
-
-  it("[LDB-F44] an except pattern may be longer than its when", () => {
-    expect(
-      spark1.validate(
-        payloadWith({
-          alts: [
-            {
-              key: "g",
-              finger: "LI",
-              when: [{ text: "gs", at: 0 }],
-              except: [{ text: "egsn", at: 1 }],
-            },
-          ],
-        }),
-      ).ok,
-    ).toBe(true);
-  });
-
-  it("[LDB-F44] 'at' must be in range for the text", () => {
-    expect(refusal({ alts: [{ key: "g", finger: "LI", when: [{ text: "g", at: 1 }] }] })).toEqual({
-      message: `alts[].when/except 'at' (1) is out of range for text "g"`,
-      path: "/alts/0/when/0/at",
-    });
-  });
-
-  it("[LDB-F44] the text must have the key at 'at'", () => {
-    expect(refusal({ alts: [{ key: "g", finger: "LI", when: [{ text: "gs", at: 1 }] }] })).toEqual({
-      message: `alts[].when/except text "gs" does not have key "g" at position 1`,
-      path: "/alts/0/when/0/at",
-    });
-  });
-
-  it("[LDB-F44] no duplicate pattern within one alt's when ∪ except", () => {
-    expect(
-      refusal({
-        alts: [
-          {
-            key: "g",
-            finger: "LI",
-            when: [{ text: "gs", at: 0 }],
-            except: [{ text: "gs", at: 0 }],
-          },
-        ],
-      }),
-    ).toEqual({
-      message: `duplicate alts[].when/except text "gs" for key "g"`,
-      path: "/alts/0/except/0",
-    });
-  });
-
-  it("[LDB-F44] two alts on the same key with different fingers may not have co-matching whens", () => {
-    expect(
-      refusal({
-        alts: [
-          { key: "g", finger: "LI", when: [{ text: "gs", at: 0 }] },
-          { key: "g", finger: "RI", when: [{ text: "gs", at: 0 }] },
-        ],
-      }),
-    ).toEqual({
-      message: `alts[].key "g" has two fingerings ("LI", "RI") whose 'when' patterns co-match -- ambiguous which finger applies`,
-      path: "/alts/1/when",
-    });
-  });
-
-  it("[LDB-F44] a wildcard co-matches a literal at the same aligned position", () => {
-    expect(
-      refusal({
-        alts: [
-          { key: "g", finger: "LI", when: [{ text: "g_s", at: 0 }] },
-          { key: "g", finger: "RI", when: [{ text: "gxs", at: 0 }] },
-        ],
-      }),
-    ).not.toBeNull();
-  });
-
-  it("[LDB-F44] two alts on the same key with the SAME finger are unaffected by co-matching (not a fingering ambiguity)", () => {
-    expect(
-      spark1.validate(
-        payloadWith({
-          alts: [
-            { key: "g", finger: "LI", when: [{ text: "gs", at: 0 }] },
-            { key: "g", finger: "LI", when: [{ text: "gs", at: 0 }] },
-          ],
-        }),
-      ).ok,
-    ).toBe(true);
-  });
-
-  it("[LDB-F44] two alts on the same key with different fingers but non-co-matching whens (different reach) are fine", () => {
-    expect(
-      spark1.validate(
-        payloadWith({
-          alts: [
-            { key: "g", finger: "LI", when: [{ text: "gs", at: 0 }] },
-            { key: "g", finger: "RI", when: [{ text: "egs", at: 1 }] },
-          ],
-        }),
-      ).ok,
-    ).toBe(true);
-  });
-});
-
-// [LDB-F44] design/alts/07-format.md round 4, slice E: two further additive,
-// optional fields -- `alts[].guard` (DB-opaque, schema-typed only -- the
-// analyzer interprets it, nothing here checks it beyond `boolean`) and
-// `when`/`except.fingers` (per-position finger overrides on a pattern's own
-// wildcard positions, validated by `validateAltPatternFingers`).
-describe("[LDB-F44] spark/1 alts: guard and when/except.fingers", () => {
-  it("[LDB-F44] the full example (guard + a when pattern's fingers override) validates", () => {
-    const alts: Alt[] = [
-      {
-        key: "g",
-        finger: "RI",
-        guard: true,
-        when: [
-          { text: "gs", at: 0 },
-          { text: "_g", at: 1, fingers: { "0": "LM" } },
-        ],
-        except: [{ text: "egs", at: 1 }],
-      },
-    ];
-    expect(spark1.validate(payloadWith({ alts })).ok).toBe(true);
-  });
-
-  it("[LDB-F44] guard defaults to absent/false and is accepted either way", () => {
-    expect(spark1.validate(payloadWith({ alts: [{ key: "g", finger: "RI", when: [{ text: "g", at: 0 }] }] })).ok).toBe(true);
-    expect(spark1.validate(payloadWith({ alts: [{ key: "g", finger: "RI", guard: false, when: [{ text: "g", at: 0 }] }] })).ok).toBe(
-      true,
-    );
-  });
-
-  it("[LDB-F44] an empty fingers object is accepted, same as every other optional container in alts", () => {
-    expect(
-      spark1.validate(payloadWith({ alts: [{ key: "g", finger: "RI", when: [{ text: "_g", at: 1, fingers: {} }] }] })).ok,
-    ).toBe(true);
+    expect(old.ok).toBe(false);
   });
 
   it("[LDB-F44] a fingers key must be an integer string", () => {
-    expect(
-      refusal({ alts: [{ key: "g", finger: "RI", when: [{ text: "_g", at: 1, fingers: { x: "LM" } }] }] }),
-    ).toEqual({
-      message: `alts[].when/except fingers key "x" must be an integer string`,
-      path: "/alts/0/when/0/fingers/x",
+    expect(refusal({ alts: [{ gram: "gs", fingers: { x: "LI" } }] })).toEqual({
+      message: `alts[].fingers key "x" must be an integer string`,
+      path: "/alts/0/fingers/x",
     });
+    expect(refusal({ alts: [{ gram: "gs", fingers: { "01": "LI" } }] })?.path).toBe("/alts/0/fingers/01");
+    expect(refusal({ alts: [{ gram: "gs", fingers: { "-1": "LI" } }] })?.path).toBe("/alts/0/fingers/-1");
+    expect(refusal({ alts: [{ gram: "gs", fingers: { "0.5": "LI" } }] })?.path).toBe("/alts/0/fingers/0.5");
   });
 
-  it("[LDB-F44] a fingers key must be within the pattern's own length", () => {
-    expect(
-      refusal({ alts: [{ key: "g", finger: "RI", when: [{ text: "_g", at: 1, fingers: { "2": "LM" } }] }] }),
-    ).toEqual({
-      message: `alts[].when/except fingers key "2" is out of range for text "_g"`,
-      path: "/alts/0/when/0/fingers/2",
+  it("[LDB-F44] a fingers key must be within the gram's length", () => {
+    expect(refusal({ alts: [{ gram: "gs", fingers: { "2": "LI" } }] })).toEqual({
+      message: `alts[].fingers key "2" is out of range for gram "gs"`,
+      path: "/alts/0/fingers/2",
     });
+    expect(spark1.validate(payloadWith({ alts: [{ gram: "egs", fingers: { "2": "LP" } }] })).ok).toBe(true);
   });
 
-  it("[LDB-F44] a fingers key may not be the pattern's own 'at'", () => {
-    expect(
-      refusal({ alts: [{ key: "g", finger: "RI", when: [{ text: "_g", at: 1, fingers: { "1": "LM" } }] }] }),
-    ).toEqual({
-      message: `alts[].when/except fingers key "1" is the pattern's own key position ('at' 1) -- it never takes a finger override`,
-      path: "/alts/0/when/0/fingers/1",
-    });
-  });
-
-  it("[LDB-F44] a fingers key must land on a wildcard ('_') in text", () => {
-    expect(
-      refusal({ alts: [{ key: "g", finger: "RI", when: [{ text: "egs", at: 1, fingers: { "0": "LM" } }] }] }),
-    ).toEqual({
-      message: `alts[].when/except fingers key "0" is not a wildcard in text "egs"`,
-      path: "/alts/0/when/0/fingers/0",
+  it("[LDB-F44] a fingers key may not name the wildcard position", () => {
+    expect(refusal({ alts: [{ gram: "g_s", fingers: { "1": "LI" } }] })).toEqual({
+      message: `alts[].fingers key "1" is the wildcard position of gram "g_s"`,
+      path: "/alts/0/fingers/1",
     });
   });
 
   it("[LDB-F44] a fingers value must be a valid finger", () => {
-    expect(
-      refusal({ alts: [{ key: "g", finger: "RI", when: [{ text: "_g", at: 1, fingers: { "0": "ZZ" } }] }] }),
-    ).toEqual({
-      message: `alts[].when/except fingers value "ZZ" for position 0 is not a valid finger`,
-      path: "/alts/0/when/0/fingers/0",
+    expect(refusal({ alts: [{ gram: "gs", fingers: { "0": "ZZ" } }] })).toEqual({
+      message: `alts[].fingers value "ZZ" for position 0 is not a valid finger`,
+      path: "/alts/0/fingers/0",
     });
   });
 
-  it("[LDB-F44] a record without guard/fingers validates and lowers to mana2/1 byte-identically to before this slice", () => {
+  it("[LDB-F44] a fingers value must differ from that character's own finger", () => {
+    // g is LM, s is LM, e is LI.
+    expect(refusal({ alts: [{ gram: "gs", fingers: { "0": "LM" } }] })).toEqual({
+      message: `alts[].fingers value "LM" for position 0 ("g") must differ from the key's own finger`,
+      path: "/alts/0/fingers/0",
+    });
+    // the rule is per position's own character: LI differs from g's LM, equals e's own.
+    expect(spark1.validate(payloadWith({ alts: [{ gram: "ge", fingers: { "0": "LI" } }] })).ok).toBe(true);
+    expect(refusal({ alts: [{ gram: "ge", fingers: { "1": "LI" } }] })?.path).toBe("/alts/0/fingers/1");
+  });
+
+  it("[LDB-F44] checks run in order: a bad gram is reported before a bad fingers entry", () => {
+    expect(refusal({ alts: [{ gram: "gzs", fingers: { x: "ZZ" } }] })?.path).toBe("/alts/0/gram");
+    expect(refusal({ alts: [{ gram: "gs", fingers: { "5": "ZZ" } }] })?.path).toBe("/alts/0/fingers/5");
+  });
+
+  it("[LDB-F44] no two alts may share a gram", () => {
+    expect(
+      refusal({
+        alts: [
+          { gram: "gs", fingers: { "0": "LI" } },
+          { gram: "es", fingers: { "0": "LP" } },
+          { gram: "gs", fingers: { "1": "RP" } },
+        ],
+      }),
+    ).toEqual({
+      message: `duplicate alts[].gram "gs"`,
+      path: "/alts/2/gram",
+    });
+  });
+
+  it("[LDB-F44] grams that differ only by wildcard or order are distinct", () => {
+    const alts: Alt[] = [
+      { gram: "gs", fingers: { "0": "LI" } },
+      { gram: "sg", fingers: { "0": "LI" } },
+      { gram: "g_s", fingers: { "0": "LI" } },
+    ];
+    expect(spark1.validate(payloadWith({ alts })).ok).toBe(true);
+  });
+
+  it("[LDB-F44] an error in a later alt names that alt's own index", () => {
+    expect(refusal({ alts: [{ gram: "gs", fingers: { "0": "LI" } }, { gram: "nf", fingers: { "0": "RI" } }] })?.path).toBe(
+      "/alts/1/fingers/0",
+    );
+  });
+
+  it("[LDB-F44] a record with alts lowers to mana2/1 with the alts dropped (documented loss) and combos kept", () => {
     const payload = payloadWith({
-      alts: [{ key: "g", finger: "LI", when: [{ text: "gs", at: 0 }] }],
+      alts: [{ gram: "gs", fingers: { "0": "LI" } }],
       combos: [{ keys: ["g", "s"], output: "th" }],
     });
     expect(spark1.validate(payload)).toEqual({ ok: true });
@@ -277,6 +210,11 @@ describe("[LDB-F44] spark/1 alts: guard and when/except.fingers", () => {
       layers: null,
       combos: [{ inputs: ["gs"], output: "th" }],
     });
+  });
+
+  it("[LDB-F44] a record without alts is untouched by the alts rules", () => {
+    expect(spark1.validate(payloadWith({})).ok).toBe(true);
+    expect(spark1.validate(payloadWith({ alts: [] })).ok).toBe(true);
   });
 });
 
@@ -347,7 +285,7 @@ describe("[LDB-F44] hasAlts/hasCombos", () => {
   it("[LDB-F44] hasAlts/hasCombos are false when absent or empty, true when non-empty", () => {
     expect(spark1.hasAlts(payloadWith({}))).toBe(false);
     expect(spark1.hasAlts(payloadWith({ alts: [] }))).toBe(false);
-    expect(spark1.hasAlts(payloadWith({ alts: [{ key: "g", finger: "LI", when: [{ text: "g", at: 0 }] }] }))).toBe(true);
+    expect(spark1.hasAlts(payloadWith({ alts: [{ gram: "gs", fingers: { "0": "LI" } }] }))).toBe(true);
 
     expect(spark1.hasCombos(payloadWith({}))).toBe(false);
     expect(spark1.hasCombos(payloadWith({ combos: [] }))).toBe(false);

@@ -3664,115 +3664,28 @@
                 "properties": {
                   "type": "object",
                   "fields": {
-                    "except": {
-                      "type": "object",
-                      "fields": {
-                        "items": {
-                          "type": "object",
-                          "fields": {
-                            "$ref": {
-                              "type": "string"
-                            }
-                          }
-                        },
-                        "type": {
-                          "type": "string"
-                        }
-                      }
-                    },
-                    "finger": {
-                      "type": "object",
-                      "fields": {
-                        "enum": {
-                          "type": "array",
-                          "item": {
-                            "type": "string"
-                          }
-                        }
-                      }
-                    },
-                    "guard": {
-                      "type": "object",
-                      "fields": {
-                        "type": {
-                          "type": "string"
-                        }
-                      }
-                    },
-                    "key": {
-                      "type": "object",
-                      "fields": {
-                        "type": {
-                          "type": "string"
-                        }
-                      }
-                    },
-                    "when": {
-                      "type": "object",
-                      "fields": {
-                        "items": {
-                          "type": "object",
-                          "fields": {
-                            "$ref": {
-                              "type": "string"
-                            }
-                          }
-                        },
-                        "type": {
-                          "type": "string"
-                        }
-                      }
-                    }
-                  }
-                },
-                "required": {
-                  "type": "array",
-                  "item": {
-                    "type": "string"
-                  }
-                },
-                "type": {
-                  "type": "string"
-                }
-              }
-            },
-            "altPattern": {
-              "type": "object",
-              "fields": {
-                "additionalProperties": {
-                  "type": "boolean"
-                },
-                "description": {
-                  "type": "string"
-                },
-                "properties": {
-                  "type": "object",
-                  "fields": {
-                    "at": {
-                      "type": "object",
-                      "fields": {
-                        "minimum": {
-                          "type": "number"
-                        },
-                        "type": {
-                          "type": "string"
-                        }
-                      }
-                    },
                     "fingers": {
                       "type": "object",
                       "fields": {
-                        "$ref": {
+                        "additionalProperties": {
+                          "type": "object",
+                          "fields": {
+                            "type": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "minProperties": {
+                          "type": "number"
+                        },
+                        "type": {
                           "type": "string"
                         }
                       }
                     },
-                    "text": {
+                    "gram": {
                       "type": "object",
                       "fields": {
-                        "minLength": {
-                          "type": "number"
-                        },
                         "type": {
                           "type": "string"
                         }
@@ -3785,25 +3698,6 @@
                   "item": {
                     "type": "string"
                   }
-                },
-                "type": {
-                  "type": "string"
-                }
-              }
-            },
-            "altPatternFingers": {
-              "type": "object",
-              "fields": {
-                "additionalProperties": {
-                  "type": "object",
-                  "fields": {
-                    "type": {
-                      "type": "string"
-                    }
-                  }
-                },
-                "description": {
-                  "type": "string"
                 },
                 "type": {
                   "type": "string"

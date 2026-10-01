@@ -54,11 +54,9 @@ never the reverse.
 
 Layers, hold-taps, per-key timing. Those belong to advanced formats until
 an idiom for them is proven in one (01 §4). `combos` (two-key chords) and
-`alts` (per-context alternate fingerings, closing `#148`) shipped
-additively, design/alts/07-format.md (round 4, slice D, 2026-09-30); slice
-E (same day) added two further additive, optional fields -- `alts[].guard`
-and `when`/`except.fingers` (per-position finger overrides), both
-DB-opaque, schema-typed only -- see §5's sibling sections in
+`alts` (per-gram alternate fingerings, closing `#148`) shipped
+additively, design/alts/07-format.md (round 4, 2026-09-30, reshaped to one
+entry per gram on 2026-10-01 before release) -- see §5's sibling sections in
 `design/layout-db/22-spark-spec.md` for the normative shapes.
 
 ## What importing from cmini loses

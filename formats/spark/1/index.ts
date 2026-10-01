@@ -81,54 +81,16 @@ export type { MagicIntent, MagicKey, ChiralKey, AdaptiveSwap, RawRule };
 export { classifyFingering, gridIndent, FINGERING_REFS } from "./geometry.ts";
 export type { NamedFingering, Fingering } from "./geometry.ts";
 
-// design/alts/07-format.md (round 4, slice D): a per-context alternate
-// fingering for one layout key. `key` resolves through `charMap` (first
-// occurrence, like a raw `rules[].after` reference -- no uniqueness
-// requirement, unlike a magic/chiral key's own char). `when`/`except` are
-// each `{text, at}` patterns: `text` is 1-5 code points with `key` itself
-// at code-point index `at`, and the pattern reaches at most 2 code points
-// either side of the key (the two bounds are independent since this slice:
-// a 5-char pattern can hold reach 2 on both sides, so the length cap no
-// longer implies the reach cap by itself -- both are checked explicitly);
-// `_` is a wildcard everywhere in `text` except at `at` itself, which must
-// be the literal key character. The alt fires
-// on a `when` match with no `except` match; two alts on the same key with
-// different fingers may not have `when` patterns that co-match (equal
-// reach on both sides after aligning on the key, every position equal or a
-// wildcard on either side) -- that would leave it ambiguous which finger
-// applies.
-//
-// Round 4, slice E (design/alts/07-format.md): two further additive,
-// optional fields, both DB-opaque (no semantics beyond their own shape --
-// the analyzer interprets them, same posture `magic.rules[].type` already
-// has for its own free-form word).
-//
-// `guard?: boolean` on the alt itself -- absent means false.
-//
-// `fingers?: Record<string, string>` on a `when`/`except` pattern --
-// per-position finger overrides for the pattern's own WILDCARD positions,
-// keyed by pattern position index (a decimal string key) and valued by a
-// finger from this format's own finger enum. `validateAltPatternFingers`
-// below refuses a key that is not an integer string within the pattern's
-// own length, that names the pattern's own `at` (the key's own position
-// needs no override -- it is already pinned), that lands on a non-wildcard
-// `text` position (a literal character's physical source is already
-// unambiguous via `charMap`'s first-occurrence rule), or a value that is
-// not one of this format's fingers. An empty `fingers: {}` is accepted,
-// same as every other optional container in `alts` (e.g. `except: []`) --
-// nothing here is refused for being empty except `when` itself, whose
-// non-emptiness is a required-field rule, not a general convention.
-export interface AltPattern {
-  text: string;
-  at: number;
-  fingers?: Record<string, string>;
-}
+// design/alts/07-format.md: one alternate fingering per GRAM. `gram` is
+// 2 or 3 code points; `_` is a wildcard (any key) and may only be the
+// middle code point of a 3-code-point gram, so every gram holds at least
+// two literal layout characters. `fingers` maps a position in the gram (a
+// decimal string) to the finger that types that position's character
+// INSTEAD of the layout's own finger for it. No per-context excepts, no
+// guard flag: the product thinks in grams.
 export interface Alt {
-  key: string;
-  finger: string;
-  guard?: boolean;
-  when: AltPattern[];
-  except?: AltPattern[];
+  gram: string;
+  fingers: Record<string, string>;
 }
 
 // design/alts/07-format.md: a two-key chord -- both `keys` members are this
@@ -520,183 +482,79 @@ function validateGeometry(p: Payload): ErrBody | null {
   return null;
 }
 
-// design/alts/07-format.md: one `when`/`except` pattern. `text` is 1-5 code
-// points with `key` at code-point index `at`, and the pattern reaches at
-// most 2 code points either side of the key -- two independent rules (a
-// 5-char pattern can hold reach 2 on both sides at once, so the length cap
-// no longer forces the reach cap the way a 3-char cap once did); both are
-// checked here. `_` may
-// appear anywhere in `text` except at `at` itself (that position must be
-// the literal key character -- checked directly, so a `_` there is refused
-// by the same "does not have key at position" message a wrong literal
-// character would get).
-function validateAltPattern(pat: AltPattern, key: string, base: string): ErrBody | null {
-  const cps = [...pat.text];
-  if (cps.length < 1 || cps.length > 5) {
-    return { error: "invalid_payload", message: `alts[].when/except text must be 1-5 code points, got ${JSON.stringify(pat.text)}`, path: `${base}/text` };
-  }
-  if (!Number.isInteger(pat.at) || pat.at < 0 || pat.at > cps.length - 1) {
-    return { error: "invalid_payload", message: `alts[].when/except 'at' (${pat.at}) is out of range for text ${JSON.stringify(pat.text)}`, path: `${base}/at` };
-  }
-  if (cps[pat.at] !== key) {
-    return { error: "invalid_payload", message: `alts[].when/except text ${JSON.stringify(pat.text)} does not have key ${JSON.stringify(key)} at position ${pat.at}`, path: `${base}/at` };
-  }
-  const leftReach = pat.at;
-  const rightReach = cps.length - 1 - pat.at;
-  if (leftReach > 2 || rightReach > 2) {
-    return { error: "invalid_payload", message: `alts[].when/except text ${JSON.stringify(pat.text)} reaches more than 2 positions from the key`, path: `${base}/text` };
-  }
-  return null;
-}
-
 // This format's own finger words -- the same enum schema.json duplicates
-// between `key.finger` and `alt.finger` (there is no shared TS source for
-// it; `fingers`' values need the identical check with a custom, path-naming
-// message, so it is duplicated a third time here rather than imported from
-// a schema that is typed as `object`, not a literal union).
+// for `key.finger` (there is no shared TS source for it; an alt's `fingers`
+// values need the identical check with a custom, path-naming message).
 const FINGER_WORDS = new Set(["LP", "LR", "LM", "LI", "RI", "RM", "RR", "RP", "LT", "RT"]);
 
-// design/alts/07-format.md round 4, slice E: `when`/`except.fingers`, keyed
-// by pattern position index. schema.json's `altPatternFingers` is
-// deliberately loose (any string key, any string value) -- same posture
-// `validateAltPattern`'s own `text`/`at` checks already have against a
-// loosely-typed schema -- so every real rule, all dependent on the SIBLING
-// `text`/`at` fields and so not schema-expressible, is checked here, in the
-// order design/alts/07-format.md states them: the key must be an integer
-// string within THIS pattern's own length; the position must not be the
-// pattern's own `at` (the key's own position is already pinned, nothing to
-// override); `text` must hold `_` there (a literal character's physical
-// source is already unambiguous via `charMap`'s first-occurrence rule,
-// nothing to disambiguate); the value must be one of this format's own
-// fingers.
-function validateAltPatternFingers(pat: AltPattern, base: string): ErrBody | null {
-  if (pat.fingers === undefined) return null;
-  const cps = [...pat.text];
-  for (const posKey of Object.keys(pat.fingers)) {
-    const fbase = `${base}/fingers/${posKey}`;
-    if (!/^(?:0|[1-9][0-9]*)$/.test(posKey)) {
-      return { error: "invalid_payload", message: `alts[].when/except fingers key ${JSON.stringify(posKey)} must be an integer string`, path: fbase };
-    }
-    const idx = Number(posKey);
-    if (idx > cps.length - 1) {
-      return {
-        error: "invalid_payload",
-        message: `alts[].when/except fingers key ${JSON.stringify(posKey)} is out of range for text ${JSON.stringify(pat.text)}`,
-        path: fbase,
-      };
-    }
-    if (idx === pat.at) {
-      return {
-        error: "invalid_payload",
-        message: `alts[].when/except fingers key ${JSON.stringify(posKey)} is the pattern's own key position ('at' ${pat.at}) -- it never takes a finger override`,
-        path: fbase,
-      };
-    }
-    if (cps[idx] !== "_") {
-      return {
-        error: "invalid_payload",
-        message: `alts[].when/except fingers key ${JSON.stringify(posKey)} is not a wildcard in text ${JSON.stringify(pat.text)}`,
-        path: fbase,
-      };
-    }
-    const finger = pat.fingers[posKey]!;
-    if (!FINGER_WORDS.has(finger)) {
-      return { error: "invalid_payload", message: `alts[].when/except fingers value ${JSON.stringify(finger)} for position ${posKey} is not a valid finger`, path: fbase };
-    }
-  }
-  return null;
-}
-
-// Two `when` patterns "co-match" (design/alts/07-format.md) when, aligned on
-// their own key position (so relative offset 0 is the key in both), they
-// cover the exact same reach on both sides and every aligned position is
-// either equal or a wildcard on either side -- ambiguous for two alts on
-// the same key with different fingers, since both would fire on the same
-// typed context.
-function patternsCoMatch(a: AltPattern, b: AltPattern): boolean {
-  const ca = [...a.text];
-  const cb = [...b.text];
-  const leftA = a.at;
-  const rightA = ca.length - 1 - a.at;
-  const leftB = b.at;
-  const rightB = cb.length - 1 - b.at;
-  if (leftA !== leftB || rightA !== rightB) return false;
-  for (let off = -leftA; off <= rightA; off++) {
-    const ca_ = ca[a.at + off]!;
-    const cb_ = cb[b.at + off]!;
-    if (ca_ !== cb_ && ca_ !== "_" && cb_ !== "_") return false;
-  }
-  return true;
-}
-
-// design/alts/07-format.md: `alts[].key` resolves through `charMap` (first
-// occurrence, no uniqueness requirement -- unlike a magic/chiral key's own
-// char, an alt's key is a plain positional reference, not something magic
-// addresses by identity); `finger` must differ from that key's own finger
-// (the schema's enum already refuses a non-finger word); `guard` has no
-// semantics here at all (DB-opaque, schema-typed only); each `when`/
-// `except` pattern is checked by `validateAltPattern` then
-// `validateAltPatternFingers`; no duplicate pattern text within one alt's
-// own `when` union `except`; `when` is non-empty; two alts on the SAME key
-// with DIFFERENT fingers may not have co-matching `when` patterns (`except`
-// is never compared -- only `when` decides whether an alt fires at all).
+// design/alts/07-format.md: one alt per gram. Per alt, in index order and
+// in this order (first violation wins, each names its own path):
+//   1. `gram` is 2 or 3 code points                       -> /alts/i/gram
+//   2. `_` only at the middle of a 3-code-point gram      -> /alts/i/gram
+//      (so every gram has >= 2 literal code points; the "at least two
+//      non-wildcards" rule follows from 1 and 2 and needs no check of its own)
+//   3. every literal code point is a key on this layout   -> /alts/i/gram
+//      (charMap, first occurrence, same as combos[].keys)
+//   4. each `fingers` key is an integer string            -> /alts/i/fingers/<k>
+//   5. ... within the gram's length                       -> /alts/i/fingers/<k>
+//   6. ... naming a non-wildcard position                 -> /alts/i/fingers/<k>
+//   7. the value is one of this format's fingers          -> /alts/i/fingers/<k>
+//   8. ... and differs from that character's own finger   -> /alts/i/fingers/<k>
+//   9. no two alts share a `gram`                         -> /alts/i/gram
+// `fingers` non-emptiness is the schema's rule (`minProperties`).
 function validateAlts(alts: Alt[] | undefined, keys: Record<string, Position>): ErrBody | null {
   if (alts === undefined) return null;
-  const byKey = new Map<string, { finger: string; index: number }[]>();
+  const seen = new Set<string>();
   for (let i = 0; i < alts.length; i++) {
     const alt = alts[i]!;
     const base = `/alts/${i}`;
-    if (!(alt.key in keys)) {
-      return { error: "invalid_payload", message: `alts[].key ${JSON.stringify(alt.key)} is not one of this layout's keys`, path: `${base}/key` };
+    const cps = [...alt.gram];
+    if (cps.length < 2 || cps.length > 3) {
+      return { error: "invalid_payload", message: `alts[].gram must be 2 or 3 code points, got ${JSON.stringify(alt.gram)}`, path: `${base}/gram` };
     }
-    if (alt.finger === keys[alt.key]!.finger) {
-      return {
-        error: "invalid_payload",
-        message: `alts[].finger ${JSON.stringify(alt.finger)} for key ${JSON.stringify(alt.key)} must differ from the key's own finger`,
-        path: `${base}/finger`,
-      };
-    }
-    if (alt.when.length === 0) {
-      return { error: "invalid_payload", message: `alts[].when must be non-empty (key ${JSON.stringify(alt.key)})`, path: `${base}/when` };
-    }
-
-    const seenPatterns = new Set<string>();
-    const whenList: AltPattern[] = [];
-    for (const [field, list] of [
-      ["when", alt.when],
-      ["except", alt.except ?? []],
-    ] as const) {
-      for (let j = 0; j < list.length; j++) {
-        const pat = list[j]!;
-        const patErr = validateAltPattern(pat, alt.key, `${base}/${field}/${j}`);
-        if (patErr) return patErr;
-        const fingersErr = validateAltPatternFingers(pat, `${base}/${field}/${j}`);
-        if (fingersErr) return fingersErr;
-        if (seenPatterns.has(pat.text)) {
-          return { error: "invalid_payload", message: `duplicate alts[].when/except text ${JSON.stringify(pat.text)} for key ${JSON.stringify(alt.key)}`, path: `${base}/${field}/${j}` };
-        }
-        seenPatterns.add(pat.text);
-        if (field === "when") whenList.push(pat);
+    for (let p = 0; p < cps.length; p++) {
+      if (cps[p] === "_" && !(cps.length === 3 && p === 1)) {
+        return {
+          error: "invalid_payload",
+          message: `alts[].gram ${JSON.stringify(alt.gram)} has a wildcard '_' at position ${p}; '_' is allowed only as the middle of a 3-code-point gram`,
+          path: `${base}/gram`,
+        };
       }
     }
-
-    const priorForKey = byKey.get(alt.key) ?? [];
-    for (const prior of priorForKey) {
-      if (prior.finger === alt.finger) continue;
-      const priorAlt = alts[prior.index]!;
-      for (const priorWhen of priorAlt.when) {
-        for (const thisWhen of whenList) {
-          if (patternsCoMatch(priorWhen, thisWhen)) {
-            return {
-              error: "invalid_payload",
-              message: `alts[].key ${JSON.stringify(alt.key)} has two fingerings (${JSON.stringify(prior.finger)}, ${JSON.stringify(alt.finger)}) whose 'when' patterns co-match -- ambiguous which finger applies`,
-              path: `${base}/when`,
-            };
-          }
-        }
+    for (const cp of cps) {
+      if (cp !== "_" && !(cp in keys)) {
+        return { error: "invalid_payload", message: `alts[].gram ${JSON.stringify(alt.gram)} has ${JSON.stringify(cp)}, which is not one of this layout's keys`, path: `${base}/gram` };
       }
     }
-    byKey.set(alt.key, [...priorForKey, { finger: alt.finger, index: i }]);
+    for (const posKey of Object.keys(alt.fingers)) {
+      const fbase = `${base}/fingers/${posKey}`;
+      if (!/^(?:0|[1-9][0-9]*)$/.test(posKey)) {
+        return { error: "invalid_payload", message: `alts[].fingers key ${JSON.stringify(posKey)} must be an integer string`, path: fbase };
+      }
+      const idx = Number(posKey);
+      if (idx > cps.length - 1) {
+        return { error: "invalid_payload", message: `alts[].fingers key ${JSON.stringify(posKey)} is out of range for gram ${JSON.stringify(alt.gram)}`, path: fbase };
+      }
+      const ch = cps[idx]!;
+      if (ch === "_") {
+        return { error: "invalid_payload", message: `alts[].fingers key ${JSON.stringify(posKey)} is the wildcard position of gram ${JSON.stringify(alt.gram)}`, path: fbase };
+      }
+      const finger = alt.fingers[posKey]!;
+      if (!FINGER_WORDS.has(finger)) {
+        return { error: "invalid_payload", message: `alts[].fingers value ${JSON.stringify(finger)} for position ${posKey} is not a valid finger`, path: fbase };
+      }
+      if (finger === keys[ch]!.finger) {
+        return {
+          error: "invalid_payload",
+          message: `alts[].fingers value ${JSON.stringify(finger)} for position ${posKey} (${JSON.stringify(ch)}) must differ from the key's own finger`,
+          path: fbase,
+        };
+      }
+    }
+    if (seen.has(alt.gram)) {
+      return { error: "invalid_payload", message: `duplicate alts[].gram ${JSON.stringify(alt.gram)}`, path: `${base}/gram` };
+    }
+    seen.add(alt.gram);
   }
   return null;
 }

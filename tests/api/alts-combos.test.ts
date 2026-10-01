@@ -20,7 +20,7 @@ const ALTS_PAYLOAD = {
     { char: "g", row: 1, col: 4, finger: "LM" },
     { char: "s", row: 1, col: 2, finger: "LR" },
   ],
-  alts: [{ key: "g", finger: "LI", when: [{ text: "sg", at: 1 }] }],
+  alts: [{ gram: "sg", fingers: { "1": "LI" } }],
 };
 
 const COMBOS_PAYLOAD = {

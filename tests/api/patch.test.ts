@@ -179,7 +179,7 @@ describe("[LDB-P1] PATCH {format, fingermap|magic}: that format's scope", () => 
   it("[LDB-F46] alts alone -> 200, has_alts true, payload.alts set, kind updated", async () => {
     const record = await seed();
     const headers = ownerHeaders(`tok-${uniqueName("alts")}`);
-    const alts = [{ key: "a", finger: "RP", when: [{ text: "a", at: 0 }] }];
+    const alts = [{ gram: "aa", fingers: { "0": "RP", "1": "RR" } }];
     const res = await patch(record.id, headers, { format: "spark/1", alts }, `"spark:${record.formatRev}"`);
     expect(res.status).toBe(200);
     const body = await res.json<{ formats: Record<string, { rev: number; has_alts: boolean; has_combos: boolean }>; payload: { alts: unknown } }>();
@@ -189,6 +189,24 @@ describe("[LDB-P1] PATCH {format, fingermap|magic}: that format's scope", () => 
     expect(body.payload.alts).toEqual(alts);
     const events = await eventsFor(record.id);
     expect(events.at(-1)).toMatchObject({ kind: "updated", detail: { fields: ["alts"] } });
+  });
+
+  it("[LDB-F46] a bad alts value -> 400 invalid_payload with the alt's own path; nothing is written", async () => {
+    const record = await seed();
+    const headers = ownerHeaders(`tok-${uniqueName("alts-bad")}`);
+    const cases: [unknown, string][] = [
+      [[{ gram: "az", fingers: { "0": "RP" } }], "/alts/0/gram"],
+      [[{ gram: "aa", fingers: { "0": "LP" } }], "/alts/0/fingers/0"], // a's own finger
+      [[{ gram: "aa", fingers: { "0": "RP" } }, { gram: "aa", fingers: { "1": "RR" } }], "/alts/1/gram"],
+      [[{ key: "a", finger: "RP", when: [{ text: "a", at: 0 }] }], "/alts/0"], // the old shape
+    ];
+    for (const [alts, path] of cases) {
+      const res = await patch(record.id, headers, { format: "spark/1", alts }, `"spark:${record.formatRev}"`);
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toMatchObject({ error: "invalid_payload", path });
+    }
+    const row = await db.prepare("SELECT rev, has_alts FROM layout_formats WHERE layout_id = ? AND lineage = 'spark'").bind(record.id).first<{ rev: number; has_alts: number }>();
+    expect(row).toEqual({ rev: record.formatRev, has_alts: 0 });
   });
 
   it("[LDB-F46] combos alone -> 200, has_combos true, payload.combos set (two-key seed)", async () => {
