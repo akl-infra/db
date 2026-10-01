@@ -339,13 +339,13 @@ addresses by identity. `finger` is one of §3's finger enum and must differ
 from that key's own finger (an alt fingering that repeats the default one
 is meaningless).
 
-A `when`/`except` entry is `{text, at}`: `text` is 1-3 code points with the
-key's own character at code-point index `at` (so the pattern reaches at
-most 2 code points either side of the key -- both bounds are checked;
-holding `text` to 1-3 code points is what actually binds the reach, since
-it is always the tighter of the two given `at` must be a valid index into
-`text`); `_` is a wildcard everywhere in `text` except at `at` itself,
-which must be the literal key character. No duplicate pattern `text`
+A `when`/`except` entry is `{text, at}`: `text` is 1-5 code points with the
+key's own character at code-point index `at`, and the pattern reaches at
+most 2 code points either side of the key -- two independent bounds, both
+checked explicitly (a 5-char pattern can hold reach 2 on both sides at
+once, so the length cap no longer binds the reach by itself the way a
+3-char cap once did); `_` is a wildcard everywhere in `text` except at
+`at` itself, which must be the literal key character. No duplicate pattern `text`
 within one alt's own `when` union `except`. `when` must be non-empty --
 an alt with no trigger fires nowhere and is refused outright. Two alts on
 the SAME key with DIFFERENT fingers may not have `when` patterns that

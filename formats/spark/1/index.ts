@@ -85,10 +85,13 @@ export type { NamedFingering, Fingering } from "./geometry.ts";
 // fingering for one layout key. `key` resolves through `charMap` (first
 // occurrence, like a raw `rules[].after` reference -- no uniqueness
 // requirement, unlike a magic/chiral key's own char). `when`/`except` are
-// each `{text, at}` patterns: `text` is 1-3 code points with `key` itself
-// at code-point index `at` (so the pattern reaches at most 2 code points
-// either side of the key); `_` is a wildcard everywhere in `text` except
-// at `at` itself, which must be the literal key character. The alt fires
+// each `{text, at}` patterns: `text` is 1-5 code points with `key` itself
+// at code-point index `at`, and the pattern reaches at most 2 code points
+// either side of the key (the two bounds are independent since this slice:
+// a 5-char pattern can hold reach 2 on both sides, so the length cap no
+// longer implies the reach cap by itself -- both are checked explicitly);
+// `_` is a wildcard everywhere in `text` except at `at` itself, which must
+// be the literal key character. The alt fires
 // on a `when` match with no `except` match; two alts on the same key with
 // different fingers may not have `when` patterns that co-match (equal
 // reach on both sides after aligning on the key, every position equal or a
@@ -494,19 +497,20 @@ function validateGeometry(p: Payload): ErrBody | null {
   return null;
 }
 
-// design/alts/07-format.md: one `when`/`except` pattern. `text` is 1-3 code
-// points with `key` at code-point index `at` (so the pattern reaches at
-// most 2 code points either side of the key -- the two rules are the same
-// constraint, stated twice in the design doc; both are checked here so a
-// future relaxation of one doesn't silently relax the other). `_` may
+// design/alts/07-format.md: one `when`/`except` pattern. `text` is 1-5 code
+// points with `key` at code-point index `at`, and the pattern reaches at
+// most 2 code points either side of the key -- two independent rules (a
+// 5-char pattern can hold reach 2 on both sides at once, so the length cap
+// no longer forces the reach cap the way a 3-char cap once did); both are
+// checked here. `_` may
 // appear anywhere in `text` except at `at` itself (that position must be
 // the literal key character -- checked directly, so a `_` there is refused
 // by the same "does not have key at position" message a wrong literal
 // character would get).
 function validateAltPattern(pat: AltPattern, key: string, base: string): ErrBody | null {
   const cps = [...pat.text];
-  if (cps.length < 1 || cps.length > 3) {
-    return { error: "invalid_payload", message: `alts[].when/except text must be 1-3 code points, got ${JSON.stringify(pat.text)}`, path: `${base}/text` };
+  if (cps.length < 1 || cps.length > 5) {
+    return { error: "invalid_payload", message: `alts[].when/except text must be 1-5 code points, got ${JSON.stringify(pat.text)}`, path: `${base}/text` };
   }
   if (!Number.isInteger(pat.at) || pat.at < 0 || pat.at > cps.length - 1) {
     return { error: "invalid_payload", message: `alts[].when/except 'at' (${pat.at}) is out of range for text ${JSON.stringify(pat.text)}`, path: `${base}/at` };

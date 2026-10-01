@@ -62,11 +62,41 @@ describe("[LDB-F44] spark/1 alts", () => {
     });
   });
 
-  it("[LDB-F44] a pattern must be 1-3 code points", () => {
-    expect(refusal({ alts: [{ key: "g", finger: "LI", when: [{ text: "abcg", at: 3 }] }] })).toEqual({
-      message: `alts[].when/except text must be 1-3 code points, got "abcg"`,
+  it("[LDB-F44] a pattern must be 1-5 code points", () => {
+    expect(refusal({ alts: [{ key: "g", finger: "LI", when: [{ text: "abcdeg", at: 5 }] }] })).toEqual({
+      message: `alts[].when/except text must be 1-5 code points, got "abcdeg"`,
       path: "/alts/0/when/0/text",
     });
+  });
+
+  it("[LDB-F44] a 5-char pattern with the key in the middle (reach 2,2) validates", () => {
+    expect(spark1.validate(payloadWith({ alts: [{ key: "g", finger: "LI", when: [{ text: "abgde", at: 2 }] }] })).ok).toBe(
+      true,
+    );
+  });
+
+  it("[LDB-F44] a 4-char pattern with the key first (right reach 3) is refused", () => {
+    expect(refusal({ alts: [{ key: "g", finger: "LI", when: [{ text: "gabc", at: 0 }] }] })).toEqual({
+      message: `alts[].when/except text "gabc" reaches more than 2 positions from the key`,
+      path: "/alts/0/when/0/text",
+    });
+  });
+
+  it("[LDB-F44] an except pattern may be longer than its when", () => {
+    expect(
+      spark1.validate(
+        payloadWith({
+          alts: [
+            {
+              key: "g",
+              finger: "LI",
+              when: [{ text: "gs", at: 0 }],
+              except: [{ text: "egsn", at: 1 }],
+            },
+          ],
+        }),
+      ).ok,
+    ).toBe(true);
   });
 
   it("[LDB-F44] 'at' must be in range for the text", () => {
