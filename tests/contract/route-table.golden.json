@@ -3667,15 +3667,18 @@
                     "fingers": {
                       "type": "object",
                       "fields": {
-                        "additionalProperties": {
+                        "items": {
                           "type": "object",
                           "fields": {
-                            "type": {
-                              "type": "string"
+                            "enum": {
+                              "type": "array",
+                              "item": {
+                                "type": "string"
+                              }
                             }
                           }
                         },
-                        "minProperties": {
+                        "minItems": {
                           "type": "number"
                         },
                         "type": {

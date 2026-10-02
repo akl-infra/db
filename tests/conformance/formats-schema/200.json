@@ -276,7 +276,7 @@
           }
         },
         "alt": {
-          "description": "design/alts/07-format.md: an alternate fingering for one NGRAM (2 or 3 code points; `_` is a wildcard, only as the middle of a 3-code-point ngram). `fingers` maps a position in the ngram (a decimal string) to the finger that types that position's character instead of the layout's own. Deliberately loose here (any string key, any string value, no length bound on ngram -- code points, not UTF-16 units, are what count): every real rule depends on the layout's keys or on the ngram itself and so lives, with path-naming messages, in index.ts's validateAlts. `fingers` must be non-empty.",
+          "description": "design/alts/07-format.md: an alternate fingering for one NGRAM (2 or 3 code points; `_` is a wildcard, only as the middle of a 3-code-point ngram). `fingers` is an array with one entry per ngram code point: the finger code (same enum as key.finger) that types that position's character in this alt, or \"_\" at exactly the ngram's wildcard. A code equal to the key's own finger means no move and is valid. Deliberately loose here (no length bound on ngram -- code points, not UTF-16 units, are what count; no length link between the two): every rule that depends on the layout or on the ngram lives, with path-naming messages, in index.ts's validateAlts.",
           "type": "object",
           "additionalProperties": false,
           "required": [
@@ -288,10 +288,22 @@
               "type": "string"
             },
             "fingers": {
-              "type": "object",
-              "minProperties": 1,
-              "additionalProperties": {
-                "type": "string"
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "enum": [
+                  "LP",
+                  "LR",
+                  "LM",
+                  "LI",
+                  "RI",
+                  "RM",
+                  "RR",
+                  "RP",
+                  "LT",
+                  "RT",
+                  "_"
+                ]
               }
             }
           }

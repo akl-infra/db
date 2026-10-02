@@ -340,14 +340,16 @@ reshaped in place 2026-10-01, before release, to one entry per ngram):
   keys (§3's `charMap`, first occurrence, no uniqueness requirement --
   unlike a magic/chiral key's own char, an ngram's characters are plain
   positional references).
-- `fingers` is a non-empty object mapping a position in the ngram (a decimal
-  string, "0", "1" or "2") to the finger that types THAT POSITION'S
-  character instead of the layout's own finger for it. Each key must be an
-  integer string within the ngram's length and must name a non-`_` position.
-  Each value must be one of §3's finger enum and must differ from that
-  character's own finger on this layout (an alt that repeats the default
-  finger is meaningless).
-- No two entries may share a `ngram`.
+- `fingers` is an array of §3's two-letter finger codes (the `key.finger`
+  enum) with exactly ONE ENTRY PER ngram code point: the finger that types
+  that position's character in this alt. A `_` in the ngram has `"_"` at the
+  same index in `fingers`, and `"_"` appears nowhere else there; every other
+  entry is a finger code. A code equal to that key's own finger means "no
+  move". An alt where nothing moves is VALID and never refused, so a
+  fingermap edit can never invalidate stored alts. Example: `{"ngram":
+  "abc", "fingers": ["LI", "LM", "RM"]}`, `{"ngram": "a_c", "fingers":
+  ["LI", "_", "RM"]}`.
+- No two entries may share an `ngram`.
 - Nothing else is allowed on an entry. The earlier shape (`key`, `finger`,
   `when`, `except`, `guard`, per-pattern `fingers`) never shipped and is
   gone; there is no compatibility path.
@@ -357,14 +359,15 @@ ngram's fingers apply. `alts` is absent when empty, same convention
 `magic`'s own sub-arrays use (`alts: []` is accepted).
 
 Checks run per entry, in index order, first violation wins, each naming its
-own pointer: ngram length (`/alts/<i>/ngram`); `_` position (`/alts/<i>/ngram`);
-literal characters on the layout (`/alts/<i>/ngram`); then each `fingers` key
-in object order -- integer string, in range, non-wildcard position, valid
-finger, differs from the character's own finger (all `/alts/<i>/fingers/<k>`);
-then duplicate ngram (`/alts/<i>/ngram`, the later entry). An empty or
-missing `fingers`, or an unknown property, is the schema's own refusal.
+own pointer: ngram length (`/alts/<i>/ngram`); `_` position
+(`/alts/<i>/ngram`); literal characters on the layout (`/alts/<i>/ngram`);
+`fingers` length equal to the ngram's code-point count
+(`/alts/<i>/fingers`); `_` in `fingers` exactly where the ngram has its
+wildcard (`/alts/<i>/fingers`); then duplicate ngram (`/alts/<i>/ngram`, the
+later entry). A missing or empty `fingers`, an entry that is not a finger code or `"_"`,
+a non-array `fingers`, or an unknown property is the schema's own refusal.
 
-*Schema: `db/formats/spark/1/schema.json`'s `alt` `$def` (no `maxLength` on `ngram` -- code-point exactness is not expressible in JSON Schema, same reason `rawRule.output`/`magicKeyRule.after`/`emit` have none; `fingers` is deliberately loose, any string key and value, since its real rules depend on the ngram and the layout; `minProperties: 1`). Semantics: `db/formats/spark/1/index.ts`'s `validateAlts`. LDB-F44.*
+*Schema: `db/formats/spark/1/schema.json`'s `alt` `$def` (no `maxLength` on `ngram` -- code-point exactness is not expressible in JSON Schema, same reason `rawRule.output`/`magicKeyRule.after`/`emit` have none; `fingers` is an array of the finger enum plus `"_"`, `minItems: 1`; the length link to `ngram` and the `_` placement are not expressible and live in `validateAlts`). Semantics: `db/formats/spark/1/index.ts`'s `validateAlts`. LDB-F44.*
 
 ## 5b. Combos
 
@@ -395,7 +398,7 @@ error}`. Checks run in this order, each stopping at the first failure:
 | 6 | every magic-named character has at most one entry (§3) | `magic_needs_unique_key` | `/keys` |
 | 7 | a both-hands duplicate is excepted or ruled for every chiral key that would enumerate it (§3) | `magic_needs_unique_key` | `/keys` |
 | 8 | magic semantics (single-code-point fields, rule shapes -- `after`/`emit` non-empty, no duplicate `after`, no magic/chiral key sharing a character, reserved `rules[].type` words) | `invalid_payload` or `reserved_rule_type` | `/magic/...` |
-| 8a | `alts[]` semantics (§5a) -- ngram is 2-3 code points, `_` only mid-3-ngram, literal characters on the layout, `fingers` keys in range on non-wildcard positions, values valid and different from the character's own finger, no duplicate ngram | `invalid_payload` | `/alts/<i>/ngram`, `/alts/<i>/fingers/<k>` |
+| 8a | `alts[]` semantics (§5a) -- ngram is 2-3 code points, `_` only mid-3-ngram, literal characters on the layout, `fingers` one entry per code point with `"_"` exactly at the wildcard (no "must differ" rule), no duplicate ngram | `invalid_payload` | `/alts/<i>/ngram`, `/alts/<i>/fingers` |
 | 8b | `combos[]` semantics (§5b) -- two distinct layout keys, no duplicate pair, output length, no duplicate output | `invalid_payload` | `/combos/...` |
 | 9 | the lowering has no collision (5.3) | `magic_collision` | the later side's `/magic/...` pointer |
 
@@ -570,7 +573,7 @@ position.**
     ]
   },
   "alts": [
-    { "ngram": "na", "fingers": { "1": "RI" } }
+    { "ngram": "na", "fingers": ["RI", "RI"] }
   ],
   "combos": [
     { "keys": ["a", "n"], "output": "an" }

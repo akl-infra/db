@@ -25,77 +25,87 @@ function refusal(extra: { alts?: Alt[]; combos?: Combo[] }) {
   return result.ok ? null : { message: result.error.message, path: result.error.path };
 }
 
-describe("[LDB-F44] spark/1 alts (one entry per ngram)", () => {
-  it("[LDB-F44] valid ngrams validate: 3-char, wildcard middle, 2-char, several fingers", () => {
+describe("[LDB-F44] spark/1 alts (one entry per ngram, fingers an array of finger codes)", () => {
+  it("[LDB-F44] valid ngrams validate: 3-char, wildcard middle, 2-char", () => {
     const alts: Alt[] = [
-      { ngram: "egs", fingers: { "0": "LP", "1": "LR" } },
-      { ngram: "n_f", fingers: { "2": "RI" } },
-      { ngram: "gs", fingers: { "1": "RP" } },
+      { ngram: "egs", fingers: ["LP", "RP", "LR"] },
+      { ngram: "n_f", fingers: ["RR", "_", "LI"] },
+      { ngram: "gs", fingers: ["LP", "RP"] },
     ];
     expect(spark1.validate(payloadWith({ alts })).ok).toBe(true);
   });
 
   it("[LDB-F44] an ngram must be 2 or 3 code points: 1 is refused", () => {
-    expect(refusal({ alts: [{ ngram: "g", fingers: { "0": "LI" } }] })).toEqual({
+    expect(refusal({ alts: [{ ngram: "g", fingers: ["LI"] }] })).toEqual({
       message: `alts[].ngram must be 2 or 3 code points, got "g"`,
       path: "/alts/0/ngram",
     });
   });
 
   it("[LDB-F44] an ngram must be 2 or 3 code points: 4 is refused", () => {
-    expect(refusal({ alts: [{ ngram: "egsn", fingers: { "0": "LP" } }] })).toEqual({
+    expect(refusal({ alts: [{ ngram: "egsn", fingers: ["LP", "LR", "LM", "LI"] }] })).toEqual({
       message: `alts[].ngram must be 2 or 3 code points, got "egsn"`,
       path: "/alts/0/ngram",
     });
   });
 
   it("[LDB-F44] the empty ngram is refused", () => {
-    expect(refusal({ alts: [{ ngram: "", fingers: { "0": "LP" } }] })?.path).toBe("/alts/0/ngram");
+    expect(refusal({ alts: [{ ngram: "", fingers: ["LP"] }] })?.path).toBe("/alts/0/ngram");
   });
 
   it("[LDB-F44] astral code points count once, not as UTF-16 units", () => {
     // two astral code points are a 2-code-point ngram (4 UTF-16 units): the
     // length check passes and the layout-key check is what refuses them.
-    expect(refusal({ alts: [{ ngram: "\u{1F600}\u{1F601}", fingers: { "0": "LP" } }] })).toEqual({
+    expect(refusal({ alts: [{ ngram: "\u{1F600}\u{1F601}", fingers: ["LP", "LP"] }] })).toEqual({
       message: `alts[].ngram "\u{1F600}\u{1F601}" has "\u{1F600}", which is not one of this layout's keys`,
       path: "/alts/0/ngram",
     });
   });
 
   it("[LDB-F44] '_' at the start of a 3-code-point ngram is refused", () => {
-    expect(refusal({ alts: [{ ngram: "_gs", fingers: { "1": "LI" } }] })).toEqual({
+    expect(refusal({ alts: [{ ngram: "_gs", fingers: ["_", "LI", "LM"] }] })).toEqual({
       message: `alts[].ngram "_gs" has a wildcard '_' at position 0; '_' is allowed only as the middle of a 3-code-point ngram`,
       path: "/alts/0/ngram",
     });
   });
 
   it("[LDB-F44] '_' at the end of a 3-code-point ngram is refused", () => {
-    expect(refusal({ alts: [{ ngram: "gs_", fingers: { "0": "LI" } }] })).toEqual({
+    expect(refusal({ alts: [{ ngram: "gs_", fingers: ["LI", "LM", "_"] }] })).toEqual({
       message: `alts[].ngram "gs_" has a wildcard '_' at position 2; '_' is allowed only as the middle of a 3-code-point ngram`,
       path: "/alts/0/ngram",
     });
   });
 
   it("[LDB-F44] '_' in a 2-code-point ngram is refused (so is an all-wildcard ngram)", () => {
-    expect(refusal({ alts: [{ ngram: "g_", fingers: { "0": "LI" } }] })?.path).toBe("/alts/0/ngram");
-    expect(refusal({ alts: [{ ngram: "_g", fingers: { "1": "LI" } }] })?.path).toBe("/alts/0/ngram");
-    expect(refusal({ alts: [{ ngram: "___", fingers: { "0": "LI" } }] })?.path).toBe("/alts/0/ngram");
-    expect(refusal({ alts: [{ ngram: "__", fingers: { "0": "LI" } }] })?.path).toBe("/alts/0/ngram");
+    expect(refusal({ alts: [{ ngram: "g_", fingers: ["LI", "_"] }] })?.path).toBe("/alts/0/ngram");
+    expect(refusal({ alts: [{ ngram: "_g", fingers: ["_", "LI"] }] })?.path).toBe("/alts/0/ngram");
+    expect(refusal({ alts: [{ ngram: "___", fingers: ["_", "_", "_"] }] })?.path).toBe("/alts/0/ngram");
+    expect(refusal({ alts: [{ ngram: "__", fingers: ["_", "_"] }] })?.path).toBe("/alts/0/ngram");
   });
 
   it("[LDB-F44] every non-wildcard code point must be one of the layout's keys", () => {
-    expect(refusal({ alts: [{ ngram: "gzs", fingers: { "0": "LI" } }] })).toEqual({
+    expect(refusal({ alts: [{ ngram: "gzs", fingers: ["LP", "LI", "LP"] }] })).toEqual({
       message: `alts[].ngram "gzs" has "z", which is not one of this layout's keys`,
       path: "/alts/0/ngram",
     });
-    expect(refusal({ alts: [{ ngram: "g_z", fingers: { "0": "LI" } }] })).toEqual({
+    expect(refusal({ alts: [{ ngram: "g_z", fingers: ["LP", "_", "LP"] }] })).toEqual({
       message: `alts[].ngram "g_z" has "z", which is not one of this layout's keys`,
       path: "/alts/0/ngram",
     });
   });
 
-  it("[LDB-F44] fingers must be non-empty (schema rule)", () => {
-    const result = spark1.validate(payloadWith({ alts: [{ ngram: "gs", fingers: {} }] }));
+  it("[LDB-F44] fingers must be a non-empty array of finger codes and '_' (schema rule)", () => {
+    const bad: unknown[] = [[], ["LI", "XX"], ["LI", 3], ["li", "LM"], [null, "LM"], ["", "LM"], "LILM", "03", 5];
+    for (const fingers of bad) {
+      const result = spark1.validate(payloadWith({ alts: [{ ngram: "gs", fingers } as unknown as Alt] }));
+      expect(result.ok, JSON.stringify(fingers)).toBe(false);
+      const path = String(result.ok ? "" : result.error.path);
+      expect(path.startsWith("/alts/0/fingers"), JSON.stringify(fingers)).toBe(true);
+    }
+  });
+
+  it("[LDB-F44] the old map form of fingers is refused (schema type)", () => {
+    const result = spark1.validate(payloadWith({ alts: [{ ngram: "gs", fingers: { "0": "LI" } } as unknown as Alt] }));
     expect(result.ok).toBe(false);
     expect(result.ok ? null : result.error.path).toBe("/alts/0/fingers");
   });
@@ -108,71 +118,63 @@ describe("[LDB-F44] spark/1 alts (one entry per ngram)", () => {
 
   it("[LDB-F44] every old-shape field is an unknown property", () => {
     for (const extra of [{ key: "g" }, { finger: "LI" }, { when: [] }, { except: [] }, { guard: true }]) {
-      const result = spark1.validate(payloadWith({ alts: [{ ngram: "gs", fingers: { "0": "LI" }, ...extra } as unknown as Alt] }));
+      const result = spark1.validate(payloadWith({ alts: [{ ngram: "gs", fingers: ["LP", "LI"], ...extra } as unknown as Alt] }));
       expect(result.ok, JSON.stringify(extra)).toBe(false);
     }
-    // an old-shape entry has no ngram and is refused as a whole.
     const old = spark1.validate(
       payloadWith({ alts: [{ key: "g", finger: "LI", when: [{ text: "gs", at: 0 }] } as unknown as Alt] }),
     );
     expect(old.ok).toBe(false);
   });
 
-  it("[LDB-F44] a fingers key must be an integer string", () => {
-    expect(refusal({ alts: [{ ngram: "gs", fingers: { x: "LI" } }] })).toEqual({
-      message: `alts[].fingers key "x" must be an integer string`,
-      path: "/alts/0/fingers/x",
+  it("[LDB-F44] fingers must have one entry per ngram code point", () => {
+    expect(refusal({ alts: [{ ngram: "gs", fingers: ["LI"] }] })).toEqual({
+      message: `alts[].fingers ["LI"] must have one entry per code point of ngram "gs" (2), got 1`,
+      path: "/alts/0/fingers",
     });
-    expect(refusal({ alts: [{ ngram: "gs", fingers: { "01": "LI" } }] })?.path).toBe("/alts/0/fingers/01");
-    expect(refusal({ alts: [{ ngram: "gs", fingers: { "-1": "LI" } }] })?.path).toBe("/alts/0/fingers/-1");
-    expect(refusal({ alts: [{ ngram: "gs", fingers: { "0.5": "LI" } }] })?.path).toBe("/alts/0/fingers/0.5");
+    expect(refusal({ alts: [{ ngram: "gs", fingers: ["LI", "LM", "LM"] }] })?.path).toBe("/alts/0/fingers");
+    expect(refusal({ alts: [{ ngram: "g_s", fingers: ["LI", "_"] }] })?.path).toBe("/alts/0/fingers");
   });
 
-  it("[LDB-F44] a fingers key must be within the ngram's length", () => {
-    expect(refusal({ alts: [{ ngram: "gs", fingers: { "2": "LI" } }] })).toEqual({
-      message: `alts[].fingers key "2" is out of range for ngram "gs"`,
-      path: "/alts/0/fingers/2",
-    });
-    expect(spark1.validate(payloadWith({ alts: [{ ngram: "egs", fingers: { "2": "LP" } }] })).ok).toBe(true);
-  });
-
-  it("[LDB-F44] a fingers key may not name the wildcard position", () => {
-    expect(refusal({ alts: [{ ngram: "g_s", fingers: { "1": "LI" } }] })).toEqual({
-      message: `alts[].fingers key "1" is the wildcard position of ngram "g_s"`,
-      path: "/alts/0/fingers/1",
+  it("[LDB-F44] a wildcard ngram position needs _ at the same index in fingers", () => {
+    expect(refusal({ alts: [{ ngram: "g_s", fingers: ["LI", "LM", "LI"] }] })).toEqual({
+      message: `alts[].fingers ["LI","LM","LI"] must have "_" at position 1, where ngram "g_s" has its wildcard`,
+      path: "/alts/0/fingers",
     });
   });
 
-  it("[LDB-F44] a fingers value must be a valid finger", () => {
-    expect(refusal({ alts: [{ ngram: "gs", fingers: { "0": "ZZ" } }] })).toEqual({
-      message: `alts[].fingers value "ZZ" for position 0 is not a valid finger`,
-      path: "/alts/0/fingers/0",
+  it("[LDB-F44] _ in fingers is refused anywhere the ngram has a literal", () => {
+    expect(refusal({ alts: [{ ngram: "gs", fingers: ["_", "LI"] }] })).toEqual({
+      message: `alts[].fingers ["_","LI"] has "_" at position 0, where ngram "gs" has "g"; "_" belongs only at the ngram's wildcard`,
+      path: "/alts/0/fingers",
     });
+    expect(refusal({ alts: [{ ngram: "g_s", fingers: ["LI", "_", "_"] }] })?.path).toBe("/alts/0/fingers");
   });
 
-  it("[LDB-F44] a fingers value must differ from that character's own finger", () => {
-    // g is LM, s is LM, e is LI.
-    expect(refusal({ alts: [{ ngram: "gs", fingers: { "0": "LM" } }] })).toEqual({
-      message: `alts[].fingers value "LM" for position 0 ("g") must differ from the key's own finger`,
-      path: "/alts/0/fingers/0",
-    });
-    // the rule is per position's own character: LI differs from g's LM, equals e's own.
-    expect(spark1.validate(payloadWith({ alts: [{ ngram: "ge", fingers: { "0": "LI" } }] })).ok).toBe(true);
-    expect(refusal({ alts: [{ ngram: "ge", fingers: { "1": "LI" } }] })?.path).toBe("/alts/0/fingers/1");
+  it("[LDB-F44] a code equal to the key's own finger (no move) is valid, even for every position", () => {
+    // g and s are LM, e is LI, n is RI.
+    expect(spark1.validate(payloadWith({ alts: [{ ngram: "gs", fingers: ["LM", "LM"] }] })).ok).toBe(true);
+    expect(spark1.validate(payloadWith({ alts: [{ ngram: "e_n", fingers: ["LI", "_", "RI"] }] })).ok).toBe(true);
   });
 
-  it("[LDB-F44] checks run in order: a bad ngram is reported before a bad fingers entry", () => {
-    expect(refusal({ alts: [{ ngram: "gzs", fingers: { x: "ZZ" } }] })?.path).toBe("/alts/0/ngram");
-    expect(refusal({ alts: [{ ngram: "gs", fingers: { "5": "ZZ" } }] })?.path).toBe("/alts/0/fingers/5");
+  it("[LDB-F44] every finger code is accepted at any position", () => {
+    for (const code of ["LP", "LR", "LM", "LI", "RI", "RM", "RR", "RP", "LT", "RT"]) {
+      expect(spark1.validate(payloadWith({ alts: [{ ngram: "gs", fingers: [code, code] }] })).ok, code).toBe(true);
+    }
+  });
+
+  it("[LDB-F44] checks run in order: a bad ngram is reported before a bad fingers array", () => {
+    expect(refusal({ alts: [{ ngram: "gzs", fingers: ["LP"] }] })?.path).toBe("/alts/0/ngram");
+    expect(refusal({ alts: [{ ngram: "gs", fingers: ["LP"] }] })?.path).toBe("/alts/0/fingers");
   });
 
   it("[LDB-F44] no two alts may share an ngram", () => {
     expect(
       refusal({
         alts: [
-          { ngram: "gs", fingers: { "0": "LI" } },
-          { ngram: "es", fingers: { "0": "LP" } },
-          { ngram: "gs", fingers: { "1": "RP" } },
+          { ngram: "gs", fingers: ["LP", "LI"] },
+          { ngram: "es", fingers: ["LP", "RP"] },
+          { ngram: "gs", fingers: ["LR", "RP"] },
         ],
       }),
     ).toEqual({
@@ -183,22 +185,20 @@ describe("[LDB-F44] spark/1 alts (one entry per ngram)", () => {
 
   it("[LDB-F44] ngrams that differ only by wildcard or order are distinct", () => {
     const alts: Alt[] = [
-      { ngram: "gs", fingers: { "0": "LI" } },
-      { ngram: "sg", fingers: { "0": "LI" } },
-      { ngram: "g_s", fingers: { "0": "LI" } },
+      { ngram: "gs", fingers: ["LP", "LI"] },
+      { ngram: "sg", fingers: ["LP", "LI"] },
+      { ngram: "g_s", fingers: ["LP", "_", "LI"] },
     ];
     expect(spark1.validate(payloadWith({ alts })).ok).toBe(true);
   });
 
   it("[LDB-F44] an error in a later alt names that alt's own index", () => {
-    expect(refusal({ alts: [{ ngram: "gs", fingers: { "0": "LI" } }, { ngram: "nf", fingers: { "0": "RI" } }] })?.path).toBe(
-      "/alts/1/fingers/0",
-    );
+    expect(refusal({ alts: [{ ngram: "gs", fingers: ["LP", "LI"] }, { ngram: "nf", fingers: ["RI"] }] })?.path).toBe("/alts/1/fingers");
   });
 
   it("[LDB-F44] a record with alts lowers to mana2/1 with the alts dropped (documented loss) and combos kept", () => {
     const payload = payloadWith({
-      alts: [{ ngram: "gs", fingers: { "0": "LI" } }],
+      alts: [{ ngram: "gs", fingers: ["LP", "LI"] }],
       combos: [{ keys: ["g", "s"], output: "th" }],
     });
     expect(spark1.validate(payload)).toEqual({ ok: true });
@@ -285,7 +285,7 @@ describe("[LDB-F44] hasAlts/hasCombos", () => {
   it("[LDB-F44] hasAlts/hasCombos are false when absent or empty, true when non-empty", () => {
     expect(spark1.hasAlts(payloadWith({}))).toBe(false);
     expect(spark1.hasAlts(payloadWith({ alts: [] }))).toBe(false);
-    expect(spark1.hasAlts(payloadWith({ alts: [{ ngram: "gs", fingers: { "0": "LI" } }] }))).toBe(true);
+    expect(spark1.hasAlts(payloadWith({ alts: [{ ngram: "gs", fingers: ["LP", "LI"] }] }))).toBe(true);
 
     expect(spark1.hasCombos(payloadWith({}))).toBe(false);
     expect(spark1.hasCombos(payloadWith({ combos: [] }))).toBe(false);
