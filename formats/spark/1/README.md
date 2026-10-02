@@ -56,7 +56,8 @@ Layers, hold-taps, per-key timing. Those belong to advanced formats until
 an idiom for them is proven in one (01 §4). `combos` (two-key chords) and
 `alts` (per-ngram alternate fingerings, closing `#148`) shipped
 additively, design/alts/07-format.md (round 4, 2026-09-30, reshaped to one
-entry per ngram on 2026-10-01 before release) -- see §5's sibling sections in
+entry per ngram on 2026-10-01 and to an `ngram` array with `null` wildcard on
+2026-10-02, before release) -- see §5's sibling sections in
 `design/layout-db/22-spark-spec.md` for the normative shapes.
 
 ## What importing from cmini loses

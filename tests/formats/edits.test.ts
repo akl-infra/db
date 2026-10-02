@@ -225,7 +225,7 @@ describe("spark/1 setAlts/setCombos (LDB-E1, LDB-F46)", () => {
 
   it("[LDB-F46] setAlts is pure and sets the field", () => {
     const before = structuredClone(BASE);
-    const alts = [{ ngram: "gs", fingers: ["LI", "LM"] }];
+    const alts = [{ ngram: ["g", "s"], fingers: ["LI", "LM"] }];
     const result = spark1.edits!.setAlts!(BASE, alts);
     expect(BASE).toEqual(before); // purity
     const payload = unwrap<Parameters<typeof spark1.validate>[0]>(result);
@@ -244,7 +244,7 @@ describe("spark/1 setAlts/setCombos (LDB-E1, LDB-F46)", () => {
   });
 
   it("[LDB-F46] setAlts with an invalid value fails the pipeline's own validate() re-run (the edit itself never checks)", () => {
-    const result = spark1.edits!.setAlts!(BASE, [{ ngram: "zs", fingers: ["LI", "LM"] }]);
+    const result = spark1.edits!.setAlts!(BASE, [{ ngram: ["z", "s"], fingers: ["LI", "LM"] }]);
     const payload = unwrap<Parameters<typeof spark1.validate>[0]>(result);
     expect(spark1.validate(payload).ok).toBe(false);
   });

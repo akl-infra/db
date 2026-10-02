@@ -3670,13 +3670,24 @@
                         "items": {
                           "type": "object",
                           "fields": {
-                            "enum": {
+                            "oneOf": {
                               "type": "array",
                               "item": {
-                                "type": "string"
+                                "type": "object",
+                                "fields": {
+                                  "enum": {
+                                    "type": "array",
+                                    "item": {
+                                      "type": "string"
+                                    }
+                                  }
+                                }
                               }
                             }
                           }
+                        },
+                        "maxItems": {
+                          "type": "number"
                         },
                         "minItems": {
                           "type": "number"
@@ -3689,6 +3700,31 @@
                     "ngram": {
                       "type": "object",
                       "fields": {
+                        "items": {
+                          "type": "object",
+                          "fields": {
+                            "oneOf": {
+                              "type": "array",
+                              "item": {
+                                "type": "object",
+                                "fields": {
+                                  "minLength": {
+                                    "type": "number"
+                                  },
+                                  "type": {
+                                    "type": "string"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        },
+                        "maxItems": {
+                          "type": "number"
+                        },
+                        "minItems": {
+                          "type": "number"
+                        },
                         "type": {
                           "type": "string"
                         }

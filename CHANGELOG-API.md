@@ -47,22 +47,25 @@ or a chord naming other than two keys). The cmini adapter no longer drops
 meaning, and `migrations/0020_alts_combos.sql` only adds columns
 (backfilled to a no-op for every row stored before this slice).
 
-**Shape of `alts`, as of 2026-10-01 (this minor has not shipped, so it is
+**Shape of `alts`, as of 2026-10-02 (this minor has not shipped, so it is
 rewritten in place rather than given its own heading, the same posture a
 stored format's own major takes "until the first outside adopter",
 `21-formats.md` D11 / `22-spark-spec.md` §0):** `alts` is an array with one
-entry per ngram, `{ngram, fingers}`. `ngram` is 2 or 3 code points; `_` is a
-wildcard allowed only as the middle of a 3-code-point ngram; every other
-code point must be a character on the layout. `fingers` is an array of
-`spark/1` finger codes (the `key.finger` enum) with one entry per ngram code
-point: the finger that types that position's character in this alt; `"_"`
-at exactly the ngram's wildcard position. A code equal to the key's own
-finger means no move, and an alt where nothing moves is valid (a fingermap
-edit cannot invalidate stored alts). Example: `{"ngram": "a_c", "fingers":
-["LI", "_", "RM"]}`. No two entries
-share an `ngram`. Unknown properties are refused. The per-key shape drafted earlier on this
-branch (`key`, `finger`, `when`, `except`, `guard`, per-pattern `fingers`)
-never shipped and has no compatibility path. `GET
+entry per ngram, `{ngram, fingers}`. `ngram` is an ARRAY of 2 or 3 items,
+each a string of exactly one code point or `null` (the wildcard, any key;
+allowed only as the middle item of a 3-item ngram; a literal `"_"` is just
+the underscore character). Every non-null item must be a character on the
+layout. `fingers` is an array of the same length of `spark/1` finger codes
+(the `key.finger` enum): the finger that types that position's character in
+this alt, `null` at exactly the ngram's wildcard position (the string `"_"`
+is no longer accepted). A code equal to the key's own finger means no move,
+and an alt where nothing moves is valid (a fingermap edit cannot invalidate
+stored alts). Example: `{"ngram": ["a", null, "c"], "fingers": ["LI", null,
+"RM"]}`. No two entries share an `ngram` (element-wise). Unknown properties
+are refused. akldb deliberately does not refuse an alt naming a
+one-character combo's output key (the analyzers do). The earlier shapes
+(per-key `key`/`finger`/`when`/`except`/`guard`, then the string `ngram`
+with `_` wildcard) never shipped and have no compatibility path. `GET
 /v1/formats/spark/1/schema.json` reflects the new `alt` `$def`; the
 envelope's `has_alts`, the `?has_alts=` filter and the PATCH `alts` verb are
 unchanged. `?format=mana2/1` still never emits `alts`. A record without

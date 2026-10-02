@@ -20,7 +20,7 @@ const ALTS_PAYLOAD = {
     { char: "g", row: 1, col: 4, finger: "LM" },
     { char: "s", row: 1, col: 2, finger: "LR" },
   ],
-  alts: [{ ngram: "sg", fingers: ["LP", "LI"] }],
+  alts: [{ ngram: ["s", "g"], fingers: ["LP", "LI"] }],
 };
 
 const COMBOS_PAYLOAD = {

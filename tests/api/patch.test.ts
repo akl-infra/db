@@ -179,7 +179,7 @@ describe("[LDB-P1] PATCH {format, fingermap|magic}: that format's scope", () => 
   it("[LDB-F46] alts alone -> 200, has_alts true, payload.alts set, kind updated", async () => {
     const record = await seed();
     const headers = ownerHeaders(`tok-${uniqueName("alts")}`);
-    const alts = [{ ngram: "aa", fingers: ["RP", "RR"] }];
+    const alts = [{ ngram: ["a", "a"], fingers: ["RP", "RR"] }];
     const res = await patch(record.id, headers, { format: "spark/1", alts }, `"spark:${record.formatRev}"`);
     expect(res.status).toBe(200);
     const body = await res.json<{ formats: Record<string, { rev: number; has_alts: boolean; has_combos: boolean }>; payload: { alts: unknown } }>();
@@ -195,9 +195,9 @@ describe("[LDB-P1] PATCH {format, fingermap|magic}: that format's scope", () => 
     const record = await seed();
     const headers = ownerHeaders(`tok-${uniqueName("alts-bad")}`);
     const cases: [unknown, string][] = [
-      [[{ ngram: "az", fingers: ["RP", "RP"] }], "/alts/0/ngram"],
-      [[{ ngram: "aa", fingers: ["RP"] }], "/alts/0/fingers"], // length mismatch
-      [[{ ngram: "aa", fingers: ["RP", "RP"] }, { ngram: "aa", fingers: ["RR", "RR"] }], "/alts/1/ngram"],
+      [[{ ngram: ["a", "z"], fingers: ["RP", "RP"] }], "/alts/0/ngram"],
+      [[{ ngram: ["a", "a"], fingers: ["RP"] }], "/alts/0/fingers"], // length mismatch
+      [[{ ngram: ["a", "a"], fingers: ["RP", "RP"] }, { ngram: ["a", "a"], fingers: ["RR", "RR"] }], "/alts/1/ngram"],
       [[{ key: "a", finger: "RP", when: [{ text: "a", at: 0 }] }], "/alts/0"], // the old shape
     ];
     for (const [alts, path] of cases) {

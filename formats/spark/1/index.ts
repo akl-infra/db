@@ -81,19 +81,19 @@ export type { MagicIntent, MagicKey, ChiralKey, AdaptiveSwap, RawRule };
 export { classifyFingering, gridIndent, FINGERING_REFS } from "./geometry.ts";
 export type { NamedFingering, Fingering } from "./geometry.ts";
 
-// design/alts/07-format.md: one alternate fingering per NGRAM. `ngram` is
-// 2 or 3 code points; `_` is a wildcard (any key) and may only be the
-// middle code point of a 3-code-point ngram, so every ngram holds at least
-// two literal layout characters. `fingers` is an array of this format's
-// two-letter finger codes (the Key.finger enum) with exactly one entry per
-// ngram code point: the finger that types that position's character in this
-// alt. A `_` in the ngram has "_" at the same index in `fingers`, and "_"
-// appears nowhere else there. A code equal to the key's own finger means "no
+// design/alts/07-format.md: one alternate fingering per NGRAM. `ngram` is an
+// array of 2 or 3 items; each is a string of exactly ONE code point, or null
+// (the wildcard: any key). null may only be the middle item of a 3-item
+// ngram, so every ngram holds at least two literal layout characters (a
+// literal "_" is just the underscore key). `fingers` is an array of the same
+// length of this format's two-letter finger codes (the Key.finger enum): the
+// finger that types that position's character in this alt, null exactly
+// where the ngram has null. A code equal to the key's own finger means "no
 // move"; an alt where nothing moves is valid (a fingermap edit must never
 // invalidate stored alts).
 export interface Alt {
-  ngram: string;
-  fingers: string[];
+  ngram: (string | null)[];
+  fingers: (string | null)[];
 }
 
 // design/alts/07-format.md: a two-key chord -- both `keys` members are this
@@ -487,70 +487,80 @@ function validateGeometry(p: Payload): ErrBody | null {
 
 // design/alts/07-format.md: one alt per ngram. Per alt, in index order and
 // in this order (first violation wins, each names its own path):
-//   1. `ngram` is 2 or 3 code points                     -> /alts/i/ngram
-//   2. `_` only at the middle of a 3-code-point ngram    -> /alts/i/ngram
+//   1. `ngram` has 2 or 3 items, each a one-code-point string or null
+//                                                        -> /alts/i/ngram
+//   2. null only at the middle of a 3-item ngram          -> /alts/i/ngram
 //      (so every ngram has >= 2 literal code points)
-//   3. every literal code point is a key on this layout  -> /alts/i/ngram
+//   3. every literal item is a key on this layout        -> /alts/i/ngram
 //      (charMap, first occurrence, same as combos[].keys)
-//   4. `fingers` has one entry per ngram code point      -> /alts/i/fingers
-//   5. "_" in `fingers` exactly where the ngram has `_`   -> /alts/i/fingers
-//   6. no two alts share an `ngram`                      -> /alts/i/ngram
-// That `fingers` is a non-empty array of finger codes and "_" is the
-// schema's rule (items enum). A code equal to the key's own finger is NOT refused.
+//   4. `fingers` has one entry per ngram item            -> /alts/i/fingers
+//   5. null in `fingers` exactly where the ngram has null -> /alts/i/fingers
+//   6. no two alts share an `ngram` (element-wise)        -> /alts/i/ngram
+// That `fingers` entries are finger codes or null is the schema's rule (items
+// enum). A code equal to the key's own finger is NOT refused. Deliberately
+// NOT checked: an alt naming a one-character combo's output key (akldb is
+// permissive; the analyzers refuse that themselves).
 function validateAlts(alts: Alt[] | undefined, keys: Record<string, Position>): ErrBody | null {
   if (alts === undefined) return null;
   const seen = new Set<string>();
   for (let i = 0; i < alts.length; i++) {
     const alt = alts[i]!;
     const base = `/alts/${i}`;
-    const cps = [...alt.ngram];
-    if (cps.length < 2 || cps.length > 3) {
-      return { error: "invalid_payload", message: `alts[].ngram must be 2 or 3 code points, got ${JSON.stringify(alt.ngram)}`, path: `${base}/ngram` };
+    const ngram = alt.ngram;
+    const shown = JSON.stringify(ngram);
+    if (ngram.length < 2 || ngram.length > 3) {
+      return { error: "invalid_payload", message: `alts[].ngram must have 2 or 3 items, got ${shown}`, path: `${base}/ngram` };
     }
-    for (let p = 0; p < cps.length; p++) {
-      if (cps[p] === "_" && !(cps.length === 3 && p === 1)) {
-        return {
-          error: "invalid_payload",
-          message: `alts[].ngram ${JSON.stringify(alt.ngram)} has a wildcard '_' at position ${p}; '_' is allowed only as the middle of a 3-code-point ngram`,
-          path: `${base}/ngram`,
-        };
+    for (let p = 0; p < ngram.length; p++) {
+      const item = ngram[p] ?? null;
+      if (item === null) {
+        if (!(ngram.length === 3 && p === 1)) {
+          return {
+            error: "invalid_payload",
+            message: `alts[].ngram ${shown} has a wildcard null at position ${p}; null is allowed only as the middle of a 3-item ngram`,
+            path: `${base}/ngram`,
+          };
+        }
+      } else if ([...item].length !== 1) {
+        return { error: "invalid_payload", message: `alts[].ngram ${shown} has ${JSON.stringify(item)} at position ${p}; each item must be exactly one code point or null`, path: `${base}/ngram` };
       }
     }
-    for (const cp of cps) {
-      if (cp !== "_" && !(cp in keys)) {
-        return { error: "invalid_payload", message: `alts[].ngram ${JSON.stringify(alt.ngram)} has ${JSON.stringify(cp)}, which is not one of this layout's keys`, path: `${base}/ngram` };
+    for (const item of ngram) {
+      if (item !== null && !(item in keys)) {
+        return { error: "invalid_payload", message: `alts[].ngram ${shown} has ${JSON.stringify(item)}, which is not one of this layout's keys`, path: `${base}/ngram` };
       }
     }
-    const digits = alt.fingers;
-    if (digits.length !== cps.length) {
+    const fingers = alt.fingers;
+    if (fingers.length !== ngram.length) {
       return {
         error: "invalid_payload",
-        message: `alts[].fingers ${JSON.stringify(alt.fingers)} must have one entry per code point of ngram ${JSON.stringify(alt.ngram)} (${cps.length}), got ${digits.length}`,
+        message: `alts[].fingers ${JSON.stringify(fingers)} must have one entry per item of ngram ${shown} (${ngram.length}), got ${fingers.length}`,
         path: `${base}/fingers`,
       };
     }
-    for (let p = 0; p < cps.length; p++) {
-      const wildNgram = cps[p] === "_";
-      const wildFingers = digits[p] === "_";
+    for (let p = 0; p < ngram.length; p++) {
+      const wildNgram = ngram[p] === null;
+      const wildFingers = fingers[p] === null;
       if (wildNgram && !wildFingers) {
         return {
           error: "invalid_payload",
-          message: `alts[].fingers ${JSON.stringify(alt.fingers)} must have "_" at position ${p}, where ngram ${JSON.stringify(alt.ngram)} has its wildcard`,
+          message: `alts[].fingers ${JSON.stringify(fingers)} must have null at position ${p}, where ngram ${shown} has its wildcard`,
           path: `${base}/fingers`,
         };
       }
       if (!wildNgram && wildFingers) {
         return {
           error: "invalid_payload",
-          message: `alts[].fingers ${JSON.stringify(alt.fingers)} has "_" at position ${p}, where ngram ${JSON.stringify(alt.ngram)} has ${JSON.stringify(cps[p])}; "_" belongs only at the ngram's wildcard`,
+          message: `alts[].fingers ${JSON.stringify(fingers)} has null at position ${p}, where ngram ${shown} has ${JSON.stringify(ngram[p])}; null belongs only at the ngram's wildcard`,
           path: `${base}/fingers`,
         };
       }
     }
-    if (seen.has(alt.ngram)) {
-      return { error: "invalid_payload", message: `duplicate alts[].ngram ${JSON.stringify(alt.ngram)}`, path: `${base}/ngram` };
+    const id = shown;
+    if (seen.has(id)) {
+      return { error: "invalid_payload", message: `duplicate alts[].ngram ${shown}`, path: `${base}/ngram` };
     }
-    seen.add(alt.ngram);
+    seen.add(id);
   }
   return null;
 }
