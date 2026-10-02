@@ -276,7 +276,7 @@
           }
         },
         "alt": {
-          "description": "design/alts/07-format.md: an alternate fingering for one NGRAM. `ngram` is an array of 2 or 3 items, each a string of exactly one code point or null (the wildcard: any key; allowed only as the middle item of a 3-item ngram; a literal \"_\" is just the underscore key). `fingers` is an array of the same length: the finger code (same enum as key.finger) that types that position's character in this alt, null at exactly the ngram's wildcard. A code equal to the key's own finger means no move and is valid. Deliberately loose here (items have minLength 1 only -- code points, not UTF-16 units, are what count; no length link between the two arrays): every rule that depends on the layout or on the ngram lives, with path-naming messages, in index.ts's validateAlts.",
+          "description": "design/alts/07-format.md: an alternate fingering for one NGRAM. `ngram` is an array of 2 or 3 items, each a string of exactly one code point or null (the wildcard: any key; allowed only as the middle item of a 3-item ngram; a literal \"_\" is just the underscore key). `fingers` is an array of the same length: the finger code (same enum as key.finger) that types that position's character in this alt, null at exactly the ngram's wildcard. A code equal to the key's own finger means no move and is valid. Deliberately loose here (items have minLength 1 only -- code points, not UTF-16 units, are what count; no length link between the two arrays). Optional boolean `skip`: true means the same alt ALSO applies to the one-wildcard skipgram of a 2-item ngram (p,t also covers p_t, fingers LI _ LM); false is the same as absent and is stored as given. Every rule that depends on the layout or on the ngram lives, with path-naming messages, in index.ts's validateAlts.",
           "type": "object",
           "additionalProperties": false,
           "required": [
@@ -325,6 +325,9 @@
                   }
                 ]
               }
+            },
+            "skip": {
+              "type": "boolean"
             }
           }
         },

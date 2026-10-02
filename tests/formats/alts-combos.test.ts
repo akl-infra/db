@@ -118,6 +118,36 @@ describe("[LDB-F44] spark/1 alts (one entry per ngram: an array, null is the wil
     expect(schemaOrRuleRefusal(A(["g", "s"], ["_", "LI"]))?.path.startsWith("/alts/0/fingers")).toBe(true);
   });
 
+  it("[LDB-F44] skip: true is valid on a bigram, skip: false is valid (stored as given)", () => {
+    const alts: Alt[] = [{ ...A(["g", "s"], ["LI", "LM"]), skip: true }, { ...A(["e", "n"], ["LI", "RI"]), skip: false }];
+    const result = spark1.validate(payloadWith({ alts }));
+    expect(result.ok).toBe(true);
+    expect(alts[1]!.skip).toBe(false);
+  });
+
+  it("[LDB-F44] skip: true on a trigram (with or without null) is refused at /alts/i/skip", () => {
+    expect(refusal({ alts: [{ ...A(["e", "g", "s"], ["LP", "RP", "LR"]), skip: true }] })?.path).toBe("/alts/0/skip");
+    expect(refusal({ alts: [{ ...A(["n", null, "f"], ["RR", null, "LI"]), skip: true }] })?.path).toBe("/alts/0/skip");
+    expect(refusal({ alts: [A(["g", "s"], ["LI", "LM"]), { ...A(["e", "g", "s"], ["LP", "RP", "LR"]), skip: true }] })?.path).toBe("/alts/1/skip");
+  });
+
+  it("[LDB-F44] skip false on a trigram is fine (same as absent)", () => {
+    expect(refusal({ alts: [{ ...A(["e", "g", "s"], ["LP", "RP", "LR"]), skip: false }] })).toBeNull();
+  });
+
+  it("[LDB-F44] a non-boolean skip is refused by the schema", () => {
+    for (const skip of ["true", 1, null, {}]) {
+      const r = schemaOrRuleRefusal({ ...A(["g", "s"], ["LI", "LM"]), skip });
+      expect(r, JSON.stringify(skip)).not.toBeNull();
+      expect(r?.path.startsWith("/alts/0/skip"), JSON.stringify(skip)).toBe(true);
+    }
+  });
+
+  it("[LDB-F44] an explicit g_s entry may coexist with g,s skip: true (not refused)", () => {
+    const alts: Alt[] = [{ ...A(["g", "s"], ["LI", "LM"]), skip: true }, A(["g", null, "s"], ["LP", null, "LR"])];
+    expect(spark1.validate(payloadWith({ alts })).ok).toBe(true);
+  });
+
   it("[LDB-F44] the old map form of fingers is refused (schema type)", () => {
     const result = spark1.validate(payloadWith({ alts: [{ ngram: ["g", "s"], fingers: { "0": "LI" } } as unknown as Alt] }));
     expect(result.ok).toBe(false);

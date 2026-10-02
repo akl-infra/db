@@ -62,7 +62,14 @@ is no longer accepted). A code equal to the key's own finger means no move,
 and an alt where nothing moves is valid (a fingermap edit cannot invalidate
 stored alts). Example: `{"ngram": ["a", null, "c"], "fingers": ["LI", null,
 "RM"]}`. No two entries share an `ngram` (element-wise). Unknown properties
-are refused. akldb deliberately does not refuse an alt naming a
+are refused. An entry may carry an optional boolean `skip` (2026-10-02):
+`true` means the same alt also applies to the one-wildcard skipgram of a
+2-item ngram (`["p","t"]` also covers `p_t`, fingers `LI _ LM`); one
+entity, not expanded in storage. `skip: true` on a 3-item ngram is `400
+invalid_payload` at `/alts/<i>/skip`; `skip: false` equals absent and is
+stored as given. An explicit `["p", null, "t"]` entry may coexist with
+`["p","t"]` `skip: true` (not refused; the analyzers decide, the explicit
+entry wins). akldb deliberately does not refuse an alt naming a
 one-character combo's output key (the analyzers do). The earlier shapes
 (per-key `key`/`finger`/`when`/`except`/`guard`, then the string `ngram`
 with `_` wildcard) never shipped and have no compatibility path. `GET

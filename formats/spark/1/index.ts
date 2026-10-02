@@ -94,6 +94,7 @@ export type { NamedFingering, Fingering } from "./geometry.ts";
 export interface Alt {
   ngram: (string | null)[];
   fingers: (string | null)[];
+  skip?: boolean;
 }
 
 // design/alts/07-format.md: a two-key chord -- both `keys` members are this
@@ -495,6 +496,8 @@ function validateGeometry(p: Payload): ErrBody | null {
 //      (charMap, first occurrence, same as combos[].keys)
 //   4. `fingers` has one entry per ngram item            -> /alts/i/fingers
 //   5. null in `fingers` exactly where the ngram has null -> /alts/i/fingers
+//   5b. `skip: true` only on a 2-item ngram (no null)     -> /alts/i/skip
+//       (`skip: false` is the same as absent; stored as given)
 //   6. no two alts share an `ngram` (element-wise)        -> /alts/i/ngram
 // That `fingers` entries are finger codes or null is the schema's rule (items
 // enum). A code equal to the key's own finger is NOT refused. Deliberately
@@ -555,6 +558,13 @@ function validateAlts(alts: Alt[] | undefined, keys: Record<string, Position>): 
           path: `${base}/fingers`,
         };
       }
+    }
+    if (alt.skip === true && ngram.length !== 2) {
+      return {
+        error: "invalid_payload",
+        message: `alts[].skip is allowed only on a 2-item ngram (it adds the skipgram p_t), got ngram ${shown}`,
+        path: `${base}/skip`,
+      };
     }
     const id = shown;
     if (seen.has(id)) {

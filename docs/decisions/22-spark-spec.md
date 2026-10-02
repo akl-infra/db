@@ -352,6 +352,16 @@ again 2026-10-02: `ngram` is an array and `null` is the wildcard):
   and never refused, so a fingermap edit can never invalidate stored alts.
   Example: `{"ngram": ["a", "b", "c"], "fingers": ["LI", "LM", "RM"]}`,
   `{"ngram": ["a", null, "c"], "fingers": ["LI", null, "RM"]}`.
+- `skip` (optional boolean, saltorbit 2026-10-02): `true` means the same alt
+  ALSO applies to the one-wildcard skipgram of a 2-item ngram, e.g.
+  `{"ngram": ["p","t"], "fingers": ["LI","LM"], "skip": true}` also covers
+  `p_t` with fingers `LI _ LM`. It is one entity and is not expanded in
+  storage. `skip: true` is allowed only on a 2-item ngram without `null` (a
+  3-item ngram has no skip version): otherwise `400 invalid_payload` at
+  `/alts/<i>/skip`. `skip: false` is the same as absent and is accepted and
+  stored AS GIVEN (not normalised away). A separate explicit
+  `["p", null, "t"]` entry may coexist with `["p","t"]` `skip: true`; akldb
+  does not refuse it, the analyzers decide, and the explicit entry wins.
 - No two entries may share an `ngram` (compared element-wise, `null` equal
   to `null`).
 - Nothing else is allowed on an entry. The earlier shapes (per-key `key`,
@@ -371,10 +381,11 @@ own pointer: ngram length and item shape, one code point or `null`
 (`/alts/<i>/ngram`); `null` position (`/alts/<i>/ngram`); literal characters
 on the layout (`/alts/<i>/ngram`); `fingers` length equal to the ngram's
 (`/alts/<i>/fingers`); `null` in `fingers` exactly where the ngram has its
-wildcard (`/alts/<i>/fingers`); then duplicate ngram (`/alts/<i>/ngram`, the
+wildcard (`/alts/<i>/fingers`); `skip: true` on a non-2-item ngram
+(`/alts/<i>/skip`); then duplicate ngram (`/alts/<i>/ngram`, the
 later entry). A string `ngram`, an ngram of fewer than 2 or more than 3
 items, an item that is neither a non-empty string nor `null`, a `fingers`
-that is not an array of 2-3 finger codes or `null`s, a missing field, or an
+that is not an array of 2-3 finger codes or `null`s, a missing field, a non-boolean `skip`, or an
 unknown property is the schema's own refusal.
 
 *Schema: `db/formats/spark/1/schema.json`'s `alt` `$def` (`ngram` is an array of 2-3 items, each `oneOf` a string with `minLength: 1` or `null`; no `maxLength` -- code-point exactness is not expressible in JSON Schema, same reason `rawRule.output`/`magicKeyRule.after`/`emit` have none; `fingers` is an array of 2-3 items, each the finger enum or `null`; the length link, the `null` placement and the one-code-point rule are not expressible and live in `validateAlts`). Semantics: `db/formats/spark/1/index.ts`'s `validateAlts`. LDB-F44.*
