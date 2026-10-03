@@ -3729,14 +3729,6 @@
                           "type": "string"
                         }
                       }
-                    },
-                    "skip": {
-                      "type": "object",
-                      "fields": {
-                        "type": {
-                          "type": "string"
-                        }
-                      }
                     }
                   }
                 },
