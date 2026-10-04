@@ -197,7 +197,7 @@ POST   /v1/layouts/{ref}/restore    { name? }  (owner or admin, no time limit)  
 PUT / DELETE /v1/layouts/{ref}/like                                                           → 200 { like_count }
 ```
 
-**The scoped `If-Match` rule (`LDB-P2`/`MF-11`, `db/README.md`):** every
+**The scoped `If-Match` rule (`LDB-P2`/`MF-11`, `db/docs/technical-reference.md`):** every
 write to an *existing* SCOPE — `PUT`/format-`PATCH`/`DELETE`/`transfer`/
 name-`PATCH` — refuses with `400 if_match_required` if `If-Match` is
 absent, checked before any read or mutation. `restore` and likes take none
