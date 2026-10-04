@@ -1,0 +1,622 @@
+# `akl-db`
+
+Updated 2026-09-11 (20-spark.md).
+
+The layout-db service (`design/layout-db/`): a Cloudflare Worker with its
+own D1 database and R2 bucket, mirroring cmini's layouts -- read-only in
+phase 1, now also accepting direct writes. Deployable independently of the
+rest of this repo -- see `00-plan.md` §7 for why nothing here imports from
+`../web`, `../scripts` or `../functions`, and nothing outside imports `db/`
+(enforced by `tests/tools/boundary.test.ts`, LDB-G5).
+
+Full design: `design/layout-db/00-plan.md` (why) and
+`design/layout-db/07-implementation-phase1.md` (what phase 1 shipped, slice
+by slice; `design/layout-db/20-spark.md` is the current plan + ledger).
+Invariants: `INVARIANTS.md` (this directory). **Building a client (a bot, a
+site, a script, or an agent)?** Start at `db/docs/adoption.md` -- the
+primary, code-checked adoption guide: lanes, registration, reads, staying
+current, writes, limits, format authoring, and the full endpoint table.
+`INTEGRATION.md` (this directory) is the older integration note, kept for
+its design-doc cross-references and the generated error-code appendix.
+Both docs, plus the rest of `design/layout-db/*.md`, are rendered onto the
+site as the `/layoutdb/` hub (`design/layout-db/build_site.mjs`, `LDB-G9`).
+
+## API versioning
+
+The HTTP API's own version (distinct from a stored format's own major,
+below): `design/layout-db/25-api-versioning.md` is the audit + policy
+(`/v1` additive-only, `X-AKLDB-API` header + `GET /v1/meta`'s `api` block,
+the `tests/contract/` golden, `CHANGELOG-API.md`). `db/CHANGELOG-API.md`
+is the dated changelog; `db/INTEGRATION.md`'s "Versioning" section is the
+client-facing summary.
+
+## Formats
+
+**A layout can hold several formats at once** (`design/layout-db/
+21-formats.md`, F2, 2026-09-11): `layout_formats` has one row per (layout,
+lineage), each with its own rev/timestamps/`has_magic`/payload,
+independent of every other format the same layout has and of the layout's
+own name/owner/deletion (`layouts.layout_rev`) -- two disjoint write
+scopes per layout, each with its own `If-Match` token (below). `spark/1` is
+the one **stored** format today (`akl/1` renamed at the same payload shape,
+byte for byte -- `design/layout-db/20-spark.md` decision 1): every write
+naming it ends up in `layout_formats` under lineage `spark`. `mana2/1` is
+an **output-only, derived** shape -- never stored, produced from whichever
+ONE stored lineage is registered to reach it (`spark/1` today) on every
+read that asks for it explicitly (`?format=mana2/1`); a write naming it is
+`400 format_not_writable`. Each output format is reachable from exactly
+one stored lineage (`MF-10`) -- a second stored lineage wanting the same
+output edge needs an explicit way to say so, not designed yet. cmini is an
+**import source**, not a stored format lineage -- the importer converts
+each upstream detail to spark on arrival, touching the layout's own
+fields and lineage `spark` only. There is no `akl/1` alias, no `?as=`
+query parameter at all any more (`design/layout-db/21-formats.md` D4/D5/D12):
+`?format=` is the one name everywhere, and it is **required** on every
+route that returns a payload -- there is no default, `400
+format_required` without one. `spark/1` also lost its free-form `x` field
+in the F1 slice (D10) and its `board` field in `design/layout-db/
+26-no-board.md` (a record never says what board it is drawn on -- that is
+the reader's choice; migration `0016_no_board.sql` stripped stored rows in
+place), and a magic key's rule became `{after, emit}` in `design/layout-db/
+27-magic-emit.md` (migration `0017_magic_emit.sql` rewrote stored rows) --
+see `design/layout-db/22-spark-spec.md` for the current spec. `GET /v1/formats` is the live registry (`role`,
+`can_translate_to`, and an `aliases` field kept for wire compatibility but
+always `[]` now that there are none).
+
+**New error codes** (`src/core/errors.ts`, `db/INTEGRATION.md`'s
+generated appendix): `format_required` (400, no `?format=`/`format`),
+`format_absent` (404, this layout has no such format and can't derive it
+-- distinct from `unknown_format`, the id itself unregistered), `format_exists`
+(409, `PUT … If-None-Match: *` naming a lineage the layout already has),
+`mixed_patch` (400, a PATCH body naming both `name` and a format edit --
+each write has exactly one scope).
+
+**The chain.** A format lineage can grow a second (and later) major without
+breaking older clients: `up`/`down` convert one major to the next/previous
+(down is held or lossless), a write in an older major is chained up to the
+latest automatically (`detail.written_as` on the event), and a blind
+overwrite that would lose newer content is refused with `409
+format_behind` instead of silently discarding it. With only `spark/1`
+registered today the mechanism is exercised by a test-only stub lineage --
+see `db/formats/registry.ts` and `db/docs/adoption.md` §7/§8.
+
+**`upstream` is transitional.** Every record carries `upstream: {source:
+"cmini", id, state: "following" | "forked"} | null`, folded from import and
+write events (`core/upstream.ts`'s `nextUpstream`) -- it answers exactly one
+question, "does the importer still own this record's keys", for
+exactly as long as the one-time cmini import keeps running. Nothing outside
+the importer, the daily upstream diff, and the one-time record migration
+reads it for any decision; it is retired along with the import
+(`20-spark.md` decision 16, §6b). Don't build client behavior on it.
+
+**Every edit records its source.** `Write.source: {client, version}` is
+required on every write and folded onto the record and its events: `client`
+is proven (`client:<id>` on the client lane, `discord-app:<app id>` on the
+user lane, `system:cmini-import`/`system:migration` for system writers) --
+never a header or body field a caller controls; `version` is whatever the
+caller sends as `X-Client-Version`. History predating this (`0005_spark.sql`)
+reads `source: {client: "legacy:<via>", version: null}`.
+
+**Writes require a SCOPED `If-Match` (LDB-P2/MF-11, restated by
+21-formats.md for several formats per layout):** no client may write to an
+existing scope without naming the version it saw, and the token must name
+the write's OWN scope -- `"layout:<layout_rev>"` for a layout-level write
+(rename, delete, transfer), `"<lineage>:<rev>"` (e.g. `"spark:7"`) for a
+format write. `PUT /v1/layouts/{ref}`, `PATCH /v1/layouts/{ref}`, `DELETE
+/v1/layouts/{ref}` and `POST /v1/layouts/{ref}/transfer` all refuse a
+request with no `If-Match` header -- `400 if_match_required`
+(`src/core/errors.ts`), checked before any read or mutation. A bare
+unscoped number, or the WRONG scope's token, is `400 bad_request` (MF-11) --
+also checked before any read. A client's "overwrite" is never a blind
+write: it must re-read the record first and send the scope's OWN current
+rev; `If-Match: *` still means "overwrite whatever is there, any scope",
+but the client must say so explicitly -- absent is refused, not treated as
+`*`. Two writers on DIFFERENT scopes of one layout never race each other
+and both land (MF-6); only same-scope writers race. `POST /v1/layouts`
+(creation), likes, `restore` and the `import:cmini` path are unaffected --
+there is no prior version to name. Design: `design/layout-db/
+09-implementation-phase2.md` §2.1 (the error vocabulary), §2.3 (`If-Match`
+mechanics), `design/layout-db/21-formats.md` §2.2/§2.3 (the scoped rewrite).
+
+## Dead columns
+
+`layouts.like_adjust` (added by `migrations/0014_moderation.sql`) is a dead
+column since `migrations/0015_drop_like_adjust.sql` (H24, saltorbit
+2026-09-13): the admin like-count override it backed was removed entirely
+("mods should not be able to override the like count" / "likes should
+always be tied to the users who liked it, not be just an opaque number you
+can set") -- `like_count` is once again exactly `COUNT(DISTINCT user_id)
+FROM likes` and no code reads or writes `like_adjust` any more. It stays
+physically on the table, `NOT NULL DEFAULT 0`, rather than being dropped --
+D1's migration tooling can't reliably drop a SQLite column in place, and
+this DB is disposable (wiped + re-imported at cutover, `design/layout-db/
+review/` conventions), so a harmless dead column is the simpler, safer
+path over a full `layouts` table recreation.
+
+## Run locally
+
+```bash
+cd db && npm ci
+npm run migrate                     # wrangler d1 migrations apply akl-db --local
+npm run dev                         # wrangler dev; GET http://localhost:8787/v1/meta
+npm test                            # both vitest projects (workers + node)
+npm run typecheck
+```
+
+**Migrations are additive.** `docs/decisions/21-formats.md` D8, amended
+2026-09-14 (saltorbit: "we can't lose data anymore - people may start
+making edits"): akldb is never wiped any more, so every migration in
+`migrations/` from here on may only ever add -- no `DROP TABLE`, no
+`DELETE FROM`, never a `CREATE TABLE events` recreating the log. Rewriting
+stored rows in place (an `UPDATE` over `payload_json`, as `0016_no_board.sql`
+and `0017_magic_emit.sql` did) is still fine. `tests/tools/
+migrations-additive.test.ts` (LDB-G15) enforces this against every
+migration file not on its own closed, checked allowlist of the
+pre-2026-09-14 files that legitimately contained one of those statements.
+
+`goldens -- --write` (writes `db/formats/*/*/fixtures/` and their derived
+goldens -- run once per new fixture, never to regenerate one that already
+merged) is real (S2). `deploy` and `rehost` are real (S7, see "Rehost
+procedure" below); `deploy` is normally run by CI
+(`.github/workflows/db.yml`'s `deploy` job), not by hand.
+
+The cmini importer (`npm run import`, `npm run diff-upstream`,
+`npm run profile-upstream`, `npm run pick-fixtures`) is gone -- pine's own
+upstream (`https://clemenpine.com/layoutapi/v3`) has been permanently dead
+since 2026-09-15 (LDB-I27), and the one-time import it ran is long
+finished. `tests/fixtures/upstream-100/` (the frozen snapshot those
+scripts used to regenerate) and `formats/adapters/cmini/` stay: the
+fixtures back format goldens and `tests/api/list.test.ts`'s own `[LDB-F5]`
+case, and the cmini adapter itself is a published, kept format lineage.
+See `db/CHANGELOG-API.md` for the removal and `db/INVARIANTS.md`'s retired
+section for the invariants it used to satisfy.
+
+## Secrets and bindings
+
+| name | kind | where it's read | how to regenerate |
+|---|---|---|---|
+| `DB` | D1 binding | `src/index.ts` (and everywhere under `src/core`, `src/import`, `src/dump`, `src/auth`) | `wrangler d1 create akl-db`; paste the id into `wrangler.toml`'s `[[d1_databases]]` |
+| `DUMPS` | R2 binding | `src/dump/write.ts`, `src/routes/dump.ts` (S7) | `wrangler r2 bucket create akl-db-dumps`; the 90-day lifecycle rule on `dump-*` is set by hand in the R2 bucket's dashboard/API (`monthly/` is exempt -- no prefix match) |
+| `DISCORD_API_URL` | var | `src/auth/discord.ts` (T1) | `wrangler.toml`'s `[vars]`; default `https://discord.com/api`; tests inject `fetchImpl` directly and never resolve this URL |
+| `MODQUEUE_DISCORD_WEBHOOK` | secret (optional) | `src/core/modqueue.ts` (LDB-MD11/LDB-MD12) | a Discord incoming-webhook URL for the mod-queue channel; `wrangler secret put MODQUEUE_DISCORD_WEBHOOK`; unset or empty disables the feature entirely (no fetch, no `notified_at` write) |
+| `CLOUDFLARE_DB_TOKEN` | repo secret (CI) | `.github/workflows/db.yml`'s `deploy` job (S7) | a Cloudflare API token with Workers Scripts + D1 + R2 edit, separate from the site's Pages token |
+| `CLOUDFLARE_DB_ACCOUNT_ID` | repo secret (CI) | `.github/workflows/db.yml`'s `deploy` job (S7) | the NEW community account's id (00 §1) -- NOT the site's `CLOUDFLARE_ACCOUNT_ID` |
+| `DB_BASE_URL` | repo/org variable (CI) | `.github/workflows/db.yml`'s `daily` job (S7) | the deployed service's own origin, e.g. `https://akl-db.<account>.workers.dev`; set once the service is deployed |
+| `CLIENT_ID` / `CLIENT_PRIVATE_KEY` / `OPS_ACTOR` | `db.env.ops` beside the clones (never in a repo; `db.env.ops.preview` for the preview DB) | `scripts/ops-call.sh`, `scripts/client-sign.mjs`, `npm run reseed-magic` | the maintainer's ops client (`act-as-owner-only`, owner = the admin it acts as): its `id` and base64url PKCS8 Ed25519 private key from registration (`POST /v1/admin/clients`, or a direct `clients` insert when no signer exists yet -- the 2026-09-14 bootstrap after the split lost `db/.env.ops`), plus the admin's Discord user id. A lost key cannot be recovered: register a new client, revoke the old |
+| `TEST_ROUTES` | test-only miniflare binding | `src/index.ts`'s throwaway `/v1/__test/write` route | set unconditionally in `vitest.config.ts`; never present outside tests |
+| `TEST_MIGRATIONS` | test-only miniflare binding | `tests/setup-workers.ts` | built from `migrations/` by `vitest.config.ts` at test-run time; never present outside tests |
+| `TEST_REHOST_DUMP_URL` | test-only miniflare binding | `tests/rehost.test.ts` (S7) | threads the real `REHOST_DUMP_URL` env var (set only by db.yml's `daily` job) into the miniflare Worker; empty string locally, so `npm test` always runs the local (cron-driven) half of the rehost drill |
+
+## Scheduled jobs
+
+ONE cron trigger, `*/5 * * * *` (`wrangler.toml`'s `[triggers]`), drives
+every scheduled job -- `src/index.ts`'s `scheduled()` reads `event
+.scheduledTime` (UTC) to decide whether hour=3, minute=0 has arrived, not
+`event.cron` (there is only one cron string to route on). One trigger
+(rather than several) because Cloudflare's own dispatch has, at least
+once, simply stopped firing for this Worker's registered triggers with no
+error anywhere but a stale `/v1/meta` -- `POST /v1/admin/nightly/tick`
+(below) gives an operator a manual way around it either way.
+
+| every invocation | hour=3, minute=0 also |
+|---|---|
+| (nothing unconditional any more -- see LDB-D8 catch-up below) | `pruneAuthCache`, `pruneRateLimits`, `pruneNonces`, `writeDump` (the nightly dump, below) |
+
+[LDB-X2] Two more columns used to exist here -- the cmini import tick, run
+on every invocation, and the diff cron at hour=4/minute=0 -- deleted along
+with the importer itself (pine's own upstream has been permanently dead
+since 2026-09-15, LDB-I27).
+
+Each of the (up to four) nightly jobs one invocation can run is caught and
+logged independently (`src/index.ts`'s `runJob`) -- one job throwing never
+stops the others queued after it in the same invocation from running.
+
+**Dump catch-up (LDB-D8).** hour=3 is the PREFERRED slot for the dump, but
+it isn't exclusive to it any more: on every OTHER invocation,
+`scheduled()` reads `import_state`'s own `dump.last_at` record and runs
+the job anyway if it is missing or its `at` is more than 24h before this
+tick -- a cron dispatch Cloudflare drops for the one slot that matters no
+longer skips a whole day silently; the very next successful tick (at most
+5 minutes later) catches up instead. Under normal operation this never
+double-runs within 24h: a successful hour=3 run leaves the record fresh,
+so the immediately following ticks' own catch-up checks are false.
+`GET /v1/meta.health.dump` (below) surfaces its staleness for monitoring.
+
+## Rogue trusted client
+
+A client registered `act-as-user` (§1.1 of `docs/adoption.md`) can assert
+*any* Discord user's identity -- that trust is the client's to keep, and
+the layer below assumes it's kept. saltorbit, 2026-09-13: "do we have recourse
+if [a trusted client] crashes out and abuses their trusted powers to wipe
+everything?" Two layers of recourse exist; work through them in order.
+
+**0. Automatic backstop, before you do anything.** Every registered
+client's DESTRUCTIVE writes (delete, rename, transfer, a format
+replacement via `PUT`/`PATCH` on an EXISTING record, clearing an approved
+link -- never a create, a like, or a format ADD) are counted against a
+rolling 1-hour budget, `max(200, 5% of the live catalog)`
+(`src/core/destructive-budget.ts`). A client that blows through it is
+auto-suspended (`clients.status = 'suspended'`, distinct from `revoked`):
+every further request from it -- reads included -- gets `403
+client_suspended` from the moment it trips, and the trip itself is a
+public, `admin`-kind event (`admin.client_suspended`, actor
+`system:budget-guard`) on `GET /admin/changelog`. This bounds a rogue
+client's worst case to a small slice of the catalog per hour instead of
+the whole thing in the ~10 minutes `CLIENT_LIMIT` (`src/auth/
+ratelimit.ts`, 5000 writes/10min) would otherwise allow -- but it is a
+backstop, not a substitute for the steps below: it does nothing about
+damage already done before it tripped, and a client causing damage slowly
+enough (or spread across many hours) never trips it at all.
+
+**1. Detect.** `GET /v1/meta`'s `health.clients.suspended` lists anyone
+currently auto-suspended (`{id, name, at, reason}`) -- check this first,
+it costs nothing. Otherwise, the existing revocation story
+(`docs/adoption.md` §1.1/§2.1) still applies: every write is permanently
+attributed to its client id on `GET /admin/changes`/`GET
+/admin/changelog`, so a client behaving badly is one query away
+(`?actor=` or eyeballing `source.client` on the feed).
+
+**2. Suspend or revoke.** If it's not already auto-suspended,
+`POST /v1/admin/clients/{id}/suspend` (admin lane, optional `{reason}`)
+stops it immediately without losing the registration -- prefer this over
+`DELETE /v1/admin/clients/{id}` (revoke) whenever you expect to want it
+back: revoke is **terminal** (an admin can never move a revoked client to
+`suspended` or `active` again; re-onboarding needs a fresh registration,
+a new key). Either way, `clients.status` is read fresh on every request
+(LDB-A9/LDB-A11) -- no cache window.
+
+**3. Dry-run the damage.** `POST /v1/admin/clients/{id}/revert
+{"since": "<ISO timestamp>", "dry_run": true}` walks every destructive
+write that client made at/after `since` and reports, per event, what it
+WOULD do: `reverted` (safe to undo), `skipped_no_op` (already back to
+that state), or `skipped_newer_write_by_other` (someone else's later,
+legitimate edit sits on top of it -- never touched). Nothing is written.
+Read the plan before acting on it.
+
+**4. Revert.** The same call with `dry_run: false` (or omitted) actually
+undoes it: a tombstone restored, a rename/transfer undone, a format
+payload rolled back to its prior `layout_revs` row **as a new revision**
+(history is never rewritten -- every payload that ever existed stays
+findable at its own rev), a cleared link restored. Bounded per call (a
+`next` cursor -- keep calling with it until `next` is `null`); idempotent
+(running it again reverts nothing new, so it's safe to retry or to run
+opportunistically); every reverted write is its own event, attributed to
+`system:revert` and naming the admin and the original event's `seq`, so
+the revert itself is on the public changelog too.
+
+**5. Last resort: restore from backup.** If the damage predates your
+`since` window, or predates the client's own registration somehow, or
+`revert` can't reach it (an OTHER actor's later write blocked it, and
+that write itself needs undoing by hand) -- the nightly R2 dump
+(`GET /v1/dump/latest.json`, "Rehost procedure" below) is the full event
+log and every table, gzipped, off the account. `tests/rehost.test.ts` runs
+this exact restore path daily against the real deployed dump, so it is
+never a cold, untested path when you actually need it.
+
+## Rehost procedure
+
+Every night, at the `hour=3, minute=0` slot of the one `*/5 * * * *` cron
+trigger, the Worker writes a complete snapshot -- every
+table, the WHOLE event log (not a tail: a rehosted service must still be
+able to answer `/v1/changes?since=0`) -- to R2 as `dump-YYYY-MM-DD.json.gz`,
+with `latest.json` pointing at the newest one and a `monthly/dump-YYYY-MM.json.gz`
+copy kept on the 1st of each month. `GET /v1/dump` always redirects to the
+current one; nothing about this needs a public R2 bucket -- the Worker
+streams the object itself.
+
+**The numbered procedure** (04-governance.md §4's drill, as implemented):
+
+1. Get a dump. Either download it yourself (`curl -O <service>/v1/dump/latest.json`,
+   then follow its `url`), or hand `rehost.mjs` a URL directly -- it fetches
+   and gunzips either a `.gz` or already-decompressed dump.
+2. `npm run rehost -- --dump <file|url> --local` against a scratch local D1
+   first if you want to sanity-check the dump before touching anything real
+   (this is exactly what `tests/rehost.test.ts`'s local half does every
+   test run, and what this slice's own DoD proof used).
+3. `npm run rehost -- --dump <file|url> --remote --wipe=akl-db [--force] [--accept-loss]`
+   against the real `akl-db` -- needs `CLOUDFLARE_API_TOKEN`/`CLOUDFLARE_ACCOUNT_ID`
+   in the environment (the same credentials `CLOUDFLARE_DB_TOKEN`/
+   `CLOUDFLARE_DB_ACCOUNT_ID` name as repo secrets; export them locally
+   under those exact wrangler-recognized names to run this by hand). The
+   script refuses when `layouts` already has rows, unless you pass
+   `--force` -- a rehost is meant to be a from-scratch recovery, not a
+   silent overwrite of a live, healthy database. **akldb is no longer
+   disposable** (docs/decisions/21-formats.md D8, amended 2026-09-14), so a
+   `--remote` run naming no `--env` (i.e. production `akl-db`) additionally
+   refuses -- before touching anything -- unless `--wipe=akl-db` (the
+   literal database name) is passed, and refuses again, right before
+   restoring, if the live service's `/v1/meta` `seq` is ahead of the dump's
+   own `meta.seq` (a real loss of event history) unless `--accept-loss` is
+   also passed; both seqs are printed either way. Neither flag is needed
+   for `--local` or `--env preview`.
+4. `npm run deploy` (or push to `main` and let CI's `deploy` job do it) to
+   point the Worker's code at the restored data, if this was a full
+   from-scratch rehost (new account, lost database, etc.) rather than a
+   drill against the existing one.
+5. Confirm: `curl <service>/v1/meta` and compare `layout_count`/`seq`
+   against what `latest.json` claimed before the restore.
+
+**What a rehost DOES restore (LDB-D9):** `clients` -- registered bot
+pubkeys, caps and status. Unlike the now-deleted `webhooks` table
+(LEDGER.md L4), nothing on this table is a secret (10 C1 §4), so there is
+no reason for a rehost to lose every registered bot key and need the
+admin bootstrap redone; it is dumped and restored like any other table.
+
+**What a rehost does NOT restore:** `auth_cache` (never dumped -- it holds
+only token hashes with a <=5-minute lifetime; a rehost starts with a cold
+cache, so the next authenticated request just re-verifies with Discord),
+`nonces` (never dumped -- the client-lane replay guard, <=300s lifetime by
+construction, so a rehost simply starts with no history of recent
+requests), and `ratelimit` (rate-limit windows; starting empty only ever
+makes a request succeed sooner, never later). All three tables are wiped
+by `restoreSql`'s own `DELETE FROM` pass and never re-populated -- this is
+intentional, not a gap. `dump.last_at` (LDB-D8, the dump's own scheduling
+bookkeeping) is likewise excluded from `import_state`'s dumped rows
+specifically -- a restored database starts eligible for an immediate
+catch-up dump instead of carrying a stale ex-deployment's memory of
+"already dumped".
+
+**The daily proof** (`.github/workflows/db.yml`'s `daily` job, 04:00 UTC):
+fetches the real `latest.json` from the deployed service and uploads it as
+a 30-day-retention CI artifact (LDB-C6 -- a free, off-Cloudflare copy, so a
+lost/corrupted D1 + R2 account still has a rehostable dump sitting in
+Actions), runs `tests/rehost.test.ts` against it (restores the dump into
+the job's own throwaway D1 and re-runs the whole conformance suite against
+the restored copy), and separately runs the upstream diff (S8). Both fail
+the job loudly on any problem -- neither is allowed to skip silently.
+
+## Backups
+
+Three layers, from finest-grained to coarsest; the R2 dump and Time Travel
+live in the akl Cloudflare account, the CI artifact and `db-backup` do not:
+
+- **Nightly R2 dump** (above): `dump-YYYY-MM-DD.json.gz` + `latest.json`,
+  gzipped, every table and the whole event log -- the "Rehost procedure"
+  section above is how to restore one. The daily job also uploads the
+  fetched dump as a 30-day-retention CI artifact (LDB-C6), a free copy off
+  the Cloudflare account entirely.
+- **D1 Time Travel** (below): 30 days of point-in-time restore, free on the
+  Workers Paid plan, no separate backup job -- restores the WHOLE database
+  to one instant, never just a table or a row.
+- **`akl-infra/db-backup`**: a nightly git-committed snapshot of the public
+  dump's current state -- records, formats, likes, authors and the other
+  small tables, one file per table, kept indefinitely in that repo's own
+  history. No event log and no revision history of its own (that's what
+  the R2 dump and Time Travel are for) -- a point-in-time copy, not
+  material for replay.
+
+## Point-in-time restore with D1 Time Travel
+
+Cloudflare's D1 Time Travel gives 30 days of point-in-time restore on the
+Workers Paid plan, free, with no separate backup job -- it is a second,
+finer-grained safety net alongside the dump/restore above (RPO minutes
+instead of up to 24h, at the cost of restoring the WHOLE database to one
+instant, not individual tables or rows).
+
+```bash
+# Find restorable bookmarks (also printed by db.yml's pr-deploy job before
+# every deploy, as a rollback bookmark):
+npx wrangler d1 time-travel info akl-db
+
+# Restore to a specific bookmark or timestamp (`--timestamp` accepts an ISO
+# 8601 instant or a Unix epoch second):
+npx wrangler d1 time-travel restore akl-db --bookmark=<bookmark>
+npx wrangler d1 time-travel restore akl-db --timestamp=2026-09-12T03:00:00Z
+```
+
+**Caveat:** Time Travel restores the ENTIRE database to that instant --
+there is no way to restore just `layouts` or just one row. A restore
+also does not touch anything outside D1 (R2 dumps, the deployed Worker
+code, Fly/spark's own cell store) -- coordinate those separately if the
+restore point predates a schema migration or a code deploy that assumed
+one. Prefer this for "something is subtly wrong and I need last Tuesday
+back" over "I need one layout's history," which `GET /v1/changes` (the
+event log) already answers without touching D1's storage layer at all.
+
+## Fresh-D1 restore rehearsal
+
+A rehearsed checklist for "we lost the D1 database entirely, rebuild it
+from a dump" -- run this for real at least once so the numbered procedure
+above is proven, not just written down. Do NOT run this against
+`akl-db`/prod -- a scratch D1 only.
+
+**Log.** First run 2026-09-14 ~04:55Z (saltorbit's session, the day akldb
+stopped being disposable): scratch `akl-db-rehearsal` on the akl account,
+migrations 0001-0017 applied through a throwaway copy of `wrangler.toml`
+(`database_name`/`database_id` swapped, `migrations_dir` set absolute),
+`dump-2026-09-14.json.gz` (sha256 matched `latest.json`, `meta.seq` 45322,
+4184 layouts) rendered through `restoreSql` to 3 777 statements and applied
+with one `d1 execute --file`. The execute itself took about 5 s; the whole
+drill, download included, under five minutes wall. Every count matched the
+dump: 4184 live layouts, 4187 rows with tombstones, `MAX(seq)` 45322,
+10 819 events, 8 506 revisions, 2 050 likes, 1 admin. Scratch database
+deleted afterwards; `akl-db` untouched. One gotcha: `latest.json`'s `url`
+is origin-relative (`/v1/dump/dump-YYYY-MM-DD.json.gz`), so prefix the
+service origin before fetching it.
+
+1. `npx wrangler d1 create akl-db-rehearsal` (or reuse a previous scratch
+   database). `rehost.mjs` always targets `akl-db` (or, with `--env
+   preview`, `akl-db-preview`) -- it has no "restore into an arbitrary
+   name" flag -- so a genuine fresh-D1 rehearsal needs a scratch
+   `[[d1_databases]]` entry (temporarily added to a throwaway copy of
+   `wrangler.toml`, never committed) naming `akl-db-rehearsal`, or drive
+   `wrangler d1` directly by database name/id as steps 2-5 below do (this
+   is the CLI-only path -- no wrangler.toml binding required for `d1
+   migrations apply`/`d1 execute` against a name you already have).
+2. `npx wrangler d1 migrations apply akl-db-rehearsal --remote` -- every
+   migration in `migrations/`, in order, against the empty database.
+3. Fetch a real dump (`curl -O <service>/v1/dump/latest.json`, follow its
+   `url` -- origin-relative, prefix `<service>` -- gunzip it) and note its
+   `meta.layout_count`/`meta.seq`.
+4. Render the restore SQL through the SAME code `restoreSql`/`restoreInto`
+   are tested through -- never a hand-written INSERT -- then apply it:
+   ```bash
+   node -e '
+     import("./src/dump/restore.ts").then(({ restoreSql }) => {
+       const dump = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+       require("fs").writeFileSync("restore.sql", restoreSql(dump).join(";\n") + ";\n");
+     });
+   ' <path-to-decompressed-dump.json>
+   npx wrangler d1 execute akl-db-rehearsal --remote --file restore.sql
+   ```
+5. Verify: `npx wrangler d1 execute akl-db-rehearsal --remote --command
+   "SELECT COUNT(*) FROM layouts WHERE deleted = 0"` equals the dump's
+   `meta.layout_count`; `SELECT MAX(seq) FROM events` equals `meta.seq`.
+6. Record how long steps 1-5 took (this is the rehost RTO estimate) and
+   `npx wrangler d1 delete akl-db-rehearsal` to clean up.
+
+## Manual cron triggers
+
+Cloudflare's cron dispatch has, at least once, simply stopped firing for
+this Worker's registered triggers (zero scheduled invocations over 25
+minutes observed on the deployed service, no error surfaced anywhere but a
+stale `/v1/meta`) -- this route lets an admin force the nightly job set
+without waiting it out. `wrangler dev --test-scheduled`'s `/__scheduled`
+endpoint also ignores a `?time=` override, so there is no LOCAL way to
+drive the `hour=3, minute=0` nightly slot either -- `POST
+/v1/admin/nightly/tick` exists mainly for that: an operator who needs a
+fresh dump written (a rehost drill, say) has no other way to force one
+short of waiting for a real 03:00Z. It calls the EXACT SAME function
+`scheduled()` calls for the real cron (`tests/api/admin.test.ts` asserts
+this with a spy shared across both call sites), so there is no second
+implementation to drift out of sync with the real one; it is admin-only,
+rate-limited the same as every other write here, and appends one
+`admin.nightly_ticked` event to the public feed.
+
+[LDB-X2] Two more manual triggers used to live here -- `POST
+/v1/admin/import/tick` and `POST /v1/admin/diff/tick`, the cmini import
+tick and the upstream diff tick's own manual kicks -- deleted along with
+the importer itself (pine's own upstream has been permanently dead since
+2026-09-15, LDB-I27; see `CHANGELOG-API.md` for the removal).
+
+| route | body | 200 response | other statuses |
+|---|---|---|---|
+| `POST /v1/admin/nightly/tick` | none | `{ ran: true, at, jobs: { "prune-auth-cache": "ok"\|"error", "prune-rate-limits": "ok"\|"error", "prune-nonces": "ok"\|"error", "write-dump": "ok"\|"error" }, dump: writeDump()'s own { key, latest } or null }` -- `src/core/nightly.ts`'s `runNightly`, the SAME job list `scheduled()`'s `hour=3, minute=0` branch runs, each job guarded (`core/jobs.ts`'s `runJob`) so one failing never skips the rest | the usual admin `401`/`403`/`429`/`503` (no "paused" state exists for this job set) |
+
+`POST /v1/admin/dump` is a second, narrower manual trigger: it calls
+`dump/write.ts`'s `writeDump` directly (the exact same path the nightly
+job's `write-dump` step and LDB-D8's own catch-up check use), needed
+because the layoutdb cutover imports into a wiped DB and the bot/site
+rebuild boot from the daily dump -- an operator can't wait for the next
+`hour=3, minute=0` slot right after a wipe-and-reimport. Unlike the tick
+route above, it appends no `admin.*` event (a dump write carries no
+per-record content worth logging on the public feed).
+
+| route | body | 200 response | other statuses |
+|---|---|---|---|
+| `POST /v1/admin/dump` | none | `{ seq, layout_count, written_at }` (`writeDump()`'s own `latest.json` fields, plus the clock value it was written at) | the usual admin `401`/`403`/`429`/`503` |
+| `POST /v1/admin/magic-seed` | `{ ref, magic }` | `{ id, name, rev, has_magic, upstream }` -- the record's `magic` replaced through spark/1's `setMagic` + `validate()`, written as `system:magic-seed` via `seed:aklgg` (a system write: never forks, sets `upstream.state` back to `following`; design/layout-db/23-geometry.md §10.1, 20-spark.md decision 14). Its one caller is the periodic reseed (`scripts/reseed-magic.mjs`, "Magic rules reseed" below), which guards it client-side (LDB-P25) -- but since 2026-09-14 the route itself refuses `409 magic_edited` on a record whose spark/1 row was last written by anything but a system client, unless it has no magic and is not forked (LDB-P26): calling it by hand can no longer clobber a person's magic or un-fork their record | `400 bad_request`/`invalid_payload`/`magic_collision`, `404`, `409 magic_edited`, the usual admin `401`/`403`/`429`/`503` |
+
+### Magic rules reseed (periodic, from akl.gg prod)
+
+`docs/decisions/26-magic-reseed.md`. akl.gg prod still writes a published
+rule set to its own D1 table first (its rules editor's akldb mode exists but
+is not flipped on in production yet -- 17-magic-ownership.md §4 M3 "waits
+only on W6's env-var flips"). Until that flip, akldb's copy of every rule
+set is kept current by a reseed, not a one-shot migration:
+
+```bash
+npm run reseed-magic -- --dry-run   # reads only; prints what it would seed
+npm run reseed-magic                # live (needs the ops client env below)
+```
+
+Run by hand (saltorbit: "i will want to run it by hand"), from a checkout
+with the ops client's key in the environment -- at the latest right before
+flipping akl.gg prod to akldb, and whenever rules were published on the
+site in between:
+
+```bash
+DB_BASE_URL=https://api.akldb.org \
+CLIENT_ID=<the ops client id> \
+CLIENT_PRIVATE_KEY=<its base64url PKCS8 Ed25519 private key> \
+OPS_ACTOR=<the admin Discord user id the seed acts as> \
+npm run reseed-magic
+```
+
+The client is a plain admin-actor client registered via `POST
+/v1/admin/clients` (not `act-as-owner-only`: the seed writes records owned
+by many users); the key never leaves the operator's shell (02-auth.md §3).
+`AKLGG_RULES_URL` overrides the source (default
+`https://akl.gg/api/magic-rules`, the site's public index of every published
+rule set, `{<layout id>: <rule set>}`).
+
+**Per rule set** (`scripts/reseed-magic.mjs`, LDB-P25):
+
+1. `GET /v1/layouts/{id}?format=spark/1`, public. 404 -> `missing`: akl.gg
+   publishes rule sets for layouts akldb has no record of (deleted from
+   cmini, or workbench experiments that never became a layout; 29 of 111 on
+   2026-09-14). Reported every run, never created -- a record needs an
+   owner, and that is a decision, not a reseed.
+2. The candidate is the rule set stripped to `{magic_keys, chiral_keys,
+   adaptive_swaps}` and retagged from akl.gg's bare-string default vocabulary
+   to spark/1's tagged union (`repeat_previous` -> `{kind: "repeat"}`, a
+   char -> `{kind: "char", char}`, `none`/empty -> the field omitted).
+   Equal to the record's current `magic` (key order and empty lists
+   ignored) -> `identical`, nothing sent. A re-run after a full pass is
+   zero writes.
+3. **The guard**, from that public read alone: the record is seeded only if
+   its spark/1 row's `source.client` is `system:magic-seed` or
+   `system:cmini-import`, OR it has no magic and is not forked. Anything
+   else means a person wrote to this record in akldb since the last seed
+   (the bot's `!magic`, a rename, a key edit) -- their magic is never
+   overwritten by akl.gg's copy, and a fork they made is never undone by
+   the seed route's `following` reset. Reported as `edited`.
+4. Live only: `POST /v1/admin/magic-seed {ref: <record id>, magic}`,
+   client-lane signed as `OPS_ACTOR`. `400 magic_collision` /
+   `invalid_payload` are the DB's own refusals: reported, and the run exits
+   1 so a human looks -- akl.gg's rules must land verbatim, never
+   auto-amended with a hint. One `429` is waited out (`Retry-After`) and
+   retried; any other answer aborts the run.
+
+`missing` and `edited` are expected outcomes (printed per id, counted in the
+summary line), not failures. `collision`/`invalid` exit 1.
+
+**Retirement**: the day akl.gg prod's `DB_BASE_URL` is set (its
+`/api/magic-rules` then reads akldb, so a run would only ever find
+`identical`), delete the script, its test and LDB-P25;
+`POST /v1/admin/magic-seed` stays as the post-wipe recovery tool it was
+built as (23-geometry.md §10.1).
+
+**History**: the one-time migration this replaces (`scripts/
+migrate_magic_rules_to_db.py` in saltorbit/aklgg, 17 §4 M2, W5) ran once
+after the 2026-09-13 wipe: 88 entries, 81 written. Its "the last time
+akl.gg's copy is read as a source" turned out to be premature -- the site
+kept publishing to D1, and by 2026-09-14 three records were behind and one
+new layout had rules akldb never saw. The retired procedure is in git
+history (this file, before 26-magic-reseed.md).
+
+### R2 lifecycle
+
+`akl-db-dumps` has a lifecycle rule deleting objects under the `dump-`
+prefix after 90 days (hand-configured once, `00 §1`/`08-infrastructure.md`
+§1) -- this only ever touches the daily `dump-YYYY-MM-DD.json.gz` keys;
+`monthly/dump-YYYY-MM.json.gz` doesn't match that prefix and is kept
+indefinitely (the long-term archive), and `latest.json` is a single,
+always-current object nothing ever expires.
+
+## The cmini importer (removed)
+
+[LDB-X2] The cmini importer -- the mirror that used to keep akldb's
+records in sync with cmini's own upstream (`https://clemenpine.com/
+layoutapi/v3`), its daily diff cron, the hostile/vanished-upstream
+defenses (`cmini.stalled`, the delete-rate stall, the collapse guard, the
+`cmini.running` lock), and the pause/resume/unstall/restore-deleted admin
+routes that managed it -- is gone for good. Pine's own upstream has been
+permanently dead since 2026-09-15 (LDB-I27), the one-time import it ran
+finished long before that, and `21-formats.md`/`26-magic-reseed.md`'s own
+"until the first outside adopter" framing never depended on it staying.
+
+What this removed, and what it did NOT touch: `CHANGELOG-API.md`'s entry
+for this change has the full list; `INVARIANTS.md`'s retired section has
+every invariant id the importer used to satisfy. In short -- gone: `src/
+import/*`, the admin routes above `import/tick`/`diff/tick`/`unstall`/
+`restore-deleted`/`GET .../health` was, the `IMPORT_*` wrangler vars, the
+`scripts/import.mjs`/`diff-upstream.mjs`/`pick-fixtures.mjs`/
+`profile-upstream.mjs` scripts. Frozen, on the wire forever as historical
+data: every record's `upstream` field, `GET /v1/meta`'s `last_diff` and
+`health.diff`/`health.import` (permanently `disabled: true` now, not a
+live switch), every `admin.import_*`/`admin.diff_*` event kind (still
+queryable history; nothing emits them any more). Untouched: `formats/
+adapters/cmini/` (the published format adapter cmini detail payloads still
+translate through) and `tests/fixtures/upstream-100/` (format goldens and
+`tests/api/list.test.ts`'s own `[LDB-F5]` case still use it).
