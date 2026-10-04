@@ -30,6 +30,19 @@ assignments, and optional keyboard behavior. `mana2/1` is available for export t
 [Mana2](https://codeberg.org/Zakkkk/mana2), whose layout files use JSONC (JSON with
 comments). The API returns plain JSON.
 
+### Download a user's layouts
+
+Set `OWNER_ID` to the user's Discord ID, shown in the `owner` field of their
+layout records. This example uses `jq` to keep only their layouts from the full
+collection, including layout payloads. You need `curl` and `jq` installed.
+
+```sh
+OWNER_ID='discord-user-id'
+curl --fail "https://api.akldb.org/v1/layouts?format=spark/1&full=1" \
+  | jq --arg owner "$OWNER_ID" '.items |= map(select(.owner == $owner))' \
+  > user-layouts.json
+```
+
 ## Edit through the API
 
 Writes need a Discord access token or a registered client. To edit a layout you
