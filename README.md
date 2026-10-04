@@ -25,7 +25,10 @@ curl --fail --output layouts.json \
 ```
 
 These files contain layout records and their `payload` data. Always specify a
-format: `spark/1` is the stored format; `mana2/1` is available for export.
+format: `spark/1` is the native JSON format describing key positions, finger
+assignments, and optional keyboard behavior. `mana2/1` is available for export to
+[Mana2](https://codeberg.org/Zakkkk/mana2), whose layout files use JSONC (JSON with
+comments). The API returns plain JSON.
 
 ## Edit through the API
 
@@ -35,6 +38,8 @@ own, read it first, then send your change with its current revision in
 and authentication details.
 
 ## Run locally
+
+Requires Node.js 22+ and npm. CI uses Node.js 24.
 
 The API is a TypeScript Cloudflare Worker using D1 and R2. From the repository
 root:
