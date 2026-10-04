@@ -128,13 +128,38 @@ const Docs: Component = () => {
         </div>
       </div>
 
+      <p class="akl-docs-intro">{copy.docs.intro}</p>
+
       <nav class="akl-docs-toc">
+        <a href="#docs-quickstart">{copy.docs.tocQuickstart}</a>
         <a href="#docs-brief">{copy.docs.tocBrief}</a>
         <a href="#docs-auth">{copy.docs.tocAuth}</a>
         <a href="#docs-trusted-clients">{copy.docs.tocTrustedClients}</a>
         <a href="#docs-adoption-guide">{copy.docs.tocGuide}</a>
         <a href="#docs-errors">{copy.docs.tocErrors}</a>
       </nav>
+
+      <section id="docs-quickstart" class="akl-docs akl-docs-quickstart">
+        <h2>{copy.docs.quickstartHeading}</h2>
+        <Show when={docsModule()} keyed fallback={<p class={docsLoadFailed() ? "akl-error" : "akl-muted"}>{docsLoadFailed() ? copy.docs.loadError : copy.docs.loading}</p>}>
+          {(mod) => (
+            <>
+              <h3>{copy.docs.downloadHeading}</h3>
+              <p>{copy.docs.downloadBody}</p>
+              <p>{copy.docs.downloadOneLabel}</p>
+              <pre><code>{copy.docs.downloadOneCommand(mod.baseUrl)}</code></pre>
+              <p>{copy.docs.downloadAllLabel}</p>
+              <pre><code>{copy.docs.downloadAllCommand(mod.baseUrl)}</code></pre>
+              <p>{copy.docs.downloadFormatBody}</p>
+
+              <h3>{copy.docs.downloadUserHeading}</h3>
+              <p>{copy.docs.downloadUserBody}</p>
+              <pre><code>{copy.docs.downloadUserCommand(mod.baseUrl)}</code></pre>
+              <a href="#docs-adoption-guide" onClick={() => setShowGuide(true)}>{copy.docs.quickstartDetailsLink}</a>
+            </>
+          )}
+        </Show>
+      </section>
 
       <section id="docs-brief" class="akl-docs-brief">
         <h2>{copy.docs.briefHeading}</h2>

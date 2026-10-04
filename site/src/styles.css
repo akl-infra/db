@@ -513,6 +513,18 @@ h2 {
 
 /* ── docs overhaul (W1c): brief, diagrams, copy-as-markdown ───────────── */
 
+.akl-docs-intro {
+  max-width: 65ch;
+  font-size: 15px;
+  line-height: 1.7;
+  margin-bottom: 20px;
+}
+.akl-docs-quickstart {
+  margin-bottom: 36px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--border);
+}
+
 .akl-docs-toc {
   display: flex;
   flex-direction: column;
