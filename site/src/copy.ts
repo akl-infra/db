@@ -124,15 +124,34 @@ export const copy = {
     },
   },
   docs: {
-    title: "Adopting the akldb API",
+    title: "Using akldb",
+    intro: "akldb is a community database of alternative keyboard layouts. Browse layouts on this site, download their data, or use the API in your own app.",
+    tocQuickstart: "Quickstart",
+    quickstartHeading: "Get started",
+    downloadHeading: "Download layouts",
+    downloadBody: "Downloads are public. You do not need an account or API key.",
+    downloadOneLabel: "Save one layout by name or ID:",
+    downloadOneCommand: (baseUrl: string) => String.raw`curl --fail --output io.json \
+  "${baseUrl}/v1/layouts/io?format=spark/1"`,
+    downloadAllLabel: "Save the whole collection, including layout data:",
+    downloadAllCommand: (baseUrl: string) => String.raw`curl --fail --output layouts.json \
+  "${baseUrl}/v1/layouts?format=spark/1&full=1"`,
+    downloadFormatBody: "Each response includes layout information and its payload. Always choose a format: spark/1 is the native JSON format for key positions, finger assignments, and optional keyboard behavior. Request mana2/1 for Mana2 layout data.",
+    downloadUserHeading: "Download a user's layouts",
+    downloadUserBody: "Set OWNER_ID to the user's Discord ID, shown in the owner field of their layout records. This example uses jq to keep only their layouts from the full collection, including layout data. You need curl and jq installed.",
+    downloadUserCommand: (baseUrl: string) => String.raw`OWNER_ID='discord-user-id'
+curl --fail "${baseUrl}/v1/layouts?format=spark/1&full=1" \
+  | jq --arg owner "$OWNER_ID" '.items |= map(select(.owner == $owner))' \
+  > user-layouts.json`,
+    quickstartDetailsLink: "Read the full API guide below",
     loadError: "The API guide could not be rendered for this build",
     loading: "Loading the API guide",
-    tocBrief: "Brief",
+    tocBrief: "API reference",
     tocAuth: "Auth & ownership",
     tocTrustedClients: "Trusted clients",
     tocGuide: "Adoption guide",
     tocErrors: "Errors",
-    briefHeading: "API brief",
+    briefHeading: "API reference",
     baseUrlLabel: "Base URL",
     authLanesHeading: "Two ways to authenticate",
     laneUserName: "User lane",
