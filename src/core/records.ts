@@ -443,13 +443,29 @@ export async function list(db: Bindings["DB"], params: ListParams): Promise<List
     args.push(params.cursor.sortValue, params.cursor.sortValue, params.cursor.id);
   }
 
+  // LDB-R12/R13: `layouts` drives the join unless a format-flag filter is
+  // present. This database has one lineage, so `f.lineage = ?` matches every
+  // format row, yet SQLite (no statistics on D1) takes it for a selective
+  // lookup and starts from a `(lineage, ...)` index: every list then read
+  // the whole catalog and sorted it, whatever the filter or the page size
+  // (2026-10-05: 9,100 rows per `?owner=` call, 80% of all rows read).
+  // `CROSS JOIN` is SQLite's own way to pin the left table as the outer
+  // loop; same rows, same order. With `layouts` outside, an owner list
+  // walks `layouts_owner_name` (migrations/0021) and a name-sorted page
+  // walks `layouts_name_live`, both already in order: nothing is sorted and
+  // the read stops at the limit (a cursor page first steps over the index
+  // entries before its cursor). A `has_magic`/`has_alts`/`has_combos` filter
+  // keeps the planner's own choice: its `(lineage, flag)` index IS selective
+  // for the rare value.
+  const flagFiltered = params.hasMagic !== undefined || params.hasAlts !== undefined || params.hasCombos !== undefined;
+  const join = flagFiltered ? "JOIN" : "CROSS JOIN";
   const withPayload = params.withPayload !== false;
   const sql = `
     SELECT l.*, f.rev AS f_rev, f.format AS f_format, f.created_at AS f_created_at, f.modified_at AS f_modified_at,
       ${withPayload ? "f.payload_json AS f_payload_json," : ""} f.has_magic AS f_has_magic, f.has_alts AS f_has_alts, f.has_combos AS f_has_combos,
       f.source_client AS f_source_client, f.source_version AS f_source_version,
       ${sortColExpr} AS sort_value
-    FROM layouts l JOIN layout_formats f ON f.layout_id = l.id
+    FROM layouts l ${join} layout_formats f ON f.layout_id = l.id
     WHERE ${where.join(" AND ")}
     ORDER BY ${sortColExpr} ${dir}, l.id ASC
     LIMIT ?`;
