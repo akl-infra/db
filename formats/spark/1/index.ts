@@ -15,9 +15,9 @@
 // choice (the site's rowstag/ortho comparison view, the bot's engine
 // context), so the word is gone, and with it every board-derived rule (the
 // iso width check) and helper (`coords`, `STAGGER_BY_KIND`, `cminiBoardWord`).
-// The hand split and the named-fingering classification are pure functions
-// of `keys` alone, exported by ./geometry.ts (LDB-F30: one definition, no
-// second port inside this format package). `TB` is gone from
+// The hand split and the named-fingering classification are gone from this
+// package too (2026-09-24 and 2026-10-10): nothing in akldb read them, and a
+// fingermap is a label each client derives for itself. `TB` is gone from
 // `Position.finger` (23 §4.2): a thumb key's label IS its physical hand,
 // nothing left to disambiguate.
 //
@@ -76,10 +76,6 @@ export interface Position {
 
 export type { Key };
 export type { MagicIntent, MagicKey, ChiralKey, AdaptiveSwap, RawRule };
-// Re-exported for clients (the bot, LDB-F30: one definition of every
-// geometric fact) -- purely additive.
-export { classifyFingering, gridIndent, FINGERING_REFS } from "./geometry.ts";
-export type { NamedFingering, Fingering } from "./geometry.ts";
 
 // design/alts/07-format.md: one alternate fingering per NGRAM. `ngram` is an
 // array of 2 or 3 items; each is a string of exactly ONE code point, or null
