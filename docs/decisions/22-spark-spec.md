@@ -207,14 +207,18 @@ sits, never re-derived by column.
 *Row restriction: `db/formats/spark/1/index.ts:298-310` (`validateGeometry`, rule 3), comment explicitly notes rows >= 3 are otherwise unrestricted. LDB-F27. Label-is-hand: `db/formats/mana2/1/translate.ts` (`fromSpark`'s thumb-string split checks `finger === "LT"` / `"RT"` directly, no column re-anchoring) and `LDB-F29`.*
 
 **Named fingerings are derived labels, never stored, and never refuse a
-write.** `classifyFingering(keys)` classifies a layout's rows 0-2 against
-four fixed references (`standard`, `angle`, `nokwts`, `meteorite`, left
-hand only; the right hand is always `RI RI RM RR RP`), else `custom`.
-Nothing gates this classification at write time (there is no board word
-to gate it on, §4): a payload whose fingers happen to read as `angle` is
-accepted whatever it is later drawn on.
+write.** A client classifies a layout's rows 0-2 against its fixed
+references (`standard`, `angle`, `nokwts`, `meteorite`, the ISO pair since
+2026-10-10, left hand only; the right hand is always `RI RI RM RR RP`),
+else `custom`. akldb does not do this at all (its own copy of the
+classifier was deleted 2026-10-10 as unused, LDB-F30/F32 retired): the
+reference implementations are aklgg's `scripts/build_web.py`,
+`web/src/state/boardVerbs.ts` and `bot/src/spark/format.ts`, kept in step
+by aklgg's own tests. Nothing gates a classification at write time (there
+is no board word to gate it on, §4): a payload whose fingers happen to
+read as `angle` is accepted whatever it is later drawn on.
 
-*`db/formats/spark/1/geometry.ts:143-190` (`classifyFingering`, `FINGERING_REFS`). LDB-F27, LDB-F30, LDB-F32. Explicit drop of the write-time rule: `db/formats/spark/1/index.ts:262-270`'s own comment ("Rule 4 ... is NOT enforced here").*
+*LDB-F27. Explicit drop of the write-time rule: `db/formats/spark/1/index.ts`'s own comment ("Rule 4 ... is NOT enforced here").*
 
 ## 5. Magic
 
