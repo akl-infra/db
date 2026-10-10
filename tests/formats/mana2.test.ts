@@ -564,7 +564,7 @@ describe("akl/1 -> mana2/1 -> akl/1 (every akl/1 fixture, thumb re-anchoring ass
   for (const file of files) {
     const stem = file.slice(0, -".json".length);
     const a = JSON.parse(fs.readFileSync(path.join(SPARK_FIXTURES_DIR, file), "utf8")) as SparkPayload;
-    it(`[LDB-F5] [LDB-F30] [LDB-F47] '${stem}': identity off the thumb row`, () => assertMana2RoundTrip(stem, a));
+    it(`[LDB-F5] [LDB-F47] '${stem}': identity off the thumb row`, () => assertMana2RoundTrip(stem, a));
   }
 
   // `010-test12222` ("both thumbs; thumb fingers on rows 0-2", 07 §5.3) is
