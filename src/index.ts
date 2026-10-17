@@ -5,6 +5,7 @@ import { type AuthDeps, resolveActor } from "./auth/discord";
 import { idempotencyKeys } from "./auth/idempotency";
 import { rateLimitWrites } from "./auth/ratelimit";
 import { clientsHealth } from "./core/clients";
+import { describeError } from "./core/describe-error";
 import { ApiError, internal } from "./core/errors";
 import { cachePut, conditional, etagFor, readHead } from "./core/etag";
 import { dumpDue, DUMP_STATE_KEY, readDumpState, writeDump, type DumpState } from "./dump/write";
@@ -292,7 +293,9 @@ app.onError((err, c) => {
     return c.json(err.body, err.status as 400 | 401 | 403 | 404 | 409 | 422 | 429 | 500 | 503, headers);
   }
   const e = internal();
-  console.error(err); // never in the response body -- see core/errors.ts
+  // One string: the name/message line first, then the stack (never in the
+  // response body -- see core/errors.ts).
+  console.error(`onError: ${describeError(err)}${err instanceof Error && err.stack ? `\n${err.stack}` : ""}`);
   return c.json(e.body, 500, headers);
 });
 
