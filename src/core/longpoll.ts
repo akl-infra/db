@@ -8,6 +8,7 @@
 // other client-lane activity; this module only knows about the wait loop
 // itself, never auth.
 import type { Bindings } from "../env";
+import { describeError } from "./describe-error";
 import { headSeq } from "./etag";
 
 // saltorbit, 2026-09-12: "GET /v1/changes?since=&wait=25s ... capped at 25s,
@@ -19,15 +20,6 @@ export const MAX_WAIT_SECONDS = 25;
 export function clampWaitSeconds(raw: number): number {
   if (!Number.isFinite(raw)) return 0;
   return Math.min(Math.max(raw, 0), MAX_WAIT_SECONDS);
-}
-
-// One-line description of a thrown value (name, message, cause), so the D1
-// message is queryable in Workers Logs even when the stack arrives as a
-// separate event.
-export function describeError(e: unknown): string {
-  if (!(e instanceof Error)) return String(e);
-  const cause = e.cause === undefined ? "" : ` cause=${e.cause instanceof Error ? `${e.cause.name}: ${e.cause.message}` : String(e.cause)}`;
-  return `${e.name}: ${e.message}${cause}`;
 }
 
 export type SleepImpl = (ms: number) => Promise<void>;

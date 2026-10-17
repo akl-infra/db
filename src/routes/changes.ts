@@ -6,10 +6,11 @@ import type { Bindings } from "../env";
 import type { AuthDeps } from "../auth/discord";
 import { resolveActor } from "../auth/discord";
 import { CLIENT_LIMIT, CLIENT_WINDOW_SECONDS } from "../auth/ratelimit";
+import { describeError } from "../core/describe-error";
 import { ApiError, badRequest, notFound, rateLimited } from "../core/errors";
 import { cachePut, conditional, etagFor, headSeq } from "../core/etag";
 import { feed, type FeedFilter, type InfoKind, type WriteKind } from "../core/events";
-import { clampWaitSeconds, describeError, MAX_WAIT_SECONDS, waitForChanges, type SleepImpl } from "../core/longpoll";
+import { clampWaitSeconds, MAX_WAIT_SECONDS, waitForChanges, type SleepImpl } from "../core/longpoll";
 import { byRef } from "../core/records";
 import { take } from "../core/ratelimit";
 import { systemClock, type Clock } from "../core/time";
@@ -201,7 +202,7 @@ export function changesRoute(authDeps: AuthDeps) {
       }
     }
 
-    // The page read. After a hold (`honored`) it is retried ONCE on a
+    // The page read. After a hold (`held`) it is retried ONCE on a
     // failure (LDB-CH6): the client already spent up to 25s here, and a
     // transient D1 error is likelier than not to be gone on the next try.
     // A second failure is a 500, as ever. Unheld requests are not retried.
