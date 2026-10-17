@@ -21,6 +21,15 @@ export function clampWaitSeconds(raw: number): number {
   return Math.min(Math.max(raw, 0), MAX_WAIT_SECONDS);
 }
 
+// One-line description of a thrown value (name, message, cause), so the D1
+// message is queryable in Workers Logs even when the stack arrives as a
+// separate event.
+export function describeError(e: unknown): string {
+  if (!(e instanceof Error)) return String(e);
+  const cause = e.cause === undefined ? "" : ` cause=${e.cause instanceof Error ? `${e.cause.name}: ${e.cause.message}` : String(e.cause)}`;
+  return `${e.name}: ${e.message}${cause}`;
+}
+
 export type SleepImpl = (ms: number) => Promise<void>;
 
 function realSleep(ms: number): Promise<void> {
@@ -30,9 +39,13 @@ function realSleep(ms: number): Promise<void> {
 // Polls `headSeq` once, and once per second thereafter, until either the
 // head exceeds `since` or the read budget (`ceil(waitSeconds) + 1` reads,
 // invariant (e): "the number of D1 reads during a hold is <= wait+1") is
-// exhausted -- whichever comes first. Never throws; the caller re-reads
-// `/v1/changes` itself once this returns (so the response it builds is
-// always current, whether or not anything actually changed).
+// exhausted -- whichever comes first. A head read that throws (a transient
+// D1 error mid-hold) is logged and ends the hold early, exactly as if a
+// change had arrived (LDB-CH6): the caller (`routes/changes.ts`) then
+// answers the normal page and the client polls again. So this never throws
+// on a D1 error; the caller re-reads `/v1/changes` itself once this returns
+// (so the response it builds is always current, whether or not anything
+// actually changed).
 export async function waitForChanges(
   db: Bindings["DB"],
   since: number,
@@ -42,7 +55,13 @@ export async function waitForChanges(
   const clamped = clampWaitSeconds(waitSeconds);
   const maxReads = Math.ceil(clamped) + 1;
   for (let i = 0; i < maxReads; i++) {
-    const seq = await headSeq(db);
+    let seq: number;
+    try {
+      seq = await headSeq(db);
+    } catch (e) {
+      console.error(`longpoll: head read failed on attempt ${i} of ${maxReads}, ending the hold early: ${describeError(e)}`);
+      return;
+    }
     if (seq > since) return;
     if (i < maxReads - 1) await sleepImpl(1000);
   }

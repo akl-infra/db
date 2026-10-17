@@ -9,7 +9,7 @@ import { CLIENT_LIMIT, CLIENT_WINDOW_SECONDS } from "../auth/ratelimit";
 import { ApiError, badRequest, notFound, rateLimited } from "../core/errors";
 import { cachePut, conditional, etagFor, headSeq } from "../core/etag";
 import { feed, type FeedFilter, type InfoKind, type WriteKind } from "../core/events";
-import { clampWaitSeconds, MAX_WAIT_SECONDS, waitForChanges, type SleepImpl } from "../core/longpoll";
+import { clampWaitSeconds, describeError, MAX_WAIT_SECONDS, waitForChanges, type SleepImpl } from "../core/longpoll";
 import { byRef } from "../core/records";
 import { take } from "../core/ratelimit";
 import { systemClock, type Clock } from "../core/time";
@@ -162,6 +162,7 @@ export function changesRoute(authDeps: AuthDeps) {
     const waitRequested = parseWait(c.req.query("wait"));
 
     let waitIgnored = false;
+    let held = false;
     if (waitRequested !== undefined) {
       // Only the Ed25519 client lane ever gets a held response (saltorbit,
       // 2026-09-12; 2026-09-13: "any registered client should get this by
@@ -193,24 +194,44 @@ export function changesRoute(authDeps: AuthDeps) {
         if (e instanceof ApiError && e.status === 429) throw e;
       }
       if (honored) {
+        held = true;
         await waitForChanges(db, since, waitRequested, resolveSleep(c.env));
       } else {
         waitIgnored = true;
       }
     }
 
-    const seq = await headSeq(db);
-    const etag = await etagFor(seq, { since, limit, kinds: kinds ?? null, layout: layoutId ?? null, actor: actor ?? null });
-    // A `wait=` request always gets a fresh page -- conditional caching
-    // and long-polling solve different problems, and a client holding a
-    // stale `If-None-Match` while also asking to wait would otherwise be
-    // as likely to get an empty 304 as the page it actually waited for.
-    if (waitRequested === undefined) {
-      const short = await conditional(c, etag, CACHE_CONTROL);
-      if (short) return short;
+    // The page read. After a hold (`honored`) it is retried ONCE on a
+    // failure (LDB-CH6): the client already spent up to 25s here, and a
+    // transient D1 error is likelier than not to be gone on the next try.
+    // A second failure is a 500, as ever. Unheld requests are not retried.
+    const readPage = async () => {
+      const seq = await headSeq(db);
+      const etag = await etagFor(seq, { since, limit, kinds: kinds ?? null, layout: layoutId ?? null, actor: actor ?? null });
+      // A `wait=` request always gets a fresh page -- conditional caching
+      // and long-polling solve different problems, and a client holding a
+      // stale `If-None-Match` while also asking to wait would otherwise be
+      // as likely to get an empty 304 as the page it actually waited for.
+      if (waitRequested === undefined) {
+        const short = await conditional(c, etag, CACHE_CONTROL);
+        if (short) return { short, etag, page: null };
+      }
+      return { short: null, etag, page: await feed(db, since, limit, kinds, filter) };
+    };
+    let read;
+    if (held) {
+      try {
+        read = await readPage();
+      } catch (e) {
+        console.error(`changes: page read after a held wait failed, retrying once: ${describeError(e)}`);
+        read = await readPage();
+      }
+    } else {
+      read = await readPage();
     }
-
-    const { next, items } = await feed(db, since, limit, kinds, filter);
+    if (read.short) return read.short;
+    const { etag } = read;
+    const { next, items } = read.page!;
     const res = c.json({ next, items });
     res.headers.set("ETag", etag);
     res.headers.set("Cache-Control", CACHE_CONTROL);
