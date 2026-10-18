@@ -96,3 +96,13 @@ Stored data is unaffected (every stored `after` is a string). `CHANGELOG-API.md`
 |---|---|---|
 | LDB-F41 | the table above on the DB side (`db/INVARIANTS.md`): the schema refuses `output`, `after`/`emit` non-empty, the lowered row is `after+key -> after+emit`, `liftRules` emits `{after, emit}` and leaves a context-rewriting row raw, migration 0017's byte-identity | `tests/formats/mutations.test.ts`, `magic-aklgg-validation.test.ts`, `lift.test.ts`, `magic-special-scaffold.test.ts`, `tests/api/migration-0017.test.ts`, `tests/tools/reseed-magic.test.ts` |
 | LDB-F8, F14, F15, F22, F39 | restated for the new field | as before |
+
+## Amendment 2026-10-18: skip chiral keys (LDB-F51)
+
+design/alts/43-skip-magic-wire.md §2e (saltorbit): a chiral key may carry
+`"skip": true` (true only). It then picks `same`/`opposite` by the hand of
+the character TWO back, with any character between, and lowers to one
+any-middle row per board character `c` with a hand:
+`[c, null, key] -> [c, null, out]`, `out` = `c` for `{"kind":"repeat"}` (the
+character two back), else the literal. A chiral key without `skip` lowers as
+before; `?as=mana2/1` drops the rows (LDB-F50).

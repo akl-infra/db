@@ -113,6 +113,7 @@
         "key": { "type": "string" },
         "same": { "oneOf": [{ "$ref": "#/$defs/chiralValue" }, { "type": "null" }] },
         "opposite": { "oneOf": [{ "$ref": "#/$defs/chiralValue" }, { "type": "null" }] },
+        "skip": { "const": true, "description": "design/alts/43-skip-magic-wire.md section 2e (LDB-F51): same/opposite are picked by the hand of the character two back, every row an any-middle row [c, null, key]; repeat = the character two back. true when present." },
         "except": {
           "type": "array",
           "items": { "type": "string" }
