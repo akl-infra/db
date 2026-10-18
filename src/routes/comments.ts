@@ -64,21 +64,26 @@ export function commentsRoute(authDeps: AuthDeps) {
     const ref = c.req.param("ref");
     const layout = await byRef(db, ref);
     if (layout === null) throw notFound(`no layout '${ref}'`, ref);
+    const sortRaw = c.req.query("sort") ?? "likes";
+    if (!(comments.COMMENT_SORTS as readonly string[]).includes(sortRaw)) {
+      throw badRequest(`unknown 'sort' value '${sortRaw}' (expected one of ${comments.COMMENT_SORTS.join(", ")})`, "sort");
+    }
+    const sort = sortRaw as comments.CommentSort;
 
     if (c.req.header("Authorization") !== undefined || c.req.header("X-Akl-Client") !== undefined) {
       const actor = await resolveActor(c.env, c.req, authDeps);
-      const res = c.json({ comments: await comments.listComments(db, layout, actor.user_id) });
+      const res = c.json({ comments: await comments.listComments(db, layout, actor.user_id, sort) });
       res.headers.set("Cache-Control", "private, no-store");
       res.headers.set("Vary", "Authorization, X-Akl-Client");
       return res;
     }
 
     const head = await readHead(db);
-    const etag = await etagFor(head.seq, { comments: { layout: layout.id, authors: head.authors.version } });
+    const etag = await etagFor(head.seq, { comments: { layout: layout.id, authors: head.authors.version, sort } });
     const short = await conditional(c, etag, CACHE_CONTROL);
     if (short) return short;
 
-    const res = c.json({ comments: await comments.listComments(db, layout) });
+    const res = c.json({ comments: await comments.listComments(db, layout, undefined, sort) });
     res.headers.set("ETag", etag);
     res.headers.set("Cache-Control", CACHE_CONTROL);
     res.headers.set("Vary", "Authorization, X-Akl-Client");

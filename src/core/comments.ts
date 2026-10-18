@@ -72,7 +72,9 @@ export interface PublicComment {
 export interface OwnComment {
   live: { id: string; body: string; approved_at: string } | null;
   pending: { id: string; body: string; submitted_at: string } | null;
-  decision: { status: "rejected" | "removed"; reason: string | null; decided_at: string } | null;
+  // `body` is the text that was refused or taken down, kept private to the
+  // author (and mods) so a client can prefill an editor to resend it.
+  decision: { status: "rejected" | "removed"; reason: string | null; decided_at: string; body: string } | null;
 }
 
 function sourceOf(actor: Actor, version: string | null): Source {
@@ -324,15 +326,18 @@ export async function rejectComment(db: Bindings["DB"], now: Clock, actor: Actor
 }
 
 // POST /v1/admin/comments/:id/remove: a mod takes an approved comment down.
-// `removed`, text erased, `reason` kept for the author. `404` if the comment
-// doesn't exist or isn't approved (so a removal can't be repeated).
+// `removed`: the text is KEPT, private to its author and mods exactly like a
+// rejected one (so the author can edit and resend it); only the author's own
+// delete erases it. `reason` kept for the author, the slot's likes cleared.
+// `404` if the comment doesn't exist or isn't approved (so a removal can't be
+// repeated).
 export async function removeComment(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, id: string, reason?: string): Promise<CommentRow> {
   const comment = await loadComment(db, id);
   if (comment.status !== "approved") throw notFound(`comment '${id}' is not approved`, id);
 
   const [res] = await db.batch([
     db
-      .prepare("UPDATE layout_comments SET status = 'removed', body = NULL, decided_by = ?, decided_at = ?, reason = ? WHERE id = ? AND status = 'approved'")
+      .prepare("UPDATE layout_comments SET status = 'removed', decided_by = ?, decided_at = ?, reason = ? WHERE id = ? AND status = 'approved'")
       .bind(actor.user_id, now(), reason ?? null, id),
     clearLikesOfEmptySlot(db, comment.layout_id, comment.user_id),
   ]);
@@ -352,12 +357,16 @@ export async function removeComment(db: Bindings["DB"], now: Clock, actor: Actor
 
 // GET /v1/layouts/:ref/comments (public). The one approved row per user
 // (LDB-CMT3: the approve path keeps it at most one), most liked first (`likes`
-// counts the slot's likers, LDB-CMT11), then newest approval, then id; `liked`
+// counts the slot's likers, LDB-CMT11; `sort=newest` leaves that out), then
+// newest approval, then id; `liked`
 // (did `viewer` like it) is present only when a viewer is given. `edited` is true when that user has an earlier `replaced` row on
 // this layout since their last delete or removal: a replaced row's
 // `decided_at` is when it was retired, so "since" compares the retirement to
 // the last time the user's thread was cut. A deleted layout lists nothing.
-export async function listComments(db: Bindings["DB"], layout: LayoutRow, viewer?: string): Promise<PublicComment[]> {
+export type CommentSort = "likes" | "newest";
+export const COMMENT_SORTS: readonly CommentSort[] = ["likes", "newest"];
+
+export async function listComments(db: Bindings["DB"], layout: LayoutRow, viewer?: string, sort: CommentSort = "likes"): Promise<PublicComment[]> {
   if (layout.deleted) return [];
   const { results } = await db
     .prepare(
@@ -375,7 +384,7 @@ export async function listComments(db: Bindings["DB"], layout: LayoutRow, viewer
        FROM layout_comments c
        LEFT JOIN authors a ON a.user_id = c.user_id
        WHERE c.layout_id = ? AND c.status = 'approved' AND c.body IS NOT NULL
-       ORDER BY likes DESC, c.decided_at DESC, c.id ASC`,
+       ORDER BY ${sort === "newest" ? "" : "likes DESC, "}c.decided_at DESC, c.id ASC`,
     )
     .bind(viewer ?? "", layout.id)
     .all<Omit<PublicComment, "edited" | "liked"> & { edited: number; liked: number }>();
@@ -433,7 +442,8 @@ export async function unlikeComment(db: Bindings["DB"], now: Clock, actor: Actor
 // caller's newest rejection or removal, shown only when it is newer than
 // both their live and pending rows -- and than their last delete; a rejected
 // row whose text the author erased is no verdict either, so a comment they
-// erased themselves doesn't keep announcing an old rejection.
+// erased themselves doesn't keep announcing an old rejection. `decision.body`
+// is the refused or removed text itself.
 export async function readOwnComment(db: Bindings["DB"], layoutId: string, userId: string): Promise<OwnComment> {
   const { results } = await db
     .prepare(`SELECT ${COMMENT_COLUMNS} FROM layout_comments WHERE layout_id = ? AND user_id = ? ORDER BY submitted_at ASC, id ASC`)
@@ -447,13 +457,13 @@ export async function readOwnComment(db: Bindings["DB"], layoutId: string, userI
 
   const lastDelete = results.filter((r) => r.status === "deleted").reduce<string>((m, r) => (r.decided_at !== null && r.decided_at > m ? r.decided_at : m), "");
   const verdict = results
-    .filter((r) => ((r.status === "rejected" && r.body !== null) || r.status === "removed") && r.decided_at !== null)
+    .filter((r) => (r.status === "rejected" || r.status === "removed") && r.body !== null && r.decided_at !== null)
     .reduce<CommentRow | undefined>((best, r) => (best === undefined || r.decided_at! > best.decided_at! ? r : best), undefined);
   let decision: OwnComment["decision"] = null;
   if (verdict !== undefined) {
     const at = verdict.decided_at!;
     if (at > lastDelete && (live === null || at > live.approved_at) && (pend === null || at > pend.submitted_at)) {
-      decision = { status: verdict.status as "rejected" | "removed", reason: verdict.reason, decided_at: at };
+      decision = { status: verdict.status as "rejected" | "removed", reason: verdict.reason, decided_at: at, body: verdict.body! };
     }
   }
   return { live, pending: pend, decision };

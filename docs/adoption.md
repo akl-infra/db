@@ -1147,7 +1147,7 @@ silently drift from what `src/index.ts` actually registers.
 | DELETE | `/v1/layouts/:ref/link` | user (owner or admin) | — | 200 | `not_owner`, `not_found`, lane errors |
 | GET | `/v1/wpm` | none | — (`?layout=<ref>&user=<id>`, both optional) | 200 (`{records}`) | `bad_request`, `not_found` |
 | POST | `/v1/wpm` | user | `{layout, wpm, proof}` | 202 (queued) / 201 (admin: approved) | `bad_request`, `invalid_wpm`, `invalid_proof`, `not_found`, lane errors |
-| GET | `/v1/layouts/:ref/comments` | none | — | 200 (`{comments}`) | `not_found` |
+| GET | `/v1/layouts/:ref/comments` | none | — (`?sort=`) | 200 (`{comments}`) | `bad_request`, `not_found` |
 | PUT | `/v1/layouts/:ref/comments/:author_id/like` | user | — | 204 | `bad_request`, `own_comment`, `not_found`, lane errors |
 | DELETE | `/v1/layouts/:ref/comments/:author_id/like` | user | — | 204 | `bad_request`, `not_found`, lane errors |
 | GET | `/v1/layouts/:ref/comment` | user | — | 200 (`{live, pending, decision}`) | `not_found`, lane errors |
@@ -1271,23 +1271,24 @@ refused. A user's comment is queued (`202`, the response is
 `{submission}`); a newer one from the same user supersedes their older pending
 one silently, and the **old approved text stays live until the new one is
 approved**. An admin's own comment is approved at once (`201`). `DELETE`
-is immediate, no review (`204`; `404` if the caller had no approved or pending
-comment there): it erases the text of every comment the caller has on that
-layout, for good. `GET /v1/layouts/{ref}/comments` (public, no auth, ETag/304
+is immediate, no review (`204`; `404` if none of the caller's comments there
+has a text left): it erases the text of every comment the caller has on that
+layout, rejected and removed ones included, for good. `GET /v1/layouts/{ref}/comments` (public, no auth, ETag/304
 like the other public reads) answers `{comments: [{id, user_id, name, body,
-approved_at, edited}]}`, the one approved comment per user, newest approval
-first (`name` from the authors table, `null` if none; `edited` is true when
+approved_at, edited, likes}]}`, the one approved comment per user, most liked
+first, then newest approval (`?sort=newest` for newest approval first; any other
+`sort` value is `400`) (`name` from the authors table, `null` if none; `edited` is true when
 the user has replaced an earlier approved text since they last deleted); a
 deleted layout lists none. `GET /v1/layouts/{ref}/comment` (the caller's own,
 never cached) answers `{live, pending, decision}`: their approved text, their
 pending text, and the newest rejection or removal (`{status, reason,
-decided_at}`) when it is newer than both. Admins read
+decided_at, body}`, `body` being the refused or removed text itself, to edit and resend) when it is newer than both. Admins read
 `GET /v1/admin/comment-queue?status=` (default `pending`; each row names its
 layout and user and carries `live_body`, the user's current approved text, to
 diff an edit against), decide with `POST .../approve` and `.../reject
 {reason?}`, and take an approved comment down with `POST
-/v1/admin/comments/{id}/remove {reason?}` (the author sees the reason through
-`GET .../comment`). Approving replaces that user's previous approved comment.
+/v1/admin/comments/{id}/remove {reason?}` (the text is kept, private to its author and mods like a rejected one; the author reads the reason and the text through
+`GET .../comment`'s `decision`, and only their own `DELETE` erases it). Approving replaces that user's previous approved comment.
 **Likes on comments**: `PUT /v1/layouts/{ref}/comments/{author_id}/like` and
 `DELETE` on the same path (both `204`, idempotent) like and unlike a *user's
 comment slot* on that layout, not a row: a like survives an approved edit.
