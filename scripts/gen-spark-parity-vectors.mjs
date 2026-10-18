@@ -205,6 +205,8 @@ const SKIP_MAGIC = [
   // akldb leaves to the clients; `c` on another key keeps a one-back rule in the vector)
   { magic_keys: [{ key: '*', rules: [{ after: ['a', null], emit: 'b' }, { after: ['_', null], emit: ' ' }] }, { key: '@', rules: [{ after: 'c', emit: 'x' }] }], chiral_keys: [], adaptive_swaps: [] },
   { magic_keys: [{ key: '*', default: { kind: 'skip_repeat' }, rules: [{ after: ['b', null], emit: 'x' }] }, { key: '@', default: { kind: 'repeat' }, rules: [] }], chiral_keys: [], adaptive_swaps: [] },
+  // LDB-F51: a skip chiral key
+  { magic_keys: [], chiral_keys: [{ key: '*', same: { kind: 'repeat' }, opposite: { kind: 'char', char: 'y' }, skip: true }], adaptive_swaps: [] },
 ];
 
 function buildSkipVector(magic) {

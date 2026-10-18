@@ -50167,5 +50167,180 @@
         "type": "repeat"
       }
     ]
+  },
+  {
+    "keys": [
+      {
+        "char": "a",
+        "row": 0,
+        "col": 0,
+        "finger": "LI"
+      },
+      {
+        "char": "b",
+        "row": 1,
+        "col": 1,
+        "finger": "LM"
+      },
+      {
+        "char": "c",
+        "row": 2,
+        "col": 2,
+        "finger": "LR"
+      },
+      {
+        "char": "_",
+        "row": 0,
+        "col": 3,
+        "finger": "LP"
+      },
+      {
+        "char": "x",
+        "row": 1,
+        "col": 4,
+        "finger": "RI"
+      },
+      {
+        "char": "y",
+        "row": 2,
+        "col": 5,
+        "finger": "RM"
+      },
+      {
+        "char": "*",
+        "row": 0,
+        "col": 6,
+        "finger": "RR"
+      },
+      {
+        "char": "@",
+        "row": 1,
+        "col": 7,
+        "finger": "RP"
+      }
+    ],
+    "magic": {
+      "magic_keys": [],
+      "chiral_keys": [
+        {
+          "key": "*",
+          "same": {
+            "kind": "repeat"
+          },
+          "opposite": {
+            "kind": "char",
+            "char": "y"
+          },
+          "skip": true
+        }
+      ],
+      "adaptive_swaps": []
+    },
+    "expected": [
+      {
+        "inputs": [
+          "*",
+          null,
+          "*"
+        ],
+        "output": [
+          "*",
+          null,
+          "*"
+        ],
+        "type": "chiral"
+      },
+      {
+        "inputs": [
+          "@",
+          null,
+          "*"
+        ],
+        "output": [
+          "@",
+          null,
+          "@"
+        ],
+        "type": "chiral"
+      },
+      {
+        "inputs": [
+          "_",
+          null,
+          "*"
+        ],
+        "output": [
+          "_",
+          null,
+          "y"
+        ],
+        "type": "chiral"
+      },
+      {
+        "inputs": [
+          "a",
+          null,
+          "*"
+        ],
+        "output": [
+          "a",
+          null,
+          "y"
+        ],
+        "type": "chiral"
+      },
+      {
+        "inputs": [
+          "b",
+          null,
+          "*"
+        ],
+        "output": [
+          "b",
+          null,
+          "y"
+        ],
+        "type": "chiral"
+      },
+      {
+        "inputs": [
+          "c",
+          null,
+          "*"
+        ],
+        "output": [
+          "c",
+          null,
+          "y"
+        ],
+        "type": "chiral"
+      },
+      {
+        "inputs": [
+          "x",
+          null,
+          "*"
+        ],
+        "output": [
+          "x",
+          null,
+          "x"
+        ],
+        "type": "chiral"
+      },
+      {
+        "inputs": [
+          "y",
+          null,
+          "*"
+        ],
+        "output": [
+          "y",
+          null,
+          "y"
+        ],
+        "type": "chiral"
+      }
+    ]
   }
 ]
