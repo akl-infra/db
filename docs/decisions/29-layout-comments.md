@@ -62,6 +62,10 @@ records (decision 28).
 - **Non-approved is private to admins**, same rule as links and speeds
   (LDB-MD13/MD14): the dump holds only approved rows, so a rehost loses the
   pending and rejected queue by design.
+- **Comment text is plain text.** Line breaks are kept (CRLF and CR become
+  `\n`), nothing is parsed: no markup, no markdown, no links. A client must
+  render it literally, as text and never as HTML; a client with its own markup
+  (the spark bot with Discord markdown) escapes it on its side.
 - **Permissive validation.** akldb stores more and refuses less; whether a
   comment is welcome is for mods to judge.
 

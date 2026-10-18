@@ -18,6 +18,22 @@ describe("[SITE-43] tokenize", () => {
     }
     expect(tokenize("ab  cd")).toEqual(["ab", "  ", "cd"]);
   });
+
+  it("line breaks are their own tokens, a blank line one run, apart from the spaces around them", () => {
+    expect(tokenize("a \nb\n\nc")).toEqual(["a", " ", "\n", "b", "\n\n", "c"]);
+  });
+
+  it("a changed paragraph break shows as a change, with both sides keeping their text", () => {
+    const parts = diffWords("one\n\ntwo", "one\ntwo");
+    expect(parts).toEqual([
+      { op: "eq", text: "one" },
+      { op: "del", text: "\n\n" },
+      { op: "ins", text: "\n" },
+      { op: "eq", text: "two" },
+    ]);
+    expect(sideOf(parts, "current").map((p) => p.text).join("")).toBe("one\n\ntwo");
+    expect(sideOf(parts, "proposed").map((p) => p.text).join("")).toBe("one\ntwo");
+  });
 });
 
 describe("[SITE-43] diffWords", () => {

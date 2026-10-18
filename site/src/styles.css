@@ -978,10 +978,20 @@ h2 {
   font-size: 13px;
   color: var(--ink-muted);
 }
+/* Comment text is plain text for people to read: the proportional face, the
+   author's line breaks and blank lines kept (pre-wrap), nothing parsed. */
 .akl-comment-text {
   margin: 6px 0 0;
+  font-family: var(--font-display);
+  font-size: 15px;
+  line-height: 1.55;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+/* A changed line break is only whitespace, so it carries a visible pilcrow. */
+.akl-comment-text .akl-nl {
+  user-select: none;
+  opacity: 0.7;
 }
 .akl-comment-text del,
 .akl-comment-text ins {
