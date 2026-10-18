@@ -215,6 +215,8 @@ export interface PublicComment {
   body: string;
   approved_at: string;
   edited: boolean;
+  /** How many users liked it; the API orders the list by this. */
+  likes: number;
 }
 
 export interface AdminRow {
