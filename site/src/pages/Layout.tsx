@@ -189,7 +189,7 @@ const LayoutPage: Component<LayoutPageProps> = (props) => {
             <Show when={me()} keyed>
               {(m) => (
                 <Show when={m.user} fallback={<p class="akl-muted">{copy.actions.signInToManage}</p>}>
-                  <OwnerActions layout={data} liked={liked()} canManage={canManage()} isAdmin={isAdmin()} onChanged={refresh} />
+                  <OwnerActions layout={data} liked={liked()} canManage={canManage()} onChanged={refresh} />
                 </Show>
               )}
             </Show>

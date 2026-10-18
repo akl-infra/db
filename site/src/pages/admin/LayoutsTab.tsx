@@ -51,7 +51,7 @@ const LayoutsTab: Component = () => {
         {(data) => (
           <>
             <h2 title={data.id}>{data.name}</h2>
-            <OwnerActions layout={data} liked={undefined} canManage isAdmin onChanged={() => void search(data.id)} />
+            <OwnerActions layout={data} liked={undefined} canManage onChanged={() => void search(data.id)} />
           </>
         )}
       </Show>

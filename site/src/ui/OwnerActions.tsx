@@ -28,7 +28,6 @@ const OwnerActions: Component<{
   layout: LayoutRecord;
   liked: boolean | undefined; // undefined = not signed in, or not yet known
   canManage: boolean; // owner OR admin
-  isAdmin: boolean; // site admin -- unlocks immediate link approval (no like-count override: likes are always per-user rows, saltorbit 2026-09-13)
   onChanged: () => void;
 }> = (props) => {
   const ifMatch = () => `"layout:${props.layout.layout_rev}"`;
@@ -149,7 +148,7 @@ const OwnerActions: Component<{
     }
     setLinkError(null);
     setLinkOpen(false);
-    setLinkNotice("submission" in result.data ? copy.actions.linkQueued : copy.actions.linkSetImmediately);
+    setLinkNotice(copy.actions.linkQueued); // every link, an admin's own included, is queued (db API 1.23)
     setLinkRefresh((n) => n + 1);
     props.onChanged();
   };
@@ -318,7 +317,7 @@ const OwnerActions: Component<{
               fallback={
                 <>
                   <button class="akl-btn" onClick={() => setLinkOpen(true)}>
-                    {props.isAdmin ? copy.actions.linkSubmitAdmin : copy.actions.linkSubmit}
+                    {copy.actions.linkSubmit}
                   </button>
                   <Show when={props.layout.link}>
                     <button class="akl-btn-ghost" disabled={linkPending()} onClick={() => void doClearLink()}>
