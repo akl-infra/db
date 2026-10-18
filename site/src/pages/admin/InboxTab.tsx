@@ -43,6 +43,25 @@ const ProofLink: Component<{ proof: string }> = (props) => {
   );
 };
 
+/** A person: their name and, unbroken beside it, their id -- or the id alone
+ * when no name resolves (never the same text twice). */
+const UserCell: Component<{ userId: string; name: string | null; linked: boolean }> = (props) => {
+  const name = () => props.name ?? authorName(props.userId);
+  return (
+    <>
+      <Show when={props.linked} fallback={<span>{name()}</span>}>
+        <a href={`/a/${encodeURIComponent(props.userId)}`} onClick={(e) => onLinkClick(e, `/a/${encodeURIComponent(props.userId)}`)}>
+          {name()}
+        </a>
+      </Show>
+      <Show when={name() !== props.userId}>
+        {" "}
+        <span class="akl-muted akl-id">{props.userId}</span>
+      </Show>
+    </>
+  );
+};
+
 /** Admin console, Inbox tab (db/docs/adoption.md §10; db decision 28): every
  * submission waiting on a moderator -- layout links and WPM records -- in one
  * list, newest first. Status filter chips keep the history reachable
@@ -139,24 +158,13 @@ const InboxTab: Component = () => {
                         </a>
                       </td>
                       <td data-col={copy.admin.inbox.colUser}>
-                        <Show
-                          when={item.kind === "wpm" ? item.row : null}
-                          fallback={
-                            <>
-                              <AuthorRef userId={item.row.submitted_by} linked />
-                              <Show when={item.kind === "link" ? item.row.submitter_name : null}>{(n) => <span class="akl-muted"> {n()}</span>}</Show>
-                            </>
-                          }
-                          keyed
-                        >
-                          {(w) => (
-                            <>
-                              <span>{w.user_name ?? authorName(w.user_id)}</span> <span class="akl-muted">{w.user_id}</span>
-                            </>
-                          )}
-                        </Show>
+                        <UserCell
+                          userId={item.kind === "wpm" ? item.row.user_id : item.row.submitted_by}
+                          name={item.kind === "wpm" ? item.row.user_name : item.row.submitter_name}
+                          linked={item.kind === "link"}
+                        />
                       </td>
-                      <td data-col={copy.admin.inbox.colDetails}>
+                      <td class="akl-url" data-col={copy.admin.inbox.colDetails}>
                         <Show when={item.kind === "wpm" ? item.row : null} fallback={item.kind === "link" ? item.row.url : ""} keyed>
                           {(w) => (
                             <>
@@ -172,7 +180,7 @@ const InboxTab: Component = () => {
                         {statusLabel(item.status)}
                         <Show when={item.status !== "pending" && item.row.decided_at}>
                           {(at) => (
-                            <div class="akl-muted">
+                            <div class="akl-muted akl-decision">
                               {copy.admin.inbox.decidedBy} <Show when={item.row.decided_by}>{(who) => <AuthorRef userId={who()} />}</Show>{" "}
                               <span title={at()}>{formatWhen(at())}</span>
                             </div>
@@ -180,7 +188,7 @@ const InboxTab: Component = () => {
                         </Show>
                         <Show when={item.status !== "pending" ? item.row.reason : null}>
                           {(reason) => (
-                            <div class="akl-muted">
+                            <div class="akl-muted akl-decision">
                               {copy.admin.inbox.reasonLabel}: {reason()}
                             </div>
                           )}
