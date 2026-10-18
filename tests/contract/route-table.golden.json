@@ -3824,11 +3824,41 @@
             "chiralValue": {
               "type": "object",
               "fields": {
-                "$ref": {
-                  "type": "string"
-                },
                 "description": {
                   "type": "string"
+                },
+                "oneOf": {
+                  "type": "array",
+                  "item": {
+                    "type": "object",
+                    "fields": {
+                      "additionalProperties": {
+                        "type": "boolean"
+                      },
+                      "properties": {
+                        "type": "object",
+                        "fields": {
+                          "kind": {
+                            "type": "object",
+                            "fields": {
+                              "const": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "required": {
+                        "type": "array",
+                        "item": {
+                          "type": "string"
+                        }
+                      },
+                      "type": {
+                        "type": "string"
+                      }
+                    }
+                  }
                 }
               }
             },
@@ -4162,11 +4192,22 @@
                     "after": {
                       "type": "object",
                       "fields": {
-                        "minLength": {
-                          "type": "number"
-                        },
-                        "type": {
+                        "description": {
                           "type": "string"
+                        },
+                        "oneOf": {
+                          "type": "array",
+                          "item": {
+                            "type": "object",
+                            "fields": {
+                              "minLength": {
+                                "type": "number"
+                              },
+                              "type": {
+                                "type": "string"
+                              }
+                            }
+                          }
                         }
                       }
                     },

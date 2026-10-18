@@ -20,7 +20,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import * as spark1 from "../../formats/spark/1/index.ts";
-import { computeRows } from "../../formats/spark/1/magic.ts";
+import { computeRows, stringRows } from "../../formats/spark/1/magic.ts";
 import type { Payload as SparkPayload } from "../../formats/spark/1/index.ts";
 import * as mana2_1 from "../../formats/mana2/1/index.ts";
 import type { Payload as Mana2Payload } from "../../formats/mana2/1/index.ts";
@@ -418,7 +418,7 @@ function expectedMagic(p: SparkPayload): SparkPayload["magic"] {
   const analysed = firstOccurrencePerChar(p.keys);
   const charMap: Record<string, { row: number; col: number; finger: string }> = {};
   for (const k of analysed) if (k.char !== undefined) charMap[k.char] = { row: k.row, col: k.col, finger: k.finger };
-  const rows = computeRows(p.magic, charMap);
+  const rows = stringRows(computeRows(p.magic, charMap));
   if (rows.length === 0) return undefined;
   return { rules: rows.map((r) => ({ inputs: r.inputs, output: r.output, type: "raw" })) };
 }
