@@ -495,6 +495,13 @@ import cmtFxAdminCommentsRemove401Unauthorized from "./admin-comments/remove-401
 import cmtFxAdminCommentsRemove403NotAdmin from "./admin-comments/remove-403-not_admin.json" with { type: "json" };
 import cmtFxAdminCommentsRemove404 from "./admin-comments/remove-404.json" with { type: "json" };
 import cmtFxAdminCommentsRemove400BadRequest from "./admin-comments/remove-400-bad_request.json" with { type: "json" };
+import cmtFxLayoutsCommentLikePut204 from "./layouts-comment-like/put-204.json" with { type: "json" };
+import cmtFxLayoutsCommentLikePut400BadRequest from "./layouts-comment-like/put-400-bad_request.json" with { type: "json" };
+import cmtFxLayoutsCommentLikePut400OwnComment from "./layouts-comment-like/put-400-own_comment.json" with { type: "json" };
+import cmtFxLayoutsCommentLikePut401Unauthorized from "./layouts-comment-like/put-401-unauthorized.json" with { type: "json" };
+import cmtFxLayoutsCommentLikePut404 from "./layouts-comment-like/put-404.json" with { type: "json" };
+import cmtFxLayoutsCommentLikeDelete204 from "./layouts-comment-like/delete-204.json" with { type: "json" };
+import cmtFxLayoutsCommentLikeDelete401Unauthorized from "./layouts-comment-like/delete-401-unauthorized.json" with { type: "json" };
 // The cutover follow-up (design/layout-db/23-geometry.md, "admin dump
 // route"): same lighter treatment as the L5 moderation rows just above
 // (unauthorized + the route's own domain error, not the full A-group
@@ -937,6 +944,13 @@ export const MODERATION_CASES: ConformanceCase[] = [
   kase("admin-comments/remove-403-not_admin", "/v1/admin/comments/:id/remove", cmtFxAdminCommentsRemove403NotAdmin, true),
   kase("admin-comments/remove-404", "/v1/admin/comments/:id/remove", cmtFxAdminCommentsRemove404, true),
   kase("admin-comments/remove-400-bad_request", "/v1/admin/comments/:id/remove", cmtFxAdminCommentsRemove400BadRequest, true),
+  kase("layouts-comment-like/put-204", "/v1/layouts/:ref/comments/:author_id/like", cmtFxLayoutsCommentLikePut204, true),
+  kase("layouts-comment-like/put-400-bad_request", "/v1/layouts/:ref/comments/:author_id/like", cmtFxLayoutsCommentLikePut400BadRequest, true),
+  kase("layouts-comment-like/put-400-own_comment", "/v1/layouts/:ref/comments/:author_id/like", cmtFxLayoutsCommentLikePut400OwnComment, true),
+  kase("layouts-comment-like/put-401-unauthorized", "/v1/layouts/:ref/comments/:author_id/like", cmtFxLayoutsCommentLikePut401Unauthorized, true),
+  kase("layouts-comment-like/put-404", "/v1/layouts/:ref/comments/:author_id/like", cmtFxLayoutsCommentLikePut404, true),
+  kase("layouts-comment-like/delete-204", "/v1/layouts/:ref/comments/:author_id/like", cmtFxLayoutsCommentLikeDelete204, true),
+  kase("layouts-comment-like/delete-401-unauthorized", "/v1/layouts/:ref/comments/:author_id/like", cmtFxLayoutsCommentLikeDelete401Unauthorized, true),
   // The cutover follow-up (design/layout-db/23-geometry.md): placed dead
   // last, same as every other row here -- its 200 case performs a REAL
   // dump write (R2 + import_state), which no earlier-recorded fixture

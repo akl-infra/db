@@ -1,0 +1,17 @@
+{
+  "request": {
+    "method": "PUT",
+    "path": "/v1/layouts/mod-cmt-5/comments/840000000000000079/like",
+    "bearer": "conformance-comments-token"
+  },
+  "response": {
+    "status": 400,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "error": "own_comment",
+      "message": "you can't like your own comment"
+    }
+  }
+}

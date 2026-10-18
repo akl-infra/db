@@ -7,7 +7,7 @@
 import { ulid } from "ulidx";
 import type { Actor } from "../auth/actor";
 import type { Bindings } from "../env";
-import { invalidComment, notFound } from "./errors";
+import { invalidComment, notFound, ownComment } from "./errors";
 import { appendInfo, appendModeration } from "./events";
 import { byRef, type LayoutRow, type Source } from "./records";
 import type { Clock } from "./time";
@@ -64,6 +64,8 @@ export interface PublicComment {
   body: string;
   approved_at: string;
   edited: boolean;
+  likes: number;
+  liked?: boolean; // only when the caller is authenticated
 }
 
 // `GET /v1/layouts/:ref/comment`: the caller's own view.
@@ -123,6 +125,20 @@ function replacePrevious(db: Bindings["DB"], layoutId: string, userId: string, n
   return db
     .prepare("UPDATE layout_comments SET status = 'replaced', body = NULL, decided_by = ?, decided_at = ? WHERE layout_id = ? AND user_id = ? AND status = 'approved' AND id != ?")
     .bind(by, at, layoutId, userId, newId);
+}
+
+// [LDB-CMT11] A slot's likes live exactly as long as the slot has an approved
+// comment: cleared when the slot no longer has one (the author's delete, a
+// mod's removal). Conditional on that, so a statement that follows a decision
+// which did not happen (a lost race) clears nothing. A pending or rejected
+// edit leaves them, and an approved edit replaces the row inside the slot.
+function clearLikesOfEmptySlot(db: Bindings["DB"], layoutId: string, authorId: string): D1PreparedStatement {
+  return db
+    .prepare(
+      `DELETE FROM comment_likes WHERE layout_id = ? AND author_id = ?
+       AND NOT EXISTS (SELECT 1 FROM layout_comments WHERE layout_id = ? AND user_id = ? AND status = 'approved')`,
+    )
+    .bind(layoutId, authorId, layoutId, authorId);
 }
 
 // PUT /v1/layouts/:ref/comment. A user: queued (`202`) -- LDB-CMT2: a fresh
@@ -211,6 +227,7 @@ export async function deleteOwnComment(db: Bindings["DB"], now: Clock, actor: Ac
       )
       .bind(actor.user_id, at, layoutId, actor.user_id),
     db.prepare("UPDATE layout_comments SET body = NULL WHERE layout_id = ? AND user_id = ? AND body IS NOT NULL").bind(layoutId, actor.user_id),
+    clearLikesOfEmptySlot(db, layoutId, actor.user_id),
   ]);
   await appendInfo(db, now, {
     kind: "comment_deleted",
@@ -313,11 +330,13 @@ export async function removeComment(db: Bindings["DB"], now: Clock, actor: Actor
   const comment = await loadComment(db, id);
   if (comment.status !== "approved") throw notFound(`comment '${id}' is not approved`, id);
 
-  const res = await db
-    .prepare("UPDATE layout_comments SET status = 'removed', body = NULL, decided_by = ?, decided_at = ?, reason = ? WHERE id = ? AND status = 'approved'")
-    .bind(actor.user_id, now(), reason ?? null, id)
-    .run();
-  if (res.meta.changes !== 1) throw notFound(`comment '${id}' is not approved`, id);
+  const [res] = await db.batch([
+    db
+      .prepare("UPDATE layout_comments SET status = 'removed', body = NULL, decided_by = ?, decided_at = ?, reason = ? WHERE id = ? AND status = 'approved'")
+      .bind(actor.user_id, now(), reason ?? null, id),
+    clearLikesOfEmptySlot(db, comment.layout_id, comment.user_id),
+  ]);
+  if (res!.meta.changes !== 1) throw notFound(`comment '${id}' is not approved`, id);
 
   const removed = await loadComment(db, id);
   await appendModeration(db, now, {
@@ -332,12 +351,13 @@ export async function removeComment(db: Bindings["DB"], now: Clock, actor: Actor
 }
 
 // GET /v1/layouts/:ref/comments (public). The one approved row per user
-// (LDB-CMT3: the approve path keeps it at most one), newest approval first,
-// then id. `edited` is true when that user has an earlier `replaced` row on
+// (LDB-CMT3: the approve path keeps it at most one), most liked first (`likes`
+// counts the slot's likers, LDB-CMT11), then newest approval, then id; `liked`
+// (did `viewer` like it) is present only when a viewer is given. `edited` is true when that user has an earlier `replaced` row on
 // this layout since their last delete or removal: a replaced row's
 // `decided_at` is when it was retired, so "since" compares the retirement to
 // the last time the user's thread was cut. A deleted layout lists nothing.
-export async function listComments(db: Bindings["DB"], layout: LayoutRow): Promise<PublicComment[]> {
+export async function listComments(db: Bindings["DB"], layout: LayoutRow, viewer?: string): Promise<PublicComment[]> {
   if (layout.deleted) return [];
   const { results } = await db
     .prepare(
@@ -349,15 +369,64 @@ export async function listComments(db: Bindings["DB"], layout: LayoutRow): Promi
                     (SELECT MAX(d.decided_at) FROM layout_comments d
                      WHERE d.layout_id = c.layout_id AND d.user_id = c.user_id AND d.status IN ('deleted', 'removed')),
                     '')
-              ) AS edited
+              ) AS edited,
+              (SELECT COUNT(*) FROM comment_likes k WHERE k.layout_id = c.layout_id AND k.author_id = c.user_id) AS likes,
+              EXISTS (SELECT 1 FROM comment_likes k WHERE k.layout_id = c.layout_id AND k.author_id = c.user_id AND k.user_id = ?) AS liked
        FROM layout_comments c
        LEFT JOIN authors a ON a.user_id = c.user_id
        WHERE c.layout_id = ? AND c.status = 'approved' AND c.body IS NOT NULL
-       ORDER BY c.decided_at DESC, c.id ASC`,
+       ORDER BY likes DESC, c.decided_at DESC, c.id ASC`,
     )
-    .bind(layout.id)
-    .all<Omit<PublicComment, "edited"> & { edited: number }>();
-  return results.map((r) => ({ ...r, edited: r.edited === 1 }));
+    .bind(viewer ?? "", layout.id)
+    .all<Omit<PublicComment, "edited" | "liked"> & { edited: number; liked: number }>();
+  return results.map(({ liked, edited, ...r }) => ({ ...r, edited: edited === 1, ...(viewer === undefined ? {} : { liked: liked === 1 }) }));
+}
+
+// PUT /v1/layouts/:ref/comments/:author_id/like (LDB-CMT11): idempotent. The
+// target is the author's comment slot, so `404` when the slot has no approved
+// comment and `400 own_comment` for the author themselves. A like that was
+// already there changes nothing and appends no event.
+export async function likeComment(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, layoutId: string, authorId: string): Promise<void> {
+  if (authorId === actor.user_id) throw ownComment();
+  const res = await db
+    .prepare(
+      `INSERT INTO comment_likes (layout_id, author_id, user_id, via, created_at)
+       SELECT ?, ?, ?, ?, ?
+       WHERE EXISTS (SELECT 1 FROM layout_comments WHERE layout_id = ? AND user_id = ? AND status = 'approved' AND body IS NOT NULL)
+       ON CONFLICT (layout_id, author_id, user_id) DO NOTHING`,
+    )
+    .bind(layoutId, authorId, actor.user_id, actor.via, now(), layoutId, authorId)
+    .run();
+  if (res.meta.changes === 1) {
+    await appendInfo(db, now, {
+      kind: "comment_liked",
+      layoutId,
+      actor: actor.user_id,
+      via: actor.via,
+      source: sourceOf(actor, version),
+      detail: { layout_id: layoutId, author_id: authorId, user_id: actor.user_id },
+    });
+    return;
+  }
+  const slot = await db
+    .prepare("SELECT 1 AS one FROM layout_comments WHERE layout_id = ? AND user_id = ? AND status = 'approved' AND body IS NOT NULL LIMIT 1")
+    .bind(layoutId, authorId)
+    .first();
+  if (slot === null) throw notFound(`no comment by '${authorId}' on this layout`, authorId);
+}
+
+// DELETE the same path: idempotent; an unlike that removed nothing appends no event.
+export async function unlikeComment(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, layoutId: string, authorId: string): Promise<void> {
+  const res = await db.prepare("DELETE FROM comment_likes WHERE layout_id = ? AND author_id = ? AND user_id = ?").bind(layoutId, authorId, actor.user_id).run();
+  if (res.meta.changes !== 1) return;
+  await appendInfo(db, now, {
+    kind: "comment_unliked",
+    layoutId,
+    actor: actor.user_id,
+    via: actor.via,
+    source: sourceOf(actor, version),
+    detail: { layout_id: layoutId, author_id: authorId, user_id: actor.user_id },
+  });
 }
 
 // GET /v1/layouts/:ref/comment (the caller's own). `decision` is the

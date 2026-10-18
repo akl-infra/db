@@ -1,0 +1,17 @@
+{
+  "request": {
+    "method": "PUT",
+    "path": "/v1/layouts/mod-cmt-5/comments/184412255822020608/like"
+  },
+  "response": {
+    "status": 401,
+    "headers": {
+      "Content-Type": "application/json",
+      "WWW-Authenticate": "Bearer"
+    },
+    "body": {
+      "error": "unauthorized",
+      "message": "authentication required"
+    }
+  }
+}

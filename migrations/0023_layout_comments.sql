@@ -46,3 +46,22 @@ CREATE INDEX layout_comments_status ON layout_comments(status, submitted_at);
 CREATE INDEX layout_comments_user ON layout_comments(layout_id, user_id, status);
 -- The public per-layout listing: approved rows, newest first.
 CREATE INDEX layout_comments_approved ON layout_comments(layout_id, status, decided_at DESC);
+
+-- Likes on comments (docs/decisions/29-layout-comments.md, LDB-CMT11..): a like
+-- targets an author's comment SLOT on a layout, (layout_id, author_id), not a
+-- row id, so it survives an approved edit (the slot's approved row is replaced,
+-- the slot is the same). One like per (slot, liker). The author's delete and a
+-- mod's removal clear the slot's likes; a pending or rejected edit leaves
+-- them. Shaped like `likes` (migrations/0001): `user_id` is the liker, `via`
+-- the liker's lane (`discord` or `client:<id>`).
+CREATE TABLE comment_likes (
+  layout_id   TEXT NOT NULL,
+  author_id   TEXT NOT NULL,
+  user_id     TEXT NOT NULL,
+  via         TEXT NOT NULL,
+  created_at  TEXT NOT NULL,
+  PRIMARY KEY (layout_id, author_id, user_id)
+);
+-- Everything one user has liked (the `liked` flag on the listing); the
+-- per-layout counts are served by the primary key's (layout_id, author_id) prefix.
+CREATE INDEX comment_likes_user ON comment_likes(user_id);

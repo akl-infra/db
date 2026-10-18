@@ -18,7 +18,8 @@ records (decision 28).
 | validation | `body` a string; `\r\n` and `\r` become `\n`, trimmed, 1..2000 Unicode code points, else `400 invalid_comment`. Nothing else is refused. One validator in `core/comments.ts` |
 | write | `PUT /v1/layouts/:ref/comment {body}`: `202` queued; an admin's own comment is `201` approved. A new pending comment supersedes the same user's older pending one (silently). The old approved text stays live until the new one is approved |
 | delete | `DELETE /v1/layouts/:ref/comment`: immediate, `204`. Erases the text of every comment the caller has on that layout (rejected and superseded ones included, so a lone rejected text can still be erased); `404` only if none of their rows there has a text left |
-| read | `GET /v1/layouts/:ref/comments`: public, `{comments}`, one approved comment per user, newest approval first, `edited` flag, deleted layouts hidden. `GET /v1/layouts/:ref/comment`: the caller's own `{live, pending, decision}`, never publicly cached |
+| read | `GET /v1/layouts/:ref/comments`: public, `{comments}`, one approved comment per user, most liked first then newest approval, `likes` count, `liked` only for an authenticated caller (that answer is `private, no-store`), `edited` flag, deleted layouts hidden. `GET /v1/layouts/:ref/comment`: the caller's own `{live, pending, decision}`, never publicly cached |
+| likes | `PUT` / `DELETE /v1/layouts/:ref/comments/:author_id/like`: `204`, idempotent. A like targets the author's comment *slot* `(layout, author)`, one per (slot, liker); `400 own_comment` for the author, `404` when the slot has no approved comment. Cleared by the author's delete and by a mod's removal; a pending or rejected edit leaves them. Table `comment_likes` |
 | queue | `GET /v1/admin/comment-queue?status=` (default `pending`, each row carries `live_body`), `POST .../:id/approve`, `POST .../:id/reject {reason?}`, and `POST /v1/admin/comments/:id/remove {reason?}` for a live comment; every admin route is `if (!actor.admin) throw notAdmin()` |
 | events | `comment_submitted`, `comment_approved`, `comment_rejected`, `comment_removed`, `comment_deleted`, one per action, written through `core/events.ts`; none carries comment text or a reason |
 | webhook | a freshly pending comment is announced to the mod channel once, best effort, from the `PUT` path only: no `notified_at`, no cron sweep, no retry, a failed post is logged and dropped. A new comment shows its first 120 characters, an edit only its length |
@@ -38,6 +39,16 @@ records (decision 28).
   clears the body of every row, rejected and superseded ones included, so the
   text is in no table, no later dump and no event. The row stays (status,
   times) so moderation history still counts what happened.
+- **Likes belong to the slot, not the row.** A comment is edited by replacing
+  its approved row; a like on the old row would vanish with it, so a like names
+  `(layout, author)` and survives an approved edit. Deleting or removing the
+  comment ends the slot, so its likes go with it (a like on nothing would be
+  misleading, and a re-written comment is a new comment). A pending or
+  rejected edit changes nothing live, so it changes no likes. An author cannot
+  like their own comment, so the count is other people's. Like and unlike are
+  idempotent (`204` either way) and write an event, `comment_liked` /
+  `comment_unliked`, only when something actually changed. Likes are public
+  like layout likes, so they are dumped whole.
 - **Mods can remove, with a reason.** A live comment that should not stand is
   `removed` (text erased, reason kept for its author, who reads it through
   `GET .../comment`), the same erasure as a delete but a mod's act, recorded
@@ -56,6 +67,6 @@ records (decision 28).
 
 ## Consequences
 
-`CHANGELOG-API.md` 1.22; invariants `LDB-CMT1`..`LDB-CMT10`; the nightly dump
-gains `layout_comments` (approved rows only; a dump from before the table
-restores with it empty). Additive only: nothing existing changes meaning.
+`CHANGELOG-API.md` 1.22; invariants `LDB-CMT1`..`LDB-CMT13`; the nightly dump
+gains `layout_comments` (approved rows only) and `comment_likes` (all rows); a
+dump from before either table restores with it empty. Additive only: nothing existing changes meaning.

@@ -1,0 +1,32 @@
+{
+  "request": {
+    "method": "PUT",
+    "path": "/v1/layouts/mod-cmt-5/comments/184412255822020608/like",
+    "bearer": "conformance-comments-token",
+    "setup": [
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-comments-token",
+        "body": {
+          "name": "mod-cmt-5",
+          "format": "spark/1",
+          "payload": {
+            "keys": []
+          }
+        }
+      },
+      {
+        "method": "PUT",
+        "path": "/v1/layouts/mod-cmt-5/comment",
+        "bearer": "conformance-admin-token",
+        "body": {
+          "body": "A comment worth liking."
+        }
+      }
+    ]
+  },
+  "response": {
+    "status": 204
+  }
+}

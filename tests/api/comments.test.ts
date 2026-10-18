@@ -1,4 +1,4 @@
-// [LDB-CMT1..LDB-CMT7] [LDB-CMT9] Layout comments
+// [LDB-CMT1..LDB-CMT7] [LDB-CMT9] [LDB-CMT11..LDB-CMT13] Layout comments
 // (docs/decisions/29-layout-comments.md): write / queue / approve / delete /
 // public and own reads, black-box via SELF.fetch, same pattern
 // tests/api/wpm.test.ts uses for the WPM queue.
@@ -76,6 +76,8 @@ interface PublicComment {
   body: string;
   approved_at: string;
   edited: boolean;
+  likes: number;
+  liked?: boolean;
 }
 interface Own {
   live: { id: string; body: string; approved_at: string } | null;
@@ -798,5 +800,247 @@ describe("[LDB-CMT9] the queue is admin-only; a ban stops writes; internal bookk
     for (const status of ["pending", "approved", "rejected", "superseded", "replaced", "deleted", "removed"]) {
       expect((await writeFetch(`/v1/admin/comment-queue?status=${status}`, "GET", admin)).status, status).toBe(200);
     }
+  });
+});
+
+// --- comment likes (LDB-CMT11..LDB-CMT13) ----------------------------------
+
+interface LikeAuthor {
+  user: string;
+  auth: Auth;
+}
+
+function likeUrl(layout: string, author: string): string {
+  return `/v1/layouts/${layout}/comments/${author}/like`;
+}
+async function like(who: Auth, layout: string, author: string): Promise<Response> {
+  return writeFetch(likeUrl(layout, author), "PUT", who);
+}
+async function unlike(who: Auth, layout: string, author: string): Promise<Response> {
+  return writeFetch(likeUrl(layout, author), "DELETE", who);
+}
+async function likeRows(layoutId: string, authorId: string): Promise<string[]> {
+  const { results } = await db.prepare("SELECT user_id FROM comment_likes WHERE layout_id = ? AND author_id = ? ORDER BY user_id").bind(layoutId, authorId).all<{ user_id: string }>();
+  return results.map((r) => r.user_id);
+}
+// A layout whose owner `author` has an approved comment, plus two likers.
+async function likeScene(label: string): Promise<{ id: string; author: LikeAuthor; a: LikeAuthor; b: LikeAuthor; admin: Auth; commentId: string }> {
+  const fake = actorFixture();
+  const mk = (n: string): LikeAuthor => {
+    const user = testUserId();
+    return { user, auth: register(fake, token(`${label}-${n}`), user) };
+  };
+  const author = mk("author");
+  const a = mk("a");
+  const b = mk("b");
+  const admin = register(fake, token(`${label}-admin`), BOOTSTRAP_ADMIN);
+  const { id } = await createLayout(author.user);
+  const commentId = (await put(author.auth, id, "a comment worth liking")).submission.id;
+  await approve(admin, commentId);
+  return { id, author, a, b, admin, commentId };
+}
+
+describe("[LDB-CMT11] likes target the author's comment slot", () => {
+  it("[LDB-CMT11] PUT is 204 and idempotent, one like per (slot, liker); DELETE is 204 and idempotent", async () => {
+    const s = await likeScene("lk1");
+    expect((await like(s.a.auth, s.id, s.author.user)).status).toBe(204);
+    expect((await like(s.a.auth, s.id, s.author.user)).status).toBe(204); // again: still 204, still one row
+    expect((await like(s.b.auth, s.id, s.author.user)).status).toBe(204);
+    expect(await likeRows(s.id, s.author.user)).toEqual([s.a.user, s.b.user].sort());
+
+    expect((await unlike(s.a.auth, s.id, s.author.user)).status).toBe(204);
+    expect((await unlike(s.a.auth, s.id, s.author.user)).status).toBe(204); // nothing left to remove
+    expect(await likeRows(s.id, s.author.user)).toEqual([s.b.user]);
+    // by layout name too
+    const name = (await db.prepare("SELECT name FROM layouts WHERE id = ?").bind(s.id).first<{ name: string }>())!.name;
+    expect((await like(s.a.auth, name, s.author.user)).status).toBe(204);
+    expect(await likeRows(s.id, s.author.user)).toHaveLength(2);
+  });
+
+  it("[LDB-CMT11] the author cannot like their own comment (400 own_comment); a slot with no approved comment is 404; a malformed author id is 400; an unknown or deleted layout is 404", async () => {
+    const s = await likeScene("lk2");
+    const own = await like(s.author.auth, s.id, s.author.user);
+    expect(own.status).toBe(400);
+    await expect(own.json()).resolves.toMatchObject({ error: "own_comment" });
+    expect(await likeRows(s.id, s.author.user)).toEqual([]);
+
+    const stranger = testUserId();
+    const none = await like(s.a.auth, s.id, stranger);
+    expect(none.status).toBe(404);
+    await expect(none.json()).resolves.toMatchObject({ error: "not_found" });
+
+    const bad = await like(s.a.auth, s.id, "nope");
+    expect(bad.status).toBe(400);
+    await expect(bad.json()).resolves.toMatchObject({ error: "bad_request", param: "author_id" });
+    expect((await like(s.a.auth, "no-such-layout-cmt", s.author.user)).status).toBe(404);
+    expect((await unlike(s.a.auth, "no-such-layout-cmt", s.author.user)).status).toBe(404);
+    await db.prepare("UPDATE layouts SET deleted = 1 WHERE id = ?").bind(s.id).run();
+    expect((await like(s.a.auth, s.id, s.author.user)).status).toBe(404);
+  });
+
+  it("[LDB-CMT11] a pending-only or rejected-only slot cannot be liked", async () => {
+    const fake = actorFixture();
+    const owner = testUserId();
+    const { id } = await createLayout(owner);
+    const admin = register(fake, token("lk3-admin"), BOOTSTRAP_ADMIN);
+    const liker = register(fake, token("lk3-liker"), testUserId());
+    const pendingUser = testUserId();
+    const pendingAuth = register(fake, token("lk3-pending"), pendingUser);
+    const sub = (await put(pendingAuth, id, "still waiting")).submission;
+    expect((await like(liker, id, pendingUser)).status).toBe(404);
+    await writeFetch(`/v1/admin/comment-queue/${sub.id}/reject`, "POST", admin, {});
+    expect((await like(liker, id, pendingUser)).status).toBe(404);
+    expect(await likeRows(id, pendingUser)).toEqual([]);
+  });
+
+  it("[LDB-CMT11] a like survives an approved edit, a pending edit and a rejected edit of the slot", async () => {
+    const s = await likeScene("lk4");
+    await like(s.a.auth, s.id, s.author.user);
+
+    const pending = (await put(s.author.auth, s.id, "an edit under review")).submission;
+    expect(await likeRows(s.id, s.author.user)).toEqual([s.a.user]); // pending edit
+    await writeFetch(`/v1/admin/comment-queue/${pending.id}/reject`, "POST", s.admin, { reason: "no" });
+    expect(await likeRows(s.id, s.author.user)).toEqual([s.a.user]); // rejected edit
+
+    const edit = (await put(s.author.auth, s.id, "an edit that lands")).submission;
+    await approve(s.admin, edit.id);
+    expect(await likeRows(s.id, s.author.user)).toEqual([s.a.user]); // approved edit: new row, same slot
+    const comments = await listed(s.id);
+    expect(comments).toMatchObject([{ id: edit.id, body: "an edit that lands", likes: 1 }]);
+  });
+
+  it("[LDB-CMT11] the author's DELETE clears the slot's likes, and a new comment starts from zero", async () => {
+    const s = await likeScene("lk5");
+    await like(s.a.auth, s.id, s.author.user);
+    await like(s.b.auth, s.id, s.author.user);
+    expect((await writeFetch(`/v1/layouts/${s.id}/comment`, "DELETE", s.author.auth)).status).toBe(204);
+    expect(await likeRows(s.id, s.author.user)).toEqual([]);
+
+    await approve(s.admin, (await put(s.author.auth, s.id, "a fresh comment")).submission.id);
+    expect((await listed(s.id))[0]).toMatchObject({ body: "a fresh comment", likes: 0 });
+    // and the old likers can like it again
+    expect((await like(s.a.auth, s.id, s.author.user)).status).toBe(204);
+  });
+
+  it("[LDB-CMT11] a mod's removal clears the slot's likes; a likes row elsewhere is untouched", async () => {
+    const s = await likeScene("lk6");
+    const other = await likeScene("lk6b");
+    await like(s.a.auth, s.id, s.author.user);
+    await like(other.a.auth, other.id, other.author.user);
+    expect((await writeFetch(`/v1/admin/comments/${s.commentId}/remove`, "POST", s.admin, { reason: "spam" })).status).toBe(200);
+    expect(await likeRows(s.id, s.author.user)).toEqual([]);
+    expect(await likeRows(other.id, other.author.user)).toEqual([other.a.user]);
+    // the removed slot is not likeable until a new comment is approved
+    expect((await like(s.b.auth, s.id, s.author.user)).status).toBe(404);
+  });
+
+  it("[LDB-CMT11] a banned liker is 403 banned and writes nothing", async () => {
+    const s = await likeScene("lk7");
+    await writeFetch(`/v1/admin/bans/${s.a.user}`, "PUT", s.admin, {});
+    const res = await like(s.a.auth, s.id, s.author.user);
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toMatchObject({ error: "banned" });
+    expect(await likeRows(s.id, s.author.user)).toEqual([]);
+    expect((await like({}, s.id, s.author.user)).status).toBe(401);
+    expect((await unlike({}, s.id, s.author.user)).status).toBe(401);
+  });
+});
+
+describe("[LDB-CMT12] like events and the likes in the dump", () => {
+  it("[LDB-CMT12] one event per real change, none for a repeat or a no-op unlike; ids only", async () => {
+    const s = await likeScene("lk8");
+    const count = async () => (await commentEvents(s.id)).filter((e) => e.kind === "comment_liked" || e.kind === "comment_unliked");
+    await like(s.a.auth, s.id, s.author.user);
+    await like(s.a.auth, s.id, s.author.user);
+    await unlike(s.b.auth, s.id, s.author.user); // b never liked
+    await unlike(s.a.auth, s.id, s.author.user);
+    await unlike(s.a.auth, s.id, s.author.user);
+    const events = await count();
+    expect(events.map((e) => e.kind)).toEqual(["comment_liked", "comment_unliked"]);
+    expect(events[0]).toMatchObject({ actor: s.a.user, admin: false, layout_id: s.id, detail: { layout_id: s.id, author_id: s.author.user, user_id: s.a.user } });
+    expect(Object.keys(events[0]!.detail!).sort()).toEqual(["author_id", "layout_id", "user_id"]);
+    for (const kind of ["comment_liked", "comment_unliked"]) expect((await writeFetch(`/v1/changes?kinds=${kind}&limit=1`, "GET")).status, kind).toBe(200);
+  });
+
+  it("[LDB-CMT12] the author's delete clears the likes without writing a per-like event", async () => {
+    const s = await likeScene("lk9");
+    await like(s.a.auth, s.id, s.author.user);
+    const before = (await commentEvents(s.id)).length;
+    await writeFetch(`/v1/layouts/${s.id}/comment`, "DELETE", s.author.auth);
+    expect((await commentEvents(s.id)).length - before).toBe(1); // just comment_deleted
+  });
+});
+
+describe("[LDB-CMT13] the listing carries likes, orders by them, and keeps the viewer's flag out of the shared cache", () => {
+  it("[LDB-CMT13] likes count, ordered likes desc then approved_at desc then id; anonymous rows have no liked key", async () => {
+    const fake = actorFixture();
+    const owner = testUserId();
+    const { id } = await createLayout(owner);
+    const admin = register(fake, token("ord-admin"), BOOTSTRAP_ADMIN);
+    const mk = async (text: string) => {
+      const user = testUserId();
+      const auth = register(fake, token(`ord-${text}`), user);
+      await approve(admin, (await put(auth, id, text)).submission.id);
+      return { user, auth };
+    };
+    const first = await mk("first");
+    const second = await mk("second");
+    await mk("third");
+    const l1 = register(fake, token("ord-l1"), testUserId());
+    const l2 = register(fake, token("ord-l2"), testUserId());
+    // third is newest; with no likes the order is newest first
+    expect((await listed(id)).map((c) => c.body)).toEqual(["third", "second", "first"]);
+    await like(l1, id, first.user);
+    await like(l2, id, first.user);
+    await like(l1, id, second.user);
+    const rows = await listed(id);
+    expect(rows.map((c) => [c.body, c.likes])).toEqual([
+      ["first", 2],
+      ["second", 1],
+      ["third", 0],
+    ]);
+    for (const r of rows) expect("liked" in r).toBe(false);
+  });
+
+  it("[LDB-CMT13] the anonymous ETag moves when a count changes; a like and an unlike each move it", async () => {
+    const s = await likeScene("lk10");
+    const tag = async () => (await writeFetch(`/v1/layouts/${s.id}/comments`, "GET")).headers.get("ETag")!;
+    const t0 = await tag();
+    expect((await writeFetch(`/v1/layouts/${s.id}/comments`, "GET", { "If-None-Match": t0 })).status).toBe(304);
+    await like(s.a.auth, s.id, s.author.user);
+    const t1 = await tag();
+    expect(t1).not.toBe(t0);
+    expect((await writeFetch(`/v1/layouts/${s.id}/comments`, "GET", { "If-None-Match": t0 })).status).toBe(200);
+    await unlike(s.a.auth, s.id, s.author.user);
+    expect(await tag()).not.toBe(t1);
+  });
+
+  it("[LDB-CMT13] with credentials every row has liked, and the answer is private, no-store, ETag-free and never served to or from the shared cache", async () => {
+    const s = await likeScene("lk11");
+    await like(s.a.auth, s.id, s.author.user);
+
+    const anon0 = await writeFetch(`/v1/layouts/${s.id}/comments`, "GET");
+    expect(anon0.headers.get("Cache-Control")).toBe("public, max-age=10");
+    const anonEtag = anon0.headers.get("ETag")!;
+
+    const asA = await writeFetch(`/v1/layouts/${s.id}/comments`, "GET", s.a.auth);
+    expect(asA.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(asA.headers.get("ETag")).toBeNull();
+    expect(((await asA.json()) as { comments: PublicComment[] }).comments).toMatchObject([{ likes: 1, liked: true }]);
+
+    const asB = await writeFetch(`/v1/layouts/${s.id}/comments`, "GET", s.b.auth);
+    expect(((await asB.json()) as { comments: PublicComment[] }).comments).toMatchObject([{ likes: 1, liked: false }]);
+    // the author sees liked false on their own too
+    const asAuthor = await writeFetch(`/v1/layouts/${s.id}/comments`, "GET", s.author.auth);
+    expect(((await asAuthor.json()) as { comments: PublicComment[] }).comments).toMatchObject([{ likes: 1, liked: false }]);
+
+    // an authenticated request does not take the shared 304 path, even with the anonymous tag
+    const conditional = await writeFetch(`/v1/layouts/${s.id}/comments`, "GET", { ...s.a.auth, "If-None-Match": anonEtag });
+    expect(conditional.status).toBe(200);
+    // ... and the anonymous answer afterwards still has no liked key
+    const anon1 = await writeFetch(`/v1/layouts/${s.id}/comments`, "GET");
+    expect(((await anon1.json()) as { comments: Record<string, unknown>[] }).comments.every((r) => !("liked" in r))).toBe(true);
+    // a bad token is 401, not silently anonymous
+    expect((await writeFetch(`/v1/layouts/${s.id}/comments`, "GET", { Authorization: "Bearer not-a-real-token" })).status).toBe(401);
   });
 });

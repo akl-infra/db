@@ -1,0 +1,10 @@
+{
+  "request": {
+    "method": "DELETE",
+    "path": "/v1/layouts/mod-cmt-5/comments/184412255822020608/like",
+    "bearer": "conformance-comments-token"
+  },
+  "response": {
+    "status": 204
+  }
+}

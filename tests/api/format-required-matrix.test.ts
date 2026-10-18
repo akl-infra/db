@@ -109,6 +109,8 @@ const EXEMPT_ROUTES: ExemptRoute[] = [
   { method: "GET", path: "/v1/layouts/:ref/comment", reason: "a comment is plain text; no layout body on the wire" },
   { method: "PUT", path: "/v1/layouts/:ref/comment", reason: "a comment is plain text; no layout body on the wire" },
   { method: "DELETE", path: "/v1/layouts/:ref/comment", reason: "a comment is plain text; no layout body on the wire" },
+  { method: "PUT", path: "/v1/layouts/:ref/comments/:author_id/like", reason: "a comment like concerns no format; no layout body on the wire" },
+  { method: "DELETE", path: "/v1/layouts/:ref/comments/:author_id/like", reason: "a comment unlike concerns no format; no layout body on the wire" },
 ];
 
 // Write routes whose BODY names a format and must answer `400

@@ -390,6 +390,11 @@ export function invalidProof(message: string): ApiError {
   return new ApiError(400, { message, error: "invalid_proof" });
 }
 
+// docs/decisions/29-layout-comments.md: an author cannot like their own comment.
+export function ownComment(): ApiError {
+  return new ApiError(400, { message: "you can't like your own comment", error: "own_comment" });
+}
+
 // docs/decisions/29-layout-comments.md: the pure comment validator's
 // refusal -- the body is not a string, or empty after trim, or longer than
 // 2000 characters.

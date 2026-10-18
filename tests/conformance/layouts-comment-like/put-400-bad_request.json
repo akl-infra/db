@@ -1,0 +1,18 @@
+{
+  "request": {
+    "method": "PUT",
+    "path": "/v1/layouts/mod-cmt-5/comments/not-a-snowflake/like",
+    "bearer": "conformance-comments-token"
+  },
+  "response": {
+    "status": 400,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "error": "bad_request",
+      "message": "'author_id' must be a Discord user id (17-20 digits)",
+      "param": "author_id"
+    }
+  }
+}

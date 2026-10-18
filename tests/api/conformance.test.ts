@@ -816,6 +816,14 @@ const REQUIRED: Record<string, RequiredCase[]> = {
     { status: 404, code: ERROR_CODES.not_found },
   ],
   "DELETE /v1/layouts/:ref/comment": [{ status: 204 }, { status: 401, code: ERROR_CODES.unauthorized }, { status: 404, code: ERROR_CODES.not_found }],
+  "PUT /v1/layouts/:ref/comments/:author_id/like": [
+    { status: 204 },
+    { status: 400, code: ERROR_CODES.bad_request },
+    { status: 400, code: "own_comment" },
+    { status: 401, code: ERROR_CODES.unauthorized },
+    { status: 404, code: ERROR_CODES.not_found },
+  ],
+  "DELETE /v1/layouts/:ref/comments/:author_id/like": [{ status: 204 }, { status: 401, code: ERROR_CODES.unauthorized }],
   "GET /v1/admin/comment-queue": [
     { status: 200 },
     { status: 400, code: ERROR_CODES.bad_request },
