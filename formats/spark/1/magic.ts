@@ -118,6 +118,8 @@ export interface ChiralKey {
   same?: ChiralValue | null; // null reads as absent, as akl.gg's validator does (`!= null`)
   opposite?: ChiralValue | null;
   except?: string[];
+  // design/alts/43-skip-magic-wire.md section 2e (LDB-F51): a skip chiral key
+  skip?: true;
 }
 
 export interface AdaptiveSwap {
@@ -377,8 +379,13 @@ export function computeRows(magic: MagicIntent | undefined, keys: Record<string,
       if (h === null || kh === null) continue; // no hand on either side -> this construct produces nothing here (a documented zero-row case, 01 §4.1 in the interop writeup)
       const val = h === kh ? ck.same : ck.opposite;
       if (val == null) continue; // undefined or null: absent, as on akl.gg
-      const output = c + (isRepeatTag(val) ? c : val.char);
-      rows.push({ inputs: c + ck.key, output, type: "chiral", from: `chiral_keys[${i}]` });
+      const emitted = isRepeatTag(val) ? c : val.char;
+      if (ck.skip === true) {
+        // LDB-F51: by the hand of the character two back, any middle -- [c, null, key] -> [c, null, emitted]
+        rows.push({ inputs: [c, null, ck.key], output: [c, null, emitted], type: "chiral", from: `chiral_keys[${i}]` });
+        continue;
+      }
+      rows.push({ inputs: c + ck.key, output: c + emitted, type: "chiral", from: `chiral_keys[${i}]` });
     }
   });
 

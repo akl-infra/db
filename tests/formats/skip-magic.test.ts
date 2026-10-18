@@ -258,3 +258,33 @@ describe("[LDB-F48] a skip rule's characters are magic-named (LDB-F33)", () => {
     expect(ok(dup(["a", null], "c"))).toEqual({ ok: true }); // the null names nothing
   });
 });
+
+describe("[LDB-F51] skip chiral keys (design/alts/43 section 2e)", () => {
+  const chiralPayload = (ck: Record<string, unknown>) => payloadWith({ chiral_keys: [{ key: "k", ...ck } as never] });
+  it("[LDB-F51] accepts skip: true, refuses any other value", () => {
+    expect(ok(chiralPayload({ same: { kind: "repeat" }, opposite: { kind: "char", char: "z" }, skip: true }))).toEqual({ ok: true });
+    for (const bad of [false, "yes", 1, null]) expect(ok(chiralPayload({ same: { kind: "repeat" }, skip: bad })).ok, String(bad)).toBe(false);
+  });
+  it("[LDB-F51] compiles to any-middle rows by the hand of each board character, repeat = that character; except honoured; plain chiral unchanged", () => {
+    const p = chiralPayload({ same: { kind: "repeat" }, opposite: { kind: "char", char: "z" }, skip: true, except: ["b"] });
+    const keys = charMap(p);
+    const rows = computeRows(p.magic, keys).filter((r) => r.from === "chiral_keys[0]");
+    const kHand = keys["k"]!.finger[0];
+    expect(rows.length).toBe(Object.keys(keys).length - 1); // every board character but the except'ed one
+    for (const r of rows) {
+      expect(Array.isArray(r.inputs)).toBe(true);
+      const [c, mid, key] = r.inputs as [string, null, string];
+      expect([mid, key]).toEqual([null, "k"]);
+      expect(r.output).toEqual([c, null, keys[c]!.finger[0] === kHand ? c : "z"]);
+    }
+    expect(rows.some((r) => (r.inputs as string[])[0] === "b")).toBe(false);
+    const plain = computeRows(chiralPayload({ same: { kind: "repeat" }, opposite: { kind: "char", char: "z" } }).magic, keys).filter((r) => r.from === "chiral_keys[0]");
+    expect(plain.every((r) => typeof r.inputs === "string")).toBe(true);
+    expect(ok(p)).toEqual({ ok: true });
+  });
+  it("[LDB-F51] ?as=mana2/1 drops the skip chiral rows (no wildcard in mana2)", () => {
+    const p = chiralPayload({ same: { kind: "repeat" }, skip: true });
+    const out = fromSpark(p) as { magic: { rules: { inputs: unknown }[] } };
+    expect(out.magic.rules.every((r) => typeof r.inputs === "string")).toBe(true);
+  });
+});
