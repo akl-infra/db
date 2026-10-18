@@ -347,6 +347,7 @@ h2 {
   .akl-table td.akl-nowrap {
     display: block;
     width: 100%;
+    white-space: normal; /* the card wraps; an .akl-id inside stays unbroken */
   }
   .akl-table tr {
     border-bottom: 1px solid var(--border);
