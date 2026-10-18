@@ -1147,7 +1147,7 @@ silently drift from what `src/index.ts` actually registers.
 | DELETE | `/v1/layouts/:ref/link` | user (owner or admin) | — | 200 | `not_owner`, `not_found`, lane errors |
 | GET | `/v1/wpm` | none | — (`?layout=<ref>&user=<id>`, both optional) | 200 (`{records}`) | `bad_request`, `not_found` |
 | POST | `/v1/wpm` | user | `{layout, wpm, proof}` | 202 (queued) / 201 (admin: approved) | `bad_request`, `invalid_wpm`, `invalid_proof`, `not_found`, lane errors |
-| GET | `/v1/layouts/:ref/comments` | none (credentials optional) | — | 200 (`{comments}`) | `not_found`, lane errors |
+| GET | `/v1/layouts/:ref/comments` | none | — | 200 (`{comments}`) | `not_found` |
 | PUT | `/v1/layouts/:ref/comments/:author_id/like` | user | — | 204 | `bad_request`, `own_comment`, `not_found`, lane errors |
 | DELETE | `/v1/layouts/:ref/comments/:author_id/like` | user | — | 204 | `bad_request`, `not_found`, lane errors |
 | GET | `/v1/layouts/:ref/comment` | user | — | 200 (`{live, pending, decision}`) | `not_found`, lane errors |

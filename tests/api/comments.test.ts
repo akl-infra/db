@@ -554,7 +554,7 @@ describe("[LDB-CMT5] GET /v1/layouts/:ref/comments is public and shows one appro
     expect(res.headers.get("Cache-Control")).toBe("public, max-age=10");
     const comments = ((await res.json()) as { comments: PublicComment[] }).comments;
     expect(comments).toHaveLength(1);
-    expect(Object.keys(comments[0]!).sort()).toEqual(["approved_at", "body", "edited", "id", "name", "user_id"]);
+    expect(Object.keys(comments[0]!).sort()).toEqual(["approved_at", "body", "edited", "id", "likes", "name", "user_id"]);
     expect(comments[0]).toMatchObject({ id: shown.id, user_id: others[3], name: "Shown Person", body: "shown", edited: false });
     expect(JSON.stringify(comments)).not.toMatch(/only pending|rejected one|to be removed|notified_at/);
     // `name` is null for a user with no authors row
@@ -824,8 +824,7 @@ async function likeRows(layoutId: string, authorId: string): Promise<string[]> {
   return results.map((r) => r.user_id);
 }
 // A layout whose owner `author` has an approved comment, plus two likers.
-async function likeScene(label: string): Promise<{ id: string; author: LikeAuthor; a: LikeAuthor; b: LikeAuthor; admin: Auth; commentId: string }> {
-  const fake = actorFixture();
+async function likeScene(label: string, fake = actorFixture()): Promise<{ id: string; author: LikeAuthor; a: LikeAuthor; b: LikeAuthor; admin: Auth; commentId: string }> {
   const mk = (n: string): LikeAuthor => {
     const user = testUserId();
     return { user, auth: register(fake, token(`${label}-${n}`), user) };
@@ -923,8 +922,9 @@ describe("[LDB-CMT11] likes target the author's comment slot", () => {
   });
 
   it("[LDB-CMT11] a mod's removal clears the slot's likes; a likes row elsewhere is untouched", async () => {
-    const s = await likeScene("lk6");
-    const other = await likeScene("lk6b");
+    const fake = actorFixture(); // one fake Discord for both scenes (the stubbed fetch is the last one registered)
+    const s = await likeScene("lk6", fake);
+    const other = await likeScene("lk6b", fake);
     await like(s.a.auth, s.id, s.author.user);
     await like(other.a.auth, other.id, other.author.user);
     expect((await writeFetch(`/v1/admin/comments/${s.commentId}/remove`, "POST", s.admin, { reason: "spam" })).status).toBe(200);

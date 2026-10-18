@@ -4991,6 +4991,118 @@
     }
   },
   {
+    "id": "layouts-comment-like/delete-204",
+    "method": "DELETE",
+    "route": "/v1/layouts/:ref/comments/:author_id/like",
+    "auth": "user",
+    "status": 204,
+    "shape": null
+  },
+  {
+    "id": "layouts-comment-like/delete-401-unauthorized",
+    "method": "DELETE",
+    "route": "/v1/layouts/:ref/comments/:author_id/like",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-comment-like/put-204",
+    "method": "PUT",
+    "route": "/v1/layouts/:ref/comments/:author_id/like",
+    "auth": "user",
+    "status": 204,
+    "shape": null
+  },
+  {
+    "id": "layouts-comment-like/put-400-bad_request",
+    "method": "PUT",
+    "route": "/v1/layouts/:ref/comments/:author_id/like",
+    "auth": "user",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "param": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-comment-like/put-400-own_comment",
+    "method": "PUT",
+    "route": "/v1/layouts/:ref/comments/:author_id/like",
+    "auth": "user",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-comment-like/put-401-unauthorized",
+    "method": "PUT",
+    "route": "/v1/layouts/:ref/comments/:author_id/like",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-comment-like/put-404",
+    "method": "PUT",
+    "route": "/v1/layouts/:ref/comments/:author_id/like",
+    "auth": "user",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
     "id": "layouts-comment/delete-204",
     "method": "DELETE",
     "route": "/v1/layouts/:ref/comment",
@@ -5305,6 +5417,9 @@
               },
               "id": {
                 "type": "string"
+              },
+              "likes": {
+                "type": "number"
               },
               "name": {
                 "type": "string"
