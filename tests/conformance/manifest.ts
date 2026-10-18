@@ -409,7 +409,7 @@ import modAdminAuthorsPut401Unauthorized from "./admin-authors/put-401-unauthori
 import modAdminAuthorsPut403NotAdmin from "./admin-authors/put-403-not_admin.json" with { type: "json" };
 import modLayoutsLinkPut202 from "./layouts-link/put-202.json" with { type: "json" };
 import modLayoutsLinkGet200Pending from "./layouts-link/get-200-pending.json" with { type: "json" };
-import modLayoutsLinkPut200AdminApproved from "./layouts-link/put-200-admin-approved.json" with { type: "json" };
+import modLayoutsLinkPut202AdminPending from "./layouts-link/put-202-admin-pending.json" with { type: "json" };
 import modLayoutsLinkDelete200 from "./layouts-link/delete-200.json" with { type: "json" };
 import modLayoutsLinkPut400InvalidLink from "./layouts-link/put-400-invalid_link.json" with { type: "json" };
 import modLayoutsLinkPut400BadRequest from "./layouts-link/put-400-bad_request.json" with { type: "json" };
@@ -862,7 +862,7 @@ export const MODERATION_CASES: ConformanceCase[] = [
   kase("admin-authors/put-403-not_admin", "/v1/admin/authors/:user_id", modAdminAuthorsPut403NotAdmin, true),
   kase("layouts-link/put-202", "/v1/layouts/:ref/link", modLayoutsLinkPut202, true),
   kase("layouts-link/get-200-pending", "/v1/layouts/:ref/link", modLayoutsLinkGet200Pending, true),
-  kase("layouts-link/put-200-admin-approved", "/v1/layouts/:ref/link", modLayoutsLinkPut200AdminApproved, true),
+  kase("layouts-link/put-202-admin-pending", "/v1/layouts/:ref/link", modLayoutsLinkPut202AdminPending, true),
   kase("layouts-link/delete-200", "/v1/layouts/:ref/link", modLayoutsLinkDelete200, true),
   kase("layouts-link/put-400-invalid_link", "/v1/layouts/:ref/link", modLayoutsLinkPut400InvalidLink, true),
   kase("layouts-link/put-400-bad_request", "/v1/layouts/:ref/link", modLayoutsLinkPut400BadRequest, true),

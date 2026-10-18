@@ -6486,22 +6486,51 @@
     }
   },
   {
-    "id": "layouts-link/put-200-admin-approved",
+    "id": "layouts-link/put-202",
     "method": "PUT",
     "route": "/v1/layouts/:ref/link",
     "auth": "user (owner or admin)",
-    "status": 200,
+    "status": 202,
     "shape": {
       "type": "object",
       "fields": {
-        "link": {
-          "type": "string"
+        "submission": {
+          "type": "object",
+          "fields": {
+            "decided_at": {
+              "type": "null"
+            },
+            "decided_by": {
+              "type": "null"
+            },
+            "id": {
+              "type": "string"
+            },
+            "layout_id": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "null"
+            },
+            "status": {
+              "type": "string"
+            },
+            "submitted_at": {
+              "type": "string"
+            },
+            "submitted_by": {
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            }
+          }
         }
       }
     }
   },
   {
-    "id": "layouts-link/put-202",
+    "id": "layouts-link/put-202-admin-pending",
     "method": "PUT",
     "route": "/v1/layouts/:ref/link",
     "auth": "user (owner or admin)",

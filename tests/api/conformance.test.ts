@@ -744,7 +744,6 @@ const REQUIRED: Record<string, RequiredCase[]> = {
     { status: 404, code: ERROR_CODES.not_found },
   ],
   "PUT /v1/layouts/:ref/link": [
-    { status: 200 },
     { status: 202 },
     { status: 400, code: ERROR_CODES.bad_request },
     { status: 400, code: "invalid_link" },

@@ -78,35 +78,22 @@ export async function getLink(db: Bindings["DB"], layoutId: string): Promise<{ l
   return { link: layout.link, pending };
 }
 
-// PUT /v1/layouts/:ref/link (owner|admin). Owner: queued (`202`, a new
-// pending submission -- LDB-MD6: at most one pending per layout, so a
-// fresh submit supersedes any existing pending one first, no event for
-// that -- the submitter's own bookkeeping). Admin: approved at once (`200`)
-// -- straight through `appendLinkChange`, no queue row at all.
+// PUT /v1/layouts/:ref/link (owner|admin). Everyone, an admin included:
+// queued (`202`, a new pending submission -- LDB-MD6: at most one pending
+// per layout, so a fresh submit supersedes any existing pending one first,
+// no event for that -- the submitter's own bookkeeping). No short circuit
+// for mods (saltorbit, API 1.23): an admin's own link is approved in the
+// Inbox like anyone's.
 export async function submitLink(
   db: Bindings["DB"],
   now: Clock,
   actor: Actor,
   version: string | null,
   layoutId: string,
-  isAdminActor: boolean,
   rawUrl: unknown,
-): Promise<{ kind: "queued"; submission: LinkSubmissionRow } | { kind: "approved"; link: string | null }> {
+): Promise<LinkSubmissionRow> {
   const validated = validateLinkUrl(rawUrl);
   if (!validated.ok) throw invalidLink(validated.message);
-
-  if (isAdminActor) {
-    const { link } = await appendLinkChange(db, now, {
-      layoutId,
-      kind: "link_approved",
-      link: validated.url,
-      actor: actor.user_id,
-      via: actor.via,
-      admin: true,
-      source: sourceOf(actor, version),
-    });
-    return { kind: "approved", link };
-  }
 
   const at = now();
   const existing = await pendingSubmission(db, layoutId);
@@ -135,8 +122,7 @@ export async function submitLink(
     detail: { submission_id: id, url: validated.url },
   });
 
-  const submission: LinkSubmissionRow = { id, layout_id: layoutId, url: validated.url, submitted_by: actor.user_id, submitted_at: at, status: "pending", decided_by: null, decided_at: null, reason: null };
-  return { kind: "queued", submission };
+  return { id, layout_id: layoutId, url: validated.url, submitted_by: actor.user_id, submitted_at: at, status: "pending", decided_by: null, decided_at: null, reason: null };
 }
 
 // DELETE /v1/layouts/:ref/link (owner|admin): clears the approved link
