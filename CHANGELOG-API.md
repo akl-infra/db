@@ -25,6 +25,32 @@ this file just gives them a public, versioned home. From here on, a
 `WIRE_VERSION` bump and a line here land in the SAME PR, never one without
 the other (`[LDB-V5]`).
 
+## 1.29 — 2026-10-20
+
+LDB-F48..F50, design/alts/43-skip-magic-wire.md §1: skip magic on the wire,
+additive. `spark/1`'s `magic_keys[].rules[].after` may now also be a 2-item
+array `[a, b]`: `a` exactly one code point, `b` one code point or `null` (the
+any-middle wildcard) -- `["h", null]` with `emit: "e"` means "after `h` and
+any one character, the key emits `e`". A string `after` is unchanged;
+`["h", "e"]` means exactly the string `"he"` (the per-key duplicate check
+treats them as equal), `["h", null]` is its own context, never equal to any
+string (`"h"` and `["h", null]` coexist). `[null, "e"]`, `["h"]`,
+`["h", null, "e"]`, `["he", null]` and `["h", ""]` are refused
+(`invalid_payload`, path `/magic/magic_keys/i/rules/j/after`). A magic key's
+`default` gains `{"kind": "skip_repeat"}` (repeats the character two back,
+any middle; magic keys only -- a chiral `same`/`opposite` still takes only
+`repeat`/`char`, and `GET /v1/formats/spark/1/schema.json`'s `chiralValue`
+keeps its two members). The compiled rows (`compileMagic`) of such a payload
+carry array `inputs`/`output` with `null` as the wildcard,
+`{"inputs": ["h", null, "*"], "output": ["h", null, "e"]}`; a `skip_repeat`
+key scaffolds one such row per board character (the characters a `repeat`
+default scaffolds; no space row) minus its `except` and minus every `c` with
+an explicit `[c, null]` rule. `?format=mana2/1` reads drop every array row (a
+documented loss, like `alts`: mana2 has no wildcard and its `_` is literal);
+mana2 -> spark import is unaffected. No stored payload changes meaning and no
+migration is needed (no stored `after` is anything but a string); a `/v1`
+reader that ignores unknown `after` shapes and `default` kinds is unaffected.
+
 ## 1.28 — 2026-10-20
 
 LDB-WPM17: add `PUT /v1/wpm/submissions/:id/discord-message`, authenticated

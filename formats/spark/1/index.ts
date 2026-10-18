@@ -118,9 +118,11 @@ export interface Payload {
   combos?: Combo[];
 }
 
+// inputs/output are a string, or an array with null for a skip row's
+// any-middle wildcard (design/alts/43-skip-magic-wire.md §2).
 export interface Row {
-  inputs: string;
-  output: string;
+  inputs: string | (string | null)[];
+  output: string | (string | null)[];
   type?: string;
 }
 

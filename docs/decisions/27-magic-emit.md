@@ -35,6 +35,45 @@ key emits** there, and nothing else:
 | reseed from akl.gg (`scripts/reseed-magic.mjs`, `26-magic-reseed.md`) | copied rules verbatim | converts `{after, output}` → `{after, emit}` on the way in; a rule that does not extend its context (impossible past akl.gg's own gate) is demoted to a raw `rules[]` row rather than dropped |
 | `?format=mana2/1` | — | unchanged: the same rows lower from the new shape (the parity vectors and every golden prove it) |
 
+## Amendment 2026-10-18: skip rules and `skip_repeat` (LDB-F48..F50)
+
+`design/alts/43-skip-magic-wire.md` §1 (saltorbit, 2026-10-17/18). `after`
+stays a non-empty string, and may also be a **2-item array** `[a, b]`: `a`
+exactly one code point (never null), `b` one code point or `null`, the
+any-middle wildcard. Like `alts` (`design/alts/07-format.md`), and not the
+string `_`, which is a real key on many layouts and always a literal.
+
+```json
+{ "key": "*", "default": { "kind": "skip_repeat" },
+  "rules": [ { "after": ["h", null], "emit": "e" }, { "after": "th", "emit": "e" } ] }
+```
+
+- `["h", null]` + `emit: "e"` lowers to the structured row
+  `{"inputs": ["h", null, "*"], "output": ["h", null, "e"], "type": "magic"}`:
+  after `h` and any one character, the key emits `e`. A skip rule never
+  replaces the key's one-back scaffold row.
+- `["h", "e"]` (no null) means exactly the string `"he"`: it lowers, dedupes
+  and collides as `"he"`. Writers emit the array only with a null.
+  `["h", null]` is a different context from `"h"` (a different tier) and from
+  every string; both may sit on one key.
+- Arity is exactly 2 (the engines look back two). Refused: `[null, "e"]`,
+  `["h"]`, `["h", null, "e"]`, `["he", null]`, `["h", ""]`. `emit` is as
+  above; akldb does not police that a skip rule's `emit` is one code point.
+- Default `{"kind": "skip_repeat"}` (magic keys only; a chiral key has none):
+  scaffolds `{"inputs": [c, null, key], "output": [c, null, c], "type":
+  "skip_repeat"}` for every character a `repeat` default scaffolds (board
+  characters, no whitespace, no magic/chiral key chars), minus the key's
+  `except` and minus every `c` with an explicit `["c", null]` rule (explicit
+  replaces scaffold). No space row. A new kind rather than `repeat` with
+  `back: 2`, so no reader of `kind === "repeat"` silently reads it as plain
+  repeat.
+- The raw `rules[]` escape hatch stays strings; `_` there is the underscore.
+- `?as=mana2/1` drops every array row (mana2 has no wildcard): a documented
+  loss, like `alts`.
+
+Stored data is unaffected (every stored `after` is a string). `CHANGELOG-API.md`
+1.20.
+
 ## Clients
 
 - **akl.gg** keeps its own `{after, output}` authoring model for now and

@@ -25,7 +25,7 @@
 // magic/chiral key's own char as another key's `after` -- it cannot
 // exercise this invariant at all, hence dedicated tests here.
 import { describe, expect, it } from "vitest";
-import { computeRows, findCollision, liftRules, type MagicIntent } from "../../formats/spark/1/magic.ts";
+import { computeRows, findCollision, liftRules, stringRows, type MagicIntent } from "../../formats/spark/1/magic.ts";
 import type { Position } from "../../formats/spark/1/index.ts";
 
 const LEFT = ["LP", "LR", "LM", "LI"];
@@ -137,7 +137,7 @@ describe("liftRules promotes an orphaned special-char-after row into an explicit
     // historical row (07 §5.1): simulate it by adding 'b*' back in by
     // hand, the same genuine leftover-from-history case lift.test.ts/
     // roundtrip.test.ts verify against the real fixture.
-    const rows = computeRows(original, keys).map(({ inputs, output, type }) => ({ inputs, output, type }));
+    const rows = stringRows(computeRows(original, keys)).map(({ inputs, output, type }) => ({ inputs, output, type }));
     expect(rows.find((r) => r.inputs === "b*")).toBeUndefined(); // sanity: confirms the scenario this test sets up
     rows.push({ inputs: "b*", output: "bb", type: "repeat" });
 
@@ -154,7 +154,7 @@ describe("liftRules promotes an orphaned special-char-after row into an explicit
     // (inputs, output) set, just with 'b*' now tagged "magic" instead of
     // "repeat" -- the SAME relabeling lift.test.ts/roundtrip.test.ts
     // tolerate for the real auditor fixture (LDB-F8).
-    const relowered = computeRows({ magic_keys: lifted.magic_keys }, keys);
+    const relowered = stringRows(computeRows({ magic_keys: lifted.magic_keys }, keys));
     const asPairs = (list: { inputs: string; output: string }[]) => new Set(list.map((r) => `${r.inputs}=${r.output}`));
     expect(asPairs(relowered)).toEqual(asPairs(rows));
     expect(relowered.find((r) => r.inputs === "b*")).toMatchObject({ output: "bb", type: "magic" });
@@ -222,8 +222,8 @@ describe("[LDB-F43] a \" \" key never changes the compiled rows (#333)", () => {
 
   it("[LDB-F43] a literal-default magic key: identical rows with vs. without a \" \" key", () => {
     const magic: MagicIntent = { magic_keys: [{ key: "*", default: { kind: "char", char: "z" } }] };
-    const withSpace = computeRows(magic, keysWithSpace());
-    const withoutSpace = computeRows(magic, baseKeys());
+    const withSpace = stringRows(computeRows(magic, keysWithSpace()));
+    const withoutSpace = stringRows(computeRows(magic, baseKeys()));
     expect(withSpace).toEqual(withoutSpace);
     // The only row keyed on " " is the LDB-F14 word-start push, present
     // either way (it is a pure function of `magic`, not of `keys`).
@@ -232,16 +232,16 @@ describe("[LDB-F43] a \" \" key never changes the compiled rows (#333)", () => {
 
   it("[LDB-F43] a repeat_previous magic key: identical rows with vs. without a \" \" key (no word-start row for repeat)", () => {
     const magic: MagicIntent = { magic_keys: [{ key: "*", default: { kind: "repeat" } }] };
-    const withSpace = computeRows(magic, keysWithSpace());
-    const withoutSpace = computeRows(magic, baseKeys());
+    const withSpace = stringRows(computeRows(magic, keysWithSpace()));
+    const withoutSpace = stringRows(computeRows(magic, baseKeys()));
     expect(withSpace).toEqual(withoutSpace);
     expect(withSpace.filter((r) => r.inputs.startsWith(" "))).toEqual([]);
   });
 
   it("[LDB-F43] an explicit `after: \" \"` magic rule: identical rows with vs. without a \" \" key, the explicit rule replaces the LDB-F14 scaffold row (not a collision)", () => {
     const magic: MagicIntent = { magic_keys: [{ key: "*", default: { kind: "char", char: "z" }, rules: [{ after: " ", emit: "Q" }] }] };
-    const withSpace = computeRows(magic, keysWithSpace());
-    const withoutSpace = computeRows(magic, baseKeys());
+    const withSpace = stringRows(computeRows(magic, keysWithSpace()));
+    const withoutSpace = stringRows(computeRows(magic, baseKeys()));
     expect(withSpace).toEqual(withoutSpace);
     expect(withSpace.filter((r) => r.inputs.startsWith(" "))).toEqual([{ inputs: " *", output: " Q", type: "magic", from: "magic_keys[0].rules[0]" }]);
     expect(findCollision(withSpace)).toBeNull();
@@ -249,16 +249,16 @@ describe("[LDB-F43] a \" \" key never changes the compiled rows (#333)", () => {
 
   it("[LDB-F43] a chiral key's scaffold never enumerates \" \" as a board char either way", () => {
     const magic: MagicIntent = { chiral_keys: [{ key: "c", same: { kind: "char", char: "x" }, opposite: { kind: "char", char: "y" } }] };
-    const withSpace = computeRows(magic, keysWithSpace());
-    const withoutSpace = computeRows(magic, baseKeys());
+    const withSpace = stringRows(computeRows(magic, keysWithSpace()));
+    const withoutSpace = stringRows(computeRows(magic, baseKeys()));
     expect(withSpace).toEqual(withoutSpace);
     expect(withSpace.some((r) => r.inputs.includes(" "))).toBe(false);
   });
 
   it("[LDB-F43] liftRules round-trips the LDB-F14 word-start row the same way regardless of a live \" \" key", () => {
     const magic: MagicIntent = { magic_keys: [{ key: "*", default: { kind: "char", char: "z" } }] };
-    const rowsWithSpace = computeRows(magic, keysWithSpace());
-    const rowsWithoutSpace = computeRows(magic, baseKeys());
+    const rowsWithSpace = stringRows(computeRows(magic, keysWithSpace()));
+    const rowsWithoutSpace = stringRows(computeRows(magic, baseKeys()));
     const liftedWithSpace = liftRules(rowsWithSpace, keysWithSpace());
     const liftedWithoutSpace = liftRules(rowsWithoutSpace, baseKeys());
     expect(liftedWithSpace).toEqual(liftedWithoutSpace);

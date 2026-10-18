@@ -9,7 +9,7 @@
 // `liftRules`), never the reverse -- spark/1/index.ts has no import of
 // this directory at all.
 import * as cmini1 from "./index.ts";
-import { computeRows, isScaffold, liftRules, type MagicIntent, type Row, type RawRule } from "../../spark/1/magic.ts";
+import { computeRows, isScaffold, liftRules, type MagicIntent, type StringRow as Row, type RawRule } from "../../spark/1/magic.ts";
 import type { Key } from "../../spark/1/geometry.ts";
 import type { Payload as SparkPayload, Position } from "../../spark/1/index.ts";
 
@@ -70,6 +70,7 @@ export function reconcileScaffoldsToTrueRows(magic: MagicIntent, trueRows: Row[]
   const trueByInputs = new Map(trueRows.map((r) => [r.inputs, r]));
   for (const r of computeRows(magic, keys)) {
     if (!isScaffold(r.from)) continue;
+    if (typeof r.inputs !== "string" || typeof r.output !== "string") continue; // a skip_repeat scaffold: cmini rows are never skip rows
     const truth = trueByInputs.get(r.inputs);
     if (truth && truth.output === r.output && (truth.type ?? "raw") === r.type) continue; // matches -- nothing to fix
     const after = [...r.inputs].slice(0, -1).join(""); // the scaffold key itself is always exactly 1 code point

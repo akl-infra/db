@@ -541,7 +541,13 @@ export function fromSpark(p: SparkPayload): Mana2Payload {
   const magicKeysMap: Record<string, { row: number; col: number; finger: string }> = {};
   for (const [ch, pos] of analysed) magicKeysMap[ch] = { row: pos.row, col: pos.col, finger: pos.finger };
   const rows = resolveRows(computeRows(p.magic, magicKeysMap)); // LDB-F4: akl.gg's order, last wins
-  const rules: Mana2Rule[] = dedupeRulesLastWins(rows.map((r) => ({ inputs: r.inputs, output: r.output })));
+  // design/alts/43-skip-magic-wire.md §1: mana2 has no any-middle wildcard
+  // (its `_` is a literal), so every skip row -- a `[a, null]` rule or a
+  // `skip_repeat` scaffold, the rows whose inputs are an array -- is dropped
+  // here: a documented loss, like `alts` (mana2 -> spark import unaffected).
+  const flat: Mana2Rule[] = [];
+  for (const r of rows) if (typeof r.inputs === "string" && typeof r.output === "string") flat.push({ inputs: r.inputs, output: r.output });
+  const rules: Mana2Rule[] = dedupeRulesLastWins(flat);
 
   const out: Mana2Payload = {
     layout: { fingers },

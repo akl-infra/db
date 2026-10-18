@@ -9,7 +9,7 @@ import path from "node:path";
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import * as cmini1 from "../../formats/adapters/cmini/index.ts";
-import { computeRows, findCollision, liftRules, specialCharsFromRows, type MagicIntent, type Row } from "../../formats/spark/1/magic.ts";
+import { computeRows, findCollision, liftRules, specialCharsFromRows, stringRows, type MagicIntent, type StringRow as Row } from "../../formats/spark/1/magic.ts";
 import { reconcileScaffoldsToTrueRows } from "../../formats/adapters/cmini/translate.ts";
 import type { Position } from "../../formats/spark/1/index.ts";
 
@@ -157,7 +157,7 @@ describe("liftRules(lower(m)) == (m, []) -- valid akl idioms", () => {
         fc.pre(findCollision(rows) === null); // safety net -- construction should already guarantee this
 
         const { lifted, leftovers } = liftRules(
-          rows.map(({ inputs, output, type }) => ({ inputs, output, type })),
+          stringRows(rows).map(({ inputs, output, type }) => ({ inputs, output, type })),
           keys,
         );
         expect(leftovers).toEqual([]);
@@ -283,7 +283,7 @@ describe("lower(lift(rows)) ≡ rows -- every cmini/1 fixture with magic", () =>
       if (lifted.adaptive_swaps.length > 0) magic.adaptive_swaps = lifted.adaptive_swaps;
       reconcileScaffoldsToTrueRows(magic, rows, payload.keys);
 
-      const relowered = typed(computeRows({ ...magic, rules: leftovers.map((r) => ({ inputs: r.inputs, output: r.output, type: r.type })) }, payload.keys));
+      const relowered = typed(stringRows(computeRows({ ...magic, rules: leftovers.map((r) => ({ inputs: r.inputs, output: r.output, type: r.type })) }, payload.keys)));
       const special = specialCharsFromRows(rows);
       expect(canonicalized(relowered, special).sort(byTriple)).toEqual(canonicalized(rows, special).sort(byTriple));
 

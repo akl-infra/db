@@ -231,7 +231,15 @@ export async function readHead(db: D1Database, stateKeys: readonly string[] = []
 // 26 (2026-10-19, LDB-WPM15): Discord WPM proofs require verified authorship.
 // 27 (2026-10-19, LDB-WPM16): private WPM submission status lookup.
 // 28 (2026-10-20, LDB-WPM17): private immutable Discord receipt binding.
-export const WIRE_VERSION = 28;
+// 29 (2026-10-20, LDB-F48..F50, design/alts/43-skip-magic-wire.md): spark/1's
+//   `magic_keys[].rules[].after` may also be a 2-item array `[a, b | null]`
+//   (`[a, null]` = a skip rule, "after `a` and any one character"), and a
+//   magic key may default to `{"kind":"skip_repeat"}`. The compiled rows of
+//   such a payload carry array `inputs`/`output` (null = the any-middle
+//   wildcard); `?as=mana2/1` drops them (a documented loss). Purely
+//   additive: every string-only payload validates and lowers as before; no
+//   migration (nothing stored changes).
+export const WIRE_VERSION = 29;
 
 export async function etagFor(headSeqValue: number, query: unknown): Promise<string> {
   const hash = await sha256Hex(canonical({ wireVersion: WIRE_VERSION, query: query ?? null }));
