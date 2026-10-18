@@ -291,7 +291,7 @@ the revert itself is on the public changelog too.
 `revert` can't reach it (an OTHER actor's later write blocked it, and
 that write itself needs undoing by hand) -- the nightly R2 dump
 (`GET /v1/dump/latest.json`, "Rehost procedure" below) is the full event
-log and every table, gzipped, off the account. `tests/rehost.test.ts` runs
+log and every table, gzipped, off the account. The dump is public, so it holds only what is public (LDB-MD14): link submissions that are not approved are never in it and the redacted feed detail is what it carries, so a rehost loses the non-approved mod queue by design. `tests/rehost.test.ts` runs
 this exact restore path daily against the real deployed dump, so it is
 never a cold, untested path when you actually need it.
 

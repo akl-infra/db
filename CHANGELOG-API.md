@@ -36,7 +36,9 @@ that is not approved is private to admins, so the public event feed
 read; nothing stored is rewritten). Admins read both from
 `GET /v1/admin/link-queue`. Nothing a client could rely on as approved data
 changes: `link_approved`/`link_cleared` and the record's `link` field are
-untouched.
+untouched. The public dump follows the same rule: its `link_submissions`
+array holds only `approved` rows and its `events` carry the redacted detail,
+so a rehost restores everything public and loses the non-approved queue.
 
 ## 1.19 — 2026-09-30
 
