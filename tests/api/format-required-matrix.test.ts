@@ -104,6 +104,11 @@ const EXEMPT_ROUTES: ExemptRoute[] = [
   { method: "GET", path: "/v1/layouts/:ref/link", reason: "link is a layout-level field; it concerns no format" },
   { method: "PUT", path: "/v1/layouts/:ref/link", reason: "link is a layout-level field; it concerns no format" },
   { method: "DELETE", path: "/v1/layouts/:ref/link", reason: "link is a layout-level field; it concerns no format" },
+  // docs/decisions/29-layout-comments.md: a comment is plain text, no layout body on the wire.
+  { method: "GET", path: "/v1/layouts/:ref/comments", reason: "comments are plain text; no layout body on the wire" },
+  { method: "GET", path: "/v1/layouts/:ref/comment", reason: "a comment is plain text; no layout body on the wire" },
+  { method: "PUT", path: "/v1/layouts/:ref/comment", reason: "a comment is plain text; no layout body on the wire" },
+  { method: "DELETE", path: "/v1/layouts/:ref/comment", reason: "a comment is plain text; no layout body on the wire" },
 ];
 
 // Write routes whose BODY names a format and must answer `400

@@ -45,6 +45,9 @@ const EXEMPT_ROUTES: ExemptRoute[] = [
   // row, `modified_at` untouched) -- no `If-Match` concept applies.
   { method: "PUT", path: "/v1/layouts/:ref/link", reason: "§4.4: link is not a rev'd write -- no version to name" },
   { method: "DELETE", path: "/v1/layouts/:ref/link", reason: "§4.4: link is not a rev'd write -- no version to name" },
+  // docs/decisions/29-layout-comments.md: a comment is the caller's own per-user row, not the layout's version.
+  { method: "PUT", path: "/v1/layouts/:ref/comment", reason: "a comment is the caller's own per-user row, not the layout's version -- If-Match on the layout does not apply" },
+  { method: "DELETE", path: "/v1/layouts/:ref/comment", reason: "a comment is the caller's own per-user row, not the layout's version -- If-Match on the layout does not apply" },
 ];
 
 // This file's own matrices, restated as plain router coordinates (each
