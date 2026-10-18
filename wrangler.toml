@@ -12,6 +12,12 @@ compatibility_flags = ["nodejs_compat"]
 # its own. A custom-domain route alone would silently disable that subdomain.
 workers_dev = true
 
+# Permanent logs (saltorbit, 2026-10-18: "i want to keep those logs permanently"): Workers Logs
+# below keeps only a few days, so the account's Logpush job (Workers trace events -> R2 bucket
+# `akl-db-logs`, no lifecycle rule) copies every invocation there. This flag only makes the
+# Worker eligible; the job itself lives on the account (docs/technical-reference.md, "Logs").
+logpush = true
+
 [[routes]]
 pattern = "api.akldb.org"
 custom_domain = true
