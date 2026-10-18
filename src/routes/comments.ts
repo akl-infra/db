@@ -103,6 +103,15 @@ export function commentsRoute(authDeps: AuthDeps) {
     return res;
   });
 
+  // GET /v1/me/comments: everything the caller has written, one row per layout
+  // (capped at the 500 most recently active). Private, never cached.
+  route.get("/v1/me/comments", async (c) => {
+    const actor = await resolveActor(c.env, c.req, authDeps);
+    const res = c.json({ comments: await comments.listMyComments(c.env.DB, actor.user_id) });
+    res.headers.set("Cache-Control", "private, no-store");
+    return res;
+  });
+
   route.put("/v1/layouts/:ref/comment", async (c) => {
     const actor = c.get("actor");
     const body = parseCommentBody(await readJson(c.req));

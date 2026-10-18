@@ -1,0 +1,29 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/me/comments",
+    "bearer": "conformance-comments-token"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json",
+      "Cache-Control": "private, no-store"
+    },
+    "body": {
+      "comments": [
+        {
+          "layout_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+          "layout_name": "mod-cmt-1",
+          "live": null,
+          "pending": {
+            "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            "body": "Nice home row, I use it daily.",
+            "submitted_at": "2026-06-20T00:00:00.000Z"
+          },
+          "decision": null
+        }
+      ]
+    }
+  }
+}

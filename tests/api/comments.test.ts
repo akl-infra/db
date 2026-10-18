@@ -1143,3 +1143,113 @@ describe("[LDB-CMT13] the listing carries likes, orders by them, and keeps the v
     expect((await writeFetch(`/v1/layouts/${s.id}/comments`, "GET", { Authorization: "Bearer not-a-real-token" })).status).toBe(401);
   });
 });
+
+describe("[LDB-CMT16] GET /v1/me/comments lists the caller's own slots across layouts", () => {
+  interface Mine {
+    layout_id: string;
+    layout_name: string;
+    live: { id: string; body: string; approved_at: string; likes: number } | null;
+    pending: { id: string; body: string; submitted_at: string } | null;
+    decision: { status: string; reason: string | null; decided_at: string; body: string } | null;
+  }
+  async function mine(auth: Auth): Promise<{ res: Response; rows: Mine[] }> {
+    const res = await writeFetch("/v1/me/comments", "GET", auth);
+    return { res, rows: res.status === 200 ? ((await res.json()) as { comments: Mine[] }).comments : [] };
+  }
+
+  it("[LDB-CMT16] one row per layout with live, pending and decision by the own-read rules; ordered by latest activity then layout id; likes counted; private no-store", async () => {
+    const fake = actorFixture();
+    const user = testUserId();
+    const auth = register(fake, token("me-user"), user);
+    const admin = register(fake, token("me-admin"), BOOTSTRAP_ADMIN);
+    const liker = register(fake, token("me-liker"), testUserId());
+    const a = await createLayout(testUserId());
+    const b = await createLayout(testUserId());
+    const c = await createLayout(testUserId());
+
+    expect((await mine(auth)).rows).toEqual([]);
+    // a: live comment with a like, then a pending edit (the live one stays)
+    const aLive = (await put(auth, a.id, "live on a")).submission;
+    await approve(admin, aLive.id);
+    await like(liker, a.id, user);
+    // b: a rejected text (kept) -- decision only
+    const bRej = (await put(auth, b.id, "rejected on b")).submission;
+    await writeFetch(`/v1/admin/comment-queue/${bRej.id}/reject`, "POST", admin, { reason: "no" });
+    // c: pending only, the most recent activity
+    const cPend = (await put(auth, c.id, "pending on c")).submission;
+    const aPend = (await put(auth, a.id, "edit pending on a")).submission; // newest of all
+
+    const { res, rows } = await mine(auth);
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(res.headers.get("ETag")).toBeNull();
+    expect(rows.map((r) => r.layout_id)).toEqual([a.id, c.id, b.id]); // a (newest pending), c, then b's older decision
+    expect(rows[0]).toEqual({ layout_id: a.id, layout_name: a.name, live: { id: aLive.id, body: "live on a", approved_at: aLive.decided_at ?? expect.any(String), likes: 1 }, pending: { id: aPend.id, body: "edit pending on a", submitted_at: aPend.submitted_at }, decision: null });
+    expect(rows[1]).toMatchObject({ layout_name: c.name, live: null, pending: { id: cPend.id, body: "pending on c" }, decision: null });
+    expect(rows[2]).toMatchObject({ layout_name: b.name, live: null, pending: null, decision: { status: "rejected", reason: "no", body: "rejected on b" } });
+    // each row equals the per-layout own read (plus likes on live)
+    for (const r of rows) {
+      const own1 = await own(auth, r.layout_id);
+      expect({ live: r.live === null ? null : { id: r.live.id, body: r.live.body, approved_at: r.live.approved_at }, pending: r.pending, decision: r.decision }).toEqual(own1);
+    }
+  });
+
+  it("[LDB-CMT16] other users' rows never show; an erased slot, a superseded-only slot and a tombstoned layout are absent; needs credentials", async () => {
+    const fake = actorFixture();
+    const me = testUserId();
+    const auth = register(fake, token("me2-user"), me);
+    const other = register(fake, token("me2-other"), testUserId());
+    const admin = register(fake, token("me2-admin"), BOOTSTRAP_ADMIN);
+    const erased = await createLayout(testUserId());
+    const gone = await createLayout(testUserId());
+    const shown = await createLayout(testUserId());
+
+    await put(other, shown.id, "someone else's text"); // never mine
+    await approve(admin, (await put(auth, erased.id, "to be erased")).submission.id);
+    await writeFetch(`/v1/layouts/${erased.id}/comment`, "DELETE", auth);
+    await put(auth, gone.id, "on a layout that will be deleted");
+    await db.prepare("UPDATE layouts SET deleted = 1 WHERE id = ?").bind(gone.id).run();
+    await put(auth, shown.id, "mine, shown");
+
+    const { rows } = await mine(auth);
+    expect(rows.map((r) => r.layout_id)).toEqual([shown.id]);
+    expect(JSON.stringify(rows)).not.toContain("someone else's text");
+    expect(JSON.stringify(rows)).not.toContain("to be erased");
+    expect((await mine(other)).rows.map((r) => r.pending?.body)).toEqual(["someone else's text"]);
+
+    await db.prepare("UPDATE layouts SET deleted = 0 WHERE id = ?").bind(gone.id).run();
+    expect((await mine(auth)).rows.map((r) => r.layout_id).sort()).toEqual([gone.id, shown.id].sort()); // back on restore
+
+    const anon = await writeFetch("/v1/me/comments", "GET");
+    expect(anon.status).toBe(401);
+    // a removed text is kept (and shown as a decision) until the author deletes
+    const removed = (await put(auth, erased.id, "later, removed")).submission;
+    await approve(admin, removed.id);
+    await writeFetch(`/v1/admin/comments/${removed.id}/remove`, "POST", admin, { reason: "r" });
+    expect((await mine(auth)).rows.find((r) => r.layout_id === erased.id)?.decision).toMatchObject({ status: "removed", body: "later, removed" });
+  });
+
+  it("[LDB-CMT16] is capped at 500 slots, the most recently active first", async () => {
+    const fake = actorFixture();
+    const user = testUserId();
+    const auth = register(fake, token("me3-user"), user);
+    const { id } = await createLayout(testUserId());
+    await put(auth, id, "the one");
+    // 500 more layouts' worth of old slots, copied from a real layout row (a route call each would be slow)
+    const template = (await db.prepare("SELECT * FROM layouts WHERE id = ?").bind(id).first<Record<string, unknown>>())!;
+    const columns = Object.keys(template);
+    const insert = `INSERT INTO layouts (${columns.join(", ")}) VALUES (${columns.map(() => "?").join(", ")})`;
+    const stmts: D1PreparedStatement[] = [];
+    for (let i = 0; i < 500; i++) {
+      const lid = ulid();
+      const values = columns.map((col) => (col === "id" ? lid : col === "name" ? `bulk-me-${i}-${lid}` : (template[col] as string | number | null)));
+      stmts.push(
+        db.prepare(insert).bind(...values),
+        db.prepare("INSERT INTO layout_comments (id, layout_id, user_id, body, via, submitted_at, status) VALUES (?, ?, ?, 'old', 'discord', '2026-01-01T00:00:00.000Z', 'pending')").bind(ulid(), lid, user),
+      );
+    }
+    await db.batch(stmts);
+    const { rows } = await mine(auth);
+    expect(rows).toHaveLength(500);
+    expect(rows[0]!.layout_id).toBe(id); // the newest activity survives the cap
+  });
+});

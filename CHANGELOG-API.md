@@ -32,7 +32,8 @@ One plain-text comment per user per layout, every write moderated, and only
 approved text public. New routes: `PUT /v1/layouts/{ref}/comment` (`{body}` →
 `202 {submission}` queued, or `201` for an admin's own, approved at once),
 `DELETE /v1/layouts/{ref}/comment` (`204`, immediate, erases the text for
-good), `PUT`/`DELETE /v1/layouts/{ref}/comments/{author_id}/like` (`204`,
+good), `GET /v1/me/comments` (the caller's own slots across layouts, private,
+capped at 500), `PUT`/`DELETE /v1/layouts/{ref}/comments/{author_id}/like` (`204`,
 idempotent likes on a user's comment slot; `400 own_comment`), `GET /v1/layouts/{ref}/comment` (the caller's own `{live, pending,
 decision}`, never cached), `GET /v1/layouts/{ref}/comments` (public;
 `{comments: [{id, user_id, name, body, approved_at, edited, likes, is_author, liked?}]}`,
