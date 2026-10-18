@@ -106,3 +106,16 @@ any-middle row per board character `c` with a hand:
 `[c, null, key] -> [c, null, out]`, `out` = `c` for `{"kind":"repeat"}` (the
 character two back), else the literal. A chiral key without `skip` lowers as
 before; `?as=mana2/1` drops the rows (LDB-F50).
+
+## Note 2026-10-18: compiled rows are pre-tiebreak (LDB-F50)
+
+`computeRows`/`compileMagic` lower exactly what was authored. akl.gg's clients
+add a static tiebreak on top (design/alts/43-skip-magic-wire.md §2d in
+saltorbit/aklgg): where a skip rule and an explicit two-character rule on the
+same key disagree, they write a named three-character row for the winner,
+decided by the displaced character's home finger; generated skip rows
+(`skip_repeat`, skip chiral) lose to an explicit two-character row outright.
+akldb does not run it and serves no stats. **A client that computes stats or
+typing from a spark/1 payload with skip rules must apply that tiebreak
+itself**, as akl.gg's site compile and engine do, or a skip + swap layout means
+something else to it.
