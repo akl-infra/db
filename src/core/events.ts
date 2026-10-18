@@ -1065,6 +1065,22 @@ export interface FeedFilter {
   format?: string; // 21-formats.md §2.4: `/history`'s optional filter -- absent means all, not a default
 }
 
+// [LDB-MD13] The feed is public and unauthenticated, and a mod-queue
+// submission that is not approved is private to admins (saltorbit
+// 2026-10-18): `link_submitted` was written with the pending `url` in its
+// detail, and `link_rejected` carries the moderator's reason. Rows already
+// stored that way (migrations are additive, nothing is rewritten) are
+// redacted HERE, on read, to the submission id alone -- the queue
+// (`GET /v1/admin/link-queue`) is where an admin reads the rest. Applied in
+// `feed()`, the one reader behind `/v1/changes` and `/admin/changelog`.
+const PRIVATE_DETAIL_KINDS = new Set(["link_submitted", "link_rejected"]);
+
+export function publicDetail(kind: string, detail: unknown): unknown {
+  if (!PRIVATE_DETAIL_KINDS.has(kind)) return detail;
+  const id = detail !== null && typeof detail === "object" ? (detail as { submission_id?: unknown }).submission_id : undefined;
+  return typeof id === "string" ? { submission_id: id } : null;
+}
+
 export async function feed(db: Bindings["DB"], since: number, limit: number, kinds?: string[], filter?: FeedFilter): Promise<{ next: number; items: Event[] }> {
   const cappedLimit = Math.min(limit, 1000);
   const params: unknown[] = [since];
@@ -1089,7 +1105,7 @@ export async function feed(db: Bindings["DB"], since: number, limit: number, kin
   params.push(cappedLimit);
 
   const { results } = await db.prepare(sql).bind(...params).all<EventDbRow>();
-  const items = results.map(rowToEvent);
+  const items = results.map(rowToEvent).map((e) => ({ ...e, detail: publicDetail(e.kind, e.detail) }));
   const next = items.length > 0 ? items[items.length - 1]!.seq : since;
   return { next, items };
 }
