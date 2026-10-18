@@ -12,6 +12,7 @@ import type {
   ClientRow,
   ClientStatusResult,
   LayoutRecord,
+  LinkQueueRow,
   LinkSubmission,
   MeResponse,
   SuspendedClientInfo,
@@ -210,7 +211,7 @@ export function adminSetAuthorName(userId: string, name: string): Promise<ApiRes
     body: JSON.stringify({ name }),
   });
 }
-export function adminLinkQueue(status = "pending"): Promise<ApiResult<{ submissions: LinkSubmission[] }>> {
+export function adminLinkQueue(status = "pending"): Promise<ApiResult<{ submissions: LinkQueueRow[] }>> {
   return request(`/api/v1/admin/link-queue?status=${encodeURIComponent(status)}`);
 }
 export function adminApproveLink(id: string): Promise<ApiResult<{ link: string | null }>> {

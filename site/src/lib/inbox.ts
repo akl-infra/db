@@ -3,15 +3,15 @@
 // ordering and the either-queue-failed behaviour are testable without
 // mounting the page.
 import { adminLinkQueue, adminWpmQueue, type ApiResult } from "../api.ts";
-import type { LinkSubmission, LinkSubmissionStatus, WpmQueueRow } from "./types.ts";
+import type { LinkQueueRow, LinkSubmissionStatus, WpmQueueRow } from "./types.ts";
 
 export type InboxItem =
-  | { kind: "link"; id: string; submitted_at: string; status: LinkSubmissionStatus; row: LinkSubmission }
+  | { kind: "link"; id: string; submitted_at: string; status: LinkSubmissionStatus; row: LinkQueueRow }
   | { kind: "wpm"; id: string; submitted_at: string; status: LinkSubmissionStatus; row: WpmQueueRow };
 
 /** Newest `submitted_at` first; equal timestamps order by id descending
  * (ids are ULIDs, so that is newest-minted first) so the order is total. */
-export function mergeInbox(links: LinkSubmission[], wpms: WpmQueueRow[]): InboxItem[] {
+export function mergeInbox(links: LinkQueueRow[], wpms: WpmQueueRow[]): InboxItem[] {
   const items: InboxItem[] = [
     ...links.map((row): InboxItem => ({ kind: "link", id: row.id, submitted_at: row.submitted_at, status: row.status, row })),
     ...wpms.map((row): InboxItem => ({ kind: "wpm", id: row.id, submitted_at: row.submitted_at, status: row.status, row })),

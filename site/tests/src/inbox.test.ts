@@ -2,10 +2,10 @@
 // list, newest first; a failure of either queue is the whole load's failure.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { loadInbox, mergeInbox } from "../../src/lib/inbox.ts";
-import type { LinkSubmission, WpmQueueRow } from "../../src/lib/types.ts";
+import type { LinkQueueRow, WpmQueueRow } from "../../src/lib/types.ts";
 
-function link(id: string, submitted_at: string, status: LinkSubmission["status"] = "pending"): LinkSubmission {
-  return { id, layout_id: "L1", url: `https://example.org/${id}`, submitted_by: "100000000000000001", submitted_at, status, decided_by: null, decided_at: null, reason: null };
+function link(id: string, submitted_at: string, status: LinkQueueRow["status"] = "pending"): LinkQueueRow {
+  return { id, layout_id: "L1", layout_name: "io", submitter_name: "Owner", url: `https://example.org/${id}`, submitted_by: "100000000000000001", submitted_at, status, decided_by: null, decided_at: null, reason: null };
 }
 function wpm(id: string, submitted_at: string, status: WpmQueueRow["status"] = "pending"): WpmQueueRow {
   return {
