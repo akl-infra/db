@@ -25,6 +25,29 @@ this file just gives them a public, versioned home. From here on, a
 `WIRE_VERSION` bump and a line here land in the SAME PR, never one without
 the other (`[LDB-V5]`).
 
+## 1.21 — 2026-10-18
+
+LDB-WPM1..LDB-WPM10, docs/decisions/28-wpm-records.md: WPM (typing-speed)
+records per layout. A user submits their best speed on a layout with a proof
+link; it goes through the same moderation queue pattern as `link`
+submissions, and only approved records are public. New routes:
+`POST /v1/wpm` (`{layout, wpm, proof}` → `202 {submission}` queued, or
+`201` for an admin's own speed, approved at once), `GET /v1/wpm?layout=&user=`
+(public; `{records: [...]}`, one row per (layout, user): that user's top
+approved speed), `POST /v1/admin/wpm` (`{user_id, layout, wpm, proof}` →
+`201`, an admin's entry on someone else's behalf, approved at once),
+`GET /v1/admin/wpm-queue?status=` (default `pending`),
+`POST /v1/admin/wpm-queue/{id}/approve` and `.../reject {reason?}`. `wpm` is
+an integer 1..1000; `proof` is an absolute `http(s)` URL with a host, at
+most 512 characters; refusals are `400 invalid_wpm` / `400 invalid_proof`.
+Three new event kinds, `wpm_submitted` (carries only `submission_id`: no
+speed or proof while pending), `wpm_approved` (`layout_id`, `user_id`,
+`wpm`, `proof`) and `wpm_rejected`; readers that ignore unknown kinds are
+unaffected, and `kinds=` accepts the new names. The nightly dump gains a
+`wpm_submissions` array (absent from older dumps; restore reads it as empty).
+No existing field, route or stored value changes meaning, and
+`migrations/0022_wpm_submissions.sql` only adds a table and indexes.
+
 ## 1.20 — 2026-10-18
 
 LDB-MD13, privacy exception to the additive-only rule: a mod-queue submission

@@ -1,0 +1,36 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/wpm",
+    "bearer": "conformance-wpm-token",
+    "body": {
+      "layout": "mod-wpm-3",
+      "wpm": 0,
+      "proof": "https://www.youtube.com/watch?v=mod-wpm"
+    },
+    "setup": [
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-wpm-token",
+        "body": {
+          "name": "mod-wpm-3",
+          "format": "spark/1",
+          "payload": {
+            "keys": []
+          }
+        }
+      }
+    ]
+  },
+  "response": {
+    "status": 400,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "error": "invalid_wpm",
+      "message": "'wpm' must be between 1 and 1000"
+    }
+  }
+}

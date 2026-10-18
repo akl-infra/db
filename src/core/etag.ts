@@ -207,7 +207,14 @@ export async function readHead(db: D1Database, stateKeys: readonly string[] = []
 //   in `detail` (the pending `url` and the moderator's `reason` are gone,
 //   including from rows stored before this change). The bump also
 //   invalidates every cached `/v1/changes` page that still held them.
-export const WIRE_VERSION = 20;
+// 21 (2026-10-18, LDB-WPM1..LDB-WPM10, docs/decisions/28-wpm-records.md):
+//   WPM (typing-speed) records per layout -- `POST /v1/wpm`, `GET /v1/wpm`,
+//   `POST /v1/admin/wpm`, and the `GET /v1/admin/wpm-queue` family; three new
+//   event kinds (`wpm_submitted`, `wpm_approved`, `wpm_rejected`); the dump
+//   gains `wpm_submissions`. Purely additive: no existing route, field or
+//   event changes meaning, and `migrations/0022_wpm_submissions.sql` only
+//   creates a table and its indexes.
+export const WIRE_VERSION = 21;
 
 export async function etagFor(headSeqValue: number, query: unknown): Promise<string> {
   const hash = await sha256Hex(canonical({ wireVersion: WIRE_VERSION, query: query ?? null }));

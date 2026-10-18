@@ -26,6 +26,7 @@ import { layoutsRoute } from "./routes/layouts";
 import { likesRoute } from "./routes/likes";
 import { linksRoute } from "./routes/links";
 import { moderationRoute } from "./routes/moderation";
+import { wpmRoute } from "./routes/wpm";
 import { writeRoute } from "./routes/write";
 
 const CACHE_CONTROL = "public, max-age=10";
@@ -278,6 +279,7 @@ app.route("/", dumpRoute);
 app.route("/", writeRoute);
 app.route("/", likesRoute);
 app.route("/", linksRoute(authDeps));
+app.route("/", wpmRoute(authDeps));
 app.route("/", adminRoute(authDeps));
 app.route("/", moderationRoute(authDeps));
 

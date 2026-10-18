@@ -432,6 +432,36 @@ import modAdminLinkQueueReject404 from "./admin-link-queue/reject-404.json" with
 import modAdminLinkQueueReject400BadRequest from "./admin-link-queue/reject-400-bad_request.json" with { type: "json" };
 import modAdminLinkQueueReject401Unauthorized from "./admin-link-queue/reject-401-unauthorized.json" with { type: "json" };
 import modAdminLinkQueueReject403NotAdmin from "./admin-link-queue/reject-403-not_admin.json" with { type: "json" };
+
+// WPM records (docs/decisions/28-wpm-records.md): same lighter treatment as
+// the L5 moderation fixtures above.
+import wpmFxAdminWpmQueueGet200 from "./admin-wpm-queue/get-200.json" with { type: "json" };
+import wpmFxWpmPost202 from "./wpm/post-202.json" with { type: "json" };
+import wpmFxWpmPost201AdminApproved from "./wpm/post-201-admin-approved.json" with { type: "json" };
+import wpmFxWpmPost400BadRequest from "./wpm/post-400-bad_request.json" with { type: "json" };
+import wpmFxWpmPost400InvalidWpm from "./wpm/post-400-invalid_wpm.json" with { type: "json" };
+import wpmFxWpmPost400InvalidProof from "./wpm/post-400-invalid_proof.json" with { type: "json" };
+import wpmFxWpmPost401Unauthorized from "./wpm/post-401-unauthorized.json" with { type: "json" };
+import wpmFxWpmPost404 from "./wpm/post-404.json" with { type: "json" };
+import wpmFxAdminWpmPost201 from "./admin-wpm/post-201.json" with { type: "json" };
+import wpmFxAdminWpmPost400BadRequest from "./admin-wpm/post-400-bad_request.json" with { type: "json" };
+import wpmFxAdminWpmPost401Unauthorized from "./admin-wpm/post-401-unauthorized.json" with { type: "json" };
+import wpmFxAdminWpmPost403NotAdmin from "./admin-wpm/post-403-not_admin.json" with { type: "json" };
+import wpmFxAdminWpmPost404 from "./admin-wpm/post-404.json" with { type: "json" };
+import wpmFxWpmGet200 from "./wpm/get-200.json" with { type: "json" };
+import wpmFxWpmGet304 from "./wpm/get-304.json" with { type: "json" };
+import wpmFxWpmGet400BadRequest from "./wpm/get-400-bad_request.json" with { type: "json" };
+import wpmFxWpmGet404 from "./wpm/get-404.json" with { type: "json" };
+import wpmFxAdminWpmQueueGet400BadRequest from "./admin-wpm-queue/get-400-bad_request.json" with { type: "json" };
+import wpmFxAdminWpmQueueGet401Unauthorized from "./admin-wpm-queue/get-401-unauthorized.json" with { type: "json" };
+import wpmFxAdminWpmQueueGet403NotAdmin from "./admin-wpm-queue/get-403-not_admin.json" with { type: "json" };
+import wpmFxAdminWpmQueueApprove401Unauthorized from "./admin-wpm-queue/approve-401-unauthorized.json" with { type: "json" };
+import wpmFxAdminWpmQueueApprove403NotAdmin from "./admin-wpm-queue/approve-403-not_admin.json" with { type: "json" };
+import wpmFxAdminWpmQueueApprove404 from "./admin-wpm-queue/approve-404.json" with { type: "json" };
+import wpmFxAdminWpmQueueReject400BadRequest from "./admin-wpm-queue/reject-400-bad_request.json" with { type: "json" };
+import wpmFxAdminWpmQueueReject401Unauthorized from "./admin-wpm-queue/reject-401-unauthorized.json" with { type: "json" };
+import wpmFxAdminWpmQueueReject403NotAdmin from "./admin-wpm-queue/reject-403-not_admin.json" with { type: "json" };
+import wpmFxAdminWpmQueueReject404 from "./admin-wpm-queue/reject-404.json" with { type: "json" };
 // The cutover follow-up (design/layout-db/23-geometry.md, "admin dump
 // route"): same lighter treatment as the L5 moderation rows just above
 // (unauthorized + the route's own domain error, not the full A-group
@@ -811,6 +841,36 @@ export const MODERATION_CASES: ConformanceCase[] = [
   kase("admin-link-queue/reject-400-bad_request", "/v1/admin/link-queue/:id/reject", modAdminLinkQueueReject400BadRequest, true),
   kase("admin-link-queue/reject-401-unauthorized", "/v1/admin/link-queue/:id/reject", modAdminLinkQueueReject401Unauthorized, true),
   kase("admin-link-queue/reject-403-not_admin", "/v1/admin/link-queue/:id/reject", modAdminLinkQueueReject403NotAdmin, true),
+  // WPM records: "admin-wpm-queue/get-200" (the empty queue) runs before any
+  // case here that submits one; "wpm/get-*" run after "admin-wpm/post-201"
+  // has approved the record they read.
+  kase("admin-wpm-queue/get-200", "/v1/admin/wpm-queue", wpmFxAdminWpmQueueGet200, true),
+  kase("wpm/post-202", "/v1/wpm", wpmFxWpmPost202, true),
+  kase("wpm/post-201-admin-approved", "/v1/wpm", wpmFxWpmPost201AdminApproved, true),
+  kase("wpm/post-400-bad_request", "/v1/wpm", wpmFxWpmPost400BadRequest, true),
+  kase("wpm/post-400-invalid_wpm", "/v1/wpm", wpmFxWpmPost400InvalidWpm, true),
+  kase("wpm/post-400-invalid_proof", "/v1/wpm", wpmFxWpmPost400InvalidProof, true),
+  kase("wpm/post-401-unauthorized", "/v1/wpm", wpmFxWpmPost401Unauthorized, true),
+  kase("wpm/post-404", "/v1/wpm", wpmFxWpmPost404, true),
+  kase("admin-wpm/post-201", "/v1/admin/wpm", wpmFxAdminWpmPost201, true),
+  kase("admin-wpm/post-400-bad_request", "/v1/admin/wpm", wpmFxAdminWpmPost400BadRequest, true),
+  kase("admin-wpm/post-401-unauthorized", "/v1/admin/wpm", wpmFxAdminWpmPost401Unauthorized, true),
+  kase("admin-wpm/post-403-not_admin", "/v1/admin/wpm", wpmFxAdminWpmPost403NotAdmin, true),
+  kase("admin-wpm/post-404", "/v1/admin/wpm", wpmFxAdminWpmPost404, true),
+  kase("wpm/get-200", "/v1/wpm", wpmFxWpmGet200, true),
+  kase("wpm/get-304", "/v1/wpm", wpmFxWpmGet304, true),
+  kase("wpm/get-400-bad_request", "/v1/wpm", wpmFxWpmGet400BadRequest, true),
+  kase("wpm/get-404", "/v1/wpm", wpmFxWpmGet404, true),
+  kase("admin-wpm-queue/get-400-bad_request", "/v1/admin/wpm-queue", wpmFxAdminWpmQueueGet400BadRequest, true),
+  kase("admin-wpm-queue/get-401-unauthorized", "/v1/admin/wpm-queue", wpmFxAdminWpmQueueGet401Unauthorized, true),
+  kase("admin-wpm-queue/get-403-not_admin", "/v1/admin/wpm-queue", wpmFxAdminWpmQueueGet403NotAdmin, true),
+  kase("admin-wpm-queue/approve-401-unauthorized", "/v1/admin/wpm-queue/:id/approve", wpmFxAdminWpmQueueApprove401Unauthorized, true),
+  kase("admin-wpm-queue/approve-403-not_admin", "/v1/admin/wpm-queue/:id/approve", wpmFxAdminWpmQueueApprove403NotAdmin, true),
+  kase("admin-wpm-queue/approve-404", "/v1/admin/wpm-queue/:id/approve", wpmFxAdminWpmQueueApprove404, true),
+  kase("admin-wpm-queue/reject-400-bad_request", "/v1/admin/wpm-queue/:id/reject", wpmFxAdminWpmQueueReject400BadRequest, true),
+  kase("admin-wpm-queue/reject-401-unauthorized", "/v1/admin/wpm-queue/:id/reject", wpmFxAdminWpmQueueReject401Unauthorized, true),
+  kase("admin-wpm-queue/reject-403-not_admin", "/v1/admin/wpm-queue/:id/reject", wpmFxAdminWpmQueueReject403NotAdmin, true),
+  kase("admin-wpm-queue/reject-404", "/v1/admin/wpm-queue/:id/reject", wpmFxAdminWpmQueueReject404, true),
   // The cutover follow-up (design/layout-db/23-geometry.md): placed dead
   // last, same as every other row here -- its 200 case performs a REAL
   // dump write (R2 + import_state), which no earlier-recorded fixture
