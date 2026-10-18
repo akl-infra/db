@@ -9781,6 +9781,9 @@
               "decision": {
                 "type": "null"
               },
+              "is_author": {
+                "type": "boolean"
+              },
               "layout_id": {
                 "type": "string"
               },

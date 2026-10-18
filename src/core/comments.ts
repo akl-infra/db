@@ -482,6 +482,7 @@ function deriveOwn(results: CommentRow[]): OwnComment {
 export interface MyComment {
   layout_id: string;
   layout_name: string;
+  is_author: boolean; // the caller is the layout's current owner (same rule as the list's `is_author`)
   live: (NonNullable<OwnComment["live"]> & { likes: number }) | null;
   pending: OwnComment["pending"];
   decision: OwnComment["decision"];
@@ -500,21 +501,21 @@ export async function listMyComments(db: Bindings["DB"], userId: string): Promis
   const cols = COMMENT_COLUMNS.split(", ").map((c) => `s.${c}`).join(", ");
   const { results } = await db
     .prepare(
-      `SELECT ${cols}, l.name AS layout_name
+      `SELECT ${cols}, l.name AS layout_name, l.owner AS layout_owner
        FROM layout_comments s
        JOIN layouts l ON l.id = s.layout_id AND l.deleted = 0
        WHERE s.user_id = ?
        ORDER BY s.layout_id ASC, s.submitted_at ASC, s.id ASC`,
     )
     .bind(userId)
-    .all<CommentRow & { layout_name: string }>();
+    .all<CommentRow & { layout_name: string; layout_owner: string }>();
   const likeCounts = await db
     .prepare("SELECT layout_id, COUNT(*) AS n FROM comment_likes WHERE author_id = ? GROUP BY layout_id")
     .bind(userId)
     .all<{ layout_id: string; n: number }>();
   const likes = new Map(likeCounts.results.map((r) => [r.layout_id, r.n]));
 
-  const byLayout = new Map<string, (CommentRow & { layout_name: string })[]>();
+  const byLayout = new Map<string, (CommentRow & { layout_name: string; layout_owner: string })[]>();
   for (const r of results) {
     const list = byLayout.get(r.layout_id);
     if (list === undefined) byLayout.set(r.layout_id, [r]);
@@ -527,7 +528,7 @@ export async function listMyComments(db: Bindings["DB"], userId: string): Promis
     const at = [own.live?.approved_at, own.pending?.submitted_at, own.decision?.decided_at].filter((x): x is string => x !== undefined).reduce((m, x) => (x > m ? x : m), "");
     out.push({
       at,
-      row: { layout_id: layoutId, layout_name: rows[0]!.layout_name, live: own.live === null ? null : { ...own.live, likes: likes.get(layoutId) ?? 0 }, pending: own.pending, decision: own.decision },
+      row: { layout_id: layoutId, layout_name: rows[0]!.layout_name, is_author: rows[0]!.layout_owner === userId, live: own.live === null ? null : { ...own.live, likes: likes.get(layoutId) ?? 0 }, pending: own.pending, decision: own.decision },
     });
   }
   out.sort((a, b) => (a.at === b.at ? (a.row.layout_id < b.row.layout_id ? -1 : 1) : a.at < b.at ? 1 : -1));

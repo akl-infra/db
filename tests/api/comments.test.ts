@@ -1148,6 +1148,7 @@ describe("[LDB-CMT16] GET /v1/me/comments lists the caller's own slots across la
   interface Mine {
     layout_id: string;
     layout_name: string;
+    is_author: boolean;
     live: { id: string; body: string; approved_at: string; likes: number } | null;
     pending: { id: string; body: string; submitted_at: string } | null;
     decision: { status: string; reason: string | null; decided_at: string; body: string } | null;
@@ -1183,14 +1184,35 @@ describe("[LDB-CMT16] GET /v1/me/comments lists the caller's own slots across la
     expect(res.headers.get("Cache-Control")).toBe("private, no-store");
     expect(res.headers.get("ETag")).toBeNull();
     expect(rows.map((r) => r.layout_id)).toEqual([a.id, c.id, b.id]); // a (newest pending), c, then b's older decision
-    expect(rows[0]).toEqual({ layout_id: a.id, layout_name: a.name, live: { id: aLive.id, body: "live on a", approved_at: aLive.decided_at ?? expect.any(String), likes: 1 }, pending: { id: aPend.id, body: "edit pending on a", submitted_at: aPend.submitted_at }, decision: null });
+    expect(rows[0]).toEqual({ layout_id: a.id, layout_name: a.name, is_author: false, live: { id: aLive.id, body: "live on a", approved_at: aLive.decided_at ?? expect.any(String), likes: 1 }, pending: { id: aPend.id, body: "edit pending on a", submitted_at: aPend.submitted_at }, decision: null });
     expect(rows[1]).toMatchObject({ layout_name: c.name, live: null, pending: { id: cPend.id, body: "pending on c" }, decision: null });
     expect(rows[2]).toMatchObject({ layout_name: b.name, live: null, pending: null, decision: { status: "rejected", reason: "no", body: "rejected on b" } });
+    expect(rows.every((r) => r.is_author === false)).toBe(true);
     // each row equals the per-layout own read (plus likes on live)
     for (const r of rows) {
       const own1 = await own(auth, r.layout_id);
       expect({ live: r.live === null ? null : { id: r.live.id, body: r.live.body, approved_at: r.live.approved_at }, pending: r.pending, decision: r.decision }).toEqual(own1);
     }
+  });
+
+  it("[LDB-CMT16] is_author is true on the layouts the caller owns, false elsewhere, and follows a transfer", async () => {
+    const fake = actorFixture();
+    const user = testUserId();
+    const auth = register(fake, token("me4-user"), user);
+    const admin = register(fake, token("me4-admin"), BOOTSTRAP_ADMIN);
+    const ownLayout = await createLayout(user);
+    const otherLayout = await createLayout(testUserId());
+    await approve(admin, (await put(auth, ownLayout.id, "on my own layout")).submission.id);
+    await put(auth, otherLayout.id, "on someone else's");
+    const heir = testUserId();
+    register(fake, token("me4-heir"), heir);
+    await writeFetch("/v1/me", "GET", register(fake, token("me4-heir2"), heir)); // sign the heir in so an authors row exists
+    const byLayout = async () => new Map((await mine(auth)).rows.map((r) => [r.layout_id, r.is_author]));
+    expect(await byLayout()).toEqual(new Map([[ownLayout.id, true], [otherLayout.id, false]]));
+
+    const rev = (await db.prepare("SELECT layout_rev FROM layouts WHERE id = ?").bind(ownLayout.id).first<{ layout_rev: number }>())!.layout_rev;
+    expect((await writeFetch(`/v1/layouts/${ownLayout.id}/transfer`, "POST", { ...auth, "If-Match": `"layout:${rev}"` }, { to: heir })).status).toBe(200);
+    expect((await byLayout()).get(ownLayout.id)).toBe(false);
   });
 
   it("[LDB-CMT16] other users' rows never show; an erased slot, a superseded-only slot and a tombstoned layout are absent; needs credentials", async () => {
