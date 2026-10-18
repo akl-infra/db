@@ -18,7 +18,7 @@ records (decision 28).
 | validation | `body` a string; `\r\n` and `\r` become `\n`, trimmed, 1..2000 Unicode code points, else `400 invalid_comment`. Nothing else is refused. One validator in `core/comments.ts` |
 | write | `PUT /v1/layouts/:ref/comment {body}`: `202` queued; an admin's own comment is `201` approved. A new pending comment supersedes the same user's older pending one (silently). The old approved text stays live until the new one is approved |
 | delete | `DELETE /v1/layouts/:ref/comment`: immediate, `204`. Erases the text of every comment the caller has on that layout (rejected and superseded ones included, so a lone rejected text can still be erased); `404` only if none of their rows there has a text left |
-| read | `GET /v1/layouts/:ref/comments`: public, `{comments}`, one approved comment per user, most liked first then newest approval (`?sort=newest` for newest approval first; any other value is `400`), `likes` count, `liked` only for an authenticated caller (that answer is `private, no-store`), `edited` flag, deleted layouts hidden. `GET /v1/layouts/:ref/comment`: the caller's own `{live, pending, decision}`, never publicly cached |
+| read | `GET /v1/layouts/:ref/comments`: public, `{comments}`, one approved comment per user, the layout owner's own comment pinned first, then most liked first then newest approval (`?sort=newest` for newest approval first; any other value is `400`), `likes` count, `liked` only for an authenticated caller (that answer is `private, no-store`), `edited` flag, deleted layouts hidden. `GET /v1/layouts/:ref/comment`: the caller's own `{live, pending, decision}`, never publicly cached |
 | likes | `PUT` / `DELETE /v1/layouts/:ref/comments/:author_id/like`: `204`, idempotent. A like targets the author's comment *slot* `(layout, author)`, one per (slot, liker); `400 own_comment` for the author, `404` when the slot has no approved comment. Cleared by the author's delete and by a mod's removal; a pending or rejected edit leaves them. Table `comment_likes` |
 | queue | `GET /v1/admin/comment-queue?status=` (default `pending`, each row carries `live_body`), `POST .../:id/approve`, `POST .../:id/reject {reason?}`, and `POST /v1/admin/comments/:id/remove {reason?}` for a live comment; every admin route is `if (!actor.admin) throw notAdmin()` |
 | events | `comment_submitted`, `comment_approved`, `comment_rejected`, `comment_removed`, `comment_deleted`, one per action, written through `core/events.ts`; none carries comment text or a reason |
@@ -40,6 +40,12 @@ records (decision 28).
   included, so the
   text is in no table, no later dump and no event. The row stays (status,
   times) so moderation history still counts what happened.
+- **The layout owner's comment comes first.** A layout has one owner
+  (`layouts.owner`, no co-authors), and a reader wants the maker's own words
+  before the crowd's: the approved comment whose `user_id` is the layout's
+  current owner is pinned first under either sort and carries `is_author`.
+  The pin follows the owner, so a transfer moves it (a transfer appends an
+  event, which already moves the listing's ETag). No owner comment, no pin.
 - **Likes belong to the slot, not the row.** A comment is edited by replacing
   its approved row; a like on the old row would vanish with it, so a like names
   `(layout, author)` and survives an approved edit. Deleting or removing the

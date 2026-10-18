@@ -130,8 +130,8 @@ describe("[SITE-44] Inbox comment details", () => {
 
 describe("[SITE-44] the layout page's comment list", () => {
   const comments: PublicComment[] = [
-    { id: "c1", user_id: "100000000000000001", name: "Ada", body: "first <b>comment</b>", approved_at: "2026-10-18T00:00:00.000Z", edited: false, likes: 3 },
-    { id: "c2", user_id: "100000000000000002", name: null, body: "second comment", approved_at: "2026-10-17T00:00:00.000Z", edited: true, likes: 1 },
+    { id: "c1", user_id: "100000000000000001", name: "Ada", body: "first <b>comment</b>", approved_at: "2026-10-18T00:00:00.000Z", edited: false, likes: 3, is_author: true },
+    { id: "c2", user_id: "100000000000000002", name: null, body: "second comment", approved_at: "2026-10-17T00:00:00.000Z", edited: true, likes: 1, is_author: false },
   ];
   const list = (isAdmin: boolean) => render(async () => ({ default: (await import("../../src/ui/LayoutComments.tsx")).CommentList as never }), { comments, isAdmin, onRemoved: () => {} });
 
@@ -146,6 +146,12 @@ describe("[SITE-44] the layout page's comment list", () => {
     expect(html).toContain("second comment");
     expect(html).toContain("2026-10-18T00:00:00.000Z");
     expect(html.split(copy.layout.commentEdited).length - 1).toBe(1);
+  });
+
+  it("labels the layout author's comment, and only that one", async () => {
+    const html = await list(false);
+    expect(html.split(copy.layout.commentAuthor).length - 1).toBe(1);
+    expect(html.indexOf(copy.layout.commentAuthor)).toBeLessThan(html.indexOf("second comment"));
   });
 
   it("shows each comment's like count, in the order the API sent, with no like button", async () => {
