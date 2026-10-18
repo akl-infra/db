@@ -442,22 +442,44 @@ describe("[LDB-CMT4] delete is immediate and erases the text for good", () => {
     expect(events.at(-1)).toMatchObject({ actor: user, admin: false, detail: { layout_id: id, user_id: user } });
   });
 
-  it("[LDB-CMT4] a caller with no approved or pending row there is 404 and nothing is written; a lone rejected row is 404 too", async () => {
-    const { user, auth, admin, fake } = actors("del404");
+  it("[LDB-CMT4] a caller with no text on the layout is 404 and nothing is written; a second delete is 404 too", async () => {
+    const { user, auth, fake } = actors("del404");
     const stranger = register(fake, token("del404-stranger"), testUserId());
     const { id } = await createLayout(user);
 
     expect((await writeFetch(`/v1/layouts/${id}/comment`, "DELETE", stranger)).status).toBe(404);
     expect((await writeFetch("/v1/layouts/no-such-layout-cmt/comment", "DELETE", auth)).status).toBe(404);
 
-    const rej = (await put(auth, id, "kept for the author")).submission;
-    await writeFetch(`/v1/admin/comment-queue/${rej.id}/reject`, "POST", admin, { reason: "meh" });
+    await put(auth, id, "to be deleted once");
+    expect((await writeFetch(`/v1/layouts/${id}/comment`, "DELETE", auth)).status).toBe(204);
     const eventsBefore = (await commentEvents(id)).length;
-    const res = await writeFetch(`/v1/layouts/${id}/comment`, "DELETE", auth);
-    expect(res.status).toBe(404);
-    await expect(res.json()).resolves.toMatchObject({ error: "not_found" });
-    expect(await rowsFor(id, user)).toEqual([{ id: rej.id, user_id: user, body: "kept for the author", status: "rejected" }]); // untouched
-    expect((await commentEvents(id)).length).toBe(eventsBefore);
+    const again = await writeFetch(`/v1/layouts/${id}/comment`, "DELETE", auth);
+    expect(again.status).toBe(404);
+    await expect(again.json()).resolves.toMatchObject({ error: "not_found" });
+    expect((await commentEvents(id)).length).toBe(eventsBefore); // no event when nothing was erased
+  });
+
+  it("[LDB-CMT4] a lone rejected (or superseded) text is erased by DELETE: 204, status kept, one comment_deleted event; the next delete is 404", async () => {
+    const { user, auth, admin } = actors("delrej");
+    const { id } = await createLayout(user);
+    const sup = (await put(auth, id, "superseded text")).submission;
+    const rej = (await put(auth, id, "rejected text")).submission;
+    await writeFetch(`/v1/admin/comment-queue/${rej.id}/reject`, "POST", admin, { reason: "meh" });
+    expect(await rowsFor(id, user)).toEqual([
+      { id: sup.id, user_id: user, body: "superseded text", status: "superseded" },
+      { id: rej.id, user_id: user, body: "rejected text", status: "rejected" },
+    ]);
+    const before = (await commentEvents(id)).filter((e) => e.kind === "comment_deleted").length;
+
+    expect((await writeFetch(`/v1/layouts/${id}/comment`, "DELETE", auth)).status).toBe(204);
+    expect(await rowsFor(id, user)).toEqual([
+      { id: sup.id, user_id: user, body: null, status: "superseded" },
+      { id: rej.id, user_id: user, body: null, status: "rejected" },
+    ]);
+    expect((await queue(admin, id, "rejected")).map((s) => s.body)).toEqual([null]);
+    expect((await commentEvents(id)).filter((e) => e.kind === "comment_deleted").length - before).toBe(1);
+    expect(await own(auth, id)).toEqual({ live: null, pending: null, decision: null });
+    expect((await writeFetch(`/v1/layouts/${id}/comment`, "DELETE", auth)).status).toBe(404);
   });
 
   it("[LDB-CMT4] delete touches only the caller's rows; after a delete the user can comment again, and the new comment is not marked edited", async () => {
