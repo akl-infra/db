@@ -379,6 +379,17 @@ export function invalidLink(message: string): ApiError {
   return new ApiError(400, { message, error: "invalid_link" });
 }
 
+// docs/decisions/28-wpm-records.md: the pure WPM validator's refusals --
+// `wpm` is not an integer in 1..1000, or `proof` is not an absolute
+// http(s) URL with a host, or too long.
+export function invalidWpm(message: string): ApiError {
+  return new ApiError(400, { message, error: "invalid_wpm" });
+}
+
+export function invalidProof(message: string): ApiError {
+  return new ApiError(400, { message, error: "invalid_proof" });
+}
+
 // docs/decisions/26-magic-reseed.md §3, added 2026-09-14 (akldb is no
 // longer disposable): `core/write.ts`'s `seedMagic` guard, moved in from
 // what `scripts/reseed-magic.mjs`'s own `editedReason` used to enforce

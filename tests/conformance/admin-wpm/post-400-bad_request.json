@@ -1,0 +1,38 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/admin/wpm",
+    "bearer": "conformance-admin-token",
+    "body": {
+      "user_id": "not-a-snowflake",
+      "layout": "mod-wpm-6",
+      "wpm": 97,
+      "proof": "https://www.youtube.com/watch?v=mod-wpm"
+    },
+    "setup": [
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-wpm-token",
+        "body": {
+          "name": "mod-wpm-6",
+          "format": "spark/1",
+          "payload": {
+            "keys": []
+          }
+        }
+      }
+    ]
+  },
+  "response": {
+    "status": 400,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "error": "bad_request",
+      "message": "'user_id' must be a Discord user id (17-20 digits)",
+      "param": "user_id"
+    }
+  }
+}

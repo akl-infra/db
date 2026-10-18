@@ -1,0 +1,22 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/wpm",
+    "body": {
+      "layout": "mod-wpm-1",
+      "wpm": 85,
+      "proof": "https://www.youtube.com/watch?v=mod-wpm"
+    }
+  },
+  "response": {
+    "status": 401,
+    "headers": {
+      "Content-Type": "application/json",
+      "WWW-Authenticate": "Bearer"
+    },
+    "body": {
+      "error": "unauthorized",
+      "message": "authentication required"
+    }
+  }
+}

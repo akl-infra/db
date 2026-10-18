@@ -1,0 +1,26 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/wpm?user=850000000000000001"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "records": [
+        {
+          "layout_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+          "layout_name": "mod-wpm-4",
+          "user_id": "850000000000000001",
+          "user_name": null,
+          "wpm": 97,
+          "proof": "https://www.youtube.com/watch?v=mod-wpm",
+          "approved_at": "2026-06-20T00:00:00.000Z",
+          "submission_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+        }
+      ]
+    }
+  }
+}

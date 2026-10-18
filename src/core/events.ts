@@ -87,7 +87,13 @@ export type InfoKind =
   | "link_submitted"
   | "link_approved"
   | "link_rejected"
-  | "link_cleared";
+  | "link_cleared"
+  // docs/decisions/28-wpm-records.md: layout-scoped, never rev-bumping. The
+  // feed is public, so `wpm_submitted` carries NO speed or proof while the
+  // submission is pending (LDB-WPM7) -- only `wpm_approved` does.
+  | "wpm_submitted"
+  | "wpm_approved"
+  | "wpm_rejected";
 
 // 21-formats.md §2.2: what a rev-bumping event's `after` (and `before`)
 // carry -- never a payload (that's `layout_revs`' job). A layout-scope

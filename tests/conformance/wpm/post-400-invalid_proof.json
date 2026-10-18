@@ -1,0 +1,36 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/wpm",
+    "bearer": "conformance-wpm-token",
+    "body": {
+      "layout": "mod-wpm-5",
+      "wpm": 85,
+      "proof": "ftp://example.org/proof"
+    },
+    "setup": [
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-wpm-token",
+        "body": {
+          "name": "mod-wpm-5",
+          "format": "spark/1",
+          "payload": {
+            "keys": []
+          }
+        }
+      }
+    ]
+  },
+  "response": {
+    "status": 400,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "error": "invalid_proof",
+      "message": "'proof' must use http: or https:"
+    }
+  }
+}

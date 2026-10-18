@@ -134,6 +134,34 @@ const linkSchema = {
   },
 } as const;
 
+// docs/decisions/28-wpm-records.md: `POST /v1/wpm`. `wpm`/`proof` are
+// deliberately untyped here -- their deep shape (integer 1..1000, an
+// absolute http(s) URL) is `core/wpm.ts`'s `invalid_wpm`/`invalid_proof`
+// job, so every route shares one set of refusals.
+const wpmSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["layout", "wpm", "proof"],
+  properties: {
+    layout: { type: "string", minLength: 1 },
+    wpm: {},
+    proof: {},
+  },
+} as const;
+
+// `POST /v1/admin/wpm`: the same, plus whose speed it is.
+const wpmOnBehalfSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["user_id", "layout", "wpm", "proof"],
+  properties: {
+    user_id: { type: "string" },
+    layout: { type: "string", minLength: 1 },
+    wpm: {},
+    proof: {},
+  },
+} as const;
+
 // §4.4: `POST /v1/admin/link-queue/:id/reject`.
 const linkRejectSchema = {
   type: "object",
@@ -209,6 +237,16 @@ export interface LinkBody {
   url: string;
 }
 
+export interface WpmBody {
+  layout: string;
+  wpm: unknown;
+  proof: unknown;
+}
+
+export interface WpmOnBehalfBody extends WpmBody {
+  user_id: string;
+}
+
 export interface LinkRejectBody {
   reason?: string;
 }
@@ -224,6 +262,8 @@ const validateBan = ajv.compile<BanBody>(banSchema);
 const validateAuthorRename = ajv.compile<AuthorRenameBody>(authorRenameSchema);
 const validateLink = ajv.compile<LinkBody>(linkSchema);
 const validateLinkReject = ajv.compile<LinkRejectBody>(linkRejectSchema);
+const validateWpm = ajv.compile<WpmBody>(wpmSchema);
+const validateWpmOnBehalf = ajv.compile<WpmOnBehalfBody>(wpmOnBehalfSchema);
 
 // ajv reports an extra/missing key at the PARENT's instancePath with the
 // key name in `params`, not as part of the path itself -- this stitches
@@ -302,4 +342,12 @@ export function parseLinkBody(body: unknown): LinkBody {
 
 export function parseLinkRejectBody(body: unknown): LinkRejectBody {
   return checkBody(validateLinkReject, body);
+}
+
+export function parseWpmBody(body: unknown): WpmBody {
+  return checkBody(validateWpm, body);
+}
+
+export function parseWpmOnBehalfBody(body: unknown): WpmOnBehalfBody {
+  return checkBody(validateWpmOnBehalf, body);
 }

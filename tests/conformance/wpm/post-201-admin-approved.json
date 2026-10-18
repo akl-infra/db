@@ -1,0 +1,48 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/wpm",
+    "bearer": "conformance-admin-token",
+    "body": {
+      "layout": "mod-wpm-2",
+      "wpm": 120,
+      "proof": "https://www.youtube.com/watch?v=mod-wpm"
+    },
+    "setup": [
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-wpm-token",
+        "body": {
+          "name": "mod-wpm-2",
+          "format": "spark/1",
+          "payload": {
+            "keys": []
+          }
+        }
+      }
+    ]
+  },
+  "response": {
+    "status": 201,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "submission": {
+        "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "layout_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "user_id": "184412255822020608",
+        "wpm": 120,
+        "proof": "https://www.youtube.com/watch?v=mod-wpm",
+        "submitted_by": "184412255822020608",
+        "via": "discord",
+        "submitted_at": "2026-06-20T00:00:00.000Z",
+        "status": "approved",
+        "decided_by": "184412255822020608",
+        "decided_at": "2026-06-20T00:00:00.000Z",
+        "reason": null
+      }
+    }
+  }
+}

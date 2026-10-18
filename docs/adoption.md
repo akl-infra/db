@@ -580,7 +580,8 @@ running tally from `liked`/`unliked` events alone if you mirror it, the
 same way `foldLayout` does server-side); `link_approved`/`link_cleared`
 (no rev bump) set the record's `link` to their `after.link`; everything
 else (`upstream_changed`, `import_conflict`, `import_error`,
-`import_relabel`, `link_submitted`/`link_rejected`, `admin.*`) is
+`import_relabel`, `link_submitted`/`link_rejected`,
+`wpm_submitted`/`wpm_approved`/`wpm_rejected`, `admin.*`) is
 informational and changes nothing in your local copy.
 
 **Long-poll**: `GET /v1/changes?since=<seq>&wait=<seconds>` — when `wait` is present, the
@@ -654,6 +655,7 @@ POST   /v1/layouts/{ref}/restore    { name? }  (owner or admin, no time limit)  
 PUT / DELETE /v1/layouts/{ref}/like                                                 → 200 { like_count }
 PUT    /v1/layouts/{ref}/link       { url }  (owner or admin)   → 200 (admin: approved) / 202 (owner: queued)
 DELETE /v1/layouts/{ref}/link       (owner or admin)                                → 200
+POST   /v1/wpm                      { layout, wpm, proof }                          → 202 (queued) / 201 (admin: approved)
 ```
 
 **Every write carries `X-Client-Version`** (§1.3) — not required by the
@@ -885,6 +887,8 @@ it as generated, not hand-edited):
 | 403 | `banned` | this account is banned from writing | `banned()` |
 | 409 | `cannot_ban_admin` | an admin cannot be banned | `cannotBanAdmin()` |
 | 400 | `invalid_link` | *(caller-supplied -- this function's own `message` parameter)* | `invalidLink(message)` |
+| 400 | `invalid_wpm` | *(caller-supplied -- this function's own `message` parameter)* | `invalidWpm(message)` |
+| 400 | `invalid_proof` | *(caller-supplied -- this function's own `message` parameter)* | `invalidProof(message)` |
 | 409 | `magic_edited` | this record's magic was last written by ${client}; a seed never overwrites a person's edit | `magicEdited(client)` |
 | 429 | `rate_limited` | rate limit exceeded: ${limit} writes per ${windowSeconds}s | `rateLimited(limit, windowSeconds, retryAfter, scope)` |
 
@@ -1136,6 +1140,8 @@ silently drift from what `src/index.ts` actually registers.
 | GET | `/v1/layouts/:ref/link` | user (owner or admin) | — | 200 | `not_found`, `not_owner`, lane errors |
 | PUT | `/v1/layouts/:ref/link` | user (owner or admin) | `{url}` | 200 (admin: approved) / 202 (owner: queued) | `bad_request`, `invalid_link`, `not_owner`, `not_found`, lane errors |
 | DELETE | `/v1/layouts/:ref/link` | user (owner or admin) | — | 200 | `not_owner`, `not_found`, lane errors |
+| GET | `/v1/wpm` | none | — (`?layout=<ref>&user=<id>`, both optional) | 200 (`{records}`) | `bad_request`, `not_found` |
+| POST | `/v1/wpm` | user | `{layout, wpm, proof}` | 202 (queued) / 201 (admin: approved) | `bad_request`, `invalid_wpm`, `invalid_proof`, `not_found`, lane errors |
 | GET | `/v1/authors` | none | — | 200 | `bad_request` |
 | GET | `/v1/authors/:user_id` | none | — | 200 | `not_found` |
 | GET | `/v1/formats` | none | — | 200 | — |
@@ -1166,6 +1172,10 @@ silently drift from what `src/index.ts` actually registers.
 | GET | `/v1/admin/link-queue` | admin | — | 200 | `bad_request`, `not_admin`, lane errors |
 | POST | `/v1/admin/link-queue/:id/approve` | admin | — | 200 | `not_admin`, `not_found`, lane errors |
 | POST | `/v1/admin/link-queue/:id/reject` | admin | `{reason?}` | 200 | `bad_request`, `not_admin`, `not_found`, lane errors |
+| POST | `/v1/admin/wpm` | admin | `{user_id, layout, wpm, proof}` | 201 | `bad_request`, `invalid_wpm`, `invalid_proof`, `not_admin`, `not_found`, lane errors |
+| GET | `/v1/admin/wpm-queue` | admin | — | 200 | `bad_request`, `not_admin`, lane errors |
+| POST | `/v1/admin/wpm-queue/:id/approve` | admin | — | 200 | `not_admin`, `not_found`, lane errors |
+| POST | `/v1/admin/wpm-queue/:id/reject` | admin | `{reason?}` | 200 | `bad_request`, `not_admin`, `not_found`, lane errors |
 
 "lane errors" (every `user`/`admin`/`client` row) means whichever lane you
 used: the user lane can answer `unauthorized`/`token_invalid`/
@@ -1214,3 +1224,26 @@ submissions; `POST .../approve` or `.../reject` (body `{reason?}`)
 decides one. Only an *approved* link ever appears on a public wire
 (`layoutToWire`'s `link` field) — a pending, rejected or superseded URL
 is visible only to the owner/admin (`GET .../link`) and the admin queue.
+
+**WPM records** (`POST /v1/wpm`, body `{layout, wpm, proof}`): a user's best
+typing speed on a layout, with a proof link. `layout` is any layout ref
+(name or id; a deleted layout is `404`); `wpm` is an integer 1..1000
+(`400 invalid_wpm`); `proof` is any absolute `http`/`https` URL with a host,
+at most 512 characters after trimming (`400 invalid_proof`) — not limited to
+Discord. akldb is permissive about plausibility: mods judge that. A user's
+submission is queued (`202`; a fresh one supersedes that user's older pending
+one for the same layout); an admin's own speed is approved at once (`201`).
+An admin can also enter a speed for someone else with
+`POST /v1/admin/wpm` (`{user_id, layout, wpm, proof}`, `user_id` any Discord
+id of 17-20 digits, `201`, approved at once). `GET /v1/admin/wpm-queue?status=`
+(default `pending`) lists submissions (each names its layout and user);
+`POST .../approve` or `.../reject` (body `{reason?}`) decides one. Rows are
+never deleted, so a proof stays reviewable. `GET /v1/wpm?layout=&user=`
+(public, no auth, both filters optional) answers
+`{records: [{layout_id, layout_name, user_id, user_name, wpm, proof,
+approved_at, submission_id}]}` — **one row per (layout, user): that user's
+top approved speed** (a tie goes to the earliest approval), sorted `wpm`
+descending then `approved_at` ascending, not paginated, ETag/304 like the
+other public reads; records on a deleted layout are hidden. Events:
+`wpm_submitted` (only `submission_id` — no speed or proof while pending),
+`wpm_approved` (`user_id`, `wpm`, `proof`) and `wpm_rejected`.

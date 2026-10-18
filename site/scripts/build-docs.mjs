@@ -113,6 +113,8 @@ const ENDPOINT_PURPOSES = {
   "GET /v1/layouts/:ref/link": "Read the owner's submitted external link, approved or pending.",
   "PUT /v1/layouts/:ref/link": "Submit an external link; an admin's own submission is approved immediately, an owner's is queued.",
   "DELETE /v1/layouts/:ref/link": "Clear the layout's external link.",
+  "GET /v1/wpm": "Each user's top approved typing speed per layout, filterable by layout and user; public.",
+  "POST /v1/wpm": "Submit your typing speed on a layout with a proof link; queued for approval (an admin's own is approved immediately).",
   "GET /v1/authors": "Every known author (Discord user id + display name).",
   "GET /v1/authors/:user_id": "One author's display name.",
   "GET /v1/formats": "The format registry: every registered format's id, role, lineage and reachable translations.",
@@ -151,6 +153,10 @@ const ENDPOINT_PURPOSES = {
   "GET /v1/admin/link-queue": "List submitted links awaiting moderation.",
   "POST /v1/admin/link-queue/:id/approve": "Approve a queued link submission.",
   "POST /v1/admin/link-queue/:id/reject": "Reject a queued link submission.",
+  "POST /v1/admin/wpm": "Enter a typing speed on someone else's behalf; approved immediately.",
+  "GET /v1/admin/wpm-queue": "List WPM submissions awaiting moderation.",
+  "POST /v1/admin/wpm-queue/:id/approve": "Approve a queued WPM submission.",
+  "POST /v1/admin/wpm-queue/:id/reject": "Reject a queued WPM submission.",
 };
 
 function classify(method, routePath) {

@@ -1,0 +1,24 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/admin/wpm",
+    "bearer": "conformance-admin-token",
+    "body": {
+      "user_id": "850000000000000001",
+      "layout": "mod-wpm-nonexistent",
+      "wpm": 97,
+      "proof": "https://www.youtube.com/watch?v=mod-wpm"
+    }
+  },
+  "response": {
+    "status": 404,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "error": "not_found",
+      "message": "no layout 'mod-wpm-nonexistent'",
+      "ref": "mod-wpm-nonexistent"
+    }
+  }
+}

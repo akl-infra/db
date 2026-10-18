@@ -2746,6 +2746,345 @@
     }
   },
   {
+    "id": "admin-wpm-queue/approve-401-unauthorized",
+    "method": "POST",
+    "route": "/v1/admin/wpm-queue/:id/approve",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-wpm-queue/approve-403-not_admin",
+    "method": "POST",
+    "route": "/v1/admin/wpm-queue/:id/approve",
+    "auth": "admin",
+    "status": 403,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-wpm-queue/approve-404",
+    "method": "POST",
+    "route": "/v1/admin/wpm-queue/:id/approve",
+    "auth": "admin",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-wpm-queue/get-200",
+    "method": "GET",
+    "route": "/v1/admin/wpm-queue",
+    "auth": "admin",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "submissions": {
+          "type": "array",
+          "item": null
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-wpm-queue/get-400-bad_request",
+    "method": "GET",
+    "route": "/v1/admin/wpm-queue",
+    "auth": "admin",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "param": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-wpm-queue/get-401-unauthorized",
+    "method": "GET",
+    "route": "/v1/admin/wpm-queue",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-wpm-queue/get-403-not_admin",
+    "method": "GET",
+    "route": "/v1/admin/wpm-queue",
+    "auth": "admin",
+    "status": 403,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-wpm-queue/reject-400-bad_request",
+    "method": "POST",
+    "route": "/v1/admin/wpm-queue/:id/reject",
+    "auth": "admin",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "param": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-wpm-queue/reject-401-unauthorized",
+    "method": "POST",
+    "route": "/v1/admin/wpm-queue/:id/reject",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-wpm-queue/reject-403-not_admin",
+    "method": "POST",
+    "route": "/v1/admin/wpm-queue/:id/reject",
+    "auth": "admin",
+    "status": 403,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-wpm-queue/reject-404",
+    "method": "POST",
+    "route": "/v1/admin/wpm-queue/:id/reject",
+    "auth": "admin",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-wpm/post-201",
+    "method": "POST",
+    "route": "/v1/admin/wpm",
+    "auth": "admin",
+    "status": 201,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "submission": {
+          "type": "object",
+          "fields": {
+            "decided_at": {
+              "type": "string"
+            },
+            "decided_by": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "layout_id": {
+              "type": "string"
+            },
+            "proof": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "null"
+            },
+            "status": {
+              "type": "string"
+            },
+            "submitted_at": {
+              "type": "string"
+            },
+            "submitted_by": {
+              "type": "string"
+            },
+            "user_id": {
+              "type": "string"
+            },
+            "via": {
+              "type": "string"
+            },
+            "wpm": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-wpm/post-400-bad_request",
+    "method": "POST",
+    "route": "/v1/admin/wpm",
+    "auth": "admin",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "param": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-wpm/post-401-unauthorized",
+    "method": "POST",
+    "route": "/v1/admin/wpm",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-wpm/post-403-not_admin",
+    "method": "POST",
+    "route": "/v1/admin/wpm",
+    "auth": "admin",
+    "status": 403,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-wpm/post-404",
+    "method": "POST",
+    "route": "/v1/admin/wpm",
+    "auth": "admin",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
     "id": "authors-detail/200",
     "method": "GET",
     "route": "/v1/authors/:user_id",
@@ -8959,6 +9298,302 @@
         },
         "window_seconds": {
           "type": "number"
+        }
+      }
+    }
+  },
+  {
+    "id": "wpm/get-200",
+    "method": "GET",
+    "route": "/v1/wpm",
+    "auth": "none",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "records": {
+          "type": "array",
+          "item": {
+            "type": "object",
+            "fields": {
+              "approved_at": {
+                "type": "string"
+              },
+              "layout_id": {
+                "type": "string"
+              },
+              "layout_name": {
+                "type": "string"
+              },
+              "proof": {
+                "type": "string"
+              },
+              "submission_id": {
+                "type": "string"
+              },
+              "user_id": {
+                "type": "string"
+              },
+              "user_name": {
+                "type": "null"
+              },
+              "wpm": {
+                "type": "number"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "wpm/get-304",
+    "method": "GET",
+    "route": "/v1/wpm",
+    "auth": "none",
+    "status": 304,
+    "shape": null
+  },
+  {
+    "id": "wpm/get-400-bad_request",
+    "method": "GET",
+    "route": "/v1/wpm",
+    "auth": "none",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "param": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "wpm/get-404",
+    "method": "GET",
+    "route": "/v1/wpm",
+    "auth": "none",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "wpm/post-201-admin-approved",
+    "method": "POST",
+    "route": "/v1/wpm",
+    "auth": "user",
+    "status": 201,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "submission": {
+          "type": "object",
+          "fields": {
+            "decided_at": {
+              "type": "string"
+            },
+            "decided_by": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "layout_id": {
+              "type": "string"
+            },
+            "proof": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "null"
+            },
+            "status": {
+              "type": "string"
+            },
+            "submitted_at": {
+              "type": "string"
+            },
+            "submitted_by": {
+              "type": "string"
+            },
+            "user_id": {
+              "type": "string"
+            },
+            "via": {
+              "type": "string"
+            },
+            "wpm": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "wpm/post-202",
+    "method": "POST",
+    "route": "/v1/wpm",
+    "auth": "user",
+    "status": 202,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "submission": {
+          "type": "object",
+          "fields": {
+            "decided_at": {
+              "type": "null"
+            },
+            "decided_by": {
+              "type": "null"
+            },
+            "id": {
+              "type": "string"
+            },
+            "layout_id": {
+              "type": "string"
+            },
+            "proof": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "null"
+            },
+            "status": {
+              "type": "string"
+            },
+            "submitted_at": {
+              "type": "string"
+            },
+            "submitted_by": {
+              "type": "string"
+            },
+            "user_id": {
+              "type": "string"
+            },
+            "via": {
+              "type": "string"
+            },
+            "wpm": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "wpm/post-400-bad_request",
+    "method": "POST",
+    "route": "/v1/wpm",
+    "auth": "user",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "param": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "wpm/post-400-invalid_proof",
+    "method": "POST",
+    "route": "/v1/wpm",
+    "auth": "user",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "wpm/post-400-invalid_wpm",
+    "method": "POST",
+    "route": "/v1/wpm",
+    "auth": "user",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "wpm/post-401-unauthorized",
+    "method": "POST",
+    "route": "/v1/wpm",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "wpm/post-404",
+    "method": "POST",
+    "route": "/v1/wpm",
+    "auth": "user",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
         }
       }
     }
