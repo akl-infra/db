@@ -47,6 +47,8 @@ const EXEMPT_ROUTES: ExemptRoute[] = [
   { method: "DELETE", path: "/v1/layouts/:ref/link", reason: "§4.4: link is not a rev'd write -- no version to name" },
   // docs/decisions/29-layout-comments.md: a comment is the caller's own per-user row, not the layout's version.
   { method: "PUT", path: "/v1/layouts/:ref/comment", reason: "a comment is the caller's own per-user row, not the layout's version -- If-Match on the layout does not apply" },
+  { method: "PUT", path: "/v1/layouts/:ref/comments/:author_id/like", reason: "a comment like is the caller's own per-user row, not the layout's version -- If-Match on the layout does not apply" },
+  { method: "DELETE", path: "/v1/layouts/:ref/comments/:author_id/like", reason: "a comment unlike is the caller's own per-user row, not the layout's version -- If-Match on the layout does not apply" },
   { method: "DELETE", path: "/v1/layouts/:ref/comment", reason: "a comment is the caller's own per-user row, not the layout's version -- If-Match on the layout does not apply" },
 ];
 

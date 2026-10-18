@@ -111,6 +111,15 @@ export interface LayoutCommentDbRow {
   decided_at: string | null;
   reason: string | null;
 }
+// docs/decisions/29-layout-comments.md, migrations/0023 (LDB-CMT12): likes on
+// comment slots, all of them (like `likes`, they are public).
+export interface CommentLikeDbRow {
+  layout_id: string;
+  author_id: string;
+  user_id: string;
+  via: string;
+  created_at: string;
+}
 export interface LinkSubmissionDbRow {
   id: string;
   layout_id: string;
@@ -183,6 +192,7 @@ export interface Dump {
   bans: BanDbRow[]; // [LDB-MD8] §4.5
   link_submissions: LinkSubmissionDbRow[]; // [LDB-MD8] §4.5
   wpm_submissions: WpmSubmissionDbRow[]; // [LDB-WPM10] migrations/0022; absent from a dump written before it
+  comment_likes: CommentLikeDbRow[]; // [LDB-CMT12] migrations/0023; absent from a dump written before it
   layout_comments: LayoutCommentDbRow[]; // [LDB-CMT10] migrations/0023; approved rows only; absent from a dump written before it
 }
 
@@ -240,6 +250,23 @@ async function pageByCompositeKey<T>(db: Bindings["DB"], table: string, col1: st
   return out;
 }
 
+// `comment_likes` has a three-column primary key, so it pages on the unique
+// concatenation of the three (ids never contain '/'); the helper column is
+// dropped again before the rows go into the dump.
+async function pageCommentLikes(db: Bindings["DB"]): Promise<CommentLikeDbRow[]> {
+  const out: CommentLikeDbRow[] = [];
+  let cursor: string | null = null;
+  for (;;) {
+    const sql: string = `SELECT *, layout_id || '/' || author_id || '/' || user_id AS k FROM comment_likes ${cursor === null ? "" : "WHERE k > ?"} ORDER BY k ASC LIMIT ?`;
+    const args: (string | number)[] = cursor === null ? [PAGE_SIZE] : [cursor, PAGE_SIZE];
+    const { results } = await db.prepare(sql).bind(...args).all<CommentLikeDbRow & { k: string }>();
+    for (const { k: _k, ...row } of results) out.push(row);
+    if (results.length < PAGE_SIZE) break;
+    cursor = results[results.length - 1]!.k;
+  }
+  return out;
+}
+
 // `src/index.ts`'s `GET /v1/meta` body minus the live state it adds on top
 // (`last_diff`, `health`, `api`, `deprecations`):
 // the SAME `readMetaCore` (core/meta.ts), so the two can't drift;
@@ -265,7 +292,7 @@ export async function buildDump(env: Bindings, now: Clock): Promise<Dump> {
 
   const meta = await computeMeta(db);
 
-  const [records, layout_formats, layout_revs, likes, authors, admins, events, import_state_all, import_map, clients, bans, link_submissions, wpm_submissions, layout_comments] = await Promise.all([
+  const [records, layout_formats, layout_revs, likes, authors, admins, events, import_state_all, import_map, clients, bans, link_submissions, wpm_submissions, layout_comments, comment_likes] = await Promise.all([
     pageBySingleKey<LayoutDbRow>(db, "layouts", "id"),
     pageByCompositeKey<FormatDbRow>(db, "layout_formats", "layout_id", "lineage"),
     pageByCompositeKey<LayoutRevDbRow>(db, "layout_revs", "layout_id", "n"),
@@ -280,6 +307,7 @@ export async function buildDump(env: Bindings, now: Clock): Promise<Dump> {
     pageBySingleKey<LinkSubmissionDbRow>(db, "link_submissions", "id"),
     pageBySingleKey<WpmSubmissionDbRow>(db, "wpm_submissions", "id"),
     pageBySingleKey<LayoutCommentDbRow>(db, "layout_comments", "id"),
+    pageCommentLikes(db),
   ]);
 
   // LDB-D8: `dump.last_at` is this dump's OWN scheduling bookkeeping (see
@@ -310,6 +338,7 @@ export async function buildDump(env: Bindings, now: Clock): Promise<Dump> {
     bans,
     link_submissions: link_submissions.filter((s) => s.status === "approved"),
     wpm_submissions: wpm_submissions.filter((s) => s.status === "approved"), // approved only, like link_submissions
+    comment_likes,
     layout_comments: layout_comments.filter((s) => s.status === "approved" && s.body !== null), // approved only: the one status that still holds public text
   };
 }

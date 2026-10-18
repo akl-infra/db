@@ -30,6 +30,7 @@ const TABLE_ORDER_DELETE = [
   "likes",
   "link_submissions", // [LDB-MD8] §4.5: references a layout_id, before the parent
   "wpm_submissions", // [LDB-WPM10]: references a layout_id, before the parent
+  "comment_likes", // [LDB-CMT12]: references a layout_id, before the parent
   "layout_comments", // [LDB-CMT10]: references a layout_id, before the parent
   "import_map",
   "layouts",
@@ -317,6 +318,15 @@ export function restoreSql(dump: Dump): string[] {
       "INSERT INTO layout_comments",
       ["id", "layout_id", "user_id", "body", "via", "submitted_at", "status", "decided_by", "decided_at", "reason"],
       (dump.layout_comments ?? []).map((r) => ({ ...r })),
+    ),
+  );
+
+  // [LDB-CMT12] migrations/0023: absent from a dump written before it.
+  statements.push(
+    ...chunkedInserts(
+      "INSERT INTO comment_likes",
+      ["layout_id", "author_id", "user_id", "via", "created_at"],
+      (dump.comment_likes ?? []).map((r) => ({ ...r })),
     ),
   );
 

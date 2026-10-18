@@ -27,25 +27,28 @@ the other (`[LDB-V5]`).
 
 ## 1.22 — 2026-10-18
 
-LDB-CMT1..LDB-CMT10, docs/decisions/29-layout-comments.md: layout comments.
+LDB-CMT1..LDB-CMT13, docs/decisions/29-layout-comments.md: layout comments.
 One plain-text comment per user per layout, every write moderated, and only
 approved text public. New routes: `PUT /v1/layouts/{ref}/comment` (`{body}` →
 `202 {submission}` queued, or `201` for an admin's own, approved at once),
 `DELETE /v1/layouts/{ref}/comment` (`204`, immediate, erases the text for
-good), `GET /v1/layouts/{ref}/comment` (the caller's own `{live, pending,
+good), `PUT`/`DELETE /v1/layouts/{ref}/comments/{author_id}/like` (`204`,
+idempotent likes on a user's comment slot; `400 own_comment`), `GET /v1/layouts/{ref}/comment` (the caller's own `{live, pending,
 decision}`, never cached), `GET /v1/layouts/{ref}/comments` (public;
-`{comments: [{id, user_id, name, body, approved_at, edited}]}`, ETag/304),
+`{comments: [{id, user_id, name, body, approved_at, edited, likes, liked?}]}`,
+most liked first, anonymous ETag/304, `liked` and `private, no-store` only with
+credentials),
 `GET /v1/admin/comment-queue?status=` (default `pending`; rows carry
 `live_body`), `POST /v1/admin/comment-queue/{id}/approve` and `.../reject
 {reason?}`, and `POST /v1/admin/comments/{id}/remove {reason?}`. `body` is a
 string of 1..2000 Unicode code points after trimming and line-ending
-normalization (`400 invalid_comment`). Five new event kinds,
+normalization (`400 invalid_comment`). Seven new event kinds,
 `comment_submitted`, `comment_approved`, `comment_rejected`,
-`comment_removed` and `comment_deleted`, none of which ever carries comment
-text or a reason; readers that ignore unknown kinds are unaffected, and
+`comment_removed`, `comment_deleted`, `comment_liked` and `comment_unliked`,
+none of which ever carries comment text or a reason; readers that ignore unknown kinds are unaffected, and
 `kinds=` accepts the new names. The public dump gains a `layout_comments`
-array holding only `approved` rows (absent from older dumps; restore reads it
-as empty). No existing field, route or stored value changes meaning, and
+array holding only `approved` rows and a `comment_likes` array (both absent
+from older dumps; restore reads them as empty). No existing field, route or stored value changes meaning, and
 `migrations/0023_layout_comments.sql` only adds a table and indexes.
 
 ## 1.21 — 2026-10-18

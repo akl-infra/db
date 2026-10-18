@@ -115,6 +115,8 @@ const ENDPOINT_PURPOSES = {
   "DELETE /v1/layouts/:ref/link": "Clear the layout's external link.",
   "GET /v1/wpm": "Each user's top approved typing speed per layout, filterable by layout and user; public.",
   "GET /v1/layouts/:ref/comments": "A layout's approved comments, one per user, newest first; public.",
+  "PUT /v1/layouts/:ref/comments/:author_id/like": "Like a user's comment on a layout; idempotent.",
+  "DELETE /v1/layouts/:ref/comments/:author_id/like": "Remove your like from a user's comment; idempotent.",
   "GET /v1/layouts/:ref/comment": "Your own comment on a layout: the live text, a pending edit, and a rejection or removal notice.",
   "PUT /v1/layouts/:ref/comment": "Write your comment on a layout; queued for approval (an admin's own is approved immediately).",
   "DELETE /v1/layouts/:ref/comment": "Delete your comment on a layout, immediately and for good.",

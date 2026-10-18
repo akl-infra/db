@@ -892,6 +892,7 @@ it as generated, not hand-edited):
 | 400 | `invalid_link` | *(caller-supplied -- this function's own `message` parameter)* | `invalidLink(message)` |
 | 400 | `invalid_wpm` | *(caller-supplied -- this function's own `message` parameter)* | `invalidWpm(message)` |
 | 400 | `invalid_proof` | *(caller-supplied -- this function's own `message` parameter)* | `invalidProof(message)` |
+| 400 | `own_comment` | you can't like your own comment | `ownComment()` |
 | 400 | `invalid_comment` | *(caller-supplied -- this function's own `message` parameter)* | `invalidComment(message)` |
 | 409 | `magic_edited` | this record's magic was last written by ${client}; a seed never overwrites a person's edit | `magicEdited(client)` |
 | 429 | `rate_limited` | rate limit exceeded: ${limit} writes per ${windowSeconds}s | `rateLimited(limit, windowSeconds, retryAfter, scope)` |
@@ -1146,7 +1147,9 @@ silently drift from what `src/index.ts` actually registers.
 | DELETE | `/v1/layouts/:ref/link` | user (owner or admin) | — | 200 | `not_owner`, `not_found`, lane errors |
 | GET | `/v1/wpm` | none | — (`?layout=<ref>&user=<id>`, both optional) | 200 (`{records}`) | `bad_request`, `not_found` |
 | POST | `/v1/wpm` | user | `{layout, wpm, proof}` | 202 (queued) / 201 (admin: approved) | `bad_request`, `invalid_wpm`, `invalid_proof`, `not_found`, lane errors |
-| GET | `/v1/layouts/:ref/comments` | none | — | 200 (`{comments}`) | `not_found` |
+| GET | `/v1/layouts/:ref/comments` | none (credentials optional) | — | 200 (`{comments}`) | `not_found`, lane errors |
+| PUT | `/v1/layouts/:ref/comments/:author_id/like` | user | — | 204 | `bad_request`, `own_comment`, `not_found`, lane errors |
+| DELETE | `/v1/layouts/:ref/comments/:author_id/like` | user | — | 204 | `bad_request`, `not_found`, lane errors |
 | GET | `/v1/layouts/:ref/comment` | user | — | 200 (`{live, pending, decision}`) | `not_found`, lane errors |
 | PUT | `/v1/layouts/:ref/comment` | user | `{body}` | 202 (queued) / 201 (admin: approved) | `bad_request`, `invalid_comment`, `not_found`, lane errors |
 | DELETE | `/v1/layouts/:ref/comment` | user | — | 204 | `not_found`, lane errors |
@@ -1285,6 +1288,20 @@ diff an edit against), decide with `POST .../approve` and `.../reject
 {reason?}`, and take an approved comment down with `POST
 /v1/admin/comments/{id}/remove {reason?}` (the author sees the reason through
 `GET .../comment`). Approving replaces that user's previous approved comment.
+**Likes on comments**: `PUT /v1/layouts/{ref}/comments/{author_id}/like` and
+`DELETE` on the same path (both `204`, idempotent) like and unlike a *user's
+comment slot* on that layout, not a row: a like survives an approved edit.
+One like per (slot, liker); `400 own_comment` for the author themselves,
+`404` when the slot has no approved comment. The author's delete and a mod's
+removal clear the slot's likes; a pending or rejected edit does not.
+`GET .../comments` rows also carry `likes` (the count) and are ordered
+`likes` descending, then `approved_at` descending, then id; with credentials
+(either lane) each row also carries `liked` (did the caller like it), and that
+per-viewer answer is `Cache-Control: private, no-store` with no ETag, while the
+anonymous answer stays public with ETag/304. Events `comment_liked` and
+`comment_unliked` (`layout_id`, `author_id`, `user_id` the liker) are written
+only when a like was actually added or removed.
+
 Events: `comment_submitted` and `comment_rejected` (only `submission_id`),
 `comment_approved` and `comment_removed` (`submission_id`, `layout_id`,
 `user_id`) and `comment_deleted` (`layout_id`, `user_id`) — no event ever

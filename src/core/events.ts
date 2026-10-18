@@ -101,7 +101,10 @@ export type InfoKind =
   | "comment_approved"
   | "comment_rejected"
   | "comment_removed"
-  | "comment_deleted";
+  | "comment_deleted"
+  // A like on an author's comment slot (LDB-CMT11): ids only, like `liked`.
+  | "comment_liked"
+  | "comment_unliked";
 
 // 21-formats.md §2.2: what a rev-bumping event's `after` (and `before`)
 // carry -- never a payload (that's `layout_revs`' job). A layout-scope

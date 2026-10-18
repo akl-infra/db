@@ -81,6 +81,8 @@ const INFO_KINDS_MAP: Record<InfoKind, true> = {
   comment_rejected: true,
   comment_removed: true,
   comment_deleted: true,
+  comment_liked: true,
+  comment_unliked: true,
 };
 const LIKE_KINDS_MAP: Record<"liked" | "unliked", true> = { liked: true, unliked: true };
 

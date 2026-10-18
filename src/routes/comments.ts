@@ -15,6 +15,7 @@ import { cachePut, conditional, etagFor, readHead } from "../core/etag";
 import { announceComment } from "../core/modqueue";
 import { byRef } from "../core/records";
 import { systemClock, type Clock } from "../core/time";
+import { validateUserId } from "../core/wpm";
 import { parseCommentBody, parseLinkRejectBody } from "./schemas";
 
 const CACHE_CONTROL = "public, max-age=10";
@@ -48,16 +49,29 @@ const QUEUE_STATUSES = ["pending", "approved", "rejected", "superseded", "replac
 export function commentsRoute(authDeps: AuthDeps) {
   const route = new Hono<{ Bindings: Bindings; Variables: ActorVariables }>();
 
-  // GET /v1/layouts/:ref/comments (public, no auth). The body is a function
-  // of the approved rows, the layout's tombstone and the authors' names:
-  // every approval, replacement, delete, removal, rename, layout delete and
-  // restore appends an event (the seq), and an author rename moves
-  // `authors_head` -- both are in the ETag.
+  // GET /v1/layouts/:ref/comments (public; credentials optional). The body is
+  // a function of the approved rows, the likes, the layout's tombstone and the
+  // authors' names: every approval, replacement, delete, removal, like, unlike,
+  // rename, layout delete and restore appends an event (the seq), and an
+  // author rename moves `authors_head` -- both are in the ETag. With NO
+  // credentials the answer is the shared public one (ETag, 304, edge cache).
+  // WITH credentials it also carries the caller's `liked` flags, so it is
+  // per-viewer: `private, no-store`, no ETag, never read from or put into the
+  // shared cache (there is no per-viewer precedent among the public reads --
+  // layout likes list every liker publicly -- so this is the choice made here).
   route.get("/v1/layouts/:ref/comments", async (c) => {
     const db = c.env.DB;
     const ref = c.req.param("ref");
     const layout = await byRef(db, ref);
     if (layout === null) throw notFound(`no layout '${ref}'`, ref);
+
+    if (c.req.header("Authorization") !== undefined || c.req.header("X-Akl-Client") !== undefined) {
+      const actor = await resolveActor(c.env, c.req, authDeps);
+      const res = c.json({ comments: await comments.listComments(db, layout, actor.user_id) });
+      res.headers.set("Cache-Control", "private, no-store");
+      res.headers.set("Vary", "Authorization, X-Akl-Client");
+      return res;
+    }
 
     const head = await readHead(db);
     const etag = await etagFor(head.seq, { comments: { layout: layout.id, authors: head.authors.version } });
@@ -67,6 +81,7 @@ export function commentsRoute(authDeps: AuthDeps) {
     const res = c.json({ comments: await comments.listComments(db, layout) });
     res.headers.set("ETag", etag);
     res.headers.set("Cache-Control", CACHE_CONTROL);
+    res.headers.set("Vary", "Authorization, X-Akl-Client");
     await cachePut(c, res.clone());
     return res;
   });
@@ -104,6 +119,22 @@ export function commentsRoute(authDeps: AuthDeps) {
     if (layout === null) throw notFound(`no layout '${ref}'`, ref);
     const deleted = await comments.deleteOwnComment(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), layout.id);
     if (!deleted) throw notFound(`no comment of yours on '${ref}'`, ref);
+    return c.body(null, 204);
+  });
+
+  // PUT / DELETE /v1/layouts/:ref/comments/:author_id/like (LDB-CMT11): like
+  // or unlike the author's comment slot; both idempotent, `204`.
+  route.put("/v1/layouts/:ref/comments/:author_id/like", async (c) => {
+    const layout = await comments.resolveCommentLayout(c.env.DB, c.req.param("ref"));
+    const authorId = validateUserId(c.req.param("author_id"), "author_id");
+    await comments.likeComment(c.env.DB, resolveNow(c.env), c.get("actor"), c.get("sourceVersion"), layout.id, authorId);
+    return c.body(null, 204);
+  });
+
+  route.delete("/v1/layouts/:ref/comments/:author_id/like", async (c) => {
+    const layout = await comments.resolveCommentLayout(c.env.DB, c.req.param("ref"));
+    const authorId = validateUserId(c.req.param("author_id"), "author_id");
+    await comments.unlikeComment(c.env.DB, resolveNow(c.env), c.get("actor"), c.get("sourceVersion"), layout.id, authorId);
     return c.body(null, 204);
   });
 

@@ -23,7 +23,7 @@ import { canonical } from "../src/core/canonical";
 import { appendLike, appendLinkChange, type EventDbRow, foldLayout, rowToEvent } from "../src/core/events";
 import { rowToFormat, rowToLayout, type FormatDbRow, type LayoutDbRow } from "../src/core/records";
 import { fixedClock } from "../src/core/time";
-import type { BanDbRow, Dump, LayoutRevDbRow, LayoutCommentDbRow, LinkSubmissionDbRow, WpmSubmissionDbRow } from "../src/dump/write";
+import type { BanDbRow, Dump, LayoutRevDbRow, CommentLikeDbRow, LayoutCommentDbRow, LinkSubmissionDbRow, WpmSubmissionDbRow } from "../src/dump/write";
 import { restoreInto, restoreSql } from "../src/dump/restore";
 import frozenSeed from "./fixtures/seed-upstream-100.dump.json" with { type: "json" };
 import { ulid } from "ulidx";
@@ -160,6 +160,14 @@ async function plantModerationState(db: Bindings["DB"]): Promise<{ likeLayoutId:
       .run();
   }
 
+  // [LDB-CMT12] likes on the approved comment's slot, dumped whole.
+  for (const liker of ["800000000000000006", "800000000000000007"]) {
+    await db
+      .prepare("INSERT INTO comment_likes (layout_id, author_id, user_id, via, created_at) VALUES (?, ?, ?, 'discord', ?)")
+      .bind(commentLayoutId, "800000000000000005", liker, clock())
+      .run();
+  }
+
   return { likeLayoutId, pendingLayoutId, linkLayoutId, wpmLayoutId, commentLayoutId };
 }
 
@@ -227,7 +235,7 @@ describe("rehost drill", () => {
   // the event log to a tail) would desync one of those, not just look wrong
   // in isolation. `tests/api/dump.test.ts` covers the OTHER two clauses
   // (the `latest.json` sha256, the monthly-key timing) directly.
-  it("[LDB-G1] [LDB-P6] [LDB-D1] [MF-3] [LDB-P18] [LDB-D9] [LDB-MD3] [LDB-MD8] [LDB-MD14] [LDB-WPM10] [LDB-CMT10] restoreSql reproduces the exact dumped state", async () => {
+  it("[LDB-G1] [LDB-P6] [LDB-D1] [MF-3] [LDB-P18] [LDB-D9] [LDB-MD3] [LDB-MD8] [LDB-MD14] [LDB-WPM10] [LDB-CMT10] [LDB-CMT12] restoreSql reproduces the exact dumped state", async () => {
     const remoteUrl = bindings.TEST_REHOST_DUMP_URL;
     const usingRemote = remoteUrl !== "";
 
@@ -345,6 +353,13 @@ describe("rehost drill", () => {
       expect(canonical(restoredComments.results)).toBe(canonical(dump.layout_comments));
       expect(restoredComments.results.filter((s) => s.layout_id === ids.commentLayoutId)).toHaveLength(1); // the approved one; the rest is lost by design
 
+      // [LDB-CMT12] the comment likes round-trip byte-exact.
+      expect(dump.comment_likes.filter((l) => l.layout_id === ids.commentLayoutId)).toHaveLength(2);
+      const restoredLikes = await db
+        .prepare("SELECT layout_id, author_id, user_id, via, created_at FROM comment_likes ORDER BY layout_id, author_id, user_id")
+        .all<CommentLikeDbRow>();
+      expect(canonical(restoredLikes.results)).toBe(canonical(dump.comment_likes));
+
       const likeLayout = await db.prepare("SELECT like_count FROM layouts WHERE id = ?").bind(ids.likeLayoutId).first<{ like_count: number }>();
       expect(likeLayout?.like_count).toBe(2);
       const linkLayout = await db.prepare("SELECT link FROM layouts WHERE id = ?").bind(ids.linkLayoutId).first<{ link: string | null }>();
@@ -441,12 +456,15 @@ describe("rehost drill", () => {
 });
 
 describe("[LDB-CMT10] a dump from before migrations/0023", () => {
-  it("[LDB-CMT10] has no layout_comments key and restores with that table empty: cleared, nothing inserted", () => {
-    const { layout_comments: _present, ...older } = frozenSeed as unknown as Dump;
+  it("[LDB-CMT10] [LDB-CMT12] has no layout_comments key and restores with that table empty: cleared, nothing inserted", () => {
+    const { layout_comments: _present, comment_likes: _likes, ...older } = frozenSeed as unknown as Dump;
     expect("layout_comments" in older).toBe(false);
+    expect("comment_likes" in older).toBe(false);
     const statements = restoreSql(older as unknown as Dump);
     expect(statements.some((q) => q.startsWith("DELETE FROM layout_comments"))).toBe(true);
     expect(statements.some((q) => q.startsWith("INSERT INTO layout_comments"))).toBe(false);
+    expect(statements.some((q) => q.startsWith("DELETE FROM comment_likes"))).toBe(true);
+    expect(statements.some((q) => q.startsWith("INSERT INTO comment_likes"))).toBe(false);
     // and the same dump WITH the (empty) key behaves identically
     expect(restoreSql(frozenSeed as unknown as Dump)).toEqual(statements);
   });
