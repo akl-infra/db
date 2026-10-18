@@ -824,6 +824,7 @@ const REQUIRED: Record<string, RequiredCase[]> = {
     { status: 404, code: ERROR_CODES.not_found },
   ],
   "DELETE /v1/layouts/:ref/comments/:author_id/like": [{ status: 204 }, { status: 401, code: ERROR_CODES.unauthorized }],
+  "GET /v1/me/comments": [{ status: 200 }, { status: 401, code: ERROR_CODES.unauthorized }],
   "GET /v1/admin/comment-queue": [
     { status: 200 },
     { status: 400, code: ERROR_CODES.bad_request },

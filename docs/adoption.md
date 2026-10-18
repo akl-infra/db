@@ -1150,6 +1150,7 @@ silently drift from what `src/index.ts` actually registers.
 | GET | `/v1/layouts/:ref/comments` | none | — (`?sort=`) | 200 (`{comments}`) | `bad_request`, `not_found` |
 | PUT | `/v1/layouts/:ref/comments/:author_id/like` | user | — | 204 | `bad_request`, `own_comment`, `not_found`, lane errors |
 | DELETE | `/v1/layouts/:ref/comments/:author_id/like` | user | — | 204 | `bad_request`, `not_found`, lane errors |
+| GET | `/v1/me/comments` | user | — | 200 (`{comments}`) | lane errors |
 | GET | `/v1/layouts/:ref/comment` | user | — | 200 (`{live, pending, decision}`) | `not_found`, lane errors |
 | PUT | `/v1/layouts/:ref/comment` | user | `{body}` | 202 (queued) / 201 (admin: approved) | `bad_request`, `invalid_comment`, `not_found`, lane errors |
 | DELETE | `/v1/layouts/:ref/comment` | user | — | 204 | `not_found`, lane errors |
@@ -1290,6 +1291,16 @@ diff an edit against), decide with `POST .../approve` and `.../reject
 {reason?}`, and take an approved comment down with `POST
 /v1/admin/comments/{id}/remove {reason?}` (the text is kept, private to its author and mods like a rejected one; the author reads the reason and the text through
 `GET .../comment`'s `decision`, and only their own `DELETE` erases it). Approving replaces that user's previous approved comment.
+**Your comments across layouts**: `GET /v1/me/comments` (auth; `401` without)
+answers `{comments: [{layout_id, layout_name, live: {id, body, approved_at,
+likes} | null, pending: {id, body, submitted_at} | null, decision: {status,
+reason, decided_at, body} | null}]}`: one row per layout where you have a live,
+pending, or kept rejected/removed text (a slot with nothing to show, or on a
+deleted layout, is absent), with each slot's `live`, `pending` and `decision`
+by the same rules as `GET .../comment`, most recent activity first (then
+`layout_id`). It is not paginated: the 500 most recently active slots.
+`Cache-Control: private, no-store`.
+
 **Likes on comments**: `PUT /v1/layouts/{ref}/comments/{author_id}/like` and
 `DELETE` on the same path (both `204`, idempotent) like and unlike a *user's
 comment slot* on that layout, not a row: a like survives an approved edit.

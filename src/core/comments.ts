@@ -452,7 +452,12 @@ export async function readOwnComment(db: Bindings["DB"], layoutId: string, userI
     .prepare(`SELECT ${COMMENT_COLUMNS} FROM layout_comments WHERE layout_id = ? AND user_id = ? ORDER BY submitted_at ASC, id ASC`)
     .bind(layoutId, userId)
     .all<CommentRow>();
+  return deriveOwn(results);
+}
 
+// The rules of the own read over one slot's rows (oldest first), shared by the
+// per-layout read and `GET /v1/me/comments`.
+function deriveOwn(results: CommentRow[]): OwnComment {
   const approved = results.filter((r) => r.status === "approved" && r.body !== null).at(-1);
   const pending = results.filter((r) => r.status === "pending" && r.body !== null).at(-1);
   const live = approved === undefined ? null : { id: approved.id, body: approved.body!, approved_at: approved.decided_at! };
@@ -470,4 +475,61 @@ export async function readOwnComment(db: Bindings["DB"], layoutId: string, userI
     }
   }
   return { live, pending: pend, decision };
+}
+
+// `GET /v1/me/comments`: one row per layout where the caller has a live,
+// pending or kept (rejected/removed) text.
+export interface MyComment {
+  layout_id: string;
+  layout_name: string;
+  live: (NonNullable<OwnComment["live"]> & { likes: number }) | null;
+  pending: OwnComment["pending"];
+  decision: OwnComment["decision"];
+}
+
+// Capped, not paginated (there is no /v1/me list precedent): the 500 most
+// recently active slots.
+export const MY_COMMENTS_LIMIT = 500;
+
+// Every slot the caller has with text on a layout that is not a tombstone, most
+// recent activity first (the latest of `approved_at`, `submitted_at` of the
+// pending text and `decided_at` of the decision), then `layout_id`. The same
+// rules as `readOwnComment` decide what each slot shows; a slot with nothing
+// to show (erased, superseded, replaced only) is absent. Private to the caller.
+export async function listMyComments(db: Bindings["DB"], userId: string): Promise<MyComment[]> {
+  const cols = COMMENT_COLUMNS.split(", ").map((c) => `s.${c}`).join(", ");
+  const { results } = await db
+    .prepare(
+      `SELECT ${cols}, l.name AS layout_name
+       FROM layout_comments s
+       JOIN layouts l ON l.id = s.layout_id AND l.deleted = 0
+       WHERE s.user_id = ?
+       ORDER BY s.layout_id ASC, s.submitted_at ASC, s.id ASC`,
+    )
+    .bind(userId)
+    .all<CommentRow & { layout_name: string }>();
+  const likeCounts = await db
+    .prepare("SELECT layout_id, COUNT(*) AS n FROM comment_likes WHERE author_id = ? GROUP BY layout_id")
+    .bind(userId)
+    .all<{ layout_id: string; n: number }>();
+  const likes = new Map(likeCounts.results.map((r) => [r.layout_id, r.n]));
+
+  const byLayout = new Map<string, (CommentRow & { layout_name: string })[]>();
+  for (const r of results) {
+    const list = byLayout.get(r.layout_id);
+    if (list === undefined) byLayout.set(r.layout_id, [r]);
+    else list.push(r);
+  }
+  const out: { row: MyComment; at: string }[] = [];
+  for (const [layoutId, rows] of byLayout) {
+    const own = deriveOwn(rows);
+    if (own.live === null && own.pending === null && own.decision === null) continue;
+    const at = [own.live?.approved_at, own.pending?.submitted_at, own.decision?.decided_at].filter((x): x is string => x !== undefined).reduce((m, x) => (x > m ? x : m), "");
+    out.push({
+      at,
+      row: { layout_id: layoutId, layout_name: rows[0]!.layout_name, live: own.live === null ? null : { ...own.live, likes: likes.get(layoutId) ?? 0 }, pending: own.pending, decision: own.decision },
+    });
+  }
+  out.sort((a, b) => (a.at === b.at ? (a.row.layout_id < b.row.layout_id ? -1 : 1) : a.at < b.at ? 1 : -1));
+  return out.slice(0, MY_COMMENTS_LIMIT).map((x) => x.row);
 }

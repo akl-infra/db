@@ -504,6 +504,8 @@ import cmtFxLayoutsCommentLikePut401Unauthorized from "./layouts-comment-like/pu
 import cmtFxLayoutsCommentLikePut404 from "./layouts-comment-like/put-404.json" with { type: "json" };
 import cmtFxLayoutsCommentLikeDelete204 from "./layouts-comment-like/delete-204.json" with { type: "json" };
 import cmtFxLayoutsCommentLikeDelete401Unauthorized from "./layouts-comment-like/delete-401-unauthorized.json" with { type: "json" };
+import cmtFxMeCommentsGet200 from "./me-comments/get-200.json" with { type: "json" };
+import cmtFxMeCommentsGet401Unauthorized from "./me-comments/get-401-unauthorized.json" with { type: "json" };
 // The cutover follow-up (design/layout-db/23-geometry.md, "admin dump
 // route"): same lighter treatment as the L5 moderation rows just above
 // (unauthorized + the route's own domain error, not the full A-group
@@ -955,6 +957,8 @@ export const MODERATION_CASES: ConformanceCase[] = [
   kase("layouts-comment-like/put-404", "/v1/layouts/:ref/comments/:author_id/like", cmtFxLayoutsCommentLikePut404, true),
   kase("layouts-comment-like/delete-204", "/v1/layouts/:ref/comments/:author_id/like", cmtFxLayoutsCommentLikeDelete204, true),
   kase("layouts-comment-like/delete-401-unauthorized", "/v1/layouts/:ref/comments/:author_id/like", cmtFxLayoutsCommentLikeDelete401Unauthorized, true),
+  kase("me-comments/get-200", "/v1/me/comments", cmtFxMeCommentsGet200, true),
+  kase("me-comments/get-401-unauthorized", "/v1/me/comments", cmtFxMeCommentsGet401Unauthorized, true),
   // The cutover follow-up (design/layout-db/23-geometry.md): placed dead
   // last, same as every other row here -- its 200 case performs a REAL
   // dump write (R2 + import_state), which no earlier-recorded fixture
