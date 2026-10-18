@@ -4,7 +4,7 @@ import { copy } from "../../copy.ts";
 import { adminSubmitWpm } from "../../api.ts";
 import type { WpmSubmission } from "../../lib/types.ts";
 import { SPEED_FIELDS, speedFormBody, speedFormErrors, visibleSpeedErrors, type SpeedFormField } from "../../lib/speedForm.ts";
-import { safeProofLink } from "../../lib/safelink.ts";
+import ProofLink from "../../ui/ProofLink.tsx";
 import AuthorRef from "../../ui/AuthorRef.tsx";
 import { onLinkClick } from "../../router.ts";
 
@@ -126,7 +126,6 @@ const SpeedForm: Component = () => {
       <Show when={recorded()} keyed>
         {(r) => {
           const layoutHref = `/l/${encodeURIComponent(r.submission.layout_id)}`;
-          const link = safeProofLink(r.submission.proof);
           return (
             <dl class="akl-speed-result">
               <dt>{copy.admin.speed.recorded}</dt>
@@ -144,13 +143,7 @@ const SpeedForm: Component = () => {
               </dd>
               <dd>
                 {copy.admin.speed.recordProof}:{" "}
-                <Show when={link} fallback={r.submission.proof} keyed>
-                  {(l) => (
-                    <a href={l.href} target="_blank" rel="noopener" title={l.href}>
-                      {l.hostname}
-                    </a>
-                  )}
-                </Show>
+                <ProofLink proof={r.submission.proof} />
               </dd>
             </dl>
           );

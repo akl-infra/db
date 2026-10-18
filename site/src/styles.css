@@ -882,7 +882,8 @@ h2 {
 .akl-id {
   white-space: nowrap;
 }
-.akl-url {
+.akl-url,
+.akl-speed-result dd {
   overflow-wrap: anywhere;
 }
 @media (max-width: 560px) {
