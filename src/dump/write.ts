@@ -292,7 +292,7 @@ export async function buildDump(env: Bindings, now: Clock): Promise<Dump> {
     auth_cache: [],
     bans,
     link_submissions: link_submissions.filter((s) => s.status === "approved"),
-    wpm_submissions,
+    wpm_submissions: wpm_submissions.filter((s) => s.status === "approved"), // approved only, like link_submissions
   };
 }
 

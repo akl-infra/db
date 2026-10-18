@@ -1246,4 +1246,4 @@ top approved speed** (a tie goes to the earliest approval), sorted `wpm`
 descending then `approved_at` ascending, not paginated, ETag/304 like the
 other public reads; records on a deleted layout are hidden. Events:
 `wpm_submitted` (only `submission_id` — no speed or proof while pending),
-`wpm_approved` (`user_id`, `wpm`, `proof`) and `wpm_rejected`.
+`wpm_approved` (`user_id`, `wpm`, `proof`) and `wpm_rejected` (only `submission_id`).

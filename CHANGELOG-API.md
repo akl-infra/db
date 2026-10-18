@@ -42,9 +42,9 @@ an integer 1..1000; `proof` is an absolute `http(s)` URL with a host, at
 most 512 characters; refusals are `400 invalid_wpm` / `400 invalid_proof`.
 Three new event kinds, `wpm_submitted` (carries only `submission_id`: no
 speed or proof while pending), `wpm_approved` (`layout_id`, `user_id`,
-`wpm`, `proof`) and `wpm_rejected`; readers that ignore unknown kinds are
-unaffected, and `kinds=` accepts the new names. The nightly dump gains a
-`wpm_submissions` array (absent from older dumps; restore reads it as empty).
+`wpm`, `proof`) and `wpm_rejected` (carries only `submission_id`; the reason stays in the admin queue); readers that ignore unknown kinds are
+unaffected, and `kinds=` accepts the new names. The public dump gains a
+`wpm_submissions` array holding only `approved` rows (absent from older dumps; restore reads it as empty).
 No existing field, route or stored value changes meaning, and
 `migrations/0022_wpm_submissions.sql` only adds a table and indexes.
 

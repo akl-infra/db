@@ -132,7 +132,7 @@ async function plantModerationState(db: Bindings["DB"]): Promise<{ likeLayoutId:
         `INSERT INTO wpm_submissions (id, layout_id, user_id, wpm, proof, submitted_by, via, submitted_at, status, decided_by, decided_at, reason, notified_at)
          VALUES (?, ?, ?, ?, ?, ?, 'discord', ?, ?, ?, ?, ?, ?)`,
       )
-      .bind(ulid(), wpmLayoutId, "800000000000000004", wpm, proof, "800000000000000004", clock(), status, decidedAt === null ? null : "800000000000000001", decidedAt, status === "rejected" ? "rehost drill" : null, status === "pending" ? clock() : null)
+      .bind(ulid(), wpmLayoutId, "800000000000000004", wpm, proof, "800000000000000004", clock(), status, decidedAt === null ? null : "800000000000000001", decidedAt, status === "rejected" ? "rehost wpm private reason" : null, status === "pending" ? clock() : null)
       .run();
   }
 
@@ -250,11 +250,13 @@ describe("rehost drill", () => {
       const dumpText = JSON.stringify(dump);
       for (const secret of ["rehost-pending", "rehost-rejected", "rehost private reason"]) expect(dumpText.includes(secret), secret).toBe(false);
       expect(dump.events.find((e) => e.kind === "link_submitted" && e.layout_id === ids.pendingLayoutId)?.detail_json).toBe('{"submission_id":"01REHOSTOLD"}');
-      // [LDB-WPM10] every status the planted layout holds is in the dump, proofs intact.
+      // [LDB-WPM10] only the APPROVED wpm row is dumped, proof intact; the
+      // pending / rejected / superseded ones (and their proofs) are not.
       const plantedWpm = dump.wpm_submissions.filter((s) => s.layout_id === ids.wpmLayoutId);
-      expect(plantedWpm.map((s) => s.status).sort()).toEqual(["approved", "pending", "rejected", "superseded"]);
-      expect(plantedWpm.find((s) => s.status === "approved")?.proof).toBe("https://example.org/rehost-wpm-approved");
-      expect(plantedWpm.find((s) => s.status === "pending")?.notified_at).not.toBeNull();
+      expect(plantedWpm.map((s) => s.status)).toEqual(["approved"]);
+      expect(plantedWpm[0]?.proof).toBe("https://example.org/rehost-wpm-approved");
+      expect(dump.wpm_submissions.every((s) => s.status === "approved")).toBe(true);
+      for (const secret of ["rehost-wpm-pending", "rehost-wpm-rejected", "rehost-wpm-superseded", "rehost wpm private reason"]) expect(dumpText.includes(secret), secret).toBe(false);
       const likeRecord = dump.records.find((r) => r.id === ids.likeLayoutId);
       expect(likeRecord?.like_count).toBe(2);
       expect(dump.likes.filter((l) => l.layout_id === ids.likeLayoutId)).toHaveLength(2);
@@ -303,7 +305,7 @@ describe("rehost drill", () => {
         .prepare("SELECT id, layout_id, user_id, wpm, proof, submitted_by, via, submitted_at, status, decided_by, decided_at, reason, notified_at FROM wpm_submissions ORDER BY id ASC")
         .all<WpmSubmissionDbRow>();
       expect(canonical(restoredWpm.results)).toBe(canonical(dump.wpm_submissions));
-      expect(restoredWpm.results.filter((s) => s.layout_id === ids.wpmLayoutId)).toHaveLength(4);
+      expect(restoredWpm.results.filter((s) => s.layout_id === ids.wpmLayoutId)).toHaveLength(1); // the approved one; the rest is lost by design
 
       const likeLayout = await db.prepare("SELECT like_count FROM layouts WHERE id = ?").bind(ids.likeLayoutId).first<{ like_count: number }>();
       expect(likeLayout?.like_count).toBe(2);

@@ -480,7 +480,8 @@ describe("[LDB-WPM7] events: one per action, nothing private in the public feed"
     const events = (await feedFor(id)).filter((e) => e.kind.startsWith("wpm_"));
     expect(events.map((e) => e.kind)).toEqual(["wpm_submitted", "wpm_approved", "wpm_submitted", "wpm_rejected"]);
     expect(events[1]).toMatchObject({ actor: BOOTSTRAP_ADMIN, admin: true, layout_id: id, detail: { submission_id: first.submission.id, user_id: user, wpm: 91, proof: "https://example.org/approve-me" } });
-    expect(events[3]).toMatchObject({ admin: true, detail: { submission_id: second.submission.id, user_id: user, reason: "cannot see the keyboard" } });
+    expect(events[3]).toMatchObject({ admin: true, detail: { submission_id: second.submission.id } });
+    expect(JSON.stringify(events[3])).not.toContain("cannot see the keyboard");
     expect(JSON.stringify(events[3])).not.toContain("reject-me");
     expect(JSON.stringify(events[3])).not.toContain('"wpm"');
 
@@ -488,6 +489,24 @@ describe("[LDB-WPM7] events: one per action, nothing private in the public feed"
     for (const kind of ["wpm_submitted", "wpm_approved", "wpm_rejected"]) {
       expect((await writeFetch(`/v1/changes?kinds=${kind}&limit=1`, "GET")).status).toBe(200);
     }
+  });
+
+  it("[LDB-WPM7] a wpm_submitted / wpm_rejected row stored with speed, proof or reason in its detail is redacted on read", async () => {
+    const { id, name } = await createLayout(testUserId());
+    for (const [kind, detail] of [
+      ["wpm_submitted", { submission_id: "01OLDWPM", wpm: 777, proof: "https://example.org/old-secret-proof" }],
+      ["wpm_rejected", { submission_id: "01OLDWPM", user_id: "1", reason: "old private reason" }],
+    ] as const) {
+      await db
+        .prepare(
+          `INSERT INTO events (at, kind, layout_id, name, owner, format, rev, actor, via, admin, detail_json, before_json, after_json, source_client, source_version)
+           VALUES (?, ?, ?, ?, 'o', NULL, NULL, 'a', 'discord', 0, ?, NULL, NULL, NULL, NULL)`,
+        )
+        .bind(clock(), kind, id, name, JSON.stringify(detail))
+        .run();
+    }
+    const events = (await feedFor(id)).filter((e) => e.kind.startsWith("wpm_"));
+    expect(events.map((e) => e.detail)).toEqual([{ submission_id: "01OLDWPM" }, { submission_id: "01OLDWPM" }]);
   });
 
   it("[LDB-WPM7] the on-behalf entry is exactly one wpm_approved event attributed to the admin", async () => {
