@@ -50,6 +50,11 @@ documented loss, like `alts`: mana2 has no wildcard and its `_` is literal);
 mana2 -> spark import is unaffected. No stored payload changes meaning and no
 migration is needed (no stored `after` is anything but a string); a `/v1`
 reader that ignores unknown `after` shapes and `default` kinds is unaffected.
+LDB-F51 (§2e): a chiral key may carry `"skip": true` (any other value is
+refused): it picks `same`/`opposite` by the hand of the character two back,
+and compiles to one array row `[c, null, key] -> [c, null, out]` per board
+character with a hand (`out` = `c` for `{"kind":"repeat"}`, else the
+literal); a chiral key without it compiles as before.
 
 ## 1.19 — 2026-09-30
 

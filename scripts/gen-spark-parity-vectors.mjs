@@ -201,7 +201,9 @@ function buildRefusedVector([cells, rs]) {
 // checks its own compile of them too. Appended after the refused ones; every earlier vector is unchanged.
 const SKIP_KEYS = [['a', 'LI'], ['b', 'LM'], ['c', 'LR'], ['_', 'LP'], ['x', 'RI'], ['y', 'RM'], ['*', 'RR'], ['@', 'RP']].map(([char, finger], i) => ({ char, row: i % 3, col: i, finger }));
 const SKIP_MAGIC = [
-  { magic_keys: [{ key: '*', rules: [{ after: ['a', null], emit: 'b' }, { after: ['_', null], emit: ' ' }, { after: 'c', emit: 'x' }] }], chiral_keys: [], adaptive_swaps: [] },
+  // (no one-back rule on the skip key: akl.gg's compile adds its static skip tiebreak rows there, design/alts/43 section 2d, which
+  // akldb leaves to the clients; `c` on another key keeps a one-back rule in the vector)
+  { magic_keys: [{ key: '*', rules: [{ after: ['a', null], emit: 'b' }, { after: ['_', null], emit: ' ' }] }, { key: '@', rules: [{ after: 'c', emit: 'x' }] }], chiral_keys: [], adaptive_swaps: [] },
   { magic_keys: [{ key: '*', default: { kind: 'skip_repeat' }, rules: [{ after: ['b', null], emit: 'x' }] }, { key: '@', default: { kind: 'repeat' }, rules: [] }], chiral_keys: [], adaptive_swaps: [] },
 ];
 

@@ -3807,6 +3807,17 @@
                           }
                         }
                       }
+                    },
+                    "skip": {
+                      "type": "object",
+                      "fields": {
+                        "const": {
+                          "type": "boolean"
+                        },
+                        "description": {
+                          "type": "string"
+                        }
+                      }
                     }
                   }
                 },

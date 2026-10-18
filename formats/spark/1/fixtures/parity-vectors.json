@@ -49928,7 +49928,12 @@
                 null
               ],
               "emit": " "
-            },
+            }
+          ]
+        },
+        {
+          "key": "@",
+          "rules": [
             {
               "after": "c",
               "emit": "x"
@@ -49967,7 +49972,7 @@
         "type": "magic"
       },
       {
-        "inputs": "c*",
+        "inputs": "c@",
         "output": "cx",
         "type": "magic"
       }

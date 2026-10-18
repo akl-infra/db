@@ -204,7 +204,8 @@ export async function readHead(db: D1Database, stateKeys: readonly string[] = []
 // 20 (2026-10-18, LDB-F48..F50, design/alts/43-skip-magic-wire.md): spark/1's
 //   `magic_keys[].rules[].after` may also be a 2-item array `[a, b | null]`
 //   (`[a, null]` = a skip rule, "after `a` and any one character"), and a
-//   magic key may default to `{"kind":"skip_repeat"}`. The compiled rows of
+//   magic key may default to `{"kind":"skip_repeat"}`; a chiral key may carry `"skip": true` (LDB-F51,
+//   section 2e: same/opposite by the hand two back, array rows). The compiled rows of
 //   such a payload carry array `inputs`/`output` (null = the any-middle
 //   wildcard); `?as=mana2/1` drops them (a documented loss). Purely
 //   additive: every string-only payload validates and lowers as before; no
