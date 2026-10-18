@@ -244,3 +244,17 @@ describe("[LDB-F48] cmini import never yields an array row", () => {
     expect(withMagic).toBeGreaterThan(3);
   });
 });
+
+describe("[LDB-F48] a skip rule's characters are magic-named (LDB-F33)", () => {
+  it("[LDB-F48] refuses [a, null] / [a, b] when a or b sits on more than one position, as a string `after` does", () => {
+    const dup = (after: unknown, ch: string) => {
+      const p = rule(after);
+      p.keys.push({ char: ch, row: 3, col: 0, finger: "LP" });
+      return p;
+    };
+    expect(refusal(dup(["a", null], "a"))?.error).toBe("magic_needs_unique_key");
+    expect(refusal(dup(["a", "b"], "b"))?.error).toBe("magic_needs_unique_key");
+    expect(refusal(dup("a", "a"))?.error).toBe("magic_needs_unique_key");
+    expect(ok(dup(["a", null], "c"))).toEqual({ ok: true }); // the null names nothing
+  });
+});
