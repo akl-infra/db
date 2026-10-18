@@ -8,10 +8,12 @@ export interface DiffPart {
   text: string;
 }
 
-/** Splits into alternating word and whitespace tokens, whitespace kept, so
- * joining the tokens reproduces the input exactly (newlines included). */
+/** Splits into words, runs of spaces and runs of line breaks, all kept, so
+ * joining the tokens reproduces the input exactly. A line break (or a blank
+ * line, a paragraph break) is its own token: a changed paragraph structure
+ * shows as a change, and Current / Proposed keep their paragraphs. */
 export function tokenize(s: string): string[] {
-  return s.length === 0 ? [] : (s.match(/\s+|\S+/g) ?? []);
+  return s.length === 0 ? [] : (s.match(/[\r\n]+|[^\S\r\n]+|\S+/g) ?? []);
 }
 
 // A longest-common-subsequence table is |a| x |b| cells. A comment is at most

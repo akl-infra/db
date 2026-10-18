@@ -91,6 +91,37 @@ describe("[SITE-44] Inbox comment details", () => {
     expect(html).toContain("&lt;img");
   });
 
+  it("keeps the author's paragraphs and line breaks in the text (the stylesheet preserves them), proportional, nothing parsed", async () => {
+    const html = await details(row({ body: "para one line a\nline b\n\npara two" }));
+    expect(html).toContain("para one line a\nline b\n\npara two");
+    expect(html).not.toContain("<br");
+    const css = (await import("node:fs")).readFileSync(new URL("../../src/styles.css", import.meta.url), "utf8");
+    const rule = css.match(/\n\.akl-comment-text \{[^}]*\}/)![0];
+    expect(rule).toContain("white-space: pre-wrap");
+    expect(rule).toContain("font-family: var(--font-display)");
+    expect(rule).toMatch(/line-height: 1\.[5-6]/);
+  });
+
+  it("markdown and links are shown literally: no emphasis, no anchor, no HTML from a body", async () => {
+    const html = await details(row({ body: "**bold** _it_ `code` [x](https://example.org/a) https://example.org/b <b>hi</b> <script>boom()</script>" }));
+    expect(html).toContain("**bold** _it_ `code` [x](https://example.org/a) https://example.org/b");
+    expect(html).not.toMatch(/<(strong|em|code|a|b|script)[\s>]/);
+    expect(html).toContain("&lt;b>hi&lt;/b>");
+  });
+
+  it("a changed paragraph break is visible in the diff: Current and Proposed keep their own paragraphs, the break part carries a pilcrow", async () => {
+    const html = await details(row({ live_body: "one\n\ntwo", body: "one\ntwo" }));
+    const current = html.slice(html.indexOf(copy.admin.inbox.commentCurrent), html.indexOf(copy.admin.inbox.commentProposed));
+    const proposed = html.slice(html.indexOf(copy.admin.inbox.commentProposed));
+    expect(current).toMatch(/<del[^>]*>(<span[^>]*>¶<\/span>)?\n\n<\/del>/);
+    expect(proposed).toMatch(/<ins[^>]*>(<span[^>]*>¶<\/span>)?\n<\/ins>/);
+    expect(current).toContain("one");
+    expect(current).toContain("two");
+    expect(proposed).toContain("two");
+    expect(current).not.toContain("<ins");
+    expect(proposed).not.toContain("<del");
+  });
+
   it("an erased text shows the erased notice instead of a body", async () => {
     const html = await details(row({ body: null }));
     expect(html).toContain(copy.admin.inbox.commentErased);
@@ -103,6 +134,11 @@ describe("[SITE-44] the layout page's comment list", () => {
     { id: "c2", user_id: "100000000000000002", name: null, body: "second comment", approved_at: "2026-10-17T00:00:00.000Z", edited: true, likes: 1 },
   ];
   const list = (isAdmin: boolean) => render(async () => ({ default: (await import("../../src/ui/LayoutComments.tsx")).CommentList as never }), { comments, isAdmin, onRemoved: () => {} });
+
+  it("renders each comment in the shared plain-text class (proportional, line breaks kept) with the text escaped", async () => {
+    const html = await list(false);
+    expect(html).toContain('<p class="akl-comment-text">');
+  });
 
   it("lists every approved comment as escaped text with its date, and marks an edited one", async () => {
     const html = await list(false);

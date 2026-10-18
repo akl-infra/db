@@ -10,6 +10,12 @@ export function isCommentEdit(row: CommentQueueRow): boolean {
   return row.live_body !== null && row.body !== null;
 }
 
+/** A changed part that is only line breaks: drawn with a pilcrow so the change
+ * is visible (whitespace alone has nothing to colour). */
+function isBreak(text: string): boolean {
+  return /^[\r\n]+$/.test(text);
+}
+
 /** One block of comment text: whole text, long text clamped behind "Read all"
  * (a mark is never hidden, see `clampParts`). Rendered as text nodes with the
  * line breaks kept, never as markup. `mark` says how a changed part is drawn:
@@ -29,10 +35,20 @@ const TextBlock: Component<{ parts: DiffPart[]; label?: string }> = (props) => {
                 <span>{part.text}</span>
               </Show>
               <Show when={part.op === "del"}>
-                <del>{part.text}</del>
+                <del>
+                  <Show when={isBreak(part.text)}>
+                    <span class="akl-nl" aria-hidden="true">¶</span>
+                  </Show>
+                  {part.text}
+                </del>
               </Show>
               <Show when={part.op === "ins"}>
-                <ins>{part.text}</ins>
+                <ins>
+                  <Show when={isBreak(part.text)}>
+                    <span class="akl-nl" aria-hidden="true">¶</span>
+                  </Show>
+                  {part.text}
+                </ins>
               </Show>
             </>
           )}
