@@ -6,10 +6,10 @@ import type { LinkSubmissionStatus } from "../../lib/types.ts";
 import { loadInbox, type InboxItem } from "../../lib/inbox.ts";
 import { createAsync } from "../../lib/asyncData.ts";
 import { loadErrorMessage } from "../../lib/apiError.ts";
-import { safeProofLink } from "../../lib/safelink.ts";
 import { formatWhen } from "../../lib/time.ts";
 import { authorName } from "../../lib/authorNames.ts";
 import AuthorRef from "../../ui/AuthorRef.tsx";
+import ProofLink from "../../ui/ProofLink.tsx";
 import { onLinkClick } from "../../router.ts";
 
 const STATUSES: LinkSubmissionStatus[] = ["pending", "approved", "rejected", "superseded"];
@@ -26,22 +26,6 @@ function statusLabel(status: LinkSubmissionStatus): string {
       return copy.admin.inbox.statusSuperseded;
   }
 }
-
-/** A WPM row's proof: the visible text is the hostname and the href is used
- * only if it re-parses as http(s) here (`safeProofLink`), opened in a new
- * tab with `noopener` -- the proof is a stranger's page. */
-const ProofLink: Component<{ proof: string }> = (props) => {
-  const link = () => safeProofLink(props.proof);
-  return (
-    <Show when={link()} fallback={<span class="akl-muted">{props.proof}</span>} keyed>
-      {(l) => (
-        <a href={l.href} target="_blank" rel="noopener" title={l.href}>
-          {l.hostname}
-        </a>
-      )}
-    </Show>
-  );
-};
 
 /** A person: their name and, unbroken beside it, their id -- or the id alone
  * when no name resolves (never the same text twice). */
