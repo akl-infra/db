@@ -878,6 +878,18 @@ h2 {
 .akl-speed-form input[aria-invalid="true"] {
   border-color: var(--danger, currentColor);
 }
+.akl-id {
+  white-space: nowrap;
+}
+.akl-url {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 560px) {
+  /* Stacked cards: line up under the value column, past the 84px label. */
+  .akl-table .akl-decision {
+    margin-left: 84px;
+  }
+}
 .akl-speed-result {
   margin: 12px 0 0;
 }
