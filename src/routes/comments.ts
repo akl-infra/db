@@ -12,7 +12,7 @@ import type { Bindings } from "../env";
 import * as comments from "../core/comments";
 import { badRequest, notAdmin, notFound } from "../core/errors";
 import { cachePut, conditional, etagFor, readHead } from "../core/etag";
-import { notifyPending } from "../core/modqueue";
+import { announceComment } from "../core/modqueue";
 import { byRef } from "../core/records";
 import { systemClock, type Clock } from "../core/time";
 import { parseCommentBody, parseLinkRejectBody } from "./schemas";
@@ -88,11 +88,11 @@ export function commentsRoute(authDeps: AuthDeps) {
     const body = parseCommentBody(await readJson(c.req));
     const layout = await comments.resolveCommentLayout(c.env.DB, c.req.param("ref"));
     const result = await comments.submitComment(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), layout.id, body.body);
-    // [LDB-CMT8] A fresh `queued` submission is announced right away rather
-    // than waiting for the next 5-minute cron tick, same as links and speeds
-    // (`notifyPending` never throws and is free with the webhook unset).
+    // [LDB-CMT8] A freshly pending comment is announced once, best effort,
+    // here and only here (no `notified_at`, no cron sweep, no retry);
+    // `announceComment` never throws and is free with the webhook unset.
     if (result.kind === "queued") {
-      c.executionCtx.waitUntil(notifyPending(c.env.DB, c.env, resolveNow(c.env)));
+      c.executionCtx.waitUntil(announceComment(c.env.DB, c.env, result.submission.id));
     }
     return c.json({ submission: result.submission }, result.kind === "approved" ? 201 : 202);
   });

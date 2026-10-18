@@ -310,13 +310,13 @@ export function restoreSql(dump: Dump): string[] {
   );
 
   // [LDB-CMT10] migrations/0023: absent entirely from a dump written before
-  // it (`?? []`), every dumped (approved) row restored whole -- the
-  // notifier's claim included.
+  // it (`?? []`), every dumped (approved) row restored whole
+  // (comments have no `notified_at`, so there is no notifier claim to keep).
   statements.push(
     ...chunkedInserts(
       "INSERT INTO layout_comments",
-      ["id", "layout_id", "user_id", "body", "via", "submitted_at", "status", "decided_by", "decided_at", "reason", "notified_at"],
-      (dump.layout_comments ?? []).map((r) => ({ ...r, notified_at: r.notified_at ?? null })),
+      ["id", "layout_id", "user_id", "body", "via", "submitted_at", "status", "decided_by", "decided_at", "reason"],
+      (dump.layout_comments ?? []).map((r) => ({ ...r })),
     ),
   );
 

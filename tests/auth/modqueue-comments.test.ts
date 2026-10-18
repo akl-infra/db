@@ -1,14 +1,13 @@
 // [LDB-CMT8] Mod-queue Discord notify for layout comments
-// (`src/core/modqueue.ts`, docs/decisions/29-layout-comments.md): the same
-// at-most-once claim pattern as links (LDB-MD11/LDB-MD12), one sweep per
-// queue table. Same "fake the outside service, count calls" approach as
+// (`src/core/modqueue.ts`, docs/decisions/29-layout-comments.md): announced on
+// submit, best effort, never by the cron (no `notified_at` column). Same "fake the outside service, count calls" approach as
 // tests/auth/modqueue.test.ts; no wall-clock assertions anywhere.
 import { SELF, env } from "cloudflare:test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ulid } from "ulidx";
 import type { Bindings } from "../../src/env";
 import { commitWrite, type CommitInput } from "../../src/core/events";
-import { buildCommentMessageContent, buildMessageContent, notifyPending } from "../../src/core/modqueue";
+import { announceComment, buildCommentMessageContent, notifyPending } from "../../src/core/modqueue";
 import { fixedClock } from "../../src/core/time";
 import { actorFixture, register } from "../api/write-support";
 
@@ -56,8 +55,8 @@ async function insertComment(o: { layoutId: string; userId: string; body?: strin
   const id = ulid();
   await db
     .prepare(
-      `INSERT INTO layout_comments (id, layout_id, user_id, body, via, submitted_at, status, decided_by, decided_at, reason, notified_at)
-       VALUES (?, ?, ?, ?, 'discord', ?, ?, NULL, NULL, NULL, NULL)`,
+      `INSERT INTO layout_comments (id, layout_id, user_id, body, via, submitted_at, status, decided_by, decided_at, reason)
+       VALUES (?, ?, ?, ?, 'discord', ?, ?, NULL, NULL, NULL)`,
     )
     .bind(id, o.layoutId, o.userId, o.body ?? "a comment", clock(), o.status ?? "pending")
     .run();
@@ -78,12 +77,6 @@ async function insertLink(layoutId: string, submittedBy: string): Promise<string
 
 async function insertAuthor(userId: string, name: string): Promise<void> {
   await db.prepare("INSERT INTO authors (user_id, name, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?)").bind(userId, name, clock(), clock()).run();
-}
-
-async function readComment(id: string): Promise<{ status: string; notified_at: string | null }> {
-  const row = await db.prepare("SELECT status, notified_at FROM layout_comments WHERE id = ?").bind(id).first<{ status: string; notified_at: string | null }>();
-  if (row === null) throw new Error(`no such comment '${id}'`);
-  return row;
 }
 
 async function layoutName(layoutId: string): Promise<string> {
@@ -113,15 +106,14 @@ class FakeWebhook {
   }
 }
 
-describe("[LDB-CMT8] notifyPending covers the comment queue", () => {
+describe("[LDB-CMT8] comments are announced on submit, best effort, never by the cron", () => {
   it("[LDB-CMT8] a pending comment is announced once: layout link, author, length, the text in quotes, and the inbox link; it stays pending", async () => {
     const layoutId = await freshLayout(uniqueName("modq-cmt-happy"));
     await insertAuthor("900000000000000210", "Kind Commenter");
     const subId = await insertComment({ layoutId, userId: "900000000000000210", body: "Great home row, I use it daily" });
 
     const webhook = new FakeWebhook();
-    await notifyPending(db, envWith(WEBHOOK_URL), clock, webhook.fetchImpl);
-    await notifyPending(db, envWith(WEBHOOK_URL), clock, webhook.fetchImpl); // a second sweep never re-sends
+    await announceComment(db, envWith(WEBHOOK_URL), subId, webhook.fetchImpl);
 
     const sent = webhook.about(subId);
     expect(sent).toHaveLength(1);
@@ -132,16 +124,15 @@ describe("[LDB-CMT8] notifyPending covers the comment queue", () => {
     expect(first).toBe(`New comment on **[${await layoutName(layoutId)}](<https://akldb.org/l/${layoutId}>)** by Kind Commenter (30 chars): "Great home row, I use it daily"`);
     expect(second).toBe(`[Open the inbox](<https://akldb.org/admin?tab=inbox>) \u00b7 submission \`${subId}\``);
 
-    const after = await readComment(subId);
-    expect(after.status).toBe("pending");
-    expect(after.notified_at).not.toBeNull();
+    const row = await db.prepare("SELECT status FROM layout_comments WHERE id = ?").bind(subId).first<{ status: string }>();
+    expect(row?.status).toBe("pending");
   });
 
   it("[LDB-CMT8] no author row: the message falls back to the raw user id", async () => {
     const layoutId = await freshLayout(uniqueName("modq-cmt-noauthor"));
     const subId = await insertComment({ layoutId, userId: "900000000000000211" });
     const webhook = new FakeWebhook();
-    await notifyPending(db, envWith(WEBHOOK_URL), clock, webhook.fetchImpl);
+    await announceComment(db, envWith(WEBHOOK_URL), subId, webhook.fetchImpl);
     expect(webhook.about(subId)[0]!.body.content).toContain("by 900000000000000211 (9 chars)");
   });
 
@@ -151,7 +142,7 @@ describe("[LDB-CMT8] notifyPending covers the comment queue", () => {
     await insertComment({ layoutId, userId, body: "the old live text", status: "approved" });
     const subId = await insertComment({ layoutId, userId, body: "the rewritten secret text" });
     const webhook = new FakeWebhook();
-    await notifyPending(db, envWith(WEBHOOK_URL), clock, webhook.fetchImpl);
+    await announceComment(db, envWith(WEBHOOK_URL), subId, webhook.fetchImpl);
     const content = webhook.about(subId)[0]!.body.content;
     expect(content.startsWith("Edited comment on **[")).toBe(true);
     expect(content).toContain(` by ${userId} (25 chars)\n[Open the inbox]`);
@@ -176,70 +167,53 @@ describe("[LDB-CMT8] notifyPending covers the comment queue", () => {
     expect(rich).toContain("(<https://akldb.org/l/01BX5ZZKBKACTAV9WEVGEMMVRY>)");
   });
 
-  it("[LDB-CMT8] links, WPM and comments are all announced in one sweep, each exactly once", async () => {
-    const layoutId = await freshLayout(uniqueName("modq-cmt-both"));
-    const linkId = await insertLink(layoutId, "900000000000000214");
+  it("[LDB-CMT8] the cron sweep never announces a comment, and layout_comments has no notified_at column", async () => {
+    const layoutId = await freshLayout(uniqueName("modq-cmt-cron"));
     const subId = await insertComment({ layoutId, userId: "900000000000000214" });
     const webhook = new FakeWebhook();
-    await Promise.all([notifyPending(db, envWith(WEBHOOK_URL), clock, webhook.fetchImpl), notifyPending(db, envWith(WEBHOOK_URL), clock, webhook.fetchImpl)]);
-    expect(webhook.about(linkId)).toHaveLength(1);
-    expect(webhook.about(subId)).toHaveLength(1);
-    expect(webhook.about(linkId)[0]!.body.content).toContain("link submission");
-    expect(buildMessageContent({ id: "x", layout_id: "y", url: "https://example.org/x", submitted_by: "1", layout_name: "n", submitter_name: null })).toContain("tab=inbox");
+    await notifyPending(db, envWith(WEBHOOK_URL), clock, webhook.fetchImpl);
+    expect(webhook.about(subId)).toHaveLength(0);
+    const cols = await db.prepare("SELECT name FROM pragma_table_info('layout_comments')").all<{ name: string }>();
+    expect(cols.results.map((c) => c.name)).not.toContain("notified_at");
   });
 
-  it("[LDB-CMT8] three concurrent calls (submit-path + cron-path racing) never double-announce the same comment", async () => {
-    const layoutId = await freshLayout(uniqueName("modq-cmt-race"));
-    const subId = await insertComment({ layoutId, userId: "900000000000000215" });
-    const webhook = new FakeWebhook();
-    await Promise.all([
-      notifyPending(db, envWith(WEBHOOK_URL), clock, webhook.fetchImpl),
-      notifyPending(db, envWith(WEBHOOK_URL), clock, webhook.fetchImpl),
-      notifyPending(db, envWith(WEBHOOK_URL), clock, webhook.fetchImpl),
-    ]);
-    expect(webhook.about(subId)).toHaveLength(1);
-  });
-
-  it("[LDB-CMT8] a webhook failure (non-2xx, thrown, or 429) releases the claim so a later sweep re-sends", async () => {
+  it("[LDB-CMT8] a failed post (non-2xx, thrown, 429) is dropped: no retry, no D1 write, no throw", async () => {
     const layoutId = await freshLayout(uniqueName("modq-cmt-fail"));
     const subId = await insertComment({ layoutId, userId: "900000000000000216" });
+    const before = await db.prepare("SELECT * FROM layout_comments WHERE id = ?").bind(subId).first();
     for (const outcome of [500, "throw", 429] as const) {
       const failing = new FakeWebhook(() => outcome);
-      await notifyPending(db, envWith(WEBHOOK_URL), clock, failing.fetchImpl);
-      expect(failing.about(subId), String(outcome)).toHaveLength(1);
-      expect((await readComment(subId)).notified_at, String(outcome)).toBeNull();
+      await expect(announceComment(db, envWith(WEBHOOK_URL), subId, failing.fetchImpl)).resolves.toBeUndefined();
+      expect(failing.about(subId), String(outcome)).toHaveLength(1); // exactly one attempt
     }
-    const succeeding = new FakeWebhook();
-    await notifyPending(db, envWith(WEBHOOK_URL), clock, succeeding.fetchImpl);
-    expect(succeeding.about(subId)).toHaveLength(1);
-    expect((await readComment(subId)).notified_at).not.toBeNull();
+    expect(await db.prepare("SELECT * FROM layout_comments WHERE id = ?").bind(subId).first()).toEqual(before);
+    // and a later sweep of any kind does not re-send it
+    const later = new FakeWebhook();
+    await notifyPending(db, envWith(WEBHOOK_URL), clock, later.fetchImpl);
+    expect(later.about(subId)).toHaveLength(0);
   });
 
-  it("[LDB-CMT8] a superseded, approved, rejected, deleted or removed comment is never announced", async () => {
+  it("[LDB-CMT8] only a still-pending comment with a text is announced: superseded, approved, rejected, deleted, removed and replaced rows are not", async () => {
     const layoutId = await freshLayout(uniqueName("modq-cmt-decided"));
-    const ids: string[] = [];
-    for (const [i, status] of ["superseded", "approved", "rejected", "deleted", "removed", "replaced"].entries()) {
-      ids.push(await insertComment({ layoutId, userId: `90000000000000022${i}`, status }));
-    }
     const webhook = new FakeWebhook();
-    await notifyPending(db, envWith(WEBHOOK_URL), clock, webhook.fetchImpl);
-    for (const id of ids) {
-      expect(webhook.about(id)).toHaveLength(0);
-      expect((await readComment(id)).notified_at).toBeNull();
+    for (const [i, status] of ["superseded", "approved", "rejected", "deleted", "removed", "replaced"].entries()) {
+      const id = await insertComment({ layoutId, userId: `90000000000000022${i}`, status });
+      await announceComment(db, envWith(WEBHOOK_URL), id, webhook.fetchImpl);
     }
+    await announceComment(db, envWith(WEBHOOK_URL), "no-such-comment", webhook.fetchImpl);
+    expect(webhook.requests).toHaveLength(0);
   });
 
-  it("[LDB-CMT8] MODQUEUE_DISCORD_WEBHOOK unset (or empty) is a complete no-op for comments too: no fetch, no notified_at write", async () => {
+  it("[LDB-CMT8] MODQUEUE_DISCORD_WEBHOOK unset (or empty) is a complete no-op for comments too: no fetch", async () => {
     const layoutId = await freshLayout(uniqueName("modq-cmt-unset"));
     const subId = await insertComment({ layoutId, userId: "900000000000000217" });
     const webhook = new FakeWebhook();
-    await notifyPending(db, envWith(undefined), clock, webhook.fetchImpl);
-    await notifyPending(db, envWith(""), clock, webhook.fetchImpl);
+    await announceComment(db, envWith(undefined), subId, webhook.fetchImpl);
+    await announceComment(db, envWith(""), subId, webhook.fetchImpl);
     expect(webhook.requests).toHaveLength(0);
-    expect(await readComment(subId)).toEqual({ status: "pending", notified_at: null });
   });
 
-  it("[LDB-CMT8] the submit path announces a fresh queued comment through waitUntil (webhook set), without waiting for the cron", async () => {
+  it("[LDB-CMT8] PUT announces a fresh queued comment through waitUntil (webhook set), and an admin's own approved comment is not announced", async () => {
     const fake = actorFixture();
     const user = "900000000000000218";
     const auth = register(fake, "tok-cmt-modq-route", user);
@@ -261,5 +235,18 @@ describe("[LDB-CMT8] notifyPending covers the comment queue", () => {
     for (let i = 0; i < 500 && webhook.about(submission.id).length === 0; i++) await new Promise((r) => setTimeout(r, 10));
     expect(webhook.about(submission.id)).toHaveLength(1);
     expect(webhook.about(submission.id)[0]!.body.content).toContain('"announce me please"');
+
+    // An admin's own comment is approved at once, never pending: no announcement.
+    const admin = register(fake, "tok-cmt-modq-admin", "184412255822020608");
+    const before = webhook.requests.length;
+    const own = await SELF.fetch(`https://example.com/v1/layouts/${layoutId}/comment`, {
+      method: "PUT",
+      headers: { ...admin, "Content-Type": "application/json" },
+      body: JSON.stringify({ body: "admin speaks" }),
+    });
+    expect(own.status).toBe(201);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(webhook.requests).toHaveLength(before);
   });
 });
+

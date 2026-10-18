@@ -139,8 +139,7 @@ async function plantModerationState(db: Bindings["DB"]): Promise<{ likeLayoutId:
 
   // [LDB-CMT10] layout comments, one per status the table can hold. Only the
   // approved row is dumped; the erased ones carry no body, the pending and
-  // rejected ones a private text that must stay out of the dump. The approved
-  // row carries a notifier claim, kept so a rehost doesn't re-announce it.
+  // rejected ones a private text that must stay out of the dump.
   const commentLayoutId = await freshLayout("rehost-plant-comment");
   const commentRows: [string, string | null, string | null][] = [
     ["pending", "rehost comment pending text", null],
@@ -154,10 +153,10 @@ async function plantModerationState(db: Bindings["DB"]): Promise<{ likeLayoutId:
   for (const [status, body, decidedAt] of commentRows) {
     await db
       .prepare(
-        `INSERT INTO layout_comments (id, layout_id, user_id, body, via, submitted_at, status, decided_by, decided_at, reason, notified_at)
-         VALUES (?, ?, ?, ?, 'discord', ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO layout_comments (id, layout_id, user_id, body, via, submitted_at, status, decided_by, decided_at, reason)
+         VALUES (?, ?, ?, ?, 'discord', ?, ?, ?, ?, ?)`,
       )
-      .bind(ulid(), commentLayoutId, "800000000000000005", body, clock(), status, decidedAt === null ? null : "800000000000000001", decidedAt, status === "rejected" || status === "removed" ? "rehost comment private reason" : null, status === "approved" ? clock() : null)
+      .bind(ulid(), commentLayoutId, "800000000000000005", body, clock(), status, decidedAt === null ? null : "800000000000000001", decidedAt, status === "rejected" || status === "removed" ? "rehost comment private reason" : null)
       .run();
   }
 
@@ -332,20 +331,19 @@ describe("rehost drill", () => {
       expect(restoredSubmissions.results.every((s) => s.status === "approved")).toBe(true);
       expect(restoredSubmissions.results.some((s) => s.layout_id === ids.pendingLayoutId)).toBe(false);
 
-      // [LDB-WPM10] the WPM table round-trips byte-exact, notifier claim included.
+      // [LDB-WPM10] the WPM table round-trips byte-exact.
       const restoredWpm = await db
         .prepare("SELECT id, layout_id, user_id, wpm, proof, submitted_by, via, submitted_at, status, decided_by, decided_at, reason, notified_at FROM wpm_submissions ORDER BY id ASC")
         .all<WpmSubmissionDbRow>();
       expect(canonical(restoredWpm.results)).toBe(canonical(dump.wpm_submissions));
       expect(restoredWpm.results.filter((s) => s.layout_id === ids.wpmLayoutId)).toHaveLength(1); // the approved one; the rest is lost by design
 
-      // [LDB-CMT10] the comments table round-trips byte-exact, notifier claim included.
+      // [LDB-CMT10] the comments table round-trips byte-exact.
       const restoredComments = await db
-        .prepare("SELECT id, layout_id, user_id, body, via, submitted_at, status, decided_by, decided_at, reason, notified_at FROM layout_comments ORDER BY id ASC")
+        .prepare("SELECT id, layout_id, user_id, body, via, submitted_at, status, decided_by, decided_at, reason FROM layout_comments ORDER BY id ASC")
         .all<LayoutCommentDbRow>();
       expect(canonical(restoredComments.results)).toBe(canonical(dump.layout_comments));
       expect(restoredComments.results.filter((s) => s.layout_id === ids.commentLayoutId)).toHaveLength(1); // the approved one; the rest is lost by design
-      expect(restoredComments.results.find((s) => s.layout_id === ids.commentLayoutId)?.notified_at).not.toBeNull();
 
       const likeLayout = await db.prepare("SELECT like_count FROM layouts WHERE id = ?").bind(ids.likeLayoutId).first<{ like_count: number }>();
       expect(likeLayout?.like_count).toBe(2);
