@@ -657,7 +657,7 @@ PUT / DELETE /v1/layouts/{ref}/like                                             
 PUT    /v1/layouts/{ref}/link       { url }  (owner or admin)   → 200 (admin: approved) / 202 (owner: queued)
 DELETE /v1/layouts/{ref}/link       (owner or admin)                                → 200
 POST   /v1/wpm                      { layout, wpm, proof }                          → 202 (queued) / 201 (admin: approved)
-PUT    /v1/layouts/{ref}/comment    { body }                                        → 202 (queued) / 201 (admin: approved)
+PUT    /v1/layouts/{ref}/comment    { body }                                        → 202 (queued, admins too)
 DELETE /v1/layouts/{ref}/comment                                                    → 204
 ```
 
@@ -1152,7 +1152,7 @@ silently drift from what `src/index.ts` actually registers.
 | DELETE | `/v1/layouts/:ref/comments/:author_id/like` | user | — | 204 | `bad_request`, `not_found`, lane errors |
 | GET | `/v1/me/comments` | user | — | 200 (`{comments}`) | lane errors |
 | GET | `/v1/layouts/:ref/comment` | user | — | 200 (`{live, pending, decision}`) | `not_found`, lane errors |
-| PUT | `/v1/layouts/:ref/comment` | user | `{body}` | 202 (queued) / 201 (admin: approved) | `bad_request`, `invalid_comment`, `not_found`, lane errors |
+| PUT | `/v1/layouts/:ref/comment` | user | `{body}` | 202 (queued, admins too) | `bad_request`, `invalid_comment`, `not_found`, lane errors |
 | DELETE | `/v1/layouts/:ref/comment` | user | — | 204 | `not_found`, lane errors |
 | GET | `/v1/authors` | none | — | 200 | `bad_request` |
 | GET | `/v1/authors/:user_id` | none | — | 200 | `not_found` |
@@ -1271,7 +1271,7 @@ plain-text comment per user per layout. `body` is a string; `\r\n` and a lone
 refused. A user's comment is queued (`202`, the response is
 `{submission}`); a newer one from the same user supersedes their older pending
 one silently, and the **old approved text stays live until the new one is
-approved**. An admin's own comment is approved at once (`201`). `DELETE`
+approved**. An admin's own comment is queued too (`202`); an admin approves it in the Inbox like any other. `DELETE`
 is immediate, no review (`204`; `404` if none of the caller's comments there
 has a text left): it erases the text of every comment the caller has on that
 layout, rejected and removed ones included, for good. `GET /v1/layouts/{ref}/comments` (public, no auth, ETag/304

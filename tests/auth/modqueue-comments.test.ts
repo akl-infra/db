@@ -213,7 +213,7 @@ describe("[LDB-CMT8] comments are announced on submit, best effort, never by the
     expect(webhook.requests).toHaveLength(0);
   });
 
-  it("[LDB-CMT8] PUT announces a fresh queued comment through waitUntil (webhook set), and an admin's own approved comment is not announced", async () => {
+  it("[LDB-CMT8] PUT announces a fresh queued comment through waitUntil (webhook set), and an admin's own comment is announced too (everything is pending now)", async () => {
     const fake = actorFixture();
     const user = "900000000000000218";
     const auth = register(fake, "tok-cmt-modq-route", user);
@@ -236,17 +236,18 @@ describe("[LDB-CMT8] comments are announced on submit, best effort, never by the
     expect(webhook.about(submission.id)).toHaveLength(1);
     expect(webhook.about(submission.id)[0]!.body.content).toContain('"announce me please"');
 
-    // An admin's own comment is approved at once, never pending: no announcement.
+    // An admin's own comment is pending like everyone's, so it is announced too.
     const admin = register(fake, "tok-cmt-modq-admin", "184412255822020608");
-    const before = webhook.requests.length;
     const own = await SELF.fetch(`https://example.com/v1/layouts/${layoutId}/comment`, {
       method: "PUT",
       headers: { ...admin, "Content-Type": "application/json" },
       body: JSON.stringify({ body: "admin speaks" }),
     });
-    expect(own.status).toBe(201);
-    await new Promise((r) => setTimeout(r, 50));
-    expect(webhook.requests).toHaveLength(before);
+    expect(own.status).toBe(202);
+    const ownId = ((await own.json()) as { submission: { id: string } }).submission.id;
+    for (let i = 0; i < 500 && webhook.about(ownId).length === 0; i++) await new Promise((r) => setTimeout(r, 10));
+    expect(webhook.about(ownId)).toHaveLength(1);
+    expect(webhook.about(ownId)[0]!.body.content).toContain('"admin speaks"');
   });
 });
 

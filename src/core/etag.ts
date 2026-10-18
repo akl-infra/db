@@ -222,7 +222,10 @@ export async function readHead(db: D1Database, stateKeys: readonly string[] = []
 //   comment text; the dump gains `layout_comments`. Purely additive:
 //   `migrations/0023_layout_comments.sql` only creates a table and its
 //   indexes.
-export const WIRE_VERSION = 22;
+// 23 (2026-10-19, LDB-CMT2, docs/decisions/29-layout-comments.md): behaviour
+//   change, no shape change -- every comment is queued (`202`, pending), admins
+//   included; the `201` admin instant-approve of 22 is gone.
+export const WIRE_VERSION = 23;
 
 export async function etagFor(headSeqValue: number, query: unknown): Promise<string> {
   const hash = await sha256Hex(canonical({ wireVersion: WIRE_VERSION, query: query ?? null }));
