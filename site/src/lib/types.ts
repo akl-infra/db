@@ -182,6 +182,41 @@ export interface WpmQueueRow extends WpmSubmission {
   user_name: string | null;
 }
 
+/** A layout comment submission, `PUT /v1/layouts/:ref/comment`'s
+ * `submission` (db/docs/decisions/29-layout-comments.md). `body` is null once
+ * the text has been erased (a delete, a removal, a replacement). */
+export interface CommentSubmission {
+  id: string;
+  layout_id: string;
+  user_id: string;
+  body: string | null;
+  via: string;
+  submitted_at: string;
+  status: LinkSubmissionStatus | "replaced" | "deleted" | "removed";
+  decided_by: string | null;
+  decided_at: string | null;
+  reason: string | null;
+}
+
+/** `GET /v1/admin/comment-queue`'s row: the submission plus the names it
+ * joins and `live_body`, the user's current approved text on that layout
+ * (null for a first comment) so an edit can be shown as a diff. */
+export interface CommentQueueRow extends CommentSubmission {
+  layout_name: string;
+  user_name: string | null;
+  live_body: string | null;
+}
+
+/** `GET /v1/layouts/:ref/comments`: one approved comment per user. */
+export interface PublicComment {
+  id: string;
+  user_id: string;
+  name: string | null;
+  body: string;
+  approved_at: string;
+  edited: boolean;
+}
+
 export interface AdminRow {
   user_id: string;
   added_by: string | null;
