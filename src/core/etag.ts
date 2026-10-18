@@ -201,7 +201,13 @@ export async function readHead(db: D1Database, stateKeys: readonly string[] = []
 //   `migrations/0020_alts_combos.sql` only adds columns/indexes, backfilled
 //   to a no-op for every existing row (nothing stored could carry either
 //   field before this slice).
-export const WIRE_VERSION = 19;
+// 20 (2026-10-18, LDB-MD13): privacy fix, not a new feature -- a non-approved
+//   mod-queue submission is private to admins, so the public feed's
+//   `link_submitted`/`link_rejected` events now carry only `submission_id`
+//   in `detail` (the pending `url` and the moderator's `reason` are gone,
+//   including from rows stored before this change). The bump also
+//   invalidates every cached `/v1/changes` page that still held them.
+export const WIRE_VERSION = 20;
 
 export async function etagFor(headSeqValue: number, query: unknown): Promise<string> {
   const hash = await sha256Hex(canonical({ wireVersion: WIRE_VERSION, query: query ?? null }));

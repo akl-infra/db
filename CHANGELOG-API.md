@@ -25,6 +25,19 @@ this file just gives them a public, versioned home. From here on, a
 `WIRE_VERSION` bump and a line here land in the SAME PR, never one without
 the other (`[LDB-V5]`).
 
+## 1.20 — 2026-10-18
+
+LDB-MD13, privacy exception to the additive-only rule: a mod-queue submission
+that is not approved is private to admins, so the public event feed
+(`GET /v1/changes`, `GET /admin/changelog`) no longer shows its content.
+`link_submitted` and `link_rejected` events keep every other field but their
+`detail` is now `{submission_id}` only: the pending `url` and a rejection's
+`reason` are removed, for events written before this change too (redacted on
+read; nothing stored is rewritten). Admins read both from
+`GET /v1/admin/link-queue`. Nothing a client could rely on as approved data
+changes: `link_approved`/`link_cleared` and the record's `link` field are
+untouched.
+
 ## 1.19 — 2026-09-30
 
 LDB-F44..F47, design/alts/07-format.md (round 4, slice D): `spark/1` gains

@@ -224,3 +224,68 @@ describe("link ownership and error shapes", () => {
     expect((await writeFetch("/v1/admin/link-queue/nonexistent/reject", "POST", admin, {})).status).toBe(404);
   });
 });
+
+// [LDB-MD13] A non-approved submission is private to admins: its url and a
+// rejection's reason never reach the public event feed -- not for events
+// written from now on, and not for rows stored before the fix (redacted on
+// read, nothing rewritten).
+describe("[LDB-MD13] the public feed carries no non-approved link content", () => {
+  const SECRET_URL = "https://example.org/md13-pending-secret";
+  const SECRET_REASON = "md13 private moderator reason";
+
+  async function publicTexts(layoutId: string): Promise<string[]> {
+    const paths = [`/v1/changes?since=0&limit=1000&layout=${layoutId}`, `/v1/changes?since=0&limit=1000`, `/admin/changelog?layout=${layoutId}`];
+    return Promise.all(paths.map(async (p) => (await writeFetch(p, "GET")).text()));
+  }
+
+  it("[LDB-MD13] link_submitted and link_rejected expose only the submission id; the admin queue still shows url and reason", async () => {
+    const owner = testUserId();
+    const { id } = await createLayout(owner);
+    const fake = actorFixture();
+    const ownerAuth = register(fake, "tok-md13-owner", owner);
+    const admin = register(fake, "tok-md13-admin", BOOTSTRAP_ADMIN);
+
+    const submitted = (await (await writeFetch(`/v1/layouts/${id}/link`, "PUT", ownerAuth, { url: SECRET_URL })).json()) as { submission: { id: string } };
+    await writeFetch(`/v1/admin/link-queue/${submitted.submission.id}/reject`, "POST", admin, { reason: SECRET_REASON });
+
+    const feed = (await (await writeFetch(`/v1/changes?since=0&limit=1000&layout=${id}`, "GET")).json()) as { items: { kind: string; detail: unknown }[] };
+    const byKind = Object.fromEntries(feed.items.map((e) => [e.kind, e.detail]));
+    expect(byKind.link_submitted).toEqual({ submission_id: submitted.submission.id });
+    expect(byKind.link_rejected).toEqual({ submission_id: submitted.submission.id });
+    for (const text of await publicTexts(id)) {
+      expect(text).not.toContain(SECRET_URL);
+      expect(text).not.toContain(SECRET_REASON);
+    }
+
+    // The queue (admin) is where they are read.
+    const rejected = (await (await writeFetch("/v1/admin/link-queue?status=rejected", "GET", admin)).json()) as { submissions: { id: string; url: string; reason: string }[] };
+    expect(rejected.submissions.find((s) => s.id === submitted.submission.id)).toMatchObject({ url: SECRET_URL, reason: SECRET_REASON });
+  });
+
+  it("[LDB-MD13] events stored BEFORE the fix (url / reason in detail_json) are redacted on read; an approved link's event is untouched", async () => {
+    const owner = testUserId();
+    const { id, name } = await createLayout(owner);
+    const insert = (kind: string, detail: object | null) =>
+      db
+        .prepare(
+          `INSERT INTO events (at, kind, layout_id, name, owner, format, rev, actor, via, admin, detail_json, before_json, after_json, source_client, source_version)
+           VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, 'discord', 0, ?, NULL, NULL, NULL, NULL)`,
+        )
+        .bind(clock(), kind, id, name, owner, owner, detail === null ? null : JSON.stringify(detail))
+        .run();
+    await insert("link_submitted", { submission_id: "01OLDSUBMISSION", url: SECRET_URL });
+    await insert("link_rejected", { submission_id: "01OLDSUBMISSION", reason: SECRET_REASON });
+    await insert("link_submitted", { url: SECRET_URL }); // no id at all
+    await insert("link_submitted", null);
+    await insert("link_approved", { submission_id: "01OLDSUBMISSION" });
+
+    const feed = (await (await writeFetch(`/v1/changes?since=0&limit=1000&layout=${id}`, "GET")).json()) as { items: { kind: string; detail: unknown }[] };
+    expect(feed.items.filter((e) => e.kind === "link_submitted").map((e) => e.detail)).toEqual([{ submission_id: "01OLDSUBMISSION" }, null, null]);
+    expect(feed.items.find((e) => e.kind === "link_rejected")?.detail).toEqual({ submission_id: "01OLDSUBMISSION" });
+    expect(feed.items.find((e) => e.kind === "link_approved")?.detail).toEqual({ submission_id: "01OLDSUBMISSION" });
+    for (const text of await publicTexts(id)) {
+      expect(text).not.toContain(SECRET_URL);
+      expect(text).not.toContain(SECRET_REASON);
+    }
+  });
+});
