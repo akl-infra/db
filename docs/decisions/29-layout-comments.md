@@ -16,7 +16,7 @@ records (decision 28).
 |---|---|
 | table | `layout_comments`: `id` (ULID), `layout_id`, `user_id`, `body` (NULL = erased by the author's delete or replaced by a newer approval), `via`, `submitted_at`, `status` (`pending` / `approved` / `rejected` / `superseded` / `replaced` / `deleted` / `removed`), `decided_by`, `decided_at`, `reason` |
 | validation | `body` a string; `\r\n` and `\r` become `\n`, trimmed, 1..2000 Unicode code points, else `400 invalid_comment`. Nothing else is refused. One validator in `core/comments.ts` |
-| write | `PUT /v1/layouts/:ref/comment {body}`: `202` queued; an admin's own comment is `201` approved. A new pending comment supersedes the same user's older pending one (silently). The old approved text stays live until the new one is approved |
+| write | `PUT /v1/layouts/:ref/comment {body}`: `202` queued, for everyone: an admin's own comment is queued too and approved in the Inbox like any other (no instant approval). A new pending comment supersedes the same user's older pending one (silently). The old approved text stays live until the new one is approved |
 | delete | `DELETE /v1/layouts/:ref/comment`: immediate, `204`. Erases the text of every comment the caller has on that layout (rejected and superseded ones included, so a lone rejected text can still be erased); `404` only if none of their rows there has a text left |
 | read | `GET /v1/layouts/:ref/comments`: public, `{comments}`, one approved comment per user, the layout owner's own comment pinned first, then most liked first then newest approval (`?sort=newest` for newest approval first; any other value is `400`), `likes` count, `liked` only for an authenticated caller (that answer is `private, no-store`), `edited` flag, deleted layouts hidden. `GET /v1/layouts/:ref/comment`: the caller's own `{live, pending, decision}`, never publicly cached |
 | likes | `PUT` / `DELETE /v1/layouts/:ref/comments/:author_id/like`: `204`, idempotent. A like targets the author's comment *slot* `(layout, author)`, one per (slot, liker); `400 own_comment` for the author, `404` when the slot has no approved comment. Cleared by the author's delete and by a mod's removal; a pending or rejected edit leaves them. Table `comment_likes` |
@@ -31,6 +31,12 @@ records (decision 28).
   not a thread: a single row to show, review and diff, and an edit replaces
   rather than piles up. Approving the new text retires the old row (`replaced`,
   text erased), so there is never more than one live text per person.
+- **Everyone goes through the queue, admins included** (saltorbit, after
+  release): one rule with no exception to remember, every comment on a layout
+  was looked at by a second pair of eyes before it was public, and an admin's
+  words are announced to the mod channel like anyone's. An admin can still
+  approve their own submission in the Inbox. (Superseded the original
+  `201` admin instant-approve path, API 1.22.)
 - **Edits keep the approved text live until approved.** An author fixing a typo
   must not make their comment disappear for the length of the review, and a
   mod needs the live text beside the new one to judge what changed

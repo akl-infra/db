@@ -25,6 +25,17 @@ this file just gives them a public, versioned home. From here on, a
 `WIRE_VERSION` bump and a line here land in the SAME PR, never one without
 the other (`[LDB-V5]`).
 
+## 1.23 — 2026-10-19
+
+LDB-CMT2, docs/decisions/29-layout-comments.md: behaviour change to a released
+route (no shape change). Every comment goes through the moderation queue,
+admins included: `PUT /v1/layouts/{ref}/comment` is now always `202
+{submission}` with `status: "pending"`; the `201` admin instant-approve path
+of 1.22 is gone. An admin approves their own comment in the Inbox like any
+other, and it is announced to the mod channel like anyone's. Nothing else
+changes; `WIRE_VERSION` is bumped to 23 so a cached `201` shape or edge-cached
+listing cannot outlive the behaviour it described.
+
 ## 1.22 — 2026-10-18
 
 LDB-CMT1..LDB-CMT13, docs/decisions/29-layout-comments.md: layout comments.

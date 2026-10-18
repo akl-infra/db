@@ -1,7 +1,7 @@
 {
   "request": {
     "method": "PUT",
-    "path": "/v1/layouts/mod-cmt-5/comments/not-a-snowflake/like",
+    "path": "/v1/layouts/mod-cmt-2/comments/not-a-snowflake/like",
     "bearer": "conformance-comments-token"
   },
   "response": {

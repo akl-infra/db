@@ -121,15 +121,6 @@ async function appendApproved(db: Bindings["DB"], now: Clock, actor: Actor, vers
   });
 }
 
-// The statement that retires a user's current approved comment when a newer
-// one takes its place: `replaced`, text erased. `newId` must be the id of a
-// row that is (or, in the same batch, becomes) the successor.
-function replacePrevious(db: Bindings["DB"], layoutId: string, userId: string, newId: string, at: string, by: string): D1PreparedStatement {
-  return db
-    .prepare("UPDATE layout_comments SET status = 'replaced', body = NULL, decided_by = ?, decided_at = ? WHERE layout_id = ? AND user_id = ? AND status = 'approved' AND id != ?")
-    .bind(by, at, layoutId, userId, newId);
-}
-
 // [LDB-CMT11] A slot's likes live exactly as long as the slot has an approved
 // comment: cleared when the slot no longer has one (the author's delete, a
 // mod's removal). Conditional on that, so a statement that follows a decision
@@ -144,10 +135,10 @@ function clearLikesOfEmptySlot(db: Bindings["DB"], layoutId: string, authorId: s
     .bind(layoutId, authorId, layoutId, authorId);
 }
 
-// PUT /v1/layouts/:ref/comment. A user: queued (`202`) -- LDB-CMT2: a fresh
-// pending row supersedes the same user's older pending one on this layout,
-// no event for that. An admin's OWN comment: approved at once (`201`),
-// through the same replace-the-previous step an approval takes.
+// PUT /v1/layouts/:ref/comment. Everyone, an admin included: queued (`202`) --
+// LDB-CMT2: a fresh pending row supersedes the same user's older pending one on
+// this layout, no event for that. Nothing is approved at once; an admin
+// approves it in the Inbox like any other.
 export async function submitComment(
   db: Bindings["DB"],
   now: Clock,
@@ -155,31 +146,13 @@ export async function submitComment(
   version: string | null,
   layoutId: string,
   rawBody: unknown,
-): Promise<{ kind: "queued" | "approved"; submission: CommentRow }> {
+): Promise<CommentRow> {
   const body = validated(rawBody);
   const at = now();
   const id = ulid();
   const supersede = db
     .prepare("UPDATE layout_comments SET status = 'superseded', decided_by = ?, decided_at = ? WHERE layout_id = ? AND user_id = ? AND status = 'pending'")
     .bind(actor.user_id, at, layoutId, actor.user_id);
-
-  if (actor.admin) {
-    await db.batch([
-      supersede,
-      replacePrevious(db, layoutId, actor.user_id, id, at, actor.user_id),
-      db
-        .prepare(
-          `INSERT INTO layout_comments (id, layout_id, user_id, body, via, submitted_at, status, decided_by, decided_at, reason)
-           VALUES (?, ?, ?, ?, ?, ?, 'approved', ?, ?, NULL)`,
-        )
-        .bind(id, layoutId, actor.user_id, body, actor.via, at, actor.user_id, at),
-    ]);
-    await appendApproved(db, now, actor, version, { id, layout_id: layoutId, user_id: actor.user_id });
-    return {
-      kind: "approved",
-      submission: { id, layout_id: layoutId, user_id: actor.user_id, body, via: actor.via, submitted_at: at, status: "approved", decided_by: actor.user_id, decided_at: at, reason: null },
-    };
-  }
 
   await db.batch([
     supersede,
@@ -201,10 +174,7 @@ export async function submitComment(
     source: sourceOf(actor, version),
     detail: { submission_id: id },
   });
-  return {
-    kind: "queued",
-    submission: { id, layout_id: layoutId, user_id: actor.user_id, body, via: actor.via, submitted_at: at, status: "pending", decided_by: null, decided_at: null, reason: null },
-  };
+  return { id, layout_id: layoutId, user_id: actor.user_id, body, via: actor.via, submitted_at: at, status: "pending", decided_by: null, decided_at: null, reason: null };
 }
 
 // DELETE /v1/layouts/:ref/comment: immediate, no review (LDB-CMT4). Every

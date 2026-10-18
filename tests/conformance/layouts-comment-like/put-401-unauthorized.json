@@ -1,7 +1,7 @@
 {
   "request": {
     "method": "PUT",
-    "path": "/v1/layouts/mod-cmt-5/comments/184412255822020608/like"
+    "path": "/v1/layouts/mod-cmt-2/comments/184412255822020608/like"
   },
   "response": {
     "status": 401,

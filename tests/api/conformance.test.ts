@@ -402,6 +402,16 @@ describe("conformance fixtures", () => {
       if (kase.id === "layouts-write/restore-403-not_owner" || kase.id === "layouts-write/restore-409-name_taken") {
         await ensureRestoreExtras();
       }
+      // Every comment is queued now (admins included), so the approved admin
+      // comment on mod-cmt-2 that the public-list and like fixtures read is
+      // approved by hand, at the fixed clock, once the queued case that wrote it
+      // has run (an approve needs a minted id a fixture cannot name).
+      if (kase.id === "layouts-comments/get-200") {
+        await db
+          .prepare("UPDATE layout_comments SET status = 'approved', decided_by = ?, decided_at = ? WHERE layout_id = (SELECT id FROM layouts WHERE name = 'mod-cmt-2') AND status = 'pending'")
+          .bind(BOOTSTRAP_ADMIN, CONFORMANCE_CLOCK_ISO)
+          .run();
+      }
       await assertConformanceCase(kase, resolvePath);
     });
   }
@@ -808,7 +818,6 @@ const REQUIRED: Record<string, RequiredCase[]> = {
   "GET /v1/layouts/:ref/comments": [{ status: 200 }, { status: 304 }, { status: 400, code: ERROR_CODES.bad_request }, { status: 404, code: ERROR_CODES.not_found }],
   "GET /v1/layouts/:ref/comment": [{ status: 200 }, { status: 401, code: ERROR_CODES.unauthorized }, { status: 404, code: ERROR_CODES.not_found }],
   "PUT /v1/layouts/:ref/comment": [
-    { status: 201 },
     { status: 202 },
     { status: 400, code: ERROR_CODES.bad_request },
     { status: 400, code: "invalid_comment" },

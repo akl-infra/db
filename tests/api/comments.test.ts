@@ -192,7 +192,7 @@ describe("[LDB-CMT1] validation is shared by every write", () => {
   });
 });
 
-describe("[LDB-CMT2] a user's comment is queued; a newer pending one supersedes; an admin's own is approved at once", () => {
+describe("[LDB-CMT2] every comment is queued, an admin's own included; a newer pending one supersedes", () => {
   it("[LDB-CMT2] 202, status pending, not public; the older pending row becomes superseded with no event; other users and layouts are untouched", async () => {
     const { user, auth, admin, fake } = actors("sup");
     const userB = testUserId();
@@ -227,38 +227,44 @@ describe("[LDB-CMT2] a user's comment is queued; a newer pending one supersedes;
     expect((await queue(admin, layout1.id, "superseded")).map((s) => s.body)).toEqual(["first draft"]);
   });
 
-  it("[LDB-CMT2] an admin's own comment is 201, approved and public at once, with exactly one comment_approved event and no queue row", async () => {
+  it("[LDB-CMT2] an admin's own comment is queued like anyone's: 202, pending, not public, in the queue, one comment_submitted and no comment_approved event; the admin approves it in the Inbox", async () => {
     const owner = testUserId();
     const { id, name } = await createLayout(owner);
     const admin = register(actorFixture(), token("self"), BOOTSTRAP_ADMIN);
 
     const { status, submission } = await put(admin, name, "an admin speaks");
-    expect(status).toBe(201);
-    expect(submission).toMatchObject({ layout_id: id, user_id: BOOTSTRAP_ADMIN, body: "an admin speaks", status: "approved", decided_by: BOOTSTRAP_ADMIN });
-    expect(submission.decided_at).not.toBeNull();
+    expect(status).toBe(202);
+    expect(submission).toMatchObject({ layout_id: id, user_id: BOOTSTRAP_ADMIN, body: "an admin speaks", status: "pending", decided_by: null, decided_at: null });
+    expect(await listed(id)).toEqual([]);
+    expect((await queue(admin, id)).map((q) => [q.id, q.user_id, q.body])).toEqual([[submission.id, BOOTSTRAP_ADMIN, "an admin speaks"]]);
+    expect((await commentEvents(id)).map((e) => e.kind)).toEqual(["comment_submitted"]);
 
-    const comments = await listed(id);
-    expect(comments).toHaveLength(1);
-    expect(comments[0]).toMatchObject({ id: submission.id, user_id: BOOTSTRAP_ADMIN, body: "an admin speaks", approved_at: submission.decided_at, edited: false });
-    expect(await queue(admin, id)).toEqual([]);
-    expect((await commentEvents(id)).map((e) => e.kind)).toEqual(["comment_approved"]);
+    expect((await approve(admin, submission.id)).status).toBe(200); // an admin may approve their own, in the Inbox
+    expect((await listed(id)).map((c) => c.body)).toEqual(["an admin speaks"]);
+    expect((await commentEvents(id)).map((e) => e.kind)).toEqual(["comment_submitted", "comment_approved"]);
   });
 
-  it("[LDB-CMT2] an admin's second comment replaces their first (one live text); a stale pending row of theirs is superseded", async () => {
+  it("[LDB-CMT2] an admin's second submission supersedes their older pending one and their approved text stays live until the new one is approved", async () => {
     const { id } = await createLayout(testUserId());
     const admin = register(actorFixture(), token("self2"), BOOTSTRAP_ADMIN);
-    await put(admin, id, "one");
-    await db
-      .prepare("INSERT INTO layout_comments (id, layout_id, user_id, body, via, submitted_at, status) VALUES (?, ?, ?, 'stale pending', 'discord', ?, 'pending')")
-      .bind(ulid(), id, BOOTSTRAP_ADMIN, clock())
-      .run();
-    await put(admin, id, "two");
+    const one = (await put(admin, id, "one")).submission;
+    await approve(admin, one.id);
+    await put(admin, id, "stale pending");
+    const two = await put(admin, id, "two");
+    expect(two.status).toBe(202);
+    expect((await listed(id)).map((c) => c.body)).toEqual(["one"]); // still live
+    expect((await rowsFor(id, BOOTSTRAP_ADMIN)).map((r) => [r.body, r.status])).toEqual([
+      ["one", "approved"],
+      ["stale pending", "superseded"],
+      ["two", "pending"],
+    ]);
+    await approve(admin, two.submission.id);
+    expect((await listed(id)).map((c) => c.body)).toEqual(["two"]);
     expect((await rowsFor(id, BOOTSTRAP_ADMIN)).map((r) => [r.body, r.status])).toEqual([
       [null, "replaced"],
       ["stale pending", "superseded"],
       ["two", "approved"],
     ]);
-    expect((await listed(id)).map((c) => c.body)).toEqual(["two"]);
   });
 });
 

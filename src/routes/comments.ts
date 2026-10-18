@@ -116,14 +116,12 @@ export function commentsRoute(authDeps: AuthDeps) {
     const actor = c.get("actor");
     const body = parseCommentBody(await readJson(c.req));
     const layout = await comments.resolveCommentLayout(c.env.DB, c.req.param("ref"));
-    const result = await comments.submitComment(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), layout.id, body.body);
-    // [LDB-CMT8] A freshly pending comment is announced once, best effort,
-    // here and only here (no `notified_at`, no cron sweep, no retry);
-    // `announceComment` never throws and is free with the webhook unset.
-    if (result.kind === "queued") {
-      c.executionCtx.waitUntil(announceComment(c.env.DB, c.env, result.submission.id));
-    }
-    return c.json({ submission: result.submission }, result.kind === "approved" ? 201 : 202);
+    const submission = await comments.submitComment(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), layout.id, body.body);
+    // [LDB-CMT8] Every submission is pending, so every one is announced once,
+    // best effort, here and only here (no `notified_at`, no cron sweep, no
+    // retry); `announceComment` never throws and is free with the webhook unset.
+    c.executionCtx.waitUntil(announceComment(c.env.DB, c.env, submission.id));
+    return c.json({ submission }, 202);
   });
 
   route.delete("/v1/layouts/:ref/comment", async (c) => {

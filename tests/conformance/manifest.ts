@@ -467,7 +467,7 @@ import wpmFxAdminWpmQueueReject404 from "./admin-wpm-queue/reject-404.json" with
 // the WPM fixtures above.
 import cmtFxAdminCommentQueueGet200 from "./admin-comment-queue/get-200.json" with { type: "json" };
 import cmtFxLayoutsCommentPut202 from "./layouts-comment/put-202.json" with { type: "json" };
-import cmtFxLayoutsCommentPut201AdminApproved from "./layouts-comment/put-201-admin-approved.json" with { type: "json" };
+import cmtFxLayoutsCommentPut202AdminPending from "./layouts-comment/put-202-admin-pending.json" with { type: "json" };
 import cmtFxLayoutsCommentPut400BadRequest from "./layouts-comment/put-400-bad_request.json" with { type: "json" };
 import cmtFxLayoutsCommentPut400InvalidComment from "./layouts-comment/put-400-invalid_comment.json" with { type: "json" };
 import cmtFxLayoutsCommentPut401Unauthorized from "./layouts-comment/put-401-unauthorized.json" with { type: "json" };
@@ -920,7 +920,7 @@ export const MODERATION_CASES: ConformanceCase[] = [
   // that write the comment they read.
   kase("admin-comment-queue/get-200", "/v1/admin/comment-queue", cmtFxAdminCommentQueueGet200, true),
   kase("layouts-comment/put-202", "/v1/layouts/:ref/comment", cmtFxLayoutsCommentPut202, true),
-  kase("layouts-comment/put-201-admin-approved", "/v1/layouts/:ref/comment", cmtFxLayoutsCommentPut201AdminApproved, true),
+  kase("layouts-comment/put-202-admin-pending", "/v1/layouts/:ref/comment", cmtFxLayoutsCommentPut202AdminPending, true),
   kase("layouts-comment/put-400-bad_request", "/v1/layouts/:ref/comment", cmtFxLayoutsCommentPut400BadRequest, true),
   kase("layouts-comment/put-400-invalid_comment", "/v1/layouts/:ref/comment", cmtFxLayoutsCommentPut400InvalidComment, true),
   kase("layouts-comment/put-401-unauthorized", "/v1/layouts/:ref/comment", cmtFxLayoutsCommentPut401Unauthorized, true),

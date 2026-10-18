@@ -10,8 +10,8 @@
       "Content-Type": "application/json"
     },
     "body": {
-      "seq": 678,
-      "layout_count": 144,
+      "seq": 675,
+      "layout_count": 143,
       "written_at": "2026-06-20T00:00:00.000Z"
     }
   }

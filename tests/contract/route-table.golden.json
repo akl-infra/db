@@ -5221,11 +5221,11 @@
     }
   },
   {
-    "id": "layouts-comment/put-201-admin-approved",
+    "id": "layouts-comment/put-202",
     "method": "PUT",
     "route": "/v1/layouts/:ref/comment",
     "auth": "user",
-    "status": 201,
+    "status": 202,
     "shape": {
       "type": "object",
       "fields": {
@@ -5236,10 +5236,10 @@
               "type": "string"
             },
             "decided_at": {
-              "type": "string"
+              "type": "null"
             },
             "decided_by": {
-              "type": "string"
+              "type": "null"
             },
             "id": {
               "type": "string"
@@ -5268,7 +5268,7 @@
     }
   },
   {
-    "id": "layouts-comment/put-202",
+    "id": "layouts-comment/put-202-admin-pending",
     "method": "PUT",
     "route": "/v1/layouts/:ref/comment",
     "auth": "user",
