@@ -25,7 +25,8 @@
 -- on-behalf entry. `via` is the actor's lane, `discord` or `client:<id>`,
 -- the same value `likes.via` carries. `decided_*` and `reason` record the
 -- last decision made on the row (an approve, reject, supersede, replace,
--- delete or removal).
+-- delete or removal). There is no `notified_at`: a new comment is announced
+-- to the mod channel once, best effort, by the submit path alone.
 CREATE TABLE layout_comments (
   id            TEXT PRIMARY KEY,
   layout_id     TEXT NOT NULL,
@@ -36,13 +37,9 @@ CREATE TABLE layout_comments (
   status        TEXT NOT NULL DEFAULT 'pending',
   decided_by    TEXT NULL,
   decided_at    TEXT NULL,
-  reason        TEXT NULL,
-  -- Mod-queue Discord notify claim (core/modqueue.ts, same pattern as
-  -- migrations/0019 and 0022): NULL until the pending submission has been
-  -- announced. A new table has no backlog to backfill.
-  notified_at   TEXT NULL
+  reason        TEXT NULL
 );
--- The pending-queue listing and the notifier's candidate scan.
+-- The pending-queue listing.
 CREATE INDEX layout_comments_status ON layout_comments(status, submitted_at);
 -- Everything one user has on one layout (supersede, replace, delete, the
 -- author's own read).

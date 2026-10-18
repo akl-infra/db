@@ -4,6 +4,7 @@ import { copy } from "../copy.ts";
 import { adminRemoveComment, getComments } from "../api.ts";
 import type { PublicComment } from "../lib/types.ts";
 import { createAsync } from "../lib/asyncData.ts";
+import { formatWhen } from "../lib/time.ts";
 import { loadErrorMessage } from "../lib/apiError.ts";
 import AuthorRef from "./AuthorRef.tsx";
 
@@ -39,7 +40,7 @@ export const CommentList: Component<{ comments: PublicComment[]; isAdmin: boolea
           <li class="akl-comment">
             <div class="akl-comment-meta">
               <AuthorRef userId={c.user_id} linked />
-              <span>{c.approved_at}</span>
+              <span title={c.approved_at}>{formatWhen(c.approved_at)}</span>
               <Show when={c.edited}>
                 <span class="akl-badge">{copy.layout.commentEdited}</span>
               </Show>

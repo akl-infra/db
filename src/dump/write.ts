@@ -110,7 +110,6 @@ export interface LayoutCommentDbRow {
   decided_by: string | null;
   decided_at: string | null;
   reason: string | null;
-  notified_at: string | null; // the mod-queue notifier's claim, kept so a rehost doesn't re-announce
 }
 export interface LinkSubmissionDbRow {
   id: string;

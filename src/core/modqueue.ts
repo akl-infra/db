@@ -1,7 +1,6 @@
 // Mod-queue Discord notify (saltorbit 2026-09-28, LDB-MD11/LDB-MD12): a
-// pending link, WPM or comment submission (docs/decisions/28-wpm-records.md,
-// docs/decisions/29-layout-comments.md; LDB-WPM8, LDB-CMT8: one sweep per
-// queue table, the same claim pattern each) is announced to a Discord channel via an
+// pending link or WPM submission (docs/decisions/28-wpm-records.md,
+// LDB-WPM8: one sweep per queue table, the same claim pattern each) is announced to a Discord channel via an
 // incoming webhook, at most once ever. `MODQUEUE_DISCORD_WEBHOOK` unset or
 // empty makes the whole thing a no-op (LDB-MD12) -- no fetch, no D1 write.
 // Called from both the submit paths (`src/routes/links.ts` and
@@ -116,7 +115,7 @@ export function buildCommentMessageContent(c: CommentCandidate): string {
 // One queue table's notifier: its candidate scan and its message. The table
 // name is a constant of this module, never caller input.
 interface Queue<C extends { id: string }> {
-  table: "link_submissions" | "wpm_submissions" | "layout_comments";
+  table: "link_submissions" | "wpm_submissions";
   candidateSql: string;
   build: (c: C) => string;
 }
@@ -145,20 +144,6 @@ const WPM_QUEUE: Queue<WpmCandidate> = {
          ORDER BY s.submitted_at ASC
          LIMIT ?`,
   build: buildWpmMessageContent,
-};
-
-const COMMENT_QUEUE: Queue<CommentCandidate> = {
-  table: "layout_comments",
-  candidateSql: `SELECT s.id AS id, s.layout_id AS layout_id, s.user_id AS user_id, s.body AS body,
-                l.name AS layout_name, a.name AS user_name,
-                EXISTS (SELECT 1 FROM layout_comments b WHERE b.layout_id = s.layout_id AND b.user_id = s.user_id AND b.status = 'approved') AS has_live
-         FROM layout_comments s
-         JOIN layouts l ON l.id = s.layout_id
-         LEFT JOIN authors a ON a.user_id = s.user_id
-         WHERE s.status = 'pending' AND s.notified_at IS NULL AND s.body IS NOT NULL
-         ORDER BY s.submitted_at ASC
-         LIMIT ?`,
-  build: buildCommentMessageContent,
 };
 
 async function claim(db: Bindings["DB"], table: Queue<never>["table"], at: string, id: string): Promise<boolean> {
@@ -219,9 +204,44 @@ export async function notifyPending(db: Bindings["DB"], env: Bindings, now: Cloc
   const webhook = env.MODQUEUE_DISCORD_WEBHOOK;
   if (webhook === undefined || webhook === "") return; // [LDB-MD12]
 
-  // Links first, then WPM, then comments: each table is swept (and claimed) on its own, so
+  // Links first, then WPM: each table is swept (and claimed) on its own, so
   // a failure in one never starves the other.
   await sweep(db, webhook, now, fetchImpl, LINK_QUEUE);
   await sweep(db, webhook, now, fetchImpl, WPM_QUEUE);
-  await sweep(db, webhook, now, fetchImpl, COMMENT_QUEUE);
+}
+
+// [LDB-CMT8] A pending comment is announced once, best effort, from the submit
+// path only (`routes/comments.ts`, via `waitUntil`): `layout_comments` has no
+// `notified_at`, so it is NOT part of the cron sweep above and nothing is
+// claimed or retried. A failed post (non-2xx, thrown, timed out) is logged
+// and dropped, with no D1 write. Unset or empty `MODQUEUE_DISCORD_WEBHOOK`
+// is a complete no-op (no fetch, no D1 read), as for the sweeps. Never
+// throws. Only a row that is still `pending` is announced.
+export async function announceComment(db: Bindings["DB"], env: Bindings, id: string, fetchImpl: typeof fetch = fetch): Promise<void> {
+  const webhook = env.MODQUEUE_DISCORD_WEBHOOK;
+  if (webhook === undefined || webhook === "") return; // [LDB-MD12]
+  try {
+    const c = await db
+      .prepare(
+        `SELECT s.id AS id, s.layout_id AS layout_id, s.user_id AS user_id, s.body AS body,
+                l.name AS layout_name, a.name AS user_name,
+                EXISTS (SELECT 1 FROM layout_comments b WHERE b.layout_id = s.layout_id AND b.user_id = s.user_id AND b.status = 'approved') AS has_live
+         FROM layout_comments s
+         JOIN layouts l ON l.id = s.layout_id
+         LEFT JOIN authors a ON a.user_id = s.user_id
+         WHERE s.id = ? AND s.status = 'pending' AND s.body IS NOT NULL`,
+      )
+      .bind(id)
+      .first<CommentCandidate>();
+    if (c === null) return;
+    const res = await fetchImpl(webhook, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "User-Agent": USER_AGENT },
+      body: JSON.stringify({ content: buildCommentMessageContent(c), allowed_mentions: { parse: [] } }),
+      signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS),
+    });
+    if (!res.ok) console.error(`announceComment: webhook post for comment '${id}' failed with status ${res.status}`);
+  } catch (e) {
+    console.error(`announceComment: announcing comment '${id}' failed`, e);
+  }
 }

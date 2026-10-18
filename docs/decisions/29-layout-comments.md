@@ -14,14 +14,14 @@ records (decision 28).
 
 | piece | rule |
 |---|---|
-| table | `layout_comments`: `id` (ULID), `layout_id`, `user_id`, `body` (NULL = erased), `via`, `submitted_at`, `status` (`pending` / `approved` / `rejected` / `superseded` / `replaced` / `deleted` / `removed`), `decided_by`, `decided_at`, `reason`, `notified_at` |
+| table | `layout_comments`: `id` (ULID), `layout_id`, `user_id`, `body` (NULL = erased), `via`, `submitted_at`, `status` (`pending` / `approved` / `rejected` / `superseded` / `replaced` / `deleted` / `removed`), `decided_by`, `decided_at`, `reason` |
 | validation | `body` a string; `\r\n` and `\r` become `\n`, trimmed, 1..2000 Unicode code points, else `400 invalid_comment`. Nothing else is refused. One validator in `core/comments.ts` |
 | write | `PUT /v1/layouts/:ref/comment {body}`: `202` queued; an admin's own comment is `201` approved. A new pending comment supersedes the same user's older pending one (silently). The old approved text stays live until the new one is approved |
 | delete | `DELETE /v1/layouts/:ref/comment`: immediate, `204`. Erases the text of every comment the caller has on that layout; `404` if they had no approved or pending one |
 | read | `GET /v1/layouts/:ref/comments`: public, `{comments}`, one approved comment per user, newest approval first, `edited` flag, deleted layouts hidden. `GET /v1/layouts/:ref/comment`: the caller's own `{live, pending, decision}`, never publicly cached |
 | queue | `GET /v1/admin/comment-queue?status=` (default `pending`, each row carries `live_body`), `POST .../:id/approve`, `POST .../:id/reject {reason?}`, and `POST /v1/admin/comments/:id/remove {reason?}` for a live comment; every admin route is `if (!actor.admin) throw notAdmin()` |
 | events | `comment_submitted`, `comment_approved`, `comment_rejected`, `comment_removed`, `comment_deleted`, one per action, written through `core/events.ts`; none carries comment text or a reason |
-| webhook | `notifyPending` sweeps the comment queue with the same at-most-once claim; a new comment shows its first 120 characters, an edit only its length |
+| webhook | a freshly pending comment is announced to the mod channel once, best effort, from the `PUT` path only: no `notified_at`, no cron sweep, no retry, a failed post is logged and dropped. A new comment shows its first 120 characters, an edit only its length |
 
 ## Why
 
