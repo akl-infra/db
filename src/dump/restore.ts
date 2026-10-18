@@ -29,6 +29,7 @@ const TABLE_ORDER_DELETE = [
   "layout_formats",
   "likes",
   "link_submissions", // [LDB-MD8] §4.5: references a layout_id, before the parent
+  "wpm_submissions", // [LDB-WPM10]: references a layout_id, before the parent
   "import_map",
   "layouts",
   "authors",
@@ -293,6 +294,17 @@ export function restoreSql(dump: Dump): string[] {
       // written before it existed -- read as null, same fallback
       // `upstream_name`/`upstream_modified_at` use above.
       (dump.link_submissions ?? []).map((r) => ({ ...r, notified_at: r.notified_at ?? null })),
+    ),
+  );
+
+  // [LDB-WPM10] migrations/0022: absent entirely from a dump written before
+  // it (`?? []`), every row restored whole -- proofs and the notifier's
+  // claim included.
+  statements.push(
+    ...chunkedInserts(
+      "INSERT INTO wpm_submissions",
+      ["id", "layout_id", "user_id", "wpm", "proof", "submitted_by", "via", "submitted_at", "status", "decided_by", "decided_at", "reason", "notified_at"],
+      (dump.wpm_submissions ?? []).map((r) => ({ ...r, notified_at: r.notified_at ?? null })),
     ),
   );
 

@@ -79,6 +79,23 @@ export interface BanDbRow {
   at: string;
   reason: string | null;
 }
+// docs/decisions/28-wpm-records.md, migrations/0022 (LDB-WPM10): every WPM
+// submission, whatever its status -- proofs are kept forever.
+export interface WpmSubmissionDbRow {
+  id: string;
+  layout_id: string;
+  user_id: string;
+  wpm: number;
+  proof: string;
+  submitted_by: string;
+  via: string;
+  submitted_at: string;
+  status: string;
+  decided_by: string | null;
+  decided_at: string | null;
+  reason: string | null;
+  notified_at: string | null; // the mod-queue notifier's claim, kept so a rehost doesn't re-announce
+}
 export interface LinkSubmissionDbRow {
   id: string;
   layout_id: string;
@@ -150,6 +167,7 @@ export interface Dump {
   auth_cache: []; // never dumped -- holds only token hashes, and a rehost starts cold (09 §3)
   bans: BanDbRow[]; // [LDB-MD8] §4.5
   link_submissions: LinkSubmissionDbRow[]; // [LDB-MD8] §4.5
+  wpm_submissions: WpmSubmissionDbRow[]; // [LDB-WPM10] migrations/0022; absent from a dump written before it
 }
 
 export interface LatestJson {
@@ -231,7 +249,7 @@ export async function buildDump(env: Bindings, now: Clock): Promise<Dump> {
 
   const meta = await computeMeta(db);
 
-  const [records, layout_formats, layout_revs, likes, authors, admins, events, import_state_all, import_map, clients, bans, link_submissions] = await Promise.all([
+  const [records, layout_formats, layout_revs, likes, authors, admins, events, import_state_all, import_map, clients, bans, link_submissions, wpm_submissions] = await Promise.all([
     pageBySingleKey<LayoutDbRow>(db, "layouts", "id"),
     pageByCompositeKey<FormatDbRow>(db, "layout_formats", "layout_id", "lineage"),
     pageByCompositeKey<LayoutRevDbRow>(db, "layout_revs", "layout_id", "n"),
@@ -244,6 +262,7 @@ export async function buildDump(env: Bindings, now: Clock): Promise<Dump> {
     pageBySingleKey<ClientDbRow>(db, "clients", "id"),
     pageBySingleKey<BanDbRow>(db, "bans", "user_id"),
     pageBySingleKey<LinkSubmissionDbRow>(db, "link_submissions", "id"),
+    pageBySingleKey<WpmSubmissionDbRow>(db, "wpm_submissions", "id"),
   ]);
 
   // LDB-D8: `dump.last_at` is this dump's OWN scheduling bookkeeping (see
@@ -273,6 +292,7 @@ export async function buildDump(env: Bindings, now: Clock): Promise<Dump> {
     auth_cache: [],
     bans,
     link_submissions: link_submissions.filter((s) => s.status === "approved"),
+    wpm_submissions,
   };
 }
 
