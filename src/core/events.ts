@@ -1079,7 +1079,7 @@ export interface FeedFilter {
 // redacted HERE, on read, to the submission id alone -- the queue
 // (`GET /v1/admin/link-queue`) is where an admin reads the rest. Applied in
 // `feed()`, the one reader behind `/v1/changes` and `/admin/changelog`.
-const PRIVATE_DETAIL_KINDS = new Set(["link_submitted", "link_rejected"]);
+const PRIVATE_DETAIL_KINDS = new Set(["link_submitted", "link_rejected", "wpm_submitted", "wpm_rejected"]);
 
 export function publicDetail(kind: string, detail: unknown): unknown {
   if (!PRIVATE_DETAIL_KINDS.has(kind)) return detail;

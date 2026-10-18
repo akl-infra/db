@@ -42,15 +42,17 @@ one number per person and layout: their **top approved speed**.
   speed (the actor *is* the `user_id`). Entering someone else's is an
   explicit admin act, recorded with `submitted_by` and the admin's `wpm_approved`
   event, so a record is never attributed to a person by anyone but a mod.
-- **The feed is public, so privacy is what gets written.** `/v1/changes`
-  returns every event's `detail` unfiltered. A pending submission is private
-  to mods, so `wpm_submitted` carries only the submission id; the speed and
-  proof first appear publicly on `wpm_approved`. (`link_submitted` predates
-  this and does put the pending `url` in its detail; that is tracked
-  separately and not changed here.)
+- **Non-approved is private to admins** (saltorbit 2026-10-18, same rule as
+  link submissions, LDB-MD13/MD14). `/v1/changes` and the dump are public and
+  unfiltered, so privacy is enforced in both: `wpm_submitted` and
+  `wpm_rejected` carry only the submission id (redacted on read, rows stored
+  with more included), the speed and proof first appear publicly on
+  `wpm_approved`, and the dump holds only approved `wpm_submissions` rows.
+  A rehost therefore loses the non-approved queue by design.
 
 ## Consequences
 
-`CHANGELOG-API.md` 1.20; invariants `LDB-WPM1`..`LDB-WPM10`; the nightly dump
-gains `wpm_submissions` (a dump from before the table restores with it
-empty). Additive only: nothing existing changes meaning.
+`CHANGELOG-API.md` 1.21; invariants `LDB-WPM1`..`LDB-WPM10`; the nightly dump
+gains `wpm_submissions` (approved rows only, since the dump is public: pending, rejected and
+superseded submissions are never dumped; a dump from before the table
+restores with it empty). Additive only: nothing existing changes meaning.

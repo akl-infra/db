@@ -284,7 +284,8 @@ export async function approveWpm(db: Bindings["DB"], now: Clock, actor: Actor, v
 
 // POST /v1/admin/wpm-queue/:id/reject: marks the submission `rejected` and
 // appends `wpm_rejected` (`admin: 1`). The event names the submission and
-// carries the reason, never the speed or proof of a record that was refused.
+// nothing else -- a refused record's speed, proof and the moderator's reason
+// are private to admins (the queue has them), like `link_rejected`.
 export async function rejectWpm(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, id: string, reason?: string): Promise<WpmSubmissionRow> {
   const submission = await loadSubmission(db, id);
   if (submission.status !== "pending") throw notFound(`wpm submission '${id}' is not pending`, id);
@@ -296,7 +297,7 @@ export async function rejectWpm(db: Bindings["DB"], now: Clock, actor: Actor, ve
     actor: actor.user_id,
     via: actor.via,
     source: sourceOf(actor, version),
-    detail: { submission_id: rejected.id, user_id: rejected.user_id, reason: reason ?? null },
+    detail: { submission_id: rejected.id },
   });
   return rejected;
 }
