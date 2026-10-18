@@ -62,6 +62,7 @@ export const copy = {
     commentsEmpty: "No comments on this layout yet",
     commentsLoadError: "Could not load the comments from akldb",
     commentEdited: "edited",
+    commentLikes: (n: number) => (n === 1 ? "1 like" : `${n} likes`),
     commentRemove: "Remove",
     commentRemoveReasonPrompt: "Reason (shown to the author)",
     commentRemoveConfirm: "Remove comment",
