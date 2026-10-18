@@ -1,6 +1,7 @@
 // Mod-queue Discord notify (saltorbit 2026-09-28, LDB-MD11/LDB-MD12): a
-// pending link or WPM submission (docs/decisions/28-wpm-records.md,
-// LDB-WPM8: one sweep per queue table, the same claim pattern each) is announced to a Discord channel via an
+// pending link, WPM or comment submission (docs/decisions/28-wpm-records.md,
+// docs/decisions/29-layout-comments.md; LDB-WPM8, LDB-CMT8: one sweep per
+// queue table, the same claim pattern each) is announced to a Discord channel via an
 // incoming webhook, at most once ever. `MODQUEUE_DISCORD_WEBHOOK` unset or
 // empty makes the whole thing a no-op (LDB-MD12) -- no fetch, no D1 write.
 // Called from both the submit paths (`src/routes/links.ts` and
@@ -31,6 +32,16 @@ interface LinkCandidate {
   submitted_by: string;
   layout_name: string;
   submitter_name: string | null; // joined from authors; null if no author row
+}
+
+interface CommentCandidate {
+  id: string;
+  layout_id: string;
+  user_id: string;
+  body: string;
+  layout_name: string;
+  user_name: string | null; // joined from authors; null if no author row
+  has_live: number; // 1 if the user already has an approved comment here (an edit)
 }
 
 interface WpmCandidate {
@@ -84,10 +95,28 @@ export function buildWpmMessageContent(c: WpmCandidate): string {
   return `New WPM submission on **${layout}** by ${who}: **${c.wpm} wpm** <${embedSafeUrl(c.proof)}>\n[Open the inbox](<${INBOX_URL}>) · submission \`${c.id}\``;
 }
 
+// [LDB-CMT8] The comment sibling (docs/decisions/29-layout-comments.md):
+// names the layout, the author and the length; a user's first comment shows
+// the first 120 characters (escaped, `...` when cut), an edit shows only the
+// length -- the text itself is in the Inbox, next to a diff against the live
+// one. Code points, not UTF-16 units, so a cut never splits an emoji.
+const PREVIEW_CHARS = 120;
+
+export function buildCommentMessageContent(c: CommentCandidate): string {
+  const who = c.user_name !== null ? escapeMarkdown(c.user_name) : c.user_id;
+  const layout = `[${escapeMarkdown(c.layout_name)}](<${SITE_ORIGIN}/l/${c.layout_id}>)`;
+  const chars = [...c.body];
+  const link = `\n[Open the inbox](<${INBOX_URL}>) · submission \`${c.id}\``;
+  if (c.has_live === 1) return `Edited comment on **${layout}** by ${who} (${chars.length} chars)${link}`;
+  const flat = chars.slice(0, PREVIEW_CHARS).join("").replace(/\s+/g, " ");
+  const preview = escapeMarkdown(flat) + (chars.length > PREVIEW_CHARS ? "…" : "");
+  return `New comment on **${layout}** by ${who} (${chars.length} chars): "${preview}"${link}`;
+}
+
 // One queue table's notifier: its candidate scan and its message. The table
 // name is a constant of this module, never caller input.
 interface Queue<C extends { id: string }> {
-  table: "link_submissions" | "wpm_submissions";
+  table: "link_submissions" | "wpm_submissions" | "layout_comments";
   candidateSql: string;
   build: (c: C) => string;
 }
@@ -116,6 +145,20 @@ const WPM_QUEUE: Queue<WpmCandidate> = {
          ORDER BY s.submitted_at ASC
          LIMIT ?`,
   build: buildWpmMessageContent,
+};
+
+const COMMENT_QUEUE: Queue<CommentCandidate> = {
+  table: "layout_comments",
+  candidateSql: `SELECT s.id AS id, s.layout_id AS layout_id, s.user_id AS user_id, s.body AS body,
+                l.name AS layout_name, a.name AS user_name,
+                EXISTS (SELECT 1 FROM layout_comments b WHERE b.layout_id = s.layout_id AND b.user_id = s.user_id AND b.status = 'approved') AS has_live
+         FROM layout_comments s
+         JOIN layouts l ON l.id = s.layout_id
+         LEFT JOIN authors a ON a.user_id = s.user_id
+         WHERE s.status = 'pending' AND s.notified_at IS NULL AND s.body IS NOT NULL
+         ORDER BY s.submitted_at ASC
+         LIMIT ?`,
+  build: buildCommentMessageContent,
 };
 
 async function claim(db: Bindings["DB"], table: Queue<never>["table"], at: string, id: string): Promise<boolean> {
@@ -176,8 +219,9 @@ export async function notifyPending(db: Bindings["DB"], env: Bindings, now: Cloc
   const webhook = env.MODQUEUE_DISCORD_WEBHOOK;
   if (webhook === undefined || webhook === "") return; // [LDB-MD12]
 
-  // Links first, then WPM: each table is swept (and claimed) on its own, so
+  // Links first, then WPM, then comments: each table is swept (and claimed) on its own, so
   // a failure in one never starves the other.
   await sweep(db, webhook, now, fetchImpl, LINK_QUEUE);
   await sweep(db, webhook, now, fetchImpl, WPM_QUEUE);
+  await sweep(db, webhook, now, fetchImpl, COMMENT_QUEUE);
 }
