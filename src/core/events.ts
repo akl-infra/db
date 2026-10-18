@@ -93,7 +93,15 @@ export type InfoKind =
   // submission is pending (LDB-WPM7) -- only `wpm_approved` does.
   | "wpm_submitted"
   | "wpm_approved"
-  | "wpm_rejected";
+  | "wpm_rejected"
+  // docs/decisions/29-layout-comments.md: layout-scoped, never rev-bumping.
+  // NO comment event ever carries comment text or a reason (LDB-CMT7): the
+  // feed is public and a deleted or removed text must be gone from it.
+  | "comment_submitted"
+  | "comment_approved"
+  | "comment_rejected"
+  | "comment_removed"
+  | "comment_deleted";
 
 // 21-formats.md §2.2: what a rev-bumping event's `after` (and `before`)
 // carry -- never a payload (that's `layout_revs`' job). A layout-scope
@@ -1079,7 +1087,7 @@ export interface FeedFilter {
 // redacted HERE, on read, to the submission id alone -- the queue
 // (`GET /v1/admin/link-queue`) is where an admin reads the rest. Applied in
 // `feed()`, the one reader behind `/v1/changes` and `/admin/changelog`.
-const PRIVATE_DETAIL_KINDS = new Set(["link_submitted", "link_rejected", "wpm_submitted", "wpm_rejected"]);
+const PRIVATE_DETAIL_KINDS = new Set(["link_submitted", "link_rejected", "wpm_submitted", "wpm_rejected", "comment_submitted", "comment_rejected"]);
 
 export function publicDetail(kind: string, detail: unknown): unknown {
   if (!PRIVATE_DETAIL_KINDS.has(kind)) return detail;

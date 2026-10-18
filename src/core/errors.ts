@@ -390,6 +390,13 @@ export function invalidProof(message: string): ApiError {
   return new ApiError(400, { message, error: "invalid_proof" });
 }
 
+// docs/decisions/29-layout-comments.md: the pure comment validator's
+// refusal -- the body is not a string, or empty after trim, or longer than
+// 2000 characters.
+export function invalidComment(message: string): ApiError {
+  return new ApiError(400, { message, error: "invalid_comment" });
+}
+
 // docs/decisions/26-magic-reseed.md §3, added 2026-09-14 (akldb is no
 // longer disposable): `core/write.ts`'s `seedMagic` guard, moved in from
 // what `scripts/reseed-magic.mjs`'s own `editedReason` used to enforce

@@ -581,7 +581,8 @@ same way `foldLayout` does server-side); `link_approved`/`link_cleared`
 (no rev bump) set the record's `link` to their `after.link`; everything
 else (`upstream_changed`, `import_conflict`, `import_error`,
 `import_relabel`, `link_submitted`/`link_rejected`,
-`wpm_submitted`/`wpm_approved`/`wpm_rejected`, `admin.*`) is
+`wpm_submitted`/`wpm_approved`/`wpm_rejected`,
+`comment_submitted`/`comment_approved`/`comment_rejected`/`comment_removed`/`comment_deleted`, `admin.*`) is
 informational and changes nothing in your local copy.
 
 **Long-poll**: `GET /v1/changes?since=<seq>&wait=<seconds>` — when `wait` is present, the
@@ -656,6 +657,8 @@ PUT / DELETE /v1/layouts/{ref}/like                                             
 PUT    /v1/layouts/{ref}/link       { url }  (owner or admin)   → 200 (admin: approved) / 202 (owner: queued)
 DELETE /v1/layouts/{ref}/link       (owner or admin)                                → 200
 POST   /v1/wpm                      { layout, wpm, proof }                          → 202 (queued) / 201 (admin: approved)
+PUT    /v1/layouts/{ref}/comment    { body }                                        → 202 (queued) / 201 (admin: approved)
+DELETE /v1/layouts/{ref}/comment                                                    → 204
 ```
 
 **Every write carries `X-Client-Version`** (§1.3) — not required by the
@@ -889,6 +892,7 @@ it as generated, not hand-edited):
 | 400 | `invalid_link` | *(caller-supplied -- this function's own `message` parameter)* | `invalidLink(message)` |
 | 400 | `invalid_wpm` | *(caller-supplied -- this function's own `message` parameter)* | `invalidWpm(message)` |
 | 400 | `invalid_proof` | *(caller-supplied -- this function's own `message` parameter)* | `invalidProof(message)` |
+| 400 | `invalid_comment` | *(caller-supplied -- this function's own `message` parameter)* | `invalidComment(message)` |
 | 409 | `magic_edited` | this record's magic was last written by ${client}; a seed never overwrites a person's edit | `magicEdited(client)` |
 | 429 | `rate_limited` | rate limit exceeded: ${limit} writes per ${windowSeconds}s | `rateLimited(limit, windowSeconds, retryAfter, scope)` |
 
@@ -1142,6 +1146,10 @@ silently drift from what `src/index.ts` actually registers.
 | DELETE | `/v1/layouts/:ref/link` | user (owner or admin) | — | 200 | `not_owner`, `not_found`, lane errors |
 | GET | `/v1/wpm` | none | — (`?layout=<ref>&user=<id>`, both optional) | 200 (`{records}`) | `bad_request`, `not_found` |
 | POST | `/v1/wpm` | user | `{layout, wpm, proof}` | 202 (queued) / 201 (admin: approved) | `bad_request`, `invalid_wpm`, `invalid_proof`, `not_found`, lane errors |
+| GET | `/v1/layouts/:ref/comments` | none | — | 200 (`{comments}`) | `not_found` |
+| GET | `/v1/layouts/:ref/comment` | user | — | 200 (`{live, pending, decision}`) | `not_found`, lane errors |
+| PUT | `/v1/layouts/:ref/comment` | user | `{body}` | 202 (queued) / 201 (admin: approved) | `bad_request`, `invalid_comment`, `not_found`, lane errors |
+| DELETE | `/v1/layouts/:ref/comment` | user | — | 204 | `not_found`, lane errors |
 | GET | `/v1/authors` | none | — | 200 | `bad_request` |
 | GET | `/v1/authors/:user_id` | none | — | 200 | `not_found` |
 | GET | `/v1/formats` | none | — | 200 | — |
@@ -1176,6 +1184,10 @@ silently drift from what `src/index.ts` actually registers.
 | GET | `/v1/admin/wpm-queue` | admin | — | 200 | `bad_request`, `not_admin`, lane errors |
 | POST | `/v1/admin/wpm-queue/:id/approve` | admin | — | 200 | `not_admin`, `not_found`, lane errors |
 | POST | `/v1/admin/wpm-queue/:id/reject` | admin | `{reason?}` | 200 | `bad_request`, `not_admin`, `not_found`, lane errors |
+| GET | `/v1/admin/comment-queue` | admin | — | 200 | `bad_request`, `not_admin`, lane errors |
+| POST | `/v1/admin/comment-queue/:id/approve` | admin | — | 200 | `not_admin`, `not_found`, lane errors |
+| POST | `/v1/admin/comment-queue/:id/reject` | admin | `{reason?}` | 200 | `bad_request`, `not_admin`, `not_found`, lane errors |
+| POST | `/v1/admin/comments/:id/remove` | admin | `{reason?}` | 200 | `bad_request`, `not_admin`, `not_found`, lane errors |
 
 "lane errors" (every `user`/`admin`/`client` row) means whichever lane you
 used: the user lane can answer `unauthorized`/`token_invalid`/
@@ -1247,3 +1259,33 @@ descending then `approved_at` ascending, not paginated, ETag/304 like the
 other public reads; records on a deleted layout are hidden. Events:
 `wpm_submitted` (only `submission_id` — no speed or proof while pending),
 `wpm_approved` (`user_id`, `wpm`, `proof`) and `wpm_rejected` (only `submission_id`).
+
+**Layout comments** (`PUT /v1/layouts/{ref}/comment`, body `{body}`): one
+plain-text comment per user per layout. `body` is a string; `\r\n` and a lone
+`\r` become `\n`, it is trimmed, and its length in Unicode code points
+(an emoji is one) must be 1..2000 (`400 invalid_comment`); nothing else is
+refused. A user's comment is queued (`202`, the response is
+`{submission}`); a newer one from the same user supersedes their older pending
+one silently, and the **old approved text stays live until the new one is
+approved**. An admin's own comment is approved at once (`201`). `DELETE`
+is immediate, no review (`204`; `404` if the caller had no approved or pending
+comment there): it erases the text of every comment the caller has on that
+layout, for good. `GET /v1/layouts/{ref}/comments` (public, no auth, ETag/304
+like the other public reads) answers `{comments: [{id, user_id, name, body,
+approved_at, edited}]}`, the one approved comment per user, newest approval
+first (`name` from the authors table, `null` if none; `edited` is true when
+the user has replaced an earlier approved text since they last deleted); a
+deleted layout lists none. `GET /v1/layouts/{ref}/comment` (the caller's own,
+never cached) answers `{live, pending, decision}`: their approved text, their
+pending text, and the newest rejection or removal (`{status, reason,
+decided_at}`) when it is newer than both. Admins read
+`GET /v1/admin/comment-queue?status=` (default `pending`; each row names its
+layout and user and carries `live_body`, the user's current approved text, to
+diff an edit against), decide with `POST .../approve` and `.../reject
+{reason?}`, and take an approved comment down with `POST
+/v1/admin/comments/{id}/remove {reason?}` (the author sees the reason through
+`GET .../comment`). Approving replaces that user's previous approved comment.
+Events: `comment_submitted` and `comment_rejected` (only `submission_id`),
+`comment_approved` and `comment_removed` (`submission_id`, `layout_id`,
+`user_id`) and `comment_deleted` (`layout_id`, `user_id`) — no event ever
+carries comment text or a reason.

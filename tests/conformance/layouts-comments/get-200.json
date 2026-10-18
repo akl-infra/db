@@ -1,0 +1,24 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/layouts/mod-cmt-2/comments"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "comments": [
+        {
+          "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+          "user_id": "184412255822020608",
+          "name": "conformance-admin",
+          "body": "Maintained by the community.",
+          "approved_at": "2026-06-20T00:00:00.000Z",
+          "edited": false
+        }
+      ]
+    }
+  }
+}

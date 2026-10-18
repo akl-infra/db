@@ -1,0 +1,18 @@
+{
+  "request": {
+    "method": "DELETE",
+    "path": "/v1/layouts/mod-cmt-3/comment",
+    "bearer": "conformance-comments-token"
+  },
+  "response": {
+    "status": 404,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "error": "not_found",
+      "message": "no comment of yours on 'mod-cmt-3'",
+      "ref": "mod-cmt-3"
+    }
+  }
+}

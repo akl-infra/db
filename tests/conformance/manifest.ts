@@ -462,6 +462,39 @@ import wpmFxAdminWpmQueueReject400BadRequest from "./admin-wpm-queue/reject-400-
 import wpmFxAdminWpmQueueReject401Unauthorized from "./admin-wpm-queue/reject-401-unauthorized.json" with { type: "json" };
 import wpmFxAdminWpmQueueReject403NotAdmin from "./admin-wpm-queue/reject-403-not_admin.json" with { type: "json" };
 import wpmFxAdminWpmQueueReject404 from "./admin-wpm-queue/reject-404.json" with { type: "json" };
+
+// Layout comments (docs/decisions/29-layout-comments.md): same lighter treatment as
+// the WPM fixtures above.
+import cmtFxAdminCommentQueueGet200 from "./admin-comment-queue/get-200.json" with { type: "json" };
+import cmtFxLayoutsCommentPut202 from "./layouts-comment/put-202.json" with { type: "json" };
+import cmtFxLayoutsCommentPut201AdminApproved from "./layouts-comment/put-201-admin-approved.json" with { type: "json" };
+import cmtFxLayoutsCommentPut400BadRequest from "./layouts-comment/put-400-bad_request.json" with { type: "json" };
+import cmtFxLayoutsCommentPut400InvalidComment from "./layouts-comment/put-400-invalid_comment.json" with { type: "json" };
+import cmtFxLayoutsCommentPut401Unauthorized from "./layouts-comment/put-401-unauthorized.json" with { type: "json" };
+import cmtFxLayoutsCommentPut404 from "./layouts-comment/put-404.json" with { type: "json" };
+import cmtFxLayoutsCommentGet200 from "./layouts-comment/get-200.json" with { type: "json" };
+import cmtFxLayoutsCommentGet401Unauthorized from "./layouts-comment/get-401-unauthorized.json" with { type: "json" };
+import cmtFxLayoutsCommentGet404 from "./layouts-comment/get-404.json" with { type: "json" };
+import cmtFxLayoutsCommentDelete204 from "./layouts-comment/delete-204.json" with { type: "json" };
+import cmtFxLayoutsCommentDelete401Unauthorized from "./layouts-comment/delete-401-unauthorized.json" with { type: "json" };
+import cmtFxLayoutsCommentDelete404 from "./layouts-comment/delete-404.json" with { type: "json" };
+import cmtFxLayoutsCommentsGet200 from "./layouts-comments/get-200.json" with { type: "json" };
+import cmtFxLayoutsCommentsGet304 from "./layouts-comments/get-304.json" with { type: "json" };
+import cmtFxLayoutsCommentsGet404 from "./layouts-comments/get-404.json" with { type: "json" };
+import cmtFxAdminCommentQueueGet400BadRequest from "./admin-comment-queue/get-400-bad_request.json" with { type: "json" };
+import cmtFxAdminCommentQueueGet401Unauthorized from "./admin-comment-queue/get-401-unauthorized.json" with { type: "json" };
+import cmtFxAdminCommentQueueGet403NotAdmin from "./admin-comment-queue/get-403-not_admin.json" with { type: "json" };
+import cmtFxAdminCommentQueueApprove401Unauthorized from "./admin-comment-queue/approve-401-unauthorized.json" with { type: "json" };
+import cmtFxAdminCommentQueueApprove403NotAdmin from "./admin-comment-queue/approve-403-not_admin.json" with { type: "json" };
+import cmtFxAdminCommentQueueApprove404 from "./admin-comment-queue/approve-404.json" with { type: "json" };
+import cmtFxAdminCommentQueueReject401Unauthorized from "./admin-comment-queue/reject-401-unauthorized.json" with { type: "json" };
+import cmtFxAdminCommentQueueReject403NotAdmin from "./admin-comment-queue/reject-403-not_admin.json" with { type: "json" };
+import cmtFxAdminCommentQueueReject404 from "./admin-comment-queue/reject-404.json" with { type: "json" };
+import cmtFxAdminCommentQueueReject400BadRequest from "./admin-comment-queue/reject-400-bad_request.json" with { type: "json" };
+import cmtFxAdminCommentsRemove401Unauthorized from "./admin-comments/remove-401-unauthorized.json" with { type: "json" };
+import cmtFxAdminCommentsRemove403NotAdmin from "./admin-comments/remove-403-not_admin.json" with { type: "json" };
+import cmtFxAdminCommentsRemove404 from "./admin-comments/remove-404.json" with { type: "json" };
+import cmtFxAdminCommentsRemove400BadRequest from "./admin-comments/remove-400-bad_request.json" with { type: "json" };
 // The cutover follow-up (design/layout-db/23-geometry.md, "admin dump
 // route"): same lighter treatment as the L5 moderation rows just above
 // (unauthorized + the route's own domain error, not the full A-group
@@ -871,6 +904,39 @@ export const MODERATION_CASES: ConformanceCase[] = [
   kase("admin-wpm-queue/reject-401-unauthorized", "/v1/admin/wpm-queue/:id/reject", wpmFxAdminWpmQueueReject401Unauthorized, true),
   kase("admin-wpm-queue/reject-403-not_admin", "/v1/admin/wpm-queue/:id/reject", wpmFxAdminWpmQueueReject403NotAdmin, true),
   kase("admin-wpm-queue/reject-404", "/v1/admin/wpm-queue/:id/reject", wpmFxAdminWpmQueueReject404, true),
+  // Layout comments: "admin-comment-queue/get-200" (the empty queue) runs before any
+  // case here that submits one; the public and own reads run after the cases
+  // that write the comment they read.
+  kase("admin-comment-queue/get-200", "/v1/admin/comment-queue", cmtFxAdminCommentQueueGet200, true),
+  kase("layouts-comment/put-202", "/v1/layouts/:ref/comment", cmtFxLayoutsCommentPut202, true),
+  kase("layouts-comment/put-201-admin-approved", "/v1/layouts/:ref/comment", cmtFxLayoutsCommentPut201AdminApproved, true),
+  kase("layouts-comment/put-400-bad_request", "/v1/layouts/:ref/comment", cmtFxLayoutsCommentPut400BadRequest, true),
+  kase("layouts-comment/put-400-invalid_comment", "/v1/layouts/:ref/comment", cmtFxLayoutsCommentPut400InvalidComment, true),
+  kase("layouts-comment/put-401-unauthorized", "/v1/layouts/:ref/comment", cmtFxLayoutsCommentPut401Unauthorized, true),
+  kase("layouts-comment/put-404", "/v1/layouts/:ref/comment", cmtFxLayoutsCommentPut404, true),
+  kase("layouts-comment/get-200", "/v1/layouts/:ref/comment", cmtFxLayoutsCommentGet200, true),
+  kase("layouts-comment/get-401-unauthorized", "/v1/layouts/:ref/comment", cmtFxLayoutsCommentGet401Unauthorized, true),
+  kase("layouts-comment/get-404", "/v1/layouts/:ref/comment", cmtFxLayoutsCommentGet404, true),
+  kase("layouts-comment/delete-204", "/v1/layouts/:ref/comment", cmtFxLayoutsCommentDelete204, true),
+  kase("layouts-comment/delete-401-unauthorized", "/v1/layouts/:ref/comment", cmtFxLayoutsCommentDelete401Unauthorized, true),
+  kase("layouts-comment/delete-404", "/v1/layouts/:ref/comment", cmtFxLayoutsCommentDelete404, true),
+  kase("layouts-comments/get-200", "/v1/layouts/:ref/comments", cmtFxLayoutsCommentsGet200, true),
+  kase("layouts-comments/get-304", "/v1/layouts/:ref/comments", cmtFxLayoutsCommentsGet304, true),
+  kase("layouts-comments/get-404", "/v1/layouts/:ref/comments", cmtFxLayoutsCommentsGet404, true),
+  kase("admin-comment-queue/get-400-bad_request", "/v1/admin/comment-queue", cmtFxAdminCommentQueueGet400BadRequest, true),
+  kase("admin-comment-queue/get-401-unauthorized", "/v1/admin/comment-queue", cmtFxAdminCommentQueueGet401Unauthorized, true),
+  kase("admin-comment-queue/get-403-not_admin", "/v1/admin/comment-queue", cmtFxAdminCommentQueueGet403NotAdmin, true),
+  kase("admin-comment-queue/approve-401-unauthorized", "/v1/admin/comment-queue/:id/approve", cmtFxAdminCommentQueueApprove401Unauthorized, true),
+  kase("admin-comment-queue/approve-403-not_admin", "/v1/admin/comment-queue/:id/approve", cmtFxAdminCommentQueueApprove403NotAdmin, true),
+  kase("admin-comment-queue/approve-404", "/v1/admin/comment-queue/:id/approve", cmtFxAdminCommentQueueApprove404, true),
+  kase("admin-comment-queue/reject-401-unauthorized", "/v1/admin/comment-queue/:id/reject", cmtFxAdminCommentQueueReject401Unauthorized, true),
+  kase("admin-comment-queue/reject-403-not_admin", "/v1/admin/comment-queue/:id/reject", cmtFxAdminCommentQueueReject403NotAdmin, true),
+  kase("admin-comment-queue/reject-404", "/v1/admin/comment-queue/:id/reject", cmtFxAdminCommentQueueReject404, true),
+  kase("admin-comment-queue/reject-400-bad_request", "/v1/admin/comment-queue/:id/reject", cmtFxAdminCommentQueueReject400BadRequest, true),
+  kase("admin-comments/remove-401-unauthorized", "/v1/admin/comments/:id/remove", cmtFxAdminCommentsRemove401Unauthorized, true),
+  kase("admin-comments/remove-403-not_admin", "/v1/admin/comments/:id/remove", cmtFxAdminCommentsRemove403NotAdmin, true),
+  kase("admin-comments/remove-404", "/v1/admin/comments/:id/remove", cmtFxAdminCommentsRemove404, true),
+  kase("admin-comments/remove-400-bad_request", "/v1/admin/comments/:id/remove", cmtFxAdminCommentsRemove400BadRequest, true),
   // The cutover follow-up (design/layout-db/23-geometry.md): placed dead
   // last, same as every other row here -- its 200 case performs a REAL
   // dump write (R2 + import_state), which no earlier-recorded fixture

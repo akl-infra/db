@@ -1,0 +1,32 @@
+{
+  "request": {
+    "method": "DELETE",
+    "path": "/v1/layouts/mod-cmt-3/comment",
+    "bearer": "conformance-comments-token",
+    "setup": [
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-comments-token",
+        "body": {
+          "name": "mod-cmt-3",
+          "format": "spark/1",
+          "payload": {
+            "keys": []
+          }
+        }
+      },
+      {
+        "method": "PUT",
+        "path": "/v1/layouts/mod-cmt-3/comment",
+        "bearer": "conformance-comments-token",
+        "body": {
+          "body": "Delete me."
+        }
+      }
+    ]
+  },
+  "response": {
+    "status": 204
+  }
+}
