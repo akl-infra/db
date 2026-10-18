@@ -96,6 +96,22 @@ export interface WpmSubmissionDbRow {
   reason: string | null;
   notified_at: string | null; // the mod-queue notifier's claim, kept so a rehost doesn't re-announce
 }
+// docs/decisions/29-layout-comments.md, migrations/0023 (LDB-CMT10): only
+// APPROVED comments are dumped (the dump is public) -- the only rows that
+// still hold a body.
+export interface LayoutCommentDbRow {
+  id: string;
+  layout_id: string;
+  user_id: string;
+  body: string | null;
+  via: string;
+  submitted_at: string;
+  status: string;
+  decided_by: string | null;
+  decided_at: string | null;
+  reason: string | null;
+  notified_at: string | null; // the mod-queue notifier's claim, kept so a rehost doesn't re-announce
+}
 export interface LinkSubmissionDbRow {
   id: string;
   layout_id: string;
@@ -168,6 +184,7 @@ export interface Dump {
   bans: BanDbRow[]; // [LDB-MD8] §4.5
   link_submissions: LinkSubmissionDbRow[]; // [LDB-MD8] §4.5
   wpm_submissions: WpmSubmissionDbRow[]; // [LDB-WPM10] migrations/0022; absent from a dump written before it
+  layout_comments: LayoutCommentDbRow[]; // [LDB-CMT10] migrations/0023; approved rows only; absent from a dump written before it
 }
 
 export interface LatestJson {
@@ -249,7 +266,7 @@ export async function buildDump(env: Bindings, now: Clock): Promise<Dump> {
 
   const meta = await computeMeta(db);
 
-  const [records, layout_formats, layout_revs, likes, authors, admins, events, import_state_all, import_map, clients, bans, link_submissions, wpm_submissions] = await Promise.all([
+  const [records, layout_formats, layout_revs, likes, authors, admins, events, import_state_all, import_map, clients, bans, link_submissions, wpm_submissions, layout_comments] = await Promise.all([
     pageBySingleKey<LayoutDbRow>(db, "layouts", "id"),
     pageByCompositeKey<FormatDbRow>(db, "layout_formats", "layout_id", "lineage"),
     pageByCompositeKey<LayoutRevDbRow>(db, "layout_revs", "layout_id", "n"),
@@ -263,6 +280,7 @@ export async function buildDump(env: Bindings, now: Clock): Promise<Dump> {
     pageBySingleKey<BanDbRow>(db, "bans", "user_id"),
     pageBySingleKey<LinkSubmissionDbRow>(db, "link_submissions", "id"),
     pageBySingleKey<WpmSubmissionDbRow>(db, "wpm_submissions", "id"),
+    pageBySingleKey<LayoutCommentDbRow>(db, "layout_comments", "id"),
   ]);
 
   // LDB-D8: `dump.last_at` is this dump's OWN scheduling bookkeeping (see
@@ -293,6 +311,7 @@ export async function buildDump(env: Bindings, now: Clock): Promise<Dump> {
     bans,
     link_submissions: link_submissions.filter((s) => s.status === "approved"),
     wpm_submissions: wpm_submissions.filter((s) => s.status === "approved"), // approved only, like link_submissions
+    layout_comments: layout_comments.filter((s) => s.status === "approved" && s.body !== null), // approved only: the one status that still holds public text
   };
 }
 

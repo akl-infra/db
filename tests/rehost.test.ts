@@ -23,8 +23,9 @@ import { canonical } from "../src/core/canonical";
 import { appendLike, appendLinkChange, type EventDbRow, foldLayout, rowToEvent } from "../src/core/events";
 import { rowToFormat, rowToLayout, type FormatDbRow, type LayoutDbRow } from "../src/core/records";
 import { fixedClock } from "../src/core/time";
-import type { BanDbRow, Dump, LayoutRevDbRow, LinkSubmissionDbRow, WpmSubmissionDbRow } from "../src/dump/write";
-import { restoreInto } from "../src/dump/restore";
+import type { BanDbRow, Dump, LayoutRevDbRow, LayoutCommentDbRow, LinkSubmissionDbRow, WpmSubmissionDbRow } from "../src/dump/write";
+import { restoreInto, restoreSql } from "../src/dump/restore";
+import frozenSeed from "./fixtures/seed-upstream-100.dump.json" with { type: "json" };
 import { ulid } from "ulidx";
 import worker from "../src/index";
 import { assertConformanceCase, seedUpstream100 } from "./api/support";
@@ -39,7 +40,7 @@ import { CASES } from "./conformance/manifest";
 // supersedes every OTHER pending submission for ITS layout) can never
 // accidentally touch the pending one this test also plants.
 const REHOST_BAN_USER = "870000000000000001";
-async function plantModerationState(db: Bindings["DB"]): Promise<{ likeLayoutId: string; pendingLayoutId: string; linkLayoutId: string; wpmLayoutId: string }> {
+async function plantModerationState(db: Bindings["DB"]): Promise<{ likeLayoutId: string; pendingLayoutId: string; linkLayoutId: string; wpmLayoutId: string; commentLayoutId: string }> {
   const clock = fixedClock("2026-08-01T02:00:00.000Z");
   // Three BRAND NEW layouts, never a real upstream-100 record -- every
   // conformance fixture's own request targets a fixed, real seeded name
@@ -136,7 +137,31 @@ async function plantModerationState(db: Bindings["DB"]): Promise<{ likeLayoutId:
       .run();
   }
 
-  return { likeLayoutId, pendingLayoutId, linkLayoutId, wpmLayoutId };
+  // [LDB-CMT10] layout comments, one per status the table can hold. Only the
+  // approved row is dumped; the erased ones carry no body, the pending and
+  // rejected ones a private text that must stay out of the dump. The approved
+  // row carries a notifier claim, kept so a rehost doesn't re-announce it.
+  const commentLayoutId = await freshLayout("rehost-plant-comment");
+  const commentRows: [string, string | null, string | null][] = [
+    ["pending", "rehost comment pending text", null],
+    ["approved", "rehost comment approved text", clock()],
+    ["rejected", "rehost comment rejected text", clock()],
+    ["superseded", "rehost comment superseded text", clock()],
+    ["replaced", null, clock()],
+    ["deleted", null, clock()],
+    ["removed", null, clock()],
+  ];
+  for (const [status, body, decidedAt] of commentRows) {
+    await db
+      .prepare(
+        `INSERT INTO layout_comments (id, layout_id, user_id, body, via, submitted_at, status, decided_by, decided_at, reason, notified_at)
+         VALUES (?, ?, ?, ?, 'discord', ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(ulid(), commentLayoutId, "800000000000000005", body, clock(), status, decidedAt === null ? null : "800000000000000001", decidedAt, status === "rejected" || status === "removed" ? "rehost comment private reason" : null, status === "approved" ? clock() : null)
+      .run();
+  }
+
+  return { likeLayoutId, pendingLayoutId, linkLayoutId, wpmLayoutId, commentLayoutId };
 }
 
 const bindings = env as unknown as Bindings & { TEST_REHOST_DUMP_URL: string };
@@ -203,7 +228,7 @@ describe("rehost drill", () => {
   // the event log to a tail) would desync one of those, not just look wrong
   // in isolation. `tests/api/dump.test.ts` covers the OTHER two clauses
   // (the `latest.json` sha256, the monthly-key timing) directly.
-  it("[LDB-G1] [LDB-P6] [LDB-D1] [MF-3] [LDB-P18] [LDB-D9] [LDB-MD3] [LDB-MD8] [LDB-MD14] [LDB-WPM10] restoreSql reproduces the exact dumped state", async () => {
+  it("[LDB-G1] [LDB-P6] [LDB-D1] [MF-3] [LDB-P18] [LDB-D9] [LDB-MD3] [LDB-MD8] [LDB-MD14] [LDB-WPM10] [LDB-CMT10] restoreSql reproduces the exact dumped state", async () => {
     const remoteUrl = bindings.TEST_REHOST_DUMP_URL;
     const usingRemote = remoteUrl !== "";
 
@@ -211,7 +236,7 @@ describe("rehost drill", () => {
     // restoring the dump taken from it can be checked for exact agreement.
     let metaBefore: unknown;
     let changesBefore: string | undefined;
-    let moderationIds: { likeLayoutId: string; pendingLayoutId: string; linkLayoutId: string; wpmLayoutId: string } | undefined;
+    let moderationIds: { likeLayoutId: string; pendingLayoutId: string; linkLayoutId: string; wpmLayoutId: string; commentLayoutId: string } | undefined;
     const dump = usingRemote
       ? await fetchRemoteDump(remoteUrl)
       : await runCronAndReadDump(async () => {
@@ -257,6 +282,13 @@ describe("rehost drill", () => {
       expect(plantedWpm[0]?.proof).toBe("https://example.org/rehost-wpm-approved");
       expect(dump.wpm_submissions.every((s) => s.status === "approved")).toBe(true);
       for (const secret of ["rehost-wpm-pending", "rehost-wpm-rejected", "rehost-wpm-superseded", "rehost wpm private reason"]) expect(dumpText.includes(secret), secret).toBe(false);
+      // [LDB-CMT10] only the APPROVED comment is dumped, text intact; every
+      // other status (and the private text and reason they hold) is not.
+      const plantedComments = dump.layout_comments.filter((s) => s.layout_id === ids.commentLayoutId);
+      expect(plantedComments.map((s) => s.status)).toEqual(["approved"]);
+      expect(plantedComments[0]?.body).toBe("rehost comment approved text");
+      expect(dump.layout_comments.every((s) => s.status === "approved" && s.body !== null)).toBe(true);
+      for (const secret of ["rehost comment pending text", "rehost comment rejected text", "rehost comment superseded text", "rehost comment private reason"]) expect(dumpText.includes(secret), secret).toBe(false);
       const likeRecord = dump.records.find((r) => r.id === ids.likeLayoutId);
       expect(likeRecord?.like_count).toBe(2);
       expect(dump.likes.filter((l) => l.layout_id === ids.likeLayoutId)).toHaveLength(2);
@@ -306,6 +338,14 @@ describe("rehost drill", () => {
         .all<WpmSubmissionDbRow>();
       expect(canonical(restoredWpm.results)).toBe(canonical(dump.wpm_submissions));
       expect(restoredWpm.results.filter((s) => s.layout_id === ids.wpmLayoutId)).toHaveLength(1); // the approved one; the rest is lost by design
+
+      // [LDB-CMT10] the comments table round-trips byte-exact, notifier claim included.
+      const restoredComments = await db
+        .prepare("SELECT id, layout_id, user_id, body, via, submitted_at, status, decided_by, decided_at, reason, notified_at FROM layout_comments ORDER BY id ASC")
+        .all<LayoutCommentDbRow>();
+      expect(canonical(restoredComments.results)).toBe(canonical(dump.layout_comments));
+      expect(restoredComments.results.filter((s) => s.layout_id === ids.commentLayoutId)).toHaveLength(1); // the approved one; the rest is lost by design
+      expect(restoredComments.results.find((s) => s.layout_id === ids.commentLayoutId)?.notified_at).not.toBeNull();
 
       const likeLayout = await db.prepare("SELECT like_count FROM layouts WHERE id = ?").bind(ids.likeLayoutId).first<{ like_count: number }>();
       expect(likeLayout?.like_count).toBe(2);
@@ -399,5 +439,17 @@ describe("rehost drill", () => {
       }
       await assertConformanceCase(kase);
     }
+  });
+});
+
+describe("[LDB-CMT10] a dump from before migrations/0023", () => {
+  it("[LDB-CMT10] has no layout_comments key and restores with that table empty: cleared, nothing inserted", () => {
+    const { layout_comments: _present, ...older } = frozenSeed as unknown as Dump;
+    expect("layout_comments" in older).toBe(false);
+    const statements = restoreSql(older as unknown as Dump);
+    expect(statements.some((q) => q.startsWith("DELETE FROM layout_comments"))).toBe(true);
+    expect(statements.some((q) => q.startsWith("INSERT INTO layout_comments"))).toBe(false);
+    // and the same dump WITH the (empty) key behaves identically
+    expect(restoreSql(frozenSeed as unknown as Dump)).toEqual(statements);
   });
 });
