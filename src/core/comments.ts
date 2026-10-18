@@ -191,11 +191,12 @@ export async function submitComment(
 // DELETE /v1/layouts/:ref/comment: immediate, no review (LDB-CMT4). Every
 // row of (layout, caller) that still has a text loses it; an approved or
 // pending one becomes `deleted`, the rest (rejected, superseded) keep their
-// status and just lose the text. `false` if the caller had no approved or
-// pending comment there (nothing is written then).
+// status and just lose the text. `false` if none of the caller's rows there
+// has a text left (nothing is written, no event); a lone rejected or
+// superseded text is erased and counts.
 export async function deleteOwnComment(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, layoutId: string): Promise<boolean> {
   const live = await db
-    .prepare("SELECT 1 AS one FROM layout_comments WHERE layout_id = ? AND user_id = ? AND status IN ('approved', 'pending') LIMIT 1")
+    .prepare("SELECT 1 AS one FROM layout_comments WHERE layout_id = ? AND user_id = ? AND body IS NOT NULL LIMIT 1")
     .bind(layoutId, actor.user_id)
     .first();
   if (live === null) return false;
@@ -361,8 +362,9 @@ export async function listComments(db: Bindings["DB"], layout: LayoutRow): Promi
 
 // GET /v1/layouts/:ref/comment (the caller's own). `decision` is the
 // caller's newest rejection or removal, shown only when it is newer than
-// both their live and pending rows -- and than their last delete, so a
-// comment they erased themselves doesn't keep announcing an old verdict.
+// both their live and pending rows -- and than their last delete; a rejected
+// row whose text the author erased is no verdict either, so a comment they
+// erased themselves doesn't keep announcing an old rejection.
 export async function readOwnComment(db: Bindings["DB"], layoutId: string, userId: string): Promise<OwnComment> {
   const { results } = await db
     .prepare(`SELECT ${COMMENT_COLUMNS} FROM layout_comments WHERE layout_id = ? AND user_id = ? ORDER BY submitted_at ASC, id ASC`)
@@ -376,7 +378,7 @@ export async function readOwnComment(db: Bindings["DB"], layoutId: string, userI
 
   const lastDelete = results.filter((r) => r.status === "deleted").reduce<string>((m, r) => (r.decided_at !== null && r.decided_at > m ? r.decided_at : m), "");
   const verdict = results
-    .filter((r) => (r.status === "rejected" || r.status === "removed") && r.decided_at !== null)
+    .filter((r) => ((r.status === "rejected" && r.body !== null) || r.status === "removed") && r.decided_at !== null)
     .reduce<CommentRow | undefined>((best, r) => (best === undefined || r.decided_at! > best.decided_at! ? r : best), undefined);
   let decision: OwnComment["decision"] = null;
   if (verdict !== undefined) {
