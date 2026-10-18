@@ -76,6 +76,11 @@ const INFO_KINDS_MAP: Record<InfoKind, true> = {
   wpm_submitted: true,
   wpm_approved: true,
   wpm_rejected: true,
+  comment_submitted: true,
+  comment_approved: true,
+  comment_rejected: true,
+  comment_removed: true,
+  comment_deleted: true,
 };
 const LIKE_KINDS_MAP: Record<"liked" | "unliked", true> = { liked: true, unliked: true };
 

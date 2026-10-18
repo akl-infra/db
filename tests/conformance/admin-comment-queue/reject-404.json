@@ -1,0 +1,19 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/admin/comment-queue/nonexistent-comment-id/reject",
+    "bearer": "conformance-admin-token",
+    "body": {}
+  },
+  "response": {
+    "status": 404,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "error": "not_found",
+      "message": "no comment 'nonexistent-comment-id'",
+      "ref": "nonexistent-comment-id"
+    }
+  }
+}

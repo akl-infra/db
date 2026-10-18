@@ -231,6 +231,15 @@ async function seedWriteFixtures(): Promise<void> {
     username: "conformance-wpm",
     global_name: null,
   });
+  // Layout comments' own actor (manifest.ts's `layouts-comment/*` cases): the
+  // owner of the layouts those cases create and the user whose comment they
+  // write, kept off the other tokens so no write window is drained further.
+  fake.setAnswer("conformance-comments-token", {
+    kind: "ok",
+    id: "840000000000000079",
+    username: "conformance-comments",
+    global_name: null,
+  });
   vi.stubGlobal("fetch", fake.fetchImpl);
   (bindings as unknown as { TEST_CLOCK?: Clock }).TEST_CLOCK = fixedClock(CONFORMANCE_CLOCK_ISO);
   // The fixtures' 429 cases are reached by piling up this file's own writes,
@@ -788,6 +797,43 @@ const REQUIRED: Record<string, RequiredCase[]> = {
     { status: 404, code: ERROR_CODES.not_found },
   ],
   "POST /v1/admin/wpm-queue/:id/reject": [
+    { status: 400, code: ERROR_CODES.bad_request },
+    { status: 401, code: ERROR_CODES.unauthorized },
+    { status: 403, code: ERROR_CODES.not_admin },
+    { status: 404, code: ERROR_CODES.not_found },
+  ],
+
+  // Layout comments (docs/decisions/29-layout-comments.md): same lighter
+  // treatment as the WPM rows just above.
+  "GET /v1/layouts/:ref/comments": [{ status: 200 }, { status: 304 }, { status: 404, code: ERROR_CODES.not_found }],
+  "GET /v1/layouts/:ref/comment": [{ status: 200 }, { status: 401, code: ERROR_CODES.unauthorized }, { status: 404, code: ERROR_CODES.not_found }],
+  "PUT /v1/layouts/:ref/comment": [
+    { status: 201 },
+    { status: 202 },
+    { status: 400, code: ERROR_CODES.bad_request },
+    { status: 400, code: "invalid_comment" },
+    { status: 401, code: ERROR_CODES.unauthorized },
+    { status: 404, code: ERROR_CODES.not_found },
+  ],
+  "DELETE /v1/layouts/:ref/comment": [{ status: 204 }, { status: 401, code: ERROR_CODES.unauthorized }, { status: 404, code: ERROR_CODES.not_found }],
+  "GET /v1/admin/comment-queue": [
+    { status: 200 },
+    { status: 400, code: ERROR_CODES.bad_request },
+    { status: 401, code: ERROR_CODES.unauthorized },
+    { status: 403, code: ERROR_CODES.not_admin },
+  ],
+  "POST /v1/admin/comment-queue/:id/approve": [
+    { status: 401, code: ERROR_CODES.unauthorized },
+    { status: 403, code: ERROR_CODES.not_admin },
+    { status: 404, code: ERROR_CODES.not_found },
+  ],
+  "POST /v1/admin/comment-queue/:id/reject": [
+    { status: 400, code: ERROR_CODES.bad_request },
+    { status: 401, code: ERROR_CODES.unauthorized },
+    { status: 403, code: ERROR_CODES.not_admin },
+    { status: 404, code: ERROR_CODES.not_found },
+  ],
+  "POST /v1/admin/comments/:id/remove": [
     { status: 400, code: ERROR_CODES.bad_request },
     { status: 401, code: ERROR_CODES.unauthorized },
     { status: 403, code: ERROR_CODES.not_admin },

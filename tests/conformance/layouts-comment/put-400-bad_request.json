@@ -1,0 +1,19 @@
+{
+  "request": {
+    "method": "PUT",
+    "path": "/v1/layouts/mod-cmt-1/comment",
+    "bearer": "conformance-comments-token",
+    "body": {}
+  },
+  "response": {
+    "status": 400,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "error": "bad_request",
+      "message": "body must have required property 'body'",
+      "param": "/body"
+    }
+  }
+}

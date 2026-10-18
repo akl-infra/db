@@ -214,7 +214,15 @@ export async function readHead(db: D1Database, stateKeys: readonly string[] = []
 //   gains `wpm_submissions`. Purely additive: no existing route, field or
 //   event changes meaning, and `migrations/0022_wpm_submissions.sql` only
 //   creates a table and its indexes.
-export const WIRE_VERSION = 21;
+// 22 (2026-10-18, LDB-CMT1..LDB-CMT10, docs/decisions/29-layout-comments.md):
+//   layout comments -- `PUT`/`DELETE`/`GET /v1/layouts/{ref}/comment`,
+//   `GET /v1/layouts/{ref}/comments` and the `/v1/admin/comment-queue`
+//   family; five new event kinds (`comment_submitted`, `comment_approved`,
+//   `comment_rejected`, `comment_removed`, `comment_deleted`), none carrying
+//   comment text; the dump gains `layout_comments`. Purely additive:
+//   `migrations/0023_layout_comments.sql` only creates a table and its
+//   indexes.
+export const WIRE_VERSION = 22;
 
 export async function etagFor(headSeqValue: number, query: unknown): Promise<string> {
   const hash = await sha256Hex(canonical({ wireVersion: WIRE_VERSION, query: query ?? null }));

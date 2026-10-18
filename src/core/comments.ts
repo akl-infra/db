@@ -1,0 +1,389 @@
+// Layout comments (docs/decisions/29-layout-comments.md): one plain-text
+// comment per user per layout, every write moderated through the same queue
+// pattern `core/wpm.ts` and `core/links.ts` use. `src/routes/comments.ts` is
+// glue only (LDB-W1) -- every D1 statement for these verbs lives here. Rows
+// are never deleted, but their text is: a delete or a removal sets `body` to
+// NULL for good (LDB-CMT4), and `status` records what happened.
+import { ulid } from "ulidx";
+import type { Actor } from "../auth/actor";
+import type { Bindings } from "../env";
+import { invalidComment, notFound } from "./errors";
+import { appendInfo, appendModeration } from "./events";
+import { byRef, type LayoutRow, type Source } from "./records";
+import type { Clock } from "./time";
+
+// --- the pure validator (LDB-CMT1, table-tested) --------------------------
+
+export const MAX_COMMENT_LENGTH = 2000;
+
+export type CommentValidation = { ok: true; body: string } | { ok: false; message: string };
+
+// akldb is permissive: the only refusals are "not text", "nothing there" and
+// "too long". Line endings are normalized to `\n` (CRLF and a lone CR), then
+// the text is trimmed; the stored value is that string, byte for byte. Length
+// counts Unicode code points, not UTF-16 units, so an emoji is one character.
+export function validateComment(raw: unknown): CommentValidation {
+  if (typeof raw !== "string") return { ok: false, message: "'body' must be a string" };
+  const body = raw.replace(/\r\n?/g, "\n").trim();
+  const length = [...body].length;
+  if (length === 0) return { ok: false, message: "'body' must be a non-empty string" };
+  if (length > MAX_COMMENT_LENGTH) return { ok: false, message: `'body' must be at most ${MAX_COMMENT_LENGTH} characters` };
+  return { ok: true, body };
+}
+
+// --- rows ------------------------------------------------------------------
+
+export type CommentStatus = "pending" | "approved" | "rejected" | "superseded" | "replaced" | "deleted" | "removed";
+
+export interface CommentRow {
+  id: string;
+  layout_id: string;
+  user_id: string;
+  body: string | null;
+  via: string;
+  submitted_at: string;
+  status: CommentStatus;
+  decided_by: string | null;
+  decided_at: string | null;
+  reason: string | null;
+}
+
+// `GET /v1/admin/comment-queue` additionally names the layout and the user,
+// and carries the user's current approved text so an edit can be diffed.
+export interface CommentQueueRow extends CommentRow {
+  layout_name: string;
+  user_name: string | null; // joined from authors; null if no author row
+  live_body: string | null; // the user's approved text on this layout, if any
+}
+
+// `GET /v1/layouts/:ref/comments`: one row per user, their approved comment.
+export interface PublicComment {
+  id: string;
+  user_id: string;
+  name: string | null;
+  body: string;
+  approved_at: string;
+  edited: boolean;
+}
+
+// `GET /v1/layouts/:ref/comment`: the caller's own view.
+export interface OwnComment {
+  live: { id: string; body: string; approved_at: string } | null;
+  pending: { id: string; body: string; submitted_at: string } | null;
+  decision: { status: "rejected" | "removed"; reason: string | null; decided_at: string } | null;
+}
+
+function sourceOf(actor: Actor, version: string | null): Source {
+  return { client: actor.source_client, version };
+}
+
+// [LDB-CMT9] The explicit column list (never `SELECT *`) keeps
+// `notified_at` -- the mod-queue notifier's claim bookkeeping,
+// `core/modqueue.ts` -- off every wire these rows reach.
+const COMMENT_COLUMNS = "id, layout_id, user_id, body, via, submitted_at, status, decided_by, decided_at, reason";
+
+async function loadComment(db: Bindings["DB"], id: string): Promise<CommentRow> {
+  const row = await db.prepare(`SELECT ${COMMENT_COLUMNS} FROM layout_comments WHERE id = ?`).bind(id).first<CommentRow>();
+  if (row === null) throw notFound(`no comment '${id}'`, id);
+  return row;
+}
+
+// The layout every write route names: the usual ref resolution; a tombstone
+// refuses (a deleted layout takes no new comments).
+export async function resolveCommentLayout(db: Bindings["DB"], ref: string): Promise<LayoutRow> {
+  const layout = await byRef(db, ref);
+  if (layout === null || layout.deleted) throw notFound(`no layout '${ref}'`, ref);
+  return layout;
+}
+
+function validated(rawBody: unknown): string {
+  const v = validateComment(rawBody);
+  if (!v.ok) throw invalidComment(v.message);
+  return v.body;
+}
+
+// [LDB-CMT7] The one place `comment_approved` is written. The event names
+// the submission, layout and user and NEVER the text: the public feed must
+// not keep a comment that is later deleted or removed.
+async function appendApproved(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, c: Pick<CommentRow, "id" | "layout_id" | "user_id">): Promise<void> {
+  await appendModeration(db, now, {
+    kind: "comment_approved",
+    layoutId: c.layout_id,
+    actor: actor.user_id,
+    via: actor.via,
+    source: sourceOf(actor, version),
+    detail: { submission_id: c.id, layout_id: c.layout_id, user_id: c.user_id },
+  });
+}
+
+// The statement that retires a user's current approved comment when a newer
+// one takes its place: `replaced`, text erased. `newId` must be the id of a
+// row that is (or, in the same batch, becomes) the successor.
+function replacePrevious(db: Bindings["DB"], layoutId: string, userId: string, newId: string, at: string, by: string): D1PreparedStatement {
+  return db
+    .prepare("UPDATE layout_comments SET status = 'replaced', body = NULL, decided_by = ?, decided_at = ? WHERE layout_id = ? AND user_id = ? AND status = 'approved' AND id != ?")
+    .bind(by, at, layoutId, userId, newId);
+}
+
+// PUT /v1/layouts/:ref/comment. A user: queued (`202`) -- LDB-CMT2: a fresh
+// pending row supersedes the same user's older pending one on this layout,
+// no event for that. An admin's OWN comment: approved at once (`201`),
+// through the same replace-the-previous step an approval takes.
+export async function submitComment(
+  db: Bindings["DB"],
+  now: Clock,
+  actor: Actor,
+  version: string | null,
+  layoutId: string,
+  rawBody: unknown,
+): Promise<{ kind: "queued" | "approved"; submission: CommentRow }> {
+  const body = validated(rawBody);
+  const at = now();
+  const id = ulid();
+  const supersede = db
+    .prepare("UPDATE layout_comments SET status = 'superseded', decided_by = ?, decided_at = ? WHERE layout_id = ? AND user_id = ? AND status = 'pending'")
+    .bind(actor.user_id, at, layoutId, actor.user_id);
+
+  if (actor.admin) {
+    await db.batch([
+      supersede,
+      replacePrevious(db, layoutId, actor.user_id, id, at, actor.user_id),
+      db
+        .prepare(
+          `INSERT INTO layout_comments (id, layout_id, user_id, body, via, submitted_at, status, decided_by, decided_at, reason)
+           VALUES (?, ?, ?, ?, ?, ?, 'approved', ?, ?, NULL)`,
+        )
+        .bind(id, layoutId, actor.user_id, body, actor.via, at, actor.user_id, at),
+    ]);
+    await appendApproved(db, now, actor, version, { id, layout_id: layoutId, user_id: actor.user_id });
+    return {
+      kind: "approved",
+      submission: { id, layout_id: layoutId, user_id: actor.user_id, body, via: actor.via, submitted_at: at, status: "approved", decided_by: actor.user_id, decided_at: at, reason: null },
+    };
+  }
+
+  await db.batch([
+    supersede,
+    db
+      .prepare(
+        `INSERT INTO layout_comments (id, layout_id, user_id, body, via, submitted_at, status, decided_by, decided_at, reason)
+         VALUES (?, ?, ?, ?, ?, ?, 'pending', NULL, NULL, NULL)`,
+      )
+      .bind(id, layoutId, actor.user_id, body, actor.via, at),
+  ]);
+
+  // [LDB-CMT7] The feed is public and a pending comment is private to mods:
+  // this event names the submission and nothing else -- no text.
+  await appendInfo(db, now, {
+    kind: "comment_submitted",
+    layoutId,
+    actor: actor.user_id,
+    via: actor.via,
+    source: sourceOf(actor, version),
+    detail: { submission_id: id },
+  });
+  return {
+    kind: "queued",
+    submission: { id, layout_id: layoutId, user_id: actor.user_id, body, via: actor.via, submitted_at: at, status: "pending", decided_by: null, decided_at: null, reason: null },
+  };
+}
+
+// DELETE /v1/layouts/:ref/comment: immediate, no review (LDB-CMT4). Every
+// row of (layout, caller) that still has a text loses it; an approved or
+// pending one becomes `deleted`, the rest (rejected, superseded) keep their
+// status and just lose the text. `false` if the caller had no approved or
+// pending comment there (nothing is written then).
+export async function deleteOwnComment(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, layoutId: string): Promise<boolean> {
+  const live = await db
+    .prepare("SELECT 1 AS one FROM layout_comments WHERE layout_id = ? AND user_id = ? AND status IN ('approved', 'pending') LIMIT 1")
+    .bind(layoutId, actor.user_id)
+    .first();
+  if (live === null) return false;
+
+  const at = now();
+  await db.batch([
+    db
+      .prepare(
+        `UPDATE layout_comments
+         SET body = NULL, status = 'deleted', decided_by = ?, decided_at = ?
+         WHERE layout_id = ? AND user_id = ? AND status IN ('approved', 'pending')`,
+      )
+      .bind(actor.user_id, at, layoutId, actor.user_id),
+    db.prepare("UPDATE layout_comments SET body = NULL WHERE layout_id = ? AND user_id = ? AND body IS NOT NULL").bind(layoutId, actor.user_id),
+  ]);
+  await appendInfo(db, now, {
+    kind: "comment_deleted",
+    layoutId,
+    actor: actor.user_id,
+    via: actor.via,
+    source: sourceOf(actor, version),
+    detail: { layout_id: layoutId, user_id: actor.user_id },
+  });
+  return true;
+}
+
+export type CommentQueueStatus = CommentStatus;
+
+// GET /v1/admin/comment-queue?status=... (default pending): hides a row whose
+// layout is currently a tombstone (nothing about delete touches comments --
+// a pending one is simply hidden until restore).
+export async function listCommentQueue(db: Bindings["DB"], status: CommentQueueStatus): Promise<CommentQueueRow[]> {
+  const cols = COMMENT_COLUMNS.split(", ")
+    .map((c) => `s.${c}`)
+    .join(", ");
+  const { results } = await db
+    .prepare(
+      `SELECT ${cols}, l.name AS layout_name, a.name AS user_name,
+              (SELECT b.body FROM layout_comments b
+               WHERE b.layout_id = s.layout_id AND b.user_id = s.user_id AND b.status = 'approved' AND b.id != s.id
+               ORDER BY b.decided_at DESC, b.id ASC LIMIT 1) AS live_body
+       FROM layout_comments s
+       JOIN layouts l ON l.id = s.layout_id
+       LEFT JOIN authors a ON a.user_id = s.user_id
+       WHERE s.status = ? AND l.deleted = 0
+       ORDER BY s.submitted_at ASC, s.id ASC`,
+    )
+    .bind(status)
+    .all<CommentQueueRow>();
+  return results;
+}
+
+// POST /v1/admin/comment-queue/:id/approve: `404 not_found` if the layout is
+// a tombstone (restore first) or the submission doesn't exist / isn't
+// pending. One atomic batch: the user's previous approved row becomes
+// `replaced` (text erased) only if this row is still pending, and this row
+// is claimed (`changes === 1` wins), so two admins deciding at once can
+// never both succeed and a loser never retires the live text.
+export async function approveComment(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, id: string): Promise<CommentRow> {
+  const submission = await loadComment(db, id);
+  if (submission.status !== "pending") throw notFound(`comment '${id}' is not pending`, id);
+  const layout = await db.prepare("SELECT id FROM layouts WHERE id = ? AND deleted = 0").bind(submission.layout_id).first();
+  if (layout === null) throw notFound(`no layout '${submission.layout_id}'`, submission.layout_id);
+
+  const at = now();
+  const [, claim] = await db.batch([
+    db
+      .prepare(
+        `UPDATE layout_comments SET status = 'replaced', body = NULL, decided_by = ?, decided_at = ?
+         WHERE layout_id = ? AND user_id = ? AND status = 'approved' AND id != ?
+           AND EXISTS (SELECT 1 FROM layout_comments WHERE id = ? AND status = 'pending')`,
+      )
+      .bind(actor.user_id, at, submission.layout_id, submission.user_id, id, id),
+    db
+      .prepare("UPDATE layout_comments SET status = 'approved', decided_by = ?, decided_at = ?, reason = NULL WHERE id = ? AND status = 'pending'")
+      .bind(actor.user_id, at, id),
+  ]);
+  if (claim!.meta.changes !== 1) throw notFound(`comment '${id}' is not pending`, id);
+
+  const approved = await loadComment(db, id);
+  await appendApproved(db, now, actor, version, approved);
+  return approved;
+}
+
+// POST /v1/admin/comment-queue/:id/reject: marks the submission `rejected`
+// (the text is KEPT so its author can read it back with the reason) and
+// appends `comment_rejected`, which names the submission and nothing else.
+export async function rejectComment(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, id: string, reason?: string): Promise<CommentRow> {
+  const submission = await loadComment(db, id);
+  if (submission.status !== "pending") throw notFound(`comment '${id}' is not pending`, id);
+
+  const res = await db
+    .prepare("UPDATE layout_comments SET status = 'rejected', decided_by = ?, decided_at = ?, reason = ? WHERE id = ? AND status = 'pending'")
+    .bind(actor.user_id, now(), reason ?? null, id)
+    .run();
+  if (res.meta.changes !== 1) throw notFound(`comment '${id}' is not pending`, id);
+
+  const rejected = await loadComment(db, id);
+  await appendModeration(db, now, {
+    kind: "comment_rejected",
+    layoutId: rejected.layout_id,
+    actor: actor.user_id,
+    via: actor.via,
+    source: sourceOf(actor, version),
+    detail: { submission_id: rejected.id },
+  });
+  return rejected;
+}
+
+// POST /v1/admin/comments/:id/remove: a mod takes an approved comment down.
+// `removed`, text erased, `reason` kept for the author. `404` if the comment
+// doesn't exist or isn't approved (so a removal can't be repeated).
+export async function removeComment(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, id: string, reason?: string): Promise<CommentRow> {
+  const comment = await loadComment(db, id);
+  if (comment.status !== "approved") throw notFound(`comment '${id}' is not approved`, id);
+
+  const res = await db
+    .prepare("UPDATE layout_comments SET status = 'removed', body = NULL, decided_by = ?, decided_at = ?, reason = ? WHERE id = ? AND status = 'approved'")
+    .bind(actor.user_id, now(), reason ?? null, id)
+    .run();
+  if (res.meta.changes !== 1) throw notFound(`comment '${id}' is not approved`, id);
+
+  const removed = await loadComment(db, id);
+  await appendModeration(db, now, {
+    kind: "comment_removed",
+    layoutId: removed.layout_id,
+    actor: actor.user_id,
+    via: actor.via,
+    source: sourceOf(actor, version),
+    detail: { submission_id: removed.id, layout_id: removed.layout_id, user_id: removed.user_id },
+  });
+  return removed;
+}
+
+// GET /v1/layouts/:ref/comments (public). The one approved row per user
+// (LDB-CMT3: the approve path keeps it at most one), newest approval first,
+// then id. `edited` is true when that user has an earlier `replaced` row on
+// this layout since their last delete or removal: a replaced row's
+// `decided_at` is when it was retired, so "since" compares the retirement to
+// the last time the user's thread was cut. A deleted layout lists nothing.
+export async function listComments(db: Bindings["DB"], layout: LayoutRow): Promise<PublicComment[]> {
+  if (layout.deleted) return [];
+  const { results } = await db
+    .prepare(
+      `SELECT c.id AS id, c.user_id AS user_id, a.name AS name, c.body AS body, c.decided_at AS approved_at,
+              EXISTS (
+                SELECT 1 FROM layout_comments r
+                WHERE r.layout_id = c.layout_id AND r.user_id = c.user_id AND r.status = 'replaced'
+                  AND r.decided_at > COALESCE(
+                    (SELECT MAX(d.decided_at) FROM layout_comments d
+                     WHERE d.layout_id = c.layout_id AND d.user_id = c.user_id AND d.status IN ('deleted', 'removed')),
+                    '')
+              ) AS edited
+       FROM layout_comments c
+       LEFT JOIN authors a ON a.user_id = c.user_id
+       WHERE c.layout_id = ? AND c.status = 'approved' AND c.body IS NOT NULL
+       ORDER BY c.decided_at DESC, c.id ASC`,
+    )
+    .bind(layout.id)
+    .all<Omit<PublicComment, "edited"> & { edited: number }>();
+  return results.map((r) => ({ ...r, edited: r.edited === 1 }));
+}
+
+// GET /v1/layouts/:ref/comment (the caller's own). `decision` is the
+// caller's newest rejection or removal, shown only when it is newer than
+// both their live and pending rows -- and than their last delete, so a
+// comment they erased themselves doesn't keep announcing an old verdict.
+export async function readOwnComment(db: Bindings["DB"], layoutId: string, userId: string): Promise<OwnComment> {
+  const { results } = await db
+    .prepare(`SELECT ${COMMENT_COLUMNS} FROM layout_comments WHERE layout_id = ? AND user_id = ? ORDER BY submitted_at ASC, id ASC`)
+    .bind(layoutId, userId)
+    .all<CommentRow>();
+
+  const approved = results.filter((r) => r.status === "approved" && r.body !== null).at(-1);
+  const pending = results.filter((r) => r.status === "pending" && r.body !== null).at(-1);
+  const live = approved === undefined ? null : { id: approved.id, body: approved.body!, approved_at: approved.decided_at! };
+  const pend = pending === undefined ? null : { id: pending.id, body: pending.body!, submitted_at: pending.submitted_at };
+
+  const lastDelete = results.filter((r) => r.status === "deleted").reduce<string>((m, r) => (r.decided_at !== null && r.decided_at > m ? r.decided_at : m), "");
+  const verdict = results
+    .filter((r) => (r.status === "rejected" || r.status === "removed") && r.decided_at !== null)
+    .reduce<CommentRow | undefined>((best, r) => (best === undefined || r.decided_at! > best.decided_at! ? r : best), undefined);
+  let decision: OwnComment["decision"] = null;
+  if (verdict !== undefined) {
+    const at = verdict.decided_at!;
+    if (at > lastDelete && (live === null || at > live.approved_at) && (pend === null || at > pend.submitted_at)) {
+      decision = { status: verdict.status as "rejected" | "removed", reason: verdict.reason, decided_at: at };
+    }
+  }
+  return { live, pending: pend, decision };
+}

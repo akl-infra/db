@@ -1,0 +1,44 @@
+{
+  "request": {
+    "method": "PUT",
+    "path": "/v1/layouts/mod-cmt-1/comment",
+    "bearer": "conformance-comments-token",
+    "body": {
+      "body": "Nice home row, I use it daily."
+    },
+    "setup": [
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-comments-token",
+        "body": {
+          "name": "mod-cmt-1",
+          "format": "spark/1",
+          "payload": {
+            "keys": []
+          }
+        }
+      }
+    ]
+  },
+  "response": {
+    "status": 202,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "submission": {
+        "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "layout_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "user_id": "840000000000000079",
+        "body": "Nice home row, I use it daily.",
+        "via": "discord",
+        "submitted_at": "2026-06-20T00:00:00.000Z",
+        "status": "pending",
+        "decided_by": null,
+        "decided_at": null,
+        "reason": null
+      }
+    }
+  }
+}

@@ -162,6 +162,19 @@ const wpmOnBehalfSchema = {
   },
 } as const;
 
+// docs/decisions/29-layout-comments.md: `PUT /v1/layouts/:ref/comment`.
+// `body` is deliberately untyped here -- its deep shape (a string of 1..2000
+// code points after normalization) is `core/comments.ts`'s `invalid_comment`
+// job, the one validator every route shares.
+const commentSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["body"],
+  properties: {
+    body: {},
+  },
+} as const;
+
 // §4.4: `POST /v1/admin/link-queue/:id/reject`.
 const linkRejectSchema = {
   type: "object",
@@ -247,6 +260,10 @@ export interface WpmOnBehalfBody extends WpmBody {
   user_id: string;
 }
 
+export interface CommentBody {
+  body: unknown;
+}
+
 export interface LinkRejectBody {
   reason?: string;
 }
@@ -262,6 +279,7 @@ const validateBan = ajv.compile<BanBody>(banSchema);
 const validateAuthorRename = ajv.compile<AuthorRenameBody>(authorRenameSchema);
 const validateLink = ajv.compile<LinkBody>(linkSchema);
 const validateLinkReject = ajv.compile<LinkRejectBody>(linkRejectSchema);
+const validateComment = ajv.compile<CommentBody>(commentSchema);
 const validateWpm = ajv.compile<WpmBody>(wpmSchema);
 const validateWpmOnBehalf = ajv.compile<WpmOnBehalfBody>(wpmOnBehalfSchema);
 
@@ -350,4 +368,8 @@ export function parseWpmBody(body: unknown): WpmBody {
 
 export function parseWpmOnBehalfBody(body: unknown): WpmOnBehalfBody {
   return checkBody(validateWpmOnBehalf, body);
+}
+
+export function parseCommentBody(body: unknown): CommentBody {
+  return checkBody(validateComment, body);
 }

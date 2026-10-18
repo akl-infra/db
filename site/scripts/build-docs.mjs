@@ -114,6 +114,10 @@ const ENDPOINT_PURPOSES = {
   "PUT /v1/layouts/:ref/link": "Submit an external link; an admin's own submission is approved immediately, an owner's is queued.",
   "DELETE /v1/layouts/:ref/link": "Clear the layout's external link.",
   "GET /v1/wpm": "Each user's top approved typing speed per layout, filterable by layout and user; public.",
+  "GET /v1/layouts/:ref/comments": "A layout's approved comments, one per user, newest first; public.",
+  "GET /v1/layouts/:ref/comment": "Your own comment on a layout: the live text, a pending edit, and a rejection or removal notice.",
+  "PUT /v1/layouts/:ref/comment": "Write your comment on a layout; queued for approval (an admin's own is approved immediately).",
+  "DELETE /v1/layouts/:ref/comment": "Delete your comment on a layout, immediately and for good.",
   "POST /v1/wpm": "Submit your typing speed on a layout with a proof link; queued for approval (an admin's own is approved immediately).",
   "GET /v1/authors": "Every known author (Discord user id + display name).",
   "GET /v1/authors/:user_id": "One author's display name.",
@@ -157,6 +161,10 @@ const ENDPOINT_PURPOSES = {
   "GET /v1/admin/wpm-queue": "List WPM submissions awaiting moderation.",
   "POST /v1/admin/wpm-queue/:id/approve": "Approve a queued WPM submission.",
   "POST /v1/admin/wpm-queue/:id/reject": "Reject a queued WPM submission.",
+  "GET /v1/admin/comment-queue": "List comments awaiting moderation, each with the user's current approved text.",
+  "POST /v1/admin/comment-queue/:id/approve": "Approve a queued comment; it replaces that user's previous one.",
+  "POST /v1/admin/comment-queue/:id/reject": "Reject a queued comment.",
+  "POST /v1/admin/comments/:id/remove": "Take an approved comment down, with a reason the author can read.",
 };
 
 function classify(method, routePath) {

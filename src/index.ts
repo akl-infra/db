@@ -20,6 +20,7 @@ import { adminRoute } from "./routes/admin";
 import { authorsRoute } from "./routes/authors";
 import { changelogRoute } from "./routes/changelog";
 import { changesRoute } from "./routes/changes";
+import { commentsRoute } from "./routes/comments";
 import { dumpRoute } from "./routes/dump";
 import { formatsRoute } from "./routes/formats";
 import { layoutsRoute } from "./routes/layouts";
@@ -280,6 +281,7 @@ app.route("/", writeRoute);
 app.route("/", likesRoute);
 app.route("/", linksRoute(authDeps));
 app.route("/", wpmRoute(authDeps));
+app.route("/", commentsRoute(authDeps));
 app.route("/", adminRoute(authDeps));
 app.route("/", moderationRoute(authDeps));
 

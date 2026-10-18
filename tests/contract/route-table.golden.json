@@ -2027,6 +2027,292 @@
     }
   },
   {
+    "id": "admin-comment-queue/approve-401-unauthorized",
+    "method": "POST",
+    "route": "/v1/admin/comment-queue/:id/approve",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-comment-queue/approve-403-not_admin",
+    "method": "POST",
+    "route": "/v1/admin/comment-queue/:id/approve",
+    "auth": "admin",
+    "status": 403,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-comment-queue/approve-404",
+    "method": "POST",
+    "route": "/v1/admin/comment-queue/:id/approve",
+    "auth": "admin",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-comment-queue/get-200",
+    "method": "GET",
+    "route": "/v1/admin/comment-queue",
+    "auth": "admin",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "submissions": {
+          "type": "array",
+          "item": null
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-comment-queue/get-400-bad_request",
+    "method": "GET",
+    "route": "/v1/admin/comment-queue",
+    "auth": "admin",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "param": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-comment-queue/get-401-unauthorized",
+    "method": "GET",
+    "route": "/v1/admin/comment-queue",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-comment-queue/get-403-not_admin",
+    "method": "GET",
+    "route": "/v1/admin/comment-queue",
+    "auth": "admin",
+    "status": 403,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-comment-queue/reject-400-bad_request",
+    "method": "POST",
+    "route": "/v1/admin/comment-queue/:id/reject",
+    "auth": "admin",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "param": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-comment-queue/reject-401-unauthorized",
+    "method": "POST",
+    "route": "/v1/admin/comment-queue/:id/reject",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-comment-queue/reject-403-not_admin",
+    "method": "POST",
+    "route": "/v1/admin/comment-queue/:id/reject",
+    "auth": "admin",
+    "status": 403,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-comment-queue/reject-404",
+    "method": "POST",
+    "route": "/v1/admin/comment-queue/:id/reject",
+    "auth": "admin",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-comments/remove-400-bad_request",
+    "method": "POST",
+    "route": "/v1/admin/comments/:id/remove",
+    "auth": "admin",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "param": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-comments/remove-401-unauthorized",
+    "method": "POST",
+    "route": "/v1/admin/comments/:id/remove",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-comments/remove-403-not_admin",
+    "method": "POST",
+    "route": "/v1/admin/comments/:id/remove",
+    "auth": "admin",
+    "status": 403,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-comments/remove-404",
+    "method": "POST",
+    "route": "/v1/admin/comments/:id/remove",
+    "auth": "admin",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
     "id": "admin-dump/post-200",
     "method": "POST",
     "route": "/v1/admin/dump",
@@ -4687,6 +4973,363 @@
     "id": "formats-schema/404",
     "method": "GET",
     "route": "/v1/formats/:name/:major/schema.json",
+    "auth": "none",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-comment/delete-204",
+    "method": "DELETE",
+    "route": "/v1/layouts/:ref/comment",
+    "auth": "user",
+    "status": 204,
+    "shape": null
+  },
+  {
+    "id": "layouts-comment/delete-401-unauthorized",
+    "method": "DELETE",
+    "route": "/v1/layouts/:ref/comment",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-comment/delete-404",
+    "method": "DELETE",
+    "route": "/v1/layouts/:ref/comment",
+    "auth": "user",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-comment/get-200",
+    "method": "GET",
+    "route": "/v1/layouts/:ref/comment",
+    "auth": "user",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "decision": {
+          "type": "null"
+        },
+        "live": {
+          "type": "null"
+        },
+        "pending": {
+          "type": "object",
+          "fields": {
+            "body": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "submitted_at": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-comment/get-401-unauthorized",
+    "method": "GET",
+    "route": "/v1/layouts/:ref/comment",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-comment/get-404",
+    "method": "GET",
+    "route": "/v1/layouts/:ref/comment",
+    "auth": "user",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-comment/put-201-admin-approved",
+    "method": "PUT",
+    "route": "/v1/layouts/:ref/comment",
+    "auth": "user",
+    "status": 201,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "submission": {
+          "type": "object",
+          "fields": {
+            "body": {
+              "type": "string"
+            },
+            "decided_at": {
+              "type": "string"
+            },
+            "decided_by": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "layout_id": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "null"
+            },
+            "status": {
+              "type": "string"
+            },
+            "submitted_at": {
+              "type": "string"
+            },
+            "user_id": {
+              "type": "string"
+            },
+            "via": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-comment/put-202",
+    "method": "PUT",
+    "route": "/v1/layouts/:ref/comment",
+    "auth": "user",
+    "status": 202,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "submission": {
+          "type": "object",
+          "fields": {
+            "body": {
+              "type": "string"
+            },
+            "decided_at": {
+              "type": "null"
+            },
+            "decided_by": {
+              "type": "null"
+            },
+            "id": {
+              "type": "string"
+            },
+            "layout_id": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "null"
+            },
+            "status": {
+              "type": "string"
+            },
+            "submitted_at": {
+              "type": "string"
+            },
+            "user_id": {
+              "type": "string"
+            },
+            "via": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-comment/put-400-bad_request",
+    "method": "PUT",
+    "route": "/v1/layouts/:ref/comment",
+    "auth": "user",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "param": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-comment/put-400-invalid_comment",
+    "method": "PUT",
+    "route": "/v1/layouts/:ref/comment",
+    "auth": "user",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-comment/put-401-unauthorized",
+    "method": "PUT",
+    "route": "/v1/layouts/:ref/comment",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-comment/put-404",
+    "method": "PUT",
+    "route": "/v1/layouts/:ref/comment",
+    "auth": "user",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-comments/get-200",
+    "method": "GET",
+    "route": "/v1/layouts/:ref/comments",
+    "auth": "none",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "comments": {
+          "type": "array",
+          "item": {
+            "type": "object",
+            "fields": {
+              "approved_at": {
+                "type": "string"
+              },
+              "body": {
+                "type": "string"
+              },
+              "edited": {
+                "type": "boolean"
+              },
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "user_id": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "layouts-comments/get-304",
+    "method": "GET",
+    "route": "/v1/layouts/:ref/comments",
+    "auth": "none",
+    "status": 304,
+    "shape": null
+  },
+  {
+    "id": "layouts-comments/get-404",
+    "method": "GET",
+    "route": "/v1/layouts/:ref/comments",
     "auth": "none",
     "status": 404,
     "shape": {

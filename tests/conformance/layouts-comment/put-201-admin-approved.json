@@ -1,0 +1,44 @@
+{
+  "request": {
+    "method": "PUT",
+    "path": "/v1/layouts/mod-cmt-2/comment",
+    "bearer": "conformance-admin-token",
+    "body": {
+      "body": "Maintained by the community."
+    },
+    "setup": [
+      {
+        "method": "POST",
+        "path": "/v1/layouts",
+        "bearer": "conformance-comments-token",
+        "body": {
+          "name": "mod-cmt-2",
+          "format": "spark/1",
+          "payload": {
+            "keys": []
+          }
+        }
+      }
+    ]
+  },
+  "response": {
+    "status": 201,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "submission": {
+        "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "layout_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "user_id": "184412255822020608",
+        "body": "Maintained by the community.",
+        "via": "discord",
+        "submitted_at": "2026-06-20T00:00:00.000Z",
+        "status": "approved",
+        "decided_by": "184412255822020608",
+        "decided_at": "2026-06-20T00:00:00.000Z",
+        "reason": null
+      }
+    }
+  }
+}
