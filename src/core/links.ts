@@ -162,24 +162,34 @@ export async function clearLink(db: Bindings["DB"], now: Clock, actor: Actor, ve
   return { link: null };
 }
 
+// `GET /v1/admin/link-queue` additionally names the layout and the submitter
+// (joined; `submitter_name` is null with no `authors` row), so a moderator
+// reads a name rather than a bare id.
+export interface LinkQueueRow extends LinkSubmissionRow {
+  layout_name: string;
+  submitter_name: string | null;
+}
+
 export type QueueStatus = "pending" | "approved" | "rejected" | "superseded";
 
 // GET /v1/admin/link-queue?status=... (default pending): hides a
 // submission whose layout is currently a tombstone (§4.4: delete does not
 // touch submissions -- a pending one on a tombstone is simply hidden until
 // restore).
-export async function listQueue(db: Bindings["DB"], status: QueueStatus): Promise<LinkSubmissionRow[]> {
+export async function listQueue(db: Bindings["DB"], status: QueueStatus): Promise<LinkQueueRow[]> {
   const cols = SUBMISSION_COLUMNS.split(", ")
     .map((c) => `s.${c}`)
     .join(", ");
   const { results } = await db
     .prepare(
-      `SELECT ${cols} FROM link_submissions s JOIN layouts l ON l.id = s.layout_id
+      `SELECT ${cols}, l.name AS layout_name, a.name AS submitter_name
+       FROM link_submissions s JOIN layouts l ON l.id = s.layout_id
+       LEFT JOIN authors a ON a.user_id = s.submitted_by
        WHERE s.status = ? AND l.deleted = 0
        ORDER BY s.submitted_at ASC`,
     )
     .bind(status)
-    .all<LinkSubmissionRow>();
+    .all<LinkQueueRow>();
   return results;
 }
 

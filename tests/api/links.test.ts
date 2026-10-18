@@ -289,3 +289,20 @@ describe("[LDB-MD13] the public feed carries no non-approved link content", () =
     }
   });
 });
+
+describe("[LDB-MD5] the admin link queue names the layout and the submitter", () => {
+  it("[LDB-MD5] rows carry layout_name and submitter_name (null with no author row) beside the existing fields", async () => {
+    const owner = testUserId();
+    const { id, name } = await createLayout(owner);
+    const fake = actorFixture();
+    const ownerAuth = register(fake, "tok-linkq-names-owner", owner);
+    const admin = register(fake, "tok-linkq-names-admin", BOOTSTRAP_ADMIN);
+    await writeFetch(`/v1/layouts/${id}/link`, "PUT", ownerAuth, { url: "https://example.org/names" });
+    await db.prepare("UPDATE authors SET name = ? WHERE user_id = ?").bind("Link Owner", owner).run();
+
+    const queue = (await (await writeFetch("/v1/admin/link-queue?status=pending", "GET", admin)).json()) as { submissions: Record<string, unknown>[] };
+    const row = queue.submissions.find((s) => s.layout_id === id)!;
+    expect(row).toMatchObject({ layout_name: name, submitter_name: "Link Owner", url: "https://example.org/names", status: "pending" });
+    expect(Object.keys(row).sort()).toEqual(["decided_at", "decided_by", "id", "layout_id", "layout_name", "reason", "status", "submitted_at", "submitted_by", "submitter_name", "url"]);
+  });
+});

@@ -45,7 +45,9 @@ speed or proof while pending), `wpm_approved` (`layout_id`, `user_id`,
 `wpm`, `proof`) and `wpm_rejected` (carries only `submission_id`; the reason stays in the admin queue); readers that ignore unknown kinds are
 unaffected, and `kinds=` accepts the new names. The public dump gains a
 `wpm_submissions` array holding only `approved` rows (absent from older dumps; restore reads it as empty).
-No existing field, route or stored value changes meaning, and
+`GET /v1/admin/link-queue` rows gain `layout_name` and `submitter_name` (null
+when the submitter has no author row), additively, so a moderator reads names
+rather than ids. No existing field, route or stored value changes meaning, and
 `migrations/0022_wpm_submissions.sql` only adds a table and indexes.
 
 ## 1.20 — 2026-10-18
