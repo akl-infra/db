@@ -1292,13 +1292,14 @@ diff an edit against), decide with `POST .../approve` and `.../reject
 /v1/admin/comments/{id}/remove {reason?}` (the text is kept, private to its author and mods like a rejected one; the author reads the reason and the text through
 `GET .../comment`'s `decision`, and only their own `DELETE` erases it). Approving replaces that user's previous approved comment.
 **Your comments across layouts**: `GET /v1/me/comments` (auth; `401` without)
-answers `{comments: [{layout_id, layout_name, live: {id, body, approved_at,
+answers `{comments: [{layout_id, layout_name, is_author, live: {id, body, approved_at,
 likes} | null, pending: {id, body, submitted_at} | null, decision: {status,
 reason, decided_at, body} | null}]}`: one row per layout where you have a live,
 pending, or kept rejected/removed text (a slot with nothing to show, or on a
 deleted layout, is absent), with each slot's `live`, `pending` and `decision`
 by the same rules as `GET .../comment`, most recent activity first (then
-`layout_id`). It is not paginated: the 500 most recently active slots.
+`layout_id`). `is_author` is true when you own that layout (the same rule as the list's, so a
+client can hide likes on an author's own comment). It is not paginated: the 500 most recently active slots.
 `Cache-Control: private, no-store`.
 
 **Likes on comments**: `PUT /v1/layouts/{ref}/comments/{author_id}/like` and
