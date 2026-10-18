@@ -192,7 +192,7 @@ export function transferLayout(ref: string, to: string, ifMatch: string): Promis
 export function getLink(ref: string): Promise<ApiResult<{ link: string | null; pending: LinkSubmission | null }>> {
   return request(`/api/v1/layouts/${encodeURIComponent(ref)}/link`);
 }
-export function submitLink(ref: string, url: string): Promise<ApiResult<{ link: string } | { submission: LinkSubmission }>> {
+export function submitLink(ref: string, url: string): Promise<ApiResult<{ submission: LinkSubmission }>> {
   return request(`/api/v1/layouts/${encodeURIComponent(ref)}/link`, { method: "PUT", body: JSON.stringify({ url }) });
 }
 export function clearLink(ref: string): Promise<ApiResult<{ link: null }>> {
