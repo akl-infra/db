@@ -25,6 +25,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import * as spark1 from "../../formats/spark/1/index.ts";
+import { stringRows } from "../../formats/spark/1/magic.ts";
 import type { Payload, Key, MagicIntent } from "../../formats/spark/1/index.ts";
 
 interface Row {
@@ -62,7 +63,7 @@ describe("spark/1 compileMagic vs its own frozen parity vectors (LDB-F39, twin o
       const validation = spark1.validate(payload);
       expect(validation.ok, `vector #${i}: validate()`).toBe(true);
       const actual = spark1.compileMagic(payload);
-      expect(rowSet(actual), `vector #${i}: row set`).toEqual(rowSet(vector.expected!));
+      expect(rowSet(stringRows(actual)), `vector #${i}: row set`).toEqual(rowSet(vector.expected!));
     }
   });
 

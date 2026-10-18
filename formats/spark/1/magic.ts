@@ -49,6 +49,13 @@ export function isRepeatTag(v: unknown): v is { kind: "repeat" } {
   return typeof v === "object" && v !== null && !Array.isArray(v) && (v as { kind?: unknown }).kind === "repeat" && Object.keys(v as object).length === 1;
 }
 
+// design/alts/43-skip-magic-wire.md §1: a skip key's default -- the key
+// repeats the character TWO back (any middle). Magic keys only; a chiral key
+// has no skip_repeat (`ChiralValue` below does not carry it).
+export function isSkipRepeatTag(v: unknown): v is { kind: "skip_repeat" } {
+  return typeof v === "object" && v !== null && !Array.isArray(v) && (v as { kind?: unknown }).kind === "skip_repeat" && Object.keys(v as object).length === 1;
+}
+
 export function isCharTag(v: unknown): v is { kind: "char"; char: string } {
   return (
     typeof v === "object" &&
@@ -71,8 +78,15 @@ export function isCharTag(v: unknown): v is { kind: "char"; char: string } {
 // so the name did too (24-spark-wire-review.md finding 8 -- never a meaning
 // change under an unchanged name), and the schema's `additionalProperties:
 // false` refuses an old-shape `{after, output}` rule outright.
+//
+// design/alts/43-skip-magic-wire.md §1: `after` is either that string, or a
+// two-item array `[a, b]`: `a` exactly one code point, `b` one code point or
+// null (the any-middle wildcard). `[a, b]` (no null) means exactly the string
+// `ab`; `[a, null]` is a skip rule ("after `a` and any one character"), a
+// distinct context from every string.
+export type MagicAfter = string | [string, string | null];
 export interface MagicKeyRule {
-  after: string;
+  after: MagicAfter;
   emit: string;
 }
 
@@ -82,7 +96,7 @@ export interface MagicKeyRule {
 // "e"}` (was a bare single-character string). Absent means "none" (was the
 // string "none") -- there is no explicit "none" tag at all any more, the
 // field is simply omitted.
-export type MagicDefault = { kind: "repeat" } | { kind: "char"; char: string };
+export type MagicDefault = { kind: "repeat" } | { kind: "char"; char: string } | { kind: "skip_repeat" };
 
 export interface MagicKey {
   key: string;
@@ -96,7 +110,8 @@ export interface MagicKey {
 // same/opposite character is `{kind: "char", char: "e"}`, never a bare
 // string; same/opposite have never had a "none" sentinel (absent/null
 // already means that), so there is no third tag.
-export type ChiralValue = MagicDefault;
+// 43-skip-magic-wire.md: ...minus skip_repeat, which only a magic key has.
+export type ChiralValue = { kind: "repeat" } | { kind: "char"; char: string };
 
 export interface ChiralKey {
   key: string;
@@ -131,10 +146,50 @@ export interface MagicIntent {
   rules?: RawRule[];
 }
 
+// A lowered row's inputs/output: a string (two or three literal code points)
+// or, for a skip row, an array `[a, null, x]` with null the any-middle
+// wildcard (43-skip-magic-wire.md §2).
+export type RowText = string | (string | null)[];
+
 export interface Row {
+  inputs: RowText;
+  output: RowText;
+  type?: string;
+}
+
+// The string-only row: what the cmini import (`liftRules`) reads and writes,
+// and what a raw `rules[]` entry is. Never an array.
+export interface StringRow extends Row {
   inputs: string;
   output: string;
-  type?: string;
+}
+
+// A row's identity for same-`inputs` grouping: a string as is, an array by
+// JSON.stringify (a string can never equal that: it would need the quotes).
+function rowKey(inputs: RowText): string {
+  return typeof inputs === "string" ? inputs : JSON.stringify(inputs);
+}
+
+// Narrow lowered rows to string rows (throws on a skip row): for callers that
+// feed `liftRules`/string-only readers rows they know hold no skip rule.
+export function stringRows<R extends Row>(rows: R[]): (R & StringRow)[] {
+  return rows.map((r) => {
+    if (typeof r.inputs !== "string" || typeof r.output !== "string") throw new Error(`stringRows: skip row ${JSON.stringify(r.inputs)}`);
+    return r as R & StringRow;
+  });
+}
+
+// The string a rule's non-skip `after` stands for: `[a, b]` is `ab`. (A skip
+// `[a, null]` has no string; callers handle it before asking.)
+function afterString(after: MagicAfter): string {
+  return typeof after === "string" ? after : after[0] + (after[1] ?? "");
+}
+
+// The canonical context of a rule for the per-key duplicate check: a string
+// as is, `[a, b]` equal to the string `ab`, `[a, null]` its own key -- tagged
+// apart so no string, U+0000 included, can ever equal it.
+function dupKey(after: MagicAfter): string {
+  return typeof after !== "string" && after[1] === null ? `skip:${after[0]}` : `str:${afterString(after)}`;
 }
 
 // A lowered row plus where it came from, e.g. "magic_keys[0]" (a scaffold
@@ -194,7 +249,7 @@ function emission(m: MagicIntent, keys: Record<string, Position>, trigger: strin
       if (r.after === trigger) return r.emit;
     }
     const d = mk.default;
-    if (d === undefined) return member;
+    if (d === undefined || isSkipRepeatTag(d)) return member; // skip_repeat has no one-back row
     return isRepeatTag(d) ? trigger : d.char;
   }
   return member;
@@ -239,10 +294,25 @@ export function computeRows(magic: MagicIntent | undefined, keys: Record<string,
 
   magicKeys.forEach((mk, i) => {
     const exceptSet = new Set(mk.except ?? []);
-    const explicitAfters = new Set((mk.rules ?? []).map((r) => r.after));
+    // Only string afters (and `[a, b]` as `ab`) can replace a one-back
+    // scaffold row; a skip rule `[a, null]` never does (43 §1).
+    const explicitAfters = new Set<string>();
+    const skipAfters = new Set<string>(); // `a` of every explicit `[a, null]` rule
+    for (const r of mk.rules ?? []) {
+      if (typeof r.after !== "string" && r.after[1] === null) skipAfters.add(r.after[0]);
+      else explicitAfters.add(afterString(r.after));
+    }
     const dflt = mk.default; // undefined = "none" (24-spark-wire-review.md finding 6: tagged, not a string sentinel)
     for (const c of layoutChars(keys, specialChars)) {
-      if (exceptSet.has(c) || explicitAfters.has(c)) continue; // an explicit rule for this `after` REPLACES the scaffold row -- not a collision (01 §3)
+      if (exceptSet.has(c)) continue;
+      if (dflt !== undefined && isSkipRepeatTag(dflt)) {
+        // 43 §1: the any-middle tier, the same characters repeat scaffolds
+        // (no space row); an explicit `[c, null]` rule replaces the row.
+        if (skipAfters.has(c)) continue;
+        rows.push({ inputs: [c, null, mk.key], output: [c, null, c], type: "skip_repeat", from: `magic_keys[${i}]` });
+        continue;
+      }
+      if (explicitAfters.has(c)) continue; // an explicit rule for this `after` REPLACES the scaffold row -- not a collision (01 §3)
       if (dflt === undefined) continue;
       if (isRepeatTag(dflt)) {
         rows.push({ inputs: c + mk.key, output: c + c, type: "repeat", from: `magic_keys[${i}]` });
@@ -274,11 +344,17 @@ export function computeRows(magic: MagicIntent | undefined, keys: Record<string,
     //     this push is the only source of one, keeping the compiled rows
     //     for a layout WITH a ' ' key identical to the same layout WITHOUT
     //     one (default, repeat and explicit `after: " "` alike).
-    if (dflt !== undefined && !isRepeatTag(dflt) && !explicitAfters.has(" ")) {
+    if (dflt !== undefined && isCharTag(dflt) && !explicitAfters.has(" ")) {
       rows.push({ inputs: " " + mk.key, output: " " + dflt.char, type: `default:${dflt.char}`, from: `magic_keys[${i}]` });
     }
     (mk.rules ?? []).forEach((r, j) => {
-      rows.push({ inputs: r.after + mk.key, output: r.after + r.emit, type: "magic", from: `magic_keys[${i}].rules[${j}]` });
+      const from = `magic_keys[${i}].rules[${j}]`;
+      if (typeof r.after !== "string" && r.after[1] === null) {
+        rows.push({ inputs: [r.after[0], null, mk.key], output: [r.after[0], null, r.emit], type: "magic", from });
+      } else {
+        const after = afterString(r.after);
+        rows.push({ inputs: after + mk.key, output: after + r.emit, type: "magic", from });
+      }
     });
   });
 
@@ -352,15 +428,17 @@ export function resolveRows(rows: LabeledRow[]): LabeledRow[] {
   const winner = new Map<string, { row: LabeledRow; phase: number; idx: number }>();
   rows.forEach((row, idx) => {
     const phase = phaseOf(row.from);
-    const cur = winner.get(row.inputs);
-    if (!cur || phase > cur.phase || (phase === cur.phase && idx > cur.idx)) winner.set(row.inputs, { row, phase, idx });
+    const k = rowKey(row.inputs);
+    const cur = winner.get(k);
+    if (!cur || phase > cur.phase || (phase === cur.phase && idx > cur.idx)) winner.set(k, { row, phase, idx });
   });
   const out: LabeledRow[] = [];
   const seen = new Set<string>();
   for (const r of rows) {
-    if (seen.has(r.inputs)) continue;
-    seen.add(r.inputs);
-    out.push(winner.get(r.inputs)!.row);
+    const k = rowKey(r.inputs);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(winner.get(k)!.row);
   }
   return out;
 }
@@ -384,14 +462,17 @@ export function isScaffold(from: string): boolean {
 export function findCollision(rows: LabeledRow[]): CollisionInfo | null {
   const byInputs = new Map<string, LabeledRow[]>();
   for (const r of rows) {
-    const group = byInputs.get(r.inputs);
+    const k = rowKey(r.inputs);
+    const group = byInputs.get(k);
     if (group) group.push(r);
-    else byInputs.set(r.inputs, [r]);
+    else byInputs.set(k, [r]);
   }
-  for (const [inputs, group] of byInputs) {
+  for (const group of byInputs.values()) {
     if (group.length < 2) continue;
     const rawIdx = group.findIndex((r) => isRaw(r.from));
     if (rawIdx < 0) continue; // idiom rows only: resolved, never refused
+    const inputs = group[rawIdx]!.inputs;
+    if (typeof inputs !== "string") continue; // a raw row is always a string row; a skip (array) group has none
     const first = group[0]!;
     const second = (rawIdx === 0 ? group[1] : group[rawIdx])!;
     const scaffoldFrom = isScaffold(first.from) ? first.from : isScaffold(second.from) ? second.from : undefined;
@@ -441,7 +522,7 @@ export interface LiftedIntent {
 // "magic", not "repeat"/"default:<c>" -- same (inputs, output), promoted
 // to an explicit override since the scaffold that used to emit it no
 // longer does, LDB-F8).
-export function specialCharsFromRows(rows: Row[]): Set<string> {
+export function specialCharsFromRows(rows: StringRow[]): Set<string> {
   const special = new Set<string>();
   for (const r of rows) {
     const t = r.type ?? "";
@@ -453,9 +534,11 @@ export function specialCharsFromRows(rows: Row[]): Set<string> {
   return special;
 }
 
-export function liftRules(rows: Row[], keys: Record<string, Position>): { lifted: LiftedIntent; leftovers: Row[] } {
+// String rows only (the cmini import has no skip rows; 43 §1): a lifted rule
+// is always a string `after`, never an array.
+export function liftRules(rows: StringRow[], keys: Record<string, Position>): { lifted: LiftedIntent; leftovers: StringRow[] } {
   const magicKeys = new Map<string, MagicKey>();
-  const leftovers: Row[] = [];
+  const leftovers: StringRow[] = [];
 
   function mk(k: string): MagicKey {
     let m = magicKeys.get(k);
@@ -541,7 +624,7 @@ export function liftRules(rows: Row[], keys: Record<string, Position>): { lifted
     }
   }
 
-  const chiralGroups = new Map<string, Array<{ after: string; row: Row }>>();
+  const chiralGroups = new Map<string, Array<{ after: string; row: StringRow }>>();
   for (const r of rows) {
     if (r.type !== "chiral") continue;
     const split = splitInputs(r.inputs);
@@ -585,7 +668,7 @@ export function liftRules(rows: Row[], keys: Record<string, Position>): { lifted
     chiralKeys.set(k, ck);
   }
 
-  const adGroups = new Map<string, Map<string, Row>>();
+  const adGroups = new Map<string, Map<string, StringRow>>();
   for (const r of rows) {
     if (r.type !== "adaptive") continue;
     const split = splitInputs(r.inputs);
@@ -698,9 +781,9 @@ export function validateMagicSemantics(
     magicKeyChars.add(mk.key);
 
     const dflt = mk.default;
-    if (dflt !== undefined && !isRepeatTag(dflt) && !isCharTag(dflt)) {
+    if (dflt !== undefined && !isRepeatTag(dflt) && !isCharTag(dflt) && !isSkipRepeatTag(dflt)) {
       return {
-        message: `magic_keys[].default must be {"kind":"repeat"}, {"kind":"char","char":"<single character>"}, or omitted, got ${JSON.stringify(dflt)}`,
+        message: `magic_keys[].default must be {"kind":"repeat"}, {"kind":"char","char":"<single character>"}, {"kind":"skip_repeat"}, or omitted, got ${JSON.stringify(dflt)}`,
         path: `${base}/default`,
       };
     }
@@ -713,13 +796,26 @@ export function validateMagicSemantics(
       const after = rule.after;
       // 27-magic-emit.md: `after` is an n-gram (one or more code points),
       // `emit` what the key produces there (one or more code points).
-      if (typeof after !== "string" || after.length === 0) {
-        return { message: `rule.after must be a non-empty string (the context the key follows), got ${JSON.stringify(after)}`, path: `${rbase}/after` };
+      // 43-skip-magic-wire.md §1: or a two-item array [a, b | null].
+      if (Array.isArray(after)) {
+        const shown = JSON.stringify(after);
+        if (after.length !== 2) {
+          return { message: `rule.after ${shown} must be a string or a 2-item array [<one code point>, <one code point or null>], got ${(after as unknown[]).length} item(s)`, path: `${rbase}/after` };
+        }
+        if (!isSingleChar(after[0])) {
+          return { message: `rule.after ${shown} has ${JSON.stringify(after[0])} at position 0; the first item must be exactly one code point (never null)`, path: `${rbase}/after` };
+        }
+        if (after[1] !== null && !isSingleChar(after[1])) {
+          return { message: `rule.after ${shown} has ${JSON.stringify(after[1])} at position 1; the second item must be exactly one code point or null`, path: `${rbase}/after` };
+        }
+      } else if (typeof after !== "string" || after.length === 0) {
+        return { message: `rule.after must be a non-empty string (the context the key follows) or a 2-item array [<one code point>, <one code point or null>], got ${JSON.stringify(after)}`, path: `${rbase}/after` };
       }
-      if (seenAfter.has(after)) {
+      const context = dupKey(after);
+      if (seenAfter.has(context)) {
         return { message: `duplicate rule.after ${JSON.stringify(after)} for magic key ${JSON.stringify(mk.key)}`, path: `${rbase}/after` };
       }
-      seenAfter.add(after);
+      seenAfter.add(context);
       if (typeof rule.emit !== "string" || rule.emit.length === 0) {
         return {
           message: `rule.emit must be a non-empty string (what the key emits after ${JSON.stringify(after)}), got ${JSON.stringify(rule.emit)}`,

@@ -42,6 +42,13 @@ silently loses a row on relower):
    `magic_keys[].rules[]` entry replaces its OWN key's scaffold row for the
    same `after` -- not a collision.
 
+Skip magic (`design/alts/43-skip-magic-wire.md` §1, LDB-F48..F50): a rule's
+`after` may also be a 2-item array `[a, b | null]` (`["h", null]` = after `h`
+and any one character; `["h", "e"]` = the string `"he"`), and a magic key's
+`default` may be `{"kind": "skip_repeat"}`. Such payloads compile to rows
+whose `inputs`/`output` are arrays with `null` as the wildcard; the
+`mana2/1` export drops them. `liftRules` (cmini import) stays string-only.
+
 `db/formats/adapters/cmini/translate.ts` is the ONE place cmini import is
 implemented (`fromCmini` = 01 §6.1; moved out of this directory by
 20-spark.md S1 -- cmini is an import source now, not a registered format,

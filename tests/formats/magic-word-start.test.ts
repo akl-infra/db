@@ -9,7 +9,7 @@
 // `after: ' '` DOES replace it (same carve-out every board char gets), and
 // the row participates in collision detection like any other scaffold row.
 import { describe, expect, it } from "vitest";
-import { computeRows, findCollision, liftRules, type MagicIntent } from "../../formats/spark/1/magic.ts";
+import { computeRows, findCollision, liftRules, stringRows, type MagicIntent } from "../../formats/spark/1/magic.ts";
 import type { Position } from "../../formats/spark/1/index.ts";
 
 const LEFT = ["LP", "LR", "LM", "LI"];
@@ -119,7 +119,7 @@ describe("magic word-start row (LDB-F14)", () => {
     const magic: MagicIntent = { magic_keys: [{ key: "k", default: { kind: "char", char: "y" } }] };
     const rows = computeRows(magic, keys);
     const { lifted, leftovers } = liftRules(
-      rows.map(({ inputs, output, type }) => ({ inputs, output, type })),
+      stringRows(rows).map(({ inputs, output, type }) => ({ inputs, output, type })),
       keys,
     );
     expect(leftovers).toEqual([]);
@@ -133,7 +133,7 @@ describe("magic word-start row (LDB-F14)", () => {
     const rows = computeRows(magic, keys);
     expect(rows).toEqual([{ inputs: " k", output: " y", type: "default:y", from: "magic_keys[0]" }]);
     const { lifted, leftovers } = liftRules(
-      rows.map(({ inputs, output, type }) => ({ inputs, output, type })),
+      stringRows(rows).map(({ inputs, output, type }) => ({ inputs, output, type })),
       keys,
     );
     expect(leftovers).toEqual([]);
