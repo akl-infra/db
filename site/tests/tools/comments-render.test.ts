@@ -106,3 +106,27 @@ describe("[SITE-44] the layout page's comment list", () => {
     expect(html).not.toContain("<input");
   });
 });
+
+// The Inbox's columns: Details wraps inside a bounded cell, Layout and the
+// action buttons never wrap, and the 560px stacked layout still wraps all of
+// them. Asserted on the source (the table loads asynchronously, so a render
+// shows no rows) -- the real-width check is a browser walk.
+describe("[SITE-44] Inbox column widths", () => {
+  const read = async (rel: string) => (await import("node:fs")).readFileSync(new URL(`../../${rel}`, import.meta.url), "utf8");
+
+  it("the Inbox cells carry the width classes", async () => {
+    const tab = await read("src/pages/admin/InboxTab.tsx");
+    expect(tab).toMatch(/<td class="akl-nowrap" data-col=\{copy\.admin\.inbox\.colLayout\}>/);
+    expect(tab).toMatch(/<td class="akl-url akl-details" data-col=\{copy\.admin\.inbox\.colDetails\}>/);
+    expect(tab).toMatch(/<td class="akl-actions">/);
+  });
+
+  it("the stylesheet bounds Details, never wraps actions, and the stacked layout wraps every one again", async () => {
+    const css = await read("src/styles.css");
+    expect(css).toMatch(/\.akl-table td\.akl-details \{[^}]*width: 40%/);
+    expect(css).toMatch(/\.akl-table td\.akl-actions \{[^}]*white-space: nowrap/);
+    const mobile = css.slice(css.indexOf("@media (max-width: 560px) {\n  .akl-table thead"));
+    for (const cls of ["akl-nowrap", "akl-details", "akl-actions"]) expect(mobile.slice(0, 900)).toContain(`.akl-table td.${cls}`);
+    expect(mobile.slice(0, 900)).toMatch(/white-space: normal/);
+  });
+});

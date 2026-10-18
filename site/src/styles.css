@@ -294,6 +294,21 @@ h2 {
   overflow-wrap: break-word;
   word-break: break-word;
 }
+/* The Inbox: Details is bounded and wraps inside its own cell (a long
+   comment must not push the other columns narrower), while the Layout and
+   action cells never wrap ("Approve" split into "App|rov|e"). */
+.akl-table td.akl-details {
+  width: 40%;
+  overflow-wrap: anywhere;
+}
+.akl-table td.akl-actions {
+  white-space: nowrap;
+  min-width: 96px;
+}
+.akl-table td.akl-actions .akl-btn,
+.akl-table td.akl-actions .akl-btn-ghost {
+  white-space: nowrap;
+}
 /* Event log / list cells that must never break mid-word on desktop (a
    timestamp split across two lines, "importe|d", "spark/|1" -- saltorbit,
    2026-09-13). The layout-name column may still wrap; the mobile
@@ -344,9 +359,12 @@ h2 {
   .akl-table tbody,
   .akl-table tr,
   .akl-table td,
-  .akl-table td.akl-nowrap {
+  .akl-table td.akl-nowrap,
+  .akl-table td.akl-details,
+  .akl-table td.akl-actions {
     display: block;
     width: 100%;
+    min-width: 0;
     white-space: normal; /* the card wraps; an .akl-id inside stays unbroken */
   }
   .akl-table tr {
