@@ -137,7 +137,7 @@ const InboxTab: Component = () => {
                   return (
                     <tr>
                       <td class="akl-nowrap" data-col={copy.admin.inbox.colKind}>{item.kind === "link" ? copy.admin.inbox.kindLink : item.kind === "wpm" ? copy.admin.inbox.kindWpm : copy.admin.inbox.kindComment}</td>
-                      <td data-col={copy.admin.inbox.colLayout}>
+                      <td class="akl-nowrap" data-col={copy.admin.inbox.colLayout}>
                         <a href={layoutHref} onClick={(e) => onLinkClick(e, layoutHref)}>
                           {item.row.layout_name}
                         </a>
@@ -149,7 +149,7 @@ const InboxTab: Component = () => {
                           linked={item.kind === "link"}
                         />
                       </td>
-                      <td class="akl-url" data-col={copy.admin.inbox.colDetails}>
+                      <td class="akl-url akl-details" data-col={copy.admin.inbox.colDetails}>
                         <Show when={item.kind === "wpm" ? item.row : null} fallback={item.kind === "link" ? item.row.url : ""} keyed>
                           {(w) => (
                             <>
@@ -183,7 +183,7 @@ const InboxTab: Component = () => {
                         </Show>
                       </td>
                       <Show when={status() === "pending"}>
-                      <td>
+                      <td class="akl-actions">
                         <Show when={item.status === "pending"}>
                           <div class="akl-action-row">
                             <button class="akl-btn" disabled={pendingId() === item.id} onClick={() => void approve(item)}>
