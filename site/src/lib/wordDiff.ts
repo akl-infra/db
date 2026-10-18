@@ -81,9 +81,45 @@ export function diffWords(before: string, after: string): DiffPart[] {
 /** A long comment is shown collapsed behind "Read all": the first
  * `COLLAPSE_AT` characters (code points, so a cut never splits an emoji),
  * `null` when the text is short enough to show whole. */
-export const COLLAPSE_AT = 280;
+export const COLLAPSE_AT = 400;
 
 export function collapsedPreview(text: string, limit: number = COLLAPSE_AT): string | null {
   const chars = [...text];
   return chars.length > limit ? chars.slice(0, limit).join("") : null;
+}
+
+/** One side of an edit, for the stacked "Current" / "Proposed" blocks: the
+ * whole text with only that side's marks. Current keeps the unchanged and
+ * deleted parts (the old text), Proposed the unchanged and inserted parts
+ * (the new text); each is a complete text, never one interleaved string. */
+export function sideOf(parts: DiffPart[], side: "current" | "proposed"): DiffPart[] {
+  return parts.filter((p) => p.op === "eq" || p.op === (side === "current" ? "del" : "ins"));
+}
+
+function codePoints(s: string): number {
+  return [...s].length;
+}
+
+/** Clamps parts to `limit` code points for the "Read all" collapse, but never
+ * hides a mark: the cut is at least as far as the end of the last changed
+ * part, so only trailing unchanged text can be folded away. `null` when
+ * nothing would be hidden. */
+export function clampParts(parts: DiffPart[], limit: number = COLLAPSE_AT): DiffPart[] | null {
+  let total = 0;
+  let lastChangeEnd = 0;
+  for (const p of parts) {
+    total += codePoints(p.text);
+    if (p.op !== "eq") lastChangeEnd = total;
+  }
+  const cut = Math.max(limit, lastChangeEnd);
+  if (total <= cut) return null;
+  const out: DiffPart[] = [];
+  let left = cut;
+  for (const p of parts) {
+    if (left <= 0) break;
+    const chars = [...p.text];
+    out.push(chars.length <= left ? p : { op: p.op, text: chars.slice(0, left).join("") });
+    left -= chars.length;
+  }
+  return out;
 }

@@ -39,30 +39,49 @@ async function render<P>(load: () => Promise<{ default: (p: P) => unknown }>, pr
 describe("[SITE-44] Inbox comment details", () => {
   const details = (r: CommentQueueRow) => render(() => import("../../src/pages/admin/CommentDetails.tsx"), { row: r });
 
-  it("a first comment shows its full text, labelled New, with no Read all when short", async () => {
+  it("a first comment is one block with its full text, no Current/Proposed labels and no Read all when short", async () => {
     const html = await details(row({ body: "Nice home row" }));
-    expect(html).toContain(copy.admin.inbox.commentNew);
     expect(html).toContain("Nice home row");
+    expect(html).not.toContain(copy.admin.inbox.commentCurrent);
+    expect(html).not.toContain(copy.admin.inbox.commentProposed);
     expect(html).not.toContain(copy.admin.inbox.readAll);
     expect(html).not.toContain("<del");
+    expect(html).not.toContain("<ins");
   });
 
   it("a long first comment is collapsed behind Read all", async () => {
-    const body = `${"word ".repeat(100)}END-OF-LONG-COMMENT`;
+    const body = `${"word ".repeat(120)}END-OF-LONG-COMMENT`;
     const html = await details(row({ body }));
     expect(html).toContain(copy.admin.inbox.readAll);
     expect(html).not.toContain("END-OF-LONG-COMMENT");
     expect(html).toContain('aria-expanded="false"');
   });
 
-  it("an edit is labelled Edit and shows the live text against the pending one as deletions and insertions", async () => {
+  it("an edit is two stacked blocks: Current with only deletions marked, Proposed with only insertions marked, each the whole text", async () => {
     const html = await details(row({ live_body: "I like this layout", body: "I love this layout a lot" }));
-    expect(html).toContain(copy.admin.inbox.commentEdit);
-    expect(html).not.toContain(copy.admin.inbox.commentNew);
-    expect(html).toMatch(/<del[^>]*>like<\/del>/);
-    expect(html).toMatch(/<ins[^>]*>love<\/ins>/);
-    expect(html).toMatch(/<ins[^>]*> a lot<\/ins>/);
+    const current = html.slice(html.indexOf(copy.admin.inbox.commentCurrent), html.indexOf(copy.admin.inbox.commentProposed));
+    const proposed = html.slice(html.indexOf(copy.admin.inbox.commentProposed));
+    expect(html.indexOf(copy.admin.inbox.commentCurrent)).toBeGreaterThan(-1);
+    expect(html.indexOf(copy.admin.inbox.commentCurrent)).toBeLessThan(html.indexOf(copy.admin.inbox.commentProposed));
+    expect(current).toMatch(/<del[^>]*>like<\/del>/);
+    expect(current).not.toContain("<ins");
+    expect(current).not.toContain("love");
+    expect(proposed).toMatch(/<ins[^>]*>love<\/ins>/);
+    expect(proposed).toMatch(/<ins[^>]*> a lot<\/ins>/);
+    expect(proposed).not.toContain("<del");
+    expect(proposed).not.toContain("like");
     expect(html).not.toContain(copy.admin.inbox.readAll);
+  });
+
+  it("a long edit never folds away a change: Read all only hides trailing unchanged text", async () => {
+    const shared = "same ".repeat(150);
+    const html = await details(row({ live_body: `${shared}old-ending`, body: `${shared}new-ending` }));
+    expect(html).toMatch(/<del[^>]*>old-ending<\/del>/);
+    expect(html).toMatch(/<ins[^>]*>new-ending<\/ins>/);
+    const tail = await details(row({ live_body: `old-start ${shared}trailing`, body: `new-start ${shared}trailing` }));
+    expect(tail).toContain(copy.admin.inbox.readAll);
+    expect(tail).toMatch(/<del[^>]*>old-start<\/del>/);
+    expect(tail).not.toContain("trailing");
   });
 
   it("markup in a comment is escaped, never rendered", async () => {
@@ -126,7 +145,7 @@ describe("[SITE-44] Inbox column widths", () => {
   it("the Inbox cells carry the width classes", async () => {
     const tab = await read("src/pages/admin/InboxTab.tsx");
     expect(tab).toMatch(/<td class="akl-nowrap" data-col=\{copy\.admin\.inbox\.colLayout\}>/);
-    expect(tab).toMatch(/<td class="akl-url akl-details" data-col=\{copy\.admin\.inbox\.colDetails\}>/);
+    expect(tab).toContain('class={item.kind === "comment" ? "akl-url" : "akl-url akl-details"}');
     expect(tab).toMatch(/<td class="akl-actions">/);
   });
 
@@ -137,5 +156,26 @@ describe("[SITE-44] Inbox column widths", () => {
     const mobile = css.slice(css.indexOf("@media (max-width: 560px) {\n  .akl-table thead"));
     for (const cls of ["akl-nowrap", "akl-details", "akl-actions"]) expect(mobile.slice(0, 900)).toContain(`.akl-table td.${cls}`);
     expect(mobile.slice(0, 900)).toMatch(/white-space: normal/);
+  });
+});
+
+// A comment's text is its own full-width line under the row's metadata (a
+// second row with a colspan cell), at a readable measure; the 40% Details
+// width stays for link and speed rows only.
+describe("[SITE-44] Inbox comment rows put the text on its own line", () => {
+  const read = async (rel: string) => (await import("node:fs")).readFileSync(new URL(`../../${rel}`, import.meta.url), "utf8");
+
+  it("InboxTab renders a second colspan row for a comment, and keeps the Details width off comment rows", async () => {
+    const tab = await read("src/pages/admin/InboxTab.tsx");
+    expect(tab).toContain('<tr class="akl-comment-row">');
+    expect(tab).toMatch(/<td colspan=\{status\(\) === "pending" \? 7 : 6\}>/);
+    expect(tab).toContain('class={item.kind === "comment" ? "akl-has-text" : undefined}');
+  });
+
+  it("the stylesheet caps the text at 75ch and stacks cleanly on a phone", async () => {
+    const css = await read("src/styles.css");
+    expect(css).toMatch(/\.akl-comment-body \{[^}]*max-width: 75ch/);
+    expect(css).toMatch(/tr\.akl-has-text > td \{[^}]*border-bottom: none/);
+    expect(css).toMatch(/@media \(max-width: 560px\) \{\s*\.akl-table tr\.akl-has-text/);
   });
 });

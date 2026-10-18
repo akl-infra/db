@@ -267,6 +267,8 @@ curl --fail "${baseUrl}/v1/layouts?format=spark/1&full=1" \
       commentNew: "New",
       commentEdit: "Edit",
       commentErased: "(text erased)",
+      commentCurrent: "Current",
+      commentProposed: "Proposed",
       readAll: "Read all",
       readLess: "Show less",
       wpmValue: (wpm: number) => `${wpm} wpm`,

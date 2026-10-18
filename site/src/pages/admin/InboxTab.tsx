@@ -10,7 +10,7 @@ import { formatWhen } from "../../lib/time.ts";
 import { authorName } from "../../lib/authorNames.ts";
 import AuthorRef from "../../ui/AuthorRef.tsx";
 import ProofLink from "../../ui/ProofLink.tsx";
-import CommentDetails from "./CommentDetails.tsx";
+import CommentDetails, { isCommentEdit } from "./CommentDetails.tsx";
 import { onLinkClick } from "../../router.ts";
 
 const STATUSES: LinkSubmissionStatus[] = ["pending", "approved", "rejected", "superseded"];
@@ -135,7 +135,8 @@ const InboxTab: Component = () => {
                 {(item) => {
                   const layoutHref = `/l/${encodeURIComponent(item.row.layout_id)}`;
                   return (
-                    <tr>
+                    <>
+                    <tr class={item.kind === "comment" ? "akl-has-text" : undefined}>
                       <td class="akl-nowrap" data-col={copy.admin.inbox.colKind}>{item.kind === "link" ? copy.admin.inbox.kindLink : item.kind === "wpm" ? copy.admin.inbox.kindWpm : copy.admin.inbox.kindComment}</td>
                       <td class="akl-nowrap" data-col={copy.admin.inbox.colLayout}>
                         <a href={layoutHref} onClick={(e) => onLinkClick(e, layoutHref)}>
@@ -149,7 +150,7 @@ const InboxTab: Component = () => {
                           linked={item.kind === "link"}
                         />
                       </td>
-                      <td class="akl-url akl-details" data-col={copy.admin.inbox.colDetails}>
+                      <td class={item.kind === "comment" ? "akl-url" : "akl-url akl-details"} data-col={copy.admin.inbox.colDetails}>
                         <Show when={item.kind === "wpm" ? item.row : null} fallback={item.kind === "link" ? item.row.url : ""} keyed>
                           {(w) => (
                             <>
@@ -158,7 +159,7 @@ const InboxTab: Component = () => {
                           )}
                         </Show>
                         <Show when={item.kind === "comment" ? item.row : null} keyed>
-                          {(c) => <CommentDetails row={c} />}
+                          {(c) => <span class="akl-badge">{isCommentEdit(c) ? copy.admin.inbox.commentEdit : copy.admin.inbox.commentNew}</span>}
                         </Show>
                       </td>
                       <td class="akl-nowrap" data-col={copy.admin.inbox.colSubmittedAt} title={item.submitted_at}>
@@ -218,6 +219,16 @@ const InboxTab: Component = () => {
                       </td>
                       </Show>
                     </tr>
+                    <Show when={item.kind === "comment" ? item.row : null} keyed>
+                      {(c) => (
+                        <tr class="akl-comment-row">
+                          <td colspan={status() === "pending" ? 7 : 6}>
+                            <CommentDetails row={c} />
+                          </td>
+                        </tr>
+                      )}
+                    </Show>
+                    </>
                   );
                 }}
               </For>

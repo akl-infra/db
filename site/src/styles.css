@@ -1013,3 +1013,41 @@ h2 {
 .akl-comment-likes {
   color: var(--ink);
 }
+
+/* An Inbox comment: metadata stays in the table row, the text sits on its own
+   full-width line under it at a readable measure; an edit is two stacked
+   blocks, Current (deletions struck) over Proposed (insertions marked). */
+.akl-table tr.akl-has-text > td {
+  border-bottom: none;
+  padding-bottom: 2px;
+}
+.akl-table tr.akl-comment-row > td {
+  padding: 0 8px 12px;
+}
+.akl-comment-body {
+  max-width: 75ch;
+}
+.akl-comment-block + .akl-comment-block {
+  margin-top: 10px;
+}
+.akl-comment-label {
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+.akl-comment-block .akl-comment-text {
+  margin: 2px 0 0;
+  padding-left: 10px;
+  border-left: 2px solid var(--border);
+}
+@media (max-width: 560px) {
+  .akl-table tr.akl-has-text {
+    border-bottom: none;
+    padding-bottom: 0;
+  }
+  .akl-table tr.akl-comment-row {
+    padding-top: 0;
+  }
+  .akl-table tr.akl-comment-row > td {
+    padding: 4px 0 0;
+  }
+}
