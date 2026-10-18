@@ -196,10 +196,26 @@ function buildRefusedVector([cells, rs]) {
   return { keys, magic, refused: { message: validation.error.message, path: validation.error.path } };
 }
 
+// design/alts/43-skip-magic-wire.md (LDB-F48, LDB-F49): skip rules (`after: [a, null]`) and the skip_repeat
+// default, written by hand (the generator above speaks akl.gg's one-back vocabulary only), so the bot's copy
+// checks its own compile of them too. Appended after the refused ones; every earlier vector is unchanged.
+const SKIP_KEYS = [['a', 'LI'], ['b', 'LM'], ['c', 'LR'], ['_', 'LP'], ['x', 'RI'], ['y', 'RM'], ['*', 'RR'], ['@', 'RP']].map(([char, finger], i) => ({ char, row: i % 3, col: i, finger }));
+const SKIP_MAGIC = [
+  { magic_keys: [{ key: '*', rules: [{ after: ['a', null], emit: 'b' }, { after: ['_', null], emit: ' ' }, { after: 'c', emit: 'x' }] }], chiral_keys: [], adaptive_swaps: [] },
+  { magic_keys: [{ key: '*', default: { kind: 'skip_repeat' }, rules: [{ after: ['b', null], emit: 'x' }] }, { key: '@', default: { kind: 'repeat' }, rules: [] }], chiral_keys: [], adaptive_swaps: [] },
+];
+
+function buildSkipVector(magic) {
+  const payload = { keys: SKIP_KEYS, magic };
+  const validation = spark1.validate(payload);
+  if (!validation.ok) throw new Error(`skip vector failed spark1.validate(): ${JSON.stringify(validation.error)}`);
+  return { keys: SKIP_KEYS, magic, expected: spark1.compileMagic(payload) };
+}
+
 function build() {
   const samples = fc.sample(casesArb, { numRuns: NUM_RUNS, seed: SEED });
   const refused = fc.sample(refusedArb, { numRuns: NUM_REFUSED, seed: REFUSED_SEED });
-  return [...samples.map(buildVector), ...refused.map(buildRefusedVector)];
+  return [...samples.map(buildVector), ...refused.map(buildRefusedVector), ...SKIP_MAGIC.map(buildSkipVector)];
 }
 
 function main() {

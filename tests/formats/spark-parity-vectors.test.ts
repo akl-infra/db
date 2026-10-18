@@ -25,12 +25,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import * as spark1 from "../../formats/spark/1/index.ts";
-import { stringRows } from "../../formats/spark/1/magic.ts";
 import type { Payload, Key, MagicIntent } from "../../formats/spark/1/index.ts";
 
 interface Row {
-  inputs: string;
-  output: string;
+  // a string row, or (design/alts/43-skip-magic-wire.md) the any-middle skip row [a, null, key] -> [a, null, out]
+  inputs: string | (string | null)[];
+  output: string | (string | null)[];
   type?: string;
 }
 interface Vector {
@@ -45,7 +45,7 @@ const VECTORS = JSON.parse(fs.readFileSync(VECTORS_PATH, "utf8")) as Vector[];
 const ACCEPTED = VECTORS.filter((v) => v.expected !== undefined);
 const REFUSED = VECTORS.filter((v) => v.refused !== undefined);
 
-function rowSet(rows: { inputs: string; output: string }[]): string[] {
+function rowSet(rows: readonly { inputs: unknown; output: unknown }[]): string[] {
   return rows.map((r) => JSON.stringify([r.inputs, r.output])).sort();
 }
 
@@ -63,7 +63,7 @@ describe("spark/1 compileMagic vs its own frozen parity vectors (LDB-F39, twin o
       const validation = spark1.validate(payload);
       expect(validation.ok, `vector #${i}: validate()`).toBe(true);
       const actual = spark1.compileMagic(payload);
-      expect(rowSet(stringRows(actual)), `vector #${i}: row set`).toEqual(rowSet(vector.expected!));
+      expect(rowSet(actual), `vector #${i}: row set`).toEqual(rowSet(vector.expected!));
     }
   });
 

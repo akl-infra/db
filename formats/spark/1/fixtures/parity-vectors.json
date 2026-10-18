@@ -49858,5 +49858,309 @@
       "message": "magic_keys[].key \"*\" is not one of this layout's keys",
       "path": "/magic/magic_keys/0/key"
     }
+  },
+  {
+    "keys": [
+      {
+        "char": "a",
+        "row": 0,
+        "col": 0,
+        "finger": "LI"
+      },
+      {
+        "char": "b",
+        "row": 1,
+        "col": 1,
+        "finger": "LM"
+      },
+      {
+        "char": "c",
+        "row": 2,
+        "col": 2,
+        "finger": "LR"
+      },
+      {
+        "char": "_",
+        "row": 0,
+        "col": 3,
+        "finger": "LP"
+      },
+      {
+        "char": "x",
+        "row": 1,
+        "col": 4,
+        "finger": "RI"
+      },
+      {
+        "char": "y",
+        "row": 2,
+        "col": 5,
+        "finger": "RM"
+      },
+      {
+        "char": "*",
+        "row": 0,
+        "col": 6,
+        "finger": "RR"
+      },
+      {
+        "char": "@",
+        "row": 1,
+        "col": 7,
+        "finger": "RP"
+      }
+    ],
+    "magic": {
+      "magic_keys": [
+        {
+          "key": "*",
+          "rules": [
+            {
+              "after": [
+                "a",
+                null
+              ],
+              "emit": "b"
+            },
+            {
+              "after": [
+                "_",
+                null
+              ],
+              "emit": " "
+            },
+            {
+              "after": "c",
+              "emit": "x"
+            }
+          ]
+        }
+      ],
+      "chiral_keys": [],
+      "adaptive_swaps": []
+    },
+    "expected": [
+      {
+        "inputs": [
+          "a",
+          null,
+          "*"
+        ],
+        "output": [
+          "a",
+          null,
+          "b"
+        ],
+        "type": "magic"
+      },
+      {
+        "inputs": [
+          "_",
+          null,
+          "*"
+        ],
+        "output": [
+          "_",
+          null,
+          " "
+        ],
+        "type": "magic"
+      },
+      {
+        "inputs": "c*",
+        "output": "cx",
+        "type": "magic"
+      }
+    ]
+  },
+  {
+    "keys": [
+      {
+        "char": "a",
+        "row": 0,
+        "col": 0,
+        "finger": "LI"
+      },
+      {
+        "char": "b",
+        "row": 1,
+        "col": 1,
+        "finger": "LM"
+      },
+      {
+        "char": "c",
+        "row": 2,
+        "col": 2,
+        "finger": "LR"
+      },
+      {
+        "char": "_",
+        "row": 0,
+        "col": 3,
+        "finger": "LP"
+      },
+      {
+        "char": "x",
+        "row": 1,
+        "col": 4,
+        "finger": "RI"
+      },
+      {
+        "char": "y",
+        "row": 2,
+        "col": 5,
+        "finger": "RM"
+      },
+      {
+        "char": "*",
+        "row": 0,
+        "col": 6,
+        "finger": "RR"
+      },
+      {
+        "char": "@",
+        "row": 1,
+        "col": 7,
+        "finger": "RP"
+      }
+    ],
+    "magic": {
+      "magic_keys": [
+        {
+          "key": "*",
+          "default": {
+            "kind": "skip_repeat"
+          },
+          "rules": [
+            {
+              "after": [
+                "b",
+                null
+              ],
+              "emit": "x"
+            }
+          ]
+        },
+        {
+          "key": "@",
+          "default": {
+            "kind": "repeat"
+          },
+          "rules": []
+        }
+      ],
+      "chiral_keys": [],
+      "adaptive_swaps": []
+    },
+    "expected": [
+      {
+        "inputs": [
+          "_",
+          null,
+          "*"
+        ],
+        "output": [
+          "_",
+          null,
+          "_"
+        ],
+        "type": "skip_repeat"
+      },
+      {
+        "inputs": [
+          "a",
+          null,
+          "*"
+        ],
+        "output": [
+          "a",
+          null,
+          "a"
+        ],
+        "type": "skip_repeat"
+      },
+      {
+        "inputs": [
+          "c",
+          null,
+          "*"
+        ],
+        "output": [
+          "c",
+          null,
+          "c"
+        ],
+        "type": "skip_repeat"
+      },
+      {
+        "inputs": [
+          "x",
+          null,
+          "*"
+        ],
+        "output": [
+          "x",
+          null,
+          "x"
+        ],
+        "type": "skip_repeat"
+      },
+      {
+        "inputs": [
+          "y",
+          null,
+          "*"
+        ],
+        "output": [
+          "y",
+          null,
+          "y"
+        ],
+        "type": "skip_repeat"
+      },
+      {
+        "inputs": [
+          "b",
+          null,
+          "*"
+        ],
+        "output": [
+          "b",
+          null,
+          "x"
+        ],
+        "type": "magic"
+      },
+      {
+        "inputs": "_@",
+        "output": "__",
+        "type": "repeat"
+      },
+      {
+        "inputs": "a@",
+        "output": "aa",
+        "type": "repeat"
+      },
+      {
+        "inputs": "b@",
+        "output": "bb",
+        "type": "repeat"
+      },
+      {
+        "inputs": "c@",
+        "output": "cc",
+        "type": "repeat"
+      },
+      {
+        "inputs": "x@",
+        "output": "xx",
+        "type": "repeat"
+      },
+      {
+        "inputs": "y@",
+        "output": "yy",
+        "type": "repeat"
+      }
+    ]
   }
 ]
