@@ -805,7 +805,7 @@ const REQUIRED: Record<string, RequiredCase[]> = {
 
   // Layout comments (docs/decisions/29-layout-comments.md): same lighter
   // treatment as the WPM rows just above.
-  "GET /v1/layouts/:ref/comments": [{ status: 200 }, { status: 304 }, { status: 404, code: ERROR_CODES.not_found }],
+  "GET /v1/layouts/:ref/comments": [{ status: 200 }, { status: 304 }, { status: 400, code: ERROR_CODES.bad_request }, { status: 404, code: ERROR_CODES.not_found }],
   "GET /v1/layouts/:ref/comment": [{ status: 200 }, { status: 401, code: ERROR_CODES.unauthorized }, { status: 404, code: ERROR_CODES.not_found }],
   "PUT /v1/layouts/:ref/comment": [
     { status: 201 },

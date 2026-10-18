@@ -5434,12 +5434,74 @@
     }
   },
   {
+    "id": "layouts-comments/get-200-sort-newest",
+    "method": "GET",
+    "route": "/v1/layouts/:ref/comments",
+    "auth": "none",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "comments": {
+          "type": "array",
+          "item": {
+            "type": "object",
+            "fields": {
+              "approved_at": {
+                "type": "string"
+              },
+              "body": {
+                "type": "string"
+              },
+              "edited": {
+                "type": "boolean"
+              },
+              "id": {
+                "type": "string"
+              },
+              "likes": {
+                "type": "number"
+              },
+              "name": {
+                "type": "string"
+              },
+              "user_id": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  {
     "id": "layouts-comments/get-304",
     "method": "GET",
     "route": "/v1/layouts/:ref/comments",
     "auth": "none",
     "status": 304,
     "shape": null
+  },
+  {
+    "id": "layouts-comments/get-400-bad_request",
+    "method": "GET",
+    "route": "/v1/layouts/:ref/comments",
+    "auth": "none",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "param": {
+          "type": "string"
+        }
+      }
+    }
   },
   {
     "id": "layouts-comments/get-404",

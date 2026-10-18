@@ -82,7 +82,7 @@ interface PublicComment {
 interface Own {
   live: { id: string; body: string; approved_at: string } | null;
   pending: { id: string; body: string; submitted_at: string } | null;
-  decision: { status: string; reason: string | null; decided_at: string } | null;
+  decision: { status: string; reason: string | null; decided_at: string; body: string } | null;
 }
 
 type Auth = Record<string, string>;
@@ -346,7 +346,7 @@ describe("[LDB-CMT3] approve / replace / reject / remove", () => {
     expect(((await bare.json()) as { submission: Submission }).submission).toMatchObject({ status: "rejected", reason: null });
   });
 
-  it("[LDB-CMT3] remove takes an approved comment down: status removed, body NULL, the reason kept for the author; it leaves the public list", async () => {
+  it("[LDB-CMT3] remove takes an approved comment down: status removed, the text and the reason KEPT for the author (never public); it leaves the public list", async () => {
     const { user, auth, admin } = actors("rem");
     const { id } = await createLayout(user);
     const v1 = (await put(auth, id, "spam spam")).submission;
@@ -354,11 +354,19 @@ describe("[LDB-CMT3] approve / replace / reject / remove", () => {
 
     const res = await writeFetch(`/v1/admin/comments/${v1.id}/remove`, "POST", admin, { reason: "spam" });
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { submission: Submission }).submission).toMatchObject({ id: v1.id, status: "removed", body: null, reason: "spam", decided_by: BOOTSTRAP_ADMIN });
+    expect(((await res.json()) as { submission: Submission }).submission).toMatchObject({ id: v1.id, status: "removed", body: "spam spam", reason: "spam", decided_by: BOOTSTRAP_ADMIN });
 
     expect(await listed(id)).toEqual([]);
-    expect(await rowsFor(id, user)).toEqual([{ id: v1.id, user_id: user, body: null, status: "removed" }]);
-    expect(await own(auth, id)).toMatchObject({ live: null, pending: null, decision: { status: "removed", reason: "spam" } });
+    expect(await rowsFor(id, user)).toEqual([{ id: v1.id, user_id: user, body: "spam spam", status: "removed" }]);
+    // the author reads the kept text back (to edit and resend); mods see it in the queue; nobody else does
+    expect(await own(auth, id)).toMatchObject({ live: null, pending: null, decision: { status: "removed", reason: "spam", body: "spam spam" } });
+    expect((await queue(admin, id, "removed")).map((s) => [s.body, s.reason])).toEqual([["spam spam", "spam"]]);
+    expect(JSON.stringify(await feedFor(id)).includes("spam spam")).toBe(false);
+    expect(JSON.stringify(await listed(id)).includes("spam spam")).toBe(false);
+    // and the author can resend an edited version, which is an ordinary new submission
+    const resent = await put(auth, id, "a politer version");
+    expect(resent.status).toBe(202);
+    expect(await own(auth, id)).toMatchObject({ pending: { body: "a politer version" }, decision: null });
   });
 
   it("[LDB-CMT3] a decided submission cannot be decided again (404); remove needs an approved comment; a pending one cannot be removed", async () => {
@@ -520,14 +528,20 @@ describe("[LDB-CMT4] delete is immediate and erases the text for good", () => {
     expect(eventText.includes(secret)).toBe(false);
   });
 
-  it("[LDB-CMT4] a mod's removal then the author's delete: the removed row stays removed (its text is already gone)", async () => {
+  it("[LDB-CMT4] a mod's removal keeps the text, and the author's DELETE then erases it for good: 204, status removed, body NULL, no decision; a second delete is 404", async () => {
     const { user, auth, admin } = actors("remdel");
     const { id } = await createLayout(user);
-    const v1 = (await put(auth, id, "x")).submission;
+    const v1 = (await put(auth, id, "removed but kept")).submission;
     await approve(admin, v1.id);
     await writeFetch(`/v1/admin/comments/${v1.id}/remove`, "POST", admin, { reason: "r" });
-    expect((await writeFetch(`/v1/layouts/${id}/comment`, "DELETE", auth)).status).toBe(404); // nothing approved or pending left
-    expect((await rowsFor(id, user))[0]?.status).toBe("removed");
+    expect(await rowsFor(id, user)).toEqual([{ id: v1.id, user_id: user, body: "removed but kept", status: "removed" }]);
+    const before = (await commentEvents(id)).filter((e) => e.kind === "comment_deleted").length;
+
+    expect((await writeFetch(`/v1/layouts/${id}/comment`, "DELETE", auth)).status).toBe(204); // a lone removed text counts
+    expect(await rowsFor(id, user)).toEqual([{ id: v1.id, user_id: user, body: null, status: "removed" }]);
+    expect(await own(auth, id)).toEqual({ live: null, pending: null, decision: null });
+    expect((await commentEvents(id)).filter((e) => e.kind === "comment_deleted").length - before).toBe(1);
+    expect((await writeFetch(`/v1/layouts/${id}/comment`, "DELETE", auth)).status).toBe(404);
   });
 });
 
@@ -652,7 +666,8 @@ describe("[LDB-CMT6] GET /v1/layouts/:ref/comment is the caller's own, never pub
     await writeFetch(`/v1/admin/comment-queue/${p1.id}/reject`, "POST", admin, { reason: "try again" });
     const afterReject = await own(auth, id);
     expect(afterReject).toMatchObject({ live: null, pending: null, decision: { status: "rejected", reason: "try again" } });
-    expect(Object.keys(afterReject.decision!).sort()).toEqual(["decided_at", "reason", "status"]);
+    expect(Object.keys(afterReject.decision!).sort()).toEqual(["body", "decided_at", "reason", "status"]);
+    expect(afterReject.decision!.body).toBe("mine, pending"); // the refused text, to edit and resend
 
     // A newer pending submission hides the older decision.
     const p2 = (await put(auth, id, "second try")).submission;
@@ -1000,6 +1015,43 @@ describe("[LDB-CMT13] the listing carries likes, orders by them, and keeps the v
       ["third", 0],
     ]);
     for (const r of rows) expect("liked" in r).toBe(false);
+  });
+
+  it("[LDB-CMT14] ?sort=likes (the default) and ?sort=newest; anything else is 400 bad_request with param sort; the ETag and the cache are per sort", async () => {
+    const fake = actorFixture();
+    const { id } = await createLayout(testUserId());
+    const admin = register(fake, token("sort-admin"), BOOTSTRAP_ADMIN);
+    const authors: { user: string; auth: Auth }[] = [];
+    for (const text of ["oldest", "middle", "newest"]) {
+      const user = testUserId();
+      const auth = register(fake, token(`sort-${text}`), user);
+      await approve(admin, (await put(auth, id, text)).submission.id);
+      authors.push({ user, auth });
+    }
+    const liker = register(fake, token("sort-liker"), testUserId());
+    await like(liker, id, authors[0]!.user); // "oldest" has the only like
+    const bodies = async (q: string) => ((await (await writeFetch(`/v1/layouts/${id}/comments${q}`, "GET")).json()) as { comments: PublicComment[] }).comments.map((c) => c.body);
+    expect(await bodies("")).toEqual(["oldest", "newest", "middle"]);
+    expect(await bodies("?sort=likes")).toEqual(["oldest", "newest", "middle"]);
+    expect(await bodies("?sort=newest")).toEqual(["newest", "middle", "oldest"]); // approved_at desc, likes ignored
+
+    for (const bad of ["?sort=bogus", "?sort=", "?sort=LIKES"]) {
+      const res = await writeFetch(`/v1/layouts/${id}/comments${bad}`, "GET");
+      expect(res.status, bad).toBe(400);
+      await expect(res.json()).resolves.toMatchObject({ error: "bad_request", param: "sort" });
+    }
+    const asUser = await writeFetch(`/v1/layouts/${id}/comments?sort=bogus`, "GET", liker);
+    expect(asUser.status).toBe(400);
+
+    const tagLikes = (await writeFetch(`/v1/layouts/${id}/comments?sort=likes`, "GET")).headers.get("ETag")!;
+    const tagNewest = (await writeFetch(`/v1/layouts/${id}/comments?sort=newest`, "GET")).headers.get("ETag")!;
+    expect(tagNewest).not.toBe(tagLikes);
+    expect((await writeFetch(`/v1/layouts/${id}/comments?sort=newest`, "GET", { "If-None-Match": tagLikes })).status).toBe(200);
+    expect((await writeFetch(`/v1/layouts/${id}/comments?sort=newest`, "GET", { "If-None-Match": tagNewest })).status).toBe(304);
+    // an authenticated read honours the sort too
+    const mine = ((await (await writeFetch(`/v1/layouts/${id}/comments?sort=newest`, "GET", liker)).json()) as { comments: PublicComment[] }).comments;
+    expect(mine.map((c) => c.body)).toEqual(["newest", "middle", "oldest"]);
+    expect(mine.every((c) => c.liked !== undefined)).toBe(true);
   });
 
   it("[LDB-CMT13] the anonymous ETag moves when a count changes; a like and an unlike each move it", async () => {

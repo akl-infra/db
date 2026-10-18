@@ -16,9 +16,11 @@
 --                set NULL, the row stays so a later read can say "edited"
 --   'deleted'    the author deleted their comment (approved or pending);
 --                body NULL
---   'removed'    a mod took an approved comment down; body NULL, `reason`
---                kept for the author
--- A superseded or rejected row loses its body only when its author deletes.
+--   'removed'    a mod took an approved comment down; body KEPT, private to
+--                its author and mods like a rejected one (the author can
+--                edit and resend it), `reason` kept for the author
+-- A superseded, rejected or removed row loses its body only when its author
+-- deletes.
 --
 -- `user_id` is the author (a Discord snowflake; it need not have an
 -- `authors` row yet) and is always the actor who sent it -- there is no

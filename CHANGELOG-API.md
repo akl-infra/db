@@ -36,11 +36,13 @@ good), `PUT`/`DELETE /v1/layouts/{ref}/comments/{author_id}/like` (`204`,
 idempotent likes on a user's comment slot; `400 own_comment`), `GET /v1/layouts/{ref}/comment` (the caller's own `{live, pending,
 decision}`, never cached), `GET /v1/layouts/{ref}/comments` (public;
 `{comments: [{id, user_id, name, body, approved_at, edited, likes, liked?}]}`,
-most liked first, anonymous ETag/304, `liked` and `private, no-store` only with
+most liked first (`?sort=newest` for newest first; any other value `400`), anonymous ETag/304, `liked` and `private, no-store` only with
 credentials),
 `GET /v1/admin/comment-queue?status=` (default `pending`; rows carry
 `live_body`), `POST /v1/admin/comment-queue/{id}/approve` and `.../reject
-{reason?}`, and `POST /v1/admin/comments/{id}/remove {reason?}`. `body` is a
+{reason?}`, and `POST /v1/admin/comments/{id}/remove {reason?}` (the text is kept, private to
+its author and mods like a rejected one; the author's own read returns it in
+`decision.body`, and only their `DELETE` erases it). `body` is a
 string of 1..2000 Unicode code points after trimming and line-ending
 normalization (`400 invalid_comment`). Seven new event kinds,
 `comment_submitted`, `comment_approved`, `comment_rejected`,

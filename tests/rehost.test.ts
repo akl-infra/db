@@ -148,7 +148,7 @@ async function plantModerationState(db: Bindings["DB"]): Promise<{ likeLayoutId:
     ["superseded", "rehost comment superseded text", clock()],
     ["replaced", null, clock()],
     ["deleted", null, clock()],
-    ["removed", null, clock()],
+    ["removed", "rehost comment removed text", clock()],
   ];
   for (const [status, body, decidedAt] of commentRows) {
     await db
@@ -295,7 +295,7 @@ describe("rehost drill", () => {
       expect(plantedComments.map((s) => s.status)).toEqual(["approved"]);
       expect(plantedComments[0]?.body).toBe("rehost comment approved text");
       expect(dump.layout_comments.every((s) => s.status === "approved" && s.body !== null)).toBe(true);
-      for (const secret of ["rehost comment pending text", "rehost comment rejected text", "rehost comment superseded text", "rehost comment private reason"]) expect(dumpText.includes(secret), secret).toBe(false);
+      for (const secret of ["rehost comment pending text", "rehost comment rejected text", "rehost comment superseded text", "rehost comment removed text", "rehost comment private reason"]) expect(dumpText.includes(secret), secret).toBe(false);
       const likeRecord = dump.records.find((r) => r.id === ids.likeLayoutId);
       expect(likeRecord?.like_count).toBe(2);
       expect(dump.likes.filter((l) => l.layout_id === ids.likeLayoutId)).toHaveLength(2);

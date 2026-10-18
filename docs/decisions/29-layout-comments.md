@@ -14,11 +14,11 @@ records (decision 28).
 
 | piece | rule |
 |---|---|
-| table | `layout_comments`: `id` (ULID), `layout_id`, `user_id`, `body` (NULL = erased), `via`, `submitted_at`, `status` (`pending` / `approved` / `rejected` / `superseded` / `replaced` / `deleted` / `removed`), `decided_by`, `decided_at`, `reason` |
+| table | `layout_comments`: `id` (ULID), `layout_id`, `user_id`, `body` (NULL = erased by the author's delete or replaced by a newer approval), `via`, `submitted_at`, `status` (`pending` / `approved` / `rejected` / `superseded` / `replaced` / `deleted` / `removed`), `decided_by`, `decided_at`, `reason` |
 | validation | `body` a string; `\r\n` and `\r` become `\n`, trimmed, 1..2000 Unicode code points, else `400 invalid_comment`. Nothing else is refused. One validator in `core/comments.ts` |
 | write | `PUT /v1/layouts/:ref/comment {body}`: `202` queued; an admin's own comment is `201` approved. A new pending comment supersedes the same user's older pending one (silently). The old approved text stays live until the new one is approved |
 | delete | `DELETE /v1/layouts/:ref/comment`: immediate, `204`. Erases the text of every comment the caller has on that layout (rejected and superseded ones included, so a lone rejected text can still be erased); `404` only if none of their rows there has a text left |
-| read | `GET /v1/layouts/:ref/comments`: public, `{comments}`, one approved comment per user, most liked first then newest approval, `likes` count, `liked` only for an authenticated caller (that answer is `private, no-store`), `edited` flag, deleted layouts hidden. `GET /v1/layouts/:ref/comment`: the caller's own `{live, pending, decision}`, never publicly cached |
+| read | `GET /v1/layouts/:ref/comments`: public, `{comments}`, one approved comment per user, most liked first then newest approval (`?sort=newest` for newest approval first; any other value is `400`), `likes` count, `liked` only for an authenticated caller (that answer is `private, no-store`), `edited` flag, deleted layouts hidden. `GET /v1/layouts/:ref/comment`: the caller's own `{live, pending, decision}`, never publicly cached |
 | likes | `PUT` / `DELETE /v1/layouts/:ref/comments/:author_id/like`: `204`, idempotent. A like targets the author's comment *slot* `(layout, author)`, one per (slot, liker); `400 own_comment` for the author, `404` when the slot has no approved comment. Cleared by the author's delete and by a mod's removal; a pending or rejected edit leaves them. Table `comment_likes` |
 | queue | `GET /v1/admin/comment-queue?status=` (default `pending`, each row carries `live_body`), `POST .../:id/approve`, `POST .../:id/reject {reason?}`, and `POST /v1/admin/comments/:id/remove {reason?}` for a live comment; every admin route is `if (!actor.admin) throw notAdmin()` |
 | events | `comment_submitted`, `comment_approved`, `comment_rejected`, `comment_removed`, `comment_deleted`, one per action, written through `core/events.ts`; none carries comment text or a reason |
@@ -36,7 +36,8 @@ records (decision 28).
   (`live_body` in the queue).
 - **Delete erases the text for good.** A person's right to take their words
   back beats an audit trail of them: the delete takes effect at once and
-  clears the body of every row, rejected and superseded ones included, so the
+  clears the body of every row, rejected, superseded and removed ones
+  included, so the
   text is in no table, no later dump and no event. The row stays (status,
   times) so moderation history still counts what happened.
 - **Likes belong to the slot, not the row.** A comment is edited by replacing
@@ -49,10 +50,14 @@ records (decision 28).
   idempotent (`204` either way) and write an event, `comment_liked` /
   `comment_unliked`, only when something actually changed. Likes are public
   like layout likes, so they are dumped whole.
-- **Mods can remove, with a reason.** A live comment that should not stand is
-  `removed` (text erased, reason kept for its author, who reads it through
-  `GET .../comment`), the same erasure as a delete but a mod's act, recorded
-  with the admin's `comment_removed` event.
+- **Mods can remove, with a reason, and removal does not erase.** A live
+  comment that should not stand is `removed`: it leaves the public list and
+  its slot's likes go, but its text is KEPT, private to its author and mods
+  exactly like a rejected one. The author reads the reason and the text back
+  through `GET .../comment` (`decision: {status, reason, decided_at, body}`),
+  so they can edit and resend rather than retype. It is a mod's act, recorded
+  with the admin's `comment_removed` event; the text is in no event, no
+  public read and no dump. Only the author's own delete erases it.
 - **No event carries text.** `/v1/changes` and the dump are public and
   unfiltered, so an event holding a comment could outlive its delete. Events
   say *that* something happened (ids only); the text appears only in the
