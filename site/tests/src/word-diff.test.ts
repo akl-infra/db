@@ -2,7 +2,7 @@
 // to the pending one, and the "Read all" collapse of a long new comment.
 // Pure functions (`lib/wordDiff.ts`), no DOM.
 import { describe, expect, it } from "vitest";
-import { COLLAPSE_AT, collapsedPreview, diffWords, tokenize, type DiffPart } from "../../src/lib/wordDiff.ts";
+import { COLLAPSE_AT, clampParts, collapsedPreview, diffWords, sideOf, tokenize, type DiffPart } from "../../src/lib/wordDiff.ts";
 
 function before(parts: DiffPart[]): string {
   return parts.filter((p) => p.op !== "ins").map((p) => p.text).join("");
@@ -104,5 +104,39 @@ describe("[SITE-43] collapsedPreview", () => {
     const emoji = "\u{1F600}".repeat(COLLAPSE_AT + 5);
     expect(collapsedPreview(emoji)).toBe("\u{1F600}".repeat(COLLAPSE_AT));
     expect(collapsedPreview("abcdef", 3)).toBe("abc");
+  });
+});
+
+describe("[SITE-43] sideOf and clampParts", () => {
+  it("each side is a complete text: current rebuilds the old one, proposed the new one", () => {
+    const parts = diffWords("I like this layout", "I love this layout a lot");
+    expect(sideOf(parts, "current").map((p) => p.text).join("")).toBe("I like this layout");
+    expect(sideOf(parts, "proposed").map((p) => p.text).join("")).toBe("I love this layout a lot");
+    expect(sideOf(parts, "current").every((p) => p.op !== "ins")).toBe(true);
+    expect(sideOf(parts, "proposed").every((p) => p.op !== "del")).toBe(true);
+  });
+
+  it("clampParts folds only trailing unchanged text and never hides a mark", () => {
+    const long = "w ".repeat(400);
+    expect(clampParts([{ op: "eq", text: "short" }])).toBeNull();
+    const plain = clampParts([{ op: "eq", text: long }])!;
+    expect([...plain.map((p) => p.text).join("")].length).toBe(COLLAPSE_AT);
+    const lateChange: DiffPart[] = [
+      { op: "eq", text: long },
+      { op: "ins", text: "late" },
+    ];
+    expect(clampParts(lateChange)).toBeNull(); // the change is at the very end: nothing may be hidden
+    const earlyChange: DiffPart[] = [
+      { op: "del", text: "early" },
+      { op: "eq", text: long },
+    ];
+    const cut = clampParts(earlyChange)!;
+    expect(cut[0]).toEqual({ op: "del", text: "early" });
+    expect([...cut.map((p) => p.text).join("")].length).toBe(COLLAPSE_AT);
+  });
+
+  it("cuts on code points, never inside an emoji", () => {
+    const parts: DiffPart[] = [{ op: "eq", text: "\u{1F600}".repeat(COLLAPSE_AT + 3) }];
+    expect(clampParts(parts)![0]!.text).toBe("\u{1F600}".repeat(COLLAPSE_AT));
   });
 });
