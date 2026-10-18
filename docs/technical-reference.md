@@ -367,6 +367,20 @@ the job's own throwaway D1 and re-runs the whole conformance suite against
 the restored copy), and separately runs the upstream diff (S8). Both fail
 the job loudly on any problem -- neither is allowed to skip silently.
 
+## Logs
+
+Two places, one short and one permanent:
+
+- **Workers Logs** (`[observability]` in `wrangler.toml`): every invocation's console output and
+  exceptions, queryable in the dashboard (akl-db -> Logs) or through the Workers Observability
+  telemetry API, for the plan's retention window only (7 days on Workers Paid).
+- **R2 bucket `akl-db-logs`**, kept forever (no lifecycle rule): `logpush = true` in
+  `wrangler.toml` lets the account's Logpush job (dataset *Workers trace events*, filtered to
+  `akl-db`) write every invocation there as gzipped NDJSON, one folder per UTC day: the request's
+  URL, method and status, the outcome, CPU and wall time, console lines and exceptions. The job is
+  account configuration, not code: Cloudflare dashboard -> Analytics & Logs -> Logpush. Read a day
+  with `wrangler r2 object get akl-db-logs/<day>/<file> --remote`, or list it with the S3 API.
+
 ## Backups
 
 Three layers, from finest-grained to coarsest; the R2 dump and Time Travel
