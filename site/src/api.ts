@@ -15,6 +15,8 @@ import type {
   LinkSubmission,
   MeResponse,
   SuspendedClientInfo,
+  WpmQueueRow,
+  WpmSubmission,
 } from "./lib/types.ts";
 
 export type ApiResult<T> = { ok: true; data: T } | { ok: false; status: number; error: string; message?: string };
@@ -219,6 +221,23 @@ export function adminRejectLink(id: string, reason?: string): Promise<ApiResult<
     method: "POST",
     body: JSON.stringify({ reason }),
   });
+}
+export function adminWpmQueue(status = "pending"): Promise<ApiResult<{ submissions: WpmQueueRow[] }>> {
+  return request(`/api/v1/admin/wpm-queue?status=${encodeURIComponent(status)}`);
+}
+export function adminApproveWpm(id: string): Promise<ApiResult<{ submission: WpmSubmission }>> {
+  return request(`/api/v1/admin/wpm-queue/${encodeURIComponent(id)}/approve`, { method: "POST" });
+}
+export function adminRejectWpm(id: string, reason?: string): Promise<ApiResult<{ submission: WpmSubmission }>> {
+  return request(`/api/v1/admin/wpm-queue/${encodeURIComponent(id)}/reject`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+}
+/** `POST /v1/admin/wpm`: an admin enters a speed on someone else's behalf;
+ * approved at once (`201`). */
+export function adminSubmitWpm(body: { user_id: string; layout: string; wpm: number; proof: string }): Promise<ApiResult<{ submission: WpmSubmission }>> {
+  return request("/api/v1/admin/wpm", { method: "POST", body: JSON.stringify(body) });
 }
 export function adminListAdmins(): Promise<ApiResult<AdminRow[]>> {
   return request("/api/v1/admin/admins");

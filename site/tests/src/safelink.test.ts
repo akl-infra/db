@@ -3,7 +3,7 @@
 // markup in src/pages/Layout.tsx (a static JSX check, not worth a DOM test
 // for this small a site).
 import { describe, expect, it } from "vitest";
-import { safeExternalLink } from "../../src/lib/safelink.ts";
+import { safeExternalLink, safeProofLink } from "../../src/lib/safelink.ts";
 
 describe("[SITE-11] safeExternalLink", () => {
   it("accepts an https url and exposes only its hostname as display text", () => {
@@ -35,5 +35,18 @@ describe("[SITE-11] safeExternalLink", () => {
     expect(result).not.toBeNull();
     expect(result!.hostname).toBe("evil.example");
     expect(result!.hostname).not.toContain("<script>");
+  });
+});
+
+describe("[SITE-40] safeProofLink (a WPM proof may be http or https)", () => {
+  it("accepts http and https and exposes only the hostname as display text", () => {
+    expect(safeProofLink("https://www.youtube.com/watch?v=abc")).toMatchObject({ hostname: "www.youtube.com" });
+    expect(safeProofLink("http://example.org/p")).toMatchObject({ hostname: "example.org" });
+  });
+
+  it("refuses every other scheme and malformed input", () => {
+    for (const bad of ["javascript:alert(1)", "data:text/html,x", "ftp://example.org/x", "not a url", "", null, undefined]) {
+      expect(safeProofLink(bad as string | null | undefined)).toBeNull();
+    }
   });
 });

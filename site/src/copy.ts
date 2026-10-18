@@ -121,6 +121,9 @@ export const copy = {
       link_approved: "Link approved",
       link_rejected: "Link rejected",
       link_cleared: "Link cleared",
+      wpm_submitted: "Speed submitted for review",
+      wpm_approved: "Speed approved",
+      wpm_rejected: "Speed rejected",
     },
   },
   docs: {
@@ -200,11 +203,9 @@ curl --fail "${baseUrl}/v1/layouts?format=spark/1&full=1" \
   admin: {
     title: "Moderation",
     notAdmin: "This page is only visible to akldb admins",
+    tabInbox: "Inbox",
     tabLayouts: "Layouts",
-    tabAuthors: "Authors",
-    tabBans: "Bans",
-    tabLinkQueue: "Link queue",
-    tabAdmins: "Admins",
+    tabUsers: "Users",
     // UNSIGNED COPY (clients moderation, 2026-09-13) -- awaiting saltorbit
     tabClients: "Clients",
     layouts: {
@@ -236,21 +237,50 @@ curl --fail "${baseUrl}/v1/layouts?format=spark/1&full=1" \
       unbanButton: "Unban",
       cannotBanAdmin: "An admin cannot be banned",
     },
-    linkQueue: {
-      loadError: "Could not load the link queue from akldb",
+    // The Inbox: link submissions and WPM submissions in one list.
+    inbox: {
+      loadError: "Could not load the inbox from akldb",
       empty: "Nothing here",
       statusPending: "Pending",
       statusApproved: "Approved",
       statusRejected: "Rejected",
       statusSuperseded: "Superseded",
-      colUrl: "URL",
+      colKind: "Type",
       colLayout: "Layout",
-      colSubmittedBy: "Submitted by",
+      colUser: "User",
+      colDetails: "Details",
       colSubmittedAt: "Submitted",
       colStatus: "Status",
+      kindLink: "Link",
+      kindWpm: "Speed",
+      wpmValue: (wpm: number) => `${wpm} wpm`,
       approve: "Approve",
       reject: "Reject",
       rejectReasonPrompt: "Reason (optional)",
+    },
+    // The Users tab stacks the three user-facing moderation sections.
+    users: {
+      sectionAuthors: "Display names",
+      sectionBans: "Bans",
+      sectionAdmins: "Admins",
+      sectionSpeed: "Submit a speed for a user",
+    },
+    // The "Submit a speed for a user" form (POST /v1/admin/wpm).
+    speed: {
+      userLabel: "Discord user id",
+      layoutLabel: "Layout name or id",
+      wpmLabel: "Words per minute",
+      proofLabel: "Proof URL",
+      submitButton: "Submit speed",
+      errorUser: "Enter a Discord user id (17 to 20 digits)",
+      errorLayout: "Enter a layout name or id",
+      errorWpm: "Enter a whole number from 1 to 1000",
+      errorProof: "Enter an http or https link of up to 512 characters",
+      recorded: "Recorded and approved",
+      recordLayout: "Layout",
+      recordUser: "User",
+      recordSpeed: "Speed",
+      recordProof: "Proof",
     },
     admins: {
       loadError: "Could not load the admin list from akldb",
