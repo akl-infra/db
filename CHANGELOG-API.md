@@ -35,8 +35,8 @@ approved text public. New routes: `PUT /v1/layouts/{ref}/comment` (`{body}` →
 good), `PUT`/`DELETE /v1/layouts/{ref}/comments/{author_id}/like` (`204`,
 idempotent likes on a user's comment slot; `400 own_comment`), `GET /v1/layouts/{ref}/comment` (the caller's own `{live, pending,
 decision}`, never cached), `GET /v1/layouts/{ref}/comments` (public;
-`{comments: [{id, user_id, name, body, approved_at, edited, likes, liked?}]}`,
-most liked first (`?sort=newest` for newest first; any other value `400`), anonymous ETag/304, `liked` and `private, no-store` only with
+`{comments: [{id, user_id, name, body, approved_at, edited, likes, is_author, liked?}]}`,
+the layout owner's comment first, then most liked first (`?sort=newest` for newest first; any other value `400`), anonymous ETag/304, `liked` and `private, no-store` only with
 credentials),
 `GET /v1/admin/comment-queue?status=` (default `pending`; rows carry
 `live_body`), `POST /v1/admin/comment-queue/{id}/approve` and `.../reject

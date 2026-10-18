@@ -1275,7 +1275,8 @@ is immediate, no review (`204`; `404` if none of the caller's comments there
 has a text left): it erases the text of every comment the caller has on that
 layout, rejected and removed ones included, for good. `GET /v1/layouts/{ref}/comments` (public, no auth, ETag/304
 like the other public reads) answers `{comments: [{id, user_id, name, body,
-approved_at, edited, likes}]}`, the one approved comment per user, most liked
+approved_at, edited, likes, is_author}]}`, the one approved comment per user, the
+layout owner's own comment first (`is_author`, following a transfer), then most liked
 first, then newest approval (`?sort=newest` for newest approval first; any other
 `sort` value is `400`) (`name` from the authors table, `null` if none; `edited` is true when
 the user has replaced an earlier approved text since they last deleted); a

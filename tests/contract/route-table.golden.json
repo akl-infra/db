@@ -5418,6 +5418,9 @@
               "id": {
                 "type": "string"
               },
+              "is_author": {
+                "type": "boolean"
+              },
               "likes": {
                 "type": "number"
               },
@@ -5458,6 +5461,9 @@
               },
               "id": {
                 "type": "string"
+              },
+              "is_author": {
+                "type": "boolean"
               },
               "likes": {
                 "type": "number"

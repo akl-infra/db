@@ -66,6 +66,7 @@ export interface PublicComment {
   edited: boolean;
   likes: number;
   liked?: boolean; // only when the caller is authenticated
+  is_author: boolean; // the commenter is the layout's current owner
 }
 
 // `GET /v1/layouts/:ref/comment`: the caller's own view.
@@ -357,7 +358,8 @@ export async function removeComment(db: Bindings["DB"], now: Clock, actor: Actor
 
 // GET /v1/layouts/:ref/comments (public). The one approved row per user
 // (LDB-CMT3: the approve path keeps it at most one), most liked first (`likes`
-// counts the slot's likers, LDB-CMT11; `sort=newest` leaves that out), then
+// counts the slot's likers, LDB-CMT11; `sort=newest` leaves that out), with the
+// layout's current owner's comment (`is_author`) pinned first under either sort, then
 // newest approval, then id; `liked`
 // (did `viewer` like it) is present only when a viewer is given. `edited` is true when that user has an earlier `replaced` row on
 // this layout since their last delete or removal: a replaced row's
@@ -380,15 +382,16 @@ export async function listComments(db: Bindings["DB"], layout: LayoutRow, viewer
                     '')
               ) AS edited,
               (SELECT COUNT(*) FROM comment_likes k WHERE k.layout_id = c.layout_id AND k.author_id = c.user_id) AS likes,
-              EXISTS (SELECT 1 FROM comment_likes k WHERE k.layout_id = c.layout_id AND k.author_id = c.user_id AND k.user_id = ?) AS liked
+              EXISTS (SELECT 1 FROM comment_likes k WHERE k.layout_id = c.layout_id AND k.author_id = c.user_id AND k.user_id = ?) AS liked,
+              (c.user_id = ?) AS is_author
        FROM layout_comments c
        LEFT JOIN authors a ON a.user_id = c.user_id
        WHERE c.layout_id = ? AND c.status = 'approved' AND c.body IS NOT NULL
-       ORDER BY ${sort === "newest" ? "" : "likes DESC, "}c.decided_at DESC, c.id ASC`,
+       ORDER BY is_author DESC, ${sort === "newest" ? "" : "likes DESC, "}c.decided_at DESC, c.id ASC`,
     )
-    .bind(viewer ?? "", layout.id)
-    .all<Omit<PublicComment, "edited" | "liked"> & { edited: number; liked: number }>();
-  return results.map(({ liked, edited, ...r }) => ({ ...r, edited: edited === 1, ...(viewer === undefined ? {} : { liked: liked === 1 }) }));
+    .bind(viewer ?? "", layout.owner, layout.id)
+    .all<Omit<PublicComment, "edited" | "liked" | "is_author"> & { edited: number; liked: number; is_author: number }>();
+  return results.map(({ liked, edited, is_author, ...r }) => ({ ...r, edited: edited === 1, is_author: is_author === 1, ...(viewer === undefined ? {} : { liked: liked === 1 }) }));
 }
 
 // PUT /v1/layouts/:ref/comments/:author_id/like (LDB-CMT11): idempotent. The

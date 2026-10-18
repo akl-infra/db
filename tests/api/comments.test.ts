@@ -78,6 +78,7 @@ interface PublicComment {
   edited: boolean;
   likes: number;
   liked?: boolean;
+  is_author: boolean;
 }
 interface Own {
   live: { id: string; body: string; approved_at: string } | null;
@@ -568,7 +569,7 @@ describe("[LDB-CMT5] GET /v1/layouts/:ref/comments is public and shows one appro
     expect(res.headers.get("Cache-Control")).toBe("public, max-age=10");
     const comments = ((await res.json()) as { comments: PublicComment[] }).comments;
     expect(comments).toHaveLength(1);
-    expect(Object.keys(comments[0]!).sort()).toEqual(["approved_at", "body", "edited", "id", "likes", "name", "user_id"]);
+    expect(Object.keys(comments[0]!).sort()).toEqual(["approved_at", "body", "edited", "id", "is_author", "likes", "name", "user_id"]);
     expect(comments[0]).toMatchObject({ id: shown.id, user_id: others[3], name: "Shown Person", body: "shown", edited: false });
     expect(JSON.stringify(comments)).not.toMatch(/only pending|rejected one|to be removed|notified_at/);
     // `name` is null for a user with no authors row
@@ -1052,6 +1053,52 @@ describe("[LDB-CMT13] the listing carries likes, orders by them, and keeps the v
     const mine = ((await (await writeFetch(`/v1/layouts/${id}/comments?sort=newest`, "GET", liker)).json()) as { comments: PublicComment[] }).comments;
     expect(mine.map((c) => c.body)).toEqual(["newest", "middle", "oldest"]);
     expect(mine.every((c) => c.liked !== undefined)).toBe(true);
+  });
+
+  it("[LDB-CMT15] the layout owner's comment is first under both sorts and is_author marks it; no owner comment, no pin; a transfer moves the pin and the ETag", async () => {
+    const fake = actorFixture();
+    const owner = testUserId();
+    const ownerAuth = register(fake, token("pin-owner"), owner);
+    const { id } = await createLayout(owner);
+    const admin = register(fake, token("pin-admin"), BOOTSTRAP_ADMIN);
+    const mk = async (text: string) => {
+      const user = testUserId();
+      const auth = register(fake, token(`pin-${text}`), user);
+      await approve(admin, (await put(auth, id, text)).submission.id);
+      return { user, auth };
+    };
+    const liker = register(fake, token("pin-liker"), testUserId());
+    const order = async (q: string) => ((await (await writeFetch(`/v1/layouts/${id}/comments${q}`, "GET")).json()) as { comments: PublicComment[] }).comments;
+
+    // nobody from the owner yet: no pin, is_author false everywhere
+    const popular = await mk("popular");
+    await mk("recent");
+    await like(liker, id, popular.user);
+    expect((await order("")).map((c) => [c.body, c.is_author])).toEqual([["popular", false], ["recent", false]]);
+
+    // the owner comments last and unliked: still first under BOTH sorts
+    await approve(admin, (await put(ownerAuth, id, "from the maker")).submission.id);
+    for (const q of ["", "?sort=likes", "?sort=newest"]) {
+      const rows = await order(q);
+      expect(rows[0], q).toMatchObject({ body: "from the maker", is_author: true, user_id: owner });
+      expect(rows.slice(1).every((c) => !c.is_author), q).toBe(true);
+    }
+    expect((await order("")).map((c) => c.body)).toEqual(["from the maker", "popular", "recent"]);
+    expect((await order("?sort=newest")).map((c) => c.body)).toEqual(["from the maker", "recent", "popular"]);
+    // an authenticated read pins the same way
+    const mine = ((await (await writeFetch(`/v1/layouts/${id}/comments`, "GET", liker)).json()) as { comments: PublicComment[] }).comments;
+    expect(mine[0]).toMatchObject({ body: "from the maker", is_author: true });
+
+    // transfer to `popular`'s author: the pin follows the new owner, and the ETag moves
+    const tagBefore = (await writeFetch(`/v1/layouts/${id}/comments`, "GET")).headers.get("ETag")!;
+    const rev = (await db.prepare("SELECT layout_rev FROM layouts WHERE id = ?").bind(id).first<{ layout_rev: number }>())!.layout_rev;
+    const moved = await writeFetch(`/v1/layouts/${id}/transfer`, "POST", { ...ownerAuth, "If-Match": `"layout:${rev}"` }, { to: popular.user });
+    expect(moved.status).toBe(200);
+    const after = await writeFetch(`/v1/layouts/${id}/comments`, "GET", { "If-None-Match": tagBefore });
+    expect(after.status).toBe(200);
+    expect(after.headers.get("ETag")).not.toBe(tagBefore);
+    const rows = ((await after.json()) as { comments: PublicComment[] }).comments;
+    expect(rows.map((c) => [c.body, c.is_author])).toEqual([["popular", true], ["from the maker", false], ["recent", false]]);
   });
 
   it("[LDB-CMT13] the anonymous ETag moves when a count changes; a like and an unlike each move it", async () => {

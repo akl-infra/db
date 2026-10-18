@@ -42,6 +42,9 @@ export const CommentList: Component<{ comments: PublicComment[]; isAdmin: boolea
               <AuthorRef userId={c.user_id} linked />
               <span title={c.approved_at}>{formatWhen(c.approved_at)}</span>
               <span class="akl-comment-likes">{copy.layout.commentLikes(c.likes)}</span>
+              <Show when={c.is_author}>
+                <span class="akl-badge">{copy.layout.commentAuthor}</span>
+              </Show>
               <Show when={c.edited}>
                 <span class="akl-badge">{copy.layout.commentEdited}</span>
               </Show>

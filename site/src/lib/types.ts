@@ -217,6 +217,8 @@ export interface PublicComment {
   edited: boolean;
   /** How many users liked it; the API orders the list by this. */
   likes: number;
+  /** The commenter is the layout's owner (the API lists that comment first). */
+  is_author: boolean;
 }
 
 export interface AdminRow {
