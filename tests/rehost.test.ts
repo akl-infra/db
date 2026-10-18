@@ -23,7 +23,7 @@ import { canonical } from "../src/core/canonical";
 import { appendLike, appendLinkChange, type EventDbRow, foldLayout, rowToEvent } from "../src/core/events";
 import { rowToFormat, rowToLayout, type FormatDbRow, type LayoutDbRow } from "../src/core/records";
 import { fixedClock } from "../src/core/time";
-import type { BanDbRow, Dump, LayoutRevDbRow, LinkSubmissionDbRow } from "../src/dump/write";
+import type { BanDbRow, Dump, LayoutRevDbRow, LinkSubmissionDbRow, WpmSubmissionDbRow } from "../src/dump/write";
 import { restoreInto } from "../src/dump/restore";
 import { ulid } from "ulidx";
 import worker from "../src/index";
@@ -39,7 +39,7 @@ import { CASES } from "./conformance/manifest";
 // supersedes every OTHER pending submission for ITS layout) can never
 // accidentally touch the pending one this test also plants.
 const REHOST_BAN_USER = "870000000000000001";
-async function plantModerationState(db: Bindings["DB"]): Promise<{ likeLayoutId: string; pendingLayoutId: string; linkLayoutId: string }> {
+async function plantModerationState(db: Bindings["DB"]): Promise<{ likeLayoutId: string; pendingLayoutId: string; linkLayoutId: string; wpmLayoutId: string }> {
   const clock = fixedClock("2026-08-01T02:00:00.000Z");
   // Three BRAND NEW layouts, never a real upstream-100 record -- every
   // conformance fixture's own request targets a fixed, real seeded name
@@ -116,7 +116,27 @@ async function plantModerationState(db: Bindings["DB"]): Promise<{ likeLayoutId:
     source: { client: "discord-app:test", version: null },
   });
 
-  return { likeLayoutId, pendingLayoutId, linkLayoutId };
+  // [LDB-WPM10] WPM submissions, one per status the table can hold, each
+  // with a distinct proof, plus a notifier claim on the pending one --
+  // dumped and restored whole, nothing deleted or defaulted.
+  const wpmLayoutId = await freshLayout("rehost-plant-wpm");
+  const wpmRows: [string, number, string, string | null][] = [
+    ["pending", 80, "https://example.org/rehost-wpm-pending", null],
+    ["approved", 110, "https://example.org/rehost-wpm-approved", clock()],
+    ["rejected", 300, "https://example.org/rehost-wpm-rejected", clock()],
+    ["superseded", 70, "https://example.org/rehost-wpm-superseded", clock()],
+  ];
+  for (const [status, wpm, proof, decidedAt] of wpmRows) {
+    await db
+      .prepare(
+        `INSERT INTO wpm_submissions (id, layout_id, user_id, wpm, proof, submitted_by, via, submitted_at, status, decided_by, decided_at, reason, notified_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'discord', ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(ulid(), wpmLayoutId, "800000000000000004", wpm, proof, "800000000000000004", clock(), status, decidedAt === null ? null : "800000000000000001", decidedAt, status === "rejected" ? "rehost drill" : null, status === "pending" ? clock() : null)
+      .run();
+  }
+
+  return { likeLayoutId, pendingLayoutId, linkLayoutId, wpmLayoutId };
 }
 
 const bindings = env as unknown as Bindings & { TEST_REHOST_DUMP_URL: string };
@@ -183,7 +203,7 @@ describe("rehost drill", () => {
   // the event log to a tail) would desync one of those, not just look wrong
   // in isolation. `tests/api/dump.test.ts` covers the OTHER two clauses
   // (the `latest.json` sha256, the monthly-key timing) directly.
-  it("[LDB-G1] [LDB-P6] [LDB-D1] [MF-3] [LDB-P18] [LDB-D9] [LDB-MD3] [LDB-MD8] [LDB-MD14] restoreSql reproduces the exact dumped state", async () => {
+  it("[LDB-G1] [LDB-P6] [LDB-D1] [MF-3] [LDB-P18] [LDB-D9] [LDB-MD3] [LDB-MD8] [LDB-MD14] [LDB-WPM10] restoreSql reproduces the exact dumped state", async () => {
     const remoteUrl = bindings.TEST_REHOST_DUMP_URL;
     const usingRemote = remoteUrl !== "";
 
@@ -191,7 +211,7 @@ describe("rehost drill", () => {
     // restoring the dump taken from it can be checked for exact agreement.
     let metaBefore: unknown;
     let changesBefore: string | undefined;
-    let moderationIds: { likeLayoutId: string; pendingLayoutId: string; linkLayoutId: string } | undefined;
+    let moderationIds: { likeLayoutId: string; pendingLayoutId: string; linkLayoutId: string; wpmLayoutId: string } | undefined;
     const dump = usingRemote
       ? await fetchRemoteDump(remoteUrl)
       : await runCronAndReadDump(async () => {
@@ -230,6 +250,11 @@ describe("rehost drill", () => {
       const dumpText = JSON.stringify(dump);
       for (const secret of ["rehost-pending", "rehost-rejected", "rehost private reason"]) expect(dumpText.includes(secret), secret).toBe(false);
       expect(dump.events.find((e) => e.kind === "link_submitted" && e.layout_id === ids.pendingLayoutId)?.detail_json).toBe('{"submission_id":"01REHOSTOLD"}');
+      // [LDB-WPM10] every status the planted layout holds is in the dump, proofs intact.
+      const plantedWpm = dump.wpm_submissions.filter((s) => s.layout_id === ids.wpmLayoutId);
+      expect(plantedWpm.map((s) => s.status).sort()).toEqual(["approved", "pending", "rejected", "superseded"]);
+      expect(plantedWpm.find((s) => s.status === "approved")?.proof).toBe("https://example.org/rehost-wpm-approved");
+      expect(plantedWpm.find((s) => s.status === "pending")?.notified_at).not.toBeNull();
       const likeRecord = dump.records.find((r) => r.id === ids.likeLayoutId);
       expect(likeRecord?.like_count).toBe(2);
       expect(dump.likes.filter((l) => l.layout_id === ids.likeLayoutId)).toHaveLength(2);
@@ -272,6 +297,13 @@ describe("rehost drill", () => {
       // A rehost loses the non-approved mod queue by design (saltorbit 2026-10-18).
       expect(restoredSubmissions.results.every((s) => s.status === "approved")).toBe(true);
       expect(restoredSubmissions.results.some((s) => s.layout_id === ids.pendingLayoutId)).toBe(false);
+
+      // [LDB-WPM10] the WPM table round-trips byte-exact, notifier claim included.
+      const restoredWpm = await db
+        .prepare("SELECT id, layout_id, user_id, wpm, proof, submitted_by, via, submitted_at, status, decided_by, decided_at, reason, notified_at FROM wpm_submissions ORDER BY id ASC")
+        .all<WpmSubmissionDbRow>();
+      expect(canonical(restoredWpm.results)).toBe(canonical(dump.wpm_submissions));
+      expect(restoredWpm.results.filter((s) => s.layout_id === ids.wpmLayoutId)).toHaveLength(4);
 
       const likeLayout = await db.prepare("SELECT like_count FROM layouts WHERE id = ?").bind(ids.likeLayoutId).first<{ like_count: number }>();
       expect(likeLayout?.like_count).toBe(2);
