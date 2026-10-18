@@ -22,12 +22,22 @@
     ]
   },
   "response": {
-    "status": 200,
+    "status": 202,
     "headers": {
       "Content-Type": "application/json"
     },
     "body": {
-      "link": "https://example.org/mod-link-2"
+      "submission": {
+        "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "layout_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        "url": "https://example.org/mod-link-2",
+        "submitted_by": "184412255822020608",
+        "submitted_at": "2026-06-20T00:00:00.000Z",
+        "status": "pending",
+        "decided_by": null,
+        "decided_at": null,
+        "reason": null
+      }
     }
   }
 }

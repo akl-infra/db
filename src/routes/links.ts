@@ -56,18 +56,16 @@ export function linksRoute(authDeps: AuthDeps) {
   route.put("/v1/layouts/:ref/link", async (c) => {
     const actor = c.get("actor");
     const body = parseLinkBody(await readJson(c.req));
-    const { lwf, admin } = await loadForWrite(c.env.DB, c.req.param("ref"), actor, { allowDeleted: false });
-    const result = await links.submitLink(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), lwf.layout.id, admin, body.url);
-    // [LDB-MD11] A fresh `queued` submission is announced right away
-    // rather than waiting for the next 5-minute cron tick (`src/index.ts`'s
+    const { lwf } = await loadForWrite(c.env.DB, c.req.param("ref"), actor, { allowDeleted: false });
+    const submission = await links.submitLink(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), lwf.layout.id, body.url);
+    // [LDB-MD11] Every submission is pending, so every one is announced right
+    // away rather than waiting for the next 5-minute cron tick (`src/index.ts`'s
     // `scheduled()` also calls this, so it's covered even if this
     // `waitUntil` never runs) -- `notifyPending` never throws and touches
     // no D1 unless `MODQUEUE_DISCORD_WEBHOOK` is set (LDB-MD12), so this
     // is free on every other submit.
-    if (result.kind === "queued") {
-      c.executionCtx.waitUntil(notifyPending(c.env.DB, c.env, resolveNow(c.env)));
-    }
-    return result.kind === "approved" ? c.json({ link: result.link }, 200) : c.json({ submission: result.submission }, 202);
+    c.executionCtx.waitUntil(notifyPending(c.env.DB, c.env, resolveNow(c.env)));
+    return c.json({ submission }, 202);
   });
 
   route.delete("/v1/layouts/:ref/link", async (c) => {

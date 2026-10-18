@@ -654,7 +654,7 @@ DELETE /v1/layouts/{ref}                                    If-Match: "layout:<n
 POST   /v1/layouts/{ref}/transfer   { to }                  If-Match: "layout:<n>" or * → 200
 POST   /v1/layouts/{ref}/restore    { name? }  (owner or admin, no time limit)      → 200
 PUT / DELETE /v1/layouts/{ref}/like                                                 → 200 { like_count }
-PUT    /v1/layouts/{ref}/link       { url }  (owner or admin)   → 200 (admin: approved) / 202 (owner: queued)
+PUT    /v1/layouts/{ref}/link       { url }  (owner or admin)   → 202 (queued, admins too)
 DELETE /v1/layouts/{ref}/link       (owner or admin)                                → 200
 POST   /v1/wpm                      { layout, wpm, proof }                          → 202 (queued, admins too)
 PUT    /v1/layouts/{ref}/comment    { body }                                        → 202 (queued, admins too)
@@ -1143,7 +1143,7 @@ silently drift from what `src/index.ts` actually registers.
 | PUT | `/v1/layouts/:ref/like` | user | — | 200 | `not_found`, `bad_request`, `already_liked`, lane errors |
 | DELETE | `/v1/layouts/:ref/like` | user | — | 200 | `not_found`, `not_liked`, lane errors |
 | GET | `/v1/layouts/:ref/link` | user (owner or admin) | — | 200 | `not_found`, `not_owner`, lane errors |
-| PUT | `/v1/layouts/:ref/link` | user (owner or admin) | `{url}` | 200 (admin: approved) / 202 (owner: queued) | `bad_request`, `invalid_link`, `not_owner`, `not_found`, lane errors |
+| PUT | `/v1/layouts/:ref/link` | user (owner or admin) | `{url}` | 202 (queued, admins too) | `bad_request`, `invalid_link`, `not_owner`, `not_found`, lane errors |
 | DELETE | `/v1/layouts/:ref/link` | user (owner or admin) | — | 200 | `not_owner`, `not_found`, lane errors |
 | GET | `/v1/wpm` | none | — (`?layout=<ref>&user=<id>`, both optional) | 200 (`{records}`) | `bad_request`, `not_found` |
 | POST | `/v1/wpm` | user | `{layout, wpm, proof}` | 202 (queued, admins too) | `bad_request`, `invalid_wpm`, `invalid_proof`, `not_found`, lane errors |
@@ -1232,10 +1232,10 @@ route; an admin sets it again to change it.
 
 **`link`** (`PUT/DELETE/GET /v1/layouts/:ref/link`, body `{url}` for
 `PUT`): the layout's owner submits a URL (must be `https:`, no embedded
-credentials, ≤ 2048 characters, or `400 invalid_link`); an admin's own
-`PUT` is approved immediately, an owner's is queued (`202`, one pending
-submission per layout — a fresh submission supersedes an older pending
-one). `GET /v1/admin/link-queue?status=` (default `pending`) lists
+credentials, ≤ 2048 characters, or `400 invalid_link`); every `PUT`, an
+admin's own included, is queued (`202`, one pending submission per layout —
+a fresh submission supersedes an older pending one) and an admin approves it
+in the Inbox like any other (no short circuit for mods, API 1.23). `GET /v1/admin/link-queue?status=` (default `pending`) lists
 submissions; `POST .../approve` or `.../reject` (body `{reason?}`)
 decides one. Only an *approved* link ever appears on a public wire
 (`layoutToWire`'s `link` field) — a pending, rejected or superseded URL

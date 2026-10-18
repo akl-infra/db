@@ -114,20 +114,25 @@ describe("[LDB-MD5] only an approved link appears on a public wire", () => {
     await expect(stillFirst2.json()).resolves.toMatchObject({ link: "https://example.org/first" });
   });
 
-  it("[LDB-MD5] an admin's own PUT is approved at once, with no queue row", async () => {
+  it("[LDB-MD5] [LDB-MD6] an admin's own PUT is queued like an owner's: 202, pending, not on the public wire, in the queue; the admin approves it in the Inbox", async () => {
     const owner = testUserId();
     const { id, name } = await createLayout(owner);
     const admin = adminHeaders("tok-link-admin-3");
 
     const res = await writeFetch(`/v1/layouts/${id}/link`, "PUT", admin, { url: "https://example.org/admin-direct" });
-    expect(res.status).toBe(200);
-    await expect(res.json()).resolves.toEqual({ link: "https://example.org/admin-direct" });
+    expect(res.status).toBe(202);
+    const { submission } = (await res.json()) as { submission: { id: string; status: string; url: string; submitted_by: string } };
+    expect(submission).toMatchObject({ status: "pending", url: "https://example.org/admin-direct" });
 
     const detail = await writeFetch(`/v1/layouts/${name}?format=spark/1`, "GET");
-    await expect(detail.json()).resolves.toMatchObject({ link: "https://example.org/admin-direct" });
+    await expect(detail.json()).resolves.toMatchObject({ link: null });
 
-    const queue = (await (await writeFetch("/v1/admin/link-queue?status=pending", "GET", admin)).json()) as { submissions: { layout_id: string }[] };
-    expect(queue.submissions.some((s) => s.layout_id === id)).toBe(false);
+    const queue = (await (await writeFetch("/v1/admin/link-queue?status=pending", "GET", admin)).json()) as { submissions: { id: string; layout_id: string }[] };
+    expect(queue.submissions.filter((s) => s.layout_id === id).map((s) => s.id)).toEqual([submission.id]);
+
+    expect((await writeFetch(`/v1/admin/link-queue/${submission.id}/approve`, "POST", admin)).status).toBe(200);
+    const after = await writeFetch(`/v1/layouts/${name}?format=spark/1`, "GET");
+    await expect(after.json()).resolves.toMatchObject({ link: "https://example.org/admin-direct" });
   });
 
   it("clearing an approved link removes it from the public wire", async () => {
@@ -179,13 +184,15 @@ describe("[LDB-MD6] at most one pending submission per layout", () => {
     // Two admin-side approvals in a row both go through appendLinkChange's
     // own sweep -- the second must not leave a stray pending row behind
     // from a hypothetical race; simulate by inserting a pending row
-    // directly, then approving via the normal PUT (admin lane).
+    // directly, then submitting a fresh one via the normal PUT (admin lane: queued too).
     await db
       .prepare("INSERT INTO link_submissions (id, layout_id, url, submitted_by, submitted_at, status) VALUES (?, ?, ?, ?, ?, 'pending')")
       .bind(ulid(), id, "https://example.org/stray-pending", owner, clock())
       .run();
 
     await writeFetch(`/v1/layouts/${id}/link`, "PUT", admin, { url: "https://example.org/admin-approved" });
+    const nextPending = await db.prepare("SELECT status FROM link_submissions WHERE layout_id = ? AND url = ?").bind(id, "https://example.org/admin-approved").first<{ status: string }>();
+    expect(nextPending?.status).toBe("pending");
 
     const stray = await db.prepare("SELECT status FROM link_submissions WHERE layout_id = ? AND url = ?").bind(id, "https://example.org/stray-pending").first<{ status: string }>();
     expect(stray?.status).toBe("superseded");

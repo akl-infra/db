@@ -32,7 +32,10 @@ route (no shape change). **No short circuit for mods** (saltorbit): a
 submission by an admin goes through the moderation queue like anyone's, on
 every queue. (WPM) `POST /v1/wpm` is now always `202 {submission}` pending; the
 `201` admin instant-approve of 1.21 is gone, while `POST /v1/admin/wpm`
-(an explicit entry for someone else) is unchanged. (Comments) Every comment goes through the moderation queue,
+(an explicit entry for someone else) is unchanged. (Links) `PUT /v1/layouts/{ref}/link`
+is now always `202 {submission}` pending, for an admin too; the `200 {link}`
+approved-at-once reply of an admin's own `PUT` is gone (approve, reject and
+`DELETE` are unchanged). (Comments) Every comment goes through the moderation queue,
 admins included: `PUT /v1/layouts/{ref}/comment` is now always `202
 {submission}` with `status: "pending"`; the `201` admin instant-approve path
 of 1.22 is gone. An admin approves their own comment in the Inbox like any
