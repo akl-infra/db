@@ -415,7 +415,11 @@ function collectMagicChars(m: MagicIntent): Set<string> {
   const out = new Set<string>();
   for (const mk of m.magic_keys ?? []) {
     if (typeof mk.key === "string") out.add(mk.key);
-    for (const r of mk.rules ?? []) if (typeof r.after === "string") out.add(r.after);
+    for (const r of mk.rules ?? []) {
+      if (typeof r.after === "string") out.add(r.after);
+      // a skip rule's context (design/alts/43-skip-magic-wire.md): each character it names, never the null
+      else if (Array.isArray(r.after)) for (const c of r.after) if (typeof c === "string") out.add(c);
+    }
     for (const c of mk.except ?? []) if (typeof c === "string") out.add(c);
   }
   for (const ck of m.chiral_keys ?? []) {
