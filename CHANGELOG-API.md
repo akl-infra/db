@@ -28,7 +28,11 @@ the other (`[LDB-V5]`).
 ## 1.23 — 2026-10-19
 
 LDB-CMT2, docs/decisions/29-layout-comments.md: behaviour change to a released
-route (no shape change). Every comment goes through the moderation queue,
+route (no shape change). **No short circuit for mods** (saltorbit): a
+submission by an admin goes through the moderation queue like anyone's, on
+every queue. (WPM) `POST /v1/wpm` is now always `202 {submission}` pending; the
+`201` admin instant-approve of 1.21 is gone, while `POST /v1/admin/wpm`
+(an explicit entry for someone else) is unchanged. (Comments) Every comment goes through the moderation queue,
 admins included: `PUT /v1/layouts/{ref}/comment` is now always `202
 {submission}` with `status: "pending"`; the `201` admin instant-approve path
 of 1.22 is gone. An admin approves their own comment in the Inbox like any

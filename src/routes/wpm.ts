@@ -81,14 +81,12 @@ export function wpmRoute(authDeps: AuthDeps) {
     const actor = c.get("actor");
     const body = parseWpmBody(await readJson(c.req));
     const layout = await wpm.resolveWpmLayout(c.env.DB, body.layout);
-    const result = await wpm.submitWpm(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), layout.id, body.wpm, body.proof);
-    // [LDB-WPM8] A fresh `queued` submission is announced right away rather
-    // than waiting for the next 5-minute cron tick, same as links
+    const submission = await wpm.submitWpm(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), layout.id, body.wpm, body.proof);
+    // [LDB-WPM8] Every submission is pending, so every one is announced right
+    // away rather than waiting for the next 5-minute cron tick, same as links
     // (`notifyPending` never throws and is free with the webhook unset).
-    if (result.kind === "queued") {
-      c.executionCtx.waitUntil(notifyPending(c.env.DB, c.env, resolveNow(c.env)));
-    }
-    return c.json({ submission: result.submission }, result.kind === "approved" ? 201 : 202);
+    c.executionCtx.waitUntil(notifyPending(c.env.DB, c.env, resolveNow(c.env)));
+    return c.json({ submission }, 202);
   });
 
   route.post("/v1/admin/wpm", async (c) => {

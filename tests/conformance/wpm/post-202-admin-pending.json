@@ -24,7 +24,7 @@
     ]
   },
   "response": {
-    "status": 201,
+    "status": 202,
     "headers": {
       "Content-Type": "application/json"
     },
@@ -38,9 +38,9 @@
         "submitted_by": "184412255822020608",
         "via": "discord",
         "submitted_at": "2026-06-20T00:00:00.000Z",
-        "status": "approved",
-        "decided_by": "184412255822020608",
-        "decided_at": "2026-06-20T00:00:00.000Z",
+        "status": "pending",
+        "decided_by": null,
+        "decided_at": null,
         "reason": null
       }
     }
