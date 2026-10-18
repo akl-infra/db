@@ -1081,6 +1081,15 @@ export function publicDetail(kind: string, detail: unknown): unknown {
   return typeof id === "string" ? { submission_id: id } : null;
 }
 
+// The same redaction for a raw `events` row, at DUMP-WRITE time
+// (`dump/write.ts`, LDB-MD8): the dump is public, so a row stored before the
+// feed fix (url / reason in `detail_json`) must not reach a new dump either.
+export function redactEventRow(row: EventDbRow): EventDbRow {
+  if (!PRIVATE_DETAIL_KINDS.has(row.kind) || row.detail_json === null) return row;
+  const redacted = publicDetail(row.kind, JSON.parse(row.detail_json));
+  return { ...row, detail_json: redacted === null ? null : canonical(redacted) };
+}
+
 export async function feed(db: Bindings["DB"], since: number, limit: number, kinds?: string[], filter?: FeedFilter): Promise<{ next: number; items: Event[] }> {
   const cappedLimit = Math.min(limit, 1000);
   const params: unknown[] = [since];

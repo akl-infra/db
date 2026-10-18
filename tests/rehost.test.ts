@@ -86,6 +86,26 @@ async function plantModerationState(db: Bindings["DB"]): Promise<{ likeLayoutId:
     .bind(ulid(), pendingLayoutId, "https://example.org/rehost-pending", "800000000000000001", clock())
     .run();
 
+  // [LDB-MD8] saltorbit 2026-10-18: the dump is one public artifact and holds
+  // only APPROVED submissions. Plant an approved one (kept), a rejected one
+  // with a private reason (never dumped), and a pre-fix `link_submitted`
+  // event with the url in its detail (dumped redacted).
+  await db
+    .prepare("INSERT INTO link_submissions (id, layout_id, url, submitted_by, submitted_at, status, decided_by, decided_at, reason) VALUES (?, ?, ?, ?, ?, 'approved', ?, ?, NULL)")
+    .bind(ulid(), linkLayoutId, "https://example.org/rehost-approved", "800000000000000001", clock(), "800000000000000001", clock())
+    .run();
+  await db
+    .prepare("INSERT INTO link_submissions (id, layout_id, url, submitted_by, submitted_at, status, decided_by, decided_at, reason) VALUES (?, ?, ?, ?, ?, 'rejected', ?, ?, ?)")
+    .bind(ulid(), pendingLayoutId, "https://example.org/rehost-rejected", "800000000000000001", clock(), "800000000000000001", clock(), "rehost private reason")
+    .run();
+  await db
+    .prepare(
+      `INSERT INTO events (at, kind, layout_id, name, owner, format, rev, actor, via, admin, detail_json, before_json, after_json, source_client, source_version)
+       VALUES (?, 'link_submitted', ?, 'rehost-plant-pending', '800000000000000001', NULL, NULL, '800000000000000001', 'discord', 0, ?, NULL, NULL, NULL, NULL)`,
+    )
+    .bind(clock(), pendingLayoutId, JSON.stringify({ submission_id: "01REHOSTOLD", url: "https://example.org/rehost-pending" }))
+    .run();
+
   await appendLinkChange(db, clock, {
     layoutId: linkLayoutId,
     kind: "link_approved",
@@ -163,7 +183,7 @@ describe("rehost drill", () => {
   // the event log to a tail) would desync one of those, not just look wrong
   // in isolation. `tests/api/dump.test.ts` covers the OTHER two clauses
   // (the `latest.json` sha256, the monthly-key timing) directly.
-  it("[LDB-G1] [LDB-P6] [LDB-D1] [MF-3] [LDB-P18] [LDB-D9] [LDB-MD3] [LDB-MD8] restoreSql reproduces the exact dumped state", async () => {
+  it("[LDB-G1] [LDB-P6] [LDB-D1] [MF-3] [LDB-P18] [LDB-D9] [LDB-MD3] [LDB-MD8] [LDB-MD14] restoreSql reproduces the exact dumped state", async () => {
     const remoteUrl = bindings.TEST_REHOST_DUMP_URL;
     const usingRemote = remoteUrl !== "";
 
@@ -202,7 +222,14 @@ describe("rehost drill", () => {
     if (!usingRemote) {
       const ids = moderationIds!;
       expect(dump.bans.some((b) => b.user_id === REHOST_BAN_USER && b.reason === "rehost drill plant")).toBe(true);
-      expect(dump.link_submissions.some((s) => s.layout_id === ids.pendingLayoutId && s.status === "pending" && s.url === "https://example.org/rehost-pending")).toBe(true);
+      // [LDB-MD8] only approved submissions are dumped; nothing non-approved
+      // (pending, rejected, superseded) and none of their text is in it.
+      expect(dump.link_submissions.length).toBeGreaterThan(0);
+      expect(dump.link_submissions.every((s) => s.status === "approved")).toBe(true);
+      expect(dump.link_submissions.some((s) => s.layout_id === ids.linkLayoutId && s.url === "https://example.org/rehost-approved")).toBe(true);
+      const dumpText = JSON.stringify(dump);
+      for (const secret of ["rehost-pending", "rehost-rejected", "rehost private reason"]) expect(dumpText.includes(secret), secret).toBe(false);
+      expect(dump.events.find((e) => e.kind === "link_submitted" && e.layout_id === ids.pendingLayoutId)?.detail_json).toBe('{"submission_id":"01REHOSTOLD"}');
       const likeRecord = dump.records.find((r) => r.id === ids.likeLayoutId);
       expect(likeRecord?.like_count).toBe(2);
       expect(dump.likes.filter((l) => l.layout_id === ids.likeLayoutId)).toHaveLength(2);
@@ -242,7 +269,9 @@ describe("rehost drill", () => {
         .prepare("SELECT id, layout_id, url, submitted_by, submitted_at, status, decided_by, decided_at, reason, notified_at FROM link_submissions ORDER BY id ASC")
         .all<LinkSubmissionDbRow>();
       expect(canonical(restoredSubmissions.results)).toBe(canonical(dump.link_submissions));
-      expect(restoredSubmissions.results.some((s) => s.layout_id === ids.pendingLayoutId && s.status === "pending")).toBe(true);
+      // A rehost loses the non-approved mod queue by design (saltorbit 2026-10-18).
+      expect(restoredSubmissions.results.every((s) => s.status === "approved")).toBe(true);
+      expect(restoredSubmissions.results.some((s) => s.layout_id === ids.pendingLayoutId)).toBe(false);
 
       const likeLayout = await db.prepare("SELECT like_count FROM layouts WHERE id = ?").bind(ids.likeLayoutId).first<{ like_count: number }>();
       expect(likeLayout?.like_count).toBe(2);

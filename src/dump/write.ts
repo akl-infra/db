@@ -13,7 +13,7 @@ import type { Bindings } from "../env";
 import { canonical } from "../core/canonical";
 import type { ClientRow } from "../core/clients";
 import { readHead } from "../core/etag";
-import type { EventDbRow } from "../core/events";
+import { redactEventRow, type EventDbRow } from "../core/events";
 import { readMetaCore } from "../core/meta";
 import type { FormatDbRow, LayoutDbRow } from "../core/records";
 import type { Clock } from "../core/time";
@@ -262,13 +262,17 @@ export async function buildDump(env: Bindings, now: Clock): Promise<Dump> {
     likes,
     authors,
     admins,
-    events,
+    // [LDB-MD8] The dump is ONE public artifact (saltorbit 2026-10-18), so it
+    // holds only what is public: events carry the feed's redacted detail
+    // (rows stored before the fix included) and non-approved link
+    // submissions are never dumped.
+    events: events.map(redactEventRow),
     import_state,
     import_map,
     clients,
     auth_cache: [],
     bans,
-    link_submissions,
+    link_submissions: link_submissions.filter((s) => s.status === "approved"),
   };
 }
 
