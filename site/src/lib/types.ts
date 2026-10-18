@@ -151,6 +151,12 @@ export interface LinkSubmission {
   reason: string | null;
 }
 
+/** `GET /v1/admin/link-queue`'s row: the submission plus the names it joins. */
+export interface LinkQueueRow extends LinkSubmission {
+  layout_name: string;
+  submitter_name: string | null;
+}
+
 /** A WPM (typing-speed) submission, `POST /v1/wpm` / `POST /v1/admin/wpm`'s
  * `submission` (db/docs/decisions/28-wpm-records.md). `user_id` is whose
  * speed it is; `submitted_by` is the actor (the admin, for an on-behalf

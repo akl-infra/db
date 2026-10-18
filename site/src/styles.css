@@ -856,12 +856,24 @@ h2 {
 .akl-speed-form {
   display: grid;
   gap: 12px;
-  max-width: 480px;
+  width: 100%;
   margin-bottom: 12px;
 }
 .akl-speed-form label {
   display: grid;
   gap: 4px;
+}
+.akl-speed-form input[type="text"] {
+  font-family: var(--font-body);
+  font-size: 13px;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 10px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 .akl-speed-form input[aria-invalid="true"] {
   border-color: var(--danger, currentColor);

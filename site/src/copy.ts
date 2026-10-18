@@ -251,6 +251,8 @@ curl --fail "${baseUrl}/v1/layouts?format=spark/1&full=1" \
       colDetails: "Details",
       colSubmittedAt: "Submitted",
       colStatus: "Status",
+      decidedBy: "By",
+      reasonLabel: "Reason",
       kindLink: "Link",
       kindWpm: "Speed",
       wpmValue: (wpm: number) => `${wpm} wpm`,

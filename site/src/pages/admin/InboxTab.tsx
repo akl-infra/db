@@ -7,6 +7,7 @@ import { loadInbox, type InboxItem } from "../../lib/inbox.ts";
 import { createAsync } from "../../lib/asyncData.ts";
 import { loadErrorMessage } from "../../lib/apiError.ts";
 import { safeProofLink } from "../../lib/safelink.ts";
+import { formatWhen } from "../../lib/time.ts";
 import { authorName } from "../../lib/authorNames.ts";
 import AuthorRef from "../../ui/AuthorRef.tsx";
 import { onLinkClick } from "../../router.ts";
@@ -120,7 +121,9 @@ const InboxTab: Component = () => {
                 <th>{copy.admin.inbox.colDetails}</th>
                 <th>{copy.admin.inbox.colSubmittedAt}</th>
                 <th>{copy.admin.inbox.colStatus}</th>
-                <th />
+                <Show when={status() === "pending"}>
+                  <th />
+                </Show>
               </tr>
             </thead>
             <tbody>
@@ -129,14 +132,23 @@ const InboxTab: Component = () => {
                   const layoutHref = `/l/${encodeURIComponent(item.row.layout_id)}`;
                   return (
                     <tr>
-                      <td data-col={copy.admin.inbox.colKind}>{item.kind === "link" ? copy.admin.inbox.kindLink : copy.admin.inbox.kindWpm}</td>
+                      <td class="akl-nowrap" data-col={copy.admin.inbox.colKind}>{item.kind === "link" ? copy.admin.inbox.kindLink : copy.admin.inbox.kindWpm}</td>
                       <td data-col={copy.admin.inbox.colLayout}>
                         <a href={layoutHref} onClick={(e) => onLinkClick(e, layoutHref)}>
-                          {item.kind === "wpm" ? item.row.layout_name : item.row.layout_id}
+                          {item.row.layout_name}
                         </a>
                       </td>
                       <td data-col={copy.admin.inbox.colUser}>
-                        <Show when={item.kind === "wpm" ? item.row : null} fallback={<AuthorRef userId={item.row.submitted_by} linked />} keyed>
+                        <Show
+                          when={item.kind === "wpm" ? item.row : null}
+                          fallback={
+                            <>
+                              <AuthorRef userId={item.row.submitted_by} linked />
+                              <Show when={item.kind === "link" ? item.row.submitter_name : null}>{(n) => <span class="akl-muted"> {n()}</span>}</Show>
+                            </>
+                          }
+                          keyed
+                        >
                           {(w) => (
                             <>
                               <span>{w.user_name ?? authorName(w.user_id)}</span> <span class="akl-muted">{w.user_id}</span>
@@ -153,8 +165,28 @@ const InboxTab: Component = () => {
                           )}
                         </Show>
                       </td>
-                      <td data-col={copy.admin.inbox.colSubmittedAt}>{item.submitted_at}</td>
-                      <td data-col={copy.admin.inbox.colStatus}>{statusLabel(item.status)}</td>
+                      <td class="akl-nowrap" data-col={copy.admin.inbox.colSubmittedAt} title={item.submitted_at}>
+                        {formatWhen(item.submitted_at)}
+                      </td>
+                      <td class="akl-nowrap" data-col={copy.admin.inbox.colStatus}>
+                        {statusLabel(item.status)}
+                        <Show when={item.status !== "pending" && item.row.decided_at}>
+                          {(at) => (
+                            <div class="akl-muted">
+                              {copy.admin.inbox.decidedBy} <Show when={item.row.decided_by}>{(who) => <AuthorRef userId={who()} />}</Show>{" "}
+                              <span title={at()}>{formatWhen(at())}</span>
+                            </div>
+                          )}
+                        </Show>
+                        <Show when={item.status !== "pending" ? item.row.reason : null}>
+                          {(reason) => (
+                            <div class="akl-muted">
+                              {copy.admin.inbox.reasonLabel}: {reason()}
+                            </div>
+                          )}
+                        </Show>
+                      </td>
+                      <Show when={status() === "pending"}>
                       <td>
                         <Show when={item.status === "pending"}>
                           <div class="akl-action-row">
@@ -188,6 +220,7 @@ const InboxTab: Component = () => {
                           <span class="akl-inline-error">{rowError()?.message}</span>
                         </Show>
                       </td>
+                      </Show>
                     </tr>
                   );
                 }}
