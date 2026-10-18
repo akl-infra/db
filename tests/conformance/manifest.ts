@@ -437,7 +437,7 @@ import modAdminLinkQueueReject403NotAdmin from "./admin-link-queue/reject-403-no
 // the L5 moderation fixtures above.
 import wpmFxAdminWpmQueueGet200 from "./admin-wpm-queue/get-200.json" with { type: "json" };
 import wpmFxWpmPost202 from "./wpm/post-202.json" with { type: "json" };
-import wpmFxWpmPost201AdminApproved from "./wpm/post-201-admin-approved.json" with { type: "json" };
+import wpmFxWpmPost202AdminPending from "./wpm/post-202-admin-pending.json" with { type: "json" };
 import wpmFxWpmPost400BadRequest from "./wpm/post-400-bad_request.json" with { type: "json" };
 import wpmFxWpmPost400InvalidWpm from "./wpm/post-400-invalid_wpm.json" with { type: "json" };
 import wpmFxWpmPost400InvalidProof from "./wpm/post-400-invalid_proof.json" with { type: "json" };
@@ -890,7 +890,7 @@ export const MODERATION_CASES: ConformanceCase[] = [
   // has approved the record they read.
   kase("admin-wpm-queue/get-200", "/v1/admin/wpm-queue", wpmFxAdminWpmQueueGet200, true),
   kase("wpm/post-202", "/v1/wpm", wpmFxWpmPost202, true),
-  kase("wpm/post-201-admin-approved", "/v1/wpm", wpmFxWpmPost201AdminApproved, true),
+  kase("wpm/post-202-admin-pending", "/v1/wpm", wpmFxWpmPost202AdminPending, true),
   kase("wpm/post-400-bad_request", "/v1/wpm", wpmFxWpmPost400BadRequest, true),
   kase("wpm/post-400-invalid_wpm", "/v1/wpm", wpmFxWpmPost400InvalidWpm, true),
   kase("wpm/post-400-invalid_proof", "/v1/wpm", wpmFxWpmPost400InvalidProof, true),

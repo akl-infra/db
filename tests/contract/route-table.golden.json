@@ -10290,11 +10290,11 @@
     }
   },
   {
-    "id": "wpm/post-201-admin-approved",
+    "id": "wpm/post-202",
     "method": "POST",
     "route": "/v1/wpm",
     "auth": "user",
-    "status": 201,
+    "status": 202,
     "shape": {
       "type": "object",
       "fields": {
@@ -10302,10 +10302,10 @@
           "type": "object",
           "fields": {
             "decided_at": {
-              "type": "string"
+              "type": "null"
             },
             "decided_by": {
-              "type": "string"
+              "type": "null"
             },
             "id": {
               "type": "string"
@@ -10343,7 +10343,7 @@
     }
   },
   {
-    "id": "wpm/post-202",
+    "id": "wpm/post-202-admin-pending",
     "method": "POST",
     "route": "/v1/wpm",
     "auth": "user",

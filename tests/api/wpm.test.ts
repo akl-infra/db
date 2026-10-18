@@ -250,26 +250,26 @@ describe("[LDB-WPM2] a fresh pending submission supersedes the user's older one;
   });
 });
 
-describe("[LDB-WPM3] an admin's own speed through the user route is approved at once", () => {
-  it("[LDB-WPM3] 201, status approved, public immediately, no queue row, exactly one wpm_approved event", async () => {
+describe("[LDB-WPM3] an admin's own speed goes through the queue like anyone's", () => {
+  it("[LDB-WPM3] 202, status pending, not public, in the queue, one wpm_submitted and no wpm_approved; the admin approves it in the Inbox", async () => {
     const { id, name } = await createLayout(testUserId());
     const admin = register(actorFixture(), token("wpm-self"), BOOTSTRAP_ADMIN);
 
     const res = await writeFetch("/v1/wpm", "POST", admin, { layout: name, wpm: 130, proof: PROOF });
-    expect(res.status).toBe(201);
+    expect(res.status).toBe(202);
     const { submission } = (await res.json()) as { submission: Submission };
-    expect(submission).toMatchObject({ layout_id: id, user_id: BOOTSTRAP_ADMIN, submitted_by: BOOTSTRAP_ADMIN, wpm: 130, status: "approved", decided_by: BOOTSTRAP_ADMIN });
-    expect(submission.decided_at).not.toBeNull();
+    expect(submission).toMatchObject({ layout_id: id, user_id: BOOTSTRAP_ADMIN, submitted_by: BOOTSTRAP_ADMIN, wpm: 130, status: "pending", decided_by: null, decided_at: null });
 
-    const recs = await records(`?layout=${id}`);
-    expect(recs).toHaveLength(1);
-    expect(recs[0]).toMatchObject({ user_id: BOOTSTRAP_ADMIN, wpm: 130, proof: PROOF, submission_id: submission.id, approved_at: submission.decided_at });
+    expect(await records(`?layout=${id}`)).toEqual([]);
+    expect((await pendingFor(admin, id)).map((q) => q.id)).toEqual([submission.id]);
+    expect((await feedFor(id)).map((e) => e.kind).filter((k) => k.startsWith("wpm_"))).toEqual(["wpm_submitted"]);
 
-    expect(await pendingFor(admin, id)).toEqual([]);
-    const kinds = (await feedFor(id)).map((e) => e.kind).filter((k) => k.startsWith("wpm_"));
-    expect(kinds).toEqual(["wpm_approved"]);
+    expect((await writeFetch(`/v1/admin/wpm-queue/${submission.id}/approve`, "POST", admin)).status).toBe(200);
+    expect(await records(`?layout=${id}`)).toMatchObject([{ user_id: BOOTSTRAP_ADMIN, wpm: 130, proof: PROOF, submission_id: submission.id }]);
+    expect((await feedFor(id)).map((e) => e.kind).filter((k) => k.startsWith("wpm_"))).toEqual(["wpm_submitted", "wpm_approved"]);
   });
 });
+
 
 describe("[LDB-WPM4] an admin enters a speed on someone else's behalf", () => {
   it("[LDB-WPM4] 201, approved, user_id is the target and submitted_by the admin; the target needs no authors row", async () => {
@@ -382,7 +382,7 @@ describe("[LDB-WPM5] GET /v1/wpm answers each user's top approved speed per layo
     const again = await writeFetch(`/v1/wpm?layout=${id}`, "GET", { "If-None-Match": etag! });
     expect(again.status).toBe(304);
 
-    await writeFetch("/v1/wpm", "POST", admin, { layout: id, wpm: 99, proof: PROOF });
+    await writeFetch("/v1/admin/wpm", "POST", admin, { user_id: testUserId(), layout: id, wpm: 99, proof: PROOF });
     const after = await writeFetch(`/v1/wpm?layout=${id}`, "GET", { "If-None-Match": etag! });
     expect(after.status).toBe(200);
     expect(after.headers.get("ETag")).not.toBe(etag);

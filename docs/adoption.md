@@ -656,7 +656,7 @@ POST   /v1/layouts/{ref}/restore    { name? }  (owner or admin, no time limit)  
 PUT / DELETE /v1/layouts/{ref}/like                                                 → 200 { like_count }
 PUT    /v1/layouts/{ref}/link       { url }  (owner or admin)   → 200 (admin: approved) / 202 (owner: queued)
 DELETE /v1/layouts/{ref}/link       (owner or admin)                                → 200
-POST   /v1/wpm                      { layout, wpm, proof }                          → 202 (queued) / 201 (admin: approved)
+POST   /v1/wpm                      { layout, wpm, proof }                          → 202 (queued, admins too)
 PUT    /v1/layouts/{ref}/comment    { body }                                        → 202 (queued, admins too)
 DELETE /v1/layouts/{ref}/comment                                                    → 204
 ```
@@ -1146,7 +1146,7 @@ silently drift from what `src/index.ts` actually registers.
 | PUT | `/v1/layouts/:ref/link` | user (owner or admin) | `{url}` | 200 (admin: approved) / 202 (owner: queued) | `bad_request`, `invalid_link`, `not_owner`, `not_found`, lane errors |
 | DELETE | `/v1/layouts/:ref/link` | user (owner or admin) | — | 200 | `not_owner`, `not_found`, lane errors |
 | GET | `/v1/wpm` | none | — (`?layout=<ref>&user=<id>`, both optional) | 200 (`{records}`) | `bad_request`, `not_found` |
-| POST | `/v1/wpm` | user | `{layout, wpm, proof}` | 202 (queued) / 201 (admin: approved) | `bad_request`, `invalid_wpm`, `invalid_proof`, `not_found`, lane errors |
+| POST | `/v1/wpm` | user | `{layout, wpm, proof}` | 202 (queued, admins too) | `bad_request`, `invalid_wpm`, `invalid_proof`, `not_found`, lane errors |
 | GET | `/v1/layouts/:ref/comments` | none | — (`?sort=`) | 200 (`{comments}`) | `bad_request`, `not_found` |
 | PUT | `/v1/layouts/:ref/comments/:author_id/like` | user | — | 204 | `bad_request`, `own_comment`, `not_found`, lane errors |
 | DELETE | `/v1/layouts/:ref/comments/:author_id/like` | user | — | 204 | `bad_request`, `not_found`, lane errors |
@@ -1248,7 +1248,7 @@ typing speed on a layout, with a proof link. `layout` is any layout ref
 at most 512 characters after trimming (`400 invalid_proof`) — not limited to
 Discord. akldb is permissive about plausibility: mods judge that. A user's
 submission is queued (`202`; a fresh one supersedes that user's older pending
-one for the same layout); an admin's own speed is approved at once (`201`).
+one for the same layout); an admin's own speed is queued too (`202`, approved in the Inbox like any other).
 An admin can also enter a speed for someone else with
 `POST /v1/admin/wpm` (`{user_id, layout, wpm, proof}`, `user_id` any Discord
 id of 17-20 digits, `201`, approved at once). `GET /v1/admin/wpm-queue?status=`

@@ -168,9 +168,12 @@ async function appendApproved(
   });
 }
 
-// POST /v1/wpm. A user: queued (`202`) -- LDB-WPM2: a fresh pending
-// submission supersedes the same user's older pending one for this layout,
-// no event for that. An admin's OWN speed: approved at once (`201`).
+// POST /v1/wpm. Everyone, an admin included: queued (`202`) -- LDB-WPM2: a
+// fresh pending submission supersedes the same user's older pending one for
+// this layout, no event for that. No short circuit for mods (saltorbit,
+// API 1.23): an admin's OWN speed is approved in the Inbox like anyone's;
+// only `POST /v1/admin/wpm` (an explicit entry for someone else) is approved
+// at once.
 export async function submitWpm(
   db: Bindings["DB"],
   now: Clock,
@@ -179,12 +182,8 @@ export async function submitWpm(
   layoutId: string,
   rawWpm: unknown,
   rawProof: unknown,
-): Promise<{ kind: "queued" | "approved"; submission: WpmSubmissionRow }> {
+): Promise<WpmSubmissionRow> {
   const { wpm, proof } = validated(rawWpm, rawProof);
-
-  if (actor.admin) {
-    return { kind: "approved", submission: await insertApproved(db, now, actor, version, layoutId, actor.user_id, wpm, proof) };
-  }
 
   const at = now();
   const id = ulid();
@@ -212,8 +211,7 @@ export async function submitWpm(
     detail: { submission_id: id },
   });
 
-  const submission: WpmSubmissionRow = { id, layout_id: layoutId, user_id: actor.user_id, wpm, proof, submitted_by: actor.user_id, via: actor.via, submitted_at: at, status: "pending", decided_by: null, decided_at: null, reason: null };
-  return { kind: "queued", submission };
+  return { id, layout_id: layoutId, user_id: actor.user_id, wpm, proof, submitted_by: actor.user_id, via: actor.via, submitted_at: at, status: "pending", decided_by: null, decided_at: null, reason: null };
 }
 
 // POST /v1/admin/wpm (admin): an entry on someone else's behalf, approved at
