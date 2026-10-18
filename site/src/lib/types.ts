@@ -151,6 +151,31 @@ export interface LinkSubmission {
   reason: string | null;
 }
 
+/** A WPM (typing-speed) submission, `POST /v1/wpm` / `POST /v1/admin/wpm`'s
+ * `submission` (db/docs/decisions/28-wpm-records.md). `user_id` is whose
+ * speed it is; `submitted_by` is the actor (the admin, for an on-behalf
+ * entry). Same four statuses as a link submission. */
+export interface WpmSubmission {
+  id: string;
+  layout_id: string;
+  user_id: string;
+  wpm: number;
+  proof: string;
+  submitted_by: string;
+  via: string;
+  submitted_at: string;
+  status: LinkSubmissionStatus;
+  decided_by: string | null;
+  decided_at: string | null;
+  reason: string | null;
+}
+
+/** `GET /v1/admin/wpm-queue`'s row: the submission plus the names it joins. */
+export interface WpmQueueRow extends WpmSubmission {
+  layout_name: string;
+  user_name: string | null;
+}
+
 export interface AdminRow {
   user_id: string;
   added_by: string | null;

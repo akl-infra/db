@@ -44,6 +44,9 @@ describe("[SITE-13] every admin* mutation targets /api/v1/admin/* with the CSRF 
     ["adminSetAuthorName", () => api.adminSetAuthorName("u1", "name")],
     ["adminApproveLink", () => api.adminApproveLink("id1")],
     ["adminRejectLink", () => api.adminRejectLink("id1", "reason")],
+    ["adminApproveWpm", () => api.adminApproveWpm("id1")],
+    ["adminRejectWpm", () => api.adminRejectWpm("id1", "reason")],
+    ["adminSubmitWpm", () => api.adminSubmitWpm({ user_id: "184412255822020608", layout: "io", wpm: 90, proof: "https://example.org/p" })],
     ["adminAddAdmin", () => api.adminAddAdmin("u1", "note")],
     ["adminRemoveAdmin", () => api.adminRemoveAdmin("u1")],
     ["adminSuspendClient", () => api.adminSuspendClient("c1", "reason")],
@@ -63,6 +66,7 @@ describe("[SITE-13] every admin* mutation targets /api/v1/admin/* with the CSRF 
   const reads: Array<[string, () => Promise<unknown>]> = [
     ["adminListBans", () => api.adminListBans()],
     ["adminLinkQueue", () => api.adminLinkQueue("pending")],
+    ["adminWpmQueue", () => api.adminWpmQueue("pending")],
     ["adminListAdmins", () => api.adminListAdmins()],
     ["adminListClients", () => api.adminListClients()],
   ];
@@ -118,5 +122,44 @@ describe("[SITE-36] client moderation actions hit the exact route/method/body", 
     stubFetch();
     await api.adminSuspendClient("weird id/x");
     expect(lastUrl).toBe("/api/v1/admin/clients/weird%20id%2Fx/suspend");
+  });
+});
+
+// [SITE-42] the WPM admin calls (db decision 28) hit the exact route/method/
+// body the DB expects.
+describe("[SITE-42] WPM admin calls hit the exact route/method/body", () => {
+  it("adminWpmQueue: GET .../wpm-queue?status=", async () => {
+    stubFetch();
+    await api.adminWpmQueue("approved");
+    expect(lastUrl).toBe("/api/v1/admin/wpm-queue?status=approved");
+    expect(lastMethod).toBe("GET");
+  });
+
+  it("adminApproveWpm: POST .../wpm-queue/:id/approve, no body", async () => {
+    stubFetch();
+    await api.adminApproveWpm("sub 1");
+    expect(lastUrl).toBe("/api/v1/admin/wpm-queue/sub%201/approve");
+    expect(lastMethod).toBe("POST");
+    expect(lastBody).toBeUndefined();
+  });
+
+  it("adminRejectWpm: POST .../wpm-queue/:id/reject with {reason}, or {} when omitted", async () => {
+    stubFetch();
+    await api.adminRejectWpm("sub1", "no proof");
+    expect(lastUrl).toBe("/api/v1/admin/wpm-queue/sub1/reject");
+    expect(lastMethod).toBe("POST");
+    expect(lastBody).toBe(JSON.stringify({ reason: "no proof" }));
+    stubFetch();
+    await api.adminRejectWpm("sub1");
+    expect(lastBody).toBe("{}");
+  });
+
+  it("adminSubmitWpm: POST /v1/admin/wpm with {user_id, layout, wpm, proof}", async () => {
+    stubFetch();
+    const body = { user_id: "184412255822020608", layout: "io", wpm: 120, proof: "https://example.org/p" };
+    await api.adminSubmitWpm(body);
+    expect(lastUrl).toBe("/api/v1/admin/wpm");
+    expect(lastMethod).toBe("POST");
+    expect(JSON.parse(lastBody!)).toEqual(body);
   });
 });

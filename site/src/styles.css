@@ -846,6 +846,35 @@ h2 {
 .akl-admin-tabs button:hover {
   color: var(--ink);
 }
+.akl-admin-section {
+  margin-bottom: 32px;
+}
+.akl-admin-section h2 {
+  font-size: 15px;
+  margin: 0 0 12px;
+}
+.akl-speed-form {
+  display: grid;
+  gap: 12px;
+  max-width: 480px;
+  margin-bottom: 12px;
+}
+.akl-speed-form label {
+  display: grid;
+  gap: 4px;
+}
+.akl-speed-form input[aria-invalid="true"] {
+  border-color: var(--danger, currentColor);
+}
+.akl-speed-result {
+  margin: 12px 0 0;
+}
+.akl-speed-result dt {
+  font-weight: 600;
+}
+.akl-speed-result dd {
+  margin: 4px 0 0;
+}
 .akl-status-chips {
   display: flex;
   gap: 6px;

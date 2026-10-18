@@ -5,10 +5,8 @@ import { meResource } from "../session.ts";
 import { canSeeAdmin } from "../lib/adminGate.ts";
 import { adminTabFromSearch, searchForAdminTab, type AdminTab } from "../lib/adminTab.ts";
 import LayoutsTab from "./admin/LayoutsTab.tsx";
-import AuthorsTab from "./admin/AuthorsTab.tsx";
-import BansTab from "./admin/BansTab.tsx";
-import LinkQueueTab from "./admin/LinkQueueTab.tsx";
-import AdminsTab from "./admin/AdminsTab.tsx";
+import InboxTab from "./admin/InboxTab.tsx";
+import UsersTab from "./admin/UsersTab.tsx";
 import ClientsTab from "./admin/ClientsTab.tsx";
 
 type Tab = AdminTab;
@@ -23,7 +21,7 @@ type Tab = AdminTab;
  * ([SITE-18]). `meResource()` always comes from a fresh `/auth/me` ->
  * `/v1/me` round trip (server/discord.ts), never a cached admin flag. */
 const Admin: Component = () => {
-  // [SITE-39] `/admin?tab=links` (the mod-queue Discord notice's link)
+  // [SITE-39] `/admin?tab=inbox` (the mod-queue Discord notice's link)
   // opens straight on that tab; switching tabs keeps the URL in step
   // (replaceState -- a tab switch is not a history entry) so a copied
   // `/admin` URL always reopens the tab it was copied from.
@@ -48,40 +46,28 @@ const Admin: Component = () => {
           <div>
             <h1>{copy.admin.title}</h1>
             <div class="akl-admin-tabs">
+              <button aria-current={tab() === "inbox" ? "true" : undefined} onClick={() => setTab("inbox")}>
+                {copy.admin.tabInbox}
+              </button>
               <button aria-current={tab() === "layouts" ? "true" : undefined} onClick={() => setTab("layouts")}>
                 {copy.admin.tabLayouts}
               </button>
-              <button aria-current={tab() === "authors" ? "true" : undefined} onClick={() => setTab("authors")}>
-                {copy.admin.tabAuthors}
-              </button>
-              <button aria-current={tab() === "bans" ? "true" : undefined} onClick={() => setTab("bans")}>
-                {copy.admin.tabBans}
-              </button>
-              <button aria-current={tab() === "linkQueue" ? "true" : undefined} onClick={() => setTab("linkQueue")}>
-                {copy.admin.tabLinkQueue}
-              </button>
-              <button aria-current={tab() === "admins" ? "true" : undefined} onClick={() => setTab("admins")}>
-                {copy.admin.tabAdmins}
+              <button aria-current={tab() === "users" ? "true" : undefined} onClick={() => setTab("users")}>
+                {copy.admin.tabUsers}
               </button>
               <button aria-current={tab() === "clients" ? "true" : undefined} onClick={() => setTab("clients")}>
                 {copy.admin.tabClients}
               </button>
             </div>
 
+            <Show when={tab() === "inbox"}>
+              <InboxTab />
+            </Show>
             <Show when={tab() === "layouts"}>
               <LayoutsTab />
             </Show>
-            <Show when={tab() === "authors"}>
-              <AuthorsTab />
-            </Show>
-            <Show when={tab() === "bans"}>
-              <BansTab />
-            </Show>
-            <Show when={tab() === "linkQueue"}>
-              <LinkQueueTab />
-            </Show>
-            <Show when={tab() === "admins"}>
-              <AdminsTab />
+            <Show when={tab() === "users"}>
+              <UsersTab />
             </Show>
             <Show when={tab() === "clients"}>
               <ClientsTab />

@@ -55,7 +55,9 @@ describe("[SITE-18] Admin.tsx renders no moderation markup without admin:true", 
     const html = await renderAdminAs(NON_ADMIN);
     expect(html).toContain(copy.admin.notAdmin);
     expect(html).not.toContain(copy.admin.tabLayouts);
-    expect(html).not.toContain(copy.admin.tabBans);
+    expect(html).not.toContain(copy.admin.tabInbox);
+    expect(html).not.toContain(copy.admin.tabUsers);
+    expect(html).not.toContain(copy.admin.inbox.statusPending);
     expect(html).not.toContain(copy.admin.layouts.searchPlaceholder);
     expect(html).not.toContain(copy.admin.bans.banButton);
     // LDB-A10..A14: the Clients section (trusted-client moderation) never
@@ -70,12 +72,16 @@ describe("[SITE-18] Admin.tsx renders no moderation markup without admin:true", 
     expect(html).not.toContain(copy.admin.tabLayouts);
   });
 
-  it("an admin sees the tab bar and the default (Layouts) tab's content", async () => {
+  it("an admin sees the four-tab bar and the default (Inbox) tab's content", async () => {
     const html = await renderAdminAs(ADMIN);
     expect(html).not.toContain(copy.admin.notAdmin);
-    expect(html).toContain(copy.admin.tabLayouts);
-    expect(html).toContain(copy.admin.tabBans);
-    expect(html).toContain(copy.admin.layouts.searchPlaceholder);
+    for (const label of [copy.admin.tabInbox, copy.admin.tabLayouts, copy.admin.tabUsers, copy.admin.tabClients]) expect(html).toContain(label);
+    // The merged-away tabs are gone from the bar.
+    for (const gone of ["Authors", "Bans", "Admins", "Link queue"]) expect(html).not.toContain(`>${gone}<`);
+    // The Inbox is what mounts by default (its status chips are its markup);
+    // the Layouts tab's search box does not.
+    expect(html).toContain(copy.admin.inbox.statusPending);
+    expect(html).not.toContain(copy.admin.layouts.searchPlaceholder);
     // The Clients tab BUTTON is part of the tab bar shown to every admin
     // (its content, like every other non-default tab's, mounts only once
     // selected -- covered by [SITE-35]'s pure-logic test, not SSR here).
