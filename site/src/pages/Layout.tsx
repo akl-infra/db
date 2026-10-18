@@ -9,6 +9,7 @@ import { createAsync } from "../lib/asyncData.ts";
 import { meResource } from "../session.ts";
 import { canSeeAdmin } from "../lib/adminGate.ts";
 import AuthorRef from "../ui/AuthorRef.tsx";
+import LayoutComments from "../ui/LayoutComments.tsx";
 import OwnerActions from "../ui/OwnerActions.tsx";
 
 interface LayoutPageProps {
@@ -192,6 +193,8 @@ const LayoutPage: Component<LayoutPageProps> = (props) => {
                 </Show>
               )}
             </Show>
+
+            <LayoutComments layoutId={data.id} isAdmin={isAdmin()} />
 
             <h2>{copy.layout.historyTitle}</h2>
             <Show when={historyItems().length > 0} fallback={<div class="akl-empty">{copy.layout.historyEmpty}</div>}>

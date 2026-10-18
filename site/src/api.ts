@@ -18,6 +18,9 @@ import type {
   SuspendedClientInfo,
   WpmQueueRow,
   WpmSubmission,
+  CommentQueueRow,
+  CommentSubmission,
+  PublicComment,
 } from "./lib/types.ts";
 
 export type ApiResult<T> = { ok: true; data: T } | { ok: false; status: number; error: string; message?: string };
@@ -111,6 +114,11 @@ export function getLayoutHistory(ref: string, format?: string): Promise<ApiResul
 
 export function getLikes(ref: string): Promise<ApiResult<LikesWire>> {
   return request(`/api/v1/layouts/${encodeURIComponent(ref)}/likes`);
+}
+
+/** `GET /v1/layouts/:ref/comments`: the layout's approved comments (public). */
+export function getComments(ref: string): Promise<ApiResult<{ comments: PublicComment[] }>> {
+  return request(`/api/v1/layouts/${encodeURIComponent(ref)}/comments`);
 }
 
 /** `GET /v1/authors` is NOT an array -- it's a lossless id-keyed map,
@@ -239,6 +247,26 @@ export function adminRejectWpm(id: string, reason?: string): Promise<ApiResult<{
  * approved at once (`201`). */
 export function adminSubmitWpm(body: { user_id: string; layout: string; wpm: number; proof: string }): Promise<ApiResult<{ submission: WpmSubmission }>> {
   return request("/api/v1/admin/wpm", { method: "POST", body: JSON.stringify(body) });
+}
+export function adminCommentQueue(status = "pending"): Promise<ApiResult<{ submissions: CommentQueueRow[] }>> {
+  return request(`/api/v1/admin/comment-queue?status=${encodeURIComponent(status)}`);
+}
+export function adminApproveComment(id: string): Promise<ApiResult<{ submission: CommentSubmission }>> {
+  return request(`/api/v1/admin/comment-queue/${encodeURIComponent(id)}/approve`, { method: "POST" });
+}
+export function adminRejectComment(id: string, reason?: string): Promise<ApiResult<{ submission: CommentSubmission }>> {
+  return request(`/api/v1/admin/comment-queue/${encodeURIComponent(id)}/reject`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+}
+/** `POST /v1/admin/comments/:id/remove`: takes an approved comment down; the
+ * reason is kept for its author. */
+export function adminRemoveComment(id: string, reason?: string): Promise<ApiResult<{ submission: CommentSubmission }>> {
+  return request(`/api/v1/admin/comments/${encodeURIComponent(id)}/remove`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
 }
 export function adminListAdmins(): Promise<ApiResult<AdminRow[]>> {
   return request("/api/v1/admin/admins");

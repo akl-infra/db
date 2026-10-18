@@ -47,6 +47,9 @@ describe("[SITE-13] every admin* mutation targets /api/v1/admin/* with the CSRF 
     ["adminApproveWpm", () => api.adminApproveWpm("id1")],
     ["adminRejectWpm", () => api.adminRejectWpm("id1", "reason")],
     ["adminSubmitWpm", () => api.adminSubmitWpm({ user_id: "184412255822020608", layout: "io", wpm: 90, proof: "https://example.org/p" })],
+    ["adminApproveComment", () => api.adminApproveComment("id1")],
+    ["adminRejectComment", () => api.adminRejectComment("id1", "reason")],
+    ["adminRemoveComment", () => api.adminRemoveComment("id1", "reason")],
     ["adminAddAdmin", () => api.adminAddAdmin("u1", "note")],
     ["adminRemoveAdmin", () => api.adminRemoveAdmin("u1")],
     ["adminSuspendClient", () => api.adminSuspendClient("c1", "reason")],
@@ -67,6 +70,7 @@ describe("[SITE-13] every admin* mutation targets /api/v1/admin/* with the CSRF 
     ["adminListBans", () => api.adminListBans()],
     ["adminLinkQueue", () => api.adminLinkQueue("pending")],
     ["adminWpmQueue", () => api.adminWpmQueue("pending")],
+    ["adminCommentQueue", () => api.adminCommentQueue("pending")],
     ["adminListAdmins", () => api.adminListAdmins()],
     ["adminListClients", () => api.adminListClients()],
   ];
@@ -161,5 +165,55 @@ describe("[SITE-42] WPM admin calls hit the exact route/method/body", () => {
     expect(lastUrl).toBe("/api/v1/admin/wpm");
     expect(lastMethod).toBe("POST");
     expect(JSON.parse(lastBody!)).toEqual(body);
+  });
+});
+
+// [SITE-45] the comment admin calls (db decision 29) hit the exact route/
+// method/body the DB expects; the public read is a plain GET of the layout's
+// comments by ref.
+describe("[SITE-45] comment calls hit the exact route/method/body", () => {
+  it("adminCommentQueue: GET .../comment-queue?status=", async () => {
+    stubFetch();
+    await api.adminCommentQueue("rejected");
+    expect(lastUrl).toBe("/api/v1/admin/comment-queue?status=rejected");
+    expect(lastMethod).toBe("GET");
+  });
+
+  it("adminApproveComment: POST .../comment-queue/:id/approve, no body", async () => {
+    stubFetch();
+    await api.adminApproveComment("sub 1");
+    expect(lastUrl).toBe("/api/v1/admin/comment-queue/sub%201/approve");
+    expect(lastMethod).toBe("POST");
+    expect(lastBody).toBeUndefined();
+  });
+
+  it("adminRejectComment: POST .../comment-queue/:id/reject with {reason}, or {} when omitted", async () => {
+    stubFetch();
+    await api.adminRejectComment("sub1", "off topic");
+    expect(lastUrl).toBe("/api/v1/admin/comment-queue/sub1/reject");
+    expect(lastMethod).toBe("POST");
+    expect(lastBody).toBe(JSON.stringify({ reason: "off topic" }));
+    stubFetch();
+    await api.adminRejectComment("sub1");
+    expect(lastBody).toBe("{}");
+  });
+
+  it("adminRemoveComment: POST .../comments/:id/remove with {reason}, or {} when omitted", async () => {
+    stubFetch();
+    await api.adminRemoveComment("c 1", "spam");
+    expect(lastUrl).toBe("/api/v1/admin/comments/c%201/remove");
+    expect(lastMethod).toBe("POST");
+    expect(lastBody).toBe(JSON.stringify({ reason: "spam" }));
+    stubFetch();
+    await api.adminRemoveComment("c1");
+    expect(lastBody).toBe("{}");
+  });
+
+  it("getComments: GET /api/v1/layouts/:ref/comments, no CSRF header", async () => {
+    stubFetch();
+    await api.getComments("my layout");
+    expect(lastUrl).toBe("/api/v1/layouts/my%20layout/comments");
+    expect(lastMethod).toBe("GET");
+    expect(lastHeaders?.has("X-Requested-With")).toBe(false);
   });
 });

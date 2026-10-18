@@ -1,7 +1,7 @@
 import type { Component } from "solid-js";
 import { For, Show, createSignal } from "solid-js";
 import { copy } from "../../copy.ts";
-import { adminApproveLink, adminApproveWpm, adminRejectLink, adminRejectWpm } from "../../api.ts";
+import { adminApproveComment, adminApproveLink, adminApproveWpm, adminRejectComment, adminRejectLink, adminRejectWpm } from "../../api.ts";
 import type { LinkSubmissionStatus } from "../../lib/types.ts";
 import { loadInbox, type InboxItem } from "../../lib/inbox.ts";
 import { createAsync } from "../../lib/asyncData.ts";
@@ -10,6 +10,7 @@ import { formatWhen } from "../../lib/time.ts";
 import { authorName } from "../../lib/authorNames.ts";
 import AuthorRef from "../../ui/AuthorRef.tsx";
 import ProofLink from "../../ui/ProofLink.tsx";
+import CommentDetails from "./CommentDetails.tsx";
 import { onLinkClick } from "../../router.ts";
 
 const STATUSES: LinkSubmissionStatus[] = ["pending", "approved", "rejected", "superseded"];
@@ -73,7 +74,7 @@ const InboxTab: Component = () => {
 
   async function approve(item: InboxItem): Promise<void> {
     setPendingId(item.id);
-    const result = item.kind === "link" ? await adminApproveLink(item.id) : await adminApproveWpm(item.id);
+    const result = item.kind === "link" ? await adminApproveLink(item.id) : item.kind === "wpm" ? await adminApproveWpm(item.id) : await adminApproveComment(item.id);
     setPendingId(null);
     if (!result.ok) {
       setRowError({ id: item.id, message: result.message ?? result.error });
@@ -86,7 +87,7 @@ const InboxTab: Component = () => {
   async function reject(item: InboxItem): Promise<void> {
     setPendingId(item.id);
     const reason = rejectReason().trim() || undefined;
-    const result = item.kind === "link" ? await adminRejectLink(item.id, reason) : await adminRejectWpm(item.id, reason);
+    const result = item.kind === "link" ? await adminRejectLink(item.id, reason) : item.kind === "wpm" ? await adminRejectWpm(item.id, reason) : await adminRejectComment(item.id, reason);
     setPendingId(null);
     if (!result.ok) {
       setRowError({ id: item.id, message: result.message ?? result.error });
@@ -135,7 +136,7 @@ const InboxTab: Component = () => {
                   const layoutHref = `/l/${encodeURIComponent(item.row.layout_id)}`;
                   return (
                     <tr>
-                      <td class="akl-nowrap" data-col={copy.admin.inbox.colKind}>{item.kind === "link" ? copy.admin.inbox.kindLink : copy.admin.inbox.kindWpm}</td>
+                      <td class="akl-nowrap" data-col={copy.admin.inbox.colKind}>{item.kind === "link" ? copy.admin.inbox.kindLink : item.kind === "wpm" ? copy.admin.inbox.kindWpm : copy.admin.inbox.kindComment}</td>
                       <td data-col={copy.admin.inbox.colLayout}>
                         <a href={layoutHref} onClick={(e) => onLinkClick(e, layoutHref)}>
                           {item.row.layout_name}
@@ -143,8 +144,8 @@ const InboxTab: Component = () => {
                       </td>
                       <td data-col={copy.admin.inbox.colUser}>
                         <UserCell
-                          userId={item.kind === "wpm" ? item.row.user_id : item.row.submitted_by}
-                          name={item.kind === "wpm" ? item.row.user_name : item.row.submitter_name}
+                          userId={item.kind === "link" ? item.row.submitted_by : item.row.user_id}
+                          name={item.kind === "link" ? item.row.submitter_name : item.row.user_name}
                           linked={item.kind === "link"}
                         />
                       </td>
@@ -155,6 +156,9 @@ const InboxTab: Component = () => {
                               <strong>{copy.admin.inbox.wpmValue(w.wpm)}</strong> <ProofLink proof={w.proof} />
                             </>
                           )}
+                        </Show>
+                        <Show when={item.kind === "comment" ? item.row : null} keyed>
+                          {(c) => <CommentDetails row={c} />}
                         </Show>
                       </td>
                       <td class="akl-nowrap" data-col={copy.admin.inbox.colSubmittedAt} title={item.submitted_at}>

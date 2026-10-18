@@ -1,8 +1,9 @@
-// [SITE-40] the admin Inbox: link submissions and WPM submissions in one
-// list, newest first; a failure of either queue is the whole load's failure.
+// [SITE-40] the admin Inbox: link submissions, WPM submissions and layout
+// comments in one list, newest first; a failure of any queue is the whole
+// load's failure.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { loadInbox, mergeInbox } from "../../src/lib/inbox.ts";
-import type { LinkQueueRow, WpmQueueRow } from "../../src/lib/types.ts";
+import type { CommentQueueRow, LinkQueueRow, WpmQueueRow } from "../../src/lib/types.ts";
 
 function link(id: string, submitted_at: string, status: LinkQueueRow["status"] = "pending"): LinkQueueRow {
   return { id, layout_id: "L1", layout_name: "io", submitter_name: "Owner", url: `https://example.org/${id}`, submitted_by: "100000000000000001", submitted_at, status, decided_by: null, decided_at: null, reason: null };
@@ -26,7 +27,41 @@ function wpm(id: string, submitted_at: string, status: WpmQueueRow["status"] = "
   };
 }
 
+function comment(id: string, submitted_at: string, live_body: string | null = null): CommentQueueRow {
+  return {
+    id,
+    layout_id: "L3",
+    user_id: "100000000000000003",
+    body: "a comment",
+    via: "discord",
+    submitted_at,
+    status: "pending",
+    decided_by: null,
+    decided_at: null,
+    reason: null,
+    layout_name: "io",
+    user_name: "Commenter",
+    live_body,
+  };
+}
+
 describe("[SITE-40] mergeInbox", () => {
+  it("interleaves comments with links and speeds, newest first", () => {
+    const merged = mergeInbox(
+      [link("l1", "2026-10-02T00:00:00.000Z")],
+      [wpm("w1", "2026-10-01T00:00:00.000Z")],
+      [comment("c-new", "2026-10-03T00:00:00.000Z"), comment("c-old", "2026-09-30T00:00:00.000Z")],
+    );
+    expect(merged.map((i) => [i.kind, i.id])).toEqual([
+      ["comment", "c-new"],
+      ["link", "l1"],
+      ["wpm", "w1"],
+      ["comment", "c-old"],
+    ]);
+    expect(merged[0]).toMatchObject({ kind: "comment", row: { live_body: null, layout_name: "io" } });
+  });
+
+
   it("interleaves both kinds newest first", () => {
     const merged = mergeInbox(
       [link("l-old", "2026-10-01T00:00:00.000Z"), link("l-new", "2026-10-03T00:00:00.000Z")],
@@ -80,16 +115,18 @@ describe("[SITE-40] loadInbox", () => {
     const urls = stub({
       "/api/v1/admin/link-queue": { status: 200, body: { submissions: [link("l1", "2026-10-01T00:00:00.000Z")] } },
       "/api/v1/admin/wpm-queue": { status: 200, body: { submissions: [wpm("w1", "2026-10-02T00:00:00.000Z")] } },
+      "/api/v1/admin/comment-queue": { status: 200, body: { submissions: [comment("c1", "2026-10-03T00:00:00.000Z", "old text")] } },
     });
     const result = await loadInbox("rejected");
-    expect(urls.sort()).toEqual(["/api/v1/admin/link-queue?status=rejected", "/api/v1/admin/wpm-queue?status=rejected"]);
-    expect(result.ok && result.data.map((i) => i.id)).toEqual(["w1", "l1"]);
+    expect(urls.sort()).toEqual(["/api/v1/admin/comment-queue?status=rejected", "/api/v1/admin/link-queue?status=rejected", "/api/v1/admin/wpm-queue?status=rejected"]);
+    expect(result.ok && result.data.map((i) => i.id)).toEqual(["c1", "w1", "l1"]);
   });
 
   it("either queue failing fails the whole load with that queue's own error", async () => {
     stub({
       "/api/v1/admin/link-queue": { status: 200, body: { submissions: [link("l1", "2026-10-01T00:00:00.000Z")] } },
       "/api/v1/admin/wpm-queue": { status: 403, body: { error: "not_admin", message: "admin only" } },
+      "/api/v1/admin/comment-queue": { status: 200, body: { submissions: [] } },
     });
     const wpmFails = await loadInbox("pending");
     expect(wpmFails).toMatchObject({ ok: false, status: 403, error: "not_admin", message: "admin only" });
@@ -97,8 +134,16 @@ describe("[SITE-40] loadInbox", () => {
     stub({
       "/api/v1/admin/link-queue": { status: 500, body: { error: "internal", message: "boom" } },
       "/api/v1/admin/wpm-queue": { status: 200, body: { submissions: [] } },
+      "/api/v1/admin/comment-queue": { status: 200, body: { submissions: [] } },
     });
     const linkFails = await loadInbox("pending");
     expect(linkFails).toMatchObject({ ok: false, status: 500, error: "internal" });
+
+    stub({
+      "/api/v1/admin/link-queue": { status: 200, body: { submissions: [] } },
+      "/api/v1/admin/wpm-queue": { status: 200, body: { submissions: [] } },
+      "/api/v1/admin/comment-queue": { status: 502, body: { error: "upstream", message: "down" } },
+    });
+    expect(await loadInbox("pending")).toMatchObject({ ok: false, status: 502, error: "upstream" });
   });
 });
