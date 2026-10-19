@@ -235,7 +235,7 @@ describe("rehost drill", () => {
   // the event log to a tail) would desync one of those, not just look wrong
   // in isolation. `tests/api/dump.test.ts` covers the OTHER two clauses
   // (the `latest.json` sha256, the monthly-key timing) directly.
-  it("[LDB-G1] [LDB-P6] [LDB-D1] [MF-3] [LDB-P18] [LDB-D9] [LDB-MD3] [LDB-MD8] [LDB-MD14] [LDB-MD15] [LDB-MD16] [LDB-WPM10] [LDB-CMT10] [LDB-CMT12] restoreSql reproduces the exact dumped state", async () => {
+  it("[LDB-G1] [LDB-P6] [LDB-D1] [MF-3] [LDB-P18] [LDB-D9] [LDB-MD3] [LDB-MD8] [LDB-MD14] [LDB-MD15] [LDB-MD16] [LDB-MD19] [LDB-WPM10] [LDB-CMT10] [LDB-CMT12] restoreSql reproduces the exact dumped state", async () => {
     const remoteUrl = bindings.TEST_REHOST_DUMP_URL;
     const usingRemote = remoteUrl !== "";
 
@@ -268,6 +268,10 @@ describe("rehost drill", () => {
           await db.prepare(`INSERT INTO discord_deny_modals (modal_id, initial_interaction_id, actor_id, kind, submission_id, channel_id, message_id, guild_id, created_at, expires_at)
             VALUES ('private-modal', '900000000000000194', '900000000000000193', 'comment', 'private-comment', '900000000000000192', '900000000000000191', '900000000000000190', ?, ?)`)
             .bind("2026-10-18T00:00:00.000Z", "2026-10-18T00:14:00.000Z").run();
+          await db.prepare(`INSERT INTO discord_rejection_dm_outbox
+            (delivery_key, event_seq, kind, submission_id, layout_id, recipient_id, nonce, status, next_attempt_at, created_at, updated_at)
+            VALUES ('private-dm-marker', -999, 'comment', 'private-comment', 'private-layout', '900000000000000188', 'private-dm-nonce', 'pending', ?, ?, ?)`)
+            .bind("2026-10-18T00:00:00.000Z", "2026-10-18T00:00:00.000Z", "2026-10-18T00:00:00.000Z").run();
           moderationIds = await plantModerationState(db);
         });
     if (!usingRemote) {
@@ -292,7 +296,7 @@ describe("rehost drill", () => {
       expect(dump.link_submissions.some((s) => s.layout_id === ids.linkLayoutId && s.url === "https://example.org/rehost-approved")).toBe(true);
       const dumpText = JSON.stringify(dump);
       expect(dumpText).not.toContain(privateNotificationId);
-      for (const privateValue of ["private-interaction-token", "private actor", "private-submission", "private-modal"]) expect(dumpText).not.toContain(privateValue);
+      for (const privateValue of ["private-interaction-token", "private actor", "private-submission", "private-modal", "private-dm-marker", "private-dm-nonce"]) expect(dumpText).not.toContain(privateValue);
       for (const secret of ["rehost-pending", "rehost-rejected", "rehost private reason"]) expect(dumpText.includes(secret), secret).toBe(false);
       expect(dump.events.find((e) => e.kind === "link_submitted" && e.layout_id === ids.pendingLayoutId)?.detail_json).toBe('{"submission_id":"01REHOSTOLD"}');
       // [LDB-WPM10] only the APPROVED wpm row is dumped, proof intact; the
@@ -331,6 +335,7 @@ describe("rehost drill", () => {
       expect(privateRows.results).toEqual([]);
       expect((await db.prepare("SELECT 1 FROM discord_pending_actions").first())).toBeNull();
       expect((await db.prepare("SELECT 1 FROM discord_deny_modals").first())).toBeNull();
+      expect((await db.prepare("SELECT 1 FROM discord_rejection_dm_outbox").first())).toBeNull();
     }
 
     // LDB-D9: the restored `clients` table equals exactly what the dump

@@ -14,6 +14,7 @@ import type { Bindings } from "../env";
 import * as links from "../core/links";
 import { badRequest, notAdmin } from "../core/errors";
 import { notifyPending, updateQueueNotification } from "../core/modqueue";
+import { dispatchRejectionDms } from "../core/rejection-dm";
 import { loadForWrite } from "../core/write";
 import { systemClock, type Clock } from "../core/time";
 import { parseLinkBody, parseLinkRejectBody } from "./schemas";
@@ -99,8 +100,9 @@ export function linksRoute(authDeps: AuthDeps) {
     const actor = c.get("actor");
     if (!actor.admin) throw notAdmin();
     const body = parseLinkRejectBody(await readOptionalJson(c.req));
-    const result = await links.rejectSubmission(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), c.req.param("id"), body.reason);
+    const result = await links.rejectSubmission(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), c.req.param("id"), body.reason, { notifySubmitter: c.env.MODQUEUE_DISCORD_DMS === "true" });
     c.executionCtx.waitUntil(updateQueueNotification(c.env.DB, c.env, "link", c.req.param("id")));
+    c.executionCtx.waitUntil(dispatchRejectionDms(c.env.DB, c.env, resolveNow(c.env)));
     return c.json({ submission: result });
   });
 

@@ -12,6 +12,7 @@ import type { Bindings } from "../env";
 import { badRequest, notAdmin, notFound } from "../core/errors";
 import { cachePut, conditional, etagFor, readHead } from "../core/etag";
 import { notifyPending, updateQueueNotification } from "../core/modqueue";
+import { dispatchRejectionDms } from "../core/rejection-dm";
 import { byRef } from "../core/records";
 import { systemClock, type Clock } from "../core/time";
 import * as wpm from "../core/wpm";
@@ -120,8 +121,9 @@ export function wpmRoute(authDeps: AuthDeps) {
     const actor = c.get("actor");
     if (!actor.admin) throw notAdmin();
     const body = parseLinkRejectBody(await readOptionalJson(c.req));
-    const submission = await wpm.rejectWpm(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), c.req.param("id"), body.reason);
+    const submission = await wpm.rejectWpm(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), c.req.param("id"), body.reason, { notifySubmitter: c.env.MODQUEUE_DISCORD_DMS === "true" });
     c.executionCtx.waitUntil(updateQueueNotification(c.env.DB, c.env, "wpm", submission.id));
+    c.executionCtx.waitUntil(dispatchRejectionDms(c.env.DB, c.env, resolveNow(c.env)));
     return c.json({ submission });
   });
 

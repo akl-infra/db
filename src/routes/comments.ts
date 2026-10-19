@@ -13,6 +13,7 @@ import * as comments from "../core/comments";
 import { badRequest, notAdmin, notFound } from "../core/errors";
 import { cachePut, conditional, etagFor, readHead } from "../core/etag";
 import { announceComment, updateQueueNotification } from "../core/modqueue";
+import { dispatchRejectionDms } from "../core/rejection-dm";
 import { byRef } from "../core/records";
 import { systemClock, type Clock } from "../core/time";
 import { validateUserId } from "../core/wpm";
@@ -188,8 +189,9 @@ export function commentsRoute(authDeps: AuthDeps) {
     const actor = c.get("actor");
     if (!actor.admin) throw notAdmin();
     const body = parseLinkRejectBody(await readOptionalJson(c.req));
-    const submission = await comments.rejectComment(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), c.req.param("id"), body.reason);
+    const submission = await comments.rejectComment(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), c.req.param("id"), body.reason, { notifySubmitter: c.env.MODQUEUE_DISCORD_DMS === "true" });
     c.executionCtx.waitUntil(updateQueueNotification(c.env.DB, c.env, "comment", submission.id));
+    c.executionCtx.waitUntil(dispatchRejectionDms(c.env.DB, c.env, resolveNow(c.env)));
     return c.json({ submission });
   });
 

@@ -145,7 +145,9 @@ function escapedMarkdownTokens(value: string): string[] {
 }
 
 function countCharacters(value: string): number {
-  return Array.from(value).length;
+  // Discord's payload limits are measured in UTF-16 code units. `String.length`
+  // matches that accounting, including for astral emoji.
+  return value.length;
 }
 
 function chunkTextDisplays(summary: string, bodyTokens: string[]): Array<{ type: 10; content: string }> {

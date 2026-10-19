@@ -181,13 +181,13 @@ section for the invariants it used to satisfy.
 | `MODQUEUE_DISCORD_WEBHOOK` | secret (optional) | `src/core/modqueue.ts` (LDB-MD11/LDB-MD12) | legacy incoming-webhook URL; unset disables only the legacy transport; never replace credentials for messages already tracked as webhook-owned |
 | `MODQUEUE_DISCORD_COMPONENTS` | var | `src/core/modqueue.ts` (LDB-MD15) | legacy opt-in for Components V2 webhook posts; new akldb bot cards use the separate `MODQUEUE_DISCORD_CARDS` gate |
 | `MODQUEUE_DISCORD_BOT_TOKEN` | secret (optional) | `src/core/modqueue.ts`, `src/core/discord-interactions.ts` (LDB-MD16) | dedicated akldb bot token via `wrangler secret put`; never use Spark's token, log it, or send it to the interaction callback webhook |
-| `MODQUEUE_DISCORD_APPLICATION_ID` | var (optional) | `src/core/discord-interactions.ts` (LDB-MD16) | Discord application's ID; must match the existing akldb application's ID; do not change the OAuth sign-in callback/application |
-| `MODQUEUE_DISCORD_PUBLIC_KEY` | var (optional) | `src/core/discord-interactions.ts` (LDB-MD16) | Discord interaction verification key as 64-character hex; copy from the same application's portal settings |
-| `MODQUEUE_DISCORD_GUILD_ID` | var (optional) | `src/core/discord-interactions.ts` (LDB-MD16) | allowlisted moderation guild snowflake; omit to keep interactions unavailable |
-| `MODQUEUE_DISCORD_CHANNEL_ID` | var (optional) | `src/core/modqueue.ts`, `src/core/discord-interactions.ts` (LDB-MD16) | allowlisted moderation channel snowflake used for bot-owned cards and strict interaction checks |
-| `MODQUEUE_DISCORD_CARDS` | var | `src/core/modqueue.ts` (LDB-MD16) | defaults to `false`; set `true` only after dedicated bot credentials, app config and channel access are verified; new cards then use Bot REST and record ownership |
-| `MODQUEUE_DISCORD_ACTIONS` | var | `src/core/discord-interactions.ts` (LDB-MD16) | defaults to `false`; set `true` only after Discord's interaction endpoint is configured and verified; independently gates approve/deny controls and their handler |
-| `MODQUEUE_DISCORD_DMS` | var | `src/core/rejection-dm.ts` | defaults to `false`; when enabled, future rejection operations enqueue private submitter DMs; approvals remain quiet |
+| `MODQUEUE_DISCORD_APPLICATION_ID` | var or secret (optional) | `src/core/discord-interactions.ts` (LDB-MD16) | Discord application's ID; must match the existing akldb application's ID; production currently uses a Worker secret; do not change the OAuth sign-in callback/application |
+| `MODQUEUE_DISCORD_PUBLIC_KEY` | var or secret (optional) | `src/core/discord-interactions.ts` (LDB-MD16) | Discord interaction verification key as 64-character hex; copy from the same application's portal settings; production currently uses a Worker secret |
+| `MODQUEUE_DISCORD_GUILD_ID` | var or secret (optional) | `src/core/discord-interactions.ts` (LDB-MD16) | allowlisted moderation guild snowflake; production currently uses a Worker secret; omit to keep interactions unavailable |
+| `MODQUEUE_DISCORD_CHANNEL_ID` | var or secret (optional) | `src/core/modqueue.ts`, `src/core/discord-interactions.ts` (LDB-MD16) | allowlisted moderation channel snowflake used for bot-owned cards and strict interaction checks; production currently uses a Worker secret |
+| `MODQUEUE_DISCORD_CARDS` | secret (optional) | `src/core/modqueue.ts` (LDB-MD16) | unset disables bot cards; set to `true` only after dedicated bot credentials, app config and channel access are verified; new cards then use Bot REST and record ownership |
+| `MODQUEUE_DISCORD_ACTIONS` | secret (optional) | `src/core/discord-interactions.ts` (LDB-MD16) | unset disables approve/deny actions; set to `true` only after Discord's interaction endpoint is configured and verified |
+| `MODQUEUE_DISCORD_DMS` | secret (optional) | `src/core/rejection-dm.ts`, moderation routes and `src/core/discord-interactions.ts` | unset disables submitter DMs; set to `true` to enqueue a private DM only for a winning future rejection from the API or Discord action; approvals remain quiet; delivery also requires the bot-token secret |
 | `CLOUDFLARE_DB_TOKEN` | repo secret (CI) | `.github/workflows/db.yml`'s `deploy` job (S7) | a Cloudflare API token with Workers Scripts + D1 + R2 edit, separate from the site's Pages token |
 | `CLOUDFLARE_DB_ACCOUNT_ID` | repo secret (CI) | `.github/workflows/db.yml`'s `deploy` job (S7) | the NEW community account's id (00 §1) -- NOT the site's `CLOUDFLARE_ACCOUNT_ID` |
 | `DB_BASE_URL` | repo/org variable (CI) | `.github/workflows/db.yml`'s `daily` job (S7) | the deployed service's own origin, e.g. `https://akl-db.<account>.workers.dev`; set once the service is deployed |
@@ -197,6 +197,26 @@ section for the invariants it used to satisfy.
 | `TEST_ROUTES` | test-only miniflare binding | `src/index.ts`'s throwaway `/v1/__test/write` route | set unconditionally in `vitest.config.ts`; never present outside tests |
 | `TEST_MIGRATIONS` | test-only miniflare binding | `tests/setup-workers.ts` | built from `migrations/` by `vitest.config.ts` at test-run time; never present outside tests |
 | `TEST_REHOST_DUMP_URL` | test-only miniflare binding | `tests/rehost.test.ts` (S7) | threads the real `REHOST_DUMP_URL` env var (set only by db.yml's `daily` job) into the miniflare Worker; empty string locally, so `npm test` always runs the local (cron-driven) half of the rehost drill |
+
+## Discord moderation bot rollout
+
+The dedicated bot and each feature gate are Worker secrets, not committed
+`[vars]`: an unset `MODQUEUE_DISCORD_CARDS`, `MODQUEUE_DISCORD_ACTIONS`, or
+`MODQUEUE_DISCORD_DMS` is off. Keep the legacy webhook configured while legacy
+messages remain tracked; each message's private row records which transport
+owns future edits.
+
+Roll out in stages: deploy code with all three gates unset; register the exact
+`/discord/interactions` URL in the existing akldb Discord application's
+Interactions settings; verify signed PING succeeds while actions are still
+off; then enable cards and actions together after checking bot membership and
+channel permissions. Enable DMs separately only if wanted. To roll back, unset
+the relevant feature-gate secret(s): new posts fall back to the legacy webhook
+when cards are off and that webhook is configured; actions stop being accepted
+while expired private action/modal state continues to be cleaned; DMs stop being
+enqueued and delivered. Existing tracked messages continue to use their
+recorded transport for status edits. Do not replace or revoke bot/webhook
+credentials needed to edit already tracked messages.
 
 ## Scheduled jobs
 
@@ -211,7 +231,7 @@ error anywhere but a stale `/v1/meta` -- `POST /v1/admin/nightly/tick`
 
 | every invocation | hour=3, minute=0 also |
 |---|---|
-| (nothing unconditional any more -- see LDB-D8 catch-up below) | `pruneAuthCache`, `pruneRateLimits`, `pruneNonces`, `writeDump` (the nightly dump, below) |
+| best-effort mod-queue announce/status reconciliation; bounded Discord action continuation drain (including expiry cleanup); bounded rejection-DM outbox delivery; each transport is internally gated and disabled when its configuration/gate is unset | `pruneAuthCache`, `pruneRateLimits`, `pruneNonces`, `writeDump` (the nightly dump, below) |
 
 [LDB-X2] Two more columns used to exist here -- the cmini import tick, run
 on every invocation, and the diff cron at hour=4/minute=0 -- deleted along

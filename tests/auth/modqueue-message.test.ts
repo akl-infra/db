@@ -39,7 +39,7 @@ describe("[LDB-MD15] Components V2 mod-queue message", () => {
       "aklmod1|link|deny|01ARZ3NDEKTSV4RRFFQ69G5FAV",
       undefined,
     ]);
-    expect(linkParts.find((c) => c.type === 2 && c.style === 5)?.url).toBe("https://akldb.org/admin?tab=inbox");
+    expect(linkParts.find((c) => c.type === 2 && c.style === 5)).toMatchObject({ label: "Open in akldb", url: "https://akldb.org/admin?tab=inbox" });
 
     const wpm = buildV2Payload("wpm", {
       id: "01ARZ3NDEKTSV4RRFFQ69G5FAA",
@@ -100,6 +100,8 @@ describe("[LDB-MD15] Components V2 mod-queue message", () => {
     expect(files).toHaveLength(1);
     expect(files[0]!.content).toBe(`BEFORE\n\n${"x".repeat(2000)}\n\nAFTER\n\n${"z".repeat(2000)}`);
     expect(bounded.attachments).toEqual([{ id: "0", filename: files[0]!.filename, description: "Complete comment text before and after the edit" }]);
+    expect(nested(bounded.components as unknown[]).find((c) => c.type === 13 && c.id === 41009))
+      .toEqual({ type: 13, id: 41009, file: { url: `attachment://${files[0]!.filename}` } });
 
     const hostile = buildV2Payload("comment", {
       id: "01ARZ3NDEKTSV4RRFFQ69G5FAC",
@@ -176,6 +178,7 @@ describe("[LDB-MD15] Components V2 mod-queue message", () => {
     expect(preserve?.attachments).toEqual(long.attachments);
     const erased = buildV2StatusPatch(long, "comment", "01ARZ3NDEKTSV4RRFFQ69G5FAE", { status: "deleted", decider_name: null });
     expect(erased?.attachments).toEqual([]);
+    expect(nested(erased!.components as unknown[]).some((c) => c.type === 13 && c.id === 41009)).toBe(false);
     expect(JSON.stringify(erased)).not.toContain("private current text");
     expect(JSON.stringify(erased)).not.toContain("private former text");
   });

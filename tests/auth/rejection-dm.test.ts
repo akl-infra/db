@@ -250,7 +250,7 @@ describe("[LDB-MD18] rejection DM outbox", () => {
     const dump = await buildDump(bindings as unknown as Bindings, clock);
     expect(JSON.stringify(dump)).not.toContain("discord_rejection_dm_outbox");
     expect(Object.keys(dump)).not.toContain("discord_rejection_dm_outbox");
-    expect(restoreSql(dump).join("\n")).not.toContain("discord_rejection_dm_outbox");
+    expect(restoreSql(dump).join("\n")).not.toContain("INSERT INTO discord_rejection_dm_outbox");
   });
 
   it("[LDB-MD18] renderer strips mention and formatting injection", () => {
@@ -278,6 +278,18 @@ describe("[LDB-MD18] rejection DM outbox", () => {
     expect(Array.from(joined).length).toBeLessThanOrEqual(4000);
     expect(components.every((component) => Array.from(String(component.content)).length <= 1800)).toBe(true);
     expect(rendered.payload.allowed_mentions).toEqual({ parse: [] });
+  });
+
+  it("[LDB-MD19] uses Discord UTF-16 accounting for astral characters and keeps the full comment attached", () => {
+    const body = "😅".repeat(2000);
+    expect(Array.from(body).length).toBe(2000);
+    expect(body.length).toBe(4000);
+    const rendered = buildRejectionDmMessage({
+      kind: "comment", layoutName: "Test", layoutUrl: "https://akldb.org/l/test", reason: null,
+      context: "Comment submission", commentBody: body,
+    });
+    expect(rendered.attachmentText).toBe(body);
+    expect(rendered.payload.components?.some((component) => String(component.content ?? "").includes(body))).toBe(false);
   });
 
   it("attaches the full plaintext comment when escaped content would exceed component limits", () => {

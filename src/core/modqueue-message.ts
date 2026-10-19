@@ -45,6 +45,7 @@ const COMPONENT_SEPARATOR_ID = 41005;
 const COMPONENT_ACTIONS_ID = 41006;
 const COMPONENT_STATUS_SEPARATOR_ID = 41007;
 const COMPONENT_BODY_SEPARATOR_ID = 41008;
+const COMPONENT_FILE_ID = 41009;
 export const DISCORD_COMPONENTS_V2_FLAG = 32768;
 const MAX_COMPONENT_TEXT_UNITS = 4000;
 const STATUS_TEXT_RESERVE = 180;
@@ -94,7 +95,7 @@ function actionRow(kind: QueueKind, id: string, actionsEnabled: boolean): Record
         { type: 2, style: 3, label: "✓ Approve", custom_id: `aklmod1|${kind}|approve|${id}` },
         { type: 2, style: 4, label: "✕ Deny", custom_id: `aklmod1|${kind}|deny|${id}` },
       ] : []),
-      { type: 2, style: 5, label: "Open in akldb ↗", url: "https://akldb.org/admin?tab=inbox" },
+      { type: 2, style: 5, label: "Open in akldb", url: "https://akldb.org/admin?tab=inbox" },
     ],
   };
 }
@@ -126,6 +127,7 @@ function payload(kind: QueueKind, id: string, title: string, metadata: string, b
         { type: 10, id: COMPONENT_METADATA_ID, content: metadata },
         { type: 14, id: COMPONENT_BODY_SEPARATOR_ID, divider: true, spacing: 1 },
         { type: 10, id: COMPONENT_BODY_ID, content: body },
+        ...(file === undefined ? [] : [{ type: 13, id: COMPONENT_FILE_ID, file: { url: `attachment://${file.filename}` } }]),
         { type: 14, id: COMPONENT_SEPARATOR_ID, divider: true, spacing: 1 },
         actionRow(kind, id, actionsEnabled),
       ],
@@ -174,7 +176,7 @@ export function buildV2StatusPatch(current: unknown, kind: QueueKind, id: string
   const moderationPrefix = `aklmod1|${kind}|`;
   const eraseCommentBody = kind === "comment" && (state.status === "deleted" || state.status === "replaced");
   const patch = (component: unknown): unknown => {
-    if (Array.isArray(component)) return component.map(patch);
+    if (Array.isArray(component)) return component.map(patch).filter((item) => item !== null);
     if (component === null || typeof component !== "object") return component;
     const row = component as Record<string, unknown>;
     if (row.type === 10 && row.id === COMPONENT_STATUS_ID) {
@@ -184,10 +186,11 @@ export function buildV2StatusPatch(current: unknown, kind: QueueKind, id: string
     if (eraseCommentBody && row.type === 10 && row.id === COMPONENT_BODY_ID) {
       return { ...row, content: "**Comment preview removed**" };
     }
+    if (eraseCommentBody && row.type === 13 && row.id === COMPONENT_FILE_ID) return null;
     if (row.type === 2 && typeof row.custom_id === "string" && row.custom_id.startsWith(moderationPrefix) && row.custom_id.endsWith(`|${id}`)) {
       return { ...row, disabled: true };
     }
-    if (Array.isArray(row.components)) return { ...row, components: row.components.map(patch) };
+    if (Array.isArray(row.components)) return { ...row, components: row.components.map(patch).filter((item) => item !== null) };
     return { ...row };
   };
   const components = current.components.map(patch);

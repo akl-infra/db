@@ -171,4 +171,28 @@ describe("[LDB-MD16] Discord HTTP interaction adapter", () => {
     const replay = await handleDiscordInteraction(await signedRequest(submitted), env, clock);
     expect(((await replay.json()) as { data: { content: string } }).data.content).toContain("already received");
   });
+
+  it("[LDB-MD19] opts a Discord denial into the private rejection DM outbox only when enabled", async () => {
+    const layoutId = ulid();
+    await db.prepare(`INSERT INTO layouts (id, name, owner, n, layout_rev, created_at, modified_at)
+      VALUES (?, ?, ?, 1, 1, ?, ?)`).bind(layoutId, `discord-dm-${layoutId.toLowerCase()}`, MOD, clock(), clock()).run();
+    await db.prepare("UPDATE link_submissions SET layout_id = ? WHERE id = ?").bind(layoutId, submissionId).run();
+    await db.prepare("INSERT INTO admins (user_id, added_at) VALUES (?, ?)").bind(MOD, clock()).run();
+    const env = { ...envWith(), MODQUEUE_DISCORD_DMS: "true" };
+    const click = interaction(3, "900000000000000114", {
+      custom_id: `aklmod1|link|deny|${submissionId}`,
+    }, { message: { id: messageId } });
+    const opened = await handleDiscordInteraction(await signedRequest(click), env, clock);
+    const modal = await opened.json() as { data: { custom_id: string } };
+    const submitted = interaction(5, "900000000000000115", {
+      custom_id: modal.data.custom_id,
+      components: [{ type: 18, component: { type: 4, custom_id: "reason", value: "Please revise." } }],
+    });
+    expect((await handleDiscordInteraction(await signedRequest(submitted), env, clock)).status).toBe(200);
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 404 })));
+    await drainDiscordActions(db, env, clock);
+    const queued = await db.prepare("SELECT kind, submission_id, recipient_id FROM discord_rejection_dm_outbox WHERE submission_id = ?")
+      .bind(submissionId).first<{ kind: string; submission_id: string; recipient_id: string }>();
+    expect(queued).toEqual({ kind: "link", submission_id: submissionId, recipient_id: MOD });
+  });
 });

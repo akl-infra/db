@@ -211,13 +211,13 @@ async function performDecision(db: Bindings["DB"], env: Bindings, now: Clock, ac
   try {
     if (action.kind === "link") {
       if (action.action === "approve") await links.approveSubmission(db, now, actor, null, action.submission_id);
-      else await links.rejectSubmission(db, now, actor, null, action.submission_id, action.reason ?? undefined);
+      else await links.rejectSubmission(db, now, actor, null, action.submission_id, action.reason ?? undefined, { notifySubmitter: env.MODQUEUE_DISCORD_DMS === "true" });
     } else if (action.kind === "wpm") {
       if (action.action === "approve") await wpm.approveWpm(db, now, actor, null, action.submission_id);
-      else await wpm.rejectWpm(db, now, actor, null, action.submission_id, action.reason ?? undefined);
+      else await wpm.rejectWpm(db, now, actor, null, action.submission_id, action.reason ?? undefined, { notifySubmitter: env.MODQUEUE_DISCORD_DMS === "true" });
     } else {
       if (action.action === "approve") await comments.approveComment(db, now, actor, null, action.submission_id);
-      else await comments.rejectComment(db, now, actor, null, action.submission_id, action.reason ?? undefined);
+      else await comments.rejectComment(db, now, actor, null, action.submission_id, action.reason ?? undefined, { notifySubmitter: env.MODQUEUE_DISCORD_DMS === "true" });
     }
   } catch (error) {
     // Recover a crash after the domain write but before marking this job done.

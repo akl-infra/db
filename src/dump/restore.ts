@@ -26,6 +26,7 @@ const TABLE_ORDER_DELETE = [
   // are independent tables, order irrelevant. `d1_migrations` is untouched.
   "events",
   "modqueue_notifications", // private webhook message ids/status; never present in the public dump
+  "discord_rejection_dm_outbox", // private rejection delivery identifiers/state; never present in the public dump
   "discord_pending_actions", // private expiring interaction tokens/actions; never dumped
   "discord_deny_modals", // private short-lived modal bindings; never dumped
   "layout_revs",

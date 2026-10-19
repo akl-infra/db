@@ -13,6 +13,7 @@ import { runJob } from "./core/jobs";
 import { metaFormats, readMetaCore } from "./core/meta";
 import { notifyPending } from "./core/modqueue";
 import { drainDiscordActions, handleDiscordInteraction } from "./core/discord-interactions";
+import { dispatchRejectionDms } from "./core/rejection-dm";
 import { runNightly } from "./core/nightly";
 import { systemClock } from "./core/time";
 import { API_MAJOR, API_MINOR, API_VERSION_HEADER, apiVersionString, deprecationHeadersFor, withApiVersionHeader } from "./core/version";
@@ -293,7 +294,10 @@ app.post("/discord/interactions", async (c) => {
   const response = await handleDiscordInteraction(c.req.raw, c.env, systemClock);
   if (response.status === 200) {
     const callback = await response.clone().json() as { type?: unknown };
-    if (callback.type === 5) c.executionCtx.waitUntil(drainDiscordActions(c.env.DB, c.env, systemClock));
+    if (callback.type === 5) c.executionCtx.waitUntil((async () => {
+      await drainDiscordActions(c.env.DB, c.env, systemClock);
+      await runJob("discord-rejection-dms", () => dispatchRejectionDms(c.env.DB, c.env, systemClock));
+    })());
   }
   return response;
 });
@@ -361,6 +365,7 @@ async function scheduled(event: ScheduledController, env: Bindings, _ctx: Execut
   // (LDB-MD12) is that gate, checked inside `notifyPending` itself.
   await runJob("modqueue-notify", () => notifyPending(env.DB, env, systemClock));
   await runJob("discord-interaction-actions", () => drainDiscordActions(env.DB, env, systemClock));
+  await runJob("discord-rejection-dms", () => dispatchRejectionDms(env.DB, env, systemClock));
 
   // [LDB-X2] The cmini import tick and the upstream diff tick both used to
   // run here (LDB-I27's kill switch had already turned both off since

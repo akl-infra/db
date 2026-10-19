@@ -93,6 +93,17 @@ describe("Technical reference secrets/bindings table", () => {
     ).toEqual([]);
   });
 
+  it("[LDB-MD16] keeps Discord feature gates secret-managed and off when unset", () => {
+    const vars = loadToml().vars ?? {};
+    for (const name of ["MODQUEUE_DISCORD_CARDS", "MODQUEUE_DISCORD_ACTIONS", "MODQUEUE_DISCORD_DMS"]) {
+      expect(vars, `${name} must not be a committed wrangler var`).not.toHaveProperty(name);
+    }
+    const runbook = fs.readFileSync(RUNBOOK_PATH, "utf8");
+    for (const name of ["MODQUEUE_DISCORD_CARDS", "MODQUEUE_DISCORD_ACTIONS", "MODQUEUE_DISCORD_DMS"]) {
+      expect(runbook).toContain(`| \`${name}\` | secret (optional) |`);
+    }
+  });
+
   // LEDGER.md L4: there is one layoutdb, production -- wrangler.toml has no
   // `[env.*]` section any more, so this asserts its absence rather than
   // its shape (a re-added `[env.preview]` should fail loudly here, same
