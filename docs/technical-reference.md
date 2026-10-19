@@ -225,7 +225,12 @@ private threads, when applicable). Enable Message Content Intent on its Discord
 application, with approval if Discord requires it; the restriction applies to
 HTTP reads even though this Worker has no Gateway connection. The moderation
 channel needs Attach Files for image copies and Embed Links for previews.
-Missing source access still produces a queue card with the original proof link.
+New Discord-proof submissions require a message whose author matches the typist;
+missing source access refuses submission with `400 invalid_proof`. The author
+check does not require Message Content Intent, but image extraction does. Once
+authorship validation succeeds, any later preview failure still produces a queue
+card with the original proof link. Direct Discord image URLs cannot verify an
+author and must be replaced with Copy Message Link for new submissions.
 
 Images are copied into new Components V2 queue messages, with bounded size/time,
 and retained through all review states. There is no scheduled image deletion or

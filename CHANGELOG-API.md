@@ -25,6 +25,18 @@ this file just gives them a public, versioned home. From here on, a
 `WIRE_VERSION` bump and a line here land in the SAME PR, never one without
 the other (`[LDB-V5]`).
 
+## 1.26 — 2026-10-19
+
+LDB-WPM15: requested validation tightening for `POST /v1/wpm` and
+`POST /v1/admin/wpm`, with unchanged response shapes. Discord proof links must
+identify a readable server message authored by the typist (`actor.user_id` for
+self submissions, the supplied `user_id` for admin on-behalf submissions).
+Another person's message, a bot/webhook message, unreadable/unverifiable messages
+and non-message Discord URLs return the existing `400 invalid_proof` before any
+WPM row/event/history write or supersession. Verification uses the dedicated
+akldb bot with an 800 ms request/body budget; a temporary failure asks the caller
+to retry. Non-Discord proof validation and existing submissions are unchanged.
+
 ## 1.25 — 2026-10-19
 
 LDB-MD20: comments and WPM gain admin `POST /v1/admin/{comment|wpm}-queue/:id/reopen`

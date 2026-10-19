@@ -83,7 +83,7 @@ export function wpmRoute(authDeps: AuthDeps) {
     const actor = c.get("actor");
     const body = parseWpmBody(await readJson(c.req));
     const layout = await wpm.resolveWpmLayout(c.env.DB, body.layout);
-    const submission = await wpm.submitWpm(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), layout.id, body.wpm, body.proof);
+    const submission = await wpm.submitWpm(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), layout.id, body.wpm, body.proof, c.env);
     // [LDB-WPM8] Every submission is pending, so every one is announced right
     // away rather than waiting for the next 5-minute cron tick, same as links
     // (`notifyPending` never throws and is free with the webhook unset).
@@ -96,7 +96,7 @@ export function wpmRoute(authDeps: AuthDeps) {
     if (!actor.admin) throw notAdmin();
     const body = parseWpmOnBehalfBody(await readJson(c.req));
     const layout = await wpm.resolveWpmLayout(c.env.DB, body.layout);
-    const submission = await wpm.submitWpmOnBehalf(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), layout.id, body.user_id, body.wpm, body.proof);
+    const submission = await wpm.submitWpmOnBehalf(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), layout.id, body.user_id, body.wpm, body.proof, c.env);
     return c.json({ submission }, 201);
   });
 

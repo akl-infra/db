@@ -12,6 +12,7 @@ import { appendInfo, rejectionModerationStatement } from "./events";
 import { reopenReview, reviewHistoryStatement, type ReviewExpectation } from "./moderation-review";
 import { rejectionOutboxStatement } from "./rejection-dm";
 import { byRef, type LayoutRow, type Source } from "./records";
+import { verifyDiscordProofAuthor, type DiscordProofAccess } from "./modqueue-proof";
 import type { Clock } from "./time";
 
 // --- the pure validators (LDB-WPM1, table-tested) -----------------------
@@ -166,8 +167,10 @@ export async function submitWpm(
   layoutId: string,
   rawWpm: unknown,
   rawProof: unknown,
+  proofAccess: DiscordProofAccess,
 ): Promise<WpmSubmissionRow> {
   const { wpm, proof } = validated(rawWpm, rawProof);
+  await verifyDiscordProofAuthor(proof, actor.user_id, proofAccess);
 
   const at = now();
   const id = ulid();
@@ -209,9 +212,11 @@ export async function submitWpmOnBehalf(
   rawUserId: unknown,
   rawWpm: unknown,
   rawProof: unknown,
+  proofAccess: DiscordProofAccess,
 ): Promise<WpmSubmissionRow> {
   const userId = validateUserId(rawUserId, "user_id");
   const { wpm, proof } = validated(rawWpm, rawProof);
+  await verifyDiscordProofAuthor(proof, userId, proofAccess);
   return insertApproved(db, now, actor, version, layoutId, userId, wpm, proof);
 }
 

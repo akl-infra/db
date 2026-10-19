@@ -11,6 +11,7 @@ import { AKL_PAYLOAD, BOOTSTRAP_ADMIN, actorFixture, pinTestClock, register, uni
 
 const bindings = env as unknown as Bindings;
 const db = bindings.DB;
+const originalProofBotToken = bindings.MODQUEUE_DISCORD_BOT_TOKEN;
 // Every call to the clock is a fresh instant, so `submitted_at`/`decided_at`
 // order strictly by the order the test made its requests.
 const clock = steppingClock("2026-10-01T00:00:00.000Z", 1000);
@@ -18,6 +19,7 @@ pinTestClock(env as unknown as { TEST_CLOCK?: typeof clock }, clock);
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  bindings.MODQUEUE_DISCORD_BOT_TOKEN = originalProofBotToken;
 });
 
 let idCounter = 0;
@@ -116,6 +118,80 @@ async function pendingFor(admin: Record<string, string>, layoutId: string): Prom
 }
 
 const PROOF = "https://www.youtube.com/watch?v=wpm-proof";
+
+describe("Discord proof authorship at submission", () => {
+  const channel = "900000000000000801";
+  const message = "900000000000000802";
+  const proof = `https://discord.com/channels/900000000000000800/${channel}/${message}`;
+
+  it("[LDB-WPM15] rejects another author's message before superseding a pending proof or appending WPM history/events", async () => {
+    const user = testUserId();
+    const other = testUserId();
+    const { id } = await createLayout(user);
+    const fake = actorFixture();
+    const auth = register(fake, token("proof-author"), user);
+    let author = other;
+    let lookups = 0;
+    vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith(`/v10/channels/${channel}/messages/${message}`)) {
+        lookups++;
+        return Promise.resolve(Response.json({ id: message, channel_id: channel, author: { id: author }, attachments: [] }));
+      }
+      return fake.fetchImpl(String(input), { headers: { Authorization: new Headers(init?.headers).get("Authorization") ?? "" } });
+    });
+    bindings.MODQUEUE_DISCORD_BOT_TOKEN = "test-proof-bot";
+    const before = await writeFetch("/v1/wpm", "POST", auth, { layout: id, wpm: 80, proof: PROOF });
+    const previous = (await before.json()) as { submission: Submission };
+    const events = await feedFor(id);
+    const refused = await writeFetch("/v1/wpm", "POST", auth, { layout: id, wpm: 90, proof });
+    expect(refused.status).toBe(400);
+    expect(await refused.json()).toMatchObject({ error: "invalid_proof", message: expect.stringContaining("must be written by") });
+    expect(await db.prepare("SELECT id, status FROM wpm_submissions WHERE layout_id = ?").bind(id).all())
+      .toMatchObject({ results: [{ id: previous.submission.id, status: "pending" }] });
+    expect(await feedFor(id)).toEqual(events);
+    expect((await db.prepare("SELECT * FROM moderation_review_history WHERE submission_id = ?").bind(previous.submission.id).all()).results).toHaveLength(0);
+    author = user;
+    const accepted = await writeFetch("/v1/wpm", "POST", auth, { layout: id, wpm: 90, proof });
+    expect(accepted.status).toBe(202);
+    expect(await accepted.json()).toMatchObject({ submission: { user_id: user, proof, status: "pending" } });
+    expect(await db.prepare("SELECT status FROM wpm_submissions WHERE id = ?").bind(previous.submission.id).first()).toEqual({ status: "superseded" });
+    expect(lookups).toBe(2);
+  });
+
+  it("[LDB-WPM15] admin on-behalf checks the typist, not the submitting moderator; admin self-submission has no bypass", async () => {
+    const user = testUserId();
+    const { id } = await createLayout(user);
+    const fake = actorFixture();
+    const admin = register(fake, token("proof-admin-author"), BOOTSTRAP_ADMIN);
+    let author = BOOTSTRAP_ADMIN;
+    vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => String(input).endsWith(`/messages/${message}`)
+      ? Promise.resolve(Response.json({ id: message, channel_id: channel, author: { id: author } })) : fake.fetchImpl(String(input), { headers: { Authorization: new Headers(init?.headers).get("Authorization") ?? "" } }));
+    bindings.MODQUEUE_DISCORD_BOT_TOKEN = "test-proof-bot";
+    const body = { user_id: user, layout: id, wpm: 90, proof };
+    expect((await writeFetch("/v1/admin/wpm", "POST", admin, body)).status).toBe(400);
+    expect((await db.prepare("SELECT id FROM wpm_submissions WHERE layout_id = ?").bind(id).all()).results).toHaveLength(0);
+    expect((await feedFor(id)).some((e) => e.kind.startsWith("wpm_"))).toBe(false);
+    author = user;
+    expect((await writeFetch("/v1/wpm", "POST", admin, { layout: id, wpm: 90, proof })).status).toBe(400);
+    const accepted = await writeFetch("/v1/admin/wpm", "POST", admin, body);
+    expect(accepted.status).toBe(201);
+    expect(await accepted.json()).toMatchObject({ submission: { user_id: user, submitted_by: BOOTSTRAP_ADMIN, status: "approved" } });
+  });
+
+  it("[LDB-WPM15] missing credentials and direct Discord image links refuse the write instead of quietly queueing it", async () => {
+    const user = testUserId();
+    const { id } = await createLayout(user);
+    const auth = register(actorFixture(), token("proof-unreadable"), user);
+    bindings.MODQUEUE_DISCORD_BOT_TOKEN = undefined;
+    for (const value of [proof, `https://cdn.discordapp.com/attachments/${channel}/${message}/proof.png`]) {
+      const res = await writeFetch("/v1/wpm", "POST", auth, { layout: id, wpm: 90, proof: value });
+      expect(res.status).toBe(400);
+      expect(await res.json()).toMatchObject({ error: "invalid_proof" });
+    }
+    expect((await db.prepare("SELECT id FROM wpm_submissions WHERE layout_id = ?").bind(id).all()).results).toHaveLength(0);
+    expect((await feedFor(id)).some((e) => e.kind.startsWith("wpm_"))).toBe(false);
+  });
+});
 
 describe("[LDB-WPM1] validation is shared by every route", () => {
   it("[LDB-WPM1] POST /v1/wpm refuses a bad wpm with 400 invalid_wpm, and accepts the 1 and 1000 boundaries", async () => {

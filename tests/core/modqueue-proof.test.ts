@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Bindings } from "../../src/env";
-import { discordProofMessage, youtubeProofUrl, resolveProofPreview, PROOF_MAX_IMAGE_BYTES, PROOF_MAX_TOTAL_BYTES } from "../../src/core/modqueue-proof";
+import { discordProofMessage, youtubeProofUrl, resolveProofPreview, verifyDiscordProofAuthor, PROOF_MAX_IMAGE_BYTES, PROOF_MAX_TOTAL_BYTES } from "../../src/core/modqueue-proof";
 
 const env = { DISCORD_API_URL: "https://discord.test/api", MODQUEUE_DISCORD_BOT_TOKEN: "private-token" } as Bindings;
 const channel = "900000000000000001";
@@ -11,6 +11,62 @@ const png = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3]);
 const image = (url = cdn, size = png.length) => ({ url, filename: "proof.png", content_type: "image/png", size });
 const response = (attachments: unknown[]) => Response.json({ id: message, channel_id: channel, attachments });
 const imageResponse = (bytes: Uint8Array = png, contentType = "image/png") => new Response(bytes, { headers: { "content-type": contentType } });
+
+describe("Discord WPM proof authorship", () => {
+  const user = "900000000000000010";
+  const owned = { id: message, channel_id: channel, author: { id: user }, attachments: [] };
+
+  it("[LDB-WPM15] accepts only the verified human author, without needing message content or making image downloads", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json(owned));
+    await expect(verifyDiscordProofAuthor(proof, user, env, fetchImpl)).resolves.toBeUndefined();
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(fetchImpl.mock.calls[0]?.[1]?.redirect).toBe("error");
+    expect(new Headers(fetchImpl.mock.calls[0]?.[1]?.headers).get("Authorization")).toBe("Bot private-token");
+    for (const body of [{ ...owned, author: { id: "900000000000000011" } },
+      { ...owned, webhook_id: "900000000000000012" }, { ...owned, author: { id: user, bot: true } }]) {
+      await expect(verifyDiscordProofAuthor(proof, user, env, vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json(body))))
+        .rejects.toMatchObject({ status: 400, body: { error: "invalid_proof", message: expect.stringContaining("must be written by") } });
+    }
+  });
+
+  it("[LDB-WPM15] direct CDN links and non-message Discord URLs cannot bypass verification; other providers make no lookup", async () => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    for (const value of [cdn, "https://media.discordapp.net/attachments/1/2/proof.png", "https://discord.gg/test",
+      `https://discord.com/channels/900000000000000000/${channel}`, proof.replace("https:", "http:"),
+      proof.replace("discord.com", "discord.com."), proof.replace("discord.com", "discord.com:444"),
+      proof.replace("discord.com", "user@discord.com"), proof.replace("discord.com", "sub.discord.com")]) {
+      await expect(verifyDiscordProofAuthor(value, user, env, fetchImpl), value).rejects.toMatchObject({ status: 400, body: { error: "invalid_proof" } });
+    }
+    for (const value of ["https://youtu.be/aBcD_123-45", "https://monkeytype.com/profile/test", "https://example.com/proof",
+      "https://discord.com.evil.test/proof", "https://discord.com@evil.test/proof"]) {
+      await expect(verifyDiscordProofAuthor(value, user, env, fetchImpl)).resolves.toBeUndefined();
+    }
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("[LDB-WPM15] missing config, inaccessible, malformed or oversized messages fail closed with a retryable explanation", async () => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    await expect(verifyDiscordProofAuthor(proof, user, { ...env, MODQUEUE_DISCORD_BOT_TOKEN: undefined }, fetchImpl))
+      .rejects.toMatchObject({ body: { error: "invalid_proof", message: expect.stringContaining("Try again") } });
+    expect(fetchImpl).not.toHaveBeenCalled();
+    for (const make of [() => new Response(null, { status: 403 }), () => new Response(null, { status: 404 }),
+      () => new Response(null, { status: 429 }), () => new Response(null, { status: 500 }),
+      () => new Response("not-json"), () => new Response(" ".repeat(256 * 1024 + 1)),
+      () => Response.json({ ...owned, id: "wrong" }), () => Response.json({ ...owned, author: null }),
+      () => Response.json({ ...owned, author: { id: 900000000000000010 } })]) {
+      await expect(verifyDiscordProofAuthor(proof, user, env, vi.fn<typeof fetch>().mockResolvedValueOnce(make())))
+        .rejects.toMatchObject({ status: 400, body: { error: "invalid_proof", message: expect.stringContaining("Could not verify") } });
+    }
+  });
+
+  it("[LDB-WPM15] a stalled Discord lookup is aborted within its request budget and cannot accept the proof", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockImplementation((_input, init) => new Promise((_resolve, reject) => {
+      init!.signal!.addEventListener("abort", () => reject(init!.signal!.reason), { once: true });
+    }));
+    await expect(verifyDiscordProofAuthor(proof, user, env, fetchImpl)).rejects.toMatchObject({ status: 400, body: { error: "invalid_proof" } });
+    expect(fetchImpl.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+  });
+});
 
 describe("WPM proof resolution", () => {
   it("[LDB-WPM13] only fetches exact Discord message/CDN URLs, with credentials confined to the API", async () => {
