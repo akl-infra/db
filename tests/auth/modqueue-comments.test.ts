@@ -372,3 +372,66 @@ describe("[LDB-CMT8] comments are announced on submit, best effort, never by the
   });
 });
 
+
+describe("[LDB-MD21] reopened card reconciliation", () => {
+  it("[LDB-MD21] converges through approved-to-pending-to-approved during PATCH even when the status repeats", async () => {
+    const layoutId = await freshLayout(uniqueName("modq-reopen-aba"));
+    const id = await insertComment({ layoutId, userId: "900000000000000233", body: "normal comment" });
+    const patches: Record<string, unknown>[] = [];
+    let remote: Record<string, unknown> = {};
+    const env = { ...envWith(undefined), MODQUEUE_DISCORD_CARDS: "true", MODQUEUE_DISCORD_COMPONENTS: "true", MODQUEUE_DISCORD_ACTIONS: "true",
+      MODQUEUE_DISCORD_BOT_TOKEN: "fake", MODQUEUE_DISCORD_CHANNEL_ID: "900000000000000103" };
+    const fetchImpl: typeof fetch = async (_input, init) => {
+      if (init?.method === "POST") { remote = JSON.parse(String(init.body)); return Response.json({ id: "900000000000000105" }); }
+      if (init?.method === "GET") return Response.json(remote);
+      remote = JSON.parse(String(init?.body)); patches.push(remote);
+      if (patches.length === 1) await db.prepare("UPDATE layout_comments SET status = 'pending', review_version = 1 WHERE id = ?").bind(id).run();
+      if (patches.length === 2) await db.prepare("UPDATE layout_comments SET status = 'approved' WHERE id = ?").bind(id).run();
+      return Response.json({ id: "900000000000000105" });
+    };
+    await announceComment(db, env, id, fetchImpl);
+    await db.prepare("UPDATE layout_comments SET status = 'approved' WHERE id = ?").bind(id).run();
+    await updateQueueNotification(db, env, "comment", id, fetchImpl);
+    expect(patches).toHaveLength(3);
+    expect(JSON.stringify(patches[0])).toContain(`reopen-approved|${id}|0`);
+    expect(JSON.stringify(patches[1])).toContain(`approve|${id}|1`);
+    expect(JSON.stringify(patches[2])).toContain(`reopen-approved|${id}|1`);
+    expect(await db.prepare("SELECT shown_status, shown_review_version FROM modqueue_notifications WHERE submission_id = ?").bind(id).first())
+      .toEqual({ shown_status: "approved", shown_review_version: 1 });
+  });
+
+  it("[LDB-MD21] refreshes existing decided cards and removes interactive buttons when actions are disabled", async () => {
+    const layoutId = await freshLayout(uniqueName("modq-reopen-migrate"));
+    const id = await insertComment({ layoutId, userId: "900000000000000234" });
+    let remote: Record<string, unknown> = {};
+    const env = { ...envWith(undefined), MODQUEUE_DISCORD_CARDS: "true", MODQUEUE_DISCORD_COMPONENTS: "true", MODQUEUE_DISCORD_ACTIONS: "true",
+      MODQUEUE_DISCORD_BOT_TOKEN: "fake", MODQUEUE_DISCORD_CHANNEL_ID: "900000000000000103" };
+    const fetchImpl: typeof fetch = async (_input, init) => {
+      if (init?.method === "GET") return Response.json(remote);
+      remote = JSON.parse(String(init?.body));
+      return Response.json({ id: "900000000000000105" });
+    };
+    await announceComment(db, env, id, fetchImpl);
+    await db.prepare("UPDATE layout_comments SET status = 'rejected' WHERE id = ?").bind(id).run();
+    await db.prepare("UPDATE modqueue_notifications SET shown_status = 'rejected', shown_review_version = -1 WHERE submission_id = ?").bind(id).run();
+    await notifyPending(db, env, clock, fetchImpl);
+    expect(JSON.stringify(remote)).toContain(`reopen-rejected|${id}|0`);
+    await db.prepare("UPDATE layout_comments SET status = 'pending', review_version = 1 WHERE id = ?").bind(id).run();
+    await updateQueueNotification(db, { ...env, MODQUEUE_DISCORD_ACTIONS: "false" }, "comment", id, fetchImpl);
+    expect(JSON.stringify(remote)).not.toContain("custom_id");
+    expect(JSON.stringify(remote)).toContain("Open in akldb");
+  });
+
+  it("[LDB-MD21] returns legacy text cards to their original pending text without stacked decision prefixes", async () => {
+    const layoutId = await freshLayout(uniqueName("modq-reopen-legacy"));
+    const id = await insertComment({ layoutId, userId: "900000000000000235" });
+    const webhook = new FakeWebhook();
+    await announceComment(db, envWith(WEBHOOK_URL), id, webhook.fetchImpl);
+    const original = webhook.requests[0]!.body.content;
+    await db.prepare("UPDATE layout_comments SET status = 'rejected' WHERE id = ?").bind(id).run();
+    await updateQueueNotification(db, envWith(WEBHOOK_URL), "comment", id, webhook.fetchImpl);
+    await db.prepare("UPDATE layout_comments SET status = 'pending', review_version = 1 WHERE id = ?").bind(id).run();
+    await updateQueueNotification(db, envWith(WEBHOOK_URL), "comment", id, webhook.fetchImpl);
+    expect(webhook.requests.filter((r) => r.method === "PATCH").at(-1)?.body.content).toBe(original);
+  });
+});

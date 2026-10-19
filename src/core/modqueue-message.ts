@@ -1,10 +1,11 @@
 // Pure Discord Components V2 rendering and status mutation for mod-queue
-// messages. Keep component IDs stable: status edits target one TextDisplay,
-// and disable only this message's approve/deny controls.
+// messages. Stable component IDs preserve content while the controlled action
+// row changes between pending decisions and version-bound reopening.
 import type { QueueKind } from "./modqueue";
 
 export interface LinkCardData {
   id: string;
+  review_version?: number;
   layout_id: string;
   url: string;
   submitted_by: string;
@@ -14,6 +15,7 @@ export interface LinkCardData {
 
 export interface WpmCardData {
   id: string;
+  review_version?: number;
   layout_id: string;
   user_id: string;
   wpm: number;
@@ -24,6 +26,7 @@ export interface WpmCardData {
 
 export interface CommentCardData {
   id: string;
+  review_version?: number;
   layout_id: string;
   user_id: string;
   body: string;
@@ -35,6 +38,7 @@ export interface CommentCardData {
 export interface QueueStatus {
   status: "pending" | "approved" | "rejected" | "superseded" | "replaced" | "deleted" | "removed";
   decider_name: string | null;
+  review_version?: number;
 }
 
 export const COMPONENT_STATUS_ID = 41001;
@@ -90,18 +94,19 @@ function commentStatusLabel(status: QueueStatus["status"]): string {
   return status === "rejected" ? "Denied" : status[0]!.toUpperCase() + status.slice(1);
 }
 
-function actionRow(kind: QueueKind, id: string, actionsEnabled: boolean): Record<string, unknown> {
-  return {
-    type: 1,
-    id: COMPONENT_ACTIONS_ID,
-    components: [
-      ...(actionsEnabled ? [
-        { type: 2, style: 3, label: "✓ Approve", custom_id: `aklmod1|${kind}|approve|${id}` },
-        { type: 2, style: 4, label: "✕ Deny", custom_id: `aklmod1|${kind}|deny|${id}` },
-      ] : []),
-      { type: 2, style: 5, label: "Open in akldb", url: "https://akldb.org/admin?tab=inbox" },
-    ],
-  };
+function actionRow(kind: QueueKind, id: string, actionsEnabled: boolean, state: QueueStatus = { status: "pending", decider_name: null }): Record<string, unknown> {
+  const version = state.review_version ?? 0;
+  const customId = (action: string) => `aklmod2|${kind}|${action}|${id}|${version}`;
+  const buttons = state.status === "pending" ? [
+    { type: 2, style: 3, label: "✓ Approve", custom_id: customId("approve") },
+    { type: 2, style: 4, label: "✕ Deny", custom_id: customId("deny") },
+  ] : kind !== "link" && (state.status === "approved" || state.status === "rejected") ? [
+    { type: 2, style: 2, label: "Reopen review", custom_id: customId(`reopen-${state.status}`) },
+  ] : [];
+  return { type: 1, id: COMPONENT_ACTIONS_ID, components: [
+    ...(actionsEnabled ? buttons : []),
+    { type: 2, style: 5, label: "Open in akldb", url: "https://akldb.org/admin?tab=inbox" },
+  ] };
 }
 
 /** Full escaped preview if it fits the card; otherwise a plain-text file with
@@ -119,7 +124,7 @@ export function formatCommentText(body: string, liveBody: string | null, maxInli
   return { inline: "Full comment text attached as a .txt file.", attachmentText };
 }
 
-function payload(kind: QueueKind, id: string, title: string, metadata: string, body: string, actionsEnabled: boolean, file?: TextFileAttachment): Record<string, unknown> {
+function payload(kind: QueueKind, id: string, title: string, metadata: string, body: string, actionsEnabled: boolean, file?: TextFileAttachment, reviewVersion = 0): Record<string, unknown> {
   title = clipUtf16(title, 600);
   metadata = clipUtf16(metadata, 500);
   const result: Record<string, unknown> = {
@@ -132,7 +137,7 @@ function payload(kind: QueueKind, id: string, title: string, metadata: string, b
         { type: 10, id: COMPONENT_BODY_ID, content: body },
         ...(file === undefined ? [] : [{ type: 13, id: COMPONENT_FILE_ID, file: { url: `attachment://${file.filename}` } }]),
         { type: 10, id: COMPONENT_METADATA_ID, content: metadata },
-        actionRow(kind, id, actionsEnabled),
+        actionRow(kind, id, actionsEnabled, { status: "pending", decider_name: null, review_version: reviewVersion }),
       ] : [
         { type: 10, id: COMPONENT_TITLE_ID, content: title },
         { type: 10, id: COMPONENT_METADATA_ID, content: metadata },
@@ -140,7 +145,7 @@ function payload(kind: QueueKind, id: string, title: string, metadata: string, b
         { type: 10, id: COMPONENT_BODY_ID, content: body },
         ...(file === undefined ? [] : [{ type: 13, id: COMPONENT_FILE_ID, file: { url: `attachment://${file.filename}` } }]),
         { type: 14, id: COMPONENT_SEPARATOR_ID, divider: true, spacing: 1 },
-        actionRow(kind, id, actionsEnabled),
+        actionRow(kind, id, actionsEnabled, { status: "pending", decider_name: null, review_version: reviewVersion }),
       ],
     }],
   };
@@ -161,13 +166,13 @@ export function buildV2Payload(kind: QueueKind, candidate: LinkCardData | WpmCar
     const c = candidate as LinkCardData;
     const who = clipUtf16(escapeMarkdown(c.submitter_name ?? c.submitted_by), 120);
     return payload(kind, c.id, `## Link submission on ${layoutLink(c.layout_id, c.layout_name)}`,
-      `Submitted by **${who}** · Link · Submission \`${c.id}\``, `Submitted URL: ${safeWrappedUrl(c.url)}`, actionsEnabled);
+      `Submitted by **${who}** · Link · Submission \`${c.id}\``, `Submitted URL: ${safeWrappedUrl(c.url)}`, actionsEnabled, undefined, c.review_version ?? 0);
   }
   if (kind === "wpm") {
     const c = candidate as WpmCardData;
     const who = clipUtf16(escapeMarkdown(c.user_name ?? c.user_id), 120);
     return payload(kind, c.id, `## WPM submission on ${layoutLink(c.layout_id, c.layout_name)}`,
-      `Submitted by **${who}** · Words per minute · Submission \`${c.id}\``, `**${c.wpm} WPM**\nProof: ${safeWrappedUrl(c.proof)}`, actionsEnabled);
+      `Submitted by **${who}** · Words per minute · Submission \`${c.id}\``, `**${c.wpm} WPM**\nProof: ${safeWrappedUrl(c.proof)}`, actionsEnabled, undefined, c.review_version ?? 0);
   }
   const c = candidate as CommentCardData;
   const who = clipUtf16(escapeMarkdown(c.user_name ?? c.user_id), 120);
@@ -177,18 +182,18 @@ export function buildV2Payload(kind: QueueKind, candidate: LinkCardData | WpmCar
   const file = formatted.attachmentText === undefined ? undefined : {
     filename: `comment-${c.id}.txt`, content: formatted.attachmentText, description: "Complete comment text before and after the edit",
   };
-  return payload(kind, c.id, "", metadata, formatted.inline, actionsEnabled, file);
+  return payload(kind, c.id, "", metadata, formatted.inline, actionsEnabled, file, c.review_version ?? 0);
 }
 
-export function buildV2StatusPatch(current: unknown, kind: QueueKind, id: string, state: QueueStatus): Record<string, unknown> | null {
+export function buildV2StatusPatch(current: unknown, kind: QueueKind, id: string, state: QueueStatus, actionsEnabled = true): Record<string, unknown> | null {
   if (current === null || typeof current !== "object" || !("components" in current) || !Array.isArray(current.components)) return null;
   let foundStatus = false;
-  const moderationPrefix = `aklmod1|${kind}|`;
   const eraseCommentBody = kind === "comment" && (state.status === "deleted" || state.status === "replaced");
   const patch = (component: unknown): unknown => {
     if (Array.isArray(component)) return component.map(patch).filter((item) => item !== null);
     if (component === null || typeof component !== "object") return component;
     const row = component as Record<string, unknown>;
+    if (row.type === 1 && row.id === COMPONENT_ACTIONS_ID) return actionRow(kind, id, actionsEnabled, state);
     // New compact cards keep state in their single context line. Older cards
     // still use their dedicated status component and retain that format.
     if (kind === "comment" && row.type === 10 && row.id === COMPONENT_METADATA_ID &&
@@ -204,13 +209,11 @@ export function buildV2StatusPatch(current: unknown, kind: QueueKind, id: string
       return { ...row, content: "**Comment preview removed**" };
     }
     if (eraseCommentBody && row.type === 13 && row.id === COMPONENT_FILE_ID) return null;
-    if (row.type === 2 && typeof row.custom_id === "string" &&
-        (row.custom_id === `${moderationPrefix}approve|${id}` || row.custom_id === `${moderationPrefix}deny|${id}`)) return null;
     if (Array.isArray(row.components)) return { ...row, components: row.components.map(patch).filter((item) => item !== null) };
     return { ...row };
   };
   const components = current.components.map(patch);
-  if (!foundStatus && state.status !== "pending") {
+  if (!foundStatus) {
     const container = components.find((component): component is Record<string, unknown> =>
       component !== null && typeof component === "object" &&
       "type" in component && component.type === 17 &&

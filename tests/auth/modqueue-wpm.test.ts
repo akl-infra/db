@@ -284,3 +284,32 @@ describe("[LDB-WPM8] notifyPending covers the WPM queue", () => {
     expect(webhook.about(submission.id)[0]!.body.content).toContain("88 wpm");
   });
 });
+
+describe("[LDB-MD21] WPM notification review versions", () => {
+  it("[LDB-MD21] first announcement after reopening uses the current version, including a reopen racing POST", async () => {
+    const layoutId = await freshLayout(uniqueName("modq-wpm-reopened-post"));
+    const id = await insertWpm({ layoutId, userId: "900000000000000141" });
+    await db.prepare("UPDATE wpm_submissions SET review_version = 1 WHERE id = ?").bind(id).run();
+    const env = { ...envWith(undefined), MODQUEUE_DISCORD_CARDS: "true", MODQUEUE_DISCORD_ACTIONS: "true",
+      MODQUEUE_DISCORD_BOT_TOKEN: "fake", MODQUEUE_DISCORD_CHANNEL_ID: "900000000000000103" };
+    let posted: Record<string, unknown> = {};
+    let patched: Record<string, unknown> = {};
+    const fetchImpl: typeof fetch = async (_input, init) => {
+      if (init?.method === "POST") {
+        posted = JSON.parse(String(init.body));
+        // The original pending card can still be in flight when its review
+        // is decided and reopened, returning the status to the same string.
+        await db.prepare("UPDATE wpm_submissions SET review_version = 2 WHERE id = ?").bind(id).run();
+        return Response.json({ id: "900000000000000105" });
+      }
+      if (init?.method === "GET") return Response.json(posted);
+      patched = JSON.parse(String(init?.body));
+      return Response.json({ id: "900000000000000105" });
+    };
+    await notifyPending(db, env, clock, fetchImpl);
+    expect(JSON.stringify(posted)).toContain(`aklmod2|wpm|approve|${id}|1`);
+    expect(JSON.stringify(patched)).toContain(`aklmod2|wpm|approve|${id}|2`);
+    expect(await db.prepare("SELECT shown_status, shown_review_version FROM modqueue_notifications WHERE submission_id = ?").bind(id).first())
+      .toEqual({ shown_status: "pending", shown_review_version: 2 });
+  });
+});

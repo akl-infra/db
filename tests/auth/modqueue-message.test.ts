@@ -35,8 +35,8 @@ describe("[LDB-MD15] Components V2 mod-queue message", () => {
     expect(linkParts.find((c) => c.type === 10 && c.id === 41002)?.content).toContain("\\*layout\\*");
     expect(linkParts.find((c) => c.type === 10 && c.id === 41004)?.content).toContain("<https://example.org/a%3Eb%20c>");
     expect(linkParts.filter((c) => c.type === 2).map((c) => c.custom_id)).toEqual([
-      "aklmod1|link|approve|01ARZ3NDEKTSV4RRFFQ69G5FAV",
-      "aklmod1|link|deny|01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "aklmod2|link|approve|01ARZ3NDEKTSV4RRFFQ69G5FAV|0",
+      "aklmod2|link|deny|01ARZ3NDEKTSV4RRFFQ69G5FAV|0",
       undefined,
     ]);
     expect(linkParts.find((c) => c.type === 2 && c.style === 5)).toMatchObject({ label: "Open in akldb", url: "https://akldb.org/admin?tab=inbox" });
@@ -55,8 +55,8 @@ describe("[LDB-MD15] Components V2 mod-queue message", () => {
     expect(wpmBody).toContain("https://example.org/proof");
     expect(wpmBody).not.toMatch(/seconds|duration/i);
     expect(nested(wpm.components as unknown[]).filter((c) => c.type === 2).map((c) => c.custom_id)).toEqual([
-      "aklmod1|wpm|approve|01ARZ3NDEKTSV4RRFFQ69G5FAA",
-      "aklmod1|wpm|deny|01ARZ3NDEKTSV4RRFFQ69G5FAA",
+      "aklmod2|wpm|approve|01ARZ3NDEKTSV4RRFFQ69G5FAA|0",
+      "aklmod2|wpm|deny|01ARZ3NDEKTSV4RRFFQ69G5FAA|0",
       undefined,
     ]);
 
@@ -208,5 +208,40 @@ describe("[LDB-MD15] Components V2 mod-queue message", () => {
     expect(nested(erased!.components as unknown[]).some((c) => c.type === 13 && c.id === 41009)).toBe(false);
     expect(JSON.stringify(erased)).not.toContain("private current text");
     expect(JSON.stringify(erased)).not.toContain("private former text");
+  });
+});
+
+describe("[LDB-MD21] versioned review controls", () => {
+  const id = "01ARZ3NDEKTSV4RRFFQ69G5FAB";
+  const initial = buildV2Payload("comment", {
+    id, layout_id: "01BX5ZZKBKACTAV9WEVGEMMVRY", user_id: "900000000000000003",
+    body: "These layouts were part of a rollmaxxing test, do not use.", live_body: null,
+    layout_name: "bemboo10", user_name: "deeroh",
+  });
+  it("[LDB-MD21] offers Reopen review after either decision and restores fresh Approve/Deny controls on the same card", () => {
+    for (const status of ["approved", "rejected"] as const) {
+      const decided = buildV2StatusPatch(initial, "comment", id, { status, decider_name: "mod", review_version: 8 })!;
+      const controls = nested(decided.components as unknown[]).filter((c) => c.type === 2);
+      expect(controls.map((c) => c.label)).toEqual(["Reopen review", "Open in akldb"]);
+      expect(controls[0]?.custom_id).toBe(`aklmod2|comment|reopen-${status}|${id}|8`);
+      const reopened = buildV2StatusPatch(decided, "comment", id, { status: "pending", decider_name: null, review_version: 9 })!;
+      const parts = nested(reopened.components as unknown[]);
+      expect(parts.find((c) => c.id === 41004)?.content).toBe("These layouts were part of a rollmaxxing test, do not use.");
+      expect(parts.filter((c) => c.type === 2).map((c) => c.custom_id)).toEqual([
+        `aklmod2|comment|approve|${id}|9`, `aklmod2|comment|deny|${id}|9`, undefined,
+      ]);
+      const disabled = buildV2StatusPatch(reopened, "comment", id, { status, decider_name: null, review_version: 9 }, false)!;
+      expect(nested(disabled.components as unknown[]).filter((c) => c.type === 2).map((c) => c.label)).toEqual(["Open in akldb"]);
+    }
+  });
+  it("[LDB-MD21] refreshes pending WPM controls without requiring a previous status component, and bounds custom IDs", () => {
+    const wpm = buildV2Payload("wpm", { id, layout_id: id, user_id: "900000000000000003", wpm: 150,
+      proof: "https://example.org/proof", layout_name: "finch", user_name: null, review_version: 12 });
+    expect(JSON.stringify(wpm)).toContain(`aklmod2|wpm|approve|${id}|12`);
+    const patched = buildV2StatusPatch(wpm, "wpm", id, { status: "pending", decider_name: null, review_version: Number.MAX_SAFE_INTEGER })!;
+    expect(patched).not.toBeNull();
+    const ids = nested(patched.components as unknown[]).flatMap((c) => typeof c.custom_id === "string" ? [c.custom_id] : []);
+    expect(ids).toHaveLength(2);
+    for (const customId of ids) expect(new TextEncoder().encode(customId).length).toBeLessThanOrEqual(100);
   });
 });

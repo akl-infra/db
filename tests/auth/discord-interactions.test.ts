@@ -3,6 +3,8 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { ulid } from "ulidx";
 import type { Bindings } from "../../src/env";
 import { drainDiscordActions, handleDiscordInteraction } from "../../src/core/discord-interactions";
+import { buildV2Payload } from "../../src/core/modqueue-message";
+import { reopenComment, rejectComment } from "../../src/core/comments";
 import { fixedClock } from "../../src/core/time";
 
 const bindings = env as unknown as Bindings;
@@ -63,6 +65,8 @@ beforeAll(async () => {
 beforeEach(async () => {
   await db.batch([
     db.prepare("DELETE FROM discord_pending_actions"),
+    db.prepare("DELETE FROM discord_reopen_actions"),
+    db.prepare("DELETE FROM discord_reopen_confirmations"),
     db.prepare("DELETE FROM discord_deny_modals"),
     db.prepare("DELETE FROM modqueue_notifications"),
     db.prepare("DELETE FROM link_submissions"),
@@ -239,5 +243,137 @@ describe("[LDB-MD16] Discord HTTP interaction adapter", () => {
     const queued = await db.prepare("SELECT kind, submission_id, recipient_id FROM discord_rejection_dm_outbox WHERE submission_id = ?")
       .bind(submissionId).first<{ kind: string; submission_id: string; recipient_id: string }>();
     expect(queued).toEqual({ kind: "link", submission_id: submissionId, recipient_id: MOD });
+  });
+});
+
+describe("[LDB-MD21] Discord reopening", () => {
+  async function seedReview(status: "approved" | "rejected" | "pending" = "rejected", kind: "comment" | "wpm" = "comment") {
+    const layout = ulid();
+    const id = ulid();
+    await db.prepare(`INSERT INTO layouts (id, name, owner, n, layout_rev, created_at, modified_at)
+      VALUES (?, ?, ?, 1, 1, ?, ?)`).bind(layout, `discord-reopen-${layout.toLowerCase()}`, MOD, clock(), clock()).run();
+    if (kind === "comment") await db.prepare(`INSERT INTO layout_comments (id, layout_id, user_id, body, via, submitted_at, status, decided_by, decided_at)
+      VALUES (?, ?, ?, 'normal comment', 'discord', ?, ?, ?, ?)`)
+      .bind(id, layout, MOD, clock(), status, status === "pending" ? null : MOD, status === "pending" ? null : clock()).run();
+    else await db.prepare(`INSERT INTO wpm_submissions (id, layout_id, user_id, wpm, proof, submitted_by, via, submitted_at, status, decided_by, decided_at)
+      VALUES (?, ?, ?, 150, 'https://example.org/proof', ?, 'discord', ?, ?, ?, ?)`)
+      .bind(id, layout, MOD, MOD, clock(), status, status === "pending" ? null : MOD, status === "pending" ? null : clock()).run();
+    await db.prepare(`INSERT INTO modqueue_notifications (kind, submission_id, message_id, shown_status, message_format, transport, channel_id)
+      VALUES (?, ?, ?, ?, 'components_v2', 'bot', ?)`).bind(kind, id, messageId, status, CHANNEL).run();
+    await db.prepare("INSERT OR IGNORE INTO admins (user_id, added_at) VALUES (?, ?)").bind(MOD, clock()).run();
+    const initial = kind === "comment" ? buildV2Payload("comment", { id, layout_id: layout, body: "normal comment", live_body: null, user_id: MOD, user_name: "mod", layout_name: "test" })
+      : buildV2Payload("wpm", { id, layout_id: layout, wpm: 150, proof: "https://example.org/proof", user_id: MOD, user_name: "mod", layout_name: "test" });
+    const patches: Record<string, unknown>[] = [];
+    vi.stubGlobal("fetch", async (_url: string, init?: RequestInit) => {
+      if (init?.method === "GET") return Response.json(initial);
+      patches.push(JSON.parse(String(init?.body ?? "{}")));
+      return Response.json({ id: messageId });
+    });
+    return { id, layout, patches };
+  }
+  async function click(id: string, interactionId: string, action: string, version = 0, overrides: Record<string, unknown> = {}, kind = "comment") {
+    const response = await handleDiscordInteraction(await signedRequest(interaction(3, interactionId, {
+      custom_id: `aklmod2|${kind}|${action}|${id}|${version}`,
+    }, { message: { id: messageId }, ...overrides })), envWith(), clock);
+    return await response.json() as { type: number; data?: { flags?: number; content?: string; custom_id?: string; components?: { components: { custom_id: string }[] }[] } };
+  }
+  async function confirm(customId: string, initialId: string, interactionId: string, overrides: Record<string, unknown> = {}) {
+    const response = await handleDiscordInteraction(await signedRequest(interaction(3, interactionId, { custom_id: customId }, {
+      message: { id: "900000000000000888", interaction_metadata: { id: initialId } }, ...overrides,
+    })), envWith(), clock);
+    return await response.json() as { type: number; data?: { content?: string } };
+  }
+
+  it.each(["comment", "wpm"] as const)("[LDB-MD21] directly reopens denied %s once, restores controls and rejects replay", async (kind) => {
+    const { id, patches } = await seedReview("rejected", kind);
+    const first = await click(id, "900000000000000501", "reopen-rejected", 0, {}, kind);
+    expect(first.type).toBe(5);
+    expect((await click(id, "900000000000000501", "reopen-rejected", 0, {}, kind)).data?.content).toContain("already received");
+    await drainDiscordActions(db, envWith(), clock);
+    const table = kind === "comment" ? "layout_comments" : "wpm_submissions";
+    expect(await db.prepare(`SELECT status, review_version FROM ${table} WHERE id = ?`).bind(id).first())
+      .toEqual({ status: "pending", review_version: 1 });
+    expect(patches.some((patch) => JSON.stringify(patch).includes(`aklmod2|${kind}|approve|${id}|1`))).toBe(true);
+    await drainDiscordActions(db, envWith(), clock);
+    expect((await db.prepare("SELECT id FROM moderation_review_history WHERE submission_id = ? AND action = 'reopened'").bind(id).all()).results).toHaveLength(1);
+    expect((await click(id, "900000000000000502", "reopen-rejected", 0, {}, kind)).data?.content).toContain("stale");
+  });
+
+  it("[LDB-MD21] approved reopening requires a private bound confirmation and cancel leaves it unchanged", async () => {
+    const { id } = await seedReview("approved");
+    const opened = await click(id, "900000000000000510", "reopen-approved");
+    expect(opened.type).toBe(4);
+    expect(opened.data?.flags).toBe(64);
+    expect(opened.data?.content).toContain("hides the approved comment");
+    expect(await db.prepare("SELECT 1 FROM discord_reopen_actions").first()).toBeNull();
+    const buttons = opened.data!.components![0]!.components;
+    expect((await confirm(buttons[0]!.custom_id, "900000000000000999", "900000000000000511")).data?.content).toContain("another moderator or message");
+    expect((await confirm(buttons[0]!.custom_id, "900000000000000510", "900000000000000512", { member: { user: { id: "900000000000000777", username: "other" } } })).data?.content).toContain("another moderator");
+    expect((await confirm(buttons[1]!.custom_id, "900000000000000510", "900000000000000513")).type).toBe(7);
+    expect((await confirm(buttons[0]!.custom_id, "900000000000000510", "900000000000000514")).data?.content).toContain("expired");
+    expect(await db.prepare("SELECT status, review_version FROM layout_comments WHERE id = ?").bind(id).first()).toEqual({ status: "approved", review_version: 0 });
+    const again = await click(id, "900000000000000515", "reopen-approved");
+    expect((await confirm(again.data!.components![0]!.components[0]!.custom_id, "900000000000000515", "900000000000000516")).type).toBe(6);
+    await drainDiscordActions(db, envWith(), clock);
+    expect(await db.prepare("SELECT status, review_version FROM layout_comments WHERE id = ?").bind(id).first()).toEqual({ status: "pending", review_version: 1 });
+  });
+
+  it("[LDB-MD21] rejects expired confirmations, wrong guild/channel, removed permissions and changed message bindings", async () => {
+    const { id } = await seedReview("approved");
+    const opened = await click(id, "900000000000000520", "reopen-approved");
+    const customId = opened.data!.components![0]!.components[0]!.custom_id;
+    expect((await confirm(customId, "900000000000000520", "900000000000000521", { guild_id: "900000000000000999" })).data?.content).toContain("not allowed");
+    expect((await confirm(customId, "900000000000000520", "900000000000000522", { channel_id: "900000000000000999" })).data?.content).toContain("not allowed");
+    await db.prepare("DELETE FROM admins WHERE user_id = ?").bind(MOD).run();
+    expect((await confirm(customId, "900000000000000520", "900000000000000523")).data?.content).toContain("permission");
+    await db.prepare("INSERT INTO admins (user_id, added_at) VALUES (?, ?)").bind(MOD, clock()).run();
+    await db.prepare("UPDATE modqueue_notifications SET message_id = '900000000000000999' WHERE submission_id = ?").bind(id).run();
+    expect((await confirm(customId, "900000000000000520", "900000000000000524")).data?.content).toContain("changed");
+    await db.prepare("UPDATE discord_reopen_confirmations SET expires_at = '2026-10-18T11:59:00.000Z'").run();
+    expect((await confirm(customId, "900000000000000520", "900000000000000525")).data?.content).toContain("expired");
+    expect(await db.prepare("SELECT 1 FROM discord_reopen_actions").first()).toBeNull();
+  });
+
+  it("[LDB-MD21] stale pending buttons, denial modal and queued decisions cannot cross a reopened cycle", async () => {
+    const { id } = await seedReview("pending");
+    const modal = await click(id, "900000000000000530", "deny");
+    expect(modal.type).toBe(9);
+    expect((await click(id, "900000000000000531", "approve")).type).toBe(5);
+    await db.prepare("UPDATE layout_comments SET review_version = 1 WHERE id = ?").bind(id).run();
+    await db.prepare("UPDATE modqueue_notifications SET shown_review_version = 1 WHERE submission_id = ?").bind(id).run();
+    for (const customId of [`aklmod1|comment|approve|${id}`, `aklmod2|comment|approve|${id}|0`]) {
+      const response = await handleDiscordInteraction(await signedRequest(interaction(3, "900000000000000532", { custom_id: customId }, { message: { id: messageId } })), envWith(), clock);
+      expect((await response.json() as { data: { content: string } }).data.content).toContain("stale");
+    }
+    const submit = await handleDiscordInteraction(await signedRequest(interaction(5, "900000000000000533", {
+      custom_id: modal.data!.custom_id, components: [{ type: 18, component: { type: 4, custom_id: "reason", value: "stale reason" } }],
+    })), envWith(), clock);
+    expect((await submit.json() as { data: { content: string } }).data.content).toContain("changed");
+    await drainDiscordActions(db, envWith(), clock);
+    expect(await db.prepare("SELECT status, review_version FROM layout_comments WHERE id = ?").bind(id).first()).toEqual({ status: "pending", review_version: 1 });
+    expect(await db.prepare("SELECT result FROM discord_pending_actions WHERE submission_id = ?").bind(id).first()).toEqual({ result: "This review changed. Refresh the card before deciding." });
+  });
+
+  it("[LDB-MD21] queued reopen cannot undo a later redecision; another moderator's reopen is not claimed as ours", async () => {
+    const { id } = await seedReview("rejected");
+    await click(id, "900000000000000540", "reopen-rejected");
+    const actor = { user_id: "900000000000000777", name: "other", admin: true, banned: false, via: "discord" as const, source_client: "test" };
+    await reopenComment(db, clock, actor, null, id, { status: "rejected", review_version: 0 });
+    await rejectComment(db, clock, actor, null, id, "new decision", { reviewVersion: 1 });
+    await drainDiscordActions(db, envWith(), clock);
+    expect(await db.prepare("SELECT status, review_version FROM layout_comments WHERE id = ?").bind(id).first()).toEqual({ status: "rejected", review_version: 1 });
+    expect(await db.prepare("SELECT result FROM discord_reopen_actions WHERE submission_id = ?").bind(id).first()).toEqual({ result: "This card is stale. Refresh it before reopening." });
+    expect((await click(id, "900000000000000541", "reopen-rejected")).data?.content).toContain("stale");
+  });
+
+  it("[LDB-MD21] recovers a committed reopen after the worker lease expires without emitting another event", async () => {
+    const { id } = await seedReview("rejected");
+    await click(id, "900000000000000550", "reopen-rejected");
+    const actor = { user_id: MOD, name: "mod", admin: true, banned: false, via: "discord" as const, source_client: "test" };
+    await reopenComment(db, clock, actor, null, id, { status: "rejected", review_version: 0 });
+    await db.prepare("UPDATE discord_reopen_actions SET state = 'working', lease_until = '2026-10-18T11:59:00.000Z'").run();
+    await drainDiscordActions(db, envWith(), clock);
+    expect(await db.prepare("SELECT result, state, token FROM discord_reopen_actions WHERE submission_id = ?").bind(id).first()).toEqual({ result: "Review reopened.", state: "complete", token: "" });
+    expect((await db.prepare("SELECT id FROM moderation_review_history WHERE submission_id = ? AND action = 'reopened'").bind(id).all()).results).toHaveLength(1);
   });
 });
