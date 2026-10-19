@@ -424,7 +424,8 @@ describe("[LDB-CMT3] approve / replace / reject / remove", () => {
     await approve(admin, (await put(auth, id, "v1")).submission.id);
     const v2 = (await put(auth, id, "v2")).submission;
     const results = await Promise.all([approve(admin, v2.id), approve(admin, v2.id)]);
-    expect(results.map((r) => r.status).sort()).toEqual([200, 404]);
+    expect(results.filter((r) => r.status === 200)).toHaveLength(1);
+    expect([404, 409]).toContain(results.find((r) => r.status !== 200)!.status);
     expect((await listed(id)).map((c) => c.body)).toEqual(["v2"]);
   });
 });
@@ -762,7 +763,7 @@ describe("[LDB-CMT6] GET /v1/layouts/:ref/comment is the caller's own, never pub
     await writeFetch(`/v1/admin/comment-queue/${p1.id}/reject`, "POST", admin, { reason: "try again" });
     const afterReject = await own(auth, id);
     expect(afterReject).toMatchObject({ live: null, pending: null, decision: { status: "rejected", reason: "try again" } });
-    expect(Object.keys(afterReject.decision!).sort()).toEqual(["body", "decided_at", "reason", "status"]);
+    expect(Object.keys(afterReject.decision!).sort()).toEqual(["body", "decided_at", "reason", "review_version", "status"]);
     expect(afterReject.decision!.body).toBe("mine, pending"); // the refused text, to edit and resend
 
     // A newer pending submission hides the older decision.
@@ -891,7 +892,7 @@ describe("[LDB-CMT9] the queue is admin-only; a ban stops writes; internal bookk
     await db.prepare("UPDATE authors SET name = ? WHERE user_id = ?").bind("Wire Commenter", user).run();
     const posted = await writeFetch(`/v1/layouts/${id}/comment`, "PUT", auth, { body: "edit text" });
     const body = (await posted.json()) as { submission: Submission };
-    expect(Object.keys(body.submission).sort()).toEqual(["body", "decided_at", "decided_by", "id", "layout_id", "reason", "status", "submitted_at", "user_id", "via"]);
+    expect(Object.keys(body.submission).sort()).toEqual(["body", "decided_at", "decided_by", "id", "layout_id", "reason", "review_version", "status", "submitted_at", "user_id", "via"]);
 
     const q = await queue(admin, id);
     expect(q).toHaveLength(1);

@@ -373,3 +373,19 @@ export function parseWpmOnBehalfBody(body: unknown): WpmOnBehalfBody {
 export function parseCommentBody(body: unknown): CommentBody {
   return checkBody(validateComment, body);
 }
+
+export interface ReviewDecisionBody { review_version?: number; reason?: string }
+const reviewVersionSchema = { type: "integer", minimum: 0, maximum: Number.MAX_SAFE_INTEGER } as const;
+const validateReviewApprove = ajv.compile<ReviewDecisionBody>({
+  type: "object", additionalProperties: false, properties: { review_version: reviewVersionSchema },
+});
+const validateReviewReject = ajv.compile<ReviewDecisionBody>({
+  type: "object", additionalProperties: false, properties: { review_version: reviewVersionSchema, reason: { type: "string" } },
+});
+const validateReviewReopen = ajv.compile<{ status: "approved" | "rejected"; review_version: number }>({
+  type: "object", additionalProperties: false, required: ["status", "review_version"],
+  properties: { status: { type: "string", enum: ["approved", "rejected"] }, review_version: reviewVersionSchema },
+});
+export const parseReviewApproveBody = (body: unknown) => checkBody(validateReviewApprove, body);
+export const parseReviewRejectBody = (body: unknown) => checkBody(validateReviewReject, body);
+export const parseReviewReopenBody = (body: unknown) => checkBody(validateReviewReopen, body);

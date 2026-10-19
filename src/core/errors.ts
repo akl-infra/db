@@ -429,3 +429,7 @@ export function rateLimited(limit: number, windowSeconds: number, retryAfter: nu
     { "Retry-After": String(retryAfter) },
   );
 }
+
+export function reviewConflict(id: string): ApiError {
+  return new ApiError(409, { error: "review_conflict", message: "This review has changed or can no longer be reopened. Refresh the queue.", ref: id });
+}

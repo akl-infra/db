@@ -7,8 +7,9 @@
 import { ulid } from "ulidx";
 import type { Actor } from "../auth/actor";
 import type { Bindings } from "../env";
-import { badRequest, invalidProof, invalidWpm, notFound } from "./errors";
-import { appendInfo, appendModeration, rejectionModerationStatement } from "./events";
+import { badRequest, invalidProof, invalidWpm, notFound, reviewConflict } from "./errors";
+import { appendInfo, rejectionModerationStatement } from "./events";
+import { reopenReview, reviewHistoryStatement, type ReviewExpectation } from "./moderation-review";
 import { rejectionOutboxStatement } from "./rejection-dm";
 import { byRef, type LayoutRow, type Source } from "./records";
 import type { Clock } from "./time";
@@ -74,6 +75,7 @@ export interface WpmSubmissionRow {
   decided_by: string | null;
   decided_at: string | null;
   reason: string | null;
+  review_version: number;
 }
 
 // `GET /v1/admin/wpm-queue` additionally names the layout and the user.
@@ -101,7 +103,7 @@ function sourceOf(actor: Actor, version: string | null): Source {
 // [LDB-WPM9] The explicit column list (never `SELECT *`) keeps
 // `notified_at` -- the mod-queue notifier's claim bookkeeping,
 // `core/modqueue.ts` -- off every wire these rows reach.
-const SUBMISSION_COLUMNS = "id, layout_id, user_id, wpm, proof, submitted_by, via, submitted_at, status, decided_by, decided_at, reason";
+const SUBMISSION_COLUMNS = "id, layout_id, user_id, wpm, proof, submitted_by, via, submitted_at, status, decided_by, decided_at, reason, review_version";
 
 async function loadSubmission(db: Bindings["DB"], id: string): Promise<WpmSubmissionRow> {
   const row = await db.prepare(`SELECT ${SUBMISSION_COLUMNS} FROM wpm_submissions WHERE id = ?`).bind(id).first<WpmSubmissionRow>();
@@ -139,34 +141,15 @@ async function insertApproved(
 ): Promise<WpmSubmissionRow> {
   const at = now();
   const id = ulid();
-  await db
-    .prepare(
-      `INSERT INTO wpm_submissions (id, layout_id, user_id, wpm, proof, submitted_by, via, submitted_at, status, decided_by, decided_at, reason)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'approved', ?, ?, NULL)`,
-    )
-    .bind(id, layoutId, userId, wpm, proof, actor.user_id, actor.via, at, actor.user_id, at)
-    .run();
-  await appendApproved(db, now, actor, version, { id, layout_id: layoutId, user_id: userId, wpm, proof });
-  return { id, layout_id: layoutId, user_id: userId, wpm, proof, submitted_by: actor.user_id, via: actor.via, submitted_at: at, status: "approved", decided_by: actor.user_id, decided_at: at, reason: null };
-}
-
-// [LDB-WPM7] The one place `wpm_approved` is written: the public feed shows
-// the layout, user, speed and proof of an APPROVED record.
-async function appendApproved(
-  db: Bindings["DB"],
-  now: Clock,
-  actor: Actor,
-  version: string | null,
-  s: Pick<WpmSubmissionRow, "id" | "layout_id" | "user_id" | "wpm" | "proof">,
-): Promise<void> {
-  await appendModeration(db, now, {
-    kind: "wpm_approved",
-    layoutId: s.layout_id,
-    actor: actor.user_id,
-    via: actor.via,
-    source: sourceOf(actor, version),
-    detail: { submission_id: s.id, user_id: s.user_id, wpm: s.wpm, proof: s.proof },
-  });
+  await db.batch([
+    db.prepare(`INSERT INTO wpm_submissions (id, layout_id, user_id, wpm, proof, submitted_by, via, submitted_at, status, decided_by, decided_at, reason)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'approved', ?, ?, NULL)`)
+      .bind(id, layoutId, userId, wpm, proof, actor.user_id, actor.via, at, actor.user_id, at),
+    rejectionModerationStatement(db, at, { kind: "wpm_approved", layoutId, actor: actor.user_id,
+      via: actor.via, source: sourceOf(actor, version), detail: { submission_id: id, user_id: userId, wpm, proof } }),
+    reviewHistoryStatement(db, "wpm", id, "approved", actor.user_id, at, null, 0),
+  ]);
+  return { id, layout_id: layoutId, user_id: userId, wpm, proof, submitted_by: actor.user_id, via: actor.via, submitted_at: at, status: "approved", decided_by: actor.user_id, decided_at: at, reason: null, review_version: 0 };
 }
 
 // POST /v1/wpm. Everyone, an admin included: queued (`202`) -- LDB-WPM2: a
@@ -212,7 +195,7 @@ export async function submitWpm(
     detail: { submission_id: id },
   });
 
-  return { id, layout_id: layoutId, user_id: actor.user_id, wpm, proof, submitted_by: actor.user_id, via: actor.via, submitted_at: at, status: "pending", decided_by: null, decided_at: null, reason: null };
+  return { id, layout_id: layoutId, user_id: actor.user_id, wpm, proof, submitted_by: actor.user_id, via: actor.via, submitted_at: at, status: "pending", decided_by: null, decided_at: null, reason: null, review_version: 0 };
 }
 
 // POST /v1/admin/wpm (admin): an entry on someone else's behalf, approved at
@@ -255,61 +238,59 @@ export async function listWpmQueue(db: Bindings["DB"], status: WpmQueueStatus): 
   return results;
 }
 
-// Claims a pending submission for a decision (`changes === 1` wins): two
-// admins deciding at once, or an approve racing a reject, can never both
-// succeed -- the loser reads it as already decided.
-async function decide(db: Bindings["DB"], now: Clock, actor: Actor, id: string, status: "approved" | "rejected", reason: string | null): Promise<WpmSubmissionRow> {
-  const at = now();
-  const res = await db
-    .prepare("UPDATE wpm_submissions SET status = ?, decided_by = ?, decided_at = ?, reason = ? WHERE id = ? AND status = 'pending'")
-    .bind(status, actor.user_id, at, reason, id)
-    .run();
-  if (res.meta.changes !== 1) throw notFound(`wpm submission '${id}' is not pending`, id);
-  return loadSubmission(db, id);
-}
-
 // POST /v1/admin/wpm-queue/:id/approve: `404 not_found` if the layout is a
 // tombstone (restore first) or the submission doesn't exist / isn't pending.
-export async function approveWpm(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, id: string): Promise<WpmSubmissionRow> {
+export async function approveWpm(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, id: string, expectedReviewVersion = 0): Promise<WpmSubmissionRow> {
   const submission = await loadSubmission(db, id);
+  if (submission.review_version !== expectedReviewVersion) throw reviewConflict(id);
   if (submission.status !== "pending") throw notFound(`wpm submission '${id}' is not pending`, id);
   const layout = await db.prepare("SELECT id FROM layouts WHERE id = ? AND deleted = 0").bind(submission.layout_id).first();
   if (layout === null) throw notFound(`no layout '${submission.layout_id}'`, submission.layout_id);
-
-  const approved = await decide(db, now, actor, id, "approved", null);
-  await appendApproved(db, now, actor, version, approved);
-  return approved;
+  const at = now();
+  const results = await db.batch([
+    db.prepare(`UPDATE wpm_submissions SET status = 'approved', decided_by = ?, decided_at = ?, reason = NULL
+      WHERE id = ? AND status = 'pending' AND review_version = ? 
+        AND EXISTS (SELECT 1 FROM layouts WHERE id = wpm_submissions.layout_id AND deleted = 0)`)
+      .bind(actor.user_id, at, id, expectedReviewVersion),
+    rejectionModerationStatement(db, at, { kind: "wpm_approved", layoutId: submission.layout_id,
+      actor: actor.user_id, via: actor.via, source: sourceOf(actor, version), detail: { submission_id: submission.id, user_id: submission.user_id, wpm: submission.wpm, proof: submission.proof } }),
+    reviewHistoryStatement(db, "wpm", id, "approved", actor.user_id, at, null, expectedReviewVersion),
+  ]);
+  if (results[0]!.meta.changes !== 1) throw reviewConflict(id);
+  return loadSubmission(db, id);
 }
 
 // POST /v1/admin/wpm-queue/:id/reject: marks the submission `rejected` and
 // appends `wpm_rejected` (`admin: 1`). The event names the submission and
 // nothing else -- a refused record's speed, proof and the moderator's reason
 // are private to admins (the queue has them), like `link_rejected`.
-export async function rejectWpm(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, id: string, reason?: string, options?: { notifySubmitter?: boolean }): Promise<WpmSubmissionRow> {
+export async function rejectWpm(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, id: string, reason?: string, options?: { notifySubmitter?: boolean; reviewVersion?: number }): Promise<WpmSubmissionRow> {
   const submission = await loadSubmission(db, id);
+  const expectedReviewVersion = options?.reviewVersion ?? 0;
+  if (submission.review_version !== expectedReviewVersion) throw reviewConflict(id);
   if (submission.status !== "pending") throw notFound(`wpm submission '${id}' is not pending`, id);
   if (await db.prepare("SELECT id FROM layouts WHERE id = ?").bind(submission.layout_id).first() === null) {
     throw notFound(`no layout '${submission.layout_id}'`, submission.layout_id);
   }
-
   const at = now();
   const [claim, event] = await db.batch([
-    db.prepare("UPDATE wpm_submissions SET status = 'rejected', decided_by = ?, decided_at = ?, reason = ? WHERE id = ? AND status = 'pending'")
-      .bind(actor.user_id, at, reason ?? null, id),
-    rejectionModerationStatement(db, at, {
-    kind: "wpm_rejected",
-    layoutId: submission.layout_id,
-    actor: actor.user_id,
-    via: actor.via,
-    source: sourceOf(actor, version),
-    detail: { submission_id: submission.id },
-    }),
+    db.prepare(`UPDATE wpm_submissions SET status = 'rejected', decided_by = ?, decided_at = ?, reason = ?
+      WHERE id = ? AND status = 'pending' AND review_version = ? `)
+      .bind(actor.user_id, at, reason ?? null, id, expectedReviewVersion),
+    rejectionModerationStatement(db, at, { kind: "wpm_rejected", layoutId: submission.layout_id,
+      actor: actor.user_id, via: actor.via, source: sourceOf(actor, version), detail: { submission_id: submission.id } }),
     ...(options?.notifySubmitter === true ? [await rejectionOutboxStatement(db, {
-      kind: "wpm", submissionId: submission.id, layoutId: submission.layout_id,
-      recipientId: submission.user_id, at,
+      kind: "wpm", submissionId: id, layoutId: submission.layout_id,
+      recipientId: submission.user_id, at, reviewVersion: expectedReviewVersion,
     })] : []),
+    reviewHistoryStatement(db, "wpm", id, "rejected", actor.user_id, at, reason ?? null, expectedReviewVersion),
   ]);
-  if (claim!.meta.changes !== 1 || event!.meta.changes !== 1) throw notFound(`wpm submission '${id}' is not pending`, id);
+  if (claim!.meta.changes !== 1 || event!.meta.changes !== 1) throw reviewConflict(id);
+  return loadSubmission(db, id);
+}
+
+export async function reopenWpm(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, id: string, expected: ReviewExpectation): Promise<WpmSubmissionRow> {
+  await reopenReview(db, now, actor, version, "wpm", id, expected);
   return loadSubmission(db, id);
 }
 

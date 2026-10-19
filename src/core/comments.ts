@@ -7,8 +7,9 @@
 import { ulid } from "ulidx";
 import type { Actor } from "../auth/actor";
 import type { Bindings } from "../env";
-import { invalidComment, notFound, ownComment } from "./errors";
+import { invalidComment, notFound, ownComment, reviewConflict } from "./errors";
 import { appendInfo, appendModeration, rejectionModerationStatement } from "./events";
+import { reopenReview, reviewHistoryStatement, type ReviewExpectation } from "./moderation-review";
 import { rejectionOutboxStatement } from "./rejection-dm";
 import { byRef, type LayoutRow, type Source } from "./records";
 import type { Clock } from "./time";
@@ -47,6 +48,7 @@ export interface CommentRow {
   decided_by: string | null;
   decided_at: string | null;
   reason: string | null;
+  review_version: number;
 }
 
 // `GET /v1/admin/comment-queue` additionally names the layout and the user,
@@ -86,7 +88,7 @@ function sourceOf(actor: Actor, version: string | null): Source {
 // [LDB-CMT9] The explicit column list (never `SELECT *`) keeps
 // `notified_at` -- the mod-queue notifier's claim bookkeeping,
 // `core/modqueue.ts` -- off every wire these rows reach.
-const COMMENT_COLUMNS = "id, layout_id, user_id, body, via, submitted_at, status, decided_by, decided_at, reason";
+const COMMENT_COLUMNS = "id, layout_id, user_id, body, via, submitted_at, status, decided_by, decided_at, reason, review_version";
 
 async function loadComment(db: Bindings["DB"], id: string): Promise<CommentRow> {
   const row = await db.prepare(`SELECT ${COMMENT_COLUMNS} FROM layout_comments WHERE id = ?`).bind(id).first<CommentRow>();
@@ -108,23 +110,9 @@ function validated(rawBody: unknown): string {
   return v.body;
 }
 
-// [LDB-CMT7] The one place `comment_approved` is written. The event names
-// the submission, layout and user and NEVER the text: the public feed must
-// not keep a comment that is later deleted or removed.
-async function appendApproved(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, c: Pick<CommentRow, "id" | "layout_id" | "user_id">): Promise<void> {
-  await appendModeration(db, now, {
-    kind: "comment_approved",
-    layoutId: c.layout_id,
-    actor: actor.user_id,
-    via: actor.via,
-    source: sourceOf(actor, version),
-    detail: { submission_id: c.id, layout_id: c.layout_id, user_id: c.user_id },
-  });
-}
-
-// [LDB-CMT11] A slot's likes live exactly as long as the slot has an approved
-// comment: cleared when the slot no longer has one (the author's delete, a
-// mod's removal). Conditional on that, so a statement that follows a decision
+// [LDB-CMT11] A slot's likes survive temporary reopening [LDB-MD20]. They
+// are cleared on the author's delete or a
+// mod's removal. Conditional on that, so a statement that follows a decision
 // which did not happen (a lost race) clears nothing. A pending or rejected
 // edit leaves them, and an approved edit replaces the row inside the slot.
 function clearLikesOfEmptySlot(db: Bindings["DB"], layoutId: string, authorId: string): D1PreparedStatement {
@@ -175,7 +163,7 @@ export async function submitComment(
     source: sourceOf(actor, version),
     detail: { submission_id: id },
   });
-  return { id, layout_id: layoutId, user_id: actor.user_id, body, via: actor.via, submitted_at: at, status: "pending", decided_by: null, decided_at: null, reason: null };
+  return { id, layout_id: layoutId, user_id: actor.user_id, body, via: actor.via, submitted_at: at, status: "pending", decided_by: null, decided_at: null, reason: null, review_version: 0 };
 }
 
 // DELETE /v1/layouts/:ref/comment: immediate, no review (LDB-CMT4). Every
@@ -246,60 +234,61 @@ export async function listCommentQueue(db: Bindings["DB"], status: CommentQueueS
 // `replaced` (text erased) only if this row is still pending, and this row
 // is claimed (`changes === 1` wins), so two admins deciding at once can
 // never both succeed and a loser never retires the live text.
-export async function approveComment(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, id: string): Promise<CommentRow> {
+export async function approveComment(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, id: string, expectedReviewVersion = 0): Promise<CommentRow> {
   const submission = await loadComment(db, id);
-  if (submission.status !== "pending") throw notFound(`comment '${id}' is not pending`, id);
+  if (submission.review_version !== expectedReviewVersion) throw reviewConflict(id);
+  if (submission.status !== "pending") throw notFound(`comment submission '${id}' is not pending`, id);
   const layout = await db.prepare("SELECT id FROM layouts WHERE id = ? AND deleted = 0").bind(submission.layout_id).first();
   if (layout === null) throw notFound(`no layout '${submission.layout_id}'`, submission.layout_id);
-
   const at = now();
-  const [, claim] = await db.batch([
-    db
-      .prepare(
-        `UPDATE layout_comments SET status = 'replaced', body = NULL, decided_by = ?, decided_at = ?
-         WHERE layout_id = ? AND user_id = ? AND status = 'approved' AND id != ?
-           AND EXISTS (SELECT 1 FROM layout_comments WHERE id = ? AND status = 'pending')`,
-      )
-      .bind(actor.user_id, at, submission.layout_id, submission.user_id, id, id),
-    db
-      .prepare("UPDATE layout_comments SET status = 'approved', decided_by = ?, decided_at = ?, reason = NULL WHERE id = ? AND status = 'pending'")
-      .bind(actor.user_id, at, id),
+  const results = await db.batch([
+    db.prepare(`UPDATE layout_comments SET status = 'replaced', body = NULL, decided_by = ?, decided_at = ?
+      WHERE layout_id = ? AND user_id = ? AND status = 'approved' AND id != ?
+        AND EXISTS (SELECT 1 FROM layout_comments WHERE id = ? AND status = 'pending' AND review_version = ? AND body IS NOT NULL)
+        AND EXISTS (SELECT 1 FROM layouts WHERE id = ? AND deleted = 0)`)
+      .bind(actor.user_id, at, submission.layout_id, submission.user_id, id, id, expectedReviewVersion, submission.layout_id),
+    db.prepare(`UPDATE layout_comments SET status = 'approved', decided_by = ?, decided_at = ?, reason = NULL
+      WHERE id = ? AND status = 'pending' AND review_version = ? AND body IS NOT NULL
+        AND EXISTS (SELECT 1 FROM layouts WHERE id = layout_comments.layout_id AND deleted = 0)`)
+      .bind(actor.user_id, at, id, expectedReviewVersion),
+    rejectionModerationStatement(db, at, { kind: "comment_approved", layoutId: submission.layout_id,
+      actor: actor.user_id, via: actor.via, source: sourceOf(actor, version), detail: { submission_id: submission.id, layout_id: submission.layout_id, user_id: submission.user_id } }),
+    reviewHistoryStatement(db, "comment", id, "approved", actor.user_id, at, null, expectedReviewVersion),
   ]);
-  if (claim!.meta.changes !== 1) throw notFound(`comment '${id}' is not pending`, id);
-
-  const approved = await loadComment(db, id);
-  await appendApproved(db, now, actor, version, approved);
-  return approved;
+  if (results[1]!.meta.changes !== 1) throw reviewConflict(id);
+  return loadComment(db, id);
 }
 
 // POST /v1/admin/comment-queue/:id/reject: marks the submission `rejected`
 // (the text is KEPT so its author can read it back with the reason) and
 // appends `comment_rejected`, which names the submission and nothing else.
-export async function rejectComment(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, id: string, reason?: string, options?: { notifySubmitter?: boolean }): Promise<CommentRow> {
+export async function rejectComment(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, id: string, reason?: string, options?: { notifySubmitter?: boolean; reviewVersion?: number }): Promise<CommentRow> {
   const submission = await loadComment(db, id);
-  if (submission.status !== "pending") throw notFound(`comment '${id}' is not pending`, id);
+  const expectedReviewVersion = options?.reviewVersion ?? 0;
+  if (submission.review_version !== expectedReviewVersion) throw reviewConflict(id);
+  if (submission.status !== "pending") throw notFound(`comment submission '${id}' is not pending`, id);
   if (await db.prepare("SELECT id FROM layouts WHERE id = ?").bind(submission.layout_id).first() === null) {
     throw notFound(`no layout '${submission.layout_id}'`, submission.layout_id);
   }
-
   const at = now();
   const [claim, event] = await db.batch([
-    db.prepare("UPDATE layout_comments SET status = 'rejected', decided_by = ?, decided_at = ?, reason = ? WHERE id = ? AND status = 'pending'")
-      .bind(actor.user_id, at, reason ?? null, id),
-    rejectionModerationStatement(db, at, {
-    kind: "comment_rejected",
-    layoutId: submission.layout_id,
-    actor: actor.user_id,
-    via: actor.via,
-    source: sourceOf(actor, version),
-    detail: { submission_id: submission.id },
-    }),
+    db.prepare(`UPDATE layout_comments SET status = 'rejected', decided_by = ?, decided_at = ?, reason = ?
+      WHERE id = ? AND status = 'pending' AND review_version = ? AND body IS NOT NULL`)
+      .bind(actor.user_id, at, reason ?? null, id, expectedReviewVersion),
+    rejectionModerationStatement(db, at, { kind: "comment_rejected", layoutId: submission.layout_id,
+      actor: actor.user_id, via: actor.via, source: sourceOf(actor, version), detail: { submission_id: submission.id } }),
     ...(options?.notifySubmitter === true ? [await rejectionOutboxStatement(db, {
-      kind: "comment", submissionId: submission.id, layoutId: submission.layout_id,
-      recipientId: submission.user_id, at,
+      kind: "comment", submissionId: id, layoutId: submission.layout_id,
+      recipientId: submission.user_id, at, reviewVersion: expectedReviewVersion,
     })] : []),
+    reviewHistoryStatement(db, "comment", id, "rejected", actor.user_id, at, reason ?? null, expectedReviewVersion),
   ]);
-  if (claim!.meta.changes !== 1 || event!.meta.changes !== 1) throw notFound(`comment '${id}' is not pending`, id);
+  if (claim!.meta.changes !== 1 || event!.meta.changes !== 1) throw reviewConflict(id);
+  return loadComment(db, id);
+}
+
+export async function reopenComment(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, id: string, expected: ReviewExpectation): Promise<CommentRow> {
+  await reopenReview(db, now, actor, version, "comment", id, expected);
   return loadComment(db, id);
 }
 

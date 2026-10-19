@@ -12,11 +12,12 @@ import type { Bindings } from "../env";
 import { badRequest, notAdmin, notFound } from "../core/errors";
 import { cachePut, conditional, etagFor, readHead } from "../core/etag";
 import { notifyPending, updateQueueNotification } from "../core/modqueue";
+import { readReviewHistory } from "../core/moderation-review";
 import { dispatchRejectionDms } from "../core/rejection-dm";
 import { byRef } from "../core/records";
 import { systemClock, type Clock } from "../core/time";
 import * as wpm from "../core/wpm";
-import { parseLinkRejectBody, parseWpmBody, parseWpmOnBehalfBody } from "./schemas";
+import { parseLinkRejectBody, parseReviewApproveBody, parseReviewRejectBody, parseReviewReopenBody, parseWpmBody, parseWpmOnBehalfBody } from "./schemas";
 
 const CACHE_CONTROL = "public, max-age=10";
 
@@ -112,7 +113,8 @@ export function wpmRoute(authDeps: AuthDeps) {
   route.post("/v1/admin/wpm-queue/:id/approve", async (c) => {
     const actor = c.get("actor");
     if (!actor.admin) throw notAdmin();
-    const submission = await wpm.approveWpm(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), c.req.param("id"));
+    const body = parseReviewApproveBody(await readOptionalJson(c.req));
+    const submission = await wpm.approveWpm(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), c.req.param("id"), body.review_version ?? 0);
     c.executionCtx.waitUntil(updateQueueNotification(c.env.DB, c.env, "wpm", submission.id));
     return c.json({ submission });
   });
@@ -120,10 +122,26 @@ export function wpmRoute(authDeps: AuthDeps) {
   route.post("/v1/admin/wpm-queue/:id/reject", async (c) => {
     const actor = c.get("actor");
     if (!actor.admin) throw notAdmin();
-    const body = parseLinkRejectBody(await readOptionalJson(c.req));
-    const submission = await wpm.rejectWpm(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), c.req.param("id"), body.reason, { notifySubmitter: c.env.MODQUEUE_DISCORD_DMS === "true" });
+    const body = parseReviewRejectBody(await readOptionalJson(c.req));
+    const submission = await wpm.rejectWpm(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), c.req.param("id"), body.reason, { notifySubmitter: c.env.MODQUEUE_DISCORD_DMS === "true", reviewVersion: body.review_version });
     c.executionCtx.waitUntil(updateQueueNotification(c.env.DB, c.env, "wpm", submission.id));
     c.executionCtx.waitUntil(dispatchRejectionDms(c.env.DB, c.env, resolveNow(c.env)));
+    return c.json({ submission });
+  });
+
+  route.get("/v1/admin/wpm-queue/:id/history", async (c) => {
+    const actor = await resolveActor(c.env, c.req, authDeps);
+    if (!actor.admin) throw notAdmin();
+    c.header("Cache-Control", "private, no-store");
+    return c.json({ history: await readReviewHistory(c.env.DB, "wpm", c.req.param("id")) });
+  });
+
+  route.post("/v1/admin/wpm-queue/:id/reopen", async (c) => {
+    const actor = c.get("actor");
+    if (!actor.admin) throw notAdmin();
+    const body = parseReviewReopenBody(await readJson(c.req));
+    const submission = await wpm.reopenWpm(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), c.req.param("id"), body);
+    c.executionCtx.waitUntil(updateQueueNotification(c.env.DB, c.env, "wpm", submission.id));
     return c.json({ submission });
   });
 

@@ -13,11 +13,12 @@ import * as comments from "../core/comments";
 import { badRequest, notAdmin, notFound } from "../core/errors";
 import { cachePut, conditional, etagFor, readHead } from "../core/etag";
 import { announceComment, updateQueueNotification } from "../core/modqueue";
+import { readReviewHistory } from "../core/moderation-review";
 import { dispatchRejectionDms } from "../core/rejection-dm";
 import { byRef } from "../core/records";
 import { systemClock, type Clock } from "../core/time";
 import { validateUserId } from "../core/wpm";
-import { parseCommentBody, parseLinkRejectBody } from "./schemas";
+import { parseCommentBody, parseLinkRejectBody, parseReviewApproveBody, parseReviewRejectBody, parseReviewReopenBody } from "./schemas";
 
 const CACHE_CONTROL = "public, max-age=10";
 
@@ -180,7 +181,8 @@ export function commentsRoute(authDeps: AuthDeps) {
   route.post("/v1/admin/comment-queue/:id/approve", async (c) => {
     const actor = c.get("actor");
     if (!actor.admin) throw notAdmin();
-    const submission = await comments.approveComment(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), c.req.param("id"));
+    const body = parseReviewApproveBody(await readOptionalJson(c.req));
+    const submission = await comments.approveComment(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), c.req.param("id"), body.review_version ?? 0);
     c.executionCtx.waitUntil(updateQueueNotification(c.env.DB, c.env, "comment", submission.id));
     return c.json({ submission });
   });
@@ -188,8 +190,8 @@ export function commentsRoute(authDeps: AuthDeps) {
   route.post("/v1/admin/comment-queue/:id/reject", async (c) => {
     const actor = c.get("actor");
     if (!actor.admin) throw notAdmin();
-    const body = parseLinkRejectBody(await readOptionalJson(c.req));
-    const submission = await comments.rejectComment(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), c.req.param("id"), body.reason, { notifySubmitter: c.env.MODQUEUE_DISCORD_DMS === "true" });
+    const body = parseReviewRejectBody(await readOptionalJson(c.req));
+    const submission = await comments.rejectComment(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), c.req.param("id"), body.reason, { notifySubmitter: c.env.MODQUEUE_DISCORD_DMS === "true", reviewVersion: body.review_version });
     c.executionCtx.waitUntil(updateQueueNotification(c.env.DB, c.env, "comment", submission.id));
     c.executionCtx.waitUntil(dispatchRejectionDms(c.env.DB, c.env, resolveNow(c.env)));
     return c.json({ submission });
@@ -202,6 +204,22 @@ export function commentsRoute(authDeps: AuthDeps) {
     const comment = await comments.removeComment(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), c.req.param("id"), body.reason);
     c.executionCtx.waitUntil(updateQueueNotification(c.env.DB, c.env, "comment", comment.id));
     return c.json({ submission: comment });
+  });
+
+  route.get("/v1/admin/comment-queue/:id/history", async (c) => {
+    const actor = await resolveActor(c.env, c.req, authDeps);
+    if (!actor.admin) throw notAdmin();
+    c.header("Cache-Control", "private, no-store");
+    return c.json({ history: await readReviewHistory(c.env.DB, "comment", c.req.param("id")) });
+  });
+
+  route.post("/v1/admin/comment-queue/:id/reopen", async (c) => {
+    const actor = c.get("actor");
+    if (!actor.admin) throw notAdmin();
+    const body = parseReviewReopenBody(await readJson(c.req));
+    const submission = await comments.reopenComment(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), c.req.param("id"), body);
+    c.executionCtx.waitUntil(updateQueueNotification(c.env.DB, c.env, "comment", submission.id));
+    return c.json({ submission });
   });
 
   return route;

@@ -26,6 +26,7 @@ const TABLE_ORDER_DELETE = [
   // are independent tables, order irrelevant. `d1_migrations` is untouched.
   "events",
   "modqueue_notifications", // private webhook message ids/status; never present in the public dump
+  "moderation_review_history", // private decisions/reasons, never included in public dumps
   "discord_rejection_dm_outbox", // private rejection delivery identifiers/state; never present in the public dump
   "discord_pending_actions", // private expiring interaction tokens/actions; never dumped
   "discord_deny_modals", // private short-lived modal bindings; never dumped
@@ -309,8 +310,8 @@ export function restoreSql(dump: Dump): string[] {
   statements.push(
     ...chunkedInserts(
       "INSERT INTO wpm_submissions",
-      ["id", "layout_id", "user_id", "wpm", "proof", "submitted_by", "via", "submitted_at", "status", "decided_by", "decided_at", "reason", "notified_at"],
-      (dump.wpm_submissions ?? []).map((r) => ({ ...r, notified_at: r.notified_at ?? null })),
+      ["id", "layout_id", "user_id", "wpm", "proof", "submitted_by", "via", "submitted_at", "status", "decided_by", "decided_at", "reason", "notified_at", "review_version"],
+      (dump.wpm_submissions ?? []).map((r) => ({ ...r, notified_at: r.notified_at ?? null, review_version: r.review_version ?? 0 })),
     ),
   );
 
@@ -320,8 +321,8 @@ export function restoreSql(dump: Dump): string[] {
   statements.push(
     ...chunkedInserts(
       "INSERT INTO layout_comments",
-      ["id", "layout_id", "user_id", "body", "via", "submitted_at", "status", "decided_by", "decided_at", "reason"],
-      (dump.layout_comments ?? []).map((r) => ({ ...r })),
+      ["id", "layout_id", "user_id", "body", "via", "submitted_at", "status", "decided_by", "decided_at", "reason", "review_version"],
+      (dump.layout_comments ?? []).map((r) => ({ ...r, review_version: r.review_version ?? 0 })),
     ),
   );
 

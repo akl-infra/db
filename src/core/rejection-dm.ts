@@ -12,11 +12,13 @@ export interface RejectionDelivery {
   layoutId: string;
   recipientId: string;
   at: string;
+  reviewVersion?: number;
 }
 
 export interface RejectionOutboxRow {
   delivery_key: string;
   event_seq: number;
+  review_version: number;
   nonce: string;
   kind: RejectionKind;
   submission_id: string;
@@ -65,7 +67,8 @@ export async function makeRejectionDelivery(input: RejectionDelivery): Promise<{
   deliveryKey: string;
   nonce: string;
 }> {
-  const deliveryKey = `rejection:${input.kind}:${input.submissionId}`;
+  const cycle = input.reviewVersion ?? 0;
+  const deliveryKey = `rejection:${input.kind}:${input.submissionId}${cycle === 0 ? "" : `:${cycle}`}`;
   return { deliveryKey, nonce: await discordNonceFor(deliveryKey) };
 }
 
@@ -78,11 +81,11 @@ export async function rejectionOutboxStatement(db: Bindings["DB"], input: Reject
     .prepare(
       `INSERT INTO discord_rejection_dm_outbox
         (delivery_key, event_seq, kind, submission_id, layout_id, recipient_id, nonce, status,
-         attempts, next_attempt_at, created_at, updated_at)
-       SELECT ?, last_insert_rowid(), ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?
+         attempts, next_attempt_at, created_at, updated_at, review_version)
+       SELECT ?, last_insert_rowid(), ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?
        WHERE changes() = 1`,
     )
-    .bind(deliveryKey, input.kind, input.submissionId, input.layoutId, input.recipientId, nonce, input.at, input.at, input.at);
+    .bind(deliveryKey, input.kind, input.submissionId, input.layoutId, input.recipientId, nonce, input.at, input.at, input.at, input.reviewVersion ?? 0);
 }
 
 // Render all current decision context at send time. Comments are never
@@ -201,7 +204,7 @@ export async function dispatchRejectionDms(
   const token = bindings.MODQUEUE_DISCORD_BOT_TOKEN;
   const summary = { sent: 0, retried: 0, terminal: 0 };
   const candidates = await db.prepare(
-    `SELECT delivery_key, event_seq, kind, submission_id, layout_id, recipient_id, nonce,
+    `SELECT delivery_key, event_seq, review_version, kind, submission_id, layout_id, recipient_id, nonce,
             status, attempts, next_attempt_at, lease_token, lease_until, ambiguous_message_attempt_at
        FROM discord_rejection_dm_outbox
       WHERE (status = 'pending' AND next_attempt_at <= ?)
@@ -337,14 +340,15 @@ export async function dispatchRejectionDms(
 async function readEligibleContent(db: Bindings["DB"], row: RejectionOutboxRow): Promise<DeliveryContent | null> {
   const source = row.kind === "comment" ? "layout_comments" : row.kind === "link" ? "link_submissions" : "wpm_submissions";
   const recipient = row.kind === "link" ? "submitted_by" : "user_id";
+  const cycleEligibility = row.kind === "link" ? "" : " AND s.review_version = ?";
   const bodyEligibility = row.kind === "comment" ? " AND s.body IS NOT NULL" : "";
   const rowData = await db.prepare(
     `SELECT s.${recipient} AS recipient_id, s.reason, l.name AS layout_name, l.deleted,
             ${row.kind === "comment" ? "s.body" : "NULL"} AS comment_body,
-            s.status = 'rejected'${bodyEligibility} AS eligible
+            s.status = 'rejected'${bodyEligibility}${cycleEligibility} AS eligible
        FROM ${source} s JOIN layouts l ON l.id = s.layout_id
       WHERE s.id = ? AND s.layout_id = ?`,
-  ).bind(row.submission_id, row.layout_id).first<Omit<DeliveryContent, "context"> & { deleted: number }>();
+  ).bind(...(row.kind === "link" ? [] : [row.review_version]), row.submission_id, row.layout_id).first<Omit<DeliveryContent, "context"> & { deleted: number }>();
   if (rowData === null) return null;
   return {
     recipient_id: rowData.recipient_id,

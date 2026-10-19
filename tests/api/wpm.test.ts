@@ -588,7 +588,7 @@ describe("[LDB-WPM9] the queue is admin-only; a ban stops submissions; internal 
     // The sign-in above created the author row; give it a display name to join.
     await db.prepare("UPDATE authors SET name = ? WHERE user_id = ?").bind("Wire Typist", user).run();
     const body = (await posted.json()) as { submission: Submission };
-    expect(Object.keys(body.submission).sort()).toEqual(["decided_at", "decided_by", "id", "layout_id", "proof", "reason", "status", "submitted_at", "submitted_by", "user_id", "via", "wpm"]);
+    expect(Object.keys(body.submission).sort()).toEqual(["decided_at", "decided_by", "id", "layout_id", "proof", "reason", "review_version", "status", "submitted_at", "submitted_by", "user_id", "via", "wpm"]);
 
     const queue = await pendingFor(admin, id);
     expect(queue).toHaveLength(1);

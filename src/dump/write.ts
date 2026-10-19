@@ -95,6 +95,7 @@ export interface WpmSubmissionDbRow {
   decided_at: string | null;
   reason: string | null;
   notified_at: string | null; // the mod-queue notifier's claim, kept so a rehost doesn't re-announce
+  review_version?: number;
 }
 // docs/decisions/29-layout-comments.md, migrations/0023 (LDB-CMT10): only
 // APPROVED comments are dumped (the dump is public) -- the only rows that
@@ -110,6 +111,7 @@ export interface LayoutCommentDbRow {
   decided_by: string | null;
   decided_at: string | null;
   reason: string | null;
+  review_version?: number;
 }
 // docs/decisions/29-layout-comments.md, migrations/0023 (LDB-CMT12): likes on
 // comment slots, all of them (like `likes`, they are public).
