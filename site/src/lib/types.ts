@@ -157,6 +157,15 @@ export interface LinkQueueRow extends LinkSubmission {
   submitter_name: string | null;
 }
 
+/** Private moderation history returned by the admin queue history endpoints. */
+export interface ModerationHistoryEntry {
+  action: "approved" | "rejected" | "reopened";
+  actor: string;
+  at: string;
+  reason: string | null;
+  review_version: number;
+}
+
 /** A WPM (typing-speed) submission, `POST /v1/wpm` / `POST /v1/admin/wpm`'s
  * `submission` (db/docs/decisions/28-wpm-records.md). `user_id` is whose
  * speed it is; `submitted_by` is the actor (the admin, for an on-behalf
@@ -178,6 +187,7 @@ export interface WpmSubmission {
 
 /** `GET /v1/admin/wpm-queue`'s row: the submission plus the names it joins. */
 export interface WpmQueueRow extends WpmSubmission {
+  review_version: number;
   layout_name: string;
   user_name: string | null;
 }
@@ -202,6 +212,7 @@ export interface CommentSubmission {
  * joins and `live_body`, the user's current approved text on that layout
  * (null for a first comment) so an edit can be shown as a diff. */
 export interface CommentQueueRow extends CommentSubmission {
+  review_version: number;
   layout_name: string;
   user_name: string | null;
   live_body: string | null;

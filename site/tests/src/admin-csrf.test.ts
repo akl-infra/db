@@ -217,3 +217,49 @@ describe("[SITE-45] comment calls hit the exact route/method/body", () => {
     expect(lastHeaders?.has("X-Requested-With")).toBe(false);
   });
 });
+
+describe("[SITE-46] versioned moderation and private history", () => {
+  for (const kind of ["Comment", "Wpm"] as const) {
+    it(`${kind}: reopen includes the displayed decision and review version`, async () => {
+      stubFetch();
+      await api[`adminReopen${kind}`]("sub 1", "approved", 3);
+      expect(lastUrl).toBe(`/api/v1/admin/${kind.toLowerCase()}-queue/sub%201/reopen`);
+      expect(lastMethod).toBe("POST");
+      expect(JSON.parse(lastBody!)).toEqual({ status: "approved", review_version: 3 });
+      expect(lastHeaders?.get("X-Requested-With")).toBe("akldb");
+      expect(lastHeaders?.has("If-Match")).toBe(false);
+      await api[`adminReopen${kind}`]("sub 1", "rejected", 0);
+      expect(JSON.parse(lastBody!)).toEqual({ status: "rejected", review_version: 0 });
+    });
+
+    it(`${kind}: approve and reject carry the current version after reopening`, async () => {
+      stubFetch();
+      await api[`adminApprove${kind}`]("sub 1", 4);
+      expect(lastUrl).toBe(`/api/v1/admin/${kind.toLowerCase()}-queue/sub%201/approve`);
+      expect(JSON.parse(lastBody!)).toEqual({ review_version: 4 });
+      await api[`adminReject${kind}`]("sub 1", "off topic", 4);
+      expect(lastUrl).toBe(`/api/v1/admin/${kind.toLowerCase()}-queue/sub%201/reject`);
+      expect(JSON.parse(lastBody!)).toEqual({ reason: "off topic", review_version: 4 });
+      await api[`adminReject${kind}`]("sub 1", undefined, 4);
+      expect(JSON.parse(lastBody!)).toEqual({ review_version: 4 });
+      expect(lastHeaders?.get("X-Requested-With")).toBe("akldb");
+    });
+
+    it(`${kind}: history is a private admin GET`, async () => {
+      stubFetch();
+      await api[`admin${kind}History`]("sub 1");
+      expect(lastUrl).toBe(`/api/v1/admin/${kind.toLowerCase()}-queue/sub%201/history`);
+      expect(lastMethod).toBe("GET");
+      expect(lastBody).toBeUndefined();
+      expect(lastHeaders?.has("If-Match")).toBe(false);
+      expect(lastHeaders?.has("X-Requested-With")).toBe(false);
+    });
+  }
+
+  it("returns a review conflict without retrying the mutation", async () => {
+    const fetcher = vi.fn(() => Promise.resolve(new Response(JSON.stringify({ error: "review_conflict" }), { status: 409 })));
+    vi.stubGlobal("fetch", fetcher);
+    expect(await api.adminReopenComment("old", "rejected", 2)).toEqual({ ok: false, status: 409, error: "review_conflict", message: undefined });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+});

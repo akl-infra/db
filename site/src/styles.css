@@ -1061,3 +1061,41 @@ h2 {
     padding: 4px 0 0;
   }
 }
+
+/* Review controls stay body-sized and wrap in the inbox's action cell. */
+.akl-reopen-confirm,
+.akl-actions .akl-inline-error,
+.akl-review-history {
+  white-space: normal;
+  min-width: 160px;
+  max-width: 320px;
+}
+.akl-reopen-confirm p {
+  margin: 0 0 8px;
+  font-size: inherit;
+}
+.akl-review-history {
+  margin-top: 8px;
+}
+.akl-review-history summary {
+  cursor: pointer;
+  color: var(--ink-muted);
+}
+.akl-review-history-list {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0;
+}
+.akl-review-history-list li + li {
+  margin-top: 8px;
+}
+
+@media (min-width: 561px) {
+  .akl-inbox .akl-review-status {
+    min-width: 140px;
+    white-space: normal;
+  }
+  .akl-inbox .akl-details {
+    min-width: 110px;
+  }
+}

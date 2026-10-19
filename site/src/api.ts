@@ -21,6 +21,7 @@ import type {
   CommentQueueRow,
   CommentSubmission,
   PublicComment,
+  ModerationHistoryEntry,
 } from "./lib/types.ts";
 
 export type ApiResult<T> = { ok: true; data: T } | { ok: false; status: number; error: string; message?: string };
@@ -234,13 +235,16 @@ export function adminRejectLink(id: string, reason?: string): Promise<ApiResult<
 export function adminWpmQueue(status = "pending"): Promise<ApiResult<{ submissions: WpmQueueRow[] }>> {
   return request(`/api/v1/admin/wpm-queue?status=${encodeURIComponent(status)}`);
 }
-export function adminApproveWpm(id: string): Promise<ApiResult<{ submission: WpmSubmission }>> {
-  return request(`/api/v1/admin/wpm-queue/${encodeURIComponent(id)}/approve`, { method: "POST" });
+export function adminApproveWpm(id: string, reviewVersion?: number): Promise<ApiResult<{ submission: WpmSubmission }>> {
+  return request(`/api/v1/admin/wpm-queue/${encodeURIComponent(id)}/approve`, {
+    method: "POST",
+    body: reviewVersion === undefined ? undefined : JSON.stringify({ review_version: reviewVersion }),
+  });
 }
-export function adminRejectWpm(id: string, reason?: string): Promise<ApiResult<{ submission: WpmSubmission }>> {
+export function adminRejectWpm(id: string, reason?: string, reviewVersion?: number): Promise<ApiResult<{ submission: WpmSubmission }>> {
   return request(`/api/v1/admin/wpm-queue/${encodeURIComponent(id)}/reject`, {
     method: "POST",
-    body: JSON.stringify({ reason }),
+    body: JSON.stringify({ reason, review_version: reviewVersion }),
   });
 }
 /** `POST /v1/admin/wpm`: an admin enters a speed on someone else's behalf;
@@ -251,13 +255,16 @@ export function adminSubmitWpm(body: { user_id: string; layout: string; wpm: num
 export function adminCommentQueue(status = "pending"): Promise<ApiResult<{ submissions: CommentQueueRow[] }>> {
   return request(`/api/v1/admin/comment-queue?status=${encodeURIComponent(status)}`);
 }
-export function adminApproveComment(id: string): Promise<ApiResult<{ submission: CommentSubmission }>> {
-  return request(`/api/v1/admin/comment-queue/${encodeURIComponent(id)}/approve`, { method: "POST" });
+export function adminApproveComment(id: string, reviewVersion?: number): Promise<ApiResult<{ submission: CommentSubmission }>> {
+  return request(`/api/v1/admin/comment-queue/${encodeURIComponent(id)}/approve`, {
+    method: "POST",
+    body: reviewVersion === undefined ? undefined : JSON.stringify({ review_version: reviewVersion }),
+  });
 }
-export function adminRejectComment(id: string, reason?: string): Promise<ApiResult<{ submission: CommentSubmission }>> {
+export function adminRejectComment(id: string, reason?: string, reviewVersion?: number): Promise<ApiResult<{ submission: CommentSubmission }>> {
   return request(`/api/v1/admin/comment-queue/${encodeURIComponent(id)}/reject`, {
     method: "POST",
-    body: JSON.stringify({ reason }),
+    body: JSON.stringify({ reason, review_version: reviewVersion }),
   });
 }
 /** `POST /v1/admin/comments/:id/remove`: takes an approved comment down; the
@@ -299,4 +306,24 @@ export function adminReactivateClient(id: string): Promise<ApiResult<ClientStatu
 // `If-Match` (client rows aren't rev'd the way layouts are, `SITE-14`).
 export function adminRevokeClient(id: string): Promise<ApiResult<ClientRevokeResult>> {
   return request(`/api/v1/admin/clients/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export function adminReopenWpm(id: string, status: "approved" | "rejected", reviewVersion: number): Promise<ApiResult<{ submission: WpmSubmission }>> {
+  return request(`/api/v1/admin/wpm-queue/${encodeURIComponent(id)}/reopen`, {
+    method: "POST",
+    body: JSON.stringify({ status, review_version: reviewVersion }),
+  });
+}
+export function adminWpmHistory(id: string): Promise<ApiResult<{ history: ModerationHistoryEntry[] }>> {
+  return request(`/api/v1/admin/wpm-queue/${encodeURIComponent(id)}/history`);
+}
+
+export function adminReopenComment(id: string, status: "approved" | "rejected", reviewVersion: number): Promise<ApiResult<{ submission: CommentSubmission }>> {
+  return request(`/api/v1/admin/comment-queue/${encodeURIComponent(id)}/reopen`, {
+    method: "POST",
+    body: JSON.stringify({ status, review_version: reviewVersion }),
+  });
+}
+export function adminCommentHistory(id: string): Promise<ApiResult<{ history: ModerationHistoryEntry[] }>> {
+  return request(`/api/v1/admin/comment-queue/${encodeURIComponent(id)}/history`);
 }

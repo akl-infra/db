@@ -19,6 +19,7 @@ function row(over: Partial<CommentQueueRow>): CommentQueueRow {
     via: "discord",
     submitted_at: "2026-10-18T00:00:00.000Z",
     status: "pending",
+    review_version: 0,
     decided_by: null,
     decided_at: null,
     reason: null,
@@ -47,6 +48,13 @@ describe("[SITE-44] Inbox comment details", () => {
     expect(html).not.toContain(copy.admin.inbox.readAll);
     expect(html).not.toContain("<del");
     expect(html).not.toContain("<ins");
+  });
+
+  it("an approved comment matching its live text is shown once, without a redundant diff", async () => {
+    const html = await details(row({ status: "approved", live_body: "Same comment text", body: "Same comment text" }));
+    expect(html.match(/Same comment text/g)).toHaveLength(1);
+    expect(html).not.toContain(copy.admin.inbox.commentCurrent);
+    expect(html).not.toContain(copy.admin.inbox.commentProposed);
   });
 
   it("a long first comment is collapsed behind Read all", async () => {
@@ -210,7 +218,7 @@ describe("[SITE-44] Inbox comment rows put the text on its own line", () => {
   it("InboxTab renders a second colspan row for a comment, and keeps the Details width off comment rows", async () => {
     const tab = await read("src/pages/admin/InboxTab.tsx");
     expect(tab).toContain('<tr class="akl-comment-row">');
-    expect(tab).toMatch(/<td colspan=\{status\(\) === "pending" \? 7 : 6\}>/);
+    expect(tab).toContain("<td colspan={7}>");
     expect(tab).toContain('class={item.kind === "comment" ? "akl-has-text" : undefined}');
   });
 

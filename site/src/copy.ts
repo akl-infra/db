@@ -131,6 +131,8 @@ export const copy = {
       wpm_submitted: "Speed submitted for review",
       wpm_approved: "Speed approved",
       wpm_rejected: "Speed rejected",
+      wpm_reopened: "Speed review reopened",
+      comment_reopened: "Comment review reopened",
     },
   },
   docs: {
@@ -274,6 +276,16 @@ curl --fail "${baseUrl}/v1/layouts?format=spark/1&full=1" \
       approve: "Approve",
       reject: "Reject",
       rejectReasonPrompt: "Reason (optional)",
+      reopen: "Reopen review",
+      reopenCommentConfirm: "Return to review? This comment will be hidden until approved again.",
+      reopenWpmConfirm: "Return to review? This record will be hidden until approved again. The next-best approved result may appear.",
+      reviewConflict: "This review changed or a newer submission exists. Refresh the inbox before trying again.",
+      refresh: "Refresh",
+      history: "History",
+      historyEmpty: "No decisions recorded",
+      historyLoadError: "Could not load the review history",
+      historyReopened: "Reopened",
+      loading: "Loading…",
     },
     // The Users tab stacks the three user-facing moderation sections.
     users: {

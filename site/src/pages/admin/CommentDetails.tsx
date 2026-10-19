@@ -7,7 +7,7 @@ import { clampParts, diffWords, sideOf, type DiffPart } from "../../lib/wordDiff
 /** An edit: the user already has an approved comment (`live_body`) and sent a
  * new text. */
 export function isCommentEdit(row: CommentQueueRow): boolean {
-  return row.live_body !== null && row.body !== null;
+  return row.live_body !== null && row.body !== null && row.live_body !== row.body;
 }
 
 /** A changed part that is only line breaks: drawn with a pilcrow so the change

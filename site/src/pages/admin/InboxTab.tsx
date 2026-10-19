@@ -11,6 +11,8 @@ import { authorName } from "../../lib/authorNames.ts";
 import AuthorRef from "../../ui/AuthorRef.tsx";
 import ProofLink from "../../ui/ProofLink.tsx";
 import CommentDetails, { isCommentEdit } from "./CommentDetails.tsx";
+import ReopenReview from "./ReopenReview.tsx";
+import ModerationHistory from "./ModerationHistory.tsx";
 import { onLinkClick } from "../../router.ts";
 
 const STATUSES: LinkSubmissionStatus[] = ["pending", "approved", "rejected", "superseded"];
@@ -72,12 +74,26 @@ const InboxTab: Component = () => {
   const [rejectReason, setRejectReason] = createSignal("");
   const [rowError, setRowError] = createSignal<{ id: string; message: string } | null>(null);
 
+  function refresh(): void {
+    setRejectOpenId(null);
+    setRejectReason("");
+    setRowError(null);
+    setRefreshTick((t) => t + 1);
+  }
+
+  function selectStatus(next: LinkSubmissionStatus): void {
+    setRejectOpenId(null);
+    setRejectReason("");
+    setRowError(null);
+    setStatus(next);
+  }
+
   async function approve(item: InboxItem): Promise<void> {
     setPendingId(item.id);
-    const result = item.kind === "link" ? await adminApproveLink(item.id) : item.kind === "wpm" ? await adminApproveWpm(item.id) : await adminApproveComment(item.id);
+    const result = item.kind === "link" ? await adminApproveLink(item.id) : item.kind === "wpm" ? await adminApproveWpm(item.id, item.row.review_version ?? 0) : await adminApproveComment(item.id, item.row.review_version ?? 0);
     setPendingId(null);
     if (!result.ok) {
-      setRowError({ id: item.id, message: result.message ?? result.error });
+      setRowError({ id: item.id, message: result.error === "review_conflict" ? copy.admin.inbox.reviewConflict : result.message ?? result.error });
       return;
     }
     setRowError(null);
@@ -87,10 +103,10 @@ const InboxTab: Component = () => {
   async function reject(item: InboxItem): Promise<void> {
     setPendingId(item.id);
     const reason = rejectReason().trim() || undefined;
-    const result = item.kind === "link" ? await adminRejectLink(item.id, reason) : item.kind === "wpm" ? await adminRejectWpm(item.id, reason) : await adminRejectComment(item.id, reason);
+    const result = item.kind === "link" ? await adminRejectLink(item.id, reason) : item.kind === "wpm" ? await adminRejectWpm(item.id, reason, item.row.review_version ?? 0) : await adminRejectComment(item.id, reason, item.row.review_version ?? 0);
     setPendingId(null);
     if (!result.ok) {
-      setRowError({ id: item.id, message: result.message ?? result.error });
+      setRowError({ id: item.id, message: result.error === "review_conflict" ? copy.admin.inbox.reviewConflict : result.message ?? result.error });
       return;
     }
     setRowError(null);
@@ -104,7 +120,7 @@ const InboxTab: Component = () => {
       <div class="akl-status-chips">
         <For each={STATUSES}>
           {(s) => (
-            <button aria-current={status() === s ? "true" : undefined} onClick={() => setStatus(s)}>
+            <button aria-current={status() === s ? "true" : undefined} onClick={() => selectStatus(s)}>
               {statusLabel(s)}
             </button>
           )}
@@ -116,7 +132,7 @@ const InboxTab: Component = () => {
       </Show>
       <Show when={!inbox.loading() && !inbox.error() && !loadError()}>
         <Show when={rows().length > 0} fallback={<div class="akl-empty">{copy.admin.inbox.empty}</div>}>
-          <table class="akl-table">
+          <table class="akl-table akl-inbox">
             <thead>
               <tr>
                 <th>{copy.admin.inbox.colKind}</th>
@@ -125,9 +141,7 @@ const InboxTab: Component = () => {
                 <th>{copy.admin.inbox.colDetails}</th>
                 <th>{copy.admin.inbox.colSubmittedAt}</th>
                 <th>{copy.admin.inbox.colStatus}</th>
-                <Show when={status() === "pending"}>
-                  <th />
-                </Show>
+                <th />
               </tr>
             </thead>
             <tbody>
@@ -159,13 +173,13 @@ const InboxTab: Component = () => {
                           )}
                         </Show>
                         <Show when={item.kind === "comment" ? item.row : null} keyed>
-                          {(c) => <span class="akl-badge">{isCommentEdit(c) ? copy.admin.inbox.commentEdit : copy.admin.inbox.commentNew}</span>}
+                          {(c) => <Show when={item.status === "pending"}><span class="akl-badge">{isCommentEdit(c) ? copy.admin.inbox.commentEdit : copy.admin.inbox.commentNew}</span></Show>}
                         </Show>
                       </td>
                       <td class="akl-nowrap" data-col={copy.admin.inbox.colSubmittedAt} title={item.submitted_at}>
                         {formatWhen(item.submitted_at)}
                       </td>
-                      <td class="akl-nowrap" data-col={copy.admin.inbox.colStatus}>
+                      <td class="akl-review-status" data-col={copy.admin.inbox.colStatus}>
                         {statusLabel(item.status)}
                         <Show when={item.status !== "pending" && item.row.decided_at}>
                           {(at) => (
@@ -183,7 +197,6 @@ const InboxTab: Component = () => {
                           )}
                         </Show>
                       </td>
-                      <Show when={status() === "pending"}>
                       <td class="akl-actions">
                         <Show when={item.status === "pending"}>
                           <div class="akl-action-row">
@@ -213,16 +226,19 @@ const InboxTab: Component = () => {
                             </Show>
                           </div>
                         </Show>
+                        <ReopenReview item={item} onReopened={() => { selectStatus("pending"); refresh(); }} onRefresh={refresh} />
+                        <Show when={item.kind !== "link"}>
+                          <ModerationHistory kind={item.kind === "comment" ? "comment" : "wpm"} id={item.id} />
+                        </Show>
                         <Show when={rowError()?.id === item.id}>
-                          <span class="akl-inline-error">{rowError()?.message}</span>
+                          <span class="akl-inline-error" role="alert">{rowError()?.message}{" "}<button class="akl-btn-ghost" onClick={refresh}>{copy.admin.inbox.refresh}</button></span>
                         </Show>
                       </td>
-                      </Show>
                     </tr>
                     <Show when={item.kind === "comment" ? item.row : null} keyed>
                       {(c) => (
                         <tr class="akl-comment-row">
-                          <td colspan={status() === "pending" ? 7 : 6}>
+                          <td colspan={7}>
                             <CommentDetails row={c} />
                           </td>
                         </tr>
