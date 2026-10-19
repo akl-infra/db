@@ -86,6 +86,10 @@ function statusText(state: QueueStatus): string {
   return clipUtf16(state.decider_name === null ? `**${label}**` : `**${label}** · by ${escapeMarkdown(state.decider_name)}`, 180);
 }
 
+function commentStatusLabel(status: QueueStatus["status"]): string {
+  return status === "rejected" ? "Denied" : status[0]!.toUpperCase() + status.slice(1);
+}
+
 function actionRow(kind: QueueKind, id: string, actionsEnabled: boolean): Record<string, unknown> {
   return {
     type: 1,
@@ -102,8 +106,10 @@ function actionRow(kind: QueueKind, id: string, actionsEnabled: boolean): Record
 
 /** Full escaped preview if it fits the card; otherwise a plain-text file with
  * the exact complete text. `maxInlineUnits` includes labels and markdown. */
-export function formatCommentText(body: string, liveBody: string | null, maxInlineUnits: number): { inline: string; attachmentText?: string } {
-  const inline = liveBody === null
+export function formatCommentText(body: string, liveBody: string | null, maxInlineUnits: number, contentFirst = false): { inline: string; attachmentText?: string } {
+  const inline = contentFirst
+    ? `${escapeMarkdown(body)}${liveBody === null ? "" : `\n\n-# Previous version\n${escapeMarkdown(liveBody)}`}`
+    : liveBody === null
     ? `**Comment**\n${escapeMarkdown(body)}`
     : `**Before**\n${escapeMarkdown(liveBody)}\n\n**After**\n${escapeMarkdown(body)}`;
   if (inline.length <= maxInlineUnits) return { inline };
@@ -122,7 +128,12 @@ function payload(kind: QueueKind, id: string, title: string, metadata: string, b
     components: [{
       type: 17,
       id: 41000,
-      components: [
+      components: kind === "comment" ? [
+        { type: 10, id: COMPONENT_BODY_ID, content: body },
+        ...(file === undefined ? [] : [{ type: 13, id: COMPONENT_FILE_ID, file: { url: `attachment://${file.filename}` } }]),
+        { type: 10, id: COMPONENT_METADATA_ID, content: metadata },
+        actionRow(kind, id, actionsEnabled),
+      ] : [
         { type: 10, id: COMPONENT_TITLE_ID, content: title },
         { type: 10, id: COMPONENT_METADATA_ID, content: metadata },
         { type: 14, id: COMPONENT_BODY_SEPARATOR_ID, divider: true, spacing: 1 },
@@ -160,14 +171,13 @@ export function buildV2Payload(kind: QueueKind, candidate: LinkCardData | WpmCar
   }
   const c = candidate as CommentCardData;
   const who = clipUtf16(escapeMarkdown(c.user_name ?? c.user_id), 120);
-  const title = `## Comment on ${layoutLink(c.layout_id, c.layout_name)}`;
-  const metadata = `Submitted by **${who}** · Comment · Submission \`${c.id}\``;
-  // Keep headroom for the status TextDisplay added when a decision arrives.
-  const formatted = formatCommentText(c.body, c.live_body, MAX_COMPONENT_TEXT_UNITS - STATUS_TEXT_RESERVE - title.length - metadata.length);
+  const metadata = `-# (Pending) ${c.live_body === null ? "New" : "Edited"} comment on ${layoutLink(c.layout_id, c.layout_name)} by ${who}`;
+  // Keep headroom for a longer status label when a decision arrives.
+  const formatted = formatCommentText(c.body, c.live_body, MAX_COMPONENT_TEXT_UNITS - STATUS_TEXT_RESERVE - metadata.length, true);
   const file = formatted.attachmentText === undefined ? undefined : {
     filename: `comment-${c.id}.txt`, content: formatted.attachmentText, description: "Complete comment text before and after the edit",
   };
-  return payload(kind, c.id, title, metadata, formatted.inline, actionsEnabled, file);
+  return payload(kind, c.id, "", metadata, formatted.inline, actionsEnabled, file);
 }
 
 export function buildV2StatusPatch(current: unknown, kind: QueueKind, id: string, state: QueueStatus): Record<string, unknown> | null {
@@ -179,6 +189,13 @@ export function buildV2StatusPatch(current: unknown, kind: QueueKind, id: string
     if (Array.isArray(component)) return component.map(patch).filter((item) => item !== null);
     if (component === null || typeof component !== "object") return component;
     const row = component as Record<string, unknown>;
+    // New compact cards keep state in their single context line. Older cards
+    // still use their dedicated status component and retain that format.
+    if (kind === "comment" && row.type === 10 && row.id === COMPONENT_METADATA_ID &&
+        typeof row.content === "string" && /^-# \((?:Pending|Approved|Denied|Superseded|Replaced|Deleted|Removed)\) /.test(row.content)) {
+      foundStatus = true;
+      return { ...row, content: row.content.replace(/^-# \([^)]*\)/, `-# (${commentStatusLabel(state.status)})`) };
+    }
     if (row.type === 10 && row.id === COMPONENT_STATUS_ID) {
       foundStatus = true;
       return { ...row, content: statusText(state) };

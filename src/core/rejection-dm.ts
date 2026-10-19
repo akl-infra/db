@@ -101,12 +101,14 @@ export function buildRejectionDmMessage(input: {
   const context = safeText(input.context, 500);
   const reason = input.reason === null || input.reason.trim() === "" ? "No reason was provided." : safeText(input.reason, 500);
   const url = safeUrl(input.layoutUrl);
-  const summary = `Your ${label} submission for ${name} was not approved.\n${context}\nReason: ${reason}\nLayout: ${url}`;
+  const summary = input.kind === "comment"
+    ? `Not approved · ${reason}\n${url}`
+    : `Your ${label} submission for ${name} was not approved.\n${context}\nReason: ${reason}\nLayout: ${url}`;
   if (input.kind !== "comment") return { payload: { content: summary, allowed_mentions: { parse: [] } } };
 
   if (typeof input.commentBody !== "string") throw new Error("eligible rejected comment body is unavailable");
   const escapedBody = escapedMarkdownTokens(input.commentBody);
-  const fullText = `${summary}\n\nRejected comment:\n${escapedBody.join("")}`;
+  const fullText = `${escapedBody.join("")}\n\n${summary}`;
   if (countCharacters(fullText) <= 4000) {
     return {
       payload: {
@@ -120,8 +122,8 @@ export function buildRejectionDmMessage(input: {
     payload: {
       flags: 1 << 15,
       components: [
-        { type: 10, content: `${summary}\n\nThe complete comment is attached as rejected-comment.txt.` },
         { type: 13, file: { url: "attachment://rejected-comment.txt" } },
+        { type: 10, content: summary },
       ],
       attachments: [{ id: 0, filename: "rejected-comment.txt" }],
       allowed_mentions: { parse: [] },
@@ -152,9 +154,8 @@ function countCharacters(value: string): number {
 
 function chunkTextDisplays(summary: string, bodyTokens: string[]): Array<{ type: 10; content: string }> {
   const components: Array<{ type: 10; content: string }> = [];
-  const prefix = `${summary}\n\nRejected comment:\n`;
-  let chunk = prefix;
-  let length = countCharacters(prefix);
+  let chunk = "";
+  let length = 0;
   for (const token of bodyTokens) {
     const size = countCharacters(token);
     if (length + size > 1800 && chunk !== "") {
@@ -166,6 +167,7 @@ function chunkTextDisplays(summary: string, bodyTokens: string[]): Array<{ type:
     length += size;
   }
   if (chunk !== "") components.push({ type: 10, content: chunk });
+  components.push({ type: 10, content: summary });
   return components;
 }
 

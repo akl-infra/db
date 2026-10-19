@@ -202,7 +202,7 @@ describe("[LDB-MD18] rejection DM outbox", () => {
     const textContent = (payload: Record<string, unknown>) => (payload.components as Array<{ content?: string }> | undefined)?.map((component) => component.content ?? "").join("") ?? String(payload.content);
     expect(textContent(payloads[0]!)).not.toContain("@everyone");
     expect(textContent(payloads[0]!)).not.toContain("*this*");
-    expect(textContent(payloads[0]!)).toContain("Reason:");
+    expect(textContent(payloads[0]!)).toContain("Not approved ·");
     expect(textContent(payloads[0]!)).toContain("https://akldb.org/l/");
     expect((await outbox(ids.comment))?.status).toBe("sent");
 
@@ -272,9 +272,9 @@ describe("[LDB-MD18] rejection DM outbox", () => {
     expect(rendered.attachmentText).toBeUndefined();
     const components = rendered.payload.components ?? [];
     const joined = components.map((component) => String(component.content ?? "")).join("");
-    expect(joined).toContain("Rejected comment:");
+    expect(joined).not.toContain("Rejected comment:");
     expect(joined).toContain("\\*emoji 😅 \\[link\\]\\(x\\) @everyone\\_");
-    expect(joined).toContain("Reason: Please revise");
+    expect(joined).toContain("Not approved · Please revise");
     expect(Array.from(joined).length).toBeLessThanOrEqual(4000);
     expect(components.every((component) => Array.from(String(component.content)).length <= 1800)).toBe(true);
     expect(rendered.payload.allowed_mentions).toEqual({ parse: [] });
@@ -300,7 +300,20 @@ describe("[LDB-MD18] rejection DM outbox", () => {
     expect(rendered.payload.components).toHaveLength(2);
     expect(rendered.payload.attachments).toEqual([{ id: 0, filename: "rejected-comment.txt" }]);
     expect(rendered.attachmentText).toBe(body);
-    expect(rendered.payload.components?.[0]?.content).toContain("complete comment is attached");
-    expect(Array.from(String(rendered.payload.components?.[0]?.content)).length).toBeLessThanOrEqual(1800);
+    expect(rendered.payload.components?.[0]).toEqual({ type: 13, file: { url: "attachment://rejected-comment.txt" } });
+    expect(String(rendered.payload.components?.[1]?.content)).toBe("Not approved · No reason was provided.\nhttps://akldb.org/l/test");
+  });
+
+  it("[LDB-MD18] leads with the comment and includes only the decision, reason and layout link", () => {
+    const body = "These layouts were part of a rollmaxxing test, do not use.";
+    const rendered = buildRejectionDmMessage({
+      kind: "comment", layoutName: "bemboo10", layoutUrl: "https://akldb.org/l/01M2CZ670ZTQMT2YQQR7ATH0J6",
+      reason: "off topic", context: "Comment submission", commentBody: body,
+    });
+    expect(rendered.payload.components).toEqual([
+      { type: 10, content: body },
+      { type: 10, content: "Not approved · off topic\nhttps://akldb.org/l/01M2CZ670ZTQMT2YQQR7ATH0J6" },
+    ]);
+    expect(rendered.payload.allowed_mentions).toEqual({ parse: [] });
   });
 });

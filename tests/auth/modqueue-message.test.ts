@@ -78,9 +78,8 @@ describe("[LDB-MD15] Components V2 mod-queue message", () => {
       user_name: "reeve_",
     });
     const body = nested(comment.components as unknown[]).find((c) => c.type === 10 && c.id === 41004)?.content as string;
-    expect(body).toContain("**Before**");
+    expect(body).toBe("\\*new\\* text\n\n-# Previous version\nold \\[text\\]");
     expect(body).toContain("old \\[text\\]");
-    expect(body).toContain("**After**");
     expect(body).toContain("\\*new\\* text");
 
     const bounded = buildV2Payload("comment", {
@@ -118,6 +117,31 @@ describe("[LDB-MD15] Components V2 mod-queue message", () => {
     for (const text of hostileText) expect(/[\uD800-\uDBFF]$/.test(text)).toBe(false);
     const hostileFile = (hostile.__files as { content: string }[])[0]!.content;
     expect(hostileFile).toBe(`BEFORE\n\n${"\\".repeat(2000)}\n\nAFTER\n\n${"\\".repeat(2000) + "😀".repeat(1000)}`);
+  });
+
+  it("[LDB-MD15] keeps the comment first and metadata compact before and after each decision", () => {
+    const id = "01ARZ3NDEKTSV4RRFFQ69G5FAB";
+    const initial = buildV2Payload("comment", {
+      id, layout_id: "01BX5ZZKBKACTAV9WEVGEMMVRY", user_id: "900000000000000003",
+      body: "These layouts were part of a rollmaxxing test, do not use.", live_body: null,
+      layout_name: "bemboo10", user_name: "deeroh",
+    });
+    for (const status of ["pending", "approved", "rejected", "superseded", "removed"] as const) {
+      const card = status === "pending" ? initial : buildV2StatusPatch(initial, "comment", id, { status, decider_name: "deeroh" })!;
+      const text = nested(card.components as unknown[]).filter((c) => c.type === 10).map((c) => c.content as string);
+      expect(text[0]).toBe("These layouts were part of a rollmaxxing test, do not use.");
+      const label = status === "rejected" ? "Denied" : status[0]!.toUpperCase() + status.slice(1);
+      expect(text[1]).toBe(`-# (${label}) New comment on [bemboo10](<https://akldb.org/l/01BX5ZZKBKACTAV9WEVGEMMVRY>) by deeroh`);
+      expect(nested(card.components as unknown[]).some((c) => c.type === 14)).toBe(false);
+      expect(text.join("\n")).not.toContain(id);
+      expect(text.some((value) => /^#{1,3} /m.test(value))).toBe(false);
+      expect(text.join("\n")).not.toContain("**Comment**");
+      if (status !== "pending") {
+        expect(text).toHaveLength(2);
+        const again = buildV2StatusPatch(card, "comment", id, { status, decider_name: "deeroh" });
+        expect(again).toEqual(card);
+      }
+    }
   });
 
   it("[LDB-MD15] edits only the controlled status and moderation buttons, preserving other components without content", () => {
