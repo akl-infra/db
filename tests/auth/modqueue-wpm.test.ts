@@ -11,6 +11,7 @@ import { commitWrite, type CommitInput } from "../../src/core/events";
 import { buildMessageContent, buildWpmMessageContent, notifyPending, updateQueueNotification } from "../../src/core/modqueue";
 import { fixedClock } from "../../src/core/time";
 import { actorFixture, register } from "../api/write-support";
+import { buildV2StatusPatch } from "../../src/core/modqueue-message";
 
 const bindings = env as unknown as Bindings;
 const db = bindings.DB;
@@ -337,5 +338,157 @@ describe("[LDB-MD21] WPM notification review versions", () => {
     expect(JSON.stringify(patched)).toContain(`aklmod2|wpm|approve|${id}|2`);
     expect(await db.prepare("SELECT shown_status, shown_review_version FROM modqueue_notifications WHERE submission_id = ?").bind(id).first())
       .toEqual({ shown_status: "pending", shown_review_version: 2 });
+  });
+});
+
+describe("WPM inline proofs", () => {
+  const sourceChannel = "900000000000000701";
+  const sourceMessage = "900000000000000702";
+  const proof = `https://discord.com/channels/900000000000000700/${sourceChannel}/${sourceMessage}`;
+  const cdn = `https://cdn.discordapp.com/attachments/${sourceChannel}/900000000000000703/proof.png?ex=123&hm=456`;
+  const png = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3]);
+  const config = (): Bindings => ({ ...bindings, MODQUEUE_DISCORD_WEBHOOK: undefined, MODQUEUE_DISCORD_CARDS: "true",
+    MODQUEUE_DISCORD_ACTIONS: "true", MODQUEUE_DISCORD_BOT_TOKEN: "test-bot", MODQUEUE_DISCORD_CHANNEL_ID: "900000000000000704" });
+
+  it("[LDB-WPM13] uploads a cross-server image once after claiming, and every review transition preserves the same snapshot", async () => {
+    const layoutId = await freshLayout(uniqueName("proof-snapshot"));
+    const id = await insertWpm({ layoutId, userId: "900000000000000705", proof });
+    let remote: Record<string, unknown> = {};
+    let reads = 0, downloads = 0, posts = 0;
+    let uploaded: Uint8Array | undefined;
+    const fetchImpl: typeof fetch = async (input, init) => {
+      const url = String(input);
+      if (url.endsWith(`/channels/${sourceChannel}/messages/${sourceMessage}`)) {
+        reads++;
+        return Response.json({ id: sourceMessage, channel_id: sourceChannel, attachments: [{ url: cdn, filename: "proof.png", content_type: "image/png", size: png.length }] });
+      }
+      if (url === cdn) { downloads++; return new Response(png, { headers: { "content-type": "image/png" } }); }
+      if (init?.method === "POST") {
+        posts++;
+        expect(init.body).toBeInstanceOf(FormData);
+        const form = init.body as FormData;
+        remote = JSON.parse(String(form.get("payload_json")));
+        expect(remote).not.toHaveProperty("__files");
+        const file = form.get("files[0]") as File;
+        expect(file.name).toBe("wpm-proof-1.png");
+        expect(file.type).toBe("image/png");
+        uploaded = new Uint8Array(await file.arrayBuffer());
+        remote.attachments = [{ id: "900000000000000706", filename: file.name }];
+        return Response.json({ id: "900000000000000707" });
+      }
+      if (init?.method === "GET") return Response.json(remote);
+      const patch = JSON.parse(String(init?.body));
+      remote = { ...remote, ...patch };
+      return Response.json(remote);
+    };
+    await Promise.all([notifyPending(db, config(), clock, fetchImpl), notifyPending(db, config(), clock, fetchImpl)]);
+    expect(uploaded).toEqual(png);
+    expect(JSON.stringify(remote)).toContain("attachment://wpm-proof-1.png");
+    expect(JSON.stringify(remote)).toContain(proof);
+    expect(await db.prepare("SELECT proof FROM wpm_submissions WHERE id = ?").bind(id).first()).toEqual({ proof });
+    for (const [status, version] of [["approved", 0], ["pending", 1], ["rejected", 1], ["superseded", 1]] as const) {
+      await db.prepare("UPDATE wpm_submissions SET status = ?, review_version = ? WHERE id = ?").bind(status, version, id).run();
+      await updateQueueNotification(db, config(), "wpm", id, fetchImpl);
+      expect(remote.attachments).toEqual([{ id: "900000000000000706", filename: "wpm-proof-1.png" }]);
+      expect(JSON.stringify(remote)).toContain("attachment://wpm-proof-1.png");
+    }
+    await notifyPending(db, config(), clock, fetchImpl);
+    expect({ reads, downloads, posts }).toEqual({ reads: 1, downloads: 1, posts: 1 });
+
+    // Real Discord responses may list inline uploads only on media objects.
+    const mediaOnly = { ...remote, attachments: [], components: [{ type: 17, id: 41000, components: [
+      { type: 12, id: 41010, items: [{ media: { url: cdn, attachment_id: "900000000000000706" } }] },
+    ] }] };
+    const patch = buildV2StatusPatch(mediaOnly, "wpm", id, { status: "approved", decider_name: null });
+    expect(patch?.attachments).toEqual([{ id: "900000000000000706" }]);
+  });
+
+  it("[LDB-WPM13] preview lookup and rejected upload failures still post a useful link-only card", async () => {
+    const layoutId = await freshLayout(uniqueName("proof-fallback"));
+    for (const failure of ["read", 400, 403, 413] as const) {
+      const id = await insertWpm({ layoutId, userId: failure === "read" ? "900000000000000710" : `900000000000000${failure}`, proof });
+      let posted: Record<string, unknown> = {};
+      let posts = 0;
+      const fetchImpl: typeof fetch = async (input, init) => {
+        if (String(input).endsWith(`/messages/${sourceMessage}`)) {
+          return failure === "read" ? new Response(null, { status: 403 })
+            : Response.json({ id: sourceMessage, channel_id: sourceChannel, attachments: [{ url: cdn, content_type: "image/png" }] });
+        }
+        if (String(input) === cdn) return new Response(png, { headers: { "content-type": "image/png" } });
+        if (init?.method === "POST") {
+          posts++;
+          if (init.body instanceof FormData) return new Response(null, { status: failure === "read" ? 500 : failure });
+          posted = JSON.parse(String(init.body));
+          return Response.json({ id: failure === "read" ? "900000000000000712" : `900000000000001${failure}` });
+        }
+        throw new Error("Unexpected request");
+      };
+      await notifyPending(db, config(), clock, fetchImpl);
+      expect(JSON.stringify(posted)).toContain(proof);
+      expect(JSON.stringify(posted)).toContain("Image preview unavailable");
+      expect(JSON.stringify(posted)).toContain(`approve|${id}|0`);
+      expect(posts).toBe(failure === "read" ? 1 : 2);
+      expect((await readWpm(id)).notified_at).not.toBeNull();
+    }
+  });
+
+  it("[LDB-WPM14] a refused YouTube thumbnail falls back to the Watch link without losing the submission", async () => {
+    const layoutId = await freshLayout(uniqueName("youtube-fallback"));
+    const proof = "https://youtu.be/aBcD_123-45?t=80";
+    const id = await insertWpm({ layoutId, userId: "900000000000000725", proof });
+    const posts: Record<string, unknown>[] = [];
+    const fetchImpl: typeof fetch = async (_input, init) => {
+      expect(init?.method).toBe("POST");
+      const body = JSON.parse(String(init?.body));
+      posts.push(body);
+      return posts.length === 1 ? new Response(null, { status: 400 }) : Response.json({ id: "900000000000000726" });
+    };
+    await notifyPending(db, config(), clock, fetchImpl);
+    expect(posts).toHaveLength(2);
+    expect(JSON.stringify(posts[0])).toContain("hqdefault.jpg");
+    expect(JSON.stringify(posts[1])).not.toContain("hqdefault.jpg");
+    expect(JSON.stringify(posts[1])).toContain("Watch on YouTube");
+    expect(JSON.stringify(posts[1])).toContain(proof);
+    expect((await readWpm(id)).notified_at).not.toBeNull();
+  });
+
+  it("[LDB-WPM14] YouTube stays one V2 card with a thumbnail and Watch link through decisions and reopening", async () => {
+    const layoutId = await freshLayout(uniqueName("proof-youtube"));
+    const proof = "https://youtu.be/aBcD_123-45?t=80&si=tracking";
+    const id = await insertWpm({ layoutId, userId: "900000000000000720", proof });
+    let remote: Record<string, unknown> = {};
+    let posts = 0;
+    const fetchImpl: typeof fetch = async (input, init) => {
+      expect(String(input)).toContain(`/channels/${config().MODQUEUE_DISCORD_CHANNEL_ID}/messages`);
+      if (init?.method === "GET") return Response.json(remote);
+      const body = JSON.parse(String(init?.body));
+      expect(body).not.toHaveProperty("embeds");
+      expect(body).not.toHaveProperty("content");
+      expect(body.flags).toBe(32768);
+      if (init?.method === "POST") posts++;
+      remote = { ...remote, ...body };
+      return Response.json({ id: "900000000000000721" });
+    };
+    await notifyPending(db, config(), clock, fetchImpl);
+    const checkPreview = () => {
+      expect(JSON.stringify(remote)).toContain("https://i.ytimg.com/vi/aBcD_123-45/hqdefault.jpg");
+      expect(JSON.stringify(remote)).toContain("[Watch on YouTube](<https://www.youtube.com/watch?v=aBcD_123-45&t=80>)");
+      expect(JSON.stringify(remote)).toContain(proof);
+      expect(remote.allowed_mentions).toEqual({ parse: [] });
+    };
+    checkPreview();
+    expect(await db.prepare("SELECT message_format, transport FROM modqueue_notifications WHERE submission_id = ?").bind(id).first())
+      .toEqual({ message_format: "components_v2", transport: "bot" });
+    for (const [status, version] of [["rejected", 0], ["pending", 1], ["approved", 1]] as const) {
+      await db.prepare("UPDATE wpm_submissions SET status = ?, review_version = ?, reason = 'Wrong layout' WHERE id = ?").bind(status, version, id).run();
+      await updateQueueNotification(db, config(), "wpm", id, fetchImpl);
+      checkPreview();
+      const controls = JSON.stringify(remote.components);
+      expect(controls).toContain(`${status === "pending" ? "approve" : `reopen-${status}`}|${id}|${version}`);
+      if (status === "rejected") expect(controls).toContain("**Reason:** Wrong layout");
+      else expect(controls).not.toContain("Wrong layout");
+    }
+    await notifyPending(db, config(), clock, fetchImpl);
+    expect(posts).toBe(1);
   });
 });

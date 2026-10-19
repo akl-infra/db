@@ -31,11 +31,51 @@ not included in the public dump.
 
 ## Why
 
+### Discord proof previews
+
+The background notifier enriches new WPM moderation messages after claiming
+the submission. A Discord message link is resolved using the dedicated akldb
+bot; supported image attachments are downloaded and uploaded onto the queue
+message as a Media Gallery. Direct Discord attachment URLs also work while
+their signatures remain valid. The original proof URL stays in the database
+and in the message. No client wire format changes are needed.
+
+This is a best-effort snapshot at notification time, not a guaranteed archive
+at the instant of submission. Only HTTPS Discord API/CDN destinations are
+used, redirects are refused, and the bot token is sent only to the API.
+Downloads allow PNG/JPEG/GIF/WebP with matching file signatures, at most three
+images, 4 MiB each and 8 MiB total. Message metadata is capped at 256 KiB;
+one preview gets at most four seconds and all previews in one sweep share six
+seconds. Missing access, empty attachments (including missing Message Content
+Intent), expired URLs, unsupported files or size limits leave the original
+link usable and identify unavailable/partial previews. A definitive 400/413
+upload refusal (or 403 for missing upload permission) falls back to a link-only card; ambiguous/rate-limited posts
+retain the existing notification retry behavior.
+
+The images live only as attachments on the Discord moderation message. There
+is no new R2/D1 image archive, retention timer or public image API. Approving,
+denying, superseding or reopening preserves that same copy and never downloads
+the original again. Deleting the queue message loses this service's copy;
+Discord controls its own underlying storage. Existing queue messages are not
+backfilled. The stored proof URL is retained under the normal WPM history
+policy, which does not guarantee that its external content remains available.
+
+YouTube watch, share, shorts, live and embed URLs keep the Components V2 card
+with the video's thumbnail and an explicit “Watch on YouTube” link. Recognized
+timestamps are kept on the watch link; the original proof URL is kept too.
+The Worker makes no YouTube requests and archives neither thumbnails nor video.
+Discord displays YouTube's externally hosted thumbnail, which can change or
+become unavailable. If Discord refuses the preview, the notifier retries without
+the thumbnail and keeps the Watch link. Review status edits preserve the preview and normal controls.
+This is a thumbnail preview, not an inline video player.
+
+### Record policy
+
 - **Top speed only.** A leaderboard needs each person's best, not their
   history; deriving "best" on read (`NOT EXISTS` a better approved row) means
   approving a slower run later can never lower a record, and no second table
   has to be kept in step.
-- **Proof is kept forever.** Rows are never deleted and a rejected or
+- **The proof URL is kept forever.** Rows are never deleted and a rejected or
   superseded row stays queryable: a mod can always see what a record rested
   on, and a dispute can be re-read after the fact. `status` is the only thing
   that moves.

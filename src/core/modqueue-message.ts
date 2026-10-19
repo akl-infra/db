@@ -2,6 +2,7 @@
 // messages. Stable component IDs preserve content while the controlled action
 // row changes between pending decisions and version-bound reopening.
 import type { QueueKind } from "./modqueue";
+import type { ProofPreview } from "./modqueue-proof";
 
 export interface LinkCardData {
   id: string;
@@ -51,6 +52,8 @@ const COMPONENT_ACTIONS_ID = 41006;
 const COMPONENT_STATUS_SEPARATOR_ID = 41007;
 const COMPONENT_BODY_SEPARATOR_ID = 41008;
 const COMPONENT_FILE_ID = 41009;
+const COMPONENT_PROOF_MEDIA_ID = 41010;
+const COMPONENT_PROOF_NOTE_ID = 41011;
 export const DISCORD_COMPONENTS_V2_FLAG = 32768;
 const MAX_COMPONENT_TEXT_UNITS = 4000;
 // A decision may add a moderator and a 500-character reason (up to twice
@@ -58,6 +61,7 @@ const MAX_COMPONENT_TEXT_UNITS = 4000;
 const DECISION_STATUS_RESERVE = 1200;
 
 export interface TextFileAttachment { filename: string; content: string; description: string }
+export interface MessageFileAttachment { filename: string; content: string | Uint8Array; description: string; contentType?: string }
 
 function escapeMarkdown(value: string): string {
   return value.replace(/[\\`*_~|>#\[\]]/g, (ch) => `\\${ch}`);
@@ -144,7 +148,7 @@ export function formatCommentText(body: string, liveBody: string | null, maxInli
   return { inline: "Full comment text attached as a .txt file.", attachmentText };
 }
 
-function payload(kind: QueueKind, id: string, title: string, metadata: string, body: string, actionsEnabled: boolean, file?: TextFileAttachment, reviewVersion = 0): Record<string, unknown> {
+function payload(kind: QueueKind, id: string, title: string, metadata: string, body: string, actionsEnabled: boolean, file?: TextFileAttachment, reviewVersion = 0, preview?: ProofPreview): Record<string, unknown> {
   title = clipUtf16(title, 600);
   metadata = clipUtf16(metadata, 500);
   const result: Record<string, unknown> = {
@@ -157,6 +161,17 @@ function payload(kind: QueueKind, id: string, title: string, metadata: string, b
         { type: 10, id: COMPONENT_METADATA_ID, content: metadata },
         { type: 10, id: COMPONENT_BODY_ID, content: body },
         ...(file === undefined ? [] : [{ type: 13, id: COMPONENT_FILE_ID, file: { url: `attachment://${file.filename}` } }]),
+        ...(preview?.kind === "images" ? [{ type: 12, id: COMPONENT_PROOF_MEDIA_ID, items: preview.images.map((image) => ({
+          media: { url: `attachment://${image.filename}` }, description: image.description, spoiler: image.spoiler,
+        })) }] : []),
+        ...(preview?.kind === "youtube" ? [
+          ...(preview.thumbnailUrl ? [{ type: 12, id: COMPONENT_PROOF_MEDIA_ID, items: [{ media: { url: preview.thumbnailUrl }, description: "YouTube video thumbnail" }] }] : []),
+          { type: 10, id: COMPONENT_PROOF_NOTE_ID, content: `[Watch on YouTube](<${preview.videoUrl}>)` },
+        ] : []),
+        ...(preview?.kind === "unavailable" || (preview?.kind === "images" && preview.incomplete)
+          ? [{ type: 10, id: COMPONENT_PROOF_NOTE_ID, content: preview.kind === "unavailable"
+            ? "Image preview unavailable. Open the original proof link."
+            : "Some images could not be copied. Open the original proof link for the complete proof." }] : []),
         { type: 14, id: COMPONENT_SEPARATOR_ID, divider: true, spacing: 1 },
         actionRow(kind, id, actionsEnabled, { status: "pending", decider_name: null, review_version: reviewVersion }),
       ] : [
@@ -170,19 +185,20 @@ function payload(kind: QueueKind, id: string, title: string, metadata: string, b
       ],
     }],
   };
-  if (file !== undefined) {
-    result.attachments = [{ id: "0", filename: file.filename, description: file.description }];
+  const files: MessageFileAttachment[] = [...(file ? [file] : []), ...(preview?.kind === "images" ? preview.images : [])];
+  if (files.length) {
+    result.attachments = files.map((item, index) => ({ id: String(index), filename: item.filename, description: item.description }));
     // Internal-only upload metadata. The transport strips this before sending
-    // payload_json and uploads the exact text as multipart `files[0]`.
-    result.__files = [file];
+    // payload_json and uploads the exact bytes as multipart `files[n]`.
+    result.__files = files;
   }
   return result;
 }
 
 export function buildV2Payload(kind: "link", candidate: LinkCardData, actionsEnabled?: boolean): Record<string, unknown>;
-export function buildV2Payload(kind: "wpm", candidate: WpmCardData, actionsEnabled?: boolean): Record<string, unknown>;
+export function buildV2Payload(kind: "wpm", candidate: WpmCardData, actionsEnabled?: boolean, preview?: ProofPreview): Record<string, unknown>;
 export function buildV2Payload(kind: "comment", candidate: CommentCardData, actionsEnabled?: boolean): Record<string, unknown>;
-export function buildV2Payload(kind: QueueKind, candidate: LinkCardData | WpmCardData | CommentCardData, actionsEnabled = true): Record<string, unknown> {
+export function buildV2Payload(kind: QueueKind, candidate: LinkCardData | WpmCardData | CommentCardData, actionsEnabled = true, preview?: ProofPreview): Record<string, unknown> {
   if (kind === "link") {
     const c = candidate as LinkCardData;
     const who = clipUtf16(escapeMarkdown(c.submitter_name ?? c.submitted_by), 120);
@@ -197,11 +213,12 @@ export function buildV2Payload(kind: QueueKind, candidate: LinkCardData | WpmCar
     // target even inside its angle-bracket wrapper. Encode them as URL data.
     const proof = safeWrappedUrl(c.proof.replace(/[()\\]/g, (ch) => `%${ch.charCodeAt(0).toString(16).toUpperCase()}`));
     const body = `**${c.wpm} WPM** · [View proof](${proof})`;
-    const file = body.length + metadata.length + DECISION_STATUS_RESERVE <= MAX_COMPONENT_TEXT_UNITS ? undefined : {
+    const previewTextSize = preview?.kind === "youtube" ? preview.videoUrl.length + 30 : 100;
+    const file = body.length + metadata.length + DECISION_STATUS_RESERVE + previewTextSize <= MAX_COMPONENT_TEXT_UNITS ? undefined : {
       filename: `wpm-proof-${c.id}.txt`, content: c.proof, description: "Complete WPM proof URL",
     };
     return payload(kind, c.id, "", metadata, file === undefined ? body : `**${c.wpm} WPM** · Full proof URL attached.`,
-      actionsEnabled, file, c.review_version ?? 0);
+      actionsEnabled, file, c.review_version ?? 0, preview);
   }
   const c = candidate as CommentCardData;
   const who = escapeMarkdown(clipUtf16(inlineText(c.user_name ?? c.user_id), 60));
@@ -283,7 +300,20 @@ export function buildV2StatusPatch(current: unknown, kind: QueueKind, id: string
   if (!foundStatus) return null;
   const patchBody: Record<string, unknown> = { flags: DISCORD_COMPONENTS_V2_FLAG, components, allowed_mentions: { parse: [] } };
   if ("attachments" in current && Array.isArray(current.attachments)) {
-    patchBody.attachments = eraseCommentBody ? [] : current.attachments;
+    const attachments = [...current.attachments];
+    // Discord may expose an inline attachment on its media component rather
+    // than in the message's top-level attachments. An explicit PATCH list
+    // must keep those IDs too, or approving the card would erase its proof.
+    const retainMedia = (value: unknown): void => {
+      if (Array.isArray(value)) { value.forEach(retainMedia); return; }
+      if (!value || typeof value !== "object") return;
+      const row = value as Record<string, unknown>;
+      if (typeof row.attachment_id === "string" && /^\d{17,20}$/.test(row.attachment_id)
+        && !attachments.some((a) => a?.id === row.attachment_id)) attachments.push({ id: row.attachment_id });
+      Object.values(row).forEach(retainMedia);
+    };
+    retainMedia(components);
+    patchBody.attachments = eraseCommentBody ? [] : attachments;
   }
   return patchBody;
 }

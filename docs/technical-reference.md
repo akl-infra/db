@@ -218,6 +218,23 @@ enqueued and delivered. Existing tracked messages continue to use their
 recorded transport for status edits. Do not replace or revoke bot/webhook
 credentials needed to edit already tracked messages.
 
+WPM proof previews use this same dedicated **akldb bot**, not Spark's token.
+For Discord message proofs, install it in the source server and grant View
+Channel and Read Message History in the proof channel (including access to
+private threads, when applicable). Enable Message Content Intent on its Discord
+application, with approval if Discord requires it; the restriction applies to
+HTTP reads even though this Worker has no Gateway connection. The moderation
+channel needs Attach Files for image copies and Embed Links for previews.
+Missing source access still produces a queue card with the original proof link.
+
+Images are copied into new Components V2 queue messages, with bounded size/time,
+and retained through all review states. There is no scheduled image deletion or
+separate image archive; retention follows the Discord message. YouTube proofs
+keep the normal card layout with an externally hosted thumbnail and a Watch on
+YouTube link; the Worker does not fetch or archive YouTube media. Webhook-owned
+messages never gain moderation actions. See [WPM proof previews](decisions/28-wpm-records.md#discord-proof-previews)
+for limits, fallback behavior and retention details.
+
 ## Scheduled jobs
 
 ONE cron trigger, `*/5 * * * *` (`wrangler.toml`'s `[triggers]`), drives
