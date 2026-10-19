@@ -460,6 +460,7 @@ real examples in §4.
 | 400 | `invalid_comment` | *(caller-supplied -- this function's own `message` parameter)* | `invalidComment(message)` |
 | 409 | `magic_edited` | this record's magic was last written by ${client}; a seed never overwrites a person's edit | `magicEdited(client)` |
 | 429 | `rate_limited` | rate limit exceeded: ${limit} writes per ${windowSeconds}s | `rateLimited(limit, windowSeconds, retryAfter, scope)` |
+| 409 | `review_conflict` | This review has changed or can no longer be reopened. Refresh the queue. | `reviewConflict(id)` |
 <!-- END GENERATED ERROR TABLE -->
 
 Every route × status/code above has a frozen request/response fixture under

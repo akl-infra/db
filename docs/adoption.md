@@ -896,6 +896,7 @@ it as generated, not hand-edited):
 | 400 | `invalid_comment` | *(caller-supplied -- this function's own `message` parameter)* | `invalidComment(message)` |
 | 409 | `magic_edited` | this record's magic was last written by ${client}; a seed never overwrites a person's edit | `magicEdited(client)` |
 | 429 | `rate_limited` | rate limit exceeded: ${limit} writes per ${windowSeconds}s | `rateLimited(limit, windowSeconds, retryAfter, scope)` |
+| 409 | `review_conflict` | This review has changed or can no longer be reopened. Refresh the queue. | `reviewConflict(id)` |
 
 **Three more codes exist in the *format* layer**, not in the table above
 because they come from a format module's own `validate()`, not one of

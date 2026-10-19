@@ -165,9 +165,13 @@ const ENDPOINT_PURPOSES = {
   "GET /v1/admin/wpm-queue": "List WPM submissions awaiting moderation.",
   "POST /v1/admin/wpm-queue/:id/approve": "Approve a queued WPM submission.",
   "POST /v1/admin/wpm-queue/:id/reject": "Reject a queued WPM submission.",
+  "POST /v1/admin/wpm-queue/:id/reopen": "Return an approved or rejected WPM submission to pending review.",
+  "GET /v1/admin/wpm-queue/:id/history": "Read a WPM submission's private moderation history.",
   "GET /v1/admin/comment-queue": "List comments awaiting moderation, each with the user's current approved text.",
   "POST /v1/admin/comment-queue/:id/approve": "Approve a queued comment; it replaces that user's previous one.",
   "POST /v1/admin/comment-queue/:id/reject": "Reject a queued comment.",
+  "POST /v1/admin/comment-queue/:id/reopen": "Return an approved or rejected comment to pending review.",
+  "GET /v1/admin/comment-queue/:id/history": "Read a comment's private moderation history.",
   "POST /v1/admin/comments/:id/remove": "Take an approved comment down, with a reason the author can read.",
   "POST /discord/interactions": "Receive Discord-signed moderation button and modal interactions for bot-owned queue cards.",
 };
