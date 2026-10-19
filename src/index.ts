@@ -294,7 +294,7 @@ app.post("/discord/interactions", async (c) => {
   const response = await handleDiscordInteraction(c.req.raw, c.env, systemClock);
   if (response.status === 200) {
     const callback = await response.clone().json() as { type?: unknown };
-    // Both deferred replies (5) and deferred confirmation updates (6)
+    // Both legacy deferred replies (5) and silent component updates (6)
     // persist work that must run now; cron is only a recovery path.
     if (callback.type === 5 || callback.type === 6) c.executionCtx.waitUntil((async () => {
       await drainDiscordActions(c.env.DB, c.env, systemClock);

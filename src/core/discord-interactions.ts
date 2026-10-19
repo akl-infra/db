@@ -43,6 +43,7 @@ interface PendingAction {
   lease_until: string | null;
   lease_token: string | null;
   result?: string | null;
+  response_mode: "reply" | "update";
 }
 
 function configured(env: Bindings): boolean {
@@ -160,18 +161,9 @@ async function insertFailureResponse(db: Bindings["DB"], interactionId: string):
   return ephemeral("We could not safely queue this action. Please refresh the card and try again.");
 }
 
-function deferEphemeral(): Response {
-  return json({ type: 5, data: { flags: EPHEMERAL } });
-}
-
-function reopenConfirmation(confirmationId: string, kind: QueueKind): Response {
-  const content = kind === "comment"
-    ? "Reopen review? This hides the approved comment until it is approved again. Previous edited text is not restored."
-    : "Reopen review? This removes the approved WPM from public records until approved again. The next-best result may appear.";
-  return json({ type: 4, data: { content, flags: EPHEMERAL, allowed_mentions: { parse: [] }, components: [{ type: 1, components: [
-    { type: 2, style: 4, label: "Confirm", custom_id: `aklmod2|confirm|${confirmationId}` },
-    { type: 2, style: 2, label: "Cancel", custom_id: `aklmod2|cancel|${confirmationId}` },
-  ] }] } });
+// ACK a component (or its denial modal) without creating a private reply.
+function deferUpdate(): Response {
+  return json({ type: 6 });
 }
 
 function denyModal(modalId: string): Response {
@@ -186,17 +178,27 @@ function discordUrl(appId: string, token: string): string {
   return `${API}/webhooks/${encodeURIComponent(appId)}/${encodeURIComponent(token)}/messages/@original`;
 }
 
-async function editDeferredResponse(action: PendingAction, content: string, env: Bindings): Promise<"sent" | "retry" | "expired"> {
+async function finishInteraction(action: PendingAction, content: string | null, env: Bindings): Promise<"sent" | "retry" | "expired"> {
+  // A deferred update's @original is the shared queue card. Never PATCH or
+  // DELETE it to deliver a private outcome. Successful updates need no reply.
+  // Old completed jobs may still carry these success strings while retrying
+  // their pre-deploy reply. New jobs persist null on success.
+  const success = content === null || [
+    "Submission approved.", "Submission denied.", "Already approved.", "Already rejected.",
+    "Review reopened.", "Review reopened. The submission is pending again.",
+  ].includes(content);
+  if (action.response_mode === "update" && success) return "sent";
   if (action.token === "" || env.MODQUEUE_DISCORD_BOT_TOKEN === undefined || env.MODQUEUE_DISCORD_BOT_TOKEN === "") return "expired";
   try {
-    const response = await fetch(discordUrl(action.application_id, action.token), {
-      method: "PATCH",
+    const original = discordUrl(action.application_id, action.token);
+    const response = await fetch(action.response_mode === "update" ? original.replace(/\/messages\/@original$/, "") : original, {
+      method: action.response_mode === "update" ? "POST" : success ? "DELETE" : "PATCH",
       headers: { "Content-Type": "application/json", "User-Agent": USER_AGENT },
-      body: JSON.stringify({ content, components: [], allowed_mentions: { parse: [] } }),
+      body: success ? undefined : JSON.stringify({ content, components: [], allowed_mentions: { parse: [] }, ...(action.response_mode === "update" ? { flags: EPHEMERAL } : {}) }),
       signal: AbortSignal.timeout(5000),
     });
     if (response.ok) return "sent";
-    console.error(`discord interaction callback edit failed with status ${response.status}`);
+    console.error(`discord interaction callback failed with status ${response.status}`);
     if (response.status === 401 || response.status === 404) return "expired";
     return "retry";
   } catch {
@@ -211,7 +213,7 @@ async function submissionDecision(db: Bindings["DB"], action: PendingAction): Pr
     .first<{ status: string; decided_by: string | null; review_version: number }>();
 }
 
-async function performDecision(db: Bindings["DB"], env: Bindings, now: Clock, action: PendingAction): Promise<string> {
+async function performDecision(db: Bindings["DB"], env: Bindings, now: Clock, action: PendingAction): Promise<string | null> {
   const roles = await roleOf(db, action.actor_id); // fresh on each attempt
   if (!roles.admin || roles.banned) return "You no longer have permission to moderate this queue.";
   const author = await db.prepare("SELECT name FROM authors WHERE user_id = ?").bind(action.actor_id).first<{ name: string }>();
@@ -228,7 +230,7 @@ async function performDecision(db: Bindings["DB"], env: Bindings, now: Clock, ac
       .bind(action.kind, action.submission_id, before.review_version, action.actor_id).first() !== null;
     if (ownReopen) {
       await updateQueueNotification(db, env, action.kind, action.submission_id);
-      return "Review reopened.";
+      return null;
     }
     if (before.review_version !== action.expected_review_version || before.status !== action.expected_status) return "This card is stale. Refresh it before reopening.";
     try {
@@ -241,7 +243,7 @@ async function performDecision(db: Bindings["DB"], env: Bindings, now: Clock, ac
       return "This submission is no longer available to reopen.";
     }
     await updateQueueNotification(db, env, action.kind, action.submission_id);
-    return "Review reopened. The submission is pending again.";
+    return null;
   }
   if (before !== null && before.review_version !== action.expected_review_version) return "This review changed. Refresh the card before deciding.";
   const desired = action.action === "approve" ? "approved" : "rejected";
@@ -249,7 +251,7 @@ async function performDecision(db: Bindings["DB"], env: Bindings, now: Clock, ac
   if (before.status !== "pending") {
     if (before.status === desired && before.decided_by === action.actor_id) {
       await updateQueueNotification(db, env, action.kind, action.submission_id);
-      return `Already ${desired}.`;
+      return null;
     }
     return "This submission was already decided by someone else.";
   }
@@ -275,7 +277,7 @@ async function performDecision(db: Bindings["DB"], env: Bindings, now: Clock, ac
     else return "This submission is no longer available for that decision.";
   }
   await updateQueueNotification(db, env, action.kind, action.submission_id);
-  return action.action === "approve" ? "Submission approved." : "Submission denied.";
+  return null;
 }
 
 async function claimAction(db: Bindings["DB"], now: Clock, table: ActionTable): Promise<PendingAction | null> {
@@ -307,21 +309,21 @@ async function drainActionTable(db: Bindings["DB"], env: Bindings, now: Clock, t
         .bind(action.interaction_id, action.lease_token).run();
       continue;
     }
-    let result: string;
+    let result: string | null;
     try { result = await performDecision(db, env, now, action); }
     catch {
       await db.prepare(`UPDATE ${table} SET state = 'pending', lease_until = NULL, lease_token = NULL WHERE interaction_id = ? AND state = 'working' AND lease_token = ?`)
         .bind(action.interaction_id, action.lease_token).run();
       break; // do not spin on a transient DB/Discord failure in the same tick
     }
-    const callback = await editDeferredResponse(action, result, env);
+    const callback = await finishInteraction(action, result, env);
     await db.prepare(`UPDATE ${table} SET state = 'complete', result = ?, token = ?, lease_until = NULL, lease_token = NULL WHERE interaction_id = ? AND state = 'working' AND lease_token = ?`)
-      .bind(result.slice(0, 200), callback === "retry" ? action.token : "", action.interaction_id, action.lease_token).run();
+      .bind(result?.slice(0, 200) ?? null, callback === "retry" ? action.token : "", action.interaction_id, action.lease_token).run();
   }
   const callbacks = await db.prepare(`SELECT * FROM ${table} WHERE state = 'complete' AND token != '' AND expires_at > ?
     ORDER BY attempts ASC, created_at ASC LIMIT ?`).bind(now(), BATCH_LIMIT).all<PendingAction>();
   for (const action of callbacks.results) {
-    const callback = await editDeferredResponse(action, action.result ?? "Action complete.", env);
+    const callback = await finishInteraction(action, action.result ?? null, env);
     if (callback !== "retry") {
       await db.prepare(`UPDATE ${table} SET token = '' WHERE interaction_id = ? AND state = 'complete' AND token = ?`)
         .bind(action.interaction_id, action.token).run();
@@ -401,7 +403,8 @@ async function handleReopenConfirmation(interaction: Record<string, unknown>, en
     ]);
     if (result[0]?.meta.changes !== 1 || result[1]?.meta.changes !== 1) return ephemeral("This confirmation was already used.");
   } catch { return await insertFailureResponse(env.DB, interactionId); }
-  // Deferred update edits the private confirmation, removing its buttons when done.
+  // Compatibility for confirmations already issued before silent reopening: the
+  // default reply mode deletes this private prompt after success.
   return json({ type: 6 });
 }
 
@@ -435,18 +438,6 @@ export async function handleDiscordInteraction(request: Request, env: Bindings, 
     const roles = await roleOf(env.DB, user.id);
     if (!roles.admin || roles.banned) return ephemeral("You do not have permission to moderate this queue.");
     const nowIso = now();
-    if (target.action === "reopen" && target.status === "approved") {
-      const confirmationId = crypto.randomUUID();
-      const expiresAt = new Date(Date.parse(nowIso) + TOKEN_LIFETIME_SECONDS * 1000).toISOString();
-      try {
-        await env.DB.prepare(`INSERT INTO discord_reopen_confirmations
-          (confirmation_id, initial_interaction_id, actor_id, kind, submission_id, channel_id, message_id, guild_id, expected_status, expected_review_version, created_at, expires_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'approved', ?, ?, ?)`)
-          .bind(confirmationId, interactionId, user.id, target.kind, target.id, env.MODQUEUE_DISCORD_CHANNEL_ID, messageId,
-            env.MODQUEUE_DISCORD_GUILD_ID, target.review_version, nowIso, expiresAt).run();
-      } catch { return await insertFailureResponse(env.DB, interactionId); }
-      return reopenConfirmation(confirmationId, target.kind);
-    }
     if (target.action === "deny") {
       const modalId = crypto.randomUUID();
       const expiresAt = new Date(Date.parse(nowIso) + TOKEN_LIFETIME_SECONDS * 1000).toISOString();
@@ -460,11 +451,11 @@ export async function handleDiscordInteraction(request: Request, env: Bindings, 
     const expiresAt = new Date(Date.parse(nowIso) + TOKEN_LIFETIME_SECONDS * 1000).toISOString();
     const table: ActionTable = target.action === "reopen" ? "discord_reopen_actions" : "discord_pending_actions";
     try {
-      await env.DB.prepare(`INSERT INTO ${table} (interaction_id, application_id, token, actor_id, actor_name, kind, action, submission_id, reason, channel_id, message_id, guild_id, created_at, expires_at, expected_review_version${target.action === "reopen" ? ", expected_status" : ""})
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?${target.action === "reopen" ? ", ?" : ""})`)
+      await env.DB.prepare(`INSERT INTO ${table} (interaction_id, application_id, token, actor_id, actor_name, kind, action, submission_id, reason, channel_id, message_id, guild_id, created_at, expires_at, response_mode, expected_review_version${target.action === "reopen" ? ", expected_status" : ""})
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, 'update', ?${target.action === "reopen" ? ", ?" : ""})`)
         .bind(interactionId, env.MODQUEUE_DISCORD_APPLICATION_ID, token, user.id, user.username, target.kind, target.action, target.id, env.MODQUEUE_DISCORD_CHANNEL_ID, messageId, env.MODQUEUE_DISCORD_GUILD_ID, nowIso, expiresAt, target.review_version, ...(target.action === "reopen" ? [target.status] : [])).run();
     } catch { return await insertFailureResponse(env.DB, interactionId); }
-    return deferEphemeral();
+    return deferUpdate();
   }
 
   if (interaction.type === 5) {
@@ -486,14 +477,14 @@ export async function handleDiscordInteraction(request: Request, env: Bindings, 
       const result = await env.DB.batch([
         env.DB.prepare("UPDATE discord_deny_modals SET consumed_at = ?, consumed_interaction_id = ? WHERE modal_id = ? AND actor_id = ? AND expires_at > ? AND consumed_at IS NULL")
           .bind(nowIso, interactionId, modalId, user.id, nowIso),
-        env.DB.prepare(`INSERT INTO discord_pending_actions (interaction_id, application_id, token, actor_id, actor_name, kind, action, submission_id, reason, channel_id, message_id, guild_id, created_at, expires_at, expected_review_version)
-          SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE EXISTS
+        env.DB.prepare(`INSERT INTO discord_pending_actions (interaction_id, application_id, token, actor_id, actor_name, kind, action, submission_id, reason, channel_id, message_id, guild_id, created_at, expires_at, response_mode, expected_review_version)
+          SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'update', ? WHERE EXISTS
             (SELECT 1 FROM discord_deny_modals WHERE modal_id = ? AND consumed_interaction_id = ? AND actor_id = ?)`)
           .bind(interactionId, env.MODQUEUE_DISCORD_APPLICATION_ID, token, user.id, user.username, modal.kind, "deny", modal.submission_id, reason, modal.channel_id, modal.message_id, modal.guild_id, nowIso, expiresAt, modal.expected_review_version, modalId, interactionId, user.id),
       ]);
       if (result[0]?.meta.changes !== 1 || result[1]?.meta.changes !== 1) return ephemeral("This modal was already submitted.");
     } catch { return await insertFailureResponse(env.DB, interactionId); }
-    return deferEphemeral();
+    return deferUpdate();
   }
   return ephemeral("Unsupported interaction.");
 }

@@ -18,8 +18,9 @@ Reopening is a new moderation action. It never deletes or rewinds an event.
   removals are outside this operation. A new submission remains the way to
   submit revised content.
 
-Both interfaces ask for confirmation before reopening an approval because it
-withdraws published content. Reopening a rejection needs no extra confirmation.
+The site asks for confirmation before reopening an approval because it
+withdraws published content. Discord reopens approvals and rejections directly
+from the button, without a confirmation prompt or success reply.
 After success, the site returns to the pending queue and Discord updates the
 same message with Approve and Deny controls.
 
@@ -62,10 +63,16 @@ than replaying pending work. The public event log remains intact.
 
 ## Discord and submitter notifications
 
-Reopen confirmations bind the moderator, submission, version, status, message,
+Reopen actions bind the moderator, submission, version, status, message,
 channel, guild, and expiry. Deferred actions recheck the current role and review
 version when executing. Retrying a durable action must establish that its own
 decision committed, not merely find a similar decision by the same moderator.
+
+Approve, deny and reopen acknowledge Discord interactions silently. Successful
+actions update the shared card; only errors produce private replies. Stored
+response modes distinguish new silent acknowledgements from private replies
+already in flight, so cleanup can never delete the shared card. Previously
+issued confirmation prompts remain valid until their existing expiry.
 
 Message reconciliation tracks both status and review version. A sequence such
 as approved → pending → approved still requires an update to replace stale

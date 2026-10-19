@@ -76,3 +76,16 @@ The event log is append-only: `wpm_reopened` contains only the submission ID.
 Private decision history retains moderator, time and reason without entering
 public dumps. See [the API contract](../adoption.md#reopening-a-comment-or-wpm-decision-api-125)
 for the request shapes and delivery behavior.
+
+## Discord presentation
+
+WPM queue cards match comment cards: a normal-sized bold context line with the
+linked layout and submitter, then the speed and a View proof link. A divider
+separates the submission from its controls. Pending cards have no status label;
+approved and denied cards share an emoji decision footer with moderator and,
+for denials, the reason. Reopening restores Approve/Deny without a private
+confirmation or success message. Errors still appear privately.
+
+Escaped link targets and future decision text count toward the message budget.
+An unusually long escaped proof URL is attached intact rather than truncated.
+Older cards remain editable in their existing format.

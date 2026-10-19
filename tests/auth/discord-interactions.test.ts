@@ -136,7 +136,7 @@ describe("[LDB-MD16] Discord HTTP interaction adapter", () => {
       custom_id: `aklmod1|link|approve|${submissionId}`,
     }, { message: { id: messageId }, token: longToken });
     const approveAck = await handleDiscordInteraction(await signedRequest(approve), env, clock);
-    expect(await approveAck.json()).toEqual({ type: 5, data: { flags: 64 } });
+    expect(await approveAck.json()).toEqual({ type: 6 });
     const approvedAction = await db.prepare("SELECT token FROM discord_pending_actions WHERE interaction_id = ?")
       .bind("900000000000000118").first<{ token: string }>();
     expect(approvedAction?.token).toBe(longToken);
@@ -153,7 +153,7 @@ describe("[LDB-MD16] Discord HTTP interaction adapter", () => {
       components: [{ type: 18, component: { type: 4, custom_id: "reason", value: "Long-token modal reason." } }],
     }, { token: longToken });
     const submitAck = await handleDiscordInteraction(await signedRequest(submit), env, clock);
-    expect(await submitAck.json()).toEqual({ type: 5, data: { flags: 64 } });
+    expect(await submitAck.json()).toEqual({ type: 6 });
     const deniedAction = await db.prepare("SELECT token, action FROM discord_pending_actions WHERE interaction_id = ?")
       .bind("900000000000000120").first<{ token: string; action: string }>();
     expect(deniedAction).toEqual({ token: longToken, action: "deny" });
@@ -180,7 +180,7 @@ describe("[LDB-MD16] Discord HTTP interaction adapter", () => {
       custom_id: `aklmod1|link|approve|${submissionId}`,
     }, { message: { id: messageId } }));
     const response = await handleDiscordInteraction(request, env, clock);
-    expect(await response.json()).toEqual({ type: 5, data: { flags: 64 } });
+    expect(await response.json()).toEqual({ type: 6 });
     const queued = await db.prepare("SELECT interaction_id, actor_id, token, state FROM discord_pending_actions").first<{ interaction_id: string; actor_id: string; token: string; state: string }>();
     expect(queued).toMatchObject({ interaction_id: "900000000000000111", actor_id: MOD, token: TOKEN, state: "pending" });
 
@@ -191,10 +191,27 @@ describe("[LDB-MD16] Discord HTTP interaction adapter", () => {
     await drainDiscordActions(db, env, clock);
     const submission = await db.prepare("SELECT status FROM link_submissions WHERE id = ?").bind(submissionId).first<{ status: string }>();
     expect(submission?.status).toBe("pending");
-    expect(fetchMock).toHaveBeenCalledTimes(2); // initial callback edit + bounded durable retry
-    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(`/webhooks/${APP}/${TOKEN}/messages/@original`);
+    expect(fetchMock).toHaveBeenCalledTimes(2); // private error followup + bounded durable retry
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(`https://discord.com/api/v10/webhooks/${APP}/${TOKEN}`);
+    expect(fetchMock.mock.calls[0]?.[1]?.method).toBe("POST");
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toMatchObject({ flags: 64, allowed_mentions: { parse: [] } });
     const completed = await db.prepare("SELECT state, token, result FROM discord_pending_actions").first<{ state: string; token: string; result: string }>();
     expect(completed).toMatchObject({ state: "complete", token: "", result: "You no longer have permission to moderate this queue." });
+  });
+
+  it("[LDB-MD16] cleans up a legacy completed success reply without replaying the decision", async () => {
+    await db.prepare(`INSERT INTO discord_pending_actions
+      (interaction_id, application_id, token, actor_id, actor_name, kind, action, submission_id, channel_id, message_id, guild_id, created_at, expires_at, state, result)
+      VALUES ('900000000000000180', ?, ?, ?, 'mod', 'link', 'approve', ?, ?, ?, ?, ?, '2026-10-18T12:14:00.000Z', 'complete', 'Submission approved.')`)
+      .bind(APP, TOKEN, MOD, submissionId, CHANNEL, messageId, GUILD, clock()).run();
+    const fetchMock = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await drainDiscordActions(db, envWith(), clock);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(`https://discord.com/api/v10/webhooks/${APP}/${TOKEN}/messages/@original`);
+    expect(fetchMock.mock.calls[0]?.[1]?.method).toBe("DELETE");
+    expect(await db.prepare("SELECT status FROM link_submissions WHERE id = ?").bind(submissionId).first()).toEqual({ status: "pending" });
+    expect(await db.prepare("SELECT token FROM discord_pending_actions WHERE interaction_id = '900000000000000180'").first()).toEqual({ token: "" });
   });
 
   it("[LDB-MD16] opens a deny modal, binds it to its original actor/card, stores bounded reason and rejects replay", async () => {
@@ -213,7 +230,7 @@ describe("[LDB-MD16] Discord HTTP interaction adapter", () => {
       components: [{ type: 18, component: { type: 4, custom_id: "reason", value: "Please include a clearer source." } }],
     });
     const response = await handleDiscordInteraction(await signedRequest(submitted), env, clock);
-    expect(await response.json()).toEqual({ type: 5, data: { flags: 64 } });
+    expect(await response.json()).toEqual({ type: 6 });
     const queued = await db.prepare("SELECT action, reason, actor_id FROM discord_pending_actions").first<{ action: string; reason: string; actor_id: string }>();
     expect(queued).toEqual({ action: "deny", reason: "Please include a clearer source.", actor_id: MOD });
     const modal = await db.prepare("SELECT consumed_interaction_id FROM discord_deny_modals WHERE modal_id = ?").bind(modalId).first<{ consumed_interaction_id: string }>();
@@ -265,12 +282,14 @@ describe("[LDB-MD21] Discord reopening", () => {
     const initial = kind === "comment" ? buildV2Payload("comment", { id, layout_id: layout, body: "normal comment", live_body: null, user_id: MOD, user_name: "mod", layout_name: "test" })
       : buildV2Payload("wpm", { id, layout_id: layout, wpm: 150, proof: "https://example.org/proof", user_id: MOD, user_name: "mod", layout_name: "test" });
     const patches: Record<string, unknown>[] = [];
+    const requests: { url: string; method: string; body: Record<string, unknown> }[] = [];
     vi.stubGlobal("fetch", async (_url: string, init?: RequestInit) => {
+      requests.push({ url: String(_url), method: init?.method ?? "GET", body: JSON.parse(String(init?.body ?? "{}")) });
       if (init?.method === "GET") return Response.json(initial);
       patches.push(JSON.parse(String(init?.body ?? "{}")));
       return Response.json({ id: messageId });
     });
-    return { id, layout, patches };
+    return { id, layout, patches, requests };
   }
   async function click(id: string, interactionId: string, action: string, version = 0, overrides: Record<string, unknown> = {}, kind = "comment") {
     const response = await handleDiscordInteraction(await signedRequest(interaction(3, interactionId, {
@@ -285,10 +304,9 @@ describe("[LDB-MD21] Discord reopening", () => {
     return await response.json() as { type: number; data?: { content?: string } };
   }
 
-  it.each(["comment", "wpm"] as const)("[LDB-MD21] HTTP route immediately processes confirmed approved %s without waiting for cron", async (kind) => {
-    const { id, patches } = await seedReview("approved", kind);
+  it.each(["comment", "wpm"] as const)("[LDB-MD21] HTTP route silently reopens approved %s in one click without waiting for cron", async (kind) => {
+    const { id, patches, requests } = await seedReview("approved", kind);
     const initialId = "900000000000000560";
-    const confirmId = "900000000000000561";
     async function deliver(body: Record<string, unknown>) {
       const context = createExecutionContext();
       const request = await signedRequest(body, { timestamp: String(Math.floor(Date.now() / 1000)) });
@@ -300,27 +318,23 @@ describe("[LDB-MD21] Discord reopening", () => {
     const opened = await deliver(interaction(3, initialId, {
       custom_id: `aklmod2|${kind}|reopen-approved|${id}|0`,
     }, { message: { id: messageId } }));
-    expect(opened.type).toBe(4);
-    expect(await db.prepare("SELECT 1 FROM discord_reopen_actions").first()).toBeNull();
-    const confirmed = await deliver(interaction(3, confirmId, {
-      custom_id: opened.data!.components[0]!.components[0]!.custom_id,
-    }, { message: { id: "900000000000000888", interaction_metadata: { id: initialId } } }));
-    expect(confirmed.type).toBe(6);
+    expect(opened).toEqual({ type: 6 });
+    expect(await db.prepare("SELECT 1 FROM discord_reopen_confirmations").first()).toBeNull();
     // Exercise the production HTTP continuation, never call drainDiscordActions
     // directly: otherwise a missing waitUntil dispatch is invisible to this test.
     const table = kind === "comment" ? "layout_comments" : "wpm_submissions";
     expect(await db.prepare(`SELECT status, review_version FROM ${table} WHERE id = ?`).bind(id).first())
       .toEqual({ status: "pending", review_version: 1 });
-    expect(await db.prepare("SELECT state, token FROM discord_reopen_actions WHERE interaction_id = ?").bind(confirmId).first())
+    expect(await db.prepare("SELECT state, token FROM discord_reopen_actions WHERE interaction_id = ?").bind(initialId).first())
       .toEqual({ state: "complete", token: "" });
     expect(patches.some((patch) => JSON.stringify(patch).includes(`aklmod2|${kind}|approve|${id}|1`))).toBe(true);
-    expect(patches.some((patch) => patch.content === "Review reopened. The submission is pending again." && Array.isArray(patch.components) && patch.components.length === 0)).toBe(true);
+    expect(requests.every((request) => !request.url.includes("/webhooks/"))).toBe(true);
   });
 
   it.each(["comment", "wpm"] as const)("[LDB-MD21] directly reopens denied %s once, restores controls and rejects replay", async (kind) => {
     const { id, patches } = await seedReview("rejected", kind);
     const first = await click(id, "900000000000000501", "reopen-rejected", 0, {}, kind);
-    expect(first.type).toBe(5);
+    expect(first.type).toBe(6);
     expect((await click(id, "900000000000000501", "reopen-rejected", 0, {}, kind)).data?.content).toContain("already received");
     await drainDiscordActions(db, envWith(), clock);
     const table = kind === "comment" ? "layout_comments" : "wpm_submissions";
@@ -332,46 +346,67 @@ describe("[LDB-MD21] Discord reopening", () => {
     expect((await click(id, "900000000000000502", "reopen-rejected", 0, {}, kind)).data?.content).toContain("stale");
   });
 
-  it("[LDB-MD21] approved reopening requires a private bound confirmation and cancel leaves it unchanged", async () => {
-    const { id } = await seedReview("approved");
-    const opened = await click(id, "900000000000000510", "reopen-approved");
-    expect(opened.type).toBe(4);
-    expect(opened.data?.flags).toBe(64);
-    expect(opened.data?.content).toContain("hides the approved comment");
-    expect(await db.prepare("SELECT 1 FROM discord_reopen_actions").first()).toBeNull();
-    const buttons = opened.data!.components![0]!.components;
-    expect((await confirm(buttons[0]!.custom_id, "900000000000000999", "900000000000000511")).data?.content).toContain("another moderator or message");
-    expect((await confirm(buttons[0]!.custom_id, "900000000000000510", "900000000000000512", { member: { user: { id: "900000000000000777", username: "other" } } })).data?.content).toContain("another moderator");
-    expect((await confirm(buttons[1]!.custom_id, "900000000000000510", "900000000000000513")).type).toBe(7);
-    expect((await confirm(buttons[0]!.custom_id, "900000000000000510", "900000000000000514")).data?.content).toContain("expired");
-    expect(await db.prepare("SELECT status, review_version FROM layout_comments WHERE id = ?").bind(id).first()).toEqual({ status: "approved", review_version: 0 });
-    const again = await click(id, "900000000000000515", "reopen-approved");
-    expect((await confirm(again.data!.components![0]!.components[0]!.custom_id, "900000000000000515", "900000000000000516")).type).toBe(6);
+  async function legacyConfirmation(id: string, initialId: string) {
+    const confirmationId = crypto.randomUUID();
+    await db.prepare(`INSERT INTO discord_reopen_confirmations
+      (confirmation_id, initial_interaction_id, actor_id, kind, submission_id, channel_id, message_id, guild_id, expected_status, expected_review_version, created_at, expires_at)
+      VALUES (?, ?, ?, 'comment', ?, ?, ?, ?, 'approved', 0, ?, '2026-10-18T12:14:00.000Z')`)
+      .bind(confirmationId, initialId, MOD, id, CHANNEL, messageId, GUILD, clock()).run();
+    return `aklmod2|confirm|${confirmationId}`;
+  }
+
+  it("[LDB-MD21] safely completes an already-issued private confirmation by deleting only its private prompt", async () => {
+    const { id, requests } = await seedReview("approved");
+    const customId = await legacyConfirmation(id, "900000000000000510");
+    expect((await confirm(customId, "900000000000000999", "900000000000000511")).data?.content).toContain("another moderator or message");
+    expect((await confirm(customId, "900000000000000510", "900000000000000512", { member: { user: { id: "900000000000000777", username: "other" } } })).data?.content).toContain("another moderator");
+    expect((await confirm(customId, "900000000000000510", "900000000000000516")).type).toBe(6);
     await drainDiscordActions(db, envWith(), clock);
     expect(await db.prepare("SELECT status, review_version FROM layout_comments WHERE id = ?").bind(id).first()).toEqual({ status: "pending", review_version: 1 });
+    expect(requests.filter((request) => request.url.includes("/webhooks/")))
+      .toEqual([{ url: `https://discord.com/api/v10/webhooks/${APP}/${TOKEN}/messages/@original`, method: "DELETE", body: {} }]);
   });
 
-  it("[LDB-MD21] rejects expired confirmations, wrong guild/channel, removed permissions and changed message bindings", async () => {
+  it("[LDB-MD21] rejects wrong guild/channel, removed permissions and changed bindings before direct reopening", async () => {
     const { id } = await seedReview("approved");
-    const opened = await click(id, "900000000000000520", "reopen-approved");
-    const customId = opened.data!.components![0]!.components[0]!.custom_id;
-    expect((await confirm(customId, "900000000000000520", "900000000000000521", { guild_id: "900000000000000999" })).data?.content).toContain("not allowed");
-    expect((await confirm(customId, "900000000000000520", "900000000000000522", { channel_id: "900000000000000999" })).data?.content).toContain("not allowed");
+    expect((await click(id, "900000000000000521", "reopen-approved", 0, { guild_id: "900000000000000999" })).data?.content).toContain("not allowed");
+    expect((await click(id, "900000000000000522", "reopen-approved", 0, { channel_id: "900000000000000999" })).data?.content).toContain("not allowed");
     await db.prepare("DELETE FROM admins WHERE user_id = ?").bind(MOD).run();
-    expect((await confirm(customId, "900000000000000520", "900000000000000523")).data?.content).toContain("permission");
+    expect((await click(id, "900000000000000523", "reopen-approved")).data?.content).toContain("permission");
     await db.prepare("INSERT INTO admins (user_id, added_at) VALUES (?, ?)").bind(MOD, clock()).run();
     await db.prepare("UPDATE modqueue_notifications SET message_id = '900000000000000999' WHERE submission_id = ?").bind(id).run();
-    expect((await confirm(customId, "900000000000000520", "900000000000000524")).data?.content).toContain("changed");
-    await db.prepare("UPDATE discord_reopen_confirmations SET expires_at = '2026-10-18T11:59:00.000Z'").run();
-    expect((await confirm(customId, "900000000000000520", "900000000000000525")).data?.content).toContain("expired");
+    expect((await click(id, "900000000000000524", "reopen-approved")).data?.content).toContain("stale");
     expect(await db.prepare("SELECT 1 FROM discord_reopen_actions").first()).toBeNull();
+  });
+
+  it.each(["comment", "wpm"] as const)("[LDB-MD21] silently approves and denies %s through the HTTP continuation", async (kind) => {
+    const { id, requests, patches } = await seedReview("pending", kind);
+    async function deliver(body: Record<string, unknown>) {
+      const context = createExecutionContext();
+      const response = await app.fetch(await signedRequest(body, { timestamp: String(Math.floor(Date.now() / 1000)) }), envWith(), context);
+      await waitOnExecutionContext(context);
+      expect(response.status).toBe(200);
+      return response.json() as Promise<{ type: number; data?: { custom_id: string } }>;
+    }
+    expect(await deliver(interaction(3, "900000000000000570", { custom_id: `aklmod2|${kind}|approve|${id}|0` }, { message: { id: messageId } }))).toEqual({ type: 6 });
+    const table = kind === "comment" ? "layout_comments" : "wpm_submissions";
+    expect(await db.prepare(`SELECT status FROM ${table} WHERE id = ?`).bind(id).first()).toEqual({ status: "approved" });
+    expect(await deliver(interaction(3, "900000000000000571", { custom_id: `aklmod2|${kind}|reopen-approved|${id}|0` }, { message: { id: messageId } }))).toEqual({ type: 6 });
+    const modal = await deliver(interaction(3, "900000000000000572", { custom_id: `aklmod2|${kind}|deny|${id}|1` }, { message: { id: messageId } }));
+    expect(modal.type).toBe(9);
+    expect(await deliver(interaction(5, "900000000000000573", {
+      custom_id: modal.data!.custom_id, components: [{ type: 18, component: { type: 4, custom_id: "reason", value: "Proof missing" } }],
+    }, { message: { id: messageId } }))).toEqual({ type: 6 });
+    expect(await db.prepare(`SELECT status, reason FROM ${table} WHERE id = ?`).bind(id).first()).toEqual({ status: "rejected", reason: "Proof missing" });
+    expect(patches.some((patch) => JSON.stringify(patch).includes(`reopen-rejected|${id}|1`))).toBe(true);
+    expect(requests.every((request) => !request.url.includes("/webhooks/"))).toBe(true);
   });
 
   it("[LDB-MD21] stale pending buttons, denial modal and queued decisions cannot cross a reopened cycle", async () => {
     const { id } = await seedReview("pending");
     const modal = await click(id, "900000000000000530", "deny");
     expect(modal.type).toBe(9);
-    expect((await click(id, "900000000000000531", "approve")).type).toBe(5);
+    expect((await click(id, "900000000000000531", "approve")).type).toBe(6);
     await db.prepare("UPDATE layout_comments SET review_version = 1 WHERE id = ?").bind(id).run();
     await db.prepare("UPDATE modqueue_notifications SET shown_review_version = 1 WHERE submission_id = ?").bind(id).run();
     for (const customId of [`aklmod1|comment|approve|${id}`, `aklmod2|comment|approve|${id}|0`]) {
@@ -406,7 +441,7 @@ describe("[LDB-MD21] Discord reopening", () => {
     await reopenComment(db, clock, actor, null, id, { status: "rejected", review_version: 0 });
     await db.prepare("UPDATE discord_reopen_actions SET state = 'working', lease_until = '2026-10-18T11:59:00.000Z'").run();
     await drainDiscordActions(db, envWith(), clock);
-    expect(await db.prepare("SELECT result, state, token FROM discord_reopen_actions WHERE submission_id = ?").bind(id).first()).toEqual({ result: "Review reopened.", state: "complete", token: "" });
+    expect(await db.prepare("SELECT result, state, token FROM discord_reopen_actions WHERE submission_id = ?").bind(id).first()).toEqual({ result: null, state: "complete", token: "" });
     expect((await db.prepare("SELECT id FROM moderation_review_history WHERE submission_id = ? AND action = 'reopened'").bind(id).all()).results).toHaveLength(1);
   });
 });
