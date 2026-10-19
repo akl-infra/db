@@ -281,6 +281,9 @@ describe("rehost drill", () => {
             VALUES ('private-dm-marker', -999, 'comment', 'private-comment', 'private-layout', '900000000000000188', 'private-dm-nonce', 'pending', ?, ?, ?)`)
             .bind("2026-10-18T00:00:00.000Z", "2026-10-18T00:00:00.000Z", "2026-10-18T00:00:00.000Z").run();
           moderationIds = await plantModerationState(db);
+          // Nonzero cycles must survive public snapshot restore too.
+          await db.prepare("UPDATE wpm_submissions SET review_version = 2 WHERE layout_id = ? AND status = 'approved'").bind(moderationIds.wpmLayoutId).run();
+          await db.prepare("UPDATE layout_comments SET review_version = 2 WHERE layout_id = ? AND status = 'approved'").bind(moderationIds.commentLayoutId).run();
         });
     if (!usingRemote) {
       metaBefore = await (await SELF.fetch("https://example.com/v1/meta")).json();
@@ -377,14 +380,14 @@ describe("rehost drill", () => {
 
       // [LDB-WPM10] the WPM table round-trips byte-exact.
       const restoredWpm = await db
-        .prepare("SELECT id, layout_id, user_id, wpm, proof, submitted_by, via, submitted_at, status, decided_by, decided_at, reason, notified_at FROM wpm_submissions ORDER BY id ASC")
+        .prepare("SELECT id, layout_id, user_id, wpm, proof, submitted_by, via, submitted_at, status, decided_by, decided_at, reason, notified_at, review_version FROM wpm_submissions ORDER BY id ASC")
         .all<WpmSubmissionDbRow>();
       expect(canonical(restoredWpm.results)).toBe(canonical(dump.wpm_submissions));
       expect(restoredWpm.results.filter((s) => s.layout_id === ids.wpmLayoutId)).toHaveLength(1); // the approved one; the rest is lost by design
 
       // [LDB-CMT10] the comments table round-trips byte-exact.
       const restoredComments = await db
-        .prepare("SELECT id, layout_id, user_id, body, via, submitted_at, status, decided_by, decided_at, reason FROM layout_comments ORDER BY id ASC")
+        .prepare("SELECT id, layout_id, user_id, body, via, submitted_at, status, decided_by, decided_at, reason, review_version FROM layout_comments ORDER BY id ASC")
         .all<LayoutCommentDbRow>();
       expect(canonical(restoredComments.results)).toBe(canonical(dump.layout_comments));
       expect(restoredComments.results.filter((s) => s.layout_id === ids.commentLayoutId)).toHaveLength(1); // the approved one; the rest is lost by design
