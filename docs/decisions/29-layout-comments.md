@@ -111,3 +111,18 @@ append-only, and private decision history retains moderator, time and reason
 but no comment body. Public dumps exclude that history. See [the API
 contract](../adoption.md#reopening-a-comment-or-wpm-decision-api-125) for request
 shapes, stale-action behavior and denial-DM cancellation.
+
+## Discord comment presentation
+
+Comment cards use a normal-sized bold context line (comment type, linked layout,
+submitter), the complete escaped comment as a Markdown blockquote, then a divider
+and moderation controls. Pending cards have Approve/Deny controls without a
+redundant status label. Decided cards place the emoji status and moderator in a
+consistent footer above Reopen review; denials include the reason. Reopening
+removes that footer and restores the decision controls. Existing older message
+formats remain editable without rewriting or truncating their content.
+
+Denial DMs lead with “Your comment submission for **layout** was not approved.”,
+quote the submission, then show **Reason:** and the layout URL. Quote prefixes,
+escaping, and future footer text count toward Discord's UTF-16 limits; when the
+full comment cannot fit, its exact plaintext is attached instead.

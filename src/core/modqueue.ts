@@ -114,11 +114,11 @@ function discordPost(body: Record<string, unknown>, env: Bindings, transport: Me
 }
 
 async function sourceStatus(db: Bindings["DB"], kind: QueueKind, id: string): Promise<QueueStatus | null> {
-  const row = await db.prepare(`SELECT s.status, ${kind === 'link' ? '0' : 's.review_version'} AS review_version, a.name AS decider_name FROM ${STATUS_TABLE[kind]} s
+  const row = await db.prepare(`SELECT s.status, s.reason, ${kind === 'link' ? '0' : 's.review_version'} AS review_version, a.name AS decider_name FROM ${STATUS_TABLE[kind]} s
     LEFT JOIN authors a ON a.user_id = s.decided_by WHERE s.id = ?`).bind(id)
-    .first<{ status: string; review_version: number; decider_name: string | null }>();
+    .first<{ status: string; reason: string | null; review_version: number; decider_name: string | null }>();
   return row !== null && EDITABLE_STATUSES.has(row.status as DecidedStatus)
-    ? { status: row.status as DecidedStatus, decider_name: row.decider_name, review_version: row.review_version }
+    ? { status: row.status as DecidedStatus, decider_name: row.decider_name, review_version: row.review_version, reason: row.reason }
     : null;
 }
 

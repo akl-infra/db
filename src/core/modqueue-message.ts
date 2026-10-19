@@ -39,6 +39,7 @@ export interface QueueStatus {
   status: "pending" | "approved" | "rejected" | "superseded" | "replaced" | "deleted" | "removed";
   decider_name: string | null;
   review_version?: number;
+  reason?: string | null;
 }
 
 export const COMPONENT_STATUS_ID = 41001;
@@ -52,12 +53,22 @@ const COMPONENT_BODY_SEPARATOR_ID = 41008;
 const COMPONENT_FILE_ID = 41009;
 export const DISCORD_COMPONENTS_V2_FLAG = 32768;
 const MAX_COMPONENT_TEXT_UNITS = 4000;
-const STATUS_TEXT_RESERVE = 180;
+// A decision may add a moderator and a 500-character reason (up to twice
+// that after Markdown escaping). Reserve it before deciding inline/file.
+const COMMENT_STATUS_RESERVE = 1200;
 
 export interface TextFileAttachment { filename: string; content: string; description: string }
 
 function escapeMarkdown(value: string): string {
-  return value.replace(/[\\`*_~|>\[\]]/g, (ch) => `\\${ch}`);
+  return value.replace(/[\\`*_~|>#\[\]]/g, (ch) => `\\${ch}`);
+}
+
+function inlineText(value: string): string {
+  return value.replace(/[\r\n\u0000-\u001f\u007f]/g, " ");
+}
+
+function quoteComment(value: string): string {
+  return escapeMarkdown(value).replace(/\r\n?/g, "\n").split("\n").map((line) => `> ${line}`).join("\n");
 }
 
 function safeWrappedUrl(value: string): string {
@@ -91,7 +102,16 @@ function statusText(state: QueueStatus): string {
 }
 
 function commentStatusLabel(status: QueueStatus["status"]): string {
-  return status === "rejected" ? "Denied" : status[0]!.toUpperCase() + status.slice(1);
+  return { pending: "⏳ Pending review", approved: "✅ Approved", rejected: "❌ Denied",
+    superseded: "↪️ Superseded", replaced: "↪️ Replaced", deleted: "🗑️ Deleted", removed: "⚠️ Removed" }[status];
+}
+
+function commentStatusText(state: QueueStatus): string {
+  const actor = state.status === "pending" || state.decider_name === null ? ""
+    : ` · by ${escapeMarkdown(clipUtf16(inlineText(state.decider_name), 60))}`;
+  const reason = state.status === "rejected" && state.reason?.trim()
+    ? `\n**Reason:** ${escapeMarkdown(clipUtf16(inlineText(state.reason.trim()), 500))}` : "";
+  return `**${commentStatusLabel(state.status)}**${actor}${reason}`;
 }
 
 function actionRow(kind: QueueKind, id: string, actionsEnabled: boolean, state: QueueStatus = { status: "pending", decider_name: null }): Record<string, unknown> {
@@ -113,7 +133,7 @@ function actionRow(kind: QueueKind, id: string, actionsEnabled: boolean, state: 
  * the exact complete text. `maxInlineUnits` includes labels and markdown. */
 export function formatCommentText(body: string, liveBody: string | null, maxInlineUnits: number, contentFirst = false): { inline: string; attachmentText?: string } {
   const inline = contentFirst
-    ? `${escapeMarkdown(body)}${liveBody === null ? "" : `\n\n-# Previous version\n${escapeMarkdown(liveBody)}`}`
+    ? `${quoteComment(body)}${liveBody === null ? "" : `\n\n-# Previous version\n${quoteComment(liveBody)}`}`
     : liveBody === null
     ? `**Comment**\n${escapeMarkdown(body)}`
     : `**Before**\n${escapeMarkdown(liveBody)}\n\n**After**\n${escapeMarkdown(body)}`;
@@ -134,9 +154,10 @@ function payload(kind: QueueKind, id: string, title: string, metadata: string, b
       type: 17,
       id: 41000,
       components: kind === "comment" ? [
+        { type: 10, id: COMPONENT_METADATA_ID, content: metadata },
         { type: 10, id: COMPONENT_BODY_ID, content: body },
         ...(file === undefined ? [] : [{ type: 13, id: COMPONENT_FILE_ID, file: { url: `attachment://${file.filename}` } }]),
-        { type: 10, id: COMPONENT_METADATA_ID, content: metadata },
+        { type: 14, id: COMPONENT_SEPARATOR_ID, divider: true, spacing: 1 },
         actionRow(kind, id, actionsEnabled, { status: "pending", decider_name: null, review_version: reviewVersion }),
       ] : [
         { type: 10, id: COMPONENT_TITLE_ID, content: title },
@@ -175,10 +196,10 @@ export function buildV2Payload(kind: QueueKind, candidate: LinkCardData | WpmCar
       `Submitted by **${who}** · Words per minute · Submission \`${c.id}\``, `**${c.wpm} WPM**\nProof: ${safeWrappedUrl(c.proof)}`, actionsEnabled, undefined, c.review_version ?? 0);
   }
   const c = candidate as CommentCardData;
-  const who = clipUtf16(escapeMarkdown(c.user_name ?? c.user_id), 120);
-  const metadata = `-# (Pending) ${c.live_body === null ? "New" : "Edited"} comment on ${layoutLink(c.layout_id, c.layout_name)} by ${who}`;
+  const who = escapeMarkdown(clipUtf16(inlineText(c.user_name ?? c.user_id), 60));
+  const metadata = `**${c.live_body === null ? "New" : "Edited"} comment** on **${layoutLink(c.layout_id, clipUtf16(inlineText(c.layout_name), 100))}** by **${who}**`;
   // Keep headroom for a longer status label when a decision arrives.
-  const formatted = formatCommentText(c.body, c.live_body, MAX_COMPONENT_TEXT_UNITS - STATUS_TEXT_RESERVE - metadata.length, true);
+  const formatted = formatCommentText(c.body, c.live_body, MAX_COMPONENT_TEXT_UNITS - COMMENT_STATUS_RESERVE - metadata.length, true);
   const file = formatted.attachmentText === undefined ? undefined : {
     filename: `comment-${c.id}.txt`, content: formatted.attachmentText, description: "Complete comment text before and after the edit",
   };
@@ -187,6 +208,11 @@ export function buildV2Payload(kind: QueueKind, candidate: LinkCardData | WpmCar
 
 export function buildV2StatusPatch(current: unknown, kind: QueueKind, id: string, state: QueueStatus, actionsEnabled = true): Record<string, unknown> | null {
   if (current === null || typeof current !== "object" || !("components" in current) || !Array.isArray(current.components)) return null;
+  // Older cards did not reserve room for a reason. Preserve their bounded
+  // status layout; the new footer can safely use its reserved space.
+  const richComment = kind === "comment" && current.components.some((container: { components?: { id?: number; content?: string }[] }) =>
+    Array.isArray(container?.components) && container.components.some((row) => row?.id === COMPONENT_METADATA_ID &&
+      typeof row.content === "string" && /^\*\*(?:New|Edited) comment\*\* on /.test(row.content)));
   let foundStatus = false;
   const eraseCommentBody = kind === "comment" && (state.status === "deleted" || state.status === "replaced");
   const patch = (component: unknown): unknown => {
@@ -194,16 +220,18 @@ export function buildV2StatusPatch(current: unknown, kind: QueueKind, id: string
     if (component === null || typeof component !== "object") return component;
     const row = component as Record<string, unknown>;
     if (row.type === 1 && row.id === COMPONENT_ACTIONS_ID) return actionRow(kind, id, actionsEnabled, state);
-    // New compact cards keep state in their single context line. Older cards
-    // still use their dedicated status component and retain that format.
+    // Earlier compact cards kept state in their context line. Preserve that
+    // format while omitting its pending label when a review is reopened.
     if (kind === "comment" && row.type === 10 && row.id === COMPONENT_METADATA_ID &&
-        typeof row.content === "string" && /^-# \((?:Pending|Approved|Denied|Superseded|Replaced|Deleted|Removed)\) /.test(row.content)) {
+        typeof row.content === "string" && /^-# (?:\([^)]*\) )?(?:New|Edited) comment on /.test(row.content)) {
       foundStatus = true;
-      return { ...row, content: row.content.replace(/^-# \([^)]*\)/, `-# (${commentStatusLabel(state.status)})`) };
+      const context = row.content.replace(/^-# (?:\([^)]*\) )?/, "");
+      return { ...row, content: `-# ${state.status === "pending" ? "" : `(${commentStatusLabel(state.status)}) `}${context}` };
     }
     if (row.type === 10 && row.id === COMPONENT_STATUS_ID) {
       foundStatus = true;
-      return { ...row, content: statusText(state) };
+      if (kind === "comment" && state.status === "pending") return null;
+      return { ...row, content: richComment ? commentStatusText(state) : statusText(state) };
     }
     if (eraseCommentBody && row.type === 10 && row.id === COMPONENT_BODY_ID) {
       return { ...row, content: "**Comment preview removed**" };
@@ -213,6 +241,19 @@ export function buildV2StatusPatch(current: unknown, kind: QueueKind, id: string
     return { ...row };
   };
   const components = current.components.map(patch);
+  if (richComment && !foundStatus) {
+    const container = components.find((item): item is { components: Record<string, unknown>[] } =>
+      item !== null && typeof item === "object" && "id" in item && item.id === 41000 &&
+      "components" in item && Array.isArray(item.components));
+    if (container) {
+      const actionIndex = container.components.findIndex((row) => row.id === COMPONENT_ACTIONS_ID);
+      if (actionIndex !== -1) {
+        if (state.status !== "pending") container.components.splice(actionIndex, 0,
+          { type: 10, id: COMPONENT_STATUS_ID, content: commentStatusText(state) });
+        foundStatus = true;
+      }
+    }
+  }
   if (!foundStatus) {
     const container = components.find((component): component is Record<string, unknown> =>
       component !== null && typeof component === "object" &&
@@ -220,10 +261,12 @@ export function buildV2StatusPatch(current: unknown, kind: QueueKind, id: string
       "id" in component && component.id === 41000 &&
       "components" in component && Array.isArray(component.components));
     if (container && Array.isArray(container.components)) {
-      container.components.unshift(
-        { type: 10, id: COMPONENT_STATUS_ID, content: statusText(state) },
-        { type: 14, id: COMPONENT_STATUS_SEPARATOR_ID, divider: true, spacing: 1 },
-      );
+      if (kind !== "comment" || state.status !== "pending") {
+        container.components.unshift(
+          { type: 10, id: COMPONENT_STATUS_ID, content: statusText(state) },
+          { type: 14, id: COMPONENT_STATUS_SEPARATOR_ID, divider: true, spacing: 1 },
+        );
+      }
       foundStatus = true;
     }
   }

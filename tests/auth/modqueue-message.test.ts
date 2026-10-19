@@ -78,7 +78,7 @@ describe("[LDB-MD15] Components V2 mod-queue message", () => {
       user_name: "reeve_",
     });
     const body = nested(comment.components as unknown[]).find((c) => c.type === 10 && c.id === 41004)?.content as string;
-    expect(body).toBe("\\*new\\* text\n\n-# Previous version\nold \\[text\\]");
+    expect(body).toBe("> \\*new\\* text\n\n-# Previous version\n> old \\[text\\]");
     expect(body).toContain("old \\[text\\]");
     expect(body).toContain("\\*new\\* text");
 
@@ -119,7 +119,7 @@ describe("[LDB-MD15] Components V2 mod-queue message", () => {
     expect(hostileFile).toBe(`BEFORE\n\n${"\\".repeat(2000)}\n\nAFTER\n\n${"\\".repeat(2000) + "😀".repeat(1000)}`);
   });
 
-  it("[LDB-MD15] keeps the comment first and metadata compact before and after each decision", () => {
+  it("[LDB-MD15] keeps context, quote, divider and decision footer in the same order for each state", () => {
     const id = "01ARZ3NDEKTSV4RRFFQ69G5FAB";
     const initial = buildV2Payload("comment", {
       id, layout_id: "01BX5ZZKBKACTAV9WEVGEMMVRY", user_id: "900000000000000003",
@@ -129,15 +129,17 @@ describe("[LDB-MD15] Components V2 mod-queue message", () => {
     for (const status of ["pending", "approved", "rejected", "superseded", "removed"] as const) {
       const card = status === "pending" ? initial : buildV2StatusPatch(initial, "comment", id, { status, decider_name: "deeroh" })!;
       const text = nested(card.components as unknown[]).filter((c) => c.type === 10).map((c) => c.content as string);
-      expect(text[0]).toBe("These layouts were part of a rollmaxxing test, do not use.");
-      const label = status === "rejected" ? "Denied" : status[0]!.toUpperCase() + status.slice(1);
-      expect(text[1]).toBe(`-# (${label}) New comment on [bemboo10](<https://akldb.org/l/01BX5ZZKBKACTAV9WEVGEMMVRY>) by deeroh`);
-      expect(nested(card.components as unknown[]).some((c) => c.type === 14)).toBe(false);
+      expect(text[0]).toBe("**New comment** on **[bemboo10](<https://akldb.org/l/01BX5ZZKBKACTAV9WEVGEMMVRY>)** by **deeroh**");
+      expect(text[1]).toBe("> These layouts were part of a rollmaxxing test, do not use.");
+      const labels = { pending: "⏳ Pending review", approved: "✅ Approved", rejected: "❌ Denied", superseded: "↪️ Superseded", removed: "⚠️ Removed" };
+      expect(text[2]).toBe(status === "pending" ? undefined : `**${labels[status]}** · by deeroh`);
+      expect(nested(card.components as unknown[]).filter((c) => c.type === 14)).toHaveLength(1);
+      expect((card.components as { components: { id: number }[] }[])[0]!.components.map((c) => c.id)).toEqual(status === "pending" ? [41003, 41004, 41005, 41006] : [41003, 41004, 41005, 41001, 41006]);
       expect(text.join("\n")).not.toContain(id);
       expect(text.some((value) => /^#{1,3} /m.test(value))).toBe(false);
       expect(text.join("\n")).not.toContain("**Comment**");
       if (status !== "pending") {
-        expect(text).toHaveLength(2);
+        expect(text).toHaveLength(3);
         const again = buildV2StatusPatch(card, "comment", id, { status, decider_name: "deeroh" });
         expect(again).toEqual(card);
       }
@@ -179,6 +181,27 @@ describe("[LDB-MD15] Components V2 mod-queue message", () => {
     expect(secondParts.filter((c) => c.type === 2).map((c) => c.label)).toEqual(["Open in akldb"]);
     expect(secondParts.filter((c) => c.id === 41001)).toHaveLength(1);
     expect(buildV2StatusPatch({ components: [] }, "link", "id", { status: "approved", decider_name: null })).toBeNull();
+  });
+
+  it("[LDB-MD15] quotes every line and budgets for an escaped denial reason without truncating the comment", () => {
+    const id = "01ARZ3NDEKTSV4RRFFQ69G5FAB";
+    const candidate = { id, layout_id: "01BX5ZZKBKACTAV9WEVGEMMVRY", user_id: "900000000000000003",
+      body: "# Heading\n\n> quoted *text*", live_body: null, layout_name: "bemboo10", user_name: "deeroh" };
+    const initial = buildV2Payload("comment", candidate);
+    expect(nested(initial.components as unknown[]).find((c) => c.id === 41004)?.content)
+      .toBe("> \\# Heading\n> \n> \\> quoted \\*text\\*");
+    const long = buildV2Payload("comment", { ...candidate, body: "z".repeat(2000) });
+    const denied = buildV2StatusPatch(long, "comment", id, { status: "rejected", decider_name: "*".repeat(100), reason: "*".repeat(500) })!;
+    const text = nested(denied.components as unknown[]).filter((c) => c.type === 10).map((c) => String(c.content));
+    expect(text.reduce((length, value) => length + value.length, 0)).toBeLessThanOrEqual(4000);
+    expect(text[1]).toBe(`> ${"z".repeat(2000)}`);
+    expect(text[2]).toContain(`\n**Reason:** ${"\\*".repeat(500)}`);
+    const pending = buildV2StatusPatch(denied, "comment", id, { status: "pending", decider_name: null, reason: null, review_version: 1 })!;
+    expect(JSON.stringify(pending)).not.toContain("Reason:");
+    expect(JSON.stringify(pending)).not.toContain("Pending review");
+    const lines = "z\n".repeat(1000);
+    const attached = buildV2Payload("comment", { ...candidate, body: lines });
+    expect((attached.__files as { content: string }[])[0]?.content).toBe(`COMMENT\n\n${lines}`);
   });
 
   it("[LDB-MD16] erases comment previews when a comment is deleted or replaced", () => {
@@ -226,7 +249,9 @@ describe("[LDB-MD21] versioned review controls", () => {
       expect(controls[0]?.custom_id).toBe(`aklmod2|comment|reopen-${status}|${id}|8`);
       const reopened = buildV2StatusPatch(decided, "comment", id, { status: "pending", decider_name: null, review_version: 9 })!;
       const parts = nested(reopened.components as unknown[]);
-      expect(parts.find((c) => c.id === 41004)?.content).toBe("These layouts were part of a rollmaxxing test, do not use.");
+      expect(parts.some((c) => c.id === 41001)).toBe(false);
+      expect(JSON.stringify(reopened)).not.toContain("Pending review");
+      expect(parts.find((c) => c.id === 41004)?.content).toBe("> These layouts were part of a rollmaxxing test, do not use.");
       expect(parts.filter((c) => c.type === 2).map((c) => c.custom_id)).toEqual([
         `aklmod2|comment|approve|${id}|9`, `aklmod2|comment|deny|${id}|9`, undefined,
       ]);
@@ -243,5 +268,20 @@ describe("[LDB-MD21] versioned review controls", () => {
     const ids = nested(patched.components as unknown[]).flatMap((c) => typeof c.custom_id === "string" ? [c.custom_id] : []);
     expect(ids).toHaveLength(2);
     for (const customId of ids) expect(new TextEncoder().encode(customId).length).toBeLessThanOrEqual(100);
+  });
+
+  it("[LDB-MD21] keeps older compact cards usable when reopening removes their pending label", () => {
+    const old = { components: [{ type: 17, id: 41000, components: [
+      { type: 10, id: 41004, content: "Original comment" },
+      { type: 10, id: 41003, content: "-# (Approved) New comment on bemboo10 by deeroh" },
+      { type: 1, id: 41006, components: [] },
+    ] }] };
+    const pending = buildV2StatusPatch(old, "comment", id, { status: "pending", decider_name: null, review_version: 1 })!;
+    expect(JSON.stringify(pending)).not.toMatch(/Pending|Approved/);
+    expect(JSON.stringify(pending)).toContain(`approve|${id}|1`);
+    const approved = buildV2StatusPatch(pending, "comment", id, { status: "approved", decider_name: "mod", review_version: 1 })!;
+    expect(nested(approved.components as unknown[]).find((c) => c.id === 41003)?.content)
+      .toBe("-# (✅ Approved) New comment on bemboo10 by deeroh");
+    expect(nested(approved.components as unknown[]).filter((c) => c.type === 10)).toHaveLength(2);
   });
 });

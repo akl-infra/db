@@ -412,13 +412,16 @@ describe("[LDB-MD21] reopened card reconciliation", () => {
       return Response.json({ id: "900000000000000105" });
     };
     await announceComment(db, env, id, fetchImpl);
-    await db.prepare("UPDATE layout_comments SET status = 'rejected' WHERE id = ?").bind(id).run();
+    await db.prepare("UPDATE layout_comments SET status = 'rejected', reason = 'off topic' WHERE id = ?").bind(id).run();
     await db.prepare("UPDATE modqueue_notifications SET shown_status = 'rejected', shown_review_version = -1 WHERE submission_id = ?").bind(id).run();
     await notifyPending(db, env, clock, fetchImpl);
     expect(JSON.stringify(remote)).toContain(`reopen-rejected|${id}|0`);
+    expect(JSON.stringify(remote)).toContain("**Reason:** off topic");
     await db.prepare("UPDATE layout_comments SET status = 'pending', review_version = 1 WHERE id = ?").bind(id).run();
     await updateQueueNotification(db, { ...env, MODQUEUE_DISCORD_ACTIONS: "false" }, "comment", id, fetchImpl);
     expect(JSON.stringify(remote)).not.toContain("custom_id");
+    expect(JSON.stringify(remote)).not.toContain("**Reason:**");
+    expect(JSON.stringify(remote)).not.toContain("Pending review");
     expect(JSON.stringify(remote)).toContain("Open in akldb");
   });
 
