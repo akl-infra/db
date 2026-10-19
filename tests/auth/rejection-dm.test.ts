@@ -202,7 +202,7 @@ describe("[LDB-MD18] rejection DM outbox", () => {
     const textContent = (payload: Record<string, unknown>) => (payload.components as Array<{ content?: string }> | undefined)?.map((component) => component.content ?? "").join("") ?? String(payload.content);
     expect(textContent(payloads[0]!)).not.toContain("@everyone");
     expect(textContent(payloads[0]!)).not.toContain("*this*");
-    expect(textContent(payloads[0]!)).toContain("Not approved ·");
+    expect(textContent(payloads[0]!)).toContain("was not approved.");
     expect(textContent(payloads[0]!)).toContain("https://akldb.org/l/");
     expect((await outbox(ids.comment))?.status).toBe("sent");
 
@@ -274,9 +274,12 @@ describe("[LDB-MD18] rejection DM outbox", () => {
     const joined = components.map((component) => String(component.content ?? "")).join("");
     expect(joined).not.toContain("Rejected comment:");
     expect(joined).toContain("\\*emoji 😅 \\[link\\]\\(x\\) @everyone\\_");
-    expect(joined).toContain("Not approved · Please revise");
-    expect(Array.from(joined).length).toBeLessThanOrEqual(4000);
-    expect(components.every((component) => Array.from(String(component.content)).length <= 1800)).toBe(true);
+    expect(joined).toContain("**Reason:** Please revise");
+    expect(joined.length).toBeLessThanOrEqual(4000);
+    expect(components.every((component) => String(component.content).length <= 1800)).toBe(true);
+    const quotedBody = components.slice(1, -1).map((component) => String(component.content));
+    expect(quotedBody.every((chunk) => chunk.startsWith("> "))).toBe(true);
+    expect(quotedBody.map((chunk) => chunk.slice(2).replace(/\\([\\*_~|`>#\[\]()<>])/g, "$1")).join("")).toBe(body);
     expect(rendered.payload.allowed_mentions).toEqual({ parse: [] });
   });
 
@@ -297,23 +300,55 @@ describe("[LDB-MD18] rejection DM outbox", () => {
     const rendered = buildRejectionDmMessage({
       kind: "comment", layoutName: "Test", layoutUrl: "https://akldb.org/l/test", reason: null, context: "Comment submission", commentBody: body,
     });
-    expect(rendered.payload.components).toHaveLength(2);
+    expect(rendered.payload.components).toHaveLength(3);
     expect(rendered.payload.attachments).toEqual([{ id: 0, filename: "rejected-comment.txt" }]);
     expect(rendered.attachmentText).toBe(body);
-    expect(rendered.payload.components?.[0]).toEqual({ type: 13, file: { url: "attachment://rejected-comment.txt" } });
-    expect(String(rendered.payload.components?.[1]?.content)).toBe("Not approved · No reason was provided.\nhttps://akldb.org/l/test");
+    expect(rendered.payload.components?.[0]).toEqual({ type: 10, content: "Your comment submission for **Test** was not approved." });
+    expect(rendered.payload.components?.[1]).toEqual({ type: 13, file: { url: "attachment://rejected-comment.txt" } });
+    expect(String(rendered.payload.components?.[2]?.content)).toBe("**Reason:** No reason was provided.\nhttps://akldb.org/l/test");
   });
 
-  it("[LDB-MD18] leads with the comment and includes only the decision, reason and layout link", () => {
+  it("[LDB-MD18] explains the outcome, quotes the comment, then gives the reason and layout link", () => {
     const body = "These layouts were part of a rollmaxxing test, do not use.";
     const rendered = buildRejectionDmMessage({
       kind: "comment", layoutName: "bemboo10", layoutUrl: "https://akldb.org/l/01M2CZ670ZTQMT2YQQR7ATH0J6",
       reason: "off topic", context: "Comment submission", commentBody: body,
     });
     expect(rendered.payload.components).toEqual([
-      { type: 10, content: body },
-      { type: 10, content: "Not approved · off topic\nhttps://akldb.org/l/01M2CZ670ZTQMT2YQQR7ATH0J6" },
+      { type: 10, content: "Your comment submission for **bemboo10** was not approved." },
+      { type: 10, content: `> ${body}` },
+      { type: 10, content: "**Reason:** off topic\nhttps://akldb.org/l/01M2CZ670ZTQMT2YQQR7ATH0J6" },
     ]);
     expect(rendered.payload.allowed_mentions).toEqual({ parse: [] });
+  });
+
+  it("quotes each line including blank lines, and keeps submitted Markdown literal", () => {
+    const rendered = buildRejectionDmMessage({
+      kind: "comment", layoutName: "@everyone **Test**\n# fake", layoutUrl: "https://akldb.org/l/test",
+      reason: "off topic", context: "Comment submission", commentBody: "first\n\n> nested *text*\nlast\n",
+    });
+    expect(rendered.payload.components?.[0]?.content).toBe("Your comment submission for **＠everyone Test # fake** was not approved.");
+    expect(rendered.payload.components?.[1]?.content).toBe("> first\n> \n> \\> nested \\*text\\*\n> last\n> ");
+    expect(rendered.payload.allowed_mentions).toEqual({ parse: [] });
+  });
+
+  it("counts introduction, multiline quote prefixes and continuation prefixes at the exact UTF-16 limit", () => {
+    const input = {
+      kind: "comment" as const, layoutName: "Test", layoutUrl: "https://akldb.org/l/test",
+      reason: "off topic", context: "Comment submission",
+    };
+    const intro = "Your comment submission for **Test** was not approved.";
+    const summary = "**Reason:** off topic\nhttps://akldb.org/l/test";
+    // Three quote chunks: each newline adds two prefix characters, and each
+    // component starts with two more. The raw comment remains under 2,000 chars.
+    const body = "\n".repeat(1200) + "x".repeat(4000 - intro.length - summary.length - 3600 - 6);
+    const rendered = buildRejectionDmMessage({ ...input, commentBody: body });
+    expect(rendered.attachmentText).toBeUndefined();
+    const components = rendered.payload.components ?? [];
+    expect(components.reduce((length, component) => length + String(component.content).length, 0)).toBe(4000);
+    expect(components.every((component) => String(component.content).length <= 1800)).toBe(true);
+    expect(components.slice(1, -1).map((component) => String(component.content).slice(2).replace(/\n> /g, "\n")).join("")).toBe(body);
+    const overLimit = buildRejectionDmMessage({ ...input, commentBody: body + "x" });
+    expect(overLimit.attachmentText).toBe(body + "x");
   });
 });

@@ -105,18 +105,20 @@ export function buildRejectionDmMessage(input: {
   const reason = input.reason === null || input.reason.trim() === "" ? "No reason was provided." : safeText(input.reason, 500);
   const url = safeUrl(input.layoutUrl);
   const summary = input.kind === "comment"
-    ? `Not approved · ${reason}\n${url}`
+    ? `**Reason:** ${reason}\n${url}`
     : `Your ${label} submission for ${name} was not approved.\n${context}\nReason: ${reason}\nLayout: ${url}`;
   if (input.kind !== "comment") return { payload: { content: summary, allowed_mentions: { parse: [] } } };
 
   if (typeof input.commentBody !== "string") throw new Error("eligible rejected comment body is unavailable");
-  const escapedBody = escapedMarkdownTokens(input.commentBody);
-  const fullText = `${escapedBody.join("")}\n\n${summary}`;
-  if (countCharacters(fullText) <= 4000) {
+  const intro = { type: 10, content: `Your comment submission for **${name}** was not approved.` };
+  const components = [intro, ...quotedTextDisplays(input.commentBody), { type: 10, content: summary }];
+  // Count the actual payload, including quote prefixes on continued lines and
+  // split components. Escaping and astral Unicode can expand otherwise short text.
+  if (components.reduce((length, component) => length + countCharacters(component.content), 0) <= 4000) {
     return {
       payload: {
         flags: 1 << 15,
-        components: chunkTextDisplays(summary, escapedBody),
+        components,
         allowed_mentions: { parse: [] },
       },
     };
@@ -125,6 +127,7 @@ export function buildRejectionDmMessage(input: {
     payload: {
       flags: 1 << 15,
       components: [
+        intro,
         { type: 13, file: { url: "attachment://rejected-comment.txt" } },
         { type: 10, content: summary },
       ],
@@ -155,22 +158,19 @@ function countCharacters(value: string): number {
   return value.length;
 }
 
-function chunkTextDisplays(summary: string, bodyTokens: string[]): Array<{ type: 10; content: string }> {
+function quotedTextDisplays(body: string): Array<{ type: 10; content: string }> {
   const components: Array<{ type: 10; content: string }> = [];
-  let chunk = "";
-  let length = 0;
-  for (const token of bodyTokens) {
+  let chunk = "> ";
+  for (const bodyToken of escapedMarkdownTokens(body)) {
+    const token = bodyToken === "\n" ? "\n> " : bodyToken;
     const size = countCharacters(token);
-    if (length + size > 1800 && chunk !== "") {
+    if (countCharacters(chunk) + size > 1800) {
       components.push({ type: 10, content: chunk });
-      chunk = "";
-      length = 0;
+      chunk = "> ";
     }
     chunk += token;
-    length += size;
   }
-  if (chunk !== "") components.push({ type: 10, content: chunk });
-  components.push({ type: 10, content: summary });
+  components.push({ type: 10, content: chunk });
   return components;
 }
 
