@@ -1,4 +1,4 @@
-import { env } from "cloudflare:test";
+import { createExecutionContext, env, waitOnExecutionContext } from "cloudflare:test";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { ulid } from "ulidx";
 import type { Bindings } from "../../src/env";
@@ -6,6 +6,7 @@ import { drainDiscordActions, handleDiscordInteraction } from "../../src/core/di
 import { buildV2Payload } from "../../src/core/modqueue-message";
 import { reopenComment, rejectComment } from "../../src/core/comments";
 import { fixedClock } from "../../src/core/time";
+import { app } from "../../src/index";
 
 const bindings = env as unknown as Bindings;
 const db = bindings.DB;
@@ -283,6 +284,38 @@ describe("[LDB-MD21] Discord reopening", () => {
     })), envWith(), clock);
     return await response.json() as { type: number; data?: { content?: string } };
   }
+
+  it.each(["comment", "wpm"] as const)("[LDB-MD21] HTTP route immediately processes confirmed approved %s without waiting for cron", async (kind) => {
+    const { id, patches } = await seedReview("approved", kind);
+    const initialId = "900000000000000560";
+    const confirmId = "900000000000000561";
+    async function deliver(body: Record<string, unknown>) {
+      const context = createExecutionContext();
+      const request = await signedRequest(body, { timestamp: String(Math.floor(Date.now() / 1000)) });
+      const response = await app.fetch(request, envWith(), context);
+      await waitOnExecutionContext(context);
+      expect(response.status).toBe(200);
+      return await response.json() as { type: number; data?: { components: { components: { custom_id: string }[] }[] } };
+    }
+    const opened = await deliver(interaction(3, initialId, {
+      custom_id: `aklmod2|${kind}|reopen-approved|${id}|0`,
+    }, { message: { id: messageId } }));
+    expect(opened.type).toBe(4);
+    expect(await db.prepare("SELECT 1 FROM discord_reopen_actions").first()).toBeNull();
+    const confirmed = await deliver(interaction(3, confirmId, {
+      custom_id: opened.data!.components[0]!.components[0]!.custom_id,
+    }, { message: { id: "900000000000000888", interaction_metadata: { id: initialId } } }));
+    expect(confirmed.type).toBe(6);
+    // Exercise the production HTTP continuation, never call drainDiscordActions
+    // directly: otherwise a missing waitUntil dispatch is invisible to this test.
+    const table = kind === "comment" ? "layout_comments" : "wpm_submissions";
+    expect(await db.prepare(`SELECT status, review_version FROM ${table} WHERE id = ?`).bind(id).first())
+      .toEqual({ status: "pending", review_version: 1 });
+    expect(await db.prepare("SELECT state, token FROM discord_reopen_actions WHERE interaction_id = ?").bind(confirmId).first())
+      .toEqual({ state: "complete", token: "" });
+    expect(patches.some((patch) => JSON.stringify(patch).includes(`aklmod2|${kind}|approve|${id}|1`))).toBe(true);
+    expect(patches.some((patch) => patch.content === "Review reopened. The submission is pending again." && Array.isArray(patch.components) && patch.components.length === 0)).toBe(true);
+  });
 
   it.each(["comment", "wpm"] as const)("[LDB-MD21] directly reopens denied %s once, restores controls and rejects replay", async (kind) => {
     const { id, patches } = await seedReview("rejected", kind);
