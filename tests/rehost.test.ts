@@ -268,6 +268,14 @@ describe("rehost drill", () => {
           await db.prepare(`INSERT INTO discord_deny_modals (modal_id, initial_interaction_id, actor_id, kind, submission_id, channel_id, message_id, guild_id, created_at, expires_at)
             VALUES ('private-modal', '900000000000000194', '900000000000000193', 'comment', 'private-comment', '900000000000000192', '900000000000000191', '900000000000000190', ?, ?)`)
             .bind("2026-10-18T00:00:00.000Z", "2026-10-18T00:14:00.000Z").run();
+          await db.prepare(`INSERT INTO discord_reopen_actions
+            (interaction_id, application_id, token, actor_id, actor_name, kind, action, submission_id, channel_id, message_id, guild_id, expected_status, expected_review_version, created_at, expires_at)
+            VALUES ('900000000000000180', '900000000000000198', 'private-reopen-token', '900000000000000197', 'private reopen actor', 'comment', 'reopen', 'private-reopen-submission', '900000000000000196', '900000000000000195', '900000000000000190', 'approved', 2, ?, ?)`)
+            .bind("2026-10-18T00:00:00.000Z", "2026-10-18T00:14:00.000Z").run();
+          await db.prepare(`INSERT INTO discord_reopen_confirmations
+            (confirmation_id, initial_interaction_id, actor_id, kind, submission_id, channel_id, message_id, guild_id, expected_status, expected_review_version, created_at, expires_at)
+            VALUES ('private-reopen-confirmation', '900000000000000181', '900000000000000197', 'comment', 'private-reopen-submission', '900000000000000196', '900000000000000195', '900000000000000190', 'approved', 2, ?, ?)`)
+            .bind("2026-10-18T00:00:00.000Z", "2026-10-18T00:14:00.000Z").run();
           await db.prepare(`INSERT INTO discord_rejection_dm_outbox
             (delivery_key, event_seq, kind, submission_id, layout_id, recipient_id, nonce, status, next_attempt_at, created_at, updated_at)
             VALUES ('private-dm-marker', -999, 'comment', 'private-comment', 'private-layout', '900000000000000188', 'private-dm-nonce', 'pending', ?, ?, ?)`)
@@ -297,6 +305,7 @@ describe("rehost drill", () => {
       const dumpText = JSON.stringify(dump);
       expect(dumpText).not.toContain(privateNotificationId);
       for (const privateValue of ["private-interaction-token", "private actor", "private-submission", "private-modal", "private-dm-marker", "private-dm-nonce"]) expect(dumpText).not.toContain(privateValue);
+      for (const privateValue of ["private-reopen-token", "private reopen actor", "private-reopen-submission", "private-reopen-confirmation"]) expect(dumpText).not.toContain(privateValue);
       for (const secret of ["rehost-pending", "rehost-rejected", "rehost private reason"]) expect(dumpText.includes(secret), secret).toBe(false);
       expect(dump.events.find((e) => e.kind === "link_submitted" && e.layout_id === ids.pendingLayoutId)?.detail_json).toBe('{"submission_id":"01REHOSTOLD"}');
       // [LDB-WPM10] only the APPROVED wpm row is dumped, proof intact; the
@@ -335,6 +344,8 @@ describe("rehost drill", () => {
       expect(privateRows.results).toEqual([]);
       expect((await db.prepare("SELECT 1 FROM discord_pending_actions").first())).toBeNull();
       expect((await db.prepare("SELECT 1 FROM discord_deny_modals").first())).toBeNull();
+      expect((await db.prepare("SELECT 1 FROM discord_reopen_actions").first())).toBeNull();
+      expect((await db.prepare("SELECT 1 FROM discord_reopen_confirmations").first())).toBeNull();
       expect((await db.prepare("SELECT 1 FROM discord_rejection_dm_outbox").first())).toBeNull();
     }
 

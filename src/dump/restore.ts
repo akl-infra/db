@@ -30,6 +30,8 @@ const TABLE_ORDER_DELETE = [
   "discord_rejection_dm_outbox", // private rejection delivery identifiers/state; never present in the public dump
   "discord_pending_actions", // private expiring interaction tokens/actions; never dumped
   "discord_deny_modals", // private short-lived modal bindings; never dumped
+  "discord_reopen_actions", // private reopening jobs and interaction tokens; never dumped
+  "discord_reopen_confirmations", // private expiring moderator confirmations; never dumped
   "layout_revs",
   "layout_formats",
   "likes",
