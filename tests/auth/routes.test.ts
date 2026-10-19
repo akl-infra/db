@@ -28,6 +28,7 @@ function writeRoutes(): { method: string; path: string }[] {
   const out: { method: string; path: string }[] = [];
   for (const route of app.routes) {
     if (SAFE.has(route.method)) continue;
+    if (route.path === "/discord/interactions") continue; // protocol callback uses Discord signatures, not user auth
     const path = concretePath(route);
     const key = `${route.method} ${path}`;
     if (seen.has(key)) continue;

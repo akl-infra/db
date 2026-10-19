@@ -161,6 +161,7 @@ describe("[LDB-R6] write rate limit", () => {
     const routes: { method: string; path: string }[] = [];
     for (const route of app.routes) {
       if (SAFE.has(route.method)) continue;
+      if (route.path === "/discord/interactions") continue; // outside the /v1/* user write-rate-limit boundary
       const full = route.path.startsWith("/") ? route.path : `${route.basePath}${route.path}`;
       const path = full.replace(/:[^/]+/g, "01ARZ3NDEKTSV4RRFFQ69G5FAV");
       const key = `${route.method} ${path}`;

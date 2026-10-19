@@ -11,7 +11,7 @@ import { type AuthDeps, resolveActor } from "../auth/discord";
 import type { Bindings } from "../env";
 import { badRequest, notAdmin, notFound } from "../core/errors";
 import { cachePut, conditional, etagFor, readHead } from "../core/etag";
-import { notifyPending } from "../core/modqueue";
+import { notifyPending, updateQueueNotification } from "../core/modqueue";
 import { byRef } from "../core/records";
 import { systemClock, type Clock } from "../core/time";
 import * as wpm from "../core/wpm";
@@ -112,6 +112,7 @@ export function wpmRoute(authDeps: AuthDeps) {
     const actor = c.get("actor");
     if (!actor.admin) throw notAdmin();
     const submission = await wpm.approveWpm(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), c.req.param("id"));
+    c.executionCtx.waitUntil(updateQueueNotification(c.env.DB, c.env, "wpm", submission.id));
     return c.json({ submission });
   });
 
@@ -120,6 +121,7 @@ export function wpmRoute(authDeps: AuthDeps) {
     if (!actor.admin) throw notAdmin();
     const body = parseLinkRejectBody(await readOptionalJson(c.req));
     const submission = await wpm.rejectWpm(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), c.req.param("id"), body.reason);
+    c.executionCtx.waitUntil(updateQueueNotification(c.env.DB, c.env, "wpm", submission.id));
     return c.json({ submission });
   });
 

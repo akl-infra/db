@@ -12,6 +12,7 @@ import { dumpDue, DUMP_STATE_KEY, readDumpState, writeDump, type DumpState } fro
 import { runJob } from "./core/jobs";
 import { metaFormats, readMetaCore } from "./core/meta";
 import { notifyPending } from "./core/modqueue";
+import { drainDiscordActions, handleDiscordInteraction } from "./core/discord-interactions";
 import { runNightly } from "./core/nightly";
 import { systemClock } from "./core/time";
 import { API_MAJOR, API_MINOR, API_VERSION_HEADER, apiVersionString, deprecationHeadersFor, withApiVersionHeader } from "./core/version";
@@ -285,6 +286,18 @@ app.route("/", commentsRoute(authDeps));
 app.route("/", adminRoute(authDeps));
 app.route("/", moderationRoute(authDeps));
 
+// Discord interaction delivery is a separate signed HTTP lane, never the
+// normal `/v1/*` user/client actor lane. The adapter verifies the exact raw
+// bytes before parsing JSON and persists action continuations before ACK.
+app.post("/discord/interactions", async (c) => {
+  const response = await handleDiscordInteraction(c.req.raw, c.env, systemClock);
+  if (response.status === 200) {
+    const callback = await response.clone().json() as { type?: unknown };
+    if (callback.type === 5) c.executionCtx.waitUntil(drainDiscordActions(c.env.DB, c.env, systemClock));
+  }
+  return response;
+});
+
 // [LDB-V2] `onError` builds its own Response directly (`c.json(...)`),
 // which happens AFTER a thrown error has already unwound past the global
 // version-header middleware above (its `await next()` rejects, so the
@@ -347,6 +360,7 @@ async function scheduled(event: ScheduledController, env: Bindings, _ctx: Execut
   // Not gated by an import-style feature flag -- `MODQUEUE_DISCORD_WEBHOOK`
   // (LDB-MD12) is that gate, checked inside `notifyPending` itself.
   await runJob("modqueue-notify", () => notifyPending(env.DB, env, systemClock));
+  await runJob("discord-interaction-actions", () => drainDiscordActions(env.DB, env, systemClock));
 
   // [LDB-X2] The cmini import tick and the upstream diff tick both used to
   // run here (LDB-I27's kill switch had already turned both off since

@@ -1166,6 +1166,7 @@ silently drift from what `src/index.ts` actually registers.
 | GET | `/v1/dump/monthly/:key` | none | — | 200 | `not_found` |
 | GET | `/v1/dump/:key` | none | — | 200 | `not_found` |
 | GET | `/v1/admin/admins` | admin | — | 200 | `not_admin`, lane errors |
+| POST | `/discord/interactions` | none (Discord Ed25519 signature) | Discord interaction JSON; raw body signature required | 200 (Discord PING/interaction callback response) | 400, 401, 413 |
 | POST | `/v1/admin/admins` | admin | `{user_id, note?}` | 200/201 | `bad_request`, `not_admin`, lane errors |
 | DELETE | `/v1/admin/admins/:user_id` | admin | — | 200 | `not_admin`, `not_found`, `last_admins`, lane errors |
 | POST | `/v1/admin/nightly/tick` | admin | — | 200 | `not_admin`, lane errors |

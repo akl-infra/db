@@ -674,41 +674,45 @@ export async function appendLinkChange(db: Bindings["DB"], now: Clock, l: LinkCh
   if (current === null) throw new Error(`appendLinkChange: layoutId '${l.layoutId}' does not exist`);
 
   const at = now();
-  const stmts: D1PreparedStatement[] = [
-    db.prepare("UPDATE layouts SET link = ? WHERE id = ?").bind(l.link, l.layoutId),
-    db
-      .prepare(
-        `INSERT INTO events (at, kind, layout_id, name, owner, format, rev, actor, via, admin, detail_json, before_json, after_json, source_client, source_version)
-         VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, NULL, ?, ?, ?)`,
-      )
-      .bind(
-        at,
-        l.kind,
-        l.layoutId,
-        current.name,
-        current.owner,
-        l.actor,
-        l.via,
-        l.admin ? 1 : 0,
-        l.detail === undefined ? null : canonical(l.detail),
-        canonical({ scope: "link", link: l.link }),
-        l.source.client,
-        l.source.version,
-      ),
-  ];
-  const eventStmtIdx = 1;
+  const eventInsert = (gate?: string): D1PreparedStatement => gate === undefined
+    ? db.prepare(`INSERT INTO events (at, kind, layout_id, name, owner, format, rev, actor, via, admin, detail_json, before_json, after_json, source_client, source_version)
+        VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, NULL, ?, ?, ?)`)
+      .bind(at, l.kind, l.layoutId, current.name, current.owner, l.actor, l.via, l.admin ? 1 : 0,
+        l.detail === undefined ? null : canonical(l.detail), canonical({ scope: "link", link: l.link }), l.source.client, l.source.version)
+    : db.prepare(`INSERT INTO events (at, kind, layout_id, name, owner, format, rev, actor, via, admin, detail_json, before_json, after_json, source_client, source_version)
+        SELECT ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, NULL, ?, ?, ? WHERE ${gate}`)
+      .bind(at, l.kind, l.layoutId, current.name, current.owner, l.actor, l.via, l.admin ? 1 : 0,
+        l.detail === undefined ? null : canonical(l.detail), canonical({ scope: "link", link: l.link }), l.source.client, l.source.version);
+
+  let stmts: D1PreparedStatement[];
+  let eventStmtIdx: number;
+  let claimStmtIdx: number | undefined;
   if (l.submissionId !== undefined) {
-    stmts.push(
-      db
-        .prepare("UPDATE link_submissions SET status = 'approved', decided_by = ?, decided_at = ? WHERE id = ? AND status = 'pending'")
-        .bind(l.actor, at, l.submissionId),
-    );
+    // D1 batch is transactional. The pending→approved CAS is deliberately
+    // first; SQLite's changes() gates every side effect on that exact
+    // statement. Competing admin/Discord decisions therefore cannot both
+    // change layouts or append approval events.
+    stmts = [
+      db.prepare(`UPDATE link_submissions SET status = 'approved', decided_by = ?, decided_at = ?
+        WHERE id = ? AND status = 'pending' AND EXISTS (SELECT 1 FROM layouts WHERE id = ? AND deleted = 0)`)
+        .bind(l.actor, at, l.submissionId, l.layoutId),
+      db.prepare("UPDATE layouts SET link = ? WHERE id = ? AND deleted = 0 AND changes() = 1").bind(l.link, l.layoutId),
+      eventInsert("changes() = 1"),
+      db.prepare(`UPDATE link_submissions SET status = 'superseded', decided_by = ?, decided_at = ?
+        WHERE layout_id = ? AND status = 'pending' AND id != ? AND changes() = 1`)
+        .bind(l.actor, at, l.layoutId, l.submissionId),
+    ];
+    eventStmtIdx = 2;
+    claimStmtIdx = 0;
+  } else {
+    stmts = [
+      db.prepare("UPDATE layouts SET link = ? WHERE id = ?").bind(l.link, l.layoutId),
+      eventInsert(),
+      db.prepare("UPDATE link_submissions SET status = 'superseded', decided_by = ?, decided_at = ? WHERE layout_id = ? AND status = 'pending' AND changes() = 1")
+        .bind(l.actor, at, l.layoutId),
+    ];
+    eventStmtIdx = 1;
   }
-  stmts.push(
-    db
-      .prepare("UPDATE link_submissions SET status = 'superseded', decided_by = ?, decided_at = ? WHERE layout_id = ? AND status = 'pending' AND id != ?")
-      .bind(l.actor, at, l.layoutId, l.submissionId ?? ""),
-  );
 
   let budgetStmtIdx: number | undefined;
   if (l.destructiveBudget !== undefined) {
@@ -717,6 +721,9 @@ export async function appendLinkChange(db: Bindings["DB"], now: Clock, l: LinkCh
   }
 
   const results = await db.batch(stmts);
+  if (claimStmtIdx !== undefined && (results[claimStmtIdx]?.meta.changes ?? 0) !== 1) {
+    throw notFound(`link submission '${l.submissionId}' is not pending`, l.submissionId!);
+  }
   const seq = results[eventStmtIdx]?.meta.last_row_id;
   if (seq === undefined) throw new Error("appendLinkChange: events insert returned no last_row_id");
 

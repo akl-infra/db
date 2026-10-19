@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ulid } from "ulidx";
 import type { Bindings } from "../../src/env";
 import { commitWrite, type CommitInput } from "../../src/core/events";
-import { announceComment, buildCommentMessageContent, notifyPending } from "../../src/core/modqueue";
+import { announceComment, buildCommentMessageContent, notifyPending, updateQueueNotification } from "../../src/core/modqueue";
 import { fixedClock } from "../../src/core/time";
 import { actorFixture, register } from "../api/write-support";
 
@@ -86,28 +86,102 @@ async function layoutName(layoutId: string): Promise<string> {
 
 interface LoggedPost {
   url: string;
+  method?: string;
   body: { content: string; allowed_mentions: { parse: string[] } };
 }
 
 class FakeWebhook {
   readonly requests: LoggedPost[] = [];
-  constructor(private readonly answer: (callIndex: number) => "throw" | number = () => 204) {}
+  private readonly contents = new Map<string, string>();
+  constructor(private readonly answer: (callIndex: number) => "throw" | number = () => 200) {}
 
   readonly fetchImpl: typeof fetch = async (input, init) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-    this.requests.push({ url, body: JSON.parse(String(init?.body ?? "{}")) });
+    this.requests.push({ url, method: init?.method, body: JSON.parse(String(init?.body ?? "{}")) });
     const outcome = this.answer(this.requests.length - 1);
     if (outcome === "throw") throw new Error("fake webhook: network error");
+    if (init?.method === "POST") {
+      const id = `discord-comment-${this.requests.length}`;
+      this.contents.set(id, JSON.parse(String(init.body)).content);
+      return Response.json({ id }, { status: outcome });
+    }
+    if (init?.method === "GET") {
+      const id = url.match(/\/messages\/([^?]+)/)?.[1] ?? "";
+      return Response.json({ content: this.contents.get(id) ?? "" }, { status: outcome });
+    }
+    const id = url.match(/\/messages\/([^?]+)/)?.[1] ?? "";
+    const body = JSON.parse(String(init?.body ?? "{}"));
+    if (typeof body.content === "string") this.contents.set(id, body.content);
     return new Response(null, { status: outcome });
   };
 
   about(id: string): LoggedPost[] {
-    return this.requests.filter((r) => r.body.content.includes(id));
+    return this.requests.filter((r) => typeof r.body.content === "string" && r.body.content.includes(id));
   }
 }
 
 describe("[LDB-CMT8] comments are announced on submit, best effort, never by the cron", () => {
-  it("[LDB-CMT8] a pending comment is announced once: layout link, author, length, the text in quotes, and the inbox link; it stays pending", async () => {
+  it("[LDB-MD16] uploads complete before/after comment text as plain text when the full card exceeds Discord's limit", async () => {
+    const layoutId = await freshLayout(uniqueName("modq-cmt-file"));
+    const userId = "900000000000000229";
+    const before = "o".repeat(2000);
+    const after = "n".repeat(2000);
+    await insertComment({ layoutId, userId, body: before, status: "approved" });
+    const id = await insertComment({ layoutId, userId, body: after });
+    let uploadedText = "";
+    let payload: Record<string, unknown> = {};
+    let wasFormData = false;
+    let contentType: string | null = null;
+    const fetchImpl: typeof fetch = async (_input, init) => {
+      wasFormData = init?.body instanceof FormData;
+      contentType = new Headers(init?.headers).get("Content-Type");
+      const form = init!.body as FormData;
+      const payloadPart = form.get("payload_json");
+      const filePart = form.get("files[0]");
+      if (typeof payloadPart !== "string" || !(filePart instanceof Blob)) return new Response(null, { status: 400 });
+      payload = JSON.parse(payloadPart);
+      uploadedText = await filePart.text();
+      return Response.json({ id: "discord-comment-fulltext" });
+    };
+    await announceComment(db, { ...envWith(WEBHOOK_URL), MODQUEUE_DISCORD_COMPONENTS: "true" }, id, fetchImpl);
+    expect(wasFormData).toBe(true);
+    expect(contentType).toBeNull(); // runtime sets multipart boundary
+    expect(payload.allowed_mentions).toEqual({ parse: [] });
+    const parts = payload.components as { components: { id?: number; content?: string }[] }[];
+    expect(parts[0]!.components.find((c) => c.id === 41004)?.content).toBe("Full comment text attached as a .txt file.");
+    expect(payload.attachments).toEqual([{ id: "0", filename: `comment-${id}.txt`, description: "Complete comment text before and after the edit" }]);
+    expect(uploadedText).toBe(`BEFORE\n\n${before}\n\nAFTER\n\n${after}`);
+  });
+
+  it("[LDB-MD16] uses a complete text attachment for long legacy comments and removes it after deletion", async () => {
+    const layoutId = await freshLayout(uniqueName("modq-cmt-legacy-file"));
+    const id = await insertComment({ layoutId, userId: "900000000000000230", body: "x".repeat(2000) });
+    let payload: Record<string, unknown> = {};
+    let patchBody: Record<string, unknown> = {};
+    const fetchImpl: typeof fetch = async (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (init?.method === "POST") {
+        const form = init.body as FormData;
+        payload = JSON.parse(String(form.get("payload_json")));
+        return Response.json({ id: "discord-comment-legacy-file" });
+      }
+      if (init?.method === "GET") return Response.json({ content: payload.content, attachments: payload.attachments });
+      patchBody = JSON.parse(String(init?.body ?? "{}"));
+      expect(url).toContain("/messages/discord-comment-legacy-file");
+      return Response.json({ id: "discord-comment-legacy-file" });
+    };
+    await announceComment(db, envWith(WEBHOOK_URL), id, fetchImpl);
+    expect(payload.content).toContain("Full comment text attached as a .txt file.");
+    expect(payload.content).not.toContain("x".repeat(100));
+    expect(payload.attachments).toEqual([{ id: "0", filename: `comment-${id}.txt`, description: "Complete comment text before and after the edit" }]);
+
+    await db.prepare("UPDATE layout_comments SET status = 'deleted', body = NULL WHERE id = ?").bind(id).run();
+    await updateQueueNotification(db, envWith(WEBHOOK_URL), "comment", id, fetchImpl);
+    expect(patchBody.content).toBe("🗑️ DELETED");
+    expect(patchBody.attachments).toEqual([]);
+  });
+
+  it("[LDB-CMT8] a pending comment is announced once: layout link, author, full text, and inbox link; it stays pending", async () => {
     const layoutId = await freshLayout(uniqueName("modq-cmt-happy"));
     await insertAuthor("900000000000000210", "Kind Commenter");
     const subId = await insertComment({ layoutId, userId: "900000000000000210", body: "Great home row, I use it daily" });
@@ -117,12 +191,11 @@ describe("[LDB-CMT8] comments are announced on submit, best effort, never by the
 
     const sent = webhook.about(subId);
     expect(sent).toHaveLength(1);
-    expect(sent[0]!.url).toBe(WEBHOOK_URL);
+    expect(sent[0]!.url).toBe(`${WEBHOOK_URL}?wait=true`);
     expect(sent[0]!.body.allowed_mentions).toEqual({ parse: [] });
-    const [first, second, ...rest] = sent[0]!.body.content.split("\n");
-    expect(rest).toEqual([]);
-    expect(first).toBe(`New comment on **[${await layoutName(layoutId)}](<https://akldb.org/l/${layoutId}>)** by Kind Commenter (30 chars): "Great home row, I use it daily"`);
-    expect(second).toBe(`[Open the inbox](<https://akldb.org/admin?tab=inbox>) \u00b7 submission \`${subId}\``);
+    expect(sent[0]!.body.content).toContain(`New comment on **[${await layoutName(layoutId)}](<https://akldb.org/l/${layoutId}>)** by Kind Commenter (30 chars)`);
+    expect(sent[0]!.body.content).toContain("**Comment**\nGreat home row, I use it daily");
+    expect(sent[0]!.body.content).toContain(`[Open the inbox](<https://akldb.org/admin?tab=inbox>) \u00b7 submission \`${subId}\``);
 
     const row = await db.prepare("SELECT status FROM layout_comments WHERE id = ?").bind(subId).first<{ status: string }>();
     expect(row?.status).toBe("pending");
@@ -136,7 +209,58 @@ describe("[LDB-CMT8] comments are announced on submit, best effort, never by the
     expect(webhook.about(subId)[0]!.body.content).toContain("by 900000000000000211 (9 chars)");
   });
 
-  it("[LDB-CMT8] a user who already has a live comment gets the 'Edited comment' message: the length, never the text", async () => {
+  it("[LDB-MD15] edits the original comment message for approval and rejection", async () => {
+    const layoutId = await freshLayout(uniqueName("modq-cmt-status"));
+    const ids = [
+      await insertComment({ layoutId, userId: "900000000000000218", body: "approved body" }),
+      await insertComment({ layoutId, userId: "900000000000000219", body: "rejected body" }),
+    ];
+    const webhook = new FakeWebhook();
+    for (const [id, status, prefix] of [[ids[0]!, "approved", "✅ APPROVED"], [ids[1]!, "rejected", "❌ REJECTED"]] as const) {
+      await announceComment(db, envWith(WEBHOOK_URL), id, webhook.fetchImpl);
+      await db.prepare("UPDATE layout_comments SET status = ? WHERE id = ?").bind(status, id).run();
+      await updateQueueNotification(db, envWith(WEBHOOK_URL), "comment", id, webhook.fetchImpl);
+      const edit = webhook.requests.find((r) => r.method === "PATCH" && r.body.content.includes(id));
+      expect(edit?.url).toContain(`/messages/discord-comment-`);
+      expect(edit?.body.content.startsWith(`${prefix}\nNew comment on`)).toBe(true);
+      expect(edit?.body.content).toContain(`submission \`${id}\``);
+      expect(edit?.body.allowed_mentions).toEqual({ parse: [] });
+    }
+  });
+
+  it("[LDB-MD15] erases deleted and replaced comment previews during status reconciliation", async () => {
+    const layoutId = await freshLayout(uniqueName("modq-cmt-erasure"));
+    const id = await insertComment({ layoutId, userId: "900000000000000220", body: "private preview to erase" });
+    const webhook = new FakeWebhook();
+    await announceComment(db, envWith(WEBHOOK_URL), id, webhook.fetchImpl);
+    await db.prepare("UPDATE layout_comments SET status = 'deleted', body = NULL WHERE id = ?").bind(id).run();
+    await updateQueueNotification(db, envWith(WEBHOOK_URL), "comment", id, webhook.fetchImpl);
+    const edit = webhook.requests.find((r) => r.method === "PATCH");
+    expect(edit?.body.content).toBe("🗑️ DELETED");
+    expect(edit?.body.content).not.toContain("private preview to erase");
+  });
+
+  it("[LDB-MD15] serial reconciliation catches a comment deletion that races the remote approval edit", async () => {
+    const layoutId = await freshLayout(uniqueName("modq-cmt-status-race"));
+    const id = await insertComment({ layoutId, userId: "900000000000000231", body: "private race comment" });
+    const patches: Record<string, unknown>[] = [];
+    const fetchImpl: typeof fetch = async (_input, init) => {
+      if (init?.method === "POST") return Response.json({ id: "discord-comment-status-race" });
+      if (init?.method === "GET") return Response.json({ content: "Original full comment", attachments: [] });
+      const patch = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+      patches.push(patch);
+      if (patches.length === 1) await db.prepare("UPDATE layout_comments SET status = 'deleted', body = NULL WHERE id = ?").bind(id).run();
+      return Response.json({ id: "discord-comment-status-race" });
+    };
+    await announceComment(db, envWith(WEBHOOK_URL), id, fetchImpl);
+    await db.prepare("UPDATE layout_comments SET status = 'approved' WHERE id = ?").bind(id).run();
+    await updateQueueNotification(db, envWith(WEBHOOK_URL), "comment", id, fetchImpl);
+    expect(patches).toHaveLength(2);
+    expect(patches[0]!.content).toMatch(/^✅ APPROVED\n/);
+    expect(patches[1]!.content).toBe("🗑️ DELETED");
+  });
+
+  it("[LDB-CMT8] a user who already has a live comment gets the full before/after edit", async () => {
     const layoutId = await freshLayout(uniqueName("modq-cmt-edit"));
     const userId = "900000000000000212";
     await insertComment({ layoutId, userId, body: "the old live text", status: "approved" });
@@ -145,23 +269,20 @@ describe("[LDB-CMT8] comments are announced on submit, best effort, never by the
     await announceComment(db, envWith(WEBHOOK_URL), subId, webhook.fetchImpl);
     const content = webhook.about(subId)[0]!.body.content;
     expect(content.startsWith("Edited comment on **[")).toBe(true);
-    expect(content).toContain(` by ${userId} (25 chars)\n[Open the inbox]`);
-    expect(content).not.toContain("secret text");
-    expect(content).not.toContain("old live text");
+    expect(content).toContain(` by ${userId} (25 chars)\n**Before**\nthe old live text\n\n**After**\nthe rewritten secret text\n[Open the inbox]`);
   });
 
-  it("[LDB-CMT8] buildCommentMessageContent shows the first 120 code points with an ellipsis when cut, escapes markdown, and flattens line breaks", () => {
-    const base = { id: "01ARZ3NDEKTSV4RRFFQ69G5FAV", layout_id: "01BX5ZZKBKACTAV9WEVGEMMVRY", user_id: "900000000000000213", layout_name: "*bold* [masked](https://evil.example)", user_name: "*Evil* `Name`", has_live: 0 };
+  it("[LDB-CMT8] buildCommentMessageContent shows complete content and escapes markdown without splitting Unicode", () => {
+    const base = { id: "01ARZ3NDEKTSV4RRFFQ69G5FAV", layout_id: "01BX5ZZKBKACTAV9WEVGEMMVRY", user_id: "900000000000000213", layout_name: "*bold* [masked](https://evil.example)", user_name: "*Evil* `Name`", has_live: 0, live_body: null };
     const exact = buildCommentMessageContent({ ...base, body: "x".repeat(120) });
-    expect(exact).toContain(`(120 chars): "${"x".repeat(120)}"\n`);
+    expect(exact).toContain(`(120 chars)\n**Comment**\n${"x".repeat(120)}\n`);
     const cut = buildCommentMessageContent({ ...base, body: "y".repeat(121) });
-    expect(cut).toContain(`(121 chars): "${"y".repeat(120)}\u2026"\n`);
+    expect(cut).toContain(`(121 chars)\n**Comment**\n${"y".repeat(121)}\n`);
     const emoji = buildCommentMessageContent({ ...base, body: "\u{1F600}".repeat(130) });
-    expect(emoji).toContain(`(130 chars): "${"\u{1F600}".repeat(120)}\u2026"`);
+    expect(emoji).toContain(`${"\u{1F600}".repeat(130)}`);
 
     const rich = buildCommentMessageContent({ ...base, body: "*loud* [link](https://x)\n\n> quote `code` _it_ ~s~ |spoiler|" });
-    expect(rich).toContain('"\\*loud\\* \\[link\\](https://x) \\> quote \\`code\\` \\_it\\_ \\~s\\~ \\|spoiler\\|"');
-    expect(rich.split("\n")).toHaveLength(2); // the comment cannot add lines of its own
+    expect(rich).toContain("\\*loud\\* \\[link\\](https://x)\n\n\\> quote \\`code\\` \\_it\\_ \\~s\\~ \\|spoiler\\|");
     expect(rich).toContain("\\*bold\\* \\[masked\\](https://evil.example)");
     expect(rich).toContain("\\*Evil\\* \\`Name\\`");
     expect(rich).toContain("(<https://akldb.org/l/01BX5ZZKBKACTAV9WEVGEMMVRY>)");
@@ -219,7 +340,7 @@ describe("[LDB-CMT8] comments are announced on submit, best effort, never by the
     const auth = register(fake, "tok-cmt-modq-route", user);
     const layoutId = await freshLayout(uniqueName("modq-cmt-route"));
     const webhook = new FakeWebhook();
-    vi.stubGlobal("fetch", (url: string, init: { headers: Record<string, string>; signal?: AbortSignal }) => (url === WEBHOOK_URL ? webhook.fetchImpl(url, init) : fake.fetchImpl(url, init)));
+    vi.stubGlobal("fetch", (url: string, init: { headers: Record<string, string>; signal?: AbortSignal }) => (url.startsWith(WEBHOOK_URL) ? webhook.fetchImpl(url, init) : fake.fetchImpl(url, init)));
     (bindings as { MODQUEUE_DISCORD_WEBHOOK?: string }).MODQUEUE_DISCORD_WEBHOOK = WEBHOOK_URL;
 
     const res = await SELF.fetch(`https://example.com/v1/layouts/${layoutId}/comment`, {
@@ -234,7 +355,7 @@ describe("[LDB-CMT8] comments are announced on submit, best effort, never by the
     // not by an asserted duration) for the announcement to land.
     for (let i = 0; i < 500 && webhook.about(submission.id).length === 0; i++) await new Promise((r) => setTimeout(r, 10));
     expect(webhook.about(submission.id)).toHaveLength(1);
-    expect(webhook.about(submission.id)[0]!.body.content).toContain('"announce me please"');
+    expect(webhook.about(submission.id)[0]!.body.content).toContain("**Comment**\nannounce me please");
 
     // An admin's own comment is pending like everyone's, so it is announced too.
     const admin = register(fake, "tok-cmt-modq-admin", "184412255822020608");
@@ -247,7 +368,7 @@ describe("[LDB-CMT8] comments are announced on submit, best effort, never by the
     const ownId = ((await own.json()) as { submission: { id: string } }).submission.id;
     for (let i = 0; i < 500 && webhook.about(ownId).length === 0; i++) await new Promise((r) => setTimeout(r, 10));
     expect(webhook.about(ownId)).toHaveLength(1);
-    expect(webhook.about(ownId)[0]!.body.content).toContain('"admin speaks"');
+    expect(webhook.about(ownId)[0]!.body.content).toContain("**Comment**\nadmin speaks");
   });
 });
 

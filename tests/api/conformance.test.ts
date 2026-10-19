@@ -891,7 +891,9 @@ describe("conformance enumeration", () => {
   // registrations (`requireActorOnWrites`, `rateLimitWrites`) as method
   // "ALL" -- not a route a client can address, so it's excluded here
   // rather than given a REQUIRED entry.
-  const liveRoutes = [...new Set(app.routes.filter((r) => r.method !== "ALL").map((r) => `${r.method} ${r.path}`))];
+  // Discord's separately signed protocol callback has its own interaction
+  // conformance suite; this manifest describes the public REST API only.
+  const liveRoutes = [...new Set(app.routes.filter((r) => r.method !== "ALL" && r.path !== "/discord/interactions").map((r) => `${r.method} ${r.path}`))];
 
   it("every live route has a REQUIRED entry", () => {
     for (const route of liveRoutes) {

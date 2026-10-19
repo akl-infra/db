@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ulid } from "ulidx";
 import type { Bindings } from "../../src/env";
 import { commitWrite, type CommitInput } from "../../src/core/events";
-import { buildMessageContent, buildWpmMessageContent, notifyPending } from "../../src/core/modqueue";
+import { buildMessageContent, buildWpmMessageContent, notifyPending, updateQueueNotification } from "../../src/core/modqueue";
 import { fixedClock } from "../../src/core/time";
 import { actorFixture, register } from "../api/write-support";
 
@@ -88,23 +88,37 @@ async function readWpm(id: string): Promise<{ status: string; notified_at: strin
 
 interface LoggedPost {
   url: string;
+  method?: string;
   body: { content: string; allowed_mentions: { parse: string[] } };
 }
 
 class FakeWebhook {
   readonly requests: LoggedPost[] = [];
-  constructor(private readonly answer: (callIndex: number) => "throw" | number = () => 204) {}
+  private readonly contents = new Map<string, string>();
+  constructor(private readonly answer: (callIndex: number) => "throw" | number = () => 200) {}
 
   readonly fetchImpl: typeof fetch = async (input, init) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-    this.requests.push({ url, body: JSON.parse(String(init?.body ?? "{}")) });
+    this.requests.push({ url, method: init?.method, body: JSON.parse(String(init?.body ?? "{}")) });
     const outcome = this.answer(this.requests.length - 1);
     if (outcome === "throw") throw new Error("fake webhook: network error");
+    if (init?.method === "POST") {
+      const id = `discord-wpm-${this.requests.length}`;
+      this.contents.set(id, JSON.parse(String(init?.body ?? "{}")).content);
+      return Response.json({ id }, { status: outcome });
+    }
+    if (init?.method === "GET") {
+      const id = url.match(/\/messages\/([^?]+)/)?.[1] ?? "";
+      return Response.json({ content: this.contents.get(id) ?? "" }, { status: outcome });
+    }
+    const id = url.match(/\/messages\/([^?]+)/)?.[1] ?? "";
+    const body = JSON.parse(String(init?.body ?? "{}"));
+    if (typeof body.content === "string") this.contents.set(id, body.content);
     return new Response(null, { status: outcome });
   };
 
   about(id: string): LoggedPost[] {
-    return this.requests.filter((r) => r.body.content.includes(id));
+    return this.requests.filter((r) => typeof r.body.content === "string" && r.body.content.includes(id));
   }
 }
 
@@ -120,7 +134,7 @@ describe("[LDB-WPM8] notifyPending covers the WPM queue", () => {
 
     const sent = webhook.about(subId);
     expect(sent).toHaveLength(1);
-    expect(sent[0]!.url).toBe(WEBHOOK_URL);
+    expect(sent[0]!.url).toBe(`${WEBHOOK_URL}?wait=true`);
     expect(sent[0]!.body.allowed_mentions).toEqual({ parse: [] });
     const content = sent[0]!.body.content;
     expect(content).toContain(layoutId);
@@ -140,6 +154,24 @@ describe("[LDB-WPM8] notifyPending covers the WPM queue", () => {
     const webhook = new FakeWebhook();
     await notifyPending(db, envWith(WEBHOOK_URL), clock, webhook.fetchImpl);
     expect(webhook.about(subId)[0]!.body.content).toContain("900000000000000111");
+  });
+
+  it("[LDB-MD15] edits the original WPM message for approval and rejection", async () => {
+    const layoutId = await freshLayout(uniqueName("modq-wpm-status"));
+    const ids = [
+      await insertWpm({ layoutId, userId: "900000000000000122" }),
+      await insertWpm({ layoutId, userId: "900000000000000123" }),
+    ];
+    const webhook = new FakeWebhook();
+    await notifyPending(db, envWith(WEBHOOK_URL), clock, webhook.fetchImpl);
+    for (const [id, status, prefix] of [[ids[0]!, "approved", "✅ APPROVED"], [ids[1]!, "rejected", "❌ REJECTED"]] as const) {
+      await db.prepare("UPDATE wpm_submissions SET status = ? WHERE id = ?").bind(status, id).run();
+      await updateQueueNotification(db, envWith(WEBHOOK_URL), "wpm", id, webhook.fetchImpl);
+      const edit = webhook.requests.find((r) => r.method === "PATCH" && r.body.content.includes(id));
+      expect(edit?.url).toContain(`/messages/discord-wpm-`);
+      expect(edit?.body.content.startsWith(`${prefix}\nNew WPM submission`)).toBe(true);
+      expect(edit?.body.allowed_mentions).toEqual({ parse: [] });
+    }
   });
 
   it("[LDB-WPM8] links and WPM are both announced in one sweep, each exactly once; the link message points at the inbox now", async () => {
@@ -234,7 +266,7 @@ describe("[LDB-WPM8] notifyPending covers the WPM queue", () => {
     const auth = register(fake, "tok-wpm-modq-route", user);
     const layoutId = await freshLayout(uniqueName("modq-wpm-route"));
     const webhook = new FakeWebhook();
-    vi.stubGlobal("fetch", (url: string, init: { headers: Record<string, string>; signal?: AbortSignal }) => (url === WEBHOOK_URL ? webhook.fetchImpl(url, init) : fake.fetchImpl(url, init)));
+    vi.stubGlobal("fetch", (url: string, init: { headers: Record<string, string>; signal?: AbortSignal }) => (url.startsWith(WEBHOOK_URL) ? webhook.fetchImpl(url, init) : fake.fetchImpl(url, init)));
     (bindings as { MODQUEUE_DISCORD_WEBHOOK?: string }).MODQUEUE_DISCORD_WEBHOOK = WEBHOOK_URL;
 
     const res = await SELF.fetch("https://example.com/v1/wpm", {

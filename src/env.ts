@@ -9,4 +9,16 @@ export interface Bindings {
   // (no fetch, no `notified_at` write) -- never set locally, `wrangler
   // secret put MODQUEUE_DISCORD_WEBHOOK` in production.
   MODQUEUE_DISCORD_WEBHOOK?: string;
+  // Opt in only after the webhook is owned by an application that supports
+  // Components V2 interactions. Defaults to legacy text messages.
+  MODQUEUE_DISCORD_COMPONENTS?: string;
+  // Dedicated akldb application adapter; all features remain off unless the
+  // matching explicit gate is enabled and the required configuration exists.
+  MODQUEUE_DISCORD_BOT_TOKEN?: string;
+  MODQUEUE_DISCORD_APPLICATION_ID?: string;
+  MODQUEUE_DISCORD_PUBLIC_KEY?: string;
+  MODQUEUE_DISCORD_GUILD_ID?: string;
+  MODQUEUE_DISCORD_CHANNEL_ID?: string;
+  MODQUEUE_DISCORD_CARDS?: string;
+  MODQUEUE_DISCORD_ACTIONS?: string;
 }

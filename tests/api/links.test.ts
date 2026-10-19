@@ -156,6 +156,32 @@ describe("[LDB-MD5] only an approved link appears on a public wire", () => {
 });
 
 describe("[LDB-MD6] at most one pending submission per layout", () => {
+  it("[LDB-MD16] competing link approvals have one atomic winner and one event", async () => {
+    const owner = testUserId();
+    const { id } = await createLayout(owner);
+    const fake = actorFixture();
+    const ownerAuth = register(fake, "tok-link-race-owner", owner);
+    const admin = register(fake, "tok-link-race-admin", BOOTSTRAP_ADMIN);
+    const competingAdminId = testUserId();
+    await db.prepare("INSERT INTO admins (user_id, added_at) VALUES (?, ?)").bind(competingAdminId, clock()).run();
+    const competingAdmin = register(fake, "tok-link-race-admin-2", competingAdminId);
+    await writeFetch(`/v1/layouts/${id}/link`, "PUT", ownerAuth, { url: "https://example.org/race" });
+    const queue = (await (await writeFetch("/v1/admin/link-queue?status=pending", "GET", admin)).json()) as { submissions: { id: string; layout_id: string }[] };
+    const submissionId = queue.submissions.find((s) => s.layout_id === id)!.id;
+
+    const results = await Promise.all([
+      writeFetch(`/v1/admin/link-queue/${submissionId}/approve`, "POST", admin),
+      writeFetch(`/v1/admin/link-queue/${submissionId}/approve`, "POST", competingAdmin),
+    ]);
+    expect(results.map((response) => response.status).sort()).toEqual([200, 404]);
+    const row = await db.prepare("SELECT status FROM link_submissions WHERE id = ?").bind(submissionId).first<{ status: string }>();
+    const events = await db.prepare("SELECT COUNT(*) AS n FROM events WHERE layout_id = ? AND kind = 'link_approved'").bind(id).first<{ n: number }>();
+    const layout = await db.prepare("SELECT link FROM layouts WHERE id = ?").bind(id).first<{ link: string | null }>();
+    expect(row?.status).toBe("approved");
+    expect(events?.n).toBe(1);
+    expect(layout?.link).toBe("https://example.org/race");
+  });
+
   it("[LDB-MD6] a fresh owner submission supersedes the layout's existing pending one", async () => {
     const owner = testUserId();
     const { id } = await createLayout(owner);

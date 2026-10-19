@@ -169,6 +169,7 @@ const ENDPOINT_PURPOSES = {
   "POST /v1/admin/comment-queue/:id/approve": "Approve a queued comment; it replaces that user's previous one.",
   "POST /v1/admin/comment-queue/:id/reject": "Reject a queued comment.",
   "POST /v1/admin/comments/:id/remove": "Take an approved comment down, with a reason the author can read.",
+  "POST /discord/interactions": "Receive Discord-signed moderation button and modal interactions for bot-owned queue cards.",
 };
 
 function classify(method, routePath) {

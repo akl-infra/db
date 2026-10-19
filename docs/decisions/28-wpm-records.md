@@ -18,6 +18,12 @@ one number per person and layout: their **top approved speed**.
 | validation | `wpm` an integer 1..1000; `proof` any absolute `http`/`https` URL with a host, at most 512 characters after trim. One validator in `core/wpm.ts`, shared by every route |
 | submit | `POST /v1/wpm {layout, wpm, proof}`: `202` queued for everyone: an admin's own speed is queued too and approved in the Inbox (no short circuit for mods, API 1.23). A new pending submission from the same user for the same layout supersedes their older pending one (silently). No withdraw |
 | on behalf | `POST /v1/admin/wpm {user_id, layout, wpm, proof}`: `201`, approved at once, `submitted_by` the admin. `user_id` is any 17-20 digit Discord id; it need not have an `authors` row |
+
+The mod-channel webhook records its Discord message id and original content in
+the private `modqueue_notifications` table. Approval and rejection edit that
+message with a status prefix; the normal notification sweep retries failed
+edits and reconciles later queue statuses. This bookkeeping is intentionally
+not included in the public dump.
 | read | `GET /v1/wpm?layout=&user=`: public, `{records}`, one row per (layout, user) = their approved row with the highest `wpm` (a tie goes to the earliest `decided_at`), sorted `wpm` desc then `approved_at` asc, no pagination. Deleted layouts' records are hidden |
 | queue | `GET /v1/admin/wpm-queue?status=` (default `pending`), `POST .../:id/approve`, `POST .../:id/reject {reason?}`: the link queue's shapes and checks; every admin route is `if (!actor.admin) throw notAdmin()` |
 | events | `wpm_submitted`, `wpm_approved`, `wpm_rejected`, one per action, written through `core/events.ts` |

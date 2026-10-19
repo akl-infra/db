@@ -12,7 +12,7 @@ import type { Bindings } from "../env";
 import * as comments from "../core/comments";
 import { badRequest, notAdmin, notFound } from "../core/errors";
 import { cachePut, conditional, etagFor, readHead } from "../core/etag";
-import { announceComment } from "../core/modqueue";
+import { announceComment, updateQueueNotification } from "../core/modqueue";
 import { byRef } from "../core/records";
 import { systemClock, type Clock } from "../core/time";
 import { validateUserId } from "../core/wpm";
@@ -180,6 +180,7 @@ export function commentsRoute(authDeps: AuthDeps) {
     const actor = c.get("actor");
     if (!actor.admin) throw notAdmin();
     const submission = await comments.approveComment(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), c.req.param("id"));
+    c.executionCtx.waitUntil(updateQueueNotification(c.env.DB, c.env, "comment", submission.id));
     return c.json({ submission });
   });
 
@@ -188,6 +189,7 @@ export function commentsRoute(authDeps: AuthDeps) {
     if (!actor.admin) throw notAdmin();
     const body = parseLinkRejectBody(await readOptionalJson(c.req));
     const submission = await comments.rejectComment(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), c.req.param("id"), body.reason);
+    c.executionCtx.waitUntil(updateQueueNotification(c.env.DB, c.env, "comment", submission.id));
     return c.json({ submission });
   });
 
@@ -196,6 +198,7 @@ export function commentsRoute(authDeps: AuthDeps) {
     if (!actor.admin) throw notAdmin();
     const body = parseLinkRejectBody(await readOptionalJson(c.req));
     const comment = await comments.removeComment(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), c.req.param("id"), body.reason);
+    c.executionCtx.waitUntil(updateQueueNotification(c.env.DB, c.env, "comment", comment.id));
     return c.json({ submission: comment });
   });
 

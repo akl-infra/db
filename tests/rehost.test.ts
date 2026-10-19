@@ -235,7 +235,7 @@ describe("rehost drill", () => {
   // the event log to a tail) would desync one of those, not just look wrong
   // in isolation. `tests/api/dump.test.ts` covers the OTHER two clauses
   // (the `latest.json` sha256, the monthly-key timing) directly.
-  it("[LDB-G1] [LDB-P6] [LDB-D1] [MF-3] [LDB-P18] [LDB-D9] [LDB-MD3] [LDB-MD8] [LDB-MD14] [LDB-WPM10] [LDB-CMT10] [LDB-CMT12] restoreSql reproduces the exact dumped state", async () => {
+  it("[LDB-G1] [LDB-P6] [LDB-D1] [MF-3] [LDB-P18] [LDB-D9] [LDB-MD3] [LDB-MD8] [LDB-MD14] [LDB-MD15] [LDB-MD16] [LDB-WPM10] [LDB-CMT10] [LDB-CMT12] restoreSql reproduces the exact dumped state", async () => {
     const remoteUrl = bindings.TEST_REHOST_DUMP_URL;
     const usingRemote = remoteUrl !== "";
 
@@ -243,6 +243,7 @@ describe("rehost drill", () => {
     // restoring the dump taken from it can be checked for exact agreement.
     let metaBefore: unknown;
     let changesBefore: string | undefined;
+    const privateNotificationId = "discord-private-notification-marker";
     let moderationIds: { likeLayoutId: string; pendingLayoutId: string; linkLayoutId: string; wpmLayoutId: string; commentLayoutId: string } | undefined;
     const dump = usingRemote
       ? await fetchRemoteDump(remoteUrl)
@@ -257,6 +258,16 @@ describe("rehost drill", () => {
                VALUES ('cl-rehost-test', 'rehost-test-client', 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', '800000000000000001', 'act-as-user', 'discord-app-1', 'active', '2026-07-01T00:00:00.000Z', NULL)`,
             )
             .run();
+          // Private Discord pointers must be omitted from dumps and cleared
+          // by restore; this marker has no source row by design.
+          await db.prepare("INSERT INTO modqueue_notifications (kind, submission_id, message_id, shown_status) VALUES ('link', 'private-marker', ?, 'pending')")
+            .bind(privateNotificationId).run();
+          await db.prepare(`INSERT INTO discord_pending_actions (interaction_id, application_id, token, actor_id, actor_name, kind, action, submission_id, channel_id, message_id, guild_id, created_at, expires_at)
+            VALUES ('900000000000000199', '900000000000000198', 'private-interaction-token', '900000000000000197', 'private actor', 'link', 'approve', 'private-submission', '900000000000000196', '900000000000000195', '900000000000000190', ?, ?)`)
+            .bind("2026-10-18T00:00:00.000Z", "2026-10-18T00:14:00.000Z").run();
+          await db.prepare(`INSERT INTO discord_deny_modals (modal_id, initial_interaction_id, actor_id, kind, submission_id, channel_id, message_id, guild_id, created_at, expires_at)
+            VALUES ('private-modal', '900000000000000194', '900000000000000193', 'comment', 'private-comment', '900000000000000192', '900000000000000191', '900000000000000190', ?, ?)`)
+            .bind("2026-10-18T00:00:00.000Z", "2026-10-18T00:14:00.000Z").run();
           moderationIds = await plantModerationState(db);
         });
     if (!usingRemote) {
@@ -280,6 +291,8 @@ describe("rehost drill", () => {
       expect(dump.link_submissions.every((s) => s.status === "approved")).toBe(true);
       expect(dump.link_submissions.some((s) => s.layout_id === ids.linkLayoutId && s.url === "https://example.org/rehost-approved")).toBe(true);
       const dumpText = JSON.stringify(dump);
+      expect(dumpText).not.toContain(privateNotificationId);
+      for (const privateValue of ["private-interaction-token", "private actor", "private-submission", "private-modal"]) expect(dumpText).not.toContain(privateValue);
       for (const secret of ["rehost-pending", "rehost-rejected", "rehost private reason"]) expect(dumpText.includes(secret), secret).toBe(false);
       expect(dump.events.find((e) => e.kind === "link_submitted" && e.layout_id === ids.pendingLayoutId)?.detail_json).toBe('{"submission_id":"01REHOSTOLD"}');
       // [LDB-WPM10] only the APPROVED wpm row is dumped, proof intact; the
@@ -312,6 +325,13 @@ describe("rehost drill", () => {
     }
 
     await restoreInto(db, dump);
+
+    if (!usingRemote) {
+      const privateRows = await db.prepare("SELECT message_id FROM modqueue_notifications").all<{ message_id: string }>();
+      expect(privateRows.results).toEqual([]);
+      expect((await db.prepare("SELECT 1 FROM discord_pending_actions").first())).toBeNull();
+      expect((await db.prepare("SELECT 1 FROM discord_deny_modals").first())).toBeNull();
+    }
 
     // LDB-D9: the restored `clients` table equals exactly what the dump
     // carried -- a rehost keeps every registered bot key.

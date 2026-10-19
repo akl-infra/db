@@ -36,6 +36,10 @@ crons = ["*/5 * * * *"] # ONE trigger for three jobs -- src/index.ts's scheduled
 
 [vars]
 DISCORD_API_URL = "https://discord.com/api"
+MODQUEUE_DISCORD_COMPONENTS = "false" # legacy webhook Components V2 only; bot-owned cards use the cards gate below
+MODQUEUE_DISCORD_CARDS = "false" # enable only after dedicated akldb bot/channel configuration is verified
+MODQUEUE_DISCORD_ACTIONS = "false" # signed HTTP interaction endpoint; disabled by default
+MODQUEUE_DISCORD_DMS = "false" # rejection-only submitter DMs; disabled by default
 
 [observability]
 enabled = true   # Workers Logs: keep console.error() from onError (the 500 path) queryable in the dashboard; 2026-09-09, after two untraceable 500s
