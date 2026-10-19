@@ -4087,6 +4087,22 @@
     }
   },
   {
+    "id": "comment-counts/get-200",
+    "method": "GET",
+    "route": "/v1/comment-counts",
+    "auth": "none",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "counts": {
+          "type": "array",
+          "item": null
+        }
+      }
+    }
+  },
+  {
     "id": "dump-key/404",
     "method": "GET",
     "route": "/v1/dump/:key",

@@ -479,6 +479,7 @@ import cmtFxLayoutsCommentDelete204 from "./layouts-comment/delete-204.json" wit
 import cmtFxLayoutsCommentDelete401Unauthorized from "./layouts-comment/delete-401-unauthorized.json" with { type: "json" };
 import cmtFxLayoutsCommentDelete404 from "./layouts-comment/delete-404.json" with { type: "json" };
 import cmtFxLayoutsCommentsGet200 from "./layouts-comments/get-200.json" with { type: "json" };
+import cmtFxCommentCountsGet200 from "./comment-counts/get-200.json" with { type: "json" };
 import cmtFxLayoutsCommentsGet304 from "./layouts-comments/get-304.json" with { type: "json" };
 import cmtFxLayoutsCommentsGet404 from "./layouts-comments/get-404.json" with { type: "json" };
 import cmtFxLayoutsCommentsGet400BadRequest from "./layouts-comments/get-400-bad_request.json" with { type: "json" };
@@ -918,6 +919,7 @@ export const MODERATION_CASES: ConformanceCase[] = [
   // Layout comments: "admin-comment-queue/get-200" (the empty queue) runs before any
   // case here that submits one; the public and own reads run after the cases
   // that write the comment they read.
+  kase("comment-counts/get-200", "/v1/comment-counts", cmtFxCommentCountsGet200, true),
   kase("admin-comment-queue/get-200", "/v1/admin/comment-queue", cmtFxAdminCommentQueueGet200, true),
   kase("layouts-comment/put-202", "/v1/layouts/:ref/comment", cmtFxLayoutsCommentPut202, true),
   kase("layouts-comment/put-202-admin-pending", "/v1/layouts/:ref/comment", cmtFxLayoutsCommentPut202AdminPending, true),

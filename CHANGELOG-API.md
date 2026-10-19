@@ -25,6 +25,13 @@ this file just gives them a public, versioned home. From here on, a
 `WIRE_VERSION` bump and a line here land in the SAME PR, never one without
 the other (`[LDB-V5]`).
 
+## 1.24 — 2026-10-19
+
+LDB-CMT17, docs/decisions/29-layout-comments.md: add public `GET
+/v1/comment-counts`, a sparse bulk count of approved comments with non-null
+bodies on live layouts. It includes layout ids and names, never comment text
+or author data, and uses the shared public ETag/cache.
+
 ## 1.23 — 2026-10-19
 
 LDB-CMT2, docs/decisions/29-layout-comments.md: behaviour change to a released

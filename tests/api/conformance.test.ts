@@ -397,6 +397,15 @@ describe("conformance fixtures", () => {
       if (kase.needsSeed) {
         await ensureWriteFixtures();
       }
+      // Earlier API files may share this worker's D1 instance. Keep the
+      // bulk-count conformance response byte-stable by clearing comments
+      // before the comments fixture group starts making its own rows.
+      if (kase.id === "comment-counts/get-200") {
+        await db.batch([
+          db.prepare("DELETE FROM comment_likes"),
+          db.prepare("DELETE FROM layout_comments"),
+        ]);
+      }
       // T6: the two restore cases that need a second, later-seeded pair of
       // tombstones (see `seedRestoreExtras`'s comment above).
       if (kase.id === "layouts-write/restore-403-not_owner" || kase.id === "layouts-write/restore-409-name_taken") {
@@ -813,6 +822,7 @@ const REQUIRED: Record<string, RequiredCase[]> = {
 
   // Layout comments (docs/decisions/29-layout-comments.md): same lighter
   // treatment as the WPM rows just above.
+  "GET /v1/comment-counts": [{ status: 200 }],
   "GET /v1/layouts/:ref/comments": [{ status: 200 }, { status: 304 }, { status: 400, code: ERROR_CODES.bad_request }, { status: 404, code: ERROR_CODES.not_found }],
   "GET /v1/layouts/:ref/comment": [{ status: 200 }, { status: 401, code: ERROR_CODES.unauthorized }, { status: 404, code: ERROR_CODES.not_found }],
   "PUT /v1/layouts/:ref/comment": [

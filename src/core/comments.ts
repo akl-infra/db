@@ -338,6 +338,28 @@ export async function removeComment(db: Bindings["DB"], now: Clock, actor: Actor
 export type CommentSort = "likes" | "newest";
 export const COMMENT_SORTS: readonly CommentSort[] = ["likes", "newest"];
 
+// `GET /v1/comment-counts`: sparse public aggregate, with the same eligibility
+// as `listComments` and no comment text or author data.
+export interface PublicCommentCount {
+  layout_id: string;
+  layout_name: string;
+  count: number;
+}
+
+export async function listCommentCounts(db: Bindings["DB"]): Promise<PublicCommentCount[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT l.id AS layout_id, l.name AS layout_name, COUNT(*) AS count
+       FROM layouts l
+       JOIN layout_comments c ON c.layout_id = l.id
+       WHERE l.deleted = 0 AND c.status = 'approved' AND c.body IS NOT NULL
+       GROUP BY l.id, l.name
+       ORDER BY l.name COLLATE NOCASE ASC, l.id ASC`,
+    )
+    .all<PublicCommentCount>();
+  return results;
+}
+
 export async function listComments(db: Bindings["DB"], layout: LayoutRow, viewer?: string, sort: CommentSort = "likes"): Promise<PublicComment[]> {
   if (layout.deleted) return [];
   const { results } = await db

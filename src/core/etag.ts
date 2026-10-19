@@ -225,7 +225,9 @@ export async function readHead(db: D1Database, stateKeys: readonly string[] = []
 // 23 (2026-10-19, LDB-CMT2, docs/decisions/29-layout-comments.md): behaviour
 //   change, no shape change -- every comment is queued (`202`, pending), admins
 //   included; the `201` admin instant-approve of 22 is gone.
-export const WIRE_VERSION = 23;
+// 24 (2026-10-19, LDB-CMT17, docs/decisions/29-layout-comments.md): new
+//   public bulk `/v1/comment-counts` route.
+export const WIRE_VERSION = 24;
 
 export async function etagFor(headSeqValue: number, query: unknown): Promise<string> {
   const hash = await sha256Hex(canonical({ wireVersion: WIRE_VERSION, query: query ?? null }));

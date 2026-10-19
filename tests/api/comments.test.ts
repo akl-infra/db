@@ -658,6 +658,95 @@ describe("[LDB-CMT5] GET /v1/layouts/:ref/comments is public and shows one appro
   });
 });
 
+describe("GET /v1/comment-counts is a sparse public aggregate", () => {
+  it("[LDB-CMT17] tracks only approved live text, hides tombstones, and validates through the shared ETag path", async () => {
+    const { user, auth, admin, fake } = actors("counts");
+    const other = register(fake, token("counts-other"), testUserId());
+    const first = await createLayout(user);
+    const second = await createLayout(user);
+    const empty = await createLayout(user);
+    const request = (etag?: string) => writeFetch("/v1/comment-counts", "GET", etag === undefined ? {} : { "If-None-Match": etag });
+    const counts = async (etag?: string) => request(etag);
+    const body = async (res: Response) => (await res.json()) as { counts: { layout_id: string; layout_name: string; count: number }[] };
+    const localCounts = async (res: Response) => (await body(res)).counts.filter((row) => [first.id, second.id, empty.id].includes(row.layout_id));
+    const initial = await counts();
+    expect(initial.status).toBe(200);
+    expect(initial.headers.get("Cache-Control")).toBe("public, max-age=10");
+    const initialTag = initial.headers.get("ETag")!;
+    expect(await localCounts(initial)).toEqual([]);
+    expect((await counts(initialTag)).status).toBe(304);
+
+    const pending = (await put(auth, first.id, "private pending text")).submission;
+    const afterPending = await counts(initialTag);
+    expect(afterPending.status).toBe(200);
+    expect(await localCounts(afterPending)).toEqual([]);
+    const pendingTag = afterPending.headers.get("ETag")!;
+    expect(pendingTag).not.toBe(initialTag);
+
+    await writeFetch(`/v1/admin/comment-queue/${pending.id}/reject`, "POST", admin, { reason: "no" });
+    const rejected = await counts(pendingTag);
+    expect(rejected.status).toBe(200);
+    expect(await localCounts(rejected)).toEqual([]);
+
+    const approved = (await put(auth, first.id, "approved text")).submission;
+    await approve(admin, approved.id);
+    const one = await counts();
+    expect(await localCounts(one)).toEqual([{ layout_id: first.id, layout_name: first.name, count: 1 }]);
+    const oneTag = one.headers.get("ETag")!;
+
+    const secondApproval = (await put(other, first.id, "second approved text")).submission;
+    await approve(admin, secondApproval.id);
+    const two = await counts(oneTag);
+    expect(two.status).toBe(200);
+    expect(await localCounts(two)).toEqual([{ layout_id: first.id, layout_name: first.name, count: 2 }]);
+    const twoTag = two.headers.get("ETag")!;
+
+    // Approval of an edit replaces the earlier approved row, leaving one slot.
+    const replacement = (await put(auth, first.id, "replacement text")).submission;
+    await approve(admin, replacement.id);
+    const replaced = await counts(twoTag);
+    expect(replaced.status).toBe(200);
+    expect(await localCounts(replaced)).toEqual([{ layout_id: first.id, layout_name: first.name, count: 2 }]);
+    const replacementTag = replaced.headers.get("ETag")!;
+
+    // A second layout contributes a separate count; removal drops only its slot.
+    const otherLayoutComment = (await put(other, second.id, "another private phrase")).submission;
+    await approve(admin, otherLayoutComment.id);
+    const withSecond = await counts(replacementTag);
+    expect(await localCounts(withSecond)).toEqual([
+      { layout_id: first.id, layout_name: first.name, count: 2 },
+      { layout_id: second.id, layout_name: second.name, count: 1 },
+    ].sort((a, b) => a.layout_name.localeCompare(b.layout_name)));
+    const withSecondTag = withSecond.headers.get("ETag")!;
+    await writeFetch(`/v1/admin/comments/${otherLayoutComment.id}/remove`, "POST", admin, {});
+    const removed = await counts(withSecondTag);
+    expect(removed.status).toBe(200);
+    expect(await localCounts(removed)).toEqual([{ layout_id: first.id, layout_name: first.name, count: 2 }]);
+    const removedTag = removed.headers.get("ETag")!;
+
+    // Author deletion erases bodies. A tombstone hides a still-approved row.
+    await writeFetch(`/v1/layouts/${first.id}/comment`, "DELETE", auth);
+    const afterDelete = await counts(removedTag);
+    expect(afterDelete.status).toBe(200);
+    expect(await localCounts(afterDelete)).toEqual([{ layout_id: first.id, layout_name: first.name, count: 1 }]);
+    const deleteTag = afterDelete.headers.get("ETag")!;
+    const remaining = (await put(auth, first.id, "survives layout tombstone")).submission;
+    await approve(admin, remaining.id);
+    const beforeTombstone = await counts(deleteTag);
+    expect(await localCounts(beforeTombstone)).toEqual([{ layout_id: first.id, layout_name: first.name, count: 2 }]);
+    const layoutRev = await db.prepare("SELECT layout_rev FROM layouts WHERE id = ?").bind(first.id).first<{ layout_rev: number }>();
+    const tombstoned = await writeFetch(`/v1/layouts/${first.id}`, "DELETE", { ...auth, "If-Match": `\"layout:${layoutRev!.layout_rev}\"` });
+    expect(tombstoned.status).toBe(200);
+    const hidden = await counts(beforeTombstone.headers.get("ETag")!);
+    expect(hidden.status).toBe(200);
+    expect(await localCounts(hidden)).toEqual([]);
+
+    // No body text, pending/rejected text, or erased text can appear in the aggregate.
+    expect(JSON.stringify(await localCounts(await counts()))).not.toMatch(/private pending text|approved text|replacement text|another private phrase|survives layout tombstone/);
+    expect(empty.id).not.toBe(first.id);
+  });
+});
+
 describe("[LDB-CMT6] GET /v1/layouts/:ref/comment is the caller's own, never publicly cached", () => {
   it("[LDB-CMT6] live / pending / decision, newest decision only when newer than both; another user's rows never appear", async () => {
     const { user, auth, admin, fake } = actors("own");

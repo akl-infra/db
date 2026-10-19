@@ -1148,6 +1148,7 @@ silently drift from what `src/index.ts` actually registers.
 | GET | `/v1/wpm` | none | — (`?layout=<ref>&user=<id>`, both optional) | 200 (`{records}`) | `bad_request`, `not_found` |
 | POST | `/v1/wpm` | user | `{layout, wpm, proof}` | 202 (queued, admins too) | `bad_request`, `invalid_wpm`, `invalid_proof`, `not_found`, lane errors |
 | GET | `/v1/layouts/:ref/comments` | none | — (`?sort=`) | 200 (`{comments}`) | `bad_request`, `not_found` |
+| GET | `/v1/comment-counts` | none | — | 200 (`{counts}`; sparse positive counts of approved comments on live layouts) | — |
 | PUT | `/v1/layouts/:ref/comments/:author_id/like` | user | — | 204 | `bad_request`, `own_comment`, `not_found`, lane errors |
 | DELETE | `/v1/layouts/:ref/comments/:author_id/like` | user | — | 204 | `bad_request`, `not_found`, lane errors |
 | GET | `/v1/me/comments` | user | — | 200 (`{comments}`) | lane errors |

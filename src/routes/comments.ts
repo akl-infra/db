@@ -49,6 +49,22 @@ const QUEUE_STATUSES = ["pending", "approved", "rejected", "superseded", "replac
 export function commentsRoute(authDeps: AuthDeps) {
   const route = new Hono<{ Bindings: Bindings; Variables: ActorVariables }>();
 
+  // GET /v1/comment-counts: one public, sparse aggregate for all live layouts.
+  // Every comment decision and layout tombstone appends an event, so the event
+  // head validates this representation without reading any comment text.
+  route.get("/v1/comment-counts", async (c) => {
+    const head = await readHead(c.env.DB);
+    const etag = await etagFor(head.seq, { commentCounts: 1 });
+    const short = await conditional(c, etag, CACHE_CONTROL);
+    if (short) return short;
+
+    const res = c.json({ counts: await comments.listCommentCounts(c.env.DB) });
+    res.headers.set("ETag", etag);
+    res.headers.set("Cache-Control", CACHE_CONTROL);
+    await cachePut(c, res.clone());
+    return res;
+  });
+
   // GET /v1/layouts/:ref/comments (public; credentials optional). The body is
   // a function of the approved rows, the likes, the layout's tombstone and the
   // authors' names: every approval, replacement, delete, removal, like, unlike,
