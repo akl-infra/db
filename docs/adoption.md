@@ -1253,7 +1253,14 @@ typing speed on a layout, with a proof link. `layout` is any layout ref
 (name or id; a deleted layout is `404`); `wpm` is an integer 1..1000
 (`400 invalid_wpm`); `proof` is any absolute `http`/`https` URL with a host,
 at most 512 characters after trimming (`400 invalid_proof`) — not limited to
-Discord. akldb is permissive about plausibility: mods judge that. A user's
+Discord. Discord-hosted proof must be a server-message link authored by the
+typist and readable by the akldb bot (`400 invalid_proof` otherwise). Direct
+Discord image, channel and invite links cannot verify authorship; use Copy
+Message Link. If Discord cannot be reached within the verification budget, the
+submission is refused with a retry explanation and no WPM records are changed.
+Admin on-behalf submissions check the target `user_id` as the message author.
+Other proof sites retain their existing validation. akldb is permissive about
+plausibility: mods judge that. A user's
 submission is queued (`202`; a fresh one supersedes that user's older pending
 one for the same layout); an admin's own speed is queued too (`202`, approved in the Inbox like any other).
 An admin can also enter a speed for someone else with

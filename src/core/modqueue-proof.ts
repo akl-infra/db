@@ -1,13 +1,17 @@
-// [LDB-WPM13] Optional proof enrichment, only after the notification claim.
+// Discord proof authorship validation before submission [LDB-WPM15], and
+// optional proof enrichment after the notification claim [LDB-WPM13].
 // No persistent image store: bytes are bounded in memory, then uploaded onto
 // the moderation message. Never forward the bot token to a media host.
 import type { Bindings } from "../env";
+import { invalidProof } from "./errors";
 
 export const PROOF_MAX_IMAGES = 3;
 export const PROOF_MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 export const PROOF_MAX_TOTAL_BYTES = 8 * 1024 * 1024;
 const MESSAGE_MAX_BYTES = 256 * 1024;
 const PROOF_TIMEOUT_MS = 4000;
+const AUTHOR_TIMEOUT_MS = 800;
+export type DiscordProofAccess = Pick<Bindings, "DISCORD_API_URL" | "MODQUEUE_DISCORD_BOT_TOKEN">;
 
 export interface ProofImage {
   filename: string;
@@ -60,6 +64,37 @@ export function youtubeProofUrl(value: string): string | null {
 
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+async function readDiscordMessage(message: NonNullable<ReturnType<typeof discordProofMessage>>, env: DiscordProofAccess, fetchImpl: typeof fetch, signal: AbortSignal): Promise<Record<string, unknown>> {
+  if (!env.MODQUEUE_DISCORD_BOT_TOKEN) throw new Error("Discord proof access is not configured");
+  const response = await fetchImpl(`${env.DISCORD_API_URL.replace(/\/$/, "")}/v10/channels/${message.channelId}/messages/${message.messageId}`, {
+    method: "GET", headers: { Authorization: `Bot ${env.MODQUEUE_DISCORD_BOT_TOKEN}`, "User-Agent": "akl-db/1.0" },
+    redirect: "error", signal,
+  });
+  const body: unknown = JSON.parse(new TextDecoder().decode(await readBounded(response, MESSAGE_MAX_BYTES, signal)));
+  if (!record(body) || body.id !== message.messageId || body.channel_id !== message.channelId) throw new Error("Discord proof response does not match its message");
+  return body;
+}
+
+// [LDB-WPM15] Unlike optional previews, authorship must be established BEFORE
+// any submission write. No cache, no trust in a client-supplied author, and no
+// best-effort bypass when Discord or the configured bot cannot read the proof.
+export async function verifyDiscordProofAuthor(proof: string, userId: string, env: DiscordProofAccess, fetchImpl: typeof fetch = fetch): Promise<void> {
+  const host = new URL(proof).hostname.toLowerCase().replace(/\.$/, "");
+  if (!["discord.com", "discordapp.com", "discordapp.net", "discord.gg"].some((domain) => host === domain || host.endsWith(`.${domain}`))) return;
+  const message = discordProofMessage(proof);
+  if (!message) throw invalidProof("Discord proof must be a Copy Message Link to a message written by the typist; direct image, channel and invite links cannot verify authorship.");
+  let body: Record<string, unknown>;
+  try {
+    body = await readDiscordMessage(message, env, fetchImpl, AbortSignal.timeout(AUTHOR_TIMEOUT_MS));
+    if (!record(body.author) || typeof body.author.id !== "string" || !/^\d{17,20}$/.test(body.author.id)) throw new Error("Discord proof author missing");
+  } catch {
+    throw invalidProof("Could not verify the Discord proof message. Try again, or use your own message in a channel the akldb bot can read.");
+  }
+  if (!record(body.author) || body.author.id !== userId || body.webhook_id != null || body.author.bot === true) {
+    throw invalidProof("The Discord proof message must be written by the person whose WPM is being submitted.");
+  }
 }
 
 /** Content-Length is only an early rejection; chunked or dishonest bodies are bounded too. */
@@ -118,13 +153,8 @@ export async function resolveProofPreview(proof: string, env: Bindings, fetchImp
   try {
     let attachments: unknown[];
     if (message) {
-      if (!env.MODQUEUE_DISCORD_BOT_TOKEN) return { kind: "unavailable" };
-      const response = await fetchImpl(`${env.DISCORD_API_URL.replace(/\/$/, "")}/v10/channels/${message.channelId}/messages/${message.messageId}`, {
-        method: "GET", headers: { Authorization: `Bot ${env.MODQUEUE_DISCORD_BOT_TOKEN}`, "User-Agent": "akl-db/1.0" },
-        redirect: "error", signal,
-      });
-      const body: unknown = JSON.parse(new TextDecoder().decode(await readBounded(response, MESSAGE_MAX_BYTES, signal)));
-      if (!record(body) || body.id !== message.messageId || body.channel_id !== message.channelId || !Array.isArray(body.attachments)) return { kind: "unavailable" };
+      const body = await readDiscordMessage(message, env, fetchImpl, signal);
+      if (!Array.isArray(body.attachments)) return { kind: "unavailable" };
       attachments = body.attachments.filter((item) => record(item) && (
         (typeof item.content_type === "string" && item.content_type.startsWith("image/"))
         || (item.content_type === undefined && typeof item.filename === "string" && /\.(?:png|jpe?g|gif|webp)$/i.test(item.filename))));

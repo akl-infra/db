@@ -228,7 +228,8 @@ export async function readHead(db: D1Database, stateKeys: readonly string[] = []
 // 24 (2026-10-19, LDB-CMT17, docs/decisions/29-layout-comments.md): new
 //   public bulk `/v1/comment-counts` route.
 // 25 (2026-10-19, LDB-MD20): versioned moderation reopen and private history.
-export const WIRE_VERSION = 25;
+// 26 (2026-10-19, LDB-WPM15): Discord WPM proofs require verified authorship.
+export const WIRE_VERSION = 26;
 
 export async function etagFor(headSeqValue: number, query: unknown): Promise<string> {
   const hash = await sha256Hex(canonical({ wireVersion: WIRE_VERSION, query: query ?? null }));

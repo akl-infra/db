@@ -31,13 +31,33 @@ not included in the public dump.
 
 ## Why
 
+### Discord proof authorship
+
+New submissions using Discord proof must link to a server message written by
+the typist. The database API reads the message using the dedicated akldb bot
+before inserting or superseding any WPM row or writing WPM events/history.
+On `/v1/wpm`, its author must match the authenticated actor. On the admin
+on-behalf route, it must match `user_id`, not the moderator submitting it.
+Bot and webhook messages are refused. This checks who posted the message;
+moderators still judge whether its contents prove the claimed typing result.
+
+The existing `400 invalid_proof` response explains a mismatch or an unverifiable
+message. Missing bot credentials, missing source-channel access, a missing
+message/author, Discord failures and an 800 ms request/body deadline all refuse
+the submission; a temporary failure asks the caller to retry. Direct Discord
+CDN links and Discord channel/invite links are refused because they do not
+identify a verifiable author. Use Discord's **Copy Message Link** instead.
+Non-Discord proof URLs keep their existing validation. Existing submissions
+are not revalidated or removed. This policy is API 1.26 (LDB-WPM15).
+
 ### Discord proof previews
 
 The background notifier enriches new WPM moderation messages after claiming
 the submission. A Discord message link is resolved using the dedicated akldb
 bot; supported image attachments are downloaded and uploaded onto the queue
-message as a Media Gallery. Direct Discord attachment URLs also work while
-their signatures remain valid. The original proof URL stays in the database
+message as a Media Gallery. Legacy submissions with direct Discord attachment
+URLs can still be previewed while their signatures remain valid; new submissions
+require message links as above. The original proof URL stays in the database
 and in the message. No client wire format changes are needed.
 
 This is a best-effort snapshot at notification time, not a guaranteed archive
@@ -81,7 +101,8 @@ This is a thumbnail preview, not an inline video player.
   that moves.
 - **Permissive validation.** akldb stores more and refuses less; whether 900
   wpm is believable is for mods and clients to judge. The server only
-  refuses what is not a speed or not a link at all. The proof is not
+  refuses invalid speed/link values and Discord proofs whose authorship cannot
+  be verified as above. The proof is not
   restricted to Discord: a video, a monkeytype result and a screenshot host
   are all fine.
 - **On-behalf only through an admin.** A user can only ever submit their own
