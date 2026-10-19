@@ -505,6 +505,26 @@ const RL: RequiredCase = { status: 429, code: ERROR_CODES.rate_limited };
 // response; that behaviour is covered instead by held.test.ts's
 // test-only format (LDB-F9), in its own isolated storage.
 const REQUIRED: Record<string, RequiredCase[]> = {
+  "POST /v1/admin/comment-queue/:id/reopen": [
+    { status: 401, code: ERROR_CODES.unauthorized },
+    { status: 403, code: ERROR_CODES.not_admin },
+    { status: 404, code: ERROR_CODES.not_found },
+  ],
+  "GET /v1/admin/comment-queue/:id/history": [
+    { status: 401, code: ERROR_CODES.unauthorized },
+    { status: 403, code: ERROR_CODES.not_admin },
+    { status: 404, code: ERROR_CODES.not_found },
+  ],
+  "POST /v1/admin/wpm-queue/:id/reopen": [
+    { status: 401, code: ERROR_CODES.unauthorized },
+    { status: 403, code: ERROR_CODES.not_admin },
+    { status: 404, code: ERROR_CODES.not_found },
+  ],
+  "GET /v1/admin/wpm-queue/:id/history": [
+    { status: 401, code: ERROR_CODES.unauthorized },
+    { status: 403, code: ERROR_CODES.not_admin },
+    { status: 404, code: ERROR_CODES.not_found },
+  ],
   // --- phase 1 (unauthenticated GET routes; S6's set, unchanged) --------
   "GET /v1/meta": [{ status: 200 }, { status: 304 }],
   "GET /v1/layouts": [

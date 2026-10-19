@@ -42,7 +42,8 @@
         "status": "approved",
         "decided_by": "184412255822020608",
         "decided_at": "2026-06-20T00:00:00.000Z",
-        "reason": null
+        "reason": null,
+        "review_version": 0
       }
     }
   }

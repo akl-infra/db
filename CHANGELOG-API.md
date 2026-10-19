@@ -25,6 +25,19 @@ this file just gives them a public, versioned home. From here on, a
 `WIRE_VERSION` bump and a line here land in the SAME PR, never one without
 the other (`[LDB-V5]`).
 
+## 1.25 — 2026-10-19
+
+LDB-MD20: comments and WPM gain admin `POST /v1/admin/{comment|wpm}-queue/:id/reopen`
+and `GET /v1/admin/{comment|wpm}-queue/:id/history`. Submission and queue rows carry
+`review_version` (initially zero). Approve/reject accept this optional expected
+version, defaulting to zero for existing clients. Reopening requires the expected
+`status` and `review_version`, returns the item to pending, and appends a public
+`comment_reopened` or `wpm_reopened` event containing only the submission ID.
+A stale cycle or ineligible reopen returns `409 review_conflict`. The private
+history records decisions and reopens, including moderator reasons; public dumps
+exclude it. Reopening an approval withdraws that public comment/WPM record and
+cancels outstanding rejection DMs. Previously delivered messages are unchanged.
+
 ## 1.24 — 2026-10-19
 
 LDB-CMT17, docs/decisions/29-layout-comments.md: add public `GET

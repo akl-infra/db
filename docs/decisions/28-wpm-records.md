@@ -62,3 +62,17 @@ not included in the public dump.
 gains `wpm_submissions` (approved rows only, since the dump is public: pending, rejected and
 superseded submissions are never dumped; a dump from before the table
 restores with it empty). Additive only: nothing existing changes meaning.
+
+
+## Reopening (API 1.25, LDB-MD20)
+
+An approved or rejected submission may return to pending through the admin
+queue's `reopen` endpoint, provided no newer submission or another pending
+submission exists for that layout/user and the layout is live. `review_version`
+identifies each review cycle; reopening increments it, and a later decision must
+supply that expected version. Reopening an approved best removes it from public
+records immediately, allowing the next-best approved row to take its place.
+The event log is append-only: `wpm_reopened` contains only the submission ID.
+Private decision history retains moderator, time and reason without entering
+public dumps. See [the API contract](../adoption.md#reopening-a-comment-or-wpm-decision-api-125)
+for the request shapes and delivery behavior.

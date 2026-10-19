@@ -763,7 +763,7 @@ describe("[LDB-CMT6] GET /v1/layouts/:ref/comment is the caller's own, never pub
     await writeFetch(`/v1/admin/comment-queue/${p1.id}/reject`, "POST", admin, { reason: "try again" });
     const afterReject = await own(auth, id);
     expect(afterReject).toMatchObject({ live: null, pending: null, decision: { status: "rejected", reason: "try again" } });
-    expect(Object.keys(afterReject.decision!).sort()).toEqual(["body", "decided_at", "reason", "review_version", "status"]);
+    expect(Object.keys(afterReject.decision!).sort()).toEqual(["body", "decided_at", "reason", "status"]);
     expect(afterReject.decision!.body).toBe("mine, pending"); // the refused text, to edit and resend
 
     // A newer pending submission hides the older decision.

@@ -227,7 +227,8 @@ export async function readHead(db: D1Database, stateKeys: readonly string[] = []
 //   included; the `201` admin instant-approve of 22 is gone.
 // 24 (2026-10-19, LDB-CMT17, docs/decisions/29-layout-comments.md): new
 //   public bulk `/v1/comment-counts` route.
-export const WIRE_VERSION = 24;
+// 25 (2026-10-19, LDB-MD20): versioned moderation reopen and private history.
+export const WIRE_VERSION = 25;
 
 export async function etagFor(headSeqValue: number, query: unknown): Promise<string> {
   const hash = await sha256Hex(canonical({ wireVersion: WIRE_VERSION, query: query ?? null }));

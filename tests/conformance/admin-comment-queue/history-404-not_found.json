@@ -1,0 +1,18 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/admin/comment-queue/nonexistent-comment-id/history",
+    "bearer": "conformance-admin-token"
+  },
+  "response": {
+    "status": 404,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "error": "not_found",
+      "message": "no comment submission 'nonexistent-comment-id'",
+      "ref": "nonexistent-comment-id"
+    }
+  }
+}

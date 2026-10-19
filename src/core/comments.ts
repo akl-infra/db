@@ -115,10 +115,11 @@ function validated(rawBody: unknown): string {
 // mod's removal. Conditional on that, so a statement that follows a decision
 // which did not happen (a lost race) clears nothing. A pending or rejected
 // edit leaves them, and an approved edit replaces the row inside the slot.
-function clearLikesOfEmptySlot(db: Bindings["DB"], layoutId: string, authorId: string): D1PreparedStatement {
+function clearLikesOfEmptySlot(db: Bindings["DB"], layoutId: string, authorId: string, requireWinningClaim = false): D1PreparedStatement {
   return db
     .prepare(
       `DELETE FROM comment_likes WHERE layout_id = ? AND author_id = ?
+       ${requireWinningClaim ? "AND changes() = 1" : ""}
        AND NOT EXISTS (SELECT 1 FROM layout_comments WHERE layout_id = ? AND user_id = ? AND status = 'approved')`,
     )
     .bind(layoutId, authorId, layoutId, authorId);
@@ -304,9 +305,9 @@ export async function removeComment(db: Bindings["DB"], now: Clock, actor: Actor
 
   const [res] = await db.batch([
     db
-      .prepare("UPDATE layout_comments SET status = 'removed', decided_by = ?, decided_at = ?, reason = ? WHERE id = ? AND status = 'approved'")
-      .bind(actor.user_id, now(), reason ?? null, id),
-    clearLikesOfEmptySlot(db, comment.layout_id, comment.user_id),
+      .prepare("UPDATE layout_comments SET status = 'removed', decided_by = ?, decided_at = ?, reason = ? WHERE id = ? AND status = 'approved' AND review_version = ?")
+      .bind(actor.user_id, now(), reason ?? null, id, comment.review_version),
+    clearLikesOfEmptySlot(db, comment.layout_id, comment.user_id, true),
   ]);
   if (res!.meta.changes !== 1) throw notFound(`comment '${id}' is not approved`, id);
 

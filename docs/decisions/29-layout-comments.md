@@ -92,3 +92,22 @@ records (decision 28).
 `CHANGELOG-API.md` 1.22; invariants `LDB-CMT1`..`LDB-CMT13`; the nightly dump
 gains `layout_comments` (approved rows only) and `comment_likes` (all rows); a
 dump from before either table restores with it empty. Additive only: nothing existing changes meaning.
+
+
+## Reopening (API 1.25, LDB-MD20)
+
+An approved or rejected comment whose text remains may return to pending through
+the admin queue's `reopen` endpoint. No newer submission or other pending comment
+may exist for that layout/user; removed, replaced, deleted and superseded rows
+cannot be reopened, and the layout must be live. The operation increments
+`review_version`, clears the current decision and appends `comment_reopened`
+with only the submission ID. Every later approval/rejection supplies that new
+version, so old buttons and requests cannot decide the new review cycle.
+
+Reopening an approval hides the comment while preserving the slot's likes.
+Reopening a rejected edit leaves any existing approved text in place. Previous
+text erased when an edit was approved is never resurrected. The event log is
+append-only, and private decision history retains moderator, time and reason
+but no comment body. Public dumps exclude that history. See [the API
+contract](../adoption.md#reopening-a-comment-or-wpm-decision-api-125) for request
+shapes, stale-action behavior and denial-DM cancellation.

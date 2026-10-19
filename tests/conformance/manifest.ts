@@ -1,3 +1,15 @@
+import commentreopen401 from "./admin-comment-queue/reopen-401-unauthorized.json" with { type: "json" };
+import commentreopen403 from "./admin-comment-queue/reopen-403-not_admin.json" with { type: "json" };
+import commentreopen404 from "./admin-comment-queue/reopen-404-not_found.json" with { type: "json" };
+import commenthistory401 from "./admin-comment-queue/history-401-unauthorized.json" with { type: "json" };
+import commenthistory403 from "./admin-comment-queue/history-403-not_admin.json" with { type: "json" };
+import commenthistory404 from "./admin-comment-queue/history-404-not_found.json" with { type: "json" };
+import wpmreopen401 from "./admin-wpm-queue/reopen-401-unauthorized.json" with { type: "json" };
+import wpmreopen403 from "./admin-wpm-queue/reopen-403-not_admin.json" with { type: "json" };
+import wpmreopen404 from "./admin-wpm-queue/reopen-404-not_found.json" with { type: "json" };
+import wpmhistory401 from "./admin-wpm-queue/history-401-unauthorized.json" with { type: "json" };
+import wpmhistory403 from "./admin-wpm-queue/history-403-not_admin.json" with { type: "json" };
+import wpmhistory404 from "./admin-wpm-queue/history-404-not_found.json" with { type: "json" };
 // The conformance case manifest (07 §6 S6): every `tests/conformance/
 // <route>/<case>.json` fixture, statically imported. NOT read via `fs` at
 // runtime -- `node:fs` inside a workers-project test file sees that test
@@ -1093,4 +1105,16 @@ export const CASES: ConformanceCase[] = [
   ...CLIENT_LANE_CASES,
 
   ...MODERATION_CASES,
+  kase("admin-comment-queue/reopen-401-unauthorized", "/v1/admin/comment-queue/:id/reopen", commentreopen401, true),
+  kase("admin-comment-queue/reopen-403-not_admin", "/v1/admin/comment-queue/:id/reopen", commentreopen403, true),
+  kase("admin-comment-queue/reopen-404-not_found", "/v1/admin/comment-queue/:id/reopen", commentreopen404, true),
+  kase("admin-comment-queue/history-401-unauthorized", "/v1/admin/comment-queue/:id/history", commenthistory401, true),
+  kase("admin-comment-queue/history-403-not_admin", "/v1/admin/comment-queue/:id/history", commenthistory403, true),
+  kase("admin-comment-queue/history-404-not_found", "/v1/admin/comment-queue/:id/history", commenthistory404, true),
+  kase("admin-wpm-queue/reopen-401-unauthorized", "/v1/admin/wpm-queue/:id/reopen", wpmreopen401, true),
+  kase("admin-wpm-queue/reopen-403-not_admin", "/v1/admin/wpm-queue/:id/reopen", wpmreopen403, true),
+  kase("admin-wpm-queue/reopen-404-not_found", "/v1/admin/wpm-queue/:id/reopen", wpmreopen404, true),
+  kase("admin-wpm-queue/history-401-unauthorized", "/v1/admin/wpm-queue/:id/history", wpmhistory401, true),
+  kase("admin-wpm-queue/history-403-not_admin", "/v1/admin/wpm-queue/:id/history", wpmhistory403, true),
+  kase("admin-wpm-queue/history-404-not_found", "/v1/admin/wpm-queue/:id/history", wpmhistory404, true),
 ];

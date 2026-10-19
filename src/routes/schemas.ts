@@ -380,7 +380,7 @@ const validateReviewApprove = ajv.compile<ReviewDecisionBody>({
   type: "object", additionalProperties: false, properties: { review_version: reviewVersionSchema },
 });
 const validateReviewReject = ajv.compile<ReviewDecisionBody>({
-  type: "object", additionalProperties: false, properties: { review_version: reviewVersionSchema, reason: { type: "string" } },
+  type: "object", additionalProperties: false, properties: { review_version: reviewVersionSchema, reason: { type: "string", maxLength: 500 } },
 });
 const validateReviewReopen = ajv.compile<{ status: "approved" | "rejected"; review_version: number }>({
   type: "object", additionalProperties: false, required: ["status", "review_version"],

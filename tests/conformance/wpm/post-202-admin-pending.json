@@ -41,7 +41,8 @@
         "status": "pending",
         "decided_by": null,
         "decided_at": null,
-        "reason": null
+        "reason": null,
+        "review_version": 0
       }
     }
   }

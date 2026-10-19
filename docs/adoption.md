@@ -1188,11 +1188,15 @@ silently drift from what `src/index.ts` actually registers.
 | POST | `/v1/admin/link-queue/:id/reject` | admin | `{reason?}` | 200 | `bad_request`, `not_admin`, `not_found`, lane errors |
 | POST | `/v1/admin/wpm` | admin | `{user_id, layout, wpm, proof}` | 201 | `bad_request`, `invalid_wpm`, `invalid_proof`, `not_admin`, `not_found`, lane errors |
 | GET | `/v1/admin/wpm-queue` | admin | — | 200 | `bad_request`, `not_admin`, lane errors |
-| POST | `/v1/admin/wpm-queue/:id/approve` | admin | — | 200 | `not_admin`, `not_found`, lane errors |
-| POST | `/v1/admin/wpm-queue/:id/reject` | admin | `{reason?}` | 200 | `bad_request`, `not_admin`, `not_found`, lane errors |
+| POST | `/v1/admin/wpm-queue/:id/approve` | admin | `{review_version?}` | 200 | `bad_request`, `review_conflict`, `not_admin`, `not_found`, lane errors |
+| POST | `/v1/admin/wpm-queue/:id/reject` | admin | `{reason?,review_version?}` | 200 | `bad_request`, `review_conflict`, `not_admin`, `not_found`, lane errors |
+| POST | `/v1/admin/wpm-queue/:id/reopen` | admin | `{status,review_version}` | 200 | `bad_request`, `review_conflict`, `not_admin`, `not_found`, lane errors |
+| GET | `/v1/admin/wpm-queue/:id/history` | admin | — | 200 | `not_admin`, `not_found`, lane errors |
 | GET | `/v1/admin/comment-queue` | admin | — | 200 | `bad_request`, `not_admin`, lane errors |
-| POST | `/v1/admin/comment-queue/:id/approve` | admin | — | 200 | `not_admin`, `not_found`, lane errors |
-| POST | `/v1/admin/comment-queue/:id/reject` | admin | `{reason?}` | 200 | `bad_request`, `not_admin`, `not_found`, lane errors |
+| POST | `/v1/admin/comment-queue/:id/approve` | admin | `{review_version?}` | 200 | `bad_request`, `review_conflict`, `not_admin`, `not_found`, lane errors |
+| POST | `/v1/admin/comment-queue/:id/reject` | admin | `{reason?,review_version?}` | 200 | `bad_request`, `review_conflict`, `not_admin`, `not_found`, lane errors |
+| POST | `/v1/admin/comment-queue/:id/reopen` | admin | `{status,review_version}` | 200 | `bad_request`, `review_conflict`, `not_admin`, `not_found`, lane errors |
+| GET | `/v1/admin/comment-queue/:id/history` | admin | — | 200 | `not_admin`, `not_found`, lane errors |
 | POST | `/v1/admin/comments/:id/remove` | admin | `{reason?}` | 200 | `bad_request`, `not_admin`, `not_found`, lane errors |
 
 "lane errors" (every `user`/`admin`/`client` row) means whichever lane you
@@ -1322,3 +1326,42 @@ Events: `comment_submitted` and `comment_rejected` (only `submission_id`),
 `comment_approved` and `comment_removed` (`submission_id`, `layout_id`,
 `user_id`) and `comment_deleted` (`layout_id`, `user_id`) — no event ever
 carries comment text or a reason.
+
+### Reopening a comment or WPM decision (API 1.25)
+
+A decided queue row can be returned to pending with `POST
+/v1/admin/comment-queue/:id/reopen` (or `wpm-queue`) and
+`{"status":"approved","review_version":0}`; use the status/version read from
+the queue. The response is `{submission}` with `status:"pending"`, cleared
+`decided_by`/`decided_at`/`reason`, and `review_version` increased by one.
+Approve and reject must send that new version. Omitting it means the original
+cycle zero, so old tabs and old clients cannot decide a reopened review.
+
+Only approved/rejected submissions on live layouts are eligible. Erased,
+removed, replaced, deleted or superseded comments cannot be revived. Another
+pending submission or a newer submission for the same layout/user blocks
+reopening, even if the newer submission was rejected. Ineligible or stale
+reopening returns `409 review_conflict`; refresh the queue. Existing cycle-zero
+approve/reject calls against already-decided rows retain `404 not_found`;
+a losing concurrent claim or wrong review version returns `409 review_conflict`.
+
+Reopening an approval immediately withdraws it from public queries. A WPM
+record falls back to the next-best approved submission. Comment likes remain
+attached to the slot during review; an erased older comment is never restored.
+Reopening a rejected edit leaves the existing approved comment in place.
+The public event log remains append-only: `comment_reopened`/`wpm_reopened`
+identify only the submission. Existing approval events remain historical facts.
+
+`GET /v1/admin/comment-queue/:id/history` (or `wpm-queue`) returns
+`{history:[{action,actor,at,reason,review_version}]}` in recorded order.
+Actions are `approved`, `rejected`, and `reopened`; a reopen records the new
+version, and a decision records the cycle it decided. This is an admin-only,
+`private, no-store` read. Legacy current decisions are included; history cannot
+reconstruct past decisions that were never retained. Private history and denial
+outbox data are excluded from public dumps and cleared by snapshot restore.
+
+Outstanding denial DMs are expired on reopen. Every later rejection has its own
+cycle-specific delivery key/nonce. Delivery checks both the review cycle and
+lease before sending; reopening during DM-channel lookup suppresses the POST.
+A message POST already in flight, or a previously delivered DM, cannot be
+recalled. No correction DM is sent.

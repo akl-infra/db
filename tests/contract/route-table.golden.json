@@ -2157,6 +2157,63 @@
     }
   },
   {
+    "id": "admin-comment-queue/history-401-unauthorized",
+    "method": "GET",
+    "route": "/v1/admin/comment-queue/:id/history",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-comment-queue/history-403-not_admin",
+    "method": "GET",
+    "route": "/v1/admin/comment-queue/:id/history",
+    "auth": "admin",
+    "status": 403,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-comment-queue/history-404-not_found",
+    "method": "GET",
+    "route": "/v1/admin/comment-queue/:id/history",
+    "auth": "admin",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
     "id": "admin-comment-queue/reject-400-bad_request",
     "method": "POST",
     "route": "/v1/admin/comment-queue/:id/reject",
@@ -2217,6 +2274,63 @@
     "id": "admin-comment-queue/reject-404",
     "method": "POST",
     "route": "/v1/admin/comment-queue/:id/reject",
+    "auth": "admin",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-comment-queue/reopen-401-unauthorized",
+    "method": "POST",
+    "route": "/v1/admin/comment-queue/:id/reopen",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-comment-queue/reopen-403-not_admin",
+    "method": "POST",
+    "route": "/v1/admin/comment-queue/:id/reopen",
+    "auth": "admin",
+    "status": 403,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-comment-queue/reopen-404-not_found",
+    "method": "POST",
+    "route": "/v1/admin/comment-queue/:id/reopen",
     "auth": "admin",
     "status": 404,
     "shape": {
@@ -3162,6 +3276,63 @@
     }
   },
   {
+    "id": "admin-wpm-queue/history-401-unauthorized",
+    "method": "GET",
+    "route": "/v1/admin/wpm-queue/:id/history",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-wpm-queue/history-403-not_admin",
+    "method": "GET",
+    "route": "/v1/admin/wpm-queue/:id/history",
+    "auth": "admin",
+    "status": 403,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-wpm-queue/history-404-not_found",
+    "method": "GET",
+    "route": "/v1/admin/wpm-queue/:id/history",
+    "auth": "admin",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
     "id": "admin-wpm-queue/reject-400-bad_request",
     "method": "POST",
     "route": "/v1/admin/wpm-queue/:id/reject",
@@ -3240,6 +3411,63 @@
     }
   },
   {
+    "id": "admin-wpm-queue/reopen-401-unauthorized",
+    "method": "POST",
+    "route": "/v1/admin/wpm-queue/:id/reopen",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-wpm-queue/reopen-403-not_admin",
+    "method": "POST",
+    "route": "/v1/admin/wpm-queue/:id/reopen",
+    "auth": "admin",
+    "status": 403,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-wpm-queue/reopen-404-not_found",
+    "method": "POST",
+    "route": "/v1/admin/wpm-queue/:id/reopen",
+    "auth": "admin",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
     "id": "admin-wpm/post-201",
     "method": "POST",
     "route": "/v1/admin/wpm",
@@ -3268,6 +3496,9 @@
             },
             "reason": {
               "type": "null"
+            },
+            "review_version": {
+              "type": "number"
             },
             "status": {
               "type": "string"
@@ -5266,6 +5497,9 @@
             "reason": {
               "type": "null"
             },
+            "review_version": {
+              "type": "number"
+            },
             "status": {
               "type": "string"
             },
@@ -5312,6 +5546,9 @@
             },
             "reason": {
               "type": "null"
+            },
+            "review_version": {
+              "type": "number"
             },
             "status": {
               "type": "string"
@@ -10364,6 +10601,9 @@
             "reason": {
               "type": "null"
             },
+            "review_version": {
+              "type": "number"
+            },
             "status": {
               "type": "string"
             },
@@ -10416,6 +10656,9 @@
             },
             "reason": {
               "type": "null"
+            },
+            "review_version": {
+              "type": "number"
             },
             "status": {
               "type": "string"

@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ulid } from "ulidx";
 import type { Actor } from "../../src/auth/actor";
 import type { Bindings } from "../../src/env";
-import { approveComment, rejectComment, reopenComment, deleteOwnComment, listCommentCounts } from "../../src/core/comments";
+import { approveComment, rejectComment, reopenComment, deleteOwnComment, listCommentCounts, removeComment } from "../../src/core/comments";
 import { approveWpm, rejectWpm, reopenWpm, listWpmRecords } from "../../src/core/wpm";
 import { readReviewHistory } from "../../src/core/moderation-review";
 import { dispatchRejectionDms } from "../../src/core/rejection-dm";
@@ -90,6 +90,36 @@ describe("[LDB-MD20] moderation reopening", () => {
     expect(await db.prepare("SELECT 1 FROM comment_likes WHERE layout_id = ?").bind(layout).first()).not.toBeNull();
     await approveComment(db, clock, actor, null, comment, 1);
     expect((await listCommentCounts(db)).find((c) => c.layout_id === layout)?.count).toBe(1);
+  });
+
+  it("[LDB-MD20] a removal losing to reopening cannot clear the preserved slot likes", async () => {
+    for (const reapprove of [false, true]) {
+      const { layout, comment } = await seed();
+      await approveComment(db, clock, actor, null, comment);
+      await db.prepare("INSERT INTO comment_likes (layout_id, author_id, user_id, via, created_at) VALUES (?, ?, ?, 'discord', ?)").bind(layout, user.user_id, actor.user_id, at).run();
+      // Pause the remover's batch until reopening has won, after its approved
+      // pre-read: the losing SQL claim must not clear a now-pending slot's likes.
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => { release = resolve; });
+      let entered!: () => void;
+      const ready = new Promise<void>((resolve) => { entered = resolve; });
+      const delayedDb = new Proxy(db, {
+        get(target, property) {
+          if (property === "batch") return async (statements: D1PreparedStatement[]) => { entered(); await gate; return target.batch(statements); };
+          const value = Reflect.get(target, property);
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      });
+      const removal = removeComment(delayedDb, clock, actor, null, comment);
+      const outcome = expect(removal).rejects.toMatchObject({ status: 404 });
+      await ready;
+      await reopenComment(db, clock, actor, null, comment, { status: "approved", review_version: 0 });
+      if (reapprove) await approveComment(db, clock, actor, null, comment, 1);
+      release();
+      await outcome;
+      expect(await db.prepare("SELECT 1 FROM comment_likes WHERE layout_id = ?").bind(layout).first()).not.toBeNull();
+      expect(await db.prepare("SELECT status FROM layout_comments WHERE id = ?").bind(comment).first()).toEqual({ status: reapprove ? "approved" : "pending" });
+    }
   });
 
   it("[LDB-MD20] refuses erased, superseded, replaced, removed, tombstoned and newer-slot work", async () => {
