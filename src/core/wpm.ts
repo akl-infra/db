@@ -249,7 +249,7 @@ export async function approveWpm(db: Bindings["DB"], now: Clock, actor: Actor, v
   const at = now();
   const results = await db.batch([
     db.prepare(`UPDATE wpm_submissions SET status = 'approved', decided_by = ?, decided_at = ?, reason = NULL
-      WHERE id = ? AND status = 'pending' AND review_version = ? 
+      WHERE id = ? AND status = 'pending' AND review_version = ?
         AND EXISTS (SELECT 1 FROM layouts WHERE id = wpm_submissions.layout_id AND deleted = 0)`)
       .bind(actor.user_id, at, id, expectedReviewVersion),
     rejectionModerationStatement(db, at, { kind: "wpm_approved", layoutId: submission.layout_id,
