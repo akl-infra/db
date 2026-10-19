@@ -612,6 +612,32 @@ export interface Moderation {
   after?: object;
 }
 
+// Rejection transactions use a conditional event insert directly after their
+// pending-row claim. It is gated by that preceding statement's changes() so a
+// losing concurrent decision cannot append an event.
+export function rejectionModerationStatement(db: Bindings["DB"], at: string, m: Moderation): D1PreparedStatement {
+  return db
+    .prepare(
+      `INSERT INTO events (at, kind, layout_id, name, owner, format, rev, actor, via, admin, detail_json, before_json, after_json, source_client, source_version)
+       SELECT ?, ?, ?, (SELECT name FROM layouts WHERE id = ?), (SELECT owner FROM layouts WHERE id = ?),
+              NULL, NULL, ?, ?, 1, ?, NULL, ?, ?, ?
+       WHERE changes() = 1`,
+    )
+    .bind(
+      at,
+      m.kind,
+      m.layoutId,
+      m.layoutId,
+      m.layoutId,
+      m.actor,
+      m.via,
+      m.detail === undefined ? null : canonical(m.detail),
+      m.after === undefined ? null : canonical(m.after),
+      m.source.client,
+      m.source.version,
+    );
+}
+
 export async function appendModeration(db: Bindings["DB"], now: Clock, m: Moderation): Promise<{ seq: number }> {
   const current = await readById(db, m.layoutId);
   if (current === null) throw new Error(`appendModeration: layoutId '${m.layoutId}' does not exist`);

@@ -8,7 +8,8 @@ import { ulid } from "ulidx";
 import type { Actor } from "../auth/actor";
 import type { Bindings } from "../env";
 import { invalidComment, notFound, ownComment } from "./errors";
-import { appendInfo, appendModeration } from "./events";
+import { appendInfo, appendModeration, rejectionModerationStatement } from "./events";
+import { rejectionOutboxStatement } from "./rejection-dm";
 import { byRef, type LayoutRow, type Source } from "./records";
 import type { Clock } from "./time";
 
@@ -274,26 +275,32 @@ export async function approveComment(db: Bindings["DB"], now: Clock, actor: Acto
 // POST /v1/admin/comment-queue/:id/reject: marks the submission `rejected`
 // (the text is KEPT so its author can read it back with the reason) and
 // appends `comment_rejected`, which names the submission and nothing else.
-export async function rejectComment(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, id: string, reason?: string): Promise<CommentRow> {
+export async function rejectComment(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, id: string, reason?: string, options?: { notifySubmitter?: boolean }): Promise<CommentRow> {
   const submission = await loadComment(db, id);
   if (submission.status !== "pending") throw notFound(`comment '${id}' is not pending`, id);
+  if (await db.prepare("SELECT id FROM layouts WHERE id = ?").bind(submission.layout_id).first() === null) {
+    throw notFound(`no layout '${submission.layout_id}'`, submission.layout_id);
+  }
 
-  const res = await db
-    .prepare("UPDATE layout_comments SET status = 'rejected', decided_by = ?, decided_at = ?, reason = ? WHERE id = ? AND status = 'pending'")
-    .bind(actor.user_id, now(), reason ?? null, id)
-    .run();
-  if (res.meta.changes !== 1) throw notFound(`comment '${id}' is not pending`, id);
-
-  const rejected = await loadComment(db, id);
-  await appendModeration(db, now, {
+  const at = now();
+  const [claim, event] = await db.batch([
+    db.prepare("UPDATE layout_comments SET status = 'rejected', decided_by = ?, decided_at = ?, reason = ? WHERE id = ? AND status = 'pending'")
+      .bind(actor.user_id, at, reason ?? null, id),
+    rejectionModerationStatement(db, at, {
     kind: "comment_rejected",
-    layoutId: rejected.layout_id,
+    layoutId: submission.layout_id,
     actor: actor.user_id,
     via: actor.via,
     source: sourceOf(actor, version),
-    detail: { submission_id: rejected.id },
-  });
-  return rejected;
+    detail: { submission_id: submission.id },
+    }),
+    ...(options?.notifySubmitter === true ? [await rejectionOutboxStatement(db, {
+      kind: "comment", submissionId: submission.id, layoutId: submission.layout_id,
+      recipientId: submission.user_id, at,
+    })] : []),
+  ]);
+  if (claim!.meta.changes !== 1 || event!.meta.changes !== 1) throw notFound(`comment '${id}' is not pending`, id);
+  return loadComment(db, id);
 }
 
 // POST /v1/admin/comments/:id/remove: a mod takes an approved comment down.

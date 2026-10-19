@@ -21,4 +21,8 @@ export interface Bindings {
   MODQUEUE_DISCORD_CHANNEL_ID?: string;
   MODQUEUE_DISCORD_CARDS?: string;
   MODQUEUE_DISCORD_ACTIONS?: string;
+  // Rejection-only submitter DMs (LDB-MD18): delivery is opt-in at the
+  // Worker level and requires both this explicit true flag and the bot token.
+  // The token is a secret and must never be set in wrangler vars.
+  MODQUEUE_DISCORD_DMS?: string;
 }

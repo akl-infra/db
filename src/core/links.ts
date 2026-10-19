@@ -10,7 +10,8 @@ import type { Bindings } from "../env";
 import { checkDestructiveBudget } from "./clients";
 import { clientIdFromVia } from "./destructive-budget";
 import { invalidLink, notFound } from "./errors";
-import { appendInfo, appendLinkChange, appendModeration } from "./events";
+import { appendInfo, appendLinkChange, appendModeration, rejectionModerationStatement } from "./events";
+import { rejectionOutboxStatement } from "./rejection-dm";
 import type { Source } from "./records";
 import type { Clock } from "./time";
 
@@ -210,24 +211,31 @@ export async function approveSubmission(db: Bindings["DB"], now: Clock, actor: A
 
 // POST /v1/admin/link-queue/:id/reject: marks the submission `rejected`
 // and appends `link_rejected` (`admin: 1`, `appendModeration`).
-export async function rejectSubmission(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, id: string, reason?: string): Promise<LinkSubmissionRow> {
+export async function rejectSubmission(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, id: string, reason?: string, options?: { notifySubmitter?: boolean }): Promise<LinkSubmissionRow> {
   const submission = await loadSubmission(db, id);
   if (submission.status !== "pending") throw notFound(`link submission '${id}' is not pending`, id);
+  if (await db.prepare("SELECT id FROM layouts WHERE id = ?").bind(submission.layout_id).first() === null) {
+    throw notFound(`no layout '${submission.layout_id}'`, submission.layout_id);
+  }
 
   const at = now();
-  await db
-    .prepare("UPDATE link_submissions SET status = 'rejected', decided_by = ?, decided_at = ?, reason = ? WHERE id = ?")
-    .bind(actor.user_id, at, reason ?? null, submission.id)
-    .run();
-
-  await appendModeration(db, now, {
+  const [claim, event] = await db.batch([
+    db.prepare("UPDATE link_submissions SET status = 'rejected', decided_by = ?, decided_at = ?, reason = ? WHERE id = ? AND status = 'pending'")
+      .bind(actor.user_id, at, reason ?? null, submission.id),
+    rejectionModerationStatement(db, at, {
     kind: "link_rejected",
     layoutId: submission.layout_id,
     actor: actor.user_id,
     via: actor.via,
     source: sourceOf(actor, version),
     detail: { submission_id: submission.id, reason: reason ?? null },
-  });
+    }),
+    ...(options?.notifySubmitter === true ? [await rejectionOutboxStatement(db, {
+      kind: "link", submissionId: submission.id, layoutId: submission.layout_id,
+      recipientId: submission.submitted_by, at,
+    })] : []),
+  ]);
+  if (claim!.meta.changes !== 1 || event!.meta.changes !== 1) throw notFound(`link submission '${id}' is not pending`, id);
 
   return { ...submission, status: "rejected", decided_by: actor.user_id, decided_at: at, reason: reason ?? null };
 }

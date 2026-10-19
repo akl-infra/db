@@ -8,7 +8,8 @@ import { ulid } from "ulidx";
 import type { Actor } from "../auth/actor";
 import type { Bindings } from "../env";
 import { badRequest, invalidProof, invalidWpm, notFound } from "./errors";
-import { appendInfo, appendModeration } from "./events";
+import { appendInfo, appendModeration, rejectionModerationStatement } from "./events";
+import { rejectionOutboxStatement } from "./rejection-dm";
 import { byRef, type LayoutRow, type Source } from "./records";
 import type { Clock } from "./time";
 
@@ -284,20 +285,32 @@ export async function approveWpm(db: Bindings["DB"], now: Clock, actor: Actor, v
 // appends `wpm_rejected` (`admin: 1`). The event names the submission and
 // nothing else -- a refused record's speed, proof and the moderator's reason
 // are private to admins (the queue has them), like `link_rejected`.
-export async function rejectWpm(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, id: string, reason?: string): Promise<WpmSubmissionRow> {
+export async function rejectWpm(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, id: string, reason?: string, options?: { notifySubmitter?: boolean }): Promise<WpmSubmissionRow> {
   const submission = await loadSubmission(db, id);
   if (submission.status !== "pending") throw notFound(`wpm submission '${id}' is not pending`, id);
+  if (await db.prepare("SELECT id FROM layouts WHERE id = ?").bind(submission.layout_id).first() === null) {
+    throw notFound(`no layout '${submission.layout_id}'`, submission.layout_id);
+  }
 
-  const rejected = await decide(db, now, actor, id, "rejected", reason ?? null);
-  await appendModeration(db, now, {
+  const at = now();
+  const [claim, event] = await db.batch([
+    db.prepare("UPDATE wpm_submissions SET status = 'rejected', decided_by = ?, decided_at = ?, reason = ? WHERE id = ? AND status = 'pending'")
+      .bind(actor.user_id, at, reason ?? null, id),
+    rejectionModerationStatement(db, at, {
     kind: "wpm_rejected",
-    layoutId: rejected.layout_id,
+    layoutId: submission.layout_id,
     actor: actor.user_id,
     via: actor.via,
     source: sourceOf(actor, version),
-    detail: { submission_id: rejected.id },
-  });
-  return rejected;
+    detail: { submission_id: submission.id },
+    }),
+    ...(options?.notifySubmitter === true ? [await rejectionOutboxStatement(db, {
+      kind: "wpm", submissionId: submission.id, layoutId: submission.layout_id,
+      recipientId: submission.user_id, at,
+    })] : []),
+  ]);
+  if (claim!.meta.changes !== 1 || event!.meta.changes !== 1) throw notFound(`wpm submission '${id}' is not pending`, id);
+  return loadSubmission(db, id);
 }
 
 // GET /v1/wpm?layout=&user= (public). One row per (layout, user): the
