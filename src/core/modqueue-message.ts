@@ -55,7 +55,7 @@ export const DISCORD_COMPONENTS_V2_FLAG = 32768;
 const MAX_COMPONENT_TEXT_UNITS = 4000;
 // A decision may add a moderator and a 500-character reason (up to twice
 // that after Markdown escaping). Reserve it before deciding inline/file.
-const COMMENT_STATUS_RESERVE = 1200;
+const DECISION_STATUS_RESERVE = 1200;
 
 export interface TextFileAttachment { filename: string; content: string; description: string }
 
@@ -101,17 +101,17 @@ function statusText(state: QueueStatus): string {
   return clipUtf16(state.decider_name === null ? `**${label}**` : `**${label}** · by ${escapeMarkdown(state.decider_name)}`, 180);
 }
 
-function commentStatusLabel(status: QueueStatus["status"]): string {
+function decisionStatusLabel(status: QueueStatus["status"]): string {
   return { pending: "⏳ Pending review", approved: "✅ Approved", rejected: "❌ Denied",
     superseded: "↪️ Superseded", replaced: "↪️ Replaced", deleted: "🗑️ Deleted", removed: "⚠️ Removed" }[status];
 }
 
-function commentStatusText(state: QueueStatus): string {
+function decisionStatusText(state: QueueStatus): string {
   const actor = state.status === "pending" || state.decider_name === null ? ""
     : ` · by ${escapeMarkdown(clipUtf16(inlineText(state.decider_name), 60))}`;
   const reason = state.status === "rejected" && state.reason?.trim()
     ? `\n**Reason:** ${escapeMarkdown(clipUtf16(inlineText(state.reason.trim()), 500))}` : "";
-  return `**${commentStatusLabel(state.status)}**${actor}${reason}`;
+  return `**${decisionStatusLabel(state.status)}**${actor}${reason}`;
 }
 
 function actionRow(kind: QueueKind, id: string, actionsEnabled: boolean, state: QueueStatus = { status: "pending", decider_name: null }): Record<string, unknown> {
@@ -153,7 +153,7 @@ function payload(kind: QueueKind, id: string, title: string, metadata: string, b
     components: [{
       type: 17,
       id: 41000,
-      components: kind === "comment" ? [
+      components: kind !== "link" ? [
         { type: 10, id: COMPONENT_METADATA_ID, content: metadata },
         { type: 10, id: COMPONENT_BODY_ID, content: body },
         ...(file === undefined ? [] : [{ type: 13, id: COMPONENT_FILE_ID, file: { url: `attachment://${file.filename}` } }]),
@@ -191,15 +191,23 @@ export function buildV2Payload(kind: QueueKind, candidate: LinkCardData | WpmCar
   }
   if (kind === "wpm") {
     const c = candidate as WpmCardData;
-    const who = clipUtf16(escapeMarkdown(c.user_name ?? c.user_id), 120);
-    return payload(kind, c.id, `## WPM submission on ${layoutLink(c.layout_id, c.layout_name)}`,
-      `Submitted by **${who}** · Words per minute · Submission \`${c.id}\``, `**${c.wpm} WPM**\nProof: ${safeWrappedUrl(c.proof)}`, actionsEnabled, undefined, c.review_version ?? 0);
+    const who = escapeMarkdown(clipUtf16(inlineText(c.user_name ?? c.user_id), 60));
+    const metadata = `**WPM submission** on **${layoutLink(c.layout_id, clipUtf16(inlineText(c.layout_name), 100))}** by **${who}**`;
+    // Parentheses and backslashes can terminate or alter a Markdown link
+    // target even inside its angle-bracket wrapper. Encode them as URL data.
+    const proof = safeWrappedUrl(c.proof.replace(/[()\\]/g, (ch) => `%${ch.charCodeAt(0).toString(16).toUpperCase()}`));
+    const body = `**${c.wpm} WPM** · [View proof](${proof})`;
+    const file = body.length + metadata.length + DECISION_STATUS_RESERVE <= MAX_COMPONENT_TEXT_UNITS ? undefined : {
+      filename: `wpm-proof-${c.id}.txt`, content: c.proof, description: "Complete WPM proof URL",
+    };
+    return payload(kind, c.id, "", metadata, file === undefined ? body : `**${c.wpm} WPM** · Full proof URL attached.`,
+      actionsEnabled, file, c.review_version ?? 0);
   }
   const c = candidate as CommentCardData;
   const who = escapeMarkdown(clipUtf16(inlineText(c.user_name ?? c.user_id), 60));
   const metadata = `**${c.live_body === null ? "New" : "Edited"} comment** on **${layoutLink(c.layout_id, clipUtf16(inlineText(c.layout_name), 100))}** by **${who}**`;
   // Keep headroom for a longer status label when a decision arrives.
-  const formatted = formatCommentText(c.body, c.live_body, MAX_COMPONENT_TEXT_UNITS - COMMENT_STATUS_RESERVE - metadata.length, true);
+  const formatted = formatCommentText(c.body, c.live_body, MAX_COMPONENT_TEXT_UNITS - DECISION_STATUS_RESERVE - metadata.length, true);
   const file = formatted.attachmentText === undefined ? undefined : {
     filename: `comment-${c.id}.txt`, content: formatted.attachmentText, description: "Complete comment text before and after the edit",
   };
@@ -210,9 +218,11 @@ export function buildV2StatusPatch(current: unknown, kind: QueueKind, id: string
   if (current === null || typeof current !== "object" || !("components" in current) || !Array.isArray(current.components)) return null;
   // Older cards did not reserve room for a reason. Preserve their bounded
   // status layout; the new footer can safely use its reserved space.
-  const richComment = kind === "comment" && current.components.some((container: { components?: { id?: number; content?: string }[] }) =>
+  const richCard = kind !== "link" && current.components.some((container: { components?: { id?: number; content?: string }[] }) =>
     Array.isArray(container?.components) && container.components.some((row) => row?.id === COMPONENT_METADATA_ID &&
-      typeof row.content === "string" && /^\*\*(?:New|Edited) comment\*\* on /.test(row.content)));
+      typeof row.content === "string" && (kind === "comment"
+        ? /^\*\*(?:New|Edited) comment\*\* on /.test(row.content)
+        : /^\*\*WPM submission\*\* on /.test(row.content))));
   let foundStatus = false;
   const eraseCommentBody = kind === "comment" && (state.status === "deleted" || state.status === "replaced");
   const patch = (component: unknown): unknown => {
@@ -226,12 +236,12 @@ export function buildV2StatusPatch(current: unknown, kind: QueueKind, id: string
         typeof row.content === "string" && /^-# (?:\([^)]*\) )?(?:New|Edited) comment on /.test(row.content)) {
       foundStatus = true;
       const context = row.content.replace(/^-# (?:\([^)]*\) )?/, "");
-      return { ...row, content: `-# ${state.status === "pending" ? "" : `(${commentStatusLabel(state.status)}) `}${context}` };
+      return { ...row, content: `-# ${state.status === "pending" ? "" : `(${decisionStatusLabel(state.status)}) `}${context}` };
     }
     if (row.type === 10 && row.id === COMPONENT_STATUS_ID) {
       foundStatus = true;
-      if (kind === "comment" && state.status === "pending") return null;
-      return { ...row, content: richComment ? commentStatusText(state) : statusText(state) };
+      if (kind !== "link" && state.status === "pending") return null;
+      return { ...row, content: richCard ? decisionStatusText(state) : statusText(state) };
     }
     if (eraseCommentBody && row.type === 10 && row.id === COMPONENT_BODY_ID) {
       return { ...row, content: "**Comment preview removed**" };
@@ -241,7 +251,7 @@ export function buildV2StatusPatch(current: unknown, kind: QueueKind, id: string
     return { ...row };
   };
   const components = current.components.map(patch);
-  if (richComment && !foundStatus) {
+  if (richCard && !foundStatus) {
     const container = components.find((item): item is { components: Record<string, unknown>[] } =>
       item !== null && typeof item === "object" && "id" in item && item.id === 41000 &&
       "components" in item && Array.isArray(item.components));
@@ -249,7 +259,7 @@ export function buildV2StatusPatch(current: unknown, kind: QueueKind, id: string
       const actionIndex = container.components.findIndex((row) => row.id === COMPONENT_ACTIONS_ID);
       if (actionIndex !== -1) {
         if (state.status !== "pending") container.components.splice(actionIndex, 0,
-          { type: 10, id: COMPONENT_STATUS_ID, content: commentStatusText(state) });
+          { type: 10, id: COMPONENT_STATUS_ID, content: decisionStatusText(state) });
         foundStatus = true;
       }
     }
@@ -261,7 +271,7 @@ export function buildV2StatusPatch(current: unknown, kind: QueueKind, id: string
       "id" in component && component.id === 41000 &&
       "components" in component && Array.isArray(component.components));
     if (container && Array.isArray(container.components)) {
-      if (kind !== "comment" || state.status !== "pending") {
+      if (kind === "link" || state.status !== "pending") {
         container.components.unshift(
           { type: 10, id: COMPONENT_STATUS_ID, content: statusText(state) },
           { type: 14, id: COMPONENT_STATUS_SEPARATOR_ID, divider: true, spacing: 1 },

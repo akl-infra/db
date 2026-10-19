@@ -286,6 +286,32 @@ describe("[LDB-WPM8] notifyPending covers the WPM queue", () => {
 });
 
 describe("[LDB-MD21] WPM notification review versions", () => {
+  it("[LDB-MD21] refreshes the WPM decision footer from stored reason and removes it after reopening", async () => {
+    const layoutId = await freshLayout(uniqueName("modq-wpm-footer"));
+    const id = await insertWpm({ layoutId, userId: "900000000000000142", wpm: 150 });
+    const env = { ...envWith(undefined), MODQUEUE_DISCORD_CARDS: "true", MODQUEUE_DISCORD_COMPONENTS: "true", MODQUEUE_DISCORD_ACTIONS: "true",
+      MODQUEUE_DISCORD_BOT_TOKEN: "fake", MODQUEUE_DISCORD_CHANNEL_ID: "900000000000000103" };
+    let remote: Record<string, unknown> = {};
+    const fetchImpl: typeof fetch = async (_input, init) => {
+      if (init?.method === "GET") return Response.json(remote);
+      remote = JSON.parse(String(init?.body));
+      return Response.json({ id: "900000000000000106" });
+    };
+    await notifyPending(db, env, clock, fetchImpl);
+    expect(JSON.stringify(remote)).toContain("**150 WPM** · [View proof]");
+    expect(JSON.stringify(remote)).not.toMatch(/Pending|PENDING/);
+    await db.prepare("UPDATE wpm_submissions SET status = 'rejected', reason = 'Wrong layout' WHERE id = ?").bind(id).run();
+    await updateQueueNotification(db, env, "wpm", id, fetchImpl);
+    expect(JSON.stringify(remote)).toContain("**❌ Denied**");
+    expect(JSON.stringify(remote)).toContain("**Reason:** Wrong layout");
+    expect(JSON.stringify(remote)).toContain(`reopen-rejected|${id}|0`);
+    await db.prepare("UPDATE wpm_submissions SET status = 'pending', review_version = 1 WHERE id = ?").bind(id).run();
+    await updateQueueNotification(db, env, "wpm", id, fetchImpl);
+    expect(JSON.stringify(remote)).not.toMatch(/Pending|PENDING|Reason:|Denied/);
+    expect(JSON.stringify(remote)).toContain(`approve|${id}|1`);
+    expect(JSON.stringify(remote)).toContain("**150 WPM** · [View proof]");
+  });
+
   it("[LDB-MD21] first announcement after reopening uses the current version, including a reopen racing POST", async () => {
     const layoutId = await freshLayout(uniqueName("modq-wpm-reopened-post"));
     const id = await insertWpm({ layoutId, userId: "900000000000000141" });

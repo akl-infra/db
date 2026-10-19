@@ -67,6 +67,68 @@ describe("[LDB-MD15] Components V2 mod-queue message", () => {
     expect(nested(noActions.components as unknown[]).filter((c) => c.type === 2).map((c) => c.style)).toEqual([5]);
   });
 
+  it("[LDB-MD21] keeps WPM context and proof intact through decisions and reopening without pending labels", () => {
+    const id = "01ARZ3NDEKTSV4RRFFQ69G5FAA";
+    const candidate = { id, layout_id: "01BX5ZZKBKACTAV9WEVGEMMVRY", user_id: "900000000000000002",
+      wpm: 150, proof: "https://example.org/proof(a)\\b>x y<z", layout_name: "*bemboo10*", user_name: "mira_dev" };
+    const initial = buildV2Payload("wpm", candidate);
+    const rows = (card: Record<string, unknown>) => nested(card.components as unknown[]);
+    const texts = (card: Record<string, unknown>) => rows(card).filter((row) => row.type === 10).map((row) => row.content);
+    const context = "**WPM submission** on **[\\*bemboo10\\*](<https://akldb.org/l/01BX5ZZKBKACTAV9WEVGEMMVRY>)** by **mira\\_dev**";
+    const proof = "**150 WPM** · [View proof](<https://example.org/proof%28a%29%5Cb%3Ex%20y%3Cz>)";
+    expect(texts(initial)).toEqual([context, proof]);
+    expect(JSON.stringify(initial)).not.toMatch(/Pending|PENDING|## /);
+    expect(texts(initial).join(" ")).not.toContain(id);
+    for (const status of ["approved", "rejected"] as const) {
+      const decided = buildV2StatusPatch(initial, "wpm", id, { status, decider_name: "mod*name", reason: "Wrong *layout*", review_version: 2 })!;
+      expect(texts(decided)).toEqual([context, proof, status === "approved"
+        ? "**✅ Approved** · by mod\\*name" : "**❌ Denied** · by mod\\*name\n**Reason:** Wrong \\*layout\\*"]);
+      expect((decided.components as { components: { id: number }[] }[])[0]!.components.map((row) => row.id))
+        .toEqual([41003, 41004, 41005, 41001, 41006]);
+      expect(rows(decided).filter((row) => row.type === 2).map((row) => row.custom_id))
+        .toEqual([`aklmod2|wpm|reopen-${status}|${id}|2`, undefined]);
+      const reopened = buildV2StatusPatch(decided, "wpm", id, { status: "pending", decider_name: null, review_version: 3 })!;
+      expect(texts(reopened)).toEqual([context, proof]);
+      expect(rows(reopened).filter((row) => row.type === 2).map((row) => row.custom_id))
+        .toEqual([`aklmod2|wpm|approve|${id}|3`, `aklmod2|wpm|deny|${id}|3`, undefined]);
+    }
+  });
+
+  it("[LDB-MD21] budgets WPM proof links and decision reasons without truncating either URL", () => {
+    const id = "01ARZ3NDEKTSV4RRFFQ69G5FAA";
+    const candidate = { id, layout_id: id, user_id: "900000000000000002", wpm: 150,
+      proof: "https://example.org/" + ")".repeat(490), layout_name: "*".repeat(100), user_name: "*".repeat(60) };
+    const initial = buildV2Payload("wpm", candidate);
+    expect(initial).not.toHaveProperty("__files");
+    const decided = buildV2StatusPatch(initial, "wpm", id, { status: "rejected", decider_name: "*".repeat(60), reason: "*".repeat(500) })!;
+    const text = nested(decided.components as unknown[]).filter((row) => row.type === 10).map((row) => String(row.content));
+    expect(text.reduce((length, value) => length + value.length, 0)).toBeLessThanOrEqual(4000);
+    expect(text[1]).toContain("%29".repeat(490));
+    const largeProof = "https://example.org/" + "\u2000".repeat(490);
+    const attached = buildV2Payload("wpm", { ...candidate, proof: largeProof });
+    expect((attached.__files as { content: string }[])[0]?.content).toBe(largeProof);
+    const updated = buildV2StatusPatch(attached, "wpm", id, { status: "rejected", decider_name: null, reason: "*".repeat(500) })!;
+    expect(updated.attachments).toEqual(attached.attachments);
+    expect(nested(updated.components as unknown[]).find((row) => row.id === 41004)?.content).toBe("**150 WPM** · Full proof URL attached.");
+  });
+
+  it("[LDB-MD21] keeps legacy WPM cards editable without introducing pending labels", () => {
+    const old = { components: [{ type: 17, id: 41000, components: [
+      { type: 10, id: 41001, content: "**✅ APPROVED** · by mod" },
+      { type: 10, id: 41002, content: "## WPM submission on finch" },
+      { type: 10, id: 41003, content: "Submitted by mod · Words per minute · Submission `old-id`" },
+      { type: 10, id: 41004, content: "**150 WPM**\nProof: <https://example.org/proof>" },
+      { type: 1, id: 41006, components: [] },
+    ] }] };
+    const pending = buildV2StatusPatch(old, "wpm", "old-id", { status: "pending", decider_name: null, review_version: 1 })!;
+    expect(JSON.stringify(pending)).not.toMatch(/Pending|PENDING|APPROVED/);
+    expect(JSON.stringify(pending)).toContain("https://example.org/proof");
+    expect(JSON.stringify(pending)).toContain("approve|old-id|1");
+    const approved = buildV2StatusPatch(pending, "wpm", "old-id", { status: "approved", decider_name: "mod", review_version: 1 })!;
+    expect(nested(approved.components as unknown[]).find((row) => row.id === 41001)?.content).toBe("**✅ APPROVED** · by mod");
+    expect(JSON.stringify(approved)).toContain("reopen-approved|old-id|1");
+  });
+
   it("[LDB-MD15] renders full comment edit before/after previews and escapes user markdown", () => {
     const comment = buildV2Payload("comment", {
       id: "01ARZ3NDEKTSV4RRFFQ69G5FAB",
