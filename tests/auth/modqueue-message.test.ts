@@ -144,13 +144,16 @@ describe("[LDB-MD15] Components V2 mod-queue message", () => {
     expect(parts.find((c) => c.id === 41001)?.content).toBe("**✅ APPROVED** · by Mod\\*Name");
     expect(parts.find((c) => c.id === 41002)?.content).toBe(titleBefore);
     const controls = parts.filter((c) => c.type === 2);
-    expect(controls[0]?.disabled).toBe(true);
-    expect(controls[1]?.disabled).toBe(true);
-    expect(controls[2]?.disabled).toBeUndefined();
-    expect(buildV2StatusPatch(patched, "link", "01ARZ3NDEKTSV4RRFFQ69G5FAD", {
+    expect(controls).toHaveLength(1);
+    expect(controls[0]?.label).toBe("Open in akldb");
+    const secondPatch = buildV2StatusPatch(patched, "link", "01ARZ3NDEKTSV4RRFFQ69G5FAD", {
       status: "rejected",
       decider_name: null,
-    })).not.toBeNull();
+    });
+    expect(secondPatch).not.toBeNull();
+    const secondParts = nested(secondPatch!.components as unknown[]);
+    expect(secondParts.filter((c) => c.type === 2).map((c) => c.label)).toEqual(["Open in akldb"]);
+    expect(secondParts.filter((c) => c.id === 41001)).toHaveLength(1);
     expect(buildV2StatusPatch({ components: [] }, "link", "id", { status: "approved", decider_name: null })).toBeNull();
   });
 

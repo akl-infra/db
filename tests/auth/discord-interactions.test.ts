@@ -109,6 +109,51 @@ describe("[LDB-MD16] Discord HTTP interaction adapter", () => {
     expect((await wrongApp.json() as { type: number }).type).toBe(4);
   });
 
+  it("[LDB-MD16] accepts long opaque tokens for approve, deny, and modal submit but rejects missing or non-string tokens", async () => {
+    const env = envWith();
+    const longToken = "opaque.discord.continuation-token_0123456789.".repeat(7);
+    expect(longToken.length).toBeGreaterThan(200);
+
+    const missing = interaction(3, "900000000000000116", {
+      custom_id: `aklmod1|link|approve|${submissionId}`,
+    }, { message: { id: messageId } });
+    delete missing.token;
+    const missingResponse = await handleDiscordInteraction(await signedRequest(missing), env, clock);
+    expect(((await missingResponse.json()) as { data: { content: string } }).data.content).toContain("malformed");
+    const wrongType = interaction(3, "900000000000000117", {
+      custom_id: `aklmod1|link|approve|${submissionId}`,
+    }, { message: { id: messageId }, token: 42 });
+    const wrongTypeResponse = await handleDiscordInteraction(await signedRequest(wrongType), env, clock);
+    expect(((await wrongTypeResponse.json()) as { data: { content: string } }).data.content).toContain("malformed");
+
+    await db.prepare("INSERT INTO admins (user_id, added_at) VALUES (?, ?)").bind(MOD, clock()).run();
+    const approve = interaction(3, "900000000000000118", {
+      custom_id: `aklmod1|link|approve|${submissionId}`,
+    }, { message: { id: messageId }, token: longToken });
+    const approveAck = await handleDiscordInteraction(await signedRequest(approve), env, clock);
+    expect(await approveAck.json()).toEqual({ type: 5, data: { flags: 64 } });
+    const approvedAction = await db.prepare("SELECT token FROM discord_pending_actions WHERE interaction_id = ?")
+      .bind("900000000000000118").first<{ token: string }>();
+    expect(approvedAction?.token).toBe(longToken);
+    await db.prepare("DELETE FROM discord_pending_actions").run();
+
+    const deny = interaction(3, "900000000000000119", {
+      custom_id: `aklmod1|link|deny|${submissionId}`,
+    }, { message: { id: messageId }, token: longToken });
+    const modalResponse = await handleDiscordInteraction(await signedRequest(deny), env, clock);
+    const modal = await modalResponse.json() as { type: number; data: { custom_id: string } };
+    expect(modal.type).toBe(9);
+    const submit = interaction(5, "900000000000000120", {
+      custom_id: modal.data.custom_id,
+      components: [{ type: 18, component: { type: 4, custom_id: "reason", value: "Long-token modal reason." } }],
+    }, { token: longToken });
+    const submitAck = await handleDiscordInteraction(await signedRequest(submit), env, clock);
+    expect(await submitAck.json()).toEqual({ type: 5, data: { flags: 64 } });
+    const deniedAction = await db.prepare("SELECT token, action FROM discord_pending_actions WHERE interaction_id = ?")
+      .bind("900000000000000120").first<{ token: string; action: string }>();
+    expect(deniedAction).toEqual({ token: longToken, action: "deny" });
+  });
+
   it("[LDB-MD16] rejects untracked messages, wrong guild/channel and non-admin actors without queuing", async () => {
     const env = envWith();
     const button = (overrides: Record<string, unknown> = {}) => interaction(3, "900000000000000108", {

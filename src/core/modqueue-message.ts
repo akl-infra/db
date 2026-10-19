@@ -187,9 +187,8 @@ export function buildV2StatusPatch(current: unknown, kind: QueueKind, id: string
       return { ...row, content: "**Comment preview removed**" };
     }
     if (eraseCommentBody && row.type === 13 && row.id === COMPONENT_FILE_ID) return null;
-    if (row.type === 2 && typeof row.custom_id === "string" && row.custom_id.startsWith(moderationPrefix) && row.custom_id.endsWith(`|${id}`)) {
-      return { ...row, disabled: true };
-    }
+    if (row.type === 2 && typeof row.custom_id === "string" &&
+        (row.custom_id === `${moderationPrefix}approve|${id}` || row.custom_id === `${moderationPrefix}deny|${id}`)) return null;
     if (Array.isArray(row.components)) return { ...row, components: row.components.map(patch).filter((item) => item !== null) };
     return { ...row };
   };

@@ -319,7 +319,9 @@ export async function handleDiscordInteraction(request: Request, env: Bindings, 
   const interactionId = typeof interaction.id === "string" ? interaction.id : "";
   const token = typeof interaction.token === "string" ? interaction.token : "";
   const user = userOf(interaction);
-  if (!/^\d{17,20}$/.test(interactionId) || token.length < 20 || token.length > 200 || user === null || typeof user.id !== "string" || !/^\d{17,20}$/.test(user.id) || typeof user.username !== "string") return ephemeral("This interaction is malformed.");
+  // Discord defines this as an opaque string with no fixed length. The signed
+  // request body is already bounded above; do not reject valid long tokens.
+  if (!/^\d{17,20}$/.test(interactionId) || token.length === 0 || user === null || typeof user.id !== "string" || !/^\d{17,20}$/.test(user.id) || typeof user.username !== "string") return ephemeral("This interaction is malformed.");
   if (await hasReceipt(env.DB, interactionId)) return ephemeral("This interaction was already received.");
 
   if (interaction.type === 3) {
