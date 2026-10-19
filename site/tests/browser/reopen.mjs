@@ -62,7 +62,17 @@ try {
   assert.equal(requests.filter((r) => r.action === "reopen").length, 0, "approval requires confirmation");
   if (output) await page.screenshot({ path: `${output}/confirm-desktop.png`, fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
-  if (output) await page.screenshot({ path: `${output}/confirm-mobile.png`, fullPage: true });
+  // Chrome can stitch a stale viewport into fullPage captures immediately
+  // after resizing. Let responsive layout settle, then capture the actual
+  // viewport scrolled to the confirmation instead of stitching the page.
+  await page.waitForTimeout(300);
+  assert.equal(await page.locator("header").count(), 1, "only one header in mobile DOM");
+  assert.equal(await page.getByRole("heading", { name: "Moderation", exact: true }).count(), 1, "only one page heading in mobile DOM");
+  await commentRow.scrollIntoViewIfNeeded();
+  await page.waitForTimeout(300);
+  await page.locator(".akl-reopen-confirm").waitFor({ state: "visible" });
+  assert.equal(await page.locator(".akl-comment-text").count(), 1, "approved comment renders once");
+  if (output) await page.screenshot({ path: `${output}/confirm-mobile.png`, fullPage: false });
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "no horizontal overflow on mobile");
   assert.equal(await page.locator(".akl-comment-text").evaluate((el) => getComputedStyle(el).fontSize), "15px", "comment remains normal body size");
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
