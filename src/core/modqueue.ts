@@ -19,7 +19,8 @@
 // belt-and-suspenders layer, not the only one.
 import type { Bindings } from "../env";
 import type { Clock } from "./time";
-import { buildV2Payload, buildV2StatusPatch, DISCORD_COMPONENTS_V2_FLAG, formatCommentText, type CommentCardData, type LinkCardData, type QueueStatus, type TextFileAttachment, type WpmCardData } from "./modqueue-message";
+import { buildV2Payload, buildV2StatusPatch, DISCORD_COMPONENTS_V2_FLAG, formatCommentText, type CommentCardData, type LinkCardData, type QueueStatus, type TextFileAttachment, type MessageFileAttachment, type WpmCardData } from "./modqueue-message";
+import { resolveProofPreview, type ProofPreview } from "./modqueue-proof";
 
 const WEBHOOK_TIMEOUT_MS = 5000;
 const USER_AGENT = "akl-db/1.0";
@@ -99,7 +100,7 @@ function requestHeaders(env: Bindings, transport: MessageTransport, jsonBody = f
 }
 
 function discordPost(body: Record<string, unknown>, env: Bindings, transport: MessageTransport): { body: BodyInit; headers: HeadersInit } | null {
-  const files = Array.isArray(body.__files) ? body.__files as TextFileAttachment[] : [];
+  const files = Array.isArray(body.__files) ? body.__files as MessageFileAttachment[] : [];
   const headers = requestHeaders(env, transport, files.length === 0);
   if (headers === null) return null;
   if (files.length === 0) return { body: JSON.stringify(body), headers };
@@ -108,7 +109,7 @@ function discordPost(body: Record<string, unknown>, env: Bindings, transport: Me
   const form = new FormData();
   form.append("payload_json", JSON.stringify(payload));
   for (const [index, file] of files.entries()) {
-    form.append(`files[${index}]`, new Blob([file.content], { type: "text/plain;charset=utf-8" }), file.filename);
+    form.append(`files[${index}]`, new Blob([file.content], { type: file.contentType ?? "text/plain;charset=utf-8" }), file.filename);
   }
   return { body: form, headers };
 }
@@ -388,6 +389,9 @@ async function release(db: Bindings["DB"], table: Queue<never>["table"], id: str
 }
 
 async function sweep<C extends { id: string; review_version?: number }>(db: Bindings["DB"], env: Bindings, format: MessageFormat, transport: MessageTransport, channelId: string | null, now: Clock, fetchImpl: typeof fetch, queue: Queue<C>): Promise<void> {
+  // Enrichment adds at most six seconds to a sweep, even for a backlog of
+  // inaccessible proofs. It never delays the submission HTTP response.
+  let previewBudgetMs = 6000;
   let candidates: C[];
   try {
     const { results } = await db.prepare(queue.candidateSql).bind(BATCH_LIMIT).all<C>();
@@ -411,19 +415,34 @@ async function sweep<C extends { id: string; review_version?: number }>(db: Bind
     try {
       const kind = queue.table === "link_submissions" ? "link" : "wpm";
       let body: Record<string, unknown>;
+      let preview: ProofPreview | undefined;
       const actionsEnabled = transport === "bot" && env.MODQUEUE_DISCORD_ACTIONS === "true";
       if (format === "components_v2" && queue.table === "link_submissions") body = buildV2Payload("link", candidate as unknown as LinkCardData, actionsEnabled);
-      else if (format === "components_v2") body = buildV2Payload("wpm", candidate as unknown as WpmCardData, actionsEnabled);
+      else if (format === "components_v2") {
+        const start = Date.now();
+        const wpm = candidate as unknown as WpmCardData;
+        preview = await resolveProofPreview(wpm.proof, env, fetchImpl, previewBudgetMs);
+        previewBudgetMs -= Date.now() - start;
+        body = buildV2Payload("wpm", wpm, actionsEnabled, preview);
+      }
       else body = { content: queue.build(candidate), allowed_mentions: { parse: [] } };
       const url = messageUrl(env, transport, channelId, undefined, format);
       const request = discordPost(body, env, transport);
       if (url === null || request === null) { await release(db, queue.table, candidate.id, claimedAt); return; }
-      const res = await fetchImpl(url, {
+      let res = await fetchImpl(url, {
         method: "POST",
         headers: request.headers,
         body: request.body,
         signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS),
       });
+      // Only a definitive rejected upload is retried without images. Never
+      // make a second POST on an ambiguous timeout or a rate limit here.
+      if ((preview?.kind === "images" || preview?.kind === "youtube") && [400, 403, 413].includes(res.status)) {
+        await res.body?.cancel();
+        const withoutImage: ProofPreview = preview.kind === "youtube" ? { kind: "youtube", videoUrl: preview.videoUrl } : { kind: "unavailable" };
+        const fallback = discordPost(buildV2Payload("wpm", candidate as unknown as WpmCardData, actionsEnabled, withoutImage), env, transport)!;
+        res = await fetchImpl(url, { method: "POST", headers: fallback.headers, body: fallback.body, signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS) });
+      }
       // A Discord 429 is just another non-2xx here (no `Retry-After`
       // parsing) -- releasing the claim is enough: the cron's next
       // 5-minute tick simply tries again, same as any other failure.

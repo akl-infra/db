@@ -10,6 +10,35 @@ function nested(components: unknown[]): Record<string, unknown>[] {
   });
 }
 
+it("[LDB-WPM14] YouTube previews retain the V2 card, bounded text, original proof and independently gated controls", () => {
+  const id = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+  const videoUrl = "https://www.youtube.com/watch?v=aBcD_123-45&t=60";
+  const thumbnailUrl = "https://i.ytimg.com/vi/aBcD_123-45/hqdefault.jpg";
+  for (const proof of ["https://youtu.be/aBcD_123-45?t=60", `https://youtube.com/watch?v=aBcD_123-45&extra=${"(".repeat(450)}`]) {
+    const c = { id, layout_id: id, user_id: "900000000000000001", user_name: "*😀*".repeat(100),
+      layout_name: "[😀](https://evil.test)".repeat(100), wpm: 100, proof, review_version: 3 };
+    const initial = buildV2Payload("wpm", c, true, { kind: "youtube", videoUrl, thumbnailUrl });
+    expect(initial.flags).toBe(DISCORD_COMPONENTS_V2_FLAG);
+    expect(initial).not.toHaveProperty("content");
+    expect(initial).not.toHaveProperty("embeds");
+    const parts = nested(initial.components as unknown[]);
+    expect(parts.find((p) => p.type === 12)?.items).toEqual([{ media: { url: thumbnailUrl }, description: "YouTube video thumbnail" }]);
+    expect(parts.find((p) => p.id === 41011)?.content).toBe(`[Watch on YouTube](<${videoUrl}>)`);
+    expect(parts.find((p) => p.id === 41004)?.content).toContain("[View proof]");
+    for (const status of ["pending", "approved", "rejected"] as const) {
+      const changed = buildV2StatusPatch(initial, "wpm", id, { status, review_version: 3,
+        decider_name: "*😀*".repeat(100), reason: "😀".repeat(250) })!;
+      const rows = nested(changed.components as unknown[]);
+      expect(rows.reduce((sum, row) => sum + (typeof row.content === "string" ? row.content.length : 0), 0)).toBeLessThanOrEqual(4000);
+      expect(rows.find((p) => p.type === 12)).toEqual(parts.find((p) => p.type === 12));
+      expect(rows.find((p) => p.id === 41011)).toEqual(parts.find((p) => p.id === 41011));
+      expect(changed.allowed_mentions).toEqual({ parse: [] });
+      const disabled = buildV2StatusPatch(initial, "wpm", id, { status, decider_name: null, review_version: 3 }, false)!;
+      expect(nested(disabled.components as unknown[]).filter((p) => p.type === 2).map((p) => p.label)).toEqual(["Open in akldb"]);
+    }
+  }
+});
+
 describe("[LDB-MD15] Components V2 mod-queue message", () => {
   it("[LDB-MD15] [LDB-MD16] renders link and WPM cards with safe links, exact action ids, and no invented speed duration; actions are independently gated", () => {
     const link = buildV2Payload("link", {
