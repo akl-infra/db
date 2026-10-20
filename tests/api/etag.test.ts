@@ -28,15 +28,15 @@ async function sha256Hex(s: string): Promise<string> {
 // to 21 by the WPM records slice, LDB-WPM1..LDB-WPM10, `CHANGELOG-API.md` 1.21; bumped to 22 by
 // the layout comments slice, LDB-CMT1..LDB-CMT10, `CHANGELOG-API.md` 1.22; bumped to 23 by the comments-admin-queue change, LDB-CMT2, `CHANGELOG-API.md` 1.23) and
 // is actually part of what gets hashed, not merely present in a comment.
-// Replicates `etagFor`'s own formula with a literal `wireVersion: 26` -- if
+// Replicates `etagFor`'s own formula with a literal `wireVersion: 27` -- if
 // a future slice bumps the real constant without bumping this test, the
 // two hashes diverge and this fails, which is the point: a version bump is
 // a deliberate, visible edit here too.
 describe("[LDB-R1] WIRE_VERSION is folded into the ETag hash", () => {
-  it("[LDB-R1] etagFor(seq, query) reproduces exactly the wireVersion:26-folded hash", async () => {
+  it("[LDB-R1] etagFor(seq, query) reproduces exactly the wireVersion:27-folded hash", async () => {
     const seq = 42;
     const query = { a: 1, b: "x" };
-    const expectedHash = await sha256Hex(canonical({ wireVersion: 26, query }));
+    const expectedHash = await sha256Hex(canonical({ wireVersion: 27, query }));
     const expected = `"${seq}:${expectedHash.slice(0, 16)}"`;
     expect(await etagFor(seq, query)).toBe(expected);
   });

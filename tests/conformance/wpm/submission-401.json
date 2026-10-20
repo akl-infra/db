@@ -1,0 +1,18 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/wpm/submissions/nonexistent-submission-id"
+  },
+  "response": {
+    "status": 401,
+    "headers": {
+      "Content-Type": "application/json",
+      "WWW-Authenticate": "Bearer",
+      "Cache-Control": "private, no-store"
+    },
+    "body": {
+      "error": "unauthorized",
+      "message": "authentication required"
+    }
+  }
+}

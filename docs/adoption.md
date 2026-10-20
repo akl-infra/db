@@ -1147,6 +1147,7 @@ silently drift from what `src/index.ts` actually registers.
 | PUT | `/v1/layouts/:ref/link` | user (owner or admin) | `{url}` | 202 (queued, admins too) | `bad_request`, `invalid_link`, `not_owner`, `not_found`, lane errors |
 | DELETE | `/v1/layouts/:ref/link` | user (owner or admin) | — | 200 | `not_owner`, `not_found`, lane errors |
 | GET | `/v1/wpm` | none | — (`?layout=<ref>&user=<id>`, both optional) | 200 (`{records}`) | `bad_request`, `not_found` |
+| GET | `/v1/wpm/submissions/:id` | user (typist, submitter or admin) | — | 200 (`{submission}`) | `not_found`, lane errors |
 | POST | `/v1/wpm` | user | `{layout, wpm, proof}` | 202 (queued, admins too) | `bad_request`, `invalid_wpm`, `invalid_proof`, `not_found`, lane errors |
 | GET | `/v1/layouts/:ref/comments` | none | — (`?sort=`) | 200 (`{comments}`) | `bad_request`, `not_found` |
 | GET | `/v1/comment-counts` | none | — | 200 (`{counts}`; sparse positive counts of approved comments on live layouts) | — |
@@ -1277,6 +1278,16 @@ descending then `approved_at` ascending, not paginated, ETag/304 like the
 other public reads; records on a deleted layout are hidden. Events:
 `wpm_submitted` (only `submission_id` — no speed or proof while pending),
 `wpm_approved` (`user_id`, `wpm`, `proof`) and `wpm_rejected` (only `submission_id`).
+
+**Following a WPM submission**: `GET /v1/wpm/submissions/:id` requires
+authentication as its `user_id`, `submitted_by`, or an admin (either auth lane).
+It returns only `{submission: {id, status, reason, review_version}}`, including
+pending, approved, rejected and superseded submissions. `reason` is a string
+or null; reopening returns pending with a null reason and an increased
+`review_version`. Anonymous reads are `401`; unrelated users get the same
+`404 not_found` as missing submissions. All responses, including errors, use
+`Cache-Control: private, no-store`. Rejection reasons remain absent from the
+public change feed.
 
 **Layout comments** (`PUT /v1/layouts/{ref}/comment`, body `{body}`): one
 plain-text comment per user per layout. `body` is a string; `\r\n` and a lone

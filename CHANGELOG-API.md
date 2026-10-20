@@ -25,6 +25,16 @@ this file just gives them a public, versioned home. From here on, a
 `WIRE_VERSION` bump and a line here land in the SAME PR, never one without
 the other (`[LDB-V5]`).
 
+## 1.27 — 2026-10-19
+
+LDB-WPM16: add `GET /v1/wpm/submissions/:id`, authenticated as the submission's
+typist, submitter, or an admin. Returns only
+`{submission: {id, status, reason, review_version}}`; status is `pending`,
+`approved`, `rejected`, or `superseded`, and reason is nullable. Anonymous reads
+return `401`; unrelated users receive the same `404` as a missing submission.
+Responses, including errors, use `Cache-Control: private, no-store`.
+The public WPM records and change feed retain their existing privacy rules.
+
 ## 1.26 — 2026-10-19
 
 LDB-WPM15: requested validation tightening for `POST /v1/wpm` and

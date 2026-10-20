@@ -91,6 +91,13 @@ export function wpmRoute(authDeps: AuthDeps) {
     return c.json({ submission }, 202);
   });
 
+  route.get("/v1/wpm/submissions/:id", async (c) => {
+    // Set before authentication so errors cannot cache a private response.
+    c.header("Cache-Control", "private, no-store");
+    const actor = await resolveActor(c.env, c.req, authDeps);
+    return c.json({ submission: await wpm.readWpmSubmissionStatus(c.env.DB, actor, c.req.param("id")) });
+  });
+
   route.post("/v1/admin/wpm", async (c) => {
     const actor = c.get("actor");
     if (!actor.admin) throw notAdmin();

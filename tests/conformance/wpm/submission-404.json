@@ -1,0 +1,19 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/wpm/submissions/nonexistent-submission-id",
+    "bearer": "conformance-admin-token"
+  },
+  "response": {
+    "status": 404,
+    "headers": {
+      "Content-Type": "application/json",
+      "Cache-Control": "private, no-store"
+    },
+    "body": {
+      "error": "not_found",
+      "message": "no wpm submission 'nonexistent-submission-id'",
+      "ref": "nonexistent-submission-id"
+    }
+  }
+}

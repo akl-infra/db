@@ -10778,5 +10778,44 @@
         }
       }
     }
+  },
+  {
+    "id": "wpm/submission-401",
+    "method": "GET",
+    "route": "/v1/wpm/submissions/:id",
+    "auth": "user (typist, submitter or admin)",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "wpm/submission-404",
+    "method": "GET",
+    "route": "/v1/wpm/submissions/:id",
+    "auth": "user (typist, submitter or admin)",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    }
   }
 ]

@@ -112,6 +112,18 @@ async function loadSubmission(db: Bindings["DB"], id: string): Promise<WpmSubmis
   return row;
 }
 
+export type WpmSubmissionStatus = Pick<WpmSubmissionRow, "id" | "status" | "reason" | "review_version">;
+
+// [LDB-WPM16] Clients can follow their own submissions without gaining
+// access to the queue or exposing private decision reasons in the feed.
+export async function readWpmSubmissionStatus(db: Bindings["DB"], actor: Actor, id: string): Promise<WpmSubmissionStatus> {
+  const submission = await loadSubmission(db, id);
+  if (!actor.admin && actor.user_id !== submission.user_id && actor.user_id !== submission.submitted_by) {
+    throw notFound(`no wpm submission '${id}'`, id);
+  }
+  return { id: submission.id, status: submission.status, reason: submission.reason, review_version: submission.review_version };
+}
+
 // The layout every submission route names: the usual ref resolution; a
 // tombstone refuses (a deleted layout takes no new records).
 export async function resolveWpmLayout(db: Bindings["DB"], ref: string): Promise<LayoutRow> {

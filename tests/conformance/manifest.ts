@@ -1,3 +1,5 @@
+import wpmSubmission401 from "./wpm/submission-401.json" with { type: "json" };
+import wpmSubmission404 from "./wpm/submission-404.json" with { type: "json" };
 import commentreopen401 from "./admin-comment-queue/reopen-401-unauthorized.json" with { type: "json" };
 import commentreopen403 from "./admin-comment-queue/reopen-403-not_admin.json" with { type: "json" };
 import commentreopen404 from "./admin-comment-queue/reopen-404-not_found.json" with { type: "json" };
@@ -902,6 +904,8 @@ export const MODERATION_CASES: ConformanceCase[] = [
   // case here that submits one; "wpm/get-*" run after "admin-wpm/post-201"
   // has approved the record they read.
   kase("admin-wpm-queue/get-200", "/v1/admin/wpm-queue", wpmFxAdminWpmQueueGet200, true),
+  kase("wpm/submission-401", "/v1/wpm/submissions/:id", wpmSubmission401, true),
+  kase("wpm/submission-404", "/v1/wpm/submissions/:id", wpmSubmission404, true),
   kase("wpm/post-202", "/v1/wpm", wpmFxWpmPost202, true),
   kase("wpm/post-202-admin-pending", "/v1/wpm", wpmFxWpmPost202AdminPending, true),
   kase("wpm/post-400-bad_request", "/v1/wpm", wpmFxWpmPost400BadRequest, true),

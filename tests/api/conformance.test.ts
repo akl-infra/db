@@ -806,6 +806,10 @@ const REQUIRED: Record<string, RequiredCase[]> = {
 
   // WPM records (docs/decisions/28-wpm-records.md): same lighter treatment as
   // the L5 rows just above.
+  "GET /v1/wpm/submissions/:id": [
+    { status: 401, code: ERROR_CODES.unauthorized },
+    { status: 404, code: ERROR_CODES.not_found },
+  ],
   "GET /v1/wpm": [{ status: 200 }, { status: 304 }, { status: 400, code: ERROR_CODES.bad_request }, { status: 404, code: ERROR_CODES.not_found }],
   "POST /v1/wpm": [
     { status: 202 },

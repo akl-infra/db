@@ -7,6 +7,7 @@ import { ulid } from "ulidx";
 import type { Bindings } from "../../src/env";
 import { commitWrite, type CommitInput } from "../../src/core/events";
 import { steppingClock } from "../../src/core/time";
+import { generateKeyPair, seedClient, signHeaders } from "../auth/client-support";
 import { AKL_PAYLOAD, BOOTSTRAP_ADMIN, actorFixture, pinTestClock, register, uniqueName, writeFetch } from "./write-support";
 
 const bindings = env as unknown as Bindings;
@@ -118,6 +119,90 @@ async function pendingFor(admin: Record<string, string>, layoutId: string): Prom
 }
 
 const PROOF = "https://www.youtube.com/watch?v=wpm-proof";
+
+describe("private WPM submission status", () => {
+  it("[LDB-WPM16] only the typist, submitter and admins can read every status, with no extra private fields or shared caching", async () => {
+    const user = testUserId();
+    const submitter = testUserId();
+    const { id: layoutId } = await createLayout(user);
+    const fake = actorFixture();
+    const authorized = [
+      register(fake, token("status-typist"), user),
+      register(fake, token("status-submitter"), submitter),
+      register(fake, token("status-admin"), BOOTSTRAP_ADMIN),
+    ];
+    const unrelated = register(fake, token("status-unrelated"), testUserId());
+    for (const [status, reason] of [
+      ["pending", null], ["approved", null], ["rejected", "Proof does not show the result."],
+      ["rejected", null], ["superseded", null],
+    ] as const) {
+      const id = await insertRow({ layoutId, userId: user, wpm: 120, status });
+      await db.prepare("UPDATE wpm_submissions SET submitted_by = ?, reason = ? WHERE id = ?").bind(submitter, reason, id).run();
+      const path = `/v1/wpm/submissions/${id}`;
+      for (const auth of authorized) {
+        const response = await writeFetch(path, "GET", auth);
+        expect(response.status).toBe(200);
+        expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+        expect(response.headers.get("ETag")).toBeNull();
+        expect(await response.json()).toEqual({ submission: { id, status, reason, review_version: 0 } });
+      }
+      const denied = await writeFetch(path, "GET", unrelated);
+      expect(denied.status).toBe(404);
+      expect(denied.headers.get("Cache-Control")).toBe("private, no-store");
+      expect(await denied.json()).toEqual({ error: "not_found", message: `no wpm submission '${id}'`, ref: id });
+      const anonymous = await writeFetch(path, "GET");
+      expect(anonymous.status).toBe(401);
+      expect(anonymous.headers.get("Cache-Control")).toBe("private, no-store");
+    }
+    const missing = await writeFetch("/v1/wpm/submissions/missing", "GET", authorized[0]);
+    expect(missing.status).toBe(404);
+    expect(missing.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(await missing.json()).toEqual({ error: "not_found", message: "no wpm submission 'missing'", ref: "missing" });
+    const invalid = await writeFetch("/v1/wpm/submissions/missing", "GET", { Authorization: "Bearer invalid-status-token" });
+    expect(invalid.status).toBe(401);
+    expect(invalid.headers.get("Cache-Control")).toBe("private, no-store");
+  });
+
+  it("[LDB-WPM16] follows rejection, reopen and approval without leaking reasons into the public feed", async () => {
+    const user = testUserId();
+    const { id: layoutId } = await createLayout(user);
+    const fake = actorFixture();
+    const auth = register(fake, token("status-cycle-user"), user);
+    const admin = register(fake, token("status-cycle-admin"), BOOTSTRAP_ADMIN);
+    const created = await writeFetch("/v1/wpm", "POST", auth, { layout: layoutId, wpm: 100, proof: PROOF });
+    const { submission: { id } } = await created.json() as { submission: Submission };
+    const read = async () => {
+      const response = await writeFetch(`/v1/wpm/submissions/${id}`, "GET", auth);
+      expect(response.status).toBe(200);
+      return response.json();
+    };
+    const reason = "Please include the complete result.";
+    expect((await writeFetch(`/v1/admin/wpm-queue/${id}/reject`, "POST", admin, { reason })).status).toBe(200);
+    expect(await read()).toEqual({ submission: { id, status: "rejected", reason, review_version: 0 } });
+    expect((await writeFetch(`/v1/admin/wpm-queue/${id}/reopen`, "POST", admin, { status: "rejected", review_version: 0 })).status).toBe(200);
+    expect(await read()).toEqual({ submission: { id, status: "pending", reason: null, review_version: 1 } });
+    expect((await writeFetch(`/v1/admin/wpm-queue/${id}/approve`, "POST", admin, { review_version: 1 })).status).toBe(200);
+    expect(await read()).toEqual({ submission: { id, status: "approved", reason: null, review_version: 1 } });
+    expect(JSON.stringify(await feedFor(layoutId))).not.toContain(reason);
+  });
+
+  it("[LDB-WPM16] signed client reads authorize the acting user, not the client owner", async () => {
+    const user = testUserId();
+    const { id: layoutId } = await createLayout(user);
+    const id = await insertRow({ layoutId, userId: user, wpm: 120, status: "pending" });
+    const { privateKey, pubkeyB64url } = await generateKeyPair();
+    const owner = testUserId();
+    const clientId = "wpm-status-client";
+    await seedClient(db, clock, { id: clientId, pubkeyB64url, ownerUserId: owner, caps: "act-as-user" });
+    const path = `/v1/wpm/submissions/${id}`;
+    for (const [actor, expectedStatus] of [[user, 200], [owner, 404]] as const) {
+      const headers = await signHeaders({ privateKey, clientId, actor, method: "GET", pathWithQuery: path });
+      const response = await writeFetch(path, "GET", headers);
+      expect(response.status).toBe(expectedStatus);
+      expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    }
+  });
+});
 
 describe("Discord proof authorship at submission", () => {
   const channel = "900000000000000801";
