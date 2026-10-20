@@ -20,7 +20,7 @@ describe("Discord WPM proof authorship", () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json(owned));
     await expect(verifyDiscordProofAuthor(proof, user, env, fetchImpl)).resolves.toBeUndefined();
     expect(fetchImpl).toHaveBeenCalledTimes(1);
-    expect(fetchImpl.mock.calls[0]?.[1]?.redirect).toBe("error");
+    expect(fetchImpl.mock.calls[0]?.[1]?.redirect).toBe("manual"); // Cloudflare Workers reject redirect: "error" (the 2026-10-20 production failure)
     expect(new Headers(fetchImpl.mock.calls[0]?.[1]?.headers).get("Authorization")).toBe("Bot private-token");
     for (const body of [{ ...owned, author: { id: "900000000000000011" } },
       { ...owned, webhook_id: "900000000000000012" }, { ...owned, author: { id: user, bot: true } }]) {
@@ -79,7 +79,7 @@ describe("WPM proof resolution", () => {
     expect(fetchImpl.mock.calls[1]?.[0]).toBe(cdn);
     expect(new Headers(fetchImpl.mock.calls[1]?.[1]?.headers).has("Authorization")).toBe(false);
     for (const [, init] of fetchImpl.mock.calls) {
-      expect(init?.redirect).toBe("error");
+      expect(init?.redirect).toBe("manual");
       expect(init?.signal).toBeInstanceOf(AbortSignal);
     }
     for (const bad of [proof.replace("discord.com", "discord.com.evil.test"), proof.replace("discord.com", "discord.com@evil.test"),
