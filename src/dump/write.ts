@@ -211,15 +211,16 @@ export interface LatestJson {
 // Single-column-PK keyset pager: `SELECT * FROM <table> WHERE <keyCol> > ?
 // ORDER BY <keyCol> ASC LIMIT ?`, page after page until a short page ends
 // it. `table`/`keyCol` are our own fixed constants below, never request
-// input, so string-interpolating them into the SQL is safe.
-async function pageBySingleKey<T>(db: Bindings["DB"], table: string, keyCol: string): Promise<T[]> {
+// input, so string-interpolating them into the SQL is safe. A fixed column
+// projection excludes private receipt metadata from WPM snapshots.
+async function pageBySingleKey<T>(db: Bindings["DB"], table: string, keyCol: string, columns = "*"): Promise<T[]> {
   const out: T[] = [];
   let cursor: string | number | null = null;
   for (;;) {
     const sql: string =
       cursor === null
-        ? `SELECT * FROM ${table} ORDER BY ${keyCol} ASC LIMIT ?`
-        : `SELECT * FROM ${table} WHERE ${keyCol} > ? ORDER BY ${keyCol} ASC LIMIT ?`;
+        ? `SELECT ${columns} FROM ${table} ORDER BY ${keyCol} ASC LIMIT ?`
+        : `SELECT ${columns} FROM ${table} WHERE ${keyCol} > ? ORDER BY ${keyCol} ASC LIMIT ?`;
     const args: (string | number)[] = cursor === null ? [PAGE_SIZE] : [cursor, PAGE_SIZE];
     const { results } = await db.prepare(sql).bind(...args).all<T>();
     out.push(...results);
@@ -307,7 +308,7 @@ export async function buildDump(env: Bindings, now: Clock): Promise<Dump> {
     pageBySingleKey<ClientDbRow>(db, "clients", "id"),
     pageBySingleKey<BanDbRow>(db, "bans", "user_id"),
     pageBySingleKey<LinkSubmissionDbRow>(db, "link_submissions", "id"),
-    pageBySingleKey<WpmSubmissionDbRow>(db, "wpm_submissions", "id"),
+    pageBySingleKey<WpmSubmissionDbRow>(db, "wpm_submissions", "id", "id, layout_id, user_id, wpm, proof, submitted_by, via, submitted_at, status, decided_by, decided_at, reason, notified_at, review_version"),
     pageBySingleKey<LayoutCommentDbRow>(db, "layout_comments", "id"),
     pageCommentLikes(db),
   ]);

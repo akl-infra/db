@@ -1,0 +1,24 @@
+{
+  "request": {
+    "method": "PUT",
+    "path": "/v1/wpm/submissions/nonexistent-submission-id/discord-message",
+    "bearer": "conformance-admin-token",
+    "body": {
+      "guild_id": null,
+      "channel_id": "900000000000000001",
+      "message_id": "900000000000000002"
+    }
+  },
+  "response": {
+    "status": 404,
+    "headers": {
+      "Content-Type": "application/json",
+      "Cache-Control": "private, no-store"
+    },
+    "body": {
+      "error": "not_found",
+      "message": "no wpm submission 'nonexistent-submission-id'",
+      "ref": "nonexistent-submission-id"
+    }
+  }
+}

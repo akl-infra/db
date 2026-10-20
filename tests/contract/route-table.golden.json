@@ -10478,6 +10478,45 @@
     }
   },
   {
+    "id": "wpm/discord-message-401",
+    "method": "PUT",
+    "route": "/v1/wpm/submissions/:id/discord-message",
+    "auth": "user (submitter or admin)",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "wpm/discord-message-404",
+    "method": "PUT",
+    "route": "/v1/wpm/submissions/:id/discord-message",
+    "auth": "user (submitter or admin)",
+    "status": 404,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
     "id": "wpm/get-200",
     "method": "GET",
     "route": "/v1/wpm",

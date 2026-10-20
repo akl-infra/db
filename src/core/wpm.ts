@@ -7,7 +7,7 @@
 import { ulid } from "ulidx";
 import type { Actor } from "../auth/actor";
 import type { Bindings } from "../env";
-import { badRequest, invalidProof, invalidWpm, notFound, reviewConflict } from "./errors";
+import { sourceMessageConflict, badRequest, invalidProof, invalidWpm, notFound, reviewConflict } from "./errors";
 import { appendInfo, rejectionModerationStatement } from "./events";
 import { reopenReview, reviewHistoryStatement, type ReviewExpectation } from "./moderation-review";
 import { rejectionOutboxStatement } from "./rejection-dm";
@@ -122,6 +122,23 @@ export async function readWpmSubmissionStatus(db: Bindings["DB"], actor: Actor, 
     throw notFound(`no wpm submission '${id}'`, id);
   }
   return { id: submission.id, status: submission.status, reason: submission.reason, review_version: submission.review_version };
+}
+
+// [LDB-WPM17] Receipt URLs are immutable private delivery metadata. The CAS
+// authorizes in the write itself and makes two concurrent first binds safe.
+export async function bindWpmDiscordMessage(db: Bindings["DB"], actor: Actor, id: string,
+  message: { guild_id: string | null; channel_id: string; message_id: string }): Promise<string> {
+  const url = `https://discord.com/channels/${message.guild_id ?? "@me"}/${message.channel_id}/${message.message_id}`;
+  const result = await db.prepare(`UPDATE wpm_submissions SET source_message_url = ?
+    WHERE id = ? AND (submitted_by = ? OR ? = 1) AND source_message_url IS NULL`)
+    .bind(url, id, actor.user_id, actor.admin ? 1 : 0).run();
+  if (result.meta.changes === 1) return url;
+  const existing = await db.prepare(`SELECT source_message_url FROM wpm_submissions
+    WHERE id = ? AND (submitted_by = ? OR ? = 1)`)
+    .bind(id, actor.user_id, actor.admin ? 1 : 0).first<{ source_message_url: string | null }>();
+  if (existing === null) throw notFound(`no wpm submission '${id}'`, id);
+  if (existing.source_message_url === url) return url;
+  throw sourceMessageConflict();
 }
 
 // The layout every submission route names: the usual ref resolution; a

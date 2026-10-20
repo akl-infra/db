@@ -1,0 +1,23 @@
+{
+  "request": {
+    "method": "PUT",
+    "path": "/v1/wpm/submissions/nonexistent-submission-id/discord-message",
+    "body": {
+      "guild_id": null,
+      "channel_id": "900000000000000001",
+      "message_id": "900000000000000002"
+    }
+  },
+  "response": {
+    "status": 401,
+    "headers": {
+      "Content-Type": "application/json",
+      "WWW-Authenticate": "Bearer",
+      "Cache-Control": "private, no-store"
+    },
+    "body": {
+      "error": "unauthorized",
+      "message": "authentication required"
+    }
+  }
+}

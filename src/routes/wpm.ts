@@ -17,7 +17,7 @@ import { dispatchRejectionDms } from "../core/rejection-dm";
 import { byRef } from "../core/records";
 import { systemClock, type Clock } from "../core/time";
 import * as wpm from "../core/wpm";
-import { parseLinkRejectBody, parseReviewApproveBody, parseReviewRejectBody, parseReviewReopenBody, parseWpmBody, parseWpmOnBehalfBody } from "./schemas";
+import { parseLinkRejectBody, parseReviewApproveBody, parseReviewRejectBody, parseReviewReopenBody, parseWpmBody, parseWpmDiscordMessageBody, parseWpmOnBehalfBody } from "./schemas";
 
 const CACHE_CONTROL = "public, max-age=10";
 
@@ -96,6 +96,15 @@ export function wpmRoute(authDeps: AuthDeps) {
     c.header("Cache-Control", "private, no-store");
     const actor = await resolveActor(c.env, c.req, authDeps);
     return c.json({ submission: await wpm.readWpmSubmissionStatus(c.env.DB, actor, c.req.param("id")) });
+  });
+
+  route.put("/v1/wpm/submissions/:id/discord-message", async (c) => {
+    c.header("Cache-Control", "private, no-store");
+    const body = parseWpmDiscordMessageBody(await readJson(c.req));
+    const id = c.req.param("id");
+    const source_message_url = await wpm.bindWpmDiscordMessage(c.env.DB, c.get("actor"), id, body);
+    c.executionCtx.waitUntil(updateQueueNotification(c.env.DB, c.env, "wpm", id));
+    return c.json({ source_message_url });
   });
 
   route.post("/v1/admin/wpm", async (c) => {

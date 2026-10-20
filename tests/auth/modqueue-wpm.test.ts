@@ -492,3 +492,96 @@ describe("WPM inline proofs", () => {
     expect(posts).toBe(1);
   });
 });
+
+describe("original receipt reconciliation", () => {
+  const source = "https://discord.com/channels/900000000000000001/900000000000000002/900000000000000003";
+  const bind = (id: string) => db.prepare("UPDATE wpm_submissions SET source_message_url = ? WHERE id = ?").bind(source, id).run();
+  const shown = (id: string) => db.prepare("SELECT shown_source_message_url FROM modqueue_notifications WHERE kind = 'wpm' AND submission_id = ?").bind(id).first<{ shown_source_message_url: string | null }>();
+  const cardEnv = () => ({ ...bindings, MODQUEUE_DISCORD_CARDS: "true", MODQUEUE_DISCORD_ACTIONS: "true", MODQUEUE_DISCORD_BOT_TOKEN: "fake-token", MODQUEUE_DISCORD_CHANNEL_ID: "900000000000000004" });
+
+  it("[LDB-WPM17] a binding during the initial Discord POST reconciles using the URL actually rendered", async () => {
+    const layoutId = await freshLayout(uniqueName("source-post"));
+    const id = await insertWpm({ layoutId, userId: "900000000000000801", proof: "https://example.org/proof" });
+    let message: Record<string, unknown> = {};
+    const patches: Record<string, unknown>[] = [];
+    const fetchImpl: typeof fetch = async (_input, init) => {
+      if (init?.method === "POST") {
+        message = JSON.parse(String(init.body));
+        expect(JSON.stringify(message)).not.toContain(source);
+        await bind(id);
+        return Response.json({ id: "900000000000000005" });
+      }
+      if (init?.method === "GET") return Response.json(message);
+      if (init?.method === "PATCH") {
+        message = JSON.parse(String(init.body));
+        patches.push(message);
+        return Response.json({ id: "900000000000000005" });
+      }
+      return new Response(null, { status: 404 });
+    };
+    await notifyPending(db, cardEnv(), clock, fetchImpl);
+    expect(patches).toHaveLength(1);
+    expect(JSON.stringify(patches[0])).toContain(source);
+    expect(await shown(id)).toEqual({ shown_source_message_url: source });
+    await notifyPending(db, cardEnv(), clock, fetchImpl);
+    expect(patches).toHaveLength(1);
+  });
+
+  it("[LDB-WPM17] binding during a status PATCH converges before releasing the lease", async () => {
+    const layoutId = await freshLayout(uniqueName("source-patch"));
+    const id = await insertWpm({ layoutId, userId: "900000000000000802" });
+    let message: Record<string, unknown> = {};
+    const patches: Record<string, unknown>[] = [];
+    const fetchImpl: typeof fetch = async (_input, init) => {
+      if (init?.method === "POST") { message = JSON.parse(String(init.body)); return Response.json({ id: "900000000000000006" }); }
+      if (init?.method === "GET") return Response.json(message);
+      if (init?.method === "PATCH") {
+        message = JSON.parse(String(init.body)); patches.push(message);
+        if (patches.length === 1) {
+          expect(JSON.stringify(message)).not.toContain(source);
+          await bind(id);
+        }
+        return Response.json({ id: "900000000000000006" });
+      }
+      return new Response(null, { status: 404 });
+    };
+    await notifyPending(db, cardEnv(), clock, fetchImpl);
+    await db.prepare("UPDATE wpm_submissions SET status = 'approved' WHERE id = ?").bind(id).run();
+    await updateQueueNotification(db, cardEnv(), "wpm", id, fetchImpl);
+    expect(patches).toHaveLength(2);
+    expect(JSON.stringify(patches[1])).toContain(source);
+    expect(await shown(id)).toEqual({ shown_source_message_url: source });
+  });
+
+  it("[LDB-WPM17] late binding retries unchanged status after a failed edit and legacy links remain bounded and unique", async () => {
+    const layoutId = await freshLayout(uniqueName("source-late"));
+    const id = await insertWpm({ layoutId, userId: "900000000000000803" });
+    const webhook = new FakeWebhook();
+    await notifyPending(db, envWith(WEBHOOK_URL), clock, webhook.fetchImpl);
+    await bind(id);
+    let failures = 0;
+    const failPatch: typeof fetch = async (input, init) => {
+      if (init?.method === "PATCH") { failures++; return new Response(null, { status: 503 }); }
+      return webhook.fetchImpl(input, init);
+    };
+    await updateQueueNotification(db, envWith(WEBHOOK_URL), "wpm", id, failPatch);
+    expect(failures).toBe(1);
+    expect(await shown(id)).toEqual({ shown_source_message_url: null });
+    await notifyPending(db, envWith(WEBHOOK_URL), clock, webhook.fetchImpl);
+    expect(await shown(id)).toEqual({ shown_source_message_url: source });
+    for (const status of ["approved", "pending", "rejected", "superseded"]) {
+      await db.prepare("UPDATE wpm_submissions SET status = ?, review_version = review_version + 1 WHERE id = ?").bind(status, id).run();
+      await updateQueueNotification(db, envWith(WEBHOOK_URL), "wpm", id, webhook.fetchImpl);
+    }
+    const patches = webhook.requests.filter((r) => r.method === "PATCH");
+    expect(patches.length).toBe(5);
+    for (const patch of patches) {
+      expect(patch.body.content.split(source)).toHaveLength(2);
+      expect(patch.body.content.length).toBeLessThanOrEqual(2000);
+      expect(patch.body.allowed_mentions).toEqual({ parse: [] });
+    }
+    const oversized = buildWpmMessageContent({ id, layout_id: layoutId, user_id: "900000000000000803", user_name: "😀".repeat(2000), layout_name: "Dvorak", wpm: 184, proof: "https://example.org/proof", source_message_url: source });
+    expect(oversized.length).toBeLessThanOrEqual(2000);
+    expect(oversized.endsWith(`[Original message](<${source}>)`)).toBe(true);
+  });
+});

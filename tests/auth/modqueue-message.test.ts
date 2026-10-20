@@ -376,3 +376,22 @@ describe("[LDB-MD21] versioned review controls", () => {
     expect(nested(approved.components as unknown[]).filter((c) => c.type === 10)).toHaveLength(2);
   });
 });
+
+it("[LDB-WPM17] original receipt is independent of moderation controls and survives every decision and reopening", () => {
+  const id = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+  const source = "https://discord.com/channels/900000000000000001/900000000000000002/900000000000000003";
+  const candidate = { id, layout_id: id, user_id: "900000000000000001", user_name: "qwertron", layout_name: "Dvorak", wpm: 184, proof: "https://example.org/proof", source_message_url: source };
+  for (const actions of [true, false]) {
+    const initial = buildV2Payload("wpm", candidate, actions);
+    const buttons = (card: Record<string, unknown>) => nested(card.components as unknown[]).filter((p) => p.type === 2);
+    expect(buttons(initial).map((p) => p.label)).toEqual([...(actions ? ["✓ Approve", "✕ Deny"] : []), "Original message", "Open in akldb"]);
+    let current = initial;
+    for (const [status, version] of [["approved", 0], ["pending", 1], ["rejected", 1], ["pending", 2], ["superseded", 2]] as const) {
+      current = buildV2StatusPatch(current, "wpm", id, { status, review_version: version, decider_name: "mod", source_message_url: source }, actions)!;
+      expect(buttons(current).slice(-2)).toEqual([{ type: 2, style: 5, label: "Original message", url: source }, { type: 2, style: 5, label: "Open in akldb", url: "https://akldb.org/admin?tab=inbox" }]);
+      expect(current.allowed_mentions).toEqual({ parse: [] });
+    }
+    const unbound = buildV2Payload("wpm", { ...candidate, source_message_url: null }, actions);
+    expect(buttons(unbound).some((p) => p.label === "Original message")).toBe(false);
+  }
+});

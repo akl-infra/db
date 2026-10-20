@@ -758,3 +758,95 @@ describe("[LDB-WPM9] the queue is admin-only; a ban stops submissions; internal 
     expect(JSON.stringify(await approved.json())).not.toContain("notified_at");
   });
 });
+
+describe("private Discord receipt binding", () => {
+  const body = { guild_id: "900000000000000001", channel_id: "900000000000000002", message_id: "900000000000000003" };
+  const sourceUrl = `https://discord.com/channels/${body.guild_id}/${body.channel_id}/${body.message_id}`;
+
+  it("[LDB-WPM17] binds once for the submitter/admin, hides existence from other actors and keeps metadata off existing wires", async () => {
+    const user = testUserId();
+    const submitter = testUserId();
+    const { id: layoutId } = await createLayout(user);
+    const id = await insertRow({ layoutId, userId: user, wpm: 120 });
+    await db.prepare("UPDATE wpm_submissions SET submitted_by = ? WHERE id = ?").bind(submitter, id).run();
+    const fake = actorFixture();
+    const auth = register(fake, token("bind-submitter"), submitter);
+    const admin = register(fake, token("bind-admin"), BOOTSTRAP_ADMIN);
+    const typist = register(fake, token("bind-typist"), user);
+    const stranger = register(fake, token("bind-other"), testUserId());
+    const path = `/v1/wpm/submissions/${id}/discord-message`;
+    for (const denied of [typist, stranger]) {
+      const response = await writeFetch(path, "PUT", denied, body);
+      expect(response.status).toBe(404);
+      expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    }
+    const anonymous = await writeFetch(path, "PUT", undefined, body);
+    expect(anonymous.status).toBe(401);
+    expect(anonymous.headers.get("Cache-Control")).toBe("private, no-store");
+    for (const allowed of [auth, auth, admin]) {
+      const response = await writeFetch(path, "PUT", allowed, body);
+      expect(response.status).toBe(200);
+      expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+      expect(await response.json()).toEqual({ source_message_url: sourceUrl });
+    }
+    const conflict = await writeFetch(path, "PUT", admin, { ...body, guild_id: null });
+    expect(conflict.status).toBe(409);
+    expect(await conflict.json()).toMatchObject({ error: "source_message_conflict" });
+    for (const readPath of [`/v1/wpm/submissions/${id}`, "/v1/admin/wpm-queue?status=approved", `/v1/wpm?layout=${layoutId}`, `/v1/changes?since=0&layout=${layoutId}`]) {
+      const response = await writeFetch(readPath, "GET", admin);
+      const wire = await response.text();
+      expect(wire).not.toContain("source_message_url");
+      expect(wire).not.toContain(sourceUrl);
+    }
+    const { buildDump } = await import("../../src/dump/write");
+    const dump = await buildDump(bindings, clock);
+    expect(dump.wpm_submissions.some((s) => s.id === id)).toBe(true);
+    expect(JSON.stringify(dump)).not.toContain("source_message_url");
+    expect(JSON.stringify(dump)).not.toContain(sourceUrl);
+  });
+
+  it("[LDB-WPM17] validates strict decimal snowflakes, maps DM guild null, and applies the normal ban gate", async () => {
+    const user = testUserId();
+    const { id: layoutId } = await createLayout(user);
+    const id = await insertRow({ layoutId, userId: user, wpm: 100 });
+    const fake = actorFixture();
+    const auth = register(fake, token("bind-validation"), user);
+    const path = `/v1/wpm/submissions/${id}/discord-message`;
+    for (const invalid of [
+      {}, { ...body, extra: true }, { ...body, guild_id: "@me" }, { ...body, guild_id: 900000000000000001 },
+      { ...body, channel_id: "1".repeat(16) }, { ...body, message_id: "1".repeat(21) },
+      { ...body, message_id: "900000000000000003\n" }, { ...body, channel_id: "/../900000000000000002" },
+      { ...body, message_id: null },
+    ]) expect((await writeFetch(path, "PUT", auth, invalid)).status).toBe(400);
+    const response = await writeFetch(path, "PUT", auth, { ...body, guild_id: null });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ source_message_url: `https://discord.com/channels/@me/${body.channel_id}/${body.message_id}` });
+    const admin = register(fake, token("bind-ban-admin"), BOOTSTRAP_ADMIN);
+    await writeFetch(`/v1/admin/bans/${user}`, "PUT", admin, {});
+    const banned = await writeFetch(path, "PUT", auth, { ...body, guild_id: null });
+    expect(banned.status).toBe(403);
+    expect(banned.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(await banned.json()).toMatchObject({ error: "banned" });
+  });
+
+  it("[LDB-WPM17] competing signed binds have exactly one immutable winner and authenticate the acting user", async () => {
+    const user = testUserId();
+    const { id: layoutId } = await createLayout(user);
+    const id = await insertRow({ layoutId, userId: user, wpm: 100 });
+    const { privateKey, pubkeyB64url } = await generateKeyPair();
+    const owner = testUserId();
+    const clientId = "wpm-bind-client";
+    await seedClient(db, clock, { id: clientId, pubkeyB64url, ownerUserId: owner, caps: "act-as-user" });
+    const path = `/v1/wpm/submissions/${id}/discord-message`;
+    const send = async (actor: string, message_id: string) => {
+      const payload = { ...body, message_id };
+      const headers = await signHeaders({ privateKey, clientId, actor, method: "PUT", pathWithQuery: path, body: new TextEncoder().encode(JSON.stringify(payload)) });
+      return writeFetch(path, "PUT", headers, payload);
+    };
+    expect((await send(owner, body.message_id)).status).toBe(404);
+    const results = await Promise.all([send(user, body.message_id), send(user, "900000000000000004")]);
+    expect(results.map((r) => r.status).sort()).toEqual([200, 409]);
+    const winner = await results.find((r) => r.status === 200)!.json() as { source_message_url: string };
+    expect(await db.prepare("SELECT source_message_url FROM wpm_submissions WHERE id = ?").bind(id).first()).toEqual(winner);
+  });
+});

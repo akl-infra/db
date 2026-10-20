@@ -15,6 +15,7 @@ export interface LinkCardData {
 }
 
 export interface WpmCardData {
+  source_message_url?: string | null;
   id: string;
   review_version?: number;
   layout_id: string;
@@ -37,6 +38,7 @@ export interface CommentCardData {
 }
 
 export interface QueueStatus {
+  source_message_url?: string | null;
   status: "pending" | "approved" | "rejected" | "superseded" | "replaced" | "deleted" | "removed";
   decider_name: string | null;
   review_version?: number;
@@ -129,6 +131,7 @@ function actionRow(kind: QueueKind, id: string, actionsEnabled: boolean, state: 
   ] : [];
   return { type: 1, id: COMPONENT_ACTIONS_ID, components: [
     ...(actionsEnabled ? buttons : []),
+    ...(kind === "wpm" && state.source_message_url ? [{ type: 2, style: 5, label: "Original message", url: state.source_message_url }] : []),
     { type: 2, style: 5, label: "Open in akldb", url: "https://akldb.org/admin?tab=inbox" },
   ] };
 }
@@ -148,7 +151,7 @@ export function formatCommentText(body: string, liveBody: string | null, maxInli
   return { inline: "Full comment text attached as a .txt file.", attachmentText };
 }
 
-function payload(kind: QueueKind, id: string, title: string, metadata: string, body: string, actionsEnabled: boolean, file?: TextFileAttachment, reviewVersion = 0, preview?: ProofPreview): Record<string, unknown> {
+function payload(kind: QueueKind, id: string, title: string, metadata: string, body: string, actionsEnabled: boolean, file?: TextFileAttachment, reviewVersion = 0, preview?: ProofPreview, sourceMessageUrl: string | null = null): Record<string, unknown> {
   title = clipUtf16(title, 600);
   metadata = clipUtf16(metadata, 500);
   const result: Record<string, unknown> = {
@@ -173,7 +176,7 @@ function payload(kind: QueueKind, id: string, title: string, metadata: string, b
             ? "Image preview unavailable. Open the original proof link."
             : "Some images could not be copied. Open the original proof link for the complete proof." }] : []),
         { type: 14, id: COMPONENT_SEPARATOR_ID, divider: true, spacing: 1 },
-        actionRow(kind, id, actionsEnabled, { status: "pending", decider_name: null, review_version: reviewVersion }),
+        actionRow(kind, id, actionsEnabled, { status: "pending", decider_name: null, review_version: reviewVersion, source_message_url: sourceMessageUrl }),
       ] : [
         { type: 10, id: COMPONENT_TITLE_ID, content: title },
         { type: 10, id: COMPONENT_METADATA_ID, content: metadata },
@@ -181,7 +184,7 @@ function payload(kind: QueueKind, id: string, title: string, metadata: string, b
         { type: 10, id: COMPONENT_BODY_ID, content: body },
         ...(file === undefined ? [] : [{ type: 13, id: COMPONENT_FILE_ID, file: { url: `attachment://${file.filename}` } }]),
         { type: 14, id: COMPONENT_SEPARATOR_ID, divider: true, spacing: 1 },
-        actionRow(kind, id, actionsEnabled, { status: "pending", decider_name: null, review_version: reviewVersion }),
+        actionRow(kind, id, actionsEnabled, { status: "pending", decider_name: null, review_version: reviewVersion, source_message_url: sourceMessageUrl }),
       ],
     }],
   };
@@ -218,7 +221,7 @@ export function buildV2Payload(kind: QueueKind, candidate: LinkCardData | WpmCar
       filename: `wpm-proof-${c.id}.txt`, content: c.proof, description: "Complete WPM proof URL",
     };
     return payload(kind, c.id, "", metadata, file === undefined ? body : `**${c.wpm} WPM** · Full proof URL attached.`,
-      actionsEnabled, file, c.review_version ?? 0, preview);
+      actionsEnabled, file, c.review_version ?? 0, preview, c.source_message_url ?? null);
   }
   const c = candidate as CommentCardData;
   const who = escapeMarkdown(clipUtf16(inlineText(c.user_name ?? c.user_id), 60));

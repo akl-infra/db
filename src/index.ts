@@ -69,6 +69,12 @@ app.use("*", async (c, next) => {
   }
 });
 
+// Private receipt/status paths include auth, ban and rate-limit failures.
+app.use("/v1/wpm/submissions/*", async (c, next) => {
+  c.header("Cache-Control", "private, no-store");
+  await next();
+});
+
 // Gates every non-GET/HEAD/OPTIONS request under /v1/* on a resolved actor
 // (09 §2.1) -- registered before any route, so no write route, present or
 // future, can be reached without it.

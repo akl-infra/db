@@ -25,6 +25,18 @@ this file just gives them a public, versioned home. From here on, a
 `WIRE_VERSION` bump and a line here land in the SAME PR, never one without
 the other (`[LDB-V5]`).
 
+## 1.28 — 2026-10-20
+
+LDB-WPM17: add `PUT /v1/wpm/submissions/:id/discord-message`, authenticated
+as the submitter or an admin. Body `{guild_id, channel_id, message_id}` requires
+17–20 decimal-digit strings; `guild_id: null` identifies a direct message.
+Returns `200 {source_message_url}`. The first binding is immutable: an identical
+retry succeeds, a different binding returns `409 source_message_conflict`.
+Missing or unrelated submissions return `404`; responses are private/no-store.
+The private URL never enters existing submission, status, feed or dump shapes.
+Moderation cards gain an **Original message** link, including after a decision
+or reopening. Late binding and failed Discord edits reconcile in the background.
+
 ## 1.27 — 2026-10-19
 
 LDB-WPM16: add `GET /v1/wpm/submissions/:id`, authenticated as the submission's

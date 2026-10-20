@@ -113,6 +113,8 @@ const ENDPOINT_PURPOSES = {
   "GET /v1/layouts/:ref/link": "Read the owner's submitted external link, approved or pending.",
   "PUT /v1/layouts/:ref/link": "Submit an external link; an admin's own submission is approved immediately, an owner's is queued.",
   "DELETE /v1/layouts/:ref/link": "Clear the layout's external link.",
+  "GET /v1/wpm/submissions/:id": "Read your submission's moderation status and reason.",
+  "PUT /v1/wpm/submissions/:id/discord-message": "Bind the original Discord receipt to your submission.",
   "GET /v1/wpm": "Each user's top approved typing speed per layout, filterable by layout and user; public.",
   "GET /v1/comment-counts": "Public approved-comment counts for live layouts; layouts with no comments are omitted.",
   "GET /v1/layouts/:ref/comments": "A layout's approved comments, one per user, newest first; public.",

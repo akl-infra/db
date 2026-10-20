@@ -433,3 +433,7 @@ export function rateLimited(limit: number, windowSeconds: number, retryAfter: nu
 export function reviewConflict(id: string): ApiError {
   return new ApiError(409, { error: "review_conflict", message: "This review has changed or can no longer be reopened. Refresh the queue.", ref: id });
 }
+
+export function sourceMessageConflict(): ApiError {
+  return new ApiError(409, { error: "source_message_conflict", message: "this WPM submission already has an original Discord message" });
+}

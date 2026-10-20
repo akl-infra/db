@@ -389,3 +389,23 @@ const validateReviewReopen = ajv.compile<{ status: "approved" | "rejected"; revi
 export const parseReviewApproveBody = (body: unknown) => checkBody(validateReviewApprove, body);
 export const parseReviewRejectBody = (body: unknown) => checkBody(validateReviewReject, body);
 export const parseReviewReopenBody = (body: unknown) => checkBody(validateReviewReopen, body);
+
+export interface WpmDiscordMessageBody {
+  guild_id: string | null;
+  channel_id: string;
+  message_id: string;
+}
+// Absolute end assertion also rejects a trailing newline (JavaScript `$` does not).
+const validateWpmDiscordMessage = ajv.compile<WpmDiscordMessageBody>({
+  type: "object",
+  additionalProperties: false,
+  required: ["guild_id", "channel_id", "message_id"],
+  properties: {
+    guild_id: { type: ["string", "null"], pattern: "^[0-9]{17,20}(?![\\s\\S])" },
+    channel_id: { type: "string", pattern: "^[0-9]{17,20}(?![\\s\\S])" },
+    message_id: { type: "string", pattern: "^[0-9]{17,20}(?![\\s\\S])" },
+  },
+});
+export function parseWpmDiscordMessageBody(body: unknown): WpmDiscordMessageBody {
+  return checkBody(validateWpmDiscordMessage, body);
+}

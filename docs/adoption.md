@@ -897,6 +897,7 @@ it as generated, not hand-edited):
 | 409 | `magic_edited` | this record's magic was last written by ${client}; a seed never overwrites a person's edit | `magicEdited(client)` |
 | 429 | `rate_limited` | rate limit exceeded: ${limit} writes per ${windowSeconds}s | `rateLimited(limit, windowSeconds, retryAfter, scope)` |
 | 409 | `review_conflict` | This review has changed or can no longer be reopened. Refresh the queue. | `reviewConflict(id)` |
+| 409 | `source_message_conflict` | this WPM submission already has an original Discord message | `sourceMessageConflict()` |
 
 **Three more codes exist in the *format* layer**, not in the table above
 because they come from a format module's own `validate()`, not one of
@@ -1147,6 +1148,7 @@ silently drift from what `src/index.ts` actually registers.
 | PUT | `/v1/layouts/:ref/link` | user (owner or admin) | `{url}` | 202 (queued, admins too) | `bad_request`, `invalid_link`, `not_owner`, `not_found`, lane errors |
 | DELETE | `/v1/layouts/:ref/link` | user (owner or admin) | — | 200 | `not_owner`, `not_found`, lane errors |
 | GET | `/v1/wpm` | none | — (`?layout=<ref>&user=<id>`, both optional) | 200 (`{records}`) | `bad_request`, `not_found` |
+| PUT | `/v1/wpm/submissions/:id/discord-message` | user (submitter or admin) | `{guild_id, channel_id, message_id}` | 200 (`{source_message_url}`) | `bad_request`, `not_found`, `source_message_conflict`, lane errors |
 | GET | `/v1/wpm/submissions/:id` | user (typist, submitter or admin) | — | 200 (`{submission}`) | `not_found`, lane errors |
 | POST | `/v1/wpm` | user | `{layout, wpm, proof}` | 202 (queued, admins too) | `bad_request`, `invalid_wpm`, `invalid_proof`, `not_found`, lane errors |
 | GET | `/v1/layouts/:ref/comments` | none | — (`?sort=`) | 200 (`{comments}`) | `bad_request`, `not_found` |
@@ -1278,6 +1280,22 @@ descending then `approved_at` ascending, not paginated, ETag/304 like the
 other public reads; records on a deleted layout are hidden. Events:
 `wpm_submitted` (only `submission_id` — no speed or proof while pending),
 `wpm_approved` (`user_id`, `wpm`, `proof`) and `wpm_rejected` (only `submission_id`).
+
+**Linking a Discord receipt** (API 1.28): after sending the public submission
+receipt, its submitter (or an admin) can `PUT /v1/wpm/submissions/:id/discord-message`
+with `{guild_id, channel_id, message_id}`. All IDs are strings containing 17–20
+decimal digits; `guild_id` must be present and may be `null` for a DM. The API
+builds the canonical `https://discord.com/channels/<guild or @me>/<channel>/<message>`
+URL and returns `200 {source_message_url}`. This is caller-supplied receipt
+metadata, not proof verification. The first successful binding is permanent;
+an identical retry returns 200 and a different URL returns
+`409 source_message_conflict`. An unrelated actor gets the same 404 as an
+unknown submission. Standard write auth, ban checks and rate limits apply.
+Responses are private/no-store. The URL is private moderation metadata and is
+omitted from all existing reads, feeds and public dumps. Binding schedules an
+**Original message** link on its moderation notification without waiting for
+Discord; failed edits and bindings arriving during message delivery converge
+on a later retry/cron. Existing submissions without a binding have no button.
 
 **Following a WPM submission**: `GET /v1/wpm/submissions/:id` requires
 authentication as its `user_id`, `submitted_by`, or an admin (either auth lane).
