@@ -154,8 +154,10 @@ export async function resolveProofPreview(proof: string, env: Bindings, fetchImp
   try {
     let attachments: unknown[];
     if (message) {
-      const body = await readDiscordMessage(message, env, fetchImpl, signal);
-      if (!Array.isArray(body.attachments)) return { kind: "unavailable" };
+      let body: Record<string, unknown>;
+      try { body = await readDiscordMessage(message, env, fetchImpl, signal); } catch (err) { console.warn(`proof preview: message read failed (${err instanceof Error ? err.message.slice(0, 120) : "error"})`); return { kind: "unavailable" }; }
+      if (!Array.isArray(body.attachments)) { console.warn("proof preview: message has no attachments array"); return { kind: "unavailable" }; }
+      if (body.attachments.length === 0) console.warn(`proof preview: message has 0 attachments (content ${typeof body.content === "string" ? body.content.length : "absent"} chars; the Message Content intent strips attachments when off)`);
       attachments = body.attachments.filter((item) => record(item) && (
         (typeof item.content_type === "string" && item.content_type.startsWith("image/"))
         || (item.content_type === undefined && typeof item.filename === "string" && /\.(?:png|jpe?g|gif|webp)$/i.test(item.filename))));
@@ -168,17 +170,18 @@ export async function resolveProofPreview(proof: string, env: Bindings, fetchImp
       const remaining = Math.min(PROOF_MAX_IMAGE_BYTES, PROOF_MAX_TOTAL_BYTES - totalBytes);
       if (!url || remaining <= 0 || (record(attachment) && typeof attachment.size === "number" && attachment.size > remaining)) { incomplete = true; continue; }
       try {
-        const response = await fetchImpl(url, { method: "GET", redirect: "error", signal });
+        const response = await fetchImpl(url, { method: "GET", redirect: "error", signal, headers: { "User-Agent": "akl-db/1.0" } });
+        if (!response.ok) console.warn(`proof preview: image fetch answered ${response.status}`);
         const bytes = await readBounded(response, remaining, signal);
         const type = imageType(bytes, response.headers.get("content-type"));
-        if (!type) { incomplete = true; continue; }
+        if (!type) { console.warn(`proof preview: not a recognised image (${response.status} ${response.headers.get("content-type") ?? "no type"}, ${bytes.byteLength} bytes)`); incomplete = true; continue; }
         const spoiler = record(attachment) && ((typeof attachment.filename === "string" && attachment.filename.startsWith("SPOILER_"))
           || (typeof attachment.flags === "number" && (attachment.flags & 8) !== 0));
         images.push({ filename: `${spoiler ? "SPOILER_" : ""}wpm-proof-${images.length + 1}.${type.extension}`, content: bytes, contentType: type.mime,
           description: "Copy of submitted WPM proof", spoiler });
         totalBytes += bytes.byteLength;
-      } catch { incomplete = true; }
+      } catch (err) { console.warn(`proof preview: image fetch failed (${err instanceof Error ? err.message.slice(0, 120) : "error"})`); incomplete = true; }
     }
-  } catch { incomplete = true; }
+  } catch (err) { console.warn(`proof preview: failed (${err instanceof Error ? err.message.slice(0, 120) : "error"})`); incomplete = true; }
   return images.length ? { kind: "images", images, incomplete } : { kind: "unavailable" };
 }
