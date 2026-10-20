@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildV2Payload, buildV2StatusPatch, DISCORD_COMPONENTS_V2_FLAG } from "../../src/core/modqueue-message";
+import { buildV2Payload, buildV2StatusPatch, DISCORD_COMPONENTS_V2_FLAG, repairQueueUser } from "../../src/core/modqueue-message";
 
 function nested(components: unknown[]): Record<string, unknown>[] {
   return components.flatMap((component) => {
@@ -9,6 +9,60 @@ function nested(components: unknown[]): Record<string, unknown>[] {
     return [row, ...children];
   });
 }
+
+describe("[LDB-MD22] readable queue authors without stored profiles", () => {
+  const id = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+  const userId = "900000000000000001";
+  for (const kind of ["wpm", "comment", "link"] as const) {
+    const card = (name: string | null) => {
+      const common = { id, layout_id: id, layout_name: "Dvorak" };
+      return kind === "link" ? buildV2Payload(kind, { ...common, url: "https://example.org", submitted_by: userId, submitter_name: name })
+        : kind === "wpm" ? buildV2Payload(kind, { ...common, user_id: userId, user_name: name, wpm: 141, proof: "https://example.org" })
+        : buildV2Payload(kind, { ...common, user_id: userId, user_name: name, body: `by **${userId}**`, live_body: null });
+    };
+    const metadata = (value: Record<string, unknown>) => nested(value.components as unknown[]).find((c) => c.id === 41003)?.content as string;
+    it(`[LDB-MD22] ${kind} resolves missing/blank/ID names without pinging and preserves escaped names`, () => {
+      for (const name of [null, "", "  ", userId]) {
+        const initial = card(name);
+        expect(metadata(initial)).toContain(`**<@${userId}>**`);
+        expect(initial.allowed_mentions).toEqual({ parse: [] });
+      }
+      expect(metadata(card("*Typist*_"))).toContain("**\\*Typist\\*\\_**");
+    });
+    it(`[LDB-MD22] ${kind} repairs existing numeric author slots through every review state, preserving body and attachments`, () => {
+      const initial = card(null);
+      const old = structuredClone(initial);
+      const author = nested(old.components as unknown[]).find((c) => c.id === 41003)!;
+      author.content = metadata(old).replace(`<@${userId}>`, userId);
+      old.attachments = [{ id: "900000000000000002", filename: "proof.png" }];
+      const body = nested(old.components as unknown[]).find((c) => c.id === 41004);
+      for (const status of ["pending", "approved", "rejected"] as const) {
+        const patched = buildV2StatusPatch(old, kind, id, { status, decider_name: null, submitter_id: userId })!;
+        expect(metadata(patched)).toBe(metadata(initial));
+        expect(patched.attachments).toEqual(old.attachments);
+        expect(nested(patched.components as unknown[]).find((c) => c.id === 41004)).toEqual(body);
+        expect(patched.allowed_mentions).toEqual({ parse: [] });
+        expect(metadata(buildV2StatusPatch(patched, kind, id, { status, decider_name: null, submitter_id: userId })!)).toBe(metadata(initial));
+      }
+      expect(metadata(old)).not.toContain(`<@${userId}>`);
+      expect(metadata(buildV2StatusPatch(old, kind, id, { status: "approved", decider_name: null, submitter_id: "900000000000000003" })!)).toBe(metadata(old));
+      expect(metadata(buildV2StatusPatch(card("Typist"), kind, id, { status: "approved", decider_name: null, submitter_id: userId })!)).toContain("**Typist**");
+    });
+    it(`[LDB-MD22] ${kind} repairs only the generated first line in legacy messages`, () => {
+      const prefix = kind === "comment" ? "Edited comment" : kind === "wpm" ? "New WPM submission" : "New link submission";
+      const suffix = kind === "comment" ? " (20 chars)" : ": content";
+      const header = `${prefix} on **[Dvorak](<https://akldb.org/l/${id}>)** by ${userId}${suffix}`;
+      const body = `\n${header}\nuser text by ${userId}:`;
+      expect(repairQueueUser(header + body, kind, userId)).toBe(header.replace(`by ${userId}`, `by <@${userId}>`) + body);
+      expect(repairQueueUser("user content " + header, kind, userId)).toBe("user content " + header);
+      const fullBody = "\n" + "x".repeat(1999 - header.length);
+      const bounded = repairQueueUser(header + fullBody, kind, userId);
+      expect(bounded.length).toBeLessThanOrEqual(2000);
+      expect(bounded).toContain(`by <@${userId}>`);
+      expect(bounded.slice(bounded.indexOf("\n"))).toBe(fullBody);
+    });
+  }
+});
 
 it("[LDB-WPM14] YouTube previews retain the V2 card, bounded text, original proof and independently gated controls", () => {
   const id = "01ARZ3NDEKTSV4RRFFQ69G5FAV";

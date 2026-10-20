@@ -362,7 +362,7 @@ describe("[LDB-MD11] [LDB-MD12] notifyPending", () => {
     expect(content).toContain("01BX5ZZKBKACTAV9WEVGEMMVRY");
   });
 
-  it("[LDB-MD11] buildMessageContent falls back to the raw user id (never escaped -- a numeric snowflake, not free text) when there is no author", () => {
+  it("[LDB-MD22] buildMessageContent falls back to a Discord mention when there is no author", () => {
     const content = buildMessageContent({
       id: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
       layout_id: "01BX5ZZKBKACTAV9WEVGEMMVRY",
@@ -371,7 +371,7 @@ describe("[LDB-MD11] [LDB-MD12] notifyPending", () => {
       layout_name: "plain-name",
       submitter_name: null,
     });
-    expect(content).toContain("900000000000000021");
+    expect(content).toContain("by <@900000000000000021>:");
   });
 
   it("[LDB-MD11] buildMessageContent links the layout's akldb.org page and the admin inbox tab, both embed-suppressed", () => {

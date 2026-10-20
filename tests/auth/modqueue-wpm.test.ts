@@ -12,6 +12,7 @@ import { buildMessageContent, buildWpmMessageContent, notifyPending, updateQueue
 import { fixedClock } from "../../src/core/time";
 import { actorFixture, register } from "../api/write-support";
 import { buildV2StatusPatch } from "../../src/core/modqueue-message";
+import type { D1Migration } from "@cloudflare/vitest-pool-workers";
 
 const bindings = env as unknown as Bindings;
 const db = bindings.DB;
@@ -287,6 +288,59 @@ describe("[LDB-WPM8] notifyPending covers the WPM queue", () => {
 });
 
 describe("[LDB-MD21] WPM notification review versions", () => {
+  for (const components of [false, true]) {
+    it(`[LDB-MD22] migration refreshes an existing ${components ? "V2" : "legacy"} numeric author, retries failures and then stops`, async () => {
+      const layoutId = await freshLayout(uniqueName("modq-wpm-name"));
+      const userId = "900000000000000144";
+      const id = await insertWpm({ layoutId, userId, wpm: 141 });
+      const config = components ? { ...envWith(undefined), MODQUEUE_DISCORD_CARDS: "true", MODQUEUE_DISCORD_ACTIONS: "true",
+        MODQUEUE_DISCORD_BOT_TOKEN: "fake", MODQUEUE_DISCORD_CHANNEL_ID: "900000000000000103" } : envWith(WEBHOOK_URL);
+      let remote: Record<string, unknown> = {};
+      let patches = 0;
+      let fail = true;
+      const fetchImpl: typeof fetch = async (_input, init) => {
+        if (init?.method === "GET") return Response.json(remote);
+        if (init?.method === "PATCH") {
+          patches++;
+          if (fail) return new Response("retry", { status: 503 });
+        }
+        remote = JSON.parse(String(init?.body));
+        return Response.json({ id: "900000000000000107" });
+      };
+      await notifyPending(db, config, clock, fetchImpl);
+      expect(JSON.stringify(remote)).toContain(`<@${userId}>`);
+      remote = JSON.parse(JSON.stringify(remote).replace(`<@${userId}>`, userId));
+      // Already-decided cards need the same name repair without a new review.
+      await db.prepare("UPDATE wpm_submissions SET status = 'approved' WHERE id = ?").bind(id).run();
+      await db.prepare("UPDATE modqueue_notifications SET shown_status = 'approved' WHERE submission_id = ?").bind(id).run();
+      const migrations = (env as unknown as { TEST_MIGRATIONS: D1Migration[] }).TEST_MIGRATIONS;
+      const migration = migrations.find((m) => m.name.startsWith("0031_"))!;
+      expect(migration).toBeDefined();
+      const previous = await db.prepare("SELECT kind, submission_id, shown_review_version FROM modqueue_notifications WHERE submission_id != ?")
+        .bind(id).all<{ kind: string; submission_id: string; shown_review_version: number }>();
+      await db.batch(migration.queries.map((query) => db.prepare(query)));
+      expect((await db.prepare("SELECT COUNT(*) AS n FROM modqueue_notifications WHERE shown_review_version != -1").first<{ n: number }>())!.n).toBe(0);
+      // This file shares storage between tests. Leave earlier fixtures as
+      // they were so this migration replay cannot enqueue unrelated cards.
+      if (previous.results.length) await db.batch(previous.results.map((row) =>
+        db.prepare("UPDATE modqueue_notifications SET shown_review_version = ? WHERE kind = ? AND submission_id = ?")
+          .bind(row.shown_review_version, row.kind, row.submission_id)));
+      await notifyPending(db, config, clock, fetchImpl);
+      expect(patches).toBe(1);
+      expect(JSON.stringify(remote)).not.toContain(`<@${userId}>`);
+      expect(await db.prepare("SELECT shown_review_version FROM modqueue_notifications WHERE submission_id = ?").bind(id).first()).toEqual({ shown_review_version: -1 });
+      fail = false;
+      await notifyPending(db, config, clock, fetchImpl);
+      expect(patches).toBe(2);
+      expect(JSON.stringify(remote)).toContain(`<@${userId}>`);
+      expect(JSON.stringify(remote)).toMatch(/Approved|APPROVED/);
+      expect(remote.allowed_mentions).toEqual({ parse: [] });
+      expect(await db.prepare("SELECT shown_status, shown_review_version FROM modqueue_notifications WHERE submission_id = ?").bind(id).first()).toEqual({ shown_status: "approved", shown_review_version: 0 });
+      await notifyPending(db, config, clock, fetchImpl);
+      expect(patches).toBe(2);
+    });
+  }
+
   it("[LDB-MD21] refreshes the WPM decision footer from stored reason and removes it after reopening", async () => {
     const layoutId = await freshLayout(uniqueName("modq-wpm-footer"));
     const id = await insertWpm({ layoutId, userId: "900000000000000142", wpm: 150 });

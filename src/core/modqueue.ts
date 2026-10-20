@@ -19,7 +19,7 @@
 // belt-and-suspenders layer, not the only one.
 import type { Bindings } from "../env";
 import type { Clock } from "./time";
-import { buildV2Payload, buildV2StatusPatch, DISCORD_COMPONENTS_V2_FLAG, formatCommentText, type CommentCardData, type LinkCardData, type QueueStatus, type TextFileAttachment, type MessageFileAttachment, type WpmCardData } from "./modqueue-message";
+import { buildV2Payload, buildV2StatusPatch, DISCORD_COMPONENTS_V2_FLAG, formatCommentText, queueUserName, repairQueueUser, type CommentCardData, type LinkCardData, type QueueStatus, type TextFileAttachment, type MessageFileAttachment, type WpmCardData } from "./modqueue-message";
 import { resolveProofPreview, type ProofPreview } from "./modqueue-proof";
 
 const WEBHOOK_TIMEOUT_MS = 5000;
@@ -63,6 +63,7 @@ function statusContent(state: QueueStatus, original: string, kind: QueueKind): s
 }
 
 function legacyContent(state: QueueStatus, original: string, kind: QueueKind): string {
+  original = repairQueueUser(original, kind, state.submitter_id);
   if (kind !== "wpm" || !state.source_message_url) return statusContent(state, original, kind);
   const suffix = `\n[Original message](<${state.source_message_url}>)`;
   const content = statusContent(state, original.endsWith(suffix) ? original.slice(0, -suffix.length) : original, kind);
@@ -124,11 +125,11 @@ function discordPost(body: Record<string, unknown>, env: Bindings, transport: Me
 }
 
 async function sourceStatus(db: Bindings["DB"], kind: QueueKind, id: string): Promise<QueueStatus | null> {
-  const row = await db.prepare(`SELECT s.status, s.reason, ${kind === "wpm" ? "s.source_message_url" : "NULL"} AS source_message_url, ${kind === 'link' ? '0' : 's.review_version'} AS review_version, a.name AS decider_name FROM ${STATUS_TABLE[kind]} s
+  const row = await db.prepare(`SELECT s.status, s.reason, s.${kind === "link" ? "submitted_by" : "user_id"} AS submitter_id, ${kind === "wpm" ? "s.source_message_url" : "NULL"} AS source_message_url, ${kind === 'link' ? '0' : 's.review_version'} AS review_version, a.name AS decider_name FROM ${STATUS_TABLE[kind]} s
     LEFT JOIN authors a ON a.user_id = s.decided_by WHERE s.id = ?`).bind(id)
-    .first<{ status: string; source_message_url: string | null; reason: string | null; review_version: number; decider_name: string | null }>();
+    .first<{ status: string; submitter_id: string; source_message_url: string | null; reason: string | null; review_version: number; decider_name: string | null }>();
   return row !== null && EDITABLE_STATUSES.has(row.status as DecidedStatus)
-    ? { status: row.status as DecidedStatus, decider_name: row.decider_name, review_version: row.review_version, reason: row.reason, source_message_url: row.source_message_url }
+    ? { status: row.status as DecidedStatus, submitter_id: row.submitter_id, decider_name: row.decider_name, review_version: row.review_version, reason: row.reason, source_message_url: row.source_message_url }
     : null;
 }
 
@@ -314,14 +315,14 @@ function embedSafeUrl(url: string): string {
 // what the site's router and `GET /v1/layouts/:ref` both accept) and the
 // second line links straight to the admin console's Inbox tab
 // (`/admin?tab=inbox`), where the submission is approved or rejected. Every
-// URL is wrapped in `<>` so Discord never expands it into an embed; the
-// submitter's Discord display name (when known) is escaped, the user id
-// (the fallback) never needs it -- it's a numeric snowflake, never free text.
+// URL is wrapped in `<>` so Discord never expands it into an embed.
+// A stored display name is escaped; a missing name uses a Discord mention.
+// Every transport disables allowed_mentions so it resolves without a ping.
 export const SITE_ORIGIN = "https://akldb.org";
 const INBOX_URL = `${SITE_ORIGIN}/admin?tab=inbox`;
 
 export function buildMessageContent(c: LinkCandidate): string {
-  const who = c.submitter_name !== null ? escapeMarkdown(c.submitter_name) : c.submitted_by;
+  const who = queueUserName(c.submitter_name, c.submitted_by);
   const layout = `[${escapeMarkdown(c.layout_name)}](<${SITE_ORIGIN}/l/${c.layout_id}>)`;
   return `New link submission on **${layout}** by ${who}: <${c.url}>\n[Open the mod queue](<${INBOX_URL}>) · submission \`${c.id}\``;
 }
@@ -329,13 +330,13 @@ export function buildMessageContent(c: LinkCandidate): string {
 // [LDB-WPM8] The WPM sibling: names the layout, the user whose speed it is
 // and the speed, with the proof embed-suppressed.
 export function buildWpmMessageContent(c: WpmCandidate): string {
-  const who = c.user_name !== null ? escapeMarkdown(c.user_name) : c.user_id;
+  const who = queueUserName(c.user_name, c.user_id);
   const layout = `[${escapeMarkdown(c.layout_name)}](<${SITE_ORIGIN}/l/${c.layout_id}>)`;
   return legacyContent({ status: "pending", decider_name: null, source_message_url: c.source_message_url }, `New WPM submission on **${layout}** by ${who}: **${c.wpm} wpm** <${embedSafeUrl(c.proof)}>\n[Open the inbox](<${INBOX_URL}>) · submission \`${c.id}\``, "wpm");
 }
 
 function buildCommentMessage(c: CommentCandidate): { content: string; attachment?: TextFileAttachment } {
-  const who = c.user_name !== null ? escapeMarkdown(c.user_name) : c.user_id;
+  const who = queueUserName(c.user_name, c.user_id);
   const layout = `[${escapeMarkdown(c.layout_name)}](<${SITE_ORIGIN}/l/${c.layout_id}>)`;
   const link = `[Open the inbox](<${INBOX_URL}>) · submission \`${c.id}\``;
   const edited = c.has_live === 1;

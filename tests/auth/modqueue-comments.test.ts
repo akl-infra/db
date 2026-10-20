@@ -201,12 +201,12 @@ describe("[LDB-CMT8] comments are announced on submit, best effort, never by the
     expect(row?.status).toBe("pending");
   });
 
-  it("[LDB-CMT8] no author row: the message falls back to the raw user id", async () => {
+  it("[LDB-MD22] no author row: the message falls back to a Discord mention", async () => {
     const layoutId = await freshLayout(uniqueName("modq-cmt-noauthor"));
     const subId = await insertComment({ layoutId, userId: "900000000000000211" });
     const webhook = new FakeWebhook();
     await announceComment(db, envWith(WEBHOOK_URL), subId, webhook.fetchImpl);
-    expect(webhook.about(subId)[0]!.body.content).toContain("by 900000000000000211 (9 chars)");
+    expect(webhook.about(subId)[0]!.body.content).toContain("by <@900000000000000211> (9 chars)");
   });
 
   it("[LDB-MD15] edits the original comment message for approval and rejection", async () => {
@@ -269,7 +269,7 @@ describe("[LDB-CMT8] comments are announced on submit, best effort, never by the
     await announceComment(db, envWith(WEBHOOK_URL), subId, webhook.fetchImpl);
     const content = webhook.about(subId)[0]!.body.content;
     expect(content.startsWith("Edited comment on **[")).toBe(true);
-    expect(content).toContain(` by ${userId} (25 chars)\n**Before**\nthe old live text\n\n**After**\nthe rewritten secret text\n[Open the inbox]`);
+    expect(content).toContain(` by <@${userId}> (25 chars)\n**Before**\nthe old live text\n\n**After**\nthe rewritten secret text\n[Open the inbox]`);
   });
 
   it("[LDB-CMT8] buildCommentMessageContent shows complete content and escapes markdown without splitting Unicode", () => {

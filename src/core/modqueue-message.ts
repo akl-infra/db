@@ -38,6 +38,7 @@ export interface CommentCardData {
 }
 
 export interface QueueStatus {
+  submitter_id?: string;
   source_message_url?: string | null;
   status: "pending" | "approved" | "rejected" | "superseded" | "replaced" | "deleted" | "removed";
   decider_name: string | null;
@@ -87,6 +88,42 @@ function clipUtf16(value: string, maxUnits: number): string {
   // Do not leave an unpaired high surrogate at Discord's UTF-16 boundary.
   if (clipped.length > 0 && /[\uD800-\uDBFF]/.test(clipped.at(-1)!)) clipped = clipped.slice(0, -1);
   return `${clipped}…`;
+}
+
+/** Missing author profiles still resolve to a Discord display name, without
+ * enabling notification pings. Stored names remain escaped plain text. */
+export function queueUserName(name: string | null, userId: string, maxUnits = Infinity): string {
+  if (!name?.trim() || name === userId) return `<@${userId}>`;
+  return escapeMarkdown(clipUtf16(inlineText(name), maxUnits));
+}
+
+/** Repair only the generated author slot, never submitted text or proof.
+ * The source row supplies the identity rather than trusting message content. */
+export function repairQueueUser(content: string, kind: QueueKind, userId?: string): string {
+  if (!userId || !/^\d{17,20}$/.test(userId)) return content;
+  if (kind === "link" && content.startsWith(`Submitted by **${userId}** · Link ·`)) {
+    return content.replace(`Submitted by **${userId}**`, `Submitted by **<@${userId}>**`);
+  }
+  const heading = kind === "wpm" ? "**WPM submission** on "
+    : kind === "comment" ? /^\*\*(?:New|Edited) comment\*\* on / : null;
+  if (heading && (typeof heading === "string" ? content.startsWith(heading) : heading.test(content))) {
+    const suffix = ` by **${userId}**`;
+    return content.endsWith(suffix) ? `${content.slice(0, -suffix.length)} by **<@${userId}>**` : content;
+  }
+  const legacyHeading = kind === "comment" ? /^(?:New|Edited) comment on \*\*/
+    : kind === "wpm" ? /^New WPM submission on \*\*/ : /^New link submission on \*\*/;
+  if (!legacyHeading.test(content)) return content;
+  const newline = content.indexOf("\n");
+  const firstLine = newline === -1 ? content : content.slice(0, newline);
+  const tail = newline === -1 ? "" : content.slice(newline);
+  const marker = kind === "comment" ? `** by ${userId} (` : `** by ${userId}:`;
+  let repaired = firstLine.replace(marker, marker.replace(userId, `<@${userId}>`));
+  // A mention adds three characters. At the legacy message limit, remove
+  // four generated bold delimiters rather than trimming submitted text.
+  if (repaired !== firstLine && repaired.length + tail.length > 2000) {
+    repaired = repaired.replace(" on **", " on ").replace(`** by <@${userId}>`, ` by <@${userId}>`);
+  }
+  return repaired + tail;
 }
 
 function layoutLink(layoutId: string, name: string): string {
@@ -204,13 +241,13 @@ export function buildV2Payload(kind: "comment", candidate: CommentCardData, acti
 export function buildV2Payload(kind: QueueKind, candidate: LinkCardData | WpmCardData | CommentCardData, actionsEnabled = true, preview?: ProofPreview): Record<string, unknown> {
   if (kind === "link") {
     const c = candidate as LinkCardData;
-    const who = clipUtf16(escapeMarkdown(c.submitter_name ?? c.submitted_by), 120);
+    const who = queueUserName(c.submitter_name, c.submitted_by, 60);
     return payload(kind, c.id, `## Link submission on ${layoutLink(c.layout_id, c.layout_name)}`,
       `Submitted by **${who}** · Link · Submission \`${c.id}\``, `Submitted URL: ${safeWrappedUrl(c.url)}`, actionsEnabled, undefined, c.review_version ?? 0);
   }
   if (kind === "wpm") {
     const c = candidate as WpmCardData;
-    const who = escapeMarkdown(clipUtf16(inlineText(c.user_name ?? c.user_id), 60));
+    const who = queueUserName(c.user_name, c.user_id, 60);
     const metadata = `**WPM submission** on **${layoutLink(c.layout_id, clipUtf16(inlineText(c.layout_name), 100))}** by **${who}**`;
     // Parentheses and backslashes can terminate or alter a Markdown link
     // target even inside its angle-bracket wrapper. Encode them as URL data.
@@ -224,7 +261,7 @@ export function buildV2Payload(kind: QueueKind, candidate: LinkCardData | WpmCar
       actionsEnabled, file, c.review_version ?? 0, preview, c.source_message_url ?? null);
   }
   const c = candidate as CommentCardData;
-  const who = escapeMarkdown(clipUtf16(inlineText(c.user_name ?? c.user_id), 60));
+  const who = queueUserName(c.user_name, c.user_id, 60);
   const metadata = `**${c.live_body === null ? "New" : "Edited"} comment** on **${layoutLink(c.layout_id, clipUtf16(inlineText(c.layout_name), 100))}** by **${who}**`;
   // Keep headroom for a longer status label when a decision arrives.
   const formatted = formatCommentText(c.body, c.live_body, MAX_COMPONENT_TEXT_UNITS - DECISION_STATUS_RESERVE - metadata.length, true);
@@ -248,7 +285,10 @@ export function buildV2StatusPatch(current: unknown, kind: QueueKind, id: string
   const patch = (component: unknown): unknown => {
     if (Array.isArray(component)) return component.map(patch).filter((item) => item !== null);
     if (component === null || typeof component !== "object") return component;
-    const row = component as Record<string, unknown>;
+    const row = { ...component } as Record<string, unknown>;
+    if (row.type === 10 && row.id === COMPONENT_METADATA_ID && typeof row.content === "string") {
+      row.content = repairQueueUser(row.content, kind, state.submitter_id);
+    }
     if (row.type === 1 && row.id === COMPONENT_ACTIONS_ID) return actionRow(kind, id, actionsEnabled, state);
     // Earlier compact cards kept state in their context line. Preserve that
     // format while omitting its pending label when a review is reopened.
