@@ -41,13 +41,11 @@ on-behalf route, it must match `user_id`, not the moderator submitting it.
 Bot and webhook messages are refused. This checks who posted the message;
 moderators still judge whether its contents prove the claimed typing result.
 
-The existing `400 invalid_proof` response explains a mismatch or an unverifiable
-message. Missing bot credentials, missing source-channel access, a missing
-message/author, Discord failures and an 800 ms request/body deadline all refuse
-the submission; a temporary failure asks the caller to retry. Direct Discord
-CDN links and Discord channel/invite links are refused because they do not
-identify a verifiable author. Use Discord's **Copy Message Link** instead.
-Non-Discord proof URLs keep their existing validation. Existing submissions
+The only refusal is a Discord message link the akldb bot can read whose author is not the
+typist (`400 invalid_proof`; a bot or webhook message counts as not the typist's). Everything
+else is accepted unverified for moderators to judge: non-Discord links, Discord CDN, invite and
+channel links, and message links the bot cannot read (missing bot credentials or channel access,
+a deleted message, Discord failures, or the 800 ms request/body deadline). Existing submissions
 are not revalidated or removed. This policy is API 1.26 (LDB-WPM15).
 
 ### Discord proof previews

@@ -77,22 +77,23 @@ async function readDiscordMessage(message: NonNullable<ReturnType<typeof discord
   return body;
 }
 
-// [LDB-WPM15] Unlike optional previews, authorship must be established BEFORE
-// any submission write. No cache, no trust in a client-supplied author, and no
-// best-effort bypass when Discord or the configured bot cannot read the proof.
+// [LDB-WPM15] (saltorbit 2026-10-19) A WPM proof is refused for ONE reason only: it is a Discord message
+// link the akldb bot CAN read, and that message was not written by the person whose WPM is being submitted
+// (a bot or webhook message is not written by them either). Everything else is accepted unverified: links
+// that are not Discord's, Discord links that are not message links (CDN images, invites, channels), and
+// message links the bot cannot read (no access, deleted, Discord slow or down, no bot token configured).
+// Authorship is read from Discord at submit time, never from the client, and never cached.
 export async function verifyDiscordProofAuthor(proof: string, userId: string, env: DiscordProofAccess, fetchImpl: typeof fetch = fetch): Promise<void> {
-  const host = new URL(proof).hostname.toLowerCase().replace(/\.$/, "");
-  if (!["discord.com", "discordapp.com", "discordapp.net", "discord.gg"].some((domain) => host === domain || host.endsWith(`.${domain}`))) return;
   const message = discordProofMessage(proof);
-  if (!message) throw invalidProof("Discord proof must be a Copy Message Link to a message written by the typist; direct image, channel and invite links cannot verify authorship.");
+  if (!message) return;
   let body: Record<string, unknown>;
   try {
     body = await readDiscordMessage(message, env, fetchImpl, AbortSignal.timeout(AUTHOR_TIMEOUT_MS));
-    if (!record(body.author) || typeof body.author.id !== "string" || !/^\d{17,20}$/.test(body.author.id)) throw new Error("Discord proof author missing");
   } catch {
-    throw invalidProof("Could not verify the Discord proof message. Try again, or use your own message in a channel the akldb bot can read.");
+    return; // unreadable: accepted unverified
   }
-  if (!record(body.author) || body.author.id !== userId || body.webhook_id != null || body.author.bot === true) {
+  if (!record(body.author) || typeof body.author.id !== "string" || !/^\d{17,20}$/.test(body.author.id)) return; // no readable author: accepted unverified
+  if (body.author.id !== userId || body.webhook_id != null || body.author.bot === true) {
     throw invalidProof("The Discord proof message must be written by the person whose WPM is being submitted.");
   }
 }

@@ -29,41 +29,37 @@ describe("Discord WPM proof authorship", () => {
     }
   });
 
-  it("[LDB-WPM15] direct CDN links and non-message Discord URLs cannot bypass verification; other providers make no lookup", async () => {
+  it("[LDB-WPM15] links that are not Discord message links are accepted without a lookup (CDN images, invites, channels, other providers)", async () => {
     const fetchImpl = vi.fn<typeof fetch>();
     for (const value of [cdn, "https://media.discordapp.net/attachments/1/2/proof.png", "https://discord.gg/test",
       `https://discord.com/channels/900000000000000000/${channel}`, proof.replace("https:", "http:"),
       proof.replace("discord.com", "discord.com."), proof.replace("discord.com", "discord.com:444"),
-      proof.replace("discord.com", "user@discord.com"), proof.replace("discord.com", "sub.discord.com")]) {
-      await expect(verifyDiscordProofAuthor(value, user, env, fetchImpl), value).rejects.toMatchObject({ status: 400, body: { error: "invalid_proof" } });
-    }
-    for (const value of ["https://youtu.be/aBcD_123-45", "https://monkeytype.com/profile/test", "https://example.com/proof",
+      proof.replace("discord.com", "user@discord.com"), proof.replace("discord.com", "sub.discord.com"),
+      "https://youtu.be/aBcD_123-45", "https://monkeytype.com/profile/test", "https://example.com/proof",
       "https://discord.com.evil.test/proof", "https://discord.com@evil.test/proof"]) {
-      await expect(verifyDiscordProofAuthor(value, user, env, fetchImpl)).resolves.toBeUndefined();
+      await expect(verifyDiscordProofAuthor(value, user, env, fetchImpl), value).resolves.toBeUndefined();
     }
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
-  it("[LDB-WPM15] missing config, inaccessible, malformed or oversized messages fail closed with a retryable explanation", async () => {
+  it("[LDB-WPM15] a message link the bot cannot read is accepted unverified: missing config, inaccessible, malformed or oversized messages, no readable author", async () => {
     const fetchImpl = vi.fn<typeof fetch>();
-    await expect(verifyDiscordProofAuthor(proof, user, { ...env, MODQUEUE_DISCORD_BOT_TOKEN: undefined }, fetchImpl))
-      .rejects.toMatchObject({ body: { error: "invalid_proof", message: expect.stringContaining("Try again") } });
+    await expect(verifyDiscordProofAuthor(proof, user, { ...env, MODQUEUE_DISCORD_BOT_TOKEN: undefined }, fetchImpl)).resolves.toBeUndefined();
     expect(fetchImpl).not.toHaveBeenCalled();
     for (const make of [() => new Response(null, { status: 403 }), () => new Response(null, { status: 404 }),
       () => new Response(null, { status: 429 }), () => new Response(null, { status: 500 }),
       () => new Response("not-json"), () => new Response(" ".repeat(256 * 1024 + 1)),
       () => Response.json({ ...owned, id: "wrong" }), () => Response.json({ ...owned, author: null }),
       () => Response.json({ ...owned, author: { id: 900000000000000010 } })]) {
-      await expect(verifyDiscordProofAuthor(proof, user, env, vi.fn<typeof fetch>().mockResolvedValueOnce(make())))
-        .rejects.toMatchObject({ status: 400, body: { error: "invalid_proof", message: expect.stringContaining("Could not verify") } });
+      await expect(verifyDiscordProofAuthor(proof, user, env, vi.fn<typeof fetch>().mockResolvedValueOnce(make()))).resolves.toBeUndefined();
     }
   });
 
-  it("[LDB-WPM15] a stalled Discord lookup is aborted within its request budget and cannot accept the proof", async () => {
+  it("[LDB-WPM15] a stalled Discord lookup is aborted within its request budget and the proof is accepted unverified", async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockImplementation((_input, init) => new Promise((_resolve, reject) => {
       init!.signal!.addEventListener("abort", () => reject(init!.signal!.reason), { once: true });
     }));
-    await expect(verifyDiscordProofAuthor(proof, user, env, fetchImpl)).rejects.toMatchObject({ status: 400, body: { error: "invalid_proof" } });
+    await expect(verifyDiscordProofAuthor(proof, user, env, fetchImpl)).resolves.toBeUndefined();
     expect(fetchImpl.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
   });
 });
