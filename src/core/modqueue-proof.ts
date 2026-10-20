@@ -70,8 +70,9 @@ async function readDiscordMessage(message: NonNullable<ReturnType<typeof discord
   if (!env.MODQUEUE_DISCORD_BOT_TOKEN) throw new Error("Discord proof access is not configured");
   const response = await fetchImpl(`${env.DISCORD_API_URL.replace(/\/$/, "")}/v10/channels/${message.channelId}/messages/${message.messageId}`, {
     method: "GET", headers: { Authorization: `Bot ${env.MODQUEUE_DISCORD_BOT_TOKEN}`, "User-Agent": "akl-db/1.0" },
-    redirect: "error", signal,
+    redirect: "manual", signal, // Workers' fetch has no redirect: "error"; a redirect is refused below instead
   });
+  if (response.status >= 300 && response.status < 400) throw new Error(`Discord answered a redirect (${response.status})`);
   const body: unknown = JSON.parse(new TextDecoder().decode(await readBounded(response, MESSAGE_MAX_BYTES, signal)));
   if (!record(body) || body.id !== message.messageId || body.channel_id !== message.channelId) throw new Error("Discord proof response does not match its message");
   return body;
@@ -170,7 +171,8 @@ export async function resolveProofPreview(proof: string, env: Bindings, fetchImp
       const remaining = Math.min(PROOF_MAX_IMAGE_BYTES, PROOF_MAX_TOTAL_BYTES - totalBytes);
       if (!url || remaining <= 0 || (record(attachment) && typeof attachment.size === "number" && attachment.size > remaining)) { incomplete = true; continue; }
       try {
-        const response = await fetchImpl(url, { method: "GET", redirect: "error", signal, headers: { "User-Agent": "akl-db/1.0" } });
+        const response = await fetchImpl(url, { method: "GET", redirect: "manual", signal, headers: { "User-Agent": "akl-db/1.0" } }); // no redirect: "error" on Workers
+        if (response.status >= 300 && response.status < 400) { console.warn(`proof preview: image fetch answered a redirect (${response.status})`); incomplete = true; continue; }
         if (!response.ok) console.warn(`proof preview: image fetch answered ${response.status}`);
         const bytes = await readBounded(response, remaining, signal);
         const type = imageType(bytes, response.headers.get("content-type"));
