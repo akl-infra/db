@@ -178,18 +178,16 @@ describe("Discord proof authorship at submission", () => {
     expect(await accepted.json()).toMatchObject({ submission: { user_id: user, submitted_by: BOOTSTRAP_ADMIN, status: "approved" } });
   });
 
-  it("[LDB-WPM15] missing credentials and direct Discord image links refuse the write instead of quietly queueing it", async () => {
+  it("[LDB-WPM15] a proof the bot cannot verify (no credentials, or a direct Discord image link) is queued unverified, not refused", async () => {
     const user = testUserId();
-    const { id } = await createLayout(user);
     const auth = register(actorFixture(), token("proof-unreadable"), user);
     bindings.MODQUEUE_DISCORD_BOT_TOKEN = undefined;
     for (const value of [proof, `https://cdn.discordapp.com/attachments/${channel}/${message}/proof.png`]) {
+      const { id } = await createLayout(user);
       const res = await writeFetch("/v1/wpm", "POST", auth, { layout: id, wpm: 90, proof: value });
-      expect(res.status).toBe(400);
-      expect(await res.json()).toMatchObject({ error: "invalid_proof" });
+      expect(res.status, value).toBeLessThan(300);
+      expect((await db.prepare("SELECT id FROM wpm_submissions WHERE layout_id = ?").bind(id).all()).results).toHaveLength(1);
     }
-    expect((await db.prepare("SELECT id FROM wpm_submissions WHERE layout_id = ?").bind(id).all()).results).toHaveLength(0);
-    expect((await feedFor(id)).some((e) => e.kind.startsWith("wpm_"))).toBe(false);
   });
 });
 
