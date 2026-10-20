@@ -263,6 +263,29 @@ describe("[LDB-MD18] rejection DM outbox", () => {
     expect(text).toContain("https://akldb.org");
   });
 
+  it("[LDB-MQ-DM2] a WPM rejection is the comment card: intro, the submitted speed and proof quoted, then the reason and the layout link", () => {
+    const { payload } = buildRejectionDmMessage({ kind: "wpm", layoutName: "opal", layoutUrl: "https://akldb.org/l/01M2CZGR0RYXNCB777GPZGGBFN", reason: "liar", context: "WPM submission", wpm: 108, proof: "https://discord.com/channels/1/2/3" });
+    expect(payload.flags).toBe(1 << 15);
+    expect(payload.allowed_mentions).toEqual({ parse: [] });
+    expect(payload.components!.map((c) => c.content)).toEqual([
+      "Your WPM record submission for **opal** was not approved.",
+      "> **108 WPM** · proof: <https://discord.com/channels/1/2/3>",
+      "**Reason:** liar\nhttps://akldb.org/l/01M2CZGR0RYXNCB777GPZGGBFN",
+    ]);
+  });
+
+  it("[LDB-MQ-DM2] a link rejection quotes the submitted link; an unsafe submitted URL or proof is left out, never rendered", () => {
+    const link = buildRejectionDmMessage({ kind: "link", layoutName: "opal", layoutUrl: "https://akldb.org/l/X", reason: null, context: "Link submission", linkUrl: "https://example.test/opal" });
+    expect(link.payload.components!.map((c) => c.content)).toEqual(["Your link submission for **opal** was not approved.", "> <https://example.test/opal>", "**Reason:** No reason was provided.\nhttps://akldb.org/l/X"]);
+    for (const bad of ["javascript:alert(1)", "https://x.test/a b", "https://x.test/a>@everyone", "not a url"]) {
+      const w = JSON.stringify(buildRejectionDmMessage({ kind: "wpm", layoutName: "opal", layoutUrl: "https://akldb.org/l/X", reason: "r", context: "WPM submission", wpm: 90, proof: bad }));
+      expect(w, bad).toContain("**90 WPM**");
+      expect(w, bad).not.toContain("proof:");
+      const l = buildRejectionDmMessage({ kind: "link", layoutName: "opal", layoutUrl: "https://akldb.org/l/X", reason: "r", context: "Link submission", linkUrl: bad });
+      expect(l.payload.components!.length, bad).toBe(2);
+    }
+  });
+
   it("includes the complete maximum comment with Markdown escaped and Unicode preserved", () => {
     const body = `${"*emoji 😅 [link](x) @everyone_".repeat(40)}${"x".repeat(840)}`;
     expect(Array.from(body).length).toBe(2000);
