@@ -39,6 +39,10 @@ interface DeliveryContent {
   reason: string | null;
   context: string;
   comment_body: string | null;
+  /** [LDB-MQ-DM2] what was submitted, for the card: the WPM speed and proof link, or the link submission's URL */
+  wpm?: number | null;
+  proof?: string | null;
+  link_url?: string | null;
   eligible: number;
 }
 
@@ -98,6 +102,9 @@ export function buildRejectionDmMessage(input: {
   reason: string | null;
   context: string;
   commentBody?: string | null;
+  wpm?: number | null;
+  proof?: string | null;
+  linkUrl?: string | null;
 }): RejectionDmMessagePayload {
   const label = input.kind === "comment" ? "comment" : input.kind === "link" ? "link" : "WPM record";
   const name = safeText(input.layoutName, 100);
@@ -107,7 +114,20 @@ export function buildRejectionDmMessage(input: {
   const summary = input.kind === "comment"
     ? `**Reason:** ${reason}\n${url}`
     : `Your ${label} submission for ${name} was not approved.\n${context}\nReason: ${reason}\nLayout: ${url}`;
-  if (input.kind !== "comment") return { payload: { content: summary, allowed_mentions: { parse: [] } } };
+  // [LDB-MQ-DM2] (saltorbit 2026-10-20) a WPM or link rejection is the same card as a comment's: the intro, what was submitted
+  // (quoted), then the reason and the layout link. A submitted URL appears only as a plain http(s) link in angle brackets (no embed).
+  if (input.kind !== "comment") {
+    const intro = { type: 10, content: `Your ${label} submission for **${name}** was not approved.` };
+    const shown = (value: string | null | undefined): string | null => {
+      if (typeof value !== "string") return null;
+      try { const u = new URL(value); return (u.protocol === "https:" || u.protocol === "http:") && !/[\s<>`|]/.test(value) && value.length <= 512 ? `<${value}>` : null; } catch { return null; }
+    };
+    const detail = input.kind === "wpm"
+      ? (typeof input.wpm === "number" && Number.isFinite(input.wpm) ? `> **${Math.trunc(input.wpm)} WPM**${shown(input.proof) ? ` · proof: ${shown(input.proof)}` : ""}` : null)
+      : (shown(input.linkUrl) ? `> ${shown(input.linkUrl)}` : null);
+    const reasonLine = { type: 10, content: `**Reason:** ${reason}\n${url}` };
+    return { payload: { flags: 1 << 15, components: [intro, ...(detail === null ? [] : [{ type: 10, content: detail }]), reasonLine], allowed_mentions: { parse: [] } } };
+  }
 
   if (typeof input.commentBody !== "string") throw new Error("eligible rejected comment body is unavailable");
   const intro = { type: 10, content: `Your comment submission for **${name}** was not approved.` };
@@ -287,6 +307,9 @@ export async function dispatchRejectionDms(
       layoutUrl: `https://akldb.org/l/${encodeURIComponent(content.layout_id)}`,
       reason: currentContent.reason,
       context: currentContent.context,
+      wpm: currentContent.wpm ?? null,
+      proof: currentContent.proof ?? null,
+      linkUrl: currentContent.link_url ?? null,
       commentBody: currentContent.comment_body,
     });
     try {
@@ -345,6 +368,7 @@ async function readEligibleContent(db: Bindings["DB"], row: RejectionOutboxRow):
   const rowData = await db.prepare(
     `SELECT s.${recipient} AS recipient_id, s.reason, l.name AS layout_name, l.deleted,
             ${row.kind === "comment" ? "s.body" : "NULL"} AS comment_body,
+            ${row.kind === "wpm" ? "s.wpm" : "NULL"} AS wpm, ${row.kind === "wpm" ? "s.proof" : "NULL"} AS proof, ${row.kind === "link" ? "s.url" : "NULL"} AS link_url,
             s.status = 'rejected'${bodyEligibility}${cycleEligibility} AS eligible
        FROM ${source} s JOIN layouts l ON l.id = s.layout_id
       WHERE s.id = ? AND s.layout_id = ?`,
@@ -356,6 +380,9 @@ async function readEligibleContent(db: Bindings["DB"], row: RejectionOutboxRow):
     layout_name: rowData.layout_name,
     reason: rowData.reason,
     comment_body: rowData.comment_body,
+    wpm: rowData.wpm ?? null,
+    proof: rowData.proof ?? null,
+    link_url: rowData.link_url ?? null,
     context: row.kind === "comment" ? "Comment submission" : row.kind === "link" ? "Link submission" : "WPM submission",
     eligible: rowData.eligible && rowData.deleted === 0 && rowData.recipient_id === row.recipient_id ? 1 : 0,
   };
