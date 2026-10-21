@@ -20,36 +20,38 @@ describe("[LDB-F48][LDB-F49][LDB-F51] skip magic publish round trip", () => {
     { name: "skip chiral", magic: { chiral_keys: [{ key: "∯", skip: true, same: { kind: "repeat" }, opposite: { kind: "char", char: "e" } }] } },
   ];
 
-  it.each(cases)("creates, reads and updates $name without losing its meaning", async ({ magic }) => {
-    const headers = register(actorFixture(), uniqueName("skip-token"), uniqueName("skip-owner"));
-    const payload = { ...reportedPayload, magic };
-    const created = await writeFetch("/v1/layouts", "POST", headers, {
-      name: uniqueName("skip-publish"), format: "spark/1", payload,
-    });
-    expect(created.status).toBe(201);
-    const first = await created.json<LayoutResponse>();
-    expect(first.payload).toEqual(payload);
-    expect(first.formats["spark/1"]!.has_magic).toBe(true);
+  for (const { name, magic } of cases) {
+    it(`[LDB-F48][LDB-F49][LDB-F51] creates, reads and updates ${name} without losing its meaning`, async () => {
+      const headers = register(actorFixture(), uniqueName("skip-token"), uniqueName("skip-owner"));
+      const payload = { ...reportedPayload, magic };
+      const created = await writeFetch("/v1/layouts", "POST", headers, {
+        name: uniqueName("skip-publish"), format: "spark/1", payload,
+      });
+      expect(created.status).toBe(201);
+      const first = await created.json<LayoutResponse>();
+      expect(first.payload).toEqual(payload);
+      expect(first.formats["spark/1"]!.has_magic).toBe(true);
 
-    const read = await writeFetch(`/v1/layouts/${first.id}?format=spark/1`, "GET");
-    expect(read.status).toBe(200);
-    expect((await read.json<LayoutResponse>()).payload).toEqual(payload);
+      const read = await writeFetch(`/v1/layouts/${first.id}?format=spark/1`, "GET");
+      expect(read.status).toBe(200);
+      expect((await read.json<LayoutResponse>()).payload).toEqual(payload);
 
-    const revised = structuredClone(payload);
-    revised.keys[0]!.finger = "LR";
-    const ifMatch = scopedToken("spark", first.formats["spark/1"]!.rev);
-    const updated = await writeFetch(`/v1/layouts/${first.id}`, "PUT", { ...headers, "If-Match": ifMatch }, {
-      format: "spark/1", payload: revised,
-    });
-    expect(updated.status).toBe(200);
-    expect((await updated.json<LayoutResponse>()).payload).toEqual(revised);
+      const revised = structuredClone(payload);
+      revised.keys[0]!.finger = "LR";
+      const ifMatch = scopedToken("spark", first.formats["spark/1"]!.rev);
+      const updated = await writeFetch(`/v1/layouts/${first.id}`, "PUT", { ...headers, "If-Match": ifMatch }, {
+        format: "spark/1", payload: revised,
+      });
+      expect(updated.status).toBe(200);
+      expect((await updated.json<LayoutResponse>()).payload).toEqual(revised);
 
-    const stale = await writeFetch(`/v1/layouts/${first.id}`, "PUT", { ...headers, "If-Match": ifMatch }, {
-      format: "spark/1", payload,
+      const stale = await writeFetch(`/v1/layouts/${first.id}`, "PUT", { ...headers, "If-Match": ifMatch }, {
+        format: "spark/1", payload,
+      });
+      expect(stale.status).toBe(409);
+      await stale.text();
+      const afterStale = await writeFetch(`/v1/layouts/${first.id}?format=spark/1`, "GET");
+      expect((await afterStale.json<LayoutResponse>()).payload).toEqual(revised);
     });
-    expect(stale.status).toBe(409);
-    await stale.text();
-    const afterStale = await writeFetch(`/v1/layouts/${first.id}?format=spark/1`, "GET");
-    expect((await afterStale.json<LayoutResponse>()).payload).toEqual(revised);
-  });
+  }
 });
