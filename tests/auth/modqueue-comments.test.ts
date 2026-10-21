@@ -182,7 +182,8 @@ describe("[LDB-CMT8] comments are announced on submit, best effort, never by the
   });
 
   it("[LDB-CMT8] a pending comment is announced once: layout link, author, full text, and inbox link; it stays pending", async () => {
-    const layoutId = await freshLayout(uniqueName("modq-cmt-happy"));
+    const layoutId = await freshLayout(uniqueName("modq-cmt-happy"), "900000000000000089");
+    await insertAuthor("900000000000000089", "Layout Maker");
     await insertAuthor("900000000000000210", "Kind Commenter");
     const subId = await insertComment({ layoutId, userId: "900000000000000210", body: "Great home row, I use it daily" });
 
@@ -194,11 +195,42 @@ describe("[LDB-CMT8] comments are announced on submit, best effort, never by the
     expect(sent[0]!.url).toBe(`${WEBHOOK_URL}?wait=true`);
     expect(sent[0]!.body.allowed_mentions).toEqual({ parse: [] });
     expect(sent[0]!.body.content).toContain(`New comment on **[${await layoutName(layoutId)}](<https://akldb.org/l/${layoutId}>)** by Kind Commenter (30 chars)`);
+    expect(sent[0]!.body.content).not.toContain("(Layout Author)");
     expect(sent[0]!.body.content).toContain("**Comment**\nGreat home row, I use it daily");
     expect(sent[0]!.body.content).toContain(`[Open the inbox](<https://akldb.org/admin?tab=inbox>) \u00b7 submission \`${subId}\``);
 
     const row = await db.prepare("SELECT status FROM layout_comments WHERE id = ?").bind(subId).first<{ status: string }>();
     expect(row?.status).toBe("pending");
+
+    const ownerCommentId = await insertComment({ layoutId, userId: "900000000000000089", body: "My own layout" });
+    await announceComment(db, envWith(WEBHOOK_URL), ownerCommentId, webhook.fetchImpl);
+    expect(webhook.about(ownerCommentId)[0]!.body.content).toContain("by Layout Maker (Layout Author) (13 chars)");
+  });
+
+  it("[LDB-CMT8] the V2 card labels only the current layout author's comment, including a missing-name mention", async () => {
+    const ownerId = "900000000000000090";
+    const commenterId = "900000000000000091";
+    const layoutId = await freshLayout(uniqueName("modq-cmt-v2-author"), ownerId);
+    await insertAuthor(commenterId, "Commenter");
+    const id = await insertComment({ layoutId, userId: commenterId });
+    let card: Record<string, unknown> = {};
+    const fetchImpl: typeof fetch = async (_input, init) => {
+      card = JSON.parse(String(init?.body));
+      return Response.json({ id: "discord-comment-author-card" });
+    };
+    await announceComment(db, { ...envWith(WEBHOOK_URL), MODQUEUE_DISCORD_COMPONENTS: "true" }, id, fetchImpl);
+    const components = card.components as { components: { id: number; content?: string }[] }[];
+    const metadata = components[0]!.components.find((part) => part.id === 41003)?.content;
+    expect(metadata).toContain("by **Commenter**");
+    expect(metadata).not.toContain("(Layout Author)");
+    expect(card.allowed_mentions).toEqual({ parse: [] });
+
+    const ownerCommentId = await insertComment({ layoutId, userId: ownerId });
+    await announceComment(db, { ...envWith(WEBHOOK_URL), MODQUEUE_DISCORD_COMPONENTS: "true" }, ownerCommentId, fetchImpl);
+    const ownerCard = card.components as { components: { id: number; content?: string }[] }[];
+    const ownerMetadata = ownerCard[0]!.components.find((part) => part.id === 41003)?.content;
+    expect(ownerMetadata).toContain(`by **<@${ownerId}>** (Layout Author)`);
+    expect(card.allowed_mentions).toEqual({ parse: [] });
   });
 
   it("[LDB-MD22] no author row: the message falls back to a Discord mention", async () => {
@@ -273,7 +305,7 @@ describe("[LDB-CMT8] comments are announced on submit, best effort, never by the
   });
 
   it("[LDB-CMT8] buildCommentMessageContent shows complete content and escapes markdown without splitting Unicode", () => {
-    const base = { id: "01ARZ3NDEKTSV4RRFFQ69G5FAV", layout_id: "01BX5ZZKBKACTAV9WEVGEMMVRY", user_id: "900000000000000213", layout_name: "*bold* [masked](https://evil.example)", user_name: "*Evil* `Name`", has_live: 0, live_body: null };
+    const base = { id: "01ARZ3NDEKTSV4RRFFQ69G5FAV", layout_id: "01BX5ZZKBKACTAV9WEVGEMMVRY", user_id: "900000000000000213", layout_name: "*bold* [masked](https://evil.example)", layout_owner: "900000000000000001", user_name: "*Evil* `Name`", has_live: 0, live_body: null };
     const exact = buildCommentMessageContent({ ...base, body: "x".repeat(120) });
     expect(exact).toContain(`(120 chars)\n**Comment**\n${"x".repeat(120)}\n`);
     const cut = buildCommentMessageContent({ ...base, body: "y".repeat(121) });

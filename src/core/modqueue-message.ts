@@ -33,6 +33,7 @@ export interface CommentCardData {
   user_id: string;
   body: string;
   layout_name: string;
+  layout_owner: string;
   user_name: string | null;
   live_body: string | null;
 }
@@ -108,7 +109,11 @@ export function repairQueueUser(content: string, kind: QueueKind, userId?: strin
     : kind === "comment" ? /^\*\*(?:New|Edited) comment\*\* on / : null;
   if (heading && (typeof heading === "string" ? content.startsWith(heading) : heading.test(content))) {
     const suffix = ` by **${userId}**`;
-    return content.endsWith(suffix) ? `${content.slice(0, -suffix.length)} by **<@${userId}>**` : content;
+    const newline = content.indexOf("\n");
+    const firstLine = newline === -1 ? content : content.slice(0, newline);
+    return firstLine.endsWith(suffix)
+      ? `${firstLine.slice(0, -suffix.length)} by **<@${userId}>**${newline === -1 ? "" : content.slice(newline)}`
+      : content;
   }
   const legacyHeading = kind === "comment" ? /^(?:New|Edited) comment on \*\*/
     : kind === "wpm" ? /^New WPM submission on \*\*/ : /^New link submission on \*\*/;
@@ -262,7 +267,8 @@ export function buildV2Payload(kind: QueueKind, candidate: LinkCardData | WpmCar
   }
   const c = candidate as CommentCardData;
   const who = queueUserName(c.user_name, c.user_id, 60);
-  const metadata = `**${c.live_body === null ? "New" : "Edited"} comment** on **${layoutLink(c.layout_id, clipUtf16(inlineText(c.layout_name), 100))}** by **${who}**`;
+  const authorLabel = c.user_id === c.layout_owner ? " (Layout Author)" : "";
+  const metadata = `**${c.live_body === null ? "New" : "Edited"} comment** on **${layoutLink(c.layout_id, clipUtf16(inlineText(c.layout_name), 100))}** by **${who}**${authorLabel}`;
   // Keep headroom for a longer status label when a decision arrives.
   const formatted = formatCommentText(c.body, c.live_body, MAX_COMPONENT_TEXT_UNITS - DECISION_STATUS_RESERVE - metadata.length, true);
   const file = formatted.attachmentText === undefined ? undefined : {

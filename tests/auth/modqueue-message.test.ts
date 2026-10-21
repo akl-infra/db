@@ -15,7 +15,7 @@ describe("[LDB-MD22] readable queue authors without stored profiles", () => {
   const userId = "900000000000000001";
   for (const kind of ["wpm", "comment", "link"] as const) {
     const card = (name: string | null) => {
-      const common = { id, layout_id: id, layout_name: "Dvorak" };
+      const common = { id, layout_id: id, layout_name: "Dvorak", layout_owner: "900000000000000099" };
       return kind === "link" ? buildV2Payload(kind, { ...common, url: "https://example.org", submitted_by: userId, submitter_name: name })
         : kind === "wpm" ? buildV2Payload(kind, { ...common, user_id: userId, user_name: name, wpm: 141, proof: "https://example.org" })
         : buildV2Payload(kind, { ...common, user_id: userId, user_name: name, body: `by **${userId}**`, live_body: null });
@@ -213,7 +213,7 @@ describe("[LDB-MD15] Components V2 mod-queue message", () => {
   });
 
   it("[LDB-MD15] renders full comment edit before/after previews and escapes user markdown", () => {
-    const comment = buildV2Payload("comment", {
+    const comment = buildV2Payload("comment", { layout_owner: "900000000000000099",
       id: "01ARZ3NDEKTSV4RRFFQ69G5FAB",
       layout_id: "01BX5ZZKBKACTAV9WEVGEMMVRY",
       user_id: "900000000000000003",
@@ -227,7 +227,7 @@ describe("[LDB-MD15] Components V2 mod-queue message", () => {
     expect(body).toContain("old \\[text\\]");
     expect(body).toContain("\\*new\\* text");
 
-    const bounded = buildV2Payload("comment", {
+    const bounded = buildV2Payload("comment", { layout_owner: "900000000000000099",
       id: "01ARZ3NDEKTSV4RRFFQ69G5FAC",
       layout_id: "01BX5ZZKBKACTAV9WEVGEMMVRY",
       user_id: "900000000000000004",
@@ -247,7 +247,7 @@ describe("[LDB-MD15] Components V2 mod-queue message", () => {
     expect(nested(bounded.components as unknown[]).find((c) => c.type === 13 && c.id === 41009))
       .toEqual({ type: 13, id: 41009, file: { url: `attachment://${files[0]!.filename}` } });
 
-    const hostile = buildV2Payload("comment", {
+    const hostile = buildV2Payload("comment", { layout_owner: "900000000000000099",
       id: "01ARZ3NDEKTSV4RRFFQ69G5FAC",
       layout_id: "01BX5ZZKBKACTAV9WEVGEMMVRY",
       user_id: "900000000000000004",
@@ -266,7 +266,7 @@ describe("[LDB-MD15] Components V2 mod-queue message", () => {
 
   it("[LDB-MD15] keeps context, quote, divider and decision footer in the same order for each state", () => {
     const id = "01ARZ3NDEKTSV4RRFFQ69G5FAB";
-    const initial = buildV2Payload("comment", {
+    const initial = buildV2Payload("comment", { layout_owner: "900000000000000099",
       id, layout_id: "01BX5ZZKBKACTAV9WEVGEMMVRY", user_id: "900000000000000003",
       body: "These layouts were part of a rollmaxxing test, do not use.", live_body: null,
       layout_name: "bemboo10", user_name: "deeroh",
@@ -330,7 +330,7 @@ describe("[LDB-MD15] Components V2 mod-queue message", () => {
 
   it("[LDB-MD15] quotes every line and budgets for an escaped denial reason without truncating the comment", () => {
     const id = "01ARZ3NDEKTSV4RRFFQ69G5FAB";
-    const candidate = { id, layout_id: "01BX5ZZKBKACTAV9WEVGEMMVRY", user_id: "900000000000000003",
+    const candidate = { id, layout_id: "01BX5ZZKBKACTAV9WEVGEMMVRY", user_id: "900000000000000003", layout_owner: "900000000000000099",
       body: "# Heading\n\n> quoted *text*", live_body: null, layout_name: "bemboo10", user_name: "deeroh" };
     const initial = buildV2Payload("comment", candidate);
     expect(nested(initial.components as unknown[]).find((c) => c.id === 41004)?.content)
@@ -350,7 +350,7 @@ describe("[LDB-MD15] Components V2 mod-queue message", () => {
   });
 
   it("[LDB-MD16] erases comment previews when a comment is deleted or replaced", () => {
-    const initial = buildV2Payload("comment", {
+    const initial = buildV2Payload("comment", { layout_owner: "900000000000000099",
       id: "01ARZ3NDEKTSV4RRFFQ69G5FAE", layout_id: "01BX5ZZKBKACTAV9WEVGEMMVRY",
       user_id: "900000000000000005", body: "private current text", live_body: "private former text",
       layout_name: "finch", user_name: null,
@@ -364,7 +364,7 @@ describe("[LDB-MD15] Components V2 mod-queue message", () => {
       expect(JSON.stringify(patched)).not.toContain("private former text");
     }
 
-    const long = buildV2Payload("comment", {
+    const long = buildV2Payload("comment", { layout_owner: "900000000000000099",
       id: "01ARZ3NDEKTSV4RRFFQ69G5FAE", layout_id: "01BX5ZZKBKACTAV9WEVGEMMVRY",
       user_id: "900000000000000005", body: "private current text ".repeat(120), live_body: "private former text ".repeat(120),
       layout_name: "finch", user_name: null,
@@ -381,7 +381,7 @@ describe("[LDB-MD15] Components V2 mod-queue message", () => {
 
 describe("[LDB-MD21] versioned review controls", () => {
   const id = "01ARZ3NDEKTSV4RRFFQ69G5FAB";
-  const initial = buildV2Payload("comment", {
+  const initial = buildV2Payload("comment", { layout_owner: "900000000000000099",
     id, layout_id: "01BX5ZZKBKACTAV9WEVGEMMVRY", user_id: "900000000000000003",
     body: "These layouts were part of a rollmaxxing test, do not use.", live_body: null,
     layout_name: "bemboo10", user_name: "deeroh",

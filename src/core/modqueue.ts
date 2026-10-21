@@ -277,6 +277,7 @@ interface CommentCandidate {
   user_id: string;
   body: string;
   layout_name: string;
+  layout_owner: string;
   user_name: string | null; // joined from authors; null if no author row
   has_live: number; // 1 if the user already has an approved comment here (an edit)
   live_body: string | null;
@@ -340,7 +341,8 @@ function buildCommentMessage(c: CommentCandidate): { content: string; attachment
   const layout = `[${escapeMarkdown(c.layout_name)}](<${SITE_ORIGIN}/l/${c.layout_id}>)`;
   const link = `[Open the inbox](<${INBOX_URL}>) · submission \`${c.id}\``;
   const edited = c.has_live === 1;
-  const headline = `${edited ? "Edited" : "New"} comment on **${layout}** by ${who} (${c.body.length} chars)`;
+  const authorLabel = c.user_id === c.layout_owner ? " (Layout Author)" : "";
+  const headline = `${edited ? "Edited" : "New"} comment on **${layout}** by ${who}${authorLabel} (${c.body.length} chars)`;
   const full = formatCommentText(c.body, edited ? c.live_body : null, 2000 - headline.length - link.length - 2);
   return {
     content: `${headline}\n${full.inline}\n${link}`,
@@ -507,7 +509,7 @@ export async function announceComment(db: Bindings["DB"], env: Bindings, id: str
     const c = await db
       .prepare(
         `SELECT s.id AS id, s.review_version, s.layout_id AS layout_id, s.user_id AS user_id, s.body AS body,
-                l.name AS layout_name, a.name AS user_name,
+                l.name AS layout_name, l.owner AS layout_owner, a.name AS user_name,
                 EXISTS (SELECT 1 FROM layout_comments b WHERE b.layout_id = s.layout_id AND b.user_id = s.user_id AND b.status = 'approved') AS has_live
                 , (SELECT b.body FROM layout_comments b WHERE b.layout_id = s.layout_id AND b.user_id = s.user_id AND b.status = 'approved' AND b.body IS NOT NULL ORDER BY b.decided_at DESC LIMIT 1) AS live_body
          FROM layout_comments s

@@ -279,7 +279,7 @@ describe("[LDB-MD21] Discord reopening", () => {
     await db.prepare(`INSERT INTO modqueue_notifications (kind, submission_id, message_id, shown_status, message_format, transport, channel_id)
       VALUES (?, ?, ?, ?, 'components_v2', 'bot', ?)`).bind(kind, id, messageId, status, CHANNEL).run();
     await db.prepare("INSERT OR IGNORE INTO admins (user_id, added_at) VALUES (?, ?)").bind(MOD, clock()).run();
-    const initial = kind === "comment" ? buildV2Payload("comment", { id, layout_id: layout, body: "normal comment", live_body: null, user_id: MOD, user_name: "mod", layout_name: "test" })
+    const initial = kind === "comment" ? buildV2Payload("comment", { id, layout_id: layout, body: "normal comment", live_body: null, user_id: MOD, user_name: "mod", layout_name: "test", layout_owner: MOD })
       : buildV2Payload("wpm", { id, layout_id: layout, wpm: 150, proof: "https://example.org/proof", user_id: MOD, user_name: "mod", layout_name: "test" });
     const patches: Record<string, unknown>[] = [];
     const requests: { url: string; method: string; body: Record<string, unknown> }[] = [];
