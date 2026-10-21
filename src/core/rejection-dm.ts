@@ -1,4 +1,4 @@
-// Private submitter-DM delivery for future moderation rejections. The
+// Private submitter-DM delivery for future moderation decisions. The
 // outbox stores routing identifiers only; content is rebuilt from the current
 // submission when a lease is delivered, so erased/replaced data is not kept.
 import type { Bindings } from "../env";
@@ -16,6 +16,7 @@ export interface RejectionDelivery {
 }
 
 export interface RejectionOutboxRow {
+  decision: "rejection" | "approval";
   delivery_key: string;
   event_seq: number;
   review_version: number;
@@ -80,16 +81,60 @@ export async function makeRejectionDelivery(input: RejectionDelivery): Promise<{
 // after the conditional event INSERT. SQLite's changes() is therefore the
 // event insert's count, while last_insert_rowid() is its actual event seq.
 export async function rejectionOutboxStatement(db: Bindings["DB"], input: RejectionDelivery): Promise<D1PreparedStatement> {
-  const { deliveryKey, nonce } = await makeRejectionDelivery(input);
+  return decisionOutboxStatement(db, input, "rejection");
+}
+
+export async function approvalOutboxStatement(db: Bindings["DB"], input: RejectionDelivery & { kind: "comment" | "wpm" }): Promise<D1PreparedStatement> {
+  return decisionOutboxStatement(db, input, "approval");
+}
+
+async function decisionOutboxStatement(db: Bindings["DB"], input: RejectionDelivery, decision: "rejection" | "approval"): Promise<D1PreparedStatement> {
+  const deliveryKey = `${decision}:${input.kind}:${input.submissionId}${input.reviewVersion ? `:${input.reviewVersion}` : ""}`;
+  const nonce = await discordNonceFor(deliveryKey);
   return db
     .prepare(
       `INSERT INTO discord_rejection_dm_outbox
         (delivery_key, event_seq, kind, submission_id, layout_id, recipient_id, nonce, status,
-         attempts, next_attempt_at, created_at, updated_at, review_version)
-       SELECT ?, last_insert_rowid(), ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?
+         attempts, next_attempt_at, created_at, updated_at, review_version, decision)
+       SELECT ?, last_insert_rowid(), ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?, ?
        WHERE changes() = 1`,
     )
-    .bind(deliveryKey, input.kind, input.submissionId, input.layoutId, input.recipientId, nonce, input.at, input.at, input.at, input.reviewVersion ?? 0);
+    .bind(deliveryKey, input.kind, input.submissionId, input.layoutId, input.recipientId, nonce, input.at, input.at, input.at, input.reviewVersion ?? 0, decision);
+}
+
+export function buildApprovalDmMessage(input: {
+  kind: "comment" | "wpm"; layoutName: string; layoutUrl: string;
+  commentBody?: string | null; wpm?: number | null; proof?: string | null;
+}): RejectionDmMessagePayload {
+  const name = safeText(input.layoutName, 100);
+  const url = safeUrl(input.layoutUrl);
+  const layoutLink = `View the layout: <${url}>`;
+  const intro = { type: 10, content: `Your ${input.kind === "comment" ? "comment on" : "WPM record for"} **${name}** was approved.` };
+  if (input.kind === "wpm") {
+    const proof = safeSubmittedUrl(input.proof);
+    const detail = typeof input.wpm === "number" && Number.isFinite(input.wpm)
+      ? `> **${Math.trunc(input.wpm)} WPM**${proof ? ` · proof: ${proof}` : ""}` : null;
+    return { payload: { flags: 1 << 15, components: [intro, ...(detail ? [{ type: 10, content: detail }] : []), { type: 10, content: layoutLink }], allowed_mentions: { parse: [] } } };
+  }
+  if (typeof input.commentBody !== "string") throw new Error("eligible approved comment body is unavailable");
+  const components = [intro, ...quotedTextDisplays(input.commentBody), { type: 10, content: layoutLink }];
+  if (components.reduce((length, component) => length + countCharacters(component.content), 0) <= 4000) {
+    return { payload: { flags: 1 << 15, components, allowed_mentions: { parse: [] } } };
+  }
+  return { payload: {
+    flags: 1 << 15,
+    components: [intro, { type: 13, file: { url: "attachment://approved-comment.txt" } }, { type: 10, content: layoutLink }],
+    attachments: [{ id: 0, filename: "approved-comment.txt" }],
+    allowed_mentions: { parse: [] },
+  }, attachmentText: input.commentBody };
+}
+
+function safeSubmittedUrl(value: string | null | undefined): string | null {
+  if (typeof value !== "string") return null;
+  try {
+    const url = new URL(value);
+    return (url.protocol === "https:" || url.protocol === "http:") && !/[\s<>`|]/.test(value) && value.length <= 512 ? `<${value}>` : null;
+  } catch { return null; }
 }
 
 // Render all current decision context at send time. Comments are never
@@ -224,7 +269,7 @@ export async function dispatchRejectionDms(
   const token = bindings.MODQUEUE_DISCORD_BOT_TOKEN;
   const summary = { sent: 0, retried: 0, terminal: 0 };
   const candidates = await db.prepare(
-    `SELECT delivery_key, event_seq, review_version, kind, submission_id, layout_id, recipient_id, nonce,
+    `SELECT delivery_key, event_seq, review_version, decision, kind, submission_id, layout_id, recipient_id, nonce,
             status, attempts, next_attempt_at, lease_token, lease_until, ambiguous_message_attempt_at
        FROM discord_rejection_dm_outbox
       WHERE (status = 'pending' AND next_attempt_at <= ?)
@@ -301,17 +346,20 @@ export async function dispatchRejectionDms(
     if (begin.meta.changes !== 1) continue;
     const messageRow = { ...row, ambiguous_message_attempt_at: previousAttempt ?? beforeMessage };
 
-    const dmMessage = buildRejectionDmMessage({
+    const messageInput = {
       kind: row.kind,
       layoutName: currentContent.layout_name,
-      layoutUrl: `https://akldb.org/l/${encodeURIComponent(content.layout_id)}`,
+      layoutUrl: `https://akldb.org/l/${encodeURIComponent(currentContent.layout_id)}`,
       reason: currentContent.reason,
       context: currentContent.context,
       wpm: currentContent.wpm ?? null,
       proof: currentContent.proof ?? null,
       linkUrl: currentContent.link_url ?? null,
       commentBody: currentContent.comment_body,
-    });
+    };
+    const dmMessage = row.decision === "approval"
+      ? buildApprovalDmMessage({ ...messageInput, kind: row.kind as "comment" | "wpm" })
+      : buildRejectionDmMessage(messageInput);
     try {
       const messageHeaders: Record<string, string> = {
         Authorization: `Bot ${token}`,
@@ -323,7 +371,7 @@ export async function dispatchRejectionDms(
       if (dmMessage.attachmentText !== undefined) {
         const form = new FormData();
         form.set("payload_json", JSON.stringify(dmMessage.payload));
-        form.set("files[0]", new Blob([dmMessage.attachmentText], { type: "text/plain;charset=utf-8" }), "rejected-comment.txt");
+        form.set("files[0]", new Blob([dmMessage.attachmentText], { type: "text/plain;charset=utf-8" }), row.decision === "approval" ? "approved-comment.txt" : "rejected-comment.txt");
         messageBody = form;
       } else {
         messageHeaders["Content-Type"] = "application/json";
@@ -361,6 +409,7 @@ export async function dispatchRejectionDms(
 }
 
 async function readEligibleContent(db: Bindings["DB"], row: RejectionOutboxRow): Promise<DeliveryContent | null> {
+  if (row.decision === "approval" && row.kind === "link") return null;
   const source = row.kind === "comment" ? "layout_comments" : row.kind === "link" ? "link_submissions" : "wpm_submissions";
   const recipient = row.kind === "link" ? "submitted_by" : "user_id";
   const cycleEligibility = row.kind === "link" ? "" : " AND s.review_version = ?";
@@ -369,7 +418,7 @@ async function readEligibleContent(db: Bindings["DB"], row: RejectionOutboxRow):
     `SELECT s.${recipient} AS recipient_id, s.reason, l.name AS layout_name, l.deleted,
             ${row.kind === "comment" ? "s.body" : "NULL"} AS comment_body,
             ${row.kind === "wpm" ? "s.wpm" : "NULL"} AS wpm, ${row.kind === "wpm" ? "s.proof" : "NULL"} AS proof, ${row.kind === "link" ? "s.url" : "NULL"} AS link_url,
-            s.status = 'rejected'${bodyEligibility}${cycleEligibility} AS eligible
+            s.status = '${row.decision === "approval" ? "approved" : "rejected"}'${bodyEligibility}${cycleEligibility} AS eligible
        FROM ${source} s JOIN layouts l ON l.id = s.layout_id
       WHERE s.id = ? AND s.layout_id = ?`,
   ).bind(...(row.kind === "link" ? [] : [row.review_version]), row.submission_id, row.layout_id).first<Omit<DeliveryContent, "context"> & { deleted: number }>();

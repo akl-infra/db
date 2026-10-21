@@ -182,8 +182,9 @@ export function commentsRoute(authDeps: AuthDeps) {
     const actor = c.get("actor");
     if (!actor.admin) throw notAdmin();
     const body = parseReviewApproveBody(await readOptionalJson(c.req));
-    const submission = await comments.approveComment(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), c.req.param("id"), body.review_version ?? 0);
+    const submission = await comments.approveComment(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), c.req.param("id"), body.review_version ?? 0, c.env.MODQUEUE_DISCORD_DMS === "true");
     c.executionCtx.waitUntil(updateQueueNotification(c.env.DB, c.env, "comment", submission.id));
+    c.executionCtx.waitUntil(dispatchRejectionDms(c.env.DB, c.env, resolveNow(c.env)));
     return c.json({ submission });
   });
 

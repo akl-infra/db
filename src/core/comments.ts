@@ -10,7 +10,7 @@ import type { Bindings } from "../env";
 import { invalidComment, notFound, ownComment, reviewConflict } from "./errors";
 import { appendInfo, appendModeration, rejectionModerationStatement } from "./events";
 import { reopenReview, reviewHistoryStatement, type ReviewExpectation } from "./moderation-review";
-import { rejectionOutboxStatement } from "./rejection-dm";
+import { approvalOutboxStatement, rejectionOutboxStatement } from "./rejection-dm";
 import { byRef, type LayoutRow, type Source } from "./records";
 import type { Clock } from "./time";
 
@@ -235,7 +235,7 @@ export async function listCommentQueue(db: Bindings["DB"], status: CommentQueueS
 // `replaced` (text erased) only if this row is still pending, and this row
 // is claimed (`changes === 1` wins), so two admins deciding at once can
 // never both succeed and a loser never retires the live text.
-export async function approveComment(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, id: string, expectedReviewVersion = 0): Promise<CommentRow> {
+export async function approveComment(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, id: string, expectedReviewVersion = 0, notifySubmitter = false): Promise<CommentRow> {
   const submission = await loadComment(db, id);
   if (submission.review_version !== expectedReviewVersion) throw reviewConflict(id);
   if (submission.status !== "pending") throw notFound(`comment submission '${id}' is not pending`, id);
@@ -254,6 +254,10 @@ export async function approveComment(db: Bindings["DB"], now: Clock, actor: Acto
       .bind(actor.user_id, at, id, expectedReviewVersion),
     rejectionModerationStatement(db, at, { kind: "comment_approved", layoutId: submission.layout_id,
       actor: actor.user_id, via: actor.via, source: sourceOf(actor, version), detail: { submission_id: submission.id, layout_id: submission.layout_id, user_id: submission.user_id } }),
+    ...(notifySubmitter ? [await approvalOutboxStatement(db, {
+      kind: "comment", submissionId: id, layoutId: submission.layout_id,
+      recipientId: submission.user_id, at, reviewVersion: expectedReviewVersion,
+    })] : []),
     reviewHistoryStatement(db, "comment", id, "approved", actor.user_id, at, null, expectedReviewVersion),
   ]);
   if (results[1]!.meta.changes !== 1) throw reviewConflict(id);

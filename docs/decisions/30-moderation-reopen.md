@@ -79,7 +79,7 @@ as approved → pending → approved still requires an update to replace stale
 controls. Interactive controls are restricted to bot-owned messages and the
 existing action feature flag; legacy messages retain their site link.
 
-Reopening expires unsent rejection notification jobs. A subsequent rejection
+Reopening expires unsent approval and rejection notification jobs. A subsequent rejection
 in a new cycle has a distinct delivery identity, so it can notify the submitter
 without reviving an old job. Delivery checks that its cycle is still eligible.
 A Discord request already in flight cannot be recalled, and a delivered DM is

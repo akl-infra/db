@@ -402,6 +402,22 @@ describe("[LDB-MD21] Discord reopening", () => {
     expect(requests.every((request) => !request.url.includes("/webhooks/"))).toBe(true);
   });
 
+  it.each(["comment", "wpm"] as const)("[LDB-MD23] Discord approval of %s enqueues and immediately dispatches its DM", async (kind) => {
+    const { id, requests } = await seedReview("pending", kind);
+    const context = createExecutionContext();
+    const enabled = { ...envWith(), MODQUEUE_DISCORD_DMS: "true" };
+    const request = await signedRequest(interaction(3, "900000000000000576", {
+      custom_id: `aklmod2|${kind}|approve|${id}|0`,
+    }, { message: { id: messageId } }), { timestamp: String(Math.floor(Date.now() / 1000)) });
+    expect((await app.fetch(request, enabled, context)).status).toBe(200);
+    await waitOnExecutionContext(context);
+    const row = await db.prepare("SELECT decision, status, discord_message_id FROM discord_rejection_dm_outbox WHERE submission_id = ?")
+      .bind(id).first<{ decision: string; status: string; discord_message_id: string }>();
+    expect(row).toEqual({ decision: "approval", status: "sent", discord_message_id: messageId });
+    expect(requests.some((entry) => entry.url.endsWith("/users/@me/channels"))).toBe(true);
+    expect(requests.some((entry) => entry.url.endsWith(`/channels/${messageId}/messages`))).toBe(true);
+  });
+
   it("[LDB-MD21] stale pending buttons, denial modal and queued decisions cannot cross a reopened cycle", async () => {
     const { id } = await seedReview("pending");
     const modal = await click(id, "900000000000000530", "deny");

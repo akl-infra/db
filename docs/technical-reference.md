@@ -187,7 +187,7 @@ section for the invariants it used to satisfy.
 | `MODQUEUE_DISCORD_CHANNEL_ID` | var or secret (optional) | `src/core/modqueue.ts`, `src/core/discord-interactions.ts` (LDB-MD16) | allowlisted moderation channel snowflake used for bot-owned cards and strict interaction checks; production currently uses a Worker secret |
 | `MODQUEUE_DISCORD_CARDS` | secret (optional) | `src/core/modqueue.ts` (LDB-MD16) | unset disables bot cards; set to `true` only after dedicated bot credentials, app config and channel access are verified; new cards then use Bot REST and record ownership |
 | `MODQUEUE_DISCORD_ACTIONS` | secret (optional) | `src/core/discord-interactions.ts` (LDB-MD16) | unset disables approve/deny actions; set to `true` only after Discord's interaction endpoint is configured and verified |
-| `MODQUEUE_DISCORD_DMS` | secret (optional) | `src/core/rejection-dm.ts`, moderation routes and `src/core/discord-interactions.ts` | unset disables submitter DMs; set to `true` to enqueue a private DM only for a winning future rejection from the API or Discord action; approvals remain quiet; delivery also requires the bot-token secret |
+| `MODQUEUE_DISCORD_DMS` | secret (optional) | `src/core/rejection-dm.ts`, moderation routes and `src/core/discord-interactions.ts` | unset disables submitter DMs; set to `true` to enqueue a private DM for a winning future rejection, or a reviewed WPM/comment approval, from the API or Discord action; delivery also requires the bot-token secret |
 | `CLOUDFLARE_DB_TOKEN` | repo secret (CI) | `.github/workflows/db.yml`'s `deploy` job (S7) | a Cloudflare API token with Workers Scripts + D1 + R2 edit, separate from the site's Pages token |
 | `CLOUDFLARE_DB_ACCOUNT_ID` | repo secret (CI) | `.github/workflows/db.yml`'s `deploy` job (S7) | the NEW community account's id (00 §1) -- NOT the site's `CLOUDFLARE_ACCOUNT_ID` |
 | `DB_BASE_URL` | repo/org variable (CI) | `.github/workflows/db.yml`'s `daily` job (S7) | the deployed service's own origin, e.g. `https://akl-db.<account>.workers.dev`; set once the service is deployed |
@@ -253,7 +253,7 @@ error anywhere but a stale `/v1/meta` -- `POST /v1/admin/nightly/tick`
 
 | every invocation | hour=3, minute=0 also |
 |---|---|
-| best-effort mod-queue announce/status reconciliation; bounded Discord action continuation drain (including expiry cleanup); bounded rejection-DM outbox delivery; each transport is internally gated and disabled when its configuration/gate is unset | `pruneAuthCache`, `pruneRateLimits`, `pruneNonces`, `writeDump` (the nightly dump, below) |
+| best-effort mod-queue announce/status reconciliation; bounded Discord action continuation drain (including expiry cleanup); bounded moderation-DM outbox delivery; each transport is internally gated and disabled when its configuration/gate is unset | `pruneAuthCache`, `pruneRateLimits`, `pruneNonces`, `writeDump` (the nightly dump, below) |
 
 [LDB-X2] Two more columns used to exist here -- the cmini import tick, run
 on every invocation, and the diff cron at hour=4/minute=0 -- deleted along

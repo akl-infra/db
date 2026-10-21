@@ -1,13 +1,13 @@
-// [LDB-MD18] Private rejection-only Discord DMs: atomic winner/enqueue,
+// [LDB-MD18] Private rejection Discord DMs: atomic winner/enqueue,
 // durable lease fencing, nonce retry suppression, and public dump exclusion.
 import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { ulid } from "ulidx";
 import type { Actor } from "../../src/auth/actor";
-import { rejectComment } from "../../src/core/comments";
+import { approveComment, rejectComment, reopenComment, deleteOwnComment } from "../../src/core/comments";
 import { rejectSubmission } from "../../src/core/links";
-import { buildRejectionDmMessage, dispatchRejectionDms } from "../../src/core/rejection-dm";
-import { rejectWpm } from "../../src/core/wpm";
+import { buildApprovalDmMessage, buildRejectionDmMessage, dispatchRejectionDms } from "../../src/core/rejection-dm";
+import { approveWpm, rejectWpm } from "../../src/core/wpm";
 import type { Bindings } from "../../src/env";
 import { buildDump } from "../../src/dump/write";
 import { restoreSql } from "../../src/dump/restore";
@@ -373,5 +373,77 @@ describe("[LDB-MD18] rejection DM outbox", () => {
     expect(components.slice(1, -1).map((component) => String(component.content).slice(2).replace(/\n> /g, "\n")).join("")).toBe(body);
     const overLimit = buildRejectionDmMessage({ ...input, commentBody: body + "x" });
     expect(overLimit.attachmentText).toBe(body + "x");
+  });
+});
+
+describe("[LDB-MD23] approval DMs", () => {
+  it("[LDB-MD23] rolls back an approval and its event when private enqueue fails", async () => {
+    await setup();
+    await db.prepare(`CREATE TRIGGER approval_outbox_abort BEFORE INSERT ON discord_rejection_dm_outbox
+      WHEN NEW.decision = 'approval' BEGIN SELECT RAISE(ABORT, 'approval enqueue failed'); END`).run();
+    try {
+      await expect(approveWpm(db, clock, actor, null, ids.wpm, 0, true)).rejects.toBeTruthy();
+      expect(await db.prepare("SELECT status FROM wpm_submissions WHERE id = ?").bind(ids.wpm).first()).toEqual({ status: "pending" });
+      expect(await outbox(ids.wpm)).toBeNull();
+      expect((await db.prepare("SELECT COUNT(*) AS n FROM events WHERE kind = 'wpm_approved' AND detail_json LIKE ?")
+        .bind(`%${ids.wpm}%`).first<{ n: number }>())?.n).toBe(0);
+    } finally {
+      await db.prepare("DROP TRIGGER approval_outbox_abort").run();
+    }
+  });
+
+  it("[LDB-MD23] queues only winning opted-in approvals with event and history, and expires a reopened cycle", async () => {
+    await setup();
+    await approveComment(db, clock, actor, null, ids.comment, 0, true);
+    await approveWpm(db, clock, actor, null, ids.wpm, 0, true);
+    for (const id of [ids.comment, ids.wpm]) {
+      const row = await outbox(id);
+      expect(row).toMatchObject({ decision: "approval", status: "pending", review_version: 0, recipient_id: recipient });
+      expect(String(row?.delivery_key)).toMatch(/^approval:/);
+      expect(await db.prepare("SELECT 1 FROM events WHERE seq = ?").bind(row?.event_seq).first()).not.toBeNull();
+      expect(await db.prepare("SELECT action FROM moderation_review_history WHERE submission_id = ?").bind(id).first()).toEqual({ action: "approved" });
+    }
+    await expect(approveComment(db, clock, actor, null, ids.comment, 0, true)).rejects.toBeTruthy();
+    expect((await db.prepare("SELECT COUNT(*) AS n FROM discord_rejection_dm_outbox WHERE submission_id = ?").bind(ids.comment).first<{ n: number }>())?.n).toBe(1);
+    await reopenComment(db, clock, actor, null, ids.comment, { status: "approved", review_version: 0 });
+    expect((await outbox(ids.comment))?.status).toBe("expired");
+    await approveComment(db, clock, actor, null, ids.comment, 1, true);
+    const deliveries = await db.prepare("SELECT delivery_key, nonce, status FROM discord_rejection_dm_outbox WHERE submission_id = ? ORDER BY review_version").bind(ids.comment).all<{ delivery_key: string; nonce: string; status: string }>();
+    expect(deliveries.results).toHaveLength(2);
+    expect(deliveries.results[0]!.nonce).not.toBe(deliveries.results[1]!.nonce);
+    expect(deliveries.results.map((r) => r.status)).toEqual(["expired", "pending"]);
+  });
+
+  it("[LDB-MD23] renders both cards, sends via the durable path, and stops an erased comment", async () => {
+    await setup();
+    const comment = buildApprovalDmMessage({ kind: "comment", layoutName: "Test", layoutUrl: "https://akldb.org/l/test", commentBody: "hello @everyone **there**" });
+    expect(comment.payload.components?.map((c) => c.content)).toEqual([
+      "Your comment on **Test** was approved.", "> hello @everyone \\*\\*there\\*\\*", "View the layout: <https://akldb.org/l/test>",
+    ]);
+    expect(comment.payload.allowed_mentions).toEqual({ parse: [] });
+    const long = buildApprovalDmMessage({ kind: "comment", layoutName: "Test", layoutUrl: "https://akldb.org/l/test", commentBody: "x".repeat(4000) });
+    expect(long.attachmentText).toHaveLength(4000);
+    expect(long.payload.attachments?.[0]?.filename).toBe("approved-comment.txt");
+    const wpm = buildApprovalDmMessage({ kind: "wpm", layoutName: "Test", layoutUrl: "https://akldb.org/l/test", wpm: 84, proof: "https://example.org/proof" });
+    expect(wpm.payload.components?.map((c) => c.content)).toEqual([
+      "Your WPM record for **Test** was approved.", "> **84 WPM** · proof: <https://example.org/proof>", "View the layout: <https://akldb.org/l/test>",
+    ]);
+    await approveWpm(db, clock, actor, null, ids.wpm, 0, true);
+    await approveComment(db, clock, actor, null, ids.comment, 0, true);
+    await deleteOwnComment(db, clock, { ...actor, user_id: recipient, admin: false }, null, ids.layout);
+    const sent: Record<string, unknown>[] = [];
+    const result = await dispatchRejectionDms(db, {
+      DB: db, MODQUEUE_DISCORD_DMS: "true", MODQUEUE_DISCORD_BOT_TOKEN: "test-only-token", DISCORD_API_URL: "https://discord.test/api",
+    }, clock, async (url, init) => {
+      if (String(url).endsWith("/users/@me/channels")) return Response.json({ id: "900000000000000101" });
+      sent.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      return Response.json({ id: "900000000000000102" });
+    });
+    expect(result).toEqual({ sent: 1, retried: 0, terminal: 1 });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.nonce).toHaveLength(24);
+    expect(sent[0]?.allowed_mentions).toEqual({ parse: [] });
+    expect((await outbox(ids.comment))?.status).toBe("expired");
+    expect((await outbox(ids.wpm))?.status).toBe("sent");
   });
 });

@@ -27,7 +27,7 @@ const TABLE_ORDER_DELETE = [
   "events",
   "modqueue_notifications", // private webhook message ids/status; never present in the public dump
   "moderation_review_history", // private decisions/reasons, never included in public dumps
-  "discord_rejection_dm_outbox", // private rejection delivery identifiers/state; never present in the public dump
+  "discord_rejection_dm_outbox", // private moderation DM delivery identifiers/state; never present in the public dump
   "discord_pending_actions", // private expiring interaction tokens/actions; never dumped
   "discord_deny_modals", // private short-lived modal bindings; never dumped
   "discord_reopen_actions", // private reopening jobs and interaction tokens; never dumped

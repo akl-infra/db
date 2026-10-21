@@ -260,10 +260,10 @@ async function performDecision(db: Bindings["DB"], env: Bindings, now: Clock, ac
       if (action.action === "approve") await links.approveSubmission(db, now, actor, null, action.submission_id);
       else await links.rejectSubmission(db, now, actor, null, action.submission_id, action.reason ?? undefined, { notifySubmitter: env.MODQUEUE_DISCORD_DMS === "true" });
     } else if (action.kind === "wpm") {
-      if (action.action === "approve") await wpm.approveWpm(db, now, actor, null, action.submission_id, action.expected_review_version);
+      if (action.action === "approve") await wpm.approveWpm(db, now, actor, null, action.submission_id, action.expected_review_version, env.MODQUEUE_DISCORD_DMS === "true");
       else await wpm.rejectWpm(db, now, actor, null, action.submission_id, action.reason ?? undefined, { notifySubmitter: env.MODQUEUE_DISCORD_DMS === "true", reviewVersion: action.expected_review_version });
     } else {
-      if (action.action === "approve") await comments.approveComment(db, now, actor, null, action.submission_id, action.expected_review_version);
+      if (action.action === "approve") await comments.approveComment(db, now, actor, null, action.submission_id, action.expected_review_version, env.MODQUEUE_DISCORD_DMS === "true");
       else await comments.rejectComment(db, now, actor, null, action.submission_id, action.reason ?? undefined, { notifySubmitter: env.MODQUEUE_DISCORD_DMS === "true", reviewVersion: action.expected_review_version });
     }
   } catch (error) {

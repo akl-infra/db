@@ -10,7 +10,7 @@ import type { Bindings } from "../env";
 import { sourceMessageConflict, badRequest, invalidProof, invalidWpm, notFound, reviewConflict } from "./errors";
 import { appendInfo, rejectionModerationStatement } from "./events";
 import { reopenReview, reviewHistoryStatement, type ReviewExpectation } from "./moderation-review";
-import { rejectionOutboxStatement } from "./rejection-dm";
+import { approvalOutboxStatement, rejectionOutboxStatement } from "./rejection-dm";
 import { byRef, type LayoutRow, type Source } from "./records";
 import { verifyDiscordProofAuthor, type DiscordProofAccess } from "./modqueue-proof";
 import type { Clock } from "./time";
@@ -274,7 +274,7 @@ export async function listWpmQueue(db: Bindings["DB"], status: WpmQueueStatus): 
 
 // POST /v1/admin/wpm-queue/:id/approve: `404 not_found` if the layout is a
 // tombstone (restore first) or the submission doesn't exist / isn't pending.
-export async function approveWpm(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, id: string, expectedReviewVersion = 0): Promise<WpmSubmissionRow> {
+export async function approveWpm(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, id: string, expectedReviewVersion = 0, notifySubmitter = false): Promise<WpmSubmissionRow> {
   const submission = await loadSubmission(db, id);
   if (submission.review_version !== expectedReviewVersion) throw reviewConflict(id);
   if (submission.status !== "pending") throw notFound(`wpm submission '${id}' is not pending`, id);
@@ -288,6 +288,10 @@ export async function approveWpm(db: Bindings["DB"], now: Clock, actor: Actor, v
       .bind(actor.user_id, at, id, expectedReviewVersion),
     rejectionModerationStatement(db, at, { kind: "wpm_approved", layoutId: submission.layout_id,
       actor: actor.user_id, via: actor.via, source: sourceOf(actor, version), detail: { submission_id: submission.id, user_id: submission.user_id, wpm: submission.wpm, proof: submission.proof } }),
+    ...(notifySubmitter ? [await approvalOutboxStatement(db, {
+      kind: "wpm", submissionId: id, layoutId: submission.layout_id,
+      recipientId: submission.user_id, at, reviewVersion: expectedReviewVersion,
+    })] : []),
     reviewHistoryStatement(db, "wpm", id, "approved", actor.user_id, at, null, expectedReviewVersion),
   ]);
   if (results[0]!.meta.changes !== 1) throw reviewConflict(id);

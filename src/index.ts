@@ -304,7 +304,7 @@ app.post("/discord/interactions", async (c) => {
     // persist work that must run now; cron is only a recovery path.
     if (callback.type === 5 || callback.type === 6) c.executionCtx.waitUntil((async () => {
       await drainDiscordActions(c.env.DB, c.env, systemClock);
-      await runJob("discord-rejection-dms", () => dispatchRejectionDms(c.env.DB, c.env, systemClock));
+      await runJob("discord-moderation-dms", () => dispatchRejectionDms(c.env.DB, c.env, systemClock));
     })());
   }
   return response;
@@ -373,7 +373,7 @@ async function scheduled(event: ScheduledController, env: Bindings, _ctx: Execut
   // (LDB-MD12) is that gate, checked inside `notifyPending` itself.
   await runJob("modqueue-notify", () => notifyPending(env.DB, env, systemClock));
   await runJob("discord-interaction-actions", () => drainDiscordActions(env.DB, env, systemClock));
-  await runJob("discord-rejection-dms", () => dispatchRejectionDms(env.DB, env, systemClock));
+  await runJob("discord-moderation-dms", () => dispatchRejectionDms(env.DB, env, systemClock));
 
   // [LDB-X2] The cmini import tick and the upstream diff tick both used to
   // run here (LDB-I27's kill switch had already turned both off since

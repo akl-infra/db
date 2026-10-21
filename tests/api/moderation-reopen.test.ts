@@ -36,6 +36,25 @@ async function seed() {
 const conflict = { status: 409, body: { error: "review_conflict" } };
 
 describe("[LDB-MD20] moderation reopening", () => {
+  it("[LDB-MD23] REST approval routes gate the private DM enqueue for WPM and comments", async () => {
+    const { comment, wpm } = await seed();
+    const fake = actorFixture();
+    const admin = register(fake, `approval-dm-admin-${comment}`, actor.user_id);
+    const oldGate = bindings.MODQUEUE_DISCORD_DMS;
+    const oldToken = bindings.MODQUEUE_DISCORD_BOT_TOKEN;
+    try {
+      bindings.MODQUEUE_DISCORD_DMS = "true";
+      bindings.MODQUEUE_DISCORD_BOT_TOKEN = undefined;
+      for (const [kind, id] of [["comment", comment], ["wpm", wpm]] as const) {
+        expect((await writeFetch(`/v1/admin/${kind}-queue/${id}/approve`, "POST", admin)).status).toBe(200);
+        expect(await db.prepare("SELECT decision, status FROM discord_rejection_dm_outbox WHERE submission_id = ?").bind(id).first())
+          .toEqual({ decision: "approval", status: "pending" });
+      }
+    } finally {
+      bindings.MODQUEUE_DISCORD_DMS = oldGate;
+      bindings.MODQUEUE_DISCORD_BOT_TOKEN = oldToken;
+    }
+  });
   it("[LDB-MD20] repeats rejection cycles, cancels delivery and preserves private decisions without rewinding events", async () => {
     const { comment } = await seed();
     await rejectComment(db, clock, actor, null, comment, "private reason one", { notifySubmitter: true });
