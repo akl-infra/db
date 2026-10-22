@@ -44,5 +44,10 @@
   },
   "scripts": {
     "build": "tsup"
+  },
+  "overrides": {
+    "tsup": {
+      "esbuild": "^0.28.2"
+    }
   }
 }

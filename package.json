@@ -23,15 +23,27 @@
     "ulidx": "^2.4.1"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.22.0",
+    "@cloudflare/vitest-pool-workers": "^0.23.0",
     "@cloudflare/workers-types": "^5.20260908.1",
     "@types/node": "^24.13.3",
     "fast-check": "^4.9.0",
     "smol-toml": "^1.8.0",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.11",
-    "wrangler": "^4.130.0",
+    "vitest": "^4.1.12",
+    "wrangler": "^4.151.3",
     "yaml": "^2.9.0"
+  },
+  "overrides": {
+    "@cloudflare/vitest-pool-workers": {
+      "wrangler": "$wrangler"
+    },
+    "miniflare": {
+      "undici": "^7.30.1",
+      "sharp": "^0.35.5"
+    },
+    "tsup": {
+      "esbuild": "^0.28.2"
+    }
   }
 }
