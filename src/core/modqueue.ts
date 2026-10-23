@@ -19,6 +19,7 @@
 // belt-and-suspenders layer, not the only one.
 import type { Bindings } from "../env";
 import type { Clock } from "./time";
+import { deliver, DeliveryDeferred, discordJson } from "./modqueue-delivery";
 import { buildV2Payload, buildV2StatusPatch, DISCORD_COMPONENTS_V2_FLAG, formatCommentText, queueUserName, repairQueueUser, type CommentCardData, type LinkCardData, type QueueStatus, type TextFileAttachment, type MessageFileAttachment, type WpmCardData } from "./modqueue-message";
 import { resolveProofPreview, type ProofPreview } from "./modqueue-proof";
 
@@ -154,18 +155,18 @@ async function reconcileOne(db: Bindings["DB"], env: Bindings, kind: QueueKind, 
     const url = messageUrl(env, row.transport, row.channel_id, row.message_id, row.message_format);
     const headers = requestHeaders(env, row.transport);
     if (url === null || headers === null) return;
-    const get = await fetchImpl(url, {
+    const get = await deliver(db, fetchImpl, url, {
       method: "GET",
       headers,
       signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS),
-    });
+    }, async (response) => ({ ok: response.ok, status: response.status, message: response.ok ? await discordJson(response) : null }));
     if (!get.ok) {
       console.error(`modqueue message read failed for ${kind} submission '${id}' with status ${get.status}`);
       if (get.status === 404) await db.prepare("DELETE FROM modqueue_notifications WHERE kind = ? AND submission_id = ?").bind(kind, id).run();
       else await failedStatusEdit(db, kind, id);
       return;
     }
-    let message: unknown = await get.json();
+    let message: unknown = get.message;
     // Only one reconciler may edit a message at a time. Re-read source state
     // immediately before PATCH and once after it; if a decision/deletion
     // moved during the network call, loop and make the message converge to
@@ -193,12 +194,12 @@ async function reconcileOne(db: Bindings["DB"], env: Bindings, kind: QueueKind, 
           patchBody.attachments = kind === "comment" && (state.status === "deleted" || state.status === "replaced") ? [] : message.attachments;
         }
       }
-      const response = await fetchImpl(url, {
+      const response = await deliver(db, fetchImpl, url, {
         method: "PATCH",
         headers: requestHeaders(env, row.transport, true)!,
         body: JSON.stringify(patchBody),
         signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS),
-      });
+      }, async (response) => ({ ok: response.ok, status: response.status }));
       if (!response.ok) {
         console.error(`modqueue status edit failed for ${kind} submission '${id}' with status ${response.status}`);
         if (response.status === 404) await db.prepare("DELETE FROM modqueue_notifications WHERE kind = ? AND submission_id = ?").bind(kind, id).run();
@@ -217,7 +218,8 @@ async function reconcileOne(db: Bindings["DB"], env: Bindings, kind: QueueKind, 
     }
     // A later cron sweep sees the still-different source/shown status.
     await failedStatusEdit(db, kind, id);
-  } catch {
+  } catch (error) {
+    if (error instanceof DeliveryDeferred) return;
     console.error(`modqueue status reconciliation failed for ${kind} submission '${id}'`);
     try { await failedStatusEdit(db, kind, id); } catch { /* retain a safe no-throw boundary */ }
   } finally {
@@ -415,6 +417,11 @@ async function sweep<C extends { id: string; review_version?: number; source_mes
     return;
   }
 
+  const gatedFetch: typeof fetch = async (input, init) => deliver(db, fetchImpl, String(input), init ?? {}, async (response) => {
+    if (!response.ok) return new Response(null, { status: response.status });
+    return Response.json(await discordJson(response), { status: response.status });
+  });
+
   for (const candidate of candidates) {
     const claimedAt = now();
     let won: boolean;
@@ -443,7 +450,7 @@ async function sweep<C extends { id: string; review_version?: number; source_mes
       const url = messageUrl(env, transport, channelId, undefined, format);
       const request = discordPost(body, env, transport);
       if (url === null || request === null) { await release(db, queue.table, candidate.id, claimedAt); return; }
-      let res = await fetchImpl(url, {
+      let res = await gatedFetch(url, {
         method: "POST",
         headers: request.headers,
         body: request.body,
@@ -455,11 +462,9 @@ async function sweep<C extends { id: string; review_version?: number; source_mes
         await res.body?.cancel();
         const withoutImage: ProofPreview = preview.kind === "youtube" ? { kind: "youtube", videoUrl: preview.videoUrl } : { kind: "unavailable" };
         const fallback = discordPost(buildV2Payload("wpm", candidate as unknown as WpmCardData, actionsEnabled, withoutImage), env, transport)!;
-        res = await fetchImpl(url, { method: "POST", headers: fallback.headers, body: fallback.body, signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS) });
+        res = await gatedFetch(url, { method: "POST", headers: fallback.headers, body: fallback.body, signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS) });
       }
-      // A Discord 429 is just another non-2xx here (no `Retry-After`
-      // parsing) -- releasing the claim is enough: the cron's next
-      // 5-minute tick simply tries again, same as any other failure.
+      // Definitive failures release the claim for the next cron sweep.
       if (!res.ok) {
         console.error(`notifyPending: ${transport} post for submission '${candidate.id}' failed with status ${res.status}`);
         await release(db, queue.table, candidate.id, claimedAt);
