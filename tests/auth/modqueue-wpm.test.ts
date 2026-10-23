@@ -213,6 +213,11 @@ describe("[LDB-WPM8] notifyPending covers the WPM queue", () => {
       expect(failing.about(subId), String(outcome)).toHaveLength(1);
       expect((await readWpm(subId)).notified_at, String(outcome)).toBeNull();
     }
+    // A fresh caller must still honor Discord's durable cooldown.
+    const deferred = new FakeWebhook();
+    await notifyPending(db, envWith(WEBHOOK_URL), clock, deferred.fetchImpl);
+    expect(deferred.about(subId)).toHaveLength(0);
+    await db.prepare("UPDATE modqueue_delivery_gate SET retry_at = 0 WHERE id = 1").run();
     const succeeding = new FakeWebhook();
     await notifyPending(db, envWith(WEBHOOK_URL), clock, succeeding.fetchImpl);
     expect(succeeding.about(subId)).toHaveLength(1);

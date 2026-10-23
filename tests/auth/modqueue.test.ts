@@ -205,6 +205,23 @@ describe("[LDB-MD11] [LDB-MD12] notifyPending", () => {
     expect(retried?.body.content.startsWith("❌ REJECTED\n")).toBe(true);
   });
 
+  it("[LDB-MD15] keeps rate-limited edits dirty and cron converges after cooldown", async () => {
+    const layoutId = await freshLayout(uniqueName("modq-cooldown"));
+    const id = await insertSubmission({ layoutId, url: "https://example.org/cooldown", submittedBy: "900000000000000025" });
+    await notifyPending(db, envWith(WEBHOOK_URL), clock, new FakeWebhook().fetchImpl);
+    await db.prepare("UPDATE link_submissions SET status = 'rejected' WHERE id = ?").bind(id).run();
+    const limited = new FakeWebhook((i) => i === 1 ? 429 : 200);
+    await updateQueueNotification(db, envWith(WEBHOOK_URL), "link", id, limited.fetchImpl);
+    const fresh = new FakeWebhook();
+    await notifyPending(db, envWith(WEBHOOK_URL), clock, fresh.fetchImpl);
+    expect(fresh.requests).toHaveLength(0);
+    expect(await db.prepare("SELECT shown_status FROM modqueue_notifications WHERE submission_id = ?").bind(id).first()).toEqual({ shown_status: "pending" });
+    await db.prepare("UPDATE modqueue_delivery_gate SET retry_at = 0 WHERE id = 1").run();
+    await notifyPending(db, envWith(WEBHOOK_URL), clock, fresh.fetchImpl);
+    expect(fresh.requests.some((r) => r.method === "PATCH" && r.body.content.startsWith("❌ REJECTED"))).toBe(true);
+    expect(await db.prepare("SELECT shown_status FROM modqueue_notifications WHERE submission_id = ?").bind(id).first()).toEqual({ shown_status: "rejected" });
+  });
+
   it("[LDB-MD15] drops missing Discord messages and tracks repeated failures for fair retries", async () => {
     const layoutId = await freshLayout(uniqueName("modq-edit-abandon"));
     const missingId = await insertSubmission({ layoutId, url: "https://example.org/gone", submittedBy: "900000000000000026" });
@@ -283,6 +300,8 @@ describe("[LDB-MD11] [LDB-MD12] notifyPending", () => {
     const subRateLimited = await insertSubmission({ layoutId, url: "https://example.org/429", submittedBy: "900000000000000014" });
     await notifyPending(db, envWith(WEBHOOK_URL), clock, rateLimited.fetchImpl);
     expect((await readSubmission(subRateLimited)).notified_at).toBeNull();
+
+    await db.prepare("UPDATE modqueue_delivery_gate SET retry_at = 0 WHERE id = 1").run();
 
     // Both rows are left `pending` with `notified_at` still NULL on
     // purpose (that's the whole point of the assertions above) -- D1
