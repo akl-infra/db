@@ -471,9 +471,10 @@ async function sweep<C extends { id: string; review_version?: number; source_mes
       } else {
         await savePostedMessage(db, env, kind, candidate.id, format, transport, channelId, res, fetchImpl, candidate.review_version ?? 0, candidate.source_message_url ?? null);
       }
-    } catch {
-      console.error(`notifyPending: webhook post for submission '${candidate.id}' threw`);
+    } catch (error) {
       await release(db, queue.table, candidate.id, claimedAt);
+      if (error instanceof DeliveryDeferred) break; // shared gate: leave the rest unclaimed for cron
+      console.error(`notifyPending: webhook post for submission '${candidate.id}' threw`);
     }
   }
 }

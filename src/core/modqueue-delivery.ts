@@ -25,7 +25,8 @@ export async function discordJson(response: Response): Promise<unknown> {
     }
   } finally {
     clearTimeout(timer);
-    await reader.cancel();
+    void reader.cancel().catch(() => {});
+    reader.releaseLock();
   }
   const bytes = new Uint8Array(size);
   let offset = 0;
@@ -69,7 +70,7 @@ export async function deliver<T>(db: Bindings["DB"], fetchImpl: typeof fetch, ur
         .bind(Date.now() + retryDelay(response.headers, null, Date.now()), token).run();
     }
     try { return await consume(response); }
-    finally { await response.body?.cancel().catch(() => {}); }
+    finally { void response.body?.cancel().catch(() => {}); }
   } finally {
     await db.prepare("UPDATE modqueue_delivery_gate SET lease_token = NULL, lease_until = 0 WHERE id = 1 AND lease_token = ?").bind(token).run();
   }

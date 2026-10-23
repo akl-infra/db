@@ -1,5 +1,9 @@
 # Discord moderation delivery
 
+Invariant LDB-MD24: concurrent delivery is fenced, cooldown survives callers,
+dirty work remains eligible, and unresponsive response cancellation cannot
+hold a delivery lease beyond its bounded request/body handling.
+
 Migration 0033 must be applied before deploying the delivery gate code. It adds
 one D1 row shared by link/WPM announcement POSTs and all tracked notification
 GET/PATCH reconciliation, including comment status edits. A 30-second fenced
