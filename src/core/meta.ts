@@ -32,8 +32,12 @@ export function metaFormats(): string[] {
 
 export async function readMetaCore(db: Bindings["DB"], head: Head): Promise<MetaCore> {
   const [layoutRow, authorRow, eventRow] = await Promise.all([
+    // `layouts_head.live` (migrations/0034) is the live-row count, kept by
+    // triggers -- `COUNT(*)` here scanned every live row on each call.
     db
-      .prepare("SELECT COUNT(*) AS n, MAX(modified_at) AS modified FROM layouts WHERE deleted = 0")
+      .prepare(
+        "SELECT (SELECT live FROM layouts_head WHERE id = 1) AS n, (SELECT MAX(modified_at) FROM layouts WHERE deleted = 0) AS modified",
+      )
       .first<{ n: number; modified: string | null }>(),
     db.prepare("SELECT COUNT(*) AS n FROM authors").first<{ n: number }>(),
     // `seq` is already known from the head -- this only needs the head
