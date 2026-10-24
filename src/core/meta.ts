@@ -39,7 +39,8 @@ export async function readMetaCore(db: Bindings["DB"], head: Head): Promise<Meta
         "SELECT (SELECT live FROM layouts_head WHERE id = 1) AS n, (SELECT MAX(modified_at) FROM layouts WHERE deleted = 0) AS modified",
       )
       .first<{ n: number; modified: string | null }>(),
-    db.prepare("SELECT COUNT(*) AS n FROM authors").first<{ n: number }>(),
+    // `authors_head.count` (migrations/0035): trigger-kept, not a scan.
+    db.prepare("SELECT count AS n FROM authors_head WHERE id = 1").first<{ n: number }>(),
     // `seq` is already known from the head -- this only needs the head
     // event's `at` (its `revision` timestamp).
     db.prepare("SELECT MAX(at) AS at FROM events").first<{ at: string | null }>(),
