@@ -285,6 +285,8 @@ The server's checks, in order, each throwing before the route ever runs
 
 (every `401` above, and the `403 client_suspended`, also carries `WWW-Authenticate: Bearer`.)
 
+After the checks, the actor's `authors` row is created on first sight. Its `last_seen_at` (visible only in the dump) is refreshed at most once an hour: requests inside the hour after the stored value write no `authors` row.
+
 **Interop is a frozen vector file**: `tests/vectors/client-signing.json`
 holds thirteen `(key, request, expected signing_string, expected signature)`
 tuples every signer — the Worker's own verifier, the bot's TS client, a
