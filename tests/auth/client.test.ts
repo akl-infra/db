@@ -284,6 +284,50 @@ describe("[LDB-A8] nonces: single-use, pruned after 900s", () => {
   });
 });
 
+describe("[LDB-A15] authors.last_seen_at moves at most once an hour on the client lane", () => {
+  it("[LDB-A15] repeat requests inside the hour write nothing, one past it refreshes, and a newer stored value is never regressed", async () => {
+    const { privateKey, pubkeyB64url } = await generateKeyPair();
+    const clientId = uniqueId("client-seen");
+    const actor = "222222222222222222";
+    await seedClient(db, NOW, { id: clientId, pubkeyB64url, ownerUserId: actor, caps: "act-as-user" });
+
+    const at = (minutes: number) => new Date(new Date(BASE_TS_ISO).getTime() + minutes * 60_000);
+    const call = async (minutes: number) => {
+      const when = at(minutes);
+      const headers = await signHeaders({
+        privateKey,
+        clientId,
+        actor,
+        method: "GET",
+        pathWithQuery: "/v1/me",
+        timestamp: Math.floor(when.getTime() / 1000),
+      });
+      const req = new Request("https://example.com/v1/me", { method: "GET", headers });
+      return verifyClientRequest(db, fixedClock(when.toISOString()), req, new Uint8Array(0), {});
+    };
+    const seen = async () =>
+      (await db.prepare("SELECT last_seen_at FROM authors WHERE user_id = ?").bind(actor).first<{ last_seen_at: string }>())?.last_seen_at;
+
+    const first = await call(0);
+    expect(first.user_id).toBe(actor);
+    expect(await seen()).toBe(at(0).toISOString());
+
+    const again = await call(30);
+    expect(again.name).toBe(first.name);
+    expect(await seen()).toBe(at(0).toISOString()); // inside the hour: untouched
+
+    await call(61);
+    expect(await seen()).toBe(at(61).toISOString()); // past the hour: refreshed
+
+    // A request whose clock is behind the stored value must not regress it.
+    await call(90);
+    expect(await seen()).toBe(at(61).toISOString());
+    await db.prepare("UPDATE authors SET last_seen_at = ? WHERE user_id = ?").bind(at(500).toISOString(), actor).run();
+    await call(200);
+    expect(await seen()).toBe(at(500).toISOString());
+  });
+});
+
 describe("[LDB-A9] a revoked client is refused from the revocation onward", () => {
   it("[LDB-A9] active before revoke, client_revoked after, no cache in front of status", async () => {
     const { privateKey, pubkeyB64url } = await generateKeyPair();

@@ -25,6 +25,8 @@ import { roleOf } from "./roles";
 const TIMESTAMP_RE = /^\d{1,12}$/;
 const ACTOR_RE = /^\d{17,20}$/;
 const SKEW_SECONDS = 300;
+// `authors.last_seen_at` is refreshed at most once per this window (step 7).
+const LAST_SEEN_GRANULARITY_MS = 60 * 60 * 1000;
 
 // `clients.caps` (10 C1) is a comma-separated set: exactly one SCOPE cap
 // (mutually exclusive -- whom the client may act as) plus zero or more
@@ -214,20 +216,38 @@ export async function verifyClientRequest(
   // 'client'`; the conflict branch never touches `name`/`name_source`, and
   // the cmini import may replace the placeholder with an upstream name
   // (`import/authors.ts`).
+  //
+  // `last_seen_at` is bookkeeping with HOUR granularity: a request inside
+  // the hour after the stored value writes nothing (a polling client would
+  // otherwise rewrite this row on every request). The refresh is a
+  // conditional upsert, so two concurrent requests can't move it backwards.
   const at = now();
-  const authorRow = await db
-    .prepare(
-      `INSERT INTO authors (user_id, name, first_seen_at, last_seen_at, name_source) VALUES (?, ?, ?, ?, 'client')
-       ON CONFLICT(user_id) DO UPDATE SET last_seen_at = excluded.last_seen_at
-       RETURNING name`,
-    )
-    .bind(actorRaw, actorRaw, at, at)
-    .first<{ name: string }>();
+  const staleBefore = new Date(new Date(at).getTime() - LAST_SEEN_GRANULARITY_MS).toISOString();
+  const known = await db
+    .prepare("SELECT name, last_seen_at FROM authors WHERE user_id = ?")
+    .bind(actorRaw)
+    .first<{ name: string; last_seen_at: string | null }>();
+  let name = known?.name;
+  if (!known || known.last_seen_at === null || known.last_seen_at < staleBefore) {
+    const authorRow = await db
+      .prepare(
+        `INSERT INTO authors (user_id, name, first_seen_at, last_seen_at, name_source) VALUES (?, ?, ?, ?, 'client')
+         ON CONFLICT(user_id) DO UPDATE SET last_seen_at = excluded.last_seen_at
+         WHERE authors.last_seen_at IS NULL OR authors.last_seen_at < ?
+         RETURNING name`,
+      )
+      .bind(actorRaw, actorRaw, at, at, staleBefore)
+      .first<{ name: string }>();
+    // No row back = a concurrent request refreshed it first (the WHERE
+    // skipped the update); the name read above stands (or, if the row only
+    // just appeared, read it again).
+    name = authorRow?.name ?? name ?? (await db.prepare("SELECT name FROM authors WHERE user_id = ?").bind(actorRaw).first<{ name: string }>())?.name;
+  }
   const roles = await roleOf(db, actorRaw);
 
   return {
     user_id: actorRaw,
-    name: authorRow?.name ?? actorRaw,
+    name: name ?? actorRaw,
     via: `client:${client.id}`,
     ...roles,
     // 20-spark.md S3s (LDB-P15): same string `via` already carries on this
