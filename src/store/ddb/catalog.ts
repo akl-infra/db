@@ -396,13 +396,7 @@ export function createCatalog(ctx: Omit<DdbContext, "catalog">): Catalog {
     return catchUp(scanned, h0);
   }
 
-  let skipSnapshot = false;
-
   async function boot(): Promise<CatalogView> {
-    if (skipSnapshot) {
-      skipSnapshot = false;
-      return scanView();
-    }
     const snap = await readSnapshotBlob(ctx);
     if (snap !== null) {
       try {
@@ -467,12 +461,7 @@ export function createCatalog(ctx: Omit<DdbContext, "catalog">): Catalog {
 
   // Test seam (tests/harness/ddb-store.ts): rows written straight to the table without an event are invisible to the
   // event-driven catch-up, so the TestStore drops every catalog's model and the next read rescans.
-  catalogs.add(() => {
-    view = null;
-    skipSnapshot = true;
-  });
-
-  return {
+  const catalog: Catalog = {
     current,
 
     // Writes that bypass the event log (a restore, a raw insert) leave the model stale: drop it, and the next
@@ -494,4 +483,7 @@ export function createCatalog(ctx: Omit<DdbContext, "catalog">): Catalog {
 
     rebuildFromScan: scanView,
   };
+  // The process-wide seam (invalidateAllCatalogs) goes through the same invalidate(), so an in-flight refresh is dropped too.
+  catalogs.add(() => catalog.invalidate());
+  return catalog;
 }
