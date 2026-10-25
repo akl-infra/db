@@ -30,6 +30,7 @@ import {
 } from "../keys";
 import { byteLength, getPayload, payloadRef, SPILL_BYTES } from "../payload";
 import type { BlobStore } from "../../../platform/port";
+import { rowToFormat, rowToLayout, type FormatDbRow, type FormatRow, type LayoutDbRow, type LayoutRow } from "../../../core/records";
 
 export const LAYOUT_COLUMNS = [
   "id", "name", "owner", "n", "layout_rev", "created_at", "modified_at", "deleted", "like_count", "like_adjust", "link",
@@ -257,3 +258,22 @@ export const coreSchema: LaneSchema = {
     return out;
   },
 };
+
+// ---------------------------------------------------------------------------
+// Decoders for the read paths (layouts.ts, the catalog)
+// ---------------------------------------------------------------------------
+
+/** The `LayoutRow` a CAT item holds (no payloads involved). */
+export function layoutRowOf(item: Item): LayoutRow {
+  return rowToLayout(pick(item, LAYOUT_COLUMNS) as unknown as LayoutDbRow);
+}
+
+/** Every format of a CAT item as `FormatRow`s keyed by lineage; spilled payloads are fetched from `blobs`. */
+export async function formatRowsOf(blobs: BlobStore, item: Item): Promise<Map<string, FormatRow>> {
+  const out = new Map<string, FormatRow>();
+  for (const [lineage, e] of Object.entries((item.fmt ?? {}) as Record<string, Fmt>)) {
+    const json = typeof e.payload_ref === "string" ? await getPayload(blobs, e.payload_ref) : (e.payload_json as string);
+    out.set(lineage, rowToFormat({ layout_id: item.sk as string, lineage, ...pick(e, FORMAT_COLUMNS), payload_json: json } as unknown as FormatDbRow));
+  }
+  return out;
+}
