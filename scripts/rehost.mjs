@@ -30,6 +30,7 @@
 // build step needed for this plain-Node script.
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import url from "node:url";
@@ -41,9 +42,17 @@ const DB_ROOT = path.join(SCRIPTS_DIR, "..");
 const RESTORE_SQL_PATH = path.join(DB_ROOT, ".rehost-restore.sql");
 
 function parseArgs(argv) {
-  const out = { dump: null, remote: false, force: false, env: null, wipe: null, acceptLoss: false };
+  const out = {
+    dump: null, remote: false, force: false, env: null, wipe: null, acceptLoss: false,
+    target: "d1", endpoint: null, mainTable: null, ephemeralTable: null, blobsDir: null,
+  };
   for (let i = 0; i < argv.length; i++) {
-    if (argv[i] === "--dump") out.dump = argv[++i];
+    if (argv[i] === "--target") out.target = argv[++i];
+    else if (argv[i] === "--endpoint") out.endpoint = argv[++i];
+    else if (argv[i] === "--main-table") out.mainTable = argv[++i];
+    else if (argv[i] === "--ephemeral-table") out.ephemeralTable = argv[++i];
+    else if (argv[i] === "--blobs") out.blobsDir = argv[++i];
+    else if (argv[i] === "--dump") out.dump = argv[++i];
     else if (argv[i] === "--remote") out.remote = true;
     else if (argv[i] === "--local") out.remote = false;
     else if (argv[i] === "--force") out.force = true;
@@ -138,8 +147,163 @@ function d1Query(d1Name, remote, env, sql) {
   return parsed[0]?.results ?? [];
 }
 
+
+// ---------------------------------------------------------------------------
+// `--target ddb`: restore the dump into a LOCAL DynamoDB (design/aws-port.md
+// §4.1 `rehost`). No remote exists for this path: `createDocClient` refuses any
+// endpoint but 127.0.0.1 unless AKLDB_DDB_ALLOW_REMOTE=1, which this script
+// never sets. The same two guards as the D1 path, adapted:
+//   1. a store that already holds layouts or events is refused without
+//      `--force`, and `--force` also needs `--wipe=<main table name>` (the
+//      literal name, checked before anything is read or written);
+//   2. the stored HEAD seq is compared with the dump's `meta.seq`; refused when
+//      the store is strictly ahead, unless `--accept-loss`.
+// A forced restore deletes and recreates both tables first.
+// ---------------------------------------------------------------------------
+
+export const DDB_DEFAULT_TABLES = { main: "akldb-main", ephemeral: "akldb-ephemeral" };
+
+export function checkDdbWipeFlag(populated, force, wipe, mainTable) {
+  if (!populated) return null;
+  if (!force) {
+    return `rehost.mjs: refusing -- '${mainTable}' already holds layouts or events. Pass --force --wipe=${mainTable} to delete it and restore over it.`;
+  }
+  if (wipe !== mainTable) {
+    return `rehost.mjs: refusing -- --force needs --wipe=${mainTable} (the literal main table name) to confirm you mean to delete it.`;
+  }
+  return null;
+}
+
+export function checkDdbSeqLoss(populated, storedSeq, dumpSeq, acceptLoss) {
+  if (!populated) return null;
+  if (storedSeq > dumpSeq && !acceptLoss) {
+    return (
+      `rehost.mjs: refusing -- the store is at seq ${storedSeq}, ahead of this dump's seq ${dumpSeq}. ` +
+      `Restoring would lose ${storedSeq - dumpSeq} event(s) of real history. Pass --accept-loss to restore anyway.`
+    );
+  }
+  return null;
+}
+
+// A directory-backed BlobStore, so payloads spilled over 350 KB survive this process.
+export function fsBlobs(dir) {
+  const file = (key) => path.join(dir, ...key.split("/"));
+  return {
+    async get(key) {
+      let bytes;
+      try {
+        bytes = fs.readFileSync(file(key));
+      } catch (e) {
+        if (e.code === "ENOENT") return null;
+        throw e;
+      }
+      return {
+        body: new ReadableStream({ start(c) { c.enqueue(new Uint8Array(bytes)); c.close(); } }),
+        httpEtag: `"${bytes.length}"`,
+        contentType: "application/json",
+        size: bytes.length,
+      };
+    },
+    async put(key, body) {
+      fs.mkdirSync(path.dirname(file(key)), { recursive: true });
+      fs.writeFileSync(file(key), typeof body === "string" ? body : Buffer.from(body));
+    },
+  };
+}
+
+// `lib` is the ddb codec surface (createDocClient, createTables, deleteTables,
+// dumpToRows, importRows, hasPrimaryData, runMigrations, exportRows). The CLI
+// bundles it with esbuild (Node cannot load the extension-less TS imports);
+// tests/ddb/rehost-ddb.test.ts passes the real modules. Returns a summary or
+// throws RehostRefusal.
+export class RehostRefusal extends Error {}
+
+export async function rehostIntoDdb(opts, lib) {
+  const tables = { main: opts.mainTable ?? DDB_DEFAULT_TABLES.main, ephemeral: opts.ephemeralTable ?? DDB_DEFAULT_TABLES.ephemeral };
+  const doc = lib.createDocClient({ endpoint: opts.endpoint, region: "us-east-2" });
+  const blobs = opts.blobs;
+  const ctx = { doc, tables, blobs };
+  await lib.createTables(doc, tables);
+  const populated = await lib.hasPrimaryData(ctx);
+  const wipeRefusal = checkDdbWipeFlag(populated, opts.force === true, opts.wipe ?? null, tables.main);
+  if (wipeRefusal) throw new RehostRefusal(wipeRefusal);
+  if (populated) {
+    const storedSeq = await lib.storedSeq(ctx);
+    const seqRefusal = checkDdbSeqLoss(populated, storedSeq, opts.dump.meta.seq, opts.acceptLoss === true);
+    if (seqRefusal) throw new RehostRefusal(seqRefusal);
+    await lib.deleteTables(doc, tables);
+    await lib.createTables(doc, tables);
+  }
+  const rows = lib.dumpToRows(opts.dump);
+  await lib.importRows(ctx, rows);
+  const migrated = await lib.runMigrations(ctx);
+  const back = await lib.exportRows(ctx);
+  return {
+    layout_count: back.layouts.filter((r) => r.deleted === 0).length,
+    author_count: back.authors.length,
+    seq: back.events.reduce((m, r) => Math.max(m, r.seq), 0),
+    migrations_ran: migrated.ran,
+  };
+}
+
+export async function loadDdbLib() {
+  const esbuild = await import("esbuild");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rehost-ddb-"));
+  const outfile = path.join(dir, "lib.mjs");
+  const ddb = path.join(DB_ROOT, "src", "store", "ddb");
+  await esbuild.build({
+    stdin: {
+      contents:
+        `export { createDocClient } from ${JSON.stringify(path.join(ddb, "client.ts"))};\n` +
+        `export { createTables, deleteTables } from ${JSON.stringify(path.join(ddb, "tables.ts"))};\n` +
+        `export { dumpToRows, importRows, hasPrimaryData, exportRows, storedSeq } from ${JSON.stringify(path.join(ddb, "codec.ts"))};\n` +
+        `export { runMigrations } from ${JSON.stringify(path.join(ddb, "migrate.ts"))};\n`,
+      resolveDir: DB_ROOT,
+      loader: "ts",
+    },
+    bundle: true,
+    platform: "node",
+    format: "esm",
+    outfile,
+    packages: "external",
+    logLevel: "error",
+  });
+  return await import(url.pathToFileURL(outfile).href);
+}
+
+async function mainDdb(args) {
+  const endpoint = args.endpoint ?? process.env.AKLDB_DDB_ENDPOINT ?? `http://127.0.0.1:${process.env.AKLDB_DDB_PORT ?? 8000}`;
+  const blobsDir = path.resolve(args.blobsDir ?? path.join(DB_ROOT, ".rehost-blobs"));
+  console.log(`rehost.mjs: loading dump from ${args.dump}`);
+  const dump = await loadDump(args.dump);
+  console.log(`rehost.mjs: --target ddb, endpoint ${endpoint}, blobs ${blobsDir}`);
+  const lib = await loadDdbLib();
+  try {
+    const summary = await rehostIntoDdb({ ...args, endpoint, dump, blobs: fsBlobs(blobsDir) }, lib);
+    console.log("rehost.mjs: restored -- /v1/meta-equivalent counts:");
+    console.log(JSON.stringify(summary, null, 2));
+  } catch (e) {
+    if (e instanceof RehostRefusal) {
+      console.error(e.message);
+      process.exit(1);
+    }
+    throw e;
+  }
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
+  if (args.target === "ddb") {
+    if (!args.dump) {
+      console.log("usage: npm run rehost -- --target ddb --dump <file|url> [--endpoint http://127.0.0.1:PORT] [--main-table N] [--ephemeral-table N] [--blobs DIR] [--force --wipe=<main table>] [--accept-loss]");
+      process.exit(1);
+    }
+    return mainDdb(args);
+  }
+  if (args.target !== "d1") {
+    console.error(`rehost.mjs: unknown --target '${args.target}' (d1 or ddb)`);
+    process.exit(1);
+  }
   if (!args.dump) {
     console.log("usage: npm run rehost -- --dump <file|url> [--local|--remote] [--force] [--env preview] [--wipe=akl-db] [--accept-loss]");
     console.log("  (07-implementation-phase1.md §6 S7 / 04-governance.md §4; 09-implementation-phase2.md §3 T7)");
