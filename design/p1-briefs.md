@@ -27,7 +27,7 @@ Phase gate (main session, after all six are merged; design/aws-port.md §9, P1):
 
 **Where to work.**
 - Create your own worktree from the current tip of `aws-port`:
-  `git -C /Users/dario/git/akl/wt-db-aws worktree add /Users/dario/git/akl/wt-db-p1-<letter> -b p1-<letter> aws-port`
+  `git -C ~/git/akl/wt-db-aws worktree add ~/git/akl/wt-db-p1-<letter> -b p1-<letter> aws-port`
 - Work only there. Run `npm ci` once.
 - Commit as `saltorbit <hi@akl.gg>`, with messages ending
   `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`.
