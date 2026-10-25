@@ -17,6 +17,8 @@
     "build:formats": "cd formats && tsup"
   },
   "dependencies": {
+    "@aws-sdk/client-dynamodb": "3.1148.0",
+    "@aws-sdk/lib-dynamodb": "3.1148.0",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
     "hono": "^4.13.0",

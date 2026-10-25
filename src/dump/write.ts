@@ -10,7 +10,7 @@
 // re-insert it with no shape translation at either end. `canonical()` over
 // that plain-row shape is what keeps the dump byte-stable for the sha256.
 import type { Bindings } from "../env";
-import { workersPlatform } from "../platform/workers";
+import { platformFor } from "../app";
 import { canonical } from "../core/canonical";
 import type { ClientRow } from "../core/clients";
 import { readHead } from "../core/etag";
@@ -229,7 +229,7 @@ async function computeMeta(store: Store): Promise<DumpMeta> {
 // entirely (it precedes the drain's `since`, but the dump's own tables
 // don't carry it either).
 export async function buildDump(env: Bindings, now: Clock): Promise<Dump> {
-  const store = workersPlatform(env, undefined).store;
+  const store = platformFor(env, undefined).store;
   const date = now().slice(0, 10);
 
   const meta = await computeMeta(store);
@@ -343,7 +343,7 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
 // `runNightly`, after `pruneAuthCache`) or, on any other tick, LDB-D8's own
 // catch-up check (`src/index.ts`).
 export async function writeDump(env: Bindings, now: Clock): Promise<{ key: string; latest: LatestJson }> {
-  const platform = workersPlatform(env, undefined);
+  const platform = platformFor(env, undefined);
   const dump = await buildDump(env, now);
   const bytes = new TextEncoder().encode(canonical(dump));
   const gz = await gzip(bytes);
