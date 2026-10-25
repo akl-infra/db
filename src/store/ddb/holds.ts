@@ -6,7 +6,7 @@
 import { DeleteCommand } from "@aws-sdk/lib-dynamodb";
 import type { HoldStore } from "../port";
 import { TxConditionFailed, type DdbContext } from "./contracts";
-import { runTx } from "./tx";
+import { runTx, withRetry } from "./tx";
 
 export interface HoldOptions {
   realHolds?: boolean;
@@ -68,7 +68,7 @@ export function ddbHoldStore(ctx: DdbContext, opts: HoldOptions = {}): HoldStore
       }
     },
     async releaseHold(clientId) {
-      await ctx.doc.send(new DeleteCommand({ TableName: ctx.tables.ephemeral, Key: lease(clientId) }));
+      await withRetry(() => ctx.doc.send(new DeleteCommand({ TableName: ctx.tables.ephemeral, Key: lease(clientId) })));
     },
   };
 }

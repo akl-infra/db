@@ -72,6 +72,20 @@ function exhausted(what: string): never {
   throw internal();
 }
 
+/** Retries one call on throttles, conflicts and server errors with the runTx backoff; anything else throws at once. */
+export async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fn();
+    } catch (e) {
+      const name = (e as { name?: string } | null)?.name;
+      if (name === undefined || !RETRYABLE_ERRORS.has(name)) throw e;
+      if (attempt + 1 >= MAX_ATTEMPTS) exhausted(`single call (${name})`);
+      await txTuning.sleep(backoffMs(attempt));
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 
 /** Tags of the items runEventTx itself adds; a failure on only these means "another append won". */
@@ -110,7 +124,7 @@ function maxAt(a: string | null, b: string): string {
 export const runEventTx: RunEventTx = async (ctx, build) => {
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     if (attempt > 0) await txTuning.sleep(backoffMs(attempt - 1));
-    const got = await ctx.doc.send(new GetCommand({ TableName: ctx.tables.main, Key: HEAD_KEY, ConsistentRead: true }));
+    const got = await withRetry(() => ctx.doc.send(new GetCommand({ TableName: ctx.tables.main, Key: HEAD_KEY, ConsistentRead: true })));
     const s = (got.Item?.seq as number | undefined) ?? 0;
     const live = (got.Item?.live as number | undefined) ?? 0;
     const headMax = (got.Item?.max_at as string | undefined) ?? null;

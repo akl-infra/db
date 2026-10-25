@@ -2,6 +2,7 @@
 // P2 default: no cutover mode, exactly like D1. `{ realCutover: true }` reads
 // STATE/cutover.mode (design/aws-port.md §5.2), cached 1 s per container.
 import { GetCommand } from "@aws-sdk/lib-dynamodb";
+import { withRetry } from "./tx";
 import type { CutoverStore } from "../port";
 import type { DdbContext } from "./contracts";
 import { stateKey } from "./keys";
@@ -29,7 +30,7 @@ export function ddbCutoverStore(ctx: DdbContext, opts: CutoverOptions = {}): Cut
       const t = clock();
       if (cached !== undefined && t - cached.at < ttl) return cached.mode;
       // Eventually consistent on purpose: the flag is cached for a second anyway.
-      const r = await ctx.doc.send(new GetCommand({ TableName: ctx.tables.main, Key: stateKey("cutover.mode") }));
+      const r = await withRetry(() => ctx.doc.send(new GetCommand({ TableName: ctx.tables.main, Key: stateKey("cutover.mode") })));
       const v = r.Item?.value;
       const mode = v === "read_only" || v === "proxy" ? v : null;
       cached = { at: t, mode };

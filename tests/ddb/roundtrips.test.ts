@@ -9,7 +9,7 @@ import { openDdb, type TestDdb } from "./helpers";
 
 let t: TestDdb;
 beforeAll(async () => {
-  t = await openDdb("g-roundtrips");
+  t = await openDdb("g-roundtrips", { faultRate: 0 }) /* call counts are exact only without injected retries */;
 });
 afterAll(async () => {
   await t.drop();

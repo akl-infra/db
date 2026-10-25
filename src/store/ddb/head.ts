@@ -1,6 +1,7 @@
 // DynamoDB implementation of `HeadStore` (src/store/port.ts). Owner: P2 lane G
 // (design/p2-p5-briefs.md; design/aws-port.md §2.6).
 import { BatchGetCommand, GetCommand, QueryCommand, type BatchGetCommandOutput, type QueryCommandOutput } from "@aws-sdk/lib-dynamodb";
+import { withRetry } from "./tx";
 import type { AuthorsHead, Head } from "../../core/etag";
 import type { HeadStore } from "../port";
 import type { DdbContext } from "./contracts";
@@ -10,7 +11,7 @@ import { HEAD_KEY, stateKey } from "./keys";
 const AUTHORS_HEAD_KEY = { pk: "META", sk: "AUTHORS" };
 
 export async function consistentGet(ctx: DdbContext, key: { pk: string; sk: string }): Promise<Record<string, any> | undefined> {
-  const r = await ctx.doc.send(new GetCommand({ TableName: ctx.tables.main, Key: key, ConsistentRead: true }));
+  const r = await withRetry(() => ctx.doc.send(new GetCommand({ TableName: ctx.tables.main, Key: key, ConsistentRead: true })));
   return r.Item;
 }
 
@@ -20,9 +21,9 @@ export async function consistentBatchGet(ctx: DdbContext, keys: readonly { pk: s
   for (let i = 0; i < keys.length; i += 100) {
     let pending: { pk: string; sk: string }[] | undefined = keys.slice(i, i + 100).map((k) => ({ pk: k.pk, sk: k.sk }));
     while (pending !== undefined && pending.length > 0) {
-      const r: BatchGetCommandOutput = await ctx.doc.send(
+      const r: BatchGetCommandOutput = await withRetry(() => ctx.doc.send(
         new BatchGetCommand({ RequestItems: { [ctx.tables.main]: { Keys: pending, ConsistentRead: true } } }),
-      );
+      ));
       for (const it of r.Responses?.[ctx.tables.main] ?? []) out.set(`${it.pk}\u0000${it.sk}`, it);
       const un = r.UnprocessedKeys?.[ctx.tables.main]?.Keys as { pk: string; sk: string }[] | undefined;
       pending = un;
@@ -43,7 +44,7 @@ export function ddbHeadStore(ctx: DdbContext): HeadStore {
       if (deletesSinceIso !== undefined) {
         let start: Record<string, unknown> | undefined;
         do {
-          const q: QueryCommandOutput = await ctx.doc.send(
+          const q: QueryCommandOutput = await withRetry(() => ctx.doc.send(
             new QueryCommand({
               TableName: ctx.tables.main,
               KeyConditionExpression: "pk = :p",
@@ -54,7 +55,7 @@ export function ddbHeadStore(ctx: DdbContext): HeadStore {
               ConsistentRead: true,
               ExclusiveStartKey: start,
             }),
-          );
+          ));
           deletes24h += q.Count ?? 0;
           start = q.LastEvaluatedKey;
         } while (start !== undefined);
