@@ -2,6 +2,7 @@
 // lane G. Single-layout reads are consistent GetItems of CAT/<id>; every
 // list-shaped read runs over the catalog read model (lane H, design §2.7).
 import { GetCommand, QueryCommand, type QueryCommandOutput } from "@aws-sdk/lib-dynamodb";
+import { withRetry } from "./tx";
 import { rowToEvent, type Event } from "../../core/events";
 import {
   encodeCursor,
@@ -56,7 +57,7 @@ async function queryCount(ctx: DdbContext, pk: string, skPrefix: string): Promis
   let n = 0;
   let start: Record<string, unknown> | undefined;
   do {
-    const r: QueryCommandOutput = await ctx.doc.send(
+    const r: QueryCommandOutput = await withRetry(() => ctx.doc.send(
       new QueryCommand({
         TableName: ctx.tables.main,
         KeyConditionExpression: "pk = :p AND begins_with(sk, :s)",
@@ -65,7 +66,7 @@ async function queryCount(ctx: DdbContext, pk: string, skPrefix: string): Promis
         ConsistentRead: true,
         ExclusiveStartKey: start,
       }),
-    );
+    ));
     n += r.Count ?? 0;
     start = r.LastEvaluatedKey;
   } while (start !== undefined);
@@ -77,7 +78,7 @@ export async function likersOf(ctx: DdbContext, layoutId: string): Promise<strin
   const k = likesPrefix(layoutId);
   let start: Record<string, unknown> | undefined;
   do {
-    const r: QueryCommandOutput = await ctx.doc.send(
+    const r: QueryCommandOutput = await withRetry(() => ctx.doc.send(
       new QueryCommand({
         TableName: ctx.tables.main,
         KeyConditionExpression: "pk = :p AND begins_with(sk, :s)",
@@ -86,7 +87,7 @@ export async function likersOf(ctx: DdbContext, layoutId: string): Promise<strin
         ConsistentRead: true,
         ExclusiveStartKey: start,
       }),
-    );
+    ));
     for (const it of r.Items ?? []) out.push(it.user_id as string);
     start = r.LastEvaluatedKey;
   } while (start !== undefined);
@@ -286,9 +287,9 @@ export function ddbLayoutReadStore(ctx: DdbContext): LayoutReadStore {
     },
 
     async layoutPresence(id) {
-      const r = await ctx.doc.send(
+      const r = await withRetry(() => ctx.doc.send(
         new GetCommand({ TableName: ctx.tables.main, Key: catKey(id), ConsistentRead: true, ProjectionExpression: "deleted" }),
-      );
+      ));
       return r.Item === undefined ? { exists: false, live: false } : { exists: true, live: r.Item.deleted === 0 };
     },
 

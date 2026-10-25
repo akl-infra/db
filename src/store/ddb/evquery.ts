@@ -2,6 +2,7 @@
 // "No gaps on read"): callers read HEAD = h first and pass it as `hi`, so
 // every event they can see was committed before the query began.
 import { QueryCommand, type QueryCommandOutput } from "@aws-sdk/lib-dynamodb";
+import { withRetry } from "./tx";
 import type { Item } from "./contracts";
 import type { DdbContext } from "./contracts";
 import { padSeq } from "./keys";
@@ -31,7 +32,7 @@ export async function* scanEvents(ctx: DdbContext, q: EventQuery): AsyncGenerato
   if (q.hi < q.lo) return;
   let start: Record<string, unknown> | undefined;
   do {
-    const r: QueryCommandOutput = await ctx.doc.send(
+    const r: QueryCommandOutput = await withRetry(() => ctx.doc.send(
       new QueryCommand({
         TableName: ctx.tables.main,
         KeyConditionExpression: "pk = :pk AND sk BETWEEN :lo AND :hi",
@@ -43,7 +44,7 @@ export async function* scanEvents(ctx: DdbContext, q: EventQuery): AsyncGenerato
         Limit: q.pageSize ?? 100,
         ExclusiveStartKey: start,
       }),
-    );
+    ));
     for (const it of r.Items ?? []) yield it;
     start = r.LastEvaluatedKey;
   } while (start !== undefined);

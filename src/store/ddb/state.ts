@@ -1,6 +1,7 @@
 // DynamoDB implementation of `StateStore` (src/store/port.ts): `import_state`
 // as STATE/<key> items. Owner: P2 lane G.
 import { DeleteCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
+import { withRetry } from "./tx";
 import type { StateStore } from "../port";
 import type { DdbContext } from "./contracts";
 import { consistentBatchGet, consistentGet, itemAt } from "./head";
@@ -22,10 +23,10 @@ export function ddbStateStore(ctx: DdbContext): StateStore {
       return out;
     },
     async put(key, value) {
-      await ctx.doc.send(new PutCommand({ TableName: ctx.tables.main, Item: { ...stateKey(key), key, value } }));
+      await withRetry(() => ctx.doc.send(new PutCommand({ TableName: ctx.tables.main, Item: { ...stateKey(key), key, value } })));
     },
     async delete(key) {
-      await ctx.doc.send(new DeleteCommand({ TableName: ctx.tables.main, Key: stateKey(key) }));
+      await withRetry(() => ctx.doc.send(new DeleteCommand({ TableName: ctx.tables.main, Key: stateKey(key) })));
     },
   };
 }

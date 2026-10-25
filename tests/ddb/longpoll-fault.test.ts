@@ -32,7 +32,7 @@ function flakyHeadStore(failOn: Set<number>): { store: Store; reads: () => numbe
         return (cmd: { constructor: { name: string }; input: { Key?: { pk?: string; sk?: string } } }, ...rest: unknown[]) => {
           if (cmd instanceof GetCommand && cmd.input.Key?.pk === "META" && cmd.input.Key?.sk === "HEAD") {
             const k = n++;
-            if (failOn.has(k)) return Promise.reject(Object.assign(new Error(`injected DynamoDB failure #${k}`), { name: "InternalServerError" }));
+            if (failOn.has(k)) return Promise.reject(Object.assign(new Error(`injected DynamoDB failure #${k}`), { name: "InjectedReadFault" }));
           }
           return (target.send as (...a: unknown[]) => Promise<unknown>).call(target, cmd, ...rest);
         };

@@ -28,7 +28,7 @@ import { byteLength, putPayload, SPILL_BYTES } from "./payload";
 import { likersOf } from "./layouts";
 import { planLinkSettle } from "./links";
 import { eventRow, layoutRowOf } from "./schema/core";
-import { runEventTx } from "./tx";
+import { runEventTx, withRetry } from "./tx";
 
 const MAX_FEED = 1000;
 const INHERITED_LIKES_CHUNK = 15;
@@ -91,7 +91,7 @@ function budgetItem(ctx: DdbContext, clientId: string, at: string): { tag: strin
 }
 
 async function readBudgetCount(ctx: DdbContext, key: { pk: string; sk: string }): Promise<number> {
-  const r = await ctx.doc.send(new GetCommand({ TableName: ctx.tables.ephemeral, Key: key, ConsistentRead: true }));
+  const r = await withRetry(() => ctx.doc.send(new GetCommand({ TableName: ctx.tables.ephemeral, Key: key, ConsistentRead: true })));
   return (r.Item?.n as number | undefined) ?? 0;
 }
 
