@@ -200,7 +200,9 @@ export function withFaults(doc: DynamoDBDocumentClient, opts: FaultOptions = {})
       }
       if (rate > 0 && rand() < rate) {
         const pool = kinds;
-        const kind = pool[Math.floor(rand() * pool.length)];
+        let kind = pool[Math.floor(rand() * pool.length)];
+        // BatchWriteItem never reports a transaction conflict (it returns UnprocessedItems or throttles).
+        if (kind === "TransactionConflict" && name === "BatchWriteCommand") kind = "Throttling";
         if (kind === "TransactionConflict") throw inject(kind, cmd, touches);
         if (kind !== undefined) {
           // Emulate the SDK's own retries: surface only if every attempt faults.
