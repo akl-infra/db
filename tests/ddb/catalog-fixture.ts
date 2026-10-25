@@ -65,6 +65,18 @@ export class Writer {
   readonly log: LogEntry[] = [];
   constructor(private readonly ctx: DdbContext = ctxOf()) {}
 
+  /** Runs one operation; if it fails (retries exhausted under contention), the shadow goes back to what it was. */
+  private async guard(id: string, op: () => Promise<number>): Promise<number> {
+    const prev = this.shadow.has(id) ? this.copy(this.shadow.get(id)!) : null;
+    try {
+      return await op();
+    } catch (e) {
+      if (prev === null) this.shadow.delete(id);
+      else this.shadow.set(id, prev);
+      throw e;
+    }
+  }
+
   private copy(s: Shadow): Shadow {
     return { layout: { ...s.layout }, formats: s.formats.map((f) => ({ ...f })), likers: new Set(s.likers) };
   }
@@ -80,65 +92,85 @@ export class Writer {
   private async commit(id: string, e: EventInput, extra: (add: (tag: string, i: object) => void) => void, live = 0): Promise<number> {
     const snap = this.shadow.has(id) ? this.copy(this.shadow.get(id)!) : null;
     const cat = snap === null ? null : await this.catPut(snap);
-    const { seqs } = await runEventTx(this.ctx, (b) => {
-      b.event(e);
-      if (cat !== null) b.item("cat", cat);
-      extra((tag, i) => b.item(tag, i as never));
-      if (live !== 0) b.addLive(live);
-    });
+    // Under LAB_FAULT_RATE a many-item transaction can exhaust runEventTx's eight attempts; the fixture tries again
+    // (a writer that gave up leaves nothing behind).
+    let seqs: number[] = [];
+    for (let attempt = 0; ; attempt++) {
+      try {
+        ({ seqs } = await runEventTx(this.ctx, (b) => {
+          b.event(e);
+          if (cat !== null) b.item("cat", cat);
+          extra((tag, i) => b.item(tag, i as never));
+          if (live !== 0) b.addLive(live);
+        }));
+        break;
+      } catch (err) {
+        if (attempt >= 5 || (err as { status?: number }).status !== 500) throw err;
+      }
+    }
     this.log.push({ seq: seqs[0]!, id, state: snap });
     return seqs[0]!;
   }
 
   async create(id: string, name: string, owner: string, at: string, payloadJson = '{"k":1}'): Promise<number> {
-    this.shadow.set(id, {
-      layout: {
-        id, name, owner, n: 1, layout_rev: 1, created_at: at, modified_at: at, deleted: 0, like_count: 0, like_adjust: 0, link: null,
-        upstream_source: null, upstream_id: null, upstream_state: null, source_client: "test", source_version: "1",
-      },
-      formats: [{
-        layout_id: id, lineage: "spark", format: "spark/1", rev: 1, created_at: at, modified_at: at, payload_json: payloadJson,
-        has_magic: 0, has_alts: 0, has_combos: 0, source_client: "test", source_version: "1",
-      }],
-      likers: new Set(),
+    return this.guard(id, async () => {
+      this.shadow.set(id, {
+        layout: {
+          id, name, owner, n: 1, layout_rev: 1, created_at: at, modified_at: at, deleted: 0, like_count: 0, like_adjust: 0, link: null,
+          upstream_source: null, upstream_id: null, upstream_state: null, source_client: "test", source_version: "1",
+        },
+        formats: [{
+          layout_id: id, lineage: "spark", format: "spark/1", rev: 1, created_at: at, modified_at: at, payload_json: payloadJson,
+          has_magic: 0, has_alts: 0, has_combos: 0, source_client: "test", source_version: "1",
+        }],
+        likers: new Set(),
+      });
+      return this.commit(id, ev("created", id, at, { name, owner }), (add) => add("name", { Put: { TableName: this.ctx.tables.main, Item: { ...nameKey(name), id } } }), 1);
     });
-    return this.commit(id, ev("created", id, at, { name, owner }), (add) => add("name", { Put: { TableName: this.ctx.tables.main, Item: { ...nameKey(name), id } } }), 1);
   }
 
   async update(id: string, at: string, payloadJson: string): Promise<number> {
-    const s = this.shadow.get(id)!;
-    s.layout.n = (s.layout.n as number) + 1;
-    s.layout.modified_at = at;
-    s.formats[0] = { ...s.formats[0]!, rev: (s.formats[0]!.rev as number) + 1, modified_at: at, payload_json: payloadJson, has_magic: payloadJson.length % 2 };
-    return this.commit(id, ev("updated", id, at, { format: "spark/1", rev: s.formats[0]!.rev as number }), () => {});
+    return this.guard(id, async () => {
+      const s = this.shadow.get(id)!;
+      s.layout.n = (s.layout.n as number) + 1;
+      s.layout.modified_at = at;
+      s.formats[0] = { ...s.formats[0]!, rev: (s.formats[0]!.rev as number) + 1, modified_at: at, payload_json: payloadJson, has_magic: payloadJson.length % 2 };
+      return this.commit(id, ev("updated", id, at, { format: "spark/1", rev: s.formats[0]!.rev as number }), () => {});
+    });
   }
 
   async remove(id: string, at: string): Promise<number> {
-    const s = this.shadow.get(id)!;
-    s.layout.deleted = 1;
-    s.layout.n = (s.layout.n as number) + 1;
-    s.layout.modified_at = at;
-    return this.commit(id, ev("deleted", id, at), (add) => add("name", { Delete: { TableName: this.ctx.tables.main, Key: nameKey(s.layout.name as string) } }), -1);
+    return this.guard(id, async () => {
+      const s = this.shadow.get(id)!;
+      s.layout.deleted = 1;
+      s.layout.n = (s.layout.n as number) + 1;
+      s.layout.modified_at = at;
+      return this.commit(id, ev("deleted", id, at), (add) => add("name", { Delete: { TableName: this.ctx.tables.main, Key: nameKey(s.layout.name as string) } }), -1);
+    });
   }
 
   async like(id: string, user: string, at: string): Promise<number> {
-    const s = this.shadow.get(id)!;
-    s.likers.add(user);
-    s.layout.like_count = s.likers.size;
-    const body = { layout_id: id, user_id: user, at, via: "test" };
-    return this.commit(id, ev("liked" as never, id, at, { actor: user }), (add) => {
-      add("lk", { Put: { TableName: this.ctx.tables.main, Item: { ...likeKey(id, user), ...body } } });
-      add("ulk", { Put: { TableName: this.ctx.tables.main, Item: { ...userLikeKey(user, id), ...body } } });
+    return this.guard(id, async () => {
+      const s = this.shadow.get(id)!;
+      s.likers.add(user);
+      s.layout.like_count = s.likers.size;
+      const body = { layout_id: id, user_id: user, at, via: "test" };
+      return this.commit(id, ev("liked" as never, id, at, { actor: user }), (add) => {
+        add("lk", { Put: { TableName: this.ctx.tables.main, Item: { ...likeKey(id, user), ...body } } });
+        add("ulk", { Put: { TableName: this.ctx.tables.main, Item: { ...userLikeKey(user, id), ...body } } });
+      });
     });
   }
 
   async unlike(id: string, user: string, at: string): Promise<number> {
-    const s = this.shadow.get(id)!;
-    s.likers.delete(user);
-    s.layout.like_count = s.likers.size;
-    return this.commit(id, ev("unliked" as never, id, at, { actor: user }), (add) => {
-      add("lk", { Delete: { TableName: this.ctx.tables.main, Key: likeKey(id, user) } });
-      add("ulk", { Delete: { TableName: this.ctx.tables.main, Key: userLikeKey(user, id) } });
+    return this.guard(id, async () => {
+      const s = this.shadow.get(id)!;
+      s.likers.delete(user);
+      s.layout.like_count = s.likers.size;
+      return this.commit(id, ev("unliked" as never, id, at, { actor: user }), (add) => {
+        add("lk", { Delete: { TableName: this.ctx.tables.main, Key: likeKey(id, user) } });
+        add("ulk", { Delete: { TableName: this.ctx.tables.main, Key: userLikeKey(user, id) } });
+      });
     });
   }
 

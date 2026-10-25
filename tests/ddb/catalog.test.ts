@@ -76,7 +76,7 @@ describe("catalog view", () => {
     const cat = newCatalog();
     const rnd = mulberry32(11);
     const ids = Array.from({ length: 4 }, (_, i) => `L${i}`);
-    await Promise.all(ids.map((id, i) => w.create(id, `Name${i}`, `u${i % 3}`, at(i))));
+    for (const [i, id] of ids.entries()) await w.create(id, `Name${i}`, `u${i % 3}`, at(i));
     const views: { seq: number; layouts: ReturnType<typeof w.expectedAt> | unknown; raw: Awaited<ReturnType<typeof cat.current>> }[] = [];
     let stop = false;
     const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -94,9 +94,10 @@ describe("catalog view", () => {
         for (let k = 0; k < 6; k++) {
           await sleep(20 + Math.floor(rnd() * 30));
           const r = rnd();
-          if (r < 0.4) await w.update(id, at(100 + i * 10 + k), `{"i":${i},"k":${k}}`);
+          // an operation may give up under contention (the writer's retries are bounded); the shadow then rolls back
+          if (r < 0.4) await w.update(id, at(100 + i * 10 + k), `{"i":${i},"k":${k}}`).catch(() => {});
           else if (r < 0.8) await w.like(id, `liker${Math.floor(rnd() * 5)}`, at(100 + i * 10 + k)).catch(() => {});
-          else await w.update(id, at(100 + i * 10 + k), `{"i":${i},"k":${k},"pad":1}`);
+          else await w.update(id, at(100 + i * 10 + k), `{"i":${i},"k":${k},"pad":1}`).catch(() => {});
         }
       }),
     );
