@@ -46,7 +46,7 @@ The D1-only tests stay D1-only; LDB-W2 keeps that list exact.
 
 **Where to work.**
 - Create your worktree from the current tip of `aws-port`:
-  `git -C /Users/dario/git/akl/wt-db-aws worktree add /Users/dario/git/akl/wt-db-<p2|p5>-<lane> -b <p2|p5>-<lane> aws-port`
+  `git -C ~/git/akl/wt-db-aws worktree add ~/git/akl/wt-db-<p2|p5>-<lane> -b <p2|p5>-<lane> aws-port`
   (lane letter lower-case, e.g. `wt-db-p2-g`, branch `p2-g`).
 - Work only there. Run `npm ci` once.
 - Commit as `saltorbit <hi@akl.gg>`, messages ending
@@ -93,7 +93,7 @@ processes by name pattern; stop only what you started, by PID.
   again):
   `docker run -d --rm --name <container> -p 127.0.0.1:<port>:8000 amazon/dynamodb-local:latest -jar DynamoDBLocal.jar -inMemory -sharedDb`
 - **Without Docker:** if Docker is not running, use the jar with Java 21 (installed). The main
-  session puts it at `/Users/dario/git/akl/handoff/dynamodb-local/` and gives you the path.
+  session puts it at `~/git/akl/handoff/dynamodb-local/` and gives you the path.
 
 **Heavy runs go through team-lead.**
 - **You run:** `npm run typecheck`, and targeted `npx vitest run <files>` that finish in about two
