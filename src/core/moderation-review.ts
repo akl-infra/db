@@ -3,7 +3,7 @@
 import type { Actor } from "../auth/actor";
 import { notFound, reviewConflict } from "./errors";
 import type { Clock } from "./time";
-import { legacyD1, toStore, type StoreArg } from "../store/arg";
+import { toStore, type StoreArg } from "../store/arg";
 
 export type ReviewKind = "comment" | "wpm";
 export interface ReviewExpectation { status: "approved" | "rejected"; review_version: number }
@@ -15,19 +15,13 @@ export interface ReviewHistoryRow {
   review_version: number;
 }
 
-// P1: agent A. Presence reads of `layouts` that LayoutReadStore.layoutPresence /
-// approvedLink will serve once agent A's store lands; until then they stay
-// today's SQL here (the one exemption from agent C's grep gate). The main
-// session switches these to the port when merging.
 export async function layoutPresent(dbArg: StoreArg, id: string, liveOnly: boolean): Promise<boolean> {
-  const db = legacyD1(dbArg);
-  const sql = liveOnly ? "SELECT id FROM layouts WHERE id = ? AND deleted = 0" : "SELECT id FROM layouts WHERE id = ?";
-  return (await db.prepare(sql).bind(id).first()) !== null;
+  const p = await toStore(dbArg).layouts.layoutPresence(id);
+  return liveOnly ? p.live : p.exists;
 }
 
 export async function approvedLinkOf(dbArg: StoreArg, id: string): Promise<{ link: string | null } | null> {
-  const db = legacyD1(dbArg);
-  return db.prepare("SELECT link FROM layouts WHERE id = ?").bind(id).first<{ link: string | null }>();
+  return toStore(dbArg).layouts.approvedLink(id);
 }
 
 export async function readReviewHistory(dbArg: StoreArg, kind: ReviewKind, id: string): Promise<ReviewHistoryRow[]> {
