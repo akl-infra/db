@@ -12,7 +12,7 @@ import { encodeTee, type TeeCall } from "./record";
 export const MIRROR_WRITES: Readonly<Record<string, readonly string[]>> = {
   state: ["put", "delete"],
   events: ["commitWrite", "appendInfo", "appendAdmin", "appendModeration", "appendLinkChange", "appendLike", "appendInheritedLikes"],
-  auth: ["touchClientAuthor", "cacheAuthSuccess", "reserveIdempotency", "takeOverIdempotency", "completeIdempotency", "deleteIdempotency", "pruneIdempotency"],
+  auth: ["touchClientAuthor", "cacheAuthSuccess", "pruneRateLimits", "reserveIdempotency", "takeOverIdempotency", "completeIdempotency", "deleteIdempotency", "pruneIdempotency"],
   admin: ["insertAdmin", "removeAdmin", "upsertBan", "deleteBan", "setAuthorNameByAdmin", "insertClient", "revokeClient", "suspendClient", "reactivateClient"],
   links: ["submit", "reject"],
   wpm: ["bindSourceMessage", "insertApproved", "submit", "approve", "reject"],
@@ -30,9 +30,13 @@ export const MIRROR_WRITES: Readonly<Record<string, readonly string[]>> = {
   outbox: ["lease", "beginMessage", "markSent", "clearAmbiguous", "retry", "deferAllPending", "terminal"],
 };
 
+// auth.pruneRateLimits is replayed although it only touches the ephemeral table: it deletes the destructive-budget counters
+// (`RL#destructive:*`, one-hour windows) once they are 20 minutes old, and those counters decide commitWrite's `budgetProbe` and so
+// client suspension. Skipping it makes the mirror's counters outlive prod's (found by LDB-MIR20).
+
 /** Write methods of the port the mirror never replays: the ephemeral tables (§5.2 item 1, "out of scope") and the dump restore. */
 export const MIRROR_NEVER: readonly string[] = [
-  "auth.insertNonce", "auth.pruneNonces", "auth.cacheAuthFailure", "auth.pruneAuthCache", "auth.hitWindow", "auth.pruneRateLimits",
+  "auth.insertNonce", "auth.pruneNonces", "auth.cacheAuthFailure", "auth.pruneAuthCache", "auth.hitWindow",
   "holds.takeHold", "holds.releaseHold", "dump.restore",
 ];
 

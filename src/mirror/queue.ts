@@ -40,6 +40,8 @@ export interface MirrorState {
   skippedCalls: number;
   /** Event calls found already applied after a crash and accepted without a re-check (the daily proof covers them). */
   unverifiedCalls: number;
+  /** Calls whose Clock was read a different number of times than in prod (D1 and DynamoDB differ legitimately; informational). */
+  clockDrift: number;
   halted: Halt | null;
   /** When the next event call in line was first seen missing (a gap), or null. */
   gapSinceMs: number | null;
@@ -59,7 +61,7 @@ export interface MirrorState {
 
 export function initialState(): MirrorState {
   return {
-    v: 0, appliedSeq: 0, appliedCalls: 0, skippedCalls: 0, unverifiedCalls: 0, halted: null, gapSinceMs: null, gapSeq: null, pause: null,
+    v: 0, appliedSeq: 0, appliedCalls: 0, skippedCalls: 0, unverifiedCalls: 0, clockDrift: 0, halted: null, gapSinceMs: null, gapSeq: null, pause: null,
     seedSeq: 0, seedAtMs: 0, lease: null, inflight: null, lastApplied: null, lastAppliedAtMs: null,
   };
 }

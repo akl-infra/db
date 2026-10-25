@@ -33,9 +33,21 @@ export async function wipeAll(ctx: CodecContext): Promise<number> {
   return n;
 }
 
-/** Drop the tables that are copied at the cutover, not mirrored. */
+/**
+ * The state the mirror holds and proves: every table except the ephemeral ones copied at the cutover (nonces, auth_cache,
+ * ratelimit) -- but the destructive-budget counters (`ratelimit` rows keyed `destructive:*`) stay: they live in the ephemeral
+ * table yet decide commitWrite's budgetProbe, so a seed without them diverges at the first post-seed write (found by LDB-MIR30).
+ */
 export function mirroredRows(rows: RowsByTable): RowsByTable {
-  return Object.fromEntries(Object.entries(rows).filter(([t]) => !EPHEMERAL_TABLES.includes(t) && !/^(sqlite_|_cf_|d1_migrations$|mirror_queue$)/.test(t)));
+  const out = Object.fromEntries(Object.entries(rows).filter(([t]) => !EPHEMERAL_TABLES.includes(t) && !/^(sqlite_|_cf_|d1_migrations$|mirror_queue$)/.test(t)));
+  const budget = (rows.ratelimit ?? []).filter((r) => String(r.key).startsWith("destructive:"));
+  if (budget.length > 0 || rows.ratelimit !== undefined) out.ratelimit = budget;
+  return out;
+}
+
+/** compareTables over the mirrored view of both sides. */
+export function compareMirrored(left: RowsByTable, right: RowsByTable): TableDiff[] {
+  return compareTables(mirroredRows(left), mirroredRows(right), { ignore: [] });
 }
 
 export function maxSeqOf(rows: RowsByTable): number {
@@ -88,7 +100,7 @@ export async function reseed(o: ReseedOptions): Promise<ReseedResult> {
   log(`wiped ${wiped} items`);
   await importRows(o.ctx, rows, { allowNonEmpty: true });
   // 4. Verify the load row for row before anything is replayed on top.
-  const verified = compareTables(rows, (await exportRows(o.ctx)) as unknown as RowsByTable);
+  const verified = compareMirrored(rows, (await exportRows(o.ctx)) as unknown as RowsByTable);
   if (verified.length > 0) return { seedSeq, wiped, verified, replay: null, replayVerified: false };
   // 5. Open the queue from S+1.
   await o.queue.clearDivergent();
@@ -154,7 +166,7 @@ export async function dailyProof(o: ProofOptions): Promise<ProofResult> {
       if (r.applied + r.skipped === 0) await new Promise((res) => setTimeout(res, 500));
     }
     const state = await o.queue.readState();
-    const diffs = compareTables(rows, (await exportRows(o.ctx)) as unknown as RowsByTable);
+    const diffs = compareMirrored(rows, (await exportRows(o.ctx)) as unknown as RowsByTable);
     return { ok: diffs.length === 0, seq, atMs: o.atMs, appliedSeq: state.appliedSeq, diffs, reason: diffs.length === 0 ? null : "rows differ" };
   } finally {
     await updateState(o.queue, (s) => {

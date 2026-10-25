@@ -81,6 +81,7 @@ export default defineConfig(async () => {
               "tests/rehost.test.ts",
               // Lane T (design/p3-p7-briefs.md): the recorder runs on D1 inside workerd.
               "tests/mirror/recorder.test.ts",
+              "tests/mirror/reverse.test.ts",
             ],
             // diff-unit.test.ts (S8) is offline/pure -- it belongs in the
             // "node" project below (import/diff.ts's own header explains
@@ -109,13 +110,14 @@ export default defineConfig(async () => {
             environment: "node",
             include: [
               "tests/ddb/**/*.test.ts",
-              "tests/mirror/**/*.test.ts",
+              "tests/mirror/apply.test.ts",
+              "tests/mirror/reseed.test.ts",
               "tests/api/**/*.test.ts",
               "tests/auth/**/*.test.ts",
               "tests/events/**/*.test.ts",
               "tests/rehost.test.ts",
             ],
-            exclude: [...d1OnlyTests(), "tests/import/**", "tests/mirror/verify.test.ts"],
+            exclude: [...d1OnlyTests(), "tests/import/**"],
             globalSetup: ["./tests/harness/global-ddb.ts"],
             setupFiles: ["./tests/harness/setup-ddb.ts"],
             testTimeout: 30000,
