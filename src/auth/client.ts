@@ -21,7 +21,7 @@ import {
 } from "../core/errors";
 import type { Clock } from "../core/time";
 import { roleOf } from "./roles";
-import { legacyD1, type StoreArg } from "../store/arg";
+import { toStore, type StoreArg } from "../store/arg";
 
 const TIMESTAMP_RE = /^\d{1,12}$/;
 const ACTOR_RE = /^\d{17,20}$/;
@@ -58,14 +58,6 @@ export function scopeCapOf(caps: string): ScopeCap | undefined {
 
 export function hasCap(caps: string, cap: ExtraCap): boolean {
   return parseCaps(caps).includes(cap);
-}
-
-interface ClientRow {
-  id: string;
-  pubkey: string;
-  owner_user_id: string;
-  caps: string;
-  status: string;
 }
 
 // Injectable so a unit test can force a verifier failure without a real
@@ -142,7 +134,7 @@ export async function verifyClientRequest(
   bodyBytes: Uint8Array,
   deps: ClientDeps = {},
 ): Promise<Actor> {
-  const db = legacyD1(dbArg);
+  const store = toStore(dbArg);
   // Step 1: headers, all-or-nothing shape-checked.
   const clientId = request.headers.get("X-Akl-Client");
   const timestampRaw = request.headers.get("X-Akl-Timestamp");
@@ -160,10 +152,7 @@ export async function verifyClientRequest(
   if (sigBytes === null || sigBytes.length !== 64) throw badSignature();
 
   // Step 2: the client itself.
-  const client = await db
-    .prepare("SELECT id, pubkey, owner_user_id, caps, status FROM clients WHERE id = ?")
-    .bind(clientId)
-    .first<ClientRow>();
+  const client = await store.auth.client(clientId);
   if (client === null) throw unknownClient();
   if (client.status === "revoked") throw clientRevoked();
   // saltorbit 2026-09-13 ("rogue trusted client" hardening): checked live, on
@@ -197,13 +186,7 @@ export async function verifyClientRequest(
   // Step 5: the nonce -- one INSERT, its PK IS the replay check, run only
   // AFTER the signature verifies (a forged request must never burn a real
   // nonce).
-  try {
-    await db.prepare("INSERT INTO nonces (client_id, nonce, at) VALUES (?, ?, ?)").bind(client.id, nonceRaw, now()).run();
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    if (/UNIQUE constraint failed: nonces/.test(msg)) throw replay();
-    throw e;
-  }
+  if (!(await store.auth.insertNonce(client.id, nonceRaw, now()))) throw replay();
 
   // Step 6: caps.
   if (scopeCapOf(client.caps) === "act-as-owner-only" && actorRaw !== client.owner_user_id) {
@@ -225,27 +208,10 @@ export async function verifyClientRequest(
   // conditional upsert, so two concurrent requests can't move it backwards.
   const at = now();
   const staleBefore = new Date(new Date(at).getTime() - LAST_SEEN_GRANULARITY_MS).toISOString();
-  const known = await db
-    .prepare("SELECT name, last_seen_at FROM authors WHERE user_id = ?")
-    .bind(actorRaw)
-    .first<{ name: string; last_seen_at: string | null }>();
-  let name = known?.name;
-  if (!known || known.last_seen_at === null || known.last_seen_at < staleBefore) {
-    const authorRow = await db
-      .prepare(
-        `INSERT INTO authors (user_id, name, first_seen_at, last_seen_at, name_source) VALUES (?, ?, ?, ?, 'client')
-         ON CONFLICT(user_id) DO UPDATE SET last_seen_at = excluded.last_seen_at
-         WHERE authors.last_seen_at IS NULL OR authors.last_seen_at < ?
-         RETURNING name`,
-      )
-      .bind(actorRaw, actorRaw, at, at, staleBefore)
-      .first<{ name: string }>();
-    // No row back = a concurrent request refreshed it first (the WHERE
-    // skipped the update); the name read above stands (or, if the row only
-    // just appeared, read it again).
-    name = authorRow?.name ?? name ?? (await db.prepare("SELECT name FROM authors WHERE user_id = ?").bind(actorRaw).first<{ name: string }>())?.name;
-  }
-  const roles = await roleOf(db, actorRaw);
+  // `touchClientAuthor` is the read / conditional upsert / fallback read
+  // sequence (store/d1/auth.ts); it answers the stored name.
+  const name = await store.auth.touchClientAuthor(actorRaw, at, staleBefore);
+  const roles = await roleOf(store, actorRaw);
 
   return {
     user_id: actorRaw,
@@ -265,7 +231,7 @@ export async function verifyClientRequest(
 // over that window -- nothing younger than it can still matter to a live
 // request.
 export async function pruneNonces(dbArg: StoreArg, now: Clock): Promise<void> {
-  const db = legacyD1(dbArg);
+  const store = toStore(dbArg);
   const cutoff = new Date(new Date(now()).getTime() - 900 * 1000).toISOString();
-  await db.prepare("DELETE FROM nonces WHERE at < ?").bind(cutoff).run();
+  await store.auth.pruneNonces(cutoff);
 }

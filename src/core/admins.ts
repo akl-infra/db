@@ -6,7 +6,7 @@ import type { Bindings } from "../env";
 import { appendAdmin, type InfoKind } from "./events";
 import { lastAdmins, notFound } from "./errors";
 import type { Clock } from "./time";
-import { legacyD1, type StoreArg } from "../store/arg";
+import { toStore, type StoreArg } from "../store/arg";
 
 export interface AdminRow {
   user_id: string;
@@ -20,17 +20,13 @@ export interface AdminRow {
 // this one backs the admin routes' own authorization, discord.ts's backs
 // `Actor.admin`. Both read the same table live on every call.)
 export async function isAdmin(dbArg: StoreArg, userId: string): Promise<boolean> {
-  const db = legacyD1(dbArg);
-  const row = await db.prepare("SELECT 1 FROM admins WHERE user_id = ? LIMIT 1").bind(userId).first();
-  return row !== null;
+  const store = toStore(dbArg);
+  return await store.admin.isAdmin(userId);
 }
 
 export async function list(dbArg: StoreArg): Promise<AdminRow[]> {
-  const db = legacyD1(dbArg);
-  const { results } = await db
-    .prepare("SELECT user_id, added_by, added_at, note FROM admins ORDER BY added_at ASC, user_id ASC")
-    .all<AdminRow>();
-  return results;
+  const store = toStore(dbArg);
+  return await store.admin.listAdmins();
 }
 
 // Idempotent (09 §3 T3): re-adding a current admin answers 200 (not 201)
@@ -43,19 +39,13 @@ export async function add(
   userId: string,
   note?: string,
 ): Promise<{ row: AdminRow; created: boolean }> {
-  const db = legacyD1(dbArg);
-  const existing = await db
-    .prepare("SELECT user_id, added_by, added_at, note FROM admins WHERE user_id = ?")
-    .bind(userId)
-    .first<AdminRow>();
+  const store = toStore(dbArg);
+  const existing = await store.admin.getAdmin(userId);
   if (existing !== null) return { row: existing, created: false };
 
   const row: AdminRow = { user_id: userId, added_by: actorId, added_at: now(), note: note ?? null };
-  await db
-    .prepare("INSERT INTO admins (user_id, added_by, added_at, note) VALUES (?, ?, ?, ?)")
-    .bind(row.user_id, row.added_by, row.added_at, row.note)
-    .run();
-  await appendAdmin(db, now, { kind: "admin.added", actor: actorId, detail: { user_id: userId, note: row.note } });
+  await store.admin.insertAdmin(row);
+  await appendAdmin(store, now, { kind: "admin.added", actor: actorId, detail: { user_id: userId, note: row.note } });
   return { row, created: true };
 }
 
@@ -67,20 +57,15 @@ export async function add(
 // only pick the right error body -- they play no part in the safety
 // guarantee, which the DELETE's own WHERE clause already provides.
 export async function remove(dbArg: StoreArg, now: Clock, actorId: string, userId: string): Promise<{ seq: number }> {
-  const db = legacyD1(dbArg);
-  const result = await db
-    .prepare("DELETE FROM admins WHERE user_id = ? AND (SELECT COUNT(*) FROM admins) > 2")
-    .bind(userId)
-    .run();
+  const store = toStore(dbArg);
+  const result = await store.admin.removeAdmin(userId);
 
-  if (result.meta.changes === 0) {
-    const stillThere = await db.prepare("SELECT 1 FROM admins WHERE user_id = ?").bind(userId).first();
-    if (stillThere === null) throw notFound(`'${userId}' is not an admin`, userId);
-    const countRow = await db.prepare("SELECT COUNT(*) AS n FROM admins").first<{ n: number }>();
-    throw lastAdmins(countRow?.n ?? 2);
+  if (!result.removed) {
+    if (!result.exists) throw notFound(`'${userId}' is not an admin`, userId);
+    throw lastAdmins(result.count);
   }
 
-  const { seq } = await appendAdmin(db, now, { kind: "admin.removed", actor: actorId, detail: { user_id: userId } });
+  const { seq } = await appendAdmin(store, now, { kind: "admin.removed", actor: actorId, detail: { user_id: userId } });
   return { seq };
 }
 
@@ -104,7 +89,7 @@ const MANUAL_TICK_KIND: Record<"nightly", InfoKind> = {
 };
 
 export async function recordManualTick(dbArg: StoreArg, now: Clock, actorId: string, which: "nightly", detail: object): Promise<{ seq: number }> {
-  const db = legacyD1(dbArg);
-  const { seq } = await appendAdmin(db, now, { kind: MANUAL_TICK_KIND[which], actor: actorId, detail });
+  const store = toStore(dbArg);
+  const { seq } = await appendAdmin(store, now, { kind: MANUAL_TICK_KIND[which], actor: actorId, detail });
   return { seq };
 }

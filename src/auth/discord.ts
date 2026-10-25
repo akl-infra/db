@@ -13,7 +13,7 @@ import type { Clock } from "../core/time";
 import type { Actor } from "./actor";
 import { type ClientDeps, verifyClientRequest } from "./client";
 import { roleOf } from "./roles";
-import { legacyD1, type StoreArg } from "../store/arg";
+import { toStore, type StoreArg } from "../store/arg";
 
 export interface AuthDeps extends ClientDeps {
   fetchImpl: FetchImpl;
@@ -24,14 +24,6 @@ const CACHE_OK_SECONDS = 300;
 const CACHE_FAIL_SECONDS = 60;
 const DISCORD_TIMEOUT_MS = 5000;
 const USER_AGENT = "akl-db/1.0";
-
-interface AuthCacheRow {
-  user_id: string | null;
-  name: string | null;
-  app_id: string | null;
-  ok: number;
-  expires_at: string;
-}
 
 // saltorbit/aklgg#352: `username` is Discord's stable, unique handle --
 // the only field stored as an author's name. `global_name` (a changeable
@@ -65,8 +57,8 @@ function addSeconds(iso: string, seconds: number): string {
 // expired cache rows. Housekeeping, not a security boundary -- a token is
 // never stored, so an expired row holds nothing sensitive.
 export async function pruneAuthCache(dbArg: StoreArg, now: Clock): Promise<void> {
-  const db = legacyD1(dbArg);
-  await db.prepare("DELETE FROM auth_cache WHERE expires_at < ?").bind(now()).run();
+  const store = toStore(dbArg);
+  await store.auth.pruneAuthCache(now());
 }
 
 // The §2.2 cache dance, step by step:
@@ -98,19 +90,16 @@ export async function resolveBearer(
   fetchImpl: FetchImpl,
   discordApiUrl: string,
 ): Promise<Actor> {
-  const db = legacyD1(dbArg);
+  const store = toStore(dbArg);
   const at = now();
   const hash = await sha256Hex(token);
 
-  const cached = await db
-    .prepare("SELECT user_id, name, app_id, ok, expires_at FROM auth_cache WHERE token_hash = ?")
-    .bind(hash)
-    .first<AuthCacheRow>();
+  const cached = await store.auth.authCache(hash);
 
   if (cached !== null && cached.expires_at > at) {
     if (cached.ok === 0) throw tokenInvalid();
     if (cached.app_id !== null) {
-      const roles = await roleOf(db, cached.user_id!);
+      const roles = await roleOf(store, cached.user_id!);
       return { user_id: cached.user_id!, name: cached.name!, via: "discord", ...roles, source_client: `discord-app:${cached.app_id}` };
     }
     // else: LDB-A2 amended -- fall through to a fresh Discord call, same
@@ -130,13 +119,7 @@ export async function resolveBearer(
   }
 
   if (res.status === 401) {
-    await db
-      .prepare(
-        `INSERT INTO auth_cache (token_hash, user_id, name, app_id, ok, expires_at) VALUES (?, NULL, NULL, NULL, 0, ?)
-         ON CONFLICT(token_hash) DO UPDATE SET user_id = NULL, name = NULL, app_id = NULL, ok = 0, expires_at = excluded.expires_at`,
-      )
-      .bind(hash, addSeconds(at, CACHE_FAIL_SECONDS))
-      .run();
+    await store.auth.cacheAuthFailure(hash, addSeconds(at, CACHE_FAIL_SECONDS));
     throw tokenInvalid();
   }
 
@@ -163,13 +146,7 @@ export async function resolveBearer(
     // `identify` -- cached as a failure exactly like a real 401 (no
     // `app_id`: this failure is never resolved to a known application on
     // a later cache hit, same as a plain invalid token).
-    await db
-      .prepare(
-        `INSERT INTO auth_cache (token_hash, user_id, name, app_id, ok, expires_at) VALUES (?, NULL, NULL, NULL, 0, ?)
-         ON CONFLICT(token_hash) DO UPDATE SET user_id = NULL, name = NULL, app_id = NULL, ok = 0, expires_at = excluded.expires_at`,
-      )
-      .bind(hash, addSeconds(at, CACHE_FAIL_SECONDS))
-      .run();
+    await store.auth.cacheAuthFailure(hash, addSeconds(at, CACHE_FAIL_SECONDS));
     throw tokenInvalid("the token is valid but was not granted the 'identify' scope");
   }
 
@@ -181,34 +158,9 @@ export async function resolveBearer(
 
   const name = user.username;
 
-  await db.batch([
-    db
-      .prepare(
-        `INSERT INTO auth_cache (token_hash, user_id, name, app_id, ok, expires_at) VALUES (?, ?, ?, ?, 1, ?)
-         ON CONFLICT(token_hash) DO UPDATE SET user_id = excluded.user_id, name = excluded.name, app_id = excluded.app_id, ok = 1, expires_at = excluded.expires_at`,
-      )
-      .bind(hash, user.id, name, appId, addSeconds(at, CACHE_OK_SECONDS)),
-    db
-      .prepare(
-        // LDB-I17 (historical -- the cmini importer this row's `name_source`
-        // vocabulary predates is gone): the user lane always sets its own
-        // name and marks it `name_source = 'user'`. §4.3 (LDB-MD4): an `admin`
-        // override is STICKIER than that -- this WHERE guard is what keeps
-        // an admin-set name from being overwritten by the very next
-        // sign-in. `last_seen_at` still needs to move on every sign-in
-        // regardless (bookkeeping, LDB-R11), so the second statement below
-        // moves it on exactly the rows this one's WHERE clause skipped.
-        `INSERT INTO authors (user_id, name, first_seen_at, last_seen_at, name_source) VALUES (?, ?, ?, ?, 'user')
-         ON CONFLICT(user_id) DO UPDATE SET name = excluded.name, name_source = 'user', last_seen_at = excluded.last_seen_at
-         WHERE authors.name_source <> 'admin'`,
-      )
-      .bind(user.id, name, at, at),
-    db
-      .prepare("UPDATE authors SET last_seen_at = ? WHERE user_id = ? AND name_source = 'admin'")
-      .bind(at, user.id),
-  ]);
+  await store.auth.cacheAuthSuccess({ tokenHash: hash, userId: user.id, name, appId, expiresAt: addSeconds(at, CACHE_OK_SECONDS), at });
 
-  const roles = await roleOf(db, user.id);
+  const roles = await roleOf(store, user.id);
   return { user_id: user.id, name, via: "discord", ...roles, source_client: `discord-app:${appId}` };
 }
 

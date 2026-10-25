@@ -3,14 +3,14 @@
 // `src/routes/admin.ts` is glue only, every D1 statement for these verbs
 // lives here, and every action is an `admin.*` event (`appendAdmin`) so the
 // public changelog sees it the same way it sees any other admin write.
-import type { Bindings } from "../env";
+import type { Store } from "../store/port";
 import { destructiveBudgetKey, destructiveThreshold, DESTRUCTIVE_WINDOW_SECONDS } from "./destructive-budget";
 import { badRequest, notFound } from "./errors";
 import { appendAdmin } from "./events";
 import { base64UrlToBytes, EXTRA_CAPS, parseCaps, SCOPE_CAPS } from "../auth/client";
 import type { Clock } from "./time";
 import { ulid } from "ulidx";
-import { legacyD1, type StoreArg } from "../store/arg";
+import { toStore, type StoreArg } from "../store/arg";
 
 const OWNER_ID_RE = /^\d{17,20}$/;
 
@@ -67,7 +67,7 @@ export interface RegisterClientBody {
 // offending field, JSON-pointer style, like every other write schema in
 // this service.
 export async function registerClient(dbArg: StoreArg, now: Clock, actorId: string, body: RegisterClientBody): Promise<ClientRow> {
-  const db = legacyD1(dbArg);
+  const store = toStore(dbArg);
   const pubkeyBytes = base64UrlToBytes(body.pubkey);
   if (pubkeyBytes === null || pubkeyBytes.length !== 32) {
     throw badRequest("pubkey must be base64url of exactly 32 bytes", "/pubkey");
@@ -92,17 +92,11 @@ export async function registerClient(dbArg: StoreArg, now: Clock, actorId: strin
     revoked_at: null,
   };
 
-  await db
-    .prepare(
-      `INSERT INTO clients (id, name, pubkey, owner_user_id, caps, discord_app_id, status, created_at, revoked_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'active', ?, NULL)`,
-    )
-    .bind(row.id, row.name, row.pubkey, row.owner_user_id, row.caps, row.discord_app_id, row.created_at)
-    .run();
+  await store.admin.insertClient(row);
 
   // `detail` never carries the pubkey (10 C1 §4) -- the public changelog
   // shows a client was registered and by/for whom, not its key material.
-  await appendAdmin(db, now, {
+  await appendAdmin(store, now, {
     kind: "admin.client_registered",
     actor: actorId,
     detail: { id: row.id, name: row.name, owner_user_id: row.owner_user_id, caps: row.caps },
@@ -120,8 +114,8 @@ export async function revokeClient(
   actorId: string,
   id: string,
 ): Promise<{ id: string; status: "revoked"; revoked_at: string } | null> {
-  const db = legacyD1(dbArg);
-  const existing = await db.prepare("SELECT status, revoked_at FROM clients WHERE id = ?").bind(id).first<{ status: string; revoked_at: string | null }>();
+  const store = toStore(dbArg);
+  const existing = await store.admin.clientStatus(id);
   if (existing === null) return null;
 
   if (existing.status === "revoked") {
@@ -129,19 +123,14 @@ export async function revokeClient(
   }
 
   const revoked_at = now();
-  await db.prepare("UPDATE clients SET status = 'revoked', revoked_at = ? WHERE id = ?").bind(revoked_at, id).run();
-  await appendAdmin(db, now, { kind: "admin.client_revoked", actor: actorId, detail: { id } });
+  await store.admin.revokeClient(id, revoked_at);
+  await appendAdmin(store, now, { kind: "admin.client_revoked", actor: actorId, detail: { id } });
   return { id, status: "revoked", revoked_at };
 }
 
 export async function listClients(dbArg: StoreArg): Promise<ClientRow[]> {
-  const db = legacyD1(dbArg);
-  const { results } = await db
-    .prepare(
-      "SELECT id, name, pubkey, owner_user_id, caps, discord_app_id, status, created_at, revoked_at FROM clients ORDER BY created_at ASC, id ASC",
-    )
-    .all<ClientRow>();
-  return results;
+  const store = toStore(dbArg);
+  return await store.admin.listClients();
 }
 
 export function unknownClientId(id: string) {
@@ -164,10 +153,10 @@ interface SuspendState {
   reason: string;
 }
 
-async function readSuspendState(db: Bindings["DB"], id: string): Promise<SuspendState | null> {
-  const row = await db.prepare("SELECT value FROM import_state WHERE key = ?").bind(suspendStateKey(id)).first<{ value: string }>();
-  if (row === null) return null;
-  return JSON.parse(row.value) as SuspendState;
+async function readSuspendState(store: Store, id: string): Promise<SuspendState | null> {
+  const value = await store.state.get(suspendStateKey(id));
+  if (value === null) return null;
+  return JSON.parse(value) as SuspendState;
 }
 
 export interface ClientStatusResult {
@@ -186,29 +175,24 @@ export interface ClientStatusResult {
 // routes (`routes/admin.ts`) are what turn `status === "revoked"` into a
 // loud `409` for a human caller; the automatic path just no-ops.
 export async function suspendClient(dbArg: StoreArg, now: Clock, actorId: string, id: string, reason: string): Promise<ClientStatusResult | null> {
-  const db = legacyD1(dbArg);
-  const existing = await db.prepare("SELECT status FROM clients WHERE id = ?").bind(id).first<{ status: string }>();
+  const store = toStore(dbArg);
+  const existing = await store.admin.clientStatus(id);
   if (existing === null) return null;
 
   if (existing.status === "revoked") {
     return { id, status: "revoked", suspended_at: null, reason: null };
   }
   if (existing.status === "suspended") {
-    const state = await readSuspendState(db, id);
+    const state = await readSuspendState(store, id);
     return { id, status: "suspended", suspended_at: state?.at ?? null, reason: state?.reason ?? null };
   }
 
   const at = now();
-  await db.batch([
-    db.prepare("UPDATE clients SET status = 'suspended' WHERE id = ?").bind(id),
-    db
-      .prepare("INSERT INTO import_state (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
-      .bind(suspendStateKey(id), JSON.stringify({ at, reason } satisfies SuspendState)),
-  ]);
+  await store.admin.suspendClient(id, suspendStateKey(id), JSON.stringify({ at, reason } satisfies SuspendState));
   // [LDB-A10] the tripping (or the admin's manual) action is itself an
   // `admin`-kind system event, so it shows on the public changelog exactly
   // like any other admin action (LDB-A5's own rule, extended).
-  await appendAdmin(db, now, { kind: "admin.client_suspended", actor: actorId, detail: { id, reason } });
+  await appendAdmin(store, now, { kind: "admin.client_suspended", actor: actorId, detail: { id, reason } });
   return { id, status: "suspended", suspended_at: at, reason };
 }
 
@@ -216,8 +200,8 @@ export async function suspendClient(dbArg: StoreArg, now: Clock, actorId: string
 // shape `revokeClient`'s "idempotent past the first revoke" already has),
 // and `revoked` never moves (terminal, same as `suspendClient` above).
 export async function reactivateClient(dbArg: StoreArg, now: Clock, actorId: string, id: string): Promise<ClientStatusResult | null> {
-  const db = legacyD1(dbArg);
-  const existing = await db.prepare("SELECT status FROM clients WHERE id = ?").bind(id).first<{ status: string }>();
+  const store = toStore(dbArg);
+  const existing = await store.admin.clientStatus(id);
   if (existing === null) return null;
 
   if (existing.status === "revoked") {
@@ -227,17 +211,13 @@ export async function reactivateClient(dbArg: StoreArg, now: Clock, actorId: str
     return { id, status: "active", suspended_at: null, reason: null };
   }
 
-  await db.batch([
-    db.prepare("UPDATE clients SET status = 'active' WHERE id = ?").bind(id),
-    db.prepare("DELETE FROM import_state WHERE key = ?").bind(suspendStateKey(id)),
-    // A clean slate: without this, a client reactivated mid-window (the
-    // common case -- an admin investigates and clears it soon after the
-    // trip) would re-trip on its very next destructive write, since the
-    // counter that got it suspended is still sitting at/above threshold
-    // for the rest of that clock hour.
-    db.prepare("DELETE FROM ratelimit WHERE key = ?").bind(destructiveBudgetKey(id)),
-  ]);
-  await appendAdmin(db, now, { kind: "admin.client_reactivated", actor: actorId, detail: { id } });
+  // The store also clears the destructive-budget window: without that, a
+  // client reactivated mid-window (the common case -- an admin investigates
+  // and clears it soon after the trip) would re-trip on its very next
+  // destructive write, since the counter that got it suspended is still
+  // sitting at/above threshold for the rest of that clock hour.
+  await store.admin.reactivateClient(id, suspendStateKey(id), destructiveBudgetKey(id));
+  await appendAdmin(store, now, { kind: "admin.client_reactivated", actor: actorId, detail: { id } });
   return { id, status: "active", suspended_at: null, reason: null };
 }
 
@@ -252,11 +232,11 @@ export async function reactivateClient(dbArg: StoreArg, now: Clock, actorId: str
 export const BUDGET_GUARD_ACTOR = "system:budget-guard";
 
 export async function checkDestructiveBudget(dbArg: StoreArg, now: Clock, probe: { clientId: string; countInWindow: number; liveLayouts: number }): Promise<void> {
-  const db = legacyD1(dbArg);
+  const store = toStore(dbArg);
   const threshold = destructiveThreshold(probe.liveLayouts);
   if (probe.countInWindow <= threshold) return;
   await suspendClient(
-    db,
+    store,
     now,
     BUDGET_GUARD_ACTOR,
     probe.clientId,
@@ -288,16 +268,12 @@ export interface ClientsHealth {
 }
 
 export async function clientsHealth(dbArg: StoreArg, liveLayoutCount: number): Promise<ClientsHealth> {
-  const db = legacyD1(dbArg);
-  const { results } = await db.prepare("SELECT id, name FROM clients WHERE status = 'suspended' ORDER BY id ASC").all<{ id: string; name: string }>();
+  const store = toStore(dbArg);
+  const results = await store.admin.suspendedClients();
   let states = new Map<string, SuspendState>();
   if (results.length > 0) {
-    const keys = results.map((r) => suspendStateKey(r.id));
-    const { results: stateRows } = await db
-      .prepare(`SELECT key, value FROM import_state WHERE key IN (${keys.map(() => "?").join(",")})`)
-      .bind(...keys)
-      .all<{ key: string; value: string }>();
-    states = new Map(stateRows.map((r) => [r.key, JSON.parse(r.value) as SuspendState]));
+    const stateRows = await store.state.getMany(results.map((r) => suspendStateKey(r.id)));
+    states = new Map([...stateRows].map(([key, value]) => [key, JSON.parse(value) as SuspendState]));
   }
   const suspended: SuspendedClientInfo[] = results.map((r) => {
     const state = states.get(suspendStateKey(r.id));
