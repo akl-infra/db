@@ -19,7 +19,7 @@ import { createDocClient } from "../store/ddb/client";
 import type { DdbTables } from "../store/ddb/contracts";
 import { createDdbStore } from "../store/ddb";
 import type { Store } from "../store/port";
-import { ingestBatch, runApplier } from "./lambda-mirror";
+import { ingestBatch, runApplier, type MirrorDirection } from "./lambda-mirror";
 import {
   ParamReader,
   createMetrics,
@@ -77,7 +77,19 @@ export function createHandlers(deps: LambdaDeps) {
     origError(...a);
   };
 
-  const blobs = () => s3Blobs(deps.s3, { data: need(e, "AKLDB_BUCKET_DATA"), dumps: need(e, "AKLDB_BUCKET_DUMPS"), snapshot: need(e, "AKLDB_BUCKET_SNAPSHOT") });
+  // Getters: the ingest function is given only the data bucket, so the others are required only when a key routes there.
+  const blobs = () =>
+    s3Blobs(deps.s3, {
+      get data() {
+        return need(e, "AKLDB_BUCKET_DATA");
+      },
+      get dumps() {
+        return need(e, "AKLDB_BUCKET_DUMPS");
+      },
+      get snapshot() {
+        return need(e, "AKLDB_BUCKET_SNAPSHOT");
+      },
+    });
 
   // One runtime per container: store, catalog, platform factory, env. Built lazily on first use.
   let runtime: Promise<{ env: Bindings; store: Store; blobs: ReturnType<typeof blobs>; pending: Set<Promise<unknown>>; drain(): Promise<void> }> | undefined;
@@ -195,24 +207,30 @@ export function createHandlers(deps: LambdaDeps) {
     if (failure !== undefined) throw failure;
   };
 
+  const direction = (): MirrorDirection => ((e.MIRROR_MODE ?? "off") === "record" ? "ddb->d1" : "d1->ddb");
+
   const mirrorIngest = async (event: UrlEvent): Promise<{ statusCode: number; headers: Record<string, string>; body: string }> => {
     const json = (statusCode: number, body: unknown) => ({ statusCode, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
     if ((e.MIRROR_MODE ?? "off") !== "apply") return json(503, { error: "mirror ingest is off" });
     const secret = await params.require("tee-hmac");
-    const headers: Record<string, string> = {};
-    for (const [k, v] of Object.entries(event.headers)) if (v !== undefined) headers[k.toLowerCase()] = v;
+    const lower: Record<string, string> = {};
+    for (const [k, v] of Object.entries(event.headers)) if (v !== undefined) lower[k.toLowerCase()] = v;
     const raw = event.body ?? "";
     const body = event.isBase64Encoded ? Buffer.from(raw, "base64").toString("utf8") : raw;
     try {
       const r = await ingestBatch(
-        { headers, body, nowMs: Date.now() },
+        { header: (n) => lower[n.toLowerCase()] ?? null, body },
         {
           doc: deps.doc,
           tables,
+          blobs: blobs(),
+          direction: direction(),
           secret,
+          nowMs: () => Date.now(),
           wake: async () => {
             await deps.lambda.send(new InvokeCommand({ FunctionName: need(e, "MIRROR_APPLY_FUNCTION"), InvocationType: "Event", Payload: Buffer.from("{}") }));
           },
+          log: (line) => deps.log.log(JSON.stringify(line)),
         },
       );
       return json(r.status, r.body);
@@ -224,16 +242,13 @@ export function createHandlers(deps: LambdaDeps) {
     }
   };
 
+  // The applier returns a halt instead of throwing and logs its own {"code":"MIRROR_*"} line, which the template's
+  // metric filter turns into the MirrorDiverged alarm; an invocation that halted is not a Lambda error.
   const mirrorApply = async (): Promise<unknown> => {
     if ((e.MIRROR_MODE ?? "off") !== "apply") return { skipped: "mirror mode is not apply" };
     const rt = await getRuntime();
     try {
-      const r = await runApplier({ store: rt.store, doc: deps.doc, tables, blobs: rt.blobs, now: () => Date.now() }, { mode: "apply" });
-      if (r.diverged) metrics.emit("MirrorDiverged", 1);
-      return r;
-    } catch (err) {
-      if (err instanceof Error && err.name === "MirrorDivergedError") metrics.emit("MirrorDiverged", 1);
-      throw err;
+      return await runApplier({ store: rt.store, doc: deps.doc, tables, blobs: rt.blobs, direction: direction(), nowMs: () => Date.now() });
     } finally {
       metrics.flush();
     }

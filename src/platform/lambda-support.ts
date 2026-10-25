@@ -105,7 +105,7 @@ export async function discordConfig(reader: ParamReader): Promise<Partial<Platfo
 
 // ------------------------------------------------------------------ EMF
 
-export type MetricName = "EventTxRetriesExhausted" | "ReplicaSnapshotAgeSeconds" | "DumpAgeSeconds" | "MirrorDiverged";
+export type MetricName = "EventTxRetriesExhausted" | "ReplicaSnapshotAgeSeconds" | "DumpAgeSeconds";
 
 /** One CloudWatch Embedded Metric Format line, namespace Akldb, dimension Stage (infra/akldb.yaml's alarms). */
 export function emfLine(stage: string, name: MetricName, value: number, unit: "Count" | "Seconds", nowMs = Date.now()): string {
