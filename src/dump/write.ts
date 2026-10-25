@@ -10,6 +10,7 @@
 // re-insert it with no shape translation at either end. `canonical()` over
 // that plain-row shape is what keeps the dump byte-stable for the sha256.
 import type { Bindings } from "../env";
+import { workersPlatform } from "../platform/workers";
 import { canonical } from "../core/canonical";
 import type { ClientRow } from "../core/clients";
 import { readHead } from "../core/etag";
@@ -17,9 +18,8 @@ import { redactEventRow, type EventDbRow } from "../core/events";
 import { readMetaCore } from "../core/meta";
 import type { FormatDbRow, LayoutDbRow } from "../core/records";
 import type { Clock } from "../core/time";
-import { legacyD1, type StoreArg } from "../store/arg";
-
-const PAGE_SIZE = 500;
+import { toStore, type StoreArg } from "../store/arg";
+import type { Store } from "../store/port";
 
 export interface LayoutRevDbRow {
   layout_id: string;
@@ -209,75 +209,13 @@ export interface LatestJson {
   seq: number;
 }
 
-// Single-column-PK keyset pager: `SELECT * FROM <table> WHERE <keyCol> > ?
-// ORDER BY <keyCol> ASC LIMIT ?`, page after page until a short page ends
-// it. `table`/`keyCol` are our own fixed constants below, never request
-// input, so string-interpolating them into the SQL is safe. A fixed column
-// projection excludes private receipt metadata from WPM snapshots.
-async function pageBySingleKey<T>(db: Bindings["DB"], table: string, keyCol: string, columns = "*"): Promise<T[]> {
-  const out: T[] = [];
-  let cursor: string | number | null = null;
-  for (;;) {
-    const sql: string =
-      cursor === null
-        ? `SELECT ${columns} FROM ${table} ORDER BY ${keyCol} ASC LIMIT ?`
-        : `SELECT ${columns} FROM ${table} WHERE ${keyCol} > ? ORDER BY ${keyCol} ASC LIMIT ?`;
-    const args: (string | number)[] = cursor === null ? [PAGE_SIZE] : [cursor, PAGE_SIZE];
-    const { results } = await db.prepare(sql).bind(...args).all<T>();
-    out.push(...results);
-    if (results.length < PAGE_SIZE) break;
-    const last = results[results.length - 1] as unknown as Record<string, string | number>;
-    cursor = last[keyCol]!;
-  }
-  return out;
-}
-
-// Composite-PK keyset pager (`layout_revs`, `likes`): a single-column cursor
-// on `col1` alone would skip or repeat rows when many share one `col1`
-// value (e.g. many revs of the same layout), so the predicate is the same
-// tuple comparison `core/records.ts`'s `list()` uses for its own cursor.
-async function pageByCompositeKey<T>(db: Bindings["DB"], table: string, col1: string, col2: string): Promise<T[]> {
-  const out: T[] = [];
-  let cursor: [string, number | string] | null = null;
-  for (;;) {
-    const sql: string =
-      cursor === null
-        ? `SELECT * FROM ${table} ORDER BY ${col1} ASC, ${col2} ASC LIMIT ?`
-        : `SELECT * FROM ${table} WHERE (${col1} > ? OR (${col1} = ? AND ${col2} > ?)) ORDER BY ${col1} ASC, ${col2} ASC LIMIT ?`;
-    const args: (string | number)[] = cursor === null ? [PAGE_SIZE] : [cursor[0], cursor[0], cursor[1], PAGE_SIZE];
-    const { results } = await db.prepare(sql).bind(...args).all<T>();
-    out.push(...results);
-    if (results.length < PAGE_SIZE) break;
-    const last = results[results.length - 1] as unknown as Record<string, string | number>;
-    cursor = [last[col1] as string, last[col2]!];
-  }
-  return out;
-}
-
-// `comment_likes` has a three-column primary key, so it pages on the unique
-// concatenation of the three (ids never contain '/'); the helper column is
-// dropped again before the rows go into the dump.
-async function pageCommentLikes(db: Bindings["DB"]): Promise<CommentLikeDbRow[]> {
-  const out: CommentLikeDbRow[] = [];
-  let cursor: string | null = null;
-  for (;;) {
-    const sql: string = `SELECT *, layout_id || '/' || author_id || '/' || user_id AS k FROM comment_likes ${cursor === null ? "" : "WHERE k > ?"} ORDER BY k ASC LIMIT ?`;
-    const args: (string | number)[] = cursor === null ? [PAGE_SIZE] : [cursor, PAGE_SIZE];
-    const { results } = await db.prepare(sql).bind(...args).all<CommentLikeDbRow & { k: string }>();
-    for (const { k: _k, ...row } of results) out.push(row);
-    if (results.length < PAGE_SIZE) break;
-    cursor = results[results.length - 1]!.k;
-  }
-  return out;
-}
-
 // `src/index.ts`'s `GET /v1/meta` body minus the live state it adds on top
 // (`last_diff`, `health`, `api`, `deprecations`):
 // the SAME `readMetaCore` (core/meta.ts), so the two can't drift;
 // `tests/api/dump.test.ts` also compares a dump's `meta` against a live
 // `/v1/meta` call.
-async function computeMeta(db: Bindings["DB"]): Promise<DumpMeta> {
-  return readMetaCore(db, await readHead(db));
+async function computeMeta(store: Store): Promise<DumpMeta> {
+  return readMetaCore(store, await readHead(store));
 }
 
 // MF-13 (LDB-B10 with two tables): `meta` is read FIRST, and every table
@@ -291,28 +229,12 @@ async function computeMeta(db: Bindings["DB"]): Promise<DumpMeta> {
 // entirely (it precedes the drain's `since`, but the dump's own tables
 // don't carry it either).
 export async function buildDump(env: Bindings, now: Clock): Promise<Dump> {
-  const db = env.DB;
+  const store = workersPlatform(env, undefined).store;
   const date = now().slice(0, 10);
 
-  const meta = await computeMeta(db);
+  const meta = await computeMeta(store);
 
-  const [records, layout_formats, layout_revs, likes, authors, admins, events, import_state_all, import_map, clients, bans, link_submissions, wpm_submissions, layout_comments, comment_likes] = await Promise.all([
-    pageBySingleKey<LayoutDbRow>(db, "layouts", "id"),
-    pageByCompositeKey<FormatDbRow>(db, "layout_formats", "layout_id", "lineage"),
-    pageByCompositeKey<LayoutRevDbRow>(db, "layout_revs", "layout_id", "n"),
-    pageByCompositeKey<LikeDbRow>(db, "likes", "layout_id", "user_id"),
-    pageBySingleKey<AuthorDbRow>(db, "authors", "user_id"),
-    pageBySingleKey<AdminDbRow>(db, "admins", "user_id"),
-    pageBySingleKey<EventDbRow>(db, "events", "seq"),
-    pageBySingleKey<ImportStateDbRow>(db, "import_state", "key"),
-    pageBySingleKey<ImportMapDbRow>(db, "import_map", "upstream_id"),
-    pageBySingleKey<ClientDbRow>(db, "clients", "id"),
-    pageBySingleKey<BanDbRow>(db, "bans", "user_id"),
-    pageBySingleKey<LinkSubmissionDbRow>(db, "link_submissions", "id"),
-    pageBySingleKey<WpmSubmissionDbRow>(db, "wpm_submissions", "id", "id, layout_id, user_id, wpm, proof, submitted_by, via, submitted_at, status, decided_by, decided_at, reason, notified_at, review_version"),
-    pageBySingleKey<LayoutCommentDbRow>(db, "layout_comments", "id"),
-    pageCommentLikes(db),
-  ]);
+  const { records, layout_formats, layout_revs, likes, authors, admins, events, import_state: import_state_all, import_map, clients, bans, link_submissions, wpm_submissions, layout_comments, comment_likes } = await store.dump.tables();
 
   // LDB-D8: `dump.last_at` is this dump's OWN scheduling bookkeeping (see
   // the `Dump.import_state` comment above) -- filtered out here, not left
@@ -372,16 +294,12 @@ export const DUMP_STATE_KEY = "dump.last_at"; // exported for `/v1/meta`'s one-q
 const DUMP_STALE_MS = 24 * 60 * 60 * 1000;
 
 export async function readDumpState(dbArg: StoreArg): Promise<DumpState | null> {
-  const db = legacyD1(dbArg);
-  const row = await db.prepare("SELECT value FROM import_state WHERE key = ?").bind(DUMP_STATE_KEY).first<{ value: string }>();
-  return row === null ? null : (JSON.parse(row.value) as DumpState);
+  const value = await toStore(dbArg).state.get(DUMP_STATE_KEY);
+  return value === null ? null : (JSON.parse(value) as DumpState);
 }
 
-async function writeDumpState(db: Bindings["DB"], state: DumpState): Promise<void> {
-  await db
-    .prepare("INSERT INTO import_state (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
-    .bind(DUMP_STATE_KEY, canonical(state))
-    .run();
+async function writeDumpState(store: Store, state: DumpState): Promise<void> {
+  await store.state.put(DUMP_STATE_KEY, canonical(state));
 }
 
 // Pure (no D1, no clock read of its own) so `tests/import/tick.test.ts` can
@@ -425,6 +343,7 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
 // `runNightly`, after `pruneAuthCache`) or, on any other tick, LDB-D8's own
 // catch-up check (`src/index.ts`).
 export async function writeDump(env: Bindings, now: Clock): Promise<{ key: string; latest: LatestJson }> {
+  const platform = workersPlatform(env, undefined);
   const dump = await buildDump(env, now);
   const bytes = new TextEncoder().encode(canonical(dump));
   const gz = await gzip(bytes);
@@ -438,7 +357,7 @@ export async function writeDump(env: Bindings, now: Clock): Promise<{ key: strin
   console.log(`writeDump: seq=${dump.meta.seq} layouts=${dump.meta.layout_count} bytes=${bytes.byteLength} gzip_bytes=${gz.byteLength}`);
 
   const key = `dump-${dump.date}.json.gz`;
-  await env.DUMPS.put(key, gz, { httpMetadata: { contentType: "application/gzip" } });
+  await platform.blobs.put(key, gz, "application/gzip");
 
   const latest: LatestJson = {
     date: dump.date,
@@ -449,11 +368,11 @@ export async function writeDump(env: Bindings, now: Clock): Promise<{ key: strin
     layout_count: dump.meta.layout_count,
     seq: dump.meta.seq,
   };
-  await env.DUMPS.put("latest.json", canonical(latest), { httpMetadata: { contentType: "application/json" } });
+  await platform.blobs.put("latest.json", canonical(latest), "application/json");
 
   if (dump.date.slice(8, 10) === "01") {
     const monthKey = `monthly/dump-${dump.date.slice(0, 7)}.json.gz`;
-    await env.DUMPS.put(monthKey, gz, { httpMetadata: { contentType: "application/gzip" } });
+    await platform.blobs.put(monthKey, gz, "application/gzip");
   }
 
   // LDB-D8: recorded LAST, only once every object above has been written
@@ -461,7 +380,7 @@ export async function writeDump(env: Bindings, now: Clock): Promise<{ key: strin
   // previous `dump.last_at` in place, so the NEXT tick's catch-up check
   // still sees this attempt as not having happened and retries, rather
   // than wrongly believing a dump exists that was never fully written.
-  await writeDumpState(env.DB, { at: now(), seq: dump.meta.seq, key });
+  await writeDumpState(platform.store, { at: now(), seq: dump.meta.seq, key });
 
   return { key, latest };
 }
