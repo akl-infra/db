@@ -54,10 +54,13 @@ function parseArgs(argv) {
   return a;
 }
 
-const args = parseArgs(process.argv.slice(2));
-const WORK = args.work ?? fs.mkdtempSync(path.join(os.tmpdir(), "akldb-p1-crawl-"));
-const OUT = args.out ?? path.join(WORK, "report");
-fs.mkdirSync(OUT, { recursive: true });
+// Imported by scripts/lab/fuzz (lane L) for its helpers; only the CLI parses
+// arguments, makes the work directory and runs.
+const IS_MAIN = process.argv[1] !== undefined && url.pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url;
+const args = IS_MAIN ? parseArgs(process.argv.slice(2)) : null;
+const WORK = IS_MAIN ? (args.work ?? fs.mkdtempSync(path.join(os.tmpdir(), "akldb-p1-crawl-"))) : null;
+const OUT = IS_MAIN ? (args.out ?? path.join(WORK, "report")) : null;
+if (IS_MAIN) fs.mkdirSync(OUT, { recursive: true });
 const log = (...m) => console.log(`[p1-crawl] ${m.join(" ")}`);
 
 // ---------------------------------------------------------------------------
@@ -610,7 +613,11 @@ async function main() {
   process.exit(ok ? 0 : 1);
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(2);
-});
+if (IS_MAIN) {
+  main().catch((e) => {
+    console.error(e);
+    process.exit(2);
+  });
+}
+
+export { ADMIN, CONTRACT_HEADERS, LAB_APP_ID, LAB_CLIENT, LAB_PUB_RAW, USER_A, USER_B, USER_C, findSqlite, firstDiff, loadDump, sh, signedHeaders, sqlLit, startFakeDiscord, waitReady };
