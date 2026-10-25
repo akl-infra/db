@@ -221,7 +221,12 @@ export async function readHead(dbArg: StoreArg, stateKeys: readonly string[] = [
 //   `read-only` extra cap, the `client_read_only` 403, the extended
 //   `validateCaps` message, and read-only clients not upserting authors. No
 //   stored shape changes; no migration.
-export const WIRE_VERSION = 30;
+// 31 (2026-10-25, LDB-WPM18..LDB-WPM20): WPM `user_name` falls back to the
+//   Discord name (new `discord_users`, migrations/0036) when authors has none
+//   or only the id; `POST /v1/wpm` takes an optional `user_name`; new
+//   `POST /v1/admin/discord-users/refresh`; `GET /v1/wpm`'s ETag folds in
+//   `discord_users_head`. Additive; one new table, no existing column moves.
+export const WIRE_VERSION = 31;
 
 export async function etagFor(headSeqValue: number, query: unknown): Promise<string> {
   const hash = await sha256Hex(canonical({ wireVersion: WIRE_VERSION, query: query ?? null }));

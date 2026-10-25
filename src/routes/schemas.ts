@@ -362,6 +362,11 @@ export function parseLinkRejectBody(body: unknown): LinkRejectBody {
   return checkBody(validateLinkReject, body);
 }
 
+const validateDiscordUsersRefresh = ajv.compile<{ limit?: unknown }>({
+  type: "object", additionalProperties: false, properties: { limit: {} }, // limit is validated in core/discord-users.ts
+});
+export const parseDiscordUsersRefreshBody = (body: unknown) => checkBody(validateDiscordUsersRefresh, body);
+
 export function parseWpmBody(body: unknown): WpmBody {
   return checkBody(validateWpm, body);
 }

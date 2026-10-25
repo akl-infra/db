@@ -1,0 +1,21 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/admin/discord-users/refresh",
+    "bearer": "conformance-admin-token",
+    "body": {
+      "limit": 1
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "failed": 1,
+      "remaining": 1,
+      "resolved": 0
+    }
+  }
+}

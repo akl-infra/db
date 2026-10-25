@@ -7,6 +7,7 @@
 import { ulid } from "ulidx";
 import type { Actor } from "../auth/actor";
 import { sourceMessageConflict, badRequest, invalidProof, invalidWpm, notFound, reviewConflict } from "./errors";
+import { lookupDiscordUser, storeResolved, type DiscordLookup } from "./discord-users";
 import { appendInfo } from "./events";
 import { layoutPresent, reopenReview, type ReviewExpectation } from "./moderation-review";
 import { outboxIntent } from "./outbox-intent";
@@ -83,7 +84,7 @@ export interface WpmSubmissionRow {
 // `GET /v1/admin/wpm-queue` additionally names the layout and the user.
 export interface WpmQueueRow extends WpmSubmissionRow {
   layout_name: string;
-  user_name: string | null; // joined from authors; null if no author row
+  user_name: string | null; // authors.name, else discord_users (LDB-WPM18); null if neither
 }
 
 // `GET /v1/wpm`: one row per (layout, user), the user's best approved speed.
@@ -91,7 +92,7 @@ export interface WpmRecord {
   layout_id: string;
   layout_name: string;
   user_id: string;
-  user_name: string | null;
+  user_name: string | null; // authors.name, else discord_users (LDB-WPM18); null if neither
   wpm: number;
   proof: string;
   approved_at: string;
@@ -229,12 +230,19 @@ export async function submitWpmOnBehalf(
   rawWpm: unknown,
   rawProof: unknown,
   proofAccess: DiscordProofAccess,
+  lookup?: DiscordLookup,
 ): Promise<WpmSubmissionRow> {
   const store = toStore(dbArg);
   const userId = validateUserId(rawUserId, "user_id");
   const { wpm, proof } = validated(rawWpm, rawProof);
   await verifyDiscordProofAuthor(proof, userId, proofAccess);
-  return insertApproved(store, now, actor, version, layoutId, userId, wpm, proof);
+  // [LDB-WPM19] Resolve the typist's name with the akldb bot alongside the
+  // save. The lookup never throws and is bounded by its own timeout, so the
+  // entry is saved whatever Discord does.
+  const names = lookupDiscordUser(proofAccess, userId, lookup);
+  const row = await insertApproved(store, now, actor, version, layoutId, userId, wpm, proof);
+  await storeResolved(store, now, userId, await names);
+  return row;
 }
 
 export type WpmQueueStatus = WpmStatus;

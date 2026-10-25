@@ -2427,6 +2427,84 @@
     }
   },
   {
+    "id": "admin-discord-users/refresh-200",
+    "method": "POST",
+    "route": "/v1/admin/discord-users/refresh",
+    "auth": "admin",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "failed": {
+          "type": "number"
+        },
+        "remaining": {
+          "type": "number"
+        },
+        "resolved": {
+          "type": "number"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-discord-users/refresh-400-bad_request",
+    "method": "POST",
+    "route": "/v1/admin/discord-users/refresh",
+    "auth": "admin",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "param": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-discord-users/refresh-401-unauthorized",
+    "method": "POST",
+    "route": "/v1/admin/discord-users/refresh",
+    "auth": "admin",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "id": "admin-discord-users/refresh-403-not_admin",
+    "method": "POST",
+    "route": "/v1/admin/discord-users/refresh",
+    "auth": "admin",
+    "status": 403,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
     "id": "admin-dump/post-200",
     "method": "POST",
     "route": "/v1/admin/dump",

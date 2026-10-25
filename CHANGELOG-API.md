@@ -25,6 +25,22 @@ this file just gives them a public, versioned home. From here on, a
 `WIRE_VERSION` bump and a line here land in the SAME PR, never one without
 the other (`[LDB-V5]`).
 
+## 1.31 — 2026-10-25
+
+LDB-WPM18..LDB-WPM20, docs/decisions/28-wpm-records.md: every WPM typist has a
+known Discord name, additive. New table `discord_users` (migrations/0036; ids,
+Discord username and display name). The WPM reads' `user_name` (`GET /v1/wpm`,
+the admin WPM queue, the mod-queue cards) is now `authors.name` when it is
+non-blank and not the user id, else the Discord display name, else the Discord
+username, else `null` (the field and its type are unchanged). `POST /v1/wpm`'s
+request is unchanged (extra fields are still refused); after responding it
+looks the typist's own name up with the akldb bot, unless one looked up within
+7 days is stored. `POST /v1/admin/wpm` resolves the target's names with the akldb bot,
+best effort within 3 s, and saves regardless. New admin route
+`POST /v1/admin/discord-users/refresh` (`{limit?}`, 1..50) backfills the names
+still missing and answers `{resolved, failed, remaining}`. `GET /v1/wpm`'s ETag
+now also moves when a stored Discord name changes.
+
 ## 1.30 — 2026-10-25
 
 LDB-A16..A18, docs/decisions/31-read-only-clients.md: a new extra cap,

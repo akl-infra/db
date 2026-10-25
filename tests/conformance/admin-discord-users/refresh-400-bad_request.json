@@ -1,0 +1,21 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/v1/admin/discord-users/refresh",
+    "bearer": "conformance-admin-token",
+    "body": {
+      "limit": 0
+    }
+  },
+  "response": {
+    "status": 400,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "error": "bad_request",
+      "message": "'limit' must be an integer between 1 and 50",
+      "param": "limit"
+    }
+  }
+}

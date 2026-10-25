@@ -164,6 +164,7 @@ const ENDPOINT_PURPOSES = {
   "POST /v1/admin/link-queue/:id/approve": "Approve a queued link submission.",
   "POST /v1/admin/link-queue/:id/reject": "Reject a queued link submission.",
   "POST /v1/admin/wpm": "Enter a typing speed on someone else's behalf; approved immediately.",
+  "POST /v1/admin/discord-users/refresh": "Look up the Discord names WPM typists still lack, a batch at a time.",
   "GET /v1/admin/wpm-queue": "List WPM submissions awaiting moderation.",
   "POST /v1/admin/wpm-queue/:id/approve": "Approve a queued WPM submission.",
   "POST /v1/admin/wpm-queue/:id/reject": "Reject a queued WPM submission.",

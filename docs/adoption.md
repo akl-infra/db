@@ -1200,6 +1200,7 @@ silently drift from what `src/index.ts` actually registers.
 | POST | `/v1/admin/link-queue/:id/approve` | admin | — | 200 | `not_admin`, `not_found`, lane errors |
 | POST | `/v1/admin/link-queue/:id/reject` | admin | `{reason?}` | 200 | `bad_request`, `not_admin`, `not_found`, lane errors |
 | POST | `/v1/admin/wpm` | admin | `{user_id, layout, wpm, proof}` | 201 | `bad_request`, `invalid_wpm`, `invalid_proof`, `not_admin`, `not_found`, lane errors |
+| POST | `/v1/admin/discord-users/refresh` | admin | `{limit?}` | 200 | `bad_request`, `not_admin`, lane errors |
 | GET | `/v1/admin/wpm-queue` | admin | — | 200 | `bad_request`, `not_admin`, lane errors |
 | POST | `/v1/admin/wpm-queue/:id/approve` | admin | `{review_version?}` | 200 | `bad_request`, `review_conflict`, `not_admin`, `not_found`, lane errors |
 | POST | `/v1/admin/wpm-queue/:id/reject` | admin | `{reason?,review_version?}` | 200 | `bad_request`, `review_conflict`, `not_admin`, `not_found`, lane errors |
@@ -1286,7 +1287,15 @@ never deleted, so a proof stays reviewable. `GET /v1/wpm?layout=&user=`
 approved_at, submission_id}]}` — **one row per (layout, user): that user's
 top approved speed** (a tie goes to the earliest approval), sorted `wpm`
 descending then `approved_at` ascending, not paginated, ETag/304 like the
-other public reads; records on a deleted layout are hidden. Events:
+other public reads; records on a deleted layout are hidden. `user_name` is the
+author's name when it is non-blank and not the id itself, else the typist's
+Discord display name, else their Discord username, else `null`
+(`discord_users`). `POST /v1/wpm` is unchanged and learns the typist's name
+itself, after responding (bot lookup, skipped when a name looked up within 7
+days is stored); the admin entry looks the target up with the akldb bot (best
+effort, 3 s, the save never waits longer or fails), and `POST /v1/admin/discord-users/refresh`
+(`{limit?}`, 1-50, default 50; admin) resolves the names still missing and
+answers `{resolved, failed, remaining}`. Events:
 `wpm_submitted` (only `submission_id` — no speed or proof while pending),
 `wpm_approved` (`user_id`, `wpm`, `proof`) and `wpm_rejected` (only `submission_id`).
 

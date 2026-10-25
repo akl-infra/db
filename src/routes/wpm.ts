@@ -11,13 +11,14 @@ import { type AuthDeps, resolveActor } from "../auth/discord";
 import type { Bindings } from "../env";
 import { badRequest, notAdmin, notFound } from "../core/errors";
 import { cachePut, conditional, etagFor, readHead } from "../core/etag";
+import { ensureUserName, refreshMissingNames } from "../core/discord-users";
 import { notifyPending, updateQueueNotification } from "../core/modqueue";
 import { readReviewHistory } from "../core/moderation-review";
 import { dispatchRejectionDms } from "../core/rejection-dm";
 import { byRef } from "../core/records";
 import { systemClock, type Clock } from "../core/time";
 import * as wpm from "../core/wpm";
-import { parseLinkRejectBody, parseReviewApproveBody, parseReviewRejectBody, parseReviewReopenBody, parseWpmBody, parseWpmDiscordMessageBody, parseWpmOnBehalfBody } from "./schemas";
+import { parseDiscordUsersRefreshBody, parseLinkRejectBody, parseReviewApproveBody, parseReviewRejectBody, parseReviewReopenBody, parseWpmBody, parseWpmDiscordMessageBody, parseWpmOnBehalfBody } from "./schemas";
 
 const CACHE_CONTROL = "public, max-age=10";
 
@@ -53,7 +54,8 @@ export function wpmRoute(authDeps: AuthDeps) {
   // GET /v1/wpm?layout=&user= (public, no auth). The body is a function of
   // the approved rows, the layouts' names/tombstones and the authors' names:
   // every approval, rename, delete and restore appends an event (the seq),
-  // and an author rename moves `authors_head` -- both are in the ETag.
+  // and an author rename moves `authors_head` -- both are in the ETag, and
+  // so is `discord_users_head` (a typist's Discord name, LDB-WPM18).
   route.get("/v1/wpm", async (c) => {
     const db = platformOf(c).store;
     const layoutRaw = c.req.query("layout");
@@ -66,8 +68,8 @@ export function wpmRoute(authDeps: AuthDeps) {
     }
     const userId = userRaw === undefined ? undefined : wpm.validateUserId(userRaw, "user");
 
-    const head = await readHead(db);
-    const etag = await etagFor(head.seq, { wpm: { layout: layoutId ?? null, user: userId ?? null, authors: head.authors.version } });
+    const [head, names] = await Promise.all([readHead(db), db.discordUsers.version()]);
+    const etag = await etagFor(head.seq, { wpm: { layout: layoutId ?? null, user: userId ?? null, authors: head.authors.version, names } });
     const short = await conditional(c, etag, CACHE_CONTROL);
     if (short) return short;
 
@@ -88,6 +90,9 @@ export function wpmRoute(authDeps: AuthDeps) {
     // away rather than waiting for the next 5-minute cron tick, same as links
     // (`notifyPending` never throws and is free with the webhook unset).
     platformOf(c).background(notifyPending(platformOf(c).store, c.env, resolveNow(c.env)));
+    // [LDB-WPM18] Learn the typist's own Discord name after the response is
+    // formed; never awaited by the submit, never fails it.
+    platformOf(c).background(ensureUserName(platformOf(c).store, resolveNow(c.env), c.env, actor.user_id));
     return c.json({ submission }, 202);
   });
 
@@ -114,6 +119,15 @@ export function wpmRoute(authDeps: AuthDeps) {
     const layout = await wpm.resolveWpmLayout(platformOf(c).store, body.layout);
     const submission = await wpm.submitWpmOnBehalf(platformOf(c).store, resolveNow(c.env), actor, c.get("sourceVersion"), layout.id, body.user_id, body.wpm, body.proof, c.env);
     return c.json({ submission }, 201);
+  });
+
+  // [LDB-WPM20] The backfill: resolve the Discord names WPM typists still
+  // lack. `{limit?}` (1..50, default 50); answers {resolved, failed, remaining}.
+  route.post("/v1/admin/discord-users/refresh", async (c) => {
+    const actor = c.get("actor");
+    if (!actor.admin) throw notAdmin();
+    const body = parseDiscordUsersRefreshBody(await readOptionalJson(c.req));
+    return c.json(await refreshMissingNames(platformOf(c).store, resolveNow(c.env), c.env, body.limit));
   });
 
   route.get("/v1/admin/wpm-queue", async (c) => {

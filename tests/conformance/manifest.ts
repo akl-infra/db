@@ -459,6 +459,10 @@ import wpmFxWpmPost400InvalidWpm from "./wpm/post-400-invalid_wpm.json" with { t
 import wpmFxWpmPost400InvalidProof from "./wpm/post-400-invalid_proof.json" with { type: "json" };
 import wpmFxWpmPost401Unauthorized from "./wpm/post-401-unauthorized.json" with { type: "json" };
 import wpmFxWpmPost404 from "./wpm/post-404.json" with { type: "json" };
+import dcFxRefresh200 from "./admin-discord-users/refresh-200.json" with { type: "json" };
+import dcFxRefresh400 from "./admin-discord-users/refresh-400-bad_request.json" with { type: "json" };
+import dcFxRefresh401 from "./admin-discord-users/refresh-401-unauthorized.json" with { type: "json" };
+import dcFxRefresh403 from "./admin-discord-users/refresh-403-not_admin.json" with { type: "json" };
 import wpmFxAdminWpmPost201 from "./admin-wpm/post-201.json" with { type: "json" };
 import wpmFxAdminWpmPost400BadRequest from "./admin-wpm/post-400-bad_request.json" with { type: "json" };
 import wpmFxAdminWpmPost401Unauthorized from "./admin-wpm/post-401-unauthorized.json" with { type: "json" };
@@ -922,6 +926,10 @@ export const MODERATION_CASES: ConformanceCase[] = [
   kase("admin-wpm/post-401-unauthorized", "/v1/admin/wpm", wpmFxAdminWpmPost401Unauthorized, true),
   kase("admin-wpm/post-403-not_admin", "/v1/admin/wpm", wpmFxAdminWpmPost403NotAdmin, true),
   kase("admin-wpm/post-404", "/v1/admin/wpm", wpmFxAdminWpmPost404, true),
+  kase("admin-discord-users/refresh-200", "/v1/admin/discord-users/refresh", dcFxRefresh200, true),
+  kase("admin-discord-users/refresh-400-bad_request", "/v1/admin/discord-users/refresh", dcFxRefresh400, true),
+  kase("admin-discord-users/refresh-401-unauthorized", "/v1/admin/discord-users/refresh", dcFxRefresh401, true),
+  kase("admin-discord-users/refresh-403-not_admin", "/v1/admin/discord-users/refresh", dcFxRefresh403, true),
   kase("wpm/get-200", "/v1/wpm", wpmFxWpmGet200, true),
   kase("wpm/get-304", "/v1/wpm", wpmFxWpmGet304, true),
   kase("wpm/get-400-bad_request", "/v1/wpm", wpmFxWpmGet400BadRequest, true),
