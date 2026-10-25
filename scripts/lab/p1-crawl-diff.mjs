@@ -149,7 +149,9 @@ const USER_A = "100000000000000002";
 const USER_B = "100000000000000003";
 const USER_C = "100000000000000004";
 const LAB_APP_ID = "1100000000000000001";
-const { publicKey: LAB_PUB, privateKey: LAB_PRIV } = crypto.generateKeyPairSync("ed25519");
+// A fixed lab key: the pubkey lands in the clients row, so a random one made every run's final state differ (lane F, LDB-FZ1).
+const LAB_PRIV = crypto.createPrivateKey({ key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), crypto.createHash("sha256").update("akldb-lab-client-key").digest()]), format: "der", type: "pkcs8" });
+const LAB_PUB = crypto.createPublicKey(LAB_PRIV);
 const LAB_PUB_RAW = LAB_PUB.export({ format: "der", type: "spki" }).subarray(-32).toString("base64url");
 const LAB_CLIENT = "01JAB0000000000000000P1C01";
 
