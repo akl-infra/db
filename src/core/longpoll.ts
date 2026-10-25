@@ -10,7 +10,7 @@
 import type { Bindings } from "../env";
 import { describeError } from "./describe-error";
 import { headSeq } from "./etag";
-import { legacyD1, type StoreArg } from "../store/arg";
+import { toStore, type StoreArg } from "../store/arg";
 
 // saltorbit, 2026-09-12: "GET /v1/changes?since=&wait=25s ... capped at 25s,
 // clamp larger values". Anything <= 0 (including a caller sending
@@ -45,13 +45,13 @@ export async function waitForChanges(
   waitSeconds: number,
   sleepImpl: SleepImpl = realSleep,
 ): Promise<void> {
-  const db = legacyD1(dbArg);
+  const store = toStore(dbArg);
   const clamped = clampWaitSeconds(waitSeconds);
   const maxReads = Math.ceil(clamped) + 1;
   for (let i = 0; i < maxReads; i++) {
     let seq: number;
     try {
-      seq = await headSeq(db);
+      seq = await headSeq(store);
     } catch (e) {
       console.error(`longpoll: head read failed on attempt ${i} of ${maxReads}, ending the hold early: ${describeError(e)}`);
       return;

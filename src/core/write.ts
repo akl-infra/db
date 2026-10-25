@@ -55,7 +55,8 @@ import {
 } from "./records";
 import type { Clock } from "./time";
 import { nextUpstream } from "./upstream";
-import { legacyD1, type StoreArg } from "../store/arg";
+import { toStore, type StoreArg } from "../store/arg";
+import type { Store } from "../store/port";
 
 const TRANSFER_USER_ID_RE = /^\d{17,20}$/;
 const MAX_RETRIES = 3; // 21-formats.md §2.2: "retries up to 3 times"
@@ -80,8 +81,8 @@ export async function loadForWrite(
   actor: Actor,
   opts: { allowDeleted: boolean },
 ): Promise<{ lwf: LayoutWithFormats; admin: boolean }> {
-  const db = legacyD1(dbArg);
-  const lwf = await byRefWithFormats(db, ref);
+  const store = toStore(dbArg);
+  const lwf = await byRefWithFormats(store, ref);
   if (lwf === null || (lwf.layout.deleted && !opts.allowDeleted)) {
     throw notFound(`no layout '${ref}'`, ref);
   }
@@ -90,31 +91,27 @@ export async function loadForWrite(
   throw notOwner(lwf.layout.name, lwf.layout.owner);
 }
 
-async function latestRevBumpingEvent(db: Bindings["DB"], layoutId: string, format: string | null): Promise<LastWrite> {
-  const row = await db
-    .prepare("SELECT * FROM events WHERE layout_id = ? AND rev IS NOT NULL AND format IS ? ORDER BY seq DESC LIMIT 1")
-    .bind(layoutId, format)
-    .first<EventDbRow>();
-  if (row === null) throw internal(); // unreachable: every record reaching this point was created by a rev-bumping write of this same scope
-  const e = rowToEvent(row);
+async function latestRevBumpingEvent(store: Store, layoutId: string, format: string | null): Promise<LastWrite> {
+  const e = await store.layouts.latestRevBumpingEvent(layoutId, format);
+  if (e === null) throw internal(); // unreachable: every record reaching this point was created by a rev-bumping write of this same scope
   return { seq: e.seq, at: e.at, actor: e.actor, via: e.via, kind: e.kind, admin: e.admin };
 }
 
 // The `If-Match` pre-check for the LAYOUT scope (21-formats.md §2.3, MF-11):
 // the layout is already in hand; only `last_write` needs a read on a
 // mismatch.
-async function requireLayoutRev(db: Bindings["DB"], layout: LayoutRow, checked: CheckedIfMatch, formats: Map<string, FormatRow>): Promise<void> {
+async function requireLayoutRev(store: Store, layout: LayoutRow, checked: CheckedIfMatch, formats: Map<string, FormatRow>): Promise<void> {
   if ("any" in checked) return;
   if (checked.rev === layout.layout_rev) return;
-  const lastWrite = await latestRevBumpingEvent(db, layout.id, null);
+  const lastWrite = await latestRevBumpingEvent(store, layout.id, null);
   throw stale("layout", layout.layout_rev, fullWire(layout, formats), lastWrite);
 }
 
 // Same for a FORMAT scope.
-async function requireFormatRev(db: Bindings["DB"], layout: LayoutRow, row: FormatRow, checked: CheckedIfMatch, formats: Map<string, FormatRow>): Promise<void> {
+async function requireFormatRev(store: Store, layout: LayoutRow, row: FormatRow, checked: CheckedIfMatch, formats: Map<string, FormatRow>): Promise<void> {
   if ("any" in checked) return;
   if (checked.rev === row.rev) return;
-  const lastWrite = await latestRevBumpingEvent(db, layout.id, row.format);
+  const lastWrite = await latestRevBumpingEvent(store, layout.id, row.format);
   throw stale(row.lineage, row.rev, fullWire(layout, formats, { format: row.format, payload: row.payload }), lastWrite);
 }
 
@@ -126,13 +123,13 @@ async function requireFormatRev(db: Bindings["DB"], layout: LayoutRow, row: Form
 // If-Match check above now fails loudly with `409 stale`; if it didn't,
 // the retry naturally lands on the now-current `n`). System writers
 // (`expectN`) call `commitWrite` directly and never go through this.
-async function commitWithRetry(db: Bindings["DB"], now: Clock, build: () => Promise<CommitInput>): Promise<CommitResult> {
+async function commitWithRetry(store: Store, now: Clock, build: () => Promise<CommitInput>): Promise<CommitResult> {
   let lastInput: CommitInput | undefined;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     const input = await build();
     lastInput = input;
     try {
-      const result = await commitWrite(db, now, input);
+      const result = await commitWrite(store, now, input);
       // [LDB-A10] the ONE place every destructive, client-lane write
       // passes through on its way out -- checked AFTER the commit (the
       // tripping write itself always lands; every request after it is
@@ -140,7 +137,7 @@ async function commitWithRetry(db: Bindings["DB"], now: Clock, build: () => Prom
       // retry attempt above never reaches here (its whole batch, counter
       // increment included, rolled back with everything else).
       if (result.budgetProbe !== undefined) {
-        await checkDestructiveBudget(db, now, result.budgetProbe);
+        await checkDestructiveBudget(store, now, result.budgetProbe);
       }
       return result;
     } catch (e) {
@@ -159,11 +156,11 @@ async function commitWithRetry(db: Bindings["DB"], now: Clock, build: () => Prom
   // shared `layout_revs (layout_id, n)` PK anyway (extreme contention).
   // §2.3's own body shape still applies -- a fresh read, never a raw
   // `RevConflictError` leaking through as an unmapped 500.
-  return await staleFromExhaustedRetry(db, lastInput!);
+  return await staleFromExhaustedRetry(store, lastInput!);
 }
 
-async function staleFromExhaustedRetry(db: Bindings["DB"], lastInput: CommitInput): Promise<never> {
-  const lwf = await byRefWithFormats(db, lastInput.layoutId);
+async function staleFromExhaustedRetry(store: Store, lastInput: CommitInput): Promise<never> {
+  const lwf = await byRefWithFormats(store, lastInput.layoutId);
   if (lwf === null) throw internal(); // unreachable: this layout existed as of every build() attempt above
   const { layout, formats } = lwf;
   if (lastInput.format !== undefined) {
@@ -176,10 +173,10 @@ async function staleFromExhaustedRetry(db: Bindings["DB"], lastInput: CommitInpu
     // a format scope that has never been written, so `last_write` is
     // `null` rather than a doomed `latestRevBumpingEvent` call (which
     // assumes one always exists and 500s otherwise).
-    const lastWrite = row === undefined ? null : await latestRevBumpingEvent(db, layout.id, row.format);
+    const lastWrite = row === undefined ? null : await latestRevBumpingEvent(store, layout.id, row.format);
     throw stale(lineageId, rev, fullWire(layout, formats, row !== undefined ? { format: row.format, payload: row.payload } : undefined), lastWrite);
   }
-  const lastWrite = await latestRevBumpingEvent(db, layout.id, null);
+  const lastWrite = await latestRevBumpingEvent(store, layout.id, null);
   throw stale("layout", layout.layout_rev, fullWire(layout, formats), lastWrite);
 }
 
@@ -243,13 +240,13 @@ function chainToLatest(module: FormatModule, payload: unknown): { format: string
 // separate "what name was I trying to claim" parameter of its own (restore
 // without a `{name}` reuses the tombstone's own name, computed only
 // inside `build`, which this could not otherwise see).
-async function commitAndMapErrors(db: Bindings["DB"], now: Clock, build: () => Promise<CommitInput>): Promise<CommitResult> {
+async function commitAndMapErrors(store: Store, now: Clock, build: () => Promise<CommitInput>): Promise<CommitResult> {
   try {
-    return await commitWithRetry(db, now, build);
+    return await commitWithRetry(store, now, build);
   } catch (e) {
     if (e instanceof ApiError && e.body.error === "name_taken" && e.body.holder === undefined && typeof e.body.name === "string") {
       const clashName = e.body.name;
-      const holderRec = await readByName(db, clashName);
+      const holderRec = await readByName(store, clashName);
       if (holderRec !== null) throw nameTaken(clashName, { id: holderRec.id, owner: holderRec.owner });
     }
     throw e;
@@ -260,26 +257,6 @@ export interface CreateBody {
   name: string;
   format: string;
   payload: unknown;
-}
-
-// LDB-L8c: one query instead of two (`latestTombstoneIdByName` +
-// `likeUserIds`, before this) -- a CTE picks the same "latest tombstone of
-// this name" row `latestTombstoneIdByName` did, then LEFT JOINs its likes
-// so a name with no tombstone (zero rows back), a tombstone with none
-// (one row, `user_id` null), and a tombstone with likes (one row per
-// liker) are all told apart from the SAME single round trip.
-async function tombstoneLikers(db: Bindings["DB"], name: string): Promise<{ tombstoneId: string | null; userIds: string[] }> {
-  const { results } = await db
-    .prepare(
-      `WITH t AS (SELECT id FROM layouts WHERE name = ? AND deleted = 1 ORDER BY modified_at DESC, layout_rev DESC LIMIT 1)
-       SELECT t.id AS tombstone_id, lk.user_id AS user_id FROM t LEFT JOIN likes lk ON lk.layout_id = t.id ORDER BY lk.user_id ASC`,
-    )
-    .bind(name)
-    .all<{ tombstone_id: string; user_id: string | null }>();
-  if (results.length === 0) return { tombstoneId: null, userIds: [] };
-  const tombstoneId = results[0]!.tombstone_id;
-  const userIds = results.filter((r): r is { tombstone_id: string; user_id: string } => r.user_id !== null).map((r) => r.user_id);
-  return { tombstoneId, userIds };
 }
 
 export interface WriteOutcome {
@@ -300,7 +277,7 @@ export interface LayoutOnlyOutcome {
 // owner) has its likes copied onto the new layout as `liked` events
 // `via: "name_inherited"`.
 export async function createLayout(env: Bindings, now: Clock, actor: Actor, body: CreateBody, version: string | null): Promise<WriteOutcome> {
-  const db = env.DB;
+  const store = toStore(env.DB);
   const nameCheck = checkName(body.name);
   if (!nameCheck.ok) throw invalidName(body.name, nameCheck.message);
   const { module } = validatePayload(body.format, body.payload);
@@ -342,14 +319,14 @@ export async function createLayout(env: Bindings, now: Clock, actor: Actor, body
   // travel inside `commitWrite`'s own batch, which is built from `input`
   // alone and has no reason to know about tombstone inheritance), but
   // overlapping them halves the wall-clock cost of paying for both.
-  const [{ tombstoneId, userIds }, result] = await Promise.all([tombstoneLikers(db, body.name), commitAndMapErrors(db, now, () => Promise.resolve(input))]);
+  const [{ tombstoneId, userIds }, result] = await Promise.all([store.layouts.tombstoneLikers(body.name), commitAndMapErrors(store, now, () => Promise.resolve(input))]);
 
   let layout = result.layout;
   if (tombstoneId !== null && userIds.length > 0) {
     // LDB-L8c: every inherited like used to be its own `appendLike` call
     // (a read, a pre-check, a batch EACH -- 3 D1 round trips per liker).
     // One batch instead, however many likers.
-    const { like_count } = await appendInheritedLikes(db, now, {
+    const { like_count } = await appendInheritedLikes(store, now, {
       layoutId: layout.id,
       name: layout.name,
       owner: layout.owner,
@@ -382,7 +359,7 @@ export async function putFormat(
   ifNoneMatchHeader: IfNoneMatch,
   version: string | null,
 ): Promise<WriteOutcome> {
-  const db = env.DB;
+  const store = toStore(env.DB);
   const { module } = validatePayload(body.format, body.payload);
   const chained = chainToLatest(module, body.payload);
   const lin = lineage(chained.format);
@@ -403,7 +380,7 @@ export async function putFormat(
   const source: Source = { client: actor.source_client, version };
 
   const build = async (): Promise<CommitInput> => {
-    const { lwf, admin } = await loadForWrite(db, ref, actor, { allowDeleted: false });
+    const { lwf, admin } = await loadForWrite(store, ref, actor, { allowDeleted: false });
     const existing = lwf.formats.get(lin) ?? null;
 
     if (adding) {
@@ -411,7 +388,7 @@ export async function putFormat(
     } else {
       if (existing === null) throw formatAbsent(chained.format);
       const checked = requireScopedIfMatch(ifMatchHeader, lin);
-      await requireFormatRev(db, lwf.layout, existing, checked, lwf.formats);
+      await requireFormatRev(store, lwf.layout, existing, checked, lwf.formats);
 
       // 20-spark.md S5 (19 §3 R1, LDB-P13): a write naming a format the
       // format row (as CURRENTLY stored) cannot be shown as would be a
@@ -461,7 +438,7 @@ export async function putFormat(
     };
   };
 
-  const result = await commitWithRetry(db, now, build);
+  const result = await commitWithRetry(store, now, build);
   return { layout: result.layout, formats: result.formats, format: chained.format, lineage: lin, payload: chained.payload };
 }
 
@@ -500,16 +477,16 @@ function runEdit(format: string, verb: FormatEditField, edit: ((p: any, arg: any
 
 // PATCH {name}: layout scope only.
 export async function renameLayout(env: Bindings, now: Clock, actor: Actor, ref: string, name: string, ifMatchHeader: IfMatch, version: string | null): Promise<LayoutOnlyOutcome> {
-  const db = env.DB;
+  const store = toStore(env.DB);
   const nameCheck = checkName(name);
   if (!nameCheck.ok) throw invalidName(name, nameCheck.message);
   requireScopedIfMatch(ifMatchHeader, "layout"); // MF-11: before any read
   const source: Source = { client: actor.source_client, version };
 
   const build = async (): Promise<CommitInput> => {
-    const { lwf, admin } = await loadForWrite(db, ref, actor, { allowDeleted: false });
+    const { lwf, admin } = await loadForWrite(store, ref, actor, { allowDeleted: false });
     const checked = requireScopedIfMatch(ifMatchHeader, "layout");
-    await requireLayoutRev(db, lwf.layout, checked, lwf.formats);
+    await requireLayoutRev(store, lwf.layout, checked, lwf.formats);
     const upstream = nextUpstream(lwf.layout.upstream, actor.via, true);
     const clientId = destructiveClientOf(actor);
     return {
@@ -532,7 +509,7 @@ export async function renameLayout(env: Bindings, now: Clock, actor: Actor, ref:
     };
   };
 
-  const result = await commitAndMapErrors(db, now, build);
+  const result = await commitAndMapErrors(store, now, build);
   return { layout: result.layout, formats: result.formats };
 }
 
@@ -548,7 +525,7 @@ export async function patchFormat(
   ifMatchHeader: IfMatch,
   version: string | null,
 ): Promise<WriteOutcome> {
-  const db = env.DB;
+  const store = toStore(env.DB);
   const lin = lineage(format);
   requireScopedIfMatch(ifMatchHeader, lin); // MF-11: before any read
   const source: Source = { client: actor.source_client, version };
@@ -566,7 +543,7 @@ export async function patchFormat(
   if (namedResolved.module.role === "output") throw formatNotWritable(format);
 
   const build = async (): Promise<CommitInput> => {
-    const { lwf, admin } = await loadForWrite(db, ref, actor, { allowDeleted: false });
+    const { lwf, admin } = await loadForWrite(store, ref, actor, { allowDeleted: false });
     const existing = lwf.formats.get(lin);
     if (existing === undefined) throw formatAbsent(format);
     const module = getFormat(existing.format);
@@ -585,7 +562,7 @@ export async function patchFormat(
     }
 
     const checked = requireScopedIfMatch(ifMatchHeader, lin);
-    await requireFormatRev(db, lwf.layout, existing, checked, lwf.formats);
+    await requireFormatRev(store, lwf.layout, existing, checked, lwf.formats);
 
     let payload: unknown = existing.payload;
     const fields = FORMAT_EDIT_FIELDS.filter((f) => edits[f] !== undefined);
@@ -630,7 +607,7 @@ export async function patchFormat(
     };
   };
 
-  const result = await commitWithRetry(db, now, build);
+  const result = await commitWithRetry(store, now, build);
   const written = result.formats.get(lin)!;
   return { layout: result.layout, formats: result.formats, format: written.format, lineage: lin, payload: written.payload };
 }
@@ -671,11 +648,11 @@ export function magicSeedRefusalReason(existingSource: Source | null, hasMagic: 
 // record's magic was last written by a person, or the layout is forked
 // with no magic to justify un-forking it.
 export async function seedMagic(env: Bindings, now: Clock, ref: string, magic: unknown, version: string | null): Promise<WriteOutcome> {
-  const db = env.DB;
+  const store = toStore(env.DB);
   const lin = "spark";
   const source: Source = { client: "system:magic-seed", version };
   const build = async (): Promise<CommitInput> => {
-    const lwf = await byRefWithFormats(db, ref);
+    const lwf = await byRefWithFormats(store, ref);
     if (lwf === null || lwf.layout.deleted) throw notFound(`no layout '${ref}'`, ref);
     const existing = lwf.formats.get(lin);
     if (existing === undefined) throw formatAbsent("spark/1");
@@ -700,7 +677,7 @@ export async function seedMagic(env: Bindings, now: Clock, ref: string, magic: u
       upstream: lwf.layout.upstream === null ? null : { ...lwf.layout.upstream, state: "following" },
     };
   };
-  const result = await commitWithRetry(db, now, build);
+  const result = await commitWithRetry(store, now, build);
   const written = result.formats.get(lin)!;
   return { layout: result.layout, formats: result.formats, format: written.format, lineage: lin, payload: written.payload };
 }
@@ -709,14 +686,14 @@ export async function seedMagic(env: Bindings, now: Clock, ref: string, magic: u
 // (D3: name/owner/likes/deletion are the layout's; a tombstone's own
 // formats stay exactly as they were, restorable).
 export async function deleteLayout(env: Bindings, now: Clock, actor: Actor, ref: string, ifMatchHeader: IfMatch, version: string | null): Promise<LayoutOnlyOutcome> {
-  const db = env.DB;
+  const store = toStore(env.DB);
   requireScopedIfMatch(ifMatchHeader, "layout");
   const source: Source = { client: actor.source_client, version };
 
   const build = async (): Promise<CommitInput> => {
-    const { lwf, admin } = await loadForWrite(db, ref, actor, { allowDeleted: false });
+    const { lwf, admin } = await loadForWrite(store, ref, actor, { allowDeleted: false });
     const checked = requireScopedIfMatch(ifMatchHeader, "layout");
-    await requireLayoutRev(db, lwf.layout, checked, lwf.formats);
+    await requireLayoutRev(store, lwf.layout, checked, lwf.formats);
     const upstream = nextUpstream(lwf.layout.upstream, actor.via, true);
     const clientId = destructiveClientOf(actor);
     return {
@@ -739,7 +716,7 @@ export async function deleteLayout(env: Bindings, now: Clock, actor: Actor, ref:
     };
   };
 
-  const result = await commitWithRetry(db, now, build);
+  const result = await commitWithRetry(store, now, build);
   return { layout: result.layout, formats: result.formats };
 }
 
@@ -750,11 +727,11 @@ export interface RestoreBody {
 // POST /v1/layouts/{ref}/restore: layout scope, no If-Match (a tombstone
 // has one possible next state); `{ref}` must be the id.
 export async function restoreLayout(env: Bindings, now: Clock, actor: Actor, ref: string, body: RestoreBody = {}, version: string | null): Promise<LayoutOnlyOutcome> {
-  const db = env.DB;
+  const store = toStore(env.DB);
   const source: Source = { client: actor.source_client, version };
 
   const build = async (): Promise<CommitInput> => {
-    const { lwf, admin } = await loadForWrite(db, ref, actor, { allowDeleted: true });
+    const { lwf, admin } = await loadForWrite(store, ref, actor, { allowDeleted: true });
     if (!lwf.layout.deleted) throw badRequest(`'${lwf.layout.name}' is not deleted`, "/ref");
 
     let name = lwf.layout.name;
@@ -790,7 +767,7 @@ export async function restoreLayout(env: Bindings, now: Clock, actor: Actor, ref
     };
   };
 
-  const result = await commitAndMapErrors(db, now, build);
+  const result = await commitAndMapErrors(store, now, build);
   return { layout: result.layout, formats: result.formats };
 }
 
@@ -801,7 +778,7 @@ export interface TransferBody {
 // POST /v1/layouts/{ref}/transfer: layout scope; `If-Match` is
 // presence-only (no draft to be stale against).
 export async function transferLayout(env: Bindings, now: Clock, actor: Actor, ref: string, body: TransferBody, ifMatchHeader: IfMatch, version: string | null): Promise<LayoutOnlyOutcome> {
-  const db = env.DB;
+  const store = toStore(env.DB);
   requireScopedIfMatch(ifMatchHeader, "layout");
   const source: Source = { client: actor.source_client, version };
 
@@ -812,10 +789,10 @@ export async function transferLayout(env: Bindings, now: Clock, actor: Actor, re
     // result -- run them concurrently rather than sequentially so their
     // two D1 round trips overlap in wall time (the count is unchanged;
     // only the wall-clock cost is).
-    const [{ lwf, admin }, author] = await Promise.all([loadForWrite(db, ref, actor, { allowDeleted: false }), db.prepare("SELECT 1 FROM authors WHERE user_id = ?").bind(body.to).first()]);
+    const [{ lwf, admin }, author] = await Promise.all([loadForWrite(store, ref, actor, { allowDeleted: false }), store.layouts.authorExists(body.to)]);
 
     if (body.to === lwf.layout.owner) throw badRequest("already the owner", "/to");
-    if (author === null) throw badRequest(`unknown user '${body.to}'`, "/to");
+    if (!author) throw badRequest(`unknown user '${body.to}'`, "/to");
 
     const upstream = nextUpstream(lwf.layout.upstream, actor.via, true);
     const clientId = destructiveClientOf(actor);
@@ -839,7 +816,7 @@ export async function transferLayout(env: Bindings, now: Clock, actor: Actor, re
     };
   };
 
-  const result = await commitWithRetry(db, now, build);
+  const result = await commitWithRetry(store, now, build);
   return { layout: result.layout, formats: result.formats };
 }
 

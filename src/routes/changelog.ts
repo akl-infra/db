@@ -7,7 +7,7 @@
 // `/v1/changes`); not rendered into the nightly dump (12 §7: nobody reads a
 // static HTML snapshot in R2, the dump is a restore artifact).
 import { Hono } from "hono";
-import type { Bindings } from "../env";
+import { platformOf, type AppEnv } from "../app";
 import { cachePut, conditional, etagFor, headSeq } from "../core/etag";
 import { feed, type Event, type FeedFilter } from "../core/events";
 import { parseKinds, parseSince, resolveLayoutFilter } from "./changes";
@@ -115,10 +115,10 @@ ${rows}
 `;
 }
 
-export const changelogRoute = new Hono<{ Bindings: Bindings }>();
+export const changelogRoute = new Hono<AppEnv>();
 
 changelogRoute.get("/admin/changelog", async (c) => {
-  const db = c.env.DB;
+  const db = platformOf(c).store;
   const head = await headSeq(db);
 
   const sinceRaw = c.req.query("since");

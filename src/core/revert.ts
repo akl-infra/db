@@ -24,7 +24,8 @@ import { appendLinkChange, commitWrite, RevConflictError, type CommitInput, type
 import { byRefWithFormats, readById } from "./records";
 import type { Clock } from "./time";
 import { nextUpstream } from "./upstream";
-import { legacyD1, type StoreArg } from "../store/arg";
+import { toStore, type StoreArg } from "../store/arg";
+import type { Store } from "../store/port";
 
 export const REVERT_ACTOR = "system:revert";
 export const REVERT_VIA = "system:revert";
@@ -79,28 +80,17 @@ export async function revertClientWrites(
   since: string,
   opts: { dryRun: boolean; cursor?: number; limit?: number },
 ): Promise<RevertResult> {
-  const db = legacyD1(dbArg);
+  const store = toStore(dbArg);
   const limit = Math.max(1, Math.min(opts.limit ?? DEFAULT_LIMIT, MAX_LIMIT));
   const sourceClient = `client:${clientId}`;
   const cursorSeq = opts.cursor ?? Number.MAX_SAFE_INTEGER;
 
-  const { results } = await db
-    .prepare(
-      `SELECT seq, at, kind, layout_id, format, rev, before_json, after_json FROM events
-       WHERE source_client = ? AND at >= ? AND seq < ?
-         AND ((rev IS NOT NULL AND (
-                (format IS NULL AND kind IN ('deleted','renamed','transferred'))
-             OR (format IS NOT NULL AND kind IN ('updated','fingermap'))
-           )) OR kind = 'link_cleared')
-       ORDER BY seq DESC
-       LIMIT ?`,
-    )
-    .bind(sourceClient, since, cursorSeq, limit)
-    .all<CandidateRow>();
+  // Every candidate kind is layout-bound (the query only matches layout/format-scope writes and link_cleared), so layout_id is never null.
+  const results = (await store.events.revertCandidates(sourceClient, since, cursorSeq, limit)) as CandidateRow[];
 
   const items: RevertItem[] = [];
   for (const row of results) {
-    const item = await revertOne(db, now, adminActorId, sourceClient, row, opts.dryRun);
+    const item = await revertOne(store, now, adminActorId, sourceClient, row, opts.dryRun);
     items.push(item);
   }
 
@@ -108,16 +98,16 @@ export async function revertClientWrites(
   return { client_id: clientId, since, dry_run: opts.dryRun, scanned: results.length, items, next };
 }
 
-async function revertOne(db: Bindings["DB"], now: Clock, adminActorId: string, sourceClient: string, row: CandidateRow, dryRun: boolean): Promise<RevertItem> {
+async function revertOne(store: Store, now: Clock, adminActorId: string, sourceClient: string, row: CandidateRow, dryRun: boolean): Promise<RevertItem> {
   const base = { seq: row.seq, layout_id: row.layout_id, kind: row.kind };
   try {
     if (row.kind === "link_cleared") {
-      return await revertLinkCleared(db, now, adminActorId, sourceClient, row, dryRun);
+      return await revertLinkCleared(store, now, adminActorId, sourceClient, row, dryRun);
     }
     if (row.format === null) {
-      return await revertLayoutScope(db, now, adminActorId, sourceClient, row, dryRun);
+      return await revertLayoutScope(store, now, adminActorId, sourceClient, row, dryRun);
     }
-    return await revertFormatScope(db, now, adminActorId, sourceClient, row, dryRun);
+    return await revertFormatScope(store, now, adminActorId, sourceClient, row, dryRun);
   } catch (e) {
     if (e instanceof RevConflictError) {
       return { ...base, scope: row.format === null ? "layout" : lineageOf(row.format), outcome: "skipped_conflict", detail: { message: e.message } };
@@ -134,12 +124,12 @@ function sourceIsSafe(client: string | null | undefined, sourceClient: string): 
   return client === sourceClient || client === REVERT_VIA;
 }
 
-async function revertLayoutScope(db: Bindings["DB"], now: Clock, adminActorId: string, sourceClient: string, row: CandidateRow, dryRun: boolean): Promise<RevertItem> {
+async function revertLayoutScope(store: Store, now: Clock, adminActorId: string, sourceClient: string, row: CandidateRow, dryRun: boolean): Promise<RevertItem> {
   const before = row.before_json === null ? null : (JSON.parse(row.before_json) as LayoutSnapshot);
   if (before === null) {
     return { seq: row.seq, layout_id: row.layout_id, scope: "layout", kind: row.kind, outcome: "skipped_unsupported", detail: { reason: "no before-snapshot (this was the layout's own creation)" } };
   }
-  const current = await readById(db, row.layout_id);
+  const current = await readById(store, row.layout_id);
   if (current === null) {
     return { seq: row.seq, layout_id: row.layout_id, scope: "layout", kind: row.kind, outcome: "skipped_unsupported", detail: { reason: "layout no longer exists" } };
   }
@@ -166,7 +156,7 @@ async function revertLayoutScope(db: Bindings["DB"], now: Clock, adminActorId: s
   }
   if (dryRun) return { seq: row.seq, layout_id: row.layout_id, scope: "layout", kind: row.kind, outcome: "would_revert", detail: { target } };
 
-  const lwf = await byRefWithFormats(db, row.layout_id);
+  const lwf = await byRefWithFormats(store, row.layout_id);
   if (lwf === null) return { seq: row.seq, layout_id: row.layout_id, scope: "layout", kind: row.kind, outcome: "skipped_unsupported", detail: { reason: "layout vanished mid-revert" } };
   const input: CommitInput = {
     layoutId: lwf.layout.id,
@@ -189,30 +179,27 @@ async function revertLayoutScope(db: Bindings["DB"], now: Clock, adminActorId: s
     source: { client: REVERT_ACTOR, version: null },
     upstream: nextUpstream(lwf.layout.upstream, REVERT_VIA, true),
   };
-  const result = await commitWrite(db, now, input);
+  const result = await commitWrite(store, now, input);
   return { seq: row.seq, layout_id: row.layout_id, scope: "layout", kind: row.kind, outcome: "reverted", detail: { new_rev: result.layout.layout_rev } };
 }
 
-async function revertFormatScope(db: Bindings["DB"], now: Clock, adminActorId: string, sourceClient: string, row: CandidateRow, dryRun: boolean): Promise<RevertItem> {
+async function revertFormatScope(store: Store, now: Clock, adminActorId: string, sourceClient: string, row: CandidateRow, dryRun: boolean): Promise<RevertItem> {
   const lineage = lineageOf(row.format!);
   const before = row.before_json === null ? null : (JSON.parse(row.before_json) as FormatSnapshot);
   if (before === null) {
     return { seq: row.seq, layout_id: row.layout_id, scope: lineage, kind: row.kind, outcome: "skipped_unsupported", detail: { reason: "no before-snapshot (this format's own addition)" } };
   }
 
-  const lwf = await byRefWithFormats(db, row.layout_id);
+  const lwf = await byRefWithFormats(store, row.layout_id);
   if (lwf === null) return { seq: row.seq, layout_id: row.layout_id, scope: lineage, kind: row.kind, outcome: "skipped_unsupported", detail: { reason: "layout no longer exists" } };
   const current = lwf.formats.get(lineage);
   if (current === undefined) return { seq: row.seq, layout_id: row.layout_id, scope: lineage, kind: row.kind, outcome: "skipped_unsupported", detail: { reason: "layout no longer has this format" } };
 
-  const prevRevRow = await db
-    .prepare("SELECT format, payload_json FROM layout_revs WHERE layout_id = ? AND lineage = ? AND rev = ?")
-    .bind(row.layout_id, lineage, before.rev)
-    .first<{ format: string; payload_json: string }>();
+  const prevRevRow = await store.layouts.revisionPayload(row.layout_id, lineage, before.rev);
   if (prevRevRow === null) {
     return { seq: row.seq, layout_id: row.layout_id, scope: lineage, kind: row.kind, outcome: "skipped_unsupported", detail: { reason: `no layout_revs row for rev ${before.rev}` } };
   }
-  const targetPayload: unknown = JSON.parse(prevRevRow.payload_json);
+  const targetPayload: unknown = JSON.parse(prevRevRow.payloadJson);
 
   if (canonical(current.payload) === canonical(targetPayload) && current.format === prevRevRow.format) {
     return { seq: row.seq, layout_id: row.layout_id, scope: lineage, kind: row.kind, outcome: "skipped_no_op" };
@@ -252,19 +239,13 @@ async function revertFormatScope(db: Bindings["DB"], now: Clock, adminActorId: s
     source: { client: REVERT_ACTOR, version: null },
     upstream: nextUpstream(lwf.layout.upstream, REVERT_VIA, touches),
   };
-  const result = await commitWrite(db, now, input);
+  const result = await commitWrite(store, now, input);
   const written = result.formats.get(lineage)!;
   return { seq: row.seq, layout_id: row.layout_id, scope: lineage, kind: row.kind, outcome: "reverted", detail: { new_rev: written.rev, restored_rev: before.rev } };
 }
 
-interface LinkEventRow {
-  seq: number;
-  after_json: string | null;
-  source_client: string | null;
-}
-
-async function revertLinkCleared(db: Bindings["DB"], now: Clock, adminActorId: string, sourceClient: string, row: CandidateRow, dryRun: boolean): Promise<RevertItem> {
-  const current = await readById(db, row.layout_id);
+async function revertLinkCleared(store: Store, now: Clock, adminActorId: string, sourceClient: string, row: CandidateRow, dryRun: boolean): Promise<RevertItem> {
+  const current = await readById(store, row.layout_id);
   if (current === null) return { seq: row.seq, layout_id: row.layout_id, scope: "link", kind: row.kind, outcome: "skipped_unsupported", detail: { reason: "layout no longer exists" } };
 
   // `appendLinkChange` never folds a source onto `layouts` (only
@@ -273,18 +254,9 @@ async function revertLinkCleared(db: Bindings["DB"], now: Clock, adminActorId: s
   // just before this clear) is what we restore, and the LATEST link
   // event's own source is what tells us whether someone else has since
   // approved/cleared a different value.
-  const [{ results: beforeRows }, { results: latestRows }] = await Promise.all([
-    db
-      .prepare("SELECT seq, after_json, source_client FROM events WHERE layout_id = ? AND kind IN ('link_approved','link_cleared') AND seq < ? ORDER BY seq DESC LIMIT 1")
-      .bind(row.layout_id, row.seq)
-      .all<LinkEventRow>(),
-    db
-      .prepare("SELECT seq, after_json, source_client FROM events WHERE layout_id = ? AND kind IN ('link_approved','link_cleared') ORDER BY seq DESC LIMIT 1")
-      .bind(row.layout_id)
-      .all<LinkEventRow>(),
-  ]);
-  const beforeLink: string | null = beforeRows[0]?.after_json !== undefined && beforeRows[0]?.after_json !== null ? (JSON.parse(beforeRows[0].after_json) as { link: string | null }).link : null;
-  const latestSourceClient = latestRows[0]?.source_client ?? null;
+  const [beforeEvent, latestEvent] = await Promise.all([store.events.latestLinkEvent(row.layout_id, row.seq), store.events.latestLinkEvent(row.layout_id)]);
+  const beforeLink: string | null = beforeEvent?.after_json !== undefined && beforeEvent?.after_json !== null ? (JSON.parse(beforeEvent.after_json) as { link: string | null }).link : null;
+  const latestSourceClient = latestEvent?.source_client ?? null;
 
   if (current.link === beforeLink) return { seq: row.seq, layout_id: row.layout_id, scope: "link", kind: row.kind, outcome: "skipped_no_op" };
   if (!sourceIsSafe(latestSourceClient, sourceClient)) {
@@ -292,7 +264,7 @@ async function revertLinkCleared(db: Bindings["DB"], now: Clock, adminActorId: s
   }
   if (dryRun) return { seq: row.seq, layout_id: row.layout_id, scope: "link", kind: row.kind, outcome: "would_revert", detail: { restored_link: beforeLink } };
 
-  await appendLinkChange(db, now, {
+  await appendLinkChange(store, now, {
     layoutId: row.layout_id,
     kind: beforeLink === null ? "link_cleared" : "link_approved",
     link: beforeLink,

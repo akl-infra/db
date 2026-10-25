@@ -11,7 +11,7 @@
 import type { Bindings } from "../env";
 import type { Head } from "./etag";
 import { list as listFormats } from "../formats/registry";
-import { legacyD1, type StoreArg } from "../store/arg";
+import { toStore, type StoreArg } from "../store/arg";
 
 export interface MetaCore {
   layout_count: number;
@@ -32,27 +32,13 @@ export function metaFormats(): string[] {
 }
 
 export async function readMetaCore(dbArg: StoreArg, head: Head): Promise<MetaCore> {
-  const db = legacyD1(dbArg);
-  const [layoutRow, authorRow, eventRow] = await Promise.all([
-    // `layouts_head.live` (migrations/0034) is the live-row count, kept by
-    // triggers -- `COUNT(*)` here scanned every live row on each call.
-    db
-      .prepare(
-        "SELECT (SELECT live FROM layouts_head WHERE id = 1) AS n, (SELECT MAX(modified_at) FROM layouts WHERE deleted = 0) AS modified",
-      )
-      .first<{ n: number; modified: string | null }>(),
-    // `authors_head.count` (migrations/0035): trigger-kept, not a scan.
-    db.prepare("SELECT count AS n FROM authors_head WHERE id = 1").first<{ n: number }>(),
-    // `seq` is already known from the head -- this only needs the head
-    // event's `at` (its `revision` timestamp).
-    db.prepare("SELECT MAX(at) AS at FROM events").first<{ at: string | null }>(),
-  ]);
+  const counts = await toStore(dbArg).head.metaCounts();
   return {
-    layout_count: layoutRow?.n ?? 0,
-    author_count: authorRow?.n ?? 0,
+    layout_count: counts.layoutCount,
+    author_count: counts.authorCount,
     seq: head.seq,
-    revision: eventRow?.at ?? null,
-    layouts_modified_at: layoutRow?.modified ?? null,
+    revision: counts.revisionAt,
+    layouts_modified_at: counts.layoutsModifiedAt,
     authors_modified_at: head.authors.modifiedAt,
     authors_version: head.authors.version,
     formats: metaFormats(),

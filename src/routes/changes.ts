@@ -2,7 +2,9 @@
 // S4's `feed()`: parse/validate `since`/`limit`/`kinds`, ETag/304, done.
 // LEDGER.md L4 adds the long-poll (`wait=`): see the route handler below.
 import { Hono } from "hono";
+import { platformOf, type AppEnv } from "../app";
 import type { Bindings } from "../env";
+import type { StoreArg } from "../store/arg";
 import type { AuthDeps } from "../auth/discord";
 import { resolveActor } from "../auth/discord";
 import { CLIENT_LIMIT, CLIENT_WINDOW_SECONDS } from "../auth/ratelimit";
@@ -141,7 +143,7 @@ export function parseWait(raw: string | undefined): number | undefined {
 // exact resolution) can never disagree with `/v1/changes` about what
 // `layout=` means -- that agreement is what makes LDB-H3 checkable.
 // Exported for `routes/changelog.ts`.
-export async function resolveLayoutFilter(db: Bindings["DB"], ref: string | undefined): Promise<string | undefined> {
+export async function resolveLayoutFilter(db: StoreArg, ref: string | undefined): Promise<string | undefined> {
   if (ref === undefined) return undefined;
   const rec = await byRef(db, ref);
   if (rec === null) throw notFound(`no layout '${ref}'`, ref);
@@ -162,10 +164,10 @@ function resolveSleep(env: Bindings): SleepImpl {
 // injected in tests) -- `wait=`'s gate needs to resolve an actor on a GET
 // route, which `requireActorOnWrites` skips entirely (SAFE_METHODS).
 export function changesRoute(authDeps: AuthDeps) {
-  const route = new Hono<{ Bindings: Bindings }>();
+  const route = new Hono<AppEnv>();
 
   route.get("/v1/changes", async (c) => {
-    const db = c.env.DB;
+    const db = platformOf(c).store;
     const since = parseSince(c.req.query("since"));
     const limit = parseLimit(c.req.query("limit"));
     const kinds = parseKinds(c.req.query("kinds"));

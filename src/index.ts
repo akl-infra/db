@@ -1,5 +1,6 @@
 import { Hono } from "hono";
-import { type AppEnv, platformMiddleware } from "./app";
+import { type AppEnv, platformMiddleware, platformOf } from "./app";
+import { workersPlatform } from "./platform/workers";
 import type { Bindings } from "./env";
 import { requireActorOnWrites } from "./auth/actor";
 import { type AuthDeps, resolveActor } from "./auth/discord";
@@ -188,7 +189,7 @@ interface StalledWire {
 }
 
 app.get("/v1/meta", async (c) => {
-  const db = c.env.DB;
+  const db = platformOf(c).store;
   const nowIso = authDeps.now();
   const sinceIso = new Date(Date.parse(nowIso) - ROLLING_WINDOW_MS).toISOString();
   const head = await readHead(db, META_STATE_KEYS, sinceIso);
@@ -308,9 +309,10 @@ app.post("/discord/interactions", async (c) => {
     const callback = await response.clone().json() as { type?: unknown };
     // Both legacy deferred replies (5) and silent component updates (6)
     // persist work that must run now; cron is only a recovery path.
-    if (callback.type === 5 || callback.type === 6) c.executionCtx.waitUntil((async () => {
-      await drainDiscordActions(c.env.DB, c.env, systemClock);
-      await runJob("discord-moderation-dms", () => dispatchRejectionDms(c.env.DB, c.env, systemClock));
+    if (callback.type === 5 || callback.type === 6) platformOf(c).background((async () => {
+      const { store } = platformOf(c);
+      await drainDiscordActions(store, c.env, systemClock);
+      await runJob("discord-moderation-dms", () => dispatchRejectionDms(store, c.env, systemClock));
     })());
   }
   return response;
@@ -359,11 +361,12 @@ app.onError((err, c) => {
 // S5 needed it (07 §6 S5's own tests drive this handler directly via
 // pool-workers' `createScheduledController`, which accepts a `scheduledTime`
 // override for exactly this file's own tests).
-async function scheduled(event: ScheduledController, env: Bindings, _ctx: ExecutionContext): Promise<void> {
+async function scheduled(event: ScheduledController, env: Bindings, ctx: ExecutionContext): Promise<void> {
   if (event.cron !== "*/5 * * * *") {
     throw new Error(`scheduled(): unrecognized cron '${event.cron}'`);
   }
 
+  const { store } = workersPlatform(env, ctx);
   const at = new Date(event.scheduledTime);
   const hour = at.getUTCHours();
   const minute = at.getUTCMinutes();
@@ -377,9 +380,9 @@ async function scheduled(event: ScheduledController, env: Bindings, _ctx: Execut
   // job set below, and `notifyPending` itself never throws regardless.
   // Not gated by an import-style feature flag -- `MODQUEUE_DISCORD_WEBHOOK`
   // (LDB-MD12) is that gate, checked inside `notifyPending` itself.
-  await runJob("modqueue-notify", () => notifyPending(env.DB, env, systemClock));
-  await runJob("discord-interaction-actions", () => drainDiscordActions(env.DB, env, systemClock));
-  await runJob("discord-moderation-dms", () => dispatchRejectionDms(env.DB, env, systemClock));
+  await runJob("modqueue-notify", () => notifyPending(store, env, systemClock));
+  await runJob("discord-interaction-actions", () => drainDiscordActions(store, env, systemClock));
+  await runJob("discord-moderation-dms", () => dispatchRejectionDms(store, env, systemClock));
 
   // [LDB-X2] The cmini import tick and the upstream diff tick both used to
   // run here (LDB-I27's kill switch had already turned both off since
@@ -399,7 +402,7 @@ async function scheduled(event: ScheduledController, env: Bindings, _ctx: Execut
   // (LDB-D8) -- same dropped-dispatch protection as the diff, above.
   if (hour === 3 && minute === 0) {
     await runNightly(env, systemClock);
-  } else if (dumpDue(await readDumpState(env.DB), at.toISOString())) {
+  } else if (dumpDue(await readDumpState(store), at.toISOString())) {
     await runJob("dump-catchup", () => writeDump(env, systemClock));
   }
 }

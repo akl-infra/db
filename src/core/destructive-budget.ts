@@ -22,10 +22,6 @@
 // count" accounting -- zero extra D1 round trips on the hot path), and
 // `core/clients.ts` needs the threshold function for its `suspendClient`/
 // `clientsHealth` (GET /v1/meta's `health.clients`).
-import type { Bindings } from "../env";
-import type { Clock } from "./time";
-import { legacyD1, type StoreArg } from "../store/arg";
-
 export const DESTRUCTIVE_WINDOW_SECONDS = 3600; // 1h, matching the requirement's own wording
 
 // Real usage measured 2026-09-13 against the live akldb.org `/v1/changes`
@@ -63,35 +59,8 @@ export interface DestructiveBudgetRow {
   live_layouts: number;
 }
 
-// One statement, meant to be pushed into a CALLER's OWN `db.batch()` array
-// -- never run standalone. Reuses the exact fixed-window upsert+RETURNING
-// shape `core/ratelimit.ts`'s `take()` already proved race-safe under
-// concurrency, keyed apart from the write-rate limiter's own rows (a
-// distinct `key` prefix in the SAME `ratelimit` table -- no new table, no
-// migration). The `live_layouts` scalar subquery rides in the SAME
-// statement so the caller never needs a second read to compute the
-// percentage half of the threshold.
-export function destructiveBudgetStatement(dbArg: StoreArg, now: Clock, clientId: string, windowSeconds: number = DESTRUCTIVE_WINDOW_SECONDS): D1PreparedStatement {
-  const db = legacyD1(dbArg);
-  const nowSeconds = Math.floor(new Date(now()).getTime() / 1000);
-  const windowStart = Math.floor(nowSeconds / windowSeconds) * windowSeconds;
-  return db
-    .prepare(
-      `INSERT INTO ratelimit (key, window_start, n) VALUES (?1, ?2, 1)
-       ON CONFLICT(key) DO UPDATE SET
-         n = CASE WHEN window_start = excluded.window_start THEN n + 1 ELSE 1 END,
-         window_start = excluded.window_start
-       RETURNING n, window_start, (SELECT COUNT(*) FROM layouts WHERE deleted = 0) AS live_layouts`,
-    )
-    .bind(destructiveBudgetKey(clientId), windowStart);
-}
-
-// Decodes the `D1Result` at whatever index the caller pushed the
-// statement above into its own batch.
-export function readDestructiveBudgetRow(result: { results?: unknown[] } | undefined): DestructiveBudgetRow | null {
-  const row = result?.results?.[0] as DestructiveBudgetRow | undefined;
-  return row ?? null;
-}
+// The counting statement itself (and the decode of its row) lives in
+// `store/d1/events.ts`: only `commitWrite`/`appendLinkChange` batch it.
 
 // GET /v1/meta's `health.clients.budget` -- `liveLayoutCount` is passed in
 // from `readMetaCore`'s own `layout_count` (already read that request),

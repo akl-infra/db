@@ -11,11 +11,13 @@ import { badRequest, notFound } from "./errors";
 import { appendLike } from "./events";
 import { byRef, type LayoutRow } from "./records";
 import type { Clock } from "./time";
+import { toStore } from "../store/arg";
+import type { Store } from "../store/port";
 
 const QWERTY_MESSAGE = "You can't like Qwerty :yellow_circle:";
 
-async function loadForLike(db: Bindings["DB"], ref: string): Promise<LayoutRow> {
-  const record = await byRef(db, ref);
+async function loadForLike(store: Store, ref: string): Promise<LayoutRow> {
+  const record = await byRef(store, ref);
   // A tombstone is reachable only by id (byRef's name path already excludes
   // it); either way it's not something you can like.
   if (record === null || record.deleted) throw notFound(`no layout '${ref}'`, ref);
@@ -30,8 +32,9 @@ export async function likeLayout(
   ref: string,
   version: string | null,
 ): Promise<{ like_count: number }> {
-  const record = await loadForLike(env.DB, ref);
-  const { like_count } = await appendLike(env.DB, now, {
+  const store = toStore(env.DB);
+  const record = await loadForLike(store, ref);
+  const { like_count } = await appendLike(store, now, {
     kind: "liked",
     layoutId: record.id,
     userId: actor.user_id,
@@ -55,8 +58,9 @@ export async function unlikeLayout(
   ref: string,
   version: string | null,
 ): Promise<{ like_count: number }> {
-  const record = await loadForLike(env.DB, ref);
-  const { like_count } = await appendLike(env.DB, now, {
+  const store = toStore(env.DB);
+  const record = await loadForLike(store, ref);
+  const { like_count } = await appendLike(store, now, {
     kind: "unliked",
     layoutId: record.id,
     userId: actor.user_id,

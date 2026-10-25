@@ -2,12 +2,11 @@
 // /rev/{n} (21-formats.md §2.4). `?format=` is required wherever a payload
 // is returned or a layout could have several -- D4: no default.
 import { Hono, type Context } from "hono";
-import type { Bindings } from "../env";
+import { platformOf, type AppEnv } from "../app";
 import { canonical } from "../core/canonical";
 import { ApiError, badRequest, formatAbsent, formatRequired, held, notFound, unknownFormat } from "../core/errors";
 import { cachePut, conditional, etagFor, headSeq } from "../core/etag";
-import type { EventDbRow } from "../core/events";
-import { rowToEvent, sourceOfEvent } from "../core/events";
+import { sourceOfEvent } from "../core/events";
 import { resolveReadFormat, sourceLineageFor } from "../core/formatread";
 import {
   byRefWithFormats,
@@ -105,10 +104,10 @@ function withLayoutFields(err: ApiError, layout: LayoutRow, formats: Map<string,
   return new ApiError(err.status, { ...err.body, ...fullWire(layout, formats) }, err.headers);
 }
 
-export const layoutsRoute = new Hono<{ Bindings: Bindings }>();
+export const layoutsRoute = new Hono<AppEnv>();
 
 layoutsRoute.get("/v1/layouts", async (c) => {
-  const db = c.env.DB;
+  const db = platformOf(c).store;
   const full = c.req.query("full") === "1";
   const format = parseFormatRequired(c.req.query("format"));
 
@@ -181,21 +180,8 @@ layoutsRoute.get("/v1/layouts", async (c) => {
 
 const FULL_PAGE_SIZE = 500;
 
-async function likesByLayout(db: Bindings["DB"], ids: string[]): Promise<Map<string, string[]>> {
-  const out = new Map<string, string[]>(ids.map((id) => [id, []]));
-  for (let i = 0; i < ids.length; i += 90) {
-    const chunk = ids.slice(i, i + 90);
-    const rows = await db
-      .prepare(`SELECT layout_id, user_id FROM likes WHERE layout_id IN (${chunk.map(() => "?").join(",")}) ORDER BY layout_id, user_id ASC`)
-      .bind(...chunk)
-      .all<{ layout_id: string; user_id: string }>();
-    for (const r of rows.results) out.get(r.layout_id)!.push(r.user_id);
-  }
-  return out;
-}
-
-async function handleFullDump(c: Context<{ Bindings: Bindings }>, format: string): Promise<Response> {
-  const db = c.env.DB;
+async function handleFullDump(c: Context<AppEnv>, format: string): Promise<Response> {
+  const db = platformOf(c).store;
   const likedBy = parseLikedBy(c.req.query("liked_by"));
   const sourceLineage = resolveSourceLineage(format);
 
@@ -215,7 +201,7 @@ async function handleFullDump(c: Context<{ Bindings: Bindings }>, format: string
       let first = true;
       for (;;) {
         const page = await listRecords(db, { sourceLineage, sort: "name", limit: FULL_PAGE_SIZE, cursor, likedBy });
-        const likes = await likesByLayout(db, page.items.map(({ layout }) => layout.id));
+        const likes = await db.layouts.likers(page.items.map(({ layout }) => layout.id));
         // Coordinator review (H1): `full=1` rows need the SAME complete
         // `formats` map the plain list now gets -- one batched query per
         // page here too.
@@ -249,7 +235,7 @@ async function handleFullDump(c: Context<{ Bindings: Bindings }>, format: string
       await writer.close();
     }
   })();
-  c.executionCtx.waitUntil(pump);
+  platformOf(c).background(pump);
 
   return new Response(readable, {
     headers: { "Content-Type": "application/json", ETag: etag, "Cache-Control": CACHE_CONTROL },
@@ -257,7 +243,7 @@ async function handleFullDump(c: Context<{ Bindings: Bindings }>, format: string
 }
 
 layoutsRoute.get("/v1/layouts/:ref", async (c) => {
-  const db = c.env.DB;
+  const db = platformOf(c).store;
   const ref = c.req.param("ref");
   const rawFormat = c.req.query("format");
 
@@ -276,7 +262,7 @@ layoutsRoute.get("/v1/layouts/:ref", async (c) => {
     throw e;
   }
 
-  const likes = await likesByLayout(db, [lwf.layout.id]);
+  const likes = await db.layouts.likers([lwf.layout.id]);
   return c.json({
     ...fullWire(lwf.layout, lwf.formats, { format: resolved.format, payload: resolved.payload, derived_from: resolved.derived_from }),
     likes: likes.get(lwf.layout.id) ?? [],
@@ -284,29 +270,27 @@ layoutsRoute.get("/v1/layouts/:ref", async (c) => {
 });
 
 layoutsRoute.get("/v1/layouts/:ref/likes", async (c) => {
-  const db = c.env.DB;
+  const db = platformOf(c).store;
   const ref = c.req.param("ref");
   const rec = await byRefWithFormats(db, ref);
   if (rec === null) throw notFound(`no layout '${ref}'`, ref);
 
-  const { results } = await db.prepare("SELECT user_id FROM likes WHERE layout_id = ? ORDER BY user_id ASC").bind(rec.layout.id).all<{ user_id: string }>();
-  return c.json({ user_ids: results.map((r) => r.user_id) });
+  const likers = await db.layouts.likers([rec.layout.id]);
+  return c.json({ user_ids: likers.get(rec.layout.id) ?? [] });
 });
 
 // 21-formats.md §2.4: `?format=F` is an OPTIONAL filter on `/history`
 // (absent means every event, not a default -- D4's exception is explicit
 // here).
 layoutsRoute.get("/v1/layouts/:ref/history", async (c) => {
-  const db = c.env.DB;
+  const db = platformOf(c).store;
   const ref = c.req.param("ref");
   const format = c.req.query("format");
   const rec = await byRefWithFormats(db, ref);
   if (rec === null) throw notFound(`no layout '${ref}'`, ref);
 
-  const sql = format === undefined ? "SELECT * FROM events WHERE layout_id = ? ORDER BY seq ASC" : "SELECT * FROM events WHERE layout_id = ? AND format = ? ORDER BY seq ASC";
-  const stmt = format === undefined ? db.prepare(sql).bind(rec.layout.id) : db.prepare(sql).bind(rec.layout.id, format);
-  const { results } = await stmt.all<EventDbRow>();
-  const items = results.map(rowToEvent).map((e) => ({
+  const events = await db.layouts.history(rec.layout.id, format);
+  const items = events.map((e) => ({
     seq: e.seq,
     format: e.format,
     rev: e.rev,
@@ -321,7 +305,7 @@ layoutsRoute.get("/v1/layouts/:ref/history", async (c) => {
 });
 
 layoutsRoute.get("/v1/layouts/:ref/rev/:n", async (c) => {
-  const db = c.env.DB;
+  const db = platformOf(c).store;
   const ref = c.req.param("ref");
   const rawFormat = c.req.query("format");
   const nRaw = c.req.param("n");
@@ -369,24 +353,14 @@ layoutsRoute.get("/v1/layouts/:ref/rev/:n", async (c) => {
   // actually stored as, which need not equal the format this request
   // named at all. `event_seq` is the one column that always identifies
   // the exact event that produced this rev, regardless of chaining.
-  const revRow = await db
-    .prepare("SELECT format, payload_json, event_seq FROM layout_revs WHERE layout_id = ? AND lineage = ? AND rev = ?")
-    .bind(rec.layout.id, lin, n)
-    .first<{ format: string; payload_json: string; event_seq: number }>();
+  const revRow = await db.layouts.revision(rec.layout.id, lin, n);
   if (revRow === null) {
     // The lineage exists (checked above); this specific rev number
-    // doesn't -- a real "no such revision", still `not_found`.
-    throw notFound(`layout '${ref}' has no rev ${n} of '${format}'`, ref);
-  }
-  const eventRow = await db
-    .prepare("SELECT after_json, via, source_client, source_version FROM events WHERE seq = ?")
-    .bind(revRow.event_seq)
-    .first<{ after_json: string | null; via: string; source_client: string | null; source_version: string | null }>();
-  if (eventRow === null || eventRow.after_json === null) {
+    // doesn't (or its event is gone) -- a real "no such revision", still `not_found`.
     throw notFound(`layout '${ref}' has no rev ${n} of '${format}'`, ref);
   }
 
-  const payload: unknown = JSON.parse(revRow.payload_json);
+  const payload: unknown = JSON.parse(revRow.payloadJson);
   const result = format === revRow.format ? { payload } : translate({ format: revRow.format, payload }, format);
   if ("held" in result) throw held(result.format, result.see);
 
@@ -394,7 +368,7 @@ layoutsRoute.get("/v1/layouts/:ref/rev/:n", async (c) => {
   // the event's `after` snapshot -- it's an internal `FormatSnapshot`
   // (`scope`, `layout_id`, `lineage` included), never spread onto the wire
   // whole.
-  const after = JSON.parse(eventRow.after_json) as { created_at: string; modified_at: string; has_magic: boolean };
+  const after = JSON.parse(revRow.afterJson) as { created_at: string; modified_at: string; has_magic: boolean };
   return c.json({
     rev: n,
     created_at: after.created_at,
@@ -402,6 +376,6 @@ layoutsRoute.get("/v1/layouts/:ref/rev/:n", async (c) => {
     has_magic: after.has_magic,
     format,
     payload: result.payload,
-    source: sourceOfEvent(eventRow),
+    source: sourceOfEvent({ source_client: revRow.sourceClient, source_version: revRow.sourceVersion, via: revRow.via }),
   });
 });
