@@ -2,7 +2,7 @@
 import { runEventTx } from "../../src/store/ddb/tx";
 import { describe, expect, it } from "vitest";
 import { planLinkSettle } from "../../src/store/ddb/links";
-import { AT, ctx, eventsOf, expectIndexesConsistent, id, itemOf, links, moderation, outbox, OTHER, scanMain, seedLayout, USER, MOD } from "./community-support";
+import { putItems, AT, ctx, eventsOf, expectIndexesConsistent, id, itemOf, links, moderation, outbox, OTHER, scanMain, seedLayout, USER, MOD } from "./community-support";
 
 const row = (layoutId: string, over: Record<string, unknown> = {}) => ({ id: id(), layout_id: layoutId, url: "https://example.org/a", submitted_by: USER, submitted_at: AT, ...over });
 
@@ -50,6 +50,8 @@ describe("[LDB-DDB40] links", () => {
     const a = row(l.id);
     await links.submit({ supersedeId: null, by: USER, at: AT, row: a });
     const intent = outbox({ kind: "link", submissionId: a.id, layoutId: l.id });
+    // A card exists for this submission, so its state change leaves a dirty mark.
+    await putItems([{ pk: `MQN#link#${a.id}`, sk: "ROW", kind: "link", submission_id: a.id }]);
     const won = await links.reject({ id: a.id, by: MOD, at: AT, reason: "no", event: moderation({ kind: "link_rejected", layoutId: l.id, detail: { submission_id: a.id, reason: "no" } }), outbox: intent });
     expect(won).toEqual({ claimed: true, eventAppended: true });
     expect(await links.get(a.id)).toMatchObject({ status: "rejected", decided_by: MOD, decided_at: AT, reason: "no" });

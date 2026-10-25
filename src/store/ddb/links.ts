@@ -62,7 +62,7 @@ export async function planLinkSettle(
     for (const p of pending) transition(plan, "link", p, { ...p, status: "superseded", decided_by: r.by, decided_at: r.at }, `link-superseded:${p.id}`);
   }
   guard(plan, "link-guard", linkGuardKey(r.layoutId), ver, 0);
-  return { ops: plan.finish() };
+  return { ops: await plan.finish() };
 }
 
 export function ddbLinkStore(ctx: DdbContext): LinkStore {
@@ -97,7 +97,7 @@ export function ddbLinkStore(ctx: DdbContext): LinkStore {
         );
         guard(plan, "guard", linkGuardKey(r.row.layout_id), ver, 1);
         try {
-          await runTx(ctx, plan.finish());
+          await runTx(ctx, await plan.finish());
         } catch (e) {
           if (e instanceof TxConditionFailed) {
             if (e.tags.includes("insert")) throw new Error("UNIQUE constraint failed: link_submissions.id");
@@ -138,13 +138,13 @@ export function ddbLinkStore(ctx: DdbContext): LinkStore {
         const layoutId = row.layout_id as string;
         const cat = await readCat(ctx, layoutId);
         try {
-          await runEventTx(ctx, (b) => {
+          await runEventTx(ctx, async (b) => {
             const plan = new Plan(ctx);
             transition(plan, "link", row, { ...row, status: "rejected", decided_by: r.by, decided_at: r.at, reason: r.reason }, "claim");
             catCheck(plan, layoutId, cat, false);
             const seq = b.event(moderationEvent(r.at, r.event, cat));
             if (r.outbox !== undefined) outboxOps(plan, r.outbox, seq);
-            for (const op of plan.finish()) b.item(op.tag, op.item);
+            for (const op of await plan.finish()) b.item(op.tag, op.item);
           });
         } catch (e) {
           if (e instanceof TxConditionFailed) {

@@ -9,6 +9,7 @@ import { internal } from "../../core/errors";
 import type { EventInput, DdbContext, Item, TxItem } from "./contracts";
 import { TxConditionFailed } from "./contracts";
 import { catKey, fold, type Key } from "./keys";
+import { mqnDirtyKey, mqnKey } from "./keys-discord";
 import {
   commentCountKey,
   commentOkKey,
@@ -19,7 +20,6 @@ import {
   historyKey,
   linkLayoutKey,
   linkStatusKey,
-  mqnDirtyKey,
   outboxDueKey,
   outboxNonceClaimKey,
   outboxRowKey,
@@ -298,6 +298,8 @@ export class Plan {
   readonly ops: TxOp[] = [];
   private readonly seen = new Set<string>();
   private readonly cc = new Map<string, number>();
+  /** Set by `addHistory`: the review-history counter moves from `read` to `now` in this transaction. */
+  historyCounter: { read: number; now: number } | null = null;
 
   constructor(readonly ctx: DdbContext) {}
 
@@ -317,7 +319,24 @@ export class Plan {
     this.cc.set(layoutId, (this.cc.get(layoutId) ?? 0) + delta);
   }
 
-  finish(): TxOp[] {
+  private readonly dirty = new Set<string>();
+
+  /** The mod-queue card of this submission may now disagree with it (the mark exists only beside a notification). */
+  markDirty(kind: SubmissionKind, id: string): void {
+    this.dirty.add(`${kind}\u0000${id}`);
+  }
+
+  async finish(): Promise<TxOp[]> {
+    // The dirty set is a hint over notifications: put the mark where a card exists, and make sure none appears meanwhile where it does not.
+    const marks = [...this.dirty].map((k) => k.split("\u0000") as [SubmissionKind, string]);
+    this.dirty.clear();
+    if (marks.length > 0) {
+      const have = new Set((await batchGet(this.ctx, marks.map(([k, i]) => mqnKey(k, i)), { projection: { expr: "#pk, #sk", names: { "#pk": "pk", "#sk": "sk" } } })).map((i) => i.pk as string));
+      for (const [k, i] of marks) {
+        if (have.has(mqnKey(k, i).pk)) this.add("mqn", { Put: { TableName: this.table, Item: { ...mqnDirtyKey(k, i) } } });
+        else this.add("mqnabsent", { ConditionCheck: { TableName: this.table, Key: mqnKey(k, i), ConditionExpression: "attribute_not_exists(pk)" } });
+      }
+    }
     for (const [layout, delta] of this.cc) {
       this.add(`cc:${layout}`, {
         Update: {
@@ -330,6 +349,20 @@ export class Plan {
       });
     }
     this.cc.clear();
+    if (this.historyCounter !== null) {
+      const { read, now } = this.historyCounter;
+      this.historyCounter = null;
+      this.add("histcounter", {
+        Update: {
+          TableName: this.table,
+          Key: REVIEW_HISTORY_COUNTER,
+          UpdateExpression: "SET #l = :now",
+          ConditionExpression: read === 0 ? "attribute_not_exists(#l)" : "#l = :read",
+          ExpressionAttributeNames: { "#l": "last" },
+          ExpressionAttributeValues: { ":now": now, ...(read === 0 ? {} : { ":read": read }) },
+        },
+      });
+    }
     return this.ops;
   }
 
@@ -443,7 +476,7 @@ export function transition(plan: Plan, kind: SubmissionKind, before: Row | null,
   if (before !== null) {
     const prev = normalizeRow(kind, before);
     if (prev.status !== next.status || prev.review_version !== next.review_version || prev.source_message_url !== next.source_message_url) {
-      plan.put(`${tag}:mqn`, { ...mqnDirtyKey(kind, id), kind, submission_id: id });
+      plan.markDirty(kind, id);
     }
   }
 }
@@ -578,9 +611,13 @@ export interface HistoryState {
   readonly claims: ReadonlySet<string>;
   /** The next free ordinal. */
   next: number;
-  /** The highest `id` any entry carries so far. */
-  lastId: number;
+  /** The global history counter as read, and as this plan has advanced it (the last id handed out). */
+  readonly counterRead: number;
+  counter: number;
 }
+
+/** `META/REVIEW_HISTORY.last`: the highest id ever handed out, D1's AUTOINCREMENT as one counter item. */
+export const REVIEW_HISTORY_COUNTER: Key = { pk: "META", sk: "REVIEW_HISTORY" };
 
 export async function readHistory(ctx: DdbContext, kind: "comment" | "wpm", submissionId: string): Promise<HistoryState> {
   const pk = `SUB#${kind}#${submissionId}`;
@@ -588,19 +625,8 @@ export async function readHistory(ctx: DdbContext, kind: "comment" | "wpm", subm
   const claims = new Set<string>();
   for (const c of await queryPartition(ctx, pk, { prefix: "HK#" })) claims.add(`${c.review_version}#${c.action}`);
   const last = rows.length === 0 ? 0 : Math.max(...rows.map((r) => r.n as number));
-  const lastId = rows.length === 0 ? 0 : Math.max(...rows.map((r) => r.id as number));
-  return { kind, submissionId, rows, claims, next: last + 1, lastId };
-}
-
-/**
- * The synthetic `id` a runtime history row carries (D1's AUTOINCREMENT only
- * ordered rows within a submission): time-based, so it cannot collide with an
- * imported id, and above every earlier id of the submission, so id order stays
- * insertion order.
- */
-export function historyRowId(at: string, n: number, lastId: number): number {
-  const t = Date.parse(at);
-  return Math.max(lastId + 1, (Number.isFinite(t) ? t : 0) * 1000 + (n % 1000));
+  const counter = ((await getItem(ctx, REVIEW_HISTORY_COUNTER))?.last as number | undefined) ?? 0;
+  return { kind, submissionId, rows, claims, next: last + 1, counterRead: counter, counter };
 }
 
 export class HistoryUnique extends Error {
@@ -622,8 +648,9 @@ export function addHistory(plan: Plan, st: HistoryState, h: HistoryIntent, ignor
   }
   (st.claims as Set<string>).add(claim);
   const n = st.next++;
-  const id = historyRowId(h.at, n, st.lastId);
-  st.lastId = id;
+  // D1's AUTOINCREMENT: one global ascending sequence, advanced in this transaction (conditioned on the value read).
+  const id = ++st.counter;
+  plan.historyCounter = { read: st.counterRead, now: st.counter };
   plan.put(
     "history",
     {
