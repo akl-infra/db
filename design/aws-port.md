@@ -47,8 +47,9 @@ runs against the new storage with as few changes as possible; rewrite cost is no
 8. **Local dev: `npm run dev`** starts DynamoDB Local (Docker, or the jar if Java is present),
    creates the tables, seeds them, and serves the API on `:8787` with a filesystem blob store. No
    AWS account is needed.
-9. **Cost: about $1.5-3/month at the 10-23 peak volume (88k req/day), about $1-1.5 after Spark's
-   poll backoff.** Nonce writes and consistent auth reads dominate (section 7).
+9. **Cost: about $1.3-2.6/month at the 10-23 peak volume (88k req/day), about $0.8-1.3 after
+   Spark's poll backoff.** Nonce writes dominate. Auth lookups are eventually consistent (decided,
+   §8.5); the head, the feed and every write stay strongly consistent (section 7).
 
 10. **The akldb.org site moves too (§3a).** The SPA goes to S3 with its own CloudFront
     distribution; a CloudFront Function does the exact SPA fallback. `/auth/*` and `/api/*` go to a
@@ -106,6 +107,19 @@ for every port method.
 - **R1. Consistent base-table reads only.** No GSIs: a GSI is eventually consistent [9], so a
   GSI-backed page could carry an ETag at seq *h* while missing a row committed at or before *h*,
   and get cached that way. Indexes are index items instead (R2).
+  **The one deliberate exception (saltorbit, §8.5): the auth lookups are eventually consistent
+  `GetItem`/`BatchGetItem`s.** They cover `CLIENTS/<id>` (status, pubkey, caps), `AUTHORS/<user>`
+  (the name on the actor), and the roles pair `ADMINS/<u>`, `BANS/<u>`. A client revocation or
+  suspension, a ban, or an admin grant or removal can therefore take ~1 s to take effect, which
+  saltorbit accepts. This includes one write by an actor whose rights were removed under a second
+  earlier. Everything else stays strongly consistent:
+  - `META/HEAD` and the `/v1/meta` batch;
+  - the feed and its mirrors, the read-model catch-up (`TransactGetItems`), and every ETag'd read;
+  - every write and every read a write's decision depends on (`CAT`, names, submissions,
+    idempotency, leases);
+  - the nonce check, which is a conditional `Put`, never a read;
+  - the author upsert's own read, which an eventual read could only make stale and which its
+    conditional write then refuses and retries consistently.
 - **R2. Index items written in the same transaction.** Each access path that SQL served with an
   index (`link_submissions_status`, `wpm_submissions_best`, ...) becomes a partition of small
   items. They are put and deleted in the transaction that changes the row they index. A generic
@@ -336,8 +350,8 @@ and cursors.
 | revert scan by `source_client` and time (`revert.ts:87`) | `Query EV` descending from HEAD until `at` < window start (≤ 1 h, `DESTRUCTIVE_WINDOW_SECONDS`), filter in memory |
 | authors list/detail/counts (`authors.ts:44-76`) | `Query AUTHORS` (sorted in memory: by `user_id`, or by `name` in BINARY order); per-owner count from the read model; likes by user via `Query U#<user>` `Select COUNT` |
 | author upsert (`discord.ts:198`, `client.ts:234`) | read, then `TransactWriteItems [author Put/Update (CAS), META/AUTHORS]` on insert or rename; a plain conditional `Update` for hourly `last_seen_at` (no head bump, so no 304 is broken: LDB-R9..R11) |
-| roles (`roles.ts:27`) | `BatchGetItem ADMINS/<u>, BANS/<u>` |
-| clients, nonces, auth cache (`client.ts`, `discord.ts`) | `GetItem CLIENTS/<id>`; ephemeral conditional `Put`; `GetItem AC#...` |
+| roles (`roles.ts:27`) | `BatchGetItem ADMINS/<u>, BANS/<u>`, **eventually consistent** (§8.5) |
+| clients, nonces, auth cache (`client.ts`, `discord.ts`) | `GetItem CLIENTS/<id>` (**eventually consistent**, §8.5); nonce: ephemeral conditional `Put` (strong by nature); `GetItem AC#...` (eventual: a cache of Discord's answer, and its expiry is checked on read) |
 | admins add/remove (`admins.ts:51-74`) | transaction with `META/ADMINS` (`count > :2` condition on remove) + the `admin.*` event |
 | link/WPM/comment submit, decide, reopen, supersede (`links.ts`, `wpm.ts`, `comments.ts`, `moderation-review.ts`, `events.ts:700-765`) | `EventTx` with the submission row CAS (R6), index items (R2), set guard (R5), review-history claim (R3), outbox rows and claims, MQN dirty mark |
 | mod queues (`links.ts:172`, `wpm.ts:263`, `comments.ts:217`) | `Query IX#<kind>#st#<status>` + read-model join for layout names + `AUTHORS` names |
@@ -763,7 +777,7 @@ open writes). Writes made on AWS are carried back; nothing is lost.
 
 | Item | Assumption | Price | $/month |
 |---|---|---|---|
-| DynamoDB reads | 1.5-2.6M req/month × ~4 consistent RRU (HEAD/meta batch, client, author, roles, receipt) ≈ 6-10M RRU | $0.125/M RRU [5] | 0.75-1.30 |
+| DynamoDB reads | 1.5-2.6M req/month × ~2.5 RRU: the strong HEAD/meta batch and receipt ≈ 1.5 RRU, plus client, author and roles (4 items, eventually consistent at ½ RRU each ≈ 1 RRU, §8.5) ≈ 3.8-6.5M RRU | $0.125/M RRU [5] | 0.47-0.81 |
 | DynamoDB writes | nonces ≈ 1 WRU per signed request (~0.9-1.6M) + event transactions (2× WRU per item [9]) + rate/author ≈ 1-1.8M WRU | $0.625/M WRU [5] | 0.65-1.10 |
 | DynamoDB storage + PITR | ~0.3 GB with mirrors and indexes | 25 GB free / $0.25 GB-month; PITR $0.20/GB-month [5] | ≤ 0.15 |
 | Lambda | 1.5-2.6M req; ~75-130k GB-s | 1M req + 400k GB-s free/month, then $0.20/M [11] | 0.10-0.32 |
@@ -773,7 +787,7 @@ open writes). Writes made on AWS are carried back; nothing is lost.
 | S3 | ~1 GB of dumps/year + snapshot puts | $0.023/GB-month | 0.03-0.10 |
 | CloudWatch Logs (IA) | ~0.3 GB/month ingested, kept forever | IA ingestion $0.25/GB; storage grows ~$0.01/month per month of history | 0.08-0.15 |
 | SSM, ACM, KMS (`aws/ssm`) | standard tier | free | 0 |
-| **Total** | | | **≈ 1.6-3.1** at the 10-23 peak; **≈ 1.0-1.5** at ~50k req/day (Spark poll backoff) |
+| **Total** | | | **≈ 1.3-2.6** at the 10-23 peak; **≈ 0.8-1.3** at ~50k req/day (Spark poll backoff) |
 
 Levers if this must come down:
 - Provisioned 25 RCU/25 WCU, if this account's free tier covers it [5]. That is ~$0 for DynamoDB,
@@ -830,9 +844,12 @@ projected.
 3. **ACM certificate in us-east-1** for CloudFront: planned, and verified by one dry run in P4. The
    fallback is an API Gateway HTTP API custom domain (§7.3).
 4. **Clients:** all repointed to `api.akldb.org` before the cutover; the proxy stays only briefly.
-5. **Auth lookups:** strongly consistent, which is today's semantics and costs ~$0.3-0.6/month
-   more. This is the default pending saltorbit's final word; the eventual-consistency option is
-   not wanted unless saltorbit asks for it.
+5. **Auth lookups: eventually consistent** (saltorbit's final answer). This covers clients,
+   authors and the roles pair (admins, bans), and saves ~$0.3-0.5/month. A revocation, ban or role
+   change can lag ~1 s. The head/meta, the feed, every ETag'd read and every write stay strongly
+   consistent (§2.2 R1). The proving-ground diff tolerates no auth lag in its deterministic stream:
+   the driver waits 2 s after any auth-state change before the next request from the affected
+   actor. A dedicated pack measures the actual lag and checks that it stays ≤ 2 s.
 6. **Logs:** CloudWatch Logs in the Infrequent Access class, kept forever.
 7. **akldb.org site Worker:** moves to AWS as part of the parallel run (§3a), on S3 + its own
    CloudFront distribution in the akldb account.
