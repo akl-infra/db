@@ -6,15 +6,15 @@
 // reviewable forever (LDB-WPM2).
 import { ulid } from "ulidx";
 import type { Actor } from "../auth/actor";
-import type { Bindings } from "../env";
 import { sourceMessageConflict, badRequest, invalidProof, invalidWpm, notFound, reviewConflict } from "./errors";
-import { appendInfo, rejectionModerationStatement } from "./events";
-import { reopenReview, reviewHistoryStatement, type ReviewExpectation } from "./moderation-review";
-import { approvalOutboxStatement, rejectionOutboxStatement } from "./rejection-dm";
+import { appendInfo } from "./events";
+import { layoutPresent, reopenReview, type ReviewExpectation } from "./moderation-review";
+import { outboxIntent } from "./outbox-intent";
 import { byRef, type LayoutRow, type Source } from "./records";
 import { verifyDiscordProofAuthor, type DiscordProofAccess } from "./modqueue-proof";
 import type { Clock } from "./time";
-import { legacyD1, type StoreArg } from "../store/arg";
+import { toStore, type StoreArg } from "../store/arg";
+import type { Store } from "../store/port";
 
 // --- the pure validators (LDB-WPM1, table-tested) -----------------------
 
@@ -102,13 +102,8 @@ function sourceOf(actor: Actor, version: string | null): Source {
   return { client: actor.source_client, version };
 }
 
-// [LDB-WPM9] The explicit column list (never `SELECT *`) keeps
-// `notified_at` -- the mod-queue notifier's claim bookkeeping,
-// `core/modqueue.ts` -- off every wire these rows reach.
-const SUBMISSION_COLUMNS = "id, layout_id, user_id, wpm, proof, submitted_by, via, submitted_at, status, decided_by, decided_at, reason, review_version";
-
-async function loadSubmission(db: Bindings["DB"], id: string): Promise<WpmSubmissionRow> {
-  const row = await db.prepare(`SELECT ${SUBMISSION_COLUMNS} FROM wpm_submissions WHERE id = ?`).bind(id).first<WpmSubmissionRow>();
+async function loadSubmission(store: Store, id: string): Promise<WpmSubmissionRow> {
+  const row = await store.wpm.get(id);
   if (row === null) throw notFound(`no wpm submission '${id}'`, id);
   return row;
 }
@@ -118,8 +113,8 @@ export type WpmSubmissionStatus = Pick<WpmSubmissionRow, "id" | "status" | "reas
 // [LDB-WPM16] Clients can follow their own submissions without gaining
 // access to the queue or exposing private decision reasons in the feed.
 export async function readWpmSubmissionStatus(dbArg: StoreArg, actor: Actor, id: string): Promise<WpmSubmissionStatus> {
-  const db = legacyD1(dbArg);
-  const submission = await loadSubmission(db, id);
+  const store = toStore(dbArg);
+  const submission = await loadSubmission(store, id);
   if (!actor.admin && actor.user_id !== submission.user_id && actor.user_id !== submission.submitted_by) {
     throw notFound(`no wpm submission '${id}'`, id);
   }
@@ -130,15 +125,10 @@ export async function readWpmSubmissionStatus(dbArg: StoreArg, actor: Actor, id:
 // authorizes in the write itself and makes two concurrent first binds safe.
 export async function bindWpmDiscordMessage(dbArg: StoreArg, actor: Actor, id: string,
   message: { guild_id: string | null; channel_id: string; message_id: string }): Promise<string> {
-  const db = legacyD1(dbArg);
+  const store = toStore(dbArg);
   const url = `https://discord.com/channels/${message.guild_id ?? "@me"}/${message.channel_id}/${message.message_id}`;
-  const result = await db.prepare(`UPDATE wpm_submissions SET source_message_url = ?
-    WHERE id = ? AND (submitted_by = ? OR ? = 1) AND source_message_url IS NULL`)
-    .bind(url, id, actor.user_id, actor.admin ? 1 : 0).run();
-  if (result.meta.changes === 1) return url;
-  const existing = await db.prepare(`SELECT source_message_url FROM wpm_submissions
-    WHERE id = ? AND (submitted_by = ? OR ? = 1)`)
-    .bind(id, actor.user_id, actor.admin ? 1 : 0).first<{ source_message_url: string | null }>();
+  if (await store.wpm.bindSourceMessage({ id, url, actorId: actor.user_id, admin: actor.admin })) return url;
+  const existing = await store.wpm.sourceMessage({ id, actorId: actor.user_id, admin: actor.admin });
   if (existing === null) throw notFound(`no wpm submission '${id}'`, id);
   if (existing.source_message_url === url) return url;
   throw sourceMessageConflict();
@@ -147,8 +137,8 @@ export async function bindWpmDiscordMessage(dbArg: StoreArg, actor: Actor, id: s
 // The layout every submission route names: the usual ref resolution; a
 // tombstone refuses (a deleted layout takes no new records).
 export async function resolveWpmLayout(dbArg: StoreArg, ref: string): Promise<LayoutRow> {
-  const db = legacyD1(dbArg);
-  const layout = await byRef(db, ref);
+  const store = toStore(dbArg);
+  const layout = await byRef(store, ref);
   if (layout === null || layout.deleted) throw notFound(`no layout '${ref}'`, ref);
   return layout;
 }
@@ -164,7 +154,7 @@ function validated(rawWpm: unknown, rawProof: unknown): { wpm: number; proof: st
 // Inserts an already-approved row and appends its `wpm_approved` event: the
 // admin's own speed through the user route, and the on-behalf entry.
 async function insertApproved(
-  db: Bindings["DB"],
+  store: Store,
   now: Clock,
   actor: Actor,
   version: string | null,
@@ -175,14 +165,12 @@ async function insertApproved(
 ): Promise<WpmSubmissionRow> {
   const at = now();
   const id = ulid();
-  await db.batch([
-    db.prepare(`INSERT INTO wpm_submissions (id, layout_id, user_id, wpm, proof, submitted_by, via, submitted_at, status, decided_by, decided_at, reason)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'approved', ?, ?, NULL)`)
-      .bind(id, layoutId, userId, wpm, proof, actor.user_id, actor.via, at, actor.user_id, at),
-    rejectionModerationStatement(db, at, { kind: "wpm_approved", layoutId, actor: actor.user_id,
-      via: actor.via, source: sourceOf(actor, version), detail: { submission_id: id, user_id: userId, wpm, proof } }),
-    reviewHistoryStatement(db, "wpm", id, "approved", actor.user_id, at, null, 0),
-  ]);
+  await store.wpm.insertApproved({
+    row: { id, layout_id: layoutId, user_id: userId, wpm, proof, submitted_by: actor.user_id, via: actor.via, submitted_at: at, decided_by: actor.user_id, decided_at: at },
+    event: { kind: "wpm_approved", layoutId, actor: actor.user_id,
+      via: actor.via, source: sourceOf(actor, version), detail: { submission_id: id, user_id: userId, wpm, proof } },
+    history: { kind: "wpm", submissionId: id, action: "approved", actor: actor.user_id, at, reason: null, reviewVersion: 0 },
+  });
   return { id, layout_id: layoutId, user_id: userId, wpm, proof, submitted_by: actor.user_id, via: actor.via, submitted_at: at, status: "approved", decided_by: actor.user_id, decided_at: at, reason: null, review_version: 0 };
 }
 
@@ -202,28 +190,22 @@ export async function submitWpm(
   rawProof: unknown,
   proofAccess: DiscordProofAccess,
 ): Promise<WpmSubmissionRow> {
-  const db = legacyD1(dbArg);
+  const store = toStore(dbArg);
   const { wpm, proof } = validated(rawWpm, rawProof);
   await verifyDiscordProofAuthor(proof, actor.user_id, proofAccess);
 
   const at = now();
   const id = ulid();
-  await db.batch([
-    db
-      .prepare("UPDATE wpm_submissions SET status = 'superseded', decided_by = ?, decided_at = ? WHERE layout_id = ? AND user_id = ? AND status = 'pending'")
-      .bind(actor.user_id, at, layoutId, actor.user_id),
-    db
-      .prepare(
-        `INSERT INTO wpm_submissions (id, layout_id, user_id, wpm, proof, submitted_by, via, submitted_at, status, decided_by, decided_at, reason)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', NULL, NULL, NULL)`,
-      )
-      .bind(id, layoutId, actor.user_id, wpm, proof, actor.user_id, actor.via, at),
-  ]);
+  await store.wpm.submit({
+    by: actor.user_id,
+    at,
+    row: { id, layout_id: layoutId, user_id: actor.user_id, wpm, proof, submitted_by: actor.user_id, via: actor.via, submitted_at: at },
+  });
 
   // [LDB-WPM7] The feed is public and pending submissions are private to
   // mods: this event names the submission and nothing else -- no speed, no
   // proof (the queue, an admin read, is where those live until approval).
-  await appendInfo(db, now, {
+  await appendInfo(store, now, {
     kind: "wpm_submitted",
     layoutId,
     actor: actor.user_id,
@@ -248,11 +230,11 @@ export async function submitWpmOnBehalf(
   rawProof: unknown,
   proofAccess: DiscordProofAccess,
 ): Promise<WpmSubmissionRow> {
-  const db = legacyD1(dbArg);
+  const store = toStore(dbArg);
   const userId = validateUserId(rawUserId, "user_id");
   const { wpm, proof } = validated(rawWpm, rawProof);
   await verifyDiscordProofAuthor(proof, userId, proofAccess);
-  return insertApproved(db, now, actor, version, layoutId, userId, wpm, proof);
+  return insertApproved(store, now, actor, version, layoutId, userId, wpm, proof);
 }
 
 export type WpmQueueStatus = WpmStatus;
@@ -261,49 +243,30 @@ export type WpmQueueStatus = WpmStatus;
 // whose layout is currently a tombstone (nothing about delete touches
 // submissions -- a pending one is simply hidden until restore).
 export async function listWpmQueue(dbArg: StoreArg, status: WpmQueueStatus): Promise<WpmQueueRow[]> {
-  const db = legacyD1(dbArg);
-  const cols = SUBMISSION_COLUMNS.split(", ")
-    .map((c) => `s.${c}`)
-    .join(", ");
-  const { results } = await db
-    .prepare(
-      `SELECT ${cols}, l.name AS layout_name, a.name AS user_name
-       FROM wpm_submissions s
-       JOIN layouts l ON l.id = s.layout_id
-       LEFT JOIN authors a ON a.user_id = s.user_id
-       WHERE s.status = ? AND l.deleted = 0
-       ORDER BY s.submitted_at ASC, s.id ASC`,
-    )
-    .bind(status)
-    .all<WpmQueueRow>();
-  return results;
+  return toStore(dbArg).wpm.queue(status);
 }
 
 // POST /v1/admin/wpm-queue/:id/approve: `404 not_found` if the layout is a
 // tombstone (restore first) or the submission doesn't exist / isn't pending.
 export async function approveWpm(dbArg: StoreArg, now: Clock, actor: Actor, version: string | null, id: string, expectedReviewVersion = 0, notifySubmitter = false): Promise<WpmSubmissionRow> {
-  const db = legacyD1(dbArg);
-  const submission = await loadSubmission(db, id);
+  const store = toStore(dbArg);
+  const submission = await loadSubmission(store, id);
   if (submission.review_version !== expectedReviewVersion) throw reviewConflict(id);
   if (submission.status !== "pending") throw notFound(`wpm submission '${id}' is not pending`, id);
-  const layout = await db.prepare("SELECT id FROM layouts WHERE id = ? AND deleted = 0").bind(submission.layout_id).first();
-  if (layout === null) throw notFound(`no layout '${submission.layout_id}'`, submission.layout_id);
+  if (!(await layoutPresent(store, submission.layout_id, true))) throw notFound(`no layout '${submission.layout_id}'`, submission.layout_id);
   const at = now();
-  const results = await db.batch([
-    db.prepare(`UPDATE wpm_submissions SET status = 'approved', decided_by = ?, decided_at = ?, reason = NULL
-      WHERE id = ? AND status = 'pending' AND review_version = ?
-        AND EXISTS (SELECT 1 FROM layouts WHERE id = wpm_submissions.layout_id AND deleted = 0)`)
-      .bind(actor.user_id, at, id, expectedReviewVersion),
-    rejectionModerationStatement(db, at, { kind: "wpm_approved", layoutId: submission.layout_id,
-      actor: actor.user_id, via: actor.via, source: sourceOf(actor, version), detail: { submission_id: submission.id, user_id: submission.user_id, wpm: submission.wpm, proof: submission.proof } }),
-    ...(notifySubmitter ? [await approvalOutboxStatement(db, {
-      kind: "wpm", submissionId: id, layoutId: submission.layout_id,
-      recipientId: submission.user_id, at, reviewVersion: expectedReviewVersion,
-    })] : []),
-    reviewHistoryStatement(db, "wpm", id, "approved", actor.user_id, at, null, expectedReviewVersion),
-  ]);
-  if (results[0]!.meta.changes !== 1) throw reviewConflict(id);
-  return loadSubmission(db, id);
+  const outcome = await store.wpm.approve({
+    id,
+    by: actor.user_id,
+    at,
+    reviewVersion: expectedReviewVersion,
+    event: { kind: "wpm_approved", layoutId: submission.layout_id,
+      actor: actor.user_id, via: actor.via, source: sourceOf(actor, version), detail: { submission_id: submission.id, user_id: submission.user_id, wpm: submission.wpm, proof: submission.proof } },
+    ...(notifySubmitter ? { outbox: await outboxIntent({ kind: "wpm", submissionId: id, layoutId: submission.layout_id, recipientId: submission.user_id, at, reviewVersion: expectedReviewVersion }, "approval") } : {}),
+    history: { kind: "wpm", submissionId: id, action: "approved", actor: actor.user_id, at, reason: null, reviewVersion: expectedReviewVersion },
+  });
+  if (!outcome.claimed) throw reviewConflict(id);
+  return loadSubmission(store, id);
 }
 
 // POST /v1/admin/wpm-queue/:id/reject: marks the submission `rejected` and
@@ -311,35 +274,34 @@ export async function approveWpm(dbArg: StoreArg, now: Clock, actor: Actor, vers
 // nothing else -- a refused record's speed, proof and the moderator's reason
 // are private to admins (the queue has them), like `link_rejected`.
 export async function rejectWpm(dbArg: StoreArg, now: Clock, actor: Actor, version: string | null, id: string, reason?: string, options?: { notifySubmitter?: boolean; reviewVersion?: number }): Promise<WpmSubmissionRow> {
-  const db = legacyD1(dbArg);
-  const submission = await loadSubmission(db, id);
+  const store = toStore(dbArg);
+  const submission = await loadSubmission(store, id);
   const expectedReviewVersion = options?.reviewVersion ?? 0;
   if (submission.review_version !== expectedReviewVersion) throw reviewConflict(id);
   if (submission.status !== "pending") throw notFound(`wpm submission '${id}' is not pending`, id);
-  if (await db.prepare("SELECT id FROM layouts WHERE id = ?").bind(submission.layout_id).first() === null) {
+  if (!(await layoutPresent(store, submission.layout_id, false))) {
     throw notFound(`no layout '${submission.layout_id}'`, submission.layout_id);
   }
   const at = now();
-  const [claim, event] = await db.batch([
-    db.prepare(`UPDATE wpm_submissions SET status = 'rejected', decided_by = ?, decided_at = ?, reason = ?
-      WHERE id = ? AND status = 'pending' AND review_version = ? `)
-      .bind(actor.user_id, at, reason ?? null, id, expectedReviewVersion),
-    rejectionModerationStatement(db, at, { kind: "wpm_rejected", layoutId: submission.layout_id,
-      actor: actor.user_id, via: actor.via, source: sourceOf(actor, version), detail: { submission_id: submission.id } }),
-    ...(options?.notifySubmitter === true ? [await rejectionOutboxStatement(db, {
-      kind: "wpm", submissionId: id, layoutId: submission.layout_id,
-      recipientId: submission.user_id, at, reviewVersion: expectedReviewVersion,
-    })] : []),
-    reviewHistoryStatement(db, "wpm", id, "rejected", actor.user_id, at, reason ?? null, expectedReviewVersion),
-  ]);
-  if (claim!.meta.changes !== 1 || event!.meta.changes !== 1) throw reviewConflict(id);
-  return loadSubmission(db, id);
+  const outcome = await store.wpm.reject({
+    id,
+    by: actor.user_id,
+    at,
+    reason: reason ?? null,
+    reviewVersion: expectedReviewVersion,
+    event: { kind: "wpm_rejected", layoutId: submission.layout_id,
+      actor: actor.user_id, via: actor.via, source: sourceOf(actor, version), detail: { submission_id: submission.id } },
+    ...(options?.notifySubmitter === true ? { outbox: await outboxIntent({ kind: "wpm", submissionId: id, layoutId: submission.layout_id, recipientId: submission.user_id, at, reviewVersion: expectedReviewVersion }, "rejection") } : {}),
+    history: { kind: "wpm", submissionId: id, action: "rejected", actor: actor.user_id, at, reason: reason ?? null, reviewVersion: expectedReviewVersion },
+  });
+  if (!outcome.claimed || !outcome.eventAppended) throw reviewConflict(id);
+  return loadSubmission(store, id);
 }
 
 export async function reopenWpm(dbArg: StoreArg, now: Clock, actor: Actor, version: string | null, id: string, expected: ReviewExpectation): Promise<WpmSubmissionRow> {
-  const db = legacyD1(dbArg);
-  await reopenReview(db, now, actor, version, "wpm", id, expected);
-  return loadSubmission(db, id);
+  const store = toStore(dbArg);
+  await reopenReview(store, now, actor, version, "wpm", id, expected);
+  return loadSubmission(store, id);
 }
 
 // GET /v1/wpm?layout=&user= (public). One row per (layout, user): the
@@ -347,34 +309,5 @@ export async function reopenWpm(dbArg: StoreArg, now: Clock, actor: Actor, versi
 // `decided_at` (then the lower id, so the pick is deterministic). Records on
 // a deleted layout are hidden. Sorted wpm desc, then approved_at asc.
 export async function listWpmRecords(dbArg: StoreArg, filter: { layoutId?: string; userId?: string }): Promise<WpmRecord[]> {
-  const db = legacyD1(dbArg);
-  const where: string[] = [];
-  const params: string[] = [];
-  if (filter.layoutId !== undefined) {
-    where.push("AND s.layout_id = ?");
-    params.push(filter.layoutId);
-  }
-  if (filter.userId !== undefined) {
-    where.push("AND s.user_id = ?");
-    params.push(filter.userId);
-  }
-  const { results } = await db
-    .prepare(
-      `SELECT s.layout_id AS layout_id, l.name AS layout_name, s.user_id AS user_id, a.name AS user_name,
-              s.wpm AS wpm, s.proof AS proof, s.decided_at AS approved_at, s.id AS submission_id
-       FROM wpm_submissions s
-       JOIN layouts l ON l.id = s.layout_id AND l.deleted = 0
-       LEFT JOIN authors a ON a.user_id = s.user_id
-       WHERE s.status = 'approved' ${where.join(" ")}
-         AND NOT EXISTS (
-           SELECT 1 FROM wpm_submissions b
-           WHERE b.layout_id = s.layout_id AND b.user_id = s.user_id AND b.status = 'approved'
-             AND (b.wpm > s.wpm
-                  OR (b.wpm = s.wpm AND (b.decided_at < s.decided_at OR (b.decided_at = s.decided_at AND b.id < s.id))))
-         )
-       ORDER BY s.wpm DESC, s.decided_at ASC, s.id ASC`,
-    )
-    .bind(...params)
-    .all<WpmRecord>();
-  return results;
+  return toStore(dbArg).wpm.records(filter);
 }
