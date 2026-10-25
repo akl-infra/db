@@ -22,6 +22,7 @@ import type { D1Row, D1TableName, LaneSchema, RowsByTable } from "../../src/stor
 import { SCHEMAS } from "../../src/store/ddb/schema";
 import { SPILL_BYTES } from "../../src/store/ddb/payload";
 import { checkIndexes } from "../../src/store/ddb/checker";
+import { createCatalog } from "../../src/store/ddb/catalog";
 import { withFaults } from "../../src/store/ddb/faults";
 import { codecTuning } from "../../src/store/ddb/codec";
 import { ddbHarness } from "../harness/ddb";
@@ -245,6 +246,9 @@ describe("codec: export and import on DynamoDB Local", () => {
     expect(back.events).toHaveLength(0);
     expect(back.likes).toHaveLength(0);
     expect(back.layouts_head).toEqual([{ id: 1, live: 3 }]);
+    // a warm catalog sees the restore (importRows drops every catalog's model)
+    const view = await createCatalog(ddbHarness.ctxBase).current();
+    expect(view.layouts.size).toBe(3);
     expect((await checkIndexes(ctx)).problems).toEqual([]);
     await wipeTables(ctx);
   });

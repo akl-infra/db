@@ -9,6 +9,7 @@
 import { BatchWriteCommand, GetCommand, PutCommand, QueryCommand, ScanCommand } from "@aws-sdk/lib-dynamodb";
 import type { Dump } from "../../dump/write";
 import type { D1Row, D1TableName, DdbContext, Item, LaneSchema, RowsByTable } from "./contracts";
+import { invalidateAllCatalogs } from "./catalog";
 import { HEAD_KEY } from "./keys";
 import { putPayload } from "./payload";
 import { SCHEMAS } from "./schema";
@@ -540,6 +541,8 @@ export async function importRows(ctx: CodecContext, rows: RowsByTable, opts: Imp
   for (const json of payloadBlobs(rows).values()) await putPayload(ctx.blobs, json);
   await batchWrite(ctx, ctx.tables.main, items.main.map((Item) => ({ PutRequest: { Item } })));
   await batchWrite(ctx, ctx.tables.ephemeral, items.ephemeral.map((Item) => ({ PutRequest: { Item } })));
+  // Rows arrived with no events: a warm catalog (a Lambda that outlives a restore) would keep serving the old view.
+  invalidateAllCatalogs();
 }
 
 // ---------------------------------------------------------------------------
