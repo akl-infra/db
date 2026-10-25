@@ -2,7 +2,7 @@
 // file, named from a hash of the file path plus the worker id, created with
 // G's createTables before the file's imports run and dropped after it.
 import { createHash } from "node:crypto";
-import { afterAll } from "vitest";
+import { afterAll, vi } from "vitest";
 import { createDocClient } from "../../src/store/ddb/client";
 import type { DdbTables } from "../../src/store/ddb/contracts";
 import { createTables, deleteTables } from "../../src/store/ddb/tables";
@@ -19,6 +19,9 @@ export const STATE_KEY = "__aklddbFileState";
 
 const worker = (globalThis as unknown as { __vitest_worker__?: { filepath?: string; ctx?: { workerId?: number } } }).__vitest_worker__;
 const file = worker?.filepath ?? `pid${process.pid}`;
+// Files whose cost on DynamoDB Local is legitimately higher (call count x latency); D1 keeps the default.
+const SLOW_FILES: Record<string, number> = { "tests/events/fold.test.ts": 900_000 };
+for (const [suffix, ms] of Object.entries(SLOW_FILES)) if (file.endsWith(suffix)) vi.setConfig({ testTimeout: ms, hookTimeout: ms });
 const prefix = `akldb-t-${createHash("sha1").update(file).digest("hex").slice(0, 10)}-w${process.env.VITEST_POOL_ID ?? worker?.ctx?.workerId ?? 0}`;
 const tables: DdbTables = { main: `${prefix}-main`, ephemeral: `${prefix}-eph` };
 const endpoint = process.env.AKLDB_DDB_ENDPOINT ?? `http://127.0.0.1:${process.env.AKLDB_DDB_PORT ?? 18307}`;
