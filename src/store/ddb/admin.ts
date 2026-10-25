@@ -11,11 +11,11 @@ import type { ClientRow } from "../../core/clients";
 import type { BanRow } from "../../core/moderation";
 import type { AdminStore } from "../port";
 import { TxConditionFailed, type DdbContext, type Item, type TxItem } from "./contracts";
-import { authorsHeadBump, batchDelete, cmpBinary, getAuthor, getItem, isConditionFailed, queryPartition, withRetry } from "./auth";
+import { authorsHeadBump, batchDelete, cmpBinary, getAuthor, getItem, isConditionFailed, queryPartition } from "./auth";
 import type { Key } from "./keys";
 import { stateKey } from "./keys";
 import { ADMINS_HEAD_KEY, ADMINS_PK, adminKey, authorKey, banKey, BANS_PK, clientKey, CLIENTS_PK, rateLimitPk } from "./keys-auth";
-import { runTx } from "./tx";
+import { runTx, withRetry } from "./tx";
 
 const MAX_ATTEMPTS = 8;
 

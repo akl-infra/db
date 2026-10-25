@@ -18,43 +18,16 @@ import {
 import type { Key } from "./keys";
 import { byteLength, SPILL_BYTES } from "./payload";
 import { gunzipText, gzipText } from "./schema/auth";
-import { runTx, txTuning } from "./tx";
+import { runTx, txTuning, withRetry } from "./tx";
 
 // ---------------------------------------------------------------------------
 // Shared with admin.ts
 // ---------------------------------------------------------------------------
 
 const MAX_ATTEMPTS = 8;
-const BACKOFF_MS = [15, 40, 90, 180, 350, 700];
-const TRANSIENT = new Set([
-  "TransactionConflictException",
-  "TransactionInProgressException",
-  "ThrottlingException",
-  "ProvisionedThroughputExceededException",
-  "RequestLimitExceeded",
-  "InternalServerError",
-  "ServiceUnavailable",
-]);
 
 const errName = (e: unknown): string => (e as { name?: string } | null)?.name ?? "";
 export const isConditionFailed = (e: unknown): boolean => errName(e) === "ConditionalCheckFailedException";
-
-/** Retries a single-item call on throttles, conflicts and server errors (the fault wrapper injects them above the SDK); anything else throws at once. */
-export async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
-  for (let attempt = 0; ; attempt++) {
-    try {
-      return await fn();
-    } catch (e) {
-      if (!TRANSIENT.has(errName(e))) throw e;
-      if (attempt + 1 >= MAX_ATTEMPTS) {
-        console.error(`DDB_RETRY_EXHAUSTED ${errName(e)}: gave up after ${MAX_ATTEMPTS} attempts`);
-        throw internal();
-      }
-      const base = BACKOFF_MS[Math.min(attempt, BACKOFF_MS.length - 1)]!;
-      await txTuning.sleep(base * (0.5 + txTuning.random()));
-    }
-  }
-}
 
 export async function getItem(ctx: DdbContext, table: string, key: Key, consistent: boolean): Promise<Item | undefined> {
   const r = await withRetry(() => ctx.doc.send(new GetCommand({ TableName: table, Key: key, ConsistentRead: consistent })));
