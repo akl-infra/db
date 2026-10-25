@@ -36,14 +36,14 @@ runs against the new storage with as few changes as possible; rewrite cost is no
 6. **Code: a storage port under the domain logic.** Today's SQL moves verbatim into `store/d1`,
    and `store/ddb` implements the same interface. The same HTTP test files run against both
    backends, and a seeded differential fuzzer compares them response for response.
-7. **A proving ground first, then a seconds-long cutover.** The AWS akldb is loaded from
-   production private exports and driven for days by a client simulator and by replayed Logpush
-   traffic. Every response and the resulting state are diffed against D1 running the same
-   sequence (§5.1). At the swap, the proving-ground data is discarded. A full export is preloaded
-   ahead of time. At the write freeze, only the delta since the preload's seq is copied, nonces
-   and receipts last, and the copy is proven exact. Then a flag flips the already-deployed Worker
-   into a proxy to CloudFront. The expected write pause is ~10-20 s, and reads never stop (§5.2).
-   Rollback is the same delta pipeline in reverse, for 90 days.
+7. **A proving ground, a production mirror, then one PR and one switch** (§5.1, §5.2).
+   - **The proving ground** checks the AWS stack against a D1 oracle.
+   - **The mirror** tees production's storage writes at the port into the AWS `prod` stage, and
+     checks every call plus a daily row-for-row proof. D1 stays the only writer.
+   - **The cutover PR** (one, which we push) freezes writes for about 10 s, proves the mirror
+     equal, and turns the Worker into a proxy to AWS.
+   - **saltorbit's one switch,** 48 h later, retargets `api.akldb.org`'s DNS.
+   - **Rollback** is reverting the PR, with a reverse mirror keeping D1 warm.
 8. **Local dev: `npm run dev`** starts DynamoDB Local (Docker, or the jar if Java is present),
    creates the tables, seeds them, and serves the API on `:8787` with a filesystem blob store. No
    AWS account is needed.
@@ -559,6 +559,78 @@ after the 90-day rollback window.
 4. **Read-model proof.** After every fuzzer step, `catalog(h)` equals a model rebuilt by a full
    scan (LDB-AWS-RM1).
 
+**Running the fuzzer gate on AWS (2026-10-25).** The gate is 10k sequences × 20 seeds × about
+10 steps: 2,000,000 steps. At about 1 s per step against DynamoDB Local plus the D1 Worker that
+is about 556 hours, which is weeks on the 16 GB Mac. It runs in parallel in the akldb account
+instead, plus a small local tier.
+- **Two tiers:**
+  - **Local smoke**, on the Mac, before any merge into `aws-port`: 20 seeds × 50 sequences,
+    the run in progress today.
+  - **The gate**, on AWS: the full 10k × 20, run before the P2 sign-off, again after any change
+    under `src/store/`, and once more before the cutover go.
+- **Where: Fargate on ARM64 (Graviton), Spot first.**
+  - **One task per work unit.** A unit is (seed, 500 consecutive sequences): 20 seeds × 20
+    units = 400 units.
+  - **Each task is one container,** 8 vCPU / 16 GB, holding everything the local run uses:
+    - Node 24 and the repo at the commit under test, with `node_modules` installed for
+      linux/arm64, so workerd's own binary;
+    - Java 21 and the DynamoDB Local jar, `-inMemory`;
+    - **six fuzz lanes in parallel**, each its own `wrangler dev` D1 Worker, its own
+      `serve-ddb.mjs`, and its own table pair in the one DynamoDB Local.
+  - **Wall time:** a unit takes about 500 × 10 / 6 ≈ 14 min. With the 400 units spread over the
+    tasks the vCPU quota allows, the whole gate takes about 5-6 h at 20 tasks.
+  - **CodeBuild was considered:** no VPC, and a `buildspec` build matrix. Its general1.small at
+    $0.005 per build minute (2 vCPU) [13] is about 4× Fargate's price per vCPU-hour, and its arm
+    rates are not published on the pricing page. Fargate per-second billing with Spot is cheaper
+    for 500+ vCPU-hours.
+- **Network:**
+  - the default VPC's public subnets with a public IP, so there is no NAT and no VPC endpoints,
+    and nothing hourly;
+  - the security group allows no inbound;
+  - tasks reach only ECR (the image pull), S3 (results) and CloudWatch Logs (a summary line);
+  - the fuzzer itself talks only to `127.0.0.1`, under the same guards as locally.
+- **Results:** each unit writes `s3://akldb-fuzz-<acct>/<run>/<seed>/<from>.json`, holding:
+  - the commit, seed, range, steps and duration;
+  - the response and state diffs (first 50);
+  - catalog-vs-scan mismatches;
+  - index-checker problems.
+
+  An exit code of 0 means clean. The bucket has a 30-day lifecycle.
+- **Spot interruptions:** a unit is idempotent. `aggregate.mjs` lists the missing units, and
+  `aws-run.mjs --resume` relaunches only those.
+- **The gate passes when** all 400 unit results are present for one commit and every one is
+  clean.
+- **Determinism:** sequence *i* of seed *s* depends only on (s, i), so any unit can run anywhere,
+  in any order, and a failing unit reproduces locally with
+  `node scripts/lab/fuzz/fuzz.mjs --seeds s --from i --sequences 1`.
+- **Cost of one full gate run** (us-east-1 list rates, used for Ohio):
+  - Fargate ARM: $0.0324 per vCPU-hour and $0.00356 per GB-hour [14], so 8 vCPU / 16 GB =
+    $0.316 per task-hour;
+  - 556 step-hours / 6 lanes ≈ 93 task-hours ≈ **$29 on-demand**, about **$9-10 on Fargate
+    Spot** (up to 70% off [14]);
+  - plus ECR storage for one ~1.5 GB image (≈ $0.15/month, a lifecycle keeps two), S3 results
+    (cents), and Logs (summary lines only, 3-day retention).
+
+  Three to five gate runs before the cutover come to about $30-50 Spot, a one-off outside the
+  ≈$1-2/month run rate. It is well inside the project's spend limit, but **saltorbit should
+  know the number.**
+- **The quota to check first:** new accounts often have a low "Fargate On-Demand vCPU resource
+  count" and Spot quota (Service Quotas). At 6 vCPU the gate would run one task at a time
+  (about 90 h).
+  - The main session checks it with `aws service-quotas get-service-quota` and requests 160
+    vCPU (20 tasks) through `request-service-quota-increase`.
+  - If the project's managed policy refuses the request, it goes on saltorbit's list.
+- **Who runs it:** the main session, with `aws-vault exec akldb`. It runs
+  `scripts/lab/fuzz/aws-run.mjs --commit <sha>`, which:
+  1. builds and pushes the image (`docker buildx --platform linux/arm64` on the Mac, native);
+  2. deploys `infra/fuzz.yaml`: ECR, the ECS cluster, the task definition, a task role
+     allowing only `s3:PutObject` on the run prefix, and the log group;
+  3. launches the units;
+  4. polls;
+  5. aggregates.
+
+  `infra/fuzz.yaml` is deleted after each campaign except the bucket.
+
 ## 5. Proving ground, migration and cutover
 
 The **public dump is not a migration vehicle.** It is redacted on purpose: non-approved
@@ -731,85 +803,227 @@ one maps to at least one check:
 With the additions above, no akldb route or job is left without a check. Two items are proven
 **only** by rehearsal, by nature: the cutover flags, and the T0 import itself (P6).
 
-### 5.2 Cutover with a seconds-long write pause
+### 5.2 The production mirror, the one-PR cutover and the one DNS switch (2026-10-25)
 
-**Prerequisites.** The Worker side of the cutover ships to production ahead of time, dormant:
-- the `503 read_only` error with `Retry-After`;
-- a `proxy` mode that forwards to the CloudFront domain, preserving method, headers and body.
+saltorbit, 2026-10-25: every cutover is **one switch on his side** (DNS, or an endpoint) **plus
+one PR we push**, proven by the parallel run first. And: "akldb needs to always stay consistent."
+This replaces the earlier preload-and-delta plan, whose flags and proofs it keeps.
 
-Both are switched by a flag in D1 `import_state['cutover.mode']`. Each isolate caches it for 1 s,
-so a flip takes effect within about a second, with no deploy and no DNS change. The read-only gate
-runs right after actor resolution, before the idempotency middleware, so a refused write reserves
-no key. Every client already names `api.akldb.org` (§8.4).
+**Stages in the akldb account** (us-east-2; one CloudFormation stack each, P4):
 
-**T-1 h: preload.** Export prod (seq S), load it into the wiped tables, and run the full
-row-for-row check (`codec` back to rows; sha256 of `canonical(rows)` per table equal; `HEAD.seq =
-S`; events contiguous; counters equal recounts; index checker clean). Then the crawler diff
-between a local D1 Worker on that export and AWS.
+| Stage | Data | Hostname | Purpose |
+|---|---|---|---|
+| `lab` | disposable, from exports | CloudFront domain only | the proving ground (§5.1): simulator and replay vs the D1 oracle |
+| `staging` | disposable | `staging-api.akldb.org` | what `next.akl.gg` and `next.akldb.org` talk to during their parallel runs |
+| `prod` | **production's, kept in step** by the mirror below | CloudFront domain until the cutover; `api.akldb.org` after it | becomes production at the cutover PR; nothing moves at the switch except seconds of ephemeral tables |
 
-**T0: the delta.** The pause starts here.
-1. Flip `cutover.mode=read_only`. Writes get `503 read_only` with `Retry-After: 30`. Reads continue.
-2. Wait for in-flight writes to drain: about 2 s. Workers write requests finish in well under a
-   second; the drain ends when the access log shows zero open write requests.
-3. Extract the delta with one script issuing ~25 parallel `wrangler d1 execute --remote --json`
-   reads, ~2-3 s:
-   - **append-only:** `events WHERE seq > S`, `layout_revs WHERE event_seq > S`;
-   - **re-copied whole for every layout_id named by those events:** `layouts`, `layout_formats`,
-     `likes` and `comment_likes` rows;
-   - **re-copied in full (small, and changed without events):** every non-event table: `authors`
-     (`last_seen_at`), submissions (`notified_at`, receipt URLs), `admins`, `bans`, `clients`,
-     `import_state`, `modqueue_*`, `discord_*`, the outbox, `moderation_review_history`,
-     `ratelimit`, `idempotency`, `nonces`. These total < 1 MB, a few thousand rows.
-   - `import_map` is frozen: checked by count and hash only. `auth_cache` is not copied; it is a
-     cache.
-4. Load the data rows, ~1-2 s: `TransactWriteItems` per touched layout, BatchWrite for the rest,
-   parallel. Rows missing from a full re-copy are deleted, and the indexes and counters of every
-   touched entity are regenerated. **Nonces and idempotency receipts are not loaded yet.**
-5. Prove the delta exact, ~2 s:
-   - `codec` the touched and re-copied entities back to rows and compare them with the extract;
-   - `COUNT(*)` and `MAX` key per table on both sides;
-   - `HEAD.seq` equals D1's `MAX(seq)`, with events contiguous;
-   - untouched rows are covered by the T-1 h proof and by the D1-side invariant that every change
-     to `layouts`/`layout_formats`/`likes` appends an event naming its layout (LDB-P1, MF-3).
-6. AWS comes up with `STATE/cutover.mode=read_only`. Flip D1 to `proxy`: from here every request
-   reaches AWS, reads are served and writes still get `503 read_only`. About 1 s.
-7. Copy `nonces` and `idempotency` **last**, ~1 s. D1 has taken no writes since step 1, and the
-   proxy sends it nothing new. Its nonce and receipt tables are therefore final for every write
-   ever signed, executed or refused. This needs no wait for the 300 s skew, because:
-   - the signature covers method, path, query and body hash, so a GET's nonce can never authorize
-     a write;
-   - AWS takes no writes until this step finishes.
-8. Flip AWS `cutover.mode` off: writes open. The pause ends here.
+**The mirror: how production traffic reaches the AWS `prod` stage, consistently.** D1 stays the
+only writer until the cutover. The AWS `prod` stage follows it by **replaying production's
+storage writes at the port**. It does not re-run requests, and it does not dual-write.
 
-**Expected write pause:** 1 + 2 + 3 + 2 + 2 + 1 + 1 + 1 ≈ **13 s, planned ≤ 30 s** (the P6 gate),
-with reads served throughout. It scales with the delta (writes in the hour since the preload),
-not with the database.
+1. **The tee is a recording wrapper around the production `Store`.**
+   - **The change:** a production runtime change, off unless `TEE_URL` is set; saltorbit granted
+     the push. `platform/workers.ts` wraps `createD1Store(env.DB)` so that every call of a
+     **write** method of the port is recorded:
+     - every method of `EventStore` except the reads (`feed`, `revertCandidates`,
+       `latestLinkEvent`);
+     - every write of `StateStore` and `AdminStore`;
+     - `AuthStore`'s main-table writes (authors, idempotency);
+     - the link, WPM, comment, review, modqueue, Discord and outbox stores.
 
-**The site switch** comes after the API is cut over and stable. The site is stateless, so there is
-no freeze and no data copy. Replace the `akldb.org`/`www.akldb.org` Workers custom domains with
-DNS-only CNAMEs to the site distribution (CNAME flattening at the apex). A few seconds while the
-records swap can hit either side, and both serve the same build against the same API. The
-`SESSION_SECRET` is shared, so sessions survive. Rollback restores the custom domains.
+     `DumpStore.restore` is never called in production.
+   - **What a record holds:**
+     - the method name, the arguments, and the outcome: the result, or the thrown error's class
+       and body;
+     - the event seqs it committed;
+     - every value a `Clock` argument returned while the call ran;
+     - a millisecond timestamp.
+   - **Encoding:** a small tagged JSON codec for `Map`, `Set`, `Uint8Array` and `undefined`;
+     `Clock` arguments are replaced by the list of values they returned.
+   - **Out of scope:** the ephemeral writes (`nonces`, `auth_cache`, `ratelimit`) are not
+     recorded; the cutover copies them.
+   - **Why the port:**
+     - every value a write depends on (ids, timestamps, the actor, Discord's message ids) is
+       already an argument at this boundary;
+     - background tasks and cron jobs are covered the same way as requests;
+     - nothing is re-authenticated or re-run against Discord;
+     - P1 and P2 proved this boundary equivalent across D1 and DynamoDB (the crawl diff, the
+       dual-backend suite, the fuzzer).
+   - **How it is sent:** after the unit of work, through `platform.background`, it POSTs that
+     work's records in one batch to `TEE_URL`, the `prod` stage's ingest Function URL.
+     - Authentication is `AuthType NONE` plus HMAC-SHA256 over the timestamped body, with a
+       shared secret held as a Worker secret and an SSM parameter.
+     - Three tries with backoff.
+   - **What it never does:** change a production response, its latency or its state. A failed
+     tee is one log line, `TEE_FAILED`, nothing else.
+   - **Volume:** a few hundred to a few thousand batches a day. Polled reads write nothing
+     recorded except an hourly author touch, so the cost is cents.
+2. **The applier** (AWS `prod` stage only; a Lambda with no Function URL, woken by the ingest and
+   by a 1-minute schedule).
+   - **Order:**
+     - **Event-committing calls** apply strictly in prod's seq order: a call whose first seq is
+       k waits for k-1.
+     - **Other calls** apply in timestamp order between them.
+   - **Each call** goes to the same method of the DynamoDB `Store`, with the recorded arguments
+     and a `Clock` that replays the recorded values.
+   - **Checks per call:**
+     - the outcome equals prod's: the result deep-equal, or the same error class and body;
+     - the seqs committed equal prod's;
+     - the clock was read exactly as often.
 
-**Afterwards:**
-- **Post-hoc full proof, T+1 h.** D1 is frozen at the cutover seq C; take a full export. Restore
-  `akldb-main` by PITR to the unfreeze instant into a scratch table, and compare row for row. A
-  mismatch triggers rollback.
-- Enable EventBridge Scheduler and disable the CF cron (both at step 8). The Discord interactions
-  URL rides the hostname.
-- Days later, replace the Workers custom domain with a DNS-only CNAME `api.akldb.org →
-  dxxxx.cloudfront.net` (Cloudflare dashboard). Drop the proxy once its access log shows no
-  traffic, briefly by design.
+     Any mismatch **halts** the applier and raises `MIRROR_DIVERGED` (S's report and an alarm).
+     The divergent record is kept for diagnosis.
+   - **Recovery** (a gap past 10 minutes, a halt, or a reseed by choice):
+     1. wipe the `prod` tables;
+     2. load a fresh full private D1 export at seq S (§5);
+     3. apply the queued records from S+1;
+     4. verify row for row.
+   - **The mirror never writes Discord.** Its Discord secrets stay unset until the cutover, and
+     the port has no Discord calls in it anyway.
+3. **Daily proof:**
+   - a fresh private D1 export at seq S vs the mirror's `exportRows` at the same seq, row for
+     row, over **every non-ephemeral table** (the applier pauses at S for the comparison);
+   - plus the per-call checks above.
 
-**Rollback, within 90 days:** the same delta pipeline in the other direction. D1 frozen at C is
-the preload; the delta comes from AWS events after C plus the small tables. The steps are the same
-(AWS read_only, delta into D1 via SQL, proof, flip the flag off proxy, nonces and receipts last,
-open writes). Writes made on AWS are carried back; nothing is lost.
+   Clean for **N consecutive days** (saltorbit sets N) is a go/no-go item.
+
+**Consistency, stated.** akldb's production state has exactly one writer at every instant:
+- D1 before the cutover;
+- nobody during the seconds-long freeze;
+- AWS after it.
+
+The mirror never accepts a public write. Its state is a deterministic function of prod's
+committed storage writes, and is checked on every call and daily. If it diverges, it stops and
+reseeds; it never answers for production. The public seq log on `api.akldb.org` stays gap-free
+and identical across the switch, because the mirror holds the same events with the same seqs.
+
+**The cutover PR (the one PR we push).**
+- **Shipped first, dormant, in earlier PRs:**
+  - the Worker's `read_only` and `proxy` modes, flag-driven from D1
+    `import_state['cutover.mode']` with a 1 s cache;
+  - the orchestrator `scripts/cutover/run.mjs`, both directions;
+  - a CI job `cutover` that runs it whenever `cutover/akldb.json` changes on `main`. The workflow
+    file is saltorbit's commit, because the classifier blocks committing workflows.
+- **The cutover PR** changes one file, `cutover/akldb.json`, from `{"primary": "d1"}` to
+  `{"primary": "aws"}`. It also flips the `prod` template's `MirrorMode` from `apply` (D1 →
+  AWS) to `record` (AWS → D1), which disables the forward ingest and applier and enables AWS's
+  recorder.
+- **Merging it** runs, in CI, after the standing checkpoint (D1 bookmark, a fresh dump, the
+  db-backup snapshot):
+  1. Flip D1 `cutover.mode=read_only`. Writes get `503 read_only` with `Retry-After`; reads
+     continue.
+  2. Wait for in-flight writes (about 2 s). Wait for the applier to report prod's final seq
+     (`MAX(seq)`), applied and verified (seconds: the mirror is live).
+  3. Copy the ephemeral tables (`nonces`, `auth_cache`, `ratelimit`) from D1 into `prod`, and
+     prove every non-ephemeral table row for row at prod's final seq against the mirror (a few
+     seconds; most of it is already proven by the per-call checks). Nonces go now, not last,
+     because AWS is still frozen until step 6.
+  4. Flip `prod` `STATE/cutover.mode=read_only`, then flip D1 `cutover.mode=proxy`. The Worker
+     now forwards every request (`api.akldb.org` and `workers.dev`) to the `prod` CloudFront
+     domain.
+  5. Copy the nonces again for the requests that reached D1 during steps 1-4 (about 1 s). AWS
+     takes no write until step 6, so replay protection holds without waiting out the skew.
+  6. Flip `prod` `cutover.mode` off: writes open on AWS. Enable `prod`'s Discord secrets and the
+     EventBridge schedule. Disable the Cloudflare cron.
+  7. Run the post-switch smoke: meta seq equal, a signed write through the proxy, a long-poll,
+     an ETag 304.
+
+  **Write pause:** steps 1-6, about 10 s; the gate is ≤ 30 s. Reads never stop. A failure at any
+  step before 4 aborts: D1 mode back to normal, nothing changed on production. A failure after 4
+  runs the rollback (below).
+- **CI's AWS credentials:** the managed SCP denies `iam:*Provider*`, so there is no GitHub OIDC.
+  The job uses a dedicated IAM user `akldb-cutover` whose policy reaches only the `prod` tables,
+  the ingest and applier functions, and the `prod` SSM parameters. Its access key is a GitHub
+  secret, rotated after the cutover. If the SCP also refuses `iam:CreateUser`, saltorbit creates
+  it (see the user-hands list). The fallback is the same orchestrator run from the main session
+  with `aws-vault exec akldb`, right after the PR merges, with the CI job doing only the D1 flag
+  steps.
+
+**The one switch on saltorbit's side: `api.akldb.org` DNS.**
+- **When:** 48 h after the cutover PR, if the go/no-go watch is clean.
+- **What:** in the Cloudflare dashboard, saltorbit replaces the `api.akldb.org` Workers custom
+  domain with a DNS-only `CNAME api.akldb.org → <prod distribution>.cloudfront.net`. The ACM
+  certificate is already issued and attached (P4).
+- **Why it is safe at any moment:** before and after the switch, every request reaches the same
+  AWS `prod` stage, through the proxy Worker or directly. No data moves, and propagation needs
+  no coordination.
+- **The proxy Worker** stays on `akl-db.akl-58a.workers.dev` until its access log shows zero
+  requests for 7 days, then retires.
+
+**Rollback** (90 days):
+- **Before the DNS switch:** revert the cutover PR (one PR). Its CI job runs the orchestrator in
+  the reverse direction:
+  1. `prod` read_only;
+  2. wait for the **reverse mirror** to reach AWS's final seq (below);
+  3. copy the ephemeral tables;
+  4. a row-for-row proof;
+  5. D1 mode back to normal, so the Worker serves from D1 again;
+  6. `prod` writes stay frozen.
+- **After the DNS switch:** the same PR revert, plus saltorbit restoring the Workers custom
+  domain (one switch).
+- **The reverse mirror keeps D1 warm.** After the cutover, the AWS platform wraps its store in the
+  same recorder, and a D1-side applier follows AWS:
+  - the applier is a Worker route `/__mirror` that accepts only HMAC-signed batches, is off
+    unless `MIRROR_SECRET` is set, and is replayed through the D1 `Store`;
+  - so a rollback is as short as the cutover. The recorder and the applier are
+    platform-neutral; the same code runs in both directions. Built in P6.
+
+**Go/no-go before the cutover PR** (every item green, then saltorbit's go):
+1. P5 proving ground: N days clean (saltorbit's N).
+2. The mirror: N days with zero unexplained `MIRROR_DIVERGED`, every daily row-for-row proof
+   clean, applier lag p99 < 5 s.
+3. P6 rehearsals: three cutovers on the rehearsal Worker with a write pause ≤ 30 s, and one
+   rollback, all proofs clean.
+4. No production client names `workers.dev` for 7 days, or the proxy covers it.
+5. The `prod` stage's alarms quiet for 72 h, its projected cost ≤ $2/month, PITR on, an
+   on-demand backup taken the same day.
+6. The standing D1 checkpoint green in the same CI run.
+7. The `read-only` cap (decision 31) shipped, and `spark-shadow` reading production cleanly
+   (independent of this, but it is the same week's traffic).
 
 **Rejected:**
-- Dual-write: two seq authorities cannot keep one gap-free, identical log.
-- A live follower tailing `/v1/changes`: the feed carries neither payloads nor the non-event
+- **Dual-write:** two seq authorities cannot keep one gap-free, identical log.
+- **A follower tailing `/v1/changes`:** the feed carries neither payloads nor the non-event
   tables.
+- **Request-level replay** (re-running each HTTP request with recorded entropy):
+  - it needs an auth bypass on the mirror and every clock and id routed through the platform;
+  - it would re-run Discord-dependent background work.
+
+  Replaying at the port needs none of that.
+- **The DNS record as the data switch:** propagation cannot be coordinated with a write freeze.
+  The switch that moves data is the flag inside the cutover PR; the DNS change only removes a hop.
+
+**What needs saltorbit's hands: one batch**, then one go and one switch.
+
+*Before P4 serves any hostname* (all at once):
+1. **Cloudflare DNS, zone `akldb.org`**, every record DNS-only:
+   - **ACM validation CNAMEs.** The main session requests one us-east-1 certificate covering
+     `api.akldb.org`, `staging-api.akldb.org`, `akldb.org`, `www.akldb.org` and `next.akldb.org`,
+     then sends the five validation CNAME name/value pairs.
+   - `staging-api.akldb.org` → CNAME to the `staging` API distribution;
+   - `next.akldb.org` → CNAME to the `staging` site distribution.
+2. **Discord developer portal:** add `https://next.akldb.org/auth/callback` to the akldb site
+   application's redirect URIs.
+3. **GitHub, `akl-infra/db`:** commit the two prepared workflow patches,
+   `design/lab/ci-ddb.patch` (P3's DynamoDB CI) and `design/lab/ci-cutover.patch` (the cutover
+   job). The classifier blocks us from committing workflow files. The main session sets the
+   secrets.
+4. **Only if the SCP refuses it to the `cli-admin` role:** create the IAM user `akldb-cutover`
+   with `infra/iam-akldb-cutover.json`, and hand over its access key through `aws-vault`.
+5. **Set N** for the proving ground and for the mirror.
+
+*At the cutover:*
+
+6. **The go, in words.** The main session then pushes and merges the cutover PR (the
+   `cutover/akldb.json` flip).
+7. **48 h later, the one switch:** replace the `api.akldb.org` Workers custom domain with a
+   DNS-only CNAME to the `prod` API distribution.
+
+   The akldb.org site's own switch (`akldb.org`/`www` → the site distribution) is separate, 48 h
+   after the API (§3a).
+
+*To roll back after step 7:* restore the Workers custom domain, and we push the revert.
+
 
 ## 6. Local dev and CI
 
@@ -924,6 +1138,11 @@ projected.
 7. **akldb.org site Worker:** moves to AWS as part of the parallel run (§3a), on S3 + its own
    CloudFront distribution in the akldb account.
 8. **Rollback window:** 90 days, then `store/d1`, `platform/workers` and the proxy are deleted.
+9. **Every cutover is one switch on saltorbit's side plus one PR we push**, proven by the
+   parallel run first, and "akldb needs to always stay consistent" (2026-10-25). The runtime
+   pushes this needs are granted (§5.2).
+10. **No GitHub OIDC:** the managed SCP denies `iam:*Provider*`. AWS work runs from the main
+    session (`aws-vault exec akldb`), and CI uses the narrow IAM user `akldb-cutover` (§5.2).
 
 ## 9. Build plan and gates
 
@@ -937,8 +1156,8 @@ starts only when the previous phase's gate is green.
 |---|---|---|---|
 | **P1 Storage port, D1 green** | `Store`/`Platform` interfaces; move every `db.prepare` behind them; the D1 implementation is today's SQL verbatim; `tests/harness` alias + D1 `TestStore`; convert the ~520 SQL sites in tests | (The site needs no P1 work; its entry split is V's, in P4.) **Main first:** `src/store/port.ts`, `src/platform/{port,workers}.ts`, `src/app.ts` (the interface, frozen before the others start). **A** layouts/events: `core/{write,events,records,likes,revert,names,etag,meta,longpoll,upstream}.ts`, `routes/{layouts,write,likes,changes,changelog}.ts` → `store/d1/{layouts,events}.ts`. **B** auth: `auth/*`, `core/{clients,idempotency,ratelimit,admins,destructive-budget,moderation}.ts`, `routes/{admin,moderation,authors}.ts` → `store/d1/auth.ts`. **C** community: `core/{links,wpm,comments,moderation-review,modqueue*,discord-interactions,rejection-dm}.ts`, `routes/{links,wpm,comments}.ts` → `store/d1/{moderation,discord}.ts`. **D** dump: `src/dump/*`, `core/{nightly,jobs}.ts`, `routes/dump.ts`, `scripts/rehost.mjs` → `store/d1/dump.ts`. **E** tests: `tests/harness*.ts`, `tests/support*`, and SQL sites in `tests/api/**`. **F** SQL sites in `tests/{auth,events}/**`, `tests/rehost.test.ts` | Full suite green with an **unchanged test count**; typecheck; a new boundary test (no D1 types or `@aws-sdk` under `src/core`/`src/routes`); a byte-equal crawler diff of a local Worker before vs after the refactor on one prod export; deployed to CF with no change in production error rate or p95 over 48 h |
 | **P2 DynamoDB implementation** | `store/ddb` (row engine, `EventTx`, read model, `codec`), DynamoDB `TestStore`, dual-backend suite, seeded fuzzer, conflict injection; hold budget and `read_only` in shared code (both backends) | Briefs: design/p2-p5-briefs.md. **G** foundation (`client`, `keys`, `tables`, `tx`: runEventTx/runTx) in wave 1, then head/state/layouts/events/holds/cutover + `schema/core`. **H** the catalog read model + snapshot. **I** auth/admin/ephemeral + `schema/auth`. **J** links/WPM/comments/review + `schema/community`. **K** modqueue/Discord/outbox/dump + `schema/discord`. **N** codec, DynamoDB TestStore, export/import, index checker, `migrations-ddb`, `rehost --target ddb`. **L** (wave 1) the `ddb` vitest project, harness, node lab platform, fault and call-count wrappers, then `serve-ddb.mjs` and the fuzzer. Contracts frozen in `src/store/ddb/contracts.ts` | Every workers-project test green on **both** backends; fuzzer at 10k sequences × 20 seeds with **zero** response or state diffs; the suite and fuzzer green under 20% injected conflicts; `codec` round-trip of a prod export byte-identical for every table; read model == full scan after every fuzzer step; index checker clean; parallel race packs green |
-| **P3 Local dev and CI** | `npm run dev`, DynamoDB Local bootstrap, node platform, README, CI matrix | **M** `scripts/dev.mjs`, `src/platform/node.ts`, `vitest` globalSetup, README "Run locally". **N** `.github/workflows/ci.yml` (dual backends + DynamoDB Local service). The commit is handed back, because the classifier blocks committing workflow files | On a clean machine with no AWS credentials, `npm ci && npm run dev` serves a seeded API in < 2 min, with Docker and with Java-only; CI green on both backends; the README walkthrough is verified by a fresh agent |
-| **P4 Infra in the akldb account** (335937358231, profile `akldb`, us-east-2) | `DISCORD_API_URL` a per-stage parameter, default pinned to `https://discord.com/api` (the lab stage behind akl.gg's `fake` stage points it at akl.gg's fake Discord; p2-p5-briefs.md lane P item 4); CloudFormation for the tables, three functions + URLs, CloudFront, Scheduler, S3, SSM, logs (IA, never expire), alarms, budgets, GitHub OIDC role; the ACM stack in us-east-1 (one cert for `api.`, apex, `www.`); the site distribution, S3 bucket, site Lambda and the two CloudFront Functions | **O** `infra/akldb.yaml`, `infra/acm-us-east-1.yaml`, `infra/*.guard`, `infra/*.test.mjs`, `scripts/deploy-aws.sh`. **V** the site on AWS: `site/server/{workers,lambda}.ts` (entry split), OAuth URLs as env vars, `site/scripts/{manifest,deploy-aws}.mjs`, `infra/functions/{spa-fallback,forwarded-host}.js` + their tests. The main session deploys | cfn-lint + cfn-guard green, including rejected mutations; deployed with no VPC, least-privilege roles and deletion protection on; a direct Function URL call without the origin secret gets 403; **ACM dry run:** a certificate for a throwaway name (e.g. `aws-dryrun.akldb.org`) is issued in us-east-1 via the Cloudflare validation CNAME and attached to CloudFront (if refused, switch to the API Gateway fallback here); smoke tests pass through CloudFront; budget alerts live; the site lab hostname serves the SPA with exact fallback (unit-tested function) and a full OAuth login against real Discord via the lab callback |
+| **P3 Local dev and CI** | `npm run dev`, DynamoDB Local bootstrap, node platform, README, the CI DynamoDB job | **M** (design/p3-p7-briefs.md): `scripts/dev.mjs`, `src/platform/node.ts`, README, and `design/lab/ci-ddb.patch`, which saltorbit commits because the classifier blocks workflow commits | `npm ci && npm run dev` from a fresh clone with no AWS credentials answers `/v1/meta` in < 2 min, with Docker and with the jar; CI patch applies; the fuzzer's local smoke tier (20 seeds × 50) green |
+| **P4 Infra in the akldb account** (335937358231, profile `akldb`, us-east-2) | One template, three stages (`lab`, `staging`, `prod`; §5.2), the us-east-1 ACM certificate for the five hostnames, the `akldb-cutover` IAM policy, `infra/fuzz.yaml` for the fuzzer gate (§4.3). `DISCORD_API_URL` a per-stage parameter, default pinned to `https://discord.com/api`. No GitHub OIDC (the SCP denies `iam:*Provider*`); the main session deploys with `aws-vault exec akldb` | **O** stacks, ACM, IAM policy, deploy script. **V** akldb.org on AWS, staged. **F** the fuzzer-gate image, task, launcher and aggregator. The main session deploys, after saltorbit's DNS batch (§5.2) | cfn-lint/cfn-guard green including rejected mutations; all three stages deployed; certificates issued; `staging-api.akldb.org` and `next.akldb.org` serve; a direct Function URL call without the origin secret gets 403; budget alerts live; the Fargate vCPU quota checked (and raised); **the P2 fuzzer gate (10k × 20) clean on Fargate** |
 | **P5 Proving ground** | §5.1 for **N = 7 consecutive days**, with replay at 1× plus daily 10× bursts. **None of these tools is built yet**; only `scripts/lab/p1-crawl-diff.mjs` exists, and it seeds P's and S's designs | **P** the lab entries (`src/platform/lab-entry.ts`, `scripts/lab/entry/workers-lab.ts`; no auth bypass, identities by lab-signed client lane and fake-Discord bearer tokens), `scripts/lab/fake-discord/**`, and `discord-interactions.ts` taking its API base from `DISCORD_API_URL`. The fake Discord answers `/oauth2/@me` and the bot routes (messages, DM channels, interaction callbacks, webhooks), records every call for the differ, and can inject 429/5xx. **Q** `scripts/lab/sim/**`: the organic simulator, the rare admin pack, the generated submit bodies, the signed Discord interaction generator, and the race packs. **R** `scripts/lab/replay/**`: the Logpush parser, write-body rebuild from the window's events plus the post-window export, the actor inference, re-signing, and the skipped-request report. **S** `scripts/lab/diff/**` (the response, state and fake-Discord-record differ) and `scripts/lab/report/**` (latency, cost, and the daily coverage report against the route/job inventory). **W** `scripts/lab/site/**` (static crawler, OAuth flow against the fake Discord, proxy diff). The main session runs the drivers in the background with timeouts | Over all 7 days: **zero unexplained** response or state diffs (the allow-list holds only `age_s`); zero feed gaps (a contiguity checker tails both sides); read model == scan and index checker clean at every checkpoint; zero `EventTx` retries exhausted; 5xx < 0.01% excluding injected faults; p95 per route from Fly `iad` ≤ today's production p95; projected cost ≤ **$2/month** at prod volume, site included; no DynamoDB throttles; the hold budget enforced; site static, dynamic and UI-walk diffs clean.
 Also required:
 - every one of the 73 routes, 13 jobs and 4 background steps exercised at least once a day, by
@@ -947,8 +1166,8 @@ Also required:
 - the Discord interaction matrix complete: approve, deny and reopen × three queues, plus
   duplicates, with the fake Discord's records diffed clean;
 - the forced job checks (prunes, `dump-catchup`, the no-op migration) passed. Any fix restarts the 7-day count |
-| **P6 Cutover rehearsal** | §5.2 end to end, three times, against a stand-in production: a staging Worker `akl-db-rehearsal` with its own D1 loaded from a fresh export, the cutover flags, and the simulator writing during the window; then the rollback, once | **T** the Worker cutover modes (`read_only`, `proxy`, flag read) + `CHANGELOG-API.md`. **U** `scripts/cutover/{preload,delta,verify,flip}.mjs`. The main session runs the rehearsals; T's Worker changes ship dormant to production at the end of the phase | Write pause ≤ 30 s on 3 consecutive runs (target ~13 s), reads uninterrupted; delta proof clean; the post-hoc PITR full comparison clean; rollback carries AWS-side writes back with a clean proof; production access logs show no `workers.dev` hits for 7 days (every client repointed) |
-| **P7 Cutover** | Wipe the proving-ground tables; preload; §5.2 on production; after a 48 h watch, the site DNS switch (§5.2) | none (main session, with saltorbit's explicit go) | Each step's check passes before the next step (§5.2); the T+1 h full proof is clean; a 48 h watch with alarms quiet, Spark freshness checks clean and the akl.gg error rate unchanged; after the site switch, sign-in and `/api/v1/*` error rates are unchanged, and existing sessions still work. Then the 90-day rollback window starts, after which the D1 code, the proxy and the CF Worker are deleted |
+| **P6 Mirror and cutover rehearsal** | The production mirror (§5.2) running against real production, then the cutover rehearsed | **T** the recording `Store` and sender (a production PR, shipped dormant, then `TEE_URL` set). **Z** ingest, applier, checks, reseed, daily proof, the reverse receiver. **U** the `read_only`/`proxy` modes, the orchestrator for both directions, the cutover CI job patch (saltorbit commits it), `cutover/akldb.json`. **X** the rehearsal driver | **Mirror:** N days (saltorbit's N) with zero unexplained `MIRROR_DIVERGED`, every daily proof clean, applier lag p99 < 5 s. **Rehearsals:** three on `akl-db-rehearsal` + `staging` with the simulator writing, pause ≤ 30 s, plus one rollback, every proof clean. `p1-crawl-diff` byte-identical with the tee and the modes off |
+| **P7 Cutover** | §5.2's go/no-go list green, saltorbit's go, then the cutover PR (`cutover/akldb.json` → `aws`), pushed by the main session; 48 h later saltorbit's one DNS switch; the site's own switch 48 h after the API | none (main session) | Each orchestrator step's proof passes before the next; the post-switch smoke passes; a 48 h watch with alarms quiet, Spark freshness checks clean and the akl.gg error rate unchanged. Then the 90-day rollback window, with the reverse mirror running |
 
 ## Sources
 
@@ -965,6 +1184,8 @@ Also required:
 10. DynamoDB Local usage notes (no `TransactionConflictException`, eventually consistent reads, no PITR): https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/DynamoDBLocal.UsageNotes.html
 11. Lambda pricing (1M req + 400k GB-s free; $0.20/M; streaming $0.008/GB past 6 MB, 100 GB free; Web Functions rates) and Node.js 24: https://aws.amazon.com/lambda/pricing/ , https://aws.amazon.com/about-aws/whats-new/2025/11/aws-lambda-nodejs-24/
 12. Lambda response streaming (200 MB, 2 MB/s past 6 MB, Node.js): https://docs.aws.amazon.com/lambda/latest/dg/configuration-response-streaming.html
+13. CodeBuild pricing (general1.small $0.005/build minute; 100 free minutes): https://aws.amazon.com/codebuild/pricing/
+14. Fargate pricing (Linux/ARM $0.0000089944 per vCPU-s, $0.0000009889 per GB-s; Spot up to 70% off): https://aws.amazon.com/fargate/pricing/
 
 Local evidence: `akldb-free.md` and `egress.md` (usage and CloudFront free-tier figures, 2026-10-24),
 the `arch-review.md` case for keeping D1, the Spark lab's `conflict-retry.mjs` and I-LAB-LANE-CONFLICT /
