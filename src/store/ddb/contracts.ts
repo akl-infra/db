@@ -86,6 +86,8 @@ export interface Catalog {
   writeSnapshot(): Promise<{ seq: number; written: boolean }>;
   /** Rebuild from a full consistent scan, bypassing the snapshot (nightly proof, tests). */
   rebuildFromScan(): Promise<CatalogView>;
+  /** Drop the cached view after writes that bypass the event log (restore, import, raw test inserts): the next `current()` rebuilds from a consistent scan. */
+  invalidate(): void;
 }
 
 // ---------------------------------------------------------------------------

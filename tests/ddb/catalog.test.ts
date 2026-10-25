@@ -1,5 +1,5 @@
 // [LDB-DDB21..DDB28] The catalog read model (lane H): exact snapshots, freshness, convergence, boot and snapshot.
-import { TransactGetCommand } from "@aws-sdk/lib-dynamodb";
+import { GetCommand, PutCommand, QueryCommand, TransactGetCommand } from "@aws-sdk/lib-dynamodb";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createCatalog, SNAPSHOT_KEY } from "../../src/store/ddb/catalog";
 import type { DdbContext } from "../../src/store/ddb/contracts";
@@ -237,5 +237,52 @@ describe("catalog rebuild", () => {
     expect(scanned.layouts).toEqual(await w.expectedAt(scanned.seq));
     expect(scanned.seq).toBeGreaterThan(cached.seq);
     expect(await cat.current()).toEqual(scanned);
+  });
+
+  it("[LDB-DDB27] invalidate() drops a model that writes outside the event log made stale; the next current() equals rebuildFromScan()", async () => {
+    const w = new Writer();
+    await w.create("A1", "Alpha", "u", at(1));
+    await w.create("B2", "Bravo", "u", at(2));
+    const cat = newCatalog();
+    await cat.writeSnapshot();
+    const before = await cat.current();
+
+    // a raw write: a CAT item changed with no event, as a restore or a test insert does
+    const got = await ddbHarness.raw.send(new GetCommand({ TableName: ddbHarness.tables.main, Key: { pk: "CAT", sk: "B2" }, ConsistentRead: true }));
+    await ddbHarness.raw.send(new PutCommand({ TableName: ddbHarness.tables.main, Item: { ...got.Item!, name: "Renamed raw" } }));
+
+    expect(await cat.current()).toBe(before); // stale: HEAD did not move, so nothing is re-read
+    expect((await cat.current()).layouts.get("B2")!.layout.name).toBe("Bravo");
+    cat.invalidate();
+    const fresh = await cat.current();
+    expect(fresh.layouts.get("B2")!.layout.name).toBe("Renamed raw");
+    expect(fresh).toEqual(await cat.rebuildFromScan());
+    // and it keeps catching up normally afterwards
+    await w.update("A1", at(3), '{"v":3}');
+    expect((await cat.current()).layouts.get("A1")!.formats.get("spark")!.payload).toEqual({ v: 3 });
+  });
+
+  it("[LDB-DDB27] a refresh already running when invalidate() is called does not install its stale result", async () => {
+    const w = new Writer();
+    await w.create("A1", "Alpha", "u", at(1));
+    let armed = false;
+    let fired = false;
+    let cat!: ReturnType<typeof newCatalog>;
+    cat = newCatalog(
+      hooked(async (cmd) => {
+        if (armed && !fired && cmd instanceof QueryCommand) {
+          fired = true;
+          cat.invalidate();
+        }
+      }),
+    );
+    await cat.current();
+    await w.update("A1", at(2), '{"v":2}');
+    armed = true;
+    await cat.current(); // invalidated mid-flight
+    expect(fired).toBe(true);
+    armed = false;
+    const { calls } = await ddbHarness.calls.measure(() => cat.current());
+    expect(calls.byCommand.Scan).toBe(1); // the result of the flight was not installed: this call scans
   });
 });
