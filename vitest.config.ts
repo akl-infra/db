@@ -109,12 +109,13 @@ export default defineConfig(async () => {
             environment: "node",
             include: [
               "tests/ddb/**/*.test.ts",
+              "tests/mirror/**/*.test.ts",
               "tests/api/**/*.test.ts",
               "tests/auth/**/*.test.ts",
               "tests/events/**/*.test.ts",
               "tests/rehost.test.ts",
             ],
-            exclude: [...d1OnlyTests(), "tests/import/**"],
+            exclude: [...d1OnlyTests(), "tests/import/**", "tests/mirror/verify.test.ts"],
             globalSetup: ["./tests/harness/global-ddb.ts"],
             setupFiles: ["./tests/harness/setup-ddb.ts"],
             testTimeout: 30000,
@@ -144,6 +145,7 @@ export default defineConfig(async () => {
               "tests/mirror/observe-ddb.test.ts",
               // [LDB-DEV1..DEV3] npm run dev boots scripts/dev.mjs as a child process (lane M).
               "tests/lab/dev.test.ts",
+              "tests/mirror/verify.test.ts",
             ],
           },
         },
