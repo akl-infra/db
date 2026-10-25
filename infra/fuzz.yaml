@@ -1,0 +1,174 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  akldb fuzzer gate (lane F, design/aws-port.md 4.3): Fargate ARM64 tasks that each run one work unit of the differential
+  fuzzer and write a result JSON to S3. Public subnet, no inbound, no NAT, no VPC endpoints. Deleted after each campaign
+  except the results bucket. Deployed by scripts/lab/fuzz/aws-run.mjs.
+
+Parameters:
+  RunId:
+    Type: String
+    AllowedPattern: "[A-Za-z0-9._-]{1,64}"
+    Description: The run prefix in the results bucket; the task role may write only under it.
+  ImageTag:
+    Type: String
+    AllowedPattern: "[A-Za-z0-9._-]{1,128}"
+    Description: The tag of the image aws-run.mjs pushes to the repository below (the commit under test).
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+
+Resources:
+  ResultsBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub "akldb-fuzz-${AWS::AccountId}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-after-30-days
+            Status: Enabled
+            ExpirationInDays: 30
+
+  Repository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: akldb-fuzz
+      EmptyOnDelete: true
+      ImageScanningConfiguration:
+        ScanOnPush: false
+      LifecyclePolicy:
+        LifecyclePolicyText: >-
+          {"rules":[{"rulePriority":1,"description":"keep the two newest images","selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":2},"action":{"type":"expire"}}]}
+
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /akldb/fuzz
+      RetentionInDays: 3
+
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: akldb-fuzz
+
+  ClusterCapacity:
+    Type: AWS::ECS::ClusterCapacityProviderAssociations
+    Properties:
+      Cluster: !Ref Cluster
+      CapacityProviders:
+        - FARGATE
+        - FARGATE_SPOT
+      DefaultCapacityProviderStrategy:
+        - CapacityProvider: FARGATE_SPOT
+          Weight: 1
+
+  TaskSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: akldb fuzz tasks - no inbound; HTTPS out to ECR, S3 and CloudWatch Logs only
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: ["sts:AssumeRole"]
+      Policies:
+        - PolicyName: pull-and-log
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ["ecr:GetAuthorizationToken"]
+                Resource: "*"
+              - Effect: Allow
+                Action: ["ecr:BatchCheckLayerAvailability", "ecr:GetDownloadUrlForLayer", "ecr:BatchGetImage"]
+                Resource: [!GetAtt Repository.Arn]
+              - Effect: Allow
+                Action: ["logs:CreateLogStream", "logs:PutLogEvents"]
+                Resource: [!GetAtt LogGroup.Arn, !Sub "${LogGroup.Arn}:*"]
+
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: ["sts:AssumeRole"]
+      Policies:
+        - PolicyName: put-results
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ["s3:PutObject"]
+                Resource: [!Sub "${ResultsBucket.Arn}/${RunId}/*"]
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: akldb-fuzz
+      RequiresCompatibilities: [FARGATE]
+      NetworkMode: awsvpc
+      Cpu: "8192"
+      Memory: "16384"
+      EphemeralStorage:
+        SizeInGiB: 40
+      RuntimePlatform:
+        CpuArchitecture: ARM64
+        OperatingSystemFamily: LINUX
+      ExecutionRoleArn: !GetAtt ExecutionRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      ContainerDefinitions:
+        - Name: fuzz
+          Image: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/akldb-fuzz:${ImageTag}"
+          Essential: true
+          Environment:
+            - Name: RUN_ID
+              Value: !Ref RunId
+            - Name: COMMIT
+              Value: !Ref ImageTag
+            - Name: LANES
+              Value: "6"
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: unit
+
+Outputs:
+  Bucket:
+    Value: !Ref ResultsBucket
+  RepositoryUri:
+    Value: !GetAtt Repository.RepositoryUri
+  Cluster:
+    Value: !Ref Cluster
+  TaskDefinition:
+    Value: !Ref TaskDefinition
+  SecurityGroup:
+    Value: !Ref TaskSecurityGroup
+  LogGroup:
+    Value: !Ref LogGroup

@@ -133,6 +133,8 @@ export default defineConfig(async () => {
               // fixtures (static import) -- no D1/miniflare needed, so it
               // belongs here alongside docs-site.test.ts, not "workers".
               "tests/contract/**/*.test.ts",
+              // [LDB-FZ1..FZ7] the fuzzer gate on AWS: units, plan, aggregation, the template's guard rules
+              "tests/lab/**/*.test.ts",
             ],
           },
         },

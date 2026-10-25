@@ -1,0 +1,46 @@
+# cfn-guard rules for infra/fuzz.yaml (lane F): the fuzzer gate has no NAT, no VPC endpoint, no inbound rule and no
+# wildcard action. tests/lab/fuzz-units.test.ts runs these against the template and against mutations that must fail.
+let nat = Resources.*[ Type == "AWS::EC2::NatGateway" ]
+let endpoints = Resources.*[ Type == "AWS::EC2::VPCEndpoint" ]
+let ingress = Resources.*[ Type == "AWS::EC2::SecurityGroupIngress" ]
+let groups = Resources.*[ Type == "AWS::EC2::SecurityGroup" ]
+let roles = Resources.*[ Type == "AWS::IAM::Role" ]
+let policies = Resources.*[ Type in ["AWS::IAM::Policy", "AWS::IAM::ManagedPolicy"] ]
+
+rule no_nat_gateway {
+    %nat empty
+}
+
+rule no_vpc_endpoint {
+    %endpoints empty
+}
+
+rule no_inbound_rule {
+    %ingress empty
+    %groups {
+        Properties.SecurityGroupIngress not exists
+    }
+}
+
+rule no_wildcard_action {
+    %roles {
+        Properties.Policies[*].PolicyDocument.Statement[*] {
+            Action[*] != /\*/
+        }
+    }
+    %policies {
+        Properties.PolicyDocument.Statement[*] {
+            Action[*] != /\*/
+        }
+    }
+}
+
+# egress stays HTTPS only
+rule egress_https_only {
+    %groups {
+        Properties.SecurityGroupEgress[*] {
+            FromPort == 443
+            ToPort == 443
+        }
+    }
+}
