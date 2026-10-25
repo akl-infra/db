@@ -87,3 +87,37 @@ export interface Catalog {
   /** Rebuild from a full consistent scan, bypassing the snapshot (nightly proof, tests). */
   rebuildFromScan(): Promise<CatalogView>;
 }
+
+// ---------------------------------------------------------------------------
+// The item model as data: D1 rows <-> DynamoDB items (design §2.3, §4.1 `codec`)
+// ---------------------------------------------------------------------------
+
+/** Every D1 table the codec carries (migrations/*.sql minus SQLite's own). */
+export type D1TableName =
+  | "layouts" | "layout_formats" | "layout_revs" | "likes" | "events" | "layouts_head" | "import_state" | "import_map"
+  | "authors" | "authors_head" | "admins" | "bans" | "clients" | "nonces" | "auth_cache" | "ratelimit" | "idempotency"
+  | "link_submissions" | "wpm_submissions" | "layout_comments" | "comment_likes" | "moderation_review_history"
+  | "modqueue_notifications" | "modqueue_delivery_gate" | "discord_pending_actions" | "discord_reopen_actions"
+  | "discord_deny_modals" | "discord_reopen_confirmations" | "discord_rejection_dm_outbox";
+
+/** A D1 row as `SELECT *` returns it (0/1 booleans, JSON columns as strings, NULL as null). */
+export type D1Row = Record<string, unknown>;
+export type RowsByTable = Partial<Record<D1TableName, D1Row[]>>;
+export type Item = Record<string, unknown>;
+
+/**
+ * One lane's slice of the item model. `toItems` turns that lane's tables'
+ * rows into every item they imply -- entities, mirrors, index items, claims,
+ * counters -- deterministically. `fromItems` reads back exactly those rows
+ * from the lane's primary items (derived items are regenerated, never read).
+ * The codec's round-trip property: fromItems(toItems(rows)) equals rows
+ * under canonical(), row order by primary key.
+ */
+export interface LaneSchema {
+  readonly lane: "G" | "I" | "J" | "K";
+  readonly tables: readonly D1TableName[];
+  toItems(rows: RowsByTable): { main: Item[]; ephemeral: Item[] };
+  fromItems(items: { main: readonly Item[]; ephemeral: readonly Item[] }): RowsByTable;
+  /** The D1 table an item of this lane belongs to (entity or derived), or null if not this lane's. Used by fault injection and the index checker. */
+  tableOf(item: Item): D1TableName | null;
+}

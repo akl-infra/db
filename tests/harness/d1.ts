@@ -61,6 +61,19 @@ export function d1TestStore(db: D1Database): TestStore {
         .run();
       return res.meta.changes ?? 0;
     },
+    faults: {
+      async failWrites(table: TableName) {
+        for (const [suffix, op] of [["ins", "INSERT"], ["upd", "UPDATE"], ["del", "DELETE"]] as const) {
+          await db
+            .prepare(`CREATE TRIGGER IF NOT EXISTS lab_fault_${ident(table)}_${suffix} BEFORE ${op} ON ${ident(table)} BEGIN SELECT RAISE(ABORT, 'lab fault: ${ident(table)}'); END`)
+            .run();
+        }
+      },
+      async clear() {
+        const { results } = await db.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'lab_fault_%'").all<{ name: string }>();
+        for (const r of results) await db.prepare(`DROP TRIGGER IF EXISTS ${ident(r.name)}`).run();
+      },
+    },
     async remove(table: TableName, where: Where) {
       const w = whereClause(where);
       const res = await db.prepare(`DELETE FROM ${ident(table)}${w.sql}`).bind(...w.args).run();

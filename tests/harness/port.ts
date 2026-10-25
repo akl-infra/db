@@ -28,4 +28,15 @@ export interface TestStore {
   patch(table: TableName, where: Where, fields: Row): Promise<number>;
   /** Delete every row matching `where`; returns how many went. */
   remove(table: TableName, where: Where): Promise<number>;
+  /**
+   * Fault injection (P2 carry-over: the rollback tests run on both backends).
+   * After `failWrites(table)`, every atomic unit that writes a row of `table`
+   * fails as a whole, until `clear()`. D1: RAISE(ABORT) triggers on the table.
+   * DynamoDB: the client wrapper cancels any write or transaction touching an
+   * item of that table.
+   */
+  readonly faults: {
+    failWrites(table: TableName): Promise<void>;
+    clear(): Promise<void>;
+  };
 }
