@@ -171,8 +171,8 @@ export interface EventStore {
   appendInheritedLikes(now: Clock, a: { layoutId: string; name: string; owner: string; userIds: string[]; via: string; detail: object; source: Source }): Promise<{ like_count: number }>;
   /** strong, read, gap-free. Events with seq > since, ascending, at most min(limit, 1000), filtered; `detail` is the public (redacted) one. D1: events.ts feed. */
   feed(since: number, limit: number, kinds?: string[], filter?: FeedFilter): Promise<{ next: number; items: Event[] }>;
-  /** strong, read. Revert candidates of one source client since `sinceAt` and below `beforeSeq`, seq ascending. D1: revert.ts revertClientWrites. */
-  revertCandidates(sourceClient: string, sinceAt: string, beforeSeq: number): Promise<{ seq: number; at: string; kind: string; layout_id: string | null; format: string | null; rev: number | null; before_json: string | null; after_json: string | null }[]>;
+  /** strong, read. Revert candidates of one source client since `sinceAt` and below `beforeSeq`, seq DESCENDING, at most `limit` (the caller pages with the last row's seq as the next `beforeSeq`). D1: revert.ts revertClientWrites. */
+  revertCandidates(sourceClient: string, sinceAt: string, beforeSeq: number, limit: number): Promise<{ seq: number; at: string; kind: string; layout_id: string | null; format: string | null; rev: number | null; before_json: string | null; after_json: string | null }[]>;
   /** strong, read. The latest link_approved/link_cleared event of a layout, optionally below `beforeSeq`. D1: revert.ts revertLinkCleared. */
   latestLinkEvent(layoutId: string, beforeSeq?: number): Promise<{ seq: number; after_json: string | null; source_client: string | null } | null>;
 }
