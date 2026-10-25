@@ -5,7 +5,7 @@ import type { WpmQueueRow, WpmRecord, WpmSubmissionRow } from "../../core/wpm";
 import type { WpmStore } from "../port";
 import { TxConditionFailed, type DdbContext } from "./contracts";
 import { runEventTx, runTx } from "./tx";
-import { mqnDirtyKey, wpmGuardKey, wpmOkKey, wpmPairKey, wpmStatusKey, subKey } from "./keys-community";
+import { wpmGuardKey, wpmOkKey, wpmPairKey, wpmStatusKey, subKey } from "./keys-community";
 import {
   addHistory,
   authorNames,
@@ -57,14 +57,14 @@ export function ddbWpmStore(ctx: DdbContext): WpmStore {
       if (target === "approved" && (cat === null || cat.deleted !== 0)) return lost;
       const st = await readHistory(ctx, "wpm", r.id);
       try {
-        await runEventTx(ctx, (b) => {
+        await runEventTx(ctx, async (b) => {
           const plan = new Plan(ctx);
           transition(plan, "wpm", row, { ...row, status: target, decided_by: r.by, decided_at: r.at, reason }, "claim");
           catCheck(plan, layoutId, cat, target === "approved");
           const seq = b.event(moderationEvent(r.at, r.event, cat));
           if (r.outbox !== undefined) outboxOps(plan, r.outbox, seq);
           addHistory(plan, { ...st, claims: new Set(st.claims) }, r.history);
-          for (const op of plan.finish()) b.item(op.tag, op.item);
+          for (const op of await plan.finish()) b.item(op.tag, op.item);
         });
       } catch (e) {
         if (e instanceof TxConditionFailed) {
@@ -98,28 +98,27 @@ export function ddbWpmStore(ctx: DdbContext): WpmStore {
         values[":actor"] = r.actorId;
         cond += " AND #sb = :actor";
       }
+      return decide(async () => {
+      const plan = new Plan(ctx);
+      plan.add("bind", {
+        Update: {
+          TableName: ctx.tables.main,
+          Key: subKey("wpm", r.id),
+          UpdateExpression: "SET #u = :url",
+          ConditionExpression: cond,
+          ExpressionAttributeNames: names,
+          ExpressionAttributeValues: values,
+        },
+      });
+      plan.markDirty("wpm", r.id);
       try {
-        await runTx(ctx, [
-          {
-            tag: "bind",
-            item: {
-              Update: {
-                TableName: ctx.tables.main,
-                Key: subKey("wpm", r.id),
-                UpdateExpression: "SET #u = :url",
-                ConditionExpression: cond,
-                ExpressionAttributeNames: names,
-                ExpressionAttributeValues: values,
-              },
-            },
-          },
-          { tag: "mqn", item: { Put: { TableName: ctx.tables.main, Item: { ...mqnDirtyKey("wpm", r.id), kind: "wpm", submission_id: r.id } } } },
-        ]);
+        await runTx(ctx, await plan.finish());
         return true;
       } catch (e) {
-        if (e instanceof TxConditionFailed) return false;
+        if (e instanceof TxConditionFailed) return e.tags.includes("bind") ? false : RETRY;
         throw e;
       }
+      });
     },
 
     async sourceMessage(r) {
@@ -138,14 +137,14 @@ export function ddbWpmStore(ctx: DdbContext): WpmStore {
         const cat = await readCat(ctx, layoutId);
         const st = await readHistory(ctx, "wpm", row.id);
         try {
-          await runEventTx(ctx, (b) => {
+          await runEventTx(ctx, async (b) => {
             const plan = new Plan(ctx);
             transition(plan, "wpm", null, row, "insert");
             guard(plan, "guard", wpmGuardKey(layoutId, userId), ver, 1);
             catCheck(plan, layoutId, cat, false);
             b.event(moderationEvent(r.history.at, r.event, cat));
             addHistory(plan, { ...st, claims: new Set(st.claims) }, r.history);
-            for (const op of plan.finish()) b.item(op.tag, op.item);
+            for (const op of await plan.finish()) b.item(op.tag, op.item);
           });
         } catch (e) {
           if (e instanceof TxConditionFailed) {
@@ -176,7 +175,7 @@ export function ddbWpmStore(ctx: DdbContext): WpmStore {
         );
         guard(plan, "guard", wpmGuardKey(layoutId, userId), ver, 1);
         try {
-          await runTx(ctx, plan.finish());
+          await runTx(ctx, await plan.finish());
         } catch (e) {
           if (e instanceof TxConditionFailed) {
             if (e.tags.includes("insert")) throw new Error("UNIQUE constraint failed: wpm_submissions.id");

@@ -154,6 +154,9 @@ describe("[LDB-DDB41] wpm", () => {
     expect(await wpm.bindSourceMessage({ id: a.id, url, actorId: MOD, admin: true })).toBe(false);
     expect(await wpm.sourceMessage({ id: a.id, actorId: MOD, admin: true })).toEqual({ source_message_url: url });
     expect(await wpm.bindSourceMessage({ id: "missing", url, actorId: MOD, admin: true })).toBe(false);
+    expect(await itemOf("IX#mqn#dirty", `wpm#${a.id}`)).toBeUndefined(); // no card, no mark
+    await putItems([{ pk: `MQN#wpm#${a.id}`, sk: "ROW", kind: "wpm", submission_id: a.id }]);
+    await wpm.reject({ id: a.id, by: MOD, at: AT, reason: null, reviewVersion: 0, event: moderation({ kind: "wpm_rejected", layoutId: l.id }), history: history({ kind: "wpm", submissionId: a.id, action: "rejected" }) });
     expect(await itemOf("IX#mqn#dirty", `wpm#${a.id}`)).toBeDefined();
     const b = base(l.id, { user_id: OTHER, submitted_by: OTHER });
     await wpm.submit({ by: OTHER, at: AT, row: b });

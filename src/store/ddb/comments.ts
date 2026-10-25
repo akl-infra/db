@@ -88,7 +88,7 @@ async function purgeLikeTail(ctx: DdbContext, layoutId: string, authorId: string
     const plan = new Plan(ctx);
     clearLikes(plan, layoutId, authorId, likes, likeVer);
     try {
-      await runTx(ctx, plan.finish());
+      await runTx(ctx, await plan.finish());
     } catch (e) {
       if (!(e instanceof TxConditionFailed)) throw e;
     }
@@ -128,7 +128,7 @@ export function ddbCommentStore(ctx: DdbContext): CommentStore {
           : [];
       const st = await readHistory(ctx, "comment", r.id);
       try {
-        await runEventTx(ctx, (b) => {
+        await runEventTx(ctx, async (b) => {
           const plan = new Plan(ctx);
           transition(plan, "comment", row, { ...row, status: target, decided_by: r.by, decided_at: r.at, reason }, "claim", BODY_PRESENT);
           for (const o of others) {
@@ -139,7 +139,7 @@ export function ddbCommentStore(ctx: DdbContext): CommentStore {
           const seq = b.event(moderationEvent(r.at, r.event, cat));
           if (r.outbox !== undefined) outboxOps(plan, r.outbox, seq);
           addHistory(plan, { ...st, claims: new Set(st.claims) }, r.history);
-          for (const op of plan.finish()) b.item(op.tag, op.item);
+          for (const op of await plan.finish()) b.item(op.tag, op.item);
         });
       } catch (e) {
         if (e instanceof TxConditionFailed) {
@@ -182,7 +182,7 @@ export function ddbCommentStore(ctx: DdbContext): CommentStore {
         );
         guard(plan, "guard", commentGuardKey(layoutId, userId), ver, 1);
         try {
-          await runTx(ctx, plan.finish());
+          await runTx(ctx, await plan.finish());
         } catch (e) {
           if (e instanceof TxConditionFailed) {
             if (e.tags.includes("insert")) throw new Error("UNIQUE constraint failed: layout_comments.id");
@@ -223,7 +223,7 @@ export function ddbCommentStore(ctx: DdbContext): CommentStore {
         guard(plan, "guard", commentGuardKey(r.layoutId, r.userId), ver, 0);
         tail = clearLikes(plan, r.layoutId, r.userId, likes, likeVer).length > 0;
         try {
-          await runTx(ctx, plan.finish());
+          await runTx(ctx, await plan.finish());
         } catch (e) {
           if (e instanceof TxConditionFailed) return RETRY;
           throw e;
@@ -278,7 +278,7 @@ export function ddbCommentStore(ctx: DdbContext): CommentStore {
         guard(plan, "guard", commentGuardKey(r.layoutId, r.userId), ver, 0);
         tail = slotStays ? false : clearLikes(plan, r.layoutId, r.userId, likes, likeVer).length > 0;
         try {
-          await runTx(ctx, plan.finish());
+          await runTx(ctx, await plan.finish());
         } catch (e) {
           if (e instanceof TxConditionFailed) return e.tags.includes("claim") ? { claimed: false } : RETRY;
           throw e;
@@ -364,7 +364,7 @@ export function ddbCommentStore(ctx: DdbContext): CommentStore {
         plan.put("like:mirror", { ...commentLikeByAuthorKey(r.authorId, r.layoutId, r.userId), ...body });
         guard(plan, "likeguard", commentLikeGuardKey(r.layoutId, r.authorId), likeVer, 1);
         try {
-          await runTx(ctx, plan.finish());
+          await runTx(ctx, await plan.finish());
         } catch (e) {
           if (e instanceof TxConditionFailed) return e.tags.includes("slot") || e.tags.includes("likeguard") ? RETRY : false;
           throw e;
@@ -386,7 +386,7 @@ export function ddbCommentStore(ctx: DdbContext): CommentStore {
         plan.delete("like:mirror", commentLikeByAuthorKey(authorId, layoutId, userId));
         guard(plan, "likeguard", commentLikeGuardKey(layoutId, authorId), likeVer, -1);
         try {
-          await runTx(ctx, plan.finish());
+          await runTx(ctx, await plan.finish());
         } catch (e) {
           if (e instanceof TxConditionFailed) return e.tags.includes("like") ? (await likeExists(layoutId, authorId, userId) ? RETRY : false) : RETRY;
           throw e;

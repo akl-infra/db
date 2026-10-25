@@ -116,7 +116,7 @@ export function ddbReviewStore(ctx: DdbContext): ReviewStore {
         const deliveries = (await batchGet(ctx, keys.map(outboxRowKey))).filter((d) => d.status === "pending" || d.status === "leased");
 
         try {
-          await runEventTx(ctx, (b) => {
+          await runEventTx(ctx, async (b) => {
             const plan = new Plan(ctx);
             const hist = { ...st, claims: new Set(st.claims) };
             // Save an older decision's private reason before clearing the current row.
@@ -155,7 +155,7 @@ export function ddbReviewStore(ctx: DdbContext): ReviewStore {
               });
               plan.delete(`expire:${key}:due`, outboxDueKey(d.status as string, d.next_attempt_at as string, key));
             }
-            for (const op of plan.finish()) b.item(op.tag, op.item);
+            for (const op of await plan.finish()) b.item(op.tag, op.item);
           });
         } catch (e) {
           if (e instanceof TxConditionFailed) {
