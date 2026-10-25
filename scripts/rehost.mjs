@@ -2,7 +2,7 @@
 // `npm run rehost -- --dump <file|url> [--local|--remote] [--force] [--env preview] [--wipe=akl-db] [--accept-loss]`
 // (07-implementation-phase1.md §6 S7; 04-governance.md §4's rehost drill).
 // Applies migrations, then restores a dump's full event log into D1 via
-// `wrangler d1 execute --file` -- `restoreSql()` (src/dump/restore.ts)
+// `wrangler d1 execute --file` -- `restoreSql()` (src/store/d1/dump.ts)
 // renders the exact SQL text this runs. `--remote` points at the real
 // akl-db; this agent proved the flow with `--local` only, against a fresh
 // local D1 seeded by `npm run import -- --once --fixture` (README.md's
@@ -25,7 +25,7 @@
 //      lose real event history. Refused unless `--accept-loss` is passed;
 //      both numbers are always printed either way.
 //
-// Imports `../src/dump/restore.ts` directly -- Node 24's native TypeScript
+// Imports `../src/store/d1/dump.ts` directly -- Node 24's native TypeScript
 // support strips its (purely erasable) type annotations at load time, no
 // build step needed for this plain-Node script.
 import { execFileSync } from "node:child_process";
@@ -34,7 +34,7 @@ import path from "node:path";
 import process from "node:process";
 import url from "node:url";
 import zlib from "node:zlib";
-import { restoreSql } from "../src/dump/restore.ts";
+import { restoreSql } from "../src/store/d1/dump.ts";
 
 const SCRIPTS_DIR = path.dirname(url.fileURLToPath(import.meta.url));
 const DB_ROOT = path.join(SCRIPTS_DIR, "..");

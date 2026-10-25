@@ -11,7 +11,7 @@ import { canonical } from "./canonical";
 import type { FormatRow, LayoutRow, Source, Upstream } from "./records";
 import { ulid } from "ulidx";
 import type { Clock } from "./time";
-import { legacyD1, toStore, type StoreArg } from "../store/arg";
+import { toStore, type StoreArg } from "../store/arg";
 
 // A write lost the rev race: another write to the SAME layout (either
 // scope) committed the next `n` first (the `layout_revs` PK refused the
@@ -320,33 +320,6 @@ export interface Moderation {
   source: Source;
   detail?: object;
   after?: object;
-}
-
-// Rejection transactions use a conditional event insert directly after their
-// pending-row claim. It is gated by that preceding statement's changes() so a
-// losing concurrent decision cannot append an event.
-export function rejectionModerationStatement(dbArg: StoreArg, at: string, m: Moderation): D1PreparedStatement {
-  const db = legacyD1(dbArg);
-  return db
-    .prepare(
-      `INSERT INTO events (at, kind, layout_id, name, owner, format, rev, actor, via, admin, detail_json, before_json, after_json, source_client, source_version)
-       SELECT ?, ?, ?, (SELECT name FROM layouts WHERE id = ?), (SELECT owner FROM layouts WHERE id = ?),
-              NULL, NULL, ?, ?, 1, ?, NULL, ?, ?, ?
-       WHERE changes() = 1`,
-    )
-    .bind(
-      at,
-      m.kind,
-      m.layoutId,
-      m.layoutId,
-      m.layoutId,
-      m.actor,
-      m.via,
-      m.detail === undefined ? null : canonical(m.detail),
-      m.after === undefined ? null : canonical(m.after),
-      m.source.client,
-      m.source.version,
-    );
 }
 
 export async function appendModeration(dbArg: StoreArg, now: Clock, m: Moderation): Promise<{ seq: number }> {

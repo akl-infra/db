@@ -3,7 +3,7 @@
 // submission when a lease is delivered, so erased/replaced data is not kept.
 import type { Bindings } from "../env";
 import type { Clock } from "./time";
-import { legacyD1, toStore, type StoreArg } from "../store/arg";
+import { toStore, type StoreArg } from "../store/arg";
 import type { Store } from "../store/port";
 
 export type RejectionKind = "comment" | "link" | "wpm";
@@ -77,33 +77,6 @@ export async function makeRejectionDelivery(input: RejectionDelivery): Promise<{
   const cycle = input.reviewVersion ?? 0;
   const deliveryKey = `rejection:${input.kind}:${input.submissionId}${cycle === 0 ? "" : `:${cycle}`}`;
   return { deliveryKey, nonce: await discordNonceFor(deliveryKey) };
-}
-
-// This is the third statement in the rejection transaction, immediately
-// after the conditional event INSERT. SQLite's changes() is therefore the
-// event insert's count, while last_insert_rowid() is its actual event seq.
-export async function rejectionOutboxStatement(dbArg: StoreArg, input: RejectionDelivery): Promise<D1PreparedStatement> {
-  const db = legacyD1(dbArg);
-  return decisionOutboxStatement(db, input, "rejection");
-}
-
-export async function approvalOutboxStatement(dbArg: StoreArg, input: RejectionDelivery & { kind: "comment" | "wpm" }): Promise<D1PreparedStatement> {
-  const db = legacyD1(dbArg);
-  return decisionOutboxStatement(db, input, "approval");
-}
-
-async function decisionOutboxStatement(db: Bindings["DB"], input: RejectionDelivery, decision: "rejection" | "approval"): Promise<D1PreparedStatement> {
-  const deliveryKey = `${decision}:${input.kind}:${input.submissionId}${input.reviewVersion ? `:${input.reviewVersion}` : ""}`;
-  const nonce = await discordNonceFor(deliveryKey);
-  return db
-    .prepare(
-      `INSERT INTO discord_rejection_dm_outbox
-        (delivery_key, event_seq, kind, submission_id, layout_id, recipient_id, nonce, status,
-         attempts, next_attempt_at, created_at, updated_at, review_version, decision)
-       SELECT ?, last_insert_rowid(), ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?, ?
-       WHERE changes() = 1`,
-    )
-    .bind(deliveryKey, input.kind, input.submissionId, input.layoutId, input.recipientId, nonce, input.at, input.at, input.at, input.reviewVersion ?? 0, decision);
 }
 
 export function buildApprovalDmMessage(input: {

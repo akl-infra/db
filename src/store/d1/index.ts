@@ -18,10 +18,8 @@ import { d1ReviewStore } from "./review";
 import { d1StateStore } from "./state";
 import { d1WpmStore } from "./wpm";
 
-const D1_HANDLE = Symbol("akldb.d1");
-
 export function createD1Store(db: D1Database): Store {
-  const store: Store & { [D1_HANDLE]: D1Database } = {
+  const store: Store = {
     head: d1HeadStore(db),
     state: d1StateStore(db),
     layouts: d1LayoutReadStore(db),
@@ -38,12 +36,6 @@ export function createD1Store(db: D1Database): Store {
     discord: d1DiscordStore(db),
     outbox: d1OutboxStore(db),
     dump: d1DumpStore(db),
-    [D1_HANDLE]: db,
   };
   return store;
-}
-
-/** The D1 database behind a store made by `createD1Store`, else undefined (P1 transition only, src/store/arg.ts). */
-export function d1HandleOf(store: Store): D1Database | undefined {
-  return (store as Partial<Record<typeof D1_HANDLE, D1Database>>)[D1_HANDLE];
 }
