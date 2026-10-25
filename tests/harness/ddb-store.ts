@@ -7,7 +7,7 @@
 // It is slow per call and correct; tests use small data. It talks to DynamoDB
 // through the unwrapped client, so neither fault injection nor the call counter
 // sees (or can break) the test's own seeding.
-import { ScanCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import { GetCommand, PutCommand, ScanCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import type { D1Row, D1TableName, Item, LaneSchema } from "../../src/store/ddb/contracts";
 import {
   batchWrite,
@@ -28,6 +28,7 @@ import {
 } from "../../src/store/ddb/codec";
 import { putPayload } from "../../src/store/ddb/payload";
 import { HEAD_KEY } from "../../src/store/ddb/keys";
+import { mqnDirtyKey, mqnKey } from "../../src/store/ddb/keys-discord";
 import { payloadBlobs } from "../../src/store/ddb/schema/core";
 import { invalidateAllCatalogs } from "../../src/store/ddb/catalog";
 import type { Row, TableName, TestStore, Where } from "./port";
@@ -148,6 +149,7 @@ export function ddbTestStore(h: TestStoreHarness): TestStore {
     const expected = rowsToItems(laneRows);
     for (const json of payloadBlobs(laneRows).values()) await putPayload(ctx.blobs, json);
     const inLane = (i: Item): boolean => classify(i)?.schema === lane;
+    const touchedSubs: { kind: "link" | "wpm" | "comment"; id: string }[] = [];
     for (const [which, tableName] of [["main", h.tables.main], ["ephemeral", h.tables.ephemeral]] as const) {
       const have = new Map(items[which].filter(inLane).map((i) => [itemKey(i), i]));
       const want = new Map(expected[which].map((i) => [itemKey(i), i]));
@@ -160,6 +162,8 @@ export function ddbTestStore(h: TestStoreHarness): TestStore {
           continue;
         }
         requests.push({ PutRequest: { Item: it } });
+        const sub = /^SUB#(link|wpm|comment)#(.+)$/.exec(String(it.pk));
+        if (which === "main" && sub !== null && it.sk === "ROW") touchedSubs.push({ kind: sub[1] as "link" | "wpm" | "comment", id: sub[2]! });
       }
       for (const [k, old] of have) {
         if (want.has(k)) continue;
@@ -170,6 +174,11 @@ export function ddbTestStore(h: TestStoreHarness): TestStore {
     }
     // Rows written with no event: the catalog's event-driven catch-up cannot see them.
     if (lane.lane === "G") invalidateAllCatalogs();
+    // A row written around the stores still moves its card: mark it dirty where a card exists, as lane J's decisions do.
+    for (const { kind, id } of touchedSubs) {
+      const card = await h.raw.send(new GetCommand({ TableName: h.tables.main, Key: mqnKey(kind, id), ConsistentRead: true }));
+      if (card.Item !== undefined) await h.raw.send(new PutCommand({ TableName: h.tables.main, Item: { ...mqnDirtyKey(kind, id), kind, submission_id: id } }));
+    }
     return n;
   }
 

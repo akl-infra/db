@@ -487,6 +487,7 @@ export async function hasPrimaryData(ctx: CodecContext): Promise<boolean> {
 
 const BATCH = 25;
 
+
 /** How many BatchWriteItem calls run at once. Order does not matter: the requests of one call touch distinct keys. */
 const BATCH_PARALLEL = 8;
 

@@ -15,7 +15,7 @@ export async function discordJson(response: Response): Promise<unknown> {
   const chunks: Uint8Array[] = [];
   let size = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const deadline = new Promise<never>((_, reject) => { timer = setTimeout(() => { void reader.cancel().catch(() => {}); reject(new Error("Discord body timeout")); }, TIMEOUT_MS); });
+  const deadline = new Promise<never>((_, reject) => { timer = setTimeout(() => { reject(new Error("Discord body timeout")); void reader.cancel().catch(() => {}); }, TIMEOUT_MS); });
   try {
     while (true) {
       const { done, value } = await Promise.race([reader.read(), deadline]);

@@ -46,6 +46,13 @@ describe("dump tables and restore (stand-in codec)", () => {
       calls.push("import");
       imported = r;
     },
+    async scanItems() {
+      calls.push("scan");
+      return { main: [{ pk: "OLD", sk: "x" }], ephemeral: [] };
+    },
+    async batchWrite(_ctx, table, requests) {
+      calls.push(`wipe ${table.length > 0 ? requests.length : 0}`);
+    },
     dumpToRows(d) {
       calls.push("dumpToRows");
       return { layouts: d.records as unknown as D1Row[] };
@@ -67,10 +74,10 @@ describe("dump tables and restore (stand-in codec)", () => {
     expect(calls).toEqual(["export"]);
   });
 
-  it("[LDB-DDB64] restore imports the rows the dump implies, once", async () => {
+  it("[LDB-DDB64] restore wipes the store and imports the rows the dump implies", async () => {
     calls.length = 0;
     await ddbDumpStore(ctx, stand).restore({ records: [{ id: "L9" }] } as unknown as Dump);
-    expect(calls).toEqual(["dumpToRows", "import"]);
+    expect(calls).toEqual(["dumpToRows", "scan", "wipe 1", "wipe 0", "import"]);
     expect(imported).toEqual({ layouts: [{ id: "L9" }] });
   });
 });
