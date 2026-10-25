@@ -55,5 +55,8 @@ describe("HEAD has one writer", () => {
       if (namesHead && writes) offenders.push(rel);
     }
     expect(offenders).toEqual([]);
+    // Exact both ways: the allow-listed loader really does write HEAD, so the allowance cannot go stale.
+    const codec = fs.readFileSync(path.join(dir, "codec.ts"), "utf8");
+    expect(/\bHEAD_KEY\b/.test(codec) && /\b(Put|Update|Delete|TransactWrite|BatchWrite)Command\b/.test(codec)).toBe(true);
   });
 });
