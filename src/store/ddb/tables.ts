@@ -53,10 +53,15 @@ async function createOne(send: RawSend, name: string, ttl: boolean): Promise<voi
   }
 }
 
-export async function createTables(doc: DynamoDBDocumentClient, tables: DdbTables): Promise<void> {
+export interface CreateTablesOptions {
+  /** Enable TTL on the ephemeral table (default true). DynamoDB Local deletes expired items within a second, so test harnesses pass false; code must check expiry itself either way. */
+  ttl?: boolean;
+}
+
+export async function createTables(doc: DynamoDBDocumentClient, tables: DdbTables, opts: CreateTablesOptions = {}): Promise<void> {
   const send = raw(doc);
   await createOne(send, tables.main, false);
-  await createOne(send, tables.ephemeral, true);
+  await createOne(send, tables.ephemeral, opts.ttl !== false);
 }
 
 export async function deleteTables(doc: DynamoDBDocumentClient, tables: DdbTables): Promise<void> {
