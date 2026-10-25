@@ -40,7 +40,7 @@ describe("withFaults", () => {
 
   it("[LDB-DDB80] the same seed injects the same faults; the fraction is near the rate", async () => {
     const run = async (seed: number) => {
-      const doc = withFaults(raw, { rate: 0.2, seed, kinds: ["Throttling"] });
+      const doc = withFaults(raw, { rate: 0.2, seed, kinds: ["Throttling"], sdkAttempts: 1 });
       const out: boolean[] = [];
       for (let i = 0; i < 400; i++) out.push(await doc.send(put("B", `k${i % 5}`, { i })).then(() => false, () => true));
       return out;
@@ -51,6 +51,13 @@ describe("withFaults", () => {
     const n = a.filter(Boolean).length;
     expect(n).toBeGreaterThan(40);
     expect(n).toBeLessThan(120);
+  });
+
+  it("[LDB-DDB80] with the SDK's 3 attempts emulated, throttles and 500s surface rarely; conflicts always do", async () => {
+    const doc = withFaults(raw, { rate: 0.2, seed: 5, kinds: ["InternalServerError"] });
+    let failed = 0;
+    for (let i = 0; i < 400; i++) if (await doc.send(put("G", `k${i}`)).then(() => false, () => true)) failed++;
+    expect(failed).toBeLessThan(15); // ~0.2^3 = 0.8%
   });
 
   it("[LDB-DDB81] failWritesFor fails the whole call, Put and Transact and Update alike, until disposed", async () => {
