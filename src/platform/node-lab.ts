@@ -79,8 +79,8 @@ export function loopbackOnlyFetch(input: string | URL | Request, init?: RequestI
 }
 
 export interface NodeLabOptions {
-  /** The store. Default: `toStore(env.DB)`, so `env.DB` may hold the Store itself. */
-  store?: Store;
+  /** The store, or a function returning the current one (the lab server swaps it on restart). Default: `toStore(env.DB)`, so `env.DB` may hold the Store itself. */
+  store?: Store | (() => Store);
   /** Shared across requests, so a dump written by a job is served by the next request. Default: a new memory store. */
   blobs?: BlobStore;
   cache?: ResponseCache;
@@ -102,7 +102,7 @@ export function createNodeLabPlatform(opts: NodeLabOptions = {}): PlatformFactor
   const factory: PlatformFactory = (env: Bindings, ctx) => {
     const now: Clock = (env as unknown as { TEST_CLOCK?: Clock }).TEST_CLOCK ?? systemClock;
     return {
-      store: opts.store ?? toStore(env.DB),
+      store: opts.store === undefined ? toStore(env.DB) : typeof opts.store === "function" ? opts.store() : opts.store,
       blobs,
       cache,
       config: env,
