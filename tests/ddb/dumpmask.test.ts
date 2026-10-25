@@ -9,6 +9,7 @@ const MOD = "../../scripts/lab/fuzz/dumpmask.mjs";
 type Mask = {
   maskDumpRecords(v: unknown): unknown;
   comparableBody(path: string, b: Buffer): Buffer;
+  comparableDump(b: Buffer): Buffer;
   maskStateRows(s: Record<string, Record<string, unknown>[]>): Record<string, Record<string, unknown>[]>;
 };
 const load = async () => (await import(/* @vite-ignore */ MOD)) as Mask;
@@ -47,6 +48,11 @@ describe("dump masking", () => {
     expect(m.comparableBody(p, fast).equals(m.comparableBody(p, best))).toBe(true);
     const other = zlib.gzipSync(Buffer.from(JSON.stringify({ meta: { seq: 4 }, records: [1, 2, 3] })));
     expect(m.comparableBody(p, fast).equals(m.comparableBody(p, other))).toBe(false);
+    // a dump holds earlier dumps' events: their embedded records are masked, the rest of the event is not
+    const dumpWith = (r: unknown, seq = 3) => zlib.gzipSync(Buffer.from(JSON.stringify({ meta: { seq }, events: [{ kind: "admin.nightly_ticked", detail_json: JSON.stringify({ dump: { latest: r } }) }] })));
+    expect(m.comparableDump(dumpWith(rec(A, 1))).equals(m.comparableDump(dumpWith(rec(B, 2))))).toBe(true);
+    expect(m.comparableDump(dumpWith(rec(A, 1))).equals(m.comparableDump(dumpWith(rec(A, 1, { seq: 8 }))))).toBe(false);
+    expect(m.comparableDump(dumpWith(rec(A, 1))).equals(m.comparableDump(dumpWith(rec(A, 1), 4)))).toBe(false);
     // other routes are not unzipped, and their JSON is masked only for dump records
     expect(m.comparableBody("/v1/layouts", fast).equals(fast)).toBe(true);
     const latest = (r: unknown) => m.comparableBody("/v1/dump/latest.json", Buffer.from(JSON.stringify(r)));

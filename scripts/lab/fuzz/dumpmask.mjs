@@ -10,7 +10,8 @@
 //    (the LatestJson shape: latest.json, the admin dump and nightly-tick
 //    responses, and `detail_json` of events or state rows that carry one);
 //    only its `sha256` and `bytes` are masked;
-//  - the gzip bytes of a dump object are compared gunzipped, and the dump's
+//  - the gzip bytes of a dump object are compared gunzipped (a dump contains the events of earlier
+//    dumps, whose `detail_json` carries such records, so those are masked inside it too), and the dump's
 //    ETag is ignored (it is the md5 of the compressed bytes);
 //  - nothing else is masked: a content difference in the gunzipped dump, or in
 //    any other field of those records, still fails.
@@ -51,6 +52,23 @@ export function maskDumpRecords(v) {
   return v;
 }
 
+/** A dump object's bytes as compared: gunzipped, with the dump records inside its events (`detail_json` of earlier dump events) masked. */
+export function comparableDump(gz) {
+  let raw;
+  try {
+    raw = zlib.gunzipSync(gz);
+  } catch {
+    return gz;
+  }
+  try {
+    const parsed = JSON.parse(raw.toString("utf8"));
+    const masked = maskDumpRecords(parsed);
+    return JSON.stringify(masked) === JSON.stringify(parsed) ? raw : Buffer.from(JSON.stringify(masked));
+  } catch {
+    return raw;
+  }
+}
+
 /** True for the routes that serve a dump object's compressed bytes. */
 export function isDumpObjectPath(p) {
   const path = p.split("?")[0];
@@ -59,13 +77,7 @@ export function isDumpObjectPath(p) {
 
 /** The response body as the differ should compare it: gunzipped for dump objects, dump records masked in JSON. */
 export function comparableBody(path, buf) {
-  if (isDumpObjectPath(path)) {
-    try {
-      return zlib.gunzipSync(buf);
-    } catch {
-      return buf;
-    }
-  }
+  if (isDumpObjectPath(path)) return comparableDump(buf);
   try {
     const parsed = JSON.parse(buf.toString("utf8"));
     const masked = maskDumpRecords(parsed);

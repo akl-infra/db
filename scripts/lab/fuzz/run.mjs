@@ -19,8 +19,7 @@ import os from "node:os";
 import path from "node:path";
 import url from "node:url";
 import { ADMIN, CONTRACT_HEADERS, LAB_CLIENT, LAB_PUB_RAW, findSqlite, firstDiff, loadDump, sh, signedHeaders, sqlLit, startFakeDiscord, waitReady } from "../p1-crawl-diff.mjs";
-import { comparableBody, maskStateRows } from "./dumpmask.mjs";
-import zlib from "node:zlib";
+import { comparableBody, comparableDump, maskStateRows } from "./dumpmask.mjs";
 import { Generator } from "./generator.mjs";
 import { makeRng, mixSeed } from "./rng.mjs";
 
@@ -234,10 +233,11 @@ async function compareProducedDumps(A, B) {
   const da = await get(A.url, `/v1/dump/${ka}`);
   const db = await get(B.url, `/v1/dump/${kb}`);
   if (da.status !== 200 || db.status !== 200) return [`dump ${ka} status ${da.status} vs ${db.status}`];
-  const ga = zlib.gunzipSync(da.body);
-  const gb = zlib.gunzipSync(db.body);
+  const ga = comparableDump(da.body);
+  const gb = comparableDump(db.body);
   const at = firstDiff(ga, gb);
-  return at === -1 ? [] : [`gunzipped dump ${ka} differs at byte ${at} (${ga.length} vs ${gb.length} bytes)`];
+  const ctx = (g) => JSON.stringify(g.subarray(Math.max(0, at - 120), at + 160).toString("utf8"));
+  return at === -1 ? [] : [`gunzipped dump ${ka} differs at byte ${at} (${ga.length} vs ${gb.length} bytes): ${ctx(ga)} vs ${ctx(gb)}`];
 }
 
 function canonRow(r) {
