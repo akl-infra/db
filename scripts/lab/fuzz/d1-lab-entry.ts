@@ -49,7 +49,23 @@ function arm(req: Request) {
   if (s !== null) state = Number(s) >>> 0;
 }
 export default {
-  fetch(req: Request, env: unknown, ctx: unknown) {
+  async fetch(req: Request, env: unknown, ctx: unknown) {
+    // Lane F: rebuild the database in place from the runner's reset script (statements = one string each), so each fuzz
+    // sequence starts from the seeded template without a wrangler restart. Lab only; never part of the app.
+    if (req.method === "POST" && new URL(req.url).pathname === "/__lab/reset") {
+      const db = (env as { DB: D1Database }).DB;
+      const { statements } = (await req.json()) as { statements: string[] };
+      await db.batch(statements.map((s) => db.prepare(s)));
+      // the dump bucket is state too
+      const r2 = (env as { DUMPS?: R2Bucket }).DUMPS;
+      if (r2 !== undefined) {
+        for (let listed = await r2.list(); ; listed = await r2.list({ cursor: listed.truncated ? listed.cursor : undefined })) {
+          if (listed.objects.length > 0) await r2.delete(listed.objects.map((o) => o.key));
+          if (!listed.truncated) break;
+        }
+      }
+      return Response.json({ ok: true });
+    }
     arm(req);
     return (app as any).fetch(req, env, ctx);
   },
