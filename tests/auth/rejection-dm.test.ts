@@ -200,7 +200,7 @@ describe("[LDB-MD18] rejection DM outbox", () => {
     });
     expect((await outbox(wpmId))?.status).toBe("uncertain");
 
-    const dump = await buildDump(bindings as unknown as Bindings, clock);
+    const dump = await buildDump(env as unknown as Bindings, clock);
     expect(JSON.stringify(dump)).not.toContain("discord_rejection_dm_outbox");
     expect(Object.keys(dump)).not.toContain("discord_rejection_dm_outbox");
     expect(restoreSql(dump).join("\n")).not.toContain("INSERT INTO discord_rejection_dm_outbox");

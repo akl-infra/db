@@ -30,6 +30,7 @@ import { restoreInto, restoreSql } from "../src/dump/restore";
 import frozenSeed from "./fixtures/seed-upstream-100.dump.json" with { type: "json" };
 import { ulid } from "ulidx";
 import worker from "../src/index";
+import { platformFor } from "../src/app";
 import { assertConformanceCase, seedUpstream100 } from "./api/support";
 import { CASES } from "./conformance/manifest";
 
@@ -158,7 +159,8 @@ async function runCronAndReadDump(afterSeed?: () => Promise<void>): Promise<Dump
 
   // [LDB-X2] the cmini importer is gone -- `scheduled()` no longer makes any
   // upstream call of its own, so no fetch stub is needed here any more.
-  vi.useFakeTimers();
+  // Only the clock is faked: the DynamoDB store sleeps on real timers when it retries an injected conflict.
+  vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date("2026-08-01T03:00:00.000Z")); // the 1st -- exercises the monthly key too
   try {
     const ctx = createExecutionContext();
@@ -169,12 +171,14 @@ async function runCronAndReadDump(afterSeed?: () => Promise<void>): Promise<Dump
     vi.useRealTimers();
   }
 
-  const latestObj = await bindings.DUMPS.get("latest.json");
+  // Through the platform's blob store, so the same read serves R2 and the DynamoDB lab's memory blobs.
+  const blobs = platformFor(bindings, undefined).blobs;
+  const latestObj = await blobs.get("latest.json");
   if (latestObj === null) throw new Error("rehost.test.ts: no dump was written");
-  const latest = await latestObj.json<{ key: string }>();
-  const dumpObj = await bindings.DUMPS.get(latest.key);
+  const latest = JSON.parse(await new Response(latestObj.body).text()) as { key: string };
+  const dumpObj = await blobs.get(latest.key);
   if (dumpObj === null) throw new Error(`rehost.test.ts: R2 object '${latest.key}' is missing`);
-  return gunzipJson<Dump>(await dumpObj.arrayBuffer());
+  return gunzipJson<Dump>(await new Response(dumpObj.body).arrayBuffer());
 }
 
 async function fetchRemoteDump(url: string): Promise<Dump> {
