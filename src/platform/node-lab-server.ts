@@ -193,7 +193,7 @@ export async function startLabServer(opts: LabServerOptions, hooks: LabHooks = {
         return json(res, 200, { ok: true, tables: opts.tables });
       case "POST /__lab/reset": {
         await deleteTables(raw, opts.tables).catch(() => {});
-        await createTables(raw, opts.tables);
+        await createTables(raw, opts.tables, { ttl: false }); // pinned lab clocks: no TTL deletes
         rebuild(true);
         return json(res, 200, { ok: true });
       }

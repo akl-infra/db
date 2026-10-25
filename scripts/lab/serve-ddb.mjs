@@ -56,7 +56,7 @@ export async function bundleLabServer() {
     `if (!cfg.keepTables) {`,
     `  const doc = createDocClient({ endpoint: cfg.ddb, region: "us-east-2" });`,
     `  await deleteTables(doc, tables).catch(() => {});`,
-    `  await createTables(doc, tables);`,
+    `  await createTables(doc, tables, { ttl: false });`,
     `}`,
     `const hooks = {`,
     has("codec.ts") ? `  exportRows: codec.exportRows, importRows: codec.importRows,` : ``,

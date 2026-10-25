@@ -31,6 +31,13 @@ const D1_ONLY = [
   "tests/harness/d1.ts",
 ];
 
+// Tests that check DynamoDB code against real SQLite semantics through `node:sqlite` (an oracle, not D1): they call
+// `.prepare(` on their own in-memory database, run on the ddb project, and are NOT in D1_ONLY (vitest.config.ts excludes
+// D1_ONLY from the ddb project). Exact both ways too, and each must import node:sqlite and never the D1 harness.
+const SQLITE_ORACLE = [
+  "tests/ddb/catalog-order.test.ts",
+];
+
 function walk(dir: string): string[] {
   if (!fs.existsSync(dir)) return [];
   const out: string[] = [];
@@ -62,6 +69,11 @@ describe("storage port boundary", () => {
       .filter((f) => f !== path.join("tests", "tools", "sql-boundary.test.ts"))
       .filter((f) => callsSql(path.join(DB_ROOT, f)))
       .sort();
-    expect(hits).toEqual([...D1_ONLY].sort());
+    expect(hits).toEqual([...D1_ONLY, ...SQLITE_ORACLE].sort());
+    for (const f of SQLITE_ORACLE) {
+      const src = fs.readFileSync(path.join(DB_ROOT, f), "utf8");
+      expect(src, `${f} is a SQLite oracle`).toMatch(/["']node:sqlite["']/);
+      expect(src, `${f} must not use the D1 harness`).not.toMatch(/harness\/d1/);
+    }
   });
 });
