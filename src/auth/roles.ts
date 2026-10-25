@@ -10,6 +10,7 @@
 // promoting a banned user un-bans them by rule, and `PUT /v1/admin/admins`
 // needs no second error kind for "this user is banned".
 import type { Bindings } from "../env";
+import { legacyD1, type StoreArg } from "../store/arg";
 
 export interface Roles {
   admin: boolean;
@@ -21,7 +22,8 @@ interface RoleRow {
   banned: number;
 }
 
-export async function roleOf(db: Bindings["DB"], userId: string): Promise<Roles> {
+export async function roleOf(dbArg: StoreArg, userId: string): Promise<Roles> {
+  const db = legacyD1(dbArg);
   const row = await db
     .prepare(
       `SELECT EXISTS(SELECT 1 FROM admins WHERE user_id = ?1) AS admin,

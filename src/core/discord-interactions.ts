@@ -9,6 +9,7 @@ import * as links from "./links";
 import * as wpm from "./wpm";
 import { updateQueueNotification, type QueueKind } from "./modqueue";
 import type { Clock } from "./time";
+import { legacyD1, type StoreArg } from "../store/arg";
 
 const MAX_BODY_BYTES = 64 * 1024;
 const SIGNATURE_MAX_AGE_SECONDS = 5 * 60;
@@ -334,7 +335,8 @@ async function drainActionTable(db: Bindings["DB"], env: Bindings, now: Clock, t
   }
 }
 
-export async function drainDiscordActions(db: Bindings["DB"], env: Bindings, now: Clock): Promise<void> {
+export async function drainDiscordActions(dbArg: StoreArg, env: Bindings, now: Clock): Promise<void> {
+  const db = legacyD1(dbArg);
   await db.prepare("DELETE FROM discord_reopen_confirmations WHERE expires_at <= ?").bind(now()).run();
   await drainActionTable(db, env, now, "discord_pending_actions");
   await drainActionTable(db, env, now, "discord_reopen_actions");

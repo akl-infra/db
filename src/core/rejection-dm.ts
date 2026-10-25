@@ -3,6 +3,7 @@
 // submission when a lease is delivered, so erased/replaced data is not kept.
 import type { Bindings } from "../env";
 import type { Clock } from "./time";
+import { legacyD1, type StoreArg } from "../store/arg";
 
 export type RejectionKind = "comment" | "link" | "wpm";
 
@@ -80,11 +81,13 @@ export async function makeRejectionDelivery(input: RejectionDelivery): Promise<{
 // This is the third statement in the rejection transaction, immediately
 // after the conditional event INSERT. SQLite's changes() is therefore the
 // event insert's count, while last_insert_rowid() is its actual event seq.
-export async function rejectionOutboxStatement(db: Bindings["DB"], input: RejectionDelivery): Promise<D1PreparedStatement> {
+export async function rejectionOutboxStatement(dbArg: StoreArg, input: RejectionDelivery): Promise<D1PreparedStatement> {
+  const db = legacyD1(dbArg);
   return decisionOutboxStatement(db, input, "rejection");
 }
 
-export async function approvalOutboxStatement(db: Bindings["DB"], input: RejectionDelivery & { kind: "comment" | "wpm" }): Promise<D1PreparedStatement> {
+export async function approvalOutboxStatement(dbArg: StoreArg, input: RejectionDelivery & { kind: "comment" | "wpm" }): Promise<D1PreparedStatement> {
+  const db = legacyD1(dbArg);
   return decisionOutboxStatement(db, input, "approval");
 }
 
@@ -259,11 +262,12 @@ export interface RejectionDmBindings extends Pick<Bindings, "DB"> {
 // every mutation after claim checks the lease token, so an expired worker
 // cannot overwrite a newer worker's state.
 export async function dispatchRejectionDms(
-  db: Bindings["DB"],
+  dbArg: StoreArg,
   bindings: RejectionDmBindings,
   now: Clock,
   fetchImpl: typeof fetch = fetch,
 ): Promise<{ sent: number; retried: number; terminal: number }> {
+  const db = legacyD1(dbArg);
   if (bindings.MODQUEUE_DISCORD_DMS !== "true" || !bindings.MODQUEUE_DISCORD_BOT_TOKEN) return { sent: 0, retried: 0, terminal: 0 };
   const api = (bindings.DISCORD_API_URL ?? "https://discord.com/api").replace(/\/$/, "") + "/v10";
   const token = bindings.MODQUEUE_DISCORD_BOT_TOKEN;

@@ -55,6 +55,7 @@ import {
 } from "./records";
 import type { Clock } from "./time";
 import { nextUpstream } from "./upstream";
+import { legacyD1, type StoreArg } from "../store/arg";
 
 const TRANSFER_USER_ID_RE = /^\d{17,20}$/;
 const MAX_RETRIES = 3; // 21-formats.md §2.2: "retries up to 3 times"
@@ -74,11 +75,12 @@ function destructiveClientOf(actor: Actor): string | undefined {
 // `byRefWithFormats`); a tombstone is reachable only by id and only when
 // `allowDeleted`.
 export async function loadForWrite(
-  db: Bindings["DB"],
+  dbArg: StoreArg,
   ref: string,
   actor: Actor,
   opts: { allowDeleted: boolean },
 ): Promise<{ lwf: LayoutWithFormats; admin: boolean }> {
+  const db = legacyD1(dbArg);
   const lwf = await byRefWithFormats(db, ref);
   if (lwf === null || (lwf.layout.deleted && !opts.allowDeleted)) {
     throw notFound(`no layout '${ref}'`, ref);

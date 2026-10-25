@@ -1,4 +1,5 @@
 import type { Bindings } from "../env";
+import { legacyD1, type StoreArg } from "../store/arg";
 
 // A conservative shared gate: all moderation message edits share the same
 // destination/token today. Keeping this in D1 also covers isolate replacement.
@@ -49,7 +50,8 @@ export function retryDelay(headers: Headers, body: unknown, now: number): number
 // Caller consumes/cancels the body while the timeout remains active. Holding
 // the shared lease through body handling ensures a 429 is persisted before
 // another isolate can send its next request. No network retries here.
-export async function deliver<T>(db: Bindings["DB"], fetchImpl: typeof fetch, url: string, init: RequestInit, consume: (response: Response) => Promise<T>): Promise<T> {
+export async function deliver<T>(dbArg: StoreArg, fetchImpl: typeof fetch, url: string, init: RequestInit, consume: (response: Response) => Promise<T>): Promise<T> {
+  const db = legacyD1(dbArg);
   const token = crypto.randomUUID();
   const now = Date.now();
   const claim = await db.prepare(`UPDATE modqueue_delivery_gate SET lease_token = ?, lease_until = ?

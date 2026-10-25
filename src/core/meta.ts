@@ -11,6 +11,7 @@
 import type { Bindings } from "../env";
 import type { Head } from "./etag";
 import { list as listFormats } from "../formats/registry";
+import { legacyD1, type StoreArg } from "../store/arg";
 
 export interface MetaCore {
   layout_count: number;
@@ -30,7 +31,8 @@ export function metaFormats(): string[] {
   return listFormats().map((f) => f.id); // registered ids only (20-spark.md S1: spark/1, mana2/1 -- aliases excluded)
 }
 
-export async function readMetaCore(db: Bindings["DB"], head: Head): Promise<MetaCore> {
+export async function readMetaCore(dbArg: StoreArg, head: Head): Promise<MetaCore> {
+  const db = legacyD1(dbArg);
   const [layoutRow, authorRow, eventRow] = await Promise.all([
     // `layouts_head.live` (migrations/0034) is the live-row count, kept by
     // triggers -- `COUNT(*)` here scanned every live row on each call.

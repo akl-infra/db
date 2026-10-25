@@ -17,8 +17,10 @@
 // bookkeeping.
 import type { Context } from "hono";
 import { canonical } from "./canonical";
+import { legacyD1, type StoreArg } from "../store/arg";
 
-export async function headSeq(db: D1Database): Promise<number> {
+export async function headSeq(dbArg: StoreArg): Promise<number> {
+  const db = legacyD1(dbArg);
   const row = await db.prepare("SELECT MAX(seq) AS seq FROM events").first<{ seq: number | null }>();
   return row?.seq ?? 0;
 }
@@ -30,7 +32,8 @@ export interface AuthorsHead {
 }
 
 // `/v1/authors`' whole validator: one primary-key read.
-export async function authorsHead(db: D1Database): Promise<AuthorsHead> {
+export async function authorsHead(dbArg: StoreArg): Promise<AuthorsHead> {
+  const db = legacyD1(dbArg);
   const row = await db
     .prepare("SELECT version, modified_at FROM authors_head WHERE id = 1")
     .first<{ version: number; modified_at: string | null }>();
@@ -56,7 +59,8 @@ export interface Head {
 // `import_state` primary-key lookup per `stateKeys` entry, and (when asked)
 // the rolling delete count -- each a scalar subquery, so a 304 costs one
 // D1 query of indexed reads.
-export async function readHead(db: D1Database, stateKeys: readonly string[] = [], deletesSinceIso?: string): Promise<Head> {
+export async function readHead(dbArg: StoreArg, stateKeys: readonly string[] = [], deletesSinceIso?: string): Promise<Head> {
+  const db = legacyD1(dbArg);
   const cols = [
     "(SELECT MAX(seq) FROM events) AS seq",
     "(SELECT version FROM authors_head WHERE id = 1) AS authors_version",

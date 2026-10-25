@@ -6,6 +6,7 @@ import type { Bindings } from "../env";
 import { appendAdmin, type InfoKind } from "./events";
 import { lastAdmins, notFound } from "./errors";
 import type { Clock } from "./time";
+import { legacyD1, type StoreArg } from "../store/arg";
 
 export interface AdminRow {
   user_id: string;
@@ -18,12 +19,14 @@ export interface AdminRow {
 // there are now two copies of this exact query for two different callers:
 // this one backs the admin routes' own authorization, discord.ts's backs
 // `Actor.admin`. Both read the same table live on every call.)
-export async function isAdmin(db: Bindings["DB"], userId: string): Promise<boolean> {
+export async function isAdmin(dbArg: StoreArg, userId: string): Promise<boolean> {
+  const db = legacyD1(dbArg);
   const row = await db.prepare("SELECT 1 FROM admins WHERE user_id = ? LIMIT 1").bind(userId).first();
   return row !== null;
 }
 
-export async function list(db: Bindings["DB"]): Promise<AdminRow[]> {
+export async function list(dbArg: StoreArg): Promise<AdminRow[]> {
+  const db = legacyD1(dbArg);
   const { results } = await db
     .prepare("SELECT user_id, added_by, added_at, note FROM admins ORDER BY added_at ASC, user_id ASC")
     .all<AdminRow>();
@@ -34,12 +37,13 @@ export async function list(db: Bindings["DB"]): Promise<AdminRow[]> {
 // and appends no event -- `created: false` is what `routes/admin.ts` reads
 // to pick the status.
 export async function add(
-  db: Bindings["DB"],
+  dbArg: StoreArg,
   now: Clock,
   actorId: string,
   userId: string,
   note?: string,
 ): Promise<{ row: AdminRow; created: boolean }> {
+  const db = legacyD1(dbArg);
   const existing = await db
     .prepare("SELECT user_id, added_by, added_at, note FROM admins WHERE user_id = ?")
     .bind(userId)
@@ -62,7 +66,8 @@ export async function add(
 // < 2" (a bare DELETE can't tell those apart); the follow-up SELECTs below
 // only pick the right error body -- they play no part in the safety
 // guarantee, which the DELETE's own WHERE clause already provides.
-export async function remove(db: Bindings["DB"], now: Clock, actorId: string, userId: string): Promise<{ seq: number }> {
+export async function remove(dbArg: StoreArg, now: Clock, actorId: string, userId: string): Promise<{ seq: number }> {
+  const db = legacyD1(dbArg);
   const result = await db
     .prepare("DELETE FROM admins WHERE user_id = ? AND (SELECT COUNT(*) FROM admins) > 2")
     .bind(userId)
@@ -98,7 +103,8 @@ const MANUAL_TICK_KIND: Record<"nightly", InfoKind> = {
   nightly: "admin.nightly_ticked",
 };
 
-export async function recordManualTick(db: Bindings["DB"], now: Clock, actorId: string, which: "nightly", detail: object): Promise<{ seq: number }> {
+export async function recordManualTick(dbArg: StoreArg, now: Clock, actorId: string, which: "nightly", detail: object): Promise<{ seq: number }> {
+  const db = legacyD1(dbArg);
   const { seq } = await appendAdmin(db, now, { kind: MANUAL_TICK_KIND[which], actor: actorId, detail });
   return { seq };
 }

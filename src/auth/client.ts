@@ -21,6 +21,7 @@ import {
 } from "../core/errors";
 import type { Clock } from "../core/time";
 import { roleOf } from "./roles";
+import { legacyD1, type StoreArg } from "../store/arg";
 
 const TIMESTAMP_RE = /^\d{1,12}$/;
 const ACTOR_RE = /^\d{17,20}$/;
@@ -135,12 +136,13 @@ export async function bodyHash(bodyBytes: Uint8Array): Promise<string> {
 // The seven steps of 10 C1 §4, in order. `request` supplies method/url/
 // headers only -- its body is never read here (`bodyBytes` already is it).
 export async function verifyClientRequest(
-  db: Bindings["DB"],
+  dbArg: StoreArg,
   now: Clock,
   request: Request,
   bodyBytes: Uint8Array,
   deps: ClientDeps = {},
 ): Promise<Actor> {
+  const db = legacyD1(dbArg);
   // Step 1: headers, all-or-nothing shape-checked.
   const clientId = request.headers.get("X-Akl-Client");
   const timestampRaw = request.headers.get("X-Akl-Timestamp");
@@ -262,7 +264,8 @@ export async function verifyClientRequest(
 // ±300 s of its own timestamp (step 3 above), so 900 s is a safe margin
 // over that window -- nothing younger than it can still matter to a live
 // request.
-export async function pruneNonces(db: Bindings["DB"], now: Clock): Promise<void> {
+export async function pruneNonces(dbArg: StoreArg, now: Clock): Promise<void> {
+  const db = legacyD1(dbArg);
   const cutoff = new Date(new Date(now()).getTime() - 900 * 1000).toISOString();
   await db.prepare("DELETE FROM nonces WHERE at < ?").bind(cutoff).run();
 }

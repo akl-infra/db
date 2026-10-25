@@ -14,6 +14,7 @@ import { approvalOutboxStatement, rejectionOutboxStatement } from "./rejection-d
 import { byRef, type LayoutRow, type Source } from "./records";
 import { verifyDiscordProofAuthor, type DiscordProofAccess } from "./modqueue-proof";
 import type { Clock } from "./time";
+import { legacyD1, type StoreArg } from "../store/arg";
 
 // --- the pure validators (LDB-WPM1, table-tested) -----------------------
 
@@ -116,7 +117,8 @@ export type WpmSubmissionStatus = Pick<WpmSubmissionRow, "id" | "status" | "reas
 
 // [LDB-WPM16] Clients can follow their own submissions without gaining
 // access to the queue or exposing private decision reasons in the feed.
-export async function readWpmSubmissionStatus(db: Bindings["DB"], actor: Actor, id: string): Promise<WpmSubmissionStatus> {
+export async function readWpmSubmissionStatus(dbArg: StoreArg, actor: Actor, id: string): Promise<WpmSubmissionStatus> {
+  const db = legacyD1(dbArg);
   const submission = await loadSubmission(db, id);
   if (!actor.admin && actor.user_id !== submission.user_id && actor.user_id !== submission.submitted_by) {
     throw notFound(`no wpm submission '${id}'`, id);
@@ -126,8 +128,9 @@ export async function readWpmSubmissionStatus(db: Bindings["DB"], actor: Actor, 
 
 // [LDB-WPM17] Receipt URLs are immutable private delivery metadata. The CAS
 // authorizes in the write itself and makes two concurrent first binds safe.
-export async function bindWpmDiscordMessage(db: Bindings["DB"], actor: Actor, id: string,
+export async function bindWpmDiscordMessage(dbArg: StoreArg, actor: Actor, id: string,
   message: { guild_id: string | null; channel_id: string; message_id: string }): Promise<string> {
+  const db = legacyD1(dbArg);
   const url = `https://discord.com/channels/${message.guild_id ?? "@me"}/${message.channel_id}/${message.message_id}`;
   const result = await db.prepare(`UPDATE wpm_submissions SET source_message_url = ?
     WHERE id = ? AND (submitted_by = ? OR ? = 1) AND source_message_url IS NULL`)
@@ -143,7 +146,8 @@ export async function bindWpmDiscordMessage(db: Bindings["DB"], actor: Actor, id
 
 // The layout every submission route names: the usual ref resolution; a
 // tombstone refuses (a deleted layout takes no new records).
-export async function resolveWpmLayout(db: Bindings["DB"], ref: string): Promise<LayoutRow> {
+export async function resolveWpmLayout(dbArg: StoreArg, ref: string): Promise<LayoutRow> {
+  const db = legacyD1(dbArg);
   const layout = await byRef(db, ref);
   if (layout === null || layout.deleted) throw notFound(`no layout '${ref}'`, ref);
   return layout;
@@ -189,7 +193,7 @@ async function insertApproved(
 // only `POST /v1/admin/wpm` (an explicit entry for someone else) is approved
 // at once.
 export async function submitWpm(
-  db: Bindings["DB"],
+  dbArg: StoreArg,
   now: Clock,
   actor: Actor,
   version: string | null,
@@ -198,6 +202,7 @@ export async function submitWpm(
   rawProof: unknown,
   proofAccess: DiscordProofAccess,
 ): Promise<WpmSubmissionRow> {
+  const db = legacyD1(dbArg);
   const { wpm, proof } = validated(rawWpm, rawProof);
   await verifyDiscordProofAuthor(proof, actor.user_id, proofAccess);
 
@@ -233,7 +238,7 @@ export async function submitWpm(
 // POST /v1/admin/wpm (admin): an entry on someone else's behalf, approved at
 // once. The target need not have an `authors` row yet (LDB-WPM4).
 export async function submitWpmOnBehalf(
-  db: Bindings["DB"],
+  dbArg: StoreArg,
   now: Clock,
   actor: Actor,
   version: string | null,
@@ -243,6 +248,7 @@ export async function submitWpmOnBehalf(
   rawProof: unknown,
   proofAccess: DiscordProofAccess,
 ): Promise<WpmSubmissionRow> {
+  const db = legacyD1(dbArg);
   const userId = validateUserId(rawUserId, "user_id");
   const { wpm, proof } = validated(rawWpm, rawProof);
   await verifyDiscordProofAuthor(proof, userId, proofAccess);
@@ -254,7 +260,8 @@ export type WpmQueueStatus = WpmStatus;
 // GET /v1/admin/wpm-queue?status=... (default pending): hides a submission
 // whose layout is currently a tombstone (nothing about delete touches
 // submissions -- a pending one is simply hidden until restore).
-export async function listWpmQueue(db: Bindings["DB"], status: WpmQueueStatus): Promise<WpmQueueRow[]> {
+export async function listWpmQueue(dbArg: StoreArg, status: WpmQueueStatus): Promise<WpmQueueRow[]> {
+  const db = legacyD1(dbArg);
   const cols = SUBMISSION_COLUMNS.split(", ")
     .map((c) => `s.${c}`)
     .join(", ");
@@ -274,7 +281,8 @@ export async function listWpmQueue(db: Bindings["DB"], status: WpmQueueStatus): 
 
 // POST /v1/admin/wpm-queue/:id/approve: `404 not_found` if the layout is a
 // tombstone (restore first) or the submission doesn't exist / isn't pending.
-export async function approveWpm(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, id: string, expectedReviewVersion = 0, notifySubmitter = false): Promise<WpmSubmissionRow> {
+export async function approveWpm(dbArg: StoreArg, now: Clock, actor: Actor, version: string | null, id: string, expectedReviewVersion = 0, notifySubmitter = false): Promise<WpmSubmissionRow> {
+  const db = legacyD1(dbArg);
   const submission = await loadSubmission(db, id);
   if (submission.review_version !== expectedReviewVersion) throw reviewConflict(id);
   if (submission.status !== "pending") throw notFound(`wpm submission '${id}' is not pending`, id);
@@ -302,7 +310,8 @@ export async function approveWpm(db: Bindings["DB"], now: Clock, actor: Actor, v
 // appends `wpm_rejected` (`admin: 1`). The event names the submission and
 // nothing else -- a refused record's speed, proof and the moderator's reason
 // are private to admins (the queue has them), like `link_rejected`.
-export async function rejectWpm(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, id: string, reason?: string, options?: { notifySubmitter?: boolean; reviewVersion?: number }): Promise<WpmSubmissionRow> {
+export async function rejectWpm(dbArg: StoreArg, now: Clock, actor: Actor, version: string | null, id: string, reason?: string, options?: { notifySubmitter?: boolean; reviewVersion?: number }): Promise<WpmSubmissionRow> {
+  const db = legacyD1(dbArg);
   const submission = await loadSubmission(db, id);
   const expectedReviewVersion = options?.reviewVersion ?? 0;
   if (submission.review_version !== expectedReviewVersion) throw reviewConflict(id);
@@ -327,7 +336,8 @@ export async function rejectWpm(db: Bindings["DB"], now: Clock, actor: Actor, ve
   return loadSubmission(db, id);
 }
 
-export async function reopenWpm(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, id: string, expected: ReviewExpectation): Promise<WpmSubmissionRow> {
+export async function reopenWpm(dbArg: StoreArg, now: Clock, actor: Actor, version: string | null, id: string, expected: ReviewExpectation): Promise<WpmSubmissionRow> {
+  const db = legacyD1(dbArg);
   await reopenReview(db, now, actor, version, "wpm", id, expected);
   return loadSubmission(db, id);
 }
@@ -336,7 +346,8 @@ export async function reopenWpm(db: Bindings["DB"], now: Clock, actor: Actor, ve
 // approved row with the highest speed, a tie going to the earliest
 // `decided_at` (then the lower id, so the pick is deterministic). Records on
 // a deleted layout are hidden. Sorted wpm desc, then approved_at asc.
-export async function listWpmRecords(db: Bindings["DB"], filter: { layoutId?: string; userId?: string }): Promise<WpmRecord[]> {
+export async function listWpmRecords(dbArg: StoreArg, filter: { layoutId?: string; userId?: string }): Promise<WpmRecord[]> {
+  const db = legacyD1(dbArg);
   const where: string[] = [];
   const params: string[] = [];
   if (filter.layoutId !== undefined) {

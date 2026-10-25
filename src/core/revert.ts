@@ -24,6 +24,7 @@ import { appendLinkChange, commitWrite, RevConflictError, type CommitInput, type
 import { byRefWithFormats, readById } from "./records";
 import type { Clock } from "./time";
 import { nextUpstream } from "./upstream";
+import { legacyD1, type StoreArg } from "../store/arg";
 
 export const REVERT_ACTOR = "system:revert";
 export const REVERT_VIA = "system:revert";
@@ -71,13 +72,14 @@ function lineageOf(format: string): string {
 }
 
 export async function revertClientWrites(
-  db: Bindings["DB"],
+  dbArg: StoreArg,
   now: Clock,
   adminActorId: string,
   clientId: string,
   since: string,
   opts: { dryRun: boolean; cursor?: number; limit?: number },
 ): Promise<RevertResult> {
+  const db = legacyD1(dbArg);
   const limit = Math.max(1, Math.min(opts.limit ?? DEFAULT_LIMIT, MAX_LIMIT));
   const sourceClient = `client:${clientId}`;
   const cursorSeq = opts.cursor ?? Number.MAX_SAFE_INTEGER;

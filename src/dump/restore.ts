@@ -14,6 +14,7 @@
 // carries them -- pure overhead with a chance to disagree with the dump.
 import type { Bindings } from "../env";
 import type { Dump } from "./write";
+import { legacyD1, type StoreArg } from "../store/arg";
 
 // SQLite's own AUTOINCREMENT rule (07 §4, confirmed against real D1): an
 // explicit INSERT into an AUTOINCREMENT primary key advances `sqlite_sequence`
@@ -366,7 +367,8 @@ export function restoreSql(dump: Dump): string[] {
 // `scripts/rehost.mjs` uses `restoreSql` directly against `wrangler d1
 // execute --file` instead, so a real rehost never depends on Worker code
 // running at all.
-export async function restoreInto(db: Bindings["DB"], dump: Dump): Promise<void> {
+export async function restoreInto(dbArg: StoreArg, dump: Dump): Promise<void> {
+  const db = legacyD1(dbArg);
   const statements = restoreSql(dump);
   const BATCH_CHUNK = 100;
   for (let i = 0; i < statements.length; i += BATCH_CHUNK) {

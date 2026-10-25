@@ -6,6 +6,7 @@
 // for both from the start.
 import type { Bindings } from "../env";
 import type { Clock } from "./time";
+import { legacyD1, type StoreArg } from "../store/arg";
 
 export interface TakeResult {
   allowed: boolean;
@@ -23,12 +24,13 @@ interface RatelimitRow {
 // round trip, so there is no separate read to race against (09 §2.5's
 // whole point: exact under concurrency without a transaction).
 export async function take(
-  db: Bindings["DB"],
+  dbArg: StoreArg,
   now: Clock,
   key: string,
   limit: number,
   windowSeconds: number,
 ): Promise<TakeResult> {
+  const db = legacyD1(dbArg);
   const nowSeconds = Math.floor(new Date(now()).getTime() / 1000);
   const windowStart = Math.floor(nowSeconds / windowSeconds) * windowSeconds;
 
@@ -56,7 +58,8 @@ export async function take(
 // `pruneAuthCache`): drop buckets more than two windows old. Housekeeping,
 // not correctness -- a stale row's own window will never match `nowSeconds`
 // again, so `take()` already resets it to 1 on next use regardless.
-export async function pruneRateLimits(db: Bindings["DB"], now: Clock): Promise<void> {
+export async function pruneRateLimits(dbArg: StoreArg, now: Clock): Promise<void> {
+  const db = legacyD1(dbArg);
   const nowSeconds = Math.floor(new Date(now()).getTime() / 1000);
   await db
     .prepare("DELETE FROM ratelimit WHERE window_start < ?")

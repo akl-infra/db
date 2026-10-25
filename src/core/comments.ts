@@ -13,6 +13,7 @@ import { reopenReview, reviewHistoryStatement, type ReviewExpectation } from "./
 import { approvalOutboxStatement, rejectionOutboxStatement } from "./rejection-dm";
 import { byRef, type LayoutRow, type Source } from "./records";
 import type { Clock } from "./time";
+import { legacyD1, type StoreArg } from "../store/arg";
 
 // --- the pure validator (LDB-CMT1, table-tested) --------------------------
 
@@ -98,7 +99,8 @@ async function loadComment(db: Bindings["DB"], id: string): Promise<CommentRow> 
 
 // The layout every write route names: the usual ref resolution; a tombstone
 // refuses (a deleted layout takes no new comments).
-export async function resolveCommentLayout(db: Bindings["DB"], ref: string): Promise<LayoutRow> {
+export async function resolveCommentLayout(dbArg: StoreArg, ref: string): Promise<LayoutRow> {
+  const db = legacyD1(dbArg);
   const layout = await byRef(db, ref);
   if (layout === null || layout.deleted) throw notFound(`no layout '${ref}'`, ref);
   return layout;
@@ -130,13 +132,14 @@ function clearLikesOfEmptySlot(db: Bindings["DB"], layoutId: string, authorId: s
 // this layout, no event for that. Nothing is approved at once; an admin
 // approves it in the Inbox like any other.
 export async function submitComment(
-  db: Bindings["DB"],
+  dbArg: StoreArg,
   now: Clock,
   actor: Actor,
   version: string | null,
   layoutId: string,
   rawBody: unknown,
 ): Promise<CommentRow> {
+  const db = legacyD1(dbArg);
   const body = validated(rawBody);
   const at = now();
   const id = ulid();
@@ -173,7 +176,8 @@ export async function submitComment(
 // status and just lose the text. `false` if none of the caller's rows there
 // has a text left (nothing is written, no event); a lone rejected or
 // superseded text is erased and counts.
-export async function deleteOwnComment(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, layoutId: string): Promise<boolean> {
+export async function deleteOwnComment(dbArg: StoreArg, now: Clock, actor: Actor, version: string | null, layoutId: string): Promise<boolean> {
+  const db = legacyD1(dbArg);
   const live = await db
     .prepare("SELECT 1 AS one FROM layout_comments WHERE layout_id = ? AND user_id = ? AND body IS NOT NULL LIMIT 1")
     .bind(layoutId, actor.user_id)
@@ -208,7 +212,8 @@ export type CommentQueueStatus = CommentStatus;
 // GET /v1/admin/comment-queue?status=... (default pending): hides a row whose
 // layout is currently a tombstone (nothing about delete touches comments --
 // a pending one is simply hidden until restore).
-export async function listCommentQueue(db: Bindings["DB"], status: CommentQueueStatus): Promise<CommentQueueRow[]> {
+export async function listCommentQueue(dbArg: StoreArg, status: CommentQueueStatus): Promise<CommentQueueRow[]> {
+  const db = legacyD1(dbArg);
   const cols = COMMENT_COLUMNS.split(", ")
     .map((c) => `s.${c}`)
     .join(", ");
@@ -235,7 +240,8 @@ export async function listCommentQueue(db: Bindings["DB"], status: CommentQueueS
 // `replaced` (text erased) only if this row is still pending, and this row
 // is claimed (`changes === 1` wins), so two admins deciding at once can
 // never both succeed and a loser never retires the live text.
-export async function approveComment(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, id: string, expectedReviewVersion = 0, notifySubmitter = false): Promise<CommentRow> {
+export async function approveComment(dbArg: StoreArg, now: Clock, actor: Actor, version: string | null, id: string, expectedReviewVersion = 0, notifySubmitter = false): Promise<CommentRow> {
+  const db = legacyD1(dbArg);
   const submission = await loadComment(db, id);
   if (submission.review_version !== expectedReviewVersion) throw reviewConflict(id);
   if (submission.status !== "pending") throw notFound(`comment submission '${id}' is not pending`, id);
@@ -267,7 +273,8 @@ export async function approveComment(db: Bindings["DB"], now: Clock, actor: Acto
 // POST /v1/admin/comment-queue/:id/reject: marks the submission `rejected`
 // (the text is KEPT so its author can read it back with the reason) and
 // appends `comment_rejected`, which names the submission and nothing else.
-export async function rejectComment(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, id: string, reason?: string, options?: { notifySubmitter?: boolean; reviewVersion?: number }): Promise<CommentRow> {
+export async function rejectComment(dbArg: StoreArg, now: Clock, actor: Actor, version: string | null, id: string, reason?: string, options?: { notifySubmitter?: boolean; reviewVersion?: number }): Promise<CommentRow> {
+  const db = legacyD1(dbArg);
   const submission = await loadComment(db, id);
   const expectedReviewVersion = options?.reviewVersion ?? 0;
   if (submission.review_version !== expectedReviewVersion) throw reviewConflict(id);
@@ -292,7 +299,8 @@ export async function rejectComment(db: Bindings["DB"], now: Clock, actor: Actor
   return loadComment(db, id);
 }
 
-export async function reopenComment(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, id: string, expected: ReviewExpectation): Promise<CommentRow> {
+export async function reopenComment(dbArg: StoreArg, now: Clock, actor: Actor, version: string | null, id: string, expected: ReviewExpectation): Promise<CommentRow> {
+  const db = legacyD1(dbArg);
   await reopenReview(db, now, actor, version, "comment", id, expected);
   return loadComment(db, id);
 }
@@ -303,7 +311,8 @@ export async function reopenComment(db: Bindings["DB"], now: Clock, actor: Actor
 // delete erases it. `reason` kept for the author, the slot's likes cleared.
 // `404` if the comment doesn't exist or isn't approved (so a removal can't be
 // repeated).
-export async function removeComment(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, id: string, reason?: string): Promise<CommentRow> {
+export async function removeComment(dbArg: StoreArg, now: Clock, actor: Actor, version: string | null, id: string, reason?: string): Promise<CommentRow> {
+  const db = legacyD1(dbArg);
   const comment = await loadComment(db, id);
   if (comment.status !== "approved") throw notFound(`comment '${id}' is not approved`, id);
 
@@ -347,7 +356,8 @@ export interface PublicCommentCount {
   count: number;
 }
 
-export async function listCommentCounts(db: Bindings["DB"]): Promise<PublicCommentCount[]> {
+export async function listCommentCounts(dbArg: StoreArg): Promise<PublicCommentCount[]> {
+  const db = legacyD1(dbArg);
   const { results } = await db
     .prepare(
       `SELECT l.id AS layout_id, l.name AS layout_name, COUNT(*) AS count
@@ -361,7 +371,8 @@ export async function listCommentCounts(db: Bindings["DB"]): Promise<PublicComme
   return results;
 }
 
-export async function listComments(db: Bindings["DB"], layout: LayoutRow, viewer?: string, sort: CommentSort = "likes"): Promise<PublicComment[]> {
+export async function listComments(dbArg: StoreArg, layout: LayoutRow, viewer?: string, sort: CommentSort = "likes"): Promise<PublicComment[]> {
+  const db = legacyD1(dbArg);
   if (layout.deleted) return [];
   const { results } = await db
     .prepare(
@@ -391,7 +402,8 @@ export async function listComments(db: Bindings["DB"], layout: LayoutRow, viewer
 // target is the author's comment slot, so `404` when the slot has no approved
 // comment and `400 own_comment` for the author themselves. A like that was
 // already there changes nothing and appends no event.
-export async function likeComment(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, layoutId: string, authorId: string): Promise<void> {
+export async function likeComment(dbArg: StoreArg, now: Clock, actor: Actor, version: string | null, layoutId: string, authorId: string): Promise<void> {
+  const db = legacyD1(dbArg);
   if (authorId === actor.user_id) throw ownComment();
   const res = await db
     .prepare(
@@ -421,7 +433,8 @@ export async function likeComment(db: Bindings["DB"], now: Clock, actor: Actor, 
 }
 
 // DELETE the same path: idempotent; an unlike that removed nothing appends no event.
-export async function unlikeComment(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, layoutId: string, authorId: string): Promise<void> {
+export async function unlikeComment(dbArg: StoreArg, now: Clock, actor: Actor, version: string | null, layoutId: string, authorId: string): Promise<void> {
+  const db = legacyD1(dbArg);
   const res = await db.prepare("DELETE FROM comment_likes WHERE layout_id = ? AND author_id = ? AND user_id = ?").bind(layoutId, authorId, actor.user_id).run();
   if (res.meta.changes !== 1) return;
   await appendInfo(db, now, {
@@ -440,7 +453,8 @@ export async function unlikeComment(db: Bindings["DB"], now: Clock, actor: Actor
 // row whose text the author erased is no verdict either, so a comment they
 // erased themselves doesn't keep announcing an old rejection. `decision.body`
 // is the refused or removed text itself.
-export async function readOwnComment(db: Bindings["DB"], layoutId: string, userId: string): Promise<OwnComment> {
+export async function readOwnComment(dbArg: StoreArg, layoutId: string, userId: string): Promise<OwnComment> {
+  const db = legacyD1(dbArg);
   const { results } = await db
     .prepare(`SELECT ${COMMENT_COLUMNS} FROM layout_comments WHERE layout_id = ? AND user_id = ? ORDER BY submitted_at ASC, id ASC`)
     .bind(layoutId, userId)
@@ -490,7 +504,8 @@ export const MY_COMMENTS_LIMIT = 500;
 // pending text and `decided_at` of the decision), then `layout_id`. The same
 // rules as `readOwnComment` decide what each slot shows; a slot with nothing
 // to show (erased, superseded, replaced only) is absent. Private to the caller.
-export async function listMyComments(db: Bindings["DB"], userId: string): Promise<MyComment[]> {
+export async function listMyComments(dbArg: StoreArg, userId: string): Promise<MyComment[]> {
+  const db = legacyD1(dbArg);
   const cols = COMMENT_COLUMNS.split(", ").map((c) => `s.${c}`).join(", ");
   const { results } = await db
     .prepare(

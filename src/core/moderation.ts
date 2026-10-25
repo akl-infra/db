@@ -12,6 +12,7 @@ import { cannotBanAdmin, notFound } from "./errors";
 import { appendAdmin } from "./events";
 import type { Source } from "./records";
 import type { Clock } from "./time";
+import { legacyD1, type StoreArg } from "../store/arg";
 
 // --- §4.1 bans --------------------------------------------------------
 
@@ -31,7 +32,8 @@ interface BanDbRow {
   name: string | null;
 }
 
-export async function listBans(db: Bindings["DB"]): Promise<BanRow[]> {
+export async function listBans(dbArg: StoreArg): Promise<BanRow[]> {
+  const db = legacyD1(dbArg);
   const { results } = await db
     .prepare(
       `SELECT b.user_id AS user_id, b.by AS by, b.at AS at, b.reason AS reason, a.name AS name
@@ -51,7 +53,8 @@ function sourceOf(actor: Actor, version: string | null): Source {
 // `409 cannot_ban_admin` before any write: an admin is never `banned` (a
 // ROLE RULE, `auth/roles.ts`), so recording a ban that rule would
 // immediately un-apply is refused loudly instead of silently no-op'd.
-export async function ban(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, userId: string, reason?: string): Promise<{ row: BanRow; created: boolean }> {
+export async function ban(dbArg: StoreArg, now: Clock, actor: Actor, version: string | null, userId: string, reason?: string): Promise<{ row: BanRow; created: boolean }> {
+  const db = legacyD1(dbArg);
   if (await isAdmin(db, userId)) throw cannotBanAdmin();
 
   const at = now();
@@ -81,7 +84,8 @@ export async function ban(db: Bindings["DB"], now: Clock, actor: Actor, version:
 // DELETE /v1/admin/bans/:user_id: `404 not_found` if the user isn't
 // currently banned -- the DELETE's own `changes` count tells the two
 // cases apart (mirrors `core/admins.ts`'s `remove()` A6 pattern).
-export async function unban(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, userId: string): Promise<{ seq: number }> {
+export async function unban(dbArg: StoreArg, now: Clock, actor: Actor, version: string | null, userId: string): Promise<{ seq: number }> {
+  const db = legacyD1(dbArg);
   const result = await db.prepare("DELETE FROM bans WHERE user_id = ?").bind(userId).run();
   if (result.meta.changes === 0) throw notFound(`'${userId}' is not banned`, userId);
 
@@ -108,7 +112,8 @@ export interface AuthorRow {
 // mints a fresh one out of nothing). Sticky against sign-in
 // (`auth/discord.ts`) and the cmini import (`import/authors.ts`) -- see
 // each file's own §4.3 comment.
-export async function renameAuthor(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, userId: string, name: string): Promise<AuthorRow> {
+export async function renameAuthor(dbArg: StoreArg, now: Clock, actor: Actor, version: string | null, userId: string, name: string): Promise<AuthorRow> {
+  const db = legacyD1(dbArg);
   const before = await db.prepare("SELECT name FROM authors WHERE user_id = ?").bind(userId).first<{ name: string }>();
   if (before === null) throw notFound(`no author '${userId}'`, userId);
 

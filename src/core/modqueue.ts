@@ -22,6 +22,7 @@ import type { Clock } from "./time";
 import { deliver, DeliveryDeferred, discordJson } from "./modqueue-delivery";
 import { buildV2Payload, buildV2StatusPatch, DISCORD_COMPONENTS_V2_FLAG, formatCommentText, queueUserName, repairQueueUser, type CommentCardData, type LinkCardData, type QueueStatus, type TextFileAttachment, type MessageFileAttachment, type WpmCardData } from "./modqueue-message";
 import { resolveProofPreview, type ProofPreview } from "./modqueue-proof";
+import { legacyD1, type StoreArg } from "../store/arg";
 
 const WEBHOOK_TIMEOUT_MS = 5000;
 const USER_AGENT = "akl-db/1.0";
@@ -248,7 +249,8 @@ async function savePostedMessage(db: Bindings["DB"], env: Bindings, kind: QueueK
   }
 }
 
-export async function updateQueueNotification(db: Bindings["DB"], env: Bindings, kind: QueueKind, id: string, fetchImpl: typeof fetch = fetch): Promise<void> {
+export async function updateQueueNotification(dbArg: StoreArg, env: Bindings, kind: QueueKind, id: string, fetchImpl: typeof fetch = fetch): Promise<void> {
+  const db = legacyD1(dbArg);
   await reconcileOne(db, env, kind, id, fetchImpl);
 }
 
@@ -479,7 +481,8 @@ async function sweep<C extends { id: string; review_version?: number; source_mes
   }
 }
 
-export async function notifyPending(db: Bindings["DB"], env: Bindings, now: Clock, fetchImpl: typeof fetch = fetch): Promise<void> {
+export async function notifyPending(dbArg: StoreArg, env: Bindings, now: Clock, fetchImpl: typeof fetch = fetch): Promise<void> {
+  const db = legacyD1(dbArg);
   const botCards = env.MODQUEUE_DISCORD_CARDS === "true" && env.MODQUEUE_DISCORD_BOT_TOKEN !== undefined && env.MODQUEUE_DISCORD_BOT_TOKEN !== "" && env.MODQUEUE_DISCORD_CHANNEL_ID !== undefined && env.MODQUEUE_DISCORD_CHANNEL_ID !== "";
   const webhookReady = env.MODQUEUE_DISCORD_WEBHOOK !== undefined && env.MODQUEUE_DISCORD_WEBHOOK !== "";
   if (!botCards && !webhookReady) return; // [LDB-MD12]
@@ -505,7 +508,8 @@ export async function notifyPending(db: Bindings["DB"], env: Bindings, now: Cloc
 // uploaded as a plaintext attachment; failed posts make no D1 write. Unset or
 // empty transport config is a complete no-op. Never throws. Only a row that
 // is still `pending` is announced.
-export async function announceComment(db: Bindings["DB"], env: Bindings, id: string, fetchImpl: typeof fetch = fetch): Promise<void> {
+export async function announceComment(dbArg: StoreArg, env: Bindings, id: string, fetchImpl: typeof fetch = fetch): Promise<void> {
+  const db = legacyD1(dbArg);
   const botCards = env.MODQUEUE_DISCORD_CARDS === "true" && env.MODQUEUE_DISCORD_BOT_TOKEN !== undefined && env.MODQUEUE_DISCORD_BOT_TOKEN !== "" && env.MODQUEUE_DISCORD_CHANNEL_ID !== undefined && env.MODQUEUE_DISCORD_CHANNEL_ID !== "";
   const transport: MessageTransport = botCards ? "bot" : "legacy_webhook";
   const channelId = botCards ? env.MODQUEUE_DISCORD_CHANNEL_ID! : null;

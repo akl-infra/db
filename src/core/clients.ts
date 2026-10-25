@@ -10,6 +10,7 @@ import { appendAdmin } from "./events";
 import { base64UrlToBytes, EXTRA_CAPS, parseCaps, SCOPE_CAPS } from "../auth/client";
 import type { Clock } from "./time";
 import { ulid } from "ulidx";
+import { legacyD1, type StoreArg } from "../store/arg";
 
 const OWNER_ID_RE = /^\d{17,20}$/;
 
@@ -65,7 +66,8 @@ export interface RegisterClientBody {
 // `owner_user_id` Discord-id shaped. Bad-request `param` names the
 // offending field, JSON-pointer style, like every other write schema in
 // this service.
-export async function registerClient(db: Bindings["DB"], now: Clock, actorId: string, body: RegisterClientBody): Promise<ClientRow> {
+export async function registerClient(dbArg: StoreArg, now: Clock, actorId: string, body: RegisterClientBody): Promise<ClientRow> {
+  const db = legacyD1(dbArg);
   const pubkeyBytes = base64UrlToBytes(body.pubkey);
   if (pubkeyBytes === null || pubkeyBytes.length !== 32) {
     throw badRequest("pubkey must be base64url of exactly 32 bytes", "/pubkey");
@@ -113,11 +115,12 @@ export async function registerClient(db: Bindings["DB"], now: Clock, actorId: st
 // event)"), matching `admins.remove`'s idempotency shape. Returns null on an
 // unknown id so the route can 404.
 export async function revokeClient(
-  db: Bindings["DB"],
+  dbArg: StoreArg,
   now: Clock,
   actorId: string,
   id: string,
 ): Promise<{ id: string; status: "revoked"; revoked_at: string } | null> {
+  const db = legacyD1(dbArg);
   const existing = await db.prepare("SELECT status, revoked_at FROM clients WHERE id = ?").bind(id).first<{ status: string; revoked_at: string | null }>();
   if (existing === null) return null;
 
@@ -131,7 +134,8 @@ export async function revokeClient(
   return { id, status: "revoked", revoked_at };
 }
 
-export async function listClients(db: Bindings["DB"]): Promise<ClientRow[]> {
+export async function listClients(dbArg: StoreArg): Promise<ClientRow[]> {
+  const db = legacyD1(dbArg);
   const { results } = await db
     .prepare(
       "SELECT id, name, pubkey, owner_user_id, caps, discord_app_id, status, created_at, revoked_at FROM clients ORDER BY created_at ASC, id ASC",
@@ -181,7 +185,8 @@ export interface ClientStatusResult {
 // exception from a status race it can't do anything about. The two ADMIN
 // routes (`routes/admin.ts`) are what turn `status === "revoked"` into a
 // loud `409` for a human caller; the automatic path just no-ops.
-export async function suspendClient(db: Bindings["DB"], now: Clock, actorId: string, id: string, reason: string): Promise<ClientStatusResult | null> {
+export async function suspendClient(dbArg: StoreArg, now: Clock, actorId: string, id: string, reason: string): Promise<ClientStatusResult | null> {
+  const db = legacyD1(dbArg);
   const existing = await db.prepare("SELECT status FROM clients WHERE id = ?").bind(id).first<{ status: string }>();
   if (existing === null) return null;
 
@@ -210,7 +215,8 @@ export async function suspendClient(db: Bindings["DB"], now: Clock, actorId: str
 // Only `suspended -> active` moves; `active` is idempotent (no event, same
 // shape `revokeClient`'s "idempotent past the first revoke" already has),
 // and `revoked` never moves (terminal, same as `suspendClient` above).
-export async function reactivateClient(db: Bindings["DB"], now: Clock, actorId: string, id: string): Promise<ClientStatusResult | null> {
+export async function reactivateClient(dbArg: StoreArg, now: Clock, actorId: string, id: string): Promise<ClientStatusResult | null> {
+  const db = legacyD1(dbArg);
   const existing = await db.prepare("SELECT status FROM clients WHERE id = ?").bind(id).first<{ status: string }>();
   if (existing === null) return null;
 
@@ -245,7 +251,8 @@ export async function reactivateClient(db: Bindings["DB"], now: Clock, actorId: 
 // trip distinctly from a human admin's manual suspend.
 export const BUDGET_GUARD_ACTOR = "system:budget-guard";
 
-export async function checkDestructiveBudget(db: Bindings["DB"], now: Clock, probe: { clientId: string; countInWindow: number; liveLayouts: number }): Promise<void> {
+export async function checkDestructiveBudget(dbArg: StoreArg, now: Clock, probe: { clientId: string; countInWindow: number; liveLayouts: number }): Promise<void> {
+  const db = legacyD1(dbArg);
   const threshold = destructiveThreshold(probe.liveLayouts);
   if (probe.countInWindow <= threshold) return;
   await suspendClient(
@@ -280,7 +287,8 @@ export interface ClientsHealth {
   suspended: SuspendedClientInfo[];
 }
 
-export async function clientsHealth(db: Bindings["DB"], liveLayoutCount: number): Promise<ClientsHealth> {
+export async function clientsHealth(dbArg: StoreArg, liveLayoutCount: number): Promise<ClientsHealth> {
+  const db = legacyD1(dbArg);
   const { results } = await db.prepare("SELECT id, name FROM clients WHERE status = 'suspended' ORDER BY id ASC").all<{ id: string; name: string }>();
   let states = new Map<string, SuspendState>();
   if (results.length > 0) {

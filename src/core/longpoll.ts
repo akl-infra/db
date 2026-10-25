@@ -10,6 +10,7 @@
 import type { Bindings } from "../env";
 import { describeError } from "./describe-error";
 import { headSeq } from "./etag";
+import { legacyD1, type StoreArg } from "../store/arg";
 
 // saltorbit, 2026-09-12: "GET /v1/changes?since=&wait=25s ... capped at 25s,
 // clamp larger values". Anything <= 0 (including a caller sending
@@ -39,11 +40,12 @@ function realSleep(ms: number): Promise<void> {
 // (so the response it builds is always current, whether or not anything
 // actually changed).
 export async function waitForChanges(
-  db: Bindings["DB"],
+  dbArg: StoreArg,
   since: number,
   waitSeconds: number,
   sleepImpl: SleepImpl = realSleep,
 ): Promise<void> {
+  const db = legacyD1(dbArg);
   const clamped = clampWaitSeconds(waitSeconds);
   const maxReads = Math.ceil(clamped) + 1;
   for (let i = 0; i < maxReads; i++) {

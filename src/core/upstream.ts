@@ -6,6 +6,7 @@
 // by `expectN`, LDB-P14).
 import type { Bindings } from "../env";
 import type { LayoutRow, Upstream } from "./records";
+import { legacyD1, type StoreArg } from "../store/arg";
 
 // `touches`: true for a layout-scope write, or a format-scope write on
 // lineage `spark`; false for every other lineage (MF-12: "a write to
@@ -20,6 +21,7 @@ export function nextUpstream(prior: Upstream | null, via: string, touches: boole
 // Read-side: a layout's own `upstream` field, straight off the row. Takes
 // `db` (unused) to keep every call site's shape unchanged.
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-export async function upstreamOf(db: Bindings["DB"], rec: LayoutRow): Promise<Upstream | null> {
+export async function upstreamOf(dbArg: StoreArg, rec: LayoutRow): Promise<Upstream | null> {
+  const db = legacyD1(dbArg);
   return rec.upstream;
 }

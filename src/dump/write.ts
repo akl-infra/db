@@ -17,6 +17,7 @@ import { redactEventRow, type EventDbRow } from "../core/events";
 import { readMetaCore } from "../core/meta";
 import type { FormatDbRow, LayoutDbRow } from "../core/records";
 import type { Clock } from "../core/time";
+import { legacyD1, type StoreArg } from "../store/arg";
 
 const PAGE_SIZE = 500;
 
@@ -370,7 +371,8 @@ export interface DumpState {
 export const DUMP_STATE_KEY = "dump.last_at"; // exported for `/v1/meta`'s one-query head (src/index.ts), same reason `import/difftick.ts`'s IMPORT_STATE_KEY is
 const DUMP_STALE_MS = 24 * 60 * 60 * 1000;
 
-export async function readDumpState(db: Bindings["DB"]): Promise<DumpState | null> {
+export async function readDumpState(dbArg: StoreArg): Promise<DumpState | null> {
+  const db = legacyD1(dbArg);
   const row = await db.prepare("SELECT value FROM import_state WHERE key = ?").bind(DUMP_STATE_KEY).first<{ value: string }>();
   return row === null ? null : (JSON.parse(row.value) as DumpState);
 }
