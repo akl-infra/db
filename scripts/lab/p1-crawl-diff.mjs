@@ -9,7 +9,10 @@
 //
 //   node scripts/lab/p1-crawl-diff.mjs [--base origin/main] [--head HEAD]
 //     [--dump <file.json|file.json.gz>|fixture] [--out <dir>] [--work <dir>]
-//     [--ports 18911,18912,18913] [--concurrency 12] [--keep] [--tee-sink <port>]
+//     [--ports 18911,18912,18913] [--concurrency 12] [--keep] [--tee-sink <port>] [--own-modules]
+//
+// --own-modules: run `npm ci` in each temporary checkout instead of sharing this repo's node_modules, so the two
+// commits may have different package-lock.json files (e.g. origin/main against a branch that added dependencies).
 //
 // --tee-sink <port> (lane T, the production mirror): starts a local sink on 127.0.0.1:<port> and runs the HEAD
 // Worker with TEE_URL/TEE_SECRET pointing at it (the base Worker never has them). The diff must stay empty, and the
@@ -41,7 +44,7 @@ import zlib from "node:zlib";
 const REPO = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), "..", "..");
 
 function parseArgs(argv) {
-  const a = { base: "origin/main", head: "HEAD", dump: "fixture", out: null, work: null, ports: [18911, 18912, 18913], concurrency: 12, keep: false, teeSink: null };
+  const a = { base: "origin/main", head: "HEAD", dump: "fixture", out: null, work: null, ports: [18911, 18912, 18913], concurrency: 12, keep: false, teeSink: null, ownModules: false };
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
     const v = () => argv[++i];
@@ -53,6 +56,7 @@ function parseArgs(argv) {
     else if (k === "--ports") a.ports = v().split(",").map(Number);
     else if (k === "--concurrency") a.concurrency = Number(v());
     else if (k === "--keep") a.keep = true;
+    else if (k === "--own-modules") a.ownModules = true;
     else if (k === "--tee-sink") a.teeSink = Number(v());
     else throw new Error(`unknown argument ${k}`);
   }
@@ -137,7 +141,10 @@ function checkout(name, rev) {
   if (!fs.existsSync(dir)) sh("git", ["-C", REPO, "worktree", "add", "--detach", dir, rev]);
   const sha = sh("git", ["-C", dir, "rev-parse", "HEAD"]).trim();
   const nm = path.join(dir, "node_modules");
-  if (!fs.existsSync(nm)) fs.symlinkSync(path.join(REPO, "node_modules"), nm);
+  if (!fs.existsSync(nm)) {
+    if (args.ownModules) sh("npm", ["ci", "--no-audit", "--no-fund"], { cwd: dir, env: { ...process.env, CI: "1" } });
+    else fs.symlinkSync(path.join(REPO, "node_modules"), nm);
+  }
   fs.writeFileSync(path.join(dir, ".lab-entry.ts"), LAB_ENTRY);
   return { dir, sha };
 }
@@ -588,7 +595,7 @@ async function main() {
   log(`base ${args.base} = ${base.sha.slice(0, 9)}, head ${args.head} = ${head.sha.slice(0, 9)}`);
   const lockA = fs.readFileSync(path.join(base.dir, "package-lock.json"));
   const lockB = fs.readFileSync(path.join(head.dir, "package-lock.json"));
-  if (!lockA.equals(lockB)) throw new Error("the two commits have different package-lock.json; this tool shares one node_modules");
+  if (!args.ownModules && !lockA.equals(lockB)) throw new Error("the two commits have different package-lock.json; this tool shares one node_modules (pass --own-modules to npm ci in each tree)");
 
   const dump = loadDump(args.dump);
   log(`dump: ${dump.records.length} layouts, ${dump.events.length} events (seq ${dump.meta?.seq})`);
