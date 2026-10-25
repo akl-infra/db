@@ -1,4 +1,5 @@
 // GET /v1/authors, /v1/authors/{user_id} (03 §2, 07 §6 S6).
+import type { Store } from "../store/port";
 import { Hono } from "hono";
 import { type AppEnv, platformOf } from "../app";
 import { badRequest, notFound } from "../core/errors";
@@ -52,17 +53,9 @@ authorsRoute.get("/v1/authors", async (c) => {
   return res;
 });
 
-// P1: agent A. These two counts move to `LayoutReadStore.liveCountByOwner` /
-// `likeCountByUser` when the main session merges (design/p1-briefs.md B).
-async function authorCounts(db: D1Database, userId: string): Promise<{ layout_count: number; liked_count: number }> {
-  const [layoutRow, likedRow] = await Promise.all([
-    db
-      .prepare("SELECT COUNT(*) AS n FROM layouts WHERE owner = ? AND deleted = 0")
-      .bind(userId)
-      .first<{ n: number }>(),
-    db.prepare("SELECT COUNT(*) AS n FROM likes WHERE user_id = ?").bind(userId).first<{ n: number }>(),
-  ]);
-  return { layout_count: layoutRow?.n ?? 0, liked_count: likedRow?.n ?? 0 };
+async function authorCounts(store: Store, userId: string): Promise<{ layout_count: number; liked_count: number }> {
+  const [layout_count, liked_count] = await Promise.all([store.layouts.liveCountByOwner(userId), store.layouts.likeCountByUser(userId)]);
+  return { layout_count, liked_count };
 }
 
 authorsRoute.get("/v1/authors/:user_id", async (c) => {
@@ -72,7 +65,7 @@ authorsRoute.get("/v1/authors/:user_id", async (c) => {
   const author = await store.auth.author(userId);
   if (author === null) throw notFound(`no author '${userId}'`, userId);
 
-  const counts = await authorCounts(c.env.DB, userId);
+  const counts = await authorCounts(store, userId);
 
   return c.json({
     user_id: author.user_id,

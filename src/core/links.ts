@@ -62,7 +62,7 @@ function sourceOf(actor: Actor, version: string | null): Source {
 // pending submission.
 export async function getLink(dbArg: StoreArg, layoutId: string): Promise<{ link: string | null; pending: LinkSubmissionRow | null }> {
   const store = toStore(dbArg);
-  const layout = await approvedLinkOf(store, layoutId); // P1: agent A (layouts.approvedLink)
+  const layout = await approvedLinkOf(store, layoutId);
   if (layout === null) throw notFound(`no layout '${layoutId}'`, layoutId);
   const pending = await store.links.pending(layoutId);
   return { link: layout.link, pending };
