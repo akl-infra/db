@@ -314,7 +314,7 @@ If the inspector cannot express something, report it to the main session; do not
 ## Carried to P2 (main session)
 
 - **TestStore fault-injection hook.** The atomic-rollback tests that inject faults with D1 triggers are D1-only for P1: `tests/auth/rejection-dm-d1.test.ts`. P2 must give TestStore a fault-injection hook, so the same rollback properties are proven on DynamoDB too. They must not stay D1-only.
-- **D1-only test list** for the onlywriter and no-`.prepare(` gates: `tests/auth/rejection-dm-d1.test.ts`, `tests/auth/modqueue-migration-d1.test.ts`, `tests/api/p1-a-equivalence.test.ts`, the migration tests, the query-plan test and the round-trip count test.
+- **D1-only test list** for the onlywriter and no-`.prepare(` gates: `tests/auth/rejection-dm-d1.test.ts`, `tests/auth/modqueue-migration-d1.test.ts`, `tests/api/p1-a-equivalence.test.ts`, `tests/api/authors-count.test.ts`, `tests/api/mf-l2-unlike-race.test.ts`, `tests/api/me-d1.test.ts`, `tests/api/authors-validator-d1.test.ts`, `tests/api/changes-longpoll-d1.test.ts`, `tests/api/moderation-reopen-d1.test.ts`, the migration tests (`migration-0016`, `migration-0017`), `list-plan` and `l8-roundtrips`. Several of these (unlike race, longpoll fault, reopen trigger) also need P2 DynamoDB equivalents through the fault-injection hook.
 - **Phase-end cleanup:**
   - delete `rejectionModerationStatement` (core/events.ts), `rejectionOutboxStatement` and `approvalOutboxStatement` (core/rejection-dm.ts);
   - move `restoreSql` into `store/d1/dump.ts` and drop the onlywriter legacy entry;
