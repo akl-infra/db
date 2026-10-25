@@ -19,7 +19,7 @@
 // tables already reflect the injected write) and (b) the live DB state
 // after the test (boot-from-dump equals live, with no drain needed at
 // all since the injected write's seq is already inside the dump).
-import { env } from "cloudflare:test";
+import { env, store, testStore } from "../harness";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Bindings } from "../../src/env";
 import { commitWrite, foldLayout, rowToEvent, type CommitInput, type Event } from "../../src/core/events";
@@ -30,7 +30,6 @@ import { buildDump } from "../../src/dump/write";
 import * as etagModule from "../../src/core/etag";
 
 const bindings = env as unknown as Bindings;
-const db = bindings.DB;
 const clock = fixedClock("2026-07-19T00:00:00.000Z");
 const OWNER = "owner-mf13";
 
@@ -54,20 +53,17 @@ async function seed(): Promise<{ id: string; layoutRev: number }> {
     source: { client: "discord-app:test", version: null },
     upstream: null,
   };
-  const { layout } = await commitWrite(db, clock, input);
+  const { layout } = await commitWrite(store, clock, input);
   return { id: layout.id, layoutRev: layout.layout_rev };
 }
 
 async function headSeqNow(): Promise<number> {
-  const row = await db.prepare("SELECT MAX(seq) AS seq FROM events").first<{ seq: number | null }>();
-  return row?.seq ?? 0;
+  const events = await testStore.rows<{ seq: number }>("events");
+  return Math.max(0, ...events.map((e) => e.seq));
 }
 
 async function revsMapFor(layoutId: string): Promise<Map<string, { format: string | null; payload: unknown }>> {
-  const { results } = await db
-    .prepare("SELECT lineage, rev, format, payload_json FROM layout_revs WHERE layout_id = ?")
-    .bind(layoutId)
-    .all<{ lineage: string | null; rev: number; format: string | null; payload_json: string | null }>();
+  const results = await testStore.rows<{ lineage: string | null; rev: number; format: string | null; payload_json: string | null }>("layout_revs", { layout_id: layoutId });
   const out = new Map<string, { format: string | null; payload: unknown }>();
   for (const r of results) {
     out.set(`${r.lineage ?? ""} ${r.rev}`, { format: r.format, payload: r.payload_json === null ? undefined : (JSON.parse(r.payload_json) as unknown) });
@@ -91,8 +87,8 @@ describe("[MF-13 = LDB-D7] the dump floor: tables are never behind meta.seq", ()
       // Land a write the instant `computeMeta`'s one query resolves --
       // strictly between `meta`'s read and the table pages' own reads
       // (buildDump's `Promise.all` hasn't started yet).
-      const current = await readById(db, seeded.id);
-      const currentFormats = await formatsForLayout(db, seeded.id);
+      const current = await readById(store, seeded.id);
+      const currentFormats = await formatsForLayout(store, seeded.id);
       const renameInput: CommitInput = {
         layoutId: seeded.id,
         creating: false,
@@ -106,7 +102,7 @@ describe("[MF-13 = LDB-D7] the dump floor: tables are never behind meta.seq", ()
         source: { client: "discord-app:test", version: null },
         upstream: null,
       };
-      await commitWrite(db, clock, renameInput);
+      await commitWrite(store, clock, renameInput);
       seqAfterInjection = await headSeqNow();
       return head; // the head captured BEFORE the injected write -- meta.seq stays at the old floor
     });
@@ -145,7 +141,7 @@ describe("[MF-13 = LDB-D7] the dump floor: tables are never behind meta.seq", ()
     // (b) boot-from-dump equals live: the same fold matches the ACTUAL
     // live `layouts` row after the test, with no drain step needed at all
     // (the injected write is already inside the dump's own tables).
-    const liveRow = await db.prepare("SELECT * FROM layouts WHERE id = ?").bind(seeded.id).first<LayoutDbRow>();
+    const liveRow = (await testStore.row("layouts", { id: seeded.id })) as unknown as LayoutDbRow | null;
     const { n: _n2, ...liveSansN } = rowToLayout(liveRow!);
     expect(folded!.layout).toEqual(liveSansN);
   });

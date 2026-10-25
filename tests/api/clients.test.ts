@@ -3,17 +3,14 @@
 // event; `detail` never carries the pubkey; a registered key signs a
 // request the client lane accepts, and a revoked one is refused from the
 // revocation onward (no cache in front of `clients.status`).
-import { env } from "cloudflare:test";
+import { env, store, testStore } from "../harness";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Bindings } from "../../src/env";
 import { verifyClientRequest } from "../../src/auth/client";
 import { type EventDbRow, rowToEvent } from "../../src/core/events";
 import { fixedClock } from "../../src/core/time";
 import { generateKeyPair, signHeaders } from "../auth/client-support";
 import { BOOTSTRAP_ADMIN, actorFixture, pinTestClock, register, uniqueName, writeFetch } from "./write-support";
 
-const bindings = env as unknown as Bindings;
-const db = bindings.DB;
 const clock = fixedClock("2026-08-01T00:00:00.000Z");
 pinTestClock(env as unknown as { TEST_CLOCK?: typeof clock }, clock);
 
@@ -90,10 +87,9 @@ describe("[LDB-A5] POST /v1/admin/clients", () => {
     expect(body.caps).toBe("act-as-user");
     expect(body.status).toBe("active");
 
-    const { results } = await db
-      .prepare("SELECT * FROM events WHERE kind = 'admin.client_registered' AND detail_json LIKE ? ORDER BY seq DESC LIMIT 1")
-      .bind(`%${body.id}%`)
-      .all<EventDbRow>();
+    const results = ((await testStore.rows("events", { kind: "admin.client_registered" }, ["seq"])) as unknown as EventDbRow[])
+      .filter((r) => r.detail_json?.includes(body.id))
+      .slice(-1);
     expect(results).toHaveLength(1);
     const e = rowToEvent(results[0]!);
     expect(e.admin).toBe(true);
@@ -180,10 +176,9 @@ describe("[LDB-A9] DELETE /v1/admin/clients/{id}", () => {
     expect(body.status).toBe("revoked");
     expect(body.revoked_at).toBeTruthy();
 
-    const { results } = await db
-      .prepare("SELECT * FROM events WHERE kind = 'admin.client_revoked' AND detail_json LIKE ? ORDER BY seq DESC LIMIT 1")
-      .bind(`%${id}%`)
-      .all<EventDbRow>();
+    const results = ((await testStore.rows("events", { kind: "admin.client_revoked" }, ["seq"])) as unknown as EventDbRow[])
+      .filter((r) => r.detail_json?.includes(id))
+      .slice(-1);
     expect(results).toHaveLength(1);
   });
 
@@ -194,12 +189,12 @@ describe("[LDB-A9] DELETE /v1/admin/clients/{id}", () => {
 
     const first = await writeFetch(`/v1/admin/clients/${id}`, "DELETE", adminHeaders(`tok-${uniqueName("revoke")}`));
     expect(first.status).toBe(200);
-    const before = await db.prepare("SELECT COUNT(*) AS n FROM events WHERE kind = 'admin.client_revoked'").first<{ n: number }>();
+    const before = await testStore.count("events", { kind: "admin.client_revoked" });
 
     const second = await writeFetch(`/v1/admin/clients/${id}`, "DELETE", adminHeaders(`tok-${uniqueName("revoke")}`));
     expect(second.status).toBe(200);
-    const after = await db.prepare("SELECT COUNT(*) AS n FROM events WHERE kind = 'admin.client_revoked'").first<{ n: number }>();
-    expect(after?.n).toBe(before?.n);
+    const after = await testStore.count("events", { kind: "admin.client_revoked" });
+    expect(after).toBe(before);
   });
 
   it("an unknown id -> 404", async () => {
@@ -244,7 +239,7 @@ describe("[LDB-A9] a registered key signs a request the client lane accepts; a r
 
     const beforeHeaders = await sign();
     const beforeReq = new Request("https://example.com/v1/me", { method: "GET", headers: beforeHeaders });
-    const actor = await verifyClientRequest(db, clock, beforeReq, new Uint8Array(0), {});
+    const actor = await verifyClientRequest(store, clock, beforeReq, new Uint8Array(0), {});
     expect(actor.via).toBe(`client:${id}`);
 
     const revokeRes = await writeFetch(`/v1/admin/clients/${id}`, "DELETE", adminHeaders(`tok-${uniqueName("revoke")}`));
@@ -252,7 +247,7 @@ describe("[LDB-A9] a registered key signs a request the client lane accepts; a r
 
     const afterHeaders = await sign();
     const afterReq = new Request("https://example.com/v1/me", { method: "GET", headers: afterHeaders });
-    await expect(verifyClientRequest(db, clock, afterReq, new Uint8Array(0), {})).rejects.toMatchObject({
+    await expect(verifyClientRequest(store, clock, afterReq, new Uint8Array(0), {})).rejects.toMatchObject({
       body: { error: "client_revoked" },
     });
   });

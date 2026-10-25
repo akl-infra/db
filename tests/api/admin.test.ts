@@ -5,7 +5,7 @@
 // last-two guard (both orderings, and a genuine Promise.all race); import
 // pause/resume; every admin action lands in the event log with `admin = 1`,
 // `rev NULL`, `layout_id NULL`, and is visible through `/v1/changes`.
-import { createExecutionContext, createScheduledController, env, waitOnExecutionContext } from "cloudflare:test";
+import { createExecutionContext, createScheduledController, env, waitOnExecutionContext, store, testStore } from "../harness";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ulid } from "ulidx";
 import type { Bindings } from "../../src/env";
@@ -20,7 +20,6 @@ import { FakeDiscord } from "../auth/fake-discord";
 import { AKL_PAYLOAD, BOOTSTRAP_ADMIN, actorFixture, pinTestClock, register, uniqueName, writeFetch } from "./write-support";
 
 const bindings = env as unknown as Bindings;
-const db = bindings.DB;
 const clock = fixedClock("2026-07-15T00:00:00.000Z");
 pinTestClock(env as unknown as { TEST_CLOCK?: typeof clock }, clock);
 
@@ -56,8 +55,7 @@ function testUserId(): string {
 }
 
 async function currentAdminCount(): Promise<number> {
-  const row = await db.prepare("SELECT COUNT(*) AS n FROM admins").first<{ n: number }>();
-  return row?.n ?? 0;
+  return testStore.count("admins");
 }
 
 // Deterministic baseline for the A6 tests below: wipes every admin except
@@ -65,14 +63,13 @@ async function currentAdminCount(): Promise<number> {
 // (bypassing the guarded route on purpose -- this is test setup, not the
 // thing under test). Returns the seeded ids in insertion order.
 async function resetAdmins(extraCount: number): Promise<string[]> {
-  await db.prepare("DELETE FROM admins WHERE user_id != ?").bind(BOOTSTRAP_ADMIN).run();
+  for (const admin of await testStore.rows<{ user_id: string }>("admins")) {
+    if (admin.user_id !== BOOTSTRAP_ADMIN) await testStore.remove("admins", { user_id: admin.user_id });
+  }
   const extras: string[] = [];
   for (let i = 0; i < extraCount; i++) {
     const id = testUserId();
-    await db
-      .prepare("INSERT INTO admins (user_id, added_by, added_at, note) VALUES (?, ?, ?, ?)")
-      .bind(id, BOOTSTRAP_ADMIN, clock(), null)
-      .run();
+    await testStore.insert("admins", { user_id: id, added_by: BOOTSTRAP_ADMIN, added_at: clock(), note: null });
     extras.push(id);
   }
   return extras;
@@ -129,10 +126,9 @@ describe("[LDB-A5] POST /v1/admin/admins", () => {
     expect(body.added_by).toBe(BOOTSTRAP_ADMIN);
     expect(body.note).toBe("trusted");
 
-    const { results } = await db
-      .prepare("SELECT * FROM events WHERE kind = 'admin.added' AND detail_json LIKE ? ORDER BY seq DESC LIMIT 1")
-      .bind(`%${target}%`)
-      .all<EventDbRow>();
+    const results = ((await testStore.rows("events", { kind: "admin.added" }, ["seq"])) as unknown as EventDbRow[])
+      .filter((r) => r.detail_json?.includes(target))
+      .slice(-1);
     expect(results).toHaveLength(1);
     const e = rowToEvent(results[0]!);
     expect(e.admin).toBe(true);
@@ -147,11 +143,11 @@ describe("[LDB-A5] POST /v1/admin/admins", () => {
     const first = await writeFetch("/v1/admin/admins", "POST", adminHeaders(`tok-${uniqueName("add")}`), { user_id: target });
     expect(first.status).toBe(201);
 
-    const before = await db.prepare("SELECT COUNT(*) AS n FROM events WHERE kind = 'admin.added'").first<{ n: number }>();
+    const before = await testStore.count("events", { kind: "admin.added" });
     const second = await writeFetch("/v1/admin/admins", "POST", adminHeaders(`tok-${uniqueName("add")}`), { user_id: target });
     expect(second.status).toBe(200);
-    const after = await db.prepare("SELECT COUNT(*) AS n FROM events WHERE kind = 'admin.added'").first<{ n: number }>();
-    expect(after?.n).toBe(before?.n);
+    const after = await testStore.count("events", { kind: "admin.added" });
+    expect(after).toBe(before);
   });
 
   it("user_id not a 17-20 digit snowflake -> 400 bad_request", async () => {
@@ -178,10 +174,8 @@ describe("[LDB-A6] DELETE /v1/admin/admins/{user_id} -- the last-two guard", () 
     await expect(res.json()).resolves.toEqual({ removed: a });
     expect(await currentAdminCount()).toBe(2);
 
-    const { results } = await db
-      .prepare("SELECT * FROM events WHERE kind = 'admin.removed' ORDER BY seq DESC LIMIT 1")
-      .all<EventDbRow>();
-    const e = rowToEvent(results[0]!);
+    const removed = (await testStore.rows("events", { kind: "admin.removed" }, ["seq"])) as unknown as EventDbRow[];
+    const e = rowToEvent(removed.at(-1)!);
     expect(e.admin).toBe(true);
     expect(e.rev).toBeNull();
     expect(e.layout_id).toBeNull();
@@ -249,7 +243,7 @@ describe("[LDB-P6] admin events on the public feed", () => {
     }
 
     // and the same, directly through feed() -- rowToEvent's own round trip.
-    const { items } = await feed(db, 0, 1000, ["admin.added"]);
+    const { items } = await feed(store, 0, 1000, ["admin.added"]);
     expect(items.some((e) => e.kind === "admin.added")).toBe(true);
   });
 });
@@ -281,8 +275,7 @@ describe("POST /v1/admin/dump, POST /v1/admin/magic-seed, POST /v1/admin/nightly
   }
 
   async function eventCount(kind: string): Promise<number> {
-    const row = await db.prepare("SELECT COUNT(*) AS n FROM events WHERE kind = ?").bind(kind).first<{ n: number }>();
-    return row?.n ?? 0;
+    return testStore.count("events", { kind });
   }
 
   // The cutover follow-up (design/layout-db/23-geometry.md, "admin dump
@@ -346,11 +339,10 @@ describe("POST /v1/admin/dump, POST /v1/admin/magic-seed, POST /v1/admin/nightly
       expect(after.payload.magic).toEqual(magic);
       expect(after.formats["spark/1"]!.has_magic).toBe(true);
 
-      const ev = await db
-        .prepare("SELECT actor, via, admin FROM events WHERE layout_id = ? AND rev IS NOT NULL ORDER BY seq DESC LIMIT 1")
-        .bind(body.id)
-        .first<{ actor: string; via: string; admin: number }>();
-      expect(ev).toEqual({ actor: "system:magic-seed", via: "seed:aklgg", admin: 0 });
+      const ev = (await testStore.rows<{ actor: string; via: string; admin: number; rev: number | null }>("events", { layout_id: body.id }, ["seq"]))
+        .filter((r) => r.rev !== null)
+        .at(-1);
+      expect({ actor: ev?.actor, via: ev?.via, admin: ev?.admin }).toEqual({ actor: "system:magic-seed", via: "seed:aklgg", admin: 0 });
     });
 
     // [LDB-P26] docs/decisions/26-magic-reseed.md §3, added 2026-09-14
@@ -379,7 +371,7 @@ describe("POST /v1/admin/dump, POST /v1/admin/magic-seed, POST /v1/admin/nightly
         source: { client: opts.sourceClient, version: null },
         upstream: opts.upstream,
       };
-      return commitWrite(db, clock, input);
+      return commitWrite(store, clock, input);
     }
 
     it("[LDB-P26] allows re-seeding a record whose spark/1 row was last written by a system client, even with magic already set and even forked", async () => {
@@ -395,7 +387,7 @@ describe("POST /v1/admin/dump, POST /v1/admin/magic-seed, POST /v1/admin/nightly
         status: 409,
         body: { error: "magic_edited", client: "discord-app:test-guard" },
       });
-      const after = await db.prepare("SELECT rev FROM layout_formats WHERE layout_id = ? AND lineage = 'spark'").bind(layout.id).first<{ rev: number }>();
+      const after = await testStore.row<{ rev: number }>("layout_formats", { layout_id: layout.id, lineage: "spark" });
       expect(after?.rev).toBe(1); // nothing written
     });
 
@@ -556,7 +548,7 @@ describe("POST /v1/admin/dump, POST /v1/admin/magic-seed, POST /v1/admin/nightly
         source: { client: "system:relabel-magic-thumbs-test-seed", version: null },
         upstream: opts.upstream,
       };
-      return commitWrite(db, clock, input);
+      return commitWrite(store, clock, input);
     }
 
     it("[LDB-I28] anonymous 401, non-admin 403, admin 200 -> {dry_run: false, relabeled_layouts, relabeled_keys, layouts}", async () => {
@@ -597,11 +589,10 @@ describe("POST /v1/admin/dump, POST /v1/admin/magic-seed, POST /v1/admin/nightly
       expect(after.formats["spark/1"]!.rev).toBe(2);
       expect(after.upstream.state).toBe("following");
 
-      const ev = await db
-        .prepare("SELECT kind, actor, via, admin FROM events WHERE layout_id = ? AND rev IS NOT NULL ORDER BY seq DESC LIMIT 1")
-        .bind(layout.id)
-        .first<{ kind: string; actor: string; via: string; admin: number }>();
-      expect(ev).toEqual({ kind: "imported", actor: "system:relabel-magic-thumbs", via: "admin:relabel-magic-thumbs", admin: 0 });
+      const ev = (await testStore.rows<{ kind: string; actor: string; via: string; admin: number; rev: number | null }>("events", { layout_id: layout.id }, ["seq"]))
+        .filter((r) => r.rev !== null)
+        .at(-1);
+      expect({ kind: ev?.kind, actor: ev?.actor, via: ev?.via, admin: ev?.admin }).toEqual({ kind: "imported", actor: "system:relabel-magic-thumbs", via: "admin:relabel-magic-thumbs", admin: 0 });
 
       // Idempotent: this SAME layout is no longer in either a dry-run's or
       // a real second call's plan.

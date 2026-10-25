@@ -6,16 +6,14 @@
 // anonymous is 401; concurrent likes from different users are all
 // counted, a concurrent double-like from the SAME user is one event; the
 // fold always equals the stored row.
-import { env } from "cloudflare:test";
+import { store, testStore } from "../harness";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Bindings } from "../../src/env";
 import { commitWrite, foldLayout, rowToEvent, type CommitInput, type EventDbRow } from "../../src/core/events";
 import { readById } from "../../src/core/records";
 import { fixedClock } from "../../src/core/time";
 import { ulid } from "ulidx";
 import { AKL_PAYLOAD, actorFixture, register, uniqueName, writeFetch } from "./write-support";
 
-const db = (env as unknown as Bindings).DB;
 const clock = fixedClock("2026-07-09T00:00:00.000Z");
 const OWNER = "owner-likes-1";
 const SOURCE = { client: "discord-app:test", version: null };
@@ -44,7 +42,7 @@ async function seed(name = uniqueName("likes-seed")) {
     source: SOURCE,
     upstream: null,
   };
-  const { layout } = await commitWrite(db, clock, input);
+  const { layout } = await commitWrite(store, clock, input);
   return layout;
 }
 
@@ -52,12 +50,12 @@ async function seed(name = uniqueName("likes-seed")) {
 // same check tests/events/fold.test.ts's write model runs, here asserted
 // after each HTTP case rather than over random sequences.
 async function assertFoldMatchesRow(layoutId: string) {
-  const eventRows = await db.prepare("SELECT * FROM events WHERE layout_id = ? ORDER BY seq ASC").bind(layoutId).all<EventDbRow>();
-  const events = eventRows.results.map(rowToEvent);
-  const revRows = await db.prepare("SELECT lineage, rev, format, payload_json FROM layout_revs WHERE layout_id = ?").bind(layoutId).all<{ lineage: string | null; rev: number; format: string | null; payload_json: string | null }>();
-  const revs = new Map(revRows.results.map((r) => [`${r.lineage ?? ""} ${r.rev}`, { format: r.format, payload: r.payload_json === null ? undefined : (JSON.parse(r.payload_json) as unknown) }]));
+  const eventRows = (await testStore.rows("events", { layout_id: layoutId }, ["seq"])) as unknown as EventDbRow[];
+  const events = eventRows.map(rowToEvent);
+  const revRows = await testStore.rows<{ lineage: string | null; rev: number; format: string | null; payload_json: string | null }>("layout_revs", { layout_id: layoutId });
+  const revs = new Map(revRows.map((r) => [`${r.lineage ?? ""} ${r.rev}`, { format: r.format, payload: r.payload_json === null ? undefined : (JSON.parse(r.payload_json) as unknown) }]));
   const folded = foldLayout(events, revs);
-  const row = await readById(db, layoutId);
+  const row = await readById(store, layoutId);
   const { n: _n, ...rowSansN } = row!;
   expect(folded!.layout).toEqual(rowSansN);
 }
@@ -70,14 +68,14 @@ describe("[LDB-L1] PUT/DELETE /v1/layouts/{ref}/like", () => {
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toEqual({ like_count: 1 });
 
-    const events = await db.prepare("SELECT kind, rev, actor, via FROM events WHERE layout_id = ? AND kind = 'liked'").bind(record.id).all<{ kind: string; rev: number | null; actor: string; via: string }>();
-    expect(events.results).toHaveLength(1);
-    expect(events.results[0]).toMatchObject({ kind: "liked", rev: null, actor: OWNER, via: "discord" });
+    const events = await testStore.rows<{ kind: string; rev: number | null; actor: string; via: string }>("events", { layout_id: record.id, kind: "liked" });
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ kind: "liked", rev: null, actor: OWNER, via: "discord" });
 
     // LDB-B1 (migrations/0011): the `likes` row itself carries `via`, the
     // same value the event does -- so a later reconciliation can tell a
     // real user's like from an imported one without guessing.
-    const likeRow = await db.prepare("SELECT via FROM likes WHERE layout_id = ? AND user_id = ?").bind(record.id, OWNER).first<{ via: string }>();
+    const likeRow = await testStore.row<{ via: string }>("likes", { layout_id: record.id, user_id: OWNER });
     expect(likeRow).not.toBeNull();
     expect(likeRow!.via).toBe("discord");
     await assertFoldMatchesRow(record.id);
@@ -91,9 +89,9 @@ describe("[LDB-L1] PUT/DELETE /v1/layouts/{ref}/like", () => {
     expect(res.status).toBe(409);
     await expect(res.json()).resolves.toMatchObject({ error: "already_liked" });
 
-    const events = await db.prepare("SELECT COUNT(*) AS n FROM events WHERE layout_id = ? AND kind = 'liked'").bind(record.id).first<{ n: number }>();
-    expect(events?.n).toBe(1);
-    const row = await readById(db, record.id);
+    const events = await testStore.count("events", { layout_id: record.id, kind: "liked" });
+    expect(events).toBe(1);
+    const row = await readById(store, record.id);
     expect(row?.like_count).toBe(1);
     await assertFoldMatchesRow(record.id);
   });
@@ -111,9 +109,9 @@ describe("[LDB-L1] PUT/DELETE /v1/layouts/{ref}/like", () => {
     expect(second.status).toBe(409);
     await expect(second.json()).resolves.toMatchObject({ error: "not_liked" });
 
-    const events = await db.prepare("SELECT COUNT(*) AS n FROM events WHERE layout_id = ? AND kind = 'unliked'").bind(record.id).first<{ n: number }>();
-    expect(events?.n).toBe(1);
-    const row = await readById(db, record.id);
+    const events = await testStore.count("events", { layout_id: record.id, kind: "unliked" });
+    expect(events).toBe(1);
+    const row = await readById(store, record.id);
     expect(row?.like_count).toBe(0);
     await assertFoldMatchesRow(record.id);
   });
@@ -124,8 +122,8 @@ describe("[LDB-L1] PUT/DELETE /v1/layouts/{ref}/like", () => {
     const res = await writeFetch(`/v1/layouts/${record.id}/like`, "DELETE", headers);
     expect(res.status).toBe(409);
     await expect(res.json()).resolves.toMatchObject({ error: "not_liked" });
-    const events = await db.prepare("SELECT COUNT(*) AS n FROM events WHERE layout_id = ? AND kind = 'unliked'").bind(record.id).first<{ n: number }>();
-    expect(events?.n).toBe(0);
+    const events = await testStore.count("events", { layout_id: record.id, kind: "unliked" });
+    expect(events).toBe(0);
   });
 
   it("[LDB-L1] layout_rev/modified_at/layouts_modified_at never move (nor a format's own rev/modified_at); like_count and meta.revision/seq do", async () => {
@@ -180,8 +178,8 @@ describe("[LDB-L1] PUT/DELETE /v1/layouts/{ref}/like", () => {
 
   it("a tombstone -> 404", async () => {
     const record = await seed();
-    const current = (await readById(db, record.id))!;
-    await commitWrite(db, clock, {
+    const current = (await readById(store, record.id))!;
+    await commitWrite(store, clock, {
       layoutId: record.id,
       creating: false,
       currentN: current.n,
@@ -214,10 +212,10 @@ describe("[LDB-L1] PUT/DELETE /v1/layouts/{ref}/like", () => {
     const responses = await Promise.all(headersList.map((h) => writeFetch(`/v1/layouts/${record.id}/like`, "PUT", h)));
     for (const res of responses) expect(res.status).toBe(200);
 
-    const row = await readById(db, record.id);
+    const row = await readById(store, record.id);
     expect(row?.like_count).toBe(5);
-    const rows = await db.prepare("SELECT COUNT(*) AS n FROM likes WHERE layout_id = ?").bind(record.id).first<{ n: number }>();
-    expect(rows?.n).toBe(5);
+    const rows = await testStore.count("likes", { layout_id: record.id });
+    expect(rows).toBe(5);
     await assertFoldMatchesRow(record.id);
   });
 
@@ -232,10 +230,10 @@ describe("[LDB-L1] PUT/DELETE /v1/layouts/{ref}/like", () => {
     const loser = a.status === 409 ? a : b;
     await expect(loser.json()).resolves.toMatchObject({ error: "already_liked" });
 
-    const row = await readById(db, record.id);
+    const row = await readById(store, record.id);
     expect(row?.like_count).toBe(1);
-    const events = await db.prepare("SELECT COUNT(*) AS n FROM events WHERE layout_id = ? AND kind = 'liked'").bind(record.id).first<{ n: number }>();
-    expect(events?.n).toBe(1);
+    const events = await testStore.count("events", { layout_id: record.id, kind: "liked" });
+    expect(events).toBe(1);
     await assertFoldMatchesRow(record.id);
   });
 
@@ -257,7 +255,7 @@ describe("[LDB-L1] PUT/DELETE /v1/layouts/{ref}/like", () => {
     expect(patchRes.status).toBe(200);
     expect(putRes.status).toBe(200);
 
-    const row = await readById(db, record.id);
+    const row = await readById(store, record.id);
     expect(row?.like_count).toBe(1);
     expect(row?.name).toBe(newName);
     await assertFoldMatchesRow(record.id);

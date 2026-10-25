@@ -8,16 +8,14 @@
 // t/2 -> t/3` lineage (`stub-lineage.ts`), since `spark/1`/`mana2/1` are
 // each still a one-major lineage. Every write here is a FORMAT-scope write
 // on lineage `t` (21-formats.md §2.2) -- If-Match tokens are `"t:<rev>"`.
-import { env } from "cloudflare:test";
+import { env, testStore } from "../harness";
 import fc from "fast-check";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Bindings } from "../../src/env";
 import { fixedClock } from "../../src/core/time";
 import { registerForTest } from "../../src/formats/registry";
 import { T1, T2, T3 } from "../formats/stub-lineage";
 import { actorFixture, pinTestClock, register, uniqueName, writeFetch } from "./write-support";
 
-const db = (env as unknown as Bindings).DB;
 const clock = fixedClock("2026-09-10T00:00:00.000Z");
 pinTestClock(env as unknown as { TEST_CLOCK?: typeof clock }, clock);
 
@@ -53,15 +51,14 @@ function withStubLineage<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 async function storedFormatOf(id: string): Promise<string> {
-  const row = await db.prepare("SELECT format FROM layout_formats WHERE layout_id = ? AND lineage = 't'").bind(id).first<{ format: string }>();
+  const row = await testStore.row<{ format: string }>("layout_formats", { layout_id: id, lineage: "t" });
   return row!.format;
 }
 
 async function writtenAsOf(id: string): Promise<unknown> {
-  const row = await db
-    .prepare("SELECT detail_json FROM events WHERE layout_id = ? AND format IS NOT NULL ORDER BY seq DESC LIMIT 1")
-    .bind(id)
-    .first<{ detail_json: string | null }>();
+  const row = (await testStore.rows<{ detail_json: string | null; format: string | null }>("events", { layout_id: id }, ["seq"]))
+    .filter((r) => r.format !== null)
+    .at(-1);
   return row?.detail_json === null || row?.detail_json === undefined ? undefined : (JSON.parse(row.detail_json) as { written_as?: string }).written_as;
 }
 
@@ -218,7 +215,7 @@ describe("[LDB-P13] PATCH validates the format it names (M5)", () => {
     const res = await writeFetch(`/v1/layouts/${seeded.id}`, "PATCH", { ...headers(), "If-Match": `"spark:${seeded.rev}"` }, { format: "spark/9", fingermap: { a: "LM" } });
     expect(res.status).toBe(400);
     await expect(res.json()).resolves.toMatchObject({ error: "unknown_format" });
-    const row = await db.prepare("SELECT rev, payload_json FROM layout_formats WHERE layout_id = ? AND lineage = 'spark'").bind(seeded.id).first<{ rev: number; payload_json: string }>();
+    const row = await testStore.row<{ rev: number; payload_json: string }>("layout_formats", { layout_id: seeded.id, lineage: "spark" });
     expect(row!.rev).toBe(seeded.rev); // never edited
     expect(JSON.parse(row!.payload_json)).toEqual({ keys: [{ char: "a", row: 0, col: 0, finger: "LP" }] });
   });
@@ -232,7 +229,7 @@ describe("[LDB-P13] PATCH validates the format it names (M5)", () => {
     const res = await writeFetch(`/v1/layouts/${seeded.id}`, "PATCH", { ...headers(), "If-Match": `"mana2:1"` }, { format: "mana2/1", fingermap: { a: "LM" } });
     expect(res.status).toBe(400);
     await expect(res.json()).resolves.toMatchObject({ error: "format_not_writable", format: "mana2/1" });
-    const row = await db.prepare("SELECT rev FROM layout_formats WHERE layout_id = ? AND lineage = 'spark'").bind(seeded.id).first<{ rev: number }>();
+    const row = await testStore.row<{ rev: number }>("layout_formats", { layout_id: seeded.id, lineage: "spark" });
     expect(row!.rev).toBe(seeded.rev);
   });
 
@@ -250,7 +247,7 @@ describe("[LDB-P13] PATCH validates the format it names (M5)", () => {
       expect(res.status).toBe(409);
       await expect(res.json()).resolves.toMatchObject({ error: "format_behind", format: "t/1", see: "t/3" });
 
-      const row = await db.prepare("SELECT rev, format, payload_json FROM layout_formats WHERE layout_id = ? AND lineage = 't'").bind(created.id).first<{ rev: number; format: string; payload_json: string }>();
+      const row = await testStore.row<{ rev: number; format: string; payload_json: string }>("layout_formats", { layout_id: created.id, lineage: "t" });
       expect(row!.rev).toBe(rev); // never edited
       expect(row!.format).toBe("t/3");
       expect(JSON.parse(row!.payload_json)).toEqual({ v: 3, a: 1, b: 0, c: true });

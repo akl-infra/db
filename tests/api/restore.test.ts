@@ -8,9 +8,8 @@
 // any other key is `400 bad_request`. Restore is LAYOUT scope only (D3):
 // the tombstone's formats are untouched, never touched by this write at
 // all -- the response carries no `format`/`payload`.
-import { env } from "cloudflare:test";
+import { env, store, testStore } from "../harness";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Bindings } from "../../src/env";
 import { commitWrite, type CommitInput } from "../../src/core/events";
 import { formatsForLayout, readById } from "../../src/core/records";
 import { fixedClock } from "../../src/core/time";
@@ -18,8 +17,6 @@ import type { Clock } from "../../src/core/time";
 import { ulid } from "ulidx";
 import { AKL_PAYLOAD, actorFixture, pinTestClock, register, uniqueName, writeFetch } from "./write-support";
 
-const bindings = env as unknown as Bindings;
-const db = bindings.DB;
 const OWNER = "owner-restore-1";
 const OTHER = "owner-restore-2";
 const DELETED_AT = "2026-08-01T00:00:00.000Z";
@@ -64,15 +61,15 @@ async function createLayout(name: string, owner: string, via: "discord" | "impor
     source: isImport ? IMPORT_SOURCE : SOURCE,
     upstream: isImport ? { source: "cmini", id: `up-${uniqueName("restore")}`, state: "following" } : null,
   };
-  const { layout, formats } = await commitWrite(db, fixedClock(DELETED_AT), input);
+  const { layout, formats } = await commitWrite(store, fixedClock(DELETED_AT), input);
   const spark = formats.get("spark")!;
   return { id: layout.id, name: layout.name, owner: layout.owner, layoutRev: layout.layout_rev, formatRev: spark.rev, payload: spark.payload };
 }
 
 async function seedTombstone(name = uniqueName("restore-seed"), owner = OWNER, via: "discord" | "import:cmini" = "discord"): Promise<Created> {
   const created = await createLayout(name, owner, via);
-  const current = (await readById(db, created.id))!;
-  const formats = await formatsForLayout(db, created.id);
+  const current = (await readById(store, created.id))!;
+  const formats = await formatsForLayout(store, created.id);
   const isImport = via === "import:cmini";
   const input: CommitInput = {
     layoutId: created.id,
@@ -87,7 +84,7 @@ async function seedTombstone(name = uniqueName("restore-seed"), owner = OWNER, v
     source: isImport ? IMPORT_SOURCE : SOURCE,
     upstream: current.upstream,
   };
-  const { layout } = await commitWrite(db, fixedClock(DELETED_AT), input);
+  const { layout } = await commitWrite(store, fixedClock(DELETED_AT), input);
   return { ...created, layoutRev: layout.layout_rev };
 }
 
@@ -174,10 +171,9 @@ describe("[LDB-P8] restore edge cases", () => {
     const res = await restore(tombstone.id, headers);
     expect(res.status).toBe(200);
 
-    const { results } = await db
-      .prepare("SELECT kind, via, rev FROM events WHERE layout_id = ? AND rev IS NOT NULL AND format IS NULL ORDER BY seq DESC LIMIT 1")
-      .bind(tombstone.id)
-      .all<{ kind: string; via: string; rev: number }>();
+    const results = (await testStore.rows<{ kind: string; via: string; rev: number | null; format: string | null }>("events", { layout_id: tombstone.id }, ["seq"]))
+      .filter((r) => r.rev !== null && r.format === null)
+      .slice(-1);
     expect(results[0]).toMatchObject({ kind: "restored", via: "discord" }); // LDB-I14: a user write (via !== import:cmini) always forks
   });
 });
@@ -213,10 +209,7 @@ describe("[LDB-P8] [LDB-N1] restore body: optional, {name} renames under check_n
     const body = await res.json<{ name: string }>();
     expect(body.name).toBe(newName);
 
-    const { results } = await db
-      .prepare("SELECT kind, name, detail_json FROM events WHERE layout_id = ? ORDER BY seq DESC LIMIT 1")
-      .bind(tombstone.id)
-      .all<{ kind: string; name: string; detail_json: string | null }>();
+    const results = (await testStore.rows<{ kind: string; name: string; detail_json: string | null }>("events", { layout_id: tombstone.id }, ["seq"])).slice(-1);
     expect(results[0]).toMatchObject({ kind: "restored", name: newName });
     expect(JSON.parse(results[0]!.detail_json!)).toEqual({ renamed_from: tombstone.name });
   });
@@ -228,7 +221,7 @@ describe("[LDB-P8] [LDB-N1] restore body: optional, {name} renames under check_n
     const res = await restore(tombstone.id, headers, { name: tombstone.name });
     expect(res.status).toBe(200);
 
-    const { results } = await db.prepare("SELECT detail_json FROM events WHERE layout_id = ? ORDER BY seq DESC LIMIT 1").bind(tombstone.id).all<{ detail_json: string | null }>();
+    const results = (await testStore.rows<{ detail_json: string | null }>("events", { layout_id: tombstone.id }, ["seq"])).slice(-1);
     expect(results[0]?.detail_json).toBeNull();
   });
 

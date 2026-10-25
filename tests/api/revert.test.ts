@@ -7,17 +7,14 @@
 // write pipeline produces (`source.client: "client:<id>"`, `via` the
 // same), the same technique tests/api/l8-roundtrips.test.ts uses to drive
 // `core/write.ts`'s own verbs directly.
-import { env } from "cloudflare:test";
+import { store, testStore } from "../harness";
 import { describe, expect, it } from "vitest";
-import type { Bindings } from "../../src/env";
 import { appendLinkChange, commitWrite, type CommitInput } from "../../src/core/events";
 import { revertClientWrites } from "../../src/core/revert";
 import { formatsForLayout, readById, readFormat, type Source } from "../../src/core/records";
 import { fixedClock } from "../../src/core/time";
 import { ulid } from "ulidx";
 
-const bindings = env as unknown as Bindings;
-const db = bindings.DB;
 const clock = fixedClock("2026-09-13T00:00:00.000Z");
 const SINCE = "2026-01-01T00:00:00.000Z";
 const DISCORD_SOURCE: Source = { client: "discord-app:test", version: null };
@@ -44,7 +41,7 @@ async function createLive(owner: string, name: string): Promise<string> {
     source: DISCORD_SOURCE,
     upstream: null,
   };
-  const { layout } = await commitWrite(db, clock, input);
+  const { layout } = await commitWrite(store, clock, input);
   return layout.id;
 }
 
@@ -52,10 +49,10 @@ async function createLive(owner: string, name: string): Promise<string> {
 // (deleted/renamed/transferred) -- same CommitInput shape core/write.ts's
 // own verbs build, `source.client`/`via` set to the client lane directly.
 async function rogueLayoutWrite(layoutId: string, clientId: string, mutate: (current: Awaited<ReturnType<typeof readById>>) => { name: string; owner: string; deleted: boolean; kind: "deleted" | "renamed" | "transferred" }): Promise<number> {
-  const current = await readById(db, layoutId);
+  const current = await readById(store, layoutId);
   if (current === null) throw new Error("layout vanished");
   const { name, owner, deleted, kind } = mutate(current);
-  const formats = await formatsForLayout(db, layoutId);
+  const formats = await formatsForLayout(store, layoutId);
   const input: CommitInput = {
     layoutId,
     creating: false,
@@ -69,14 +66,14 @@ async function rogueLayoutWrite(layoutId: string, clientId: string, mutate: (cur
     source: { client: `client:${clientId}`, version: null },
     upstream: null,
   };
-  const { seqs } = await commitWrite(db, clock, input);
+  const { seqs } = await commitWrite(store, clock, input);
   return seqs[0]!;
 }
 
 async function otherActorRename(layoutId: string, newName: string): Promise<void> {
-  const current = await readById(db, layoutId);
+  const current = await readById(store, layoutId);
   if (current === null) throw new Error("layout vanished");
-  const formats = await formatsForLayout(db, layoutId);
+  const formats = await formatsForLayout(store, layoutId);
   const input: CommitInput = {
     layoutId,
     creating: false,
@@ -90,12 +87,11 @@ async function otherActorRename(layoutId: string, newName: string): Promise<void
     source: DISCORD_SOURCE,
     upstream: null,
   };
-  await commitWrite(db, clock, input);
+  await commitWrite(store, clock, input);
 }
 
 async function eventCount(): Promise<number> {
-  const row = await db.prepare("SELECT COUNT(*) AS n FROM events").first<{ n: number }>();
-  return row?.n ?? 0;
+  return testStore.count("events");
 }
 
 describe("[LDB-A13] core/revert.ts: revertClientWrites", () => {
@@ -104,16 +100,16 @@ describe("[LDB-A13] core/revert.ts: revertClientWrites", () => {
     const layoutId = await createLive(owner, uniqueName("revert-delete"));
     await rogueLayoutWrite(layoutId, "R-DEL-1", () => ({ name: uniqueName("irrelevant"), owner, deleted: true, kind: "deleted" }));
 
-    const before = await readById(db, layoutId);
+    const before = await readById(store, layoutId);
     expect(before?.deleted).toBe(true);
 
-    const first = await revertClientWrites(db, clock, "admin-1", "R-DEL-1", SINCE, { dryRun: false });
+    const first = await revertClientWrites(store, clock, "admin-1", "R-DEL-1", SINCE, { dryRun: false });
     expect(first.items.some((i) => i.outcome === "reverted" && i.scope === "layout")).toBe(true);
-    const after = await readById(db, layoutId);
+    const after = await readById(store, layoutId);
     expect(after?.deleted).toBe(false);
 
     const countAfterFirst = await eventCount();
-    const second = await revertClientWrites(db, clock, "admin-1", "R-DEL-1", SINCE, { dryRun: false });
+    const second = await revertClientWrites(store, clock, "admin-1", "R-DEL-1", SINCE, { dryRun: false });
     expect(second.items.every((i) => i.outcome === "skipped_no_op")).toBe(true);
     expect(await eventCount()).toBe(countAfterFirst); // [LDB-A13] idempotent: nothing new written
   });
@@ -124,9 +120,9 @@ describe("[LDB-A13] core/revert.ts: revertClientWrites", () => {
     const layoutId = await createLive(owner, original);
     await rogueLayoutWrite(layoutId, "R-REN-1", () => ({ name: uniqueName("revert-rename-rogue"), owner, deleted: false, kind: "renamed" }));
 
-    const result = await revertClientWrites(db, clock, "admin-1", "R-REN-1", SINCE, { dryRun: false });
+    const result = await revertClientWrites(store, clock, "admin-1", "R-REN-1", SINCE, { dryRun: false });
     expect(result.items[0]?.outcome).toBe("reverted");
-    const restored = await readById(db, layoutId);
+    const restored = await readById(store, layoutId);
     expect(restored?.name).toBe(original);
 
     // Now: rogue renames again, then a DIFFERENT (non-client, non-revert)
@@ -136,10 +132,10 @@ describe("[LDB-A13] core/revert.ts: revertClientWrites", () => {
     const otherName = uniqueName("revert-rename-other");
     await otherActorRename(layoutId, otherName);
 
-    const blocked = await revertClientWrites(db, clock, "admin-1", "R-REN-1", SINCE, { dryRun: false });
+    const blocked = await revertClientWrites(store, clock, "admin-1", "R-REN-1", SINCE, { dryRun: false });
     const renameItem = blocked.items.find((i) => i.scope === "layout" && i.outcome !== "skipped_no_op");
     expect(renameItem?.outcome).toBe("skipped_newer_write_by_other");
-    const stillOther = await readById(db, layoutId);
+    const stillOther = await readById(store, layoutId);
     expect(stillOther?.name).toBe(otherName); // untouched
   });
 
@@ -148,21 +144,21 @@ describe("[LDB-A13] core/revert.ts: revertClientWrites", () => {
     const ownerB = "900000000000000913";
     const layoutId = await createLive(ownerA, uniqueName("revert-transfer"));
     await rogueLayoutWrite(layoutId, "R-XFER-1", (current) => ({ name: current!.name, owner: ownerB, deleted: false, kind: "transferred" }));
-    expect((await readById(db, layoutId))?.owner).toBe(ownerB);
+    expect((await readById(store, layoutId))?.owner).toBe(ownerB);
 
-    const result = await revertClientWrites(db, clock, "admin-1", "R-XFER-1", SINCE, { dryRun: false });
+    const result = await revertClientWrites(store, clock, "admin-1", "R-XFER-1", SINCE, { dryRun: false });
     expect(result.items[0]?.outcome).toBe("reverted");
-    expect((await readById(db, layoutId))?.owner).toBe(ownerA);
+    expect((await readById(store, layoutId))?.owner).toBe(ownerA);
   });
 
   it("[LDB-A13] a format replacement is rolled back to the prior layout_revs payload (a NEW rev, history never rewritten)", async () => {
     const owner = "900000000000000914";
     const layoutId = await createLive(owner, uniqueName("revert-format"));
-    const before = await readFormat(db, layoutId, "spark");
+    const before = await readFormat(store, layoutId, "spark");
     expect(before?.rev).toBe(1);
 
-    const current = await readById(db, layoutId);
-    const formats = await formatsForLayout(db, layoutId);
+    const current = await readById(store, layoutId);
+    const formats = await formatsForLayout(store, layoutId);
     const input: CommitInput = {
       layoutId,
       creating: false,
@@ -176,20 +172,20 @@ describe("[LDB-A13] core/revert.ts: revertClientWrites", () => {
       source: { client: "client:R-FMT-1", version: null },
       upstream: null,
     };
-    await commitWrite(db, clock, input);
-    const replaced = await readFormat(db, layoutId, "spark");
+    await commitWrite(store, clock, input);
+    const replaced = await readFormat(store, layoutId, "spark");
     expect(replaced?.rev).toBe(2);
     expect(replaced?.payload).toEqual(SPARK_PAYLOAD(1));
 
-    const result = await revertClientWrites(db, clock, "admin-1", "R-FMT-1", SINCE, { dryRun: false });
+    const result = await revertClientWrites(store, clock, "admin-1", "R-FMT-1", SINCE, { dryRun: false });
     expect(result.items[0]?.outcome).toBe("reverted");
-    const rolledBack = await readFormat(db, layoutId, "spark");
+    const rolledBack = await readFormat(store, layoutId, "spark");
     expect(rolledBack?.rev).toBe(3); // a NEW rev, never rewriting rev 1 or 2
     expect(rolledBack?.payload).toEqual(SPARK_PAYLOAD(0));
 
     // Idempotent.
     const countAfterFirst = await eventCount();
-    const second = await revertClientWrites(db, clock, "admin-1", "R-FMT-1", SINCE, { dryRun: false });
+    const second = await revertClientWrites(store, clock, "admin-1", "R-FMT-1", SINCE, { dryRun: false });
     expect(second.items[0]?.outcome).toBe("skipped_no_op");
     expect(await eventCount()).toBe(countAfterFirst);
   });
@@ -197,12 +193,12 @@ describe("[LDB-A13] core/revert.ts: revertClientWrites", () => {
   it("[LDB-P27] design/alts/07-format.md: a reverted format replacement recomputes has_alts/has_combos from the RESTORED payload, never carrying over the overwritten row's own flags", async () => {
     const owner = "900000000000000915";
     const layoutId = await createLive(owner, uniqueName("revert-combos"));
-    const before = await readFormat(db, layoutId, "spark");
+    const before = await readFormat(store, layoutId, "spark");
     expect(before?.has_combos).toBe(false);
 
     const combosPayload = { keys: [{ char: "a", row: 0, col: 0, finger: "LP" as const }, { char: "b", row: 0, col: 1, finger: "RP" as const }], combos: [{ keys: ["a", "b"] as [string, string], output: "x" }] };
-    const current = await readById(db, layoutId);
-    const formats = await formatsForLayout(db, layoutId);
+    const current = await readById(store, layoutId);
+    const formats = await formatsForLayout(store, layoutId);
     const input: CommitInput = {
       layoutId,
       creating: false,
@@ -216,13 +212,13 @@ describe("[LDB-A13] core/revert.ts: revertClientWrites", () => {
       source: { client: "client:R-COMBOS-1", version: null },
       upstream: null,
     };
-    await commitWrite(db, clock, input);
-    const replaced = await readFormat(db, layoutId, "spark");
+    await commitWrite(store, clock, input);
+    const replaced = await readFormat(store, layoutId, "spark");
     expect(replaced?.has_combos).toBe(true);
 
-    const result = await revertClientWrites(db, clock, "admin-1", "R-COMBOS-1", SINCE, { dryRun: false });
+    const result = await revertClientWrites(store, clock, "admin-1", "R-COMBOS-1", SINCE, { dryRun: false });
     expect(result.items[0]?.outcome).toBe("reverted");
-    const rolledBack = await readFormat(db, layoutId, "spark");
+    const rolledBack = await readFormat(store, layoutId, "spark");
     expect(rolledBack?.payload).toEqual(SPARK_PAYLOAD(0));
     expect(rolledBack?.has_combos).toBe(false); // recomputed from the restored (combo-free) payload, not carried over
     expect(rolledBack?.has_alts).toBe(false);
@@ -231,7 +227,7 @@ describe("[LDB-A13] core/revert.ts: revertClientWrites", () => {
   it("[LDB-A13] a cleared link is restored to what it was before the clear", async () => {
     const owner = "900000000000000915";
     const layoutId = await createLive(owner, uniqueName("revert-link"));
-    await appendLinkChange(db, clock, {
+    await appendLinkChange(store, clock, {
       layoutId,
       kind: "link_approved",
       link: "https://example.com/original",
@@ -240,7 +236,7 @@ describe("[LDB-A13] core/revert.ts: revertClientWrites", () => {
       admin: true,
       source: DISCORD_SOURCE,
     });
-    await appendLinkChange(db, clock, {
+    await appendLinkChange(store, clock, {
       layoutId,
       kind: "link_cleared",
       link: null,
@@ -249,11 +245,11 @@ describe("[LDB-A13] core/revert.ts: revertClientWrites", () => {
       admin: false,
       source: { client: "client:R-LINK-1", version: null },
     });
-    expect((await readById(db, layoutId))?.link).toBeNull();
+    expect((await readById(store, layoutId))?.link).toBeNull();
 
-    const result = await revertClientWrites(db, clock, "admin-1", "R-LINK-1", SINCE, { dryRun: false });
+    const result = await revertClientWrites(store, clock, "admin-1", "R-LINK-1", SINCE, { dryRun: false });
     expect(result.items[0]?.outcome).toBe("reverted");
-    expect((await readById(db, layoutId))?.link).toBe("https://example.com/original");
+    expect((await readById(store, layoutId))?.link).toBe("https://example.com/original");
   });
 
   it("[LDB-A13] dry_run: true reports the plan and writes NOTHING (event count unchanged)", async () => {
@@ -262,19 +258,19 @@ describe("[LDB-A13] core/revert.ts: revertClientWrites", () => {
     await rogueLayoutWrite(layoutId, "R-DRY-1", () => ({ name: uniqueName("irrelevant"), owner, deleted: true, kind: "deleted" }));
 
     const countBefore = await eventCount();
-    const dry = await revertClientWrites(db, clock, "admin-1", "R-DRY-1", SINCE, { dryRun: true });
+    const dry = await revertClientWrites(store, clock, "admin-1", "R-DRY-1", SINCE, { dryRun: true });
     expect(dry.items[0]?.outcome).toBe("would_revert");
     expect(await eventCount()).toBe(countBefore);
-    expect((await readById(db, layoutId))?.deleted).toBe(true); // untouched
+    expect((await readById(store, layoutId))?.deleted).toBe(true); // untouched
 
     // A REAL run afterward still works normally.
-    const real = await revertClientWrites(db, clock, "admin-1", "R-DRY-1", SINCE, { dryRun: false });
+    const real = await revertClientWrites(store, clock, "admin-1", "R-DRY-1", SINCE, { dryRun: false });
     expect(real.items[0]?.outcome).toBe("reverted");
-    expect((await readById(db, layoutId))?.deleted).toBe(false);
+    expect((await readById(store, layoutId))?.deleted).toBe(false);
   });
 
   it("[LDB-A13] never touches a record the client didn't write -- a client with no destructive writes reverts nothing", async () => {
-    const result = await revertClientWrites(db, clock, "admin-1", "R-NEVER-WROTE-ANYTHING", SINCE, { dryRun: false });
+    const result = await revertClientWrites(store, clock, "admin-1", "R-NEVER-WROTE-ANYTHING", SINCE, { dryRun: false });
     expect(result.items).toEqual([]);
     expect(result.scanned).toBe(0);
   });
@@ -286,15 +282,15 @@ describe("[LDB-A13] core/revert.ts: revertClientWrites", () => {
     await rogueLayoutWrite(layoutA, "R-PAGE-1", () => ({ name: uniqueName("irrelevant-a"), owner, deleted: true, kind: "deleted" }));
     await rogueLayoutWrite(layoutB, "R-PAGE-1", () => ({ name: uniqueName("irrelevant-b"), owner, deleted: true, kind: "deleted" }));
 
-    const firstPage = await revertClientWrites(db, clock, "admin-1", "R-PAGE-1", SINCE, { dryRun: true, limit: 1 });
+    const firstPage = await revertClientWrites(store, clock, "admin-1", "R-PAGE-1", SINCE, { dryRun: true, limit: 1 });
     expect(firstPage.items).toHaveLength(1);
     expect(firstPage.next).not.toBeNull();
 
-    const secondPage = await revertClientWrites(db, clock, "admin-1", "R-PAGE-1", SINCE, { dryRun: true, limit: 1, cursor: firstPage.next! });
+    const secondPage = await revertClientWrites(store, clock, "admin-1", "R-PAGE-1", SINCE, { dryRun: true, limit: 1, cursor: firstPage.next! });
     expect(secondPage.items).toHaveLength(1);
     expect(secondPage.items[0]!.layout_id).not.toBe(firstPage.items[0]!.layout_id);
 
-    const thirdPage = await revertClientWrites(db, clock, "admin-1", "R-PAGE-1", SINCE, { dryRun: true, limit: 1, cursor: secondPage.next! });
+    const thirdPage = await revertClientWrites(store, clock, "admin-1", "R-PAGE-1", SINCE, { dryRun: true, limit: 1, cursor: secondPage.next! });
     expect(thirdPage.items).toHaveLength(0);
     expect(thirdPage.next).toBeNull();
   });

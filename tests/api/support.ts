@@ -5,7 +5,7 @@
 // S7) also imports from here despite the directory name -- it's the one
 // other file that needs to run the exact same conformance assertions
 // (against a restored DB instead of a freshly-seeded one).
-import { SELF, env } from "cloudflare:test";
+import { SELF, env, store } from "../harness";
 import { expect } from "vitest";
 import type { Bindings } from "../../src/env";
 import { base64UrlToBytes } from "../../src/auth/client";
@@ -31,7 +31,6 @@ function conformancePrivateKey(): Promise<CryptoKey> {
 }
 
 export const bindings = env as unknown as Bindings;
-export const db = bindings.DB;
 
 export const SEED_CLOCK_ISO = "2026-06-01T00:00:00.000Z";
 
@@ -50,7 +49,7 @@ export const SEED_CLOCK_ISO = "2026-06-01T00:00:00.000Z";
 // `[LDB-X3]` (`tests/tools/freeze-seed.test.ts`) proves restoring this
 // fixture is deterministic and stable.
 export async function seedUpstream100(): Promise<void> {
-  await restoreInto(bindings.DB, frozenSeed as unknown as Dump);
+  await restoreInto(store, frozenSeed as unknown as Dump);
 }
 
 const ULID_RE = /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/i;

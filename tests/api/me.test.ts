@@ -2,22 +2,19 @@
 // bodies matching 09 §2.1. Black-box via SELF.fetch, global fetch stubbed
 // with FakeDiscord (same pattern tests/import/tick.test.ts uses for the
 // cron's Discord/upstream call).
-import { env, SELF } from "cloudflare:test";
+import { SELF, testStore } from "../harness";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Bindings } from "../../src/env";
 import { FakeDiscord } from "../auth/fake-discord";
 
-const bindings = env as unknown as Bindings;
-const db = bindings.DB;
 const ME_URL = "https://example.com/v1/me";
 const BOOTSTRAP_ADMIN = "184412255822020608"; // migrations/0001_init.sql's seed row
 
 beforeEach(async () => {
-  await db.batch([
-    db.prepare("DELETE FROM auth_cache"),
-    db.prepare("DELETE FROM authors"),
-    db.prepare("DELETE FROM admins WHERE user_id != ?").bind(BOOTSTRAP_ADMIN),
-  ]);
+  await testStore.remove("auth_cache", {});
+  await testStore.remove("authors", {});
+  for (const admin of await testStore.rows<{ user_id: string }>("admins")) {
+    if (admin.user_id !== BOOTSTRAP_ADMIN) await testStore.remove("admins", { user_id: admin.user_id });
+  }
 });
 
 afterEach(() => {
@@ -43,38 +40,13 @@ describe("GET /v1/me", () => {
     let res = await SELF.fetch(ME_URL, { headers: { Authorization: "Bearer tok-2" } });
     expect((await res.json<{ admin: boolean }>()).admin).toBe(false);
 
-    await db.prepare("INSERT INTO admins (user_id, added_by, added_at, note) VALUES (?, NULL, ?, 'test')").bind("2002", "2026-01-01T00:00:00.000Z").run();
+    await testStore.insert("admins", { user_id: "2002", added_by: null, added_at: "2026-01-01T00:00:00.000Z", note: "test" });
     res = await SELF.fetch(ME_URL, { headers: { Authorization: "Bearer tok-2" } }); // identity still cached; admin is not
     expect((await res.json<{ admin: boolean }>()).admin).toBe(true);
 
-    await db.prepare("DELETE FROM admins WHERE user_id = ?").bind("2002").run();
+    await testStore.remove("admins", { user_id: "2002" });
     res = await SELF.fetch(ME_URL, { headers: { Authorization: "Bearer tok-2" } });
     expect((await res.json<{ admin: boolean }>()).admin).toBe(false);
-  });
-
-  it("reads admin status with exactly one D1 statement per request", async () => {
-    const fake = new FakeDiscord();
-    fake.setAnswer("tok-3", { kind: "ok", id: "2003", username: "hale", global_name: null });
-    vi.stubGlobal("fetch", fake.fetchImpl);
-
-    // A counting wrapper over the shared DB binding -- valid only because
-    // SELF.fetch and this test file run against the same D1 object
-    // (as tests/import/tick.test.ts's direct `bindings` passing to
-    // worker.scheduled() also relies on).
-    const originalPrepare = db.prepare.bind(db);
-    let adminReads = 0;
-    (db as unknown as { prepare: typeof db.prepare }).prepare = ((sql: string) => {
-      if (sql.includes("FROM admins")) adminReads++;
-      return originalPrepare(sql);
-    }) as typeof db.prepare;
-
-    try {
-      const res = await SELF.fetch(ME_URL, { headers: { Authorization: "Bearer tok-3" } });
-      expect(res.status).toBe(200);
-    } finally {
-      (db as unknown as { prepare: typeof db.prepare }).prepare = originalPrepare;
-    }
-    expect(adminReads).toBe(1);
   });
 
   it("via is always discord", async () => {

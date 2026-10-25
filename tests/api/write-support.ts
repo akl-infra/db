@@ -1,7 +1,7 @@
 // Shared helpers for the T2 write-route suites (09 §3 T2). Not a
 // `*.test.ts` file itself -- same reasoning as tests/api/support.ts: only
 // `tests/api/**/*.test.ts` is picked up by vitest.config.ts's `include`.
-import { SELF, env } from "cloudflare:test";
+import { SELF, env, testStore, type Row, type TableName, type Where } from "../harness";
 import { vi } from "vitest";
 import type { Clock } from "../../src/core/time";
 import { FakeDiscord } from "../auth/fake-discord";
@@ -53,7 +53,7 @@ export function register(fake: FakeDiscord, token: string, id: string): Record<s
 // the SAME isolate as the test file, so mutating `env` here is visible to
 // the very next `SELF.fetch`). Pins "now" for every write route in this
 // test file -- needed wherever a write goes through HTTP (unlike a direct
-// `appendWrite(db, fixedClock(...), ...)` call, which takes its clock as a
+// `appendWrite(store, fixedClock(...), ...)` call, which takes its clock as a
 // plain argument and needs no such hatch).
 export function pinTestClock(env: { TEST_CLOCK?: Clock }, clock: Clock): void {
   env.TEST_CLOCK = clock;
@@ -93,76 +93,24 @@ export async function writeFetch(
   return res;
 }
 
-// LDB-L8/review/LEDGER.md L8: a counting instrument for "how many D1 round
-// trips did this write cost", used by tests/api/l8-roundtrips.test.ts's
-// per-route matrix. `env.DB` here is the SAME binding object the SELF
-// worker reads `c.env.DB` from (pool-workers runs both in one isolate --
-// write-support.ts's own `pinTestClock` already relies on this for
-// `TEST_CLOCK`), so wrapping it once, before a request, counts every real
-// network call the Worker's own code makes: `.first()/.all()/.run()/
-// .raw()` on a prepared statement (one D1 round trip each) and `.batch()`
-// on the binding itself (one round trip REGARDLESS of how many statements
-// it carries -- that's the whole point of batching). `.prepare()`/`.bind()`
-// are purely local (no network), so they're passed through uncounted.
-export interface D1RoundTripCounter {
-  readonly count: number;
-  reset(): void;
-  restore(): void;
+// `INSERT OR IGNORE`: inserts `row` only when no row matches `key` yet.
+export async function insertIfAbsent(table: TableName, key: Where, row: Row): Promise<void> {
+  if ((await testStore.count(table, key)) === 0) await testStore.insert(table, row);
 }
 
-type AnyFn = (...args: unknown[]) => unknown;
-const ROUND_TRIP_METHODS = new Set(["first", "all", "run", "raw"]);
-
-function wrapStatement(stmt: D1PreparedStatement, counter: { n: number }): D1PreparedStatement {
-  return new Proxy(stmt, {
-    get(target, prop, _receiver) {
-      const value = Reflect.get(target, prop, target) as unknown;
-      if (typeof value !== "function") return value;
-      const fn = value as AnyFn;
-      if (prop === "bind") {
-        return (...args: unknown[]) => wrapStatement(fn.apply(target, args) as D1PreparedStatement, counter);
-      }
-      if (typeof prop === "string" && ROUND_TRIP_METHODS.has(prop)) {
-        return (...args: unknown[]) => {
-          counter.n += 1;
-          return fn.apply(target, args);
-        };
-      }
-      return fn.bind(target);
-    },
-  });
+// `INSERT OR IGNORE INTO authors ...`
+export async function ensureAuthor(userId: string, name: string, firstSeenAt: string, lastSeenAt: string): Promise<void> {
+  await insertIfAbsent("authors", { user_id: userId }, { user_id: userId, name, first_seen_at: firstSeenAt, last_seen_at: lastSeenAt });
 }
 
-export function countD1RoundTrips(bindings: { DB: D1Database }): D1RoundTripCounter {
-  const real = bindings.DB;
-  const counter = { n: 0 };
+// `INSERT INTO ratelimit ... ON CONFLICT(key) DO UPDATE SET window_start, n`
+export async function upsertCounter(key: string, windowStart: number, n: number): Promise<void> {
+  if ((await testStore.count("ratelimit", { key })) === 0) await testStore.insert("ratelimit", { key, window_start: windowStart, n });
+  else await testStore.patch("ratelimit", { key }, { window_start: windowStart, n });
+}
 
-  const wrapped = new Proxy(real, {
-    get(target, prop, _receiver) {
-      const value = Reflect.get(target, prop, target) as unknown;
-      if (prop === "prepare") {
-        return (...args: unknown[]) => wrapStatement((target.prepare as AnyFn).apply(target, args) as D1PreparedStatement, counter);
-      }
-      if (prop === "batch") {
-        return (...args: unknown[]) => {
-          counter.n += 1;
-          return (target.batch as AnyFn).apply(target, args);
-        };
-      }
-      return typeof value === "function" ? (value as AnyFn).bind(target) : value;
-    },
-  }) as D1Database;
-
-  bindings.DB = wrapped;
-  return {
-    get count() {
-      return counter.n;
-    },
-    reset() {
-      counter.n = 0;
-    },
-    restore() {
-      bindings.DB = real;
-    },
-  };
+// `INSERT OR REPLACE INTO authors ...`: the row after the call is exactly this one.
+export async function replaceAuthor(userId: string, name: string, firstSeenAt: string, lastSeenAt: string): Promise<void> {
+  await testStore.remove("authors", { user_id: userId });
+  await testStore.insert("authors", { user_id: userId, name, first_seen_at: firstSeenAt, last_seen_at: lastSeenAt });
 }

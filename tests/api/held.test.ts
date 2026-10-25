@@ -9,14 +9,13 @@
 // (`t/1 -> t/2 -> t/3`, `tests/formats/stub-lineage.ts`) rather than a
 // bespoke unregistered format, so the SAME chain machinery LDB-F18 already
 // proves is under test here too.
-import { SELF } from "cloudflare:test";
+import { SELF, store } from "../harness";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { commitWrite, type CommitInput } from "../../src/core/events";
 import { fixedClock } from "../../src/core/time";
 import { ulid } from "ulidx";
 import { registerForTest } from "../../formats/registry.ts";
 import { T1, T2, T3 } from "../formats/stub-lineage.ts";
-import { db } from "./support";
 
 describe("[LDB-F9] a record stored at a lineage's latest major, read as an OLDER major", () => {
   let unregister: () => void;
@@ -47,7 +46,7 @@ describe("[LDB-F9] a record stored at a lineage's latest major, read as an OLDER
       source: { client: "discord-app:test", version: null },
       upstream: null,
     };
-    const { layout } = await commitWrite(db, fixedClock("2026-06-08T00:00:00.000Z"), input);
+    const { layout } = await commitWrite(store, fixedClock("2026-06-08T00:00:00.000Z"), input);
     recordId = layout.id;
   });
 

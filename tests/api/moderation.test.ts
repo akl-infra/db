@@ -3,16 +3,13 @@
 // SELF.fetch, same pattern tests/api/admin.test.ts uses for T3's admin
 // routes. (H24, 2026-09-13: the like-count override, §4.2, was removed --
 // see the "[H24] no admin like-count override exists" describe below.)
-import { env } from "cloudflare:test";
+import { env, store, testStore } from "../harness";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Bindings } from "../../src/env";
 import { commitWrite, feed, type CommitInput } from "../../src/core/events";
 import { fixedClock } from "../../src/core/time";
 import { ulid } from "ulidx";
 import { AKL_PAYLOAD, BOOTSTRAP_ADMIN, actorFixture, pinTestClock, register, uniqueName, writeFetch } from "./write-support";
 
-const bindings = env as unknown as Bindings;
-const db = bindings.DB;
 const clock = fixedClock("2026-09-12T00:00:00.000Z");
 pinTestClock(env as unknown as { TEST_CLOCK?: typeof clock }, clock);
 
@@ -51,7 +48,7 @@ async function createLayout(owner: string): Promise<string> {
     source: { client: "discord-app:test", version: null },
     upstream: null,
   };
-  const { layout } = await commitWrite(db, clock, input);
+  const { layout } = await commitWrite(store, clock, input);
   return layout.id;
 }
 
@@ -141,7 +138,7 @@ describe("[LDB-MD1] bans", () => {
     const admin = adminHeaders("tok-ban-event");
     await writeFetch(`/v1/admin/bans/${target}`, "PUT", admin, { reason: "x" });
     await writeFetch(`/v1/admin/bans/${target}`, "DELETE", admin);
-    const { items } = await feed(db, 0, 5000, ["admin.user_banned", "admin.user_unbanned"]);
+    const { items } = await feed(store, 0, 5000, ["admin.user_banned", "admin.user_unbanned"]);
     const mine = items.filter((e) => (e.detail as { user_id?: string } | null)?.user_id === target);
     expect(mine.map((e) => e.kind)).toEqual(["admin.user_banned", "admin.user_unbanned"]);
     for (const e of mine) {
@@ -198,8 +195,8 @@ describe("[LDB-MD4] author display-name override", () => {
     fake.setAnswer("tok-author-signin-2", { kind: "ok", id: userId, username: "totally-different-handle", global_name: null });
     await writeFetch("/v1/me", "GET", { Authorization: "Bearer tok-author-signin-2" });
 
-    const row = await db.prepare("SELECT name, name_source FROM authors WHERE user_id = ?").bind(userId).first<{ name: string; name_source: string }>();
-    expect(row).toEqual({ name: "Admin Picked Name", name_source: "admin" });
+    const row = await testStore.row<{ name: string; name_source: string }>("authors", { user_id: userId });
+    expect(row).toMatchObject({ name: "Admin Picked Name", name_source: "admin" });
   });
 
   it("empty name is 400 bad_request; unknown user is 404 not_found", async () => {

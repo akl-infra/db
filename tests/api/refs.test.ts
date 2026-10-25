@@ -3,13 +3,13 @@
 // unreadable by name from the moment of deletion but stays readable by id;
 // a ULID-shaped name doesn't break reachability. Every GET here names
 // `?format=spark/1` (D4: no default).
-import { SELF } from "cloudflare:test";
+import { SELF, store, testStore } from "../harness";
 import { beforeAll, describe, expect, it } from "vitest";
 import { commitWrite, type CommitInput } from "../../src/core/events";
 import { formatsForLayout, readById } from "../../src/core/records";
 import { fixedClock } from "../../src/core/time";
 import { ulid } from "ulidx";
-import { db, seedUpstream100 } from "./support";
+import { seedUpstream100 } from "./support";
 
 beforeAll(async () => {
   await seedUpstream100();
@@ -26,7 +26,7 @@ async function fetchRef(ref: string): Promise<Response> {
 
 describe("[LDB-P4] every seed record is reachable by id, name, and upper-cased name", () => {
   it("[LDB-P4] holds for all 100 live records", async () => {
-    const { results } = await db.prepare("SELECT id, name FROM layouts WHERE deleted = 0").all<LiveRow>();
+    const results = (await testStore.rows("layouts", { deleted: 0 })) as unknown as LiveRow[];
     expect(results.length).toBe(100);
 
     for (const { id, name } of results) {
@@ -50,13 +50,13 @@ describe("[LDB-P4] every seed record is reachable by id, name, and upper-cased n
 
 describe("[LDB-P8] a tombstone is unreadable by name, readable by id", () => {
   it("[LDB-P8] 404s by name, 200s by id, with deleted: true and the format's payload intact", async () => {
-    const seed = await db.prepare("SELECT id, name FROM layouts WHERE deleted = 0 LIMIT 1").first<LiveRow>();
+    const seed = ((await testStore.rows("layouts", { deleted: 0 })) as unknown as LiveRow[])[0] ?? null;
     if (seed === null) throw new Error("no live record to tombstone");
 
-    const current = (await readById(db, seed.id))!;
-    const formats = await formatsForLayout(db, seed.id);
+    const current = (await readById(store, seed.id))!;
+    const formats = await formatsForLayout(store, seed.id);
 
-    await commitWrite(db, fixedClock("2026-06-05T00:00:00.000Z"), {
+    await commitWrite(store, fixedClock("2026-06-05T00:00:00.000Z"), {
       layoutId: seed.id,
       creating: false,
       currentN: current.n,
@@ -98,7 +98,7 @@ describe("[LDB-P8] a ULID-shaped name doesn't break reachability", () => {
       source: { client: "discord-app:test", version: null },
       upstream: null,
     };
-    const { layout } = await commitWrite(db, fixedClock("2026-06-06T00:00:00.000Z"), input);
+    const { layout } = await commitWrite(store, fixedClock("2026-06-06T00:00:00.000Z"), input);
     expect(layout.id).not.toBe(ulidShapedName); // minted independently -- confirms this isn't a trivial id==name coincidence
 
     const byId = await fetchRef(layout.id);

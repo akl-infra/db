@@ -9,15 +9,13 @@
 // `If-Match` as PUT/DELETE (tests/api/ifmatch.test.ts sweeps that matrix
 // generically). A verb the record's format has no `edits` entry for is
 // `400 unsupported_for_format`.
-import { env } from "cloudflare:test";
+import { env, store, testStore } from "../harness";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Bindings } from "../../src/env";
 import { type EventDbRow, commitWrite, rowToEvent, type CommitInput } from "../../src/core/events";
 import { fixedClock } from "../../src/core/time";
 import { ulid } from "ulidx";
 import { BOOTSTRAP_ADMIN, actorFixture, pinTestClock, register, uniqueName, writeFetch } from "./write-support";
 
-const db = (env as unknown as Bindings).DB;
 const clock = fixedClock("2026-07-10T00:00:00.000Z");
 pinTestClock(env as unknown as { TEST_CLOCK?: typeof clock }, clock);
 
@@ -52,12 +50,12 @@ async function seed(owner = OWNER): Promise<Seeded> {
     source: SOURCE,
     upstream: null,
   };
-  const { layout, formats } = await commitWrite(db, clock, input);
+  const { layout, formats } = await commitWrite(store, clock, input);
   return { id: layout.id, name: layout.name, owner: layout.owner, layoutRev: layout.layout_rev, formatRev: formats.get("spark")!.rev };
 }
 
 async function eventsFor(layoutId: string) {
-  const { results } = await db.prepare("SELECT * FROM events WHERE layout_id = ? ORDER BY seq ASC").bind(layoutId).all<EventDbRow>();
+  const results = (await testStore.rows("events", { layout_id: layoutId }, ["seq"])) as unknown as EventDbRow[];
   return results.map(rowToEvent);
 }
 
@@ -158,7 +156,7 @@ describe("[LDB-P1] PATCH {format, fingermap|magic}: that format's scope", () => 
     const res = await patch(record.id, headers, { format: "spark/1", board: "iso" }, `"spark:${record.formatRev}"`);
     expect(res.status).toBe(400);
     await expect(res.json()).resolves.toMatchObject({ error: "bad_request" });
-    const row = await db.prepare("SELECT rev FROM layout_formats WHERE layout_id = ? AND lineage = 'spark'").bind(record.id).first<{ rev: number }>();
+    const row = await testStore.row<{ rev: number }>("layout_formats", { layout_id: record.id, lineage: "spark" });
     expect(row?.rev).toBe(record.formatRev);
     expect(await eventsFor(record.id)).toHaveLength(2); // untouched
   });
@@ -205,8 +203,8 @@ describe("[LDB-P1] PATCH {format, fingermap|magic}: that format's scope", () => 
       expect(res.status).toBe(400);
       await expect(res.json()).resolves.toMatchObject({ error: "invalid_payload", path });
     }
-    const row = await db.prepare("SELECT rev, has_alts FROM layout_formats WHERE layout_id = ? AND lineage = 'spark'").bind(record.id).first<{ rev: number; has_alts: number }>();
-    expect(row).toEqual({ rev: record.formatRev, has_alts: 0 });
+    const row = await testStore.row<{ rev: number; has_alts: number }>("layout_formats", { layout_id: record.id, lineage: "spark" });
+    expect(row).toMatchObject({ rev: record.formatRev, has_alts: 0 });
   });
 
   it("[LDB-F46] combos alone -> 200, has_combos true, payload.combos set (two-key seed)", async () => {
@@ -225,7 +223,7 @@ describe("[LDB-P1] PATCH {format, fingermap|magic}: that format's scope", () => 
       source: SOURCE,
       upstream: null,
     };
-    const { layout, formats } = await commitWrite(db, clock, input);
+    const { layout, formats } = await commitWrite(store, clock, input);
     const formatRev = formats.get("spark")!.rev;
 
     const headers = ownerHeaders(`tok-${uniqueName("combos")}`);
@@ -254,7 +252,7 @@ describe("[LDB-P1] PATCH {format, fingermap|magic}: that format's scope", () => 
     expect(res.status).toBe(400);
     await expect(res.json()).resolves.toMatchObject({ error: "invalid_payload" });
 
-    const row = await db.prepare("SELECT rev, payload_json FROM layout_formats WHERE layout_id = ? AND lineage = 'spark'").bind(record.id).first<{ rev: number; payload_json: string }>();
+    const row = await testStore.row<{ rev: number; payload_json: string }>("layout_formats", { layout_id: record.id, lineage: "spark" });
     expect(row?.rev).toBe(record.formatRev);
     expect((JSON.parse(row!.payload_json) as { keys: { char?: string; finger: string }[] }).keys.find((k) => k.char === "a")?.finger).toBe("LP");
     const events = await eventsFor(record.id);

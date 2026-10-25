@@ -2,12 +2,12 @@
 // a second source -- every property below is checked AGAINST `/v1/changes`'
 // own JSON for the same params, never against a hand-typed expectation of
 // what the feed "should" contain.
-import { SELF } from "cloudflare:test";
+import { SELF, store } from "../harness";
 import { beforeAll, describe, expect, it } from "vitest";
 import { commitWrite, type CommitInput } from "../../src/core/events";
 import { fixedClock } from "../../src/core/time";
 import { ulid } from "ulidx";
-import { db, seedUpstream100 } from "./support";
+import { seedUpstream100 } from "./support";
 
 const CMINI_PAYLOAD = { board: "ortho" as const, keys: {} };
 
@@ -72,7 +72,7 @@ describe("GET /admin/changelog", () => {
       source: { client: "discord-app:test", version: null },
       upstream: null,
     };
-    const { layout } = await commitWrite(db, clock, input);
+    const { layout } = await commitWrite(store, clock, input);
 
     const { html } = await fetchChangelog(`?layout=${layout.id}`);
     expect(html).toContain("&lt;b&gt;x");

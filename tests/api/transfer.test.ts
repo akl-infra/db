@@ -3,15 +3,13 @@
 // 200, `owner` moved, event `transferred` with `before.owner`/
 // `after.owner`; the new owner can PUT the format, the old owner is
 // refused; an admin can transfer a stranger's record.
-import { env } from "cloudflare:test";
+import { store, testStore } from "../harness";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Bindings } from "../../src/env";
 import { commitWrite, type CommitInput } from "../../src/core/events";
 import { fixedClock } from "../../src/core/time";
 import { ulid } from "ulidx";
-import { AKL_PAYLOAD, BOOTSTRAP_ADMIN, actorFixture, register, uniqueName, writeFetch } from "./write-support";
+import { actorFixture, AKL_PAYLOAD, BOOTSTRAP_ADMIN, ensureAuthor, register, uniqueName, writeFetch } from "./write-support";
 
-const db = (env as unknown as Bindings).DB;
 const clock = fixedClock("2026-07-08T00:00:00.000Z");
 const OWNER = "owner-transfer-1";
 const OTHER = "owner-transfer-2";
@@ -49,12 +47,12 @@ async function seed(owner = OWNER): Promise<Seeded> {
     source: SOURCE,
     upstream: null,
   };
-  const { layout, formats } = await commitWrite(db, clock, input);
+  const { layout, formats } = await commitWrite(store, clock, input);
   return { id: layout.id, layoutRev: layout.layout_rev, formatRev: formats.get("spark")!.rev };
 }
 
 async function seedAuthor(userId: string) {
-  await db.prepare("INSERT OR IGNORE INTO authors (user_id, name, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?)").bind(userId, `user-${userId}`, clock(), clock()).run();
+  await ensureAuthor(userId, `user-${userId}`, clock(), clock());
 }
 
 describe("[LDB-A7] POST /v1/layouts/{ref}/transfer", () => {
@@ -107,7 +105,7 @@ describe("[LDB-A7] POST /v1/layouts/{ref}/transfer", () => {
     const body = await res.json<{ owner: string }>();
     expect(body.owner).toBe(KNOWN_TARGET);
 
-    const { results } = await db.prepare("SELECT kind, before_json, after_json FROM events WHERE layout_id = ? ORDER BY seq DESC LIMIT 1").bind(record.id).all<{ kind: string; before_json: string; after_json: string }>();
+    const results = (await testStore.rows<{ kind: string; before_json: string; after_json: string }>("events", { layout_id: record.id }, ["seq"])).slice(-1);
     expect(results[0]?.kind).toBe("transferred");
     expect((JSON.parse(results[0]!.before_json) as { owner: string }).owner).toBe(OWNER);
     expect((JSON.parse(results[0]!.after_json) as { owner: string }).owner).toBe(KNOWN_TARGET);
@@ -129,7 +127,7 @@ describe("[LDB-A7] POST /v1/layouts/{ref}/transfer", () => {
     const res = await writeFetch(`/v1/layouts/${record.id}/transfer`, "POST", { ...headers, "If-Match": `"layout:${record.layoutRev}"` }, { to: KNOWN_TARGET });
     expect(res.status).toBe(200);
 
-    const { results } = await db.prepare("SELECT admin FROM events WHERE layout_id = ? ORDER BY seq DESC LIMIT 1").bind(record.id).all<{ admin: number }>();
+    const results = (await testStore.rows<{ admin: number }>("events", { layout_id: record.id }, ["seq"])).slice(-1);
     expect(results[0]?.admin).toBe(1);
   });
 });

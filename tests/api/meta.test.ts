@@ -1,11 +1,8 @@
-import { env, SELF } from "cloudflare:test";
+import { SELF, testStore } from "../harness";
 import { describe, expect, it } from "vitest";
-import type { Bindings } from "../../src/env";
 import { seedUpstream100 } from "./support";
 import { API_MAJOR, API_MINOR, API_VERSION_HEADER, apiVersionString } from "../../src/core/version";
 
-const bindings = env as unknown as Bindings;
-const db = bindings.DB;
 
 // The S1 skeleton's only route. Once formats/import land, this test is
 // superseded by tests/api/conformance.test.ts (S6); the invariant id moves
@@ -81,12 +78,12 @@ describe("GET /v1/meta", () => {
     // LDB-R2 amended (migrations/0007): the author fields are
     // `authors_head`'s row -- one trigger bump per author insert (32 of
     // them on a fresh table) -- and `author_count` is the table's.
-    const headRow = await db.prepare("SELECT version, modified_at FROM authors_head WHERE id = 1").first<{ version: number; modified_at: string | null }>();
-    const countRow = await db.prepare("SELECT COUNT(*) AS n FROM authors").first<{ n: number }>();
+    const headRow = await testStore.row<{ version: number; modified_at: string | null }>("authors_head", { id: 1 });
+    const countRow = await testStore.count("authors");
     expect(body.authors_version).toBe(headRow!.version);
     expect(body.authors_version).toBe(32);
     expect(body.authors_modified_at).toBe(headRow!.modified_at);
-    expect(body.author_count).toBe(countRow!.n);
+    expect(body.author_count).toBe(countRow);
     expect(body.layout_count).toBe(100);
     // authors.json has 48 name entries but only 32 distinct user ids (9
     // users have >=2 recorded names -- verified against the fixture); the
@@ -95,9 +92,9 @@ describe("GET /v1/meta", () => {
     // entry count 07 §6 S5's table names.
     expect(body.author_count).toBe(32);
 
-    const eventRow = await db.prepare("SELECT MAX(seq) AS seq, MAX(at) AS at FROM events").first<{ seq: number; at: string }>();
-    expect(body.seq).toBe(eventRow!.seq);
-    expect(body.revision).toBe(eventRow!.at);
+    const events = await testStore.rows<{ seq: number; at: string }>("events");
+    expect(body.seq).toBe(Math.max(...events.map((e) => e.seq)));
+    expect(body.revision).toBe(events.map((e) => e.at).reduce((a, b) => (a > b ? a : b)));
   });
 });
 
@@ -107,10 +104,9 @@ describe("GET /v1/meta", () => {
 // a fixed OFFSET from `Date.now()` rather than a fixed date.
 describe("[LDB-M2] GET /v1/meta health", () => {
   async function setImportState(key: string, value: unknown): Promise<void> {
-    await db
-      .prepare("INSERT INTO import_state (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
-      .bind(key, JSON.stringify(value))
-      .run();
+    const row = { key, value: JSON.stringify(value) };
+    if ((await testStore.count("import_state", { key })) === 0) await testStore.insert("import_state", row);
+    else await testStore.patch("import_state", { key }, { value: row.value });
   }
 
   // `health` is deliberately NOT part of the ETag (`src/index.ts`'s own
@@ -201,7 +197,7 @@ describe("[LDB-M2] GET /v1/meta health", () => {
   });
 
   it("[LDB-M3] stalled is null once cleared", async () => {
-    await db.prepare("DELETE FROM import_state WHERE key = 'cmini.stalled'").run();
+    await testStore.remove("import_state", { key: "cmini.stalled" });
     const body = await (await fetchMeta()).json<{ health: { import: { stalled: unknown } } }>();
     expect(body.health.import.stalled).toBeNull();
   });
@@ -214,20 +210,30 @@ describe("[LDB-M2] GET /v1/meta health", () => {
   });
 
   it("[LDB-M3] deletes_planned/applied are null before any tick has ever run", async () => {
-    await db.prepare("DELETE FROM import_state WHERE key = 'cmini.last_tick'").run();
+    await testStore.remove("import_state", { key: "cmini.last_tick" });
     const body = await (await fetchMeta()).json<{ health: { import: { deletes_planned: number | null; deletes_applied: number | null } } }>();
     expect(body.health.import.deletes_planned).toBeNull();
     expect(body.health.import.deletes_applied).toBeNull();
   });
 
   async function insertUpstreamDeletedEvent(at: string, rev: number | null): Promise<void> {
-    await db
-      .prepare(
-        `INSERT INTO events (at, kind, layout_id, name, owner, format, rev, actor, via, admin, detail_json, before_json, after_json, source_client, source_version)
-         VALUES (?, 'upstream_deleted', NULL, NULL, NULL, NULL, ?, 'system:cmini-import', 'import:cmini', 0, NULL, NULL, NULL, NULL, NULL)`,
-      )
-      .bind(at, rev)
-      .run();
+    await testStore.insert("events", {
+      at,
+      kind: "upstream_deleted",
+      layout_id: null,
+      name: null,
+      owner: null,
+      format: null,
+      rev,
+      actor: "system:cmini-import",
+      via: "import:cmini",
+      admin: 0,
+      detail_json: null,
+      before_json: null,
+      after_json: null,
+      source_client: null,
+      source_version: null,
+    });
   }
 
   it("[LDB-M3] deletes_24h counts only REAL (rev-bumping) tombstones within the trailing 24h", async () => {

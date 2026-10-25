@@ -15,10 +15,9 @@
 // fixture" case, which DOES have real fs access (the "node" project), is
 // what keeps this fixture from silently drifting from what the doc
 // actually shows a reader.
-import { SELF, env } from "cloudflare:test";
+import { SELF, env, store } from "../harness";
 import { ulid } from "ulidx";
 import { describe, expect, it, vi } from "vitest";
-import type { Bindings } from "../../src/env";
 import { bytesToBase64Url } from "../../src/auth/client";
 import { commitWrite, type CommitInput } from "../../src/core/events";
 import { fixedClock } from "../../src/core/time";
@@ -26,7 +25,6 @@ import { seedClient } from "../auth/client-support";
 import quickstartSnippetFixture from "../fixtures/adoption-quickstart-snippet.json" with { type: "json" };
 import { AKL_PAYLOAD, uniqueName } from "./write-support";
 
-const db = (env as unknown as Bindings).DB;
 const clock = fixedClock("2026-07-01T00:00:00.000Z");
 
 async function seedOwnedLayout(owner: string): Promise<{ id: string }> {
@@ -44,7 +42,7 @@ async function seedOwnedLayout(owner: string): Promise<{ id: string }> {
     source: { client: "discord-app:test", version: null },
     upstream: null,
   };
-  const { layout } = await commitWrite(db, clock, input);
+  const { layout } = await commitWrite(store, clock, input);
   return { id: layout.id };
 }
 
@@ -53,7 +51,7 @@ async function registerTestClient(ownerUserId: string): Promise<{ clientId: stri
   const pubkeyRaw = new Uint8Array((await crypto.subtle.exportKey("raw", pair.publicKey)) as ArrayBuffer);
   const pkcs8 = new Uint8Array((await crypto.subtle.exportKey("pkcs8", pair.privateKey)) as ArrayBuffer);
   const clientId = ulid();
-  await seedClient(db, clock, {
+  await seedClient(clock, {
     id: clientId,
     pubkeyB64url: bytesToBase64Url(pubkeyRaw),
     ownerUserId,

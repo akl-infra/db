@@ -8,15 +8,13 @@
 // and after) and the response carries `derived_from: "spark/1"`; (b)
 // reading `spark/1` itself never carries `derived_from` at all, on the
 // detail route, the list route, and `full=1`.
-import { env } from "cloudflare:test";
+import { store, testStore } from "../harness";
 import { describe, expect, it } from "vitest";
-import type { Bindings } from "../../src/env";
 import { commitWrite, type CommitInput } from "../../src/core/events";
 import { fixedClock } from "../../src/core/time";
 import { ulid } from "ulidx";
 import { writeFetch } from "./write-support";
 
-const db = (env as unknown as Bindings).DB;
 const clock = fixedClock("2026-07-18T00:00:00.000Z");
 const OWNER = "owner-mf7";
 
@@ -40,7 +38,7 @@ async function seed(): Promise<string> {
     source: { client: "discord-app:test", version: null },
     upstream: null,
   };
-  const { layout } = await commitWrite(db, clock, input);
+  const { layout } = await commitWrite(store, clock, input);
   return layout.id;
 }
 
@@ -53,12 +51,12 @@ interface Counts {
 
 async function snapshot(id: string): Promise<Counts> {
   const [events, formats, revs, layoutRow] = await Promise.all([
-    db.prepare("SELECT COUNT(*) AS n FROM events WHERE layout_id = ?").bind(id).first<{ n: number }>(),
-    db.prepare("SELECT COUNT(*) AS n FROM layout_formats WHERE layout_id = ?").bind(id).first<{ n: number }>(),
-    db.prepare("SELECT COUNT(*) AS n FROM layout_revs WHERE layout_id = ?").bind(id).first<{ n: number }>(),
-    db.prepare("SELECT * FROM layouts WHERE id = ?").bind(id).first(),
+    testStore.count("events", { layout_id: id }),
+    testStore.count("layout_formats", { layout_id: id }),
+    testStore.count("layout_revs", { layout_id: id }),
+    testStore.row("layouts", { id }),
   ]);
-  return { events: events!.n, layout_formats: formats!.n, layout_revs: revs!.n, layoutRow };
+  return { events: events, layout_formats: formats, layout_revs: revs, layoutRow };
 }
 
 describe("[MF-7 = LDB-F25] a ?format=mana2/1 read derives, never writes", () => {
@@ -77,7 +75,7 @@ describe("[MF-7 = LDB-F25] a ?format=mana2/1 read derives, never writes", () => 
 
     // Never stored: no `layout_formats` row for lineage 'mana2' exists,
     // full stop -- not just "unchanged count", the row itself is absent.
-    const manaRow = await db.prepare("SELECT 1 FROM layout_formats WHERE layout_id = ? AND lineage = 'mana2'").bind(id).first();
+    const manaRow = await testStore.row("layout_formats", { layout_id: id, lineage: "mana2" });
     expect(manaRow).toBeNull();
   });
 

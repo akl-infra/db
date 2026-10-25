@@ -27,7 +27,7 @@
 //   out.write_bytes(base64.b64decode(m.group(1)))
 //   "
 // then flip RECORD_BOT_FIXTURE back to false.
-import { createExecutionContext, createScheduledController, SELF, env, waitOnExecutionContext } from "cloudflare:test";
+import { createExecutionContext, createScheduledController, SELF, env, waitOnExecutionContext } from "../harness";
 import { describe, expect, it, vi } from "vitest";
 import type { Bindings } from "../../src/env";
 import worker from "../../src/index";

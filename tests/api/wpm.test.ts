@@ -1,7 +1,7 @@
 // [LDB-WPM1..LDB-WPM9] WPM records (docs/decisions/28-wpm-records.md):
 // submit / queue / approve / public read, black-box via SELF.fetch, same
 // pattern tests/api/links.test.ts uses for the link queue.
-import { env } from "cloudflare:test";
+import { env, store, testStore } from "../harness";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ulid } from "ulidx";
 import type { Bindings } from "../../src/env";
@@ -11,7 +11,6 @@ import { generateKeyPair, seedClient, signHeaders } from "../auth/client-support
 import { AKL_PAYLOAD, BOOTSTRAP_ADMIN, actorFixture, pinTestClock, register, uniqueName, writeFetch } from "./write-support";
 
 const bindings = env as unknown as Bindings;
-const db = bindings.DB;
 const originalProofBotToken = bindings.MODQUEUE_DISCORD_BOT_TOKEN;
 // Every call to the clock is a fresh instant, so `submitted_at`/`decided_at`
 // order strictly by the order the test made its requests.
@@ -50,7 +49,7 @@ async function createLayout(owner: string, name = uniqueName("wpm-layout")): Pro
     source: { client: "discord-app:test", version: null },
     upstream: null,
   };
-  const { layout } = await commitWrite(db, clock, input);
+  const { layout } = await commitWrite(store, clock, input);
   return { id: layout.id, name: layout.name };
 }
 
@@ -102,13 +101,20 @@ async function feedFor(layoutId: string): Promise<FeedEvent[]> {
 // exactly (the best-row tie-break and sort cases).
 async function insertRow(o: { layoutId: string; userId: string; wpm: number; status?: string; decidedAt?: string; id?: string; proof?: string }): Promise<string> {
   const id = o.id ?? ulid();
-  await db
-    .prepare(
-      `INSERT INTO wpm_submissions (id, layout_id, user_id, wpm, proof, submitted_by, via, submitted_at, status, decided_by, decided_at, reason)
-       VALUES (?, ?, ?, ?, ?, ?, 'discord', ?, ?, ?, ?, NULL)`,
-    )
-    .bind(id, o.layoutId, o.userId, o.wpm, o.proof ?? `https://example.org/proof/${id}`, o.userId, "2026-09-01T00:00:00.000Z", o.status ?? "approved", "mod", o.decidedAt ?? null)
-    .run();
+  await testStore.insert("wpm_submissions", {
+    id,
+    layout_id: o.layoutId,
+    user_id: o.userId,
+    wpm: o.wpm,
+    proof: o.proof ?? `https://example.org/proof/${id}`,
+    submitted_by: o.userId,
+    via: "discord",
+    submitted_at: "2026-09-01T00:00:00.000Z",
+    status: o.status ?? "approved",
+    decided_by: "mod",
+    decided_at: o.decidedAt ?? null,
+    reason: null,
+  });
   return id;
 }
 
@@ -137,7 +143,7 @@ describe("private WPM submission status", () => {
       ["rejected", null], ["superseded", null],
     ] as const) {
       const id = await insertRow({ layoutId, userId: user, wpm: 120, status });
-      await db.prepare("UPDATE wpm_submissions SET submitted_by = ?, reason = ? WHERE id = ?").bind(submitter, reason, id).run();
+      await testStore.patch("wpm_submissions", { id }, { submitted_by: submitter, reason });
       const path = `/v1/wpm/submissions/${id}`;
       for (const auth of authorized) {
         const response = await writeFetch(path, "GET", auth);
@@ -193,7 +199,7 @@ describe("private WPM submission status", () => {
     const { privateKey, pubkeyB64url } = await generateKeyPair();
     const owner = testUserId();
     const clientId = "wpm-status-client";
-    await seedClient(db, clock, { id: clientId, pubkeyB64url, ownerUserId: owner, caps: "act-as-user" });
+    await seedClient(clock, { id: clientId, pubkeyB64url, ownerUserId: owner, caps: "act-as-user" });
     const path = `/v1/wpm/submissions/${id}`;
     for (const [actor, expectedStatus] of [[user, 200], [owner, 404]] as const) {
       const headers = await signHeaders({ privateKey, clientId, actor, method: "GET", pathWithQuery: path });
@@ -231,15 +237,15 @@ describe("Discord proof authorship at submission", () => {
     const refused = await writeFetch("/v1/wpm", "POST", auth, { layout: id, wpm: 90, proof });
     expect(refused.status).toBe(400);
     expect(await refused.json()).toMatchObject({ error: "invalid_proof", message: expect.stringContaining("must be written by") });
-    expect(await db.prepare("SELECT id, status FROM wpm_submissions WHERE layout_id = ?").bind(id).all())
-      .toMatchObject({ results: [{ id: previous.submission.id, status: "pending" }] });
+    expect(await testStore.rows("wpm_submissions", { layout_id: id }))
+      .toMatchObject([{ id: previous.submission.id, status: "pending" }]);
     expect(await feedFor(id)).toEqual(events);
-    expect((await db.prepare("SELECT * FROM moderation_review_history WHERE submission_id = ?").bind(previous.submission.id).all()).results).toHaveLength(0);
+    expect((await testStore.rows("moderation_review_history", { submission_id: previous.submission.id }))).toHaveLength(0);
     author = user;
     const accepted = await writeFetch("/v1/wpm", "POST", auth, { layout: id, wpm: 90, proof });
     expect(accepted.status).toBe(202);
     expect(await accepted.json()).toMatchObject({ submission: { user_id: user, proof, status: "pending" } });
-    expect(await db.prepare("SELECT status FROM wpm_submissions WHERE id = ?").bind(previous.submission.id).first()).toEqual({ status: "superseded" });
+    expect(await testStore.row("wpm_submissions", { id: previous.submission.id })).toMatchObject({ status: "superseded" });
     expect(lookups).toBe(2);
   });
 
@@ -254,7 +260,7 @@ describe("Discord proof authorship at submission", () => {
     bindings.MODQUEUE_DISCORD_BOT_TOKEN = "test-proof-bot";
     const body = { user_id: user, layout: id, wpm: 90, proof };
     expect((await writeFetch("/v1/admin/wpm", "POST", admin, body)).status).toBe(400);
-    expect((await db.prepare("SELECT id FROM wpm_submissions WHERE layout_id = ?").bind(id).all()).results).toHaveLength(0);
+    expect((await testStore.rows("wpm_submissions", { layout_id: id }))).toHaveLength(0);
     expect((await feedFor(id)).some((e) => e.kind.startsWith("wpm_"))).toBe(false);
     author = user;
     expect((await writeFetch("/v1/wpm", "POST", admin, { layout: id, wpm: 90, proof })).status).toBe(400);
@@ -271,7 +277,7 @@ describe("Discord proof authorship at submission", () => {
       const { id } = await createLayout(user);
       const res = await writeFetch("/v1/wpm", "POST", auth, { layout: id, wpm: 90, proof: value });
       expect(res.status, value).toBeLessThan(300);
-      expect((await db.prepare("SELECT id FROM wpm_submissions WHERE layout_id = ?").bind(id).all()).results).toHaveLength(1);
+      expect((await testStore.rows("wpm_submissions", { layout_id: id }))).toHaveLength(1);
     }
   });
 });
@@ -344,7 +350,7 @@ describe("[LDB-WPM1] validation is shared by every route", () => {
     expect(unknown.status).toBe(404);
     await expect(unknown.json()).resolves.toMatchObject({ error: "not_found" });
 
-    await db.prepare("UPDATE layouts SET deleted = 1 WHERE id = ?").bind(id).run();
+    await testStore.patch("layouts", { id }, { deleted: 1 });
     expect((await writeFetch("/v1/wpm", "POST", auth, { layout: id, wpm: 92, proof: PROOF })).status).toBe(404);
   });
 });
@@ -367,16 +373,13 @@ describe("[LDB-WPM2] a fresh pending submission supersedes the user's older one;
     const second = await writeFetch("/v1/wpm", "POST", a, { layout: layout1.id, wpm: 80, proof: "https://example.org/a2" });
     expect(second.status).toBe(202);
 
-    const rows = await db
-      .prepare("SELECT user_id, wpm, status FROM wpm_submissions WHERE layout_id = ? ORDER BY submitted_at ASC")
-      .bind(layout1.id)
-      .all<{ user_id: string; wpm: number; status: string }>();
-    expect(rows.results).toEqual([
+    const rows = await testStore.rows<{ user_id: string; wpm: number; status: string }>("wpm_submissions", { layout_id: layout1.id }, ["submitted_at"]);
+    expect(rows.map((r) => ({ user_id: r.user_id, wpm: r.wpm, status: r.status }))).toEqual([
       { user_id: userA, wpm: 70, status: "superseded" },
       { user_id: userB, wpm: 60, status: "pending" },
       { user_id: userA, wpm: 80, status: "pending" },
     ]);
-    const other = await db.prepare("SELECT status FROM wpm_submissions WHERE layout_id = ?").bind(layout2.id).first<{ status: string }>();
+    const other = await testStore.row<{ status: string }>("wpm_submissions", { layout_id: layout2.id });
     expect(other?.status).toBe("pending");
 
     // Only the NEW submission's `wpm_submitted` landed; superseding is silent.
@@ -404,8 +407,8 @@ describe("[LDB-WPM2] a fresh pending submission supersedes the user's older one;
     ] as const) {
       expect([404, 405], `${method} ${path}`).toContain((await writeFetch(path, method, auth)).status);
     }
-    const count = await db.prepare("SELECT COUNT(*) AS n FROM wpm_submissions WHERE id = ?").bind(submitted.submission.id).first<{ n: number }>();
-    expect(count?.n).toBe(1);
+    const count = await testStore.count("wpm_submissions", { id: submitted.submission.id });
+    expect(count).toBe(1);
   });
 });
 
@@ -435,7 +438,7 @@ describe("[LDB-WPM4] an admin enters a speed on someone else's behalf", () => {
     const { id } = await createLayout(testUserId());
     const admin = register(actorFixture(), token("wpm-behalf"), BOOTSTRAP_ADMIN);
     const target = testUserId();
-    expect((await db.prepare("SELECT 1 FROM authors WHERE user_id = ?").bind(target).first()) === null).toBe(true);
+    expect((await testStore.row("authors", { user_id: target })) === null).toBe(true);
 
     const res = await writeFetch("/v1/admin/wpm", "POST", admin, { user_id: target, layout: id, wpm: 101, proof: PROOF });
     expect(res.status).toBe(201);
@@ -445,10 +448,10 @@ describe("[LDB-WPM4] an admin enters a speed on someone else's behalf", () => {
     const recs = await records(`?user=${target}`);
     expect(recs).toHaveLength(1);
     expect(recs[0]).toMatchObject({ user_id: target, user_name: null, wpm: 101, layout_id: id });
-    expect((await db.prepare("SELECT 1 FROM authors WHERE user_id = ?").bind(target).first()) === null).toBe(true);
+    expect((await testStore.row("authors", { user_id: target })) === null).toBe(true);
 
     // Once the target has an author row, the record names them.
-    await db.prepare("INSERT INTO authors (user_id, name, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?)").bind(target, "Typist", clock(), clock()).run();
+    await testStore.insert("authors", { user_id: target, name: "Typist", first_seen_at: clock(), last_seen_at: clock() });
     expect((await records(`?user=${target}`))[0]).toMatchObject({ user_name: "Typist" });
   });
 
@@ -461,7 +464,7 @@ describe("[LDB-WPM4] an admin enters a speed on someone else's behalf", () => {
       await expect(res.json()).resolves.toMatchObject({ error: "bad_request", param: "user_id" });
     }
     expect((await writeFetch("/v1/admin/wpm", "POST", admin, { user_id: testUserId(), layout: "no-such-layout-wpm", wpm: 90, proof: PROOF })).status).toBe(404);
-    await db.prepare("UPDATE layouts SET deleted = 1 WHERE id = ?").bind(id).run();
+    await testStore.patch("layouts", { id }, { deleted: 1 });
     expect((await writeFetch("/v1/admin/wpm", "POST", admin, { user_id: testUserId(), layout: id, wpm: 90, proof: PROOF })).status).toBe(404);
   });
 });
@@ -563,7 +566,7 @@ describe("[LDB-WPM6] records on a deleted layout are hidden", () => {
     expect(await records(`?user=${user}`)).toHaveLength(1);
     expect(await pendingFor(admin, id)).toHaveLength(1);
 
-    const layoutRow = await db.prepare("SELECT layout_rev FROM layouts WHERE id = ?").bind(id).first<{ layout_rev: number }>();
+    const layoutRow = await testStore.row<{ layout_rev: number }>("layouts", { id });
     const del = await writeFetch(`/v1/layouts/${id}`, "DELETE", { ...ownerAuth, "If-Match": `"layout:${layoutRow!.layout_rev}"` });
     expect(del.status).toBe(200);
 
@@ -587,12 +590,12 @@ describe("[LDB-WPM6] records on a deleted layout are hidden", () => {
     const admin = register(fake, token("wpm-del2-admin"), BOOTSTRAP_ADMIN);
     const submitted = (await (await writeFetch("/v1/wpm", "POST", ownerAuth, { layout: id, wpm: 66, proof: PROOF })).json()) as { submission: Submission };
 
-    await db.prepare("UPDATE layouts SET deleted = 1 WHERE id = ?").bind(id).run();
+    await testStore.patch("layouts", { id }, { deleted: 1 });
     expect((await writeFetch(`/v1/admin/wpm-queue/${submitted.submission.id}/approve`, "POST", admin)).status).toBe(404);
-    const row = await db.prepare("SELECT status FROM wpm_submissions WHERE id = ?").bind(submitted.submission.id).first<{ status: string }>();
+    const row = await testStore.row<{ status: string }>("wpm_submissions", { id: submitted.submission.id });
     expect(row?.status).toBe("pending");
 
-    await db.prepare("UPDATE layouts SET deleted = 0 WHERE id = ?").bind(id).run();
+    await testStore.patch("layouts", { id }, { deleted: 0 });
     expect((await writeFetch(`/v1/admin/wpm-queue/${submitted.submission.id}/approve`, "POST", admin)).status).toBe(200);
   });
 });
@@ -656,13 +659,23 @@ describe("[LDB-WPM7] events: one per action, nothing private in the public feed"
       ["wpm_submitted", { submission_id: "01OLDWPM", wpm: 777, proof: "https://example.org/old-secret-proof" }],
       ["wpm_rejected", { submission_id: "01OLDWPM", user_id: "1", reason: "old private reason" }],
     ] as const) {
-      await db
-        .prepare(
-          `INSERT INTO events (at, kind, layout_id, name, owner, format, rev, actor, via, admin, detail_json, before_json, after_json, source_client, source_version)
-           VALUES (?, ?, ?, ?, 'o', NULL, NULL, 'a', 'discord', 0, ?, NULL, NULL, NULL, NULL)`,
-        )
-        .bind(clock(), kind, id, name, JSON.stringify(detail))
-        .run();
+      await testStore.insert("events", {
+        at: clock(),
+        kind,
+        layout_id: id,
+        name,
+        owner: "o",
+        format: null,
+        rev: null,
+        actor: "a",
+        via: "discord",
+        admin: 0,
+        detail_json: JSON.stringify(detail),
+        before_json: null,
+        after_json: null,
+        source_client: null,
+        source_version: null,
+      });
     }
     const events = (await feedFor(id)).filter((e) => e.kind.startsWith("wpm_"));
     expect(events.map((e) => e.detail)).toEqual([{ submission_id: "01OLDWPM" }, { submission_id: "01OLDWPM" }]);
@@ -710,8 +723,8 @@ describe("[LDB-WPM9] the queue is admin-only; a ban stops submissions; internal 
     const res = await writeFetch("/v1/wpm", "POST", banned, { layout: id, wpm: 90, proof: PROOF });
     expect(res.status).toBe(403);
     await expect(res.json()).resolves.toMatchObject({ error: "banned" });
-    const n = await db.prepare("SELECT COUNT(*) AS n FROM wpm_submissions WHERE user_id = ?").bind(user).first<{ n: number }>();
-    expect(n?.n).toBe(0);
+    const n = await testStore.count("wpm_submissions", { user_id: user });
+    expect(n).toBe(0);
   });
 
   it("[LDB-WPM9] a decided submission cannot be decided again (404); reject's reason is optional and stored; a bad status is 400", async () => {
@@ -745,7 +758,7 @@ describe("[LDB-WPM9] the queue is admin-only; a ban stops submissions; internal 
 
     const posted = await writeFetch("/v1/wpm", "POST", userAuth, { layout: id, wpm: 90, proof: PROOF });
     // The sign-in above created the author row; give it a display name to join.
-    await db.prepare("UPDATE authors SET name = ? WHERE user_id = ?").bind("Wire Typist", user).run();
+    await testStore.patch("authors", { user_id: user }, { name: "Wire Typist" });
     const body = (await posted.json()) as { submission: Submission };
     expect(Object.keys(body.submission).sort()).toEqual(["decided_at", "decided_by", "id", "layout_id", "proof", "reason", "review_version", "status", "submitted_at", "submitted_by", "user_id", "via", "wpm"]);
 
@@ -768,7 +781,7 @@ describe("private Discord receipt binding", () => {
     const submitter = testUserId();
     const { id: layoutId } = await createLayout(user);
     const id = await insertRow({ layoutId, userId: user, wpm: 120 });
-    await db.prepare("UPDATE wpm_submissions SET submitted_by = ? WHERE id = ?").bind(submitter, id).run();
+    await testStore.patch("wpm_submissions", { id }, { submitted_by: submitter });
     const fake = actorFixture();
     const auth = register(fake, token("bind-submitter"), submitter);
     const admin = register(fake, token("bind-admin"), BOOTSTRAP_ADMIN);
@@ -836,7 +849,7 @@ describe("private Discord receipt binding", () => {
     const { privateKey, pubkeyB64url } = await generateKeyPair();
     const owner = testUserId();
     const clientId = "wpm-bind-client";
-    await seedClient(db, clock, { id: clientId, pubkeyB64url, ownerUserId: owner, caps: "act-as-user" });
+    await seedClient(clock, { id: clientId, pubkeyB64url, ownerUserId: owner, caps: "act-as-user" });
     const path = `/v1/wpm/submissions/${id}/discord-message`;
     const send = async (actor: string, message_id: string) => {
       const payload = { ...body, message_id };
@@ -847,6 +860,6 @@ describe("private Discord receipt binding", () => {
     const results = await Promise.all([send(user, body.message_id), send(user, "900000000000000004")]);
     expect(results.map((r) => r.status).sort()).toEqual([200, 409]);
     const winner = await results.find((r) => r.status === 200)!.json() as { source_message_url: string };
-    expect(await db.prepare("SELECT source_message_url FROM wpm_submissions WHERE id = ?").bind(id).first()).toEqual(winner);
+    expect(await testStore.row("wpm_submissions", { id })).toMatchObject(winner);
   });
 });

@@ -4,17 +4,16 @@
 // field can set `source.client` on either lane. `source.version` is the
 // validated header (or `null`); an invalid header is `400
 // invalid_client_version` and writes nothing.
-import { env } from "cloudflare:test";
+import { env, store, testStore } from "../harness";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Bindings } from "../../src/env";
 import { commitWrite, type CommitInput } from "../../src/core/events";
 import { fixedClock } from "../../src/core/time";
 import { ulid } from "ulidx";
 import { generateKeyPair, seedClient, signHeaders } from "../auth/client-support";
-import { AKL_PAYLOAD, actorFixture, pinTestClock, register, uniqueName, writeFetch } from "./write-support";
+import { actorFixture, AKL_PAYLOAD, ensureAuthor, pinTestClock, register, uniqueName, writeFetch } from "./write-support";
 
 const bindings = env as unknown as Bindings;
-const db = bindings.DB;
 const clock = fixedClock("2026-09-10T00:00:00.000Z");
 pinTestClock(bindings as unknown as { TEST_CLOCK?: typeof clock }, clock);
 
@@ -33,10 +32,7 @@ afterEach(() => {
 });
 
 async function seedAuthor(userId: string): Promise<void> {
-  await db
-    .prepare("INSERT OR IGNORE INTO authors (user_id, name, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?)")
-    .bind(userId, `user-${userId}`, clock(), clock())
-    .run();
+  await ensureAuthor(userId, `user-${userId}`, clock(), clock());
 }
 
 beforeAll(async () => {
@@ -61,7 +57,7 @@ let clientRegistered = false;
 async function ensureClientRegistered(): Promise<void> {
   const { pubkeyB64url } = await clientKey();
   if (!clientRegistered) {
-    await seedClient(db, clock, { id: CLIENT_ID, pubkeyB64url, ownerUserId: CLIENT_OWNER, caps: "act-as-owner-only" });
+    await seedClient(clock, { id: CLIENT_ID, pubkeyB64url, ownerUserId: CLIENT_OWNER, caps: "act-as-owner-only" });
     clientRegistered = true;
   }
 }
@@ -83,7 +79,7 @@ async function clientHeaders(method: string, pathWithQuery: string, body?: unkno
 // have targeted, so `n` unchanged is the one check that works for every
 // verb uniformly.
 async function nOf(layoutId: string): Promise<number | null> {
-  const row = await db.prepare("SELECT n FROM layouts WHERE id = ?").bind(layoutId).first<{ n: number }>();
+  const row = await testStore.row<{ n: number }>("layouts", { id: layoutId });
   return row?.n ?? null;
 }
 
@@ -102,7 +98,7 @@ async function seedRecord(owner: string): Promise<{ id: string; n: number; name:
     source: { client: "discord-app:test", version: null },
     upstream: null,
   };
-  const { layout } = await commitWrite(db, clock, input);
+  const { layout } = await commitWrite(store, clock, input);
   return { id: layout.id, n: layout.n, name: layout.name };
 }
 
@@ -112,10 +108,7 @@ interface EventSourceRow {
 }
 
 async function latestEventSource(layoutId: string): Promise<{ client: string; version: string | null } | null> {
-  const row = await db
-    .prepare("SELECT source_client, source_version FROM events WHERE layout_id = ? ORDER BY seq DESC LIMIT 1")
-    .bind(layoutId)
-    .first<EventSourceRow>();
+  const row = ((await testStore.rows("events", { layout_id: layoutId }, ["seq"])) as unknown as EventSourceRow[]).at(-1) ?? null;
   if (row === null || row.source_client === null) return null;
   return { client: row.source_client, version: row.source_version };
 }
@@ -232,15 +225,15 @@ describe("[LDB-P15] source.client x source.version: lane x verb x version-header
         ["too long (65 chars)", INVALID_VERSION_TOO_LONG],
         ["disallowed character (space)", INVALID_VERSION_BAD_CHAR],
       ])(`[LDB-P15] ${lane} lane, ${verb}: invalid header (%s) -> 400 invalid_client_version, writes nothing`, async (_label, bad) => {
-        const globalBefore = await db.prepare("SELECT COUNT(*) AS n FROM events").first<{ n: number }>();
+        const globalBefore = await testStore.count("events");
         const { res, layoutId, nBefore } = await fire(lane, verb, bad);
         expect(res.status).toBe(400);
         await expect(res.clone().json()).resolves.toMatchObject({ error: "invalid_client_version" });
         if (verb === "create") {
           // No prior record to check a rev on -- the global event count
           // (this attempt's only possible side effect) must be unchanged.
-          const globalAfter = await db.prepare("SELECT COUNT(*) AS n FROM events").first<{ n: number }>();
-          expect(globalAfter?.n).toBe(globalBefore?.n);
+          const globalAfter = await testStore.count("events");
+          expect(globalAfter).toBe(globalBefore);
         } else {
           // Every other verb seeded a real record (+ restore's own
           // tombstone) before this attempt -- those writes already

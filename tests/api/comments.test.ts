@@ -2,16 +2,13 @@
 // (docs/decisions/29-layout-comments.md): write / queue / approve / delete /
 // public and own reads, black-box via SELF.fetch, same pattern
 // tests/api/wpm.test.ts uses for the WPM queue.
-import { env } from "cloudflare:test";
+import { env, store, testStore } from "../harness";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ulid } from "ulidx";
-import type { Bindings } from "../../src/env";
 import { commitWrite, type CommitInput } from "../../src/core/events";
 import { steppingClock } from "../../src/core/time";
-import { AKL_PAYLOAD, BOOTSTRAP_ADMIN, actorFixture, pinTestClock, register, uniqueName, writeFetch } from "./write-support";
+import { AKL_PAYLOAD, BOOTSTRAP_ADMIN, actorFixture, pinTestClock, register, replaceAuthor, uniqueName, writeFetch } from "./write-support";
 
-const bindings = env as unknown as Bindings;
-const db = bindings.DB;
 // Every call to the clock is a fresh instant, so `submitted_at`/`decided_at`
 // order strictly by the order the test made its requests.
 const clock = steppingClock("2026-10-01T00:00:00.000Z", 1000);
@@ -48,7 +45,7 @@ async function createLayout(owner: string, name = uniqueName("cmt-layout")): Pro
     source: { client: "discord-app:test", version: null },
     upstream: null,
   };
-  const { layout } = await commitWrite(db, clock, input);
+  const { layout } = await commitWrite(store, clock, input);
   return { id: layout.id, name: layout.name };
 }
 
@@ -117,9 +114,12 @@ async function approve(admin: Auth, id: string): Promise<Response> {
 }
 
 async function rowsFor(layoutId: string, userId?: string): Promise<{ id: string; user_id: string; body: string | null; status: string }[]> {
-  const q = userId === undefined ? "WHERE layout_id = ?" : "WHERE layout_id = ? AND user_id = ?";
-  const stmt = db.prepare(`SELECT id, user_id, body, status FROM layout_comments ${q} ORDER BY submitted_at ASC, id ASC`);
-  return (await (userId === undefined ? stmt.bind(layoutId) : stmt.bind(layoutId, userId)).all<{ id: string; user_id: string; body: string | null; status: string }>()).results;
+  const rows = await testStore.rows<{ id: string; user_id: string; body: string | null; status: string }>(
+    "layout_comments",
+    userId === undefined ? { layout_id: layoutId } : { layout_id: layoutId, user_id: userId },
+    ["submitted_at", "id"],
+  );
+  return rows.map((r) => ({ id: r.id, user_id: r.user_id, body: r.body, status: r.status }));
 }
 
 interface FeedEvent {
@@ -166,7 +166,7 @@ describe("[LDB-CMT1] validation is shared by every write", () => {
     const { id } = await createLayout(user);
     const { submission } = await put(auth, id, "  line one\r\nline two\rline three\n  <b>raw</b> \u{1F600}  ");
     expect(submission.body).toBe("line one\nline two\nline three\n  <b>raw</b> \u{1F600}");
-    const stored = await db.prepare("SELECT body FROM layout_comments WHERE id = ?").bind(submission.id).first<{ body: string }>();
+    const stored = await testStore.row<{ body: string }>("layout_comments", { id: submission.id });
     expect(stored?.body).toBe(submission.body);
   });
 
@@ -187,7 +187,7 @@ describe("[LDB-CMT1] validation is shared by every write", () => {
     expect(unknown.status).toBe(404);
     await expect(unknown.json()).resolves.toMatchObject({ error: "not_found" });
 
-    await db.prepare("UPDATE layouts SET deleted = 1 WHERE id = ?").bind(id).run();
+    await testStore.patch("layouts", { id }, { deleted: 1 });
     expect((await writeFetch(`/v1/layouts/${id}/comment`, "PUT", auth, { body: "late" })).status).toBe(404);
   });
 });
@@ -315,11 +315,10 @@ describe("[LDB-CMT3] approve / replace / reject / remove", () => {
     for (const text of ["a", "b", "c", "d"]) {
       await approve(admin, (await put(auth, id, text)).submission.id);
       await approve(admin, (await put(otherAuth, id, `${text}!`)).submission.id);
-      const live = await db
-        .prepare("SELECT user_id, COUNT(*) AS n FROM layout_comments WHERE layout_id = ? AND status = 'approved' AND body IS NOT NULL GROUP BY user_id")
-        .bind(id)
-        .all<{ user_id: string; n: number }>();
-      expect(live.results.map((r) => r.n)).toEqual([1, 1]);
+      const live = (await testStore.rows<{ user_id: string; body: string | null }>("layout_comments", { layout_id: id, status: "approved" })).filter((r) => r.body !== null);
+      const perUser = new Map<string, number>();
+      for (const r of live) perUser.set(r.user_id, (perUser.get(r.user_id) ?? 0) + 1);
+      expect([...perUser.values()]).toEqual([1, 1]);
     }
     expect((await listed(id)).map((c) => c.body).sort()).toEqual(["d", "d!"]);
     const replaced = (await rowsFor(id)).filter((r) => r.status === "replaced");
@@ -407,13 +406,13 @@ describe("[LDB-CMT3] approve / replace / reject / remove", () => {
     const { user, auth, admin } = actors("tomb");
     const { id } = await createLayout(user);
     const sub = (await put(auth, id, "waiting")).submission;
-    await db.prepare("UPDATE layouts SET deleted = 1 WHERE id = ?").bind(id).run();
+    await testStore.patch("layouts", { id }, { deleted: 1 });
 
     expect((await approve(admin, sub.id)).status).toBe(404);
     expect((await rowsFor(id, user))[0]?.status).toBe("pending");
     expect(await queue(admin, id)).toEqual([]); // hidden while the layout is a tombstone
 
-    await db.prepare("UPDATE layouts SET deleted = 0 WHERE id = ?").bind(id).run();
+    await testStore.patch("layouts", { id }, { deleted: 0 });
     expect(await queue(admin, id)).toHaveLength(1);
     expect((await approve(admin, sub.id)).status).toBe(200);
   });
@@ -530,8 +529,8 @@ describe("[LDB-CMT4] delete is immediate and erases the text for good", () => {
     await approve(admin, (await put(auth, id, `${secret} approved`)).submission.id);
     await put(auth, id, `${secret} pending`);
     await writeFetch(`/v1/layouts/${id}/comment`, "DELETE", auth);
-    const left = await db.prepare("SELECT COUNT(*) AS n FROM layout_comments WHERE layout_id = ? AND body LIKE ?").bind(id, `%${secret}%`).first<{ n: number }>();
-    expect(left?.n).toBe(0);
+    const left = (await testStore.rows<{ body: string | null }>("layout_comments", { layout_id: id })).filter((r) => r.body?.includes(secret));
+    expect(left.length).toBe(0);
     const eventText = JSON.stringify(await feedFor(id));
     expect(eventText.includes(secret)).toBe(false);
   });
@@ -570,7 +569,7 @@ describe("[LDB-CMT5] GET /v1/layouts/:ref/comments is public and shows one appro
     // approved
     const shown = (await put(auths[3]!, id, "shown")).submission;
     await approve(admin, shown.id);
-    await db.prepare("INSERT OR REPLACE INTO authors (user_id, name, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?)").bind(others[3]!, "Shown Person", clock(), clock()).run();
+    await replaceAuthor(others[3]!, "Shown Person", clock(), clock());
 
     const res = await writeFetch(`/v1/layouts/${id}/comments`, "GET");
     expect(res.headers.get("Cache-Control")).toBe("public, max-age=10");
@@ -580,7 +579,7 @@ describe("[LDB-CMT5] GET /v1/layouts/:ref/comments is public and shows one appro
     expect(comments[0]).toMatchObject({ id: shown.id, user_id: others[3], name: "Shown Person", body: "shown", edited: false });
     expect(JSON.stringify(comments)).not.toMatch(/only pending|rejected one|to be removed|notified_at/);
     // `name` is null for a user with no authors row
-    await db.prepare("DELETE FROM authors WHERE user_id = ?").bind(others[3]!).run();
+    await testStore.remove("authors", { user_id: others[3]! });
     expect((await listed(id))[0]?.name).toBeNull();
   });
 
@@ -588,10 +587,7 @@ describe("[LDB-CMT5] GET /v1/layouts/:ref/comments is public and shows one appro
     const owner = testUserId();
     const { id, name } = await createLayout(owner);
     const mk = (suffix: string, at: string, uid: string) =>
-      db
-        .prepare("INSERT INTO layout_comments (id, layout_id, user_id, body, via, submitted_at, status, decided_by, decided_at) VALUES (?, ?, ?, ?, 'discord', ?, 'approved', 'm', ?)")
-        .bind(`01ARZ3NDEKTSV4RRFFQ69G5F${suffix}`, id, uid, `c-${suffix}`, at, at)
-        .run();
+      testStore.insert("layout_comments", { id: `01ARZ3NDEKTSV4RRFFQ69G5F${suffix}`, layout_id: id, user_id: uid, body: `c-${suffix}`, via: "discord", submitted_at: at, status: "approved", decided_by: "m", decided_at: at });
     const [u1, u2, u3, u4] = [testUserId(), testUserId(), testUserId(), testUserId()] as const;
     await mk("A1", "2026-09-01T00:00:00.000Z", u1);
     await mk("A2", "2026-09-03T00:00:00.000Z", u2);
@@ -647,7 +643,7 @@ describe("[LDB-CMT5] GET /v1/layouts/:ref/comments is public and shows one appro
     expect(await listed(id)).toHaveLength(1);
     const etagShown = (await writeFetch(`/v1/layouts/${id}/comments`, "GET")).headers.get("ETag")!;
 
-    const layoutRow = await db.prepare("SELECT layout_rev FROM layouts WHERE id = ?").bind(id).first<{ layout_rev: number }>();
+    const layoutRow = await testStore.row<{ layout_rev: number }>("layouts", { id });
     const del = await writeFetch(`/v1/layouts/${id}`, "DELETE", { ...ownerAuth, "If-Match": `"layout:${layoutRow!.layout_rev}"` });
     expect(del.status).toBe(200);
     expect(await listed(id)).toEqual([]);
@@ -735,7 +731,7 @@ describe("GET /v1/comment-counts is a sparse public aggregate", () => {
     await approve(admin, remaining.id);
     const beforeTombstone = await counts(deleteTag);
     expect(await localCounts(beforeTombstone)).toEqual([{ layout_id: first.id, layout_name: first.name, count: 2 }]);
-    const layoutRev = await db.prepare("SELECT layout_rev FROM layouts WHERE id = ?").bind(first.id).first<{ layout_rev: number }>();
+    const layoutRev = await testStore.row<{ layout_rev: number }>("layouts", { id: first.id });
     const tombstoned = await writeFetch(`/v1/layouts/${first.id}`, "DELETE", { ...auth, "If-Match": `\"layout:${layoutRev!.layout_rev}\"` });
     expect(tombstoned.status).toBe(200);
     const hidden = await counts(beforeTombstone.headers.get("ETag")!);
@@ -836,13 +832,23 @@ describe("[LDB-CMT7] events: one per action, no comment text and no reason anywh
       ["comment_submitted", { submission_id: "01OLDCMT", body: "old secret comment text" }],
       ["comment_rejected", { submission_id: "01OLDCMT", reason: "old private reason" }],
     ] as const) {
-      await db
-        .prepare(
-          `INSERT INTO events (at, kind, layout_id, name, owner, format, rev, actor, via, admin, detail_json, before_json, after_json, source_client, source_version)
-           VALUES (?, ?, ?, ?, 'o', NULL, NULL, 'a', 'discord', 0, ?, NULL, NULL, NULL, NULL)`,
-        )
-        .bind(clock(), kind, id, name, JSON.stringify(detail))
-        .run();
+      await testStore.insert("events", {
+        at: clock(),
+        kind,
+        layout_id: id,
+        name,
+        owner: "o",
+        format: null,
+        rev: null,
+        actor: "a",
+        via: "discord",
+        admin: 0,
+        detail_json: JSON.stringify(detail),
+        before_json: null,
+        after_json: null,
+        source_client: null,
+        source_version: null,
+      });
     }
     const events = await commentEvents(id);
     expect(events.map((e) => e.detail)).toEqual([{ submission_id: "01OLDCMT" }, { submission_id: "01OLDCMT" }]);
@@ -889,7 +895,7 @@ describe("[LDB-CMT9] the queue is admin-only; a ban stops writes; internal bookk
     const { id, name } = await createLayout(user);
     const v1 = (await put(auth, id, "live text")).submission;
     await approve(admin, v1.id);
-    await db.prepare("UPDATE authors SET name = ? WHERE user_id = ?").bind("Wire Commenter", user).run();
+    await testStore.patch("authors", { user_id: user }, { name: "Wire Commenter" });
     const posted = await writeFetch(`/v1/layouts/${id}/comment`, "PUT", auth, { body: "edit text" });
     const body = (await posted.json()) as { submission: Submission };
     expect(Object.keys(body.submission).sort()).toEqual(["body", "decided_at", "decided_by", "id", "layout_id", "reason", "review_version", "status", "submitted_at", "user_id", "via"]);
@@ -932,7 +938,7 @@ async function unlike(who: Auth, layout: string, author: string): Promise<Respon
   return writeFetch(likeUrl(layout, author), "DELETE", who);
 }
 async function likeRows(layoutId: string, authorId: string): Promise<string[]> {
-  const { results } = await db.prepare("SELECT user_id FROM comment_likes WHERE layout_id = ? AND author_id = ? ORDER BY user_id").bind(layoutId, authorId).all<{ user_id: string }>();
+  const results = await testStore.rows<{ user_id: string }>("comment_likes", { layout_id: layoutId, author_id: authorId }, ["user_id"]);
   return results.map((r) => r.user_id);
 }
 // A layout whose owner `author` has an approved comment, plus two likers.
@@ -963,7 +969,7 @@ describe("[LDB-CMT11] likes target the author's comment slot", () => {
     expect((await unlike(s.a.auth, s.id, s.author.user)).status).toBe(204); // nothing left to remove
     expect(await likeRows(s.id, s.author.user)).toEqual([s.b.user]);
     // by layout name too
-    const name = (await db.prepare("SELECT name FROM layouts WHERE id = ?").bind(s.id).first<{ name: string }>())!.name;
+    const name = (await testStore.row<{ name: string }>("layouts", { id: s.id }))!.name;
     expect((await like(s.a.auth, name, s.author.user)).status).toBe(204);
     expect(await likeRows(s.id, s.author.user)).toHaveLength(2);
   });
@@ -985,7 +991,7 @@ describe("[LDB-CMT11] likes target the author's comment slot", () => {
     await expect(bad.json()).resolves.toMatchObject({ error: "bad_request", param: "author_id" });
     expect((await like(s.a.auth, "no-such-layout-cmt", s.author.user)).status).toBe(404);
     expect((await unlike(s.a.auth, "no-such-layout-cmt", s.author.user)).status).toBe(404);
-    await db.prepare("UPDATE layouts SET deleted = 1 WHERE id = ?").bind(s.id).run();
+    await testStore.patch("layouts", { id: s.id }, { deleted: 1 });
     expect((await like(s.a.auth, s.id, s.author.user)).status).toBe(404);
   });
 
@@ -1187,7 +1193,7 @@ describe("[LDB-CMT13] the listing carries likes, orders by them, and keeps the v
 
     // transfer to `popular`'s author: the pin follows the new owner, and the ETag moves
     const tagBefore = (await writeFetch(`/v1/layouts/${id}/comments`, "GET")).headers.get("ETag")!;
-    const rev = (await db.prepare("SELECT layout_rev FROM layouts WHERE id = ?").bind(id).first<{ layout_rev: number }>())!.layout_rev;
+    const rev = (await testStore.row<{ layout_rev: number }>("layouts", { id }))!.layout_rev;
     const moved = await writeFetch(`/v1/layouts/${id}/transfer`, "POST", { ...ownerAuth, "If-Match": `"layout:${rev}"` }, { to: popular.user });
     expect(moved.status).toBe(200);
     const after = await writeFetch(`/v1/layouts/${id}/comments`, "GET", { "If-None-Match": tagBefore });
@@ -1306,7 +1312,7 @@ describe("[LDB-CMT16] GET /v1/me/comments lists the caller's own slots across la
     const byLayout = async () => new Map((await mine(auth)).rows.map((r) => [r.layout_id, r.is_author]));
     expect(await byLayout()).toEqual(new Map([[ownLayout.id, true], [otherLayout.id, false]]));
 
-    const rev = (await db.prepare("SELECT layout_rev FROM layouts WHERE id = ?").bind(ownLayout.id).first<{ layout_rev: number }>())!.layout_rev;
+    const rev = (await testStore.row<{ layout_rev: number }>("layouts", { id: ownLayout.id }))!.layout_rev;
     expect((await writeFetch(`/v1/layouts/${ownLayout.id}/transfer`, "POST", { ...auth, "If-Match": `"layout:${rev}"` }, { to: heir })).status).toBe(200);
     expect((await byLayout()).get(ownLayout.id)).toBe(false);
   });
@@ -1325,7 +1331,7 @@ describe("[LDB-CMT16] GET /v1/me/comments lists the caller's own slots across la
     await approve(admin, (await put(auth, erased.id, "to be erased")).submission.id);
     await writeFetch(`/v1/layouts/${erased.id}/comment`, "DELETE", auth);
     await put(auth, gone.id, "on a layout that will be deleted");
-    await db.prepare("UPDATE layouts SET deleted = 1 WHERE id = ?").bind(gone.id).run();
+    await testStore.patch("layouts", { id: gone.id }, { deleted: 1 });
     await put(auth, shown.id, "mine, shown");
 
     const { rows } = await mine(auth);
@@ -1334,7 +1340,7 @@ describe("[LDB-CMT16] GET /v1/me/comments lists the caller's own slots across la
     expect(JSON.stringify(rows)).not.toContain("to be erased");
     expect((await mine(other)).rows.map((r) => r.pending?.body)).toEqual(["someone else's text"]);
 
-    await db.prepare("UPDATE layouts SET deleted = 0 WHERE id = ?").bind(gone.id).run();
+    await testStore.patch("layouts", { id: gone.id }, { deleted: 0 });
     expect((await mine(auth)).rows.map((r) => r.layout_id).sort()).toEqual([gone.id, shown.id].sort()); // back on restore
 
     const anon = await writeFetch("/v1/me/comments", "GET");
@@ -1353,19 +1359,17 @@ describe("[LDB-CMT16] GET /v1/me/comments lists the caller's own slots across la
     const { id } = await createLayout(testUserId());
     await put(auth, id, "the one");
     // 500 more layouts' worth of old slots, copied from a real layout row (a route call each would be slow)
-    const template = (await db.prepare("SELECT * FROM layouts WHERE id = ?").bind(id).first<Record<string, unknown>>())!;
+    const template = (await testStore.row<Record<string, unknown>>("layouts", { id }))!;
     const columns = Object.keys(template);
-    const insert = `INSERT INTO layouts (${columns.join(", ")}) VALUES (${columns.map(() => "?").join(", ")})`;
-    const stmts: D1PreparedStatement[] = [];
+    const layoutRows: Record<string, unknown>[] = [];
+    const commentRows: Record<string, unknown>[] = [];
     for (let i = 0; i < 500; i++) {
       const lid = ulid();
-      const values = columns.map((col) => (col === "id" ? lid : col === "name" ? `bulk-me-${i}-${lid}` : (template[col] as string | number | null)));
-      stmts.push(
-        db.prepare(insert).bind(...values),
-        db.prepare("INSERT INTO layout_comments (id, layout_id, user_id, body, via, submitted_at, status) VALUES (?, ?, ?, 'old', 'discord', '2026-01-01T00:00:00.000Z', 'pending')").bind(ulid(), lid, user),
-      );
+      layoutRows.push(Object.fromEntries(columns.map((col) => [col, col === "id" ? lid : col === "name" ? `bulk-me-${i}-${lid}` : template[col]])));
+      commentRows.push({ id: ulid(), layout_id: lid, user_id: user, body: "old", via: "discord", submitted_at: "2026-01-01T00:00:00.000Z", status: "pending" });
     }
-    await db.batch(stmts);
+    await testStore.insert("layouts", ...layoutRows);
+    await testStore.insert("layout_comments", ...commentRows);
     const { rows } = await mine(auth);
     expect(rows).toHaveLength(500);
     expect(rows[0]!.layout_id).toBe(id); // the newest activity survives the cap

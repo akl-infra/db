@@ -3,13 +3,11 @@
 // create/replace, filterable the same way (`?has_alts=`/`?has_combos=`),
 // and folded correctly from the event log (LDB-P1's own `has_magic` claim,
 // restated for the two new columns).
-import { SELF, env } from "cloudflare:test";
+import { SELF, env, testStore } from "../harness";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Bindings } from "../../src/env";
 import { fixedClock } from "../../src/core/time";
 import { actorFixture, AKL_PAYLOAD, pinTestClock, register, uniqueName, writeFetch } from "./write-support";
 
-const db = (env as unknown as Bindings).DB;
 const clock = fixedClock("2026-09-30T00:00:00.000Z");
 pinTestClock(env as unknown as { TEST_CLOCK?: typeof clock }, clock);
 
@@ -59,8 +57,8 @@ describe("[LDB-F45] has_alts/has_combos on the write paths", () => {
     const body = await res.json<WriteBody>();
     expect(body.formats["spark/1"]).toMatchObject({ has_magic: false, has_alts: true, has_combos: false });
 
-    const row = await db.prepare("SELECT has_alts, has_combos FROM layout_formats WHERE layout_id = ? AND lineage = 'spark'").bind(body.id).first<{ has_alts: number; has_combos: number }>();
-    expect(row).toEqual({ has_alts: 1, has_combos: 0 });
+    const row = await testStore.row<{ has_alts: number; has_combos: number }>("layout_formats", { layout_id: body.id, lineage: "spark" });
+    expect(row).toMatchObject({ has_alts: 1, has_combos: 0 });
   });
 
   it("[LDB-F45] POST with combos sets has_combos true, has_alts false", async () => {

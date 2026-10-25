@@ -1,3 +1,4 @@
+// D1-only (design/p1-briefs.md E).
 // [LDB-L2] Coordinator review (third batch, HIGH): appendLike's own
 // not-liked check (events.ts) is a read BEFORE the batch. A LIKE race is
 // already atomic through the `likes` table's own (layout_id, user_id) PK

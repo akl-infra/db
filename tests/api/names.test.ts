@@ -3,15 +3,13 @@
 // deterministic first-offender; POST on an existing name -> 409 name_taken
 // with `holder`; the POST/POST race; imported names outside `NAME_SET'`
 // survive a PUT untouched (never re-checked on non-renaming writes).
-import { env } from "cloudflare:test";
+import { store, testStore } from "../harness";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Bindings } from "../../src/env";
 import { commitWrite, type CommitInput } from "../../src/core/events";
 import { fixedClock } from "../../src/core/time";
 import { ulid } from "ulidx";
 import { AKL_PAYLOAD, actorFixture, register, uniqueName, writeFetch } from "./write-support";
 
-const db = (env as unknown as Bindings).DB;
 const clock = fixedClock("2026-07-07T00:00:00.000Z");
 const OWNER = "owner-names-1";
 
@@ -94,12 +92,11 @@ describe("[LDB-P4] POST on an existing name", () => {
     const statuses = [a.status, b.status].sort();
     expect(statuses).toEqual([201, 409]);
 
-    const live = await db.prepare("SELECT COUNT(*) AS n FROM layouts WHERE name = ? AND deleted = 0").bind(name).first<{ n: number }>();
-    expect(live?.n).toBe(1);
-    const orphanRevs = await db
-      .prepare("SELECT COUNT(*) AS n FROM layout_revs r LEFT JOIN layouts l ON l.id = r.layout_id WHERE l.id IS NULL")
-      .first<{ n: number }>();
-    expect(orphanRevs?.n).toBe(0);
+    const live = await testStore.count("layouts", { name, deleted: 0 });
+    expect(live).toBe(1);
+    const layoutIds = new Set((await testStore.rows<{ id: string }>("layouts")).map((l) => l.id));
+    const orphanRevs = (await testStore.rows<{ layout_id: string }>("layout_revs")).filter((r) => !layoutIds.has(r.layout_id));
+    expect(orphanRevs.length).toBe(0);
   });
 });
 
@@ -120,7 +117,7 @@ describe("[LDB-I5] imported names outside NAME_SET' survive a PUT untouched", ()
         source: { client: "system:cmini-import", version: null },
         upstream: { source: "cmini", id: `up-${uniqueName("imp")}`, state: "following" },
       };
-      const { layout, formats } = await commitWrite(db, clock, input);
+      const { layout, formats } = await commitWrite(store, clock, input);
 
       const headers = ownerHeaders(`tok-${uniqueName("imp")}`);
       const res = await writeFetch(`/v1/layouts/${layout.id}`, "PUT", { ...headers, "If-Match": `"spark:${formats.get("spark")!.rev}"` }, { format: "spark/1", payload: AKL_PAYLOAD });

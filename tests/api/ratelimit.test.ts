@@ -6,17 +6,16 @@
 // counter (300/10min) on top for the client lane. Those are the limits this
 // file PINS (TEST_RATE_LIMITS); production's own are 1000 and 5000 per 10
 // min (saltorbit 2026-09-11), asserted at the end of the file.
-import { SELF, env } from "cloudflare:test";
+import { SELF, env, store, testStore } from "../harness";
 import { app } from "../../src/index";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CLIENT_LIMIT, WRITE_LIMIT } from "../../src/auth/ratelimit";
 import type { Bindings } from "../../src/env";
 import { fixedClock, type Clock } from "../../src/core/time";
 import { generateKeyPair, seedClient, signHeaders } from "../auth/client-support";
-import { AKL_PAYLOAD, actorFixture, pinTestClock, register, uniqueName, writeFetch } from "./write-support";
+import { actorFixture, AKL_PAYLOAD, pinTestClock, register, uniqueName, upsertCounter, writeFetch } from "./write-support";
 
 const bindings = env as unknown as Bindings;
-const db = bindings.DB;
 
 // A window boundary: any "HH:M0:00" is a multiple of 600s from the epoch
 // (a day is 86400s, itself a multiple of 600), so this and +600s/+1200s
@@ -55,7 +54,7 @@ describe("[LDB-R6] write rate limit", () => {
       expect(res.status, `write ${i}`).toBe(201);
     }
 
-    const before = await db.prepare("SELECT COUNT(*) AS n FROM events").first<{ n: number }>();
+    const before = await testStore.count("events");
     const res = await create(headers);
     expect(res.status).toBe(429);
     const body = await res.json<{ error: string; limit: number; window_seconds: number; retry_after: number }>();
@@ -65,8 +64,8 @@ describe("[LDB-R6] write rate limit", () => {
     expect(body.retry_after).toBe(600); // fired exactly at the window's own start
     expect(res.headers.get("Retry-After")).toBe("600");
 
-    const after = await db.prepare("SELECT COUNT(*) AS n FROM events").first<{ n: number }>();
-    expect(after?.n).toBe(before?.n); // the refused write appended nothing
+    const after = await testStore.count("events");
+    expect(after).toBe(before); // the refused write appended nothing
   });
 
   it("a refused-for-other-reasons write (400) still counts against the window", async () => {
@@ -103,10 +102,7 @@ describe("[LDB-R6] write rate limit", () => {
     // back at WINDOW_0 the old window is unaffected by WINDOW_1's traffic --
     // not retested (the key is windowed, not per-call), the new window's
     // own count is what matters: one write used, 59 remain.
-    const row = await db
-      .prepare("SELECT n FROM ratelimit WHERE key = ?")
-      .bind("write:owner-rl-roll")
-      .first<{ n: number }>();
+    const row = await testStore.row<{ n: number }>("ratelimit", { key: "write:owner-rl-roll" });
     expect(row?.n).toBe(1);
   });
 
@@ -135,7 +131,7 @@ describe("[LDB-R6] write rate limit", () => {
       const res = await writeFetch("/v1/meta", "GET", headers);
       expect(res.status, `get ${i}`).toBe(200);
     }
-    const row = await db.prepare("SELECT 1 FROM ratelimit WHERE key = ?").bind("write:owner-rl-get").first();
+    const row = await testStore.row("ratelimit", { key: "write:owner-rl-get" });
     expect(row).toBeNull();
   });
 
@@ -187,9 +183,9 @@ describe("[LDB-R6] write rate limit", () => {
     const { pruneRateLimits } = await import("../../src/core/ratelimit");
     const { fixedClock } = await import("../../src/core/time");
     // Two windows (1200s) past WINDOW_0's own bucket start.
-    await pruneRateLimits(db, fixedClock("2026-08-01T00:30:01.000Z"));
+    await pruneRateLimits(store, fixedClock("2026-08-01T00:30:01.000Z"));
 
-    const row = await db.prepare("SELECT 1 FROM ratelimit WHERE key = ?").bind("write:owner-rl-prune").first();
+    const row = await testStore.row("ratelimit", { key: "write:owner-rl-prune" });
     expect(row).toBeNull();
   });
 });
@@ -201,18 +197,16 @@ const WINDOW_C = "2026-08-10T00:00:00.000Z";
 const clockC = fixedClock(WINDOW_C);
 const WINDOW_C_START = Math.floor(new Date(WINDOW_C).getTime() / 1000 / 600) * 600;
 
+async function clientCounters(): Promise<number> {
+  return (await testStore.rows<{ key: string }>("ratelimit")).filter((r) => r.key.startsWith("client:")).length;
+}
+
 async function seedCounter(key: string, n: number): Promise<void> {
-  await db
-    .prepare(
-      `INSERT INTO ratelimit (key, window_start, n) VALUES (?, ?, ?)
-       ON CONFLICT(key) DO UPDATE SET window_start = excluded.window_start, n = excluded.n`,
-    )
-    .bind(key, WINDOW_C_START, n)
-    .run();
+  await upsertCounter(key, WINDOW_C_START, n);
 }
 
 async function counterFor(key: string): Promise<number> {
-  const row = await db.prepare("SELECT n FROM ratelimit WHERE key = ?").bind(key).first<{ n: number }>();
+  const row = await testStore.row<{ n: number }>("ratelimit", { key });
   return row?.n ?? 0;
 }
 
@@ -254,7 +248,7 @@ describe("[LDB-R7] the per-client counter: 300/10min, on top of the per-actor on
       actorN++;
       return `70${String(actorN).padStart(16, "0")}`;
     };
-    await seedClient(db, clockC, { id: clientId, pubkeyB64url, ownerUserId: freshActor(), caps: "act-as-user" });
+    await seedClient(clockC, { id: clientId, pubkeyB64url, ownerUserId: freshActor(), caps: "act-as-user" });
 
     await seedCounter(`client:${clientId}`, 299);
     const ok = await signedPost(clientId, privateKey, freshActor(), uniqueName("rl-ok"));
@@ -276,7 +270,7 @@ describe("[LDB-R7] the per-client counter: 300/10min, on top of the per-actor on
     const { privateKey, pubkeyB64url } = await generateKeyPair();
     const clientId = uniqueName("rl-client-actor");
     const actor = "710000000000000001";
-    await seedClient(db, clockC, { id: clientId, pubkeyB64url, ownerUserId: actor, caps: "act-as-user" });
+    await seedClient(clockC, { id: clientId, pubkeyB64url, ownerUserId: actor, caps: "act-as-user" });
 
     await seedCounter(`write:${actor}`, 59);
     const ok = await signedPost(clientId, privateKey, actor, uniqueName("rl-actor-ok"));
@@ -296,7 +290,7 @@ describe("[LDB-R7] the per-client counter: 300/10min, on top of the per-actor on
     pinTestClock(env as unknown as { TEST_CLOCK?: Clock }, clockC);
     const fake = actorFixture();
     const headers = register(fake, `tok-${uniqueName("rl-bearer")}`, "720000000000000001");
-    const before = await db.prepare("SELECT COUNT(*) AS n FROM ratelimit WHERE key LIKE 'client:%'").first<{ n: number }>();
+    const before = await clientCounters();
 
     const res = await writeFetch("/v1/layouts", "POST", headers, {
       name: uniqueName("rl-bearer-post"),
@@ -305,8 +299,8 @@ describe("[LDB-R7] the per-client counter: 300/10min, on top of the per-actor on
     });
     expect(res.status).toBe(201);
 
-    const after = await db.prepare("SELECT COUNT(*) AS n FROM ratelimit WHERE key LIKE 'client:%'").first<{ n: number }>();
-    expect(after?.n).toBe(before?.n);
+    const after = await clientCounters();
+    expect(after).toBe(before);
   });
 });
 
@@ -322,7 +316,7 @@ describe("[LDB-R6] [LDB-R7] the production limits: 1000/10min per actor, 5000/10
     const { privateKey, pubkeyB64url } = await generateKeyPair();
     const clientId = uniqueName("rl-prod");
     const actor = "7100000000000000001";
-    await seedClient(db, clockC, { id: clientId, pubkeyB64url, ownerUserId: actor, caps: "act-as-user" });
+    await seedClient(clockC, { id: clientId, pubkeyB64url, ownerUserId: actor, caps: "act-as-user" });
 
     await seedCounter(`write:${actor}`, 999);
     expect((await signedPost(clientId, privateKey, actor, uniqueName("rl-prod-ok"))).status).toBe(201);

@@ -3,14 +3,14 @@
 // once, in order; every filter equals a plain JS filter over the seed;
 // `?full=1` streams every live record's payload, matching `fromCmini` of
 // the upstream fixture's own shape.
-import { SELF } from "cloudflare:test";
+import { SELF, store, testStore } from "../harness";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import fullSnapshot from "../fixtures/upstream-100/full.json" with { type: "json" };
 import { canonical } from "../../src/core/canonical";
 import { parseUpstreamDetail } from "../../formats/adapters/cmini/parse.ts";
 import { fromCmini } from "../../formats/adapters/cmini/translate.ts";
 import type { RawUpstreamDetail } from "../../formats/adapters/cmini/parse.ts";
-import { db, seedUpstream100 } from "./support";
+import { seedUpstream100 } from "./support";
 import { commitWrite, type CommitInput } from "../../src/core/events";
 import { formatsForLayout, readById } from "../../src/core/records";
 import { fixedClock } from "../../src/core/time";
@@ -46,27 +46,37 @@ async function walkAll(sort: string, limit: number): Promise<string[]> {
   return ids;
 }
 
-const SORT_ORDER_SQL: Record<string, string> = {
-  name: "ORDER BY name COLLATE NOCASE ASC, id ASC",
-  modified_at: "ORDER BY modified_at DESC, id ASC",
-  created_at: "ORDER BY created_at DESC, id ASC",
-  like_count: "ORDER BY like_count DESC, id ASC",
+// SQLite's text order: bytes of the UTF-8 encoding; NOCASE folds ASCII letters only.
+const utf8 = new TextEncoder();
+function byteCompare(a: string, b: string): number {
+  const x = utf8.encode(a);
+  const y = utf8.encode(b);
+  for (let i = 0; i < Math.min(x.length, y.length); i++) if (x[i] !== y[i]) return x[i]! - y[i]!;
+  return x.length - y.length;
+}
+const foldAscii = (s: string): string => s.replace(/[A-Z]/g, (c) => c.toLowerCase());
+
+type OrderRow = { id: string; name: string; modified_at: string; created_at: string; like_count: number };
+const SORT_ORDER: Record<string, (a: OrderRow, b: OrderRow) => number> = {
+  name: (a, b) => byteCompare(foldAscii(a.name), foldAscii(b.name)) || byteCompare(a.id, b.id),
+  modified_at: (a, b) => byteCompare(b.modified_at, a.modified_at) || byteCompare(a.id, b.id),
+  created_at: (a, b) => byteCompare(b.created_at, a.created_at) || byteCompare(a.id, b.id),
+  like_count: (a, b) => b.like_count - a.like_count || byteCompare(a.id, b.id),
 };
 
 async function expectedOrder(sort: string): Promise<string[]> {
-  const { results } = await db.prepare(`SELECT id FROM layouts WHERE deleted = 0 ${SORT_ORDER_SQL[sort]}`).all<{ id: string }>();
-  return results.map((r) => r.id);
+  const results = await testStore.rows<OrderRow>("layouts", { deleted: 0 });
+  return results.sort(SORT_ORDER[sort]!).map((r) => r.id);
 }
 
 async function loadSeedRows(): Promise<ListItem[]> {
-  const { results } = await db
-    .prepare(
-      `SELECT l.id AS id, l.owner AS owner, f.format AS format, f.has_magic AS has_magic, l.modified_at AS modified_at
-       FROM layouts l JOIN layout_formats f ON f.layout_id = l.id AND f.lineage = 'spark'
-       WHERE l.deleted = 0`,
-    )
-    .all<{ id: string; owner: string; format: string; has_magic: number; modified_at: string }>();
-  return results.map((r) => ({ ...r, has_magic: r.has_magic !== 0 }));
+  const formats = await testStore.rows<{ layout_id: string; format: string; has_magic: number }>("layout_formats", { lineage: "spark" });
+  const byLayout = new Map(formats.map((f) => [f.layout_id, f]));
+  const live = await testStore.rows<{ id: string; owner: string; modified_at: string }>("layouts", { deleted: 0 });
+  return live.flatMap((l) => {
+    const f = byLayout.get(l.id);
+    return f === undefined ? [] : [{ id: l.id, owner: l.owner, format: f.format, has_magic: f.has_magic !== 0, modified_at: l.modified_at }];
+  });
 }
 
 describe("[LDB-R4] every sort x limit cursor walk visits every live record exactly once, in order", () => {
@@ -115,7 +125,7 @@ describe("[LDB-F5] every filter equals a plain JS filter over the seed", () => {
     // record's `has_magic` directly on its SPARK format row to exercise
     // the true branch.
     const seedRows = await loadSeedRows();
-    await db.prepare("UPDATE layout_formats SET has_magic = 1 WHERE layout_id = ? AND lineage = 'spark'").bind(seedRows[0]!.id).run();
+    await testStore.patch("layout_formats", { layout_id: seedRows[0]!.id, lineage: "spark" }, { has_magic: 1 });
 
     const seed = await loadSeedRows();
     const expectedTrue = new Set(seed.filter((r) => r.has_magic).map((r) => r.id));
@@ -161,8 +171,8 @@ describe("[H1] plain list: no payload, formats map is complete", () => {
     unregisterT1 = registerForTest(T1);
     const seedRows = await loadSeedRows();
     const targetId = seedRows[0]!.id;
-    const current = await readById(db, targetId);
-    const currentFormats = await formatsForLayout(db, targetId);
+    const current = await readById(store, targetId);
+    const currentFormats = await formatsForLayout(store, targetId);
     const input: CommitInput = {
       layoutId: targetId,
       creating: false,
@@ -176,7 +186,7 @@ describe("[H1] plain list: no payload, formats map is complete", () => {
       source: { client: "discord-app:test", version: null },
       upstream: current!.upstream,
     };
-    await commitWrite(db, clock, input);
+    await commitWrite(store, clock, input);
     twoFormatLayoutId = targetId;
     twoFormatLayoutOwner = current!.owner;
   });
@@ -250,7 +260,7 @@ describe("[LDB-P13] plain list still fetches/translates a row genuinely stuck at
         source: { client: "discord-app:test", version: null },
         upstream: null,
       };
-      const { layout } = await commitWrite(db, fixedClock("2026-07-21T00:00:00.000Z"), input);
+      const { layout } = await commitWrite(store, fixedClock("2026-07-21T00:00:00.000Z"), input);
       recordId = layout.id;
 
       // Register t/2 and t/3 AFTER the record above was written -- it is
@@ -282,12 +292,12 @@ describe("[LDB-P13] plain list still fetches/translates a row genuinely stuck at
 // `?full=1` too.
 describe("[LDB-R8] liked_by=<user_id>", () => {
   async function likedIdsFor(userId: string): Promise<Set<string>> {
-    const { results } = await db.prepare("SELECT layout_id FROM likes WHERE user_id = ?").bind(userId).all<{ layout_id: string }>();
+    const results = await testStore.rows<{ layout_id: string }>("likes", { user_id: userId });
     return new Set(results.map((r) => r.layout_id));
   }
 
   it("[LDB-R8] equals a JS filter over the seed's likes, for a real liker", async () => {
-    const { results } = await db.prepare("SELECT DISTINCT user_id FROM likes LIMIT 1").all<{ user_id: string }>();
+    const results = (await testStore.rows<{ user_id: string }>("likes")).slice(0, 1);
     const userId = results[0]?.user_id;
     expect(userId, "upstream-100 must include at least one like").toBeDefined();
 
@@ -301,7 +311,7 @@ describe("[LDB-R8] liked_by=<user_id>", () => {
   });
 
   it("[LDB-R8] composes with has_magic and sort", async () => {
-    const { results } = await db.prepare("SELECT DISTINCT user_id FROM likes LIMIT 1").all<{ user_id: string }>();
+    const results = (await testStore.rows<{ user_id: string }>("likes")).slice(0, 1);
     const userId = results[0]!.user_id;
     const liked = await likedIdsFor(userId);
     const seed = await loadSeedRows();
@@ -328,7 +338,7 @@ describe("[LDB-R8] liked_by=<user_id>", () => {
   });
 
   it("[LDB-R8] ?full=1&liked_by= streams only the liked records' payloads", async () => {
-    const { results } = await db.prepare("SELECT DISTINCT user_id FROM likes LIMIT 1").all<{ user_id: string }>();
+    const results = (await testStore.rows<{ user_id: string }>("likes")).slice(0, 1);
     const userId = results[0]!.user_id;
     const expected = await likedIdsFor(userId);
 

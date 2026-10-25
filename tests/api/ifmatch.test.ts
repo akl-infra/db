@@ -8,14 +8,13 @@
 // bad_request`, never a mismatch. The race: two writes at the same rev, run
 // concurrently, land exactly one 200 and one 409 `stale` whose `record` is
 // the winner's.
-import { env } from "cloudflare:test";
+import { store, testStore } from "../harness";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Bindings } from "../../src/env";
 import { commitWrite, type CommitInput } from "../../src/core/events";
 import { fixedClock } from "../../src/core/time";
 import { ulid } from "ulidx";
 import { app } from "../../src/index";
-import { AKL_PAYLOAD, actorFixture, register, uniqueName, writeFetch } from "./write-support";
+import { actorFixture, AKL_PAYLOAD, ensureAuthor, register, uniqueName, writeFetch } from "./write-support";
 
 // Coordinator review (third batch, MEDIUM): "M4 is only half done...
 // routerHas only checks that the listed routes exist. Build both lists
@@ -69,7 +68,6 @@ it("[MF-11] [LDB-P21] every /v1/layouts* WRITE route the router has is classifie
   expect(unclassified, "a write route was added to the router with no If-Match classification in this file").toEqual([]);
 });
 
-const db = (env as unknown as Bindings).DB;
 const clock = fixedClock("2026-07-06T00:00:00.000Z");
 const OWNER = "owner-ifmatch-1";
 const SOURCE = { client: "discord-app:test", version: null };
@@ -93,7 +91,7 @@ async function seed() {
     source: SOURCE,
     upstream: null,
   };
-  const { layout, formats } = await commitWrite(db, clock, input);
+  const { layout, formats } = await commitWrite(store, clock, input);
   return { id: layout.id, layoutRev: layout.layout_rev, formatRev: formats.get("spark")!.rev };
 }
 
@@ -193,10 +191,10 @@ describe("[MF-11] If-Match on DELETE (layout scope)", () => {
     const headers = ownerHeaders("tok-noop");
     const res = await writeFetch(`/v1/layouts/${record.id}`, "PUT", { ...headers, "If-Match": `"spark:${record.formatRev + 5}"` }, { format: "spark/1", payload: AKL_PAYLOAD });
     expect(res.status).toBe(409);
-    const row = await db.prepare("SELECT rev FROM layout_formats WHERE layout_id = ? AND lineage = 'spark'").bind(record.id).first<{ rev: number }>();
+    const row = await testStore.row<{ rev: number }>("layout_formats", { layout_id: record.id, lineage: "spark" });
     expect(row?.rev).toBe(record.formatRev);
-    const events = await db.prepare("SELECT COUNT(*) AS n FROM events WHERE layout_id = ?").bind(record.id).first<{ n: number }>();
-    expect(events?.n).toBe(2); // just the seed's own created + format_added
+    const events = await testStore.count("events", { layout_id: record.id });
+    expect(events).toBe(2); // just the seed's own created + format_added
   });
 
   it("[LDB-P2] race: two PUTs at the same rev -> exactly one 200, one 409 stale carrying the winner's record", async () => {
@@ -221,8 +219,8 @@ describe("[MF-11] If-Match on DELETE (layout scope)", () => {
     expect(loserBody.record.formats["spark/1"]!.rev).toBe(winnerBody.formats["spark/1"]!.rev);
     expect(loserBody.record.payload.keys).toEqual(winnerBody.payload.keys);
 
-    const events = await db.prepare("SELECT COUNT(*) AS n FROM events WHERE layout_id = ?").bind(record.id).first<{ n: number }>();
-    expect(events?.n).toBe(3); // "created" + "format_added" + exactly one "updated"
+    const events = await testStore.count("events", { layout_id: record.id });
+    expect(events).toBe(3); // "created" + "format_added" + exactly one "updated"
   });
 });
 
@@ -245,7 +243,7 @@ async function seedKeyed() {
     source: SOURCE,
     upstream: null,
   };
-  const { layout, formats } = await commitWrite(db, clock, input);
+  const { layout, formats } = await commitWrite(store, clock, input);
   return { id: layout.id, layoutRev: layout.layout_rev, formatRev: formats.get("spark")!.rev };
 }
 
@@ -318,7 +316,7 @@ describe("[MF-11] If-Match on transfer (layout scope, presence-only -- no stalen
   const TARGET = "830000000000099001";
 
   async function seedTargetAuthor() {
-    await db.prepare("INSERT OR IGNORE INTO authors (user_id, name, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?)").bind(TARGET, `user-${TARGET}`, clock(), clock()).run();
+    await ensureAuthor(TARGET, `user-${TARGET}`, clock(), clock());
   }
 
   const cases: { label: string; header: (rev: number) => string | undefined; status: number; code?: string }[] = [
