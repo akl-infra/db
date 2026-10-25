@@ -5,7 +5,8 @@
 // makes T3's admin routes and T4's PATCH covered automatically, and is why
 // the client-lane counter below needs no route-by-route wiring either.
 import type { MiddlewareHandler } from "hono";
-import { type ActorVariables, SAFE_METHODS } from "./actor";
+import { SAFE_METHODS } from "./actor";
+import { type AppEnv, platformOf } from "../app";
 import type { Bindings } from "../env";
 import { rateLimited } from "../core/errors";
 import { take } from "../core/ratelimit";
@@ -39,7 +40,7 @@ function resolveNow(env: Bindings, fallback: Clock): Clock {
   return (env as unknown as { TEST_CLOCK?: Clock }).TEST_CLOCK ?? fallback;
 }
 
-export function rateLimitWrites(defaultNow: Clock = systemClock): MiddlewareHandler<{ Bindings: Bindings; Variables: ActorVariables }> {
+export function rateLimitWrites(defaultNow: Clock = systemClock): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     if (SAFE_METHODS.has(c.req.method)) {
       await next();
@@ -55,9 +56,9 @@ export function rateLimitWrites(defaultNow: Clock = systemClock): MiddlewareHand
     // Counted on EVERY attempt, both counters, whether or not the write is
     // ultimately accepted (09 §2.5) -- so both `take()` calls run
     // unconditionally rather than short-circuiting on the first refusal.
-    const actorResult = await take(c.env.DB, now, `write:${actor.user_id}`, limits.write, WRITE_WINDOW_SECONDS);
+    const actorResult = await take(platformOf(c).store, now, `write:${actor.user_id}`, limits.write, WRITE_WINDOW_SECONDS);
     const clientResult = actor.via.startsWith("client:")
-      ? await take(c.env.DB, now, `client:${actor.via.slice("client:".length)}`, limits.client, CLIENT_WINDOW_SECONDS)
+      ? await take(platformOf(c).store, now, `client:${actor.via.slice("client:".length)}`, limits.client, CLIENT_WINDOW_SECONDS)
       : null;
 
     if (!actorResult.allowed) {

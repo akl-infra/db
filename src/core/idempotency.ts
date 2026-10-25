@@ -19,7 +19,7 @@
 import type { Actor } from "../auth/actor";
 import type { Bindings } from "../env";
 import type { Clock } from "./time";
-import { legacyD1, type StoreArg } from "../store/arg";
+import { toStore, type StoreArg } from "../store/arg";
 
 export const IDEMPOTENCY_WINDOW_MS = 24 * 60 * 60 * 1000;
 
@@ -71,8 +71,8 @@ export function isExpired(row: { at: string }, now: Clock): boolean {
 }
 
 export async function getIdempotency(dbArg: StoreArg, scope: string, key: string): Promise<IdempotencyRow | null> {
-  const db = legacyD1(dbArg);
-  return await db.prepare("SELECT * FROM idempotency WHERE scope = ? AND key = ?").bind(scope, key).first<IdempotencyRow>();
+  const store = toStore(dbArg);
+  return await store.auth.getIdempotency(scope, key);
 }
 
 // LDB-K7: a reservation -- `status = 0`, `response_body = ''` -- claims
@@ -109,16 +109,8 @@ interface ClaimInput {
 // The reservation itself: an INSERT that only lands when nothing at all is
 // stored yet for (scope, key). Returns whether THIS call claimed it.
 export async function reserveIdempotency(dbArg: StoreArg, row: ClaimInput): Promise<boolean> {
-  const db = legacyD1(dbArg);
-  const result = await db
-    .prepare(
-      `INSERT INTO idempotency (scope, key, method, path, request_hash, status, response_body, at)
-       VALUES (?, ?, ?, ?, ?, ${PENDING_STATUS}, '', ?)
-       ON CONFLICT(scope, key) DO NOTHING`,
-    )
-    .bind(row.scope, row.key, row.method, row.path, row.request_hash, row.at)
-    .run();
-  return (result.meta.changes ?? 0) > 0;
+  const store = toStore(dbArg);
+  return await store.auth.reserveIdempotency(row);
 }
 
 // Reclaims a row already known to be abandoned -- a 24h-expired one
@@ -130,25 +122,15 @@ export async function reserveIdempotency(dbArg: StoreArg, row: ClaimInput): Prom
 // re-reads to find a fresh reservation instead -- `acquireIdempotencySlot`
 // loops on exactly that).
 export async function takeOverIdempotency(dbArg: StoreArg, row: ClaimInput & { expectedAt: string }): Promise<boolean> {
-  const db = legacyD1(dbArg);
-  const result = await db
-    .prepare(
-      `UPDATE idempotency SET method = ?, path = ?, request_hash = ?, status = ${PENDING_STATUS}, response_body = '', at = ?
-       WHERE scope = ? AND key = ? AND at = ?`,
-    )
-    .bind(row.method, row.path, row.request_hash, row.at, row.scope, row.key, row.expectedAt)
-    .run();
-  return (result.meta.changes ?? 0) > 0;
+  const store = toStore(dbArg);
+  return await store.auth.takeOverIdempotency(row);
 }
 
 // The reserving request finished normally (2xx/4xx-except-429): the row
 // becomes a real, replayable response.
 export async function completeIdempotency(dbArg: StoreArg, scope: string, key: string, status: number, responseBody: string, at: string): Promise<void> {
-  const db = legacyD1(dbArg);
-  await db
-    .prepare("UPDATE idempotency SET status = ?, response_body = ?, at = ? WHERE scope = ? AND key = ?")
-    .bind(status, responseBody, at, scope, key)
-    .run();
+  const store = toStore(dbArg);
+  await store.auth.completeIdempotency(scope, key, status, responseBody, at);
 }
 
 // The reserving request ended 429/5xx: the whole point of NOT storing
@@ -159,8 +141,8 @@ export async function completeIdempotency(dbArg: StoreArg, scope: string, key: s
 // stale, get silently taken over anyway; deleting it outright is simpler
 // and immediate).
 export async function deleteIdempotency(dbArg: StoreArg, scope: string, key: string): Promise<void> {
-  const db = legacyD1(dbArg);
-  await db.prepare("DELETE FROM idempotency WHERE scope = ? AND key = ?").bind(scope, key).run();
+  const store = toStore(dbArg);
+  await store.auth.deleteIdempotency(scope, key);
 }
 
 export type AcquireResult = { kind: "replay"; row: IdempotencyRow } | { kind: "mismatch" } | { kind: "in_progress" } | { kind: "acquired" };
@@ -177,16 +159,16 @@ const MAX_ACQUIRE_ATTEMPTS = 5;
 // SOME other caller just won the exact same race, so real contention this
 // deep is not expected in practice).
 export async function acquireIdempotencySlot(dbArg: StoreArg, now: Clock, req: { scope: string; key: string; method: string; path: string; hash: string }): Promise<AcquireResult> {
-  const db = legacyD1(dbArg);
+  const store = toStore(dbArg);
   for (let attempt = 0; attempt < MAX_ACQUIRE_ATTEMPTS; attempt++) {
     const claim: ClaimInput = { scope: req.scope, key: req.key, method: req.method, path: req.path, request_hash: req.hash, at: now() };
-    if (await reserveIdempotency(db, claim)) return { kind: "acquired" };
+    if (await reserveIdempotency(store, claim)) return { kind: "acquired" };
 
-    const row = await getIdempotency(db, req.scope, req.key);
+    const row = await getIdempotency(store, req.scope, req.key);
     if (row === null) continue; // raced a concurrent 429/5xx cleanup (deleteIdempotency) -- try reserving again
 
     if (isExpired(row, now)) {
-      if (await takeOverIdempotency(db, { ...claim, expectedAt: row.at })) return { kind: "acquired" };
+      if (await takeOverIdempotency(store, { ...claim, expectedAt: row.at })) return { kind: "acquired" };
       continue;
     }
     if (!isPending(row)) {
@@ -194,7 +176,7 @@ export async function acquireIdempotencySlot(dbArg: StoreArg, now: Clock, req: {
       return matches ? { kind: "replay", row } : { kind: "mismatch" };
     }
     if (isStalePending(row, now)) {
-      if (await takeOverIdempotency(db, { ...claim, expectedAt: row.at })) return { kind: "acquired" };
+      if (await takeOverIdempotency(store, { ...claim, expectedAt: row.at })) return { kind: "acquired" };
       continue;
     }
     return { kind: "in_progress" };
@@ -208,7 +190,7 @@ export async function acquireIdempotencySlot(dbArg: StoreArg, now: Clock, req: {
 // `acquireIdempotencySlot` on its own, taken over the next time that
 // (scope, key) pair is used.
 export async function pruneIdempotency(dbArg: StoreArg, now: Clock): Promise<void> {
-  const db = legacyD1(dbArg);
+  const store = toStore(dbArg);
   const cutoff = new Date(new Date(now()).getTime() - IDEMPOTENCY_WINDOW_MS).toISOString();
-  await db.prepare("DELETE FROM idempotency WHERE at < ?").bind(cutoff).run();
+  await store.auth.pruneIdempotency(cutoff);
 }

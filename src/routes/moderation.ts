@@ -7,7 +7,7 @@
 // non-GET methods pass through `requireActorOnWrites`). (H24, 2026-09-13:
 // the like-count override route, §4.2, was removed.)
 import { Hono } from "hono";
-import type { ActorVariables } from "../auth/actor";
+import { type AppEnv, platformOf } from "../app";
 import { type AuthDeps, resolveActor } from "../auth/discord";
 import type { Bindings } from "../env";
 import * as moderation from "../core/moderation";
@@ -30,19 +30,19 @@ async function readJson(req: { json(): Promise<unknown> }): Promise<unknown> {
 }
 
 export function moderationRoute(authDeps: AuthDeps) {
-  const route = new Hono<{ Bindings: Bindings; Variables: ActorVariables }>();
+  const route = new Hono<AppEnv>();
 
   route.get("/v1/admin/bans", async (c) => {
     const actor = await resolveActor(c.env, c.req, authDeps);
     if (!actor.admin) throw notAdmin();
-    return c.json({ bans: await moderation.listBans(c.env.DB) });
+    return c.json({ bans: await moderation.listBans(platformOf(c).store) });
   });
 
   route.put("/v1/admin/bans/:user_id", async (c) => {
     const actor = c.get("actor");
     if (!actor.admin) throw notAdmin();
     const body = parseBanBody(await readJson(c.req));
-    const { row, created } = await moderation.ban(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), c.req.param("user_id"), body.reason);
+    const { row, created } = await moderation.ban(platformOf(c).store, resolveNow(c.env), actor, c.get("sourceVersion"), c.req.param("user_id"), body.reason);
     return c.json(row, created ? 201 : 200);
   });
 
@@ -50,7 +50,7 @@ export function moderationRoute(authDeps: AuthDeps) {
     const actor = c.get("actor");
     if (!actor.admin) throw notAdmin();
     const userId = c.req.param("user_id");
-    await moderation.unban(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), userId);
+    await moderation.unban(platformOf(c).store, resolveNow(c.env), actor, c.get("sourceVersion"), userId);
     return c.json({ unbanned: userId });
   });
 
@@ -58,7 +58,7 @@ export function moderationRoute(authDeps: AuthDeps) {
     const actor = c.get("actor");
     if (!actor.admin) throw notAdmin();
     const body = parseAuthorRenameBody(await readJson(c.req));
-    const row = await moderation.renameAuthor(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), c.req.param("user_id"), body.name);
+    const row = await moderation.renameAuthor(platformOf(c).store, resolveNow(c.env), actor, c.get("sourceVersion"), c.req.param("user_id"), body.name);
     return c.json(row);
   });
 

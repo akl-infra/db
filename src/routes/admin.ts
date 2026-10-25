@@ -5,7 +5,7 @@
 // gates non-GET methods; the other routes read the actor that middleware
 // already set via `c.get("actor")`.
 import { Hono } from "hono";
-import type { ActorVariables } from "../auth/actor";
+import { type AppEnv, platformOf } from "../app";
 import { type AuthDeps, resolveActor } from "../auth/discord";
 import type { Bindings } from "../env";
 import * as admins from "../core/admins";
@@ -54,19 +54,19 @@ async function readJsonOptional(req: { text(): Promise<string> }): Promise<Recor
 // `GET /v1/me` (real fetch + clock in production, injected in tests) so the
 // one GET route here resolves its actor the identical way.
 export function adminRoute(authDeps: AuthDeps) {
-  const route = new Hono<{ Bindings: Bindings; Variables: ActorVariables }>();
+  const route = new Hono<AppEnv>();
 
   route.get("/v1/admin/admins", async (c) => {
     const actor = await resolveActor(c.env, c.req, authDeps);
     if (!actor.admin) throw notAdmin();
-    return c.json(await admins.list(c.env.DB));
+    return c.json(await admins.list(platformOf(c).store));
   });
 
   route.post("/v1/admin/admins", async (c) => {
     const actor = c.get("actor");
     if (!actor.admin) throw notAdmin();
     const body = parseAdminAddBody(await readJson(c.req));
-    const { row, created } = await admins.add(c.env.DB, resolveNow(c.env), actor.user_id, body.user_id, body.note);
+    const { row, created } = await admins.add(platformOf(c).store, resolveNow(c.env), actor.user_id, body.user_id, body.note);
     return c.json(row, created ? 201 : 200);
   });
 
@@ -74,7 +74,7 @@ export function adminRoute(authDeps: AuthDeps) {
     const actor = c.get("actor");
     if (!actor.admin) throw notAdmin();
     const userId = c.req.param("user_id");
-    await admins.remove(c.env.DB, resolveNow(c.env), actor.user_id, userId);
+    await admins.remove(platformOf(c).store, resolveNow(c.env), actor.user_id, userId);
     return c.json({ removed: userId });
   });
 
@@ -94,7 +94,7 @@ export function adminRoute(authDeps: AuthDeps) {
     if (!actor.admin) throw notAdmin();
     const now = resolveNow(c.env);
     const result = await runNightly(c.env, now);
-    await admins.recordManualTick(c.env.DB, now, actor.user_id, "nightly", { at: result.at, jobs: result.jobs, dump: result.dump });
+    await admins.recordManualTick(platformOf(c).store, now, actor.user_id, "nightly", { at: result.at, jobs: result.jobs, dump: result.dump });
     return c.json(result);
   });
 
@@ -147,7 +147,7 @@ export function adminRoute(authDeps: AuthDeps) {
     if (!actor.admin) throw notAdmin();
     const body = await readJsonOptional(c.req);
     const dryRun = c.req.query("dry_run") === "1" || c.req.query("dry_run") === "true" || body.dry_run === true;
-    const result = await relabelMagicThumbs(c.env.DB, resolveNow(c.env), dryRun);
+    const result = await relabelMagicThumbs(platformOf(c).store, resolveNow(c.env), dryRun);
     return c.json(result);
   });
 
@@ -158,7 +158,7 @@ export function adminRoute(authDeps: AuthDeps) {
     const actor = c.get("actor");
     if (!actor.admin) throw notAdmin();
     const body = parseRegisterClientBody(await readJson(c.req));
-    const row = await clients.registerClient(c.env.DB, resolveNow(c.env), actor.user_id, body);
+    const row = await clients.registerClient(platformOf(c).store, resolveNow(c.env), actor.user_id, body);
     return c.json(row, 201);
   });
 
@@ -166,7 +166,7 @@ export function adminRoute(authDeps: AuthDeps) {
     const actor = c.get("actor");
     if (!actor.admin) throw notAdmin();
     const id = c.req.param("id");
-    const result = await clients.revokeClient(c.env.DB, resolveNow(c.env), actor.user_id, id);
+    const result = await clients.revokeClient(platformOf(c).store, resolveNow(c.env), actor.user_id, id);
     if (result === null) throw clients.unknownClientId(id);
     return c.json(result);
   });
@@ -174,7 +174,7 @@ export function adminRoute(authDeps: AuthDeps) {
   route.get("/v1/admin/clients", async (c) => {
     const actor = await resolveActor(c.env, c.req, authDeps);
     if (!actor.admin) throw notAdmin();
-    return c.json(await clients.listClients(c.env.DB));
+    return c.json(await clients.listClients(platformOf(c).store));
   });
 
   // [LDB-A11] saltorbit 2026-09-13 ("rogue trusted client" hardening): an
@@ -190,7 +190,7 @@ export function adminRoute(authDeps: AuthDeps) {
     const id = c.req.param("id");
     const body = await readJsonOptional(c.req);
     const reason = typeof body.reason === "string" && body.reason.length > 0 ? body.reason : "manual admin suspension";
-    const result = await clients.suspendClient(c.env.DB, resolveNow(c.env), actor.user_id, id, reason);
+    const result = await clients.suspendClient(platformOf(c).store, resolveNow(c.env), actor.user_id, id, reason);
     if (result === null) throw clients.unknownClientId(id);
     if (result.status === "revoked") throw clientAlreadyRevoked();
     return c.json(result);
@@ -202,7 +202,7 @@ export function adminRoute(authDeps: AuthDeps) {
     const actor = c.get("actor");
     if (!actor.admin) throw notAdmin();
     const id = c.req.param("id");
-    const result = await clients.reactivateClient(c.env.DB, resolveNow(c.env), actor.user_id, id);
+    const result = await clients.reactivateClient(platformOf(c).store, resolveNow(c.env), actor.user_id, id);
     if (result === null) throw clients.unknownClientId(id);
     if (result.status === "revoked") throw clientAlreadyRevoked();
     return c.json(result);
@@ -219,14 +219,14 @@ export function adminRoute(authDeps: AuthDeps) {
     const actor = c.get("actor");
     if (!actor.admin) throw notAdmin();
     const id = c.req.param("id");
-    const known = await clients.listClients(c.env.DB);
+    const known = await clients.listClients(platformOf(c).store);
     if (!known.some((k) => k.id === id)) throw clients.unknownClientId(id);
     const body = (await readJson(c.req)) as { since?: unknown; dry_run?: unknown; cursor?: unknown; limit?: unknown };
     if (typeof body.since !== "string" || body.since.length === 0) throw badRequest("`since` must be a non-empty ISO timestamp string", "/since");
     const dryRun = body.dry_run === true;
     const cursor = typeof body.cursor === "number" ? body.cursor : undefined;
     const limit = typeof body.limit === "number" ? body.limit : undefined;
-    const result = await revertClientWrites(c.env.DB, resolveNow(c.env), actor.user_id, id, body.since, { dryRun, cursor, limit });
+    const result = await revertClientWrites(platformOf(c).store, resolveNow(c.env), actor.user_id, id, body.since, { dryRun, cursor, limit });
     return c.json(result);
   });
 

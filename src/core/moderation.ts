@@ -12,7 +12,7 @@ import { cannotBanAdmin, notFound } from "./errors";
 import { appendAdmin } from "./events";
 import type { Source } from "./records";
 import type { Clock } from "./time";
-import { legacyD1, type StoreArg } from "../store/arg";
+import { toStore, type StoreArg } from "../store/arg";
 
 // --- §4.1 bans --------------------------------------------------------
 
@@ -24,24 +24,9 @@ export interface BanRow {
   reason: string | null;
 }
 
-interface BanDbRow {
-  user_id: string;
-  by: string;
-  at: string;
-  reason: string | null;
-  name: string | null;
-}
-
 export async function listBans(dbArg: StoreArg): Promise<BanRow[]> {
-  const db = legacyD1(dbArg);
-  const { results } = await db
-    .prepare(
-      `SELECT b.user_id AS user_id, b.by AS by, b.at AS at, b.reason AS reason, a.name AS name
-       FROM bans b LEFT JOIN authors a ON a.user_id = b.user_id
-       ORDER BY b.at ASC, b.user_id ASC`,
-    )
-    .all<BanDbRow>();
-  return results;
+  const store = toStore(dbArg);
+  return await store.admin.listBans();
 }
 
 function sourceOf(actor: Actor, version: string | null): Source {
@@ -54,22 +39,15 @@ function sourceOf(actor: Actor, version: string | null): Source {
 // ROLE RULE, `auth/roles.ts`), so recording a ban that rule would
 // immediately un-apply is refused loudly instead of silently no-op'd.
 export async function ban(dbArg: StoreArg, now: Clock, actor: Actor, version: string | null, userId: string, reason?: string): Promise<{ row: BanRow; created: boolean }> {
-  const db = legacyD1(dbArg);
-  if (await isAdmin(db, userId)) throw cannotBanAdmin();
+  const store = toStore(dbArg);
+  if (await isAdmin(store, userId)) throw cannotBanAdmin();
 
   const at = now();
-  const existing = await db.prepare("SELECT 1 FROM bans WHERE user_id = ?").bind(userId).first();
-  const created = existing === null;
+  const created = !(await store.admin.banExists(userId));
 
-  await db
-    .prepare(
-      `INSERT INTO bans (user_id, by, at, reason) VALUES (?, ?, ?, ?)
-       ON CONFLICT(user_id) DO UPDATE SET by = excluded.by, at = excluded.at, reason = excluded.reason`,
-    )
-    .bind(userId, actor.user_id, at, reason ?? null)
-    .run();
+  await store.admin.upsertBan({ user_id: userId, by: actor.user_id, at, reason: reason ?? null });
 
-  await appendAdmin(db, now, {
+  await appendAdmin(store, now, {
     kind: "admin.user_banned",
     actor: actor.user_id,
     via: actor.via,
@@ -77,19 +55,18 @@ export async function ban(dbArg: StoreArg, now: Clock, actor: Actor, version: st
     detail: { user_id: userId, reason: reason ?? null },
   });
 
-  const nameRow = await db.prepare("SELECT name FROM authors WHERE user_id = ?").bind(userId).first<{ name: string }>();
-  return { row: { user_id: userId, name: nameRow?.name ?? null, by: actor.user_id, at, reason: reason ?? null }, created };
+  const authorName = await store.auth.authorName(userId);
+  return { row: { user_id: userId, name: authorName, by: actor.user_id, at, reason: reason ?? null }, created };
 }
 
 // DELETE /v1/admin/bans/:user_id: `404 not_found` if the user isn't
 // currently banned -- the DELETE's own `changes` count tells the two
 // cases apart (mirrors `core/admins.ts`'s `remove()` A6 pattern).
 export async function unban(dbArg: StoreArg, now: Clock, actor: Actor, version: string | null, userId: string): Promise<{ seq: number }> {
-  const db = legacyD1(dbArg);
-  const result = await db.prepare("DELETE FROM bans WHERE user_id = ?").bind(userId).run();
-  if (result.meta.changes === 0) throw notFound(`'${userId}' is not banned`, userId);
+  const store = toStore(dbArg);
+  if (!(await store.admin.deleteBan(userId))) throw notFound(`'${userId}' is not banned`, userId);
 
-  const { seq } = await appendAdmin(db, now, {
+  const { seq } = await appendAdmin(store, now, {
     kind: "admin.user_unbanned",
     actor: actor.user_id,
     via: actor.via,
@@ -113,21 +90,18 @@ export interface AuthorRow {
 // (`auth/discord.ts`) and the cmini import (`import/authors.ts`) -- see
 // each file's own §4.3 comment.
 export async function renameAuthor(dbArg: StoreArg, now: Clock, actor: Actor, version: string | null, userId: string, name: string): Promise<AuthorRow> {
-  const db = legacyD1(dbArg);
-  const before = await db.prepare("SELECT name FROM authors WHERE user_id = ?").bind(userId).first<{ name: string }>();
-  if (before === null) throw notFound(`no author '${userId}'`, userId);
+  const store = toStore(dbArg);
+  const beforeName = await store.auth.authorName(userId);
+  if (beforeName === null) throw notFound(`no author '${userId}'`, userId);
 
-  await db
-    .prepare("UPDATE authors SET name = ?, name_source = 'admin', last_seen_at = ? WHERE user_id = ?")
-    .bind(name, now(), userId)
-    .run();
+  await store.admin.setAuthorNameByAdmin(userId, name, now());
 
-  await appendAdmin(db, now, {
+  await appendAdmin(store, now, {
     kind: "admin.author_renamed",
     actor: actor.user_id,
     via: actor.via,
     source: sourceOf(actor, version),
-    detail: { user_id: userId, from: before.name, to: name },
+    detail: { user_id: userId, from: beforeName, to: name },
   });
 
   return { user_id: userId, name, name_source: "admin" };

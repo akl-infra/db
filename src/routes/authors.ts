@@ -1,12 +1,12 @@
 // GET /v1/authors, /v1/authors/{user_id} (03 §2, 07 §6 S6).
 import { Hono } from "hono";
-import type { Bindings } from "../env";
+import { type AppEnv, platformOf } from "../app";
 import { badRequest, notFound } from "../core/errors";
 import { authorsHead, cachePut, conditional, etagFor } from "../core/etag";
 
 const CACHE_CONTROL = "public, max-age=10";
 
-export const authorsRoute = new Hono<{ Bindings: Bindings }>();
+export const authorsRoute = new Hono<AppEnv>();
 
 type AuthorsKey = "name" | "id";
 
@@ -31,24 +31,18 @@ function parseBy(raw: string | undefined): AuthorsKey {
 // bookkeeping never moves it. A conditional request costs one primary-key
 // read.
 authorsRoute.get("/v1/authors", async (c) => {
-  const db = c.env.DB;
+  const store = platformOf(c).store;
   const by = parseBy(c.req.query("by"));
-  const head = await authorsHead(db);
+  const head = await authorsHead(store);
   const etag = await etagFor(head.version, { authors: by });
   const short = await conditional(c, etag, CACHE_CONTROL);
   if (short) return short;
 
   const body: Record<string, string> = {};
   if (by === "id") {
-    const { results } = await db
-      .prepare("SELECT user_id, name FROM authors ORDER BY user_id")
-      .all<{ user_id: string; name: string }>();
-    for (const row of results) body[row.user_id] = row.name;
+    for (const row of await store.auth.authors("user_id")) body[row.user_id] = row.name;
   } else {
-    const { results } = await db
-      .prepare("SELECT user_id, name FROM authors ORDER BY name")
-      .all<{ user_id: string; name: string }>();
-    for (const row of results) body[row.name] = row.user_id;
+    for (const row of await store.auth.authors("name")) body[row.name] = row.user_id;
   }
 
   const res = c.json(body);
@@ -58,16 +52,9 @@ authorsRoute.get("/v1/authors", async (c) => {
   return res;
 });
 
-authorsRoute.get("/v1/authors/:user_id", async (c) => {
-  const db = c.env.DB;
-  const userId = c.req.param("user_id");
-
-  const author = await db
-    .prepare("SELECT user_id, name FROM authors WHERE user_id = ?")
-    .bind(userId)
-    .first<{ user_id: string; name: string }>();
-  if (author === null) throw notFound(`no author '${userId}'`, userId);
-
+// P1: agent A. These two counts move to `LayoutReadStore.liveCountByOwner` /
+// `likeCountByUser` when the main session merges (design/p1-briefs.md B).
+async function authorCounts(db: D1Database, userId: string): Promise<{ layout_count: number; liked_count: number }> {
   const [layoutRow, likedRow] = await Promise.all([
     db
       .prepare("SELECT COUNT(*) AS n FROM layouts WHERE owner = ? AND deleted = 0")
@@ -75,11 +62,22 @@ authorsRoute.get("/v1/authors/:user_id", async (c) => {
       .first<{ n: number }>(),
     db.prepare("SELECT COUNT(*) AS n FROM likes WHERE user_id = ?").bind(userId).first<{ n: number }>(),
   ]);
+  return { layout_count: layoutRow?.n ?? 0, liked_count: likedRow?.n ?? 0 };
+}
+
+authorsRoute.get("/v1/authors/:user_id", async (c) => {
+  const store = platformOf(c).store;
+  const userId = c.req.param("user_id");
+
+  const author = await store.auth.author(userId);
+  if (author === null) throw notFound(`no author '${userId}'`, userId);
+
+  const counts = await authorCounts(c.env.DB, userId);
 
   return c.json({
     user_id: author.user_id,
     name: author.name,
-    layout_count: layoutRow?.n ?? 0,
-    liked_count: likedRow?.n ?? 0,
+    layout_count: counts.layout_count,
+    liked_count: counts.liked_count,
   });
 });

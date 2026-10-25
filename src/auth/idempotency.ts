@@ -12,7 +12,7 @@
 // (LDB-K5) -- and out of scope for anything outside `/v1/layouts*` (admin,
 // webhooks): those routes aren't part of this slice (review/LEDGER.md L3).
 import type { MiddlewareHandler } from "hono";
-import type { ActorVariables } from "./actor";
+import { type AppEnv, platformOf } from "../app";
 import type { Bindings } from "../env";
 import { badRequest, idempotencyInProgress, idempotencyMismatch } from "../core/errors";
 import {
@@ -40,7 +40,7 @@ function inScope(method: string, path: string): boolean {
   return path.startsWith("/v1/layouts");
 }
 
-export function idempotencyKeys(defaultNow: Clock = systemClock): MiddlewareHandler<{ Bindings: Bindings; Variables: ActorVariables }> {
+export function idempotencyKeys(defaultNow: Clock = systemClock): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     if (!inScope(c.req.method, c.req.path)) {
       await next();
@@ -76,7 +76,7 @@ export function idempotencyKeys(defaultNow: Clock = systemClock): MiddlewareHand
     // already committed). `acquireIdempotencySlot` is the one place that
     // decides replay / mismatch / in-progress / acquired; this middleware
     // only reacts to its answer.
-    const result = await acquireIdempotencySlot(c.env.DB, now, { scope, key: raw, method, path, hash });
+    const result = await acquireIdempotencySlot(platformOf(c).store, now, { scope, key: raw, method, path, hash });
     if (result.kind === "replay") {
       // Served straight from the stored row, no D1 write, no route handler
       // invoked at all -- `next()` never runs, so neither `rateLimitWrites`
@@ -114,13 +114,13 @@ export function idempotencyKeys(defaultNow: Clock = systemClock): MiddlewareHand
       // `routes/likes.ts`) answers via `c.json(...)` -- always JSON, so
       // storing (and later replaying) as `application/json` is exact.
       const body = await c.res.clone().text();
-      await completeIdempotency(c.env.DB, scope, raw, status, body, now());
+      await completeIdempotency(platformOf(c).store, scope, raw, status, body, now());
     } else {
       // 429/5xx: never stored as a replayable answer (`shouldStoreStatus`)
       // -- drop the reservation outright so a retry starts completely
       // fresh instead of either wrongly `409 idempotency_in_progress`-ing
       // for up to 60s or waiting out that window for nothing.
-      await deleteIdempotency(c.env.DB, scope, raw);
+      await deleteIdempotency(platformOf(c).store, scope, raw);
     }
   };
 }
