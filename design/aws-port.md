@@ -931,13 +931,22 @@ and identical across the switch, because the mirror holds the same events with t
   **Write pause:** steps 1-6, about 10 s; the gate is ≤ 30 s. Reads never stop. A failure at any
   step before 4 aborts: D1 mode back to normal, nothing changed on production. A failure after 4
   runs the rollback (below).
-- **CI's AWS credentials:** the managed SCP denies `iam:*Provider*`, so there is no GitHub OIDC.
-  The job uses a dedicated IAM user `akldb-cutover` whose policy reaches only the `prod` tables,
-  the ingest and applier functions, and the `prod` SSM parameters. Its access key is a GitHub
-  secret, rotated after the cutover. If the SCP also refuses `iam:CreateUser`, saltorbit creates
-  it (see the user-hands list). The fallback is the same orchestrator run from the main session
-  with `aws-vault exec akldb`, right after the PR merges, with the CI job doing only the D1 flag
-  steps.
+- **CI's AWS credentials** follow the same pattern as the site and Spark designs. The managed
+  SCP denies `iam:*Provider*`, so there is no GitHub OIDC. `iam:CreateUser` and
+  `iam:CreateAccessKey` are allowed (probed 2026-10-25).
+  - **The user:** an IAM user `akldb-ci` whose only permission is `sts:AssumeRole` on one role.
+  - **The role:** `akldb-cutover-role`, trusting that user alone and holding the narrow policy:
+    - the `prod` tables;
+    - `cloudformation:UpdateStack` on the `prod` stack, for the `MirrorMode` and
+      `ScheduleEnabled` parameters;
+    - `lambda:InvokeFunction` on `mirror-apply`;
+    - the `prod` SSM parameters it reads;
+    - nothing else.
+  - **The key:** the user's access key lives in a GitHub **environment**, `akldb-production`,
+    restricted to the `main` branch. Only the cutover job references that environment. Sessions
+    last one hour.
+  - **Who creates it:** the main session, with `aws-vault exec akldb`. The key is rotated after
+    the cutover and again at the end of the rollback window.
 
 **The one switch on saltorbit's side: `api.akldb.org` DNS.**
 - **When:** 48 h after the cutover PR, if the go/no-go watch is clean.
@@ -1008,15 +1017,17 @@ and identical across the switch, because the mirror holds the same events with t
    `design/lab/ci-ddb.patch` (P3's DynamoDB CI) and `design/lab/ci-cutover.patch` (the cutover
    job). The classifier blocks us from committing workflow files. The main session sets the
    secrets.
-4. **Only if the SCP refuses it to the `cli-admin` role:** create the IAM user `akldb-cutover`
-   with `infra/iam-akldb-cutover.json`, and hand over its access key through `aws-vault`.
-5. **Set N** for the proving ground and for the mirror.
+4. **Set N** for the proving ground and for the mirror.
+
+The IAM user, the role, the GitHub environment and its secrets are the main session's work (the
+SCP allows them). Only the Fargate quota increase could still reach saltorbit, if the project's
+policy refuses the request (§4.3).
 
 *At the cutover:*
 
-6. **The go, in words.** The main session then pushes and merges the cutover PR (the
+5. **The go, in words. The main session then pushes and merges the cutover PR (the
    `cutover/akldb.json` flip).
-7. **48 h later, the one switch:** replace the `api.akldb.org` Workers custom domain with a
+6. **48 h later, the one switch:** replace the `api.akldb.org` Workers custom domain with a
    DNS-only CNAME to the `prod` API distribution.
 
    The akldb.org site's own switch (`akldb.org`/`www` → the site distribution) is separate, 48 h
@@ -1141,8 +1152,11 @@ projected.
 9. **Every cutover is one switch on saltorbit's side plus one PR we push**, proven by the
    parallel run first, and "akldb needs to always stay consistent" (2026-10-25). The runtime
    pushes this needs are granted (§5.2).
-10. **No GitHub OIDC:** the managed SCP denies `iam:*Provider*`. AWS work runs from the main
-    session (`aws-vault exec akldb`), and CI uses the narrow IAM user `akldb-cutover` (§5.2).
+10. **No GitHub OIDC:** the managed SCP denies `iam:*Provider*`, while `iam:CreateUser` and
+    `CreateAccessKey` are allowed. AWS work runs from the main session (`aws-vault exec akldb`).
+    CI uses the IAM user `akldb-ci`, which can only assume `akldb-cutover-role`, with its key in
+    the `main`-restricted GitHub environment `akldb-production`. This is the same pattern as the
+    site and Spark designs (§5.2).
 
 ## 9. Build plan and gates
 

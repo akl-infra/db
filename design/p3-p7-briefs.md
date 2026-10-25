@@ -16,7 +16,7 @@ PR, the DNS switch, rollback, go/no-go) and §6.
 **Facts every lane uses:**
 - the managed SCP denies `iam:*Provider*`, so there is **no GitHub OIDC** anywhere;
 - AWS-side automation runs from the main session's machine;
-- CI's only AWS identity is the IAM user `akldb-cutover` (lane O writes its policy);
+- CI's only AWS identity is the IAM user `akldb-ci`. It can only `sts:AssumeRole` the narrow role `akldb-cutover-role`, and its key lives in the GitHub environment `akldb-production`, restricted to `main`. This is the same pattern as the site and Spark designs. Lane O writes both policies; the main session creates them (the SCP allows `iam:CreateUser`/`CreateAccessKey`);
 - spend limit set on the project;
 - the ACM certificate lives in us-east-1. Its DNS validation records are saltorbit's, in one
   batch (§5.2's user-hands list).
@@ -109,7 +109,7 @@ deep-equals `x` for every argument and result type the port uses.
 **You own:**
 - `infra/akldb.yaml`: one template with a `Stage` parameter, `lab` | `staging` | `prod`;
 - `infra/acm-us-east-1.yaml`;
-- `infra/iam-akldb-cutover.json`, the policy only;
+- `infra/iam-akldb-ci.json` (the user: `sts:AssumeRole` on the role only) and `infra/iam-akldb-cutover-role.json` (the trust policy for that user, plus the role policy);
 - `infra/*.guard`, `infra/*.test.mjs`;
 - `scripts/deploy-aws.sh`.
 
@@ -136,7 +136,7 @@ deep-equals `x` for every argument and result type the port uses.
 **Also:**
 - `deploy-aws.sh <stage>`: build with esbuild, then `aws cloudformation deploy`. It refuses to
   run without `AWS_PROFILE=akldb` or `aws-vault`, and the main session runs it.
-- `iam-akldb-cutover.json`: least privilege for the orchestrator (U):
+- `iam-akldb-cutover-role.json`: least privilege for the orchestrator (U), trusting only the `akldb-ci` user, with a 1 h session:
   - the `prod` tables;
   - the `MirrorMode`/`ScheduleEnabled` parameter updates through `cloudformation:UpdateStack`
     on the `prod` stack only;
@@ -254,11 +254,11 @@ This is a production runtime PR. The main session reviews, pushes and merges it,
     CloudFront domain), returning the response as is.
 - **The orchestrator `run.mjs --to aws|d1`:** exactly §5.2's steps 1-7, and the rollback's steps.
   - Each step logs, checks, and aborts or rolls back as §5.2 says.
-  - It uses `CLOUDFLARE_DB_TOKEN`, the ops client and the `akldb-cutover` AWS key from env, and
-    never anything else.
+  - It uses `CLOUDFLARE_DB_TOKEN`, the ops client, and the `akldb-ci` key from the `akldb-production` environment, which it uses to assume `akldb-cutover-role`. It uses
+    nothing else.
   - **`--rehearse <worker-name>`** runs against the rehearsal Worker `akl-db-rehearsal` with its
     own D1, the `lab` or `staging` AWS stage, and the simulator writing throughout.
-- **The CI job patch:** on a change to `cutover/akldb.json` on `main`:
+- **The CI job patch:** a job under `environment: akldb-production`, so only `main` can read the key, running on a change to `cutover/akldb.json` on `main`:
   1. run the standing checkpoint;
   2. run `run.mjs --to <primary>`;
   3. on failure, leave the mode as the orchestrator left it, and fail the job.
