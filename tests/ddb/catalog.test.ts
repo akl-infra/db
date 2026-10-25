@@ -6,7 +6,7 @@ import type { DdbContext } from "../../src/store/ddb/contracts";
 import { SPILL_BYTES } from "../../src/store/ddb/payload";
 import { txTuning } from "../../src/store/ddb/tx";
 import { ddbHarness } from "../harness/ddb";
-import { ctxOf, mulberry32, resetTables, Writer } from "./catalog-fixture";
+import { mulberry32, resetTables, Writer } from "./catalog-fixture";
 
 const blobsOf = () => ddbHarness.blobs as typeof ddbHarness.blobs & { objects: Map<string, { bytes: Uint8Array; contentType: string }> };
 const newCatalog = (doc?: DdbContext["doc"]) => createCatalog({ ...ddbHarness.ctxBase, ...(doc === undefined ? {} : { doc }) });
@@ -27,7 +27,8 @@ function hooked(hook: (cmd: object) => Promise<void>): DdbContext["doc"] {
 beforeEach(async () => {
   await resetTables();
   blobsOf().objects.clear();
-  txTuning.sleep = async () => {};
+  // the real backoff shape, scaled down: retries with no delay run in lockstep and exhaust their attempts
+  txTuning.sleep = (ms) => new Promise((r) => setTimeout(r, ms / 5));
 });
 
 describe("catalog view", () => {
@@ -44,18 +45,18 @@ describe("catalog view", () => {
     expect([...blobsOf().objects.keys()].some((k) => k.startsWith("payloads/"))).toBe(true);
 
     const view = await newCatalog().current();
-    expect(view.seq).toBe(7);
+    expect(view.seq).toBe(w.lastSeq);
     expect(view.layouts.get("C3")!.layout.deleted).toBe(true);
     expect(view.layouts.get("A1")!.likers).toEqual(["Mike", "adam", "zed"]);
     expect(view.layouts.get("B2")!.formats.get("spark")!.payload).toEqual(JSON.parse(big));
-    expect(view.layouts).toEqual(await w.expectedAt(7));
+    expect(view.layouts).toEqual(await w.expectedAt(view.seq));
   });
 
   it("[LDB-DDB22] a call sees every write that finished before it, however calls overlap", async () => {
     const w = new Writer();
     const cat = newCatalog();
     await w.create("A1", "Alpha", "u1", at(1));
-    expect((await cat.current()).seq).toBe(1);
+    expect((await cat.current()).seq).toBe(w.lastSeq);
     for (let i = 2; i < 8; i++) {
       const seq = await w.update("A1", at(i), `{"v":${i}}`);
       const views = await Promise.all([cat.current(), cat.current(), cat.current()]);
@@ -126,8 +127,8 @@ describe("catalog view", () => {
     armed = true;
     const v = await once.current();
     expect(n).toBeGreaterThan(0);
-    expect(v.seq).toBe(4);
-    expect(v.layouts).toEqual(await w.expectedAt(4));
+    expect(v.seq).toBe(w.lastSeq);
+    expect(v.layouts).toEqual(await w.expectedAt(v.seq));
 
     // a writer that never stops
     let k = 5;
@@ -168,17 +169,18 @@ describe("catalog boot and snapshot", () => {
     for (let i = 0; i < 12; i++) await w.create(`L${i}`, `n${i}`, "u", at(i));
     await w.like("L3", "u9", at(20));
     const a = newCatalog();
-    expect(await a.writeSnapshot()).toEqual({ seq: 13, written: true });
-    expect(await a.writeSnapshot()).toEqual({ seq: 13, written: false });
+    const s1 = w.lastSeq;
+    expect(await a.writeSnapshot()).toEqual({ seq: s1, written: true });
+    expect(await a.writeSnapshot()).toEqual({ seq: s1, written: false });
     const stored = blobsOf().objects.get(SNAPSHOT_KEY)!;
     await w.update("L4", at(21), '{"v":2}');
 
     const b = newCatalog();
     const { result: v, calls } = await ddbHarness.calls.measure(() => b.current());
     expect(calls.byCommand.Scan ?? 0).toBe(0);
-    expect(v.seq).toBe(14);
-    expect(v.layouts).toEqual(await w.expectedAt(14));
-    expect(await b.writeSnapshot()).toEqual({ seq: 14, written: true });
+    expect(v.seq).toBe(w.lastSeq);
+    expect(v.layouts).toEqual(await w.expectedAt(v.seq));
+    expect(await b.writeSnapshot()).toEqual({ seq: w.lastSeq, written: true });
     expect(blobsOf().objects.get(SNAPSHOT_KEY)).not.toBe(stored);
   });
 
@@ -204,7 +206,7 @@ describe("catalog boot and snapshot", () => {
       await arrange();
       const { result: v, calls } = await ddbHarness.calls.measure(() => newCatalog().current());
       expect(v.layouts, name).toEqual(await w.expectedAt(v.seq));
-      expect(v.seq, name).toBe(7);
+      expect(v.seq, name).toBe(w.lastSeq);
       if (name !== "valid but empty and behind") expect(calls.byCommand.Scan, name).toBe(1);
     }
   });

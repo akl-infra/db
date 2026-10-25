@@ -15,7 +15,8 @@ const T0 = Date.parse("2026-01-01T00:00:00.000Z");
 beforeEach(async () => {
   await resetTables();
   (ddbHarness.blobs as unknown as { objects: Map<string, unknown> }).objects.clear();
-  txTuning.sleep = async () => {};
+  // the real backoff shape, scaled down: retries with no delay run in lockstep and exhaust their attempts
+  txTuning.sleep = (ms) => new Promise((r) => setTimeout(r, ms / 5));
 });
 
 const newCatalog = () => createCatalog(ddbHarness.ctxBase);
@@ -45,8 +46,13 @@ describe("catalog property", () => {
           await w.remove(id, at());
           live.splice(live.indexOf(id), 1);
         }
-        else if (r < 0.85) await w.like(pick(live), pick(USERS), at());
-        else await w.unlike(pick(live), pick(USERS), at());
+        else {
+          // the store refuses a second like and an unlike of nothing, so toggle
+          const id = pick(live);
+          const user = pick(USERS);
+          if (w.hasLike(id, user)) await w.unlike(id, user);
+          else await w.like(id, user);
+        }
 
         const roll = rnd();
         if (roll < 0.15) await cat.writeSnapshot();
