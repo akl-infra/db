@@ -81,7 +81,7 @@ function errorOutcome(e: unknown): Outcome {
   if (e instanceof ApiError) return { error: { name: "ApiError", status: e.status, body: encodeTee(e.body), message } };
   if (e instanceof RevConflictError) return { error: { name: "RevConflictError", body: encodeTee({ layoutId: e.layoutId }), message } };
   if (e instanceof DuplicateInteractionError) return { error: { name: "DuplicateInteractionError", message } };
-  const name = e instanceof Error ? e.constructor?.name || e.name : typeof e;
+  const name = e instanceof Error ? e.name : typeof e;
   return { error: { name, message } };
 }
 
