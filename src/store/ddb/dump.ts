@@ -9,7 +9,7 @@ import * as realCodec from "./codec";
 import type { D1Row, DdbContext } from "./contracts";
 
 /** The three codec functions the dump needs; tests substitute them. */
-export type DumpCodec = Pick<typeof realCodec, "exportRows" | "importRows" | "dumpToRows" | "scanItems" | "batchWrite">;
+export type DumpCodec = Pick<typeof realCodec, "exportRows" | "importRows" | "dumpToRows">;
 
 // Private receipt metadata (`source_message_url`) never enters a WPM snapshot: the D1 pager names these columns.
 const WPM_COLUMNS = ["id", "layout_id", "user_id", "wpm", "proof", "submitted_by", "via", "submitted_at", "status", "decided_by", "decided_at", "reason", "notified_at", "review_version"] as const;
@@ -42,9 +42,6 @@ export function ddbDumpStore(ctx: DdbContext, codec: DumpCodec = realCodec): Dum
       };
     },
 
-    // D1's restore deletes every table first (private Discord rows, auth cache and nonces included) and loads the
-    // dump; the import below is for an empty store, so the same wipe comes first. Bookkeeping items (STATE/migrations,
-    // STATE/cutover) are not rows and stay.
     async restore(dump: Dump) {
       await codec.importRows(ctx, codec.dumpToRows(dump), { replace: true }); // restoreSql replaces state: wipe, then insert
     },
