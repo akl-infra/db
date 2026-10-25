@@ -1,0 +1,22 @@
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index bfb3050..fda8b0a 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -30,6 +30,17 @@ jobs:
+     # backup/rehost run.
+     if: github.event_name == 'pull_request' || github.event_name == 'push'
+     runs-on: ubuntu-latest
++    # DynamoDB Local for the `ddb` project (design/aws-port.md §6) and for
++    # tests/lab/dev.test.ts, which borrows it through AKLDB_DDB_ENDPOINT.
++    services:
++      dynamodb:
++        image: amazon/dynamodb-local:latest
++        ports:
++          - 8000:8000
++        # the image's default command (java -jar DynamoDBLocal.jar -sharedDb) is what the tests need
++    env:
++      AKLDB_DDB_PORT: "8000"
++      AKLDB_DDB_ENDPOINT: http://127.0.0.1:8000
+     steps:
+       # fetch-depth 0: frozen.test.ts (S2) diffs against origin/main to
+       # enforce LDB-F6 (merged format majors are immutable) -- a shallow

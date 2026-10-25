@@ -142,6 +142,8 @@ export default defineConfig(async () => {
               // Lane T: the tee codec is pure.
               "tests/mirror/record.test.ts",
               "tests/mirror/observe-ddb.test.ts",
+              // [LDB-DEV1..DEV3] npm run dev boots scripts/dev.mjs as a child process (lane M).
+              "tests/lab/dev.test.ts",
             ],
           },
         },
