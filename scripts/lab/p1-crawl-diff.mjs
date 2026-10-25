@@ -9,7 +9,11 @@
 //
 //   node scripts/lab/p1-crawl-diff.mjs [--base origin/main] [--head HEAD]
 //     [--dump <file.json|file.json.gz>|fixture] [--out <dir>] [--work <dir>]
-//     [--ports 18911,18912,18913] [--concurrency 12] [--keep]
+//     [--ports 18911,18912,18913] [--concurrency 12] [--keep] [--tee-sink <port>]
+//
+// --tee-sink <port> (lane T, the production mirror): starts a local sink on 127.0.0.1:<port> and runs the HEAD
+// Worker with TEE_URL/TEE_SECRET pointing at it (the base Worker never has them). The diff must stay empty, and the
+// sink must have received every committed event seq exactly once in correctly signed batches.
 //
 // Needs git, sqlite3 and this repo's node_modules (shared into both trees by
 // symlink: the commits must have the same package-lock.json). Touches no
@@ -37,7 +41,7 @@ import zlib from "node:zlib";
 const REPO = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), "..", "..");
 
 function parseArgs(argv) {
-  const a = { base: "origin/main", head: "HEAD", dump: "fixture", out: null, work: null, ports: [18911, 18912, 18913], concurrency: 12, keep: false };
+  const a = { base: "origin/main", head: "HEAD", dump: "fixture", out: null, work: null, ports: [18911, 18912, 18913], concurrency: 12, keep: false, teeSink: null };
   for (let i = 0; i < argv.length; i++) {
     const k = argv[i];
     const v = () => argv[++i];
@@ -49,6 +53,7 @@ function parseArgs(argv) {
     else if (k === "--ports") a.ports = v().split(",").map(Number);
     else if (k === "--concurrency") a.concurrency = Number(v());
     else if (k === "--keep") a.keep = true;
+    else if (k === "--tee-sink") a.teeSink = Number(v());
     else throw new Error(`unknown argument ${k}`);
   }
   return a;
@@ -205,11 +210,38 @@ function startFakeDiscord(port) {
   return new Promise((resolve) => server.listen(port, "127.0.0.1", () => resolve(server)));
 }
 
-function startWorker(tree, persist, port, inspector, discordPort, logName) {
+const TEE_SECRET = "lab-tee-secret";
+
+// A local stand-in for the mirror's ingest: verifies the HMAC and keeps every batch.
+function startTeeSink(port) {
+  const sink = { batches: [], badSignatures: 0, badTimestamps: 0, duplicates: 0 };
+  const seen = new Set();
+  const server = http.createServer((req, res) => {
+    const chunks = [];
+    req.on("data", (c) => chunks.push(c));
+    req.on("end", () => {
+      const body = Buffer.concat(chunks).toString("utf8");
+      const ts = req.headers["x-akldb-tee-ts"];
+      const sig = req.headers["x-akldb-tee-sig"];
+      const want = crypto.createHmac("sha256", TEE_SECRET).update(`${ts}\n${body}`).digest("hex");
+      if (sig !== want) sink.badSignatures++;
+      if (!(Math.abs(Date.now() / 1000 - Number(ts)) <= 300)) sink.badTimestamps++;
+      const batch = JSON.parse(body);
+      if (seen.has(batch.batchId)) sink.duplicates++;
+      seen.add(batch.batchId);
+      sink.batches.push(batch);
+      res.writeHead(200);
+      res.end("ok");
+    });
+  });
+  return new Promise((resolve) => server.listen(port, "127.0.0.1", () => resolve({ server, sink })));
+}
+
+function startWorker(tree, persist, port, inspector, discordPort, logName, extraVars = []) {
   const out = fs.openSync(path.join(OUT, `${logName}.log`), "w");
   const child = spawn(
     "npx",
-    ["wrangler", "dev", ".lab-entry.ts", "--config", "wrangler.toml", "--local", "--persist-to", persist, "--port", String(port), "--ip", "127.0.0.1", "--inspector-port", String(inspector), "--var", `DISCORD_API_URL:http://127.0.0.1:${discordPort}/api`, "--show-interactive-dev-session=false"],
+    ["wrangler", "dev", ".lab-entry.ts", "--config", "wrangler.toml", "--local", "--persist-to", persist, "--port", String(port), "--ip", "127.0.0.1", "--inspector-port", String(inspector), "--var", `DISCORD_API_URL:http://127.0.0.1:${discordPort}/api`, ...extraVars.flatMap((v) => ["--var", v]), "--show-interactive-dev-session=false"],
     { cwd: tree.dir, stdio: ["ignore", out, out], env: { ...process.env, CI: "1", WRANGLER_SEND_METRICS: "false" }, detached: true },
   );
   return child;
@@ -571,7 +603,8 @@ async function main() {
   const [pA, pB, pD] = args.ports;
   const discord = await startFakeDiscord(pD);
   const wA = startWorker(base, persistA, pA, pA + 100, pD, "worker-base");
-  const wB = startWorker(head, persistB, pB, pB + 100, pD, "worker-head");
+  const tee = args.teeSink === null ? null : await startTeeSink(args.teeSink);
+  const wB = startWorker(head, persistB, pB, pB + 100, pD, "worker-head", tee === null ? [] : [`TEE_URL:http://127.0.0.1:${args.teeSink}/ingest`, `TEE_SECRET:${TEE_SECRET}`]);
   BASE_URL = `http://127.0.0.1:${pA}`;
   HEAD_URL = `http://127.0.0.1:${pB}`;
   const stop = () => {
@@ -583,6 +616,7 @@ async function main() {
       }
     }
     discord.close();
+    tee?.server.close();
   };
   let tables = null;
   try {
@@ -604,9 +638,27 @@ async function main() {
     if (stateA[t] !== stateB[t]) tables.differing.push({ table: t, base_bytes: stateA[t]?.length ?? null, head_bytes: stateB[t]?.length ?? null, first_diff: firstDiff(Buffer.from(stateA[t] ?? ""), Buffer.from(stateB[t] ?? "")) });
   }
 
-  const report = { base: { rev: args.base, sha: base.sha }, head: { rev: args.head, sha: head.sha }, dump: { source: args.dump, layouts: dump.records.length, seq: dump.meta?.seq ?? null }, requests: results.requests, response_diffs: results.diffs.length, tables, families: results.families, writes: results.writes, diffs: results.diffs.slice(0, 200), seconds: results.seconds };
+  let teeReport = null;
+  if (tee !== null) {
+    const dumpSeq = dump.meta?.seq ?? 0;
+    const committed = sh("sqlite3", [findSqlite(persistB), `SELECT seq FROM events WHERE seq > ${Number(dumpSeq)} ORDER BY seq`]).split("\n").filter(Boolean).map(Number);
+    const recorded = tee.sink.batches.flatMap((b) => b.calls.flatMap((c) => c.seqs)).sort((x, y) => x - y);
+    teeReport = {
+      batches: tee.sink.batches.length,
+      calls: tee.sink.batches.reduce((n, b) => n + b.calls.length, 0),
+      bad_signatures: tee.sink.badSignatures,
+      bad_timestamps: tee.sink.badTimestamps,
+      duplicate_batch_ids: tee.sink.duplicates,
+      committed_events: committed.length,
+      recorded_seqs: recorded.length,
+      seqs_match: JSON.stringify(committed) === JSON.stringify(recorded),
+    };
+  }
+  const report = { tee: teeReport, base: { rev: args.base, sha: base.sha }, head: { rev: args.head, sha: head.sha }, dump: { source: args.dump, layouts: dump.records.length, seq: dump.meta?.seq ?? null }, requests: results.requests, response_diffs: results.diffs.length, tables, families: results.families, writes: results.writes, diffs: results.diffs.slice(0, 200), seconds: results.seconds };
   fs.writeFileSync(path.join(OUT, "report.json"), JSON.stringify(report, null, 2));
-  const ok = results.diffs.length === 0 && tables.differing.length === 0;
+  const teeOk = teeReport === null || (teeReport.batches > 0 && teeReport.calls > 0 && teeReport.seqs_match && teeReport.bad_signatures === 0 && teeReport.bad_timestamps === 0 && teeReport.duplicate_batch_ids === 0);
+  const ok = results.diffs.length === 0 && tables.differing.length === 0 && teeOk;
+  if (teeReport !== null) log(`tee sink: ${JSON.stringify(teeReport)}`);
   log(`${results.requests} request pairs, ${results.diffs.length} response diffs, ${tables.differing.length}/${tables.compared} tables differ -> ${ok ? "IDENTICAL" : "DIFFERENT"}`);
   log(`report: ${path.join(OUT, "report.json")}`);
   if (!args.keep) {
