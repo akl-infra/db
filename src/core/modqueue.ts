@@ -22,7 +22,8 @@ import type { Clock } from "./time";
 import { deliver, DeliveryDeferred, discordJson } from "./modqueue-delivery";
 import { buildV2Payload, buildV2StatusPatch, DISCORD_COMPONENTS_V2_FLAG, formatCommentText, queueUserName, repairQueueUser, type CommentCardData, type LinkCardData, type QueueStatus, type TextFileAttachment, type MessageFileAttachment, type WpmCardData } from "./modqueue-message";
 import { resolveProofPreview, type ProofPreview } from "./modqueue-proof";
-import { legacyD1, type StoreArg } from "../store/arg";
+import { toStore, type StoreArg } from "../store/arg";
+import type { Store } from "../store/port";
 
 const WEBHOOK_TIMEOUT_MS = 5000;
 const USER_AGENT = "akl-db/1.0";
@@ -126,45 +127,38 @@ function discordPost(body: Record<string, unknown>, env: Bindings, transport: Me
   return { body: form, headers };
 }
 
-async function sourceStatus(db: Bindings["DB"], kind: QueueKind, id: string): Promise<QueueStatus | null> {
-  const row = await db.prepare(`SELECT s.status, s.reason, s.${kind === "link" ? "submitted_by" : "user_id"} AS submitter_id, ${kind === "wpm" ? "s.source_message_url" : "NULL"} AS source_message_url, ${kind === 'link' ? '0' : 's.review_version'} AS review_version, a.name AS decider_name FROM ${STATUS_TABLE[kind]} s
-    LEFT JOIN authors a ON a.user_id = s.decided_by WHERE s.id = ?`).bind(id)
-    .first<{ status: string; submitter_id: string; source_message_url: string | null; reason: string | null; review_version: number; decider_name: string | null }>();
+async function sourceStatus(store: Store, kind: QueueKind, id: string): Promise<QueueStatus | null> {
+  const row = await store.modqueue.sourceStatus(kind, id);
   return row !== null && EDITABLE_STATUSES.has(row.status as DecidedStatus)
     ? { status: row.status as DecidedStatus, submitter_id: row.submitter_id, decider_name: row.decider_name, review_version: row.review_version, reason: row.reason, source_message_url: row.source_message_url }
     : null;
 }
 
-async function failedStatusEdit(db: Bindings["DB"], kind: QueueKind, id: string): Promise<void> {
-  await db.prepare("UPDATE modqueue_notifications SET failed_attempts = failed_attempts + 1 WHERE kind = ? AND submission_id = ?")
-    .bind(kind, id).run();
+async function failedStatusEdit(store: Store, kind: QueueKind, id: string): Promise<void> {
+  await store.modqueue.bumpFailedAttempts(kind, id);
 }
 
-async function reconcileOne(db: Bindings["DB"], env: Bindings, kind: QueueKind, id: string, fetchImpl: typeof fetch): Promise<void> {
+async function reconcileOne(store: Store, env: Bindings, kind: QueueKind, id: string, fetchImpl: typeof fetch): Promise<void> {
   const leaseToken = crypto.randomUUID();
   const leaseUntil = new Date(Date.now() + 60_000).toISOString();
-  const lease = await db.prepare(`UPDATE modqueue_notifications SET reconcile_lease_token = ?, reconcile_lease_until = ?
-    WHERE kind = ? AND submission_id = ? AND (reconcile_lease_token IS NULL OR reconcile_lease_until < ?)`)
-    .bind(leaseToken, leaseUntil, kind, id, new Date().toISOString()).run();
-  if ((lease.meta.changes ?? 0) !== 1) return;
+  if (!(await store.modqueue.leaseNotification(kind, id, leaseToken, leaseUntil, new Date().toISOString()))) return;
   try {
-    const row = await db.prepare("SELECT message_id, shown_status, shown_review_version, shown_source_message_url, message_format, transport, channel_id FROM modqueue_notifications WHERE kind = ? AND submission_id = ?")
-      .bind(kind, id).first<NotificationRow>();
+    const row = await store.modqueue.notification(kind, id) as NotificationRow | null;
     if (row === null) return; // Legacy messages have no known id and cannot be backfilled safely.
-    let state = await sourceStatus(db, kind, id);
+    let state = await sourceStatus(store, kind, id);
     if (state === null || (state.status === row.shown_status && state.review_version === row.shown_review_version && (state.source_message_url ?? null) === row.shown_source_message_url)) return;
     const url = messageUrl(env, row.transport, row.channel_id, row.message_id, row.message_format);
     const headers = requestHeaders(env, row.transport);
     if (url === null || headers === null) return;
-    const get = await deliver(db, fetchImpl, url, {
+    const get = await deliver(store, fetchImpl, url, {
       method: "GET",
       headers,
       signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS),
     }, async (response) => ({ ok: response.ok, status: response.status, message: response.ok ? await discordJson(response) : null }));
     if (!get.ok) {
       console.error(`modqueue message read failed for ${kind} submission '${id}' with status ${get.status}`);
-      if (get.status === 404) await db.prepare("DELETE FROM modqueue_notifications WHERE kind = ? AND submission_id = ?").bind(kind, id).run();
-      else await failedStatusEdit(db, kind, id);
+      if (get.status === 404) await store.modqueue.deleteNotification(kind, id);
+      else await failedStatusEdit(store, kind, id);
       return;
     }
     let message: unknown = get.message;
@@ -173,21 +167,21 @@ async function reconcileOne(db: Bindings["DB"], env: Bindings, kind: QueueKind, 
     // moved during the network call, loop and make the message converge to
     // the newest state before releasing the lease.
     for (let pass = 0; pass < 3; pass++) {
-      state = await sourceStatus(db, kind, id);
+      state = await sourceStatus(store, kind, id);
       if (state === null || (state.status === row.shown_status && state.review_version === row.shown_review_version && (state.source_message_url ?? null) === row.shown_source_message_url)) return;
       let patchBody: Record<string, unknown>;
       if (row.message_format === "components_v2") {
         const componentsPatch = buildV2StatusPatch(message, kind, id, state, row.transport === "bot" && env.MODQUEUE_DISCORD_ACTIONS === "true");
         if (componentsPatch === null) {
           console.error(`modqueue component status target missing for ${kind} submission '${id}'`);
-          await failedStatusEdit(db, kind, id);
+          await failedStatusEdit(store, kind, id);
           return;
         }
         patchBody = componentsPatch;
       } else {
         if (message === null || typeof message !== "object" || !("content" in message) || typeof message.content !== "string") {
           console.error(`modqueue message read omitted content for ${kind} submission '${id}'`);
-          await failedStatusEdit(db, kind, id);
+          await failedStatusEdit(store, kind, id);
           return;
         }
         patchBody = { content: legacyContent(state, withoutStatusPrefix(message.content), kind), allowed_mentions: { parse: [] } };
@@ -195,7 +189,7 @@ async function reconcileOne(db: Bindings["DB"], env: Bindings, kind: QueueKind, 
           patchBody.attachments = kind === "comment" && (state.status === "deleted" || state.status === "replaced") ? [] : message.attachments;
         }
       }
-      const response = await deliver(db, fetchImpl, url, {
+      const response = await deliver(store, fetchImpl, url, {
         method: "PATCH",
         headers: requestHeaders(env, row.transport, true)!,
         body: JSON.stringify(patchBody),
@@ -203,66 +197,56 @@ async function reconcileOne(db: Bindings["DB"], env: Bindings, kind: QueueKind, 
       }, async (response) => ({ ok: response.ok, status: response.status }));
       if (!response.ok) {
         console.error(`modqueue status edit failed for ${kind} submission '${id}' with status ${response.status}`);
-        if (response.status === 404) await db.prepare("DELETE FROM modqueue_notifications WHERE kind = ? AND submission_id = ?").bind(kind, id).run();
-        else await failedStatusEdit(db, kind, id);
+        if (response.status === 404) await store.modqueue.deleteNotification(kind, id);
+        else await failedStatusEdit(store, kind, id);
         return;
       }
-      await db.prepare("UPDATE modqueue_notifications SET shown_status = ?, shown_review_version = ?, shown_source_message_url = ?, failed_attempts = 0 WHERE kind = ? AND submission_id = ? AND reconcile_lease_token = ?")
-        .bind(state.status, state.review_version ?? 0, state.source_message_url ?? null, kind, id, leaseToken).run();
+      await store.modqueue.markShown({ kind, id, status: state.status, reviewVersion: state.review_version ?? 0, sourceMessageUrl: state.source_message_url ?? null, leaseToken });
       row.shown_status = state.status;
       row.shown_review_version = state.review_version ?? 0;
       row.shown_source_message_url = state.source_message_url ?? null;
       message = { ...(typeof message === "object" && message !== null ? message : {}), ...patchBody };
-      const latest = await sourceStatus(db, kind, id);
+      const latest = await sourceStatus(store, kind, id);
       if (latest === null || (latest.status === state.status && latest.review_version === state.review_version && latest.source_message_url === state.source_message_url)) return;
       state = latest;
     }
     // A later cron sweep sees the still-different source/shown status.
-    await failedStatusEdit(db, kind, id);
+    await failedStatusEdit(store, kind, id);
   } catch (error) {
     if (error instanceof DeliveryDeferred) return;
     console.error(`modqueue status reconciliation failed for ${kind} submission '${id}'`);
-    try { await failedStatusEdit(db, kind, id); } catch { /* retain a safe no-throw boundary */ }
+    try { await failedStatusEdit(store, kind, id); } catch { /* retain a safe no-throw boundary */ }
   } finally {
     try {
-      await db.prepare("UPDATE modqueue_notifications SET reconcile_lease_token = NULL, reconcile_lease_until = NULL WHERE kind = ? AND submission_id = ? AND reconcile_lease_token = ?")
-        .bind(kind, id, leaseToken).run();
+      await store.modqueue.releaseNotificationLease(kind, id, leaseToken);
     } catch { /* lease expires safely if cleanup cannot reach D1 */ }
   }
 }
 
-async function savePostedMessage(db: Bindings["DB"], env: Bindings, kind: QueueKind, id: string, format: MessageFormat, transport: MessageTransport, channelId: string | null, response: Response, fetchImpl: typeof fetch, reviewVersion = 0, sourceMessageUrl: string | null = null): Promise<void> {
+async function savePostedMessage(store: Store, env: Bindings, kind: QueueKind, id: string, format: MessageFormat, transport: MessageTransport, channelId: string | null, response: Response, fetchImpl: typeof fetch, reviewVersion = 0, sourceMessageUrl: string | null = null): Promise<void> {
   try {
     const payload: unknown = await response.json();
     if (payload === null || typeof payload !== "object" || !("id" in payload) || typeof payload.id !== "string") {
       console.error(`modqueue ${transport} response omitted message id for ${kind} submission '${id}'`);
       return;
     }
-    await db.prepare(`INSERT INTO modqueue_notifications (kind, submission_id, message_id, shown_status, message_format, transport, channel_id, shown_review_version, shown_source_message_url)
-      VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?) ON CONFLICT(kind, submission_id) DO NOTHING`)
-      .bind(kind, id, payload.id, format, transport, channelId, reviewVersion, sourceMessageUrl).run();
+    await store.modqueue.insertNotification({ kind, id, messageId: payload.id, format, transport, channelId, reviewVersion, sourceMessageUrl });
     // A decision or receipt binding may have landed while POST was in flight; reconcile against
     // the queue row immediately after persisting the newly returned id.
-    await reconcileOne(db, env, kind, id, fetchImpl);
+    await reconcileOne(store, env, kind, id, fetchImpl);
   } catch {
     console.error(`modqueue message tracking failed for ${kind} submission '${id}'`);
   }
 }
 
 export async function updateQueueNotification(dbArg: StoreArg, env: Bindings, kind: QueueKind, id: string, fetchImpl: typeof fetch = fetch): Promise<void> {
-  const db = legacyD1(dbArg);
-  await reconcileOne(db, env, kind, id, fetchImpl);
+  const store = toStore(dbArg);
+  await reconcileOne(store, env, kind, id, fetchImpl);
 }
 
-async function retryStatusEdits(db: Bindings["DB"], env: Bindings, fetchImpl: typeof fetch): Promise<void> {
-  const candidates = await db.prepare(`SELECT n.kind, n.submission_id, n.failed_attempts FROM modqueue_notifications n
-    JOIN link_submissions s ON n.kind = 'link' AND s.id = n.submission_id WHERE n.shown_status != s.status OR n.shown_review_version != 0
-    UNION ALL SELECT n.kind, n.submission_id, n.failed_attempts FROM modqueue_notifications n
-    JOIN wpm_submissions s ON n.kind = 'wpm' AND s.id = n.submission_id WHERE n.shown_status != s.status OR n.shown_review_version != s.review_version OR n.shown_source_message_url IS NOT s.source_message_url
-    UNION ALL SELECT n.kind, n.submission_id, n.failed_attempts FROM modqueue_notifications n
-    JOIN layout_comments s ON n.kind = 'comment' AND s.id = n.submission_id WHERE n.shown_status != s.status OR n.shown_review_version != s.review_version
-    ORDER BY failed_attempts ASC LIMIT ?`).bind(BATCH_LIMIT).all<{ kind: QueueKind; submission_id: string }>();
-  for (const row of candidates.results) await reconcileOne(db, env, row.kind, row.submission_id, fetchImpl);
+async function retryStatusEdits(store: Store, env: Bindings, fetchImpl: typeof fetch): Promise<void> {
+  const candidates = await store.modqueue.staleNotifications(BATCH_LIMIT);
+  for (const row of candidates) await reconcileOne(store, env, row.kind, row.submission_id, fetchImpl);
 }
 
 interface LinkCandidate {
@@ -364,62 +348,43 @@ export function buildCommentMessageContent(c: CommentCandidate): string {
 // name is a constant of this module, never caller input.
 interface Queue<C extends { id: string }> {
   table: "link_submissions" | "wpm_submissions";
-  candidateSql: string;
+  candidates: (store: Store, limit: number) => Promise<C[]>;
   build: (c: C) => string;
 }
 
 const LINK_QUEUE: Queue<LinkCandidate> = {
   table: "link_submissions",
-  candidateSql: `SELECT s.id AS id, s.layout_id AS layout_id, s.url AS url, s.submitted_by AS submitted_by,
-                l.name AS layout_name, a.name AS submitter_name
-         FROM link_submissions s
-         JOIN layouts l ON l.id = s.layout_id
-         LEFT JOIN authors a ON a.user_id = s.submitted_by
-         WHERE s.status = 'pending' AND s.notified_at IS NULL
-         ORDER BY s.submitted_at ASC
-         LIMIT ?`,
+  candidates: (store, limit) => store.modqueue.linkCandidates(limit),
   build: buildMessageContent,
 };
 
 const WPM_QUEUE: Queue<WpmCandidate> = {
   table: "wpm_submissions",
-  candidateSql: `SELECT s.id AS id, s.review_version, s.source_message_url, s.layout_id AS layout_id, s.user_id AS user_id, s.wpm AS wpm, s.proof AS proof,
-                l.name AS layout_name, a.name AS user_name
-         FROM wpm_submissions s
-         JOIN layouts l ON l.id = s.layout_id
-         LEFT JOIN authors a ON a.user_id = s.user_id
-         WHERE s.status = 'pending' AND s.notified_at IS NULL
-         ORDER BY s.submitted_at ASC
-         LIMIT ?`,
+  candidates: (store, limit) => store.modqueue.wpmCandidates(limit),
   build: buildWpmMessageContent,
 };
 
-async function claim(db: Bindings["DB"], table: Queue<never>["table"], at: string, id: string): Promise<boolean> {
-  const res = await db
-    .prepare(`UPDATE ${table} SET notified_at = ? WHERE id = ? AND notified_at IS NULL AND status = 'pending'`)
-    .bind(at, id)
-    .run();
-  return res.meta.changes === 1;
+async function claim(store: Store, table: Queue<never>["table"], at: string, id: string): Promise<boolean> {
+  return store.modqueue.claimAnnounce(table === "link_submissions" ? "link" : "wpm", id, at);
 }
 
-async function release(db: Bindings["DB"], table: Queue<never>["table"], id: string, claimedAt: string): Promise<void> {
-  await db.prepare(`UPDATE ${table} SET notified_at = NULL WHERE id = ? AND notified_at = ?`).bind(id, claimedAt).run();
+async function release(store: Store, table: Queue<never>["table"], id: string, claimedAt: string): Promise<void> {
+  await store.modqueue.releaseAnnounce(table === "link_submissions" ? "link" : "wpm", id, claimedAt);
 }
 
-async function sweep<C extends { id: string; review_version?: number; source_message_url?: string | null }>(db: Bindings["DB"], env: Bindings, format: MessageFormat, transport: MessageTransport, channelId: string | null, now: Clock, fetchImpl: typeof fetch, queue: Queue<C>): Promise<void> {
+async function sweep<C extends { id: string; review_version?: number; source_message_url?: string | null }>(store: Store, env: Bindings, format: MessageFormat, transport: MessageTransport, channelId: string | null, now: Clock, fetchImpl: typeof fetch, queue: Queue<C>): Promise<void> {
   // Enrichment adds at most six seconds to a sweep, even for a backlog of
   // inaccessible proofs. It never delays the submission HTTP response.
   let previewBudgetMs = 6000;
   let candidates: C[];
   try {
-    const { results } = await db.prepare(queue.candidateSql).bind(BATCH_LIMIT).all<C>();
-    candidates = results;
+    candidates = await queue.candidates(store, BATCH_LIMIT);
   } catch {
     console.error(`notifyPending: candidate read failed (${queue.table})`);
     return;
   }
 
-  const gatedFetch: typeof fetch = async (input, init) => deliver(db, fetchImpl, String(input), init ?? {}, async (response) => {
+  const gatedFetch: typeof fetch = async (input, init) => deliver(store, fetchImpl, String(input), init ?? {}, async (response) => {
     if (!response.ok) return new Response(null, { status: response.status });
     return Response.json(await discordJson(response), { status: response.status });
   });
@@ -428,7 +393,7 @@ async function sweep<C extends { id: string; review_version?: number; source_mes
     const claimedAt = now();
     let won: boolean;
     try {
-      won = await claim(db, queue.table, claimedAt, candidate.id);
+      won = await claim(store, queue.table, claimedAt, candidate.id);
     } catch {
       console.error(`notifyPending: claim failed for submission '${candidate.id}'`);
       continue;
@@ -451,7 +416,7 @@ async function sweep<C extends { id: string; review_version?: number; source_mes
       else body = { content: queue.build(candidate), allowed_mentions: { parse: [] } };
       const url = messageUrl(env, transport, channelId, undefined, format);
       const request = discordPost(body, env, transport);
-      if (url === null || request === null) { await release(db, queue.table, candidate.id, claimedAt); return; }
+      if (url === null || request === null) { await release(store, queue.table, candidate.id, claimedAt); return; }
       let res = await gatedFetch(url, {
         method: "POST",
         headers: request.headers,
@@ -469,12 +434,12 @@ async function sweep<C extends { id: string; review_version?: number; source_mes
       // Definitive failures release the claim for the next cron sweep.
       if (!res.ok) {
         console.error(`notifyPending: ${transport} post for submission '${candidate.id}' failed with status ${res.status}`);
-        await release(db, queue.table, candidate.id, claimedAt);
+        await release(store, queue.table, candidate.id, claimedAt);
       } else {
-        await savePostedMessage(db, env, kind, candidate.id, format, transport, channelId, res, fetchImpl, candidate.review_version ?? 0, candidate.source_message_url ?? null);
+        await savePostedMessage(store, env, kind, candidate.id, format, transport, channelId, res, fetchImpl, candidate.review_version ?? 0, candidate.source_message_url ?? null);
       }
     } catch (error) {
-      await release(db, queue.table, candidate.id, claimedAt);
+      await release(store, queue.table, candidate.id, claimedAt);
       if (error instanceof DeliveryDeferred) break; // shared gate: leave the rest unclaimed for cron
       console.error(`notifyPending: webhook post for submission '${candidate.id}' threw`);
     }
@@ -482,7 +447,7 @@ async function sweep<C extends { id: string; review_version?: number; source_mes
 }
 
 export async function notifyPending(dbArg: StoreArg, env: Bindings, now: Clock, fetchImpl: typeof fetch = fetch): Promise<void> {
-  const db = legacyD1(dbArg);
+  const store = toStore(dbArg);
   const botCards = env.MODQUEUE_DISCORD_CARDS === "true" && env.MODQUEUE_DISCORD_BOT_TOKEN !== undefined && env.MODQUEUE_DISCORD_BOT_TOKEN !== "" && env.MODQUEUE_DISCORD_CHANNEL_ID !== undefined && env.MODQUEUE_DISCORD_CHANNEL_ID !== "";
   const webhookReady = env.MODQUEUE_DISCORD_WEBHOOK !== undefined && env.MODQUEUE_DISCORD_WEBHOOK !== "";
   if (!botCards && !webhookReady) return; // [LDB-MD12]
@@ -492,10 +457,10 @@ export async function notifyPending(dbArg: StoreArg, env: Bindings, now: Clock, 
 
   // Links first, then WPM: each table is swept (and claimed) on its own, so
   // a failure in one never starves the other.
-  await sweep(db, env, format, transport, channelId, now, fetchImpl, LINK_QUEUE);
-  await sweep(db, env, format, transport, channelId, now, fetchImpl, WPM_QUEUE);
+  await sweep(store, env, format, transport, channelId, now, fetchImpl, LINK_QUEUE);
+  await sweep(store, env, format, transport, channelId, now, fetchImpl, WPM_QUEUE);
   try {
-    await retryStatusEdits(db, env, fetchImpl);
+    await retryStatusEdits(store, env, fetchImpl);
   } catch {
     console.error("modqueue status retry scan failed");
   }
@@ -509,26 +474,14 @@ export async function notifyPending(dbArg: StoreArg, env: Bindings, now: Clock, 
 // empty transport config is a complete no-op. Never throws. Only a row that
 // is still `pending` is announced.
 export async function announceComment(dbArg: StoreArg, env: Bindings, id: string, fetchImpl: typeof fetch = fetch): Promise<void> {
-  const db = legacyD1(dbArg);
+  const store = toStore(dbArg);
   const botCards = env.MODQUEUE_DISCORD_CARDS === "true" && env.MODQUEUE_DISCORD_BOT_TOKEN !== undefined && env.MODQUEUE_DISCORD_BOT_TOKEN !== "" && env.MODQUEUE_DISCORD_CHANNEL_ID !== undefined && env.MODQUEUE_DISCORD_CHANNEL_ID !== "";
   const transport: MessageTransport = botCards ? "bot" : "legacy_webhook";
   const channelId = botCards ? env.MODQUEUE_DISCORD_CHANNEL_ID! : null;
   const ready = botCards || (env.MODQUEUE_DISCORD_WEBHOOK !== undefined && env.MODQUEUE_DISCORD_WEBHOOK !== "");
   if (!ready) return; // [LDB-MD12]
   try {
-    const c = await db
-      .prepare(
-        `SELECT s.id AS id, s.review_version, s.layout_id AS layout_id, s.user_id AS user_id, s.body AS body,
-                l.name AS layout_name, l.owner AS layout_owner, a.name AS user_name,
-                EXISTS (SELECT 1 FROM layout_comments b WHERE b.layout_id = s.layout_id AND b.user_id = s.user_id AND b.status = 'approved') AS has_live
-                , (SELECT b.body FROM layout_comments b WHERE b.layout_id = s.layout_id AND b.user_id = s.user_id AND b.status = 'approved' AND b.body IS NOT NULL ORDER BY b.decided_at DESC LIMIT 1) AS live_body
-         FROM layout_comments s
-         JOIN layouts l ON l.id = s.layout_id
-         LEFT JOIN authors a ON a.user_id = s.user_id
-         WHERE s.id = ? AND s.status = 'pending' AND s.body IS NOT NULL`,
-      )
-      .bind(id)
-      .first<CommentCandidate>();
+    const c = await store.modqueue.commentCandidate(id);
     if (c === null) return;
     const format: MessageFormat = botCards || env.MODQUEUE_DISCORD_COMPONENTS === "true" ? "components_v2" : "text";
     const body = format === "components_v2"
@@ -552,7 +505,7 @@ export async function announceComment(dbArg: StoreArg, env: Bindings, id: string
       signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS),
     });
     if (!res.ok) console.error(`announceComment: ${transport} post for comment '${id}' failed with status ${res.status}`);
-    else await savePostedMessage(db, env, "comment", id, format, transport, channelId, res, fetchImpl, c.review_version ?? 0);
+    else await savePostedMessage(store, env, "comment", id, format, transport, channelId, res, fetchImpl, c.review_version ?? 0);
   } catch {
     console.error(`announceComment: announcing comment '${id}' failed`);
   }

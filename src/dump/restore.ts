@@ -12,9 +12,8 @@
 // by replaying writes through `appendWrite`'s fold, so going through it
 // here would be re-deriving `rev`/`created_at`/etc. from data that already
 // carries them -- pure overhead with a chance to disagree with the dump.
-import type { Bindings } from "../env";
 import type { Dump } from "./write";
-import { legacyD1, type StoreArg } from "../store/arg";
+import type { StoreArg } from "../store/arg";
 
 // SQLite's own AUTOINCREMENT rule (07 §4, confirmed against real D1): an
 // explicit INSERT into an AUTOINCREMENT primary key advances `sqlite_sequence`
@@ -360,19 +359,14 @@ export function restoreSql(dump: Dump): string[] {
   return statements;
 }
 
-// Applies `restoreSql(dump)` via `db.batch()`, chunked at <= 100 statements
-// per batch (the same per-batch cap `import/apply.ts` uses) so one restore
-// of a full corpus doesn't try to submit thousands of statements in a
-// single D1 batch call. Test-only in phase 1 (`tests/rehost.test.ts`);
-// `scripts/rehost.mjs` uses `restoreSql` directly against `wrangler d1
-// execute --file` instead, so a real rehost never depends on Worker code
-// running at all.
+// Loads `dump` into an empty database through the port's `DumpStore.restore`
+// (store/d1/dump.ts runs `restoreSql(dump)` in D1 batches of <= 100). Test-only
+// in phase 1 (`tests/rehost.test.ts`); `scripts/rehost.mjs` uses `restoreSql`
+// directly against `wrangler d1 execute --file` instead, so a real rehost
+// never depends on Worker code running at all. The store import is dynamic so
+// this module has no runtime imports and `scripts/rehost.mjs` can load it
+// under plain Node.
 export async function restoreInto(dbArg: StoreArg, dump: Dump): Promise<void> {
-  const db = legacyD1(dbArg);
-  const statements = restoreSql(dump);
-  const BATCH_CHUNK = 100;
-  for (let i = 0; i < statements.length; i += BATCH_CHUNK) {
-    const chunk = statements.slice(i, i + BATCH_CHUNK);
-    await db.batch(chunk.map((sql) => db.prepare(sql)));
-  }
+  const { toStore } = await import("../store/arg");
+  await toStore(dbArg).dump.restore(dump);
 }

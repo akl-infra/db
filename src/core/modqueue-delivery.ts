@@ -1,5 +1,5 @@
 import type { Bindings } from "../env";
-import { legacyD1, type StoreArg } from "../store/arg";
+import { toStore, type StoreArg } from "../store/arg";
 
 // A conservative shared gate: all moderation message edits share the same
 // destination/token today. Keeping this in D1 also covers isolate replacement.
@@ -51,29 +51,24 @@ export function retryDelay(headers: Headers, body: unknown, now: number): number
 // the shared lease through body handling ensures a 429 is persisted before
 // another isolate can send its next request. No network retries here.
 export async function deliver<T>(dbArg: StoreArg, fetchImpl: typeof fetch, url: string, init: RequestInit, consume: (response: Response) => Promise<T>): Promise<T> {
-  const db = legacyD1(dbArg);
+  const store = toStore(dbArg);
   const token = crypto.randomUUID();
   const now = Date.now();
-  const claim = await db.prepare(`UPDATE modqueue_delivery_gate SET lease_token = ?, lease_until = ?
-    WHERE id = 1 AND retry_at <= ? AND (lease_token IS NULL OR lease_until <= ?)`)
-    .bind(token, now + 30_000, now, now).run();
-  if (claim.meta.changes !== 1) throw new DeliveryDeferred();
+  if (!(await store.modqueue.claimDeliveryGate(token, now + 30_000, now))) throw new DeliveryDeferred();
   try {
     const response = await fetchImpl(url, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) });
     if (response.status === 429) {
       let body: unknown;
       try { body = await discordJson(response); } catch { /* header/fallback still applies */ }
-      await db.prepare("UPDATE modqueue_delivery_gate SET retry_at = MAX(retry_at, ?) WHERE id = 1 AND lease_token = ?")
-        .bind(Date.now() + retryDelay(response.headers, body, Date.now()), token).run();
+      await store.modqueue.deferDeliveryGate(token, Date.now() + retryDelay(response.headers, body, Date.now()));
       throw new DeliveryDeferred();
     }
     if (response.headers.get("X-RateLimit-Remaining") === "0") {
-      await db.prepare("UPDATE modqueue_delivery_gate SET retry_at = MAX(retry_at, ?) WHERE id = 1 AND lease_token = ?")
-        .bind(Date.now() + retryDelay(response.headers, null, Date.now()), token).run();
+      await store.modqueue.deferDeliveryGate(token, Date.now() + retryDelay(response.headers, null, Date.now()));
     }
     try { return await consume(response); }
     finally { void response.body?.cancel().catch(() => {}); }
   } finally {
-    await db.prepare("UPDATE modqueue_delivery_gate SET lease_token = NULL, lease_until = 0 WHERE id = 1 AND lease_token = ?").bind(token).run();
+    await store.modqueue.releaseDeliveryGate(token);
   }
 }

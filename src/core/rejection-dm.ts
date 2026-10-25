@@ -3,7 +3,8 @@
 // submission when a lease is delivered, so erased/replaced data is not kept.
 import type { Bindings } from "../env";
 import type { Clock } from "./time";
-import { legacyD1, type StoreArg } from "../store/arg";
+import { legacyD1, toStore, type StoreArg } from "../store/arg";
+import type { Store } from "../store/port";
 
 export type RejectionKind = "comment" | "link" | "wpm";
 
@@ -267,35 +268,23 @@ export async function dispatchRejectionDms(
   now: Clock,
   fetchImpl: typeof fetch = fetch,
 ): Promise<{ sent: number; retried: number; terminal: number }> {
-  const db = legacyD1(dbArg);
+  const store = toStore(dbArg);
   if (bindings.MODQUEUE_DISCORD_DMS !== "true" || !bindings.MODQUEUE_DISCORD_BOT_TOKEN) return { sent: 0, retried: 0, terminal: 0 };
   const api = (bindings.DISCORD_API_URL ?? "https://discord.com/api").replace(/\/$/, "") + "/v10";
   const token = bindings.MODQUEUE_DISCORD_BOT_TOKEN;
   const summary = { sent: 0, retried: 0, terminal: 0 };
-  const candidates = await db.prepare(
-    `SELECT delivery_key, event_seq, review_version, decision, kind, submission_id, layout_id, recipient_id, nonce,
-            status, attempts, next_attempt_at, lease_token, lease_until, ambiguous_message_attempt_at
-       FROM discord_rejection_dm_outbox
-      WHERE (status = 'pending' AND next_attempt_at <= ?)
-         OR (status = 'leased' AND lease_until <= ?)
-      ORDER BY next_attempt_at, event_seq LIMIT 10`,
-  ).bind(now(), now()).all<RejectionOutboxRow>();
+  const candidates = await store.outbox.due(now(), 10);
 
-  for (const candidate of candidates.results ?? []) {
+  for (const candidate of candidates) {
     const tokenId = crypto.randomUUID();
     const at = now();
     const leaseUntil = addSeconds(at, 120);
-    const claim = await db.prepare(
-      `UPDATE discord_rejection_dm_outbox
-          SET status = 'leased', lease_token = ?, lease_until = ?, attempts = attempts + 1, updated_at = ?
-        WHERE delivery_key = ? AND ((status = 'pending' AND next_attempt_at <= ?) OR (status = 'leased' AND lease_until <= ?))`,
-    ).bind(tokenId, leaseUntil, at, candidate.delivery_key, at, at).run();
-    if (claim.meta.changes !== 1) continue;
+    if (!(await store.outbox.lease(candidate.delivery_key, tokenId, leaseUntil, at))) continue;
 
     const row = { ...candidate, lease_token: tokenId, attempts: candidate.attempts + 1 };
-    const content = await readEligibleContent(db, row);
+    const content = await readEligibleContent(store, row);
     if (content === null || content.eligible !== 1) {
-      await terminal(db, row, now(), "expired", "no_longer_eligible");
+      await terminal(store, row, now(), "expired", "no_longer_eligible");
       summary.terminal++;
       continue;
     }
@@ -308,29 +297,29 @@ export async function dispatchRejectionDms(
         signal: AbortSignal.timeout(8_000),
       });
       if (!channelResponse.ok) {
-        await handleFailure(db, row, channelResponse, now(), false);
+        await handleFailure(store, row, channelResponse, now(), false);
         if (channelResponse.status === 429 || channelResponse.status >= 500) summary.retried++;
         else summary.terminal++;
         continue;
       }
       const channel = await channelResponse.json() as { id?: string };
       if (typeof channel.id !== "string" || !/^\d{17,20}$/.test(channel.id)) {
-        await terminal(db, row, now(), "failed", "invalid_dm_channel_response");
+        await terminal(store, row, now(), "failed", "invalid_dm_channel_response");
         summary.terminal++;
         continue;
       }
       channelId = channel.id;
     } catch {
-      await retry(db, row, now(), "network_error", 0);
+      await retry(store, row, now(), "network_error", 0);
       summary.retried++;
       continue;
     }
 
     // Re-check just before the message POST: a comment may have been erased
     // while the DM channel request was in flight.
-    const currentContent = await readEligibleContent(db, row);
+    const currentContent = await readEligibleContent(store, row);
     if (currentContent === null || currentContent.eligible !== 1) {
-      await terminal(db, row, now(), "expired", "no_longer_eligible");
+      await terminal(store, row, now(), "expired", "no_longer_eligible");
       summary.terminal++;
       continue;
     }
@@ -338,16 +327,11 @@ export async function dispatchRejectionDms(
     const beforeMessage = now();
     const previousAttempt = row.ambiguous_message_attempt_at;
     if (previousAttempt !== null && new Date(beforeMessage).getTime() - new Date(previousAttempt).getTime() > 120_000) {
-      await terminal(db, row, beforeMessage, "uncertain", "nonce_window_expired");
+      await terminal(store, row, beforeMessage, "uncertain", "nonce_window_expired");
       summary.terminal++;
       continue;
     }
-    const begin = await db.prepare(
-      `UPDATE discord_rejection_dm_outbox
-          SET ambiguous_message_attempt_at = COALESCE(ambiguous_message_attempt_at, ?), dm_channel_id = ?, updated_at = ?
-        WHERE delivery_key = ? AND status = 'leased' AND lease_token = ? AND lease_until > ?`,
-    ).bind(beforeMessage, channelId, beforeMessage, row.delivery_key, tokenId, beforeMessage).run();
-    if (begin.meta.changes !== 1) continue;
+    if (!(await store.outbox.beginMessage({ deliveryKey: row.delivery_key, token: tokenId, at: beforeMessage, channelId }))) continue;
     const messageRow = { ...row, ambiguous_message_attempt_at: previousAttempt ?? beforeMessage };
 
     const messageInput = {
@@ -387,45 +371,29 @@ export async function dispatchRejectionDms(
         signal: AbortSignal.timeout(8_000),
       });
       if (!response.ok) {
-        await handleFailure(db, messageRow, response, now(), true, previousAttempt !== null);
+        await handleFailure(store, messageRow, response, now(), true, previousAttempt !== null);
         if (response.status === 429 || response.status >= 500) summary.retried++;
         else summary.terminal++;
         continue;
       }
       const sent = await response.json() as { id?: string };
       if (typeof sent.id !== "string" || !/^\d{17,20}$/.test(sent.id)) {
-        await terminal(db, row, now(), "uncertain", "invalid_message_response");
+        await terminal(store, row, now(), "uncertain", "invalid_message_response");
         summary.terminal++;
         continue;
       }
-      await db.prepare(
-        `UPDATE discord_rejection_dm_outbox
-            SET status = 'sent', discord_message_id = ?, sent_at = ?, updated_at = ?, lease_token = NULL, lease_until = NULL
-          WHERE delivery_key = ? AND status = 'leased' AND lease_token = ?`,
-      ).bind(sent.id, now(), now(), row.delivery_key, tokenId).run();
+      await store.outbox.markSent({ deliveryKey: row.delivery_key, token: tokenId, messageId: sent.id, at: now() });
       summary.sent++;
     } catch {
-      await retry(db, messageRow, now(), "network_error", 0, true);
+      await retry(store, messageRow, now(), "network_error", 0, true);
       summary.retried++;
     }
   }
   return summary;
 }
 
-async function readEligibleContent(db: Bindings["DB"], row: RejectionOutboxRow): Promise<DeliveryContent | null> {
-  if (row.decision === "approval" && row.kind === "link") return null;
-  const source = row.kind === "comment" ? "layout_comments" : row.kind === "link" ? "link_submissions" : "wpm_submissions";
-  const recipient = row.kind === "link" ? "submitted_by" : "user_id";
-  const cycleEligibility = row.kind === "link" ? "" : " AND s.review_version = ?";
-  const bodyEligibility = row.kind === "comment" ? " AND s.body IS NOT NULL" : "";
-  const rowData = await db.prepare(
-    `SELECT s.${recipient} AS recipient_id, s.reason, l.name AS layout_name, l.deleted,
-            ${row.kind === "comment" ? "s.body" : "NULL"} AS comment_body,
-            ${row.kind === "wpm" ? "s.wpm" : "NULL"} AS wpm, ${row.kind === "wpm" ? "s.proof" : "NULL"} AS proof, ${row.kind === "link" ? "s.url" : "NULL"} AS link_url,
-            s.status = '${row.decision === "approval" ? "approved" : "rejected"}'${bodyEligibility}${cycleEligibility} AS eligible
-       FROM ${source} s JOIN layouts l ON l.id = s.layout_id
-      WHERE s.id = ? AND s.layout_id = ?`,
-  ).bind(...(row.kind === "link" ? [] : [row.review_version]), row.submission_id, row.layout_id).first<Omit<DeliveryContent, "context"> & { deleted: number }>();
+async function readEligibleContent(store: Store, row: RejectionOutboxRow): Promise<DeliveryContent | null> {
+  const rowData = await store.outbox.content(row);
   if (rowData === null) return null;
   return {
     recipient_id: rowData.recipient_id,
@@ -441,28 +409,27 @@ async function readEligibleContent(db: Bindings["DB"], row: RejectionOutboxRow):
   };
 }
 
-async function handleFailure(db: Bindings["DB"], row: RejectionOutboxRow, response: Response, at: string, messagePost: boolean, priorAmbiguous = false): Promise<void> {
+async function handleFailure(store: Store, row: RejectionOutboxRow, response: Response, at: string, messagePost: boolean, priorAmbiguous = false): Promise<void> {
   if (response.status === 429) {
     const retryAfter = await retryAfterSeconds(response);
     // A definitive 429 means this particular message was not accepted. If
     // no earlier POST had an ambiguous outcome, clear its pre-send marker so
     // a long server retry delay does not become a false uncertain terminal.
     if (messagePost && !priorAmbiguous) {
-      await db.prepare(`UPDATE discord_rejection_dm_outbox SET ambiguous_message_attempt_at = NULL, updated_at = ?
-        WHERE delivery_key = ? AND status = 'leased' AND lease_token = ?`).bind(at, row.delivery_key, row.lease_token).run();
+      await store.outbox.clearAmbiguous({ deliveryKey: row.delivery_key, token: row.lease_token!, at });
     }
-    await retry(db, row, at, "rate_limited", retryAfter, false);
+    await retry(store, row, at, "rate_limited", retryAfter, false);
     return;
   }
   if (response.status >= 500) {
     const age = row.ambiguous_message_attempt_at === null ? 0 : new Date(at).getTime() - new Date(row.ambiguous_message_attempt_at).getTime();
-    if (messagePost && age > 120_000) await terminal(db, row, at, "uncertain", "ambiguous_result_outside_nonce_window");
-    else await retry(db, row, at, `http_${response.status}`, 0, messagePost);
+    if (messagePost && age > 120_000) await terminal(store, row, at, "uncertain", "ambiguous_result_outside_nonce_window");
+    else await retry(store, row, at, `http_${response.status}`, 0, messagePost);
     return;
   }
   let code: number | null = null;
   try { code = (await response.clone().json() as { code?: number }).code ?? null; } catch { /* response body is not trusted */ }
-  await terminal(db, row, at, code === 50007 ? "blocked" : "failed", code === 50007 ? "recipient_blocks_dms" : `http_${response.status}`);
+  await terminal(store, row, at, code === 50007 ? "blocked" : "failed", code === 50007 ? "recipient_blocks_dms" : `http_${response.status}`);
 }
 
 async function retryAfterSeconds(response: Response): Promise<number> {
@@ -476,34 +443,25 @@ async function retryAfterSeconds(response: Response): Promise<number> {
   return 0;
 }
 
-async function retry(db: Bindings["DB"], row: RejectionOutboxRow, at: string, error: string, retryAfter: number, ambiguous = false): Promise<void> {
+async function retry(store: Store, row: RejectionOutboxRow, at: string, error: string, retryAfter: number, ambiguous = false): Promise<void> {
   const attemptAt = row.ambiguous_message_attempt_at;
   if (ambiguous && attemptAt !== null && new Date(at).getTime() - new Date(attemptAt).getTime() > 120_000) {
-    await terminal(db, row, at, "uncertain", "nonce_window_expired");
+    await terminal(store, row, at, "uncertain", "nonce_window_expired");
     return;
   }
   const exponential = Math.min(60 * 60, 30 * 2 ** Math.min(Math.max(row.attempts - 1, 0), 7));
   const seconds = retryAfter > 0 ? retryAfter : exponential + deterministicJitter(row.delivery_key, row.attempts, exponential);
-  await db.prepare(
-    `UPDATE discord_rejection_dm_outbox
-        SET status = 'pending', next_attempt_at = ?, updated_at = ?, lease_token = NULL, lease_until = NULL, last_error_class = ?
-      WHERE delivery_key = ? AND status = 'leased' AND lease_token = ?`,
-  ).bind(addSeconds(at, seconds), at, error, row.delivery_key, row.lease_token).run();
+  await store.outbox.retry({ deliveryKey: row.delivery_key, token: row.lease_token!, at, nextAttemptAt: addSeconds(at, seconds), error });
   // Treat any 429 as a queue-wide pause. Discord may identify it as global
   // only in response headers/body, and delaying other pending DMs briefly is
   // preferable to accidentally continuing through a global limit.
   if (error === "rate_limited") {
-    await db.prepare("UPDATE discord_rejection_dm_outbox SET next_attempt_at = MAX(next_attempt_at, ?), updated_at = ? WHERE status = 'pending'")
-      .bind(addSeconds(at, seconds), at).run();
+    await store.outbox.deferAllPending(addSeconds(at, seconds), at);
   }
 }
 
-async function terminal(db: Bindings["DB"], row: RejectionOutboxRow, at: string, status: "blocked" | "uncertain" | "failed" | "expired", error: string): Promise<void> {
-  await db.prepare(
-    `UPDATE discord_rejection_dm_outbox
-        SET status = ?, updated_at = ?, lease_token = NULL, lease_until = NULL, last_error_class = ?
-      WHERE delivery_key = ? AND status = 'leased' AND lease_token = ?`,
-  ).bind(status, at, error, row.delivery_key, row.lease_token).run();
+async function terminal(store: Store, row: RejectionOutboxRow, at: string, status: "blocked" | "uncertain" | "failed" | "expired", error: string): Promise<void> {
+  await store.outbox.terminal({ deliveryKey: row.delivery_key, token: row.lease_token!, at, status, error });
 }
 
 function addSeconds(iso: string, seconds: number): string {
