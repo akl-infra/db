@@ -20,9 +20,22 @@ function executionCtxOf(c: Context): { waitUntil(p: Promise<unknown>): void } | 
   }
 }
 
-/** Registered first in src/index.ts: builds the Workers platform for this request. */
+/**
+ * A host other than Workers (Node lab server, tests on DynamoDB, Lambda)
+ * passes its own platform factory on the env object as `PLATFORM`
+ * (design/p2-p5-briefs.md, frozen contract). Workers never sets it.
+ */
+export type PlatformFactory = (env: Bindings, ctx: { waitUntil(p: Promise<unknown>): void } | undefined) => Platform;
+
+/** The platform for `env` outside a request (scheduled jobs, dumps): Workers unless the env names another. */
+export function platformFor(env: Bindings, ctx: { waitUntil(p: Promise<unknown>): void } | undefined): Platform {
+  const factory = (env as unknown as { PLATFORM?: PlatformFactory }).PLATFORM ?? workersPlatform;
+  return factory(env, ctx);
+}
+
+/** Registered first in src/index.ts: builds this request's platform. */
 export const platformMiddleware: MiddlewareHandler<AppEnv> = async (c, next) => {
-  c.set("platform", workersPlatform(c.env, executionCtxOf(c)));
+  c.set("platform", platformFor(c.env, executionCtxOf(c)));
   await next();
 };
 

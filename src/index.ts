@@ -1,6 +1,5 @@
 import { Hono } from "hono";
-import { type AppEnv, platformMiddleware, platformOf } from "./app";
-import { workersPlatform } from "./platform/workers";
+import { type AppEnv, platformFor, platformMiddleware, platformOf } from "./app";
 import type { Bindings } from "./env";
 import { requireActorOnWrites } from "./auth/actor";
 import { type AuthDeps, resolveActor } from "./auth/discord";
@@ -366,7 +365,7 @@ async function scheduled(event: ScheduledController, env: Bindings, ctx: Executi
     throw new Error(`scheduled(): unrecognized cron '${event.cron}'`);
   }
 
-  const { store } = workersPlatform(env, ctx);
+  const { store } = platformFor(env, ctx);
   const at = new Date(event.scheduledTime);
   const hour = at.getUTCHours();
   const minute = at.getUTCMinutes();
