@@ -6,6 +6,8 @@ import { afterAll } from "vitest";
 import { createDocClient } from "../../src/store/ddb/client";
 import type { DdbTables } from "../../src/store/ddb/contracts";
 import { createTables, deleteTables } from "../../src/store/ddb/tables";
+import { seedBootstrap } from "../../src/store/ddb/codec";
+import { memoryBlobs } from "../../src/platform/node-lab";
 
 export interface DdbFileState {
   endpoint: string;
@@ -24,7 +26,11 @@ const endpoint = process.env.AKLDB_DDB_ENDPOINT ?? `http://127.0.0.1:${process.e
 const doc = createDocClient({ endpoint, region: "us-east-2" });
 // A previous crashed run may have left this pair behind (same path, same worker).
 await deleteTables(doc, tables).catch(() => {});
-await createTables(doc, tables);
+// No TTL on test tables: DynamoDB Local really deletes ttl-expired items, and pinned test clocks write past expiries.
+// Production keeps TTL and never relies on it for correctness (every expiry is checked on read).
+await createTables(doc, tables, { ttl: false });
+// What the D1 migrations seed (the bootstrap admin, the heads, the delivery gate), as the D1 harness has it.
+await seedBootstrap({ doc, tables, blobs: memoryBlobs() });
 (globalThis as Record<string, unknown>)[STATE_KEY] = { endpoint, tables, file } satisfies DdbFileState;
 
 afterAll(async () => {
