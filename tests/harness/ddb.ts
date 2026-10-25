@@ -60,6 +60,23 @@ export const ddbHarness = {
   ctxBase,
 };
 
+/** The `DUMPS` R2 binding over the blob store, for tests that read the nightly dump back (`get` returns R2-like objects or null). */
+function dumpsBinding(store: typeof blobs) {
+  return {
+    async get(key: string) {
+      const o = await store.get(key);
+      if (o === null) return null;
+      const bytes = new Uint8Array(await new Response(o.body).arrayBuffer());
+      return {
+        size: bytes.byteLength,
+        arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+        text: async () => new TextDecoder().decode(bytes),
+        json: async () => JSON.parse(new TextDecoder().decode(bytes)),
+      };
+    },
+  };
+}
+
 /** The Worker's bindings: wrangler.toml [vars], the vitest config's test overrides, `DB` = the DynamoDB Store, and `PLATFORM`. Tests set TEST_CLOCK, TEST_RATE_LIMITS and TEST_LONGPOLL_SLEEP on it. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const env: Bindings & Record<string, any> = {
@@ -72,6 +89,7 @@ export const env: Bindings & Record<string, any> = {
   PLATFORM: platform,
   // workerd refuses `new Function`; pool-workers hands tests this binding instead. Node has no such rule.
   __VITEST_POOL_WORKERS_UNSAFE_EVAL: { newFunction: (body: string) => new Function(body) },
+  DUMPS: dumpsBinding(blobs),
 } as unknown as Bindings & Record<string, any>;
 
 interface Ctx {

@@ -29,6 +29,7 @@ import {
 import { putPayload } from "../../src/store/ddb/payload";
 import { HEAD_KEY } from "../../src/store/ddb/keys";
 import { payloadBlobs } from "../../src/store/ddb/schema/core";
+import { invalidateAllCatalogs } from "../../src/store/ddb/catalog";
 import type { Row, TableName, TestStore, Where } from "./port";
 import type { FaultControl } from "../../src/store/ddb/faults";
 
@@ -167,6 +168,8 @@ export function ddbTestStore(h: TestStoreHarness): TestStore {
       }
       await batchWrite(ctx, tableName, requests);
     }
+    // Rows written with no event: the catalog's event-driven catch-up cannot see them.
+    if (lane.lane === "G") invalidateAllCatalogs();
     return n;
   }
 

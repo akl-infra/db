@@ -21,6 +21,9 @@ import {
 import type { D1Row, D1TableName, LaneSchema, RowsByTable } from "../../src/store/ddb/contracts";
 import { SCHEMAS } from "../../src/store/ddb/schema";
 import { SPILL_BYTES } from "../../src/store/ddb/payload";
+import { checkIndexes } from "../../src/store/ddb/checker";
+import { withFaults } from "../../src/store/ddb/faults";
+import { codecTuning } from "../../src/store/ddb/codec";
 import { ddbHarness } from "../harness/ddb";
 import { wipeTables } from "../harness/ddb-store";
 import seed from "../fixtures/seed-upstream-100.dump.json" with { type: "json" };
@@ -207,6 +210,42 @@ describe("codec: export and import on DynamoDB Local", () => {
     expect(JSON.stringify(stored)).not.toContain("éééééééé"); // not inline in any item
     const back = await exportRows(ctx);
     expect(canon(only(back, new Set(Object.keys(rows) as D1TableName[])))).toBe(canon(rows));
+    await wipeTables(ctx);
+  });
+
+  it.skipIf(!readyTables.has("layouts"))("[LDB-DDB71] import and export ride out injected conflicts, throttles and 5xx (idempotent per chunk), reads included", async () => {
+    await wipeTables(ctx);
+    const realSleep = codecTuning.sleep;
+    codecTuning.sleep = async () => {};
+    try {
+      const rows = fixture();
+      const flaky = { ...ctx, doc: withFaults(ddbHarness.raw, { rate: 0.4, seed: 11, reads: true, tables: ctx.tables }) };
+      await importRows(flaky, rows);
+      const back = await exportRows(flaky);
+      expect(canon(only(back, new Set(Object.keys(rows) as D1TableName[])))).toBe(canon(rows));
+      expect(flaky.doc.faultStats().injected.TransactionConflict + flaky.doc.faultStats().injected.Throttling).toBeGreaterThan(0);
+      // a persistent failure is not swallowed
+      const dead = { ...ctx, doc: withFaults(ddbHarness.raw, { rate: 1, seed: 1 }) };
+      await expect(importRows({ ...dead }, rows, { allowNonEmpty: true })).rejects.toThrow();
+    } finally {
+      codecTuning.sleep = realSleep;
+      await wipeTables(ctx);
+    }
+  });
+
+  it.skipIf(!readyTables.has("layouts"))("[LDB-DDB71] importRows with replace has restoreSql's semantics: what a restore empties is replaced, the rest stays", async () => {
+    await wipeTables(ctx);
+    const rows = fixture();
+    await importRows(ctx, rows);
+    const smaller = { ...rows, layouts: rows.layouts!.slice(0, 3), layout_formats: [], layout_revs: [], likes: [], events: [], import_map: [], layouts_head: [{ id: 1, live: 3 }] };
+    await expect(importRows(ctx, smaller)).rejects.toThrow(/empty store/);
+    await importRows(ctx, smaller, { replace: true });
+    const back = await exportRows(ctx);
+    expect(back.layouts).toHaveLength(3);
+    expect(back.events).toHaveLength(0);
+    expect(back.likes).toHaveLength(0);
+    expect(back.layouts_head).toEqual([{ id: 1, live: 3 }]);
+    expect((await checkIndexes(ctx)).problems).toEqual([]);
     await wipeTables(ctx);
   });
 

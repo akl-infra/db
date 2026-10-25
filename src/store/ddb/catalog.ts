@@ -215,6 +215,14 @@ async function retrying<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
+/** Every catalog this process created: `invalidateAllCatalogs` (tests only) drops their models. */
+const catalogs = new Set<() => void>();
+
+/** Drops the in-memory model of every catalog in this process; the next `current()` rescans. For the TestStore, which writes rows with no event. */
+export function invalidateAllCatalogs(): void {
+  for (const f of catalogs) f();
+}
+
 export function createCatalog(ctx: Omit<DdbContext, "catalog">): Catalog {
   const table = ctx.tables.main;
 
@@ -388,7 +396,13 @@ export function createCatalog(ctx: Omit<DdbContext, "catalog">): Catalog {
     return catchUp(scanned, h0);
   }
 
+  let skipSnapshot = false;
+
   async function boot(): Promise<CatalogView> {
+    if (skipSnapshot) {
+      skipSnapshot = false;
+      return scanView();
+    }
     const snap = await readSnapshotBlob(ctx);
     if (snap !== null) {
       try {
@@ -450,6 +464,13 @@ export function createCatalog(ctx: Omit<DdbContext, "catalog">): Catalog {
     }
     return queued;
   }
+
+  // Test seam (tests/harness/ddb-store.ts): rows written straight to the table without an event are invisible to the
+  // event-driven catch-up, so the TestStore drops every catalog's model and the next read rescans.
+  catalogs.add(() => {
+    view = null;
+    skipSnapshot = true;
+  });
 
   return {
     current,
