@@ -1,5 +1,5 @@
 name = "akldb-site"
-main = "server/index.ts"
+main = "server/workers.ts"
 compatibility_date = "2026-08-22" # same date akl-db pins (db/wrangler.toml) -- newest the installed workerd/miniflare supports
 compatibility_flags = ["nodejs_compat"]
 

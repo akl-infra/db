@@ -1,0 +1,102 @@
+# cfn-guard rules for infra/site.yaml (lane V). Run by infra/site.test.mjs on
+# the template and on mutations of it that each must fail.
+
+let lambdas = Resources.*[ Type == 'AWS::Lambda::Function' ]
+let urls = Resources.*[ Type == 'AWS::Lambda::Url' ]
+let buckets = Resources.*[ Type == 'AWS::S3::Bucket' ]
+let roles = Resources.*[ Type == 'AWS::IAM::Role' ]
+let distributions = Resources.*[ Type == 'AWS::CloudFront::Distribution' ]
+
+# no VPC anywhere
+rule no_vpc when %lambdas !empty {
+    %lambdas {
+        Properties {
+            VpcConfig !exists
+        }
+    }
+}
+
+rule lambda_runtime when %lambdas !empty {
+    %lambdas {
+        Properties {
+            Runtime == 'nodejs24.x'
+            Architectures[*] == 'arm64'
+        }
+    }
+}
+
+# the Function URL is open, so the only gate is the origin header: the
+# distribution must send it on the dynamic origin
+rule function_url_is_gated when %urls !empty {
+    %distributions {
+        Properties {
+            DistributionConfig {
+                some Origins[*] {
+                    some OriginCustomHeaders[*] {
+                        HeaderName == 'x-origin-verify'
+                    }
+                }
+            }
+        }
+    }
+}
+
+rule bucket_private when %buckets !empty {
+    %buckets {
+        Properties {
+            PublicAccessBlockConfiguration {
+                BlockPublicAcls == true
+                BlockPublicPolicy == true
+                IgnorePublicAcls == true
+                RestrictPublicBuckets == true
+            }
+        }
+    }
+}
+
+# least privilege: no wildcard action, no wildcard resource in the role
+rule no_wildcard_actions when %roles !empty {
+    %roles {
+        Properties {
+            Policies[*] {
+                PolicyDocument {
+                    Statement[*] {
+                        when Action is_string {
+                            Action != '*'
+                            Action != /:\*$/
+                        }
+                        when Action is_list {
+                            Action[*] != '*'
+                            Action[*] != /:\*$/
+                        }
+                        when Resource is_string {
+                            Resource != '*'
+                        }
+                        when Resource is_list {
+                            Resource[*] {
+                                when this is_string {
+                                    this != '*'
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+rule viewer_https_only when %distributions !empty {
+    %distributions {
+        Properties {
+            DistributionConfig {
+                DefaultCacheBehavior {
+                    ViewerProtocolPolicy == 'redirect-to-https'
+                }
+                CacheBehaviors[*] {
+                    ViewerProtocolPolicy == 'redirect-to-https'
+                }
+            }
+        }
+    }
+}

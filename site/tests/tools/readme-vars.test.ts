@@ -36,6 +36,8 @@ const VARS_KEYS = [...WRANGLER_TOML.matchAll(/^(\w+)\s*=/gm)]
       ),
   );
 const SECRET_KEYS = ["DISCORD_CLIENT_ID", "DISCORD_CLIENT_SECRET", "SESSION_SECRET"];
+// Optional vars set by the AWS deploy rather than wrangler.toml (LDB-SITE3).
+const OPTIONAL_VARS = ["DISCORD_AUTHORIZE_URL", "DISCORD_TOKEN_URL"];
 
 describe("[SITE-8] README documents every var/secret", () => {
   it("every [vars] key in wrangler.toml is read somewhere in server/ and has a README row", () => {
@@ -53,7 +55,7 @@ describe("[SITE-8] README documents every var/secret", () => {
 
   it("the README documents no var/secret name that isn't real", () => {
     const documented = [...README.matchAll(/`([A-Z_]+)`/g)].map((m) => m[1]!);
-    const known = new Set([...VARS_KEYS, ...SECRET_KEYS]);
+    const known = new Set([...VARS_KEYS, ...SECRET_KEYS, ...OPTIONAL_VARS]);
     // Only check names that look like the var/secret table's own column
     // (all-caps, underscored) and appear in the vars/secrets table section.
     const tableSection = README.slice(README.indexOf("## Vars and secrets"), README.indexOf("## Local dev"));

@@ -14,6 +14,7 @@
 // entirely rather than show a button that 404s.
 import { Hono } from "hono";
 import type { Env } from "./env.ts";
+import { DISCORD_AUTHORIZE_URL_DEFAULT, DISCORD_TOKEN_URL_DEFAULT } from "./env.ts";
 import { csrfOk } from "./proxy.ts";
 import {
   MAX_SESSION_SECONDS,
@@ -57,7 +58,7 @@ discordRoutes.get("/auth/login", (c) => {
   if (!env.DISCORD_CLIENT_ID) return c.text("not found", 404);
   const origin = new URL(req.url).origin;
   const state = crypto.randomUUID();
-  const authorize = new URL("https://discord.com/oauth2/authorize");
+  const authorize = new URL(env.DISCORD_AUTHORIZE_URL || DISCORD_AUTHORIZE_URL_DEFAULT);
   authorize.searchParams.set("client_id", env.DISCORD_CLIENT_ID);
   authorize.searchParams.set("response_type", "code");
   authorize.searchParams.set("redirect_uri", `${origin}/auth/callback`);
@@ -90,7 +91,7 @@ discordRoutes.get("/auth/callback", async (c) => {
 
   let tokenRes: Response;
   try {
-    tokenRes = await fetch("https://discord.com/api/oauth2/token", {
+    tokenRes = await fetch(env.DISCORD_TOKEN_URL || DISCORD_TOKEN_URL_DEFAULT, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({

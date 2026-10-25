@@ -1,0 +1,307 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  akldb.org on AWS (lane V, design/aws-port.md 3a): one CloudFront distribution,
+  a private S3 bucket for the static build, the site Lambda for /auth/* and /api/*,
+  and two CloudFront Functions. One template, three stages. The two code
+  placeholders are filled by site/aws/cf-functions.mjs (renderTemplate) at
+  deploy time; the deploy script never edits anything else.
+
+Parameters:
+  Stage:
+    Type: String
+    AllowedValues: [lab, staging, prod]
+  CertificateArn:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^arn:aws:acm:us-east-1:[0-9]{12}:certificate/.+$"
+    Description: ACM certificate in us-east-1 covering the stage's hostnames. Empty on lab (the CloudFront domain).
+  DbBaseUrl:
+    Type: String
+    Description: The akldb API origin the site proxies to (a public API client like any other).
+  SiteName:
+    Type: String
+    Default: akldb
+  CodeBucket:
+    Type: String
+    Description: Private bucket holding the Lambda zip.
+  CodeKey:
+    Type: String
+  OriginVerifyValue:
+    Type: String
+    NoEcho: true
+    MinLength: 16
+    Description: The origin-verify secret. The deploy script reads it from SSM; it is sent by CloudFront as x-origin-verify.
+  DiscordAuthorizeUrl:
+    Type: String
+    Default: ""
+    Description: Empty means Discord's own. Lab points it at the fake Discord.
+  DiscordTokenUrl:
+    Type: String
+    Default: ""
+
+Conditions:
+  HasAliases: !Not [!Equals [!Ref Stage, lab]]
+  IsProd: !Equals [!Ref Stage, prod]
+
+Resources:
+  SiteBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+
+  SiteBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref SiteBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: CloudFrontReadOnly
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub "${SiteBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub "arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${Distribution}"
+          - Sid: TlsOnly
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource:
+              - !GetAtt SiteBucket.Arn
+              - !Sub "${SiteBucket.Arn}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: "false"
+
+  SiteLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/akldb-site-${Stage}"
+      LogGroupClass: INFREQUENT_ACCESS
+
+  SiteRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: site
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: logs:PutLogEvents
+                Resource: !Sub "${SiteLogGroup.Arn}:*"
+              - Effect: Allow
+                Action: ssm:GetParameters
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/akldb/${Stage}/site/origin-verify"
+                  - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/akldb/${Stage}/site/session-secret"
+                  - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/akldb/${Stage}/site/discord-client-id"
+                  - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/akldb/${Stage}/site/discord-client-secret"
+
+  SiteFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "akldb-site-${Stage}"
+      Runtime: nodejs24.x
+      Architectures: [arm64]
+      Handler: index.handler
+      MemorySize: 256
+      Timeout: 15
+      Role: !GetAtt SiteRole.Arn
+      Code:
+        S3Bucket: !Ref CodeBucket
+        S3Key: !Ref CodeKey
+      LoggingConfig:
+        LogGroup: !Ref SiteLogGroup
+      Environment:
+        Variables:
+          DB_BASE_URL: !Ref DbBaseUrl
+          SITE_NAME: !Ref SiteName
+          DISCORD_AUTHORIZE_URL: !Ref DiscordAuthorizeUrl
+          DISCORD_TOKEN_URL: !Ref DiscordTokenUrl
+          SSM_ORIGIN_VERIFY: !Sub "/akldb/${Stage}/site/origin-verify"
+          SSM_SESSION_SECRET: !Sub "/akldb/${Stage}/site/session-secret"
+          SSM_DISCORD_CLIENT_ID: !Sub "/akldb/${Stage}/site/discord-client-id"
+          SSM_DISCORD_CLIENT_SECRET: !Sub "/akldb/${Stage}/site/discord-client-secret"
+
+  SiteFunctionUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      TargetFunctionArn: !GetAtt SiteFunction.Arn
+      AuthType: NONE
+      InvokeMode: BUFFERED
+
+  # AuthType NONE: anyone who knows the URL can invoke it, and the handler
+  # answers 403 unless x-origin-verify matches (LDB-SITE1).
+  SiteUrlPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref SiteFunction
+      Action: lambda:InvokeFunctionUrl
+      Principal: "*"
+      FunctionUrlAuthType: NONE
+
+  SiteInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref SiteFunction
+      Action: lambda:InvokeFunction
+      Principal: "*"
+      InvokedViaFunctionUrl: true
+
+  SpaFallbackFunction:
+    Type: AWS::CloudFront::Function
+    Properties:
+      Name: !Sub "akldb-site-${Stage}-spa"
+      AutoPublish: true
+      FunctionConfig:
+        Comment: Asset if it is in the build manifest, else index.html
+        Runtime: cloudfront-js-2.0
+      FunctionCode: |
+        __SPA_FALLBACK_CODE__
+
+  HostFunction:
+    Type: AWS::CloudFront::Function
+    Properties:
+      Name: !Sub "akldb-site-${Stage}-host"
+      AutoPublish: true
+      FunctionConfig:
+        Comment: Copy the viewer host into x-forwarded-host
+        Runtime: cloudfront-js-2.0
+      FunctionCode: |
+        __HOST_FUNCTION_CODE__
+
+  BucketAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub "akldb-site-${Stage}-s3"
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  DynamicOriginRequestPolicy:
+    Type: AWS::CloudFront::OriginRequestPolicy
+    Properties:
+      OriginRequestPolicyConfig:
+        Name: !Sub "akldb-site-${Stage}-dynamic"
+        CookiesConfig:
+          CookieBehavior: all
+        QueryStringsConfig:
+          QueryStringBehavior: all
+        HeadersConfig:
+          HeaderBehavior: whitelist
+          Headers:
+            - x-forwarded-host
+            - x-requested-with
+            - sec-fetch-site
+            - content-type
+            - accept
+            - if-match
+            - if-none-match
+            - idempotency-key
+
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    Metadata:
+      cfn-lint:
+        config:
+          # CertificateArn is empty on lab, where the condition leaves it unused
+          ignore_checks: [W1030]
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub "akldb.org (${Stage})"
+        HttpVersion: http2and3
+        IPV6Enabled: true
+        PriceClass: PriceClass_100
+        DefaultRootObject: index.html
+        Aliases: !If
+          - HasAliases
+          - !If
+            - IsProd
+            - [akldb.org, www.akldb.org]
+            - [next.akldb.org]
+          - !Ref AWS::NoValue
+        ViewerCertificate: !If
+          - HasAliases
+          - AcmCertificateArn: !Ref CertificateArn
+            SslSupportMethod: sni-only
+            MinimumProtocolVersion: TLSv1.2_2021
+          - CloudFrontDefaultCertificate: true
+        Origins:
+          - Id: static
+            DomainName: !GetAtt SiteBucket.RegionalDomainName
+            OriginAccessControlId: !GetAtt BucketAccessControl.Id
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+          - Id: dynamic
+            DomainName: !Select [2, !Split ["/", !GetAtt SiteFunctionUrl.FunctionUrl]]
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols: [TLSv1.2]
+              OriginReadTimeout: 30
+            OriginCustomHeaders:
+              - HeaderName: x-origin-verify
+                HeaderValue: !Ref OriginVerifyValue
+        DefaultCacheBehavior:
+          TargetOriginId: static
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD]
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6 # Managed-CachingOptimized
+          Compress: true
+          FunctionAssociations:
+            - EventType: viewer-request
+              FunctionARN: !GetAtt SpaFallbackFunction.FunctionMetadata.FunctionARN
+        CacheBehaviors:
+          - PathPattern: /auth/*
+            TargetOriginId: dynamic
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad # Managed-CachingDisabled
+            OriginRequestPolicyId: !Ref DynamicOriginRequestPolicy
+            Compress: false
+            FunctionAssociations:
+              - EventType: viewer-request
+                FunctionARN: !GetAtt HostFunction.FunctionMetadata.FunctionARN
+          - PathPattern: /api/*
+            TargetOriginId: dynamic
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, PATCH, POST, DELETE]
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+            OriginRequestPolicyId: !Ref DynamicOriginRequestPolicy
+            Compress: false
+            FunctionAssociations:
+              - EventType: viewer-request
+                FunctionARN: !GetAtt HostFunction.FunctionMetadata.FunctionARN
+
+Outputs:
+  DistributionId:
+    Value: !Ref Distribution
+  DistributionDomain:
+    Value: !GetAtt Distribution.DomainName
+  BucketName:
+    Value: !Ref SiteBucket
+  FunctionName:
+    Value: !Ref SiteFunction

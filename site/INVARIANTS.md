@@ -51,3 +51,19 @@ when an id has no tagged test, or a tag names an id not in this table.
 | SITE-44 | The comment surfaces render only what the DB sent: the Inbox cell (`pages/admin/CommentDetails.tsx`) labels a first comment New and an edit Edit (del/ins markup), collapses a long first comment, shows an erased text as such and never renders comment text as markup; the layout page's list (`ui/LayoutComments.tsx`) is read-only for everyone, shows Remove only to an admin (the reason is asked for in place, never a browser dialog -- SITE-15 scans the source), marks an edited comment, and shows each comment's like count in the API's (most liked first) order with no like button (the site never writes a like). | `tests/tools/comments-render.test.ts` |
 | SITE-45 | Each comment call in `src/api.ts` hits the exact route/method/body the DB expects through the shared CSRF-carrying wrapper (`GET .../comment-queue?status=`, `POST .../comment-queue/:id/approve`, `POST .../comment-queue/:id/reject` and `POST .../comments/:id/remove` with `{reason}`), carries no `If-Match`, and the public `GET /api/v1/layouts/:ref/comments` read sends no CSRF header. | `tests/src/admin-csrf.test.ts` |
 | SITE-46 | The Inbox offers Reopen review only for decided comments with retained text and WPM submissions, asks in place before hiding approved content, and reads the private moderation history on demand. Reopen sends the displayed status and review version through the CSRF wrapper; subsequent approve/reject sends the current version. Conflicts offer refresh, a successful reopen returns to Pending, and changing status clears transient controls. | `tests/src/admin-csrf.test.ts`, `tests/tools/reopen-render.test.ts`, `tests/browser/reopen.mjs` |
+
+## AWS (lane V, `LDB-SITE*`)
+
+The site on AWS (`design/aws-port.md` §3a). Tagged `[LDB-SITEn]` in test titles.
+
+| id | invariant | tests |
+|---|---|---|
+| LDB-SITE1 | The Lambda entry answers 403 before touching the app unless `x-origin-verify` equals the configured secret (an empty configured secret never matches), and a verified call without a viewer host is refused; neither header reaches the upstream. | `tests/server/lambda.test.ts` |
+| LDB-SITE2 | The request's host is the viewer's `x-forwarded-host`, trusted only after verification; `redirect_uri` and cookies derive from it. | `tests/server/lambda.test.ts` |
+| LDB-SITE3 | Discord's authorize and token URLs come from `DISCORD_AUTHORIZE_URL`/`DISCORD_TOKEN_URL`, defaulting exactly to Discord's own. | `tests/server/lambda.test.ts` |
+| LDB-SITE4 | The SPA-fallback CloudFront Function serves a manifest path as is, rewrites every other URI (routes, missing files, prototype names) to `/index.html`, redirects `/index.html` to `/` as Workers' assets do, and stays under 10 KB. | `tests/aws/functions.test.ts` |
+| LDB-SITE5 | The host Function sets `x-forwarded-host` from the viewer's `Host`, overwriting anything the viewer sent. | `tests/aws/functions.test.ts` |
+| LDB-SITE6 | Every `Set-Cookie` leaves the Lambda in the event's `cookies` array (none in `headers`), the event's `cookies` are read as the session, and bodies pass binary-safe. | `tests/server/lambda.test.ts` |
+| LDB-SITE7 | `scripts/deploy-aws.mjs` refuses any profile but `akldb` before running anything, and its plan orders stack, hashed assets, `index.html`, invalidation. | `tests/aws/deploy.test.ts` |
+| LDB-SITE8 | `infra/site.yaml` is exactly the site's resource set, lints clean, and `infra/site.guard` rejects a VPC, a wildcard action or resource, a Function URL without the origin header, a public bucket, plain-http viewers and an x86 Lambda. | `tests/aws/template.test.ts` |
+| LDB-SITE9 | The Worker and Lambda entries share one app and, against one fake upstream on 127.0.0.1, answer the same requests the same way (`node tests/aws/diff.mjs`: zero differences). | `tests/aws/entries.test.ts`, `tests/aws/diff.mjs` |
