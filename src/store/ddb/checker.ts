@@ -6,7 +6,7 @@
 import type { Item, RowsByTable } from "./contracts";
 import { SCHEMAS } from "./schema";
 import { canonicalString, classify, isNonRowItem, itemKey, itemsToRows, rowsToItems, scanItems, type CodecContext } from "./codec";
-import { inlineIdempotencyBodies } from "./schema/auth";
+import { inlineIdempotencyBodies, supersededWindows } from "./schema/auth";
 import { inlinePayloads } from "./schema/core";
 
 export interface CheckResult {
@@ -50,7 +50,8 @@ export async function checkIndexes(ctx: CodecContext): Promise<CheckResult> {
   for (const i of unclaimed) problems.push(`main: no lane owns ${show(i)}`);
 
   // Ephemeral items no lane owns (HOLD# leases, which are not D1 rows) are not checked.
-  const ephemeral = stored.ephemeral.filter((i) => classify(i) !== null);
+  const superseded = supersededWindows(stored.ephemeral);
+  const ephemeral = stored.ephemeral.filter((i) => classify(i) !== null && !superseded.has(i));
   const main = stored.main.filter((i) => classify(i) !== null);
 
   let expected: ReturnType<typeof rowsToItems>;

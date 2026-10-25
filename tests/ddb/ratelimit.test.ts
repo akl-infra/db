@@ -1,8 +1,9 @@
 // [LDB-DDB32] [LDB-DDB33] Rate-limit windows on DynamoDB: one ephemeral item
 // per (key, window), counted with ADD, shaped as lane G's destructive budget
 // expects, and a nightly prune that never resurrects a pruned window.
-import { GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
+import { GetCommand, PutCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { describe, expect, it } from "vitest";
+import { authSchema } from "../../src/store/ddb/schema/auth";
 import { ddbHarness } from "../harness/ddb";
 
 const { store, doc, tables, raw } = ddbHarness; // `raw` is the unfaulted client, for test setup writes
@@ -45,5 +46,22 @@ describe("ratelimit", () => {
     await store.auth.pruneRateLimits(10 ** 12);
     const r = await doc.send(new GetCommand({ TableName: tables.ephemeral, Key: { pk: "RL#holds", sk: "2026-01-01" }, ConsistentRead: true }));
     expect(r.Item?.n).toBe(3);
+  });
+
+  it("[LDB-DDB32] items written by hitWindow and by lane G's budget increment equal toItems of the exported rows", async () => {
+    const k = key("client");
+    const g = key("destructive");
+    const ws = Math.floor(Date.now() / 1000 / 600) * 600;
+    await store.auth.hitWindow(k, ws);
+    await store.auth.hitWindow(k, ws);
+    await raw.send(new UpdateCommand({
+      TableName: tables.ephemeral, Key: { pk: `RL#${g}`, sk: String(ws) },
+      UpdateExpression: "ADD n :one SET #ttl = :ttl", ExpressionAttributeNames: { "#ttl": "ttl" }, ExpressionAttributeValues: { ":one": 1, ":ttl": ws + 7200 },
+    }));
+    for (const x of [k, g]) {
+      const stored = (await doc.send(new GetCommand({ TableName: tables.ephemeral, Key: { pk: `RL#${x}`, sk: String(ws) }, ConsistentRead: true }))).Item!;
+      const rows = authSchema.fromItems({ main: [], ephemeral: [stored] }).ratelimit!;
+      expect(authSchema.toItems({ ratelimit: rows }).ephemeral).toEqual([stored]);
+    }
   });
 });
