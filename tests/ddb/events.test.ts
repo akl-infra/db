@@ -17,8 +17,9 @@ beforeEach(async () => {
 });
 
 const src: Source = { client: "test", version: "1" };
-let clock = 0;
-const now = () => new Date(Date.UTC(2026, 0, 1, 0, 0, clock++)).toISOString();
+// Near real time: DynamoDB Local's TTL sweep deletes items whose `ttl` is in the past.
+let clock = Math.floor(Date.now() / 3_600_000) * 3600 + 10; // top of this hour: windows stay put during a run
+const now = () => new Date(clock++ * 1000).toISOString();
 
 function createInput(id: string, name: string, over: Partial<CommitInput> = {}): CommitInput {
   return {
@@ -33,7 +34,7 @@ function createInput(id: string, name: string, over: Partial<CommitInput> = {}):
 const cat = async (id: string) => (await t.ctx.doc.send(new (await import("@aws-sdk/lib-dynamodb")).GetCommand({ TableName: t.ctx.tables.main, Key: catKey(id), ConsistentRead: true }))).Item;
 
 describe("commitWrite", () => {
-  it("creates a layout with its events, revs, claim and counters", async () => {
+  it("[LDB-DDB7] creates a layout with its events, revs, claim and counters", async () => {
     const r = await t.events.commitWrite(now, createInput("L1", "Foo"));
     expect(r.seqs).toEqual([1, 2]);
     expect(r.layout).toMatchObject({ id: "L1", name: "Foo", n: 2, layout_rev: 1, like_count: 0, link: null });
@@ -48,14 +49,14 @@ describe("commitWrite", () => {
     expect((await t.layouts.revision("L1", "spark", 1))!.eventSeq).toBe(2);
   });
 
-  it("refuses a live name clash, case-insensitively, and writes nothing", async () => {
+  it("[LDB-DDB7] refuses a live name clash, case-insensitively, and writes nothing", async () => {
     await t.events.commitWrite(now, createInput("L1", "Foo"));
     await expect(t.events.commitWrite(now, createInput("L2", "fOO"))).rejects.toMatchObject({ status: 409 });
     expect(await t.head.headSeq()).toBe(2);
     expect(await cat("L2")).toBeUndefined();
   });
 
-  it("maps a stale n to RevConflictError", async () => {
+  it("[LDB-DDB7] maps a stale n to RevConflictError", async () => {
     const a = await t.events.commitWrite(now, createInput("L1", "Foo"));
     const upd = (n: number) => ({
       layoutId: "L1", creating: false, currentN: n, currentLayout: a.layout, currentFormats: a.formats,
@@ -68,7 +69,7 @@ describe("commitWrite", () => {
     expect(await t.head.headSeq()).toBe(3);
   });
 
-  it("renames, deletes and restores moving the name claim and the live count", async () => {
+  it("[LDB-DDB7] renames, deletes and restores moving the name claim and the live count", async () => {
     const a = await t.events.commitWrite(now, createInput("L1", "Foo"));
     const step = (cur: { layout: LayoutRow; formats: any }, kind: any, name: string, deleted: boolean) =>
       t.events.commitWrite(now, {
@@ -93,7 +94,7 @@ describe("commitWrite", () => {
     expect(nameKey("Bar").pk).toBe("NAME#bar");
   });
 
-  it("spills a payload over the item limit to a blob and reads it back", async () => {
+  it("[LDB-DDB8] spills a payload over the item limit to a blob and reads it back", async () => {
     const big = { blob: "x".repeat(400_000) };
     const r = await t.events.commitWrite(now, createInput("L1", "Big", { format: { kind: "created", lineage: "spark", format: "spark/1", payload: big, hasMagic: false } }));
     expect(t.blobs.keys().length).toBe(1);
@@ -103,7 +104,7 @@ describe("commitWrite", () => {
     expect(r.seqs).toHaveLength(2);
   });
 
-  it("counts destructive writes in the ephemeral table and probes the live count", async () => {
+  it("[LDB-DDB7] counts destructive writes in the ephemeral table and probes the live count", async () => {
     const a = await t.events.commitWrite(now, createInput("L1", "Foo"));
     const del = (cur: typeof a) =>
       t.events.commitWrite(now, {
@@ -119,7 +120,7 @@ describe("commitWrite", () => {
 });
 
 describe("likes", () => {
-  it("likes, refuses repeats, unlikes and counts", async () => {
+  it("[LDB-DDB7] likes, refuses repeats, unlikes and counts", async () => {
     await t.events.commitWrite(now, createInput("L1", "Foo"));
     const like = (kind: "liked" | "unliked", userId = "u2") => t.events.appendLike(now, { kind, layoutId: "L1", userId, via: "test", source: src });
     expect((await like("liked")).like_count).toBe(1);
@@ -133,7 +134,7 @@ describe("likes", () => {
     await expect(t.events.appendLike(now, { kind: "liked", layoutId: "NOPE", userId: "u9", via: "t", source: src })).rejects.toThrow(/does not exist/);
   });
 
-  it("inherited likes chunk at 15 and skip existing likers", async () => {
+  it("[LDB-DDB14] inherited likes chunk at 15 and skip existing likers", async () => {
     await t.events.commitWrite(now, createInput("L1", "Foo"));
     await t.events.appendLike(now, { kind: "liked", layoutId: "L1", userId: "u0", via: "t", source: src });
     const users = Array.from({ length: 40 }, (_, i) => `u${i}`);
@@ -145,7 +146,7 @@ describe("likes", () => {
 });
 
 describe("events", () => {
-  it("appends info, admin and moderation events and serves the feed", async () => {
+  it("[LDB-DDB11] appends info, admin and moderation events and serves the feed", async () => {
     await t.events.commitWrite(now, createInput("L1", "Foo"));
     const i = await t.events.appendInfo(now, { kind: "upstream_changed", layoutId: "L1", actor: "sys", via: "import", source: src });
     const a = await t.events.appendAdmin(now, { kind: "admin.import_unstalled" as any, actor: "adm" });
@@ -169,7 +170,7 @@ describe("events", () => {
     expect(await t.layouts.latestRevBumpingEvent("L1", "other/1")).toBeNull();
   });
 
-  it("serves revert candidates newest first and the latest link event", async () => {
+  it("[LDB-DDB11] serves revert candidates newest first and the latest link event", async () => {
     const a = await t.events.commitWrite(now, createInput("L1", "Foo", { source: { client: "bot", version: null } }));
     await t.events.commitWrite(now, {
       layoutId: "L1", creating: false, currentN: a.layout.n, currentLayout: a.layout, currentFormats: a.formats,
@@ -185,7 +186,7 @@ describe("events", () => {
     expect(await t.events.latestLinkEvent("L1", link.seq)).toBeNull();
   });
 
-  it("approves a link through its claim, once", async () => {
+  it("[LDB-DDB7] approves a link through its claim, once", async () => {
     await t.events.commitWrite(now, createInput("L1", "Foo"));
     const { PutCommand } = await import("@aws-sdk/lib-dynamodb");
     await t.ctx.doc.send(new PutCommand({ TableName: t.ctx.tables.main, Item: { pk: "SUB#link#S1", sk: "ROW", status: "pending" } }));

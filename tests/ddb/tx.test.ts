@@ -37,14 +37,14 @@ beforeEach(async () => {
 });
 
 describe("client", () => {
-  it("refuses a non-loopback endpoint", () => {
+  it("[LDB-DDB13] refuses a non-loopback endpoint", () => {
     expect(() => createDocClient({ endpoint: "https://dynamodb.us-east-2.amazonaws.com", region: "us-east-2" })).toThrow(/refusing/);
     expect(() => createDocClient({ region: "us-east-2" })).toThrow(/refusing/);
   });
 });
 
 describe("runEventTx", () => {
-  it("assigns gap-free seqs, writes mirrors and moves HEAD", async () => {
+  it("[LDB-DDB6] assigns gap-free seqs, writes mirrors and moves HEAD", async () => {
     const r = await runEventTx(ctx, (b) => {
       expect(b.head.seq).toBe(0);
       expect(b.event(ev())).toBe(1);
@@ -65,7 +65,7 @@ describe("runEventTx", () => {
     expect(await head()).toMatchObject({ seq: 3, live: 0, max_at: "2026-01-01T00:00:00.000Z" });
   });
 
-  it("throws TxConditionFailed with the tag of a failed domain item, and writes nothing", async () => {
+  it("[LDB-DDB6] throws TxConditionFailed with the tag of a failed domain item, and writes nothing", async () => {
     await doc.send(new PutCommand({ TableName: tables.main, Item: { pk: "CAT", sk: "x", n: 1 } }));
     await expect(
       runEventTx(ctx, (b) => {
@@ -79,7 +79,7 @@ describe("runEventTx", () => {
     expect(await count("EV")).toBe(0);
   });
 
-  it("retries when another append wins the HEAD", async () => {
+  it("[LDB-DDB6] retries when another append wins the HEAD", async () => {
     let calls = 0;
     const r = await runEventTx(ctx, async (b) => {
       calls++;
@@ -91,7 +91,7 @@ describe("runEventTx", () => {
     expect(await head()).toMatchObject({ seq: 2 });
   });
 
-  it("retries a TransactionConflict, then gives up with a 500 and a log line", async () => {
+  it("[LDB-DDB6] retries a TransactionConflict, then gives up with a 500 and a log line", async () => {
     const real = doc.send.bind(doc);
     let fails = 3;
     const spy = vi.spyOn(doc, "send").mockImplementation((async (c: any) => {
@@ -114,7 +114,7 @@ describe("runEventTx", () => {
 });
 
 describe("runTx", () => {
-  it("commits, and tags a failed condition", async () => {
+  it("[LDB-DDB6] commits, and tags a failed condition", async () => {
     await runTx(ctx, [{ tag: "a", item: { Put: { TableName: tables.main, Item: { pk: "X", sk: "1" }, ConditionExpression: "attribute_not_exists(pk)" } } }]);
     await expect(
       runTx(ctx, [
