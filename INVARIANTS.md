@@ -499,3 +499,20 @@ it?"):**
 | LDB-FZ5 | A unit result is clean only if every sequence of its range ran and there is no response/state diff, catalog-vs-scan mismatch, index-checker problem or error; a crashed or short lane makes it unclean, and diffs are sorted into the three buckets. | `tests/lab/fuzz-units.test.ts` |
 | LDB-FZ6 | `infra/fuzz.yaml` has no NAT gateway, VPC endpoint or inbound rule, no wildcard action in any role, egress on 443 only, a task role limited to `s3:PutObject` on the run prefix, 3-day logs, a 30-day bucket lifecycle and an ECR lifecycle keeping two images; `infra/fuzz.guard` passes it and rejects each forbidden mutation. | `tests/lab/fuzz-units.test.ts` |
 | LDB-FZ7 | The launcher keeps at most as many tasks running as the quota allows and gives a unit up after its retries (a Spot interruption relaunches it). | `tests/lab/fuzz-units.test.ts` |
+
+## Mirror (production side)
+
+| id | invariant | enforced by |
+|---|---|---|
+| LDB-MIR1 | The tee record format is the pinned one (`TeeCall`, `TeeBatch`, the `X-Akldb-Tee-Ts`/`X-Akldb-Tee-Sig` headers, the `$map`/`$set`/`$bytes`/`$u`/`$clock` tags) and lane Z reads exactly it. | `tests/mirror/record.test.ts` |
+| LDB-MIR2 | `decodeTee(encodeTee(x))` deep-equals `x` through a JSON round trip for every argument and result type the port uses (Map, Set, Uint8Array, Date, undefined, non-finite numbers, -0); user JSON shaped like a tag is escaped and never interpreted. | `tests/mirror/record.test.ts` |
+| LDB-MIR3 | Every method of every `Store` area is classified exactly once as recorded (`MIRROR_WRITES`) or not (`MIRROR_NOT_RECORDED`: reads, ephemeral tables, holds, `dump.restore`); a new port method fails until classified. | `tests/mirror/recorder.test.ts` |
+| LDB-MIR4 | With the tee on, a request's writes reach `TEE_URL` as signed (`HMAC-SHA256(secret, ts + "\n" + body)`), uniquely numbered `TeeBatch`es, from every code path that holds the D1 binding (`platform.store` and `toStore(env.DB)` alike). | `tests/mirror/recorder.test.ts` |
+| LDB-MIR5 | A full write session records every write method it ran, thrown errors included, and the union of recorded `seqs` is exactly the events table's seqs, each once. | `tests/mirror/recorder.test.ts` |
+| LDB-MIR6 | The recorded calls of a full write session, replayed into a fresh D1 store with the recorded clock values, give the same outcomes, seqs and clock reads call for call, and identical rows in every non-ephemeral table. | `tests/mirror/recorder.test.ts` |
+| LDB-MIR7 | The tee changes no response; with `TEE_URL` or `TEE_SECRET` unset nothing is recorded and nothing is sent. | `tests/mirror/recorder.test.ts` |
+| LDB-MIR8 | A failing sink is tried three times with the same batch id, then costs one `TEE_FAILED` line; a sink that recovers on the third try gets the batch once. | `tests/mirror/recorder.test.ts` |
+| LDB-MIR9 | A recording failure (a throwing sink, an argument the codec refuses) never reaches the caller: the write returns or throws exactly as without the tee, and a thrown error is rethrown as the same object. | `tests/mirror/recorder.test.ts` |
+| LDB-MIR10 | The recorder and the observed D1 handle add no D1 round trip: the same store calls cost the same first/all/run/raw/batch count with and without them (LDB-L8 holds). | `tests/mirror/recorder.test.ts` |
+| LDB-MIR11 | With `TEE_URL` or `TEE_SECRET` unset, `teeEnv` returns the env itself and `toStore(env.DB)` is the plain D1 store; set, the original env is never mutated. | `tests/mirror/recorder.test.ts` |
+| LDB-MIR12 | The reverse direction's observed DynamoDB client hands the recorder the seq of every `EV` item a committed `TransactWriteItems` put, none for a refused one, and changes no result or error. | `tests/mirror/observe-ddb.test.ts` |

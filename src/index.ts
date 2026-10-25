@@ -32,6 +32,7 @@ import { linksRoute } from "./routes/links";
 import { moderationRoute } from "./routes/moderation";
 import { wpmRoute } from "./routes/wpm";
 import { writeRoute } from "./routes/write";
+import { teeEnv } from "./mirror/tee-env";
 
 const CACHE_CONTROL = "public, max-age=10";
 
@@ -411,9 +412,11 @@ async function scheduled(event: ScheduledController, env: Bindings, ctx: Executi
 // live route table, not copy-pasted alongside it.
 export { app };
 
+// The production mirror's tee (src/mirror/tee-env.ts) is per unit of work: `teeEnv` is the identity unless TEE_URL
+// and TEE_SECRET are both set.
 export default {
-  fetch: app.fetch,
-  scheduled,
+  fetch: (request: Request, env: Bindings, ctx: ExecutionContext) => app.fetch(request, teeEnv(env, ctx), ctx),
+  scheduled: (event: ScheduledController, env: Bindings, ctx: ExecutionContext) => scheduled(event, teeEnv(env, ctx), ctx),
 };
 
 // Test-only: LDB-A1's black-box enumeration walks `app.routes` to prove

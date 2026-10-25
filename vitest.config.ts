@@ -31,6 +31,8 @@ export default defineConfig(async () => {
             cloudflareTest({
               wrangler: { configPath: "./wrangler.toml" },
               miniflare: {
+                // Lane T: a second, empty database for the recorder's replay-into-a-fresh-store test.
+                d1Databases: { DB_REPLAY: "akldb-replay-test" },
                 // Test-only bindings: tests/setup-workers.ts applies
                 // TEST_MIGRATIONS via applyD1Migrations() before any workers
                 // test runs. TEST_REHOST_DUMP_URL threads the real
@@ -77,6 +79,8 @@ export default defineConfig(async () => {
               "tests/import/**/*.test.ts",
               "tests/events/**/*.test.ts",
               "tests/rehost.test.ts",
+              // Lane T (design/p3-p7-briefs.md): the recorder runs on D1 inside workerd.
+              "tests/mirror/recorder.test.ts",
             ],
             // diff-unit.test.ts (S8) is offline/pure -- it belongs in the
             // "node" project below (import/diff.ts's own header explains
@@ -135,6 +139,9 @@ export default defineConfig(async () => {
               "tests/contract/**/*.test.ts",
               // [LDB-FZ1..FZ7] the fuzzer gate on AWS: units, plan, aggregation, the template's guard rules
               "tests/lab/**/*.test.ts",
+              // Lane T: the tee codec is pure.
+              "tests/mirror/record.test.ts",
+              "tests/mirror/observe-ddb.test.ts",
             ],
           },
         },

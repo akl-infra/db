@@ -4,7 +4,7 @@
 import { ulid } from "ulidx";
 import type { Bindings } from "../env";
 import { systemClock, type Clock } from "../core/time";
-import { createD1Store } from "../store/d1";
+import { toStore } from "../store/arg";
 import type { BlobStore, Platform, ResponseCache } from "./port";
 
 function r2Blobs(bucket: R2Bucket): BlobStore {
@@ -43,7 +43,8 @@ const edgeCache: ResponseCache = {
 export function workersPlatform(env: Bindings, ctx: { waitUntil(p: Promise<unknown>): void } | undefined): Platform {
   const now: Clock = (env as unknown as { TEST_CLOCK?: Clock }).TEST_CLOCK ?? systemClock;
   return {
-    store: createD1Store(env.DB),
+    // `toStore` is createD1Store(env.DB), plus the production mirror's recorder when the unit of work carries one.
+    store: toStore(env.DB),
     blobs: r2Blobs(env.DUMPS),
     cache: edgeCache,
     config: env,
