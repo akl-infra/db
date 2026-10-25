@@ -4,8 +4,8 @@ Status: design only, for saltorbit's review (2026-10-24). Nothing here is built 
 production cutover needs saltorbit's explicit go.
 
 Scope: move akldb (the API at `api.akldb.org`) from Cloudflare (Worker + D1 + R2 + cron) to its own
-AWS account in us-east-2. Not in scope: the akldb.org site Worker (it is a client of the API and
-can move separately), Spark, akl.gg.
+AWS account in us-east-2, together with the akldb.org site Worker (§3a). Not in scope: Spark,
+akl.gg.
 
 Fixed constraints (from the brief): the public API does not change, byte for byte where clients
 depend on it; every consistency rule holds; akldb stays permissive, client-neutral and public-API
@@ -49,6 +49,11 @@ runs against the new storage with as few changes as possible; rewrite cost is no
    AWS account is needed.
 9. **Cost: about $1.5-3/month at the 10-23 peak volume (88k req/day), about $1-1.5 after Spark's
    poll backoff.** Nonce writes and consistent auth reads dominate (section 7).
+
+10. **The akldb.org site moves too (§3a).** The SPA goes to S3 with its own CloudFront
+    distribution; a CloudFront Function does the exact SPA fallback. `/auth/*` and `/api/*` go to a
+    small Lambda running the same Hono code. The site is stateless, so its switch is a DNS change
+    after the API cutover, and the shared session secret keeps users signed in.
 
 ## 1. Storage choice
 
@@ -415,6 +420,64 @@ Function URLs use `InvokeMode: RESPONSE_STREAM`, which allows up to 200 MB per r
   lab's, plus a tiny us-east-1 stack for the ACM certificate. GitHub Actions deploys through an
   OIDC-assumed role, so there are no long-lived keys.
 
+## 3a. The akldb.org site (moves too)
+
+**What the site Worker serves today** (`site/`, Worker `akldb-site`, hosts `akldb.org`,
+`www.akldb.org`, `akldb-site.akl-58a.workers.dev`):
+- **Static:** a Vite/SolidJS SPA build (`dist/`), with the docs compiled into it from markdown by
+  `scripts/build-docs.mjs`. Every path that is not a built asset falls back to `index.html`
+  (`not_found_handling = "single-page-application"`): `/`, `/l/:ref`, `/changes`, `/docs`,
+  `/admin`, ...
+- **Dynamic** (`run_worker_first = ["/auth/*", "/api/*"]`, Hono, ~520 lines, no storage):
+  - `/auth/login`, `/auth/callback`, `/auth/logout`, `/auth/me`: Discord OAuth (`identify`) with a
+    state cookie, and a session sealed with AES-GCM in the `__Host-akldb_session` cookie (7 days).
+    `redirect_uri` is derived from the request origin, and `/auth/me` re-checks `/v1/me` on every
+    call.
+  - `/api/v1/*`: a proxy to `DB_BASE_URL/v1/*` that does the following:
+    - injects the session's bearer token;
+    - enforces CSRF (`X-Requested-With` + `Sec-Fetch-Site`);
+    - allowlists request and response headers;
+    - strips `wait`;
+    - limits bodies to 4 MiB and the upstream to 10 s;
+    - turns a 401 `token_invalid` into `reauth` and clears the cookie;
+    - sets `private, no-store` on authenticated responses.
+- **Secrets:** `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `SESSION_SECRET`. There is no other
+  state, so moving the site migrates no data.
+
+**On AWS:** a second CloudFront distribution in the same stack and account, `site`, serving
+`akldb.org` and `www.akldb.org`. One ACM certificate in us-east-1 covers all three names. A
+separate distribution is simpler than sharing the API's: the default behaviours, cache policies
+and error handling differ completely, and there is nothing to share.
+- **Static origin:** S3 `akldb-site` (private, OAC; GET only, so OAC's body-hash rule does not
+  bite). Cache policy `CachingOptimized`.
+  - **SPA fallback, exact:** a CloudFront Function (viewer request) carries the build's asset
+    manifest, generated at build time (a few dozen paths, well under the 10 KB function limit). A
+    URI in the manifest is served as is; anything else is rewritten to `/index.html`. That
+    reproduces Workers' "asset if it exists, else index", including missing paths with a file
+    extension. Distribution-wide custom error responses cannot do this, because they would also
+    rewrite the Lambda's JSON 404s.
+  - Object `Cache-Control`/`Content-Type` metadata is set at upload to match what Workers assets
+    send today; the proving-ground diff checks it.
+- **Dynamic origin:** behaviours `/auth/*` and `/api/*` go to a `site` Lambda (Node 24 arm64,
+  256 MB, 15 s), the same Hono app behind `hono/aws-lambda`. Caching is disabled; cookies, query
+  strings and headers are forwarded; the origin-verify secret applies as for the API.
+  - CloudFront replaces `Host` with the Function URL host. A viewer-request CloudFront Function
+    therefore copies the viewer host into `X-Forwarded-Host`, and the app derives its origin (for
+    `redirect_uri` and cookies) from it. It trusts that header only with the origin secret present.
+  - Two small refactors: the hard-coded Discord OAuth URLs become env vars, so lab mode can point
+    them at the fake Discord; and the entry splits into `server/index.ts` (shared) plus
+    `server/{workers,lambda}.ts`.
+- **The proxy still calls the public API hostname** (`DB_BASE_URL`), like any other client
+  (public API only). In the proving ground that hostname is the lab API's.
+- **Same `SESSION_SECRET` on both sides,** so signed-in users stay signed in across the swap. The
+  Discord application gets the proving-ground callback URL added to its redirect list (a
+  dashboard step for saltorbit), and the `workers.dev` callback is dropped after the cutover.
+- **Deploy:** the CI `site-deploy` job becomes build → `aws s3 sync` (hashed assets first,
+  `index.html` last) → CloudFront invalidation of `/index.html` and the manifest function. Still
+  gated on both `site` and the API deploy.
+- **Cost:** ~2.3k req/day. CloudFront Functions get 2M free invocations/month, and S3 and Lambda
+  costs round to $0.
+
 ## 4. Code structure
 
 ### 4.1 The port
@@ -561,6 +624,21 @@ deliveries, so outbound effects are diffed too.
    of events; read model equals a full scan; index checker clean. Every pack also runs with 20%
    injected conflicts.
 
+**The site (§3a)** runs in the proving ground too. Its AWS distribution (lab hostname) proxies to
+the lab API. A local `wrangler dev` of the same site build proxies to the D1 oracle, so both sites
+see the same data. The checks:
+- **Static:** every asset in the build's manifest, plus SPA routes and unknown paths (with and
+  without an extension) on both sides, with status, `Content-Type`, `Cache-Control` and bytes
+  diffed. `ETag` values are allowed to differ, since S3 and Workers hash differently, but must be
+  stable.
+- **Dynamic:** the full OAuth round trip against the fake Discord (state cookie, callback,
+  sealed session, `/auth/me`, logout), plus every simulator akl.gg/site-shaped API call made
+  *through* `/api/v1/*`. These are diffed like the API responses, including the header allowlists,
+  CSRF refusals, the 413 cap, an injected slow upstream (`upstream_timeout` 504) and
+  `token_invalid` → `reauth`.
+- **UI:** a headless browser walk of the main pages on both sides, run by an agent and judged by
+  matching rendered content.
+
 **What it measures:**
 - **Errant behaviour:** the diffs and invariant violations above.
 - **Latency:** p50/p95/p99 per route, measured from Fly `iad` and `lax`, from Europe and from
@@ -622,6 +700,12 @@ between a local D1 Worker on that export and AWS.
 **Expected write pause:** 1 + 2 + 3 + 2 + 2 + 1 + 1 + 1 ≈ **13 s, planned ≤ 30 s** (the P6 gate),
 with reads served throughout. It scales with the delta (writes in the hour since the preload),
 not with the database.
+
+**The site switch** comes after the API is cut over and stable. The site is stateless, so there is
+no freeze and no data copy. Replace the `akldb.org`/`www.akldb.org` Workers custom domains with
+DNS-only CNAMEs to the site distribution (CNAME flattening at the apex). A few seconds while the
+records swap can hit either side, and both serve the same build against the same API. The
+`SESSION_SECRET` is shared, so sessions survive. Rollback restores the custom domains.
 
 **Afterwards:**
 - **Post-hoc full proof, T+1 h.** D1 is frozen at the cutover seq C; take a full export. Restore
@@ -692,8 +776,6 @@ open writes). Writes made on AWS are carried back; nothing is lost.
 | **Total** | | | **≈ 1.6-3.1** at the 10-23 peak; **≈ 1.0-1.5** at ~50k req/day (Spark poll backoff) |
 
 Levers if this must come down:
-- Eventually consistent reads for `clients`/`authors`/`bans` lookups (-$0.3-0.6). This would make
-  a revocation take effect up to ~1 s later, a semantic change.
 - Provisioned 25 RCU/25 WCU, if this account's free tier covers it [5]. That is ~$0 for DynamoDB,
   but bursts above it throttle and need retries.
 - Fewer Spark polls; that change is already in flight.
@@ -748,9 +830,12 @@ projected.
 3. **ACM certificate in us-east-1** for CloudFront: planned, and verified by one dry run in P4. The
    fallback is an API Gateway HTTP API custom domain (§7.3).
 4. **Clients:** all repointed to `api.akldb.org` before the cutover; the proxy stays only briefly.
-5. **Auth lookups:** strongly consistent.
+5. **Auth lookups:** strongly consistent, which is today's semantics and costs ~$0.3-0.6/month
+   more. This is the default pending saltorbit's final word; the eventual-consistency option is
+   not wanted unless saltorbit asks for it.
 6. **Logs:** CloudWatch Logs in the Infrequent Access class, kept forever.
-7. **akldb.org site Worker:** stays on Cloudflare for now.
+7. **akldb.org site Worker:** moves to AWS as part of the parallel run (§3a), on S3 + its own
+   CloudFront distribution in the akldb account.
 8. **Rollback window:** 90 days, then `store/d1`, `platform/workers` and the proxy are deleted.
 
 ## 9. Build plan and gates
@@ -763,13 +848,13 @@ starts only when the previous phase's gate is green.
 
 | Phase | What | Parallel agents (files owned) | Gate (all must hold) |
 |---|---|---|---|
-| **P1 Storage port, D1 green** | `Store`/`Platform` interfaces; move every `db.prepare` behind them; the D1 implementation is today's SQL verbatim; `tests/harness` alias + D1 `TestStore`; convert the ~520 SQL sites in tests | **Main first:** `src/store/port.ts`, `src/platform/{port,workers}.ts`, `src/app.ts` (the interface, frozen before the others start). **A** layouts/events: `core/{write,events,records,likes,revert,names,etag,meta,longpoll,upstream}.ts`, `routes/{layouts,write,likes,changes,changelog}.ts` → `store/d1/{layouts,events}.ts`. **B** auth: `auth/*`, `core/{clients,idempotency,ratelimit,admins,destructive-budget,moderation}.ts`, `routes/{admin,moderation,authors}.ts` → `store/d1/auth.ts`. **C** community: `core/{links,wpm,comments,moderation-review,modqueue*,discord-interactions,rejection-dm}.ts`, `routes/{links,wpm,comments}.ts` → `store/d1/{moderation,discord}.ts`. **D** dump: `src/dump/*`, `core/{nightly,jobs}.ts`, `routes/dump.ts`, `scripts/rehost.mjs` → `store/d1/dump.ts`. **E** tests: `tests/harness*.ts`, `tests/support*`, and SQL sites in `tests/api/**`. **F** SQL sites in `tests/{auth,events}/**`, `tests/rehost.test.ts` | Full suite green with an **unchanged test count**; typecheck; a new boundary test (no D1 types or `@aws-sdk` under `src/core`/`src/routes`); a byte-equal crawler diff of a local Worker before vs after the refactor on one prod export; deployed to CF with no change in production error rate or p95 over 48 h |
+| **P1 Storage port, D1 green** | `Store`/`Platform` interfaces; move every `db.prepare` behind them; the D1 implementation is today's SQL verbatim; `tests/harness` alias + D1 `TestStore`; convert the ~520 SQL sites in tests | (The site needs no P1 work; its entry split is V's, in P4.) **Main first:** `src/store/port.ts`, `src/platform/{port,workers}.ts`, `src/app.ts` (the interface, frozen before the others start). **A** layouts/events: `core/{write,events,records,likes,revert,names,etag,meta,longpoll,upstream}.ts`, `routes/{layouts,write,likes,changes,changelog}.ts` → `store/d1/{layouts,events}.ts`. **B** auth: `auth/*`, `core/{clients,idempotency,ratelimit,admins,destructive-budget,moderation}.ts`, `routes/{admin,moderation,authors}.ts` → `store/d1/auth.ts`. **C** community: `core/{links,wpm,comments,moderation-review,modqueue*,discord-interactions,rejection-dm}.ts`, `routes/{links,wpm,comments}.ts` → `store/d1/{moderation,discord}.ts`. **D** dump: `src/dump/*`, `core/{nightly,jobs}.ts`, `routes/dump.ts`, `scripts/rehost.mjs` → `store/d1/dump.ts`. **E** tests: `tests/harness*.ts`, `tests/support*`, and SQL sites in `tests/api/**`. **F** SQL sites in `tests/{auth,events}/**`, `tests/rehost.test.ts` | Full suite green with an **unchanged test count**; typecheck; a new boundary test (no D1 types or `@aws-sdk` under `src/core`/`src/routes`); a byte-equal crawler diff of a local Worker before vs after the refactor on one prod export; deployed to CF with no change in production error rate or p95 over 48 h |
 | **P2 DynamoDB implementation** | `store/ddb` (row engine, `EventTx`, read model, `codec`), DynamoDB `TestStore`, dual-backend suite, seeded fuzzer, conflict injection; hold budget and `read_only` in shared code (both backends) | **G** `store/ddb/{keys,rows,eventtx}.ts` + layouts/events ops. **H** `store/ddb/replica.ts` + snapshot I/O. **I** `store/ddb/{auth,ephemeral}.ts`. **J** `store/ddb/{moderation,discord}.ts`. **K** `store/ddb/codec.ts`, `store/ddb/dump.ts`, `rehost --target aws`. **L** `tests/harness.ddb.ts`, DynamoDB `TestStore`, `tests/fuzz/**`, `tests/conflict/**`. G goes first on `keys`/`rows`/`eventtx`; the rest build on them | Every workers-project test green on **both** backends; fuzzer at 10k sequences × 20 seeds with **zero** response or state diffs; the suite and fuzzer green under 20% injected conflicts; `codec` round-trip of a prod export byte-identical for every table; read model == full scan after every fuzzer step; index checker clean; parallel race packs green |
 | **P3 Local dev and CI** | `npm run dev`, DynamoDB Local bootstrap, node platform, README, CI matrix | **M** `scripts/dev.mjs`, `src/platform/node.ts`, `vitest` globalSetup, README "Run locally". **N** `.github/workflows/ci.yml` (dual backends + DynamoDB Local service). The commit is handed back, because the classifier blocks committing workflow files | On a clean machine with no AWS credentials, `npm ci && npm run dev` serves a seeded API in < 2 min, with Docker and with Java-only; CI green on both backends; the README walkthrough is verified by a fresh agent |
-| **P4 Infra in the akldb account** (335937358231, profile `akldb`, us-east-2) | CloudFormation for the tables, three functions + URLs, CloudFront, Scheduler, S3, SSM, logs (IA, never expire), alarms, budgets, GitHub OIDC role; the ACM stack in us-east-1 | **O** `infra/akldb.yaml`, `infra/acm-us-east-1.yaml`, `infra/*.guard`, `infra/*.test.mjs`, `scripts/deploy-aws.sh`. The main session deploys | cfn-lint + cfn-guard green, including rejected mutations; deployed with no VPC, least-privilege roles and deletion protection on; a direct Function URL call without the origin secret gets 403; **ACM dry run:** a certificate for a throwaway name (e.g. `aws-dryrun.akldb.org`) is issued in us-east-1 via the Cloudflare validation CNAME and attached to CloudFront (if refused, switch to the API Gateway fallback here); smoke tests pass through CloudFront; budget alerts live |
-| **P5 Proving ground** | §5.1 for **N = 7 consecutive days**, with replay at 1× plus daily 10× bursts | **P** `src/platform/lab.ts` + the lab bundle entry. **Q** `scripts/lab/sim/**` (simulator and race packs). **R** `scripts/lab/replay/**` (Logpush parser, body reconstruction, re-signing). **S** `scripts/lab/diff/**` (response and state differ) and `scripts/lab/report/**` (latency, cost). The main session runs the drivers in the background with timeouts | Over all 7 days: **zero unexplained** response or state diffs (the allow-list holds only `age_s`); zero feed gaps (a contiguity checker tails both sides); read model == scan and index checker clean at every checkpoint; zero `EventTx` retries exhausted; 5xx < 0.01% excluding injected faults; p95 per route from Fly `iad` ≤ today's production p95; projected cost ≤ **$2/month** at prod volume; no DynamoDB throttles; the hold budget enforced. Any fix restarts the 7-day count |
+| **P4 Infra in the akldb account** (335937358231, profile `akldb`, us-east-2) | CloudFormation for the tables, three functions + URLs, CloudFront, Scheduler, S3, SSM, logs (IA, never expire), alarms, budgets, GitHub OIDC role; the ACM stack in us-east-1 (one cert for `api.`, apex, `www.`); the site distribution, S3 bucket, site Lambda and the two CloudFront Functions | **O** `infra/akldb.yaml`, `infra/acm-us-east-1.yaml`, `infra/*.guard`, `infra/*.test.mjs`, `scripts/deploy-aws.sh`. **V** the site on AWS: `site/server/{workers,lambda}.ts` (entry split), OAuth URLs as env vars, `site/scripts/{manifest,deploy-aws}.mjs`, `infra/functions/{spa-fallback,forwarded-host}.js` + their tests. The main session deploys | cfn-lint + cfn-guard green, including rejected mutations; deployed with no VPC, least-privilege roles and deletion protection on; a direct Function URL call without the origin secret gets 403; **ACM dry run:** a certificate for a throwaway name (e.g. `aws-dryrun.akldb.org`) is issued in us-east-1 via the Cloudflare validation CNAME and attached to CloudFront (if refused, switch to the API Gateway fallback here); smoke tests pass through CloudFront; budget alerts live; the site lab hostname serves the SPA with exact fallback (unit-tested function) and a full OAuth login against real Discord via the lab callback |
+| **P5 Proving ground** | §5.1 for **N = 7 consecutive days**, with replay at 1× plus daily 10× bursts | **P** `src/platform/lab.ts` + the lab bundle entry. **Q** `scripts/lab/sim/**` (simulator and race packs). **R** `scripts/lab/replay/**` (Logpush parser, body reconstruction, re-signing). **S** `scripts/lab/diff/**` (response and state differ) and `scripts/lab/report/**` (latency, cost). **W** `scripts/lab/site/**` (static crawler, OAuth flow against the fake Discord, proxy diff). The main session runs the drivers in the background with timeouts | Over all 7 days: **zero unexplained** response or state diffs (the allow-list holds only `age_s`); zero feed gaps (a contiguity checker tails both sides); read model == scan and index checker clean at every checkpoint; zero `EventTx` retries exhausted; 5xx < 0.01% excluding injected faults; p95 per route from Fly `iad` ≤ today's production p95; projected cost ≤ **$2/month** at prod volume, site included; no DynamoDB throttles; the hold budget enforced; site static, dynamic and UI-walk diffs clean. Any fix restarts the 7-day count |
 | **P6 Cutover rehearsal** | §5.2 end to end, three times, against a stand-in production: a staging Worker `akl-db-rehearsal` with its own D1 loaded from a fresh export, the cutover flags, and the simulator writing during the window; then the rollback, once | **T** the Worker cutover modes (`read_only`, `proxy`, flag read) + `CHANGELOG-API.md`. **U** `scripts/cutover/{preload,delta,verify,flip}.mjs`. The main session runs the rehearsals; T's Worker changes ship dormant to production at the end of the phase | Write pause ≤ 30 s on 3 consecutive runs (target ~13 s), reads uninterrupted; delta proof clean; the post-hoc PITR full comparison clean; rollback carries AWS-side writes back with a clean proof; production access logs show no `workers.dev` hits for 7 days (every client repointed) |
-| **P7 Cutover** | Wipe the proving-ground tables; preload; §5.2 on production | none (main session, with saltorbit's explicit go) | Each step's check passes before the next step (§5.2); the T+1 h full proof is clean; a 48 h watch with alarms quiet, Spark freshness checks clean and the akl.gg error rate unchanged. Then the 90-day rollback window starts, after which the D1 code, the proxy and the CF Worker are deleted |
+| **P7 Cutover** | Wipe the proving-ground tables; preload; §5.2 on production; after a 48 h watch, the site DNS switch (§5.2) | none (main session, with saltorbit's explicit go) | Each step's check passes before the next step (§5.2); the T+1 h full proof is clean; a 48 h watch with alarms quiet, Spark freshness checks clean and the akl.gg error rate unchanged; after the site switch, sign-in and `/api/v1/*` error rates are unchanged, and existing sessions still work. Then the 90-day rollback window starts, after which the D1 code, the proxy and the CF Worker are deleted |
 
 ## Sources
 
