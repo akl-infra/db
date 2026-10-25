@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import path from "node:path";
 import { cloudflareTest, readD1Migrations } from "@cloudflare/vitest-pool-workers";
 import { defineConfig } from "vitest/config";
@@ -8,7 +9,17 @@ import { defineConfig } from "vitest/config";
 //    the import pipeline.
 //  - "node": plain vitest; formats, tools (boundary/noconst/invariants/
 //    ciwiring), core, and the live upstream diff.
+// The exact D1-only list of tests/tools/sql-boundary.test.ts (LDB-W2): files
+// that use raw D1 (migrations, query plans, trigger faults) stay out of the
+// dual-backend `ddb` project. Read from that test so the two cannot drift.
+function d1OnlyTests(): string[] {
+  const src = fs.readFileSync(path.join(import.meta.dirname, "tests/tools/sql-boundary.test.ts"), "utf8");
+  const body = /const D1_ONLY = \[([\s\S]*?)\];/.exec(src)?.[1] ?? "";
+  return [...body.matchAll(/"([^"]+)"/g)].map((m) => m[1] as string).filter((f) => f.endsWith(".test.ts"));
+}
+
 export default defineConfig(async () => {
+  const harnessDdb = path.join(import.meta.dirname, "tests/harness/ddb.ts");
   const migrationsPath = path.join(import.meta.dirname, "migrations");
   const migrations = await readD1Migrations(migrationsPath);
 
@@ -81,6 +92,29 @@ export default defineConfig(async () => {
             // both "Test timed out in 5000ms", nothing actually wrong.
             testTimeout: 30000,
             hookTimeout: 30000,
+          },
+        },
+        {
+          // Lane L (design/p2-p5-briefs.md): the dual-backend files again, on
+          // the DynamoDB store over DynamoDB Local in plain Node. `tests/harness`
+          // resolves to tests/harness/ddb.ts; run with `npm run test:ddb`
+          // (AKLDB_DDB_PORT / AKLDB_DDB_CONTAINER pick the lane's own port).
+          resolve: { alias: [{ find: /^\.{1,2}\/harness$/, replacement: harnessDdb }] },
+          test: {
+            name: "ddb",
+            environment: "node",
+            include: [
+              "tests/ddb/**/*.test.ts",
+              "tests/api/**/*.test.ts",
+              "tests/auth/**/*.test.ts",
+              "tests/events/**/*.test.ts",
+              "tests/rehost.test.ts",
+            ],
+            exclude: [...d1OnlyTests(), "tests/import/**"],
+            globalSetup: ["./tests/harness/global-ddb.ts"],
+            setupFiles: ["./tests/harness/setup-ddb.ts"],
+            testTimeout: 30000,
+            hookTimeout: 60000,
           },
         },
         {

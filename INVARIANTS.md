@@ -409,3 +409,13 @@ it?"):**
 | LDB-MD19 | Rejection DM integration: every admin REST rejection route and Discord deny continuation passes `notifySubmitter` only when `MODQUEUE_DISCORD_DMS === "true"`; after REST rejects and deferred Discord actions, a bounded best-effort outbox drain is nudged via `waitUntil`, and the five-minute cron retries independently of action/card gates. The outbox is never serialized in the public dump and restore deletes it alongside other private Discord state; UTF-16 accounting keeps full-comment Components V2 payloads within Discord limits | `tests/auth/discord-interactions.test.ts`, `tests/auth/rejection-dm.test.ts`, `tests/rehost.test.ts` |
 
 | LDB-MD24 | Moderation delivery uses a durable fenced gate, preserves dirty work across cooldown, and bounds body reads even when cancellation stalls. | `tests/auth/modqueue-delivery.test.ts` |
+
+## DynamoDB
+
+| ID | Invariant | Tests |
+|---|---|---|
+| LDB-DDB80 | The fault wrapper (`withFaults`) injects `TransactionConflict` (a `TransactionCanceledException` with a `TransactionConflict` reason for a random item of the transaction), throttling and `InternalServerError` into a seeded fraction of write calls, never applies an injected call, never faults a read unless asked, and is deterministic per seed. The suite runs under `LAB_FAULT_RATE=0.2`. | `tests/ddb/faults.test.ts` |
+| LDB-DDB81 | `failWritesFor(predicate)` fails every write call touching an item the predicate selects, as a whole and unapplied (non-retryable `InjectedWriteFault`), seeing the full item of a Put and the stored pre-image of an Update/Delete, until disposed; it backs `TestStore.faults`. | `tests/ddb/faults.test.ts` |
+| LDB-DDB82 | `staleReads(n)` serves the next n eventual Get/Query reads the version before the most recent write to the item (absent if it was created since); consistent reads are never stale. | `tests/ddb/faults.test.ts` |
+| LDB-DDB83 | `withCallCounter` counts every DynamoDB call by command type (reads, writes, transact items), with `measure()` deltas, for the round-trip bounds. | `tests/ddb/faults.test.ts` |
+| LDB-DDB84 | The counter composes over the fault wrapper and counts attempts, injected faults included. | `tests/ddb/faults.test.ts` |

@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "wrangler dev --config wrangler.toml",
     "test": "vitest run",
+    "test:ddb": "vitest run --project ddb",
+    "test:ddb:faults": "LAB_FAULT_RATE=0.2 vitest run --project ddb",
     "typecheck": "tsc --noEmit",
     "migrate": "wrangler d1 migrations apply akl-db --local --config wrangler.toml",
     "deploy": "wrangler deploy --config wrangler.toml",
