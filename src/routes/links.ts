@@ -8,7 +8,7 @@
 // `routes/moderation.ts`'s `GET /v1/admin/bans` and `routes/admin.ts`'s
 // admin GETs use.
 import { Hono } from "hono";
-import type { ActorVariables } from "../auth/actor";
+import { type AppEnv, platformOf } from "../app";
 import { type AuthDeps, resolveActor } from "../auth/discord";
 import type { Bindings } from "../env";
 import * as links from "../core/links";
@@ -45,34 +45,34 @@ async function readOptionalJson(req: { text(): Promise<string> }): Promise<unkno
 }
 
 export function linksRoute(authDeps: AuthDeps) {
-  const route = new Hono<{ Bindings: Bindings; Variables: ActorVariables }>();
+  const route = new Hono<AppEnv>();
 
   route.get("/v1/layouts/:ref/link", async (c) => {
     const actor = await resolveActor(c.env, c.req, authDeps);
-    const { lwf } = await loadForWrite(c.env.DB, c.req.param("ref"), actor, { allowDeleted: true });
-    const result = await links.getLink(c.env.DB, lwf.layout.id);
+    const { lwf } = await loadForWrite(platformOf(c).store, c.req.param("ref"), actor, { allowDeleted: true });
+    const result = await links.getLink(platformOf(c).store, lwf.layout.id);
     return c.json(result);
   });
 
   route.put("/v1/layouts/:ref/link", async (c) => {
     const actor = c.get("actor");
     const body = parseLinkBody(await readJson(c.req));
-    const { lwf } = await loadForWrite(c.env.DB, c.req.param("ref"), actor, { allowDeleted: false });
-    const submission = await links.submitLink(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), lwf.layout.id, body.url);
+    const { lwf } = await loadForWrite(platformOf(c).store, c.req.param("ref"), actor, { allowDeleted: false });
+    const submission = await links.submitLink(platformOf(c).store, resolveNow(c.env), actor, c.get("sourceVersion"), lwf.layout.id, body.url);
     // [LDB-MD11] Every submission is pending, so every one is announced right
     // away rather than waiting for the next 5-minute cron tick (`src/index.ts`'s
     // `scheduled()` also calls this, so it's covered even if this
     // `waitUntil` never runs) -- `notifyPending` never throws and touches
     // no D1 unless `MODQUEUE_DISCORD_WEBHOOK` is set (LDB-MD12), so this
     // is free on every other submit.
-    c.executionCtx.waitUntil(notifyPending(c.env.DB, c.env, resolveNow(c.env)));
+    platformOf(c).background(notifyPending(platformOf(c).store, c.env, resolveNow(c.env)));
     return c.json({ submission }, 202);
   });
 
   route.delete("/v1/layouts/:ref/link", async (c) => {
     const actor = c.get("actor");
-    const { lwf, admin } = await loadForWrite(c.env.DB, c.req.param("ref"), actor, { allowDeleted: false });
-    const result = await links.clearLink(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), lwf.layout.id, admin);
+    const { lwf, admin } = await loadForWrite(platformOf(c).store, c.req.param("ref"), actor, { allowDeleted: false });
+    const result = await links.clearLink(platformOf(c).store, resolveNow(c.env), actor, c.get("sourceVersion"), lwf.layout.id, admin);
     return c.json(result);
   });
 
@@ -85,14 +85,14 @@ export function linksRoute(authDeps: AuthDeps) {
     if (!(QUEUE_STATUSES as readonly string[]).includes(raw)) {
       throw badRequest(`unknown 'status' value '${raw}' (expected one of ${QUEUE_STATUSES.join(", ")})`, "status");
     }
-    return c.json({ submissions: await links.listQueue(c.env.DB, raw as (typeof QUEUE_STATUSES)[number]) });
+    return c.json({ submissions: await links.listQueue(platformOf(c).store, raw as (typeof QUEUE_STATUSES)[number]) });
   });
 
   route.post("/v1/admin/link-queue/:id/approve", async (c) => {
     const actor = c.get("actor");
     if (!actor.admin) throw notAdmin();
-    const result = await links.approveSubmission(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), c.req.param("id"));
-    c.executionCtx.waitUntil(updateQueueNotification(c.env.DB, c.env, "link", c.req.param("id")));
+    const result = await links.approveSubmission(platformOf(c).store, resolveNow(c.env), actor, c.get("sourceVersion"), c.req.param("id"));
+    platformOf(c).background(updateQueueNotification(platformOf(c).store, c.env, "link", c.req.param("id")));
     return c.json(result);
   });
 
@@ -100,9 +100,9 @@ export function linksRoute(authDeps: AuthDeps) {
     const actor = c.get("actor");
     if (!actor.admin) throw notAdmin();
     const body = parseLinkRejectBody(await readOptionalJson(c.req));
-    const result = await links.rejectSubmission(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), c.req.param("id"), body.reason, { notifySubmitter: c.env.MODQUEUE_DISCORD_DMS === "true" });
-    c.executionCtx.waitUntil(updateQueueNotification(c.env.DB, c.env, "link", c.req.param("id")));
-    c.executionCtx.waitUntil(dispatchRejectionDms(c.env.DB, c.env, resolveNow(c.env)));
+    const result = await links.rejectSubmission(platformOf(c).store, resolveNow(c.env), actor, c.get("sourceVersion"), c.req.param("id"), body.reason, { notifySubmitter: c.env.MODQUEUE_DISCORD_DMS === "true" });
+    platformOf(c).background(updateQueueNotification(platformOf(c).store, c.env, "link", c.req.param("id")));
+    platformOf(c).background(dispatchRejectionDms(platformOf(c).store, c.env, resolveNow(c.env)));
     return c.json({ submission: result });
   });
 

@@ -6,14 +6,14 @@
 // NULL for good (LDB-CMT4), and `status` records what happened.
 import { ulid } from "ulidx";
 import type { Actor } from "../auth/actor";
-import type { Bindings } from "../env";
 import { invalidComment, notFound, ownComment, reviewConflict } from "./errors";
-import { appendInfo, appendModeration, rejectionModerationStatement } from "./events";
-import { reopenReview, reviewHistoryStatement, type ReviewExpectation } from "./moderation-review";
-import { approvalOutboxStatement, rejectionOutboxStatement } from "./rejection-dm";
+import { appendInfo, appendModeration } from "./events";
+import { layoutPresent, reopenReview, type ReviewExpectation } from "./moderation-review";
+import { outboxIntent } from "./outbox-intent";
 import { byRef, type LayoutRow, type Source } from "./records";
 import type { Clock } from "./time";
-import { legacyD1, type StoreArg } from "../store/arg";
+import { toStore, type StoreArg } from "../store/arg";
+import type { Store } from "../store/port";
 
 // --- the pure validator (LDB-CMT1, table-tested) --------------------------
 
@@ -86,13 +86,8 @@ function sourceOf(actor: Actor, version: string | null): Source {
   return { client: actor.source_client, version };
 }
 
-// [LDB-CMT9] The explicit column list (never `SELECT *`) keeps
-// `notified_at` -- the mod-queue notifier's claim bookkeeping,
-// `core/modqueue.ts` -- off every wire these rows reach.
-const COMMENT_COLUMNS = "id, layout_id, user_id, body, via, submitted_at, status, decided_by, decided_at, reason, review_version";
-
-async function loadComment(db: Bindings["DB"], id: string): Promise<CommentRow> {
-  const row = await db.prepare(`SELECT ${COMMENT_COLUMNS} FROM layout_comments WHERE id = ?`).bind(id).first<CommentRow>();
+async function loadComment(store: Store, id: string): Promise<CommentRow> {
+  const row = await store.comments.get(id);
   if (row === null) throw notFound(`no comment '${id}'`, id);
   return row;
 }
@@ -100,8 +95,8 @@ async function loadComment(db: Bindings["DB"], id: string): Promise<CommentRow> 
 // The layout every write route names: the usual ref resolution; a tombstone
 // refuses (a deleted layout takes no new comments).
 export async function resolveCommentLayout(dbArg: StoreArg, ref: string): Promise<LayoutRow> {
-  const db = legacyD1(dbArg);
-  const layout = await byRef(db, ref);
+  const store = toStore(dbArg);
+  const layout = await byRef(store, ref);
   if (layout === null || layout.deleted) throw notFound(`no layout '${ref}'`, ref);
   return layout;
 }
@@ -110,21 +105,6 @@ function validated(rawBody: unknown): string {
   const v = validateComment(rawBody);
   if (!v.ok) throw invalidComment(v.message);
   return v.body;
-}
-
-// [LDB-CMT11] A slot's likes survive temporary reopening [LDB-MD20]. They
-// are cleared on the author's delete or a
-// mod's removal. Conditional on that, so a statement that follows a decision
-// which did not happen (a lost race) clears nothing. A pending or rejected
-// edit leaves them, and an approved edit replaces the row inside the slot.
-function clearLikesOfEmptySlot(db: Bindings["DB"], layoutId: string, authorId: string, requireWinningClaim = false): D1PreparedStatement {
-  return db
-    .prepare(
-      `DELETE FROM comment_likes WHERE layout_id = ? AND author_id = ?
-       ${requireWinningClaim ? "AND changes() = 1" : ""}
-       AND NOT EXISTS (SELECT 1 FROM layout_comments WHERE layout_id = ? AND user_id = ? AND status = 'approved')`,
-    )
-    .bind(layoutId, authorId, layoutId, authorId);
 }
 
 // PUT /v1/layouts/:ref/comment. Everyone, an admin included: queued (`202`) --
@@ -139,27 +119,19 @@ export async function submitComment(
   layoutId: string,
   rawBody: unknown,
 ): Promise<CommentRow> {
-  const db = legacyD1(dbArg);
+  const store = toStore(dbArg);
   const body = validated(rawBody);
   const at = now();
   const id = ulid();
-  const supersede = db
-    .prepare("UPDATE layout_comments SET status = 'superseded', decided_by = ?, decided_at = ? WHERE layout_id = ? AND user_id = ? AND status = 'pending'")
-    .bind(actor.user_id, at, layoutId, actor.user_id);
-
-  await db.batch([
-    supersede,
-    db
-      .prepare(
-        `INSERT INTO layout_comments (id, layout_id, user_id, body, via, submitted_at, status, decided_by, decided_at, reason)
-         VALUES (?, ?, ?, ?, ?, ?, 'pending', NULL, NULL, NULL)`,
-      )
-      .bind(id, layoutId, actor.user_id, body, actor.via, at),
-  ]);
+  await store.comments.submit({
+    by: actor.user_id,
+    at,
+    row: { id, layout_id: layoutId, user_id: actor.user_id, body, via: actor.via, submitted_at: at },
+  });
 
   // [LDB-CMT7] The feed is public and a pending comment is private to mods:
   // this event names the submission and nothing else -- no text.
-  await appendInfo(db, now, {
+  await appendInfo(store, now, {
     kind: "comment_submitted",
     layoutId,
     actor: actor.user_id,
@@ -177,26 +149,12 @@ export async function submitComment(
 // has a text left (nothing is written, no event); a lone rejected or
 // superseded text is erased and counts.
 export async function deleteOwnComment(dbArg: StoreArg, now: Clock, actor: Actor, version: string | null, layoutId: string): Promise<boolean> {
-  const db = legacyD1(dbArg);
-  const live = await db
-    .prepare("SELECT 1 AS one FROM layout_comments WHERE layout_id = ? AND user_id = ? AND body IS NOT NULL LIMIT 1")
-    .bind(layoutId, actor.user_id)
-    .first();
-  if (live === null) return false;
+  const store = toStore(dbArg);
+  if (!(await store.comments.hasBody(layoutId, actor.user_id))) return false;
 
   const at = now();
-  await db.batch([
-    db
-      .prepare(
-        `UPDATE layout_comments
-         SET body = NULL, status = 'deleted', decided_by = ?, decided_at = ?
-         WHERE layout_id = ? AND user_id = ? AND status IN ('approved', 'pending')`,
-      )
-      .bind(actor.user_id, at, layoutId, actor.user_id),
-    db.prepare("UPDATE layout_comments SET body = NULL WHERE layout_id = ? AND user_id = ? AND body IS NOT NULL").bind(layoutId, actor.user_id),
-    clearLikesOfEmptySlot(db, layoutId, actor.user_id),
-  ]);
-  await appendInfo(db, now, {
+  await store.comments.deleteOwn({ layoutId, userId: actor.user_id, at });
+  await appendInfo(store, now, {
     kind: "comment_deleted",
     layoutId,
     actor: actor.user_id,
@@ -213,25 +171,7 @@ export type CommentQueueStatus = CommentStatus;
 // layout is currently a tombstone (nothing about delete touches comments --
 // a pending one is simply hidden until restore).
 export async function listCommentQueue(dbArg: StoreArg, status: CommentQueueStatus): Promise<CommentQueueRow[]> {
-  const db = legacyD1(dbArg);
-  const cols = COMMENT_COLUMNS.split(", ")
-    .map((c) => `s.${c}`)
-    .join(", ");
-  const { results } = await db
-    .prepare(
-      `SELECT ${cols}, l.name AS layout_name, a.name AS user_name,
-              (SELECT b.body FROM layout_comments b
-               WHERE b.layout_id = s.layout_id AND b.user_id = s.user_id AND b.status = 'approved' AND b.id != s.id
-               ORDER BY b.decided_at DESC, b.id ASC LIMIT 1) AS live_body
-       FROM layout_comments s
-       JOIN layouts l ON l.id = s.layout_id
-       LEFT JOIN authors a ON a.user_id = s.user_id
-       WHERE s.status = ? AND l.deleted = 0
-       ORDER BY s.submitted_at ASC, s.id ASC`,
-    )
-    .bind(status)
-    .all<CommentQueueRow>();
-  return results;
+  return toStore(dbArg).comments.queue(status);
 }
 
 // POST /v1/admin/comment-queue/:id/approve: `404 not_found` if the layout is
@@ -241,68 +181,60 @@ export async function listCommentQueue(dbArg: StoreArg, status: CommentQueueStat
 // is claimed (`changes === 1` wins), so two admins deciding at once can
 // never both succeed and a loser never retires the live text.
 export async function approveComment(dbArg: StoreArg, now: Clock, actor: Actor, version: string | null, id: string, expectedReviewVersion = 0, notifySubmitter = false): Promise<CommentRow> {
-  const db = legacyD1(dbArg);
-  const submission = await loadComment(db, id);
+  const store = toStore(dbArg);
+  const submission = await loadComment(store, id);
   if (submission.review_version !== expectedReviewVersion) throw reviewConflict(id);
   if (submission.status !== "pending") throw notFound(`comment submission '${id}' is not pending`, id);
-  const layout = await db.prepare("SELECT id FROM layouts WHERE id = ? AND deleted = 0").bind(submission.layout_id).first();
-  if (layout === null) throw notFound(`no layout '${submission.layout_id}'`, submission.layout_id);
+  if (!(await layoutPresent(store, submission.layout_id, true))) throw notFound(`no layout '${submission.layout_id}'`, submission.layout_id);
   const at = now();
-  const results = await db.batch([
-    db.prepare(`UPDATE layout_comments SET status = 'replaced', body = NULL, decided_by = ?, decided_at = ?
-      WHERE layout_id = ? AND user_id = ? AND status = 'approved' AND id != ?
-        AND EXISTS (SELECT 1 FROM layout_comments WHERE id = ? AND status = 'pending' AND review_version = ? AND body IS NOT NULL)
-        AND EXISTS (SELECT 1 FROM layouts WHERE id = ? AND deleted = 0)`)
-      .bind(actor.user_id, at, submission.layout_id, submission.user_id, id, id, expectedReviewVersion, submission.layout_id),
-    db.prepare(`UPDATE layout_comments SET status = 'approved', decided_by = ?, decided_at = ?, reason = NULL
-      WHERE id = ? AND status = 'pending' AND review_version = ? AND body IS NOT NULL
-        AND EXISTS (SELECT 1 FROM layouts WHERE id = layout_comments.layout_id AND deleted = 0)`)
-      .bind(actor.user_id, at, id, expectedReviewVersion),
-    rejectionModerationStatement(db, at, { kind: "comment_approved", layoutId: submission.layout_id,
-      actor: actor.user_id, via: actor.via, source: sourceOf(actor, version), detail: { submission_id: submission.id, layout_id: submission.layout_id, user_id: submission.user_id } }),
-    ...(notifySubmitter ? [await approvalOutboxStatement(db, {
-      kind: "comment", submissionId: id, layoutId: submission.layout_id,
-      recipientId: submission.user_id, at, reviewVersion: expectedReviewVersion,
-    })] : []),
-    reviewHistoryStatement(db, "comment", id, "approved", actor.user_id, at, null, expectedReviewVersion),
-  ]);
-  if (results[1]!.meta.changes !== 1) throw reviewConflict(id);
-  return loadComment(db, id);
+  const outcome = await store.comments.approve({
+    id,
+    layoutId: submission.layout_id,
+    userId: submission.user_id,
+    by: actor.user_id,
+    at,
+    reviewVersion: expectedReviewVersion,
+    event: { kind: "comment_approved", layoutId: submission.layout_id,
+      actor: actor.user_id, via: actor.via, source: sourceOf(actor, version), detail: { submission_id: submission.id, layout_id: submission.layout_id, user_id: submission.user_id } },
+    ...(notifySubmitter ? { outbox: await outboxIntent({ kind: "comment", submissionId: id, layoutId: submission.layout_id, recipientId: submission.user_id, at, reviewVersion: expectedReviewVersion }, "approval") } : {}),
+    history: { kind: "comment", submissionId: id, action: "approved", actor: actor.user_id, at, reason: null, reviewVersion: expectedReviewVersion },
+  });
+  if (!outcome.claimed) throw reviewConflict(id);
+  return loadComment(store, id);
 }
 
 // POST /v1/admin/comment-queue/:id/reject: marks the submission `rejected`
 // (the text is KEPT so its author can read it back with the reason) and
 // appends `comment_rejected`, which names the submission and nothing else.
 export async function rejectComment(dbArg: StoreArg, now: Clock, actor: Actor, version: string | null, id: string, reason?: string, options?: { notifySubmitter?: boolean; reviewVersion?: number }): Promise<CommentRow> {
-  const db = legacyD1(dbArg);
-  const submission = await loadComment(db, id);
+  const store = toStore(dbArg);
+  const submission = await loadComment(store, id);
   const expectedReviewVersion = options?.reviewVersion ?? 0;
   if (submission.review_version !== expectedReviewVersion) throw reviewConflict(id);
   if (submission.status !== "pending") throw notFound(`comment submission '${id}' is not pending`, id);
-  if (await db.prepare("SELECT id FROM layouts WHERE id = ?").bind(submission.layout_id).first() === null) {
+  if (!(await layoutPresent(store, submission.layout_id, false))) {
     throw notFound(`no layout '${submission.layout_id}'`, submission.layout_id);
   }
   const at = now();
-  const [claim, event] = await db.batch([
-    db.prepare(`UPDATE layout_comments SET status = 'rejected', decided_by = ?, decided_at = ?, reason = ?
-      WHERE id = ? AND status = 'pending' AND review_version = ? AND body IS NOT NULL`)
-      .bind(actor.user_id, at, reason ?? null, id, expectedReviewVersion),
-    rejectionModerationStatement(db, at, { kind: "comment_rejected", layoutId: submission.layout_id,
-      actor: actor.user_id, via: actor.via, source: sourceOf(actor, version), detail: { submission_id: submission.id } }),
-    ...(options?.notifySubmitter === true ? [await rejectionOutboxStatement(db, {
-      kind: "comment", submissionId: id, layoutId: submission.layout_id,
-      recipientId: submission.user_id, at, reviewVersion: expectedReviewVersion,
-    })] : []),
-    reviewHistoryStatement(db, "comment", id, "rejected", actor.user_id, at, reason ?? null, expectedReviewVersion),
-  ]);
-  if (claim!.meta.changes !== 1 || event!.meta.changes !== 1) throw reviewConflict(id);
-  return loadComment(db, id);
+  const outcome = await store.comments.reject({
+    id,
+    by: actor.user_id,
+    at,
+    reason: reason ?? null,
+    reviewVersion: expectedReviewVersion,
+    event: { kind: "comment_rejected", layoutId: submission.layout_id,
+      actor: actor.user_id, via: actor.via, source: sourceOf(actor, version), detail: { submission_id: submission.id } },
+    ...(options?.notifySubmitter === true ? { outbox: await outboxIntent({ kind: "comment", submissionId: id, layoutId: submission.layout_id, recipientId: submission.user_id, at, reviewVersion: expectedReviewVersion }, "rejection") } : {}),
+    history: { kind: "comment", submissionId: id, action: "rejected", actor: actor.user_id, at, reason: reason ?? null, reviewVersion: expectedReviewVersion },
+  });
+  if (!outcome.claimed || !outcome.eventAppended) throw reviewConflict(id);
+  return loadComment(store, id);
 }
 
 export async function reopenComment(dbArg: StoreArg, now: Clock, actor: Actor, version: string | null, id: string, expected: ReviewExpectation): Promise<CommentRow> {
-  const db = legacyD1(dbArg);
-  await reopenReview(db, now, actor, version, "comment", id, expected);
-  return loadComment(db, id);
+  const store = toStore(dbArg);
+  await reopenReview(store, now, actor, version, "comment", id, expected);
+  return loadComment(store, id);
 }
 
 // POST /v1/admin/comments/:id/remove: a mod takes an approved comment down.
@@ -312,20 +244,15 @@ export async function reopenComment(dbArg: StoreArg, now: Clock, actor: Actor, v
 // `404` if the comment doesn't exist or isn't approved (so a removal can't be
 // repeated).
 export async function removeComment(dbArg: StoreArg, now: Clock, actor: Actor, version: string | null, id: string, reason?: string): Promise<CommentRow> {
-  const db = legacyD1(dbArg);
-  const comment = await loadComment(db, id);
+  const store = toStore(dbArg);
+  const comment = await loadComment(store, id);
   if (comment.status !== "approved") throw notFound(`comment '${id}' is not approved`, id);
 
-  const [res] = await db.batch([
-    db
-      .prepare("UPDATE layout_comments SET status = 'removed', decided_by = ?, decided_at = ?, reason = ? WHERE id = ? AND status = 'approved' AND review_version = ?")
-      .bind(actor.user_id, now(), reason ?? null, id, comment.review_version),
-    clearLikesOfEmptySlot(db, comment.layout_id, comment.user_id, true),
-  ]);
-  if (res!.meta.changes !== 1) throw notFound(`comment '${id}' is not approved`, id);
+  const res = await store.comments.remove({ id, layoutId: comment.layout_id, userId: comment.user_id, by: actor.user_id, at: now(), reason: reason ?? null, reviewVersion: comment.review_version });
+  if (!res.claimed) throw notFound(`comment '${id}' is not approved`, id);
 
-  const removed = await loadComment(db, id);
-  await appendModeration(db, now, {
+  const removed = await loadComment(store, id);
+  await appendModeration(store, now, {
     kind: "comment_removed",
     layoutId: removed.layout_id,
     actor: actor.user_id,
@@ -357,44 +284,13 @@ export interface PublicCommentCount {
 }
 
 export async function listCommentCounts(dbArg: StoreArg): Promise<PublicCommentCount[]> {
-  const db = legacyD1(dbArg);
-  const { results } = await db
-    .prepare(
-      `SELECT l.id AS layout_id, l.name AS layout_name, COUNT(*) AS count
-       FROM layouts l
-       JOIN layout_comments c ON c.layout_id = l.id
-       WHERE l.deleted = 0 AND c.status = 'approved' AND c.body IS NOT NULL
-       GROUP BY l.id, l.name
-       ORDER BY l.name COLLATE NOCASE ASC, l.id ASC`,
-    )
-    .all<PublicCommentCount>();
-  return results;
+  return toStore(dbArg).comments.counts();
 }
 
 export async function listComments(dbArg: StoreArg, layout: LayoutRow, viewer?: string, sort: CommentSort = "likes"): Promise<PublicComment[]> {
-  const db = legacyD1(dbArg);
+  const store = toStore(dbArg);
   if (layout.deleted) return [];
-  const { results } = await db
-    .prepare(
-      `SELECT c.id AS id, c.user_id AS user_id, a.name AS name, c.body AS body, c.decided_at AS approved_at,
-              EXISTS (
-                SELECT 1 FROM layout_comments r
-                WHERE r.layout_id = c.layout_id AND r.user_id = c.user_id AND r.status = 'replaced'
-                  AND r.decided_at > COALESCE(
-                    (SELECT MAX(d.decided_at) FROM layout_comments d
-                     WHERE d.layout_id = c.layout_id AND d.user_id = c.user_id AND d.status IN ('deleted', 'removed')),
-                    '')
-              ) AS edited,
-              (SELECT COUNT(*) FROM comment_likes k WHERE k.layout_id = c.layout_id AND k.author_id = c.user_id) AS likes,
-              EXISTS (SELECT 1 FROM comment_likes k WHERE k.layout_id = c.layout_id AND k.author_id = c.user_id AND k.user_id = ?) AS liked,
-              (c.user_id = ?) AS is_author
-       FROM layout_comments c
-       LEFT JOIN authors a ON a.user_id = c.user_id
-       WHERE c.layout_id = ? AND c.status = 'approved' AND c.body IS NOT NULL
-       ORDER BY is_author DESC, ${sort === "newest" ? "" : "likes DESC, "}c.decided_at DESC, c.id ASC`,
-    )
-    .bind(viewer ?? "", layout.owner, layout.id)
-    .all<Omit<PublicComment, "edited" | "liked" | "is_author"> & { edited: number; liked: number; is_author: number }>();
+  const results = await store.comments.list({ layoutId: layout.id, owner: layout.owner, viewer: viewer ?? "", sort });
   return results.map(({ liked, edited, is_author, ...r }) => ({ ...r, edited: edited === 1, is_author: is_author === 1, ...(viewer === undefined ? {} : { liked: liked === 1 }) }));
 }
 
@@ -403,19 +299,11 @@ export async function listComments(dbArg: StoreArg, layout: LayoutRow, viewer?: 
 // comment and `400 own_comment` for the author themselves. A like that was
 // already there changes nothing and appends no event.
 export async function likeComment(dbArg: StoreArg, now: Clock, actor: Actor, version: string | null, layoutId: string, authorId: string): Promise<void> {
-  const db = legacyD1(dbArg);
+  const store = toStore(dbArg);
   if (authorId === actor.user_id) throw ownComment();
-  const res = await db
-    .prepare(
-      `INSERT INTO comment_likes (layout_id, author_id, user_id, via, created_at)
-       SELECT ?, ?, ?, ?, ?
-       WHERE EXISTS (SELECT 1 FROM layout_comments WHERE layout_id = ? AND user_id = ? AND status = 'approved' AND body IS NOT NULL)
-       ON CONFLICT (layout_id, author_id, user_id) DO NOTHING`,
-    )
-    .bind(layoutId, authorId, actor.user_id, actor.via, now(), layoutId, authorId)
-    .run();
-  if (res.meta.changes === 1) {
-    await appendInfo(db, now, {
+  const liked = await store.comments.like({ layoutId, authorId, userId: actor.user_id, via: actor.via, at: now() });
+  if (liked) {
+    await appendInfo(store, now, {
       kind: "comment_liked",
       layoutId,
       actor: actor.user_id,
@@ -425,19 +313,14 @@ export async function likeComment(dbArg: StoreArg, now: Clock, actor: Actor, ver
     });
     return;
   }
-  const slot = await db
-    .prepare("SELECT 1 AS one FROM layout_comments WHERE layout_id = ? AND user_id = ? AND status = 'approved' AND body IS NOT NULL LIMIT 1")
-    .bind(layoutId, authorId)
-    .first();
-  if (slot === null) throw notFound(`no comment by '${authorId}' on this layout`, authorId);
+  if (!(await store.comments.approvedSlotExists(layoutId, authorId))) throw notFound(`no comment by '${authorId}' on this layout`, authorId);
 }
 
 // DELETE the same path: idempotent; an unlike that removed nothing appends no event.
 export async function unlikeComment(dbArg: StoreArg, now: Clock, actor: Actor, version: string | null, layoutId: string, authorId: string): Promise<void> {
-  const db = legacyD1(dbArg);
-  const res = await db.prepare("DELETE FROM comment_likes WHERE layout_id = ? AND author_id = ? AND user_id = ?").bind(layoutId, authorId, actor.user_id).run();
-  if (res.meta.changes !== 1) return;
-  await appendInfo(db, now, {
+  const store = toStore(dbArg);
+  if (!(await store.comments.unlike(layoutId, authorId, actor.user_id))) return;
+  await appendInfo(store, now, {
     kind: "comment_unliked",
     layoutId,
     actor: actor.user_id,
@@ -454,12 +337,7 @@ export async function unlikeComment(dbArg: StoreArg, now: Clock, actor: Actor, v
 // erased themselves doesn't keep announcing an old rejection. `decision.body`
 // is the refused or removed text itself.
 export async function readOwnComment(dbArg: StoreArg, layoutId: string, userId: string): Promise<OwnComment> {
-  const db = legacyD1(dbArg);
-  const { results } = await db
-    .prepare(`SELECT ${COMMENT_COLUMNS} FROM layout_comments WHERE layout_id = ? AND user_id = ? ORDER BY submitted_at ASC, id ASC`)
-    .bind(layoutId, userId)
-    .all<CommentRow>();
-  return deriveOwn(results);
+  return deriveOwn(await toStore(dbArg).comments.pairRows(layoutId, userId));
 }
 
 // The rules of the own read over one slot's rows (oldest first), shared by the
@@ -505,23 +383,7 @@ export const MY_COMMENTS_LIMIT = 500;
 // rules as `readOwnComment` decide what each slot shows; a slot with nothing
 // to show (erased, superseded, replaced only) is absent. Private to the caller.
 export async function listMyComments(dbArg: StoreArg, userId: string): Promise<MyComment[]> {
-  const db = legacyD1(dbArg);
-  const cols = COMMENT_COLUMNS.split(", ").map((c) => `s.${c}`).join(", ");
-  const { results } = await db
-    .prepare(
-      `SELECT ${cols}, l.name AS layout_name, l.owner AS layout_owner
-       FROM layout_comments s
-       JOIN layouts l ON l.id = s.layout_id AND l.deleted = 0
-       WHERE s.user_id = ?
-       ORDER BY s.layout_id ASC, s.submitted_at ASC, s.id ASC`,
-    )
-    .bind(userId)
-    .all<CommentRow & { layout_name: string; layout_owner: string }>();
-  const likeCounts = await db
-    .prepare("SELECT layout_id, COUNT(*) AS n FROM comment_likes WHERE author_id = ? GROUP BY layout_id")
-    .bind(userId)
-    .all<{ layout_id: string; n: number }>();
-  const likes = new Map(likeCounts.results.map((r) => [r.layout_id, r.n]));
+  const { rows: results, likeCounts: likes } = await toStore(dbArg).comments.mine(userId);
 
   const byLayout = new Map<string, (CommentRow & { layout_name: string; layout_owner: string })[]>();
   for (const r of results) {

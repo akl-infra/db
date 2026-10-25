@@ -6,7 +6,7 @@
 // pattern `routes/links.ts` uses. `Idempotency-Key` is scoped to
 // `/v1/layouts*` (`auth/idempotency.ts`), so it is a no-op on these routes.
 import { Hono } from "hono";
-import type { ActorVariables } from "../auth/actor";
+import { type AppEnv, platformOf } from "../app";
 import { type AuthDeps, resolveActor } from "../auth/discord";
 import type { Bindings } from "../env";
 import { badRequest, notAdmin, notFound } from "../core/errors";
@@ -48,14 +48,14 @@ async function readOptionalJson(req: { text(): Promise<string> }): Promise<unkno
 const QUEUE_STATUSES = ["pending", "approved", "rejected", "superseded"] as const;
 
 export function wpmRoute(authDeps: AuthDeps) {
-  const route = new Hono<{ Bindings: Bindings; Variables: ActorVariables }>();
+  const route = new Hono<AppEnv>();
 
   // GET /v1/wpm?layout=&user= (public, no auth). The body is a function of
   // the approved rows, the layouts' names/tombstones and the authors' names:
   // every approval, rename, delete and restore appends an event (the seq),
   // and an author rename moves `authors_head` -- both are in the ETag.
   route.get("/v1/wpm", async (c) => {
-    const db = c.env.DB;
+    const db = platformOf(c).store;
     const layoutRaw = c.req.query("layout");
     const userRaw = c.req.query("user");
     let layoutId: string | undefined;
@@ -82,12 +82,12 @@ export function wpmRoute(authDeps: AuthDeps) {
   route.post("/v1/wpm", async (c) => {
     const actor = c.get("actor");
     const body = parseWpmBody(await readJson(c.req));
-    const layout = await wpm.resolveWpmLayout(c.env.DB, body.layout);
-    const submission = await wpm.submitWpm(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), layout.id, body.wpm, body.proof, c.env);
+    const layout = await wpm.resolveWpmLayout(platformOf(c).store, body.layout);
+    const submission = await wpm.submitWpm(platformOf(c).store, resolveNow(c.env), actor, c.get("sourceVersion"), layout.id, body.wpm, body.proof, c.env);
     // [LDB-WPM8] Every submission is pending, so every one is announced right
     // away rather than waiting for the next 5-minute cron tick, same as links
     // (`notifyPending` never throws and is free with the webhook unset).
-    c.executionCtx.waitUntil(notifyPending(c.env.DB, c.env, resolveNow(c.env)));
+    platformOf(c).background(notifyPending(platformOf(c).store, c.env, resolveNow(c.env)));
     return c.json({ submission }, 202);
   });
 
@@ -95,15 +95,15 @@ export function wpmRoute(authDeps: AuthDeps) {
     // Set before authentication so errors cannot cache a private response.
     c.header("Cache-Control", "private, no-store");
     const actor = await resolveActor(c.env, c.req, authDeps);
-    return c.json({ submission: await wpm.readWpmSubmissionStatus(c.env.DB, actor, c.req.param("id")) });
+    return c.json({ submission: await wpm.readWpmSubmissionStatus(platformOf(c).store, actor, c.req.param("id")) });
   });
 
   route.put("/v1/wpm/submissions/:id/discord-message", async (c) => {
     c.header("Cache-Control", "private, no-store");
     const body = parseWpmDiscordMessageBody(await readJson(c.req));
     const id = c.req.param("id");
-    const source_message_url = await wpm.bindWpmDiscordMessage(c.env.DB, c.get("actor"), id, body);
-    c.executionCtx.waitUntil(updateQueueNotification(c.env.DB, c.env, "wpm", id));
+    const source_message_url = await wpm.bindWpmDiscordMessage(platformOf(c).store, c.get("actor"), id, body);
+    platformOf(c).background(updateQueueNotification(platformOf(c).store, c.env, "wpm", id));
     return c.json({ source_message_url });
   });
 
@@ -111,8 +111,8 @@ export function wpmRoute(authDeps: AuthDeps) {
     const actor = c.get("actor");
     if (!actor.admin) throw notAdmin();
     const body = parseWpmOnBehalfBody(await readJson(c.req));
-    const layout = await wpm.resolveWpmLayout(c.env.DB, body.layout);
-    const submission = await wpm.submitWpmOnBehalf(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), layout.id, body.user_id, body.wpm, body.proof, c.env);
+    const layout = await wpm.resolveWpmLayout(platformOf(c).store, body.layout);
+    const submission = await wpm.submitWpmOnBehalf(platformOf(c).store, resolveNow(c.env), actor, c.get("sourceVersion"), layout.id, body.user_id, body.wpm, body.proof, c.env);
     return c.json({ submission }, 201);
   });
 
@@ -123,16 +123,16 @@ export function wpmRoute(authDeps: AuthDeps) {
     if (!(QUEUE_STATUSES as readonly string[]).includes(raw)) {
       throw badRequest(`unknown 'status' value '${raw}' (expected one of ${QUEUE_STATUSES.join(", ")})`, "status");
     }
-    return c.json({ submissions: await wpm.listWpmQueue(c.env.DB, raw as (typeof QUEUE_STATUSES)[number]) });
+    return c.json({ submissions: await wpm.listWpmQueue(platformOf(c).store, raw as (typeof QUEUE_STATUSES)[number]) });
   });
 
   route.post("/v1/admin/wpm-queue/:id/approve", async (c) => {
     const actor = c.get("actor");
     if (!actor.admin) throw notAdmin();
     const body = parseReviewApproveBody(await readOptionalJson(c.req));
-    const submission = await wpm.approveWpm(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), c.req.param("id"), body.review_version ?? 0, c.env.MODQUEUE_DISCORD_DMS === "true");
-    c.executionCtx.waitUntil(updateQueueNotification(c.env.DB, c.env, "wpm", submission.id));
-    c.executionCtx.waitUntil(dispatchRejectionDms(c.env.DB, c.env, resolveNow(c.env)));
+    const submission = await wpm.approveWpm(platformOf(c).store, resolveNow(c.env), actor, c.get("sourceVersion"), c.req.param("id"), body.review_version ?? 0, c.env.MODQUEUE_DISCORD_DMS === "true");
+    platformOf(c).background(updateQueueNotification(platformOf(c).store, c.env, "wpm", submission.id));
+    platformOf(c).background(dispatchRejectionDms(platformOf(c).store, c.env, resolveNow(c.env)));
     return c.json({ submission });
   });
 
@@ -140,9 +140,9 @@ export function wpmRoute(authDeps: AuthDeps) {
     const actor = c.get("actor");
     if (!actor.admin) throw notAdmin();
     const body = parseReviewRejectBody(await readOptionalJson(c.req));
-    const submission = await wpm.rejectWpm(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), c.req.param("id"), body.reason, { notifySubmitter: c.env.MODQUEUE_DISCORD_DMS === "true", reviewVersion: body.review_version });
-    c.executionCtx.waitUntil(updateQueueNotification(c.env.DB, c.env, "wpm", submission.id));
-    c.executionCtx.waitUntil(dispatchRejectionDms(c.env.DB, c.env, resolveNow(c.env)));
+    const submission = await wpm.rejectWpm(platformOf(c).store, resolveNow(c.env), actor, c.get("sourceVersion"), c.req.param("id"), body.reason, { notifySubmitter: c.env.MODQUEUE_DISCORD_DMS === "true", reviewVersion: body.review_version });
+    platformOf(c).background(updateQueueNotification(platformOf(c).store, c.env, "wpm", submission.id));
+    platformOf(c).background(dispatchRejectionDms(platformOf(c).store, c.env, resolveNow(c.env)));
     return c.json({ submission });
   });
 
@@ -150,15 +150,15 @@ export function wpmRoute(authDeps: AuthDeps) {
     const actor = await resolveActor(c.env, c.req, authDeps);
     if (!actor.admin) throw notAdmin();
     c.header("Cache-Control", "private, no-store");
-    return c.json({ history: await readReviewHistory(c.env.DB, "wpm", c.req.param("id")) });
+    return c.json({ history: await readReviewHistory(platformOf(c).store, "wpm", c.req.param("id")) });
   });
 
   route.post("/v1/admin/wpm-queue/:id/reopen", async (c) => {
     const actor = c.get("actor");
     if (!actor.admin) throw notAdmin();
     const body = parseReviewReopenBody(await readJson(c.req));
-    const submission = await wpm.reopenWpm(c.env.DB, resolveNow(c.env), actor, c.get("sourceVersion"), c.req.param("id"), body);
-    c.executionCtx.waitUntil(updateQueueNotification(c.env.DB, c.env, "wpm", submission.id));
+    const submission = await wpm.reopenWpm(platformOf(c).store, resolveNow(c.env), actor, c.get("sourceVersion"), c.req.param("id"), body);
+    platformOf(c).background(updateQueueNotification(platformOf(c).store, c.env, "wpm", submission.id));
     return c.json({ submission });
   });
 

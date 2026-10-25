@@ -6,15 +6,16 @@
 // `appendLinkChange` (the same boundary `like_count` already follows).
 import { ulid } from "ulidx";
 import type { Actor } from "../auth/actor";
-import type { Bindings } from "../env";
 import { checkDestructiveBudget } from "./clients";
 import { clientIdFromVia } from "./destructive-budget";
 import { invalidLink, notFound } from "./errors";
-import { appendInfo, appendLinkChange, appendModeration, rejectionModerationStatement } from "./events";
-import { rejectionOutboxStatement } from "./rejection-dm";
+import { appendInfo, appendLinkChange } from "./events";
+import { approvedLinkOf, layoutPresent } from "./moderation-review";
+import { outboxIntent } from "./outbox-intent";
 import type { Source } from "./records";
 import type { Clock } from "./time";
-import { legacyD1, type StoreArg } from "../store/arg";
+import { toStore, type StoreArg } from "../store/arg";
+import type { Store } from "../store/port";
 
 // --- the pure validator (LDB-MD9, table-tested) -------------------------
 
@@ -57,27 +58,13 @@ function sourceOf(actor: Actor, version: string | null): Source {
   return { client: actor.source_client, version };
 }
 
-// [LDB-MD11] The explicit column list (never `SELECT *`) is what keeps
-// `notified_at` -- mod-queue-notify's own claim bookkeeping,
-// `core/modqueue.ts` -- off every wire this row ever reaches (`getLink`,
-// `submitLink`'s "already pending" read); a bare `SELECT *` would leak it
-// into a client response the moment the column existed.
-const SUBMISSION_COLUMNS = "id, layout_id, url, submitted_by, submitted_at, status, decided_by, decided_at, reason";
-
-async function pendingSubmission(db: Bindings["DB"], layoutId: string): Promise<LinkSubmissionRow | null> {
-  return db
-    .prepare(`SELECT ${SUBMISSION_COLUMNS} FROM link_submissions WHERE layout_id = ? AND status = 'pending' ORDER BY submitted_at DESC LIMIT 1`)
-    .bind(layoutId)
-    .first<LinkSubmissionRow>();
-}
-
 // GET /v1/layouts/:ref/link (owner|admin): the approved link plus any
 // pending submission.
 export async function getLink(dbArg: StoreArg, layoutId: string): Promise<{ link: string | null; pending: LinkSubmissionRow | null }> {
-  const db = legacyD1(dbArg);
-  const layout = await db.prepare("SELECT link FROM layouts WHERE id = ?").bind(layoutId).first<{ link: string | null }>();
+  const store = toStore(dbArg);
+  const layout = await approvedLinkOf(store, layoutId); // P1: agent A (layouts.approvedLink)
   if (layout === null) throw notFound(`no layout '${layoutId}'`, layoutId);
-  const pending = await pendingSubmission(db, layoutId);
+  const pending = await store.links.pending(layoutId);
   return { link: layout.link, pending };
 }
 
@@ -95,29 +82,21 @@ export async function submitLink(
   layoutId: string,
   rawUrl: unknown,
 ): Promise<LinkSubmissionRow> {
-  const db = legacyD1(dbArg);
+  const store = toStore(dbArg);
   const validated = validateLinkUrl(rawUrl);
   if (!validated.ok) throw invalidLink(validated.message);
 
   const at = now();
-  const existing = await pendingSubmission(db, layoutId);
-  if (existing !== null) {
-    await db
-      .prepare("UPDATE link_submissions SET status = 'superseded', decided_by = ?, decided_at = ? WHERE id = ?")
-      .bind(actor.user_id, at, existing.id)
-      .run();
-  }
-
+  const existing = await store.links.pending(layoutId);
   const id = ulid();
-  await db
-    .prepare(
-      `INSERT INTO link_submissions (id, layout_id, url, submitted_by, submitted_at, status, decided_by, decided_at, reason)
-       VALUES (?, ?, ?, ?, ?, 'pending', NULL, NULL, NULL)`,
-    )
-    .bind(id, layoutId, validated.url, actor.user_id, at)
-    .run();
+  await store.links.submit({
+    supersedeId: existing !== null ? existing.id : null,
+    by: actor.user_id,
+    at,
+    row: { id, layout_id: layoutId, url: validated.url, submitted_by: actor.user_id, submitted_at: at },
+  });
 
-  await appendInfo(db, now, {
+  await appendInfo(store, now, {
     kind: "link_submitted",
     layoutId,
     actor: actor.user_id,
@@ -133,13 +112,13 @@ export async function submitLink(
 // (`link_cleared` event) -- `appendLinkChange`'s own sweep also supersedes
 // any pending submission for this layout (§4.4).
 export async function clearLink(dbArg: StoreArg, now: Clock, actor: Actor, version: string | null, layoutId: string, isAdminActor: boolean): Promise<{ link: null }> {
-  const db = legacyD1(dbArg);
+  const store = toStore(dbArg);
   // [LDB-A10] ("rogue trusted client" hardening): clearing an approved
   // link is destructive -- the owner's submission history stays queryable
   // (LDB-MD5) but the PUBLIC wire loses it outright until re-approved or
   // reverted.
   const clientId = clientIdFromVia(actor.via);
-  const { budgetProbe } = await appendLinkChange(db, now, {
+  const { budgetProbe } = await appendLinkChange(store, now, {
     layoutId,
     kind: "link_cleared",
     link: null,
@@ -149,7 +128,7 @@ export async function clearLink(dbArg: StoreArg, now: Clock, actor: Actor, versi
     source: sourceOf(actor, version),
     ...(clientId !== undefined ? { destructiveBudget: { clientId } } : {}),
   });
-  if (budgetProbe !== undefined) await checkDestructiveBudget(db, now, budgetProbe);
+  if (budgetProbe !== undefined) await checkDestructiveBudget(store, now, budgetProbe);
   return { link: null };
 }
 
@@ -168,25 +147,11 @@ export type QueueStatus = "pending" | "approved" | "rejected" | "superseded";
 // touch submissions -- a pending one on a tombstone is simply hidden until
 // restore).
 export async function listQueue(dbArg: StoreArg, status: QueueStatus): Promise<LinkQueueRow[]> {
-  const db = legacyD1(dbArg);
-  const cols = SUBMISSION_COLUMNS.split(", ")
-    .map((c) => `s.${c}`)
-    .join(", ");
-  const { results } = await db
-    .prepare(
-      `SELECT ${cols}, l.name AS layout_name, a.name AS submitter_name
-       FROM link_submissions s JOIN layouts l ON l.id = s.layout_id
-       LEFT JOIN authors a ON a.user_id = s.submitted_by
-       WHERE s.status = ? AND l.deleted = 0
-       ORDER BY s.submitted_at ASC`,
-    )
-    .bind(status)
-    .all<LinkQueueRow>();
-  return results;
+  return toStore(dbArg).links.queue(status);
 }
 
-async function loadSubmission(db: Bindings["DB"], id: string): Promise<LinkSubmissionRow> {
-  const row = await db.prepare(`SELECT ${SUBMISSION_COLUMNS} FROM link_submissions WHERE id = ?`).bind(id).first<LinkSubmissionRow>();
+async function loadSubmission(store: Store, id: string): Promise<LinkSubmissionRow> {
+  const row = await store.links.get(id);
   if (row === null) throw notFound(`no link submission '${id}'`, id);
   return row;
 }
@@ -196,13 +161,12 @@ async function loadSubmission(db: Bindings["DB"], id: string): Promise<LinkSubmi
 // exist; approving a non-pending submission is refused the same way
 // (nothing left to decide).
 export async function approveSubmission(dbArg: StoreArg, now: Clock, actor: Actor, version: string | null, id: string): Promise<{ link: string | null }> {
-  const db = legacyD1(dbArg);
-  const submission = await loadSubmission(db, id);
+  const store = toStore(dbArg);
+  const submission = await loadSubmission(store, id);
   if (submission.status !== "pending") throw notFound(`link submission '${id}' is not pending`, id);
-  const layout = await db.prepare("SELECT id FROM layouts WHERE id = ? AND deleted = 0").bind(submission.layout_id).first();
-  if (layout === null) throw notFound(`no layout '${submission.layout_id}'`, submission.layout_id);
+  if (!(await layoutPresent(store, submission.layout_id, true))) throw notFound(`no layout '${submission.layout_id}'`, submission.layout_id);
 
-  const { link } = await appendLinkChange(db, now, {
+  const { link } = await appendLinkChange(store, now, {
     layoutId: submission.layout_id,
     kind: "link_approved",
     link: submission.url,
@@ -218,31 +182,32 @@ export async function approveSubmission(dbArg: StoreArg, now: Clock, actor: Acto
 // POST /v1/admin/link-queue/:id/reject: marks the submission `rejected`
 // and appends `link_rejected` (`admin: 1`, `appendModeration`).
 export async function rejectSubmission(dbArg: StoreArg, now: Clock, actor: Actor, version: string | null, id: string, reason?: string, options?: { notifySubmitter?: boolean }): Promise<LinkSubmissionRow> {
-  const db = legacyD1(dbArg);
-  const submission = await loadSubmission(db, id);
+  const store = toStore(dbArg);
+  const submission = await loadSubmission(store, id);
   if (submission.status !== "pending") throw notFound(`link submission '${id}' is not pending`, id);
-  if (await db.prepare("SELECT id FROM layouts WHERE id = ?").bind(submission.layout_id).first() === null) {
+  if (!(await layoutPresent(store, submission.layout_id, false))) {
     throw notFound(`no layout '${submission.layout_id}'`, submission.layout_id);
   }
 
   const at = now();
-  const [claim, event] = await db.batch([
-    db.prepare("UPDATE link_submissions SET status = 'rejected', decided_by = ?, decided_at = ?, reason = ? WHERE id = ? AND status = 'pending'")
-      .bind(actor.user_id, at, reason ?? null, submission.id),
-    rejectionModerationStatement(db, at, {
-    kind: "link_rejected",
-    layoutId: submission.layout_id,
-    actor: actor.user_id,
-    via: actor.via,
-    source: sourceOf(actor, version),
-    detail: { submission_id: submission.id, reason: reason ?? null },
-    }),
-    ...(options?.notifySubmitter === true ? [await rejectionOutboxStatement(db, {
-      kind: "link", submissionId: submission.id, layoutId: submission.layout_id,
-      recipientId: submission.submitted_by, at,
-    })] : []),
-  ]);
-  if (claim!.meta.changes !== 1 || event!.meta.changes !== 1) throw notFound(`link submission '${id}' is not pending`, id);
+  const outcome = await store.links.reject({
+    id: submission.id,
+    by: actor.user_id,
+    at,
+    reason: reason ?? null,
+    event: {
+      kind: "link_rejected",
+      layoutId: submission.layout_id,
+      actor: actor.user_id,
+      via: actor.via,
+      source: sourceOf(actor, version),
+      detail: { submission_id: submission.id, reason: reason ?? null },
+    },
+    ...(options?.notifySubmitter === true
+      ? { outbox: await outboxIntent({ kind: "link", submissionId: submission.id, layoutId: submission.layout_id, recipientId: submission.submitted_by, at }, "rejection") }
+      : {}),
+  });
+  if (!outcome.claimed || !outcome.eventAppended) throw notFound(`link submission '${id}' is not pending`, id);
 
   return { ...submission, status: "rejected", decided_by: actor.user_id, decided_at: at, reason: reason ?? null };
 }
