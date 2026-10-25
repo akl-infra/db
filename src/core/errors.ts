@@ -328,6 +328,15 @@ export function actorNotAllowed(actor: string, owner: string): ApiError {
   });
 }
 
+// decision 31: a `read-only` client sent something other than GET/HEAD.
+export function clientReadOnly(method: string): ApiError {
+  return new ApiError(403, {
+    error: "client_read_only",
+    message: "this client is read-only: it may send only GET and HEAD requests",
+    method,
+  });
+}
+
 // L3 (design/layout-db/review/PROPOSAL.md §2.1): an `Idempotency-Key` reused
 // within its 24h window against a DIFFERENT method/path/body than the
 // request that first claimed it. Distinct from a genuine replay (same key,

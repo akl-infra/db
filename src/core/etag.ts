@@ -217,7 +217,11 @@ export async function readHead(dbArg: StoreArg, stateKeys: readonly string[] = [
 //   wildcard); `?as=mana2/1` drops them (a documented loss). Purely
 //   additive: every string-only payload validates and lowers as before; no
 //   migration (nothing stored changes).
-export const WIRE_VERSION = 29;
+// 30 (2026-10-25, LDB-A16..A18, docs/decisions/31-read-only-clients.md): the
+//   `read-only` extra cap, the `client_read_only` 403, the extended
+//   `validateCaps` message, and read-only clients not upserting authors. No
+//   stored shape changes; no migration.
+export const WIRE_VERSION = 30;
 
 export async function etagFor(headSeqValue: number, query: unknown): Promise<string> {
   const hash = await sha256Hex(canonical({ wireVersion: WIRE_VERSION, query: query ?? null }));

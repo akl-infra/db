@@ -132,7 +132,7 @@ the constant is the whole validation change. Its error message lists the extras,
 
 ## Brief (hand over verbatim)
 
-> **Task: the `read-only` client cap for akldb.** Work in `/Users/dario/git/akl/wt-db-readonly`
+> **Task: the `read-only` client cap for akldb.** Work in the worktree `wt-db-readonly`
 > (branch `read-only-cap`, already created off `origin/main`). Commit as
 > `saltorbit <hi@akl.gg>`, ending messages with
 > `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`. Never push, never `git stash`, no

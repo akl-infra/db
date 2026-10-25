@@ -13,6 +13,7 @@ import type { Actor } from "./actor";
 import {
   actorNotAllowed,
   badSignature,
+  clientReadOnly,
   clientRevoked,
   clientSuspended,
   replay,
@@ -35,9 +36,9 @@ const LAST_SEEN_GRANULARITY_MS = 60 * 60 * 1000;
 // one). Stored as one TEXT column, e.g. `"act-as-owner-only,feed:wait"` --
 // no migration needed, the column already held a single scope-cap string.
 export type ScopeCap = "act-as-user" | "act-as-owner-only";
-export type ExtraCap = "feed:wait";
+export type ExtraCap = "feed:wait" | "read-only";
 export const SCOPE_CAPS: readonly ScopeCap[] = ["act-as-user", "act-as-owner-only"];
-export const EXTRA_CAPS: readonly ExtraCap[] = ["feed:wait"];
+export const EXTRA_CAPS: readonly ExtraCap[] = ["feed:wait", "read-only"];
 
 export function parseCaps(raw: string): string[] {
   return raw
@@ -183,6 +184,14 @@ export async function verifyClientRequest(
   const ok = pubkeyBytes !== null && (await verify(pubkeyBytes, sigBytes, new TextEncoder().encode(message)));
   if (!ok) throw badSignature();
 
+  // Step 4b (decision 31): a `read-only` client may send only GET and HEAD.
+  // After the signature (a forged request can't probe a client's caps), before
+  // the nonce (a refused request writes nothing -- no nonce, no author row,
+  // and the idempotency/rate-limit middlewares behind this never run).
+  if (hasCap(client.caps, "read-only") && request.method !== "GET" && request.method !== "HEAD") {
+    throw clientReadOnly(request.method);
+  }
+
   // Step 5: the nonce -- one INSERT, its PK IS the replay check, run only
   // AFTER the signature verifies (a forged request must never burn a real
   // nonce).
@@ -210,7 +219,12 @@ export async function verifyClientRequest(
   const staleBefore = new Date(new Date(at).getTime() - LAST_SEEN_GRANULARITY_MS).toISOString();
   // `touchClientAuthor` is the read / conditional upsert / fallback read
   // sequence (store/d1/auth.ts); it answers the stored name.
-  const name = await store.auth.touchClientAuthor(actorRaw, at, staleBefore);
+  // A `read-only` client only reads the name (decision 31): no placeholder
+  // author, no `authors_head` move; an unknown actor falls back to its id,
+  // exactly the placeholder an upsert would have stored.
+  const name = hasCap(client.caps, "read-only")
+    ? await store.auth.authorName(actorRaw)
+    : await store.auth.touchClientAuthor(actorRaw, at, staleBefore);
   const roles = await roleOf(store, actorRaw);
 
   return {
