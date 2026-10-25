@@ -519,3 +519,13 @@ it?"):**
 | LDB-DEV1 | From a clone with no AWS credentials, `npm run dev` (`scripts/dev.mjs`) starts or borrows DynamoDB Local, creates both tables, seeds them, registers a dev client, answers `/v1/meta`, and takes one signed `POST /v1/layouts` that a following read returns; `--port 0`/`--ddb-port 0` pick free ports. | `tests/lab/dev.test.ts` |
 | LDB-DEV2 | With Docker out of the way (`AKLDB_DEV_NO_DOCKER=1`) the same boot runs DynamoDB Local from the jar with Java 21 and serves the same signed write. | `tests/lab/dev.test.ts` |
 | LDB-DEV3 | `--seed fixture` serves the 100-layout seed; the in-process tick (`--tick-ms`) writes a dump through the file blob store under `<dir>/blobs`; the dev client key in `<dir>/client.json` survives a restart and `<dir>/dev.json` is removed on exit. | `tests/lab/dev.test.ts` |
+| LDB-INF20 | The Lambda `api` handler streams the app's response with its status, headers and each `Set-Cookie`, and builds the request URL from the Function URL event. | `tests/platform/lambda.test.ts` |
+| LDB-INF21 | A request without the right `X-Origin-Verify` (missing, wrong, or longer) gets 403 on `api` and `feed` and never reaches the app. | `tests/platform/lambda.test.ts` |
+| LDB-INF22 | SSM is read at most once per parameter name per container, across invocations and across handlers. | `tests/platform/lambda.test.ts` |
+| LDB-INF23 | The Discord parameters under the SSM prefix map onto the platform config; a missing parameter leaves that feature unset, and `DISCORD_API_URL` keeps its pinned default. | `tests/platform/lambda.test.ts` |
+| LDB-INF24 | Post-response work (`waitUntil` and `platform.background`) finishes before an `api`/`feed` invocation returns, after the response stream ends. | `tests/platform/lambda.test.ts` |
+| LDB-INF25 | `jobs` runs the Worker's `scheduled` dispatch with the scheduler's time, writes the replica snapshot, and emits `ReplicaSnapshotAgeSeconds` and `DumpAgeSeconds` as EMF. | `tests/platform/lambda.test.ts` |
+| LDB-INF26 | A failing job still emits its metrics (a stale-snapshot sentinel above the alarm threshold) and then errors the invocation. | `tests/platform/lambda.test.ts` |
+| LDB-INF27 | `EVENTTX_EXHAUSTED` log lines become the `EventTxRetriesExhausted` EMF metric (namespace `Akldb`, dimension `Stage`). | `tests/platform/lambda.test.ts` |
+| LDB-INF28 | `mirrorIngest` answers 503 outside `apply` mode, runs with only the data bucket configured, and refuses with a clear not-implemented error until lane Z's module is wired. | `tests/platform/lambda.test.ts` |
+| LDB-INF29 | `mirrorApply` skips outside `apply` mode and refuses clearly until lane Z's module is wired. | `tests/platform/lambda.test.ts` |
