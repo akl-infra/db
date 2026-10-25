@@ -610,6 +610,27 @@ deliveries, so outbound effects are diffed too.
    - **mana2:** `format=mana2/1` reads, `full=1`, held layouts.
    - **Admins:** queues, approve, reject, reopen, Discord component interactions, bans,
      author renames, client suspend and revert, dumps.
+   - **Rare admin pack:** each operation below runs at least once a day on the lab and its state
+     is diffed. Production rarely or never sends them, so neither the replay nor the organic mix
+     would reach them:
+     - `POST /v1/admin/magic-seed` and `POST /v1/admin/relabel-magic-thumbs`: the dry run, the
+       real run, and the refusals (`magic_edited`, a layout with no seedable magic);
+     - client lifecycle: `POST /v1/admin/clients` (register), `DELETE /v1/admin/clients/:id`
+       (revoke), then suspend → `POST .../reactivate` → `POST .../revert`. A revoked or suspended
+       client's next signed request must be refused identically;
+     - `POST`/`DELETE /v1/admin/admins` (add and remove), including the last-two-admins refusal.
+   - **Submit bodies the replay cannot rebuild** (below) are generated here:
+     - comment PUT/DELETE and comment like/unlike;
+     - `POST /v1/wpm` with speeds, proofs and source URLs: valid, invalid, a Discord proof by
+       someone else (LDB-WPM15), and a non-Discord proof;
+     - `PUT /v1/wpm/submissions/:id/discord-message`: the first bind, the same bind again, a
+       conflicting bind;
+     - link PUT/DELETE with valid and invalid URLs, and supersede chains.
+   - **Discord interactions** (`POST /discord/interactions`): the simulator signs component,
+     modal and confirmation payloads with the lab application key, for approve, deny (with and
+     without a reason) and reopen on all three queues. It also sends stale cards, a wrong
+     channel or guild, non-admins, banned admins, and the same interaction id twice. The fake
+     Discord records every callback, PATCH and DM the drains send, and those records are diffed.
 
    Inputs are adversarial: names that differ only in case, non-ASCII and astral-plane names, forged
    cursors, every sort and filter, and tombstone reclaims. Cold containers are forced. It is
@@ -617,11 +638,28 @@ deliveries, so outbound effects are diffed too.
 2. **Replayed, real.** The Logpush trace events in R2 `akl-db-logs` are replayed in order at 1×
    (and 10× in burst windows).
    - **GETs** replay exactly.
-   - **Writes:** Logpush keeps method, URL, headers and status but no bodies. Each write's body is
-     reconstructed from the event it produced in the export's log: the payload of the rev at that
-     `event_seq`, the `after` snapshot, or the moderation decision. Writes that failed in
-     production (4xx) are replayed with the same reconstructed request, and must fail the same way
-     on both sides.
+   - **What Logpush keeps:** method, URL, status, timing and outcome. It has no headers and no
+     bodies. A logged 304 is replayed with the matching `If-None-Match` of the moment. A signed
+     GET (`/v1/me`, a WPM receipt, admin queues) is replayed as the actor the export implies: the
+     submitter of that submission id, or an admin for the queues, else a lab actor.
+   - **Layout writes:** POST/PUT/PATCH/DELETE layouts, restore, transfer, likes. Each body is
+     rebuilt from the event the write produced in the window's log: the payload of the rev at that
+     `event_seq`, the `after` snapshot, `actor`/`via` for the identity.
+   - **Moderation decisions** are rebuilt from their events and the review history.
+   - **Submit bodies** (link and WPM submissions, comment text, the WPM `discord-message` bind)
+     are not in the events. Comment events never carry text (LDB-CMT7), `wpm_submitted` carries no
+     speed or proof (LDB-WPM7), and the link URL is in the stored `detail_json` of
+     `link_submitted` only. They are rebuilt from a second private export taken just **after**
+     the window: its `link_submissions`, `wpm_submissions` (`wpm`, `proof`,
+     `source_message_url`) and `layout_comments` rows, matched by the `submission_id` in the
+     event.
+     - A comment whose text was erased afterwards (body NULL) gets a generated body of the same
+       length.
+     - Comment like/unlike rebuilds from `comment_liked`/`comment_unliked`, which carry the ids.
+     - Anything that still cannot be matched is skipped, counted, and reported. Those shapes are
+       covered by the simulator above instead.
+   - Writes that failed in production (4xx) are replayed with the same rebuilt request, and must
+     fail the same way on both sides.
    - The replay starts from an export taken just before the log window, so its writes land on the
      state they originally saw.
 3. **Concurrency and races.** These run as their own packs, because a race has no single
@@ -637,6 +675,18 @@ deliveries, so outbound effects are diffed too.
    same status class it would get after the winner on D1; `seq` gap-free; state equals the fold
    of events; read model equals a full scan; index checker clean. Every pack also runs with 20%
    injected conflicts.
+
+**Scheduled jobs.** All of them run by themselves on the lab schedule for the whole run. Four
+also get forced checks:
+- **After every nightly prune:** replay a nonce older than the skew window, and push a
+  rate-limit window just past its pruned start. Both must refuse or count exactly as on D1, so
+  DynamoDB neither reopens the replay window nor resurrects a pruned window.
+- **`dump-catchup` once:** skip one night's dump via the lab clock and the dump state, let the
+  next five-minute tick catch up, and diff the dump against D1's.
+- **The migrations job, once under live simulator load:** a no-op data migration (an item
+  version bump) runs while the simulator writes, and must change no response and no state.
+- **The replica snapshot and the index checker** run on schedule; their output is checked at
+  every checkpoint.
 
 **The site (§3a)** runs in the proving ground too. Its AWS distribution (lab hostname) proxies to
 the lab API. A local `wrangler dev` of the same site build proxies to the D1 oracle, so both sites
@@ -660,6 +710,26 @@ see the same data. The checks:
 - **Cost:** CloudWatch `ConsumedRead/WriteCapacityUnits`, Lambda GB-s and requests, and S3/Logs
   usage. These are projected to $/month at prod volume from the 1× replay, and cross-checked
   against Cost Explorer.
+
+**Coverage map.** handoff/aws-coverage-inventory.md lists akldb's entry points from the code. Each
+one maps to at least one check:
+- **73 HTTP routes:**
+  - every GET: replay exact, plus the crawl and the simulator;
+  - every layout write and every moderation decision: rebuilt replay, plus the simulator and the
+    race packs;
+  - link, WPM and comment submits, comment likes and the `discord-message` bind: the simulator,
+    plus a replay rebuilt from the post-window export;
+  - `POST /discord/interactions`: the simulator's signed interactions and the fake Discord;
+  - magic-seed, relabel-magic-thumbs, client register/revoke/reactivate and admin add/remove:
+    the rare admin pack;
+  - the cutover flags (`read_only`, `proxy`): the P6 rehearsals.
+- **13 scheduled jobs:** each runs on schedule. The prunes, `dump-catchup` and the migrations job
+  also get the forced checks above.
+- **4 background steps:** the simulator plus the fake Discord.
+- **The 6 akldb.org site entry points:** the site checks.
+
+With the additions above, no akldb route or job is left without a check. Two items are proven
+**only** by rehearsal, by nature: the cutover flags, and the T0 import itself (P6).
 
 ### 5.2 Cutover with a seconds-long write pause
 
@@ -869,7 +939,14 @@ starts only when the previous phase's gate is green.
 | **P2 DynamoDB implementation** | `store/ddb` (row engine, `EventTx`, read model, `codec`), DynamoDB `TestStore`, dual-backend suite, seeded fuzzer, conflict injection; hold budget and `read_only` in shared code (both backends) | **G** `store/ddb/{keys,rows,eventtx}.ts` + layouts/events ops. **H** `store/ddb/replica.ts` + snapshot I/O. **I** `store/ddb/{auth,ephemeral}.ts`. **J** `store/ddb/{moderation,discord}.ts`. **K** `store/ddb/codec.ts`, `store/ddb/dump.ts`, `rehost --target aws`. **L** `tests/harness.ddb.ts`, DynamoDB `TestStore`, `tests/fuzz/**`, `tests/conflict/**`. G goes first on `keys`/`rows`/`eventtx`; the rest build on them | Every workers-project test green on **both** backends; fuzzer at 10k sequences × 20 seeds with **zero** response or state diffs; the suite and fuzzer green under 20% injected conflicts; `codec` round-trip of a prod export byte-identical for every table; read model == full scan after every fuzzer step; index checker clean; parallel race packs green |
 | **P3 Local dev and CI** | `npm run dev`, DynamoDB Local bootstrap, node platform, README, CI matrix | **M** `scripts/dev.mjs`, `src/platform/node.ts`, `vitest` globalSetup, README "Run locally". **N** `.github/workflows/ci.yml` (dual backends + DynamoDB Local service). The commit is handed back, because the classifier blocks committing workflow files | On a clean machine with no AWS credentials, `npm ci && npm run dev` serves a seeded API in < 2 min, with Docker and with Java-only; CI green on both backends; the README walkthrough is verified by a fresh agent |
 | **P4 Infra in the akldb account** (335937358231, profile `akldb`, us-east-2) | CloudFormation for the tables, three functions + URLs, CloudFront, Scheduler, S3, SSM, logs (IA, never expire), alarms, budgets, GitHub OIDC role; the ACM stack in us-east-1 (one cert for `api.`, apex, `www.`); the site distribution, S3 bucket, site Lambda and the two CloudFront Functions | **O** `infra/akldb.yaml`, `infra/acm-us-east-1.yaml`, `infra/*.guard`, `infra/*.test.mjs`, `scripts/deploy-aws.sh`. **V** the site on AWS: `site/server/{workers,lambda}.ts` (entry split), OAuth URLs as env vars, `site/scripts/{manifest,deploy-aws}.mjs`, `infra/functions/{spa-fallback,forwarded-host}.js` + their tests. The main session deploys | cfn-lint + cfn-guard green, including rejected mutations; deployed with no VPC, least-privilege roles and deletion protection on; a direct Function URL call without the origin secret gets 403; **ACM dry run:** a certificate for a throwaway name (e.g. `aws-dryrun.akldb.org`) is issued in us-east-1 via the Cloudflare validation CNAME and attached to CloudFront (if refused, switch to the API Gateway fallback here); smoke tests pass through CloudFront; budget alerts live; the site lab hostname serves the SPA with exact fallback (unit-tested function) and a full OAuth login against real Discord via the lab callback |
-| **P5 Proving ground** | §5.1 for **N = 7 consecutive days**, with replay at 1× plus daily 10× bursts | **P** `src/platform/lab.ts` + the lab bundle entry. **Q** `scripts/lab/sim/**` (simulator and race packs). **R** `scripts/lab/replay/**` (Logpush parser, body reconstruction, re-signing). **S** `scripts/lab/diff/**` (response and state differ) and `scripts/lab/report/**` (latency, cost). **W** `scripts/lab/site/**` (static crawler, OAuth flow against the fake Discord, proxy diff). The main session runs the drivers in the background with timeouts | Over all 7 days: **zero unexplained** response or state diffs (the allow-list holds only `age_s`); zero feed gaps (a contiguity checker tails both sides); read model == scan and index checker clean at every checkpoint; zero `EventTx` retries exhausted; 5xx < 0.01% excluding injected faults; p95 per route from Fly `iad` ≤ today's production p95; projected cost ≤ **$2/month** at prod volume, site included; no DynamoDB throttles; the hold budget enforced; site static, dynamic and UI-walk diffs clean. Any fix restarts the 7-day count |
+| **P5 Proving ground** | §5.1 for **N = 7 consecutive days**, with replay at 1× plus daily 10× bursts. **None of these tools is built yet**; only `scripts/lab/p1-crawl-diff.mjs` exists, and it seeds P's and S's designs | **P** `src/platform/lab.ts` + the lab bundle entry, and `scripts/lab/fake-discord/**`. The fake Discord answers `/oauth2/@me` and the bot routes (messages, DM channels, interaction callbacks, webhooks), records every call for the differ, and can inject 429/5xx. **Q** `scripts/lab/sim/**`: the organic simulator, the rare admin pack, the generated submit bodies, the signed Discord interaction generator, and the race packs. **R** `scripts/lab/replay/**`: the Logpush parser, write-body rebuild from the window's events plus the post-window export, the actor inference, re-signing, and the skipped-request report. **S** `scripts/lab/diff/**` (the response, state and fake-Discord-record differ) and `scripts/lab/report/**` (latency, cost, and the daily coverage report against the route/job inventory). **W** `scripts/lab/site/**` (static crawler, OAuth flow against the fake Discord, proxy diff). The main session runs the drivers in the background with timeouts | Over all 7 days: **zero unexplained** response or state diffs (the allow-list holds only `age_s`); zero feed gaps (a contiguity checker tails both sides); read model == scan and index checker clean at every checkpoint; zero `EventTx` retries exhausted; 5xx < 0.01% excluding injected faults; p95 per route from Fly `iad` ≤ today's production p95; projected cost ≤ **$2/month** at prod volume, site included; no DynamoDB throttles; the hold budget enforced; site static, dynamic and UI-walk diffs clean.
+Also required:
+- every one of the 73 routes, 13 jobs and 4 background steps exercised at least once a day, by
+  the coverage report from S;
+- replay-skipped writes ≤ 1% of logged writes, each one reported;
+- the Discord interaction matrix complete: approve, deny and reopen × three queues, plus
+  duplicates, with the fake Discord's records diffed clean;
+- the forced job checks (prunes, `dump-catchup`, the no-op migration) passed. Any fix restarts the 7-day count |
 | **P6 Cutover rehearsal** | §5.2 end to end, three times, against a stand-in production: a staging Worker `akl-db-rehearsal` with its own D1 loaded from a fresh export, the cutover flags, and the simulator writing during the window; then the rollback, once | **T** the Worker cutover modes (`read_only`, `proxy`, flag read) + `CHANGELOG-API.md`. **U** `scripts/cutover/{preload,delta,verify,flip}.mjs`. The main session runs the rehearsals; T's Worker changes ship dormant to production at the end of the phase | Write pause ≤ 30 s on 3 consecutive runs (target ~13 s), reads uninterrupted; delta proof clean; the post-hoc PITR full comparison clean; rollback carries AWS-side writes back with a clean proof; production access logs show no `workers.dev` hits for 7 days (every client repointed) |
 | **P7 Cutover** | Wipe the proving-ground tables; preload; §5.2 on production; after a 48 h watch, the site DNS switch (§5.2) | none (main session, with saltorbit's explicit go) | Each step's check passes before the next step (§5.2); the T+1 h full proof is clean; a 48 h watch with alarms quiet, Spark freshness checks clean and the akl.gg error rate unchanged; after the site switch, sign-in and `/api/v1/*` error rates are unchanged, and existing sessions still work. Then the 90-day rollback window starts, after which the D1 code, the proxy and the CF Worker are deleted |
 
