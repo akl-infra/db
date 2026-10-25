@@ -13,6 +13,7 @@ import { alreadyLiked as alreadyLikedError, nameTaken, notFound, notLiked as not
 import { type FormatRow, type LayoutRow, type Source, type Upstream, readById } from "./records";
 import { ulid } from "ulidx";
 import type { Clock } from "./time";
+import { legacyD1, type StoreArg } from "../store/arg";
 
 // A write lost the rev race: another write to the SAME layout (either
 // scope) committed the next `n` first (the `layout_revs` PK refused the
@@ -274,7 +275,8 @@ function formatSnapshot(f: {
 // formats.md §2.1: "restores today's serialization while clients still see
 // two revs") -- a loser's whole batch rolls back (events included, so
 // `seq` stays gapless) and surfaces as `RevConflictError`.
-export async function commitWrite(db: Bindings["DB"], now: Clock, input: CommitInput): Promise<CommitResult> {
+export async function commitWrite(dbArg: StoreArg, now: Clock, input: CommitInput): Promise<CommitResult> {
+  const db = legacyD1(dbArg);
   if (input.layout === undefined && input.format === undefined) {
     throw new Error("commitWrite: at least one of layout/format must be given");
   }
@@ -560,7 +562,8 @@ export interface Info {
   source: Source;
 }
 
-export async function appendInfo(db: Bindings["DB"], now: Clock, i: Info): Promise<{ seq: number }> {
+export async function appendInfo(dbArg: StoreArg, now: Clock, i: Info): Promise<{ seq: number }> {
+  const db = legacyD1(dbArg);
   const current = await readById(db, i.layoutId);
   if (current === null) throw new Error(`appendInfo: layoutId '${i.layoutId}' does not exist`);
 
@@ -582,10 +585,11 @@ export async function appendInfo(db: Bindings["DB"], now: Clock, i: Info): Promi
 // author-rename) pass the actor's real lane explicitly (LDB-A5: every
 // event carries the actor's own lane).
 export async function appendAdmin(
-  db: Bindings["DB"],
+  dbArg: StoreArg,
   now: Clock,
   a: { kind: InfoKind; actor: string; via?: string; source?: Source; detail?: object },
 ): Promise<{ seq: number }> {
+  const db = legacyD1(dbArg);
   const result = await db
     .prepare(
       `INSERT INTO events (at, kind, layout_id, name, owner, format, rev, actor, via, admin, detail_json, before_json, after_json, source_client, source_version)
@@ -617,7 +621,8 @@ export interface Moderation {
 // Rejection transactions use a conditional event insert directly after their
 // pending-row claim. It is gated by that preceding statement's changes() so a
 // losing concurrent decision cannot append an event.
-export function rejectionModerationStatement(db: Bindings["DB"], at: string, m: Moderation): D1PreparedStatement {
+export function rejectionModerationStatement(dbArg: StoreArg, at: string, m: Moderation): D1PreparedStatement {
+  const db = legacyD1(dbArg);
   return db
     .prepare(
       `INSERT INTO events (at, kind, layout_id, name, owner, format, rev, actor, via, admin, detail_json, before_json, after_json, source_client, source_version)
@@ -640,7 +645,8 @@ export function rejectionModerationStatement(db: Bindings["DB"], at: string, m: 
     );
 }
 
-export async function appendModeration(db: Bindings["DB"], now: Clock, m: Moderation): Promise<{ seq: number }> {
+export async function appendModeration(dbArg: StoreArg, now: Clock, m: Moderation): Promise<{ seq: number }> {
+  const db = legacyD1(dbArg);
   const current = await readById(db, m.layoutId);
   if (current === null) throw new Error(`appendModeration: layoutId '${m.layoutId}' does not exist`);
 
@@ -697,7 +703,8 @@ export interface LinkChange {
   destructiveBudget?: { clientId: string };
 }
 
-export async function appendLinkChange(db: Bindings["DB"], now: Clock, l: LinkChange): Promise<{ seq: number; link: string | null; budgetProbe?: { clientId: string; countInWindow: number; liveLayouts: number } }> {
+export async function appendLinkChange(dbArg: StoreArg, now: Clock, l: LinkChange): Promise<{ seq: number; link: string | null; budgetProbe?: { clientId: string; countInWindow: number; liveLayouts: number } }> {
+  const db = legacyD1(dbArg);
   const current = await readById(db, l.layoutId);
   if (current === null) throw new Error(`appendLinkChange: layoutId '${l.layoutId}' does not exist`);
 
@@ -797,7 +804,8 @@ export interface Like {
 // already tolerated this outcome, since a CONCURRENT request could always
 // reach the batch's guard first); it's one fewer D1 round trip on every
 // like/unlike, not just the racing ones.
-export async function appendLike(db: Bindings["DB"], now: Clock, l: Like): Promise<{ seq: number; like_count: number }> {
+export async function appendLike(dbArg: StoreArg, now: Clock, l: Like): Promise<{ seq: number; like_count: number }> {
+  const db = legacyD1(dbArg);
   const current = l.current ?? (await readById(db, l.layoutId));
   if (current === null) throw new Error(`appendLike: layoutId '${l.layoutId}' does not exist`);
 
@@ -908,10 +916,11 @@ export async function appendLike(db: Bindings["DB"], now: Clock, l: Like): Promi
 // already only reach this when it is, LDB-P9's own "nothing to inherit"
 // case never calls it at all).
 export async function appendInheritedLikes(
-  db: Bindings["DB"],
+  dbArg: StoreArg,
   now: Clock,
   a: { layoutId: string; name: string; owner: string; userIds: string[]; via: string; detail: object; source: Source },
 ): Promise<{ like_count: number }> {
+  const db = legacyD1(dbArg);
   const at = now();
   const detailJson = canonical(a.detail);
 
@@ -1142,7 +1151,8 @@ export function redactEventRow(row: EventDbRow): EventDbRow {
   return { ...row, detail_json: redacted === null ? null : canonical(redacted) };
 }
 
-export async function feed(db: Bindings["DB"], since: number, limit: number, kinds?: string[], filter?: FeedFilter): Promise<{ next: number; items: Event[] }> {
+export async function feed(dbArg: StoreArg, since: number, limit: number, kinds?: string[], filter?: FeedFilter): Promise<{ next: number; items: Event[] }> {
+  const db = legacyD1(dbArg);
   const cappedLimit = Math.min(limit, 1000);
   const params: unknown[] = [since];
   let sql = "SELECT * FROM events WHERE seq > ?";

@@ -19,6 +19,7 @@
 import type { Actor } from "../auth/actor";
 import type { Bindings } from "../env";
 import type { Clock } from "./time";
+import { legacyD1, type StoreArg } from "../store/arg";
 
 export const IDEMPOTENCY_WINDOW_MS = 24 * 60 * 60 * 1000;
 
@@ -69,7 +70,8 @@ export function isExpired(row: { at: string }, now: Clock): boolean {
   return new Date(now()).getTime() - new Date(row.at).getTime() >= IDEMPOTENCY_WINDOW_MS;
 }
 
-export async function getIdempotency(db: Bindings["DB"], scope: string, key: string): Promise<IdempotencyRow | null> {
+export async function getIdempotency(dbArg: StoreArg, scope: string, key: string): Promise<IdempotencyRow | null> {
+  const db = legacyD1(dbArg);
   return await db.prepare("SELECT * FROM idempotency WHERE scope = ? AND key = ?").bind(scope, key).first<IdempotencyRow>();
 }
 
@@ -106,7 +108,8 @@ interface ClaimInput {
 
 // The reservation itself: an INSERT that only lands when nothing at all is
 // stored yet for (scope, key). Returns whether THIS call claimed it.
-export async function reserveIdempotency(db: Bindings["DB"], row: ClaimInput): Promise<boolean> {
+export async function reserveIdempotency(dbArg: StoreArg, row: ClaimInput): Promise<boolean> {
+  const db = legacyD1(dbArg);
   const result = await db
     .prepare(
       `INSERT INTO idempotency (scope, key, method, path, request_hash, status, response_body, at)
@@ -126,7 +129,8 @@ export async function reserveIdempotency(db: Bindings["DB"], row: ClaimInput): P
 // land changes `at`, so the second's own WHERE matches zero rows and it
 // re-reads to find a fresh reservation instead -- `acquireIdempotencySlot`
 // loops on exactly that).
-export async function takeOverIdempotency(db: Bindings["DB"], row: ClaimInput & { expectedAt: string }): Promise<boolean> {
+export async function takeOverIdempotency(dbArg: StoreArg, row: ClaimInput & { expectedAt: string }): Promise<boolean> {
+  const db = legacyD1(dbArg);
   const result = await db
     .prepare(
       `UPDATE idempotency SET method = ?, path = ?, request_hash = ?, status = ${PENDING_STATUS}, response_body = '', at = ?
@@ -139,7 +143,8 @@ export async function takeOverIdempotency(db: Bindings["DB"], row: ClaimInput & 
 
 // The reserving request finished normally (2xx/4xx-except-429): the row
 // becomes a real, replayable response.
-export async function completeIdempotency(db: Bindings["DB"], scope: string, key: string, status: number, responseBody: string, at: string): Promise<void> {
+export async function completeIdempotency(dbArg: StoreArg, scope: string, key: string, status: number, responseBody: string, at: string): Promise<void> {
+  const db = legacyD1(dbArg);
   await db
     .prepare("UPDATE idempotency SET status = ?, response_body = ?, at = ? WHERE scope = ? AND key = ?")
     .bind(status, responseBody, at, scope, key)
@@ -153,7 +158,8 @@ export async function completeIdempotency(db: Bindings["DB"], scope: string, key
 // `409 idempotency_in_progress` a legitimate retry for up to 60s, or, once
 // stale, get silently taken over anyway; deleting it outright is simpler
 // and immediate).
-export async function deleteIdempotency(db: Bindings["DB"], scope: string, key: string): Promise<void> {
+export async function deleteIdempotency(dbArg: StoreArg, scope: string, key: string): Promise<void> {
+  const db = legacyD1(dbArg);
   await db.prepare("DELETE FROM idempotency WHERE scope = ? AND key = ?").bind(scope, key).run();
 }
 
@@ -170,7 +176,8 @@ const MAX_ACQUIRE_ATTEMPTS = 5;
 // three-way race can't spin forever (each attempt only fails because
 // SOME other caller just won the exact same race, so real contention this
 // deep is not expected in practice).
-export async function acquireIdempotencySlot(db: Bindings["DB"], now: Clock, req: { scope: string; key: string; method: string; path: string; hash: string }): Promise<AcquireResult> {
+export async function acquireIdempotencySlot(dbArg: StoreArg, now: Clock, req: { scope: string; key: string; method: string; path: string; hash: string }): Promise<AcquireResult> {
+  const db = legacyD1(dbArg);
   for (let attempt = 0; attempt < MAX_ACQUIRE_ATTEMPTS; attempt++) {
     const claim: ClaimInput = { scope: req.scope, key: req.key, method: req.method, path: req.path, request_hash: req.hash, at: now() };
     if (await reserveIdempotency(db, claim)) return { kind: "acquired" };
@@ -200,7 +207,8 @@ export async function acquireIdempotencySlot(db: Bindings["DB"], now: Clock, req
 // stale pending one (`isStalePending`) is already treated as free by
 // `acquireIdempotencySlot` on its own, taken over the next time that
 // (scope, key) pair is used.
-export async function pruneIdempotency(db: Bindings["DB"], now: Clock): Promise<void> {
+export async function pruneIdempotency(dbArg: StoreArg, now: Clock): Promise<void> {
+  const db = legacyD1(dbArg);
   const cutoff = new Date(new Date(now()).getTime() - IDEMPOTENCY_WINDOW_MS).toISOString();
   await db.prepare("DELETE FROM idempotency WHERE at < ?").bind(cutoff).run();
 }

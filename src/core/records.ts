@@ -2,6 +2,7 @@
 // `core/events.ts`'s `commitWrite`/`appendLike` write these tables (LDB-P1,
 // the onlywriter test) -- this module only SELECTs.
 import type { Bindings } from "../env";
+import { legacyD1, type StoreArg } from "../store/arg";
 
 // 20-spark.md S3a (decision 5, LDB-I14), restated by 21-formats.md §2.2:
 // follow state is LAYOUT-level (name/owner/deletion and lineage `spark`
@@ -170,12 +171,14 @@ export function rowToFormat(row: FormatDbRow): FormatRow {
   };
 }
 
-export async function readById(db: Bindings["DB"], id: string): Promise<LayoutRow | null> {
+export async function readById(dbArg: StoreArg, id: string): Promise<LayoutRow | null> {
+  const db = legacyD1(dbArg);
   const row = await db.prepare("SELECT * FROM layouts WHERE id = ?").bind(id).first<LayoutDbRow>();
   return row === null ? null : rowToLayout(row);
 }
 
-export async function readByName(db: Bindings["DB"], name: string): Promise<LayoutRow | null> {
+export async function readByName(dbArg: StoreArg, name: string): Promise<LayoutRow | null> {
+  const db = legacyD1(dbArg);
   // `name` is COLLATE NOCASE -- a plain `=` already compares
   // case-insensitively. `deleted = 0` matters here, not just as a filter: a
   // tombstone keeps its literal name (LDB-P8) so a live record can share a
@@ -185,7 +188,8 @@ export async function readByName(db: Bindings["DB"], name: string): Promise<Layo
   return row === null ? null : rowToLayout(row);
 }
 
-export async function byRef(db: Bindings["DB"], ref: string): Promise<LayoutRow | null> {
+export async function byRef(dbArg: StoreArg, ref: string): Promise<LayoutRow | null> {
+  const db = legacyD1(dbArg);
   if (isUlidShaped(ref)) {
     const byId = await readById(db, ref);
     if (byId !== null) return byId;
@@ -194,7 +198,8 @@ export async function byRef(db: Bindings["DB"], ref: string): Promise<LayoutRow 
 }
 
 // Every `layout_formats` row a layout has, lineage-keyed.
-export async function formatsForLayout(db: Bindings["DB"], layoutId: string): Promise<Map<string, FormatRow>> {
+export async function formatsForLayout(dbArg: StoreArg, layoutId: string): Promise<Map<string, FormatRow>> {
+  const db = legacyD1(dbArg);
   const { results } = await db.prepare("SELECT * FROM layout_formats WHERE layout_id = ?").bind(layoutId).all<FormatDbRow>();
   const out = new Map<string, FormatRow>();
   for (const row of results) out.set(row.lineage, rowToFormat(row));
@@ -208,7 +213,8 @@ export async function formatsForLayout(db: Bindings["DB"], layoutId: string): Pr
 // or a real future `lw/1`) must show BOTH in `formats` on every row. One
 // batched `IN (...)` query per PAGE (chunked the same way
 // `likesByLayout` already batches likes), never one query per layout.
-export async function formatsForLayouts(db: Bindings["DB"], layoutIds: string[]): Promise<Map<string, Map<string, FormatRow>>> {
+export async function formatsForLayouts(dbArg: StoreArg, layoutIds: string[]): Promise<Map<string, Map<string, FormatRow>>> {
+  const db = legacyD1(dbArg);
   const out = new Map<string, Map<string, FormatRow>>(layoutIds.map((id) => [id, new Map<string, FormatRow>()]));
   for (let i = 0; i < layoutIds.length; i += 90) {
     const chunk = layoutIds.slice(i, i + 90);
@@ -221,7 +227,8 @@ export async function formatsForLayouts(db: Bindings["DB"], layoutIds: string[])
   return out;
 }
 
-export async function readFormat(db: Bindings["DB"], layoutId: string, lineage: string): Promise<FormatRow | null> {
+export async function readFormat(dbArg: StoreArg, layoutId: string, lineage: string): Promise<FormatRow | null> {
+  const db = legacyD1(dbArg);
   const row = await db.prepare("SELECT * FROM layout_formats WHERE layout_id = ? AND lineage = ?").bind(layoutId, lineage).first<FormatDbRow>();
   return row === null ? null : rowToFormat(row);
 }
@@ -290,17 +297,20 @@ function groupJoined(results: JoinedRow[]): LayoutWithFormats | null {
   return { layout, formats };
 }
 
-export async function readByIdWithFormats(db: Bindings["DB"], id: string): Promise<LayoutWithFormats | null> {
+export async function readByIdWithFormats(dbArg: StoreArg, id: string): Promise<LayoutWithFormats | null> {
+  const db = legacyD1(dbArg);
   const { results } = await db.prepare(`${JOIN_SELECT} WHERE l.id = ?`).bind(id).all<JoinedRow>();
   return groupJoined(results);
 }
 
-export async function readByNameWithFormats(db: Bindings["DB"], name: string): Promise<LayoutWithFormats | null> {
+export async function readByNameWithFormats(dbArg: StoreArg, name: string): Promise<LayoutWithFormats | null> {
+  const db = legacyD1(dbArg);
   const { results } = await db.prepare(`${JOIN_SELECT} WHERE l.name = ? AND l.deleted = 0`).bind(name).all<JoinedRow>();
   return groupJoined(results);
 }
 
-export async function byRefWithFormats(db: Bindings["DB"], ref: string): Promise<LayoutWithFormats | null> {
+export async function byRefWithFormats(dbArg: StoreArg, ref: string): Promise<LayoutWithFormats | null> {
+  const db = legacyD1(dbArg);
   if (isUlidShaped(ref)) {
     const byId = await readByIdWithFormats(db, ref);
     if (byId !== null) return byId;
@@ -405,7 +415,8 @@ interface ListJoinedRow extends LayoutDbRow {
 
 // Filtered, sorted, keyset-paginated live layouts that have `sourceLineage`
 // stored (`deleted = 0` always -- tombstones never appear in a list).
-export async function list(db: Bindings["DB"], params: ListParams): Promise<ListPage> {
+export async function list(dbArg: StoreArg, params: ListParams): Promise<ListPage> {
+  const db = legacyD1(dbArg);
   const desc = SORT_DESC[params.sort];
   const collate = params.sort === "name" ? " COLLATE NOCASE" : "";
   const dir = desc ? "DESC" : "ASC";

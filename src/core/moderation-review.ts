@@ -5,6 +5,7 @@ import type { Bindings } from "../env";
 import { notFound, reviewConflict } from "./errors";
 import { rejectionModerationStatement } from "./events";
 import type { Clock } from "./time";
+import { legacyD1, type StoreArg } from "../store/arg";
 
 export type ReviewKind = "comment" | "wpm";
 export interface ReviewExpectation { status: "approved" | "rejected"; review_version: number }
@@ -18,12 +19,14 @@ export interface ReviewHistoryRow {
 const tableFor = (kind: ReviewKind) => kind === "comment" ? "layout_comments" : "wpm_submissions";
 
 // Immediately follows a conditional event (or its conditional outbox insert).
-export function reviewHistoryStatement(db: Bindings["DB"], kind: ReviewKind, id: string, action: ReviewHistoryRow["action"], actor: string, at: string, reason: string | null, reviewVersion: number): D1PreparedStatement {
+export function reviewHistoryStatement(dbArg: StoreArg, kind: ReviewKind, id: string, action: ReviewHistoryRow["action"], actor: string, at: string, reason: string | null, reviewVersion: number): D1PreparedStatement {
+  const db = legacyD1(dbArg);
   return db.prepare(`INSERT INTO moderation_review_history (kind, submission_id, action, actor, at, reason, review_version)
     SELECT ?, ?, ?, ?, ?, ?, ? WHERE changes() = 1`).bind(kind, id, action, actor, at, reason, reviewVersion);
 }
 
-export async function readReviewHistory(db: Bindings["DB"], kind: ReviewKind, id: string): Promise<ReviewHistoryRow[]> {
+export async function readReviewHistory(dbArg: StoreArg, kind: ReviewKind, id: string): Promise<ReviewHistoryRow[]> {
+  const db = legacyD1(dbArg);
   const row = await db.prepare(`SELECT status, decided_by, decided_at, reason, review_version FROM ${tableFor(kind)} WHERE id = ?`)
     .bind(id).first<{ status: string; decided_by: string | null; decided_at: string | null; reason: string | null; review_version: number }>();
   if (row === null) throw notFound(`no ${kind} submission '${id}'`, id);
@@ -37,7 +40,8 @@ export async function readReviewHistory(db: Bindings["DB"], kind: ReviewKind, id
   return results;
 }
 
-export async function reopenReview(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, kind: ReviewKind, id: string, expected: ReviewExpectation): Promise<void> {
+export async function reopenReview(dbArg: StoreArg, now: Clock, actor: Actor, version: string | null, kind: ReviewKind, id: string, expected: ReviewExpectation): Promise<void> {
+  const db = legacyD1(dbArg);
   const table = tableFor(kind);
   const submission = await db.prepare(`SELECT layout_id FROM ${table} WHERE id = ?`).bind(id).first<{ layout_id: string }>();
   if (submission === null) throw notFound(`no ${kind} submission '${id}'`, id);

@@ -46,6 +46,7 @@ import { commitWrite, type CommitInput } from "./events";
 import { decodeCursor, list, type ListCursor } from "./records";
 import { readByIdWithFormats } from "./records";
 import type { Clock } from "./time";
+import { legacyD1, type StoreArg } from "../store/arg";
 
 const SPARK_LINEAGE = "spark";
 // Same D1-statement-budget reasoning as the deleted importer's own
@@ -96,7 +97,8 @@ export function relabelMagicThumbKeys(keys: Key[]): { keys: Key[]; relabeled: Re
   return { keys: out, relabeled };
 }
 
-export async function relabelMagicThumbs(db: Bindings["DB"], now: Clock, dryRun: boolean): Promise<RelabelMagicThumbsResult> {
+export async function relabelMagicThumbs(dbArg: StoreArg, now: Clock, dryRun: boolean): Promise<RelabelMagicThumbsResult> {
+  const db = legacyD1(dbArg);
   let relabeled_layouts = 0;
   let relabeled_keys = 0;
   const layouts: RelabelPlanItem[] = [];

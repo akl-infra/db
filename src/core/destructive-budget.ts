@@ -24,6 +24,7 @@
 // `clientsHealth` (GET /v1/meta's `health.clients`).
 import type { Bindings } from "../env";
 import type { Clock } from "./time";
+import { legacyD1, type StoreArg } from "../store/arg";
 
 export const DESTRUCTIVE_WINDOW_SECONDS = 3600; // 1h, matching the requirement's own wording
 
@@ -70,7 +71,8 @@ export interface DestructiveBudgetRow {
 // migration). The `live_layouts` scalar subquery rides in the SAME
 // statement so the caller never needs a second read to compute the
 // percentage half of the threshold.
-export function destructiveBudgetStatement(db: Bindings["DB"], now: Clock, clientId: string, windowSeconds: number = DESTRUCTIVE_WINDOW_SECONDS): D1PreparedStatement {
+export function destructiveBudgetStatement(dbArg: StoreArg, now: Clock, clientId: string, windowSeconds: number = DESTRUCTIVE_WINDOW_SECONDS): D1PreparedStatement {
+  const db = legacyD1(dbArg);
   const nowSeconds = Math.floor(new Date(now()).getTime() / 1000);
   const windowStart = Math.floor(nowSeconds / windowSeconds) * windowSeconds;
   return db

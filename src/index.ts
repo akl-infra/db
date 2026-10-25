@@ -1,6 +1,7 @@
 import { Hono } from "hono";
+import { type AppEnv, platformMiddleware } from "./app";
 import type { Bindings } from "./env";
-import { type ActorVariables, requireActorOnWrites } from "./auth/actor";
+import { requireActorOnWrites } from "./auth/actor";
 import { type AuthDeps, resolveActor } from "./auth/discord";
 import { idempotencyKeys } from "./auth/idempotency";
 import { rateLimitWrites } from "./auth/ratelimit";
@@ -34,7 +35,12 @@ import { writeRoute } from "./routes/write";
 
 const CACHE_CONTROL = "public, max-age=10";
 
-const app = new Hono<{ Bindings: Bindings; Variables: ActorVariables }>();
+const app = new Hono<AppEnv>();
+
+// design/aws-port.md §4.1: every request gets its `Platform` (store, blobs,
+// cache, clock, background work) on `c.var.platform` before anything else
+// runs. Routes move onto it during P1 (src/app.ts).
+app.use("*", platformMiddleware);
 
 // Production deps for the user lane: real fetch, real clock. Tests never
 // exercise this path directly -- they inject their own fake `fetchImpl`

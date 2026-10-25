@@ -14,6 +14,7 @@ import { appendInfo, appendLinkChange, appendModeration, rejectionModerationStat
 import { rejectionOutboxStatement } from "./rejection-dm";
 import type { Source } from "./records";
 import type { Clock } from "./time";
+import { legacyD1, type StoreArg } from "../store/arg";
 
 // --- the pure validator (LDB-MD9, table-tested) -------------------------
 
@@ -72,7 +73,8 @@ async function pendingSubmission(db: Bindings["DB"], layoutId: string): Promise<
 
 // GET /v1/layouts/:ref/link (owner|admin): the approved link plus any
 // pending submission.
-export async function getLink(db: Bindings["DB"], layoutId: string): Promise<{ link: string | null; pending: LinkSubmissionRow | null }> {
+export async function getLink(dbArg: StoreArg, layoutId: string): Promise<{ link: string | null; pending: LinkSubmissionRow | null }> {
+  const db = legacyD1(dbArg);
   const layout = await db.prepare("SELECT link FROM layouts WHERE id = ?").bind(layoutId).first<{ link: string | null }>();
   if (layout === null) throw notFound(`no layout '${layoutId}'`, layoutId);
   const pending = await pendingSubmission(db, layoutId);
@@ -86,13 +88,14 @@ export async function getLink(db: Bindings["DB"], layoutId: string): Promise<{ l
 // for mods (saltorbit, API 1.23): an admin's own link is approved in the
 // Inbox like anyone's.
 export async function submitLink(
-  db: Bindings["DB"],
+  dbArg: StoreArg,
   now: Clock,
   actor: Actor,
   version: string | null,
   layoutId: string,
   rawUrl: unknown,
 ): Promise<LinkSubmissionRow> {
+  const db = legacyD1(dbArg);
   const validated = validateLinkUrl(rawUrl);
   if (!validated.ok) throw invalidLink(validated.message);
 
@@ -129,7 +132,8 @@ export async function submitLink(
 // DELETE /v1/layouts/:ref/link (owner|admin): clears the approved link
 // (`link_cleared` event) -- `appendLinkChange`'s own sweep also supersedes
 // any pending submission for this layout (§4.4).
-export async function clearLink(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, layoutId: string, isAdminActor: boolean): Promise<{ link: null }> {
+export async function clearLink(dbArg: StoreArg, now: Clock, actor: Actor, version: string | null, layoutId: string, isAdminActor: boolean): Promise<{ link: null }> {
+  const db = legacyD1(dbArg);
   // [LDB-A10] ("rogue trusted client" hardening): clearing an approved
   // link is destructive -- the owner's submission history stays queryable
   // (LDB-MD5) but the PUBLIC wire loses it outright until re-approved or
@@ -163,7 +167,8 @@ export type QueueStatus = "pending" | "approved" | "rejected" | "superseded";
 // submission whose layout is currently a tombstone (§4.4: delete does not
 // touch submissions -- a pending one on a tombstone is simply hidden until
 // restore).
-export async function listQueue(db: Bindings["DB"], status: QueueStatus): Promise<LinkQueueRow[]> {
+export async function listQueue(dbArg: StoreArg, status: QueueStatus): Promise<LinkQueueRow[]> {
+  const db = legacyD1(dbArg);
   const cols = SUBMISSION_COLUMNS.split(", ")
     .map((c) => `s.${c}`)
     .join(", ");
@@ -190,7 +195,8 @@ async function loadSubmission(db: Bindings["DB"], id: string): Promise<LinkSubmi
 // a tombstone (§4.4 -- restore first) or the submission itself doesn't
 // exist; approving a non-pending submission is refused the same way
 // (nothing left to decide).
-export async function approveSubmission(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, id: string): Promise<{ link: string | null }> {
+export async function approveSubmission(dbArg: StoreArg, now: Clock, actor: Actor, version: string | null, id: string): Promise<{ link: string | null }> {
+  const db = legacyD1(dbArg);
   const submission = await loadSubmission(db, id);
   if (submission.status !== "pending") throw notFound(`link submission '${id}' is not pending`, id);
   const layout = await db.prepare("SELECT id FROM layouts WHERE id = ? AND deleted = 0").bind(submission.layout_id).first();
@@ -211,7 +217,8 @@ export async function approveSubmission(db: Bindings["DB"], now: Clock, actor: A
 
 // POST /v1/admin/link-queue/:id/reject: marks the submission `rejected`
 // and appends `link_rejected` (`admin: 1`, `appendModeration`).
-export async function rejectSubmission(db: Bindings["DB"], now: Clock, actor: Actor, version: string | null, id: string, reason?: string, options?: { notifySubmitter?: boolean }): Promise<LinkSubmissionRow> {
+export async function rejectSubmission(dbArg: StoreArg, now: Clock, actor: Actor, version: string | null, id: string, reason?: string, options?: { notifySubmitter?: boolean }): Promise<LinkSubmissionRow> {
+  const db = legacyD1(dbArg);
   const submission = await loadSubmission(db, id);
   if (submission.status !== "pending") throw notFound(`link submission '${id}' is not pending`, id);
   if (await db.prepare("SELECT id FROM layouts WHERE id = ?").bind(submission.layout_id).first() === null) {

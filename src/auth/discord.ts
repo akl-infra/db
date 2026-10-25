@@ -13,6 +13,7 @@ import type { Clock } from "../core/time";
 import type { Actor } from "./actor";
 import { type ClientDeps, verifyClientRequest } from "./client";
 import { roleOf } from "./roles";
+import { legacyD1, type StoreArg } from "../store/arg";
 
 export interface AuthDeps extends ClientDeps {
   fetchImpl: FetchImpl;
@@ -63,7 +64,8 @@ function addSeconds(iso: string, seconds: number): string {
 // Nightly (`0 3 * * *`, wired into src/index.ts's `scheduled()`): drop
 // expired cache rows. Housekeeping, not a security boundary -- a token is
 // never stored, so an expired row holds nothing sensitive.
-export async function pruneAuthCache(db: Bindings["DB"], now: Clock): Promise<void> {
+export async function pruneAuthCache(dbArg: StoreArg, now: Clock): Promise<void> {
+  const db = legacyD1(dbArg);
   await db.prepare("DELETE FROM auth_cache WHERE expires_at < ?").bind(now()).run();
 }
 
@@ -90,12 +92,13 @@ export async function pruneAuthCache(db: Bindings["DB"], now: Clock): Promise<vo
 //     anything else (429/5xx/malformed/network/timeout) -> 503, nothing
 //     cached, Discord's Retry-After copied through when it sent one.
 export async function resolveBearer(
-  db: Bindings["DB"],
+  dbArg: StoreArg,
   now: Clock,
   token: string,
   fetchImpl: FetchImpl,
   discordApiUrl: string,
 ): Promise<Actor> {
+  const db = legacyD1(dbArg);
   const at = now();
   const hash = await sha256Hex(token);
 
