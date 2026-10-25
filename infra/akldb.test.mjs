@@ -194,3 +194,21 @@ test("LDB-INF19 deploy-aws.sh refuses to run without the akldb profile and makes
   assert.notEqual(bad.status, 0);
   assert.match(bad.stderr, /stage/);
 });
+
+test("LDB-INF30 cfn-guard (CFN_GUARD=<binary>) passes the template and rejects mutations", (ctx) => {
+  const bin = process.env.CFN_GUARD;
+  if (!bin || !fs.existsSync(bin)) return ctx.skip("set CFN_GUARD to the cfn-guard binary");
+  const tmp = fs.mkdtempSync(path.join(process.env.TMPDIR ?? "/tmp", "guard-"));
+  const run = (text) => {
+    const f = path.join(tmp, "t.yaml");
+    fs.writeFileSync(f, text);
+    return spawnSync(bin, ["validate", "-r", file("akldb.guard"), "-d", f], { encoding: "utf8" }).status;
+  };
+  const src = fs.readFileSync(file("akldb.yaml"), "utf8");
+  assert.equal(run(src), 0);
+  assert.notEqual(run(src.replace("Runtime: nodejs24.x", "Runtime: nodejs20.x")), 0);
+  assert.notEqual(run(src.replace("- dynamodb:GetItem\n", "- dynamodb:*\n")), 0);
+  assert.notEqual(run(src.replace("PointInTimeRecoveryEnabled: true", "PointInTimeRecoveryEnabled: false")), 0);
+  assert.notEqual(run(src.replace("Architectures: [ arm64 ]", "Architectures: [ x86_64 ]")), 0);
+  fs.rmSync(tmp, { recursive: true });
+});
