@@ -188,6 +188,19 @@ section for the invariants it used to satisfy.
 | `MODQUEUE_DISCORD_CARDS` | secret (optional) | `src/core/modqueue.ts` (LDB-MD16) | unset disables bot cards; set to `true` only after dedicated bot credentials, app config and channel access are verified; new cards then use Bot REST and record ownership |
 | `MODQUEUE_DISCORD_ACTIONS` | secret (optional) | `src/core/discord-interactions.ts` (LDB-MD16) | unset disables approve/deny actions; set to `true` only after Discord's interaction endpoint is configured and verified |
 | `MODQUEUE_DISCORD_DMS` | secret (optional) | `src/core/rejection-dm.ts`, moderation routes and `src/core/discord-interactions.ts` | unset disables submitter DMs; set to `true` to enqueue a private DM for a winning future rejection, or a reviewed WPM/comment approval, from the API or Discord action; delivery also requires the bot-token secret |
+| `AWS_REGION` | Lambda runtime var | `src/platform/lambda.ts` | set by the Lambda runtime (us-east-2); never set by hand |
+| `AKLDB_DDB_ALLOW_REMOTE` | Lambda env | `src/store/ddb/client.ts`, set in `infra/akldb.yaml` | `1` on every deployed function; absent locally, where only 127.0.0.1 DynamoDB is allowed |
+| `AKLDB_STAGE` | Lambda env | `src/platform/lambda.ts` | `lab`, `staging` or `prod`; the `Stage` parameter of `infra/akldb.yaml` (`scripts/deploy-aws.sh <stage>`) |
+| `AKLDB_TABLE_MAIN` | Lambda env | `src/platform/lambda.ts` | `akldb-<stage>-main`; created by the stack, not by hand |
+| `AKLDB_TABLE_EPHEMERAL` | Lambda env | `src/platform/lambda.ts` | `akldb-<stage>-ephemeral`; created by the stack |
+| `AKLDB_BUCKET_DATA` | Lambda env | `src/platform/lambda.ts` | `akldb-<stage>-data-<account>`; payload spill and the mirror queue spill; created by the stack |
+| `AKLDB_BUCKET_DUMPS` | Lambda env | `src/platform/lambda.ts` | `akldb-<stage>-dumps-<account>`; dump files; created by the stack |
+| `AKLDB_BUCKET_SNAPSHOT` | Lambda env | `src/platform/lambda.ts` | `akldb-<stage>-snapshot-<account>`; the replica snapshot; created by the stack |
+| `AKLDB_SSM_PREFIX` | Lambda env | `src/platform/lambda.ts` | `/akldb/<stage>`; SecureStrings `origin-verify`, `tee-hmac` and `discord/*` under it. `scripts/deploy-aws.sh` creates the first two as random values if missing; the Discord ones are put by hand |
+| `MIRROR_MODE` | Lambda env | `src/platform/lambda.ts` | `off` outside prod; on prod the `MirrorMode` stack parameter, `apply` (D1 to AWS) or `record` (AWS to D1); flipped only by the cutover PR |
+| `MIRROR_APPLY_FUNCTION` | Lambda env | `src/platform/lambda.ts` (mirror-ingest) | `akldb-prod-mirror-apply`; set by the stack |
+| `TEE_URL` | secret (optional) | `src/mirror/` recorder (lane T, LDB-MIR11) | the `prod` AWS stack's mirror-ingest Function URL (`MirrorIngestUrl` output of `infra/akldb.yaml`); unset leaves the recorder off. `wrangler secret put TEE_URL` |
+| `TEE_SECRET` | secret (optional) | `src/mirror/` recorder (lane T, LDB-MIR11) | the HMAC secret shared with AWS SSM `/akldb/prod/tee-hmac`; unset leaves the recorder off. Read it with `aws ssm get-parameter --with-decryption`, then `wrangler secret put TEE_SECRET` |
 | `CLOUDFLARE_DB_TOKEN` | repo secret (CI) | `.github/workflows/db.yml`'s `deploy` job (S7) | a Cloudflare API token with Workers Scripts + D1 + R2 edit, separate from the site's Pages token |
 | `CLOUDFLARE_DB_ACCOUNT_ID` | repo secret (CI) | `.github/workflows/db.yml`'s `deploy` job (S7) | the NEW community account's id (00 §1) -- NOT the site's `CLOUDFLARE_ACCOUNT_ID` |
 | `DB_BASE_URL` | repo/org variable (CI) | `.github/workflows/db.yml`'s `daily` job (S7) | the deployed service's own origin, e.g. `https://akl-db.<account>.workers.dev`; set once the service is deployed |
