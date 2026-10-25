@@ -67,9 +67,10 @@ describe("every Store method is classified", () => {
     expect([...others].filter((m) => !all.has(m))).toEqual([]);
     expect([...writes].filter((m) => others.has(m))).toEqual([]);
     // The ephemeral tables' writes are never recorded.
-    for (const m of ["auth.insertNonce", "auth.hitWindow", "auth.cacheAuthFailure", "auth.pruneAuthCache", "auth.pruneRateLimits", "auth.pruneNonces", "dump.restore"]) {
+    for (const m of ["auth.insertNonce", "auth.hitWindow", "auth.cacheAuthFailure", "auth.pruneAuthCache", "auth.pruneNonces", "dump.restore"]) {
       expect(writes.has(m)).toBe(false);
     }
+    expect(writes.has("auth.pruneRateLimits")).toBe(true);
   });
 });
 
