@@ -1,0 +1,1127 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  akldb on AWS (design/aws-port.md section 3 and 5.2): one stack per Stage (lab, staging, prod) in us-east-2. Two DynamoDB tables, the api/feed/jobs Lambdas behind one CloudFront distribution, and on prod the mirror-ingest and mirror-apply Lambdas. No VPC, no OIDC, no WAF.
+
+Parameters:
+  Stage:
+    Type: String
+    AllowedValues: [ lab, staging, prod ]
+  CodeBucket:
+    Type: String
+    Description: Bucket holding the esbuild zip (made by scripts/deploy-aws.sh).
+  CodeKey:
+    Type: String
+    Description: Key of the zip. Content-addressed by the deploy script, so a code change is a stack update.
+  OriginVerifySecret:
+    Type: String
+    NoEcho: true
+    MinLength: 32
+    Description: The X-Origin-Verify value CloudFront adds. The deploy script reads it from SSM /akldb/<stage>/origin-verify.
+  DiscordApiUrl:
+    Type: String
+    Default: https://discord.com/api
+    Description: Pinned default (lane P's contract). Labs point it at the fake Discord.
+  CertificateArn:
+    Type: String
+    Default: ""
+    AllowedPattern: "^$|^arn:aws:acm:us-east-1:[0-9]{12}:certificate/[a-f0-9-]+$"
+    Description: The us-east-1 ACM certificate (infra/acm-us-east-1.yaml). Empty serves the CloudFront domain only.
+  MirrorMode:
+    Type: String
+    Default: apply
+    AllowedValues: [ apply, record ]
+    Description: prod only. apply = D1 to AWS (forward ingest and applier on); record = AWS to D1 (recorder on, ingest and applier off).
+  ScheduleEnabled:
+    Type: String
+    Default: "true"
+    AllowedValues: [ "true", "false" ]
+    Description: The 5-minute jobs schedule. The deploy script passes false on the first prod deploy; the cutover flips it.
+  TeeUrl:
+    Type: String
+    Default: ""
+    Description: Where the recorder POSTs batches. Empty is off. Set in record mode (the D1 Worker /__mirror).
+  AlertEmail:
+    Type: String
+    AllowedPattern: "^[^@\\s]+@[^@\\s]+$"
+    Description: Alarm and budget notifications.
+  BudgetLimitUsd:
+    Type: Number
+    Default: 10
+    MinValue: 1
+
+Rules:
+  RegionIsOhio:
+    Assertions:
+      - Assert: !Equals [ !Ref "AWS::Region", us-east-2 ]
+        AssertDescription: Regional resources live in the project Region us-east-2 only.
+
+Conditions:
+  IsProd: !Equals [ !Ref Stage, prod ]
+  IsLab: !Equals [ !Ref Stage, lab ]
+  HasAlias: !And
+    - !Not [ !Condition IsLab ]
+    - !Not [ !Equals [ !Ref CertificateArn, "" ] ]
+  ScheduleOn: !Equals [ !Ref ScheduleEnabled, "true" ]
+  ApplyOn: !And
+    - !Condition IsProd
+    - !Equals [ !Ref MirrorMode, apply ]
+
+Mappings:
+  Fn:
+    # Handlers are exports of one esbuild bundle, dist/lambda.mjs (scripts/deploy-aws.sh).
+    handler:
+      api: lambda.api
+      feed: lambda.feed
+      jobs: lambda.jobs
+      ingest: lambda.mirrorIngest
+      apply: lambda.mirrorApply
+
+Resources:
+  # ---------------------------------------------------------------- tables
+  MainTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub akldb-${Stage}-main
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: pk, AttributeType: S }
+        - { AttributeName: sk, AttributeType: S }
+      KeySchema:
+        - { AttributeName: pk, KeyType: HASH }
+        - { AttributeName: sk, KeyType: RANGE }
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      DeletionProtectionEnabled: !If [ IsProd, true, false ]
+      Tags:
+        - { Key: project, Value: akldb }
+        - { Key: stage, Value: !Ref Stage }
+
+  EphemeralTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub akldb-${Stage}-ephemeral
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: pk, AttributeType: S }
+        - { AttributeName: sk, AttributeType: S }
+      KeySchema:
+        - { AttributeName: pk, KeyType: HASH }
+        - { AttributeName: sk, KeyType: RANGE }
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      DeletionProtectionEnabled: !If [ IsProd, true, false ]
+      Tags:
+        - { Key: project, Value: akldb }
+        - { Key: stage, Value: !Ref Stage }
+
+  # --------------------------------------------------------------- buckets
+  # Retained on stack delete: dumps are never expired (design section 3) and payload spill is
+  # content-addressed data nothing else holds.
+  DataBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub akldb-${Stage}-data-${AWS::AccountId}
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - { Key: project, Value: akldb }
+        - { Key: stage, Value: !Ref Stage }
+
+  DumpsBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub akldb-${Stage}-dumps-${AWS::AccountId}
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration: { Status: Enabled }
+      Tags:
+        - { Key: project, Value: akldb }
+        - { Key: stage, Value: !Ref Stage }
+
+  SnapshotBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub akldb-${Stage}-snapshot-${AWS::AccountId}
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - { Key: project, Value: akldb }
+        - { Key: stage, Value: !Ref Stage }
+
+  DataBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref DataBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransportData
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource: [ !GetAtt DataBucket.Arn, !Sub "${DataBucket.Arn}/*" ]
+            Condition: { Bool: { "aws:SecureTransport": "false" } }
+
+  DumpsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref DumpsBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransportDumps
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource: [ !GetAtt DumpsBucket.Arn, !Sub "${DumpsBucket.Arn}/*" ]
+            Condition: { Bool: { "aws:SecureTransport": "false" } }
+
+  SnapshotBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref SnapshotBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransportSnapshot
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource: [ !GetAtt SnapshotBucket.Arn, !Sub "${SnapshotBucket.Arn}/*" ]
+            Condition: { Bool: { "aws:SecureTransport": "false" } }
+
+  # ------------------------------------------------------------------ logs
+  # One shared group for every function: Infrequent Access class, retention never (the Logpush
+  # equivalent saltorbit asked to keep forever).
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /akldb/${Stage}
+      LogGroupClass: INFREQUENT_ACCESS
+      Tags:
+        - { Key: project, Value: akldb }
+        - { Key: stage, Value: !Ref Stage }
+
+  # ----------------------------------------------------------------- roles
+  ApiRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub akldb-${Stage}-api
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: api
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: Tables
+                Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                  - dynamodb:BatchGetItem
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:DescribeTable
+                Resource: [ !GetAtt MainTable.Arn, !GetAtt EphemeralTable.Arn ]
+              - Sid: Objects
+                Effect: Allow
+                Action: [ s3:GetObject, s3:PutObject ]
+                Resource:
+                  - !Sub "${DataBucket.Arn}/*"
+                  - !Sub "${DumpsBucket.Arn}/*"
+                  - !Sub "${SnapshotBucket.Arn}/*"
+              - Sid: List
+                Effect: Allow
+                Action: s3:ListBucket
+                Resource: [ !GetAtt DataBucket.Arn, !GetAtt DumpsBucket.Arn, !GetAtt SnapshotBucket.Arn ]
+              - Sid: Params
+                Effect: Allow
+                Action: ssm:GetParameter
+                Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/akldb/${Stage}/*
+              - Sid: ParamKey
+                Effect: Allow
+                Action: kms:Decrypt
+                Resource: !Sub arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:key/*
+                Condition: { StringEquals: { "kms:ViaService": !Sub "ssm.${AWS::Region}.amazonaws.com" } }
+              - Sid: Logs
+                Effect: Allow
+                Action: [ logs:CreateLogStream, logs:PutLogEvents ]
+                Resource: !Sub "${LogGroup.Arn}:*"
+      Tags:
+        - { Key: project, Value: akldb }
+        - { Key: stage, Value: !Ref Stage }
+
+  FeedRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub akldb-${Stage}-feed
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: feed
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: Read
+                Effect: Allow
+                Action: [ dynamodb:GetItem, dynamodb:Query, dynamodb:BatchGetItem ]
+                Resource: [ !GetAtt MainTable.Arn, !GetAtt EphemeralTable.Arn ]
+              - Sid: HoldLeases
+                Effect: Allow
+                Action: [ dynamodb:PutItem, dynamodb:UpdateItem, dynamodb:DeleteItem ]
+                Resource: !GetAtt EphemeralTable.Arn
+              - Sid: Spill
+                Effect: Allow
+                Action: s3:GetObject
+                Resource: [ !Sub "${DataBucket.Arn}/*", !Sub "${SnapshotBucket.Arn}/*" ]
+              - Sid: Params
+                Effect: Allow
+                Action: ssm:GetParameter
+                Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/akldb/${Stage}/origin-verify
+              - Sid: ParamKey
+                Effect: Allow
+                Action: kms:Decrypt
+                Resource: !Sub arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:key/*
+                Condition: { StringEquals: { "kms:ViaService": !Sub "ssm.${AWS::Region}.amazonaws.com" } }
+              - Sid: Logs
+                Effect: Allow
+                Action: [ logs:CreateLogStream, logs:PutLogEvents ]
+                Resource: !Sub "${LogGroup.Arn}:*"
+      Tags:
+        - { Key: project, Value: akldb }
+        - { Key: stage, Value: !Ref Stage }
+
+  JobsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub akldb-${Stage}-jobs
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: jobs
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: Tables
+                Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                  - dynamodb:BatchGetItem
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:DescribeTable
+                Resource: [ !GetAtt MainTable.Arn, !GetAtt EphemeralTable.Arn ]
+              - Sid: Objects
+                Effect: Allow
+                Action: [ s3:GetObject, s3:PutObject ]
+                Resource:
+                  - !Sub "${DataBucket.Arn}/*"
+                  - !Sub "${DumpsBucket.Arn}/*"
+                  - !Sub "${SnapshotBucket.Arn}/*"
+              - Sid: List
+                Effect: Allow
+                Action: s3:ListBucket
+                Resource: [ !GetAtt DataBucket.Arn, !GetAtt DumpsBucket.Arn, !GetAtt SnapshotBucket.Arn ]
+              - Sid: Params
+                Effect: Allow
+                Action: ssm:GetParameter
+                Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/akldb/${Stage}/*
+              - Sid: ParamKey
+                Effect: Allow
+                Action: kms:Decrypt
+                Resource: !Sub arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:key/*
+                Condition: { StringEquals: { "kms:ViaService": !Sub "ssm.${AWS::Region}.amazonaws.com" } }
+              - Sid: Logs
+                Effect: Allow
+                Action: [ logs:CreateLogStream, logs:PutLogEvents ]
+                Resource: !Sub "${LogGroup.Arn}:*"
+      Tags:
+        - { Key: project, Value: akldb }
+        - { Key: stage, Value: !Ref Stage }
+
+  # ------------------------------------------------------------- functions
+  ApiFn:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub akldb-${Stage}-api
+      Description: Everything except /v1/changes*
+      Runtime: nodejs24.x
+      Architectures: [ arm64 ]
+      Handler: !FindInMap [ Fn, handler, api ]
+      Code: { S3Bucket: !Ref CodeBucket, S3Key: !Ref CodeKey }
+      Role: !GetAtt ApiRole.Arn
+      MemorySize: 1024
+      Timeout: 60
+      Environment:
+        Variables:
+          AKLDB_DDB_ALLOW_REMOTE: "1"
+          AKLDB_STAGE: !Ref Stage
+          AKLDB_TABLE_MAIN: !Ref MainTable
+          AKLDB_TABLE_EPHEMERAL: !Ref EphemeralTable
+          AKLDB_BUCKET_DATA: !Ref DataBucket
+          AKLDB_BUCKET_DUMPS: !Ref DumpsBucket
+          AKLDB_BUCKET_SNAPSHOT: !Ref SnapshotBucket
+          AKLDB_SSM_PREFIX: !Sub /akldb/${Stage}
+          DISCORD_API_URL: !Ref DiscordApiUrl
+          MIRROR_MODE: !If [ IsProd, !Ref MirrorMode, "off" ]
+          TEE_URL: !Ref TeeUrl
+          NODE_OPTIONS: --enable-source-maps
+      LoggingConfig:
+        LogFormat: JSON
+        ApplicationLogLevel: INFO
+        SystemLogLevel: WARN
+        LogGroup: !Ref LogGroup
+      Tags:
+        - { Key: project, Value: akldb }
+        - { Key: stage, Value: !Ref Stage }
+
+  FeedFn:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub akldb-${Stage}-feed
+      Description: /v1/changes* (long-poll)
+      Runtime: nodejs24.x
+      Architectures: [ arm64 ]
+      Handler: !FindInMap [ Fn, handler, feed ]
+      Code: { S3Bucket: !Ref CodeBucket, S3Key: !Ref CodeKey }
+      Role: !GetAtt FeedRole.Arn
+      MemorySize: 256
+      Timeout: 35
+      Environment:
+        Variables:
+          AKLDB_DDB_ALLOW_REMOTE: "1"
+          AKLDB_STAGE: !Ref Stage
+          AKLDB_TABLE_MAIN: !Ref MainTable
+          AKLDB_TABLE_EPHEMERAL: !Ref EphemeralTable
+          AKLDB_BUCKET_DATA: !Ref DataBucket
+          AKLDB_BUCKET_DUMPS: !Ref DumpsBucket
+          AKLDB_BUCKET_SNAPSHOT: !Ref SnapshotBucket
+          AKLDB_SSM_PREFIX: !Sub /akldb/${Stage}
+          DISCORD_API_URL: !Ref DiscordApiUrl
+          MIRROR_MODE: !If [ IsProd, !Ref MirrorMode, "off" ]
+          TEE_URL: !Ref TeeUrl
+          NODE_OPTIONS: --enable-source-maps
+      LoggingConfig:
+        LogFormat: JSON
+        ApplicationLogLevel: INFO
+        SystemLogLevel: WARN
+        LogGroup: !Ref LogGroup
+      Tags:
+        - { Key: project, Value: akldb }
+        - { Key: stage, Value: !Ref Stage }
+
+  JobsFn:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub akldb-${Stage}-jobs
+      Description: Scheduler tick, replica snapshot, dumps, prunes, migrations, index checker
+      Runtime: nodejs24.x
+      Architectures: [ arm64 ]
+      Handler: !FindInMap [ Fn, handler, jobs ]
+      Code: { S3Bucket: !Ref CodeBucket, S3Key: !Ref CodeKey }
+      Role: !GetAtt JobsRole.Arn
+      MemorySize: 1024
+      Timeout: 900
+      Environment:
+        Variables:
+          AKLDB_DDB_ALLOW_REMOTE: "1"
+          AKLDB_STAGE: !Ref Stage
+          AKLDB_TABLE_MAIN: !Ref MainTable
+          AKLDB_TABLE_EPHEMERAL: !Ref EphemeralTable
+          AKLDB_BUCKET_DATA: !Ref DataBucket
+          AKLDB_BUCKET_DUMPS: !Ref DumpsBucket
+          AKLDB_BUCKET_SNAPSHOT: !Ref SnapshotBucket
+          AKLDB_SSM_PREFIX: !Sub /akldb/${Stage}
+          DISCORD_API_URL: !Ref DiscordApiUrl
+          MIRROR_MODE: !If [ IsProd, !Ref MirrorMode, "off" ]
+          TEE_URL: !Ref TeeUrl
+          NODE_OPTIONS: --enable-source-maps
+      LoggingConfig:
+        LogFormat: JSON
+        ApplicationLogLevel: INFO
+        SystemLogLevel: WARN
+        LogGroup: !Ref LogGroup
+      Tags:
+        - { Key: project, Value: akldb }
+        - { Key: stage, Value: !Ref Stage }
+
+  ApiUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      TargetFunctionArn: !GetAtt ApiFn.Arn
+      AuthType: NONE
+      InvokeMode: RESPONSE_STREAM
+
+  FeedUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      TargetFunctionArn: !GetAtt FeedFn.Arn
+      AuthType: NONE
+      InvokeMode: RESPONSE_STREAM
+
+  # AuthType NONE needs both permissions. The app returns 403 without X-Origin-Verify.
+  ApiUrlPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ApiFn
+      Action: lambda:InvokeFunctionUrl
+      Principal: "*"
+      FunctionUrlAuthType: NONE
+  ApiInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ApiFn
+      Action: lambda:InvokeFunction
+      Principal: "*"
+      InvokedViaFunctionUrl: true
+  FeedUrlPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref FeedFn
+      Action: lambda:InvokeFunctionUrl
+      Principal: "*"
+      FunctionUrlAuthType: NONE
+  FeedInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref FeedFn
+      Action: lambda:InvokeFunction
+      Principal: "*"
+      InvokedViaFunctionUrl: true
+
+  # ------------------------------------------------------------ CloudFront
+  # Caching disabled on purpose (design section 3): CloudFront ignores a viewer's no-cache, so any
+  # edge caching would let a client read behind its own write. No OAC (it would replace
+  # Authorization and require x-amz-content-sha256 on PUT/POST).
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub akldb ${Stage} API
+        HttpVersion: http2and3
+        IPV6Enabled: true
+        PriceClass: PriceClass_100
+        Aliases: !If
+          - HasAlias
+          - [ !If [ IsProd, api.akldb.org, staging-api.akldb.org ] ]
+          - !Ref AWS::NoValue
+        ViewerCertificate: !If
+          - HasAlias
+          - AcmCertificateArn: !Ref CertificateArn
+            SslSupportMethod: sni-only
+            MinimumProtocolVersion: TLSv1.2_2021
+          - CloudFrontDefaultCertificate: true
+        Origins:
+          - Id: api
+            DomainName: !Select [ 2, !Split [ "/", !GetAtt ApiUrl.FunctionUrl ] ]
+            OriginCustomHeaders:
+              - { HeaderName: X-Origin-Verify, HeaderValue: !Ref OriginVerifySecret }
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+              OriginReadTimeout: 60
+              OriginKeepaliveTimeout: 5
+          - Id: feed
+            DomainName: !Select [ 2, !Split [ "/", !GetAtt FeedUrl.FunctionUrl ] ]
+            OriginCustomHeaders:
+              - { HeaderName: X-Origin-Verify, HeaderValue: !Ref OriginVerifySecret }
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+              OriginReadTimeout: 60
+              OriginKeepaliveTimeout: 5
+        DefaultCacheBehavior:
+          TargetOriginId: api
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [ GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE ]
+          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad # Managed-CachingDisabled
+          OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac # Managed-AllViewerExceptHostHeader
+          Compress: false # the app compresses; CloudFront compresses only cached objects
+        CacheBehaviors:
+          - PathPattern: /v1/changes*
+            TargetOriginId: feed
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [ GET, HEAD, OPTIONS ]
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
+            Compress: false
+      Tags:
+        - { Key: project, Value: akldb }
+        - { Key: stage, Value: !Ref Stage }
+
+  # ------------------------------------------------------------- scheduler
+  SchedulerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub akldb-${Stage}-scheduler
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: scheduler.amazonaws.com }
+            Action: sts:AssumeRole
+            Condition: { StringEquals: { "aws:SourceAccount": !Ref "AWS::AccountId" } }
+      Policies:
+        - PolicyName: invoke
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !If
+                  - IsProd
+                  - [ !GetAtt JobsFn.Arn, !GetAtt MirrorApplyFn.Arn ]
+                  - [ !GetAtt JobsFn.Arn ]
+      Tags:
+        - { Key: project, Value: akldb }
+        - { Key: stage, Value: !Ref Stage }
+
+  JobsSchedule:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Name: !Sub akldb-${Stage}-jobs
+      ScheduleExpression: rate(5 minutes)
+      FlexibleTimeWindow: { Mode: "OFF" }
+      State: !If [ ScheduleOn, ENABLED, DISABLED ]
+      Target:
+        Arn: !GetAtt JobsFn.Arn
+        RoleArn: !GetAtt SchedulerRole.Arn
+        Input: '{"source":"scheduler","scheduledTime":"<aws.scheduler.scheduled-time>"}'
+        RetryPolicy: { MaximumRetryAttempts: 0 }
+
+  # --------------------------------------------------------- prod: mirror
+  MirrorIngestRole:
+    Type: AWS::IAM::Role
+    Condition: IsProd
+    Properties:
+      RoleName: !Sub akldb-${Stage}-mirror-ingest
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ingest
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: Queue
+                Effect: Allow
+                Action: [ dynamodb:GetItem, dynamodb:PutItem, dynamodb:UpdateItem, dynamodb:Query ]
+                Resource: !GetAtt EphemeralTable.Arn
+              - Sid: WakeApplier
+                Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !GetAtt MirrorApplyFn.Arn
+              - Sid: Secret
+                Effect: Allow
+                Action: ssm:GetParameter
+                Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/akldb/${Stage}/tee-hmac
+              - Sid: ParamKey
+                Effect: Allow
+                Action: kms:Decrypt
+                Resource: !Sub arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:key/*
+                Condition: { StringEquals: { "kms:ViaService": !Sub "ssm.${AWS::Region}.amazonaws.com" } }
+              - Sid: Logs
+                Effect: Allow
+                Action: [ logs:CreateLogStream, logs:PutLogEvents ]
+                Resource: !Sub "${LogGroup.Arn}:*"
+      Tags:
+        - { Key: project, Value: akldb }
+        - { Key: stage, Value: !Ref Stage }
+
+  MirrorApplyRole:
+    Type: AWS::IAM::Role
+    Condition: IsProd
+    Properties:
+      RoleName: !Sub akldb-${Stage}-mirror-apply
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: apply
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: Tables
+                Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                  - dynamodb:BatchGetItem
+                  - dynamodb:BatchWriteItem
+                  - dynamodb:DescribeTable
+                Resource: [ !GetAtt MainTable.Arn, !GetAtt EphemeralTable.Arn ]
+              - Sid: Objects
+                Effect: Allow
+                Action: [ s3:GetObject, s3:PutObject ]
+                Resource: [ !Sub "${DataBucket.Arn}/*", !Sub "${SnapshotBucket.Arn}/*", !Sub "${DumpsBucket.Arn}/*" ]
+              - Sid: List
+                Effect: Allow
+                Action: s3:ListBucket
+                Resource: [ !GetAtt DataBucket.Arn, !GetAtt SnapshotBucket.Arn, !GetAtt DumpsBucket.Arn ]
+              - Sid: Params
+                Effect: Allow
+                Action: ssm:GetParameter
+                Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/akldb/${Stage}/*
+              - Sid: ParamKey
+                Effect: Allow
+                Action: kms:Decrypt
+                Resource: !Sub arn:${AWS::Partition}:kms:${AWS::Region}:${AWS::AccountId}:key/*
+                Condition: { StringEquals: { "kms:ViaService": !Sub "ssm.${AWS::Region}.amazonaws.com" } }
+              - Sid: Logs
+                Effect: Allow
+                Action: [ logs:CreateLogStream, logs:PutLogEvents ]
+                Resource: !Sub "${LogGroup.Arn}:*"
+      Tags:
+        - { Key: project, Value: akldb }
+        - { Key: stage, Value: !Ref Stage }
+
+  # Ingest: a Function URL with HMAC, buffered (batches are small). Writes batches into the
+  # ephemeral table under MQ#<direction> and wakes the applier asynchronously.
+  MirrorIngestFn:
+    Type: AWS::Lambda::Function
+    Condition: IsProd
+    Properties:
+      FunctionName: !Sub akldb-${Stage}-mirror-ingest
+      Runtime: nodejs24.x
+      Architectures: [ arm64 ]
+      Handler: !FindInMap [ Fn, handler, ingest ]
+      Code: { S3Bucket: !Ref CodeBucket, S3Key: !Ref CodeKey }
+      Role: !GetAtt MirrorIngestRole.Arn
+      MemorySize: 256
+      Timeout: 15
+      Environment:
+        Variables:
+          AKLDB_DDB_ALLOW_REMOTE: "1"
+          AKLDB_STAGE: !Ref Stage
+          AKLDB_TABLE_EPHEMERAL: !Ref EphemeralTable
+          AKLDB_SSM_PREFIX: !Sub /akldb/${Stage}
+          MIRROR_MODE: !Ref MirrorMode
+          MIRROR_APPLY_FUNCTION: !Sub akldb-${Stage}-mirror-apply
+      LoggingConfig:
+        LogFormat: JSON
+        ApplicationLogLevel: INFO
+        SystemLogLevel: WARN
+        LogGroup: !Ref LogGroup
+      Tags:
+        - { Key: project, Value: akldb }
+        - { Key: stage, Value: !Ref Stage }
+
+  # Applier: no Function URL. Woken by the ingest's async invoke and by the 1-minute schedule.
+  MirrorApplyFn:
+    Type: AWS::Lambda::Function
+    Condition: IsProd
+    Properties:
+      FunctionName: !Sub akldb-${Stage}-mirror-apply
+      Runtime: nodejs24.x
+      Architectures: [ arm64 ]
+      Handler: !FindInMap [ Fn, handler, apply ]
+      Code: { S3Bucket: !Ref CodeBucket, S3Key: !Ref CodeKey }
+      Role: !GetAtt MirrorApplyRole.Arn
+      MemorySize: 1024
+      Timeout: 300
+      Environment:
+        Variables:
+          AKLDB_DDB_ALLOW_REMOTE: "1"
+          AKLDB_STAGE: !Ref Stage
+          AKLDB_TABLE_MAIN: !Ref MainTable
+          AKLDB_TABLE_EPHEMERAL: !Ref EphemeralTable
+          AKLDB_BUCKET_DATA: !Ref DataBucket
+          AKLDB_BUCKET_DUMPS: !Ref DumpsBucket
+          AKLDB_BUCKET_SNAPSHOT: !Ref SnapshotBucket
+          AKLDB_SSM_PREFIX: !Sub /akldb/${Stage}
+          DISCORD_API_URL: !Ref DiscordApiUrl
+          MIRROR_MODE: !Ref MirrorMode
+          TEE_URL: !Ref TeeUrl
+          NODE_OPTIONS: --enable-source-maps
+      LoggingConfig:
+        LogFormat: JSON
+        ApplicationLogLevel: INFO
+        SystemLogLevel: WARN
+        LogGroup: !Ref LogGroup
+      Tags:
+        - { Key: project, Value: akldb }
+        - { Key: stage, Value: !Ref Stage }
+
+  MirrorIngestUrl:
+    Type: AWS::Lambda::Url
+    Condition: IsProd
+    Properties:
+      TargetFunctionArn: !GetAtt MirrorIngestFn.Arn
+      AuthType: NONE
+      InvokeMode: BUFFERED
+
+  MirrorIngestUrlPermission:
+    Type: AWS::Lambda::Permission
+    Condition: IsProd
+    Properties:
+      FunctionName: !Ref MirrorIngestFn
+      Action: lambda:InvokeFunctionUrl
+      Principal: "*"
+      FunctionUrlAuthType: NONE
+  MirrorIngestInvokePermission:
+    Type: AWS::Lambda::Permission
+    Condition: IsProd
+    Properties:
+      FunctionName: !Ref MirrorIngestFn
+      Action: lambda:InvokeFunction
+      Principal: "*"
+      InvokedViaFunctionUrl: true
+
+  ApplySchedule:
+    Type: AWS::Scheduler::Schedule
+    Condition: IsProd
+    Properties:
+      Name: !Sub akldb-${Stage}-mirror-apply
+      ScheduleExpression: rate(1 minute)
+      FlexibleTimeWindow: { Mode: "OFF" }
+      State: !If [ ApplyOn, ENABLED, DISABLED ]
+      Target:
+        Arn: !GetAtt MirrorApplyFn.Arn
+        RoleArn: !GetAtt SchedulerRole.Arn
+        Input: '{"source":"scheduler","scheduledTime":"<aws.scheduler.scheduled-time>"}'
+        RetryPolicy: { MaximumRetryAttempts: 0 }
+
+  # ---------------------------------------------------------------- alarms
+  # At most 10 (the free tier); prod has exactly 10, the other stages 9. The Akldb/* metrics are
+  # EMF lines the runtime emits with dimension set [["Stage"]]:
+  #   EventTxRetriesExhausted (count), ReplicaSnapshotAgeSeconds, DumpAgeSeconds, MirrorDiverged (count).
+  AlarmTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub akldb-${Stage}-alarms
+      Subscription:
+        - { Protocol: email, Endpoint: !Ref AlertEmail }
+      Tags:
+        - { Key: project, Value: akldb }
+        - { Key: stage, Value: !Ref Stage }
+
+  AlarmTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics: [ !Ref AlarmTopic ]
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowCloudWatchAlarms
+            Effect: Allow
+            Principal: { Service: cloudwatch.amazonaws.com }
+            Action: sns:Publish
+            Resource: !Ref AlarmTopic
+            Condition: { StringEquals: { "aws:SourceAccount": !Ref "AWS::AccountId" } }
+
+  ApiErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub akldb-${Stage}-api-errors
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions: [ { Name: FunctionName, Value: !Ref ApiFn } ]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [ !Ref AlarmTopic ]
+  ApiThrottlesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub akldb-${Stage}-api-throttles
+      Namespace: AWS/Lambda
+      MetricName: Throttles
+      Dimensions: [ { Name: FunctionName, Value: !Ref ApiFn } ]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [ !Ref AlarmTopic ]
+  JobsErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub akldb-${Stage}-jobs-errors
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions: [ { Name: FunctionName, Value: !Ref JobsFn } ]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [ !Ref AlarmTopic ]
+  JobsThrottlesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub akldb-${Stage}-jobs-throttles
+      Namespace: AWS/Lambda
+      MetricName: Throttles
+      Dimensions: [ { Name: FunctionName, Value: !Ref JobsFn } ]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [ !Ref AlarmTopic ]
+
+  DdbSystemErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub akldb-${Stage}-ddb-system-errors
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [ !Ref AlarmTopic ]
+      Metrics:
+        - Id: e1
+          Expression: FILL(m1,0)+FILL(m2,0)+FILL(m3,0)+FILL(m4,0)+FILL(m5,0)
+          Label: SystemErrors
+          ReturnData: true
+        - Id: m1
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: AWS/DynamoDB
+              MetricName: SystemErrors
+              Dimensions: [ { Name: TableName, Value: !Ref MainTable }, { Name: Operation, Value: GetItem } ]
+            Period: 300
+            Stat: Sum
+        - Id: m2
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: AWS/DynamoDB
+              MetricName: SystemErrors
+              Dimensions: [ { Name: TableName, Value: !Ref MainTable }, { Name: Operation, Value: PutItem } ]
+            Period: 300
+            Stat: Sum
+        - Id: m3
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: AWS/DynamoDB
+              MetricName: SystemErrors
+              Dimensions: [ { Name: TableName, Value: !Ref MainTable }, { Name: Operation, Value: Query } ]
+            Period: 300
+            Stat: Sum
+        - Id: m4
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: AWS/DynamoDB
+              MetricName: SystemErrors
+              Dimensions: [ { Name: TableName, Value: !Ref MainTable }, { Name: Operation, Value: UpdateItem } ]
+            Period: 300
+            Stat: Sum
+        - Id: m5
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: AWS/DynamoDB
+              MetricName: SystemErrors
+              Dimensions: [ { Name: TableName, Value: !Ref MainTable }, { Name: Operation, Value: TransactWriteItems } ]
+            Period: 300
+            Stat: Sum
+
+  DdbThrottlesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub akldb-${Stage}-ddb-throttles
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [ !Ref AlarmTopic ]
+      Metrics:
+        - Id: e1
+          Expression: FILL(m1,0)+FILL(m2,0)
+          Label: Throttles
+          ReturnData: true
+        - Id: m1
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: AWS/DynamoDB
+              MetricName: ReadThrottleEvents
+              Dimensions: [ { Name: TableName, Value: !Ref MainTable } ]
+            Period: 300
+            Stat: Sum
+        - Id: m2
+          ReturnData: false
+          MetricStat:
+            Metric:
+              Namespace: AWS/DynamoDB
+              MetricName: WriteThrottleEvents
+              Dimensions: [ { Name: TableName, Value: !Ref MainTable } ]
+            Period: 300
+            Stat: Sum
+
+  EventTxRetriesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub akldb-${Stage}-eventtx-retries-exhausted
+      Namespace: Akldb
+      MetricName: EventTxRetriesExhausted
+      Dimensions: [ { Name: Stage, Value: !Ref Stage } ]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [ !Ref AlarmTopic ]
+
+  ReplicaStaleAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub akldb-${Stage}-replica-snapshot-stale
+      Namespace: Akldb
+      MetricName: ReplicaSnapshotAgeSeconds
+      Dimensions: [ { Name: Stage, Value: !Ref Stage } ]
+      Statistic: Maximum
+      Period: 900
+      EvaluationPeriods: 2
+      Threshold: 1800
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [ !Ref AlarmTopic ]
+
+  DumpStaleAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub akldb-${Stage}-dump-stale
+      Namespace: Akldb
+      MetricName: DumpAgeSeconds
+      Dimensions: [ { Name: Stage, Value: !Ref Stage } ]
+      Statistic: Maximum
+      Period: 3600
+      EvaluationPeriods: 1
+      Threshold: 172800
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [ !Ref AlarmTopic ]
+
+  MirrorDivergedAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: IsProd
+    Properties:
+      AlarmName: !Sub akldb-${Stage}-mirror-diverged
+      Namespace: Akldb
+      MetricName: MirrorDiverged
+      Dimensions: [ { Name: Stage, Value: !Ref Stage } ]
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [ !Ref AlarmTopic ]
+
+  # One account-level budget, so only the prod stack owns it. Alerts at $3 and $10 actual.
+  Budget:
+    Type: AWS::Budgets::Budget
+    Condition: IsProd
+    Properties:
+      Budget:
+        BudgetName: akldb-monthly
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit: { Amount: !Ref BudgetLimitUsd, Unit: USD }
+      NotificationsWithSubscribers:
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            ThresholdType: ABSOLUTE_VALUE
+            Threshold: 3
+          Subscribers: [ { SubscriptionType: EMAIL, Address: !Ref AlertEmail } ]
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            ThresholdType: ABSOLUTE_VALUE
+            Threshold: 10
+          Subscribers: [ { SubscriptionType: EMAIL, Address: !Ref AlertEmail } ]
+
+Outputs:
+  ApiDistributionDomain:
+    Value: !GetAtt Distribution.DomainName
+  ApiDistributionId:
+    Value: !Ref Distribution
+  ApiHostname:
+    Condition: HasAlias
+    Value: !If [ IsProd, api.akldb.org, staging-api.akldb.org ]
+  MainTableName:
+    Value: !Ref MainTable
+  EphemeralTableName:
+    Value: !Ref EphemeralTable
+  DataBucketName:
+    Value: !Ref DataBucket
+  DumpsBucketName:
+    Value: !Ref DumpsBucket
+  SnapshotBucketName:
+    Value: !Ref SnapshotBucket
+  LogGroupName:
+    Value: !Ref LogGroup
+  AlarmTopicArn:
+    Value: !Ref AlarmTopic
+  MirrorIngestUrl:
+    Condition: IsProd
+    Value: !GetAtt MirrorIngestUrl.FunctionUrl

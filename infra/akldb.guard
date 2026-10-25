@@ -1,0 +1,36 @@
+# cfn-guard rules for infra/akldb.yaml (design/aws-port.md sections 3 and 5.2).
+# infra/checks.mjs enforces the same rules in node:test, with the rejected mutations
+# (infra/akldb.test.mjs, LDB-INF), so the gate does not depend on the guard binary being installed.
+
+let tables = Resources.*[ Type == 'AWS::DynamoDB::Table' ]
+let fns = Resources.*[ Type == 'AWS::Lambda::Function' ]
+let urls = Resources.*[ Type == 'AWS::Lambda::Url' ]
+let roles = Resources.*[ Type == 'AWS::IAM::Role' ]
+
+rule tables_on_demand_with_pitr when %tables !empty {
+    %tables.Properties.BillingMode == 'PAY_PER_REQUEST'
+    %tables.Properties.PointInTimeRecoverySpecification.PointInTimeRecoveryEnabled == true
+}
+
+rule lambdas_node24_arm64 when %fns !empty {
+    %fns.Properties.Runtime == 'nodejs24.x'
+    %fns.Properties.Architectures[*] == 'arm64'
+    %fns.Properties.VpcConfig not exists
+}
+
+rule urls_stream_or_buffer when %urls !empty {
+    %urls.Properties.AuthType == 'NONE'
+    %urls.Properties.InvokeMode in ['RESPONSE_STREAM', 'BUFFERED']
+}
+
+rule no_vpc {
+    Resources.*[ Type == /^AWS::EC2::/ ] empty
+}
+
+rule no_wildcard_actions when %roles !empty {
+    %roles.Properties.Policies[*].PolicyDocument.Statement[*].Action[*] != /\*/
+}
+
+rule no_oac_no_waf {
+    Resources.*[ Type in ['AWS::CloudFront::OriginAccessControl', 'AWS::WAFv2::WebACL'] ] empty
+}

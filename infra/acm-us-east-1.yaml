@@ -1,0 +1,29 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  The akldb ACM certificate (design/aws-port.md section 5.2). CloudFront needs it in us-east-1, so this
+  stack is the one exception to the us-east-2 rule. DNS validation: the stack waits in
+  CREATE_IN_PROGRESS until saltorbit adds the five validation CNAMEs in Cloudflare (DNS-only).
+
+Rules:
+  RegionIsVirginia:
+    Assertions:
+      - Assert: !Equals [!Ref "AWS::Region", us-east-1]
+        AssertDescription: CloudFront certificates live in us-east-1.
+
+Resources:
+  Certificate:
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName: api.akldb.org
+      SubjectAlternativeNames:
+        - staging-api.akldb.org
+        - akldb.org
+        - www.akldb.org
+        - next.akldb.org
+      ValidationMethod: DNS
+      Tags:
+        - { Key: project, Value: akldb }
+
+Outputs:
+  CertificateArn:
+    Value: !Ref Certificate

@@ -1,0 +1,116 @@
+{
+  "RoleName": "akldb-cutover-role",
+  "MaxSessionDuration": 3600,
+  "TrustPolicy": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Sid": "TrustAkldbCiUserOnly",
+        "Effect": "Allow",
+        "Principal": {
+          "AWS": "arn:aws:iam::335937358231:user/akldb-ci"
+        },
+        "Action": "sts:AssumeRole"
+      }
+    ]
+  },
+  "RolePolicy": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Sid": "ProdTables",
+        "Effect": "Allow",
+        "Action": [
+          "dynamodb:GetItem",
+          "dynamodb:PutItem",
+          "dynamodb:UpdateItem",
+          "dynamodb:DeleteItem",
+          "dynamodb:Query",
+          "dynamodb:Scan",
+          "dynamodb:BatchGetItem",
+          "dynamodb:BatchWriteItem",
+          "dynamodb:DescribeTable"
+        ],
+        "Resource": [
+          "arn:aws:dynamodb:us-east-2:335937358231:table/akldb-prod-main",
+          "arn:aws:dynamodb:us-east-2:335937358231:table/akldb-prod-ephemeral"
+        ]
+      },
+      {
+        "Sid": "ProdStackParameterUpdates",
+        "Effect": "Allow",
+        "Action": [
+          "cloudformation:UpdateStack",
+          "cloudformation:DescribeStacks",
+          "cloudformation:DescribeStackEvents"
+        ],
+        "Resource": "arn:aws:cloudformation:us-east-2:335937358231:stack/akldb-prod/*"
+      },
+      {
+        "Sid": "WhatTheParameterUpdatesTouch",
+        "Effect": "Allow",
+        "Action": [
+          "lambda:GetFunction",
+          "lambda:GetFunctionConfiguration",
+          "lambda:UpdateFunctionConfiguration"
+        ],
+        "Resource": [
+          "arn:aws:lambda:us-east-2:335937358231:function:akldb-prod-api",
+          "arn:aws:lambda:us-east-2:335937358231:function:akldb-prod-feed",
+          "arn:aws:lambda:us-east-2:335937358231:function:akldb-prod-jobs",
+          "arn:aws:lambda:us-east-2:335937358231:function:akldb-prod-mirror-ingest",
+          "arn:aws:lambda:us-east-2:335937358231:function:akldb-prod-mirror-apply"
+        ]
+      },
+      {
+        "Sid": "ProdSchedules",
+        "Effect": "Allow",
+        "Action": [
+          "scheduler:GetSchedule",
+          "scheduler:UpdateSchedule"
+        ],
+        "Resource": [
+          "arn:aws:scheduler:us-east-2:335937358231:schedule/default/akldb-prod-jobs",
+          "arn:aws:scheduler:us-east-2:335937358231:schedule/default/akldb-prod-mirror-apply"
+        ]
+      },
+      {
+        "Sid": "PassSchedulerRole",
+        "Effect": "Allow",
+        "Action": "iam:PassRole",
+        "Resource": "arn:aws:iam::335937358231:role/akldb-prod-scheduler",
+        "Condition": {
+          "StringEquals": {
+            "iam:PassedToService": "scheduler.amazonaws.com"
+          }
+        }
+      },
+      {
+        "Sid": "WakeApplier",
+        "Effect": "Allow",
+        "Action": "lambda:InvokeFunction",
+        "Resource": "arn:aws:lambda:us-east-2:335937358231:function:akldb-prod-mirror-apply"
+      },
+      {
+        "Sid": "ReadProdParameters",
+        "Effect": "Allow",
+        "Action": [
+          "ssm:GetParameter",
+          "ssm:GetParameters"
+        ],
+        "Resource": "arn:aws:ssm:us-east-2:335937358231:parameter/akldb/prod/*"
+      },
+      {
+        "Sid": "DecryptParametersViaSsm",
+        "Effect": "Allow",
+        "Action": "kms:Decrypt",
+        "Resource": "arn:aws:kms:us-east-2:335937358231:key/*",
+        "Condition": {
+          "StringEquals": {
+            "kms:ViaService": "ssm.us-east-2.amazonaws.com"
+          }
+        }
+      }
+    ]
+  }
+}
