@@ -1,7 +1,7 @@
 // Shared setup for lane G's DynamoDB tests: a context on DynamoDB Local with
 // an in-memory blob store and a catalog built from a full consistent scan
 // (the stand-in for lane H until it lands; the Catalog contract is the same).
-import { QueryCommand, ScanCommand, TransactWriteCommand } from "@aws-sdk/lib-dynamodb";
+import { QueryCommand, ScanCommand, TransactWriteCommand, type ScanCommandOutput } from "@aws-sdk/lib-dynamodb";
 import type { BlobStore } from "../../src/platform/port";
 import { createDocClient } from "../../src/store/ddb/client";
 import type { Catalog, CatalogLayout, CatalogView, DdbContext, Item } from "../../src/store/ddb/contracts";
@@ -9,6 +9,8 @@ import { createTables, deleteTables } from "../../src/store/ddb/tables";
 import { formatRowsOf, layoutRowOf } from "../../src/store/ddb/schema/core";
 import { txTuning } from "../../src/store/ddb/tx";
 import { createDdbStore } from "../../src/store/ddb";
+import { withCallCounter, type CountingDoc } from "../../src/store/ddb/counting";
+import { withFaults, type FaultyDoc } from "../../src/store/ddb/faults";
 import type { Store } from "../../src/store/port";
 import { ddbEventStore } from "../../src/store/ddb/events";
 import { ddbHeadStore } from "../../src/store/ddb/head";
@@ -33,11 +35,14 @@ export function memoryBlobs(): BlobStore & { keys(): string[] } {
   };
 }
 
-export async function scanAll(doc: DdbContext["doc"], table: string): Promise<Item[]> {
-  const out: Item[] = [];
-  let start: Record<string, unknown> | undefined;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type AnyItem = Record<string, any>;
+
+export async function scanAll(doc: DdbContext["doc"], table: string): Promise<AnyItem[]> {
+  const out: AnyItem[] = [];
+  let start: Record<string, any> | undefined;
   do {
-    const r = await doc.send(new ScanCommand({ TableName: table, ConsistentRead: true, ExclusiveStartKey: start }));
+    const r: ScanCommandOutput = await doc.send(new ScanCommand({ TableName: table, ConsistentRead: true, ExclusiveStartKey: start }));
     out.push(...(r.Items ?? []));
     start = r.LastEvaluatedKey;
   } while (start !== undefined);
@@ -73,18 +78,30 @@ export interface TestDdb {
   state: ReturnType<typeof ddbStateStore>;
   layouts: ReturnType<typeof ddbLayoutReadStore>;
   events: ReturnType<typeof ddbEventStore>;
+  /** The fault wrapper (random conflicts at `faultRate`, `failWritesFor`, `staleReads`) and the call counter around it. */
+  faulty: FaultyDoc;
+  counted: CountingDoc;
   reset(): Promise<void>;
   drop(): Promise<void>;
 }
 
+export interface OpenOptions {
+  /** Probability that a write call is faulted with a conflict, throttle or 500 (default 0). */
+  faultRate?: number;
+  seed?: number;
+}
+
 /** Tables named per test file; `reset()` empties them between tests. */
-export async function openDdb(name: string): Promise<TestDdb> {
+export async function openDdb(name: string, opts: OpenOptions = {}): Promise<TestDdb> {
   const doc = createDocClient({ endpoint: `http://127.0.0.1:${PORT}`, region: "us-east-2" });
   const tables = { main: `${name}-main`, ephemeral: `${name}-eph` };
   const blobs = memoryBlobs();
-  const base = { doc, tables, blobs };
+  const faulty = withFaults(doc, { rate: opts.faultRate ?? 0, seed: opts.seed ?? 1, tables });
+  const counted = withCallCounter(faulty);
+  const base = { doc: counted as DdbContext["doc"], tables, blobs };
   const ctx: DdbContext = { ...base, catalog: scanCatalog(base) };
-  txTuning.sleep = async () => {};
+  // Real backoff shape, scaled down: lockstep retries (no delay) would exhaust 8 attempts under a 12-way burst.
+  txTuning.sleep = (ms) => new Promise((r) => setTimeout(r, ms / 5));
   await deleteTables(doc, tables);
   await createTables(doc, tables);
   const reset = async () => {
@@ -101,12 +118,14 @@ export async function openDdb(name: string): Promise<TestDdb> {
     state: ddbStateStore(ctx),
     layouts: ddbLayoutReadStore(ctx),
     events: ddbEventStore(ctx),
+    faulty,
+    counted,
     reset,
     drop: () => deleteTables(doc, tables),
   };
 }
 
-export async function queryPk(ctx: DdbContext, pk: string, table: "main" | "ephemeral" = "main"): Promise<Item[]> {
+export async function queryPk(ctx: DdbContext, pk: string, table: "main" | "ephemeral" = "main"): Promise<AnyItem[]> {
   const r = await ctx.doc.send(
     new QueryCommand({ TableName: ctx.tables[table], KeyConditionExpression: "pk = :p", ExpressionAttributeValues: { ":p": pk }, ConsistentRead: true }),
   );
