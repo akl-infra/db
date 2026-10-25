@@ -1,0 +1,993 @@
+{
+ "base": {
+  "rev": "origin/main",
+  "sha": "5f6bf7cef41cad9fbe4ebc02d1e4d5cf85068ca4"
+ },
+ "head": {
+  "rev": "aws-port",
+  "sha": "7e5454427d69d4363451eed92fdf6777668ffec6"
+ },
+ "dump": {
+  "source": "fixture",
+  "layouts": 100,
+  "seq": 539
+ },
+ "requests": 4174,
+ "response_diffs": 0,
+ "tables": {
+  "compared": 30,
+  "differing": []
+ },
+ "families": {
+  "before meta": {
+   "requests": 1,
+   "diffs": 0,
+   "statuses": {
+    "200": 1
+   }
+  },
+  "before meta (If-None-Match)": {
+   "requests": 1,
+   "diffs": 0,
+   "statuses": {
+    "304": 1
+   }
+  },
+  "before formats": {
+   "requests": 4,
+   "diffs": 0,
+   "statuses": {
+    "200": 3,
+    "404": 1
+   }
+  },
+  "before layout detail": {
+   "requests": 303,
+   "diffs": 0,
+   "statuses": {
+    "200": 200,
+    "400": 101,
+    "404": 2
+   }
+  },
+  "before layout history": {
+   "requests": 200,
+   "diffs": 0,
+   "statuses": {
+    "200": 200
+   }
+  },
+  "before layout likes": {
+   "requests": 100,
+   "diffs": 0,
+   "statuses": {
+    "200": 100
+   }
+  },
+  "before layout by name": {
+   "requests": 200,
+   "diffs": 0,
+   "statuses": {
+    "200": 200
+   }
+  },
+  "before layout comments": {
+   "requests": 100,
+   "diffs": 0,
+   "statuses": {
+    "200": 100
+   }
+  },
+  "before layout rev": {
+   "requests": 400,
+   "diffs": 0,
+   "statuses": {
+    "200": 200,
+    "400": 100,
+    "404": 100
+   }
+  },
+  "before layout comments (If-None-Match)": {
+   "requests": 100,
+   "diffs": 0,
+   "statuses": {
+    "304": 100
+   }
+  },
+  "before list": {
+   "requests": 272,
+   "diffs": 0,
+   "statuses": {
+    "200": 272
+   }
+  },
+  "before list (If-None-Match)": {
+   "requests": 272,
+   "diffs": 0,
+   "statuses": {
+    "304": 272
+   }
+  },
+  "before list errors": {
+   "requests": 6,
+   "diffs": 0,
+   "statuses": {
+    "200": 1,
+    "400": 5
+   }
+  },
+  "before list errors (If-None-Match)": {
+   "requests": 1,
+   "diffs": 0,
+   "statuses": {
+    "304": 1
+   }
+  },
+  "before full": {
+   "requests": 4,
+   "diffs": 0,
+   "statuses": {
+    "200": 4
+   }
+  },
+  "before full (If-None-Match)": {
+   "requests": 4,
+   "diffs": 0,
+   "statuses": {
+    "304": 4
+   }
+  },
+  "before changes": {
+   "requests": 57,
+   "diffs": 0,
+   "statuses": {
+    "200": 57
+   }
+  },
+  "before changes (If-None-Match)": {
+   "requests": 57,
+   "diffs": 0,
+   "statuses": {
+    "200": 1,
+    "304": 56
+   }
+  },
+  "before changes errors": {
+   "requests": 4,
+   "diffs": 0,
+   "statuses": {
+    "400": 3,
+    "404": 1
+   }
+  },
+  "before changelog": {
+   "requests": 2,
+   "diffs": 0,
+   "statuses": {
+    "200": 2
+   }
+  },
+  "before changelog (If-None-Match)": {
+   "requests": 2,
+   "diffs": 0,
+   "statuses": {
+    "304": 2
+   }
+  },
+  "before authors": {
+   "requests": 35,
+   "diffs": 0,
+   "statuses": {
+    "200": 34,
+    "404": 1
+   }
+  },
+  "before authors (If-None-Match)": {
+   "requests": 2,
+   "diffs": 0,
+   "statuses": {
+    "304": 2
+   }
+  },
+  "before wpm": {
+   "requests": 1,
+   "diffs": 0,
+   "statuses": {
+    "200": 1
+   }
+  },
+  "before wpm (If-None-Match)": {
+   "requests": 1,
+   "diffs": 0,
+   "statuses": {
+    "304": 1
+   }
+  },
+  "before comments": {
+   "requests": 1,
+   "diffs": 0,
+   "statuses": {
+    "200": 1
+   }
+  },
+  "before comments (If-None-Match)": {
+   "requests": 1,
+   "diffs": 0,
+   "statuses": {
+    "304": 1
+   }
+  },
+  "before dump": {
+   "requests": 5,
+   "diffs": 0,
+   "statuses": {
+    "404": 5
+   }
+  },
+  "writes (setup)": {
+   "requests": 1,
+   "diffs": 0,
+   "statuses": {
+    "200": 1
+   }
+  },
+  "writes": {
+   "requests": 86,
+   "diffs": 0,
+   "statuses": {
+    "200": 48,
+    "201": 8,
+    "202": 6,
+    "204": 3,
+    "302": 1,
+    "400": 7,
+    "401": 3,
+    "403": 3,
+    "404": 1,
+    "409": 5,
+    "422": 1
+   }
+  },
+  "writes (If-None-Match)": {
+   "requests": 5,
+   "diffs": 0,
+   "statuses": {
+    "200": 3,
+    "304": 2
+   }
+  },
+  "after meta": {
+   "requests": 1,
+   "diffs": 0,
+   "statuses": {
+    "200": 1
+   }
+  },
+  "after meta (If-None-Match)": {
+   "requests": 1,
+   "diffs": 0,
+   "statuses": {
+    "304": 1
+   }
+  },
+  "after formats": {
+   "requests": 4,
+   "diffs": 0,
+   "statuses": {
+    "200": 3,
+    "404": 1
+   }
+  },
+  "after layout detail": {
+   "requests": 303,
+   "diffs": 0,
+   "statuses": {
+    "200": 200,
+    "400": 101,
+    "404": 2
+   }
+  },
+  "after layout history": {
+   "requests": 200,
+   "diffs": 0,
+   "statuses": {
+    "200": 200
+   }
+  },
+  "after layout by name": {
+   "requests": 200,
+   "diffs": 0,
+   "statuses": {
+    "200": 200
+   }
+  },
+  "after layout rev": {
+   "requests": 200,
+   "diffs": 0,
+   "statuses": {
+    "200": 100,
+    "400": 100
+   }
+  },
+  "after layout comments": {
+   "requests": 100,
+   "diffs": 0,
+   "statuses": {
+    "200": 100
+   }
+  },
+  "after layout likes": {
+   "requests": 100,
+   "diffs": 0,
+   "statuses": {
+    "200": 100
+   }
+  },
+  "after layout comments (If-None-Match)": {
+   "requests": 100,
+   "diffs": 0,
+   "statuses": {
+    "304": 100
+   }
+  },
+  "after list": {
+   "requests": 272,
+   "diffs": 0,
+   "statuses": {
+    "200": 272
+   }
+  },
+  "after list (If-None-Match)": {
+   "requests": 272,
+   "diffs": 0,
+   "statuses": {
+    "304": 272
+   }
+  },
+  "after list errors": {
+   "requests": 6,
+   "diffs": 0,
+   "statuses": {
+    "200": 1,
+    "400": 5
+   }
+  },
+  "after list errors (If-None-Match)": {
+   "requests": 1,
+   "diffs": 0,
+   "statuses": {
+    "304": 1
+   }
+  },
+  "after full": {
+   "requests": 4,
+   "diffs": 0,
+   "statuses": {
+    "200": 4
+   }
+  },
+  "after full (If-None-Match)": {
+   "requests": 4,
+   "diffs": 0,
+   "statuses": {
+    "304": 4
+   }
+  },
+  "after changes": {
+   "requests": 61,
+   "diffs": 0,
+   "statuses": {
+    "200": 61
+   }
+  },
+  "after changes (If-None-Match)": {
+   "requests": 61,
+   "diffs": 0,
+   "statuses": {
+    "200": 1,
+    "304": 60
+   }
+  },
+  "after changes errors": {
+   "requests": 4,
+   "diffs": 0,
+   "statuses": {
+    "400": 3,
+    "404": 1
+   }
+  },
+  "after changelog": {
+   "requests": 2,
+   "diffs": 0,
+   "statuses": {
+    "200": 2
+   }
+  },
+  "after changelog (If-None-Match)": {
+   "requests": 2,
+   "diffs": 0,
+   "statuses": {
+    "304": 2
+   }
+  },
+  "after authors": {
+   "requests": 35,
+   "diffs": 0,
+   "statuses": {
+    "200": 34,
+    "404": 1
+   }
+  },
+  "after authors (If-None-Match)": {
+   "requests": 2,
+   "diffs": 0,
+   "statuses": {
+    "304": 2
+   }
+  },
+  "after wpm": {
+   "requests": 1,
+   "diffs": 0,
+   "statuses": {
+    "200": 1
+   }
+  },
+  "after wpm (If-None-Match)": {
+   "requests": 1,
+   "diffs": 0,
+   "statuses": {
+    "304": 1
+   }
+  },
+  "after comments": {
+   "requests": 1,
+   "diffs": 0,
+   "statuses": {
+    "200": 1
+   }
+  },
+  "after comments (If-None-Match)": {
+   "requests": 1,
+   "diffs": 0,
+   "statuses": {
+    "304": 1
+   }
+  },
+  "after dump": {
+   "requests": 5,
+   "diffs": 0,
+   "statuses": {
+    "200": 2,
+    "302": 1,
+    "404": 2
+   }
+  },
+  "after dump (If-None-Match)": {
+   "requests": 2,
+   "diffs": 0,
+   "statuses": {
+    "200": 2
+   }
+  }
+ },
+ "writes": [
+  {
+   "label": "me (client lane)",
+   "method": "GET",
+   "path": "/v1/me",
+   "status": 200
+  },
+  {
+   "label": "me (bearer lane)",
+   "method": "GET",
+   "path": "/v1/me",
+   "status": 200
+  },
+  {
+   "label": "me (bad bearer)",
+   "method": "GET",
+   "path": "/v1/me",
+   "status": 401
+  },
+  {
+   "label": "touch user B",
+   "method": "GET",
+   "path": "/v1/me",
+   "status": 200
+  },
+  {
+   "label": "create",
+   "method": "POST",
+   "path": "/v1/layouts",
+   "status": 201
+  },
+  {
+   "label": "create again (name taken)",
+   "method": "POST",
+   "path": "/v1/layouts",
+   "status": 409
+  },
+  {
+   "label": "create (bad name)",
+   "method": "POST",
+   "path": "/v1/layouts",
+   "status": 400
+  },
+  {
+   "label": "create (unknown format)",
+   "method": "POST",
+   "path": "/v1/layouts",
+   "status": 400
+  },
+  {
+   "label": "create (idempotent)",
+   "method": "POST",
+   "path": "/v1/layouts",
+   "status": 201
+  },
+  {
+   "label": "create (idempotent replay)",
+   "method": "POST",
+   "path": "/v1/layouts",
+   "status": 201
+  },
+  {
+   "label": "create (idempotent mismatch)",
+   "method": "POST",
+   "path": "/v1/layouts",
+   "status": 422
+  },
+  {
+   "label": "put (replace)",
+   "method": "PUT",
+   "path": "/v1/layouts/01M5SEX9C8Y6T3BZG150TX4878",
+   "status": 200
+  },
+  {
+   "label": "put (stale)",
+   "method": "PUT",
+   "path": "/v1/layouts/01M5SEX9C8Y6T3BZG150TX4878",
+   "status": 409
+  },
+  {
+   "label": "put (no If-Match)",
+   "method": "PUT",
+   "path": "/v1/layouts/01M5SEX9C8Y6T3BZG150TX4878",
+   "status": 400
+  },
+  {
+   "label": "put (not owner)",
+   "method": "PUT",
+   "path": "/v1/layouts/01M5SEX9C8Y6T3BZG150TX4878",
+   "status": 403
+  },
+  {
+   "label": "patch fingermap",
+   "method": "PATCH",
+   "path": "/v1/layouts/01M5SEX9C8Y6T3BZG150TX4878",
+   "status": 200
+  },
+  {
+   "label": "patch mixed",
+   "method": "PATCH",
+   "path": "/v1/layouts/01M5SEX9C8Y6T3BZG150TX4878",
+   "status": 400
+  },
+  {
+   "label": "rename",
+   "method": "PATCH",
+   "path": "/v1/layouts/01M5SEX9C8Y6T3BZG150TX4878",
+   "status": 200
+  },
+  {
+   "label": "like",
+   "method": "PUT",
+   "path": "/v1/layouts/01M5SEX9C8Y6T3BZG150TX4878/like",
+   "status": 200
+  },
+  {
+   "label": "like again",
+   "method": "PUT",
+   "path": "/v1/layouts/01M5SEX9C8Y6T3BZG150TX4878/like",
+   "status": 409
+  },
+  {
+   "label": "like (bearer)",
+   "method": "PUT",
+   "path": "/v1/layouts/01M5SEX9C8Y6T3BZG150TX4878/like",
+   "status": 200
+  },
+  {
+   "label": "unlike",
+   "method": "DELETE",
+   "path": "/v1/layouts/01M5SEX9C8Y6T3BZG150TX4878/like",
+   "status": 200
+  },
+  {
+   "label": "unlike again",
+   "method": "DELETE",
+   "path": "/v1/layouts/01M5SEX9C8Y6T3BZG150TX4878/like",
+   "status": 409
+  },
+  {
+   "label": "like back",
+   "method": "PUT",
+   "path": "/v1/layouts/01M5SEX9C8Y6T3BZG150TX4878/like",
+   "status": 200
+  },
+  {
+   "label": "transfer",
+   "method": "POST",
+   "path": "/v1/layouts/01M5SEX9C8Y6T3BZG150TX4878/transfer",
+   "status": 200
+  },
+  {
+   "label": "transfer (unknown user)",
+   "method": "POST",
+   "path": "/v1/layouts/01M5SEX9C8Y6T3BZG150TX4878/transfer",
+   "status": 400
+  },
+  {
+   "label": "delete",
+   "method": "DELETE",
+   "path": "/v1/layouts/01M5SEX9C8Y6T3BZG150TX4878",
+   "status": 200
+  },
+  {
+   "label": "get tombstone",
+   "method": "GET",
+   "path": "/v1/layouts/01M5SEX9C8Y6T3BZG150TX4878?format=spark%2F1",
+   "status": 200
+  },
+  {
+   "label": "restore",
+   "method": "POST",
+   "path": "/v1/layouts/01M5SEX9C8Y6T3BZG150TX4878/restore",
+   "status": 200
+  },
+  {
+   "label": "restore (not deleted)",
+   "method": "POST",
+   "path": "/v1/layouts/01M5SEX9C8Y6T3BZG150TX4878/restore",
+   "status": 400
+  },
+  {
+   "label": "create two",
+   "method": "POST",
+   "path": "/v1/layouts",
+   "status": 201
+  },
+  {
+   "label": "like two",
+   "method": "PUT",
+   "path": "/v1/layouts/01M5SEY2RRVH7W30KPGQQTG3ZD/like",
+   "status": 200
+  },
+  {
+   "label": "delete two",
+   "method": "DELETE",
+   "path": "/v1/layouts/01M5SEY2RRVH7W30KPGQQTG3ZD",
+   "status": 200
+  },
+  {
+   "label": "reclaim two",
+   "method": "POST",
+   "path": "/v1/layouts",
+   "status": 201
+  },
+  {
+   "label": "link submit",
+   "method": "PUT",
+   "path": "/v1/layouts/01M5SEX9C8Y6T3BZG150TX4878/link",
+   "status": 202
+  },
+  {
+   "label": "link get",
+   "method": "GET",
+   "path": "/v1/layouts/01M5SEX9C8Y6T3BZG150TX4878/link",
+   "status": 200
+  },
+  {
+   "label": "link queue",
+   "method": "GET",
+   "path": "/v1/admin/link-queue",
+   "status": 200
+  },
+  {
+   "label": "link approve",
+   "method": "POST",
+   "path": "/v1/admin/link-queue/01M5SEY6NRKGKXNQR87T7RBZXC/approve",
+   "status": 200
+  },
+  {
+   "label": "link clear",
+   "method": "DELETE",
+   "path": "/v1/layouts/01M5SEX9C8Y6T3BZG150TX4878/link",
+   "status": 200
+  },
+  {
+   "label": "link submit 2",
+   "method": "PUT",
+   "path": "/v1/layouts/01M5SEX9C8Y6T3BZG150TX4878/link",
+   "status": 202
+  },
+  {
+   "label": "link queue 2",
+   "method": "GET",
+   "path": "/v1/admin/link-queue",
+   "status": 200
+  },
+  {
+   "label": "link reject",
+   "method": "POST",
+   "path": "/v1/admin/link-queue/01M5SEYBJ08NVQ46ZQD5B81WM4/reject",
+   "status": 200
+  },
+  {
+   "label": "wpm submit",
+   "method": "POST",
+   "path": "/v1/wpm",
+   "status": 202
+  },
+  {
+   "label": "wpm receipt",
+   "method": "GET",
+   "path": "/v1/wpm/submissions/01M5SEYEFRCK8WH65CDQJ6750R",
+   "status": 200
+  },
+  {
+   "label": "wpm receipt (other)",
+   "method": "GET",
+   "path": "/v1/wpm/submissions/01M5SEYEFRCK8WH65CDQJ6750R",
+   "status": 404
+  },
+  {
+   "label": "wpm queue",
+   "method": "GET",
+   "path": "/v1/admin/wpm-queue",
+   "status": 200
+  },
+  {
+   "label": "wpm approve",
+   "method": "POST",
+   "path": "/v1/admin/wpm-queue/01M5SEYEFRCK8WH65CDQJ6750R/approve",
+   "status": 200
+  },
+  {
+   "label": "wpm reopen",
+   "method": "POST",
+   "path": "/v1/admin/wpm-queue/01M5SEYEFRCK8WH65CDQJ6750R/reopen",
+   "status": 200
+  },
+  {
+   "label": "wpm reject",
+   "method": "POST",
+   "path": "/v1/admin/wpm-queue/01M5SEYEFRCK8WH65CDQJ6750R/reject",
+   "status": 200
+  },
+  {
+   "label": "wpm history",
+   "method": "GET",
+   "path": "/v1/admin/wpm-queue/01M5SEYEFRCK8WH65CDQJ6750R/history",
+   "status": 200
+  },
+  {
+   "label": "wpm on behalf",
+   "method": "POST",
+   "path": "/v1/admin/wpm",
+   "status": 201
+  },
+  {
+   "label": "wpm records",
+   "method": "GET",
+   "path": "/v1/wpm?layout=01M5SEX9C8Y6T3BZG150TX4878",
+   "status": 200
+  },
+  {
+   "label": "comment submit",
+   "method": "PUT",
+   "path": "/v1/layouts/01M5SEX9C8Y6T3BZG150TX4878/comment",
+   "status": 202
+  },
+  {
+   "label": "comment queue",
+   "method": "GET",
+   "path": "/v1/admin/comment-queue",
+   "status": 200
+  },
+  {
+   "label": "comment approve",
+   "method": "POST",
+   "path": "/v1/admin/comment-queue/01M5SEYS7G71GBC1JJA884NZM7/approve",
+   "status": 200
+  },
+  {
+   "label": "comment like",
+   "method": "PUT",
+   "path": "/v1/layouts/01M5SEX9C8Y6T3BZG150TX4878/comments/100000000000000002/like",
+   "status": 204
+  },
+  {
+   "label": "comment like own",
+   "method": "PUT",
+   "path": "/v1/layouts/01M5SEX9C8Y6T3BZG150TX4878/comments/100000000000000002/like",
+   "status": 400
+  },
+  {
+   "label": "comments list",
+   "method": "GET",
+   "path": "/v1/layouts/01M5SEX9C8Y6T3BZG150TX4878/comments",
+   "status": 200
+  },
+  {
+   "label": "own comment",
+   "method": "GET",
+   "path": "/v1/layouts/01M5SEX9C8Y6T3BZG150TX4878/comment",
+   "status": 200
+  },
+  {
+   "label": "my comments",
+   "method": "GET",
+   "path": "/v1/me/comments",
+   "status": 200
+  },
+  {
+   "label": "comment edit",
+   "method": "PUT",
+   "path": "/v1/layouts/01M5SEX9C8Y6T3BZG150TX4878/comment",
+   "status": 202
+  },
+  {
+   "label": "comment reject",
+   "method": "POST",
+   "path": "/v1/admin/comment-queue/01M5SEZ11GBY9D9HQWY2W6JYG5/reject",
+   "status": 200
+  },
+  {
+   "label": "comment remove",
+   "method": "POST",
+   "path": "/v1/admin/comments/01M5SEYS7G71GBC1JJA884NZM7/remove",
+   "status": 200
+  },
+  {
+   "label": "comment reopen",
+   "method": "POST",
+   "path": "/v1/admin/comment-queue/01M5SEYS7G71GBC1JJA884NZM7/reopen",
+   "status": 409
+  },
+  {
+   "label": "comment unlike",
+   "method": "DELETE",
+   "path": "/v1/layouts/01M5SEX9C8Y6T3BZG150TX4878/comments/100000000000000002/like",
+   "status": 204
+  },
+  {
+   "label": "comment submit B",
+   "method": "PUT",
+   "path": "/v1/layouts/01M5SEX9C8Y6T3BZG150TX4878/comment",
+   "status": 202
+  },
+  {
+   "label": "comment delete own",
+   "method": "DELETE",
+   "path": "/v1/layouts/01M5SEX9C8Y6T3BZG150TX4878/comment",
+   "status": 204
+  },
+  {
+   "label": "comment counts",
+   "method": "GET",
+   "path": "/v1/comment-counts",
+   "status": 200
+  },
+  {
+   "label": "ban",
+   "method": "PUT",
+   "path": "/v1/admin/bans/100000000000000004",
+   "status": 201
+  },
+  {
+   "label": "banned write",
+   "method": "PUT",
+   "path": "/v1/layouts/01M5SEX9C8Y6T3BZG150TX4878/like",
+   "status": 403
+  },
+  {
+   "label": "bans",
+   "method": "GET",
+   "path": "/v1/admin/bans",
+   "status": 200
+  },
+  {
+   "label": "unban",
+   "method": "DELETE",
+   "path": "/v1/admin/bans/100000000000000004",
+   "status": 200
+  },
+  {
+   "label": "author rename",
+   "method": "PUT",
+   "path": "/v1/admin/authors/100000000000000004",
+   "status": 200
+  },
+  {
+   "label": "admins",
+   "method": "GET",
+   "path": "/v1/admin/admins",
+   "status": 200
+  },
+  {
+   "label": "admin add",
+   "method": "POST",
+   "path": "/v1/admin/admins",
+   "status": 201
+  },
+  {
+   "label": "admin remove",
+   "method": "DELETE",
+   "path": "/v1/admin/admins/100000000000000004",
+   "status": 200
+  },
+  {
+   "label": "clients",
+   "method": "GET",
+   "path": "/v1/admin/clients",
+   "status": 200
+  },
+  {
+   "label": "not admin",
+   "method": "GET",
+   "path": "/v1/admin/clients",
+   "status": 403
+  },
+  {
+   "label": "dump write",
+   "method": "POST",
+   "path": "/v1/admin/dump",
+   "status": 200
+  },
+  {
+   "label": "dump read /v1/dump",
+   "method": "GET",
+   "path": "/v1/dump",
+   "status": 302
+  },
+  {
+   "label": "dump read /v1/dump/latest.json",
+   "method": "GET",
+   "path": "/v1/dump/latest.json",
+   "status": 200
+  },
+  {
+   "label": "dump read /v1/dump/dump-2026-10-25.json.gz",
+   "method": "GET",
+   "path": "/v1/dump/dump-2026-10-25.json.gz",
+   "status": 200
+  },
+  {
+   "label": "nightly tick",
+   "method": "POST",
+   "path": "/v1/admin/nightly/tick",
+   "status": 200
+  },
+  {
+   "label": "unsigned write",
+   "method": "POST",
+   "path": "/v1/layouts",
+   "status": 401
+  },
+  {
+   "label": "bad signature",
+   "method": "POST",
+   "path": "/v1/layouts",
+   "status": 401
+  },
+  {
+   "label": "long-poll (signed, wait=1)",
+   "method": "GET",
+   "path": "/v1/changes?since=999999&wait=1",
+   "status": 200
+  }
+ ],
+ "diffs": [],
+ "seconds": 11
+}
