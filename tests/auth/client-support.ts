@@ -29,7 +29,11 @@ export interface SeedClientOpts {
 // vector client id (`vectors.vectors[0].client_id`) in their own
 // `beforeAll` -- idempotent re-seeding here means each describe block can
 // stay self-contained instead of relying on file-wide ordering.
-export async function seedClient(_db: unknown, now: Clock, opts: SeedClientOpts): Promise<void> {
+// Callable as seedClient(now, opts) or, for older call sites, seedClient(db, now, opts); the db is ignored.
+export async function seedClient(now: Clock, opts: SeedClientOpts): Promise<void>;
+export async function seedClient(_db: unknown, now: Clock, opts: SeedClientOpts): Promise<void>;
+export async function seedClient(...args: [Clock, SeedClientOpts] | [unknown, Clock, SeedClientOpts]): Promise<void> {
+  const [now, opts] = args.length === 2 ? args : [args[1], args[2]];
   const at = now();
   const row = {
     id: opts.id,
