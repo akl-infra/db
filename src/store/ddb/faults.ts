@@ -30,6 +30,12 @@ export interface FaultOptions {
   kinds?: readonly FaultKind[];
   /** Also fault read calls (Get/Query/Scan/BatchGet) with Throttling or InternalServerError. Default false. */
   reads?: boolean;
+  /**
+   * The AWS SDK retries throttling and 5xx itself (3 attempts by default) before the store sees them;
+   * this wrapper sits above it, so Throttling/InternalServerError surface only after this many
+   * consecutive injections. TransactionConflict is never retried by the SDK and always surfaces. Default 3.
+   */
+  sdkAttempts?: number;
   /** Table names, so `WriteTouch.kind` can say "main" or "ephemeral". */
   tables?: { main: string; ephemeral: string };
 }
@@ -195,7 +201,13 @@ export function withFaults(doc: DynamoDBDocumentClient, opts: FaultOptions = {})
       if (rate > 0 && rand() < rate) {
         const pool = kinds;
         const kind = pool[Math.floor(rand() * pool.length)];
-        if (kind !== undefined) throw inject(kind, cmd, touches);
+        if (kind === "TransactionConflict") throw inject(kind, cmd, touches);
+        if (kind !== undefined) {
+          // Emulate the SDK's own retries: surface only if every attempt faults.
+          let all = true;
+          for (let a = 1; a < (opts.sdkAttempts ?? 3); a++) if (rand() >= rate) all = false;
+          if (all) throw inject(kind, cmd, touches);
+        }
       }
       if (trackStale) {
         const before = new Map<string, Item | null>();

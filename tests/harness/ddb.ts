@@ -70,6 +70,8 @@ export const env: Bindings & Record<string, any> = {
   TEST_REHOST_DUMP_URL: process.env.REHOST_DUMP_URL ?? "",
   DB: store as unknown as D1Database,
   PLATFORM: platform,
+  // workerd refuses `new Function`; pool-workers hands tests this binding instead. Node has no such rule.
+  __VITEST_POOL_WORKERS_UNSAFE_EVAL: { newFunction: (body: string) => new Function(body) },
 } as unknown as Bindings & Record<string, any>;
 
 interface Ctx {
