@@ -4,15 +4,13 @@
 // uniqueness space (`layouts_name_live`), so a new layout -- or a restore --
 // may take a name a tombstone still carries; `renamed` frees the old name in
 // the same batch.
-import { env } from "cloudflare:test";
-import type { Bindings } from "../../src/env";
+import { env, store } from "../harness";
 import { describe, expect, it } from "vitest";
 import { commitWrite, type CommitInput } from "../../src/core/events";
 import { formatsForLayout, readById, type LayoutRow } from "../../src/core/records";
 import { fixedClock } from "../../src/core/time";
 import { ulid } from "ulidx";
 
-const db = (env as unknown as Bindings).DB;
 const clock = fixedClock("2026-05-01T00:00:00.000Z");
 const SOURCE = { client: "discord-app:test", version: null };
 
@@ -31,11 +29,11 @@ function create(name: string, owner = "owner-a") {
     source: SOURCE,
     upstream: null,
   };
-  return commitWrite(db, clock, input);
+  return commitWrite(store, clock, input);
 }
 
 async function layoutScope(layout: LayoutRow, kind: "deleted" | "restored" | "renamed" | "updated-name", name: string, deleted: boolean) {
-  const currentFormats = await formatsForLayout(db, layout.id);
+  const currentFormats = await formatsForLayout(store, layout.id);
   const input: CommitInput = {
     layoutId: layout.id,
     creating: false,
@@ -49,7 +47,7 @@ async function layoutScope(layout: LayoutRow, kind: "deleted" | "restored" | "re
     source: SOURCE,
     upstream: layout.upstream,
   };
-  return commitWrite(db, clock, input);
+  return commitWrite(store, clock, input);
 }
 
 describe("name uniqueness", () => {
@@ -65,7 +63,7 @@ describe("name uniqueness", () => {
     const { layout: a } = await create("Bar-1");
     await layoutScope(a, "deleted", a.name, true);
 
-    const readBack = await readById(db, a.id);
+    const readBack = await readById(store, a.id);
     expect(readBack).not.toBeNull();
     expect(readBack!.deleted).toBe(true);
     expect(readBack!.name).toBe("Bar-1"); // the tombstone's own name column, unchanged
@@ -80,7 +78,7 @@ describe("name uniqueness", () => {
     await layoutScope(a, "deleted", a.name, true);
     await create("Restore-1"); // a new live layout takes the freed name
 
-    const tombstoned = (await readById(db, a.id))!;
+    const tombstoned = (await readById(store, a.id))!;
     await expect(layoutScope(tombstoned, "restored", "Restore-1", false)).rejects.toMatchObject({ status: 409, body: { error: "name_taken", name: "Restore-1" } });
   });
 

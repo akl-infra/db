@@ -4,8 +4,7 @@
 // the same `n` (whatever its scope), and a lost batch rolls back whole --
 // no event, no orphaned rev row, `seq` still gapless. These tests drive the
 // races with Promise.all so both pre-checks pass before either batch runs.
-import { env } from "cloudflare:test";
-import type { Bindings } from "../../src/env";
+import { env, store, testStore } from "../harness";
 import { describe, expect, it } from "vitest";
 import { ApiError } from "../../src/core/errors";
 import { RevConflictError, appendLike, commitWrite, type CommitInput } from "../../src/core/events";
@@ -13,7 +12,6 @@ import { formatsForLayout, readById } from "../../src/core/records";
 import { fixedClock } from "../../src/core/time";
 import { ulid } from "ulidx";
 
-const db = (env as unknown as Bindings).DB;
 const clock = fixedClock("2026-05-02T00:00:00.000Z");
 const SOURCE = { client: "discord-app:test", version: null };
 
@@ -32,17 +30,18 @@ function create(name: string, owner = "owner-a") {
     source: SOURCE,
     upstream: null,
   };
-  return commitWrite(db, clock, input);
+  return commitWrite(store, clock, input);
 }
 
 async function invariantsHold() {
-  const seqs = (await db.prepare("SELECT seq FROM events ORDER BY seq").all<{ seq: number }>()).results.map((r) => r.seq);
+  const seqs = (await testStore.rows<{ seq: number }>("events", {}, ["seq"])).map((r) => r.seq);
   expect(seqs).toEqual(seqs.map((_, i) => i + 1));
-  const orphanRevs = await db.prepare("SELECT COUNT(*) AS n FROM layout_revs r LEFT JOIN layouts l ON l.id = r.layout_id WHERE l.id IS NULL").first<{ n: number }>();
-  expect(orphanRevs?.n).toBe(0);
-  const revsPerWrite = await db.prepare("SELECT COUNT(*) AS n FROM events WHERE rev IS NOT NULL").first<{ n: number }>();
-  const revRows = await db.prepare("SELECT COUNT(*) AS n FROM layout_revs").first<{ n: number }>();
-  expect(revRows?.n).toBe(revsPerWrite?.n);
+  const layoutIds = new Set((await testStore.rows<{ id: string }>("layouts")).map((l) => l.id));
+  const orphanRevs = (await testStore.rows<{ layout_id: string }>("layout_revs")).filter((r) => !layoutIds.has(r.layout_id)).length;
+  expect(orphanRevs).toBe(0);
+  const revsPerWrite = (await testStore.rows<{ rev: number | null }>("events")).filter((e) => e.rev !== null).length;
+  const revRows = await testStore.count("layout_revs");
+  expect(revRows).toBe(revsPerWrite);
 }
 
 describe("races resolved inside the batch", () => {
@@ -56,18 +55,18 @@ describe("races resolved inside the batch", () => {
     expect(err).toBeInstanceOf(ApiError);
     expect((err as ApiError).body.error).toBe("name_taken");
 
-    const live = await db.prepare("SELECT COUNT(*) AS n FROM layouts WHERE name = ? AND deleted = 0").bind("race-name").first<{ n: number }>();
-    expect(live?.n).toBe(1);
+    const live = await testStore.count("layouts", { name: "race-name", deleted: 0 });
+    expect(live).toBe(1);
     const winner = (won[0] as PromiseFulfilledResult<Awaited<ReturnType<typeof create>>>).value.layout;
-    expect(await readById(db, winner.id)).toMatchObject({ id: winner.id, name: "race-name", layout_rev: 1 });
+    expect(await readById(store, winner.id)).toMatchObject({ id: winner.id, name: "race-name", layout_rev: 1 });
     await invariantsHold();
   });
 
   it("[MF-6] [LDB-P20] two updates to the SAME format racing from the same rev: exactly one wins, the loser is a RevConflictError, that format's rev advances once", async () => {
     const { layout } = await create("race-rev");
     const update = async (v: number) => {
-      const current = (await readById(db, layout.id))!;
-      const formats = await formatsForLayout(db, layout.id);
+      const current = (await readById(store, layout.id))!;
+      const formats = await formatsForLayout(store, layout.id);
       const input: CommitInput = {
         layoutId: layout.id,
         creating: false,
@@ -81,7 +80,7 @@ describe("races resolved inside the batch", () => {
         source: SOURCE,
         upstream: current.upstream,
       };
-      return commitWrite(db, clock, input);
+      return commitWrite(store, clock, input);
     };
     const outcomes = await Promise.allSettled([update(2), update(3)]);
     const won = outcomes.filter((o) => o.status === "fulfilled");
@@ -89,7 +88,7 @@ describe("races resolved inside the batch", () => {
     expect(won).toHaveLength(1);
     expect(lost).toHaveLength(1);
     expect((lost[0] as PromiseRejectedResult).reason).toBeInstanceOf(RevConflictError);
-    const formats = await formatsForLayout(db, layout.id);
+    const formats = await formatsForLayout(store, layout.id);
     expect(formats.get("spark")!.rev).toBe(2);
     const winnerPayload = (won[0] as PromiseFulfilledResult<Awaited<ReturnType<typeof update>>>).value.formats.get("spark")!.payload;
     expect(formats.get("spark")!.payload).toEqual(winnerPayload);
@@ -103,8 +102,8 @@ describe("races resolved inside the batch", () => {
   it("[MF-6] [LDB-P20] [LDB-P23] two renames racing from the same layout_rev: exactly one wins, the loser is a RevConflictError, layout_rev advances once", async () => {
     const { layout } = await create("race-layout-rev");
     const rename = async (name: string) => {
-      const current = (await readById(db, layout.id))!;
-      const formats = await formatsForLayout(db, layout.id);
+      const current = (await readById(store, layout.id))!;
+      const formats = await formatsForLayout(store, layout.id);
       const input: CommitInput = {
         layoutId: layout.id,
         creating: false,
@@ -118,7 +117,7 @@ describe("races resolved inside the batch", () => {
         source: SOURCE,
         upstream: current.upstream,
       };
-      return commitWrite(db, clock, input);
+      return commitWrite(store, clock, input);
     };
     const outcomes = await Promise.allSettled([rename("race-layout-rev-a"), rename("race-layout-rev-b")]);
     const won = outcomes.filter((o) => o.status === "fulfilled");
@@ -126,7 +125,7 @@ describe("races resolved inside the batch", () => {
     expect(won).toHaveLength(1);
     expect(lost).toHaveLength(1);
     expect((lost[0] as PromiseRejectedResult).reason).toBeInstanceOf(RevConflictError);
-    const final = await readById(db, layout.id);
+    const final = await readById(store, layout.id);
     expect(final!.layout_rev).toBe(2);
     const winnerName = (won[0] as PromiseFulfilledResult<Awaited<ReturnType<typeof rename>>>).value.layout.name;
     expect(final!.name).toBe(winnerName);
@@ -141,8 +140,8 @@ describe("races resolved inside the batch", () => {
     const { layout } = await create("race-cross-scope");
 
     const rename = async () => {
-      const current = (await readById(db, layout.id))!;
-      const formats = await formatsForLayout(db, layout.id);
+      const current = (await readById(store, layout.id))!;
+      const formats = await formatsForLayout(store, layout.id);
       const input: CommitInput = {
         layoutId: layout.id,
         creating: false,
@@ -156,11 +155,11 @@ describe("races resolved inside the batch", () => {
         source: SOURCE,
         upstream: current.upstream,
       };
-      return commitWrite(db, clock, input);
+      return commitWrite(store, clock, input);
     };
     const replace = async () => {
-      const current = (await readById(db, layout.id))!;
-      const formats = await formatsForLayout(db, layout.id);
+      const current = (await readById(store, layout.id))!;
+      const formats = await formatsForLayout(store, layout.id);
       const input: CommitInput = {
         layoutId: layout.id,
         creating: false,
@@ -174,7 +173,7 @@ describe("races resolved inside the batch", () => {
         source: SOURCE,
         upstream: current.upstream,
       };
-      return commitWrite(db, clock, input);
+      return commitWrite(store, clock, input);
     };
 
     // Retry-on-collision wrapper, mirroring `core/write.ts`'s own: a race
@@ -194,21 +193,21 @@ describe("races resolved inside the batch", () => {
     const [renameResult, replaceResult] = await Promise.all([withRetry(rename), withRetry(replace)]);
     expect(renameResult.layout.layout_rev).toBe(2);
     expect(replaceResult.formats.get("spark")!.rev).toBe(2);
-    const final = await readById(db, layout.id);
+    const final = await readById(store, layout.id);
     expect(final!.name).toBe("race-cross-scope-renamed");
-    const finalFormats = await formatsForLayout(db, layout.id);
+    const finalFormats = await formatsForLayout(store, layout.id);
     expect(finalFormats.get("spark")!.rev).toBe(2);
     await invariantsHold();
   });
 
   it("[LDB-P1] [LDB-L1] five users liking at once: like_count is 5 and five events exist; the same user twice at once is one like, one 409 already_liked (D13 L1/E2)", async () => {
     const { layout } = await create("race-likes");
-    const like = (userId: string) => appendLike(db, clock, { kind: "liked", layoutId: layout.id, userId, via: "discord", source: SOURCE });
+    const like = (userId: string) => appendLike(store, clock, { kind: "liked", layoutId: layout.id, userId, via: "discord", source: SOURCE });
 
     await Promise.all(["u1", "u2", "u3", "u4", "u5"].map(like));
-    expect((await readById(db, layout.id))?.like_count).toBe(5);
-    const likeEvents = await db.prepare("SELECT COUNT(*) AS n FROM events WHERE layout_id = ? AND kind = 'liked'").bind(layout.id).first<{ n: number }>();
-    expect(likeEvents?.n).toBe(5);
+    expect((await readById(store, layout.id))?.like_count).toBe(5);
+    const likeEvents = await testStore.count("events", { layout_id: layout.id, kind: "liked" });
+    expect(likeEvents).toBe(5);
 
     // D13 E2: of two edits based on the same version, exactly one
     // succeeds -- applied to likes (L1), the `likes` table's own PK is
@@ -221,9 +220,9 @@ describe("races resolved inside the batch", () => {
     expect(rejected).toHaveLength(1);
     expect((rejected[0] as PromiseRejectedResult).reason).toBeInstanceOf(ApiError);
     expect(((rejected[0] as PromiseRejectedResult).reason as ApiError).body).toMatchObject({ error: "already_liked" });
-    expect((await readById(db, layout.id))?.like_count).toBe(6);
-    const rows = await db.prepare("SELECT COUNT(*) AS n FROM likes WHERE layout_id = ?").bind(layout.id).first<{ n: number }>();
-    expect(rows?.n).toBe(6);
+    expect((await readById(store, layout.id))?.like_count).toBe(6);
+    const rows = await testStore.count("likes", { layout_id: layout.id });
+    expect(rows).toBe(6);
     await invariantsHold();
   });
 });

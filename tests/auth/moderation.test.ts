@@ -2,15 +2,12 @@
 // `403 banned` on EVERY non-GET/HEAD/OPTIONS route (enumerated from
 // `app.routes`, same technique tests/auth/routes.test.ts's [LDB-A1] uses),
 // on both auth lanes; reads and `GET /v1/me` are never refused.
-import { SELF, env } from "cloudflare:test";
+import { SELF, env, store, testStore } from "../harness";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Bindings } from "../../src/env";
 import { app } from "../../src/index";
 import { generateKeyPair, seedClient, signHeaders } from "./client-support";
 import { FakeDiscord } from "./fake-discord";
 
-const bindings = env as unknown as Bindings;
-const db = bindings.DB;
 
 const TEST_ID = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
 
@@ -43,7 +40,7 @@ describe("[LDB-MD1] a banned actor's write is refused on every non-GET route (be
   it("[LDB-MD1] every non-GET route is 403 banned for a banned user", async () => {
     const bannedId = "890000000000000001";
     const now = new Date().toISOString();
-    await db.prepare("INSERT INTO bans (user_id, by, at, reason) VALUES (?, ?, ?, ?)").bind(bannedId, "some-admin", now, "test ban").run();
+    await testStore.insert("bans", { user_id: bannedId, by: "some-admin", at: now, reason: "test ban" });
 
     const fake = new FakeDiscord();
     fake.setAnswer("tok-banned", { kind: "ok", id: bannedId, username: "banned-user", global_name: null });
@@ -79,10 +76,10 @@ describe("[LDB-MD1] the same gate applies to the client lane", () => {
   it("[LDB-MD1] a banned actor signing via the client lane is 403 banned on a write", async () => {
     const bannedId = "890000000000000003";
     const now = new Date().toISOString();
-    await db.prepare("INSERT INTO bans (user_id, by, at, reason) VALUES (?, ?, ?, ?)").bind(bannedId, "some-admin", now, null).run();
+    await testStore.insert("bans", { user_id: bannedId, by: "some-admin", at: now, reason: null });
 
     const pair = await generateKeyPair();
-    await seedClient(db, () => now, { id: "mod-client-1", pubkeyB64url: pair.pubkeyB64url, ownerUserId: bannedId, caps: "act-as-owner-only" });
+    await seedClient(store, () => now, { id: "mod-client-1", pubkeyB64url: pair.pubkeyB64url, ownerUserId: bannedId, caps: "act-as-owner-only" });
 
     const headers = await signHeaders({
       privateKey: pair.privateKey,
@@ -110,7 +107,7 @@ describe("[LDB-MD10] GET /v1/me reports banned/admin fresh, never from auth_cach
     expect((await first.json<{ banned: boolean }>()).banned).toBe(false);
 
     const now = new Date().toISOString();
-    await db.prepare("INSERT INTO bans (user_id, by, at, reason) VALUES (?, ?, ?, ?)").bind(userId, "some-admin", now, null).run();
+    await testStore.insert("bans", { user_id: userId, by: "some-admin", at: now, reason: null });
 
     // Same token, still within the 5-min identity cache window -- `roleOf`
     // is never part of that cache, so `banned` must flip immediately.
@@ -120,7 +117,7 @@ describe("[LDB-MD10] GET /v1/me reports banned/admin fresh, never from auth_cach
 
   it("[LDB-MD10] an admin is never reported banned even if a stray ban row exists for them", async () => {
     const adminId = "184412255822020608"; // migrations/0001_init.sql's bootstrap admin
-    await db.prepare("INSERT OR IGNORE INTO bans (user_id, by, at, reason) VALUES (?, ?, ?, ?)").bind(adminId, "someone", new Date().toISOString(), null).run();
+    if ((await testStore.count("bans", { user_id: adminId })) === 0) await testStore.insert("bans", { user_id: adminId, by: "someone", at: new Date().toISOString(), reason: null });
     const fake = new FakeDiscord();
     fake.setAnswer("tok-admin-not-banned", { kind: "ok", id: adminId, username: "admin", global_name: null });
     vi.stubGlobal("fetch", fake.fetchImpl);

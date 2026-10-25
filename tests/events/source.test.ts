@@ -8,16 +8,14 @@
 // `tests/api/source-matrix.test.ts` covers the lane x verb x
 // version-header matrix and the spoof matrix over real HTTP; this file is
 // what actually touches `events`/`layouts`/`layout_formats` directly.
-import { env } from "cloudflare:test";
+import { env, store, testStore } from "../harness";
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import type { Bindings } from "../../src/env";
 import { appendInfo, appendLike, commitWrite, sourceOfEvent, type CommitInput } from "../../src/core/events";
 import { formatsForLayout, readById, type Source } from "../../src/core/records";
 import { fixedClock } from "../../src/core/time";
 import { ulid } from "ulidx";
 
-const db = (env as unknown as Bindings).DB;
 const clock = fixedClock("2026-09-10T00:00:00.000Z");
 
 let uniqueCounter = 0;
@@ -26,8 +24,8 @@ function unique(): string {
 }
 
 async function eventSourceCols(layoutId: string): Promise<{ source_client: string | null; source_version: string | null; via: string }[]> {
-  const { results } = await db.prepare("SELECT source_client, source_version, via FROM events WHERE layout_id = ? ORDER BY seq ASC").bind(layoutId).all<{ source_client: string | null; source_version: string | null; via: string }>();
-  return results;
+  const results = await testStore.rows<{ source_client: string | null; source_version: string | null; via: string }>("events", { layout_id: layoutId }, ["seq"]);
+  return results.map((r) => ({ source_client: r.source_client, source_version: r.source_version, via: r.via }));
 }
 
 function create(name: string, source: Source) {
@@ -45,12 +43,12 @@ function create(name: string, source: Source) {
     source,
     upstream: null,
   };
-  return commitWrite(db, clock, input);
+  return commitWrite(store, clock, input);
 }
 
 async function updateSpark(layoutId: string, source: Source, via: string, owner = "owner-a") {
-  const current = await readById(db, layoutId);
-  const formats = await formatsForLayout(db, layoutId);
+  const current = await readById(store, layoutId);
+  const formats = await formatsForLayout(store, layoutId);
   const input: CommitInput = {
     layoutId,
     creating: false,
@@ -64,12 +62,12 @@ async function updateSpark(layoutId: string, source: Source, via: string, owner 
     source,
     upstream: current!.upstream,
   };
-  return commitWrite(db, clock, input);
+  return commitWrite(store, clock, input);
 }
 
 async function rename(layoutId: string, name: string, source: Source, owner = "owner-a") {
-  const current = await readById(db, layoutId);
-  const formats = await formatsForLayout(db, layoutId);
+  const current = await readById(store, layoutId);
+  const formats = await formatsForLayout(store, layoutId);
   const input: CommitInput = {
     layoutId,
     creating: false,
@@ -83,7 +81,7 @@ async function rename(layoutId: string, name: string, source: Source, owner = "o
     source,
     upstream: current!.upstream,
   };
-  return commitWrite(db, clock, input);
+  return commitWrite(store, clock, input);
 }
 
 describe("[LDB-P15] source is a fold, per scope", () => {
@@ -123,12 +121,12 @@ describe("[LDB-P15] source is a fold, per scope", () => {
     const { layout } = await create(name, createdSource);
 
     const infoSource: Source = { client: "system:cmini-import", version: null };
-    await appendInfo(db, clock, { kind: "upstream_changed", layoutId: layout.id, actor: "system:cmini-import", via: "import:cmini", source: infoSource });
+    await appendInfo(store, clock, { kind: "upstream_changed", layoutId: layout.id, actor: "system:cmini-import", via: "import:cmini", source: infoSource });
 
     const likeSource: Source = { client: "discord-app:app-3", version: "3.0.0" };
-    await appendLike(db, clock, { kind: "liked", layoutId: layout.id, userId: "liker-1", via: "discord", source: likeSource });
+    await appendLike(store, clock, { kind: "liked", layoutId: layout.id, userId: "liker-1", via: "discord", source: likeSource });
 
-    const rec = await readById(db, layout.id);
+    const rec = await readById(store, layout.id);
     expect(rec!.source).toEqual(createdSource);
 
     const rows = await eventSourceCols(layout.id);
@@ -163,7 +161,7 @@ describe("[LDB-P15] source is a fold, per scope", () => {
             }
             last = source;
           }
-          const formats = await formatsForLayout(db, layoutId!);
+          const formats = await formatsForLayout(store, layoutId!);
           expect(formats.get("spark")!.source).toEqual(last);
         },
       ),

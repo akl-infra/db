@@ -6,7 +6,8 @@
 // discord.ts` uses for Discord's own `/oauth2/@me`, here for the
 // webhook's `POST` instead. No wall-clock timing assertions anywhere --
 // races are proven with `Promise.all` + a call count, never a sleep.
-import { env } from "cloudflare:test";
+import { env, store, testStore } from "../harness";
+import { pick } from "./store-support";
 import { describe, expect, it } from "vitest";
 import { ulid } from "ulidx";
 import type { Bindings } from "../../src/env";
@@ -16,7 +17,6 @@ import { buildV2Payload } from "../../src/core/modqueue-message";
 import { fixedClock } from "../../src/core/time";
 
 const bindings = env as unknown as Bindings;
-const db = bindings.DB;
 const clock = fixedClock("2026-09-28T00:00:00.000Z");
 
 const WEBHOOK_URL = "https://discord.test/api/webhooks/modqueue-test";
@@ -48,28 +48,22 @@ async function freshLayout(name: string, owner = "900000000000000001"): Promise<
     source: { client: "discord-app:test", version: null },
     upstream: null,
   };
-  const { layout } = await commitWrite(db, clock, input);
+  const { layout } = await commitWrite(store, clock, input);
   return layout.id;
 }
 
 async function insertSubmission(opts: { layoutId: string; url: string; submittedBy: string; status?: string }): Promise<string> {
   const id = ulid();
-  await db
-    .prepare(
-      `INSERT INTO link_submissions (id, layout_id, url, submitted_by, submitted_at, status, decided_by, decided_at, reason, notified_at)
-       VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL)`,
-    )
-    .bind(id, opts.layoutId, opts.url, opts.submittedBy, clock(), opts.status ?? "pending")
-    .run();
+  await testStore.insert("link_submissions", { id, layout_id: opts.layoutId, url: opts.url, submitted_by: opts.submittedBy, submitted_at: clock(), status: opts.status ?? "pending", decided_by: null, decided_at: null, reason: null, notified_at: null });
   return id;
 }
 
 async function insertAuthor(userId: string, name: string): Promise<void> {
-  await db.prepare("INSERT INTO authors (user_id, name, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?)").bind(userId, name, clock(), clock()).run();
+  await testStore.insert("authors", { user_id: userId, name, first_seen_at: clock(), last_seen_at: clock() });
 }
 
 async function readSubmission(id: string): Promise<{ status: string; notified_at: string | null }> {
-  const row = await db.prepare("SELECT status, notified_at FROM link_submissions WHERE id = ?").bind(id).first<{ status: string; notified_at: string | null }>();
+  const row = pick<{ status: string; notified_at: string | null }>(await testStore.row("link_submissions", { id }), "status", "notified_at");
   if (row === null) throw new Error(`no such submission '${id}'`);
   return row;
 }
@@ -115,7 +109,7 @@ describe("[LDB-MD11] [LDB-MD12] notifyPending", () => {
     const subId = await insertSubmission({ layoutId, url: "https://example.org/happy", submittedBy: "900000000000000010" });
 
     const webhook = new FakeWebhook();
-    await notifyPending(db, envWith(WEBHOOK_URL), clock, webhook.fetchImpl);
+    await notifyPending(store, envWith(WEBHOOK_URL), clock, webhook.fetchImpl);
 
     expect(webhook.requests).toHaveLength(1);
     const [req] = webhook.requests;
@@ -137,7 +131,7 @@ describe("[LDB-MD11] [LDB-MD12] notifyPending", () => {
     const subId = await insertSubmission({ layoutId, url: "https://example.org/noauthor", submittedBy: "900000000000000011" });
 
     const webhook = new FakeWebhook();
-    await notifyPending(db, envWith(WEBHOOK_URL), clock, webhook.fetchImpl);
+    await notifyPending(store, envWith(WEBHOOK_URL), clock, webhook.fetchImpl);
 
     expect(webhook.requests).toHaveLength(1);
     expect(webhook.requests[0]!.body.content).toContain("900000000000000011");
@@ -151,11 +145,11 @@ describe("[LDB-MD11] [LDB-MD12] notifyPending", () => {
       await insertSubmission({ layoutId, url: "https://example.org/rejected", submittedBy: "900000000000000023" }),
     ];
     const webhook = new FakeWebhook();
-    await notifyPending(db, envWith(WEBHOOK_URL), clock, webhook.fetchImpl);
+    await notifyPending(store, envWith(WEBHOOK_URL), clock, webhook.fetchImpl);
     for (const [id, status, prefix] of [[ids[0]!, "approved", "✅ APPROVED"], [ids[1]!, "rejected", "❌ REJECTED"]] as const) {
-      await db.prepare("UPDATE link_submissions SET status = ? WHERE id = ?").bind(status, id).run();
-      await updateQueueNotification(db, envWith(WEBHOOK_URL), "link", id, webhook.fetchImpl);
-      await updateQueueNotification(db, envWith(WEBHOOK_URL), "link", id, webhook.fetchImpl);
+      await testStore.patch("link_submissions", { id }, { status });
+      await updateQueueNotification(store, envWith(WEBHOOK_URL), "link", id, webhook.fetchImpl);
+      await updateQueueNotification(store, envWith(WEBHOOK_URL), "link", id, webhook.fetchImpl);
       const edit = webhook.requests.find((r) => r.method === "PATCH" && r.body.content.includes(id));
       expect(edit?.url).toContain(`/messages/discord-message-`);
       expect(edit?.body.content.startsWith(`${prefix}\nNew link submission`)).toBe(true);
@@ -175,7 +169,7 @@ describe("[LDB-MD11] [LDB-MD12] notifyPending", () => {
       requests.push({ url, method: init?.method, body });
       if (init?.method === "POST") {
         if (body.content.includes(id)) {
-          await db.prepare("UPDATE link_submissions SET status = 'approved' WHERE id = ?").bind(id).run();
+          await testStore.patch("link_submissions", { id }, { status: "approved" });
           return Response.json({ id: "race-message-id" });
         }
         return Response.json({ id: "other-message-id" });
@@ -183,7 +177,7 @@ describe("[LDB-MD11] [LDB-MD12] notifyPending", () => {
       if (init?.method === "GET") return Response.json({ content: requests.find((r) => r.method === "POST" && r.body.content.includes(id))?.body.content ?? "" });
       return new Response(null, { status: 200 });
     };
-    await notifyPending(db, envWith(WEBHOOK_URL), clock, fetchImpl);
+    await notifyPending(store, envWith(WEBHOOK_URL), clock, fetchImpl);
     const edit = requests.find((r) => r.method === "PATCH" && r.body.content.includes(id));
     expect(edit?.url).toContain("/messages/race-message-id");
     expect(edit?.body.content.startsWith("✅ APPROVED\n")).toBe(true);
@@ -193,14 +187,14 @@ describe("[LDB-MD11] [LDB-MD12] notifyPending", () => {
     const layoutId = await freshLayout(uniqueName("modq-edit-retry"));
     const id = await insertSubmission({ layoutId, url: "https://example.org/edit-retry", submittedBy: "900000000000000025" });
     const post = new FakeWebhook();
-    await notifyPending(db, envWith(WEBHOOK_URL), clock, post.fetchImpl);
-    await db.prepare("UPDATE link_submissions SET status = 'rejected' WHERE id = ?").bind(id).run();
+    await notifyPending(store, envWith(WEBHOOK_URL), clock, post.fetchImpl);
+    await testStore.patch("link_submissions", { id }, { status: "rejected" });
     const failedEdit = new FakeWebhook((i) => i === 1 ? 500 : 200);
-    await updateQueueNotification(db, envWith(WEBHOOK_URL), "link", id, failedEdit.fetchImpl);
+    await updateQueueNotification(store, envWith(WEBHOOK_URL), "link", id, failedEdit.fetchImpl);
     expect(failedEdit.requests.some((r) => r.method === "PATCH" && r.body.content.includes(id))).toBe(true);
 
     const retry = new FakeWebhook();
-    await notifyPending(db, envWith(WEBHOOK_URL), clock, retry.fetchImpl);
+    await notifyPending(store, envWith(WEBHOOK_URL), clock, retry.fetchImpl);
     const retried = retry.requests.find((r) => r.method === "PATCH" && r.body.content.includes(id));
     expect(retried?.body.content.startsWith("❌ REJECTED\n")).toBe(true);
   });
@@ -208,50 +202,49 @@ describe("[LDB-MD11] [LDB-MD12] notifyPending", () => {
   it("[LDB-MD15] keeps rate-limited edits dirty and cron converges after cooldown", async () => {
     const layoutId = await freshLayout(uniqueName("modq-cooldown"));
     const id = await insertSubmission({ layoutId, url: "https://example.org/cooldown", submittedBy: "900000000000000025" });
-    await notifyPending(db, envWith(WEBHOOK_URL), clock, new FakeWebhook().fetchImpl);
-    await db.prepare("UPDATE link_submissions SET status = 'rejected' WHERE id = ?").bind(id).run();
+    await notifyPending(store, envWith(WEBHOOK_URL), clock, new FakeWebhook().fetchImpl);
+    await testStore.patch("link_submissions", { id }, { status: "rejected" });
     const limited = new FakeWebhook((i) => i === 1 ? 429 : 200);
-    await updateQueueNotification(db, envWith(WEBHOOK_URL), "link", id, limited.fetchImpl);
+    await updateQueueNotification(store, envWith(WEBHOOK_URL), "link", id, limited.fetchImpl);
     const fresh = new FakeWebhook();
-    await notifyPending(db, envWith(WEBHOOK_URL), clock, fresh.fetchImpl);
+    await notifyPending(store, envWith(WEBHOOK_URL), clock, fresh.fetchImpl);
     expect(fresh.requests).toHaveLength(0);
-    expect(await db.prepare("SELECT shown_status FROM modqueue_notifications WHERE submission_id = ?").bind(id).first()).toEqual({ shown_status: "pending" });
-    await db.prepare("UPDATE modqueue_delivery_gate SET retry_at = 0 WHERE id = 1").run();
-    await notifyPending(db, envWith(WEBHOOK_URL), clock, fresh.fetchImpl);
+    expect(pick(await testStore.row("modqueue_notifications", { submission_id: id }), "shown_status")).toEqual({ shown_status: "pending" });
+    await testStore.patch("modqueue_delivery_gate", { id: 1 }, { retry_at: 0 });
+    await notifyPending(store, envWith(WEBHOOK_URL), clock, fresh.fetchImpl);
     expect(fresh.requests.some((r) => r.method === "PATCH" && r.body.content.startsWith("❌ REJECTED"))).toBe(true);
-    expect(await db.prepare("SELECT shown_status FROM modqueue_notifications WHERE submission_id = ?").bind(id).first()).toEqual({ shown_status: "rejected" });
+    expect(pick(await testStore.row("modqueue_notifications", { submission_id: id }), "shown_status")).toEqual({ shown_status: "rejected" });
   });
 
   it("[LDB-MD15] drops missing Discord messages and tracks repeated failures for fair retries", async () => {
     const layoutId = await freshLayout(uniqueName("modq-edit-abandon"));
     const missingId = await insertSubmission({ layoutId, url: "https://example.org/gone", submittedBy: "900000000000000026" });
     const post = new FakeWebhook();
-    await notifyPending(db, envWith(WEBHOOK_URL), clock, post.fetchImpl);
-    await db.prepare("UPDATE link_submissions SET status = 'approved' WHERE id = ?").bind(missingId).run();
+    await notifyPending(store, envWith(WEBHOOK_URL), clock, post.fetchImpl);
+    await testStore.patch("link_submissions", { id: missingId }, { status: "approved" });
     const missing = new FakeWebhook((i) => i === 0 ? 404 : 200);
-    await updateQueueNotification(db, envWith(WEBHOOK_URL), "link", missingId, missing.fetchImpl);
-    expect(await db.prepare("SELECT 1 FROM modqueue_notifications WHERE kind = 'link' AND submission_id = ?").bind(missingId).first()).toBeNull();
+    await updateQueueNotification(store, envWith(WEBHOOK_URL), "link", missingId, missing.fetchImpl);
+    expect(await testStore.row("modqueue_notifications", { kind: "link", submission_id: missingId })).toBeNull();
 
     const failingId = await insertSubmission({ layoutId, url: "https://example.org/fails", submittedBy: "900000000000000027" });
-    await notifyPending(db, envWith(WEBHOOK_URL), clock, post.fetchImpl);
-    await db.prepare("UPDATE link_submissions SET status = 'rejected' WHERE id = ?").bind(failingId).run();
+    await notifyPending(store, envWith(WEBHOOK_URL), clock, post.fetchImpl);
+    await testStore.patch("link_submissions", { id: failingId }, { status: "rejected" });
     for (let attempt = 0; attempt < 5; attempt++) {
       const failed = new FakeWebhook((i) => i === 1 ? 500 : 200);
-      await updateQueueNotification(db, envWith(WEBHOOK_URL), "link", failingId, failed.fetchImpl);
+      await updateQueueNotification(store, envWith(WEBHOOK_URL), "link", failingId, failed.fetchImpl);
     }
-    const tracked = await db.prepare("SELECT failed_attempts FROM modqueue_notifications WHERE kind = 'link' AND submission_id = ?").bind(failingId).first<{ failed_attempts: number }>();
+    const tracked = pick<{ failed_attempts: number }>(await testStore.row("modqueue_notifications", { kind: "link", submission_id: failingId }), "failed_attempts");
     expect(tracked?.failed_attempts).toBe(5);
   });
 
   it("[LDB-MD16] edits a bot-owned card using its recorded channel/message and Bot auth, not the legacy webhook", async () => {
     const layoutId = await freshLayout(uniqueName("modq-bot-owner"));
     const id = await insertSubmission({ layoutId, url: "https://example.org/bot", submittedBy: "900000000000000028", status: "approved" });
-    await db.prepare("UPDATE link_submissions SET decided_by = ? WHERE id = ?").bind("900000000000000028", id).run();
+    await testStore.patch("link_submissions", { id }, { decided_by: "900000000000000028" });
     const card = buildV2Payload("link", {
       id, layout_id: layoutId, url: "https://example.org/bot", submitted_by: "900000000000000028", layout_name: "bot", submitter_name: null,
     });
-    await db.prepare(`INSERT INTO modqueue_notifications (kind, submission_id, message_id, shown_status, message_format, transport, channel_id)
-      VALUES ('link', ?, '900000000000000029', 'pending', 'components_v2', 'bot', '900000000000000030')`).bind(id).run();
+    await testStore.insert("modqueue_notifications", { kind: "link", submission_id: id, message_id: "900000000000000029", shown_status: "pending", message_format: "components_v2", transport: "bot", channel_id: "900000000000000030" });
     const requests: Array<{ url: string; method: string; authorization: string | null; body: Record<string, unknown> }> = [];
     const fetchImpl: typeof fetch = async (input, init) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
@@ -259,7 +252,7 @@ describe("[LDB-MD11] [LDB-MD12] notifyPending", () => {
       requests.push({ url, method, authorization: new Headers(init?.headers).get("Authorization"), body: JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown> });
       return method === "GET" ? Response.json(card) : new Response(null, { status: 200 });
     };
-    await updateQueueNotification(db, {
+    await updateQueueNotification(store, {
       ...bindings, MODQUEUE_DISCORD_WEBHOOK: WEBHOOK_URL, MODQUEUE_DISCORD_BOT_TOKEN: "test-bot-token",
     }, "link", id, fetchImpl);
     expect(requests.map((r) => r.method)).toEqual(["GET", "PATCH"]);
@@ -267,7 +260,7 @@ describe("[LDB-MD11] [LDB-MD12] notifyPending", () => {
     expect(requests[0]?.authorization).toBe("Bot test-bot-token");
     expect(requests[1]?.body).not.toHaveProperty("content");
     expect(requests[1]?.body.allowed_mentions).toEqual({ parse: [] });
-    const saved = await db.prepare("SELECT shown_status, transport FROM modqueue_notifications WHERE kind = 'link' AND submission_id = ?").bind(id).first<{ shown_status: string; transport: string }>();
+    const saved = pick<{ shown_status: string; transport: string }>(await testStore.row("modqueue_notifications", { kind: "link", submission_id: id }), "shown_status", "transport");
     expect(saved).toEqual({ shown_status: "approved", transport: "bot" });
   });
 
@@ -276,14 +269,14 @@ describe("[LDB-MD11] [LDB-MD12] notifyPending", () => {
     const subId = await insertSubmission({ layoutId, url: "https://example.org/fail", submittedBy: "900000000000000012" });
 
     const failing = new FakeWebhook(() => 500);
-    await notifyPending(db, envWith(WEBHOOK_URL), clock, failing.fetchImpl);
+    await notifyPending(store, envWith(WEBHOOK_URL), clock, failing.fetchImpl);
     expect(failing.requests.filter((r) => r.method === "POST" && r.body.content.includes(subId))).toHaveLength(1);
     const afterFail = await readSubmission(subId);
     expect(afterFail.notified_at).toBeNull();
     expect(afterFail.status).toBe("pending");
 
     const succeeding = new FakeWebhook();
-    await notifyPending(db, envWith(WEBHOOK_URL), clock, succeeding.fetchImpl);
+    await notifyPending(store, envWith(WEBHOOK_URL), clock, succeeding.fetchImpl);
     expect(succeeding.requests.filter((r) => r.method === "POST" && r.body.content.includes(subId))).toHaveLength(1);
     const afterRetry = await readSubmission(subId);
     expect(afterRetry.notified_at).not.toBeNull();
@@ -293,15 +286,15 @@ describe("[LDB-MD11] [LDB-MD12] notifyPending", () => {
     const layoutId = await freshLayout(uniqueName("modq-throw"));
     const throwing = new FakeWebhook(() => "throw");
     const subThrow = await insertSubmission({ layoutId, url: "https://example.org/throw", submittedBy: "900000000000000013" });
-    await notifyPending(db, envWith(WEBHOOK_URL), clock, throwing.fetchImpl);
+    await notifyPending(store, envWith(WEBHOOK_URL), clock, throwing.fetchImpl);
     expect((await readSubmission(subThrow)).notified_at).toBeNull();
 
     const rateLimited = new FakeWebhook(() => 429);
     const subRateLimited = await insertSubmission({ layoutId, url: "https://example.org/429", submittedBy: "900000000000000014" });
-    await notifyPending(db, envWith(WEBHOOK_URL), clock, rateLimited.fetchImpl);
+    await notifyPending(store, envWith(WEBHOOK_URL), clock, rateLimited.fetchImpl);
     expect((await readSubmission(subRateLimited)).notified_at).toBeNull();
 
-    await db.prepare("UPDATE modqueue_delivery_gate SET retry_at = 0 WHERE id = 1").run();
+    await testStore.patch("modqueue_delivery_gate", { id: 1 }, { retry_at: 0 });
 
     // Both rows are left `pending` with `notified_at` still NULL on
     // purpose (that's the whole point of the assertions above) -- D1
@@ -311,7 +304,7 @@ describe("[LDB-MD11] [LDB-MD12] notifyPending", () => {
     // too. Resolved here, out of `notifyPending`'s own candidate query,
     // so this test's own retry-failure setup can never leak into another
     // test's batch.
-    await db.prepare("UPDATE link_submissions SET status = 'rejected', decided_by = ?, decided_at = ? WHERE id IN (?, ?)").bind("test-cleanup", clock(), subThrow, subRateLimited).run();
+    for (const subId of [subThrow, subRateLimited]) await testStore.patch("link_submissions", { id: subId }, { status: "rejected", decided_by: "test-cleanup", decided_at: clock() });
   });
 
   it("[LDB-MD11] two concurrent calls (submit-path + cron-path racing) never double-announce the same submission", async () => {
@@ -320,8 +313,8 @@ describe("[LDB-MD11] [LDB-MD12] notifyPending", () => {
 
     const webhook = new FakeWebhook();
     await Promise.all([
-      notifyPending(db, envWith(WEBHOOK_URL), clock, webhook.fetchImpl),
-      notifyPending(db, envWith(WEBHOOK_URL), clock, webhook.fetchImpl),
+      notifyPending(store, envWith(WEBHOOK_URL), clock, webhook.fetchImpl),
+      notifyPending(store, envWith(WEBHOOK_URL), clock, webhook.fetchImpl),
     ]);
 
     // Filtered by THIS submission's own id, not a bare total count -- the
@@ -341,7 +334,7 @@ describe("[LDB-MD11] [LDB-MD12] notifyPending", () => {
     const rejected = await insertSubmission({ layoutId, url: "https://example.org/rejected", submittedBy: "900000000000000018", status: "rejected" });
 
     const webhook = new FakeWebhook();
-    await notifyPending(db, envWith(WEBHOOK_URL), clock, webhook.fetchImpl);
+    await notifyPending(store, envWith(WEBHOOK_URL), clock, webhook.fetchImpl);
 
     expect(webhook.requests).toHaveLength(0);
     for (const id of [superseded, approved, rejected]) {
@@ -354,10 +347,10 @@ describe("[LDB-MD11] [LDB-MD12] notifyPending", () => {
     const subId = await insertSubmission({ layoutId, url: "https://example.org/unset", submittedBy: "900000000000000019" });
 
     const webhook = new FakeWebhook();
-    await notifyPending(db, envWith(undefined), clock, webhook.fetchImpl);
+    await notifyPending(store, envWith(undefined), clock, webhook.fetchImpl);
     expect(webhook.requests).toHaveLength(0);
 
-    await notifyPending(db, envWith(""), clock, webhook.fetchImpl);
+    await notifyPending(store, envWith(""), clock, webhook.fetchImpl);
     expect(webhook.requests).toHaveLength(0);
 
     const after = await readSubmission(subId);
