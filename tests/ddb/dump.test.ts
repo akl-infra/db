@@ -42,8 +42,8 @@ describe("dump tables and restore (stand-in codec)", () => {
       calls.push("export");
       return rows;
     },
-    async importRows(_ctx, r) {
-      calls.push("import");
+    async importRows(_ctx, r, opts) {
+      calls.push(`import${opts?.replace ? " replace" : ""}`);
       imported = r;
     },
     async scanItems() {
@@ -74,10 +74,10 @@ describe("dump tables and restore (stand-in codec)", () => {
     expect(calls).toEqual(["export"]);
   });
 
-  it("[LDB-DDB64] restore wipes the store and imports the rows the dump implies", async () => {
+  it("[LDB-DDB64] restore replaces the store with the rows the dump implies (the codec's replace import wipes first, as D1's restore does)", async () => {
     calls.length = 0;
     await ddbDumpStore(ctx, stand).restore({ records: [{ id: "L9" }] } as unknown as Dump);
-    expect(calls).toEqual(["dumpToRows", "scan", "wipe 1", "wipe 0", "import"]);
+    expect(calls).toEqual(["dumpToRows", "import replace"]);
     expect(imported).toEqual({ layouts: [{ id: "L9" }] });
   });
 });
