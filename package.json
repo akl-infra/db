@@ -4,7 +4,8 @@
   "type": "module",
   "description": "The layout-db service (design/layout-db/): a deployable Cloudflare Worker with its own D1 + R2, mirroring cmini's layouts read-only in phase 1. Owns its own dependencies -- nothing here imports from ../web, ../scripts or ../functions, and nothing outside imports this directory (tests/tools/boundary.test.ts, LDB-G5).",
   "scripts": {
-    "dev": "wrangler dev --config wrangler.toml",
+    "dev": "node scripts/dev.mjs",
+    "dev:d1": "wrangler dev --config wrangler.toml",
     "test": "vitest run",
     "test:ddb": "vitest run --project ddb",
     "fuzz:ddb": "node scripts/lab/fuzz/fuzz.mjs",

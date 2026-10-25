@@ -54,17 +54,29 @@ and authentication details.
 
 Requires Node.js 22+ and npm. CI uses Node.js 24.
 
-The API is a TypeScript Cloudflare Worker using D1 and R2. From the repository
-root:
+The API is a TypeScript service. Locally it runs on DynamoDB Local; no AWS
+account or credentials are needed. From the repository root:
 
 ```sh
 npm ci
-npm run migrate
 npm run dev
 ```
 
-The local API runs at `http://localhost:8787`. Use `npm test` and
-`npm run typecheck` to check changes. For website development, see
+`npm run dev` starts DynamoDB Local (the `amazon/dynamodb-local` Docker image if
+Docker is running, else the jar with Java 21 from `.dev/dynamodb-local`), creates
+the tables, seeds them and serves the API at `http://127.0.0.1:18501`. It
+registers a dev client whose key is kept in `.dev/client.json`; `.dev/dev.json`
+names the running server, client and key (sign requests with
+`scripts/client-sign.mjs`). Blobs (dumps) are files under `.dev/blobs`, and a
+tick runs every 5 minutes as the Cron Trigger does in production.
+
+Options: `--seed empty` (default) | `fixture` (the 100-layout test seed) | a dump
+file; `--port`, `--ddb-port` (0 picks a free port), `--ddb <url>` to use a
+DynamoDB Local that is already running, `--dir`, `--tick-ms`.
+
+The Cloudflare path is still there: `npm run migrate` and `npm run dev:d1` run
+the Worker on D1 under `wrangler dev` at `http://localhost:8787`. Use `npm test`
+and `npm run typecheck` to check changes. For website development, see
 [site/README.md](site/README.md).
 
 ## Further reading
