@@ -403,21 +403,30 @@ export function createCatalog(ctx: Omit<DdbContext, "catalog">): Catalog {
   let view: CatalogView | null = null;
   let running: Promise<CatalogView> | null = null;
   let queued: Promise<CatalogView> | null = null;
+  // invalidate() bumps `gen`: a refresh that started before it must not install its result.
+  let gen = 0;
+  let forceScan = false;
 
   async function refresh(): Promise<CatalogView> {
-    if (view === null) {
-      view = await boot();
-      return view;
-    }
+    const g = gen;
+    const scan = forceScan;
+    forceScan = false;
+    const base = view;
     let next: CatalogView;
-    try {
-      next = await catchUp(view.layouts, view.seq);
-    } catch (e) {
-      if (!/ahead of HEAD/.test((e as Error).message)) throw e;
-      next = await scanView(); // the table went backwards (restore, test reset): start over
+    if (base === null || scan) {
+      next = scan ? await scanView() : await boot();
+    } else {
+      try {
+        next = await catchUp(base.layouts, base.seq);
+      } catch (e) {
+        if (!/ahead of HEAD/.test((e as Error).message)) throw e;
+        next = await scanView(); // the table went backwards (restore, test reset): start over
+      }
+      if (next.layouts === base.layouts && next.seq === base.seq) next = base;
     }
-    if (next.layouts !== view.layouts || next.seq !== view.seq) view = next;
-    return view;
+    if (g === gen) view = next;
+    else if (scan) forceScan = true; // invalidated again while scanning: the next call scans again
+    return next;
   }
 
   function run(): Promise<CatalogView> {
@@ -444,6 +453,14 @@ export function createCatalog(ctx: Omit<DdbContext, "catalog">): Catalog {
 
   return {
     current,
+
+    // Writes that bypass the event log (a restore, a raw insert) leave the model stale: drop it, and the next
+    // `current()` rebuilds from a consistent scan (never from the snapshot, which those writes also outdate).
+    invalidate() {
+      gen++;
+      view = null;
+      forceScan = true;
+    },
 
     async writeSnapshot() {
       const v = await current();
