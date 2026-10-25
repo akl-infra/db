@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { CommitInput } from "../../src/core/events";
 import { decodeCursor, encodeCursor, type ListParams } from "../../src/core/records";
-import { cmpBinary, cmpNocase } from "../../src/store/ddb/layouts";
+import { compareBinary as cmpBinary, compareNocase } from "../../src/store/ddb/catalog";
 import { openDdb, type TestDdb } from "./helpers";
 
 let t: TestDdb;
@@ -50,8 +50,8 @@ describe("comparators", () => {
     expect(cmpBinary("￿", "\u{10000}")).toBe(-1); // JS `<` says the opposite
     expect("￿" < "\u{10000}").toBe(false);
     expect(cmpBinary("ab", "abc")).toBe(-1);
-    expect(cmpNocase("ABC", "abc")).toBe(0);
-    expect(cmpNocase("Ä", "ä")).toBe(-1); // non-ASCII is not folded
+    expect(compareNocase("ABC", "abc")).toBe(0);
+    expect(compareNocase("Ä", "ä")).toBeLessThan(0); // non-ASCII is not folded
   });
 });
 

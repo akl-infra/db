@@ -26,6 +26,7 @@ import { consistentGet } from "./head";
 import { catKey, fold, likeKey, nameKey, revKey, userLikeKey } from "./keys";
 import { byteLength, putPayload, SPILL_BYTES } from "./payload";
 import { likersOf } from "./layouts";
+import { planLinkSettle } from "./links";
 import { eventRow, layoutRowOf } from "./schema/core";
 import { runEventTx } from "./tx";
 
@@ -360,53 +361,40 @@ export function ddbEventStore(ctx: DdbContext): EventStore {
       const at = now();
       const budget = l.destructiveBudget === undefined ? undefined : budgetItem(ctx, l.destructiveBudget.clientId, at);
       let seq = 0;
-      try {
-        const r = await runEventTx(ctx, (b) => {
-          if (l.submissionId !== undefined) {
-            // The pending -> approved claim (and the layout being live) gate everything else (R6).
-            b.item("claim", {
-              Update: {
-                TableName: ctx.tables.main,
-                Key: { pk: `SUB#link#${l.submissionId}`, sk: "ROW" },
-                UpdateExpression: "SET #st = :approved, decided_by = :by, decided_at = :at",
-                ConditionExpression: "#st = :pending",
-                ExpressionAttributeNames: { "#st": "status" },
-                ExpressionAttributeValues: { ":approved": "approved", ":pending": "pending", ":by": l.actor, ":at": at },
-              },
-            });
-            b.item("claim", {
+      for (let attempt = 0; ; attempt++) {
+        try {
+          const r = await runEventTx(ctx, async (b) => {
+            // Lane J's plan: claim the submission (if any), supersede the layout's other pending ones, bump the set guard.
+            const plan = await planLinkSettle(ctx, { layoutId: l.layoutId, submissionId: l.submissionId, by: l.actor, at });
+            if (plan === null) throw notFound(`link submission '${l.submissionId}' is not pending`, l.submissionId!);
+            for (const op of plan.ops) b.item(op.tag, op.item);
+            b.item(l.submissionId !== undefined ? "claim" : "layout", {
               Update: {
                 TableName: ctx.tables.main,
                 Key: catKey(l.layoutId),
                 UpdateExpression: "SET link = :link",
-                ConditionExpression: "deleted = :zero",
-                ExpressionAttributeValues: { ":link": l.link, ":zero": 0 },
+                ConditionExpression: l.submissionId !== undefined ? "deleted = :zero" : "attribute_exists(pk)",
+                ExpressionAttributeValues: l.submissionId !== undefined ? { ":link": l.link, ":zero": 0 } : { ":link": l.link },
               },
             });
-          } else {
-            b.item("layout", {
-              Update: {
-                TableName: ctx.tables.main,
-                Key: catKey(l.layoutId),
-                UpdateExpression: "SET link = :link",
-                ConditionExpression: "attribute_exists(pk)",
-                ExpressionAttributeValues: { ":link": l.link },
-              },
-            });
+            b.event(
+              eventInput({
+                at, kind: l.kind, layout_id: l.layoutId, name: current.name as string, owner: current.owner as string, format: null, rev: null,
+                actor: l.actor, via: l.via, admin: l.admin ? 1 : 0, detail: l.detail, after: { scope: "link", link: l.link },
+                source_client: l.source.client, source_version: l.source.version,
+              }),
+            );
+            if (budget !== undefined) b.item(budget.tag, budget.item);
+          });
+          seq = r.seqs[0] ?? 0;
+        } catch (e) {
+          if (e instanceof TxConditionFailed) {
+            if (e.tags.includes("claim") || e.tags.includes("link-claim")) throw notFound(`link submission '${l.submissionId}' is not pending`, l.submissionId!);
+            if (attempt < 7) continue; // another submission changed under the plan: plan again
           }
-          b.event(
-            eventInput({
-              at, kind: l.kind, layout_id: l.layoutId, name: current.name as string, owner: current.owner as string, format: null, rev: null,
-              actor: l.actor, via: l.via, admin: l.admin ? 1 : 0, detail: l.detail, after: { scope: "link", link: l.link },
-              source_client: l.source.client, source_version: l.source.version,
-            }),
-          );
-          if (budget !== undefined) b.item(budget.tag, budget.item);
-        });
-        seq = r.seqs[0]!;
-      } catch (e) {
-        if (e instanceof TxConditionFailed && e.tags.includes("claim")) throw notFound(`link submission '${l.submissionId}' is not pending`, l.submissionId!);
-        throw e;
+          throw e;
+        }
+        break;
       }
       let budgetProbe: { clientId: string; countInWindow: number; liveLayouts: number } | undefined;
       if (budget !== undefined) {

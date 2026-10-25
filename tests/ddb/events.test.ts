@@ -188,12 +188,14 @@ describe("events", () => {
 
   it("[LDB-DDB7] approves a link through its claim, once", async () => {
     await t.events.commitWrite(now, createInput("L1", "Foo"));
-    const { PutCommand } = await import("@aws-sdk/lib-dynamodb");
-    await t.ctx.doc.send(new PutCommand({ TableName: t.ctx.tables.main, Item: { pk: "SUB#link#S1", sk: "ROW", status: "pending" } }));
+    const { ddbLinkStore } = await import("../../src/store/ddb/links");
+    await ddbLinkStore(t.ctx).submit({ supersedeId: null, by: "u2", at: now(), row: { id: "S1", layout_id: "L1", url: "http://x", submitted_by: "u2", submitted_at: now() } });
+    await ddbLinkStore(t.ctx).submit({ supersedeId: null, by: "u3", at: now(), row: { id: "S2", layout_id: "L1", url: "http://z", submitted_by: "u3", submitted_at: now() } });
     const r = await t.events.appendLinkChange(now, { layoutId: "L1", kind: "link_approved", link: "http://x", actor: "adm", via: "d", admin: true, source: src, submissionId: "S1" });
     expect(r.link).toBe("http://x");
     expect((await t.layouts.approvedLink("L1"))!.link).toBe("http://x");
     await expect(t.events.appendLinkChange(now, { layoutId: "L1", kind: "link_approved", link: "http://y", actor: "adm", via: "d", admin: true, source: src, submissionId: "S1" })).rejects.toMatchObject({ status: 404 });
     expect((await t.layouts.approvedLink("L1"))!.link).toBe("http://x");
+    expect((await ddbLinkStore(t.ctx).get("S2"))!.status).toBe("superseded"); // the sweep
   });
 });

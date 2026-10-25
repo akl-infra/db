@@ -5,6 +5,7 @@ import { QueryCommand, ScanCommand, TransactWriteCommand, type ScanCommandOutput
 import type { BlobStore } from "../../src/platform/port";
 import { createDocClient } from "../../src/store/ddb/client";
 import type { Catalog, CatalogLayout, CatalogView, DdbContext, Item } from "../../src/store/ddb/contracts";
+import { createCatalog } from "../../src/store/ddb/catalog";
 import { createTables, deleteTables } from "../../src/store/ddb/tables";
 import { formatRowsOf, layoutRowOf } from "../../src/store/ddb/schema/core";
 import { txTuning } from "../../src/store/ddb/tx";
@@ -49,28 +50,6 @@ export async function scanAll(doc: DdbContext["doc"], table: string): Promise<An
   return out;
 }
 
-export function scanCatalog(ctx: Omit<DdbContext, "catalog">): Catalog {
-  const build = async (): Promise<CatalogView> => {
-    const items = await scanAll(ctx.doc, ctx.tables.main);
-    const likers = new Map<string, string[]>();
-    for (const it of items) {
-      if ((it.pk as string).startsWith("L#") && (it.sk as string).startsWith("LK#")) {
-        const l = likers.get(it.layout_id) ?? [];
-        l.push(it.user_id);
-        likers.set(it.layout_id, l);
-      }
-    }
-    const layouts = new Map<string, CatalogLayout>();
-    for (const it of items) {
-      if (it.pk !== "CAT") continue;
-      layouts.set(it.sk, { layout: layoutRowOf(it), formats: await formatRowsOf(ctx.blobs, it), likers: (likers.get(it.sk) ?? []).sort() });
-    }
-    const head = items.find((i) => i.pk === "META" && i.sk === "HEAD");
-    return { seq: head?.seq ?? 0, layouts };
-  };
-  return { current: build, rebuildFromScan: build, writeSnapshot: async () => ({ seq: 0, written: false }) };
-}
-
 export interface TestDdb {
   ctx: DdbContext;
   blobs: ReturnType<typeof memoryBlobs>;
@@ -99,7 +78,7 @@ export async function openDdb(name: string, opts: OpenOptions = {}): Promise<Tes
   const faulty = withFaults(doc, { rate: opts.faultRate ?? 0, seed: opts.seed ?? 1, tables });
   const counted = withCallCounter(faulty);
   const base = { doc: counted as DdbContext["doc"], tables, blobs };
-  const ctx: DdbContext = { ...base, catalog: scanCatalog(base) };
+  const ctx: DdbContext = { ...base, catalog: createCatalog(base) };
   // Real backoff shape, scaled down: lockstep retries (no delay) would exhaust 8 attempts under a 12-way burst.
   txTuning.sleep = (ms) => new Promise((r) => setTimeout(r, ms / 5));
   await deleteTables(doc, tables);
