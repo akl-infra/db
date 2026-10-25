@@ -7,7 +7,7 @@ import { AT, ctx, eventsOf, expectIndexesConsistent, id, itemOf, links, moderati
 const row = (layoutId: string, over: Record<string, unknown> = {}) => ({ id: id(), layout_id: layoutId, url: "https://example.org/a", submitted_by: USER, submitted_at: AT, ...over });
 
 describe("[LDB-DDB40] links", () => {
-  it("[LDB-DDB40] submit inserts a pending row, a newer submit supersedes the older, pending() is the newest", async () => {
+  it("[LDB-DDB40] [LDB-DDB46] submit inserts a pending row, a newer submit supersedes the older, pending() is the newest", async () => {
     const l = await seedLayout();
     const a = row(l.id, { submitted_at: "2026-10-18T01:00:00.000Z" });
     await links.submit({ supersedeId: null, by: USER, at: a.submitted_at, row: a });
@@ -45,7 +45,7 @@ describe("[LDB-DDB40] links", () => {
     await expectIndexesConsistent();
   });
 
-  it("[LDB-DDB40] reject claims once: the event, the outbox row and its claims commit with the row", async () => {
+  it("[LDB-DDB40] [LDB-DDB48] reject claims once: the event, the outbox row and its claims commit with the row", async () => {
     const l = await seedLayout({ name: "Reject Me" });
     const a = row(l.id);
     await links.submit({ supersedeId: null, by: USER, at: AT, row: a });
@@ -69,7 +69,7 @@ describe("[LDB-DDB40] links", () => {
     await expectIndexesConsistent();
   });
 
-  it("[LDB-DDB40] two concurrent rejects: exactly one claims and exactly one event lands", async () => {
+  it("[LDB-DDB45] two concurrent rejects: exactly one claims and exactly one event lands", async () => {
     const l = await seedLayout();
     const a = row(l.id);
     await links.submit({ supersedeId: null, by: USER, at: AT, row: a });

@@ -103,14 +103,14 @@ export function ddbReviewStore(ctx: DdbContext): ReviewStore {
         const userId = row.user_id as string;
         const cat = await readCat(ctx, layoutId);
         if (cat === null || cat.deleted !== 0) return lost;
+        const guardKey = kind === "comment" ? commentGuardKey(layoutId, userId) : wpmGuardKey(layoutId, userId);
+        const ver = await readVer(ctx, guardKey);
         // No newer row in the pair: nothing pending, nothing submitted later (ties by id).
         const newer = (await pairOthers(ctx, kind, row)).some(
           (o) => o.id !== id && (o.status === "pending" || o.submitted_at > (row.submitted_at as string) || (o.submitted_at === row.submitted_at && o.id > id)),
         );
         if (newer) return lost;
 
-        const guardKey = kind === "comment" ? commentGuardKey(layoutId, userId) : wpmGuardKey(layoutId, userId);
-        const ver = await readVer(ctx, guardKey);
         const st = await readHistory(ctx, kind, id);
         const keys = deliveryKeys(kind, id, row.review_version as number);
         const deliveries = (await batchGet(ctx, keys.map(outboxRowKey))).filter((d) => d.status === "pending" || d.status === "leased");
