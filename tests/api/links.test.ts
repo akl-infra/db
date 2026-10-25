@@ -1,16 +1,13 @@
 // [LDB-MD5] [LDB-MD6] L5 moderation (design/akldb-site/01-plan.md §4.4):
 // `link` + its moderation queue. Black-box via SELF.fetch, same pattern
 // tests/api/moderation.test.ts uses for bans/likes/authors.
-import { env } from "cloudflare:test";
+import { env, store, testStore } from "../harness";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Bindings } from "../../src/env";
 import { commitWrite, type CommitInput } from "../../src/core/events";
 import { fixedClock } from "../../src/core/time";
 import { ulid } from "ulidx";
 import { AKL_PAYLOAD, BOOTSTRAP_ADMIN, actorFixture, pinTestClock, register, uniqueName, writeFetch } from "./write-support";
 
-const bindings = env as unknown as Bindings;
-const db = bindings.DB;
 const clock = fixedClock("2026-09-12T00:00:00.000Z");
 pinTestClock(env as unknown as { TEST_CLOCK?: typeof clock }, clock);
 
@@ -49,7 +46,7 @@ async function createLayout(owner: string, name = uniqueName("link-layout")): Pr
     source: { client: "discord-app:test", version: null },
     upstream: null,
   };
-  const { layout } = await commitWrite(db, clock, input);
+  const { layout } = await commitWrite(store, clock, input);
   return { id: layout.id, name: layout.name };
 }
 
@@ -163,7 +160,7 @@ describe("[LDB-MD6] at most one pending submission per layout", () => {
     const ownerAuth = register(fake, "tok-link-race-owner", owner);
     const admin = register(fake, "tok-link-race-admin", BOOTSTRAP_ADMIN);
     const competingAdminId = testUserId();
-    await db.prepare("INSERT INTO admins (user_id, added_at) VALUES (?, ?)").bind(competingAdminId, clock()).run();
+    await testStore.insert("admins", { user_id: competingAdminId, added_at: clock() });
     const competingAdmin = register(fake, "tok-link-race-admin-2", competingAdminId);
     await writeFetch(`/v1/layouts/${id}/link`, "PUT", ownerAuth, { url: "https://example.org/race" });
     const queue = (await (await writeFetch("/v1/admin/link-queue?status=pending", "GET", admin)).json()) as { submissions: { id: string; layout_id: string }[] };
@@ -174,11 +171,11 @@ describe("[LDB-MD6] at most one pending submission per layout", () => {
       writeFetch(`/v1/admin/link-queue/${submissionId}/approve`, "POST", competingAdmin),
     ]);
     expect(results.map((response) => response.status).sort()).toEqual([200, 404]);
-    const row = await db.prepare("SELECT status FROM link_submissions WHERE id = ?").bind(submissionId).first<{ status: string }>();
-    const events = await db.prepare("SELECT COUNT(*) AS n FROM events WHERE layout_id = ? AND kind = 'link_approved'").bind(id).first<{ n: number }>();
-    const layout = await db.prepare("SELECT link FROM layouts WHERE id = ?").bind(id).first<{ link: string | null }>();
+    const row = await testStore.row<{ status: string }>("link_submissions", { id: submissionId });
+    const events = await testStore.count("events", { layout_id: id, kind: "link_approved" });
+    const layout = await testStore.row<{ link: string | null }>("layouts", { id });
     expect(row?.status).toBe("approved");
-    expect(events?.n).toBe(1);
+    expect(events).toBe(1);
     expect(layout?.link).toBe("https://example.org/race");
   });
 
@@ -192,8 +189,8 @@ describe("[LDB-MD6] at most one pending submission per layout", () => {
     await writeFetch(`/v1/layouts/${id}/link`, "PUT", ownerAuth, { url: "https://example.org/one" });
     await writeFetch(`/v1/layouts/${id}/link`, "PUT", ownerAuth, { url: "https://example.org/two" });
 
-    const rows = await db.prepare("SELECT url, status FROM link_submissions WHERE layout_id = ? ORDER BY submitted_at ASC, url ASC").bind(id).all<{ url: string; status: string }>();
-    expect(rows.results).toEqual([
+    const rows = (await testStore.rows<{ url: string; status: string }>("link_submissions", { layout_id: id }, ["submitted_at", "url"])).map((r) => ({ url: r.url, status: r.status }));
+    expect(rows).toEqual([
       { url: "https://example.org/one", status: "superseded" },
       { url: "https://example.org/two", status: "pending" },
     ]);
@@ -211,16 +208,13 @@ describe("[LDB-MD6] at most one pending submission per layout", () => {
     // own sweep -- the second must not leave a stray pending row behind
     // from a hypothetical race; simulate by inserting a pending row
     // directly, then submitting a fresh one via the normal PUT (admin lane: queued too).
-    await db
-      .prepare("INSERT INTO link_submissions (id, layout_id, url, submitted_by, submitted_at, status) VALUES (?, ?, ?, ?, ?, 'pending')")
-      .bind(ulid(), id, "https://example.org/stray-pending", owner, clock())
-      .run();
+    await testStore.insert("link_submissions", { id: ulid(), layout_id: id, url: "https://example.org/stray-pending", submitted_by: owner, submitted_at: clock(), status: "pending" });
 
     await writeFetch(`/v1/layouts/${id}/link`, "PUT", admin, { url: "https://example.org/admin-approved" });
-    const nextPending = await db.prepare("SELECT status FROM link_submissions WHERE layout_id = ? AND url = ?").bind(id, "https://example.org/admin-approved").first<{ status: string }>();
+    const nextPending = await testStore.row<{ status: string }>("link_submissions", { layout_id: id, url: "https://example.org/admin-approved" });
     expect(nextPending?.status).toBe("pending");
 
-    const stray = await db.prepare("SELECT status FROM link_submissions WHERE layout_id = ? AND url = ?").bind(id, "https://example.org/stray-pending").first<{ status: string }>();
+    const stray = await testStore.row<{ status: string }>("link_submissions", { layout_id: id, url: "https://example.org/stray-pending" });
     expect(stray?.status).toBe("superseded");
   });
 });
@@ -299,13 +293,23 @@ describe("[LDB-MD13] the public feed carries no non-approved link content", () =
     const owner = testUserId();
     const { id, name } = await createLayout(owner);
     const insert = (kind: string, detail: object | null) =>
-      db
-        .prepare(
-          `INSERT INTO events (at, kind, layout_id, name, owner, format, rev, actor, via, admin, detail_json, before_json, after_json, source_client, source_version)
-           VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, 'discord', 0, ?, NULL, NULL, NULL, NULL)`,
-        )
-        .bind(clock(), kind, id, name, owner, owner, detail === null ? null : JSON.stringify(detail))
-        .run();
+      testStore.insert("events", {
+        at: clock(),
+        kind,
+        layout_id: id,
+        name,
+        owner,
+        format: null,
+        rev: null,
+        actor: owner,
+        via: "discord",
+        admin: 0,
+        detail_json: detail === null ? null : JSON.stringify(detail),
+        before_json: null,
+        after_json: null,
+        source_client: null,
+        source_version: null,
+      });
     await insert("link_submitted", { submission_id: "01OLDSUBMISSION", url: SECRET_URL });
     await insert("link_rejected", { submission_id: "01OLDSUBMISSION", reason: SECRET_REASON });
     await insert("link_submitted", { url: SECRET_URL }); // no id at all
@@ -331,7 +335,7 @@ describe("[LDB-MD5] the admin link queue names the layout and the submitter", ()
     const ownerAuth = register(fake, "tok-linkq-names-owner", owner);
     const admin = register(fake, "tok-linkq-names-admin", BOOTSTRAP_ADMIN);
     await writeFetch(`/v1/layouts/${id}/link`, "PUT", ownerAuth, { url: "https://example.org/names" });
-    await db.prepare("UPDATE authors SET name = ? WHERE user_id = ?").bind("Link Owner", owner).run();
+    await testStore.patch("authors", { user_id: owner }, { name: "Link Owner" });
 
     const queue = (await (await writeFetch("/v1/admin/link-queue?status=pending", "GET", admin)).json()) as { submissions: Record<string, unknown>[] };
     const row = queue.submissions.find((s) => s.layout_id === id)!;

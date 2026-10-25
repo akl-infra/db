@@ -8,15 +8,13 @@
 // like any other unregistered format everywhere it appears (400
 // unknown_format), and the plain `?format=` list selector shows the
 // native format per item.
-import { env } from "cloudflare:test";
+import { store } from "../harness";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Bindings } from "../../src/env";
 import { commitWrite, type CommitInput } from "../../src/core/events";
 import { fixedClock } from "../../src/core/time";
 import { ulid } from "ulidx";
 import { writeFetch } from "./write-support";
 
-const db = (env as unknown as Bindings).DB;
 const clock = fixedClock("2026-07-16T00:00:00.000Z");
 const OWNER = "owner-readlabels-1";
 
@@ -44,7 +42,7 @@ async function seed() {
     source: { client: "discord-app:test", version: null },
     upstream: null,
   };
-  const { layout } = await commitWrite(db, clock, input);
+  const { layout } = await commitWrite(store, clock, input);
   return layout;
 }
 

@@ -2,13 +2,13 @@
 // Cache-Control + a strong ETag and answer 304 to a matching
 // If-None-Match; the ETag changes iff the event log head or the query
 // changes.
-import { SELF } from "cloudflare:test";
+import { SELF, store, testStore } from "../harness";
 import { beforeAll, describe, expect, it } from "vitest";
 import { canonical } from "../../src/core/canonical";
 import { appendLike } from "../../src/core/events";
 import { etagFor } from "../../src/core/etag";
 import { fixedClock } from "../../src/core/time";
-import { db, seedUpstream100 } from "./support";
+import { seedUpstream100 } from "./support";
 
 async function sha256Hex(s: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
@@ -129,9 +129,9 @@ describe("[LDB-R1] ETag changes iff the event head changes, or the query changes
       before.set(path, res.headers.get("ETag")!);
     }
 
-    const rec = await db.prepare("SELECT id FROM layouts WHERE deleted = 0 LIMIT 1").first<{ id: string }>();
+    const rec = (await testStore.rows<{ id: string }>("layouts", { deleted: 0 }))[0] ?? null;
     if (rec === null) throw new Error("no live record to like");
-    const result = await appendLike(db, fixedClock("2026-06-07T00:00:00.000Z"), {
+    const result = await appendLike(store, fixedClock("2026-06-07T00:00:00.000Z"), {
       kind: "liked",
       layoutId: rec.id,
       userId: "1", // not a real liker in the fixture -- guaranteed to append, not a no-op

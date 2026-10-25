@@ -1,3 +1,4 @@
+// D1-only (design/p1-briefs.md E).
 // [LDB-R12] [LDB-R13] [LDB-R14] What a read COSTS, in D1's own billing unit
 // (`meta.rows_read`), for the three reads the 2026-10-05 usage review found
 // scanning whole tables: the owner list (80% of all rows read: about 9,100
@@ -11,10 +12,13 @@
 // The bounds are counts, never timings, and are stated against the result
 // size: a regression to "read the catalog" breaks them at any catalog size.
 import { beforeAll, describe, expect, it } from "vitest";
-import { db, seedUpstream100 } from "./support";
+import { env } from "cloudflare:test";
+import { seedUpstream100 } from "./support";
 import { readHead } from "../../src/core/etag";
 import { readMetaCore } from "../../src/core/meta";
 import { decodeCursor, list, type ListParams } from "../../src/core/records";
+
+const db = (env as unknown as { DB: D1Database }).DB;
 
 interface Seen {
   sql: string;

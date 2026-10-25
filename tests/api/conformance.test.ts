@@ -5,7 +5,7 @@
 // route table (`app.routes`) and the error vocabulary (`core/errors.ts`)
 // and fails when a required (route, status) pair has no case, so an added
 // route or a silently-dropped error path can't go uncovered.
-import { env } from "cloudflare:test";
+import { env, store, testStore } from "../harness";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Bindings } from "../../src/env";
 import {
@@ -40,10 +40,9 @@ import { FakeDiscord } from "../auth/fake-discord";
 import { vectors } from "../auth/client-support";
 import { CASES } from "../conformance/manifest";
 import { CONFORMANCE_CLIENT_ID, assertConformanceCase, seedUpstream100 } from "./support";
-import { BOOTSTRAP_ADMIN } from "./write-support";
+import { BOOTSTRAP_ADMIN, ensureAuthor, insertIfAbsent } from "./write-support";
 
 const bindings = env as unknown as Bindings;
-const db = bindings.DB;
 
 // T2's write-route fixtures (09 §3 T2, §4) need an authenticated actor and,
 // for `restore`, a tombstone's id (a tombstone has no live name -- byRef's
@@ -118,13 +117,13 @@ async function seedLive(name: string) {
     source: { client: "discord-app:test", version: null },
     upstream: null,
   };
-  const { layout } = await commitWrite(db, fixedClock(CONFORMANCE_CLOCK_ISO), input);
+  const { layout } = await commitWrite(store, fixedClock(CONFORMANCE_CLOCK_ISO), input);
   return layout;
 }
 
 async function tombstone(record: LayoutRow): Promise<void> {
-  const current = (await readById(db, record.id))!;
-  const formats = await formatsForLayout(db, record.id);
+  const current = (await readById(store, record.id))!;
+  const formats = await formatsForLayout(store, record.id);
   const input: CommitInput = {
     layoutId: record.id,
     creating: false,
@@ -138,7 +137,7 @@ async function tombstone(record: LayoutRow): Promise<void> {
     source: { client: "discord-app:test", version: null },
     upstream: current.upstream,
   };
-  await commitWrite(db, fixedClock(CONFORMANCE_CLOCK_ISO), input);
+  await commitWrite(store, fixedClock(CONFORMANCE_CLOCK_ISO), input);
 }
 
 let writeFixturesReady: Promise<void> | null = null;
@@ -247,10 +246,7 @@ async function seedWriteFixtures(): Promise<void> {
   // (production's are 1000/5000 per 10 min; tests/api/ratelimit.test.ts).
   (bindings as unknown as { TEST_RATE_LIMITS?: { write: number; client: number } }).TEST_RATE_LIMITS = { write: 60, client: 300 };
 
-  await db
-    .prepare("INSERT OR IGNORE INTO authors (user_id, name, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?)")
-    .bind(CONFORMANCE_TARGET, "conformance-transfer-target", CONFORMANCE_CLOCK_ISO, CONFORMANCE_CLOCK_ISO)
-    .run();
+  await ensureAuthor(CONFORMANCE_TARGET, "conformance-transfer-target", CONFORMANCE_CLOCK_ISO, CONFORMANCE_CLOCK_ISO);
 
   await seedLive("cw-put-1");
   await seedLive("cw-put-stale-1");
@@ -279,58 +275,31 @@ async function seedWriteFixtures(): Promise<void> {
   // 10 C1: the two well-known clients `admin-clients/*.json` and
   // `me/200-signed.json` (support.ts's `signed` step) address -- fixed ids,
   // not ones minted by `registerClient`, so those fixtures stay byte-exact.
-  await db.batch([
-    db
-      .prepare(
-        `INSERT OR IGNORE INTO clients (id, name, pubkey, owner_user_id, caps, discord_app_id, status, created_at, revoked_at)
-         VALUES (?, ?, ?, ?, ?, NULL, 'active', ?, NULL)`,
-      )
-      .bind(CONFORMANCE_CLIENT_ID, "conformance-client", vectors.keys[0]!.pubkey_b64url, CONFORMANCE_OWNER, "act-as-user", CONFORMANCE_CLOCK_ISO),
-    db
-      .prepare(
-        `INSERT OR IGNORE INTO clients (id, name, pubkey, owner_user_id, caps, discord_app_id, status, created_at, revoked_at)
-         VALUES (?, ?, ?, ?, ?, NULL, 'active', ?, NULL)`,
-      )
-      .bind(
-        CONFORMANCE_CLIENT_DELETE_ID,
-        "conformance-client-delete",
-        vectors.keys[0]!.pubkey_b64url,
-        CONFORMANCE_OWNER,
-        "act-as-user",
-        CONFORMANCE_CLOCK_ISO,
-      ),
+  const clientRow = (id: string, name: string, status: string, revokedAt: string | null, createdAt = CONFORMANCE_CLOCK_ISO) => ({
+    id,
+    name,
+    pubkey: vectors.keys[0]!.pubkey_b64url,
+    owner_user_id: CONFORMANCE_OWNER,
+    caps: "act-as-user",
+    discord_app_id: null,
+    status,
+    created_at: createdAt,
+    revoked_at: revokedAt,
+  });
+  for (const row of [
+    clientRow(CONFORMANCE_CLIENT_ID, "conformance-client", "active", null),
+    clientRow(CONFORMANCE_CLIENT_DELETE_ID, "conformance-client-delete", "active", null),
     // LDB-A4 follow-up: seeded 'revoked' directly (never goes through the
     // admin revoke route) so the client-lane sweep's `client_revoked`
     // fixtures see a client that was ALWAYS revoked -- `verifyClientRequest`
     // reads `status` fresh on every request, never caches it, so this needs
     // no route call to set up.
-    db
-      .prepare(
-        `INSERT OR IGNORE INTO clients (id, name, pubkey, owner_user_id, caps, discord_app_id, status, created_at, revoked_at)
-         VALUES (?, ?, ?, ?, ?, NULL, 'revoked', ?, ?)`,
-      )
-      .bind(
-        CONFORMANCE_CLIENT_REVOKED_ID,
-        "conformance-client-revoked",
-        vectors.keys[0]!.pubkey_b64url,
-        CONFORMANCE_OWNER,
-        "act-as-user",
-        CONFORMANCE_CLOCK_ISO,
-        CONFORMANCE_CLOCK_ISO,
-      ),
-    db
-      .prepare(
-        `INSERT OR IGNORE INTO clients (id, name, pubkey, owner_user_id, caps, discord_app_id, status, created_at, revoked_at)
-         VALUES (?, ?, ?, ?, ?, NULL, 'active', ?, NULL)`,
-      )
-      .bind(CONFORMANCE_CLIENT_SUSPEND_ID, "conformance-client-suspend", vectors.keys[0]!.pubkey_b64url, CONFORMANCE_OWNER, "act-as-user", CONFORMANCE_CLOCK_ISO),
-    db
-      .prepare(
-        `INSERT OR IGNORE INTO clients (id, name, pubkey, owner_user_id, caps, discord_app_id, status, created_at, revoked_at)
-         VALUES (?, ?, ?, ?, ?, NULL, 'suspended', ?, NULL)`,
-      )
-      .bind(CONFORMANCE_CLIENT_REACTIVATE_ID, "conformance-client-reactivate", vectors.keys[0]!.pubkey_b64url, CONFORMANCE_OWNER, "act-as-user", CONFORMANCE_CLOCK_ISO),
-  ]);
+    clientRow(CONFORMANCE_CLIENT_REVOKED_ID, "conformance-client-revoked", "revoked", CONFORMANCE_CLOCK_ISO),
+    clientRow(CONFORMANCE_CLIENT_SUSPEND_ID, "conformance-client-suspend", "active", null),
+    clientRow(CONFORMANCE_CLIENT_REACTIVATE_ID, "conformance-client-reactivate", "suspended", null),
+  ]) {
+    await insertIfAbsent("clients", { id: row.id }, row);
+  }
 }
 
 // T6: two more tombstones for `restore-403-not_owner`/`restore-409-name_taken`
@@ -401,10 +370,8 @@ describe("conformance fixtures", () => {
       // bulk-count conformance response byte-stable by clearing comments
       // before the comments fixture group starts making its own rows.
       if (kase.id === "comment-counts/get-200") {
-        await db.batch([
-          db.prepare("DELETE FROM comment_likes"),
-          db.prepare("DELETE FROM layout_comments"),
-        ]);
+        await testStore.remove("comment_likes", {});
+        await testStore.remove("layout_comments", {});
       }
       // T6: the two restore cases that need a second, later-seeded pair of
       // tombstones (see `seedRestoreExtras`'s comment above).
@@ -416,10 +383,10 @@ describe("conformance fixtures", () => {
       // approved by hand, at the fixed clock, once the queued case that wrote it
       // has run (an approve needs a minted id a fixture cannot name).
       if (kase.id === "layouts-comments/get-200") {
-        await db
-          .prepare("UPDATE layout_comments SET status = 'approved', decided_by = ?, decided_at = ? WHERE layout_id = (SELECT id FROM layouts WHERE name = 'mod-cmt-2') AND status = 'pending'")
-          .bind(BOOTSTRAP_ADMIN, CONFORMANCE_CLOCK_ISO)
-          .run();
+        const modCmt2 = await testStore.rows<{ id: string }>("layouts", { name: "mod-cmt-2" });
+        for (const layout of modCmt2) {
+          await testStore.patch("layout_comments", { layout_id: layout.id, status: "pending" }, { status: "approved", decided_by: BOOTSTRAP_ADMIN, decided_at: CONFORMANCE_CLOCK_ISO });
+        }
       }
       await assertConformanceCase(kase, resolvePath);
     });

@@ -8,9 +8,8 @@
 // rev bumped by exactly 1 (POST/PUT/PATCH-format: the format's own rev;
 // PATCH-name/DELETE/restore/transfer: `layout_rev`), a `layout_revs` row,
 // `has_magic` from the format, and a scoped `ETag`.
-import { SELF, env } from "cloudflare:test";
+import { SELF, env, store, testStore } from "../harness";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Bindings } from "../../src/env";
 import { type EventDbRow, commitWrite, rowToEvent, type CommitInput } from "../../src/core/events";
 import { formatsForLayout, readById } from "../../src/core/records";
 import { fixedClock } from "../../src/core/time";
@@ -18,7 +17,6 @@ import { ulid } from "ulidx";
 import { generateKeyPair, seedClient, signHeaders } from "../auth/client-support";
 import { AKL_PAYLOAD, BOOTSTRAP_ADMIN, actorFixture, pinTestClock, register, uniqueName, writeFetch } from "./write-support";
 
-const db = (env as unknown as Bindings).DB;
 const clock = fixedClock("2026-07-01T00:00:00.000Z");
 pinTestClock(env as unknown as { TEST_CLOCK?: typeof clock }, clock);
 
@@ -50,15 +48,15 @@ async function seed(owner = OWNER): Promise<Seeded> {
     source: SOURCE,
     upstream: null,
   };
-  const { layout, formats } = await commitWrite(db, clock, input);
+  const { layout, formats } = await commitWrite(store, clock, input);
   const spark = formats.get("spark")!;
   return { id: layout.id, name: layout.name, owner: layout.owner, layoutRev: layout.layout_rev, formatRev: spark.rev, payload: spark.payload };
 }
 
 async function seedDeleted(owner = OWNER): Promise<Seeded> {
   const created = await seed(owner);
-  const currentLayout = (await readById(db, created.id))!;
-  const currentFormats = await formatsForLayout(db, created.id);
+  const currentLayout = (await readById(store, created.id))!;
+  const currentFormats = await formatsForLayout(store, created.id);
   const input: CommitInput = {
     layoutId: created.id,
     creating: false,
@@ -72,12 +70,12 @@ async function seedDeleted(owner = OWNER): Promise<Seeded> {
     source: SOURCE,
     upstream: currentLayout.upstream,
   };
-  const { layout } = await commitWrite(db, clock, input);
+  const { layout } = await commitWrite(store, clock, input);
   return { ...created, layoutRev: layout.layout_rev };
 }
 
 async function eventsFor(layoutId: string) {
-  const { results } = await db.prepare("SELECT * FROM events WHERE layout_id = ? ORDER BY seq ASC").bind(layoutId).all<EventDbRow>();
+  const results = (await testStore.rows("events", { layout_id: layoutId }, ["seq"])) as unknown as EventDbRow[];
   return results.map(rowToEvent);
 }
 
@@ -112,17 +110,17 @@ describe("[LDB-P1] POST /v1/layouts: any actor", () => {
       expect(events[0]).toMatchObject({ kind: "created", via: "discord", actor: id, format: null, rev: 1, admin: false });
       expect(events[1]).toMatchObject({ kind: "format_added", via: "discord", actor: id, format: "spark/1", rev: 1, admin: false });
 
-      const rev = await db.prepare("SELECT * FROM layout_revs WHERE layout_id = ? AND lineage = 'spark' AND rev = 1").bind(body.id).first();
+      const rev = await testStore.row("layout_revs", { layout_id: body.id, lineage: "spark", rev: 1 });
       expect(rev).not.toBeNull();
     });
   }
 
   it("[LDB-A7] anonymous -> 401, no event", async () => {
-    const before = await db.prepare("SELECT COUNT(*) AS n FROM events").first<{ n: number }>();
+    const before = await testStore.count("events");
     const res = await writeFetch("/v1/layouts", "POST", {}, { name: uniqueName("anon"), format: "spark/1", payload: AKL_PAYLOAD });
     expect(res.status).toBe(401);
-    const after = await db.prepare("SELECT COUNT(*) AS n FROM events").first<{ n: number }>();
-    expect(after?.n).toBe(before?.n);
+    const after = await testStore.count("events");
+    expect(after).toBe(before);
   });
 });
 
@@ -387,7 +385,7 @@ describe("[LDB-A5] client-lane writes: via: client:<id>", () => {
     const { privateKey, pubkeyB64url } = await generateKeyPair();
     const clientId = `wclient-${clientCounter}`;
     const actor = `60000000000000${String(clientCounter).padStart(4, "0")}`;
-    await seedClient(db, clock, { id: clientId, pubkeyB64url, ownerUserId: actor, caps: "act-as-user" });
+    await seedClient(clock, { id: clientId, pubkeyB64url, ownerUserId: actor, caps: "act-as-user" });
     return { clientId, privateKey, actor };
   }
 
@@ -481,7 +479,7 @@ describe("[LDB-A5] client-lane writes: via: client:<id>", () => {
     const record = await seed(client.actor);
     const res = await signedFetch("PUT", `/v1/layouts/${record.id}`, client, { format: "spark/1", payload: AKL_PAYLOAD }, { "If-Match": `"spark:${record.formatRev}"` });
     expect(res.status).toBe(200);
-    const row = await db.prepare("SELECT via FROM events WHERE layout_id = ? ORDER BY seq DESC LIMIT 1").bind(record.id).first<{ via: string }>();
+    const row = (await testStore.rows<{ via: string }>("events", { layout_id: record.id }, ["seq"])).at(-1) ?? null;
     expect(row?.via.startsWith("client:")).toBe(true);
     expect(row?.via).not.toBe("import:cmini");
   });
@@ -530,8 +528,8 @@ describe("[LDB-P9] a re-added tombstoned name inherits the tombstone's likes", (
     const second = await createViaHttp(owner, name);
     expect(second.like_count).toBe(2);
 
-    const likeRows = await db.prepare("SELECT user_id FROM likes WHERE layout_id = ? ORDER BY user_id ASC").bind(second.id).all<{ user_id: string }>();
-    expect(likeRows.results.map((r) => r.user_id)).toEqual(["p9-liker-1", "p9-liker-2"]);
+    const likeRows = await testStore.rows<{ user_id: string }>("likes", { layout_id: second.id }, ["user_id"]);
+    expect(likeRows.map((r) => r.user_id)).toEqual(["p9-liker-1", "p9-liker-2"]);
 
     const events = await eventsFor(second.id);
     expect(events.map((e) => e.kind)).toEqual(["created", "format_added", "liked", "liked"]);
@@ -604,10 +602,10 @@ describe("[LDB-P9] a re-added tombstoned name inherits the tombstone's likes", (
     expect(restored.deleted).toBe(false);
     expect(restored.name).toBe(name);
 
-    const firstLikes = await db.prepare("SELECT user_id FROM likes WHERE layout_id = ?").bind(first.id).all<{ user_id: string }>();
-    const secondLikes = await db.prepare("SELECT user_id FROM likes WHERE layout_id = ?").bind(second.id).all<{ user_id: string }>();
-    expect(firstLikes.results.map((r) => r.user_id)).toEqual(["p9-liker-restore"]);
-    expect(secondLikes.results.map((r) => r.user_id)).toEqual(["p9-liker-restore"]);
+    const firstLikes = await testStore.rows<{ user_id: string }>("likes", { layout_id: first.id });
+    const secondLikes = await testStore.rows<{ user_id: string }>("likes", { layout_id: second.id });
+    expect(firstLikes.map((r) => r.user_id)).toEqual(["p9-liker-restore"]);
+    expect(secondLikes.map((r) => r.user_id)).toEqual(["p9-liker-restore"]);
   });
 
   it("[LDB-P9] /v1/changes shows the inherited 'liked' events with via: name_inherited", async () => {

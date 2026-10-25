@@ -11,9 +11,8 @@
 // -> an unmapped `500`. Forces this deterministically by stubbing
 // `commitWrite` itself to always throw (the coordinator's own suggested
 // technique), rather than trying to win a real race MAX_RETRIES+1 times.
-import { env } from "cloudflare:test";
+import { store, testStore } from "../harness";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Bindings } from "../../src/env";
 import * as eventsModule from "../../src/core/events";
 import { commitWrite, RevConflictError, type CommitInput } from "../../src/core/events";
 import { fixedClock } from "../../src/core/time";
@@ -22,7 +21,6 @@ import { AKL_PAYLOAD, actorFixture, register, uniqueName, writeFetch } from "./w
 import { registerForTest } from "../../formats/registry.ts";
 import { T1 } from "../formats/stub-lineage.ts";
 
-const db = (env as unknown as Bindings).DB;
 const clock = fixedClock("2026-07-23T00:00:00.000Z");
 const SOURCE = { client: "discord-app:test", version: null };
 
@@ -52,7 +50,7 @@ async function seed(owner: string): Promise<Seeded> {
     source: SOURCE,
     upstream: null,
   };
-  const { layout, formats } = await commitWrite(db, clock, input);
+  const { layout, formats } = await commitWrite(store, clock, input);
   return { id: layout.id, owner, formatRev: formats.get("spark")!.rev };
 }
 
@@ -91,7 +89,7 @@ describe("[LDB-P23] M2: an exhausted commitWithRetry answers 409 stale, not a ra
     });
 
     // Nothing was actually written -- commitWrite never really ran.
-    const formatsRow = await db.prepare("SELECT rev FROM layout_formats WHERE layout_id = ? AND lineage = 'spark'").bind(seeded.id).first<{ rev: number }>();
+    const formatsRow = await testStore.row<{ rev: number }>("layout_formats", { layout_id: seeded.id, lineage: "spark" });
     expect(formatsRow?.rev).toBe(seeded.formatRev);
   });
 
@@ -146,7 +144,7 @@ describe("[LDB-P23] M2: an exhausted commitWithRetry answers 409 stale, not a ra
     expect(body.last_write).toBeNull();
     expect(body.record).toMatchObject({ id: seeded.id });
 
-    const formatsRow = await db.prepare("SELECT 1 FROM layout_formats WHERE layout_id = ? AND lineage = 't'").bind(seeded.id).first();
+    const formatsRow = await testStore.row("layout_formats", { layout_id: seeded.id, lineage: "t" });
     expect(formatsRow, "nothing was actually written").toBeNull();
   });
 });

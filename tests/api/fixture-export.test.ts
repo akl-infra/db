@@ -61,7 +61,7 @@
 // tests/test_sync_db_source.py` reads it by exact path, and F1 does not
 // touch scripts/ -- F3c owns updating `DbSource` to spark/1 and can rename
 // it then).
-import { SELF } from "cloudflare:test";
+import { SELF } from "../harness";
 import { beforeAll, describe, expect, it } from "vitest";
 import authorsFixture from "../fixtures/db-responses/authors.json" with { type: "json" };
 import detailFixture from "../fixtures/db-responses/detail.json" with { type: "json" };

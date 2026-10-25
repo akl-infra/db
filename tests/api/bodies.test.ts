@@ -5,15 +5,13 @@
 // must be an object; the body must be valid JSON at all (a non-JSON body,
 // or `Content-Type` absent on an otherwise-valid JSON body, must not be
 // conflated with "not JSON").
-import { SELF, env } from "cloudflare:test";
+import { SELF, store } from "../harness";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Bindings } from "../../src/env";
 import { commitWrite, type CommitInput } from "../../src/core/events";
 import { fixedClock } from "../../src/core/time";
 import { ulid } from "ulidx";
 import { AKL_PAYLOAD, CMINI_PAYLOAD, actorFixture, register, uniqueName, writeFetch } from "./write-support";
 
-const db = (env as unknown as Bindings).DB;
 const clock = fixedClock("2026-07-05T00:00:00.000Z");
 const OWNER = "owner-bodies-1";
 
@@ -40,7 +38,7 @@ async function seed() {
     source: { client: "discord-app:test", version: null },
     upstream: null,
   };
-  const { layout } = await commitWrite(db, clock, input);
+  const { layout } = await commitWrite(store, clock, input);
   return layout;
 }
 

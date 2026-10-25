@@ -18,16 +18,14 @@
 //     first -- the retry's fresh read sees the NEW owner -> 403 not_owner.
 // (c) PUT racing a DELETE that lands first -- the retry's fresh read sees
 //     `deleted: true` -> 404 not_found.
-import { env } from "cloudflare:test";
+import { store } from "../harness";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Bindings } from "../../src/env";
 import { commitWrite, type CommitInput } from "../../src/core/events";
 import { fixedClock } from "../../src/core/time";
 import { ulid } from "ulidx";
 import * as recordsModule from "../../src/core/records";
-import { AKL_PAYLOAD, actorFixture, register, uniqueName, writeFetch } from "./write-support";
+import { actorFixture, AKL_PAYLOAD, ensureAuthor, register, uniqueName, writeFetch } from "./write-support";
 
-const db = (env as unknown as Bindings).DB;
 const clock = fixedClock("2026-07-21T00:00:00.000Z");
 const SOURCE = { client: "discord-app:test", version: null };
 
@@ -58,7 +56,7 @@ async function seed(owner: string): Promise<Seeded> {
     source: SOURCE,
     upstream: null,
   };
-  const { layout, formats } = await commitWrite(db, clock, input);
+  const { layout, formats } = await commitWrite(store, clock, input);
   return { id: layout.id, owner, layoutRev: layout.layout_rev, formatRev: formats.get("spark")!.rev };
 }
 
@@ -73,7 +71,7 @@ function uniqueSnowflake(): string {
 }
 
 async function seedAuthor(userId: string) {
-  await db.prepare("INSERT OR IGNORE INTO authors (user_id, name, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?)").bind(userId, `user-${userId}`, clock(), clock()).run();
+  await ensureAuthor(userId, `user-${userId}`, clock(), clock());
 }
 
 // Runs `inject()` to completion exactly once, the first time
@@ -119,10 +117,10 @@ describe("[MF-6] [LDB-P20] HTTP-level cross-scope races (H3)", () => {
     expect(putBody.formats["spark/1"]!.rev).toBe(seeded.formatRev + 1);
 
     // Both changes really landed: the rename AND the format replace.
-    const finalLayout = await recordsModule.readById(db, seeded.id);
+    const finalLayout = await recordsModule.readById(store, seeded.id);
     expect(finalLayout!.name).toBe(newName);
     expect(finalLayout!.layout_rev).toBe(seeded.layoutRev + 1);
-    const finalFormats = await recordsModule.formatsForLayout(db, seeded.id);
+    const finalFormats = await recordsModule.formatsForLayout(store, seeded.id);
     expect(finalFormats.get("spark")!.rev).toBe(seeded.formatRev + 1);
   });
 
@@ -154,10 +152,10 @@ describe("[MF-6] [LDB-P20] HTTP-level cross-scope races (H3)", () => {
     expect(putRes.status).toBe(403);
     await expect(putRes.json()).resolves.toMatchObject({ error: "not_owner" });
 
-    const finalLayout = await recordsModule.readById(db, seeded.id);
+    const finalLayout = await recordsModule.readById(store, seeded.id);
     expect(finalLayout!.owner).toBe(NEW_OWNER);
     // The refused PUT never touched the format row.
-    const finalFormats = await recordsModule.formatsForLayout(db, seeded.id);
+    const finalFormats = await recordsModule.formatsForLayout(store, seeded.id);
     expect(finalFormats.get("spark")!.rev).toBe(seeded.formatRev);
   });
 
@@ -183,9 +181,9 @@ describe("[MF-6] [LDB-P20] HTTP-level cross-scope races (H3)", () => {
     expect(putRes.status).toBe(404);
     await expect(putRes.json()).resolves.toMatchObject({ error: "not_found" });
 
-    const finalLayout = await recordsModule.readById(db, seeded.id);
+    const finalLayout = await recordsModule.readById(store, seeded.id);
     expect(finalLayout!.deleted).toBe(true);
-    const finalFormats = await recordsModule.formatsForLayout(db, seeded.id);
+    const finalFormats = await recordsModule.formatsForLayout(store, seeded.id);
     expect(finalFormats.get("spark")!.rev).toBe(seeded.formatRev);
   });
 });

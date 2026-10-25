@@ -8,13 +8,11 @@
 // transfer/PATCH carrying a record's own (already-native) format forward
 // is covered by the ordinary tests in write.test.ts/restore.test.ts/
 // transfer.test.ts/patch.test.ts, not a second matrix here.
-import { env } from "cloudflare:test";
+import { env, testStore } from "../harness";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Bindings } from "../../src/env";
 import { fixedClock } from "../../src/core/time";
 import { AKL_PAYLOAD, actorFixture, pinTestClock, register, uniqueName, writeFetch } from "./write-support";
 
-const db = (env as unknown as Bindings).DB;
 const clock = fixedClock("2026-07-15T00:00:00.000Z");
 pinTestClock(env as unknown as { TEST_CLOCK?: typeof clock }, clock);
 
@@ -36,7 +34,7 @@ describe("[LDB-F16] POST /v1/layouts: format resolution", () => {
     expect(res.status).toBe(201);
     const body = await res.json<{ id: string; format: string }>();
     expect(body.format).toBe("spark/1");
-    const row = await db.prepare("SELECT format FROM layout_formats WHERE layout_id = ? AND lineage = 'spark'").bind(body.id).first<{ format: string }>();
+    const row = await testStore.row<{ format: string }>("layout_formats", { layout_id: body.id, lineage: "spark" });
     expect(row?.format).toBe("spark/1");
   });
 
@@ -64,13 +62,13 @@ describe("[LDB-F16] POST /v1/layouts: format resolution", () => {
   });
 
   it("no event is appended for any refused format", async () => {
-    const before = await db.prepare("SELECT COUNT(*) AS n FROM events").first<{ n: number }>();
+    const before = await testStore.count("events");
     for (const format of ["cmini/1", "mana2/1", "bogus/1"]) {
       const res = await writeFetch("/v1/layouts", "POST", headers(), { name: uniqueName(`fwm-noevent-${format}`), format, payload: {} });
       expect(res.status, format).toBe(400);
     }
-    const after = await db.prepare("SELECT COUNT(*) AS n FROM events").first<{ n: number }>();
-    expect(after?.n).toBe(before?.n);
+    const after = await testStore.count("events");
+    expect(after).toBe(before);
   });
 });
 
@@ -86,7 +84,7 @@ async function seedSpark(owner: string) {
 }
 
 async function sparkRev(id: string): Promise<number> {
-  const row = await db.prepare("SELECT rev FROM layout_formats WHERE layout_id = ? AND lineage = 'spark'").bind(id).first<{ rev: number }>();
+  const row = await testStore.row<{ rev: number }>("layout_formats", { layout_id: id, lineage: "spark" });
   return row!.rev;
 }
 

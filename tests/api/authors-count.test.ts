@@ -1,3 +1,4 @@
+// D1-only (design/p1-briefs.md E).
 // [LDB-R16] `authors_head.count` (migrations/0035) equals
 // `SELECT COUNT(*) FROM authors` after every kind of authors mutation, and
 // `/v1/meta.author_count` reads it.
@@ -42,7 +43,7 @@ describe("[LDB-R16] authors_head.count tracks the author count exactly", () => {
 
     // Client lane: first sight inserts the actor, a repeat does not.
     const { privateKey, pubkeyB64url } = await generateKeyPair();
-    await seedClient(db, clock, { id: "cl-count", pubkeyB64url, ownerUserId: "50000000000000002", caps: "act-as-user" });
+    await seedClient(clock, { id: "cl-count", pubkeyB64url, ownerUserId: "50000000000000002", caps: "act-as-user" });
     for (let i = 0; i < 2; i++) {
       const headers = await signHeaders({
         privateKey,

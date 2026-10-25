@@ -28,15 +28,13 @@
 // still matches (this test asserts against its own committed copy on every
 // normal run, so a future route-shape drift here goes red exactly like
 // LDB-S1a's).
-import { SELF, env } from "cloudflare:test";
+import { SELF, env } from "../harness";
 import { describe, expect, it, vi, afterEach } from "vitest";
-import type { Bindings } from "../../src/env";
 import { fixedClock } from "../../src/core/time";
 import { vectors } from "../auth/client-support";
 import { BOOTSTRAP_ADMIN, actorFixture, pinTestClock, register, uniqueName, writeFetch } from "./write-support";
 import adminClientsFixture from "../fixtures/db-responses/admin-clients.json" with { type: "json" };
 
-const bindings = env as unknown as Bindings;
 const clock = fixedClock("2026-09-13T00:00:00.000Z");
 pinTestClock(env as unknown as { TEST_CLOCK?: typeof clock }, clock);
 

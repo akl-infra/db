@@ -1,3 +1,4 @@
+// D1-only (design/p1-briefs.md E).
 // [LDB-F40] migrations/0016_no_board.sql (design/layout-db/26-no-board.md):
 // every stored spark/1 payload -- the current `layout_formats` row AND every
 // historical `layout_revs` payload -- loses its `board` key in place, and

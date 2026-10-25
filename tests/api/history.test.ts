@@ -1,12 +1,12 @@
 // [LDB-R5] `/history` (every event for the id, oldest first, naming its
 // scope's `format`) and `/rev/{n}?format=F` (that format's payload as of
 // its own rev n; out-of-range 404s) -- 21-formats.md §2.4.
-import { SELF } from "cloudflare:test";
+import { SELF, store, testStore } from "../harness";
 import { beforeAll, describe, expect, it } from "vitest";
 import { commitWrite, type CommitInput } from "../../src/core/events";
 import { formatsForLayout, readById } from "../../src/core/records";
 import { fixedClock } from "../../src/core/time";
-import { db, seedUpstream100 } from "./support";
+import { seedUpstream100 } from "./support";
 
 interface EventRow {
   seq: number;
@@ -39,7 +39,7 @@ beforeAll(async () => {
 
 describe("[LDB-R5] /history equals a record's own events, for every seed record", () => {
   it("[LDB-R5] [LDB-P15] matches the events table row for row, source and format included", async () => {
-    const { results: ids } = await db.prepare("SELECT id FROM layouts").all<{ id: string }>();
+    const ids = await testStore.rows<{ id: string }>("layouts");
     expect(ids.length).toBeGreaterThan(0);
 
     for (const { id } of ids) {
@@ -47,10 +47,7 @@ describe("[LDB-R5] /history equals a record's own events, for every seed record"
       expect(res.status).toBe(200);
       const items = await res.json<HistoryItem[]>();
 
-      const { results: rows } = await db
-        .prepare("SELECT seq, rev, format, at, actor, via, kind, admin, source_client, source_version FROM events WHERE layout_id = ? ORDER BY seq ASC")
-        .bind(id)
-        .all<EventRow>();
+      const rows = (await testStore.rows("events", { layout_id: id }, ["seq"])) as unknown as EventRow[];
 
       expect(items.length).toBe(rows.length);
       for (let i = 0; i < items.length; i++) {
@@ -74,17 +71,17 @@ describe("[LDB-R5] /history equals a record's own events, for every seed record"
 
 describe("[LDB-R5] /rev/{n}?format=F reproduces that format's payload at rev n; rev+1 404s", () => {
   it("[LDB-R5] across several revisions of one record's spark/1 format", async () => {
-    const seed = await db.prepare("SELECT id FROM layouts WHERE deleted = 0 LIMIT 1").first<{ id: string }>();
+    const seed = (await testStore.rows<{ id: string }>("layouts", { deleted: 0 }))[0] ?? null;
     if (seed === null) throw new Error("no live record to revise");
 
-    const initialFormats = await formatsForLayout(db, seed.id);
+    const initialFormats = await formatsForLayout(store, seed.id);
     const originalPayload = initialFormats.get("spark")!.payload;
     const payloadsByRev: unknown[] = [originalPayload]; // index 0 == rev 1
 
     for (let i = 0; i < 3; i++) {
       const payload = { ...(originalPayload as Record<string, unknown>), magic: { notes: `rev-${i}` } };
-      const current = (await readById(db, seed.id))!;
-      const formats = await formatsForLayout(db, seed.id);
+      const current = (await readById(store, seed.id))!;
+      const formats = await formatsForLayout(store, seed.id);
       const input: CommitInput = {
         layoutId: seed.id,
         creating: false,
@@ -98,11 +95,11 @@ describe("[LDB-R5] /rev/{n}?format=F reproduces that format's payload at rev n; 
         source: { client: "discord-app:test", version: null },
         upstream: current.upstream,
       };
-      await commitWrite(db, fixedClock(`2026-06-09T00:0${i}:00.000Z`), input);
+      await commitWrite(store, fixedClock(`2026-06-09T00:0${i}:00.000Z`), input);
       payloadsByRev.push(payload);
     }
 
-    const finalFormats = await formatsForLayout(db, seed.id);
+    const finalFormats = await formatsForLayout(store, seed.id);
     expect(finalFormats.get("spark")!.rev).toBe(payloadsByRev.length); // 1 (import) + 3 updates
 
     for (let n = 1; n <= payloadsByRev.length; n++) {

@@ -14,7 +14,7 @@
 // exists there to widen, so `tests/rehost.test.ts`'s existing (format-
 // agnostic) coverage already proves a row-minus-one payload survives a
 // dump/restore exactly as any other spark/1 payload would.
-import { env } from "cloudflare:test";
+import { env } from "../harness";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fixedClock } from "../../src/core/time";
 import { actorFixture, pinTestClock, register, uniqueName, writeFetch } from "./write-support";

@@ -8,7 +8,7 @@
 // counter is charged once per key, never again on a replay; two genuinely
 // concurrent identical requests never both land (LDB-K7: the key is
 // reserved before either handler runs).
-import { env } from "cloudflare:test";
+import { env, store, testStore } from "../harness";
 import fc from "fast-check";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Bindings } from "../../src/env";
@@ -20,7 +20,6 @@ import { generateKeyPair, seedClient, signHeaders } from "../auth/client-support
 import { AKL_PAYLOAD, actorFixture, pinTestClock, register, uniqueName, writeFetch } from "./write-support";
 
 const bindings = env as unknown as Bindings;
-const db = bindings.DB;
 const SOURCE = { client: "discord-app:test", version: null };
 
 afterEach(() => {
@@ -45,12 +44,12 @@ async function seed(owner: string, name = uniqueName("idem-seed")): Promise<{ id
     source: SOURCE,
     upstream: null,
   };
-  const { layout } = await commitWrite(db, clock, input);
+  const { layout } = await commitWrite(store, clock, input);
   return { id: layout.id, name: layout.name };
 }
 
 async function eventsOf(layoutId: string, kind?: string) {
-  const { results } = await db.prepare("SELECT * FROM events WHERE layout_id = ? ORDER BY seq ASC").bind(layoutId).all<EventDbRow>();
+  const results = (await testStore.rows("events", { layout_id: layoutId }, ["seq"])) as unknown as EventDbRow[];
   const events = results.map(rowToEvent);
   return kind === undefined ? events : events.filter((e) => e.kind === kind);
 }
@@ -66,8 +65,8 @@ describe("[LDB-K5] Idempotency-Key is entirely optional", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("Idempotency-Replayed")).toBeNull();
 
-    const row = await db.prepare("SELECT COUNT(*) AS n FROM idempotency").first<{ n: number }>();
-    expect(row?.n).toBe(0);
+    const row = await testStore.count("idempotency");
+    expect(row).toBe(0);
   });
 
   it("[LDB-K5] a malformed key (empty, over-length, or non-printable-ASCII) is 400 bad_request, nothing written", async () => {
@@ -226,7 +225,7 @@ describe("[LDB-K3] scope isolation: (actor scope, key) never collides across cal
 
     const { privateKey, pubkeyB64url } = await generateKeyPair();
     const clientId = uniqueName("idem-lane-client");
-    await seedClient(db, fixedClock("2026-09-01T00:00:00.000Z"), { id: clientId, pubkeyB64url, ownerUserId: discordUserId, caps: "act-as-user" });
+    await seedClient(fixedClock("2026-09-01T00:00:00.000Z"), { id: clientId, pubkeyB64url, ownerUserId: discordUserId, caps: "act-as-user" });
     const clientLayout = await seed(discordUserId);
     const sameKey = uniqueName("idem-lane-shared-key");
 
@@ -397,7 +396,7 @@ describe("[LDB-K7] the key is reserved before the handler runs -- no concurrent 
 
     for (const res of [a, b]) expect([200, 409]).toContain(res.status);
     expect(await eventsOf(seeded.id, "liked")).toHaveLength(1);
-    const likeCount = await db.prepare("SELECT like_count FROM layouts WHERE id = ?").bind(seeded.id).first<{ like_count: number }>();
+    const likeCount = await testStore.row<{ like_count: number }>("layouts", { id: seeded.id });
     expect(likeCount?.like_count).toBe(1);
   });
 
@@ -421,7 +420,7 @@ describe("[LDB-K7] the key is reserved before the handler runs -- no concurrent 
     // Simulate a crashed reserver: a pending row (status 0) with that
     // stale `at`, inserted directly (bypassing HTTP) the same way
     // `acquireIdempotencySlot`'s own reservation would.
-    const claimed = await reserveIdempotency(db, { scope, key, method: "PATCH", path, request_hash: "stale-hash-does-not-matter", at: staleAt });
+    const claimed = await reserveIdempotency(store, { scope, key, method: "PATCH", path, request_hash: "stale-hash-does-not-matter", at: staleAt });
     expect(claimed).toBe(true);
 
     // A real request now is NOT blocked by the abandoned reservation -- it
@@ -431,7 +430,7 @@ describe("[LDB-K7] the key is reserved before the handler runs -- no concurrent 
     expect(res.headers.get("Idempotency-Replayed")).toBeNull();
     expect(await eventsOf(seeded.id, "renamed")).toHaveLength(1);
 
-    const row = await db.prepare("SELECT status FROM idempotency WHERE scope = ? AND key = ?").bind(scope, key).first<{ status: number }>();
+    const row = await testStore.row<{ status: number }>("idempotency", { scope, key });
     expect(row?.status).toBe(200); // completed for real, no longer pending
   });
 
@@ -454,7 +453,7 @@ describe("[LDB-K7] the key is reserved before the handler runs -- no concurrent 
     // The reservation was dropped, not left pending -- nothing in the
     // table for this (scope, key) at all.
     const scope = `user:${owner}`;
-    const gone = await db.prepare("SELECT 1 FROM idempotency WHERE scope = ? AND key = ?").bind(scope, key).first();
+    const gone = await testStore.row("idempotency", { scope, key });
     expect(gone).toBeNull();
   });
 });

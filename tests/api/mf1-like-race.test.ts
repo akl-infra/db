@@ -16,9 +16,8 @@
 // the row equals `COUNT(DISTINCT likes.user_id)` (LDB-L4), and
 // `foldLayout`'s replay agrees with the row (MF-3) -- not just the value
 // right after the like, but after the racing write on top of it too.
-import { env } from "cloudflare:test";
+import { store, testStore } from "../harness";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Bindings } from "../../src/env";
 import { commitWrite, foldLayout, rowToEvent, type CommitInput, type EventDbRow } from "../../src/core/events";
 import { fixedClock } from "../../src/core/time";
 import { ulid } from "ulidx";
@@ -26,7 +25,6 @@ import * as recordsModule from "../../src/core/records";
 import { readById } from "../../src/core/records";
 import { AKL_PAYLOAD, actorFixture, register, uniqueName, writeFetch } from "./write-support";
 
-const db = (env as unknown as Bindings).DB;
 const clock = fixedClock("2026-07-22T00:00:00.000Z");
 const SOURCE = { client: "discord-app:test", version: null };
 
@@ -56,7 +54,7 @@ async function seed(owner: string): Promise<Seeded> {
     source: SOURCE,
     upstream: null,
   };
-  const { layout, formats } = await commitWrite(db, clock, input);
+  const { layout, formats } = await commitWrite(store, clock, input);
   return { id: layout.id, owner, formatRev: formats.get("spark")!.rev };
 }
 
@@ -77,20 +75,17 @@ function injectOnce(layoutId: string, inject: () => Promise<void>) {
 }
 
 async function assertFoldMatchesRowAndLikeCount(layoutId: string) {
-  const eventRows = await db.prepare("SELECT * FROM events WHERE layout_id = ? ORDER BY seq ASC").bind(layoutId).all<EventDbRow>();
-  const events = eventRows.results.map(rowToEvent);
-  const revRows = await db
-    .prepare("SELECT lineage, rev, format, payload_json FROM layout_revs WHERE layout_id = ?")
-    .bind(layoutId)
-    .all<{ lineage: string | null; rev: number; format: string | null; payload_json: string | null }>();
-  const revs = new Map(revRows.results.map((r) => [`${r.lineage ?? ""} ${r.rev}`, { format: r.format, payload: r.payload_json === null ? undefined : (JSON.parse(r.payload_json) as unknown) }]));
+  const eventRows = (await testStore.rows("events", { layout_id: layoutId }, ["seq"])) as unknown as EventDbRow[];
+  const events = eventRows.map(rowToEvent);
+  const revRows = await testStore.rows<{ lineage: string | null; rev: number; format: string | null; payload_json: string | null }>("layout_revs", { layout_id: layoutId });
+  const revs = new Map(revRows.map((r) => [`${r.lineage ?? ""} ${r.rev}`, { format: r.format, payload: r.payload_json === null ? undefined : (JSON.parse(r.payload_json) as unknown) }]));
   const folded = foldLayout(events, revs);
-  const row = await readById(db, layoutId);
+  const row = await readById(store, layoutId);
   const { n: _n, ...rowSansN } = row!;
   expect(folded!.layout, "MF-3: fold must equal the stored row, like_count included").toEqual(rowSansN);
 
-  const likeRows = await db.prepare("SELECT COUNT(DISTINCT user_id) AS n FROM likes WHERE layout_id = ?").bind(layoutId).first<{ n: number }>();
-  expect(row!.like_count, "LDB-L4: like_count === COUNT(DISTINCT likes.user_id)").toBe(likeRows?.n ?? 0);
+  const likeRows = await testStore.rows<{ user_id: string }>("likes", { layout_id: layoutId });
+  expect(row!.like_count, "LDB-L4: like_count === COUNT(DISTINCT likes.user_id)").toBe(new Set(likeRows.map((r) => r.user_id)).size);
 }
 
 describe("[LDB-P22] M1: a like landing between a write's read and its commit is never reverted", () => {
@@ -121,7 +116,7 @@ describe("[LDB-P22] M1: a like landing between a write's read and its commit is 
     // the PUT lands, unaffected by the concurrent like.
     expect(putRes.status).toBe(200);
 
-    const row = await readById(db, seeded.id);
+    const row = await readById(store, seeded.id);
     expect(row!.like_count, "M1: the write's own upsert must not revert the concurrent like").toBe(1);
     await assertFoldMatchesRowAndLikeCount(seeded.id);
   });
@@ -156,7 +151,7 @@ describe("[LDB-P22] M1: a like landing between a write's read and its commit is 
     spy.mockRestore();
 
     expect(putRes.status).toBe(200);
-    const row = await readById(db, seeded.id);
+    const row = await readById(store, seeded.id);
     expect(row!.like_count, "M1: the write's own upsert must not revert the concurrent unlike").toBe(0);
     await assertFoldMatchesRowAndLikeCount(seeded.id);
   });

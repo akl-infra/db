@@ -16,9 +16,8 @@
 // `T1` (`t/1`, role: "stored") registered for this file only: a real
 // second stored lineage the seeded layout never writes, exactly the
 // "test-only second stored lineage" the plan's F2 scope calls for.
-import { env } from "cloudflare:test";
+import { store } from "../harness";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { Bindings } from "../../src/env";
 import { commitWrite, type CommitInput } from "../../src/core/events";
 import { fixedClock } from "../../src/core/time";
 import { ulid } from "ulidx";
@@ -27,7 +26,6 @@ import { actorFixture, register, writeFetch } from "./write-support";
 import { registerForTest } from "../../formats/registry.ts";
 import { T1 } from "../formats/stub-lineage.ts";
 
-const db = (env as unknown as Bindings).DB;
 const clock = fixedClock("2026-07-17T00:00:00.000Z");
 const OWNER = "owner-mf4-matrix";
 
@@ -51,7 +49,7 @@ async function seed(): Promise<string> {
     source: { client: "discord-app:test", version: null },
     upstream: null,
   };
-  const { layout } = await commitWrite(db, clock, input);
+  const { layout } = await commitWrite(store, clock, input);
   return layout.id;
 }
 

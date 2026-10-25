@@ -1,3 +1,4 @@
+// D1-only (design/p1-briefs.md E).
 // [LDB-F41] migrations/0017_magic_emit.sql (design/layout-db/27-magic-emit.md):
 // every stored spark/1 magic-key rule `{after, output}` becomes `{after,
 // emit}` with `emit = output minus the leading after` -- the current

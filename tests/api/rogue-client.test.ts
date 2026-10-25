@@ -16,18 +16,15 @@
 // proves the NEXT TWO real client-lane writes land (crossing exactly onto
 // then over the threshold) while the one after is refused before it ever
 // reaches the write pipeline.
-import { SELF, env } from "cloudflare:test";
+import { SELF, env, store, testStore } from "../harness";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Bindings } from "../../src/env";
 import { DESTRUCTIVE_BUDGET_BASE, DESTRUCTIVE_WINDOW_SECONDS, destructiveThreshold } from "../../src/core/destructive-budget";
 import { type EventDbRow, commitWrite, rowToEvent, type CommitInput } from "../../src/core/events";
 import { fixedClock } from "../../src/core/time";
 import { ulid } from "ulidx";
 import { generateKeyPair, seedClient, signHeaders } from "../auth/client-support";
-import { actorFixture, BOOTSTRAP_ADMIN, pinTestClock, register, uniqueName, writeFetch } from "./write-support";
+import { actorFixture, BOOTSTRAP_ADMIN, pinTestClock, register, uniqueName, upsertCounter, writeFetch } from "./write-support";
 
-const bindings = env as unknown as Bindings;
-const db = bindings.DB;
 const CLOCK_ISO = "2026-09-13T00:00:00.000Z";
 const clock = fixedClock(CLOCK_ISO);
 pinTestClock(env as unknown as { TEST_CLOCK?: typeof clock }, clock);
@@ -54,7 +51,7 @@ async function seedLayout(owner: string, name: string): Promise<{ id: string }> 
     source: SOURCE,
     upstream: null,
   };
-  const { layout } = await commitWrite(db, clock, input);
+  const { layout } = await commitWrite(store, clock, input);
   return { id: layout.id };
 }
 
@@ -66,16 +63,13 @@ async function seedCounterOneBelowThreshold(clientId: string, liveLayouts: numbe
   const threshold = destructiveThreshold(liveLayouts);
   const nowSeconds = Math.floor(new Date(CLOCK_ISO).getTime() / 1000);
   const windowStart = Math.floor(nowSeconds / DESTRUCTIVE_WINDOW_SECONDS) * DESTRUCTIVE_WINDOW_SECONDS;
-  await db
-    .prepare("INSERT INTO ratelimit (key, window_start, n) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET window_start = excluded.window_start, n = excluded.n")
-    .bind(`destructive:${clientId}`, windowStart, threshold - 1)
-    .run();
+  await upsertCounter(`destructive:${clientId}`, windowStart, threshold - 1);
 }
 
 async function freshClient(): Promise<{ clientId: string; privateKey: CryptoKey }> {
   const { privateKey, pubkeyB64url } = await generateKeyPair();
   const clientId = `rogue-${uniqueName("client")}`;
-  await seedClient(db, clock, { id: clientId, pubkeyB64url, ownerUserId: OWNER, caps: "act-as-user" });
+  await seedClient(clock, { id: clientId, pubkeyB64url, ownerUserId: OWNER, caps: "act-as-user" });
   return { clientId, privateKey };
 }
 
@@ -109,10 +103,7 @@ async function clientMe(client: { clientId: string; privateKey: CryptoKey }): Pr
 }
 
 function statusOf(clientId: string): Promise<string | null> {
-  return db
-    .prepare("SELECT status FROM clients WHERE id = ?")
-    .bind(clientId)
-    .first<{ status: string }>()
+  return testStore.row<{ status: string }>("clients", { id: clientId })
     .then((r) => r?.status ?? null);
 }
 
@@ -154,10 +145,9 @@ describe("[LDB-A10] [LDB-A11] rogue-trusted-client hardening: destructive-write 
     expect((await meRes.json<{ error: string }>()).error).toBe("client_suspended");
 
     // The trip itself is a public, admin-kind system event.
-    const { results } = await db
-      .prepare("SELECT * FROM events WHERE kind = 'admin.client_suspended' AND detail_json LIKE ? ORDER BY seq DESC LIMIT 1")
-      .bind(`%${client.clientId}%`)
-      .all<EventDbRow>();
+    const results = ((await testStore.rows("events", { kind: "admin.client_suspended" }, ["seq"])) as unknown as EventDbRow[])
+      .filter((r) => r.detail_json?.includes(client.clientId))
+      .slice(-1);
     expect(results).toHaveLength(1);
     const e = rowToEvent(results[0]!);
     expect(e.admin).toBe(true);
@@ -210,7 +200,7 @@ describe("[LDB-A10] [LDB-A11] rogue-trusted-client hardening: destructive-write 
     // A create never counts -- the client is still active, one write away
     // from the threshold exactly as seeded, not tripped by this one.
     expect(await statusOf(client.clientId)).toBe("active");
-    const row = await db.prepare("SELECT n FROM ratelimit WHERE key = ?").bind(`destructive:${client.clientId}`).first<{ n: number }>();
+    const row = await testStore.row<{ n: number }>("ratelimit", { key: `destructive:${client.clientId}` });
     expect(row?.n).toBe(DESTRUCTIVE_BUDGET_BASE - 1); // unchanged by the create
   });
 
