@@ -449,6 +449,7 @@ real examples in §4.
 | 401 | `stale_timestamp` | request timestamp is outside the accepted window | `staleTimestamp(skew)` |
 | 401 | `replay` | nonce already used | `replay()` |
 | 403 | `actor_not_allowed` | this client may not act as this user | `actorNotAllowed(actor, owner)` |
+| 403 | `client_read_only` | this client is read-only: it may send only GET and HEAD requests | `clientReadOnly(method)` |
 | 422 | `idempotency_mismatch` | this 'Idempotency-Key' was already used for a different request | `idempotencyMismatch()` |
 | 409 | `idempotency_in_progress` | a request with this 'Idempotency-Key' is already being processed | `idempotencyInProgress()` |
 | 403 | `banned` | this account is banned from writing | `banned()` |

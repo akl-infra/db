@@ -138,6 +138,26 @@ describe("[LDB-A5] POST /v1/admin/clients", () => {
     expect(body.caps).toBe("act-as-owner-only,feed:wait");
   });
 
+  it("[LDB-A18] read-only registers with either scope cap and with feed:wait, stored verbatim", async () => {
+    for (const caps of ["act-as-user,read-only", "act-as-owner-only,read-only", "act-as-user,feed:wait,read-only"]) {
+      const { pubkeyB64url } = await generateKeyPair();
+      const res = await registerClient(pubkeyB64url, testUserId(), caps);
+      expect(res.status, `${caps}: ${await res.clone().text()}`).toBe(201);
+      expect((await res.json<{ caps: string }>()).caps).toBe(caps);
+    }
+  });
+
+  it("[LDB-A18] read-only alone, or with two scope caps -> 400 /caps, and the message lists every extra cap", async () => {
+    for (const caps of ["read-only", "act-as-user,act-as-owner-only,read-only"]) {
+      const { pubkeyB64url } = await generateKeyPair();
+      const res = await registerClient(pubkeyB64url, testUserId(), caps);
+      expect(res.status, caps).toBe(400);
+      const body = await res.json<{ error: string; param: string; message: string }>();
+      expect(body.param).toBe("/caps");
+      expect(body.message).toContain("plus any of feed:wait, read-only");
+    }
+  });
+
   it("caps with no scope cap (feed:wait alone) -> 400 bad_request /caps", async () => {
     const { pubkeyB64url } = await generateKeyPair();
     const res = await registerClient(pubkeyB64url, testUserId(), "feed:wait");

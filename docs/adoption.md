@@ -225,7 +225,12 @@ is a comma-separated set: exactly one SCOPE cap —
 `act-as-user` to assert any Discord user id (a real multi-user bot), or
 `act-as-owner-only` to assert only your own `owner_user_id` (a personal
 script). Every registered client may long-poll `GET /v1/changes?wait=`
-(§4); no extra cap is needed. The admin runs:
+(§4); no extra cap is needed. Add the extra cap `read-only`
+(`act-as-user,read-only`) for a client that must never write: it may send
+only `GET` and `HEAD`, anything else is refused `403 client_read_only`
+before the nonce is spent, and it never creates an `authors` row (an
+unknown actor's name reads as its id). Caps never change in place: revoke
+and re-register. The admin runs:
 
 ```bash
 POST /v1/admin/clients
@@ -280,12 +285,13 @@ The server's checks, in order, each throwing before the route ever runs
 | `clients.status != "suspended"` (an admin can reactivate) | `403 client_suspended` |
 | `\|now − timestamp\| <= 300s` | `401 stale_timestamp` (`skew` in the body) |
 | the Ed25519 signature verifies under the registered key | `401 bad_signature` |
+| `read-only` cap ⇒ the method is `GET` or `HEAD` (checked before the nonce is spent, so a refused request writes nothing) | `403 client_read_only` |
 | the nonce has never been used by this client (a D1 INSERT's own primary key; used nonces are kept at least 15 minutes, pruned nightly) | `401 replay` |
 | `act-as-owner-only` ⇒ `X-Akl-Actor == owner_user_id` | `403 actor_not_allowed` |
 
 (every `401` above, and the `403 client_suspended`, also carries `WWW-Authenticate: Bearer`.)
 
-After the checks, the actor's `authors` row is created on first sight. Its `last_seen_at` (visible only in the dump) is refreshed at most once an hour: requests inside the hour after the stored value write no `authors` row.
+After the checks, the actor's `authors` row is created on first sight (never by a `read-only` client). Its `last_seen_at` (visible only in the dump) is refreshed at most once an hour: requests inside the hour after the stored value write no `authors` row.
 
 **Interop is a frozen vector file**: `tests/vectors/client-signing.json`
 holds thirteen `(key, request, expected signing_string, expected signature)`
@@ -887,6 +893,7 @@ it as generated, not hand-edited):
 | 401 | `stale_timestamp` | request timestamp is outside the accepted window | `staleTimestamp(skew)` |
 | 401 | `replay` | nonce already used | `replay()` |
 | 403 | `actor_not_allowed` | this client may not act as this user | `actorNotAllowed(actor, owner)` |
+| 403 | `client_read_only` | this client is read-only: it may send only GET and HEAD requests | `clientReadOnly(method)` |
 | 422 | `idempotency_mismatch` | this 'Idempotency-Key' was already used for a different request | `idempotencyMismatch()` |
 | 409 | `idempotency_in_progress` | a request with this 'Idempotency-Key' is already being processed | `idempotencyInProgress()` |
 | 403 | `banned` | this account is banned from writing | `banned()` |

@@ -25,6 +25,22 @@ this file just gives them a public, versioned home. From here on, a
 `WIRE_VERSION` bump and a line here land in the SAME PR, never one without
 the other (`[LDB-V5]`).
 
+## 1.30 — 2026-10-25
+
+LDB-A16..A18, docs/decisions/31-read-only-clients.md: a new extra cap,
+`read-only`, additive. It combines with either scope cap (and `feed:wait`):
+`act-as-user,read-only` or `act-as-owner-only,read-only`. A request from such
+a client whose method is not `GET` or `HEAD` is refused
+`403 {"error":"client_read_only","message":"this client is read-only: it may
+send only GET and HEAD requests","method":"<METHOD>"}` (new error code, no
+`WWW-Authenticate`), after the signature verifies and before the nonce, so a
+refused request writes nothing. A read-only client never upserts an `authors`
+row: its first sight of a user creates no placeholder author and moves neither
+`authors_head` nor the `/v1/meta` / `/v1/authors` ETags (the response body is
+unchanged: an unknown actor's name is its id). The 400 `validateCaps` message
+now reads "...plus any of feed:wait, read-only". No stored shape changes and no
+migration (`clients.caps` is TEXT).
+
 ## 1.29 — 2026-10-20
 
 LDB-F48..F50, design/alts/43-skip-magic-wire.md §1: skip magic on the wire,
