@@ -449,7 +449,7 @@ export async function runFuzz(o) {
           if ((sequence - from + 1) % stateEvery === 0 || sequence === from + o.sequences - 1) {
             report.state_diffs_run++;
             const [sa, sb] = [await A.state(), await B.state()];
-            transcript?.write(JSON.stringify({ seed, sequence, state: sha(canonState(maskStateRows(sa))), state_b: sha(canonState(maskStateRows(sb))), tables: tableHashes(maskStateRows(sa)) }) + "\n");
+            transcript?.write(JSON.stringify({ seed, sequence, state: sha(canonState(maskStateRows(sa))), state_b: sha(canonState(maskStateRows(sb))), tables: tableHashes(maskStateRows(sa)), rows: process.env.FUZZ_TRANSCRIPT_TABLE ? maskStateRows(sa)[process.env.FUZZ_TRANSCRIPT_TABLE] : undefined }) + "\n");
             const sd = diffStates(maskStateRows(sa), maskStateRows(sb), ignore);
             if (sd.length > 0) addDiff({ seed, sequence, step: stepNo, kind: "state", problems: sd.map((d) => `${d.table}: ${d.rows[0]} vs ${d.rows[1]} rows; oracle-only ${JSON.stringify(d.only_oracle)}; other-only ${JSON.stringify(d.only_other)}`) });
           }
