@@ -82,3 +82,16 @@ describe("db/site/INVARIANTS.md coverage", () => {
     expect(orphans, `tag(s) with no registry row: ${orphans.join(", ")}`).toEqual([]);
   });
 });
+
+describe("LDB-SITE registry", () => {
+  it("every LDB-SITEn id in INVARIANTS.md has a tagged test, and no tag names an unknown id", () => {
+    const ids = [...fs.readFileSync(REGISTRY_PATH, "utf8").matchAll(/^\|\s*(LDB-SITE\d+)\s*\|/gm)].map((m) => m[1]!);
+    expect(ids).toHaveLength(9);
+    const titles = walk(TESTS_DIR)
+      .filter((f) => !f.endsWith("invariants.test.ts"))
+      .map((f) => fs.readFileSync(f, "utf8"))
+      .join("\n");
+    for (const id of ids) expect(titles, `no test tagged [${id}]`).toContain(`[${id}]`);
+    for (const tag of titles.match(/\[LDB-SITE\d+\]/g) ?? []) expect(ids).toContain(tag.slice(1, -1));
+  });
+});

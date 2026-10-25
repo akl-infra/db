@@ -24,6 +24,8 @@ here is actually read).
 | `DISCORD_CLIENT_ID` | secret | `server/discord.ts` (`/auth/login`, `/auth/callback`), `server/discord.ts`'s `/auth/me` | the Discord OAuth application id. **Unset = sign-in degrades cleanly**: `/auth/login` and `/auth/callback` 404 (same guard as `functions/auth/discord/login.js`), `/auth/me` answers `{user:null, signin:false}` so the UI hides the sign-in button entirely |
 | `DISCORD_CLIENT_SECRET` | secret | `server/discord.ts` (`/auth/callback`'s token exchange) | the Discord OAuth application secret |
 | `SESSION_SECRET` | secret | `server/session.ts` (`sealSession`/`openSession`) | AES-256-GCM key material (SHA-256 of this string) for the `__Host-akldb_session` cookie. Unset = `/auth/callback` fails closed with a plain "not fully configured" page rather than sealing a forgeable session |
+| `DISCORD_AUTHORIZE_URL` | var (optional) | `server/discord.ts` (`/auth/login`) | Discord's authorize endpoint; unset = `https://discord.com/oauth2/authorize`. Lab and the local diff point it at a fake Discord (LDB-SITE3) |
+| `DISCORD_TOKEN_URL` | var (optional) | `server/discord.ts` (`/auth/callback`) | Discord's token endpoint; unset = `https://discord.com/api/oauth2/token` |
 
 All three secrets and both custom domains (`akldb.org`, `www.akldb.org`)
 are already live on the deployed Worker (2026-09-12) — see
@@ -73,6 +75,19 @@ every push to `ldb-arch-review` (the integration branch) using
 ```bash
 CLOUDFLARE_ACCOUNT_ID=58a5eb82948e2134d8b7b242e9567ac4 npx wrangler deploy
 ```
+
+## On AWS
+
+The same app also runs as a Lambda behind CloudFront (`server/lambda.ts`,
+`../infra/site.yaml`, design/aws-port.md §3a). `server/index.ts` is the shared
+app; `server/workers.ts` and `server/lambda.ts` are the two entries. The
+Lambda reads its secrets from SSM (`/akldb/<stage>/site/{origin-verify,
+session-secret,discord-client-id,discord-client-secret}`), answers 403 unless
+CloudFront's `x-origin-verify` header matches, and takes the viewer's host from
+`x-forwarded-host`. Deploy (main session only):
+`aws-vault exec akldb -- node scripts/deploy-aws.mjs <lab|staging|prod>`
+(`--dry-run` prints the steps). The local Worker-vs-Lambda diff is
+`npm run build && node tests/aws/diff.mjs` (ports 18511-18513).
 
 ## Testing
 
