@@ -71,10 +71,9 @@ export function authCacheItem(row: D1Row): Item {
 
 export function rateLimitItem(row: D1Row): Item {
   const ws = row.window_start as number;
+  // Key and window live only in pk/sk (fromItems derives them), so the writers that ADD to a window -- hitWindow, lane G's destructive budget -- and this codec agree byte for byte.
   return {
     ...rateLimitKey(row.key as string, ws),
-    key: row.key,
-    window_start: ws,
     n: row.n,
     ttl: ttlFor(ws + RATELIMIT_TTL_SECONDS),
   };
@@ -167,6 +166,8 @@ export const authSchema: LaneSchema = {
   toItems,
   tableOf,
   fromItems({ main, ephemeral }) {
+    // A key's row is its newest window, as in D1 (one row per key); older windows are garbage awaiting TTL (`supersededWindows`).
+    const newest = new Map<string, D1Row>();
     const out: RowsByTable = {
       authors: [], authors_head: [], admins: [], bans: [], clients: [], nonces: [], auth_cache: [], ratelimit: [], idempotency: [],
     };
@@ -179,8 +180,6 @@ export const authSchema: LaneSchema = {
       else if (pk === "BANS") out.bans!.push(pick(it, BAN_COLUMNS));
       else if (pk === "CLIENTS") out.clients!.push(pick(it, CLIENT_COLUMNS));
     }
-    // A key's row is its newest window (D1 keeps one row per key).
-    const newest = new Map<string, D1Row>();
     for (const it of ephemeral) {
       const pk = it.pk as string;
       if (pk.startsWith("N#")) out.nonces!.push({ client_id: it.client_id, nonce: it.nonce, at: it.at });
@@ -199,3 +198,11 @@ export const authSchema: LaneSchema = {
     return out;
   },
 };
+
+/** Rate-limit items that a newer window of the same key has superseded: not row state (D1 keeps one row per key), only garbage awaiting TTL. */
+export function supersededWindows(items: readonly Item[]): Set<Item> {
+  const newest = new Map<string, number>();
+  const rl = items.filter((i) => (i.pk as string).startsWith("RL#") && i.pk !== "RL#holds");
+  for (const i of rl) newest.set(i.pk as string, Math.max(newest.get(i.pk as string) ?? -Infinity, Number(i.sk)));
+  return new Set(rl.filter((i) => Number(i.sk) < newest.get(i.pk as string)!));
+}

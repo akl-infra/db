@@ -390,9 +390,9 @@ export function ddbAuthStore(ctx: DdbContext): AuthStore {
           new UpdateCommand({
             TableName: ephemeral,
             Key: rateLimitKey(key, windowStart),
-            UpdateExpression: "SET #ttl = :ttl, window_start = :ws ADD n :one",
+            UpdateExpression: "SET #ttl = :ttl ADD n :one",
             ExpressionAttributeNames: { "#ttl": "ttl" },
-            ExpressionAttributeValues: { ":ttl": ttlFor(windowStart + RATELIMIT_TTL_SECONDS), ":ws": windowStart, ":one": 1 },
+            ExpressionAttributeValues: { ":ttl": ttlFor(windowStart + RATELIMIT_TTL_SECONDS), ":one": 1 },
             ReturnValues: "UPDATED_NEW",
           }),
         ),
