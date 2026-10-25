@@ -174,7 +174,12 @@ describe("lambda entry", () => {
     expect(r.body).toMatch(/not implemented/);
   });
 
-  it("[LDB-INF29] mirrorApply skips outside apply mode and refuses clearly until lane Z lands", async () => {
+  it("[LDB-INF29] mirrorIngest runs with only the data bucket configured (its real env)", async () => {
+    const { handlers } = setup({ MIRROR_MODE: "apply", AKLDB_BUCKET_DUMPS: undefined, AKLDB_BUCKET_SNAPSHOT: undefined, AKLDB_TABLE_MAIN: undefined }, { "tee-hmac": "h" });
+    expect((await handlers.mirrorIngest(event({ body: "{}" }))).body).toMatch(/not implemented/);
+  });
+
+  it("[LDB-INF29] mirrorApply mirrorApply skips outside apply mode and refuses clearly until lane Z lands", async () => {
     expect(await setup({ MIRROR_MODE: "record" }).handlers.mirrorApply()).toMatchObject({ skipped: expect.any(String) });
     await expect(setup({ MIRROR_MODE: "apply" }).handlers.mirrorApply()).rejects.toThrow(/not implemented/);
   });

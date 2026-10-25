@@ -195,7 +195,7 @@ export function expectedResources(stage) {
   ];
   const prod = [
     "MirrorIngestRole", "MirrorApplyRole", "MirrorIngestFn", "MirrorApplyFn", "MirrorIngestUrl", "MirrorIngestUrlPermission",
-    "MirrorIngestInvokePermission", "ApplySchedule", "MirrorDivergedAlarm", "Budget",
+    "MirrorIngestInvokePermission", "ApplySchedule", "MirrorDivergedAlarm", "MirrorHaltFilter", "Budget",
   ];
   return [...common, ...(stage === "prod" ? prod : [])].sort();
 }

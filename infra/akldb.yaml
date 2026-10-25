@@ -660,6 +660,10 @@ Resources:
                 Effect: Allow
                 Action: lambda:InvokeFunction
                 Resource: !GetAtt MirrorApplyFn.Arn
+              - Sid: QueueSpill
+                Effect: Allow
+                Action: [ s3:GetObject, s3:PutObject ]
+                Resource: !Sub "${DataBucket.Arn}/mirror/queue/*"
               - Sid: Secret
                 Effect: Allow
                 Action: ssm:GetParameter
@@ -750,6 +754,7 @@ Resources:
           AKLDB_DDB_ALLOW_REMOTE: "1"
           AKLDB_STAGE: !Ref Stage
           AKLDB_TABLE_EPHEMERAL: !Ref EphemeralTable
+          AKLDB_BUCKET_DATA: !Ref DataBucket
           AKLDB_SSM_PREFIX: !Sub /akldb/${Stage}
           MIRROR_MODE: !Ref MirrorMode
           MIRROR_APPLY_FUNCTION: !Sub akldb-${Stage}-mirror-apply
@@ -840,7 +845,7 @@ Resources:
   # ---------------------------------------------------------------- alarms
   # At most 10 (the free tier); prod has exactly 10, the other stages 9. The Akldb/* metrics are
   # EMF lines the runtime emits with dimension set [["Stage"]]:
-  #   EventTxRetriesExhausted (count), ReplicaSnapshotAgeSeconds, DumpAgeSeconds, MirrorDiverged (count).
+  #   EventTxRetriesExhausted (count), ReplicaSnapshotAgeSeconds, DumpAgeSeconds. MirrorDiverged comes from a log metric filter (no dimension).
   AlarmTopic:
     Type: AWS::SNS::Topic
     Properties:
@@ -1060,6 +1065,16 @@ Resources:
       TreatMissingData: notBreaching
       AlarmActions: [ !Ref AlarmTopic ]
 
+  # Lane Z's applier halts by logging one JSON line {"code":"MIRROR_DIVERGED"|"MIRROR_*", ...} and returning, never throwing.
+  MirrorHaltFilter:
+    Type: AWS::Logs::MetricFilter
+    Condition: IsProd
+    Properties:
+      LogGroupName: !Ref LogGroup
+      FilterPattern: '{ $.code = "MIRROR_*" }'
+      MetricTransformations:
+        - { MetricNamespace: Akldb, MetricName: MirrorDiverged, MetricValue: "1", DefaultValue: 0 }
+
   MirrorDivergedAlarm:
     Type: AWS::CloudWatch::Alarm
     Condition: IsProd
@@ -1067,7 +1082,6 @@ Resources:
       AlarmName: !Sub akldb-${Stage}-mirror-diverged
       Namespace: Akldb
       MetricName: MirrorDiverged
-      Dimensions: [ { Name: Stage, Value: !Ref Stage } ]
       Statistic: Sum
       Period: 60
       EvaluationPeriods: 1
