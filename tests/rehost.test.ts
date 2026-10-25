@@ -16,9 +16,11 @@
 // this is the actual daily proof that a from-scratch rehost of the live
 // service works. A network failure here is a hard failure, never a skip
 // (07 §6 S8's ci-gate-split-256 lesson: "a skip nobody reads is a pass").
-import { SELF, createExecutionContext, createScheduledController, env, waitOnExecutionContext } from "cloudflare:test";
+import { pick, rowsAs } from "./auth/store-support";
+import { SELF, createExecutionContext, createScheduledController, env, store, testStore, waitOnExecutionContext } from "./harness";
 import { describe, expect, it, vi } from "vitest";
 import type { Bindings } from "../src/env";
+import type { Store } from "../src/store/port";
 import { canonical } from "../src/core/canonical";
 import { appendLike, appendLinkChange, type EventDbRow, foldLayout, rowToEvent } from "../src/core/events";
 import { rowToFormat, rowToLayout, type FormatDbRow, type LayoutDbRow } from "../src/core/records";
@@ -40,7 +42,7 @@ import { CASES } from "./conformance/manifest";
 // supersedes every OTHER pending submission for ITS layout) can never
 // accidentally touch the pending one this test also plants.
 const REHOST_BAN_USER = "870000000000000001";
-async function plantModerationState(db: Bindings["DB"]): Promise<{ likeLayoutId: string; pendingLayoutId: string; linkLayoutId: string; wpmLayoutId: string; commentLayoutId: string }> {
+async function plantModerationState(db: Store): Promise<{ likeLayoutId: string; pendingLayoutId: string; linkLayoutId: string; wpmLayoutId: string; commentLayoutId: string }> {
   const clock = fixedClock("2026-08-01T02:00:00.000Z");
   // Three BRAND NEW layouts, never a real upstream-100 record -- every
   // conformance fixture's own request targets a fixed, real seeded name
@@ -65,7 +67,7 @@ async function plantModerationState(db: Bindings["DB"]): Promise<{ likeLayoutId:
       source: { client: "discord-app:test", version: null },
       upstream: null,
     };
-    const { layout } = await commitWrite(db, clock, input);
+    const { layout } = await commitWrite(store, clock, input);
     return layout.id;
   }
 
@@ -73,41 +75,23 @@ async function plantModerationState(db: Bindings["DB"]): Promise<{ likeLayoutId:
   const pendingLayoutId = await freshLayout("rehost-plant-pending");
   const linkLayoutId = await freshLayout("rehost-plant-link");
 
-  await db
-    .prepare("INSERT INTO bans (user_id, by, at, reason) VALUES (?, ?, ?, ?)")
-    .bind(REHOST_BAN_USER, "800000000000000001", clock(), "rehost drill plant")
-    .run();
+  await testStore.insert("bans", { user_id: REHOST_BAN_USER, by: "800000000000000001", at: clock(), reason: "rehost drill plant" });
 
   const likeSource = { client: "discord-app:test", version: null };
-  await appendLike(db, clock, { kind: "liked", layoutId: likeLayoutId, userId: "800000000000000002", via: "discord", source: likeSource });
-  await appendLike(db, clock, { kind: "liked", layoutId: likeLayoutId, userId: "800000000000000003", via: "discord", source: likeSource });
+  await appendLike(store, clock, { kind: "liked", layoutId: likeLayoutId, userId: "800000000000000002", via: "discord", source: likeSource });
+  await appendLike(store, clock, { kind: "liked", layoutId: likeLayoutId, userId: "800000000000000003", via: "discord", source: likeSource });
 
-  await db
-    .prepare("INSERT INTO link_submissions (id, layout_id, url, submitted_by, submitted_at, status, decided_by, decided_at, reason) VALUES (?, ?, ?, ?, ?, 'pending', NULL, NULL, NULL)")
-    .bind(ulid(), pendingLayoutId, "https://example.org/rehost-pending", "800000000000000001", clock())
-    .run();
+  await testStore.insert("link_submissions", { id: ulid(), layout_id: pendingLayoutId, url: "https://example.org/rehost-pending", submitted_by: "800000000000000001", submitted_at: clock(), status: "pending", decided_by: null, decided_at: null, reason: null });
 
   // [LDB-MD8] saltorbit 2026-10-18: the dump is one public artifact and holds
   // only APPROVED submissions. Plant an approved one (kept), a rejected one
   // with a private reason (never dumped), and a pre-fix `link_submitted`
   // event with the url in its detail (dumped redacted).
-  await db
-    .prepare("INSERT INTO link_submissions (id, layout_id, url, submitted_by, submitted_at, status, decided_by, decided_at, reason) VALUES (?, ?, ?, ?, ?, 'approved', ?, ?, NULL)")
-    .bind(ulid(), linkLayoutId, "https://example.org/rehost-approved", "800000000000000001", clock(), "800000000000000001", clock())
-    .run();
-  await db
-    .prepare("INSERT INTO link_submissions (id, layout_id, url, submitted_by, submitted_at, status, decided_by, decided_at, reason) VALUES (?, ?, ?, ?, ?, 'rejected', ?, ?, ?)")
-    .bind(ulid(), pendingLayoutId, "https://example.org/rehost-rejected", "800000000000000001", clock(), "800000000000000001", clock(), "rehost private reason")
-    .run();
-  await db
-    .prepare(
-      `INSERT INTO events (at, kind, layout_id, name, owner, format, rev, actor, via, admin, detail_json, before_json, after_json, source_client, source_version)
-       VALUES (?, 'link_submitted', ?, 'rehost-plant-pending', '800000000000000001', NULL, NULL, '800000000000000001', 'discord', 0, ?, NULL, NULL, NULL, NULL)`,
-    )
-    .bind(clock(), pendingLayoutId, JSON.stringify({ submission_id: "01REHOSTOLD", url: "https://example.org/rehost-pending" }))
-    .run();
+  await testStore.insert("link_submissions", { id: ulid(), layout_id: linkLayoutId, url: "https://example.org/rehost-approved", submitted_by: "800000000000000001", submitted_at: clock(), status: "approved", decided_by: "800000000000000001", decided_at: clock(), reason: null });
+  await testStore.insert("link_submissions", { id: ulid(), layout_id: pendingLayoutId, url: "https://example.org/rehost-rejected", submitted_by: "800000000000000001", submitted_at: clock(), status: "rejected", decided_by: "800000000000000001", decided_at: clock(), reason: "rehost private reason" });
+  await testStore.insert("events", { at: clock(), kind: "link_submitted", layout_id: pendingLayoutId, name: "rehost-plant-pending", owner: "800000000000000001", format: null, rev: null, actor: "800000000000000001", via: "discord", admin: 0, detail_json: JSON.stringify({ submission_id: "01REHOSTOLD", url: "https://example.org/rehost-pending" }), before_json: null, after_json: null, source_client: null, source_version: null });
 
-  await appendLinkChange(db, clock, {
+  await appendLinkChange(store, clock, {
     layoutId: linkLayoutId,
     kind: "link_approved",
     link: "https://example.org/rehost-approved",
@@ -128,13 +112,7 @@ async function plantModerationState(db: Bindings["DB"]): Promise<{ likeLayoutId:
     ["superseded", 70, "https://example.org/rehost-wpm-superseded", clock()],
   ];
   for (const [status, wpm, proof, decidedAt] of wpmRows) {
-    await db
-      .prepare(
-        `INSERT INTO wpm_submissions (id, layout_id, user_id, wpm, proof, submitted_by, via, submitted_at, status, decided_by, decided_at, reason, notified_at)
-         VALUES (?, ?, ?, ?, ?, ?, 'discord', ?, ?, ?, ?, ?, ?)`,
-      )
-      .bind(ulid(), wpmLayoutId, "800000000000000004", wpm, proof, "800000000000000004", clock(), status, decidedAt === null ? null : "800000000000000001", decidedAt, status === "rejected" ? "rehost wpm private reason" : null, status === "pending" ? clock() : null)
-      .run();
+    await testStore.insert("wpm_submissions", { id: ulid(), layout_id: wpmLayoutId, user_id: "800000000000000004", wpm, proof, submitted_by: "800000000000000004", via: "discord", submitted_at: clock(), status, decided_by: decidedAt === null ? null : "800000000000000001", decided_at: decidedAt, reason: status === "rejected" ? "rehost wpm private reason" : null, notified_at: status === "pending" ? clock() : null });
   }
 
   // [LDB-CMT10] layout comments, one per status the table can hold. Only the
@@ -151,28 +129,18 @@ async function plantModerationState(db: Bindings["DB"]): Promise<{ likeLayoutId:
     ["removed", "rehost comment removed text", clock()],
   ];
   for (const [status, body, decidedAt] of commentRows) {
-    await db
-      .prepare(
-        `INSERT INTO layout_comments (id, layout_id, user_id, body, via, submitted_at, status, decided_by, decided_at, reason)
-         VALUES (?, ?, ?, ?, 'discord', ?, ?, ?, ?, ?)`,
-      )
-      .bind(ulid(), commentLayoutId, "800000000000000005", body, clock(), status, decidedAt === null ? null : "800000000000000001", decidedAt, status === "rejected" || status === "removed" ? "rehost comment private reason" : null)
-      .run();
+    await testStore.insert("layout_comments", { id: ulid(), layout_id: commentLayoutId, user_id: "800000000000000005", body, via: "discord", submitted_at: clock(), status, decided_by: decidedAt === null ? null : "800000000000000001", decided_at: decidedAt, reason: status === "rejected" || status === "removed" ? "rehost comment private reason" : null });
   }
 
   // [LDB-CMT12] likes on the approved comment's slot, dumped whole.
   for (const liker of ["800000000000000006", "800000000000000007"]) {
-    await db
-      .prepare("INSERT INTO comment_likes (layout_id, author_id, user_id, via, created_at) VALUES (?, ?, ?, 'discord', ?)")
-      .bind(commentLayoutId, "800000000000000005", liker, clock())
-      .run();
+    await testStore.insert("comment_likes", { layout_id: commentLayoutId, author_id: "800000000000000005", user_id: liker, via: "discord", created_at: clock() });
   }
 
   return { likeLayoutId, pendingLayoutId, linkLayoutId, wpmLayoutId, commentLayoutId };
 }
 
 const bindings = env as unknown as Bindings & { TEST_REHOST_DUMP_URL: string };
-const db = bindings.DB;
 
 async function gunzipJson<T>(gz: ArrayBuffer): Promise<T> {
   const stream = new Response(gz).body!.pipeThrough(new DecompressionStream("gzip"));
@@ -252,38 +220,19 @@ describe("rehost drill", () => {
           // AFTER `seedUpstream100()`'s own `restoreInto` (which wipes and
           // replaces the `clients` table along with everything else), so
           // this row survives to be the one the dump actually captures.
-          await db
-            .prepare(
-              `INSERT INTO clients (id, name, pubkey, owner_user_id, caps, discord_app_id, status, created_at, revoked_at)
-               VALUES ('cl-rehost-test', 'rehost-test-client', 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', '800000000000000001', 'act-as-user', 'discord-app-1', 'active', '2026-07-01T00:00:00.000Z', NULL)`,
-            )
-            .run();
+          await testStore.insert("clients", { id: "cl-rehost-test", name: "rehost-test-client", pubkey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", owner_user_id: "800000000000000001", caps: "act-as-user", discord_app_id: "discord-app-1", status: "active", created_at: "2026-07-01T00:00:00.000Z", revoked_at: null });
           // Private Discord pointers must be omitted from dumps and cleared
           // by restore; this marker has no source row by design.
-          await db.prepare("INSERT INTO modqueue_notifications (kind, submission_id, message_id, shown_status) VALUES ('link', 'private-marker', ?, 'pending')")
-            .bind(privateNotificationId).run();
-          await db.prepare(`INSERT INTO discord_pending_actions (interaction_id, application_id, token, actor_id, actor_name, kind, action, submission_id, channel_id, message_id, guild_id, created_at, expires_at)
-            VALUES ('900000000000000199', '900000000000000198', 'private-interaction-token', '900000000000000197', 'private actor', 'link', 'approve', 'private-submission', '900000000000000196', '900000000000000195', '900000000000000190', ?, ?)`)
-            .bind("2026-10-18T00:00:00.000Z", "2026-10-18T00:14:00.000Z").run();
-          await db.prepare(`INSERT INTO discord_deny_modals (modal_id, initial_interaction_id, actor_id, kind, submission_id, channel_id, message_id, guild_id, created_at, expires_at)
-            VALUES ('private-modal', '900000000000000194', '900000000000000193', 'comment', 'private-comment', '900000000000000192', '900000000000000191', '900000000000000190', ?, ?)`)
-            .bind("2026-10-18T00:00:00.000Z", "2026-10-18T00:14:00.000Z").run();
-          await db.prepare(`INSERT INTO discord_reopen_actions
-            (interaction_id, application_id, token, actor_id, actor_name, kind, action, submission_id, channel_id, message_id, guild_id, expected_status, expected_review_version, created_at, expires_at)
-            VALUES ('900000000000000180', '900000000000000198', 'private-reopen-token', '900000000000000197', 'private reopen actor', 'comment', 'reopen', 'private-reopen-submission', '900000000000000196', '900000000000000195', '900000000000000190', 'approved', 2, ?, ?)`)
-            .bind("2026-10-18T00:00:00.000Z", "2026-10-18T00:14:00.000Z").run();
-          await db.prepare(`INSERT INTO discord_reopen_confirmations
-            (confirmation_id, initial_interaction_id, actor_id, kind, submission_id, channel_id, message_id, guild_id, expected_status, expected_review_version, created_at, expires_at)
-            VALUES ('private-reopen-confirmation', '900000000000000181', '900000000000000197', 'comment', 'private-reopen-submission', '900000000000000196', '900000000000000195', '900000000000000190', 'approved', 2, ?, ?)`)
-            .bind("2026-10-18T00:00:00.000Z", "2026-10-18T00:14:00.000Z").run();
-          await db.prepare(`INSERT INTO discord_rejection_dm_outbox
-            (delivery_key, event_seq, kind, submission_id, layout_id, recipient_id, nonce, status, next_attempt_at, created_at, updated_at)
-            VALUES ('private-dm-marker', -999, 'comment', 'private-comment', 'private-layout', '900000000000000188', 'private-dm-nonce', 'pending', ?, ?, ?)`)
-            .bind("2026-10-18T00:00:00.000Z", "2026-10-18T00:00:00.000Z", "2026-10-18T00:00:00.000Z").run();
-          moderationIds = await plantModerationState(db);
+          await testStore.insert("modqueue_notifications", { kind: "link", submission_id: "private-marker", message_id: privateNotificationId, shown_status: "pending" });
+          await testStore.insert("discord_pending_actions", { interaction_id: "900000000000000199", application_id: "900000000000000198", token: "private-interaction-token", actor_id: "900000000000000197", actor_name: "private actor", kind: "link", action: "approve", submission_id: "private-submission", channel_id: "900000000000000196", message_id: "900000000000000195", guild_id: "900000000000000190", created_at: "2026-10-18T00:00:00.000Z", expires_at: "2026-10-18T00:14:00.000Z" });
+          await testStore.insert("discord_deny_modals", { modal_id: "private-modal", initial_interaction_id: "900000000000000194", actor_id: "900000000000000193", kind: "comment", submission_id: "private-comment", channel_id: "900000000000000192", message_id: "900000000000000191", guild_id: "900000000000000190", created_at: "2026-10-18T00:00:00.000Z", expires_at: "2026-10-18T00:14:00.000Z" });
+          await testStore.insert("discord_reopen_actions", { interaction_id: "900000000000000180", application_id: "900000000000000198", token: "private-reopen-token", actor_id: "900000000000000197", actor_name: "private reopen actor", kind: "comment", action: "reopen", submission_id: "private-reopen-submission", channel_id: "900000000000000196", message_id: "900000000000000195", guild_id: "900000000000000190", expected_status: "approved", expected_review_version: 2, created_at: "2026-10-18T00:00:00.000Z", expires_at: "2026-10-18T00:14:00.000Z" });
+          await testStore.insert("discord_reopen_confirmations", { confirmation_id: "private-reopen-confirmation", initial_interaction_id: "900000000000000181", actor_id: "900000000000000197", kind: "comment", submission_id: "private-reopen-submission", channel_id: "900000000000000196", message_id: "900000000000000195", guild_id: "900000000000000190", expected_status: "approved", expected_review_version: 2, created_at: "2026-10-18T00:00:00.000Z", expires_at: "2026-10-18T00:14:00.000Z" });
+          await testStore.insert("discord_rejection_dm_outbox", { delivery_key: "private-dm-marker", event_seq: -999, kind: "comment", submission_id: "private-comment", layout_id: "private-layout", recipient_id: "900000000000000188", nonce: "private-dm-nonce", status: "pending", next_attempt_at: "2026-10-18T00:00:00.000Z", created_at: "2026-10-18T00:00:00.000Z", updated_at: "2026-10-18T00:00:00.000Z" });
+          moderationIds = await plantModerationState(store);
           // Nonzero cycles must survive public snapshot restore too.
-          await db.prepare("UPDATE wpm_submissions SET review_version = 2 WHERE layout_id = ? AND status = 'approved'").bind(moderationIds.wpmLayoutId).run();
-          await db.prepare("UPDATE layout_comments SET review_version = 2 WHERE layout_id = ? AND status = 'approved'").bind(moderationIds.commentLayoutId).run();
+          await testStore.patch("wpm_submissions", { layout_id: moderationIds.wpmLayoutId, status: "approved" }, { review_version: 2 });
+          await testStore.patch("layout_comments", { layout_id: moderationIds.commentLayoutId, status: "approved" }, { review_version: 2 });
         });
     if (!usingRemote) {
       metaBefore = await (await SELF.fetch("https://example.com/v1/meta")).json();
@@ -340,23 +289,20 @@ describe("rehost drill", () => {
       expect(dump.clients.some((c) => c.id === "cl-rehost-test" && c.status === "active" && c.caps === "act-as-user")).toBe(true);
     }
 
-    await restoreInto(db, dump);
+    await restoreInto(store, dump);
 
     if (!usingRemote) {
-      const privateRows = await db.prepare("SELECT message_id FROM modqueue_notifications").all<{ message_id: string }>();
-      expect(privateRows.results).toEqual([]);
-      expect((await db.prepare("SELECT 1 FROM discord_pending_actions").first())).toBeNull();
-      expect((await db.prepare("SELECT 1 FROM discord_deny_modals").first())).toBeNull();
-      expect((await db.prepare("SELECT 1 FROM discord_reopen_actions").first())).toBeNull();
-      expect((await db.prepare("SELECT 1 FROM discord_reopen_confirmations").first())).toBeNull();
-      expect((await db.prepare("SELECT 1 FROM discord_rejection_dm_outbox").first())).toBeNull();
+      expect((await testStore.rows<{ message_id: string }>("modqueue_notifications")).map((r) => ({ message_id: r.message_id }))).toEqual([]);
+      expect((await testStore.row("discord_pending_actions", {}))).toBeNull();
+      expect((await testStore.row("discord_deny_modals", {}))).toBeNull();
+      expect((await testStore.row("discord_reopen_actions", {}))).toBeNull();
+      expect((await testStore.row("discord_reopen_confirmations", {}))).toBeNull();
+      expect((await testStore.row("discord_rejection_dm_outbox", {}))).toBeNull();
     }
 
     // LDB-D9: the restored `clients` table equals exactly what the dump
     // carried -- a rehost keeps every registered bot key.
-    const restoredClients = await db
-      .prepare("SELECT id, name, pubkey, owner_user_id, caps, discord_app_id, status, created_at, revoked_at FROM clients ORDER BY id ASC")
-      .all();
+    const restoredClients = { results: (await testStore.rows<Record<string, unknown>>("clients", {}, ["id"])).map((r) => ({ id: r.id, name: r.name, pubkey: r.pubkey, owner_user_id: r.owner_user_id, caps: r.caps, discord_app_id: r.discord_app_id, status: r.status, created_at: r.created_at, revoked_at: r.revoked_at }) as Record<string, unknown>) };
     expect(canonical(restoredClients.results)).toBe(canonical(dump.clients));
     if (!usingRemote) {
       expect(restoredClients.results.some((r) => (r as { id: string }).id === "cl-rehost-test")).toBe(true);
@@ -366,42 +312,34 @@ describe("rehost drill", () => {
     // two real likes all round-trip byte-exact.
     if (!usingRemote) {
       const ids = moderationIds!;
-      const restoredBans = await db.prepare("SELECT user_id, by, at, reason FROM bans ORDER BY user_id ASC").all<BanDbRow>();
+      const restoredBans = { results: (await rowsAs<BanDbRow>("bans", {}, ["user_id"])).map((r) => ({ user_id: r.user_id, by: r.by, at: r.at, reason: r.reason }) as BanDbRow) };
       expect(canonical(restoredBans.results)).toBe(canonical(dump.bans));
       expect(restoredBans.results.some((b) => b.user_id === REHOST_BAN_USER && b.reason === "rehost drill plant")).toBe(true);
 
-      const restoredSubmissions = await db
-        .prepare("SELECT id, layout_id, url, submitted_by, submitted_at, status, decided_by, decided_at, reason, notified_at FROM link_submissions ORDER BY id ASC")
-        .all<LinkSubmissionDbRow>();
+      const restoredSubmissions = { results: (await rowsAs<LinkSubmissionDbRow>("link_submissions", {}, ["id"])).map((r) => ({ id: r.id, layout_id: r.layout_id, url: r.url, submitted_by: r.submitted_by, submitted_at: r.submitted_at, status: r.status, decided_by: r.decided_by, decided_at: r.decided_at, reason: r.reason, notified_at: r.notified_at }) as LinkSubmissionDbRow) };
       expect(canonical(restoredSubmissions.results)).toBe(canonical(dump.link_submissions));
       // A rehost loses the non-approved mod queue by design (saltorbit 2026-10-18).
       expect(restoredSubmissions.results.every((s) => s.status === "approved")).toBe(true);
       expect(restoredSubmissions.results.some((s) => s.layout_id === ids.pendingLayoutId)).toBe(false);
 
       // [LDB-WPM10] the WPM table round-trips byte-exact.
-      const restoredWpm = await db
-        .prepare("SELECT id, layout_id, user_id, wpm, proof, submitted_by, via, submitted_at, status, decided_by, decided_at, reason, notified_at, review_version FROM wpm_submissions ORDER BY id ASC")
-        .all<WpmSubmissionDbRow>();
+      const restoredWpm = { results: (await rowsAs<WpmSubmissionDbRow>("wpm_submissions", {}, ["id"])).map((r) => ({ id: r.id, layout_id: r.layout_id, user_id: r.user_id, wpm: r.wpm, proof: r.proof, submitted_by: r.submitted_by, via: r.via, submitted_at: r.submitted_at, status: r.status, decided_by: r.decided_by, decided_at: r.decided_at, reason: r.reason, notified_at: r.notified_at, review_version: r.review_version }) as WpmSubmissionDbRow) };
       expect(canonical(restoredWpm.results)).toBe(canonical(dump.wpm_submissions));
       expect(restoredWpm.results.filter((s) => s.layout_id === ids.wpmLayoutId)).toHaveLength(1); // the approved one; the rest is lost by design
 
       // [LDB-CMT10] the comments table round-trips byte-exact.
-      const restoredComments = await db
-        .prepare("SELECT id, layout_id, user_id, body, via, submitted_at, status, decided_by, decided_at, reason, review_version FROM layout_comments ORDER BY id ASC")
-        .all<LayoutCommentDbRow>();
+      const restoredComments = { results: (await rowsAs<LayoutCommentDbRow>("layout_comments", {}, ["id"])).map((r) => ({ id: r.id, layout_id: r.layout_id, user_id: r.user_id, body: r.body, via: r.via, submitted_at: r.submitted_at, status: r.status, decided_by: r.decided_by, decided_at: r.decided_at, reason: r.reason, review_version: r.review_version }) as LayoutCommentDbRow) };
       expect(canonical(restoredComments.results)).toBe(canonical(dump.layout_comments));
       expect(restoredComments.results.filter((s) => s.layout_id === ids.commentLayoutId)).toHaveLength(1); // the approved one; the rest is lost by design
 
       // [LDB-CMT12] the comment likes round-trip byte-exact.
       expect(dump.comment_likes.filter((l) => l.layout_id === ids.commentLayoutId)).toHaveLength(2);
-      const restoredLikes = await db
-        .prepare("SELECT layout_id, author_id, user_id, via, created_at FROM comment_likes ORDER BY layout_id, author_id, user_id")
-        .all<CommentLikeDbRow>();
+      const restoredLikes = { results: (await rowsAs<CommentLikeDbRow>("comment_likes", {}, ["layout_id", "author_id", "user_id"])).map((r) => ({ layout_id: r.layout_id, author_id: r.author_id, user_id: r.user_id, via: r.via, created_at: r.created_at }) as CommentLikeDbRow) };
       expect(canonical(restoredLikes.results)).toBe(canonical(dump.comment_likes));
 
-      const likeLayout = await db.prepare("SELECT like_count FROM layouts WHERE id = ?").bind(ids.likeLayoutId).first<{ like_count: number }>();
+      const likeLayout = pick<{ like_count: number }>(await testStore.row("layouts", { id: ids.likeLayoutId }), "like_count");
       expect(likeLayout?.like_count).toBe(2);
-      const linkLayout = await db.prepare("SELECT link FROM layouts WHERE id = ?").bind(ids.linkLayoutId).first<{ link: string | null }>();
+      const linkLayout = pick<{ link: string | null }>(await testStore.row("layouts", { id: ids.linkLayoutId }), "link");
       expect(linkLayout?.link).toBe("https://example.org/rehost-approved");
     }
 

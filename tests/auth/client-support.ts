@@ -4,9 +4,9 @@
 // Web Crypto -- workerd has Ed25519 (confirmed 2026-09-09 against this
 // exact wrangler/miniflare pin), so this exercises the same crypto path
 // `verifyClientRequest` verifies against, not a re-derivation of it.
-import type { Bindings } from "../../src/env";
 import { base64UrlToBytes, bytesToBase64Url } from "../../src/auth/client";
 import type { Clock } from "../../src/core/time";
+import { SELF, testStore } from "../harness";
 import vectors from "../vectors/client-signing.json" with { type: "json" };
 
 export { vectors };
@@ -29,29 +29,20 @@ export interface SeedClientOpts {
 // vector client id (`vectors.vectors[0].client_id`) in their own
 // `beforeAll` -- idempotent re-seeding here means each describe block can
 // stay self-contained instead of relying on file-wide ordering.
-export async function seedClient(db: Bindings["DB"], now: Clock, opts: SeedClientOpts): Promise<void> {
+export async function seedClient(_db: unknown, now: Clock, opts: SeedClientOpts): Promise<void> {
   const at = now();
-  await db
-    .prepare(
-      `INSERT INTO clients (id, name, pubkey, owner_user_id, caps, discord_app_id, status, created_at, revoked_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET
-         name = excluded.name, pubkey = excluded.pubkey, owner_user_id = excluded.owner_user_id,
-         caps = excluded.caps, discord_app_id = excluded.discord_app_id,
-         status = excluded.status, revoked_at = excluded.revoked_at`,
-    )
-    .bind(
-      opts.id,
-      opts.name ?? `test-client-${opts.id}`,
-      opts.pubkeyB64url,
-      opts.ownerUserId,
-      opts.caps,
-      opts.discordAppId ?? null,
-      opts.status ?? "active",
-      at,
-      opts.status === "revoked" ? at : null,
-    )
-    .run();
+  const row = {
+    id: opts.id,
+    name: opts.name ?? `test-client-${opts.id}`,
+    pubkey: opts.pubkeyB64url,
+    owner_user_id: opts.ownerUserId,
+    caps: opts.caps,
+    discord_app_id: opts.discordAppId ?? null,
+    status: opts.status ?? "active",
+    revoked_at: opts.status === "revoked" ? at : null,
+  };
+  const { id, ...fields } = row;
+  if ((await testStore.patch("clients", { id }, fields)) === 0) await testStore.insert("clients", { ...row, created_at: at });
 }
 
 export async function generateKeyPair(): Promise<{ privateKey: CryptoKey; pubkeyB64url: string }> {

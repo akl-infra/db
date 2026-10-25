@@ -3,7 +3,8 @@
 // at-most-once claim pattern as links (LDB-MD11/LDB-MD12), one sweep per
 // queue table. Same "fake the outside service, count calls" approach as
 // tests/auth/modqueue.test.ts; no wall-clock assertions anywhere.
-import { SELF, env } from "cloudflare:test";
+import { SELF, env, store, testStore } from "../harness";
+import { pick } from "./store-support";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ulid } from "ulidx";
 import type { Bindings } from "../../src/env";
@@ -15,7 +16,6 @@ import { buildV2StatusPatch } from "../../src/core/modqueue-message";
 import type { D1Migration } from "@cloudflare/vitest-pool-workers";
 
 const bindings = env as unknown as Bindings;
-const db = bindings.DB;
 const clock = fixedClock("2026-10-18T00:00:00.000Z");
 
 const WEBHOOK_URL = "https://discord.test/api/webhooks/modqueue-wpm-test";
@@ -50,40 +50,28 @@ async function freshLayout(name: string, owner = "900000000000000001"): Promise<
     source: { client: "discord-app:test", version: null },
     upstream: null,
   };
-  const { layout } = await commitWrite(db, clock, input);
+  const { layout } = await commitWrite(store, clock, input);
   return layout.id;
 }
 
 async function insertWpm(o: { layoutId: string; userId: string; wpm?: number; proof?: string; status?: string }): Promise<string> {
   const id = ulid();
-  await db
-    .prepare(
-      `INSERT INTO wpm_submissions (id, layout_id, user_id, wpm, proof, submitted_by, via, submitted_at, status, decided_by, decided_at, reason, notified_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'discord', ?, ?, NULL, NULL, NULL, NULL)`,
-    )
-    .bind(id, o.layoutId, o.userId, o.wpm ?? 85, o.proof ?? "https://example.org/wpm-proof", o.userId, clock(), o.status ?? "pending")
-    .run();
+  await testStore.insert("wpm_submissions", { id, layout_id: o.layoutId, user_id: o.userId, wpm: o.wpm ?? 85, proof: o.proof ?? "https://example.org/wpm-proof", submitted_by: o.userId, via: "discord", submitted_at: clock(), status: o.status ?? "pending", decided_by: null, decided_at: null, reason: null, notified_at: null });
   return id;
 }
 
 async function insertLink(layoutId: string, submittedBy: string): Promise<string> {
   const id = ulid();
-  await db
-    .prepare(
-      `INSERT INTO link_submissions (id, layout_id, url, submitted_by, submitted_at, status, decided_by, decided_at, reason, notified_at)
-       VALUES (?, ?, ?, ?, ?, 'pending', NULL, NULL, NULL, NULL)`,
-    )
-    .bind(id, layoutId, "https://example.org/a-link", submittedBy, clock())
-    .run();
+  await testStore.insert("link_submissions", { id, layout_id: layoutId, url: "https://example.org/a-link", submitted_by: submittedBy, submitted_at: clock(), status: "pending", decided_by: null, decided_at: null, reason: null, notified_at: null });
   return id;
 }
 
 async function insertAuthor(userId: string, name: string): Promise<void> {
-  await db.prepare("INSERT INTO authors (user_id, name, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?)").bind(userId, name, clock(), clock()).run();
+  await testStore.insert("authors", { user_id: userId, name, first_seen_at: clock(), last_seen_at: clock() });
 }
 
 async function readWpm(id: string): Promise<{ status: string; notified_at: string | null }> {
-  const row = await db.prepare("SELECT status, notified_at FROM wpm_submissions WHERE id = ?").bind(id).first<{ status: string; notified_at: string | null }>();
+  const row = pick<{ status: string; notified_at: string | null }>(await testStore.row("wpm_submissions", { id }), "status", "notified_at");
   if (row === null) throw new Error(`no such submission '${id}'`);
   return row;
 }
@@ -131,8 +119,8 @@ describe("[LDB-WPM8] notifyPending covers the WPM queue", () => {
     const subId = await insertWpm({ layoutId, userId: "900000000000000110", wpm: 142, proof: "https://monkeytype.com/profile/fast" });
 
     const webhook = new FakeWebhook();
-    await notifyPending(db, envWith(WEBHOOK_URL), clock, webhook.fetchImpl);
-    await notifyPending(db, envWith(WEBHOOK_URL), clock, webhook.fetchImpl); // a second sweep never re-sends
+    await notifyPending(store, envWith(WEBHOOK_URL), clock, webhook.fetchImpl);
+    await notifyPending(store, envWith(WEBHOOK_URL), clock, webhook.fetchImpl); // a second sweep never re-sends
 
     const sent = webhook.about(subId);
     expect(sent).toHaveLength(1);
@@ -154,7 +142,7 @@ describe("[LDB-WPM8] notifyPending covers the WPM queue", () => {
     const layoutId = await freshLayout(uniqueName("modq-wpm-noauthor"));
     const subId = await insertWpm({ layoutId, userId: "900000000000000111" });
     const webhook = new FakeWebhook();
-    await notifyPending(db, envWith(WEBHOOK_URL), clock, webhook.fetchImpl);
+    await notifyPending(store, envWith(WEBHOOK_URL), clock, webhook.fetchImpl);
     expect(webhook.about(subId)[0]!.body.content).toContain("900000000000000111");
   });
 
@@ -165,10 +153,10 @@ describe("[LDB-WPM8] notifyPending covers the WPM queue", () => {
       await insertWpm({ layoutId, userId: "900000000000000123" }),
     ];
     const webhook = new FakeWebhook();
-    await notifyPending(db, envWith(WEBHOOK_URL), clock, webhook.fetchImpl);
+    await notifyPending(store, envWith(WEBHOOK_URL), clock, webhook.fetchImpl);
     for (const [id, status, prefix] of [[ids[0]!, "approved", "✅ APPROVED"], [ids[1]!, "rejected", "❌ REJECTED"]] as const) {
-      await db.prepare("UPDATE wpm_submissions SET status = ? WHERE id = ?").bind(status, id).run();
-      await updateQueueNotification(db, envWith(WEBHOOK_URL), "wpm", id, webhook.fetchImpl);
+      await testStore.patch("wpm_submissions", { id }, { status });
+      await updateQueueNotification(store, envWith(WEBHOOK_URL), "wpm", id, webhook.fetchImpl);
       const edit = webhook.requests.find((r) => r.method === "PATCH" && r.body.content.includes(id));
       expect(edit?.url).toContain(`/messages/discord-wpm-`);
       expect(edit?.body.content.startsWith(`${prefix}\nNew WPM submission`)).toBe(true);
@@ -182,7 +170,7 @@ describe("[LDB-WPM8] notifyPending covers the WPM queue", () => {
     const wpmId = await insertWpm({ layoutId, userId: "900000000000000112" });
 
     const webhook = new FakeWebhook();
-    await Promise.all([notifyPending(db, envWith(WEBHOOK_URL), clock, webhook.fetchImpl), notifyPending(db, envWith(WEBHOOK_URL), clock, webhook.fetchImpl)]);
+    await Promise.all([notifyPending(store, envWith(WEBHOOK_URL), clock, webhook.fetchImpl), notifyPending(store, envWith(WEBHOOK_URL), clock, webhook.fetchImpl)]);
 
     expect(webhook.about(linkId)).toHaveLength(1);
     expect(webhook.about(wpmId)).toHaveLength(1);
@@ -196,9 +184,9 @@ describe("[LDB-WPM8] notifyPending covers the WPM queue", () => {
     const subId = await insertWpm({ layoutId, userId: "900000000000000113" });
     const webhook = new FakeWebhook();
     await Promise.all([
-      notifyPending(db, envWith(WEBHOOK_URL), clock, webhook.fetchImpl),
-      notifyPending(db, envWith(WEBHOOK_URL), clock, webhook.fetchImpl),
-      notifyPending(db, envWith(WEBHOOK_URL), clock, webhook.fetchImpl),
+      notifyPending(store, envWith(WEBHOOK_URL), clock, webhook.fetchImpl),
+      notifyPending(store, envWith(WEBHOOK_URL), clock, webhook.fetchImpl),
+      notifyPending(store, envWith(WEBHOOK_URL), clock, webhook.fetchImpl),
     ]);
     expect(webhook.about(subId)).toHaveLength(1);
   });
@@ -209,17 +197,17 @@ describe("[LDB-WPM8] notifyPending covers the WPM queue", () => {
 
     for (const outcome of [500, "throw", 429] as const) {
       const failing = new FakeWebhook(() => outcome);
-      await notifyPending(db, envWith(WEBHOOK_URL), clock, failing.fetchImpl);
+      await notifyPending(store, envWith(WEBHOOK_URL), clock, failing.fetchImpl);
       expect(failing.about(subId), String(outcome)).toHaveLength(1);
       expect((await readWpm(subId)).notified_at, String(outcome)).toBeNull();
     }
     // A fresh caller must still honor Discord's durable cooldown.
     const deferred = new FakeWebhook();
-    await notifyPending(db, envWith(WEBHOOK_URL), clock, deferred.fetchImpl);
+    await notifyPending(store, envWith(WEBHOOK_URL), clock, deferred.fetchImpl);
     expect(deferred.about(subId)).toHaveLength(0);
-    await db.prepare("UPDATE modqueue_delivery_gate SET retry_at = 0 WHERE id = 1").run();
+    await testStore.patch("modqueue_delivery_gate", { id: 1 }, { retry_at: 0 });
     const succeeding = new FakeWebhook();
-    await notifyPending(db, envWith(WEBHOOK_URL), clock, succeeding.fetchImpl);
+    await notifyPending(store, envWith(WEBHOOK_URL), clock, succeeding.fetchImpl);
     expect(succeeding.about(subId)).toHaveLength(1);
     expect((await readWpm(subId)).notified_at).not.toBeNull();
   });
@@ -232,7 +220,7 @@ describe("[LDB-WPM8] notifyPending covers the WPM queue", () => {
       await insertWpm({ layoutId, userId: "900000000000000117", status: "rejected" }),
     ];
     const webhook = new FakeWebhook();
-    await notifyPending(db, envWith(WEBHOOK_URL), clock, webhook.fetchImpl);
+    await notifyPending(store, envWith(WEBHOOK_URL), clock, webhook.fetchImpl);
     for (const id of ids) {
       expect(webhook.about(id)).toHaveLength(0);
       expect((await readWpm(id)).notified_at).toBeNull();
@@ -243,8 +231,8 @@ describe("[LDB-WPM8] notifyPending covers the WPM queue", () => {
     const layoutId = await freshLayout(uniqueName("modq-wpm-unset"));
     const subId = await insertWpm({ layoutId, userId: "900000000000000118" });
     const webhook = new FakeWebhook();
-    await notifyPending(db, envWith(undefined), clock, webhook.fetchImpl);
-    await notifyPending(db, envWith(""), clock, webhook.fetchImpl);
+    await notifyPending(store, envWith(undefined), clock, webhook.fetchImpl);
+    await notifyPending(store, envWith(""), clock, webhook.fetchImpl);
     expect(webhook.requests).toHaveLength(0);
     expect(await readWpm(subId)).toEqual({ status: "pending", notified_at: null });
   });
@@ -312,36 +300,32 @@ describe("[LDB-MD21] WPM notification review versions", () => {
         remote = JSON.parse(String(init?.body));
         return Response.json({ id: "900000000000000107" });
       };
-      await notifyPending(db, config, clock, fetchImpl);
+      await notifyPending(store, config, clock, fetchImpl);
       expect(JSON.stringify(remote)).toContain(`<@${userId}>`);
       remote = JSON.parse(JSON.stringify(remote).replace(`<@${userId}>`, userId));
       // Already-decided cards need the same name repair without a new review.
-      await db.prepare("UPDATE wpm_submissions SET status = 'approved' WHERE id = ?").bind(id).run();
-      await db.prepare("UPDATE modqueue_notifications SET shown_status = 'approved' WHERE submission_id = ?").bind(id).run();
-      const migrations = (env as unknown as { TEST_MIGRATIONS: D1Migration[] }).TEST_MIGRATIONS;
-      const migration = migrations.find((m) => m.name.startsWith("0031_"))!;
-      expect(migration).toBeDefined();
-      const previous = await db.prepare("SELECT kind, submission_id, shown_review_version FROM modqueue_notifications WHERE submission_id != ?")
-        .bind(id).all<{ kind: string; submission_id: string; shown_review_version: number }>();
-      await db.batch(migration.queries.map((query) => db.prepare(query)));
-      expect((await db.prepare("SELECT COUNT(*) AS n FROM modqueue_notifications WHERE shown_review_version != -1").first<{ n: number }>())!.n).toBe(0);
+      await testStore.patch("wpm_submissions", { id }, { status: "approved" });
+      await testStore.patch("modqueue_notifications", { submission_id: id }, { shown_status: "approved" });
+      const previous = (await testStore.rows<{ kind: string; submission_id: string; shown_review_version: number }>("modqueue_notifications"))
+        .filter((r) => r.submission_id !== id);
+      // migrations/0031_modqueue_user_names.sql: reset every tracked card's shown_review_version.
+      await testStore.patch("modqueue_notifications", {}, { shown_review_version: -1 });
+      expect((await testStore.rows<{ shown_review_version: number }>("modqueue_notifications")).filter((r) => r.shown_review_version !== -1)).toHaveLength(0);
       // This file shares storage between tests. Leave earlier fixtures as
       // they were so this migration replay cannot enqueue unrelated cards.
-      if (previous.results.length) await db.batch(previous.results.map((row) =>
-        db.prepare("UPDATE modqueue_notifications SET shown_review_version = ? WHERE kind = ? AND submission_id = ?")
-          .bind(row.shown_review_version, row.kind, row.submission_id)));
-      await notifyPending(db, config, clock, fetchImpl);
+      for (const row of previous) await testStore.patch("modqueue_notifications", { kind: row.kind, submission_id: row.submission_id }, { shown_review_version: row.shown_review_version });
+      await notifyPending(store, config, clock, fetchImpl);
       expect(patches).toBe(1);
       expect(JSON.stringify(remote)).not.toContain(`<@${userId}>`);
-      expect(await db.prepare("SELECT shown_review_version FROM modqueue_notifications WHERE submission_id = ?").bind(id).first()).toEqual({ shown_review_version: -1 });
+      expect(pick(await testStore.row("modqueue_notifications", { submission_id: id }), "shown_review_version")).toEqual({ shown_review_version: -1 });
       fail = false;
-      await notifyPending(db, config, clock, fetchImpl);
+      await notifyPending(store, config, clock, fetchImpl);
       expect(patches).toBe(2);
       expect(JSON.stringify(remote)).toContain(`<@${userId}>`);
       expect(JSON.stringify(remote)).toMatch(/Approved|APPROVED/);
       expect(remote.allowed_mentions).toEqual({ parse: [] });
-      expect(await db.prepare("SELECT shown_status, shown_review_version FROM modqueue_notifications WHERE submission_id = ?").bind(id).first()).toEqual({ shown_status: "approved", shown_review_version: 0 });
-      await notifyPending(db, config, clock, fetchImpl);
+      expect(pick(await testStore.row("modqueue_notifications", { submission_id: id }), "shown_status", "shown_review_version")).toEqual({ shown_status: "approved", shown_review_version: 0 });
+      await notifyPending(store, config, clock, fetchImpl);
       expect(patches).toBe(2);
     });
   }
@@ -357,16 +341,16 @@ describe("[LDB-MD21] WPM notification review versions", () => {
       remote = JSON.parse(String(init?.body));
       return Response.json({ id: "900000000000000106" });
     };
-    await notifyPending(db, env, clock, fetchImpl);
+    await notifyPending(store, env, clock, fetchImpl);
     expect(JSON.stringify(remote)).toContain("**150 WPM** · [View proof]");
     expect(JSON.stringify(remote)).not.toMatch(/Pending|PENDING/);
-    await db.prepare("UPDATE wpm_submissions SET status = 'rejected', reason = 'Wrong layout' WHERE id = ?").bind(id).run();
-    await updateQueueNotification(db, env, "wpm", id, fetchImpl);
+    await testStore.patch("wpm_submissions", { id }, { status: "rejected", reason: "Wrong layout" });
+    await updateQueueNotification(store, env, "wpm", id, fetchImpl);
     expect(JSON.stringify(remote)).toContain("**❌ Denied**");
     expect(JSON.stringify(remote)).toContain("**Reason:** Wrong layout");
     expect(JSON.stringify(remote)).toContain(`reopen-rejected|${id}|0`);
-    await db.prepare("UPDATE wpm_submissions SET status = 'pending', review_version = 1 WHERE id = ?").bind(id).run();
-    await updateQueueNotification(db, env, "wpm", id, fetchImpl);
+    await testStore.patch("wpm_submissions", { id }, { status: "pending", review_version: 1 });
+    await updateQueueNotification(store, env, "wpm", id, fetchImpl);
     expect(JSON.stringify(remote)).not.toMatch(/Pending|PENDING|Reason:|Denied/);
     expect(JSON.stringify(remote)).toContain(`approve|${id}|1`);
     expect(JSON.stringify(remote)).toContain("**150 WPM** · [View proof]");
@@ -375,7 +359,7 @@ describe("[LDB-MD21] WPM notification review versions", () => {
   it("[LDB-MD21] first announcement after reopening uses the current version, including a reopen racing POST", async () => {
     const layoutId = await freshLayout(uniqueName("modq-wpm-reopened-post"));
     const id = await insertWpm({ layoutId, userId: "900000000000000141" });
-    await db.prepare("UPDATE wpm_submissions SET review_version = 1 WHERE id = ?").bind(id).run();
+    await testStore.patch("wpm_submissions", { id }, { review_version: 1 });
     const env = { ...envWith(undefined), MODQUEUE_DISCORD_CARDS: "true", MODQUEUE_DISCORD_ACTIONS: "true",
       MODQUEUE_DISCORD_BOT_TOKEN: "fake", MODQUEUE_DISCORD_CHANNEL_ID: "900000000000000103" };
     let posted: Record<string, unknown> = {};
@@ -385,17 +369,17 @@ describe("[LDB-MD21] WPM notification review versions", () => {
         posted = JSON.parse(String(init.body));
         // The original pending card can still be in flight when its review
         // is decided and reopened, returning the status to the same string.
-        await db.prepare("UPDATE wpm_submissions SET review_version = 2 WHERE id = ?").bind(id).run();
+        await testStore.patch("wpm_submissions", { id }, { review_version: 2 });
         return Response.json({ id: "900000000000000105" });
       }
       if (init?.method === "GET") return Response.json(posted);
       patched = JSON.parse(String(init?.body));
       return Response.json({ id: "900000000000000105" });
     };
-    await notifyPending(db, env, clock, fetchImpl);
+    await notifyPending(store, env, clock, fetchImpl);
     expect(JSON.stringify(posted)).toContain(`aklmod2|wpm|approve|${id}|1`);
     expect(JSON.stringify(patched)).toContain(`aklmod2|wpm|approve|${id}|2`);
-    expect(await db.prepare("SELECT shown_status, shown_review_version FROM modqueue_notifications WHERE submission_id = ?").bind(id).first())
+    expect(pick(await testStore.row("modqueue_notifications", { submission_id: id }), "shown_status", "shown_review_version"))
       .toEqual({ shown_status: "pending", shown_review_version: 2 });
   });
 });
@@ -440,18 +424,18 @@ describe("WPM inline proofs", () => {
       remote = { ...remote, ...patch };
       return Response.json(remote);
     };
-    await Promise.all([notifyPending(db, config(), clock, fetchImpl), notifyPending(db, config(), clock, fetchImpl)]);
+    await Promise.all([notifyPending(store, config(), clock, fetchImpl), notifyPending(store, config(), clock, fetchImpl)]);
     expect(uploaded).toEqual(png);
     expect(JSON.stringify(remote)).toContain("attachment://wpm-proof-1.png");
     expect(JSON.stringify(remote)).toContain(proof);
-    expect(await db.prepare("SELECT proof FROM wpm_submissions WHERE id = ?").bind(id).first()).toEqual({ proof });
+    expect(pick(await testStore.row("wpm_submissions", { id }), "proof")).toEqual({ proof });
     for (const [status, version] of [["approved", 0], ["pending", 1], ["rejected", 1], ["superseded", 1]] as const) {
-      await db.prepare("UPDATE wpm_submissions SET status = ?, review_version = ? WHERE id = ?").bind(status, version, id).run();
-      await updateQueueNotification(db, config(), "wpm", id, fetchImpl);
+      await testStore.patch("wpm_submissions", { id }, { status, review_version: version });
+      await updateQueueNotification(store, config(), "wpm", id, fetchImpl);
       expect(remote.attachments).toEqual([{ id: "900000000000000706", filename: "wpm-proof-1.png" }]);
       expect(JSON.stringify(remote)).toContain("attachment://wpm-proof-1.png");
     }
-    await notifyPending(db, config(), clock, fetchImpl);
+    await notifyPending(store, config(), clock, fetchImpl);
     expect({ reads, downloads, posts }).toEqual({ reads: 1, downloads: 1, posts: 1 });
 
     // Real Discord responses may list inline uploads only on media objects.
@@ -482,7 +466,7 @@ describe("WPM inline proofs", () => {
         }
         throw new Error("Unexpected request");
       };
-      await notifyPending(db, config(), clock, fetchImpl);
+      await notifyPending(store, config(), clock, fetchImpl);
       expect(JSON.stringify(posted)).toContain(proof);
       expect(JSON.stringify(posted)).toContain("Image preview unavailable");
       expect(JSON.stringify(posted)).toContain(`approve|${id}|0`);
@@ -502,7 +486,7 @@ describe("WPM inline proofs", () => {
       posts.push(body);
       return posts.length === 1 ? new Response(null, { status: 400 }) : Response.json({ id: "900000000000000726" });
     };
-    await notifyPending(db, config(), clock, fetchImpl);
+    await notifyPending(store, config(), clock, fetchImpl);
     expect(posts).toHaveLength(2);
     expect(JSON.stringify(posts[0])).toContain("hqdefault.jpg");
     expect(JSON.stringify(posts[1])).not.toContain("hqdefault.jpg");
@@ -528,7 +512,7 @@ describe("WPM inline proofs", () => {
       remote = { ...remote, ...body };
       return Response.json({ id: "900000000000000721" });
     };
-    await notifyPending(db, config(), clock, fetchImpl);
+    await notifyPending(store, config(), clock, fetchImpl);
     const checkPreview = () => {
       expect(JSON.stringify(remote)).toContain("https://i.ytimg.com/vi/aBcD_123-45/hqdefault.jpg");
       expect(JSON.stringify(remote)).toContain("[Watch on YouTube](<https://www.youtube.com/watch?v=aBcD_123-45&t=80>)");
@@ -536,26 +520,26 @@ describe("WPM inline proofs", () => {
       expect(remote.allowed_mentions).toEqual({ parse: [] });
     };
     checkPreview();
-    expect(await db.prepare("SELECT message_format, transport FROM modqueue_notifications WHERE submission_id = ?").bind(id).first())
+    expect(pick(await testStore.row("modqueue_notifications", { submission_id: id }), "message_format", "transport"))
       .toEqual({ message_format: "components_v2", transport: "bot" });
     for (const [status, version] of [["rejected", 0], ["pending", 1], ["approved", 1]] as const) {
-      await db.prepare("UPDATE wpm_submissions SET status = ?, review_version = ?, reason = 'Wrong layout' WHERE id = ?").bind(status, version, id).run();
-      await updateQueueNotification(db, config(), "wpm", id, fetchImpl);
+      await testStore.patch("wpm_submissions", { id }, { status, review_version: version, reason: "Wrong layout" });
+      await updateQueueNotification(store, config(), "wpm", id, fetchImpl);
       checkPreview();
       const controls = JSON.stringify(remote.components);
       expect(controls).toContain(`${status === "pending" ? "approve" : `reopen-${status}`}|${id}|${version}`);
       if (status === "rejected") expect(controls).toContain("**Reason:** Wrong layout");
       else expect(controls).not.toContain("Wrong layout");
     }
-    await notifyPending(db, config(), clock, fetchImpl);
+    await notifyPending(store, config(), clock, fetchImpl);
     expect(posts).toBe(1);
   });
 });
 
 describe("original receipt reconciliation", () => {
   const source = "https://discord.com/channels/900000000000000001/900000000000000002/900000000000000003";
-  const bind = (id: string) => db.prepare("UPDATE wpm_submissions SET source_message_url = ? WHERE id = ?").bind(source, id).run();
-  const shown = (id: string) => db.prepare("SELECT shown_source_message_url FROM modqueue_notifications WHERE kind = 'wpm' AND submission_id = ?").bind(id).first<{ shown_source_message_url: string | null }>();
+  const bind = (id: string) => testStore.patch("wpm_submissions", { id }, { source_message_url: source });
+  const shown = async (id: string) => pick<{ shown_source_message_url: string | null }>(await testStore.row("modqueue_notifications", { kind: "wpm", submission_id: id }), "shown_source_message_url");
   const cardEnv = () => ({ ...bindings, MODQUEUE_DISCORD_CARDS: "true", MODQUEUE_DISCORD_ACTIONS: "true", MODQUEUE_DISCORD_BOT_TOKEN: "fake-token", MODQUEUE_DISCORD_CHANNEL_ID: "900000000000000004" });
 
   it("[LDB-WPM17] a binding during the initial Discord POST reconciles using the URL actually rendered", async () => {
@@ -578,11 +562,11 @@ describe("original receipt reconciliation", () => {
       }
       return new Response(null, { status: 404 });
     };
-    await notifyPending(db, cardEnv(), clock, fetchImpl);
+    await notifyPending(store, cardEnv(), clock, fetchImpl);
     expect(patches).toHaveLength(1);
     expect(JSON.stringify(patches[0])).toContain(source);
     expect(await shown(id)).toEqual({ shown_source_message_url: source });
-    await notifyPending(db, cardEnv(), clock, fetchImpl);
+    await notifyPending(store, cardEnv(), clock, fetchImpl);
     expect(patches).toHaveLength(1);
   });
 
@@ -604,9 +588,9 @@ describe("original receipt reconciliation", () => {
       }
       return new Response(null, { status: 404 });
     };
-    await notifyPending(db, cardEnv(), clock, fetchImpl);
-    await db.prepare("UPDATE wpm_submissions SET status = 'approved' WHERE id = ?").bind(id).run();
-    await updateQueueNotification(db, cardEnv(), "wpm", id, fetchImpl);
+    await notifyPending(store, cardEnv(), clock, fetchImpl);
+    await testStore.patch("wpm_submissions", { id }, { status: "approved" });
+    await updateQueueNotification(store, cardEnv(), "wpm", id, fetchImpl);
     expect(patches).toHaveLength(2);
     expect(JSON.stringify(patches[1])).toContain(source);
     expect(await shown(id)).toEqual({ shown_source_message_url: source });
@@ -616,21 +600,22 @@ describe("original receipt reconciliation", () => {
     const layoutId = await freshLayout(uniqueName("source-late"));
     const id = await insertWpm({ layoutId, userId: "900000000000000803" });
     const webhook = new FakeWebhook();
-    await notifyPending(db, envWith(WEBHOOK_URL), clock, webhook.fetchImpl);
+    await notifyPending(store, envWith(WEBHOOK_URL), clock, webhook.fetchImpl);
     await bind(id);
     let failures = 0;
     const failPatch: typeof fetch = async (input, init) => {
       if (init?.method === "PATCH") { failures++; return new Response(null, { status: 503 }); }
       return webhook.fetchImpl(input, init);
     };
-    await updateQueueNotification(db, envWith(WEBHOOK_URL), "wpm", id, failPatch);
+    await updateQueueNotification(store, envWith(WEBHOOK_URL), "wpm", id, failPatch);
     expect(failures).toBe(1);
     expect(await shown(id)).toEqual({ shown_source_message_url: null });
-    await notifyPending(db, envWith(WEBHOOK_URL), clock, webhook.fetchImpl);
+    await notifyPending(store, envWith(WEBHOOK_URL), clock, webhook.fetchImpl);
     expect(await shown(id)).toEqual({ shown_source_message_url: source });
     for (const status of ["approved", "pending", "rejected", "superseded"]) {
-      await db.prepare("UPDATE wpm_submissions SET status = ?, review_version = review_version + 1 WHERE id = ?").bind(status, id).run();
-      await updateQueueNotification(db, envWith(WEBHOOK_URL), "wpm", id, webhook.fetchImpl);
+      const current = await testStore.row<{ review_version: number }>("wpm_submissions", { id });
+      await testStore.patch("wpm_submissions", { id }, { status, review_version: current!.review_version + 1 });
+      await updateQueueNotification(store, envWith(WEBHOOK_URL), "wpm", id, webhook.fetchImpl);
     }
     const patches = webhook.requests.filter((r) => r.method === "PATCH");
     expect(patches.length).toBe(5);

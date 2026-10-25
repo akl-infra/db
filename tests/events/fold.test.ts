@@ -27,7 +27,8 @@
 //   MF-12 a write to lineage `t` never changes `upstream`; a write to
 //         `spark` or the layout scope forks/keeps it exactly per
 //         `nextUpstream`
-import { env } from "cloudflare:test";
+import { env, store, testStore } from "../harness";
+import { rowAs, rowsAs } from "../auth/store-support";
 import type { Bindings } from "../../src/env";
 import type { Actor } from "../../src/auth/actor";
 import type { IfMatch, IfNoneMatch } from "../../src/core/ifmatch";
@@ -42,7 +43,6 @@ import { registerForTest } from "../../formats/registry.ts";
 import { T1 } from "../formats/stub-lineage.ts";
 import { ulid } from "ulidx";
 
-const db = (env as unknown as Bindings).DB;
 const bindings = env as unknown as Bindings;
 
 const unregister = registerForTest(T1); // the test-only SECOND stored lineage (21-formats.md §3 F2)
@@ -117,8 +117,9 @@ const SPARK_SEED_PAYLOAD = { keys: [{ char: "a", row: 0, col: 0, finger: "LP" as
 beforeAll(async () => {
   // transferLayout's own build() requires `to` to be a known author.
   const now = new Date().toISOString();
-  await db.prepare("INSERT OR IGNORE INTO authors (user_id, name, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?)").bind(OWNER_A, "owner-a", now, now).run();
-  await db.prepare("INSERT OR IGNORE INTO authors (user_id, name, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?)").bind(OWNER_B, "owner-b", now, now).run();
+  for (const [user_id, name] of [[OWNER_A, "owner-a"], [OWNER_B, "owner-b"]] as const) {
+    if ((await testStore.count("authors", { user_id })) === 0) await testStore.insert("authors", { user_id, name, first_seen_at: now, last_seen_at: now });
+  }
 });
 
 type RawOp =
@@ -207,7 +208,7 @@ async function applyOp(clock: () => string, slots: Slot[], op: Op): Promise<void
     const alreadyLiked = slot.likedBy.has(userId);
     const kind = alreadyLiked ? "unliked" : "liked";
     const { appendLike } = await import("../../src/core/events");
-    await appendLike(db, clock, { kind, layoutId: slot.id, userId, via: "discord", source: USER_SOURCE });
+    await appendLike(store, clock, { kind, layoutId: slot.id, userId, via: "discord", source: USER_SOURCE });
     if (kind === "liked") slot.likedBy.add(userId);
     else slot.likedBy.delete(userId);
     return;
@@ -217,7 +218,7 @@ async function applyOp(clock: () => string, slots: Slot[], op: Op): Promise<void
     if (!slot.exists) return;
     const { appendLinkChange } = await import("../../src/core/events");
     const link = `https://example.org/${unique()}`;
-    const result = await appendLinkChange(db, clock, { layoutId: slot.id, kind: "link_approved", link, actor: "moderator", via: "discord", admin: true, source: USER_SOURCE });
+    const result = await appendLinkChange(store, clock, { layoutId: slot.id, kind: "link_approved", link, actor: "moderator", via: "discord", admin: true, source: USER_SOURCE });
     slot.link = result.link;
     return;
   }
@@ -225,7 +226,7 @@ async function applyOp(clock: () => string, slots: Slot[], op: Op): Promise<void
   if (action === "link_clear") {
     if (!slot.exists) return;
     const { appendLinkChange } = await import("../../src/core/events");
-    const result = await appendLinkChange(db, clock, { layoutId: slot.id, kind: "link_cleared", link: null, actor: "moderator", via: "discord", admin: true, source: USER_SOURCE });
+    const result = await appendLinkChange(store, clock, { layoutId: slot.id, kind: "link_cleared", link: null, actor: "moderator", via: "discord", admin: true, source: USER_SOURCE });
     slot.link = result.link;
     return;
   }
@@ -269,7 +270,7 @@ async function applyOp(clock: () => string, slots: Slot[], op: Op): Promise<void
       source: IMPORT_SOURCE,
       upstream,
     };
-    const result = await commitWrite(db, clock, input);
+    const result = await commitWrite(store, clock, input);
     slot.exists = true;
     slot.deleted = false;
     slot.id = result.layout.id;
@@ -442,8 +443,8 @@ async function applyOp(clock: () => string, slots: Slot[], op: Op): Promise<void
 
   // -- Import-lane ops below: real `commitWrite` calls, matching
   // `import/apply.ts`'s own code path (never the HTTP verb functions). --
-  const current = (await readById(db, slot.id))!;
-  const currentFormats = await formatsForLayout(db, slot.id);
+  const current = (await readById(store, slot.id))!;
+  const currentFormats = await formatsForLayout(store, slot.id);
 
   if (action === "import_update_layout" || action === "import_update_spark" || action === "import_update_both" || action === "import_delete") {
     const upstream = nextUpstream(current.upstream, "import:cmini", true);
@@ -511,7 +512,7 @@ async function applyOp(clock: () => string, slots: Slot[], op: Op): Promise<void
                 source: IMPORT_SOURCE,
                 upstream,
               };
-    const result = await commitWrite(db, clock, input);
+    const result = await commitWrite(store, clock, input);
     slot.n = result.layout.n;
     slot.layoutRev = result.layout.layout_rev;
     slot.name = result.layout.name;
@@ -527,10 +528,7 @@ async function applyOp(clock: () => string, slots: Slot[], op: Op): Promise<void
 }
 
 async function revsMapFor(layoutId: string): Promise<Map<string, { format: string | null; payload: unknown }>> {
-  const { results } = await db
-    .prepare("SELECT lineage, rev, format, payload_json FROM layout_revs WHERE layout_id = ?")
-    .bind(layoutId)
-    .all<{ lineage: string | null; rev: number; format: string | null; payload_json: string | null }>();
+  const results = await testStore.rows<{ lineage: string | null; rev: number; format: string | null; payload_json: string | null }>("layout_revs", { layout_id: layoutId });
   const out = new Map<string, { format: string | null; payload: unknown }>();
   for (const r of results) {
     out.set(`${r.lineage ?? ""} ${r.rev}`, { format: r.format, payload: r.payload_json === null ? undefined : (JSON.parse(r.payload_json) as unknown) });
@@ -539,8 +537,8 @@ async function revsMapFor(layoutId: string): Promise<Map<string, { format: strin
 }
 
 async function checkLayoutInvariants(layoutId: string): Promise<void> {
-  const eventRows = await db.prepare("SELECT * FROM events WHERE layout_id = ? ORDER BY seq ASC").bind(layoutId).all<import("../../src/core/events").EventDbRow>();
-  const events: Event[] = eventRows.results.map(rowToEvent);
+  const eventRows = await rowsAs<import("../../src/core/events").EventDbRow>("events", { layout_id: layoutId }, ["seq"]);
+  const events: Event[] = eventRows.map(rowToEvent);
   const revs = await revsMapFor(layoutId);
 
   // MF-3: replay equals the live rows -- [LDB-MD3] this now includes
@@ -549,14 +547,14 @@ async function checkLayoutInvariants(layoutId: string): Promise<void> {
   // `toEqual` below.
   const folded = foldLayout(events, revs);
   expect(folded).not.toBeNull();
-  const actualLayoutRow = await db.prepare("SELECT * FROM layouts WHERE id = ?").bind(layoutId).first<LayoutDbRow>();
+  const actualLayoutRow = await rowAs<LayoutDbRow>("layouts", { id: layoutId });
   expect(actualLayoutRow).not.toBeNull();
   const actualLayout = rowToLayout(actualLayoutRow!);
   const { n: _n, ...actualLayoutSansN } = actualLayout;
   expect(folded!.layout).toEqual(actualLayoutSansN);
 
-  const actualFormatRows = await db.prepare("SELECT * FROM layout_formats WHERE layout_id = ?").bind(layoutId).all<FormatDbRow>();
-  const actualFormats = new Map(actualFormatRows.results.map((r) => [r.lineage, rowToFormat(r)]));
+  const actualFormatRows = await rowsAs<FormatDbRow>("layout_formats", { layout_id: layoutId });
+  const actualFormats = new Map(actualFormatRows.map((r) => [r.lineage, rowToFormat(r)]));
   expect(folded!.formats).toEqual(actualFormats);
 
   // MF-5: at least one format, always.
@@ -566,7 +564,7 @@ async function checkLayoutInvariants(layoutId: string): Promise<void> {
   // COUNT(DISTINCT likes.user_id) -- checked after every step, no
   // exceptions and no admin adjustment of any kind (the L5 override was
   // removed).
-  const likeRows = await db.prepare("SELECT COUNT(DISTINCT user_id) AS n FROM likes WHERE layout_id = ?").bind(layoutId).first<{ n: number }>();
+  const likeRows = { n: new Set((await testStore.rows<{ user_id: string }>("likes", { layout_id: layoutId })).map((l) => l.user_id)).size };
   expect(actualLayout.like_count, "[H24] like_count === COUNT(DISTINCT likes.user_id)").toBe(likeRows?.n ?? 0);
 
   // MF-2: rev partition + gaplessness.
@@ -589,8 +587,8 @@ async function checkLayoutInvariants(layoutId: string): Promise<void> {
   }
 
   // layout_revs.n gapless per layout (the shared concurrency counter).
-  const nRows = await db.prepare("SELECT n FROM layout_revs WHERE layout_id = ? ORDER BY n ASC").bind(layoutId).all<{ n: number }>();
-  const ns = nRows.results.map((r) => r.n);
+  const nRows = await testStore.rows<{ n: number }>("layout_revs", { layout_id: layoutId }, ["n"]);
+  const ns = nRows.map((r) => r.n);
   expect(ns).toEqual(ns.map((_, i) => i + 1));
 }
 
@@ -616,7 +614,7 @@ describe("[LDB-P1] [MF-1] [MF-2] [MF-3] [MF-5] [MF-12] the shared write model", 
           // run inline (not a separate pass) so it covers every step, not
           // just the final state.
           const existedBefore = slot.exists;
-          const before = existedBefore ? await formatsForLayout(db, slot.id) : new Map<string, FormatRow>();
+          const before = existedBefore ? await formatsForLayout(store, slot.id) : new Map<string, FormatRow>();
           const resolved = resolveOp(slot, op.raw);
           await applyOp(clock, slots, op);
           // A create (`resolved` starts with "create_") populates the
@@ -625,7 +623,7 @@ describe("[LDB-P1] [MF-1] [MF-2] [MF-3] [MF-5] [MF-12] the shared write model", 
           // that applies to it, so the untouched/stray-row checks below
           // only make sense for a slot that already existed.
           if (existedBefore && resolved !== null) {
-            const after = await formatsForLayout(db, slot.id);
+            const after = await formatsForLayout(store, slot.id);
             const touchedLineages =
               resolved === "add_t" || resolved === "replace_t" || resolved === "concurrent_pair"
                 ? ["t"]
@@ -664,7 +662,7 @@ describe("[LDB-P1] [MF-1] [MF-2] [MF-3] [MF-5] [MF-12] the shared write model", 
           // each verb/commitWrite call's own returned layout) must equal
           // the live row -- in particular, every `t`-lineage write left
           // `upstream` byte-identical to what it was before that write.
-          const live = await readById(db, slot.id);
+          const live = await readById(store, slot.id);
           expect(live!.upstream).toEqual(slot.upstream);
           // [LDB-MD3] Same independent-oracle check for the model's own
           // `link` bookkeeping (tracked off each `appendLinkChange` call's
@@ -680,7 +678,7 @@ describe("[LDB-P1] [MF-1] [MF-2] [MF-3] [MF-5] [MF-12] the shared write model", 
   it("[LDB-P1] appendInfo/appendLike leave the layouts row's rev/formats alone but still land in the feed", async () => {
     const clock = steppingClock("2026-02-01T00:00:00.000Z", 1000);
     const id = ulid();
-    const { layout } = await commitWrite(db, clock, {
+    const { layout } = await commitWrite(store, clock, {
       layoutId: id,
       creating: true,
       currentN: 0,
@@ -695,23 +693,23 @@ describe("[LDB-P1] [MF-1] [MF-2] [MF-3] [MF-5] [MF-12] the shared write model", 
       upstream: null,
     });
 
-    const before = await db.prepare("SELECT * FROM layouts WHERE id = ?").bind(layout.id).first<LayoutDbRow>();
+    const before = await rowAs<LayoutDbRow>("layouts", { id: layout.id });
     const { appendInfo, appendLike } = await import("../../src/core/events");
     const { ApiError } = await import("../../src/core/errors");
-    await appendInfo(db, clock, { kind: "upstream_changed", layoutId: layout.id, actor: "system:cmini-import", via: "import:cmini", source: IMPORT_SOURCE, detail: { note: "x" } });
-    await appendLike(db, clock, { kind: "liked", layoutId: layout.id, userId: "u1", via: "discord", source: USER_SOURCE });
+    await appendInfo(store, clock, { kind: "upstream_changed", layoutId: layout.id, actor: "system:cmini-import", via: "import:cmini", source: IMPORT_SOURCE, detail: { note: "x" } });
+    await appendLike(store, clock, { kind: "liked", layoutId: layout.id, userId: "u1", via: "discord", source: USER_SOURCE });
     // D13 L1: a repeat like now throws 409 already_liked instead of a
     // silent no-op -- it still changes nothing.
     let repeatErr: unknown;
     try {
-      await appendLike(db, clock, { kind: "liked", layoutId: layout.id, userId: "u1", via: "discord", source: USER_SOURCE });
+      await appendLike(store, clock, { kind: "liked", layoutId: layout.id, userId: "u1", via: "discord", source: USER_SOURCE });
     } catch (e) {
       repeatErr = e;
     }
     expect(repeatErr).toBeInstanceOf(ApiError);
     expect((repeatErr as InstanceType<typeof ApiError>).body).toMatchObject({ error: "already_liked" });
 
-    const after = await db.prepare("SELECT * FROM layouts WHERE id = ?").bind(layout.id).first<LayoutDbRow>();
+    const after = await rowAs<LayoutDbRow>("layouts", { id: layout.id });
     expect(after!.layout_rev).toBe(before!.layout_rev);
     expect(after!.n).toBe(before!.n);
     expect(after!.like_count).toBe(before!.like_count + 1);

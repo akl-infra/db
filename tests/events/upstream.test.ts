@@ -12,8 +12,7 @@
 // `tests/core/upstream.test.ts` covers `nextUpstream` itself as a pure
 // function; this file is what actually touches the `layouts.upstream_*`
 // columns and `events`.
-import { env } from "cloudflare:test";
-import type { Bindings } from "../../src/env";
+import { env, store, testStore } from "../harness";
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { RevConflictError, commitWrite, type CommitInput } from "../../src/core/events";
@@ -22,7 +21,6 @@ import { fixedClock } from "../../src/core/time";
 import { nextUpstream, upstreamOf } from "../../src/core/upstream";
 import { ulid } from "ulidx";
 
-const db = (env as unknown as Bindings).DB;
 const clock = fixedClock("2026-09-10T00:00:00.000Z");
 const USER_SOURCE = { client: "discord-app:test", version: null };
 const IMPORT_SOURCE = { client: "system:cmini-import", version: null };
@@ -33,7 +31,7 @@ function unique(): string {
 }
 
 async function insertImportMapRow(upstreamId: string, layoutId: string): Promise<void> {
-  await db.prepare("INSERT INTO import_map (upstream_id, layout_id) VALUES (?, ?)").bind(upstreamId, layoutId).run();
+  await testStore.insert("import_map", { upstream_id: upstreamId, layout_id: layoutId });
 }
 
 function createLayout(name: string, upstream: Upstream | null, isImport: boolean) {
@@ -51,12 +49,12 @@ function createLayout(name: string, upstream: Upstream | null, isImport: boolean
     source: isImport ? IMPORT_SOURCE : USER_SOURCE,
     upstream,
   };
-  return commitWrite(db, clock, input);
+  return commitWrite(store, clock, input);
 }
 
 async function updateSpark(layoutId: string, currentN: number, payload: unknown, via: "discord" | "import:cmini", upstream: Upstream | null) {
-  const currentLayout = await readById(db, layoutId);
-  const currentFormats = await formatsForLayout(db, layoutId);
+  const currentLayout = await readById(store, layoutId);
+  const currentFormats = await formatsForLayout(store, layoutId);
   const input: CommitInput = {
     layoutId,
     creating: false,
@@ -70,7 +68,7 @@ async function updateSpark(layoutId: string, currentN: number, payload: unknown,
     source: via === "import:cmini" ? IMPORT_SOURCE : USER_SOURCE,
     upstream,
   };
-  return commitWrite(db, clock, input);
+  return commitWrite(store, clock, input);
 }
 
 describe("[LDB-I14] upstreamOf: a plain read of the layout's own field", () => {
@@ -80,16 +78,16 @@ describe("[LDB-I14] upstreamOf: a plain read of the layout's own field", () => {
     // An import_map row for the same upstream id changes nothing -- D12
     // deleted the legacy fallback that used to consult it.
     await insertImportMapRow("some-upstream", layout.id);
-    const rec = await readById(db, layout.id);
-    expect(await upstreamOf(db, rec!)).toEqual({ source: "cmini", id: "some-upstream", state: "forked" });
+    const rec = await readById(store, layout.id);
+    expect(await upstreamOf(store, rec!)).toEqual({ source: "cmini", id: "some-upstream", state: "forked" });
   });
 
   it("[LDB-I14] a null `upstream` field is null, whether or not an import_map row exists (D12: no more legacy fallback)", async () => {
     const name = `never-mapped-${unique()}`;
     const { layout } = await createLayout(name, null, false);
     await insertImportMapRow(`would-have-been-legacy-${unique()}`, layout.id);
-    const rec = await readById(db, layout.id);
-    expect(await upstreamOf(db, rec!)).toBeNull();
+    const rec = await readById(store, layout.id);
+    expect(await upstreamOf(store, rec!)).toBeNull();
   });
 });
 
@@ -99,27 +97,27 @@ describe("upstream is a fold", () => {
     const initial: Upstream = { source: "cmini", id: "fold-up-1", state: "following" };
     const { layout: created } = await createLayout(name, initial, true);
     expect(created.upstream).toEqual(initial);
-    let rec = await readById(db, created.id);
+    let rec = await readById(store, created.id);
     expect(rec!.upstream).toEqual(initial);
 
     // A user write to the SPARK format forks it -- MF-12: spark is a
     // touching lineage.
-    const prior = await upstreamOf(db, rec!);
+    const prior = await upstreamOf(store, rec!);
     const forkedUpstream = nextUpstream(prior, "discord", true);
     const { layout: updated } = await updateSpark(created.id, rec!.n, { v: 2 }, "discord", forkedUpstream);
     expect(updated.upstream).toEqual({ ...initial, state: "forked" });
-    rec = await readById(db, updated.id);
+    rec = await readById(store, updated.id);
     expect(rec!.upstream).toEqual({ ...initial, state: "forked" });
-    expect(await upstreamOf(db, rec!)).toEqual(rec!.upstream);
+    expect(await upstreamOf(store, rec!)).toEqual(rec!.upstream);
   });
 
   it("a row with a NULL `upstream` field reads null, even with an import_map row (21-formats.md D12: the legacy fallback is gone)", async () => {
     const name = `null-upstream-${unique()}`;
     const { layout } = await createLayout(name, null, true);
     await insertImportMapRow(`would-have-been-legacy-${unique()}`, layout.id);
-    const rec = await readById(db, layout.id);
+    const rec = await readById(store, layout.id);
     expect(rec!.upstream).toBeNull();
-    expect(await upstreamOf(db, rec!)).toBeNull();
+    expect(await upstreamOf(store, rec!)).toBeNull();
   });
 });
 
@@ -137,8 +135,8 @@ describe("a stale base closes the system-writer/user-write race", () => {
     // target `n` (which is exactly what would happen without this guard).
     await expect(updateSpark(created.id, staleN, { v: "stale-system-write" }, "import:cmini", { source: "cmini", id: "race-up-1", state: "following" })).rejects.toThrow(RevConflictError);
 
-    const finalRec = await readById(db, created.id);
-    const finalFormats = await formatsForLayout(db, created.id);
+    const finalRec = await readById(store, created.id);
+    const finalFormats = await formatsForLayout(store, created.id);
     expect(finalFormats.get("spark")!.payload).toEqual({ v: "user" }); // the user's edit, never clobbered
     expect(finalRec!.upstream).toEqual({ source: "cmini", id: "race-up-1", state: "forked" }); // stays forked
   });
@@ -166,8 +164,8 @@ describe("a stale base closes the system-writer/user-write race", () => {
         let lastUserPayload: unknown = null;
         let currentN = created.n;
         for (let i = 0; i < userWritesBeforeSystemWrite; i++) {
-          const rec = await readById(db, created.id);
-          const prior = await upstreamOf(db, rec!);
+          const rec = await readById(store, created.id);
+          const prior = await upstreamOf(store, rec!);
           const { layout: l, formats } = await updateSpark(created.id, currentN, { v: `user-${i}` }, "discord", nextUpstream(prior, "discord", true));
           lastUserPayload = formats.get("spark")!.payload;
           currentN = l.n;
@@ -180,7 +178,7 @@ describe("a stale base closes the system-writer/user-write race", () => {
           expect(formats.get("spark")!.payload).toEqual({ v: "system" });
         } else {
           await expect(attempt).rejects.toThrow(RevConflictError);
-          const finalFormats = await formatsForLayout(db, created.id);
+          const finalFormats = await formatsForLayout(store, created.id);
           expect(finalFormats.get("spark")!.payload).toEqual(lastUserPayload);
         }
       }),

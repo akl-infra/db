@@ -4,7 +4,7 @@
 // requireActorOnWrites's production wiring (real global `fetch` to Discord)
 // is stubbed per-request the same way tests/import/tick.test.ts stubs it
 // for the import tick.
-import { SELF } from "cloudflare:test";
+import { SELF } from "../harness";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { app } from "../../src/index";
 

@@ -2,7 +2,8 @@
 // (`src/core/modqueue.ts`, docs/decisions/29-layout-comments.md): announced on
 // submit, best effort, never by the cron (no `notified_at` column). Same "fake the outside service, count calls" approach as
 // tests/auth/modqueue.test.ts; no wall-clock assertions anywhere.
-import { SELF, env } from "cloudflare:test";
+import { SELF, env, store, testStore } from "../harness";
+import { pick } from "./store-support";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ulid } from "ulidx";
 import type { Bindings } from "../../src/env";
@@ -12,7 +13,6 @@ import { fixedClock } from "../../src/core/time";
 import { actorFixture, register } from "../api/write-support";
 
 const bindings = env as unknown as Bindings;
-const db = bindings.DB;
 const clock = fixedClock("2026-10-18T00:00:00.000Z");
 
 const WEBHOOK_URL = "https://discord.test/api/webhooks/modqueue-comments-test";
@@ -47,40 +47,28 @@ async function freshLayout(name: string, owner = "900000000000000001"): Promise<
     source: { client: "discord-app:test", version: null },
     upstream: null,
   };
-  const { layout } = await commitWrite(db, clock, input);
+  const { layout } = await commitWrite(store, clock, input);
   return layout.id;
 }
 
 async function insertComment(o: { layoutId: string; userId: string; body?: string; status?: string }): Promise<string> {
   const id = ulid();
-  await db
-    .prepare(
-      `INSERT INTO layout_comments (id, layout_id, user_id, body, via, submitted_at, status, decided_by, decided_at, reason)
-       VALUES (?, ?, ?, ?, 'discord', ?, ?, NULL, NULL, NULL)`,
-    )
-    .bind(id, o.layoutId, o.userId, o.body ?? "a comment", clock(), o.status ?? "pending")
-    .run();
+  await testStore.insert("layout_comments", { id, layout_id: o.layoutId, user_id: o.userId, body: o.body ?? "a comment", via: "discord", submitted_at: clock(), status: o.status ?? "pending", decided_by: null, decided_at: null, reason: null });
   return id;
 }
 
 async function insertLink(layoutId: string, submittedBy: string): Promise<string> {
   const id = ulid();
-  await db
-    .prepare(
-      `INSERT INTO link_submissions (id, layout_id, url, submitted_by, submitted_at, status, decided_by, decided_at, reason, notified_at)
-       VALUES (?, ?, ?, ?, ?, 'pending', NULL, NULL, NULL, NULL)`,
-    )
-    .bind(id, layoutId, "https://example.org/a-link", submittedBy, clock())
-    .run();
+  await testStore.insert("link_submissions", { id, layout_id: layoutId, url: "https://example.org/a-link", submitted_by: submittedBy, submitted_at: clock(), status: "pending", decided_by: null, decided_at: null, reason: null, notified_at: null });
   return id;
 }
 
 async function insertAuthor(userId: string, name: string): Promise<void> {
-  await db.prepare("INSERT INTO authors (user_id, name, first_seen_at, last_seen_at) VALUES (?, ?, ?, ?)").bind(userId, name, clock(), clock()).run();
+  await testStore.insert("authors", { user_id: userId, name, first_seen_at: clock(), last_seen_at: clock() });
 }
 
 async function layoutName(layoutId: string): Promise<string> {
-  const row = await db.prepare("SELECT name FROM layouts WHERE id = ?").bind(layoutId).first<{ name: string }>();
+  const row = pick<{ name: string }>(await testStore.row("layouts", { id: layoutId }), "name");
   return row!.name;
 }
 
@@ -143,7 +131,7 @@ describe("[LDB-CMT8] comments are announced on submit, best effort, never by the
       uploadedText = await filePart.text();
       return Response.json({ id: "discord-comment-fulltext" });
     };
-    await announceComment(db, { ...envWith(WEBHOOK_URL), MODQUEUE_DISCORD_COMPONENTS: "true" }, id, fetchImpl);
+    await announceComment(store, { ...envWith(WEBHOOK_URL), MODQUEUE_DISCORD_COMPONENTS: "true" }, id, fetchImpl);
     expect(wasFormData).toBe(true);
     expect(contentType).toBeNull(); // runtime sets multipart boundary
     expect(payload.allowed_mentions).toEqual({ parse: [] });
@@ -170,13 +158,13 @@ describe("[LDB-CMT8] comments are announced on submit, best effort, never by the
       expect(url).toContain("/messages/discord-comment-legacy-file");
       return Response.json({ id: "discord-comment-legacy-file" });
     };
-    await announceComment(db, envWith(WEBHOOK_URL), id, fetchImpl);
+    await announceComment(store, envWith(WEBHOOK_URL), id, fetchImpl);
     expect(payload.content).toContain("Full comment text attached as a .txt file.");
     expect(payload.content).not.toContain("x".repeat(100));
     expect(payload.attachments).toEqual([{ id: "0", filename: `comment-${id}.txt`, description: "Complete comment text before and after the edit" }]);
 
-    await db.prepare("UPDATE layout_comments SET status = 'deleted', body = NULL WHERE id = ?").bind(id).run();
-    await updateQueueNotification(db, envWith(WEBHOOK_URL), "comment", id, fetchImpl);
+    await testStore.patch("layout_comments", { id }, { status: "deleted", body: null });
+    await updateQueueNotification(store, envWith(WEBHOOK_URL), "comment", id, fetchImpl);
     expect(patchBody.content).toBe("🗑️ DELETED");
     expect(patchBody.attachments).toEqual([]);
   });
@@ -188,7 +176,7 @@ describe("[LDB-CMT8] comments are announced on submit, best effort, never by the
     const subId = await insertComment({ layoutId, userId: "900000000000000210", body: "Great home row, I use it daily" });
 
     const webhook = new FakeWebhook();
-    await announceComment(db, envWith(WEBHOOK_URL), subId, webhook.fetchImpl);
+    await announceComment(store, envWith(WEBHOOK_URL), subId, webhook.fetchImpl);
 
     const sent = webhook.about(subId);
     expect(sent).toHaveLength(1);
@@ -199,11 +187,11 @@ describe("[LDB-CMT8] comments are announced on submit, best effort, never by the
     expect(sent[0]!.body.content).toContain("**Comment**\nGreat home row, I use it daily");
     expect(sent[0]!.body.content).toContain(`[Open the inbox](<https://akldb.org/admin?tab=inbox>) \u00b7 submission \`${subId}\``);
 
-    const row = await db.prepare("SELECT status FROM layout_comments WHERE id = ?").bind(subId).first<{ status: string }>();
+    const row = pick<{ status: string }>(await testStore.row("layout_comments", { id: subId }), "status");
     expect(row?.status).toBe("pending");
 
     const ownerCommentId = await insertComment({ layoutId, userId: "900000000000000089", body: "My own layout" });
-    await announceComment(db, envWith(WEBHOOK_URL), ownerCommentId, webhook.fetchImpl);
+    await announceComment(store, envWith(WEBHOOK_URL), ownerCommentId, webhook.fetchImpl);
     expect(webhook.about(ownerCommentId)[0]!.body.content).toContain("by Layout Maker (Layout Author) (13 chars)");
   });
 
@@ -218,7 +206,7 @@ describe("[LDB-CMT8] comments are announced on submit, best effort, never by the
       card = JSON.parse(String(init?.body));
       return Response.json({ id: "discord-comment-author-card" });
     };
-    await announceComment(db, { ...envWith(WEBHOOK_URL), MODQUEUE_DISCORD_COMPONENTS: "true" }, id, fetchImpl);
+    await announceComment(store, { ...envWith(WEBHOOK_URL), MODQUEUE_DISCORD_COMPONENTS: "true" }, id, fetchImpl);
     const components = card.components as { components: { id: number; content?: string }[] }[];
     const metadata = components[0]!.components.find((part) => part.id === 41003)?.content;
     expect(metadata).toContain("by **Commenter**");
@@ -226,7 +214,7 @@ describe("[LDB-CMT8] comments are announced on submit, best effort, never by the
     expect(card.allowed_mentions).toEqual({ parse: [] });
 
     const ownerCommentId = await insertComment({ layoutId, userId: ownerId });
-    await announceComment(db, { ...envWith(WEBHOOK_URL), MODQUEUE_DISCORD_COMPONENTS: "true" }, ownerCommentId, fetchImpl);
+    await announceComment(store, { ...envWith(WEBHOOK_URL), MODQUEUE_DISCORD_COMPONENTS: "true" }, ownerCommentId, fetchImpl);
     const ownerCard = card.components as { components: { id: number; content?: string }[] }[];
     const ownerMetadata = ownerCard[0]!.components.find((part) => part.id === 41003)?.content;
     expect(ownerMetadata).toContain(`by **<@${ownerId}>** (Layout Author)`);
@@ -237,7 +225,7 @@ describe("[LDB-CMT8] comments are announced on submit, best effort, never by the
     const layoutId = await freshLayout(uniqueName("modq-cmt-noauthor"));
     const subId = await insertComment({ layoutId, userId: "900000000000000211" });
     const webhook = new FakeWebhook();
-    await announceComment(db, envWith(WEBHOOK_URL), subId, webhook.fetchImpl);
+    await announceComment(store, envWith(WEBHOOK_URL), subId, webhook.fetchImpl);
     expect(webhook.about(subId)[0]!.body.content).toContain("by <@900000000000000211> (9 chars)");
   });
 
@@ -249,9 +237,9 @@ describe("[LDB-CMT8] comments are announced on submit, best effort, never by the
     ];
     const webhook = new FakeWebhook();
     for (const [id, status, prefix] of [[ids[0]!, "approved", "✅ APPROVED"], [ids[1]!, "rejected", "❌ REJECTED"]] as const) {
-      await announceComment(db, envWith(WEBHOOK_URL), id, webhook.fetchImpl);
-      await db.prepare("UPDATE layout_comments SET status = ? WHERE id = ?").bind(status, id).run();
-      await updateQueueNotification(db, envWith(WEBHOOK_URL), "comment", id, webhook.fetchImpl);
+      await announceComment(store, envWith(WEBHOOK_URL), id, webhook.fetchImpl);
+      await testStore.patch("layout_comments", { id }, { status });
+      await updateQueueNotification(store, envWith(WEBHOOK_URL), "comment", id, webhook.fetchImpl);
       const edit = webhook.requests.find((r) => r.method === "PATCH" && r.body.content.includes(id));
       expect(edit?.url).toContain(`/messages/discord-comment-`);
       expect(edit?.body.content.startsWith(`${prefix}\nNew comment on`)).toBe(true);
@@ -264,9 +252,9 @@ describe("[LDB-CMT8] comments are announced on submit, best effort, never by the
     const layoutId = await freshLayout(uniqueName("modq-cmt-erasure"));
     const id = await insertComment({ layoutId, userId: "900000000000000220", body: "private preview to erase" });
     const webhook = new FakeWebhook();
-    await announceComment(db, envWith(WEBHOOK_URL), id, webhook.fetchImpl);
-    await db.prepare("UPDATE layout_comments SET status = 'deleted', body = NULL WHERE id = ?").bind(id).run();
-    await updateQueueNotification(db, envWith(WEBHOOK_URL), "comment", id, webhook.fetchImpl);
+    await announceComment(store, envWith(WEBHOOK_URL), id, webhook.fetchImpl);
+    await testStore.patch("layout_comments", { id }, { status: "deleted", body: null });
+    await updateQueueNotification(store, envWith(WEBHOOK_URL), "comment", id, webhook.fetchImpl);
     const edit = webhook.requests.find((r) => r.method === "PATCH");
     expect(edit?.body.content).toBe("🗑️ DELETED");
     expect(edit?.body.content).not.toContain("private preview to erase");
@@ -281,12 +269,12 @@ describe("[LDB-CMT8] comments are announced on submit, best effort, never by the
       if (init?.method === "GET") return Response.json({ content: "Original full comment", attachments: [] });
       const patch = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
       patches.push(patch);
-      if (patches.length === 1) await db.prepare("UPDATE layout_comments SET status = 'deleted', body = NULL WHERE id = ?").bind(id).run();
+      if (patches.length === 1) await testStore.patch("layout_comments", { id }, { status: "deleted", body: null });
       return Response.json({ id: "discord-comment-status-race" });
     };
-    await announceComment(db, envWith(WEBHOOK_URL), id, fetchImpl);
-    await db.prepare("UPDATE layout_comments SET status = 'approved' WHERE id = ?").bind(id).run();
-    await updateQueueNotification(db, envWith(WEBHOOK_URL), "comment", id, fetchImpl);
+    await announceComment(store, envWith(WEBHOOK_URL), id, fetchImpl);
+    await testStore.patch("layout_comments", { id }, { status: "approved" });
+    await updateQueueNotification(store, envWith(WEBHOOK_URL), "comment", id, fetchImpl);
     expect(patches).toHaveLength(2);
     expect(patches[0]!.content).toMatch(/^✅ APPROVED\n/);
     expect(patches[1]!.content).toBe("🗑️ DELETED");
@@ -298,7 +286,7 @@ describe("[LDB-CMT8] comments are announced on submit, best effort, never by the
     await insertComment({ layoutId, userId, body: "the old live text", status: "approved" });
     const subId = await insertComment({ layoutId, userId, body: "the rewritten secret text" });
     const webhook = new FakeWebhook();
-    await announceComment(db, envWith(WEBHOOK_URL), subId, webhook.fetchImpl);
+    await announceComment(store, envWith(WEBHOOK_URL), subId, webhook.fetchImpl);
     const content = webhook.about(subId)[0]!.body.content;
     expect(content.startsWith("Edited comment on **[")).toBe(true);
     expect(content).toContain(` by <@${userId}> (25 chars)\n**Before**\nthe old live text\n\n**After**\nthe rewritten secret text\n[Open the inbox]`);
@@ -324,25 +312,25 @@ describe("[LDB-CMT8] comments are announced on submit, best effort, never by the
     const layoutId = await freshLayout(uniqueName("modq-cmt-cron"));
     const subId = await insertComment({ layoutId, userId: "900000000000000214" });
     const webhook = new FakeWebhook();
-    await notifyPending(db, envWith(WEBHOOK_URL), clock, webhook.fetchImpl);
+    await notifyPending(store, envWith(WEBHOOK_URL), clock, webhook.fetchImpl);
     expect(webhook.about(subId)).toHaveLength(0);
-    const cols = await db.prepare("SELECT name FROM pragma_table_info('layout_comments')").all<{ name: string }>();
-    expect(cols.results.map((c) => c.name)).not.toContain("notified_at");
+    const comment = await testStore.row("layout_comments", { id: subId });
+    expect(Object.keys(comment!)).not.toContain("notified_at");
   });
 
   it("[LDB-CMT8] a failed post (non-2xx, thrown, 429) is dropped: no retry, no D1 write, no throw", async () => {
     const layoutId = await freshLayout(uniqueName("modq-cmt-fail"));
     const subId = await insertComment({ layoutId, userId: "900000000000000216" });
-    const before = await db.prepare("SELECT * FROM layout_comments WHERE id = ?").bind(subId).first();
+    const before = await testStore.row("layout_comments", { id: subId });
     for (const outcome of [500, "throw", 429] as const) {
       const failing = new FakeWebhook(() => outcome);
-      await expect(announceComment(db, envWith(WEBHOOK_URL), subId, failing.fetchImpl)).resolves.toBeUndefined();
+      await expect(announceComment(store, envWith(WEBHOOK_URL), subId, failing.fetchImpl)).resolves.toBeUndefined();
       expect(failing.about(subId), String(outcome)).toHaveLength(1); // exactly one attempt
     }
-    expect(await db.prepare("SELECT * FROM layout_comments WHERE id = ?").bind(subId).first()).toEqual(before);
+    expect(await testStore.row("layout_comments", { id: subId })).toEqual(before);
     // and a later sweep of any kind does not re-send it
     const later = new FakeWebhook();
-    await notifyPending(db, envWith(WEBHOOK_URL), clock, later.fetchImpl);
+    await notifyPending(store, envWith(WEBHOOK_URL), clock, later.fetchImpl);
     expect(later.about(subId)).toHaveLength(0);
   });
 
@@ -351,9 +339,9 @@ describe("[LDB-CMT8] comments are announced on submit, best effort, never by the
     const webhook = new FakeWebhook();
     for (const [i, status] of ["superseded", "approved", "rejected", "deleted", "removed", "replaced"].entries()) {
       const id = await insertComment({ layoutId, userId: `90000000000000022${i}`, status });
-      await announceComment(db, envWith(WEBHOOK_URL), id, webhook.fetchImpl);
+      await announceComment(store, envWith(WEBHOOK_URL), id, webhook.fetchImpl);
     }
-    await announceComment(db, envWith(WEBHOOK_URL), "no-such-comment", webhook.fetchImpl);
+    await announceComment(store, envWith(WEBHOOK_URL), "no-such-comment", webhook.fetchImpl);
     expect(webhook.requests).toHaveLength(0);
   });
 
@@ -361,8 +349,8 @@ describe("[LDB-CMT8] comments are announced on submit, best effort, never by the
     const layoutId = await freshLayout(uniqueName("modq-cmt-unset"));
     const subId = await insertComment({ layoutId, userId: "900000000000000217" });
     const webhook = new FakeWebhook();
-    await announceComment(db, envWith(undefined), subId, webhook.fetchImpl);
-    await announceComment(db, envWith(""), subId, webhook.fetchImpl);
+    await announceComment(store, envWith(undefined), subId, webhook.fetchImpl);
+    await announceComment(store, envWith(""), subId, webhook.fetchImpl);
     expect(webhook.requests).toHaveLength(0);
   });
 
@@ -417,18 +405,18 @@ describe("[LDB-MD21] reopened card reconciliation", () => {
       if (init?.method === "POST") { remote = JSON.parse(String(init.body)); return Response.json({ id: "900000000000000105" }); }
       if (init?.method === "GET") return Response.json(remote);
       remote = JSON.parse(String(init?.body)); patches.push(remote);
-      if (patches.length === 1) await db.prepare("UPDATE layout_comments SET status = 'pending', review_version = 1 WHERE id = ?").bind(id).run();
-      if (patches.length === 2) await db.prepare("UPDATE layout_comments SET status = 'approved' WHERE id = ?").bind(id).run();
+      if (patches.length === 1) await testStore.patch("layout_comments", { id }, { status: "pending", review_version: 1 });
+      if (patches.length === 2) await testStore.patch("layout_comments", { id }, { status: "approved" });
       return Response.json({ id: "900000000000000105" });
     };
-    await announceComment(db, env, id, fetchImpl);
-    await db.prepare("UPDATE layout_comments SET status = 'approved' WHERE id = ?").bind(id).run();
-    await updateQueueNotification(db, env, "comment", id, fetchImpl);
+    await announceComment(store, env, id, fetchImpl);
+    await testStore.patch("layout_comments", { id }, { status: "approved" });
+    await updateQueueNotification(store, env, "comment", id, fetchImpl);
     expect(patches).toHaveLength(3);
     expect(JSON.stringify(patches[0])).toContain(`reopen-approved|${id}|0`);
     expect(JSON.stringify(patches[1])).toContain(`approve|${id}|1`);
     expect(JSON.stringify(patches[2])).toContain(`reopen-approved|${id}|1`);
-    expect(await db.prepare("SELECT shown_status, shown_review_version FROM modqueue_notifications WHERE submission_id = ?").bind(id).first())
+    expect(pick(await testStore.row("modqueue_notifications", { submission_id: id }), "shown_status", "shown_review_version"))
       .toEqual({ shown_status: "approved", shown_review_version: 1 });
   });
 
@@ -443,14 +431,14 @@ describe("[LDB-MD21] reopened card reconciliation", () => {
       remote = JSON.parse(String(init?.body));
       return Response.json({ id: "900000000000000105" });
     };
-    await announceComment(db, env, id, fetchImpl);
-    await db.prepare("UPDATE layout_comments SET status = 'rejected', reason = 'off topic' WHERE id = ?").bind(id).run();
-    await db.prepare("UPDATE modqueue_notifications SET shown_status = 'rejected', shown_review_version = -1 WHERE submission_id = ?").bind(id).run();
-    await notifyPending(db, env, clock, fetchImpl);
+    await announceComment(store, env, id, fetchImpl);
+    await testStore.patch("layout_comments", { id }, { status: "rejected", reason: "off topic" });
+    await testStore.patch("modqueue_notifications", { submission_id: id }, { shown_status: "rejected", shown_review_version: -1 });
+    await notifyPending(store, env, clock, fetchImpl);
     expect(JSON.stringify(remote)).toContain(`reopen-rejected|${id}|0`);
     expect(JSON.stringify(remote)).toContain("**Reason:** off topic");
-    await db.prepare("UPDATE layout_comments SET status = 'pending', review_version = 1 WHERE id = ?").bind(id).run();
-    await updateQueueNotification(db, { ...env, MODQUEUE_DISCORD_ACTIONS: "false" }, "comment", id, fetchImpl);
+    await testStore.patch("layout_comments", { id }, { status: "pending", review_version: 1 });
+    await updateQueueNotification(store, { ...env, MODQUEUE_DISCORD_ACTIONS: "false" }, "comment", id, fetchImpl);
     expect(JSON.stringify(remote)).not.toContain("custom_id");
     expect(JSON.stringify(remote)).not.toContain("**Reason:**");
     expect(JSON.stringify(remote)).not.toContain("Pending review");
@@ -461,12 +449,12 @@ describe("[LDB-MD21] reopened card reconciliation", () => {
     const layoutId = await freshLayout(uniqueName("modq-reopen-legacy"));
     const id = await insertComment({ layoutId, userId: "900000000000000235" });
     const webhook = new FakeWebhook();
-    await announceComment(db, envWith(WEBHOOK_URL), id, webhook.fetchImpl);
+    await announceComment(store, envWith(WEBHOOK_URL), id, webhook.fetchImpl);
     const original = webhook.requests[0]!.body.content;
-    await db.prepare("UPDATE layout_comments SET status = 'rejected' WHERE id = ?").bind(id).run();
-    await updateQueueNotification(db, envWith(WEBHOOK_URL), "comment", id, webhook.fetchImpl);
-    await db.prepare("UPDATE layout_comments SET status = 'pending', review_version = 1 WHERE id = ?").bind(id).run();
-    await updateQueueNotification(db, envWith(WEBHOOK_URL), "comment", id, webhook.fetchImpl);
+    await testStore.patch("layout_comments", { id }, { status: "rejected" });
+    await updateQueueNotification(store, envWith(WEBHOOK_URL), "comment", id, webhook.fetchImpl);
+    await testStore.patch("layout_comments", { id }, { status: "pending", review_version: 1 });
+    await updateQueueNotification(store, envWith(WEBHOOK_URL), "comment", id, webhook.fetchImpl);
     expect(webhook.requests.filter((r) => r.method === "PATCH").at(-1)?.body.content).toBe(original);
   });
 });

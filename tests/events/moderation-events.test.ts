@@ -5,14 +5,13 @@
 // also touches `layouts` itself) all carry it through, extending LDB-A5.
 // (H24, 2026-09-13: `appendLikeAdjust`/`admin.likes_set` were removed with
 // the admin like-count override -- this file no longer covers them.)
-import { env } from "cloudflare:test";
+import { env, store, testStore } from "../harness";
+import { rowAs } from "../auth/store-support";
 import { describe, expect, it } from "vitest";
-import type { Bindings } from "../../src/env";
 import { appendAdmin, appendLinkChange, appendModeration, commitWrite, rowToEvent, type CommitInput, type EventDbRow } from "../../src/core/events";
 import { fixedClock } from "../../src/core/time";
 import { ulid } from "ulidx";
 
-const db = (env as unknown as Bindings).DB;
 const clock = fixedClock("2026-09-12T00:00:00.000Z");
 const SOURCE = { client: "client:mod-events-test", version: "1.2.3" };
 
@@ -31,19 +30,19 @@ async function createLayout(owner = "mod-events-owner"): Promise<string> {
     source: { client: "discord-app:test", version: null },
     upstream: null,
   };
-  const { layout } = await commitWrite(db, clock, input);
+  const { layout } = await commitWrite(store, clock, input);
   return layout.id;
 }
 
 async function lastEvent(seq: number): Promise<ReturnType<typeof rowToEvent>> {
-  const row = await db.prepare("SELECT * FROM events WHERE seq = ?").bind(seq).first<EventDbRow>();
+  const row = await rowAs<EventDbRow>("events", { seq });
   if (row === null) throw new Error("no such event");
   return rowToEvent(row);
 }
 
 describe("[LDB-MD7] every moderation writer carries the actor's own lane", () => {
   it("[LDB-MD7] appendAdmin: via/source default to the pre-L5 hard-coded values when omitted (existing callers unchanged)", async () => {
-    const { seq } = await appendAdmin(db, clock, { kind: "admin.added", actor: "someone" });
+    const { seq } = await appendAdmin(store, clock, { kind: "admin.added", actor: "someone" });
     const e = await lastEvent(seq);
     expect(e.via).toBe("discord");
     expect(e.admin).toBe(true);
@@ -51,7 +50,7 @@ describe("[LDB-MD7] every moderation writer carries the actor's own lane", () =>
   });
 
   it("[LDB-MD7] appendAdmin: via/source, when given, are the actor's own -- admin.user_banned/admin.user_unbanned", async () => {
-    const { seq: bannedSeq } = await appendAdmin(db, clock, {
+    const { seq: bannedSeq } = await appendAdmin(store, clock, {
       kind: "admin.user_banned",
       actor: "an-admin",
       via: "client:bot-1",
@@ -68,7 +67,7 @@ describe("[LDB-MD7] every moderation writer carries the actor's own lane", () =>
 
   it("[LDB-MD7] appendModeration: layout-scoped, admin: 1, rev NULL, via/source the actor's own -- link_rejected", async () => {
     const layoutId = await createLayout();
-    const { seq } = await appendModeration(db, clock, {
+    const { seq } = await appendModeration(store, clock, {
       kind: "link_rejected",
       layoutId,
       actor: "an-admin",
@@ -87,7 +86,7 @@ describe("[LDB-MD7] every moderation writer carries the actor's own lane", () =>
 
   it("[LDB-MD7] appendLinkChange: layout-scoped, admin flag reflects the caller, via/source the actor's own, after carries link", async () => {
     const layoutId = await createLayout();
-    const { seq } = await appendLinkChange(db, clock, {
+    const { seq } = await appendLinkChange(store, clock, {
       layoutId,
       kind: "link_approved",
       link: "https://example.org/x",
@@ -107,9 +106,9 @@ describe("[LDB-MD7] every moderation writer carries the actor's own lane", () =>
 
   it("[LDB-MD7] every moderation action is exactly ONE event -- appendLinkChange never appends a second row", async () => {
     const layoutId = await createLayout();
-    const before = await db.prepare("SELECT COUNT(*) AS n FROM events").first<{ n: number }>();
-    await appendLinkChange(db, clock, { layoutId, kind: "link_approved", link: "https://example.org/one-event", actor: "an-admin", via: "discord", admin: true, source: SOURCE });
-    const afterLink = await db.prepare("SELECT COUNT(*) AS n FROM events").first<{ n: number }>();
-    expect((afterLink?.n ?? 0) - (before?.n ?? 0)).toBe(1);
+    const before = await testStore.count("events");
+    await appendLinkChange(store, clock, { layoutId, kind: "link_approved", link: "https://example.org/one-event", actor: "an-admin", via: "discord", admin: true, source: SOURCE });
+    const afterLink = await testStore.count("events");
+    expect(afterLink - before).toBe(1);
   });
 });

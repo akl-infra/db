@@ -2,7 +2,7 @@
 // against a fixed/manually-advanced clock and a Fetch-shaped FakeDiscord
 // (09 §2.2). Unit-style -- calls resolveBearer directly, no SELF.fetch, no
 // global fetch stubbing.
-import { env } from "cloudflare:test";
+import { SELF, env, store, testStore } from "../harness";
 import { beforeEach, describe, expect, it } from "vitest";
 import { resolveBearer } from "../../src/auth/discord";
 import { ApiError } from "../../src/core/errors";
@@ -11,14 +11,14 @@ import type { Bindings } from "../../src/env";
 import { FakeDiscord } from "./fake-discord";
 
 const bindings = env as unknown as Bindings;
-const db = bindings.DB;
 const BASE_URL = "https://fake-discord.example/api";
 
 // vitest-pool-workers isolates storage per TEST FILE, not per `it`
 // (tests/import/tick.test.ts's own comment) -- every test here shares one
 // D1, so each test needs a clean slate.
 beforeEach(async () => {
-  await db.batch([db.prepare("DELETE FROM auth_cache"), db.prepare("DELETE FROM authors")]);
+  await testStore.remove("auth_cache", {});
+  await testStore.remove("authors", {});
 });
 
 // A manually-advanceable clock -- fixedClock never moves and steppingClock
@@ -54,8 +54,7 @@ async function expectApiError(
 }
 
 async function cacheRowCount(): Promise<number> {
-  const row = await db.prepare("SELECT COUNT(*) AS n FROM auth_cache").first<{ n: number }>();
-  return row?.n ?? 0;
+  return testStore.count("auth_cache");
 }
 
 // Mirrors `src/auth/discord.ts`'s own (unexported) `sha256Hex`/`addSeconds`
@@ -76,10 +75,8 @@ function addSeconds(iso: string, seconds: number): string {
 }
 
 async function authorRow(userId: string): Promise<{ name: string; first_seen_at: string; last_seen_at: string } | null> {
-  return db
-    .prepare("SELECT name, first_seen_at, last_seen_at FROM authors WHERE user_id = ?")
-    .bind(userId)
-    .first<{ name: string; first_seen_at: string; last_seen_at: string }>();
+  const row = await testStore.row<{ name: string; first_seen_at: string; last_seen_at: string }>("authors", { user_id: userId });
+  return row === null ? null : { name: row.name, first_seen_at: row.first_seen_at, last_seen_at: row.last_seen_at };
 }
 
 describe("resolveBearer()", () => {
@@ -88,7 +85,7 @@ describe("resolveBearer()", () => {
     fake.setAnswer("tok-a", { kind: "ok", id: "1001", username: "alice", global_name: "Alice A" });
     const { clock } = mutableClock("2026-09-09T00:00:00.000Z");
 
-    const actor = await resolveBearer(db, clock, "tok-a", fake.fetchImpl, BASE_URL);
+    const actor = await resolveBearer(store, clock, "tok-a", fake.fetchImpl, BASE_URL);
     expect(actor).toEqual({ user_id: "1001", name: "alice", via: "discord", admin: false, banned: false, source_client: "discord-app:app-default" });
     expect(fake.requestLog.length).toBe(1);
     expect(fake.requestLog[0]!.authorization).toBe("Bearer tok-a");
@@ -110,12 +107,12 @@ describe("resolveBearer()", () => {
     fake.setAnswer("tok-b", { kind: "ok", id: "1002", username: "bobby", global_name: "xX_Bobby_Xx" });
     const { clock } = mutableClock("2026-09-09T00:00:00.000Z");
 
-    const actor = await resolveBearer(db, clock, "tok-b", fake.fetchImpl, BASE_URL);
+    const actor = await resolveBearer(store, clock, "tok-b", fake.fetchImpl, BASE_URL);
     expect(actor.name).toBe("bobby");
     expect((await authorRow("1002"))?.name).toBe("bobby");
 
     const hash = await sha256Hex("tok-b");
-    const cacheRow = await db.prepare("SELECT name FROM auth_cache WHERE token_hash = ?").bind(hash).first<{ name: string }>();
+    const cacheRow = await testStore.row<{ name: string }>("auth_cache", { token_hash: hash });
     expect(cacheRow?.name).toBe("bobby");
   });
 
@@ -123,21 +120,16 @@ describe("resolveBearer()", () => {
     const fake = new FakeDiscord();
     fake.setAnswer("tok-b2", { kind: "ok", id: "1002", username: "bobby-renamed", global_name: "Bobby!" });
     const now = "2026-09-09T00:00:00.000Z";
-    await db
-      .prepare(
-        "INSERT INTO authors (user_id, name, first_seen_at, last_seen_at, name_source) VALUES ('1002', 'Admin Override', ?, ?, 'admin')",
-      )
-      .bind(now, now)
-      .run();
+    await testStore.insert("authors", { user_id: "1002", name: "Admin Override", first_seen_at: now, last_seen_at: now, name_source: "admin" });
     const { clock } = mutableClock("2026-09-09T00:10:00.000Z");
 
-    const actor = await resolveBearer(db, clock, "tok-b2", fake.fetchImpl, BASE_URL);
+    const actor = await resolveBearer(store, clock, "tok-b2", fake.fetchImpl, BASE_URL);
 
     // The actor's own `name` and the cache row both reflect Discord's
     // (username-only) answer for this sign-in...
     expect(actor.name).toBe("bobby-renamed");
     const hash = await sha256Hex("tok-b2");
-    const cacheRow = await db.prepare("SELECT name FROM auth_cache WHERE token_hash = ?").bind(hash).first<{ name: string }>();
+    const cacheRow = await testStore.row<{ name: string }>("auth_cache", { token_hash: hash });
     expect(cacheRow?.name).toBe("bobby-renamed");
 
     // ...but the authors row stays exactly as the admin set it (LDB-MD4's
@@ -152,15 +144,15 @@ describe("resolveBearer()", () => {
     fake.setAnswer("tok-c", { kind: "ok", id: "1003", username: "carl", global_name: null });
     const { clock, advanceMs } = mutableClock("2026-09-09T00:00:00.000Z");
 
-    await resolveBearer(db, clock, "tok-c", fake.fetchImpl, BASE_URL);
+    await resolveBearer(store, clock, "tok-c", fake.fetchImpl, BASE_URL);
     expect(fake.requestLog.length).toBe(1);
 
     advanceMs(299_000);
-    await resolveBearer(db, clock, "tok-c", fake.fetchImpl, BASE_URL);
+    await resolveBearer(store, clock, "tok-c", fake.fetchImpl, BASE_URL);
     expect(fake.requestLog.length).toBe(1); // still cached
 
     advanceMs(2_000); // now at +301s, past the 300s window
-    await resolveBearer(db, clock, "tok-c", fake.fetchImpl, BASE_URL);
+    await resolveBearer(store, clock, "tok-c", fake.fetchImpl, BASE_URL);
     expect(fake.requestLog.length).toBe(2);
   });
 
@@ -169,17 +161,17 @@ describe("resolveBearer()", () => {
     fake.setAnswer("tok-d", { kind: "status", status: 401 });
     const { clock, advanceMs } = mutableClock("2026-09-09T00:00:00.000Z");
 
-    await expectApiError(resolveBearer(db, clock, "tok-d", fake.fetchImpl, BASE_URL), 401, "token_invalid", {
+    await expectApiError(resolveBearer(store, clock, "tok-d", fake.fetchImpl, BASE_URL), 401, "token_invalid", {
       "WWW-Authenticate": 'Bearer error="invalid_token"',
     });
     expect(fake.requestLog.length).toBe(1);
 
     advanceMs(59_000);
-    await expectApiError(resolveBearer(db, clock, "tok-d", fake.fetchImpl, BASE_URL), 401, "token_invalid");
+    await expectApiError(resolveBearer(store, clock, "tok-d", fake.fetchImpl, BASE_URL), 401, "token_invalid");
     expect(fake.requestLog.length).toBe(1); // still cached
 
     advanceMs(2_000); // now at +61s, past the 60s window
-    await expectApiError(resolveBearer(db, clock, "tok-d", fake.fetchImpl, BASE_URL), 401, "token_invalid");
+    await expectApiError(resolveBearer(store, clock, "tok-d", fake.fetchImpl, BASE_URL), 401, "token_invalid");
     expect(fake.requestLog.length).toBe(2);
 
     expect(await authorRow("anything")).toBeNull(); // no identity was ever resolved
@@ -190,7 +182,7 @@ describe("resolveBearer()", () => {
     fake.setAnswer("tok-e", { kind: "status", status: 429, retryAfter: "7" });
     const { clock } = mutableClock("2026-09-09T00:00:00.000Z");
 
-    await expectApiError(resolveBearer(db, clock, "tok-e", fake.fetchImpl, BASE_URL), 503, "identity_unavailable", {
+    await expectApiError(resolveBearer(store, clock, "tok-e", fake.fetchImpl, BASE_URL), 503, "identity_unavailable", {
       "Retry-After": "7",
     });
     expect(await cacheRowCount()).toBe(0);
@@ -205,7 +197,7 @@ describe("resolveBearer()", () => {
     fake.setAnswer("tok-f", answer);
     const { clock } = mutableClock("2026-09-09T00:00:00.000Z");
 
-    await expectApiError(resolveBearer(db, clock, "tok-f", fake.fetchImpl, BASE_URL), 503, "identity_unavailable");
+    await expectApiError(resolveBearer(store, clock, "tok-f", fake.fetchImpl, BASE_URL), 503, "identity_unavailable");
     expect(await cacheRowCount()).toBe(0);
   });
 
@@ -215,12 +207,12 @@ describe("resolveBearer()", () => {
     fake.setAnswer("tok-g2", { kind: "ok", id: "1004", username: "dana", global_name: "Dana" });
     const { clock } = mutableClock("2026-09-09T00:00:00.000Z");
 
-    await resolveBearer(db, clock, "tok-g1", fake.fetchImpl, BASE_URL);
-    await resolveBearer(db, clock, "tok-g2", fake.fetchImpl, BASE_URL);
+    await resolveBearer(store, clock, "tok-g1", fake.fetchImpl, BASE_URL);
+    await resolveBearer(store, clock, "tok-g2", fake.fetchImpl, BASE_URL);
 
     expect(await cacheRowCount()).toBe(2);
-    const authorCount = await db.prepare("SELECT COUNT(*) AS n FROM authors WHERE user_id = '1004'").first<{ n: number }>();
-    expect(authorCount?.n).toBe(1);
+    const authorCount = await testStore.count("authors", { user_id: "1004" });
+    expect(authorCount).toBe(1);
   });
 
   it("[LDB-A2] the raw token string never appears in auth_cache or authors", async () => {
@@ -229,12 +221,12 @@ describe("resolveBearer()", () => {
     fake.setAnswer(rawToken, { kind: "ok", id: "1005", username: "erin", global_name: null });
     const { clock } = mutableClock("2026-09-09T00:00:00.000Z");
 
-    await resolveBearer(db, clock, rawToken, fake.fetchImpl, BASE_URL);
+    await resolveBearer(store, clock, rawToken, fake.fetchImpl, BASE_URL);
 
-    const cacheRows = await db.prepare("SELECT * FROM auth_cache").all();
-    const authorRows = await db.prepare("SELECT * FROM authors").all();
-    expect(JSON.stringify(cacheRows.results)).not.toContain(rawToken);
-    expect(JSON.stringify(authorRows.results)).not.toContain(rawToken);
+    const cacheRows = await testStore.rows("auth_cache");
+    const authorRows = await testStore.rows("authors");
+    expect(JSON.stringify(cacheRows)).not.toContain(rawToken);
+    expect(JSON.stringify(authorRows)).not.toContain(rawToken);
   });
 
   it("[LDB-A2] admin reflects the admins table, read fresh (not cached)", async () => {
@@ -243,7 +235,7 @@ describe("resolveBearer()", () => {
     const { clock } = mutableClock("2026-09-09T00:00:00.000Z");
 
     // '184412255822020608' is the bootstrap admin seeded by migrations/0001_init.sql.
-    const actor = await resolveBearer(db, clock, "tok-h", fake.fetchImpl, BASE_URL);
+    const actor = await resolveBearer(store, clock, "tok-h", fake.fetchImpl, BASE_URL);
     expect(actor.admin).toBe(true);
   });
 
@@ -256,7 +248,7 @@ describe("resolveBearer()", () => {
     // from a plain invalid token's generic wording, caught directly since
     // expectApiError only checks the status/code/headers.
     try {
-      await resolveBearer(db, clock, "tok-i", fake.fetchImpl, BASE_URL);
+      await resolveBearer(store, clock, "tok-i", fake.fetchImpl, BASE_URL);
       expect.fail("expected token_invalid");
     } catch (e) {
       expect((e as { body: { message: string } }).body.message).toMatch(/identify/);
@@ -265,11 +257,11 @@ describe("resolveBearer()", () => {
 
     // The SECOND call is served from the 60s failure cache -- generic
     // message (the cache only stores `ok = 0`, not why).
-    await expectApiError(resolveBearer(db, clock, "tok-i", fake.fetchImpl, BASE_URL), 401, "token_invalid");
+    await expectApiError(resolveBearer(store, clock, "tok-i", fake.fetchImpl, BASE_URL), 401, "token_invalid");
     expect(fake.requestLog.length).toBe(1); // still cached, no second Discord call
 
     advanceMs(61_000);
-    await expectApiError(resolveBearer(db, clock, "tok-i", fake.fetchImpl, BASE_URL), 401, "token_invalid");
+    await expectApiError(resolveBearer(store, clock, "tok-i", fake.fetchImpl, BASE_URL), 401, "token_invalid");
     expect(fake.requestLog.length).toBe(2); // past the 60s window -- asks Discord again
 
     expect(await authorRow("anything")).toBeNull(); // no identity was ever resolved
@@ -282,20 +274,17 @@ describe("resolveBearer()", () => {
 
     const hash = await sha256Hex("tok-j");
     // A pre-0005 success row: `ok = 1` but `app_id` was never written.
-    await db
-      .prepare("INSERT INTO auth_cache (token_hash, user_id, name, app_id, ok, expires_at) VALUES (?, ?, ?, NULL, 1, ?)")
-      .bind(hash, "1006", "finn", addSeconds("2026-09-09T00:00:00.000Z", 300))
-      .run();
+    await testStore.insert("auth_cache", { token_hash: hash, user_id: "1006", name: "finn", app_id: null, ok: 1, expires_at: addSeconds("2026-09-09T00:00:00.000Z", 300) });
 
-    const actor = await resolveBearer(db, clock, "tok-j", fake.fetchImpl, BASE_URL);
+    const actor = await resolveBearer(store, clock, "tok-j", fake.fetchImpl, BASE_URL);
     expect(fake.requestLog.length).toBe(1); // the NULL app_id row was treated as a miss, not trusted
     expect(actor.source_client).toBe("discord-app:app-j");
 
-    const row = await db.prepare("SELECT app_id FROM auth_cache WHERE token_hash = ?").bind(hash).first<{ app_id: string }>();
+    const row = await testStore.row<{ app_id: string }>("auth_cache", { token_hash: hash });
     expect(row?.app_id).toBe("app-j"); // re-cached with it this time
 
     // A second call now hits the (now-complete) cache row -- no further request.
-    await resolveBearer(db, clock, "tok-j", fake.fetchImpl, BASE_URL);
+    await resolveBearer(store, clock, "tok-j", fake.fetchImpl, BASE_URL);
     expect(fake.requestLog.length).toBe(1);
   });
 
@@ -304,7 +293,7 @@ describe("resolveBearer()", () => {
     fake.setAnswer("tok-k", { kind: "ok", id: "1007", username: "gwen", global_name: null, app_id: "my-custom-app" });
     const { clock } = mutableClock("2026-09-09T00:00:00.000Z");
 
-    const actor = await resolveBearer(db, clock, "tok-k", fake.fetchImpl, BASE_URL);
+    const actor = await resolveBearer(store, clock, "tok-k", fake.fetchImpl, BASE_URL);
     expect(actor.source_client).toBe("discord-app:my-custom-app");
   });
 });

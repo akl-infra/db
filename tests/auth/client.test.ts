@@ -6,9 +6,8 @@
 // refuses a foreign actor; both lanes on one request -> 400; a client-lane
 // write lands in `/v1/changes` (proven here via the event row) with
 // `via: client:<id>`.
-import { SELF, env } from "cloudflare:test";
+import { SELF, env, store, testStore } from "../harness";
 import { beforeAll, describe, expect, it } from "vitest";
-import type { Bindings } from "../../src/env";
 import { hasCap, parseCaps, pruneNonces, scopeCapOf, verifyClientRequest } from "../../src/auth/client";
 import { fixedClock } from "../../src/core/time";
 import {
@@ -20,7 +19,6 @@ import {
   type SignOpts,
 } from "./client-support";
 
-const db = (env as unknown as Bindings).DB;
 
 // The vectors were generated with `now` == this instant (BASE_TS,
 // scripts/gen-vectors.mjs) -- every "accepted" vector is timestamped
@@ -83,13 +81,13 @@ describe("[LDB-CH3] caps helpers (parseCaps/scopeCapOf/hasCap)", () => {
 
 describe("[LDB-A4] every client-signing vector is accepted", () => {
   beforeAll(async () => {
-    await seedClient(db, NOW, { id: VECTOR_CLIENT_ID, pubkeyB64url: K1_PUBKEY, ownerUserId: VECTOR_OWNER, caps: "act-as-user" });
+    await seedClient(store, NOW, { id: VECTOR_CLIENT_ID, pubkeyB64url: K1_PUBKEY, ownerUserId: VECTOR_OWNER, caps: "act-as-user" });
   });
 
   for (const v of vectors.vectors) {
     it(v.name, async () => {
       const { request, bodyBytes } = requestFor(v);
-      const actor = await verifyClientRequest(db, NOW, request, bodyBytes, {});
+      const actor = await verifyClientRequest(store, NOW, request, bodyBytes, {});
       expect(actor.user_id).toBe(v.actor);
       expect(actor.via).toBe(`client:${v.client_id}`);
       // migrations/0001_init.sql seeds VECTOR_OWNER as a bootstrap admin --
@@ -106,34 +104,34 @@ describe("[LDB-A4] the mutation matrix: one bad field at a time", () => {
   let k1PrivateKey: CryptoKey;
 
   beforeAll(async () => {
-    await seedClient(db, NOW, { id: BASE.client_id, pubkeyB64url: K1_PUBKEY, ownerUserId: VECTOR_OWNER, caps: "act-as-user" });
+    await seedClient(store, NOW, { id: BASE.client_id, pubkeyB64url: K1_PUBKEY, ownerUserId: VECTOR_OWNER, caps: "act-as-user" });
     k1PrivateKey = await importPrivateKeyPkcs8(K1_PKCS8);
   });
 
   it("[LDB-A4] method mutated -> bad_signature", async () => {
     const { request, bodyBytes } = requestFor(BASE, { method: "PUT" });
-    await expect(verifyClientRequest(db, NOW, request, bodyBytes, {})).rejects.toMatchObject({ body: { error: "bad_signature" } });
+    await expect(verifyClientRequest(store, NOW, request, bodyBytes, {})).rejects.toMatchObject({ body: { error: "bad_signature" } });
   });
 
   it("path mutated -> bad_signature", async () => {
     const { request, bodyBytes } = requestFor(BASE, { path: `${BASE.path}/extra` });
-    await expect(verifyClientRequest(db, NOW, request, bodyBytes, {})).rejects.toMatchObject({ body: { error: "bad_signature" } });
+    await expect(verifyClientRequest(store, NOW, request, bodyBytes, {})).rejects.toMatchObject({ body: { error: "bad_signature" } });
   });
 
   it("query added -> bad_signature", async () => {
     const withQuery = vectors.vectors.find((v) => v.name === "get-with-query")!;
     const { request, bodyBytes } = requestFor(withQuery, { path: `${withQuery.path}&extra=1` });
-    await expect(verifyClientRequest(db, NOW, request, bodyBytes, {})).rejects.toMatchObject({ body: { error: "bad_signature" } });
+    await expect(verifyClientRequest(store, NOW, request, bodyBytes, {})).rejects.toMatchObject({ body: { error: "bad_signature" } });
   });
 
   it("[LDB-A4] timestamp +301s -> stale_timestamp", async () => {
     const { request, bodyBytes } = requestFor(BASE, { timestamp: String(Number(BASE.timestamp) + 301) });
-    await expect(verifyClientRequest(db, NOW, request, bodyBytes, {})).rejects.toMatchObject({ body: { error: "stale_timestamp" } });
+    await expect(verifyClientRequest(store, NOW, request, bodyBytes, {})).rejects.toMatchObject({ body: { error: "stale_timestamp" } });
   });
 
   it("timestamp -301s -> stale_timestamp", async () => {
     const { request, bodyBytes } = requestFor(BASE, { timestamp: String(Number(BASE.timestamp) - 301) });
-    await expect(verifyClientRequest(db, NOW, request, bodyBytes, {})).rejects.toMatchObject({ body: { error: "stale_timestamp" } });
+    await expect(verifyClientRequest(store, NOW, request, bodyBytes, {})).rejects.toMatchObject({ body: { error: "stale_timestamp" } });
   });
 
   // Fresh signatures, not the frozen vectors: the "every vector accepted"
@@ -152,7 +150,7 @@ describe("[LDB-A4] the mutation matrix: one bad field at a time", () => {
         nonce: crypto.getRandomValues(new Uint8Array(16)),
       });
       const request = new Request("https://example.com/v1/me", { method: "GET", headers });
-      await expect(verifyClientRequest(db, NOW, request, new Uint8Array(0), {}), `ts=${ts}`).resolves.toBeDefined();
+      await expect(verifyClientRequest(store, NOW, request, new Uint8Array(0), {}), `ts=${ts}`).resolves.toBeDefined();
     }
   });
 
@@ -167,20 +165,20 @@ describe("[LDB-A4] the mutation matrix: one bad field at a time", () => {
       nonce: crypto.getRandomValues(new Uint8Array(16)),
     });
     const first = new Request("https://example.com/v1/me", { method: "GET", headers });
-    await verifyClientRequest(db, NOW, first, new Uint8Array(0), {}); // consumes the nonce
+    await verifyClientRequest(store, NOW, first, new Uint8Array(0), {}); // consumes the nonce
     const second = new Request("https://example.com/v1/me", { method: "GET", headers });
-    await expect(verifyClientRequest(db, NOW, second, new Uint8Array(0), {})).rejects.toMatchObject({ body: { error: "replay" } });
+    await expect(verifyClientRequest(store, NOW, second, new Uint8Array(0), {})).rejects.toMatchObject({ body: { error: "replay" } });
   });
 
   it("one body byte flipped -> bad_signature", async () => {
     const { request } = requestFor(BASE);
     const flipped = new TextEncoder().encode(BASE.body!.slice(0, -1) + "x"); // last char differs -> different hash
-    await expect(verifyClientRequest(db, NOW, request, flipped, {})).rejects.toMatchObject({ body: { error: "bad_signature" } });
+    await expect(verifyClientRequest(store, NOW, request, flipped, {})).rejects.toMatchObject({ body: { error: "bad_signature" } });
   });
 
   it("actor mutated -> bad_signature", async () => {
     const { request, bodyBytes } = requestFor(BASE, { actor: "999999999999999999" });
-    await expect(verifyClientRequest(db, NOW, request, bodyBytes, {})).rejects.toMatchObject({ body: { error: "bad_signature" } });
+    await expect(verifyClientRequest(store, NOW, request, bodyBytes, {})).rejects.toMatchObject({ body: { error: "bad_signature" } });
   });
 
   it("one signature byte flipped -> bad_signature", async () => {
@@ -188,7 +186,7 @@ describe("[LDB-A4] the mutation matrix: one bad field at a time", () => {
     sigBytes[0] = (sigBytes[0]! + 1) & 0xff;
     const flippedSig = Buffer.from(sigBytes).toString("base64url");
     const { request, bodyBytes } = requestFor(BASE, { signature: flippedSig });
-    await expect(verifyClientRequest(db, NOW, request, bodyBytes, {})).rejects.toMatchObject({ body: { error: "bad_signature" } });
+    await expect(verifyClientRequest(store, NOW, request, bodyBytes, {})).rejects.toMatchObject({ body: { error: "bad_signature" } });
   });
 
   it("signed with a second key -> bad_signature", async () => {
@@ -204,7 +202,7 @@ describe("[LDB-A4] the mutation matrix: one bad field at a time", () => {
       nonce: crypto.getRandomValues(new Uint8Array(16)),
     });
     const request = new Request(`https://example.com${BASE.path}`, { method: BASE.method, headers });
-    await expect(verifyClientRequest(db, NOW, request, new TextEncoder().encode(BASE.body!), {})).rejects.toMatchObject({
+    await expect(verifyClientRequest(store, NOW, request, new TextEncoder().encode(BASE.body!), {})).rejects.toMatchObject({
       body: { error: "bad_signature" },
     });
   });
@@ -216,28 +214,28 @@ describe("[LDB-A4] the mutation matrix: one bad field at a time", () => {
       const headers = new Headers(request.headers);
       headers.delete(name);
       const stripped = new Request(request.url, { method: request.method, headers });
-      await expect(verifyClientRequest(db, NOW, stripped, bodyBytes, {})).rejects.toMatchObject({ body: { error: "bad_signature" } });
+      await expect(verifyClientRequest(store, NOW, stripped, bodyBytes, {})).rejects.toMatchObject({ body: { error: "bad_signature" } });
     },
   );
 
   it("malformed timestamp (not digits) -> bad_signature", async () => {
     const { request, bodyBytes } = requestFor(BASE, { timestamp: "not-a-number" });
-    await expect(verifyClientRequest(db, NOW, request, bodyBytes, {})).rejects.toMatchObject({ body: { error: "bad_signature" } });
+    await expect(verifyClientRequest(store, NOW, request, bodyBytes, {})).rejects.toMatchObject({ body: { error: "bad_signature" } });
   });
 
   it("[LDB-A4] malformed nonce (not 16 bytes) -> bad_signature", async () => {
     const { request, bodyBytes } = requestFor(BASE, { nonce: "AA" });
-    await expect(verifyClientRequest(db, NOW, request, bodyBytes, {})).rejects.toMatchObject({ body: { error: "bad_signature" } });
+    await expect(verifyClientRequest(store, NOW, request, bodyBytes, {})).rejects.toMatchObject({ body: { error: "bad_signature" } });
   });
 
   it("malformed actor (not 17-20 digits) -> bad_signature", async () => {
     const { request, bodyBytes } = requestFor(BASE, { actor: "123" });
-    await expect(verifyClientRequest(db, NOW, request, bodyBytes, {})).rejects.toMatchObject({ body: { error: "bad_signature" } });
+    await expect(verifyClientRequest(store, NOW, request, bodyBytes, {})).rejects.toMatchObject({ body: { error: "bad_signature" } });
   });
 
   it("malformed signature (not 64 bytes) -> bad_signature", async () => {
     const { request, bodyBytes } = requestFor(BASE, { signature: "AAAA" });
-    await expect(verifyClientRequest(db, NOW, request, bodyBytes, {})).rejects.toMatchObject({ body: { error: "bad_signature" } });
+    await expect(verifyClientRequest(store, NOW, request, bodyBytes, {})).rejects.toMatchObject({ body: { error: "bad_signature" } });
   });
 });
 
@@ -245,7 +243,7 @@ describe("[LDB-A8] nonces: single-use, pruned after 900s", () => {
   it("[LDB-A8] a fresh signed request is accepted once, replayed twice -> replay", async () => {
     const { privateKey, pubkeyB64url } = await generateKeyPair();
     const clientId = uniqueId("client-nonce");
-    await seedClient(db, NOW, { id: clientId, pubkeyB64url, ownerUserId: "111111111111111111", caps: "act-as-user" });
+    await seedClient(store, NOW, { id: clientId, pubkeyB64url, ownerUserId: "111111111111111111", caps: "act-as-user" });
 
     const nonce = crypto.getRandomValues(new Uint8Array(16));
     const signOpts: SignOpts = {
@@ -260,13 +258,10 @@ describe("[LDB-A8] nonces: single-use, pruned after 900s", () => {
     const headers = await signHeaders(signOpts);
     const req = () => new Request("https://example.com/v1/me", { method: "GET", headers });
 
-    await expect(verifyClientRequest(db, NOW, req(), new Uint8Array(0), {})).resolves.toBeDefined();
-    await expect(verifyClientRequest(db, NOW, req(), new Uint8Array(0), {})).rejects.toMatchObject({ body: { error: "replay" } });
+    await expect(verifyClientRequest(store, NOW, req(), new Uint8Array(0), {})).resolves.toBeDefined();
+    await expect(verifyClientRequest(store, NOW, req(), new Uint8Array(0), {})).rejects.toMatchObject({ body: { error: "replay" } });
 
-    const row = await db
-      .prepare("SELECT COUNT(*) AS n FROM nonces WHERE client_id = ?")
-      .bind(clientId)
-      .first<{ n: number }>();
+    const row = { n: await testStore.count("nonces", { client_id: clientId }) };
     expect(row?.n).toBe(1); // one row, not two -- the replay never got as far as a second insert
   });
 
@@ -274,13 +269,13 @@ describe("[LDB-A8] nonces: single-use, pruned after 900s", () => {
     const oldAt = new Date(new Date(BASE_TS_ISO).getTime() - 1000 * 1000).toISOString(); // 1000s old -- past the margin
     const freshAt = new Date(new Date(BASE_TS_ISO).getTime() - 100 * 1000).toISOString(); // 100s old -- kept
     const clientId = uniqueId("client-prune");
-    await db.prepare("INSERT INTO nonces (client_id, nonce, at) VALUES (?, 'old-nonce', ?)").bind(clientId, oldAt).run();
-    await db.prepare("INSERT INTO nonces (client_id, nonce, at) VALUES (?, 'fresh-nonce', ?)").bind(clientId, freshAt).run();
+    await testStore.insert("nonces", { client_id: clientId, nonce: "old-nonce", at: oldAt });
+    await testStore.insert("nonces", { client_id: clientId, nonce: "fresh-nonce", at: freshAt });
 
-    await pruneNonces(db, NOW);
+    await pruneNonces(store, NOW);
 
-    const rows = await db.prepare("SELECT nonce FROM nonces WHERE client_id = ?").bind(clientId).all<{ nonce: string }>();
-    expect(rows.results.map((r) => r.nonce)).toEqual(["fresh-nonce"]);
+    const rows = await testStore.rows<{ nonce: string }>("nonces", { client_id: clientId });
+    expect(rows.map((r) => r.nonce)).toEqual(["fresh-nonce"]);
   });
 });
 
@@ -289,7 +284,7 @@ describe("[LDB-A15] authors.last_seen_at moves at most once an hour on the clien
     const { privateKey, pubkeyB64url } = await generateKeyPair();
     const clientId = uniqueId("client-seen");
     const actor = "222222222222222222";
-    await seedClient(db, NOW, { id: clientId, pubkeyB64url, ownerUserId: actor, caps: "act-as-user" });
+    await seedClient(store, NOW, { id: clientId, pubkeyB64url, ownerUserId: actor, caps: "act-as-user" });
 
     const at = (minutes: number) => new Date(new Date(BASE_TS_ISO).getTime() + minutes * 60_000);
     const call = async (minutes: number) => {
@@ -303,10 +298,10 @@ describe("[LDB-A15] authors.last_seen_at moves at most once an hour on the clien
         timestamp: Math.floor(when.getTime() / 1000),
       });
       const req = new Request("https://example.com/v1/me", { method: "GET", headers });
-      return verifyClientRequest(db, fixedClock(when.toISOString()), req, new Uint8Array(0), {});
+      return verifyClientRequest(store, fixedClock(when.toISOString()), req, new Uint8Array(0), {});
     };
     const seen = async () =>
-      (await db.prepare("SELECT last_seen_at FROM authors WHERE user_id = ?").bind(actor).first<{ last_seen_at: string }>())?.last_seen_at;
+      (await testStore.row<{ last_seen_at: string }>("authors", { user_id: actor }))?.last_seen_at;
 
     const first = await call(0);
     expect(first.user_id).toBe(actor);
@@ -322,7 +317,7 @@ describe("[LDB-A15] authors.last_seen_at moves at most once an hour on the clien
     // A request whose clock is behind the stored value must not regress it.
     await call(90);
     expect(await seen()).toBe(at(61).toISOString());
-    await db.prepare("UPDATE authors SET last_seen_at = ? WHERE user_id = ?").bind(at(500).toISOString(), actor).run();
+    await testStore.patch("authors", { user_id: actor }, { last_seen_at: at(500).toISOString() });
     await call(200);
     expect(await seen()).toBe(at(500).toISOString());
   });
@@ -333,7 +328,7 @@ describe("[LDB-A9] a revoked client is refused from the revocation onward", () =
     const { privateKey, pubkeyB64url } = await generateKeyPair();
     const clientId = uniqueId("client-revoke");
     const actor = "222222222222222222";
-    await seedClient(db, NOW, { id: clientId, pubkeyB64url, ownerUserId: actor, caps: "act-as-user" });
+    await seedClient(store, NOW, { id: clientId, pubkeyB64url, ownerUserId: actor, caps: "act-as-user" });
 
     const signOnce = (nonce: Uint8Array) =>
       signHeaders({
@@ -348,13 +343,13 @@ describe("[LDB-A9] a revoked client is refused from the revocation onward", () =
 
     const before = await signOnce(crypto.getRandomValues(new Uint8Array(16)));
     const reqBefore = new Request("https://example.com/v1/me", { method: "GET", headers: before });
-    await expect(verifyClientRequest(db, NOW, reqBefore, new Uint8Array(0), {})).resolves.toBeDefined();
+    await expect(verifyClientRequest(store, NOW, reqBefore, new Uint8Array(0), {})).resolves.toBeDefined();
 
-    await db.prepare("UPDATE clients SET status = 'revoked', revoked_at = ? WHERE id = ?").bind(NOW(), clientId).run();
+    await testStore.patch("clients", { id: clientId }, { status: "revoked", revoked_at: NOW() });
 
     const after = await signOnce(crypto.getRandomValues(new Uint8Array(16)));
     const reqAfter = new Request("https://example.com/v1/me", { method: "GET", headers: after });
-    await expect(verifyClientRequest(db, NOW, reqAfter, new Uint8Array(0), {})).rejects.toMatchObject({ body: { error: "client_revoked" } });
+    await expect(verifyClientRequest(store, NOW, reqAfter, new Uint8Array(0), {})).rejects.toMatchObject({ body: { error: "client_revoked" } });
   });
 
   it("[LDB-A9] unknown client id -> unknown_client", async () => {
@@ -368,7 +363,7 @@ describe("[LDB-A9] a revoked client is refused from the revocation onward", () =
       timestamp: Math.floor(new Date(BASE_TS_ISO).getTime() / 1000),
     });
     const request = new Request("https://example.com/v1/me", { method: "GET", headers });
-    await expect(verifyClientRequest(db, NOW, request, new Uint8Array(0), {})).rejects.toMatchObject({ body: { error: "unknown_client" } });
+    await expect(verifyClientRequest(store, NOW, request, new Uint8Array(0), {})).rejects.toMatchObject({ body: { error: "unknown_client" } });
   });
 });
 
@@ -378,7 +373,7 @@ describe("[LDB-A5] act-as-owner-only refuses a foreign actor, accepts the owner"
     const clientId = uniqueId("client-owneronly");
     const owner = "444444444444444444";
     const stranger = "555555555555555555";
-    await seedClient(db, NOW, { id: clientId, pubkeyB64url, ownerUserId: owner, caps: "act-as-owner-only" });
+    await seedClient(store, NOW, { id: clientId, pubkeyB64url, ownerUserId: owner, caps: "act-as-owner-only" });
 
     const sign = (actor: string) =>
       signHeaders({
@@ -393,12 +388,12 @@ describe("[LDB-A5] act-as-owner-only refuses a foreign actor, accepts the owner"
 
     const ownerHeaders = await sign(owner);
     const ownerReq = new Request("https://example.com/v1/me", { method: "GET", headers: ownerHeaders });
-    const actor = await verifyClientRequest(db, NOW, ownerReq, new Uint8Array(0), {});
+    const actor = await verifyClientRequest(store, NOW, ownerReq, new Uint8Array(0), {});
     expect(actor.user_id).toBe(owner);
 
     const strangerHeaders = await sign(stranger);
     const strangerReq = new Request("https://example.com/v1/me", { method: "GET", headers: strangerHeaders });
-    await expect(verifyClientRequest(db, NOW, strangerReq, new Uint8Array(0), {})).rejects.toMatchObject({
+    await expect(verifyClientRequest(store, NOW, strangerReq, new Uint8Array(0), {})).rejects.toMatchObject({
       body: { error: "actor_not_allowed", actor: stranger, owner },
     });
   });
@@ -411,7 +406,7 @@ describe("[LDB-A5] act-as-owner-only refuses a foreign actor, accepts the owner"
     const clientId = uniqueId("client-owneronly-waitcap");
     const owner = "666666666666666666";
     const stranger = "777777777777777777";
-    await seedClient(db, NOW, { id: clientId, pubkeyB64url, ownerUserId: owner, caps: "act-as-owner-only,feed:wait" });
+    await seedClient(store, NOW, { id: clientId, pubkeyB64url, ownerUserId: owner, caps: "act-as-owner-only,feed:wait" });
 
     const sign = (actor: string) =>
       signHeaders({
@@ -425,11 +420,11 @@ describe("[LDB-A5] act-as-owner-only refuses a foreign actor, accepts the owner"
       });
 
     const ownerReq = new Request("https://example.com/v1/me", { method: "GET", headers: await sign(owner) });
-    const actor = await verifyClientRequest(db, NOW, ownerReq, new Uint8Array(0), {});
+    const actor = await verifyClientRequest(store, NOW, ownerReq, new Uint8Array(0), {});
     expect(actor.client_caps).toBe("act-as-owner-only,feed:wait");
 
     const strangerReq = new Request("https://example.com/v1/me", { method: "GET", headers: await sign(stranger) });
-    await expect(verifyClientRequest(db, NOW, strangerReq, new Uint8Array(0), {})).rejects.toMatchObject({
+    await expect(verifyClientRequest(store, NOW, strangerReq, new Uint8Array(0), {})).rejects.toMatchObject({
       body: { error: "actor_not_allowed", actor: stranger, owner },
     });
   });
@@ -440,7 +435,7 @@ describe("[LDB-A5] the two-lane dispatcher, live over SELF.fetch", () => {
     const { privateKey, pubkeyB64url } = await generateKeyPair();
     const clientId = uniqueId("client-bothlanes");
     const actor = "666666666666666666";
-    await seedClient(db, NOW, { id: clientId, pubkeyB64url, ownerUserId: actor, caps: "act-as-user" });
+    await seedClient(store, NOW, { id: clientId, pubkeyB64url, ownerUserId: actor, caps: "act-as-user" });
     const clientHeaders = await signHeaders({
       privateKey,
       clientId,
@@ -463,7 +458,7 @@ describe("[LDB-A5] the two-lane dispatcher, live over SELF.fetch", () => {
     const { privateKey, pubkeyB64url } = await generateKeyPair();
     const clientId = uniqueId("client-liveread");
     const actor = "777777777777777777";
-    await seedClient(db, NOW, { id: clientId, pubkeyB64url, ownerUserId: actor, caps: "act-as-user" });
+    await seedClient(store, NOW, { id: clientId, pubkeyB64url, ownerUserId: actor, caps: "act-as-user" });
     const headers = await signHeaders({
       privateKey,
       clientId,
