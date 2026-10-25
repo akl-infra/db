@@ -46,7 +46,7 @@ import { commitWrite, type CommitInput } from "./events";
 import { decodeCursor, list, type ListCursor } from "./records";
 import { readByIdWithFormats } from "./records";
 import type { Clock } from "./time";
-import { legacyD1, type StoreArg } from "../store/arg";
+import { toStore, type StoreArg } from "../store/arg";
 
 const SPARK_LINEAGE = "spark";
 // Same D1-statement-budget reasoning as the deleted importer's own
@@ -98,14 +98,14 @@ export function relabelMagicThumbKeys(keys: Key[]): { keys: Key[]; relabeled: Re
 }
 
 export async function relabelMagicThumbs(dbArg: StoreArg, now: Clock, dryRun: boolean): Promise<RelabelMagicThumbsResult> {
-  const db = legacyD1(dbArg);
+  const store = toStore(dbArg);
   let relabeled_layouts = 0;
   let relabeled_keys = 0;
   const layouts: RelabelPlanItem[] = [];
   let cursor: ListCursor | undefined;
 
   for (;;) {
-    const page = await list(db, { sourceLineage: SPARK_LINEAGE, sort: "name", limit: PAGE_SIZE, cursor, withPayload: false });
+    const page = await list(store, { sourceLineage: SPARK_LINEAGE, sort: "name", limit: PAGE_SIZE, cursor, withPayload: false });
 
     for (const { layout } of page.items) {
       // Only a record still following its cmini upstream is this pass's to
@@ -117,7 +117,7 @@ export async function relabelMagicThumbs(dbArg: StoreArg, now: Clock, dryRun: bo
       // Fresh read, immune to `list()`'s row shape drifting independently
       // of this loop, and gives `currentN`/`currentFormats` in the same
       // shot `commitWrite` needs.
-      const fresh = await readByIdWithFormats(db, layout.id);
+      const fresh = await readByIdWithFormats(store, layout.id);
       if (fresh === null) continue; // raced away (e.g. deleted) between the scan and here
       const upstream = fresh.layout.upstream;
       if (upstream === null || upstream.state !== "following") continue; // re-checked live, same reasoning
@@ -165,7 +165,7 @@ export async function relabelMagicThumbs(dbArg: StoreArg, now: Clock, dryRun: bo
         // `via`).
         upstream: { ...upstream, state: "following" },
       };
-      await commitWrite(db, now, input);
+      await commitWrite(store, now, input);
     }
 
     if (page.nextCursor === null) break;

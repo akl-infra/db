@@ -2,7 +2,7 @@
 // `core/events.ts`'s `commitWrite`/`appendLike` write these tables (LDB-P1,
 // the onlywriter test) -- this module only SELECTs.
 import type { Bindings } from "../env";
-import { legacyD1, type StoreArg } from "../store/arg";
+import { toStore, type StoreArg } from "../store/arg";
 
 // 20-spark.md S3a (decision 5, LDB-I14), restated by 21-formats.md §2.2:
 // follow state is LAYOUT-level (name/owner/deletion and lineage `spark`
@@ -172,38 +172,20 @@ export function rowToFormat(row: FormatDbRow): FormatRow {
 }
 
 export async function readById(dbArg: StoreArg, id: string): Promise<LayoutRow | null> {
-  const db = legacyD1(dbArg);
-  const row = await db.prepare("SELECT * FROM layouts WHERE id = ?").bind(id).first<LayoutDbRow>();
-  return row === null ? null : rowToLayout(row);
+  return toStore(dbArg).layouts.byId(id);
 }
 
 export async function readByName(dbArg: StoreArg, name: string): Promise<LayoutRow | null> {
-  const db = legacyD1(dbArg);
-  // `name` is COLLATE NOCASE -- a plain `=` already compares
-  // case-insensitively. `deleted = 0` matters here, not just as a filter: a
-  // tombstone keeps its literal name (LDB-P8) so a live record can share a
-  // name string with a dead one; byName must see the live one and only the
-  // live one.
-  const row = await db.prepare("SELECT * FROM layouts WHERE name = ? AND deleted = 0").bind(name).first<LayoutDbRow>();
-  return row === null ? null : rowToLayout(row);
+  return toStore(dbArg).layouts.byName(name);
 }
 
 export async function byRef(dbArg: StoreArg, ref: string): Promise<LayoutRow | null> {
-  const db = legacyD1(dbArg);
-  if (isUlidShaped(ref)) {
-    const byId = await readById(db, ref);
-    if (byId !== null) return byId;
-  }
-  return readByName(db, ref);
+  return toStore(dbArg).layouts.byRef(ref);
 }
 
 // Every `layout_formats` row a layout has, lineage-keyed.
 export async function formatsForLayout(dbArg: StoreArg, layoutId: string): Promise<Map<string, FormatRow>> {
-  const db = legacyD1(dbArg);
-  const { results } = await db.prepare("SELECT * FROM layout_formats WHERE layout_id = ?").bind(layoutId).all<FormatDbRow>();
-  const out = new Map<string, FormatRow>();
-  for (const row of results) out.set(row.lineage, rowToFormat(row));
-  return out;
+  return toStore(dbArg).layouts.formatsForLayout(layoutId);
 }
 
 // Coordinator review (H1): the list route (plain and `full=1` alike) must
@@ -212,26 +194,15 @@ export async function formatsForLayout(dbArg: StoreArg, layoutId: string): Promi
 // -- a layout with a second stored lineage (the test-only second lineage,
 // or a real future `lw/1`) must show BOTH in `formats` on every row. One
 // batched `IN (...)` query per PAGE (chunked the same way
-// `likesByLayout` already batches likes), never one query per layout.
+// `likers` already batches likes), never one query per layout.
 export async function formatsForLayouts(dbArg: StoreArg, layoutIds: string[]): Promise<Map<string, Map<string, FormatRow>>> {
-  const db = legacyD1(dbArg);
-  const out = new Map<string, Map<string, FormatRow>>(layoutIds.map((id) => [id, new Map<string, FormatRow>()]));
-  for (let i = 0; i < layoutIds.length; i += 90) {
-    const chunk = layoutIds.slice(i, i + 90);
-    const { results } = await db
-      .prepare(`SELECT * FROM layout_formats WHERE layout_id IN (${chunk.map(() => "?").join(",")})`)
-      .bind(...chunk)
-      .all<FormatDbRow>();
-    for (const row of results) out.get(row.layout_id)!.set(row.lineage, rowToFormat(row));
-  }
-  return out;
+  return toStore(dbArg).layouts.formatsForLayouts(layoutIds);
 }
 
 export async function readFormat(dbArg: StoreArg, layoutId: string, lineage: string): Promise<FormatRow | null> {
-  const db = legacyD1(dbArg);
-  const row = await db.prepare("SELECT * FROM layout_formats WHERE layout_id = ? AND lineage = ?").bind(layoutId, lineage).first<FormatDbRow>();
-  return row === null ? null : rowToFormat(row);
+  return toStore(dbArg).layouts.readFormat(layoutId, lineage);
 }
+
 
 // 21-formats.md §2.3: "A GET reads the layouts row and the format row in
 // ONE statement, so the two revs it returns are one snapshot" (LDB-B65
@@ -244,91 +215,23 @@ export interface LayoutWithFormats {
   formats: Map<string, FormatRow>; // keyed by lineage
 }
 
-interface JoinedRow extends LayoutDbRow {
-  f_layout_id: string | null;
-  f_lineage: string | null;
-  f_format: string | null;
-  f_rev: number | null;
-  f_created_at: string | null;
-  f_modified_at: string | null;
-  f_payload_json: string | null;
-  f_has_magic: number | null;
-  f_has_alts: number | null;
-  f_has_combos: number | null;
-  f_source_client: string | null;
-  f_source_version: string | null;
-}
-
-const JOIN_SELECT = `
-  SELECT l.*,
-    f.layout_id AS f_layout_id, f.lineage AS f_lineage, f.format AS f_format, f.rev AS f_rev,
-    f.created_at AS f_created_at, f.modified_at AS f_modified_at, f.payload_json AS f_payload_json,
-    f.has_magic AS f_has_magic, f.has_alts AS f_has_alts, f.has_combos AS f_has_combos,
-    f.source_client AS f_source_client, f.source_version AS f_source_version
-  FROM layouts l LEFT JOIN layout_formats f ON f.layout_id = l.id
-`;
-
-function joinedToFormat(row: JoinedRow): FormatRow | null {
-  if (row.f_lineage === null || row.f_format === null || row.f_rev === null || row.f_payload_json === null) return null;
-  return rowToFormat({
-    layout_id: row.f_layout_id ?? row.id,
-    lineage: row.f_lineage,
-    format: row.f_format,
-    rev: row.f_rev,
-    created_at: row.f_created_at ?? row.created_at,
-    modified_at: row.f_modified_at ?? row.modified_at,
-    payload_json: row.f_payload_json,
-    has_magic: row.f_has_magic ?? 0,
-    has_alts: row.f_has_alts ?? 0,
-    has_combos: row.f_has_combos ?? 0,
-    source_client: row.f_source_client,
-    source_version: row.f_source_version,
-  });
-}
-
-function groupJoined(results: JoinedRow[]): LayoutWithFormats | null {
-  if (results.length === 0) return null;
-  const layout = rowToLayout(results[0]!);
-  const formats = new Map<string, FormatRow>();
-  for (const row of results) {
-    const f = joinedToFormat(row);
-    if (f !== null) formats.set(f.lineage, f);
-  }
-  return { layout, formats };
-}
-
 export async function readByIdWithFormats(dbArg: StoreArg, id: string): Promise<LayoutWithFormats | null> {
-  const db = legacyD1(dbArg);
-  const { results } = await db.prepare(`${JOIN_SELECT} WHERE l.id = ?`).bind(id).all<JoinedRow>();
-  return groupJoined(results);
+  return toStore(dbArg).layouts.byIdWithFormats(id);
 }
 
 export async function readByNameWithFormats(dbArg: StoreArg, name: string): Promise<LayoutWithFormats | null> {
-  const db = legacyD1(dbArg);
-  const { results } = await db.prepare(`${JOIN_SELECT} WHERE l.name = ? AND l.deleted = 0`).bind(name).all<JoinedRow>();
-  return groupJoined(results);
+  return toStore(dbArg).layouts.byNameWithFormats(name);
 }
 
 export async function byRefWithFormats(dbArg: StoreArg, ref: string): Promise<LayoutWithFormats | null> {
-  const db = legacyD1(dbArg);
-  if (isUlidShaped(ref)) {
-    const byId = await readByIdWithFormats(db, ref);
-    if (byId !== null) return byId;
-  }
-  return readByNameWithFormats(db, ref);
+  return toStore(dbArg).layouts.byRefWithFormats(ref);
 }
+
 
 // `GET /v1/layouts?format=F`'s sort options (03 §2): `name` is the only
 // ascending one (case-insensitive, the column's own COLLATE); the other
 // three are all descending.
 export type SortKey = "name" | "modified_at" | "created_at" | "like_count";
-const SORT_DESC: Record<SortKey, boolean> = {
-  name: false,
-  modified_at: true,
-  created_at: true,
-  like_count: true,
-};
-
 export interface ListCursor {
   sortValue: string | number;
   id: string;
@@ -390,145 +293,10 @@ export function decodeCursor(raw: string): ListCursor | null {
   }
 }
 
-// The SQL expression for a sort column: `name`/`created_at`/`like_count`
-// are layout-only concepts (unaffected by which format was requested);
-// `modified_at` is `max(layouts.modified_at, F.modified_at)` (21-formats.md
-// §2.2: "the last time anything an F reader sees changed").
-function sortExpr(sort: SortKey): string {
-  if (sort === "modified_at") return "MAX(l.modified_at, f.modified_at)";
-  return `l.${sort}`;
-}
-
-interface ListJoinedRow extends LayoutDbRow {
-  f_rev: number;
-  f_format: string;
-  f_created_at: string;
-  f_modified_at: string;
-  f_payload_json: string;
-  f_has_magic: number;
-  f_has_alts: number;
-  f_has_combos: number;
-  f_source_client: string | null;
-  f_source_version: string | null;
-  sort_value: string | number;
-}
-
 // Filtered, sorted, keyset-paginated live layouts that have `sourceLineage`
 // stored (`deleted = 0` always -- tombstones never appear in a list).
 export async function list(dbArg: StoreArg, params: ListParams): Promise<ListPage> {
-  const db = legacyD1(dbArg);
-  const desc = SORT_DESC[params.sort];
-  const collate = params.sort === "name" ? " COLLATE NOCASE" : "";
-  const dir = desc ? "DESC" : "ASC";
-  const sortColExpr = sortExpr(params.sort) + collate;
-
-  const where: string[] = ["l.deleted = 0", "f.lineage = ?"];
-  const args: unknown[] = [params.sourceLineage];
-  if (params.owner !== undefined) {
-    where.push("l.owner = ?");
-    args.push(params.owner);
-  }
-  if (params.hasMagic !== undefined) {
-    where.push("f.has_magic = ?");
-    args.push(params.hasMagic ? 1 : 0);
-  }
-  if (params.hasAlts !== undefined) {
-    where.push("f.has_alts = ?");
-    args.push(params.hasAlts ? 1 : 0);
-  }
-  if (params.hasCombos !== undefined) {
-    where.push("f.has_combos = ?");
-    args.push(params.hasCombos ? 1 : 0);
-  }
-  if (params.since !== undefined) {
-    where.push(`${sortExpr("modified_at")} > ?`);
-    args.push(params.since);
-  }
-  if (params.likedBy !== undefined) {
-    where.push("l.id IN (SELECT layout_id FROM likes WHERE user_id = ?)");
-    args.push(params.likedBy);
-  }
-  if (params.cursor !== undefined) {
-    const cmp = desc ? "<" : ">";
-    where.push(`(${sortColExpr} ${cmp} ? OR (${sortColExpr} = ? AND l.id > ?))`);
-    args.push(params.cursor.sortValue, params.cursor.sortValue, params.cursor.id);
-  }
-
-  // LDB-R12/R13: `layouts` drives the join unless a format-flag filter is
-  // present. This database has one lineage, so `f.lineage = ?` matches every
-  // format row, yet SQLite (no statistics on D1) takes it for a selective
-  // lookup and starts from a `(lineage, ...)` index: every list then read
-  // the whole catalog and sorted it, whatever the filter or the page size
-  // (2026-10-05: 9,100 rows per `?owner=` call, 80% of all rows read).
-  // `CROSS JOIN` is SQLite's own way to pin the left table as the outer
-  // loop; same rows, same order. With `layouts` outside, an owner list
-  // walks `layouts_owner_name` (migrations/0021) and a name-sorted page
-  // walks `layouts_name_live`, both already in order: nothing is sorted and
-  // the read stops at the limit (a cursor page first steps over the index
-  // entries before its cursor). A `has_magic`/`has_alts`/`has_combos` filter
-  // keeps the planner's own choice: its `(lineage, flag)` index IS selective
-  // for the rare value.
-  const flagFiltered = params.hasMagic !== undefined || params.hasAlts !== undefined || params.hasCombos !== undefined;
-  const join = flagFiltered ? "JOIN" : "CROSS JOIN";
-  const withPayload = params.withPayload !== false;
-  const sql = `
-    SELECT l.*, f.rev AS f_rev, f.format AS f_format, f.created_at AS f_created_at, f.modified_at AS f_modified_at,
-      ${withPayload ? "f.payload_json AS f_payload_json," : ""} f.has_magic AS f_has_magic, f.has_alts AS f_has_alts, f.has_combos AS f_has_combos,
-      f.source_client AS f_source_client, f.source_version AS f_source_version,
-      ${sortColExpr} AS sort_value
-    FROM layouts l ${join} layout_formats f ON f.layout_id = l.id
-    WHERE ${where.join(" AND ")}
-    ORDER BY ${sortColExpr} ${dir}, l.id ASC
-    LIMIT ?`;
-  args.push(params.limit + 1);
-
-  const { results } = await db.prepare(sql).bind(...args).all<ListJoinedRow>();
-  const items: ListItem[] = results.map((row) => ({
-    layout: rowToLayout(row),
-    // `withPayload: false` skips `rowToFormat`'s own unconditional
-    // `JSON.parse(payload_json)` entirely -- there is no payload column
-    // in the row to parse, and nothing downstream may read `.payload`
-    // when the caller asked for this.
-    format: withPayload
-      ? rowToFormat({
-          layout_id: row.id,
-          lineage: params.sourceLineage,
-          format: row.f_format,
-          rev: row.f_rev,
-          created_at: row.f_created_at,
-          modified_at: row.f_modified_at,
-          payload_json: row.f_payload_json,
-          has_magic: row.f_has_magic,
-          has_alts: row.f_has_alts,
-          has_combos: row.f_has_combos,
-          source_client: row.f_source_client,
-          source_version: row.f_source_version,
-        })
-      : {
-          layout_id: row.id,
-          lineage: params.sourceLineage,
-          format: row.f_format,
-          rev: row.f_rev,
-          created_at: row.f_created_at,
-          modified_at: row.f_modified_at,
-          payload: undefined,
-          has_magic: row.f_has_magic !== 0,
-          has_alts: row.f_has_alts !== 0,
-          has_combos: row.f_has_combos !== 0,
-          source: sourceFromRow({ source_client: row.f_source_client, source_version: row.f_source_version }),
-        },
-  }));
-
-  let nextCursor: string | null = null;
-  let page = items;
-  if (items.length > params.limit) {
-    page = items.slice(0, params.limit);
-    const last = results[params.limit]!; // one-past-the-page row already fetched; reuse its sort_value/id cheaply
-    const lastItem = page[page.length - 1]!;
-    nextCursor = encodeCursor({ sortValue: results[params.limit - 1]!.sort_value, id: lastItem.layout.id });
-    void last;
-  }
-  return { items: page, nextCursor };
+  return toStore(dbArg).layouts.list(params);
 }
 
 // The public wire shape for a layout's own fields (21-formats.md §2.3) --

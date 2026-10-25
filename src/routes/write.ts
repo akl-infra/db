@@ -2,7 +2,7 @@
 // §2.4). Glue only: parse the request, call one `core/write.ts` pipeline
 // function, `c.json` the result -- no D1 statement here (LDB-W1).
 import { Hono } from "hono";
-import type { ActorVariables } from "../auth/actor";
+import type { AppEnv } from "../app";
 import type { Bindings } from "../env";
 import { badRequest } from "../core/errors";
 import { parseIfMatch, parseIfNoneMatch } from "../core/ifmatch";
@@ -39,7 +39,7 @@ async function readOptionalJson(req: { text(): Promise<string> }): Promise<unkno
   }
 }
 
-export const writeRoute = new Hono<{ Bindings: Bindings; Variables: ActorVariables }>();
+export const writeRoute = new Hono<AppEnv>();
 
 writeRoute.post("/v1/layouts", async (c) => {
   const body = parseCreateBody(await readJson(c.req));

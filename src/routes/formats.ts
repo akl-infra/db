@@ -2,12 +2,12 @@
 // No ETag/304 here -- the registry only changes at deploy time, not from
 // the event log, so there's nothing for a head-seq-keyed ETag to track.
 import { Hono } from "hono";
-import type { Bindings } from "../env";
+import type { AppEnv } from "../app";
 import { notFound } from "../core/errors";
 import { get as getFormat, list as listFormats } from "../formats/registry";
 import { lineage, majorOf, latestOf, hasEdge } from "../../formats/registry.ts";
 
-export const formatsRoute = new Hono<{ Bindings: Bindings }>();
+export const formatsRoute = new Hono<AppEnv>();
 
 // `can_translate_to` (20-spark.md S1, extended by S5's chain -- 19 §4.2:
 // "`can_translate_to` equals the set of formats `path()` reaches"): every

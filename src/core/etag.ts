@@ -17,12 +17,11 @@
 // bookkeeping.
 import type { Context } from "hono";
 import { canonical } from "./canonical";
-import { legacyD1, type StoreArg } from "../store/arg";
+import { platformOf } from "../app";
+import { toStore, type StoreArg } from "../store/arg";
 
 export async function headSeq(dbArg: StoreArg): Promise<number> {
-  const db = legacyD1(dbArg);
-  const row = await db.prepare("SELECT MAX(seq) AS seq FROM events").first<{ seq: number | null }>();
-  return row?.seq ?? 0;
+  return toStore(dbArg).head.headSeq();
 }
 
 // `authors_head`'s one row (migrations/0007).
@@ -33,11 +32,7 @@ export interface AuthorsHead {
 
 // `/v1/authors`' whole validator: one primary-key read.
 export async function authorsHead(dbArg: StoreArg): Promise<AuthorsHead> {
-  const db = legacyD1(dbArg);
-  const row = await db
-    .prepare("SELECT version, modified_at FROM authors_head WHERE id = 1")
-    .first<{ version: number; modified_at: string | null }>();
-  return { version: row?.version ?? 0, modifiedAt: row?.modified_at ?? null };
+  return toStore(dbArg).head.authorsHead();
 }
 
 export interface Head {
@@ -60,29 +55,7 @@ export interface Head {
 // the rolling delete count -- each a scalar subquery, so a 304 costs one
 // D1 query of indexed reads.
 export async function readHead(dbArg: StoreArg, stateKeys: readonly string[] = [], deletesSinceIso?: string): Promise<Head> {
-  const db = legacyD1(dbArg);
-  const cols = [
-    "(SELECT MAX(seq) FROM events) AS seq",
-    "(SELECT version FROM authors_head WHERE id = 1) AS authors_version",
-    "(SELECT modified_at FROM authors_head WHERE id = 1) AS authors_modified_at",
-    ...stateKeys.map((_, i) => `(SELECT value FROM import_state WHERE key = ?${i + 1}) AS state_${i}`),
-    ...(deletesSinceIso !== undefined
-      ? [`(SELECT COUNT(*) FROM events WHERE kind = 'upstream_deleted' AND rev IS NOT NULL AND at >= ?${stateKeys.length + 1}) AS deletes_24h`]
-      : []),
-  ];
-  const row = await db
-    .prepare(`SELECT ${cols.join(", ")}`)
-    .bind(...stateKeys, ...(deletesSinceIso !== undefined ? [deletesSinceIso] : []))
-    .first<Record<string, string | number | null>>();
-  return {
-    seq: (row?.seq as number | null) ?? 0,
-    authors: {
-      version: (row?.authors_version as number | null) ?? 0,
-      modifiedAt: (row?.authors_modified_at as string | null) ?? null,
-    },
-    state: stateKeys.map((_, i) => (row?.[`state_${i}`] as string | null | undefined) ?? null),
-    deletes24h: deletesSinceIso !== undefined ? ((row?.deletes_24h as number | null) ?? 0) : 0,
-  };
+  return toStore(dbArg).head.readHead(stateKeys, deletesSinceIso);
 }
 
 // 20-spark.md S2 (LDB-R1 amended): bumped whenever the WIRE shape changes
@@ -294,7 +267,7 @@ export async function conditional(c: Context, etag: string, cacheControl: string
   }
 
   try {
-    const hit = await caches.default.match(c.req.raw);
+    const hit = await platformOf(c).cache.match(c.req.raw);
     if (hit !== undefined && hit.headers.get("ETag") === etag) return hit;
   } catch {
     // caches.default unavailable (e.g. *.workers.dev) -- fall through
@@ -309,7 +282,7 @@ export async function conditional(c: Context, etag: string, cacheControl: string
 // returns to the client. Best-effort, same reasoning as `conditional()`.
 export async function cachePut(c: Context, res: Response): Promise<void> {
   try {
-    await caches.default.put(c.req.raw, res);
+    await platformOf(c).cache.put(c.req.raw, res);
   } catch {
     // best-effort only
   }

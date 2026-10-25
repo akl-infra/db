@@ -2,7 +2,7 @@
 // statement here (LDB-W1, tests/tools/routes-noprepare.test.ts): the
 // pipeline lives in `src/core/likes.ts`.
 import { Hono } from "hono";
-import type { ActorVariables } from "../auth/actor";
+import type { AppEnv } from "../app";
 import type { Bindings } from "../env";
 import { likeLayout, unlikeLayout } from "../core/likes";
 import { systemClock, type Clock } from "../core/time";
@@ -15,7 +15,7 @@ function resolveNow(env: Bindings): Clock {
   return (env as unknown as { TEST_CLOCK?: Clock }).TEST_CLOCK ?? systemClock;
 }
 
-export const likesRoute = new Hono<{ Bindings: Bindings; Variables: ActorVariables }>();
+export const likesRoute = new Hono<AppEnv>();
 
 likesRoute.put("/v1/layouts/:ref/like", async (c) => {
   const { like_count } = await likeLayout(c.env, resolveNow(c.env), c.get("actor"), c.req.param("ref"), c.get("sourceVersion"));
