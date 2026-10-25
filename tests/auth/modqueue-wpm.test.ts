@@ -13,7 +13,6 @@ import { buildMessageContent, buildWpmMessageContent, notifyPending, updateQueue
 import { fixedClock } from "../../src/core/time";
 import { actorFixture, register } from "../api/write-support";
 import { buildV2StatusPatch } from "../../src/core/modqueue-message";
-import type { D1Migration } from "@cloudflare/vitest-pool-workers";
 
 const bindings = env as unknown as Bindings;
 const clock = fixedClock("2026-10-18T00:00:00.000Z");

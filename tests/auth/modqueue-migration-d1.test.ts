@@ -1,4 +1,5 @@
 // D1-only (design/p1-briefs.md F): applies migrations/0031 itself.
+import type { D1Migration } from "@cloudflare/vitest-pool-workers";
 import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 
