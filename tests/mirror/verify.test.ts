@@ -56,6 +56,7 @@ describe("mirror verify", () => {
     expect(compareOutcome(e1, { ok: null })?.detail).toBe("prod threw, mirror returned");
     expect(compareOutcome({ ok: null }, e1)?.detail).toBe("prod returned, mirror threw");
     expect((e1 as { error: { name: string } }).error.name).toBe("ApiError");
+    expect(compareOutcome({ ok: { $unencodable: 1 } }, { ok: { anything: true } })).toBeNull();
   });
 
   it("[LDB-MIR23] seqs and clock reads", () => {
