@@ -69,8 +69,8 @@ describe("[LDB-DDB5] DynamoDB calls per store operation", () => {
     expect(await calls(() => t.events.appendLike(now, { kind: "unliked", layoutId: "A", userId: "y", via: "t", source: src, current: cur.layout }))).toMatchObject({ total: 3, writes: 1 });
     // refused like: no read-back
     expect(await calls(() => t.events.appendLike(now, { kind: "liked", layoutId: "A", userId: "x", via: "t", source: src, current: cur.layout }).catch(() => null))).toMatchObject({ total: 2, writes: 1 });
-    // link change without a submission: CAT read + HEAD + transaction
-    expect(await calls(() => t.events.appendLinkChange(now, { layoutId: "A", kind: "link_cleared", link: null, actor: "a", via: "d", admin: true, source: src }))).toMatchObject({ total: 3, writes: 1 });
+    // link change without a submission: CAT read + lane J's plan (guard read, pending-set query) + HEAD + transaction
+    expect(await calls(() => t.events.appendLinkChange(now, { layoutId: "A", kind: "link_cleared", link: null, actor: "a", via: "d", admin: true, source: src }))).toMatchObject({ total: 5, writes: 1 });
     // inherited likes: likers query + (HEAD + transaction) per chunk of 15 + read-back
     const users = Array.from({ length: 31 }, (_, i) => `inh${i}`);
     expect(await calls(() => t.events.appendInheritedLikes(now, { layoutId: "A", name: "n", owner: "u1", userIds: users, via: "v", detail: {}, source: src }))).toMatchObject({ total: 1 + 3 * 2 + 1, writes: 3 });

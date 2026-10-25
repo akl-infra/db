@@ -16,6 +16,7 @@ import {
 } from "../../core/records";
 import type { LayoutReadStore } from "../port";
 import type { CatalogLayout, DdbContext, Item } from "./contracts";
+import { compareBinary, compareSortValue, compareSqlite } from "./catalog";
 import { collectEvents, readHeadSeq } from "./evquery";
 import { consistentGet } from "./head";
 import { catKey, eventKey, fold, nameKey, revKey, userLikesPrefix, likesPrefix } from "./keys";
@@ -24,51 +25,7 @@ import { eventRow, formatRowsOf, layoutRowOf } from "./schema/core";
 
 const SORT_DESC: Record<SortKey, boolean> = { name: false, modified_at: true, created_at: true, like_count: true };
 
-// ---------------------------------------------------------------------------
-// SQLite comparison rules for the list sort and keyset cursor (design §2.7)
-// ---------------------------------------------------------------------------
-
-/** BINARY compare of UTF-8 bytes, i.e. of code points (JS `<` is by UTF-16 code unit, wrong above U+FFFF). */
-export function cmpBinary(a: string, b: string): number {
-  const n = Math.min(a.length, b.length);
-  for (let i = 0; i < n; i++) {
-    const x = a.charCodeAt(i);
-    const y = b.charCodeAt(i);
-    if (x === y) continue;
-    const xs = x >= 0xd800 && x <= 0xdfff;
-    const ys = y >= 0xd800 && y <= 0xdfff;
-    if (xs !== ys) return xs ? 1 : -1; // an astral code point sorts above any BMP one
-    return x < y ? -1 : 1;
-  }
-  return a.length === b.length ? 0 : a.length < b.length ? -1 : 1;
-}
-
-/** NOCASE: ASCII-fold, then BINARY. */
-export function cmpNocase(a: string, b: string): number {
-  return cmpBinary(fold(a), fold(b));
-}
-
-const NUMERIC = /^\s*[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?\s*$/;
-
-/** Sign of (row value ? cursor value) under SQLite affinity and cross-type rules, per sort column. */
-function cmpToCursor(sort: SortKey, rowValue: string | number, cursor: string | number): number {
-  switch (sort) {
-    case "like_count": {
-      // INTEGER affinity: a numeric-looking text param becomes a number; other text sorts above any number.
-      const c = typeof cursor === "string" ? (NUMERIC.test(cursor) ? Number(cursor) : cursor) : cursor;
-      if (typeof c === "string") return -1;
-      return (rowValue as number) < c ? -1 : (rowValue as number) > c ? 1 : 0;
-    }
-    case "name":
-      // TEXT affinity: a numeric param becomes text.
-      return cmpNocase(rowValue as string, typeof cursor === "number" ? String(cursor) : cursor);
-    case "created_at":
-      return cmpBinary(rowValue as string, typeof cursor === "number" ? String(cursor) : cursor);
-    case "modified_at":
-      // MAX(...) has no affinity: text vs number is not converted, text is greater.
-      return typeof cursor === "number" ? 1 : cmpBinary(rowValue as string, cursor);
-  }
-}
+const cmpBinary = compareBinary;
 
 function sortValueOf(sort: SortKey, l: CatalogLayout, lineage: string): string | number {
   switch (sort) {
@@ -86,8 +43,7 @@ function sortValueOf(sort: SortKey, l: CatalogLayout, lineage: string): string |
 }
 
 function cmpSortValues(sort: SortKey, a: string | number, b: string | number): number {
-  if (sort === "like_count") return (a as number) - (b as number);
-  return sort === "name" ? cmpNocase(a as string, b as string) : cmpBinary(a as string, b as string);
+  return compareSqlite(a, b, sort === "name" ? "nocase" : "binary");
 }
 
 // ---------------------------------------------------------------------------
@@ -225,7 +181,7 @@ export function ddbLayoutReadStore(ctx: DdbContext): LayoutReadStore {
         if (params.likedBy !== undefined && !l.likers.includes(params.likedBy)) continue;
         const value = sortValueOf(params.sort, l, lineage);
         if (params.cursor !== undefined) {
-          const c = cmpToCursor(params.sort, value, params.cursor.sortValue);
+          const c = compareSortValue(params.sort, value, params.cursor.sortValue);
           const after = desc ? c < 0 : c > 0;
           if (!(after || (c === 0 && cmpBinary(l.layout.id, params.cursor.id) > 0))) continue;
         }
