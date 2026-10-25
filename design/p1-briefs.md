@@ -310,3 +310,12 @@ If the inspector cannot express something, report it to the main session; do not
 
 If the inspector cannot express something, report it to the main session; do not extend
 `tests/harness`.
+
+## Carried to P2 (main session)
+
+- **TestStore fault-injection hook.** The atomic-rollback tests that inject faults with D1 triggers are D1-only for P1: `tests/auth/rejection-dm-d1.test.ts`. P2 must give TestStore a fault-injection hook, so the same rollback properties are proven on DynamoDB too. They must not stay D1-only.
+- **D1-only test list** for the onlywriter and no-`.prepare(` gates: `tests/auth/rejection-dm-d1.test.ts`, `tests/auth/modqueue-migration-d1.test.ts`, `tests/api/p1-a-equivalence.test.ts`, the migration tests, the query-plan test and the round-trip count test.
+- **Phase-end cleanup:**
+  - delete `rejectionModerationStatement` (core/events.ts), `rejectionOutboxStatement` and `approvalOutboxStatement` (core/rejection-dm.ts);
+  - move `restoreSql` into `store/d1/dump.ts` and drop the onlywriter legacy entry;
+  - no `legacyD1` may remain.
