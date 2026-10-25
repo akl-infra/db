@@ -384,6 +384,35 @@ export function itemsToRows(items: { main: readonly Item[]; ephemeral: readonly 
 }
 
 // ---------------------------------------------------------------------------
+// Retrying calls
+// ---------------------------------------------------------------------------
+
+const RETRYABLE = new Set([
+  "TransactionConflictException", "ProvisionedThroughputExceededException", "ThrottlingException", "InternalServerError",
+  "RequestLimitExceeded", "LimitExceededException",
+]);
+
+/** Test seam: the sleep between retries. */
+export const codecTuning = { sleep: (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms)) };
+
+/**
+ * One document-client call, retried (backoff 15, 40, 90, 180, 350, 700 ms, at
+ * most 8 attempts) on conflicts, throttles and 5xx. Every codec call is
+ * idempotent (reads, whole-item puts and deletes), so a retry is safe.
+ */
+export async function send<T>(ctx: CodecContext, cmd: unknown): Promise<T> {
+  const delays = [15, 40, 90, 180, 350, 700, 700];
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return (await (ctx.doc as unknown as { send(c: unknown): Promise<T> }).send(cmd)) as T;
+    } catch (e) {
+      if (!RETRYABLE.has((e as { name?: string }).name ?? "") || attempt >= delays.length) throw e;
+      await codecTuning.sleep(delays[attempt]! * (0.5 + Math.random()));
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // The table scans
 // ---------------------------------------------------------------------------
 
@@ -391,7 +420,7 @@ async function scanTable(ctx: CodecContext, table: string): Promise<Item[]> {
   const out: Item[] = [];
   let start: Record<string, unknown> | undefined;
   do {
-    const r = await ctx.doc.send(new ScanCommand({ TableName: table, ConsistentRead: true, ExclusiveStartKey: start }));
+    const r = await send<{ Items?: Record<string, unknown>[]; LastEvaluatedKey?: Record<string, unknown> }>(ctx, new ScanCommand({ TableName: table, ConsistentRead: true, ExclusiveStartKey: start }));
     out.push(...((r.Items ?? []) as Item[]));
     start = r.LastEvaluatedKey;
   } while (start !== undefined);
@@ -426,20 +455,26 @@ export async function rowsFromScan(ctx: CodecContext, items: ItemSet): Promise<R
 // ---------------------------------------------------------------------------
 
 export interface ImportOptions {
+  /**
+   * `restoreSql`'s semantics (src/store/d1/dump.ts): first delete every item of the tables D1's restore empties
+   * (`RESTORE_WIPED_TABLES`), then import. The head tables and idempotency/delivery-gate rows are left alone,
+   * as D1 leaves them; the imported head rows overwrite the heads.
+   */
+  replace?: boolean;
   /** Skip the empty-store check (a harness writing into a store it just seeded). */
   allowNonEmpty?: boolean;
 }
 
 /** The event seq HEAD holds (0 for an empty store). */
 export async function storedSeq(ctx: CodecContext): Promise<number> {
-  const head = await ctx.doc.send(new GetCommand({ TableName: ctx.tables.main, Key: HEAD_KEY, ConsistentRead: true }));
+  const head = await send<{ Item?: Record<string, unknown> }>(ctx, new GetCommand({ TableName: ctx.tables.main, Key: HEAD_KEY, ConsistentRead: true }));
   return typeof head.Item?.seq === "number" ? head.Item.seq : 0;
 }
 
 /** True when the main table holds layouts or events (the primary data a restore must not merge into). */
 export async function hasPrimaryData(ctx: CodecContext): Promise<boolean> {
   if ((await storedSeq(ctx)) > 0) return true;
-  const cat = await ctx.doc.send(new QueryCommand({
+  const cat = await send<{ Items?: unknown[] }>(ctx, new QueryCommand({
     TableName: ctx.tables.main,
     KeyConditionExpression: "pk = :p",
     ExpressionAttributeValues: { ":p": "CAT" },
@@ -459,8 +494,8 @@ async function writeChunk(ctx: CodecContext, table: string, chunk: readonly Reco
   for (let attempt = 0; pending.length > 0; attempt++) {
     if (attempt >= 12) throw new Error(`BatchWriteItem on ${table}: ${pending.length} item(s) still unprocessed after ${attempt} tries`);
     if (attempt > 0) await new Promise((r) => setTimeout(r, Math.min(25 * 2 ** attempt, 1000)));
-    const res = await ctx.doc.send(new BatchWriteCommand({ RequestItems: { [table]: pending as never } }));
-    pending = (res.UnprocessedItems?.[table] ?? []) as Record<string, unknown>[];
+    const res = await send<{ UnprocessedItems?: Record<string, Record<string, unknown>[]> }>(ctx, new BatchWriteCommand({ RequestItems: { [table]: pending as never } }));
+    pending = res.UnprocessedItems?.[table] ?? [];
   }
 }
 
@@ -473,6 +508,24 @@ export async function batchWrite(ctx: CodecContext, table: string, requests: rea
   }
 }
 
+/** TABLE_ORDER_DELETE of src/store/d1/dump.ts: what a D1 restore empties. */
+export const RESTORE_WIPED_TABLES: ReadonlySet<D1TableName> = new Set<D1TableName>([
+  "events", "modqueue_notifications", "moderation_review_history", "discord_rejection_dm_outbox", "discord_pending_actions", "discord_deny_modals",
+  "discord_reopen_actions", "discord_reopen_confirmations", "layout_revs", "layout_formats", "likes", "link_submissions", "wpm_submissions",
+  "comment_likes", "layout_comments", "import_map", "layouts", "authors", "admins", "import_state", "clients", "bans", "auth_cache", "ratelimit", "nonces",
+]);
+
+async function wipeForRestore(ctx: CodecContext): Promise<void> {
+  const items = await scanItems(ctx);
+  for (const [list, table] of [[items.main, ctx.tables.main], [items.ephemeral, ctx.tables.ephemeral]] as const) {
+    const doomed = list.filter((i) => {
+      const c = classify(i);
+      return c !== null && RESTORE_WIPED_TABLES.has(c.table);
+    });
+    await batchWrite(ctx, table, doomed.map((i) => ({ DeleteRequest: { Key: { pk: i.pk, sk: i.sk } } })));
+  }
+}
+
 /**
  * Writes the items the rows imply: spilled payload blobs first, then
  * BatchWriteItem chunks. For an empty store (restore, migration, tests): it
@@ -480,7 +533,8 @@ export async function batchWrite(ctx: CodecContext, table: string, requests: rea
  */
 export async function importRows(ctx: CodecContext, rows: RowsByTable, opts: ImportOptions = {}): Promise<void> {
   const items = rowsToItems(rows);
-  if (opts.allowNonEmpty !== true && (await hasPrimaryData(ctx))) {
+  if (opts.replace === true) await wipeForRestore(ctx);
+  else if (opts.allowNonEmpty !== true && (await hasPrimaryData(ctx))) {
     throw new Error("importRows: the store already holds layouts or events; import is for an empty store");
   }
   for (const json of payloadBlobs(rows).values()) await putPayload(ctx.blobs, json);
@@ -580,7 +634,7 @@ export async function seedBootstrap(ctx: CodecContext): Promise<void> {
     for (const [list, table] of [[items.main, ctx.tables.main], [items.ephemeral, ctx.tables.ephemeral]] as const) {
       for (const Item of list) {
         try {
-          await ctx.doc.send(new PutCommand({ TableName: table, Item, ConditionExpression: "attribute_not_exists(pk)" }));
+          await send(ctx, new PutCommand({ TableName: table, Item, ConditionExpression: "attribute_not_exists(pk)" }));
         } catch (e) {
           if ((e as { name?: string }).name !== "ConditionalCheckFailedException") throw e;
         }

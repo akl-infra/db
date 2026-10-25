@@ -43,7 +43,7 @@ export function ddbDumpStore(ctx: DdbContext, codec: DumpCodec = realCodec): Dum
     },
 
     async restore(dump: Dump) {
-      await codec.importRows(ctx, codec.dumpToRows(dump));
+      await codec.importRows(ctx, codec.dumpToRows(dump), { replace: true }); // restoreSql replaces state: wipe, then insert
     },
   };
 }
