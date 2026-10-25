@@ -6,6 +6,7 @@
 import type { Item, RowsByTable } from "./contracts";
 import { SCHEMAS } from "./schema";
 import { canonicalString, classify, isNonRowItem, itemKey, itemsToRows, rowsToItems, scanItems, type CodecContext } from "./codec";
+import { inlineIdempotencyBodies } from "./schema/auth";
 import { inlinePayloads } from "./schema/core";
 
 export interface CheckResult {
@@ -54,7 +55,7 @@ export async function checkIndexes(ctx: CodecContext): Promise<CheckResult> {
 
   let expected: ReturnType<typeof rowsToItems>;
   try {
-    const rows = itemsToRows({ main: await inlinePayloads(ctx.blobs, main), ephemeral });
+    const rows = itemsToRows({ main: await inlinePayloads(ctx.blobs, main), ephemeral: await inlineIdempotencyBodies(ephemeral) });
     expected = rowsToItems(withoutEmptyLanes(rows));
   } catch (e) {
     problems.push(`primary items do not decode: ${(e as Error).message}`);

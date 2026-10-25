@@ -6,12 +6,13 @@
 // Items that are not rows: `STATE/<anything without a string `key`>` is
 // bookkeeping (STATE/migrations, STATE/cutover), not an `import_state` row.
 // Export, import and the checker leave those alone (`isNonRowItem`).
-import { BatchWriteCommand, GetCommand, QueryCommand, ScanCommand } from "@aws-sdk/lib-dynamodb";
+import { BatchWriteCommand, GetCommand, PutCommand, QueryCommand, ScanCommand } from "@aws-sdk/lib-dynamodb";
 import type { Dump } from "../../dump/write";
 import type { D1Row, D1TableName, DdbContext, Item, LaneSchema, RowsByTable } from "./contracts";
 import { HEAD_KEY } from "./keys";
 import { putPayload } from "./payload";
 import { SCHEMAS } from "./schema";
+import { inlineIdempotencyBodies } from "./schema/auth";
 import { inlinePayloads, payloadBlobs } from "./schema/core";
 
 /** What the codec needs of a context: no catalog (the codec runs under the catalog's own scans too). */
@@ -413,7 +414,7 @@ export async function exportRows(ctx: CodecContext): Promise<RowsByTable> {
 
 /** `exportRows` over a scan already in hand. */
 export async function rowsFromScan(ctx: CodecContext, items: ItemSet): Promise<RowsByTable> {
-  const rows = itemsToRows({ main: await inlinePayloads(ctx.blobs, items.main), ephemeral: items.ephemeral });
+  const rows = itemsToRows({ main: await inlinePayloads(ctx.blobs, items.main), ephemeral: await inlineIdempotencyBodies(items.ephemeral) });
   // D1 always holds its two single-row head tables (migrations 0007, 0034); a store with no HEAD item yet reads as their initial rows.
   if (rows.layouts_head!.length === 0) rows.layouts_head = [{ id: 1, live: 0 }];
   if (rows.authors_head!.length === 0) rows.authors_head = [{ id: 1, version: 0, modified_at: null, count: 0 }];
@@ -537,4 +538,53 @@ function sortAll(rows: RowsByTable): RowsByTable {
   const out: RowsByTable = {};
   for (const t of Object.keys(rows) as D1TableName[]) out[t] = sortRows(t, rows[t] ?? []);
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Rows the D1 migrations seed
+// ---------------------------------------------------------------------------
+
+/**
+ * What migrations/*.sql insert: 0001's bootstrap admin, 0007/0035's
+ * `authors_head`, 0034's `layouts_head`, 0033's delivery-gate row. A DynamoDB
+ * store a test (or the lab) starts from must hold them too.
+ */
+export function bootstrapRows(): RowsByTable {
+  return {
+    admins: [{ user_id: "184412255822020608", added_by: null, added_at: "2026-09-08T00:00:00Z", note: "bootstrap: deeroh" }],
+    authors_head: [{ id: 1, version: 0, modified_at: null, count: 0 }],
+    events: [], // with layouts_head, makes HEAD {seq: 0, live: 0}
+    layouts_head: [{ id: 1, live: 0 }],
+    modqueue_delivery_gate: [completeRow("modqueue_delivery_gate", { id: 1 })],
+  };
+}
+
+/**
+ * Writes `bootstrapRows()` where absent (conditional puts, so it is safe to
+ * repeat and never overwrites a counter that has moved). A lane whose schema
+ * has not landed is skipped.
+ */
+export async function seedBootstrap(ctx: CodecContext): Promise<void> {
+  const rows = bootstrapRows();
+  for (const schema of SCHEMAS) {
+    const sub: RowsByTable = {};
+    for (const t of schema.tables) if (rows[t] !== undefined) sub[t] = rows[t];
+    if (Object.keys(sub).length === 0) continue;
+    let items: ItemSet;
+    try {
+      items = rowsToItems(sub);
+    } catch (e) {
+      if (/not implemented yet/.test((e as Error).message)) continue;
+      throw e;
+    }
+    for (const [list, table] of [[items.main, ctx.tables.main], [items.ephemeral, ctx.tables.ephemeral]] as const) {
+      for (const Item of list) {
+        try {
+          await ctx.doc.send(new PutCommand({ TableName: table, Item, ConditionExpression: "attribute_not_exists(pk)" }));
+        } catch (e) {
+          if ((e as { name?: string }).name !== "ConditionalCheckFailedException") throw e;
+        }
+      }
+    }
+  }
 }

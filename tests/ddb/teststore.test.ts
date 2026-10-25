@@ -5,6 +5,7 @@
 // write touching an item of that table.
 import { GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { seedBootstrap } from "../../src/store/ddb/codec";
 import { checkIndexes } from "../../src/store/ddb/checker";
 import { SPILL_BYTES } from "../../src/store/ddb/payload";
 import { SCHEMAS } from "../../src/store/ddb/schema";
@@ -172,5 +173,23 @@ describe("TestStore.faults", () => {
 
   it("[LDB-DDB76] an unknown table is refused", async () => {
     await expect(testStore.faults.failWrites("nope" as never)).rejects.toThrow(/unknown table/);
+  });
+});
+
+describe("migration parity", () => {
+  it("[LDB-DDB79] seedBootstrap writes what the D1 migrations seed, once, and leaves the index checker clean", async () => {
+    await seedBootstrap(ctx);
+    await seedBootstrap(ctx); // repeatable, never overwrites
+    expect(await testStore.row("layouts_head", { id: 1 })).toEqual({ id: 1, live: 0 });
+    expect(await head()).toMatchObject({ seq: 0, live: 0 });
+    if (laneReady(1)) {
+      expect(await testStore.rows("admins")).toEqual([{ user_id: "184412255822020608", added_by: null, added_at: "2026-09-08T00:00:00Z", note: "bootstrap: deeroh" }]);
+      expect(await testStore.row("authors_head", { id: 1 })).toEqual({ id: 1, version: 0, modified_at: null, count: 0 });
+      const count = (await ctx.doc.send(new GetCommand({ TableName: T, Key: { pk: "META", sk: "ADMINS" }, ConsistentRead: true }))).Item;
+      expect(count?.count).toBe(1);
+      await testStore.insert("admins", { user_id: "2", added_at: "t" });
+      expect((await ctx.doc.send(new GetCommand({ TableName: T, Key: { pk: "META", sk: "ADMINS" }, ConsistentRead: true }))).Item?.count).toBe(2);
+    }
+    await clean();
   });
 });

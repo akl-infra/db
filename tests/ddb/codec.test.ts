@@ -178,7 +178,7 @@ describe("codec: export and import on DynamoDB Local", () => {
     const rows = fixture();
     await importRows(ctx, rows);
     const back = await exportRows(ctx);
-    expect(canon(only(back, readyTables))).toBe(canon(rows));
+    expect(canon(only(back, new Set(Object.keys(rows) as D1TableName[])))).toBe(canon(rows));
     expect(back.layouts!.map((r) => r.id)).toEqual([...back.layouts!.map((r) => r.id as string)].sort());
     expect((await scanItems(ctx)).main.length).toBeGreaterThan(rows.layouts!.length);
   });
@@ -206,7 +206,7 @@ describe("codec: export and import on DynamoDB Local", () => {
     const stored = (await scanItems(ctx)).main;
     expect(JSON.stringify(stored)).not.toContain("éééééééé"); // not inline in any item
     const back = await exportRows(ctx);
-    expect(canon(only(back, readyTables))).toBe(canon(rows));
+    expect(canon(only(back, new Set(Object.keys(rows) as D1TableName[])))).toBe(canon(rows));
     await wipeTables(ctx);
   });
 
@@ -293,7 +293,7 @@ describe("rehost --target ddb", () => {
     const again = await rehost.rehostIntoDdb(opts({ force: true, wipe: ctx.tables.main }), lib); // same seq: allowed
     expect(again.seq).toBe(dump.meta.seq);
     await rehost.rehostIntoDdb(opts({ dump: older, force: true, wipe: ctx.tables.main, acceptLoss: true }), lib);
-    expect(canon(only(await exportRows(ctx), readyTables))).toBe(canon(lib.dumpToRows(dump)));
+    expect(canon(only(await exportRows(ctx), new Set(Object.keys(lib.dumpToRows(dump)) as D1TableName[])))).toBe(canon(lib.dumpToRows(dump)));
     await wipeTables(ctx);
   });
 
