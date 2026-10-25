@@ -82,9 +82,9 @@ async function purgeLikeTail(ctx: DdbContext, layoutId: string, authorId: string
   for (let i = 0; i < 100; i++) {
     const slot = (await queryPartition(ctx, commentOkKey(layoutId, "", "").pk)).some((x) => x.user_id === authorId);
     if (slot) return;
+    const likeVer = await readVer(ctx, commentLikeGuardKey(layoutId, authorId));
     const likes = await slotLikes(ctx, layoutId, authorId);
     if (likes.length === 0) return;
-    const likeVer = await readVer(ctx, commentLikeGuardKey(layoutId, authorId));
     const plan = new Plan(ctx);
     clearLikes(plan, layoutId, authorId, likes, likeVer);
     try {
@@ -201,12 +201,13 @@ export function ddbCommentStore(ctx: DdbContext): CommentStore {
     async deleteOwn(r) {
       let tail = false;
       await decide(async () => {
+        // Guards first: a set read is only as fresh as the version read before it (R5).
+        const ver = await readVer(ctx, commentGuardKey(r.layoutId, r.userId));
+        const likeVer = await readVer(ctx, commentLikeGuardKey(r.layoutId, r.userId));
         const items = await pairItems(ctx, r.layoutId, r.userId);
         const targets = items.filter((i) => i.status === "approved" || i.status === "pending" || i.has_body === 1);
         const rows = await getRows(ctx, "comment", targets.map((i) => i.id as string));
-        const ver = await readVer(ctx, commentGuardKey(r.layoutId, r.userId));
         const likes = await slotLikes(ctx, r.layoutId, r.userId);
-        const likeVer = await readVer(ctx, commentLikeGuardKey(r.layoutId, r.userId));
         if (rows.length === 0 && likes.length === 0) return undefined;
         const plan = new Plan(ctx);
         for (const row of rows) {
@@ -267,11 +268,11 @@ export function ddbCommentStore(ctx: DdbContext): CommentStore {
         const row = await getRow(ctx, "comment", r.id);
         if (row === null || row.status !== "approved" || row.review_version !== r.reviewVersion) return { claimed: false };
         const ver = await readVer(ctx, commentGuardKey(r.layoutId, r.userId));
+        const likeVer = await readVer(ctx, commentLikeGuardKey(r.layoutId, r.userId));
         const items = await pairItems(ctx, r.layoutId, r.userId);
         // The likes go only if no other approved row keeps the slot (`NOT EXISTS ... status = 'approved'`).
         const slotStays = items.some((i) => i.status === "approved" && i.id !== r.id);
         const likes = slotStays ? [] : await slotLikes(ctx, r.layoutId, r.userId);
-        const likeVer = await readVer(ctx, commentLikeGuardKey(r.layoutId, r.userId));
         const plan = new Plan(ctx);
         transition(plan, "comment", row, { ...row, status: "removed", decided_by: r.by, decided_at: r.at, reason: r.reason }, "claim");
         guard(plan, "guard", commentGuardKey(r.layoutId, r.userId), ver, 0);
