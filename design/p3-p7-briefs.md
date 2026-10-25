@@ -301,7 +301,7 @@ every proof clean.
   `hash(s, i)`. Prove the change with a test that runs a sequence alone and inside a range, and
   diffs the two transcripts.
 - **The image:** Node 24 + Java 21 + the DynamoDB Local jar (copied from
-  `/Users/dario/git/akl/handoff/dynamodb-local/`; no download inside the build) + the repo at a
+  `~/git/akl/handoff/dynamodb-local/`; no download inside the build) + the repo at a
   commit + `npm ci` for linux/arm64.
 - **`task.mjs`:** the container entry. It starts DynamoDB Local, runs six fuzz lanes over its
   unit's range in parallel, writes the unit result JSON to `$RESULT_URL`, and exits 0 only when
