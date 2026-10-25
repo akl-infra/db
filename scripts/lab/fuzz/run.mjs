@@ -113,7 +113,30 @@ async function buildTemplate(workDir, dumpSpec) {
   const sqlFile = path.join(workDir, "seed.sql");
   fs.writeFileSync(sqlFile, "BEGIN;\n" + [...restore, ...extra].join(";\n") + ";\nCOMMIT;\n");
   sh("sqlite3", [file], { input: fs.readFileSync(sqlFile), stdio: ["pipe", "pipe", "pipe"] });
-  return { dir, file };
+  return { dir, file, resetScript: buildResetScript(file) };
+}
+
+/**
+ * The statements that rebuild a D1 database to exactly this seeded template, in place (lane F: sequence i of seed s is a
+ * pure function of (s, i), so every sequence starts from the template). Triggers and indexes are created after the rows,
+ * so re-inserting the rows fires nothing. Every statement is one string: D1 never has to split SQL text.
+ */
+export function buildResetScript(file) {
+  const q = (sql) => JSON.parse(sqlite(file, sql, true) || "[]");
+  const master = q("SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL AND substr(name, 1, 7) <> 'sqlite_' AND substr(name, 1, 4) <> '_cf_' ORDER BY rowid");
+  const of = (type) => master.filter((m) => m.type === type);
+  const drop = [...of("trigger").map((m) => `DROP TRIGGER IF EXISTS "${m.name}"`), ...of("view").map((m) => `DROP VIEW IF EXISTS "${m.name}"`), ...of("table").map((m) => `DROP TABLE IF EXISTS "${m.name}"`)];
+  const inserts = [];
+  for (const t of of("table")) {
+    // table_xinfo hidden = 0: ordinary columns (a generated column cannot be inserted into)
+    const cols = q(`SELECT name FROM pragma_table_xinfo('${t.name.replaceAll("'", "''")}') WHERE hidden = 0 ORDER BY cid`).map((c) => c.name);
+    if (cols.length === 0) continue;
+    const list = cols.map((c) => `"${c}"`).join(", ");
+    const vals = cols.map((c) => `quote("${c}")`).join(" || ',' || ");
+    const r = q(`SELECT json_group_array('INSERT INTO "${t.name}" (${list}) VALUES (' || ${vals} || ')') AS j FROM "${t.name}"`);
+    inserts.push(...JSON.parse(r[0].j));
+  }
+  return { statements: ["PRAGMA defer_foreign_keys = on", ...drop, ...of("table").map((m) => m.sql), ...inserts, ...of("index").map((m) => m.sql), ...of("trigger").map((m) => m.sql), ...of("view").map((m) => m.sql)] };
 }
 
 // ---------------------------------------------------------------------------
@@ -142,6 +165,10 @@ async function startD1(o) {
       return { ok: true, problems: [] };
     },
     async restart() {},
+    async reset(script) {
+      const r = await fetch(`${base}/__lab/reset`, { method: "POST", body: JSON.stringify(script), headers: { "content-type": "application/json" } });
+      if (!r.ok) throw new Error(`${o.name} reset -> ${r.status} ${(await r.text()).slice(0, 400)}`);
+    },
     async state() {
       return readSqliteState(findSqlite(persist));
     },
@@ -270,6 +297,11 @@ export function diffStates(a, b, ignore = []) {
  * @param {object} o
  * @param {number[]} o.seeds
  * @param {number} o.sequences      sequences per seed
+ * @param {number} [o.from]         first sequence index (default 0): sequences from .. from+sequences-1
+ * @param {"inplace"|"restart"} [o.reset]  how the D1 oracle returns to the template between sequences
+ * @param {boolean} [o.verifyReset] compare the oracle with the template after every reset (always done for the first)
+ * @param {string} [o.discordUrl]   an already-running fake Discord (default: start one on ports[2])
+ * @param {string} [o.transcript]   write one JSON line per step and per sequence state (the determinism proof)
  * @param {number} o.steps          steps per sequence
  * @param {"ddb"|"self"} [o.mode]
  * @param {string} [o.ddbEndpoint]  DynamoDB Local (default http://127.0.0.1:18307)
@@ -302,11 +334,19 @@ export async function runFuzz(o) {
   log(`work dir ${workDir}`);
   const template = await buildTemplate(workDir, o.dump);
   const rows = readSqliteState(template.file);
-  const discord = await startFakeDiscord(portDiscord);
-  const discordUrl = `http://127.0.0.1:${portDiscord}/api`;
+  const discord = o.discordUrl === undefined ? await startFakeDiscord(portDiscord) : undefined;
+  const discordUrl = o.discordUrl ?? `http://127.0.0.1:${portDiscord}/api`;
+  const from = o.from ?? 0;
+  const reset = o.reset ?? "inplace";
+  const verifyReset = o.verifyReset ?? false;
+  const transcript = o.transcript === undefined ? undefined : fs.createWriteStream(o.transcript);
+  const sha = (b) => crypto.createHash("sha256").update(b).digest("hex").slice(0, 16);
+  const tableHashes = (st) => Object.fromEntries(Object.keys(st).sort().map((t) => [t, sha(JSON.stringify(st[t].map(canonRow).sort()))]));
+  const canonState = (st) => JSON.stringify(Object.keys(st).sort().map((t) => [t, st[t].map(canonRow).sort()]));
 
-  const report = { mode, seeds: o.seeds, sequences: o.sequences, steps: o.steps, requests: 0, steps_run: 0, checks: 0, state_diffs_run: 0, diffs: [], by_label: {}, statuses: {}, ok_by_label: {}, started: new Date().toISOString() };
+  const report = { mode, seeds: o.seeds, from, sequences: o.sequences, sequences_run: 0, reset_ms: 0, steps: o.steps, requests: 0, steps_run: 0, checks: 0, state_diffs_run: 0, diffs: [], by_label: {}, statuses: {}, ok_by_label: {}, started: new Date().toISOString() };
   const addDiff = (d) => {
+    d.repro = `node scripts/lab/fuzz/fuzz.mjs --seeds ${d.seed} --from ${d.sequence} --sequences 1 --steps ${o.steps}${mode === "self" ? " --mode self" : ""}`;
     report.diffs.push(d);
     log(`DIFF seed ${d.seed} seq ${d.sequence} step ${d.step} ${d.kind}: ${d.label ?? ""} ${(d.problems ?? []).join(" | ").slice(0, 400)}`);
   };
@@ -314,25 +354,46 @@ export async function runFuzz(o) {
   try {
     for (const seed of o.seeds) {
       log(`seed ${seed}: starting backends`);
-      const A = await startD1({ name: "d1-oracle", port: portA, workDir, outDir, template, discord: discordUrl });
+      let A = await startD1({ name: "d1-oracle", port: portA, workDir, outDir, template, discord: discordUrl });
       let B;
       try {
         B =
           mode === "self"
             ? await startD1({ name: "d1-other", port: portB, workDir, outDir, template, discord: discordUrl })
             : await startDdb({ port: portB, endpoint, outDir, discord: discordUrl, faultRate: o.faultRate ?? 0, faultSeed: mixSeed(seed, 77) });
-        if (B.kind === "ddb") {
-          await B.lab("POST", "/__lab/reset");
-          await B.lab("POST", "/__lab/import", rows);
-        }
+        const resetB = async () => {
+          if (B.kind === "ddb") {
+            await B.lab("POST", "/__lab/reset");
+            await B.lab("POST", "/__lab/import", rows);
+          } else await B.reset(template.resetScript);
+        };
+        // the reset must land exactly on the template: compare the oracle's rows with the freshly built one
+        const verifyTemplate = async (a) => {
+          const got = await a.state();
+          const sd = diffStates(rows, got, ignore);
+          if (sd.length > 0) throw new Error(`D1 reset did not land on the template: ${JSON.stringify(sd).slice(0, 600)}`);
+        };
 
-        const gen = new Generator({ seed: mixSeed(seed, 1), corpus });
-        const rng = makeRng(mixSeed(seed, 2));
-        let tick = 0;
-        let seedCounter = 1000 + seed * 100000;
-        let stepNo = 0;
-        for (let sequence = 0; sequence < o.sequences && report.diffs.length < maxDiffs; sequence++) {
-          for (let i = 0; i < o.steps && report.diffs.length < maxDiffs; i++, stepNo++) {
+        for (let sequence = from; sequence < from + o.sequences && report.diffs.length < maxDiffs; sequence++) {
+          // Sequence i of seed s is a pure function of (s, i): its own generator, clock, ULID seeds and restart point, and
+          // both backends rebuilt to the seeded template first (lane F, LDB-FZ1).
+          if (reset === "restart" && sequence !== from) {
+            await A.stop();
+            A = await startD1({ name: "d1-oracle", port: portA, workDir, outDir, template, discord: discordUrl });
+          }
+          const t0 = Date.now();
+          await Promise.all([A.reset(template.resetScript), resetB()]);
+          if (sequence === from || verifyReset) await verifyTemplate(A);
+          report.reset_ms += Date.now() - t0;
+          const gen = new Generator({ seed: mixSeed(seed, 1, sequence), corpus });
+          const seqRng = makeRng(mixSeed(seed, 2, sequence));
+          const restartAt = seqRng.chance(0.3) ? seqRng.int(1, Math.max(1, o.steps - 1)) : -1; // a cold DynamoDB model mid-sequence
+          let tick = 0;
+          let seedCounter = 1000 + (mixSeed(seed, 3, sequence) % 1_000_000) * 1000;
+          report.sequences_run++;
+          for (let i = 0; i < o.steps && report.diffs.length < maxDiffs; i++) {
+            const stepNo = i;
+            if (i === restartAt) await B.restart();
             const step = gen.next();
             report.steps_run++;
             report.by_label[step.label] = (report.by_label[step.label] ?? 0) + 1;
@@ -353,6 +414,7 @@ export async function runFuzz(o) {
             const [ra, rb] = await Promise.all([send(A.url, spec), send(B.url, spec)]);
             report.requests += 2;
             const problems = compareResponses(ra, rb, step.path);
+            transcript?.write(JSON.stringify({ seed, sequence, step: i, label: step.label, method: step.method, path: step.path, status: ra.status, body: sha(comparableBody(step.path, ra.body)), status_b: rb.status, body_b: sha(comparableBody(step.path, rb.body)) }) + "\n");
             if (problems.length > 0) addDiff({ seed, sequence, step: stepNo, kind: "response", label: step.label, method: step.method, path: step.path, request: step.json, problems });
             let json = null;
             try {
@@ -378,19 +440,19 @@ export async function runFuzz(o) {
               if (dp.length > 0) addDiff({ seed, sequence, step: stepNo, kind: "dump", label: step.label, problems: dp });
             }
 
-            if (stepNo % checkEvery === 0 && B.kind === "ddb") {
+            if (i % checkEvery === 0 && B.kind === "ddb") {
               report.checks++;
               const c = await B.check();
               if (!c.ok) addDiff({ seed, sequence, step: stepNo, kind: "check", label: step.label, problems: c.problems });
             }
           }
-          if ((sequence + 1) % stateEvery === 0 || sequence === o.sequences - 1) {
+          if ((sequence - from + 1) % stateEvery === 0 || sequence === from + o.sequences - 1) {
             report.state_diffs_run++;
             const [sa, sb] = [await A.state(), await B.state()];
+            transcript?.write(JSON.stringify({ seed, sequence, state: sha(canonState(maskStateRows(sa))), state_b: sha(canonState(maskStateRows(sb))), tables: tableHashes(maskStateRows(sa)) }) + "\n");
             const sd = diffStates(maskStateRows(sa), maskStateRows(sb), ignore);
             if (sd.length > 0) addDiff({ seed, sequence, step: stepNo, kind: "state", problems: sd.map((d) => `${d.table}: ${d.rows[0]} vs ${d.rows[1]} rows; oracle-only ${JSON.stringify(d.only_oracle)}; other-only ${JSON.stringify(d.only_other)}`) });
           }
-          if (B.kind === "ddb" && rng.chance(0.25)) await B.restart();
         }
       } finally {
         await B?.stop();
@@ -400,8 +462,9 @@ export async function runFuzz(o) {
       if (report.diffs.length >= maxDiffs) break;
     }
   } finally {
-    discord.close();
+    discord?.close();
     killAll();
+    await new Promise((r) => (transcript === undefined ? r() : transcript.end(r)));
   }
   report.finished = new Date().toISOString();
   report.ok = report.diffs.length === 0;
