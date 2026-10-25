@@ -15,8 +15,10 @@ import { encodeTee, type TeeCall } from "./record";
 export const MIRROR_WRITES: Readonly<Record<string, readonly string[]>> = {
   state: ["put", "delete"],
   events: ["commitWrite", "appendInfo", "appendAdmin", "appendModeration", "appendLinkChange", "appendLike", "appendInheritedLikes"],
-  // authors (touch, cache success's author upsert) and idempotency are main-table writes; the rest of auth is ephemeral.
-  auth: ["touchClientAuthor", "cacheAuthSuccess", "reserveIdempotency", "takeOverIdempotency", "completeIdempotency", "deleteIdempotency", "pruneIdempotency"],
+  // authors (touch, cache success's author upsert) and idempotency are main-table writes. pruneRateLimits is recorded
+  // although ratelimit is ephemeral: it deletes the destructive-budget windows commitWrite's budget probe counts.
+  // The rest of auth is ephemeral.
+  auth: ["touchClientAuthor", "cacheAuthSuccess", "reserveIdempotency", "takeOverIdempotency", "completeIdempotency", "deleteIdempotency", "pruneIdempotency", "pruneRateLimits"],
   admin: ["insertAdmin", "removeAdmin", "upsertBan", "deleteBan", "setAuthorNameByAdmin", "insertClient", "revokeClient", "suspendClient", "reactivateClient"],
   links: ["submit", "reject"],
   wpm: ["bindSourceMessage", "insertApproved", "submit", "approve", "reject"],
@@ -51,7 +53,7 @@ export const MIRROR_NOT_RECORDED: Readonly<Record<string, readonly string[]>> = 
   cutover: ["mode"],
   auth: [
     "client", "insertNonce", "pruneNonces", "authCache", "cacheAuthFailure", "pruneAuthCache", "rolesOf", "authorName", "authors", "author",
-    "hitWindow", "pruneRateLimits", "getIdempotency",
+    "hitWindow", "getIdempotency",
   ],
   admin: ["isAdmin", "listAdmins", "getAdmin", "listBans", "banExists", "clientStatus", "listClients", "suspendedClients"],
   links: ["pending", "get", "queue"],
