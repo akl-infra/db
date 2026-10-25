@@ -19,6 +19,8 @@ import os from "node:os";
 import path from "node:path";
 import url from "node:url";
 import { ADMIN, CONTRACT_HEADERS, LAB_CLIENT, LAB_PUB_RAW, findSqlite, firstDiff, loadDump, sh, signedHeaders, sqlLit, startFakeDiscord, waitReady } from "../p1-crawl-diff.mjs";
+import { comparableBody, maskStateRows } from "./dumpmask.mjs";
+import zlib from "node:zlib";
 import { Generator } from "./generator.mjs";
 import { makeRng, mixSeed } from "./rng.mjs";
 
@@ -198,16 +200,44 @@ async function send(base, spec) {
   return { status: r.status, headers, body };
 }
 
-function compareResponses(a, b) {
+function compareResponses(a, b, pathAndQuery = "") {
   const problems = [];
   if (a.status !== b.status) problems.push(`status ${a.status} vs ${b.status}`);
-  for (const h of HEADERS_COMPARED) if (a.headers[h] !== b.headers[h]) problems.push(`header ${h}: ${JSON.stringify(a.headers[h])} vs ${JSON.stringify(b.headers[h])}`);
-  const at = firstDiff(a.body, b.body);
+  // A dump's ETag is the md5 of its (encoder-dependent) gzip bytes, and latest.json's follows its sha256: see dumpmask.mjs.
+  const onDumpRoute = pathAndQuery.startsWith("/v1/dump");
+  const ba = comparableBody(pathAndQuery, a.body);
+  const bb = comparableBody(pathAndQuery, b.body);
+  for (const h of HEADERS_COMPARED) {
+    if (h === "etag" && onDumpRoute && Buffer.compare(ba, bb) === 0) continue;
+    if (a.headers[h] !== b.headers[h]) problems.push(`header ${h}: ${JSON.stringify(a.headers[h])} vs ${JSON.stringify(b.headers[h])}`);
+  }
+  const at = firstDiff(ba, bb);
   if (at !== -1) {
-    const ctx = (r) => JSON.stringify(r.body.subarray(Math.max(0, at - 60), at + 120).toString("utf8"));
-    problems.push(`body differs at byte ${at} (${a.body.length} vs ${b.body.length} bytes): ${ctx(a)} vs ${ctx(b)}`);
+    const ctx = (r) => JSON.stringify(r.subarray(Math.max(0, at - 60), at + 120).toString("utf8"));
+    problems.push(`body differs at byte ${at} (${ba.length} vs ${bb.length} bytes): ${ctx(ba)} vs ${ctx(bb)}`);
   }
   return problems;
+}
+
+/** After a step that wrote a dump: fetch the dump each side produced, gunzip, and require equal bytes. */
+async function compareProducedDumps(A, B) {
+  const get = async (base, p) => {
+    const r = await fetch(base + p, { redirect: "manual" });
+    return { status: r.status, body: Buffer.from(await r.arrayBuffer()) };
+  };
+  const la = await get(A.url, "/v1/dump/latest.json");
+  const lb = await get(B.url, "/v1/dump/latest.json");
+  if (la.status !== 200 || lb.status !== 200) return la.status === lb.status ? [] : [`latest.json status ${la.status} vs ${lb.status}`];
+  const ka = JSON.parse(la.body.toString("utf8")).key;
+  const kb = JSON.parse(lb.body.toString("utf8")).key;
+  if (ka !== kb) return [`latest dump key ${ka} vs ${kb}`];
+  const da = await get(A.url, `/v1/dump/${ka}`);
+  const db = await get(B.url, `/v1/dump/${kb}`);
+  if (da.status !== 200 || db.status !== 200) return [`dump ${ka} status ${da.status} vs ${db.status}`];
+  const ga = zlib.gunzipSync(da.body);
+  const gb = zlib.gunzipSync(db.body);
+  const at = firstDiff(ga, gb);
+  return at === -1 ? [] : [`gunzipped dump ${ka} differs at byte ${at} (${ga.length} vs ${gb.length} bytes)`];
 }
 
 function canonRow(r) {
@@ -322,7 +352,7 @@ export async function runFuzz(o) {
             const spec = { method: step.method, path: step.path, headers, body };
             const [ra, rb] = await Promise.all([send(A.url, spec), send(B.url, spec)]);
             report.requests += 2;
-            const problems = compareResponses(ra, rb);
+            const problems = compareResponses(ra, rb, step.path);
             if (problems.length > 0) addDiff({ seed, sequence, step: stepNo, kind: "response", label: step.label, method: step.method, path: step.path, request: step.json, problems });
             let json = null;
             try {
@@ -335,12 +365,17 @@ export async function runFuzz(o) {
             gen.observe(step, { status: ra.status, json, etag: ra.headers.etag });
 
             // The conditional half of every ETag'd read: both must agree on the same If-None-Match.
-            if (step.conditional && step.method === "GET" && ra.headers.etag !== undefined) {
+            if (step.conditional && step.method === "GET" && !step.path.startsWith("/v1/dump") && ra.headers.etag !== undefined) {
               const cspec = { ...spec, headers: { ...headers, "If-None-Match": ra.headers.etag } };
               const [ca, cb] = await Promise.all([send(A.url, cspec), send(B.url, cspec)]);
               report.requests += 2;
-              const cp = compareResponses(ca, cb);
+              const cp = compareResponses(ca, cb, step.path);
               if (cp.length > 0) addDiff({ seed, sequence, step: stepNo, kind: "response (If-None-Match)", label: step.label, method: step.method, path: step.path, problems: cp });
+            }
+
+            if ((step.label === "dump write" || step.label === "nightly tick") && ra.status < 300 && rb.status === ra.status) {
+              const dp = await compareProducedDumps(A, B);
+              if (dp.length > 0) addDiff({ seed, sequence, step: stepNo, kind: "dump", label: step.label, problems: dp });
             }
 
             if (stepNo % checkEvery === 0 && B.kind === "ddb") {
@@ -352,7 +387,7 @@ export async function runFuzz(o) {
           if ((sequence + 1) % stateEvery === 0 || sequence === o.sequences - 1) {
             report.state_diffs_run++;
             const [sa, sb] = [await A.state(), await B.state()];
-            const sd = diffStates(sa, sb, ignore);
+            const sd = diffStates(maskStateRows(sa), maskStateRows(sb), ignore);
             if (sd.length > 0) addDiff({ seed, sequence, step: stepNo, kind: "state", problems: sd.map((d) => `${d.table}: ${d.rows[0]} vs ${d.rows[1]} rows; oracle-only ${JSON.stringify(d.only_oracle)}; other-only ${JSON.stringify(d.only_other)}`) });
           }
           if (B.kind === "ddb" && rng.chance(0.25)) await B.restart();
