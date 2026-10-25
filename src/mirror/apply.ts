@@ -73,18 +73,23 @@ export interface ApplyReport {
 
 class ClockExhausted extends Error {
   constructor() {
-    super("replayed Clock read more often than prod's did");
+    super("a Clock recorded with no values was read");
     this.name = "ClockExhausted";
   }
 }
 
-/** A Clock that returns the recorded values in order and throws if asked for more; `reads` counts what was asked. */
+/**
+ * A Clock that returns the recorded values in order. D1 and DynamoDB legitimately read a Clock a different number of times in one
+ * call (D1's commitWrite reads it a second time for the budget window, DynamoDB reuses the first value), so a read past the
+ * recording repeats the last recorded value (the same instant, to the millisecond); a call recorded with NO clock values that
+ * reads one anyway throws. `reads` counts what was asked, and a difference in count is only counted (clockDrift), not a halt.
+ */
 function replayClock(values: readonly string[]): Clock & { reads: number } {
   let i = 0;
   const clock = (() => {
     clock.reads++;
-    if (i >= values.length) throw new ClockExhausted();
-    return values[i++]!;
+    if (values.length === 0) throw new ClockExhausted();
+    return values[Math.min(i++, values.length - 1)]!;
   }) as Clock & { reads: number };
   clock.reads = 0;
   return clock;
@@ -364,10 +369,10 @@ async function applyOne(deps: ApplyDeps, st: MirrorState, c: QueuedCall, token: 
 
   const after = await store.head.headSeq();
   const mismatch: Mismatch | null =
-    (clockExhausted ? { kind: "clock", detail: "the call read a Clock more often than prod's did", expected: decoded!.expectedReads, actual: "more" } : null) ??
+    (clockExhausted ? { kind: "clock", detail: "the call read a Clock that was recorded with no values", expected: decoded!.expectedReads, actual: "read" } : null) ??
     compareOutcome(call.outcome, actual!) ??
-    compareSeqs(call.seqs, seqsBetween(st.appliedSeq, after)) ??
-    compareClockReads(decoded!.expectedReads, decoded!.clocks.map((k) => k.reads));
+    compareSeqs(call.seqs, seqsBetween(st.appliedSeq, after));
+  const drift = compareClockReads(decoded!.expectedReads, decoded!.clocks.map((k) => k.reads)) !== null;
   if (mismatch !== null) {
     return {
       kind: "halt",
@@ -375,15 +380,16 @@ async function applyOne(deps: ApplyDeps, st: MirrorState, c: QueuedCall, token: 
       divergent: { call: c, mismatch, appliedSeq: st.appliedSeq, headAfter: after },
     };
   }
-  await finish(deps, c, token, leaseMs, after, false);
+  await finish(deps, c, token, leaseMs, after, false, drift);
   return { kind: "applied" };
 }
 
 /** State first (applied seq, clear in-flight), then drop the call: a crash between the two is covered by `lastApplied`. */
-async function finish(deps: ApplyDeps, c: QueuedCall, token: string, leaseMs: number, headAfter: number | null, skipped: boolean): Promise<void> {
+async function finish(deps: ApplyDeps, c: QueuedCall, token: string, leaseMs: number, headAfter: number | null, skipped: boolean, drift = false): Promise<void> {
   const after = await updateState(deps.queue, (s) => {
     if (s.lease?.token !== token) return false;
     if (headAfter !== null) s.appliedSeq = headAfter;
+    if (drift) s.clockDrift++;
     if (skipped) s.skippedCalls++;
     else s.appliedCalls++;
     s.inflight = null;

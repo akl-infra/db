@@ -1,6 +1,8 @@
 // Test support for lane Z: a recording wrapper (a minimal stand-in for lane T's recorder, same record shape), a second table
 // pair to act as the "prod" source, a driver that runs the fuzzer's request sequences against it, and a queue-feeding helper.
 import { createHash } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import app from "../../src/index";
 import { createNodeLabPlatform, memoryBlobs } from "../../src/platform/node-lab";
 import { seedBootstrap } from "../../src/store/ddb/codec";
@@ -120,6 +122,57 @@ export function sourceApp(baseEnv: AppEnv, src: Source, discordUrl: string) {
       while (tasks.length > 0) await Promise.allSettled(tasks.splice(0));
       await platform.drain();
       return new Response(body, { status: res.status, headers: res.headers });
+    },
+  };
+}
+
+const REPO = path.resolve(import.meta.dirname, "..", "..");
+const CRAWL = "../../scripts/lab/p1-crawl-diff.mjs";
+const GENERATOR = "../../scripts/lab/fuzz/generator.mjs";
+
+/** The fuzzer's generator driving the source app in-process (signed client lane, fake Discord bearer lane), `run(n)` steps at a time. */
+export async function fuzzDriver(src: Source, baseEnv: unknown, seed: number, discordPort: number) {
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  const crawl = (await import(/* @vite-ignore */ CRAWL)) as any;
+  const { Generator } = (await import(/* @vite-ignore */ GENERATOR)) as { Generator: new (o: { seed: number; corpus: object[] }) => { next(): any; observe(s: unknown, r: unknown): void } };
+  const discord = await crawl.startFakeDiscord(discordPort);
+  const fixture = JSON.parse(fs.readFileSync(path.join(REPO, "tests/fixtures/seed-upstream-100.dump.json"), "utf8"));
+  const corpus = fixture.layout_formats.filter((f: any) => f.lineage === "spark").map((f: any) => JSON.parse(f.payload_json));
+  await src.recorded.admin.insertAdmin({ user_id: crawl.ADMIN, added_by: null, added_at: "2026-10-25T00:00:00.000Z", note: "mirror-test" } as never);
+  await src.recorded.admin.insertClient({
+    id: crawl.LAB_CLIENT, name: "mirror-test", pubkey: crawl.LAB_PUB_RAW, owner_user_id: crawl.ADMIN, caps: "act-as-user,feed:wait",
+    discord_app_id: null, status: "active", created_at: "2026-10-25T00:00:00.000Z", revoked_at: null,
+  } as never);
+  const app = sourceApp(baseEnv as AppEnv, src, `http://127.0.0.1:${discordPort}/api`);
+  const gen = new Generator({ seed, corpus });
+  let n = 0;
+  return {
+    async run(steps: number): Promise<{ statuses: Record<string, number> }> {
+      const statuses: Record<string, number> = {};
+      for (let i = 0; i < steps; i++) {
+        const step = gen.next();
+        if (step.restart) continue;
+        const body = step.json === undefined ? undefined : Buffer.from(JSON.stringify(step.json));
+        const headers: Record<string, string> = { ...(step.headers ?? {}) };
+        if (body !== undefined) headers["Content-Type"] = "application/json";
+        if (step.badSignature) Object.assign(headers, { "X-Akl-Client": crawl.LAB_CLIENT, "X-Akl-Timestamp": "1", "X-Akl-Nonce": "AAAA", "X-Akl-Actor": step.actor, "X-Akl-Signature": "AAAA" });
+        else if (step.actor !== undefined) Object.assign(headers, crawl.signedHeaders(step.method, step.path, body, step.actor, new Date().toISOString(), `${seed}-${n++}`));
+        if (step.bearer !== undefined) headers.Authorization = `Bearer lab-${step.bearer}`;
+        const res = await app.fetch(new Request(`http://127.0.0.1:8787${step.path}`, { method: step.method, headers, body }));
+        const text = await res.text();
+        let json: unknown = null;
+        try {
+          json = JSON.parse(text);
+        } catch {
+          // not JSON
+        }
+        statuses[res.status] = (statuses[res.status] ?? 0) + 1;
+        gen.observe(step, { status: res.status, json, etag: res.headers.get("etag") ?? undefined });
+      }
+      return { statuses };
+    },
+    async stop() {
+      discord.close();
     },
   };
 }

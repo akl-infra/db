@@ -32,7 +32,7 @@ describe("schema coverage", () => {
 
   it("[LDB-DDB73] D1_TABLES is exactly what migrations/*.sql create (tables, columns, primary keys, defaults, NOT NULL)", () => {
     const db = migrated();
-    const names = (query(db, "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '\\_cf%' ESCAPE '\\' ORDER BY name").all() as { name: string }[]).map((r) => r.name);
+    const names = (query(db, "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '\\_cf%' ESCAPE '\\' AND name <> 'mirror_queue' /* mirror infrastructure (migrations/0036, src/mirror/kv-d1.ts), not a mirrored table */ ORDER BY name").all() as { name: string }[]).map((r) => r.name);
     expect(names).toEqual([...ALL_TABLES].sort());
     for (const name of names) {
       const cols = query(db, `PRAGMA table_info(${name})`).all() as { name: string; notnull: number; dflt_value: string | null; pk: number }[];

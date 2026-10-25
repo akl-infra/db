@@ -1,8 +1,5 @@
 // [LDB-MIR20..] The mirror's applier (lane Z) on DynamoDB Local: the recorded writes of the fuzzer's request sequences, sent
 // through ingest (HMAC) into the queue and replayed by the applier into a second store, give byte-identical rows.
-import fs from "node:fs";
-import http from "node:http";
-import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { env } from "../harness";
 import { ddbHarness } from "../harness/ddb";
@@ -13,14 +10,12 @@ import { signTee } from "../../src/mirror/ingest";
 import { createKvQueue, memoryKv, updateState, type MirrorQueue } from "../../src/mirror/queue";
 import { ddbKv } from "../../src/mirror/kv-ddb";
 import { TEE_SIG_HEADER, TEE_TS_HEADER, type TeeBatch, type TeeCall } from "../../src/mirror/record";
-import { compareTables, type RowsByTable } from "../../src/mirror/verify";
-import { batchesOf, sourceApp, startSource, type AppEnv, type Source } from "./support";
+import { type RowsByTable } from "../../src/mirror/verify";
+import { compareMirrored } from "../../scripts/mirror/ops";
+import { batchesOf, fuzzDriver, startSource, type Source } from "./support";
 
 const SECRET = "test-secret";
 const NOW = Date.parse("2030-01-01T00:00:00Z"); // far after every recorded atMs: everything is settled
-const REPO = path.resolve(import.meta.dirname, "..", "..");
-const CRAWL = "../../scripts/lab/p1-crawl-diff.mjs";
-const GENERATOR = "../../scripts/lab/fuzz/generator.mjs";
 
 const targetCtx = () => ({ doc: ddbHarness.doc, tables: ddbHarness.tables, blobs: ddbHarness.blobs });
 const rowsOf = async (ctx: { doc: unknown; tables: unknown; blobs: unknown }) => (await exportRows(ctx as never)) as unknown as RowsByTable;
@@ -41,50 +36,6 @@ async function drain(deps: ApplyDeps, max = 200) {
   let last = await runApplier(deps);
   for (let i = 0; i < max && last.applied + last.skipped > 0; i++) last = await runApplier(deps);
   return last;
-}
-
-/** Drive the fuzzer's generator against the source app; returns the recorded calls. */
-async function runFuzzerSequence(src: Source, seed: number, steps: number): Promise<{ statuses: Record<string, number> }> {
-  const crawl = (await import(/* @vite-ignore */ CRAWL)) as any; // eslint-disable-line @typescript-eslint/no-explicit-any
-  const { Generator } = (await import(/* @vite-ignore */ GENERATOR)) as { Generator: new (o: { seed: number; corpus: object[] }) => { next(): any; observe(s: unknown, r: unknown): void } };
-  const discord = (await crawl.startFakeDiscord(18532)) as http.Server;
-  try {
-    const fixture = JSON.parse(fs.readFileSync(path.join(REPO, "tests/fixtures/seed-upstream-100.dump.json"), "utf8"));
-    const corpus = fixture.layout_formats.filter((f: any) => f.lineage === "spark").map((f: any) => JSON.parse(f.payload_json));
-    await src.recorded.admin.insertAdmin({ user_id: crawl.ADMIN, added_by: null, added_at: "2026-10-25T00:00:00.000Z", note: "mirror-test" } as never);
-    await src.recorded.admin.insertClient({
-      id: crawl.LAB_CLIENT, name: "mirror-test", pubkey: crawl.LAB_PUB_RAW, owner_user_id: crawl.ADMIN, caps: "act-as-user,feed:wait",
-      discord_app_id: null, status: "active", created_at: "2026-10-25T00:00:00.000Z", revoked_at: null,
-    } as never);
-    const app = sourceApp(env as AppEnv, src, "http://127.0.0.1:18532/api");
-    const gen = new Generator({ seed, corpus });
-    const statuses: Record<string, number> = {};
-    let n = 0;
-    for (let i = 0; i < steps; i++) {
-      const step = gen.next();
-      if (step.restart) continue;
-      const nowIso = new Date().toISOString();
-      const body = step.json === undefined ? undefined : Buffer.from(JSON.stringify(step.json));
-      const headers: Record<string, string> = { ...(step.headers ?? {}) };
-      if (body !== undefined) headers["Content-Type"] = "application/json";
-      if (step.badSignature) Object.assign(headers, { "X-Akl-Client": crawl.LAB_CLIENT, "X-Akl-Timestamp": "1", "X-Akl-Nonce": "AAAA", "X-Akl-Actor": step.actor, "X-Akl-Signature": "AAAA" });
-      else if (step.actor !== undefined) Object.assign(headers, crawl.signedHeaders(step.method, step.path, body, step.actor, nowIso, `${seed}-${n++}`));
-      if (step.bearer !== undefined) headers.Authorization = `Bearer lab-${step.bearer}`;
-      const res = await app.fetch(new Request(`http://127.0.0.1:8787${step.path}`, { method: step.method, headers, body }));
-      const text = await res.text();
-      let json: unknown = null;
-      try {
-        json = JSON.parse(text);
-      } catch {
-        // not JSON
-      }
-      statuses[res.status] = (statuses[res.status] ?? 0) + 1;
-      gen.observe(step, { status: res.status, json, etag: res.headers.get("etag") ?? undefined });
-    }
-    return { statuses };
-  } finally {
-    discord.close();
-  }
 }
 
 describe("mirror applier", () => {
@@ -108,7 +59,9 @@ describe("mirror applier", () => {
   };
 
   it("[LDB-MIR20] fuzzer sequences recorded on the source apply through ingest to byte-identical rows", async () => {
-    const { statuses } = await runFuzzerSequence(src, 1, 160);
+    const driver = await fuzzDriver(src, env, 1, 18532);
+    const { statuses } = await driver.run(160);
+    await driver.stop();
     expect(src.calls.length).toBeGreaterThan(20);
     expect(src.calls.some((c) => c.seqs.length > 0)).toBe(true);
     expect(Object.keys(statuses).length).toBeGreaterThan(1);
@@ -120,18 +73,32 @@ describe("mirror applier", () => {
     expect((await post(queue, batches[0]!)).body.duplicate).toBe(true);
 
     const report = await drain(depsFor(queue));
-    expect(report.halted).toBeNull();
+    if (report.halted !== null) {
+      const { ScanCommand } = await import("@aws-sdk/lib-dynamodb");
+      const rl = async (doc: any, table: string) => ((await doc.send(new ScanCommand({ TableName: table, ConsistentRead: true }))).Items ?? []).filter((i: any) => String(i.pk).startsWith("RL#")).map((i: any) => `${i.pk}|${i.sk}|${i.n}`);
+      console.log("RL source", await rl(src.ctx.doc, src.ctx.tables.ephemeral), "RL target", await rl(ddbHarness.doc, ddbHarness.tables.ephemeral));
+      console.log("calls with budget", src.calls.filter((c) => JSON.stringify(c.args).includes("destructiveBudget")).map((c) => `${c.method}#${c.seqs}`));
+    }
+    expect(report.halted, JSON.stringify(((await queue.readDivergent()) as { mismatch?: unknown } | null)?.mismatch)?.slice(0, 4000)).toBeNull();
     const st = await queue.readState();
     expect(st.appliedSeq).toBe(Math.max(...src.calls.flatMap((c) => c.seqs)));
     expect(await queue.pending(5)).toEqual([]);
 
-    const diffs = compareTables(await rowsOf(src.ctx), await rowsOf(targetCtx()));
+    const diffs = compareMirrored(await rowsOf(src.ctx), await rowsOf(targetCtx()));
     expect(diffs).toEqual([]);
+
+    // GEN_REVERSE_FIXTURE=1 regenerates the fixture tests/mirror/reverse.test.ts replays into D1 (records from the DynamoDB side).
+    if (process.env.GEN_REVERSE_FIXTURE === "1") {
+      const { mirroredRows } = await import("../../scripts/mirror/ops");
+      const fs = await import("node:fs");
+      fs.mkdirSync(`${import.meta.dirname}/fixtures`, { recursive: true });
+      fs.writeFileSync(`${import.meta.dirname}/fixtures/reverse.json`, JSON.stringify({ calls: src.calls, rows: mirroredRows(await rowsOf(src.ctx)) }));
+    }
   }, 300_000);
 
   it("[LDB-MIR25] ingest refuses a bad signature, a stale timestamp, the wrong direction, an unknown method and a dormant secret", async () => {
     const q = freshQueue();
-    const call: TeeCall = { v: 1, method: "state.put", args: ["k", "v"], outcome: { ok: null }, seqs: [], atMs: 1000 };
+    const call: TeeCall = { v: 1, method: "state.put", args: ["k", "v"], outcome: { ok: { $u: 1 } }, seqs: [], atMs: 1000 };
     const batch: TeeBatch = { v: 1, direction: "d1->ddb", batchId: "ingest-1", calls: [call] };
     expect((await post(q, batch, "other-secret")).status).toBe(401);
     expect((await post(q, batch, SECRET, 3600)).status).toBe(401);
@@ -150,7 +117,7 @@ describe("mirror applier", () => {
   it("[LDB-MIR26] a corrupted record halts the applier with MIRROR_DIVERGED, keeps the record, and nothing is applied past it", async () => {
     const q = await queueAtHead();
     const bad: TeeCall = { v: 1, method: "state.put", args: ["corrupt-k", "v"], outcome: { ok: { not: "null" } }, seqs: [], atMs: 1000 };
-    const good: TeeCall = { v: 1, method: "state.put", args: ["after-k", "v"], outcome: { ok: null }, seqs: [], atMs: 2000 };
+    const good: TeeCall = { v: 1, method: "state.put", args: ["after-k", "v"], outcome: { ok: { $u: 1 } }, seqs: [], atMs: 2000 };
     await post(q, { v: 1, direction: "d1->ddb", batchId: "bad-1", calls: [bad, good] });
     const lines: Record<string, unknown>[] = [];
     const r = await runApplier(depsFor(q, { log: (l) => lines.push(l) }));
@@ -167,7 +134,7 @@ describe("mirror applier", () => {
   it("[LDB-MIR27] a gap waits, then times out into a MIRROR_GAP halt that asks for a reseed", async () => {
     const q = await queueAtHead();
     const head = await ddbHarness.store.head.headSeq();
-    const call: TeeCall = { v: 1, method: "state.put", args: ["gap-k", "v"], outcome: { ok: null }, seqs: [head + 5], atMs: 1000 };
+    const call: TeeCall = { v: 1, method: "state.put", args: ["gap-k", "v"], outcome: { ok: { $u: 1 } }, seqs: [head + 5], atMs: 1000 };
     await post(q, { v: 1, direction: "d1->ddb", batchId: "gap-1", calls: [call] });
     let now = NOW;
     const deps = depsFor(q, { nowMs: () => now, gapTimeoutMs: 600_000 });
@@ -198,10 +165,35 @@ describe("mirror applier", () => {
 
   it("[LDB-MIR29] two applier invocations never apply the same call (lease)", async () => {
     const q = await queueAtHead();
-    const calls: TeeCall[] = [1, 2, 3].map((i) => ({ v: 1, method: "state.put", args: [`lease-${i}`, "v"], outcome: { ok: null }, seqs: [], atMs: 1000 + i }));
+    const calls: TeeCall[] = [1, 2, 3].map((i) => ({ v: 1, method: "state.put", args: [`lease-${i}`, "v"], outcome: { ok: { $u: 1 } }, seqs: [], atMs: 1000 + i }));
     await post(q, { v: 1, direction: "d1->ddb", batchId: "lease-1", calls });
     const [a, b] = await Promise.all([runApplier(depsFor(q)), runApplier(depsFor(q))]);
     expect(a.applied + b.applied).toBe(3);
     expect(a.halted ?? b.halted).toBeNull();
+  });
+
+  it("[LDB-MIR34] a Clock recorded with no values that the store reads halts; reads past the recording repeat the last value", async () => {
+    // A real recorded call: appendAdmin on the source with a stepping clock (the recorder logs every value it returned).
+    const before = src.calls.length;
+    let t = Date.parse("2026-10-25T10:00:00.000Z");
+    await src.recorded.events.appendAdmin(() => new Date((t += 1000)).toISOString(), { kind: "admin.added", actor: "100000000000000001", detail: { user_id: "100000000000000009" } } as never);
+    const real = src.calls.slice(before).find((c) => c.method === "events.appendAdmin")!;
+    expect((real.args[0] as { $clock: string[] }).$clock.length).toBeGreaterThanOrEqual(1);
+
+    const head = await ddbHarness.store.head.headSeq();
+    const forTarget = (clock: string[]): TeeCall => ({ ...real, args: [{ $clock: clock }, real.args[1]], seqs: [head + 1], outcome: { ok: { seq: head + 1 } } });
+
+    const q = await queueAtHead();
+    await post(q, { v: 1, direction: "d1->ddb", batchId: "clk-1", calls: [forTarget([])] }); // the clock list truncated to nothing
+    const r = await runApplier(depsFor(q));
+    expect(r.halted?.code).toBe("MIRROR_DIVERGED");
+    expect(r.halted?.reason).toMatch(/clock/);
+
+    const q2 = await queueAtHead(); // recorded with two reads (D1 style) while the DynamoDB store reads once
+    await post(q2, { v: 1, direction: "d1->ddb", batchId: "clk-2", calls: [forTarget(["2026-10-25T10:00:00.000Z", "2026-10-25T10:00:00.001Z"])] });
+    const r2 = await runApplier(depsFor(q2));
+    expect(r2.halted).toBeNull();
+    expect(r2.applied).toBe(1);
+    expect((await q2.readState()).clockDrift).toBe(1);
   });
 });
