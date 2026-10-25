@@ -9,7 +9,7 @@ import * as links from "./links";
 import * as wpm from "./wpm";
 import { updateQueueNotification, type QueueKind } from "./modqueue";
 import type { Clock } from "./time";
-import { legacyD1, toStore, type StoreArg } from "../store/arg";
+import { toStore, type StoreArg } from "../store/arg";
 import { type ActionTable, type Store } from "../store/port";
 
 const MAX_BODY_BYTES = 64 * 1024;
@@ -201,32 +201,14 @@ async function finishInteraction(action: PendingAction, content: string | null, 
   }
 }
 
-// P1: agent C (ReviewStore.submissionDecision). Until C's branch lands this stays today's SQL;
-// the main session switches it to the port when merging.
 async function submissionDecision(store: Store, action: PendingAction): Promise<{ status: string; decided_by: string | null; review_version: number } | null> {
-  const db = legacyD1(store);
-  const table = action.kind === "link" ? "link_submissions" : action.kind === "wpm" ? "wpm_submissions" : "layout_comments";
-  return db.prepare(`SELECT status, decided_by, ${action.kind === 'link' ? '0' : 'review_version'} AS review_version FROM ${table} WHERE id = ?`).bind(action.submission_id)
-    .first<{ status: string; decided_by: string | null; review_version: number }>();
-}
-
-// P1: agent C (ReviewStore.reopenRecorded). Same exemption as above.
-async function reopenRecorded(store: Store, action: PendingAction, reviewVersion: number): Promise<boolean> {
-  return await legacyD1(store).prepare(
-    "SELECT 1 FROM moderation_review_history WHERE kind = ? AND submission_id = ? AND review_version = ? AND action = 'reopened' AND actor = ?")
-    .bind(action.kind, action.submission_id, reviewVersion, action.actor_id).first() !== null;
-}
-
-// P1: agent B (AuthStore.authorName). Same exemption as above.
-async function authorNameOf(store: Store, userId: string): Promise<string | null> {
-  const author = await legacyD1(store).prepare("SELECT name FROM authors WHERE user_id = ?").bind(userId).first<{ name: string }>();
-  return author?.name ?? null;
+  return store.review.submissionDecision(action.kind, action.submission_id);
 }
 
 async function performDecision(store: Store, env: Bindings, now: Clock, action: PendingAction): Promise<string | null> {
   const roles = await roleOf(store, action.actor_id); // fresh on each attempt
   if (!roles.admin || roles.banned) return "You no longer have permission to moderate this queue.";
-  const authorName = await authorNameOf(store, action.actor_id);
+  const authorName = await store.auth.authorName(action.actor_id);
   const actor: Actor = {
     user_id: action.actor_id, name: authorName ?? action.actor_name, via: "discord",
     ...roles, source_client: `discord-app:${action.application_id}`,
@@ -235,7 +217,7 @@ async function performDecision(store: Store, env: Bindings, now: Clock, action: 
   if (action.action === "reopen") {
     if (before === null) return "This submission no longer exists.";
     // A recovered job may have committed already. Never reapply it to a later cycle.
-    const ownReopen = before.review_version === action.expected_review_version + 1 && await reopenRecorded(store, action, before.review_version);
+    const ownReopen = before.review_version === action.expected_review_version + 1 && await store.review.reopenRecorded({ kind: action.kind, id: action.submission_id, reviewVersion: before.review_version, actor: action.actor_id });
     if (ownReopen) {
       await updateQueueNotification(store, env, action.kind, action.submission_id);
       return null;
