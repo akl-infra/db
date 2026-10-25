@@ -510,7 +510,7 @@ coverage map.
   `p1-crawl-diff.mjs`'s inline one; that script then imports this file)
 - `scripts/lab/fake-discord/**`
 - `src/core/discord-interactions.ts`'s `API` constant only
-- `tests/lab/{entry,fake-discord}.test.ts`
+- `tests/lab/{entry,fake-discord,discord-base}.test.ts`
 
 **Build:**
 1. **The entries.**
@@ -535,6 +535,45 @@ coverage map.
    - Production's value is `https://discord.com/api`, so production URLs are unchanged.
    - Add a test proving the URL production builds is byte-identical.
    - This is the only core change any P5 lane makes.
+4. **The Discord base is injectable everywhere, with a pinned default** (cross-component request,
+   akl.gg aws-site.md §4.7, e91a347ea).
+   - **Purpose.** akl.gg's `fake` stage points its `DB_BASE_URL` at the akldb lab, and that lab
+     must use akl.gg's fake Discord as its `DISCORD_API_URL`. Then akldb's own bearer check gives a
+     real `401 token_invalid` for a token the fake has revoked.
+   - **One variable, `DISCORD_API_URL`,** is the only source of every Discord URL akldb calls:
+     - the bearer check `GET {base}/oauth2/@me`, already today;
+     - the bot routes `{base}/v10/...` (modqueue, DMs, proofs), already today;
+     - the interaction callbacks, after fix 3.
+   - **The default is pinned at `https://discord.com/api`:**
+     - `wrangler.toml` `[vars]` (today's value);
+     - `src/platform/lab-entry.ts` and P4's Lambda config, which fall back to exactly this string
+       when unset.
+     - Add `tests/lab/discord-base.test.ts` (LDB-PG range), asserting all three:
+       1. with the variable unset or set to the default, every URL akldb builds (bearer check,
+          bot routes, interaction callback) equals today's literal, byte for byte;
+       2. with it set to `http://127.0.0.1:<port>/api`, all of them go there and nothing
+          reaches `discord.com`, checked with a fetch spy;
+       3. `wrangler.toml` still says `https://discord.com/api`.
+   - **The contract a fake must meet** for akldb's bearer check, whichever fake it is (yours, or
+     akl.gg's `platform/fake-discord/`):
+     - `GET {base}/oauth2/@me` with `Authorization: Bearer <token>`;
+     - 200 `{"application":{"id":"<snowflake>"},"user":{"id":"<snowflake>","username":"<name>"},"scopes":["identify"]}`;
+     - 401 for an unknown or revoked token;
+     - anything else = `503 identity_unavailable` on akldb's side.
+
+     Make your fake meet it and akl.gg's tokens interchangeable: accept a token akl.gg's fake
+     issued if you are given its token table. Simpler: document that a lab stage uses exactly
+     one fake, which on the `fake` stage is akl.gg's.
+   - **Caching caveat for akl.gg's suite** (state it in your fake's README): akldb caches a
+     bearer success for 300 s and a failure for 60 s (`src/auth/discord.ts`, production
+     constants, not changed for the lab).
+     - A token revoked at the fake keeps passing akldb's check until its cached success expires.
+     - akl.gg's "revoked → `token_invalid`" step must revoke a token akldb has not seen, or wait
+       more than 300 s after akldb last saw it.
+     - Lab-only cache overrides are not added: they would make the lab differ from production.
+   - **For P4's templates** (main session): `DISCORD_API_URL` is a per-stage parameter, defaulting
+     to the pinned string. The akldb lab stage that serves akl.gg's `fake` stage sets it to
+     akl.gg's fake Discord URL.
 
 ## Lane Q: simulator, rare admin pack, generated bodies, interaction generator, race packs
 
