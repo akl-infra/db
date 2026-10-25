@@ -37,6 +37,19 @@
         ]
       },
       {
+        "Sid": "CheckpointBackup",
+        "Effect": "Allow",
+        "Action": [
+          "dynamodb:CreateBackup",
+          "dynamodb:DescribeBackup",
+          "dynamodb:DescribeContinuousBackups"
+        ],
+        "Resource": [
+          "arn:aws:dynamodb:us-east-2:335937358231:table/akldb-prod-main",
+          "arn:aws:dynamodb:us-east-2:335937358231:table/akldb-prod-ephemeral"
+        ]
+      },
+      {
         "Sid": "ProdStackParameterUpdates",
         "Effect": "Allow",
         "Action": [
