@@ -96,6 +96,9 @@ export function compareOutcome(expected: Outcome, actual: Outcome): Mismatch | n
   const aOk = "ok" in actual;
   if (eOk !== aOk) return { kind: "outcome", detail: eOk ? "prod returned, mirror threw" : "prod threw, mirror returned", expected, actual };
   if (eOk && aOk) {
+    // A result the tee codec could not encode ships as {$unencodable: 1}: only the seqs (checked separately) can be compared.
+    const e = expected.ok as { $unencodable?: unknown } | null;
+    if (e !== null && typeof e === "object" && Object.keys(e).length === 1 && e.$unencodable === 1) return null;
     return canonical(expected.ok) === canonical(actual.ok) ? null : { kind: "outcome", detail: "results differ", expected: expected.ok, actual: actual.ok };
   }
   const e = (expected as { error: ErrorOutcome }).error;
