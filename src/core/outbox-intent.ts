@@ -1,6 +1,6 @@
 // The decision DM outbox row a moderation decision queues, as data for the
 // storage port (src/store/port.ts `OutboxIntent`). The same key and nonce
-// rule as core/rejection-dm.ts's `decisionOutboxStatement`, which it
+// rule the deleted core/rejection-dm.ts `decisionOutboxStatement` used, which it
 // replaces during P1 (design/p1-briefs.md): agents C and D both build
 // decisions from this one function.
 import type { OutboxIntent } from "../store/port";

@@ -1,8 +1,8 @@
 // Statement builders shared by several D1 area files (frozen with the port).
 // They are copies of today's builders, so every area moves its batches here
 // without reaching into another agent's files: the claim-gated moderation
-// event (core/events.ts rejectionModerationStatement), the claim-gated DM
-// outbox row (core/rejection-dm.ts decisionOutboxStatement) and the
+// event (formerly core/events.ts rejectionModerationStatement), the claim-gated DM
+// outbox row (formerly core/rejection-dm.ts decisionOutboxStatement) and the
 // claim-gated review-history row (core/moderation-review.ts
 // reviewHistoryStatement). Each one inserts only when the statement right
 // before it in the batch changed exactly one row (`changes() = 1`).
