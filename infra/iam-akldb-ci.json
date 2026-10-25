@@ -1,0 +1,14 @@
+{
+  "UserName": "akldb-ci",
+  "Policy": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Sid": "AssumeCutoverRoleOnly",
+        "Effect": "Allow",
+        "Action": "sts:AssumeRole",
+        "Resource": "arn:aws:iam::335937358231:role/akldb-cutover-role"
+      }
+    ]
+  }
+}
