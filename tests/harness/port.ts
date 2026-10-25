@@ -5,7 +5,7 @@
 // every backend; the DynamoDB implementation (P2) converts through the row
 // codec. `table` is a D1 table name; `key` is that table's primary key.
 export type TableName =
-  | "layouts" | "layout_formats" | "layout_revs" | "likes" | "events" | "authors" | "authors_head" | "layouts_head"
+  | "layouts" | "layout_formats" | "layout_revs" | "likes" | "events" | "authors" | "authors_head" | "discord_users" | "discord_users_head" | "layouts_head"
   | "admins" | "bans" | "clients" | "nonces" | "auth_cache" | "ratelimit" | "idempotency" | "import_state" | "import_map"
   | "link_submissions" | "wpm_submissions" | "layout_comments" | "comment_likes" | "moderation_review_history"
   | "modqueue_notifications" | "modqueue_delivery_gate" | "discord_pending_actions" | "discord_reopen_actions"

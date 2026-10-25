@@ -6,6 +6,7 @@ import { d1AdminStore } from "./admin";
 import { d1AuthStore } from "./auth";
 import { d1CommentStore } from "./comments";
 import { d1DiscordStore } from "./discord";
+import { d1DiscordUserStore } from "./discord-users";
 import { d1DumpStore } from "./dump";
 import { d1EventStore } from "./events";
 import { d1HeadStore } from "./head";
@@ -30,6 +31,7 @@ export function createD1Store(db: D1Database): Store {
     admin: d1AdminStore(db),
     links: d1LinkStore(db),
     wpm: d1WpmStore(db),
+    discordUsers: d1DiscordUserStore(db),
     comments: d1CommentStore(db),
     review: d1ReviewStore(db),
     modqueue: d1ModqueueStore(db),

@@ -53,6 +53,9 @@ export function workersPlatform(env: Bindings, ctx: { waitUntil(p: Promise<unkno
     background(task) {
       const guarded = task.catch((e: unknown) => console.error(`background task failed: ${e instanceof Error ? e.message : String(e)}`));
       if (ctx !== undefined) ctx.waitUntil(guarded);
+      // Test-only hatch (like TEST_CLOCK): a test that sets this array can
+      // await the background work instead of sleeping or polling.
+      (env as unknown as { TEST_BACKGROUND?: Promise<unknown>[] }).TEST_BACKGROUND?.push(guarded);
     },
   };
 }

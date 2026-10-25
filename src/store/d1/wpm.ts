@@ -2,6 +2,7 @@
 // (design/p1-briefs.md). Today's SQL from core/wpm.ts, moved verbatim.
 import type { WpmQueueRow, WpmRecord, WpmSubmissionRow } from "../../core/wpm";
 import type { WpmStore } from "../port";
+import { discordUserJoin, resolvedNameSql } from "./discord-users";
 import { gatedEventStatement, gatedHistoryStatement, gatedOutboxStatement } from "./sql";
 
 // [LDB-WPM9] The explicit column list (never `SELECT *`) keeps `notified_at`
@@ -59,10 +60,11 @@ export function d1WpmStore(db: D1Database): WpmStore {
         .join(", ");
       const { results } = await db
         .prepare(
-          `SELECT ${cols}, l.name AS layout_name, a.name AS user_name
+          `SELECT ${cols}, l.name AS layout_name, ${resolvedNameSql("a.name", "s.user_id")} AS user_name
        FROM wpm_submissions s
        JOIN layouts l ON l.id = s.layout_id
        LEFT JOIN authors a ON a.user_id = s.user_id
+       ${discordUserJoin("s.user_id")}
        WHERE s.status = ? AND l.deleted = 0
        ORDER BY s.submitted_at ASC, s.id ASC`,
         )
@@ -108,11 +110,12 @@ export function d1WpmStore(db: D1Database): WpmStore {
       }
       const { results } = await db
         .prepare(
-          `SELECT s.layout_id AS layout_id, l.name AS layout_name, s.user_id AS user_id, a.name AS user_name,
+          `SELECT s.layout_id AS layout_id, l.name AS layout_name, s.user_id AS user_id, ${resolvedNameSql("a.name", "s.user_id")} AS user_name,
               s.wpm AS wpm, s.proof AS proof, s.decided_at AS approved_at, s.id AS submission_id
        FROM wpm_submissions s
        JOIN layouts l ON l.id = s.layout_id AND l.deleted = 0
        LEFT JOIN authors a ON a.user_id = s.user_id
+       ${discordUserJoin("s.user_id")}
        WHERE s.status = 'approved' ${where.join(" ")}
          AND NOT EXISTS (
            SELECT 1 FROM wpm_submissions b

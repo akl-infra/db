@@ -300,6 +300,25 @@ export interface LinkStore {
   reject(r: { id: string; by: string; at: string; reason: string | null; event: GatedEvent; outbox?: OutboxIntent }): Promise<DecisionOutcome>;
 }
 
+/** A Discord user's names (`discord_users`, migrations/0036). */
+export interface DiscordUserRow { id: string; username: string; global_name: string | null; updated_at: string }
+
+/**
+ * The one module over `discord_users` (D1: store/d1/discord-users.ts). The
+ * name precedence the WPM reads use (authors.name, then global_name, then
+ * username) lives beside it in that file.
+ */
+export interface DiscordUserStore {
+  /** single. Insert or update a user's names and `updated_at` (the freshness stamp; always moves). The ETag version moves only when a name really changes. */
+  upsert(r: { id: string; username: string; globalName: string | null; at: string }): Promise<void>;
+  /** strong, read. */
+  get(id: string): Promise<DiscordUserRow | null>;
+  /** strong, read. The validator `GET /v1/wpm`'s ETag folds in: moves when a stored name changes. */
+  version(): Promise<number>;
+  /** strong, read. Typists with a pending/approved/rejected WPM submission and no usable name (no row here, authors.name missing, blank or the id): up to `limit` ids by id, and the total count. */
+  missingWpmUsers(limit: number): Promise<{ ids: string[]; total: number }>;
+}
+
 export interface WpmStore {
   /** strong, read. Without notified_at. D1: wpm.ts loadSubmission. */
   get(id: string): Promise<WpmSubmissionRow | null>;
@@ -601,6 +620,7 @@ export interface Store {
   readonly admin: AdminStore;
   readonly links: LinkStore;
   readonly wpm: WpmStore;
+  readonly discordUsers: DiscordUserStore;
   readonly comments: CommentStore;
   readonly review: ReviewStore;
   readonly modqueue: ModqueueStore;

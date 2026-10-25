@@ -2,6 +2,7 @@
 // (design/p1-briefs.md). Today's SQL from core/modqueue.ts and
 // core/modqueue-delivery.ts, moved verbatim.
 import type { QueueKind } from "../../core/modqueue";
+import { discordUserJoin, resolvedNameSql } from "./discord-users";
 import type { CommentCandidateRow, LinkCandidateRow, ModqueueStore, NotificationDbRow, QueueSourceStatusRow, WpmCandidateRow } from "../port";
 
 const STATUS_TABLE: Record<QueueKind, string> = { link: "link_submissions", wpm: "wpm_submissions", comment: "layout_comments" };
@@ -73,10 +74,11 @@ export function d1ModqueueStore(db: D1Database): ModqueueStore {
     },
     async wpmCandidates(limit): Promise<WpmCandidateRow[]> {
       const { results } = await db.prepare(`SELECT s.id AS id, s.review_version, s.source_message_url, s.layout_id AS layout_id, s.user_id AS user_id, s.wpm AS wpm, s.proof AS proof,
-                l.name AS layout_name, a.name AS user_name
+                l.name AS layout_name, ${resolvedNameSql("a.name", "s.user_id")} AS user_name
          FROM wpm_submissions s
          JOIN layouts l ON l.id = s.layout_id
          LEFT JOIN authors a ON a.user_id = s.user_id
+         ${discordUserJoin("s.user_id")}
          WHERE s.status = 'pending' AND s.notified_at IS NULL
          ORDER BY s.submitted_at ASC
          LIMIT ?`).bind(limit).all<WpmCandidateRow>();

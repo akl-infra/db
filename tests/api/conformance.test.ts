@@ -797,6 +797,12 @@ const REQUIRED: Record<string, RequiredCase[]> = {
     { status: 403, code: ERROR_CODES.not_admin },
     { status: 404, code: ERROR_CODES.not_found },
   ],
+  "POST /v1/admin/discord-users/refresh": [
+    { status: 200 },
+    { status: 400, code: ERROR_CODES.bad_request },
+    { status: 401, code: ERROR_CODES.unauthorized },
+    { status: 403, code: ERROR_CODES.not_admin },
+  ],
   "GET /v1/admin/wpm-queue": [
     { status: 200 },
     { status: 400, code: ERROR_CODES.bad_request },
