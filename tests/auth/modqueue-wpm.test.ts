@@ -437,12 +437,14 @@ describe("WPM inline proofs", () => {
     await notifyPending(store, config(), clock, fetchImpl);
     expect({ reads, downloads, posts }).toEqual({ reads: 1, downloads: 1, posts: 1 });
 
-    // Real Discord responses may list inline uploads only on media objects.
+    // Real Discord lists a V2 card's uploads only inside its media items (top-level
+    // `attachments: []`, no attachment id on the item). An explicit list would make
+    // Discord delete the proof, so the status edit sends none (observed 2026-10-28).
     const mediaOnly = { ...remote, attachments: [], components: [{ type: 17, id: 41000, components: [
-      { type: 12, id: 41010, items: [{ media: { url: cdn, attachment_id: "900000000000000706" } }] },
+      { type: 12, id: 41010, items: [{ media: { id: "900000000000000708", url: cdn, loading_state: 2 } }] },
     ] }] };
     const patch = buildV2StatusPatch(mediaOnly, "wpm", id, { status: "approved", decider_name: null });
-    expect(patch?.attachments).toEqual([{ id: "900000000000000706" }]);
+    expect(patch).not.toHaveProperty("attachments");
   });
 
   it("[LDB-WPM13] preview lookup and rejected upload failures still post a useful link-only card", async () => {

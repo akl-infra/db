@@ -39,7 +39,7 @@ describe("[LDB-MD22] readable queue authors without stored profiles", () => {
       for (const status of ["pending", "approved", "rejected"] as const) {
         const patched = buildV2StatusPatch(old, kind, id, { status, decider_name: null, submitter_id: userId })!;
         expect(metadata(patched)).toBe(metadata(initial));
-        expect(patched.attachments).toEqual(old.attachments);
+        expect(patched).not.toHaveProperty("attachments");
         expect(nested(patched.components as unknown[]).find((c) => c.id === 41004)).toEqual(body);
         expect(patched.allowed_mentions).toEqual({ parse: [] });
         expect(metadata(buildV2StatusPatch(patched, kind, id, { status, decider_name: null, submitter_id: userId })!)).toBe(metadata(initial));
@@ -191,7 +191,7 @@ describe("[LDB-MD15] Components V2 mod-queue message", () => {
     const attached = buildV2Payload("wpm", { ...candidate, proof: largeProof });
     expect((attached.__files as { content: string }[])[0]?.content).toBe(largeProof);
     const updated = buildV2StatusPatch(attached, "wpm", id, { status: "rejected", decider_name: null, reason: "*".repeat(500) })!;
-    expect(updated.attachments).toEqual(attached.attachments);
+    expect(updated).not.toHaveProperty("attachments");
     expect(nested(updated.components as unknown[]).find((row) => row.id === 41004)?.content).toBe("**150 WPM** · Full proof URL attached.");
   });
 
@@ -370,7 +370,7 @@ describe("[LDB-MD15] Components V2 mod-queue message", () => {
       layout_name: "finch", user_name: null,
     });
     const preserve = buildV2StatusPatch(long, "comment", "01ARZ3NDEKTSV4RRFFQ69G5FAE", { status: "approved", decider_name: null });
-    expect(preserve?.attachments).toEqual(long.attachments);
+    expect(preserve).not.toHaveProperty("attachments");
     const erased = buildV2StatusPatch(long, "comment", "01ARZ3NDEKTSV4RRFFQ69G5FAE", { status: "deleted", decider_name: null });
     expect(erased?.attachments).toEqual([]);
     expect(nested(erased!.components as unknown[]).some((c) => c.type === 13 && c.id === 41009)).toBe(false);
