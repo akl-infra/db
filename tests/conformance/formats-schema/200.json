@@ -166,53 +166,12 @@
                   "type": "string"
                 }
               }
-            },
-            {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "kind"
-              ],
-              "properties": {
-                "kind": {
-                  "const": "skip_repeat"
-                }
-              }
             }
           ]
         },
         "chiralValue": {
-          "description": "design/layout-db/24-spark-wire-review.md finding 6, round 2's resolution item F: the kind-tagged union of magicDefault MINUS skip_repeat (a chiral key has no skip-repeat, design/alts/43) -- a literal character is `{kind:\"char\",char}`, never a bare string; the 'repeat previous' sentinel is `{kind:\"repeat\"}`.",
-          "oneOf": [
-            {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "kind"
-              ],
-              "properties": {
-                "kind": {
-                  "const": "repeat"
-                }
-              }
-            },
-            {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "kind",
-                "char"
-              ],
-              "properties": {
-                "kind": {
-                  "const": "char"
-                },
-                "char": {
-                  "type": "string"
-                }
-              }
-            }
-          ]
+          "description": "design/layout-db/24-spark-wire-review.md finding 6, round 2's resolution item F: the SAME kind-tagged union as magicDefault -- a literal character is `{kind:\"char\",char}`, never a bare string; the 'repeat previous' sentinel is `{kind:\"repeat\"}`.",
+          "$ref": "#/$defs/magicDefault"
         },
         "magicKeyRule": {
           "description": "design/layout-db/27-magic-emit.md: after the n-gram `after`, the key emits `emit` -- the lowered row is `after+key -> after+emit`. A magic key never rewrites its context (a row that would is a raw `rules[]` entry). `emit` replaced the old `output` (which repeated the context) on purpose: new meaning, new name.",
@@ -224,28 +183,8 @@
           ],
           "properties": {
             "after": {
-              "description": "A string (as always), or design/alts/43: a 2-item array [a, b] -- a exactly one code point, b one code point or null (the any-middle wildcard: after `a` and any one character). [a, b] means the string `ab`; [a, null] is a skip rule. Shape only: the code-point checks live in magic.ts's validateMagicSemantics.",
-              "oneOf": [
-                {
-                  "type": "string",
-                  "minLength": 1
-                },
-                {
-                  "type": "array",
-                  "minItems": 2,
-                  "maxItems": 2,
-                  "items": {
-                    "oneOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  }
-                }
-              ]
+              "type": "string",
+              "minLength": 1
             },
             "emit": {
               "type": "string",
@@ -282,10 +221,6 @@
                   "type": "null"
                 }
               ]
-            },
-            "skip": {
-              "const": true,
-              "description": "design/alts/43-skip-magic-wire.md section 2e (LDB-F51): same/opposite are picked by the hand of the character two back, every row an any-middle row [c, null, key]; repeat = the character two back. true when present."
             },
             "except": {
               "type": "array",

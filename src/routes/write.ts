@@ -5,6 +5,7 @@ import { Hono } from "hono";
 import type { AppEnv } from "../app";
 import type { Bindings } from "../env";
 import { badRequest } from "../core/errors";
+import { featuresOf } from "../core/features";
 import { parseIfMatch, parseIfNoneMatch } from "../core/ifmatch";
 import { fullWire } from "../core/records";
 import { systemClock, type Clock } from "../core/time";
@@ -43,18 +44,20 @@ export const writeRoute = new Hono<AppEnv>();
 
 writeRoute.post("/v1/layouts", async (c) => {
   const body = parseCreateBody(await readJson(c.req));
-  const { layout, formats, format, lineage, payload } = await createLayout(c.env, resolveNow(c.env), c.get("actor"), body, c.get("sourceVersion"));
+  const features = featuresOf(c);
+  const { layout, formats, format, lineage, payload } = await createLayout(c.env, resolveNow(c.env), c.get("actor"), body, c.get("sourceVersion"), features);
   const f = formats.get(lineage)!;
-  return c.json(fullWire(layout, formats, { format, payload }), 201, { ETag: `"${lineage}:${f.rev}"` });
+  return c.json(fullWire(layout, formats, { format, payload }, features), 201, { ETag: `"${lineage}:${f.rev}"` });
 });
 
 writeRoute.put("/v1/layouts/:ref", async (c) => {
   const ifMatch = parseIfMatch(c.req.header("If-Match") ?? null);
   const ifNoneMatch = parseIfNoneMatch(c.req.header("If-None-Match") ?? null);
   const body = parseReplaceBody(await readJson(c.req));
-  const { layout, formats, format, lineage, payload } = await putFormat(c.env, resolveNow(c.env), c.get("actor"), c.req.param("ref"), body, ifMatch, ifNoneMatch, c.get("sourceVersion"));
+  const features = featuresOf(c);
+  const { layout, formats, format, lineage, payload } = await putFormat(c.env, resolveNow(c.env), c.get("actor"), c.req.param("ref"), body, ifMatch, ifNoneMatch, c.get("sourceVersion"), features);
   const f = formats.get(lineage)!;
-  return c.json(fullWire(layout, formats, { format, payload }), 200, { ETag: `"${lineage}:${f.rev}"` });
+  return c.json(fullWire(layout, formats, { format, payload }, features), 200, { ETag: `"${lineage}:${f.rev}"` });
 });
 
 writeRoute.patch("/v1/layouts/:ref", async (c) => {
@@ -63,35 +66,39 @@ writeRoute.patch("/v1/layouts/:ref", async (c) => {
   // `c.req.arrayBuffer()`, which Hono caches on `c.req`.
   const body = parsePatchBody(await readJson(c.req));
   const classified = classifyPatch(body);
+  const features = featuresOf(c);
   const now = resolveNow(c.env);
   const actor = c.get("actor");
   const ref = c.req.param("ref");
   const version = c.get("sourceVersion");
 
   if (classified.kind === "rename") {
-    const { layout, formats } = await renameLayout(c.env, now, actor, ref, classified.name, ifMatch, version);
-    return c.json(fullWire(layout, formats), 200, { ETag: `"layout:${layout.layout_rev}"` });
+    const { layout, formats } = await renameLayout(c.env, now, actor, ref, classified.name, ifMatch, version, features);
+    return c.json(fullWire(layout, formats, undefined, features), 200, { ETag: `"layout:${layout.layout_rev}"` });
   }
-  const { layout, formats, format, lineage, payload } = await patchFormat(c.env, now, actor, ref, classified.format, classified.edits, ifMatch, version);
+  const { layout, formats, format, lineage, payload } = await patchFormat(c.env, now, actor, ref, classified.format, classified.edits, ifMatch, version, features);
   const f = formats.get(lineage)!;
-  return c.json(fullWire(layout, formats, { format, payload }), 200, { ETag: `"${lineage}:${f.rev}"` });
+  return c.json(fullWire(layout, formats, { format, payload }, features), 200, { ETag: `"${lineage}:${f.rev}"` });
 });
 
 writeRoute.delete("/v1/layouts/:ref", async (c) => {
+  const features = featuresOf(c);
   const ifMatch = parseIfMatch(c.req.header("If-Match") ?? null);
-  const { layout, formats } = await deleteLayout(c.env, resolveNow(c.env), c.get("actor"), c.req.param("ref"), ifMatch, c.get("sourceVersion"));
-  return c.json(fullWire(layout, formats), 200, { ETag: `"layout:${layout.layout_rev}"` });
+  const { layout, formats } = await deleteLayout(c.env, resolveNow(c.env), c.get("actor"), c.req.param("ref"), ifMatch, c.get("sourceVersion"), features);
+  return c.json(fullWire(layout, formats, undefined, features), 200, { ETag: `"layout:${layout.layout_rev}"` });
 });
 
 writeRoute.post("/v1/layouts/:ref/restore", async (c) => {
+  const features = featuresOf(c);
   const body = parseRestoreBody(await readOptionalJson(c.req));
-  const { layout, formats } = await restoreLayout(c.env, resolveNow(c.env), c.get("actor"), c.req.param("ref"), body, c.get("sourceVersion"));
-  return c.json(fullWire(layout, formats), 200, { ETag: `"layout:${layout.layout_rev}"` });
+  const { layout, formats } = await restoreLayout(c.env, resolveNow(c.env), c.get("actor"), c.req.param("ref"), body, c.get("sourceVersion"), features);
+  return c.json(fullWire(layout, formats, undefined, features), 200, { ETag: `"layout:${layout.layout_rev}"` });
 });
 
 writeRoute.post("/v1/layouts/:ref/transfer", async (c) => {
+  const features = featuresOf(c);
   const ifMatch = parseIfMatch(c.req.header("If-Match") ?? null);
   const body = parseTransferBody(await readJson(c.req));
-  const { layout, formats } = await transferLayout(c.env, resolveNow(c.env), c.get("actor"), c.req.param("ref"), body, ifMatch, c.get("sourceVersion"));
-  return c.json(fullWire(layout, formats), 200, { ETag: `"layout:${layout.layout_rev}"` });
+  const { layout, formats } = await transferLayout(c.env, resolveNow(c.env), c.get("actor"), c.req.param("ref"), body, ifMatch, c.get("sourceVersion"), features);
+  return c.json(fullWire(layout, formats, undefined, features), 200, { ETag: `"layout:${layout.layout_rev}"` });
 });

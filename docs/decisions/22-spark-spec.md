@@ -521,16 +521,38 @@ touches.
 
 ## 9. Reader and writer obligations
 
-Readers ignore unknown fields on a payload; only the server refuses them
-at write time. A client that does not understand every field of a record
-uses `PATCH`, never `PUT`, so it never has to round-trip fields it cannot
-parse. A client validates against the schema served at `GET
-/v1/formats/spark/1/schema.json`, never a copy it vendored itself.
+Readers ignore unknown fields and unknown values on a payload; only the
+server refuses them at write time. An unknown value is one a reader does
+not recognise in a field it does know: a `kind` it has no case for, an
+`after` that is not a string, a finger outside its list. The reader skips
+the smallest item that holds it (that rule, that `default`, that key) and
+reads the rest of the record as usual; it never rejects the record, and
+never the whole response. A client that does not understand every field
+or value of a record uses `PATCH`, never `PUT`, so it never has to
+round-trip what it cannot parse. A client validates against the schema
+served at `GET /v1/formats/spark/1/schema.json`, never a copy it vendored
+itself; whatever fails a copy older than the response falls under this
+rule.
+
+`/v1` spark/1 is frozen at the 1.28 shape (saltorbit, 2026-10-28; API 1.32,
+LDB-F52, LDB-V8..V10). Skip magic (API 1.29, §5) is served only to a request
+that opts in with `?features=skip`: without it the payload has no
+`skip_repeat` default, no rule whose `after` is an array, and no chiral key
+with `skip: true`, the record's `formats["spark/1"]` says `withheld:
+["skip"]`, and the served schema is the 1.28 one
+(`tests/contract/spark-1.v1-reader.schema.json`, pinned by hash). A write that
+would drop skip its writer never read is `409 features_required`. A future
+`/v2` carries skip natively.
+
+The server's half: a new value lands under `/v1` only where skipping its
+item leaves the rest of the record meaning what it meant, so a reader that
+skips it sees less, never something wrong. A value that would change the
+meaning of what a reader keeps is a new major.
 
 *Schema route: `db/src/routes/formats.ts:44-52` — the served schema itself
-is `additionalProperties: false` everywhere, in tension with "readers
-ignore unknown fields" for a client that validates against it as
-instructed (LEDGER.md row S1).*
+is `additionalProperties: false` everywhere and its enums are closed, in
+tension with "readers ignore unknown fields and values" for a client that
+validates against it as instructed (LEDGER.md row S1).*
 
 `alts` and `combos` (§5a/§5b) are exactly the kind of field this section's
 rule exists for: a client written before design/alts/07-format.md landed

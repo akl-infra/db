@@ -8,13 +8,14 @@
 // majors still validate.
 //
 // **The promise `/v1` makes**: only additive changes land under it -- a
-// new optional field, a new route, a new enum value somewhere the docs
-// already say to tolerate an unknown one (adoption.md §7's reader
-// obligations: ignore unknown fields, PATCH instead of PUT if you don't
-// understand every field). A removal, a rename, or a meaning change under
-// an unchanged shape (24-spark-wire-review.md finding 8's own example, one
-// level up: the finger `LT` meaning change) is a NEW major, `/v2`,
-// registered beside `/v1` -- never edited in place. No `/v2` exists yet;
+// new optional field, a new route, a new enum value whose item a reader
+// can skip without changing what the rest means (22-spark-spec.md §9's
+// reader obligations: ignore unknown fields and unknown values, PATCH
+// instead of PUT if you don't understand every field). A removal, a
+// rename, or a meaning change under an unchanged shape
+// (24-spark-wire-review.md finding 8's own example, one level up: the
+// finger `LT` meaning change) is a NEW major, `/v2`, registered beside
+// `/v1` -- never edited in place. No `/v2` exists yet;
 // nothing here builds one, this module just states the rule the contract
 // test (`tests/contract/contract.test.ts`, LDB-V4/V5) enforces against it.
 import { WIRE_VERSION } from "./etag";

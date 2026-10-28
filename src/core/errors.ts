@@ -97,6 +97,19 @@ export function formatBehind(format: string, see: string, rev: number): ApiError
   });
 }
 
+// API 1.32 (LDB-V10): a write that would silently drop skip magic the writer
+// never saw. `/v1` withholds skip from a client that did not send
+// `features=skip`, so such a client's PUT, or its PATCH of `magic`, would
+// replace a payload that uses skip with one it read without it. A write
+// that carries skip itself, or one sent with `features=skip`, is not refused.
+export function featuresRequired(feature: string): ApiError {
+  return new ApiError(409, {
+    error: "features_required",
+    message: `this record uses ${feature} magic that you did not read; resend with ?features=${feature}`,
+    feature,
+  });
+}
+
 export function internal(): ApiError {
   return new ApiError(500, { error: "internal", message: "internal error" });
 }

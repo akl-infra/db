@@ -5,6 +5,8 @@ import { Hono } from "hono";
 import type { AppEnv } from "../app";
 import { notFound } from "../core/errors";
 import { get as getFormat, list as listFormats } from "../formats/registry";
+import { featuresOf } from "../core/features";
+import v1ReaderSparkSchema from "../../tests/contract/spark-1.v1-reader.schema.json";
 import { lineage, majorOf, latestOf, hasEdge } from "../../formats/registry.ts";
 
 export const formatsRoute = new Hono<AppEnv>();
@@ -49,5 +51,10 @@ formatsRoute.get("/v1/formats/:name/:major/schema.json", (c) => {
   // more) -- an unregistered id answers `404`, same as any other.
   const mod = getFormat(id);
   if (mod === undefined) throw notFound(`no format '${id}'`, id);
-  return c.json(mod.schema, 200, { "Content-Type": "application/schema+json" });
+  // LDB-V9: spark/1 is frozen at the 1.28 shape on `/v1` (decisions
+  // 22-spark-spec.md §9); the schema that includes skip magic is served only
+  // to `?features=skip`. The frozen file is the one source of truth: the
+  // contract test validates every default read against it.
+  const schema = id === "spark/1" && !featuresOf(c).skip ? v1ReaderSparkSchema : mod.schema;
+  return c.json(schema, 200, { "Content-Type": "application/schema+json" });
 });
