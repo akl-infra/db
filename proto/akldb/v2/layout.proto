@@ -1,0 +1,174 @@
+// akldb /v2 layout wire format. DRAFT for sign-off (docs/decisions/32-v2-protobuf.md).
+//
+// Evolution rules (enforced by `buf breaking` in CI, plus review):
+// - Never reuse or renumber a field; removed fields are `reserved`.
+// - A new behaviour is a new field, a new oneof member or a new enum value,
+//   chosen so that a reader that does not know it still reads the rest of
+//   the layout correctly (it sees less, never something wrong).
+// - A flag that would change what existing fields mean is never added; the
+//   new meaning gets its own message (see SkipChiralKey). Where that is not
+//   possible, the layout lists the feature in `required_features`.
+syntax = "proto3";
+
+package akldb.v2;
+
+import "google/protobuf/timestamp.proto";
+
+// ---------------------------------------------------------------- envelope
+
+message Layout {
+  string id = 1;                       // ULID, the identity
+  string name = 2;
+  string owner = 3;                    // Discord snowflake
+  uint32 layout_rev = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp modified_at = 6;
+  bool deleted = 7;
+  uint32 like_count = 8;
+  repeated string likes = 9;           // user ids, sorted; only when requested
+  optional string link = 10;           // the approved link
+  optional string upstream = 11;
+  PayloadMeta payload_meta = 12;
+  Spark payload = 13;
+  // Features a reader must understand to read this layout correctly. A reader
+  // that does not know one of them skips the whole layout. Empty for every
+  // layout today; reserved for changes that cannot degrade gracefully.
+  repeated string required_features = 14;
+}
+
+message PayloadMeta {
+  uint32 rev = 1;
+  google.protobuf.Timestamp created_at = 2;
+  google.protobuf.Timestamp modified_at = 3;
+  bool has_magic = 4;
+  bool has_alts = 5;
+  bool has_combos = 6;
+  Source source = 7;
+}
+
+message Source {
+  string client = 1;
+  optional string version = 2;
+}
+
+message ListLayoutsResponse {
+  repeated Layout items = 1;
+  string next_cursor = 2;              // empty on the last page
+}
+
+// ---------------------------------------------------------------- payload
+
+message Spark {
+  repeated Key keys = 1;
+  Magic magic = 2;
+  repeated Alt alts = 3;
+  repeated Combo combos = 4;
+}
+
+enum Finger {
+  FINGER_UNSPECIFIED = 0;
+  FINGER_LP = 1;
+  FINGER_LR = 2;
+  FINGER_LM = 3;
+  FINGER_LI = 4;
+  FINGER_RI = 5;
+  FINGER_RM = 6;
+  FINGER_RR = 7;
+  FINGER_RP = 8;
+  FINGER_LT = 9;
+  FINGER_RT = 10;
+}
+
+message Key {
+  optional string char = 1;            // one code point; absent = a free key
+  sint32 row = 2;                      // -1 is the number row
+  uint32 col = 3;
+  Finger finger = 4;
+}
+
+message Magic {
+  repeated MagicKey magic_keys = 1;
+  repeated ChiralKey chiral_keys = 2;
+  repeated AdaptiveSwap adaptive_swaps = 3;
+  repeated RawRule rules = 4;
+  repeated SkipChiralKey skip_chiral_keys = 5;
+}
+
+message MagicKey {
+  string key = 1;
+  MagicDefault default_emit = 2;       // unset = no default
+  repeated MagicKeyRule rules = 3;
+  repeated string except = 4;
+}
+
+message MagicDefault {
+  // A reader that finds no member it knows treats the key as having no default.
+  oneof kind {
+    Repeat repeat = 1;                 // repeat the previous character
+    string char = 2;                   // emit this character
+    SkipRepeat skip_repeat = 3;        // repeat the character two back
+  }
+}
+
+message Repeat {}
+message SkipRepeat {}
+
+message MagicKeyRule {
+  // A reader that finds no member it knows drops the rule.
+  oneof context {
+    string after = 1;                  // after this n-gram
+    string after_skip = 3;             // after this one character and any one character
+  }
+  string emit = 2;
+}
+
+message ChiralKey {
+  string key = 1;
+  ChiralValue same = 2;                // by the hand of the previous character
+  ChiralValue opposite = 3;
+  repeated string except = 4;
+}
+
+// Same/opposite by the hand of the character two back. Its own message, not a
+// flag on ChiralKey: a reader that does not know it must not read it as a
+// one-back chiral key.
+message SkipChiralKey {
+  string key = 1;
+  ChiralValue same = 2;
+  ChiralValue opposite = 3;
+  repeated string except = 4;
+}
+
+message ChiralValue {
+  oneof kind {
+    Repeat repeat = 1;
+    string char = 2;
+  }
+}
+
+message AdaptiveSwap {
+  string trigger = 1;
+  repeated string swap = 2;            // exactly two characters
+}
+
+message RawRule {
+  string inputs = 1;
+  string output = 2;
+  optional string type = 3;
+  optional string note = 4;
+}
+
+message Alt {
+  repeated AltPosition positions = 1;  // 2 or 3 positions
+}
+
+message AltPosition {
+  // Unset `char` is the wildcard (allowed only as the middle of 3).
+  optional string char = 1;
+  Finger finger = 2;                   // FINGER_UNSPECIFIED exactly at the wildcard
+}
+
+message Combo {
+  repeated string keys = 1;            // exactly two characters
+  string output = 2;
+}
