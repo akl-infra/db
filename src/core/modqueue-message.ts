@@ -348,21 +348,10 @@ export function buildV2StatusPatch(current: unknown, kind: QueueKind, id: string
   }
   if (!foundStatus) return null;
   const patchBody: Record<string, unknown> = { flags: DISCORD_COMPONENTS_V2_FLAG, components, allowed_mentions: { parse: [] } };
-  if ("attachments" in current && Array.isArray(current.attachments)) {
-    const attachments = [...current.attachments];
-    // Discord may expose an inline attachment on its media component rather
-    // than in the message's top-level attachments. An explicit PATCH list
-    // must keep those IDs too, or approving the card would erase its proof.
-    const retainMedia = (value: unknown): void => {
-      if (Array.isArray(value)) { value.forEach(retainMedia); return; }
-      if (!value || typeof value !== "object") return;
-      const row = value as Record<string, unknown>;
-      if (typeof row.attachment_id === "string" && /^\d{17,20}$/.test(row.attachment_id)
-        && !attachments.some((a) => a?.id === row.attachment_id)) attachments.push({ id: row.attachment_id });
-      Object.values(row).forEach(retainMedia);
-    };
-    retainMedia(components);
-    patchBody.attachments = eraseCommentBody ? [] : attachments;
-  }
+  // No `attachments` key keeps every upload. Components V2 messages list
+  // their uploads only inside media items, so any explicit list (even one
+  // rebuilt from them) dropped the proof image on approval; Discord deletes
+  // what an explicit list leaves out. Only an erased comment drops its file.
+  if (eraseCommentBody) patchBody.attachments = [];
   return patchBody;
 }
