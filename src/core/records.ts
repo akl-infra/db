@@ -3,6 +3,7 @@
 // the onlywriter test) -- this module only SELECTs.
 import type { Bindings } from "../env";
 import { toStore, type StoreArg } from "../store/arg";
+import { NO_FEATURES, payloadFor, type Features } from "./features";
 
 // 20-spark.md S3a (decision 5, LDB-I14), restated by 21-formats.md §2.2:
 // follow state is LAYOUT-level (name/owner/deletion and lineage `spark`
@@ -319,7 +320,11 @@ export function layoutToWire(l: LayoutRow): Record<string, unknown> {
   };
 }
 
-export function formatSummaryToWire(f: FormatRow): Record<string, unknown> {
+// `withheld: ["skip"]` (API 1.32, LDB-V9): present iff a spark/1 read of this
+// record, as served to a client that did not opt in with `features=skip`,
+// leaves something out. `has_magic` still describes the STORED payload.
+export function formatSummaryToWire(f: FormatRow, features: Features = NO_FEATURES): Record<string, unknown> {
+  const withheld = f.payload !== undefined && payloadFor(f.format, f.payload, features).withheld;
   return {
     rev: f.rev,
     created_at: f.created_at,
@@ -328,12 +333,13 @@ export function formatSummaryToWire(f: FormatRow): Record<string, unknown> {
     has_alts: f.has_alts,
     has_combos: f.has_combos,
     source: f.source,
+    ...(withheld ? { withheld: ["skip"] } : {}),
   };
 }
 
-export function formatsMapToWire(formats: Map<string, FormatRow>): Record<string, unknown> {
+export function formatsMapToWire(formats: Map<string, FormatRow>, features: Features = NO_FEATURES): Record<string, unknown> {
   const out: Record<string, unknown> = {};
-  for (const f of formats.values()) out[f.format] = formatSummaryToWire(f);
+  for (const f of formats.values()) out[f.format] = formatSummaryToWire(f, features);
   return out;
 }
 
@@ -341,12 +347,17 @@ export function formatsMapToWire(formats: Map<string, FormatRow>): Record<string
 // (whenever this read/write concerns one) `format`/`payload`/`derived_from`.
 // A pure layout-scope write (rename/transfer/delete/restore) omits `extra`
 // entirely -- it concerns no format (D4).
-export function fullWire(layout: LayoutRow, formats: Map<string, FormatRow>, extra?: { format: string; payload: unknown; derived_from?: string }): Record<string, unknown> {
+export function fullWire(
+  layout: LayoutRow,
+  formats: Map<string, FormatRow>,
+  extra?: { format: string; payload: unknown; derived_from?: string },
+  features: Features = NO_FEATURES,
+): Record<string, unknown> {
   return {
     ...layoutToWire(layout),
-    formats: formatsMapToWire(formats),
+    formats: formatsMapToWire(formats, features),
     ...(extra !== undefined
-      ? { format: extra.format, payload: extra.payload, ...(extra.derived_from !== undefined ? { derived_from: extra.derived_from } : {}) }
+      ? { format: extra.format, payload: payloadFor(extra.format, extra.payload, features).payload, ...(extra.derived_from !== undefined ? { derived_from: extra.derived_from } : {}) }
       : {}),
   };
 }

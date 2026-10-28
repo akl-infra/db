@@ -16,6 +16,7 @@ import {
   ApiError,
   badRequest,
   formatAbsent,
+  featuresRequired,
   formatBehind,
   formatExists,
   formatNotWritable,
@@ -55,6 +56,8 @@ import {
 } from "./records";
 import type { Clock } from "./time";
 import { nextUpstream } from "./upstream";
+import { NO_FEATURES, type Features } from "./features";
+import { usesSkip } from "../../formats/spark/1/withhold.ts";
 import { toStore, type StoreArg } from "../store/arg";
 import type { Store } from "../store/port";
 
@@ -100,19 +103,19 @@ async function latestRevBumpingEvent(store: Store, layoutId: string, format: str
 // The `If-Match` pre-check for the LAYOUT scope (21-formats.md §2.3, MF-11):
 // the layout is already in hand; only `last_write` needs a read on a
 // mismatch.
-async function requireLayoutRev(store: Store, layout: LayoutRow, checked: CheckedIfMatch, formats: Map<string, FormatRow>): Promise<void> {
+async function requireLayoutRev(store: Store, layout: LayoutRow, checked: CheckedIfMatch, formats: Map<string, FormatRow>, features: Features): Promise<void> {
   if ("any" in checked) return;
   if (checked.rev === layout.layout_rev) return;
   const lastWrite = await latestRevBumpingEvent(store, layout.id, null);
-  throw stale("layout", layout.layout_rev, fullWire(layout, formats), lastWrite);
+  throw stale("layout", layout.layout_rev, fullWire(layout, formats, undefined, features), lastWrite);
 }
 
 // Same for a FORMAT scope.
-async function requireFormatRev(store: Store, layout: LayoutRow, row: FormatRow, checked: CheckedIfMatch, formats: Map<string, FormatRow>): Promise<void> {
+async function requireFormatRev(store: Store, layout: LayoutRow, row: FormatRow, checked: CheckedIfMatch, formats: Map<string, FormatRow>, features: Features): Promise<void> {
   if ("any" in checked) return;
   if (checked.rev === row.rev) return;
   const lastWrite = await latestRevBumpingEvent(store, layout.id, row.format);
-  throw stale(row.lineage, row.rev, fullWire(layout, formats, { format: row.format, payload: row.payload }), lastWrite);
+  throw stale(row.lineage, row.rev, fullWire(layout, formats, { format: row.format, payload: row.payload }, features), lastWrite);
 }
 
 // 21-formats.md §2.2 (MF-6): a write reads its layout fresh, checks its OWN
@@ -123,7 +126,7 @@ async function requireFormatRev(store: Store, layout: LayoutRow, row: FormatRow,
 // If-Match check above now fails loudly with `409 stale`; if it didn't,
 // the retry naturally lands on the now-current `n`). System writers
 // (`expectN`) call `commitWrite` directly and never go through this.
-async function commitWithRetry(store: Store, now: Clock, build: () => Promise<CommitInput>): Promise<CommitResult> {
+async function commitWithRetry(store: Store, now: Clock, build: () => Promise<CommitInput>, features: Features = NO_FEATURES): Promise<CommitResult> {
   let lastInput: CommitInput | undefined;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     const input = await build();
@@ -156,10 +159,10 @@ async function commitWithRetry(store: Store, now: Clock, build: () => Promise<Co
   // shared `layout_revs (layout_id, n)` PK anyway (extreme contention).
   // §2.3's own body shape still applies -- a fresh read, never a raw
   // `RevConflictError` leaking through as an unmapped 500.
-  return await staleFromExhaustedRetry(store, lastInput!);
+  return await staleFromExhaustedRetry(store, lastInput!, features);
 }
 
-async function staleFromExhaustedRetry(store: Store, lastInput: CommitInput): Promise<never> {
+async function staleFromExhaustedRetry(store: Store, lastInput: CommitInput, features: Features): Promise<never> {
   const lwf = await byRefWithFormats(store, lastInput.layoutId);
   if (lwf === null) throw internal(); // unreachable: this layout existed as of every build() attempt above
   const { layout, formats } = lwf;
@@ -174,10 +177,10 @@ async function staleFromExhaustedRetry(store: Store, lastInput: CommitInput): Pr
     // `null` rather than a doomed `latestRevBumpingEvent` call (which
     // assumes one always exists and 500s otherwise).
     const lastWrite = row === undefined ? null : await latestRevBumpingEvent(store, layout.id, row.format);
-    throw stale(lineageId, rev, fullWire(layout, formats, row !== undefined ? { format: row.format, payload: row.payload } : undefined), lastWrite);
+    throw stale(lineageId, rev, fullWire(layout, formats, row !== undefined ? { format: row.format, payload: row.payload } : undefined, features), lastWrite);
   }
   const lastWrite = await latestRevBumpingEvent(store, layout.id, null);
-  throw stale("layout", layout.layout_rev, fullWire(layout, formats), lastWrite);
+  throw stale("layout", layout.layout_rev, fullWire(layout, formats, undefined, features), lastWrite);
 }
 
 // 21-formats.md §2.4 (LDB-F16, narrowed to "no default"): every write
@@ -240,9 +243,9 @@ function chainToLatest(module: FormatModule, payload: unknown): { format: string
 // separate "what name was I trying to claim" parameter of its own (restore
 // without a `{name}` reuses the tombstone's own name, computed only
 // inside `build`, which this could not otherwise see).
-async function commitAndMapErrors(store: Store, now: Clock, build: () => Promise<CommitInput>): Promise<CommitResult> {
+async function commitAndMapErrors(store: Store, now: Clock, build: () => Promise<CommitInput>, features: Features = NO_FEATURES): Promise<CommitResult> {
   try {
-    return await commitWithRetry(store, now, build);
+    return await commitWithRetry(store, now, build, features);
   } catch (e) {
     if (e instanceof ApiError && e.body.error === "name_taken" && e.body.holder === undefined && typeof e.body.name === "string") {
       const clashName = e.body.name;
@@ -276,7 +279,7 @@ export interface LayoutOnlyOutcome {
 // format's scope). LDB-P9: a name currently held by a tombstone (any
 // owner) has its likes copied onto the new layout as `liked` events
 // `via: "name_inherited"`.
-export async function createLayout(env: Bindings, now: Clock, actor: Actor, body: CreateBody, version: string | null): Promise<WriteOutcome> {
+export async function createLayout(env: Bindings, now: Clock, actor: Actor, body: CreateBody, version: string | null, features: Features = NO_FEATURES): Promise<WriteOutcome> {
   const store = toStore(env.DB);
   const nameCheck = checkName(body.name);
   if (!nameCheck.ok) throw invalidName(body.name, nameCheck.message);
@@ -358,6 +361,7 @@ export async function putFormat(
   ifMatchHeader: IfMatch,
   ifNoneMatchHeader: IfNoneMatch,
   version: string | null,
+  features: Features = NO_FEATURES,
 ): Promise<WriteOutcome> {
   const store = toStore(env.DB);
   const { module } = validatePayload(body.format, body.payload);
@@ -388,7 +392,7 @@ export async function putFormat(
     } else {
       if (existing === null) throw formatAbsent(chained.format);
       const checked = requireScopedIfMatch(ifMatchHeader, lin);
-      await requireFormatRev(store, lwf.layout, existing, checked, lwf.formats);
+      await requireFormatRev(store, lwf.layout, existing, checked, lwf.formats, features);
 
       // 20-spark.md S5 (19 §3 R1, LDB-P13): a write naming a format the
       // format row (as CURRENTLY stored) cannot be shown as would be a
@@ -400,6 +404,9 @@ export async function putFormat(
         const view = translate({ format: existing.format, payload: existing.payload }, body.format);
         if ("held" in view) throw formatBehind(body.format, existing.format, existing.rev);
       }
+      // API 1.32 (LDB-V10): replacing the whole payload of a record that
+      // uses skip magic, from a client that neither read skip nor sends it.
+      if (lin === "spark" && !features.skip && usesSkip(existing.payload) && !usesSkip(body.payload)) throw featuresRequired("skip");
     }
 
     const touches = lin === "spark";
@@ -438,7 +445,7 @@ export async function putFormat(
     };
   };
 
-  const result = await commitWithRetry(store, now, build);
+  const result = await commitWithRetry(store, now, build, features);
   return { layout: result.layout, formats: result.formats, format: chained.format, lineage: lin, payload: chained.payload };
 }
 
@@ -476,7 +483,7 @@ function runEdit(format: string, verb: FormatEditField, edit: ((p: any, arg: any
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
 // PATCH {name}: layout scope only.
-export async function renameLayout(env: Bindings, now: Clock, actor: Actor, ref: string, name: string, ifMatchHeader: IfMatch, version: string | null): Promise<LayoutOnlyOutcome> {
+export async function renameLayout(env: Bindings, now: Clock, actor: Actor, ref: string, name: string, ifMatchHeader: IfMatch, version: string | null, features: Features = NO_FEATURES): Promise<LayoutOnlyOutcome> {
   const store = toStore(env.DB);
   const nameCheck = checkName(name);
   if (!nameCheck.ok) throw invalidName(name, nameCheck.message);
@@ -486,7 +493,7 @@ export async function renameLayout(env: Bindings, now: Clock, actor: Actor, ref:
   const build = async (): Promise<CommitInput> => {
     const { lwf, admin } = await loadForWrite(store, ref, actor, { allowDeleted: false });
     const checked = requireScopedIfMatch(ifMatchHeader, "layout");
-    await requireLayoutRev(store, lwf.layout, checked, lwf.formats);
+    await requireLayoutRev(store, lwf.layout, checked, lwf.formats, features);
     const upstream = nextUpstream(lwf.layout.upstream, actor.via, true);
     const clientId = destructiveClientOf(actor);
     return {
@@ -509,7 +516,7 @@ export async function renameLayout(env: Bindings, now: Clock, actor: Actor, ref:
     };
   };
 
-  const result = await commitAndMapErrors(store, now, build);
+  const result = await commitAndMapErrors(store, now, build, features);
   return { layout: result.layout, formats: result.formats };
 }
 
@@ -524,6 +531,7 @@ export async function patchFormat(
   edits: { fingermap?: Record<string, string>; magic?: unknown; alts?: unknown; combos?: unknown },
   ifMatchHeader: IfMatch,
   version: string | null,
+  features: Features = NO_FEATURES,
 ): Promise<WriteOutcome> {
   const store = toStore(env.DB);
   const lin = lineage(format);
@@ -562,7 +570,11 @@ export async function patchFormat(
     }
 
     const checked = requireScopedIfMatch(ifMatchHeader, lin);
-    await requireFormatRev(store, lwf.layout, existing, checked, lwf.formats);
+    await requireFormatRev(store, lwf.layout, existing, checked, lwf.formats, features);
+
+    // API 1.32 (LDB-V10): `magic` is replaced whole, so a client that did not
+    // read skip would drop it. fingermap/alts/combos edits keep `magic` as is.
+    if (lin === "spark" && edits.magic !== undefined && !features.skip && usesSkip(existing.payload) && !usesSkip({ magic: edits.magic })) throw featuresRequired("skip");
 
     let payload: unknown = existing.payload;
     const fields = FORMAT_EDIT_FIELDS.filter((f) => edits[f] !== undefined);
@@ -607,7 +619,7 @@ export async function patchFormat(
     };
   };
 
-  const result = await commitWithRetry(store, now, build);
+  const result = await commitWithRetry(store, now, build, features);
   const written = result.formats.get(lin)!;
   return { layout: result.layout, formats: result.formats, format: written.format, lineage: lin, payload: written.payload };
 }
@@ -685,7 +697,7 @@ export async function seedMagic(env: Bindings, now: Clock, ref: string, magic: u
 // DELETE /v1/layouts/{ref}: layout scope only -- formats are untouched
 // (D3: name/owner/likes/deletion are the layout's; a tombstone's own
 // formats stay exactly as they were, restorable).
-export async function deleteLayout(env: Bindings, now: Clock, actor: Actor, ref: string, ifMatchHeader: IfMatch, version: string | null): Promise<LayoutOnlyOutcome> {
+export async function deleteLayout(env: Bindings, now: Clock, actor: Actor, ref: string, ifMatchHeader: IfMatch, version: string | null, features: Features = NO_FEATURES): Promise<LayoutOnlyOutcome> {
   const store = toStore(env.DB);
   requireScopedIfMatch(ifMatchHeader, "layout");
   const source: Source = { client: actor.source_client, version };
@@ -693,7 +705,7 @@ export async function deleteLayout(env: Bindings, now: Clock, actor: Actor, ref:
   const build = async (): Promise<CommitInput> => {
     const { lwf, admin } = await loadForWrite(store, ref, actor, { allowDeleted: false });
     const checked = requireScopedIfMatch(ifMatchHeader, "layout");
-    await requireLayoutRev(store, lwf.layout, checked, lwf.formats);
+    await requireLayoutRev(store, lwf.layout, checked, lwf.formats, features);
     const upstream = nextUpstream(lwf.layout.upstream, actor.via, true);
     const clientId = destructiveClientOf(actor);
     return {
@@ -716,7 +728,7 @@ export async function deleteLayout(env: Bindings, now: Clock, actor: Actor, ref:
     };
   };
 
-  const result = await commitWithRetry(store, now, build);
+  const result = await commitWithRetry(store, now, build, features);
   return { layout: result.layout, formats: result.formats };
 }
 
@@ -726,7 +738,7 @@ export interface RestoreBody {
 
 // POST /v1/layouts/{ref}/restore: layout scope, no If-Match (a tombstone
 // has one possible next state); `{ref}` must be the id.
-export async function restoreLayout(env: Bindings, now: Clock, actor: Actor, ref: string, body: RestoreBody = {}, version: string | null): Promise<LayoutOnlyOutcome> {
+export async function restoreLayout(env: Bindings, now: Clock, actor: Actor, ref: string, body: RestoreBody = {}, version: string | null, features: Features = NO_FEATURES): Promise<LayoutOnlyOutcome> {
   const store = toStore(env.DB);
   const source: Source = { client: actor.source_client, version };
 
@@ -767,7 +779,7 @@ export async function restoreLayout(env: Bindings, now: Clock, actor: Actor, ref
     };
   };
 
-  const result = await commitAndMapErrors(store, now, build);
+  const result = await commitAndMapErrors(store, now, build, features);
   return { layout: result.layout, formats: result.formats };
 }
 
@@ -777,7 +789,7 @@ export interface TransferBody {
 
 // POST /v1/layouts/{ref}/transfer: layout scope; `If-Match` is
 // presence-only (no draft to be stale against).
-export async function transferLayout(env: Bindings, now: Clock, actor: Actor, ref: string, body: TransferBody, ifMatchHeader: IfMatch, version: string | null): Promise<LayoutOnlyOutcome> {
+export async function transferLayout(env: Bindings, now: Clock, actor: Actor, ref: string, body: TransferBody, ifMatchHeader: IfMatch, version: string | null, features: Features = NO_FEATURES): Promise<LayoutOnlyOutcome> {
   const store = toStore(env.DB);
   requireScopedIfMatch(ifMatchHeader, "layout");
   const source: Source = { client: actor.source_client, version };
@@ -816,7 +828,7 @@ export async function transferLayout(env: Bindings, now: Clock, actor: Actor, re
     };
   };
 
-  const result = await commitWithRetry(store, now, build);
+  const result = await commitWithRetry(store, now, build, features);
   return { layout: result.layout, formats: result.formats };
 }
 

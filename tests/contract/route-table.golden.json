@@ -4757,17 +4757,6 @@
                           }
                         }
                       }
-                    },
-                    "skip": {
-                      "type": "object",
-                      "fields": {
-                        "const": {
-                          "type": "boolean"
-                        },
-                        "description": {
-                          "type": "string"
-                        }
-                      }
                     }
                   }
                 },
@@ -4785,41 +4774,11 @@
             "chiralValue": {
               "type": "object",
               "fields": {
-                "description": {
+                "$ref": {
                   "type": "string"
                 },
-                "oneOf": {
-                  "type": "array",
-                  "item": {
-                    "type": "object",
-                    "fields": {
-                      "additionalProperties": {
-                        "type": "boolean"
-                      },
-                      "properties": {
-                        "type": "object",
-                        "fields": {
-                          "kind": {
-                            "type": "object",
-                            "fields": {
-                              "const": {
-                                "type": "string"
-                              }
-                            }
-                          }
-                        }
-                      },
-                      "required": {
-                        "type": "array",
-                        "item": {
-                          "type": "string"
-                        }
-                      },
-                      "type": {
-                        "type": "string"
-                      }
-                    }
-                  }
+                "description": {
+                  "type": "string"
                 }
               }
             },
@@ -5153,22 +5112,11 @@
                     "after": {
                       "type": "object",
                       "fields": {
-                        "description": {
-                          "type": "string"
+                        "minLength": {
+                          "type": "number"
                         },
-                        "oneOf": {
-                          "type": "array",
-                          "item": {
-                            "type": "object",
-                            "fields": {
-                              "minLength": {
-                                "type": "number"
-                              },
-                              "type": {
-                                "type": "string"
-                              }
-                            }
-                          }
+                        "type": {
+                          "type": "string"
                         }
                       }
                     },

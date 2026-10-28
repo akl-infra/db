@@ -48,6 +48,11 @@ and any one character; `["h", "e"]` = the string `"he"`), and a magic key's
 `default` may be `{"kind": "skip_repeat"}`. Such payloads compile to rows
 whose `inputs`/`output` are arrays with `null` as the wildcard; the
 `mana2/1` export drops them. `liftRules` (cmini import) stays string-only.
+`/v1` serves none of it unless the request says `?features=skip` (API 1.32,
+LDB-F52): `withhold.ts`'s `withholdSkip` removes the `skip_repeat` default,
+every array-`after` rule and every `skip: true` chiral key, and leaves the rest
+of the payload as it was. The stored payload is unchanged; `has_magic` still
+describes it.
 
 `db/formats/adapters/cmini/translate.ts` is the ONE place cmini import is
 implemented (`fromCmini` = 01 §6.1; moved out of this directory by

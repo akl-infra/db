@@ -226,7 +226,17 @@ export async function readHead(dbArg: StoreArg, stateKeys: readonly string[] = [
 //   or only the id; `POST /v1/wpm` takes an optional `user_name`; new
 //   `POST /v1/admin/discord-users/refresh`; `GET /v1/wpm`'s ETag folds in
 //   `discord_users_head`. Additive; one new table, no existing column moves.
-export const WIRE_VERSION = 31;
+// 32 (2026-10-28, LDB-F52, LDB-V8..LDB-V10, decisions 22-spark-spec.md §9): `/v1`
+//   spark/1 is frozen at the 1.28 shape. Skip magic (1.29) is withheld from
+//   every spark/1 read unless the request says `?features=skip`; a record
+//   with something withheld says `withheld: ["skip"]` in its `formats["spark/1"]`
+//   summary; `GET /v1/formats/spark/1/schema.json` serves the 1.28 schema
+//   unless `features=skip`; a PUT, or a PATCH of `magic`, that would drop
+//   skip the writer never read is `409 features_required`. Additive
+//   (`features` is a new optional parameter, `withheld` a new optional
+//   field), and the ETag of a list opted into skip differs from one that is
+//   not.
+export const WIRE_VERSION = 32;
 
 export async function etagFor(headSeqValue: number, query: unknown): Promise<string> {
   const hash = await sha256Hex(canonical({ wireVersion: WIRE_VERSION, query: query ?? null }));

@@ -7,6 +7,7 @@ import { canonical } from "../core/canonical";
 import { ApiError, badRequest, formatAbsent, formatRequired, held, notFound, unknownFormat } from "../core/errors";
 import { cachePut, conditional, etagFor, headSeq } from "../core/etag";
 import { sourceOfEvent } from "../core/events";
+import { featuresEtagKey, featuresOf, payloadFor, type Features } from "../core/features";
 import { resolveReadFormat, sourceLineageFor } from "../core/formatread";
 import {
   byRefWithFormats,
@@ -100,8 +101,8 @@ function resolveSourceLineage(as: string): string {
 // from what one response already carries). Every OTHER error stays as-is
 // (`unknown_format`/`held`/`format_behind` are about the FORMAT, not the
 // layout, and already say everything relevant).
-function withLayoutFields(err: ApiError, layout: LayoutRow, formats: Map<string, FormatRow>): ApiError {
-  return new ApiError(err.status, { ...err.body, ...fullWire(layout, formats) }, err.headers);
+function withLayoutFields(err: ApiError, layout: LayoutRow, formats: Map<string, FormatRow>, features: Features): ApiError {
+  return new ApiError(err.status, { ...err.body, ...fullWire(layout, formats, undefined, features) }, err.headers);
 }
 
 export const layoutsRoute = new Hono<AppEnv>();
@@ -125,7 +126,8 @@ layoutsRoute.get("/v1/layouts", async (c) => {
   const sourceLineage = resolveSourceLineage(format);
 
   const seq = await headSeq(db);
-  const query = { format, owner, hasMagic, hasAlts, hasCombos, since, likedBy, sort, limit, cursor };
+  const features = featuresOf(c);
+  const query = { format, owner, hasMagic, hasAlts, hasCombos, since, likedBy, sort, limit, cursor, ...featuresEtagKey(features) };
   const etag = await etagFor(seq, query);
   const short = await conditional(c, etag, CACHE_CONTROL);
   if (short) return short;
@@ -167,9 +169,9 @@ layoutsRoute.get("/v1/layouts", async (c) => {
     // same as `full=1` -- only the payload itself is the thing this route
     // never carries.
     if ("held" in translated) {
-      return { ...layoutToWire(layout), formats: formatsMapToWire(formatsMap), held: true, format: translated.format, see: translated.see };
+      return { ...layoutToWire(layout), formats: formatsMapToWire(formatsMap, features), held: true, format: translated.format, see: translated.see };
     }
-    return { ...layoutToWire(layout), formats: formatsMapToWire(formatsMap), format };
+    return { ...layoutToWire(layout), formats: formatsMapToWire(formatsMap, features), format };
   });
   const res = c.json({ items, next_cursor: page.nextCursor });
   res.headers.set("ETag", etag);
@@ -182,11 +184,12 @@ const FULL_PAGE_SIZE = 500;
 
 async function handleFullDump(c: Context<AppEnv>, format: string): Promise<Response> {
   const db = platformOf(c).store;
+  const features = featuresOf(c);
   const likedBy = parseLikedBy(c.req.query("liked_by"));
   const sourceLineage = resolveSourceLineage(format);
 
   const seq = await headSeq(db);
-  const etag = await etagFor(seq, { full: 1, format, likedBy });
+  const etag = await etagFor(seq, { full: 1, format, likedBy, ...featuresEtagKey(features) });
   const short = await conditional(c, etag, CACHE_CONTROL);
   if (short) return short;
 
@@ -212,14 +215,14 @@ async function handleFullDump(c: Context<AppEnv>, format: string): Promise<Respo
         for (const { layout, format: row } of page.items) {
           const formatsMap = allFormats.get(layout.id) ?? new Map([[row.lineage, row]]);
           const translated = format === row.format ? { payload: row.payload } : translate({ format: row.format, payload: row.payload }, format);
-          const base = { ...layoutToWire(layout), formats: formatsMapToWire(formatsMap), likes: likes.get(layout.id) ?? [] };
+          const base = { ...layoutToWire(layout), formats: formatsMapToWire(formatsMap, features), likes: likes.get(layout.id) ?? [] };
           // Coordinator review (LOW): a held row's `format` is the
           // REQUESTED id (what the response is "about"), never the
           // record's own native format -- `see` already names that.
           const body: Record<string, unknown> =
             "held" in translated
               ? { ...base, held: true, format: translated.format, see: translated.see }
-              : { ...base, payload: translated.payload, format, ...(row.format !== format ? { derived_from: row.format } : {}) };
+              : { ...base, payload: payloadFor(format, translated.payload, features).payload, format, ...(row.format !== format ? { derived_from: row.format } : {}) };
           await writer.write(encoder.encode((first ? "" : ",") + canonical(body)));
           first = false;
         }
@@ -252,19 +255,19 @@ layoutsRoute.get("/v1/layouts/:ref", async (c) => {
   const lwf = await byRefWithFormats(db, ref);
   if (lwf === null) throw notFound(`no layout '${ref}'`, ref);
 
-  if (rawFormat === undefined) throw withLayoutFields(formatRequired(), lwf.layout, lwf.formats);
+  if (rawFormat === undefined) throw withLayoutFields(formatRequired(), lwf.layout, lwf.formats, featuresOf(c));
 
   let resolved;
   try {
     resolved = resolveReadFormat(lwf.formats, rawFormat);
   } catch (e) {
-    if (e instanceof ApiError && e.body.error === "format_absent") throw withLayoutFields(e, lwf.layout, lwf.formats);
+    if (e instanceof ApiError && e.body.error === "format_absent") throw withLayoutFields(e, lwf.layout, lwf.formats, featuresOf(c));
     throw e;
   }
 
   const likes = await db.layouts.likers([lwf.layout.id]);
   return c.json({
-    ...fullWire(lwf.layout, lwf.formats, { format: resolved.format, payload: resolved.payload, derived_from: resolved.derived_from }),
+    ...fullWire(lwf.layout, lwf.formats, { format: resolved.format, payload: resolved.payload, derived_from: resolved.derived_from }, featuresOf(c)),
     likes: likes.get(lwf.layout.id) ?? [],
   });
 });
@@ -318,7 +321,7 @@ layoutsRoute.get("/v1/layouts/:ref/rev/:n", async (c) => {
   // H2: format_required needs the layout's own fields attached too, same
   // as the detail route -- read the layout first (already done above),
   // then throw enriched.
-  if (rawFormat === undefined) throw withLayoutFields(formatRequired(), rec.layout, rec.formats);
+  if (rawFormat === undefined) throw withLayoutFields(formatRequired(), rec.layout, rec.formats, featuresOf(c));
   const format = rawFormat;
 
   const mod = getFormat(format);
@@ -344,7 +347,7 @@ layoutsRoute.get("/v1/layouts/:ref/rev/:n", async (c) => {
   // `rec.formats` (from `byRefWithFormats`, already fetched above) already
   // answers "does this layout have lineage `lin` at all", so this is a
   // plain map lookup, no extra query.
-  if (!rec.formats.has(lin)) throw withLayoutFields(formatAbsent(format), rec.layout, rec.formats);
+  if (!rec.formats.has(lin)) throw withLayoutFields(formatAbsent(format), rec.layout, rec.formats, featuresOf(c));
 
   // Coordinator review (LOW): join the event on `layout_revs.event_seq`,
   // never on `format = <requested>` -- once a lineage has a second major,
@@ -369,13 +372,15 @@ layoutsRoute.get("/v1/layouts/:ref/rev/:n", async (c) => {
   // (`scope`, `layout_id`, `lineage` included), never spread onto the wire
   // whole.
   const after = JSON.parse(revRow.afterJson) as { created_at: string; modified_at: string; has_magic: boolean };
+  const served = payloadFor(format, result.payload, featuresOf(c));
   return c.json({
     rev: n,
     created_at: after.created_at,
     modified_at: after.modified_at,
     has_magic: after.has_magic,
     format,
-    payload: result.payload,
+    payload: served.payload,
+    ...(served.withheld ? { withheld: ["skip"] } : {}),
     source: sourceOfEvent({ source_client: revRow.sourceClient, source_version: revRow.sourceVersion, via: revRow.via }),
   });
 });

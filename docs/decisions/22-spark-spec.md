@@ -534,6 +534,16 @@ served at `GET /v1/formats/spark/1/schema.json`, never a copy it vendored
 itself; whatever fails a copy older than the response falls under this
 rule.
 
+`/v1` spark/1 is frozen at the 1.28 shape (saltorbit, 2026-10-28; API 1.32,
+LDB-F52, LDB-V8..V10). Skip magic (API 1.29, §5) is served only to a request
+that opts in with `?features=skip`: without it the payload has no
+`skip_repeat` default, no rule whose `after` is an array, and no chiral key
+with `skip: true`, the record's `formats["spark/1"]` says `withheld:
+["skip"]`, and the served schema is the 1.28 one
+(`tests/contract/spark-1.v1-reader.schema.json`, pinned by hash). A write that
+would drop skip its writer never read is `409 features_required`. A future
+`/v2` carries skip natively.
+
 The server's half: a new value lands under `/v1` only where skipping its
 item leaves the rest of the record meaning what it meant, so a reader that
 skips it sees less, never something wrong. A value that would change the

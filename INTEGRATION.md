@@ -423,6 +423,7 @@ real examples in §4.
 | 409 | `name_taken` | name '${name}' is already taken | `nameTaken(name, holder)` |
 | 409 | `held` | record cannot be translated to '${format}' | `held(format, see)` |
 | 409 | `format_behind` | this record uses ${see} features that ${format} cannot show; write it as ${see}, or PATCH the field you mean to change | `formatBehind(format, see, rev)` |
+| 409 | `features_required` | this record uses ${feature} magic that you did not read; resend with ?features=${feature} | `featuresRequired(feature)` |
 | 500 | `internal` | internal error | `internal()` |
 | 400 | `format_required` | a 'format' parameter is required | `formatRequired()` |
 | 404 | `format_absent` | this layout has no '${format}' format | `formatAbsent(format)` |

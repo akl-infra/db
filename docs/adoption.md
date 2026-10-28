@@ -211,6 +211,24 @@ record. Never reject a record, or a whole response, for one. If you
 skipped anything in a record, change it with `PATCH`, never `PUT`. The
 spark/1 spec's §9 (`docs/decisions/22-spark-spec.md`) is the full rule.
 
+**`features=skip`.** `/v1` serves spark/1 in its 1.28 shape. Skip magic (1.29:
+a `skip_repeat` default, an `after` that is a 2-item array, a chiral key with
+`skip: true`) is left out of every spark/1 payload — list with `full=1`, one
+layout, `/rev/{n}`, the echo of a write — unless the request says
+`?features=skip`. Names are comma-separated, on any `/v1` route; a name this
+akldb does not know is ignored. A record that had something left out says so
+in its `formats["spark/1"]` summary, `"withheld": ["skip"]`; `has_magic` still
+describes the stored payload. `GET /v1/formats/spark/1/schema.json` serves the
+1.28 schema unless it too is asked with `features=skip`. A client that sends
+`features=skip` must handle skip; one that does not never sees it. The ETag of
+a list differs with and without the parameter.
+
+A `PUT`, or a `PATCH` of `magic`, without `features=skip`, on a record that
+uses skip, with a body that does not, is `409 features_required` (`feature:
+"skip"`): the client never read the skip it would drop. Resend with
+`?features=skip` if you mean to drop it, or `PATCH` something other than
+`magic`.
+
 A client that follows that rule needs nothing from this section to keep
 working — the
 version numbers are for debugging ("which server build answered this")
@@ -879,6 +897,7 @@ it as generated, not hand-edited):
 | 400 | `format_required` | a 'format' parameter is required | `formatRequired()` |
 | 404 | `format_absent` | this layout has no '${format}' format | `formatAbsent(format)` |
 | 409 | `format_exists` | this layout already has a '${format}' format | `formatExists(format)` |
+| 409 | `features_required` | this record uses ${feature} magic that you did not read; resend with ?features=${feature} | `featuresRequired(feature)` |
 | 400 | `mixed_patch` | a PATCH may change the layout's name, or one format's payload, never both at once | `mixedPatch()` |
 | 409 | `already_liked` | you've already liked this layout | `alreadyLiked()` |
 | 409 | `not_liked` | you haven't liked this layout | `notLiked()` |
@@ -1154,8 +1173,8 @@ silently drift from what `src/index.ts` actually registers.
 | GET | `/v1/layouts/:ref/history` | none | — | 200 | `not_found` |
 | GET | `/v1/layouts/:ref/rev/:n` | none | — | 200 | `format_required`, `unknown_format`, `format_absent`, `bad_request`, `held`, `not_found` |
 | POST | `/v1/layouts` | user | `{name, format, payload}` | 201 | `bad_request`, `invalid_name`, `format_required`, `unknown_format`, `format_not_writable`, `invalid_payload`, `magic_collision`, `magic_needs_unique_key`, `name_taken`, lane errors |
-| PUT | `/v1/layouts/:ref` | user | `{format, payload}` + `If-Match` (replace) or `If-None-Match: *` (add) | 200 | `if_match_required`, `bad_request`, `format_required`, `unknown_format`, `format_not_writable`, `format_behind`, `format_absent`, `format_exists`, `invalid_payload`, `magic_collision`, `magic_needs_unique_key`, `not_owner`, `not_found`, `stale`, lane errors |
-| PATCH | `/v1/layouts/:ref` | user | `{name}` (layout scope) or `{format, fingermap?, magic?, alts?, combos?}` (that format's scope) + `If-Match` | 200 | `if_match_required`, `bad_request`, `mixed_patch`, `format_required`, `unknown_format`, `format_not_writable`, `format_absent`, `format_behind`, `invalid_name`, `invalid_payload`, `magic_collision`, `magic_needs_unique_key`, `unsupported_for_format`, `not_owner`, `not_found`, `name_taken`, `stale`, lane errors |
+| PUT | `/v1/layouts/:ref` | user | `{format, payload}` + `If-Match` (replace) or `If-None-Match: *` (add) | 200 | `if_match_required`, `bad_request`, `format_required`, `unknown_format`, `format_not_writable`, `format_behind`, `format_absent`, `format_exists`, `features_required`, `invalid_payload`, `magic_collision`, `magic_needs_unique_key`, `not_owner`, `not_found`, `stale`, lane errors |
+| PATCH | `/v1/layouts/:ref` | user | `{name}` (layout scope) or `{format, fingermap?, magic?, alts?, combos?}` (that format's scope) + `If-Match` | 200 | `if_match_required`, `bad_request`, `mixed_patch`, `format_required`, `unknown_format`, `format_not_writable`, `format_absent`, `format_behind`, `features_required`, `invalid_name`, `invalid_payload`, `magic_collision`, `magic_needs_unique_key`, `unsupported_for_format`, `not_owner`, `not_found`, `name_taken`, `stale`, lane errors |
 | DELETE | `/v1/layouts/:ref` | user | — + `If-Match: "layout:<n>"` | 200 | `if_match_required`, `bad_request`, `not_owner`, `not_found`, `stale`, lane errors |
 | POST | `/v1/layouts/:ref/restore` | user | `{name?}` (optional) | 200 | `bad_request`, `invalid_name`, `not_owner`, `not_found`, `name_taken`, lane errors |
 | POST | `/v1/layouts/:ref/transfer` | user | `{to}` + `If-Match` | 200 | `if_match_required`, `bad_request`, `not_owner`, `not_found`, lane errors |

@@ -27,6 +27,26 @@ this file just gives them a public, versioned home. From here on, a
 `WIRE_VERSION` bump and a line here land in the SAME PR, never one without
 the other (`[LDB-V5]`).
 
+## 1.32 — 2026-10-28
+
+LDB-F52, LDB-V8..LDB-V10, docs/decisions/22-spark-spec.md §9: `/v1` spark/1 is
+frozen at the 1.28 shape. Skip magic (1.29) is withheld unless the request says
+`?features=skip` (any `/v1` route, comma-separated names, unknown names
+ignored). Without it, every spark/1 payload `/v1` serves -- list `full=1`,
+`GET /v1/layouts/{ref}`, `/rev/{n}`, the echo of a POST/PUT/PATCH, the `record`
+of a `409 stale` -- has no `magic_keys[].default` of kind `skip_repeat`, no
+`magic_keys[].rules[]` entry whose `after` is an array, and no `chiral_keys[]`
+entry with `skip: true`; nothing else changes. A record that had something
+withheld says `withheld: ["skip"]` in its `formats["spark/1"]` summary (and on
+`/rev/{n}`); `has_magic` still describes the stored payload.
+`GET /v1/formats/spark/1/schema.json` serves the 1.28 schema, frozen as
+`tests/contract/spark-1.v1-reader.schema.json`, unless `features=skip`. A `PUT`
+of spark/1, or a `PATCH` of `magic`, without `features=skip` on a record that
+uses skip, with a body that does not use it, is `409 features_required`
+(`feature: "skip"`). A list's ETag differs with and without `features=skip`.
+`mana2/1` is unaffected. Additive: one optional parameter, one optional field,
+one error code. A future `/v2` carries skip natively.
+
 ## 1.31 — 2026-10-25
 
 LDB-WPM18..LDB-WPM20, docs/decisions/28-wpm-records.md: every WPM typist has a
