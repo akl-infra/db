@@ -72,8 +72,8 @@ success or error, every route — carries `X-AKLDB-API: <major>.<minor>`.
 
 `major` (the `/v1` in the URL) is the compatibility promise: only
 additive changes land under it (a new optional field, a new route, a new
-tolerated enum value — §1's own reader obligations, "ignore unknown
-fields; use PATCH if you don't understand every field"). A removal,
+enum value — §1's own reader obligations, "ignore unknown fields and
+unknown values; use PATCH if you don't understand every field"). A removal,
 rename, or meaning change under an unchanged shape is a NEW major,
 registered beside `/v1`, never edited in place — none exists yet. `minor`
 increments on every additive change; `db/CHANGELOG-API.md` has one dated

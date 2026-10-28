@@ -13,7 +13,9 @@ fails the build if this file's newest entry doesn't name the live
 without a new entry here.
 
 **A `/v1` change is additive-only**: a new optional field, a new route, a
-new enum value somewhere the docs already say to tolerate an unknown one.
+new enum value whose item a reader can skip without changing what the rest
+of the record means (readers ignore unknown fields and unknown values,
+`docs/decisions/22-spark-spec.md` §9).
 A removal, a rename, or a meaning change under an unchanged shape is a new
 major (`/v2`), never an entry here -- see the policy doc's "Policy"
 section.

@@ -201,10 +201,18 @@ since, sunset, message}` — always present, even empty).
 `/v1`'s major never changes without a `/v2` registering beside it — a
 pinned `/v1` integration never breaks in place. The minor increments on
 every additive change (a new optional field, a new route, a new
-tolerated enum value); `CHANGELOG-API.md` has one dated line per
-minor. A client that only reads fields it knows about, and never
-assumes a payload contains ONLY the fields it expects (§7's reader
-obligations), needs nothing from this section to keep working — the
+enum value); `CHANGELOG-API.md` has one dated line per minor.
+
+**Readers ignore unknown fields and unknown values.** A field you don't
+know, or a value you don't recognise in a field you do (a new `kind`, an
+`after` that isn't a string), is skipped: drop the smallest item that
+holds it (that rule, that `default`, that key) and keep the rest of the
+record. Never reject a record, or a whole response, for one. If you
+skipped anything in a record, change it with `PATCH`, never `PUT`. The
+spark/1 spec's §9 (`docs/decisions/22-spark-spec.md`) is the full rule.
+
+A client that follows that rule needs nothing from this section to keep
+working — the
 version numbers are for debugging ("which server build answered this")
 and for noticing a real breaking change coming, via a future `/v2`, well
 before you'd hit one by surprise.

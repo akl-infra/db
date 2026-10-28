@@ -132,10 +132,12 @@ raised.
 deviation except where stated:**
 
 **(a) `/v1` is additive-only.** New optional fields, new routes, new enum
-values only where the docs already say a client must tolerate an unknown
-one (`adoption.md` §7, added by `24-spark-wire-review.md` finding 7's own
-resolution: "readers ignore unknown fields; a client that doesn't
-understand every field uses `PATCH`, never `PUT`"). Any removal, rename,
+values (`22-spark-spec.md` §9, from `24-spark-wire-review.md` finding 7's
+resolution, amended 2026-10-28 after skip magic broke a strict reader:
+"readers ignore unknown fields and unknown values, skipping the smallest
+item that holds one; a client that doesn't understand every field uses
+`PATCH`, never `PUT`"). A new value is additive only where skipping its
+item leaves the rest of the record meaning what it meant. Any removal, rename,
 or meaning change under an unchanged shape is a **new major, `/v2`,
 registered beside `/v1`** — never edited in place. No `/v2` exists yet;
 nothing in this slice builds one. `24-spark-wire-review.md` finding 8's
