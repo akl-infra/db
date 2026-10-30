@@ -8,6 +8,7 @@ import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import type { BlobStore } from "../platform/port";
 import type { Direction } from "./apply";
 import { QueueConflict, type Kv } from "./queue";
+import { withRetry } from "../store/ddb/tx";
 
 /** An item's body above this many bytes goes to the blob store (a DynamoDB item holds 400 KB, attributes included). */
 export const SPILL_BYTES = 250_000;
@@ -33,6 +34,8 @@ export function ddbKv(o: DdbKvOptions): Kv {
   const nowMs = o.nowMs ?? (() => Date.now());
   const sleep = o.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const send = <T>(cmd: unknown): Promise<T> => (o.doc as unknown as { send(c: unknown): Promise<T> }).send(cmd);
+  // Single-item calls retry throttles, conflicts with an ongoing transaction and 500s, as every store's do (tx.ts).
+  const one = <T>(cmd: unknown): Promise<T> => withRetry(() => send<T>(cmd));
 
   const stored = async (body: string): Promise<string> => {
     if (Buffer.byteLength(body) <= SPILL_BYTES) return body;
@@ -80,7 +83,7 @@ export function ddbKv(o: DdbKvOptions): Kv {
       }
     },
     async list(prefix, limit) {
-      const r = await send<{ Items?: { sk: string; body: string }[] }>(
+      const r = await one<{ Items?: { sk: string; body: string }[] }>(
         new QueryCommand({
           TableName: o.table,
           KeyConditionExpression: "pk = :p AND begins_with(sk, :s)",
@@ -95,18 +98,18 @@ export function ddbKv(o: DdbKvOptions): Kv {
       return (await this.list(prefix, 1))[0] ?? null;
     },
     async get(sk) {
-      const r = await send<{ Item?: { body: string } }>(new GetCommand({ TableName: o.table, Key: { pk, sk }, ConsistentRead: true }));
+      const r = await one<{ Item?: { body: string } }>(new GetCommand({ TableName: o.table, Key: { pk, sk }, ConsistentRead: true }));
       return r.Item === undefined ? null : resolve(r.Item.body);
     },
     async put(sk, body) {
-      await send(new PutCommand({ TableName: o.table, Item: { pk, sk, body: await stored(body) } }));
+      await one(new PutCommand({ TableName: o.table, Item: { pk, sk, body: await stored(body) } }));
     },
     async delete(sk) {
-      await send(new DeleteCommand({ TableName: o.table, Key: { pk, sk } }));
+      await one(new DeleteCommand({ TableName: o.table, Key: { pk, sk } }));
     },
     async cas(sk, expected, next) {
       try {
-        await send(
+        await one(
           new PutCommand({
             TableName: o.table,
             Item: { pk, sk, body: next },

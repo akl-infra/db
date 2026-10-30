@@ -523,6 +523,21 @@ it?"):**
 | LDB-MIR10 | The recorder and the observed D1 handle add no D1 round trip: the same store calls cost the same first/all/run/raw/batch count with and without them (LDB-L8 holds). | `tests/mirror/recorder.test.ts` |
 | LDB-MIR11 | With `TEE_URL` or `TEE_SECRET` unset, `teeEnv` returns the env itself and `toStore(env.DB)` is the plain D1 store; set, the original env is never mutated. | `tests/mirror/recorder.test.ts` |
 | LDB-MIR12 | The reverse direction's observed DynamoDB client hands the recorder the seq of every `EV` item a committed `TransactWriteItems` put, none for a refused one, and changes no result or error. | `tests/mirror/observe-ddb.test.ts` |
+| LDB-MIR20 | Fuzzer sequences recorded on the source store, sent through ingest and applied by the applier, leave the mirror's rows byte-identical to the source's. | `tests/mirror/apply.test.ts` |
+| LDB-MIR21 | Every non-read method of the `Store` port is either replayed by the applier or on its never-replayed list, and nothing else is replayed. | `tests/mirror/verify.test.ts` |
+| LDB-MIR22 | A replayed call matches its recording when results deep-equal (key order irrelevant) and errors agree by class, status and body; the message is ignored. | `tests/mirror/verify.test.ts` |
+| LDB-MIR23 | A replayed call matches its recording only when its event seqs and its clock reads are the recorded ones. | `tests/mirror/verify.test.ts` |
+| LDB-MIR24 | `compareTables` compares each table as a multiset of rows, ignores the ephemeral tables (and `mirror_queue`), and samples the differing rows. | `tests/mirror/verify.test.ts` |
+| LDB-MIR25 | Ingest refuses a bad signature, a stale timestamp, the wrong direction, an unknown method, and any batch while its secret is unset (dormant). | `tests/mirror/apply.test.ts` |
+| LDB-MIR26 | A record whose replay diverges halts the applier with `MIRROR_DIVERGED`, keeps the record, and applies nothing past it. | `tests/mirror/apply.test.ts` |
+| LDB-MIR27 | A seq gap makes the applier wait, then times out into a `MIRROR_GAP` halt that asks for a reseed. | `tests/mirror/apply.test.ts` |
+| LDB-MIR28 | A call whose production outcome was an infrastructure error is skipped, not replayed. | `tests/mirror/apply.test.ts` |
+| LDB-MIR29 | Two applier invocations never apply the same call (the queue lease). | `tests/mirror/apply.test.ts` |
+| LDB-MIR30 | Reseed wipes the mirror, imports the export at seq S, drops the queued overlap, replays S+1 onward, ends identical to the source, and clears a halt. | `tests/mirror/reseed.test.ts` |
+| LDB-MIR31 | The daily proof pauses the applier at the export point (later calls wait), compares row for row, lifts the pause, and fails on a tampered mirror. | `tests/mirror/reseed.test.ts` |
+| LDB-MIR32 | `wipeAll` empties both DynamoDB tables except the mirror queue; `mirroredRows` drops the ephemeral tables (keeping the destructive-budget ratelimit windows). | `tests/mirror/reseed.test.ts` |
+| LDB-MIR33 | The reverse direction: DynamoDB-side records, delivered out of order and duplicated, apply through the D1-side receiver (`mirror_queue`, migrations/0037) into D1 to identical rows. | `tests/mirror/reverse.test.ts` |
+| LDB-MIR34 | Replaying a call whose recording has no clock values but whose store reads the clock halts; reads past the recorded values repeat the last one. | `tests/mirror/apply.test.ts` |
 | LDB-DEV1 | From a clone with no AWS credentials, `npm run dev` (`scripts/dev.mjs`) starts or borrows DynamoDB Local, creates both tables, seeds them, registers a dev client, answers `/v1/meta`, and takes one signed `POST /v1/layouts` that a following read returns; `--port 0`/`--ddb-port 0` pick free ports. | `tests/lab/dev.test.ts` |
 | LDB-DEV2 | With Docker out of the way (`AKLDB_DEV_NO_DOCKER=1`) the same boot runs DynamoDB Local from the jar with Java 21 and serves the same signed write. | `tests/lab/dev.test.ts` |
 | LDB-DEV3 | `--seed fixture` serves the 100-layout seed; the in-process tick (`--tick-ms`) writes a dump through the file blob store under `<dir>/blobs`; the dev client key in `<dir>/client.json` survives a restart and `<dir>/dev.json` is removed on exit. | `tests/lab/dev.test.ts` |

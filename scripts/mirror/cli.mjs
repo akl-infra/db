@@ -77,7 +77,7 @@ export async function connect(ops, a) {
 /** Every table of a D1 sqlite export as { table: rows[] }, D1-shaped. */
 export function readSqliteRows(file) {
   const sh = (sql) => execFileSync("sqlite3", ["-readonly", "-json", file, sql], { encoding: "utf8", maxBuffer: 1 << 30 });
-  const names = JSON.parse(sh("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name") || "[]").map((r) => r.name).filter((n) => !/^(sqlite_|_cf_|d1_migrations$)/.test(n));
+  const names = JSON.parse(sh("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name") || "[]").map((r) => r.name).filter((n) => !/^(sqlite_|_cf_|d1_migrations$|mirror_queue$)/.test(n));
   const out = {};
   for (const t of names) out[t] = JSON.parse(sh(`SELECT * FROM "${t}"`) || "[]");
   return out;

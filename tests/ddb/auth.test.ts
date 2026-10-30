@@ -140,6 +140,11 @@ describe("the item codec", () => {
     const rows = {
       authors: [{ user_id: "u1", name: "A", first_seen_at: AT, last_seen_at: AT, name_source: "user" }],
       authors_head: [{ id: 1, version: 4, modified_at: AT, count: 1 }],
+      discord_users: [
+        { id: "u1", username: "alice", global_name: "Alice", updated_at: AT },
+        { id: "u4", username: "dee", global_name: null, updated_at: AT },
+      ],
+      discord_users_head: [{ id: 1, version: 2 }],
       admins: [
         { user_id: "u1", added_by: null, added_at: AT, note: "boot" },
         { user_id: "u2", added_by: "u1", added_at: AT, note: null },

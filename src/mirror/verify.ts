@@ -161,7 +161,7 @@ export function compareTables(left: RowsByTable, right: RowsByTable, opts: Compa
   const sample = opts.sample ?? 3;
   const out: TableDiff[] = [];
   for (const table of [...new Set([...Object.keys(left), ...Object.keys(right)])].sort()) {
-    if (ignore.has(table) || /^(sqlite_|_cf_|d1_migrations$)/.test(table)) continue;
+    if (ignore.has(table) || /^(sqlite_|_cf_|d1_migrations$|mirror_queue$)/.test(table)) continue;
     const a = (left[table] ?? []).map(rowKey).sort();
     const b = (right[table] ?? []).map(rowKey).sort();
     if (a.length === b.length && a.every((x, i) => x === b[i])) continue;

@@ -27,7 +27,7 @@ const REPO = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), ".."
 const CLOCK0 = Date.parse("2026-10-25T12:00:00.000Z");
 // content-length is added by workerd for buffered bodies but a Node server cannot know which bodies workerd would have buffered; the body bytes are compared anyway.
 const HEADERS_COMPARED = CONTRACT_HEADERS.filter((h) => h !== "content-length");
-const NON_TABLES = /^(sqlite_|_cf_|d1_migrations$)/;
+const NON_TABLES = /^(sqlite_|_cf_|d1_migrations$|mirror_queue$)/;
 
 function freePort() {
   return new Promise((resolve, reject) => {

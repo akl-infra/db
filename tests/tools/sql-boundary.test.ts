@@ -32,6 +32,9 @@ const D1_ONLY = [
   // Lane T: the mirror's observed D1 handle wraps prepare/batch itself, and its test drives D1 directly.
   "src/mirror/observe-d1.ts",
   "tests/mirror/recorder.test.ts",
+  // Lane Z: the reverse mirror's D1 queue table (migrations/0037) and its D1-side test.
+  "src/mirror/kv-d1.ts",
+  "tests/mirror/reverse.test.ts",
 ];
 
 // Tests that check DynamoDB code against real SQLite semantics through `node:sqlite` (an oracle, not D1): they call

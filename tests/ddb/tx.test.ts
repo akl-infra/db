@@ -6,7 +6,7 @@ import { HEAD_KEY } from "../../src/store/ddb/keys";
 import { createTables, deleteTables } from "../../src/store/ddb/tables";
 import { runEventTx, runTx, txTuning } from "../../src/store/ddb/tx";
 
-const PORT = Number(process.env.DDB_PORT ?? 18301);
+const PORT = Number(process.env.DDB_PORT ?? process.env.AKLDB_DDB_PORT ?? 18307);
 const doc = createDocClient({ endpoint: `http://127.0.0.1:${PORT}`, region: "us-east-2" });
 const tables = { main: "tx-test-main", ephemeral: "tx-test-eph" };
 const ctx = { doc, tables, blobs: undefined as never, catalog: undefined as never } as DdbContext;

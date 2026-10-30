@@ -111,7 +111,7 @@ describe("reseed and daily proof", () => {
     expect(n).toBeGreaterThan(0);
     expect((await queue.pending(5)).length).toBe(1);
     const rows = await rowsOf(ctx());
-    expect(Object.values(rows).flat().filter((r) => typeof r === "object").length).toBeLessThanOrEqual(2); // only the head tables' defaults
+    expect(Object.values(rows).flat().filter((r) => typeof r === "object").length).toBeLessThanOrEqual(3); // only the head tables' defaults (layouts_head, authors_head, discord_users_head)
     expect(mirroredRows({ nonces: [{ a: 1 }], auth_cache: [], ratelimit: [{ key: "destructive:c", n: 2 }, { key: "write:u", n: 5 }], layouts: [{ id: "x" }] })).toEqual({ ratelimit: [{ key: "destructive:c", n: 2 }], layouts: [{ id: "x" }] });
   });
 });

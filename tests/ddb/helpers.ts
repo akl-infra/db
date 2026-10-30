@@ -18,7 +18,7 @@ import { ddbHeadStore } from "../../src/store/ddb/head";
 import { ddbLayoutReadStore } from "../../src/store/ddb/layouts";
 import { ddbStateStore } from "../../src/store/ddb/state";
 
-export const PORT = Number(process.env.DDB_PORT ?? 18301);
+export const PORT = Number(process.env.DDB_PORT ?? process.env.AKLDB_DDB_PORT ?? 18307);
 
 export function memoryBlobs(): BlobStore & { keys(): string[] } {
   const m = new Map<string, string>();
