@@ -25,6 +25,21 @@ this file just gives them a public, versioned home. From here on, a
 `WIRE_VERSION` bump and a line here land in the SAME PR, never one without
 the other (`[LDB-V5]`).
 
+## 1.32 — 2026-10-30
+
+LDB-CUT1..LDB-CUT12, design/aws-port.md §3 and §5.2: two additive signals, both
+dormant until needed.
+- `GET /v1/changes?wait=` already answered a caller it would not hold with the
+  immediate page and `X-Wait-Ignored: unauthorized`. The server now also limits
+  holds itself (one live hold per client, and a daily total of hold-seconds
+  across all clients), and a hold it declines for that reason is answered the
+  same way with `X-Wait-Ignored: budget`. Not an error: the body is the normal
+  page. `wait=` stays a hint; clients keep polling.
+- New error `503 read_only` (`{error, message, retry_after}` plus a
+  `Retry-After` header, seconds), the answer to any write (and the Discord
+  interaction POST) during a planned switch of the service's storage. It lasts
+  seconds, reads keep working, and the write was not applied: retry it.
+
 ## 1.31 — 2026-10-25
 
 LDB-WPM18..LDB-WPM20, docs/decisions/28-wpm-records.md: every WPM typist has a

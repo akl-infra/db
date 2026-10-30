@@ -226,7 +226,14 @@ export async function readHead(dbArg: StoreArg, stateKeys: readonly string[] = [
 //   or only the id; `POST /v1/wpm` takes an optional `user_name`; new
 //   `POST /v1/admin/discord-users/refresh`; `GET /v1/wpm`'s ETag folds in
 //   `discord_users_head`. Additive; one new table, no existing column moves.
-export const WIRE_VERSION = 31;
+// 32 (2026-10-30, LDB-CUT1..LDB-CUT12, design/aws-port.md §3 and §5.2): the
+//   long-poll hold budget gives `GET /v1/changes?wait=` a second value of
+//   `X-Wait-Ignored` (`budget`, beside `unauthorized`: the server declined
+//   the hold and answered the immediate page), and a planned write freeze
+//   adds the error `503 read_only` (`Retry-After`). Both are additive and
+//   dormant until the budget is spent or a cutover flag is set. No stored
+//   shape changes; no migration.
+export const WIRE_VERSION = 32;
 
 export async function etagFor(headSeqValue: number, query: unknown): Promise<string> {
   const hash = await sha256Hex(canonical({ wireVersion: WIRE_VERSION, query: query ?? null }));
