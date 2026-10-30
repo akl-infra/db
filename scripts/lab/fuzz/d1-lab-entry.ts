@@ -42,6 +42,13 @@ Object.defineProperty(crypto, "randomUUID", {
     return h.slice(0, 8) + "-" + h.slice(8, 12) + "-" + h.slice(12, 16) + "-" + h.slice(16, 20) + "-" + h.slice(20);
   },
 });
+// No edge cache in the oracle. conditional() serves a cached 200 whose ETag matches, and an ETag is (head seq, query): sound
+// in production, where events 1..seq never change, but every fuzz sequence rebuilds the database, so an earlier sequence's
+// cached feed page carries the same ETag as this one's (seed 1, sequence 40 hit it). The DynamoDB lab server has no cache.
+Object.defineProperty(caches, "default", {
+  configurable: true,
+  value: { match: async () => undefined, put: async () => {}, delete: async () => false },
+});
 function arm(req: Request) {
   const n = req.headers.get("x-lab-now");
   if (n !== null) frozenMs = RealDate.parse(n);
