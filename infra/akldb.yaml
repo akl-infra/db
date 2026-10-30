@@ -410,6 +410,7 @@ Resources:
           AKLDB_BUCKET_SNAPSHOT: !Ref SnapshotBucket
           AKLDB_SSM_PREFIX: !Sub /akldb/${Stage}
           DISCORD_API_URL: !Ref DiscordApiUrl
+          CUTOVER_ARMED: "on" # the cutover/jobs flags are read on every AWS stage (src/core/cutover.ts)
           MIRROR_MODE: !If [ IsProd, !Ref MirrorMode, "off" ]
           TEE_URL: !Ref TeeUrl
           NODE_OPTIONS: --enable-source-maps
@@ -445,6 +446,7 @@ Resources:
           AKLDB_BUCKET_SNAPSHOT: !Ref SnapshotBucket
           AKLDB_SSM_PREFIX: !Sub /akldb/${Stage}
           DISCORD_API_URL: !Ref DiscordApiUrl
+          CUTOVER_ARMED: "on" # the cutover/jobs flags are read on every AWS stage (src/core/cutover.ts)
           MIRROR_MODE: !If [ IsProd, !Ref MirrorMode, "off" ]
           TEE_URL: !Ref TeeUrl
           NODE_OPTIONS: --enable-source-maps
@@ -480,6 +482,7 @@ Resources:
           AKLDB_BUCKET_SNAPSHOT: !Ref SnapshotBucket
           AKLDB_SSM_PREFIX: !Sub /akldb/${Stage}
           DISCORD_API_URL: !Ref DiscordApiUrl
+          CUTOVER_ARMED: "on" # the cutover/jobs flags are read on every AWS stage (src/core/cutover.ts)
           MIRROR_MODE: !If [ IsProd, !Ref MirrorMode, "off" ]
           TEE_URL: !Ref TeeUrl
           NODE_OPTIONS: --enable-source-maps
@@ -791,6 +794,7 @@ Resources:
           AKLDB_BUCKET_SNAPSHOT: !Ref SnapshotBucket
           AKLDB_SSM_PREFIX: !Sub /akldb/${Stage}
           DISCORD_API_URL: !Ref DiscordApiUrl
+          CUTOVER_ARMED: "on" # the cutover/jobs flags are read on every AWS stage (src/core/cutover.ts)
           MIRROR_MODE: !Ref MirrorMode
           TEE_URL: !Ref TeeUrl
           NODE_OPTIONS: --enable-source-maps

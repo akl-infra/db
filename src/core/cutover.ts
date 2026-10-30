@@ -27,15 +27,26 @@ function fetchOf(c: Context<AppEnv>): FetchLike {
   return (c.env as unknown as { TEST_CUTOVER_FETCH?: FetchLike }).TEST_CUTOVER_FETCH ?? ((input, init) => platformOf(c).fetch(input, init));
 }
 
+/** The flags are read only where `CUTOVER_ARMED=on` (every AWS stage; D1 from the staging of a cutover). Unarmed, no request or tick
+ *  queries the store for them, so production keeps today's statement counts (LDB-R9). */
+export function cutoverArmed(env: { CUTOVER_ARMED?: string }): boolean {
+  return env.CUTOVER_ARMED === "on";
+}
+
+/** The mode, or null without a store read when unarmed. */
+async function modeOf(c: Context<AppEnv>): Promise<"read_only" | "proxy" | null> {
+  return cutoverArmed(c.env) ? platformOf(c).store.cutover.mode() : null;
+}
+
 /** True while a cutover owns the data: scheduled work must not write (read_only) or belongs to the other side (proxy). */
-export async function frozen(store: Pick<Store, "cutover">): Promise<boolean> {
-  return (await store.cutover.mode()) !== null;
+export async function frozen(store: Pick<Store, "cutover">, env: { CUTOVER_ARMED?: string }): Promise<boolean> {
+  return cutoverArmed(env) && (await store.cutover.mode()) !== null;
 }
 
 /** Mounted right after `platformMiddleware`. */
 export function cutoverProxy(): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
-    if ((await platformOf(c).store.cutover.mode()) !== "proxy" || c.req.header(PROXIED_HEADER) !== undefined) {
+    if ((await modeOf(c)) !== "proxy" || c.req.header(PROXIED_HEADER) !== undefined) {
       await next();
       return;
     }
@@ -71,7 +82,7 @@ export function cutoverProxy(): MiddlewareHandler<AppEnv> {
 /** Mounted after actor resolution on `/v1/*`, and on the Discord interaction path. */
 export function cutoverReadOnly(): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
-    if (!SAFE_METHODS.has(c.req.method) && (await platformOf(c).store.cutover.mode()) === "read_only") throw readOnly();
+    if (!SAFE_METHODS.has(c.req.method) && (await modeOf(c)) === "read_only") throw readOnly();
     await next();
   };
 }

@@ -3,12 +3,15 @@
 export interface Bindings {
   DB: D1Database;
   DUMPS: R2Bucket;
-  // Long-poll hold budget, hold-seconds per UTC day (src/core/longpoll.ts; design/aws-port.md §3). Unset => 20000.
+  // Long-poll hold budget, hold-seconds per UTC day (src/core/longpoll.ts; design/aws-port.md §3). Unset => no budget (every hold granted).
   HOLD_BUDGET_SECONDS?: string;
   // Deploy-time default of the `jobs.enabled` runtime flag (src/core/flags.ts): "off" makes every scheduled tick a no-op. Unset => on.
   JOBS_ENABLED?: string;
   // The AWS `prod` stage's base URL; the Worker forwards every request there while import_state['cutover.mode'] is 'proxy' (src/core/cutover.ts).
   CUTOVER_PROXY_URL?: string;
+  // "on" arms the cutover and jobs flags (src/core/cutover.ts): only then are cutover.mode and jobs.enabled read from the store. Unset
+  // (production D1 until the cutover is staged) reads neither, so no request or tick pays a query for them.
+  CUTOVER_ARMED?: string;
   DISCORD_API_URL: string; // e.g. https://discord.com/api -- src/auth/discord.ts (09 §3 T1)
   // Mod-queue Discord notify (LDB-MD12, src/core/modqueue.ts): a Discord
   // incoming-webhook URL. Unset or empty => the whole feature is a no-op

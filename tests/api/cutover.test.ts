@@ -179,10 +179,12 @@ describe("the cutover modes", () => {
     await cacheExpiry();
   }
   beforeEach(async () => {
+    env.CUTOVER_ARMED = "on";
     await setMode(null);
   });
   afterEach(async () => {
     await setMode(null);
+    delete env.CUTOVER_ARMED;
   });
 
   async function signedPost(clientId: string, privateKey: CryptoKey, actor: string, path: string, body: string, extra: Record<string, string> = {}): Promise<Response> {
@@ -206,6 +208,30 @@ describe("the cutover modes", () => {
     await setMode("garbage");
     expect((await SELF.fetch("https://example.com/v1/meta")).status).toBe(200);
     expect((await signedPost(c.clientId, c.privateKey, c.actor, "/v1/layouts", "{}")).status).not.toBe(503);
+  });
+
+  it("[LDB-CUT6] unarmed (CUTOVER_ARMED unset, production D1 today) the stored flags are never read: read_only and jobs.enabled=off change nothing", async () => {
+    delete env.CUTOVER_ARMED;
+    const c = await newClient();
+    await setMode("read_only");
+    await store.state.put("jobs.enabled", "off");
+    try {
+      expect((await signedPost(c.clientId, c.privateKey, c.actor, "/v1/layouts", "{}")).status).not.toBe(503);
+      const { createExecutionContext, createScheduledController, waitOnExecutionContext } = await import("../harness");
+      const worker = (await import("../../src/index")).default;
+      const logs: string[] = [];
+      const spy = vi.spyOn(console, "log").mockImplementation((m: unknown) => void logs.push(String(m)));
+      try {
+        const ctx = createExecutionContext();
+        await worker.scheduled(createScheduledController({ scheduledTime: new Date("2031-05-05T03:00:00Z"), cron: "*/5 * * * *" }), bindings, ctx);
+        await waitOnExecutionContext(ctx);
+      } finally {
+        spy.mockRestore();
+      }
+      expect(logs.some((l) => l.includes("skipped,"))).toBe(false);
+    } finally {
+      await store.state.delete("jobs.enabled");
+    }
   });
 
   it("[LDB-CUT7] read_only: writes get 503 read_only with Retry-After, reads continue, HEAD included", async () => {
