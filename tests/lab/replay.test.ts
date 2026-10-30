@@ -83,7 +83,7 @@ describe("ordering", () => {
   it("[LDB-PG36] dispatches in EventTimestampMs order at (ts - ts0) / speed, 1x and 10x, with the lab clock always the original time", async () => {
     const { schedule, runPlan } = await load("run.mjs");
     const { createSigner } = await load("sign.mjs");
-    const { diffPair } = await load("diff-shim.mjs");
+    const { diffPair } = await import(/* @vite-ignore */ path.join(process.cwd(), "scripts/lab/diff/pair.mjs"));
     const items = [mkItem(0, 1_000_000), mkItem(1, 1_002_000), mkItem(2, 1_010_000)];
     expect(schedule(items, 1).map((s: any) => s.dueMs)).toEqual([0, 2000, 10000]);
     expect(schedule(items, 10).map((s: any) => s.dueMs)).toEqual([0, 200, 1000]);
@@ -108,7 +108,7 @@ describe("ordering", () => {
   it("[LDB-PG37] a write is a barrier (earlier requests finish first, later ones wait), a long-poll is not", async () => {
     const { runPlan } = await load("run.mjs");
     const { createSigner } = await load("sign.mjs");
-    const { diffPair } = await load("diff-shim.mjs");
+    const { diffPair } = await import(/* @vite-ignore */ path.join(process.cwd(), "scripts/lab/diff/pair.mjs"));
     const log: string[] = [];
     let releaseHold: () => void = () => {};
     const hold = new Promise<void>((r) => (releaseHold = r));
@@ -158,7 +158,7 @@ describe("ordering", () => {
     // end to end: the scaled query is what reaches the sides
     const { runPlan } = await load("run.mjs");
     const { createSigner } = await load("sign.mjs");
-    const { diffPair } = await load("diff-shim.mjs");
+    const { diffPair } = await import(/* @vite-ignore */ path.join(process.cwd(), "scripts/lab/diff/pair.mjs"));
     const a = fakeSide("a");
     const b = fakeSide("b");
     await runPlan({ items: [lp[0]] }, { sides: [a, b], diffPair, signer: createSigner(), speed: 10, clock: noClock() });
@@ -170,7 +170,7 @@ describe("304 and ids", () => {
   it("[LDB-PG39] a logged 304 is replayed with each side's then-current ETag (re-primed after a write)", async () => {
     const { runPlan } = await load("run.mjs");
     const { createSigner } = await load("sign.mjs");
-    const { diffPair } = await load("diff-shim.mjs");
+    const { diffPair } = await import(/* @vite-ignore */ path.join(process.cwd(), "scripts/lab/diff/pair.mjs"));
     const items = [
       mkItem(0, 0, { path: "/v1/meta", conditional304: true, logged: { ts: 0, status: 304, wallMs: 0 } }),
       mkItem(1, 1, { kind: "write", method: "POST", path: "/v1/w" }),
@@ -192,7 +192,7 @@ describe("304 and ids", () => {
   it("[LDB-PG45] ids the lab mints replace the logged ones in later paths and bodies, per side", async () => {
     const { runPlan } = await load("run.mjs");
     const { createSigner } = await load("sign.mjs");
-    const { diffPair } = await load("diff-shim.mjs");
+    const { diffPair } = await import(/* @vite-ignore */ path.join(process.cwd(), "scripts/lab/diff/pair.mjs"));
     const orig = "01ORIGINALORIGINALORIGINAL";
     const items = [
       mkItem(0, 0, { kind: "write", method: "POST", path: "/v1/layouts", mint: { kind: "layout", orig }, body: Buffer.from('{"name":"n"}') }),
@@ -313,7 +313,7 @@ describe("re-signing", () => {
     expect(labClientRow()).toMatchObject({ id: LAB_CLIENT, status: "active", caps: "act-as-user,feed:wait" });
     // run.mjs signs the final (id-remapped) path and body per side, and only the requests that carry an actor
     const { runPlan } = await load("run.mjs");
-    const { diffPair } = await load("diff-shim.mjs");
+    const { diffPair } = await import(/* @vite-ignore */ path.join(process.cwd(), "scripts/lab/diff/pair.mjs"));
     const a = fakeSide("a");
     const b = fakeSide("b");
     await runPlan({ items: [mkItem(0, 0, { actor: "100000000000000002" }), mkItem(1, 1)] }, { sides: [a, b], diffPair, signer, clock: noClock() });
@@ -347,12 +347,11 @@ describe("skipped-request report", () => {
     expect(run([]).status).toBe(0);
     expect(run(["--max-skip", "0.001"]).status).toBe(1);
     expect(run([]).stdout).toContain("skipped 3 (0.580%");
-    // diffPair(a, b, ctx) => Problem[], the shim S replaces
-    const { diffPair, loadDiffPair } = await load("diff-shim.mjs");
+    // diffPair(a, b, ctx) => Problem[], lane S's differ
+    const { diffPair } = await import(/* @vite-ignore */ path.join(process.cwd(), "scripts/lab/diff/pair.mjs"));
     const res = (status: number, etag: string, text: string) => ({ status, headers: { etag }, body: Buffer.from(text) });
     expect(diffPair(res(200, '"1"', "{}"), res(200, '"1"', "{}"), {})).toEqual([]);
     expect(diffPair(res(200, '"1"', "{}"), res(404, '"2"', "{x}"), {}).map((p: any) => p.kind)).toEqual(["status", "header", "body"]);
-    expect(typeof (await loadDiffPair()).diffPair).toBe("function");
     // loopback only: no cloud, ever
     const { httpSide } = await import(/* @vite-ignore */ path.join(R, "replay.mjs"));
     expect(() => httpSide("x", "https://api.akldb.org")).toThrow(/loopback/);

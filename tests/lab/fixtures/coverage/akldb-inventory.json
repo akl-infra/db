@@ -1,0 +1,895 @@
+{
+ "source": "handoff/aws-coverage-inventory.md (2026-10-25) + extras",
+ "items": [
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "GET /v1/meta",
+   "writes": "none",
+   "source": "db-aws:src/index.ts:191",
+   "coverage": "LP exact, SIM, CRAWL (conditional per command)",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "GET /v1/me",
+   "writes": "none",
+   "source": "db-aws:src/index.ts:282",
+   "coverage": "LP (X-Lab-Actor / re-signed), SIM, CRAWL",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "POST /discord/interactions",
+   "writes": "store: discord actions; Discord callbacks/DMs",
+   "source": "db-aws:src/index.ts:306",
+   "coverage": "SIM (component clicks vs fake Discord), RACE (duplicates); NOT LP (signed, no body in Logpush)",
+   "gap": "G3"
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "GET /v1/admin/admins",
+   "writes": "none",
+   "source": "db-aws:src/routes/admin.ts:59",
+   "coverage": "SIM, CRAWL",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "POST /v1/admin/admins",
+   "writes": "store: admin add",
+   "source": "db-aws:src/routes/admin.ts:65",
+   "coverage": "CRAWL only",
+   "gap": "G2"
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "DELETE /v1/admin/admins/:user_id",
+   "writes": "store: admin remove",
+   "source": "db-aws:src/routes/admin.ts:73",
+   "coverage": "CRAWL only",
+   "gap": "G2"
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "POST /v1/admin/nightly/tick",
+   "writes": "store prunes + dump",
+   "source": "db-aws:src/routes/admin.ts:92",
+   "coverage": "CRAWL; same job list as the SCHED nightly",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "POST /v1/admin/dump",
+   "writes": "R2/S3 dump object",
+   "source": "db-aws:src/routes/admin.ts:111",
+   "coverage": "SIM (dumps), CRAWL",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "POST /v1/admin/magic-seed",
+   "writes": "store: magic rows (one-off seed)",
+   "source": "db-aws:src/routes/admin.ts:124",
+   "coverage": "NONE",
+   "gap": "G2"
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "POST /v1/admin/relabel-magic-thumbs",
+   "writes": "store: relabel (one-off)",
+   "source": "db-aws:src/routes/admin.ts:145",
+   "coverage": "NONE",
+   "gap": "G2"
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "POST /v1/admin/clients",
+   "writes": "store: client key",
+   "source": "db-aws:src/routes/admin.ts:157",
+   "coverage": "implicit (simulator needs clients); not listed in 5.1",
+   "gap": "G2"
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "DELETE /v1/admin/clients/:id",
+   "writes": "store: client delete",
+   "source": "db-aws:src/routes/admin.ts:165",
+   "coverage": "NONE named",
+   "gap": "G2"
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "GET /v1/admin/clients",
+   "writes": "none",
+   "source": "db-aws:src/routes/admin.ts:174",
+   "coverage": "SIM, CRAWL",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "POST /v1/admin/clients/:id/suspend",
+   "writes": "store",
+   "source": "db-aws:src/routes/admin.ts:187",
+   "coverage": "SIM",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "POST /v1/admin/clients/:id/reactivate",
+   "writes": "store",
+   "source": "db-aws:src/routes/admin.ts:201",
+   "coverage": "NONE named (5.1 lists suspend + revert)",
+   "gap": "G2"
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "POST /v1/admin/clients/:id/revert",
+   "writes": "store: mass revert + events",
+   "source": "db-aws:src/routes/admin.ts:218",
+   "coverage": "SIM",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "GET /v1/authors",
+   "writes": "none",
+   "source": "db-aws:src/routes/authors.ts:34",
+   "coverage": "LP exact, SIM, CRAWL",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "GET /v1/authors/:user_id",
+   "writes": "none",
+   "source": "db-aws:src/routes/authors.ts:61",
+   "coverage": "LP exact, SIM, CRAWL",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "GET /admin/changelog",
+   "writes": "none",
+   "source": "db-aws:src/routes/changelog.ts:120",
+   "coverage": "LP exact, CRAWL (8 requests)",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "GET /v1/changes",
+   "writes": "none",
+   "source": "db-aws:src/routes/changes.ts:169",
+   "coverage": "LP exact, SIM, CRAWL; SIM keep-warm long-polls hit the hold budget",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "GET /v1/comment-counts",
+   "writes": "none",
+   "source": "db-aws:src/routes/comments.ts:57",
+   "coverage": "LP exact, SIM, CRAWL",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "GET /v1/layouts/:ref/comments",
+   "writes": "none",
+   "source": "db-aws:src/routes/comments.ts:80",
+   "coverage": "LP exact, SIM, CRAWL",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "GET /v1/layouts/:ref/comment",
+   "writes": "none",
+   "source": "db-aws:src/routes/comments.ts:114",
+   "coverage": "LP (X-Lab-Actor / re-signed), SIM, CRAWL",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "GET /v1/me/comments",
+   "writes": "none",
+   "source": "db-aws:src/routes/comments.ts:126",
+   "coverage": "LP (X-Lab-Actor / re-signed), SIM, CRAWL",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "PUT /v1/layouts/:ref/comment",
+   "writes": "store: comment submission; Discord (modqueue)",
+   "source": "db-aws:src/routes/comments.ts:133",
+   "coverage": "SIM, RACE, CRAWL; LP body source unnamed in design 5.1",
+   "gap": "G1"
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "DELETE /v1/layouts/:ref/comment",
+   "writes": "store: comment erase",
+   "source": "db-aws:src/routes/comments.ts:145",
+   "coverage": "SIM, RACE, CRAWL; LP body source unnamed in design 5.1",
+   "gap": "G1"
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "PUT /v1/layouts/:ref/comments/:author_id/like",
+   "writes": "store: comment like",
+   "source": "db-aws:src/routes/comments.ts:157",
+   "coverage": "SIM, RACE, CRAWL; LP body source unnamed in design 5.1",
+   "gap": "G1"
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "DELETE /v1/layouts/:ref/comments/:author_id/like",
+   "writes": "store: comment unlike",
+   "source": "db-aws:src/routes/comments.ts:164",
+   "coverage": "SIM, RACE, CRAWL; LP body source unnamed in design 5.1",
+   "gap": "G1"
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "GET /v1/admin/comment-queue",
+   "writes": "none",
+   "source": "db-aws:src/routes/comments.ts:171",
+   "coverage": "SIM, LP",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "POST /v1/admin/comment-queue/:id/approve",
+   "writes": "store; Discord (queue message edit)",
+   "source": "db-aws:src/routes/comments.ts:181",
+   "coverage": "SIM, LP* (decision rebuilt), CRAWL",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "POST /v1/admin/comment-queue/:id/reject",
+   "writes": "store; Discord (rejection DM)",
+   "source": "db-aws:src/routes/comments.ts:191",
+   "coverage": "SIM, LP* (decision rebuilt), CRAWL",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "POST /v1/admin/comments/:id/remove",
+   "writes": "store; Discord",
+   "source": "db-aws:src/routes/comments.ts:201",
+   "coverage": "SIM, LP* (decision rebuilt), CRAWL",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "GET /v1/admin/comment-queue/:id/history",
+   "writes": "none",
+   "source": "db-aws:src/routes/comments.ts:210",
+   "coverage": "SIM, LP",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "POST /v1/admin/comment-queue/:id/reopen",
+   "writes": "store",
+   "source": "db-aws:src/routes/comments.ts:217",
+   "coverage": "SIM, LP* (decision rebuilt), CRAWL",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "GET /v1/dump/latest.json",
+   "writes": "none (reads dump object)",
+   "source": "db-aws:src/routes/dump.ts:25",
+   "coverage": "LP exact, CRAWL; Spark boot path",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "GET /v1/dump/monthly/:key",
+   "writes": "none (reads dump object)",
+   "source": "db-aws:src/routes/dump.ts:33",
+   "coverage": "LP exact; CRAWL names no monthly key",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "GET /v1/dump/:key",
+   "writes": "none (reads dump object)",
+   "source": "db-aws:src/routes/dump.ts:42",
+   "coverage": "LP exact, CRAWL",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "GET /v1/dump",
+   "writes": "none (reads dump object)",
+   "source": "db-aws:src/routes/dump.ts:54",
+   "coverage": "LP exact, CRAWL (before/after a written dump)",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "GET /v1/formats",
+   "writes": "none",
+   "source": "db-aws:src/routes/formats.ts:25",
+   "coverage": "LP exact, SIM, CRAWL",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "GET /v1/formats/:name/:major/schema.json",
+   "writes": "none",
+   "source": "db-aws:src/routes/formats.ts:44",
+   "coverage": "LP exact, SIM, CRAWL",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "GET /v1/layouts",
+   "writes": "none",
+   "source": "db-aws:src/routes/layouts.ts:109",
+   "coverage": "LP exact, SIM, CRAWL",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "GET /v1/layouts/:ref",
+   "writes": "none",
+   "source": "db-aws:src/routes/layouts.ts:245",
+   "coverage": "LP exact, SIM, CRAWL",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "GET /v1/layouts/:ref/likes",
+   "writes": "none",
+   "source": "db-aws:src/routes/layouts.ts:272",
+   "coverage": "LP exact, SIM, CRAWL",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "GET /v1/layouts/:ref/history",
+   "writes": "none",
+   "source": "db-aws:src/routes/layouts.ts:285",
+   "coverage": "LP exact, SIM, CRAWL",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "GET /v1/layouts/:ref/rev/:n",
+   "writes": "none",
+   "source": "db-aws:src/routes/layouts.ts:307",
+   "coverage": "LP exact, SIM, CRAWL",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "PUT /v1/layouts/:ref/like",
+   "writes": "store: like + event",
+   "source": "db-aws:src/routes/likes.ts:20",
+   "coverage": "LP* (body rebuilt from event), SIM, RACE, CRAWL",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "DELETE /v1/layouts/:ref/like",
+   "writes": "store: unlike + event",
+   "source": "db-aws:src/routes/likes.ts:25",
+   "coverage": "LP* (body rebuilt from event), SIM, RACE, CRAWL",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "GET /v1/layouts/:ref/link",
+   "writes": "none",
+   "source": "db-aws:src/routes/links.ts:50",
+   "coverage": "LP (X-Lab-Actor / re-signed), SIM, CRAWL",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "PUT /v1/layouts/:ref/link",
+   "writes": "store: link submission; Discord (modqueue webhook)",
+   "source": "db-aws:src/routes/links.ts:57",
+   "coverage": "SIM, RACE, CRAWL; LP body source unnamed in design 5.1",
+   "gap": "G1"
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "DELETE /v1/layouts/:ref/link",
+   "writes": "store: link clear",
+   "source": "db-aws:src/routes/links.ts:72",
+   "coverage": "SIM, RACE, CRAWL; LP body source unnamed in design 5.1",
+   "gap": "G1"
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "GET /v1/admin/link-queue",
+   "writes": "none",
+   "source": "db-aws:src/routes/links.ts:81",
+   "coverage": "SIM, LP",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "POST /v1/admin/link-queue/:id/approve",
+   "writes": "store; Discord",
+   "source": "db-aws:src/routes/links.ts:91",
+   "coverage": "SIM, LP* (decision rebuilt), CRAWL",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "POST /v1/admin/link-queue/:id/reject",
+   "writes": "store; Discord (rejection DM)",
+   "source": "db-aws:src/routes/links.ts:99",
+   "coverage": "SIM, LP* (decision rebuilt), CRAWL",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "GET /v1/admin/bans",
+   "writes": "none",
+   "source": "db-aws:src/routes/moderation.ts:35",
+   "coverage": "SIM",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "PUT /v1/admin/bans/:user_id",
+   "writes": "store: ban",
+   "source": "db-aws:src/routes/moderation.ts:41",
+   "coverage": "SIM, CRAWL",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "DELETE /v1/admin/bans/:user_id",
+   "writes": "store: unban",
+   "source": "db-aws:src/routes/moderation.ts:49",
+   "coverage": "SIM, CRAWL",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "PUT /v1/admin/authors/:user_id",
+   "writes": "store: author rename",
+   "source": "db-aws:src/routes/moderation.ts:57",
+   "coverage": "SIM, CRAWL",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "GET /v1/wpm",
+   "writes": "none",
+   "source": "db-aws:src/routes/wpm.ts:57",
+   "coverage": "LP exact, SIM, CRAWL",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "POST /v1/wpm",
+   "writes": "store: wpm submission; Discord (modqueue)",
+   "source": "db-aws:src/routes/wpm.ts:82",
+   "coverage": "SIM, RACE, CRAWL; LP body source unnamed in design 5.1",
+   "gap": "G1"
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "GET /v1/wpm/submissions/:id",
+   "writes": "none",
+   "source": "db-aws:src/routes/wpm.ts:94",
+   "coverage": "LP (X-Lab-Actor / re-signed), SIM, CRAWL; Spark 30 s receipt polls (SIM)",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "PUT /v1/wpm/submissions/:id/discord-message",
+   "writes": "store: binds receipt message id",
+   "source": "db-aws:src/routes/wpm.ts:101",
+   "coverage": "SIM, RACE, CRAWL; LP body source unnamed in design 5.1",
+   "gap": "G1"
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "POST /v1/admin/wpm",
+   "writes": "store: on-behalf wpm",
+   "source": "db-aws:src/routes/wpm.ts:110",
+   "coverage": "SIM, LP* (decision rebuilt), CRAWL",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "GET /v1/admin/wpm-queue",
+   "writes": "none",
+   "source": "db-aws:src/routes/wpm.ts:119",
+   "coverage": "SIM, LP",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "POST /v1/admin/wpm-queue/:id/approve",
+   "writes": "store; Discord",
+   "source": "db-aws:src/routes/wpm.ts:129",
+   "coverage": "SIM, LP* (decision rebuilt), CRAWL",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "POST /v1/admin/wpm-queue/:id/reject",
+   "writes": "store; Discord (rejection DM)",
+   "source": "db-aws:src/routes/wpm.ts:139",
+   "coverage": "SIM, LP* (decision rebuilt), CRAWL",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "GET /v1/admin/wpm-queue/:id/history",
+   "writes": "none",
+   "source": "db-aws:src/routes/wpm.ts:149",
+   "coverage": "SIM, LP",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "POST /v1/admin/wpm-queue/:id/reopen",
+   "writes": "store",
+   "source": "db-aws:src/routes/wpm.ts:156",
+   "coverage": "SIM, LP* (decision rebuilt), CRAWL",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "POST /v1/layouts",
+   "writes": "store: layout rev 1 + event",
+   "source": "db-aws:src/routes/write.ts:44",
+   "coverage": "LP* (body rebuilt from event), SIM, RACE, CRAWL",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "PUT /v1/layouts/:ref",
+   "writes": "store: format payload rev + event",
+   "source": "db-aws:src/routes/write.ts:51",
+   "coverage": "LP* (body rebuilt from event), SIM, RACE, CRAWL",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "PATCH /v1/layouts/:ref",
+   "writes": "store: fingermap/magic/alts/combos or rename + event",
+   "source": "db-aws:src/routes/write.ts:60",
+   "coverage": "LP* (body rebuilt from event), SIM, RACE, CRAWL",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "DELETE /v1/layouts/:ref",
+   "writes": "store: tombstone + event",
+   "source": "db-aws:src/routes/write.ts:80",
+   "coverage": "LP* (body rebuilt from event), SIM, RACE, CRAWL",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "POST /v1/layouts/:ref/restore",
+   "writes": "store: un-tombstone + event",
+   "source": "db-aws:src/routes/write.ts:86",
+   "coverage": "LP* (body rebuilt from event), SIM, RACE, CRAWL",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "POST /v1/layouts/:ref/transfer",
+   "writes": "store: owner + event",
+   "source": "db-aws:src/routes/write.ts:92",
+   "coverage": "LP* (body rebuilt from event), SIM, RACE, CRAWL",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "scheduled_job",
+   "id": "scheduled() */5 dispatch (AWS: EventBridge rate(5 minutes) -> jobs Lambda)",
+   "writes": "store; Discord",
+   "source": "db-aws:src/index.ts:364",
+   "coverage": "SCHED (runs itself for the 7 days; scheduledTime passed in)",
+   "gap": "",
+   "key": "dispatch-5min"
+  },
+  {
+   "component": "akldb",
+   "kind": "scheduled_job",
+   "id": "modqueue-notify",
+   "writes": "Discord (modqueue webhook), store marks",
+   "source": "db-aws:src/index.ts:383",
+   "coverage": "SCHED + fake Discord records deliveries (diffed)",
+   "gap": "",
+   "key": "modqueue-notify"
+  },
+  {
+   "component": "akldb",
+   "kind": "scheduled_job",
+   "id": "discord-interaction-actions (drain)",
+   "writes": "store; Discord",
+   "source": "db-aws:src/index.ts:384",
+   "coverage": "SCHED + SIM (component clicks create the actions) + fake Discord",
+   "gap": "",
+   "key": "discord-interaction-actions"
+  },
+  {
+   "component": "akldb",
+   "kind": "scheduled_job",
+   "id": "discord-moderation-dms",
+   "writes": "Discord (DMs)",
+   "source": "db-aws:src/index.ts:385",
+   "coverage": "SCHED + fake Discord",
+   "gap": "",
+   "key": "discord-moderation-dms"
+  },
+  {
+   "component": "akldb",
+   "kind": "scheduled_job",
+   "id": "nightly 03:00 UTC: prune-auth-cache",
+   "writes": "store",
+   "source": "db-aws:src/core/nightly.ts:45",
+   "coverage": "SCHED (7 nights) + CRAWL via admin/nightly/tick",
+   "gap": "",
+   "key": "nightly-prune-auth-cache"
+  },
+  {
+   "component": "akldb",
+   "kind": "scheduled_job",
+   "id": "nightly: prune-rate-limits",
+   "writes": "store",
+   "source": "db-aws:src/core/nightly.ts:46",
+   "coverage": "SCHED (7 nights); DynamoDB must not resurrect windows (design 2)",
+   "gap": "G4",
+   "key": "nightly-prune-rate-limits"
+  },
+  {
+   "component": "akldb",
+   "kind": "scheduled_job",
+   "id": "nightly: prune-nonces",
+   "writes": "store",
+   "source": "db-aws:src/core/nightly.ts:47",
+   "coverage": "SCHED (7 nights); nonce rollback window (design 2)",
+   "gap": "G4",
+   "key": "nightly-prune-nonces"
+  },
+  {
+   "component": "akldb",
+   "kind": "scheduled_job",
+   "id": "nightly: prune-idempotency",
+   "writes": "store",
+   "source": "db-aws:src/core/nightly.ts:51",
+   "coverage": "SCHED (7 nights)",
+   "gap": "",
+   "key": "nightly-prune-idempotency"
+  },
+  {
+   "component": "akldb",
+   "kind": "scheduled_job",
+   "id": "nightly: write-dump",
+   "writes": "R2/S3 dump object + dump state",
+   "source": "db-aws:src/core/nightly.ts:53",
+   "coverage": "SCHED + CRAWL + dump bytes diffed",
+   "gap": "",
+   "key": "nightly-write-dump"
+  },
+  {
+   "component": "akldb",
+   "kind": "scheduled_job",
+   "id": "dump-catchup (dump missing or older than 24 h)",
+   "writes": "dump object",
+   "source": "db-aws:src/index.ts:406",
+   "coverage": "NONE unless a night is missed",
+   "gap": "G5",
+   "key": "dump-catchup"
+  },
+  {
+   "component": "akldb",
+   "kind": "scheduled_job",
+   "id": "AWS-only: replica snapshot rebuild (nightly)",
+   "writes": "S3 replica/snapshot.json.gz",
+   "source": "db-aws:design/aws-port.md:323-327",
+   "coverage": "SCHED; cold-boot reads it (read model == scan at checkpoints)",
+   "gap": "",
+   "key": "replica-snapshot"
+  },
+  {
+   "component": "akldb",
+   "kind": "scheduled_job",
+   "id": "AWS-only: migrations",
+   "writes": "store schema/items",
+   "source": "db-aws:design/aws-port.md:365-435 (jobs Lambda)",
+   "coverage": "cutover rehearsals (P6) only",
+   "gap": "G6",
+   "key": "migrations"
+  },
+  {
+   "component": "akldb",
+   "kind": "scheduled_job",
+   "id": "AWS-only: index checker",
+   "writes": "none (reads)",
+   "source": "db-aws:design/aws-port.md:365-435 (jobs Lambda)",
+   "coverage": "SCHED + hourly/daily checkpoints",
+   "gap": "",
+   "key": "index-checker"
+  },
+  {
+   "component": "akldb",
+   "kind": "background_step",
+   "id": "waitUntil: drainDiscordActions + dispatchRejectionDms after a type 5/6 callback",
+   "writes": "store; Discord",
+   "source": "db-aws:src/index.ts:312",
+   "coverage": "SIM + RACE + fake Discord (platform.background must be awaited by the streaming handler)",
+   "gap": "",
+   "key": "step-interaction-drain"
+  },
+  {
+   "component": "akldb",
+   "kind": "background_step",
+   "id": "waitUntil: notifyPending after link submit",
+   "writes": "Discord (modqueue)",
+   "source": "db-aws:src/routes/links.ts:68",
+   "coverage": "SIM + fake Discord",
+   "gap": "",
+   "key": "step-link-notify"
+  },
+  {
+   "component": "akldb",
+   "kind": "background_step",
+   "id": "waitUntil: announceComment",
+   "writes": "Discord",
+   "source": "db-aws:src/routes/comments.ts:141",
+   "coverage": "SIM + fake Discord",
+   "gap": "",
+   "key": "step-comment-announce"
+  },
+  {
+   "component": "akldb",
+   "kind": "background_step",
+   "id": "waitUntil: updateQueueNotification + dispatchRejectionDms after a comment decision",
+   "writes": "Discord",
+   "source": "db-aws:src/routes/comments.ts:186-222",
+   "coverage": "SIM + fake Discord",
+   "gap": "",
+   "key": "step-comment-decision"
+  },
+  {
+   "component": "akldb-site",
+   "kind": "http_route",
+   "id": "GET /auth/login",
+   "writes": "cookie (state)",
+   "source": "db-aws:site/server/discord.ts:55",
+   "coverage": "SYN dynamic OAuth round trip vs fake Discord",
+   "gap": ""
+  },
+  {
+   "component": "akldb-site",
+   "kind": "http_route",
+   "id": "GET /auth/callback",
+   "writes": "Discord (token exchange), cookie (sealed session)",
+   "source": "db-aws:site/server/discord.ts:72",
+   "coverage": "SYN OAuth round trip vs fake Discord (single-use code is fresh each run)",
+   "gap": ""
+  },
+  {
+   "component": "akldb-site",
+   "kind": "http_route",
+   "id": "POST /auth/logout",
+   "writes": "cookie",
+   "source": "db-aws:site/server/discord.ts:145",
+   "coverage": "SYN round trip",
+   "gap": ""
+  },
+  {
+   "component": "akldb-site",
+   "kind": "http_route",
+   "id": "GET /auth/me",
+   "writes": "none (re-checks /v1/me)",
+   "source": "db-aws:site/server/discord.ts:152",
+   "coverage": "SYN round trip + header allowlists",
+   "gap": ""
+  },
+  {
+   "component": "akldb-site",
+   "kind": "http_route",
+   "id": "* /api/v1/* (proxy)",
+   "writes": "akldb (every method, bearer injected)",
+   "source": "db-aws:site/server/proxy.ts:54",
+   "coverage": "SYN simulator akl.gg/site-shaped calls through the proxy: CSRF refusals, 413 cap, slow upstream 504, token_invalid -> reauth",
+   "gap": ""
+  },
+  {
+   "component": "akldb-site",
+   "kind": "static",
+   "id": "SPA + assets (/, /l/:ref, /changes, /docs, /admin, unknown paths)",
+   "writes": "none",
+   "source": "db-aws:site/wrangler.toml:27; design 3a",
+   "coverage": "SYN static crawl (manifest assets + unknown paths, bytes/headers diffed) + UI walk (agent)",
+   "gap": ""
+  },
+  {
+   "component": "akldb",
+   "kind": "http_route",
+   "id": "POST /v1/admin/discord-users/refresh",
+   "writes": "store: author names; Discord user lookups",
+   "source": "db-aws:src/routes/wpm.ts:126",
+   "coverage": "NONE (missing from the 2026-10-25 handoff inventory; added by lane S)",
+   "gap": "G7"
+  }
+ ]
+}

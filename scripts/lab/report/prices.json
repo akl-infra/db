@@ -1,0 +1,11 @@
+{
+  "_comment": "Unit prices for the cost projection, us-east-2, USD. Edit here, never in code; the main session confirms them against the AWS price list before a gate run. DynamoDB on-demand (post 2024-11 pricing), Lambda arm64 (x86_64: 0.0000166667 per GB-s), Lambda requests, CloudWatch Logs ingestion, S3 standard storage.",
+  "dynamodb_per_million_read_units": 0.125,
+  "dynamodb_per_million_write_units": 0.625,
+  "dynamodb_storage_per_gb_month": 0.25,
+  "lambda_per_gb_second": 0.0000133334,
+  "lambda_per_million_requests": 0.2,
+  "logs_ingest_per_gb": 0.5,
+  "s3_storage_per_gb_month": 0.023,
+  "budget_usd_per_month": 2
+}

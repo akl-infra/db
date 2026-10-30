@@ -1,0 +1,6 @@
+{
+  "_comment": "The response differ's whole allow-list (design/aws-port.md section 9, P5: the allow-list holds only age_s). A pattern is a dot path into a JSON body; `*` matches exactly one key. Only a numeric or null leaf is masked. Adding an entry needs the main session and an INVARIANTS.md change (LDB-PG48).",
+  "allow": [
+    { "path": "health.*.age_s", "reason": "seconds since the last dump/diff/import; moves every second, not folded into the ETag" }
+  ]
+}

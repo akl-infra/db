@@ -1,0 +1,7 @@
+{
+  "_comment": "GetMetricData-shaped fixture (not real data): DynamoDB, 24 h, Period 21600, Statistic Sum.",
+  "MetricDataResults": [
+    { "Id": "rcu", "Label": "ConsumedReadCapacityUnits", "Timestamps": ["2026-11-01T00:00:00Z", "2026-11-01T06:00:00Z", "2026-11-01T12:00:00Z", "2026-11-01T18:00:00Z"], "Values": [4000, 5000, 6000, 5000], "StatusCode": "Complete" },
+    { "Id": "wcu", "Label": "ConsumedWriteCapacityUnits", "Timestamps": ["2026-11-01T00:00:00Z", "2026-11-01T06:00:00Z", "2026-11-01T12:00:00Z", "2026-11-01T18:00:00Z"], "Values": [1000, 1500, 1500, 1000], "StatusCode": "Complete" }
+  ]
+}

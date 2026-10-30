@@ -15,7 +15,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import { loadDiffPair } from "./diff-shim.mjs";
+import { diffPair } from "../diff/pair.mjs";
 import { loadExport } from "./exports.mjs";
 import { readLogs } from "./parse.mjs";
 import { buildPlan } from "./plan.mjs";
@@ -85,8 +85,7 @@ async function main() {
   }
   let code = skip.ok ? 0 : 1;
   if (!a.dryRun && a.a !== undefined && a.b !== undefined) {
-    const { diffPair, source } = await loadDiffPair();
-    console.log(`[replay] differ: ${source}; speed ${a.speed}x`);
+    console.log(`[replay] differ: scripts/lab/diff/pair.mjs; speed ${a.speed}x`);
     const res = await runPlan(plan, { sides: [httpSide("oracle", a.a), httpSide("aws", a.b)], diffPair, signer: createSigner(), speed: a.speed, concurrency: a.concurrency });
     console.log(`[replay] sent ${res.sent} pairs (${res.primes} 304 primes, ${res.longpolls} long-polls), ${res.diffs.length} diffs, ${res.errors.length} errors, max lag ${Math.round(res.lagMaxMs)} ms`);
     for (const d of res.diffs.slice(0, 20)) console.log(`  DIFF ${d.method} ${d.path}${d.query}: ${d.problems.map((p) => p.detail).join("; ").slice(0, 300)}`);

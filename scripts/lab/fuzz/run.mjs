@@ -19,6 +19,7 @@ import os from "node:os";
 import path from "node:path";
 import url from "node:url";
 import { ADMIN, CONTRACT_HEADERS, LAB_CLIENT, LAB_PUB_RAW, findSqlite, firstDiff, loadDump, sh, signedHeaders, sqlLit, startFakeDiscord, waitReady } from "../p1-crawl-diff.mjs";
+import { canonRow, diffStates } from "../diff/state.mjs";
 import { comparableBody, comparableDump, maskStateRows } from "./dumpmask.mjs";
 import { Generator } from "./generator.mjs";
 import { makeRng, mixSeed } from "./rng.mjs";
@@ -265,30 +266,6 @@ async function compareProducedDumps(A, B) {
   const at = firstDiff(ga, gb);
   const ctx = (g) => JSON.stringify(g.subarray(Math.max(0, at - 120), at + 160).toString("utf8"));
   return at === -1 ? [] : [`gunzipped dump ${ka} differs at byte ${at} (${ga.length} vs ${gb.length} bytes): ${ctx(ga)} vs ${ctx(gb)}`];
-}
-
-function canonRow(r) {
-  return JSON.stringify(Object.fromEntries(Object.entries(r).sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0))));
-}
-
-/** Per-table differences between two { table: rows[] } states, as multisets of canonical rows. */
-export function diffStates(a, b, ignore = []) {
-  const out = [];
-  for (const t of new Set([...Object.keys(a), ...Object.keys(b)])) {
-    if (ignore.includes(t)) continue;
-    const ra = (a[t] ?? []).map(canonRow).sort();
-    const rb = (b[t] ?? []).map(canonRow).sort();
-    if (ra.length === rb.length && ra.every((x, i) => x === rb[i])) continue;
-    const sb = new Set(rb);
-    const sa = new Set(ra);
-    out.push({
-      table: t,
-      rows: [ra.length, rb.length],
-      only_oracle: ra.filter((x) => !sb.has(x)).slice(0, 3),
-      only_other: rb.filter((x) => !sa.has(x)).slice(0, 3),
-    });
-  }
-  return out;
 }
 
 // ---------------------------------------------------------------------------

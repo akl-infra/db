@@ -15,7 +15,7 @@ import path from "node:path";
 import process from "node:process";
 import url from "node:url";
 import zlib from "node:zlib";
-import { diffPair } from "./diff-shim.mjs";
+import { diffPair } from "../diff/pair.mjs";
 import { loadExport } from "./exports.mjs";
 import { readLogs } from "./parse.mjs";
 import { buildPlan } from "./plan.mjs";

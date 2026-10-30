@@ -1,0 +1,7 @@
+{
+  "_comment": "GetMetricData-shaped fixture (not real data): Lambda, 24 h, Period 21600, Statistic Sum. Duration in milliseconds.",
+  "MetricDataResults": [
+    { "Id": "inv", "Label": "Invocations", "Timestamps": ["2026-11-01T00:00:00Z", "2026-11-01T06:00:00Z", "2026-11-01T12:00:00Z", "2026-11-01T18:00:00Z"], "Values": [1000, 1500, 1500, 1000], "StatusCode": "Complete" },
+    { "Id": "dur", "Label": "Duration", "Timestamps": ["2026-11-01T00:00:00Z", "2026-11-01T06:00:00Z", "2026-11-01T12:00:00Z", "2026-11-01T18:00:00Z"], "Values": [80000, 120000, 120000, 80000], "StatusCode": "Complete" }
+  ]
+}

@@ -1,0 +1,1 @@
+{ "window_hours": 24, "scale": 1, "lambda_memory_mb": 512, "storage_gb": { "dynamodb": 0.05, "s3": 0.2 }, "logs_gb_per_window": 0.005 }

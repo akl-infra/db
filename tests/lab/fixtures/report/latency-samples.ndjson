@@ -1,0 +1,8 @@
+{"method":"GET","path":"/v1/meta","ms":10,"cold":false,"vantage":"iad"}
+{"method":"GET","path":"/v1/meta","ms":20,"cold":false,"vantage":"iad"}
+{"method":"GET","path":"/v1/meta","ms":30,"cold":false,"vantage":"iad"}
+{"method":"GET","path":"/v1/meta","ms":40,"cold":false,"vantage":"iad"}
+{"method":"GET","path":"/v1/meta","ms":900,"cold":true,"vantage":"iad"}
+{"method":"GET","path":"/v1/layouts/abc","ms":50,"cold":false,"vantage":"iad"}
+{"method":"GET","path":"/v1/layouts/def?x=1","ms":70,"cold":false,"vantage":"iad"}
+{"method":"GET","path":"/v1/layouts/ghi","ms":60,"cold":false,"vantage":"lax"}
