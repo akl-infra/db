@@ -1,5 +1,5 @@
 // The mirror queue on D1 (design/aws-port.md §5.2 "reverse mirror"; lane Z): the D1-side receiver has no queue service, so its
-// queue is one table, `mirror_queue(sk, body)` (migrations/0036_mirror_queue.sql). It stays empty until the route is on
+// queue is one table, `mirror_queue(sk, body)` (migrations/0037_mirror_queue.sql). It stays empty until the route is on
 // (MIRROR_SECRET set, after the cutover); it is not one of the dumped tables, and the proofs ignore it.
 import { QueueConflict, type Kv } from "./queue";
 
