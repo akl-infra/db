@@ -8,7 +8,7 @@
 import type { DiscordUserRow, DiscordUserStore } from "../port";
 import { TxConditionFailed, type DdbContext, type Item, type TxItem } from "./contracts";
 import { batchGet, compareBinary, getRows, queryPartition } from "./community";
-import { DISCORD_USERS_HEAD_KEY, discordUserKey } from "./keys-auth";
+import { authorKey, DISCORD_USERS_HEAD_KEY, discordUserKey } from "./keys-auth";
 import { wpmStatusKey } from "./keys-community";
 import { getItem } from "./auth";
 import { runTx } from "./tx";
@@ -145,7 +145,7 @@ export function ddbDiscordUserStore(ctx: DdbContext): DiscordUserStore {
       const ids = [...users];
       const [du, authors] = await Promise.all([
         discordUsersById(ctx, ids),
-        batchGet(ctx, ids.map((id) => ({ pk: "AUTHORS", sk: id }))),
+        batchGet(ctx, ids.map(authorKey)),
       ]);
       const authorName = new Map(authors.map((a) => [a.sk as string, a.name as unknown]));
       const missing = ids
