@@ -551,3 +551,22 @@ it?"):**
 | LDB-INF27 | `EVENTTX_EXHAUSTED` log lines become the `EventTxRetriesExhausted` EMF metric (namespace `Akldb`, dimension `Stage`). | `tests/platform/lambda.test.ts` |
 | LDB-INF28 | `mirrorIngest` answers 503 outside `apply` mode, runs with only the data bucket configured, and refuses with a clear not-implemented error until lane Z's module is wired. | `tests/platform/lambda.test.ts` |
 | LDB-INF29 | `mirrorApply` skips outside `apply` mode and refuses clearly until lane Z's module is wired. | `tests/platform/lambda.test.ts` |
+
+## Proving ground
+
+| ID | Invariant | Tests |
+|---|---|---|
+| LDB-PG1 | With `LAB_MODE` unset (or empty, `off`), the lab entry answers every request and scheduled call with a 503 `lab_mode_unset`, runs no app code, and patches no global. | `tests/lab/entry.test.ts` |
+| LDB-PG2 | The lab entry refuses (403) any request addressed to `api.akldb.org`, by URL host or `Host` header, before the app sees it. | `tests/lab/entry.test.ts` |
+| LDB-PG3 | The lab entry freezes `Date` and reseeds `getRandomValues`/`randomUUID` from `x-lab-now` / `x-lab-seed` with the fuzzer oracle's generator (pinned by literal draws); the same headers give the same ids and times; an exempt scope sees real randomness. | `tests/lab/entry.test.ts` |
+| LDB-PG4 | The lab entry's `fetch` reaches 127.0.0.1 only (discord.com, api.akldb.org and `localhost` are refused without a network call), and an unset `DISCORD_API_URL` falls back to the pinned `https://discord.com/api`. | `tests/lab/entry.test.ts` |
+| LDB-PG5 | The lab entries serve no edge-cache hit (the fuzzer oracle's rule: an ETag from a rebuilt database must not match an earlier run's cached page); the workers entry refuses without `LAB_MODE` and keeps the oracle's `/__lab/reset`. | `tests/lab/entry.test.ts` |
+| LDB-PG6 | The fake Discord meets the bearer-check contract (`GET /oauth2/@me`: 200 `{application,user,scopes}` for `lab-<id>` and registered tokens, 401 for unknown or revoked), and akldb's own `resolveBearer` resolves and refuses accordingly. | `tests/lab/fake-discord.test.ts` |
+| LDB-PG7 | The fake Discord serves the bot routes akldb calls: channel messages GET/list/POST/PATCH/DELETE (JSON and multipart), DM channel create, `nonce` + `enforce_nonce` dedupe, user lookup; bot routes without a bot credential are 401. | `tests/lab/fake-discord.test.ts` |
+| LDB-PG8 | The fake Discord serves the interaction callback, followup, `@original` read/edit/delete and incoming-webhook routes without credentials. | `tests/lab/fake-discord.test.ts` |
+| LDB-PG9 | The fake Discord records every non-control call as NDJSON (seq, method, path, body, headers minus authorization and cookie, status) and never the credential. | `tests/lab/fake-discord.test.ts` |
+| LDB-PG10 | The fake Discord injects a 429 with `Retry-After` or a 5xx on command (matched by method and path, with a count and a skip), flags the record, and akldb's bearer check turns it into `503 identity_unavailable`. | `tests/lab/fake-discord.test.ts` |
+| LDB-PG11 | The fake Discord holds an Ed25519 key derived from its seed; interactions it signs pass `handleDiscordInteraction`'s verification and a tampered body does not. | `tests/lab/fake-discord.test.ts` |
+| LDB-PG12 | With `DISCORD_API_URL` unset (lab-entry default) or `https://discord.com/api`, every Discord URL akldb builds (bearer check, user lookup, proof read, queue message read, DM channel, interaction callback) equals the pre-change literal byte for byte. | `tests/lab/discord-base.test.ts` |
+| LDB-PG13 | With `DISCORD_API_URL` set to a loopback base, all six Discord URLs go to it and none reaches discord.com. | `tests/lab/discord-base.test.ts` |
+| LDB-PG14 | The default Discord base is `https://discord.com/api` in `wrangler.toml`, the lab entry and the Lambda config, and `discord-interactions.ts` holds no Discord URL of its own. | `tests/lab/discord-base.test.ts` |

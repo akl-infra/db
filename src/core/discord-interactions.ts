@@ -17,7 +17,6 @@ const SIGNATURE_MAX_AGE_SECONDS = 5 * 60;
 const TOKEN_LIFETIME_SECONDS = 14 * 60;
 const LEASE_SECONDS = 30;
 const BATCH_LIMIT = 10;
-const API = "https://discord.com/api/v10";
 const USER_AGENT = "akldb-discord/1.0";
 const EPHEMERAL = 64;
 
@@ -168,8 +167,9 @@ function denyModal(modalId: string): Response {
   } });
 }
 
-function discordUrl(appId: string, token: string): string {
-  return `${API}/webhooks/${encodeURIComponent(appId)}/${encodeURIComponent(token)}/messages/@original`;
+// The one Discord base: DISCORD_API_URL, which wrangler.toml pins to production's value, so production's URL is unchanged.
+function discordUrl(env: Bindings, appId: string, token: string): string {
+  return `${env.DISCORD_API_URL.replace(/\/$/, "")}/v10/webhooks/${encodeURIComponent(appId)}/${encodeURIComponent(token)}/messages/@original`;
 }
 
 async function finishInteraction(action: PendingAction, content: string | null, env: Bindings): Promise<"sent" | "retry" | "expired"> {
@@ -184,7 +184,7 @@ async function finishInteraction(action: PendingAction, content: string | null, 
   if (action.response_mode === "update" && success) return "sent";
   if (action.token === "" || env.MODQUEUE_DISCORD_BOT_TOKEN === undefined || env.MODQUEUE_DISCORD_BOT_TOKEN === "") return "expired";
   try {
-    const original = discordUrl(action.application_id, action.token);
+    const original = discordUrl(env, action.application_id, action.token);
     const response = await fetch(action.response_mode === "update" ? original.replace(/\/messages\/@original$/, "") : original, {
       method: action.response_mode === "update" ? "POST" : success ? "DELETE" : "PATCH",
       headers: { "Content-Type": "application/json", "User-Agent": USER_AGENT },
