@@ -697,7 +697,16 @@ export const RETRY = Symbol("retry");
 export async function decide<T>(attempt: () => Promise<T | typeof RETRY>): Promise<T> {
   for (let i = 0; i < 8; i++) {
     if (i > 0) await txTuning.sleep(5 * 2 ** Math.min(i, 5) * (0.5 + txTuning.random()));
-    const r = await attempt();
+    let r: T | typeof RETRY;
+    try {
+      r = await attempt();
+    } catch (e) {
+      // A claim already in the history while the row still read as undecided is a concurrent decision committed between
+      // the two reads: re-read, and the row shows it (D1 runs both in one batch and never sees this). Only a claim that
+      // survives every re-read is D1's UNIQUE violation.
+      if (e instanceof HistoryUnique && i < 7) continue;
+      throw e;
+    }
     if (r !== RETRY) return r;
   }
   console.error("EVENTTX_EXHAUSTED community decision: gave up after 8 attempts");
