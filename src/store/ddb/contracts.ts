@@ -97,7 +97,7 @@ export interface Catalog {
 /** Every D1 table the codec carries (migrations/*.sql minus SQLite's own). */
 export type D1TableName =
   | "layouts" | "layout_formats" | "layout_revs" | "likes" | "events" | "layouts_head" | "import_state" | "import_map"
-  | "authors" | "authors_head" | "admins" | "bans" | "clients" | "nonces" | "auth_cache" | "ratelimit" | "idempotency"
+  | "authors" | "authors_head" | "discord_users" | "discord_users_head" | "admins" | "bans" | "clients" | "nonces" | "auth_cache" | "ratelimit" | "idempotency"
   | "link_submissions" | "wpm_submissions" | "layout_comments" | "comment_likes" | "moderation_review_history"
   | "modqueue_notifications" | "modqueue_delivery_gate" | "discord_pending_actions" | "discord_reopen_actions"
   | "discord_deny_modals" | "discord_reopen_confirmations" | "discord_rejection_dm_outbox";

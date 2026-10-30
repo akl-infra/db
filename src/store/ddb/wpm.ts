@@ -4,6 +4,7 @@
 import type { WpmQueueRow, WpmRecord, WpmSubmissionRow } from "../../core/wpm";
 import type { WpmStore } from "../port";
 import { TxConditionFailed, type DdbContext } from "./contracts";
+import { resolvedNames } from "./discord-users";
 import { runEventTx, runTx } from "./tx";
 import { wpmGuardKey, wpmOkKey, wpmPairKey, wpmStatusKey, subKey } from "./keys-community";
 import {
@@ -192,10 +193,11 @@ export function ddbWpmStore(ctx: DdbContext): WpmStore {
       const rows = await getRows(ctx, "wpm", ix.map((i) => i.id as string));
       const byId = new Map(rows.map((x) => [x.id as string, x]));
       const ordered = ix.map((i) => byId.get(i.id as string)).filter((x): x is Row => x !== undefined);
-      const [cats, names] = await Promise.all([
+      const [cats, authors] = await Promise.all([
         readCats(ctx, ordered.map((x) => x.layout_id as string)),
         authorNames(ctx, ordered.map((x) => x.user_id as string)),
       ]);
+      const names = await resolvedNames(ctx, ordered.map((x) => x.user_id as string), authors);
       const out: WpmQueueRow[] = [];
       for (const x of ordered) {
         const cat = cats.get(x.layout_id as string);
@@ -219,10 +221,11 @@ export function ddbWpmStore(ctx: DdbContext): WpmStore {
         if (cur === undefined || beats(i, cur)) best.set(key, i);
       }
       const winners = [...best.values()];
-      const [cats, names] = await Promise.all([
+      const [cats, authors] = await Promise.all([
         readCats(ctx, winners.map((w) => w.layout_id as string)),
         authorNames(ctx, winners.map((w) => w.user_id as string)),
       ]);
+      const names = await resolvedNames(ctx, winners.map((w) => w.user_id as string), authors);
       const out: WpmRecord[] = [];
       for (const w of winners) {
         const cat = cats.get(w.layout_id as string);

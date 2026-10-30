@@ -3,6 +3,8 @@
 //
 //   authors          AUTHORS/<user_id>
 //   authors_head     META/AUTHORS           version, modified_at, count
+//   discord_users    DUSERS/<id>            id, username, global_name, updated_at
+//   discord_users_head META/DISCORD_USERS   version
 //   admins           ADMINS/<user_id>       + META/ADMINS.count (derived)
 //   bans             BANS/<user_id>
 //   clients          CLIENTS/<id>
@@ -23,6 +25,9 @@ import {
   authCacheKey,
   authorKey,
   AUTHORS_HEAD_KEY,
+  DISCORD_USERS_HEAD_KEY,
+  DISCORD_USERS_PK,
+  discordUserKey,
   banKey,
   clientKey,
   epochSeconds,
@@ -37,6 +42,7 @@ import {
 import { byteLength, SPILL_BYTES } from "../payload";
 
 const AUTHOR_COLUMNS = ["user_id", "name", "first_seen_at", "last_seen_at", "name_source"] as const;
+const DISCORD_USER_COLUMNS = ["id", "username", "global_name", "updated_at"] as const;
 const ADMIN_COLUMNS = ["user_id", "added_by", "added_at", "note"] as const;
 const BAN_COLUMNS = ["user_id", "by", "at", "reason"] as const;
 const CLIENT_COLUMNS = ["id", "name", "pubkey", "owner_user_id", "caps", "discord_app_id", "status", "created_at", "revoked_at"] as const;
@@ -127,6 +133,8 @@ function toItems(rows: RowsByTable): { main: Item[]; ephemeral: Item[] } {
   for (const r of rows.authors_head ?? []) {
     main.push({ ...AUTHORS_HEAD_KEY, version: r.version, modified_at: r.modified_at ?? null, count: r.count ?? 0 });
   }
+  for (const r of rows.discord_users ?? []) main.push({ ...discordUserKey(r.id as string), ...pick(r, DISCORD_USER_COLUMNS) });
+  for (const r of rows.discord_users_head ?? []) main.push({ ...DISCORD_USERS_HEAD_KEY, version: r.version });
   if (rows.admins !== undefined) {
     for (const r of rows.admins) main.push(adminItem(r));
     main.push(adminsCountItem(rows.admins.length));
@@ -150,6 +158,8 @@ function tableOf(item: Item): D1TableName | null {
   const sk = item.sk as string;
   if (pk === "AUTHORS") return "authors";
   if (pk === "META" && sk === "AUTHORS") return "authors_head";
+  if (pk === DISCORD_USERS_PK) return "discord_users";
+  if (pk === "META" && sk === "DISCORD_USERS") return "discord_users_head";
   if (pk === "ADMINS" || (pk === "META" && sk === "ADMINS")) return "admins";
   if (pk === "BANS") return "bans";
   if (pk === "CLIENTS") return "clients";
@@ -162,20 +172,22 @@ function tableOf(item: Item): D1TableName | null {
 
 export const authSchema: LaneSchema = {
   lane: "I",
-  tables: ["authors", "authors_head", "admins", "bans", "clients", "nonces", "auth_cache", "ratelimit", "idempotency"],
+  tables: ["authors", "authors_head", "discord_users", "discord_users_head", "admins", "bans", "clients", "nonces", "auth_cache", "ratelimit", "idempotency"],
   toItems,
   tableOf,
   fromItems({ main, ephemeral }) {
     // A key's row is its newest window, as in D1 (one row per key); older windows are garbage awaiting TTL (`supersededWindows`).
     const newest = new Map<string, D1Row>();
     const out: RowsByTable = {
-      authors: [], authors_head: [], admins: [], bans: [], clients: [], nonces: [], auth_cache: [], ratelimit: [], idempotency: [],
+      authors: [], authors_head: [], discord_users: [], discord_users_head: [], admins: [], bans: [], clients: [], nonces: [], auth_cache: [], ratelimit: [], idempotency: [],
     };
     for (const it of main) {
       const pk = it.pk as string;
       const sk = it.sk as string;
       if (pk === "AUTHORS") out.authors!.push(pick(it, AUTHOR_COLUMNS));
       else if (pk === "META" && sk === "AUTHORS") out.authors_head!.push({ id: 1, version: it.version ?? 0, modified_at: it.modified_at ?? null, count: it.count ?? 0 });
+      else if (pk === DISCORD_USERS_PK) out.discord_users!.push(pick(it, DISCORD_USER_COLUMNS));
+      else if (pk === "META" && sk === "DISCORD_USERS") out.discord_users_head!.push({ id: 1, version: it.version ?? 0 });
       else if (pk === "ADMINS") out.admins!.push(pick(it, ADMIN_COLUMNS));
       else if (pk === "BANS") out.bans!.push(pick(it, BAN_COLUMNS));
       else if (pk === "CLIENTS") out.clients!.push(pick(it, CLIENT_COLUMNS));

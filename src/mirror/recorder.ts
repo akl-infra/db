@@ -19,6 +19,8 @@ export const MIRROR_WRITES: Readonly<Record<string, readonly string[]>> = {
   // although ratelimit is ephemeral: it deletes the destructive-budget windows commitWrite's budget probe counts.
   // The rest of auth is ephemeral.
   auth: ["touchClientAuthor", "cacheAuthSuccess", "reserveIdempotency", "takeOverIdempotency", "completeIdempotency", "deleteIdempotency", "pruneIdempotency", "pruneRateLimits"],
+  // discord_users (migrations/0036) is a main-table write, like authors.
+  discordUsers: ["upsert"],
   admin: ["insertAdmin", "removeAdmin", "upsertBan", "deleteBan", "setAuthorNameByAdmin", "insertClient", "revokeClient", "suspendClient", "reactivateClient"],
   links: ["submit", "reject"],
   wpm: ["bindSourceMessage", "insertApproved", "submit", "approve", "reject"],
@@ -55,6 +57,7 @@ export const MIRROR_NOT_RECORDED: Readonly<Record<string, readonly string[]>> = 
     "client", "insertNonce", "pruneNonces", "authCache", "cacheAuthFailure", "pruneAuthCache", "rolesOf", "authorName", "authors", "author",
     "hitWindow", "getIdempotency",
   ],
+  discordUsers: ["get", "version", "missingWpmUsers"],
   admin: ["isAdmin", "listAdmins", "getAdmin", "listBans", "banExists", "clientStatus", "listClients", "suspendedClients"],
   links: ["pending", "get", "queue"],
   wpm: ["get", "sourceMessage", "queue", "records"],

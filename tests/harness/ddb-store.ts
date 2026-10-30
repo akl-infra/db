@@ -92,10 +92,19 @@ function authorsHead(rows: Rows): D1Row {
   }
   return h;
 }
+function discordUsersHead(rows: Rows): D1Row {
+  let h = rows.discord_users_head![0];
+  if (h === undefined) {
+    h = { id: 1, version: 0 };
+    rows.discord_users_head = [h];
+  }
+  return h;
+}
 const bump = (h: D1Row, col: string, by: number): void => void (h[col] = ((h[col] as number) ?? 0) + by);
 
 function triggersOnInsert(table: TableName, rows: Rows, added: D1Row[]): void {
   if (table === "layouts") for (const r of added) if (r.deleted === 0) bump(layoutsHead(rows), "live", 1);
+  if (table === "discord_users") for (const _ of added) bump(discordUsersHead(rows), "version", 1); // 0036's discord_users_head_on_insert
   if (table === "authors") {
     for (const r of added) {
       const h = authorsHead(rows);
@@ -117,6 +126,10 @@ function triggersOnRemove(table: TableName, rows: Rows, gone: D1Row[]): void {
 }
 function triggersOnPatch(table: TableName, rows: Rows, before: D1Row, after: D1Row): void {
   if (table === "layouts" && (before.deleted === 0) !== (after.deleted === 0)) bump(layoutsHead(rows), "live", after.deleted === 0 ? 1 : -1);
+  // 0036's discord_users_head_on_rename: OLD.x IS NOT NEW.x for username or global_name (null-safe).
+  if (table === "discord_users" && ((before.username ?? null) !== (after.username ?? null) || (before.global_name ?? null) !== (after.global_name ?? null))) {
+    bump(discordUsersHead(rows), "version", 1);
+  }
   if (table === "authors" && (before.name !== after.name || before.user_id !== after.user_id)) {
     const h = authorsHead(rows);
     bump(h, "version", 1);

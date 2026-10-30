@@ -1,4 +1,4 @@
-// [LDB-DDB73] The four lane schemas cover all 29 D1 tables exactly once, and
+// [LDB-DDB73] The four lane schemas cover all 31 D1 tables exactly once, and
 // the codec's table metadata (primary keys, defaults, NOT NULL) is what the
 // migrations actually create -- so the DynamoDB TestStore fills, orders and
 // refuses exactly as D1 does.
@@ -25,7 +25,7 @@ describe("schema coverage", () => {
   it("[LDB-DDB73] the lane schemas cover all 29 D1 tables, each exactly once", () => {
     const seen = new Map<string, number>();
     for (const s of SCHEMAS) for (const t of s.tables) seen.set(t, (seen.get(t) ?? 0) + 1);
-    expect(ALL_TABLES).toHaveLength(29);
+    expect(ALL_TABLES).toHaveLength(31);
     expect([...seen.keys()].sort()).toEqual([...ALL_TABLES].sort());
     expect([...seen.values()].every((n) => n === 1)).toBe(true);
   });

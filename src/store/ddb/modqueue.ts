@@ -11,6 +11,7 @@ import {
   type SubKind,
 } from "./keys-discord";
 import { TxConditionFailed } from "./contracts";
+import { resolvedNames } from "./discord-users";
 import { runTx } from "./tx";
 
 const nullable = <T>(v: T | undefined): T | null => (v === undefined ? null : v);
@@ -283,7 +284,8 @@ export function ddbModqueueStore(ctx: DdbContext): ModqueueStore {
 
     async wpmCandidates(limit): Promise<WpmCandidateRow[]> {
       const found = await pendingUnannounced(ctx, "wpm", limit);
-      const names = await namesOf(ctx, found.map((f) => f.row.user_id as string));
+      const ids = found.map((f) => f.row.user_id as string);
+      const names = await resolvedNames(ctx, ids, await namesOf(ctx, ids));
       return found.map(({ row, layout }) => ({
         id: row.id as string, review_version: (row.review_version as number | undefined) ?? 0, source_message_url: nullable(row.source_message_url as string | null | undefined),
         layout_id: row.layout_id as string, user_id: row.user_id as string, wpm: row.wpm as number, proof: row.proof as string,

@@ -9,6 +9,7 @@ import { ddbCommentStore } from "./comments";
 import type { DdbContext } from "./contracts";
 import { ddbCutoverStore } from "./cutover";
 import { ddbDiscordStore } from "./discord";
+import { ddbDiscordUserStore } from "./discord-users";
 import { ddbDumpStore } from "./dump";
 import { ddbEventStore } from "./events";
 import { ddbHeadStore } from "./head";
@@ -34,6 +35,7 @@ export function createDdbStore(base: Omit<DdbContext, "catalog">): Store {
     admin: ddbAdminStore(ctx),
     links: ddbLinkStore(ctx),
     wpm: ddbWpmStore(ctx),
+    discordUsers: ddbDiscordUserStore(ctx),
     comments: ddbCommentStore(ctx),
     review: ddbReviewStore(ctx),
     modqueue: ddbModqueueStore(ctx),

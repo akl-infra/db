@@ -21,6 +21,12 @@ export const AUTHORS_HEAD_KEY: Key = { pk: "META", sk: "AUTHORS" };
 /** `META/ADMINS`: `count` (the `> 2` guard of removeAdmin, R4). */
 export const ADMINS_HEAD_KEY: Key = { pk: "META", sk: "ADMINS" };
 
+/** `DUSERS/<discord id>`: one `discord_users` row (migrations/0036), all four columns flat. */
+export const DISCORD_USERS_PK = "DUSERS";
+/** `META/DISCORD_USERS`: `version` (`discord_users_head` and its two triggers, migrations/0036); bumped in the same transaction as the row. */
+export const DISCORD_USERS_HEAD_KEY: Key = { pk: "META", sk: "DISCORD_USERS" };
+export const discordUserKey = (id: string): Key => ({ pk: DISCORD_USERS_PK, sk: id });
+
 export const authorKey = (userId: string): Key => ({ pk: AUTHORS_PK, sk: userId });
 export const adminKey = (userId: string): Key => ({ pk: ADMINS_PK, sk: userId });
 export const banKey = (userId: string): Key => ({ pk: BANS_PK, sk: userId });

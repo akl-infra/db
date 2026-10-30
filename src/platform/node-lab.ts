@@ -114,6 +114,8 @@ export function createNodeLabPlatform(opts: NodeLabOptions = {}): PlatformFactor
         pending.add(guarded);
         void guarded.finally(() => pending.delete(guarded));
         ctx?.waitUntil(guarded);
+        // Test-only hatch, the same as the Workers platform's: a test that sets this array awaits the background work.
+        (env as unknown as { TEST_BACKGROUND?: Promise<unknown>[] }).TEST_BACKGROUND?.push(guarded);
       },
     };
   };

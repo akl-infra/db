@@ -76,6 +76,18 @@ export const D1_TABLES: Readonly<Record<D1TableName, D1TableSpec>> = {
     required: ["layout_id","author_id","user_id","via","created_at"],
     defaults: {  },
   },
+  discord_users: {
+    pk: ["id"],
+    columns: ["id","username","global_name","updated_at"],
+    required: ["id","username","updated_at"],
+    defaults: {  },
+  },
+  discord_users_head: {
+    pk: ["id"],
+    columns: ["id","version"],
+    required: ["id","version"],
+    defaults: {  },
+  },
   discord_deny_modals: {
     pk: ["modal_id"],
     columns: ["modal_id","initial_interaction_id","actor_id","kind","submission_id","channel_id","message_id","guild_id","created_at","expires_at","consumed_at","consumed_interaction_id","expected_review_version"],
@@ -448,6 +460,7 @@ export async function rowsFromScan(ctx: CodecContext, items: ItemSet): Promise<R
   // D1 always holds its two single-row head tables (migrations 0007, 0034); a store with no HEAD item yet reads as their initial rows.
   if (rows.layouts_head!.length === 0) rows.layouts_head = [{ id: 1, live: 0 }];
   if (rows.authors_head!.length === 0) rows.authors_head = [{ id: 1, version: 0, modified_at: null, count: 0 }];
+  if (rows.discord_users_head!.length === 0) rows.discord_users_head = [{ id: 1, version: 0 }];
   return rows;
 }
 
@@ -603,13 +616,14 @@ function sortAll(rows: RowsByTable): RowsByTable {
 
 /**
  * What migrations/*.sql insert: 0001's bootstrap admin, 0007/0035's
- * `authors_head`, 0034's `layouts_head`, 0033's delivery-gate row. A DynamoDB
+ * `authors_head`, 0036's `discord_users_head`, 0034's `layouts_head`, 0033's delivery-gate row. A DynamoDB
  * store a test (or the lab) starts from must hold them too.
  */
 export function bootstrapRows(): RowsByTable {
   return {
     admins: [{ user_id: "184412255822020608", added_by: null, added_at: "2026-09-08T00:00:00Z", note: "bootstrap: deeroh" }],
     authors_head: [{ id: 1, version: 0, modified_at: null, count: 0 }],
+    discord_users_head: [{ id: 1, version: 0 }],
     events: [], // with layouts_head, makes HEAD {seq: 0, live: 0}
     layouts_head: [{ id: 1, live: 0 }],
     modqueue_delivery_gate: [completeRow("modqueue_delivery_gate", { id: 1 })],
