@@ -22,7 +22,7 @@ function migrated(): DatabaseSync {
 }
 
 describe("schema coverage", () => {
-  it("[LDB-DDB73] the lane schemas cover all 29 D1 tables, each exactly once", () => {
+  it("[LDB-DDB73] [LDB-DDB106] the lane schemas cover all 31 D1 tables, each exactly once", () => {
     const seen = new Map<string, number>();
     for (const s of SCHEMAS) for (const t of s.tables) seen.set(t, (seen.get(t) ?? 0) + 1);
     expect(ALL_TABLES).toHaveLength(31);
