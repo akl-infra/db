@@ -61,8 +61,8 @@ describe("head and state", () => {
 
 describe("holds", () => {
   const clock = (iso: string) => () => iso;
-  it("[LDB-DDB10] defaults to always granted", async () => {
-    const h = ddbHoldStore(t.ctx);
+  it("[LDB-DDB10] realHolds:false grants every hold", async () => {
+    const h = ddbHoldStore(t.ctx, { realHolds: false });
     expect(await h.takeHold("c", 25, clock("2026-10-25T00:00:00.000Z"))).toBe(true);
     expect(await h.takeHold("c", 25, clock("2026-10-25T00:00:00.000Z"))).toBe(true);
     await h.releaseHold("c");
@@ -87,9 +87,9 @@ describe("holds", () => {
 });
 
 describe("cutover", () => {
-  it("[LDB-DDB10] defaults to null", async () => {
+  it("[LDB-DDB10] realCutover:false reports no mode", async () => {
     await t.state.put("cutover.mode", "read_only");
-    expect(await ddbCutoverStore(t.ctx).mode()).toBeNull();
+    expect(await ddbCutoverStore(t.ctx, { realCutover: false }).mode()).toBeNull();
   });
 
   it("[LDB-DDB10] real mode reads STATE/cutover.mode and caches for a second", async () => {

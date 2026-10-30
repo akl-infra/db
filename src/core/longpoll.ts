@@ -23,6 +23,17 @@ export function clampWaitSeconds(raw: number): number {
   return Math.min(Math.max(raw, 0), MAX_WAIT_SECONDS);
 }
 
+// Long-poll hold budget (design/aws-port.md §3): hold-seconds the server grants per UTC day, across every client. Over it a `wait=` request
+// gets the immediate page plus `X-Wait-Ignored: budget`. `HOLD_BUDGET_SECONDS` overrides it (a positive number; anything else is ignored).
+export const DEFAULT_HOLD_BUDGET_SECONDS = 20_000;
+
+export function holdBudgetSeconds(env: Bindings): number {
+  const raw = env.HOLD_BUDGET_SECONDS;
+  if (raw === undefined || raw === "") return DEFAULT_HOLD_BUDGET_SECONDS;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : DEFAULT_HOLD_BUDGET_SECONDS;
+}
+
 export type SleepImpl = (ms: number) => Promise<void>;
 
 function realSleep(ms: number): Promise<void> {

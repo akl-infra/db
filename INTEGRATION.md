@@ -463,6 +463,7 @@ real examples in §4.
 | 429 | `rate_limited` | rate limit exceeded: ${limit} writes per ${windowSeconds}s | `rateLimited(limit, windowSeconds, retryAfter, scope)` |
 | 409 | `review_conflict` | This review has changed or can no longer be reopened. Refresh the queue. | `reviewConflict(id)` |
 | 409 | `source_message_conflict` | this WPM submission already has an original Discord message | `sourceMessageConflict()` |
+| 503 | `read_only` | akldb is read-only for a moment (a planned switch); retry the write shortly | `readOnly()` |
 <!-- END GENERATED ERROR TABLE -->
 
 Every route × status/code above has a frozen request/response fixture under

@@ -446,3 +446,18 @@ export function reviewConflict(id: string): ApiError {
 export function sourceMessageConflict(): ApiError {
   return new ApiError(409, { error: "source_message_conflict", message: "this WPM submission already has an original Discord message" });
 }
+
+// design/aws-port.md §5.2 (decisions 1, 2026-10-24): the write freeze of a cutover. Every non-safe request gets this while the mode is
+// `read_only`; reads continue. `Retry-After` is short because the freeze is seconds long (the gate is <= 30 s).
+export const READ_ONLY_RETRY_AFTER_SECONDS = 5;
+export function readOnly(): ApiError {
+  return new ApiError(
+    503,
+    {
+      error: "read_only",
+      message: "akldb is read-only for a moment (a planned switch); retry the write shortly",
+      retry_after: READ_ONLY_RETRY_AFTER_SECONDS,
+    },
+    { "Retry-After": String(READ_ONLY_RETRY_AFTER_SECONDS) },
+  );
+}

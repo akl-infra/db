@@ -1,6 +1,6 @@
 // DynamoDB `HoldStore` (src/store/port.ts). Owner: P2 lane G.
-// P2 default: every hold is granted, exactly like D1. `{ realHolds: true }`
-// builds the real budget (design/aws-port.md §3): one lease item
+// Real since lane U (LDB-CUT1..CUT5), matching the D1 store: `{ realHolds: false }`
+// grants every hold (tests). The budget (design/aws-port.md §3) is one lease item
 // `HOLD#<client>` and a per-UTC-day `ADD` on `RL#holds`, both in the
 // ephemeral table and taken in one transaction.
 import { DeleteCommand } from "@aws-sdk/lib-dynamodb";
@@ -17,7 +17,7 @@ export interface HoldOptions {
 const LEASE_SLACK_SECONDS = 5;
 
 export function ddbHoldStore(ctx: DdbContext, opts: HoldOptions = {}): HoldStore {
-  if (opts.realHolds !== true) {
+  if (opts.realHolds === false) {
     return {
       async takeHold() {
         return true;
@@ -25,10 +25,11 @@ export function ddbHoldStore(ctx: DdbContext, opts: HoldOptions = {}): HoldStore
       async releaseHold() {},
     };
   }
-  const budget = opts.dailyBudgetSeconds ?? 20_000;
+  const defaultBudget = opts.dailyBudgetSeconds ?? 20_000;
   const lease = (clientId: string) => ({ pk: `HOLD#${clientId}`, sk: "LEASE" });
   return {
-    async takeHold(clientId, seconds, now) {
+    async takeHold(clientId, seconds, now, budgetSeconds) {
+      const budget = budgetSeconds ?? defaultBudget;
       const nowMs = Date.parse(now());
       const nowS = Math.floor(nowMs / 1000);
       const day = new Date(nowMs).toISOString().slice(0, 10);

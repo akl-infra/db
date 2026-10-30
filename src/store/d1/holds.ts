@@ -1,22 +1,78 @@
-// D1 `HoldStore` and `CutoverStore` (src/store/port.ts). P1: no behaviour
-// change, so every hold is granted and there is no cutover mode. The hold
-// budget becomes real on both backends in P2, the cutover flag in P6
-// (design/aws-port.md §3, §5.2).
+// D1 `HoldStore` and `CutoverStore` (src/store/port.ts), design/aws-port.md §3 and §5.2.
+//
+// Holds (the long-poll budget, LDB-CUT1..CUT5): the same two facts the DynamoDB store keeps, in the existing ephemeral `ratelimit`
+// table, so no migration is needed and nothing new is dumped or mirrored:
+//   - the lease `hold:<client>`: `window_start` is the epoch second it expires, `n` an opaque per-attempt token;
+//   - the day's spend `holds:<YYYY-MM-DD>`: `n` is the hold-seconds taken, `window_start` the epoch second the UTC day ENDS (the
+//     nightly `pruneRateLimits` drops rows below now-1200, so a day's counter must not look old until the day is over).
+// Both are taken in ONE batch (one transaction), the budget row only if this attempt's own lease row is the one in place.
 import type { CutoverStore, HoldStore } from "../port";
 
-export function d1HoldStore(_db: D1Database): HoldStore {
+const DEFAULT_HOLD_BUDGET_SECONDS = 20_000; // design §3; the route passes the configured value
+const LEASE_SLACK_SECONDS = 5;
+
+export function d1HoldStore(db: D1Database): HoldStore {
   return {
-    async takeHold() {
-      return true;
+    async takeHold(clientId, seconds, now, budgetSeconds = DEFAULT_HOLD_BUDGET_SECONDS) {
+      const nowMs = Date.parse(now());
+      const nowS = Math.floor(nowMs / 1000);
+      const s = Math.ceil(seconds);
+      const dayStart = new Date(nowMs).toISOString().slice(0, 10);
+      const dayEnd = Math.floor(Date.parse(`${dayStart}T00:00:00.000Z`) / 1000) + 86400;
+      const expires = nowS + s + LEASE_SLACK_SECONDS;
+      const token = 1 + Math.floor(Math.random() * 2 ** 31);
+      const leaseKey = `hold:${clientId}`;
+      const dayKey = `holds:${dayStart}`;
+      const res = await db.batch([
+        // The lease, only when none is live and the day has room. An expired lease row is replaced by the conflict clause.
+        db
+          .prepare(
+            `INSERT INTO ratelimit (key, window_start, n)
+             SELECT ?1, ?2, ?3
+              WHERE NOT EXISTS (SELECT 1 FROM ratelimit WHERE key = ?1 AND window_start >= ?4)
+                AND COALESCE((SELECT n FROM ratelimit WHERE key = ?5), 0) + ?6 <= ?7
+             ON CONFLICT(key) DO UPDATE SET window_start = excluded.window_start, n = excluded.n`,
+          )
+          .bind(leaseKey, expires, token, nowS, dayKey, s, budgetSeconds),
+        // The spend, only when the lease row in place is this attempt's.
+        db
+          .prepare(
+            `INSERT INTO ratelimit (key, window_start, n)
+             SELECT ?1, ?2, ?3
+              WHERE EXISTS (SELECT 1 FROM ratelimit WHERE key = ?4 AND window_start = ?5 AND n = ?6)
+             ON CONFLICT(key) DO UPDATE SET n = n + excluded.n`,
+          )
+          .bind(dayKey, dayEnd, s, leaseKey, expires, token),
+      ]);
+      return (res[0]?.meta.changes ?? 0) === 1;
     },
-    async releaseHold() {},
+    async releaseHold(clientId) {
+      await db.prepare("DELETE FROM ratelimit WHERE key = ?").bind(`hold:${clientId}`).run();
+    },
   };
 }
 
-export function d1CutoverStore(_db: D1Database): CutoverStore {
+/** How long a read of `import_state['cutover.mode']` is reused (design §5.2: 1 s per isolate). */
+const MODE_CACHE_MS = 1000;
+const MODE_KEY = "cutover.mode";
+
+type Mode = "read_only" | "proxy" | null;
+// Per isolate, not per store: a Worker builds its store on every request, and the cache has to outlive that. Keyed by the binding.
+const modeCache = new WeakMap<object, { at: number; mode: Mode }>();
+
+export function d1CutoverStore(db: D1Database, opts: { nowMs?: () => number; cacheMs?: number } = {}): CutoverStore {
+  const clock = opts.nowMs ?? (() => Date.now());
+  const ttl = opts.cacheMs ?? MODE_CACHE_MS;
   return {
     async mode() {
-      return null;
+      const t = clock();
+      const hit = modeCache.get(db);
+      if (hit !== undefined && t - hit.at < ttl) return hit.mode;
+      const row = await db.prepare("SELECT value FROM import_state WHERE key = ?").bind(MODE_KEY).first<{ value: string }>();
+      const v = row?.value;
+      const mode: Mode = v === "read_only" || v === "proxy" ? v : null;
+      modeCache.set(db, { at: t, mode });
+      return mode;
     },
   };
 }

@@ -1,6 +1,6 @@
 // DynamoDB `CutoverStore` (src/store/port.ts). Owner: P2 lane G.
-// P2 default: no cutover mode, exactly like D1. `{ realCutover: true }` reads
-// STATE/cutover.mode (design/aws-port.md §5.2), cached 1 s per container.
+// Real since lane U (LDB-CUT6..CUT8), matching D1's `import_state['cutover.mode']`; `{ realCutover: false }` reports no mode (tests).
+// Reads STATE/cutover.mode (design/aws-port.md §5.2), cached 1 s per container.
 import { GetCommand } from "@aws-sdk/lib-dynamodb";
 import { withRetry } from "./tx";
 import type { CutoverStore } from "../port";
@@ -15,7 +15,7 @@ export interface CutoverOptions {
 }
 
 export function ddbCutoverStore(ctx: DdbContext, opts: CutoverOptions = {}): CutoverStore {
-  if (opts.realCutover !== true) {
+  if (opts.realCutover === false) {
     return {
       async mode() {
         return null;
@@ -23,7 +23,7 @@ export function ddbCutoverStore(ctx: DdbContext, opts: CutoverOptions = {}): Cut
     };
   }
   const ttl = opts.cacheMs ?? 1000;
-  const clock = opts.nowMs ?? Date.now;
+  const clock = opts.nowMs ?? (() => Date.now());
   let cached: { at: number; mode: "read_only" | "proxy" | null } | undefined;
   return {
     async mode() {

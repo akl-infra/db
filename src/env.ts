@@ -3,6 +3,10 @@
 export interface Bindings {
   DB: D1Database;
   DUMPS: R2Bucket;
+  // Long-poll hold budget, hold-seconds per UTC day (src/core/longpoll.ts; design/aws-port.md §3). Unset => 20000.
+  HOLD_BUDGET_SECONDS?: string;
+  // The AWS `prod` stage's base URL; the Worker forwards every request there while import_state['cutover.mode'] is 'proxy' (src/core/cutover.ts).
+  CUTOVER_PROXY_URL?: string;
   DISCORD_API_URL: string; // e.g. https://discord.com/api -- src/auth/discord.ts (09 §3 T1)
   // Mod-queue Discord notify (LDB-MD12, src/core/modqueue.ts): a Discord
   // incoming-webhook URL. Unset or empty => the whole feature is a no-op

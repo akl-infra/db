@@ -12,7 +12,7 @@ import { describeError } from "../core/describe-error";
 import { ApiError, badRequest, notFound, rateLimited } from "../core/errors";
 import { cachePut, conditional, etagFor, headSeq } from "../core/etag";
 import { feed, type FeedFilter, type InfoKind, type WriteKind } from "../core/events";
-import { clampWaitSeconds, MAX_WAIT_SECONDS, waitForChanges, type SleepImpl } from "../core/longpoll";
+import { clampWaitSeconds, holdBudgetSeconds, MAX_WAIT_SECONDS, waitForChanges, type SleepImpl } from "../core/longpoll";
 import { byRef } from "../core/records";
 import { take } from "../core/ratelimit";
 import { systemClock, type Clock } from "../core/time";
@@ -176,7 +176,7 @@ export function changesRoute(authDeps: AuthDeps) {
     const filter: FeedFilter = { layoutId, actor };
     const waitRequested = parseWait(c.req.query("wait"));
 
-    let waitIgnored = false;
+    let waitIgnored: "unauthorized" | "budget" | null = null;
     let held = false;
     if (waitRequested !== undefined) {
       // Only the Ed25519 client lane ever gets a held response (saltorbit,
@@ -188,6 +188,7 @@ export function changesRoute(authDeps: AuthDeps) {
       // so, never an error: a `wait=` is a hint this route MAY act on,
       // not a promise every caller must authenticate for.
       let honored = false;
+      let holdClient: string | null = null;
       try {
         const requestActor = await resolveActor(c.env, c.req, authDeps);
         if (requestActor.via.startsWith("client:")) {
@@ -200,6 +201,7 @@ export function changesRoute(authDeps: AuthDeps) {
           const result = await take(db, now, `client:${clientId}`, CLIENT_LIMIT, CLIENT_WINDOW_SECONDS);
           if (!result.allowed) throw rateLimited(CLIENT_LIMIT, CLIENT_WINDOW_SECONDS, result.retryAfter, "client");
           honored = true;
+          holdClient = clientId;
         }
       } catch (e) {
         // A rate-limit refusal is a REAL error (429), not a silent
@@ -209,10 +211,32 @@ export function changesRoute(authDeps: AuthDeps) {
         if (e instanceof ApiError && e.status === 429) throw e;
       }
       if (honored) {
-        held = true;
-        await waitForChanges(db, since, waitRequested, resolveSleep(c.env));
+        // The hold budget (design/aws-port.md §3): one live hold per client and a global hold-seconds budget per UTC day. A
+        // declined hold is not an error: the caller gets the immediate page and `X-Wait-Ignored: budget`. `wait=0` holds nothing.
+        // A failing budget store declines too (the safe side for cost), and never fails the request.
+        let granted = true;
+        if (waitRequested > 0) {
+          try {
+            granted = await db.holds.takeHold(holdClient!, waitRequested, resolveNow(c.env), holdBudgetSeconds(c.env));
+          } catch (e) {
+            console.error(`changes: hold budget store failed, declining the hold: ${describeError(e)}`);
+            granted = false;
+          }
+        }
+        if (granted) {
+          held = true;
+          try {
+            await waitForChanges(db, since, waitRequested, resolveSleep(c.env));
+          } finally {
+            if (waitRequested > 0) {
+              await db.holds.releaseHold(holdClient!).catch((e: unknown) => console.error(`changes: releasing the hold failed: ${describeError(e)}`));
+            }
+          }
+        } else {
+          waitIgnored = "budget";
+        }
       } else {
-        waitIgnored = true;
+        waitIgnored = "unauthorized";
       }
     }
 
@@ -250,7 +274,7 @@ export function changesRoute(authDeps: AuthDeps) {
     const res = c.json({ next, items });
     res.headers.set("ETag", etag);
     res.headers.set("Cache-Control", CACHE_CONTROL);
-    if (waitIgnored) res.headers.set("X-Wait-Ignored", "unauthorized");
+    if (waitIgnored !== null) res.headers.set("X-Wait-Ignored", waitIgnored);
     if (waitRequested === undefined) await cachePut(c, res.clone());
     return res;
   });

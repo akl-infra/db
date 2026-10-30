@@ -179,9 +179,9 @@ export interface EventStore {
 
 /** Long-poll hold budget (design §3; decided 2026-10-24). */
 export interface HoldStore {
-  /** single. Take the per-client hold lease and `seconds` from the UTC-day budget; false = decline (`X-Wait-Ignored: budget`). D1 (P1): always true, no SQL; P2 makes it real on both backends. */
-  takeHold(clientId: string, seconds: number, now: Clock): Promise<boolean>;
-  /** single. Release the client's hold lease. D1 (P1): no-op. */
+  /** single. Take the per-client hold lease and `seconds` from the UTC-day budget (`budgetSeconds`, default 20000); false = decline (`X-Wait-Ignored: budget`). D1: the `ratelimit` table (`hold:<client>` lease, `holds:<day>` counter); DynamoDB: `HOLD#<client>` and `RL#holds` in the ephemeral table. */
+  takeHold(clientId: string, seconds: number, now: Clock, budgetSeconds?: number): Promise<boolean>;
+  /** single. Release the client's hold lease. */
   releaseHold(clientId: string): Promise<void>;
 }
 

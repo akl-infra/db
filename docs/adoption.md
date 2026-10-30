@@ -600,7 +600,10 @@ is exceeded or `wait` elapses (whichever first; `wait` is clamped to 25s).
 `wait` is honoured for any request signed on the client lane (§2 above) —
 every registered client, no extra cap; any
 other caller naming `wait` gets the immediate, unheld answer, plus a
-response header `X-Wait-Ignored: unauthorized` (never an error). A held
+response header `X-Wait-Ignored: unauthorized` (never an error). The server also
+limits holds (one live hold per client, and a daily total across all clients): a
+hold it declines is answered the same immediate way, with `X-Wait-Ignored:
+budget`, so treat `wait=` as a hint and keep polling. A held
 request still counts against your client's normal rate limit (§4). Poll
 `since=` without `wait` (the default, unauthenticated behavior) for the
 same immediate, `Cache-Control`-able page every other client gets.
@@ -852,6 +855,10 @@ replacement for it — a busy multi-user bot legitimately needs it wider than
 one person's own budget). `429 rate_limited` carries `Retry-After` (seconds)
 and `scope` (`"actor"` or `"client"`, naming which counter tripped).
 
+**Planned write freezes**: during a switch of the service's storage, every write
+is answered `503 read_only` with `Retry-After` (seconds) for a few seconds; reads
+keep working. Retry the write after the pause.
+
 **The full error table**, generated from `src/core/errors.ts`'s own
 `ApiError` factories exactly as `INTEGRATION.md`'s own appendix is
 (`scripts/gen-error-table.mjs`; `tests/tools/docs-site.test.ts`'s
@@ -907,6 +914,7 @@ it as generated, not hand-edited):
 | 429 | `rate_limited` | rate limit exceeded: ${limit} writes per ${windowSeconds}s | `rateLimited(limit, windowSeconds, retryAfter, scope)` |
 | 409 | `review_conflict` | This review has changed or can no longer be reopened. Refresh the queue. | `reviewConflict(id)` |
 | 409 | `source_message_conflict` | this WPM submission already has an original Discord message | `sourceMessageConflict()` |
+| 503 | `read_only` | akldb is read-only for a moment (a planned switch); retry the write shortly | `readOnly()` |
 
 **Three more codes exist in the *format* layer**, not in the table above
 because they come from a format module's own `validate()`, not one of

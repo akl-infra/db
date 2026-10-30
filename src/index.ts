@@ -6,6 +6,7 @@ import { type AuthDeps, resolveActor } from "./auth/discord";
 import { idempotencyKeys } from "./auth/idempotency";
 import { rateLimitWrites } from "./auth/ratelimit";
 import { clientsHealth } from "./core/clients";
+import { cutoverProxy, cutoverReadOnly, frozen } from "./core/cutover";
 import { describeError } from "./core/describe-error";
 import { ApiError, internal } from "./core/errors";
 import { cachePut, conditional, etagFor, readHead } from "./core/etag";
@@ -42,6 +43,9 @@ const app = new Hono<AppEnv>();
 // cache, clock, background work) on `c.var.platform` before anything else
 // runs. Routes move onto it during P1 (src/app.ts).
 app.use("*", platformMiddleware);
+
+// Cutover mode `proxy` (src/core/cutover.ts): forwards the whole request to the AWS stage. A no-op unless the flag says `proxy`.
+app.use("*", cutoverProxy());
 
 // Production deps for the user lane: real fetch, real clock. Tests never
 // exercise this path directly -- they inject their own fake `fetchImpl`
@@ -86,6 +90,11 @@ app.use("/v1/wpm/submissions/*", async (c, next) => {
 // (09 §2.1) -- registered before any route, so no write route, present or
 // future, can be reached without it.
 app.use("/v1/*", requireActorOnWrites(authDeps));
+
+// Cutover mode `read_only` (src/core/cutover.ts): right after the actor, before idempotency and the rate limit. A no-op unless the
+// flag says `read_only`. The Discord interaction POST writes too, so it is gated the same way.
+app.use("/v1/*", cutoverReadOnly());
+app.use("/discord/*", cutoverReadOnly());
 
 // The Idempotency-Key gate (L3, src/auth/idempotency.ts) -- mounted right
 // after the actor is resolved (it needs `c.get("actor")` for scoping) and
@@ -367,6 +376,11 @@ async function scheduled(event: ScheduledController, env: Bindings, ctx: Executi
   }
 
   const { store } = platformFor(env, ctx);
+  // A cutover owns the data (`read_only`: nothing may write after the final seq; `proxy`: the other side runs the jobs).
+  if (await frozen(store)) {
+    console.log("scheduled(): skipped, a cutover mode is on");
+    return;
+  }
   const at = new Date(event.scheduledTime);
   const hour = at.getUTCHours();
   const minute = at.getUTCMinutes();
