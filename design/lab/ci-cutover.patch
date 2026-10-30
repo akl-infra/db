@@ -1,0 +1,94 @@
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index bfb3050..6f50d69 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -105,6 +105,89 @@ jobs:
+           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DB_TOKEN }}
+           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DB_ACCOUNT_ID }}
+ 
++  # ---- the production cutover -------------------------------------------------------------------------------------------------------
++  #
++  # Triggered by a push to main that changes cutover/akldb.json: `{"primary":"aws"}` runs the cutover, `{"primary":"d1"}` the rollback.
++  # Only this job names the environment `akldb-production`, which is restricted to `main` and holds the akldb-ci access key
++  # (it can do nothing but assume akldb-cutover-role). There is no GitHub OIDC (the managed SCP denies it).
++  #
++  # A failure leaves the mode as the orchestrator left it (it has already aborted or rolled back; its last JSON line says which)
++  # and fails the job. Nothing here retries.
++  cutover:
++    needs: [test, deploy]
++    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
++    concurrency:
++      group: db-prod-cutover
++      cancel-in-progress: false
++    environment: akldb-production
++    runs-on: ubuntu-latest
++    timeout-minutes: 30
++    steps:
++      - uses: actions/checkout@v5
++        with:
++          fetch-depth: 2
++      - name: Did the primary change?
++        id: changed
++        run: |
++          set -euo pipefail
++          if git diff --quiet HEAD~1 HEAD -- cutover/akldb.json; then
++            echo "changed=false" >> "$GITHUB_OUTPUT"
++          else
++            echo "changed=true" >> "$GITHUB_OUTPUT"
++            echo "primary=$(node -p "require('./cutover/akldb.json').primary")" >> "$GITHUB_OUTPUT"
++          fi
++      - uses: actions/setup-node@v5
++        if: steps.changed.outputs.changed == 'true'
++        with:
++          node-version: "24.22.1"
++          cache: npm
++          cache-dependency-path: package-lock.json
++      - name: Install dependencies
++        if: steps.changed.outputs.changed == 'true'
++        run: npm ci
++      # 1. The standing checkpoint, the same three steps as the deploy job: the D1 bookmark, a fresh dump, the db-backup snapshot.
++      - name: Record the D1 rollback bookmark
++        if: steps.changed.outputs.changed == 'true'
++        run: npx wrangler d1 time-travel info akl-db --config wrangler.toml
++        env:
++          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DB_TOKEN }}
++          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DB_ACCOUNT_ID }}
++      - name: Write a fresh dump
++        if: steps.changed.outputs.changed == 'true'
++        run: sh scripts/predeploy-dump.sh
++        env:
++          CLIENT_ID: ${{ secrets.OPS_CLIENT_ID }}
++          CLIENT_PRIVATE_KEY: ${{ secrets.OPS_CLIENT_PRIVATE_KEY }}
++          OPS_ACTOR: ${{ secrets.OPS_ACTOR }}
++      - name: Snapshot it in akl-infra/db-backup
++        if: steps.changed.outputs.changed == 'true'
++        run: sh scripts/predeploy-backup.sh
++        env:
++          GH_TOKEN: ${{ secrets.BACKUP_DISPATCH_TOKEN }}
++      # 2. The orchestrator. Idempotent: a re-run when the switch is already done answers "already on ..." and exits 0.
++      - name: Run the cutover to ${{ steps.changed.outputs.primary }}
++        if: steps.changed.outputs.changed == 'true'
++        run: node scripts/cutover/run.mjs --to "${{ steps.changed.outputs.primary }}"
++        env:
++          CLOUDFLARE_DB_TOKEN: ${{ secrets.CLOUDFLARE_DB_TOKEN }}
++          CLOUDFLARE_DB_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DB_ACCOUNT_ID }}
++          AWS_ACCESS_KEY_ID: ${{ secrets.AKLDB_CI_AWS_ACCESS_KEY_ID }}
++          AWS_SECRET_ACCESS_KEY: ${{ secrets.AKLDB_CI_AWS_SECRET_ACCESS_KEY }}
++          AWS_REGION: us-east-2
++          CLIENT_ID: ${{ secrets.OPS_CLIENT_ID }}
++          CLIENT_PRIVATE_KEY: ${{ secrets.OPS_CLIENT_PRIVATE_KEY }}
++          OPS_ACTOR: ${{ secrets.OPS_ACTOR }}
++      # 3. On failure leave the mode as the orchestrator left it, say what it is, and fail the job (this step only reads).
++      - name: Where the modes stand
++        if: failure() && steps.changed.outputs.changed == 'true'
++        run: node scripts/cutover/run.mjs --status
++        env:
++          CLOUDFLARE_DB_TOKEN: ${{ secrets.CLOUDFLARE_DB_TOKEN }}
++          CLOUDFLARE_DB_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DB_ACCOUNT_ID }}
++          AWS_ACCESS_KEY_ID: ${{ secrets.AKLDB_CI_AWS_ACCESS_KEY_ID }}
++          AWS_SECRET_ACCESS_KEY: ${{ secrets.AKLDB_CI_AWS_SECRET_ACCESS_KEY }}
++          AWS_REGION: us-east-2
++
+   # akldb.org's own Worker (design/akldb-site/01-plan.md §6, W1a). Its own
+   # package.json under db/site/ -- `paths: db/**` above already covers it,
+   # no trigger edit needed. Typechecks, tests and builds on every PR/push;

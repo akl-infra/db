@@ -267,7 +267,7 @@ describe("the cutover modes", () => {
     const worker = (await import("../../src/index")).default;
     const run = async () => {
       const ctx = createExecutionContext();
-      await worker.scheduled(createScheduledController({ scheduledTime: Date.parse("2031-05-05T03:00:00Z"), cron: "*/5 * * * *" }), bindings, ctx);
+      await worker.scheduled(createScheduledController({ scheduledTime: new Date("2031-05-05T03:00:00Z"), cron: "*/5 * * * *" }), bindings, ctx);
       await waitOnExecutionContext(ctx);
     };
     await setMode("read_only");

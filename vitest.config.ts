@@ -135,6 +135,8 @@ export default defineConfig(async () => {
               "tests/upstream-diff.test.ts",
               "tests/drill/**/*.test.ts",
               "tests/platform/**/*.test.ts",
+              // [LDB-CUT13..CUT19] the cutover orchestrator against local stand-ins
+              "tests/cutover/**/*.test.ts",
               // [LDB-V4..V6] the route-table contract: pure over `CASES`
               // (static import), `adoption.md` (fs) and `db-responses/`
               // fixtures (static import) -- no D1/miniflare needed, so it
