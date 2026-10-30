@@ -65,7 +65,7 @@ describe("holds", () => {
     const h = ddbHoldStore(t.ctx, { realHolds: false });
     expect(await h.takeHold("c", 25, clock("2026-10-25T00:00:00.000Z"))).toBe(true);
     expect(await h.takeHold("c", 25, clock("2026-10-25T00:00:00.000Z"))).toBe(true);
-    await h.releaseHold("c");
+    await h.releaseHold("c", 25);
   });
 
   it("[LDB-DDB10] real holds: one lease per client, a daily budget, release and expiry", async () => {
@@ -75,7 +75,7 @@ describe("holds", () => {
     expect(await h.takeHold("a", 25, clock(t0))).toBe(false); // lease held
     expect(await h.takeHold("b", 25, clock(t0))).toBe(true); // 50 of 60 used
     expect(await h.takeHold("c", 25, clock(t0))).toBe(false); // over budget; no lease left behind
-    await h.releaseHold("a");
+    await h.releaseHold("a", 25);
     expect(await h.takeHold("a", 10, clock(t0))).toBe(true); // 60 of 60
     expect(await h.takeHold("d", 1, clock(t0))).toBe(false);
     // An expired lease can be retaken (next day: fresh budget too).

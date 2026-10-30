@@ -29,7 +29,7 @@ describe("the hold budget, store level", () => {
     const c = `u-lease-${crypto.randomUUID()}`;
     expect(await store.holds.takeHold(c, 25, at(day), 1000)).toBe(true);
     expect(await store.holds.takeHold(c, 25, at(day), 1000)).toBe(false);
-    await store.holds.releaseHold(c);
+    await store.holds.releaseHold(c, 25);
     expect(await store.holds.takeHold(c, 25, at(day), 1000)).toBe(true);
     // 25 s hold + 5 s slack from 12:00:00: still live at 12:00:30, free again at 12:00:31.
     expect(await store.holds.takeHold(c, 25, at(day, "12:00:30"), 1000)).toBe(false);
@@ -47,20 +47,44 @@ describe("the hold budget, store level", () => {
     expect(await store.holds.takeHold(c, 10, at(day), 60)).toBe(true); // the declined take left no lease; 60 of 60
     expect(await store.holds.takeHold(d, 1, at(day), 60)).toBe(false);
     // Releasing does not refund the day's spend.
-    await store.holds.releaseHold(a);
+    await store.holds.releaseHold(a, 25);
     expect(await store.holds.takeHold(a, 1, at(day), 60)).toBe(false);
     // The next UTC day is a fresh budget.
     const next = new Date(Date.parse(`${day}T00:00:00Z`) + 86400_000).toISOString().slice(0, 10);
     expect(await store.holds.takeHold(a, 25, at(next), 60)).toBe(true);
   });
 
-  it("[LDB-CUT3] the budget argument is the limit: omitted it is 20000 seconds, a bigger one admits more", async () => {
+  it("[LDB-CUT3] the budget argument is the limit (default 20000 on the store); the route enforces only with HOLD_BUDGET_SECONDS set", async () => {
     const day = freshDay();
     const k = `u-default-${crypto.randomUUID()}`;
     expect(await store.holds.takeHold(k, 25, at(day))).toBe(true); // default 20000
-    expect(holdBudgetSeconds({} as never)).toBe(20_000);
+    // Unset (or not a positive number) means no budget at all: the route grants every hold and writes nothing.
+    expect(holdBudgetSeconds({} as never)).toBeNull();
     expect(holdBudgetSeconds({ HOLD_BUDGET_SECONDS: "45000" } as never)).toBe(45_000);
-    for (const bad of ["", "0", "-5", "abc", "NaN"]) expect(holdBudgetSeconds({ HOLD_BUDGET_SECONDS: bad } as never), bad).toBe(20_000);
+    for (const bad of ["", "0", "-5", "abc", "NaN"]) expect(holdBudgetSeconds({ HOLD_BUDGET_SECONDS: bad } as never), bad).toBeNull();
+  });
+
+  it("[LDB-CUT2] release refunds the unused part of the reservation, to the day it was taken from, so the budget counts real hold seconds", async () => {
+    const day = freshDay();
+    const [a, b, c] = ["a", "b", "c"].map((x) => `u-refund-${x}-${crypto.randomUUID()}`) as [string, string, string];
+    expect(await store.holds.takeHold(a, 25, at(day), 30)).toBe(true); // 25 of 30 reserved
+    expect(await store.holds.takeHold(b, 25, at(day), 30)).toBe(false);
+    await store.holds.releaseHold(a, 5); // it held 5 s: 20 come back, 5 stay
+    expect(await store.holds.takeHold(b, 25, at(day), 30)).toBe(true); // 5 + 25 = 30
+    expect(await store.holds.takeHold(c, 1, at(day), 30)).toBe(false);
+    await store.holds.releaseHold(b, 99); // more than reserved: nothing to refund, never negative
+    expect(await store.holds.takeHold(c, 1, at(day), 30)).toBe(false);
+    // Released after midnight, the refund still goes to the day the hold was taken on.
+    const d2 = freshDay();
+    const late = `${d2}T23:59:50.000Z`;
+    const after = new Date(Date.parse(late) + 20_000).toISOString();
+    expect(await store.holds.takeHold(c, 25, fixedClock(late), 40)).toBe(true);
+    await store.holds.releaseHold(c, 10);
+    const next = new Date(Date.parse(`${d2}T00:00:00Z`) + 86400_000).toISOString().slice(0, 10);
+    expect(await store.holds.takeHold(a, 40, fixedClock(`${d2}T23:59:55.000Z`), 40)).toBe(false); // c's 10 s still count that day (50 > 40)
+    expect(after.slice(0, 10)).toBe(next);
+    expect(await store.holds.takeHold(b, 40, fixedClock(after), 40)).toBe(true); // the new day is untouched by the refund
+    await store.holds.releaseHold(b, 40);
   });
 });
 
@@ -107,6 +131,7 @@ describe("the hold budget, GET /v1/changes?wait=", () => {
 
   it("[LDB-CUT5] a second concurrent hold by the same client is declined; the lease is released when the hold ends, and wait=0 takes none", async () => {
     env.TEST_CLOCK = at(freshDay());
+    env.HOLD_BUDGET_SECONDS = "100000";
     const c = await client();
     let inner: Response | undefined;
     sleepSpy(async () => {
@@ -123,6 +148,20 @@ describe("the hold budget, GET /v1/changes?wait=", () => {
     const zero = await wait(c, "?wait=0");
     expect(zero.status).toBe(200);
     expect(zero.headers.get("X-Wait-Ignored")).toBeNull();
+  });
+
+  it("[LDB-CUT5] with HOLD_BUDGET_SECONDS unset every hold is granted and nothing is written for it", async () => {
+    env.TEST_CLOCK = at(freshDay());
+    const c = await client();
+    let inner: Response | undefined;
+    sleepSpy(async () => {
+      inner = await wait(c, "?wait=25"); // mid-hold, same client: no lease exists, so it is not declined either
+    });
+    const outer = await wait(c, "?wait=25&since=999999999");
+    expect(outer.headers.get("X-Wait-Ignored")).toBeNull();
+    expect(inner?.headers.get("X-Wait-Ignored")).toBeNull();
+    const keys = (await testStore.rows("ratelimit")).map((r) => String(r.key));
+    expect(keys.filter((k) => k === `hold:${c.clientId}` || k === `holdrsv:${c.clientId}` || k === `holds:${(env.TEST_CLOCK as () => string)().slice(0, 10)}`)).toEqual([]);
   });
 
   it("[LDB-CUT5] an unauthenticated wait= is still ignored as unauthorized and takes no hold", async () => {
@@ -276,5 +315,22 @@ describe("the cutover modes", () => {
     await run();
     spy.mockRestore();
     expect(logs.some((l) => l.includes("skipped, a cutover mode is on"))).toBe(true);
+  });
+
+  it("[LDB-CUT12] the jobs flag off makes a scheduled tick a no-op, as data (STATE/jobs.enabled), with no mode set", async () => {
+    const { createExecutionContext, createScheduledController, waitOnExecutionContext } = await import("../harness");
+    const worker = (await import("../../src/index")).default;
+    await store.state.put("jobs.enabled", "off");
+    const logs: string[] = [];
+    const spy = vi.spyOn(console, "log").mockImplementation((m: unknown) => void logs.push(String(m)));
+    try {
+      const ctx = createExecutionContext();
+      await worker.scheduled(createScheduledController({ scheduledTime: new Date("2031-05-05T03:00:00Z"), cron: "*/5 * * * *" }), bindings, ctx);
+      await waitOnExecutionContext(ctx);
+    } finally {
+      spy.mockRestore();
+      await store.state.delete("jobs.enabled");
+    }
+    expect(logs.some((l) => l.includes("skipped, jobs are disabled"))).toBe(true);
   });
 });

@@ -3,6 +3,8 @@
 // Holds (the long-poll budget, LDB-CUT1..CUT5): the same two facts the DynamoDB store keeps, in the existing ephemeral `ratelimit`
 // table, so no migration is needed and nothing new is dumped or mirrored:
 //   - the lease `hold:<client>`: `window_start` is the epoch second it expires, `n` an opaque per-attempt token;
+//   - its reservation `holdrsv:<client>`: `n` the seconds reserved, `window_start` the end of the UTC day they were taken from, so a
+//     release (which may come after midnight) refunds the unused part to the right day;
 //   - the day's spend `holds:<YYYY-MM-DD>`: `n` is the hold-seconds taken, `window_start` the epoch second the UTC day ENDS (the
 //     nightly `pruneRateLimits` drops rows below now-1200, so a day's counter must not look old until the day is over).
 // Both are taken in ONE batch (one transaction), the budget row only if this attempt's own lease row is the one in place.
@@ -43,11 +45,32 @@ export function d1HoldStore(db: D1Database): HoldStore {
              ON CONFLICT(key) DO UPDATE SET n = n + excluded.n`,
           )
           .bind(dayKey, dayEnd, s, leaseKey, expires, token),
+        // The reservation, only when the lease row in place is this attempt's (what the release refunds from).
+        db
+          .prepare(
+            `INSERT INTO ratelimit (key, window_start, n)
+             SELECT ?1, ?2, ?3
+              WHERE EXISTS (SELECT 1 FROM ratelimit WHERE key = ?4 AND window_start = ?5 AND n = ?6)
+             ON CONFLICT(key) DO UPDATE SET window_start = excluded.window_start, n = excluded.n`,
+          )
+          .bind(`holdrsv:${clientId}`, dayEnd, s, leaseKey, expires, token),
       ]);
       return (res[0]?.meta.changes ?? 0) === 1;
     },
-    async releaseHold(clientId) {
-      await db.prepare("DELETE FROM ratelimit WHERE key = ?").bind(`hold:${clientId}`).run();
+    async releaseHold(clientId, heldSeconds) {
+      const rsv = `holdrsv:${clientId}`;
+      const used = Math.max(0, Math.ceil(heldSeconds));
+      await db.batch([
+        // Give back the reservation's unused seconds to the day it came from (no row, no reservation: nothing to refund).
+        db
+          .prepare(
+            `UPDATE ratelimit
+                SET n = MAX(0, n - MAX(0, (SELECT n FROM ratelimit WHERE key = ?1) - ?2))
+              WHERE key = 'holds:' || (SELECT date(window_start - 86400, 'unixepoch') FROM ratelimit WHERE key = ?1)`,
+          )
+          .bind(rsv, used),
+        db.prepare("DELETE FROM ratelimit WHERE key IN (?1, ?2)").bind(`hold:${clientId}`, rsv),
+      ]);
     },
   };
 }

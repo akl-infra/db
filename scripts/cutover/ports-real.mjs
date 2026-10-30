@@ -1,5 +1,5 @@
 // The real ports of the cutover orchestrator (steps.mjs): Cloudflare through its HTTP API with CLOUDFLARE_DB_TOKEN, AWS through the
-// `aws` CLI under the narrow role `akldb-cutover-role` (assumed with the `akldb-ci` key from the `akldb-production` environment).
+// `aws` CLI (sts, dynamodb and ssm only: the switch makes no control-plane call) under the narrow role `akldb-cutover-role` (assumed with the `akldb-ci` key from the `akldb-production` environment).
 // Nothing else is read. Every process and request goes through the injected `exec` / `fetchImpl`, so tests/cutover drive this file with
 // fakes and it never touches a network there.
 //
@@ -12,11 +12,8 @@ import { promisify } from "node:util";
 const execFileP = promisify(execFile);
 
 export const PROD = Object.freeze({
-  stack: "akldb-prod",
   region: "us-east-2",
   mainTable: "akldb-prod-main",
-  functions: ["akldb-prod-api", "akldb-prod-feed", "akldb-prod-jobs", "akldb-prod-mirror-ingest", "akldb-prod-mirror-apply"],
-  schedules: { jobs: "akldb-prod-jobs", applier: "akldb-prod-mirror-apply" },
   ssmPrefix: "/akldb/prod",
   discordParams: ["discord/bot-token", "discord/application-id", "discord/public-key", "discord/modqueue-webhook"],
   roleName: "akldb-cutover-role",
@@ -66,6 +63,7 @@ export function createRealPorts({ env, exec = realExec(), fetchImpl = fetch, clo
   }
   const aws = async (...args) => exec("aws", [...args, "--region", stage.region, "--output", "json"], await awsEnv());
   const awsJson = async (...args) => JSON.parse((await aws(...args)) || "null");
+  const putState = (key, value) => aws("dynamodb", "put-item", "--table-name", stage.mainTable, "--item", JSON.stringify({ pk: { S: "STATE" }, sk: { S: key }, value: { S: value } }));
 
   return {
     clock,
@@ -104,28 +102,12 @@ export function createRealPorts({ env, exec = realExec(), fetchImpl = fetch, clo
         const r = await awsJson("dynamodb", "get-item", "--table-name", stage.mainTable, "--consistent-read", "--key", JSON.stringify({ pk: { S: "META" }, sk: { S: "HEAD" } }));
         return Number(r?.Item?.seq?.N ?? 0);
       },
-      /** MIRROR_MODE on the five functions (a fast configuration update), and the applier's schedule: on in apply, off in record. */
+      /** The mirror mode and the jobs switch are DATA (STATE/mirror.mode, STATE/jobs.enabled), read per invocation: no control-plane call. */
       async setMirrorMode(mode) {
-        for (const fn of stage.functions) {
-          const cur = await awsJson("lambda", "get-function-configuration", "--function-name", fn);
-          const vars = { ...(cur.Environment?.Variables ?? {}), MIRROR_MODE: mode };
-          await aws("lambda", "update-function-configuration", "--function-name", fn, "--environment", JSON.stringify({ Variables: vars }));
-        }
-        await setSchedule(stage.schedules.applier, mode === "apply");
+        await putState("mirror.mode", mode);
       },
-      async setSchedules(on) {
-        await setSchedule(stage.schedules.jobs, on);
-      },
-      /** Make the stack's own parameters say what the functions already do, so the next stack update does not undo the cutover. */
-      async reconcileStack({ mirrorMode, scheduleEnabled }) {
-        const d = await awsJson("cloudformation", "describe-stacks", "--stack-name", stage.stack);
-        const params = (d.Stacks[0].Parameters ?? []).map((p) => {
-          if (p.ParameterKey === "MirrorMode") return `ParameterKey=MirrorMode,ParameterValue=${mirrorMode}`;
-          if (p.ParameterKey === "ScheduleEnabled") return `ParameterKey=ScheduleEnabled,ParameterValue=${scheduleEnabled}`;
-          return `ParameterKey=${p.ParameterKey},UsePreviousValue=true`;
-        });
-        await aws("cloudformation", "update-stack", "--stack-name", stage.stack, "--use-previous-template", "--capabilities", "CAPABILITY_NAMED_IAM", "--parameters", ...params);
-        await exec("aws", ["cloudformation", "wait", "stack-update-complete", "--stack-name", stage.stack, "--region", stage.region], await awsEnv());
+      async setJobsEnabled(on) {
+        await putState("jobs.enabled", on ? "on" : "off");
       },
       async discordReady() {
         const names = stage.discordParams.map((n) => `${stage.ssmPrefix}/${n}`);
@@ -134,24 +116,6 @@ export function createRealPorts({ env, exec = realExec(), fetchImpl = fetch, clo
       },
     },
   };
-
-  async function setSchedule(name, on) {
-    const s = await awsJson("scheduler", "get-schedule", "--name", name);
-    await aws(
-      "scheduler",
-      "update-schedule",
-      "--name",
-      name,
-      "--schedule-expression",
-      s.ScheduleExpression,
-      "--flexible-time-window",
-      JSON.stringify(s.FlexibleTimeWindow),
-      "--target",
-      JSON.stringify(s.Target),
-      "--state",
-      on ? "ENABLED" : "DISABLED",
-    );
-  }
 }
 
 /** What a real run still lacks (steps.mjs ports with no real implementation yet). */

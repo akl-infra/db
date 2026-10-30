@@ -42,7 +42,7 @@ function setup(over: Partial<LambdaDeps["env"]> = {}, params: Record<string, str
   };
   const deps: LambdaDeps = {
     env: { ...ENV, ...over },
-    doc: {} as never,
+    doc: { send: vi.fn(async () => ({})) } as never,
     s3: { send: vi.fn() } as never,
     ssm: {
       send: vi.fn(async (cmd: { input: { Name: string } }) => {
@@ -172,6 +172,18 @@ describe("lambda entry", () => {
     const r = await on.handlers.mirrorIngest(event({ body: "{}", requestContext: { http: { method: "POST" } } }));
     expect(r.statusCode).toBe(500);
     expect(r.body).toMatch(/not implemented/);
+  });
+
+  it("[LDB-CUT6] the mirror mode is read from STATE/mirror.mode per invocation; the MIRROR_MODE variable is only the default", async () => {
+    const { handlers, deps } = setup({ MIRROR_MODE: "apply", MIRROR_APPLY_FUNCTION: "f" }, { "tee-hmac": "h" });
+    // The flag says record: ingest is off and the applier skips, although the variable says apply.
+    (deps.doc as unknown as { send: unknown }).send = vi.fn(async () => ({ Item: { value: "record" } }));
+    expect((await handlers.mirrorIngest(event({ body: "{}" }))).statusCode).toBe(503);
+    expect(await handlers.mirrorApply()).toMatchObject({ skipped: expect.any(String) });
+    // The flag says apply over a variable that says off.
+    const on = setup({ MIRROR_MODE: "off", MIRROR_APPLY_FUNCTION: "f" }, { "tee-hmac": "h" });
+    (on.deps.doc as unknown as { send: unknown }).send = vi.fn(async () => ({ Item: { value: "apply" } }));
+    expect((await on.handlers.mirrorIngest(event({ body: "{}" }))).statusCode).not.toBe(503);
   });
 
   it("[LDB-INF29] mirrorIngest runs with only the data bucket configured (its real env)", async () => {

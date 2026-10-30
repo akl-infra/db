@@ -181,8 +181,8 @@ export interface EventStore {
 export interface HoldStore {
   /** single. Take the per-client hold lease and `seconds` from the UTC-day budget (`budgetSeconds`, default 20000); false = decline (`X-Wait-Ignored: budget`). D1: the `ratelimit` table (`hold:<client>` lease, `holds:<day>` counter); DynamoDB: `HOLD#<client>` and `RL#holds` in the ephemeral table. */
   takeHold(clientId: string, seconds: number, now: Clock, budgetSeconds?: number): Promise<boolean>;
-  /** single. Release the client's hold lease. */
-  releaseHold(clientId: string): Promise<void>;
+  /** single. Release the client's hold lease and refund the part of its reservation the hold did not use (`heldSeconds` = seconds it really held), to the UTC day it was taken from, so the budget counts real hold seconds. */
+  releaseHold(clientId: string, heldSeconds: number): Promise<void>;
 }
 
 /** The cutover flag (design §5.2). */

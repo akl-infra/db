@@ -211,13 +211,16 @@ export function changesRoute(authDeps: AuthDeps) {
         if (e instanceof ApiError && e.status === 429) throw e;
       }
       if (honored) {
-        // The hold budget (design/aws-port.md §3): one live hold per client and a global hold-seconds budget per UTC day. A
-        // declined hold is not an error: the caller gets the immediate page and `X-Wait-Ignored: budget`. `wait=0` holds nothing.
-        // A failing budget store declines too (the safe side for cost), and never fails the request.
+        // The hold budget (design/aws-port.md §3), a server option: only with HOLD_BUDGET_SECONDS set. Then one live hold per client and a
+        // global hold-seconds budget per UTC day; a declined hold is not an error, the caller gets the immediate page and
+        // `X-Wait-Ignored: budget`. `wait=0` holds nothing. A failing budget store declines too (the safe side for cost). Unset, every hold
+        // is granted and nothing is written for it.
+        const budget = holdBudgetSeconds(c.env);
+        const limited = budget !== null && waitRequested > 0;
         let granted = true;
-        if (waitRequested > 0) {
+        if (limited) {
           try {
-            granted = await db.holds.takeHold(holdClient!, waitRequested, resolveNow(c.env), holdBudgetSeconds(c.env));
+            granted = await db.holds.takeHold(holdClient!, waitRequested, resolveNow(c.env), budget as number);
           } catch (e) {
             console.error(`changes: hold budget store failed, declining the hold: ${describeError(e)}`);
             granted = false;
@@ -225,11 +228,12 @@ export function changesRoute(authDeps: AuthDeps) {
         }
         if (granted) {
           held = true;
+          let heldSeconds = waitRequested;
           try {
-            await waitForChanges(db, since, waitRequested, resolveSleep(c.env));
+            heldSeconds = await waitForChanges(db, since, waitRequested, resolveSleep(c.env));
           } finally {
-            if (waitRequested > 0) {
-              await db.holds.releaseHold(holdClient!).catch((e: unknown) => console.error(`changes: releasing the hold failed: ${describeError(e)}`));
+            if (limited) {
+              await db.holds.releaseHold(holdClient!, heldSeconds).catch((e: unknown) => console.error(`changes: releasing the hold failed: ${describeError(e)}`));
             }
           }
         } else {

@@ -12,8 +12,13 @@ function stable(v) {
   if (Array.isArray(v)) return `[${v.map(stable).join(",")}]`;
   return `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${stable(v[k])}`).join(",")}}`;
 }
-// The flag itself: D1 keeps it in `import_state`, DynamoDB in STATE/cutover (not an `import_state` row), so it is never part of the proof.
-const isFlagRow = (table, row) => table === "import_state" && row.key === "cutover.mode";
+/**
+ * The allow-list: rows that legitimately exist on one side only and are therefore never part of the proof. Today exactly one, named here
+ * on purpose: the cutover flag itself. D1 keeps it in `import_state`; DynamoDB keeps it in `STATE/cutover.mode`, which is not an
+ * `import_state` row in the codec. Adding an entry means adding a reason.
+ */
+export const PROOF_ALLOW_LIST = Object.freeze([{ table: "import_state", key: "cutover.mode", reason: "the cutover flag: D1 import_state vs DynamoDB STATE/cutover.mode" }]);
+const isFlagRow = (table, row) => PROOF_ALLOW_LIST.some((a) => a.table === table && row.key === a.key);
 const digest = (row) => createHash("sha256").update(stable(row)).digest("hex");
 
 /**

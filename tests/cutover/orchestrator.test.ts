@@ -6,7 +6,7 @@ import { main, parseArgs, readPrimary } from "../../scripts/cutover/run.mjs";
 // @ts-expect-error -- plain script, no .d.ts (like tests/tools/codeowners.test.ts)
 import { createRealPorts, UNWIRED } from "../../scripts/cutover/ports-real.mjs";
 // @ts-expect-error -- plain script, no .d.ts (like tests/tools/codeowners.test.ts)
-import { describePlan, DEFAULTS, runPlan } from "../../scripts/cutover/steps.mjs";
+import { describePlan, DEFAULTS, FLAG_WRITES, runPlan } from "../../scripts/cutover/steps.mjs";
 // @ts-expect-error -- plain script, no .d.ts (like tests/tools/codeowners.test.ts)
 import { proveRows } from "../../scripts/cutover/proof.mjs";
 import { boom, makeWorld, type World } from "./world";
@@ -62,15 +62,15 @@ describe("[LDB-CUT13] --dry-run prints the plan and touches nothing", () => {
 });
 
 describe("[LDB-CUT14] --to aws runs steps 1-7 in order and the write pause stays under the gate", () => {
-  it("[LDB-CUT14] freezes D1, settles, proves, hands over, opens prod with its recorder on, then smokes and reconciles", async () => {
+  it("[LDB-CUT14] freezes D1, settles, proves, hands over, opens prod with its recorder on, then smokes", async () => {
     const w = makeWorld();
     const r = await runPlan("aws", w.ports);
     expect(r.ok).toBe(true);
     expect(r.steps.map((s: any) => s.n)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
     const order = [
       "d1.setMode(read_only)", "d1.maxSeq", "mirror.waitApplied(d1->aws)", "ephemeral.copy(d1->aws)", "proof.run",
-      "aws.setMode(read_only)", "d1.setMode(proxy)", "aws.setMirrorMode(record)", "aws.setMode(null)", "aws.setSchedules(true)",
-      "cloudflare.setCron(false)", "smoke.run(aws)", "aws.reconcileStack",
+      "aws.setMode(read_only)", "d1.setMode(proxy)", "aws.setMirrorMode(record)", "aws.setMode(null)", "aws.setJobsEnabled(true)",
+      "smoke.run(aws)", "cloudflare.setCron(false)",
     ];
     for (let i = 1; i < order.length; i++) after(w, order[i - 1]!, order[i]!);
     // The recorder is on before the first write AWS can accept.
@@ -78,9 +78,8 @@ describe("[LDB-CUT14] --to aws runs steps 1-7 in order and the write pause stays
     expect(w.d1.mode).toBe("proxy");
     expect(w.aws.mode).toBeNull();
     expect(w.aws.mirrorMode).toBe("record");
-    expect(w.aws.schedulesOn).toBe(true);
+    expect(w.aws.jobsOn).toBe(true);
     expect(w.cron).toBe(false);
-    expect(w.aws.stackParams).toEqual({ mirrorMode: "record", scheduleEnabled: "true" });
     // Writes: refused during the pause, accepted by D1 before it and by AWS after it; none lost, none on both.
     expect(w.writes.some((x) => x.side === "d1")).toBe(true);
     expect(w.writes.some((x) => x.side === "aws")).toBe(true);
@@ -106,13 +105,13 @@ describe("[LDB-CUT15] --to d1 is the reverse path and reopens D1", () => {
     const w = makeWorld({ direction: "aws" });
     const r = await runPlan("d1", w.ports);
     expect(r.ok).toBe(true);
-    const order = ["aws.setMode(read_only)", "aws.maxSeq", "mirror.waitApplied(aws->d1)", "ephemeral.copy(aws->d1)", "proof.run", "d1.setMode(null)", "cloudflare.setCron(true)", "aws.setMirrorMode(apply)", "aws.setSchedules(false)", "smoke.run(d1)"];
+    const order = ["aws.setMode(read_only)", "aws.maxSeq", "mirror.waitApplied(aws->d1)", "ephemeral.copy(aws->d1)", "proof.run", "d1.setMode(null)", "cloudflare.setCron(true)", "aws.setMirrorMode(apply)", "aws.setJobsEnabled(false)", "smoke.run(d1)"];
     for (let i = 1; i < order.length; i++) after(w, order[i - 1]!, order[i]!);
     expect(w.d1.mode).toBeNull();
     expect(w.aws.mode).toBe("read_only"); // "prod writes stay frozen"
     expect(w.cron).toBe(true);
     expect(w.aws.mirrorMode).toBe("apply");
-    expect(w.aws.schedulesOn).toBe(false);
+    expect(w.aws.jobsOn).toBe(false);
     expect(r.pauseMs!).toBeLessThanOrEqual(30_000);
     noWriteLost(w, "d1");
   });
@@ -184,7 +183,7 @@ describe("[LDB-CUT17] a failure after the handover rolls back", () => {
     expect(r.ok).toBe(false);
     expect(r.failedStep).toBe(7);
     expect(r.recovery).toBe("rollback-full");
-    expect([w.d1.mode, w.aws.mode, w.cron, w.aws.mirrorMode, w.aws.schedulesOn]).toEqual([null, "read_only", true, "apply", false]);
+    expect([w.d1.mode, w.aws.mode, w.cron, w.aws.mirrorMode, w.aws.jobsOn]).toEqual([null, "read_only", true, "apply", false]);
     const afterOpen = w.calls.slice(idx(w, "aws.setMode(null)"));
     for (const c of ["aws.setMode(read_only)", "mirror.waitApplied(aws->d1)", "ephemeral.copy(aws->d1)", "proof.run", "d1.setMode(null)"]) expect(afterOpen).toContain(c);
     // Writes AWS accepted between opening and the rollback are in D1 now.
@@ -215,11 +214,11 @@ describe("[LDB-CUT17] a failure after the handover rolls back", () => {
     expect([w.d1.mode, w.aws.mode]).toEqual(["proxy", "read_only"]);
   });
 
-  it("[LDB-CUT17] a failed stack reconcile after a good smoke does not undo the switch; it is reported", async () => {
-    const w = makeWorld({ faults: { "aws.reconcileStack": boom("update_rollback_complete") } });
+  it("[LDB-CUT17] a failed Cloudflare cron switch after a good smoke does not undo the switch; it is reported", async () => {
+    const w = makeWorld({ faults: { "cloudflare.setCron": boom("cf api 500") } });
     const r = await runPlan("aws", w.ports);
     expect(r.ok).toBe(true);
-    expect(r.reconcileError).toMatch(/update_rollback/);
+    expect(r.warning).toMatch(/cron is still on/);
     expect([w.d1.mode, w.aws.mode]).toEqual(["proxy", null]);
   });
 });
@@ -292,15 +291,14 @@ describe("[LDB-CUT19] the real ports, the proof and the CLI never reach out in t
     expect(calls).toEqual([]);
   });
 
-  it("[LDB-CUT19] the real ports issue the intended commands (fake aws and fetch): role assumption, flag item, env merge, schedules, cron", async () => {
+  it("[LDB-CUT19] the real ports issue the intended commands (fake aws and fetch): one role assumption, flag items as data, cron; no control-plane call", async () => {
     const execs: { cmd: string; args: string[]; env: Record<string, string> }[] = [];
     const exec = async (cmd: string, args: string[], env: Record<string, string>) => {
       execs.push({ cmd, args, env });
       const a = args.join(" ");
       if (a.startsWith("sts assume-role")) return JSON.stringify({ Credentials: { AccessKeyId: "ASIA", SecretAccessKey: "sec", SessionToken: "tok" } });
-      if (a.startsWith("lambda get-function-configuration")) return JSON.stringify({ Environment: { Variables: { KEEP: "1", MIRROR_MODE: "apply" } } });
-      if (a.startsWith("scheduler get-schedule")) return JSON.stringify({ ScheduleExpression: "rate(1 minute)", FlexibleTimeWindow: { Mode: "OFF" }, Target: { Arn: "arn:x" } });
       if (a.startsWith("dynamodb get-item")) return JSON.stringify({ Item: { value: { S: "read_only" } } });
+      if (a.startsWith("ssm get-parameters")) return JSON.stringify({ Parameters: [{}, {}, {}, {}] });
       return "{}";
     };
     const fetches: { url: string; init: any }[] = [];
@@ -308,8 +306,11 @@ describe("[LDB-CUT19] the real ports, the proof and the CLI never reach out in t
     const p = createRealPorts({ env: { CLOUDFLARE_DB_TOKEN: "cf", CLOUDFLARE_DB_ACCOUNT_ID: "acct", AWS_ACCESS_KEY_ID: "ci", AWS_SECRET_ACCESS_KEY: "cisec" }, exec, fetchImpl, clock: {} as any, log: () => {}, d1Id: "db1" });
     expect(await p.aws.getMode()).toBe("read_only");
     await p.aws.setMode(null);
+    await p.aws.setMode("read_only");
     await p.aws.setMirrorMode("record");
-    await p.aws.setSchedules(true);
+    await p.aws.setJobsEnabled(true);
+    expect(await p.aws.maxSeq()).toBe(0);
+    expect(await p.aws.discordReady()).toBe(true);
     expect(await p.d1.getMode()).toBe("proxy");
     await p.d1.setMode("read_only");
     await p.cloudflare.setCron(false);
@@ -318,15 +319,35 @@ describe("[LDB-CUT19] the real ports, the proof and the CLI never reach out in t
     expect(assume.env.AWS_ACCESS_KEY_ID).toBe("ci");
     expect(execs.slice(1).every((e) => e.env.AWS_SESSION_TOKEN === "tok")).toBe(true); // everything after runs as the role
     expect(execs.some((e) => e.args.join(" ").startsWith("dynamodb delete-item"))).toBe(true);
-    const upd = execs.filter((e) => e.args[0] === "lambda" && e.args[1] === "update-function-configuration");
-    expect(upd).toHaveLength(5);
-    expect(JSON.parse(upd[0]!.args[upd[0]!.args.indexOf("--environment") + 1]!)).toEqual({ Variables: { KEEP: "1", MIRROR_MODE: "record" } });
-    const sched = execs.filter((e) => e.args[0] === "scheduler" && e.args[1] === "update-schedule");
-    expect(sched.map((e) => e.args[e.args.indexOf("--state") + 1])).toEqual(["DISABLED", "ENABLED"]); // applier off in record, jobs on
+    const puts = execs.filter((e) => e.args[0] === "dynamodb" && e.args[1] === "put-item").map((e) => JSON.parse(e.args[e.args.indexOf("--item") + 1]!));
+    expect(puts).toContainEqual({ pk: { S: "STATE" }, sk: { S: "mirror.mode" }, value: { S: "record" } });
+    expect(puts).toContainEqual({ pk: { S: "STATE" }, sk: { S: "jobs.enabled" }, value: { S: "on" } });
+    // The switch makes no control-plane call: only sts (once), dynamodb item calls and ssm reads.
+    const allowed = new Set(["sts assume-role", "dynamodb get-item", "dynamodb put-item", "dynamodb delete-item", "ssm get-parameters"]);
+    for (const e of execs) expect(allowed.has(`${e.args[0]} ${e.args[1]}`), e.args.slice(0, 2).join(" ")).toBe(true);
     expect(fetches.every((f) => f.url.startsWith("https://api.cloudflare.com/client/v4/accounts/acct/"))).toBe(true);
     expect(fetches.every((f) => f.init.headers.Authorization === "Bearer cf")).toBe(true);
     expect(fetches.at(-1)!.url).toContain("/workers/scripts/akl-db/schedules");
     expect(JSON.parse(fetches.at(-1)!.init.body)).toEqual([]);
+  });
+
+  it("[LDB-CUT19] the switch touches only flag writes: every mutating call of both plans is on the flag-write list, none is a control-plane operation", async () => {
+    const reads = new Set(["d1.maxSeq", "aws.maxSeq", "d1.getMode", "aws.getMode", "mirror.status", "mirror.waitApplied", "aws.discordReady", "proof.run", "smoke.run"]);
+    const seen = new Set<string>();
+    for (const [dir, init] of [["aws", {}], ["d1", { direction: "aws" as const }], ["aws", { smokeOk: false }]] as const) {
+      const w = makeWorld(init);
+      await runPlan(dir, w.ports);
+      for (const c of w.calls) seen.add(c.replace(/\(.*$/, ""));
+    }
+    for (const name of seen) expect(FLAG_WRITES.includes(name) || reads.has(name), name).toBe(true);
+    for (const name of ["aws.setMirrorMode", "aws.setJobsEnabled", "aws.setMode", "d1.setMode"]) expect(seen.has(name), name).toBe(true);
+    for (const e of describePlan("aws").concat(describePlan("d1")).split("\n")) expect(e).not.toMatch(/reconcile|setSchedules|UpdateStack|update-function|UpdateFunction/);
+    // And the sources themselves name no control-plane operation.
+    const fs = await import("node:fs");
+    for (const f of ["steps.mjs", "ports-real.mjs"]) {
+      const text = fs.readFileSync(`${import.meta.dirname}/../../scripts/cutover/${f}`, "utf8").replace(/^\s*\/\/.*$/gm, "");
+      expect(text, f).not.toMatch(/update-stack|update-function-configuration|update-schedule|cloudformation|scheduler|"lambda"/i);
+    }
   });
 
   it("[LDB-CUT19] --status prints both modes from the ports and changes nothing", async () => {

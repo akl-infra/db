@@ -6,13 +6,17 @@
 //   clock:      { now(): ms, sleep(ms): Promise }
 //   log(event)                                   one JSON line per event
 //   d1, aws:    { getMode(), setMode(mode|null), maxSeq() }   the Worker's `import_state['cutover.mode']`, prod's `STATE/cutover.mode`
-//   aws:        + setMirrorMode('apply'|'record'), setSchedules(bool), reconcileStack({mirrorMode, scheduleEnabled}), discordReady()
+//   aws:        + setMirrorMode('apply'|'record'|'off'), setJobsEnabled(bool), discordReady()   data-plane flags only (STATE/mirror.mode, STATE/jobs.enabled)
 //   cloudflare: { setCron(bool) }                the Worker's `*/5` trigger
 //   mirror:     { status() -> {diverged, lagS}, waitApplied({direction, seq, timeoutMs}) -> {ok, seq, reason?} }
 //   ephemeral:  { copy({from, to}) -> {tables} } nonces, auth_cache, ratelimit
 //   proof:      { run({seq}) -> {ok, diffs} }    every non-ephemeral table, row for row
 //   smoke:      { run({target}) -> {ok, checks} }
 // }
+//
+// The switch makes NO control-plane call (CloudFormation, Lambda configuration, EventBridge schedules): everything inside the pause is a
+// flag write (D1 `import_state`, DynamoDB `STATE/…`), each visible within the flags' 1 s cache. `FLAG_WRITES` lists the only port methods
+// the plans may call that change anything; tests/cutover pins it.
 //
 // Failure policy, per design: before step 4 (the handover) nothing on production has changed beyond the freeze, so a failure ABORTS
 // (D1 back to normal). From step 4 on a failure ROLLS BACK: while AWS has taken no write that is just D1 back to normal; once step 6
@@ -21,6 +25,9 @@
 
 export const CACHE_MS = 1100; // `cutover.mode` is cached 1 s per isolate (src/core/cutover.ts); a flip is visible after this
 export const DEFAULTS = Object.freeze({ maxPauseMs: 30_000, inflightMs: 2_000, mirrorTimeoutMs: 20_000, maxLagS: 5 });
+
+/** Every mutating port method a plan may call: all flag writes (plus the Cloudflare cron trigger, after the pause) and the ephemeral copy. */
+export const FLAG_WRITES = Object.freeze(["d1.setMode", "aws.setMode", "aws.setMirrorMode", "aws.setJobsEnabled", "cloudflare.setCron", "ephemeral.copy"]);
 
 export class StepFailure extends Error {
   constructor(step, message) {
@@ -135,34 +142,34 @@ function forwardSteps() {
     {
       n: 6,
       id: "open-aws",
-      title: "prod's recorder on and writes open; its schedule on; the Cloudflare cron off",
-      effects: ["aws.setMirrorMode(record)", "aws.setMode(null)", "aws.setSchedules(true)", "cloudflare.setCron(false)"],
+      title: "prod's recorder on (flag), then writes open (flag), then its jobs on (flag)",
+      effects: ["aws.setMirrorMode(record)", "clock.sleep(flag cache)", "aws.setMode(null)", "aws.setJobsEnabled(true)"],
       policy: "rollback (the reverse path once prod is open)",
       async run(c) {
         // Recorder first: the instant writes open, the reverse mirror must see them.
         c.state.mirrorTouched = true;
         await c.ports.aws.setMirrorMode("record");
+        await c.ports.clock.sleep(CACHE_MS); // every container sees the recorder before any of them can see writes open
         c.state.awsOpened = true; // set before the call that opens: if it half-worked, the rollback must freeze AWS again
         await setAndVerify(c.ports.aws, "prod", null, 6);
         c.state.reopenedAt = c.ports.clock.now();
-        await c.ports.aws.setSchedules(true);
-        await c.ports.cloudflare.setCron(false);
+        await c.ports.aws.setJobsEnabled(true);
       },
     },
     {
       n: 7,
       id: "smoke",
-      title: "post-switch smoke (meta seq, a signed write through the proxy, a long-poll, an ETag 304), then reconcile the stack",
-      effects: ["smoke.run(aws)", "aws.reconcileStack(record, true)"],
-      policy: "rollback; a failed reconcile only fails the job (traffic is already right)",
+      title: "post-switch smoke (meta seq, a signed write through the proxy, a long-poll, an ETag 304), then the Cloudflare cron off",
+      effects: ["smoke.run(aws)", "cloudflare.setCron(false)"],
+      policy: "rollback; a failed cron switch is only reported (the Worker's jobs are skipped while it proxies)",
       async run(c) {
         const s = await c.ports.smoke.run({ target: "aws" });
         need(s.ok, 7, `the smoke failed: ${JSON.stringify(s.checks).slice(0, 400)}`);
         c.state.smokeOk = true;
         try {
-          await c.ports.aws.reconcileStack({ mirrorMode: "record", scheduleEnabled: "true" });
+          await c.ports.cloudflare.setCron(false);
         } catch (e) {
-          c.state.reconcileError = String(e?.message ?? e);
+          c.state.warning = `the Cloudflare cron is still on: ${String(e?.message ?? e)}`;
         }
       },
     },
@@ -252,18 +259,13 @@ function reverseSteps() {
     {
       n: 6,
       id: "restore-d1-side",
-      title: "the Cloudflare cron on; prod's forward mirror mode back, its schedule off; reconcile the stack",
-      effects: ["cloudflare.setCron(true)", "aws.setMirrorMode(apply)", "aws.setSchedules(false)", "aws.reconcileStack(apply, false)"],
+      title: "the Cloudflare cron on; prod's forward mirror mode back (flag), its jobs off (flag)",
+      effects: ["cloudflare.setCron(true)", "aws.setMirrorMode(apply)", "aws.setJobsEnabled(false)"],
       policy: "report only (D1 already serves)",
       async run(c) {
         await c.ports.cloudflare.setCron(true);
         await c.ports.aws.setMirrorMode("apply");
-        await c.ports.aws.setSchedules(false);
-        try {
-          await c.ports.aws.reconcileStack({ mirrorMode: "apply", scheduleEnabled: "false" });
-        } catch (e) {
-          c.state.reconcileError = String(e?.message ?? e);
-        }
+        await c.ports.aws.setJobsEnabled(false);
       },
     },
     {
@@ -326,7 +328,7 @@ async function fullRollback(c) {
   await retry(() => setAndVerify(ports.d1, "D1", null, "rollback"));
   await ports.cloudflare.setCron(true);
   await ports.aws.setMirrorMode("apply");
-  await ports.aws.setSchedules(false);
+  await ports.aws.setJobsEnabled(false);
   state.rolledBackFullSeq = seq;
   return "rollback-full";
 }
@@ -383,15 +385,15 @@ export async function runPlan(direction, ports, options = {}) {
         log({ event: "recovery-failed", error: result.recoveryError, note: "the mode is left as it stands" });
       }
       result.pauseMs = pauseOf(c, ports);
-      if (c.state.reconcileError) result.reconcileError = c.state.reconcileError;
+      if (c.state.warning) result.warning = c.state.warning;
       log({ event: "result", ok: false, pauseMs: result.pauseMs });
       return result;
     }
   }
   result.pauseMs = pauseOf(c, ports);
-  if (c.state.reconcileError) result.reconcileError = c.state.reconcileError;
+  if (c.state.warning) result.warning = c.state.warning;
   result.ok = true;
-  log({ event: "result", ok: true, pauseMs: result.pauseMs, reconcileError: result.reconcileError ?? null });
+  log({ event: "result", ok: true, pauseMs: result.pauseMs, warning: result.warning ?? null });
   return result;
 }
 

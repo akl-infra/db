@@ -106,11 +106,8 @@ function realPortsFor(a, { env, clock, log, exec, fetchImpl }) {
 function stageFor(name) {
   // Rehearsals use the lab/staging stack: same shape as prod, different names and no account-wide role.
   return {
-    stack: `akldb-${name}`,
     region: "us-east-2",
     mainTable: `akldb-${name}-main`,
-    functions: ["api", "feed", "jobs"].map((f) => `akldb-${name}-${f}`),
-    schedules: { jobs: `akldb-${name}-jobs`, applier: `akldb-${name}-mirror-apply` },
     ssmPrefix: `/akldb/${name}`,
     discordParams: [],
     roleName: "akldb-cutover-role",

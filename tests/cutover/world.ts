@@ -12,7 +12,7 @@ export type Fault = Error | ((n: number) => Error | undefined);
 export interface World {
   now: number;
   d1: { mode: Mode; rows: Record<string, object[]>; seq: number };
-  aws: { mode: Mode; rows: Record<string, object[]>; seq: number; mirrorMode: "apply" | "record"; schedulesOn: boolean; stackParams: object | null };
+  aws: { mode: Mode; rows: Record<string, object[]>; seq: number; mirrorMode: "apply" | "record" | "off"; jobsOn: boolean };
   cron: boolean;
   calls: string[];
   /** Writes by outcome: accepted on a side, or refused 503. */
@@ -34,12 +34,12 @@ export function makeWorld(init: Partial<Pick<World, "faults" | "cost" | "mirror"
   const w: World = {
     now: 1_000_000,
     d1: { mode: init.d1Mode ?? (onAws ? "proxy" : null), rows: { layouts: [{ id: "a" }], events: [{ seq: 1 }], import_state: [] }, seq: 1 },
-    aws: { mode: init.awsMode ?? null, rows: { layouts: [{ id: "a" }], events: [{ seq: 1 }] }, seq: 1, mirrorMode: onAws ? "record" : "apply", schedulesOn: onAws, stackParams: null },
+    aws: { mode: init.awsMode ?? null, rows: { layouts: [{ id: "a" }], events: [{ seq: 1 }] }, seq: 1, mirrorMode: onAws ? "record" : "apply", jobsOn: onAws },
     cron: !onAws,
     calls: [],
     writes: [],
     faults: init.faults ?? {},
-    cost: { "d1.setMode": 300, "aws.setMode": 400, "mirror.waitApplied": 1500, "ephemeral.copy": 600, "proof.run": 2000, "aws.setMirrorMode": 1200, "aws.setSchedules": 300, "cloudflare.setCron": 500, "smoke.run": 1500, ...init.cost },
+    cost: { "d1.setMode": 300, "aws.setMode": 400, "mirror.waitApplied": 1500, "ephemeral.copy": 600, "proof.run": 2000, "aws.setMirrorMode": 100, "aws.setJobsEnabled": 100, "cloudflare.setCron": 500, "smoke.run": 1500, ...init.cost },
     mirror: init.mirror ?? { diverged: false, lagS: 1, stuck: false },
     proofLie: init.proofLie ?? false,
     discordReady: init.discordReady ?? true,
@@ -120,19 +120,15 @@ export function makeWorld(init: Partial<Pick<World, "faults" | "cost" | "mirror"
         w.calls.push("aws.maxSeq");
         return w.aws.seq;
       },
-      async setMirrorMode(m: "apply" | "record") {
+      async setMirrorMode(m: "apply" | "record" | "off") {
         await advance("aws.setMirrorMode");
         w.calls[w.calls.length - 1] = `aws.setMirrorMode(${m})`;
         w.aws.mirrorMode = m;
       },
-      async setSchedules(on: boolean) {
-        await advance("aws.setSchedules");
-        w.calls[w.calls.length - 1] = `aws.setSchedules(${on})`;
-        w.aws.schedulesOn = on;
-      },
-      async reconcileStack(p: object) {
-        await advance("aws.reconcileStack");
-        w.aws.stackParams = p;
+      async setJobsEnabled(on: boolean) {
+        await advance("aws.setJobsEnabled");
+        w.calls[w.calls.length - 1] = `aws.setJobsEnabled(${on})`;
+        w.aws.jobsOn = on;
       },
       async discordReady() {
         w.calls.push("aws.discordReady");

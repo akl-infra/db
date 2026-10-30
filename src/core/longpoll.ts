@@ -24,14 +24,14 @@ export function clampWaitSeconds(raw: number): number {
 }
 
 // Long-poll hold budget (design/aws-port.md §3): hold-seconds the server grants per UTC day, across every client. Over it a `wait=` request
-// gets the immediate page plus `X-Wait-Ignored: budget`. `HOLD_BUDGET_SECONDS` overrides it (a positive number; anything else is ignored).
-export const DEFAULT_HOLD_BUDGET_SECONDS = 20_000;
-
-export function holdBudgetSeconds(env: Bindings): number {
+// gets the immediate page plus `X-Wait-Ignored: budget`. Enabled by `HOLD_BUDGET_SECONDS`.
+// The budget is a server OPTION: with `HOLD_BUDGET_SECONDS` unset (or not a positive number) holds are not limited and nothing is
+// written for them, exactly as before the option existed (null). Set, it is the number of hold-seconds per UTC day.
+export function holdBudgetSeconds(env: Bindings): number | null {
   const raw = env.HOLD_BUDGET_SECONDS;
-  if (raw === undefined || raw === "") return DEFAULT_HOLD_BUDGET_SECONDS;
+  if (raw === undefined || raw === "") return null;
   const n = Number(raw);
-  return Number.isFinite(n) && n > 0 ? n : DEFAULT_HOLD_BUDGET_SECONDS;
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 export type SleepImpl = (ms: number) => Promise<void>;
@@ -47,7 +47,7 @@ function realSleep(ms: number): Promise<void> {
 // D1 error mid-hold) is logged and ends the hold early, exactly as if a
 // change had arrived (LDB-CH6): the caller (`routes/changes.ts`) then
 // answers the normal page and the client polls again. So this never throws
-// on a D1 error; the caller re-reads `/v1/changes` itself once this returns
+// on a D1 error; it returns the seconds it slept (what a hold really used, for the budget refund); the caller re-reads `/v1/changes` itself once this returns
 // (so the response it builds is always current, whether or not anything
 // actually changed).
 export async function waitForChanges(
@@ -55,8 +55,10 @@ export async function waitForChanges(
   since: number,
   waitSeconds: number,
   sleepImpl: SleepImpl = realSleep,
-): Promise<void> {
+): Promise<number> {
   const store = toStore(dbArg);
+  let sleptMs = 0;
+  const heldSeconds = () => Math.ceil(sleptMs / 1000);
   const clamped = clampWaitSeconds(waitSeconds);
   const maxReads = Math.ceil(clamped) + 1;
   for (let i = 0; i < maxReads; i++) {
@@ -65,9 +67,13 @@ export async function waitForChanges(
       seq = await headSeq(store);
     } catch (e) {
       console.error(`longpoll: head read failed on attempt ${i} of ${maxReads}, ending the hold early: ${describeError(e)}`);
-      return;
+      return heldSeconds();
     }
-    if (seq > since) return;
-    if (i < maxReads - 1) await sleepImpl(1000);
+    if (seq > since) return heldSeconds();
+    if (i < maxReads - 1) {
+      await sleepImpl(1000);
+      sleptMs += 1000;
+    }
   }
+  return heldSeconds();
 }

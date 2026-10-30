@@ -7,9 +7,10 @@
 import { InvokeCommand, LambdaClient } from "@aws-sdk/client-lambda";
 import { S3Client } from "@aws-sdk/client-s3";
 import { SSMClient } from "@aws-sdk/client-ssm";
-import type { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
+import { GetCommand, type DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { ulid } from "ulidx";
 import { platformFor } from "../app";
+import { createRuntimeFlags, defaultsFromEnv, type MirrorMode } from "../core/flags";
 import { systemClock } from "../core/time";
 import type { Bindings } from "../env";
 import { readDumpState } from "../dump/write";
@@ -18,6 +19,7 @@ import { createCatalog } from "../store/ddb/catalog";
 import { createDocClient } from "../store/ddb/client";
 import type { DdbTables } from "../store/ddb/contracts";
 import { createDdbStore } from "../store/ddb";
+import { stateKey } from "../store/ddb/keys";
 import type { Store } from "../store/port";
 import { ingestBatch, runApplier, type MirrorDirection } from "./lambda-mirror";
 import {
@@ -207,11 +209,23 @@ export function createHandlers(deps: LambdaDeps) {
     if (failure !== undefined) throw failure;
   };
 
-  const direction = (): MirrorDirection => ((e.MIRROR_MODE ?? "off") === "record" ? "ddb->d1" : "d1->ddb");
+  // The mirror mode is a runtime flag (STATE/mirror.mode, src/core/flags.ts), read per invocation with a 1 s cache; MIRROR_MODE is only
+  // the deploy-time default. A function without the main table (mirror-ingest) has no flag to read and uses the default.
+  const flags = createRuntimeFlags(
+    async (key) => {
+      if (tables.main === "") return null;
+      const r = await deps.doc.send(new GetCommand({ TableName: tables.main, Key: stateKey(key) }));
+      const v = (r as { Item?: { value?: unknown } } | undefined)?.Item?.value;
+      return typeof v === "string" ? v : null;
+    },
+    defaultsFromEnv(e),
+  );
+  const directionOf = (mode: MirrorMode): MirrorDirection => (mode === "record" ? "ddb->d1" : "d1->ddb");
 
   const mirrorIngest = async (event: UrlEvent): Promise<{ statusCode: number; headers: Record<string, string>; body: string }> => {
     const json = (statusCode: number, body: unknown) => ({ statusCode, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-    if ((e.MIRROR_MODE ?? "off") !== "apply") return json(503, { error: "mirror ingest is off" });
+    const mode = await flags.mirrorMode();
+    if (mode !== "apply") return json(503, { error: "mirror ingest is off" });
     const secret = await params.require("tee-hmac");
     const lower: Record<string, string> = {};
     for (const [k, v] of Object.entries(event.headers)) if (v !== undefined) lower[k.toLowerCase()] = v;
@@ -224,7 +238,7 @@ export function createHandlers(deps: LambdaDeps) {
           doc: deps.doc,
           tables,
           blobs: blobs(),
-          direction: direction(),
+          direction: directionOf(mode),
           secret,
           nowMs: () => Date.now(),
           wake: async () => {
@@ -245,10 +259,11 @@ export function createHandlers(deps: LambdaDeps) {
   // The applier returns a halt instead of throwing and logs its own {"code":"MIRROR_*"} line, which the template's
   // metric filter turns into the MirrorDiverged alarm; an invocation that halted is not a Lambda error.
   const mirrorApply = async (): Promise<unknown> => {
-    if ((e.MIRROR_MODE ?? "off") !== "apply") return { skipped: "mirror mode is not apply" };
+    const mode = await flags.mirrorMode();
+    if (mode !== "apply") return { skipped: "mirror mode is not apply" };
     const rt = await getRuntime();
     try {
-      return await runApplier({ store: rt.store, doc: deps.doc, tables, blobs: rt.blobs, direction: direction(), nowMs: () => Date.now() });
+      return await runApplier({ store: rt.store, doc: deps.doc, tables, blobs: rt.blobs, direction: directionOf(mode), nowMs: () => Date.now() });
     } finally {
       metrics.flush();
     }

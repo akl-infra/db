@@ -5,6 +5,8 @@ export interface Bindings {
   DUMPS: R2Bucket;
   // Long-poll hold budget, hold-seconds per UTC day (src/core/longpoll.ts; design/aws-port.md §3). Unset => 20000.
   HOLD_BUDGET_SECONDS?: string;
+  // Deploy-time default of the `jobs.enabled` runtime flag (src/core/flags.ts): "off" makes every scheduled tick a no-op. Unset => on.
+  JOBS_ENABLED?: string;
   // The AWS `prod` stage's base URL; the Worker forwards every request there while import_state['cutover.mode'] is 'proxy' (src/core/cutover.ts).
   CUTOVER_PROXY_URL?: string;
   DISCORD_API_URL: string; // e.g. https://discord.com/api -- src/auth/discord.ts (09 §3 T1)

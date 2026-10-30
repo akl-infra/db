@@ -600,8 +600,8 @@ is exceeded or `wait` elapses (whichever first; `wait` is clamped to 25s).
 `wait` is honoured for any request signed on the client lane (§2 above) —
 every registered client, no extra cap; any
 other caller naming `wait` gets the immediate, unheld answer, plus a
-response header `X-Wait-Ignored: unauthorized` (never an error). The server also
-limits holds (one live hold per client, and a daily total across all clients): a
+response header `X-Wait-Ignored: unauthorized` (never an error). A deployment may also
+limit holds (one live hold per client, and a daily total across all clients): a
 hold it declines is answered the same immediate way, with `X-Wait-Ignored:
 budget`, so treat `wait=` as a hint and keep polling. A held
 request still counts against your client's normal rate limit (§4). Poll

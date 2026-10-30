@@ -7,6 +7,7 @@ import { idempotencyKeys } from "./auth/idempotency";
 import { rateLimitWrites } from "./auth/ratelimit";
 import { clientsHealth } from "./core/clients";
 import { cutoverProxy, cutoverReadOnly, frozen } from "./core/cutover";
+import { storeFlags } from "./core/flags";
 import { describeError } from "./core/describe-error";
 import { ApiError, internal } from "./core/errors";
 import { cachePut, conditional, etagFor, readHead } from "./core/etag";
@@ -379,6 +380,11 @@ async function scheduled(event: ScheduledController, env: Bindings, ctx: Executi
   // A cutover owns the data (`read_only`: nothing may write after the final seq; `proxy`: the other side runs the jobs).
   if (await frozen(store)) {
     console.log("scheduled(): skipped, a cutover mode is on");
+    return;
+  }
+  // The jobs flag (src/core/flags.ts): the AWS stage keeps its schedule always enabled and a disabled tick is a no-op invocation.
+  if (!(await storeFlags(store.state, env).jobsEnabled())) {
+    console.log("scheduled(): skipped, jobs are disabled");
     return;
   }
   const at = new Date(event.scheduledTime);
