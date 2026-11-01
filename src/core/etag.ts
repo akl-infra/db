@@ -226,7 +226,10 @@ export async function readHead(dbArg: StoreArg, stateKeys: readonly string[] = [
 //   or only the id; `POST /v1/wpm` takes an optional `user_name`; new
 //   `POST /v1/admin/discord-users/refresh`; `GET /v1/wpm`'s ETag folds in
 //   `discord_users_head`. Additive; one new table, no existing column moves.
-export const WIRE_VERSION = 31;
+// 32 (2026-11-01, LDB-CMT18): new public bulk `GET /v1/comments?ids=` (the
+//   per-layout comment listing for up to 200 layout ids in one read). Additive;
+//   no existing shape changes.
+export const WIRE_VERSION = 32;
 
 export async function etagFor(headSeqValue: number, query: unknown): Promise<string> {
   const hash = await sha256Hex(canonical({ wireVersion: WIRE_VERSION, query: query ?? null }));

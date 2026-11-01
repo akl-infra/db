@@ -20,8 +20,15 @@ export interface AuthDeps extends ClientDeps {
   now: Clock;
 }
 
-const CACHE_OK_SECONDS = 300;
+// [LDB-A2] A Discord success is trusted for an hour (saltorbit, 2026-11-01:
+// "1 hour sounds good"; was 5 min). Only the name and the token's own
+// validity ride on it: admin and ban are read fresh on every request.
+const CACHE_OK_SECONDS = 3600;
 const CACHE_FAIL_SECONDS = 60;
+// [LDB-A19] `authors.last_seen_at` on the user lane is bookkeeping with DAY
+// granularity: a sign-in that keeps its name and source writes no authors row
+// unless the stored value is older than this.
+const LAST_SEEN_GRANULARITY_SECONDS = 24 * 60 * 60;
 const DISCORD_TIMEOUT_MS = 5000;
 const USER_AGENT = "akl-db/1.0";
 
@@ -158,7 +165,15 @@ export async function resolveBearer(
 
   const name = user.username;
 
-  await store.auth.cacheAuthSuccess({ tokenHash: hash, userId: user.id, name, appId, expiresAt: addSeconds(at, CACHE_OK_SECONDS), at });
+  await store.auth.cacheAuthSuccess({
+    tokenHash: hash,
+    userId: user.id,
+    name,
+    appId,
+    expiresAt: addSeconds(at, CACHE_OK_SECONDS),
+    at,
+    staleBefore: addSeconds(at, -LAST_SEEN_GRANULARITY_SECONDS),
+  });
 
   const roles = await roleOf(store, user.id);
   return { user_id: user.id, name, via: "discord", ...roles, source_client: `discord-app:${appId}` };

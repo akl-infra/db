@@ -174,7 +174,7 @@ token.
 **What it proves**: that a real Discord user, right now, holds a token your
 Discord application issued — the DB confirms this by calling Discord's own
 `GET /oauth2/@me` with the same header and caching the answer
-(`src/auth/discord.ts`, ≤ 5 min on success, ≤ 60 s on a Discord 401).
+(`src/auth/discord.ts`, ≤ 1 hour on success, ≤ 60 s on a Discord 401).
 
 ### 1.3 Every edit records its source client
 
@@ -1162,6 +1162,7 @@ silently drift from what `src/index.ts` actually registers.
 | POST | `/v1/wpm` | user | `{layout, wpm, proof}` | 202 (queued, admins too) | `bad_request`, `invalid_wpm`, `invalid_proof`, `not_found`, lane errors |
 | GET | `/v1/layouts/:ref/comments` | none | — (`?sort=`) | 200 (`{comments}`) | `bad_request`, `not_found` |
 | GET | `/v1/comment-counts` | none | — | 200 (`{counts}`; sparse positive counts of approved comments on live layouts) | — |
+| GET | `/v1/comments` | none | — (`?ids=<id>,...` 1..200 layout ids, `?sort=`) | 200 (`{layouts}`; each known layout's own listing, request order) | `bad_request` |
 | PUT | `/v1/layouts/:ref/comments/:author_id/like` | user | — | 204 | `bad_request`, `own_comment`, `not_found`, lane errors |
 | DELETE | `/v1/layouts/:ref/comments/:author_id/like` | user | — | 204 | `bad_request`, `not_found`, lane errors |
 | GET | `/v1/me/comments` | user | — | 200 (`{comments}`) | lane errors |

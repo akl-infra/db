@@ -216,8 +216,9 @@ export interface AuthStore {
   authCache(tokenHash: string): Promise<AuthCacheRow | null>;
   /** single. Cache a Discord refusal until `expiresAt`. D1: auth/discord.ts (both failure upserts). */
   cacheAuthFailure(tokenHash: string, expiresAt: string): Promise<void>;
-  /** atomic. Cache a Discord success and upsert the author (name unless admin-set; `last_seen_at` always). D1: auth/discord.ts resolveBearer's batch. */
-  cacheAuthSuccess(r: { tokenHash: string; userId: string; name: string; appId: string | null; expiresAt: string; at: string }): Promise<void>;
+  /** atomic. Cache a Discord success and upsert the author only when something changed [LDB-A19]: the name (unless admin-set), the
+   * name source, or a `last_seen_at` older than `staleBefore` (never moved backwards). D1: auth/discord.ts resolveBearer's batch. */
+  cacheAuthSuccess(r: { tokenHash: string; userId: string; name: string; appId: string | null; expiresAt: string; at: string; staleBefore: string }): Promise<void>;
   /** single. D1: auth/discord.ts pruneAuthCache. */
   pruneAuthCache(nowIso: string): Promise<void>;
   /** auth-eventual, read. Raw presence in `admins` and `bans` (core/roles.ts derives `banned && !admin`). D1: auth/roles.ts roleOf. */
@@ -353,6 +354,11 @@ export interface PublicCommentDbRow {
   is_author: number;
 }
 
+/** `listCommentsForLayouts`' raw row: a `PublicCommentDbRow` tagged with its layout. */
+export interface PublicCommentManyDbRow extends PublicCommentDbRow {
+  layout_id: string;
+}
+
 export interface CommentStore {
   /** strong, read. Without notified_at. D1: comments.ts loadComment. */
   get(id: string): Promise<CommentRow | null>;
@@ -374,6 +380,9 @@ export interface CommentStore {
   counts(): Promise<PublicCommentCount[]>;
   /** strong, read. D1: comments.ts listComments' query. */
   list(r: { layoutId: string; owner: string; viewer: string; sort: CommentSort }): Promise<PublicCommentDbRow[]>;
+  /** strong, read. `list` for many layouts by id at once: which of `layoutIds` exist (with `deleted`), and every live one's rows in `list`'s
+   * order, grouped by layout. One round trip. D1: comments.ts listCommentsForLayouts' batch. */
+  listMany(r: { layoutIds: string[]; viewer: string; sort: CommentSort }): Promise<{ layouts: { id: string; deleted: number }[]; rows: PublicCommentManyDbRow[] }>;
   /** single. Like an approved slot; false = not inserted (already liked, or no slot). D1: comments.ts likeComment's insert. */
   like(r: { layoutId: string; authorId: string; userId: string; via: string; at: string }): Promise<boolean>;
   /** strong, read. D1: comments.ts likeComment's slot read. */

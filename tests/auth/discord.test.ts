@@ -133,13 +133,67 @@ describe("resolveBearer()", () => {
     expect(cacheRow?.name).toBe("bobby-renamed");
 
     // ...but the authors row stays exactly as the admin set it (LDB-MD4's
-    // stickier-than-sign-in guard), last_seen_at bumped regardless.
+    // stickier-than-sign-in guard), and last_seen_at stays put inside the
+    // day (LDB-A19).
     const author = await authorRow("1002");
     expect(author?.name).toBe("Admin Override");
-    expect(author?.last_seen_at).toBe("2026-09-09T00:10:00.000Z");
+    expect(author?.last_seen_at).toBe(now);
   });
 
-  it("[LDB-A2] a second call inside 300s makes no Discord request; at 300s+1 it does", async () => {
+  it("[LDB-A19] [LDB-MD4] an admin-named row's last_seen_at moves on a sign-in a day or more after it, and its name still never does", async () => {
+    const fake = new FakeDiscord();
+    fake.setAnswer("tok-b3", { kind: "ok", id: "1012", username: "dora", global_name: null });
+    const then = "2026-09-08T00:00:00.000Z";
+    await testStore.insert("authors", { user_id: "1012", name: "Admin Pick", first_seen_at: then, last_seen_at: then, name_source: "admin" });
+    const { clock } = mutableClock("2026-09-09T00:00:01.000Z");
+
+    await resolveBearer(store, clock, "tok-b3", fake.fetchImpl, BASE_URL);
+
+    expect(await authorRow("1012")).toEqual({ name: "Admin Pick", first_seen_at: then, last_seen_at: "2026-09-09T00:00:01.000Z" });
+  });
+
+  it("[LDB-A19] a sign-in that changes nothing writes no authors row; a new name is written at once; last_seen_at refreshes past a day and never moves back", async () => {
+    const fake = new FakeDiscord();
+    fake.setAnswer("tok-s1", { kind: "ok", id: "1013", username: "erin", global_name: null });
+    const { clock, advanceMs } = mutableClock("2026-09-09T00:00:00.000Z");
+    const versionOf = async () => (await testStore.row<{ version: number }>("authors_head", { id: 1 }))?.version;
+
+    await resolveBearer(store, clock, "tok-s1", fake.fetchImpl, BASE_URL);
+    const version = await versionOf();
+    const first = await authorRow("1013");
+
+    // a second token (a new sign-in, a cache miss) an hour later, same name: no write
+    advanceMs(60 * 60 * 1000);
+    fake.setAnswer("tok-s2", { kind: "ok", id: "1013", username: "erin", global_name: null });
+    await resolveBearer(store, clock, "tok-s2", fake.fetchImpl, BASE_URL);
+    expect(await authorRow("1013")).toEqual(first);
+    expect(await versionOf()).toBe(version);
+
+    // a renamed Discord user is written on the very next cache miss
+    advanceMs(60 * 1000);
+    fake.setAnswer("tok-s3", { kind: "ok", id: "1013", username: "erin2", global_name: null });
+    await resolveBearer(store, clock, "tok-s3", fake.fetchImpl, BASE_URL);
+    expect(await authorRow("1013")).toEqual({ name: "erin2", first_seen_at: first!.first_seen_at, last_seen_at: "2026-09-09T01:01:00.000Z" });
+
+    // past a day since the stored value: last_seen_at refreshes (exactly a day is still inside it)
+    advanceMs(24 * 60 * 60 * 1000);
+    fake.setAnswer("tok-s3b", { kind: "ok", id: "1013", username: "erin2", global_name: null });
+    await resolveBearer(store, clock, "tok-s3b", fake.fetchImpl, BASE_URL);
+    expect((await authorRow("1013"))?.last_seen_at).toBe("2026-09-09T01:01:00.000Z");
+    advanceMs(60 * 1000);
+    fake.setAnswer("tok-s4", { kind: "ok", id: "1013", username: "erin2", global_name: null });
+    await resolveBearer(store, clock, "tok-s4", fake.fetchImpl, BASE_URL);
+    expect((await authorRow("1013"))?.last_seen_at).toBe("2026-09-10T01:02:00.000Z");
+
+    // a stored value newer than this sign-in is never regressed, even by a rename
+    await testStore.patch("authors", { user_id: "1013" }, { last_seen_at: "2026-09-20T00:00:00.000Z" });
+    advanceMs(60 * 1000);
+    fake.setAnswer("tok-s5", { kind: "ok", id: "1013", username: "erin3", global_name: null });
+    await resolveBearer(store, clock, "tok-s5", fake.fetchImpl, BASE_URL);
+    expect(await authorRow("1013")).toEqual({ name: "erin3", first_seen_at: first!.first_seen_at, last_seen_at: "2026-09-20T00:00:00.000Z" });
+  });
+
+  it("[LDB-A2] a second call inside an hour makes no Discord request; at 3600s+1 it does", async () => {
     const fake = new FakeDiscord();
     fake.setAnswer("tok-c", { kind: "ok", id: "1003", username: "carl", global_name: null });
     const { clock, advanceMs } = mutableClock("2026-09-09T00:00:00.000Z");
@@ -147,16 +201,16 @@ describe("resolveBearer()", () => {
     await resolveBearer(store, clock, "tok-c", fake.fetchImpl, BASE_URL);
     expect(fake.requestLog.length).toBe(1);
 
-    advanceMs(299_000);
+    advanceMs(3_599_000);
     await resolveBearer(store, clock, "tok-c", fake.fetchImpl, BASE_URL);
     expect(fake.requestLog.length).toBe(1); // still cached
 
-    advanceMs(2_000); // now at +301s, past the 300s window
+    advanceMs(2_000); // now at +3601s, past the one-hour window
     await resolveBearer(store, clock, "tok-c", fake.fetchImpl, BASE_URL);
     expect(fake.requestLog.length).toBe(2);
   });
 
-  it("[LDB-A2] a 401 is cached 60s, not 5min, and never as a success", async () => {
+  it("[LDB-A2] a 401 is cached 60s, not an hour, and never as a success", async () => {
     const fake = new FakeDiscord();
     fake.setAnswer("tok-d", { kind: "status", status: 401 });
     const { clock, advanceMs } = mutableClock("2026-09-09T00:00:00.000Z");

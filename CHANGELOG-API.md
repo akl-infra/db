@@ -25,6 +25,19 @@ this file just gives them a public, versioned home. From here on, a
 `WIRE_VERSION` bump and a line here land in the SAME PR, never one without
 the other (`[LDB-V5]`).
 
+## 1.32 — 2026-11-01
+
+LDB-CMT18, docs/decisions/29-layout-comments.md: add public `GET
+/v1/comments?ids=<id>,...` (1..200 layout ids, comma-separated, `?sort=` as on
+the single listing), answering `{layouts: [{layout_id, comments}]}` with each
+known layout's listing exactly as `GET /v1/layouts/{id}/comments` shows it, in
+request order; an id that names no layout is left out. Anonymous answers share
+the public ETag/cache; with credentials the rows carry `liked` and the answer
+is `private, no-store`. Additive: nothing existing changes shape. Also (no
+shape change): a Discord token check is now cached for up to an hour
+(LDB-A2, was 5 minutes), and a sign-in writes the `authors` row only when the
+name, its source or a day-old `last_seen_at` changed (LDB-A19).
+
 ## 1.31 — 2026-10-25
 
 LDB-WPM18..LDB-WPM20, docs/decisions/28-wpm-records.md: every WPM typist has a

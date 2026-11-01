@@ -1246,6 +1246,94 @@ describe("[LDB-CMT13] the listing carries likes, orders by them, and keeps the v
   });
 });
 
+describe("[LDB-CMT18] GET /v1/comments?ids= is the per-layout listing for many layouts in one read", () => {
+  it("[LDB-CMT18] each known id gets exactly what its own listing shows, in request order, under both sorts, anonymous and signed in; unknown ids are left out", async () => {
+    const fake = actorFixture();
+    const owner = testUserId();
+    const ownerAuth = register(fake, token("many-owner"), owner);
+    const admin = register(fake, token("many-admin"), BOOTSTRAP_ADMIN);
+    const busy = await createLayout(owner);
+    const quiet = await createLayout(owner);
+    const gone = await createLayout(owner);
+    const say = async (auth: Auth, layout: string, text: string) => approve(admin, (await put(auth, layout, text)).submission.id);
+    const users = [0, 1, 2].map((i) => ({ user: testUserId(), auth: {} as Auth, i }));
+    for (const u of users) u.auth = register(fake, token(`many-u${u.i}`), u.user);
+    await say(users[0]!.auth, busy.id, "first");
+    await say(users[1]!.auth, busy.id, "second");
+    await say(users[1]!.auth, busy.id, "second, edited");
+    await say(ownerAuth, busy.id, "owner note");
+    await say(users[2]!.auth, gone.id, "on a layout about to go");
+    await like(users[2]!.auth, busy.id, users[0]!.user);
+    await like(ownerAuth, busy.id, users[0]!.user);
+    await like(users[0]!.auth, busy.id, users[1]!.user);
+    await testStore.patch("layouts", { id: gone.id }, { deleted: 1 });
+
+    const unknown = ulid();
+    const ids = [quiet.id, busy.id, unknown, gone.id, busy.id].join(",");
+    for (const sort of ["likes", "newest"] as const) {
+      for (const viewer of [undefined, users[1]!.auth]) {
+        const res = await writeFetch(`/v1/comments?ids=${ids}&sort=${sort}`, "GET", viewer ?? {});
+        expect(res.status).toBe(200);
+        const many = ((await res.json()) as { layouts: { layout_id: string; comments: PublicComment[] }[] }).layouts;
+        const single = async (layout: string) =>
+          ((await (await writeFetch(`/v1/layouts/${layout}/comments?sort=${sort}`, "GET", viewer ?? {})).json()) as { comments: PublicComment[] }).comments;
+        expect(many).toEqual([
+          { layout_id: quiet.id, comments: await single(quiet.id) },
+          { layout_id: busy.id, comments: await single(busy.id) },
+          { layout_id: gone.id, comments: [] },
+        ]);
+        expect(many[1]!.comments.length).toBe(3);
+        expect(many[1]!.comments[0]!.is_author).toBe(true);
+        expect(many[1]!.comments.some((c) => c.edited)).toBe(true);
+        for (const c of many[1]!.comments) expect("liked" in c).toBe(viewer !== undefined);
+        if (viewer === undefined) {
+          expect(res.headers.get("Cache-Control")).toBe("public, max-age=10");
+          expect(res.headers.get("ETag")).not.toBeNull();
+        } else {
+          expect(res.headers.get("Cache-Control")).toBe("private, no-store");
+          expect(res.headers.get("ETag")).toBeNull();
+        }
+      }
+    }
+  });
+
+  it("[LDB-CMT18] ids is required and capped; sort is validated like the single listing; the ETag follows the ids, the sort and new approvals", async () => {
+    const fake = actorFixture();
+    const owner = testUserId();
+    const admin = register(fake, token("many-tag-admin"), BOOTSTRAP_ADMIN);
+    const a = await createLayout(owner);
+    const b = await createLayout(owner);
+    for (const bad of ["", "?ids=", "?ids=,,", `?ids=${Array.from({ length: 201 }, (_, i) => `x${i}`).join(",")}`]) {
+      const res = await writeFetch(`/v1/comments${bad}`, "GET");
+      expect(res.status, bad).toBe(400);
+      await expect(res.json()).resolves.toMatchObject({ error: "bad_request", param: "ids" });
+    }
+    const atCap = await writeFetch(`/v1/comments?ids=${Array.from({ length: 200 }, (_, i) => `x${i}`).join(",")}`, "GET");
+    expect(atCap.status).toBe(200);
+    await expect(atCap.json()).resolves.toEqual({ layouts: [] });
+    const badSort = await writeFetch(`/v1/comments?ids=${a.id}&sort=LIKES`, "GET");
+    expect(badSort.status).toBe(400);
+    await expect(badSort.json()).resolves.toMatchObject({ error: "bad_request", param: "sort" });
+
+    const get = (q: string, etag?: string) => writeFetch(`/v1/comments?${q}`, "GET", etag === undefined ? {} : { "If-None-Match": etag });
+    const ab = await get(`ids=${a.id},${b.id}`);
+    const tagAB = ab.headers.get("ETag")!;
+    expect((await get(`ids=${a.id},${b.id}`, tagAB)).status).toBe(304);
+    expect((await get(`ids=${b.id},${a.id}`, tagAB)).status).toBe(200); // another order is another body
+    expect((await get(`ids=${a.id},${b.id}&sort=newest`, tagAB)).status).toBe(200);
+
+    const user = register(fake, token("many-tag-user"), testUserId());
+    await approve(admin, (await put(user, b.id, "now there is one")).submission.id);
+    const after = await get(`ids=${a.id},${b.id}`, tagAB);
+    expect(after.status).toBe(200);
+    const body = (await after.json()) as { layouts: { layout_id: string; comments: PublicComment[] }[] };
+    expect(body.layouts.map((l) => [l.layout_id, l.comments.map((c) => c.body)])).toEqual([
+      [a.id, []],
+      [b.id, ["now there is one"]],
+    ]);
+  });
+});
+
 describe("[LDB-CMT16] GET /v1/me/comments lists the caller's own slots across layouts", () => {
   interface Mine {
     layout_id: string;
