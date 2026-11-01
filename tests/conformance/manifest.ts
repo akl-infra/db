@@ -500,6 +500,8 @@ import cmtFxLayoutsCommentDelete401Unauthorized from "./layouts-comment/delete-4
 import cmtFxLayoutsCommentDelete404 from "./layouts-comment/delete-404.json" with { type: "json" };
 import cmtFxLayoutsCommentsGet200 from "./layouts-comments/get-200.json" with { type: "json" };
 import cmtFxCommentCountsGet200 from "./comment-counts/get-200.json" with { type: "json" };
+import cmtFxCommentsGet200 from "./comments/get-200.json" with { type: "json" };
+import cmtFxCommentsGet400BadRequest from "./comments/get-400-bad_request.json" with { type: "json" };
 import cmtFxLayoutsCommentsGet304 from "./layouts-comments/get-304.json" with { type: "json" };
 import cmtFxLayoutsCommentsGet404 from "./layouts-comments/get-404.json" with { type: "json" };
 import cmtFxLayoutsCommentsGet400BadRequest from "./layouts-comments/get-400-bad_request.json" with { type: "json" };
@@ -966,6 +968,8 @@ export const MODERATION_CASES: ConformanceCase[] = [
   kase("layouts-comments/get-404", "/v1/layouts/:ref/comments", cmtFxLayoutsCommentsGet404, true),
   kase("layouts-comments/get-400-bad_request", "/v1/layouts/:ref/comments", cmtFxLayoutsCommentsGet400BadRequest, true),
   kase("layouts-comments/get-200-sort-newest", "/v1/layouts/:ref/comments", cmtFxLayoutsCommentsGet200SortNewest, true),
+  kase("comments/get-200", "/v1/comments", cmtFxCommentsGet200, true),
+  kase("comments/get-400-bad_request", "/v1/comments", cmtFxCommentsGet400BadRequest, true),
   kase("admin-comment-queue/get-400-bad_request", "/v1/admin/comment-queue", cmtFxAdminCommentQueueGet400BadRequest, true),
   kase("admin-comment-queue/get-401-unauthorized", "/v1/admin/comment-queue", cmtFxAdminCommentQueueGet401Unauthorized, true),
   kase("admin-comment-queue/get-403-not_admin", "/v1/admin/comment-queue", cmtFxAdminCommentQueueGet403NotAdmin, true),

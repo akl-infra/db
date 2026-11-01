@@ -118,6 +118,7 @@ const ENDPOINT_PURPOSES = {
   "GET /v1/wpm": "Each user's top approved typing speed per layout, filterable by layout and user; public.",
   "GET /v1/comment-counts": "Public approved-comment counts for live layouts; layouts with no comments are omitted.",
   "GET /v1/layouts/:ref/comments": "A layout's approved comments, one per user, newest first; public.",
+  "GET /v1/comments": "Approved comments for up to 200 layouts at once (?ids=), each exactly as its own listing shows; public.",
   "PUT /v1/layouts/:ref/comments/:author_id/like": "Like a user's comment on a layout; idempotent.",
   "DELETE /v1/layouts/:ref/comments/:author_id/like": "Remove your like from a user's comment; idempotent.",
   "GET /v1/me/comments": "Everything you have written: one row per layout with your live, pending and kept comment text; private.",

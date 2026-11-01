@@ -1,0 +1,15 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/v1/comments?ids=01ARZ3NDEKTSV4RRFFQ69G5FZZ"
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "layouts": []
+    }
+  }
+}

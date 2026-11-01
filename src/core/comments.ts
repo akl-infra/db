@@ -294,6 +294,26 @@ export async function listComments(dbArg: StoreArg, layout: LayoutRow, viewer?: 
   return results.map(({ liked, edited, is_author, ...r }) => ({ ...r, edited: edited === 1, is_author: is_author === 1, ...(viewer === undefined ? {} : { liked: liked === 1 }) }));
 }
 
+// `GET /v1/comments?ids=` [LDB-CMT18]: `listComments` for many layouts in one
+// read. Every requested id that names a layout gets one entry, in request
+// order (first occurrence), with exactly what `listComments` lists for it (a
+// deleted layout lists nothing); an id that names no layout is left out.
+export const MAX_COMMENT_LAYOUT_IDS = 200;
+
+export interface LayoutComments {
+  layout_id: string;
+  comments: PublicComment[];
+}
+
+export async function listCommentsForLayouts(dbArg: StoreArg, layoutIds: string[], viewer?: string, sort: CommentSort = "likes"): Promise<LayoutComments[]> {
+  const { layouts, rows } = await toStore(dbArg).comments.listMany({ layoutIds, viewer: viewer ?? "", sort });
+  const byLayout = new Map<string, PublicComment[]>(layouts.map((l) => [l.id, []]));
+  for (const { layout_id, liked, edited, is_author, ...r } of rows) {
+    byLayout.get(layout_id)?.push({ ...r, edited: edited === 1, is_author: is_author === 1, ...(viewer === undefined ? {} : { liked: liked === 1 }) });
+  }
+  return layoutIds.filter((id) => byLayout.has(id)).map((id) => ({ layout_id: id, comments: byLayout.get(id)! }));
+}
+
 // PUT /v1/layouts/:ref/comments/:author_id/like (LDB-CMT11): idempotent. The
 // target is the author's comment slot, so `404` when the slot has no approved
 // comment and `400 own_comment` for the author themselves. A like that was

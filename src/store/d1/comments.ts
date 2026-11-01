@@ -1,7 +1,7 @@
 // D1 implementation of `CommentStore` (src/store/port.ts). Owner: P1 agent C
 // (design/p1-briefs.md). Today's SQL from core/comments.ts, moved verbatim.
 import type { CommentQueueRow, CommentRow, PublicCommentCount } from "../../core/comments";
-import type { CommentStore, PublicCommentDbRow } from "../port";
+import type { CommentStore, PublicCommentDbRow, PublicCommentManyDbRow } from "../port";
 import { gatedEventStatement, gatedHistoryStatement, gatedOutboxStatement } from "./sql";
 
 // [LDB-CMT9] The explicit column list (never `SELECT *`) keeps `notified_at`
@@ -156,6 +156,39 @@ export function d1CommentStore(db: D1Database): CommentStore {
         .bind(r.viewer, r.owner, r.layoutId)
         .all<PublicCommentDbRow>();
       return results;
+    },
+    async listMany(r) {
+      // [LDB-CMT18] `list`'s columns and order, per layout, for every id in
+      // one JSON array bind (json_each: one bound parameter however many ids).
+      const ids = JSON.stringify(r.layoutIds);
+      const [layouts, rows] = (await db.batch([
+        db.prepare("SELECT id, deleted FROM layouts WHERE id IN (SELECT value FROM json_each(?))").bind(ids),
+        db
+          .prepare(
+            `SELECT c.layout_id AS layout_id, c.id AS id, c.user_id AS user_id, a.name AS name, c.body AS body, c.decided_at AS approved_at,
+              EXISTS (
+                SELECT 1 FROM layout_comments r
+                WHERE r.layout_id = c.layout_id AND r.user_id = c.user_id AND r.status = 'replaced'
+                  AND r.decided_at > COALESCE(
+                    (SELECT MAX(d.decided_at) FROM layout_comments d
+                     WHERE d.layout_id = c.layout_id AND d.user_id = c.user_id AND d.status IN ('deleted', 'removed')),
+                    '')
+              ) AS edited,
+              (SELECT COUNT(*) FROM comment_likes k WHERE k.layout_id = c.layout_id AND k.author_id = c.user_id) AS likes,
+              EXISTS (SELECT 1 FROM comment_likes k WHERE k.layout_id = c.layout_id AND k.author_id = c.user_id AND k.user_id = ?) AS liked,
+              (c.user_id = l.owner) AS is_author
+       FROM layout_comments c
+       JOIN layouts l ON l.id = c.layout_id
+       LEFT JOIN authors a ON a.user_id = c.user_id
+       WHERE c.layout_id IN (SELECT value FROM json_each(?)) AND l.deleted = 0 AND c.status = 'approved' AND c.body IS NOT NULL
+       ORDER BY c.layout_id, is_author DESC, ${r.sort === "newest" ? "" : "likes DESC, "}c.decided_at DESC, c.id ASC`,
+          )
+          .bind(r.viewer, ids),
+      ])) as [D1Result<{ id: string; deleted: number }>, D1Result<PublicCommentManyDbRow>];
+      return {
+        layouts: layouts.results,
+        rows: rows.results,
+      };
     },
     async like(r) {
       const res = await db

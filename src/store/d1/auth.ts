@@ -76,15 +76,21 @@ export function d1AuthStore(db: D1Database): AuthStore {
             // name and marks it `name_source = 'user'`. §4.3 (LDB-MD4): an `admin`
             // override is STICKIER than that -- this WHERE guard is what keeps
             // an admin-set name from being overwritten by the very next
-            // sign-in. `last_seen_at` still needs to move on every sign-in
-            // regardless (bookkeeping, LDB-R11), so the second statement below
-            // moves it on exactly the rows this one's WHERE clause skipped.
-            `INSERT INTO authors (user_id, name, first_seen_at, last_seen_at, name_source) VALUES (?, ?, ?, ?, 'user')
-         ON CONFLICT(user_id) DO UPDATE SET name = excluded.name, name_source = 'user', last_seen_at = excluded.last_seen_at
-         WHERE authors.name_source <> 'admin'`,
+            // sign-in. [LDB-A19] The row is written only when something
+            // changed: the name, the source, or a `last_seen_at` older than
+            // `staleBefore` (a day); `last_seen_at` never moves backwards. The
+            // second statement moves `last_seen_at` on the admin-named rows
+            // this one's WHERE clause skipped, under the same staleness rule.
+            `INSERT INTO authors (user_id, name, first_seen_at, last_seen_at, name_source) VALUES (?1, ?2, ?3, ?3, 'user')
+         ON CONFLICT(user_id) DO UPDATE SET name = excluded.name, name_source = 'user',
+           last_seen_at = CASE WHEN authors.last_seen_at IS NULL OR authors.last_seen_at < excluded.last_seen_at THEN excluded.last_seen_at ELSE authors.last_seen_at END
+         WHERE authors.name_source <> 'admin'
+           AND (authors.name IS NOT excluded.name OR authors.name_source IS NOT 'user' OR authors.last_seen_at IS NULL OR authors.last_seen_at < ?4)`,
           )
-          .bind(r.userId, r.name, r.at, r.at),
-        db.prepare("UPDATE authors SET last_seen_at = ? WHERE user_id = ? AND name_source = 'admin'").bind(r.at, r.userId),
+          .bind(r.userId, r.name, r.at, r.staleBefore),
+        db
+          .prepare("UPDATE authors SET last_seen_at = ? WHERE user_id = ? AND name_source = 'admin' AND (last_seen_at IS NULL OR last_seen_at < ?)")
+          .bind(r.at, r.userId, r.staleBefore),
       ]);
     },
     async pruneAuthCache(nowIso) {

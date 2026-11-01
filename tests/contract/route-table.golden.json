@@ -4412,6 +4412,43 @@
     }
   },
   {
+    "id": "comments/get-200",
+    "method": "GET",
+    "route": "/v1/comments",
+    "auth": "none",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "layouts": {
+          "type": "array",
+          "item": null
+        }
+      }
+    }
+  },
+  {
+    "id": "comments/get-400-bad_request",
+    "method": "GET",
+    "route": "/v1/comments",
+    "auth": "none",
+    "status": 400,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "param": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
     "id": "dump-key/404",
     "method": "GET",
     "route": "/v1/dump/:key",

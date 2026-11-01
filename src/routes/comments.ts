@@ -109,6 +109,45 @@ export function commentsRoute(authDeps: AuthDeps) {
     return res;
   });
 
+  // GET /v1/comments?ids=<id>,<id>,... [LDB-CMT18]: the route above for up to
+  // MAX_COMMENT_LAYOUT_IDS layouts in one request and one D1 round trip, so a
+  // client showing many cards reads their comments once instead of once per
+  // card. Layout ids only (no names); an id naming no layout is left out
+  // rather than refused. Same sort, ETag inputs and public/per-viewer split
+  // as the single-layout list; the ETag also folds the id list as sent
+  // (deduplicated), which is what fixes the body's order.
+  route.get("/v1/comments", async (c) => {
+    const db = platformOf(c).store;
+    const ids = [...new Set((c.req.query("ids") ?? "").split(",").map((s) => s.trim()).filter((s) => s.length > 0))];
+    if (ids.length === 0) throw badRequest("'ids' must list at least one layout id (comma-separated)", "ids");
+    if (ids.length > comments.MAX_COMMENT_LAYOUT_IDS) throw badRequest(`'ids' lists ${ids.length} layouts (at most ${comments.MAX_COMMENT_LAYOUT_IDS})`, "ids");
+    const sortRaw = c.req.query("sort") ?? "likes";
+    if (!(comments.COMMENT_SORTS as readonly string[]).includes(sortRaw)) {
+      throw badRequest(`unknown 'sort' value '${sortRaw}' (expected one of ${comments.COMMENT_SORTS.join(", ")})`, "sort");
+    }
+    const sort = sortRaw as comments.CommentSort;
+
+    if (c.req.header("Authorization") !== undefined || c.req.header("X-Akl-Client") !== undefined) {
+      const actor = await resolveActor(c.env, c.req, authDeps);
+      const res = c.json({ layouts: await comments.listCommentsForLayouts(db, ids, actor.user_id, sort) });
+      res.headers.set("Cache-Control", "private, no-store");
+      res.headers.set("Vary", "Authorization, X-Akl-Client");
+      return res;
+    }
+
+    const head = await readHead(db);
+    const etag = await etagFor(head.seq, { commentsMany: { ids, authors: head.authors.version, sort } });
+    const short = await conditional(c, etag, CACHE_CONTROL);
+    if (short) return short;
+
+    const res = c.json({ layouts: await comments.listCommentsForLayouts(db, ids, undefined, sort) });
+    res.headers.set("ETag", etag);
+    res.headers.set("Cache-Control", CACHE_CONTROL);
+    res.headers.set("Vary", "Authorization, X-Akl-Client");
+    await cachePut(c, res.clone());
+    return res;
+  });
+
   // GET /v1/layouts/:ref/comment (the caller's own): their pending text and
   // any rejection reason are private, so this is never cached publicly.
   route.get("/v1/layouts/:ref/comment", async (c) => {
