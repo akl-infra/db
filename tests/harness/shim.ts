@@ -54,6 +54,8 @@ export const env: Bindings & Record<string, any> = {
   TEST_REHOST_DUMP_URL: process.env.REHOST_DUMP_URL ?? "",
   // The migration files as the workers project's TEST_MIGRATIONS has them (the migration tests re-run their statements).
   TEST_MIGRATIONS: inject("TEST_MIGRATIONS" as never),
+  // workerd refuses `new Function`; pool-workers hands tests this binding instead. Node has no such rule.
+  __VITEST_POOL_WORKERS_UNSAFE_EVAL: { newFunction: (body: string) => new Function(body) },
   DB: db,
   DUMPS: r2Binding(blobs),
   PLATFORM: platform,
