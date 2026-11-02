@@ -102,6 +102,9 @@ class Mutex {
   }
 }
 
+/** D1 hands JS a (lossy) Number for every INTEGER; statements read bigints so an integer above 2^53 cannot throw. */
+const fromSqlite = (v: unknown): unknown => (typeof v === "bigint" ? Number(v) : v);
+
 const sha256 = (data: Uint8Array | string): string => createHash("sha256").update(data).digest("hex");
 
 /** True for a statement that can only read: it skips the transaction and the session. */
@@ -278,6 +281,7 @@ export class Replica {
       if (hit !== undefined) return hit;
     }
     const stmt = this.db.prepare(sql);
+    stmt.setReadBigInts(true); // node:sqlite throws on an integer above 2^53; D1 answers a lossy Number (see fromSqlite)
     if (raw) stmt.setReturnArrays(true);
     const p: Prepared = { stmt, returnsRows: stmt.columns().length > 0, select: isSelectLeading(sql) };
     if (!raw) {
@@ -312,8 +316,8 @@ export class Replica {
     let columns: string[] = [];
     if (p.returnsRows) {
       columns = p.stmt.columns().map((c) => c.name);
-      if (s.raw === true) arrays = p.stmt.all(...(s.params as never[])) as unknown as unknown[][];
-      else rows = (p.stmt.all(...(s.params as never[])) as Record<string, unknown>[]).map((r) => ({ ...r }));
+      if (s.raw === true) arrays = (p.stmt.all(...(s.params as never[])) as unknown as unknown[][]).map((row) => row.map(fromSqlite));
+      else rows = (p.stmt.all(...(s.params as never[])) as Record<string, unknown>[]).map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, fromSqlite(v)])));
     } else {
       p.stmt.run(...(s.params as never[]));
     }
@@ -372,12 +376,15 @@ export class Replica {
     try {
       const seqBefore = this.#sequenceDigest();
       const schemaBefore = this.#schemaVersion();
+      const rowsBefore = this.#totalChanges();
       session = this.db.createSession();
       const result = stmts.map((s) => this.#execOne(s));
       const changeset = session.changeset();
       session.close();
       session = undefined;
-      const changed = forceLog || changeset.byteLength > 0 || this.#sequenceDigest() !== seqBefore || this.#schemaVersion() !== schemaBefore;
+      // total_changes() is the signal, NOT the session: sessions record nothing for a table without a declared PRIMARY KEY,
+      // and a unit touching only such a table would otherwise never be logged. The changeset is only the replay hash.
+      const changed = forceLog || this.#totalChanges() !== rowsBefore || changeset.byteLength > 0 || this.#sequenceDigest() !== seqBefore || this.#schemaVersion() !== schemaBefore;
       if (!changed) {
         this.db.exec("COMMIT");
         this.#inTxn = false;

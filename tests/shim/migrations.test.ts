@@ -78,6 +78,16 @@ describe("migrations as log entries", () => {
     expect(await r.appliedMigrations()).toEqual(["0001_ok.sql"]);
   });
 
+  it("[LDB-SH10] every table after all migrations has a declared PRIMARY KEY (a future migration without one fails here, and then needs sessions-independent review)", async () => {
+    const log = new MemoryLog();
+    const r = new Replica(log, FAST);
+    await applyMigrations(r, MIGRATIONS_DIR, () => T0);
+    const rows = r.db
+      .prepare("SELECT m.name FROM sqlite_master m WHERE m.type = 'table' AND m.name NOT LIKE 'sqlite_%' AND (SELECT COUNT(*) FROM pragma_table_info(m.name) WHERE pk > 0) = 0")
+      .all();
+    expect(rows).toEqual([]);
+  });
+
   it("[LDB-SH10] the migration files stay plain D1 SQL: no transaction control, no PRAGMA, no ATTACH, none edited for the shim", () => {
     for (const f of readMigrationFiles(MIGRATIONS_DIR)) {
       const sql = stripSqlComments(f.sql);

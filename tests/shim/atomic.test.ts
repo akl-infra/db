@@ -79,15 +79,25 @@ describe("commit units", () => {
     expect(Buffer.from(other.serialize()).equals(Buffer.from(replica.serialize()))).toBe(true);
   });
 
-  it("[LDB-SH3] reads and no-op writes never append: SELECT, an UPDATE matching nothing, an UPDATE to the same value", async () => {
+  it("[LDB-SH3] reads and writes that match nothing never append: SELECT, an UPDATE or DELETE matching no row", async () => {
     await db.prepare("INSERT INTO t (a) VALUES ('x')").run();
     const before = log.length;
     await db.prepare("SELECT * FROM t").all();
     await db.prepare("UPDATE t SET a = 'nope' WHERE id = 99").run();
-    await db.prepare("UPDATE t SET a = 'x' WHERE id = 1").run(); // same value: SQLite counts a change, the changeset is empty
     await db.batch([db.prepare("SELECT 1"), db.prepare("DELETE FROM t WHERE id = 99")]);
     expect(log.length).toBe(before);
-    expect(replica.stats.noOps).toBeGreaterThanOrEqual(3);
+    expect(replica.stats.noOps).toBeGreaterThanOrEqual(2);
+  });
+
+  it("[LDB-SH3] change detection is total_changes(), not the session: a table WITHOUT a primary key (invisible to sessions) is logged and replicates", async () => {
+    await db.exec("CREATE TABLE nopk (a TEXT, b INTEGER)");
+    const before = log.length;
+    await db.prepare("INSERT INTO nopk (a, b) VALUES ('x', 1)").run();
+    await db.prepare("UPDATE nopk SET b = 2 WHERE a = 'x'").run();
+    await db.prepare("UPDATE nopk SET b = 2 WHERE a = 'x'").run(); // same value: a counted change, an empty changeset -- still logged
+    expect(log.length).toBe(before + 3);
+    const other = shimOf(await replicaOf(log));
+    expect(await other.prepare("SELECT a, b FROM nopk").all().then((r) => r.results)).toEqual([{ a: "x", b: 2 }]);
   });
 
   it("[LDB-SH3] a unit that nets to no row change but advances AUTOINCREMENT is still logged, so every replica's next id matches", async () => {
@@ -104,13 +114,6 @@ describe("commit units", () => {
     await db.prepare("CREATE TABLE ddl (a)").run();
     expect(log.length).toBe(before + 1);
     expect((await shimOf(await replicaOf(log)).prepare("SELECT name FROM sqlite_master WHERE name = 'ddl'").first())).toEqual({ name: "ddl" });
-  });
-
-  it("[LDB-SH3] every table has a primary key, so the session changeset sees every row change", () => {
-    const rows = replica.db
-      .prepare("SELECT m.name FROM sqlite_master m WHERE m.type = 'table' AND m.name NOT LIKE 'sqlite_%' AND m.name != 't' AND (SELECT COUNT(*) FROM pragma_table_info(m.name) WHERE pk > 0) = 0")
-      .all();
-    expect(rows).toEqual([]);
   });
 
   it("[LDB-SH3] two statements of one request-scoped batch never interleave with another request's reads", async () => {
