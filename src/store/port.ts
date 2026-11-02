@@ -391,6 +391,8 @@ export interface CommentStore {
   unlike(layoutId: string, authorId: string, userId: string): Promise<boolean>;
   /** strong, read. Every row of one (layout, user), submitted_at then id. D1: comments.ts readOwnComment. */
   pairRows(layoutId: string, userId: string): Promise<CommentRow[]>;
+  /** strong, read. The (layout, author) comment slots `userId` has liked, layout then author, at most `limit`. D1: comments.ts listMyCommentLikes. */
+  likedSlots(userId: string, limit: number): Promise<{ layout_id: string; author_id: string }[]>;
   /** strong, read. The user's rows on live layouts with layout name/owner, plus like counts per layout. D1: comments.ts listMyComments' two queries. */
   mine(userId: string): Promise<{ rows: (CommentRow & { layout_name: string; layout_owner: string })[]; likeCounts: Map<string, number> }>;
 }

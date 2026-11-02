@@ -1334,6 +1334,60 @@ describe("[LDB-CMT18] GET /v1/comments?ids= is the per-layout listing for many l
   });
 });
 
+describe("[LDB-CMT19] GET /v1/me/comment-likes is exactly the `liked` of the caller's credentialed listings", () => {
+  it("[LDB-CMT19] for every comment a credentialed single or bulk listing shows the viewer, liked === its slot is in the viewer's likes; nobody else's likes appear; a removed slot's like is gone from both", async () => {
+    const fake = actorFixture();
+    const admin = register(fake, token("ml-admin"), BOOTSTRAP_ADMIN);
+    const owner = testUserId();
+    const ownerAuth = register(fake, token("ml-owner"), owner);
+    const layouts = [await createLayout(owner), await createLayout(owner), await createLayout(owner)];
+    const people = Array.from({ length: 4 }, (_, i) => ({ user: testUserId(), auth: {} as Auth, i }));
+    for (const p of people) p.auth = register(fake, token(`ml-p${p.i}`), p.user);
+    // everyone comments on the first two layouts, the owner too
+    for (const l of layouts.slice(0, 2)) {
+      for (const who of [...people.map((p) => p.auth), ownerAuth]) await approve(admin, (await put(who, l.id, `on ${l.name}`)).submission.id);
+    }
+    const viewer = people[0]!;
+    const other = people[1]!;
+    await like(viewer.auth, layouts[0]!.id, people[2]!.user);
+    await like(viewer.auth, layouts[0]!.id, owner);
+    await like(viewer.auth, layouts[1]!.id, people[3]!.user);
+    await like(other.auth, layouts[0]!.id, people[3]!.user); // someone else's like
+    // the like on people[3]'s slot of layouts[1] is cleared by a mod's removal
+    const removedRow = (await rowsFor(layouts[1]!.id, people[3]!.user)).find((r) => r.status === "approved")!;
+    expect((await writeFetch(`/v1/admin/comments/${removedRow.id}/remove`, "POST", admin, { reason: "test" })).status).toBe(200);
+
+    const res = await writeFetch("/v1/me/comment-likes", "GET", viewer.auth);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store");
+    const likes = ((await res.json()) as { likes: { layout_id: string; author_id: string }[] }).likes;
+    const mine = new Set(likes.map((l) => `${l.layout_id}|${l.author_id}`));
+    expect(mine).toEqual(new Set([`${layouts[0]!.id}|${people[2]!.user}`, `${layouts[0]!.id}|${owner}`]));
+
+    let compared = 0;
+    for (const sort of ["likes", "newest"] as const) {
+      for (const l of layouts) {
+        const single = ((await (await writeFetch(`/v1/layouts/${l.id}/comments?sort=${sort}`, "GET", viewer.auth)).json()) as { comments: PublicComment[] }).comments;
+        for (const c of single) {
+          expect(c.liked, `${l.name} ${c.user_id}`).toBe(mine.has(`${l.id}|${c.user_id}`));
+          compared++;
+        }
+      }
+      const bulk = ((await (await writeFetch(`/v1/comments?ids=${layouts.map((l) => l.id).join(",")}&sort=${sort}`, "GET", viewer.auth)).json()) as { layouts: { layout_id: string; comments: PublicComment[] }[] }).layouts;
+      for (const entry of bulk) for (const c of entry.comments) expect(c.liked).toBe(mine.has(`${entry.layout_id}|${c.user_id}`));
+    }
+    expect(compared).toBeGreaterThan(10);
+  });
+
+  it("[LDB-CMT19] needs a signed-in caller: 401 without credentials, and the empty list for someone who liked nothing", async () => {
+    const res = await writeFetch("/v1/me/comment-likes", "GET");
+    expect(res.status).toBe(401);
+    const fake = actorFixture();
+    const nobody = register(fake, token("ml-nobody"), testUserId());
+    await expect((await writeFetch("/v1/me/comment-likes", "GET", nobody)).json()).resolves.toEqual({ likes: [] });
+  });
+});
+
 describe("[LDB-CMT16] GET /v1/me/comments lists the caller's own slots across layouts", () => {
   interface Mine {
     layout_id: string;

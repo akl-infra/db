@@ -1176,6 +1176,7 @@ silently drift from what `src/index.ts` actually registers.
 | PUT | `/v1/layouts/:ref/comments/:author_id/like` | user | — | 204 | `bad_request`, `own_comment`, `not_found`, lane errors |
 | DELETE | `/v1/layouts/:ref/comments/:author_id/like` | user | — | 204 | `bad_request`, `not_found`, lane errors |
 | GET | `/v1/me/comments` | user | — | 200 (`{comments}`) | lane errors |
+| GET | `/v1/me/comment-likes` | user | — | 200 (`{likes}`; the comment slots you liked, `{layout_id, author_id}`, at most 1000) | lane errors |
 | GET | `/v1/layouts/:ref/comment` | user | — | 200 (`{live, pending, decision}`) | `not_found`, lane errors |
 | PUT | `/v1/layouts/:ref/comment` | user | `{body}` | 202 (queued, admins too) | `bad_request`, `invalid_comment`, `not_found`, lane errors |
 | DELETE | `/v1/layouts/:ref/comment` | user | — | 204 | `not_found`, lane errors |

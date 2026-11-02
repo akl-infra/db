@@ -190,6 +190,14 @@ export function d1CommentStore(db: D1Database): CommentStore {
         rows: rows.results,
       };
     },
+    async likedSlots(userId, limit) {
+      // [LDB-CMT19] through comment_likes_user: rows read = the user's likes.
+      const { results } = await db
+        .prepare("SELECT layout_id, author_id FROM comment_likes WHERE user_id = ? ORDER BY layout_id ASC, author_id ASC LIMIT ?")
+        .bind(userId, limit)
+        .all<{ layout_id: string; author_id: string }>();
+      return results;
+    },
     async like(r) {
       const res = await db
         .prepare(

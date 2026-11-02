@@ -402,6 +402,22 @@ export const MY_COMMENTS_LIMIT = 500;
 // pending text and `decided_at` of the decision), then `layout_id`. The same
 // rules as `readOwnComment` decide what each slot shows; a slot with nothing
 // to show (erased, superseded, replaced only) is absent. Private to the caller.
+// `GET /v1/me/comment-likes` [LDB-CMT19]: every comment slot the caller has
+// liked, `{layout_id, author_id}`, layout then author, at most
+// MAX_MY_COMMENT_LIKES (a client holding exactly that many cannot tell "all"
+// from "the first that many" and reads per layout instead). A listing's
+// `liked` for the caller is exactly "this (layout, author) is in here".
+export const MAX_MY_COMMENT_LIKES = 1000;
+
+export interface MyCommentLike {
+  layout_id: string;
+  author_id: string;
+}
+
+export async function listMyCommentLikes(dbArg: StoreArg, userId: string): Promise<MyCommentLike[]> {
+  return toStore(dbArg).comments.likedSlots(userId, MAX_MY_COMMENT_LIKES);
+}
+
 export async function listMyComments(dbArg: StoreArg, userId: string): Promise<MyComment[]> {
   const { rows: results, likeCounts: likes } = await toStore(dbArg).comments.mine(userId);
 

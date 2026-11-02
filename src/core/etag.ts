@@ -229,7 +229,9 @@ export async function readHead(dbArg: StoreArg, stateKeys: readonly string[] = [
 // 32 (2026-11-01, LDB-CMT18): new public bulk `GET /v1/comments?ids=` (the
 //   per-layout comment listing for up to 200 layout ids in one read). Additive;
 //   no existing shape changes.
-export const WIRE_VERSION = 32;
+// 33 (2026-11-02, LDB-CMT19): new private `GET /v1/me/comment-likes` (the
+//   caller's liked comment slots). Additive; no existing shape changes.
+export const WIRE_VERSION = 33;
 
 export async function etagFor(headSeqValue: number, query: unknown): Promise<string> {
   const hash = await sha256Hex(canonical({ wireVersion: WIRE_VERSION, query: query ?? null }));

@@ -16,6 +16,7 @@ import { env } from "cloudflare:test";
 import { seedUpstream100 } from "./support";
 import { readHead } from "../../src/core/etag";
 import { readMetaCore } from "../../src/core/meta";
+import { listMyCommentLikes } from "../../src/core/comments";
 import { clientsHealth } from "../../src/core/clients";
 import { toStore } from "../../src/store/arg";
 import { decodeCursor, list, type ListParams } from "../../src/core/records";
@@ -274,5 +275,22 @@ describe("[LDB-R20] a create's tombstone lookup reads only that name's tombstone
     }
     const latest = await toStore(db).layouts.tombstoneLikers(a.name);
     expect(latest).toEqual({ tombstoneId: b.id, userIds: ["990000000000000777"] });
+  });
+});
+
+describe("[LDB-CMT19] a viewer's liked slots read only that viewer's likes", () => {
+  it("[LDB-CMT19] /v1/me/comment-likes goes through comment_likes_user: rows read stay with the viewer's own likes, not the table", async () => {
+    const at = "2026-10-01T00:00:00.000Z";
+    for (let i = 0; i < 40; i++) {
+      await db.prepare("INSERT OR IGNORE INTO comment_likes (layout_id, author_id, user_id, via, created_at) VALUES (?, ?, ?, 'discord', ?)").bind(`L${i}`, `A${i}`, `U${i % 10}`, at).run();
+    }
+    const rec = recording(db);
+    const likes = await listMyCommentLikes(rec.db, "U3");
+    expect(likes).toHaveLength(4);
+    const q = rec.seen.find((x) => x.sql.includes("FROM comment_likes"));
+    if (q === undefined) throw new Error("listMyCommentLikes() issued no statement");
+    const { plan, rowsRead } = await costOf(q);
+    expect(plan).toContain("comment_likes_user");
+    expect(rowsRead, plan).toBeLessThanOrEqual(2 * likes.length + 2);
   });
 });
