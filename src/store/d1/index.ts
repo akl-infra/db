@@ -5,6 +5,7 @@ import type { Store } from "../port";
 import { d1AdminStore } from "./admin";
 import { d1AuthStore } from "./auth";
 import { d1CommentStore } from "./comments";
+import { d1CronStore } from "./cron";
 import { d1DiscordStore } from "./discord";
 import { d1DiscordUserStore } from "./discord-users";
 import { d1DumpStore } from "./dump";
@@ -38,6 +39,7 @@ export function createD1Store(db: D1Database): Store {
     discord: d1DiscordStore(db),
     outbox: d1OutboxStore(db),
     dump: d1DumpStore(db),
+    cron: d1CronStore(db),
   };
   return store;
 }

@@ -620,6 +620,27 @@ export interface DumpStore {
 // The whole port
 // ---------------------------------------------------------------------------
 
+/** [LDB-J1] What the five-minute tick has to do, read in one statement. Each
+ * flag is the EXISTS of a superset of the rows its job would pick up, so a
+ * false flag proves that job would find nothing. */
+export interface CronWork {
+  /** link or WPM submissions not yet announced (notifyPending's sweeps). */
+  announce: boolean;
+  /** cards whose shown status differs from their submission (retryStatusEdits). */
+  reconcile: boolean;
+  /** anything drainDiscordActions would expire, delete, claim or call back. */
+  discord: boolean;
+  /** moderation DMs due (dispatchRejectionDms). */
+  dms: boolean;
+  /** `import_state['dump.last_at']`, as readDumpState reads it. */
+  dumpState: string | null;
+}
+
+export interface CronStore {
+  /** strong, read. One statement. D1: index.ts scheduled()'s probe. */
+  work(nowIso: string): Promise<CronWork>;
+}
+
 export interface Store {
   readonly head: HeadStore;
   readonly state: StateStore;
@@ -638,6 +659,7 @@ export interface Store {
   readonly discord: DiscordStore;
   readonly outbox: OutboxStore;
   readonly dump: DumpStore;
+  readonly cron: CronStore;
 }
 
 // Re-exported so implementations import every type from one place.

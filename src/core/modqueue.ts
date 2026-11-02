@@ -446,7 +446,9 @@ async function sweep<C extends { id: string; review_version?: number; source_mes
   }
 }
 
-export async function notifyPending(dbArg: StoreArg, env: Bindings, now: Clock, fetchImpl: typeof fetch = fetch): Promise<void> {
+// `work` [LDB-J1]: the tick's probe already proved one of these has nothing
+// to do (store.cron.work); omitted, both run, as for every other caller.
+export async function notifyPending(dbArg: StoreArg, env: Bindings, now: Clock, fetchImpl: typeof fetch = fetch, work: { announce: boolean; reconcile: boolean } = { announce: true, reconcile: true }): Promise<void> {
   const store = toStore(dbArg);
   const botCards = env.MODQUEUE_DISCORD_CARDS === "true" && env.MODQUEUE_DISCORD_BOT_TOKEN !== undefined && env.MODQUEUE_DISCORD_BOT_TOKEN !== "" && env.MODQUEUE_DISCORD_CHANNEL_ID !== undefined && env.MODQUEUE_DISCORD_CHANNEL_ID !== "";
   const webhookReady = env.MODQUEUE_DISCORD_WEBHOOK !== undefined && env.MODQUEUE_DISCORD_WEBHOOK !== "";
@@ -457,8 +459,11 @@ export async function notifyPending(dbArg: StoreArg, env: Bindings, now: Clock, 
 
   // Links first, then WPM: each table is swept (and claimed) on its own, so
   // a failure in one never starves the other.
-  await sweep(store, env, format, transport, channelId, now, fetchImpl, LINK_QUEUE);
-  await sweep(store, env, format, transport, channelId, now, fetchImpl, WPM_QUEUE);
+  if (work.announce) {
+    await sweep(store, env, format, transport, channelId, now, fetchImpl, LINK_QUEUE);
+    await sweep(store, env, format, transport, channelId, now, fetchImpl, WPM_QUEUE);
+  }
+  if (!work.reconcile) return;
   try {
     await retryStatusEdits(store, env, fetchImpl);
   } catch {
