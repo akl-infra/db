@@ -38,3 +38,10 @@ export function stripSqlComments(sql: string): string {
   }
   return out;
 }
+
+/** A JSON function call (json(), json_extract(), json_set(), json_group_array(), ...). */
+export const JSON_FUNCTION = /(?<![\w.$])json(?:_\w+)?\s*\(/i;
+
+export function usesJsonFunctions(sql: string): boolean {
+  return JSON_FUNCTION.test(sql);
+}
