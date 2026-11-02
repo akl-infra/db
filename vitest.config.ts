@@ -8,6 +8,19 @@ import { defineConfig } from "vitest/config";
 //    the import pipeline.
 //  - "node": plain vitest; formats, tools (boundary/noconst/invariants/
 //    ciwiring), core, and the live upstream diff.
+//  - "shim" (design A, phase A): the same files as "workers", in plain Node on
+//    the D1 shim over node:sqlite and an in-memory commit log
+//    (tests/harness/shim.ts; `npm run test:shim`).
+
+// Files the shim project does not run, each with the reason it cannot. The list is explicit and
+// reviewed; a file is listed only when it genuinely cannot run on node:sqlite + the shim.
+const SHIM_EXCLUDED: [file: string, reason: string][] = [
+  [
+    "tests/api/migration-0017.test.ts",
+    "re-runs migration 0017's json_set(.., (SELECT json_group_array(json(..)))) over rows it inserts; SQLite 3.54 (node:sqlite) drops the JSON subtype through a scalar subquery and double-encodes, workerd's SQLite keeps it (measured). A replica never runs it over data: migrations apply to an empty DB, and the cutover loads a D1 export that is already past 0017",
+  ],
+];
+
 export default defineConfig(async () => {
   const migrationsPath = path.join(import.meta.dirname, "migrations");
   const migrations = await readD1Migrations(migrationsPath);
@@ -79,6 +92,33 @@ export default defineConfig(async () => {
             // tests/api/list.test.ts's [LDB-R4] sort=like_count limit=1 and
             // tests/api/ratelimit.test.ts's [LDB-R6] every non-GET route,
             // both "Test timed out in 5000ms", nothing actually wrong.
+            testTimeout: 30000,
+            hookTimeout: 30000,
+          },
+        },
+        {
+          // Phase A: the workers project's files on the shim. `tests/harness` and `cloudflare:test` resolve to
+          // tests/harness/shim.ts / cloudflare-test.ts; each file gets a fresh replica migrated through the log.
+          resolve: {
+            alias: [
+              { find: /^(\.{1,2}\/)+harness$/, replacement: path.join(import.meta.dirname, "tests/harness/shim.ts") },
+              { find: "cloudflare:test", replacement: path.join(import.meta.dirname, "tests/harness/cloudflare-test.ts") },
+            ],
+          },
+          test: {
+            name: "shim",
+            environment: "node",
+            include: [
+              "tests/shim/**/*.test.ts",
+              "tests/api/**/*.test.ts",
+              "tests/auth/**/*.test.ts",
+              "tests/import/**/*.test.ts",
+              "tests/events/**/*.test.ts",
+              "tests/rehost.test.ts",
+            ],
+            exclude: ["tests/import/diff-unit.test.ts", ...SHIM_EXCLUDED.map(([f]) => f)],
+            setupFiles: ["./tests/harness/setup-shim.ts"],
+            provide: { TEST_MIGRATIONS: migrations as never },
             testTimeout: 30000,
             hookTimeout: 30000,
           },
