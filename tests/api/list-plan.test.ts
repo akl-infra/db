@@ -16,6 +16,7 @@ import { env } from "cloudflare:test";
 import { seedUpstream100 } from "./support";
 import { readHead } from "../../src/core/etag";
 import { readMetaCore } from "../../src/core/meta";
+import { clientsHealth } from "../../src/core/clients";
 import { decodeCursor, list, type ListParams } from "../../src/core/records";
 
 const db = (env as unknown as { DB: D1Database }).DB;
@@ -120,17 +121,20 @@ describe("list read cost", () => {
     }
   });
 
-  it("[LDB-R13] a name-sorted page walks the name index and never sorts: about two rows read per row returned, plus the index entries a cursor page steps over to reach its cursor", async () => {
+  it("[LDB-R13] [LDB-R18] a name-sorted page walks the name index and never sorts, and a cursor page seeks to its cursor: about two rows read per row returned, whatever the page's position", async () => {
     const limit = 10;
     let cursor: ListParams["cursor"];
     let pages = 0;
     let seenRows = 0;
     for (;;) {
       const { page, plan, rowsRead } = await listCost({ sort: "name", limit, cursor });
-      // limit + 1 rows are fetched (the one past the page names the cursor);
-      // `seenRows` is how many index entries sit before this page's cursor.
-      expect(rowsRead, `page ${pages}: ${plan}`).toBeLessThanOrEqual(seenRows + 2 * (limit + 1) + 2);
+      // limit + 1 rows are fetched (the one past the page names the cursor).
+      // [LDB-R18] Before the seek bound a cursor page also stepped over the
+      // `seenRows` index entries ahead of its cursor (a full walk read
+      // quadratically); now no page reads more than the first one does.
+      expect(rowsRead, `page ${pages}: ${plan}`).toBeLessThanOrEqual(2 * (limit + 1) + 2);
       expect(plan).toContain("layouts_name_live");
+      if (cursor !== undefined) expect(plan).toMatch(/layouts_name_live \(name[<>]\?\)/);
       expect(plan).not.toContain("TEMP B-TREE");
       pages += 1;
       seenRows += page.items.length;
@@ -174,5 +178,71 @@ describe("/v1/meta read cost", () => {
     expect(all.results.length).toBeGreaterThan(100);
     const latest = all.results.map((r) => r.at).reduce((a, b) => (a > b ? a : b));
     expect(meta.revision).toBe(latest);
+  });
+});
+
+describe("[LDB-R18] the keyset seek bound changes no page", () => {
+  it("[LDB-R18] for every sort, owner filter and page size, walking with cursors returns exactly one unpaged list's items in its order", async () => {
+    for (const sort of ["name", "modified_at", "created_at", "like_count"] as const) {
+      for (const owner of [undefined, owners[0]!.owner]) {
+        const whole = await list(db, { ...BASE, sort, owner, limit: 1000 });
+        expect(whole.nextCursor).toBeNull();
+        for (const limit of [1, 3, 7]) {
+          const walked: string[] = [];
+          let cursor: ListParams["cursor"];
+          for (;;) {
+            const page = await list(db, { ...BASE, sort, owner, limit, cursor });
+            walked.push(...page.items.map((i) => i.layout.id));
+            if (page.nextCursor === null) break;
+            cursor = decodeCursor(page.nextCursor) ?? undefined;
+          }
+          expect(walked, `${sort} owner=${owner ?? "-"} limit=${limit}`).toEqual(whole.items.map((i) => i.layout.id));
+        }
+      }
+    }
+  });
+});
+
+describe("[LDB-R17] /v1/meta's head reads a handful of rows, and the same values", () => {
+  const KEYS = ["cmini.last_diff", "dump.last_at", "cmini.stalled", "cmini.last_tick"];
+
+  it("[LDB-R17] the head (seq, authors_head, four state keys, the 24-hour upstream delete count) reads at most 7 rows; the count goes through its partial index and equals a plain count", async () => {
+    // two old deletes and one inside the window, so the count is not trivially 0
+    const now = Date.now();
+    const iso = (ms: number) => new Date(ms).toISOString();
+    for (const [at, rev] of [[now - 3 * 86_400_000, 1], [now - 2 * 86_400_000, 1], [now - 3_600_000, 1], [now - 1_800_000, null]] as const) {
+      await db
+        .prepare("INSERT INTO events (at, kind, rev, actor, via) VALUES (?, 'upstream_deleted', ?, 'system:cmini-import', 'import')")
+        .bind(iso(at), rev)
+        .run();
+    }
+    const since = iso(now - 86_400_000);
+    const rec = recording(db);
+    const head = await readHead(rec.db, KEYS, since);
+    const q = rec.seen.find((x) => x.sql.includes("authors_head"));
+    if (q === undefined) throw new Error("readHead() issued no head statement");
+    const { plan, rowsRead } = await costOf(q);
+    expect(plan).toContain("events_upstream_deleted_at");
+    expect(rowsRead, plan).toBeLessThanOrEqual(1 + 1 + KEYS.length + 1);
+
+    const plain = await db
+      .prepare("SELECT (SELECT MAX(seq) FROM events) AS seq, (SELECT COUNT(*) FROM events NOT INDEXED WHERE kind = 'upstream_deleted' AND rev IS NOT NULL AND at >= ?) AS d, (SELECT version FROM authors_head WHERE id = 1) AS v")
+      .bind(since)
+      .first<{ seq: number; d: number; v: number }>();
+    expect(head.deletes24h).toBe(1);
+    expect(head.deletes24h).toBe(plain!.d);
+    expect(head.seq).toBe(plain!.seq);
+    expect(head.authors.version).toBe(plain!.v ?? 0);
+  });
+
+  it("[LDB-R17] the suspended-clients list reads only suspended rows through its partial index", async () => {
+    const rec = recording(db);
+    await clientsHealth(rec.db, live);
+    const q = rec.seen.find((x) => x.sql.includes("FROM clients"));
+    if (q === undefined) throw new Error("clientsHealth() issued no clients statement");
+    const suspended = await db.prepare("SELECT COUNT(*) AS n FROM clients NOT INDEXED WHERE status = 'suspended'").first<{ n: number }>();
+    const { plan, rowsRead } = await costOf(q);
+    expect(plan).toContain("clients_suspended");
+    expect(rowsRead).toBeLessThanOrEqual((suspended?.n ?? 0) + 1);
   });
 });

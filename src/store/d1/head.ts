@@ -7,17 +7,23 @@ import type { HeadStore } from "../port";
 export function d1HeadStore(db: D1Database): HeadStore {
   return {
     async readHead(stateKeys: readonly string[] = [], deletesSinceIso?: string): Promise<Head> {
+      // [LDB-R17] `authors_head` is joined as one row rather than read by two
+      // scalar subqueries (2 rows read -> 1, on every validator call); the
+      // LEFT JOIN keeps a database without that row answering 0/null as before.
       const cols = [
         "(SELECT MAX(seq) FROM events) AS seq",
-        "(SELECT version FROM authors_head WHERE id = 1) AS authors_version",
-        "(SELECT modified_at FROM authors_head WHERE id = 1) AS authors_modified_at",
+        "h.version AS authors_version",
+        "h.modified_at AS authors_modified_at",
         ...stateKeys.map((_, i) => `(SELECT value FROM import_state WHERE key = ?${i + 1}) AS state_${i}`),
+        // [LDB-R17] pinned to the partial index (migrations/0037): with no
+        // statistics on D1 the planner prefers `events_kind` and reads every
+        // `upstream_deleted` event ever made.
         ...(deletesSinceIso !== undefined
-          ? [`(SELECT COUNT(*) FROM events WHERE kind = 'upstream_deleted' AND rev IS NOT NULL AND at >= ?${stateKeys.length + 1}) AS deletes_24h`]
+          ? [`(SELECT COUNT(*) FROM events INDEXED BY events_upstream_deleted_at WHERE kind = 'upstream_deleted' AND rev IS NOT NULL AND at >= ?${stateKeys.length + 1}) AS deletes_24h`]
           : []),
       ];
       const row = await db
-        .prepare(`SELECT ${cols.join(", ")}`)
+        .prepare(`SELECT ${cols.join(", ")} FROM (SELECT 1) AS one LEFT JOIN authors_head h ON h.id = 1`)
         .bind(...stateKeys, ...(deletesSinceIso !== undefined ? [deletesSinceIso] : []))
         .first<Record<string, string | number | null>>();
       return {

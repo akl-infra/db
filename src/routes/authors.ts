@@ -3,7 +3,7 @@ import type { Store } from "../store/port";
 import { Hono } from "hono";
 import { type AppEnv, platformOf } from "../app";
 import { badRequest, notFound } from "../core/errors";
-import { authorsHead, cachePut, conditional, etagFor } from "../core/etag";
+import { authorsHead, cachePut, conditional, etagFor, RETAIN_SECONDS } from "../core/etag";
 
 const CACHE_CONTROL = "public, max-age=10";
 
@@ -49,7 +49,7 @@ authorsRoute.get("/v1/authors", async (c) => {
   const res = c.json(body);
   res.headers.set("ETag", etag);
   res.headers.set("Cache-Control", CACHE_CONTROL);
-  await cachePut(c, res.clone());
+  await cachePut(c, res.clone(), { retainSeconds: RETAIN_SECONDS });
   return res;
 });
 

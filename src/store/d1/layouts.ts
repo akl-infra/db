@@ -221,8 +221,15 @@ export function d1LayoutReadStore(db: D1Database): LayoutReadStore {
       }
       if (params.cursor !== undefined) {
         const cmp = desc ? "<" : ">";
-        where.push(`(${sortColExpr} ${cmp} ? OR (${sortColExpr} = ? AND l.id > ?))`);
-        args.push(params.cursor.sortValue, params.cursor.sortValue, params.cursor.id);
+        // [LDB-R18] The leading `>=`/`<=` is implied by the keyset predicate
+        // after it (both of its branches satisfy it), so the rows are exactly
+        // the same; it is there because SQLite can SEEK an index on it and
+        // cannot on the OR alone. Without it a cursor page stepped over every
+        // index entry before its cursor: a full-catalog walk read
+        // 1k+2k+3k+4k+... rows (measured 2026-11-01 on prod: a page at
+        // offset 3000 read 5,003 rows; with the bound 2,003, same 1,001 rows).
+        where.push(`${sortColExpr} ${cmp}= ? AND (${sortColExpr} ${cmp} ? OR (${sortColExpr} = ? AND l.id > ?))`);
+        args.push(params.cursor.sortValue, params.cursor.sortValue, params.cursor.sortValue, params.cursor.id);
       }
 
       // LDB-R12/R13: `layouts` drives the join unless a format-flag filter is

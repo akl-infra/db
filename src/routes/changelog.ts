@@ -8,7 +8,7 @@
 // static HTML snapshot in R2, the dump is a restore artifact).
 import { Hono } from "hono";
 import { platformOf, type AppEnv } from "../app";
-import { cachePut, conditional, etagFor, headSeq } from "../core/etag";
+import { cachePut, conditional, etagFor, headSeq, RETAIN_SECONDS } from "../core/etag";
 import { feed, type Event, type FeedFilter } from "../core/events";
 import { parseKinds, parseSince, resolveLayoutFilter } from "./changes";
 
@@ -165,6 +165,6 @@ changelogRoute.get("/admin/changelog", async (c) => {
   const res = new Response(html, {
     headers: { "Content-Type": "text/html; charset=utf-8", ETag: etag, "Cache-Control": CACHE_CONTROL },
   });
-  await cachePut(c, res.clone());
+  await cachePut(c, res.clone(), { retainSeconds: RETAIN_SECONDS });
   return res;
 });

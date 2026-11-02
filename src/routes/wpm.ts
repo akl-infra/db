@@ -10,7 +10,7 @@ import { type AppEnv, platformOf } from "../app";
 import { type AuthDeps, resolveActor } from "../auth/discord";
 import type { Bindings } from "../env";
 import { badRequest, notAdmin, notFound } from "../core/errors";
-import { cachePut, conditional, etagFor, readHead } from "../core/etag";
+import { cachePut, conditional, etagFor, readHead, RETAIN_SECONDS } from "../core/etag";
 import { ensureUserName, refreshMissingNames } from "../core/discord-users";
 import { notifyPending, updateQueueNotification } from "../core/modqueue";
 import { readReviewHistory } from "../core/moderation-review";
@@ -77,7 +77,7 @@ export function wpmRoute(authDeps: AuthDeps) {
     const res = c.json({ records });
     res.headers.set("ETag", etag);
     res.headers.set("Cache-Control", CACHE_CONTROL);
-    await cachePut(c, res.clone());
+    await cachePut(c, res.clone(), { retainSeconds: RETAIN_SECONDS });
     return res;
   });
 

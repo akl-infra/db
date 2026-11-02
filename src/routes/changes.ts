@@ -10,7 +10,7 @@ import { resolveActor } from "../auth/discord";
 import { CLIENT_LIMIT, CLIENT_WINDOW_SECONDS } from "../auth/ratelimit";
 import { describeError } from "../core/describe-error";
 import { ApiError, badRequest, notFound, rateLimited } from "../core/errors";
-import { cachePut, conditional, etagFor, headSeq } from "../core/etag";
+import { cachePut, conditional, etagFor, headSeq, RETAIN_SECONDS } from "../core/etag";
 import { feed, type FeedFilter, type InfoKind, type WriteKind } from "../core/events";
 import { clampWaitSeconds, MAX_WAIT_SECONDS, waitForChanges, type SleepImpl } from "../core/longpoll";
 import { byRef } from "../core/records";
@@ -251,7 +251,7 @@ export function changesRoute(authDeps: AuthDeps) {
     res.headers.set("ETag", etag);
     res.headers.set("Cache-Control", CACHE_CONTROL);
     if (waitIgnored) res.headers.set("X-Wait-Ignored", "unauthorized");
-    if (waitRequested === undefined) await cachePut(c, res.clone());
+    if (waitRequested === undefined) await cachePut(c, res.clone(), { retainSeconds: RETAIN_SECONDS });
     return res;
   });
 

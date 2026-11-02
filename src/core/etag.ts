@@ -280,7 +280,14 @@ export async function conditional(c: Context, etag: string, cacheControl: string
 
   try {
     const hit = await platformOf(c).cache.match(c.req.raw);
-    if (hit !== undefined && hit.headers.get("ETag") === etag) return hit;
+    if (hit !== undefined && hit.headers.get("ETag") === etag) {
+      // [LDB-R19] A copy kept longer than the client may cache it (cachePut's
+      // `retainSeconds`) goes out with the route's own Cache-Control.
+      if (hit.headers.get("Cache-Control") === cacheControl) return hit;
+      const headers = new Headers(hit.headers);
+      headers.set("Cache-Control", cacheControl);
+      return new Response(hit.body, { status: hit.status, statusText: hit.statusText, headers });
+    }
   } catch {
     // caches.default unavailable (e.g. *.workers.dev) -- fall through
   }
@@ -292,8 +299,24 @@ export async function conditional(c: Context, etag: string, cacheControl: string
 // Cache-Control headers `conditional()` was called with) into the edge
 // cache. Called with a clone -- the caller still owns the response it
 // returns to the client. Best-effort, same reasoning as `conditional()`.
-export async function cachePut(c: Context, res: Response): Promise<void> {
+//
+// [LDB-R19] `retainSeconds`: keep the stored copy that long instead of the
+// client-facing max-age. Only for a route whose body is a pure function of
+// its ETag's inputs (the event head, `authors_head`, the query, the wire
+// version): `conditional()` serves a stored copy only while its ETag still
+// equals the one just computed, so a longer stay can never serve anything
+// stale -- it only stops the copy from being thrown away every 10 s while the
+// head has not moved (each such refill re-ran the route's full query). Never
+// for `/v1/meta`, whose `health.*.age_s` moves with the clock.
+export const RETAIN_SECONDS = 86_400;
+
+export async function cachePut(c: Context, res: Response, opts: { retainSeconds?: number } = {}): Promise<void> {
   try {
+    if (opts.retainSeconds !== undefined) {
+      const headers = new Headers(res.headers);
+      headers.set("Cache-Control", `public, max-age=${opts.retainSeconds}`);
+      res = new Response(res.body, { status: res.status, statusText: res.statusText, headers });
+    }
     await platformOf(c).cache.put(c.req.raw, res);
   } catch {
     // best-effort only
