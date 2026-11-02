@@ -6,7 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { looksLikeSql, scanLiterals, walkFiles } from "./literals";
-import { nondeterminism, stripSqlComments } from "./lint";
+import { nondeterminism, stripSqlComments, usesJsonFunctions } from "./lint";
 import { ROOT } from "./support";
 
 describe("deterministic SQL", () => {
@@ -64,5 +64,38 @@ describe("deterministic SQL", () => {
       for (const name of nondeterminism(stripSqlComments(fs.readFileSync(path.join(dir, f), "utf8")))) hits.push(`${f}: ${name}`);
     }
     expect(hits).toEqual([]);
+  });
+});
+
+// SQLite's JSON functions changed behaviour between the SQLite D1 runs and the one node:sqlite embeds (a JSON subtype no
+// longer survives a scalar subquery: migration 0017 double-encodes on node:sqlite 3.54). Runtime SQL has none; migrations
+// 0016, 0017 and 0020 do. A migration newer than 0037 that uses one must be listed here with a reason, so the differential
+// (miniflare D1 vs the shim) cannot silently hide a subtype difference behind data it never runs the migration over.
+const JSON_MIGRATION_ALLOWLIST: [file: string, reason: string][] = [];
+const LAST_CHECKED_MIGRATION = 37;
+
+describe("JSON functions in new migrations", () => {
+  it("[LDB-SH9] the JSON-function detector catches json(), json_*() calls and ignores words that merely contain json", () => {
+    for (const sql of ["SELECT json('{}')", "SELECT json_extract(x, '$.a') FROM t", "UPDATE t SET p = json_set(p, '$.a', 1)", "SELECT JSON_GROUP_ARRAY(a) FROM t", "SELECT x FROM json_each(p)"]) expect(usesJsonFunctions(sql), sql).toBe(true);
+    for (const sql of ["SELECT payload_json FROM t", "SELECT has_json FROM t", "CREATE INDEX layout_json ON t(a)", "SELECT 'json' AS k"]) expect(usesJsonFunctions(sql), sql).toBe(false);
+  });
+
+  it("[LDB-SH9] a migration newer than 0037 uses no json_* function unless it is allowlisted with a reason", () => {
+    const dir = path.join(ROOT, "migrations");
+    const allowed = new Map(JSON_MIGRATION_ALLOWLIST);
+    const hits: string[] = [];
+    for (const f of fs.readdirSync(dir).filter((x) => x.endsWith(".sql")).sort()) {
+      const n = Number(/^(\d+)_/.exec(f)?.[1]);
+      if (!(n > LAST_CHECKED_MIGRATION)) continue;
+      if (usesJsonFunctions(stripSqlComments(fs.readFileSync(path.join(dir, f), "utf8"))) && !allowed.has(f)) hits.push(f);
+    }
+    expect(hits, "list the migration in JSON_MIGRATION_ALLOWLIST (tests/shim/lint-sql.test.ts) with a reason").toEqual([]);
+    for (const [f, reason] of JSON_MIGRATION_ALLOWLIST) {
+      expect(fs.existsSync(path.join(dir, f)), f).toBe(true);
+      expect(reason.length, `${f} needs a reason`).toBeGreaterThan(10);
+    }
+    // The three existing JSON migrations are older than the cut and are known: if this list changes, so must the cut.
+    const old = fs.readdirSync(dir).filter((f) => Number(/^(\d+)_/.exec(f)?.[1]) <= LAST_CHECKED_MIGRATION && usesJsonFunctions(stripSqlComments(fs.readFileSync(path.join(dir, f), "utf8"))));
+    expect(old.map((f) => f.slice(0, 4))).toEqual(["0016", "0017", "0020"]);
   });
 });
