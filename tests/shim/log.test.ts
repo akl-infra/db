@@ -3,6 +3,7 @@
 // duplicate, however many writers race.
 import { describe, expect, it } from "vitest";
 import { AmbiguousAppendError, LogEntryTooLargeError, decodeBody, encodeBody, type NewLogEntry } from "../../src/replica/log";
+import { withLogFaults } from "../../src/replica/log-faults";
 import { MemoryLog } from "../../src/replica/log-memory";
 import { Replica } from "../../src/replica/replica";
 import { FAST, freshReplica, migratedLog, replicaOf, shimOf } from "./support";
@@ -71,6 +72,30 @@ describe("memory commit log", () => {
     const err = await log.append(0, entry("a")).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(AmbiguousAppendError);
     expect(err).not.toBeInstanceOf(LogEntryTooLargeError);
+  });
+});
+
+describe("fault injection around any log", () => {
+  it("[LDB-SH6] withLogFaults injects conflicts, throttles and both kinds of timeout around a log, seeded, and applies only what a timeout-after promises", async () => {
+    const run = async (seed: number) => {
+      const inner = new MemoryLog();
+      const log = withLogFaults(inner, { conflict: 0.2, throttle: 0.2, timeoutBefore: 0.2, timeoutAfter: 0.2, seed });
+      const outcomes: string[] = [];
+      for (let i = 0; i < 60; i++) {
+        try {
+          outcomes.push(await log.append(await inner.head(), entry(`e${i}`)));
+        } catch (e) {
+          outcomes.push((e as Error).name);
+        }
+      }
+      return { outcomes, log, inner };
+    };
+    const a = await run(9);
+    expect((await run(9)).outcomes).toEqual(a.outcomes); // deterministic per seed
+    expect(new Set(a.outcomes)).toEqual(new Set(["ok", "conflict", "LogThrottledError", "AmbiguousAppendError"]));
+    // Landed = the ok's plus the timeouts-after; conflicts, throttles and timeouts-before wrote nothing.
+    expect(a.inner.length).toBe(a.outcomes.filter((o) => o === "ok").length + a.log.injected.timeoutsAfter);
+    expect(a.log.injected.timeoutsBefore + a.log.injected.timeoutsAfter).toBe(a.outcomes.filter((o) => o === "AmbiguousAppendError").length);
   });
 });
 
