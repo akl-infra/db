@@ -10214,6 +10214,40 @@
     }
   },
   {
+    "id": "me-comment-likes/get-200",
+    "method": "GET",
+    "route": "/v1/me/comment-likes",
+    "auth": "user",
+    "status": 200,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "likes": {
+          "type": "array",
+          "item": null
+        }
+      }
+    }
+  },
+  {
+    "id": "me-comment-likes/get-401-unauthorized",
+    "method": "GET",
+    "route": "/v1/me/comment-likes",
+    "auth": "user",
+    "status": 401,
+    "shape": {
+      "type": "object",
+      "fields": {
+        "error": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
     "id": "me-comments/get-200",
     "method": "GET",
     "route": "/v1/me/comments",

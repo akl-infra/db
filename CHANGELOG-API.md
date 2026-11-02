@@ -25,6 +25,15 @@ this file just gives them a public, versioned home. From here on, a
 `WIRE_VERSION` bump and a line here land in the SAME PR, never one without
 the other (`[LDB-V5]`).
 
+## 1.33 — 2026-11-02
+
+LDB-CMT19, docs/decisions/29-layout-comments.md: add private `GET
+/v1/me/comment-likes` (auth; `401` without; `private, no-store`), answering
+`{likes: [{layout_id, author_id}]}`: every comment slot the caller has liked,
+layout then author, at most 1000. A credentialed comment listing's `liked` is
+exactly membership in this list, so a client can read the public listing
+without credentials (shared ETag and cache) and mark its own hearts. Additive.
+
 ## 1.32 — 2026-11-01
 
 LDB-CMT18, docs/decisions/29-layout-comments.md: add public `GET

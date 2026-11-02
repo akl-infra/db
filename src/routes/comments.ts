@@ -160,6 +160,16 @@ export function commentsRoute(authDeps: AuthDeps) {
     return res;
   });
 
+  // GET /v1/me/comment-likes [LDB-CMT19]: the comment slots the caller has
+  // liked, so a client can read the public (shared, cacheable) listing
+  // without credentials and mark `liked` itself. Private, never cached.
+  route.get("/v1/me/comment-likes", async (c) => {
+    const actor = await resolveActor(c.env, c.req, authDeps);
+    const res = c.json({ likes: await comments.listMyCommentLikes(platformOf(c).store, actor.user_id) });
+    res.headers.set("Cache-Control", "private, no-store");
+    return res;
+  });
+
   // GET /v1/me/comments: everything the caller has written, one row per layout
   // (capped at the 500 most recently active). Private, never cached.
   route.get("/v1/me/comments", async (c) => {
