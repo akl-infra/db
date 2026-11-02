@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { TrieRouter } from "hono/router/trie-router";
 import { type AppEnv, platformMiddleware, platformOf } from "./app";
 import { workersPlatform } from "./platform/workers";
 import type { Bindings } from "./env";
@@ -12,6 +13,7 @@ import { corsHeadersFor } from "./core/cors";
 import { ApiError, internal } from "./core/errors";
 import { cachePut, conditional, etagFor, readHead } from "./core/etag";
 import { dumpDue, DUMP_STATE_KEY, readDumpState, writeDump, type DumpState } from "./dump/write";
+import type { CronWork } from "./store/port";
 import { runJob } from "./core/jobs";
 import { metaFormats, readMetaCore } from "./core/meta";
 import { notifyPending } from "./core/modqueue";
@@ -37,7 +39,11 @@ import { writeRoute } from "./routes/write";
 
 const CACHE_CONTROL = "public, max-age=10";
 
-const app = new Hono<AppEnv>();
+// [LDB-J2] TrieRouter directly: Hono's default SmartRouter first tries
+// RegExpRouter, which refuses this route table (`/v1/dump/:key`'s pattern),
+// then falls back to TrieRouter -- that failed attempt cost ~1.6 ms of CPU on
+// the first request of every isolate (site-cpu's profile, 2026-11-02).
+const app = new Hono<AppEnv>({ router: new TrieRouter() });
 
 // design/aws-port.md §4.1: every request gets its `Platform` (store, blobs,
 // cache, clock, background work) on `c.var.platform` before anything else
@@ -383,9 +389,24 @@ async function scheduled(event: ScheduledController, env: Bindings, ctx: Executi
   // job set below, and `notifyPending` itself never throws regardless.
   // Not gated by an import-style feature flag -- `MODQUEUE_DISCORD_WEBHOOK`
   // (LDB-MD12) is that gate, checked inside `notifyPending` itself.
-  await runJob("modqueue-notify", () => notifyPending(store, env, systemClock));
-  await runJob("discord-interaction-actions", () => drainDiscordActions(store, env, systemClock));
-  await runJob("discord-moderation-dms", () => dispatchRejectionDms(store, env, systemClock));
+  // [LDB-J1] One statement says which jobs have anything to do (each flag
+  // the EXISTS of a superset of that job's own rows, store/d1/cron.ts); only
+  // those run. An idle tick -- almost every tick -- is that one statement plus
+  // the dump check, not sixteen (9-28 ms of CPU per tick on prod, 2026-11-02,
+  // over Free's 10 ms for a Cron Trigger). A failed probe runs every job, as
+  // before: the probe can only skip work, never invent or delay it.
+  let work: CronWork | null = null;
+  try {
+    work = await store.cron.work(systemClock());
+  } catch {
+    console.error("scheduled(): work probe failed; running every job");
+  }
+  const run = work ?? { announce: true, reconcile: true, discord: true, dms: true };
+  if (run.announce || run.reconcile) {
+    await runJob("modqueue-notify", () => notifyPending(store, env, systemClock, fetch, { announce: run.announce, reconcile: run.reconcile }));
+  }
+  if (run.discord) await runJob("discord-interaction-actions", () => drainDiscordActions(store, env, systemClock));
+  if (run.dms) await runJob("discord-moderation-dms", () => dispatchRejectionDms(store, env, systemClock));
 
   // [LDB-X2] The cmini import tick and the upstream diff tick both used to
   // run here (LDB-I27's kill switch had already turned both off since
@@ -405,7 +426,7 @@ async function scheduled(event: ScheduledController, env: Bindings, ctx: Executi
   // (LDB-D8) -- same dropped-dispatch protection as the diff, above.
   if (hour === 3 && minute === 0) {
     await runNightly(env, systemClock);
-  } else if (dumpDue(await readDumpState(store), at.toISOString())) {
+  } else if (dumpDue(work === null ? await readDumpState(store) : work.dumpState === null ? null : (JSON.parse(work.dumpState) as DumpState), at.toISOString())) {
     await runJob("dump-catchup", () => writeDump(env, systemClock));
   }
 }
