@@ -17,6 +17,7 @@ import { seedUpstream100 } from "./support";
 import { readHead } from "../../src/core/etag";
 import { readMetaCore } from "../../src/core/meta";
 import { clientsHealth } from "../../src/core/clients";
+import { toStore } from "../../src/store/arg";
 import { decodeCursor, list, type ListParams } from "../../src/core/records";
 
 const db = (env as unknown as { DB: D1Database }).DB;
@@ -244,5 +245,34 @@ describe("[LDB-R17] /v1/meta's head reads a handful of rows, and the same values
     const { plan, rowsRead } = await costOf(q);
     expect(plan).toContain("clients_suspended");
     expect(rowsRead).toBeLessThanOrEqual((suspended?.n ?? 0) + 1);
+  });
+});
+
+describe("[LDB-R20] a create's tombstone lookup reads only that name's tombstones", () => {
+  it("[LDB-R20] the latest tombstone of a name and its likers come from the partial index, the same answer as a scan, for a name with tombstones, one without, and a live-only name", async () => {
+    const victims = await db.prepare("SELECT id, name FROM layouts WHERE deleted = 0 ORDER BY id LIMIT 2").all<{ id: string; name: string }>();
+    const [a, b] = victims.results as [{ id: string; name: string }, { id: string; name: string }];
+    // two tombstones of the same name (case differs: names are NOCASE), the newer one liked
+    await db.prepare("UPDATE layouts SET deleted = 1, modified_at = '2026-01-01T00:00:00.000Z' WHERE id = ?").bind(a.id).run();
+    await db.prepare("UPDATE layouts SET deleted = 1, name = ?, modified_at = '2026-02-01T00:00:00.000Z' WHERE id = ?").bind(a.name.toUpperCase(), b.id).run();
+    await db.prepare("INSERT OR IGNORE INTO likes (layout_id, user_id, at, via) VALUES (?, '990000000000000777', '2026-02-02T00:00:00.000Z', 'discord')").bind(b.id).run();
+    const live = await db.prepare("SELECT name FROM layouts WHERE deleted = 0 LIMIT 1").first<{ name: string }>();
+    for (const name of [a.name, "no-such-layout-name", live!.name]) {
+      const rec = recording(db);
+      const got = await toStore(rec.db).layouts.tombstoneLikers(name);
+      const q = rec.seen.find((x) => x.sql.includes("deleted = 1"));
+      if (q === undefined) throw new Error("tombstoneLikers() issued no statement");
+      const { plan, rowsRead } = await costOf(q);
+      expect(plan, name).toContain("layouts_tombstones_by_name");
+      expect(plan, name).not.toMatch(/SCAN layouts/);
+      expect(rowsRead, `${name}: ${plan}`).toBeLessThanOrEqual(2 * 2 + got.userIds.length + 2);
+      const scan = await db
+        .prepare("SELECT id FROM layouts NOT INDEXED WHERE name = ? AND deleted = 1 ORDER BY modified_at DESC, layout_rev DESC LIMIT 1")
+        .bind(name)
+        .first<{ id: string }>();
+      expect(got.tombstoneId, name).toBe(scan?.id ?? null);
+    }
+    const latest = await toStore(db).layouts.tombstoneLikers(a.name);
+    expect(latest).toEqual({ tombstoneId: b.id, userIds: ["990000000000000777"] });
   });
 });

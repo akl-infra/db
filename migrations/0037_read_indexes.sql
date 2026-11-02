@@ -14,3 +14,10 @@ CREATE INDEX events_upstream_deleted_at ON events(at) WHERE kind = 'upstream_del
 -- every client row (11 rows read per uncached call). Clients change only by
 -- admin action.
 CREATE INDEX clients_suspended ON clients(id) WHERE status = 'suspended';
+
+-- [LDB-R20] A create looks up the latest tombstone holding its name, to carry
+-- that tombstone's likes over (core/write.ts, LDB-L8c). Without an index it
+-- scanned every layout and sorted (4,867 rows read per create on prod,
+-- 2026-11-01, of which 447 are tombstones). A tombstone enters this index when
+-- a layout is deleted and leaves it when restored: a write on deletes only.
+CREATE INDEX layouts_tombstones_by_name ON layouts(name, modified_at, layout_rev) WHERE deleted = 1;

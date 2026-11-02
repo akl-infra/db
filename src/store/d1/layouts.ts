@@ -369,11 +369,13 @@ export function d1LayoutReadStore(db: D1Database): LayoutReadStore {
     // of this name" row, then LEFT JOINs its likes so a name with no
     // tombstone (zero rows back), a tombstone with none (one row, `user_id`
     // null), and a tombstone with likes (one row per liker) are all told
-    // apart from the SAME single round trip.
+    // apart from the SAME single round trip. [LDB-R20] Pinned to the partial
+    // tombstone index (migrations/0037): unindexed, every create scanned the
+    // whole layouts table.
     async tombstoneLikers(name) {
       const { results } = await db
         .prepare(
-          `WITH t AS (SELECT id FROM layouts WHERE name = ? AND deleted = 1 ORDER BY modified_at DESC, layout_rev DESC LIMIT 1)
+          `WITH t AS (SELECT id FROM layouts INDEXED BY layouts_tombstones_by_name WHERE name = ? AND deleted = 1 ORDER BY modified_at DESC, layout_rev DESC LIMIT 1)
        SELECT t.id AS tombstone_id, lk.user_id AS user_id FROM t LEFT JOIN likes lk ON lk.layout_id = t.id ORDER BY lk.user_id ASC`,
         )
         .bind(name)
