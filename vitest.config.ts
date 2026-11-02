@@ -19,6 +19,10 @@ const SHIM_EXCLUDED: [file: string, reason: string][] = [
     "tests/api/migration-0017.test.ts",
     "re-runs migration 0017's json_set(.., (SELECT json_group_array(json(..)))) over rows it inserts; SQLite 3.54 (node:sqlite) drops the JSON subtype through a scalar subquery and double-encodes, workerd's SQLite keeps it (measured). A replica never runs it over data: migrations apply to an empty DB, and the cutover loads a D1 export that is already past 0017",
   ],
+  [
+    "tests/auth/modqueue-delivery.test.ts",
+    "one of its six tests ([LDB-MD24] a stalled body) races reader.cancel() against a deadline: Node's WHATWG streams settle the pending read as done:true on cancel (so JSON.parse('') beats the timeout error), workerd's do not. A runtime stream difference, not storage (measured with a 6-line script)",
+  ],
 ];
 
 export default defineConfig(async () => {
