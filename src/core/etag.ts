@@ -281,10 +281,18 @@ export async function conditional(c: Context, etag: string, cacheControl: string
   try {
     const hit = await platformOf(c).cache.match(c.req.raw);
     if (hit !== undefined && hit.headers.get("ETag") === etag) {
-      // [LDB-R19] A copy kept longer than the client may cache it (cachePut's
-      // `retainSeconds`) goes out with the route's own Cache-Control.
-      if (hit.headers.get("Cache-Control") === cacheControl) return hit;
+      // [LDB-R19] A stored copy always goes out with the route's own
+      // Cache-Control: one kept longer than clients may cache it (cachePut's
+      // `retainSeconds`), and any hit on api.akldb.org, where Cloudflare
+      // hands `caches.default` matches back as `public, max-age=14400` (the
+      // zone's Browser Cache TTL; measured 2026-11-02 on /v1/meta,
+      // /v1/authors, /v1/wpm and /v1/comment-counts), which akldb.org's proxy
+      // forwarded to browsers as a 4-hour cache of a 10-second answer.
+      // Always a new Response with the cache's own markers (`CF-Cache-Status`,
+      // `Age`) dropped, so nothing downstream treats it as a cached asset.
       const headers = new Headers(hit.headers);
+      headers.delete("CF-Cache-Status");
+      headers.delete("Age");
       headers.set("Cache-Control", cacheControl);
       return new Response(hit.body, { status: hit.status, statusText: hit.statusText, headers });
     }
