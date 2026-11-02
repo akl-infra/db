@@ -43,7 +43,8 @@ enabled = true   # Workers Logs: keep console.error() from onError (the 500 path
 
 # There is one layoutdb, production (design/layout-db/review/PROPOSAL.md
 # §2.1, LEDGER.md L4). The preview environment (`akl-db-preview`) was
-# retired 2026-09-11 -- nothing read it and it accepted no clients; H13
+# retired 2026-09-11 and deleted 2026-11-02 (Worker, D1 and the -preview
+# dumps bucket) -- nothing read it and it accepted no clients; H13
 # says one layoutdb. Do not re-add an `[env.preview]` block without a real
 # consumer.
 

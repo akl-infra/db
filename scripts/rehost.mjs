@@ -1,21 +1,19 @@
 #!/usr/bin/env node
-// `npm run rehost -- --dump <file|url> [--local|--remote] [--force] [--env preview] [--wipe=akl-db] [--accept-loss]`
+// `npm run rehost -- --dump <file|url> [--local|--remote] [--force] [--wipe=akl-db] [--accept-loss]`
 // (07-implementation-phase1.md §6 S7; 04-governance.md §4's rehost drill).
 // Applies migrations, then restores a dump's full event log into D1 via
 // `wrangler d1 execute --file` -- `restoreSql()` (src/store/d1/dump.ts)
 // renders the exact SQL text this runs. `--remote` points at the real
 // akl-db; this agent proved the flow with `--local` only, against a fresh
 // local D1 seeded by `npm run import -- --once --fixture` (README.md's
-// rehost procedure covers the `--remote` drill). `--env preview` targets
-// the preview environment (09-implementation-phase2.md §3 T7) -- its D1 is
-// `akl-db-preview`, a distinct database from production `akl-db`, so both
-// the identifier every wrangler call names and `--env preview` itself must
-// travel together.
+// rehost procedure covers the `--remote` drill). There is one akldb: the
+// old `--env preview` target (D1 `akl-db-preview`) was deleted 2026-11-02,
+// and `--env` is now refused rather than ignored, so a stale command line
+// never lands on production unguarded.
 //
 // akldb is no longer disposable (docs/decisions/21-formats.md D8, amended
-// 2026-09-14) -- a `--remote` run naming no `--env` targets PRODUCTION
-// `akl-db` directly, so it gets two extra guards `--local`/`--env preview`
-// don't need:
+// 2026-09-14) -- a `--remote` run targets PRODUCTION `akl-db` directly, so
+// it gets two extra guards `--local` doesn't need:
 //   1. `--wipe=akl-db` (the literal database name) must be passed, checked
 //      BEFORE anything else runs (no dump load, no migrations) -- a typo'd
 //      or missing flag refuses loudly instead of silently overwriting prod.
@@ -40,14 +38,14 @@ const SCRIPTS_DIR = path.dirname(url.fileURLToPath(import.meta.url));
 const DB_ROOT = path.join(SCRIPTS_DIR, "..");
 const RESTORE_SQL_PATH = path.join(DB_ROOT, ".rehost-restore.sql");
 
-function parseArgs(argv) {
-  const out = { dump: null, remote: false, force: false, env: null, wipe: null, acceptLoss: false };
+export function parseArgs(argv) {
+  const out = { dump: null, remote: false, force: false, wipe: null, acceptLoss: false };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--dump") out.dump = argv[++i];
     else if (argv[i] === "--remote") out.remote = true;
     else if (argv[i] === "--local") out.remote = false;
     else if (argv[i] === "--force") out.force = true;
-    else if (argv[i] === "--env") out.env = argv[++i];
+    else if (argv[i] === "--env" || argv[i].startsWith("--env=")) throw new Error("rehost.mjs: --env is gone (akl-db-preview was deleted 2026-11-02); the targets are --local and --remote (production akl-db, guarded)");
     else if (argv[i] === "--wipe") out.wipe = argv[++i];
     else if (argv[i].startsWith("--wipe=")) out.wipe = argv[i].slice("--wipe=".length);
     else if (argv[i] === "--accept-loss") out.acceptLoss = true;
@@ -56,23 +54,22 @@ function parseArgs(argv) {
 }
 
 // The production-target guards below (docs/decisions/21-formats.md D8,
-// amended 2026-09-14) apply to exactly one combination: `--remote` with no
-// `--env` -- that's the only invocation that ever touches production
-// `akl-db` (`--local` and `--env preview` are unaffected, and stay exactly
-// as they were). Exported so tests/tools/rehost-guard.test.ts can drive
-// these decisions directly, with no wrangler/fetch involved.
-export function isProductionTarget(remote, env) {
-  return remote === true && (env === null || env === undefined);
+// amended 2026-09-14) apply to every `--remote` run -- that's the only
+// invocation that touches production `akl-db` (`--local` is unaffected).
+// Exported so tests/tools/rehost-guard.test.ts can drive these decisions
+// directly, with no wrangler/fetch involved.
+export function isProductionTarget(remote) {
+  return remote === true;
 }
 
 // Guard 1: refused before the dump is even loaded, let alone migrations
 // applied -- `wipe` must be the literal database name, not just any truthy
 // flag, so this can't be fat-fingered into a no-op.
-export function checkWipeFlag(remote, env, wipe) {
-  if (!isProductionTarget(remote, env)) return null;
+export function checkWipeFlag(remote, wipe) {
+  if (!isProductionTarget(remote)) return null;
   if (wipe !== "akl-db") {
     return (
-      "rehost.mjs: refusing -- a --remote run with no --env targets PRODUCTION 'akl-db' directly. " +
+      "rehost.mjs: refusing -- a --remote run targets PRODUCTION 'akl-db' directly. " +
       "Pass --wipe=akl-db to confirm you mean to overwrite it. " +
       "(Would have applied every migration to akl-db and then restored the dump into it.)"
     );
@@ -83,8 +80,8 @@ export function checkWipeFlag(remote, env, wipe) {
 // Guard 2: refused only when the LIVE service is strictly ahead of the
 // dump being restored -- an equal or behind live seq means the dump is at
 // least as fresh, nothing to lose. `--accept-loss` overrides.
-export function checkSeqLoss(remote, env, liveSeq, dumpSeq, acceptLoss) {
-  if (!isProductionTarget(remote, env)) return null;
+export function checkSeqLoss(remote, liveSeq, dumpSeq, acceptLoss) {
+  if (!isProductionTarget(remote)) return null;
   if (liveSeq > dumpSeq && !acceptLoss) {
     return (
       `rehost.mjs: refusing -- live akl-db is at seq ${liveSeq}, ahead of this dump's seq ${dumpSeq}. ` +
@@ -117,13 +114,8 @@ async function loadDump(spec) {
   return JSON.parse(json.toString("utf8"));
 }
 
-// `env` is `null` for production (top-level config) or `"preview"` (etc.) to
-// pass `--env <env>` through to wrangler -- every call needs it together
-// with the matching D1 identifier, or wrangler resolves the wrong (or no)
-// database for that environment (09-implementation-phase2.md §3 T7).
-function wrangler(args, env) {
-  const envFlag = env ? ["--env", env] : [];
-  return execFileSync("npx", ["wrangler", ...args, ...envFlag, "--config", "wrangler.toml"], {
+function wrangler(args) {
+  return execFileSync("npx", ["wrangler", ...args, "--config", "wrangler.toml"], {
     cwd: DB_ROOT,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "inherit"],
@@ -132,26 +124,32 @@ function wrangler(args, env) {
 
 // `wrangler d1 execute <db> --command "..." --json` prints one JSON array
 // (one entry per statement in the command; ours is always a single SELECT).
-function d1Query(d1Name, remote, env, sql) {
-  const out = wrangler(["d1", "execute", d1Name, remote ? "--remote" : "--local", "--command", sql, "--json"], env);
+function d1Query(d1Name, remote, sql) {
+  const out = wrangler(["d1", "execute", d1Name, remote ? "--remote" : "--local", "--command", sql, "--json"]);
   const parsed = JSON.parse(out);
   return parsed[0]?.results ?? [];
 }
 
 async function main() {
-  const args = parseArgs(process.argv.slice(2));
+  let args;
+  try {
+    args = parseArgs(process.argv.slice(2));
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  }
   if (!args.dump) {
-    console.log("usage: npm run rehost -- --dump <file|url> [--local|--remote] [--force] [--env preview] [--wipe=akl-db] [--accept-loss]");
-    console.log("  (07-implementation-phase1.md §6 S7 / 04-governance.md §4; 09-implementation-phase2.md §3 T7)");
-    console.log("  --wipe=akl-db and --accept-loss are required only for a --remote run with no --env (production akl-db).");
+    console.log("usage: npm run rehost -- --dump <file|url> [--local|--remote] [--force] [--wipe=akl-db] [--accept-loss]");
+    console.log("  (07-implementation-phase1.md §6 S7 / 04-governance.md §4)");
+    console.log("  --wipe=akl-db and --accept-loss are required only for a --remote run (production akl-db).");
     process.exit(1);
   }
   const mode = args.remote ? "--remote" : "--local";
-  const d1Name = args.env === "preview" ? "akl-db-preview" : "akl-db";
+  const d1Name = "akl-db";
 
   // Guard 1 (production only): refused before the dump is loaded or a
   // single migration is applied.
-  const wipeRefusal = checkWipeFlag(args.remote, args.env, args.wipe);
+  const wipeRefusal = checkWipeFlag(args.remote, args.wipe);
   if (wipeRefusal) {
     console.error(wipeRefusal);
     process.exit(1);
@@ -163,10 +161,10 @@ async function main() {
     `rehost.mjs: dump version ${dump.version}, date ${dump.date}, ${dump.records.length} records, ${dump.events.length} events`,
   );
 
-  console.log(`rehost.mjs: applying migrations (${mode}${args.env ? `, env ${args.env}` : ""})`);
-  wrangler(["d1", "migrations", "apply", d1Name, mode], args.env);
+  console.log(`rehost.mjs: applying migrations (${mode})`);
+  wrangler(["d1", "migrations", "apply", d1Name, mode]);
 
-  const existing = d1Query(d1Name, args.remote, args.env, "SELECT COUNT(*) AS n FROM layouts");
+  const existing = d1Query(d1Name, args.remote, "SELECT COUNT(*) AS n FROM layouts");
   const existingCount = existing[0]?.n ?? 0;
   if (existingCount > 0 && !args.force) {
     console.error(
@@ -178,7 +176,7 @@ async function main() {
   // Guard 2 (production only): compare the LIVE service's seq against the
   // dump's own meta.seq before restoring -- printed either way, whether or
   // not it ends up refusing.
-  if (isProductionTarget(args.remote, args.env)) {
+  if (isProductionTarget(args.remote)) {
     const metaUrl = metaUrlFor(process.env.DB_BASE_URL);
     console.log(`rehost.mjs: checking live seq before restoring production akl-db (${metaUrl})`);
     const metaRes = await fetch(metaUrl);
@@ -187,7 +185,7 @@ async function main() {
     const liveSeq = liveMeta.seq;
     const dumpSeq = dump.meta.seq;
     console.log(`rehost.mjs: live seq=${liveSeq} dump seq=${dumpSeq}`);
-    const seqRefusal = checkSeqLoss(args.remote, args.env, liveSeq, dumpSeq, args.acceptLoss);
+    const seqRefusal = checkSeqLoss(args.remote, liveSeq, dumpSeq, args.acceptLoss);
     if (seqRefusal) {
       console.error(seqRefusal);
       process.exit(1);
@@ -200,14 +198,14 @@ async function main() {
 
   try {
     console.log(`rehost.mjs: restoring (${mode})`);
-    wrangler(["d1", "execute", d1Name, mode, "--file", path.relative(DB_ROOT, RESTORE_SQL_PATH)], args.env);
+    wrangler(["d1", "execute", d1Name, mode, "--file", path.relative(DB_ROOT, RESTORE_SQL_PATH)]);
   } finally {
     fs.rmSync(RESTORE_SQL_PATH, { force: true });
   }
 
-  const [layoutRow] = d1Query(d1Name, args.remote, args.env, "SELECT COUNT(*) AS n FROM layouts WHERE deleted = 0");
-  const [authorRow] = d1Query(d1Name, args.remote, args.env, "SELECT COUNT(*) AS n FROM authors");
-  const [eventRow] = d1Query(d1Name, args.remote, args.env, "SELECT MAX(seq) AS seq FROM events");
+  const [layoutRow] = d1Query(d1Name, args.remote, "SELECT COUNT(*) AS n FROM layouts WHERE deleted = 0");
+  const [authorRow] = d1Query(d1Name, args.remote, "SELECT COUNT(*) AS n FROM authors");
+  const [eventRow] = d1Query(d1Name, args.remote, "SELECT MAX(seq) AS seq FROM events");
   console.log("rehost.mjs: restored -- /v1/meta-equivalent counts:");
   console.log(
     JSON.stringify({ layout_count: layoutRow?.n ?? 0, author_count: authorRow?.n ?? 0, seq: eventRow?.seq ?? 0 }, null, 2),
