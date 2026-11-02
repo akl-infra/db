@@ -11,7 +11,7 @@ import { type AuthDeps, resolveActor } from "../auth/discord";
 import type { Bindings } from "../env";
 import * as comments from "../core/comments";
 import { badRequest, notAdmin, notFound } from "../core/errors";
-import { cachePut, conditional, etagFor, readHead } from "../core/etag";
+import { cachePut, conditional, etagFor, readHead, RETAIN_SECONDS } from "../core/etag";
 import { announceComment, updateQueueNotification } from "../core/modqueue";
 import { readReviewHistory } from "../core/moderation-review";
 import { dispatchRejectionDms } from "../core/rejection-dm";
@@ -63,7 +63,7 @@ export function commentsRoute(authDeps: AuthDeps) {
     const res = c.json({ counts: await comments.listCommentCounts(platformOf(c).store) });
     res.headers.set("ETag", etag);
     res.headers.set("Cache-Control", CACHE_CONTROL);
-    await cachePut(c, res.clone());
+    await cachePut(c, res.clone(), { retainSeconds: RETAIN_SECONDS });
     return res;
   });
 
@@ -105,7 +105,7 @@ export function commentsRoute(authDeps: AuthDeps) {
     res.headers.set("ETag", etag);
     res.headers.set("Cache-Control", CACHE_CONTROL);
     res.headers.set("Vary", "Authorization, X-Akl-Client");
-    await cachePut(c, res.clone());
+    await cachePut(c, res.clone(), { retainSeconds: RETAIN_SECONDS });
     return res;
   });
 
@@ -144,7 +144,7 @@ export function commentsRoute(authDeps: AuthDeps) {
     res.headers.set("ETag", etag);
     res.headers.set("Cache-Control", CACHE_CONTROL);
     res.headers.set("Vary", "Authorization, X-Akl-Client");
-    await cachePut(c, res.clone());
+    await cachePut(c, res.clone(), { retainSeconds: RETAIN_SECONDS });
     return res;
   });
 

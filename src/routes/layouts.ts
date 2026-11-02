@@ -5,7 +5,7 @@ import { Hono, type Context } from "hono";
 import { platformOf, type AppEnv } from "../app";
 import { canonical } from "../core/canonical";
 import { ApiError, badRequest, formatAbsent, formatRequired, held, notFound, unknownFormat } from "../core/errors";
-import { cachePut, conditional, etagFor, headSeq } from "../core/etag";
+import { cachePut, conditional, etagFor, headSeq, RETAIN_SECONDS } from "../core/etag";
 import { sourceOfEvent } from "../core/events";
 import { resolveReadFormat, sourceLineageFor } from "../core/formatread";
 import {
@@ -174,7 +174,7 @@ layoutsRoute.get("/v1/layouts", async (c) => {
   const res = c.json({ items, next_cursor: page.nextCursor });
   res.headers.set("ETag", etag);
   res.headers.set("Cache-Control", CACHE_CONTROL);
-  await cachePut(c, res.clone());
+  await cachePut(c, res.clone(), { retainSeconds: RETAIN_SECONDS });
   return res;
 });
 
