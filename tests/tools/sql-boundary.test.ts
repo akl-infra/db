@@ -32,17 +32,8 @@ const D1_ONLY = [
   "tests/harness/d1.ts",
   // Phase A (design A): the lab server replays the fuzzer's reset script statement by statement and exports tables.
   "src/platform/node-lab-server.ts",
-  // Phase A (design A): the tests of the D1 shim itself run raw D1 against it.
-  "tests/shim/atomic.test.ts",
-  "tests/shim/coverage.test.ts",
-  "tests/shim/d1-parity.test.ts",
-  "tests/shim/diverge.test.ts",
-  "tests/shim/log-ddb.test.ts",
-  "tests/shim/log.test.ts",
-  "tests/shim/migrations.test.ts",
-  "tests/shim/property.test.ts",
-  "tests/shim/protocol.test.ts",
-  "tests/shim/support.ts",
+  // Phase A (design A): the D1 bind/read-back parity file runs raw D1 under both the workers and the shim projects.
+  "tests/api/d1-bind-parity.test.ts",
 ];
 
 function walk(dir: string): string[] {
@@ -75,6 +66,8 @@ describe("storage port boundary", () => {
       // The D1 implementations: store/d1 (SQL on D1) and, under design A, the shim and replica that ARE the database.
       .filter((f) => ![["src", "store", "d1"], ["src", "store", "shim"], ["src", "replica"]].some((dir) => f.startsWith(dir.join(path.sep) + path.sep)))
       .filter((f) => f !== path.join("tests", "tools", "sql-boundary.test.ts"))
+      // Phase A (design A): tests/shim/ tests the D1 shim itself, so all of it speaks raw D1 by design; one exemption, not a list.
+      .filter((f) => !f.startsWith(`tests${path.sep}shim${path.sep}`))
       .filter((f) => callsSql(path.join(DB_ROOT, f)))
       .sort();
     expect(hits).toEqual([...D1_ONLY].sort());
