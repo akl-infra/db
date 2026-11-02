@@ -6,5 +6,6 @@ src/generated/
 # W1c: scripts/build-docs.mjs writes the raw db/docs/adoption.md copy here
 # on every predev/prebuild/pretest/pretypecheck run -- Vite copies public/
 # verbatim into dist/, so this is what serves /adoption.md (SITE-30).
-# Never hand-edited, never committed.
-public/
+# Never hand-edited, never committed. (public/robots.txt, SITE-47, is the
+# one hand-written file in public/ and is committed.)
+public/adoption.md
