@@ -375,13 +375,14 @@ streams the object itself.
    `--force` -- a rehost is meant to be a from-scratch recovery, not a
    silent overwrite of a live, healthy database. **akldb is no longer
    disposable** (docs/decisions/21-formats.md D8, amended 2026-09-14), so a
-   `--remote` run naming no `--env` (i.e. production `akl-db`) additionally
+   `--remote` run (i.e. production `akl-db`) additionally
    refuses -- before touching anything -- unless `--wipe=akl-db` (the
    literal database name) is passed, and refuses again, right before
    restoring, if the live service's `/v1/meta` `seq` is ahead of the dump's
    own `meta.seq` (a real loss of event history) unless `--accept-loss` is
    also passed; both seqs are printed either way. Neither flag is needed
-   for `--local` or `--env preview`.
+   for `--local`. (`--env preview` is gone: `akl-db-preview` was deleted
+   2026-11-02, and the script refuses `--env`.)
 4. `npm run deploy` (or push to `main` and let CI's `deploy` job do it) to
    point the Worker's code at the restored data, if this was a full
    from-scratch rehost (new account, lost database, etc.) rather than a
@@ -502,8 +503,7 @@ is origin-relative (`/v1/dump/dump-YYYY-MM-DD.json.gz`), so prefix the
 service origin before fetching it.
 
 1. `npx wrangler d1 create akl-db-rehearsal` (or reuse a previous scratch
-   database). `rehost.mjs` always targets `akl-db` (or, with `--env
-   preview`, `akl-db-preview`) -- it has no "restore into an arbitrary
+   database). `rehost.mjs` always targets `akl-db` -- it has no "restore into an arbitrary
    name" flag -- so a genuine fresh-D1 rehearsal needs a scratch
    `[[d1_databases]]` entry (temporarily added to a throwaway copy of
    `wrangler.toml`, never committed) naming `akl-db-rehearsal`, or drive
