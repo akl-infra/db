@@ -2,20 +2,22 @@
 // CLI for the differential fuzzer (lane L). See run.mjs for what it does.
 //
 //   node scripts/lab/fuzz/fuzz.mjs [--seeds 1,2,3 | --seed-count 20] [--sequences 50] [--steps 10]
-//     [--mode ddb|self] [--ddb http://127.0.0.1:18307] [--ports 18317,18318,18319,18320]
+//     [--mode shim|self] [--shim-log memory|ddb] [--ddb http://127.0.0.1:18307 (shim default :18407)] [--ports 18317,18318,18319,18320]
 //     [--fault-rate 0.2] [--check-every 1] [--state-every 1] [--ignore-tables a,b]
 //     [--from <i>] [--reset inplace|restart] [--verify-reset] [--discord-url <url>] [--transcript <file>]
 //     [--dump fixture|<file>] [--out <dir>] [--work <dir>] [--max-diffs 20]
 //
 // Sequence i of seed s is a pure function of (s, i): every sequence starts from the seeded template, so
 // `--seeds s --from i --sequences 1` reproduces exactly what a unit of the gate saw (lane F; LDB-FZ1).
-// The gate (design §9): 10k sequences x 20 seeds, zero diffs. DynamoDB Local must
-// already be listening (docker run -d --rm --name akldb-ddb-l -p 127.0.0.1:18307:8000
-// amazon/dynamodb-local:latest -jar DynamoDBLocal.jar -inMemory -sharedDb).
+// `--mode shim` (design A, phase A) runs the candidate on the D1 shim over a replica and a commit log, vs the same D1 oracle
+// (wrangler dev --local): `npm run fuzz:shim`. The gate (build plan, phase A): 10k sequences x 20 seeds at 20% injected
+// log faults, zero diffs. Ports default to 18317..18320; pass --ports for others (oracle, candidate, fake Discord, spare).
+// With --shim-log ddb, DynamoDB Local must already be listening (docker run -d --rm --name akldb-ddb-a -p 127.0.0.1:18407:8000
+// amazon/dynamodb-local:2.6.1 -jar DynamoDBLocal.jar -inMemory -sharedDb).
 import process from "node:process";
 import { runFuzz } from "./run.mjs";
 
-const a = { seeds: [1], sequences: 50, steps: 10, mode: "ddb", ddbEndpoint: "http://127.0.0.1:18307", ports: undefined, faultRate: 0, checkEvery: 1, stateEvery: 1, ignoreTables: [], dump: undefined, from: 0, reset: "inplace", verifyReset: false, discordUrl: undefined, transcript: undefined, out: undefined, work: undefined, maxDiffs: 20 };
+const a = { seeds: [1], sequences: 50, steps: 10, mode: "shim", ddbEndpoint: undefined, shimLog: "memory", ports: undefined, faultRate: 0, checkEvery: 1, stateEvery: 1, ignoreTables: [], dump: undefined, from: 0, reset: "inplace", verifyReset: false, discordUrl: undefined, transcript: undefined, out: undefined, work: undefined, maxDiffs: 20 };
 const argv = process.argv.slice(2);
 for (let i = 0; i < argv.length; i++) {
   const k = argv[i];
@@ -26,6 +28,7 @@ for (let i = 0; i < argv.length; i++) {
   else if (k === "--steps") a.steps = Number(v());
   else if (k === "--mode") a.mode = v();
   else if (k === "--ddb") a.ddbEndpoint = v();
+  else if (k === "--shim-log") a.shimLog = v();
   else if (k === "--ports") a.ports = v().split(",").map(Number);
   else if (k === "--fault-rate") a.faultRate = Number(v());
   else if (k === "--check-every") a.checkEvery = Number(v());

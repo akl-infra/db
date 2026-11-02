@@ -30,6 +30,8 @@ const D1_ONLY = [
   "tests/auth/modqueue-migration-d1.test.ts",
   "tests/auth/rejection-dm-d1.test.ts",
   "tests/harness/d1.ts",
+  // Phase A (design A): the lab server replays the fuzzer's reset script statement by statement and exports tables.
+  "src/platform/node-lab-server.ts",
   // Phase A (design A): the tests of the D1 shim itself run raw D1 against it.
   "tests/shim/atomic.test.ts",
   "tests/shim/coverage.test.ts",

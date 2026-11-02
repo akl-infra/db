@@ -109,7 +109,8 @@ export function loopbackOnlyFetch(input: string | URL | Request, init?: RequestI
 }
 
 export interface NodePlatformOptions {
-  replica: Replica;
+  /** The replica one request's shim reads and writes. Required unless `d1` supplies the database. */
+  replica?: Replica;
   /** The D1Database one request's store runs on. Default: a new request-scoped shim over `replica` (SH7). A harness whose tests swap `env.DB` for a spy returns that here. */
   d1?: (env: Bindings) => D1Database;
   /** Shared across requests, so a dump written by a job is served by the next request. Default: a new memory store. */
@@ -132,10 +133,15 @@ export function createNodePlatform(opts: NodePlatformOptions): PlatformFactory &
   const blobs = opts.blobs ?? memoryBlobs();
   const cache = opts.cache ?? lruResponseCache();
   const pending = new Set<Promise<unknown>>();
+  const database = (env: Bindings): D1Database => {
+    if (opts.d1 !== undefined) return opts.d1(env);
+    if (opts.replica === undefined) throw new Error("createNodePlatform needs a replica or a d1 factory");
+    return createShimD1(opts.replica, { requestScoped: true });
+  };
   const factory: PlatformFactory = (env: Bindings, ctx): Platform => {
     const now: Clock = (env as unknown as { TEST_CLOCK?: Clock }).TEST_CLOCK ?? systemClock;
     return {
-      store: createD1Store(opts.d1 === undefined ? createShimD1(opts.replica, { requestScoped: true }) : opts.d1(env)),
+      store: createD1Store(database(env)),
       blobs,
       cache,
       config: env,

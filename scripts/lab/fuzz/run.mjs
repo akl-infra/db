@@ -1,16 +1,23 @@
 // The differential fuzzer's runner (design/aws-port.md §5.1 item 2; lane L).
 // Drives the D1 Worker (the oracle: wrangler dev --local on d1-lab-entry.ts)
-// and the DynamoDB lab server (scripts/lab/serve-ddb.mjs) with the same seeded
-// request stream, diffs every response (status, contract headers, body bytes)
-// and, after each sequence, the full table state (D1 SQLite vs exportRows);
-// after every step it asks the DynamoDB server to prove catalog.current() ==
-// rebuildFromScan() and the index checker clean (/__lab/check).
+// and the candidate (scripts/lab/serve-shim.mjs) with the same seeded request
+// stream, diffs every response (status, contract headers, body bytes) and,
+// after each sequence, the full table state (the oracle's SQLite file vs the
+// candidate's export); after every step it asks the candidate to prove its
+// replica equals a fresh replay of the log (/__lab/check).
 //
-// `mode: "self"` runs a second D1 Worker in place of DynamoDB: a determinism
+// `mode: "shim"` (design A, phase A) runs the candidate on the D1 shim instead: src/index.ts over a node:sqlite
+// replica and a commit log (in memory, or DynamoDB Local with `shimLog: "ddb"`), served by scripts/lab/serve-shim.mjs
+// with the same determinism overrides as the oracle. Between sequences the candidate is rebuilt from the same reset
+// script the oracle gets; /__lab/restart models a cold container (a new replica replaying the whole log, hash-checked);
+// /__lab/check proves the replica equals a fresh replay of a gap-free log. `faultRate` injects log conflicts, throttles
+// and timeouts before and after the commit.
+//
+// `mode: "self"` runs a second D1 Worker in place of the shim: a determinism
 // check of the lab entry, the generator and the differ themselves.
 //
-// No cloud: DynamoDB Local on 127.0.0.1, a fake Discord on 127.0.0.1, the
-// Workers under wrangler's local simulator.
+// No cloud: DynamoDB Local (optional) on 127.0.0.1, a fake Discord on 127.0.0.1, the
+// Worker under wrangler's local simulator.
 import { spawn } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -177,11 +184,11 @@ async function startD1(o) {
   };
 }
 
-async function startDdb(o) {
+async function startShim(o) {
   const child = spawnLogged(
     process.execPath,
-    ["scripts/lab/serve-ddb.mjs", "--port", String(o.port), "--ddb", o.endpoint, "--prefix", `akldb-fuzz-${o.port}`, "--discord", o.discord, "--fault-rate", String(o.faultRate), "--fault-seed", String(o.faultSeed)],
-    path.join(o.outDir, "ddb.log"),
+    ["scripts/lab/serve-shim.mjs", "--port", String(o.port), "--discord", o.discord, "--fault-rate", String(o.faultRate), "--fault-seed", String(o.faultSeed), ...(o.ddb ? ["--ddb", o.ddb] : [])],
+    path.join(o.outDir, "shim.log"),
     { cwd: REPO },
   );
   const base = `http://127.0.0.1:${o.port}`;
@@ -191,7 +198,7 @@ async function startDdb(o) {
     } catch {
       // not up yet
     }
-    if (child.exitCode !== null || i > 240) throw new Error(`DynamoDB lab server did not start (see ${path.join(o.outDir, "ddb.log")})`);
+    if (child.exitCode !== null || i > 240) throw new Error(`shim lab server did not start (see ${path.join(o.outDir, "shim.log")})`);
     await new Promise((r) => setTimeout(r, 500));
   }
   const lab = async (method, p, body) => {
@@ -201,13 +208,15 @@ async function startDdb(o) {
     return JSON.parse(text);
   };
   return {
-    name: "ddb",
-    kind: "ddb",
+    name: "shim",
+    kind: "shim",
     url: base,
     lab,
     check: () => lab("GET", "/__lab/check"),
     restart: () => lab("POST", "/__lab/restart"),
+    reset: (script) => lab("POST", "/__lab/reset", script),
     state: () => lab("GET", "/__lab/export"),
+    stats: () => lab("GET", "/__lab/stats"),
     stop: () => stopChild(child),
   };
 }
@@ -280,10 +289,11 @@ async function compareProducedDumps(A, B) {
  * @param {string} [o.discordUrl]   an already-running fake Discord (default: start one on ports[2])
  * @param {string} [o.transcript]   write one JSON line per step and per sequence state (the determinism proof)
  * @param {number} o.steps          steps per sequence
- * @param {"ddb"|"self"} [o.mode]
- * @param {string} [o.ddbEndpoint]  DynamoDB Local (default http://127.0.0.1:18307)
+ * @param {"shim"|"self"} [o.mode]
+ * @param {"memory"|"ddb"} [o.shimLog]  mode "shim": the commit log's backend (default memory; ddb = DynamoDB Local at o.ddbEndpoint)
+ * @param {string} [o.ddbEndpoint]  DynamoDB Local for shimLog "ddb" (default http://127.0.0.1:18407)
  * @param {number[]} [o.ports]      [oracle D1, DDB server (or second D1), fake Discord, spare]
- * @param {number} [o.faultRate]    injected conflict/throttle rate on the DynamoDB side
+ * @param {number} [o.faultRate]    total rate of injected log faults on the shim side (conflict, throttle, timeout before/after the commit)
  * @param {number} [o.checkEvery]   /__lab/check every N steps (default 1)
  * @param {number} [o.stateEvery]   full state diff every N sequences (default 1)
  * @param {string[]} [o.ignoreTables]
@@ -294,7 +304,8 @@ async function compareProducedDumps(A, B) {
  */
 export async function runFuzz(o) {
   const log = o.log ?? ((m) => console.log(`[fuzz] ${m}`));
-  const mode = o.mode ?? "ddb";
+  const mode = o.mode ?? "shim";
+  if (mode !== "shim" && mode !== "self") throw new Error(`unknown mode '${mode}' (shim | self)`);
   const [portA, portB, portDiscord, portSpare] = o.ports ?? [18317, 18318, 18319, 18320];
   const workDir = o.work ?? fs.mkdtempSync(path.join(os.tmpdir(), "akldb-fuzz-"));
   const outDir = o.out ?? path.join(workDir, "report");
@@ -303,7 +314,7 @@ export async function runFuzz(o) {
   const stateEvery = o.stateEvery ?? 1;
   const maxDiffs = o.maxDiffs ?? 20;
   const ignore = o.ignoreTables ?? [];
-  const endpoint = o.ddbEndpoint ?? "http://127.0.0.1:18307";
+  const endpoint = o.ddbEndpoint ?? (mode === "shim" ? "http://127.0.0.1:18407" : "http://127.0.0.1:18307");
 
   const fixture = JSON.parse(fs.readFileSync(path.join(REPO, "tests/fixtures/seed-upstream-100.dump.json"), "utf8"));
   const corpus = fixture.layout_formats.filter((f) => f.lineage === "spark").map((f) => JSON.parse(f.payload_json));
@@ -323,7 +334,7 @@ export async function runFuzz(o) {
 
   const report = { mode, seeds: o.seeds, from, sequences: o.sequences, sequences_run: 0, reset_ms: 0, steps: o.steps, requests: 0, steps_run: 0, checks: 0, state_diffs_run: 0, diffs: [], by_label: {}, statuses: {}, ok_by_label: {}, started: new Date().toISOString() };
   const addDiff = (d) => {
-    d.repro = `node scripts/lab/fuzz/fuzz.mjs --seeds ${d.seed} --from ${d.sequence} --sequences 1 --steps ${o.steps}${mode === "self" ? " --mode self" : ""}`;
+    d.repro = `node scripts/lab/fuzz/fuzz.mjs --seeds ${d.seed} --from ${d.sequence} --sequences 1 --steps ${o.steps}${mode === "self" ? " --mode self" : mode === "shim" ? ` --mode shim${o.shimLog === "ddb" ? " --shim-log ddb" : ""}${o.faultRate ? ` --fault-rate ${o.faultRate}` : ""}` : ""}`;
     report.diffs.push(d);
     log(`DIFF seed ${d.seed} seq ${d.sequence} step ${d.step} ${d.kind}: ${d.label ?? ""} ${(d.problems ?? []).join(" | ").slice(0, 400)}`);
   };
@@ -337,13 +348,8 @@ export async function runFuzz(o) {
         B =
           mode === "self"
             ? await startD1({ name: "d1-other", port: portB, workDir, outDir, template, discord: discordUrl })
-            : await startDdb({ port: portB, endpoint, outDir, discord: discordUrl, faultRate: o.faultRate ?? 0, faultSeed: mixSeed(seed, 77) });
-        const resetB = async () => {
-          if (B.kind === "ddb") {
-            await B.lab("POST", "/__lab/reset");
-            await B.lab("POST", "/__lab/import", rows);
-          } else await B.reset(template.resetScript);
-        };
+            : await startShim({ port: portB, ddb: o.shimLog === "ddb" ? endpoint : undefined, outDir, discord: discordUrl, faultRate: o.faultRate ?? 0, faultSeed: mixSeed(seed, 77) });
+        const resetB = () => B.reset(template.resetScript);
         // the reset must land exactly on the template: compare the oracle's rows with the freshly built one
         const verifyTemplate = async (a) => {
           const got = await a.state();
@@ -364,7 +370,7 @@ export async function runFuzz(o) {
           report.reset_ms += Date.now() - t0;
           const gen = new Generator({ seed: mixSeed(seed, 1, sequence), corpus });
           const seqRng = makeRng(mixSeed(seed, 2, sequence));
-          const restartAt = seqRng.chance(0.3) ? seqRng.int(1, Math.max(1, o.steps - 1)) : -1; // a cold DynamoDB model mid-sequence
+          const restartAt = seqRng.chance(0.3) ? seqRng.int(1, Math.max(1, o.steps - 1)) : -1; // a cold container (a replica replaying the log from 0) mid-sequence
           let tick = 0;
           let seedCounter = 1000 + (mixSeed(seed, 3, sequence) % 1_000_000) * 1000;
           report.sequences_run++;
@@ -417,7 +423,7 @@ export async function runFuzz(o) {
               if (dp.length > 0) addDiff({ seed, sequence, step: stepNo, kind: "dump", label: step.label, problems: dp });
             }
 
-            if (i % checkEvery === 0 && B.kind === "ddb") {
+            if (i % checkEvery === 0 && B.kind !== "d1") {
               report.checks++;
               const c = await B.check();
               if (!c.ok) addDiff({ seed, sequence, step: stepNo, kind: "check", label: step.label, problems: c.problems });
@@ -430,6 +436,13 @@ export async function runFuzz(o) {
             const sd = diffStates(maskStateRows(sa), maskStateRows(sb), ignore);
             if (sd.length > 0) addDiff({ seed, sequence, step: stepNo, kind: "state", problems: sd.map((d) => `${d.table}: ${d.rows[0]} vs ${d.rows[1]} rows; oracle-only ${JSON.stringify(d.only_oracle)}; other-only ${JSON.stringify(d.only_other)}`) });
           }
+        }
+        // What the candidate went through: injected log faults and replica retries (proof the faults really fired).
+        const st = await B.stats?.().catch(() => undefined);
+        if (st !== undefined) {
+          report.shim_stats ??= [];
+          report.shim_stats.push({ seed, ...st });
+          log(`seed ${seed}: shim ${JSON.stringify(st)}`);
         }
       } finally {
         await B?.stop();

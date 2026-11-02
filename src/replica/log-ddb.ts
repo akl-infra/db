@@ -218,3 +218,19 @@ export function logTableDefinition(table: string): Record<string, unknown> {
     BillingMode: "PAY_PER_REQUEST",
   };
 }
+
+/** Create the log table; for DynamoDB Local in tests and the lab server (the CloudFormation template owns the real one). */
+export async function createLogTable(o: { endpoint: string; table: string; region?: string; credentials: DdbLogOptions["credentials"] }): Promise<void> {
+  const res = await tableCall(o, "CreateTable", logTableDefinition(o.table));
+  if (!res.ok) throw new Error(`CreateTable ${o.table}: ${(await res.text()).slice(0, 300)}`);
+}
+
+/** Delete a table created by createLogTable (best effort). */
+export async function dropLogTable(o: { endpoint: string; table: string; region?: string; credentials: DdbLogOptions["credentials"] }): Promise<void> {
+  await (await tableCall(o, "DeleteTable", { TableName: o.table })).text();
+}
+
+function tableCall(o: { endpoint: string; region?: string; credentials: DdbLogOptions["credentials"] }, target: string, body: unknown): Promise<Response> {
+  const client = new AwsClient({ ...o.credentials, service: "dynamodb", region: o.region ?? "us-east-2" });
+  return client.fetch(o.endpoint, { method: "POST", headers: { "content-type": "application/x-amz-json-1.0", "x-amz-target": `DynamoDB_20120810.${target}` }, body: JSON.stringify(body) });
+}
