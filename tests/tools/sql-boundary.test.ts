@@ -31,6 +31,17 @@ const D1_ONLY = [
   "tests/auth/modqueue-migration-d1.test.ts",
   "tests/auth/rejection-dm-d1.test.ts",
   "tests/harness/d1.ts",
+  // Phase A (design A): the tests of the D1 shim itself run raw D1 against it.
+  "tests/shim/atomic.test.ts",
+  "tests/shim/coverage.test.ts",
+  "tests/shim/d1-parity.test.ts",
+  "tests/shim/diverge.test.ts",
+  "tests/shim/log-ddb.test.ts",
+  "tests/shim/log.test.ts",
+  "tests/shim/migrations.test.ts",
+  "tests/shim/property.test.ts",
+  "tests/shim/protocol.test.ts",
+  "tests/shim/support.ts",
 ];
 
 function walk(dir: string): string[] {
@@ -60,7 +71,8 @@ describe("storage port boundary", () => {
     const files = [...walk(path.join(DB_ROOT, "src")), ...walk(path.join(DB_ROOT, "tests"))].map((f) => path.relative(DB_ROOT, f));
     expect(files.length).toBeGreaterThan(0);
     const hits = files
-      .filter((f) => !f.startsWith(`src${path.sep}store${path.sep}d1${path.sep}`))
+      // The D1 implementations: store/d1 (SQL on D1) and, under design A, the shim and replica that ARE the database.
+      .filter((f) => ![["src", "store", "d1"], ["src", "store", "shim"], ["src", "replica"]].some((dir) => f.startsWith(dir.join(path.sep) + path.sep)))
       .filter((f) => f !== path.join("tests", "tools", "sql-boundary.test.ts"))
       .filter((f) => callsSql(path.join(DB_ROOT, f)))
       .sort();
