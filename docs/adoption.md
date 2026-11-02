@@ -408,6 +408,16 @@ GET /v1/formats
 GET /v1/formats/{name}/{N}/schema.json
 ```
 
+**From a web page, call these directly** (LDB-CORS1): every GET/HEAD
+answer carries `Access-Control-Allow-Origin: *` (and exposes `ETag`,
+`Retry-After`, `X-AKLDB-API`, `CF-Ray`), so a browser `fetch()` needs no
+proxy. Send it plain, with no extra headers: anything that needs a
+preflight (`Authorization`, an explicit `If-None-Match`) is refused,
+because akldb answers no preflight (LDB-CORS2). For a conditional read,
+let the browser cache revalidate for you: `fetch(url, { cache: 'no-cache' })`
+sends the stored `ETag` back and turns a `304` into the stored body.
+Signed-in reads and writes stay server-side (§2.2).
+
 **A layout can hold several formats at once** (`spark/1` today; a future
 `lw/1` for layouts.wiki, §7's own worked example). `formats` on every
 layout response lists every format it actually has stored — id, rev,
