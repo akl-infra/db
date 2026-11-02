@@ -39,3 +39,19 @@ describe("[LDB-R19] stored copies of validated routes", () => {
     expect((await stored(url))?.headers.get("Cache-Control")).toBe("public, max-age=10");
   });
 });
+
+describe("[LDB-R19] a hit never carries the stored copy's Cache-Control", () => {
+  it("[LDB-R19] a stored copy with any other Cache-Control (as Cloudflare's zone Browser Cache TTL hands back) goes out with the route's max-age=10, /v1/meta included", async () => {
+    for (const url of ["https://example.com/v1/meta?_ttl=1", "https://example.com/v1/comment-counts?_ttl=1"]) {
+      const first = await SELF.fetch(url);
+      expect(first.status).toBe(200);
+      const copy = (await caches.default.match(new Request(url)))!;
+      const headers = new Headers(copy.headers);
+      headers.set("Cache-Control", "public, max-age=14400");
+      await caches.default.put(new Request(url), new Response(await copy.text(), { status: 200, headers }));
+      const hit = await SELF.fetch(url);
+      expect(hit.headers.get("ETag")).toBe(first.headers.get("ETag"));
+      expect(hit.headers.get("Cache-Control"), url).toBe("public, max-age=10");
+    }
+  });
+});
