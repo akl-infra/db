@@ -58,6 +58,7 @@ describe("D1 surface coverage", () => {
     const hits: string[] = [];
     for (const f of walkFiles(SRC, /\.ts$/)) {
       const rel = path.relative(ROOT, f);
+      if (rel === path.join("src", "platform", "node-lab-server.ts")) continue; // the fuzzer's lab server replays the oracle's reset script
       if (rel.startsWith(path.join("src", "store", "d1") + path.sep) || rel.startsWith(path.join("src", "store", "shim") + path.sep) || rel.startsWith(path.join("src", "replica") + path.sep)) continue;
       const code = stripComments(fs.readFileSync(f, "utf8"));
       if (/\b(?:env|bindings|db|DB)\.(?:DB\.)?(?:prepare|batch|exec|dump|withSession)\s*\(/.test(code)) hits.push(rel);
