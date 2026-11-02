@@ -8,6 +8,7 @@ import { idempotencyKeys } from "./auth/idempotency";
 import { rateLimitWrites } from "./auth/ratelimit";
 import { clientsHealth } from "./core/clients";
 import { describeError } from "./core/describe-error";
+import { corsHeadersFor } from "./core/cors";
 import { ApiError, internal } from "./core/errors";
 import { cachePut, conditional, etagFor, readHead } from "./core/etag";
 import { dumpDue, DUMP_STATE_KEY, readDumpState, writeDump, type DumpState } from "./dump/write";
@@ -66,10 +67,11 @@ app.use("*", async (c, next) => {
   await next();
   if (c.res) {
     let res = withApiVersionHeader(c.res);
-    const dep = deprecationHeadersFor(c.req.method, c.req.routePath);
-    if (Object.keys(dep).length > 0) {
+    // [LDB-CORS1] the GET/HEAD answers' CORS headers ride the same rebuild (src/core/cors.ts).
+    const extra = { ...deprecationHeadersFor(c.req.method, c.req.routePath), ...corsHeadersFor(c.req.method) };
+    if (Object.keys(extra).length > 0) {
       const headers = new Headers(res.headers);
-      for (const [name, value] of Object.entries(dep)) headers.set(name, value);
+      for (const [name, value] of Object.entries(extra)) headers.set(name, value);
       res = new Response(res.body, { status: res.status, statusText: res.statusText, headers });
     }
     c.res = res;
@@ -325,7 +327,8 @@ app.post("/discord/interactions", async (c) => {
 // every error body sets `X-AKLDB-API` itself, right here, the one other
 // place a response is ever constructed.
 app.onError((err, c) => {
-  const headers = { ...(err instanceof ApiError ? err.headers : undefined), [API_VERSION_HEADER]: apiVersionString() };
+  // [LDB-CORS1] an error to a GET/HEAD is readable cross-origin too, so a browser client sees the real status.
+  const headers = { ...(err instanceof ApiError ? err.headers : undefined), [API_VERSION_HEADER]: apiVersionString(), ...corsHeadersFor(c.req.method) };
   if (err instanceof ApiError) {
     return c.json(err.body, err.status as 400 | 401 | 403 | 404 | 409 | 422 | 429 | 500 | 503, headers);
   }
