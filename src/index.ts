@@ -8,7 +8,7 @@ import { idempotencyKeys } from "./auth/idempotency";
 import { rateLimitWrites } from "./auth/ratelimit";
 import { clientsHealth } from "./core/clients";
 import { describeError } from "./core/describe-error";
-import { corsHeadersFor } from "./core/cors";
+import { corsHeadersFor, preflightHeadersFor } from "./core/cors";
 import { ApiError, internal } from "./core/errors";
 import { cachePut, conditional, etagFor, readHead } from "./core/etag";
 import { dumpDue, DUMP_STATE_KEY, readDumpState, writeDump, type DumpState } from "./dump/write";
@@ -76,6 +76,14 @@ app.use("*", async (c, next) => {
     }
     c.res = res;
   }
+});
+
+// [LDB-CORS3] Every OPTIONS is answered here, before any route or the actor
+// gate: 204, granting only a GET/HEAD preflight that asks for the revalidation
+// headers (src/core/cors.ts); anything else gets no Access-Control-* at all.
+app.use("*", async (c, next) => {
+  if (c.req.method !== "OPTIONS") return next();
+  return new Response(null, { status: 204, headers: preflightHeadersFor(c.req.header("Access-Control-Request-Method"), c.req.header("Access-Control-Request-Headers")) });
 });
 
 // Private receipt/status paths include auth, ban and rate-limit failures.
