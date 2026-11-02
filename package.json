@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "wrangler dev --config wrangler.toml",
     "test": "vitest run",
+    "test:shim": "vitest run --project shim",
     "typecheck": "tsc --noEmit",
     "migrate": "wrangler d1 migrations apply akl-db --local --config wrangler.toml",
     "deploy": "wrangler deploy --config wrangler.toml",
@@ -19,6 +20,7 @@
   "dependencies": {
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
+    "aws4fetch": "^1.0.20",
     "hono": "^4.13.0",
     "ulidx": "^2.4.1"
   },
