@@ -411,9 +411,12 @@ GET /v1/formats/{name}/{N}/schema.json
 **From a web page, call these directly** (LDB-CORS1): every GET/HEAD
 answer carries `Access-Control-Allow-Origin: *` (and exposes `ETag`,
 `Retry-After`, `X-AKLDB-API`, `CF-Ray`), so a browser `fetch()` needs no
-proxy. Send it plain, with no extra headers: anything that needs a
-preflight (`Authorization`, an explicit `If-None-Match`) is refused,
-because akldb answers no preflight (LDB-CORS2). For a conditional read,
+proxy, and `Cross-Origin-Resource-Policy: cross-origin`, so a page with
+`Cross-Origin-Embedder-Policy: require-corp` may read it too (LDB-CORS3).
+Send it plain: the only preflight akldb grants is a GET/HEAD asking for
+the revalidation headers `If-None-Match`, `Cache-Control` or `Pragma`;
+anything else that needs one (`Authorization`, a write) is refused
+(LDB-CORS2). For a conditional read,
 let the browser cache revalidate for you: `fetch(url, { cache: 'no-cache' })`
 sends the stored `ETag` back and turns a `304` into the stored body.
 Signed-in reads and writes stay server-side (§2.2).
