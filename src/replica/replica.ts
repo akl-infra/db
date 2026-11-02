@@ -323,7 +323,9 @@ export class Replica {
     }
     const m = this.#meta();
     const changed = !p.select && m.total !== before;
-    return { columns, rows, ...(arrays !== undefined ? { arrays } : {}), changes: changed ? m.changes : 0, lastRowId: m.lastRowId, changedDb: changed };
+    // D1's meta.changes is the connection's total_changes() delta (measured on miniflare: a one-row INSERT whose trigger
+    // writes two more rows reports 3), NOT sqlite3_changes(). The SQL function changes() used by guard chains is unaffected.
+    return { columns, rows, ...(arrays !== undefined ? { arrays } : {}), changes: changed ? m.total - before : 0, lastRowId: m.lastRowId, changedDb: changed };
   }
 
   #rollback(): void {

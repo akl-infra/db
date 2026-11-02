@@ -35,6 +35,7 @@ const D1_ONLY = [
   "src/platform/node-lab-server.ts",
   // Phase A (design A): the D1 bind/read-back parity file runs raw D1 under both the workers and the shim projects.
   "tests/api/d1-bind-parity.test.ts",
+  "tests/api/d1-meta-parity.test.ts",
 ];
 
 function walk(dir: string): string[] {
