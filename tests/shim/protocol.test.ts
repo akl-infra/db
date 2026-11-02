@@ -211,6 +211,32 @@ describe("the request snapshot", () => {
     expect((await shimOf(b, true).prepare("SELECT n FROM ctr").first<{ n: number }>())!.n).toBe(7);
   });
 
+  it("[LDB-SH7] a request whose snapshot went stale: its CAS UPDATE ... WHERE rev = ? re-executes on the newer state and answers what D1 would (0 changes)", async () => {
+    const req = shimOf(b, true);
+    expect((await counter(req)).rev).toBe(0); // the request's snapshot: rev 0
+    await da.prepare("UPDATE ctr SET n = 100, rev = rev + 1 WHERE id = 1 AND rev = 0").run(); // another replica commits
+    const before = log.length;
+    const cas = await req.prepare("UPDATE ctr SET n = 200, rev = rev + 1 WHERE id = 1 AND rev = 0").run();
+    expect(cas.meta.changes).toBe(0); // on D1 the winner's rev is already 1, so a rev = 0 guard matches nothing
+    expect(log.length).toBe(before); // the stale attempt rolled back; the re-executed no-op logs nothing
+    expect(await counter(req)).toEqual({ n: 100, rev: 1 }); // and the request now sees its own re-execution's state
+    // The same unit when the guard still holds on the newer state commits there, after the retry.
+    const win = await req.prepare("UPDATE ctr SET n = n + 1, rev = rev + 1 WHERE id = 1 AND rev = 1 RETURNING n, rev").first();
+    expect(win).toEqual({ n: 101, rev: 2 });
+    expect(log.length).toBe(before + 1);
+  });
+
+  it("[LDB-SH7] a unit that changes nothing is linearized at the request's snapshot: not logged, answered from the snapshot", async () => {
+    const req = shimOf(b, true);
+    expect((await counter(req)).n).toBe(0);
+    await da.prepare("UPDATE ctr SET n = 7 WHERE id = 1").run(); // lands after the request's snapshot
+    const before = log.length;
+    const noop = await req.prepare("UPDATE ctr SET n = 9 WHERE id = 1 AND rev = 99").run(); // matches nothing at the snapshot
+    expect(noop.meta.changes).toBe(0);
+    expect(log.length).toBe(before);
+    expect((await counter(req)).n).toBe(0); // the snapshot answer, not the newer commit's
+  });
+
   it("[LDB-SH7] a database that is not request-scoped catches up before every statement", async () => {
     const heads = log.counts.heads;
     for (let i = 0; i < 3; i++) await db.prepare("SELECT n FROM ctr").first();
