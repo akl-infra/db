@@ -1,0 +1,27 @@
+# akldb.org (SITE-47): search engines are welcome; SEO and marketing
+# crawlers are not. They render this single-page app, so every page they
+# fetch also calls the layout API (/api/v1/*): in 2026-11 AhrefsBot alone was
+# about 95% of this site's traffic. The data they would index is public
+# anyway, through the API and its daily dump.
+
+User-agent: AhrefsBot
+User-agent: AhrefsSiteAudit
+User-agent: SemrushBot
+User-agent: SemrushBot-SA
+User-agent: SemrushBot-BA
+User-agent: MJ12bot
+User-agent: DotBot
+User-agent: PetalBot
+User-agent: Bytespider
+User-agent: DataForSeoBot
+User-agent: BLEXBot
+User-agent: serpstatbot
+User-agent: SeekportBot
+User-agent: barkrowler
+User-agent: MegaIndex
+User-agent: Amazonbot
+User-agent: ImagesiftBot
+Disallow: /
+
+User-agent: *
+Allow: /
