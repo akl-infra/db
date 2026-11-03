@@ -9,7 +9,7 @@
 //   import      the bundled Lambda host's module-evaluation time, in a fresh Node process each run (esbuild bundle of the same
 //               module graph as src/lambda.ts, without that file's top-level call: it would start a boot against AWS)
 //               and, for comparison, the time ajv spent compiling the route-body schemas at load (what RP5 removed)
-//   zstd-19     the snapshot's compressed size and the compression time (paid by the jobs tick, not by a cold start)
+//   zstd        size and compress/decompress time per level; the default level (12) is what the cold-start numbers use
 //   decompress  zstd -> raw image
 //   deserialize node:sqlite DatabaseSync.deserialize
 //   first query a point read joined to its format, and a keyset list page, on the freshly deserialized database
@@ -165,16 +165,17 @@ try {
   console.log(`database    ${(image.byteLength / 1048576).toFixed(1)} MB raw, ${layouts} layouts, ${db.prepare("SELECT count(*) AS n FROM events").get().n} events, ${db.prepare("SELECT count(*) AS n FROM layout_revs").get().n} revs (generated in ${(genMs / 1000).toFixed(1)} s; serialize ${serializeMs.toFixed(1)} ms)`);
   db.close();
 
+  // The jobs write snapshots at SNAPSHOT_LEVEL (12 by default, src/replica/zstd.ts); a cold start decompresses that image.
+  // The other levels are printed for tuning SNAPSHOT_ZSTD_LEVEL (compression runs on the tick or the nightly function).
   const level = zlib.constants.ZSTD_c_compressionLevel;
-  const [packed, packMs] = time(() => zlib.zstdCompressSync(image, { params: { [level]: 19 } }));
-  console.log(`zstd-19     ${(packed.byteLength / 1048576).toFixed(2)} MB (${(image.byteLength / packed.byteLength).toFixed(1)}x; random numbers and hex make this a pessimistic ratio), compressed in ${(packMs / 1000).toFixed(1)} s by the jobs tick`);
-  // the jobs tick pays for compression (Lambda timeout 35 s, and compression runs on one vCPU): the cost of the other levels, for tuning SNAPSHOT_ZSTD_LEVEL
-  for (const lv of [3, 9, 12, 15]) {
+  let packed;
+  for (const lv of [3, 9, 12, 15, 19]) {
     const [p, t] = time(() => zlib.zstdCompressSync(image, { params: { [level]: lv } }));
     const [, d] = time(() => zlib.zstdDecompressSync(p));
-    console.log(`  level ${String(lv).padStart(2)}  ${(p.byteLength / 1048576).toFixed(2)} MB, compress ${(t / 1000).toFixed(2)} s, decompress ${d.toFixed(1)} ms`);
+    console.log(`zstd-${String(lv).padEnd(2)}    ${(p.byteLength / 1048576).toFixed(2)} MB (${(image.byteLength / p.byteLength).toFixed(1)}x), compress ${(t / 1000).toFixed(2)} s, decompress ${d.toFixed(1)} ms${lv === 12 ? "   <- the default; the cold-start numbers below use this image" : ""}`);
+    if (lv === 12) packed = p;
   }
-  console.log("");
+  console.log("(random numbers and hex make these ratios pessimistic)\n");
 
   const dec = [];
   const des = [];
@@ -198,7 +199,7 @@ try {
 
   const imp = importTimes(workdir);
   console.log(`import      ${fmt(imp.host)}   (bundle ${(imp.bundleBytes / 1024).toFixed(0)} KB; node:sqlite alone ${median(imp.nodeSqlite).toFixed(1)} ms of it)`);
-  console.log(`            ${fmt(imp.runtimeAjvCompile)}   <- ajv compiling the 19 route-body schemas at load (what RP5 removed); ajv itself and the formats' own compile stay`);
+  console.log(`            ${fmt(imp.runtimeAjvCompile)}   <- ajv loading and compiling the 19 route-body schemas, for comparison (RP5 removed this, and the formats' compile too)`);
   console.log(`decompress  ${fmt(dec)}`);
   console.log(`deserialize ${fmt(des)}`);
   console.log(`first query ${fmt(q1)}   point read + join`);
