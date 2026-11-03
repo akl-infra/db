@@ -57,7 +57,13 @@ export const env: Bindings & Record<string, any> = {
   // workerd refuses `new Function`; pool-workers hands tests this binding instead. Node has no such rule.
   __VITEST_POOL_WORKERS_UNSAFE_EVAL: { newFunction: (body: string) => new Function(body) },
   DB: db,
-  DUMPS: r2Binding(blobs),
+  // R2's list() too (tests/api/cutover.test.ts counts the dump objects); the memory store knows its keys.
+  DUMPS: Object.assign(r2Binding(blobs), {
+    async list(opts: { prefix?: string } = {}) {
+      const keys = [...blobs.objects.keys()].filter((k) => opts.prefix === undefined || k.startsWith(opts.prefix)).sort();
+      return { objects: keys.map((key) => ({ key, size: blobs.objects.get(key)!.bytes.byteLength })), truncated: false, delimitedPrefixes: [] };
+    },
+  }),
   PLATFORM: platform,
 } as unknown as Bindings & Record<string, any>;
 (globalThis as Record<string, unknown>).__aklShimEnv = env;

@@ -69,7 +69,7 @@ describe("the machine (CV11)", () => {
     expect(prod).toMatchObject({ publicUrl: "https://api.akldb.org", workerUrl: "https://api.akldb.org", workerDirectUrl: "https://akl-db.akl-58a.workers.dev", dnsConsecutive: 5, dnsTimeoutMs: 900_000 });
     expect(prod.originEnv).toMatch(/akldb-origin-prod\.env$/);
     expect(prod.r2Env).toMatch(/akldb-r2-dumps-read\.env$/);
-    expect(defaultMinMinor()).toBe(34); // this tree's WIRE_VERSION (33) + 1
+    expect(defaultMinMinor()).toBe(34); // this tree's WIRE_VERSION: the modes shipped in 1.34 (#45)
   });
 
   it("[LDB-CV11] the happy path: every step passes, in order, and the log holds the image, the open unit and the post-smoke write", async () => {

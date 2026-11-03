@@ -16,10 +16,10 @@ const PROD = { stack: "akldb-prod", workerUrl: "https://api.akldb.org", publicUr
 const STAGING = { stack: "akldb-staging", publicUrl: "https://staging-api.akldb.org", originEnv: path.join(HOME_AKL, "akldb-origin-staging.env") };
 const R2_ENV = path.join(HOME_AKL, "akldb-r2-dumps-read.env");
 
-/** The WIRE_VERSION in this tree + 1: the API minor the Worker build with the modes is expected to announce. */
+/** This tree's WIRE_VERSION: the read_only modes shipped in it (akl-infra/db#45, API 1.34), so the Worker must announce at least this. */
 export function defaultMinMinor() {
   const m = /export const WIRE_VERSION = (\d+);/.exec(fs.readFileSync(path.join(REPO, "src", "core", "etag.ts"), "utf8"));
-  return m === null ? 0 : Number(m[1]) + 1;
+  return m === null ? 0 : Number(m[1]);
 }
 
 const VALUE_FLAGS = ["state", "work", "from", "only", "d1", "worker-url", "aws-url", "stack", "stage", "profile", "region", "min-api-minor", "report", "page-rows", "concurrency", "write-route", "write-body", "migrations-dir", "date", "cutover-state", "new-d1", "variant", "d1-api", "public-url", "worker-direct-url", "origin-env", "r2-env", "dns-timeout", "dns-poll", "dns-consecutive"];

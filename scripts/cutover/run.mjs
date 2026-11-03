@@ -14,7 +14,7 @@
 //   --origin-env <file>   the stack's x-akldb-origin secret (default ~/git/akl/akldb-origin-<stage>.env); read at run time, never printed
 //   --r2-env <file>       R2 read credentials for the dump history (default ~/git/akl/akldb-r2-dumps-read.env: R2_KEY_ID, R2_SECRET, R2_ENDPOINT)
 //   --dns-timeout 900 --dns-poll 5 --dns-consecutive 5   how the dns step waits for api.akldb.org to answer from AWS
-//   --min-api-minor N  the API minor the Worker build with the read_only mode announces (default: this tree's WIRE_VERSION + 1)
+//   --min-api-minor N  the API minor the Worker build with the read_only mode announces (default: this tree's WIRE_VERSION, since #45 shipped the modes in it)
 //   --write-route "POST /v1/admin/nightly/tick"  --write-body '{}'   the signed write of the post-smoke (ops client from db.env.ops)
 //   --page-rows 2000 --concurrency 4 --allow-pending --d1-api rest|wrangler --work <dir> --report <file> --migrations-dir <dir>
 //
