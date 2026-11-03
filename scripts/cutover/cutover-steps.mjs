@@ -12,7 +12,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { SEQUENCE_TABLE, compareProofs, feedPosition, localSelect, proveAll, provenTables } from "./checksum.mjs";
+import { SEQUENCE_TABLE, compareProofs, feedPosition, localSelect, proveAll, proveAllBatched, provenTables } from "./checksum.mjs";
 import { fail, need } from "./machine.mjs";
 import { loadExportSql, sanityChecks, tablesCreatedBy } from "./sqlfile.mjs";
 
@@ -247,7 +247,9 @@ export function steps(o) {
         try {
           const d1select = (sql) => c.ports.d1.select(sql, db);
           const t0 = c.ports.clock.now();
-          const [localProof, remoteProof] = [await proveAll({ select: localSelect(local), db: local, pageRows: o.pageRows }), await proveAll({ select: d1select, db: local, pageRows: o.pageRows, concurrency: o.concurrency })];
+          const stats = {};
+          const localProof = await proveAll({ select: localSelect(local), db: local, pageRows: o.pageRows });
+          const remoteProof = await proveAllBatched({ select: d1select, ...(c.ports.d1.selectMany ? { selectMany: (sqls) => c.ports.d1.selectMany(sqls, db) } : {}), db: local, pageRows: o.pageRows, concurrency: o.concurrency, stats });
           const cmp = compareProofs(localProof, remoteProof, { left: "sqlite", right: "d1" });
           const lp = await feedPosition(localSelect(local));
           const rp = await feedPosition(d1select);
@@ -263,7 +265,7 @@ export function steps(o) {
           const rset = new Set(rs.map(key));
           for (const k of lset) if (!rset.has(k)) problems.push(`schema: ${JSON.parse(k)[0]} ${JSON.parse(k)[1]} differs or is missing on D1`);
           for (const k of rset) if (!lset.has(k)) problems.push(`schema: ${JSON.parse(k)[0]} ${JSON.parse(k)[1]} is on D1 but not in the export`);
-          const proof = { ok: problems.length === 0, tables: cmp.tables, rows: cmp.rows, metaSeq: rp.metaSeq, eventsCounter: rp.eventsCounter, verifyMs: c.ports.clock.now() - t0, problems, perTable: localProof };
+          const proof = { ok: problems.length === 0, tables: cmp.tables, rows: cmp.rows, metaSeq: rp.metaSeq, eventsCounter: rp.eventsCounter, verifyMs: c.ports.clock.now() - t0, d1Calls: stats.calls, problems, perTable: localProof };
           if (!proof.ok) {
             const e = new Error(`VERIFY FAILED, nothing was written to AWS: ${problems.slice(0, 8).join(" | ")}${problems.length > 8 ? ` (+${problems.length - 8} more)` : ""}`);
             e.proof = proof;
@@ -272,7 +274,7 @@ export function steps(o) {
           c.data.finalSeq = rp.metaSeq;
           c.data.eventsCounter = rp.eventsCounter;
           c.data.tables = localProof;
-          return { message: `${cmp.tables} tables, ${cmp.rows} rows, meta.seq ${rp.metaSeq}, events counter ${rp.eventsCounter}: all equal`, proof };
+          return { message: `${cmp.tables} tables, ${cmp.rows} rows, meta.seq ${rp.metaSeq}, events counter ${rp.eventsCounter}: all equal (${stats.calls} D1 calls)`, proof };
         } finally {
           local.close();
         }

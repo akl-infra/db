@@ -12,7 +12,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import crypto from "node:crypto";
-import { compareProofs, feedPosition, localSelect, proveAll } from "./checksum.mjs";
+import { compareProofs, feedPosition, localSelect, proveAll, proveAllBatched } from "./checksum.mjs";
 import { CLEAR_MODE_SQL, d1Mode, setModeSql, writeProbe } from "./cutover-steps.mjs";
 import { fail, need } from "./machine.mjs";
 import { dumpToSql } from "./sqlfile.mjs";
@@ -127,7 +127,7 @@ export function steps(o) {
       commands: () => [`wrangler d1 execute ${o.d1Name} --remote --json --command "SELECT rowid AS __rid, * FROM <table> ..."   # per table, paged`],
       skip: onlyOriginal,
       async run(c) {
-        const remote = await withImage(c, (db) => proveAll({ select: (sql) => c.ports.d1.select(sql, o.d1Name), db, pageRows: o.pageRows, concurrency: o.concurrency }));
+        const remote = await withImage(c, (db) => proveAllBatched({ select: (sql) => c.ports.d1.select(sql, o.d1Name), ...(c.ports.d1.selectMany ? { selectMany: (sqls) => c.ports.d1.selectMany(sqls, o.d1Name) } : {}), db, pageRows: o.pageRows, concurrency: o.concurrency }));
         const cmp = compareProofs(c.data.captureTables, remote, { left: "aws", right: "d1" });
         const cmpImage = c.data.imageTables === null ? { ok: true, diffs: [] } : compareProofs(c.data.imageTables, remote, { left: "image", right: "d1" });
         const pos = await feedPosition((sql) => c.ports.d1.select(sql, o.d1Name));
@@ -191,7 +191,7 @@ export function steps(o) {
       skip: onlyFresh,
       async run(c) {
         const name = c.data.newD1.name;
-        const remote = await withImage(c, (db) => proveAll({ select: (sql) => c.ports.d1.select(sql, name), db, pageRows: o.pageRows, concurrency: o.concurrency }));
+        const remote = await withImage(c, (db) => proveAllBatched({ select: (sql) => c.ports.d1.select(sql, name), ...(c.ports.d1.selectMany ? { selectMany: (sqls) => c.ports.d1.selectMany(sqls, name) } : {}), db, pageRows: o.pageRows, concurrency: o.concurrency }));
         const cmp = compareProofs(c.data.captureTables, remote, { left: "aws", right: "d1" });
         const pos = await feedPosition((sql) => c.ports.d1.select(sql, name));
         const problems = cmp.diffs.map((d) => `${d.table}: ${d.field} aws ${d.aws} != d1 ${d.d1}`);

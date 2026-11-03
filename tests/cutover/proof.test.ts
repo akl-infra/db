@@ -3,7 +3,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error -- plain scripts, no .d.ts
-import { canon, compareProofs, feedPosition, localSelect, orderOf, proveAll, proveTable } from "../../scripts/cutover/checksum.mjs";
+import { canon, compareProofs, feedPosition, localSelect, orderOf, proveAll, proveAllBatched, proveTable } from "../../scripts/cutover/checksum.mjs";
 // @ts-expect-error -- plain scripts, no .d.ts
 import { dumpToSql, dumpToStatements, literal, loadExportSql, sanityChecks, splitStatements } from "../../scripts/cutover/sqlfile.mjs";
 
@@ -229,5 +229,51 @@ INSERT INTO authors VALUES('u3','linus');
     // the trigger works after the load
     loaded.exec("INSERT INTO authors VALUES('u4','x')");
     expect(loaded.prepare("SELECT version FROM authors_head").get()).toEqual({ version: 4 });
+  });
+});
+
+describe("proof over a remote database with few calls (CV22)", () => {
+  function big(): DatabaseSync {
+    const db = new DatabaseSync(":memory:");
+    db.exec("CREATE TABLE events (seq INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT, body TEXT); CREATE TABLE small (a TEXT PRIMARY KEY, b); CREATE TABLE empty (x); CREATE TABLE rev (id INTEGER PRIMARY KEY, p TEXT)");
+    const ev = db.prepare("INSERT INTO events (kind, body) VALUES (?, ?)");
+    for (let i = 0; i < 2500; i++) ev.run(i % 3 === 0 ? "created" : "updated", `row ${i} ${"x".repeat(i % 40)}`);
+    const rv = db.prepare("INSERT INTO rev (p) VALUES (?)");
+    for (let i = 0; i < 700; i++) rv.run("p".repeat(2000 + (i % 7)));
+    db.exec("INSERT INTO small VALUES ('a', 1), ('b', x'00'), ('c', 2.5)");
+    return db;
+  }
+
+  it("[LDB-CV22] one count query, one call for all the small tables, the big ones paged by row width, and the same proof as the plain walk", async () => {
+    const db = big();
+    const want = await proveAll({ select: localSelect(db), db });
+    const stats: { calls?: number; log?: string[] } = {};
+    const sent: string[] = [];
+    const select = async (sql: string) => (sent.push(sql), asD1(db)(sql));
+    const selectMany = async (sqls: string[]) => (sent.push(...sqls.map((s) => `MANY ${s}`)), sqls.map((s) => asD1(db)(s)));
+    const got = await proveAllBatched({ select, selectMany, db, pageRows: 100, targetPageBytes: 100_000, smallRows: 50, concurrency: 3, stats });
+    expect(compareProofs(want, got).ok).toBe(true);
+    // 1 count + 1 batch of the 3 small tables (small, empty, sqlite_sequence) + pages of events and rev (rev: ~2 KB rows, so ~50 rows a page)
+    expect(sent.filter((s) => s.includes("count(*) AS n FROM") && s.includes("UNION ALL"))).toHaveLength(1); // the count query names every table
+    expect(sent.filter((s) => s.startsWith("MANY"))).toHaveLength(3);
+    expect(stats.log![0]).toBe("counts: 1");
+    expect(stats.log![1]).toBe("3 small tables: 1");
+    expect(stats.calls).toBe(1 + 1 + stats.log!.slice(2).reduce((n, l) => n + Number(l.split(": ")[1]), 0));
+    // far fewer calls than one per 100 rows: the page size followed the row width (events rows ~50 B, rev rows ~2 KB)
+    expect(stats.calls!).toBeLessThan(2 + Math.ceil(2500 / 100) + Math.ceil(700 / 50));
+  });
+
+  it("[LDB-CV22] a write that races the proof (rows appear between the count and the read) is an error", async () => {
+    const db = big();
+    let first = true;
+    const select = async (sql: string) => {
+      const r = asD1(db)(sql);
+      if (first && sql.includes("UNION ALL")) {
+        first = false;
+        db.exec("INSERT INTO events (kind, body) VALUES ('late', 'x')");
+      }
+      return r;
+    };
+    await expect(proveAllBatched({ select, db, pageRows: 100, smallRows: 50 })).rejects.toThrow(/COUNT\(\*\) says 2500 but 2501 rows/);
   });
 });

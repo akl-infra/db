@@ -363,6 +363,14 @@ export async function makeWorld(init: { faults?: Faults; events?: number; churnR
         st.setReadBigInts(true);
         return (st.all() as Row[]).map(d1Row);
       }),
+      selectMany: track("d1.selectMany", (sqls: string[], db: string) =>
+        sqls.map((sql) => {
+          if (!/^\s*select\b/i.test(sql)) throw new Error(`read-only port refused ${sql}`);
+          const st = w.dbs.get(db)!.prepare(sql);
+          st.setReadBigInts(true);
+          return (st.all() as Row[]).map(d1Row);
+        }),
+      ),
       write: track("d1.write", (sql: string, db: string) => {
         w.dbs.get(db)!.exec(sql);
       }),

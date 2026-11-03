@@ -72,29 +72,40 @@ export function localSelect(db) {
   };
 }
 
+const feedRows = (h, rows) => {
+  for (const row of rows) {
+    const keys = Object.keys(row);
+    h.update(rowText(keys.filter((k) => k !== "__rid").map((k) => row[k]))).update("\x1e");
+  }
+};
+const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
+
 /**
  * Count and checksum one table. `select(sql)` returns an array of row objects (a Promise of one is fine). The checksum is the
  * sha256 over every row's canonical text, in order. The keyset column `__rid` is not part of the row (so two tables that differ
  * only in how their rowids were assigned are caught by the ORDER, not hidden: the rows come out in rowid order and a renumbered
  * rowid with the same relative order is equal, which is also what D1 and SQLite guarantee about a rowid-less table's identity).
+ * `targetPageBytes` makes the page size follow the row width (about that many bytes of JSON per page, between 50 and 50,000 rows), so a
+ * table of 5 KB rows and one of 100-byte rows both take few round trips to a remote database.
  */
-export async function proveTable({ select, table, order, pageRows = 500 }) {
+export async function proveTable({ select, table, order, pageRows = 500, targetPageBytes }) {
   const q = `"${table.replaceAll('"', '""')}"`;
   const countRows = await select(`SELECT count(*) AS n FROM ${q}`);
   const count = Number(countRows[0].n);
+  return proveTableRows({ select, table, order, pageRows, targetPageBytes, count });
+}
+
+async function proveTableRows({ select, table, order, pageRows, targetPageBytes, count }) {
   const h = createHash("sha256");
   let after = 0;
   let seen = 0;
   for (;;) {
     const rows = await select(pageSql(table, order, pageRows, after));
-    for (const row of rows) {
-      const keys = Object.keys(row);
-      const values = keys.filter((k) => k !== "__rid").map((k) => row[k]);
-      h.update(rowText(values)).update("\x1e");
-    }
+    feedRows(h, rows);
     seen += rows.length;
     if (rows.length < pageRows) break;
     after = order.kind === "rowid" ? Number(rows[rows.length - 1].__rid) : seen;
+    if (targetPageBytes !== undefined) pageRows = clamp(Math.floor(targetPageBytes / Math.max(1, JSON.stringify(rows).length / rows.length)), 50, 50_000);
   }
   if (seen !== count) throw new Error(`table ${table}: COUNT(*) says ${count} but ${seen} rows were read (a write raced the proof, or the read lied)`);
   return { count, checksum: h.digest("hex") };
@@ -113,6 +124,51 @@ export async function proveAll({ select, db, tables, pageRows, concurrency = 1, 
     }
   }
   await Promise.all(Array.from({ length: Math.max(1, Math.min(concurrency, list.length)) }, worker));
+  return Object.fromEntries(list.map((t) => [t, out[t]]));
+}
+
+/**
+ * proveAll for a database a round trip away (the D1 REST API), with few calls: ONE query counts every table; every small table is read whole,
+ * all of them in ONE multi-statement call (`selectMany(sqls) -> rows[][]`); the big tables are paged by row width, `concurrency` at a time.
+ * The result is exactly what proveAll gives for the same data (the checksum does not depend on how the rows were fetched).
+ * `stats` (optional) counts what was asked of the remote.
+ */
+export async function proveAllBatched({ select, selectMany, db, tables, pageRows = 2000, targetPageBytes = 3_000_000, smallRows = 300, concurrency = 4, onTable, stats }) {
+  const list = tables ?? provenTables(db);
+  const q = (t) => `"${t.replaceAll('"', '""')}"`;
+  const many = selectMany ?? (async (sqls) => Promise.all(sqls.map((s) => select(s))));
+  const note = (calls, label) => {
+    if (stats) stats.calls = (stats.calls ?? 0) + calls, (stats.log ??= []).push(`${label}: ${calls}`);
+  };
+  const countSql = list.map((t) => `SELECT '${t.replaceAll("'", "''")}' AS t, count(*) AS n FROM ${q(t)}`).join(" UNION ALL ");
+  const counts = Object.fromEntries((await select(countSql)).map((r) => [r.t, Number(r.n)]));
+  note(1, "counts");
+  const small = list.filter((t) => counts[t] <= smallRows);
+  const large = list.filter((t) => counts[t] > smallRows);
+  const out = {};
+  if (small.length > 0) {
+    const results = await many(small.map((t) => pageSql(t, orderOf(db, t), smallRows + 1, 0)));
+    note(1, `${small.length} small tables`);
+    small.forEach((t, i) => {
+      const rows = results[i];
+      if (rows.length !== counts[t]) throw new Error(`table ${t}: COUNT(*) says ${counts[t]} but ${rows.length} rows were read (a write raced the proof, or the read lied)`);
+      const h = createHash("sha256");
+      feedRows(h, rows);
+      out[t] = { count: rows.length, checksum: h.digest("hex") };
+      onTable?.(t, out[t]);
+    });
+  }
+  let next = 0;
+  async function worker() {
+    while (next < large.length) {
+      const t = large[next++];
+      let calls = 0;
+      out[t] = await proveTableRows({ select: async (sql) => (calls++, select(sql)), table: t, order: orderOf(db, t), pageRows, targetPageBytes, count: counts[t] });
+      note(calls, t);
+      onTable?.(t, out[t]);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(concurrency, large.length)) }, worker));
   return Object.fromEntries(list.map((t) => [t, out[t]]));
 }
 

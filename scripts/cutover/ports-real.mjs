@@ -24,7 +24,59 @@ export function parseJsonOutput(text) {
   return JSON.parse(text.slice(i));
 }
 
-export function createD1Port({ exec, wrangler = ["npx", "wrangler"], env = {} }) {
+/**
+ * D1 through the Cloudflare REST API (`POST /accounts/<id>/d1/database/<db id>/query`), SELECTs only. One HTTP call is 70-150 ms against about a
+ * second for a `wrangler` process, and `selectMany` runs several statements in ONE call (the API returns one result per statement). The account's
+ * limit is 1,200 calls per 5 minutes per user, shared with every other agent on the token, so callers keep the count low (proveAllBatched) and a
+ * 429 is waited out (Retry-After) rather than failed. The token needs D1 read; it is never printed.
+ */
+export function createD1RestPort({ accountId, token, resolveId, fetchImpl = globalThis.fetch, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), retries = 6, timeoutMs = 60_000 }) {
+  const ids = new Map();
+  const idOf = (db) => {
+    if (!ids.has(db)) ids.set(db, resolveId(db));
+    return ids.get(db);
+  };
+  async function query(db, sql) {
+    const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/d1/database/${idOf(db)}/query`;
+    for (let attempt = 0; ; attempt++) {
+      const res = await fetchImpl(url, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ sql }), signal: AbortSignal.timeout(timeoutMs) });
+      if ((res.status === 429 || res.status >= 500) && attempt < retries) {
+        const wait = Number(res.headers.get("retry-after")) * 1000 || Math.min(30_000, 500 * 2 ** attempt);
+        await res.body?.cancel();
+        await sleep(wait);
+        continue;
+      }
+      const text = await res.text();
+      let json;
+      try {
+        json = JSON.parse(text);
+      } catch {
+        throw new Error(`D1 REST ${res.status}: not JSON: ${text.slice(0, 200)}`);
+      }
+      if (!res.ok || json.success === false) throw new Error(`D1 REST ${res.status}: ${(json.errors ?? []).map((e) => `${e.code} ${e.message}`).join("; ") || text.slice(0, 200)}`);
+      return json.result;
+    }
+  }
+  const guard = (sql) => {
+    if (!SELECT.test(sql)) throw new Error(`d1.select is read-only: refused ${JSON.stringify(sql.slice(0, 80))}`);
+  };
+  return {
+    async select(sql, db) {
+      guard(sql);
+      const [first] = await query(db, sql);
+      if (first?.success === false) throw new Error(`D1 SELECT failed: ${JSON.stringify(first.error ?? first).slice(0, 300)}`);
+      return first?.results ?? [];
+    },
+    async selectMany(sqls, db) {
+      sqls.forEach(guard);
+      const result = await query(db, sqls.join(";\n"));
+      if (result.length !== sqls.length) throw new Error(`D1 REST answered ${result.length} results for ${sqls.length} statements`);
+      return result.map((r) => r.results ?? []);
+    },
+  };
+}
+
+export function createD1Port({ exec, wrangler = ["npx", "wrangler"], env = {}, rest }) {
   const run = (args, opts) => {
     const r = exec(wrangler[0], [...wrangler.slice(1), ...args], { env, ...opts });
     if (r.status !== 0) throw new Error(`wrangler ${args.slice(0, 3).join(" ")} failed (${r.status}): ${(r.stderr || r.stdout).slice(0, 600)}`);
@@ -38,13 +90,14 @@ export function createD1Port({ exec, wrangler = ["npx", "wrangler"], env = {} })
       const t = /(\d{4}-\d{2}-\d{2}T[\d:.]+Z)/.exec(out);
       return { bookmark: m?.[1] ?? null, timestamp: t?.[1] ?? null, raw: out.trim().slice(0, 400) };
     },
-    select(sql, db) {
+    ...(rest ? { select: rest.select, selectMany: rest.selectMany } : {}),
+    ...(rest ? {} : { select(sql, db) {
       if (!SELECT.test(sql)) throw new Error(`d1.select is read-only: refused ${JSON.stringify(sql.slice(0, 80))}`);
       const parsed = parseJsonOutput(run(["d1", "execute", db, "--remote", "--json", "--command", sql]));
       const first = Array.isArray(parsed) ? parsed[0] : parsed;
       if (first?.success === false) throw new Error(`D1 SELECT failed: ${JSON.stringify(first.error ?? first).slice(0, 300)}`);
       return first?.results ?? [];
-    },
+    } }),
     write(sql, db) {
       run(["d1", "execute", db, "--remote", "--command", sql]);
     },
