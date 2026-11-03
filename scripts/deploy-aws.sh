@@ -23,7 +23,8 @@
 # DISCORD_API_URL but its fake) and its "ship" list names the directories the zip carries (shadow adds migrations-shadow/).
 #
 # Settings read from the environment: ALARM_EMAIL (required on the first deploy; later deploys keep the stack's value),
-# RESERVED_CONCURRENCY, KEEP_WARM, DISCORD_API_URL (each keeps the stack's current value when unset), CERTIFICATE_ARN
+# RESERVED_CONCURRENCY, KEEP_WARM, DISCORD_API_URL, AWAIT_IMAGE (auto|0|1: prod awaits its cutover image by default, LDB-CV12;
+# the staging rehearsal sets 1) (each keeps the stack's current value when unset), CERTIFICATE_ARN
 # (default: the output of the akldb-cert-<stage> stack). CF_PURGE_TOKEN + CF_ZONE_ID turn on step 8 (zone akldb.org, Cache Purge only).
 set -eu
 
@@ -199,6 +200,8 @@ EMAIL="${ALARM_EMAIL:-$(current AlarmEmail '')}"
 [ -n "$EMAIL" ] || [ "$DRY" = 1 ] || { echo "set ALARM_EMAIL (the stack has none yet)" >&2; exit 2; }
 RESERVED="${RESERVED_CONCURRENCY-$(current ReservedConcurrency '')}"
 KEEP="${KEEP_WARM:-$(current KeepWarm 4)}"
+AWAIT="${AWAIT_IMAGE:-$(current AwaitImage auto)}"
+case "$AWAIT" in auto | 0 | 1) ;; *) echo "AWAIT_IMAGE must be auto, 0 or 1 (got $AWAIT)" >&2; exit 2 ;; esac
 STAGE_DISCORD="$(stage_json parameters DiscordApiUrl)"
 DISCORD="${DISCORD_API_URL:-${STAGE_DISCORD:-$(current DiscordApiUrl https://discord.com/api)}}"
 # the shadow stage may only ever point at its fake Discord (LDB-PV1): a different value is refused, not honoured
@@ -224,7 +227,7 @@ change_set() {
     "ParameterKey=Stage,ParameterValue=$STAGE" "ParameterKey=DomainName,ParameterValue=$DOMAIN" \
     "ParameterKey=CertificateArn,ParameterValue=$CERT" "ParameterKey=ArtifactsBucket,ParameterValue=$ARTIFACTS" \
     "ParameterKey=CodeKey,ParameterValue=$CODE_KEY" "ParameterKey=LiveVersion,ParameterValue=$live" "ParameterKey=LiveJobsVersion,ParameterValue=$live_jobs" \
-    "ParameterKey=ReservedConcurrency,ParameterValue=$RESERVED" "ParameterKey=KeepWarm,ParameterValue=$KEEP" \
+    "ParameterKey=ReservedConcurrency,ParameterValue=$RESERVED" "ParameterKey=KeepWarm,ParameterValue=$KEEP" "ParameterKey=AwaitImage,ParameterValue=$AWAIT" \
     "ParameterKey=AlarmEmail,ParameterValue=$EMAIL" "ParameterKey=DiscordApiUrl,ParameterValue=$DISCORD"
   if [ "$DRY" = 1 ]; then
     show $AWS cloudformation wait change-set-create-complete --stack-name "$STACK" --change-set-name "$name"
