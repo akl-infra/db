@@ -11,6 +11,7 @@ import { sleep as realSleep } from "./timers";
 import {
   AmbiguousAppendError,
   LogThrottledError,
+  assertImageAppend,
   decodeBody,
   type CommitLog,
   type ExpirableLog,
@@ -128,7 +129,14 @@ export function createDdbLog(opts: DdbLogOptions): CommitLog & ExpirableLog & { 
     const seq = Number((item.sk as AttrS).S);
     const unitId = (item.unit as AttrS).S;
     const json = await spiller.load({ body: (item.body as AttrS | undefined)?.S, spill: (item.spill as AttrS | undefined)?.S, hash: (item.spillhash as AttrS | undefined)?.S }, `commit log entry ${seq} (unit ${unitId})`);
-    return { seq, unitId, kind: (item.kind as AttrS).S as LogEntry["kind"], ...decodeBody(json) };
+    const kind = (item.kind as AttrS).S as LogEntry["kind"];
+    const body = decodeBody(json);
+    // An image entry (phase E, CV10) carries the reference; the backend fetches and decompresses it, the replica judges the hash.
+    if (kind === "image") {
+      if (body.image === undefined) throw new Error(`commit log entry ${seq} (unit ${unitId}) is an image without an image reference`);
+      return { seq, unitId, kind, ...body, imageData: await spiller.loadImage(body.image, `commit log entry ${seq} (unit ${unitId})`) };
+    }
+    return { seq, unitId, kind, ...body };
   }
 
   return {
@@ -215,6 +223,7 @@ export function createDdbLog(opts: DdbLogOptions): CommitLog & ExpirableLog & { 
     },
 
     async append(expectedHead, entry: NewLogEntry) {
+      assertImageAppend(expectedHead, entry); // CV10: an image is seq 1 or nothing
       const stored = await spiller.store(entry);
       const next = expectedHead + 1;
       const payload = {

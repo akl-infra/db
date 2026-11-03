@@ -4,9 +4,9 @@
 // the sha256 of the JSON text against `hash`; a missing or damaged object is an error, never a silent empty body.
 // Orphans (an append that lost, timed out and never landed) are harmless: nothing points at them.
 import { createHash } from "node:crypto";
-import { LogEntryTooLargeError, MAX_BODY_BYTES, checkedBody, encodeBody, type NewLogEntry } from "./log";
+import { LogEntryTooLargeError, MAX_BODY_BYTES, checkedBody, encodeBody, type ImageRef, type NewLogEntry } from "./log";
 import type { ObjectStore } from "./objects";
-import { SPILL_LEVEL, zstdCompress, zstdDecompress } from "./zstd";
+import { SNAPSHOT_LEVEL, SPILL_LEVEL, zstdCompress, zstdDecompress } from "./zstd";
 
 /** Bodies over this many bytes are spilled (a DynamoDB item is 400 KB; the inline budget is MAX_BODY_BYTES = 350,000). */
 export const SPILL_THRESHOLD = 300_000;
@@ -14,6 +14,11 @@ export const SPILL_THRESHOLD = 300_000;
 export const MAX_SPILL_BYTES = 64 * 1024 * 1024;
 
 export const spillKey = (unitId: string): string => `log/${unitId}.json.zst`;
+
+/** The cutover image's object (phase E). Not matched by retention's orphan sweep (`.json.zst` only): the base of a replay from 0 stays. */
+export const imageKey = (unitId: string): string => `log/${unitId}.image.zst`;
+/** A sanity cap on an image (a Lambda holds 2 GB; the database is tens of MB). */
+export const MAX_IMAGE_BYTES = 512 * 1024 * 1024;
 
 /** What a log item stores for one body: the JSON inline, or a reference to the spilled object. */
 export type StoredBody = { body: string; spill?: undefined } | { body?: undefined; spill: string; hash: string };
@@ -70,6 +75,40 @@ export class BodySpiller {
     return verify(obj.bytes, item, label);
   }
 
+  /**
+   * Upload the cutover image BEFORE the append (like a spilled body; an orphan from a lost append is harmless). Returns the
+   * reference the entry carries and the raw image's sha256, which is the entry's `hash`.
+   */
+  async storeImage(
+    unitId: string,
+    raw: Uint8Array,
+    extra: Pick<ImageRef, "tables" | "source">,
+    level: number = SNAPSHOT_LEVEL,
+  ): Promise<{ image: ImageRef; hash: string }> {
+    if (this.blobs === undefined) throw new SpillError("the image entry needs an object store");
+    if (raw.byteLength > MAX_IMAGE_BYTES) throw new LogEntryTooLargeError(raw.byteLength, MAX_IMAGE_BYTES);
+    const hash = sha256Hex(raw);
+    const z = zstdCompress(raw, level);
+    const key = imageKey(unitId);
+    await this.blobs.put(key, z, { sha256: hash, size: String(raw.byteLength), unit: unitId });
+    return { image: { key, bytes: raw.byteLength, zbytes: z.byteLength, tables: extra.tables, ...(extra.source !== undefined ? { source: extra.source } : {}) }, hash };
+  }
+
+  /** The decompressed image of an image entry. Fetches and decompresses and checks the size; the sha256 is the REPLICA's to judge (CV10). */
+  async loadImage(ref: ImageRef, label: string): Promise<Uint8Array> {
+    if (this.blobs === undefined) throw new SpillError(`${label}: its image is ${ref.key} but no object store is configured`);
+    const obj = await this.blobs.get(ref.key);
+    if (obj === null) throw new SpillError(`${label}: image ${ref.key} is missing from the object store`);
+    return unpackImage(obj.bytes, ref, label);
+  }
+
+  /** loadImage() for a MemoryObjects store, without awaiting. */
+  loadImageSync(ref: ImageRef, peek: (key: string) => { bytes: Uint8Array } | undefined, label: string): Uint8Array {
+    const obj = peek(ref.key);
+    if (obj === undefined) throw new SpillError(`${label}: image ${ref.key} is missing from the object store`);
+    return unpackImage(obj.bytes, ref, label);
+  }
+
   /** load() for a MemoryObjects store, without awaiting (MemoryLog.entries()). */
   loadSync(item: { body?: string; spill?: string; hash?: string }, peek: (key: string) => { bytes: Uint8Array } | undefined, label: string): string {
     if (item.spill === undefined) return item.body ?? "";
@@ -77,6 +116,17 @@ export class BodySpiller {
     if (obj === undefined) throw new SpillError(`${label}: spilled body ${item.spill} is missing from the object store`);
     return verify(obj.bytes, item, label);
   }
+}
+
+function unpackImage(compressed: Uint8Array, ref: ImageRef, label: string): Uint8Array {
+  let raw: Uint8Array;
+  try {
+    raw = zstdDecompress(compressed);
+  } catch (e) {
+    throw new SpillError(`${label}: image ${ref.key} does not decompress: ${e instanceof Error ? e.message : String(e)}`, { cause: e });
+  }
+  if (raw.byteLength !== ref.bytes) throw new SpillError(`${label}: image ${ref.key} is ${raw.byteLength} bytes, the log entry says ${ref.bytes}`);
+  return raw;
 }
 
 function verify(compressed: Uint8Array, item: { spill?: string; hash?: string }, label: string): string {

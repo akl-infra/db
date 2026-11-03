@@ -272,6 +272,10 @@ export class Replica {
   /** Re-execute one entry and verify its hash. */
   #apply(entry: LogEntry): void {
     if (entry.seq !== this.#seq + 1) throw new Error(`replay out of order: at ${this.#seq}, got ${entry.seq}`);
+    if (entry.kind === "image") {
+      this.#applyImage(entry);
+      return;
+    }
     this.#restoreLrid(entry.lrid ?? this.#lrid);
     this.db.exec("BEGIN");
     this.#inTxn = true;
@@ -300,6 +304,34 @@ export class Replica {
     }
     this.#seq = entry.seq;
     this.#lrid = this.#lastInsertRowid();
+    this.stats.replayed++;
+  }
+
+  /**
+   * The cutover image (LDB-CV10): the whole database in one entry, seq 1 only. Verified before it is touched: the entry sits at
+   * seq 1 of an empty replica, its bytes are there, and their sha256 is the entry's hash. Any failure halts like SH8 (the
+   * replica is dead; a log whose image does not verify cannot be served from).
+   */
+  #applyImage(entry: LogEntry): void {
+    if (entry.seq !== 1 || this.#seq !== 0) this.#die(new ReplicaDivergedError(`image entry at seq ${entry.seq} (unit ${entry.unitId}), replica at ${this.#seq}: an image is the log's first entry (CV10)`));
+    const tables = (this.db.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'").get() as { n: number }).n;
+    if (tables > 0) this.#die(new ReplicaDivergedError(`image entry at seq 1 (unit ${entry.unitId}) meets a replica that already has ${tables} schema objects (CV10)`));
+    const data = entry.imageData;
+    if (data === undefined) this.#die(new ReplicaDivergedError(`image entry at seq 1 (unit ${entry.unitId}) arrived without its image bytes`));
+    const got = sha256(data);
+    if (got !== entry.hash) this.#die(new ReplicaDivergedError(`image entry at seq 1 (unit ${entry.unitId}): image sha256 ${got} != logged ${entry.hash}`));
+    if (entry.image !== undefined && data.byteLength !== entry.image.bytes) this.#die(new ReplicaDivergedError(`image entry at seq 1 (unit ${entry.unitId}): image is ${data.byteLength} bytes, logged ${entry.image.bytes}`));
+    try {
+      this.db.deserialize(data);
+      this.db.prepare("SELECT count(*) AS n FROM sqlite_master").get(); // forces SQLite to parse the header and schema
+    } catch (e) {
+      this.#die(new ReplicaDivergedError(`image entry at seq 1 (unit ${entry.unitId}) is not a readable SQLite database: ${e instanceof Error ? e.message : String(e)}`, { cause: e }));
+    }
+    this.#cache.clear(); // statements prepared on the empty schema are stale
+    this.#metaStmt = undefined;
+    this.#changesStmt = undefined;
+    this.#seq = 1;
+    this.#lrid = this.#lastInsertRowid(); // later units carry the writer's own value (lrid), so replay never depends on this
     this.stats.replayed++;
   }
 
