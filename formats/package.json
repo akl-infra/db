@@ -34,11 +34,9 @@
     "./mana2/1/schema.json": "./mana2/1/schema.json",
     "./adapters/cmini/schema.json": "./adapters/cmini/schema.json"
   },
-  "dependencies": {
-    "ajv": "^8.20.0",
-    "ajv-formats": "^3.0.1"
-  },
   "devDependencies": {
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3"
   },
