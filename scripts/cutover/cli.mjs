@@ -3,12 +3,13 @@ import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
 import { loadKit } from "./kit.mjs";
-import { createAwsPort, createD1Port, createDumpsPort, createHttpPort, realExec, realOperatorFactory } from "./ports-real.mjs";
+import { createAwsPort, createD1Port, createD1RestPort, createDumpsPort, createHttpPort, realExec, realOperatorFactory } from "./ports-real.mjs";
 import { CACHE_WAIT_MS } from "./cutover-steps.mjs";
 
 export const REPO = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), "..", "..");
 export const systemClock = { now: () => Date.now(), sleep: (ms) => new Promise((r) => setTimeout(r, ms)) };
 
+const PROD_D1_ID = "53f596d5-9cb5-43b0-9026-17518d18052f"; // wrangler.toml [[d1_databases]] akl-db
 const PROD = { stack: "akldb-prod", workerUrl: "https://api.akldb.org", awsUrl: "https://aws-api.akldb.org", d1: "akl-db" };
 const STAGING = { stack: "akldb-staging", awsUrl: "https://staging-api.akldb.org" };
 
@@ -18,7 +19,7 @@ export function defaultMinMinor() {
   return m === null ? 0 : Number(m[1]) + 1;
 }
 
-const VALUE_FLAGS = ["state", "work", "from", "only", "d1", "worker-url", "aws-url", "stack", "stage", "profile", "region", "min-api-minor", "report", "page-rows", "concurrency", "write-route", "write-body", "migrations-dir", "date", "cutover-state", "new-d1", "variant"];
+const VALUE_FLAGS = ["state", "work", "from", "only", "d1", "worker-url", "aws-url", "stack", "stage", "profile", "region", "min-api-minor", "report", "page-rows", "concurrency", "write-route", "write-body", "migrations-dir", "date", "cutover-state", "new-d1", "variant", "d1-api"];
 const BOOL_FLAGS = ["execute", "abort", "allow-pending", "worker-pointed", "help", "json"];
 
 export function parseArgs(argv) {
@@ -75,6 +76,7 @@ export function buildOptions(flags, { env = process.env, now = Date.now } = {}) 
     newD1Name: flags["new-d1"] ?? `akl-db-rollback-${date}`,
     cutoverState: flags["cutover-state"],
     variant: flags.variant,
+    d1Api: flags["d1-api"],
     workerPointed: flags["worker-pointed"] === true,
     params: { stage, d1Name, stack: flags.stack ?? base.stack },
   };
@@ -84,5 +86,8 @@ export function realPorts(o, { env = process.env, exec = realExec, fetchImpl, cl
   if (!env.CLOUDFLARE_ACCOUNT_ID) throw new Error("CLOUDFLARE_ACCOUNT_ID is not set (wrangler needs it for the akl account)");
   const http = createHttpPort({ fetchImpl, env });
   const aws = createAwsPort({ exec, region: o.region, profile: o.profile, stack: o.stack, operatorFactory: (outputs) => realOperatorFactory(outputs, { env, region: o.region, loadKit }) });
-  return { clock, d1: createD1Port({ exec, env }), http, aws, dumps: createDumpsPort({ env, outputs: () => aws.stackOutputs(), fetchImpl, region: o.region }) };
+  // SELECTs go through the REST API when a token is there (70-150 ms a call, several statements per call); wrangler otherwise
+  const wranglerPort = createD1Port({ exec, env });
+  const rest = env.CLOUDFLARE_API_TOKEN && o.d1Api !== "wrangler" ? createD1RestPort({ accountId: env.CLOUDFLARE_ACCOUNT_ID, token: env.CLOUDFLARE_API_TOKEN, resolveId: (name) => (name === "akl-db" ? PROD_D1_ID : wranglerPort.info(name).id), fetchImpl }) : undefined;
+  return { clock, d1: rest ? { ...wranglerPort, select: rest.select, selectMany: rest.selectMany } : wranglerPort, http, aws, dumps: createDumpsPort({ env, outputs: () => aws.stackOutputs(), fetchImpl, region: o.region }) };
 }
