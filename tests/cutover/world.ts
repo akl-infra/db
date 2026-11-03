@@ -1,5 +1,5 @@
 // A fake world for the cutover and rollback machines (scripts/cutover/*): D1 (node:sqlite databases by name), a Worker in front of
-// it (the modes of the cutover-modes branch: null / read_only / proxy, read from D1's import_state), the AWS stack (the REAL
+// it (the read_only flag of the cutover-modes branch, read from D1's import_state), the DNS record that decides who answers api.akldb.org, the AWS stack (the REAL
 // Replica, memory commit log, memory object store and the REAL Lambda handler for migrate/warm), a mini HTTP API both sides serve
 // from the same SQL, and wrangler/aws/http ports over all of it. No network, no process, a fake clock.
 import { createHash } from "node:crypto";
@@ -29,8 +29,10 @@ import { MemorySnapshotState, writeSnapshot } from "../../src/replica/snapshot";
 import { createShimD1 } from "../../src/store/shim/d1";
 import { FAST, MIGRATIONS_DIR, churn, world as replicaWorld } from "../replica/support";
 
-export const WORKER = "https://api.akldb.org";
-export const AWS_URL = "https://aws-api.akldb.org";
+export const PUBLIC = "https://api.akldb.org";
+export const WORKER_DIRECT = "https://akl-db.akl-58a.workers.dev";
+export const REHEARSAL_WORKER = "https://rehearsal.example";
+export const STAGING_PUBLIC = "https://staging-api.akldb.org";
 export const MINOR = 34;
 const SECRET = "s3cret-origin-value-0123456789abcdef";
 
@@ -135,8 +137,16 @@ export interface Faults {
   /** The `crashNth`th (default 1st) port call made while this step runs throws once. */
   crashStep?: string;
   crashNth?: number;
-  /** Make the Worker's proxy mode answer from the Worker itself (a broken proxy). */
-  brokenProxy?: boolean;
+  /** The DNS record moves after this many polls of the dns / dns-back step (default 2). */
+  dnsFlipAfter?: number;
+  /** The record never moves (saltorbit has not done it). */
+  dnsNeverFlips?: boolean;
+  /** One poll after the move still answers from the old side (a stale resolver): the consecutive count must restart. */
+  dnsFlap?: boolean;
+  /** The first poll fails to connect (the gap between removing the Worker's domain and the new record). */
+  dnsErrorFirst?: boolean;
+  /** The origin secret file is missing. */
+  noOriginFile?: boolean;
   /** The Worker build has no modes: it ignores cutover.mode and answers a bad write with 400. */
   noModes?: boolean;
   /** The export omits the sqlite_sequence rows. */
@@ -171,6 +181,13 @@ export interface World {
   calls: string[];
   /** Port calls per step, in order. */
   callsByStep: Record<string, string[]>;
+  /** Who answers api.akldb.org: the Worker until the record moves. */
+  dns: "worker" | "aws";
+  dnsPolls: number;
+  /** The D1 the cutover is about ("akl-db", or "scratch" in a rehearsal). */
+  d1Name: string;
+  /** Flags that make a run a staging rehearsal (empty for production). */
+  baseArgs: string[];
   /** D1 databases by name; the Worker serves from `workerDb`. */
   dbs: Map<string, DatabaseSync>;
   workerDb: string;
@@ -202,9 +219,10 @@ export interface World {
   userWriteOnAws(n: number): Promise<void>;
 }
 
-export const STEP_IDS = ["preflight", "copy-dumps", "freeze", "export", "load", "verify", "image", "serve", "resync-dumps", "proxy", "open", "post-smoke", "report"];
+export const STEP_IDS = ["preflight", "copy-dumps", "freeze", "export", "load", "verify", "image", "serve", "dns", "open", "post-smoke", "report"];
 
-export async function makeWorld(init: { faults?: Faults; events?: number; churnRows?: number } = {}): Promise<World> {
+export async function makeWorld(init: { faults?: Faults; events?: number; churnRows?: number; rehearsal?: boolean } = {}): Promise<World> {
+  const d1Name = init.rehearsal ? "scratch" : "akl-db";
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "akldb-cutover-test-"));
   // D1 as it stands before the cutover: the real migrations, churned data, authors (their triggers), events with a gap at the top
   // (so sqlite_sequence is ahead of MAX(seq): the next-seq rule is real), an import_state row besides the mode flag.
@@ -235,9 +253,9 @@ export async function makeWorld(init: { faults?: Faults; events?: number; churnR
   const snapshots = new MemorySnapshotState();
   const operator = createOperator({ kit: { Replica, bootReplica, appendImage, writeSnapshot }, log, objects, state: snapshots, logLine: () => {} });
 
-  const w = { now: Date.parse("2026-11-04T09:00:00Z"), calls: [] as string[], callsByStep: {} as Record<string, string[]>, dbs: new Map([["akl-db", d1]]), workerDb: "akl-db", faults: init.faults ?? {}, currentStep: null as string | null, crashed: false, lines: [] as string[] } as unknown as World;
+  const w = { now: Date.parse("2026-11-04T09:00:00Z"), calls: [] as string[], callsByStep: {} as Record<string, string[]>, dbs: new Map([[d1Name, d1]]), workerDb: d1Name, d1Name, dns: "worker", dnsPolls: 0, baseArgs: init.rehearsal ? ["--stage", "staging", "--d1", "scratch", "--worker-url", REHEARSAL_WORKER, "--public-url", STAGING_PUBLIC] : [], faults: init.faults ?? {}, currentStep: null as string | null, crashed: false, lines: [] as string[] } as unknown as World;
   Object.assign(w, { dir, log, blobs, snapshots, objects, operator, r2, s3, stateFile: path.join(dir, "state.json") });
-  w.d1 = (name = "akl-db") => w.dbs.get(name)!;
+  w.d1 = (name = d1Name) => w.dbs.get(name)!;
   w.state = () => JSON.parse(fs.readFileSync(w.stateFile, "utf8"));
 
   let serving: Replica | undefined;
@@ -255,6 +273,7 @@ export async function makeWorld(init: { faults?: Faults; events?: number; churnR
   };
 
   const crashGuard = (name: string): void => {
+    if (name === "http.fresh") return; // the DNS poll tolerates connection failures by design: a crash there is a gap, not a crash
     if (w.currentStep !== null) (w.callsByStep[w.currentStep] ??= []).push(name);
     if (w.faults.crashStep !== undefined && w.faults.crashStep === w.currentStep && !w.crashed) {
       const nth = w.faults.crashNth ?? 1;
@@ -335,21 +354,33 @@ export async function makeWorld(init: { faults?: Faults; events?: number; churnR
     const sqlx = d1Sqlx(db);
     const mode = (await sqlx.select("SELECT value FROM import_state WHERE key = 'cutover.mode'"))[0]?.value ?? null;
     if (w.faults.noModes) return serve(sqlx, req, false, w.now, false, r2);
-    if (mode === "proxy") {
-      if (w.faults.brokenProxy) return serve(sqlx, req, false, w.now, false, r2);
-      const res = await awsRequest(req);
-      return { ...res, headers: { ...res.headers, "x-akldb-proxied": "1" } };
-    }
     return serve(sqlx, req, mode === "read_only", w.now, false, r2);
+  };
+  const finish = (res: Res): Res => {
+    const bytes = res.raw ?? new TextEncoder().encode(res.body);
+    return { ...res, sha256: createHash("sha256").update(bytes).digest("hex") };
   };
   const request = async (url: string, init: any = {}): Promise<Res> => {
     const req = parse(url, init);
-    const res = url.startsWith(AWS_URL) ? await awsRequest(req) : url.startsWith(WORKER) ? await workerRequest(req) : undefined;
-    if (res !== undefined) {
-      const bytes = res.raw ?? new TextEncoder().encode(res.body);
-      return { ...res, sha256: createHash("sha256").update(bytes).digest("hex") };
-    }
+    if (url.startsWith(WORKER_DIRECT) || url.startsWith(REHEARSAL_WORKER)) return finish(await workerRequest(req));
+    if (url.startsWith(PUBLIC)) return finish(w.dns === "aws" ? await awsRequest(req) : await workerRequest(req));
+    if (url.startsWith(STAGING_PUBLIC)) return finish(await awsRequest(req));
     throw new Error(`the fake world does not serve ${url}`);
+  };
+  /** A request on a fresh connection; during the dns / dns-back steps it is also where saltorbit's DNS change takes effect. */
+  const fresh = async (url: string, init: any = {}): Promise<Res> => {
+    if (url.startsWith(PUBLIC) && (w.currentStep === "dns" || w.currentStep === "dns-back")) {
+      w.dnsPolls++;
+      const f = w.faults;
+      if (f.dnsErrorFirst && w.dnsPolls === 1) throw new Error("ECONNRESET");
+      const flipAfter = f.dnsFlipAfter ?? 2;
+      if (!f.dnsNeverFlips && w.dnsPolls > flipAfter) w.dns = w.currentStep === "dns" ? "aws" : "worker";
+      if (f.dnsFlap && w.dnsPolls === flipAfter + 3) {
+        const other = w.dns === "aws" ? await workerRequest(parse(url, init)) : await awsRequest(parse(url, init));
+        return finish(other);
+      }
+    }
+    return request(url, init);
   };
 
   // ---- ports ----
@@ -408,10 +439,15 @@ export async function makeWorld(init: { faults?: Faults; events?: number; churnR
     },
     http: {
       request: track("http.request", request),
+      fresh: track("http.fresh", fresh),
       signed: track("http.signed", (method: string, url: string, o: { body?: string; headers?: Record<string, string> } = {}) => request(url, { method, body: o.body, headers: { "x-akl-client": "ops", ...(o.headers ?? {}) } })),
     },
+    stack: {
+      check: track("stack.check", () => (w.faults.noOriginFile ? ["the origin secret file /x/akldb-origin-prod.env is unusable: ENOENT"] : [])),
+      request: track("stack.request", async (path: string, init: any = {}) => finish(await awsRequest(parse(`https://stack.invalid${path}`, init)))),
+    },
     dumps: {
-      check: track("dumps.check", () => (w.faults.noR2Token ? ["R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"] : [])),
+      check: track("dumps.check", () => (w.faults.noR2Token ? ["R2_KEY_ID in /x/akldb-r2-dumps-read.env", "R2_SECRET in /x/akldb-r2-dumps-read.env"] : [])),
       sync: track("dumps.sync", async () => {
         const src = {
           async list() {
@@ -447,6 +483,7 @@ export async function makeWorld(init: { faults?: Faults; events?: number; churnR
       firstEntry: track("aws.firstEntry", () => operator.firstEntry()),
       operator: {
         appendImage: track("aws.operator.appendImage", (a: unknown) => operator.appendImage(a)),
+        tail: track("aws.operator.tail", () => operator.tail()),
         snapshot: track("aws.operator.snapshot", () => operator.snapshot()),
         runUnit: track("aws.operator.runUnit", (sql: string, params?: unknown[]) => operator.runUnit(sql, params)),
         readFlag: track("aws.operator.readFlag", () => operator.readFlag()),
@@ -458,12 +495,15 @@ export async function makeWorld(init: { faults?: Faults; events?: number; churnR
   const outFn = (line: string): void => {
     w.lines.push(line);
     const m = /^\[([a-z0-9-]+)\] (?!already|skipped)/.exec(line);
-    if (m) w.currentStep = m[1]!;
+    if (m) {
+      w.currentStep = m[1]!;
+      if (m[1] === "dns" || m[1] === "dns-back") w.dnsPolls = 0;
+    }
   };
   const common = (prefix: string) => ["--state", path.join(dir, prefix === "run" ? "state.json" : "rollback-state.json"), "--work", path.join(dir, "work"), "--report", path.join(dir, prefix === "run" ? "report.md" : "rollback-report.md")];
   const exec = async (fn: any, prefix: string, args: string[]) => {
     const out: string[] = [];
-    const code = await fn([...args, ...common(prefix)], { ports: w.ports, clock: w.clock, out: (l: string) => (out.push(l), outFn(l)), env: {} });
+    const code = await fn([...args, ...w.baseArgs, ...common(prefix)], { ports: w.ports, clock: w.clock, out: (l: string) => (out.push(l), outFn(l)), env: {} });
     return { code: code as number, out };
   };
   w.cutover = (args = ["--execute"]) => exec(runMain, "run", args);

@@ -3,13 +3,14 @@
 //
 //   node scripts/cutover/rollback.mjs [--execute] [--from <step>] [--only <step>] [--variant original-d1|fresh-d1] [options]
 //
-//   steps      decide aws-readonly capture d1-refreeze d1-prove create-d1 import verify point-worker reopen report
-//   variants   original-d1  AWS head 1 (nothing written since the image): reuse the ORIGINAL D1 (freeze state, proven equal)
+//   steps      decide aws-readonly capture d1-prove create-d1 import verify point-worker dns-back reopen report
+//   variants   original-d1  AWS took no write past the image (only operator flag units): reuse the ORIGINAL D1, proven equal to the image
 //              fresh-d1     otherwise: capture AWS, import into a fresh D1 (--new-d1, default akl-db-rollback-<date>), prove it equal,
-//                           point the Worker at it (manual: a PR; re-run with --worker-pointed), clear the flag there
+//                           point the Worker at it (manual: a PR; re-run with --worker-pointed)
+//              both         then saltorbit puts the DNS record back on the Worker (dns-back polls), and the flag is cleared (reopen)
 //   (none)     DRY RUN: prints the commands each step would run and does nothing
 //
-// The same options as run.mjs (--stage, --d1, --worker-url, --aws-url, --stack, --profile, --state, --work, --report ...).
+// The same options as run.mjs (--stage, --d1, --worker-url, --stack, --profile, --state, --work, --report ...).
 // Exit: 0 done, 1 a step failed, 2 usage. The old D1 is never modified in the fresh-d1 variant.
 import fs from "node:fs";
 import url from "node:url";

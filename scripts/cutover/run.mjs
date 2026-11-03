@@ -3,20 +3,24 @@
 //
 //   node scripts/cutover/run.mjs [--execute] [--from <step>] [--only <step>] [--abort] [--state <file>] [options]
 //
-//   steps      preflight freeze export load verify image serve proxy open post-smoke report
+//   steps      preflight copy-dumps freeze export load verify image serve dns open post-smoke report
 //   (none)     DRY RUN: prints the commands each step would run and does nothing (no state file is written)
 //   --execute  run the steps; the state (--state, default dist/cutover-<stage>/state.json) is written after every step
 //   --from X   resume at step X (re-running it and everything after); --only X runs one step; --abort undoes the freeze
 //              while nothing is in the AWS log yet (after the image: scripts/cutover/rollback.mjs)
 //
 //   --stage prod|staging   staging is the rehearsal: it REQUIRES --d1 <scratch D1> and --worker-url <rehearsal Worker>
-//   --d1 akl-db  --worker-url https://api.akldb.org  --aws-url https://aws-api.akldb.org  --stack akldb-prod  --profile <aws profile>
-//   --min-api-minor N  the API minor the Worker build with the modes announces (default: this tree's WIRE_VERSION + 1)
+//   --d1 akl-db  --worker-url https://api.akldb.org  --public-url https://api.akldb.org  --stack akldb-prod  --profile <aws profile>
+//   --origin-env <file>   the stack's x-akldb-origin secret (default ~/git/akl/akldb-origin-<stage>.env); read at run time, never printed
+//   --r2-env <file>       R2 read credentials for the dump history (default ~/git/akl/akldb-r2-dumps-read.env: R2_KEY_ID, R2_SECRET, R2_ENDPOINT)
+//   --dns-timeout 900 --dns-poll 5 --dns-consecutive 5   how the dns step waits for api.akldb.org to answer from AWS
+//   --min-api-minor N  the API minor the Worker build with the read_only mode announces (default: this tree's WIRE_VERSION + 1)
 //   --write-route "POST /v1/admin/nightly/tick"  --write-body '{}'   the signed write of the post-smoke (ops client from db.env.ops)
-//   --page-rows 500 --concurrency 4 --allow-pending --work <dir> --report <file> --migrations-dir <dir>
+//   --page-rows 2000 --concurrency 4 --allow-pending --d1-api rest|wrangler --work <dir> --report <file> --migrations-dir <dir>
 //
-// Credentials, from the environment and never printed: CLOUDFLARE_ACCOUNT_ID (+ wrangler's login), AWS_* (aws-vault exec akldb-admin
-// -- node scripts/cutover/run.mjs ...), CLIENT_ID / CLIENT_PRIVATE_KEY / OPS_ACTOR (db.env.ops) for the post-smoke.
+// Credentials, from the environment and never printed: CLOUDFLARE_ACCOUNT_ID (+ wrangler's login), CLOUDFLARE_API_TOKEN (D1 read: verify then
+// uses the REST API) and AKLDB_D1_ID (the D1 database id, for the REST API), AWS_* (aws-vault exec akldb -- node scripts/cutover/run.mjs ...),
+// CLIENT_ID / CLIENT_PRIVATE_KEY / OPS_ACTOR (db.env.ops) for the post-smoke.
 // Exit: 0 done (or dry run), 1 a step failed (the message says how to resume), 2 usage.
 import fs from "node:fs";
 import url from "node:url";
