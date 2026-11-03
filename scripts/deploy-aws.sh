@@ -11,15 +11,16 @@
 #   1  bundle src/lambda.ts with esbuild (ESM, node24, minified) + migrations/ into a zip
 #   2  upload the zip to the artifacts bucket under a content hash
 #   3  create the stack's change set from the template, print it, and (--execute) run it
-#   4  update-function-code (api and jobs) + publish-version (api) -> a new immutable version
+#   4  update-function-code + publish-version for the api and the jobs function -> new immutable versions
 #   5  invoke THAT version with {"akldb":"migrate"} -> pending migrations enter the log; the live alias still serves the old code
-#   6  move the alias: a second change set with LiveVersion=<new version>, so CloudFormation stays the source of truth
+#   6  move both aliases together: a second change set with LiveVersion and LiveJobsVersion = the new versions, so CloudFormation stays the source of truth
 #   7  pre-warm: invoke the live alias with {"akldb":"warm","k":4}
+#   8  optional: purge the edge-cached static routes (needs CF_PURGE_TOKEN and CF_ZONE_ID)
 # A migration is additive-only (tests/tools/migrations-additive.test.ts), so the old code keeps serving through step 5.
 #
 # Settings read from the environment: ALARM_EMAIL (required on the first deploy; later deploys keep the stack's value),
 # RESERVED_CONCURRENCY, KEEP_WARM, DISCORD_API_URL (each keeps the stack's current value when unset), CERTIFICATE_ARN
-# (default: the output of the akldb-cert-<stage> stack).
+# (default: the output of the akldb-cert-<stage> stack). CF_PURGE_TOKEN + CF_ZONE_ID turn on step 8 (zone akldb.org, Cache Purge only).
 set -eu
 
 ACCOUNT=335937358231
@@ -39,7 +40,7 @@ while [ $# -gt 0 ]; do
     --dry-run) DRY=1; shift ;;
     --destroy-nonprod) DESTROY=1; shift ;;
     --confirm) CONFIRM="${2:?--confirm needs the stack name}"; shift 2 ;;
-    -h | --help) sed -n '2,26p' "$0"; exit 0 ;;
+    -h | --help) sed -n '2,23p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -179,10 +180,11 @@ RESERVED="${RESERVED_CONCURRENCY-$(current ReservedConcurrency '')}"
 KEEP="${KEEP_WARM:-$(current KeepWarm 4)}"
 DISCORD="${DISCORD_API_URL:-$(current DiscordApiUrl https://discord.com/api)}"
 LIVE="$(current LiveVersion '$LATEST')"
+LIVE_JOBS="$(current LiveJobsVersion '$LATEST')"
 
-# change_set LIVE_VERSION NAME: create, print, and (with --execute) execute the stack's change set.
+# change_set API_VERSION JOBS_VERSION NAME: create, print, and (with --execute) execute the stack's change set.
 change_set() {
-  live="$1"; name="$2"
+  live="$1"; live_jobs="$2"; name="$3"
   if [ "$exists" = 1 ]; then type=UPDATE; else type=CREATE; fi
   if [ -n "$STATUS" ]; then # a stack (maybe only REVIEW_IN_PROGRESS) may hold the preview's change set of this name
     show $AWS cloudformation delete-change-set --stack-name "$STACK" --change-set-name "$name"
@@ -194,7 +196,7 @@ change_set() {
     --parameters \
     "ParameterKey=Stage,ParameterValue=$STAGE" "ParameterKey=DomainName,ParameterValue=$DOMAIN" \
     "ParameterKey=CertificateArn,ParameterValue=$CERT" "ParameterKey=ArtifactsBucket,ParameterValue=$ARTIFACTS" \
-    "ParameterKey=CodeKey,ParameterValue=$CODE_KEY" "ParameterKey=LiveVersion,ParameterValue=$live" \
+    "ParameterKey=CodeKey,ParameterValue=$CODE_KEY" "ParameterKey=LiveVersion,ParameterValue=$live" "ParameterKey=LiveJobsVersion,ParameterValue=$live_jobs" \
     "ParameterKey=ReservedConcurrency,ParameterValue=$RESERVED" "ParameterKey=KeepWarm,ParameterValue=$KEEP" \
     "ParameterKey=AlarmEmail,ParameterValue=$EMAIL" "ParameterKey=DiscordApiUrl,ParameterValue=$DISCORD"
   if [ "$DRY" = 1 ]; then
@@ -223,7 +225,7 @@ change_set() {
 }
 
 # ---- 3. the change set ----
-change_set "$LIVE" "akldb-$HASH-code"
+change_set "$LIVE" "$LIVE_JOBS" "akldb-$HASH-code"
 if [ "$EXECUTE" != 1 ]; then
   say "change set printed, nothing executed. Re-run with --execute to apply it and continue (steps 4-7)."
   exit 0
@@ -231,12 +233,13 @@ fi
 
 # ---- 4. a new version of the code ----
 run $AWS lambda update-function-code --function-name "$FUNCTION" --s3-bucket "$ARTIFACTS" --s3-key "$CODE_KEY"
-# the jobs function runs the same bundle (it has no alias: the api invokes it by name)
+# the jobs function runs the same bundle, behind its own live alias
 run $AWS lambda update-function-code --function-name "$JOBS_FUNCTION" --s3-bucket "$ARTIFACTS" --s3-key "$CODE_KEY"
 run $AWS lambda wait function-updated --function-name "$FUNCTION"
 run $AWS lambda wait function-updated --function-name "$JOBS_FUNCTION"
 VERSION="$(cap 42 $AWS lambda publish-version --function-name "$FUNCTION" --description "$HASH" --query Version --output text)"
-say "published version $VERSION"
+JOBS_VERSION="$(cap 43 $AWS lambda publish-version --function-name "$JOBS_FUNCTION" --description "$HASH" --query Version --output text)"
+say "published versions: api $VERSION, jobs $JOBS_VERSION"
 
 # ---- 5. migrate through the log, on the new version, before any traffic reaches it ----
 OUT="$DIST/migrate.json"
@@ -245,12 +248,28 @@ FERR="$(cap None $AWS lambda invoke --function-name "$FUNCTION" --qualifier "$VE
 if [ "$DRY" = 0 ]; then cat "$OUT"; echo; fi
 if [ "$FERR" != None ] && [ "$FERR" != "" ]; then echo "migrate failed on version $VERSION; the alias was not moved" >&2; exit 1; fi
 
-# ---- 6. move the alias ----
-change_set "$VERSION" "akldb-$HASH-live-$VERSION"
+# ---- 6. move both aliases together ----
+change_set "$VERSION" "$JOBS_VERSION" "akldb-$HASH-live-$VERSION"
 
 # ---- 7. pre-warm the live alias (AX3) ----
 WOUT="$DIST/warm.json"
 run $AWS lambda invoke --function-name "$FUNCTION" --qualifier live --cli-binary-format raw-in-base64-out \
   --payload "{\"akldb\":\"warm\",\"k\":$KEEP}" "$WOUT"
 if [ "$DRY" = 0 ]; then cat "$WOUT"; echo; fi
-say "deployed $STACK: version $VERSION is live"
+# ---- 8. the edge cache (optional): purge the static routes Cloudflare caches ----
+# A Cache Rule on /v1/formats* holds them for a day; a formats change ships with a deploy, so they are purged by URL once
+# the aliases moved. Needs a zone-scoped Cache Purge token. Unset: one log line and on.
+if [ -z "${CF_PURGE_TOKEN:-}" ] || [ -z "${CF_ZONE_ID:-}" ]; then
+  say "edge cache purge skipped (CF_PURGE_TOKEN and CF_ZONE_ID are not both set)"
+else
+  PURGE="$DIST/purge.json"
+  run node "$ROOT/scripts/purge-urls.mjs" "$DOMAIN" "$PURGE"
+  # the token is shown as *** in the trace, never printed
+  printf "+ 'curl' '-fsS' '-X' 'POST' 'https://api.cloudflare.com/client/v4/zones/%s/purge_cache' '-H' 'Authorization: Bearer ***' '-H' 'Content-Type: application/json' '--data' '@%s'\n" "$CF_ZONE_ID" "$PURGE" >&2
+  if [ "$DRY" = 0 ]; then
+    answer="$(curl -fsS -X POST "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/purge_cache" -H "Authorization: Bearer $CF_PURGE_TOKEN" -H "Content-Type: application/json" --data "@$PURGE")" || { echo "edge cache purge failed (the aliases did move; static routes may stay cached up to a day)" >&2; exit 1; }
+    case "$answer" in *'"success":true'* | *'"success": true'*) ;; *) echo "edge cache purge refused: $answer" >&2; exit 1 ;; esac
+  fi
+  say "purged the static routes of $DOMAIN from the edge cache"
+fi
+say "deployed $STACK: api version $VERSION and jobs version $JOBS_VERSION are live"

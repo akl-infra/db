@@ -299,7 +299,7 @@ function dryRun(stage: string, extra: string[] = [], env: Record<string, string>
 }
 
 describe("jobs function and object access (AX1)", () => {
-  it("[LDB-AX1] the jobs function is the same bundle with a 600 s timeout, its own STANDARD log group and metric filter, no alias, URL or route; the api invokes it by name", () => {
+  it("[LDB-AX1] the jobs function is the same bundle with a 600 s timeout, its own STANDARD log group and metric filter and a pinned live alias with no async retries, no URL or route; the api invokes that alias", () => {
     for (const s of stages) {
       const R = resolveStage(t, s).resources;
       const j = R.JobsFunction.Properties;
@@ -308,18 +308,23 @@ describe("jobs function and object access (AX1)", () => {
       expect(j.Role).toEqual(R.ApiFunction.Properties.Role);
       expect(j.FunctionName).toEqual({ "Fn::Sub": "akldb-${Stage}-jobs" });
       expect(j.Environment.Variables).not.toHaveProperty("JOBS_FUNCTION");
-      expect(R.ApiFunction.Properties.Environment.Variables.JOBS_FUNCTION).toEqual({ "Fn::Sub": "akldb-${Stage}-jobs" });
+      expect(R.ApiFunction.Properties.Environment.Variables.JOBS_FUNCTION).toEqual({ Ref: "JobsLiveAlias" }); // the alias ARN, never $LATEST
       expect(j.LoggingConfig.LogGroup).toEqual({ Ref: "JobsLogGroup" });
       expect(R.JobsLogGroup.Properties.LogGroupName).toEqual({ "Fn::Sub": "/aws/lambda/akldb-${Stage}-jobs" });
       expect(R.JobsAlarmPrefixFilter.Properties.LogGroupName).toEqual({ Ref: "JobsLogGroup" });
       expect(R.JobsAlarmPrefixFilter.Properties.FilterPattern).toBe('"akldb-alarm:"');
-      // no alias, no permission for API Gateway, no event config, no reservation: the api's alias and route are the only door
-      expect(Object.values(R).filter((r) => r.Type === "AWS::Lambda::Alias" || r.Type === "AWS::Lambda::EventInvokeConfig").every((r) => r.Properties.FunctionName.Ref === "ApiFunction")).toBe(true);
+      // the jobs function has its own pinned live alias (moved with the api's), no retries on async invokes, no API Gateway door
+      expect(R.JobsLiveAlias.Properties).toEqual({ FunctionName: { Ref: "JobsFunction" }, Name: "live", FunctionVersion: { Ref: "LiveJobsVersion" } });
+      expect(R.LiveAlias.Properties).toEqual({ FunctionName: { Ref: "ApiFunction" }, Name: "live", FunctionVersion: { Ref: "LiveVersion" } });
+      expect(R.JobsAliasEventConfig.Properties).toMatchObject({ FunctionName: { Ref: "JobsFunction" }, Qualifier: "live", MaximumRetryAttempts: 0 });
+      expect(list(R.JobsAliasEventConfig.DependsOn)).toContain("JobsLiveAlias");
+      expect(Object.values(R).filter((r) => r.Type === "AWS::Lambda::Alias").map((r) => r.Properties.FunctionName.Ref).sort()).toEqual(["ApiFunction", "JobsFunction"]);
       expect(R.ApiInvokePermission.Properties.FunctionName).toEqual({ Ref: "LiveAlias" });
       expect(R.ApiIntegration.Properties.IntegrationUri).toEqual({ Ref: "LiveAlias" });
+      expect(R.SchedulerRole.Properties.Policies[0].PolicyDocument.Statement).toEqual([{ Effect: "Allow", Action: "lambda:InvokeFunction", Resource: { Ref: "LiveAlias" } }]);
       expect(j).not.toHaveProperty("ReservedConcurrentExecutions");
       const invoke = (R.ApiRole.Properties.Policies[0].PolicyDocument.Statement as Json[]).find((x) => x.Sid === "InvokeJobs");
-      expect(invoke).toMatchObject({ Effect: "Allow", Action: "lambda:InvokeFunction", Resource: { "Fn::Sub": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:akldb-${Stage}-jobs" } });
+      expect(invoke).toMatchObject({ Effect: "Allow", Action: "lambda:InvokeFunction", Resource: { "Fn::Sub": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:akldb-${Stage}-jobs:live" } });
     }
     // only prod pages on the jobs function's errors
     expect(Object.keys(resolveStage(t, "prod").resources)).toContain("JobsErrorsAlarm");
@@ -328,6 +333,12 @@ describe("jobs function and object access (AX1)", () => {
     const m = clone(t);
     m.Resources.JobsFunction.Properties.Timeout = 300;
     expect(violations(m, "prod").some((x) => /JobsFunction: timeout 300/.test(x))).toBe(true);
+    const fl = clone(t);
+    fl.Resources.JobsLiveAlias.Properties.FunctionVersion = "$LATEST";
+    fl.Resources.ApiFunction.Properties.Environment.Variables.JOBS_FUNCTION = { "Fn::Sub": "akldb-${Stage}-jobs" };
+    fl.Resources.JobsAliasEventConfig.Properties.MaximumRetryAttempts = 2;
+    const vf = violations(fl, "prod");
+    expect(vf.some((x) => /JobsLiveAlias: not jobs live pinned/.test(x)) && vf.some((x) => /JOBS_FUNCTION is not the jobs live alias/.test(x)) && vf.some((x) => /JobsAliasEventConfig: not literal live, no retries/.test(x))).toBe(true);
     const k = clone(t);
     k.Resources.JobsFunction.Properties.Code.S3Key = "other.zip";
     expect(violations(k, "prod").some((x) => /JobsFunction: not the shared artifact/.test(x))).toBe(true);
@@ -411,16 +422,17 @@ describe("deploy order (AX3)", () => {
       at(/create-change-set .*ParameterKey=LiveVersion,ParameterValue=\$LATEST/),
       at(/execute-change-set .*akldb-[0-9a-f]+-code/),
       at(/lambda update-function-code/),
-      at(/lambda publish-version/),
-      at(/lambda invoke .*--qualifier 42 .*\{"akldb":"migrate"\}/),
-      at(/create-change-set .*ParameterKey=LiveVersion,ParameterValue=42/),
+      at(/lambda publish-version --function-name akldb-staging-api /),
+      at(/lambda publish-version --function-name akldb-staging-jobs /),
+      at(/lambda invoke .*--function-name akldb-staging-api --qualifier 42 .*\{"akldb":"migrate"\}/),
+      at(/create-change-set .*ParameterKey=LiveVersion,ParameterValue=42 ParameterKey=LiveJobsVersion,ParameterValue=43/),
       at(/execute-change-set .*-live-42/),
       at(/lambda invoke .*--qualifier live .*\{"akldb":"warm","k":4\}/),
     ];
     expect(steps).toEqual([...steps].sort((a, b) => a - b));
     expect(new Set(steps).size).toBe(steps.length);
-    // nothing but the final pre-warm follows the alias move
-    expect(cmd.slice(steps[8]! + 1).filter((c) => /lambda invoke/.test(c))).toHaveLength(1);
+    // nothing but the final pre-warm (and the optional purge) follows the alias move
+    expect(cmd.slice(steps[9]! + 1).filter((c) => /lambda invoke/.test(c))).toHaveLength(1);
   });
 
   it("[LDB-AX3] both functions get the new code before the version is published and migrated", () => {
@@ -434,7 +446,9 @@ describe("deploy order (AX3)", () => {
     expect(cmd[api]!.split("--s3-key")[1]).toBe(cmd[jobs]!.split("--s3-key")[1]); // the same artifact
     expect(idx(/lambda wait function-updated --function-name akldb-staging-jobs/)).toBeGreaterThan(jobs);
     expect(idx(/publish-version/)).toBeGreaterThan(idx(/lambda wait function-updated --function-name akldb-staging-jobs/));
-    expect(cmd.filter((c) => /publish-version|--qualifier/.test(c)).every((c) => !/-jobs/.test(c))).toBe(true); // the jobs function has no versions or alias
+    // the migration runs on the NEW api version, never on the jobs function; both versions exist before any alias moves
+    expect(cmd.filter((c) => /lambda invoke/.test(c)).every((c) => !/-jobs/.test(c))).toBe(true);
+    expect(idx(/publish-version --function-name akldb-staging-jobs /)).toBeLessThan(idx(/create-change-set .*LiveJobsVersion,ParameterValue=43/));
   });
 
   it("[LDB-AX3] a first deploy works as preview then --execute: a REVIEW_IN_PROGRESS stack takes a CREATE change set, after the preview's same-named one is deleted; the alias move is an UPDATE", () => {
@@ -467,6 +481,48 @@ describe("deploy order (AX3)", () => {
     const stuck = dryRun("staging", ["--execute"], { DEPLOY_DRY_STACK_STATUS: "ROLLBACK_COMPLETE" });
     expect(stuck.status).toBe(1);
     expect(stuck.stderr).toMatch(/ROLLBACK_COMPLETE/);
+  });
+
+  it("[LDB-AX3] after the aliases move and the pre-warm, the static routes are purged from the edge cache when CF_PURGE_TOKEN and CF_ZONE_ID are set, with the token never printed", () => {
+    const token = "cf-token-must-not-appear";
+    const r = dryRun("staging", ["--execute"], { CF_PURGE_TOKEN: token, CF_ZONE_ID: "zone123" });
+    expect(r.status).toBe(0);
+    expect(r.stderr + r.stdout).not.toContain(token);
+    const cmd = r.lines.map((l) => l.join(" "));
+    const warm = cmd.findIndex((c) => /"akldb":"warm"/.test(c));
+    const move = cmd.findIndex((c) => /execute-change-set .*-live-42/.test(c));
+    const gen = cmd.findIndex((c) => /node .*scripts\/purge-urls\.mjs staging-api\.akldb\.org .*purge\.json/.test(c));
+    const post = cmd.findIndex((c) => /^curl -fsS -X POST https:\/\/api\.cloudflare\.com\/client\/v4\/zones\/zone123\/purge_cache -H Authorization: Bearer \*\*\* /.test(c));
+    expect(move).toBeGreaterThan(-1);
+    expect(gen).toBeGreaterThan(warm);
+    expect(post).toBeGreaterThan(gen);
+    expect(warm).toBeGreaterThan(move);
+    expect(r.stdout).toContain("purged the static routes of staging-api.akldb.org");
+  });
+
+  it("[LDB-AX3] without the Cloudflare settings the purge is skipped with one log line (and not by half: one setting alone skips too)", () => {
+    for (const env of [{}, { CF_PURGE_TOKEN: "t" }, { CF_ZONE_ID: "z" }] as Record<string, string>[]) {
+      const r = dryRun("prod", ["--execute"], env);
+      expect(r.status).toBe(0);
+      const cmd = r.lines.map((l) => l.join(" "));
+      expect(cmd.some((c) => /^curl |purge-urls/.test(c))).toBe(false);
+      expect(r.stdout.match(/edge cache purge skipped/g)).toHaveLength(1);
+    }
+  });
+
+  it("[LDB-AX3] the purge list is /v1/formats and every registered format's schema, for the stage's own host, within one Free-plan call", () => {
+    const run = (host: string) => JSON.parse(spawnSync("node", [file("scripts", "purge-urls.mjs"), host], { encoding: "utf8" }).stdout) as { files: string[] };
+    for (const host of ["staging-api.akldb.org", "shadow-api.akldb.org", "api.akldb.org"]) {
+      const files = run(host).files;
+      expect(files[0]).toBe(`https://${host}/v1/formats`);
+      expect(files).toContain(`https://${host}/v1/formats/spark/1/schema.json`);
+      expect(files).toContain(`https://${host}/v1/formats/mana2/1/schema.json`);
+      expect(files.every((f) => f.startsWith(`https://${host}/v1/formats`))).toBe(true);
+      expect(files.length).toBeLessThanOrEqual(30);
+    }
+    // the list follows the registry: one schema URL per registered id
+    const ids = (fs.readFileSync(file("formats", "registry.ts"), "utf8").match(/^let REGISTRY[^=]*= \[([^\]]*)\]/m)?.[1] ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+    expect(run("api.akldb.org").files.length).toBe(1 + ids.length);
   });
 
   it("[LDB-AX3] without --execute it prints the change set and stops before touching the function", () => {

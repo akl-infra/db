@@ -91,7 +91,7 @@ export function policyDocs(resources: Record<string, Json>): [string, Json][] {
 /** The logical ids a stage creates. The alarm set is the AX4 list; the budget is prod only. */
 export function expectedResources(stage: string): string[] {
   const common = [
-    "LogTable", "DataBucket", "DataBucketPolicy", "LogGroup", "JobsLogGroup", "ApiRole", "ApiFunction", "JobsFunction", "JobsAlarmPrefixFilter", "LiveAlias", "LiveAliasEventConfig",
+    "LogTable", "DataBucket", "DataBucketPolicy", "LogGroup", "JobsLogGroup", "ApiRole", "ApiFunction", "JobsFunction", "JobsLiveAlias", "JobsAliasEventConfig", "JobsAlarmPrefixFilter", "LiveAlias", "LiveAliasEventConfig",
     "HttpApi", "ApiIntegration", "DefaultRoute", "DefaultStage", "ApiInvokePermission", "CustomDomain", "ApiMapping",
     "SchedulerRole", "JobsSchedule", "KeepWarmSchedule", "AlarmTopic", "AlarmTopicPolicy", "AlarmPrefixFilter", ...alarmsFor(stage),
   ];
@@ -174,12 +174,21 @@ export function violations(t: Json, stage: string, extra: Json = {}): string[] {
     if (p.Role?.["Fn::GetAtt"]?.[0] !== "ApiRole") v.push(`${id}: not the boundary-capped role`);
     const env = p.Environment?.Variables ?? {};
     if (JSON.stringify(Object.keys(env).sort()) !== JSON.stringify(want?.env)) v.push(`${id}: unexpected environment ${Object.keys(env).sort()}`);
-    if (id === "ApiFunction" && env.JOBS_FUNCTION?.["Fn::Sub"] !== "akldb-${Stage}-jobs") v.push(`${id}: JOBS_FUNCTION is not the jobs function`);
+    if (id === "ApiFunction" && env.JOBS_FUNCTION?.Ref !== "JobsLiveAlias") v.push(`${id}: JOBS_FUNCTION is not the jobs live alias ARN`);
     if (p.LoggingConfig?.LogGroup?.Ref !== want?.logGroup) v.push(`${id}: not logging to ${want?.logGroup}`);
     const reserved = params.ReservedConcurrency ?? t.Parameters.ReservedConcurrency.Default;
     if (id === "ApiFunction" && (reserved === "") !== !("ReservedConcurrentExecutions" in p)) v.push(`${id}: ReservedConcurrentExecutions does not follow the parameter`);
     if (id === "JobsFunction" && "ReservedConcurrentExecutions" in p) v.push(`${id}: reserved concurrency (only the api may take it)`);
   }
+
+  // Both aliases are pinned to a published version (never floating), named live, and async invokes of jobs never retry.
+  const ja = R.JobsLiveAlias?.Properties;
+  const aa = R.LiveAlias?.Properties;
+  if (aa?.Name !== "live" || aa?.FunctionVersion?.Ref !== "LiveVersion" || aa?.FunctionName?.Ref !== "ApiFunction") v.push("LiveAlias: not api live pinned to LiveVersion");
+  if (ja?.Name !== "live" || ja?.FunctionVersion?.Ref !== "LiveJobsVersion" || ja?.FunctionName?.Ref !== "JobsFunction") v.push("JobsLiveAlias: not jobs live pinned to LiveJobsVersion");
+  const jc = R.JobsAliasEventConfig;
+  if (jc?.Properties.Qualifier !== "live" || jc?.Properties.FunctionName?.Ref !== "JobsFunction" || jc?.Properties.MaximumRetryAttempts !== 0 || !arr(jc?.DependsOn).includes("JobsLiveAlias")) v.push("JobsAliasEventConfig: not literal live, no retries, after the alias");
+  if (!(arr(R.ApiInvokePermission?.Properties.FunctionName?.Ref).includes("LiveAlias"))) v.push("ApiInvokePermission: not on the api alias");
 
   // The log groups (AX5): STANDARD, one per function; prod's never expire and are kept, the others keep 14 days and go.
   for (const id of ["LogGroup", "JobsLogGroup"]) {
@@ -229,7 +238,7 @@ export function violations(t: Json, stage: string, extra: Json = {}): string[] {
         const r = s.Resource;
         const okFn = r?.["Fn::Sub"] === "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:akldb-${Stage}-api:live";
         const okSched = r?.Ref === "LiveAlias";
-        const okJobs = s.Sid === "InvokeJobs" && r?.["Fn::Sub"] === "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:akldb-${Stage}-jobs";
+        const okJobs = s.Sid === "InvokeJobs" && r?.["Fn::Sub"] === "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:akldb-${Stage}-jobs:live";
         if (!okFn && !okSched && !okJobs) v.push(`${name}: lambda:InvokeFunction on something other than the live alias (or the jobs function)`);
       }
       // Objects: read and write the three prefixes, delete only the log spill prefix.

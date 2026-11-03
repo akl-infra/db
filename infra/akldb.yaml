@@ -31,6 +31,11 @@ Parameters:
     Default: $LATEST
     AllowedPattern: '^(\$LATEST|[0-9]+)$'
     Description: The function version the live alias points at. scripts/deploy-aws.sh moves it after a new version migrated.
+  LiveJobsVersion:
+    Type: String
+    Default: $LATEST
+    AllowedPattern: '^(\$LATEST|[0-9]+)$'
+    Description: The jobs function version its live alias points at. scripts/deploy-aws.sh moves it together with LiveVersion, after the new api version migrated.
   ReservedConcurrency:
     Type: String
     Default: ""
@@ -332,11 +337,11 @@ Resources:
                 Effect: Allow
                 Action: s3:DeleteObject
                 Resource: !Sub "arn:aws:s3:::akldb-${Stage}-data-${AWS::AccountId}/log/*"
-              # The api hands the nightly work to the jobs function (asynchronous invoke).
+              # The api hands the nightly work to the jobs function's live alias (asynchronous invoke), never to $LATEST.
               - Sid: InvokeJobs
                 Effect: Allow
                 Action: lambda:InvokeFunction
-                Resource: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:akldb-${Stage}-jobs"
+                Resource: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:akldb-${Stage}-jobs:live"
       Tags:
         - { Key: project, Value: akldb }
         - { Key: stage, Value: !Ref Stage }
@@ -366,7 +371,7 @@ Resources:
           LOG_TABLE: !Sub akldb-${Stage}-log
           DATA_BUCKET: !Sub akldb-${Stage}-data-${AWS::AccountId}
           SSM_PREFIX: !Sub /akldb/${Stage}/
-          JOBS_FUNCTION: !Sub akldb-${Stage}-jobs
+          JOBS_FUNCTION: !Ref JobsLiveAlias
           # wrangler.toml [vars]
           DISCORD_API_URL: !Ref DiscordApiUrl
           MODQUEUE_DISCORD_COMPONENTS: "false"
@@ -374,8 +379,8 @@ Resources:
         - { Key: project, Value: akldb }
         - { Key: stage, Value: !Ref Stage }
 
-  # The same bundle and handler entry as the api, for work that outlives a request: no URL, no API Gateway route, no alias
-  # (the api invokes it by name, asynchronously, and deploy-aws.sh updates its code with the api's).
+  # The same bundle and handler entry as the api, for work that outlives a request: no URL, no API Gateway route. Its own
+  # live alias is pinned and moved with the api's (deploy-aws.sh), so the nightly never runs code the schema has not met.
   JobsFunction:
     Type: AWS::Lambda::Function
     Properties:
@@ -424,6 +429,23 @@ Resources:
     DependsOn: LiveAlias
     Properties:
       FunctionName: !Ref ApiFunction
+      Qualifier: live
+      MaximumRetryAttempts: 0
+      MaximumEventAgeInSeconds: 60
+
+  JobsLiveAlias:
+    Type: AWS::Lambda::Alias
+    Properties:
+      FunctionName: !Ref JobsFunction
+      Name: live
+      FunctionVersion: !Ref LiveJobsVersion
+
+  # No retries: the next tick re-triggers the nightly, and overlapping retried runs are worse than a skipped one.
+  JobsAliasEventConfig:
+    Type: AWS::Lambda::EventInvokeConfig
+    DependsOn: JobsLiveAlias
+    Properties:
+      FunctionName: !Ref JobsFunction
       Qualifier: live
       MaximumRetryAttempts: 0
       MaximumEventAgeInSeconds: 60
