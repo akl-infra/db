@@ -159,8 +159,8 @@ export function violations(t: Json, stage: string, extra: Json = {}): string[] {
   const fns = ofType("AWS::Lambda::Function");
   if (JSON.stringify(fns.map(([id]) => id).sort()) !== '["ApiFunction","JobsFunction"]') v.push(`Lambda functions ${fns.map(([id]) => id)} (ApiFunction and JobsFunction)`);
   const shape: Record<string, { timeout: number; logGroup: string; env: string[] }> = {
-    ApiFunction: { timeout: 35, logGroup: "LogGroup", env: ["DATA_BUCKET", "DISCORD_API_URL", "JOBS_FUNCTION", "LOG_TABLE", "MODQUEUE_DISCORD_COMPONENTS", "SSM_PREFIX", "STAGE"] },
-    JobsFunction: { timeout: 600, logGroup: "JobsLogGroup", env: ["DATA_BUCKET", "DISCORD_API_URL", "LOG_TABLE", "MODQUEUE_DISCORD_COMPONENTS", "SSM_PREFIX", "STAGE"] },
+    ApiFunction: { timeout: 35, logGroup: "LogGroup", env: ["AKLDB_AWAIT_IMAGE", "DATA_BUCKET", "DISCORD_API_URL", "JOBS_FUNCTION", "LOG_TABLE", "MODQUEUE_DISCORD_COMPONENTS", "SSM_PREFIX", "STAGE"] },
+    JobsFunction: { timeout: 600, logGroup: "JobsLogGroup", env: ["AKLDB_AWAIT_IMAGE", "DATA_BUCKET", "DISCORD_API_URL", "LOG_TABLE", "MODQUEUE_DISCORD_COMPONENTS", "SSM_PREFIX", "STAGE"] },
   };
   for (const [id, r] of fns) {
     const p = r.Properties;

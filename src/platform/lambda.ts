@@ -8,6 +8,9 @@
 //   {"akldb":"migrate"}       -> apply pending migrations through the log (deploy-aws.sh, before the alias moves)
 //   {"akldb":"seed",...}      -> SHADOW ONLY (STAGE=shadow, else refused): load production's latest public dump (phase D)
 //   {"akldb":"shadow-status"} -> SHADOW ONLY: the follower's row (cursor, last check) and the fake Discord's call count
+//   AKLDB_AWAIT_IMAGE=1 (prod): while the log is EMPTY, migrate, tick and nightly answer {"awaiting":"image"} and do nothing:
+//                                the cutover's image (src/replica/image.ts, LDB-CV10) must be the log's first entry, and it
+//                                carries D1's own d1_migrations, so no migration may reach an empty prod log before it
 //   {"akldb":"nightly"}       -> the daily snapshot, log retention and the nightly proof (src/replica/jobs.ts). The tick
 //                                starts it when it is due: an async self-invocation of the function named by JOBS_FUNCTION
 //                                (a separate function with a 600 s timeout), or inline when JOBS_FUNCTION is unset
@@ -41,6 +44,10 @@ import { installEgressGuard } from "./shadow-egress";
 import type { Aws } from "./lambda-aws";
 import { createNodePlatform, lruResponseCache, r2Binding } from "./node";
 import type { PlatformConfig } from "./port";
+
+/** Every answer from this stack carries `X-Akldb-Backend: aws`: the cutover's proof that a request through the Worker's proxy mode reached AWS (LDB-CV13). */
+export const BACKEND_HEADER = "x-akldb-backend";
+export const BACKEND_VALUE = "aws";
 
 /** The header Cloudflare's Transform Rule sets to the SSM secret. Requests without it never reach the app. */
 export const ORIGIN_HEADER = "x-akldb-origin";
@@ -339,6 +346,15 @@ export function createLambdaHandler(opts: LambdaOptions): LambdaHandler {
   // ---- HTTP ----
   const front = new Hono();
   front.use("*", async (c, next) => {
+    await next();
+    try {
+      c.res.headers.set(BACKEND_HEADER, BACKEND_VALUE);
+    } catch {
+      c.res = new Response(c.res.body, c.res); // a Response with immutable headers (a fetch result): copy, then set
+      c.res.headers.set(BACKEND_HEADER, BACKEND_VALUE);
+    }
+  });
+  front.use("*", async (c, next) => {
     const got = c.req.header(ORIGIN_HEADER);
     // No header: refuse without even reading SSM. A wrong one: refuse before the replica is touched.
     if (got === undefined || !safeEqual(got, (await getParams()).secret)) {
@@ -365,9 +381,21 @@ export function createLambdaHandler(opts: LambdaOptions): LambdaHandler {
     return result;
   }
 
+  // ---- LDB-CV12: prod's log is empty until the cutover's image, and nothing may run against it before ----
+  const awaitImage = env.AKLDB_AWAIT_IMAGE === "1";
+  /** True (and one INFO line) while this stack awaits its image and the log is still empty. Catches up first: the image may have just landed. */
+  async function awaitingImage(replica: Replica, what: string): Promise<boolean> {
+    if (!awaitImage) return false;
+    await replica.catchUp();
+    if (replica.seq !== 0) return false;
+    logLine(`akldb-migrate: ${what}: awaiting image (the log is empty and AKLDB_AWAIT_IMAGE=1); nothing was done`);
+    return true;
+  }
+
   // ---- scheduler events ----
   async function tick(event: { time?: string }): Promise<unknown> {
     const replica = await getReplica();
+    if (await awaitingImage(replica, "tick")) return { ok: true, awaiting: "image", seq: 0 };
     const parsed = event.time === undefined ? NaN : Date.parse(event.time);
     const at = tickTime(Number.isNaN(parsed) ? now() : parsed);
     const controller = { scheduledTime: at, cron: "*/5 * * * *", noRetry() {} } as unknown as ScheduledController;
@@ -463,6 +491,7 @@ export function createLambdaHandler(opts: LambdaOptions): LambdaHandler {
 
   async function nightly(): Promise<unknown> {
     const replica = await getReplica();
+    if (await awaitingImage(replica, "nightly")) return { ok: true, awaiting: "image", seq: 0 };
     const report = await runNightly(replica);
     assertAlive();
     return { ok: true, nightly: report, seq: replica.seq };
@@ -499,6 +528,7 @@ export function createLambdaHandler(opts: LambdaOptions): LambdaHandler {
 
   async function migrate(): Promise<unknown> {
     const replica = await getReplica();
+    if (await awaitingImage(replica, "migrate")) return { ok: true, awaiting: "image", message: "awaiting image", applied: [], seq: 0 };
     const applied = await applyMigrations(replica, opts.migrationsDir, () => new Date(now()));
     if (isShadow) applied.push(...(await applyShadowMigrations(replica, shadowDir(), () => new Date(now()))));
     assertAlive();

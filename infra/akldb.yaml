@@ -55,6 +55,11 @@ Parameters:
     Type: String
     Default: https://discord.com/api
     Description: wrangler.toml's DISCORD_API_URL. The shadow stack points it at a fake Discord (phase D).
+  AwaitImage:
+    Type: String
+    Default: auto
+    AllowedValues: [ auto, "0", "1" ]
+    Description: "auto = prod awaits its cutover image (AKLDB_AWAIT_IMAGE=1 on both functions: migrate, tick and nightly do nothing while the log is empty, so no migration lands before the image, LDB-CV12); 0 or 1 force it. Harmless once the log has entries."
   BudgetLimitUsd:
     Type: Number
     Default: 5
@@ -77,6 +82,9 @@ Rules:
 Conditions:
   IsProd: !Equals [ !Ref Stage, prod ]
   NotProd: !Not [ !Condition IsProd ]
+  AwaitsImage: !Or
+    - !Equals [ !Ref AwaitImage, "1" ]
+    - !And [ !Equals [ !Ref AwaitImage, auto ], !Condition IsProd ]
   HasReservedConcurrency: !Not [ !Equals [ !Ref ReservedConcurrency, "" ] ]
 
 Resources:
@@ -372,6 +380,7 @@ Resources:
           DATA_BUCKET: !Sub akldb-${Stage}-data-${AWS::AccountId}
           SSM_PREFIX: !Sub /akldb/${Stage}/
           JOBS_FUNCTION: !Ref JobsLiveAlias
+          AKLDB_AWAIT_IMAGE: !If [ AwaitsImage, "1", "0" ]
           # wrangler.toml [vars]
           DISCORD_API_URL: !Ref DiscordApiUrl
           MODQUEUE_DISCORD_COMPONENTS: "false"
@@ -405,6 +414,7 @@ Resources:
           LOG_TABLE: !Sub akldb-${Stage}-log
           DATA_BUCKET: !Sub akldb-${Stage}-data-${AWS::AccountId}
           SSM_PREFIX: !Sub /akldb/${Stage}/
+          AKLDB_AWAIT_IMAGE: !If [ AwaitsImage, "1", "0" ]
           # wrangler.toml [vars]
           DISCORD_API_URL: !Ref DiscordApiUrl
           MODQUEUE_DISCORD_COMPONENTS: "false"
