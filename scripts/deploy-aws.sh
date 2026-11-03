@@ -11,7 +11,7 @@
 #   1  bundle src/lambda.ts with esbuild (ESM, node24, minified) + migrations/ into a zip
 #   2  upload the zip to the artifacts bucket under a content hash
 #   3  create the stack's change set from the template, print it, and (--execute) run it
-#   4  update-function-code + publish-version      -> a new immutable version
+#   4  update-function-code (api and jobs) + publish-version (api) -> a new immutable version
 #   5  invoke THAT version with {"akldb":"migrate"} -> pending migrations enter the log; the live alias still serves the old code
 #   6  move the alias: a second change set with LiveVersion=<new version>, so CloudFormation stays the source of truth
 #   7  pre-warm: invoke the live alias with {"akldb":"warm","k":4}
@@ -59,6 +59,7 @@ fi
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 STACK="akldb-$STAGE"
 FUNCTION="akldb-$STAGE-api"
+JOBS_FUNCTION="akldb-$STAGE-jobs"
 ARTIFACTS="akldb-artifacts-$ACCOUNT"
 DIST="$ROOT/dist/lambda-$STAGE"
 export AWS_PAGER=""
@@ -142,12 +143,24 @@ run $AWS s3 cp "$ROOT/infra/akldb.yaml" "s3://$ARTIFACTS/$TEMPLATE_KEY"
 TEMPLATE_URL="https://$ARTIFACTS.s3.$REGION.amazonaws.com/$TEMPLATE_KEY"
 
 # ---- parameters: an explicit setting wins, then the stack's current value, then the default ----
-exists=1
+# The stack's status decides CREATE or UPDATE. A first-deploy preview (no --execute) leaves the stack in REVIEW_IN_PROGRESS
+# holding its change set; that stack still needs a CREATE change set, not an UPDATE one ("does not exist"), and the
+# preview's change set of the same name is deleted before the new one is made (a name can be used once).
+# --dry-run takes the status from DEPLOY_DRY_STACK_STATUS (default UPDATE_COMPLETE; "none" is a first deploy).
 if [ "$DRY" = 1 ]; then
-  show $AWS cloudformation describe-stacks --stack-name "$STACK"
+  show $AWS cloudformation describe-stacks --stack-name "$STACK" --query "Stacks[0].StackStatus"
+  STATUS="${DEPLOY_DRY_STACK_STATUS-UPDATE_COMPLETE}"
+  [ "$STATUS" != none ] || STATUS=""
 else
-  $AWS cloudformation describe-stacks --stack-name "$STACK" >/dev/null 2>&1 || exists=0
+  STATUS="$($AWS cloudformation describe-stacks --stack-name "$STACK" --query "Stacks[0].StackStatus" --output text 2>/dev/null)" || STATUS=""
 fi
+case "$STATUS" in
+  ROLLBACK_COMPLETE | CREATE_FAILED | DELETE_FAILED)
+    echo "refusing: $STACK is in $STATUS; delete it (and fix what failed) before deploying" >&2
+    exit 1 ;;
+esac
+exists=1
+{ [ -n "$STATUS" ] && [ "$STATUS" != REVIEW_IN_PROGRESS ]; } || exists=0
 current() { # current NAME DEFAULT
   if [ "$exists" = 1 ] && [ "$DRY" = 0 ]; then
     v="$($AWS cloudformation describe-stacks --stack-name "$STACK" --query "Stacks[0].Parameters[?ParameterKey=='$1'].ParameterValue | [0]" --output text)"
@@ -171,6 +184,10 @@ LIVE="$(current LiveVersion '$LATEST')"
 change_set() {
   live="$1"; name="$2"
   if [ "$exists" = 1 ]; then type=UPDATE; else type=CREATE; fi
+  if [ -n "$STATUS" ]; then # a stack (maybe only REVIEW_IN_PROGRESS) may hold the preview's change set of this name
+    show $AWS cloudformation delete-change-set --stack-name "$STACK" --change-set-name "$name"
+    [ "$DRY" = 1 ] || $AWS cloudformation delete-change-set --stack-name "$STACK" --change-set-name "$name" >/dev/null 2>&1 || true
+  fi
   run $AWS cloudformation create-change-set --stack-name "$STACK" --change-set-name "$name" --change-set-type "$type" \
     --template-url "$TEMPLATE_URL" --capabilities CAPABILITY_NAMED_IAM \
     --tags "Key=project,Value=akldb" "Key=stage,Value=$STAGE" \
@@ -202,6 +219,7 @@ change_set() {
   if [ "$type" = CREATE ]; then wait_for=stack-create-complete; else wait_for=stack-update-complete; fi
   run $AWS cloudformation wait "$wait_for" --stack-name "$STACK"
   exists=1
+  STATUS=ACTIVE
 }
 
 # ---- 3. the change set ----
@@ -213,7 +231,10 @@ fi
 
 # ---- 4. a new version of the code ----
 run $AWS lambda update-function-code --function-name "$FUNCTION" --s3-bucket "$ARTIFACTS" --s3-key "$CODE_KEY"
+# the jobs function runs the same bundle (it has no alias: the api invokes it by name)
+run $AWS lambda update-function-code --function-name "$JOBS_FUNCTION" --s3-bucket "$ARTIFACTS" --s3-key "$CODE_KEY"
 run $AWS lambda wait function-updated --function-name "$FUNCTION"
+run $AWS lambda wait function-updated --function-name "$JOBS_FUNCTION"
 VERSION="$(cap 42 $AWS lambda publish-version --function-name "$FUNCTION" --description "$HASH" --query Version --output text)"
 say "published version $VERSION"
 

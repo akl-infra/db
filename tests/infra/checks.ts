@@ -72,7 +72,7 @@ export function resolveStage(t: Json, stage: string, extra: Json = {}): { params
   }
   // The template holds each stateful resource twice (prod's kept one, the others' deletable one: DeletionPolicy
   // cannot take Fn::If). Name them alike so a stage's resolved set is the same ids everywhere.
-  const canon = JSON.parse(JSON.stringify(resources).replace(/"(LogTable|DataBucket|LogGroup)Dev"/g, '"$1"'));
+  const canon = JSON.parse(JSON.stringify(resources).replace(/"(LogTable|DataBucket|LogGroup|JobsLogGroup)Dev"/g, '"$1"'));
   return { params, resources: canon };
 }
 
@@ -91,7 +91,7 @@ export function policyDocs(resources: Record<string, Json>): [string, Json][] {
 /** The logical ids a stage creates. The alarm set is the AX4 list; the budget is prod only. */
 export function expectedResources(stage: string): string[] {
   const common = [
-    "LogTable", "DataBucket", "DataBucketPolicy", "LogGroup", "ApiRole", "ApiFunction", "LiveAlias", "LiveAliasEventConfig",
+    "LogTable", "DataBucket", "DataBucketPolicy", "LogGroup", "JobsLogGroup", "ApiRole", "ApiFunction", "JobsFunction", "JobsAlarmPrefixFilter", "LiveAlias", "LiveAliasEventConfig",
     "HttpApi", "ApiIntegration", "DefaultRoute", "DefaultStage", "ApiInvokePermission", "CustomDomain", "ApiMapping",
     "SchedulerRole", "JobsSchedule", "KeepWarmSchedule", "AlarmTopic", "AlarmTopicPolicy", "AlarmPrefixFilter", ...alarmsFor(stage),
   ];
@@ -100,7 +100,7 @@ export function expectedResources(stage: string): string[] {
 
 /** The alarms a stage has: the account's free tier is 10, so only prod gets the full set. */
 export const ALARMS_EVERY_STAGE = ["LambdaErrorsAlarm", "AlarmPrefixAlarm"];
-export const ALARMS_PROD_ONLY = ["LambdaThrottlesAlarm", "LambdaDurationAlarm", "Api5xxAlarm", "DdbSystemErrorsAlarm", "DdbThrottledAlarm"];
+export const ALARMS_PROD_ONLY = ["JobsErrorsAlarm", "LambdaThrottlesAlarm", "LambdaDurationAlarm", "Api5xxAlarm", "DdbSystemErrorsAlarm", "DdbThrottledAlarm"];
 export const alarmsFor = (stage: string): string[] => (stage === "prod" ? [...ALARMS_EVERY_STAGE, ...ALARMS_PROD_ONLY] : ALARMS_EVERY_STAGE);
 
 export function violations(t: Json, stage: string, extra: Json = {}): string[] {
@@ -155,32 +155,43 @@ export function violations(t: Json, stage: string, extra: Json = {}): string[] {
     if (noncurrent?.NoncurrentVersionExpiration?.NoncurrentDays !== 35) v.push(`${id}: noncurrent versions do not expire after 35 days`);
   }
 
-  // The function.
+  // The two functions: the api (behind the alias) and the jobs function (same bundle, 600 s, no alias, no URL).
   const fns = ofType("AWS::Lambda::Function");
-  if (fns.length !== 1) v.push(`${fns.length} Lambda functions (one)`);
+  if (JSON.stringify(fns.map(([id]) => id).sort()) !== '["ApiFunction","JobsFunction"]') v.push(`Lambda functions ${fns.map(([id]) => id)} (ApiFunction and JobsFunction)`);
+  const shape: Record<string, { timeout: number; logGroup: string; env: string[] }> = {
+    ApiFunction: { timeout: 35, logGroup: "LogGroup", env: ["DATA_BUCKET", "DISCORD_API_URL", "JOBS_FUNCTION", "LOG_TABLE", "MODQUEUE_DISCORD_COMPONENTS", "SSM_PREFIX", "STAGE"] },
+    JobsFunction: { timeout: 600, logGroup: "JobsLogGroup", env: ["DATA_BUCKET", "DISCORD_API_URL", "LOG_TABLE", "MODQUEUE_DISCORD_COMPONENTS", "SSM_PREFIX", "STAGE"] },
+  };
   for (const [id, r] of fns) {
     const p = r.Properties;
+    const want = shape[id];
     if (p.Runtime !== "nodejs24.x") v.push(`${id}: runtime ${p.Runtime}`);
     if (JSON.stringify(p.Architectures) !== '["arm64"]') v.push(`${id}: not arm64`);
     if (p.MemorySize !== 2048) v.push(`${id}: memory ${p.MemorySize}`);
-    if (p.Timeout !== 35) v.push(`${id}: timeout ${p.Timeout}`);
+    if (p.Timeout !== want?.timeout) v.push(`${id}: timeout ${p.Timeout}`);
     if (p.Handler !== "lambda.handler") v.push(`${id}: handler ${p.Handler}`);
+    if (p.Code?.S3Key?.Ref !== "CodeKey" || p.Code?.S3Bucket?.Ref !== "ArtifactsBucket") v.push(`${id}: not the shared artifact (CodeKey)`);
+    if (p.Role?.["Fn::GetAtt"]?.[0] !== "ApiRole") v.push(`${id}: not the boundary-capped role`);
     const env = p.Environment?.Variables ?? {};
-    for (const k of ["STAGE", "LOG_TABLE", "DATA_BUCKET", "SSM_PREFIX", "DISCORD_API_URL", "MODQUEUE_DISCORD_COMPONENTS"]) if (!(k in env)) v.push(`${id}: env ${k} missing`);
-    if (JSON.stringify(Object.keys(env).sort()) !== JSON.stringify(["DATA_BUCKET", "DISCORD_API_URL", "LOG_TABLE", "MODQUEUE_DISCORD_COMPONENTS", "SSM_PREFIX", "STAGE"])) v.push(`${id}: unexpected environment ${Object.keys(env).sort()}`);
-    if (p.LoggingConfig?.LogGroup?.Ref !== "LogGroup") v.push(`${id}: not logging to the explicit log group`);
+    if (JSON.stringify(Object.keys(env).sort()) !== JSON.stringify(want?.env)) v.push(`${id}: unexpected environment ${Object.keys(env).sort()}`);
+    if (id === "ApiFunction" && env.JOBS_FUNCTION?.["Fn::Sub"] !== "akldb-${Stage}-jobs") v.push(`${id}: JOBS_FUNCTION is not the jobs function`);
+    if (p.LoggingConfig?.LogGroup?.Ref !== want?.logGroup) v.push(`${id}: not logging to ${want?.logGroup}`);
     const reserved = params.ReservedConcurrency ?? t.Parameters.ReservedConcurrency.Default;
-    if ((reserved === "") !== !("ReservedConcurrentExecutions" in p)) v.push(`${id}: ReservedConcurrentExecutions does not follow the parameter`);
+    if (id === "ApiFunction" && (reserved === "") !== !("ReservedConcurrentExecutions" in p)) v.push(`${id}: ReservedConcurrentExecutions does not follow the parameter`);
+    if (id === "JobsFunction" && "ReservedConcurrentExecutions" in p) v.push(`${id}: reserved concurrency (only the api may take it)`);
   }
 
-  // The log group (AX5).
-  const lg = R.LogGroup?.Properties;
-  if (!lg || lg.LogGroupClass !== "STANDARD") v.push("LogGroup: not STANDARD (Infrequent Access has no metric filters or FilterLogEvents)");
-  if (lg?.LogGroupName?.["Fn::Sub"] !== "/aws/lambda/akldb-${Stage}-api") v.push("LogGroup: not the function's log group name");
-  if (stage === "prod" && lg && "RetentionInDays" in lg) v.push("LogGroup: prod logs must never expire");
-  const lgPolicy = R.LogGroup?.DeletionPolicy;
-  if (lgPolicy !== (stage === "prod" ? "Retain" : "Delete")) v.push(`LogGroup: DeletionPolicy ${lgPolicy}`);
-  if (stage !== "prod" && lg?.RetentionInDays !== 14) v.push("LogGroup: non-prod retention is 14 days");
+  // The log groups (AX5): STANDARD, one per function; prod's never expire and are kept, the others keep 14 days and go.
+  for (const id of ["LogGroup", "JobsLogGroup"]) {
+    const lg = R[id]?.Properties;
+    if (!lg || lg.LogGroupClass !== "STANDARD") v.push(`${id}: not STANDARD (Infrequent Access has no metric filters or FilterLogEvents)`);
+    const name = id === "LogGroup" ? "api" : "jobs";
+    if (lg?.LogGroupName?.["Fn::Sub"] !== `/aws/lambda/akldb-\${Stage}-${name}`) v.push(`${id}: not the function's log group name`);
+    if (stage === "prod" && lg && "RetentionInDays" in lg) v.push(`${id}: prod logs must never expire`);
+    if (stage !== "prod" && lg?.RetentionInDays !== 14) v.push(`${id}: non-prod retention is 14 days`);
+    const lgPolicy = R[id]?.DeletionPolicy;
+    if (lgPolicy !== (stage === "prod" ? "Retain" : "Delete")) v.push(`${id}: DeletionPolicy ${lgPolicy}`);
+  }
 
   // The HTTP API.
   const apis = ofType("AWS::ApiGatewayV2::Api");
@@ -218,7 +229,15 @@ export function violations(t: Json, stage: string, extra: Json = {}): string[] {
         const r = s.Resource;
         const okFn = r?.["Fn::Sub"] === "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:akldb-${Stage}-api:live";
         const okSched = r?.Ref === "LiveAlias";
-        if (!okFn && !okSched) v.push(`${name}: lambda:InvokeFunction on something other than the live alias`);
+        const okJobs = s.Sid === "InvokeJobs" && r?.["Fn::Sub"] === "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:akldb-${Stage}-jobs";
+        if (!okFn && !okSched && !okJobs) v.push(`${name}: lambda:InvokeFunction on something other than the live alias (or the jobs function)`);
+      }
+      // Objects: read and write the three prefixes, delete only the log spill prefix.
+      const bucket = "arn:aws:s3:::akldb-${Stage}-data-${AWS::AccountId}";
+      if (arr(s.Action).includes("s3:DeleteObject") && (arr(s.Action).length !== 1 || JSON.stringify(s.Resource) !== JSON.stringify({ "Fn::Sub": `${bucket}/log/*` }))) v.push(`${name}: s3:DeleteObject on something other than log/*`);
+      if (arr(s.Action).some((a: string) => a === "s3:GetObject" || a === "s3:PutObject")) {
+        const got = arr(s.Resource).map((x) => x?.["Fn::Sub"]).sort();
+        if (JSON.stringify(got) !== JSON.stringify(["dumps", "log", "snap"].map((p2) => `${bucket}/${p2}/*`).sort())) v.push(`${name}: object access is not exactly snap/, dumps/ and log/`);
       }
     }
   }
