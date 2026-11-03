@@ -53,6 +53,10 @@ Staging is deployed; shadow and prod are not. Commands use profile `akldb`.
 - **Logs are STANDARD class** (prod never expires, the others 14 days): Infrequent Access supports neither metric filters nor
   FilterLogEvents, and the cost difference is pennies at this volume. The code logs every failure it wants a human to see as a
   line starting `akldb-alarm:`; a metric filter turns those into `akldb/<stage>/Alarms` and an alarm fires on any (1 of 1 x 5 min).
+- **Moving an existing stack from Infrequent Access to STANDARD replaces its log group** (the class cannot change in place), and the
+  group has a fixed name, so CloudFormation refuses the update ("custom-named resource requires replacing"). Staging (deployed
+  with IA): either `deploy-aws.sh --stage staging --destroy-nonprod --confirm akldb-staging` and deploy again (the stack is
+  deletable by design; its log and data go), or delete `/aws/lambda/akldb-staging-api` by hand first and then update.
 - **Alarms.** Prod has the full set (Lambda Errors on the api and the jobs function, Throttles, Duration p95, API 5xx, two DynamoDB
   alarms, the `akldb-alarm:` alarm); staging and shadow only Lambda Errors and the `akldb-alarm:` alarm. That is 12 alarms across the
   three stages against the account's free 10, and the two DynamoDB alarms are metric math over five metrics each, which CloudWatch
