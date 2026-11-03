@@ -6,6 +6,7 @@
 //   - the in-process fake Discord's host: answered right here by `fakeDiscord.handle`, never sent.
 // Anything else throws ShadowEgressError and logs ONE line `akldb-alarm: shadow-egress: refused <METHOD> <host>` (host
 // only: a Discord webhook's token lives in its path, and no query or header is ever logged).
+import { logByLevel } from "../replica/alarm";
 import { raise } from "../replica/alarm";
 import { FAKE_DISCORD_HOST, type FakeDiscord } from "./fake-discord";
 
@@ -35,7 +36,7 @@ export interface EgressOptions {
 export const GUARDED = Symbol.for("akldb.shadow.egress-guard");
 
 export function createEgressGuard(o: EgressOptions): FetchFn {
-  const logLine = o.logLine ?? ((l: string) => console.error(l));
+  const logLine = o.logLine ?? logByLevel;
   const guarded: FetchFn = async (input, init) => {
     const request = input instanceof Request ? input : undefined;
     const method = (init?.method ?? request?.method ?? "GET").toUpperCase();

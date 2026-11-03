@@ -14,3 +14,13 @@ export function alarmLine(component: string, message: string): string {
 export function raise(sink: (line: string) => void, component: string, message: string): void {
   sink(alarmLine(component, message));
 }
+
+/**
+ * The default sink for the replica/host report lines: `akldb-alarm:` lines at ERROR, every other line (`akldb-boot:`,
+ * `akldb-cold:`, `akldb-snapshot:`, ...) at INFO. In Lambda's JSON log format the level comes from the console method,
+ * so a healthy line written with console.error would read as an error in every level-based view or alarm.
+ */
+export function logByLevel(line: string): void {
+  if (line.startsWith(ALARM_PREFIX)) console.error(line);
+  else console.info(line);
+}
