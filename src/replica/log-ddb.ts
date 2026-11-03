@@ -6,6 +6,7 @@
 // with the unit id as ClientRequestToken so a retried 5xx cannot commit twice. head/read/get are
 // ConsistentRead. The endpoint is configurable for DynamoDB Local.
 import { AwsClient } from "aws4fetch";
+import { sleep as realSleep } from "./timers";
 import {
   AmbiguousAppendError,
   LogThrottledError,
@@ -61,7 +62,7 @@ export function createDdbLog(opts: DdbLogOptions): CommitLog & { readonly table:
   const client = new AwsClient({ ...opts.credentials, service: "dynamodb", region });
   const timeoutMs = opts.timeoutMs ?? 3000;
   const retries = opts.retries ?? 4;
-  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const sleep = opts.sleep ?? realSleep;
   const random = opts.random ?? Math.random;
   const doFetch = opts.fetch;
 

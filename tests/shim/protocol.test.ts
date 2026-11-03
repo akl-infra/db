@@ -243,3 +243,23 @@ describe("the request snapshot", () => {
     expect(log.counts.heads - heads).toBe(3);
   });
 });
+
+describe("real time under a frozen test clock", () => {
+  it("[LDB-SH5] the default backoff keeps real time when a test has installed fake timers: conflicted units still land", async () => {
+    // tests/api/dump.test.ts and tests/rehost.test.ts call vi.useFakeTimers(); before src/replica/timers.ts the
+    // replica's default setTimeout backoff froze with them and the 20% fault run hung idle in both files.
+    const { vi } = await import("vitest");
+    const { log: flog, replica } = await freshReplica({}, { backoffMs: 5 }); // the default (real-time) sleep
+    const d = shimOf(replica);
+    await createCounter(d);
+    flog.setFaults({ conflict: 0.5, seed: 7 });
+    vi.useFakeTimers();
+    try {
+      for (let i = 0; i < 10; i++) await d.prepare("UPDATE ctr SET n = n + 1 WHERE id = 1").run();
+      expect((await counter(d)).n).toBe(10);
+      expect(replica.stats.retries).toBeGreaterThan(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
