@@ -1,0 +1,87 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  akldb on AWS, design A phase D: the latency probe for gate (a). One small Lambda in us-east-2 (Spark's vantage) that is
+  invoked by hand and measures api.akldb.org and shadow-api.akldb.org over keep-alive. No URL, no schedule, no trigger of
+  any kind, a one-day log group. Created before a measurement and deleted after it (scripts/aws/probe.sh).
+
+# Never part of the akldb-<stage> stacks. The role carries the same permissions boundary as theirs (it may write logs
+# under /aws/lambda/akldb-* and nothing else), and nothing here reads or writes akldb's data.
+
+Parameters:
+  ArtifactsBucket:
+    Type: String
+    Description: The bucket holding the probe zip (infra/akldb-bootstrap.yaml, output ArtifactsBucket).
+  CodeKey:
+    Type: String
+    Description: Key of the probe zip, content-addressed by scripts/aws/probe.sh.
+
+Rules:
+  RegionIsOhio:
+    Assertions:
+      - Assert: !Equals [ !Ref "AWS::Region", us-east-2 ]
+        AssertDescription: Regional resources live in the project Region us-east-2 only.
+
+Resources:
+  ProbeLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      LogGroupName: /aws/lambda/akldb-probe
+      LogGroupClass: STANDARD
+      RetentionInDays: 1
+      Tags:
+        - { Key: project, Value: akldb }
+        - { Key: purpose, Value: akldb-probe }
+
+  ProbeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: akldb-probe
+      PermissionsBoundary: !ImportValue akldb-boundary-arn
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: akldb-probe
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: LogStream
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/akldb-probe:*"
+      Tags:
+        - { Key: project, Value: akldb }
+        - { Key: purpose, Value: akldb-probe }
+
+  ProbeFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: akldb-probe
+      Description: Latency probe for the shadow gate; invoked by hand only
+      Runtime: nodejs24.x
+      Architectures: [ arm64 ]
+      Handler: index.handler
+      MemorySize: 1024
+      Timeout: 300
+      Role: !GetAtt ProbeRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactsBucket
+        S3Key: !Ref CodeKey
+      LoggingConfig:
+        LogGroup: !Ref ProbeLogGroup
+        LogFormat: JSON
+        SystemLogLevel: WARN
+      Tags:
+        - { Key: project, Value: akldb }
+        - { Key: purpose, Value: akldb-probe }
+
+Outputs:
+  FunctionName:
+    Value: !Ref ProbeFunction

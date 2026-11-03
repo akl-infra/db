@@ -1,0 +1,37 @@
+# cfn-guard rules for infra/akldb-probe.yaml (design A phase D, LDB-PV9). Run:
+#   cfn-guard validate -r infra/akldb-probe.guard -d infra/akldb-probe.yaml
+# The probe is a throwaway: invoked by hand, no way in, no schedule, one-day logs, tagged, capped by the same boundary.
+
+let fns = Resources.*[ Type == 'AWS::Lambda::Function' ]
+let roles = Resources.*[ Type == 'AWS::IAM::Role' ]
+let logs = Resources.*[ Type == 'AWS::Logs::LogGroup' ]
+
+rule one_function_arm64_node24_outside_a_vpc when %fns !empty {
+    %fns.Properties.Runtime == 'nodejs24.x'
+    %fns.Properties.Architectures[*] == 'arm64'
+    %fns.Properties.VpcConfig not exists
+    %fns.Properties.ReservedConcurrentExecutions not exists
+}
+
+rule probe_is_tagged when %fns !empty {
+    %fns.Properties.Tags[ Key == 'purpose' ] !empty
+    %fns.Properties.Tags[ Key == 'purpose' ].Value == 'akldb-probe'
+}
+
+rule log_group_is_one_day when %logs !empty {
+    %logs.Properties.RetentionInDays == 1
+    %logs.Properties.LogGroupName == '/aws/lambda/akldb-probe'
+    %logs.Properties.Tags[ Key == 'purpose' ] !empty
+    %logs.Properties.Tags[ Key == 'purpose' ].Value == 'akldb-probe'
+}
+
+rule role_is_bounded_and_only_writes_logs when %roles !empty {
+    %roles.Properties.PermissionsBoundary == { "Fn::ImportValue": "akldb-boundary-arn" }
+    %roles.Properties.Policies[*].PolicyDocument.Statement[*].Action[*] in ['logs:CreateLogStream', 'logs:PutLogEvents']
+    %roles.Properties.Tags[ Key == 'purpose' ] !empty
+    %roles.Properties.Tags[ Key == 'purpose' ].Value == 'akldb-probe'
+}
+
+rule nothing_can_trigger_it {
+    Resources.*[ Type in ['AWS::Lambda::Url', 'AWS::Lambda::EventSourceMapping', 'AWS::Lambda::Permission', 'AWS::Scheduler::Schedule', 'AWS::Events::Rule', 'AWS::ApiGatewayV2::Api', 'AWS::SNS::Topic', 'AWS::SQS::Queue'] ] empty
+}
