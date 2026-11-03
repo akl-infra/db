@@ -205,9 +205,13 @@ export class Replica {
 
   // ---- catch-up ----
 
-  /** Read the head strongly and replay everything this replica has not applied. Resolves to the seq reached. */
-  catchUp(): Promise<number> {
-    return this.#mu.run(() => this.#catchUpLocked());
+  /**
+   * Read the head strongly and replay everything this replica has not applied. Resolves to the seq reached.
+   * With `upTo`, replay exactly to that seq instead (point-in-time restore, the nightly proof): no head read, and a log that
+   * cannot supply seq..upTo throws (the replica is left intact at the seq it reached).
+   */
+  catchUp(upTo?: number): Promise<number> {
+    return this.#mu.run(() => (upTo === undefined ? this.#catchUpLocked() : this.#catchUpToLocked(upTo)));
   }
 
   async #catchUpLocked(): Promise<number> {
@@ -215,13 +219,39 @@ export class Replica {
     const head = await this.#logCall(() => this.log.head());
     if (head < this.#seq) this.#die(new ReplicaDivergedError(`the log head ${head} is behind this replica (${this.#seq}): the log lost entries`));
     if (head === this.#seq) return head;
+    await this.#replayTo(head);
+    return head;
+  }
+
+  async #catchUpToLocked(upTo: number): Promise<number> {
+    this.#assertAlive();
+    if (upTo > this.#seq) await this.#replayTo(upTo);
+    return this.#seq;
+  }
+
+  async #replayTo(head: number): Promise<void> {
     const entries = await this.#logCall(() => this.log.read(this.#seq, head));
     for (const [i, e] of entries.entries()) {
       if (e.seq !== this.#seq + 1 + i) throw new Error(`commit log read is not contiguous: expected seq ${this.#seq + 1 + i}, got ${e.seq}`);
     }
     if (entries.length !== head - this.#seq) throw new Error(`commit log read returned ${entries.length} entries for seq ${this.#seq + 1}..${head}`);
     for (const e of entries) this.#apply(e);
-    return head;
+  }
+
+  /**
+   * Replay entries a boot already read (the tail after a snapshot, fetched while the snapshot downloaded). Entries at or below
+   * this replica's seq are skipped; the rest must follow it without a gap. The caller still runs catchUp() afterwards: this
+   * never replaces the strong head read.
+   */
+  applyPrefetched(entries: LogEntry[]): Promise<number> {
+    return this.#mu.run(async () => {
+      this.#assertAlive();
+      for (const e of entries) {
+        if (e.seq <= this.#seq) continue;
+        this.#apply(e);
+      }
+      return this.#seq;
+    });
   }
 
   /** Re-execute one entry and verify its hash. */
@@ -507,6 +537,41 @@ export class Replica {
     return got.unitId === unitId ? "mine" : "other";
   }
 
+  // ---- snapshots ----
+
+  /**
+   * A replica whose database is `bytes` (a `serialize()` image taken at log seq `seq`). The caller has verified the image's
+   * checksum; this only checks that SQLite can read it. Run catchUp() next: nothing may be served before the tail is replayed.
+   */
+  static fromSnapshot(log: CommitLog, bytes: Uint8Array, seq: number, opts: ReplicaOptions = {}): Replica {
+    const r = new Replica(log, opts);
+    try {
+      r.db.deserialize(bytes);
+      r.db.prepare("SELECT count(*) AS n FROM sqlite_master").get(); // forces SQLite to parse the header and schema
+    } catch (e) {
+      r.close();
+      throw new Error(`snapshot at seq ${seq} is not a readable SQLite database: ${e instanceof Error ? e.message : String(e)}`, { cause: e });
+    }
+    r.#seq = seq;
+    return r;
+  }
+
+  /**
+   * The database image at one consistent seq, for the snapshot writer. Holds the mutex only for the catch-up and the
+   * `serialize()` (about 10 ms for 44 MB): no unit is open, and no unit can start, while the image is taken. The caller
+   * compresses and uploads outside the lock.
+   */
+  capture(): Promise<{ seq: number; bytes: Uint8Array; migrations: string[] }> {
+    return this.#mu.run(async () => {
+      await this.#catchUpLocked();
+      const migrations =
+        this.db.prepare("SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = 'd1_migrations'").get() === undefined
+          ? []
+          : (this.db.prepare("SELECT name FROM d1_migrations ORDER BY id").all() as { name: string }[]).map((r) => r.name);
+      return { seq: this.#seq, bytes: this.db.serialize(), migrations };
+    });
+  }
+
   // ---- inspection ----
 
   /** The whole database as bytes (byte-identical across replicas at the same seq). Throws inside a unit. */
@@ -522,3 +587,23 @@ export class Replica {
     this.db.close();
   }
 }
+
+/**
+ * sha256 of a database image with SQLite's per-connection header bookkeeping zeroed: the file change counter (bytes 24-27),
+ * the version-valid-for number (92-95) and the writing library's version (96-99). A `:memory:` database never maintains them
+ * and a deserialized one does, so the raw bytes of two replicas at the same seq can differ there while every page is equal.
+ * Everything else (every page, the schema, the freelist, sqlite_sequence) is covered. Used by the nightly proof (RP4).
+ */
+export function imageDigest(bytes: Uint8Array): string {
+  const h = createHash("sha256");
+  if (bytes.byteLength < 100) return h.update(bytes).digest("hex");
+  const head = Uint8Array.from(bytes.subarray(0, 100));
+  head.fill(0, 24, 28);
+  head.fill(0, 92, 100);
+  h.update(head);
+  h.update(bytes.subarray(100));
+  return h.digest("hex");
+}
+
+/** Plain sha256 hex of bytes (the snapshot checksum). */
+export const sha256Hex = (data: Uint8Array | string): string => sha256(data);
