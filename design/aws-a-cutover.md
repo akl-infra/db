@@ -64,7 +64,10 @@ Frozen means writes answer 503 and the jobs stop. A GET still bookkeeps: Spark p
 So the live D1 drifts between `export` and `verify`, and AWS drifts under the stack the same way. The proofs therefore never compare a drift table blindly:
 the image is proven equal to the **export file** (fidelity), to live D1 on every other table, and on the drift tables except those rows and columns. What D1
 gained since the export is listed in the report as **"lost on AWS: read-path bookkeeping (nonces / auth_cache / authors.last_seen_at and renames)"**: nonces
-are replay guards that expire in minutes, the cache refills, `last_seen_at` is refreshed on the next sign-in. It is not a failure. **Anything outside the
+are replay guards that expire in minutes, the cache refills, `last_seen_at` is refreshed on the next sign-in. It is not a failure. A lost nonce reopens replay only for that signed GET, and only inside its
+signature window (at most 300 s, 09 §2.5): a replayed read returns what the reader could already read. Accepted for the cutover (saltorbit, 2026-11-03);
+a signed write refused with 503 during the freeze also spends a nonce (actor resolution runs before read_only), and its replay within the window
+would carry out on AWS the write its signer asked for and was refused, which the signer's own retry does anyway. **Anything outside the
 pinned set is a failure**, and a future read-path write fails the test before it reaches a cutover.
 
 The probes are bookkeeping too: each signed probe spends one nonce on whatever database answers it (D1 before the export, so it is IN the image; AWS after
