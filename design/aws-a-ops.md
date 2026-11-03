@@ -9,7 +9,7 @@ Nothing here has been deployed. Commands use profile `akldb`.
 1. IAM user `akldb-ci` (no console, one access key) with the inline policy in `infra/iam-akldb-ci.json` (it may only assume
    `akldb-deploy`). Then the bootstrap stack:
    `aws cloudformation deploy --region us-east-2 --stack-name akldb-bootstrap --template-file infra/akldb-bootstrap.yaml --capabilities CAPABILITY_NAMED_IAM`
-2. GitHub environment `akldb-production` on akl-infra/db: secrets `AKLDB_CI_ACCESS_KEY_ID`, `AKLDB_CI_SECRET_ACCESS_KEY`
+2. One GitHub environment, `akldb-production`, serves every stage (staging, shadow and prod share the one key) on akl-infra/db: secrets `AKLDB_CI_ACCESS_KEY_ID`, `AKLDB_CI_SECRET_ACCESS_KEY`
    (the user's key), variable `AKLDB_ALARM_EMAIL`; allow branches `main` and `aws-a/main`.
 3. Copy `design/ci/aws-deploy.yml` to `.github/workflows/aws-deploy.yml`: tests, then staging on a push to `aws-a/main`
    (plus an HTTP smoke of staging-api.akldb.org), prod on manual dispatch with `stage: prod`.
@@ -40,13 +40,36 @@ Nothing here has been deployed. Commands use profile `akldb`.
 
 ## Notes
 
-- Reserved concurrency is unset: the account limit is 10 and a reservation must leave 10 unreserved. After a quota increase,
+- **Concurrency.** The account limit is 10 and a raise to 1000 is requested (pending). Keep-warm K=4 takes 4 of the 10, and real
+  users have been measured bursting to 27 concurrent, so the increase is needed before real traffic; until it lands, bursts
+  above the remaining 6 throttle (the Throttles alarm, per function: dimension `FunctionName`, never an account-wide metric).
+  `ReservedConcurrency` stays unset until the quota is raised (a reservation must leave 10 unreserved); then
   `RESERVED_CONCURRENCY=<n> sh scripts/deploy-aws.sh --stage <stage> --execute`.
+- **Prod keeps, the others delete.** Prod's table, bucket and log group are `Retain` (table with deletion protection, logs never
+  expire). Staging and shadow are deletable (14-day logs), so a stack can be deleted and recreated:
+  `sh scripts/deploy-aws.sh --stage staging --destroy-nonprod --confirm akldb-staging` empties the versioned bucket (versions
+  and delete markers; S3 will not delete it otherwise) and deletes the stack, and refuses prod. Run it with an admin profile:
+  `akldb-deploy` cannot delete stacks or objects. That path has only been run as `--dry-run`. The certificate stack is separate
+  and stays.
 - Keep-warm: EventBridge Scheduler pings the live alias every 5 minutes with `k=4`; the function fans out 3 concurrent child
-  invocations (150 ms each). Concurrency use is 4 of the account's 10.
+  invocations (150 ms each).
 - Responses are buffered: Lambda and API Gateway cap them near 6 MB (today's dump is far below). A divergent replica makes the
   invocation fail (Lambda Errors alarm) and the next invocation boots a fresh one.
-- The table, bucket and log group are `Retain`: deleting a stack leaves them, and recreating the stack under the same name
-  needs them removed (or imported) first. The table also has deletion protection on.
-- The jobs schedule is `rate(5 minutes)`, not clock-aligned; the function floors each tick to the 5-minute boundary so the
-  03:00 nightly job runs exactly once.
+- Shadow has no deploy job yet (phase D); `deploy-aws.sh --stage shadow` works by hand.
+
+## Deviations from the brief, for the record
+
+- **Test placement.** The infra and Lambda tests are vitest files (`tests/infra/`, `tests/platform/`), not `infra/akldb.test.mjs`,
+  because the invariant registry check (LDB-T1) scans only `tests/**/*.test.ts`.
+- **DynamoDB alarms are metric math.** `SystemErrors` and `ThrottledRequests` exist per Operation and an alarm cannot SEARCH, so each
+  alarm sums the five operations the log uses (GetItem, Query, PutItem, UpdateItem, TransactWriteItems).
+- **Ticks floor to 5 minutes.** `rate(5 minutes)` is not clock-aligned; the nightly job keys on hour 3, minute 0, so each tick's
+  time is floored to the 5-minute boundary and the job runs exactly once.
+- **`akldb-deploy` scope.** `lambda:*` on `akldb-*` functions as asked, plus create/update/pass of `akldb-*` roles (the stacks hold
+  roles; the name prefix is the fence). No `DeleteStack`, no IAM user or OIDC actions.
+- **`s3:ListBucket`** on the function role: without it S3 answers 403 for a missing key instead of 404, and the blob store needs the
+  404. Object access stays limited to `snap/*` and `dumps/*`.
+- **esbuild** is an explicit devDependency (pinned 0.28.2, the version tsup already resolved to), because `deploy-aws.sh` calls it
+  directly.
+- **Two copies of the stateful resources.** `DeletionPolicy` cannot take `Fn::If`, so the log table, data bucket and log group
+  exist once per Condition (`LogTable` / `LogTableDev`, ...); the rest of the template names them by their deterministic names.
