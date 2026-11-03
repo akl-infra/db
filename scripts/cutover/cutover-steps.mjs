@@ -89,7 +89,14 @@ async function dumpsEqual(ports, o) {
     const [ha, hb] = [lc(a.headers), lc(b.headers)];
     const diffs = [];
     if (a.status !== b.status) diffs.push(`status ${a.status} vs ${b.status}`);
-    for (const h of ["content-type", "cache-control", "etag", "location"]) if ((ha[h] ?? null) !== (hb[h] ?? null)) diffs.push(`${h} ${ha[h] ?? "absent"} vs ${hb[h] ?? "absent"}`);
+    // the ETag compared weakly (Cloudflare marks it W/ when it compresses the Worker's answer, LDB-CV19); a redirect relative to each side's own origin
+    // (the same name at the flip; the rehearsal Worker and staging differ by host only)
+    const norm = { etag: (v, _) => v.replace(/^W\//, ""), location: (v, origin) => (v.startsWith(origin) ? v.slice(origin.length) : v) };
+    const sides = [[ha, new URL(o.workerUrl).origin], [hb, new URL(o.publicUrl).origin]];
+    for (const h of ["content-type", "cache-control", "etag", "location"]) {
+      const [va, vb] = sides.map(([hs, origin]) => (hs[h] === undefined ? null : norm[h] ? norm[h](hs[h], origin) : hs[h]));
+      if (va !== vb) diffs.push(`${h} ${ha[h] ?? "absent"} vs ${hb[h] ?? "absent"}`);
+    }
     if (a.status === 200 && a.sha256 !== b.sha256) diffs.push("body bytes differ");
     checks.push({ path: p, status: [a.status, b.status], diffs });
   }
@@ -103,7 +110,10 @@ async function readsEqual(ports, o, paths) {
     const norm = p.startsWith("/v1/meta") ? normalizeMeta : (x) => x;
     const ea = lc(a.headers).etag ?? null;
     const eb = lc(b.headers).etag ?? null;
-    checks.push({ path: p, status: [a.status, b.status], bodyEqual: a.status === b.status && norm(a.body) === norm(b.body), etagEqual: ea === eb, etag: eb });
+    // weak comparison (RFC 9110 8.8.3.2, what If-None-Match uses): Cloudflare marks an ETag W/ when it compresses the answer, and the stack does when it
+    // gzips one (LDB-CV19), so only the opaque tag is compared
+    const opaque = (e) => (e === null ? null : e.replace(/^W\//, ""));
+    checks.push({ path: p, status: [a.status, b.status], bodyEqual: a.status === b.status && norm(a.body) === norm(b.body), etagEqual: opaque(ea) === opaque(eb), etag: eb, etags: [ea, eb] });
   }
   return checks;
 }

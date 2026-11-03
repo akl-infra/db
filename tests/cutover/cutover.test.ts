@@ -277,6 +277,14 @@ describe("each step's precondition stops the run with a clear message (CV11)", (
     cleanup(w);
     await until("image", { awsNoBackendHeader: true });
     await fails(await w.cutover(["--execute", "--only", "serve"]), /answers without x-akldb-backend: aws \(CV13\)/, "serve");
+    cleanup(w);
+    // ETags compare weakly: Cloudflare's W/ on a compressed Worker answer is the same tag; another opaque tag is a difference
+    await until("image", { workerWeakEtags: true, awsMetaEtagDiffers: true });
+    await fails(await w.cutover(["--execute", "--only", "serve"]), /reads differ between D1 and the prod stack: \/v1\/meta status 200,200 body = etag !=$/m, "serve");
+    cleanup(w);
+    await until("image", { workerWeakEtags: true });
+    const ok = await w.cutover(["--execute", "--only", "serve"]);
+    expect(ok.code, ok.out.join("\n")).toBe(0);
   });
 
   it("[LDB-CV23] serve needs the origin secret file, and open refuses until the name points at AWS", async () => {

@@ -150,6 +150,10 @@ async function serve(db: Sqlx, req: { method: string; path: string; query: URLSe
 }
 
 export interface Faults {
+  /** The Worker's ETags come back weak (W/), as Cloudflare makes them when it compresses an answer: the same tag, not a difference. */
+  workerWeakEtags?: boolean;
+  /** The stack's /v1/meta ETag carries another opaque tag. */
+  awsMetaEtagDiffers?: boolean;
   /** The `crashNth`th (default 1st) port call made while this step runs throws once. */
   crashStep?: string;
   crashNth?: number;
@@ -365,6 +369,7 @@ export async function makeWorld(init: { faults?: Faults; events?: number; churnR
       const flag = await sqlx.select("SELECT value FROM import_state WHERE key = 'cutover.mode'");
       res = await serve(sqlx, req, flag.length > 0 && flag[0]!.value === "read_only", w.now, w.faults.signedWriteMakesNoEvent === true, s3);
       if (w.faults.awsListDiffers && req.path === "/v1/layouts" && req.method === "GET") res = { ...res, body: res.body.replace('"rev":', '"rev ":') };
+      if (w.faults.awsMetaEtagDiffers && req.path === "/v1/meta" && res.headers.etag !== undefined) res = { ...res, headers: { ...res.headers, etag: res.headers.etag.replace(/"$/, 'x"') } };
     } catch (e) {
       res = { status: 503, headers: { "content-type": "application/json" }, body: JSON.stringify({ error: "awaiting_image", message: String(e) }) };
     }
@@ -375,8 +380,9 @@ export async function makeWorld(init: { faults?: Faults; events?: number; churnR
     const db = w.dbs.get(w.workerDb)!;
     const sqlx = d1Sqlx(db);
     const mode = (await sqlx.select("SELECT value FROM import_state WHERE key = 'cutover.mode'"))[0]?.value ?? null;
-    if (w.faults.noModes) return serve(sqlx, req, false, w.now, false, r2);
-    return serve(sqlx, req, mode === "read_only", w.now, false, r2);
+    const res = w.faults.noModes ? await serve(sqlx, req, false, w.now, false, r2) : await serve(sqlx, req, mode === "read_only", w.now, false, r2);
+    if (w.faults.workerWeakEtags && res.headers.etag !== undefined) res.headers.etag = `W/${res.headers.etag}`;
+    return res;
   };
   const finish = (res: Res): Res => {
     const bytes = res.raw ?? new TextEncoder().encode(res.body);
