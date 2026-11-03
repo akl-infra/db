@@ -85,7 +85,8 @@ Staging is deployed; shadow and prod are not. Commands use profile `akldb`.
   and stays.
 - Keep-warm: EventBridge Scheduler pings the live alias every 5 minutes with `k=4`; the function fans out 3 concurrent child
   invocations (150 ms each).
-- Responses are buffered: Lambda and API Gateway cap them near 6 MB (today's dump is far below). A divergent replica makes the
+- Responses are buffered: Lambda caps a response at 6,291,556 bytes INCLUDING the base64 expansion of a binary body, and API Gateway answers its own
+  opaque 413/500 above it. See "Response size" below. A divergent replica makes the
   invocation fail (Lambda Errors alarm) and the next invocation boots a fresh one.
 - Shadow has no deploy job yet (phase D); `deploy-aws.sh --stage shadow` works by hand. How to run the proving ground end to end, and what saltorbit must do for it: `design/aws-a-ops-shadow.md`.
 
@@ -105,3 +106,39 @@ Staging is deployed; shadow and prod are not. Commands use profile `akldb`.
   directly.
 - **Two copies of the stateful resources.** `DeletionPolicy` cannot take `Fn::If`, so the log table, data bucket and log group
   exist once per Condition (`LogTable` / `LogTableDev`, ...); the rest of the template names them by their deterministic names.
+
+## Response size (LDB-CV19, measured 2026-11-04 on the repo's real 100-layout catalog repeated to 4,900 layouts)
+
+The Lambda host gzips a compressible answer (JSON, text, XML) of 1 KB or more when the client sends `Accept-Encoding: gzip` (Cloudflare always does toward
+its origin), as a base64 body with `Content-Encoding: gzip` and `Vary: Accept-Encoding`, ETag untouched. Streams, 304s, HEADs and `/v1/dump*` are left
+alone. An answer that is still over 5,900,000 bytes (the guard) becomes a 500 `response_too_large` and one `akldb-alarm: response-too-large: route=...
+bytes=... limit=5900000 encoded=...` line.
+
+| route | raw | gzip | base64 (what counts) | headroom to 6,291,556 |
+|---|---|---|---|---|
+| `GET /v1/layouts?format=spark/1&full=1`, 4,900 layouts | 8.90 MB (1,816 B/layout) | 0.81 MB (165 B/layout) | 1.07 MB | 5.2 MB |
+| same, `format=mana2/1` | 4.32 MB | 0.48 MB | 0.64 MB | 5.7 MB |
+| `GET /v1/layouts?format=spark/1&limit=1000` (no payload) | 0.48 MB | - | 0.07 MB | - |
+
+Without gzip the spark `full=1` page is 8.9 MB and is refused by the guard: this is the 413 seen on shadow. `full=1` stops fitting, gzipped, at about
+**26,900 layouts** at the measured ratio (11:1) and about **14,600** at a pessimistic 6:1 (the ratio of the 100 distinct payload strings alone), against 4,900
+today. (The repo's fixture payloads are small, 1.3 KB a layout; a catalog of larger layouts moves both numbers down proportionally.)
+
+Audit of the routes that can be large:
+
+| route | size | fits? |
+|---|---|---|
+| `GET /v1/layouts?...&full=1` (spark/1, mana2/1) | above | yes gzipped, not raw; grows with the catalog |
+| `GET /v1/layouts?limit<=1000` | <= 0.5 MB raw | yes |
+| `GET /v1/changes?limit<=1000` | 1000 events x ~0.5 KB (up to a few KB with before/after JSON) = 0.5-3 MB raw | yes, even raw |
+| `GET /v1/comments?ids=` (<= 200 layouts), `/v1/layouts/:ref/comments`, `/v1/comment-counts`, `/v1/authors`, `/v1/wpm` | bounded by comment count x 2,000 chars; hundreds of KB at most today | yes gzipped |
+| `GET /v1/dump/latest.json`, per-major files | small / one layout set | yes |
+| `GET /v1/dump/dump-YYYY-MM-DD.json.gz`, `monthly/` | the whole state, already gzip; **base64 adds 33%**, so the file must be <= about 4.4 MB | **unknown, must be read**. From the fixture's per-table gzip ratios (layouts ~300 B each with revisions, events ~30 B each) a dump of 4,900 layouts and 50,000 events is about 3 MB today; real data compresses worse than the fixture, so it may already be over |
+
+For anything that cannot fit, alternatives (none implemented; the first two keep the URL):
+1. Serve `/v1/dump*` from S3 through Cloudflare (an Origin Rule rewriting the path to the bucket's HTTPS endpoint with the request signed or the objects
+   public-read behind a CloudFront OAC), so the Lambda never carries the bytes.
+2. A Lambda Function URL with response streaming (`RESPONSE_STREAM`, up to 200 MB) as a second origin for `/v1/dump*` and the big `full=1`, again
+   selected by an Origin Rule on the path; API Gateway HTTP API cannot stream.
+3. Split the dump into parts with a manifest (an API change).
+4. An S3 presigned redirect (an API change, to be avoided).
