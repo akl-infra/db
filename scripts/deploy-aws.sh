@@ -18,6 +18,10 @@
 #   8  optional: purge the edge-cached static routes (needs CF_PURGE_TOKEN and CF_ZONE_ID)
 # A migration is additive-only (tests/tools/migrations-additive.test.ts), so the old code keeps serving through step 5.
 #
+# infra/stages/<stage>.json (optional, shadow has one) supplies stack parameters for that stage: its "parameters" are the default
+# of each setting below (an explicit environment variable still wins, except where the stage forbids it: shadow refuses any
+# DISCORD_API_URL but its fake) and its "ship" list names the directories the zip carries (shadow adds migrations-shadow/).
+#
 # Settings read from the environment: ALARM_EMAIL (required on the first deploy; later deploys keep the stack's value),
 # RESERVED_CONCURRENCY, KEEP_WARM, DISCORD_API_URL (each keeps the stack's current value when unset), CERTIFICATE_ARN
 # (default: the output of the akldb-cert-<stage> stack). CF_PURGE_TOKEN + CF_ZONE_ID turn on step 8 (zone akldb.org, Cache Purge only).
@@ -58,6 +62,12 @@ if [ "$DESTROY" = 1 ] && [ "$STAGE" = prod ]; then
 fi
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+STAGE_FILE="$ROOT/infra/stages/$STAGE.json"
+# stage_json KEY [NAME]: a value from the stage file ("parameters"/NAME, or "ship" as a space-separated list); empty when absent.
+stage_json() {
+  [ -f "$STAGE_FILE" ] || return 0
+  node -e 'const j=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));const k=process.argv[2];const v=k==="ship"?(j.ship||[]).join(" "):(j.parameters||{})[process.argv[3]];if(v!==undefined)process.stdout.write(String(v))' "$STAGE_FILE" "$1" "${2:-}"
+}
 STACK="akldb-$STAGE"
 FUNCTION="akldb-$STAGE-api"
 JOBS_FUNCTION="akldb-$STAGE-jobs"
@@ -118,6 +128,10 @@ if [ "$DESTROY" = 1 ]; then
   exit 0
 fi
 
+# the stage file is read with node (the build needs it anyway); --destroy-nonprod above never does
+SHIP="$(stage_json ship)"
+[ -n "$SHIP" ] || SHIP="migrations"
+
 # ---- 1. bundle ----
 run rm -rf "$DIST"
 run mkdir -p "$DIST/migrations"
@@ -125,16 +139,23 @@ run "$ROOT/node_modules/.bin/esbuild" "$ROOT/src/lambda.ts" --bundle --platform=
   --external:node:sqlite --outfile="$DIST/lambda.mjs" \
   "--banner:js=import{createRequire as __cr}from'node:module';const require=__cr(import.meta.url);"
 run cp "$ROOT"/migrations/*.sql "$DIST/migrations/"
+# shadow ships its own schema directory too (the follower's table); no other stage ever gets it
+case " $SHIP " in
+  *" migrations-shadow "*)
+    run mkdir -p "$DIST/migrations-shadow"
+    run cp "$ROOT"/migrations-shadow/*.sql "$DIST/migrations-shadow/" ;;
+esac
+ZIP_ITEMS="lambda.mjs $SHIP"
 if [ "$DRY" = 1 ]; then
   HASH=0123456789abcdef
 else
   # The hash covers exactly what runs: the bundle and the migration files. Fixed mtimes make the zip reproducible.
-  HASH="$( (cat "$DIST/lambda.mjs"; find "$DIST/migrations" -type f | sort | xargs cat) | shasum -a 256 | cut -c1-16)"
+  HASH="$( (cat "$DIST/lambda.mjs"; for d in $SHIP; do find "$DIST/$d" -type f | sort | xargs cat; done) | shasum -a 256 | cut -c1-16)"
   find "$DIST" -exec touch -t 200001010000 {} +
 fi
 ZIP="$DIST/akldb-$HASH.zip"
-show sh -c "cd $DIST && zip -q -X -r $ZIP lambda.mjs migrations"
-[ "$DRY" = 1 ] || (cd "$DIST" && zip -q -X -r "$ZIP" lambda.mjs migrations)
+show sh -c "cd $DIST && zip -q -X -r $ZIP $ZIP_ITEMS"
+[ "$DRY" = 1 ] || (cd "$DIST" && zip -q -X -r "$ZIP" $ZIP_ITEMS)
 
 # ---- 2. upload ----
 CODE_KEY="code/$STAGE/akldb-$HASH.zip"
@@ -178,7 +199,13 @@ EMAIL="${ALARM_EMAIL:-$(current AlarmEmail '')}"
 [ -n "$EMAIL" ] || [ "$DRY" = 1 ] || { echo "set ALARM_EMAIL (the stack has none yet)" >&2; exit 2; }
 RESERVED="${RESERVED_CONCURRENCY-$(current ReservedConcurrency '')}"
 KEEP="${KEEP_WARM:-$(current KeepWarm 4)}"
-DISCORD="${DISCORD_API_URL:-$(current DiscordApiUrl https://discord.com/api)}"
+STAGE_DISCORD="$(stage_json parameters DiscordApiUrl)"
+DISCORD="${DISCORD_API_URL:-${STAGE_DISCORD:-$(current DiscordApiUrl https://discord.com/api)}}"
+# the shadow stage may only ever point at its fake Discord (LDB-PV1): a different value is refused, not honoured
+if [ "$STAGE" = shadow ] && [ "$DISCORD" != "$STAGE_DISCORD" ]; then
+  echo "refusing: the shadow stage's DISCORD_API_URL must be $STAGE_DISCORD (got $DISCORD)" >&2
+  exit 2
+fi
 LIVE="$(current LiveVersion '$LATEST')"
 LIVE_JOBS="$(current LiveJobsVersion '$LATEST')"
 

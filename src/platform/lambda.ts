@@ -6,6 +6,8 @@
 //   {"akldb":"warm","k":N}    -> keep-warm fan-out: N-1 concurrent child invocations of the live alias, each held
 //                                about 150 ms, so N containers stay warm (AX6); answers carry a container id
 //   {"akldb":"migrate"}       -> apply pending migrations through the log (deploy-aws.sh, before the alias moves)
+//   {"akldb":"seed",...}      -> SHADOW ONLY (STAGE=shadow, else refused): load production's latest public dump (phase D)
+//   {"akldb":"shadow-status"} -> SHADOW ONLY: the follower's row (cursor, last check) and the fake Discord's call count
 //   {"akldb":"nightly"}       -> the daily snapshot, log retention and the nightly proof (src/replica/jobs.ts). The tick
 //                                starts it when it is due: an async self-invocation of the function named by JOBS_FUNCTION
 //                                (a separate function with a 600 s timeout), or inline when JOBS_FUNCTION is unset
@@ -26,7 +28,15 @@ import type { ObjectStore } from "../replica/objects";
 import type { SnapshotPolicy, SnapshotState } from "../replica/snapshot";
 import { sleep as realSleep } from "../replica/timers";
 import type { Replica } from "../replica/replica";
+import { buildDump } from "../dump/write";
+import { followFeed } from "../replica/shadow/follower";
+import { applyShadowMigrations, defaultShadowMigrationsDir } from "../replica/shadow/schema";
+import { SeedRefused, seedShadow, type SeedRequest } from "../replica/shadow/seed";
+import { createUpstream, UPSTREAM_BASE, type UpstreamFetch } from "../replica/shadow/upstream";
+import { readFollowerState } from "../replica/shadow/follower";
 import { createShimD1 } from "../store/shim/d1";
+import { createFakeDiscord, FAKE_DISCORD_BASE, type FakeDiscord } from "./fake-discord";
+import { installEgressGuard } from "./shadow-egress";
 import type { Aws } from "./lambda-aws";
 import { createNodePlatform, lruResponseCache, r2Binding } from "./node";
 import type { PlatformConfig } from "./port";
@@ -82,9 +92,31 @@ export interface LambdaOptions {
   logError?: (message: string) => void;
   /** Test hook: where the boot/snapshot report lines go. Default console.error. */
   logLine?: (message: string) => void;
+  /** STAGE=shadow only (phase D). */
+  shadow?: ShadowOptions;
 }
 
-type SchedulerEvent = { akldb: "tick"; time?: string } | { akldb: "warm"; k?: number; child?: boolean } | { akldb: "migrate" } | { akldb: "nightly" };
+export interface ShadowOptions {
+  /** Default: a new in-process fake Discord. */
+  fakeDiscord?: FakeDiscord;
+  /** How the follower and the seed read production's public API. Default: the global fetch at call time, which the egress guard has replaced. */
+  fetch?: UpstreamFetch;
+  upstreamBase?: string;
+  /** Default: `migrations-shadow/` beside the bundle. */
+  migrationsDir?: string;
+  /** Default true. Tests that already stub fetch turn it off. */
+  installGuard?: boolean;
+  /** Milliseconds of following per tick. Default 20 s. */
+  followBudgetMs?: number;
+}
+
+type SchedulerEvent =
+  | { akldb: "tick"; time?: string }
+  | { akldb: "warm"; k?: number; child?: boolean }
+  | { akldb: "migrate" }
+  | { akldb: "nightly" }
+  | ({ akldb: "seed" } & SeedRequest)
+  | { akldb: "shadow-status" };
 
 interface HttpEvent {
   version?: string;
@@ -113,7 +145,14 @@ export function tickTime(ms: number): number {
 export type LambdaHandler = ((event: unknown, context?: unknown) => Promise<unknown>) & {
   /** Resolves once the replica is booted and warmed (never rejects: a failed boot is retried by the first request). */
   ready(): Promise<void>;
+  /** STAGE=shadow only: the fake Discord, and a function that puts the global fetch back (tests). */
+  shadow?: { fakeDiscord: FakeDiscord; uninstallGuard(): void };
 };
+
+/** Methods shadow answers; any other would write. */
+const SHADOW_READ_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+/** Headers that make a request an authenticated one (a sign-in would write `authors`); shadow takes none. */
+const SHADOW_CREDENTIAL_HEADERS = ["authorization", "x-akl-client"];
 
 export function createLambdaHandler(opts: LambdaOptions): LambdaHandler {
   const { aws, log, env } = opts;
@@ -124,6 +163,16 @@ export function createLambdaHandler(opts: LambdaOptions): LambdaHandler {
   const containerId = opts.containerId ?? randomUUID();
   const logError = opts.logError ?? ((m: string) => console.error(m));
   const ttl = opts.paramsTtlMs ?? PARAMS_TTL_MS;
+
+  // ---- STAGE=shadow (phase D, LDB-PV1): nothing leaves the stack, nothing writes except the feed follower ----
+  const isShadow = env.STAGE === "shadow";
+  const shadowOpts = opts.shadow ?? {};
+  const fakeDiscord = isShadow ? (shadowOpts.fakeDiscord ?? createFakeDiscord()) : undefined;
+  let uninstallGuard = (): void => {};
+  if (isShadow) {
+    if (shadowOpts.installGuard !== false) uninstallGuard = installEgressGuard({ fakeDiscord: fakeDiscord!, logLine });
+    if (env.DISCORD_API_URL !== undefined && env.DISCORD_API_URL !== FAKE_DISCORD_BASE) raise(logLine, "shadow-egress", `DISCORD_API_URL is not the fake Discord; using ${FAKE_DISCORD_BASE}`);
+  }
 
   // ---- the replica: boot starts when the handler is created (module load in the real entry), after the consts below ----
   let booting!: Promise<Replica>;
@@ -227,8 +276,9 @@ export function createLambdaHandler(opts: LambdaOptions): LambdaHandler {
 
   function bindings(replica: Replica, config: Params["config"]): Bindings {
     return {
-      ...config,
-      DISCORD_API_URL: env.DISCORD_API_URL ?? "https://discord.com/api",
+      // shadow takes none of the Discord settings, whatever SSM holds: it has no bot, no webhook, no signing key
+      ...(isShadow ? {} : config),
+      DISCORD_API_URL: isShadow ? FAKE_DISCORD_BASE : (env.DISCORD_API_URL ?? "https://discord.com/api"),
       ...(env.MODQUEUE_DISCORD_COMPONENTS !== undefined ? { MODQUEUE_DISCORD_COMPONENTS: env.MODQUEUE_DISCORD_COMPONENTS } : {}),
       // One request-scoped snapshot per invocation (SH7): one strong HEAD read, then catch-up, before the first statement.
       DB: createShimD1(replica, { requestScoped: true }),
@@ -267,6 +317,12 @@ export function createLambdaHandler(opts: LambdaOptions): LambdaHandler {
     if (got === undefined || !safeEqual(got, (await getParams()).secret)) {
       return c.text("forbidden", 403, { "cache-control": "no-store" });
     }
+    if (isShadow) {
+      // LDB-PV1: shadow is read-only to the world. A write would diverge it from production; a credential would make the
+      // sign-in lane write an author row (and ask Discord, faked or not). Refused before the replica is touched.
+      if (!SHADOW_READ_METHODS.has(c.req.method)) return c.json({ error: "shadow_read_only", message: "the shadow stage serves reads only" }, 405, { "cache-control": "no-store", allow: "GET, HEAD, OPTIONS" });
+      if (SHADOW_CREDENTIAL_HEADERS.some((h) => c.req.header(h) !== undefined)) return c.json({ error: "shadow_no_credentials", message: "the shadow stage takes no credentials" }, 403, { "cache-control": "no-store" });
+    }
     await next();
   });
   front.all("*", async (c) => {
@@ -288,7 +344,14 @@ export function createLambdaHandler(opts: LambdaOptions): LambdaHandler {
     const parsed = event.time === undefined ? NaN : Date.parse(event.time);
     const at = tickTime(Number.isNaN(parsed) ? now() : parsed);
     const controller = { scheduledTime: at, cron: "*/5 * * * *", noRetry() {} } as unknown as ScheduledController;
-    await worker.scheduled(controller, await buildEnv(replica), execCtx);
+    let followed: unknown;
+    if (isShadow) {
+      // The Worker's own scheduled jobs append events (admin.nightly_ticked ...) and notify Discord: production's job.
+      // Shadow's events table must stay production's, so its tick follows the public feed instead.
+      followed = await shadowFollow(replica);
+    } else {
+      await worker.scheduled(controller, await buildEnv(replica), execCtx);
+    }
     await settle();
     assertAlive();
     // The rolling snapshot runs here, after the Worker's own jobs, off every request path. The nightly work (daily snapshot,
@@ -323,7 +386,43 @@ export function createLambdaHandler(opts: LambdaOptions): LambdaHandler {
       snapshot = { rolling, nightly };
     }
     assertAlive();
-    return { ok: true, tick: new Date(at).toISOString(), seq: replica.seq, ...(snapshot !== undefined ? { snapshot } : {}) };
+    return { ok: true, tick: new Date(at).toISOString(), seq: replica.seq, ...(snapshot !== undefined ? { snapshot } : {}), ...(followed !== undefined ? { shadow: followed } : {}) };
+  }
+
+  // ---- shadow: schema, follower, seed, status ----
+  const upstream = (): ReturnType<typeof createUpstream> =>
+    createUpstream(shadowOpts.fetch ?? ((input, init) => globalThis.fetch(input, init)), shadowOpts.upstreamBase ?? UPSTREAM_BASE);
+  const shadowDir = (): string => shadowOpts.migrationsDir ?? defaultShadowMigrationsDir(env);
+
+  async function shadowFollow(replica: Replica): Promise<unknown> {
+    await applyShadowMigrations(replica, shadowDir(), () => new Date(now()));
+    const db = createShimD1(replica);
+    const report = await followFeed({
+      db,
+      up: upstream(),
+      buildDump: () => buildDump(bindings(replica, {}), () => new Date(now()).toISOString()),
+      blobs: aws.dumps,
+      logLine,
+      now,
+      ...(shadowOpts.followBudgetMs !== undefined ? { budgetMs: shadowOpts.followBudgetMs } : {}),
+    });
+    return { ...report, discordCalls: fakeDiscord!.total() };
+  }
+
+  async function seed(event: SeedRequest): Promise<unknown> {
+    if (!isShadow) throw new SeedRefused(`the seed job runs only on the shadow stage (STAGE=${env.STAGE ?? "unset"})`);
+    const replica = await getReplica();
+    await applyShadowMigrations(replica, shadowDir(), () => new Date(now()));
+    const report = await seedShadow({ db: createShimD1(replica), up: upstream(), blobs: aws.dumps, now, logLine }, { ...(event.dumpUrl !== undefined ? { dumpUrl: event.dumpUrl } : {}), ...(event.reset === true ? { reset: true } : {}) });
+    assertAlive();
+    return { ...report, replicaSeq: replica.seq };
+  }
+
+  async function shadowStatus(): Promise<unknown> {
+    if (!isShadow) throw new SeedRefused(`shadow-status runs only on the shadow stage (STAGE=${env.STAGE ?? "unset"})`);
+    const replica = await getReplica();
+    const state = await readFollowerState(createShimD1(replica));
+    return { ok: true, seq: replica.seq, follower: state, discordCalls: fakeDiscord!.total() };
   }
 
   function jobDeps(): SnapshotJobDeps {
@@ -368,6 +467,7 @@ export function createLambdaHandler(opts: LambdaOptions): LambdaHandler {
   async function migrate(): Promise<unknown> {
     const replica = await getReplica();
     const applied = await applyMigrations(replica, opts.migrationsDir, () => new Date(now()));
+    if (isShadow) applied.push(...(await applyShadowMigrations(replica, shadowDir(), () => new Date(now()))));
     assertAlive();
     return { ok: true, applied, seq: replica.seq };
   }
@@ -386,11 +486,18 @@ export function createLambdaHandler(opts: LambdaOptions): LambdaHandler {
           return migrate();
         case "nightly":
           return nightly();
+        case "seed":
+          return seed(event);
+        case "shadow-status":
+          return shadowStatus();
       }
     }
     throw new Error(`unrecognized event: ${JSON.stringify(event)?.slice(0, 200)}`);
   };
-  return Object.assign(handler, { ready: () => booting.then(() => undefined, () => undefined) });
+  return Object.assign(handler, {
+    ready: () => booting.then(() => undefined, () => undefined),
+    ...(isShadow ? { shadow: { fakeDiscord: fakeDiscord!, uninstallGuard } } : {}),
+  });
 }
 
 /** The migrations directory inside the deployed zip (`migrations/` beside the bundle), unless MIGRATIONS_DIR says otherwise. */
