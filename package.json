@@ -20,8 +20,6 @@
     "build:validators": "node scripts/build-validators.mjs"
   },
   "dependencies": {
-    "ajv": "^8.20.0",
-    "ajv-formats": "^3.0.1",
     "aws4fetch": "^1.0.20",
     "hono": "^4.13.0",
     "ulidx": "^2.4.1"
@@ -30,6 +28,8 @@
     "@cloudflare/vitest-pool-workers": "^0.23.0",
     "@cloudflare/workers-types": "^5.20260908.1",
     "@types/node": "^24.13.3",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
     "esbuild": "0.28.2",
     "fast-check": "^4.9.0",
     "smol-toml": "^1.8.0",
