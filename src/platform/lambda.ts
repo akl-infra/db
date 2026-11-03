@@ -46,7 +46,7 @@ import type { Aws } from "./lambda-aws";
 import { createNodePlatform, lruResponseCache, r2Binding } from "./node";
 import type { PlatformConfig } from "./port";
 
-/** Every answer from this stack carries `X-Akldb-Backend: aws`: the cutover's proof that a request through the Worker's proxy mode reached AWS (LDB-CV13). */
+/** Every answer from this stack carries `X-Akldb-Backend: aws`: the cutover's proof that api.akldb.org, once its DNS record has moved, is answered by AWS (LDB-CV13). */
 export const BACKEND_HEADER = "x-akldb-backend";
 export const BACKEND_VALUE = "aws";
 
