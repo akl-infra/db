@@ -28,7 +28,12 @@ const table = need("LOG_TABLE");
 export const handler = createLambdaHandler({
   env,
   log: createDdbLog({ table, region, credentials: credentials(), blobs: objects }),
-  snapshots: { state: createDdbSnapshotState({ table, region, credentials: credentials() }), objects },
+  snapshots: {
+    state: createDdbSnapshotState({ table, region, credentials: credentials() }),
+    objects,
+    // zstd level of the snapshot image (default 19; lower it if the tick's compression ever nears the function timeout)
+    ...(env.SNAPSHOT_ZSTD_LEVEL !== undefined ? { zstdLevel: Number(env.SNAPSHOT_ZSTD_LEVEL) } : {}),
+  },
   aws: createAws({
     region,
     bucket: need("DATA_BUCKET"),
