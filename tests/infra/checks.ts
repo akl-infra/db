@@ -225,6 +225,9 @@ export function violations(t: Json, stage: string, extra: Json = {}): string[] {
   const wantDyn = ["dynamodb:ConditionCheckItem", "dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:Query", "dynamodb:UpdateItem"];
   if (JSON.stringify(arr(dyn?.Action).slice().sort()) !== JSON.stringify(wantDyn)) v.push("ApiRole: DynamoDB actions are not exactly the log's");
   if (dyn?.Resource?.["Fn::Sub"] !== "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/akldb-${Stage}-log") v.push("ApiRole: DynamoDB resource is not the log table");
+  for (const [id, r] of ofType("AWS::IAM::Role")) {
+    if (r.Properties.PermissionsBoundary?.["Fn::ImportValue"] !== "akldb-boundary-arn") v.push(`${id}: no permissions boundary (the exported akldb-boundary-arn)`);
+  }
   const schedRole = R.SchedulerRole?.Properties.AssumeRolePolicyDocument.Statement[0];
   if (schedRole?.Principal?.Service !== "scheduler.amazonaws.com" || !schedRole?.Condition?.StringEquals?.["aws:SourceAccount"]) v.push("SchedulerRole: trust is not scheduler.amazonaws.com scoped to the account");
 

@@ -100,6 +100,12 @@ rule no_wildcard_actions when %roles !empty {
     }
 }
 
+# Every role this stack creates is capped by the exported akldb-boundary policy (infra/akldb-bootstrap.yaml).
+rule roles_have_the_permissions_boundary when %roles !empty {
+    %roles.Properties.PermissionsBoundary exists
+    %roles.Properties.PermissionsBoundary["Fn::ImportValue"] == 'akldb-boundary-arn'
+}
+
 # Both schedules invoke the live alias, never the function (so never $LATEST).
 rule schedules_target_the_alias when %schedules !empty {
     %schedules.Properties.Target.Arn.Ref == 'LiveAlias'

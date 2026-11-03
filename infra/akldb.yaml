@@ -243,6 +243,7 @@ Resources:
     Type: AWS::IAM::Role
     Properties:
       RoleName: !Sub akldb-${Stage}-api
+      PermissionsBoundary: !ImportValue akldb-boundary-arn
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -426,6 +427,7 @@ Resources:
     Type: AWS::IAM::Role
     Properties:
       RoleName: !Sub akldb-${Stage}-scheduler
+      PermissionsBoundary: !ImportValue akldb-boundary-arn
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:

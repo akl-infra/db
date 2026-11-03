@@ -13,7 +13,12 @@ Description: >-
 # The role can create and update akldb-* stacks and what they hold, and publish and invoke akldb-* functions. It
 # cannot delete a stack, touch an IAM user or an OIDC provider, or act on anything not named akldb-*. The stacks hold
 # IAM roles of their own (the function role, the scheduler role), so the role may create akldb-* roles; that is the
-# one place it can mint permissions, and the akldb-* name is the fence.
+# one place it can mint permissions, and the akldb-* name is the fence, plus a permissions boundary: it may create a
+# role only with the managed policy akldb-boundary attached as that role's boundary, so no role it makes can do more
+# than the boundary allows (DynamoDB, S3, SSM parameters, logs and Lambda invoke, all on akldb-* names). It cannot
+# remove a boundary or change the boundary policy.
+# Updating this stack in place (the bootstrap is already deployed) adds the policy and changes the role's inline
+# policy; the artifacts bucket, its policy and the role keep their logical ids and names, so nothing is replaced.
 
 Rules:
   RegionIsOhio:
@@ -74,6 +79,53 @@ Resources:
               - !Sub "${ArtifactsBucket.Arn}/*"
             Condition:
               Bool: { "aws:SecureTransport": "false" }
+
+  # The ceiling for every role the akldb-* stacks create (ApiRole, SchedulerRole). A role's effective permissions are the
+  # intersection of its own policies and this one, so a template that asked for more would still get no more.
+  DeployBoundary:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: akldb-boundary
+      Description: Permissions boundary for the akldb-* roles; the most they can ever do.
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: LogTable
+            Effect: Allow
+            Action:
+              - dynamodb:GetItem
+              - dynamodb:Query
+              - dynamodb:PutItem
+              - dynamodb:UpdateItem
+              - dynamodb:ConditionCheckItem
+            Resource: !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/akldb-*"
+          - Sid: DataObjects
+            Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+              - s3:DeleteObject
+            Resource: !Sub "arn:aws:s3:::akldb-*-data-${AWS::AccountId}/*"
+          - Sid: DataList
+            Effect: Allow
+            Action: s3:ListBucket
+            Resource: !Sub "arn:aws:s3:::akldb-*-data-${AWS::AccountId}"
+          - Sid: Parameters
+            Effect: Allow
+            Action:
+              - ssm:GetParameter
+              - ssm:GetParameters
+            Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/akldb/*"
+          - Sid: LogWrite
+            Effect: Allow
+            Action:
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/akldb-*:*"
+          - Sid: InvokeAkldbFunctions
+            Effect: Allow
+            Action: lambda:InvokeFunction
+            Resource: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:akldb-*"
 
   DeployRole:
     Type: AWS::IAM::Role
@@ -167,7 +219,6 @@ Resources:
               - Sid: Roles
                 Effect: Allow
                 Action:
-                  - iam:CreateRole
                   - iam:GetRole
                   - iam:UpdateRole
                   - iam:TagRole
@@ -178,6 +229,28 @@ Resources:
                   - iam:ListRolePolicies
                   - iam:ListAttachedRolePolicies
                 Resource: !Sub "arn:aws:iam::${AWS::AccountId}:role/akldb-*"
+              # A role is created, or given a boundary, only with akldb-boundary as that boundary.
+              - Sid: RolesWithBoundary
+                Effect: Allow
+                Action:
+                  - iam:CreateRole
+                  - iam:PutRolePermissionsBoundary
+                Resource: !Sub "arn:aws:iam::${AWS::AccountId}:role/akldb-*"
+                Condition:
+                  StringEquals:
+                    "iam:PermissionsBoundary": !Ref DeployBoundary
+              - Sid: NeverRemoveTheBoundary
+                Effect: Deny
+                Action: iam:DeleteRolePermissionsBoundary
+                Resource: "*"
+              - Sid: NeverChangeTheBoundaryPolicy
+                Effect: Deny
+                Action:
+                  - iam:CreatePolicyVersion
+                  - iam:SetDefaultPolicyVersion
+                  - iam:DeletePolicyVersion
+                  - iam:DeletePolicy
+                Resource: !Ref DeployBoundary
               - Sid: PassRoles
                 Effect: Allow
                 Action: iam:PassRole
@@ -263,6 +336,11 @@ Resources:
         - { Key: project, Value: akldb }
 
 Outputs:
+  BoundaryArn:
+    Description: The permissions boundary every akldb-* role sets (akldb.yaml imports it).
+    Value: !Ref DeployBoundary
+    Export:
+      Name: akldb-boundary-arn
   ArtifactsBucket:
     Value: !Ref ArtifactsBucket
   DeployRoleArn:
