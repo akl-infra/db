@@ -5,9 +5,13 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
 import { parse } from "yaml";
 import { ALARMS_EVERY_STAGE, ALARMS_PROD_ONLY, alarmsFor, expectedResources, loadTemplate, policyDocs, resolveStage, violations, type Json } from "./checks";
+
+// cfn-lint, cfn-guard and the deploy script's dry runs spawn processes; the machine can be busy.
+vi.setConfig({ testTimeout: 120_000 });
 
 const ROOT = path.resolve(import.meta.dirname, "..", "..");
 const file = (...p: string[]) => path.join(ROOT, ...p);
@@ -90,7 +94,7 @@ describe("template lint and guard (AX1)", () => {
     expect(cert.Parameters.DomainName.AllowedValues).toEqual(t.Parameters.DomainName.AllowedValues);
     expect(cert.Resources.Certificate.Properties.ValidationMethod).toBe("DNS");
     expect(cert.Outputs.CertificateArn.Value).toEqual({ Ref: "Certificate" });
-    expect(Object.keys(t.Outputs).sort()).toEqual(["AlarmTopicArn", "AliasArn", "ApiDomainHostedZoneId", "ApiDomainTarget", "DataBucket", "FunctionName", "LogTable"].sort());
+    expect(Object.keys(t.Outputs).sort()).toEqual(["AlarmTopicArn", "AliasArn", "ApiDomainHostedZoneId", "ApiDomainTarget", "DataBucket", "FunctionName", "JobsFunctionName", "LogTable"].sort());
     expect(t.Outputs.ApiDomainTarget.Value).toEqual({ "Fn::GetAtt": ["CustomDomain", "RegionalDomainName"] });
   });
 
@@ -265,7 +269,7 @@ describe("template lint and guard (AX1)", () => {
     const allowed = [
       /^sts get-caller-identity /,
       /^s3 cp /,
-      /^cloudformation (describe-stacks|create-change-set|describe-change-set|execute-change-set|wait) /,
+      /^cloudformation (describe-stacks|create-change-set|describe-change-set|execute-change-set|delete-change-set|wait) /,
       /^lambda (update-function-code|wait|publish-version|invoke) /,
     ];
     expect(aws.length).toBeGreaterThan(10);
@@ -274,13 +278,13 @@ describe("template lint and guard (AX1)", () => {
 });
 
 /** Run `deploy-aws.sh --dry-run` with an `aws` on PATH that records any real call (none must happen). */
-function dryRun(stage: string, extra: string[] = []): { lines: string[][]; status: number | null; stdout: string; stderr: string; calls: string } {
+function dryRun(stage: string, extra: string[] = [], env: Record<string, string> = {}): { lines: string[][]; status: number | null; stdout: string; stderr: string; calls: string } {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "akldb-deploy-"));
   try {
     const marker = path.join(dir, "aws-was-called");
     fs.writeFileSync(path.join(dir, "aws"), `#!/bin/sh\necho "$@" >> ${marker}\nexit 99\n`, { mode: 0o755 });
     const r = spawnSync("sh", [file("scripts", "deploy-aws.sh"), "--stage", stage, "--dry-run", ...extra], {
-      env: { PATH: `${dir}:/usr/bin:/bin`, HOME: dir },
+      env: { PATH: `${dir}:/usr/bin:/bin`, HOME: dir, ...env },
       encoding: "utf8",
       cwd: dir,
     });
@@ -293,6 +297,62 @@ function dryRun(stage: string, extra: string[] = []): { lines: string[][]; statu
     fs.rmSync(dir, { recursive: true });
   }
 }
+
+describe("jobs function and object access (AX1)", () => {
+  it("[LDB-AX1] the jobs function is the same bundle with a 600 s timeout, its own STANDARD log group and metric filter, no alias, URL or route; the api invokes it by name", () => {
+    for (const s of stages) {
+      const R = resolveStage(t, s).resources;
+      const j = R.JobsFunction.Properties;
+      expect(j).toMatchObject({ Runtime: "nodejs24.x", Architectures: ["arm64"], Handler: "lambda.handler", MemorySize: 2048, Timeout: 600 });
+      expect(j.Code).toEqual(R.ApiFunction.Properties.Code);
+      expect(j.Role).toEqual(R.ApiFunction.Properties.Role);
+      expect(j.FunctionName).toEqual({ "Fn::Sub": "akldb-${Stage}-jobs" });
+      expect(j.Environment.Variables).not.toHaveProperty("JOBS_FUNCTION");
+      expect(R.ApiFunction.Properties.Environment.Variables.JOBS_FUNCTION).toEqual({ "Fn::Sub": "akldb-${Stage}-jobs" });
+      expect(j.LoggingConfig.LogGroup).toEqual({ Ref: "JobsLogGroup" });
+      expect(R.JobsLogGroup.Properties.LogGroupName).toEqual({ "Fn::Sub": "/aws/lambda/akldb-${Stage}-jobs" });
+      expect(R.JobsAlarmPrefixFilter.Properties.LogGroupName).toEqual({ Ref: "JobsLogGroup" });
+      expect(R.JobsAlarmPrefixFilter.Properties.FilterPattern).toBe('"akldb-alarm:"');
+      // no alias, no permission for API Gateway, no event config, no reservation: the api's alias and route are the only door
+      expect(Object.values(R).filter((r) => r.Type === "AWS::Lambda::Alias" || r.Type === "AWS::Lambda::EventInvokeConfig").every((r) => r.Properties.FunctionName.Ref === "ApiFunction")).toBe(true);
+      expect(R.ApiInvokePermission.Properties.FunctionName).toEqual({ Ref: "LiveAlias" });
+      expect(R.ApiIntegration.Properties.IntegrationUri).toEqual({ Ref: "LiveAlias" });
+      expect(j).not.toHaveProperty("ReservedConcurrentExecutions");
+      const invoke = (R.ApiRole.Properties.Policies[0].PolicyDocument.Statement as Json[]).find((x) => x.Sid === "InvokeJobs");
+      expect(invoke).toMatchObject({ Effect: "Allow", Action: "lambda:InvokeFunction", Resource: { "Fn::Sub": "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:akldb-${Stage}-jobs" } });
+    }
+    // only prod pages on the jobs function's errors
+    expect(Object.keys(resolveStage(t, "prod").resources)).toContain("JobsErrorsAlarm");
+    for (const s of ["staging", "shadow"]) expect(Object.keys(resolveStage(t, s).resources)).not.toContain("JobsErrorsAlarm");
+    expect(resolveStage(t, "prod").resources.JobsErrorsAlarm.Properties).toMatchObject({ Namespace: "AWS/Lambda", MetricName: "Errors", Dimensions: [{ Name: "FunctionName", Value: { Ref: "JobsFunction" } }], Threshold: 0, EvaluationPeriods: 1 });
+    const m = clone(t);
+    m.Resources.JobsFunction.Properties.Timeout = 300;
+    expect(violations(m, "prod").some((x) => /JobsFunction: timeout 300/.test(x))).toBe(true);
+    const k = clone(t);
+    k.Resources.JobsFunction.Properties.Code.S3Key = "other.zip";
+    expect(violations(k, "prod").some((x) => /JobsFunction: not the shared artifact/.test(x))).toBe(true);
+  });
+
+  it("[LDB-AX1] object access is snap/, dumps/ and log/ only, and only log/ can be deleted from", () => {
+    const stmts = (stage: string) => policyDocs(resolveStage(t, stage).resources).flatMap(([n, d]) => (n.startsWith("ApiRole") ? (d.Statement as Json[]) : []));
+    const bucket = "arn:aws:s3:::akldb-${Stage}-data-${AWS::AccountId}";
+    for (const s of stages) {
+      const del = stmts(s).filter((x) => list(x.Action).includes("s3:DeleteObject"));
+      expect(del.map((x) => x.Sid)).toEqual(["LogSpillCleanup"]);
+      expect(del[0]!.Action).toBe("s3:DeleteObject");
+      expect(del[0]!.Resource).toEqual({ "Fn::Sub": `${bucket}/log/*` });
+      const rw = stmts(s).find((x) => x.Sid === "DataObjects")!;
+      expect(rw.Action).toEqual(["s3:GetObject", "s3:PutObject"]);
+      expect(rw.Resource.map((r: Json) => r["Fn::Sub"]).sort()).toEqual([`${bucket}/dumps/*`, `${bucket}/log/*`, `${bucket}/snap/*`]);
+    }
+    const m = clone(t);
+    m.Resources.ApiRole.Properties.Policies[0].PolicyDocument.Statement.find((x: Json) => x.Sid === "DataObjects").Action.push("s3:DeleteObject");
+    expect(violations(m, "prod").some((x) => /s3:DeleteObject on something other than log\/\*/.test(x))).toBe(true);
+    const w = clone(t);
+    w.Resources.ApiRole.Properties.Policies[0].PolicyDocument.Statement.find((x: Json) => x.Sid === "LogSpillCleanup").Resource = { "Fn::Sub": `${bucket}/*` };
+    expect(violations(w, "prod").some((x) => /s3:DeleteObject on something other than log\/\*/.test(x))).toBe(true);
+  });
+});
 
 describe("alias event config (AX1)", () => {
   it("[LDB-AX1] LiveAliasEventConfig's Qualifier is the literal alias name, not a Ref or an ARN (cfn-lint misses it; CloudFormation rejected it on the real deploy)", () => {
@@ -361,6 +421,52 @@ describe("deploy order (AX3)", () => {
     expect(new Set(steps).size).toBe(steps.length);
     // nothing but the final pre-warm follows the alias move
     expect(cmd.slice(steps[8]! + 1).filter((c) => /lambda invoke/.test(c))).toHaveLength(1);
+  });
+
+  it("[LDB-AX3] both functions get the new code before the version is published and migrated", () => {
+    const cmd = dryRun("staging", ["--execute"]).lines.map((l) => l.join(" "));
+    const idx = (re: RegExp) => cmd.findIndex((c) => re.test(c));
+    const api = idx(/update-function-code --function-name akldb-staging-api /);
+    const jobs = idx(/update-function-code --function-name akldb-staging-jobs /);
+    expect(api).toBeGreaterThan(-1);
+    expect(jobs).toBeGreaterThan(api);
+    expect(cmd[jobs]).toContain("--s3-key code/staging/akldb-");
+    expect(cmd[api]!.split("--s3-key")[1]).toBe(cmd[jobs]!.split("--s3-key")[1]); // the same artifact
+    expect(idx(/lambda wait function-updated --function-name akldb-staging-jobs/)).toBeGreaterThan(jobs);
+    expect(idx(/publish-version/)).toBeGreaterThan(idx(/lambda wait function-updated --function-name akldb-staging-jobs/));
+    expect(cmd.filter((c) => /publish-version|--qualifier/.test(c)).every((c) => !/-jobs/.test(c))).toBe(true); // the jobs function has no versions or alias
+  });
+
+  it("[LDB-AX3] a first deploy works as preview then --execute: a REVIEW_IN_PROGRESS stack takes a CREATE change set, after the preview's same-named one is deleted; the alias move is an UPDATE", () => {
+    const changeSetTypes = (cmd: string[]) => cmd.filter((c) => /create-change-set/.test(c)).map((c) => c.match(/--change-set-type (\w+)/)![1]);
+    // nothing exists yet: the preview and the run both CREATE
+    const fresh = dryRun("staging", ["--execute"], { DEPLOY_DRY_STACK_STATUS: "none" });
+    expect(fresh.status).toBe(0);
+    const f = fresh.lines.map((l) => l.join(" "));
+    expect(changeSetTypes(f)).toEqual(["CREATE", "UPDATE"]);
+    expect(f.some((c) => /delete-change-set .*-code$/.test(c))).toBe(false);
+    expect(f.find((c) => /wait stack-/.test(c))).toContain("stack-create-complete");
+    // the preview ran first and left the stack in REVIEW_IN_PROGRESS with its change set
+    const review = dryRun("staging", ["--execute"], { DEPLOY_DRY_STACK_STATUS: "REVIEW_IN_PROGRESS" });
+    expect(review.status).toBe(0);
+    const r = review.lines.map((l) => l.join(" "));
+    expect(changeSetTypes(r)).toEqual(["CREATE", "UPDATE"]);
+    const del = r.findIndex((c) => /delete-change-set .*akldb-0123456789abcdef-code$/.test(c));
+    const create = r.findIndex((c) => /create-change-set .*akldb-0123456789abcdef-code /.test(c));
+    expect(del).toBeGreaterThan(-1);
+    expect(del).toBeLessThan(create);
+    expect(r.find((c) => /wait stack-/.test(c))).toContain("stack-create-complete");
+    // an existing stack updates
+    const upd = dryRun("staging", ["--execute"]).lines.map((l) => l.join(" "));
+    expect(changeSetTypes(upd)).toEqual(["UPDATE", "UPDATE"]);
+    // the preview alone (no --execute) on a first deploy only creates and prints its change set
+    const preview = dryRun("staging", [], { DEPLOY_DRY_STACK_STATUS: "none" }).lines.map((l) => l.join(" "));
+    expect(changeSetTypes(preview)).toEqual(["CREATE"]);
+    expect(preview.some((c) => /execute-change-set|aws --region \S+ lambda /.test(c))).toBe(false);
+    // a stack stuck in ROLLBACK_COMPLETE is refused with a message, not updated
+    const stuck = dryRun("staging", ["--execute"], { DEPLOY_DRY_STACK_STATUS: "ROLLBACK_COMPLETE" });
+    expect(stuck.status).toBe(1);
+    expect(stuck.stderr).toMatch(/ROLLBACK_COMPLETE/);
   });
 
   it("[LDB-AX3] without --execute it prints the change set and stops before touching the function", () => {

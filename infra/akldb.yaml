@@ -240,6 +240,32 @@ Resources:
         - { Key: project, Value: akldb }
         - { Key: stage, Value: !Ref Stage }
 
+  # The jobs function (nightly work: snapshot, retention, proofs; timeout 600 s) logs on its own, same rules.
+  JobsLogGroup:
+    Type: AWS::Logs::LogGroup
+    Condition: IsProd
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub /aws/lambda/akldb-${Stage}-jobs
+      LogGroupClass: STANDARD
+      Tags:
+        - { Key: project, Value: akldb }
+        - { Key: stage, Value: !Ref Stage }
+
+  JobsLogGroupDev:
+    Type: AWS::Logs::LogGroup
+    Condition: NotProd
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      LogGroupName: !Sub /aws/lambda/akldb-${Stage}-jobs
+      LogGroupClass: STANDARD
+      RetentionInDays: 14
+      Tags:
+        - { Key: project, Value: akldb }
+        - { Key: stage, Value: !Ref Stage }
+
   ApiRole:
     Type: AWS::IAM::Role
     Properties:
@@ -261,7 +287,9 @@ Resources:
                 Action:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
-                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/akldb-${Stage}-api:*"
+                Resource:
+                  - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/akldb-${Stage}-api:*"
+                  - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/akldb-${Stage}-jobs:*"
               # TransactWriteItems is authorized per item action: Put on the log entry, Update on HEAD, ConditionCheck.
               - Sid: LogTable
                 Effect: Allow
@@ -280,6 +308,8 @@ Resources:
                 Resource:
                   - !Sub "arn:aws:s3:::akldb-${Stage}-data-${AWS::AccountId}/snap/*"
                   - !Sub "arn:aws:s3:::akldb-${Stage}-data-${AWS::AccountId}/dumps/*"
+                  # Log bodies over 300,000 bytes (src/replica/spill.ts): written before the append, read by every replica.
+                  - !Sub "arn:aws:s3:::akldb-${Stage}-data-${AWS::AccountId}/log/*"
               # Without ListBucket a missing key answers 403 instead of 404.
               - Sid: DataList
                 Effect: Allow
@@ -297,6 +327,16 @@ Resources:
                 Effect: Allow
                 Action: lambda:InvokeFunction
                 Resource: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:akldb-${Stage}-api:live"
+              # Orphaned spill objects (an append that lost its race) are deleted; nothing else is ever deleted.
+              - Sid: LogSpillCleanup
+                Effect: Allow
+                Action: s3:DeleteObject
+                Resource: !Sub "arn:aws:s3:::akldb-${Stage}-data-${AWS::AccountId}/log/*"
+              # The api hands the nightly work to the jobs function (asynchronous invoke).
+              - Sid: InvokeJobs
+                Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:akldb-${Stage}-jobs"
       Tags:
         - { Key: project, Value: akldb }
         - { Key: stage, Value: !Ref Stage }
@@ -318,6 +358,40 @@ Resources:
         S3Key: !Ref CodeKey
       LoggingConfig:
         LogGroup: !If [ IsProd, !Ref LogGroup, !Ref LogGroupDev ]
+        LogFormat: JSON
+        SystemLogLevel: WARN
+      Environment:
+        Variables:
+          STAGE: !Ref Stage
+          LOG_TABLE: !Sub akldb-${Stage}-log
+          DATA_BUCKET: !Sub akldb-${Stage}-data-${AWS::AccountId}
+          SSM_PREFIX: !Sub /akldb/${Stage}/
+          JOBS_FUNCTION: !Sub akldb-${Stage}-jobs
+          # wrangler.toml [vars]
+          DISCORD_API_URL: !Ref DiscordApiUrl
+          MODQUEUE_DISCORD_COMPONENTS: "false"
+      Tags:
+        - { Key: project, Value: akldb }
+        - { Key: stage, Value: !Ref Stage }
+
+  # The same bundle and handler entry as the api, for work that outlives a request: no URL, no API Gateway route, no alias
+  # (the api invokes it by name, asynchronously, and deploy-aws.sh updates its code with the api's).
+  JobsFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub akldb-${Stage}-jobs
+      Description: !Sub akldb (${Stage}) - nightly jobs on a replica of the DynamoDB commit log
+      Runtime: nodejs24.x
+      Architectures: [ arm64 ]
+      Handler: lambda.handler
+      MemorySize: 2048
+      Timeout: 600
+      Role: !GetAtt ApiRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactsBucket
+        S3Key: !Ref CodeKey
+      LoggingConfig:
+        LogGroup: !If [ IsProd, !Ref JobsLogGroup, !Ref JobsLogGroupDev ]
         LogFormat: JSON
         SystemLogLevel: WARN
       Environment:
@@ -534,6 +608,17 @@ Resources:
           MetricValue: "1"
           Unit: Count
 
+  JobsAlarmPrefixFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !If [ IsProd, !Ref JobsLogGroup, !Ref JobsLogGroupDev ]
+      FilterPattern: '"akldb-alarm:"'
+      MetricTransformations:
+        - MetricNamespace: !Sub akldb/${Stage}
+          MetricName: Alarms
+          MetricValue: "1"
+          Unit: Count
+
   AlarmPrefixAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
@@ -541,6 +626,22 @@ Resources:
       AlarmDescription: A log line starting with akldb-alarm:, which the code writes for every failure it wants a human to see.
       Namespace: !Sub akldb/${Stage}
       MetricName: Alarms
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [ !Ref AlarmTopic ]
+
+  JobsErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: IsProd
+    Properties:
+      AlarmName: !Sub akldb-${Stage}-jobs-errors
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions: [ { Name: FunctionName, Value: !Ref JobsFunction } ]
       Statistic: Sum
       Period: 300
       EvaluationPeriods: 1
@@ -683,6 +784,8 @@ Outputs:
     Value: !GetAtt CustomDomain.RegionalHostedZoneId
   FunctionName:
     Value: !Ref ApiFunction
+  JobsFunctionName:
+    Value: !Ref JobsFunction
   AliasArn:
     Value: !Ref LiveAlias
   LogTable:
