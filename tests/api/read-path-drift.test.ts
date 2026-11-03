@@ -1,4 +1,4 @@
-// [LDB-CV25] What a safe-method request writes. During the cutover freeze (cutover.mode=read_only) writes are refused and the jobs are stopped, but
+// [LDB-CV25] What a safe-method request writes. With the cutover freeze on (cutover.mode=read_only, set below) writes are refused and the jobs are stopped, but
 // a GET still bookkeeps: a signed client's GET inserts a nonce and upserts its author, a Discord-bearer GET fills auth_cache and upserts the author
 // (moving authors_head), and so on. The live D1 therefore drifts between `export` and `verify` while Spark polls. This test runs anonymous, signed
 // and bearer GETs (and an admin of each lane) over EVERY GET route, snapshots every table before and after, and pins the tables and columns that
@@ -102,6 +102,8 @@ describe("what safe-method requests write (CV25)", () => {
 
   it("[LDB-CV25] the tables and columns that anonymous, signed-client and Discord-bearer GETs change are exactly the pinned drift set", async () => {
     const paths = Object.values(samples());
+    // frozen, as during the cutover (the flag is read through a 1 s cache; the first request below happens after it is set)
+    await testStore.insert("import_state", { key: "cutover.mode", value: "read_only" });
     const before = await snapshot();
     const bearers: [string, string][] = [["drift-bearer-1", authorId], ["drift-bearer-admin", ADMIN], ["drift-bearer-new", "999000111222333444"]];
     vi.stubGlobal("fetch", fake.fetchImpl);
