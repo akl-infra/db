@@ -1,7 +1,7 @@
 # akldb on AWS, design A: phase E (the cutover and the rollback)
 
 Companion to `design/aws-a-ops.md` (stacks), `design/aws-a-ops-boot.md` (boot, snapshots) and `design/aws-a-ops-shadow.md` (the proving
-ground). Invariants: LDB-CV2..CV4 and CV10..CV14 in `INVARIANTS.md`. Nothing in this file has been run against Cloudflare or AWS: the
+ground). Invariants: LDB-CV2..CV4 and CV10..CV15 in `INVARIANTS.md`. Nothing in this file has been run against Cloudflare or AWS: the
 tools are tested against fakes (`tests/cutover/`), and the rehearsal below is what proves the real commands.
 
 **Target:** 2026-11-04, 09:00-14:00 UTC. There is no 7-day proving run: manual tests, flip, watch about one hour.
