@@ -1,7 +1,8 @@
 // The Lambda entry (bundled by scripts/deploy-aws.sh into lambda.mjs; infra/akldb.yaml's Handler is lambda.handler).
 // Everything here runs at module load, which is the point: the replica boot is a promise started now, so it overlaps
 // the rest of init instead of waiting for the first request.
-import { createDdbLog } from "./replica/log-ddb";
+import { createDdbLog, createDdbSnapshotState } from "./replica/log-ddb";
+import { createS3Objects } from "./replica/s3";
 import { createAws, type AwsCredentials } from "./platform/lambda-aws";
 import { createLambdaHandler, defaultMigrationsDir } from "./platform/lambda";
 
@@ -20,9 +21,14 @@ const credentials = (): AwsCredentials => ({
   ...(env.AWS_SESSION_TOKEN !== undefined ? { sessionToken: env.AWS_SESSION_TOKEN } : {}),
 });
 
+// The replica layer's whole AWS surface (RP6): DynamoDB GetItem, Query, TransactWriteItems and S3 GetObject, PutObject.
+const objects = createS3Objects({ bucket: need("DATA_BUCKET"), region, credentials });
+const table = need("LOG_TABLE");
+
 export const handler = createLambdaHandler({
   env,
-  log: createDdbLog({ table: need("LOG_TABLE"), region, credentials: credentials() }),
+  log: createDdbLog({ table, region, credentials: credentials(), blobs: objects }),
+  snapshots: { state: createDdbSnapshotState({ table, region, credentials: credentials() }), objects },
   aws: createAws({
     region,
     bucket: need("DATA_BUCKET"),

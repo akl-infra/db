@@ -60,7 +60,8 @@ function handlerOn(log: CommitLog, aws: Aws, extra: Partial<LambdaOptions> = {})
     logError: () => {},
     ...extra,
   });
-  return { handler, booted: () => booted };
+  // `booted()` resolves when the replica is booted AND the init warm-up has finished (it reads the log head once, which these tests count).
+  return { handler, booted: async () => (await handler.ready(), booted) };
 }
 
 function event(rawPath: string, headers: Record<string, string> = {}, method = "GET") {

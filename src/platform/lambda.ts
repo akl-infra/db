@@ -15,8 +15,11 @@ import { handle } from "hono/aws-lambda";
 import type { Bindings } from "../env";
 import worker, { app as workerApp } from "../index";
 import { bootReplica } from "../replica/boot";
-import type { CommitLog } from "../replica/log";
+import { runSnapshotJobs } from "../replica/jobs";
+import type { CommitLog, ExpirableLog } from "../replica/log";
 import { applyMigrations } from "../replica/migrations";
+import type { ObjectStore } from "../replica/objects";
+import type { SnapshotPolicy, SnapshotState } from "../replica/snapshot";
 import { sleep as realSleep } from "../replica/timers";
 import type { Replica } from "../replica/replica";
 import { createShimD1 } from "../store/shim/d1";
@@ -58,7 +61,12 @@ export interface LambdaOptions {
   log: CommitLog;
   /** Directory of the migration .sql files (the zip carries `migrations/` next to the bundle). */
   migrationsDir: string;
-  /** Default: bootReplica (replay from 0). Phase B swaps the implementation behind that name. */
+  /**
+   * Where snapshots live (the pointer items and the S3 objects). With it the default boot starts from the pointer's snapshot
+   * (src/replica/boot.ts) and the tick runs the snapshot jobs (src/replica/jobs.ts); without it boot replays the log from 0.
+   */
+  snapshots?: { state: SnapshotState; objects: ObjectStore; policy?: SnapshotPolicy };
+  /** Default: bootReplica over `snapshots`. */
   boot?: (log: CommitLog) => Promise<Replica>;
   /** Default: a new UUID per handler (that is, per container). */
   containerId?: string;
@@ -68,6 +76,8 @@ export interface LambdaOptions {
   paramsTtlMs?: number;
   /** Test hook: console.error. */
   logError?: (message: string) => void;
+  /** Test hook: where the boot/snapshot report lines go. Default console.error. */
+  logLine?: (message: string) => void;
 }
 
 type SchedulerEvent = { akldb: "tick"; time?: string } | { akldb: "warm"; k?: number; child?: boolean } | { akldb: "migrate" };
@@ -96,25 +106,35 @@ export function tickTime(ms: number): number {
   return Math.floor(ms / step) * step;
 }
 
-export type LambdaHandler = (event: unknown, context?: unknown) => Promise<unknown>;
+export type LambdaHandler = ((event: unknown, context?: unknown) => Promise<unknown>) & {
+  /** Resolves once the replica is booted and warmed (never rejects: a failed boot is retried by the first request). */
+  ready(): Promise<void>;
+};
 
 export function createLambdaHandler(opts: LambdaOptions): LambdaHandler {
   const { aws, log, env } = opts;
-  const boot = opts.boot ?? bootReplica;
+  const logLine = opts.logLine ?? ((m: string) => console.error(m));
+  const boot = opts.boot ?? ((l: CommitLog) => bootReplica(l, { ...(opts.snapshots !== undefined ? { snapshots: opts.snapshots } : {}), logLine }));
   const sleep = opts.sleep ?? realSleep;
   const now = opts.now ?? Date.now;
   const containerId = opts.containerId ?? randomUUID();
   const logError = opts.logError ?? ((m: string) => console.error(m));
   const ttl = opts.paramsTtlMs ?? PARAMS_TTL_MS;
 
-  // ---- the replica: boot starts now (module load in the real entry) so it overlaps the rest of init ----
+  // ---- the replica: boot starts when the handler is created (module load in the real entry), after the consts below ----
+  let booting!: Promise<Replica>;
+  let current: Replica | undefined;
+  let warmed: "ok" | "failed" | "pending" = "pending";
   const start = (): Promise<Replica> => {
-    const p = boot(log);
+    // Boot, then one read-only warm-up request through the app: the route table, the first query's statements and the JIT are
+    // paid here, in init, instead of by the first user. The warm-up never writes and never blocks serving on its own failure.
+    const p = boot(log).then(async (r) => {
+      await warmUp(r);
+      return r;
+    });
     p.catch(() => {}); // a failed boot is reported where it is awaited, not as an unhandled rejection
     return p;
   };
-  let booting = start();
-  let current: Replica | undefined;
 
   /** The booted replica. A failed boot is retried once; a halted replica (SH8) is replaced by a fresh one. */
   async function getReplica(): Promise<Replica> {
@@ -198,9 +218,12 @@ export function createLambdaHandler(opts: LambdaOptions): LambdaHandler {
   }
 
   async function buildEnv(replica: Replica): Promise<Bindings> {
-    const p = await getParams();
+    return bindings(replica, (await getParams()).config);
+  }
+
+  function bindings(replica: Replica, config: Params["config"]): Bindings {
     return {
-      ...p.config,
+      ...config,
       DISCORD_API_URL: env.DISCORD_API_URL ?? "https://discord.com/api",
       ...(env.MODQUEUE_DISCORD_COMPONENTS !== undefined ? { MODQUEUE_DISCORD_COMPONENTS: env.MODQUEUE_DISCORD_COMPONENTS } : {}),
       // One request-scoped snapshot per invocation (SH7): one strong HEAD read, then catch-up, before the first statement.
@@ -208,6 +231,23 @@ export function createLambdaHandler(opts: LambdaOptions): LambdaHandler {
       DUMPS: r2Binding(aws.dumps),
       PLATFORM: platform,
     } as unknown as Bindings;
+  }
+
+  /**
+   * The warm-up (RP8): `GET /v1/meta` straight through the app (no origin-secret check: it is not a network request, and it
+   * needs no SSM read), read-only, so it appends nothing to the log. Failure is logged, never fatal.
+   */
+  async function warmUp(replica: Replica): Promise<void> {
+    try {
+      const res = await workerApp.fetch(new Request("http://akldb.internal/v1/meta"), bindings(replica, {}), execCtx);
+      await res.arrayBuffer();
+      if (!res.ok) throw new Error(`GET /v1/meta answered ${res.status}`);
+      await settle();
+      warmed = "ok";
+    } catch (e) {
+      warmed = "failed";
+      logError(`warm-up failed (serving anyway): ${e instanceof Error ? e.message : String(e)}`);
+    }
   }
 
   /** A halted replica must fail the invocation, not just the request: the Errors alarm is the page. */
@@ -247,7 +287,11 @@ export function createLambdaHandler(opts: LambdaOptions): LambdaHandler {
     await worker.scheduled(controller, await buildEnv(replica), execCtx);
     await settle();
     assertAlive();
-    return { ok: true, tick: new Date(at).toISOString(), seq: replica.seq };
+    // The snapshot jobs (rolling snapshot, daily snapshot, retention, nightly proof) run here and nowhere else, after the
+    // Worker's own jobs, off every request path. A failure is thrown: the Errors alarm is the page.
+    const snapshot = opts.snapshots === undefined ? undefined : await runSnapshotJobs(replica, { ...opts.snapshots, log: log as CommitLog & Partial<ExpirableLog>, logLine, now });
+    assertAlive();
+    return { ok: true, tick: new Date(at).toISOString(), seq: replica.seq, ...(snapshot !== undefined ? { snapshot } : {}) };
   }
 
   async function warm(event: { k?: number; child?: boolean }): Promise<unknown> {
@@ -268,6 +312,7 @@ export function createLambdaHandler(opts: LambdaOptions): LambdaHandler {
       child: event.child === true,
       version: env.AWS_LAMBDA_FUNCTION_VERSION ?? null,
       seq: replica.seq,
+      warmup: warmed,
       ...(event.child === true ? {} : { requested: k, containers: [...ids].sort(), children }),
     };
   }
@@ -279,7 +324,9 @@ export function createLambdaHandler(opts: LambdaOptions): LambdaHandler {
     return { ok: true, applied, seq: replica.seq };
   }
 
-  return async (event, context) => {
+  booting = start();
+
+  const handler = async (event: unknown, context?: unknown): Promise<unknown> => {
     if (isHttpEvent(event)) return http(event, context);
     if (isSchedulerEvent(event)) {
       switch (event.akldb) {
@@ -293,6 +340,7 @@ export function createLambdaHandler(opts: LambdaOptions): LambdaHandler {
     }
     throw new Error(`unrecognized event: ${JSON.stringify(event)?.slice(0, 200)}`);
   };
+  return Object.assign(handler, { ready: () => booting.then(() => undefined, () => undefined) });
 }
 
 /** The migrations directory inside the deployed zip (`migrations/` beside the bundle), unless MIGRATIONS_DIR says otherwise. */
