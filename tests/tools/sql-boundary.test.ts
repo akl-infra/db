@@ -69,6 +69,8 @@ describe("storage port boundary", () => {
       .filter((f) => f !== path.join("tests", "tools", "sql-boundary.test.ts"))
       // Phase A (design A): tests/shim/ tests the D1 shim itself, so all of it speaks raw D1 by design; one exemption, not a list.
       .filter((f) => !f.startsWith(`tests${path.sep}shim${path.sep}`))
+      // Phase B (design A): tests/replica/ tests snapshots, boot, spill and retention of that same replica; same exemption.
+      .filter((f) => !f.startsWith(`tests${path.sep}replica${path.sep}`))
       .filter((f) => callsSql(path.join(DB_ROOT, f)))
       .sort();
     expect(hits).toEqual([...D1_ONLY].sort());
