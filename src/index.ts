@@ -14,7 +14,7 @@ import { corsHeadersFor, preflightHeadersFor } from "./core/cors";
 import { ApiError, internal } from "./core/errors";
 import { cachePut, conditional, etagFor, readHead } from "./core/etag";
 import { dumpDue, DUMP_STATE_KEY, readDumpState, writeDump, type DumpState } from "./dump/write";
-import type { CronWork } from "./store/port";
+import type { CronWork, Store } from "./store/port";
 import { runJob } from "./core/jobs";
 import { metaFormats, readMetaCore } from "./core/meta";
 import { notifyPending } from "./core/modqueue";
@@ -331,11 +331,12 @@ app.post("/discord/interactions", async (c) => {
     const callback = await response.clone().json() as { type?: unknown };
     // Both legacy deferred replies (5) and silent component updates (6)
     // persist work that must run now; cron is only a recovery path.
-    if (callback.type === 5 || callback.type === 6) platformOf(c).background((async () => {
-      const { store } = platformOf(c);
-      await drainDiscordActions(store, c.env, systemClock);
-      await runJob("discord-moderation-dms", () => dispatchRejectionDms(store, c.env, systemClock));
-    })());
+    // [LDB-AWS-D1] Discord drops an ACK later than 3 s. Lambda sends its response only after its background work ends, so
+    // there the work runs in an invocation of its own (`handOff`); the Worker sends the ACK first and runs it in waitUntil.
+    if (callback.type === 5 || callback.type === 6) {
+      const platform = platformOf(c);
+      platform.background(platform.handOff !== undefined ? platform.handOff("discord") : discordFollowUp(platform.store, c.env));
+    }
   }
   return response;
 });
@@ -455,6 +456,12 @@ async function scheduled(event: ScheduledController, env: Bindings, ctx: Executi
 // enumerate `app.routes` -- the case set it requires is derived from the
 // live route table, not copy-pasted alongside it.
 export { app };
+
+/** The work a deferred Discord ACK (type 5 or 6) leaves behind: the persisted actions, then the moderation DMs. */
+export async function discordFollowUp(store: Store, env: Bindings): Promise<void> {
+  await drainDiscordActions(store, env, systemClock);
+  await runJob("discord-moderation-dms", () => dispatchRejectionDms(store, env, systemClock));
+}
 
 export default {
   fetch: app.fetch,

@@ -60,4 +60,9 @@ export interface Platform {
   fetch(input: string | URL | Request, init?: RequestInit): Promise<Response>;
   /** Run `task` after the response is sent; never rejects the request. Workers: waitUntil. Lambda: awaited after the stream ends. */
   background(task: Promise<unknown>): void;
+  /**
+   * Start `job` in its own invocation and resolve once it is queued (Lambda: an async invoke of the jobs function). Absent
+   * where `background` already runs after the response is sent (Workers, tests): callers then run the job in `background`.
+   */
+  handOff?(job: "discord"): Promise<void>;
 }
