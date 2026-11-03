@@ -25,6 +25,20 @@ this file just gives them a public, versioned home. From here on, a
 `WIRE_VERSION` bump and a line here land in the SAME PR, never one without
 the other (`[LDB-V5]`).
 
+## 1.34 — 2026-11-02
+
+LDB-CV1: one additive signal, dormant until needed. New error `503 read_only`
+(`{error, message, retry_after}` plus `Retry-After: 30`, seconds), the answer to
+any write (and the Discord interaction POST) during a planned switch of the
+service's storage. Reads keep working and the write was not applied. Clients
+must treat `503 read_only` as retryable: wait `Retry-After`, then send the same
+write again (Spark already retries 503). Nothing sends it until an operator sets
+the cutover flag.
+
+`WIRE_VERSION` is part of every `/v1` ETag, so **every `/v1` ETag changes once, on
+the deploy of this version (33 to 34)**: each client revalidates each cached
+resource one time and gets a fresh `200`, then caches as before. No body changes.
+
 ## 1.33 — 2026-11-02
 
 LDB-CMT19, docs/decisions/29-layout-comments.md: add private `GET

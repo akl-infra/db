@@ -446,3 +446,18 @@ export function reviewConflict(id: string): ApiError {
 export function sourceMessageConflict(): ApiError {
   return new ApiError(409, { error: "source_message_conflict", message: "this WPM submission already has an original Discord message" });
 }
+
+// docs/technical-reference.md "Cutover modes" (LDB-CV1): the write freeze of a storage switch. Every non-safe request gets this while
+// `import_state['cutover.mode']` is `read_only`; reads continue. The write was NOT applied: the client retries it.
+export const READ_ONLY_RETRY_AFTER_SECONDS = 30;
+export function readOnly(): ApiError {
+  return new ApiError(
+    503,
+    {
+      error: "read_only",
+      message: "akldb is read-only for a moment (a planned switch); retry the write shortly",
+      retry_after: READ_ONLY_RETRY_AFTER_SECONDS,
+    },
+    { "Retry-After": String(READ_ONLY_RETRY_AFTER_SECONDS) },
+  );
+}

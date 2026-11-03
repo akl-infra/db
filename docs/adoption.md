@@ -865,6 +865,13 @@ replacement for it — a busy multi-user bot legitimately needs it wider than
 one person's own budget). `429 rate_limited` carries `Retry-After` (seconds)
 and `scope` (`"actor"` or `"client"`, naming which counter tripped).
 
+**Planned write freezes**: during a planned switch of the service's storage,
+every write (and the Discord interaction POST) is answered `503 read_only` with
+`Retry-After: 30` (seconds) and `{error: "read_only", message, retry_after}`; the
+write was not applied, and reads keep working. Treat `503 read_only` as
+retryable: wait `Retry-After` and send the same write again (an idempotent retry
+is safe). It is dormant until an operator sets the flag, and lasts minutes at most.
+
 **The full error table**, generated from `src/core/errors.ts`'s own
 `ApiError` factories exactly as `INTEGRATION.md`'s own appendix is
 (`scripts/gen-error-table.mjs`; `tests/tools/docs-site.test.ts`'s
@@ -920,6 +927,7 @@ it as generated, not hand-edited):
 | 429 | `rate_limited` | rate limit exceeded: ${limit} writes per ${windowSeconds}s | `rateLimited(limit, windowSeconds, retryAfter, scope)` |
 | 409 | `review_conflict` | This review has changed or can no longer be reopened. Refresh the queue. | `reviewConflict(id)` |
 | 409 | `source_message_conflict` | this WPM submission already has an original Discord message | `sourceMessageConflict()` |
+| 503 | `read_only` | akldb is read-only for a moment (a planned switch); retry the write shortly | `readOnly()` |
 
 **Three more codes exist in the *format* layer**, not in the table above
 because they come from a format module's own `validate()`, not one of

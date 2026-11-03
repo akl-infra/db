@@ -275,6 +275,41 @@ double-runs within 24h: a successful hour=3 run leaves the record fresh,
 so the immediately following ticks' own catch-up checks are false.
 `GET /v1/meta.health.dump` (below) surfaces its staleness for monitoring.
 
+## Cutover mode (write freeze)
+
+A dormant write freeze for moving akldb's storage (LDB-CV1..CV9, `src/core/cutover.ts`). The flag is one
+`import_state` row, `cutover.mode`; the Worker reads it through the store (`store.cutover.mode()`) and reuses
+the answer for at most 1 s per isolate, so flipping it is a plain SQL write and **needs no deploy**. Only
+`read_only` means anything. Absent, or any other value, is today's behaviour exactly (LDB-CV5): nothing is
+refused or skipped.
+
+In `read_only`:
+- every non-GET/HEAD/OPTIONS request under `/v1/*`, and the Discord `POST /discord/interactions`, answers
+  `503 read_only` with `Retry-After: 30` and `{error, message, retry_after}` (the write is not applied;
+  clients retry, `CHANGELOG-API.md` 1.34). Reads continue.
+- the gate runs after the actor is resolved and before idempotency and the rate limit: an anonymous write is
+  still `401`, and a refused write is neither replayed nor charged.
+- the scheduled tick runs no job at all (`scheduled(): skipped, a cutover mode is on`), so the nightly dump
+  and prune write nothing either (`POST /v1/admin/nightly/tick` is a write, so it is refused like the rest).
+
+Set it (remote D1; `wrangler d1 execute akl-db --remote`, with `CLOUDFLARE_ACCOUNT_ID` set):
+
+```sql
+-- freeze writes
+INSERT INTO import_state (key, value) VALUES ('cutover.mode', 'read_only')
+  ON CONFLICT(key) DO UPDATE SET value = excluded.value;
+-- clear it (back to normal)
+DELETE FROM import_state WHERE key = 'cutover.mode';
+```
+
+Each takes effect within about a second per isolate. Check with `SELECT value FROM import_state WHERE key =
+'cutover.mode'`; a `read_only` write answers `503` with `"error": "read_only"`. Deploying the change that adds
+this mode (API 1.34) changes every `/v1` ETag once (`WIRE_VERSION` 33 to 34, folded into every ETag), which
+costs each client one revalidation per cached resource; the flag itself changes no ETag. A failed read of the
+flag keeps the last value this isolate saw (a freeze in force stays in force), else normal, and logs `cutover:
+mode read failed` (LDB-CV9). The tick reads the flag in its one probe statement (LDB-J1), so an idle tick is
+still one statement.
+
 ## Rogue trusted client
 
 A client registered `act-as-user` (§1.1 of `docs/adoption.md`) can assert

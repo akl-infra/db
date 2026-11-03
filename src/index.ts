@@ -8,6 +8,7 @@ import { type AuthDeps, resolveActor } from "./auth/discord";
 import { idempotencyKeys } from "./auth/idempotency";
 import { rateLimitWrites } from "./auth/ratelimit";
 import { clientsHealth } from "./core/clients";
+import { cutoverReadOnly, frozen } from "./core/cutover";
 import { describeError } from "./core/describe-error";
 import { corsHeadersFor, preflightHeadersFor } from "./core/cors";
 import { ApiError, internal } from "./core/errors";
@@ -102,6 +103,11 @@ app.use("/v1/wpm/submissions/*", async (c, next) => {
 // (09 §2.1) -- registered before any route, so no write route, present or
 // future, can be reached without it.
 app.use("/v1/*", requireActorOnWrites(authDeps));
+
+// Cutover mode `read_only` (src/core/cutover.ts): right after the actor, before idempotency and the rate limit. A no-op unless the
+// flag says `read_only`. The Discord interaction POST writes too, so it is gated the same way.
+app.use("/v1/*", cutoverReadOnly());
+app.use("/discord/*", cutoverReadOnly());
 
 // The Idempotency-Key gate (L3, src/auth/idempotency.ts) -- mounted right
 // after the actor is resolved (it needs `c.get("actor")` for scoping) and
@@ -408,6 +414,12 @@ async function scheduled(event: ScheduledController, env: Bindings, ctx: Executi
     work = await store.cron.work(systemClock());
   } catch {
     console.error("scheduled(): work probe failed; running every job");
+  }
+  // A cutover owns the data (`read_only`: nothing may write after the final seq, the nightly dump
+  // included). The probe carries the flag, so an idle tick is still one statement; a failed probe asks the flag's own (cached) read.
+  if (work !== null ? work.cutoverMode !== null : await frozen(store)) {
+    console.log("scheduled(): skipped, a cutover mode is on");
+    return;
   }
   const run = work ?? { announce: true, reconcile: true, discord: true, dms: true };
   if (run.announce || run.reconcile) {

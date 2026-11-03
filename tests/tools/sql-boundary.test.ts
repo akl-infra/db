@@ -19,6 +19,7 @@ const D1_ONLY = [
   "tests/api/authors-validator-d1.test.ts",
   "tests/api/changes-longpoll-d1.test.ts",
   "tests/api/cron-probe.test.ts",
+  "tests/api/cutover.test.ts",
   "tests/api/l8-roundtrips.test.ts",
   "tests/api/list-plan.test.ts",
   "tests/api/me-d1.test.ts",
