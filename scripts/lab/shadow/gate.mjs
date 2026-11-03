@@ -5,7 +5,7 @@
 //        --mac LATENCY.md [--colos COLOS.json] [--metrics METRICS.json --run RUN.json] [--prices PRICES.json] [--out gate.md] [--json]
 //
 //   --replay   the NDJSON of scripts/lab/shadow/replay.mjs, one per day (each record carries its UTC time)
-//   --logs     the shadow api and jobs functions' log lines: `aws logs filter-log-events` JSON (any pages), or plain text. Read:
+//   --logs     (repeat for the api and the jobs function) the shadow functions' log lines: `aws logs filter-log-events` JSON (any pages), or plain text. Read:
 //              `akldb-checkpoint:` (nightly checksums), `akldb-alarm:` (halts, follower alarms), `akldb-cold:` (cold starts), REPORT lines
 //   --probe    the answer of `scripts/aws/probe.sh run` (gate (a), us-east-2)
 //   --mac      latency-compare.py's markdown from the Mac, run against shadow (gate (b))
@@ -26,7 +26,7 @@ function parseArgs(argv) {
     const k = argv[i];
     const v = () => argv[++i];
     if (k === "--replay") a.replay.push(v());
-    else if (k === "--logs") a.logs = v();
+    else if (k === "--logs") (a.logs ??= []).push(v());
     else if (k === "--probe") a.probe = v();
     else if (k === "--mac") a.mac = v();
     else if (k === "--colos") a.colos = v();
@@ -44,7 +44,7 @@ export function gateFromFiles(a) {
   const records = a.replay.flatMap((f) => fs.readFileSync(f, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)));
   return evaluate({
     records,
-    logs: a.logs === undefined ? undefined : parseLogs(logLines(fs.readFileSync(a.logs, "utf8"))),
+    logs: a.logs === undefined ? undefined : parseLogs(a.logs.flatMap((f) => logLines(fs.readFileSync(f, "utf8")))),
     probe: a.probe === undefined ? undefined : loadJson(a.probe),
     mac: a.mac === undefined ? undefined : parseMac(fs.readFileSync(a.mac, "utf8")),
     colos: a.colos === undefined ? undefined : loadJson(a.colos),
