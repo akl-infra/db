@@ -232,7 +232,10 @@ export class Replica {
   async #replayTo(head: number): Promise<void> {
     const entries = await this.#logCall(() => this.log.read(this.#seq, head));
     for (const [i, e] of entries.entries()) {
-      if (e.seq !== this.#seq + 1 + i) throw new Error(`commit log read is not contiguous: expected seq ${this.#seq + 1 + i}, got ${e.seq}`);
+      if (e.seq !== this.#seq + 1 + i) {
+        const gap = i === 0 && e.seq > this.#seq + 1 ? ` (the log now starts at seq ${e.seq}: retention expired the entries before it, so only a snapshot at or past seq ${e.seq - 1} can boot)` : "";
+        throw new Error(`commit log read is not contiguous: expected seq ${this.#seq + 1 + i}, got ${e.seq}${gap}`);
+      }
     }
     if (entries.length !== head - this.#seq) throw new Error(`commit log read returned ${entries.length} entries for seq ${this.#seq + 1}..${head}`);
     for (const e of entries) this.#apply(e);
