@@ -13,7 +13,7 @@
 // `{user:null, signin:false}` so the UI can hide the sign-in button
 // entirely rather than show a button that 404s.
 import { Hono } from "hono";
-import type { Env } from "./env.ts";
+import { originHeaders, type Env } from "./env.ts";
 import { csrfOk } from "./proxy.ts";
 import {
   MAX_SESSION_SECONDS,
@@ -113,7 +113,7 @@ discordRoutes.get("/auth/callback", async (c) => {
   let me: MeResponse | null = null;
   try {
     const meRes = await fetch(`${env.DB_BASE_URL}/v1/me`, {
-      headers: { Authorization: `Bearer ${token.access_token}` },
+      headers: { Authorization: `Bearer ${token.access_token}`, ...originHeaders(env) },
     });
     if (meRes.ok) me = (await meRes.json()) as MeResponse;
   } catch {
@@ -163,7 +163,7 @@ discordRoutes.get("/auth/me", async (c) => {
   // bearer -- fresh, never from the cookie").
   try {
     const meRes = await fetch(`${env.DB_BASE_URL}/v1/me`, {
-      headers: { Authorization: `Bearer ${session.access_token}` },
+      headers: { Authorization: `Bearer ${session.access_token}`, ...originHeaders(env) },
     });
     if (meRes.status === 401) {
       return c.json({ user: null, signin: true }, 200, { "Set-Cookie": clearSessionCookieHeader() });

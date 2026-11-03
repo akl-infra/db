@@ -7,7 +7,7 @@
 import type { Context } from "hono";
 import { Hono } from "hono";
 import type { Env } from "./env.ts";
-import { CLIENT_VERSION_HEADER } from "./env.ts";
+import { CLIENT_VERSION_HEADER, originHeaders } from "./env.ts";
 import { SESSION_COOKIE, clearSessionCookieHeader, openSession, parseCookies } from "./session.ts";
 
 export const UPSTREAM_TIMEOUT_MS = 10_000;
@@ -85,6 +85,8 @@ proxyRoutes.all("/api/v1/*", async (c: Context<{ Bindings: Env }>) => {
   }
   outHeaders.set("X-Client-Version", CLIENT_VERSION_HEADER);
   outHeaders.set("User-Agent", CLIENT_VERSION_HEADER);
+  // Set by this Worker only: FORWARD_REQUEST_HEADERS is an allow-list, so a client-sent x-akldb-origin is never forwarded.
+  for (const [name, value] of Object.entries(originHeaders(env))) outHeaders.set(name, value);
 
   const cookies = parseCookies(req.header("Cookie"));
   const sessionToken = cookies[SESSION_COOKIE];
