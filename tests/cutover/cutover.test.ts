@@ -77,7 +77,7 @@ describe("the machine (CV11)", () => {
     expect(prod).toMatchObject({ publicUrl: "https://api.akldb.org", workerUrl: "https://api.akldb.org", workerDirectUrl: "https://akl-db.akl-58a.workers.dev", dnsConsecutive: 5, dnsTimeoutMs: 900_000 });
     expect(prod.originEnv).toMatch(/akldb-origin-prod\.env$/);
     expect(prod.r2Env).toMatch(/akldb-r2-dumps-read\.env$/);
-    expect(defaultMinMinor()).toBe(34); // this tree's WIRE_VERSION: the modes shipped in 1.34 (#45)
+    expect(defaultMinMinor()).toBe(35); // this tree's WIRE_VERSION (the read_only modes shipped in 1.34, #45)
   });
 
   it("[LDB-CV11] the happy path: every step passes, in order, and the log holds the image, the open unit and the post-smoke write", async () => {
@@ -196,7 +196,7 @@ describe("each step's precondition stops the run with a clear message (CV11)", (
     await fails(await w.cutover(), /the AWS log is not empty \(head 1\)/, "preflight");
     cleanup(w);
     w = await makeWorld();
-    await fails(await w.cutover(["--execute", "--min-api-minor", "35"]), /serves api\.minor 34, the modes shipped in 35/, "preflight");
+    await fails(await w.cutover(["--execute", "--min-api-minor", "36"]), /serves api\.minor 35, the modes shipped in 36/, "preflight");
     cleanup(w);
     w = await makeWorld();
     w.d1().exec("INSERT INTO import_state (key, value) VALUES ('cutover.mode', 'read_only')");

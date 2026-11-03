@@ -25,6 +25,27 @@ this file just gives them a public, versioned home. From here on, a
 `WIRE_VERSION` bump and a line here land in the SAME PR, never one without
 the other (`[LDB-V5]`).
 
+## 1.35 — 2026-11-03
+
+LDB-MD20: any decided WPM submission can be reopened for review at any time
+(saltorbit: "you should be able to reopen anything for review."). `POST
+/v1/admin/wpm-queue/:id/reopen` no longer answers `409 review_conflict` because
+the same user has a newer or another pending submission on the layout, or
+because the layout is deleted, and its request `status` (shared with the comment
+route) now also accepts `superseded`. Still refused with `409 review_conflict`: a
+pending row and a stale `status` or `review_version`.
+
+Comments are unchanged (saltorbit: "comments are different. you can't reopen an
+edited comment from a couple edits ago, you would break the causality chain"):
+only the current comment in a slot can be reopened, and a `superseded` comment
+reopen request is `409 review_conflict`. Additive: requests that used to get
+`409` or `400` for WPM now succeed and no response shape changes. Discord cards
+still offer Reopen on approved and rejected rows only.
+
+`WIRE_VERSION` is part of every `/v1` ETag, so **every `/v1` ETag changes once, on
+the deploy of this version (34 to 35)**: each client revalidates each cached
+resource one time and gets a fresh `200`, then caches as before. No body changes.
+
 ## 1.34 — 2026-11-02
 
 LDB-CV1: one additive signal, dormant until needed. New error `503 read_only`

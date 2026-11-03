@@ -209,7 +209,7 @@ export const reviewRejectSchema = {
 } as const;
 export const reviewReopenSchema = {
   type: "object", additionalProperties: false, required: ["status", "review_version"],
-  properties: { status: { type: "string", enum: ["approved", "rejected"] }, review_version: reviewVersionSchema },
+  properties: { status: { type: "string", enum: ["approved", "rejected", "superseded"] }, review_version: reviewVersionSchema },
 } as const;
 
 // Absolute end assertion also rejects a trailing newline (JavaScript `$` does not).

@@ -31,8 +31,13 @@ export function d1ReviewStore(db: D1Database): ReviewStore {
     async reopen(r) {
       const { kind, id, expected, at } = r;
       const table = tableFor(kind);
-      const eligible = `id = ? AND status = ? AND review_version = ?
-    ${kind === "comment" ? "AND body IS NOT NULL" : ""}
+      // [LDB-MD20] WPM reopens at any time: only the staleness fence (status + review_version)
+      // applies. A comment keeps its causality rules: only the current row of its slot
+      // (live layout, no newer or other pending row, text not erased) can be reopened.
+      const eligible = kind === "wpm"
+        ? "id = ? AND status = ? AND review_version = ?"
+        : `id = ? AND status = ? AND review_version = ?
+    AND body IS NOT NULL
     AND EXISTS (SELECT 1 FROM layouts WHERE id = ${table}.layout_id AND deleted = 0)
     AND NOT EXISTS (SELECT 1 FROM ${table} newer WHERE newer.layout_id = ${table}.layout_id AND newer.user_id = ${table}.user_id
       AND newer.id != ${table}.id AND (newer.status = 'pending' OR newer.submitted_at > ${table}.submitted_at

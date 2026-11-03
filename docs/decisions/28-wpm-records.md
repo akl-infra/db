@@ -126,16 +126,26 @@ restores with it empty). Additive only: nothing existing changes meaning.
 
 ## Reopening (API 1.25, LDB-MD20)
 
-An approved or rejected submission may return to pending through the admin
-queue's `reopen` endpoint, provided no newer submission or another pending
-submission exists for that layout/user and the layout is live. `review_version`
+Any non-pending submission (approved, rejected or superseded) may return to
+pending through the admin queue's `reopen` endpoint, at any time: a newer or
+other pending submission by the same user, or a deleted layout, does not block
+it (API 1.35). `review_version`
 identifies each review cycle; reopening increments it, and a later decision must
 supply that expected version. Reopening an approved best removes it from public
 records immediately, allowing the next-best approved row to take its place.
 The event log is append-only: `wpm_reopened` contains only the submission ID.
 Private decision history retains moderator, time and reason without entering
 public dumps. See [the API contract](../adoption.md#reopening-a-comment-or-wpm-decision-api-125)
-for the request shapes and delivery behavior.
+for the request shapes and delivery behavior. Two approved rows for one
+user/layout are fine: the record is derived on read (the highest approved
+`wpm`), so a reopened older run that is approved again simply competes with
+the newer one.
+
+2026-11-03, saltorbit: "you should be able to reopen anything for review." /
+"like anything at any time, there is no reason to ever block reopening
+something for review."
+Comments are different and keep their reopening rules
+([decision 29](29-layout-comments.md#reopening-api-125-ldb-md20)).
 
 ## Discord presentation
 

@@ -6,7 +6,8 @@ import type { Clock } from "./time";
 import { toStore, type StoreArg } from "../store/arg";
 
 export type ReviewKind = "comment" | "wpm";
-export interface ReviewExpectation { status: "approved" | "rejected"; review_version: number }
+export type ReopenableStatus = "approved" | "rejected" | "superseded";
+export interface ReviewExpectation { status: ReopenableStatus; review_version: number }
 export interface ReviewHistoryRow {
   action: "approved" | "rejected" | "reopened";
   actor: string;
@@ -41,6 +42,8 @@ export async function reopenReview(dbArg: StoreArg, now: Clock, actor: Actor, ve
   const store = toStore(dbArg);
   const layoutId = await store.review.submissionLayout(kind, id);
   if (layoutId === null) throw notFound(`no ${kind} submission '${id}'`, id);
+  // [LDB-MD20] A superseded comment is an old edit: only WPM reopens it.
+  if (kind === "comment" && expected.status === "superseded") throw reviewConflict(id);
   const at = now();
   const outcome = await store.review.reopen({
     kind, id, expected, at,

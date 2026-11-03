@@ -123,7 +123,7 @@ describe("[LDB-MD20] moderation reopening", () => {
     expect((await listCommentCounts(store)).find((c) => c.layout_id === layout)?.count).toBe(1);
   });
 
-  it("[LDB-MD20] refuses erased, superseded, replaced, removed, tombstoned and newer-slot work", async () => {
+  it("[LDB-MD20] refuses erased, superseded, replaced, removed, tombstoned and newer-slot comment work", async () => {
     for (const status of ["superseded", "replaced", "removed", "deleted"]) {
       const { comment } = await seed();
       await testStore.patch("layout_comments", { id: comment }, { status });
@@ -133,15 +133,71 @@ describe("[LDB-MD20] moderation reopening", () => {
     await rejectComment(store, clock, actor, null, erased.comment);
     await deleteOwnComment(store, clock, user, null, erased.layout);
     await expect(reopenComment(store, clock, actor, null, erased.comment, { status: "rejected", review_version: 0 })).rejects.toMatchObject(conflict);
-    const deleted = await seed();
-    await approveWpm(store, clock, actor, null, deleted.wpm);
-    await testStore.patch("layouts", { id: deleted.layout }, { deleted: 1 });
-    await expect(reopenWpm(store, clock, actor, null, deleted.wpm, { status: "approved", review_version: 0 })).rejects.toMatchObject(conflict);
+    // A comment edit chain is causal: a superseded status is never an eligible comment reopen.
+    const superseded = await seed();
+    await testStore.patch("layout_comments", { id: superseded.comment }, { status: "superseded" });
+    await expect(reopenComment(store, clock, actor, null, superseded.comment, { status: "superseded", review_version: 0 })).rejects.toMatchObject(conflict);
+    expect(await testStore.row("layout_comments", { id: superseded.comment })).toMatchObject({ status: "superseded", review_version: 0 });
+    const deletedLayout = await seed();
+    await rejectComment(store, clock, actor, null, deletedLayout.comment);
+    await testStore.patch("layouts", { id: deletedLayout.layout }, { deleted: 1 });
+    await expect(reopenComment(store, clock, actor, null, deletedLayout.comment, { status: "rejected", review_version: 0 })).rejects.toMatchObject(conflict);
     const newer = await seed();
     await rejectComment(store, clock, actor, null, newer.comment);
     await testStore.insert("layout_comments", { id: ulid(), layout_id: newer.layout, user_id: user.user_id, body: "newer work", via: "discord", submitted_at: "2026-10-19T00:00:00.000Z", status: "rejected" });
     await expect(reopenComment(store, clock, actor, null, newer.comment, { status: "rejected", review_version: 0 })).rejects.toMatchObject(conflict);
     expect(await testStore.row("layout_comments", { id: newer.comment })).toMatchObject({ status: "rejected" });
+  });
+
+  // saltorbit 2026-11-03: "you should be able to reopen anything for review." (WPM only;
+  // comments keep their causality rules, see the test above.)
+  it("[LDB-MD20] reopens any non-pending WPM submission at any time", async () => {
+    const readHistory = async (id: string) => (await readReviewHistory(store, "wpm", id)).map((h) => ({ action: h.action, review_version: h.review_version })).at(-1);
+    const events = async (id: string) => (await testStore.rows<{ kind: string; detail_json: string | null }>("events", {}, ["seq"])).filter((e) => e.detail_json?.includes(id)).map((e) => e.kind);
+
+    const sup = await seed();
+    await testStore.patch("wpm_submissions", { id: sup.wpm }, { status: "superseded" });
+    await expect(reopenWpm(store, clock, actor, null, sup.wpm, { status: "superseded", review_version: 0 })).resolves.toMatchObject({ status: "pending", review_version: 1, decided_by: null, decided_at: null, reason: null });
+    expect(await readHistory(sup.wpm)).toEqual({ action: "reopened", review_version: 1 });
+    expect(await events(sup.wpm)).toEqual(["wpm_reopened"]);
+
+    const deleted = await seed();
+    await approveWpm(store, clock, actor, null, deleted.wpm);
+    await testStore.patch("layouts", { id: deleted.layout }, { deleted: 1 });
+    await reopenWpm(store, clock, actor, null, deleted.wpm, { status: "approved", review_version: 0 });
+    expect(await testStore.row("wpm_submissions", { id: deleted.wpm })).toMatchObject({ status: "pending", review_version: 1 });
+    expect(await readHistory(deleted.wpm)).toEqual({ action: "reopened", review_version: 1 });
+    expect(await events(deleted.wpm)).toEqual(["wpm_approved", "wpm_reopened"]);
+
+    const newer = await seed();
+    await approveWpm(store, clock, actor, null, newer.wpm);
+    const newerId = ulid();
+    await testStore.insert("wpm_submissions", { id: newerId, layout_id: newer.layout, user_id: user.user_id, wpm: 90, proof: "https://example.org/p2", submitted_by: user.user_id, via: "discord", submitted_at: "2026-10-19T00:00:00.000Z", status: "rejected" });
+    await reopenWpm(store, clock, actor, null, newer.wpm, { status: "approved", review_version: 0 });
+    expect(await testStore.row("wpm_submissions", { id: newer.wpm })).toMatchObject({ status: "pending", review_version: 1 });
+
+    const pending = await seed();
+    await approveWpm(store, clock, actor, null, pending.wpm);
+    await testStore.insert("wpm_submissions", { id: ulid(), layout_id: pending.layout, user_id: user.user_id, wpm: 90, proof: "https://example.org/p3", submitted_by: user.user_id, via: "discord", submitted_at: "2026-10-19T00:00:00.000Z", status: "pending" });
+    await reopenWpm(store, clock, actor, null, pending.wpm, { status: "approved", review_version: 0 });
+    expect(await testStore.row("wpm_submissions", { id: pending.wpm })).toMatchObject({ status: "pending", review_version: 1 });
+  });
+
+  it("[LDB-MD20] WPM reopen keeps the staleness fence and refuses a pending row; two approved rows keep the best record", async () => {
+    const stale = await seed();
+    await expect(reopenWpm(store, clock, actor, null, stale.wpm, { status: "approved", review_version: 0 })).rejects.toMatchObject(conflict);
+    await approveWpm(store, clock, actor, null, stale.wpm);
+    await expect(reopenWpm(store, clock, actor, null, stale.wpm, { status: "rejected", review_version: 0 })).rejects.toMatchObject(conflict);
+    await expect(reopenWpm(store, clock, actor, null, stale.wpm, { status: "approved", review_version: 3 })).rejects.toMatchObject(conflict);
+    expect(await testStore.row("wpm_submissions", { id: stale.wpm })).toMatchObject({ status: "approved", review_version: 0 });
+
+    const newerId = ulid();
+    await testStore.insert("wpm_submissions", { id: newerId, layout_id: stale.layout, user_id: user.user_id, wpm: 130, proof: "https://example.org/p4", submitted_by: user.user_id, via: "discord", submitted_at: "2026-10-19T00:00:00.000Z", status: "approved", decided_by: actor.user_id, decided_at: "2026-10-19T01:00:00.000Z" });
+    await reopenWpm(store, clock, actor, null, stale.wpm, { status: "approved", review_version: 0 });
+    await approveWpm(store, clock, actor, null, stale.wpm, 1);
+    const records = await listWpmRecords(store, { layoutId: stale.layout });
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({ wpm: 130, submission_id: newerId });
   });
 
   it("[LDB-MD20] keeps preexisting decision reasons and fences an in-flight denial-channel request", async () => {

@@ -109,7 +109,7 @@ const validateWpmOnBehalf = v.validateWpmOnBehalf as ValidateFunction<WpmOnBehal
 const validateDiscordUsersRefresh = v.validateDiscordUsersRefresh as ValidateFunction<{ limit?: unknown }>;
 const validateReviewApprove = v.validateReviewApprove as ValidateFunction<ReviewDecisionBody>;
 const validateReviewReject = v.validateReviewReject as ValidateFunction<ReviewDecisionBody>;
-const validateReviewReopen = v.validateReviewReopen as ValidateFunction<{ status: "approved" | "rejected"; review_version: number }>;
+const validateReviewReopen = v.validateReviewReopen as ValidateFunction<{ status: "approved" | "rejected" | "superseded"; review_version: number }>;
 const validateWpmDiscordMessage = v.validateWpmDiscordMessage as ValidateFunction<WpmDiscordMessageBody>;
 
 /** ajv's own errorsText for one error (`body/name must be string`), without importing ajv. */

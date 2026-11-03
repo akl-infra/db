@@ -33,7 +33,7 @@ export const PUBLIC = "https://api.akldb.org";
 export const WORKER_DIRECT = "https://akl-db.akl-58a.workers.dev";
 export const REHEARSAL_WORKER = "https://rehearsal.example";
 export const STAGING_PUBLIC = "https://staging-api.akldb.org";
-export const MINOR = 34;
+export const MINOR = 35;
 const SECRET = "s3cret-origin-value-0123456789abcdef";
 
 export interface Res {

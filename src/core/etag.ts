@@ -235,7 +235,11 @@ export async function readHead(dbArg: StoreArg, stateKeys: readonly string[] = [
 //   error `503 read_only` (`Retry-After: 30`) for any write and the Discord
 //   interaction POST. Additive and dormant until an operator sets the cutover
 //   flag. No stored shape changes; no migration.
-export const WIRE_VERSION = 34;
+// 35 (2026-11-03, LDB-MD20): reopening a decided WPM submission is no longer
+//   refused for newer/other-pending work or a deleted layout, and the reopen
+//   body's `status` also accepts `superseded` (comments unchanged). Additive;
+//   no stored shape changes; no migration.
+export const WIRE_VERSION = 35;
 
 export async function etagFor(headSeqValue: number, query: unknown): Promise<string> {
   const hash = await sha256Hex(canonical({ wireVersion: WIRE_VERSION, query: query ?? null }));

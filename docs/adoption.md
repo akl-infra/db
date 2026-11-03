@@ -1415,12 +1415,24 @@ the queue. The response is `{submission}` with `status:"pending"`, cleared
 Approve and reject must send that new version. Omitting it means the original
 cycle zero, so old tabs and old clients cannot decide a reopened review.
 
-Only approved/rejected submissions on live layouts are eligible. Erased,
-removed, replaced, deleted or superseded comments cannot be revived. Another
-pending submission or a newer submission for the same layout/user blocks
-reopening, even if the newer submission was rejected. Ineligible or stale
-reopening returns `409 review_conflict`; refresh the queue. Existing cycle-zero
-approve/reject calls against already-decided rows retain `404 not_found`;
+WPM submissions can be reopened at any time (API 1.35, saltorbit 2026-11-03:
+"you should be able to reopen anything for review."): `status` is the row's
+current status, `approved`, `rejected` or `superseded`, and a newer or other
+pending submission by the same user, or a deleted layout, no longer blocks it.
+The only WPM refusals are a pending row (already under review) and a stale
+`status`/`review_version`. Approving a reopened WPM row on a deleted layout is
+refused as before (restore the layout first); rejecting it is fine. Two approved
+rows for one user and layout are fine: the record is the best of them.
+
+Comments keep their rules (saltorbit 2026-11-03: "comments are different. you
+can't reopen an edited comment from a couple edits ago, you would break the
+causality chain"). Only an approved or rejected comment that is the current row
+of its slot on a live layout is eligible: erased, removed, replaced, deleted or
+superseded comments cannot be revived, and another pending comment or a newer
+comment for the same layout/user blocks reopening, even if the newer one was
+rejected. A `superseded` reopen request for a comment is `409 review_conflict`.
+Ineligible or stale reopening returns `409 review_conflict`; refresh the queue. Existing
+cycle-zero approve/reject calls against already-decided rows retain `404 not_found`;
 a losing concurrent claim or wrong review version returns `409 review_conflict`.
 
 Reopening an approval immediately withdraws it from public queries. A WPM

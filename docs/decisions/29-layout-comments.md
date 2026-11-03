@@ -112,6 +112,11 @@ but no comment body. Public dumps exclude that history. See [the API
 contract](../adoption.md#reopening-a-comment-or-wpm-decision-api-125) for request
 shapes, stale-action behavior and denial-DM cancellation.
 
+2026-11-03, saltorbit: "comments are different. you can't reopen an edited
+comment from a couple edits ago, you would break the causality chain". Comment
+reopening therefore keeps its rules (API 1.35 changed nothing here): only the
+current comment in a slot can be reopened.
+
 ## Discord comment presentation
 
 Comment cards use a normal-sized bold context line (comment type, linked layout,
