@@ -5,6 +5,7 @@
 // a timeout before the commit and a timeout AFTER the commit (the last two
 // raise AmbiguousAppendError, as the real backend does).
 import { AmbiguousAppendError, LogThrottledError, checkedBody, decodeBody, type CommitLog, type LogEntry, type NewLogEntry } from "./log";
+import { nextTurn } from "./timers";
 
 export interface MemoryLogFaults {
   /** Probability that an append whose head matched still reports "conflict" without writing (a DynamoDB TransactionConflict). */
@@ -94,7 +95,7 @@ export class MemoryLog implements CommitLog {
     const n = this.#faults.maxYields ?? 0;
     if (n <= 0) return;
     const k = Math.floor(this.#rng() * (n + 1));
-    for (let i = 0; i < k; i++) await new Promise<void>((r) => setImmediate(r));
+    for (let i = 0; i < k; i++) await nextTurn();
   }
 
   #throttleMaybe(): void {

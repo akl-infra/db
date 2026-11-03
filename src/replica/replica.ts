@@ -20,6 +20,7 @@
 import { createHash } from "node:crypto";
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 import { ulid as newUlid } from "ulidx";
+import { nextTurn, sleep } from "./timers";
 import {
   AmbiguousAppendError,
   LogThrottledError,
@@ -159,7 +160,7 @@ export class Replica {
     this.db = new DatabaseSync(":memory:", { enableForeignKeyConstraints: true });
     this.#ulid = opts.ulid ?? newUlid;
     this.#random = opts.random ?? Math.random;
-    this.#sleep = opts.sleep ?? ((ms) => new Promise<void>((r) => setTimeout(r, ms)));
+    this.#sleep = opts.sleep ?? sleep;
     this.#maxAttempts = opts.maxAttempts ?? 25;
     this.#backoffMs = opts.backoffMs ?? 2;
   }
@@ -186,7 +187,7 @@ export class Replica {
   async #backoff(n: number): Promise<void> {
     const ms = Math.floor(this.#backoffMs * Math.min(2 ** (n - 1), 8) * (0.5 + this.#random()));
     if (ms > 0) await this.#sleep(ms);
-    else await new Promise<void>((r) => setImmediate(r));
+    else await nextTurn();
   }
 
   /** A log read with bounded retries of throttling. */
