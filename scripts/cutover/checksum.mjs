@@ -128,7 +128,7 @@ export async function proveAll({ select, db, tables, pageRows, concurrency = 1, 
 }
 
 /**
- * proveAll for a database a round trip away (the D1 REST API), with few calls: ONE query counts every table; every small table is read whole,
+ * proveAll for a database a round trip away (the D1 REST API), with few calls: ONE call counts every table (a COUNT statement each); every small table is read whole,
  * all of them in ONE multi-statement call (`selectMany(sqls) -> rows[][]`); the big tables are paged by row width, `concurrency` at a time.
  * The result is exactly what proveAll gives for the same data (the checksum does not depend on how the rows were fetched).
  * `stats` (optional) counts what was asked of the remote.
@@ -140,8 +140,9 @@ export async function proveAllBatched({ select, selectMany, db, tables, pageRows
   const note = (calls, label) => {
     if (stats) stats.calls = (stats.calls ?? 0) + calls, (stats.log ??= []).push(`${label}: ${calls}`);
   };
-  const countSql = list.map((t) => `SELECT '${t.replaceAll("'", "''")}' AS t, count(*) AS n FROM ${q(t)}`).join(" UNION ALL ");
-  const counts = Object.fromEntries((await select(countSql)).map((r) => [r.t, Number(r.n)]));
+  // one COUNT statement per table, all in one call: D1 refuses a compound SELECT of more than 5 terms (measured 2026-11-03), so no UNION ALL
+  const countRows = await many(list.map((t) => `SELECT count(*) AS n FROM ${q(t)}`));
+  const counts = Object.fromEntries(list.map((t, i) => [t, Number(countRows[i][0].n)]));
   note(1, "counts");
   const small = list.filter((t) => counts[t] <= smallRows);
   const large = list.filter((t) => counts[t] > smallRows);

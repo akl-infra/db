@@ -249,13 +249,20 @@ describe("proof over a remote database with few calls (CV22)", () => {
     const want = await proveAll({ select: localSelect(db), db });
     const stats: { calls?: number; log?: string[] } = {};
     const sent: string[] = [];
-    const select = async (sql: string) => (sent.push(sql), asD1(db)(sql));
-    const selectMany = async (sqls: string[]) => (sent.push(...sqls.map((s) => `MANY ${s}`)), sqls.map((s) => asD1(db)(s)));
+    // like D1: a compound SELECT of more than 5 terms is an error (SQLITE_LIMIT_COMPOUND_SELECT, measured on the real D1 2026-11-03)
+    const d1 = (sql: string) => {
+      if (sql.split(/\b(?:UNION|INTERSECT|EXCEPT)\b/i).length > 5) throw new Error("D1 REST 400: 7500 too many terms in compound SELECT: SQLITE_ERROR");
+      return asD1(db)(sql);
+    };
+    const select = async (sql: string) => (sent.push(sql), d1(sql));
+    const selectMany = async (sqls: string[]) => (sent.push(...sqls.map((s) => `MANY ${s}`)), sqls.map((s) => d1(s)));
     const got = await proveAllBatched({ select, selectMany, db, pageRows: 100, targetPageBytes: 100_000, smallRows: 50, concurrency: 3, stats });
     expect(compareProofs(want, got).ok).toBe(true);
-    // 1 count + 1 batch of the 3 small tables (small, empty, sqlite_sequence) + pages of events and rev (rev: ~2 KB rows, so ~50 rows a page)
-    expect(sent.filter((s) => s.includes("count(*) AS n FROM") && s.includes("UNION ALL"))).toHaveLength(1); // the count query names every table
-    expect(sent.filter((s) => s.startsWith("MANY"))).toHaveLength(3);
+    // 1 call of one COUNT per table + 1 batch of the 3 small tables (small, empty, sqlite_sequence) + pages of events and rev (rev: ~2 KB rows, so ~50 rows a page)
+    const tables = Object.keys(want).length;
+    expect(sent.filter((s) => s.startsWith("MANY SELECT count(*) AS n FROM"))).toHaveLength(tables);
+    expect(sent.some((s) => /UNION/i.test(s))).toBe(false);
+    expect(sent.filter((s) => s.startsWith("MANY"))).toHaveLength(tables + 3);
     expect(stats.log![0]).toBe("counts: 1");
     expect(stats.log![1]).toBe("3 small tables: 1");
     expect(stats.calls).toBe(1 + 1 + stats.log!.slice(2).reduce((n, l) => n + Number(l.split(": ")[1]), 0));
@@ -267,12 +274,11 @@ describe("proof over a remote database with few calls (CV22)", () => {
     const db = big();
     let first = true;
     const select = async (sql: string) => {
-      const r = asD1(db)(sql);
-      if (first && sql.includes("UNION ALL")) {
+      if (first && !sql.includes("count(*) AS n FROM")) {
         first = false;
-        db.exec("INSERT INTO events (kind, body) VALUES ('late', 'x')");
+        db.exec("INSERT INTO events (kind, body) VALUES ('late', 'x')"); // after every count, before the first row is read
       }
-      return r;
+      return asD1(db)(sql);
     };
     await expect(proveAllBatched({ select, db, pageRows: 100, smallRows: 50 })).rejects.toThrow(/COUNT\(\*\) says 2500 but 2501 rows/);
   });
