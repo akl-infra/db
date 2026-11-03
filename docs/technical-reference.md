@@ -194,6 +194,7 @@ section for the invariants it used to satisfy.
 | `LAMBDA_TASK_ROOT` | Lambda runtime env (AWS) | `src/platform/lambda.ts` | set by the Lambda runtime (`/var/task`); the zip carries `migrations/` there for `{"akldb":"migrate"}` |
 | `MIGRATIONS_DIR` | var (optional, Lambda) | `src/platform/lambda.ts` | overrides the migrations directory; unset in the stack |
 | `SSM_PREFIX` | var (Lambda) | `src/lambda.ts` | `infra/akldb.yaml` sets `/akldb/<stage>/`; the origin secret and the optional Discord settings are SecureStrings under it (`design/aws-a-ops.md`) |
+| `SNAPSHOT_ZSTD_LEVEL` | var (optional, Lambda) | `src/lambda.ts` | zstd level of the snapshot image the jobs tick writes; default 19. Lower it (on the synthetic 45 MB database level 12 took about a ninth of level 19's time for 14% more bytes; `scripts/lab/boot-bench.mjs` prints the table) if the tick's compression nears the function timeout; unset in the stack |
 | `CLOUDFLARE_DB_TOKEN` | repo secret (CI) | `.github/workflows/db.yml`'s `deploy` job (S7) | a Cloudflare API token with Workers Scripts + D1 + R2 edit, separate from the site's Pages token |
 | `CLOUDFLARE_DB_ACCOUNT_ID` | repo secret (CI) | `.github/workflows/db.yml`'s `deploy` job (S7) | the NEW community account's id (00 §1) -- NOT the site's `CLOUDFLARE_ACCOUNT_ID` |
 | `DB_BASE_URL` | repo/org variable (CI) | `.github/workflows/db.yml`'s `daily` job (S7) | the deployed service's own origin, e.g. `https://akl-db.<account>.workers.dev`; set once the service is deployed |
