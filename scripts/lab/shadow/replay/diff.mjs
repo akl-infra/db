@@ -10,11 +10,14 @@
 //     probes); shadow runs none of those jobs and mirrors the dump it was synchronized at, so the block cannot agree.
 //   - content-length: a transport detail (Cloudflare re-encodes the body differently per response).
 //   - the ETag of a dump file (md5 of the compressed bytes, computed by R2 on one side and S3 on the other): the body is compared.
+//   - the `accept-encoding` token of Vary: Cloudflare adds it when it relays an origin's gzip (the Lambda sends no Vary, the Worker's answer is
+//     compressed by Cloudflare itself); every other Vary token is compared.
 // Reported as diff-state (informational, like the /v1/meta author fields), because shadow cannot hold the state (LDB-CV24):
 //   - `edited` on comment objects, in every comments route: the public dump keeps only approved comments with a body (src/dump/write.ts), and
 //     `edited` needs the `replaced` history rows, which it does not carry.
 //   - `user_name` in wpm answers when shadow has null and prod has a value: it falls back to `discord_users`, which the dump does not carry.
-//   Any other field difference in those routes, and any other direction of a user_name difference, stays a diff.
+//   Any other field difference in those routes, and any other direction of a user_name difference, stays a diff. When the body differs only in such
+//   state, an ETag that differs at the same head is diff-state too: those routes' ETags hash the body.
 // Not masked: everything else, including the whole ETag of the validated routes (it carries the head seq and a hash of the query).
 import crypto from "node:crypto";
 import { headOfEtag } from "./routes.mjs";
@@ -94,10 +97,16 @@ export function judge(item, prod, shadow, ctx = {}) {
   if (heads.prod !== null && heads.shadow !== null && heads.prod !== heads.shadow) return result("skipped", [], `different heads (prod ${heads.prod}, shadow ${heads.shadow})`);
 
   const problems = [];
+  let etagProblem = null;
   if (prod.status !== shadow.status) problems.push({ kind: "status", detail: `status ${prod.status} vs ${shadow.status}` });
   for (const h of CONTRACT_HEADERS) {
     if (h === "etag" && item.group === "blob") continue;
-    if (prod.headers[h] !== shadow.headers[h]) problems.push({ kind: "header", detail: `header ${h}: ${JSON.stringify(prod.headers[h])} vs ${JSON.stringify(shadow.headers[h])}` });
+    const [pv, sv] = h === "vary" ? [varyWithoutEncoding(prod.headers[h]), varyWithoutEncoding(shadow.headers[h])] : [prod.headers[h], shadow.headers[h]];
+    if (pv !== sv) {
+      const p = { kind: "header", detail: `header ${h}: ${JSON.stringify(prod.headers[h])} vs ${JSON.stringify(shadow.headers[h])}` };
+      if (h === "etag") etagProblem = p;
+      problems.push(p);
+    }
   }
 
   let stateOnly = false;
@@ -156,6 +165,11 @@ export function judge(item, prod, shadow, ctx = {}) {
     problems.push({ kind: "body", detail: `bodies differ (${prod.body.length} vs ${shadow.body.length} bytes)` });
   }
 
+  // the body differs only in state shadow cannot hold: an ETag at the same head that differs follows it (those routes hash the body)
+  if (masked !== null && etagProblem !== null && problems.length === 1 && problems[0] === etagProblem && heads.prod !== null && heads.prod === heads.shadow) {
+    if (ctx.stateMoved?.[item.class] === true) return result("skipped", [{ kind: "body", detail: masked }, etagProblem], "production changed this state after shadow's last dump");
+    return result("diff-state", [{ kind: "body", detail: masked }, etagProblem]);
+  }
   if (problems.length === 0 && masked !== null) {
     if (ctx.stateMoved?.[item.class] === true) return result("skipped", [{ kind: "body", detail: masked }], "production changed this state after shadow's last dump");
     return result("diff-state", [{ kind: "body", detail: masked }]);
@@ -167,4 +181,11 @@ export function judge(item, prod, shadow, ctx = {}) {
     if (stateOnly || item.class === "authors") return result("diff-state", problems);
   }
   return result("diff", problems);
+}
+
+/** A Vary value without its `accept-encoding` token (a transport detail of Cloudflare's relay); undefined when nothing else is left. */
+function varyWithoutEncoding(v) {
+  if (v === undefined) return undefined;
+  const rest = v.split(",").map((t) => t.trim().toLowerCase()).filter((t) => t !== "" && t !== "accept-encoding");
+  return rest.length === 0 ? undefined : rest.join(", ");
 }

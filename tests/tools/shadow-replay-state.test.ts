@@ -52,6 +52,23 @@ describe("state the shadow cannot hold (CV24)", () => {
     expect(judge(wpm, ans({ records: [rec({ user_name: null })] }), ans({ records: [rec({ user_name: null })] })).verdict).toBe("equal");
   });
 
+  it("[LDB-CV24] a body-derived ETag that follows a user_name diff-state is diff-state; with any other difference it stays a diff", () => {
+    const j = judge(wpm, ans({ records: [rec()] }, { etag: '"10:aaaa"' }), ans({ records: [rec({ user_name: null })] }, { etag: '"10:bbbb"' }));
+    expect(j.verdict).toBe("diff-state");
+    expect(j.problems.map((p: { detail: string }) => p.detail).join(" ")).toContain("header etag");
+    // the same ETag difference without the state difference is a diff
+    expect(judge(wpm, ans({ records: [rec()] }, { etag: '"10:aaaa"' }), ans({ records: [rec()] }, { etag: '"10:bbbb"' })).verdict).toBe("diff");
+    // and with a real body difference next to it
+    expect(judge(wpm, ans({ records: [rec()] }, { etag: '"10:aaaa"' }), ans({ records: [rec({ user_name: null, wpm: 99 })] }, { etag: '"10:bbbb"' })).verdict).toBe("diff");
+  });
+
+  it("[LDB-CV24] Vary's accept-encoding token is transport (Cloudflare adds it relaying an origin gzip); any other Vary difference is a diff", () => {
+    const layout = { class: "layout", group: "feed", path: "/v1/layouts/x" };
+    expect(judge(layout, ans({ id: "x" }, { vary: "accept-encoding" }), ans({ id: "x" })).verdict).toBe("equal");
+    expect(judge(layout, ans({ id: "x" }, { vary: "Accept-Encoding, Authorization" }), ans({ id: "x" }, { vary: "authorization" })).verdict).toBe("equal");
+    expect(judge(layout, ans({ id: "x" }, { vary: "accept-encoding, authorization" }), ans({ id: "x" })).verdict).toBe("diff");
+  });
+
   it("[LDB-CV24] when production changed that state after shadow's last dump the answer is skipped, as for any state class", () => {
     const ctx = { stateMoved: { "layout-comments": true } };
     expect(judge(comments, ans({ comments: [comment({ edited: "t" })] }), ans({ comments: [comment()] }), ctx).verdict).toBe("skipped");
