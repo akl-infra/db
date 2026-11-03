@@ -26,7 +26,12 @@ async function newTable(): Promise<string> {
   return table;
 }
 
-const entry = (unitId: string, sql = "SELECT 1", params: unknown[] = []): NewLogEntry => ({ unitId, kind: "unit", stmts: [{ sql, params }], hash: "ab".repeat(32) });
+// Unit ids are DynamoDB idempotency tokens (ClientRequestToken), scoped to the account/endpoint for 10 minutes: a run that
+// reuses "u1" against the same DynamoDB Local with different parameters gets IdempotentParameterMismatchException. Every
+// run gets its own prefix.
+const RUN = Math.random().toString(36).slice(2, 10);
+const uid = (id: string): string => `${RUN}-${id}`;
+const entry = (unitId: string, sql = "SELECT 1", params: unknown[] = []): NewLogEntry => ({ unitId: uid(unitId), kind: "unit", stmts: [{ sql, params }], hash: "ab".repeat(32) });
 const log = (table: string, extra: Partial<Parameters<typeof createDdbLog>[0]> = {}) =>
   createDdbLog({ table, endpoint: ENDPOINT, region: "us-east-2", credentials: creds, sleep: async () => {}, ...extra });
 
@@ -40,8 +45,8 @@ describe.skipIf(!ddb.available)("DynamoDB commit log on DynamoDB Local", () => {
     expect(await l.append(0, entry("d"))).toBe("conflict");
     expect(await l.append(9, entry("e"))).toBe("conflict"); // ahead of the head
     expect(await l.head()).toBe(2);
-    expect((await l.get(1))?.unitId).toBe("a");
-    expect((await l.get(2))?.unitId).toBe("b");
+    expect((await l.get(1))?.unitId).toBe(uid("a"));
+    expect((await l.get(2))?.unitId).toBe(uid("b"));
     expect(await l.get(3)).toBeNull();
   });
 
@@ -63,7 +68,7 @@ describe.skipIf(!ddb.available)("DynamoDB commit log on DynamoDB Local", () => {
 
   it("[LDB-SH4] entries round-trip: statements, BLOB and null parameters, kind, name, hash", async () => {
     const l = log(await newTable());
-    const e: NewLogEntry = { unitId: "u1", kind: "migration", name: "0001_x.sql", at: "2026-11-02 00:00:00", hash: "cd".repeat(32), stmts: [{ sql: "INSERT INTO b VALUES (?, ?, ?, ?)", params: [new Uint8Array([0, 255, 7]), null, "é \u0000", 1.5] }] };
+    const e: NewLogEntry = { unitId: uid("u1"), kind: "migration", name: "0001_x.sql", at: "2026-11-02 00:00:00", hash: "cd".repeat(32), stmts: [{ sql: "INSERT INTO b VALUES (?, ?, ?, ?)", params: [new Uint8Array([0, 255, 7]), null, "é \u0000", 1.5] }] };
     expect(await l.append(0, e)).toBe("ok");
     expect(await l.get(1)).toEqual({ seq: 1, ...e });
     expect(await l.read(0, 1)).toEqual([{ seq: 1, ...e }]);
@@ -106,7 +111,7 @@ describe.skipIf(!ddb.available)("DynamoDB commit log on DynamoDB Local", () => {
     });
     const err = await flaky.append(0, entry("lost-answer")).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(AmbiguousAppendError);
-    expect((await flaky.get(1))?.unitId).toBe("lost-answer"); // it did land: the read-back finds our unit id
+    expect((await flaky.get(1))?.unitId).toBe(uid("lost-answer")); // it did land: the read-back finds our unit id
     expect(await flaky.head()).toBe(1);
   });
 
@@ -133,7 +138,7 @@ describe.skipIf(!ddb.available)("DynamoDB commit log on DynamoDB Local", () => {
     expect(await l.append(0, entry("once"))).toBe("ok");
     expect(injected).toBe(true);
     expect(await l.head()).toBe(1);
-    expect((await l.read(0, 5)).map((e) => e.unitId)).toEqual(["once"]);
+    expect((await l.read(0, 5)).map((e) => e.unitId)).toEqual([uid("once")]);
   });
 
   it("[LDB-SH6] throttling is retried (bounded); when it never clears the error is LogThrottledError and nothing was written", async () => {

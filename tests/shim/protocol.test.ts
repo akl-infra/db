@@ -263,3 +263,52 @@ describe("real time under a frozen test clock", () => {
     }
   });
 });
+
+describe("last_insert_rowid across retries and replicas", () => {
+  it("[LDB-SH5] a retried unit reports D1's meta.last_row_id: an aborted attempt's INSERT never leaks into the retry", async () => {
+    // SQLite keeps last_insert_rowid() across ROLLBACK. Found by the 20% fault run (d1-meta-parity: a guarded batch's UPDATE
+    // reported the aborted attempt's inserted rowid, 28, instead of the pre-unit 10).
+    const { log: flog, replica } = await freshReplica({}, FAST);
+    const d = shimOf(replica);
+    await d.exec("CREATE TABLE lr (id INTEGER PRIMARY KEY, v INTEGER NOT NULL); CREATE TABLE lr_log (id INTEGER PRIMARY KEY AUTOINCREMENT, msg TEXT)");
+    await d.prepare("INSERT INTO lr (id, v) VALUES (1, 0)").run();
+    await d.prepare("INSERT INTO lr_log (msg) VALUES ('seed')").run(); // last_insert_rowid() = 1
+    const before = (await d.prepare("SELECT 1").run()).meta.last_row_id;
+    flog.setFaults({ conflict: 1 }); // the first append conflicts...
+    let first = true;
+    const realAppend = flog.append.bind(flog);
+    flog.append = async (h, e) => {
+      if (first) {
+        first = false;
+        return "conflict";
+      }
+      flog.setFaults({});
+      return realAppend(h, e);
+    };
+    const out = await d.batch([
+      d.prepare("UPDATE lr SET v = v + 1 WHERE id = 1"),
+      d.prepare("INSERT INTO lr_log (msg) SELECT 'claimed' WHERE changes() = 1"),
+    ]);
+    expect(replica.stats.retries).toBe(1);
+    expect(out[0]!.meta.last_row_id).toBe(before); // the UPDATE inserted nothing: the pre-unit value, as on D1
+    expect(out[1]!.meta.last_row_id).toBe(2);
+    expect((await d.prepare("SELECT 1").run()).meta.last_row_id).toBe(2);
+  });
+
+  it("[LDB-SH8] replay restores the writer's last_insert_rowid: SQL reading it before its own insert replays identically on a snapshot-booted replica", async () => {
+    const { log, replica: a } = await freshReplica({}, FAST);
+    const da = shimOf(a);
+    await da.exec("CREATE TABLE p (id INTEGER PRIMARY KEY AUTOINCREMENT, v TEXT); CREATE TABLE q (id INTEGER PRIMARY KEY AUTOINCREMENT, ref INTEGER)");
+    await da.prepare("INSERT INTO p (v) VALUES ('x')").run();
+    await da.prepare("INSERT INTO p (v) VALUES ('y')").run(); // a's connection: last_insert_rowid() = 2
+    // b boots from a snapshot of a: a fresh connection, last_insert_rowid() = 0
+    const b = Replica.fromSnapshot(log, a.serialize(), a.seq, FAST);
+    // a unit whose SQL reads last_insert_rowid() before inserting anything: the writer saw 2
+    await da.prepare("INSERT INTO q (ref) SELECT last_insert_rowid()").run();
+    await b.catchUp();
+    expect(b.dead).toBeNull(); // without the logged lrid the replay computes ref = 0, the changeset hash differs and b halts
+    const db = shimOf(b);
+    expect((await db.prepare("SELECT ref FROM q").first<{ ref: number }>())!.ref).toBe(2);
+    expect((await da.prepare("SELECT ref FROM q").first<{ ref: number }>())!.ref).toBe(2);
+  });
+});

@@ -28,6 +28,12 @@ export interface LogEntry {
   name?: string;
   /** Migration only: the `applied_at` the replicas record (`YYYY-MM-DD HH:MM:SS`), never CURRENT_TIMESTAMP. */
   at?: string;
+  /**
+   * The connection's last_insert_rowid() the writer ran the unit from. Replicas restore it before replaying, so a statement
+   * that reads last_insert_rowid() (SQL) or a non-insert statement's meta.last_row_id sees the same value everywhere (SH8).
+   * Absent on entries written before this field existed: replay then keeps the replica's own value.
+   */
+  lrid?: number;
 }
 
 export type NewLogEntry = Omit<LogEntry, "seq">;
@@ -89,6 +95,7 @@ interface BodyJson {
   hash: string;
   name?: string;
   at?: string;
+  lrid?: number;
 }
 
 function encodeParam(p: unknown): unknown {
@@ -102,28 +109,30 @@ function decodeParam(p: unknown): unknown {
 }
 
 /** The JSON text stored in an entry's body attribute. */
-export function encodeBody(entry: Pick<NewLogEntry, "stmts" | "hash" | "name" | "at">): string {
+export function encodeBody(entry: Pick<NewLogEntry, "stmts" | "hash" | "name" | "at" | "lrid">): string {
   const body: BodyJson = {
     stmts: entry.stmts.map((s) => ({ sql: s.sql, params: s.params.map(encodeParam), ...(s.exec === true ? { exec: true as const } : {}) })),
     hash: entry.hash,
     ...(entry.name !== undefined ? { name: entry.name } : {}),
     ...(entry.at !== undefined ? { at: entry.at } : {}),
+    ...(entry.lrid !== undefined ? { lrid: entry.lrid } : {}),
   };
   return JSON.stringify(body);
 }
 
-export function decodeBody(json: string): Pick<LogEntry, "stmts" | "hash" | "name" | "at"> {
+export function decodeBody(json: string): Pick<LogEntry, "stmts" | "hash" | "name" | "at" | "lrid"> {
   const body = JSON.parse(json) as BodyJson;
   return {
     stmts: body.stmts.map((s) => ({ sql: s.sql, params: s.params.map(decodeParam), ...(s.exec === true ? { exec: true as const } : {}) })),
     hash: body.hash,
     ...(body.name !== undefined ? { name: body.name } : {}),
     ...(body.at !== undefined ? { at: body.at } : {}),
+    ...(body.lrid !== undefined ? { lrid: body.lrid } : {}),
   };
 }
 
 /** Throws LogEntryTooLargeError when the encoded body is over `limit` (default MAX_BODY_BYTES); returns the encoded body. */
-export function checkedBody(entry: Pick<NewLogEntry, "stmts" | "hash" | "name" | "at">, limit: number = MAX_BODY_BYTES): string {
+export function checkedBody(entry: Pick<NewLogEntry, "stmts" | "hash" | "name" | "at" | "lrid">, limit: number = MAX_BODY_BYTES): string {
   const body = encodeBody(entry);
   const bytes = Buffer.byteLength(body, "utf8");
   if (bytes > limit) throw new LogEntryTooLargeError(bytes, limit);
