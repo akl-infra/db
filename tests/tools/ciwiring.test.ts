@@ -101,7 +101,7 @@ describe("db.yml wiring", () => {
     expect(push?.branches).toEqual(["main"]);
   });
 
-  it("[LDB-C1] the deploy job needs test, runs only on a push to main, and applies migrations before deploying", () => {
+  it("[LDB-C1] [LDB-CV29] the deploy job needs test, runs only on a push to main, and ships the AWS prod stack, never the Worker or D1", () => {
     const wf = loadWorkflow();
     const deploy = wf.jobs.deploy;
     expect(deploy, "no `deploy` job in db.yml").toBeDefined();
@@ -110,40 +110,42 @@ describe("db.yml wiring", () => {
     expect(deploy.needs).toEqual(expect.stringContaining("test"));
     expect(deploy.if, "deploy job has no `if:` guard").toContain("refs/heads/main");
     expect(deploy.if).toContain("github.event_name == 'push'");
+    // The CI key lives in the main-restricted environment only.
+    expect((deploy as { environment?: unknown }).environment).toBe("akldb-production");
 
     const steps = deploy.steps ?? [];
     const runSteps = steps.filter((s): s is Step & { run: string } => typeof s.run === "string");
-    const migrationsIdx = runSteps.findIndex((s) => /d1 migrations apply akl-db.*--remote/.test(s.run));
-    const deployIdx = runSteps.findIndex((s) => /wrangler deploy/.test(s.run));
-    expect(migrationsIdx, "no 'd1 migrations apply akl-db --remote' step").toBeGreaterThanOrEqual(0);
-    expect(deployIdx, "no 'wrangler deploy' step").toBeGreaterThanOrEqual(0);
-    expect(migrationsIdx, "migrations must run before deploy").toBeLessThan(deployIdx);
-
-    // Both secrets referenced somewhere in the job (migrations and/or deploy
-    // steps' `env:`) -- a deploy running with neither would just fail
-    // remotely with no auth, silently past this check otherwise.
+    const deployIdx = runSteps.findIndex((s) => /scripts\/deploy-aws\.sh --stage prod --profile none --execute/.test(s.run));
+    expect(deployIdx, "no 'deploy-aws.sh --stage prod --profile none --execute' step").toBeGreaterThanOrEqual(0);
+    // Since the cutover the Worker and its D1 are the frozen rollback target: nothing here may deploy or migrate them.
     const jobText = JSON.stringify(deploy);
-    expect(jobText).toContain("CLOUDFLARE_DB_TOKEN");
-    expect(jobText).toContain("CLOUDFLARE_DB_ACCOUNT_ID");
+    expect(jobText).not.toMatch(/wrangler deploy/);
+    expect(jobText).not.toMatch(/d1 migrations apply/);
+
+    const creds = steps.findIndex((s) => typeof s.uses === "string" && s.uses.startsWith("aws-actions/configure-aws-credentials@"));
+    expect(creds, "no configure-aws-credentials step").toBeGreaterThanOrEqual(0);
+    expect(creds, "credentials must come before the deploy").toBeLessThan(steps.indexOf(runSteps[deployIdx]!));
+    const credText = JSON.stringify(steps[creds]);
+    for (const k of ["AKLDB_CI_ACCESS_KEY_ID", "AKLDB_CI_SECRET_ACCESS_KEY", "arn:aws:iam::335937358231:role/akldb-deploy", "us-east-2"]) expect(credText).toContain(k);
+    // akldb-deploy's trust allows sts:AssumeRole only; the action's default session tagging would be refused.
+    expect((steps[creds] as { with?: Record<string, unknown> }).with?.["role-skip-session-tagging"]).toBe(true);
   });
 
-  it("[LDB-C1] the deploy job checkpoints before it migrates: D1 bookmark, a fresh signed dump, then the db-backup snapshot, each of them ahead of migrations (akl-infra/db#8)", () => {
+  it("[LDB-C1] the deploy job checkpoints before it ships: a fresh signed dump, then the db-backup snapshot, both ahead of the AWS deploy (akl-infra/db#8)", () => {
     const wf = loadWorkflow();
     const steps = wf.jobs.deploy?.steps ?? [];
     const runSteps = steps.filter((s): s is Step & { run: string } => typeof s.run === "string");
-    const bookmarkIdx = runSteps.findIndex((s) => /d1 time-travel info akl-db\b/.test(s.run));
     const dumpIdx = runSteps.findIndex((s) => /scripts\/predeploy-dump\.sh/.test(s.run));
     const backupIdx = runSteps.findIndex((s) => /scripts\/predeploy-backup\.sh/.test(s.run));
-    const migrationsIdx = runSteps.findIndex((s) => /d1 migrations apply akl-db --remote/.test(s.run));
-    expect(bookmarkIdx, "no 'd1 time-travel info akl-db' (rollback bookmark) step").toBeGreaterThanOrEqual(0);
+    const deployIdx = runSteps.findIndex((s) => /scripts\/deploy-aws\.sh/.test(s.run));
     expect(dumpIdx, "no predeploy-dump.sh step").toBeGreaterThanOrEqual(0);
     expect(backupIdx, "no predeploy-backup.sh step").toBeGreaterThanOrEqual(0);
     expect(dumpIdx, "the backup would snapshot last night's dump, not a fresh one").toBeLessThan(backupIdx);
-    for (const [name, idx] of [["bookmark", bookmarkIdx], ["dump", dumpIdx], ["backup", backupIdx]] as const) {
-      expect(idx, `the ${name} checkpoint must come before migrations`).toBeLessThan(migrationsIdx);
+    for (const [name, idx] of [["dump", dumpIdx], ["backup", backupIdx]] as const) {
+      expect(idx, `the ${name} checkpoint must come before the deploy`).toBeLessThan(deployIdx);
     }
     // A checkpoint step that may fail without failing the job is no gate.
-    for (const idx of [bookmarkIdx, dumpIdx, backupIdx]) {
+    for (const idx of [dumpIdx, backupIdx]) {
       const step = runSteps[idx] as Step & { "continue-on-error"?: unknown; if?: unknown };
       expect(step["continue-on-error"], step.run).toBeUndefined();
       expect(step.if, step.run).toBeUndefined();

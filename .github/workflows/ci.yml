@@ -63,9 +63,12 @@ jobs:
   # workflow, dispatched and WAITED on, so the snapshot of that dump is a
   # git commit before anything is migrated. Any of the three failing stops
   # the job before migrations -- a deploy never runs uncheckpointed.
+  # The API ships to AWS (design A; the cutover moved api.akldb.org there 2026-11-03, LDB-CV29). The Cloudflare
+  # Worker and its D1 stay frozen as the rollback target and are never deployed from here again.
   deploy:
     needs: test
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: akldb-production
     concurrency:
       group: db-prod-deploy
       cancel-in-progress: false
@@ -79,11 +82,6 @@ jobs:
           cache-dependency-path: package-lock.json
       - name: Install dependencies
         run: npm ci
-      - name: Record the D1 rollback bookmark
-        run: npx wrangler d1 time-travel info akl-db --config wrangler.toml
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DB_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DB_ACCOUNT_ID }}
       - name: Write a fresh dump
         run: sh scripts/predeploy-dump.sh
         env:
@@ -94,16 +92,18 @@ jobs:
         run: sh scripts/predeploy-backup.sh
         env:
           GH_TOKEN: ${{ secrets.BACKUP_DISPATCH_TOKEN }}
-      - name: Apply D1 migrations (remote)
-        run: npx wrangler d1 migrations apply akl-db --remote --config wrangler.toml
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DB_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DB_ACCOUNT_ID }}
-      - name: Deploy
-        run: npx wrangler deploy --config wrangler.toml
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DB_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DB_ACCOUNT_ID }}
+      - name: AWS credentials (akldb-ci assumes akldb-deploy)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AKLDB_CI_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AKLDB_CI_SECRET_ACCESS_KEY }}
+          aws-region: us-east-2
+          role-to-assume: arn:aws:iam::335937358231:role/akldb-deploy
+          role-session-name: akldb-ci
+          role-skip-session-tagging: true # akldb-deploy trusts sts:AssumeRole only (no sts:TagSession)
+          role-duration-seconds: 3600
+      - name: Deploy (migrations enter the log on the new version before the alias moves)
+        run: sh scripts/deploy-aws.sh --stage prod --profile none --execute
 
   # akldb.org's own Worker (design/akldb-site/01-plan.md §6, W1a). Its own
   # package.json under db/site/ -- `paths: db/**` above already covers it,

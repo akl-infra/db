@@ -18,9 +18,9 @@ workers_dev = true
 # Worker eligible; the job itself lives on the account (docs/technical-reference.md, "Logs").
 logpush = true
 
-[[routes]]
-pattern = "api.akldb.org"
-custom_domain = true
+# No custom domain since the cutover (2026-11-03, LDB-CV29): api.akldb.org is a proxied CNAME to the AWS HTTP API, and
+# this Worker, frozen read_only over its D1, is the rollback target at its workers.dev name only. A route here would make
+# any `wrangler deploy` take api.akldb.org back. The rollback re-adds the domain in the dashboard (handoff flip checklist §4).
 
 [[d1_databases]]
 binding = "DB"
