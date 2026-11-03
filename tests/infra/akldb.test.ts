@@ -660,6 +660,14 @@ describe("logs never expire (AX5)", () => {
     expect(violations(m, "prod").some((x) => /prod logs must never expire/.test(x))).toBe(true);
   });
 
+  it("[LDB-AX5] both functions log at system level INFO on every stage, so Lambda's REPORT lines (Init Duration, billed ms, Max Memory Used) reach the log group", () => {
+    // SystemLogLevel WARN drops START/END/REPORT: the cold-start gate and memory sizing need them (team-lead, 2026-11-03).
+    for (const s of stages) {
+      const r = resolveStage(t, s).resources;
+      for (const fn of ["ApiFunction", "JobsFunction"]) expect(r[fn].Properties.LoggingConfig.SystemLogLevel, `${s} ${fn}`).toBe("INFO");
+    }
+  });
+
   it("[LDB-AX5] nothing else here expires current data: dumps and snapshots stay, only overwritten versions go after 35 days", () => {
     const rules = resolveStage(t, "prod").resources.DataBucket.Properties.LifecycleConfiguration.Rules as Json[];
     expect(rules.some((r) => "ExpirationInDays" in r || "ExpirationDate" in r)).toBe(false);

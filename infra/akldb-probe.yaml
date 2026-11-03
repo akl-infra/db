@@ -77,7 +77,7 @@ Resources:
       LoggingConfig:
         LogGroup: !Ref ProbeLogGroup
         LogFormat: JSON
-        SystemLogLevel: WARN
+        SystemLogLevel: INFO
       Tags:
         - { Key: project, Value: akldb }
         - { Key: purpose, Value: akldb-probe }

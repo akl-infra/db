@@ -364,7 +364,7 @@ Resources:
       LoggingConfig:
         LogGroup: !If [ IsProd, !Ref LogGroup, !Ref LogGroupDev ]
         LogFormat: JSON
-        SystemLogLevel: WARN
+        SystemLogLevel: INFO
       Environment:
         Variables:
           STAGE: !Ref Stage
@@ -398,7 +398,7 @@ Resources:
       LoggingConfig:
         LogGroup: !If [ IsProd, !Ref JobsLogGroup, !Ref JobsLogGroupDev ]
         LogFormat: JSON
-        SystemLogLevel: WARN
+        SystemLogLevel: INFO
       Environment:
         Variables:
           STAGE: !Ref Stage
