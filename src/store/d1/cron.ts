@@ -39,18 +39,20 @@ const SQL = `SELECT
       WHERE n.shown_status != s.status OR n.shown_review_version != s.review_version)) AS reconcile,
   (${discordWork}) AS discord,
   EXISTS (SELECT 1 FROM discord_rejection_dm_outbox WHERE (status = 'pending' AND next_attempt_at <= ?1) OR (status = 'leased' AND lease_until <= ?1)) AS dms,
-  (SELECT value FROM import_state WHERE key = 'dump.last_at') AS dump_state`;
+  (SELECT value FROM import_state WHERE key = 'dump.last_at') AS dump_state,
+  (SELECT value FROM import_state WHERE key = 'cutover.mode') AS cutover_mode`;
 
 export function d1CronStore(db: D1Database): CronStore {
   return {
     async work(nowIso): Promise<CronWork> {
-      const row = await db.prepare(SQL).bind(nowIso).first<{ announce: number; reconcile: number; discord: number; dms: number; dump_state: string | null }>();
+      const row = await db.prepare(SQL).bind(nowIso).first<{ announce: number; reconcile: number; discord: number; dms: number; dump_state: string | null; cutover_mode: string | null }>();
       return {
         announce: row?.announce === 1,
         reconcile: row?.reconcile === 1,
         discord: row?.discord === 1,
         dms: row?.dms === 1,
         dumpState: row?.dump_state ?? null,
+        cutoverMode: row?.cutover_mode === "read_only" ? "read_only" : null,
       };
     },
   };

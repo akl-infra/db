@@ -119,7 +119,7 @@ describe("[LDB-J1] the tick's work probe", () => {
     await clear();
     const state = JSON.stringify({ at: new Date().toISOString(), key: "dump-x.json.gz", seq: 1 });
     await db.prepare("INSERT INTO import_state (key, value) VALUES ('dump.last_at', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(state).run();
-    expect(await store.cron.work(new Date().toISOString())).toEqual({ announce: false, reconcile: false, discord: false, dms: false, dumpState: state });
+    expect(await store.cron.work(new Date().toISOString())).toEqual({ announce: false, reconcile: false, discord: false, dms: false, dumpState: state, cutoverMode: null });
 
     const seen: string[] = [];
     const recording = new Proxy(db, {

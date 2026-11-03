@@ -187,8 +187,8 @@ export interface HoldStore {
 
 /** The cutover flag (design §5.2). */
 export interface CutoverStore {
-  /** auth-eventual (cached ≤ 1 s), read. `null` = normal. D1 (P1): always null; P6 implements it. */
-  mode(): Promise<"read_only" | "proxy" | null>;
+  /** auth-eventual (cached ≤ 1 s), read. `null` = normal (absent, or any unrecognised value). D1: `import_state['cutover.mode']`, reused for 1 s per isolate (a failed read keeps the last known value, else null). */
+  mode(): Promise<"read_only" | null>;
 }
 
 // ---------------------------------------------------------------------------
@@ -634,6 +634,8 @@ export interface CronWork {
   dms: boolean;
   /** `import_state['dump.last_at']`, as readDumpState reads it. */
   dumpState: string | null;
+  /** `import_state['cutover.mode']`, read fresh by the same statement (an idle tick stays one statement): non-null means a cutover owns the data and no job may run (src/core/cutover.ts `frozen`). */
+  cutoverMode: "read_only" | null;
 }
 
 export interface CronStore {
