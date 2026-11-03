@@ -7,11 +7,100 @@ import fs from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { SEQUENCE_TABLE, isProvenTable, orderOf } from "./checksum.mjs";
 
-/** Build `dbPath` (or ":memory:") from an export file's SQL. Foreign keys are off while loading and checked afterwards. */
+/**
+ * Split SQL text into statements (without the trailing `;`), the way SQLite's tokenizer would: `;` inside '...', "...", `...`, [...] and
+ * comments does not end a statement, and a CREATE TRIGGER runs to its `END;` (its body holds `;`).
+ */
+export function splitStatements(sql) {
+  const out = [];
+  let cur = "";
+  let i = 0;
+  let trigger = false;
+  let caseDepth = 0;
+  let endSeen = false; // the last token of a trigger statement so far is the END that closes it (not one that closes a CASE)
+  const startOfStatement = () => cur.trim() === "";
+  const word = () => /^[A-Za-z_]+/.exec(sql.slice(i))?.[0];
+  while (i < sql.length) {
+    const ch = sql[i];
+    const two = sql.slice(i, i + 2);
+    if (ch === "'" || ch === '"' || ch === "`") {
+      let j = i + 1;
+      for (;;) {
+        if (j >= sql.length) throw new Error(`unterminated ${ch} quote in the SQL near: ${sql.slice(i, i + 60)}`);
+        if (sql[j] === ch) {
+          if (sql[j + 1] === ch) j += 2;
+          else break;
+        } else j++;
+      }
+      cur += sql.slice(i, j + 1);
+      i = j + 1;
+    } else if (ch === "[") {
+      const j = sql.indexOf("]", i);
+      if (j < 0) throw new Error("unterminated [identifier]");
+      cur += sql.slice(i, j + 1);
+      i = j + 1;
+    } else if (two === "--") {
+      const j = sql.indexOf("\n", i);
+      const end = j < 0 ? sql.length : j;
+      if (!startOfStatement()) cur += sql.slice(i, end);
+      i = end;
+    } else if (two === "/*") {
+      const j = sql.indexOf("*/", i + 2);
+      const end = j < 0 ? sql.length : j + 2;
+      if (!startOfStatement()) cur += sql.slice(i, end);
+      i = end;
+    } else if (ch === ";") {
+      // inside a trigger body a `;` ends a body statement; the trigger ends at `END` + `;`
+      if (trigger && !endSeen) {
+        cur += ch;
+        i++;
+      } else {
+        if (cur.trim() !== "") out.push(cur.trim());
+        cur = "";
+        trigger = false;
+        caseDepth = 0;
+        endSeen = false;
+        i++;
+      }
+    } else {
+      if (/[A-Za-z_]/.test(ch) && !/[A-Za-z0-9_]/.test(sql[i - 1] ?? " ")) {
+        const w = word();
+        const up = w.toUpperCase();
+        if (startOfStatement() && up === "CREATE") trigger = /^CREATE\s+(TEMP(ORARY)?\s+)?TRIGGER\b/i.test(sql.slice(i, i + 80));
+        if (trigger) {
+          endSeen = false;
+          if (up === "CASE") caseDepth++;
+          else if (up === "END") {
+            if (caseDepth > 0) caseDepth--;
+            else endSeen = true;
+          }
+        }
+        cur += w;
+        i += w.length;
+      } else {
+        if (trigger && !/\s/.test(ch)) endSeen = false;
+        cur += ch;
+        i++;
+      }
+    }
+  }
+  if (cur.trim() !== "") out.push(cur.trim());
+  return out;
+}
+
+const DEFERRED = /^CREATE\s+(UNIQUE\s+)?(INDEX|VIEW|TRIGGER|TEMP(ORARY)?\s+TRIGGER)\b/i;
+
+/**
+ * Build `dbPath` (or ":memory:") from an export file's SQL. Foreign keys are off while loading and checked afterwards. Triggers (and indexes
+ * and views) are created AFTER every row is in, in their original order: an export that lists a trigger before the data would otherwise
+ * fire it on the rows being loaded (the head counters double), and the AWS database would no longer be D1's.
+ */
 export function loadExportSql(sql, dbPath = ":memory:") {
   const db = new DatabaseSync(dbPath);
   db.exec("PRAGMA foreign_keys = OFF");
-  db.exec(sql);
+  const statements = splitStatements(sql);
+  for (const st of statements) if (!DEFERRED.test(st)) db.exec(st);
+  for (const st of statements) if (DEFERRED.test(st)) db.exec(st);
   return db;
 }
 

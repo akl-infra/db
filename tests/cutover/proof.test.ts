@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 // @ts-expect-error -- plain scripts, no .d.ts
 import { canon, compareProofs, feedPosition, localSelect, orderOf, proveAll, proveTable } from "../../scripts/cutover/checksum.mjs";
 // @ts-expect-error -- plain scripts, no .d.ts
-import { dumpToSql, dumpToStatements, literal, loadExportSql, sanityChecks } from "../../scripts/cutover/sqlfile.mjs";
+import { dumpToSql, dumpToStatements, literal, loadExportSql, sanityChecks, splitStatements } from "../../scripts/cutover/sqlfile.mjs";
 
 function sample(): DatabaseSync {
   const db = new DatabaseSync(":memory:");
@@ -164,5 +164,70 @@ describe("the SQL dump (CV14)", () => {
     expect(by.d1_migrations_complete.detail).toMatch(/pending \[0002_b\.sql\].*unknown to this bundle \[0099_zzz\.sql\]/);
     expect(sanityChecks(db, { migrationNames: ["0001_a.sql", "0099_zzz.sql"], expectedTables: ["d1_migrations"] }).ok).toBe(true);
     expect(sanityChecks(db, { migrationNames: ["0001_a.sql", "0002_b.sql", "0099_zzz.sql"], allowPending: true }).ok).toBe(true);
+  });
+});
+
+describe("the loader (CV21)", () => {
+  it("[LDB-CV21] the statement splitter respects quotes, comments, identifiers and trigger bodies (CASE ... END included)", () => {
+    const sql = `-- header; with a semicolon
+PRAGMA defer_foreign_keys=TRUE;
+CREATE TABLE "a;b" (x TEXT, "y;z" INTEGER); /* block; comment */
+INSERT INTO "a;b" VALUES('it''s; here -- not a comment', 1);
+INSERT INTO "a;b" VALUES('line
+break;', 2);
+CREATE TRIGGER t1 AFTER INSERT ON "a;b"
+BEGIN
+  UPDATE "a;b" SET x = CASE WHEN NEW.y > 1 THEN 'big;' ELSE 'small' END WHERE y = NEW.y;
+  INSERT INTO log VALUES (1);
+END;
+CREATE INDEX i ON "a;b"(x);
+DELETE FROM sqlite_sequence;`;
+    const parts = splitStatements(sql);
+    expect(parts.map((p: string) => p.split(/\s/)[0])).toEqual(["PRAGMA", "CREATE", "INSERT", "INSERT", "CREATE", "CREATE", "DELETE"]);
+    expect(parts[3]).toBe("INSERT INTO \"a;b\" VALUES('line\nbreak;', 2)");
+    expect(parts[4]).toMatch(/^CREATE TRIGGER t1[\s\S]*THEN 'big;' ELSE 'small' END WHERE y = NEW\.y;\s+INSERT INTO log VALUES \(1\);\s+END$/);
+    // every real migration, split and re-run statement by statement, builds the same schema as running it whole
+    const fs = require("node:fs");
+    const path = require("node:path");
+    const dir = path.resolve(__dirname, "..", "..", "migrations");
+    const a = new DatabaseSync(":memory:");
+    const b = new DatabaseSync(":memory:");
+    for (const f of fs.readdirSync(dir).filter((n: string) => n.endsWith(".sql")).sort()) {
+      const text = fs.readFileSync(path.join(dir, f), "utf8");
+      a.exec(text);
+      for (const st of splitStatements(text)) b.exec(st);
+    }
+    const dump = (db: DatabaseSync) => db.prepare("SELECT type, name, sql FROM sqlite_master ORDER BY type, name").all().map((r: any) => `${r.type}|${r.name}|${String(r.sql).replace(/\s+/g, " ")}`);
+    expect(dump(b)).toEqual(dump(a));
+    expect(dump(a).some((l: string) => l.startsWith("trigger|"))).toBe(true);
+  });
+
+  it("[LDB-CV21] triggers are created after the data: an export that lists them first would double the head counters in the naive order, and does not in the loader", async () => {
+    // D1's export emits CREATE TRIGGER in schema order, i.e. BEFORE the INSERTs of a table created earlier.
+    const exportSql = `PRAGMA defer_foreign_keys=TRUE;
+CREATE TABLE authors_head (id INTEGER PRIMARY KEY, version INTEGER NOT NULL);
+CREATE TABLE authors (user_id TEXT PRIMARY KEY, name TEXT NOT NULL);
+CREATE TRIGGER authors_head_on_insert AFTER INSERT ON authors
+BEGIN
+  UPDATE authors_head SET version = version + 1 WHERE id = 1;
+END;
+INSERT INTO authors_head VALUES(1,3);
+INSERT INTO authors VALUES('u1','ada');
+INSERT INTO authors VALUES('u2','grace');
+INSERT INTO authors VALUES('u3','linus');
+`;
+    const naive = new DatabaseSync(":memory:");
+    naive.exec(exportSql);
+    expect(naive.prepare("SELECT version FROM authors_head").get()).toEqual({ version: 6 }); // the trigger fired on the load: 3 + 3
+    const loaded = loadExportSql(exportSql);
+    expect(loaded.prepare("SELECT version FROM authors_head").get()).toEqual({ version: 3 }); // D1's value
+    expect(loaded.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type = 'trigger'").get()).toEqual({ n: 1 });
+    // ... and the proof sees exactly the difference the naive order makes
+    const want = await proveAll({ select: localSelect(loaded), db: loaded });
+    const got = await proveAll({ select: localSelect(naive), db: naive });
+    expect(compareProofs(want, got, { left: "d1", right: "naive" }).diffs).toEqual([expect.objectContaining({ table: "authors_head", field: "checksum" })]);
+    // the trigger works after the load
+    loaded.exec("INSERT INTO authors VALUES('u4','x')");
+    expect(loaded.prepare("SELECT version FROM authors_head").get()).toEqual({ version: 4 });
   });
 });
