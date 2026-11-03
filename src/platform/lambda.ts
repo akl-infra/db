@@ -474,7 +474,24 @@ export function createLambdaHandler(opts: LambdaOptions): LambdaHandler {
 
   booting = start();
 
+  // The first invocation of a container logs one `akldb-cold:` line (not an alarm): how long the process had been up when it
+  // arrived (init + module load, the REPORT line's Init Duration plus the runtime start) and how long that first invocation took
+  // (it waits for the boot). The gate report's cold share and cold p95 (scripts/lab/shadow/gate.mjs) read these, because the
+  // functions log at SystemLogLevel WARN and so write no REPORT lines.
+  let coldLogged = false;
   const handler = async (event: unknown, context?: unknown): Promise<unknown> => {
+    if (coldLogged) return dispatch(event, context);
+    coldLogged = true;
+    const arrived = now();
+    const initMs = Math.round(process.uptime() * 1000);
+    const kind = isHttpEvent(event) ? "http" : isSchedulerEvent(event) ? event.akldb : "other";
+    try {
+      return await dispatch(event, context);
+    } finally {
+      logLine(`akldb-cold: ${JSON.stringify({ first: kind, initMs, requestMs: now() - arrived })}`);
+    }
+  };
+  const dispatch = async (event: unknown, context?: unknown): Promise<unknown> => {
     if (isHttpEvent(event)) return http(event, context);
     if (isSchedulerEvent(event)) {
       switch (event.akldb) {
