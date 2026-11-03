@@ -47,6 +47,16 @@ export interface CommitLog {
   get(seq: number): Promise<LogEntry | null>;
 }
 
+/** Retention (RP3): the part of a log backend that marks old entries for expiry. DynamoDB deletes an item some time after its `ttl` (epoch seconds) passes. */
+export interface ExpirableLog {
+  /**
+   * Give the entries `afterSeq < seq <= upToSeq` an expiry time of `atSec` (epoch seconds), at most `max` of them per call, in
+   * seq order. `through` is the highest seq handled (`afterSeq` when none): the caller records it and continues from there.
+   * A backend never expires HEAD, and this does not decide WHICH entries are safe to expire: retention.ts does.
+   */
+  expire(afterSeq: number, upToSeq: number, atSec: number, max: number): Promise<{ marked: number; through: number }>;
+}
+
 /** The outcome of an append is unknown: resolve it by reading `seq + 1` back and comparing unit ids (SH6). */
 export class AmbiguousAppendError extends Error {
   constructor(message: string, options?: { cause?: unknown }) {
