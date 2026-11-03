@@ -16,7 +16,7 @@ Description: >-
 Parameters:
   DomainName:
     Type: String
-    AllowedValues: [ staging-api.akldb.org, shadow-api.akldb.org, api.akldb.org, aws-api.akldb.org ]
+    AllowedValues: [ staging-api.akldb.org, shadow-api.akldb.org, api.akldb.org ]
     Description: The API hostname this certificate serves.
 
 Rules:

@@ -5,9 +5,9 @@ const encodeKey = (key) => key.split("/").map(encodeURIComponent).join("/");
 const tag = (xml, name) => [...xml.matchAll(new RegExp(`<${name}>([\\s\\S]*?)</${name}>`, "g"))].map((m) => m[1]);
 const unescapeXml = (s) => s.replaceAll("&quot;", '"').replaceAll("&amp;", "&").replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&apos;", "'");
 
-export function r2Source({ accountId, accessKeyId, secretAccessKey, bucket = "akl-db-dumps", fetchImpl = fetch }) {
+export function r2Source({ endpoint, accountId, accessKeyId, secretAccessKey, bucket = "akl-db-dumps", fetchImpl = fetch }) {
   const client = new AwsClient({ accessKeyId, secretAccessKey, service: "s3", region: "auto" });
-  const base = `https://${accountId}.r2.cloudflarestorage.com/${bucket}`;
+  const base = `${(endpoint ?? `https://${accountId}.r2.cloudflarestorage.com`).replace(/\/$/, "")}/${bucket}`;
   const send = async (url, init) => fetchImpl(await client.sign(url, init));
   return {
     async list() {

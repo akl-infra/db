@@ -1,8 +1,11 @@
 // [LDB-CV11] The real ports (scripts/cutover/ports-real.mjs) against a fake `exec`/`fetch`: the exact wrangler and aws command lines, what
 // is parsed out of their output, and that D1 reads are SELECT-only. Nothing is spawned and nothing is sent.
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error -- plain scripts, no .d.ts
-import { createAwsPort, createD1Port, createHttpPort, parseJsonOutput } from "../../scripts/cutover/ports-real.mjs";
+import { createAwsPort, createD1Port, createDumpsPort, createHttpPort, createStackPort, originSecretFrom, parseJsonOutput, readEnvFile } from "../../scripts/cutover/ports-real.mjs";
 // @ts-expect-error -- plain scripts, no .d.ts
 import { createOperator } from "../../scripts/cutover/operator.mjs";
 // @ts-expect-error -- plain scripts, no .d.ts
@@ -116,5 +119,68 @@ describe("the HTTP port and the operator", () => {
     const code = await runMain(["--execute"], { env: {}, out: (l: string) => out.push(l) });
     expect(code).toBe(2);
     expect(out.join("\n")).toContain("CLOUDFLARE_ACCOUNT_ID is not set");
+  });
+});
+
+describe("the env files and the direct stack port (CV15, CV20)", () => {
+  const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "akldb-env-"));
+
+  it("[LDB-CV20] env files: KEY=value lines, quotes, export, comments; the origin secret is the single ORIGIN assignment (or the only one)", () => {
+    const dir = tmp();
+    try {
+      const a = path.join(dir, "a.env");
+      fs.writeFileSync(a, "# c\nexport AKLDB_ORIGIN_SECRET='s3cret-value'\nOTHER=1\n");
+      expect(readEnvFile(a)).toEqual({ AKLDB_ORIGIN_SECRET: "s3cret-value", OTHER: "1" });
+      expect(originSecretFrom(a)).toBe("s3cret-value");
+      const b = path.join(dir, "b.env");
+      fs.writeFileSync(b, "SOMETHING=abc\n");
+      expect(originSecretFrom(b)).toBe("abc"); // the only assignment
+      const c = path.join(dir, "c.env");
+      fs.writeFileSync(c, "A=1\nB=2\n");
+      expect(() => originSecretFrom(c)).toThrow(/no single origin secret assignment/);
+      expect(() => originSecretFrom(path.join(dir, "missing.env"))).toThrow();
+    } finally {
+      fs.rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("[LDB-CV23] the stack port reaches the regional target with the public name's Host and the origin header read when the request is made; a bad file is reported without its content", async () => {
+    const dir = tmp();
+    try {
+      const envFile = path.join(dir, "o.env");
+      fs.writeFileSync(envFile, "AKLDB_ORIGIN_SECRET=topsecret-0123\n");
+      const seen: { path: string; target: string; secret: string }[] = [];
+      const port = createStackPort({ outputs: async () => ({ ApiDomainTarget: "d-abc.execute-api.us-east-2.amazonaws.com" }), hostname: "api.akldb.org", originEnv: envFile, fetchImpl: async (p: string, init: unknown, ctx: { target: string; secret: string }) => (seen.push({ path: p, target: ctx.target, secret: ctx.secret }), { status: 200, headers: {}, body: "" }) });
+      expect(await port.check()).toEqual([]);
+      await port.request("/v1/meta", { method: "GET" });
+      expect(seen).toEqual([{ path: "/v1/meta", target: "d-abc.execute-api.us-east-2.amazonaws.com", secret: "topsecret-0123" }]);
+      fs.writeFileSync(envFile, "A=1\nB=2\n");
+      const problems = await port.check();
+      expect(problems).toHaveLength(1);
+      expect(problems[0]).toContain("unusable");
+      expect(JSON.stringify(problems)).not.toContain("topsecret");
+      const missing = createStackPort({ outputs: async () => ({}), hostname: "h", originEnv: path.join(dir, "none.env") });
+      expect((await missing.check())[0]).toContain("none.env");
+    } finally {
+      fs.rmSync(dir, { recursive: true });
+    }
+  });
+
+  it("[LDB-CV20] the dump port names what is missing: the R2 file's keys and AWS credentials, never their values", async () => {
+    const dir = tmp();
+    try {
+      const r2 = path.join(dir, "r2.env");
+      const port = (env: Record<string, string>) => createDumpsPort({ env, r2Env: r2, outputs: async () => ({ DataBucket: "b" }) });
+      expect(await port({}).check()).toEqual(expect.arrayContaining([expect.stringContaining("r2.env (not found)"), "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"]));
+      fs.writeFileSync(r2, "R2_KEY_ID=kid-xyz\nR2_SECRET=sec-xyz\n");
+      const m = await port({ AWS_ACCESS_KEY_ID: "a", AWS_SECRET_ACCESS_KEY: "b" }).check();
+      expect(m).toEqual([`R2_ENDPOINT (or CLOUDFLARE_ACCOUNT_ID) in ${r2}`]);
+      fs.appendFileSync(r2, "R2_ENDPOINT=https://acct.r2.cloudflarestorage.com\n");
+      expect(await port({ AWS_ACCESS_KEY_ID: "a", AWS_SECRET_ACCESS_KEY: "b" }).check()).toEqual([]);
+      await expect(port({}).sync()).rejects.toThrow(/missing AWS_ACCESS_KEY_ID/);
+      expect(JSON.stringify(await port({}).check())).not.toMatch(/xyz/);
+    } finally {
+      fs.rmSync(dir, { recursive: true });
+    }
   });
 });

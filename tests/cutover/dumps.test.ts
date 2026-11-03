@@ -1,6 +1,9 @@
 // [LDB-CV20] The dump history moves from R2 to S3 (scripts/cutover/dumps.mjs) before the flip, object by object and proven, and the dump routes of
 // the two sides answer identically (status, Content-Type, Cache-Control, ETag, redirect, bytes).
 import { createHash } from "node:crypto";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 // @ts-expect-error -- plain scripts, no .d.ts
 import { copyDumps } from "../../scripts/cutover/dumps.mjs";
@@ -105,41 +108,67 @@ describe("copyDumps (CV20)", () => {
     expect(calls.at(-1)).toBe("PUT akldb-prod-data-1.s3.us-east-2.amazonaws.com/dumps/monthly/dump-2026-10.json.gz");
   });
 
-  it("[LDB-CV20] the standalone script needs a bucket and the credentials, prints what it would do, and never prints a secret", async () => {
-    const out: string[] = [];
-    expect(await copyMain([], { env: {}, out: (l: string) => out.push(l) })).toBe(2);
-    expect(await copyMain(["--bucket", "b"], { env: {}, out: (l: string) => out.push(l) })).toBe(2);
-    expect(out.join("\n")).toMatch(/missing CLOUDFLARE_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY/);
+  it("[LDB-CV20] the standalone script needs a destination bucket, the R2 env file and AWS credentials; --dest-bucket serves staging and shadow too; nothing secret is printed and a dry run puts nothing", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "akldb-r2env-"));
+    try {
+      const envFile = path.join(dir, "r2.env");
+      fs.writeFileSync(envFile, "# read-only\nR2_KEY_ID=r2keyid-visible-nowhere\nR2_SECRET='r2secret-visible-nowhere'\nR2_ENDPOINT=https://58a5eb82948e2134d8b7b242e9567ac4.r2.cloudflarestorage.com\n");
+      const out: string[] = [];
+      const run = (argv: string[], env: Record<string, string>, fetchImpl?: any) => copyMain(argv, { env, out: (l: string) => out.push(l), fetchImpl });
+      expect(await run([], {})).toBe(2);
+      expect(await run(["--dest-bucket", "b", "--r2-env", path.join(dir, "nope.env")], {})).toBe(2);
+      expect(await run(["--dest-bucket", "b", "--r2-env", envFile], {})).toBe(2);
+      expect(out.join("\n")).toMatch(/--dest-bucket .* is required[\s\S]*cannot read .*nope\.env: not found[\s\S]*missing AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY/);
+      const seen: string[] = [];
+      const fetchImpl = async (input: Request | string) => {
+        const req = typeof input === "string" ? new Request(input) : input;
+        seen.push(`${req.method} ${req.url}`);
+        if (req.url.includes("r2.cloudflarestorage.com")) return new Response(`<ListBucketResult><IsTruncated>false</IsTruncated><Contents><Key>latest.json</Key><Size>2</Size><ETag>&quot;${md5(enc("{}"))}&quot;</ETag></Contents></ListBucketResult>`);
+        if (req.method === "HEAD") return new Response(null, { status: 404 });
+        throw new Error("a dry run must not put anything");
+      };
+      out.length = 0;
+      expect(await run(["--dest-bucket", "akldb-staging-data-335937358231", "--r2-env", envFile], { AWS_ACCESS_KEY_ID: "AKIAFAKE", AWS_SECRET_ACCESS_KEY: "awssecret-visible-nowhere" }, fetchImpl)).toBe(0);
+      expect(out.join("\n")).toContain("1 objects: would copy 1, already there 0, 0 bytes (dry run: add --execute)");
+      expect(seen[0]).toBe("GET https://58a5eb82948e2134d8b7b242e9567ac4.r2.cloudflarestorage.com/akl-db-dumps?list-type=2");
+      expect(seen[1]).toBe("HEAD https://akldb-staging-data-335937358231.s3.us-east-2.amazonaws.com/dumps/latest.json");
+      expect(seen.some((l) => l.startsWith("PUT"))).toBe(false);
+      expect(JSON.stringify([out, seen])).not.toMatch(/visible-nowhere/);
+    } finally {
+      fs.rmSync(dir, { recursive: true });
+    }
   });
 });
 
 describe("the dump copy in the cutover (CV20)", () => {
-  it("[LDB-CV20] copy-dumps runs before the freeze, the stack then serves every dump route like the Worker, and resync-dumps runs before proxy", async () => {
+  it("[LDB-CV20] copy-dumps runs before the freeze (outside the write pause) and the stack then serves every dump route like the Worker, including the history the shadow 404ed", async () => {
     w = await makeWorld();
     const r = await w.cutover();
     expect(r.code, text(r)).toBe(0);
     const order = w.calls.filter((c) => c === "dumps.sync" || c === "d1.write" || c === "aws.operator.appendImage");
     expect(order[0]).toBe("dumps.sync");
-    expect(order.indexOf("dumps.sync")).toBeLessThan(order.indexOf("d1.write")); // the long copy is outside the write pause
-    expect(order.filter((c) => c === "dumps.sync")).toHaveLength(2);
+    expect(order.indexOf("dumps.sync")).toBeLessThan(order.indexOf("d1.write"));
+    expect(order.filter((c) => c === "dumps.sync")).toHaveLength(1);
     expect(w.state().steps["copy-dumps"].proof).toMatchObject({ objects: 6, copied: 6, skipped: 0 });
-    expect(w.state().steps["resync-dumps"].proof).toMatchObject({ copied: [], skipped: 6 });
     expect([...w.s3.keys()].sort()).toEqual([...w.r2.keys()].sort());
     const checks = w.state().steps.serve.proof.dumps as { path: string; diffs: string[] }[];
     expect(checks.map((c) => c.path)).toEqual(["/v1/dump/latest.json", "/v1/dump", "/v1/dump/dump-2026-11-03.json.gz"]);
     expect(checks.every((c) => c.diffs.length === 0)).toBe(true);
-    // history copied before the flip is there afterwards: the older dump the shadow 404ed
-    const old = await w.ports.http.request("https://aws-api.akldb.org/v1/dump/dump-2026-11-02.json.gz", { method: "GET" });
+    const old = await w.ports.stack.request("/v1/dump/dump-2026-11-02.json.gz", { method: "GET" });
     expect(old.status).toBe(200);
     expect(old.headers["content-type"]).toBe("application/gzip");
     expect(old.headers["cache-control"]).toBeUndefined();
+    // running the step again (the re-sync) copies nothing new
+    const again = await w.cutover(["--execute", "--only", "copy-dumps"]);
+    expect(again.code, text(again)).toBe(0);
+    expect(w.state().steps["copy-dumps"].proof).toMatchObject({ copied: 0, skipped: 6 });
   });
 
-  it("[LDB-CV20] no R2 token stops the run before the freeze; a damaged object stops it before the freeze too; a dump that appears between copy and flip is re-synced", async () => {
+  it("[LDB-CV20] no R2 token stops the run before the freeze; a damaged object stops it before the freeze too; a dump that appears after the copy is caught by the parity check", async () => {
     w = await makeWorld({ faults: { noR2Token: true } });
     let r = await w.cutover();
     expect(r.code).toBe(1);
-    expect(text(r)).toMatch(/needs R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY.*Object Read on akl-db-dumps/);
+    expect(text(r)).toMatch(/needs R2_KEY_ID in .*, R2_SECRET in .*R2_ENDPOINT; bucket-scoped list and read on akl-db-dumps/);
     expect(w.calls).not.toContain("d1.write");
     cleanup(w);
     w = await makeWorld({ faults: { r2CorruptKey: "dump-2026-11-02.json.gz" } });

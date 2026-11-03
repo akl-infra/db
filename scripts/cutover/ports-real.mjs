@@ -3,7 +3,10 @@
 // SELECTs only: `select` refuses anything else before a process is spawned.
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
+import dns from "node:dns/promises";
 import { createHash } from "node:crypto";
+import https from "node:https";
+import fsSync from "node:fs";
 import { signerFromEnv } from "../client-sign.mjs";
 import { copyDumps } from "./dumps.mjs";
 import { r2Source, s3Destination } from "./dumps-real.mjs";
@@ -131,8 +134,27 @@ export function createHttpPort({ fetchImpl = globalThis.fetch, env = process.env
     const bytes = new Uint8Array(await res.arrayBuffer());
     return { status: res.status, headers, body: new TextDecoder().decode(bytes), sha256: createHash("sha256").update(bytes).digest("hex") };
   }
+  /** One request on a brand-new connection (no keep-alive, no pool): what the DNS poll needs, so a stale connection to the old address cannot answer. */
+  function fresh(url, init = {}) {
+    return new Promise((resolve, reject) => {
+      const u = new URL(url);
+      const req = https.request({ hostname: u.hostname, port: u.port || 443, path: `${u.pathname}${u.search}`, method: init.method ?? "GET", agent: false, headers: { "user-agent": userAgent, connection: "close", ...(init.headers ?? {}) }, timeout: 15_000 }, (res) => {
+        const chunks = [];
+        res.on("data", (d) => chunks.push(d));
+        res.on("end", () => {
+          const bytes = new Uint8Array(Buffer.concat(chunks));
+          const headers = Object.fromEntries(Object.entries(res.headers).map(([k, v]) => [k.toLowerCase(), Array.isArray(v) ? v.join(", ") : String(v)]));
+          resolve({ status: res.statusCode ?? 0, headers, body: new TextDecoder().decode(bytes), sha256: createHash("sha256").update(bytes).digest("hex") });
+        });
+      });
+      req.on("timeout", () => req.destroy(new Error("timed out after 15 s")));
+      req.on("error", reject);
+      req.end(init.body);
+    });
+  }
   return {
     request,
+    fresh,
     async signed(method, url, { body, headers = {} } = {}) {
       const u = new URL(url);
       const bytes = body === undefined ? new Uint8Array(0) : Buffer.from(body, "utf8");
@@ -185,6 +207,7 @@ export function createAwsPort({ exec, region = "us-east-2", profile, stack, oper
     },
     operator: {
       appendImage: async (a) => (await op()).appendImage(a),
+      tail: async () => (await op()).tail(),
       snapshot: async () => (await op()).snapshot(),
       runUnit: async (sql, params) => (await op()).runUnit(sql, params),
       readFlag: async () => (await op()).readFlag(),
@@ -204,20 +227,94 @@ export async function realOperatorFactory(outputs, { env = process.env, region =
   return createOperator({ kit, log, objects, state, logLine: (m) => console.log(`      ${m}`) });
 }
 
-/** The dump-history copy (R2 -> the stack's data bucket) with the credentials in the environment. */
-export function createDumpsPort({ env = process.env, outputs, fetchImpl, region = "us-east-2" }) {
-  const need = ["CLOUDFLARE_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"];
+/**
+ * The dump-history copy (R2 -> the stack's data bucket). The R2 read credentials are in an env file (R2_KEY_ID, R2_SECRET, and R2_ENDPOINT
+ * `https://<account>.r2.cloudflarestorage.com`; bucket-scoped list and read on akl-db-dumps), the AWS ones in the environment.
+ */
+export function createDumpsPort({ env = process.env, r2Env, outputs, fetchImpl, region = "us-east-2" }) {
+  const awsNeed = ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"];
+  const r2 = () => {
+    const v = readEnvFile(r2Env);
+    const endpoint = v.R2_ENDPOINT ?? (v.CLOUDFLARE_ACCOUNT_ID ? `https://${v.CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com` : env.CLOUDFLARE_ACCOUNT_ID ? `https://${env.CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com` : undefined);
+    return { accessKeyId: v.R2_KEY_ID, secretAccessKey: v.R2_SECRET, endpoint, bucket: v.R2_BUCKET ?? "akl-db-dumps" };
+  };
   return {
     async check() {
-      return need.filter((k) => !env[k]);
+      const missing = awsNeed.filter((k) => !env[k]);
+      try {
+        const c = r2();
+        for (const [k, v] of Object.entries({ R2_KEY_ID: c.accessKeyId, R2_SECRET: c.secretAccessKey, "R2_ENDPOINT (or CLOUDFLARE_ACCOUNT_ID)": c.endpoint })) if (!v) missing.push(`${k} in ${r2Env}`);
+      } catch (e) {
+        missing.push(`${r2Env} (${e.code === "ENOENT" ? "not found" : e.message})`);
+      }
+      return missing;
     },
-    async sync({ dryRun = false } = {}) {
+    async sync({ dryRun = false, destBucket } = {}) {
       const missing = await this.check();
       if (missing.length > 0) throw new Error(`missing ${missing.join(", ")}`);
-      const bucket = (await outputs()).DataBucket;
-      const src = r2Source({ accountId: env.CLOUDFLARE_ACCOUNT_ID, accessKeyId: env.R2_ACCESS_KEY_ID, secretAccessKey: env.R2_SECRET_ACCESS_KEY, bucket: env.R2_DUMPS_BUCKET ?? "akl-db-dumps", fetchImpl });
+      const bucket = destBucket ?? (await outputs()).DataBucket;
+      const c = r2();
+      const src = r2Source({ endpoint: c.endpoint, accessKeyId: c.accessKeyId, secretAccessKey: c.secretAccessKey, bucket: c.bucket, fetchImpl });
       const dst = s3Destination({ bucket, region, credentials: { accessKeyId: env.AWS_ACCESS_KEY_ID, secretAccessKey: env.AWS_SECRET_ACCESS_KEY, ...(env.AWS_SESSION_TOKEN ? { sessionToken: env.AWS_SESSION_TOKEN } : {}) }, fetchImpl });
       return copyDumps({ src, dst, dryRun, log: (m) => console.log(`      ${m}`) });
+    },
+  };
+}
+
+/** Read `KEY=value` lines (no quoting rules beyond optional surrounding quotes and `export `). The values are never printed. */
+export function readEnvFile(file) {
+  const out = {};
+  for (const line of fsSync.readFileSync(file, "utf8").split("\n")) {
+    const m = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/.exec(line);
+    if (m && !line.trimStart().startsWith("#")) out[m[1]] = m[2].replace(/^(['"])(.*)\1$/, "$2");
+  }
+  return out;
+}
+
+/** The origin secret in an env file: the one assignment whose name mentions ORIGIN (AKLDB_ORIGIN_SECRET, X_AKLDB_ORIGIN, ...), or the only assignment there is. */
+export function originSecretFrom(file) {
+  const vars = readEnvFile(file);
+  const named = Object.keys(vars).filter((k) => /ORIGIN/i.test(k));
+  const key = named.length === 1 ? named[0] : Object.keys(vars).length === 1 ? Object.keys(vars)[0] : undefined;
+  if (key === undefined || !vars[key]) throw new Error(`${file} has no single origin secret assignment`);
+  return vars[key];
+}
+
+/**
+ * The prod stack read DIRECTLY, bypassing Cloudflare and the DNS name: TCP to the HTTP API custom domain's regional target (ApiDomainTarget),
+ * TLS SNI and Host of the public name, and the `x-akldb-origin` header from the env file (read when the request is made, never kept in the state
+ * file, never printed). Equivalent to `curl --resolve <host>:443:<ip> -H 'x-akldb-origin: ...'`.
+ */
+export function createStackPort({ outputs, hostname, originEnv, fetchImpl }) {
+  const request = fetchImpl ?? ((path, init, ctx) => direct(path, init, ctx));
+  async function direct(path, init = {}, { target, secret }) {
+    const [{ address }] = await dns.lookup(target, { all: true, family: 4 });
+    return new Promise((resolve, reject) => {
+      const req = https.request({ host: address, port: 443, servername: hostname, path, method: init.method ?? "GET", agent: false, headers: { host: hostname, "x-akldb-origin": secret, "user-agent": "akldb-cutover/1", connection: "close", ...(init.headers ?? {}) }, timeout: 20_000 }, (res) => {
+        const chunks = [];
+        res.on("data", (d) => chunks.push(d));
+        res.on("end", () => {
+          const bytes = new Uint8Array(Buffer.concat(chunks));
+          const headers = Object.fromEntries(Object.entries(res.headers).map(([k, v]) => [k.toLowerCase(), Array.isArray(v) ? v.join(", ") : String(v)]));
+          resolve({ status: res.statusCode ?? 0, headers, body: new TextDecoder().decode(bytes), sha256: createHash("sha256").update(bytes).digest("hex") });
+        });
+      });
+      req.on("timeout", () => req.destroy(new Error("timed out after 20 s")));
+      req.on("error", reject);
+      req.end(init.body);
+    });
+  }
+  return {
+    async check() {
+      try {
+        originSecretFrom(originEnv);
+        return [];
+      } catch (e) {
+        return [`the origin secret file ${originEnv} is unusable: ${e.message}`];
+      }
+    },
+    async request(path, init) {
+      return request(path, init, { target: (await outputs()).ApiDomainTarget, secret: originSecretFrom(originEnv) });
     },
   };
 }

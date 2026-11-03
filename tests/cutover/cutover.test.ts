@@ -57,13 +57,18 @@ describe("the machine (CV11)", () => {
     expect((await w.cutover(["--execute", "--abort", "--only", "export"])).code).toBe(2);
     expect(w.calls).toEqual([]);
     const out: string[] = [];
-    for (const argv of [["--stage", "staging"], ["--stage", "staging", "--d1", "akl-db", "--worker-url", "https://rehearsal.example"], ["--stage", "staging", "--d1", "scratch", "--worker-url", "https://api.akldb.org"], ["--stage", "mars"], ["--bogus"]]) {
+    for (const argv of [["--stage", "staging"], ["--stage", "staging", "--d1", "akl-db", "--worker-url", "https://rehearsal.example"], ["--stage", "staging", "--d1", "scratch", "--worker-url", "https://api.akldb.org"], ["--stage", "staging", "--d1", "scratch", "--worker-url", "https://rehearsal.example", "--public-url", "https://api.akldb.org"], ["--stage", "mars"], ["--bogus"]]) {
       expect(await runMain(argv, { out: (l: string) => out.push(l), env: {} }), argv.join(" ")).toBe(2);
     }
-    expect(out.join("\n")).toMatch(/needs --d1.*refuses the production D1.*refuses https:\/\/api\.akldb\.org/s);
+    expect(out.join("\n")).toMatch(/needs --d1.*refuses the production D1.*refuses https:\/\/api\.akldb\.org as the Worker.*refuses https:\/\/api\.akldb\.org as the public name/s);
     // a valid rehearsal targets the staging stack and URL
     const o = buildOptions(parseArgs(["--stage", "staging", "--d1", "scratch", "--worker-url", "https://rehearsal.example/"]).flags);
-    expect(o).toMatchObject({ stack: "akldb-staging", awsUrl: "https://staging-api.akldb.org", d1Name: "scratch", workerUrl: "https://rehearsal.example" });
+    expect(o).toMatchObject({ stack: "akldb-staging", publicUrl: "https://staging-api.akldb.org", d1Name: "scratch", workerUrl: "https://rehearsal.example", workerDirectUrl: "https://rehearsal.example" });
+    expect(o.originEnv).toMatch(/akldb-origin-staging\.env$/);
+    const prod = buildOptions(parseArgs([]).flags);
+    expect(prod).toMatchObject({ publicUrl: "https://api.akldb.org", workerUrl: "https://api.akldb.org", workerDirectUrl: "https://akl-db.akl-58a.workers.dev", dnsConsecutive: 5, dnsTimeoutMs: 900_000 });
+    expect(prod.originEnv).toMatch(/akldb-origin-prod\.env$/);
+    expect(prod.r2Env).toMatch(/akldb-r2-dumps-read\.env$/);
     expect(defaultMinMinor()).toBe(34); // this tree's WIRE_VERSION (33) + 1
   });
 
@@ -79,15 +84,16 @@ describe("the machine (CV11)", () => {
     const exp = first("d1.exportTo");
     const img = first("aws.operator.appendImage");
     const migrate = first("aws.invoke");
-    const proxy = first("d1.write", freeze + 1);
     const open = first("aws.operator.runUnit");
+    const dns = first("http.fresh");
     const signed = first("http.signed");
-    expect([freeze, exp, img, migrate, proxy, open, signed].every((n) => n >= 0)).toBe(true);
+    expect([freeze, exp, img, migrate, dns, open, signed].every((n) => n >= 0)).toBe(true);
+    expect(w.calls.filter((c) => c === "d1.write")).toHaveLength(1); // the freeze is the only write to D1: there is no proxy mode
     expect(freeze).toBeLessThan(exp);
     expect(exp).toBeLessThan(img);
     expect(img).toBeLessThan(migrate);
-    expect(migrate).toBeLessThan(proxy);
-    expect(proxy).toBeLessThan(open);
+    expect(migrate).toBeLessThan(dns);
+    expect(dns).toBeLessThan(open);
     expect(open).toBeLessThan(signed);
 
     // the log: the image is seq 1, then exactly the operator's flag unit and the post-smoke event; no migration ever entered it
@@ -97,8 +103,9 @@ describe("the machine (CV11)", () => {
     expect(log[2]!.stmts[0]!.sql).toMatch(/INSERT INTO events/);
     expect(log[0]!.hash).toBe(w.state().data.imageSha);
 
-    // the modes: D1 proxies, AWS is open
-    expect(w.d1().prepare("SELECT value FROM import_state WHERE key = 'cutover.mode'").get()).toEqual({ value: "proxy" });
+    // the flag: D1 stays frozen for good (the Worker is read_only wherever it still answers), AWS is open, the name points at AWS
+    expect(w.d1().prepare("SELECT value FROM import_state WHERE key = 'cutover.mode'").get()).toEqual({ value: "read_only" });
+    expect(w.dns).toBe("aws");
     const aws = await w.awsReplica();
     expect(aws.db.prepare("SELECT count(*) AS n FROM import_state WHERE key = 'cutover.mode'").get()).toEqual({ n: 0 });
 
@@ -109,8 +116,7 @@ describe("the machine (CV11)", () => {
     const d1Proof = await proveAll({ select: localSelect(w.d1()), db: w.d1() });
     const imageTables = log[0]!.image!.tables;
     for (const t of Object.keys(imageTables)) if (!["import_state", "events", "sqlite_sequence"].includes(t)) expect(imageTables[t], t).toEqual(d1Proof[t]);
-    expect(imageTables.import_state!.count).toBe(d1Proof.import_state!.count); // proxy vs read_only: same row count, other value
-    expect(imageTables.import_state!.checksum).not.toBe(d1Proof.import_state!.checksum);
+    expect(imageTables.import_state).toEqual(d1Proof.import_state); // D1 still holds exactly the frozen state the image was loaded from
     expect(log[0]!.image!.source).toMatchObject({ bookmark: expect.stringMatching(/^00000085-/), freezeSeq: 12 });
 
     // the snapshot pointer sits at seq 1
@@ -127,20 +133,20 @@ describe("the machine (CV11)", () => {
     expect(md).toContain("### verify (CV16, CV17)");
     expect(md).toMatch(/\| churn \| \d+ \| `[0-9a-f]{16}` \|/);
     expect(md).toContain("meta.seq 12; sqlite_sequence for events 14 (the next event is seq 15)");
-    for (const id of ["preflight", "copy-dumps", "freeze", "export", "load", "image", "serve", "resync-dumps", "proxy", "open", "post-smoke"]) expect(md, id).toContain(`### ${id}`);
+    for (const id of ["preflight", "copy-dumps", "freeze", "export", "load", "image", "serve", "dns", "open", "post-smoke"]) expect(md, id).toContain(`### ${id}`);
     const st = w.state();
     expect(st.data.pauseMs).toBe(st.data.openedAt - st.data.freezeAt);
     expect(st.data.pauseMs).toBeLessThanOrEqual(300_000); // the gate: at most 5 minutes
   });
 
-  it("[LDB-CV11] a finished run is idempotent: image, serve, proxy and open re-run to the same state, and preflight and export re-check what they need", async () => {
+  it("[LDB-CV11] a finished run is idempotent: image and open re-run to the same state, and preflight re-checks what it needs", async () => {
     w = await makeWorld();
     expect((await w.cutover()).code).toBe(0);
     const before = entries().length;
     const again = await w.cutover(["--execute"]);
     expect(text(again)).toContain("already done");
     expect(again.code).toBe(0);
-    for (const id of ["image", "serve", "proxy", "open"]) {
+    for (const id of ["image", "open"]) {
       const r = await w.cutover(["--execute", "--only", id]);
       expect(r.code, `${id}: ${text(r)}`).toBe(0);
     }
@@ -151,9 +157,10 @@ describe("the machine (CV11)", () => {
     const pre = await w.cutover(["--execute", "--only", "preflight"]);
     expect(pre.code).toBe(1);
     expect(text(pre)).toContain("the AWS log is not empty");
-    const exp = await w.cutover(["--execute", "--only", "export"]);
-    expect(exp.code).toBe(1);
-    expect(text(exp)).toContain("D1 is not frozen any more");
+    // D1 stays frozen after the cutover (nothing ever clears its flag but a rollback), so an export is still allowed and gives the same bytes
+    const sha = w.state().data.exportSha;
+    expect((await w.cutover(["--execute", "--only", "export"])).code).toBe(0);
+    expect(w.state().data.exportSha).toBe(sha);
   });
 });
 
@@ -235,7 +242,7 @@ describe("each step's precondition stops the run with a clear message (CV11)", (
     expect(entries()).toHaveLength(0);
   });
 
-  it("[LDB-CV11] image, serve, proxy and open refuse to run before what they depend on", async () => {
+  it("[LDB-CV11] image, serve, dns and open refuse to run before what they depend on", async () => {
     await until("export");
     await fails(await w.cutover(["--execute", "--only", "image"]), /CV16: the image is appended only after verify passed/, "image");
     cleanup(w);
@@ -248,7 +255,7 @@ describe("each step's precondition stops the run with a clear message (CV11)", (
     await fails(await w.cutover(["--execute", "--only", "serve"]), /the image has not been appended/, "serve");
     cleanup(w);
     await until("image");
-    await fails(await w.cutover(["--execute", "--only", "proxy"]), /the dump history has not been re-synced/, "proxy");
+    await fails(await w.cutover(["--execute", "--only", "dns"]), /the prod stack has not been proven to serve/, "dns");
     await fails(await w.cutover(["--execute", "--only", "open"]), /CV16: writes open only after serve is done/, "open");
     expect(entries()).toHaveLength(1); // still only the image
   });
@@ -261,20 +268,83 @@ describe("each step's precondition stops the run with a clear message (CV11)", (
     await fails(await w.cutover(["--execute", "--only", "serve"]), /answers without x-akldb-backend: aws \(CV13\)/, "serve");
   });
 
-  it("[LDB-CV11] proxy: a Worker that answers by itself in proxy mode fails; open refuses a D1 that is not proxying", async () => {
-    await until("resync-dumps", { brokenProxy: true });
-    await fails(await w.cutover(["--execute", "--only", "proxy"]), /through the Worker the answer has no x-akldb-backend: aws .* is not proxying/, "proxy");
+  it("[LDB-CV23] serve needs the origin secret file, and open refuses until the name points at AWS", async () => {
+    w = await makeWorld({ faults: { noOriginFile: true } });
+    await fails(await w.cutover(), /the direct read of the stack \(serve\) is not possible: the origin secret file .* is unusable/, "preflight");
+    expect(w.calls).not.toContain("d1.write");
     cleanup(w);
-    await until("proxy");
-    w.d1().exec("UPDATE import_state SET value = 'read_only' WHERE key = 'cutover.mode'");
-    await fails(await w.cutover(["--execute", "--only", "open"]), /D1 is not in proxy mode/, "open");
-    expect((await w.operator.readFlag())).toBe("read_only"); // AWS is still frozen
+    await until("serve");
+    await fails(await w.cutover(["--execute", "--only", "open"]), /CV16: writes open only after dns is done/, "open");
+    expect(await w.operator.readFlag()).toBe("read_only"); // AWS is still frozen
+    expect(entries()).toHaveLength(1);
   });
 
   it("[LDB-CV11] post-smoke: a signed write that makes no feed event fails the feed check", async () => {
     await until("open", { signedWriteMakesNoEvent: true });
     await fails(await w.cutover(["--execute", "--only", "post-smoke"]), /the feed after seq 12 is empty/, "post-smoke");
     await fails(await w.cutover(["--execute", "--only", "report"]).then(() => w.cutover(["--execute", "--only", "post-smoke"])), /the feed after seq 12 is empty/, "post-smoke");
+  });
+});
+
+describe("the dns step (CV23)", () => {
+  it("[LDB-CV23] it prints saltorbit's instructions, then waits until the name answers from AWS with the image's seq, five times in a row on fresh connections", async () => {
+    w = await makeWorld();
+    await w.cutoverUntil("serve");
+    const r = await w.cutover(["--execute", "--only", "dns"]);
+    expect(r.code, text(r)).toBe(0);
+    const t = text(r);
+    expect(t).toContain("ACTION FOR SALTORBIT");
+    expect(t).toMatch(/Workers & Pages > akl-db > Settings > Domains & Routes: remove the custom domain api\.akldb\.org .*reachable at https:\/\/akl-db\.akl-58a\.workers\.dev/);
+    expect(t).toMatch(/add CNAME  api  ->  d-abc\.execute-api\.us-east-2\.amazonaws\.com   Proxied/);
+    expect(t).not.toMatch(/x-akldb-origin: [0-9a-f]{16}/); // no secret anywhere
+    const proof = w.state().steps.dns.proof;
+    expect(proof.consecutive).toBe(5);
+    expect(proof.polls).toBe(2 + 5); // two polls still answered by the Worker, then five from AWS
+    expect(w.dns).toBe("aws");
+    expect(entries()).toHaveLength(1); // writes did not open
+    expect(await w.operator.readFlag()).toBe("read_only");
+  });
+
+  it("[LDB-CV23] a gap, then a stale answer in the middle, restart the count; a name that never moves times out with what to do, and writes stay closed", async () => {
+    w = await makeWorld({ faults: { dnsErrorFirst: true, dnsFlap: true } });
+    await w.cutoverUntil("serve");
+    const r = await w.cutover(["--execute", "--only", "dns"]);
+    expect(r.code, text(r)).toBe(0);
+    expect(w.state().steps.dns.proof.polls).toBeGreaterThan(2 + 5 + 1); // the flap forced more than the minimum
+    cleanup(w);
+    w = await makeWorld({ faults: { dnsNeverFlips: true } });
+    await w.cutoverUntil("serve");
+    const t0 = w.now;
+    const never = await w.cutover(["--execute", "--only", "dns"]);
+    expect(never.code).toBe(1);
+    expect(text(never)).toMatch(/https:\/\/api\.akldb\.org still does not answer from AWS after 9\d\d s and \d+ polls \(last: status 200, x-akldb-backend absent, seq 12 \(want aws, 12\)\)\. Has the Worker's custom domain been removed and the proxied CNAME to d-abc\.execute-api\.us-east-2\.amazonaws\.com added\? Re-run with --from dns/);
+    expect(w.now - t0).toBeGreaterThanOrEqual(900_000);
+    expect(await w.operator.readFlag()).toBe("read_only");
+    expect(entries()).toHaveLength(1);
+    // saltorbit does it later: the same step, re-run, passes
+    w.faults.dnsNeverFlips = false;
+    expect((await w.cutover(["--execute", "--from", "dns"])).code).toBe(0);
+    expect(status("open")).toBe("done");
+  });
+
+  it("[LDB-CV23] a name that answers from AWS with the wrong seq does not pass", async () => {
+    w = await makeWorld({ faults: { dnsFlipAfter: 0 } });
+    await w.cutoverUntil("serve");
+    w.d1(); // D1 untouched; make AWS answer another seq: an event appended behind the image's back
+    await w.operator.runUnit("INSERT INTO events (at, kind, actor, via) VALUES ('x', 'k', 'a', 'v')");
+    const r = await w.cutover(["--execute", "--only", "dns"]);
+    expect(r.code).toBe(1);
+    expect(text(r)).toMatch(/last: status 200, x-akldb-backend aws, seq 15 \(want aws, 12\)/);
+  });
+
+  it("[LDB-CV23] in a rehearsal the public name is not the Worker's: nothing to move, and the poll passes at once", async () => {
+    w = await makeWorld({ rehearsal: true });
+    const r = await w.cutover();
+    expect(r.code, text(r)).toBe(0);
+    expect(text(r)).toContain("(rehearsal: https://staging-api.akldb.org is not the Worker's name, nothing to move; polling it anyway)");
+    expect(text(r)).not.toContain("ACTION FOR SALTORBIT");
+    expect(w.state().steps.dns.proof.polls).toBe(5);
+    expect(w.state().params.d1Name).toBe("scratch");
   });
 });
 
@@ -304,7 +374,7 @@ describe("resume from every step (CV11)", () => {
         expect(extra, `${id}/${nth}`).toBeGreaterThanOrEqual(0);
         expect(extra, `${id}/${nth}`).toBeLessThanOrEqual(1);
         expect(entries().map((e) => e.kind), `${id}/${nth}`).toEqual([...happyKinds, ...Array(extra).fill("unit")]);
-        expect(w.d1().prepare("SELECT value FROM import_state WHERE key = 'cutover.mode'").get()).toEqual({ value: "proxy" });
+        expect(w.dns).toBe("aws");
         crashes++;
         cleanup(w);
       }
@@ -322,7 +392,7 @@ describe("resume from every step (CV11)", () => {
     expect(before).toBe("done");
     expect(text(r)).not.toContain("[freeze]");
     expect(text(r)).not.toContain("[export]");
-    for (const id of ["verify", "image", "serve", "resync-dumps", "proxy", "open", "post-smoke", "report"]) expect(status(id)).toBe("done");
+    for (const id of ["verify", "image", "serve", "dns", "open", "post-smoke", "report"]) expect(status(id)).toBe("done");
   });
 });
 
@@ -354,7 +424,7 @@ describe("CV16: writes open only after the proof", () => {
   });
 
   it("[LDB-CV16] open refuses when the image in the log is not the one verify proved", async () => {
-    await until("proxy");
+    await until("dns");
     const st = w.state();
     st.data.imageSha = "0".repeat(64);
     fs.writeFileSync(w.stateFile, JSON.stringify(st));
@@ -365,13 +435,13 @@ describe("CV16: writes open only after the proof", () => {
     expect(entries()).toHaveLength(1);
   });
 
-  it("[LDB-CV16] the writes were refused from the freeze to the open, on both sides, and accepted after", async () => {
+  it("[LDB-CV16] the writes were refused from the freeze to the open, on the Worker and on the stack, and accepted after", async () => {
     await until("export");
     const probe = async (url: string) => (await w.ports.http.request(`${url}/v1/layouts`, { method: "POST", body: "" })).status;
     expect(await probe("https://api.akldb.org")).toBe(503); // frozen D1
     await w.cutover(["--execute", "--from", "load"]);
     expect(await probe("https://api.akldb.org")).not.toBe(503); // open
-    expect(await probe("https://aws-api.akldb.org")).not.toBe(503);
+    expect((await w.ports.stack.request("/v1/layouts", { method: "POST", body: "" })).status).not.toBe(503);
     const pause = w.state().data.pauseMs;
     expect(pause).toBeGreaterThanOrEqual(3000); // at least the cache waits
   });

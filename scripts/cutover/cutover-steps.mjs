@@ -1,13 +1,18 @@
-// The cutover plan (LDB-CV16, CV17, CV11): D1 + Worker -> AWS design A. Pure orchestration over injected `ports` (see ports-real.mjs for
-// the real ones and tests/cutover/world.ts for the fakes), so every step is testable without a network.
+// The cutover plan (LDB-CV15..CV22): D1 + Worker -> AWS design A. Pure orchestration over injected `ports` (see ports-real.mjs for the real
+// ones and tests/cutover/world.ts for the fakes), so every step is testable without a network.
+//
+//  preflight -> copy-dumps -> freeze -> export -> load -> verify -> image -> serve -> dns -> open -> post-smoke -> report
+//
+// There is ONE hostname, api.akldb.org. The Worker needs only the read_only flag (D1's import_state['cutover.mode']); there is no proxy mode.
+// `serve` proves the prod stack by talking to it directly (its regional domain target, Host: api.akldb.org, the origin secret from a local env
+// file); `dns` is saltorbit moving the DNS record from the Worker's custom domain to the stack, and the tool polls until api.akldb.org answers from
+// AWS; `open` clears the flag on AWS only after that.
 //
 // Write pause: from the freeze (the first D1 write of `cutover.mode`) until `open` clears the flag on AWS. Everything between is
-// read-only for clients: reads keep working (D1 until `proxy`, AWS after it).
+// read-only for clients: reads keep working (the Worker until the record moves, AWS after it).
 //
-//  preflight -> copy-dumps -> freeze -> export -> load -> verify -> image -> serve -> resync-dumps -> proxy -> open -> post-smoke -> report
-//
-// Failure policy: before `image` nothing on AWS changed; `--abort` clears D1's flag. After `image`, `open` has not happened yet:
-// rollback.mjs variant A. After `open`: rollback.mjs variant B. Nothing is undone automatically.
+// Failure policy: before `image` nothing on AWS changed; `--abort` clears D1's flag. After `image` and before `open`: rollback.mjs variant
+// original-d1. After `open`: rollback.mjs (original-d1 while AWS has no writes past the image, fresh-d1 after). Nothing is undone automatically.
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -30,8 +35,10 @@ const sha256 = (b) => crypto.createHash("sha256").update(b).digest("hex");
 const lc = (h) => Object.fromEntries(Object.entries(h ?? {}).map(([k, v]) => [k.toLowerCase(), v]));
 
 /** A harmless probe: an empty POST /v1/layouts is a 400/401/403 when writes are open and a 503 read_only when they are frozen. */
+export const STACK = "stack"; // writeProbe(ports, STACK): straight at the prod stack, past the DNS name
 export async function writeProbe(ports, base) {
-  const r = await ports.http.request(`${base}/v1/layouts`, { method: "POST", headers: { "content-type": "application/json" }, body: "" });
+  const init = { method: "POST", headers: { "content-type": "application/json" }, body: "" };
+  const r = base === STACK ? await ports.stack.request("/v1/layouts", init) : await ports.http.request(`${base}/v1/layouts`, init);
   const frozen = r.status === 503;
   let reason = null;
   try {
@@ -68,7 +75,7 @@ async function dumpsEqual(ports, o) {
   const paths = ["/v1/dump/latest.json", "/v1/dump", ...(key ? [`/v1/dump/${key}`] : [])];
   const checks = [];
   for (const p of paths) {
-    const [a, b] = await Promise.all([ports.http.request(`${o.workerUrl}${p}`, { method: "GET" }), ports.http.request(`${o.awsUrl}${p}`, { method: "GET" })]);
+    const [a, b] = await Promise.all([ports.http.request(`${o.workerUrl}${p}`, { method: "GET" }), ports.stack.request(p, { method: "GET" })]);
     const [ha, hb] = [lc(a.headers), lc(b.headers)];
     const diffs = [];
     if (a.status !== b.status) diffs.push(`status ${a.status} vs ${b.status}`);
@@ -82,13 +89,23 @@ async function dumpsEqual(ports, o) {
 async function readsEqual(ports, o, paths) {
   const checks = [];
   for (const p of paths) {
-    const [a, b] = await Promise.all([ports.http.request(`${o.workerUrl}${p}`, { method: "GET" }), ports.http.request(`${o.awsUrl}${p}`, { method: "GET" })]);
+    const [a, b] = await Promise.all([ports.http.request(`${o.workerUrl}${p}`, { method: "GET" }), ports.stack.request(p, { method: "GET" })]);
     const norm = p.startsWith("/v1/meta") ? normalizeMeta : (x) => x;
     const ea = lc(a.headers).etag ?? null;
     const eb = lc(b.headers).etag ?? null;
     checks.push({ path: p, status: [a.status, b.status], bodyEqual: a.status === b.status && norm(a.body) === norm(b.body), etagEqual: ea === eb, etag: eb });
   }
   return checks;
+}
+
+/** What saltorbit does at the `dns` step (also printed in the dry run, and mirrored by the rollback). */
+export function dnsInstructions(o, { target }) {
+  const host = new URL(o.publicUrl).host;
+  return [
+    `1. Cloudflare dashboard > Workers & Pages > akl-db > Settings > Domains & Routes: remove the custom domain ${host} (this deletes its DNS record; the Worker stays reachable at ${o.workerDirectUrl}).`,
+    `2. Cloudflare dashboard > akldb.org > DNS: add CNAME  ${host.split(".")[0]}  ->  ${target}   Proxied (orange cloud), SSL/TLS mode Full (strict).`,
+    `   (The Transform Rule that adds x-akldb-origin for host ${host} already exists.)`,
+  ];
 }
 
 export function steps(o) {
@@ -121,6 +138,8 @@ export function steps(o) {
         need(meta.status === 200, `GET ${o.workerUrl}/v1/meta answered ${meta.status}`);
         const minor = JSON.parse(meta.body)?.api?.minor;
         need(Number.isInteger(minor) && minor >= o.minMinor, `the Worker serves api.minor ${minor}, the modes shipped in ${o.minMinor}: deploy the Worker build with cutover.mode first`);
+        const problems = await c.ports.stack.check();
+        need(problems.length === 0, `the direct read of the stack (serve) is not possible: ${problems.join("; ")}`);
         const mode = await d1Mode(c.ports, db);
         need(mode === null || c.state.steps.freeze !== undefined, `D1 already has cutover.mode=${mode} and this run never froze it: another cutover or a half-finished one? (--abort clears it)`);
         const tt = await c.ports.d1.timeTravelInfo(db);
@@ -133,12 +152,12 @@ export function steps(o) {
     },
     {
       id: "copy-dumps",
-      title: "copy the dump history R2 -> S3 (every object, content type kept, md5 and size verified); long, so before the freeze",
-      commands: () => [`node scripts/cutover/copy-dumps.mjs --execute --bucket <DataBucket>   # R2 akl-db-dumps (read-only token) -> s3://<DataBucket>/dumps/<key>`],
+      title: "copy (re-sync) the dump history R2 -> S3: every object, content type kept, md5 and size verified; just before the freeze, so nothing here is inside the write pause",
+      commands: () => [`node scripts/cutover/copy-dumps.mjs --execute --dest-bucket <DataBucket>   # R2 akl-db-dumps (${o.r2Env}) -> s3://<DataBucket>/dumps/<key>; the first run is long, a re-run copies only what changed`],
       async precondition(c) {
         need(c.state.steps.preflight?.status === "done", "preflight has not passed");
         const missing = await c.ports.dumps.check();
-        need(missing.length === 0, `the dump copy needs ${missing.join(", ")} in the environment (an R2 API token with Object Read on akl-db-dumps: R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY)`);
+        need(missing.length === 0, `the dump copy needs ${missing.join(", ")} (the R2 read credentials file ${o.r2Env}: R2_KEY_ID, R2_SECRET, R2_ENDPOINT; bucket-scoped list and read on akl-db-dumps)`);
       },
       async run(c) {
         const r = await c.ports.dumps.sync();
@@ -309,15 +328,18 @@ export function steps(o) {
     },
     {
       id: "serve",
-      title: "invoke migrate (a no-op: the image is complete) and warm k=4, then compare reads straight against the prod stack with D1's",
+      title: "invoke migrate (a no-op: the image is complete) and warm k=4, then read the prod stack DIRECTLY and compare with D1's answers",
       commands: () => [
         `aws lambda invoke --function-name <FunctionName> --qualifier live --payload '{"akldb":"migrate"}' out.json   # applied: [], seq 1`,
         `aws lambda invoke --function-name <FunctionName> --qualifier live --payload '{"akldb":"warm","k":4}' out.json`,
-        `for p in /v1/meta '/v1/layouts?limit=20' /v1/layouts/<id1> /v1/layouts/<id2> /v1/layouts/<id3>; do curl -si ${o.workerUrl}$p; curl -si ${o.awsUrl}$p; done   # equal bodies and ETags`,
+        `# the stack directly: TCP to <ApiDomainTarget> (resolve override), TLS SNI and Host ${new URL(o.publicUrl).host}, header x-akldb-origin read from ${o.originEnv} (never printed)`,
+        `for p in /v1/meta '/v1/layouts?limit=20' /v1/layouts/<id1> /v1/layouts/<id2> /v1/layouts/<id3> /v1/dump/latest.json /v1/dump /v1/dump/<newest>; do curl -si ${o.workerUrl}$p; curl -si --resolve ${new URL(o.publicUrl).host}:443:<ip of ApiDomainTarget> -H 'x-akldb-origin: ***' ${o.publicUrl}$p; done   # equal bodies, ETags, headers`,
       ],
       async precondition(c) {
         need(c.state.steps.image?.status === "done", "the image has not been appended");
         need((await c.ports.aws.logHead()) >= 1, "the AWS log is empty");
+        const problems = await c.ports.stack.check();
+        need(problems.length === 0, `the direct read of the stack is not possible: ${problems.join("; ")}`);
       },
       async run(c) {
         const mig = await c.ports.aws.invoke({ akldb: "migrate" });
@@ -327,8 +349,8 @@ export function steps(o) {
         const warm = await c.ports.aws.invoke({ akldb: "warm", k: 4 });
         need(warm?.ok === true, `warm answered ${JSON.stringify(warm)}`);
         need(warm.warmup === "ok", `warm: the warm-up read is ${warm.warmup}, not ok`);
-        const list = await c.ports.http.request(`${o.awsUrl}/v1/layouts?limit=20`, { method: "GET" });
-        need(list.status === 200, `GET ${o.awsUrl}/v1/layouts?limit=20 answered ${list.status}`);
+        const list = await c.ports.stack.request(`/v1/layouts?limit=20`, { method: "GET" });
+        need(list.status === 200, `the stack answered GET /v1/layouts?limit=20 with ${list.status} (a 403 means the origin secret in ${o.originEnv} is not the stack's)`);
         const ids = (JSON.parse(list.body).items ?? []).slice(0, 3).map((x) => x.id);
         need(ids.length === 3, `the list page has ${ids.length} layouts, the smoke needs 3`);
         const paths = ["/v1/meta", "/v1/layouts?limit=20", ...ids.map((id) => `/v1/layouts/${id}`)];
@@ -338,64 +360,70 @@ export function steps(o) {
         const dumps = await dumpsEqual(c.ports, o);
         const badDumps = dumps.filter((x) => x.diffs.length > 0);
         need(badDumps.length === 0, `the dump routes differ between the Worker and the prod stack (CV20): ${badDumps.map((x) => `${x.path}: ${x.diffs.join(", ")}`).join("; ")}`);
-        const head = await c.ports.http.request(`${o.awsUrl}/v1/meta`, { method: "GET" });
-        need(lc(head.headers)[AWS_HEADER] === "aws", `${o.awsUrl} answers without ${AWS_HEADER}: aws (CV13): is the Transform Rule/CNAME for aws-api.akldb.org pointing at the prod stack?`);
-        return { message: `migrate no-op at seq ${mig.seq}, warm ${warm.containers?.length ?? "?"} containers, ${checks.length} reads equal`, proof: { migrate: mig, warm: { containers: warm.containers, warmup: warm.warmup }, checks, dumps } };
+        const head = await c.ports.stack.request(`/v1/meta`, { method: "GET" });
+        need(lc(head.headers)[AWS_HEADER] === "aws", `the stack answers without ${AWS_HEADER}: aws (CV13): the deployed code is not this build`);
+        return { message: `migrate no-op at seq ${mig.seq}, warm ${warm.containers?.length ?? "?"} containers, ${checks.length} reads and ${dumps.length} dump routes equal`, proof: { migrate: mig, warm: { containers: warm.containers, warmup: warm.warmup }, checks, dumps } };
       },
     },
     {
-      id: "resync-dumps",
-      title: "re-sync the dump history R2 -> S3 (only what the nightly job wrote since), just before the Worker starts proxying",
-      commands: () => [`node scripts/cutover/copy-dumps.mjs --execute --bucket <DataBucket>   # a no-op unless a dump ran since copy-dumps`],
+      id: "dns",
+      title: `saltorbit moves the DNS record ${new URL(o.publicUrl).host} from the Worker to the stack; poll until it answers from AWS, ${o.dnsConsecutive} times in a row on fresh connections`,
+      commands: () => [
+        ...dnsInstructions(o, { target: "<ApiDomainTarget>" }),
+        `curl -s ${o.publicUrl}/v1/meta   # x-akldb-backend: aws and seq == the image's meta.seq, ${o.dnsConsecutive} fresh connections in a row, every ${o.dnsPollMs / 1000} s, at most ${o.dnsTimeoutMs / 1000} s`,
+      ],
       async precondition(c) {
-        need(c.state.steps.serve?.status === "done", "the prod stack has not been proven to serve");
+        need(c.state.steps.serve?.status === "done", "the prod stack has not been proven to serve (serve)");
+        need(c.state.steps.image?.status === "done", "the image has not been appended");
       },
       async run(c) {
-        const r = await c.ports.dumps.sync();
-        need(r.ok, `the dump re-sync found mismatches: ${r.mismatches.map((m) => `${m.key}: ${m.why}`).join(" | ")}`);
-        const dumps = await dumpsEqual(c.ports, o);
-        const bad = dumps.filter((x) => x.diffs.length > 0);
-        need(bad.length === 0, `the dump routes differ between the Worker and the prod stack (CV20): ${bad.map((x) => `${x.path}: ${x.diffs.join(", ")}`).join("; ")}`);
-        return { message: `${r.objects} objects: ${r.copied.length} copied since, ${r.skipped.length} unchanged; dump routes equal`, proof: { copied: r.copied, skipped: r.skipped.length, dumps } };
-      },
-    },
-    {
-      id: "proxy",
-      title: "set cutover.mode=proxy on D1 and prove api.akldb.org now answers from AWS",
-      commands: () => [W(setModeSql("proxy")), `sleep ${o.cacheWaitMs / 1000}`, `curl -si ${o.workerUrl}/v1/meta   # ${AWS_HEADER}: aws`, `curl -si -X POST ${o.workerUrl}/v1/layouts   # 503 read_only, ${AWS_HEADER}: aws (AWS is still frozen)`],
-      async precondition(c) {
-        need(c.state.steps["resync-dumps"]?.status === "done", "the dump history has not been re-synced (resync-dumps)");
-        need((await d1Mode(c.ports, db)) !== null, "D1 is not frozen (cutover.mode unset)");
-      },
-      async run(c) {
-        await c.ports.d1.write(setModeSql("proxy"), db);
-        need((await d1Mode(c.ports, db)) === "proxy", "D1 did not take cutover.mode=proxy");
-        await c.ports.clock.sleep(o.cacheWaitMs);
-        const meta = await c.ports.http.request(`${o.workerUrl}/v1/meta`, { method: "GET" });
-        need(meta.status === 200, `GET ${o.workerUrl}/v1/meta answered ${meta.status} in proxy mode`);
-        const h = lc(meta.headers);
-        need(h[AWS_HEADER] === "aws", `through the Worker the answer has no ${AWS_HEADER}: aws (X-Akldb-Proxied: ${h["x-akldb-proxied"] ?? "absent"}): the Worker is not proxying, or the proxy strips the header`);
-        // AWS answers: still frozen at D1's last seq, or (a re-run after `open`) already past it
-        const awsFrozen = (await c.ports.aws.operator.readFlag()) === "read_only";
-        const seq = JSON.parse(meta.body).seq;
-        need(awsFrozen ? seq === c.data.finalSeq : seq >= c.data.finalSeq, `through the proxy meta.seq is ${seq}, expected ${awsFrozen ? "" : "at least "}${c.data.finalSeq}`);
-        const probe = await writeProbe(c.ports, o.workerUrl);
-        need(probe.backend === "aws" && probe.readOnly === awsFrozen, `a write through the proxy answered ${probe.status} (${probe.reason}) from ${probe.backend ?? "the Worker"}: expected ${awsFrozen ? "503 read_only" : "an open write path"} from AWS`);
-        return { message: `api.akldb.org answers from AWS (${AWS_HEADER}: aws); writes ${awsFrozen ? "still 503 read_only" : "open"}, from AWS`, proof: { meta: { status: meta.status, headers: { [AWS_HEADER]: h[AWS_HEADER], "x-akldb-proxied": h["x-akldb-proxied"] ?? null } }, probe } };
+        const sameName = new URL(o.publicUrl).host === new URL(o.workerUrl).host;
+        if (sameName) {
+          c.out("      ---- ACTION FOR SALTORBIT (Cloudflare dashboard, akl account) ----");
+          for (const line of dnsInstructions(o, { target: c.data.stack.ApiDomainTarget })) c.out(`      ${line}`);
+          c.out("      ------------------------------------------------------------------");
+        } else c.out(`      (rehearsal: ${o.publicUrl} is not the Worker's name, nothing to move; polling it anyway)`);
+        const started = c.ports.clock.now();
+        let consecutive = 0;
+        let polls = 0;
+        let last = "no answer yet";
+        for (;;) {
+          polls++;
+          let ok = false;
+          try {
+            const r = await c.ports.http.fresh(`${o.publicUrl}/v1/meta`, { method: "GET" });
+            const backend = lc(r.headers)[AWS_HEADER] ?? null;
+            let seq = null;
+            try {
+              seq = JSON.parse(r.body).seq;
+            } catch {
+              seq = null;
+            }
+            ok = r.status === 200 && backend === "aws" && seq === c.data.finalSeq;
+            last = `status ${r.status}, ${AWS_HEADER} ${backend ?? "absent"}, seq ${seq ?? "?"} (want aws, ${c.data.finalSeq})`;
+          } catch (e) {
+            last = `request failed: ${e instanceof Error ? e.message : String(e)}`; // the gap between removing the Worker's domain and the new record
+          }
+          consecutive = ok ? consecutive + 1 : 0;
+          if (consecutive >= o.dnsConsecutive) break;
+          need(c.ports.clock.now() - started < o.dnsTimeoutMs, `${o.publicUrl} still does not answer from AWS after ${Math.round((c.ports.clock.now() - started) / 1000)} s and ${polls} polls (last: ${last}). Has the Worker's custom domain been removed and the proxied CNAME to ${c.data.stack.ApiDomainTarget} added? Re-run with --from dns once it is. The write pause is still running: AWS stays read_only, D1 stays frozen`);
+          await c.ports.clock.sleep(o.dnsPollMs);
+        }
+        c.data.dnsAt = c.ports.clock.now();
+        return { message: `${o.publicUrl} answers from AWS after ${Math.round((c.data.dnsAt - started) / 1000)} s (${polls} polls, last: ${last})`, proof: { polls, waitedMs: c.data.dnsAt - started, consecutive, last } };
       },
     },
     {
       id: "open",
       title: "clear cutover.mode on AWS: a unit appended through the prod log as the operator (never the public API)",
-      commands: () => [`node:operator  Replica(DynamoDB log akldb-prod-log, operator credentials).runUnit("${CLEAR_MODE_SQL}")`, `curl -si -X POST ${o.workerUrl}/v1/layouts   # no longer 503`],
+      commands: () => [`node:operator  Replica(DynamoDB log akldb-prod-log, operator credentials).runUnit("${CLEAR_MODE_SQL}")`, `curl -si -X POST ${o.publicUrl}/v1/layouts   # no longer 503`],
       async precondition(c) {
-        // CV16: writes open only after counts, checksums and meta.seq were proven equal, for THE image that is in the log.
+        // CV16: writes open only after counts, checksums and meta.seq were proven equal, for THE image that is in the log, and after the name points at AWS.
         const v = c.state.steps.verify;
         need(v?.status === "done" && v.proof?.ok === true, "CV16: writes open only after verify passed (counts, checksums, meta.seq equal)");
-        for (const id of ["image", "serve", "resync-dumps", "proxy"]) need(c.state.steps[id]?.status === "done", `CV16: writes open only after ${id} is done`);
+        for (const id of ["image", "serve", "dns"]) need(c.state.steps[id]?.status === "done", `CV16: writes open only after ${id} is done`);
         const first = await c.ports.aws.firstEntry();
         need(first?.kind === "image" && first.hash === c.data.imageSha, "CV16: the image in the AWS log is not the one verify proved");
-        need((await d1Mode(c.ports, db)) === "proxy", "D1 is not in proxy mode: the Worker would not send clients to AWS");
       },
       async run(c) {
         const flag = await c.ports.aws.operator.readFlag();
@@ -408,8 +436,8 @@ export function steps(o) {
         c.data.openedAt = c.ports.clock.now();
         c.data.openSeq = seq;
         await c.ports.clock.sleep(o.cacheWaitMs);
-        const probe = await writeProbe(c.ports, o.workerUrl);
-        need(!probe.frozen, `writes are still refused after the flag was cleared (${probe.status} ${probe.reason}): the AWS flag cache or the Worker`);
+        const probe = await writeProbe(c.ports, o.publicUrl);
+        need(!probe.frozen, `writes are still refused after the flag was cleared (${probe.status} ${probe.reason}): the AWS flag cache, or ${o.publicUrl} is not the stack`);
         need(probe.backend === "aws", `the write probe was answered by ${probe.backend ?? "the Worker"}, not AWS`);
         const pauseMs = c.data.openedAt - c.data.freezeAt;
         c.data.pauseMs = pauseMs;
@@ -419,27 +447,27 @@ export function steps(o) {
     {
       id: "post-smoke",
       title: "a signed write with the ops client, If-Match 412 on a stale rev, feed contiguity and ETag 304 through api.akldb.org",
-      commands: () => [`node scripts/client-sign.mjs ${o.writeMethod} ${o.writePath}   # the signed write (default: the manual nightly tick, a harmless event)`, `curl -s -X PATCH -H 'If-Match: "<stale>"' ${o.workerUrl}/v1/layouts/<id>   # 412`, `curl -s '${o.workerUrl}/v1/changes?since=<D1 last seq>'   # starts at last+1`, `curl -si -H 'If-None-Match: <etag>' ${o.workerUrl}/v1/meta   # 304`],
+      commands: () => [`node scripts/client-sign.mjs ${o.writeMethod} ${o.writePath}   # the signed write (default: the manual nightly tick, a harmless event)`, `curl -s -X PATCH -H 'If-Match: "<stale>"' ${o.publicUrl}/v1/layouts/<id>   # 412`, `curl -s '${o.publicUrl}/v1/changes?since=<D1 last seq>'   # starts at last+1`, `curl -si -H 'If-None-Match: <etag>' ${o.publicUrl}/v1/meta   # 304`],
       async precondition(c) {
         need(c.state.steps.open?.status === "done", "writes are not open yet");
       },
       async run(c) {
         const checks = {};
-        const write = await c.ports.http.signed(o.writeMethod, `${o.workerUrl}${o.writePath}`, { body: o.writeBody });
+        const write = await c.ports.http.signed(o.writeMethod, `${o.publicUrl}${o.writePath}`, { body: o.writeBody });
         need(write.status >= 200 && write.status < 300, `the signed write ${o.writeMethod} ${o.writePath} answered ${write.status}: ${write.body.slice(0, 200)}`);
         checks.signedWrite = { status: write.status, backend: lc(write.headers)[AWS_HEADER] ?? null };
-        const list = JSON.parse((await c.ports.http.request(`${o.workerUrl}/v1/layouts?limit=1`, { method: "GET" })).body);
+        const list = JSON.parse((await c.ports.http.request(`${o.publicUrl}/v1/layouts?limit=1`, { method: "GET" })).body);
         const id = list.items?.[0]?.id;
         need(id !== undefined, "no layout to run the If-Match probe against");
-        const one = await c.ports.http.request(`${o.workerUrl}/v1/layouts/${id}`, { method: "GET" });
+        const one = await c.ports.http.request(`${o.publicUrl}/v1/layouts/${id}`, { method: "GET" });
         const tag = lc(one.headers).etag ?? "";
         const m = /^"?(.*?):?(\d+)"?$/.exec(tag);
         need(m !== null, `layout ${id} carries no ETag of the form "<scope>:<rev>" (${tag})`);
         const stale = `"${m[1]}:${Number(m[2]) + 1000}"`;
-        const patch = await c.ports.http.signed("PATCH", `${o.workerUrl}/v1/layouts/${id}`, { body: JSON.stringify({ name: JSON.parse(one.body).name }), headers: { "if-match": stale } });
+        const patch = await c.ports.http.signed("PATCH", `${o.publicUrl}/v1/layouts/${id}`, { body: JSON.stringify({ name: JSON.parse(one.body).name }), headers: { "if-match": stale } });
         need(patch.status === 412, `PATCH with a stale If-Match answered ${patch.status}, expected 412`);
         checks.ifMatch = { id, sent: stale, status: patch.status };
-        const feed = await c.ports.http.request(`${o.workerUrl}/v1/changes?since=${c.data.finalSeq}&limit=50`, { method: "GET" });
+        const feed = await c.ports.http.request(`${o.publicUrl}/v1/changes?since=${c.data.finalSeq}&limit=50`, { method: "GET" });
         need(feed.status === 200, `GET /v1/changes?since=${c.data.finalSeq} answered ${feed.status}`);
         const items = JSON.parse(feed.body).items ?? [];
         need(items.length > 0, `the feed after seq ${c.data.finalSeq} is empty although a signed write just happened: the write produced no event, pick another --write-route`);
@@ -449,10 +477,10 @@ export function steps(o) {
         const expectFirst = (c.data.eventsCounter ?? c.data.finalSeq) + 1;
         need(seqs[0] === expectFirst && seqs.every((s, i) => i === 0 || s === seqs[i - 1] + 1), `feed contiguity (CV17): D1's last seq was ${c.data.finalSeq} and its counter ${c.data.eventsCounter}, so the feed must continue with ${expectFirst}, it continues with ${seqs.slice(0, 5).join(", ")}`);
         checks.feed = { since: c.data.finalSeq, expectedFirst: expectFirst, first: seqs[0], count: seqs.length };
-        const meta = await c.ports.http.request(`${o.workerUrl}/v1/meta`, { method: "GET" });
+        const meta = await c.ports.http.request(`${o.publicUrl}/v1/meta`, { method: "GET" });
         const etag = lc(meta.headers).etag;
         need(etag, "GET /v1/meta carries no ETag");
-        const cond = await c.ports.http.request(`${o.workerUrl}/v1/meta`, { method: "GET", headers: { "if-none-match": etag } });
+        const cond = await c.ports.http.request(`${o.publicUrl}/v1/meta`, { method: "GET", headers: { "if-none-match": etag } });
         need(cond.status === 304, `If-None-Match answered ${cond.status}, expected 304`);
         checks.etag304 = { etag, status: cond.status };
         return { message: "signed write, If-Match 412, feed contiguous from last+1, ETag 304", proof: checks };
@@ -498,7 +526,7 @@ export function abortSteps(o) {
 
 /** The markdown report: timings per step, the write pause, and every proof, from the state file alone. */
 export function renderReport(state, o) {
-  const lines = [`# akldb cutover report`, "", `State created ${state.createdAt}. D1 \`${o.d1Name}\`, stack \`${o.stack}\`, Worker ${o.workerUrl}, AWS ${o.awsUrl}.`, ""];
+  const lines = [`# akldb cutover report`, "", `State created ${state.createdAt}. D1 \`${o.d1Name}\`, stack \`${o.stack}\`, Worker ${o.workerUrl}, public name ${o.publicUrl}.`, ""];
   const s = state.steps;
   const pause = state.data.pauseMs;
   lines.push("## Write pause", "", pause === undefined ? "Not measured (the run never reached `open`)." : `**${pause} ms** (${(pause / 1000).toFixed(1)} s) from the freeze write to the unit that cleared \`cutover.mode\` on AWS. Gate: at most 300000 ms.`, "");
@@ -512,7 +540,7 @@ export function renderReport(state, o) {
     for (const [t, p] of Object.entries(v.perTable ?? {})) lines.push(`| ${t} | ${p.count} | \`${p.checksum.slice(0, 16)}\` |`);
     lines.push("");
   }
-  for (const id of ["preflight", "copy-dumps", "freeze", "export", "load", "image", "serve", "resync-dumps", "proxy", "open", "post-smoke"]) {
+  for (const id of ["preflight", "copy-dumps", "freeze", "export", "load", "image", "serve", "dns", "open", "post-smoke"]) {
     const p = proofOf(id);
     if (p) lines.push(`### ${id}`, "", "```json", JSON.stringify(p, null, 2).slice(0, 4000), "```", "");
   }
