@@ -1,4 +1,4 @@
-// [LDB-CV4] [LDB-CV11] The rollback machine (scripts/cutover/rollback.mjs, rollback-steps.mjs) against the same fake world: both variants,
+// [LDB-CV18] [LDB-CV11] The rollback machine (scripts/cutover/rollback.mjs, rollback-steps.mjs) against the same fake world: both variants,
 // the proofs, the manual Worker step, and resume after a crash at any port call.
 import fs from "node:fs";
 import path from "node:path";
@@ -31,7 +31,7 @@ async function cutOver(faults?: Faults) {
 }
 
 describe("rollback, variant fresh-d1 (AWS took writes)", () => {
-  it("[LDB-CV4] freezes AWS, captures it, imports into a fresh D1, proves it equal, waits for the Worker, then reopens there; the old D1 is untouched", async () => {
+  it("[LDB-CV18] freezes AWS, captures it, imports into a fresh D1, proves it equal, waits for the Worker, then reopens there; the old D1 is untouched", async () => {
     await cutOver();
     const oldBefore = await proofOf(w.d1());
     const first = await rb();
@@ -87,7 +87,7 @@ describe("rollback, variant fresh-d1 (AWS took writes)", () => {
     expect(md).toContain("### reopen");
   });
 
-  it("[LDB-CV4] an import that loses a row is caught by the proof, and nothing reopens", async () => {
+  it("[LDB-CV18] an import that loses a row is caught by the proof, and nothing reopens", async () => {
     await cutOver({ importDropsRow: true, autoPoint: true });
     const r = await rb(["--execute", "--worker-pointed"]);
     expect(r.code).toBe(1);
@@ -99,10 +99,10 @@ describe("rollback, variant fresh-d1 (AWS took writes)", () => {
     // reopen on its own refuses
     const reopen = await rb(["--execute", "--only", "reopen"]);
     expect(reopen.code).toBe(1);
-    expect(text(reopen)).toContain("CV4: writes reopen on D1 only after verify proved it equal to AWS");
+    expect(text(reopen)).toContain("CV18: writes reopen on D1 only after verify proved it equal to AWS");
   });
 
-  it("[LDB-CV4] a Worker that was not repointed (it still proxies) fails the point-worker check", async () => {
+  it("[LDB-CV18] a Worker that was not repointed (it still proxies) fails the point-worker check", async () => {
     await cutOver();
     const r = await rb(["--execute", "--worker-pointed"]);
     expect(r.code).toBe(1);
@@ -110,7 +110,7 @@ describe("rollback, variant fresh-d1 (AWS took writes)", () => {
     expect(rbState().steps.reopen).toBeUndefined();
   });
 
-  it("[LDB-CV4] --variant original-d1 is refused once AWS took writes; a forced fresh-d1 works even when original-d1 would apply", async () => {
+  it("[LDB-CV18] --variant original-d1 is refused once AWS took writes; a forced fresh-d1 works even when original-d1 would apply", async () => {
     await cutOver();
     const r = await rb(["--execute", "--variant", "original-d1"]);
     expect(r.code).toBe(1);
@@ -125,7 +125,7 @@ describe("rollback, variant fresh-d1 (AWS took writes)", () => {
 });
 
 describe("rollback, variant original-d1 (AWS head 1: the open step never ran)", () => {
-  it("[LDB-CV4] puts the original D1 back to the freeze state, proves it equals the image and the recorded checksums, reopens it; AWS stays read_only", async () => {
+  it("[LDB-CV18] puts the original D1 back to the freeze state, proves it equals the image and the recorded checksums, reopens it; AWS stays read_only", async () => {
     w = await makeWorld();
     await w.cutoverUntil("proxy");
     expect(await w.operator.head()).toBe(1);
@@ -151,7 +151,7 @@ describe("rollback, variant original-d1 (AWS head 1: the open step never ran)", 
     expect(md).toContain("Variant: **original-d1** (AWS head 1: no write reached AWS after the image");
   });
 
-  it("[LDB-CV4] a D1 that changed after the freeze refuses this variant: it stays frozen and nothing reopens", async () => {
+  it("[LDB-CV18] a D1 that changed after the freeze refuses this variant: it stays frozen and nothing reopens", async () => {
     w = await makeWorld();
     await w.cutoverUntil("proxy");
     w.d1().exec("UPDATE churn SET v = 'written after the freeze' WHERE id = 1"); // something got through
@@ -163,7 +163,7 @@ describe("rollback, variant original-d1 (AWS head 1: the open step never ran)", 
     expect((await w.ports.http.request("https://api.akldb.org/v1/layouts", { method: "POST", body: "" })).status).toBe(503);
   });
 
-  it("[LDB-CV4] a log without an image is not a cutover target", async () => {
+  it("[LDB-CV18] a log without an image is not a cutover target", async () => {
     w = await makeWorld();
     const r = await rb();
     expect(r.code).toBe(1);

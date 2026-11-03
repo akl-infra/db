@@ -1,4 +1,4 @@
-// The cutover's table proof (LDB-CV2/CV3): per table a row COUNT and a CHECKSUM over every row, computed the same way on the local
+// The cutover's table proof (LDB-CV16/CV17): per table a row COUNT and a CHECKSUM over every row, computed the same way on the local
 // SQLite (node:sqlite) and on D1 (read-only SELECTs through `wrangler d1 execute --remote --json`), so the two can be compared.
 //
 //  - Rows are read in a deterministic order (`rowid` keyset pages; a WITHOUT ROWID table pages by OFFSET over its primary key).

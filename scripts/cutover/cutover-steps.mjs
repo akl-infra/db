@@ -1,4 +1,4 @@
-// The cutover plan (LDB-CV2, CV3, CV11): D1 + Worker -> AWS design A. Pure orchestration over injected `ports` (see ports-real.mjs for
+// The cutover plan (LDB-CV16, CV17, CV11): D1 + Worker -> AWS design A. Pure orchestration over injected `ports` (see ports-real.mjs for
 // the real ones and tests/cutover/world.ts for the fakes), so every step is testable without a network.
 //
 // Write pause: from the freeze (the first D1 write of `cutover.mode`) until `open` clears the flag on AWS. Everything between is
@@ -220,7 +220,7 @@ export function steps(o) {
           const problems = [];
           for (const d of cmp.diffs) problems.push(`${d.table}: ${d.field} sqlite ${d.sqlite} != d1 ${d.d1}`);
           if (lp.metaSeq !== rp.metaSeq) problems.push(`meta.seq: sqlite ${lp.metaSeq} != d1 ${rp.metaSeq}`);
-          if (lp.eventsCounter !== rp.eventsCounter) problems.push(`next-seq rule (CV3): sqlite_sequence for events is ${lp.eventsCounter}, D1's is ${rp.eventsCounter}`);
+          if (lp.eventsCounter !== rp.eventsCounter) problems.push(`next-seq rule (CV17): sqlite_sequence for events is ${lp.eventsCounter}, D1's is ${rp.eventsCounter}`);
           if (rp.eventsCounter !== null && rp.eventsCounter < rp.metaSeq) problems.push(`D1's own sqlite_sequence (${rp.eventsCounter}) is below MAX(seq) (${rp.metaSeq})`);
           const schemaSql = "SELECT type, name, tbl_name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' ORDER BY type, name";
           const [ls, rs] = [localSelect(local)(schemaSql), await d1select(schemaSql)];
@@ -250,7 +250,7 @@ export function steps(o) {
       commands: () => [`aws s3api put-object --bucket <DataBucket> --key log/<unitId>.image.zst --body <zstd ${imageFile()}>   # via the replica kit`, `aws dynamodb transact-write-items   # Put LOG#000000000001 (kind image) if absent + Update HEAD seq=1 if absent`, `aws s3api put-object --bucket <DataBucket> --key snap/slot-0.sqlite.zst   # + the SNAP/POINTER item at seq 1`],
       async precondition(c) {
         const v = c.state.steps.verify;
-        need(v?.status === "done" && v.proof?.ok === true, "CV2: the image is appended only after verify passed (counts, checksums and meta.seq equal)");
+        need(v?.status === "done" && v.proof?.ok === true, "CV16: the image is appended only after verify passed (counts, checksums and meta.seq equal)");
         need(fs.existsSync(imageFile()) && sha256File(imageFile()) === c.data.imageSha, "the image file is not the one verify proved");
         const head = await c.ports.aws.logHead();
         if (head !== 0) {
@@ -334,12 +334,12 @@ export function steps(o) {
       title: "clear cutover.mode on AWS: a unit appended through the prod log as the operator (never the public API)",
       commands: () => [`node:operator  Replica(DynamoDB log akldb-prod-log, operator credentials).runUnit("${CLEAR_MODE_SQL}")`, `curl -si -X POST ${o.workerUrl}/v1/layouts   # no longer 503`],
       async precondition(c) {
-        // CV2: writes open only after counts, checksums and meta.seq were proven equal, for THE image that is in the log.
+        // CV16: writes open only after counts, checksums and meta.seq were proven equal, for THE image that is in the log.
         const v = c.state.steps.verify;
-        need(v?.status === "done" && v.proof?.ok === true, "CV2: writes open only after verify passed (counts, checksums, meta.seq equal)");
-        for (const id of ["image", "serve", "proxy"]) need(c.state.steps[id]?.status === "done", `CV2: writes open only after ${id} is done`);
+        need(v?.status === "done" && v.proof?.ok === true, "CV16: writes open only after verify passed (counts, checksums, meta.seq equal)");
+        for (const id of ["image", "serve", "proxy"]) need(c.state.steps[id]?.status === "done", `CV16: writes open only after ${id} is done`);
         const first = await c.ports.aws.firstEntry();
-        need(first?.kind === "image" && first.hash === c.data.imageSha, "CV2: the image in the AWS log is not the one verify proved");
+        need(first?.kind === "image" && first.hash === c.data.imageSha, "CV16: the image in the AWS log is not the one verify proved");
         need((await d1Mode(c.ports, db)) === "proxy", "D1 is not in proxy mode: the Worker would not send clients to AWS");
       },
       async run(c) {
@@ -392,7 +392,7 @@ export function steps(o) {
         // The next event is D1's AUTOINCREMENT counter + 1 (which is last + 1 unless events were deleted from the tail: then the counter,
         // not MAX(seq), is what clients saw as "next" on D1 and what the image carried over).
         const expectFirst = (c.data.eventsCounter ?? c.data.finalSeq) + 1;
-        need(seqs[0] === expectFirst && seqs.every((s, i) => i === 0 || s === seqs[i - 1] + 1), `feed contiguity (CV3): D1's last seq was ${c.data.finalSeq} and its counter ${c.data.eventsCounter}, so the feed must continue with ${expectFirst}, it continues with ${seqs.slice(0, 5).join(", ")}`);
+        need(seqs[0] === expectFirst && seqs.every((s, i) => i === 0 || s === seqs[i - 1] + 1), `feed contiguity (CV17): D1's last seq was ${c.data.finalSeq} and its counter ${c.data.eventsCounter}, so the feed must continue with ${expectFirst}, it continues with ${seqs.slice(0, 5).join(", ")}`);
         checks.feed = { since: c.data.finalSeq, expectedFirst: expectFirst, first: seqs[0], count: seqs.length };
         const meta = await c.ports.http.request(`${o.workerUrl}/v1/meta`, { method: "GET" });
         const etag = lc(meta.headers).etag;
@@ -453,7 +453,7 @@ export function renderReport(state, o) {
   const proofOf = (id) => s[id]?.proof;
   const v = proofOf("verify");
   if (v) {
-    lines.push("### verify (CV2, CV3)", "", `${v.tables} tables, ${v.rows} rows: counts and checksums equal on SQLite and D1. meta.seq ${v.metaSeq}; sqlite_sequence for events ${v.eventsCounter} (the next event is seq ${v.eventsCounter + 1}). Verify took ${v.verifyMs} ms.`, "", "| table | rows | checksum |", "|---|---|---|");
+    lines.push("### verify (CV16, CV17)", "", `${v.tables} tables, ${v.rows} rows: counts and checksums equal on SQLite and D1. meta.seq ${v.metaSeq}; sqlite_sequence for events ${v.eventsCounter} (the next event is seq ${v.eventsCounter + 1}). Verify took ${v.verifyMs} ms.`, "", "| table | rows | checksum |", "|---|---|---|");
     for (const [t, p] of Object.entries(v.perTable ?? {})) lines.push(`| ${t} | ${p.count} | \`${p.checksum.slice(0, 16)}\` |`);
     lines.push("");
   }
