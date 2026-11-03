@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import url from "node:url";
 import { loadKit } from "./kit.mjs";
-import { createAwsPort, createD1Port, createHttpPort, realExec, realOperatorFactory } from "./ports-real.mjs";
+import { createAwsPort, createD1Port, createDumpsPort, createHttpPort, realExec, realOperatorFactory } from "./ports-real.mjs";
 import { CACHE_WAIT_MS } from "./cutover-steps.mjs";
 
 export const REPO = path.resolve(path.dirname(url.fileURLToPath(import.meta.url)), "..", "..");
@@ -84,5 +84,5 @@ export function realPorts(o, { env = process.env, exec = realExec, fetchImpl, cl
   if (!env.CLOUDFLARE_ACCOUNT_ID) throw new Error("CLOUDFLARE_ACCOUNT_ID is not set (wrangler needs it for the akl account)");
   const http = createHttpPort({ fetchImpl, env });
   const aws = createAwsPort({ exec, region: o.region, profile: o.profile, stack: o.stack, operatorFactory: (outputs) => realOperatorFactory(outputs, { env, region: o.region, loadKit }) });
-  return { clock, d1: createD1Port({ exec, env }), http, aws };
+  return { clock, d1: createD1Port({ exec, env }), http, aws, dumps: createDumpsPort({ env, outputs: () => aws.stackOutputs(), fetchImpl, region: o.region }) };
 }
