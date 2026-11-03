@@ -212,8 +212,9 @@ Resources:
               Bool: { "aws:SecureTransport": "false" }
 
   # ---------------------------------------------------------------- the function
-  # Prod's never expires (saltorbit: keep every log); the others keep 14 days. Infrequent Access has no metric filters,
-  # so the alarms below use built-in metrics only.
+  # Prod's never expires (saltorbit: keep every log); the others keep 14 days. STANDARD class on purpose: Infrequent
+  # Access supports neither metric filters nor FilterLogEvents (found on the first staging deploy), and the cost
+  # difference is pennies at this volume.
   LogGroup:
     Type: AWS::Logs::LogGroup
     Condition: IsProd
@@ -221,7 +222,7 @@ Resources:
     UpdateReplacePolicy: Retain
     Properties:
       LogGroupName: !Sub /aws/lambda/akldb-${Stage}-api
-      LogGroupClass: INFREQUENT_ACCESS
+      LogGroupClass: STANDARD
       Tags:
         - { Key: project, Value: akldb }
         - { Key: stage, Value: !Ref Stage }
@@ -233,7 +234,7 @@ Resources:
     UpdateReplacePolicy: Delete
     Properties:
       LogGroupName: !Sub /aws/lambda/akldb-${Stage}-api
-      LogGroupClass: INFREQUENT_ACCESS
+      LogGroupClass: STANDARD
       RetentionInDays: 14
       Tags:
         - { Key: project, Value: akldb }
@@ -476,7 +477,10 @@ Resources:
         Input: !Sub '{"akldb":"warm","k":${KeepWarm}}'
         RetryPolicy: { MaximumRetryAttempts: 0 }
 
-  # ---------------------------------------------------------------- alarms (built-in metrics only; 6 of the free 10)
+  # ---------------------------------------------------------------- alarms
+  # The account's free tier is 10 alarms, so prod keeps the full set and staging and shadow get only the two that matter:
+  # Lambda Errors, and the uniform "akldb-alarm:" failure line the code logs (boot fallback, snapshot/retention/proof
+  # failure, unverified daily, replica divergence).
   AlarmTopic:
     Type: AWS::SNS::Topic
     Properties:
@@ -519,8 +523,35 @@ Resources:
       TreatMissingData: notBreaching
       AlarmActions: [ !Ref AlarmTopic ]
 
+  AlarmPrefixFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !If [ IsProd, !Ref LogGroup, !Ref LogGroupDev ]
+      FilterPattern: '"akldb-alarm:"'
+      MetricTransformations:
+        - MetricNamespace: !Sub akldb/${Stage}
+          MetricName: Alarms
+          MetricValue: "1"
+          Unit: Count
+
+  AlarmPrefixAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub akldb-${Stage}-alarm-lines
+      AlarmDescription: A log line starting with akldb-alarm:, which the code writes for every failure it wants a human to see.
+      Namespace: !Sub akldb/${Stage}
+      MetricName: Alarms
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [ !Ref AlarmTopic ]
+
   LambdaThrottlesAlarm:
     Type: AWS::CloudWatch::Alarm
+    Condition: IsProd
     Properties:
       AlarmName: !Sub akldb-${Stage}-lambda-throttles
       Namespace: AWS/Lambda
@@ -536,6 +567,7 @@ Resources:
 
   LambdaDurationAlarm:
     Type: AWS::CloudWatch::Alarm
+    Condition: IsProd
     Properties:
       AlarmName: !Sub akldb-${Stage}-lambda-duration-p95
       Namespace: AWS/Lambda
@@ -552,6 +584,7 @@ Resources:
 
   Api5xxAlarm:
     Type: AWS::CloudWatch::Alarm
+    Condition: IsProd
     Properties:
       AlarmName: !Sub akldb-${Stage}-api-5xx
       Namespace: AWS/ApiGateway
@@ -569,6 +602,7 @@ Resources:
   # spelled out over the operations the log uses.
   DdbSystemErrorsAlarm:
     Type: AWS::CloudWatch::Alarm
+    Condition: IsProd
     Properties:
       AlarmName: !Sub akldb-${Stage}-log-system-errors
       EvaluationPeriods: 1
@@ -596,6 +630,7 @@ Resources:
 
   DdbThrottledAlarm:
     Type: AWS::CloudWatch::Alarm
+    Condition: IsProd
     Properties:
       AlarmName: !Sub akldb-${Stage}-log-throttled-requests
       EvaluationPeriods: 1

@@ -15,6 +15,7 @@ let fns = Resources.*[ Type == 'AWS::Lambda::Function' ]
 let logs = Resources.*[ Type == 'AWS::Logs::LogGroup' ]
 let prod_logs = Resources.*[ Type == 'AWS::Logs::LogGroup' Condition == 'IsProd' ]
 let dev_logs = Resources.*[ Type == 'AWS::Logs::LogGroup' Condition == 'NotProd' ]
+let filters = Resources.*[ Type == 'AWS::Logs::MetricFilter' ]
 let roles = Resources.*[ Type == 'AWS::IAM::Role' ]
 let schedules = Resources.*[ Type == 'AWS::Scheduler::Schedule' ]
 let budgets = Resources.*[ Type == 'AWS::Budgets::Budget' ]
@@ -68,8 +69,14 @@ rule function_is_arm64_node24_outside_a_vpc when %fns !empty {
     %fns.Properties.VpcConfig not exists
 }
 
-rule log_group_is_infrequent_access when %logs !empty {
-    %logs.Properties.LogGroupClass == 'INFREQUENT_ACCESS'
+# STANDARD, not Infrequent Access: IA supports neither metric filters nor FilterLogEvents.
+rule log_group_is_standard when %logs !empty {
+    %logs.Properties.LogGroupClass == 'STANDARD'
+}
+
+rule alarm_prefix_filter_matches_the_code when %filters !empty {
+    %filters.Properties.FilterPattern == '"akldb-alarm:"'
+    %filters.Properties.MetricTransformations[*].MetricName == 'Alarms'
 }
 
 # Prod logs are kept and never expire; the others keep 14 days and go with the stack.

@@ -93,13 +93,15 @@ export function expectedResources(stage: string): string[] {
   const common = [
     "LogTable", "DataBucket", "DataBucketPolicy", "LogGroup", "ApiRole", "ApiFunction", "LiveAlias", "LiveAliasEventConfig",
     "HttpApi", "ApiIntegration", "DefaultRoute", "DefaultStage", "ApiInvokePermission", "CustomDomain", "ApiMapping",
-    "SchedulerRole", "JobsSchedule", "KeepWarmSchedule", "AlarmTopic", "AlarmTopicPolicy", "LambdaErrorsAlarm", "LambdaThrottlesAlarm",
-    "LambdaDurationAlarm", "Api5xxAlarm", "DdbSystemErrorsAlarm", "DdbThrottledAlarm",
+    "SchedulerRole", "JobsSchedule", "KeepWarmSchedule", "AlarmTopic", "AlarmTopicPolicy", "AlarmPrefixFilter", ...alarmsFor(stage),
   ];
   return [...common, ...(stage === "prod" ? ["Budget"] : [])].sort();
 }
 
-export const ALARMS = ["LambdaErrorsAlarm", "LambdaThrottlesAlarm", "LambdaDurationAlarm", "Api5xxAlarm", "DdbSystemErrorsAlarm", "DdbThrottledAlarm"];
+/** The alarms a stage has: the account's free tier is 10, so only prod gets the full set. */
+export const ALARMS_EVERY_STAGE = ["LambdaErrorsAlarm", "AlarmPrefixAlarm"];
+export const ALARMS_PROD_ONLY = ["LambdaThrottlesAlarm", "LambdaDurationAlarm", "Api5xxAlarm", "DdbSystemErrorsAlarm", "DdbThrottledAlarm"];
+export const alarmsFor = (stage: string): string[] => (stage === "prod" ? [...ALARMS_EVERY_STAGE, ...ALARMS_PROD_ONLY] : ALARMS_EVERY_STAGE);
 
 export function violations(t: Json, stage: string, extra: Json = {}): string[] {
   const { resources: R, params } = resolveStage(t, stage, extra);
@@ -173,7 +175,7 @@ export function violations(t: Json, stage: string, extra: Json = {}): string[] {
 
   // The log group (AX5).
   const lg = R.LogGroup?.Properties;
-  if (!lg || lg.LogGroupClass !== "INFREQUENT_ACCESS") v.push("LogGroup: not INFREQUENT_ACCESS");
+  if (!lg || lg.LogGroupClass !== "STANDARD") v.push("LogGroup: not STANDARD (Infrequent Access has no metric filters or FilterLogEvents)");
   if (lg?.LogGroupName?.["Fn::Sub"] !== "/aws/lambda/akldb-${Stage}-api") v.push("LogGroup: not the function's log group name");
   if (stage === "prod" && lg && "RetentionInDays" in lg) v.push("LogGroup: prod logs must never expire");
   const lgPolicy = R.LogGroup?.DeletionPolicy;
@@ -245,13 +247,19 @@ export function violations(t: Json, stage: string, extra: Json = {}): string[] {
   // Alarms (AX4): exactly the six, within the free 10, all to the topic, none on a log metric filter.
   const alarms = ofType("AWS::CloudWatch::Alarm");
   if (alarms.length > 10) v.push(`${alarms.length} alarms (free tier is 10)`);
-  for (const id of ALARMS) if (!(id in R)) v.push(`${id}: missing`);
+  for (const id of alarmsFor(stage)) if (!(id in R)) v.push(`${id}: missing`);
+  for (const id of ALARMS_PROD_ONLY) if (stage !== "prod" && id in R) v.push(`${id}: outside prod (the free tier is 10 alarms)`);
   for (const [id, r] of alarms) if (arr(r.Properties.AlarmActions).some((a) => a?.Ref !== "AlarmTopic") || arr(r.Properties.AlarmActions).length !== 1) v.push(`${id}: not wired to the topic`);
   for (const id of ["LambdaErrorsAlarm", "LambdaThrottlesAlarm", "LambdaDurationAlarm"]) {
-    if (JSON.stringify(R[id]?.Properties.Dimensions) !== JSON.stringify([{ Name: "FunctionName", Value: { Ref: "ApiFunction" } }])) v.push(`${id}: not scoped to this function (FunctionName dimension)`);
+    if (R[id] !== undefined && JSON.stringify(R[id].Properties.Dimensions) !== JSON.stringify([{ Name: "FunctionName", Value: { Ref: "ApiFunction" } }])) v.push(`${id}: not scoped to this function (FunctionName dimension)`);
   }
   if (ofType("AWS::CloudWatch::Alarm").some(([, a]) => a.Properties.MetricName === "ConcurrentExecutions" || a.Properties.MetricName === "UnreservedConcurrentExecutions")) v.push("an account-wide concurrency alarm");
-  if (ofType("AWS::Logs::MetricFilter").length > 0) v.push("metric filter (Infrequent Access log groups support none)");
+  // The uniform failure prefix the code logs, as a metric the alarm reads.
+  const filter = R.AlarmPrefixFilter?.Properties;
+  if (filter?.FilterPattern !== '"akldb-alarm:"') v.push("AlarmPrefixFilter: pattern is not the akldb-alarm: prefix");
+  if (filter?.MetricTransformations?.[0]?.MetricName !== "Alarms" || filter?.MetricTransformations?.[0]?.MetricNamespace?.["Fn::Sub"] !== "akldb/${Stage}") v.push("AlarmPrefixFilter: metric is not akldb/<stage>/Alarms");
+  const pa = R.AlarmPrefixAlarm?.Properties;
+  if (!(pa?.Namespace?.["Fn::Sub"] === "akldb/${Stage}" && pa?.MetricName === "Alarms" && pa?.EvaluationPeriods === 1 && pa?.Period === 300 && pa?.Threshold === 0 && pa?.ComparisonOperator === "GreaterThanThreshold")) v.push("AlarmPrefixAlarm: not Alarms > 0, 1 of 1 x 5 min");
   const topic = R.AlarmTopic?.Properties;
   if (!arr(topic?.Subscription).some((s) => s.Protocol === "email" && s.Endpoint?.Ref === "AlarmEmail")) v.push("AlarmTopic: no email subscription to AlarmEmail");
   for (const [id, r] of ofType("AWS::SNS::TopicPolicy")) {

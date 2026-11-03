@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
-import { ALARMS, expectedResources, loadTemplate, policyDocs, resolveStage, violations, type Json } from "./checks";
+import { ALARMS_EVERY_STAGE, ALARMS_PROD_ONLY, alarmsFor, expectedResources, loadTemplate, policyDocs, resolveStage, violations, type Json } from "./checks";
 
 const ROOT = path.resolve(import.meta.dirname, "..", "..");
 const file = (...p: string[]) => path.join(ROOT, ...p);
@@ -47,7 +47,8 @@ describe("template lint and guard (AX1)", () => {
       ["    Condition: NotProd\n    DeletionPolicy: Delete\n    UpdateReplacePolicy: Delete\n    Properties:\n      BucketName", "    Condition: NotProd\n    DeletionPolicy: Retain\n    UpdateReplacePolicy: Retain\n    Properties:\n      BucketName"],
       ["      RetentionInDays: 14\n", "      RetentionInDays: 30\n"],
       ["DisableExecuteApiEndpoint: true", "DisableExecuteApiEndpoint: false"],
-      ["LogGroupClass: INFREQUENT_ACCESS", "LogGroupClass: STANDARD"],
+      ["LogGroupClass: STANDARD", "LogGroupClass: INFREQUENT_ACCESS"],
+      ["FilterPattern: '\"akldb-alarm:\"'", "FilterPattern: '\"alarm\"'"],
       ["VersioningConfiguration: { Status: Enabled }", "VersioningConfiguration: { Status: Suspended }"],
       ["BlockPublicPolicy: true", "BlockPublicPolicy: false"],
       ["SSEAlgorithm: AES256", "SSEAlgorithm: aws:kms"],
@@ -293,6 +294,22 @@ function dryRun(stage: string, extra: string[] = []): { lines: string[][]; statu
   }
 }
 
+describe("alias event config (AX1)", () => {
+  it("[LDB-AX1] LiveAliasEventConfig's Qualifier is the literal alias name, not a Ref or an ARN (cfn-lint misses it; CloudFormation rejected it on the real deploy)", () => {
+    const cfg = t.Resources.LiveAliasEventConfig;
+    expect(cfg.Properties.Qualifier).toBe("live");
+    expect(typeof cfg.Properties.Qualifier).toBe("string");
+    expect(t.Resources.LiveAlias.Properties.Name).toBe("live");
+    // the alias must exist before the config names it (a Ref would have carried the dependency; a literal does not)
+    expect(list(cfg.DependsOn)).toContain("LiveAlias");
+    for (const s of stages) expect(resolveStage(t, s).resources.LiveAliasEventConfig.Properties.Qualifier).toBe("live");
+    // any other EventInvokeConfig qualifier must be a plain name or version too
+    for (const [id, r] of Object.entries<Json>(t.Resources)) {
+      if (r.Type === "AWS::Lambda::EventInvokeConfig") expect(typeof r.Properties.Qualifier, id).toBe("string");
+    }
+  });
+});
+
 describe("execute-api endpoint and origin secret (AX2)", () => {
   it("[LDB-AX2] every stage serves only through the custom domain: the HTTP API disables its default endpoint and there is no other door", () => {
     for (const s of stages) {
@@ -386,23 +403,32 @@ describe("deploy order (AX3)", () => {
 });
 
 describe("alarms, budget, reserved concurrency (AX4)", () => {
-  it("[LDB-AX4] the six alarms exist on every stage, on built-in metrics only, wired to one email topic, within the free 10", () => {
+  it("[LDB-AX4] prod has the full alarm set, staging and shadow only Errors and the akldb-alarm line; one email topic; within the free 10 per stage", () => {
+    const metricsOf = (R: Record<string, Json>): string[] => {
+      const metrics = new Set<string>();
+      for (const [, a] of Object.entries(R).filter(([, r]) => r.Type === "AWS::CloudWatch::Alarm")) {
+        for (const m of a.Properties.Metrics ?? [a.Properties]) {
+          const stat = m.MetricStat?.Metric ?? m;
+          if (stat.Namespace) metrics.add(`${typeof stat.Namespace === "string" ? stat.Namespace : stat.Namespace["Fn::Sub"]}/${stat.MetricName}`);
+        }
+      }
+      return [...metrics].sort();
+    };
     for (const s of stages) {
       const R = resolveStage(t, s).resources;
       const alarms = Object.entries(R).filter(([, r]) => r.Type === "AWS::CloudWatch::Alarm");
-      expect(alarms.map(([id]) => id).sort()).toEqual([...ALARMS].sort());
+      expect(alarms.map(([id]) => id).sort(), s).toEqual([...alarmsFor(s)].sort());
       expect(alarms.length).toBeLessThanOrEqual(10);
-      const metrics = new Set<string>();
-      for (const [, a] of alarms) {
-        const ms = a.Properties.Metrics ?? [a.Properties];
-        for (const m of ms) {
-          const stat = m.MetricStat?.Metric ?? m;
-          if (stat.Namespace) metrics.add(`${stat.Namespace}/${stat.MetricName}`);
-        }
-      }
-      expect([...metrics].sort()).toEqual(["AWS/ApiGateway/5xx", "AWS/DynamoDB/SystemErrors", "AWS/DynamoDB/ThrottledRequests", "AWS/Lambda/Duration", "AWS/Lambda/Errors", "AWS/Lambda/Throttles"]);
       expect(R.AlarmTopic.Properties.Subscription).toEqual([{ Protocol: "email", Endpoint: { Ref: "AlarmEmail" } }]);
     }
+    expect(ALARMS_EVERY_STAGE).toEqual(["LambdaErrorsAlarm", "AlarmPrefixAlarm"]);
+    expect(metricsOf(resolveStage(t, "staging").resources)).toEqual(["AWS/Lambda/Errors", "akldb/${Stage}/Alarms"]);
+    expect(metricsOf(resolveStage(t, "shadow").resources)).toEqual(["AWS/Lambda/Errors", "akldb/${Stage}/Alarms"]);
+    expect(metricsOf(resolveStage(t, "prod").resources)).toEqual(["AWS/ApiGateway/5xx", "AWS/DynamoDB/SystemErrors", "AWS/DynamoDB/ThrottledRequests", "AWS/Lambda/Duration", "AWS/Lambda/Errors", "AWS/Lambda/Throttles", "akldb/${Stage}/Alarms"]);
+    for (const id of ALARMS_PROD_ONLY) expect(t.Resources[id].Condition, id).toBe("IsProd");
+    const stray = clone(t);
+    delete stray.Resources.LambdaDurationAlarm.Condition;
+    expect(violations(stray, "staging").some((x) => /LambdaDurationAlarm: outside prod/.test(x))).toBe(true);
     const p = resolveStage(t, "prod").resources;
     expect(p.LambdaErrorsAlarm.Properties).toMatchObject({ EvaluationPeriods: 2, DatapointsToAlarm: 2, Period: 300, Threshold: 0, ComparisonOperator: "GreaterThanThreshold" });
     expect(p.LambdaDurationAlarm.Properties).toMatchObject({ ExtendedStatistic: "p95", Threshold: 3000 });
@@ -420,8 +446,22 @@ describe("alarms, budget, reserved concurrency (AX4)", () => {
     delete m.Resources.Api5xxAlarm;
     expect(violations(m, "prod").some((x) => /Api5xxAlarm: missing/.test(x))).toBe(true);
     const f = clone(t);
-    f.Resources.Filter = { Type: "AWS::Logs::MetricFilter", Properties: {} };
-    expect(violations(f, "prod").some((x) => /metric filter/.test(x))).toBe(true);
+    f.Resources.AlarmPrefixFilter.Properties.FilterPattern = '"alarm"';
+    expect(violations(f, "prod").some((x) => /AlarmPrefixFilter: pattern/.test(x))).toBe(true);
+  });
+
+  it("[LDB-AX4] the akldb-alarm: log prefix becomes the metric akldb/<stage>/Alarms, and any such line alarms within one 5-minute period", () => {
+    for (const s of stages) {
+      const R = resolveStage(t, s).resources;
+      const f = R.AlarmPrefixFilter.Properties;
+      expect(f.FilterPattern).toBe('"akldb-alarm:"');
+      expect(f.LogGroupName).toEqual({ Ref: "LogGroup" });
+      expect(f.MetricTransformations).toEqual([{ MetricNamespace: { "Fn::Sub": "akldb/${Stage}" }, MetricName: "Alarms", MetricValue: "1", Unit: "Count" }]);
+      expect(R.AlarmPrefixAlarm.Properties).toMatchObject({ Namespace: { "Fn::Sub": "akldb/${Stage}" }, MetricName: "Alarms", Statistic: "Sum", Period: 300, EvaluationPeriods: 1, Threshold: 0, ComparisonOperator: "GreaterThanThreshold", TreatMissingData: "notBreaching" });
+    }
+    const m = clone(t);
+    m.Resources.AlarmPrefixAlarm.Properties.EvaluationPeriods = 2;
+    expect(violations(m, "staging").some((x) => /AlarmPrefixAlarm: not Alarms > 0, 1 of 1/.test(x))).toBe(true);
   });
 
   it("[LDB-AX4] the budget is prod's alone: $2 and $5 actual, $5 forecast, to the alarm email", () => {
@@ -446,9 +486,9 @@ describe("alarms, budget, reserved concurrency (AX4)", () => {
 });
 
 describe("logs never expire (AX5)", () => {
-  it("[LDB-AX5] prod's Infrequent Access log group has no retention and survives stack deletion; other stages keep 14 days and go with their stack", () => {
+  it("[LDB-AX5] prod's STANDARD log group (so metric filters and FilterLogEvents work) has no retention and survives stack deletion; other stages keep 14 days and go with their stack", () => {
     const prod = resolveStage(t, "prod").resources.LogGroup;
-    expect(prod.Properties.LogGroupClass).toBe("INFREQUENT_ACCESS");
+    for (const s of stages) expect(resolveStage(t, s).resources.LogGroup.Properties.LogGroupClass, s).toBe("STANDARD");
     expect("RetentionInDays" in prod.Properties).toBe(false);
     for (const s of ["staging", "shadow"]) expect(resolveStage(t, s).resources.LogGroup.Properties.RetentionInDays).toBe(14);
     expect(prod.DeletionPolicy).toBe("Retain");
