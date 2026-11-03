@@ -24,8 +24,9 @@ here is actually read).
 | `DISCORD_CLIENT_ID` | secret | `server/discord.ts` (`/auth/login`, `/auth/callback`), `server/discord.ts`'s `/auth/me` | the Discord OAuth application id. **Unset = sign-in degrades cleanly**: `/auth/login` and `/auth/callback` 404 (same guard as `functions/auth/discord/login.js`), `/auth/me` answers `{user:null, signin:false}` so the UI hides the sign-in button entirely |
 | `DISCORD_CLIENT_SECRET` | secret | `server/discord.ts` (`/auth/callback`'s token exchange) | the Discord OAuth application secret |
 | `SESSION_SECRET` | secret | `server/session.ts` (`sealSession`/`openSession`) | AES-256-GCM key material (SHA-256 of this string) for the `__Host-akldb_session` cookie. Unset = `/auth/callback` fails closed with a plain "not fully configured" page rather than sealing a forgeable session |
+| `AKLDB_ORIGIN_SECRET` | secret | `server/env.ts` (`originHeaders`), sent by `server/proxy.ts` and `server/discord.ts` | the akldb API's origin secret, sent as `x-akldb-origin` on every call to `DB_BASE_URL` once akldb serves from AWS (the API answers 403 without it). Sent by this Worker itself because Cloudflare's Transform Rule may not apply to a Worker's same-zone subrequest. **Unset = the header is omitted** (today's behaviour); set it with `wrangler secret put AKLDB_ORIGIN_SECRET` at the cutover |
 
-All three secrets and both custom domains (`akldb.org`, `www.akldb.org`)
+The three sign-in secrets and both custom domains (`akldb.org`, `www.akldb.org`)
 are already live on the deployed Worker (2026-09-12) — see
 `wrangler.toml`'s `[[routes]]`. `workers_dev = true` stays on alongside
 them because the Discord application's redirect list still names

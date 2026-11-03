@@ -35,3 +35,5 @@ enabled = true
 
 # Secrets (not committed, already set on the deployed Worker): DISCORD_CLIENT_ID,
 # DISCORD_CLIENT_SECRET, SESSION_SECRET -- see README.md's vars/secrets table.
+# AKLDB_ORIGIN_SECRET (SITE-48) is set at the akldb-on-AWS cutover; unset until then
+# (the x-akldb-origin header is simply omitted).
