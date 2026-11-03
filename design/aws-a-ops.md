@@ -87,7 +87,7 @@ Staging is deployed; shadow and prod are not. Commands use profile `akldb`.
   invocations (150 ms each).
 - Responses are buffered: Lambda and API Gateway cap them near 6 MB (today's dump is far below). A divergent replica makes the
   invocation fail (Lambda Errors alarm) and the next invocation boots a fresh one.
-- Shadow has no deploy job yet (phase D); `deploy-aws.sh --stage shadow` works by hand.
+- Shadow has no deploy job yet (phase D); `deploy-aws.sh --stage shadow` works by hand. How to run the proving ground end to end, and what saltorbit must do for it: `design/aws-a-ops-shadow.md`.
 
 ## Deviations from the brief, for the record
 

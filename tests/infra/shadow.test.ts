@@ -70,3 +70,36 @@ describe("the shadow stage file and its deploy", () => {
     expect(dryRun("shadow", { DISCORD_API_URL: FAKE_DISCORD_BASE }).status).toBe(0);
   });
 });
+
+describe("scripts/aws/shadow.sh", () => {
+  function sh(args: string[]): { status: number | null; stderr: string; calls: string; files: string[] } {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "akldb-shadow-sh-"));
+    try {
+      const marker = path.join(dir, "aws-was-called");
+      fs.writeFileSync(path.join(dir, "aws"), `#!/bin/sh\necho "$@" >> ${marker}\nexit 99\n`, { mode: 0o755 });
+      const before = new Set(fs.readdirSync(dir));
+      const r = spawnSync("sh", [path.join(ROOT, "scripts", "aws", "shadow.sh"), ...args], { env: { PATH: `${dir}:/usr/bin:/bin`, HOME: dir }, encoding: "utf8", cwd: dir });
+      return { status: r.status, stderr: r.stderr, calls: fs.existsSync(marker) ? fs.readFileSync(marker, "utf8") : "", files: fs.readdirSync(dir).filter((f) => !before.has(f)) };
+    } finally {
+      fs.rmSync(dir, { recursive: true });
+    }
+  }
+
+  it("[LDB-PV11] seed, status, tick and logs only print their commands without --execute: no AWS call and no file written", () => {
+    const seed = sh(["seed"]);
+    expect(seed.status).toBe(0);
+    expect(seed.calls).toBe("");
+    expect(seed.files).toEqual([]);
+    expect(seed.stderr).toContain("'akldb-shadow-jobs'");
+    expect(seed.stderr).toContain('{"akldb":"seed","dumpUrl":"https://api.akldb.org/v1/dump/latest.json"}');
+    expect(sh(["seed", "--reset"]).stderr).toContain('"reset":true');
+    expect(sh(["status"]).stderr).toContain('{"akldb":"shadow-status"}');
+    expect(sh(["tick"]).stderr).toContain("'akldb-shadow-api'");
+    const logs = sh(["logs", "--hours", "6"]);
+    expect(logs.calls).toBe("");
+    expect(logs.files).toEqual([]);
+    expect(logs.stderr).toContain("/aws/lambda/akldb-shadow-api");
+    expect(logs.stderr).toContain("/aws/lambda/akldb-shadow-jobs");
+    for (const bad of [["nonsense"], ["logs", "--hours", "x"], ["seed", "--bogus"]]) expect(sh(bad).status, bad.join(" ")).toBe(2);
+  });
+});
