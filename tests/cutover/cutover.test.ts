@@ -273,7 +273,7 @@ describe("each step's precondition stops the run with a clear message (CV11)", (
 
   it("[LDB-CV11] serve: reads that differ from D1's, or an answer without x-akldb-backend, fail", async () => {
     await until("image", { awsListDiffers: true });
-    await fails(await w.cutover(["--execute", "--only", "serve"]), /reads differ between D1 and the prod stack: \/v1\/layouts\?limit=20 status 200,200 body != etag =/, "serve");
+    await fails(await w.cutover(["--execute", "--only", "serve"]), /reads differ between D1 and the prod stack: \/v1\/layouts\?limit=20&format=spark\/1 status 200,200 body != etag =/, "serve");
     cleanup(w);
     await until("image", { awsNoBackendHeader: true });
     await fails(await w.cutover(["--execute", "--only", "serve"]), /answers without x-akldb-backend: aws \(CV13\)/, "serve");

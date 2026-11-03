@@ -23,6 +23,8 @@ import { compareWithDrift } from "./drift.mjs";
 import { loadExportSql, loadRowsOnly, sanityChecks, tablesCreatedBy } from "./sqlfile.mjs";
 
 export const MODE_KEY = "cutover.mode";
+/** The format layout reads name: the API refuses a layout list or a layout without one (400 format_required). */
+export const LIST_FORMAT = "spark/1";
 export const setModeSql = (mode) => `INSERT INTO import_state (key, value) VALUES ('${MODE_KEY}', '${mode}') ON CONFLICT(key) DO UPDATE SET value = excluded.value`;
 export const CLEAR_MODE_SQL = `DELETE FROM import_state WHERE key = '${MODE_KEY}'`;
 const readModeSql = `SELECT value FROM import_state WHERE key = '${MODE_KEY}'`;
@@ -357,7 +359,7 @@ export function steps(o) {
         `aws lambda invoke --function-name <FunctionName> --qualifier live --payload '{"akldb":"migrate"}' out.json   # applied: [], seq 1`,
         `aws lambda invoke --function-name <FunctionName> --qualifier live --payload '{"akldb":"warm","k":4}' out.json`,
         `# the stack directly: TCP to <ApiDomainTarget> (resolve override), TLS SNI and Host ${new URL(o.publicUrl).host}, header x-akldb-origin read from ${o.originEnv} (never printed)`,
-        `for p in /v1/meta '/v1/layouts?limit=20' /v1/layouts/<id1> /v1/layouts/<id2> /v1/layouts/<id3> /v1/dump/latest.json /v1/dump /v1/dump/<newest>; do curl -si ${o.workerUrl}$p; curl -si --resolve ${new URL(o.publicUrl).host}:443:<ip of ApiDomainTarget> -H 'x-akldb-origin: ***' ${o.publicUrl}$p; done   # equal bodies, ETags, headers`,
+        `for p in /v1/meta '/v1/layouts?limit=20&format=spark/1' '/v1/layouts/<id1>?format=spark/1' '/v1/layouts/<id2>?format=spark/1' '/v1/layouts/<id3>?format=spark/1' /v1/dump/latest.json /v1/dump /v1/dump/<newest>; do curl -si ${o.workerUrl}$p; curl -si --resolve ${new URL(o.publicUrl).host}:443:<ip of ApiDomainTarget> -H 'x-akldb-origin: ***' ${o.publicUrl}$p; done   # equal bodies, ETags, headers`,
       ],
       async precondition(c) {
         need(c.state.steps.image?.status === "done", "the image has not been appended");
@@ -373,11 +375,11 @@ export function steps(o) {
         const warm = await c.ports.aws.invoke({ akldb: "warm", k: 4 });
         need(warm?.ok === true, `warm answered ${JSON.stringify(warm)}`);
         need(warm.warmup === "ok", `warm: the warm-up read is ${warm.warmup}, not ok`);
-        const list = await c.ports.stack.request(`/v1/layouts?limit=20`, { method: "GET" });
-        need(list.status === 200, `the stack answered GET /v1/layouts?limit=20 with ${list.status} (a 403 means the origin secret in ${o.originEnv} is not the stack's)`);
+        const list = await c.ports.stack.request(`/v1/layouts?limit=20&format=${LIST_FORMAT}`, { method: "GET" });
+        need(list.status === 200, `the stack answered GET /v1/layouts?limit=20&format=${LIST_FORMAT} with ${list.status} (a 403 means the origin secret in ${o.originEnv} is not the stack's)`);
         const ids = (JSON.parse(list.body).items ?? []).slice(0, 3).map((x) => x.id);
         need(ids.length === 3, `the list page has ${ids.length} layouts, the smoke needs 3`);
-        const paths = ["/v1/meta", "/v1/layouts?limit=20", ...ids.map((id) => `/v1/layouts/${id}`)];
+        const paths = ["/v1/meta", `/v1/layouts?limit=20&format=${LIST_FORMAT}`, ...ids.map((id) => `/v1/layouts/${id}?format=${LIST_FORMAT}`)];
         const checks = await readsEqual(c.ports, o, paths);
         const bad = checks.filter((x) => !x.bodyEqual || !x.etagEqual || x.status[0] !== 200);
         need(bad.length === 0, `reads differ between D1 and the prod stack: ${bad.map((x) => `${x.path} status ${x.status} body ${x.bodyEqual ? "=" : "!="} etag ${x.etagEqual ? "=" : "!="}`).join("; ")}`);
@@ -480,15 +482,15 @@ export function steps(o) {
         const write = await c.ports.http.signed(o.writeMethod, `${o.publicUrl}${o.writePath}`, { body: o.writeBody });
         need(write.status >= 200 && write.status < 300, `the signed write ${o.writeMethod} ${o.writePath} answered ${write.status}: ${write.body.slice(0, 200)}`);
         checks.signedWrite = { status: write.status, backend: lc(write.headers)[AWS_HEADER] ?? null };
-        const list = JSON.parse((await c.ports.http.request(`${o.publicUrl}/v1/layouts?limit=1`, { method: "GET" })).body);
-        const id = list.items?.[0]?.id;
-        need(id !== undefined, "no layout to run the If-Match probe against");
-        const one = await c.ports.http.request(`${o.publicUrl}/v1/layouts/${id}`, { method: "GET" });
-        const tag = lc(one.headers).etag ?? "";
-        const m = /^"?(.*?):?(\d+)"?$/.exec(tag);
-        need(m !== null, `layout ${id} carries no ETag of the form "<scope>:<rev>" (${tag})`);
-        const stale = `"${m[1]}:${Number(m[2]) + 1000}"`;
-        const patch = await c.ports.http.signed("PATCH", `${o.publicUrl}/v1/layouts/${id}`, { body: JSON.stringify({ name: JSON.parse(one.body).name }), headers: { "if-match": stale } });
+        // a layout the ops actor owns (so the rename passes the owner check and reaches the If-Match), its layout_rev from the list body (a single
+        // layout's GET carries no ETag); a rename to its own name under a stale "layout:<rev>" must be refused 412 before anything is written
+        need(o.opsActor, "OPS_ACTOR is not set (db.env.ops): the If-Match probe renames a layout the ops actor owns");
+        const list = JSON.parse((await c.ports.http.request(`${o.publicUrl}/v1/layouts?owner=${encodeURIComponent(o.opsActor)}&limit=1&format=${LIST_FORMAT}`, { method: "GET" })).body);
+        const mine = list.items?.[0];
+        need(mine?.id !== undefined && Number.isInteger(mine.layout_rev), `the ops actor owns no layout to run the If-Match probe against (${JSON.stringify(list).slice(0, 200)})`);
+        const id = mine.id;
+        const stale = `"layout:${mine.layout_rev + 1000}"`;
+        const patch = await c.ports.http.signed("PATCH", `${o.publicUrl}/v1/layouts/${id}`, { body: JSON.stringify({ name: mine.name }), headers: { "if-match": stale } });
         need(patch.status === 412, `PATCH with a stale If-Match answered ${patch.status}, expected 412`);
         checks.ifMatch = { id, sent: stale, status: patch.status };
         const feed = await c.ports.http.request(`${o.publicUrl}/v1/changes?since=${c.data.finalSeq}&limit=50`, { method: "GET" });

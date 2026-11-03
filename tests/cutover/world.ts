@@ -111,10 +111,12 @@ async function serve(db: Sqlx, req: { method: string; path: string; query: URLSe
     const stable = { seq, layout_count: n, api: { major: 1, minor: MINOR } };
     return cond(200, { ...stable, health: { dump: { age_s: Math.floor(now / 1000) % 1000 } } }, `"${sha(JSON.stringify(stable)).slice(0, 16)}"`);
   }
+  // like the API: a layout read without a format is refused
+  if (method === "GET" && (p === "/v1/layouts" || /^\/v1\/layouts\/[^/]+$/.test(p)) && !req.query.get("format")) return json(400, { error: "format_required" });
   if (method === "GET" && p === "/v1/layouts") {
     const limit = Number(req.query.get("limit") ?? 20);
     const rows = await db.select(`SELECT id, v, n FROM churn ORDER BY id LIMIT ${limit}`);
-    const items = rows.map((r) => ({ id: String(r.id), name: String(r.v).slice(0, 12), rev: Number(r.n) + 1 }));
+    const items = rows.map((r) => ({ id: String(r.id), name: String(r.v).slice(0, 12), rev: Number(r.n) + 1, layout_rev: Number(r.n) + 1 }));
     return cond(200, { items, next_cursor: null }, `"${sha(JSON.stringify(items)).slice(0, 16)}"`);
   }
   const one = /^\/v1\/layouts\/([^/]+)$/.exec(p);
@@ -123,7 +125,7 @@ async function serve(db: Sqlx, req: { method: string; path: string; query: URLSe
     if (r === undefined) return json(404, { error: "not_found" });
     const wire = { id: String(r.id), name: String(r.v).slice(0, 12), rev: Number(r.n) + 1 };
     const etag = `"layout:${wire.rev}"`;
-    if (method === "GET") return cond(200, wire, etag);
+    if (method === "GET") return json(200, wire); // a single layout's GET carries no ETag (the real API's)
     if (readOnly) return json(503, { error: "read_only" }, { "retry-after": "5" });
     if (req.headers["x-akl-client"] === undefined) return json(401, { error: "unauthorized" });
     if (req.headers["if-match"] !== etag) return json(412, { error: "precondition_failed" });
@@ -532,7 +534,7 @@ export async function makeWorld(init: { faults?: Faults; events?: number; churnR
   const common = (prefix: string) => ["--state", path.join(dir, prefix === "run" ? "state.json" : "rollback-state.json"), "--work", path.join(dir, "work"), "--report", path.join(dir, prefix === "run" ? "report.md" : "rollback-report.md")];
   const exec = async (fn: any, prefix: string, args: string[]) => {
     const out: string[] = [];
-    const code = await fn([...args, ...w.baseArgs, ...common(prefix)], { ports: w.ports, clock: w.clock, out: (l: string) => (out.push(l), outFn(l)), env: {} });
+    const code = await fn([...args, ...w.baseArgs, ...common(prefix)], { ports: w.ports, clock: w.clock, out: (l: string) => (out.push(l), outFn(l)), env: { OPS_ACTOR: "ops-actor" } });
     return { code: code as number, out };
   };
   w.cutover = (args = ["--execute"]) => exec(runMain, "run", args);

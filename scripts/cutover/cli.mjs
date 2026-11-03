@@ -89,6 +89,7 @@ export function buildOptions(flags, { env = process.env, now = Date.now } = {}) 
     variant: flags.variant,
     d1Api: flags["d1-api"],
     workerPointed: flags["worker-pointed"] === true,
+    opsActor: env.OPS_ACTOR,
     params: { stage, d1Name, stack: flags.stack ?? base.stack },
   };
 }
