@@ -20,6 +20,7 @@
 import { createHash } from "node:crypto";
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 import { ulid as newUlid } from "ulidx";
+import { raise } from "./alarm";
 import { nextTurn, sleep } from "./timers";
 import {
   AmbiguousAppendError,
@@ -81,6 +82,8 @@ export interface ReplicaOptions {
   maxAttempts?: number;
   /** Backoff base in ms (grows to 8x, jittered). Default 2. */
   backoffMs?: number;
+  /** Where the one `akldb-alarm: replica: ...` line goes when this replica halts (diverges). Default console.error. */
+  alarm?: (line: string) => void;
 }
 
 export interface RunOptions {
@@ -152,6 +155,7 @@ export class Replica {
   #sleep: (ms: number) => Promise<void>;
   #maxAttempts: number;
   #backoffMs: number;
+  #alarm: (line: string) => void;
   #inTxn = false;
   #metaStmt: StatementSync | undefined;
   #changesStmt: StatementSync | undefined;
@@ -163,6 +167,7 @@ export class Replica {
     this.#sleep = opts.sleep ?? sleep;
     this.#maxAttempts = opts.maxAttempts ?? 25;
     this.#backoffMs = opts.backoffMs ?? 2;
+    this.#alarm = opts.alarm ?? ((l) => console.error(l));
   }
 
   /** The log seq this replica has applied. */
@@ -181,6 +186,7 @@ export class Replica {
 
   #die(err: Error): never {
     this.#dead = err;
+    raise(this.#alarm, "replica", `halted at seq ${this.#seq}: ${err.name}: ${err.message}`); // once: every later call rethrows #dead without coming here
     throw err;
   }
 

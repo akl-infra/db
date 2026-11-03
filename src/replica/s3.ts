@@ -1,11 +1,12 @@
-// The lean S3 client (RP6): GetObject and PutObject over `fetch`, SigV4 by aws4fetch, no AWS SDK. These two calls plus
-// DynamoDB's GetItem, Query and TransactWriteItems (log-ddb.ts) are the whole of what the replica layer sends to AWS: the
-// five calls the plan's fast-boot lever names. Bounded retries (5xx, SlowDown, RequestTimeout, transport errors; PUT of the
+// The lean S3 client (RP6): GetObject and PutObject over `fetch`, SigV4 by aws4fetch, no AWS SDK, plus ListObjectsV2 and
+// DeleteObject for ONE job: removing spilled log bodies (`log/*`) that retention has outlived. Those two refuse any other
+// prefix before sending anything. With DynamoDB's GetItem, Query and TransactWriteItems (log-ddb.ts) that is the whole of
+// what the replica layer sends to AWS: the plan's five calls and the two the orphan cleanup needs. Bounded retries (5xx, SlowDown, RequestTimeout, transport errors; PUT of the
 // same key and bytes is idempotent), and a small error mapping so callers branch on a class, not on XML text.
 import { createHash } from "node:crypto";
 import { AwsClient } from "aws4fetch";
 import { sleep as realSleep } from "./timers";
-import type { ObjectStore, StoredObject } from "./objects";
+import { assertSpillKey, type ObjectStore, type StoredObject } from "./objects";
 
 export interface S3Options {
   bucket: string;
@@ -69,18 +70,21 @@ export function createS3Objects(o: S3Options): ObjectStore {
   const random = o.random ?? Math.random;
   const url = (key: string): string => (o.endpoint === undefined ? `https://${o.bucket}.s3.${region}.amazonaws.com/${encodeKey(key)}` : `${o.endpoint.replace(/\/$/, "")}/${o.bucket}/${encodeKey(key)}`);
 
-  async function attempt(op: string, key: string, init: RequestInit): Promise<Response> {
+  const bucketUrl = (): string => (o.endpoint === undefined ? `https://${o.bucket}.s3.${region}.amazonaws.com/` : `${o.endpoint.replace(/\/$/, "")}/${o.bucket}/`);
+
+  async function attempt(op: string, key: string, init: RequestInit, bucketLevel: boolean): Promise<Response> {
     const client = new AwsClient({ ...o.credentials(), service: "s3", region });
-    return send(await client.sign(url(key), { ...init, signal: AbortSignal.timeout(timeoutMs) }));
+    const target = bucketLevel ? `${bucketUrl()}${key}` : url(key); // bucket-level calls pass "?query" as `key`
+    return send(await client.sign(target, { ...init, signal: AbortSignal.timeout(timeoutMs) }));
   }
 
   /** One call with bounded retries. Resolves a response whose status is 2xx or 404; throws the mapped error otherwise. */
-  async function call(op: string, key: string, init: RequestInit): Promise<Response> {
+  async function call(op: string, key: string, init: RequestInit, bucketLevel = false): Promise<Response> {
     let last: S3UnavailableError | undefined;
     for (let i = 0; i <= retries; i++) {
       let res: Response;
       try {
-        res = await attempt(op, key, init);
+        res = await attempt(op, key, init, bucketLevel);
       } catch (e) {
         last = new S3UnavailableError(op, key, 0, "Transport", `S3 ${op} ${key}: ${e instanceof Error ? e.message : String(e)}`, { cause: e });
         if (i < retries) await sleep(Math.floor(20 * 2 ** i * (0.5 + random())));
@@ -133,5 +137,31 @@ export function createS3Objects(o: S3Options): ObjectStore {
       if (res.status === 404) throw new S3Error("PutObject", key, 404, "NoSuchBucket", `S3 PutObject ${key}: 404 (the bucket does not exist)`);
       await res.body?.cancel();
     },
+
+    async list(prefix, max = 1000) {
+      assertSpillKey("list", prefix);
+      const keys: string[] = [];
+      let token: string | undefined;
+      do {
+        // The query string is part of what aws4fetch signs. Keys come back in UTF-8 key order.
+        const q = new URLSearchParams({ "list-type": "2", prefix, "max-keys": String(Math.min(1000, max - keys.length)) });
+        if (token !== undefined) q.set("continuation-token", token);
+        const res = await call("ListObjectsV2", `?${q.toString()}`, { method: "GET" }, true);
+        if (res.status === 404) throw new S3Error("ListObjectsV2", prefix, 404, "NoSuchBucket", `S3 ListObjectsV2 ${prefix}: 404 (the bucket does not exist)`);
+        const text = await res.text();
+        for (const m of text.matchAll(/<Key>([^<]*)<\/Key>/g)) keys.push(xmlUnescape(m[1]!));
+        token = /<IsTruncated>true<\/IsTruncated>/.test(text) ? /<NextContinuationToken>([^<]*)<\/NextContinuationToken>/.exec(text)?.[1] : undefined;
+        if (token !== undefined) token = xmlUnescape(token);
+      } while (token !== undefined && keys.length < max);
+      return keys.slice(0, max);
+    },
+
+    async delete(key) {
+      assertSpillKey("delete", key);
+      const res = await call("DeleteObject", key, { method: "DELETE" });
+      await res.body?.cancel(); // 204; a missing key is a 204 too, and a 404 here is the same "already gone"
+    },
   };
 }
+
+const xmlUnescape = (s: string): string => s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&");

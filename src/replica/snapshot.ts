@@ -1,4 +1,4 @@
-// Snapshots (design A, phase B). The jobs tick writes the replica's `serialize()` image, zstd level 19, to the object
+// Snapshots (design A, phase B). The jobs tick writes the replica's `serialize()` image, zstd (level 12 by default), to the object
 // store and then moves a pointer item; a cold container boots from it (boot.ts) instead of replaying the whole log.
 //
 //  - RP1: a snapshot is an image at ONE seq (taken under the replica mutex, see Replica.capture) with a sha256 and size.
@@ -60,6 +60,12 @@ export interface SnapshotState {
   /** The highest log seq whose entries retention has already marked for expiry (0: none). */
   expiredThrough(): Promise<number>;
   setExpiredThrough(seq: number): Promise<void>;
+  /**
+   * Claim the nightly job for UTC `day`: true when no run has claimed this day, or the last claim is older than `leaseMs`
+   * (it died or timed out). A second invocation while one runs, or after one finished within the lease, gets false. This is
+   * what keeps the tick (every 5 minutes, until today's daily snapshot exists) from starting the job twice.
+   */
+  claimNightly(day: string, nowMs: number, leaseMs: number): Promise<boolean>;
 }
 
 export class MemorySnapshotState implements SnapshotState {
@@ -106,6 +112,13 @@ export class MemorySnapshotState implements SnapshotState {
   async setExpiredThrough(seq: number) {
     this.#expired = Math.max(this.#expired, seq);
   }
+  #nightly: { day: string; at: number } | null = null;
+  async claimNightly(day: string, nowMs: number, leaseMs: number) {
+    this.calls.writes++;
+    if (this.#nightly !== null && this.#nightly.day === day && this.#nightly.at + leaseMs > nowMs) return false;
+    this.#nightly = { day, at: nowMs };
+    return true;
+  }
   /** Overwrite items directly, for tests that damage the state. */
   set(which: "pointer" | "prev", ref: SnapRef | null): void {
     if (which === "pointer") this.#pointer = ref;
@@ -119,7 +132,7 @@ export interface SnapshotDeps {
   /** Where the job report goes. Default console.error. */
   logLine?: LogFn;
   now?: () => number;
-  /** zstd level for the snapshot image. Default 19 (SNAPSHOT_LEVEL); the jobs tick pays for it (boot-bench.mjs prints the cost per level). */
+  /** zstd level for the snapshot image. Default 12 (SNAPSHOT_LEVEL); the writer pays for it (boot-bench.mjs prints the cost per level). */
   zstdLevel?: number;
 }
 
@@ -201,7 +214,7 @@ export type SnapshotKind = { type: "rolling" } | { type: "daily"; slot: number; 
 export type SnapshotOutcome = { status: "written"; ref: SnapRef; moved: "moved" | "stale" | "put" } | { status: "current"; pointer: SnapRef };
 
 /**
- * Write one snapshot of `replica` and publish it. The mutex is held only inside capture(); compression (level 19) and the
+ * Write one snapshot of `replica` and publish it. The mutex is held only inside capture(); compression and the
  * upload run outside it. Publication order is the invariant (RP1): upload, read back and verify, THEN move the pointer.
  */
 export async function writeSnapshot(replica: Replica, deps: SnapshotDeps, kind: SnapshotKind = { type: "rolling" }): Promise<SnapshotOutcome> {

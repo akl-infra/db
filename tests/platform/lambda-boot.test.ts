@@ -12,10 +12,16 @@ import { FAST, MIGRATIONS_DIR, churn, digestOf, replayFrom0, world, type World }
 
 const SECRET = "s3cret-origin-value-0123456789abcdef";
 
-function fakeAws(): Aws & { params: number } {
+function fakeAws(): Aws & { params: number; async: { fn: string; payload: unknown }[]; failAsync: boolean } {
   const blobs = memoryBlobs();
   const self = {
     params: 0,
+    async: [] as { fn: string; payload: unknown }[],
+    failAsync: false,
+    async invokeAsync(fn: string, payload: unknown) {
+      if (self.failAsync) throw new Error("Lambda Invoke (Event): 500");
+      self.async.push({ fn, payload });
+    },
     dumps: blobs,
     async getParameters(names: string[]) {
       self.params++;
@@ -118,7 +124,7 @@ describe("the handler boots from the snapshot (RP2)", () => {
     const lines2: string[] = [];
     const h = handlerFor(w, w.log, fakeAws(), {}, lines2);
     expect(((await h(get("/v1/meta"))) as { statusCode: number }).statusCode).toBe(200);
-    expect(lines2.some((l) => l.startsWith("akldb-boot: FALLBACK pointer unusable"))).toBe(true);
+    expect(lines2.filter((l) => l.startsWith("akldb-alarm: boot: fallback: pointer unusable"))).toHaveLength(1);
     expect(lines2.find((l) => l.startsWith("akldb-boot: path="))).toMatch(/^akldb-boot: path=replay /);
   });
 });
@@ -170,9 +176,9 @@ describe("the tick runs the snapshot jobs", () => {
     await churn(w.replica, 12);
     const lines: string[] = [];
     const handler = handlerFor(w, w.log, fakeAws(), {}, lines);
-    const t1 = (await handler({ akldb: "tick", time: "2026-11-02T00:05:00Z" })) as { snapshot: { rolling: { status: string }; daily: unknown } };
+    const t1 = (await handler({ akldb: "tick", time: "2026-11-02T00:05:00Z" })) as { snapshot: { rolling: { status: string }; nightly: string } };
     expect(t1.snapshot.rolling.status).toBe("written");
-    expect(t1.snapshot.daily).toBeNull(); // 00:05 UTC: before the daily hour
+    expect(t1.snapshot.nightly).toBe("not due"); // 00:05 UTC: before the daily hour
     const pointer = (await w.state.pointer())!;
     expect(pointer.seq).toBe(w.log.length);
     const t2 = (await handler({ akldb: "tick", time: "2026-11-02T00:10:00Z" })) as { snapshot: { rolling: string } };
@@ -185,24 +191,69 @@ describe("the tick runs the snapshot jobs", () => {
     expect(lines2.find((l) => l.startsWith("akldb-boot: path="))).toMatch(/path=pointer .*replayed=\d+/);
   });
 
-  it("[LDB-RP4] the first tick after 03:00 UTC also writes the daily snapshot and the proof passes", async () => {
+  it("[LDB-RP4] with no JOBS_FUNCTION the first tick after 03:00 UTC runs the nightly work inline: daily snapshot, retention, proof", async () => {
     const w = await world();
+    let lines: string[] = [];
     await churn(w.replica, 6);
     w.clock.ms = Date.parse("2026-11-02T03:10:00Z");
-    const handler = handlerFor(w, w.log, fakeAws(), {});
-    const t = (await handler({ akldb: "tick", time: "2026-11-02T03:10:00Z" })) as { snapshot: { daily: { status: string }; proof: { seq: number } | null; retention: { boundary: number | null } | null } };
-    expect(t.snapshot.daily.status).toBe("written");
-    expect(t.snapshot.proof?.seq).toBe(w.log.length);
-    expect(t.snapshot.retention?.boundary).toBeNull(); // the anchor is not 35 days old yet
+    const handler = handlerFor(w, w.log, fakeAws(), {}, (lines = []));
+    const t = (await handler({ akldb: "tick", time: "2026-11-02T03:10:00Z" })) as { snapshot: { nightly: string } };
+    expect(t.snapshot.nightly).toBe("inline");
     expect((await w.state.dailies()).map((d) => d.day)).toEqual(["2026-11-02"]);
+    expect(lines.length).toBeGreaterThan(0);
+    expect(lines.filter((l) => l.startsWith("akldb-proof: ok seq="))).toHaveLength(1);
+    const again = (await handler({ akldb: "tick", time: "2026-11-02T03:15:00Z" })) as { snapshot: { nightly: string } };
+    expect(again.snapshot.nightly).toBe("not due"); // today's daily exists
   });
 
-  it("[LDB-RP1] a failed snapshot upload fails the tick (the Errors alarm), leaves the pointer alone, and the next tick retries", async () => {
+  it("[LDB-RP10] with JOBS_FUNCTION the tick only starts the nightly job (an async invocation of that function) and does none of its work", async () => {
     const w = await world();
+    let lines: string[] = [];
     await churn(w.replica, 6);
-    const handler = handlerFor(w, w.log, fakeAws(), {});
+    w.clock.ms = Date.parse("2026-11-02T03:10:00Z");
+    const aws = fakeAws();
+    const env = { STAGE: "staging", DISCORD_API_URL: "http://127.0.0.1:1/discord", MODQUEUE_DISCORD_COMPONENTS: "false", JOBS_FUNCTION: "akldb-staging-jobs" };
+    const handler = handlerFor(w, w.log, aws, { env }, (lines = []));
+    const t = (await handler({ akldb: "tick", time: "2026-11-02T03:10:00Z" })) as { snapshot: { nightly: string } };
+    expect(t.snapshot.nightly).toBe("started");
+    expect(aws.async).toEqual([{ fn: "akldb-staging-jobs", payload: { akldb: "nightly" } }]);
+    expect(await w.state.dailies()).toEqual([]); // the tick did not write the daily snapshot, retention or the proof
+    expect(lines.some((l) => l.startsWith("akldb-proof"))).toBe(false);
+    // the next tick (the job has not finished) starts it again; the claim, not the tick, keeps it single
+    await handler({ akldb: "tick", time: "2026-11-02T03:15:00Z" });
+    expect(aws.async).toHaveLength(2);
+    const first = (await handler({ akldb: "nightly" })) as { nightly: { status: string; daily: { status: string }; proof: { seq: number } } };
+    expect(first.nightly.status).toBe("ran");
+    expect(first.nightly.daily.status).toBe("written");
+    expect(first.nightly.proof.seq).toBe(w.log.length);
+    const second = (await handler({ akldb: "nightly" })) as { nightly: { status: string } };
+    expect(second.nightly.status).toBe("busy");
+    await handler({ akldb: "tick", time: "2026-11-02T03:20:00Z" });
+    expect(aws.async).toHaveLength(2); // today's daily exists: nothing more is started
+  });
+
+  it("[LDB-RP10] [LDB-RP9] a nightly job that cannot be started fails the tick with one alarm line, after the rolling snapshot ran", async () => {
+    const w = await world();
+    let lines: string[] = [];
+    await churn(w.replica, 6);
+    w.clock.ms = Date.parse("2026-11-02T03:10:00Z");
+    const aws = fakeAws();
+    aws.failAsync = true;
+    const env = { STAGE: "staging", DISCORD_API_URL: "http://127.0.0.1:1/discord", MODQUEUE_DISCORD_COMPONENTS: "false", JOBS_FUNCTION: "akldb-staging-jobs" };
+    const handler = handlerFor(w, w.log, aws, { env }, (lines = []));
+    await expect(handler({ akldb: "tick", time: "2026-11-02T03:10:00Z" })).rejects.toThrow(/Lambda Invoke \(Event\): 500/);
+    expect(lines.filter((l) => l.startsWith("akldb-alarm: "))).toEqual([expect.stringMatching(/^akldb-alarm: nightly: could not start the nightly job on akldb-staging-jobs: /)]);
+    expect((await w.state.pointer())?.seq).toBe(w.log.length);
+  });
+
+  it("[LDB-RP1] a failed snapshot upload fails the tick (the Errors alarm) with one alarm line, leaves the pointer alone, and the next tick retries", async () => {
+    const w = await world();
+    let lines: string[] = [];
+    await churn(w.replica, 6);
+    const handler = handlerFor(w, w.log, fakeAws(), {}, (lines = []));
     w.objects.failPut.add("snap/");
-    await expect(handler({ akldb: "tick", time: "2026-11-02T00:05:00Z" })).rejects.toThrow(/snapshot jobs failed: rolling snapshot: .*injected PUT failure/);
+    await expect(handler({ akldb: "tick", time: "2026-11-02T00:05:00Z" })).rejects.toThrow(/injected PUT failure/);
+    expect(lines.filter((l) => l.startsWith("akldb-alarm: "))).toHaveLength(1);
     expect(await w.state.pointer()).toBeNull();
     w.objects.failPut.clear();
     const t = (await handler({ akldb: "tick", time: "2026-11-02T00:10:00Z" })) as { snapshot: { rolling: { status: string } } };

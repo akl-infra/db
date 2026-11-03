@@ -7,11 +7,13 @@
 // when the image is ready. RP2: nothing is served before the image is verified, the prefetched tail is replayed and a final
 // strong head read (catchUp) finds nothing left. Any failure on the snapshot path falls back, loudly, in this order:
 //
-//   POINTER ──► PREV ──► replay the whole log from seq 0
+//   POINTER ──► PREV ──► the newest verified DAILY snapshot (+ its tail) ──► replay the whole log from seq 0
 //
-// A fallback is never silent: every step logs one `akldb-boot:` line saying which path ran and why the earlier one did not.
-// Replay from 0 works only while the log still starts at seq 1 (retention.ts expires old entries past the daily snapshots);
-// when it does not, the error says so and the container fails to boot (the Lambda handler retries once, the Errors alarm fires).
+// Every fallback taken logs exactly one `akldb-alarm: boot: ...` line (alarm.ts); the `akldb-boot:` line says which path
+// finally ran. Replay from 0 works only while the log still starts at seq 1 (retention.ts expires old entries past the daily
+// snapshots), which is exactly why the daily step sits before it: after retention it is the last path that still works.
+// Only when all four fail does the boot throw (with one more alarm line), and the Lambda handler retries once.
+import { raise } from "./alarm";
 import type { LogEntry, CommitLog } from "./log";
 import type { ObjectStore } from "./objects";
 import { Replica, ReplicaDivergedError, type ReplicaOptions } from "./replica";
@@ -20,11 +22,11 @@ import { consoleLog, readSnapshot, type LogFn, type SnapRef, type SnapshotState 
 export interface BootOptions extends ReplicaOptions {
   /** Where snapshots live. Without it the replica replays the log from seq 0 (phase C's behaviour). */
   snapshots?: { state: SnapshotState; objects: ObjectStore };
-  /** Where the boot report goes. Default console.error. */
+  /** Where the boot lines and alarm lines go. Default console.error. */
   logLine?: LogFn;
 }
 
-export type BootPath = "pointer" | "prev" | "replay";
+export type BootPath = "pointer" | "prev" | "daily" | "replay";
 
 /** What a boot did, kept on the replica for the warm/tick answers and for tests. */
 export interface BootReport {
@@ -48,34 +50,46 @@ const msg = (e: unknown): string => (e instanceof Error ? e.message : String(e))
 export async function bootReplica(log: CommitLog, opts: BootOptions = {}): Promise<Replica> {
   const { snapshots, logLine = consoleLog, ...replicaOpts } = opts;
   const fallbacks: string[] = [];
+  const fallback = (what: string, why: string): void => {
+    fallbacks.push(`${what}: ${why}`);
+    raise(logLine, "boot", `fallback: ${what} unusable: ${why}`);
+  };
   if (snapshots !== undefined) {
-    // The head and the tail are read once, beside whichever snapshot GET runs; a fallback reuses them.
+    // The head and the tail are read once, beside whichever snapshot GET runs first; a later candidate reuses them if it can.
     const tail = prefetchTail(log);
     tail.promise.catch(() => {});
-    for (const which of ["pointer", "prev"] as const) {
+    const candidates = async function* (): AsyncGenerator<{ which: "pointer" | "prev" | "daily"; label: string; ref: SnapRef | null }> {
+      yield { which: "pointer", label: "pointer", ref: await snapshots.state.pointer() };
+      yield { which: "prev", label: "prev", ref: await snapshots.state.previous() };
+      // Read lazily: a healthy boot never queries the daily index.
+      for (const d of (await snapshots.state.dailies()).sort((a, b) => b.seq - a.seq)) yield { which: "daily", label: `daily ${d.key}`, ref: d };
+    };
+    for await (const { which, label, ref } of candidates()) {
+      if (ref === null) {
+        // an absent POINTER/PREV is the normal state of a young stack, not a failure: note it, no alarm
+        fallbacks.push(`${label}: none recorded`);
+        continue;
+      }
+      const gate = { quiet: true };
       try {
-        const ref = await (which === "pointer" ? snapshots.state.pointer() : snapshots.state.previous());
-        if (ref === null) {
-          fallbacks.push(`${which}: none recorded`);
-          continue;
-        }
-        const replica = await fromRef(log, ref, snapshots.objects, tail, replicaOpts);
-        const report: BootReport = { path: which, snapshot: ref, fromSeq: ref.seq, seq: replica.seq, fallbacks };
-        reports.set(replica, report);
+        const replica = await fromRef(log, ref, snapshots.objects, tail, { ...replicaOpts, alarm: (l) => (gate.quiet ? undefined : (replicaOpts.alarm ?? logLine)(l)) });
+        gate.quiet = false;
+        reports.set(replica, { path: which, snapshot: ref, fromSeq: ref.seq, seq: replica.seq, fallbacks });
         logLine(`akldb-boot: path=${which} snapshot=${ref.key} snapshotSeq=${ref.seq} seq=${replica.seq} replayed=${replica.stats.replayed}${fallbacks.length > 0 ? ` fallbacks=[${fallbacks.join("; ")}]` : ""}`);
         return replica;
       } catch (e) {
         if (!(e instanceof BootFallback)) throw e; // a log or network failure the next snapshot would hit too: fail the boot, the handler retries
-        fallbacks.push(`${which}: ${e.message}`);
-        logLine(`akldb-boot: FALLBACK ${which} unusable: ${e.message}`);
+        fallback(label, e.message);
       }
     }
   }
-  const replica = new Replica(log, replicaOpts);
+  const replica = new Replica(log, { ...replicaOpts, alarm: replicaOpts.alarm ?? logLine });
   try {
     await replica.catchUp();
   } catch (e) {
     replica.close();
+    // a divergence already raised the replica's own alarm line; anything else (the log no longer starts at 1, a read failure) is raised here
+    if (snapshots !== undefined && !(e instanceof ReplicaDivergedError)) raise(logLine, "boot", `no usable path: every snapshot failed and the log cannot be replayed from seq 0: ${msg(e)}`);
     throw e;
   }
   reports.set(replica, { path: "replay", snapshot: null, fromSeq: 0, seq: replica.seq, fallbacks });
@@ -87,7 +101,7 @@ export async function bootReplica(log: CommitLog, opts: BootOptions = {}): Promi
 class BootFallback extends Error {}
 
 interface Tail {
-  /** The head and the entries after the pointer's seq, read while the snapshot downloads. Resolves with `from` = the seq it started after. */
+  /** The head and the entries after the first snapshot's seq, read while it downloads. `from` = the seq it started after. */
   promise: Promise<{ head: number; from: number; entries: LogEntry[] }>;
   start(from: number): void;
 }
@@ -115,7 +129,7 @@ async function fromRef(log: CommitLog, ref: SnapRef, objects: ObjectStore, tail:
     throw new BootFallback(msg(e));
   }
   try {
-    // The prefetched tail only helps if it starts at this snapshot's seq; a fallback to PREV starts earlier and reads on its own.
+    // The prefetched tail only helps if it starts at this snapshot's seq; a later candidate starts elsewhere and reads on its own.
     if (pre !== null && pre.from === ref.seq) await replica.applyPrefetched(pre.entries);
     await replica.catchUp(); // the strong head read: whatever landed since the prefetch
   } catch (e) {

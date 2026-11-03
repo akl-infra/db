@@ -387,6 +387,31 @@ export function createDdbSnapshotState(opts: DdbLogOptions): SnapshotState {
       return item === undefined ? 0 : Number((item.seq as AttrN).N);
     },
 
+    async claimNightly(day, nowMs, leaseMs) {
+      try {
+        await callRetrying(
+          "TransactWriteItems",
+          {
+            TransactItems: [
+              {
+                Put: {
+                  TableName: T,
+                  Item: { ...snapKey("NIGHTLY"), nday: { S: day }, nat: { N: String(nowMs) } },
+                  ConditionExpression: "attribute_not_exists(pk) OR nday <> :day OR nat <= :expired",
+                  ExpressionAttributeValues: { ":day": { S: day }, ":expired": { N: String(nowMs - leaseMs) } },
+                },
+              },
+            ],
+          },
+          false,
+        );
+        return true;
+      } catch (e) {
+        if (conditionFailed(e)) return false;
+        throw e;
+      }
+    },
+
     async setExpiredThrough(seq) {
       try {
         await callRetrying(
