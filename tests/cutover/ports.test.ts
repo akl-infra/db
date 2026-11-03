@@ -139,6 +139,10 @@ describe("the env files and the direct stack port (CV15, CV20)", () => {
       fs.writeFileSync(c, "A=1\nB=2\n");
       expect(() => originSecretFrom(c)).toThrow(/no single origin secret assignment/);
       expect(() => originSecretFrom(path.join(dir, "missing.env"))).toThrow();
+      // the prod and shadow files hold the value alone, one line, no NAME= (as `tr -d '\n' < file | wrangler secret put` expects)
+      const d = path.join(dir, "d.env");
+      fs.writeFileSync(d, "0123456789abcdef0123456789abcdef\n");
+      expect(originSecretFrom(d)).toBe("0123456789abcdef0123456789abcdef");
     } finally {
       fs.rmSync(dir, { recursive: true });
     }

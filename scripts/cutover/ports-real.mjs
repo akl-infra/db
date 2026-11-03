@@ -273,6 +273,10 @@ export function readEnvFile(file) {
 
 /** The origin secret in an env file: the one assignment whose name mentions ORIGIN (AKLDB_ORIGIN_SECRET, X_AKLDB_ORIGIN, ...), or the only assignment there is. */
 export function originSecretFrom(file) {
+  // Two shapes exist: NAME=value (akldb-origin-staging.env) and the value alone on one line (akldb-origin-prod.env,
+  // akldb-origin-shadow.env, as `tr -d '\n' < file | wrangler secret put` expects).
+  const text = fs.readFileSync(file, "utf8").trim();
+  if (text !== "" && !text.includes("\n") && !text.includes("=")) return text;
   const vars = readEnvFile(file);
   const named = Object.keys(vars).filter((k) => /ORIGIN/i.test(k));
   const key = named.length === 1 ? named[0] : Object.keys(vars).length === 1 ? Object.keys(vars)[0] : undefined;
