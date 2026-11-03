@@ -26,8 +26,6 @@
 // import source now, not a registered format, so the conversion lives with
 // the adapter, not here. `toCmini` (the export) was deleted entirely by
 // 21-formats.md D5.
-import Ajv2020 from "ajv/dist/2020.js";
-import addFormats from "ajv-formats";
 import rawSchema from "./schema.json" with { type: "json" };
 import {
   computeRows,
@@ -136,50 +134,37 @@ export type ValidationResult = { ok: true } | { ok: false; error: ErrBody };
 
 // LDB-F35 (design/layout-db/22-spark-spec.md §6): `export const schema`
 // above is `rawSchema` verbatim -- what `GET /v1/formats/spark/1/
-// schema.json` serves, byte-identical to schema.json on disk, pinned by
-// `tests/conformance/formats-schema/200.json`. The validator itself
-// compiles a separate, never-exported CLONE with ajv's `discriminator`
-// keyword added to `magicDefault` (so `chiralValue`, its `$ref`, gets it
-// too) -- a hint that changes WHICH oneOf branch ajv reports an error
-// from, never which payloads validate (every discriminator branch here
-// was already `type: "object"`; `additionalProperties: false` and each
-// branch's own `required`/`const` on `kind` already made the branches
-// mutually exclusive) or what the served schema document says. Keeping
-// this out of schema.json means this row costs no WIRE_VERSION bump and
-// touches no conformance fixture -- a client vendoring or diffing the
-// served schema sees no change at all.
-function withDiscriminatorHint(s: typeof rawSchema): object {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- schema.json's shape isn't typed; this only ever runs once, over $defs.magicDefault
-  const clone = structuredClone(s) as any;
-  const magicDefault = clone.$defs.magicDefault;
-  magicDefault.type = "object";
-  magicDefault.discriminator = { propertyName: "kind" };
-  return clone;
+// schema.json` serves. The validators are NOT compiled here any more:
+// `validate.generated.ts` (allErrors: false, the fast path every write pays
+// for) and `validate-all.generated.ts` (allErrors: true, run only after the
+// fast pass failed) are ajv STANDALONE code generated at build time from
+// `validation-schema.ts` (a clone of schema.json with ajv's `discriminator`
+// hint on `magicDefault`; see there) by `npm run build:validators` in db/.
+// Same code ajv's run-time compile emitted, so verdicts, error lists and
+// error order are identical (tests/formats/validators-equivalence.test.ts);
+// what changes is that importing this module no longer compiles anything or
+// loads ajv. `discriminator: true` makes the generated code resolve
+// `magicDefault`'s `kind`-tagged union to the ONE branch `kind` names
+// (chiralKey.same/opposite's own `| null` union has no discriminant to give
+// ajv -- one side is a bare `null` type -- so it still goes through the
+// general picker below).
+import { validate as generatedValidate } from "./validate.generated.ts";
+import { validate as generatedValidateAll } from "./validate-all.generated.ts";
+
+/** The slice of ajv's ErrorObject this module reads. */
+interface AjvError {
+  instancePath: string;
+  schemaPath: string;
+  keyword: string;
+  params: Record<string, unknown>;
+  message?: string;
 }
-const validationSchema = withDiscriminatorHint(rawSchema);
+type GeneratedValidator = ((data: unknown) => boolean) & { errors?: AjvError[] | null };
+const ajvValidate = generatedValidate as unknown as GeneratedValidator;
+const ajvValidateAll = generatedValidateAll as unknown as GeneratedValidator;
 
-// Two compiled validators off `validationSchema`, not one. `ajvValidate`
-// (allErrors: false) is the fast path every write pays for -- unchanged
-// from before this row, still one pass, still stops at the first schema
-// violation, so a VALID payload (the common case) costs exactly what it
-// always did. `ajvValidateAll` (allErrors: true) only ever runs after
-// `ajvValidate` has already failed (the rarer, off-happy-path case): it
-// re-validates the same payload to collect every branch's errors, which
-// `pickMostSpecificError` below needs to tell an incidental union-branch
-// artifact from the real fault. `discriminator: true` (both instances)
-// makes ajv resolve `magicDefault`'s `kind`-tagged union to the ONE branch
-// `kind` names and validate only that branch -- most of what used to need
-// `pickMostSpecificError`'s branch-grouping logic at all, for exactly the
-// union that motivated this row (chiralKey.same/opposite's own `| null`
-// union has no discriminant to give ajv -- one side is a bare `null` type
-// -- so it still goes through the general picker below).
-const ajv = new Ajv2020({ allErrors: false, strict: true, discriminator: true });
-addFormats(ajv);
-const ajvValidate = ajv.compile(validationSchema);
-
-const ajvAll = new Ajv2020({ allErrors: true, strict: true, discriminator: true });
-addFormats(ajvAll);
-const ajvValidateAll = ajvAll.compile(validationSchema);
+/** ajv's errorsText for one error with `dataVar: "payload"`. */
+const errorText = (e: AjvError): string => `payload${e.instancePath} ${e.message}`;
 
 // LDB-F35: ajv error keywords that only ever record union bookkeeping --
 // "this data didn't match exactly one/any branch" -- never the reason a
@@ -256,8 +241,8 @@ function branchKeyOf(schemaPath: string): string | null {
 // own position in ajv's array -- deterministic for a fixed schema and ajv
 // version, independent of `allErrors`' internal branch-evaluation order,
 // per LDB-F37).
-function pickMostSpecificError(errors: import("ajv").ErrorObject[]): import("ajv").ErrorObject {
-  const branches = new Map<string, import("ajv").ErrorObject[]>();
+function pickMostSpecificError(errors: AjvError[]): AjvError {
+  const branches = new Map<string, AjvError[]>();
   for (const e of errors) {
     const bk = branchKeyOf(e.schemaPath);
     if (bk === null) continue;
@@ -270,7 +255,7 @@ function pickMostSpecificError(errors: import("ajv").ErrorObject[]): import("ajv
     if (group.some((e) => e.keyword === "const" || e.keyword === "enum")) wrongBranches.add(bk);
   }
 
-  function candidatesOf(pool: import("ajv").ErrorObject[]): import("ajv").ErrorObject[] {
+  function candidatesOf(pool: AjvError[]): AjvError[] {
     return pool.filter((e) => {
       if (UNION_BOOKKEEPING_KEYWORDS.has(e.keyword)) return false;
       const bk = branchKeyOf(e.schemaPath);
@@ -626,7 +611,7 @@ export function validate(p: unknown): ValidationResult {
       ok: false,
       error: {
         error: "invalid_payload",
-        message: err ? (ajv.errorsText([err], { dataVar: "payload" }) as string) : "invalid spark/1 payload",
+        message: err ? errorText(err) : "invalid spark/1 payload",
         path: err?.instancePath || "/",
       },
     };

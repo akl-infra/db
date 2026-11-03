@@ -10,9 +10,8 @@
 // (`?as=cmini/1` now answers exactly like any other unregistered format) --
 // this module is reachable only from `import/*` (the cmini IMPORT stays,
 // D5), never from a read/write route.
-import Ajv2020 from "ajv/dist/2020.js";
-import addFormats from "ajv-formats";
 import rawSchema from "./schema.json" with { type: "json" };
+import { validate as generatedValidate } from "./validate.generated.ts";
 // This file's own translate.ts is the ONE place cmini -> spark/1 is
 // implemented (moved from spark/1/translate.ts by 20-spark.md S1, was
 // 07 §6 S3's akl/1/translate.ts). This creates a module cycle
@@ -85,9 +84,16 @@ export interface ErrBody {
 
 export type ValidationResult = { ok: true } | { ok: false; error: ErrBody };
 
-const ajv = new Ajv2020({ allErrors: false, strict: true });
-addFormats(ajv);
-const ajvValidate = ajv.compile(rawSchema);
+// The schema validator is ajv standalone code generated at build time from schema.json (`npm run build:validators` in db/;
+// tests/formats/validators-equivalence.test.ts proves it equals ajv's run-time compile): importing this module compiles
+// nothing and loads no ajv.
+interface AjvError {
+  instancePath: string;
+  message?: string;
+}
+const ajvValidate = generatedValidate as unknown as ((data: unknown) => boolean) & { errors?: AjvError[] | null };
+/** ajv's errorsText for one error with `dataVar: "payload"`. */
+const errorText = (e: AjvError): string => `payload${e.instancePath} ${e.message}`;
 
 // JSON Pointer escaping (RFC 6901): "~" -> "~0", "/" -> "~1". Needed because
 // cmini keys include "/" and "~"-adjacent punctuation as characters (e.g.
@@ -154,7 +160,7 @@ export function validate(p: unknown): ValidationResult {
       error: {
         error: "invalid_payload",
         message: err
-          ? (ajv.errorsText([err], { dataVar: "payload" }) as string)
+          ? errorText(err)
           : "invalid cmini/1 payload",
         path: err?.instancePath || "/",
       },

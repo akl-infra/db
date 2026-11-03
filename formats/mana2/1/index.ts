@@ -9,9 +9,9 @@
 // used by scripts/pick-mana2-fixtures.mjs (not at runtime). Every function
 // here (`validate`/`lower`/`to`/`from`) takes an ALREADY-PARSED payload,
 // exactly like cmini/1 and spark/1.
-import Ajv2020 from "ajv/dist/2020.js";
 import rawSchema from "./schema.json" with { type: "json" };
 import { parseRow, dedupeRulesLastWins } from "./translate.ts";
+import { validate as generatedValidate } from "./validate.generated.ts";
 
 export const id: `${string}/${number}` = "mana2/1";
 // `GET /v1/formats` (07 §6 S6; registry.ts's FormatModule comment explains
@@ -70,8 +70,16 @@ export interface ErrBody {
 
 export type ValidationResult = { ok: true } | { ok: false; error: ErrBody };
 
-const ajv = new Ajv2020({ allErrors: false, strict: true });
-const ajvValidate = ajv.compile(rawSchema);
+// The schema validator is ajv standalone code generated at build time from schema.json (`npm run build:validators` in db/;
+// tests/formats/validators-equivalence.test.ts proves it equals ajv's run-time compile): importing this module compiles
+// nothing and loads no ajv.
+interface AjvError {
+  instancePath: string;
+  message?: string;
+}
+const ajvValidate = generatedValidate as unknown as ((data: unknown) => boolean) & { errors?: AjvError[] | null };
+/** ajv's errorsText for one error with `dataVar: "payload"`. */
+const errorText = (e: AjvError): string => `payload${e.instancePath} ${e.message}`;
 
 function rowTokens(row: string | undefined): string[] {
   return (row ?? "").trim().split(/\s+/).filter((t) => t.length > 0);
@@ -237,7 +245,7 @@ export function validate(p: unknown): ValidationResult {
       ok: false,
       error: {
         error: "invalid_payload",
-        message: err ? (ajv.errorsText([err], { dataVar: "payload" }) as string) : "invalid mana2/1 payload",
+        message: err ? errorText(err) : "invalid mana2/1 payload",
         path: err?.instancePath || "/",
       },
     };
