@@ -10,13 +10,14 @@
 //    The slot written next is never the one POINTER or PREV names.
 //  - The pointer, PREV, the daily index and the retention mark are items of the log table (`SNAP/...`), not S3 objects:
 //    one strongly consistent read finds them, and a conditional write moves them.
+import { logByLevel } from "./alarm";
 import { createHash } from "node:crypto";
 import type { ObjectStore } from "./objects";
 import { imageDigest, type Replica } from "./replica";
 import { SNAPSHOT_LEVEL, zstdCompress, zstdDecompress } from "./zstd";
 
 export type LogFn = (message: string) => void;
-export const consoleLog: LogFn = (m) => console.error(m);
+export const consoleLog: LogFn = (m) => logByLevel(m);
 
 /** Rolling snapshot slots: POINTER, PREV and the slot being written never coincide. */
 export const ROLLING_SLOTS = 4;
@@ -129,7 +130,7 @@ export class MemorySnapshotState implements SnapshotState {
 export interface SnapshotDeps {
   objects: ObjectStore;
   state: SnapshotState;
-  /** Where the job report goes. Default console.error. */
+  /** Where the job report goes. Default `logByLevel`: alarms at ERROR, the rest at INFO. */
   logLine?: LogFn;
   now?: () => number;
   /** zstd level for the snapshot image. Default 12 (SNAPSHOT_LEVEL); the writer pays for it (boot-bench.mjs prints the cost per level). */

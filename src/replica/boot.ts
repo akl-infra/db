@@ -22,7 +22,7 @@ import { consoleLog, readSnapshot, type LogFn, type SnapRef, type SnapshotState 
 export interface BootOptions extends ReplicaOptions {
   /** Where snapshots live. Without it the replica replays the log from seq 0 (phase C's behaviour). */
   snapshots?: { state: SnapshotState; objects: ObjectStore };
-  /** Where the boot lines and alarm lines go. Default console.error. */
+  /** Where the boot lines and alarm lines go. Default `logByLevel`: alarms at ERROR, the rest at INFO. */
   logLine?: LogFn;
 }
 

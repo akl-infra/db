@@ -13,6 +13,7 @@
 //                                (a separate function with a 600 s timeout), or inline when JOBS_FUNCTION is unset
 // No AWS SDK: aws4fetch signs the DynamoDB, S3, SSM and Lambda calls. The environment is set by infra/akldb.yaml:
 // STAGE, LOG_TABLE, DATA_BUCKET, SSM_PREFIX, DISCORD_API_URL, MODQUEUE_DISCORD_COMPONENTS.
+import { logByLevel } from "../replica/alarm";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import path from "node:path";
 import { Hono } from "hono";
@@ -90,7 +91,7 @@ export interface LambdaOptions {
   paramsTtlMs?: number;
   /** Test hook: console.error. */
   logError?: (message: string) => void;
-  /** Test hook: where the boot/snapshot report lines go. Default console.error. */
+  /** Test hook: where the boot/snapshot report lines go. Default `logByLevel`: alarms at ERROR, the rest at INFO. */
   logLine?: (message: string) => void;
   /** STAGE=shadow only (phase D). */
   shadow?: ShadowOptions;
@@ -156,7 +157,7 @@ const SHADOW_CREDENTIAL_HEADERS = ["authorization", "x-akl-client"];
 
 export function createLambdaHandler(opts: LambdaOptions): LambdaHandler {
   const { aws, log, env } = opts;
-  const logLine = opts.logLine ?? ((m: string) => console.error(m));
+  const logLine = opts.logLine ?? logByLevel;
   const boot = opts.boot ?? ((l: CommitLog) => bootReplica(l, { ...(opts.snapshots !== undefined ? { snapshots: opts.snapshots } : {}), logLine }));
   const sleep = opts.sleep ?? realSleep;
   const now = opts.now ?? Date.now;
