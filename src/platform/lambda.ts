@@ -380,8 +380,12 @@ export function createLambdaHandler(opts: LambdaOptions): LambdaHandler {
     }
   });
   // gzip the answer when the client allows it (Cloudflare always asks its origin for gzip): a 4.9k-layout full=1 page is 17 MB of JSON and
-  // would hit Lambda's 6 MB response limit raw. Hono turns a Content-Encoding response into a base64 body by itself. The ETag is untouched
-  // (clients compare it with stripWeak). Dumps are already gzip or served as stored, and streams are not buffered here.
+  // would hit Lambda's 6 MB response limit raw. Hono turns a Content-Encoding response into a base64 body by itself. Dumps are already gzip
+  // or served as stored, and streams are not buffered here.
+  // Headers match what clients get from the Worker today (replay #2, 2026-11-03): Cloudflare compresses the Worker's answers itself and
+  // then WEAKENS their ETag (W/"..."), and it adds no Vary. So a gzipped answer carries W/ + the same value (If-None-Match compares with
+  // stripWeak, and If-Match takes scoped tokens, never an ETag), and no Vary: Cloudflare negotiates the encoding with each client itself.
+  // A small answer goes out identity, and Cloudflare compresses and weakens it exactly as for the Worker.
   front.use("*", async (c, next) => {
     await next();
     const res = c.res;
@@ -391,14 +395,17 @@ export function createLambdaHandler(opts: LambdaOptions): LambdaHandler {
     if (!acceptsGzip(c.req.header("accept-encoding"))) return;
     const raw = new Uint8Array(await res.arrayBuffer());
     const headers = new Headers(res.headers);
-    headers.append("vary", "Accept-Encoding");
-    headers.delete("content-length");
     if (raw.byteLength < GZIP_MIN_BYTES) {
       c.res = new Response(raw, { status: res.status, statusText: res.statusText, headers });
       return;
     }
+    headers.delete("content-length");
     headers.set("content-encoding", "gzip");
     c.res = new Response(zlib.gzipSync(raw, { level: GZIP_LEVEL }), { status: res.status, statusText: res.statusText, headers });
+    // After the assignment: Hono's c.res setter copies the previous response's headers onto the new one, which would put the strong
+    // ETag back.
+    const etag = c.res.headers.get("etag");
+    if (etag !== null && !etag.startsWith("W/")) c.res.headers.set("etag", `W/${etag}`);
   });
   front.use("*", async (c, next) => {
     const got = c.req.header(ORIGIN_HEADER);

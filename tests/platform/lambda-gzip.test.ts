@@ -1,5 +1,5 @@
 // [LDB-CV19] Lambda's response limit is 6 MB (base64 included). A real-size `full=1` page (4.9k layouts) is gzipped when the client allows it
-// (ETag untouched, Vary added, base64 body), and an answer that still cannot fit is a clear 500 plus one alarm line, never API Gateway's 413.
+// (ETag weakened to W/ like Cloudflare does for the Worker, no Vary, base64 body), and an answer that still cannot fit is a clear 500 plus one alarm line, never API Gateway's 413.
 import fs from "node:fs";
 import { gunzipSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
@@ -90,7 +90,7 @@ describe("gzip and the 6 MB guard (CV19)", () => {
     expect(acceptsGzip(undefined)).toBe(false);
   });
 
-  it("[LDB-CV19] a real-size full=1 (4.9k layouts) is gzipped into a base64 body under the limit, the ETag untouched; without gzip it is a clear 500 and one alarm line", async () => {
+  it("[LDB-CV19] a real-size full=1 (4.9k layouts) is gzipped into a base64 body under the limit, its ETag weakened like Cloudflare's; without gzip it is a clear 500 and one alarm line", async () => {
     const lines: string[] = [];
     const h = await stack(49, lines);
     const q = "format=spark/1&full=1";
@@ -99,7 +99,7 @@ describe("gzip and the 6 MB guard (CV19)", () => {
     expect(gz.statusCode, gz.body.slice(0, 200)).toBe(200);
     expect(gz.isBase64Encoded).toBe(true);
     expect(gz.headers["content-encoding"]).toBe("gzip");
-    expect(gz.headers["vary"]).toContain("Accept-Encoding");
+    expect(gz.headers["vary"]).toBeUndefined(); // like the Worker's answers: Cloudflare negotiates the encoding itself
     expect(gz.headers["content-type"]).toBe("application/json");
     const zipped = Buffer.from(gz.body, "base64");
     const inflated = gunzipSync(zipped).toString("utf8");
@@ -115,12 +115,15 @@ describe("gzip and the 6 MB guard (CV19)", () => {
     const raw = Number(/bytes=(\d+)/.exec(alarms[0]!)![1]);
     expect(raw).toBeGreaterThan(MAX_RESPONSE_BYTES);
 
-    // the same bytes: the ETag of the gzip answer is the ETag the plain one would have had
+    // the same bytes: the gzip answer's ETag is the plain one's, weakened (W/), exactly what Cloudflare does to the Worker's compressed answers
     const small = await stack(1, []);
     const a = (await small(ev("/v1/layouts", q))) as Result;
     const b = (await small(ev("/v1/layouts", q, { "accept-encoding": "gzip" }))) as Result;
     expect(a.statusCode).toBe(200);
-    expect(b.headers.etag).toBe(a.headers.etag);
+    expect(b.headers.etag).toBe(`W/${a.headers.etag}`);
+    // and a client revalidating with the weak tag it got still gets its 304 (If-None-Match compares with stripWeak)
+    const reval = (await small(ev("/v1/layouts", q, { "accept-encoding": "gzip", "if-none-match": b.headers.etag! }))) as Result;
+    expect(reval.statusCode).toBe(304);
     expect(gunzipSync(Buffer.from(b.body, "base64")).toString("utf8")).toBe(a.body);
 
     const m2 = (await h(ev("/v1/layouts", "format=mana2/1&full=1", { "accept-encoding": "gzip" }))) as Result;
