@@ -23,7 +23,7 @@ import path from "node:path";
 import { Hono } from "hono";
 import { handle } from "hono/aws-lambda";
 import type { Bindings } from "../env";
-import worker, { app as workerApp } from "../index";
+import worker, { app as workerApp, discordFollowUp } from "../index";
 import { bootReplica } from "../replica/boot";
 import { raise } from "../replica/alarm";
 import { nightlyDue, runNightlyJobs, runRollingJob, type SnapshotJobDeps } from "../replica/jobs";
@@ -148,6 +148,7 @@ type SchedulerEvent =
   | { akldb: "warm"; k?: number; child?: boolean }
   | { akldb: "migrate" }
   | { akldb: "nightly" }
+  | { akldb: "discord" }
   | ({ akldb: "seed" } & SeedRequest)
   | { akldb: "shadow-status" };
 
@@ -284,10 +285,14 @@ export function createLambdaHandler(opts: LambdaOptions): LambdaHandler {
   }
 
   // ---- the platform and the per-invocation env ----
+  // [LDB-CV28] A Discord ACK must leave within 3 s, and this handler answers only after its background work: the work after
+  // the ACK runs in the jobs function ({"akldb":"discord"}). Without one (tests, local) it stays in-process.
+  const jobsFn = env.JOBS_FUNCTION;
   const platform = createNodePlatform({
     d1: (e) => e.DB,
     blobs: aws.dumps,
     cache: lruResponseCache(),
+    ...(jobsFn !== undefined && jobsFn !== "" ? { handOff: (job: "discord") => aws.invokeAsync(jobsFn, { akldb: job }) } : {}),
   });
   const tasks: Promise<unknown>[] = [];
   const execCtx = {
@@ -562,6 +567,17 @@ export function createLambdaHandler(opts: LambdaOptions): LambdaHandler {
     return { ok: true, nightly: report, seq: replica.seq };
   }
 
+  /** The work a Discord ACK left behind (handed off by the API function): the persisted actions, then the moderation DMs. */
+  async function discord(): Promise<unknown> {
+    const replica = await getReplica();
+    if (await awaitingImage(replica, "discord")) return { ok: true, awaiting: "image", seq: 0 };
+    const e = await buildEnv(replica);
+    await discordFollowUp(platform(e, execCtx).store, e);
+    await settle();
+    assertAlive();
+    return { ok: true, seq: replica.seq };
+  }
+
   async function warm(event: { k?: number; child?: boolean }): Promise<unknown> {
     const k = Math.min(Math.max(Math.trunc(event.k ?? 1), 1), MAX_WARM);
     const kids = event.child === true ? [] : Array.from({ length: k - 1 }, () => aws.invokeLive({ akldb: "warm", child: true }));
@@ -634,6 +650,8 @@ export function createLambdaHandler(opts: LambdaOptions): LambdaHandler {
           return migrate();
         case "nightly":
           return nightly();
+        case "discord":
+          return discord();
         case "seed":
           return seed(event);
         case "shadow-status":

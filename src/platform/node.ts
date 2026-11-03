@@ -119,6 +119,8 @@ export interface NodePlatformOptions {
   ulid?: () => string;
   /** Outbound fetch. Default: the global fetch at call time (tests stub it). */
   fetch?: (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+  /** Platform.handOff. Default: none (the job runs in `background`). */
+  handOff?: (job: "discord") => Promise<void>;
 }
 
 /** What `waitOnExecutionContext` awaits: every task handed to `background` or `waitUntil` since the last drain. */
@@ -148,6 +150,7 @@ export function createNodePlatform(opts: NodePlatformOptions): PlatformFactory &
       now,
       ulid: opts.ulid ?? (() => ulid()),
       fetch: opts.fetch ?? ((input, init) => globalThis.fetch(input, init)),
+      ...(opts.handOff !== undefined ? { handOff: opts.handOff } : {}),
       background(task) {
         const guarded = task.catch((e: unknown) => console.error(`background task failed: ${e instanceof Error ? e.message : String(e)}`));
         pending.add(guarded);
