@@ -1,7 +1,7 @@
 # akldb on AWS, design A: phase E (the cutover and the rollback)
 
 Companion to `design/aws-a-ops.md` (stacks), `design/aws-a-ops-boot.md` (boot, snapshots) and `design/aws-a-ops-shadow.md` (the proving
-ground). Invariants: LDB-CV2..CV4 and CV10..CV15 in `INVARIANTS.md`. Nothing in this file has been run against Cloudflare or AWS: the
+ground). Invariants: LDB-CV10..CV18 in `INVARIANTS.md`. Nothing in this file has been run against Cloudflare or AWS: the
 tools are tested against fakes (`tests/cutover/`), and the rehearsal below is what proves the real commands.
 
 **Target:** 2026-11-04, 09:00-14:00 UTC. There is no 7-day proving run: manual tests, flip, watch about one hour.
@@ -34,11 +34,11 @@ automatically.
 | 2 | `freeze` | `cutover.mode='read_only'` on D1; wait 3 s; `POST /v1/layouts` with an empty body must be **503 read_only with Retry-After**, not 400 | probe, freeze seq |
 | 3 | `export` | `wrangler d1 export --remote` to `export.sql` (reads may stall) | bytes, sha256, ms |
 | 4 | `load` | node:sqlite builds the database; `integrity_check`, `foreign_key_check`, every table of `migrations/*.sql` present, `d1_migrations` equals `migrations/*.sql` exactly; `sqlite_sequence` raised from D1 if the export lacked it | checks, image sha256 |
-| 5 | `verify` | per table `COUNT(*)` + checksum on the image **and** on D1 (read-only paged SELECTs), `sqlite_master` equal, `meta.seq` equal, `events` counter equal (CV3) | per-table counts and checksums |
+| 5 | `verify` | per table `COUNT(*)` + checksum on the image **and** on D1 (read-only paged SELECTs), `sqlite_master` equal, `meta.seq` equal, `events` counter equal (CV17) | per-table counts and checksums |
 | 6 | `image` | image appended as seq 1 (S3 object first, then the conditional append), then the snapshot pointer written at seq 1 | unit id, hash, snapshot |
 | 7 | `serve` | prod `migrate` (a no-op: `applied: []`) and `warm k=4`; `meta`, a list page and 3 layouts straight from `aws-api.akldb.org` equal D1's (bodies minus `age_s`, ETags); `X-Akldb-Backend: aws` present | the 5 comparisons |
 | 8 | `proxy` | `cutover.mode='proxy'` on D1; wait 3 s; through `api.akldb.org`: `X-Akldb-Backend: aws`, `meta.seq` = D1's, a write answers 503 read_only **from AWS** | headers, probe |
-| 9 | `open` | needs verify + image + serve + proxy done and the log's image = the verified one (CV2); the operator appends `DELETE FROM import_state WHERE key = 'cutover.mode'`; then a write probe is no longer 503 | open seq, **write pause** |
+| 9 | `open` | needs verify + image + serve + proxy done and the log's image = the verified one (CV16); the operator appends `DELETE FROM import_state WHERE key = 'cutover.mode'`; then a write probe is no longer 503 | open seq, **write pause** |
 | 10 | `post-smoke` | a signed write (ops client), `If-Match` 412 on a stale rev, `/v1/changes?since=<D1 last seq>` continues at the counter + 1 and is contiguous, `If-None-Match` 304 | each check |
 | 11 | `report` | markdown: timings per step, the write pause, every proof | `report.md` |
 

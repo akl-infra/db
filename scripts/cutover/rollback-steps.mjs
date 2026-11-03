@@ -1,4 +1,4 @@
-// The rollback plan (LDB-CV4, CV11): AWS back to Cloudflare. Pure orchestration over the same ports as the cutover.
+// The rollback plan (LDB-CV18, CV11): AWS back to Cloudflare. Pure orchestration over the same ports as the cutover.
 //
 // Two variants, decided by the first step from the AWS log:
 //   original-d1  AWS head is 1: the image is the only entry, no write reached AWS (the `open` step never ran). The ORIGINAL D1 is
@@ -123,7 +123,7 @@ export function steps(o) {
     },
     {
       id: "d1-prove",
-      title: "[original-d1] prove the original D1 still equals the image (CV4): every table's count and checksum, meta.seq, the events counter",
+      title: "[original-d1] prove the original D1 still equals the image (CV18): every table's count and checksum, meta.seq, the events counter",
       commands: () => [`wrangler d1 execute ${o.d1Name} --remote --json --command "SELECT rowid AS __rid, * FROM <table> ..."   # per table, paged`],
       skip: onlyOriginal,
       async run(c) {
@@ -186,7 +186,7 @@ export function steps(o) {
     },
     {
       id: "verify",
-      title: "[fresh-d1] prove the fresh D1 equals the captured database (CV4): counts, checksums, meta.seq, the events counter",
+      title: "[fresh-d1] prove the fresh D1 equals the captured database (CV18): counts, checksums, meta.seq, the events counter",
       commands: () => [`wrangler d1 execute ${o.newD1Name} --remote --json --command "SELECT rowid AS __rid, * FROM <table> ..."   # per table, paged`],
       skip: onlyFresh,
       async run(c) {
@@ -196,7 +196,7 @@ export function steps(o) {
         const pos = await feedPosition((sql) => c.ports.d1.select(sql, name));
         const problems = cmp.diffs.map((d) => `${d.table}: ${d.field} aws ${d.aws} != d1 ${d.d1}`);
         if (pos.metaSeq !== c.data.captureFeed.metaSeq) problems.push(`meta.seq: aws ${c.data.captureFeed.metaSeq} != fresh d1 ${pos.metaSeq}`);
-        if (pos.eventsCounter !== c.data.captureFeed.eventsCounter) problems.push(`next-seq rule (CV3): sqlite_sequence for events aws ${c.data.captureFeed.eventsCounter} != fresh d1 ${pos.eventsCounter}`);
+        if (pos.eventsCounter !== c.data.captureFeed.eventsCounter) problems.push(`next-seq rule (CV17): sqlite_sequence for events aws ${c.data.captureFeed.eventsCounter} != fresh d1 ${pos.eventsCounter}`);
         if (problems.length > 0) {
           const e = new Error(`the fresh D1 does not equal AWS: ${problems.slice(0, 6).join(" | ")}. If the import was interrupted, delete it (wrangler d1 delete ${name}) and re-run from create-d1`);
           e.proof = { ok: false, problems };
@@ -233,7 +233,7 @@ export function steps(o) {
       async precondition(c) {
         const prove = original(c) ? "d1-prove" : "verify";
         const p = c.state.steps[prove];
-        need(p?.status === "done" && p.proof?.ok === true, `CV4: writes reopen on D1 only after ${prove} proved it equal to AWS`);
+        need(p?.status === "done" && p.proof?.ok === true, `CV18: writes reopen on D1 only after ${prove} proved it equal to AWS`);
         if (!original(c)) need(c.state.steps["point-worker"]?.status === "done", "the Worker has not been pointed at the fresh D1");
       },
       async run(c) {

@@ -1,4 +1,4 @@
-// [LDB-CV2] [LDB-CV3] [LDB-CV11] The cutover machine (scripts/cutover/run.mjs, cutover-steps.mjs, machine.mjs) against a fake world: D1 and a
+// [LDB-CV16] [LDB-CV17] [LDB-CV11] The cutover machine (scripts/cutover/run.mjs, cutover-steps.mjs, machine.mjs) against a fake world: D1 and a
 // Worker with the cutover modes, the AWS stack on the REAL replica, memory log and the REAL Lambda handler. No network, no process.
 import fs from "node:fs";
 import path from "node:path";
@@ -124,7 +124,7 @@ describe("the machine (CV11)", () => {
     expect(md).toContain("# akldb cutover report");
     expect(md).toMatch(/\*\*\d+ ms\*\* \(\d+\.\d s\) from the freeze write to the unit that cleared/);
     for (const id of STEP_IDS.slice(0, -1)) expect(md, id).toMatch(new RegExp(`\\| ${id} \\| done \\| \\d+ \\|`));
-    expect(md).toContain("### verify (CV2, CV3)");
+    expect(md).toContain("### verify (CV16, CV17)");
     expect(md).toMatch(/\| churn \| \d+ \| `[0-9a-f]{16}` \|/);
     expect(md).toContain("meta.seq 12; sqlite_sequence for events 14 (the next event is seq 15)");
     for (const id of ["preflight", "freeze", "export", "load", "image", "serve", "proxy", "open", "post-smoke"]) expect(md, id).toContain(`### ${id}`);
@@ -237,7 +237,7 @@ describe("each step's precondition stops the run with a clear message (CV11)", (
 
   it("[LDB-CV11] image, serve, proxy and open refuse to run before what they depend on", async () => {
     await until("export");
-    await fails(await w.cutover(["--execute", "--only", "image"]), /CV2: the image is appended only after verify passed/, "image");
+    await fails(await w.cutover(["--execute", "--only", "image"]), /CV16: the image is appended only after verify passed/, "image");
     cleanup(w);
     await until("verify");
     // another image already at seq 1
@@ -249,7 +249,7 @@ describe("each step's precondition stops the run with a clear message (CV11)", (
     cleanup(w);
     await until("image");
     await fails(await w.cutover(["--execute", "--only", "proxy"]), /the prod stack has not been proven to serve/, "proxy");
-    await fails(await w.cutover(["--execute", "--only", "open"]), /CV2: writes open only after serve is done/, "open");
+    await fails(await w.cutover(["--execute", "--only", "open"]), /CV16: writes open only after serve is done/, "open");
     expect(entries()).toHaveLength(1); // still only the image
   });
 
@@ -326,8 +326,8 @@ describe("resume from every step (CV11)", () => {
   });
 });
 
-describe("CV2: writes open only after the proof", () => {
-  it("[LDB-CV2] a failed verify keeps AWS empty and frozen: image and open refuse, whatever the state file says", async () => {
+describe("CV16: writes open only after the proof", () => {
+  it("[LDB-CV16] a failed verify keeps AWS empty and frozen: image and open refuse, whatever the state file says", async () => {
     w = await makeWorld();
     await w.cutoverUntil("load");
     w.d1().exec("UPDATE churn SET v = 'changed after the export' WHERE id = 1");
@@ -338,7 +338,7 @@ describe("CV2: writes open only after the proof", () => {
     for (const id of ["image", "open"]) {
       const r = await w.cutover(["--execute", "--only", id]);
       expect(r.code, id).toBe(1);
-      expect(text(r)).toMatch(/CV2/);
+      expect(text(r)).toMatch(/CV16/);
     }
     expect(entries()).toHaveLength(0);
     // forging the state (verify "done" but not ok) does not help
@@ -347,25 +347,25 @@ describe("CV2: writes open only after the proof", () => {
     fs.writeFileSync(w.stateFile, JSON.stringify(st));
     const forged = await w.cutover(["--execute", "--only", "image"]);
     expect(forged.code).toBe(1);
-    expect(text(forged)).toMatch(/CV2/);
+    expect(text(forged)).toMatch(/CV16/);
     expect(entries()).toHaveLength(0);
     expect(w.calls.includes("aws.operator.appendImage")).toBe(false);
     expect(w.calls.includes("aws.operator.runUnit")).toBe(false);
   });
 
-  it("[LDB-CV2] open refuses when the image in the log is not the one verify proved", async () => {
+  it("[LDB-CV16] open refuses when the image in the log is not the one verify proved", async () => {
     await until("proxy");
     const st = w.state();
     st.data.imageSha = "0".repeat(64);
     fs.writeFileSync(w.stateFile, JSON.stringify(st));
     const r = await w.cutover(["--execute", "--only", "open"]);
     expect(r.code).toBe(1);
-    expect(text(r)).toContain("CV2: the image in the AWS log is not the one verify proved");
+    expect(text(r)).toContain("CV16: the image in the AWS log is not the one verify proved");
     expect(await w.operator.readFlag()).toBe("read_only");
     expect(entries()).toHaveLength(1);
   });
 
-  it("[LDB-CV2] the writes were refused from the freeze to the open, on both sides, and accepted after", async () => {
+  it("[LDB-CV16] the writes were refused from the freeze to the open, on both sides, and accepted after", async () => {
     await until("export");
     const probe = async (url: string) => (await w.ports.http.request(`${url}/v1/layouts`, { method: "POST", body: "" })).status;
     expect(await probe("https://api.akldb.org")).toBe(503); // frozen D1
@@ -377,7 +377,7 @@ describe("CV2: writes open only after the proof", () => {
   });
 });
 
-describe("CV3: verify catches every kind of difference", () => {
+describe("CV17: verify catches every kind of difference", () => {
   const verifyAfter = async (mutate: (w: World) => void, fromLoad = false) => {
     w = await makeWorld();
     await w.cutoverUntil(fromLoad ? "load" : "export");
@@ -389,7 +389,7 @@ describe("CV3: verify catches every kind of difference", () => {
     return w.state().steps.verify.message as string;
   };
 
-  it("[LDB-CV3] a count mismatch (a row D1 gained after the export)", async () => {
+  it("[LDB-CV17] a count mismatch (a row D1 gained after the export)", async () => {
     let n = 0;
     const m = await verifyAfter((w) => {
       n = Number((w.d1().prepare("SELECT count(*) AS n FROM churn").get() as { n: number }).n);
@@ -398,30 +398,30 @@ describe("CV3: verify catches every kind of difference", () => {
     expect(m).toContain(`churn: count sqlite ${n} != d1 ${n + 1}`);
   });
 
-  it("[LDB-CV3] a checksum mismatch (the same count, one value different)", async () => {
+  it("[LDB-CV17] a checksum mismatch (the same count, one value different)", async () => {
     const m = await verifyAfter((w) => w.d1().exec("UPDATE authors SET name = 'Ada' WHERE user_id = 'u0'"));
     expect(m).toMatch(/authors: checksum sqlite [0-9a-f]{64} != d1 [0-9a-f]{64}/);
     expect(m).not.toContain("count");
   });
 
-  it("[LDB-CV3] a meta.seq mismatch (an event D1 gained after the export)", async () => {
+  it("[LDB-CV17] a meta.seq mismatch (an event D1 gained after the export)", async () => {
     const m = await verifyAfter((w) => w.d1().exec("INSERT INTO events (at, kind, actor, via) VALUES ('2026-11-04T09:00:00Z', 'layout.created', 'u', 'api')"));
     expect(m).toContain("meta.seq: sqlite 12 != d1 15"); // the new event took the counter's next value, 15
   });
 
-  it("[LDB-CV3] a next-seq mismatch (D1's AUTOINCREMENT counter moved: an event inserted and deleted again)", async () => {
+  it("[LDB-CV17] a next-seq mismatch (D1's AUTOINCREMENT counter moved: an event inserted and deleted again)", async () => {
     const m = await verifyAfter((w) => w.d1().exec("INSERT INTO events (at, kind, actor, via) VALUES ('x', 'k', 'a', 'v'); DELETE FROM events WHERE kind = 'k'"), true);
-    expect(m).toContain("next-seq rule (CV3): sqlite_sequence for events is 14, D1's is 15");
+    expect(m).toContain("next-seq rule (CV17): sqlite_sequence for events is 14, D1's is 15");
     expect(m).toContain("sqlite_sequence: checksum");
     expect(m).not.toContain("meta.seq");
   });
 
-  it("[LDB-CV3] a schema difference (an index D1 has and the export lacks)", async () => {
+  it("[LDB-CV17] a schema difference (an index D1 has and the export lacks)", async () => {
     const m = await verifyAfter((w) => w.d1().exec("CREATE INDEX stray ON churn(n)"), true);
     expect(m).toContain("schema: index stray is on D1 but not in the export");
   });
 
-  it("[LDB-CV3] an export without sqlite_sequence: the load step raises the counters from D1 (only ever up) and says so; verify passes and the next event is last+gap+1", async () => {
+  it("[LDB-CV17] an export without sqlite_sequence: the load step raises the counters from D1 (only ever up) and says so; verify passes and the next event is last+gap+1", async () => {
     w = await makeWorld({ faults: { exportDropsSequence: true } });
     const r = await w.cutover();
     expect(r.code, text(r)).toBe(0);
@@ -432,7 +432,7 @@ describe("CV3: verify catches every kind of difference", () => {
     expect(w.state().steps["post-smoke"].proof.feed).toMatchObject({ since: 12, expectedFirst: 15, first: 15 });
   });
 
-  it("[LDB-CV3] feed contiguity is checked against D1's counter after the flip", async () => {
+  it("[LDB-CV17] feed contiguity is checked against D1's counter after the flip", async () => {
     w = await makeWorld();
     expect((await w.cutover()).code).toBe(0);
     const aws = await w.awsReplica();
