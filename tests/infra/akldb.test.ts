@@ -38,6 +38,8 @@ describe("template lint and guard (AX1)", () => {
       ["Runtime: nodejs24.x", "Runtime: nodejs20.x"],
       ["Architectures: [ arm64 ]", "Architectures: [ x86_64 ]"],
       ["- dynamodb:GetItem\n", "- dynamodb:*\n"],
+      ["      RoleName: !Sub akldb-${Stage}-api\n      PermissionsBoundary: !ImportValue akldb-boundary-arn\n", "      RoleName: !Sub akldb-${Stage}-api\n"],
+      ["      PermissionsBoundary: !ImportValue akldb-boundary-arn\n", "      PermissionsBoundary: arn:aws:iam::335937358231:policy/other\n"],
       ["PointInTimeRecoveryEnabled: true", "PointInTimeRecoveryEnabled: false"],
       ["DeletionProtectionEnabled: true", "DeletionProtectionEnabled: false"],
       ["DeletionProtectionEnabled: false", "DeletionProtectionEnabled: true"],
@@ -175,16 +177,17 @@ describe("template lint and guard (AX1)", () => {
     expect(role.AssumeRolePolicyDocument.Statement).toHaveLength(1);
     expect(role.AssumeRolePolicyDocument.Statement[0].Principal.AWS["Fn::Sub"]).toBe("arn:aws:iam::${AWS::AccountId}:user/akldb-ci");
     const stmts = role.Policies[0].PolicyDocument.Statement as Json[];
-    const actions = stmts.flatMap((s) => list(s.Action));
-    for (const forbidden of ["cloudformation:DeleteStack", "iam:CreateUser", "iam:CreateAccessKey", "iam:CreateOpenIDConnectProvider", "iam:AttachRolePolicy", "iam:PutUserPolicy", "iam:CreatePolicy", "sts:AssumeRole"]) {
+    const allow = stmts.filter((s) => s.Effect === "Allow");
+    const actions = allow.flatMap((s) => list(s.Action));
+    for (const forbidden of ["cloudformation:DeleteStack", "iam:CreateUser", "iam:CreateAccessKey", "iam:CreateOpenIDConnectProvider", "iam:AttachRolePolicy", "iam:PutUserPolicy", "iam:CreatePolicy", "iam:CreatePolicyVersion", "iam:DeleteRolePermissionsBoundary", "sts:AssumeRole"]) {
       expect(actions, forbidden).not.toContain(forbidden);
     }
     expect(actions.filter((a: string) => /^iam:/.test(a)).every((a: string) => /Role|PassRole/.test(a))).toBe(true);
     expect(actions.filter((a: string) => a.includes("*"))).toEqual(["lambda:*"]);
     // Resource "*" only for the actions AWS cannot scope.
-    const star = stmts.filter((s) => list(s.Resource).includes("*")).flatMap((s) => list(s.Action)).sort();
+    const star = allow.filter((s) => list(s.Resource).includes("*")).flatMap((s) => list(s.Action)).sort();
     expect(star).toEqual(["acm:AddTagsToCertificate", "acm:DescribeCertificate", "acm:ListTagsForCertificate", "acm:RequestCertificate", "cloudformation:ValidateTemplate", "cloudwatch:DescribeAlarms", "logs:DescribeLogGroups"]);
-    for (const s of stmts.filter((x) => !list(x.Resource).includes("*"))) {
+    for (const s of allow.filter((x) => !list(x.Resource).includes("*"))) {
       for (const r of list(s.Resource)) {
         const text = typeof r === "string" ? r : JSON.stringify(r);
         expect(text, s.Sid).toMatch(/akldb-|ArtifactsBucket|\/apis|\/domainnames|\/tags/);
@@ -197,6 +200,62 @@ describe("template lint and guard (AX1)", () => {
     expect(art.Properties.VersioningConfiguration.Status).toBe("Enabled");
     expect(art.Properties.BucketEncryption.ServerSideEncryptionConfiguration[0].ServerSideEncryptionByDefault.SSEAlgorithm).toBe("AES256");
     expect(Object.values(art.Properties.PublicAccessBlockConfiguration)).toEqual([true, true, true, true]);
+  });
+
+  it("[LDB-AX1] the deploy role makes a role only with akldb-boundary as its boundary, and can neither remove it nor edit the policy", () => {
+    const stmts = boot.Resources.DeployRole.Properties.Policies[0].PolicyDocument.Statement as Json[];
+    const byAction = (a: string) => stmts.filter((s) => list(s.Action).includes(a));
+    // iam:CreateRole and iam:PutRolePermissionsBoundary appear once each, in one statement, behind the condition
+    for (const a of ["iam:CreateRole", "iam:PutRolePermissionsBoundary"]) expect(byAction(a).map((s) => s.Sid), a).toEqual(["RolesWithBoundary"]);
+    const cond = stmts.find((s) => s.Sid === "RolesWithBoundary")!;
+    expect(cond.Effect).toBe("Allow");
+    expect(cond.Action).toEqual(["iam:CreateRole", "iam:PutRolePermissionsBoundary"]);
+    expect(cond.Condition).toEqual({ StringEquals: { "iam:PermissionsBoundary": { Ref: "DeployBoundary" } } });
+    expect(cond.Resource).toEqual({ "Fn::Sub": "arn:aws:iam::${AWS::AccountId}:role/akldb-*" });
+    expect(stmts.find((s) => s.Sid === "NeverRemoveTheBoundary")).toEqual({ Sid: "NeverRemoveTheBoundary", Effect: "Deny", Action: "iam:DeleteRolePermissionsBoundary", Resource: "*" });
+    const deny = stmts.find((s) => s.Sid === "NeverChangeTheBoundaryPolicy")!;
+    expect(deny.Effect).toBe("Deny");
+    expect(deny.Action).toEqual(["iam:CreatePolicyVersion", "iam:SetDefaultPolicyVersion", "iam:DeletePolicyVersion", "iam:DeletePolicy"]);
+    expect(deny.Resource).toEqual({ Ref: "DeployBoundary" });
+    expect(boot.Outputs.BoundaryArn).toEqual({ Description: expect.any(String), Value: { Ref: "DeployBoundary" }, Export: { Name: "akldb-boundary-arn" } });
+  });
+
+  it("[LDB-AX1] the boundary allows only what the function and scheduler roles need, all on akldb-* names; every role in the stack sets it; a role without it is rejected", () => {
+    const pol = boot.Resources.DeployBoundary.Properties;
+    expect(pol.ManagedPolicyName).toBe("akldb-boundary");
+    const bs = pol.PolicyDocument.Statement as Json[];
+    expect(bs.every((s) => s.Effect === "Allow")).toBe(true);
+    const allowedActions = new Set(bs.flatMap((s) => list(s.Action)));
+    expect([...allowedActions].every((a) => !a.includes("*"))).toBe(true);
+    for (const s of bs) for (const r of list(s.Resource)) expect(JSON.stringify(r), s.Sid).toMatch(/akldb-\*|parameter\/akldb\/\*/);
+    expect([...allowedActions].sort()).toEqual([
+      "dynamodb:ConditionCheckItem", "dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:Query", "dynamodb:UpdateItem",
+      "lambda:InvokeFunction", "logs:CreateLogStream", "logs:PutLogEvents", "s3:DeleteObject", "s3:GetObject", "s3:ListBucket", "s3:PutObject",
+      "ssm:GetParameter", "ssm:GetParameters",
+    ]);
+    // nothing the stack's roles are granted falls outside the boundary
+    for (const stage of stages) {
+      for (const [name, doc] of policyDocs(resolveStage(t, stage).resources)) {
+        for (const s of doc.Statement as Json[]) for (const a of list(s.Action)) expect(allowedActions.has(a), `${name}: ${a}`).toBe(true);
+      }
+      const roles = Object.entries(resolveStage(t, stage).resources).filter(([, r]) => r.Type === "AWS::IAM::Role");
+      expect(roles.length).toBeGreaterThanOrEqual(2);
+      for (const [id, r] of roles) expect(r.Properties.PermissionsBoundary, id).toEqual({ "Fn::ImportValue": "akldb-boundary-arn" });
+    }
+    const m = clone(t);
+    delete m.Resources.ApiRole.Properties.PermissionsBoundary;
+    expect(violations(m, "staging").some((x) => /ApiRole: no permissions boundary/.test(x))).toBe(true);
+    const other = clone(t);
+    other.Resources.SchedulerRole.Properties.PermissionsBoundary = "arn:aws:iam::335937358231:policy/other";
+    expect(violations(other, "prod").some((x) => /SchedulerRole: no permissions boundary/.test(x))).toBe(true);
+  });
+
+  it("[LDB-AX1] updating the bootstrap stack in place replaces nothing: its logical ids and physical names are unchanged", () => {
+    expect(Object.keys(boot.Resources).sort()).toEqual(["ArtifactsBucket", "ArtifactsBucketPolicy", "DeployBoundary", "DeployRole"]);
+    expect(boot.Resources.ArtifactsBucket.Properties.BucketName).toEqual({ "Fn::Sub": "akldb-artifacts-${AWS::AccountId}" });
+    expect(boot.Resources.DeployRole.Properties.RoleName).toBe("akldb-deploy");
+    expect(boot.Resources.ArtifactsBucket.DeletionPolicy).toBe("Retain");
+    expect(Object.keys(boot.Outputs).sort()).toEqual(["ArtifactsBucket", "BoundaryArn", "DeployRoleArn"]);
   });
 
   it("[LDB-AX1] the deploy script makes no AWS call outside the deploy flow (no create-*, put-*, delete-* beyond the change set)", () => {
