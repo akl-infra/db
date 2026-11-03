@@ -11,7 +11,9 @@
 // with the same determinism overrides as the oracle. Between sequences the candidate is rebuilt from the same reset
 // script the oracle gets; /__lab/restart models a cold container (a new replica replaying the whole log, hash-checked);
 // /__lab/check proves the replica equals a fresh replay of a gap-free log. `faultRate` injects log conflicts, throttles
-// and timeouts before and after the commit.
+// and timeouts before and after the commit. `restartEvery` / `restartMode` add the snapshot-restart dimension (phase B): after
+// every Nth step the candidate restarts through the real boot path (pointer, prev, daily or replay; see node-lab-server.ts),
+// and the restart is followed by the full state diff and the catalog/index check.
 //
 // `mode: "self"` runs a second D1 Worker in place of the shim: a determinism
 // check of the lab entry, the generator and the differ themselves.
@@ -184,6 +186,20 @@ async function startD1(o) {
   };
 }
 
+export const RESTART_MODES = ["pointer", "prev", "daily", "replay"];
+
+/**
+ * The restart after step `i` of `sequence`, or null. A pure function of (seed, sequence, step): the step counter runs across
+ * sequences (sequence * steps + i), so a restart lands at the same place with `--seeds s --from i --sequences 1`. "mixed"
+ * rotates through the four modes in restart order, from a seeded starting point.
+ */
+export function restartPlan(o, seed, sequence, i) {
+  if (!(o.restartEvery > 0) || (sequence * o.steps + i + 1) % o.restartEvery !== 0) return null;
+  const rng = makeRng(mixSeed(seed, 5, sequence, i));
+  const mode = o.restartMode === "mixed" ? RESTART_MODES[((mixSeed(seed, 6) >>> 0) + Math.floor((sequence * o.steps + i + 1) / o.restartEvery)) % RESTART_MODES.length] : o.restartMode;
+  return { mode, fresh: rng.chance(0.5), variant: rng.int(0, 15) };
+}
+
 async function startShim(o) {
   const child = spawnLogged(
     process.execPath,
@@ -213,8 +229,8 @@ async function startShim(o) {
     url: base,
     lab,
     check: () => lab("GET", "/__lab/check"),
-    restart: () => lab("POST", "/__lab/restart"),
-    reset: (script) => lab("POST", "/__lab/reset", script),
+    restart: (body) => lab("POST", "/__lab/restart", body ?? {}),
+    reset: (script) => lab("POST", "/__lab/reset", o.snapshots ? { ...script, snapshots: true } : script),
     state: () => lab("GET", "/__lab/export"),
     stats: () => lab("GET", "/__lab/stats"),
     stop: () => stopChild(child),
@@ -294,6 +310,8 @@ async function compareProducedDumps(A, B) {
  * @param {string} [o.ddbEndpoint]  DynamoDB Local for shimLog "ddb" (default http://127.0.0.1:18407)
  * @param {number[]} [o.ports]      [oracle D1, DDB server (or second D1), fake Discord, spare]
  * @param {number} [o.faultRate]    total rate of injected log faults on the shim side (conflict, throttle, timeout before/after the commit)
+ * @param {number} [o.restartEvery] mode "shim": restart the candidate through the real boot path after every Nth step (counted across sequences)
+ * @param {"pointer"|"prev"|"daily"|"replay"|"mixed"} [o.restartMode] which boot path (default mixed: a seeded rotation over all four)
  * @param {number} [o.checkEvery]   /__lab/check every N steps (default 1)
  * @param {number} [o.stateEvery]   full state diff every N sequences (default 1)
  * @param {string[]} [o.ignoreTables]
@@ -313,6 +331,11 @@ export async function runFuzz(o) {
   const checkEvery = o.checkEvery ?? 1;
   const stateEvery = o.stateEvery ?? 1;
   const maxDiffs = o.maxDiffs ?? 20;
+  const restartEvery = o.restartEvery ?? 0;
+  const restartMode = o.restartMode ?? "mixed";
+  if (restartEvery > 0 && mode !== "shim") throw new Error("--restart-every needs --mode shim");
+  if (restartMode !== "mixed" && !RESTART_MODES.includes(restartMode)) throw new Error(`unknown restart mode '${restartMode}' (pointer | prev | daily | replay | mixed)`);
+  const plan = { restartEvery, restartMode, steps: o.steps };
   const ignore = o.ignoreTables ?? [];
   const endpoint = o.ddbEndpoint ?? (mode === "shim" ? "http://127.0.0.1:18407" : "http://127.0.0.1:18307");
 
@@ -332,9 +355,9 @@ export async function runFuzz(o) {
   const tableHashes = (st) => Object.fromEntries(Object.keys(st).sort().map((t) => [t, sha(JSON.stringify(st[t].map(canonRow).sort()))]));
   const canonState = (st) => JSON.stringify(Object.keys(st).sort().map((t) => [t, st[t].map(canonRow).sort()]));
 
-  const report = { mode, seeds: o.seeds, from, sequences: o.sequences, sequences_run: 0, reset_ms: 0, steps: o.steps, requests: 0, steps_run: 0, checks: 0, state_diffs_run: 0, diffs: [], by_label: {}, statuses: {}, ok_by_label: {}, started: new Date().toISOString() };
+  const report = { mode, seeds: o.seeds, from, sequences: o.sequences, sequences_run: 0, reset_ms: 0, steps: o.steps, requests: 0, steps_run: 0, checks: 0, state_diffs_run: 0, diffs: [], restarts: { every: restartEvery, mode: restartMode, by_mode: {}, by_path: {}, state_diffs: 0, checks: 0 }, by_label: {}, statuses: {}, ok_by_label: {}, started: new Date().toISOString() };
   const addDiff = (d) => {
-    d.repro = `node scripts/lab/fuzz/fuzz.mjs --seeds ${d.seed} --from ${d.sequence} --sequences 1 --steps ${o.steps}${mode === "self" ? " --mode self" : mode === "shim" ? ` --mode shim${o.shimLog === "ddb" ? " --shim-log ddb" : ""}${o.faultRate ? ` --fault-rate ${o.faultRate}` : ""}` : ""}`;
+    d.repro = `node scripts/lab/fuzz/fuzz.mjs --seeds ${d.seed} --from ${d.sequence} --sequences 1 --steps ${o.steps}${mode === "self" ? " --mode self" : mode === "shim" ? ` --mode shim${o.shimLog === "ddb" ? " --shim-log ddb" : ""}${o.faultRate ? ` --fault-rate ${o.faultRate}` : ""}${restartEvery > 0 ? ` --restart-every ${restartEvery} --restart-mode ${restartMode}` : ""}` : ""}`;
     report.diffs.push(d);
     log(`DIFF seed ${d.seed} seq ${d.sequence} step ${d.step} ${d.kind}: ${d.label ?? ""} ${(d.problems ?? []).join(" | ").slice(0, 400)}`);
   };
@@ -348,7 +371,7 @@ export async function runFuzz(o) {
         B =
           mode === "self"
             ? await startD1({ name: "d1-other", port: portB, workDir, outDir, template, discord: discordUrl })
-            : await startShim({ port: portB, ddb: o.shimLog === "ddb" ? endpoint : undefined, outDir, discord: discordUrl, faultRate: o.faultRate ?? 0, faultSeed: mixSeed(seed, 77) });
+            : await startShim({ port: portB, ddb: o.shimLog === "ddb" ? endpoint : undefined, snapshots: restartEvery > 0 && restartMode !== "replay", outDir, discord: discordUrl, faultRate: o.faultRate ?? 0, faultSeed: mixSeed(seed, 77) });
         const resetB = () => B.reset(template.resetScript);
         // the reset must land exactly on the template: compare the oracle's rows with the freshly built one
         const verifyTemplate = async (a) => {
@@ -427,6 +450,24 @@ export async function runFuzz(o) {
               report.checks++;
               const c = await B.check();
               if (!c.ok) addDiff({ seed, sequence, step: stepNo, kind: "check", label: step.label, problems: c.problems });
+            }
+
+            // The snapshot-restart dimension: a cold container through the real boot path, then the full state diff and the
+            // catalog/index check. The boot path actually taken must be the one asked for.
+            const rp = restartPlan(plan, seed, sequence, i);
+            if (rp !== null && B.kind === "shim") {
+              const r = await B.restart(rp);
+              report.restarts.by_mode[rp.mode] = (report.restarts.by_mode[rp.mode] ?? 0) + 1;
+              report.restarts.by_path[r.path] = (report.restarts.by_path[r.path] ?? 0) + 1;
+              const bad = (problems) => addDiff({ seed, sequence, step: stepNo, kind: "restart", restart_mode: rp.mode, label: step.label, problems });
+              if (!r.match) bad(r.problems);
+              const [sa, sb] = [await A.state(), await B.state()];
+              report.restarts.state_diffs++;
+              const sd = diffStates(maskStateRows(sa), maskStateRows(sb), ignore);
+              if (sd.length > 0) bad(sd.map((d) => `state after restart: ${d.table}: ${d.rows[0]} vs ${d.rows[1]} rows; oracle-only ${JSON.stringify(d.only_oracle)}; other-only ${JSON.stringify(d.only_other)}`));
+              report.restarts.checks++;
+              const c = await B.check();
+              if (!c.ok) bad(c.problems.map((p) => `check after restart: ${p}`));
             }
           }
           if ((sequence - from + 1) % stateEvery === 0 || sequence === from + o.sequences - 1) {
