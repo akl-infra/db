@@ -432,6 +432,16 @@ describe("CV17: verify catches every kind of difference", () => {
     expect(w.state().steps["post-smoke"].proof.feed).toMatchObject({ since: 12, expectedFirst: 15, first: 15 });
   });
 
+  it("[LDB-CV21] an export that lists the triggers before the rows loads to D1's exact values: verify passes, the head counters are not doubled", async () => {
+    w = await makeWorld({ faults: { exportTriggersFirst: true } });
+    const r = await w.cutover();
+    expect(r.code, text(r)).toBe(0);
+    const exported = fs.readFileSync(path.join(w.dir, "work", "export.sql"), "utf8");
+    expect(exported.indexOf("CREATE TRIGGER")).toBeLessThan(exported.indexOf("INSERT INTO")); // the export really is in the naive order
+    const aws = await w.awsReplica();
+    expect(aws.db.prepare("SELECT version FROM authors_head").get()).toEqual(w.d1().prepare("SELECT version FROM authors_head").get());
+  });
+
   it("[LDB-CV17] feed contiguity is checked against D1's counter after the flip", async () => {
     w = await makeWorld();
     expect((await w.cutover()).code).toBe(0);

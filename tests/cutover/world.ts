@@ -16,7 +16,7 @@ import { main as rollbackMain } from "../../scripts/cutover/rollback.mjs";
 // @ts-expect-error -- plain scripts, no .d.ts
 import { createOperator } from "../../scripts/cutover/operator.mjs";
 // @ts-expect-error -- plain scripts, no .d.ts
-import { dumpToSql } from "../../scripts/cutover/sqlfile.mjs";
+import { dumpToSql, splitStatements } from "../../scripts/cutover/sqlfile.mjs";
 import { createLambdaHandler } from "../../src/platform/lambda";
 import type { Aws } from "../../src/platform/lambda-aws";
 import { memoryBlobs } from "../../src/platform/node";
@@ -145,6 +145,8 @@ export interface Faults {
   importDropsRow?: boolean;
   /** `wrangler d1 create` repoints the Worker at the new database at once (a PR merged and deployed in no time). */
   autoPoint?: boolean;
+  /** The export lists CREATE TRIGGER before the rows (schema order, as D1 does). */
+  exportTriggersFirst?: boolean;
   /** No R2 token in the environment. */
   noR2Token?: boolean;
   /** One R2 object arrives damaged. */
@@ -366,6 +368,14 @@ export async function makeWorld(init: { faults?: Faults; events?: number; churnR
       }),
       exportTo: track("d1.exportTo", (db: string, file: string) => {
         let sql: string = dumpToSql(w.dbs.get(db)!);
+        if (w.faults.exportTriggersFirst) {
+          // D1 emits CREATE TRIGGER in schema order: right after the tables, before any row
+          const parts: string[] = splitStatements(sql);
+          const trig = parts.filter((p) => /^CREATE TRIGGER/i.test(p));
+          const rest = parts.filter((p) => !/^CREATE TRIGGER/i.test(p));
+          const firstInsert = rest.findIndex((p) => /^INSERT/i.test(p));
+          sql = [...rest.slice(0, firstInsert), ...trig, ...rest.slice(firstInsert)].map((p) => `${p};`).join("\n") + "\n";
+        }
         if (w.faults.exportDropsSequence) sql = sql.split("\n").filter((l) => !/sqlite_sequence/.test(l)).join("\n");
         fs.writeFileSync(file, sql);
       }),
