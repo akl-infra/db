@@ -23,7 +23,7 @@
 # DISCORD_API_URL but its fake) and its "ship" list names the directories the zip carries (shadow adds migrations-shadow/).
 #
 # Settings read from the environment: ALARM_EMAIL (required on the first deploy; later deploys keep the stack's value),
-# RESERVED_CONCURRENCY, KEEP_WARM, DISCORD_API_URL, AWAIT_IMAGE (auto|0|1: prod awaits its cutover image by default, LDB-CV12;
+# DOMAIN_NAME (prod only: aws-api.akldb.org for the cutover, api.akldb.org after the DNS step), RESERVED_CONCURRENCY, KEEP_WARM, DISCORD_API_URL, AWAIT_IMAGE (auto|0|1: prod awaits its cutover image by default, LDB-CV12;
 # the staging rehearsal sets 1) (each keeps the stack's current value when unset), CERTIFICATE_ARN
 # (default: the output of the akldb-cert-<stage> stack). CF_PURGE_TOKEN + CF_ZONE_ID turn on step 8 (zone akldb.org, Cache Purge only).
 set -eu
@@ -52,7 +52,12 @@ done
 case "$STAGE" in
   staging) DOMAIN=staging-api.akldb.org ;;
   shadow) DOMAIN=shadow-api.akldb.org ;;
-  prod) DOMAIN=api.akldb.org ;;
+  prod)
+    DOMAIN=api.akldb.org
+    # The cutover serves prod from aws-api.akldb.org while the Worker still owns api.akldb.org (design/aws-a-cutover.md); the DNS step
+    # then updates the stack with DOMAIN_NAME unset. Its certificate is the akldb-cert-aws-api stack (CERT_STACK below).
+    case "${DOMAIN_NAME:-}" in "" | api.akldb.org) ;; aws-api.akldb.org) DOMAIN=aws-api.akldb.org ;; *) echo "DOMAIN_NAME must be api.akldb.org or aws-api.akldb.org for prod (got $DOMAIN_NAME)" >&2; exit 2 ;; esac
+    ;;
   *) echo "usage: deploy-aws.sh --stage staging|shadow|prod [--profile NAME] [--execute] [--dry-run]   (stage: '$STAGE')" >&2; exit 2 ;;
 esac
 
@@ -191,9 +196,11 @@ current() { # current NAME DEFAULT
   fi
   printf '%s' "$2"
 }
+CERT_STACK="akldb-cert-$STAGE"
+[ "$DOMAIN" = aws-api.akldb.org ] && CERT_STACK="akldb-cert-aws-api"
 CERT="${CERTIFICATE_ARN:-}"
 if [ -z "$CERT" ]; then
-  CERT="$(cap "arn:aws:acm:$REGION:$ACCOUNT:certificate/00000000-0000-0000-0000-000000000000" $AWS cloudformation describe-stacks --stack-name "akldb-cert-$STAGE" \
+  CERT="$(cap "arn:aws:acm:$REGION:$ACCOUNT:certificate/00000000-0000-0000-0000-000000000000" $AWS cloudformation describe-stacks --stack-name "$CERT_STACK" \
     --query "Stacks[0].Outputs[?OutputKey=='CertificateArn'].OutputValue | [0]" --output text)"
 fi
 EMAIL="${ALARM_EMAIL:-$(current AlarmEmail '')}"

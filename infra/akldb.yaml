@@ -14,7 +14,7 @@ Parameters:
     AllowedValues: [ staging, shadow, prod ]
   DomainName:
     Type: String
-    AllowedValues: [ staging-api.akldb.org, shadow-api.akldb.org, api.akldb.org ]
+    AllowedValues: [ staging-api.akldb.org, shadow-api.akldb.org, api.akldb.org, aws-api.akldb.org ]
     Description: The API hostname. Cloudflare proxies it and CNAMEs to the ApiDomainTarget output.
   CertificateArn:
     Type: String
@@ -77,6 +77,7 @@ Rules:
           - !And [ !Equals [ !Ref Stage, staging ], !Equals [ !Ref DomainName, staging-api.akldb.org ] ]
           - !And [ !Equals [ !Ref Stage, shadow ], !Equals [ !Ref DomainName, shadow-api.akldb.org ] ]
           - !And [ !Equals [ !Ref Stage, prod ], !Equals [ !Ref DomainName, api.akldb.org ] ]
+          - !And [ !Equals [ !Ref Stage, prod ], !Equals [ !Ref DomainName, aws-api.akldb.org ] ]   # the cutover's hostname, until the DNS step
         AssertDescription: Each stage serves its own hostname.
 
 Conditions:

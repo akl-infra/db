@@ -90,7 +90,7 @@ describe("template lint and guard (AX1)", () => {
     const text = fs.readFileSync(file("infra", "akldb.yaml"), "utf8");
     expect(text).not.toMatch(/^[^#\n]*\s&\w+/m);
     for (const tpl of [t, cert, boot]) expect(tpl.Rules.RegionIsOhio.Assertions[0].Assert["Fn::Equals"][1]).toBe("us-east-2");
-    expect(t.Parameters.DomainName.AllowedValues).toEqual(["staging-api.akldb.org", "shadow-api.akldb.org", "api.akldb.org"]);
+    expect(t.Parameters.DomainName.AllowedValues).toEqual(["staging-api.akldb.org", "shadow-api.akldb.org", "api.akldb.org", "aws-api.akldb.org"]); // the last: prod's hostname during the cutover (LDB-CV15)
     expect(cert.Parameters.DomainName.AllowedValues).toEqual(t.Parameters.DomainName.AllowedValues);
     expect(cert.Resources.Certificate.Properties.ValidationMethod).toBe("DNS");
     expect(cert.Outputs.CertificateArn.Value).toEqual({ Ref: "Certificate" });
