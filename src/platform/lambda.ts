@@ -6,6 +6,9 @@
 //   {"akldb":"warm","k":N}    -> keep-warm fan-out: N-1 concurrent child invocations of the live alias, each held
 //                                about 150 ms, so N containers stay warm (AX6); answers carry a container id
 //   {"akldb":"migrate"}       -> apply pending migrations through the log (deploy-aws.sh, before the alias moves)
+//   {"akldb":"nightly"}       -> the daily snapshot, log retention and the nightly proof (src/replica/jobs.ts). The tick
+//                                starts it when it is due: an async self-invocation of the function named by JOBS_FUNCTION
+//                                (a separate function with a 600 s timeout), or inline when JOBS_FUNCTION is unset
 // No AWS SDK: aws4fetch signs the DynamoDB, S3, SSM and Lambda calls. The environment is set by infra/akldb.yaml:
 // STAGE, LOG_TABLE, DATA_BUCKET, SSM_PREFIX, DISCORD_API_URL, MODQUEUE_DISCORD_COMPONENTS.
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
@@ -15,7 +18,8 @@ import { handle } from "hono/aws-lambda";
 import type { Bindings } from "../env";
 import worker, { app as workerApp } from "../index";
 import { bootReplica } from "../replica/boot";
-import { runSnapshotJobs } from "../replica/jobs";
+import { raise } from "../replica/alarm";
+import { nightlyDue, runNightlyJobs, runRollingJob, type SnapshotJobDeps } from "../replica/jobs";
 import type { CommitLog, ExpirableLog } from "../replica/log";
 import { applyMigrations } from "../replica/migrations";
 import type { ObjectStore } from "../replica/objects";
@@ -80,7 +84,7 @@ export interface LambdaOptions {
   logLine?: (message: string) => void;
 }
 
-type SchedulerEvent = { akldb: "tick"; time?: string } | { akldb: "warm"; k?: number; child?: boolean } | { akldb: "migrate" };
+type SchedulerEvent = { akldb: "tick"; time?: string } | { akldb: "warm"; k?: number; child?: boolean } | { akldb: "migrate" } | { akldb: "nightly" };
 
 interface HttpEvent {
   version?: string;
@@ -287,11 +291,55 @@ export function createLambdaHandler(opts: LambdaOptions): LambdaHandler {
     await worker.scheduled(controller, await buildEnv(replica), execCtx);
     await settle();
     assertAlive();
-    // The snapshot jobs (rolling snapshot, daily snapshot, retention, nightly proof) run here and nowhere else, after the
-    // Worker's own jobs, off every request path. A failure is thrown: the Errors alarm is the page.
-    const snapshot = opts.snapshots === undefined ? undefined : await runSnapshotJobs(replica, { ...opts.snapshots, log: log as CommitLog & Partial<ExpirableLog>, logLine, now });
+    // The rolling snapshot runs here, after the Worker's own jobs, off every request path. The nightly work (daily snapshot,
+    // retention, proof) does not: the tick only starts it, in its own invocation, because it can outlast the tick's timeout.
+    let snapshot: Record<string, unknown> | undefined;
+    if (opts.snapshots !== undefined) {
+      const deps = jobDeps();
+      let rolling: Awaited<ReturnType<typeof runRollingJob>> | undefined;
+      let rollingError: unknown;
+      try {
+        rolling = await runRollingJob(replica, deps);
+      } catch (e) {
+        rollingError = e; // already alarmed; the nightly job is independent of it, so still start that, then fail the tick
+      }
+      let nightly: "not due" | "started" | "inline" = "not due";
+      if (await nightlyDue(deps)) {
+        const fn = env.JOBS_FUNCTION;
+        if (fn !== undefined && fn !== "") {
+          try {
+            await aws.invokeAsync(fn, { akldb: "nightly" });
+          } catch (e) {
+            raise(logLine, "nightly", `could not start the nightly job on ${fn}: ${e instanceof Error ? e.message : String(e)}`);
+            throw e;
+          }
+          nightly = "started";
+        } else {
+          await runNightly(replica); // no jobs function (tests, local): inline
+          nightly = "inline";
+        }
+      }
+      if (rollingError !== undefined) throw rollingError;
+      snapshot = { rolling, nightly };
+    }
     assertAlive();
     return { ok: true, tick: new Date(at).toISOString(), seq: replica.seq, ...(snapshot !== undefined ? { snapshot } : {}) };
+  }
+
+  function jobDeps(): SnapshotJobDeps {
+    return { ...opts.snapshots!, log: log as SnapshotJobDeps["log"], logLine, now };
+  }
+
+  async function runNightly(replica: Replica): Promise<unknown> {
+    if (opts.snapshots === undefined) return { ok: true, nightly: "disabled" };
+    return runNightlyJobs(replica, jobDeps());
+  }
+
+  async function nightly(): Promise<unknown> {
+    const replica = await getReplica();
+    const report = await runNightly(replica);
+    assertAlive();
+    return { ok: true, nightly: report, seq: replica.seq };
   }
 
   async function warm(event: { k?: number; child?: boolean }): Promise<unknown> {
@@ -336,6 +384,8 @@ export function createLambdaHandler(opts: LambdaOptions): LambdaHandler {
           return warm(event);
         case "migrate":
           return migrate();
+        case "nightly":
+          return nightly();
       }
     }
     throw new Error(`unrecognized event: ${JSON.stringify(event)?.slice(0, 200)}`);

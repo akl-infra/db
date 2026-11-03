@@ -8,17 +8,29 @@ export interface StoredObject {
   meta: Record<string, string>;
 }
 
+/** The only prefix the object store may list or delete under: spilled log bodies. Snapshots are never deleted (they rotate by overwrite). */
+export const SPILL_PREFIX = "log/";
+
+/** list() and delete() are for `log/*` only (orphan cleanup, retention.ts); any other key is a bug and throws. */
+export function assertSpillKey(op: "list" | "delete", key: string): void {
+  if (!key.startsWith(SPILL_PREFIX)) throw new Error(`object store ${op} is restricted to ${SPILL_PREFIX}*: refused ${JSON.stringify(key)}`);
+}
+
 export interface ObjectStore {
   /** null when the key does not exist. */
   get(key: string): Promise<StoredObject | null>;
   /** Overwrite. Resolves once the object is durable (S3 is strongly consistent for a read after this). */
   put(key: string, bytes: Uint8Array, meta?: Record<string, string>): Promise<void>;
+  /** The keys under `prefix` (which must start with `log/`), in key order, at most `max`. */
+  list(prefix: string, max?: number): Promise<string[]>;
+  /** Delete one object. Only `log/*` keys: anything else throws before any call is made. */
+  delete(key: string): Promise<void>;
 }
 
 /** An in-memory ObjectStore. `corrupt`/`failGet` let tests damage or withhold an object the way S3 never should. */
 export class MemoryObjects implements ObjectStore {
   readonly objects = new Map<string, StoredObject>();
-  readonly calls = { gets: 0, puts: 0 };
+  readonly calls = { gets: 0, puts: 0, lists: 0, deletes: 0 };
   /** Keys whose next get throws (a GET failure). */
   readonly failGet = new Set<string>();
   /** Fail every put whose key starts with one of these (a failed upload). */
@@ -35,6 +47,18 @@ export class MemoryObjects implements ObjectStore {
     this.calls.puts++;
     for (const p of this.failPut) if (key.startsWith(p)) throw new Error(`MemoryObjects: injected PUT failure for ${key}`);
     this.objects.set(key, { bytes: Uint8Array.from(bytes), meta: Object.fromEntries(Object.entries(meta).map(([k, v]) => [k.toLowerCase(), v])) });
+  }
+
+  async list(prefix: string, max = 1000): Promise<string[]> {
+    assertSpillKey("list", prefix);
+    this.calls.lists++;
+    return this.keys(prefix).slice(0, max);
+  }
+
+  async delete(key: string): Promise<void> {
+    assertSpillKey("delete", key);
+    this.calls.deletes++;
+    this.objects.delete(key);
   }
 
   /** Synchronous read for assertions and MemoryLog.entries(). */

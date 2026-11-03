@@ -17,6 +17,8 @@ export interface Aws {
   getParameters(names: string[]): Promise<{ values: Record<string, string>; missing: string[] }>;
   /** Invoke the function's `live` alias synchronously (RequestResponse) with a JSON payload; resolves to the parsed answer. */
   invokeLive(payload: unknown): Promise<unknown>;
+  /** Start `functionName` asynchronously (InvocationType Event: Lambda queues it and answers 202) with a JSON payload. Does not wait for the run. */
+  invokeAsync(functionName: string, payload: unknown): Promise<void>;
   /** The data bucket, under the `dumps/` prefix. */
   dumps: BlobStore;
 }
@@ -80,6 +82,16 @@ export function createAws(o: AwsOptions): Aws {
 
   return {
     dumps,
+    async invokeAsync(functionName, payload) {
+      const url = `https://lambda.${o.region}.amazonaws.com/2015-03-31/functions/${encodeURIComponent(functionName)}/invocations`;
+      const res = await signed("lambda", url, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-amz-invocation-type": "Event" },
+        body: JSON.stringify(payload),
+      });
+      const text = await res.text();
+      if (res.status !== 202) throw new Error(`Lambda Invoke (Event) ${functionName}: ${res.status} ${text.slice(0, 200)}`);
+    },
     async getParameters(names) {
       const res = await signed("ssm", `https://ssm.${o.region}.amazonaws.com/`, {
         method: "POST",

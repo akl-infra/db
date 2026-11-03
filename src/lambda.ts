@@ -31,7 +31,7 @@ export const handler = createLambdaHandler({
   snapshots: {
     state: createDdbSnapshotState({ table, region, credentials: credentials() }),
     objects,
-    // zstd level of the snapshot image (default 19; lower it if the tick's compression ever nears the function timeout)
+    // zstd level of the snapshot image (default 12; level 19 took 24.5 s for 45 MB, so raise it only with a long-running jobs function)
     ...(env.SNAPSHOT_ZSTD_LEVEL !== undefined ? { zstdLevel: Number(env.SNAPSHOT_ZSTD_LEVEL) } : {}),
   },
   aws: createAws({

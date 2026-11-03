@@ -42,6 +42,7 @@ function fakeAws(over: { secrets?: Record<string, string>; invoke?: (payload: un
       calls.params++;
       return { values: Object.fromEntries(names.filter((n) => n in values).map((n) => [n, values[n]!])), missing: names.filter((n) => !(n in values)) };
     },
+    async invokeAsync() {},
     async invokeLive(payload) {
       calls.invokes.push(payload);
       return over.invoke ? over.invoke(payload) : { ok: true, container: "other" };

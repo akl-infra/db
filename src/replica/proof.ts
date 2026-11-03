@@ -9,6 +9,7 @@
 import type { CommitLog } from "./log";
 import type { ObjectStore } from "./objects";
 import { Replica, imageDigest, type ReplicaOptions } from "./replica";
+import { findAnchor, type AnchorResult } from "./retention";
 import { consoleLog, readSnapshot, type LogFn, type SnapRef, type SnapshotState } from "./snapshot";
 
 export interface RestoreDeps {
@@ -35,10 +36,11 @@ async function allRefs(state: SnapshotState): Promise<SnapRef[]> {
 /** A replica at exactly log seq `k`: the newest snapshot at or below k that verifies, else a replay from 0. */
 export async function restoreAt(k: number, deps: RestoreDeps): Promise<{ replica: Replica; base: SnapRef | null }> {
   const logLine = deps.logLine ?? consoleLog;
+  const ropts = { ...deps.replica, alarm: deps.replica?.alarm ?? logLine };
   for (const ref of (await allRefs(deps.state)).filter((r) => r.seq <= k)) {
     try {
       const bytes = await readSnapshot(ref, deps.objects);
-      const replica = Replica.fromSnapshot(deps.log, bytes, ref.seq, deps.replica);
+      const replica = Replica.fromSnapshot(deps.log, bytes, ref.seq, ropts);
       try {
         await replica.catchUp(k);
       } catch (e) {
@@ -50,7 +52,7 @@ export async function restoreAt(k: number, deps: RestoreDeps): Promise<{ replica
       logLine(`akldb-restore: snapshot ${ref.key} (seq ${ref.seq}) unusable for seq ${k}: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
-  const replica = new Replica(deps.log, deps.replica);
+  const replica = new Replica(deps.log, ropts);
   try {
     await replica.catchUp(k);
   } catch (e) {
@@ -78,8 +80,9 @@ export interface ProofResult {
  * mutex (Replica.capture); the rebuild runs outside it. `from`: which snapshot anchors the rebuild: the oldest retained
  * verified daily (default, the longest replay, which also proves the whole retained log) or the newest at/below the live seq.
  */
-export async function nightlyProof(live: Replica, deps: RestoreDeps, from: "oldest" | "newest" = "oldest"): Promise<ProofResult> {
+export async function nightlyProof(live: Replica, deps: RestoreDeps, from: "oldest" | "newest" = "oldest", found?: AnchorResult): Promise<ProofResult> {
   const logLine = deps.logLine ?? consoleLog;
+  const ropts = { ...deps.replica, alarm: deps.replica?.alarm ?? logLine };
   const cap = await live.capture();
   const liveDigest = imageDigest(cap.bytes);
   let rebuilt: Replica;
@@ -87,21 +90,23 @@ export async function nightlyProof(live: Replica, deps: RestoreDeps, from: "olde
   if (from === "newest") {
     ({ replica: rebuilt, base } = await restoreAt(cap.seq, deps));
   } else {
-    const dailies = (await deps.state.dailies()).filter((d) => d.seq <= cap.seq);
-    let found: Replica | undefined;
-    for (const ref of dailies) {
+    // The anchor is the oldest daily that verifies (the nightly job finds it once, alarming each unverified slot, and shares it
+    // with retention). Without one the rebuild falls back to the newest snapshot at or below the live seq, or the whole log.
+    const anchor = (found ?? (await findAnchor(deps))).anchor;
+    let rebuiltFrom: Replica | undefined;
+    if (anchor !== null && anchor.seq <= cap.seq) {
+      rebuiltFrom = Replica.fromSnapshot(deps.log, await readSnapshot(anchor, deps.objects), anchor.seq, ropts);
+      base = anchor;
       try {
-        const bytes = await readSnapshot(ref, deps.objects);
-        found = Replica.fromSnapshot(deps.log, bytes, ref.seq, deps.replica);
-        base = ref;
-        break;
+        await rebuiltFrom.catchUp(cap.seq);
       } catch (e) {
-        logLine(`akldb-proof: daily snapshot ${ref.key} (seq ${ref.seq}) does not verify, trying the next: ${e instanceof Error ? e.message : String(e)}`);
+        rebuiltFrom.close();
+        throw e;
       }
+    } else {
+      ({ replica: rebuiltFrom, base } = await restoreAt(cap.seq, deps));
     }
-    if (found === undefined) ({ replica: found, base } = await restoreAt(cap.seq, deps));
-    else await found.catchUp(cap.seq);
-    rebuilt = found;
+    rebuilt = rebuiltFrom;
   }
   try {
     const got = imageDigest(rebuilt.serialize());

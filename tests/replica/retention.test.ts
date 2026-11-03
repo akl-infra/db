@@ -3,16 +3,17 @@
 // from 0) and RP4 (the nightly digest of a rebuild from the oldest retained snapshot plus the log equals the live replica;
 // a mismatch throws). A fake clock drives 46 days; DynamoDB's TTL sweep is MemoryLog.purge.
 import { describe, expect, it } from "vitest";
+import { ulid } from "ulidx";
+import { bootReplica, bootReportOf } from "../../src/replica/boot";
 import { MemoryLog } from "../../src/replica/log-memory";
-import { runSnapshotJobs } from "../../src/replica/jobs";
+import { NIGHTLY_LEASE_MS, nightlyDue, runNightlyJobs } from "../../src/replica/jobs";
 import { ProofMismatchError, nightlyProof, restoreAt } from "../../src/replica/proof";
-import { EXPIRY_GRACE_S, dailyDue, runRetention } from "../../src/replica/retention";
+import { EXPIRY_GRACE_S, SPILL_GRACE_MS, cleanSpills, dailyDue, runRetention } from "../../src/replica/retention";
 import { DAILY_SLOTS, PITR_DAYS, dailyKey, dailySlot, writeSnapshot } from "../../src/replica/snapshot";
 import { FAST, churn, digestOf, replayFrom0, world, type World } from "./support";
 
 const DAY = 86_400_000;
 const START = Date.parse("2026-11-02T00:00:00Z");
-const NO_ROLLING = { minUnits: 1e9, maxAgeMs: 1e15 };
 
 /** Append whatever `from` has that `to` lacks (so an archive keeps entries the TTL sweep later removes). */
 async function mirror(to: MemoryLog, from: MemoryLog): Promise<void> {
@@ -26,7 +27,7 @@ async function simulate(w: World, days: number, opts: { purge?: boolean; unitsPe
   for (let d = 0; d < days; d++) {
     w.clock.ms = START + d * DAY + 3 * 3_600_000 + 5 * 60_000;
     await churn(w.replica, opts.unitsPerDay ?? 3, d + 1);
-    await runSnapshotJobs(w.replica, { ...w.deps, log: opts.retention === false ? plain : w.log, replica: FAST, policy: NO_ROLLING });
+    await runNightlyJobs(w.replica, { ...w.deps, log: opts.retention === false ? plain : w.log, replica: FAST });
     await mirror(archive, w.log);
     if (opts.purge !== false) w.log.purge(w.clock.ms / 1000);
   }
@@ -34,17 +35,21 @@ async function simulate(w: World, days: number, opts: { purge?: boolean; unitsPe
 }
 
 describe("daily snapshots and retention (RP3)", () => {
-  it("[LDB-RP3] one daily snapshot per UTC day from 03:00, rotating through 40 slots", async () => {
+  it("[LDB-RP3] [LDB-RP10] one daily snapshot per UTC day from 03:00, rotating through 40 slots, started once per day by a claim", async () => {
     const w = await world();
     expect(dailyDue([], START + 2 * 3_600_000)).toBe(false); // 02:00
     expect(dailyDue([], START + 3 * 3_600_000)).toBe(true);
     await churn(w.replica, 3);
     w.clock.ms = START + 4 * 3_600_000;
-    const jobs = () => runSnapshotJobs(w.replica, { ...w.deps, log: w.log, replica: FAST, policy: NO_ROLLING });
+    const jobs = () => runNightlyJobs(w.replica, { ...w.deps, log: w.log, replica: FAST });
+    expect(await nightlyDue(w.deps)).toBe(true);
     expect((await jobs()).daily).toMatchObject({ status: "written" });
-    expect((await jobs()).daily).toBeNull(); // already today's
+    expect(await nightlyDue(w.deps)).toBe(false); // today's exists
+    expect((await jobs()).status).toBe("busy"); // the claim holds for the lease: a second start does nothing
+    w.clock.ms += NIGHTLY_LEASE_MS + 1;
+    expect((await jobs()).daily).toBe("exists"); // past the lease a rerun skips the daily that exists and redoes retention and the proof
     expect(await w.state.dailies()).toHaveLength(1);
-    w.clock.ms += DAY;
+    w.clock.ms = START + DAY + 4 * 3_600_000;
     await churn(w.replica, 2, 2);
     expect((await jobs()).daily).toMatchObject({ status: "written" });
     expect((await w.state.dailies()).map((d) => d.slot)).toEqual([dailySlot(START), dailySlot(START + DAY)]);
@@ -131,6 +136,68 @@ describe("daily snapshots and retention (RP3)", () => {
   }, 120_000);
 });
 
+describe("boot after retention (RP2, RP3)", () => {
+  const boot = (w: World, lines: string[]) => bootReplica(w.log, { ...FAST, snapshots: { state: w.state, objects: w.objects }, logLine: (m) => void lines.push(m) });
+
+  it("[LDB-RP2] after retention has cut the log start, a bad POINTER and PREV boot from the newest daily and its tail; the log cannot be replayed from 0", async () => {
+    const w = await world();
+    const archive = await simulate(w, 46);
+    await writeSnapshot(w.replica, w.deps);
+    await churn(w.replica, 2, 76);
+    await writeSnapshot(w.replica, w.deps); // POINTER and PREV exist (and are newer than every daily)
+    await churn(w.replica, 3, 77);
+    expect(w.log.first).toBeGreaterThan(1);
+    for (const k of [(await w.state.pointer())!.key, (await w.state.previous())!.key]) w.objects.peek(k)!.bytes[40]! ^= 0xff;
+    await mirror(archive, w.log);
+    const lines: string[] = [];
+    const r = await boot(w, lines);
+    const report = bootReportOf(r)!;
+    expect(report.path).toBe("daily");
+    expect(report.snapshot!.seq).toBe((await w.state.dailies()).at(-1)!.seq); // the newest daily
+    expect(r.seq).toBe(w.log.length);
+    expect(digestOf(r)).toBe(digestOf(await replayFrom0(archive)));
+    expect(lines.filter((l) => l.startsWith("akldb-alarm: "))).toHaveLength(2);
+    // and it really was the only path left: with no snapshots at all, the same log refuses to boot
+    const none = await bootReplica(w.log, { ...FAST, logLine: () => {} }).catch((e: unknown) => e);
+    expect((none as Error).message).toMatch(/the log now starts at seq/);
+  }, 120_000);
+
+  it("[LDB-RP2] when all four paths fail the boot throws, with one final alarm line after one per fallback", async () => {
+    const w = await world();
+    await simulate(w, 46);
+    await writeSnapshot(w.replica, w.deps);
+    await churn(w.replica, 2, 76);
+    await writeSnapshot(w.replica, w.deps);
+    const refs = [await w.state.pointer(), await w.state.previous(), ...(await w.state.dailies())];
+    for (const ref of refs) w.objects.peek(ref!.key)!.bytes[40]! ^= 0xff;
+    const lines: string[] = [];
+    await expect(boot(w, lines)).rejects.toThrow(/the log now starts at seq/);
+    const alarms = lines.filter((l) => l.startsWith("akldb-alarm: "));
+    expect(alarms).toHaveLength(2 + DAILY_SLOTS + 1); // pointer, prev, every daily, then "no usable path"
+    expect(alarms.slice(0, -1).every((l) => l.startsWith("akldb-alarm: boot: fallback: "))).toBe(true);
+    expect(alarms.at(-1)).toMatch(/^akldb-alarm: boot: no usable path: every snapshot failed and the log cannot be replayed from seq 0: /);
+    expect(lines.some((l) => l.startsWith("akldb-boot: path="))).toBe(false);
+  }, 120_000);
+});
+
+describe("spilled bodies outlive their entries only briefly (RP7, RP3)", () => {
+  it("[LDB-RP7] retention deletes log/* objects older than the oldest kept entry (less a grace), orphans included, and nothing else", async () => {
+    const w = await world();
+    await churn(w.replica, 12);
+    const now = Date.now();
+    const oldOrphan = `log/${ulid(now - 10 * DAY)}.json.zst`;
+    const graceOrphan = `log/${ulid(now - SPILL_GRACE_MS + 3_600_000)}.json.zst`; // inside the grace
+    const newer = `log/${ulid(now + DAY)}.json.zst`;
+    for (const k of [oldOrphan, graceOrphan, newer, "log/not-a-ulid.json.zst", "snap/slot-0.sqlite.zst"]) w.blobs.objects.set(k, { bytes: new Uint8Array([1]), meta: {} });
+    // nothing is marked yet: nothing is deleted
+    expect(await cleanSpills(w.log, { ...w.deps, objects: w.blobs }, 0)).toBe(0);
+    // entries 1..5 are marked: the oldest kept is seq 6, whose unit was minted just now
+    const deleted = await cleanSpills(w.log, { ...w.deps, objects: w.blobs }, 5);
+    expect(deleted).toBe(1);
+    expect(w.blobs.keys().sort()).toEqual([graceOrphan, newer, "log/not-a-ulid.json.zst", "snap/slot-0.sqlite.zst"].sort());
+  });
+});
+
 describe("the nightly proof (RP4)", () => {
   it("[LDB-RP4] a rebuild from the oldest retained daily snapshot plus the log has the live replica's digest, at the same seq", async () => {
     const w = await world();
@@ -153,17 +220,17 @@ describe("the nightly proof (RP4)", () => {
     expect((err as Error).message).toMatch(/nightly proof FAILED at seq \d+: the live replica's image digest [0-9a-f]{64} != [0-9a-f]{64}/);
   });
 
-  it("[LDB-RP4] the jobs tick surfaces a mismatch as the page, after the other jobs ran", async () => {
+  it("[LDB-RP4] the nightly job surfaces a mismatch as the page, after the other jobs ran", async () => {
     const w = await world();
     await simulate(w, 3, { purge: false });
     w.clock.ms = START + 5 * DAY + 4 * 3_600_000;
     await churn(w.replica, 2, 50);
     w.replica.db.exec("DELETE FROM churn WHERE id = (SELECT min(id) FROM churn)"); // outside the log: the live replica now differs from what the log produces
-    const err = await runSnapshotJobs(w.replica, { ...w.deps, log: w.log, replica: FAST }).catch((e: unknown) => e);
+    const err = await runNightlyJobs(w.replica, { ...w.deps, log: w.log, replica: FAST }).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ProofMismatchError);
-    // the daily snapshot and the rolling one were still written before the proof threw
+    // the daily snapshot was still written before the proof threw, and the failure raised exactly one alarm line
     expect((await w.state.dailies()).at(-1)!.day).toBe(new Date(w.clock.ms).toISOString().slice(0, 10));
-    expect(await w.state.pointer()).not.toBeNull();
+    expect(w.lines.filter((l) => l.startsWith("akldb-alarm: "))).toEqual([expect.stringMatching(/^akldb-alarm: proof: nightly proof failed: nightly proof FAILED at seq \d+/)]);
   });
 
   it("[LDB-RP4] the proof skips a daily snapshot that does not verify and anchors on the next oldest", async () => {
@@ -173,7 +240,7 @@ describe("the nightly proof (RP4)", () => {
     w.objects.peek(dailies[0]!.key)!.bytes[30]! ^= 0x11;
     const out = await nightlyProof(w.replica, { log: w.log, state: w.state, objects: w.objects, replica: FAST, logLine: (m) => void w.lines.push(m) });
     expect(out.base?.key).toBe(dailies[1]!.key);
-    expect(w.lines.some((l) => l.startsWith("akldb-proof: daily snapshot"))).toBe(true);
+    expect(w.lines.filter((l) => l.startsWith("akldb-alarm: "))).toEqual([expect.stringMatching(/^akldb-alarm: retention: daily snapshot snap\/daily\/\d\d\.sqlite\.zst \(seq \d+\) is unverified/)]);
   });
 
   it("[LDB-RP4] the live replica keeps committing while the proof rebuilds, and the proof still compares at the seq it captured", async () => {

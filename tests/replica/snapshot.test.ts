@@ -7,6 +7,7 @@ import { bootReplica, bootReportOf } from "../../src/replica/boot";
 import type { CommitLog } from "../../src/replica/log";
 import { MemoryObjects } from "../../src/replica/objects";
 import { Replica } from "../../src/replica/replica";
+import { writeDaily } from "../../src/replica/retention";
 import { MemorySnapshotState, ROLLING_SLOTS, readSnapshot, rollingKey, snapshotDue, writeSnapshot, type SnapRef } from "../../src/replica/snapshot";
 import { zstdCompress } from "../../src/replica/zstd";
 import { FAST, churn, digestOf, replayFrom0, world } from "./support";
@@ -177,8 +178,9 @@ describe("snapshot boot (RP2)", () => {
     expect(bootReportOf(r)!.fallbacks[0]).toMatch(/^pointer: /);
     expect(r.seq).toBe(w.log.length);
     expect(digestOf(r)).toBe(digestOf(await replayFrom0(w.log)));
-    expect(lines[0]).toMatch(/^akldb-boot: FALLBACK pointer unusable: /);
+    expect(lines[0]).toMatch(/^akldb-alarm: boot: fallback: pointer unusable: /);
     expect(lines[1]).toMatch(/^akldb-boot: path=prev .*fallbacks=\[pointer: /);
+    expect(lines.filter((l) => l.startsWith("akldb-alarm: "))).toHaveLength(1); // one fallback taken, one alarm line
   });
 
   it("[LDB-RP2] a wrong checksum (intact zstd, different bytes) is caught, not deserialized", async () => {
@@ -201,8 +203,56 @@ describe("snapshot boot (RP2)", () => {
     expect(r.seq).toBe(w.log.length);
     expect(r.stats.replayed).toBe(w.log.length);
     expect(digestOf(r)).toBe(digestOf(await replayFrom0(w.log)));
-    expect(lines.filter((l) => l.startsWith("akldb-boot: FALLBACK"))).toHaveLength(2);
+    expect(lines.filter((l) => l.startsWith("akldb-alarm: boot: fallback: "))).toHaveLength(2); // pointer, prev: one line each
+    expect(lines.filter((l) => l.startsWith("akldb-alarm: "))).toHaveLength(2);
     expect(lines.at(-1)).toMatch(/^akldb-boot: path=replay /);
+  });
+
+  it("[LDB-RP2] [LDB-RP9] bad POINTER, then bad PREV: the newest verified daily snapshot plus its tail boots, one alarm line per fallback", async () => {
+    const { w, first, second } = await withSnapshots();
+    const daily = await writeDaily(w.replica, w.deps);
+    expect(daily.status).toBe("written");
+    await churn(w.replica, 6, 8); // a tail after the daily
+    w.objects.peek(second.key)!.bytes[30]! ^= 0xff;
+    w.objects.peek(first.key)!.bytes[30]! ^= 0xff;
+    const lines: string[] = [];
+    const r = await boot(w, lines);
+    const report = bootReportOf(r)!;
+    expect(report.path).toBe("daily");
+    expect(report.snapshot!.key).toBe(daily.status === "written" ? daily.ref.key : "");
+    expect(r.stats.replayed).toBe(w.log.length - report.fromSeq);
+    expect(r.seq).toBe(w.log.length);
+    expect(digestOf(r)).toBe(digestOf(await replayFrom0(w.log)));
+    const alarms = lines.filter((l) => l.startsWith("akldb-alarm: "));
+    expect(alarms).toHaveLength(2);
+    expect(alarms[0]).toMatch(/^akldb-alarm: boot: fallback: pointer unusable: /);
+    expect(alarms[1]).toMatch(/^akldb-alarm: boot: fallback: prev unusable: /);
+    expect(lines.at(-1)).toMatch(/^akldb-boot: path=daily snapshot=snap\/daily\/\d\d\.sqlite\.zst /);
+  });
+
+  it("[LDB-RP2] the newest daily is the one tried, and a damaged one falls to the next older, each failure alarmed once", async () => {
+    const { w } = await withSnapshots();
+    w.clock.ms = Date.parse("2026-11-03T04:00:00Z");
+    const d1 = await writeDaily(w.replica, w.deps);
+    await churn(w.replica, 4, 20);
+    w.clock.ms = Date.parse("2026-11-04T04:00:00Z");
+    const d2 = await writeDaily(w.replica, w.deps);
+    await churn(w.replica, 3, 21);
+    if (d1.status !== "written" || d2.status !== "written") throw new Error("setup");
+    for (const k of [(await w.state.pointer())!.key, (await w.state.previous())!.key, d2.ref.key]) w.objects.peek(k)!.bytes[25]! ^= 0xff;
+    const lines: string[] = [];
+    const r = await boot(w, lines);
+    expect(bootReportOf(r)).toMatchObject({ path: "daily", fromSeq: d1.ref.seq });
+    expect(lines.filter((l) => l.startsWith("akldb-alarm: "))).toHaveLength(3); // pointer, prev, the newest daily
+    expect(digestOf(r)).toBe(digestOf(await replayFrom0(w.log)));
+  });
+
+  it("[LDB-RP2] a healthy boot never reads the daily index", async () => {
+    const { w } = await withSnapshots();
+    const reads = () => w.state.calls.reads;
+    const before = reads();
+    await boot(w);
+    expect(reads() - before).toBe(1); // the pointer only
   });
 
   it("[LDB-RP2] no pointer yet: replay from 0, with the reason logged", async () => {
@@ -246,7 +296,8 @@ describe("snapshot boot (RP2)", () => {
     const lines: string[] = [];
     const r = await boot(w, lines);
     expect(bootReportOf(r)!.path).not.toBe("pointer");
-    expect(lines.some((l) => /does not replay|not a readable|FALLBACK pointer/.test(l))).toBe(true);
+    expect(lines.some((l) => /^akldb-alarm: boot: fallback: pointer unusable: .*(does not replay|not a readable)/.test(l))).toBe(true);
+    expect(lines.filter((l) => l.startsWith("akldb-alarm: "))).toHaveLength(lines.filter((l) => /path=|^akldb-alarm/.test(l)).length - 1); // one alarm per fallback taken, none from the discarded replica
     expect(digestOf(r)).toBe(digestOf(await replayFrom0(w.log)));
   });
 
