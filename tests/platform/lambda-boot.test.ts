@@ -149,7 +149,7 @@ describe("the init warm-up (RP8)", () => {
     expect(w.log.length).toBe(before.length);
   });
 
-  it("[LDB-RP8] a failing warm-up is logged and does not stop the handler from serving", async () => {
+  it("[LDB-RP8] a failing warm-up is logged, does not stop the handler from serving, and the next keep-warm ping retries it", async () => {
     const w = await snapshotted();
     let heads = 0;
     const flaky: CommitLog = {
@@ -166,7 +166,8 @@ describe("the init warm-up (RP8)", () => {
     await handler.ready();
     expect(lines.some((l) => /^ERR warm-up failed \(serving anyway\)/.test(l))).toBe(true);
     expect(((await handler(get("/v1/meta"))) as { statusCode: number }).statusCode).toBe(200);
-    expect(((await handler({ akldb: "warm", child: true })) as { warmup: string }).warmup).toBe("failed");
+    // the injected failure was one head read: the keep-warm ping retries the warm-up and it succeeds
+    expect(((await handler({ akldb: "warm", child: true })) as { warmup: string }).warmup).toBe("ok");
   });
 });
 

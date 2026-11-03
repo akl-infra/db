@@ -24,7 +24,7 @@ import { bootReplica } from "../replica/boot";
 import { raise } from "../replica/alarm";
 import { nightlyDue, runNightlyJobs, runRollingJob, type SnapshotJobDeps } from "../replica/jobs";
 import type { CommitLog, ExpirableLog } from "../replica/log";
-import { applyMigrations } from "../replica/migrations";
+import { applyMigrations, readMigrationFiles } from "../replica/migrations";
 import type { ObjectStore } from "../replica/objects";
 import type { SnapshotPolicy, SnapshotState } from "../replica/snapshot";
 import { sleep as realSleep } from "../replica/timers";
@@ -178,7 +178,7 @@ export function createLambdaHandler(opts: LambdaOptions): LambdaHandler {
   // ---- the replica: boot starts when the handler is created (module load in the real entry), after the consts below ----
   let booting!: Promise<Replica>;
   let current: Replica | undefined;
-  let warmed: "ok" | "failed" | "pending" = "pending";
+  let warmed: "ok" | "failed" | "pending" | "skipped" = "pending";
   const start = (): Promise<Replica> => {
     // Boot, then one read-only warm-up request through the app: the route table, the first query's statements and the JIT are
     // paid here, in init, instead of by the first user. The warm-up never writes and never blocks serving on its own failure.
@@ -293,7 +293,16 @@ export function createLambdaHandler(opts: LambdaOptions): LambdaHandler {
    * needs no SSM read), read-only, so it appends nothing to the log. Failure is logged, never fatal.
    */
   async function warmUp(replica: Replica): Promise<void> {
+    // A FIRST deploy boots on an empty log: the migrate invocation's own container runs this before migrations exist, and
+    // GET /v1/meta would 500 ("no such table"). Skip until every migration the bundle ships is applied; migrate() and the
+    // keep-warm handler run the warm-up again once it is (team-lead, 2026-11-03).
     try {
+      const pending = await migrationsPending(replica);
+      if (pending > 0) {
+        warmed = "skipped";
+        logLine(`akldb-boot: warm-up skipped: ${pending} migration(s) not applied yet (first deploy)`);
+        return;
+      }
       const res = await workerApp.fetch(new Request("http://akldb.internal/v1/meta"), bindings(replica, {}), execCtx);
       await res.arrayBuffer();
       if (!res.ok) throw new Error(`GET /v1/meta answered ${res.status}`);
@@ -303,6 +312,23 @@ export function createLambdaHandler(opts: LambdaOptions): LambdaHandler {
       warmed = "failed";
       logError(`warm-up failed (serving anyway): ${e instanceof Error ? e.message : String(e)}`);
     }
+  }
+
+  let shippedMigrations: string[] | undefined;
+  /** How many of the bundle's migrations the replica has not applied (0 = the schema is complete). */
+  async function migrationsPending(replica: Replica): Promise<number> {
+    shippedMigrations ??= readMigrationFiles(opts.migrationsDir).map((m) => m.name);
+    // A local read at the replica's current seq (fresh: no head read; boot has just caught up). No d1_migrations table
+    // yet means nothing is applied.
+    let applied: Set<string>;
+    try {
+      const [out] = await replica.runUnit([{ sql: "SELECT name FROM d1_migrations", params: [] }], { fresh: true });
+      applied = new Set(out!.rows.map((r) => String(r.name)));
+    } catch (e) {
+      if (!/no such table/.test(e instanceof Error ? e.message : String(e))) throw e;
+      applied = new Set();
+    }
+    return shippedMigrations.filter((n) => !applied.has(n)).length;
   }
 
   /** A halted replica must fail the invocation, not just the request: the Errors alarm is the page. */
@@ -447,6 +473,12 @@ export function createLambdaHandler(opts: LambdaOptions): LambdaHandler {
     const kids = event.child === true ? [] : Array.from({ length: k - 1 }, () => aws.invokeLive({ akldb: "warm", child: true }));
     // Boot the replica too: a warm container that still had to boot would be warm in name only.
     const [replica, settled] = await Promise.all([getReplica(), Promise.allSettled(kids), sleep(WARM_HOLD_MS)]);
+    // A container whose init warm-up was skipped (it booted before the first migrate) or failed retries it on its next
+    // keep-warm ping, after catching up so it sees migrations another container applied.
+    if (warmed !== "ok") {
+      await replica.catchUp();
+      await warmUp(replica);
+    }
     const children = settled.map((s) => (s.status === "fulfilled" ? s.value : { error: s.reason instanceof Error ? s.reason.message : String(s.reason) }));
     for (const s of settled) if (s.status === "rejected") logError(`keep-warm child failed: ${s.reason instanceof Error ? s.reason.message : String(s.reason)}`);
     const ids = new Set<string>([containerId]);
@@ -470,7 +502,10 @@ export function createLambdaHandler(opts: LambdaOptions): LambdaHandler {
     const applied = await applyMigrations(replica, opts.migrationsDir, () => new Date(now()));
     if (isShadow) applied.push(...(await applyShadowMigrations(replica, shadowDir(), () => new Date(now()))));
     assertAlive();
-    return { ok: true, applied, seq: replica.seq };
+    // The init warm-up was skipped (or failed) while the schema was incomplete: run it now, so the report is the
+    // post-migrate state.
+    if (warmed !== "ok") await warmUp(replica);
+    return { ok: true, applied, seq: replica.seq, warmup: warmed };
   }
 
   booting = start();
