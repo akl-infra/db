@@ -188,6 +188,12 @@ section for the invariants it used to satisfy.
 | `MODQUEUE_DISCORD_CARDS` | secret (optional) | `src/core/modqueue.ts` (LDB-MD16) | unset disables bot cards; set to `true` only after dedicated bot credentials, app config and channel access are verified; new cards then use Bot REST and record ownership |
 | `MODQUEUE_DISCORD_ACTIONS` | secret (optional) | `src/core/discord-interactions.ts` (LDB-MD16) | unset disables approve/deny actions; set to `true` only after Discord's interaction endpoint is configured and verified |
 | `MODQUEUE_DISCORD_DMS` | secret (optional) | `src/core/rejection-dm.ts`, moderation routes and `src/core/discord-interactions.ts` | unset disables submitter DMs; set to `true` to enqueue a private DM for a winning future rejection, or a reviewed WPM/comment approval, from the API or Discord action; delivery also requires the bot-token secret |
+| `AWS_REGION` | Lambda runtime env (AWS) | `src/lambda.ts` | set by the Lambda runtime; the template pins the stack to us-east-2 (`infra/akldb.yaml`) |
+| `AWS_SESSION_TOKEN` | Lambda runtime env (AWS) | `src/lambda.ts` | set by the Lambda runtime from the execution role (`akldb-<stage>-api`); read at call time with `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`, never stored |
+| `AWS_LAMBDA_FUNCTION_VERSION` | Lambda runtime env (AWS) | `src/platform/lambda.ts` | set by the Lambda runtime; echoed in the keep-warm answer so a deploy's pre-warm shows which version answered |
+| `LAMBDA_TASK_ROOT` | Lambda runtime env (AWS) | `src/platform/lambda.ts` | set by the Lambda runtime (`/var/task`); the zip carries `migrations/` there for `{"akldb":"migrate"}` |
+| `MIGRATIONS_DIR` | var (optional, Lambda) | `src/platform/lambda.ts` | overrides the migrations directory; unset in the stack |
+| `SSM_PREFIX` | var (Lambda) | `src/lambda.ts` | `infra/akldb.yaml` sets `/akldb/<stage>/`; the origin secret and the optional Discord settings are SecureStrings under it (`design/aws-a-ops.md`) |
 | `CLOUDFLARE_DB_TOKEN` | repo secret (CI) | `.github/workflows/db.yml`'s `deploy` job (S7) | a Cloudflare API token with Workers Scripts + D1 + R2 edit, separate from the site's Pages token |
 | `CLOUDFLARE_DB_ACCOUNT_ID` | repo secret (CI) | `.github/workflows/db.yml`'s `deploy` job (S7) | the NEW community account's id (00 §1) -- NOT the site's `CLOUDFLARE_ACCOUNT_ID` |
 | `DB_BASE_URL` | repo/org variable (CI) | `.github/workflows/db.yml`'s `daily` job (S7) | the deployed service's own origin, e.g. `https://akl-db.<account>.workers.dev`; set once the service is deployed |
