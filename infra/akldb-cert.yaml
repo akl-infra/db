@@ -1,0 +1,40 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  akldb on AWS, design A: the regional (us-east-2) ACM certificate for one API hostname. One stack per
+  hostname (akldb-cert-<stage>). Regional API Gateway custom domains take a certificate from their own Region,
+  so there is no us-east-1 stack.
+
+# DNS validation, by hand at Cloudflare. This stack stays CREATE_IN_PROGRESS until saltorbit adds the validation
+# CNAME to the akldb.org zone (the zone is not in this account, so CloudFormation cannot add it). Read the record with
+#   aws acm describe-certificate --region us-east-2 --certificate-arn <arn> \
+#     --query 'Certificate.DomainValidationOptions[].ResourceRecord'
+# where <arn> comes from
+#   aws cloudformation describe-stack-resources --region us-east-2 --stack-name akldb-cert-<stage> \
+#     --query 'StackResources[0].PhysicalResourceId'
+# The record is "DNS only" (grey cloud) at Cloudflare. Keep it: ACM renews through it.
+
+Parameters:
+  DomainName:
+    Type: String
+    AllowedValues: [ staging-api.akldb.org, shadow-api.akldb.org, api.akldb.org ]
+    Description: The API hostname this certificate serves.
+
+Rules:
+  RegionIsOhio:
+    Assertions:
+      - Assert: !Equals [ !Ref "AWS::Region", us-east-2 ]
+        AssertDescription: Regional resources live in the project Region us-east-2 only.
+
+Resources:
+  Certificate:
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName: !Ref DomainName
+      ValidationMethod: DNS
+      Tags:
+        - { Key: project, Value: akldb }
+
+Outputs:
+  CertificateArn:
+    Description: Pass as the CertificateArn parameter of the akldb-<stage> stack.
+    Value: !Ref Certificate

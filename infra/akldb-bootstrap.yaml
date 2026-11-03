@@ -1,0 +1,270 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  akldb on AWS, design A: the once-per-account bootstrap. The artifacts bucket (Lambda zips and deployed
+  templates) and the CI deploy role akldb-deploy, which only the IAM user akldb-ci can assume.
+
+# Created by hand once, by the project owner, before any akldb-<stage> stack:
+#   aws cloudformation deploy --region us-east-2 --stack-name akldb-bootstrap \
+#     --template-file infra/akldb-bootstrap.yaml --capabilities CAPABILITY_NAMED_IAM
+# The IAM user akldb-ci is created out of band first (infra/iam-akldb-ci.json is its inline policy): the role's trust
+# policy names it, and IAM refuses a trust policy for a principal that does not exist. The SCP denies OIDC providers,
+# so CI has an access key for that user, kept in the GitHub environment akldb-production, and nothing else.
+#
+# The role can create and update akldb-* stacks and what they hold, and publish and invoke akldb-* functions. It
+# cannot delete a stack, touch an IAM user or an OIDC provider, or act on anything not named akldb-*. The stacks hold
+# IAM roles of their own (the function role, the scheduler role), so the role may create akldb-* roles; that is the
+# one place it can mint permissions, and the akldb-* name is the fence.
+
+Rules:
+  RegionIsOhio:
+    Assertions:
+      - Assert: !Equals [ !Ref "AWS::Region", us-east-2 ]
+        AssertDescription: Regional resources live in the project Region us-east-2 only.
+
+Resources:
+  ArtifactsBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub akldb-artifacts-${AWS::AccountId}
+      VersioningConfiguration: { Status: Enabled }
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      LifecycleConfiguration:
+        Rules:
+          # A published Lambda version keeps its own copy of the code, so old zips are only history.
+          - Id: expire-old-zips
+            Status: Enabled
+            Prefix: code/
+            ExpirationInDays: 90
+            NoncurrentVersionExpiration: { NoncurrentDays: 30 }
+          - Id: expire-old-templates
+            Status: Enabled
+            Prefix: templates/
+            NoncurrentVersionExpiration: { NoncurrentDays: 30 }
+          - Id: abort-multipart
+            Status: Enabled
+            AbortIncompleteMultipartUpload: { DaysAfterInitiation: 7 }
+      Tags:
+        - { Key: project, Value: akldb }
+
+  ArtifactsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ArtifactsBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: TlsOnly
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource:
+              - !GetAtt ArtifactsBucket.Arn
+              - !Sub "${ArtifactsBucket.Arn}/*"
+            Condition:
+              Bool: { "aws:SecureTransport": "false" }
+
+  DeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: akldb-deploy
+      Description: Assumed by the IAM user akldb-ci to deploy the akldb-* stacks.
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: OnlyTheCiUser
+            Effect: Allow
+            Principal: { AWS: !Sub "arn:aws:iam::${AWS::AccountId}:user/akldb-ci" }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: akldb-deploy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: StacksCreateAndUpdate
+                Effect: Allow
+                Action:
+                  - cloudformation:CreateStack
+                  - cloudformation:UpdateStack
+                  - cloudformation:CreateChangeSet
+                  - cloudformation:DescribeChangeSet
+                  - cloudformation:ExecuteChangeSet
+                  - cloudformation:DeleteChangeSet
+                  - cloudformation:DescribeStacks
+                  - cloudformation:DescribeStackEvents
+                  - cloudformation:DescribeStackResources
+                  - cloudformation:ListStackResources
+                  - cloudformation:GetTemplate
+                  - cloudformation:GetTemplateSummary
+                  - cloudformation:TagResource
+                Resource: !Sub "arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/akldb-*"
+              - Sid: TemplateValidation
+                Effect: Allow
+                Action: cloudformation:ValidateTemplate
+                Resource: "*"
+              - Sid: Artifacts
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub "${ArtifactsBucket.Arn}/*"
+              - Sid: ArtifactsList
+                Effect: Allow
+                Action:
+                  - s3:ListBucket
+                  - s3:GetBucketLocation
+                Resource: !GetAtt ArtifactsBucket.Arn
+              - Sid: Functions
+                Effect: Allow
+                Action: "lambda:*"
+                Resource: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:akldb-*"
+              - Sid: LogTable
+                Effect: Allow
+                Action:
+                  - dynamodb:CreateTable
+                  - dynamodb:UpdateTable
+                  - dynamodb:DescribeTable
+                  - dynamodb:DescribeContinuousBackups
+                  - dynamodb:UpdateContinuousBackups
+                  - dynamodb:DescribeTimeToLive
+                  - dynamodb:UpdateTimeToLive
+                  - dynamodb:ListTagsOfResource
+                  - dynamodb:TagResource
+                  - dynamodb:UntagResource
+                Resource: !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/akldb-*"
+              - Sid: DataBuckets
+                Effect: Allow
+                Action:
+                  - s3:CreateBucket
+                  - s3:GetBucketPolicy
+                  - s3:PutBucketPolicy
+                  - s3:GetBucketVersioning
+                  - s3:PutBucketVersioning
+                  - s3:GetBucketPublicAccessBlock
+                  - s3:PutBucketPublicAccessBlock
+                  - s3:GetEncryptionConfiguration
+                  - s3:PutEncryptionConfiguration
+                  - s3:GetLifecycleConfiguration
+                  - s3:PutLifecycleConfiguration
+                  - s3:GetBucketOwnershipControls
+                  - s3:PutBucketOwnershipControls
+                  - s3:GetBucketTagging
+                  - s3:PutBucketTagging
+                  - s3:ListBucket
+                Resource: !Sub "arn:aws:s3:::akldb-*-data-${AWS::AccountId}"
+              - Sid: Roles
+                Effect: Allow
+                Action:
+                  - iam:CreateRole
+                  - iam:GetRole
+                  - iam:UpdateRole
+                  - iam:TagRole
+                  - iam:UntagRole
+                  - iam:PutRolePolicy
+                  - iam:GetRolePolicy
+                  - iam:DeleteRolePolicy
+                  - iam:ListRolePolicies
+                  - iam:ListAttachedRolePolicies
+                Resource: !Sub "arn:aws:iam::${AWS::AccountId}:role/akldb-*"
+              - Sid: PassRoles
+                Effect: Allow
+                Action: iam:PassRole
+                Resource: !Sub "arn:aws:iam::${AWS::AccountId}:role/akldb-*"
+                Condition:
+                  StringEquals:
+                    "iam:PassedToService": [ lambda.amazonaws.com, scheduler.amazonaws.com ]
+              - Sid: LogGroups
+                Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:PutRetentionPolicy
+                  - logs:DeleteRetentionPolicy
+                  - logs:TagResource
+                  - logs:UntagResource
+                  - logs:ListTagsForResource
+                  - logs:ListTagsLogGroup
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/akldb-*"
+              - Sid: DescribeLogGroups
+                Effect: Allow
+                Action: logs:DescribeLogGroups
+                Resource: "*"
+              - Sid: HttpApi
+                Effect: Allow
+                Action:
+                  - apigateway:GET
+                  - apigateway:POST
+                  - apigateway:PUT
+                  - apigateway:PATCH
+                Resource:
+                  - !Sub "arn:aws:apigateway:${AWS::Region}::/apis"
+                  - !Sub "arn:aws:apigateway:${AWS::Region}::/apis/*"
+                  - !Sub "arn:aws:apigateway:${AWS::Region}::/domainnames"
+                  - !Sub "arn:aws:apigateway:${AWS::Region}::/domainnames/*"
+                  - !Sub "arn:aws:apigateway:${AWS::Region}::/tags/*"
+              - Sid: Schedules
+                Effect: Allow
+                Action:
+                  - scheduler:CreateSchedule
+                  - scheduler:UpdateSchedule
+                  - scheduler:GetSchedule
+                  - scheduler:TagResource
+                Resource: !Sub "arn:aws:scheduler:${AWS::Region}:${AWS::AccountId}:schedule/default/akldb-*"
+              - Sid: AlarmTopics
+                Effect: Allow
+                Action:
+                  - sns:CreateTopic
+                  - sns:GetTopicAttributes
+                  - sns:SetTopicAttributes
+                  - sns:Subscribe
+                  - sns:GetSubscriptionAttributes
+                  - sns:ListSubscriptionsByTopic
+                  - sns:TagResource
+                  - sns:ListTagsForResource
+                Resource: !Sub "arn:aws:sns:${AWS::Region}:${AWS::AccountId}:akldb-*"
+              - Sid: Alarms
+                Effect: Allow
+                Action:
+                  - cloudwatch:PutMetricAlarm
+                  - cloudwatch:TagResource
+                  - cloudwatch:ListTagsForResource
+                Resource: !Sub "arn:aws:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:akldb-*"
+              - Sid: DescribeAlarms
+                Effect: Allow
+                Action: cloudwatch:DescribeAlarms
+                Resource: "*"
+              - Sid: Budget
+                Effect: Allow
+                Action:
+                  - budgets:ModifyBudget
+                  - budgets:ViewBudget
+                  - budgets:TagResource
+                Resource: !Sub "arn:aws:budgets::${AWS::AccountId}:budget/akldb-*"
+              - Sid: Certificates
+                Effect: Allow
+                Action:
+                  - acm:RequestCertificate
+                  - acm:DescribeCertificate
+                  - acm:AddTagsToCertificate
+                  - acm:ListTagsForCertificate
+                Resource: "*"
+      Tags:
+        - { Key: project, Value: akldb }
+
+Outputs:
+  ArtifactsBucket:
+    Value: !Ref ArtifactsBucket
+  DeployRoleArn:
+    Description: The role arn for the CI workflow (role-to-assume) and for deploy-aws.sh --role.
+    Value: !GetAtt DeployRole.Arn

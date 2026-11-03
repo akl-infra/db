@@ -1,0 +1,75 @@
+# cfn-guard rules for infra/akldb.yaml (design A, LDB-AX1). Run:
+#   cfn-guard validate -r infra/akldb.guard -d infra/akldb.yaml
+# tests/infra/akldb.test.ts enforces the same rules in node, over every stage with the conditions resolved, and runs
+# this file through the binary when it is installed, so the gate does not depend on the binary.
+# cfn-guard reads the template with its conditions unresolved: a rule is stated over the resource, not the stage.
+
+let tables = Resources.*[ Type == 'AWS::DynamoDB::Table' ]
+let buckets = Resources.*[ Type == 'AWS::S3::Bucket' ]
+let apis = Resources.*[ Type == 'AWS::ApiGatewayV2::Api' ]
+let fns = Resources.*[ Type == 'AWS::Lambda::Function' ]
+let logs = Resources.*[ Type == 'AWS::Logs::LogGroup' ]
+let roles = Resources.*[ Type == 'AWS::IAM::Role' ]
+let schedules = Resources.*[ Type == 'AWS::Scheduler::Schedule' ]
+let budgets = Resources.*[ Type == 'AWS::Budgets::Budget' ]
+
+rule table_is_safe when %tables !empty {
+    %tables.Properties.BillingMode == 'PAY_PER_REQUEST'
+    %tables.Properties.PointInTimeRecoverySpecification.PointInTimeRecoveryEnabled == true
+    %tables.Properties.DeletionProtectionEnabled == true
+    %tables.Properties.TimeToLiveSpecification.AttributeName == 'ttl'
+    %tables.DeletionPolicy == 'Retain'
+    %tables.UpdateReplacePolicy == 'Retain'
+}
+
+rule bucket_is_versioned_private_encrypted when %buckets !empty {
+    %buckets.Properties.VersioningConfiguration.Status == 'Enabled'
+    %buckets.Properties.PublicAccessBlockConfiguration.BlockPublicAcls == true
+    %buckets.Properties.PublicAccessBlockConfiguration.BlockPublicPolicy == true
+    %buckets.Properties.PublicAccessBlockConfiguration.IgnorePublicAcls == true
+    %buckets.Properties.PublicAccessBlockConfiguration.RestrictPublicBuckets == true
+    %buckets.Properties.BucketEncryption.ServerSideEncryptionConfiguration[*].ServerSideEncryptionByDefault.SSEAlgorithm == 'AES256'
+    %buckets.DeletionPolicy == 'Retain'
+}
+
+rule http_api_has_no_execute_api_endpoint when %apis !empty {
+    %apis.Properties.ProtocolType == 'HTTP'
+    %apis.Properties.DisableExecuteApiEndpoint == true
+}
+
+rule function_is_arm64_node24_outside_a_vpc when %fns !empty {
+    %fns.Properties.Runtime == 'nodejs24.x'
+    %fns.Properties.Architectures[*] == 'arm64'
+    %fns.Properties.VpcConfig not exists
+}
+
+rule log_group_is_infrequent_access when %logs !empty {
+    %logs.Properties.LogGroupClass == 'INFREQUENT_ACCESS'
+}
+
+rule no_vpc {
+    Resources.*[ Type == /^AWS::EC2::/ ] empty
+}
+
+rule no_cdn_no_function_url_no_waf {
+    Resources.*[ Type in ['AWS::CloudFront::Distribution', 'AWS::Lambda::Url', 'AWS::WAFv2::WebACL'] ] empty
+}
+
+# Data-plane actions never name a wildcard, and no Allow statement names Resource "*".
+rule no_wildcard_actions when %roles !empty {
+    %roles.Properties.Policies[*].PolicyDocument.Statement[*].Action[*] != /\*/
+    %roles.Properties.Policies[*].PolicyDocument.Statement[*] {
+        when Resource is_string { Resource != '*' }
+        when Resource is_list { Resource[*] { when this is_string { this != '*' } } }
+    }
+}
+
+# Both schedules invoke the live alias, never the function (so never $LATEST).
+rule schedules_target_the_alias when %schedules !empty {
+    %schedules.Properties.Target.Arn.Ref == 'LiveAlias'
+}
+
+# The budget is one per account: only the prod stack makes it.
+rule budget_is_prod_only when %budgets !empty {
+    %budgets.Condition == 'IsProd'
+}
