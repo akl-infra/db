@@ -231,7 +231,11 @@ export async function readHead(dbArg: StoreArg, stateKeys: readonly string[] = [
 //   no existing shape changes.
 // 33 (2026-11-02, LDB-CMT19): new private `GET /v1/me/comment-likes` (the
 //   caller's liked comment slots). Additive; no existing shape changes.
-export const WIRE_VERSION = 33;
+// 34 (2026-11-02, LDB-CV1): the planned write freeze of a storage switch adds the
+//   error `503 read_only` (`Retry-After: 30`) for any write and the Discord
+//   interaction POST. Additive and dormant until an operator sets the cutover
+//   flag. No stored shape changes; no migration.
+export const WIRE_VERSION = 34;
 
 export async function etagFor(headSeqValue: number, query: unknown): Promise<string> {
   const hash = await sha256Hex(canonical({ wireVersion: WIRE_VERSION, query: query ?? null }));
