@@ -4,7 +4,9 @@
 // models the four ways a DynamoDB append goes wrong: a conflict, a throttle,
 // a timeout before the commit and a timeout AFTER the commit (the last two
 // raise AmbiguousAppendError, as the real backend does).
-import { AmbiguousAppendError, LogThrottledError, checkedBody, decodeBody, type CommitLog, type LogEntry, type NewLogEntry } from "./log";
+import { AmbiguousAppendError, LogThrottledError, decodeBody, type CommitLog, type ExpirableLog, type LogEntry, type NewLogEntry } from "./log";
+import type { MemoryObjects } from "./objects";
+import { BodySpiller } from "./spill";
 import { nextTurn } from "./timers";
 
 export interface MemoryLogFaults {
@@ -51,17 +53,33 @@ export function seededRandom(seed: number): () => number {
 
 type Op = "none" | "conflict" | "throttle" | "timeoutBefore" | "timeoutAfter";
 
-export class MemoryLog implements CommitLog {
+interface Item {
+  unitId: string;
+  kind: LogEntry["kind"];
+  /** Inline JSON body, or the spill reference below. */
+  body?: string;
+  spill?: string;
+  hash?: string;
+  /** Epoch seconds after which `purge` removes the entry (DynamoDB TTL). */
+  ttl?: number;
+}
+
+export class MemoryLog implements CommitLog, ExpirableLog {
   readonly counts: MemoryLogCounts = { appends: 0, ok: 0, conflicts: 0, injectedConflicts: 0, throttles: 0, timeoutsBefore: 0, timeoutsAfter: 0, heads: 0, reads: 0, gets: 0 };
-  #items: { unitId: string; kind: LogEntry["kind"]; body: string }[] = [];
+  #items: Item[] = [];
+  /** Entries 1..#base were removed by purge(): seq `#base + 1` is #items[0]. */
+  #base = 0;
+  readonly spiller: BodySpiller;
   #faults: MemoryLogFaults;
   #rng: () => number;
   /** Forced outcomes for the next appends (consumed in order), for deterministic tests. */
   #forced: Op[] = [];
 
-  constructor(faults: MemoryLogFaults = {}) {
+  /** `blobs`: where bodies over the spill threshold go (S3 in production); without it such an entry is refused like the DynamoDB log does. */
+  constructor(faults: MemoryLogFaults = {}, readonly blobs?: MemoryObjects) {
     this.#faults = faults;
     this.#rng = seededRandom(faults.seed ?? 1);
+    this.spiller = new BodySpiller(blobs);
   }
 
   /** Change the fault rates from now on (the rng stream continues). */
@@ -77,18 +95,57 @@ export class MemoryLog implements CommitLog {
 
   /** Every entry, decoded (for assertions and for building a fresh replica from the log). */
   entries(): LogEntry[] {
-    return this.#items.map((it, i) => ({ seq: i + 1, unitId: it.unitId, kind: it.kind, ...decodeBody(it.body) }));
+    return this.#items.map((it, i) => this.#entry(this.#base + i + 1, it));
+  }
+
+  #entry(seq: number, it: Item): LogEntry {
+    const json = this.spiller.loadSync(it, (k) => this.blobs?.peek(k), `commit log entry ${seq}`);
+    return { seq, unitId: it.unitId, kind: it.kind, ...decodeBody(json) };
   }
 
   /** A new log holding the same entries (no faults unless given), to start fresh replicas from. */
   clone(faults: MemoryLogFaults = {}): MemoryLog {
-    const copy = new MemoryLog(faults);
+    const copy = new MemoryLog(faults, this.blobs);
     copy.#items = this.#items.map((it) => ({ ...it }));
+    copy.#base = this.#base;
     return copy;
   }
 
+  /** The head: the number of entries ever committed (purged ones included). */
   get length(): number {
-    return this.#items.length;
+    return this.#base + this.#items.length;
+  }
+
+  /** The lowest seq still readable (1 until retention has purged something). */
+  get first(): number {
+    return this.#base + 1;
+  }
+
+  /** Remove the leading entries whose ttl has passed, the way DynamoDB's TTL sweep does (it only ever deletes expired items; here, as a contiguous prefix). Resolves to the count. */
+  purge(nowSec: number): number {
+    let n = 0;
+    while (n < this.#items.length && this.#items[n]!.ttl !== undefined && this.#items[n]!.ttl! <= nowSec) n++;
+    this.#items.splice(0, n);
+    this.#base += n;
+    return n;
+  }
+
+  /** The ttl set on `seq`, for assertions (undefined: none, or purged). */
+  ttlOf(seq: number): number | undefined {
+    return this.#items[seq - this.#base - 1]?.ttl;
+  }
+
+  async expire(afterSeq: number, upToSeq: number, atSec: number, max: number): Promise<{ marked: number; through: number }> {
+    await this.#pause();
+    let marked = 0;
+    let through = afterSeq;
+    for (let seq = Math.max(afterSeq + 1, this.#base + 1); seq <= Math.min(upToSeq, this.length); seq++) {
+      if (marked >= max) return { marked, through };
+      this.#items[seq - this.#base - 1]!.ttl = atSec;
+      marked++;
+      through = seq;
+    }
+    return { marked, through: Math.max(through, Math.min(upToSeq, this.length), afterSeq) };
   }
 
   async #pause(): Promise<void> {
@@ -109,7 +166,7 @@ export class MemoryLog implements CommitLog {
     await this.#pause();
     this.#throttleMaybe();
     this.counts.heads++;
-    return this.#items.length;
+    return this.length;
   }
 
   async read(afterSeq: number, upTo: number): Promise<LogEntry[]> {
@@ -117,10 +174,7 @@ export class MemoryLog implements CommitLog {
     this.#throttleMaybe();
     this.counts.reads++;
     const out: LogEntry[] = [];
-    for (let seq = afterSeq + 1; seq <= Math.min(upTo, this.#items.length); seq++) {
-      const it = this.#items[seq - 1]!;
-      out.push({ seq, unitId: it.unitId, kind: it.kind, ...decodeBody(it.body) });
-    }
+    for (let seq = Math.max(afterSeq + 1, this.#base + 1); seq <= Math.min(upTo, this.length); seq++) out.push(await this.#entryAsync(seq, this.#items[seq - this.#base - 1]!));
     return out;
   }
 
@@ -128,8 +182,13 @@ export class MemoryLog implements CommitLog {
     await this.#pause();
     this.#throttleMaybe();
     this.counts.gets++;
-    const it = this.#items[seq - 1];
-    return it === undefined || seq < 1 ? null : { seq, unitId: it.unitId, kind: it.kind, ...decodeBody(it.body) };
+    const it = this.#items[seq - this.#base - 1];
+    return it === undefined || seq < 1 ? null : this.#entryAsync(seq, it);
+  }
+
+  async #entryAsync(seq: number, it: Item): Promise<LogEntry> {
+    const json = await this.spiller.load(it, `commit log entry ${seq}`);
+    return { seq, unitId: it.unitId, kind: it.kind, ...decodeBody(json) };
   }
 
   #roll(): Op {
@@ -151,7 +210,7 @@ export class MemoryLog implements CommitLog {
   async append(expectedHead: number, entry: NewLogEntry): Promise<"ok" | "conflict"> {
     await this.#pause();
     this.counts.appends++;
-    const body = checkedBody(entry, this.#faults.maxBodyBytes ?? Number.POSITIVE_INFINITY);
+    const stored = await this.spiller.store(entry, this.#faults.maxBodyBytes ?? Number.POSITIVE_INFINITY);
     const op = this.#roll();
     if (op === "throttle") {
       this.counts.throttles++;
@@ -166,11 +225,11 @@ export class MemoryLog implements CommitLog {
       this.counts.conflicts++;
       return "conflict";
     }
-    if (this.#items.length !== expectedHead) {
+    if (this.length !== expectedHead) {
       this.counts.conflicts++;
       return "conflict";
     }
-    this.#items.push({ unitId: entry.unitId, kind: entry.kind, body });
+    this.#items.push({ unitId: entry.unitId, kind: entry.kind, ...(stored.spill === undefined ? { body: stored.body } : { spill: stored.spill, hash: stored.hash }) });
     this.counts.ok++;
     if (op === "timeoutAfter") {
       this.counts.timeoutsAfter++;

@@ -114,6 +114,8 @@ export default defineConfig(async () => {
             environment: "node",
             include: [
               "tests/shim/**/*.test.ts",
+              // Design A, phase B: snapshots, boot, spill, retention (memory log + memory object store; DynamoDB Local for one file).
+              "tests/replica/**/*.test.ts",
               "tests/api/**/*.test.ts",
               "tests/auth/**/*.test.ts",
               "tests/import/**/*.test.ts",
