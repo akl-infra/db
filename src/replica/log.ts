@@ -5,7 +5,24 @@
 // Backends: log-memory.ts (tests, fault injection) and log-ddb.ts (DynamoDB).
 // Node-free on purpose: nothing in this file touches sqlite.
 
-export type LogEntryKind = "unit" | "migration";
+export type LogEntryKind = "unit" | "migration" | "image";
+
+/**
+ * The cutover image (phase E, LDB-CV10): the whole of D1's database as ONE log entry, always seq 1. The entry's `hash` is the
+ * sha256 of the raw SQLite image; the image itself lives in the object store as `key` (zstd), never in the log item.
+ */
+export interface ImageRef {
+  /** Object-store key of the zstd-compressed image: `log/<unitId>.image.zst`. */
+  key: string;
+  /** Raw (decompressed) image size in bytes. */
+  bytes: number;
+  /** Compressed object size in bytes. */
+  zbytes: number;
+  /** The D1 export's per-table proof: row count and the canonical-rows checksum (scripts/cutover/checksum.mjs). */
+  tables: Record<string, { count: number; checksum: string }>;
+  /** Free-form provenance (the D1 time-travel bookmark, the freeze seq ...). */
+  source?: Record<string, string | number | null>;
+}
 
 /** One statement of a unit, exactly as bound: `params` are null, number, string or Uint8Array (booleans are already 1/0). */
 export interface LogStmt {
@@ -34,9 +51,34 @@ export interface LogEntry {
    * Absent on entries written before this field existed: replay then keeps the replica's own value.
    */
   lrid?: number;
+  /** Image only (kind "image"): where the image is and what the D1 export proved about it. `stmts` is empty, `hash` is the raw image's sha256. */
+  image?: ImageRef;
+  /**
+   * Image only, set by a backend when it READS the entry: the decompressed image. The backend fetches and decompresses; it does
+   * NOT judge the bytes: the replica compares their sha256 with `hash` and halts on a mismatch (LDB-CV10).
+   */
+  imageData?: Uint8Array;
 }
 
-export type NewLogEntry = Omit<LogEntry, "seq">;
+export type NewLogEntry = Omit<LogEntry, "seq" | "imageData">;
+
+/** The image entry was appended anywhere but seq 1, or an entry claims to be an image without being one (LDB-CV10). */
+export class ImageEntryRefusedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ImageEntryRefusedError";
+  }
+}
+
+/** Every backend calls this first: an image entry is seq 1 (`expectedHead` 0) or it is refused, and only an image carries `image`. */
+export function assertImageAppend(expectedHead: number, entry: Pick<NewLogEntry, "kind" | "image" | "unitId">): void {
+  if (entry.kind === "image") {
+    if (expectedHead !== 0) throw new ImageEntryRefusedError(`an image entry must be the log's first entry (seq 1); the head is ${expectedHead}, so seq ${expectedHead + 1} is refused (unit ${entry.unitId})`);
+    if (entry.image === undefined) throw new ImageEntryRefusedError(`image entry ${entry.unitId} carries no image reference`);
+  } else if (entry.image !== undefined) {
+    throw new ImageEntryRefusedError(`entry ${entry.unitId} is a ${entry.kind} but carries an image reference`);
+  }
+}
 
 export interface CommitLog {
   /** The newest seq, read strongly (0 for an empty log). */
@@ -96,6 +138,7 @@ interface BodyJson {
   name?: string;
   at?: string;
   lrid?: number;
+  image?: ImageRef;
 }
 
 function encodeParam(p: unknown): unknown {
@@ -109,18 +152,19 @@ function decodeParam(p: unknown): unknown {
 }
 
 /** The JSON text stored in an entry's body attribute. */
-export function encodeBody(entry: Pick<NewLogEntry, "stmts" | "hash" | "name" | "at" | "lrid">): string {
+export function encodeBody(entry: Pick<NewLogEntry, "stmts" | "hash" | "name" | "at" | "lrid" | "image">): string {
   const body: BodyJson = {
     stmts: entry.stmts.map((s) => ({ sql: s.sql, params: s.params.map(encodeParam), ...(s.exec === true ? { exec: true as const } : {}) })),
     hash: entry.hash,
     ...(entry.name !== undefined ? { name: entry.name } : {}),
     ...(entry.at !== undefined ? { at: entry.at } : {}),
     ...(entry.lrid !== undefined ? { lrid: entry.lrid } : {}),
+    ...(entry.image !== undefined ? { image: entry.image } : {}),
   };
   return JSON.stringify(body);
 }
 
-export function decodeBody(json: string): Pick<LogEntry, "stmts" | "hash" | "name" | "at" | "lrid"> {
+export function decodeBody(json: string): Pick<LogEntry, "stmts" | "hash" | "name" | "at" | "lrid" | "image"> {
   const body = JSON.parse(json) as BodyJson;
   return {
     stmts: body.stmts.map((s) => ({ sql: s.sql, params: s.params.map(decodeParam), ...(s.exec === true ? { exec: true as const } : {}) })),
@@ -128,11 +172,12 @@ export function decodeBody(json: string): Pick<LogEntry, "stmts" | "hash" | "nam
     ...(body.name !== undefined ? { name: body.name } : {}),
     ...(body.at !== undefined ? { at: body.at } : {}),
     ...(body.lrid !== undefined ? { lrid: body.lrid } : {}),
+    ...(body.image !== undefined ? { image: body.image } : {}),
   };
 }
 
 /** Throws LogEntryTooLargeError when the encoded body is over `limit` (default MAX_BODY_BYTES); returns the encoded body. */
-export function checkedBody(entry: Pick<NewLogEntry, "stmts" | "hash" | "name" | "at" | "lrid">, limit: number = MAX_BODY_BYTES): string {
+export function checkedBody(entry: Pick<NewLogEntry, "stmts" | "hash" | "name" | "at" | "lrid" | "image">, limit: number = MAX_BODY_BYTES): string {
   const body = encodeBody(entry);
   const bytes = Buffer.byteLength(body, "utf8");
   if (bytes > limit) throw new LogEntryTooLargeError(bytes, limit);

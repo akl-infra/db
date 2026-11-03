@@ -4,7 +4,7 @@
 // models the four ways a DynamoDB append goes wrong: a conflict, a throttle,
 // a timeout before the commit and a timeout AFTER the commit (the last two
 // raise AmbiguousAppendError, as the real backend does).
-import { AmbiguousAppendError, LogThrottledError, decodeBody, type CommitLog, type ExpirableLog, type LogEntry, type NewLogEntry } from "./log";
+import { AmbiguousAppendError, LogThrottledError, assertImageAppend, decodeBody, type CommitLog, type ExpirableLog, type LogEntry, type NewLogEntry } from "./log";
 import type { MemoryObjects } from "./objects";
 import { BodySpiller } from "./spill";
 import { nextTurn } from "./timers";
@@ -100,7 +100,9 @@ export class MemoryLog implements CommitLog, ExpirableLog {
 
   #entry(seq: number, it: Item): LogEntry {
     const json = this.spiller.loadSync(it, (k) => this.blobs?.peek(k), `commit log entry ${seq}`);
-    return { seq, unitId: it.unitId, kind: it.kind, ...decodeBody(json) };
+    const body = decodeBody(json);
+    if (it.kind === "image" && body.image !== undefined) return { seq, unitId: it.unitId, kind: it.kind, ...body, imageData: this.spiller.loadImageSync(body.image, (k) => this.blobs?.peek(k), `commit log entry ${seq}`) };
+    return { seq, unitId: it.unitId, kind: it.kind, ...body };
   }
 
   /** A new log holding the same entries (no faults unless given), to start fresh replicas from. */
@@ -188,7 +190,9 @@ export class MemoryLog implements CommitLog, ExpirableLog {
 
   async #entryAsync(seq: number, it: Item): Promise<LogEntry> {
     const json = await this.spiller.load(it, `commit log entry ${seq}`);
-    return { seq, unitId: it.unitId, kind: it.kind, ...decodeBody(json) };
+    const body = decodeBody(json);
+    if (it.kind === "image" && body.image !== undefined) return { seq, unitId: it.unitId, kind: it.kind, ...body, imageData: await this.spiller.loadImage(body.image, `commit log entry ${seq}`) };
+    return { seq, unitId: it.unitId, kind: it.kind, ...body };
   }
 
   #roll(): Op {
@@ -209,6 +213,7 @@ export class MemoryLog implements CommitLog, ExpirableLog {
 
   async append(expectedHead: number, entry: NewLogEntry): Promise<"ok" | "conflict"> {
     await this.#pause();
+    assertImageAppend(expectedHead, entry);
     this.counts.appends++;
     const stored = await this.spiller.store(entry, this.#faults.maxBodyBytes ?? Number.POSITIVE_INFINITY);
     const op = this.#roll();
