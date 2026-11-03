@@ -138,6 +138,8 @@ export default defineConfig(async () => {
               // Design A, phase C: the Lambda host and the CloudFormation templates (no cloud, no miniflare).
               "tests/platform/**/*.test.ts",
               "tests/infra/**/*.test.ts",
+              // Design A, phase E: the cutover and rollback machines (scripts/cutover/*) over a fake world.
+              "tests/cutover/**/*.test.ts",
               "tests/formats/**/*.test.ts",
               "tests/import/diff-unit.test.ts",
               "tests/upstream-diff.test.ts",
