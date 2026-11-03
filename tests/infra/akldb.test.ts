@@ -40,6 +40,10 @@ describe("template lint and guard (AX1)", () => {
       ["- dynamodb:GetItem\n", "- dynamodb:*\n"],
       ["PointInTimeRecoveryEnabled: true", "PointInTimeRecoveryEnabled: false"],
       ["DeletionProtectionEnabled: true", "DeletionProtectionEnabled: false"],
+      ["DeletionProtectionEnabled: false", "DeletionProtectionEnabled: true"],
+      ["    Condition: IsProd\n    DeletionPolicy: Retain\n    UpdateReplacePolicy: Retain\n    Properties:\n      TableName", "    Condition: IsProd\n    DeletionPolicy: Delete\n    UpdateReplacePolicy: Delete\n    Properties:\n      TableName"],
+      ["    Condition: NotProd\n    DeletionPolicy: Delete\n    UpdateReplacePolicy: Delete\n    Properties:\n      BucketName", "    Condition: NotProd\n    DeletionPolicy: Retain\n    UpdateReplacePolicy: Retain\n    Properties:\n      BucketName"],
+      ["      RetentionInDays: 14\n", "      RetentionInDays: 30\n"],
       ["DisableExecuteApiEndpoint: true", "DisableExecuteApiEndpoint: false"],
       ["LogGroupClass: INFREQUENT_ACCESS", "LogGroupClass: STANDARD"],
       ["VersioningConfiguration: { Status: Enabled }", "VersioningConfiguration: { Status: Suspended }"],
@@ -108,13 +112,39 @@ describe("template lint and guard (AX1)", () => {
     expect(violations(m5, "prod").some((x) => /DynamoDB tables/.test(x))).toBe(true);
   });
 
-  it("[LDB-AX1] rejected mutations: the log table without PITR, deletion protection or Retain; the bucket unversioned, public or expiring current objects", () => {
+  it("[LDB-AX1] prod keeps its state (Retain, deletion protection, no expiry); staging and shadow are deletable, so their stacks delete and recreate", () => {
+    const prod = resolveStage(t, "prod").resources;
+    expect([prod.LogTable.DeletionPolicy, prod.LogTable.UpdateReplacePolicy, prod.LogTable.Properties.DeletionProtectionEnabled]).toEqual(["Retain", "Retain", true]);
+    expect([prod.DataBucket.DeletionPolicy, prod.DataBucket.UpdateReplacePolicy, prod.LogGroup.DeletionPolicy]).toEqual(["Retain", "Retain", "Retain"]);
+    for (const s of ["staging", "shadow"]) {
+      const R = resolveStage(t, s).resources;
+      expect([R.LogTable.DeletionPolicy, R.LogTable.UpdateReplacePolicy, R.LogTable.Properties.DeletionProtectionEnabled], s).toEqual(["Delete", "Delete", false]);
+      expect([R.DataBucket.DeletionPolicy, R.DataBucket.UpdateReplacePolicy, R.LogGroup.DeletionPolicy], s).toEqual(["Delete", "Delete", "Delete"]);
+      // the table keeps its name, and its PITR, so a recreate under the same name works once the old one is gone
+      expect(R.LogTable.Properties.TableName).toEqual({ "Fn::Sub": "akldb-${Stage}-log" });
+      expect(R.LogTable.Properties.PointInTimeRecoverySpecification.PointInTimeRecoveryEnabled).toBe(true);
+    }
+    // exactly one of each pair exists per stage
+    for (const [stage, ids] of [["prod", ["LogTable", "DataBucket", "LogGroup"]], ["staging", ["LogTableDev", "DataBucketDev", "LogGroupDev"]], ["shadow", ["LogTableDev", "DataBucketDev", "LogGroupDev"]]] as const) {
+      const live = (id: string) => !t.Resources[id].Condition || (t.Resources[id].Condition === "IsProd") === (stage === "prod");
+      expect(ids.every(live), stage).toBe(true);
+      expect([...ids].every((id) => id.endsWith("Dev") === (stage !== "prod")), stage).toBe(true);
+    }
+  });
+
+  it("[LDB-AX1] rejected mutations: prod without PITR, protection or Retain; staging protected or retained; the bucket unversioned, public or expiring current objects", () => {
     const m = clone(t);
     m.Resources.LogTable.Properties.PointInTimeRecoverySpecification.PointInTimeRecoveryEnabled = false;
     m.Resources.LogTable.Properties.DeletionProtectionEnabled = false;
     delete m.Resources.LogTable.DeletionPolicy;
-    const v = violations(m, "staging");
+    const v = violations(m, "prod");
     expect(v.some((x) => /PITR off/.test(x)) && v.some((x) => /deletion protection/.test(x)) && v.some((x) => /not Retain/.test(x))).toBe(true);
+    const d = clone(t);
+    d.Resources.LogTableDev.Properties.DeletionProtectionEnabled = true;
+    d.Resources.DataBucketDev.DeletionPolicy = "Retain";
+    d.Resources.LogGroupDev.DeletionPolicy = "Retain";
+    const vd = violations(d, "staging");
+    expect(vd.some((x) => /deletion protection outside prod/.test(x)) && vd.some((x) => /not Delete/.test(x)) && vd.some((x) => /LogGroup: DeletionPolicy Retain/.test(x))).toBe(true);
     const b = clone(t);
     b.Resources.DataBucket.Properties.VersioningConfiguration.Status = "Suspended";
     b.Resources.DataBucket.Properties.PublicAccessBlockConfiguration.RestrictPublicBuckets = false;
@@ -299,6 +329,11 @@ describe("alarms, budget, reserved concurrency (AX4)", () => {
     expect(p.LambdaErrorsAlarm.Properties).toMatchObject({ EvaluationPeriods: 2, DatapointsToAlarm: 2, Period: 300, Threshold: 0, ComparisonOperator: "GreaterThanThreshold" });
     expect(p.LambdaDurationAlarm.Properties).toMatchObject({ ExtendedStatistic: "p95", Threshold: 3000 });
     expect(p.Api5xxAlarm.Properties.Dimensions).toEqual([{ Name: "ApiId", Value: { Ref: "HttpApi" } }]);
+    // Throttles (and Errors, Duration) are this function's own, never the account-wide concurrency metrics.
+    for (const id of ["LambdaErrorsAlarm", "LambdaThrottlesAlarm", "LambdaDurationAlarm"]) expect(p[id].Properties.Dimensions, id).toEqual([{ Name: "FunctionName", Value: { Ref: "ApiFunction" } }]);
+    const th = clone(t);
+    th.Resources.LambdaThrottlesAlarm.Properties.Dimensions = [];
+    expect(violations(th, "prod").some((x) => /LambdaThrottlesAlarm: not scoped to this function/.test(x))).toBe(true);
     // the DynamoDB alarms cover every operation the log makes
     const ops = (id: string) => p[id].Properties.Metrics.filter((m: Json) => m.MetricStat).map((m: Json) => m.MetricStat.Metric.Dimensions.find((d: Json) => d.Name === "Operation").Value).sort();
     expect(ops("DdbSystemErrorsAlarm")).toEqual(["GetItem", "PutItem", "Query", "TransactWriteItems", "UpdateItem"]);
@@ -333,7 +368,7 @@ describe("alarms, budget, reserved concurrency (AX4)", () => {
 });
 
 describe("logs never expire (AX5)", () => {
-  it("[LDB-AX5] prod's Infrequent Access log group has no retention; other stages keep 14 days; it survives stack deletion", () => {
+  it("[LDB-AX5] prod's Infrequent Access log group has no retention and survives stack deletion; other stages keep 14 days and go with their stack", () => {
     const prod = resolveStage(t, "prod").resources.LogGroup;
     expect(prod.Properties.LogGroupClass).toBe("INFREQUENT_ACCESS");
     expect("RetentionInDays" in prod.Properties).toBe(false);

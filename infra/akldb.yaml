@@ -71,12 +71,18 @@ Rules:
 
 Conditions:
   IsProd: !Equals [ !Ref Stage, prod ]
+  NotProd: !Not [ !Condition IsProd ]
   HasReservedConcurrency: !Not [ !Equals [ !Ref ReservedConcurrency, "" ] ]
 
 Resources:
   # ---------------------------------------------------------------- the commit log
+  # DeletionPolicy cannot take Fn::If, so the three stateful resources exist twice: prod's keeps (Retain, deletion
+  # protection, logs that never expire) and the others' can be deleted, so a staging or shadow stack deletes and
+  # recreates cleanly. Exactly one of each pair exists per stage; the rest of the template names them by their
+  # deterministic names, not by Ref, except where creation order matters.
   LogTable:
     Type: AWS::DynamoDB::Table
+    Condition: IsProd
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
@@ -98,11 +104,69 @@ Resources:
         - { Key: project, Value: akldb }
         - { Key: stage, Value: !Ref Stage }
 
+  LogTableDev:
+    Type: AWS::DynamoDB::Table
+    Condition: NotProd
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      TableName: !Sub akldb-${Stage}-log
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: pk, AttributeType: S }
+        - { AttributeName: sk, AttributeType: S }
+      KeySchema:
+        - { AttributeName: pk, KeyType: HASH }
+        - { AttributeName: sk, KeyType: RANGE }
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      DeletionProtectionEnabled: false
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      Tags:
+        - { Key: project, Value: akldb }
+        - { Key: stage, Value: !Ref Stage }
+
   # ---------------------------------------------------------------- snapshots and dumps
   DataBucket:
     Type: AWS::S3::Bucket
+    Condition: IsProd
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub akldb-${Stage}-data-${AWS::AccountId}
+      VersioningConfiguration: { Status: Enabled }
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      LifecycleConfiguration:
+        Rules:
+          # Current objects (snap/ and dumps/) never expire; only versions that were overwritten or deleted do.
+          - Id: expire-noncurrent
+            Status: Enabled
+            NoncurrentVersionExpiration: { NoncurrentDays: 35 }
+          - Id: abort-multipart
+            Status: Enabled
+            AbortIncompleteMultipartUpload: { DaysAfterInitiation: 7 }
+      Tags:
+        - { Key: project, Value: akldb }
+        - { Key: stage, Value: !Ref Stage }
+
+  # Deleting a non-prod stack needs the versioned bucket emptied first (scripts/deploy-aws.sh --destroy-nonprod).
+  DataBucketDev:
+    Type: AWS::S3::Bucket
+    Condition: NotProd
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
     Properties:
       BucketName: !Sub akldb-${Stage}-data-${AWS::AccountId}
       VersioningConfiguration: { Status: Enabled }
@@ -133,7 +197,7 @@ Resources:
   DataBucketPolicy:
     Type: AWS::S3::BucketPolicy
     Properties:
-      Bucket: !Ref DataBucket
+      Bucket: !If [ IsProd, !Ref DataBucket, !Ref DataBucketDev ]
       PolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -142,22 +206,35 @@ Resources:
             Principal: "*"
             Action: "s3:*"
             Resource:
-              - !GetAtt DataBucket.Arn
-              - !Sub "${DataBucket.Arn}/*"
+              - !Sub "arn:aws:s3:::akldb-${Stage}-data-${AWS::AccountId}"
+              - !Sub "arn:aws:s3:::akldb-${Stage}-data-${AWS::AccountId}/*"
             Condition:
               Bool: { "aws:SecureTransport": "false" }
 
   # ---------------------------------------------------------------- the function
-  # Never expires in prod (saltorbit: keep every log). Infrequent Access has no metric filters, so the alarms below
-  # use built-in metrics only.
+  # Prod's never expires (saltorbit: keep every log); the others keep 14 days. Infrequent Access has no metric filters,
+  # so the alarms below use built-in metrics only.
   LogGroup:
     Type: AWS::Logs::LogGroup
+    Condition: IsProd
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
       LogGroupName: !Sub /aws/lambda/akldb-${Stage}-api
       LogGroupClass: INFREQUENT_ACCESS
-      RetentionInDays: !If [ IsProd, !Ref "AWS::NoValue", 14 ]
+      Tags:
+        - { Key: project, Value: akldb }
+        - { Key: stage, Value: !Ref Stage }
+
+  LogGroupDev:
+    Type: AWS::Logs::LogGroup
+    Condition: NotProd
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      LogGroupName: !Sub /aws/lambda/akldb-${Stage}-api
+      LogGroupClass: INFREQUENT_ACCESS
+      RetentionInDays: 14
       Tags:
         - { Key: project, Value: akldb }
         - { Key: stage, Value: !Ref Stage }
@@ -192,20 +269,20 @@ Resources:
                   - dynamodb:PutItem
                   - dynamodb:UpdateItem
                   - dynamodb:ConditionCheckItem
-                Resource: !GetAtt LogTable.Arn
+                Resource: !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/akldb-${Stage}-log"
               - Sid: DataObjects
                 Effect: Allow
                 Action:
                   - s3:GetObject
                   - s3:PutObject
                 Resource:
-                  - !Sub "${DataBucket.Arn}/snap/*"
-                  - !Sub "${DataBucket.Arn}/dumps/*"
+                  - !Sub "arn:aws:s3:::akldb-${Stage}-data-${AWS::AccountId}/snap/*"
+                  - !Sub "arn:aws:s3:::akldb-${Stage}-data-${AWS::AccountId}/dumps/*"
               # Without ListBucket a missing key answers 403 instead of 404.
               - Sid: DataList
                 Effect: Allow
                 Action: s3:ListBucket
-                Resource: !GetAtt DataBucket.Arn
+                Resource: !Sub "arn:aws:s3:::akldb-${Stage}-data-${AWS::AccountId}"
               - Sid: Parameters
                 Effect: Allow
                 Action:
@@ -238,14 +315,14 @@ Resources:
         S3Bucket: !Ref ArtifactsBucket
         S3Key: !Ref CodeKey
       LoggingConfig:
-        LogGroup: !Ref LogGroup
+        LogGroup: !If [ IsProd, !Ref LogGroup, !Ref LogGroupDev ]
         LogFormat: JSON
         SystemLogLevel: WARN
       Environment:
         Variables:
           STAGE: !Ref Stage
-          LOG_TABLE: !Ref LogTable
-          DATA_BUCKET: !Ref DataBucket
+          LOG_TABLE: !Sub akldb-${Stage}-log
+          DATA_BUCKET: !Sub akldb-${Stage}-data-${AWS::AccountId}
           SSM_PREFIX: !Sub /akldb/${Stage}/
           # wrangler.toml [vars]
           DISCORD_API_URL: !Ref DiscordApiUrl
@@ -498,19 +575,19 @@ Resources:
         - { Id: total, Expression: SUM(METRICS()), Label: SystemErrors, ReturnData: true }
         - Id: getitem
           ReturnData: false
-          MetricStat: { Metric: { Namespace: AWS/DynamoDB, MetricName: SystemErrors, Dimensions: [ { Name: TableName, Value: !Ref LogTable }, { Name: Operation, Value: GetItem } ] }, Period: 300, Stat: Sum }
+          MetricStat: { Metric: { Namespace: AWS/DynamoDB, MetricName: SystemErrors, Dimensions: [ { Name: TableName, Value: !Sub "akldb-${Stage}-log" }, { Name: Operation, Value: GetItem } ] }, Period: 300, Stat: Sum }
         - Id: query
           ReturnData: false
-          MetricStat: { Metric: { Namespace: AWS/DynamoDB, MetricName: SystemErrors, Dimensions: [ { Name: TableName, Value: !Ref LogTable }, { Name: Operation, Value: Query } ] }, Period: 300, Stat: Sum }
+          MetricStat: { Metric: { Namespace: AWS/DynamoDB, MetricName: SystemErrors, Dimensions: [ { Name: TableName, Value: !Sub "akldb-${Stage}-log" }, { Name: Operation, Value: Query } ] }, Period: 300, Stat: Sum }
         - Id: putitem
           ReturnData: false
-          MetricStat: { Metric: { Namespace: AWS/DynamoDB, MetricName: SystemErrors, Dimensions: [ { Name: TableName, Value: !Ref LogTable }, { Name: Operation, Value: PutItem } ] }, Period: 300, Stat: Sum }
+          MetricStat: { Metric: { Namespace: AWS/DynamoDB, MetricName: SystemErrors, Dimensions: [ { Name: TableName, Value: !Sub "akldb-${Stage}-log" }, { Name: Operation, Value: PutItem } ] }, Period: 300, Stat: Sum }
         - Id: updateitem
           ReturnData: false
-          MetricStat: { Metric: { Namespace: AWS/DynamoDB, MetricName: SystemErrors, Dimensions: [ { Name: TableName, Value: !Ref LogTable }, { Name: Operation, Value: UpdateItem } ] }, Period: 300, Stat: Sum }
+          MetricStat: { Metric: { Namespace: AWS/DynamoDB, MetricName: SystemErrors, Dimensions: [ { Name: TableName, Value: !Sub "akldb-${Stage}-log" }, { Name: Operation, Value: UpdateItem } ] }, Period: 300, Stat: Sum }
         - Id: transactwrite
           ReturnData: false
-          MetricStat: { Metric: { Namespace: AWS/DynamoDB, MetricName: SystemErrors, Dimensions: [ { Name: TableName, Value: !Ref LogTable }, { Name: Operation, Value: TransactWriteItems } ] }, Period: 300, Stat: Sum }
+          MetricStat: { Metric: { Namespace: AWS/DynamoDB, MetricName: SystemErrors, Dimensions: [ { Name: TableName, Value: !Sub "akldb-${Stage}-log" }, { Name: Operation, Value: TransactWriteItems } ] }, Period: 300, Stat: Sum }
 
   DdbThrottledAlarm:
     Type: AWS::CloudWatch::Alarm
@@ -525,19 +602,19 @@ Resources:
         - { Id: total, Expression: SUM(METRICS()), Label: ThrottledRequests, ReturnData: true }
         - Id: getitem
           ReturnData: false
-          MetricStat: { Metric: { Namespace: AWS/DynamoDB, MetricName: ThrottledRequests, Dimensions: [ { Name: TableName, Value: !Ref LogTable }, { Name: Operation, Value: GetItem } ] }, Period: 300, Stat: Sum }
+          MetricStat: { Metric: { Namespace: AWS/DynamoDB, MetricName: ThrottledRequests, Dimensions: [ { Name: TableName, Value: !Sub "akldb-${Stage}-log" }, { Name: Operation, Value: GetItem } ] }, Period: 300, Stat: Sum }
         - Id: query
           ReturnData: false
-          MetricStat: { Metric: { Namespace: AWS/DynamoDB, MetricName: ThrottledRequests, Dimensions: [ { Name: TableName, Value: !Ref LogTable }, { Name: Operation, Value: Query } ] }, Period: 300, Stat: Sum }
+          MetricStat: { Metric: { Namespace: AWS/DynamoDB, MetricName: ThrottledRequests, Dimensions: [ { Name: TableName, Value: !Sub "akldb-${Stage}-log" }, { Name: Operation, Value: Query } ] }, Period: 300, Stat: Sum }
         - Id: putitem
           ReturnData: false
-          MetricStat: { Metric: { Namespace: AWS/DynamoDB, MetricName: ThrottledRequests, Dimensions: [ { Name: TableName, Value: !Ref LogTable }, { Name: Operation, Value: PutItem } ] }, Period: 300, Stat: Sum }
+          MetricStat: { Metric: { Namespace: AWS/DynamoDB, MetricName: ThrottledRequests, Dimensions: [ { Name: TableName, Value: !Sub "akldb-${Stage}-log" }, { Name: Operation, Value: PutItem } ] }, Period: 300, Stat: Sum }
         - Id: updateitem
           ReturnData: false
-          MetricStat: { Metric: { Namespace: AWS/DynamoDB, MetricName: ThrottledRequests, Dimensions: [ { Name: TableName, Value: !Ref LogTable }, { Name: Operation, Value: UpdateItem } ] }, Period: 300, Stat: Sum }
+          MetricStat: { Metric: { Namespace: AWS/DynamoDB, MetricName: ThrottledRequests, Dimensions: [ { Name: TableName, Value: !Sub "akldb-${Stage}-log" }, { Name: Operation, Value: UpdateItem } ] }, Period: 300, Stat: Sum }
         - Id: transactwrite
           ReturnData: false
-          MetricStat: { Metric: { Namespace: AWS/DynamoDB, MetricName: ThrottledRequests, Dimensions: [ { Name: TableName, Value: !Ref LogTable }, { Name: Operation, Value: TransactWriteItems } ] }, Period: 300, Stat: Sum }
+          MetricStat: { Metric: { Namespace: AWS/DynamoDB, MetricName: ThrottledRequests, Dimensions: [ { Name: TableName, Value: !Sub "akldb-${Stage}-log" }, { Name: Operation, Value: TransactWriteItems } ] }, Period: 300, Stat: Sum }
 
   # ---------------------------------------------------------------- budget
   # One account-level budget, so only the prod stack owns it.
@@ -569,8 +646,8 @@ Outputs:
   AliasArn:
     Value: !Ref LiveAlias
   LogTable:
-    Value: !Ref LogTable
+    Value: !Sub akldb-${Stage}-log
   DataBucket:
-    Value: !Ref DataBucket
+    Value: !Sub akldb-${Stage}-data-${AWS::AccountId}
   AlarmTopicArn:
     Value: !Ref AlarmTopic

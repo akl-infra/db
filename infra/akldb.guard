@@ -5,21 +5,37 @@
 # cfn-guard reads the template with its conditions unresolved: a rule is stated over the resource, not the stage.
 
 let tables = Resources.*[ Type == 'AWS::DynamoDB::Table' ]
+let prod_tables = Resources.*[ Type == 'AWS::DynamoDB::Table' Condition == 'IsProd' ]
+let dev_tables = Resources.*[ Type == 'AWS::DynamoDB::Table' Condition == 'NotProd' ]
 let buckets = Resources.*[ Type == 'AWS::S3::Bucket' ]
+let prod_buckets = Resources.*[ Type == 'AWS::S3::Bucket' Condition == 'IsProd' ]
+let dev_buckets = Resources.*[ Type == 'AWS::S3::Bucket' Condition == 'NotProd' ]
 let apis = Resources.*[ Type == 'AWS::ApiGatewayV2::Api' ]
 let fns = Resources.*[ Type == 'AWS::Lambda::Function' ]
 let logs = Resources.*[ Type == 'AWS::Logs::LogGroup' ]
+let prod_logs = Resources.*[ Type == 'AWS::Logs::LogGroup' Condition == 'IsProd' ]
+let dev_logs = Resources.*[ Type == 'AWS::Logs::LogGroup' Condition == 'NotProd' ]
 let roles = Resources.*[ Type == 'AWS::IAM::Role' ]
 let schedules = Resources.*[ Type == 'AWS::Scheduler::Schedule' ]
 let budgets = Resources.*[ Type == 'AWS::Budgets::Budget' ]
 
+# Every stage: on-demand, PITR, TTL on ttl. Prod keeps it (Retain + deletion protection); the others can be deleted.
 rule table_is_safe when %tables !empty {
     %tables.Properties.BillingMode == 'PAY_PER_REQUEST'
     %tables.Properties.PointInTimeRecoverySpecification.PointInTimeRecoveryEnabled == true
-    %tables.Properties.DeletionProtectionEnabled == true
     %tables.Properties.TimeToLiveSpecification.AttributeName == 'ttl'
-    %tables.DeletionPolicy == 'Retain'
-    %tables.UpdateReplacePolicy == 'Retain'
+}
+
+rule prod_table_is_kept when %prod_tables !empty {
+    %prod_tables.Properties.DeletionProtectionEnabled == true
+    %prod_tables.DeletionPolicy == 'Retain'
+    %prod_tables.UpdateReplacePolicy == 'Retain'
+}
+
+rule dev_table_is_deletable when %dev_tables !empty {
+    %dev_tables.Properties.DeletionProtectionEnabled == false
+    %dev_tables.DeletionPolicy == 'Delete'
+    %dev_tables.UpdateReplacePolicy == 'Delete'
 }
 
 rule bucket_is_versioned_private_encrypted when %buckets !empty {
@@ -29,7 +45,16 @@ rule bucket_is_versioned_private_encrypted when %buckets !empty {
     %buckets.Properties.PublicAccessBlockConfiguration.IgnorePublicAcls == true
     %buckets.Properties.PublicAccessBlockConfiguration.RestrictPublicBuckets == true
     %buckets.Properties.BucketEncryption.ServerSideEncryptionConfiguration[*].ServerSideEncryptionByDefault.SSEAlgorithm == 'AES256'
-    %buckets.DeletionPolicy == 'Retain'
+}
+
+rule prod_bucket_is_kept when %prod_buckets !empty {
+    %prod_buckets.DeletionPolicy == 'Retain'
+    %prod_buckets.UpdateReplacePolicy == 'Retain'
+}
+
+rule dev_bucket_is_deletable when %dev_buckets !empty {
+    %dev_buckets.DeletionPolicy == 'Delete'
+    %dev_buckets.UpdateReplacePolicy == 'Delete'
 }
 
 rule http_api_has_no_execute_api_endpoint when %apis !empty {
@@ -45,6 +70,17 @@ rule function_is_arm64_node24_outside_a_vpc when %fns !empty {
 
 rule log_group_is_infrequent_access when %logs !empty {
     %logs.Properties.LogGroupClass == 'INFREQUENT_ACCESS'
+}
+
+# Prod logs are kept and never expire; the others keep 14 days and go with the stack.
+rule prod_log_group_never_expires when %prod_logs !empty {
+    %prod_logs.Properties.RetentionInDays not exists
+    %prod_logs.DeletionPolicy == 'Retain'
+}
+
+rule dev_log_group_keeps_14_days when %dev_logs !empty {
+    %dev_logs.Properties.RetentionInDays == 14
+    %dev_logs.DeletionPolicy == 'Delete'
 }
 
 rule no_vpc {

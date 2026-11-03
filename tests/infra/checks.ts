@@ -70,7 +70,10 @@ export function resolveStage(t: Json, stage: string, extra: Json = {}): { params
     if (r.Condition && !conds[r.Condition]) continue;
     resources[id] = walk(r);
   }
-  return { params, resources };
+  // The template holds each stateful resource twice (prod's kept one, the others' deletable one: DeletionPolicy
+  // cannot take Fn::If). Name them alike so a stage's resolved set is the same ids everywhere.
+  const canon = JSON.parse(JSON.stringify(resources).replace(/"(LogTable|DataBucket|LogGroup)Dev"/g, '"$1"'));
+  return { params, resources: canon };
 }
 
 const arr = (x: Json): Json[] => (x === undefined ? [] : Array.isArray(x) ? x : [x]);
@@ -119,8 +122,14 @@ export function violations(t: Json, stage: string, extra: Json = {}): string[] {
     const p = r.Properties;
     if (p.BillingMode !== "PAY_PER_REQUEST") v.push(`${id}: not on-demand`);
     if (p.PointInTimeRecoverySpecification?.PointInTimeRecoveryEnabled !== true) v.push(`${id}: PITR off`);
-    if (p.DeletionProtectionEnabled !== true) v.push(`${id}: no deletion protection`);
-    if (r.DeletionPolicy !== "Retain" || r.UpdateReplacePolicy !== "Retain") v.push(`${id}: not Retain`);
+    // Prod keeps its log (Retain + protection); staging and shadow can be deleted and recreated.
+    if (stage === "prod") {
+      if (p.DeletionProtectionEnabled !== true) v.push(`${id}: no deletion protection`);
+      if (r.DeletionPolicy !== "Retain" || r.UpdateReplacePolicy !== "Retain") v.push(`${id}: not Retain`);
+    } else {
+      if (p.DeletionProtectionEnabled !== false) v.push(`${id}: deletion protection outside prod`);
+      if (r.DeletionPolicy !== "Delete" || r.UpdateReplacePolicy !== "Delete") v.push(`${id}: not deletable outside prod`);
+    }
     if (!(p.TimeToLiveSpecification?.Enabled === true && p.TimeToLiveSpecification.AttributeName === "ttl")) v.push(`${id}: no TTL on ttl`);
     if (JSON.stringify(p.KeySchema) !== JSON.stringify([{ AttributeName: "pk", KeyType: "HASH" }, { AttributeName: "sk", KeyType: "RANGE" }])) v.push(`${id}: key schema is not pk/sk`);
   }
@@ -133,7 +142,8 @@ export function violations(t: Json, stage: string, extra: Json = {}): string[] {
     const pab = p.PublicAccessBlockConfiguration ?? {};
     for (const k of ["BlockPublicAcls", "BlockPublicPolicy", "IgnorePublicAcls", "RestrictPublicBuckets"]) if (pab[k] !== true) v.push(`${id}: ${k} off`);
     if (JSON.stringify(p.BucketEncryption?.ServerSideEncryptionConfiguration?.[0]?.ServerSideEncryptionByDefault) !== '{"SSEAlgorithm":"AES256"}') v.push(`${id}: not SSE-S3`);
-    if (r.DeletionPolicy !== "Retain" || r.UpdateReplacePolicy !== "Retain") v.push(`${id}: not Retain`);
+    const wantPolicy = stage === "prod" ? "Retain" : "Delete";
+    if (r.DeletionPolicy !== wantPolicy || r.UpdateReplacePolicy !== wantPolicy) v.push(`${id}: not ${wantPolicy}`);
     const hasTls = ofType("AWS::S3::BucketPolicy").some(([, bp]) => bp.Properties.Bucket.Ref === id && statements(bp.Properties.PolicyDocument).some((s) => s.Effect === "Deny" && s.Condition?.Bool?.["aws:SecureTransport"] === "false"));
     if (!hasTls) v.push(`${id}: no TLS-only bucket policy`);
     for (const rule of p.LifecycleConfiguration?.Rules ?? []) {
@@ -166,6 +176,8 @@ export function violations(t: Json, stage: string, extra: Json = {}): string[] {
   if (!lg || lg.LogGroupClass !== "INFREQUENT_ACCESS") v.push("LogGroup: not INFREQUENT_ACCESS");
   if (lg?.LogGroupName?.["Fn::Sub"] !== "/aws/lambda/akldb-${Stage}-api") v.push("LogGroup: not the function's log group name");
   if (stage === "prod" && lg && "RetentionInDays" in lg) v.push("LogGroup: prod logs must never expire");
+  const lgPolicy = R.LogGroup?.DeletionPolicy;
+  if (lgPolicy !== (stage === "prod" ? "Retain" : "Delete")) v.push(`LogGroup: DeletionPolicy ${lgPolicy}`);
   if (stage !== "prod" && lg?.RetentionInDays !== 14) v.push("LogGroup: non-prod retention is 14 days");
 
   // The HTTP API.
@@ -212,7 +224,7 @@ export function violations(t: Json, stage: string, extra: Json = {}): string[] {
   const dyn = api.find((s) => arr(s.Action).some((a: string) => a.startsWith("dynamodb:")));
   const wantDyn = ["dynamodb:ConditionCheckItem", "dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:Query", "dynamodb:UpdateItem"];
   if (JSON.stringify(arr(dyn?.Action).slice().sort()) !== JSON.stringify(wantDyn)) v.push("ApiRole: DynamoDB actions are not exactly the log's");
-  if (JSON.stringify(dyn?.Resource) !== JSON.stringify({ "Fn::GetAtt": ["LogTable", "Arn"] })) v.push("ApiRole: DynamoDB resource is not the log table");
+  if (dyn?.Resource?.["Fn::Sub"] !== "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/akldb-${Stage}-log") v.push("ApiRole: DynamoDB resource is not the log table");
   const schedRole = R.SchedulerRole?.Properties.AssumeRolePolicyDocument.Statement[0];
   if (schedRole?.Principal?.Service !== "scheduler.amazonaws.com" || !schedRole?.Condition?.StringEquals?.["aws:SourceAccount"]) v.push("SchedulerRole: trust is not scheduler.amazonaws.com scoped to the account");
 
@@ -232,6 +244,10 @@ export function violations(t: Json, stage: string, extra: Json = {}): string[] {
   if (alarms.length > 10) v.push(`${alarms.length} alarms (free tier is 10)`);
   for (const id of ALARMS) if (!(id in R)) v.push(`${id}: missing`);
   for (const [id, r] of alarms) if (arr(r.Properties.AlarmActions).some((a) => a?.Ref !== "AlarmTopic") || arr(r.Properties.AlarmActions).length !== 1) v.push(`${id}: not wired to the topic`);
+  for (const id of ["LambdaErrorsAlarm", "LambdaThrottlesAlarm", "LambdaDurationAlarm"]) {
+    if (JSON.stringify(R[id]?.Properties.Dimensions) !== JSON.stringify([{ Name: "FunctionName", Value: { Ref: "ApiFunction" } }])) v.push(`${id}: not scoped to this function (FunctionName dimension)`);
+  }
+  if (ofType("AWS::CloudWatch::Alarm").some(([, a]) => a.Properties.MetricName === "ConcurrentExecutions" || a.Properties.MetricName === "UnreservedConcurrentExecutions")) v.push("an account-wide concurrency alarm");
   if (ofType("AWS::Logs::MetricFilter").length > 0) v.push("metric filter (Infrequent Access log groups support none)");
   const topic = R.AlarmTopic?.Properties;
   if (!arr(topic?.Subscription).some((s) => s.Protocol === "email" && s.Endpoint?.Ref === "AlarmEmail")) v.push("AlarmTopic: no email subscription to AlarmEmail");
