@@ -343,9 +343,12 @@ Resources:
   # Scheduler events are asynchronous invocations; a failed tick is retried by the next one, so no automatic retry.
   LiveAliasEventConfig:
     Type: AWS::Lambda::EventInvokeConfig
+    # the alias NAME, so the alias must exist first: Ref of an AWS::Lambda::Alias is its ARN, which the Qualifier pattern
+    # refuses, and the alias has no Name attribute (first staging deploy, 2026-11-03)
+    DependsOn: LiveAlias
     Properties:
       FunctionName: !Ref ApiFunction
-      Qualifier: !Ref LiveAlias
+      Qualifier: live
       MaximumRetryAttempts: 0
       MaximumEventAgeInSeconds: 60
 
