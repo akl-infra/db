@@ -35,7 +35,7 @@ const VARS_KEYS = [...WRANGLER_TOML.matchAll(/^(\w+)\s*=/gm)]
         k,
       ),
   );
-const SECRET_KEYS = ["DISCORD_CLIENT_ID", "DISCORD_CLIENT_SECRET", "SESSION_SECRET"];
+const SECRET_KEYS = ["DISCORD_CLIENT_ID", "DISCORD_CLIENT_SECRET", "SESSION_SECRET", "AKLDB_ORIGIN_SECRET"];
 
 describe("[SITE-8] README documents every var/secret", () => {
   it("every [vars] key in wrangler.toml is read somewhere in server/ and has a README row", () => {
