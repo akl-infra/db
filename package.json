@@ -16,7 +16,8 @@
     "goldens": "node scripts/goldens.mjs",
     "gen-vectors": "node scripts/gen-vectors.mjs",
     "gen-spark-parity-vectors": "node scripts/gen-spark-parity-vectors.mjs",
-    "build:formats": "cd formats && tsup"
+    "build:formats": "cd formats && tsup",
+    "build:validators": "node scripts/build-validators.mjs"
   },
   "dependencies": {
     "ajv": "^8.20.0",

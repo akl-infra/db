@@ -3,199 +3,21 @@
 // `created_at`, or anything else outside a verb's own fields is refused
 // with `400 bad_request` and a `param` naming it (a JSON pointer) -- not
 // silently ignored (LDB-A7).
-import Ajv2020, { type ErrorObject, type ValidateFunction } from "ajv/dist/2020.js";
+//
+// The schemas themselves are data in schema-defs.ts; the validators here are the ajv standalone code generated from them at
+// build time (validators.generated.ts, `npm run build:validators`; RP5). Nothing compiles a schema at module load any more
+// (that was 84% of the bundle's 68-88 ms import on the Mac), and ajv itself is not imported at run time.
 import { badRequest, formatRequired } from "../core/errors";
+import * as generated from "./validators.generated";
 
-const ajv = new Ajv2020({ allErrors: false, strict: true });
-
-const createSchema = {
-  type: "object",
-  additionalProperties: false,
-  required: ["name", "format", "payload"],
-  properties: {
-    name: { type: "string" },
-    format: { type: "string" },
-    payload: { type: "object" },
-  },
-} as const;
-
-const replaceSchema = {
-  type: "object",
-  additionalProperties: false,
-  required: ["format", "payload"],
-  properties: {
-    format: { type: "string" },
-    payload: { type: "object" },
-  },
-} as const;
-
-// 20-spark.md §1 decision 9 (refined §8 R-L1): restore's body is
-// OPTIONAL -- absent, `{}`, or `{name}`; any other key is `400
-// bad_request` (LDB-A7's pattern, same as every other write schema).
-// `name`'s own shape (`check_name`) is `core/write.ts`'s job, not this
-// schema's -- same split every other body/edit-argument field uses.
-const restoreSchema = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    name: { type: "string" },
-  },
-} as const;
-
-const transferSchema = {
-  type: "object",
-  additionalProperties: false,
-  required: ["to"],
-  properties: {
-    to: { type: "string" },
-  },
-} as const;
-
-// 09 §3 T3: `user_id` must be a 17-20-digit Discord snowflake, ajv's own
-// `pattern` keyword rather than a second check in core/admins.ts -- one
-// place to fail a malformed id with the same 400 shape every other body
-// error uses.
-const adminAddSchema = {
-  type: "object",
-  additionalProperties: false,
-  required: ["user_id"],
-  properties: {
-    user_id: { type: "string", pattern: "^\\d{17,20}$" },
-    note: { type: "string" },
-  },
-} as const;
-
-// PATCH (21-formats.md §2.2/§2.4): `{name}` (layout scope) OR `{format,
-// <at least one of fingermap/magic>}` (that format's scope) -- never both
-// (`400 mixed_patch`) or neither (`400 bad_request`/`format_required`).
-// This schema only enforces "the right keys, the right JSON types"
-// (`minProperties: 1`, `additionalProperties: false`); `core/write.ts`'s
-// `classifyPatch` is where mixing/format-required is actually refused, so
-// the error names the real reason rather than a generic shape mismatch.
-// `magic` is validated as a whole VALUE here; its format-specific shape is
-// the job of the record's format `edits` + the pipeline's validate()
-// re-run, not this schema. `board` is no longer a key at all (design/
-// layout-db/26-no-board.md: spark/1 has no board field) -- a body naming
-// it fails `additionalProperties` like any other unknown key.
-const patchSchema = {
-  type: "object",
-  additionalProperties: false,
-  minProperties: 1,
-  properties: {
-    name: { type: "string" },
-    format: { type: "string" },
-    fingermap: { type: "object", additionalProperties: { type: "string" } },
-    magic: { type: "object" },
-    // design/alts/07-format.md: `alts`/`combos` arrive as the WHOLE array
-    // (spark/1's own top-level shape) -- validated as a whole value here
-    // (loosely, like `magic`), the record shape itself is the format's own
-    // edits + the pipeline's validate() re-run.
-    alts: { type: "array" },
-    combos: { type: "array" },
-  },
-} as const;
-
-// 10 C1: `POST /v1/admin/clients`. `pubkey`'s byte length (it must decode
-// to exactly 32 bytes) is not a `pattern` ajv can express -- checked in
-// `core/clients.ts` after this schema passes. `caps` (LEDGER.md L4: a
-// comma-separated set, exactly one scope cap plus any extra caps) is
-// likewise just "a string" here -- its real membership check is
-// `core/clients.ts`'s `validateCaps`, same deferred-validation pattern as
-// `pubkey`'s byte length.
-// L5 moderation (§4.1): `PUT /v1/admin/bans/:user_id`.
-const banSchema = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    reason: { type: "string", maxLength: 500 },
-  },
-} as const;
-
-// §4.3: `PUT /v1/admin/authors/:user_id`.
-const authorRenameSchema = {
-  type: "object",
-  additionalProperties: false,
-  required: ["name"],
-  properties: {
-    name: { type: "string", minLength: 1, maxLength: 64 },
-  },
-} as const;
-
-// §4.4: `PUT /v1/layouts/:ref/link`. `url`'s deep shape (https:, no
-// credentials, length) is `core/links.ts`'s `validateLinkUrl` job -- this
-// schema only enforces "a string is present", same deferred-validation
-// split `pubkey`/`caps` already use above.
-const linkSchema = {
-  type: "object",
-  additionalProperties: false,
-  required: ["url"],
-  properties: {
-    url: { type: "string" },
-  },
-} as const;
-
-// docs/decisions/28-wpm-records.md: `POST /v1/wpm`. `wpm`/`proof` are
-// deliberately untyped here -- their deep shape (integer 1..1000, an
-// absolute http(s) URL) is `core/wpm.ts`'s `invalid_wpm`/`invalid_proof`
-// job, so every route shares one set of refusals.
-const wpmSchema = {
-  type: "object",
-  additionalProperties: false,
-  required: ["layout", "wpm", "proof"],
-  properties: {
-    layout: { type: "string", minLength: 1 },
-    wpm: {},
-    proof: {},
-  },
-} as const;
-
-// `POST /v1/admin/wpm`: the same, plus whose speed it is.
-const wpmOnBehalfSchema = {
-  type: "object",
-  additionalProperties: false,
-  required: ["user_id", "layout", "wpm", "proof"],
-  properties: {
-    user_id: { type: "string" },
-    layout: { type: "string", minLength: 1 },
-    wpm: {},
-    proof: {},
-  },
-} as const;
-
-// docs/decisions/29-layout-comments.md: `PUT /v1/layouts/:ref/comment`.
-// `body` is deliberately untyped here -- its deep shape (a string of 1..2000
-// code points after normalization) is `core/comments.ts`'s `invalid_comment`
-// job, the one validator every route shares.
-const commentSchema = {
-  type: "object",
-  additionalProperties: false,
-  required: ["body"],
-  properties: {
-    body: {},
-  },
-} as const;
-
-// §4.4: `POST /v1/admin/link-queue/:id/reject`.
-const linkRejectSchema = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    reason: { type: "string", maxLength: 500 },
-  },
-} as const;
-
-const registerClientSchema = {
-  type: "object",
-  additionalProperties: false,
-  required: ["name", "pubkey", "owner_user_id", "caps"],
-  properties: {
-    name: { type: "string", minLength: 1 },
-    pubkey: { type: "string" },
-    owner_user_id: { type: "string", pattern: "^\\d{17,20}$" },
-    caps: { type: "string" },
-    discord_app_id: { type: "string" },
-  },
-} as const;
+/** The slice of ajv's ErrorObject this file reads. */
+interface ErrorObject {
+  keyword: string;
+  instancePath: string;
+  message?: string;
+  params: Record<string, unknown>;
+}
+type ValidateFunction<T> = ((data: unknown) => data is T) & { errors?: ErrorObject[] | null };
 
 export interface CreateBody {
   name: string;
@@ -268,20 +90,30 @@ export interface LinkRejectBody {
   reason?: string;
 }
 
-const validateCreate = ajv.compile<CreateBody>(createSchema);
-const validateReplace = ajv.compile<ReplaceBody>(replaceSchema);
-const validateRestore = ajv.compile<RestoreBody>(restoreSchema);
-const validateTransfer = ajv.compile<TransferBody>(transferSchema);
-const validateAdminAdd = ajv.compile<AdminAddBody>(adminAddSchema);
-const validatePatch = ajv.compile<PatchBody>(patchSchema);
-const validateRegisterClient = ajv.compile<RegisterClientBody>(registerClientSchema);
-const validateBan = ajv.compile<BanBody>(banSchema);
-const validateAuthorRename = ajv.compile<AuthorRenameBody>(authorRenameSchema);
-const validateLink = ajv.compile<LinkBody>(linkSchema);
-const validateLinkReject = ajv.compile<LinkRejectBody>(linkRejectSchema);
-const validateComment = ajv.compile<CommentBody>(commentSchema);
-const validateWpm = ajv.compile<WpmBody>(wpmSchema);
-const validateWpmOnBehalf = ajv.compile<WpmOnBehalfBody>(wpmOnBehalfSchema);
+
+const v = generated as unknown as Record<string, ValidateFunction<never>>;
+const validateCreate = v.validateCreate as ValidateFunction<CreateBody>;
+const validateReplace = v.validateReplace as ValidateFunction<ReplaceBody>;
+const validateRestore = v.validateRestore as ValidateFunction<RestoreBody>;
+const validateTransfer = v.validateTransfer as ValidateFunction<TransferBody>;
+const validateAdminAdd = v.validateAdminAdd as ValidateFunction<AdminAddBody>;
+const validatePatch = v.validatePatch as ValidateFunction<PatchBody>;
+const validateRegisterClient = v.validateRegisterClient as ValidateFunction<RegisterClientBody>;
+const validateBan = v.validateBan as ValidateFunction<BanBody>;
+const validateAuthorRename = v.validateAuthorRename as ValidateFunction<AuthorRenameBody>;
+const validateLink = v.validateLink as ValidateFunction<LinkBody>;
+const validateLinkReject = v.validateLinkReject as ValidateFunction<LinkRejectBody>;
+const validateComment = v.validateComment as ValidateFunction<CommentBody>;
+const validateWpm = v.validateWpm as ValidateFunction<WpmBody>;
+const validateWpmOnBehalf = v.validateWpmOnBehalf as ValidateFunction<WpmOnBehalfBody>;
+const validateDiscordUsersRefresh = v.validateDiscordUsersRefresh as ValidateFunction<{ limit?: unknown }>;
+const validateReviewApprove = v.validateReviewApprove as ValidateFunction<ReviewDecisionBody>;
+const validateReviewReject = v.validateReviewReject as ValidateFunction<ReviewDecisionBody>;
+const validateReviewReopen = v.validateReviewReopen as ValidateFunction<{ status: "approved" | "rejected"; review_version: number }>;
+const validateWpmDiscordMessage = v.validateWpmDiscordMessage as ValidateFunction<WpmDiscordMessageBody>;
+
+/** ajv's own errorsText for one error (`body/name must be string`), without importing ajv. */
+const errorText = (e: ErrorObject): string => `body${e.instancePath} ${e.message}`;
 
 // ajv reports an extra/missing key at the PARENT's instancePath with the
 // key name in `params`, not as part of the path itself -- this stitches
@@ -315,7 +147,7 @@ function checkBody<T>(validate: ValidateFunction<T>, body: unknown): T {
   if (err.keyword === "required" && (err.params as { missingProperty: string }).missingProperty === "format") {
     throw formatRequired();
   }
-  throw badRequest(ajv.errorsText([err], { dataVar: "body" }), paramFor(err));
+  throw badRequest(errorText(err), paramFor(err));
 }
 
 export function parseCreateBody(body: unknown): CreateBody {
@@ -362,9 +194,6 @@ export function parseLinkRejectBody(body: unknown): LinkRejectBody {
   return checkBody(validateLinkReject, body);
 }
 
-const validateDiscordUsersRefresh = ajv.compile<{ limit?: unknown }>({
-  type: "object", additionalProperties: false, properties: { limit: {} }, // limit is validated in core/discord-users.ts
-});
 export const parseDiscordUsersRefreshBody = (body: unknown) => checkBody(validateDiscordUsersRefresh, body);
 
 export function parseWpmBody(body: unknown): WpmBody {
@@ -380,17 +209,6 @@ export function parseCommentBody(body: unknown): CommentBody {
 }
 
 export interface ReviewDecisionBody { review_version?: number; reason?: string }
-const reviewVersionSchema = { type: "integer", minimum: 0, maximum: Number.MAX_SAFE_INTEGER } as const;
-const validateReviewApprove = ajv.compile<ReviewDecisionBody>({
-  type: "object", additionalProperties: false, properties: { review_version: reviewVersionSchema },
-});
-const validateReviewReject = ajv.compile<ReviewDecisionBody>({
-  type: "object", additionalProperties: false, properties: { review_version: reviewVersionSchema, reason: { type: "string", maxLength: 500 } },
-});
-const validateReviewReopen = ajv.compile<{ status: "approved" | "rejected"; review_version: number }>({
-  type: "object", additionalProperties: false, required: ["status", "review_version"],
-  properties: { status: { type: "string", enum: ["approved", "rejected"] }, review_version: reviewVersionSchema },
-});
 export const parseReviewApproveBody = (body: unknown) => checkBody(validateReviewApprove, body);
 export const parseReviewRejectBody = (body: unknown) => checkBody(validateReviewReject, body);
 export const parseReviewReopenBody = (body: unknown) => checkBody(validateReviewReopen, body);
@@ -400,17 +218,6 @@ export interface WpmDiscordMessageBody {
   channel_id: string;
   message_id: string;
 }
-// Absolute end assertion also rejects a trailing newline (JavaScript `$` does not).
-const validateWpmDiscordMessage = ajv.compile<WpmDiscordMessageBody>({
-  type: "object",
-  additionalProperties: false,
-  required: ["guild_id", "channel_id", "message_id"],
-  properties: {
-    guild_id: { type: ["string", "null"], pattern: "^[0-9]{17,20}(?![\\s\\S])" },
-    channel_id: { type: "string", pattern: "^[0-9]{17,20}(?![\\s\\S])" },
-    message_id: { type: "string", pattern: "^[0-9]{17,20}(?![\\s\\S])" },
-  },
-});
 export function parseWpmDiscordMessageBody(body: unknown): WpmDiscordMessageBody {
   return checkBody(validateWpmDiscordMessage, body);
 }
