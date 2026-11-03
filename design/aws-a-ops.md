@@ -2,13 +2,18 @@
 
 Project 335937358231, region us-east-2 only. Stages: `staging` (staging-api.akldb.org), `shadow` (shadow-api.akldb.org),
 `prod` (api.akldb.org). Templates in `infra/`, deploy script `scripts/deploy-aws.sh`, CI file `design/ci/aws-deploy.yml`.
-Nothing here has been deployed. Commands use profile `akldb`.
+Staging is deployed; shadow and prod are not. Commands use profile `akldb`.
 
 ## Once per account
 
 1. IAM user `akldb-ci` (no console, one access key) with the inline policy in `infra/iam-akldb-ci.json` (it may only assume
    `akldb-deploy`). Then the bootstrap stack:
    `aws cloudformation deploy --region us-east-2 --stack-name akldb-bootstrap --template-file infra/akldb-bootstrap.yaml --capabilities CAPABILITY_NAMED_IAM`
+   The stack also holds the managed policy `akldb-boundary` (exported as `akldb-boundary-arn`), the permissions boundary of every
+   role the akldb-* stacks create: DynamoDB on `table/akldb-*`, S3 on `akldb-*-data-*`, SSM `parameter/akldb/*`, log writes on
+   `/aws/lambda/akldb-*`, invoke of `function:akldb-*`. `akldb-deploy` may create a role, or set a boundary, only with that policy,
+   and is denied removing a boundary or editing the policy. **Update this stack (same command, in place; nothing is replaced)
+   before deploying an akldb-<stage> stack that imports the export**, and run it with an admin profile, not `akldb-deploy`.
 2. One GitHub environment, `akldb-production`, serves every stage (staging, shadow and prod share the one key) on akl-infra/db: secrets `AKLDB_CI_ACCESS_KEY_ID`, `AKLDB_CI_SECRET_ACCESS_KEY`
    (the user's key), variable `AKLDB_ALARM_EMAIL`; allow branches `main` and `aws-a/main`.
 3. Copy `design/ci/aws-deploy.yml` to `.github/workflows/aws-deploy.yml`: tests, then staging on a push to `aws-a/main`
@@ -45,6 +50,20 @@ Nothing here has been deployed. Commands use profile `akldb`.
   above the remaining 6 throttle (the Throttles alarm, per function: dimension `FunctionName`, never an account-wide metric).
   `ReservedConcurrency` stays unset until the quota is raised (a reservation must leave 10 unreserved); then
   `RESERVED_CONCURRENCY=<n> sh scripts/deploy-aws.sh --stage <stage> --execute`.
+- **Logs are STANDARD class** (prod never expires, the others 14 days): Infrequent Access supports neither metric filters nor
+  FilterLogEvents, and the cost difference is pennies at this volume. The code logs every failure it wants a human to see as a
+  line starting `akldb-alarm:`; a metric filter turns those into `akldb/<stage>/Alarms` and an alarm fires on any (1 of 1 x 5 min).
+- **Alarms.** Prod has the full set (Lambda Errors on the api and the jobs function, Throttles, Duration p95, API 5xx, two DynamoDB
+  alarms, the `akldb-alarm:` alarm); staging and shadow only Lambda Errors and the `akldb-alarm:` alarm. That is 12 alarms across the
+  three stages against the account's free 10, and the two DynamoDB alarms are metric math over five metrics each, which CloudWatch
+  may bill per metric: at most cents a month, but not zero.
+- **Jobs function.** `akldb-<stage>-jobs` is the api's bundle with a 600 s timeout and its own log group, no alias or URL; the api
+  invokes it by name (`JOBS_FUNCTION`) asynchronously and shares the role (and its boundary). The role reads and writes `snap/`,
+  `dumps/` and `log/` in the data bucket and deletes only under `log/` (orphaned spill objects). `deploy-aws.sh` updates both
+  functions' code; the jobs function runs `$LATEST` (it has no versions or alias).
+- **First deploy.** `deploy-aws.sh --stage <stage>` (a preview) leaves the stack in REVIEW_IN_PROGRESS holding its change set;
+  `--execute` after it works: it creates a CREATE change set (deleting the preview's same-named one first). A stack stuck in
+  ROLLBACK_COMPLETE is refused with a message; delete it first.
 - **Prod keeps, the others delete.** Prod's table, bucket and log group are `Retain` (table with deletion protection, logs never
   expire). Staging and shadow are deletable (14-day logs), so a stack can be deleted and recreated:
   `sh scripts/deploy-aws.sh --stage staging --destroy-nonprod --confirm akldb-staging` empties the versioned bucket (versions
