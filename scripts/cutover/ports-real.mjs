@@ -3,7 +3,10 @@
 // SELECTs only: `select` refuses anything else before a process is spawned.
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
+import { createHash } from "node:crypto";
 import { signerFromEnv } from "../client-sign.mjs";
+import { copyDumps } from "./dumps.mjs";
+import { r2Source, s3Destination } from "./dumps-real.mjs";
 import { createOperator } from "./operator.mjs";
 
 /** Default exec: run a program, return { status, stdout, stderr }. */
@@ -72,7 +75,8 @@ export function createHttpPort({ fetchImpl = globalThis.fetch, env = process.env
     const res = await fetchImpl(url, { redirect: "manual", ...init, headers: { "user-agent": userAgent, ...(init.headers ?? {}) } });
     const headers = {};
     res.headers.forEach((v, k) => (headers[k.toLowerCase()] = v));
-    return { status: res.status, headers, body: await res.text() };
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    return { status: res.status, headers, body: new TextDecoder().decode(bytes), sha256: createHash("sha256").update(bytes).digest("hex") };
   }
   return {
     request,
@@ -145,4 +149,22 @@ export async function realOperatorFactory(outputs, { env = process.env, region =
   const log = kit.createDdbLog({ table: outputs.LogTable, region, credentials: credentials(), blobs: objects });
   const state = kit.createDdbSnapshotState({ table: outputs.LogTable, region, credentials: credentials() });
   return createOperator({ kit, log, objects, state, logLine: (m) => console.log(`      ${m}`) });
+}
+
+/** The dump-history copy (R2 -> the stack's data bucket) with the credentials in the environment. */
+export function createDumpsPort({ env = process.env, outputs, fetchImpl, region = "us-east-2" }) {
+  const need = ["CLOUDFLARE_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"];
+  return {
+    async check() {
+      return need.filter((k) => !env[k]);
+    },
+    async sync({ dryRun = false } = {}) {
+      const missing = await this.check();
+      if (missing.length > 0) throw new Error(`missing ${missing.join(", ")}`);
+      const bucket = (await outputs()).DataBucket;
+      const src = r2Source({ accountId: env.CLOUDFLARE_ACCOUNT_ID, accessKeyId: env.R2_ACCESS_KEY_ID, secretAccessKey: env.R2_SECRET_ACCESS_KEY, bucket: env.R2_DUMPS_BUCKET ?? "akl-db-dumps", fetchImpl });
+      const dst = s3Destination({ bucket, region, credentials: { accessKeyId: env.AWS_ACCESS_KEY_ID, secretAccessKey: env.AWS_SECRET_ACCESS_KEY, ...(env.AWS_SESSION_TOKEN ? { sessionToken: env.AWS_SESSION_TOKEN } : {}) }, fetchImpl });
+      return copyDumps({ src, dst, dryRun, log: (m) => console.log(`      ${m}`) });
+    },
+  };
 }

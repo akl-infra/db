@@ -4,7 +4,7 @@
 // Write pause: from the freeze (the first D1 write of `cutover.mode`) until `open` clears the flag on AWS. Everything between is
 // read-only for clients: reads keep working (D1 until `proxy`, AWS after it).
 //
-//  preflight -> freeze -> export -> load -> verify -> image -> serve -> proxy -> open -> post-smoke -> report
+//  preflight -> copy-dumps -> freeze -> export -> load -> verify -> image -> serve -> resync-dumps -> proxy -> open -> post-smoke -> report
 //
 // Failure policy: before `image` nothing on AWS changed; `--abort` clears D1's flag. After `image`, `open` has not happened yet:
 // rollback.mjs variant A. After `open`: rollback.mjs variant B. Nothing is undone automatically.
@@ -61,6 +61,24 @@ export function normalizeMeta(text) {
   }
 }
 
+/** Every /v1/dump* answer must be the Worker's own, status, Content-Type, Cache-Control, ETag, redirect and bytes alike (LDB-CV20). */
+async function dumpsEqual(ports, o) {
+  const latest = await ports.http.request(`${o.workerUrl}/v1/dump/latest.json`, { method: "GET" });
+  const key = latest.status === 200 ? JSON.parse(latest.body)?.key : undefined;
+  const paths = ["/v1/dump/latest.json", "/v1/dump", ...(key ? [`/v1/dump/${key}`] : [])];
+  const checks = [];
+  for (const p of paths) {
+    const [a, b] = await Promise.all([ports.http.request(`${o.workerUrl}${p}`, { method: "GET" }), ports.http.request(`${o.awsUrl}${p}`, { method: "GET" })]);
+    const [ha, hb] = [lc(a.headers), lc(b.headers)];
+    const diffs = [];
+    if (a.status !== b.status) diffs.push(`status ${a.status} vs ${b.status}`);
+    for (const h of ["content-type", "cache-control", "etag", "location"]) if ((ha[h] ?? null) !== (hb[h] ?? null)) diffs.push(`${h} ${ha[h] ?? "absent"} vs ${hb[h] ?? "absent"}`);
+    if (a.status === 200 && a.sha256 !== b.sha256) diffs.push("body bytes differ");
+    checks.push({ path: p, status: [a.status, b.status], diffs });
+  }
+  return checks;
+}
+
 async function readsEqual(ports, o, paths) {
   const checks = [];
   for (const p of paths) {
@@ -111,6 +129,22 @@ export function steps(o) {
         c.data.bookmarkAt ??= tt.timestamp ?? null;
         c.data.stack = out;
         return { message: `log empty, awaiting image, api.minor ${minor}, bookmark ${c.data.bookmark}`, proof: { head, awaitImage: true, minor, bookmark: c.data.bookmark } };
+      },
+    },
+    {
+      id: "copy-dumps",
+      title: "copy the dump history R2 -> S3 (every object, content type kept, md5 and size verified); long, so before the freeze",
+      commands: () => [`node scripts/cutover/copy-dumps.mjs --execute --bucket <DataBucket>   # R2 akl-db-dumps (read-only token) -> s3://<DataBucket>/dumps/<key>`],
+      async precondition(c) {
+        need(c.state.steps.preflight?.status === "done", "preflight has not passed");
+        const missing = await c.ports.dumps.check();
+        need(missing.length === 0, `the dump copy needs ${missing.join(", ")} in the environment (an R2 API token with Object Read on akl-db-dumps: R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY)`);
+      },
+      async run(c) {
+        const r = await c.ports.dumps.sync();
+        need(r.ok, `the dump copy found mismatches: ${r.mismatches.map((m) => `${m.key}: ${m.why}`).join(" | ")}`);
+        need(r.objects > 0, "the R2 bucket lists no objects: wrong bucket or token scope?");
+        return { message: `${r.objects} objects: ${r.copied.length} copied, ${r.skipped.length} already there, ${r.bytes} bytes`, proof: { objects: r.objects, copied: r.copied.length, skipped: r.skipped.length, bytes: r.bytes } };
       },
     },
     {
@@ -299,9 +333,28 @@ export function steps(o) {
         const checks = await readsEqual(c.ports, o, paths);
         const bad = checks.filter((x) => !x.bodyEqual || !x.etagEqual || x.status[0] !== 200);
         need(bad.length === 0, `reads differ between D1 and the prod stack: ${bad.map((x) => `${x.path} status ${x.status} body ${x.bodyEqual ? "=" : "!="} etag ${x.etagEqual ? "=" : "!="}`).join("; ")}`);
+        const dumps = await dumpsEqual(c.ports, o);
+        const badDumps = dumps.filter((x) => x.diffs.length > 0);
+        need(badDumps.length === 0, `the dump routes differ between the Worker and the prod stack (CV20): ${badDumps.map((x) => `${x.path}: ${x.diffs.join(", ")}`).join("; ")}`);
         const head = await c.ports.http.request(`${o.awsUrl}/v1/meta`, { method: "GET" });
         need(lc(head.headers)[AWS_HEADER] === "aws", `${o.awsUrl} answers without ${AWS_HEADER}: aws (CV13): is the Transform Rule/CNAME for aws-api.akldb.org pointing at the prod stack?`);
-        return { message: `migrate no-op at seq ${mig.seq}, warm ${warm.containers?.length ?? "?"} containers, ${checks.length} reads equal`, proof: { migrate: mig, warm: { containers: warm.containers, warmup: warm.warmup }, checks } };
+        return { message: `migrate no-op at seq ${mig.seq}, warm ${warm.containers?.length ?? "?"} containers, ${checks.length} reads equal`, proof: { migrate: mig, warm: { containers: warm.containers, warmup: warm.warmup }, checks, dumps } };
+      },
+    },
+    {
+      id: "resync-dumps",
+      title: "re-sync the dump history R2 -> S3 (only what the nightly job wrote since), just before the Worker starts proxying",
+      commands: () => [`node scripts/cutover/copy-dumps.mjs --execute --bucket <DataBucket>   # a no-op unless a dump ran since copy-dumps`],
+      async precondition(c) {
+        need(c.state.steps.serve?.status === "done", "the prod stack has not been proven to serve");
+      },
+      async run(c) {
+        const r = await c.ports.dumps.sync();
+        need(r.ok, `the dump re-sync found mismatches: ${r.mismatches.map((m) => `${m.key}: ${m.why}`).join(" | ")}`);
+        const dumps = await dumpsEqual(c.ports, o);
+        const bad = dumps.filter((x) => x.diffs.length > 0);
+        need(bad.length === 0, `the dump routes differ between the Worker and the prod stack (CV20): ${bad.map((x) => `${x.path}: ${x.diffs.join(", ")}`).join("; ")}`);
+        return { message: `${r.objects} objects: ${r.copied.length} copied since, ${r.skipped.length} unchanged; dump routes equal`, proof: { copied: r.copied, skipped: r.skipped.length, dumps } };
       },
     },
     {
@@ -309,7 +362,7 @@ export function steps(o) {
       title: "set cutover.mode=proxy on D1 and prove api.akldb.org now answers from AWS",
       commands: () => [W(setModeSql("proxy")), `sleep ${o.cacheWaitMs / 1000}`, `curl -si ${o.workerUrl}/v1/meta   # ${AWS_HEADER}: aws`, `curl -si -X POST ${o.workerUrl}/v1/layouts   # 503 read_only, ${AWS_HEADER}: aws (AWS is still frozen)`],
       async precondition(c) {
-        need(c.state.steps.serve?.status === "done", "the prod stack has not been proven to serve");
+        need(c.state.steps["resync-dumps"]?.status === "done", "the dump history has not been re-synced (resync-dumps)");
         need((await d1Mode(c.ports, db)) !== null, "D1 is not frozen (cutover.mode unset)");
       },
       async run(c) {
@@ -337,7 +390,7 @@ export function steps(o) {
         // CV16: writes open only after counts, checksums and meta.seq were proven equal, for THE image that is in the log.
         const v = c.state.steps.verify;
         need(v?.status === "done" && v.proof?.ok === true, "CV16: writes open only after verify passed (counts, checksums, meta.seq equal)");
-        for (const id of ["image", "serve", "proxy"]) need(c.state.steps[id]?.status === "done", `CV16: writes open only after ${id} is done`);
+        for (const id of ["image", "serve", "resync-dumps", "proxy"]) need(c.state.steps[id]?.status === "done", `CV16: writes open only after ${id} is done`);
         const first = await c.ports.aws.firstEntry();
         need(first?.kind === "image" && first.hash === c.data.imageSha, "CV16: the image in the AWS log is not the one verify proved");
         need((await d1Mode(c.ports, db)) === "proxy", "D1 is not in proxy mode: the Worker would not send clients to AWS");
@@ -457,7 +510,7 @@ export function renderReport(state, o) {
     for (const [t, p] of Object.entries(v.perTable ?? {})) lines.push(`| ${t} | ${p.count} | \`${p.checksum.slice(0, 16)}\` |`);
     lines.push("");
   }
-  for (const id of ["preflight", "freeze", "export", "load", "image", "serve", "proxy", "open", "post-smoke"]) {
+  for (const id of ["preflight", "copy-dumps", "freeze", "export", "load", "image", "serve", "resync-dumps", "proxy", "open", "post-smoke"]) {
     const p = proofOf(id);
     if (p) lines.push(`### ${id}`, "", "```json", JSON.stringify(p, null, 2).slice(0, 4000), "```", "");
   }

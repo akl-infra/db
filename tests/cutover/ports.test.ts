@@ -84,7 +84,7 @@ describe("the HTTP port and the operator", () => {
     const pkcs8 = Buffer.from((await crypto.subtle.exportKey("pkcs8", key.privateKey)) as ArrayBuffer).toString("base64url");
     const http = createHttpPort({ fetchImpl, env: { CLIENT_ID: "cid", CLIENT_PRIVATE_KEY: pkcs8, OPS_ACTOR: "ops" } });
     const r = await http.request("https://api.akldb.org/v1/layouts", { method: "POST", body: "" });
-    expect(r).toEqual({ status: 503, headers: expect.objectContaining({ "retry-after": "5", "x-akldb-backend": "aws" }), body: "hi" });
+    expect(r).toMatchObject({ status: 503, headers: expect.objectContaining({ "retry-after": "5", "x-akldb-backend": "aws" }), body: "hi", sha256: expect.stringMatching(/^[0-9a-f]{64}$/) });
     expect(seen[0]!.init.redirect).toBe("manual");
     await http.signed("PATCH", "https://api.akldb.org/v1/layouts/1?x=1", { body: "{}", headers: { "if-match": '"a:1"' } });
     const headers = seen[1]!.init.headers as Record<string, string>;

@@ -127,7 +127,7 @@ describe("the machine (CV11)", () => {
     expect(md).toContain("### verify (CV16, CV17)");
     expect(md).toMatch(/\| churn \| \d+ \| `[0-9a-f]{16}` \|/);
     expect(md).toContain("meta.seq 12; sqlite_sequence for events 14 (the next event is seq 15)");
-    for (const id of ["preflight", "freeze", "export", "load", "image", "serve", "proxy", "open", "post-smoke"]) expect(md, id).toContain(`### ${id}`);
+    for (const id of ["preflight", "copy-dumps", "freeze", "export", "load", "image", "serve", "resync-dumps", "proxy", "open", "post-smoke"]) expect(md, id).toContain(`### ${id}`);
     const st = w.state();
     expect(st.data.pauseMs).toBe(st.data.openedAt - st.data.freezeAt);
     expect(st.data.pauseMs).toBeLessThanOrEqual(300_000); // the gate: at most 5 minutes
@@ -248,7 +248,7 @@ describe("each step's precondition stops the run with a clear message (CV11)", (
     await fails(await w.cutover(["--execute", "--only", "serve"]), /the image has not been appended/, "serve");
     cleanup(w);
     await until("image");
-    await fails(await w.cutover(["--execute", "--only", "proxy"]), /the prod stack has not been proven to serve/, "proxy");
+    await fails(await w.cutover(["--execute", "--only", "proxy"]), /the dump history has not been re-synced/, "proxy");
     await fails(await w.cutover(["--execute", "--only", "open"]), /CV16: writes open only after serve is done/, "open");
     expect(entries()).toHaveLength(1); // still only the image
   });
@@ -262,7 +262,7 @@ describe("each step's precondition stops the run with a clear message (CV11)", (
   });
 
   it("[LDB-CV11] proxy: a Worker that answers by itself in proxy mode fails; open refuses a D1 that is not proxying", async () => {
-    await until("serve", { brokenProxy: true });
+    await until("resync-dumps", { brokenProxy: true });
     await fails(await w.cutover(["--execute", "--only", "proxy"]), /through the Worker the answer has no x-akldb-backend: aws .* is not proxying/, "proxy");
     cleanup(w);
     await until("proxy");
@@ -322,7 +322,7 @@ describe("resume from every step (CV11)", () => {
     expect(before).toBe("done");
     expect(text(r)).not.toContain("[freeze]");
     expect(text(r)).not.toContain("[export]");
-    for (const id of ["verify", "image", "serve", "proxy", "open", "post-smoke", "report"]) expect(status(id)).toBe("done");
+    for (const id of ["verify", "image", "serve", "resync-dumps", "proxy", "open", "post-smoke", "report"]) expect(status(id)).toBe("done");
   });
 });
 

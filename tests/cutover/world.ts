@@ -3,6 +3,8 @@
 // Replica, memory commit log, memory object store and the REAL Lambda handler for migrate/warm), a mini HTTP API both sides serve
 // from the same SQL, and wrangler/aws/http ports over all of it. No network, no process, a fake clock.
 import { createHash } from "node:crypto";
+// @ts-expect-error -- plain scripts, no .d.ts
+import { copyDumps } from "../../scripts/cutover/dumps.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -36,7 +38,12 @@ export interface Res {
   status: number;
   headers: Record<string, string>;
   body: string;
+  /** sha256 of the raw body bytes (the real port computes it from the response). */
+  sha256?: string;
+  raw?: Uint8Array;
 }
+type Blobs = Map<string, { bytes: Uint8Array; contentType: string }>;
+const md5hex = (b: Uint8Array): string => createHash("md5").update(b).digest("hex");
 type Row = Record<string, unknown>;
 const sha = (s: string): string => createHash("sha256").update(s).digest("hex");
 
@@ -51,7 +58,33 @@ interface Sqlx {
 }
 
 /** The mini API, served identically from D1 and from the AWS replica. */
-async function serve(db: Sqlx, req: { method: string; path: string; query: URLSearchParams; headers: Record<string, string>; body: string }, readOnly: boolean, now: number, quiet = false): Promise<Res> {
+/** src/routes/dump.ts over a blob store: the route picks the Content-Type by key, never from the stored object; no Cache-Control; the object's own quoted md5 ETag. */
+function dumpRoute(blobs: Blobs, path: string): Res | null {
+  const out = (key: string, contentType: string): Res => {
+    const o = blobs.get(key);
+    if (o === undefined) return { status: 404, headers: { "content-type": "application/json" }, body: JSON.stringify({ error: "not_found" }) };
+    return { status: 200, headers: { "content-type": contentType, etag: `"${md5hex(o.bytes)}"` }, body: new TextDecoder().decode(o.bytes), raw: o.bytes };
+  };
+  if (path === "/v1/dump/latest.json") return out("latest.json", "application/json");
+  if (path === "/v1/dump") {
+    const o = blobs.get("latest.json");
+    if (o === undefined) return { status: 404, headers: { "content-type": "application/json" }, body: "{}" };
+    return { status: 302, headers: { location: `/v1/dump/${(JSON.parse(new TextDecoder().decode(o.bytes)) as { key: string }).key}` }, body: "" };
+  }
+  const monthly = /^\/v1\/dump\/monthly\/(dump-\d{4}-\d{2}\.json\.gz)$/.exec(path);
+  if (monthly) return out(`monthly/${monthly[1]}`, "application/gzip");
+  const k = /^\/v1\/dump\/([^/]+)$/.exec(path)?.[1];
+  if (k === undefined) return null;
+  if (/^dump-\d{4}-\d{2}-\d{2}\.json\.gz$/.test(k)) return out(k, "application/gzip");
+  if (/^latest\.[a-z][a-z0-9]*-[1-9]\d*\.json(\.sha256)?$/.test(k)) return out(k, k.endsWith(".sha256") ? "text/plain" : "application/json");
+  return { status: 404, headers: { "content-type": "application/json" }, body: "{}" };
+}
+
+async function serve(db: Sqlx, req: { method: string; path: string; query: URLSearchParams; headers: Record<string, string>; body: string }, readOnly: boolean, now: number, quiet = false, blobs: Blobs = new Map()): Promise<Res> {
+  if (req.method === "GET" && req.path.startsWith("/v1/dump")) {
+    const d = dumpRoute(blobs, req.path);
+    if (d !== null) return d;
+  }
   const json = (status: number, v: unknown, extra: Record<string, string> = {}): Res => ({ status, headers: { "content-type": "application/json", ...extra }, body: JSON.stringify(v) });
   const cond = (status: number, v: unknown, etag: string): Res => {
     if (req.headers["if-none-match"] === etag) return { status: 304, headers: { etag }, body: "" };
@@ -112,6 +145,12 @@ export interface Faults {
   importDropsRow?: boolean;
   /** `wrangler d1 create` repoints the Worker at the new database at once (a PR merged and deployed in no time). */
   autoPoint?: boolean;
+  /** No R2 token in the environment. */
+  noR2Token?: boolean;
+  /** One R2 object arrives damaged. */
+  r2CorruptKey?: string;
+  /** The S3 side forgets content types. */
+  s3LosesContentType?: boolean;
   /** The stack lacks one output. */
   missingOutput?: string;
   /** What the function says for AKLDB_AWAIT_IMAGE. */
@@ -133,6 +172,9 @@ export interface World {
   /** D1 databases by name; the Worker serves from `workerDb`. */
   dbs: Map<string, DatabaseSync>;
   workerDb: string;
+  /** The dump history: R2 (the Worker) and S3 (the prod stack). */
+  r2: Blobs;
+  s3: Blobs;
   faults: Faults;
   currentStep: string | null;
   crashed: boolean;
@@ -158,7 +200,7 @@ export interface World {
   userWriteOnAws(n: number): Promise<void>;
 }
 
-export const STEP_IDS = ["preflight", "freeze", "export", "load", "verify", "image", "serve", "proxy", "open", "post-smoke", "report"];
+export const STEP_IDS = ["preflight", "copy-dumps", "freeze", "export", "load", "verify", "image", "serve", "resync-dumps", "proxy", "open", "post-smoke", "report"];
 
 export async function makeWorld(init: { faults?: Faults; events?: number; churnRows?: number } = {}): Promise<World> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "akldb-cutover-test-"));
@@ -176,12 +218,23 @@ export async function makeWorld(init: { faults?: Faults; events?: number; churnR
 
   const blobs = new MemoryObjects();
   const log = new MemoryLog({}, blobs);
+  // dump history: R2 (the Worker's) is full, S3 (the stack's) starts empty
+  const gz = (n: string) => ({ bytes: new Uint8Array(Buffer.from(`gzip bytes of ${n}`.repeat(50))), contentType: "application/gzip" });
+  const r2: Blobs = new Map([
+    ["latest.json", { bytes: new TextEncoder().encode(JSON.stringify({ key: "dump-2026-11-03.json.gz", seq: 12 })), contentType: "application/json" }],
+    ["dump-2026-11-02.json.gz", gz("11-02")],
+    ["dump-2026-11-03.json.gz", gz("11-03")],
+    ["monthly/dump-2026-10.json.gz", gz("2026-10")],
+    ["latest.spark-1.json", { bytes: new TextEncoder().encode('{"layouts":[]}'), contentType: "application/json" }],
+    ["latest.spark-1.json.sha256", { bytes: new TextEncoder().encode("abc  latest.spark-1.json\n"), contentType: "text/plain" }],
+  ]);
+  const s3: Blobs = new Map();
   const objects = new MemoryObjects();
   const snapshots = new MemorySnapshotState();
   const operator = createOperator({ kit: { Replica, bootReplica, appendImage, writeSnapshot }, log, objects, state: snapshots, logLine: () => {} });
 
   const w = { now: Date.parse("2026-11-04T09:00:00Z"), calls: [] as string[], callsByStep: {} as Record<string, string[]>, dbs: new Map([["akl-db", d1]]), workerDb: "akl-db", faults: init.faults ?? {}, currentStep: null as string | null, crashed: false, lines: [] as string[] } as unknown as World;
-  Object.assign(w, { dir, log, blobs, snapshots, objects, operator, stateFile: path.join(dir, "state.json") });
+  Object.assign(w, { dir, log, blobs, snapshots, objects, operator, r2, s3, stateFile: path.join(dir, "state.json") });
   w.d1 = (name = "akl-db") => w.dbs.get(name)!;
   w.state = () => JSON.parse(fs.readFileSync(w.stateFile, "utf8"));
 
@@ -267,7 +320,7 @@ export async function makeWorld(init: { faults?: Faults; events?: number; churnR
         },
       };
       const flag = await sqlx.select("SELECT value FROM import_state WHERE key = 'cutover.mode'");
-      res = await serve(sqlx, req, flag.length > 0 && flag[0]!.value === "read_only", w.now, w.faults.signedWriteMakesNoEvent === true);
+      res = await serve(sqlx, req, flag.length > 0 && flag[0]!.value === "read_only", w.now, w.faults.signedWriteMakesNoEvent === true, s3);
       if (w.faults.awsListDiffers && req.path === "/v1/layouts" && req.method === "GET") res = { ...res, body: res.body.replace('"rev":', '"rev ":') };
     } catch (e) {
       res = { status: 503, headers: { "content-type": "application/json" }, body: JSON.stringify({ error: "awaiting_image", message: String(e) }) };
@@ -279,18 +332,21 @@ export async function makeWorld(init: { faults?: Faults; events?: number; churnR
     const db = w.dbs.get(w.workerDb)!;
     const sqlx = d1Sqlx(db);
     const mode = (await sqlx.select("SELECT value FROM import_state WHERE key = 'cutover.mode'"))[0]?.value ?? null;
-    if (w.faults.noModes) return serve(sqlx, req, false, w.now);
+    if (w.faults.noModes) return serve(sqlx, req, false, w.now, false, r2);
     if (mode === "proxy") {
-      if (w.faults.brokenProxy) return serve(sqlx, req, false, w.now);
+      if (w.faults.brokenProxy) return serve(sqlx, req, false, w.now, false, r2);
       const res = await awsRequest(req);
       return { ...res, headers: { ...res.headers, "x-akldb-proxied": "1" } };
     }
-    return serve(sqlx, req, mode === "read_only", w.now);
+    return serve(sqlx, req, mode === "read_only", w.now, false, r2);
   };
   const request = async (url: string, init: any = {}): Promise<Res> => {
     const req = parse(url, init);
-    if (url.startsWith(AWS_URL)) return awsRequest(req);
-    if (url.startsWith(WORKER)) return workerRequest(req);
+    const res = url.startsWith(AWS_URL) ? await awsRequest(req) : url.startsWith(WORKER) ? await workerRequest(req) : undefined;
+    if (res !== undefined) {
+      const bytes = res.raw ?? new TextEncoder().encode(res.body);
+      return { ...res, sha256: createHash("sha256").update(bytes).digest("hex") };
+    }
     throw new Error(`the fake world does not serve ${url}`);
   };
 
@@ -335,6 +391,31 @@ export async function makeWorld(init: { faults?: Faults; events?: number; churnR
     http: {
       request: track("http.request", request),
       signed: track("http.signed", (method: string, url: string, o: { body?: string; headers?: Record<string, string> } = {}) => request(url, { method, body: o.body, headers: { "x-akl-client": "ops", ...(o.headers ?? {}) } })),
+    },
+    dumps: {
+      check: track("dumps.check", () => (w.faults.noR2Token ? ["R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"] : [])),
+      sync: track("dumps.sync", async () => {
+        const src = {
+          async list() {
+            return [...r2].map(([key, o]) => ({ key, size: o.bytes.byteLength, etag: `"${md5hex(o.bytes)}"` }));
+          },
+          async get(key: string, opts: { headOnly?: boolean } = {}) {
+            const o = r2.get(key)!;
+            const bytes = w.faults.r2CorruptKey === key && opts.headOnly !== true ? Uint8Array.from(o.bytes, (b, i) => (i === 3 ? b ^ 1 : b)) : o.bytes;
+            return { bytes: opts.headOnly ? new Uint8Array(0) : bytes, contentType: o.contentType, etag: `"${md5hex(o.bytes)}"`, size: o.bytes.byteLength };
+          },
+        };
+        const dst = {
+          async head(key: string) {
+            const o = s3.get(key);
+            return o === undefined ? null : { size: o.bytes.byteLength, etag: `"${md5hex(o.bytes)}"`, contentType: o.contentType };
+          },
+          async put(key: string, bytes: Uint8Array, contentType: string) {
+            s3.set(key, { bytes: Uint8Array.from(bytes), contentType: w.faults.s3LosesContentType ? "binary/octet-stream" : contentType });
+          },
+        };
+        return copyDumps({ src, dst });
+      }),
     },
     aws: {
       stackOutputs: track("aws.stackOutputs", () => {
