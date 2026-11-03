@@ -65,7 +65,7 @@ export interface LambdaOptions {
    * Where snapshots live (the pointer items and the S3 objects). With it the default boot starts from the pointer's snapshot
    * (src/replica/boot.ts) and the tick runs the snapshot jobs (src/replica/jobs.ts); without it boot replays the log from 0.
    */
-  snapshots?: { state: SnapshotState; objects: ObjectStore; policy?: SnapshotPolicy };
+  snapshots?: { state: SnapshotState; objects: ObjectStore; policy?: SnapshotPolicy; zstdLevel?: number };
   /** Default: bootReplica over `snapshots`. */
   boot?: (log: CommitLog) => Promise<Replica>;
   /** Default: a new UUID per handler (that is, per container). */

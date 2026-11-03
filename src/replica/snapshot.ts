@@ -119,6 +119,8 @@ export interface SnapshotDeps {
   /** Where the job report goes. Default console.error. */
   logLine?: LogFn;
   now?: () => number;
+  /** zstd level for the snapshot image. Default 19 (SNAPSHOT_LEVEL); the jobs tick pays for it (boot-bench.mjs prints the cost per level). */
+  zstdLevel?: number;
 }
 
 export class SnapshotError extends Error {
@@ -208,7 +210,10 @@ export async function writeSnapshot(replica: Replica, deps: SnapshotDeps, kind: 
   const pointer = await deps.state.pointer();
   const cap = await replica.capture();
   if (kind.type === "rolling" && pointer !== null && cap.seq <= pointer.seq) return { status: "current", pointer };
-  const compressed = zstdCompress(cap.bytes, SNAPSHOT_LEVEL);
+  const level = deps.zstdLevel ?? SNAPSHOT_LEVEL;
+  const t0 = performance.now();
+  const compressed = zstdCompress(cap.bytes, level);
+  const compressMs = Math.round(performance.now() - t0);
   const ref: SnapRef = {
     seq: cap.seq,
     key: kind.type === "rolling" ? rollingKey(nextRollingSlot(pointer)) : dailyKey(kind.slot),
@@ -223,7 +228,7 @@ export async function writeSnapshot(replica: Replica, deps: SnapshotDeps, kind: 
   // Read it back: this is what a cold container will do, so it is what has to work.
   await readSnapshot(ref, deps.objects);
   const moved = kind.type === "rolling" ? await deps.state.movePointer(ref) : await deps.state.putDaily(ref);
-  logLine(`akldb-snapshot: ${kind.type} seq=${ref.seq} key=${ref.key} raw=${ref.size} compressed=${ref.compressed} pointer=${moved}`);
+  logLine(`akldb-snapshot: ${kind.type} seq=${ref.seq} key=${ref.key} raw=${ref.size} compressed=${ref.compressed} zstd=${level} compressMs=${compressMs} pointer=${moved}`);
   return { status: "written", ref, moved };
 }
 
