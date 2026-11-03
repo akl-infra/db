@@ -157,6 +157,12 @@ export class Replica {
   #backoffMs: number;
   #alarm: (line: string) => void;
   #inTxn = false;
+  /**
+   * The connection's last_insert_rowid() as of the last committed unit or replayed entry. SQLite keeps last_insert_rowid()
+   * across a ROLLBACK, so without this an aborted attempt's INSERT would leak into the retry's meta.last_row_id (and into
+   * any SQL reading last_insert_rowid() before its own insert): D1, which never retries, shows the pre-unit value.
+   */
+  #lrid = 0;
   #metaStmt: StatementSync | undefined;
   #changesStmt: StatementSync | undefined;
 
@@ -266,6 +272,7 @@ export class Replica {
   /** Re-execute one entry and verify its hash. */
   #apply(entry: LogEntry): void {
     if (entry.seq !== this.#seq + 1) throw new Error(`replay out of order: at ${this.#seq}, got ${entry.seq}`);
+    this.#restoreLrid(entry.lrid ?? this.#lrid);
     this.db.exec("BEGIN");
     this.#inTxn = true;
     try {
@@ -292,6 +299,7 @@ export class Replica {
       this.#die(e instanceof ReplicaDivergedError ? e : new ReplicaDivergedError(`replay of seq ${entry.seq} (unit ${entry.unitId}) failed: ${e instanceof Error ? e.message : String(e)}`, { cause: e }));
     }
     this.#seq = entry.seq;
+    this.#lrid = this.#lastInsertRowid();
     this.stats.replayed++;
   }
 
@@ -368,6 +376,18 @@ export class Replica {
     return { columns, rows, ...(arrays !== undefined ? { arrays } : {}), changes: changed ? m.total - before : 0, lastRowId: m.lastRowId, changedDb: changed };
   }
 
+  #lastInsertRowid(): number {
+    return (this.db.prepare("SELECT last_insert_rowid() AS r").get() as { r: number }).r;
+  }
+
+  /** Make the connection's last_insert_rowid() equal `v` (an INSERT with that rowid into a TEMP table, then removed). */
+  #restoreLrid(v: number): void {
+    if (this.#lastInsertRowid() === v) return;
+    this.db.exec("CREATE TEMP TABLE IF NOT EXISTS akldb_lrid (x)");
+    this.db.prepare("INSERT INTO temp.akldb_lrid (rowid, x) VALUES (?, NULL)").run(v);
+    this.db.exec("DELETE FROM temp.akldb_lrid");
+  }
+
   #rollback(): void {
     try {
       this.db.exec("ROLLBACK");
@@ -375,6 +395,9 @@ export class Replica {
       // the transaction was already rolled back by SQLite
     }
     this.#inTxn = false;
+    // ROLLBACK keeps last_insert_rowid(): put back the committed value, so a read between units (or the error path) reports
+    // what D1 would.
+    this.#restoreLrid(this.#lrid);
   }
 
   /** sqlite_sequence is not tracked by sessions (it has no primary key): AUTOINCREMENT counters are compared by value. */
@@ -412,13 +435,15 @@ export class Replica {
   }
 
   #attemptUnit(stmts: BoundStatement[], forceLog: boolean): Attempt<StatementOutcome[]> {
+    const lrid = this.#lrid;
+    this.#restoreLrid(lrid);
     this.db.exec("BEGIN");
     this.#inTxn = true;
     let session: ReturnType<DatabaseSync["createSession"]> | undefined;
     try {
       const seqBefore = this.#sequenceDigest();
       const schemaBefore = this.#schemaVersion();
-      const rowsBefore = this.#totalChanges();
+      const rowsBefore = this.#totalChanges(); // after #restoreLrid's TEMP writes, which are not the unit's
       session = this.db.createSession();
       const result = stmts.map((s) => this.#execOne(s));
       const changeset = session.changeset();
@@ -431,9 +456,10 @@ export class Replica {
         this.db.exec("COMMIT");
         this.#inTxn = false;
         this.stats.noOps++;
+        this.#lrid = this.#lastInsertRowid();
         return { result, entry: null };
       }
-      return { result, entry: { kind: "unit", stmts: stmts.map(toLogStmt), hash: sha256(changeset) } };
+      return { result, entry: { kind: "unit", stmts: stmts.map(toLogStmt), hash: sha256(changeset), lrid } };
     } catch (e) {
       try {
         session?.close();
@@ -503,6 +529,7 @@ export class Replica {
           this.#die(new ReplicaDivergedError(`COMMIT failed after seq ${this.#seq + 1} was logged: ${e instanceof Error ? e.message : String(e)}`, { cause: e }));
         }
         this.#seq++;
+        this.#lrid = this.#lastInsertRowid();
         this.stats.appended++;
         return a.result;
       }
