@@ -60,7 +60,8 @@ export async function runReplay({ plan, prod, shadow, fetchImpl = fetch, sleep =
   for (const item of plan.items) {
     const wait = item.at - (Date.now() - startedAt);
     if (wait > 0) await sleep(wait);
-    const base = { n: item.n, class: item.class, group: item.group, path: item.path, query: item.query, weight: item.weight, inm: item.inm };
+    const at = new Date().toISOString();
+    const base = { at, n: item.n, class: item.class, group: item.group, path: item.path, query: item.query, weight: item.weight, inm: item.inm };
     let a;
     let b;
     try {
