@@ -5,7 +5,7 @@ ground). Invariants: LDB-CV10..CV27 in `INVARIANTS.md`. Nothing in this file has
 fakes (`tests/cutover/`), and the rehearsal below is what proves the real commands.
 
 **Target:** 2026-11-04, 09:00-14:00 UTC. There is no 7-day proving run: manual tests, flip, watch about one hour.
-**Gate (build plan, phase E):** write pause at most 5 minutes on each rehearsal; every proof equal; a signed write, `If-Match` 412, feed
+**Gate (build plan, phase E):** write pause at most 5 minutes on each rehearsal; every proof equal; a signed write, `If-Match` 409 stale, feed
 contiguity and ETag 304 after the flip; 24 h of prod alarms quiet.
 
 ## How it works
@@ -43,7 +43,7 @@ automatically.
 | 8 | `serve` | prod `migrate` (a no-op: `applied: []`) and `warm k=4`; `meta`, a list page, 3 layouts and the dump routes read straight from the stack equal the Worker's (bodies minus `age_s`, ETags, Content-Type, Cache-Control, Location, bytes); `X-Akldb-Backend: aws` present | the comparisons |
 | 9 | `dns` | prints saltorbit's instruction; polls the public name until it answers `X-Akldb-Backend: aws` with `seq` = the image's `meta.seq`, **5 times in a row on fresh connections** (a connection failure or a stale answer restarts the count), at most 15 min; on timeout stops with what to check, writes still closed | polls, wait |
 | 10 | `open` | needs verify + image + serve + dns done and the logged image = the verified one (CV16); the operator appends `DELETE FROM import_state WHERE key = 'cutover.mode'`; the signed probe then reads **400** (open), no longer 503, and comes from AWS | open seq, **write pause** |
-| 11 | `post-smoke` | a signed write (ops client), `If-Match` 412 on a stale rev, `/v1/changes?since=<D1 last seq>` continues at the counter + 1 and is contiguous, `If-None-Match` 304, through `api.akldb.org` | each check |
+| 11 | `post-smoke` | a signed write (ops client), `If-Match` 409 stale on a stale rev, `/v1/changes?since=<D1 last seq>` continues at the counter + 1 and is contiguous, `If-None-Match` 304, through `api.akldb.org` | each check |
 | 12 | `report` | markdown: timings per step, the write pause, every proof | `report.md` |
 
 If something fails before `image`: `node scripts/cutover/run.mjs --execute --abort` clears D1's flag (it refuses once the log holds the image: that is
@@ -240,7 +240,7 @@ fresh connections. The flag is cleared only after that. The report (`rollback-re
 3. **Does the real `wrangler d1 export` place triggers before the data?** The loader no longer cares (triggers are created after the rows), and `verify`
    would catch any double effect before anything reaches AWS.
 4. **Post-smoke write.** Default `POST /v1/admin/nightly/tick` (a manual tick: runs the nightly dump and appends one event). Choose another with
-   `--write-route "METHOD /path" --write-body '{...}'`. The `If-Match` probe is a PATCH rename with a deliberately wrong rev (it can only 412).
+   `--write-route "METHOD /path" --write-body '{...}'`. The `If-Match` probe is a PATCH rename with a deliberately wrong rev (it can only answer 409 stale).
 5. **Operator credentials:** `akldb-deploy` cannot write the log table; the tools assume an admin profile (`aws-vault exec akldb`) and read the credentials
    from the environment (do not also pass `--profile`).
 6. **The feed rule.** After the flip the first new event is `sqlite_sequence('events') + 1`, which is `MAX(seq) + 1` unless events were deleted from the

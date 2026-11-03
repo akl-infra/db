@@ -128,7 +128,7 @@ async function serve(db: Sqlx, req: { method: string; path: string; query: URLSe
     if (method === "GET") return json(200, wire); // a single layout's GET carries no ETag (the real API's)
     if (readOnly) return json(503, { error: "read_only" }, { "retry-after": "5" });
     if (req.headers["x-akl-client"] === undefined) return json(401, { error: "unauthorized" });
-    if (req.headers["if-match"] !== etag) return json(412, { error: "precondition_failed" });
+    if (req.headers["if-match"] !== etag) return json(409, { error: "stale", scope: "layout" }); // the API's same-scope mismatch
     return json(200, wire, { etag });
   }
   if (method === "GET" && p === "/v1/changes") {

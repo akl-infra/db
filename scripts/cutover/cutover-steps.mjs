@@ -482,8 +482,8 @@ export function steps(o) {
     },
     {
       id: "post-smoke",
-      title: "a signed write with the ops client, If-Match 412 on a stale rev, feed contiguity and ETag 304 through api.akldb.org",
-      commands: () => [`node scripts/client-sign.mjs ${o.writeMethod} ${o.writePath}   # the signed write (default: the manual nightly tick, a harmless event)`, `curl -s -X PATCH -H 'If-Match: "<stale>"' ${o.publicUrl}/v1/layouts/<id>   # 412`, `curl -s '${o.publicUrl}/v1/changes?since=<D1 last seq>'   # starts at last+1`, `curl -si -H 'If-None-Match: <etag>' ${o.publicUrl}/v1/meta   # 304`],
+      title: "a signed write with the ops client, If-Match 409 stale on a stale rev, feed contiguity and ETag 304 through api.akldb.org",
+      commands: () => [`node scripts/client-sign.mjs ${o.writeMethod} ${o.writePath}   # the signed write (default: the manual nightly tick, a harmless event)`, `curl -s -X PATCH -H 'If-Match: "<stale>"' ${o.publicUrl}/v1/layouts/<id>   # 409 stale`, `curl -s '${o.publicUrl}/v1/changes?since=<D1 last seq>'   # starts at last+1`, `curl -si -H 'If-None-Match: <etag>' ${o.publicUrl}/v1/meta   # 304`],
       async precondition(c) {
         need(c.state.steps.open?.status === "done", "writes are not open yet");
       },
@@ -493,7 +493,7 @@ export function steps(o) {
         need(write.status >= 200 && write.status < 300, `the signed write ${o.writeMethod} ${o.writePath} answered ${write.status}: ${write.body.slice(0, 200)}`);
         checks.signedWrite = { status: write.status, backend: lc(write.headers)[AWS_HEADER] ?? null };
         // a layout the ops actor owns (so the rename passes the owner check and reaches the If-Match), its layout_rev from the list body (a single
-        // layout's GET carries no ETag); a rename to its own name under a stale "layout:<rev>" must be refused 412 before anything is written
+        // layout's GET carries no ETag); a rename to its own name under a stale "layout:<rev>" must be refused 409 stale (akldb's answer to a same-scope mismatch, docs/adoption.md) before anything is written
         need(o.opsActor, "OPS_ACTOR is not set (db.env.ops): the If-Match probe renames a layout the ops actor owns");
         const list = JSON.parse((await c.ports.http.request(`${o.publicUrl}/v1/layouts?owner=${encodeURIComponent(o.opsActor)}&limit=1&format=${LIST_FORMAT}`, { method: "GET" })).body);
         const mine = list.items?.[0];
@@ -501,7 +501,13 @@ export function steps(o) {
         const id = mine.id;
         const stale = `"layout:${mine.layout_rev + 1000}"`;
         const patch = await c.ports.http.signed("PATCH", `${o.publicUrl}/v1/layouts/${id}`, { body: JSON.stringify({ name: mine.name }), headers: { "if-match": stale } });
-        need(patch.status === 412, `PATCH with a stale If-Match answered ${patch.status}, expected 412`);
+        let patchError = null;
+        try {
+          patchError = JSON.parse(patch.body)?.error ?? null;
+        } catch {
+          patchError = null;
+        }
+        need(patch.status === 409 && patchError === "stale", `PATCH with a stale If-Match answered ${patch.status} ${patchError ?? patch.body.slice(0, 120)}, expected 409 stale`);
         checks.ifMatch = { id, sent: stale, status: patch.status };
         const feed = await c.ports.http.request(`${o.publicUrl}/v1/changes?since=${c.data.finalSeq}&limit=50`, { method: "GET" });
         need(feed.status === 200, `GET /v1/changes?since=${c.data.finalSeq} answered ${feed.status}`);
@@ -519,7 +525,7 @@ export function steps(o) {
         const cond = await c.ports.http.request(`${o.publicUrl}/v1/meta`, { method: "GET", headers: { "if-none-match": etag } });
         need(cond.status === 304, `If-None-Match answered ${cond.status}, expected 304`);
         checks.etag304 = { etag, status: cond.status };
-        return { message: "signed write, If-Match 412, feed contiguous from last+1, ETag 304", proof: checks };
+        return { message: "signed write, If-Match 409 stale, feed contiguous from last+1, ETag 304", proof: checks };
       },
     },
     {
