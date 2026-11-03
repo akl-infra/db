@@ -17,7 +17,9 @@ const WRITE_PATTERN = /INSERT INTO layouts|UPDATE layouts|REPLACE INTO layouts/;
 // Since P1 (design/aws-port.md §4.1) the statements live behind the storage
 // port: the event commit in store/d1/events.ts and the bulk restore in
 // store/d1/dump.ts.
-const ALLOWED = [path.join(SRC, "store", "d1", "events.ts"), path.join(SRC, "store", "d1", "dump.ts")];
+// Design A, phase D: the shadow stage's feed applier (src/replica/shadow/apply.ts) re-creates the rows commitWrite left
+// behind from production's public feed, on a database nothing else writes (LDB-PV5 proves the two equal, table for table).
+const ALLOWED = [path.join(SRC, "store", "d1", "events.ts"), path.join(SRC, "store", "d1", "dump.ts"), path.join(SRC, "replica", "shadow", "apply.ts")];
 
 function walk(dir: string): string[] {
   if (!fs.existsSync(dir)) return [];

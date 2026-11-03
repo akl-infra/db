@@ -1,0 +1,13 @@
+{
+  "stage": "shadow",
+  "domain": "shadow-api.akldb.org",
+  "purpose": "The proving ground (design A phase D): a stack of the one template, seeded from the latest PUBLIC dump and kept equal to production by following its public /v1/changes feed. It serves reads only, runs no Worker jobs, and cannot reach Discord or any production write path (design/aws-a-ops-shadow.md).",
+  "parameters": {
+    "DiscordApiUrl": "http://fake-discord.akldb.invalid/api"
+  },
+  "ssm": {
+    "required": ["origin-secret"],
+    "forbidden": ["discord-bot-token", "discord-application-id", "discord-public-key", "discord-webhook", "discord-guild-id", "discord-channel-id", "discord-cards", "discord-actions", "discord-dms"]
+  },
+  "ship": ["migrations", "migrations-shadow"]
+}
