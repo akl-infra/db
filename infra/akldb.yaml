@@ -1,0 +1,576 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  akldb on AWS, design A: one stack per Stage (staging, shadow, prod) in us-east-2. A DynamoDB commit log, an S3 data
+  bucket, one Lambda behind a regional HTTP API custom domain, two EventBridge schedules, alarms. No VPC, no
+  CloudFront, no Function URL, no OIDC, no WAF.
+
+# Created and updated by scripts/deploy-aws.sh (a change set the deployer reads first), never by hand. The
+# certificate comes from infra/akldb-cert.yaml and the artifacts bucket from infra/akldb-bootstrap.yaml. Secrets are
+# SSM SecureStrings under /akldb/<stage>/ made out of band (design/aws-a-ops.md); no secret value is in this file.
+
+Parameters:
+  Stage:
+    Type: String
+    AllowedValues: [ staging, shadow, prod ]
+  DomainName:
+    Type: String
+    AllowedValues: [ staging-api.akldb.org, shadow-api.akldb.org, api.akldb.org ]
+    Description: The API hostname. Cloudflare proxies it and CNAMEs to the ApiDomainTarget output.
+  CertificateArn:
+    Type: String
+    AllowedPattern: "^arn:aws:acm:us-east-2:[0-9]{12}:certificate/[a-f0-9-]+$"
+    Description: The us-east-2 ACM certificate for DomainName (infra/akldb-cert.yaml, output CertificateArn), validated.
+  ArtifactsBucket:
+    Type: String
+    Description: The bucket holding the Lambda zip (infra/akldb-bootstrap.yaml, output ArtifactsBucket).
+  CodeKey:
+    Type: String
+    Description: Key of the zip. Content-addressed by scripts/deploy-aws.sh.
+  LiveVersion:
+    Type: String
+    Default: $LATEST
+    AllowedPattern: '^(\$LATEST|[0-9]+)$'
+    Description: The function version the live alias points at. scripts/deploy-aws.sh moves it after a new version migrated.
+  ReservedConcurrency:
+    Type: String
+    Default: ""
+    AllowedPattern: "^[0-9]*$"
+    Description: Reserved concurrent executions for the function; empty leaves it unset. The account limit is 10 until a quota increase, and a reservation must leave 10 unreserved, so it cannot be set yet.
+  KeepWarm:
+    Type: Number
+    Default: 4
+    MinValue: 1
+    MaxValue: 8
+    Description: Containers the keep-warm schedule holds warm (concurrent invocations of the live alias).
+  AlarmEmail:
+    Type: String
+    AllowedPattern: "^[^@\\s]+@[^@\\s]+$"
+    Description: Alarm and budget notifications.
+  DiscordApiUrl:
+    Type: String
+    Default: https://discord.com/api
+    Description: wrangler.toml's DISCORD_API_URL. The shadow stack points it at a fake Discord (phase D).
+  BudgetLimitUsd:
+    Type: Number
+    Default: 5
+    MinValue: 1
+    Description: The monthly cost budget (prod only).
+
+Rules:
+  RegionIsOhio:
+    Assertions:
+      - Assert: !Equals [ !Ref "AWS::Region", us-east-2 ]
+        AssertDescription: Regional resources live in the project Region us-east-2 only.
+  HostMatchesStage:
+    Assertions:
+      - Assert: !Or
+          - !And [ !Equals [ !Ref Stage, staging ], !Equals [ !Ref DomainName, staging-api.akldb.org ] ]
+          - !And [ !Equals [ !Ref Stage, shadow ], !Equals [ !Ref DomainName, shadow-api.akldb.org ] ]
+          - !And [ !Equals [ !Ref Stage, prod ], !Equals [ !Ref DomainName, api.akldb.org ] ]
+        AssertDescription: Each stage serves its own hostname.
+
+Conditions:
+  IsProd: !Equals [ !Ref Stage, prod ]
+  HasReservedConcurrency: !Not [ !Equals [ !Ref ReservedConcurrency, "" ] ]
+
+Resources:
+  # ---------------------------------------------------------------- the commit log
+  LogTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Sub akldb-${Stage}-log
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: pk, AttributeType: S }
+        - { AttributeName: sk, AttributeType: S }
+      KeySchema:
+        - { AttributeName: pk, KeyType: HASH }
+        - { AttributeName: sk, KeyType: RANGE }
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      DeletionProtectionEnabled: true
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      Tags:
+        - { Key: project, Value: akldb }
+        - { Key: stage, Value: !Ref Stage }
+
+  # ---------------------------------------------------------------- snapshots and dumps
+  DataBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub akldb-${Stage}-data-${AWS::AccountId}
+      VersioningConfiguration: { Status: Enabled }
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      LifecycleConfiguration:
+        Rules:
+          # Current objects (snap/ and dumps/) never expire; only versions that were overwritten or deleted do.
+          - Id: expire-noncurrent
+            Status: Enabled
+            NoncurrentVersionExpiration: { NoncurrentDays: 35 }
+          - Id: abort-multipart
+            Status: Enabled
+            AbortIncompleteMultipartUpload: { DaysAfterInitiation: 7 }
+      Tags:
+        - { Key: project, Value: akldb }
+        - { Key: stage, Value: !Ref Stage }
+
+  DataBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref DataBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: TlsOnly
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource:
+              - !GetAtt DataBucket.Arn
+              - !Sub "${DataBucket.Arn}/*"
+            Condition:
+              Bool: { "aws:SecureTransport": "false" }
+
+  # ---------------------------------------------------------------- the function
+  # Never expires in prod (saltorbit: keep every log). Infrequent Access has no metric filters, so the alarms below
+  # use built-in metrics only.
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: !Sub /aws/lambda/akldb-${Stage}-api
+      LogGroupClass: INFREQUENT_ACCESS
+      RetentionInDays: !If [ IsProd, !Ref "AWS::NoValue", 14 ]
+      Tags:
+        - { Key: project, Value: akldb }
+        - { Key: stage, Value: !Ref Stage }
+
+  ApiRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub akldb-${Stage}-api
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: akldb-api
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: LogStream
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/akldb-${Stage}-api:*"
+              # TransactWriteItems is authorized per item action: Put on the log entry, Update on HEAD, ConditionCheck.
+              - Sid: LogTable
+                Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:ConditionCheckItem
+                Resource: !GetAtt LogTable.Arn
+              - Sid: DataObjects
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource:
+                  - !Sub "${DataBucket.Arn}/snap/*"
+                  - !Sub "${DataBucket.Arn}/dumps/*"
+              # Without ListBucket a missing key answers 403 instead of 404.
+              - Sid: DataList
+                Effect: Allow
+                Action: s3:ListBucket
+                Resource: !GetAtt DataBucket.Arn
+              - Sid: Parameters
+                Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/akldb/${Stage}/*"
+              # Keep-warm fan-out: the function invokes its own live alias, and nothing else. The ARN is built from
+              # names (not GetAtt) because the function depends on this role.
+              - Sid: WarmFanOut
+                Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:akldb-${Stage}-api:live"
+      Tags:
+        - { Key: project, Value: akldb }
+        - { Key: stage, Value: !Ref Stage }
+
+  ApiFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub akldb-${Stage}-api
+      Description: !Sub akldb (${Stage}) - the Hono app on a node:sqlite replica of the DynamoDB commit log
+      Runtime: nodejs24.x
+      Architectures: [ arm64 ]
+      Handler: lambda.handler
+      MemorySize: 2048
+      Timeout: 35
+      ReservedConcurrentExecutions: !If [ HasReservedConcurrency, !Ref ReservedConcurrency, !Ref "AWS::NoValue" ]
+      Role: !GetAtt ApiRole.Arn
+      Code:
+        S3Bucket: !Ref ArtifactsBucket
+        S3Key: !Ref CodeKey
+      LoggingConfig:
+        LogGroup: !Ref LogGroup
+        LogFormat: JSON
+        SystemLogLevel: WARN
+      Environment:
+        Variables:
+          STAGE: !Ref Stage
+          LOG_TABLE: !Ref LogTable
+          DATA_BUCKET: !Ref DataBucket
+          SSM_PREFIX: !Sub /akldb/${Stage}/
+          # wrangler.toml [vars]
+          DISCORD_API_URL: !Ref DiscordApiUrl
+          MODQUEUE_DISCORD_COMPONENTS: "false"
+      Tags:
+        - { Key: project, Value: akldb }
+        - { Key: stage, Value: !Ref Stage }
+
+  # The alias CloudFormation owns. The version it points at is published by scripts/deploy-aws.sh and passed in as
+  # LiveVersion, so a rollback is a stack update.
+  LiveAlias:
+    Type: AWS::Lambda::Alias
+    Properties:
+      FunctionName: !Ref ApiFunction
+      Name: live
+      FunctionVersion: !Ref LiveVersion
+
+  # Scheduler events are asynchronous invocations; a failed tick is retried by the next one, so no automatic retry.
+  LiveAliasEventConfig:
+    Type: AWS::Lambda::EventInvokeConfig
+    Properties:
+      FunctionName: !Ref ApiFunction
+      Qualifier: !Ref LiveAlias
+      MaximumRetryAttempts: 0
+      MaximumEventAgeInSeconds: 60
+
+  # ---------------------------------------------------------------- the HTTP API
+  HttpApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub akldb-${Stage}
+      ProtocolType: HTTP
+      # The default execute-api hostname would bypass Cloudflare and the origin secret; only the custom domain serves.
+      DisableExecuteApiEndpoint: true
+      Tags:
+        project: akldb
+        stage: !Ref Stage
+
+  ApiIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Ref LiveAlias
+      PayloadFormatVersion: "2.0"
+      TimeoutInMillis: 30000
+
+  DefaultRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: $default
+      Target: !Sub integrations/${ApiIntegration}
+
+  DefaultStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref HttpApi
+      StageName: $default
+      AutoDeploy: true
+      DefaultRouteSettings:
+        ThrottlingRateLimit: 50
+        ThrottlingBurstLimit: 100
+      Tags:
+        project: akldb
+        stage: !Ref Stage
+
+  ApiInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref LiveAlias
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*/*"
+
+  CustomDomain:
+    Type: AWS::ApiGatewayV2::DomainName
+    Properties:
+      DomainName: !Ref DomainName
+      DomainNameConfigurations:
+        - CertificateArn: !Ref CertificateArn
+          EndpointType: REGIONAL
+          SecurityPolicy: TLS_1_2
+      Tags:
+        project: akldb
+        stage: !Ref Stage
+
+  ApiMapping:
+    Type: AWS::ApiGatewayV2::ApiMapping
+    DependsOn: DefaultStage
+    Properties:
+      ApiId: !Ref HttpApi
+      DomainName: !Ref CustomDomain
+      Stage: $default
+
+  # ---------------------------------------------------------------- schedules
+  SchedulerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub akldb-${Stage}-scheduler
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: scheduler.amazonaws.com }
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals: { "aws:SourceAccount": !Ref "AWS::AccountId" }
+      Policies:
+        - PolicyName: invoke-live-alias
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !Ref LiveAlias
+      Tags:
+        - { Key: project, Value: akldb }
+        - { Key: stage, Value: !Ref Stage }
+
+  JobsSchedule:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Name: !Sub akldb-${Stage}-jobs
+      Description: The Worker's */5 cron (src/index.ts scheduled()).
+      ScheduleExpression: rate(5 minutes)
+      FlexibleTimeWindow: { Mode: "OFF" }
+      State: ENABLED
+      Target:
+        Arn: !Ref LiveAlias
+        RoleArn: !GetAtt SchedulerRole.Arn
+        Input: '{"akldb":"tick"}'
+        RetryPolicy: { MaximumRetryAttempts: 0 }
+
+  KeepWarmSchedule:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Name: !Sub akldb-${Stage}-keep-warm
+      Description: KeepWarm concurrent pings of the live alias, each held about 150 ms, so that many containers stay warm.
+      ScheduleExpression: rate(5 minutes)
+      FlexibleTimeWindow: { Mode: "OFF" }
+      State: ENABLED
+      Target:
+        Arn: !Ref LiveAlias
+        RoleArn: !GetAtt SchedulerRole.Arn
+        Input: !Sub '{"akldb":"warm","k":${KeepWarm}}'
+        RetryPolicy: { MaximumRetryAttempts: 0 }
+
+  # ---------------------------------------------------------------- alarms (built-in metrics only; 6 of the free 10)
+  AlarmTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub akldb-${Stage}-alarms
+      Subscription:
+        - { Protocol: email, Endpoint: !Ref AlarmEmail }
+      Tags:
+        - { Key: project, Value: akldb }
+        - { Key: stage, Value: !Ref Stage }
+
+  AlarmTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics: [ !Ref AlarmTopic ]
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: CloudWatchAlarmsPublish
+            Effect: Allow
+            Principal: { Service: cloudwatch.amazonaws.com }
+            Action: sns:Publish
+            Resource: !Ref AlarmTopic
+            Condition:
+              StringEquals: { "aws:SourceAccount": !Ref "AWS::AccountId" }
+
+  # A replica divergence is a thrown error from the handler, so it lands here.
+  LambdaErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub akldb-${Stage}-lambda-errors
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions: [ { Name: FunctionName, Value: !Ref ApiFunction } ]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 2
+      DatapointsToAlarm: 2
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [ !Ref AlarmTopic ]
+
+  LambdaThrottlesAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub akldb-${Stage}-lambda-throttles
+      Namespace: AWS/Lambda
+      MetricName: Throttles
+      Dimensions: [ { Name: FunctionName, Value: !Ref ApiFunction } ]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [ !Ref AlarmTopic ]
+
+  LambdaDurationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub akldb-${Stage}-lambda-duration-p95
+      Namespace: AWS/Lambda
+      MetricName: Duration
+      Dimensions: [ { Name: FunctionName, Value: !Ref ApiFunction } ]
+      ExtendedStatistic: p95
+      Period: 300
+      EvaluationPeriods: 2
+      DatapointsToAlarm: 2
+      Threshold: 3000
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [ !Ref AlarmTopic ]
+
+  Api5xxAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub akldb-${Stage}-api-5xx
+      Namespace: AWS/ApiGateway
+      MetricName: 5xx
+      Dimensions: [ { Name: ApiId, Value: !Ref HttpApi } ]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [ !Ref AlarmTopic ]
+
+  # DynamoDB publishes SystemErrors and ThrottledRequests per Operation, and an alarm cannot SEARCH, so the sum is
+  # spelled out over the operations the log uses.
+  DdbSystemErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub akldb-${Stage}-log-system-errors
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [ !Ref AlarmTopic ]
+      Metrics:
+        - { Id: total, Expression: SUM(METRICS()), Label: SystemErrors, ReturnData: true }
+        - Id: getitem
+          ReturnData: false
+          MetricStat: { Metric: { Namespace: AWS/DynamoDB, MetricName: SystemErrors, Dimensions: [ { Name: TableName, Value: !Ref LogTable }, { Name: Operation, Value: GetItem } ] }, Period: 300, Stat: Sum }
+        - Id: query
+          ReturnData: false
+          MetricStat: { Metric: { Namespace: AWS/DynamoDB, MetricName: SystemErrors, Dimensions: [ { Name: TableName, Value: !Ref LogTable }, { Name: Operation, Value: Query } ] }, Period: 300, Stat: Sum }
+        - Id: putitem
+          ReturnData: false
+          MetricStat: { Metric: { Namespace: AWS/DynamoDB, MetricName: SystemErrors, Dimensions: [ { Name: TableName, Value: !Ref LogTable }, { Name: Operation, Value: PutItem } ] }, Period: 300, Stat: Sum }
+        - Id: updateitem
+          ReturnData: false
+          MetricStat: { Metric: { Namespace: AWS/DynamoDB, MetricName: SystemErrors, Dimensions: [ { Name: TableName, Value: !Ref LogTable }, { Name: Operation, Value: UpdateItem } ] }, Period: 300, Stat: Sum }
+        - Id: transactwrite
+          ReturnData: false
+          MetricStat: { Metric: { Namespace: AWS/DynamoDB, MetricName: SystemErrors, Dimensions: [ { Name: TableName, Value: !Ref LogTable }, { Name: Operation, Value: TransactWriteItems } ] }, Period: 300, Stat: Sum }
+
+  DdbThrottledAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub akldb-${Stage}-log-throttled-requests
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [ !Ref AlarmTopic ]
+      Metrics:
+        - { Id: total, Expression: SUM(METRICS()), Label: ThrottledRequests, ReturnData: true }
+        - Id: getitem
+          ReturnData: false
+          MetricStat: { Metric: { Namespace: AWS/DynamoDB, MetricName: ThrottledRequests, Dimensions: [ { Name: TableName, Value: !Ref LogTable }, { Name: Operation, Value: GetItem } ] }, Period: 300, Stat: Sum }
+        - Id: query
+          ReturnData: false
+          MetricStat: { Metric: { Namespace: AWS/DynamoDB, MetricName: ThrottledRequests, Dimensions: [ { Name: TableName, Value: !Ref LogTable }, { Name: Operation, Value: Query } ] }, Period: 300, Stat: Sum }
+        - Id: putitem
+          ReturnData: false
+          MetricStat: { Metric: { Namespace: AWS/DynamoDB, MetricName: ThrottledRequests, Dimensions: [ { Name: TableName, Value: !Ref LogTable }, { Name: Operation, Value: PutItem } ] }, Period: 300, Stat: Sum }
+        - Id: updateitem
+          ReturnData: false
+          MetricStat: { Metric: { Namespace: AWS/DynamoDB, MetricName: ThrottledRequests, Dimensions: [ { Name: TableName, Value: !Ref LogTable }, { Name: Operation, Value: UpdateItem } ] }, Period: 300, Stat: Sum }
+        - Id: transactwrite
+          ReturnData: false
+          MetricStat: { Metric: { Namespace: AWS/DynamoDB, MetricName: ThrottledRequests, Dimensions: [ { Name: TableName, Value: !Ref LogTable }, { Name: Operation, Value: TransactWriteItems } ] }, Period: 300, Stat: Sum }
+
+  # ---------------------------------------------------------------- budget
+  # One account-level budget, so only the prod stack owns it.
+  Budget:
+    Type: AWS::Budgets::Budget
+    Condition: IsProd
+    Properties:
+      Budget:
+        BudgetName: akldb-monthly
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit: { Amount: !Ref BudgetLimitUsd, Unit: USD }
+      NotificationsWithSubscribers:
+        - Notification: { NotificationType: ACTUAL, ComparisonOperator: GREATER_THAN, ThresholdType: ABSOLUTE_VALUE, Threshold: 2 }
+          Subscribers: [ { SubscriptionType: EMAIL, Address: !Ref AlarmEmail } ]
+        - Notification: { NotificationType: ACTUAL, ComparisonOperator: GREATER_THAN, ThresholdType: ABSOLUTE_VALUE, Threshold: 5 }
+          Subscribers: [ { SubscriptionType: EMAIL, Address: !Ref AlarmEmail } ]
+        - Notification: { NotificationType: FORECASTED, ComparisonOperator: GREATER_THAN, ThresholdType: ABSOLUTE_VALUE, Threshold: 5 }
+          Subscribers: [ { SubscriptionType: EMAIL, Address: !Ref AlarmEmail } ]
+
+Outputs:
+  ApiDomainTarget:
+    Description: The proxied Cloudflare CNAME for DomainName points here.
+    Value: !GetAtt CustomDomain.RegionalDomainName
+  ApiDomainHostedZoneId:
+    Value: !GetAtt CustomDomain.RegionalHostedZoneId
+  FunctionName:
+    Value: !Ref ApiFunction
+  AliasArn:
+    Value: !Ref LiveAlias
+  LogTable:
+    Value: !Ref LogTable
+  DataBucket:
+    Value: !Ref DataBucket
+  AlarmTopicArn:
+    Value: !Ref AlarmTopic
