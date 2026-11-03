@@ -1,0 +1,104 @@
+# Ready to copy to .github/workflows/aws-deploy.yml (the session cannot commit workflow files; saltorbit copies it).
+# Design A, phase C (design/aws-a-ops.md): test, then deploy the akldb AWS stacks.
+#   push to aws-a/main  -> staging, automatically, then an HTTP smoke against staging-api.akldb.org
+#   manual dispatch     -> prod (stage: prod), from the Actions tab
+# The IAM user key (user akldb-ci, which can only assume the akldb-deploy role) lives in the GitHub environment
+# akldb-production as AKLDB_CI_ACCESS_KEY_ID / AKLDB_CI_SECRET_ACCESS_KEY. The SCP denies OIDC providers, so there is
+# no OIDC trust. Add aws-a/main to that environment's allowed branches, or staging cannot read the key.
+name: aws-deploy
+
+on:
+  push:
+    branches: [aws-a/main]
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: Stage to deploy
+        type: choice
+        options: [staging, prod]
+        default: staging
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24.22.1"
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Test
+        run: npm test
+
+  deploy-staging:
+    needs: test
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.stage == 'staging')
+    runs-on: ubuntu-latest
+    environment: akldb-production
+    concurrency:
+      group: akldb-deploy-staging
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24.22.1"
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AKLDB_CI_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AKLDB_CI_SECRET_ACCESS_KEY }}
+          aws-region: us-east-2
+          role-to-assume: arn:aws:iam::335937358231:role/akldb-deploy
+          role-duration-seconds: 3600
+      - name: Deploy staging
+        env:
+          ALARM_EMAIL: ${{ vars.AKLDB_ALARM_EMAIL }}
+        run: sh scripts/deploy-aws.sh --stage staging --profile none --execute
+      - name: Smoke
+        run: |
+          for i in 1 2 3 4 5; do
+            curl -fsS https://staging-api.akldb.org/v1/meta && exit 0
+            sleep 5
+          done
+          exit 1
+
+  deploy-prod:
+    needs: test
+    if: github.event_name == 'workflow_dispatch' && inputs.stage == 'prod'
+    runs-on: ubuntu-latest
+    environment: akldb-production
+    concurrency:
+      group: akldb-deploy-prod
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24.22.1"
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AKLDB_CI_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AKLDB_CI_SECRET_ACCESS_KEY }}
+          aws-region: us-east-2
+          role-to-assume: arn:aws:iam::335937358231:role/akldb-deploy
+          role-duration-seconds: 3600
+      - name: Deploy prod
+        env:
+          ALARM_EMAIL: ${{ vars.AKLDB_ALARM_EMAIL }}
+        run: sh scripts/deploy-aws.sh --stage prod --profile none --execute
