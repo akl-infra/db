@@ -61,10 +61,19 @@ Staging is deployed; shadow and prod are not. Commands use profile `akldb`.
   alarms, the `akldb-alarm:` alarm); staging and shadow only Lambda Errors and the `akldb-alarm:` alarm. That is 12 alarms across the
   three stages against the account's free 10, and the two DynamoDB alarms are metric math over five metrics each, which CloudWatch
   may bill per metric: at most cents a month, but not zero.
-- **Jobs function.** `akldb-<stage>-jobs` is the api's bundle with a 600 s timeout and its own log group, no alias or URL; the api
-  invokes it by name (`JOBS_FUNCTION`) asynchronously and shares the role (and its boundary). The role reads and writes `snap/`,
-  `dumps/` and `log/` in the data bucket and deletes only under `log/` (orphaned spill objects). `deploy-aws.sh` updates both
-  functions' code; the jobs function runs `$LATEST` (it has no versions or alias).
+- **Jobs function.** `akldb-<stage>-jobs` is the api's bundle with a 600 s timeout and its own log group, no URL. It has its own
+  pinned `live` alias (parameter `LiveJobsVersion`), moved together with the api's by `deploy-aws.sh` after the new api version
+  migrated, so the nightly never runs code the schema has not met; the api invokes the alias ARN (`JOBS_FUNCTION`)
+  asynchronously, with no retries (the next tick re-triggers the nightly; overlapping retried runs are worse than a skipped one),
+  and shares the role (and its boundary). The role reads and writes `snap/`, `dumps/` and `log/` in the data bucket and deletes
+  only under `log/` (orphaned spill objects). `deploy-aws.sh` updates and publishes both functions.
+- **Edge cache for the static routes (optional, pending saltorbit's decision; design note `handoff/akldb-on-aws-edge-cache.md` §3.2).**
+  Cloudflare Cache Rule: when hostname is in {staging-api.akldb.org, shadow-api.akldb.org, api.akldb.org} AND URI path starts with
+  `/v1/formats`: eligible for cache; Edge TTL 1 day, ignore origin; Browser TTL respect origin. Then give the deploy
+  `CF_PURGE_TOKEN` (an API token scoped to zone akldb.org with **Cache Purge** only) and `CF_ZONE_ID`: after the aliases move and
+  the pre-warm, `deploy-aws.sh` purges by URL `https://<host>/v1/formats` and each `/v1/formats/<id>/schema.json` for the
+  registered formats (`scripts/purge-urls.mjs`, from the registry in the bundle's tree). Unset: it logs one line and skips. In CI the
+  workflow already passes `secrets.CF_PURGE_TOKEN` and `vars.CF_ZONE_ID` of the `akldb-production` environment; empty means skip.
 - **First deploy.** `deploy-aws.sh --stage <stage>` (a preview) leaves the stack in REVIEW_IN_PROGRESS holding its change set;
   `--execute` after it works: it creates a CREATE change set (deleting the preview's same-named one first). A stack stuck in
   ROLLBACK_COMPLETE is refused with a message; delete it first.

@@ -66,6 +66,9 @@ jobs:
       - name: Deploy staging
         env:
           ALARM_EMAIL: ${{ vars.AKLDB_ALARM_EMAIL }}
+          # optional edge-cache purge after the aliases move; empty skips it (design/aws-a-ops.md)
+          CF_PURGE_TOKEN: ${{ secrets.CF_PURGE_TOKEN }}
+          CF_ZONE_ID: ${{ vars.CF_ZONE_ID }}
         run: sh scripts/deploy-aws.sh --stage staging --profile none --execute
       - name: Smoke
         run: |
@@ -101,4 +104,7 @@ jobs:
       - name: Deploy prod
         env:
           ALARM_EMAIL: ${{ vars.AKLDB_ALARM_EMAIL }}
+          # optional edge-cache purge after the aliases move; empty skips it (design/aws-a-ops.md)
+          CF_PURGE_TOKEN: ${{ secrets.CF_PURGE_TOKEN }}
+          CF_ZONE_ID: ${{ vars.CF_ZONE_ID }}
         run: sh scripts/deploy-aws.sh --stage prod --profile none --execute
