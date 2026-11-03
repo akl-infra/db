@@ -18,6 +18,7 @@
 // STAGE, LOG_TABLE, DATA_BUCKET, SSM_PREFIX, DISCORD_API_URL, MODQUEUE_DISCORD_COMPONENTS.
 import { logByLevel } from "../replica/alarm";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
+import zlib from "node:zlib";
 import path from "node:path";
 import { Hono } from "hono";
 import { handle } from "hono/aws-lambda";
@@ -48,6 +49,30 @@ import type { PlatformConfig } from "./port";
 /** Every answer from this stack carries `X-Akldb-Backend: aws`: the cutover's proof that a request through the Worker's proxy mode reached AWS (LDB-CV13). */
 export const BACKEND_HEADER = "x-akldb-backend";
 export const BACKEND_VALUE = "aws";
+
+/**
+ * Lambda's response payload is 6 MB (6,291,556 bytes) INCLUDING the base64 expansion of a binary body, and over it API Gateway answers
+ * its own opaque 413/500. Anything bigger than this is refused by us first, with a clear 500 and one alarm line (LDB-CV19).
+ */
+export const MAX_RESPONSE_BYTES = 5_900_000;
+/** Bodies smaller than this are not worth compressing. */
+export const GZIP_MIN_BYTES = 1024;
+/** zlib level 4: about 4x faster than the default 6 for a few percent more bytes (JSON compresses to ~15% either way). */
+export const GZIP_LEVEL = 4;
+
+const COMPRESSIBLE = /^(application\/([a-z.+-]*\+)?json|text\/(?!event-stream)[a-z0-9.+-]+|application\/(javascript|xml)|image\/svg\+xml)\b/i;
+
+/** True when the client's Accept-Encoding allows gzip (and does not set gzip;q=0). */
+export function acceptsGzip(header: string | undefined): boolean {
+  if (header === undefined) return false;
+  for (const part of header.split(",")) {
+    const [name, ...params] = part.trim().split(";");
+    if (name!.trim().toLowerCase() !== "gzip" && name!.trim() !== "*") continue;
+    const q = params.map((p) => p.trim()).find((p) => p.startsWith("q="));
+    return q === undefined || Number(q.slice(2)) > 0;
+  }
+  return false;
+}
 
 /** The header Cloudflare's Transform Rule sets to the SSM secret. Requests without it never reach the app. */
 export const ORIGIN_HEADER = "x-akldb-origin";
@@ -354,6 +379,27 @@ export function createLambdaHandler(opts: LambdaOptions): LambdaHandler {
       c.res.headers.set(BACKEND_HEADER, BACKEND_VALUE);
     }
   });
+  // gzip the answer when the client allows it (Cloudflare always asks its origin for gzip): a 4.9k-layout full=1 page is 17 MB of JSON and
+  // would hit Lambda's 6 MB response limit raw. Hono turns a Content-Encoding response into a base64 body by itself. The ETag is untouched
+  // (clients compare it with stripWeak). Dumps are already gzip or served as stored, and streams are not buffered here.
+  front.use("*", async (c, next) => {
+    await next();
+    const res = c.res;
+    if (c.req.method === "HEAD" || res.status === 204 || res.status === 304 || res.body === null) return;
+    if (c.req.path.startsWith("/v1/dump")) return;
+    if (res.headers.has("content-encoding") || !COMPRESSIBLE.test(res.headers.get("content-type") ?? "")) return;
+    if (!acceptsGzip(c.req.header("accept-encoding"))) return;
+    const raw = new Uint8Array(await res.arrayBuffer());
+    const headers = new Headers(res.headers);
+    headers.append("vary", "Accept-Encoding");
+    headers.delete("content-length");
+    if (raw.byteLength < GZIP_MIN_BYTES) {
+      c.res = new Response(raw, { status: res.status, statusText: res.statusText, headers });
+      return;
+    }
+    headers.set("content-encoding", "gzip");
+    c.res = new Response(zlib.gzipSync(raw, { level: GZIP_LEVEL }), { status: res.status, statusText: res.statusText, headers });
+  });
   front.use("*", async (c, next) => {
     const got = c.req.header(ORIGIN_HEADER);
     // No header: refuse without even reading SSM. A wrong one: refuse before the replica is touched.
@@ -375,9 +421,21 @@ export function createLambdaHandler(opts: LambdaOptions): LambdaHandler {
   const serve = handle(front);
 
   async function http(event: HttpEvent, context: unknown): Promise<unknown> {
-    const result = await serve(event as never, context as never);
+    const result = (await serve(event as never, context as never)) as { statusCode?: number; headers?: Record<string, string>; body?: string; isBase64Encoded?: boolean };
     await settle();
     assertAlive();
+    // LDB-CV19: never let API Gateway answer for us. The payload limit counts the base64 text of a binary body.
+    const bytes = Buffer.byteLength(result.body ?? "", "utf8");
+    if (bytes > MAX_RESPONSE_BYTES) {
+      const route = `${(event as { requestContext?: { http?: { method?: string } } }).requestContext?.http?.method ?? "GET"} ${event.rawPath ?? "?"}`;
+      raise(logLine, "response-too-large", `route=${route} bytes=${bytes} limit=${MAX_RESPONSE_BYTES} encoded=${result.isBase64Encoded === true ? "base64" : "text"}`);
+      return {
+        statusCode: 500,
+        headers: { "content-type": "application/json", "cache-control": "no-store", "x-akldb-backend": BACKEND_VALUE },
+        body: JSON.stringify({ error: "response_too_large", message: "this answer does not fit one Lambda response; ask for a smaller page" }),
+        isBase64Encoded: false,
+      };
+    }
     return result;
   }
 
