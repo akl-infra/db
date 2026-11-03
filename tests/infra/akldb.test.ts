@@ -296,6 +296,25 @@ describe("deploy order (AX3)", () => {
     expect(cmd.some((c) => /execute-change-set|update-function-code|publish-version|lambda invoke/.test(c))).toBe(false);
   });
 
+  it("[LDB-AX3] --destroy-nonprod empties the versioned bucket and deletes a staging or shadow stack, asks for the stack name, and refuses prod", () => {
+    for (const stage of ["staging", "shadow"]) {
+      const r = dryRun(stage, ["--destroy-nonprod"]);
+      expect(r.status, stage).toBe(0);
+      expect(r.calls).toBe("");
+      const cmd = r.lines.map((l) => l.slice(3).join(" "));
+      expect(cmd.some((c) => new RegExp(`s3api list-object-versions --bucket akldb-${stage}-data-335937358231 `).test(c)), stage).toBe(true);
+      expect(cmd.filter((c) => /cloudformation/.test(c))).toEqual([`cloudformation delete-stack --stack-name akldb-${stage}`, `cloudformation wait stack-delete-complete --stack-name akldb-${stage}`]);
+      expect(cmd.some((c) => /lambda|s3 cp|create-change-set/.test(c))).toBe(false);
+    }
+    const prod = dryRun("prod", ["--destroy-nonprod"]);
+    expect(prod.status).toBe(2);
+    expect(prod.stderr).toMatch(/never touches prod/);
+    expect(prod.lines).toEqual([]);
+    // for real (no --dry-run) it will not start without the stack name
+    const text = fs.readFileSync(file("scripts", "deploy-aws.sh"), "utf8");
+    expect(text).toContain('[ "$CONFIRM" != "$STACK" ]');
+  });
+
   it("[LDB-AX3] a stage must be named, and the password-free defaults hold (profile akldb, account 335937358231, us-east-2)", () => {
     const bad = spawnSync("sh", [file("scripts", "deploy-aws.sh"), "--stage", "nonsense", "--dry-run"], { encoding: "utf8", env: { PATH: "/usr/bin:/bin" } });
     expect(bad.status).not.toBe(0);

@@ -4,6 +4,7 @@
 #   sh scripts/deploy-aws.sh --stage staging                 # build, upload, print the change set, stop
 #   sh scripts/deploy-aws.sh --stage staging --execute       # ... and carry it all the way through
 #   sh scripts/deploy-aws.sh --stage prod --dry-run          # print every command, run none
+#   sh scripts/deploy-aws.sh --stage staging --destroy-nonprod --confirm akldb-staging   # empty and delete a staging/shadow stack
 #   options: --profile NAME (default akldb; "none" uses the credentials in the environment, as CI does)
 #
 # The order is the invariant (AX3):
@@ -27,6 +28,8 @@ STAGE=""
 PROFILE=akldb
 EXECUTE=0
 DRY=0
+DESTROY=0
+CONFIRM=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -34,7 +37,9 @@ while [ $# -gt 0 ]; do
     --profile) PROFILE="${2:?--profile needs a value}"; shift 2 ;;
     --execute) EXECUTE=1; shift ;;
     --dry-run) DRY=1; shift ;;
-    -h | --help) sed -n '2,24p' "$0"; exit 0 ;;
+    --destroy-nonprod) DESTROY=1; shift ;;
+    --confirm) CONFIRM="${2:?--confirm needs the stack name}"; shift 2 ;;
+    -h | --help) sed -n '2,26p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -44,6 +49,12 @@ case "$STAGE" in
   prod) DOMAIN=api.akldb.org ;;
   *) echo "usage: deploy-aws.sh --stage staging|shadow|prod [--profile NAME] [--execute] [--dry-run]   (stage: '$STAGE')" >&2; exit 2 ;;
 esac
+
+# Prod is never destroyed by this script: its table, bucket and log group are Retain and protected on purpose.
+if [ "$DESTROY" = 1 ] && [ "$STAGE" = prod ]; then
+  echo "refusing: --destroy-nonprod never touches prod" >&2
+  exit 2
+fi
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 STACK="akldb-$STAGE"
@@ -78,6 +89,31 @@ caller="$(cap "$ACCOUNT" $AWS sts get-caller-identity --query Account --output t
 if [ "$caller" != "$ACCOUNT" ]; then
   echo "refusing: the credentials are for account $caller, not $ACCOUNT" >&2
   exit 2
+fi
+
+# ---- --destroy-nonprod: empty the versioned data bucket, then delete the stack (staging and shadow only) ----
+# The stack's table, bucket and log group are DeletionPolicy Delete outside prod, but S3 refuses to delete a bucket that
+# still holds versions or delete markers, so they are removed first. Needs credentials that may delete a stack and
+# objects (the akldb-deploy role may not: run it with an admin profile). The certificate stack is left alone.
+if [ "$DESTROY" = 1 ]; then
+  if [ "$DRY" = 0 ] && [ "$CONFIRM" != "$STACK" ]; then
+    echo "refusing: pass --confirm $STACK to delete $STACK and everything in its data bucket" >&2
+    exit 2
+  fi
+  BUCKET="akldb-$STAGE-data-$ACCOUNT"
+  for kind in Versions DeleteMarkers; do
+    while :; do
+      query="{Objects: $kind[].{Key:Key,VersionId:VersionId}}"
+      batch="$(cap '{"Objects": null}' $AWS s3api list-object-versions --bucket "$BUCKET" --max-items 500 --query "$query" --output json)"
+      case "$batch" in *'"Objects": null'* | *'"Objects":null'* | "" | null) break ;; esac
+      run $AWS s3api delete-objects --bucket "$BUCKET" --delete "$batch"
+      [ "$DRY" = 1 ] && break
+    done
+  done
+  run $AWS cloudformation delete-stack --stack-name "$STACK"
+  run $AWS cloudformation wait stack-delete-complete --stack-name "$STACK"
+  say "deleted $STACK"
+  exit 0
 fi
 
 # ---- 1. bundle ----
