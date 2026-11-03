@@ -45,6 +45,7 @@ export interface Res {
   raw?: Uint8Array;
 }
 type Blobs = Map<string, { bytes: Uint8Array; contentType: string }>;
+let nonceCounter = 0;
 const md5hex = (b: Uint8Array): string => createHash("md5").update(b).digest("hex");
 type Row = Record<string, unknown>;
 const sha = (s: string): string => createHash("sha256").update(s).digest("hex");
@@ -93,6 +94,17 @@ async function serve(db: Sqlx, req: { method: string; path: string; query: URLSe
     return json(status, v, { etag });
   };
   const { method, path: p } = req;
+  // the read path bookkeeps (LDB-CV25): a signed request spends a nonce and upserts its actor, a bearer one fills auth_cache and upserts the user.
+  // Done before routing, frozen or not, exactly as src/auth does (requireActorOnWrites resolves the actor before read_only can answer).
+  if (req.headers["x-akl-client"] !== undefined) {
+    await db.exec("INSERT INTO nonces (client_id, nonce, at) VALUES (?, ?, ?)", [req.headers["x-akl-client"], `n${++nonceCounter}`, new Date(now).toISOString()]);
+    const actor = req.headers["x-akl-actor"] ?? "ops-actor";
+    await db.exec("INSERT INTO authors (user_id, name, first_seen_at, last_seen_at, name_source) VALUES (?, ?, ?, ?, 'client') ON CONFLICT(user_id) DO UPDATE SET last_seen_at = excluded.last_seen_at WHERE authors.last_seen_at IS NULL OR authors.last_seen_at < ?", [actor, actor, new Date(now).toISOString(), new Date(now).toISOString(), new Date(now - 86_400_000).toISOString()]);
+  } else if (req.headers.authorization?.startsWith("Bearer ")) {
+    const tok = req.headers.authorization.slice(7);
+    await db.exec("INSERT INTO auth_cache (token_hash, user_id, name, app_id, ok, expires_at) VALUES (?, ?, ?, NULL, 1, ?) ON CONFLICT(token_hash) DO UPDATE SET expires_at = excluded.expires_at", [sha(tok), `u-${tok}`, `name-${tok}`, new Date(now + 3_600_000).toISOString()]);
+    await db.exec("INSERT INTO authors (user_id, name, first_seen_at, last_seen_at, name_source) VALUES (?, ?, ?, ?, 'user') ON CONFLICT(user_id) DO UPDATE SET name = excluded.name, name_source = 'user', last_seen_at = excluded.last_seen_at", [`u-${tok}`, `name-${tok}`, new Date(now).toISOString(), new Date(now).toISOString()]);
+  }
   if (method === "GET" && p === "/v1/meta") {
     const seq = (await db.select("SELECT COALESCE(MAX(seq), 0) AS seq FROM events"))[0]!.seq;
     const n = (await db.select("SELECT count(*) AS n FROM churn"))[0]!.n;
@@ -122,6 +134,8 @@ async function serve(db: Sqlx, req: { method: string; path: string; query: URLSe
     const rows = await db.select(`SELECT seq, kind FROM events WHERE seq > ${since} ORDER BY seq LIMIT ${Number(req.query.get("limit") ?? 50)}`);
     return json(200, { next: rows.length === 0 ? since : Number(rows[rows.length - 1]!.seq), items: rows.map((r) => ({ seq: Number(r.seq), kind: r.kind })) });
   }
+  // requireActorOnWrites runs BEFORE read_only (LDB-CV1): an anonymous write is a 401 whether the database is frozen or not
+  if (method === "POST" && p === "/v1/layouts" && req.headers["x-akl-client"] === undefined) return json(401, { error: "unauthorized" });
   if (method === "POST" && p === "/v1/layouts") return readOnly ? json(503, { error: "read_only" }, { "retry-after": "5" }) : json(400, { error: "bad_request" });
   if (method === "POST" && p === "/v1/admin/nightly/tick") {
     if (readOnly) return json(503, { error: "read_only" }, { "retry-after": "5" });
@@ -145,6 +159,12 @@ export interface Faults {
   dnsFlap?: boolean;
   /** The first poll fails to connect (the gap between removing the Worker's domain and the new record). */
   dnsErrorFirst?: boolean;
+  /** A read-path request (a signed GET) lands on AWS while the rollback captures it. */
+  bookkeepDuringCapture?: boolean;
+  /** A real write lands on AWS while the rollback captures it (it is not frozen). */
+  writeDuringCapture?: boolean;
+  /** The ops client is not in the environment. */
+  noOpsClient?: boolean;
   /** The origin secret file is missing. */
   noOriginFile?: boolean;
   /** The Worker build has no modes: it ignores cutover.mode and answers a bad write with 400. */
@@ -440,11 +460,13 @@ export async function makeWorld(init: { faults?: Faults; events?: number; churnR
     http: {
       request: track("http.request", request),
       fresh: track("http.fresh", fresh),
-      signed: track("http.signed", (method: string, url: string, o: { body?: string; headers?: Record<string, string> } = {}) => request(url, { method, body: o.body, headers: { "x-akl-client": "ops", ...(o.headers ?? {}) } })),
+      check: track("http.check", () => (w.faults.noOpsClient ? ["CLIENT_PRIVATE_KEY"] : [])),
+      signed: track("http.signed", (method: string, url: string, o: { body?: string; headers?: Record<string, string> } = {}) => request(url, { method, body: o.body, headers: { "x-akl-client": "ops", "x-akl-actor": "ops-actor", ...(o.headers ?? {}) } })),
     },
     stack: {
       check: track("stack.check", () => (w.faults.noOriginFile ? ["the origin secret file /x/akldb-origin-prod.env is unusable: ENOENT"] : [])),
       request: track("stack.request", async (path: string, init: any = {}) => finish(await awsRequest(parse(`https://stack.invalid${path}`, init)))),
+      signed: track("stack.signed", async (method: string, path: string, o: { body?: string; headers?: Record<string, string> } = {}) => finish(await awsRequest(parse(`https://stack.invalid${path}`, { method, body: o.body, headers: { "x-akl-client": "ops", "x-akl-actor": "ops-actor", ...(o.headers ?? {}) } })))),
     },
     dumps: {
       check: track("dumps.check", () => (w.faults.noR2Token ? ["R2_KEY_ID in /x/akldb-r2-dumps-read.env", "R2_SECRET in /x/akldb-r2-dumps-read.env"] : [])),
@@ -484,10 +506,17 @@ export async function makeWorld(init: { faults?: Faults; events?: number; churnR
       operator: {
         appendImage: track("aws.operator.appendImage", (a: unknown) => operator.appendImage(a)),
         tail: track("aws.operator.tail", () => operator.tail()),
+        after: track("aws.operator.after", (seq: number) => operator.after(seq)),
         snapshot: track("aws.operator.snapshot", () => operator.snapshot()),
         runUnit: track("aws.operator.runUnit", (sql: string, params?: unknown[]) => operator.runUnit(sql, params)),
         readFlag: track("aws.operator.readFlag", () => operator.readFlag()),
-        capture: track("aws.operator.capture", () => operator.capture()),
+        capture: track("aws.operator.capture", async () => {
+          const cap = await operator.capture();
+          // traffic that lands while the image is being taken
+          if (w.faults.bookkeepDuringCapture) await awsRequest(parse("https://stack.invalid/v1/meta", { method: "GET", headers: { "x-akl-client": "ops", "x-akl-actor": "spark-bot" } }));
+          if (w.faults.writeDuringCapture) await (await w.awsReplica()).runUnit([{ sql: "INSERT INTO churn (v) VALUES ('sneaked in')", params: [] }]);
+          return cap;
+        }),
       },
     },
   };

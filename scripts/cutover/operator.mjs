@@ -10,12 +10,16 @@ export function createOperator({ kit, log, objects, state, logLine = () => {} })
       const e = await log.get(1);
       return e === null ? null : { kind: e.kind, hash: e.hash, unitId: e.unitId, image: e.image ?? null };
     },
-    /** The entries after the image, as {seq, kind, sqls}; null when there are too many to be an operator's flag units. */
-    async tail() {
+    /** The entries after `seq`, as {seq, kind, sqls}; null when there are too many to be an operator's flag units and read-path bookkeeping. */
+    async after(seq) {
       const head = await log.head();
-      if (head <= 1) return [];
-      if (head > 100) return null;
-      return (await log.read(1, head)).map((e) => ({ seq: e.seq, kind: e.kind, sqls: e.stmts.map((s) => s.sql) }));
+      if (head <= seq) return [];
+      if (head - seq > 5000) return null;
+      return (await log.read(seq, head)).map((e) => ({ seq: e.seq, kind: e.kind, sqls: e.stmts.map((s) => s.sql) }));
+    },
+    /** The entries after the image. */
+    tail() {
+      return this.after(1);
     },
     async appendImage({ raw, tables, source }) {
       return kit.appendImage({ log, raw, tables, source });

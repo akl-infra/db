@@ -1,7 +1,7 @@
 # akldb on AWS, design A: phase E (the cutover and the rollback)
 
 Companion to `design/aws-a-ops.md` (stacks), `design/aws-a-ops-boot.md` (boot, snapshots) and `design/aws-a-ops-shadow.md` (the proving
-ground). Invariants: LDB-CV10..CV24 in `INVARIANTS.md`. Nothing in this file has been run against Cloudflare or AWS: the tools are tested against
+ground). Invariants: LDB-CV10..CV27 in `INVARIANTS.md`. Nothing in this file has been run against Cloudflare or AWS: the tools are tested against
 fakes (`tests/cutover/`), and the rehearsal below is what proves the real commands.
 
 **Target:** 2026-11-04, 09:00-14:00 UTC. There is no 7-day proving run: manual tests, flip, watch about one hour.
@@ -35,19 +35,41 @@ automatically.
 |---|---|---|---|
 | 1 | `preflight` | stack outputs present; the prod function has `AKLDB_AWAIT_IMAGE=1`; the AWS log is empty; the Worker serves `/v1/meta` `api.minor` >= the read_only version; the origin secret file is readable; D1 has no `cutover.mode`; Time Travel bookmark recorded | head 0, bookmark |
 | 2 | `copy-dumps` | R2 `akl-db-dumps` -> the stack's data bucket `dumps/<key>`: every object, content type kept, R2's md5/size and S3's size/md5/content type verified, equal ones skipped. First run long, re-run cheap. Runs before the freeze so it is outside the write pause | objects, copied, bytes |
-| 3 | `freeze` | `cutover.mode='read_only'` on D1; wait 3 s; `POST /v1/layouts` with an empty body must be **503 read_only with Retry-After**, not 400 | probe, freeze seq |
+| 3 | `freeze` | `cutover.mode='read_only'` on D1; wait 3 s; a **signed** (ops client) `POST /v1/layouts` with an empty body must be **503 read_only with Retry-After**, not 400. Unsigned it is a 401 frozen or not: read_only is mounted after actor resolution (LDB-CV27) | probe, freeze seq |
 | 4 | `export` | `wrangler d1 export --remote` to `export.sql` (reads may stall) | bytes, sha256, ms |
 | 5 | `load` | statements split by a tokenizer, tables and rows first, **indexes, views and triggers after**; `integrity_check`, `foreign_key_check`, every table of `migrations/*.sql` present, `d1_migrations` equals `migrations/*.sql`; `sqlite_sequence` raised from D1 if the export lacked it | checks, image sha256 |
-| 6 | `verify` | per table `COUNT(*)` + checksum on the image and on D1, `sqlite_master` equal, `meta.seq` equal, the `events` counter equal. D1 side over the REST API: one count query, one call for all small tables, big tables paged ~3 MB at a time, 4 at once | per-table counts and checksums, D1 call count |
+| 6 | `verify` | (a) **load fidelity**: the image equals the export file on every table, read a second, independent way (rows only, no triggers); (b) the image equals live D1 on every table outside the read-path drift set (count + checksum) and, on the drift tables, row by row except the drift columns and rows added after the export; `sqlite_master`, `meta.seq` and the `events` counter equal. D1 side over the REST API: one count query, one call for all small tables, big tables paged ~3 MB at a time, 4 at once | per-table counts and checksums, D1 call count, **lost on AWS** |
 | 7 | `image` | image appended as seq 1 (S3 object first, then the conditional append), then the snapshot pointer at seq 1 | unit id, hash, snapshot |
 | 8 | `serve` | prod `migrate` (a no-op: `applied: []`) and `warm k=4`; `meta`, a list page, 3 layouts and the dump routes read straight from the stack equal the Worker's (bodies minus `age_s`, ETags, Content-Type, Cache-Control, Location, bytes); `X-Akldb-Backend: aws` present | the comparisons |
 | 9 | `dns` | prints saltorbit's instruction; polls the public name until it answers `X-Akldb-Backend: aws` with `seq` = the image's `meta.seq`, **5 times in a row on fresh connections** (a connection failure or a stale answer restarts the count), at most 15 min; on timeout stops with what to check, writes still closed | polls, wait |
-| 10 | `open` | needs verify + image + serve + dns done and the logged image = the verified one (CV16); the operator appends `DELETE FROM import_state WHERE key = 'cutover.mode'`; a write probe is then no longer 503 and comes from AWS | open seq, **write pause** |
+| 10 | `open` | needs verify + image + serve + dns done and the logged image = the verified one (CV16); the operator appends `DELETE FROM import_state WHERE key = 'cutover.mode'`; the signed probe then reads **400** (open), no longer 503, and comes from AWS | open seq, **write pause** |
 | 11 | `post-smoke` | a signed write (ops client), `If-Match` 412 on a stale rev, `/v1/changes?since=<D1 last seq>` continues at the counter + 1 and is contiguous, `If-None-Match` 304, through `api.akldb.org` | each check |
 | 12 | `report` | markdown: timings per step, the write pause, every proof | `report.md` |
 
 If something fails before `image`: `node scripts/cutover/run.mjs --execute --abort` clears D1's flag (it refuses once the log holds the image: that is
 a rollback). A failed `dns` is not a rollback: the name simply has not moved yet, AWS and D1 are both read_only, re-run `--from dns`.
+
+## Read-path drift: what a frozen D1 still writes (LDB-CV25, CV26, CV27)
+
+Frozen means writes answer 503 and the jobs stop. A GET still bookkeeps: Spark polls with signed GETs every minute, akl.gg reads with bearers. Measured by
+`tests/api/read-path-drift.test.ts` (every GET route, anonymous / signed / bearer, snapshot of every table), the **drift set** is exactly:
+
+| table | what a safe-method request does |
+|---|---|
+| `nonces` | a signed GET inserts its nonce |
+| `auth_cache` | a bearer GET inserts the token's answer; an expired row is upserted (`expires_at`) |
+| `authors` | a signed GET upserts the actor; a bearer GET upserts the user (new row, or `name` / `name_source` from Discord, `last_seen_at`) |
+| `authors_head` | the trigger on `authors` moves `count`, `modified_at`, `version` |
+
+So the live D1 drifts between `export` and `verify`, and AWS drifts under the stack the same way. The proofs therefore never compare a drift table blindly:
+the image is proven equal to the **export file** (fidelity), to live D1 on every other table, and on the drift tables except those rows and columns. What D1
+gained since the export is listed in the report as **"lost on AWS: read-path bookkeeping (nonces / auth_cache / authors.last_seen_at and renames)"**: nonces
+are replay guards that expire in minutes, the cache refills, `last_seen_at` is refreshed on the next sign-in. It is not a failure. **Anything outside the
+pinned set is a failure**, and a future read-path write fails the test before it reaches a cutover.
+
+The probes are bookkeeping too: each signed probe spends one nonce on whatever database answers it (D1 before the export, so it is IN the image; AWS after
+`open`). The rollback treats a log of the image, the operator's flag units and such bookkeeping units as "no write past the image", tolerates bookkeeping units
+that land during its capture, and proves the original D1 against the image entry's stored checksums outside the drift set and against AWS's capture inside it.
 
 ## What must exist, and who provides it
 
@@ -61,7 +83,7 @@ a rollback). A failed `dns` is not a rollback: the name simply has not moved yet
 | A Cloudflare API token with **D1 read** (`CLOUDFLARE_API_TOKEN`) so `verify` uses the REST API, and `AKLDB_D1_ID` (the D1 database id: prod `53f596d5-9cb5-43b0-9026-17518d18052f`, the scratch one in a rehearsal). Without the token `verify` falls back to `wrangler` processes (slower, many more calls). The REST limit is 1,200 calls per 5 minutes per user and other sessions share it: `verify` takes about 30 | saltorbit (token) | `verify` |
 | `CLOUDFLARE_ACCOUNT_ID` and a `wrangler login` that can export/execute/create D1 | whoever runs it | `run.mjs` stops without the first |
 | AWS operator credentials with DynamoDB read/write on `akldb-prod-log` and S3 get/put on `akldb-prod-data-*` (`aws-vault exec akldb -- ...`; do not also pass `--profile`; `akldb-deploy` is not enough) | team-lead | `image`, `open`, `copy-dumps` |
-| The ops client (`../db.env.ops`: `CLIENT_ID`, `CLIENT_PRIVATE_KEY`, `OPS_ACTOR`) | saltorbit's file, team-lead sources it | `post-smoke` |
+| The ops client (`../db.env.ops`: `CLIENT_ID`, `CLIENT_PRIVATE_KEY`, `OPS_ACTOR`): **required from `preflight` on**, it signs every freeze/open probe and the post-smoke write, and must be registered on the database it probes | saltorbit's file, team-lead sources it | `preflight`, `freeze`, `open`, `post-smoke` |
 | The cutover window, the go, and the DNS move at step 9 (Cloudflare dashboard) | saltorbit | -- |
 
 ## Setup for every run
@@ -72,7 +94,7 @@ export PATH=/opt/homebrew/opt/node@24/bin:$PATH
 npm ci
 set -a; . ../db.env.ops; set +a                      # CLIENT_ID, CLIENT_PRIVATE_KEY, OPS_ACTOR (post-smoke)
 export CLOUDFLARE_ACCOUNT_ID=58a5eb82948e2134d8b7b242e9567ac4
-export CLOUDFLARE_API_TOKEN=<D1 read token>          # optional but strongly advised (verify speed, rate limit)
+export CLOUDFLARE_API_TOKEN=<D1 read token>          # optional but strongly advised (verify speed, rate limit); akldb.env's CLOUDFLARE_DB_TOKEN works as this
 export AKLDB_D1_ID=<the D1 database id>              # prod: 53f596d5-9cb5-43b0-9026-17518d18052f
 # every command below runs as `aws-vault exec akldb -- node scripts/cutover/...`; without --execute it prints and does nothing
 ```
@@ -83,6 +105,8 @@ Staging stands in for prod; a scratch D1 plus a rehearsal Worker stand in for D1
 D1 and `https://api.akldb.org` (as Worker or public name). The public name of the rehearsal is `https://staging-api.akldb.org`, which already points at
 the staging stack, so the `dns` step has nothing to move and passes at once: **the real DNS move is exercised only in prod**, which is why it is polled,
 gated, and reversible by the record alone.
+
+**The rehearsal infrastructure that exists today:** scratch D1 `akl-db-rehearsal` (id `1632d976-a64e-4898-a8c6-97441a82e102`, loaded from team-lead's prod export), the rehearsal Worker `https://akl-db-rehearsal-worker.akl-58a.workers.dev` (main 6d01ae3: the freeze, API 1.34, R2 `akl-db-rehearsal-dumps`). So `AKLDB_D1_ID=1632d976-a64e-4898-a8c6-97441a82e102` and `<RW>` is that URL.
 
 **Prepare once** (all of it deletable):
 
@@ -125,6 +149,8 @@ rm -rf dist/cutover-staging                                      # the old state
 ```
 
 **Rehearsal 2, the cutover.** Reset as above, then `node scripts/cutover/run.mjs $S --execute` once, timed. Read `dist/cutover-staging/report.md`.
+
+Write-pause estimate from what is measured: the prod export took **6 s** (37 MB of SQL) on team-lead's run; freeze 3 s of cache wait + probe, export 6 s, load a few seconds, verify 4-9 s on the projection (30 REST calls), image upload + snapshot (about 6 MB compressed) a few seconds, serve (migrate, warm 4, ~12 reads and 3 dump routes) about 5-10 s: **about 40-60 s of machine time**, then the DNS move by hand (typically 1-3 minutes, polled for 5 consecutive fresh answers, at most 15) and the 3 s cache wait of `open`. The gate is 5 minutes in all; the DNS step is the part to watch.
 
 What the rehearsals must show (write them into the PR/issue):
 

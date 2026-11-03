@@ -172,6 +172,19 @@ export async function proveAllBatched({ select, selectMany, db, tables, pageRows
   return Object.fromEntries(list.map((t) => [t, out[t]]));
 }
 
+/** Every row of a table (objects, `__rid` dropped), paged the way the proof pages. For the few small drift tables whose rows are compared one by one. */
+export async function readAllRows({ select, table, order, pageRows = 2000, targetPageBytes = 3_000_000 }) {
+  const out = [];
+  let after = 0;
+  for (;;) {
+    const rows = await select(pageSql(table, order, pageRows, after));
+    for (const r of rows) out.push(Object.fromEntries(Object.entries(r).filter(([k]) => k !== "__rid")));
+    if (rows.length < pageRows) return out;
+    after = order.kind === "rowid" ? Number(rows[rows.length - 1].__rid) : out.length;
+    pageRows = clamp(Math.floor(targetPageBytes / Math.max(1, JSON.stringify(rows).length / rows.length)), 50, 50_000);
+  }
+}
+
 /** Compare two proofs (`{table: {count, checksum}}`). Every difference is named; the result is ok only if there is none. */
 export function compareProofs(left, right, names = { left: "local", right: "D1" }) {
   const diffs = [];

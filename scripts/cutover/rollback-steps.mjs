@@ -14,7 +14,8 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import crypto from "node:crypto";
 import { compareProofs, feedPosition, localSelect, proveAll, proveAllBatched } from "./checksum.mjs";
-import { AWS_HEADER, CLEAR_MODE_SQL, STACK, d1Mode, setModeSql, writeProbe } from "./cutover-steps.mjs";
+import { AWS_HEADER, CLEAR_MODE_SQL, STACK, d1Mode, inconclusive, setModeSql, writeProbe } from "./cutover-steps.mjs";
+import { compareWithDrift, isBookkeepingUnit } from "./drift.mjs";
 import { need } from "./machine.mjs";
 import { dumpToSql } from "./sqlfile.mjs";
 
@@ -61,7 +62,8 @@ export function steps(o) {
         need(first?.kind === "image", "this AWS log has no image as seq 1: it never took the cutover, there is nothing to roll back from");
         const head = await c.ports.aws.logHead();
         const tail = await c.ports.aws.operator.tail();
-        const flagOnly = tail !== null && tail.every((e) => e.kind === "unit" && e.sqls.length === 1 && FLAG_UNIT.test(e.sqls[0]));
+        // a flag unit of the operator, or a read-path bookkeeping unit (a nonce, an author upsert, the bearer cache: LDB-CV25), is not a write
+        const flagOnly = tail !== null && tail.every((e) => e.kind === "unit" && ((e.sqls.length === 1 && FLAG_UNIT.test(e.sqls[0])) || isBookkeepingUnit(e.sqls)));
         const auto = flagOnly ? "original-d1" : "fresh-d1";
         if (o.variant !== undefined) {
           need(["original-d1", "fresh-d1"].includes(o.variant), "--variant is original-d1 or fresh-d1");
@@ -72,7 +74,7 @@ export function steps(o) {
         c.data.imageTables = first.image?.tables ?? null;
         c.data.imageFreezeSeq = first.image?.source?.freezeSeq ?? null;
         const mode = await d1Mode(c.ports, o.d1Name).catch(() => "unreadable");
-        return { message: `AWS log head ${head}${flagOnly ? " (the image and operator flag units only)" : ""}: variant ${c.data.variant} (the original D1's cutover.mode is ${mode ?? "unset"})`, proof: { head, flagOnly, variant: c.data.variant, originalD1Mode: mode } };
+        return { message: `AWS log head ${head}${flagOnly ? " (the image, operator flag units and read-path bookkeeping only)" : ""}: variant ${c.data.variant} (the original D1's cutover.mode is ${mode ?? "unset"})`, proof: { head, flagOnly, variant: c.data.variant, originalD1Mode: mode } };
       },
     },
     {
@@ -93,7 +95,7 @@ export function steps(o) {
         c.data.awsFrozenAt ??= c.ports.clock.now();
         await c.ports.clock.sleep(o.cacheWaitMs);
         const probe = await writeProbe(c.ports, STACK);
-        need(probe.readOnly, `AWS still accepts writes: POST /v1/layouts answered ${probe.status} (${probe.reason})`);
+        need(probe.readOnly, `AWS does not refuse writes: the signed POST /v1/layouts answered ${probe.status} (${probe.reason}), expected 503 read_only.${inconclusive(probe)}`);
         return { message: `AWS is read_only${appended ? " (flag appended)" : " (already)"}`, proof: { probe, appended } };
       },
     },
@@ -105,17 +107,19 @@ export function steps(o) {
         need(c.state.steps["aws-readonly"]?.status === "done", "AWS has not been frozen");
       },
       async run(c) {
-        const head = await c.ports.aws.logHead();
         const cap = await c.ports.aws.operator.capture();
-        const after = await c.ports.aws.logHead();
-        need(cap.seq === head && after === head, `the AWS log moved during the capture (head ${head} -> ${after}, captured ${cap.seq}): it is not frozen. Re-run capture`);
+        // AWS is read_only but its read path still bookkeeps (a signed GET spends a nonce, a bearer GET fills the cache: LDB-CV25), so the log head may have
+        // moved while the image was taken. That is fine ONLY if everything after the captured seq is such bookkeeping; any other unit means AWS is not frozen.
+        const after = await c.ports.aws.operator.after(cap.seq);
+        need(after !== null && after.every((e) => e.kind === "unit" && isBookkeepingUnit(e.sqls)), `the AWS log moved during the capture by more than read-path bookkeeping (captured seq ${cap.seq}, then ${after === null ? "too many entries" : after.filter((e) => !(e.kind === "unit" && isBookkeepingUnit(e.sqls))).map((e) => `#${e.seq} ${e.kind} ${e.sqls[0]?.slice(0, 50) ?? ""}`).slice(0, 3).join("; ")}): it is not frozen. Re-run capture`);
+        c.data.bookkeptSinceCapture = after.length;
         fs.mkdirSync(o.work, { recursive: true });
         fs.writeFileSync(imageFile(), cap.bytes);
         c.data.captureSeq = cap.seq;
         c.data.captureSha = sha256(cap.bytes);
         c.data.captureTables = await withImage(c, (db) => proveAll({ select: localSelect(db), db, pageRows: o.pageRows }));
         c.data.captureFeed = await withImage(c, (db) => feedPosition(localSelect(db)));
-        return { message: `AWS log seq ${cap.seq}, ${cap.bytes.byteLength} bytes, events seq ${c.data.captureFeed.metaSeq}, sha256 ${c.data.captureSha.slice(0, 12)}`, proof: { seq: cap.seq, sha256: c.data.captureSha, feed: c.data.captureFeed } };
+        return { message: `AWS log seq ${cap.seq}, ${cap.bytes.byteLength} bytes, events seq ${c.data.captureFeed.metaSeq}, sha256 ${c.data.captureSha.slice(0, 12)}${after.length > 0 ? `; ${after.length} read-path bookkeeping unit(s) landed after it and are not in the capture` : ""}`, proof: { seq: cap.seq, sha256: c.data.captureSha, feed: c.data.captureFeed, bookkeptAfter: after.length } };
       },
     },
     // ---- variant original-d1 ----
@@ -126,17 +130,19 @@ export function steps(o) {
       skip: onlyOriginal,
       async run(c) {
         need(c.data.imageTables !== null, "the image entry carries no table proofs to compare with");
-        const remote = await withImage(c, (db) => remoteProof(c, db, o.d1Name));
-        const cmp = compareProofs(c.data.imageTables, remote, { left: "image", right: "d1" });
+        // every table outside the read-path drift set against the checksums stored in the image entry; the drift tables row by row against AWS's capture
+        // (each side has bookkept on its own since the freeze)
+        const live = await withImage(c, (db) => compareWithDrift({ localDb: db, leftProof: c.data.imageTables, remoteSelect: (sql) => c.ports.d1.select(sql, o.d1Name), ...(c.ports.d1.selectMany ? { remoteSelectMany: (sqls) => c.ports.d1.selectMany(sqls, o.d1Name) } : {}), pageRows: o.pageRows, concurrency: o.concurrency, extras: "both", names: { left: "image", right: "d1" } }));
         const pos = await feedPosition((sql) => c.ports.d1.select(sql, o.d1Name));
-        const problems = cmp.diffs.map((d) => `${d.table}: ${d.field} image ${d.image} != d1 ${d.d1}`);
+        const problems = [...live.problems];
         if (c.data.imageFreezeSeq !== null && pos.metaSeq !== c.data.imageFreezeSeq) problems.push(`meta.seq: image ${c.data.imageFreezeSeq} != d1 ${pos.metaSeq}`);
         if (problems.length > 0) {
           const e = new Error(`the original D1 no longer equals the image (something wrote to it after the freeze, or its flag moved): ${problems.slice(0, 6).join(" | ")}. Use --variant fresh-d1`);
           e.proof = { ok: false, problems };
           throw e;
         }
-        return { message: `${cmp.tables} tables, ${cmp.rows} rows equal to the image, events seq ${pos.metaSeq}`, proof: { ok: true, tables: cmp.tables, rows: cmp.rows, feed: pos } };
+        const cmp = { tables: live.plain.tables + Object.keys(live.drift).length, rows: live.plain.rows };
+        return { message: `${cmp.tables} tables, ${cmp.rows} rows equal to the image, events seq ${pos.metaSeq}`, proof: { ok: true, tables: cmp.tables, rows: cmp.rows, feed: pos, drift: Object.fromEntries(Object.entries(live.drift).map(([t, d]) => [t, { d1Only: d.rightOnly, awsOnly: d.leftOnly, columnsDiffering: d.tolerated }])) } };
       },
     },
     // ---- variant fresh-d1 ----
@@ -287,7 +293,7 @@ export function steps(o) {
         need((await d1Mode(c.ports, db)) === null, `${db} still has cutover.mode set`);
         await c.ports.clock.sleep(o.cacheWaitMs);
         const probe = await writeProbe(c.ports, sameName() ? o.publicUrl : o.workerUrl);
-        need(!probe.frozen && probe.backend !== "aws", `writes are not accepted by the Worker yet: ${probe.status} ${probe.reason} from ${probe.backend ?? "the Worker"}`);
+        need(probe.open && probe.backend !== "aws", `writes are not accepted by the Worker yet: the signed probe answered ${probe.status} (${probe.reason}) from ${probe.backend ?? "the Worker"}, expected 400 from the Worker.${inconclusive(probe)}`);
         c.data.reopenedAt = c.ports.clock.now();
         const pauseMs = c.data.reopenedAt - (c.data.awsFrozenAt ?? c.data.reopenedAt);
         return { message: `${db} accepts writes (direct mode); AWS stays read_only; writes were refused ${pauseMs} ms from the AWS freeze`, proof: { db, probe, pauseMs } };

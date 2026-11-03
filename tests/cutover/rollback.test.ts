@@ -5,6 +5,8 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 // @ts-expect-error -- plain scripts, no .d.ts
 import { compareProofs, feedPosition, localSelect, proveAll } from "../../scripts/cutover/checksum.mjs";
+// @ts-expect-error -- plain script, no .d.ts
+import { isBookkeepingUnit } from "../../scripts/cutover/drift.mjs";
 import { cleanup, makeWorld, type Faults, type World } from "./world";
 
 let w: World;
@@ -16,13 +18,19 @@ const FRESH = "akl-db-rollback-2026-11-04";
 const ROLLBACK_STEPS = ["decide", "aws-readonly", "capture", "d1-prove", "create-d1", "import", "verify", "point-worker", "dns-back", "reopen", "report"];
 
 const rb = (args: string[] = ["--execute"]) => w.rollback(args);
+/** The log without read-path bookkeeping (nonces from the signed probes, LDB-CV25): the image, the operator's flag units, real writes. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const significant = () => w.log.entries().filter((e: any) => e.kind !== "unit" || !isBookkeepingUnit(e.stmts.map((s: { sql: string }) => s.sql))).map((e: any) => (e.kind === "image" ? "image" : /cutover\.mode/.test(e.stmts[0].sql) ? "flag" : /INTO events/.test(e.stmts[0].sql) ? "event" : "other"));
+const DRIFT_TABLES = ["nonces", "auth_cache", "authors", "authors_head"];
+/** Diffs that are not read-path bookkeeping (AWS keeps bookkeeping after the capture the fresh D1 was built from). */
+const realDiffs = (diffs: { table: string }[]) => diffs.filter((d) => !DRIFT_TABLES.includes(d.table));
 const proofOf = async (db: ReturnType<World["d1"]>) => proveAll({ select: localSelect(db), db });
 const awsProof = async () => {
   const r = await w.awsReplica();
   return proveAll({ select: localSelect(r.db), db: r.db });
 };
-const post = async (url: string) => (await w.ports.http.request(url, { method: "POST", body: "" })) as { status: number; headers: Record<string, string> };
-const stackWrite = async () => (await w.ports.stack.request("/v1/layouts", { method: "POST", body: "" })) as { status: number };
+const post = async (url: string) => (await w.ports.http.signed("POST", url, { body: "" })) as { status: number; headers: Record<string, string> };
+const stackWrite = async () => (await w.ports.stack.signed("POST", "/v1/layouts", { body: "" })) as { status: number };
 
 /** A completed cutover with some user writes on AWS afterwards. */
 async function cutOver(faults?: Faults) {
@@ -55,7 +63,7 @@ describe("rollback, variant fresh-d1 (AWS took writes)", () => {
     expect((await stackWrite()).status).toBe(503);
     const fresh = w.d1(FRESH);
     const cmp = compareProofs(await awsProof(), await proofOf(fresh));
-    expect(cmp, JSON.stringify(cmp.diffs)).toMatchObject({ ok: true });
+    expect(realDiffs(cmp.diffs), JSON.stringify(cmp.diffs)).toEqual([]); // AWS bookkept (nonces) after the capture; nothing else differs
     expect(cmp.tables).toBeGreaterThan(30);
     expect(await feedPosition(localSelect(fresh))).toEqual(await feedPosition(localSelect((await w.awsReplica()).db)));
     // the old D1 was not modified by any of it
@@ -72,7 +80,7 @@ describe("rollback, variant fresh-d1 (AWS took writes)", () => {
     expect(fresh.prepare("SELECT count(*) AS n FROM import_state WHERE key = 'cutover.mode'").get()).toEqual({ n: 0 });
     // writes are accepted by the Worker (its own database), refused by AWS
     const viaName = await post("https://api.akldb.org/v1/layouts");
-    expect(viaName.status).not.toBe(503);
+    expect(viaName.status).toBe(400);
     expect(viaName.headers["x-akldb-backend"]).toBeUndefined();
     expect((await stackWrite()).status).toBe(503);
     expect(w.calls.filter((c) => c === "d1.create")).toHaveLength(1);
@@ -138,7 +146,7 @@ describe("rollback, variant original-d1 (AWS took no write past the image)", () 
     w = await makeWorld();
     await w.cutoverUntil("dns");
     expect(w.dns).toBe("aws");
-    expect(await w.operator.head()).toBe(1);
+    expect(significant()).toEqual(["image"]);
     const r = await rb();
     expect(r.code, text(r)).toBe(0);
     const st = rbState();
@@ -147,12 +155,12 @@ describe("rollback, variant original-d1 (AWS took no write past the image)", () 
     for (const id of ["create-d1", "import", "verify", "point-worker"]) expect(st.steps[id].status, id).toBe("skipped");
     expect(st.steps["aws-readonly"].proof.appended).toBe(false); // the image already carries read_only
     expect(w.dbs.size).toBe(1); // no fresh D1
-    expect(await w.operator.head()).toBe(1); // nothing appended
+    expect(significant()).toEqual(["image"]); // nothing real appended (the probes spent nonces)
     expect(await w.operator.readFlag()).toBe("read_only");
     expect(w.dns).toBe("worker");
     expect(w.d1().prepare("SELECT count(*) AS n FROM import_state WHERE key = 'cutover.mode'").get()).toEqual({ n: 0 });
     const viaName = await post("https://api.akldb.org/v1/layouts");
-    expect(viaName.status).not.toBe(503);
+    expect(viaName.status).toBe(400);
     expect(viaName.headers["x-akldb-backend"]).toBeUndefined();
     expect((await stackWrite()).status).toBe(503);
     // the proof was against the checksums the cutover recorded in the log
@@ -162,15 +170,15 @@ describe("rollback, variant original-d1 (AWS took no write past the image)", () 
     expect(md).toContain("Variant: **original-d1** (AWS log head 1: no write reached AWS past the image");
   });
 
-  it("[LDB-CV18] after open but before any other write (the log holds the image and the operator's flag unit): still original-d1; AWS is frozen again by one more flag unit", async () => {
+  it("[LDB-CV18] after open but before any other write (the log holds the image, the operator's flag unit and read-path bookkeeping): still original-d1; AWS is frozen again by one more flag unit", async () => {
     w = await makeWorld();
     await w.cutoverUntil("open");
-    expect(await w.operator.head()).toBe(2);
+    expect(significant()).toEqual(["image", "flag"]); // the flag cleared; the open probe's nonce is bookkeeping
     const r = await rb();
     expect(r.code, text(r)).toBe(0);
     expect(rbState().data.variant).toBe("original-d1");
     expect(rbState().steps["aws-readonly"].proof.appended).toBe(true);
-    expect(await w.operator.head()).toBe(3);
+    expect(significant()).toEqual(["image", "flag", "flag"]);
     expect(await w.operator.readFlag()).toBe("read_only");
     expect(w.dbs.size).toBe(1);
     expect(w.dns).toBe("worker");
@@ -223,6 +231,57 @@ describe("rollback, variant original-d1 (AWS took no write past the image)", () 
   });
 });
 
+describe("read-path drift in the rollback (CV26)", () => {
+  async function traffic(url: string) {
+    for (let i = 0; i < 3; i++) {
+      await w.ports.http.signed("GET", `${url}/v1/meta`, { headers: { "x-akl-actor": `spark-${i}` } });
+      await w.ports.http.request(`${url}/v1/layouts?limit=2`, { method: "GET", headers: { authorization: `Bearer tok-${i}` } });
+    }
+  }
+
+  it("[LDB-CV26] original-d1: both sides kept bookkeeping since the freeze (D1 under the Worker, AWS under the stack), which is not a write: the variant applies and the proof is by the stored checksums plus the drift rules", async () => {
+    w = await makeWorld();
+    await w.cutoverUntil("dns");
+    await traffic("https://akl-db.akl-58a.workers.dev"); // D1 bookkeeps after the freeze
+    for (let i = 0; i < 3; i++) await w.ports.stack.signed("GET", "/v1/meta", { headers: { "x-akl-actor": `aws-spark-${i}` } }); // AWS bookkeeps too
+    expect(significant()).toEqual(["image"]);
+    expect(w.log.entries().length).toBeGreaterThan(1);
+    const r = await rb();
+    expect(r.code, text(r)).toBe(0);
+    const st = rbState();
+    expect(st.data.variant).toBe("original-d1");
+    const proof = st.steps["d1-prove"].proof;
+    expect(proof.ok).toBe(true);
+    expect(proof.drift.nonces.d1Only).toBeGreaterThan(0); // D1's own nonces
+    expect(proof.drift.nonces.awsOnly).toBeGreaterThan(0); // and AWS's
+    expect(proof.drift.authors.columnsDiffering).toBeDefined();
+    expect(w.dns).toBe("worker");
+  });
+
+  it("[LDB-CV26] a unit that is not bookkeeping after the image makes it fresh-d1, whatever else is in the log", async () => {
+    w = await makeWorld();
+    await w.cutoverUntil("dns");
+    await w.userWriteOnAws(1);
+    const r = await rb(["--execute", "--variant", "original-d1"]);
+    expect(r.code).toBe(1);
+    expect(text(r)).toContain("--variant original-d1 is impossible: AWS took writes past the image");
+  });
+
+  it("[LDB-CV26] capture: units that landed after the captured seq are fine when they are read-path bookkeeping, and a real write means AWS is not frozen", async () => {
+    await cutOver({ bookkeepDuringCapture: true, autoPoint: true });
+    const ok = await rb(["--execute", "--worker-pointed"]);
+    expect(ok.code, text(ok)).toBe(0);
+    expect(rbState().steps.capture.proof.bookkeptAfter).toBeGreaterThan(0);
+    expect(text(ok)).toMatch(/read-path bookkeeping unit\(s\) landed after it and are not in the capture/);
+    cleanup(w);
+    await cutOver({ writeDuringCapture: true, autoPoint: true });
+    const bad = await rb(["--execute", "--worker-pointed"]);
+    expect(bad.code).toBe(1);
+    expect(text(bad)).toMatch(/the AWS log moved during the capture by more than read-path bookkeeping \(captured seq \d+, then #\d+ unit INSERT INTO churn/);
+    expect(rbState().steps["create-d1"]).toBeUndefined();
+  });
+});
+
 describe("the rollback machine (CV11)", () => {
   it("[LDB-CV11] without --execute it prints every step's commands (the wrangler.toml change and the DNS instructions included) and touches nothing", async () => {
     w = await makeWorld();
@@ -265,7 +324,7 @@ describe("the rollback machine (CV11)", () => {
         expect(second.code, `${id}/${nth}: ${text(second)}`).toBe(0);
         const cmp = compareProofs(await awsProof(), await proofOf(w.d1(FRESH)));
         // the fresh D1 equals AWS, bar the flag row the reopen cleared
-        expect(cmp.diffs.map((d: { table: string }) => d.table).every((t: string) => t === "import_state"), `${id}/${nth}: ${JSON.stringify(cmp.diffs)}`).toBe(true);
+        expect(realDiffs(cmp.diffs).map((d: { table: string }) => d.table).every((t: string) => t === "import_state"), `${id}/${nth}: ${JSON.stringify(cmp.diffs)}`).toBe(true);
         expect([...w.dbs.keys()].filter((k) => k.startsWith("akl-db-rollback"))).toEqual([FRESH]);
         expect(w.d1(FRESH).prepare("SELECT count(*) AS n FROM import_state WHERE key = 'cutover.mode'").get()).toEqual({ n: 0 });
         expect(w.dns).toBe("worker");

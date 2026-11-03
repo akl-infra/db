@@ -105,6 +105,17 @@ export function loadExportSql(sql, dbPath = ":memory:") {
 }
 
 /**
+ * The export's rows and nothing else: only CREATE TABLE and INSERT/DELETE/UPDATE statements run, in the order written, so no trigger, index or view
+ * exists to touch them. An independent second reading of the export file, for the load-fidelity proof of `verify` (LDB-CV26).
+ */
+export function loadRowsOnly(sql) {
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = OFF");
+  for (const st of splitStatements(sql)) if (!DEFERRED.test(st)) db.exec(st);
+  return db;
+}
+
+/**
  * The load step's checks. `migrationNames`: the bundle's migrations/*.sql file names. Returns {ok, checks:[{name, ok, detail}]}.
  *  - PRAGMA integrity_check is "ok";
  *  - PRAGMA foreign_key_check is empty;

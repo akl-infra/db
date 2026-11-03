@@ -9,6 +9,8 @@ import { proveAll, localSelect } from "../../scripts/cutover/checksum.mjs";
 import { buildOptions, defaultMinMinor, parseArgs } from "../../scripts/cutover/cli.mjs";
 // @ts-expect-error -- plain scripts, no .d.ts
 import { main as runMain } from "../../scripts/cutover/run.mjs";
+// @ts-expect-error -- plain script, no .d.ts
+import { isBookkeepingUnit } from "../../scripts/cutover/drift.mjs";
 import { Replica, imageDigest } from "../../src/replica/replica";
 import { FAST } from "../replica/support";
 import { STEP_IDS, cleanup, makeWorld, type Faults, type World } from "./world";
@@ -19,6 +21,12 @@ afterEach(() => w && cleanup(w));
 const status = (id: string) => w.state().steps[id]?.status;
 const text = (r: { out: string[] }) => r.out.join("\n");
 const entries = () => w.log.entries();
+/** The log reduced to what is not read-path bookkeeping: the image, the operator's flag units, and writes. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const significant = (log: any[]) =>
+  log
+    .filter((e) => e.kind !== "unit" || !isBookkeepingUnit(e.stmts.map((s: { sql: string }) => s.sql)))
+    .map((e) => (e.kind === "image" ? "image" : /cutover\.mode/.test(e.stmts[0].sql) ? "flag" : /INTO events/.test(e.stmts[0].sql) ? "event" : "other"));
 /** Run steps one by one up to `id`, then apply `mutate`, then run `--from next`. */
 async function until(id: string, faults?: Faults): Promise<void> {
   w = await makeWorld(faults ? { faults } : {});
@@ -86,7 +94,7 @@ describe("the machine (CV11)", () => {
     const migrate = first("aws.invoke");
     const open = first("aws.operator.runUnit");
     const dns = first("http.fresh");
-    const signed = first("http.signed");
+    const signed = w.calls.lastIndexOf("http.signed"); // the post-smoke write (earlier signed calls are the probes)
     expect([freeze, exp, img, migrate, dns, open, signed].every((n) => n >= 0)).toBe(true);
     expect(w.calls.filter((c) => c === "d1.write")).toHaveLength(1); // the freeze is the only write to D1: there is no proxy mode
     expect(freeze).toBeLessThan(exp);
@@ -96,11 +104,14 @@ describe("the machine (CV11)", () => {
     expect(dns).toBeLessThan(open);
     expect(open).toBeLessThan(signed);
 
-    // the log: the image is seq 1, then exactly the operator's flag unit and the post-smoke event; no migration ever entered it
+    // the log: the image is seq 1, then the operator's flag unit, then units; no migration ever entered it. Signed requests on the stack (the open
+    // probe, the post-smoke) spend nonces: read-path bookkeeping units (LDB-CV25), recognised as such; the real writes are the flag unit and the tick event
     const log = entries();
-    expect(log.map((e) => e.kind)).toEqual(["image", "unit", "unit"]);
+    expect(log[0]!.kind).toBe("image");
+    expect(log.slice(1).every((e) => e.kind === "unit")).toBe(true);
+    expect(log.filter((e) => e.stmts[0]?.sql === "DELETE FROM import_state WHERE key = 'cutover.mode'")).toHaveLength(1);
     expect(log[1]!.stmts[0]!.sql).toBe("DELETE FROM import_state WHERE key = 'cutover.mode'");
-    expect(log[2]!.stmts[0]!.sql).toMatch(/INSERT INTO events/);
+    expect(significant(log)).toEqual(["image", "flag", "event"]);
     expect(log[0]!.hash).toBe(w.state().data.imageSha);
 
     // the flag: D1 stays frozen for good (the Worker is read_only wherever it still answers), AWS is open, the name points at AWS
@@ -130,7 +141,7 @@ describe("the machine (CV11)", () => {
     expect(md).toContain("# akldb cutover report");
     expect(md).toMatch(/\*\*\d+ ms\*\* \(\d+\.\d s\) from the freeze write to the unit that cleared/);
     for (const id of STEP_IDS.slice(0, -1)) expect(md, id).toMatch(new RegExp(`\\| ${id} \\| done \\| \\d+ \\|`));
-    expect(md).toContain("### verify (CV16, CV17)");
+    expect(md).toContain("### verify (CV16, CV17, CV26)");
     expect(md).toMatch(/\| churn \| \d+ \| `[0-9a-f]{16}` \|/);
     expect(md).toContain("meta.seq 12; sqlite_sequence for events 14 (the next event is seq 15)");
     for (const id of ["preflight", "copy-dumps", "freeze", "export", "load", "image", "serve", "dns", "open", "post-smoke"]) expect(md, id).toContain(`### ${id}`);
@@ -142,7 +153,7 @@ describe("the machine (CV11)", () => {
   it("[LDB-CV11] a finished run is idempotent: image and open re-run to the same state, and preflight re-checks what it needs", async () => {
     w = await makeWorld();
     expect((await w.cutover()).code).toBe(0);
-    const before = entries().length;
+    const before = significant(entries());
     const again = await w.cutover(["--execute"]);
     expect(text(again)).toContain("already done");
     expect(again.code).toBe(0);
@@ -150,7 +161,7 @@ describe("the machine (CV11)", () => {
       const r = await w.cutover(["--execute", "--only", id]);
       expect(r.code, `${id}: ${text(r)}`).toBe(0);
     }
-    expect(entries()).toHaveLength(before); // no second image, no second open unit
+    expect(significant(entries())).toEqual(before); // no second image, no second open unit (the probes spend nonces: bookkeeping)
     expect(w.state().steps.image.proof.outcome).toBe("already");
     expect(w.state().steps.open.proof.wasAlreadyOpen).toBe(true);
     // preflight on a log that has the image: refused (it re-checks its precondition); export on an unfrozen D1: refused
@@ -195,7 +206,7 @@ describe("each step's precondition stops the run with a clear message (CV11)", (
 
   it("[LDB-CV11] freeze: a Worker that does not refuse writes (the build lacks the modes) stops the run, and --abort clears the flag", async () => {
     w = await makeWorld({ faults: { noModes: true } });
-    await fails(await w.cutover(), /did not refuse writes after the freeze: POST \/v1\/layouts with an empty body answered 400/, "freeze");
+    await fails(await w.cutover(), /did not refuse writes after the freeze: the signed POST \/v1\/layouts with an empty body answered 400/, "freeze");
     expect(w.d1().prepare("SELECT value FROM import_state WHERE key = 'cutover.mode'").get()).toEqual({ value: "read_only" });
     w.faults.noModes = false;
     const abort = await w.cutover(["--execute", "--abort"]);
@@ -354,8 +365,7 @@ describe("resume from every step (CV11)", () => {
     w = await makeWorld();
     expect((await w.cutover()).code).toBe(0);
     const counts = Object.fromEntries(Object.entries(w.callsByStep).map(([k, v]) => [k, v.length]));
-    const happyKinds = entries().map((e) => e.kind);
-    const happyHead = entries().length;
+    const happy = significant(entries());
     cleanup(w);
     let crashes = 0;
     for (const id of STEP_IDS.slice(0, -1)) {
@@ -369,11 +379,13 @@ describe("resume from every step (CV11)", () => {
         const second = await w.cutover(); // the plain resume: done steps are skipped, the failed one re-runs
         expect(second.code, `${id} call ${nth}: ${text(second)}`).toBe(0);
         for (const s of STEP_IDS) expect(status(s), `${id}/${nth}: ${s}`).toBe("done");
-        // post-smoke's signed write is a real write: a crash after it and before the step finished repeats it, once (one more event)
-        const extra = id === "post-smoke" ? entries().length - happyHead : 0;
+        // post-smoke's signed write is a real write: a crash after it and before the step finished repeats it, once (one more event). Everything else is
+        // bookkeeping (nonces from the probes) or done once: one image, one flag unit
+        const got = significant(entries());
+        const extra = got.length - happy.length;
         expect(extra, `${id}/${nth}`).toBeGreaterThanOrEqual(0);
-        expect(extra, `${id}/${nth}`).toBeLessThanOrEqual(1);
-        expect(entries().map((e) => e.kind), `${id}/${nth}`).toEqual([...happyKinds, ...Array(extra).fill("unit")]);
+        expect(extra, `${id}/${nth}`).toBeLessThanOrEqual(id === "post-smoke" ? 1 : 0);
+        expect(got, `${id}/${nth}`).toEqual([...happy, ...Array(extra).fill("event")]);
         expect(w.dns).toBe("aws");
         crashes++;
         cleanup(w);
@@ -437,11 +449,11 @@ describe("CV16: writes open only after the proof", () => {
 
   it("[LDB-CV16] the writes were refused from the freeze to the open, on the Worker and on the stack, and accepted after", async () => {
     await until("export");
-    const probe = async (url: string) => (await w.ports.http.request(`${url}/v1/layouts`, { method: "POST", body: "" })).status;
+    const probe = async (url: string) => (await w.ports.http.signed("POST", `${url}/v1/layouts`, { body: "" })).status;
     expect(await probe("https://api.akldb.org")).toBe(503); // frozen D1
     await w.cutover(["--execute", "--from", "load"]);
-    expect(await probe("https://api.akldb.org")).not.toBe(503); // open
-    expect((await w.ports.stack.request("/v1/layouts", { method: "POST", body: "" })).status).not.toBe(503);
+    expect(await probe("https://api.akldb.org")).toBe(400); // open: the empty body is what is refused now
+    expect((await w.ports.stack.signed("POST", "/v1/layouts", { body: "" })).status).toBe(400);
     const pause = w.state().data.pauseMs;
     expect(pause).toBeGreaterThanOrEqual(3000); // at least the cache waits
   });
@@ -469,8 +481,8 @@ describe("CV17: verify catches every kind of difference", () => {
   });
 
   it("[LDB-CV17] a checksum mismatch (the same count, one value different)", async () => {
-    const m = await verifyAfter((w) => w.d1().exec("UPDATE authors SET name = 'Ada' WHERE user_id = 'u0'"));
-    expect(m).toMatch(/authors: checksum sqlite [0-9a-f]{64} != d1 [0-9a-f]{64}/);
+    const m = await verifyAfter((w) => w.d1().exec("UPDATE churn SET v = 'x' || v WHERE id = (SELECT MIN(id) FROM churn)"));
+    expect(m).toMatch(/churn: checksum sqlite [0-9a-f]{64} != d1 [0-9a-f]{64}/);
     expect(m).not.toContain("count");
   });
 
@@ -518,5 +530,111 @@ describe("CV17: verify catches every kind of difference", () => {
     const aws = await w.awsReplica();
     expect(aws.db.prepare("SELECT MIN(seq) AS s FROM events WHERE seq > 12").get()).toEqual({ s: 15 });
     expect(aws.db.prepare("SELECT seq FROM sqlite_sequence WHERE name = 'events'").get()).toEqual({ seq: 15 });
+  });
+});
+
+describe("read-path drift and the signed probe (CV25, CV26)", () => {
+  /** What Spark and akl.gg do to a frozen D1 while the cutover runs: signed GETs and bearer GETs, each of which bookkeeps. */
+  async function readTraffic(world: World, base: string, rounds = 3) {
+    for (let i = 0; i < rounds; i++) {
+      await world.ports.http.signed("GET", `${base}/v1/meta`, { headers: { "x-akl-actor": `spark-bot-${i}` } });
+      await world.ports.http.request(`${base}/v1/layouts?limit=2`, { method: "GET", headers: { authorization: `Bearer tok-${i}` } });
+    }
+  }
+
+  it("[LDB-CV26] reads that bookkeep on the frozen D1 after the export are tolerated and reported as lost on AWS; the cutover goes on to the end", async () => {
+    w = await makeWorld();
+    await w.cutoverUntil("load");
+    const nonces = (w.d1().prepare("SELECT count(*) AS n FROM nonces").get() as { n: number }).n;
+    await readTraffic(w, "https://api.akldb.org");
+    // a returning author's name moved on Discord too (a bearer upsert renames: name and name_source are drift columns)
+    w.d1().exec("UPDATE authors SET last_seen_at = '2099-01-01T00:00:00Z', name = 'renamed on discord' WHERE user_id = 'u0'");
+    const v = await w.cutover(["--execute", "--from", "verify"]);
+    expect(v.code, text(v)).toBe(0);
+    const proof = w.state().steps.verify.proof;
+    expect(proof.ok).toBe(true);
+    expect(proof.lostOnAws).toEqual({ nonces: 3, auth_cache: 3, authors: 6 }); // 3 signed nonces, 3 bearer cache rows, 3 + 3 authors that appeared
+    expect(proof.drift.authors.columnsDiffering).toEqual({ last_seen_at: 1, name: 1 });
+    expect(proof.drift.authors_head.columnsDiffering).toMatchObject({ version: 1 });
+    expect(proof.fidelity.tables).toBeGreaterThan(30);
+    expect(text(v)).toContain("read-path bookkeeping since the export, lost on AWS: auth_cache 3, authors 6, nonces 3");
+    expect(nonces).toBeGreaterThan(0); // the freeze probe's own nonce is IN the export
+    // the AWS database is the export's, not the drifted D1
+    const aws = await w.awsReplica();
+    expect(proof.perTable.nonces.count).toBe(nonces); // the image carries the nonces the export had, not the drifted ones
+    expect(w.log.entries()[0]!.image!.tables.nonces!.count).toBe(nonces);
+    expect(aws.db.prepare("SELECT name FROM authors WHERE user_id = 'u0'").get()).toEqual({ name: "ada" });
+    const md = fs.readFileSync(path.join(w.dir, "report.md"), "utf8");
+    expect(md).toContain("**Lost on AWS: read-path bookkeeping (nonces / auth_cache / authors.last_seen_at and renames) since the export, not a failure:** auth_cache +3 row(s), authors +6 row(s), nonces +3 row(s)");
+    expect(md).toContain("authors.name/last_seen_at");
+  });
+
+  it("[LDB-CV26] drift tables are tolerated only in their drift columns and new rows: another column, a vanished row, a change anywhere else fails", async () => {
+    const failAfterLoad = async (mutate: (w: World) => void) => {
+      w = await makeWorld();
+      await w.cutoverUntil("load");
+      mutate(w);
+      const r = await w.cutover(["--execute", "--from", "verify"]);
+      expect(r.code, text(r)).toBe(1);
+      expect(entries(), "nothing reached AWS").toHaveLength(0);
+      const m = w.state().steps.verify.message as string;
+      cleanup(w);
+      return m;
+    };
+    expect(await failAfterLoad((x) => x.d1().exec("UPDATE authors SET first_seen_at = '2000-01-01' WHERE user_id = 'u0'"))).toContain("authors (read-path drift table): column first_seen_at differs in 1 row(s) (outside the drift set)");
+    expect(await failAfterLoad((x) => x.d1().exec("DELETE FROM nonces"))).toMatch(/nonces \(read-path drift table\): \d+ row\(s\) of the sqlite are gone from the d1/);
+    expect(await failAfterLoad((x) => x.d1().exec("INSERT INTO ratelimit (key, window_start, n) VALUES ('k', 1, 1)"))).toContain("ratelimit: count sqlite 0 != d1 1"); // not a drift table
+    w = await makeWorld();
+  });
+
+  it("[LDB-CV26] load fidelity: an image that does not equal the export file, on any table, fails before D1 is even looked at", async () => {
+    w = await makeWorld();
+    await w.cutoverUntil("load");
+    const file = path.join(w.dir, "work", "export.sql");
+    const lines = fs.readFileSync(file, "utf8").split("\n");
+    const at = lines.findIndex((l) => l.startsWith('INSERT INTO "churn"'));
+    lines.splice(at, 1); // the export now has one churn row fewer than the image the loader built from the original
+    fs.writeFileSync(file, lines.join("\n"));
+    const st = w.state();
+    st.data.exportSha = (await import("node:crypto")).createHash("sha256").update(fs.readFileSync(file)).digest("hex"); // as if the export step had produced this file
+    fs.writeFileSync(w.stateFile, JSON.stringify(st));
+    const r = await w.cutover(["--execute", "--from", "verify"]);
+    expect(r.code).toBe(1);
+    expect(w.state().steps.verify.message).toMatch(/load fidelity, churn: count image \d+ != export file \d+/);
+    expect(entries()).toHaveLength(0);
+    // and a tampered export is refused outright
+    fs.appendFileSync(file, "-- tampered\n");
+    const t = await w.cutover(["--execute", "--only", "verify"]);
+    expect(text(t)).toContain("the export file changed since the export step recorded it");
+  });
+
+  it("[LDB-CV27] an anonymous probe cannot tell frozen from open (401 either way); the signed probe reads 503 frozen and 400 open", async () => {
+    w = await makeWorld();
+    const anon = () => w.ports.http.request("https://api.akldb.org/v1/layouts", { method: "POST", body: "" });
+    const signed = () => w.ports.http.signed("POST", "https://api.akldb.org/v1/layouts", { body: "" });
+    expect((await anon()).status).toBe(401);
+    expect((await signed()).status).toBe(400); // open
+    w.d1().exec("INSERT INTO import_state (key, value) VALUES ('cutover.mode', 'read_only')");
+    expect((await anon()).status).toBe(401); // frozen, and the same answer
+    expect((await signed()).status).toBe(503);
+    expect(JSON.parse((await signed()).body)).toMatchObject({ error: "read_only" });
+    expect((await signed()).headers["retry-after"]).toBe("5");
+  });
+
+  it("[LDB-CV27] a probe the server refuses as unauthenticated is never read as frozen or open: the run stops and names the ops client; the ops client must be in the environment", async () => {
+    w = await makeWorld();
+    await w.cutoverUntil("preflight");
+    const real = w.ports.http.signed;
+    w.ports.http.signed = async () => ({ status: 401, headers: {}, body: '{"error":"unauthorized"}' });
+    const r = await w.cutover(["--execute", "--only", "freeze"]);
+    expect(r.code).toBe(1);
+    expect(text(r)).toMatch(/answered 401 \(unauthorized\), not 503 read_only\. The probe is signed with the ops client and was refused \(401 unauthorized\): is the ops client of \.\.\/db\.env\.ops .* registered on this database\?/);
+    w.ports.http.signed = real;
+    cleanup(w);
+    w = await makeWorld({ faults: { noOpsClient: true } });
+    const p = await w.cutover();
+    expect(p.code).toBe(1);
+    expect(text(p)).toContain("the signed probes need the ops client in the environment (CLIENT_PRIVATE_KEY): source ../db.env.ops");
+    expect(w.calls).not.toContain("d1.write");
   });
 });

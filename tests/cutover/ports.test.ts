@@ -188,3 +188,29 @@ describe("the env files and the direct stack port (CV15, CV20)", () => {
     }
   });
 });
+
+describe("the signed probes' ports (CV27)", () => {
+  it("[LDB-CV27] the http port names the ops-client variables it lacks, and the stack port signs the path and query the way client-sign does, with the origin secret beside it", async () => {
+    const key = (await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"])) as CryptoKeyPair;
+    const pkcs8 = Buffer.from((await crypto.subtle.exportKey("pkcs8", key.privateKey)) as ArrayBuffer).toString("base64url");
+    expect(createHttpPort({ env: {} }).check()).toEqual(["CLIENT_ID", "CLIENT_PRIVATE_KEY", "OPS_ACTOR"]);
+    const env = { CLIENT_ID: "cid", CLIENT_PRIVATE_KEY: pkcs8, OPS_ACTOR: "ops" };
+    expect(createHttpPort({ env }).check()).toEqual([]);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "akldb-env-"));
+    try {
+      const envFile = path.join(dir, "o.env");
+      fs.writeFileSync(envFile, "AKLDB_ORIGIN_SECRET=topsecret-0123\n");
+      const seen: { path: string; init: { method?: string; headers?: Record<string, string>; body?: string }; ctx: { target: string; secret: string } }[] = [];
+      const port = createStackPort({ outputs: async () => ({ ApiDomainTarget: "d-abc.execute-api.us-east-2.amazonaws.com" }), hostname: "api.akldb.org", originEnv: envFile, env, fetchImpl: async (p: string, init: never, ctx: never) => (seen.push({ path: p, init, ctx }), { status: 400, headers: {}, body: "" }) });
+      await port.signed("POST", "/v1/layouts", { body: "" });
+      expect(seen[0]!.path).toBe("/v1/layouts");
+      expect(seen[0]!.ctx).toEqual({ target: "d-abc.execute-api.us-east-2.amazonaws.com", secret: "topsecret-0123" });
+      expect(seen[0]!.init.method).toBe("POST");
+      expect(Object.keys(seen[0]!.init.headers!).sort()).toEqual(["X-Akl-Actor", "X-Akl-Client", "X-Akl-Nonce", "X-Akl-Signature", "X-Akl-Timestamp", "content-type"]);
+      expect(seen[0]!.init.headers!["X-Akl-Client"]).toBe("cid");
+      expect(JSON.stringify(seen)).not.toContain(pkcs8); // the private key never travels
+    } finally {
+      fs.rmSync(dir, { recursive: true });
+    }
+  });
+});

@@ -155,6 +155,10 @@ export function createHttpPort({ fetchImpl = globalThis.fetch, env = process.env
   return {
     request,
     fresh,
+    /** The env names the signed probes need and do not have. */
+    check() {
+      return ["CLIENT_ID", "CLIENT_PRIVATE_KEY", "OPS_ACTOR"].filter((k) => !env[k]);
+    },
     async signed(method, url, { body, headers = {} } = {}) {
       const u = new URL(url);
       const bytes = body === undefined ? new Uint8Array(0) : Buffer.from(body, "utf8");
@@ -208,6 +212,7 @@ export function createAwsPort({ exec, region = "us-east-2", profile, stack, oper
     operator: {
       appendImage: async (a) => (await op()).appendImage(a),
       tail: async () => (await op()).tail(),
+      after: async (seq) => (await op()).after(seq),
       snapshot: async () => (await op()).snapshot(),
       runUnit: async (sql, params) => (await op()).runUnit(sql, params),
       readFlag: async () => (await op()).readFlag(),
@@ -289,7 +294,7 @@ export function originSecretFrom(file) {
  * TLS SNI and Host of the public name, and the `x-akldb-origin` header from the env file (read when the request is made, never kept in the state
  * file, never printed). Equivalent to `curl --resolve <host>:443:<ip> -H 'x-akldb-origin: ...'`.
  */
-export function createStackPort({ outputs, hostname, originEnv, fetchImpl }) {
+export function createStackPort({ outputs, hostname, originEnv, fetchImpl, env = process.env }) {
   const request = fetchImpl ?? ((path, init, ctx) => direct(path, init, ctx));
   async function direct(path, init = {}, { target, secret }) {
     const [{ address }] = await dns.lookup(target, { all: true, family: 4 });
@@ -319,6 +324,12 @@ export function createStackPort({ outputs, hostname, originEnv, fetchImpl }) {
     },
     async request(path, init) {
       return request(path, init, { target: (await outputs()).ApiDomainTarget, secret: originSecretFrom(originEnv) });
+    },
+    /** The same, signed with the ops client (the path and query are what is signed). */
+    async signed(method, path, { body, headers = {} } = {}) {
+      const bytes = body === undefined ? new Uint8Array(0) : Buffer.from(body, "utf8");
+      const sig = signerFromEnv(env)(method, path, bytes);
+      return request(path, { method, headers: { ...sig, ...(body === undefined ? {} : { "content-type": "application/json" }), ...headers }, ...(body === undefined ? {} : { body }) }, { target: (await outputs()).ApiDomainTarget, secret: originSecretFrom(originEnv) });
     },
   };
 }

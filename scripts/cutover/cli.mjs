@@ -100,5 +100,5 @@ export function realPorts(o, { env = process.env, exec = realExec, fetchImpl, cl
   // SELECTs go through the REST API when a token is there (70-150 ms a call, several statements per call); wrangler otherwise
   const wranglerPort = createD1Port({ exec, env });
   const rest = env.CLOUDFLARE_API_TOKEN && o.d1Api !== "wrangler" ? createD1RestPort({ accountId: env.CLOUDFLARE_ACCOUNT_ID, token: env.CLOUDFLARE_API_TOKEN, resolveId: (name) => (name === o.d1Name && env.AKLDB_D1_ID ? env.AKLDB_D1_ID : name === "akl-db" ? PROD_D1_ID : wranglerPort.info(name).id), fetchImpl }) : undefined;
-  return { clock, d1: rest ? { ...wranglerPort, select: rest.select, selectMany: rest.selectMany } : wranglerPort, http, aws, stack: createStackPort({ outputs: () => aws.stackOutputs(), hostname: new URL(o.publicUrl).host, originEnv: o.originEnv, fetchImpl: undefined }), dumps: createDumpsPort({ env, r2Env: o.r2Env, outputs: () => aws.stackOutputs(), fetchImpl, region: o.region }) };
+  return { clock, d1: rest ? { ...wranglerPort, select: rest.select, selectMany: rest.selectMany } : wranglerPort, http, aws, stack: createStackPort({ outputs: () => aws.stackOutputs(), hostname: new URL(o.publicUrl).host, originEnv: o.originEnv, fetchImpl: undefined, env }), dumps: createDumpsPort({ env, r2Env: o.r2Env, outputs: () => aws.stackOutputs(), fetchImpl, region: o.region }) };
 }

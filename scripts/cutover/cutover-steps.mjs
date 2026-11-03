@@ -19,7 +19,8 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { SEQUENCE_TABLE, compareProofs, feedPosition, localSelect, proveAll, proveAllBatched, provenTables } from "./checksum.mjs";
 import { fail, need } from "./machine.mjs";
-import { loadExportSql, sanityChecks, tablesCreatedBy } from "./sqlfile.mjs";
+import { compareWithDrift } from "./drift.mjs";
+import { loadExportSql, loadRowsOnly, sanityChecks, tablesCreatedBy } from "./sqlfile.mjs";
 
 export const MODE_KEY = "cutover.mode";
 export const setModeSql = (mode) => `INSERT INTO import_state (key, value) VALUES ('${MODE_KEY}', '${mode}') ON CONFLICT(key) DO UPDATE SET value = excluded.value`;
@@ -34,20 +35,27 @@ const sha256File = (file) => crypto.createHash("sha256").update(fs.readFileSync(
 const sha256 = (b) => crypto.createHash("sha256").update(b).digest("hex");
 const lc = (h) => Object.fromEntries(Object.entries(h ?? {}).map(([k, v]) => [k.toLowerCase(), v]));
 
-/** A harmless probe: an empty POST /v1/layouts is a 400/401/403 when writes are open and a 503 read_only when they are frozen. */
+/**
+ * A harmless probe: a SIGNED (ops client) empty `POST /v1/layouts`. read_only is mounted after actor resolution (LDB-CV1: requireActorOnWrites first),
+ * so an anonymous write answers 401 whether the Worker is frozen or not and tells nothing. Signed: 503 read_only when frozen, 400 (the empty body is
+ * refused) when writes are open. Anything else (401, 403) is "inconclusive" and the callers refuse to read it as either. The signature spends one nonce
+ * on whatever database answers (D1 before the export, AWS after `open`); that is the read-path bookkeeping of LDB-CV25 and is harmless.
+ */
 export const STACK = "stack"; // writeProbe(ports, STACK): straight at the prod stack, past the DNS name
 export async function writeProbe(ports, base) {
-  const init = { method: "POST", headers: { "content-type": "application/json" }, body: "" };
-  const r = base === STACK ? await ports.stack.request("/v1/layouts", init) : await ports.http.request(`${base}/v1/layouts`, init);
-  const frozen = r.status === 503;
+  const r = base === STACK ? await ports.stack.signed("POST", "/v1/layouts", { body: "" }) : await ports.http.signed("POST", `${base}/v1/layouts`, { body: "" });
   let reason = null;
   try {
     reason = JSON.parse(r.body)?.error ?? null;
   } catch {
     reason = null;
   }
-  return { status: r.status, frozen, readOnly: frozen && (reason === "read_only" || /read_only/.test(r.body)), retryAfter: lc(r.headers)["retry-after"] ?? null, backend: lc(r.headers)[AWS_HEADER] ?? null, reason };
+  const readOnly = r.status === 503 && (reason === "read_only" || /read_only/.test(r.body));
+  return { status: r.status, frozen: r.status === 503, readOnly, open: r.status === 400, retryAfter: lc(r.headers)["retry-after"] ?? null, backend: lc(r.headers)[AWS_HEADER] ?? null, reason };
 }
+
+/** Why a probe that is neither frozen nor open cannot be trusted (for messages). */
+export const inconclusive = (probe) => (probe.status === 401 || probe.status === 403 ? ` The probe is signed with the ops client and was refused (${probe.status} ${probe.reason ?? ""}): is the ops client of ../db.env.ops (CLIENT_ID / CLIENT_PRIVATE_KEY / OPS_ACTOR) registered on this database?` : "");
 
 export async function d1Mode(ports, db) {
   const rows = await ports.d1.select(readModeSql, db);
@@ -140,6 +148,8 @@ export function steps(o) {
         need(Number.isInteger(minor) && minor >= o.minMinor, `the Worker serves api.minor ${minor}, the modes shipped in ${o.minMinor}: deploy the Worker build with cutover.mode first`);
         const problems = await c.ports.stack.check();
         need(problems.length === 0, `the direct read of the stack (serve) is not possible: ${problems.join("; ")}`);
+        const signer = await c.ports.http.check();
+        need(signer.length === 0, `the signed probes need the ops client in the environment (${signer.join(", ")}): source ../db.env.ops`);
         const mode = await d1Mode(c.ports, db);
         need(mode === null || c.state.steps.freeze !== undefined, `D1 already has cutover.mode=${mode} and this run never froze it: another cutover or a half-finished one? (--abort clears it)`);
         const tt = await c.ports.d1.timeTravelInfo(db);
@@ -179,7 +189,7 @@ export function steps(o) {
         need((await d1Mode(c.ports, db)) === "read_only", "D1 did not take cutover.mode=read_only");
         await c.ports.clock.sleep(o.cacheWaitMs);
         const probe = await writeProbe(c.ports, o.workerUrl);
-        need(probe.readOnly, `the Worker did not refuse writes after the freeze: POST /v1/layouts with an empty body answered ${probe.status} (${probe.reason ?? "no reason"}), not 503 read_only. The Worker build lacks the modes or the flag is not read; clear it with --abort`);
+        need(probe.readOnly, `the Worker did not refuse writes after the freeze: the signed POST /v1/layouts with an empty body answered ${probe.status} (${probe.reason ?? "no reason"}), not 503 read_only.${inconclusive(probe)} Otherwise the Worker build lacks the modes or the flag is not read; clear it with --abort`);
         need(probe.retryAfter !== null, "the 503 carries no Retry-After");
         const pos = await feedPosition((sql) => c.ports.d1.select(sql, db));
         c.data.freezeSeq = pos.metaSeq;
@@ -253,27 +263,36 @@ export function steps(o) {
     },
     {
       id: "verify",
-      title: "prove every table (COUNT and checksum), meta.seq and the next-seq rule equal on SQLite and D1",
+      title: "prove the image equals the export file (every table), and live D1 outside the read-path drift set; meta.seq and the next-seq rule equal",
       commands: () => [`node:sqlite  SELECT rowid, * FROM <table> ORDER BY rowid LIMIT ${o.pageRows}   # per table, on ${imageFile()}`, R(`SELECT rowid AS __rid, * FROM <table> WHERE rowid > <n> ORDER BY rowid LIMIT ${o.pageRows}`) + "   # per table, paged", R("SELECT COALESCE(MAX(seq), 0) AS seq FROM events"), R("SELECT name, seq FROM sqlite_sequence")],
       async precondition(c) {
         need(c.state.steps.load?.status === "done", "the load has not run");
         need(fs.existsSync(imageFile()) && sha256File(imageFile()) === c.data.imageSha, "the image file changed since the load step recorded it");
+        need(fs.existsSync(exportFile()) && sha256File(exportFile()) === c.data.exportSha, "the export file changed since the export step recorded it");
         need((await d1Mode(c.ports, db)) === "read_only", "D1 is not frozen any more: its data may have moved after the export");
       },
       async run(c) {
         const local = new DatabaseSync(":memory:");
         local.deserialize(fs.readFileSync(imageFile())); // the bytes that will be the log's image, not the loader's handle
+        let rowsOnly;
         try {
           const d1select = (sql) => c.ports.d1.select(sql, db);
           const t0 = c.ports.clock.now();
           const stats = {};
+          const problems = [];
           const localProof = await proveAll({ select: localSelect(local), db: local, pageRows: o.pageRows });
-          const remoteProof = await proveAllBatched({ select: d1select, ...(c.ports.d1.selectMany ? { selectMany: (sqls) => c.ports.d1.selectMany(sqls, db) } : {}), db: local, pageRows: o.pageRows, concurrency: o.concurrency, stats });
-          const cmp = compareProofs(localProof, remoteProof, { left: "sqlite", right: "d1" });
+          // (a) load fidelity: the image equals the export file itself, table by table, read a second, independent way (rows only: no trigger, index or
+          // view existed to touch them). sqlite_sequence is D1's own value, repaired in from D1 where the export lacks it, so it is proven against D1 in (b).
+          rowsOnly = loadRowsOnly(fs.readFileSync(exportFile(), "utf8"));
+          const fileProof = await proveAll({ select: localSelect(rowsOnly), db: rowsOnly, pageRows: o.pageRows });
+          const fid = compareProofs(Object.fromEntries(Object.entries(localProof).filter(([t]) => t !== SEQUENCE_TABLE)), Object.fromEntries(Object.entries(fileProof).filter(([t]) => t !== SEQUENCE_TABLE)), { left: "image", right: "export" });
+          for (const d of fid.diffs) problems.push(`load fidelity, ${d.table}: ${d.field} image ${d.image} != export file ${d.export}`);
+          // (b) the image equals live D1 on every table outside the read-path drift set, and on the drift tables except in the drift columns and rows
+          // that appeared after the export (Spark polls signed, akl.gg reads with bearers: both bookkeep on a frozen D1, LDB-CV25)
+          const live = await compareWithDrift({ localDb: local, leftProof: localProof, remoteSelect: d1select, ...(c.ports.d1.selectMany ? { remoteSelectMany: (sqls) => c.ports.d1.selectMany(sqls, db) } : {}), pageRows: o.pageRows, concurrency: o.concurrency, stats });
+          problems.push(...live.problems);
           const lp = await feedPosition(localSelect(local));
           const rp = await feedPosition(d1select);
-          const problems = [];
-          for (const d of cmp.diffs) problems.push(`${d.table}: ${d.field} sqlite ${d.sqlite} != d1 ${d.d1}`);
           if (lp.metaSeq !== rp.metaSeq) problems.push(`meta.seq: sqlite ${lp.metaSeq} != d1 ${rp.metaSeq}`);
           if (lp.eventsCounter !== rp.eventsCounter) problems.push(`next-seq rule (CV17): sqlite_sequence for events is ${lp.eventsCounter}, D1's is ${rp.eventsCounter}`);
           if (rp.eventsCounter !== null && rp.eventsCounter < rp.metaSeq) problems.push(`D1's own sqlite_sequence (${rp.eventsCounter}) is below MAX(seq) (${rp.metaSeq})`);
@@ -284,7 +303,9 @@ export function steps(o) {
           const rset = new Set(rs.map(key));
           for (const k of lset) if (!rset.has(k)) problems.push(`schema: ${JSON.parse(k)[0]} ${JSON.parse(k)[1]} differs or is missing on D1`);
           for (const k of rset) if (!lset.has(k)) problems.push(`schema: ${JSON.parse(k)[0]} ${JSON.parse(k)[1]} is on D1 but not in the export`);
-          const proof = { ok: problems.length === 0, tables: cmp.tables, rows: cmp.rows, metaSeq: rp.metaSeq, eventsCounter: rp.eventsCounter, verifyMs: c.ports.clock.now() - t0, d1Calls: stats.calls, problems, perTable: localProof };
+          const lost = live.lost;
+          const driftReport = Object.fromEntries(Object.entries(live.drift).map(([t, d]) => [t, { liveOnly: d.rightOnly, columnsDiffering: d.tolerated }]));
+          const proof = { ok: problems.length === 0, tables: live.plain.tables + Object.keys(live.drift).length, rows: live.plain.rows, metaSeq: rp.metaSeq, eventsCounter: rp.eventsCounter, verifyMs: c.ports.clock.now() - t0, d1Calls: stats.calls, fidelity: { tables: fid.tables, rows: fid.rows }, drift: driftReport, lostOnAws: lost, problems, perTable: localProof };
           if (!proof.ok) {
             const e = new Error(`VERIFY FAILED, nothing was written to AWS: ${problems.slice(0, 8).join(" | ")}${problems.length > 8 ? ` (+${problems.length - 8} more)` : ""}`);
             e.proof = proof;
@@ -293,9 +314,12 @@ export function steps(o) {
           c.data.finalSeq = rp.metaSeq;
           c.data.eventsCounter = rp.eventsCounter;
           c.data.tables = localProof;
-          return { message: `${cmp.tables} tables, ${cmp.rows} rows, meta.seq ${rp.metaSeq}, events counter ${rp.eventsCounter}: all equal (${stats.calls} D1 calls)`, proof };
+          c.data.lostOnAws = lost;
+          const lostText = Object.entries(lost).map(([t, n]) => `${t} ${n}`).join(", ");
+          return { message: `${fid.tables} tables equal the export file, ${live.plain.tables} tables and meta.seq ${rp.metaSeq} equal live D1, events counter ${rp.eventsCounter} (${stats.calls} D1 calls)${lostText ? `; read-path bookkeeping since the export, lost on AWS: ${lostText}` : ""}`, proof };
         } finally {
           local.close();
+          rowsOnly?.close();
         }
       },
     },
@@ -437,7 +461,7 @@ export function steps(o) {
         c.data.openSeq = seq;
         await c.ports.clock.sleep(o.cacheWaitMs);
         const probe = await writeProbe(c.ports, o.publicUrl);
-        need(!probe.frozen, `writes are still refused after the flag was cleared (${probe.status} ${probe.reason}): the AWS flag cache, or ${o.publicUrl} is not the stack`);
+        need(probe.open, `writes are not open after the flag was cleared: the signed probe answered ${probe.status} (${probe.reason}), expected 400.${probe.frozen ? " The AWS flag cache, or the name is not the stack." : inconclusive(probe)}`);
         need(probe.backend === "aws", `the write probe was answered by ${probe.backend ?? "the Worker"}, not AWS`);
         const pauseMs = c.data.openedAt - c.data.freezeAt;
         c.data.pauseMs = pauseMs;
@@ -516,7 +540,7 @@ export function abortSteps(o) {
         need((await d1Mode(c.ports, o.d1Name)) === null, "D1 still has cutover.mode set");
         await c.ports.clock.sleep(o.cacheWaitMs);
         const probe = await writeProbe(c.ports, o.workerUrl);
-        need(!probe.frozen, `writes are still refused (${probe.status} ${probe.reason})`);
+        need(probe.open, `writes are not accepted again: the signed probe answered ${probe.status} (${probe.reason}), expected 400.${inconclusive(probe)}`);
         const pauseMs = c.data.freezeAt === undefined ? null : c.ports.clock.now() - c.data.freezeAt;
         return { message: `D1 writable again${pauseMs === null ? "" : ` after ${pauseMs} ms`}`, proof: { probe, pauseMs } };
       },
@@ -536,7 +560,8 @@ export function renderReport(state, o) {
   const proofOf = (id) => s[id]?.proof;
   const v = proofOf("verify");
   if (v) {
-    lines.push("### verify (CV16, CV17)", "", `${v.tables} tables, ${v.rows} rows: counts and checksums equal on SQLite and D1. meta.seq ${v.metaSeq}; sqlite_sequence for events ${v.eventsCounter} (the next event is seq ${v.eventsCounter + 1}). Verify took ${v.verifyMs} ms.`, "", "| table | rows | checksum |", "|---|---|---|");
+    const lostRows = Object.entries(v.lostOnAws ?? {});
+    lines.push("### verify (CV16, CV17, CV26)", "", `The image equals the export file on ${v.fidelity?.tables} tables (${v.fidelity?.rows} rows) and live D1 on every table outside the read-path drift set. meta.seq ${v.metaSeq}; sqlite_sequence for events ${v.eventsCounter} (the next event is seq ${v.eventsCounter + 1}). Verify took ${v.verifyMs} ms${v.d1Calls ? ` and ${v.d1Calls} D1 calls` : ""}.`, "", lostRows.length === 0 ? "**Lost on AWS: read-path bookkeeping since the export: none.**" : `**Lost on AWS: read-path bookkeeping (nonces / auth_cache / authors.last_seen_at and renames) since the export, not a failure:** ${lostRows.map(([t, n]) => `${t} +${n} row(s)`).join(", ")}; drift columns that differed: ${Object.entries(v.drift ?? {}).filter(([, d]) => Object.keys(d.columnsDiffering).length > 0).map(([t, d]) => `${t}.${Object.keys(d.columnsDiffering).join("/")}`).join(", ") || "none"}.`, "", "| table | rows | checksum |", "|---|---|---|");
     for (const [t, p] of Object.entries(v.perTable ?? {})) lines.push(`| ${t} | ${p.count} | \`${p.checksum.slice(0, 16)}\` |`);
     lines.push("");
   }
