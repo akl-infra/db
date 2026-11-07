@@ -47,8 +47,8 @@ describe("[LDB-F44] spark/1 alts (one entry per ngram: an array, null is the wil
     });
   });
 
-  it("[LDB-F44] an ngram must have 2 or 3 items: 1 and 4 are refused (schema)", () => {
-    expect(schemaOrRuleRefusal(A(["g"], ["LI"]))?.path.startsWith("/alts/0/ngram")).toBe(true);
+  it("[LDB-F44] an ngram must have 1, 2 or 3 items: empty and 4 are refused (schema)", () => {
+    expect(schemaOrRuleRefusal(A(["g"], ["LI"]))).toBeNull();
     expect(schemaOrRuleRefusal(A(["e", "g", "s", "n"], ["LP", "LR", "LM", "LI"]))?.path.startsWith("/alts/0/ngram")).toBe(true);
     expect(schemaOrRuleRefusal(A([], []))?.path.startsWith("/alts/0/ngram")).toBe(true);
   });

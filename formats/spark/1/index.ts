@@ -75,10 +75,11 @@ export interface Position {
 export type { Key };
 export type { MagicIntent, MagicKey, ChiralKey, AdaptiveSwap, RawRule };
 
-// design/alts/07-format.md: one alternate fingering per NGRAM. `ngram` is an
-// array of 2 or 3 items; each is a string of exactly ONE code point, or null
+// LDB-F52 extends design/alts/07-format.md: unary keys may have several
+// distinct finger assignments; multigrams have one assignment. `ngram` is an
+// array of 1, 2 or 3 items; each is a string of exactly ONE code point, or null
 // (the wildcard: any key). null may only be the middle item of a 3-item
-// ngram, so every ngram holds at least two literal layout characters (a
+// ngram, so every multigram holds at least two literal layout characters (a
 // literal "_" is just the underscore key). `fingers` is an array of the same
 // length of this format's two-letter finger codes (the Key.finger enum): the
 // finger that types that position's character in this alt, null exactly
@@ -472,17 +473,18 @@ function validateGeometry(p: Payload): ErrBody | null {
   return null;
 }
 
-// design/alts/07-format.md: one alt per ngram. Per alt, in index order and
+// LDB-F52 extends design/alts/07-format.md. Per alt, in index order and
 // in this order (first violation wins, each names its own path):
-//   1. `ngram` has 2 or 3 items, each a one-code-point string or null
+//   1. `ngram` has 1, 2 or 3 items, each a one-code-point string or null
 //                                                        -> /alts/i/ngram
 //   2. null only at the middle of a 3-item ngram          -> /alts/i/ngram
-//      (so every ngram has >= 2 literal code points)
+//      (a unary ngram has exactly one literal)
 //   3. every literal item is a key on this layout        -> /alts/i/ngram
 //      (charMap, first occurrence, same as combos[].keys)
 //   4. `fingers` has one entry per ngram item            -> /alts/i/fingers
 //   5. null in `fingers` exactly where the ngram has null -> /alts/i/fingers
-//   6. no two alts share an `ngram` (element-wise)        -> /alts/i/ngram
+//   6. multigrams cannot repeat; unary key/finger pairs cannot repeat
+//                                                        -> /alts/i/ngram
 // That `fingers` entries are finger codes or null is the schema's rule (items
 // enum). A code equal to the key's own finger is NOT refused. Deliberately
 // NOT checked: an alt naming a one-character combo's output key (akldb is
@@ -495,8 +497,8 @@ function validateAlts(alts: Alt[] | undefined, keys: Record<string, Position>): 
     const base = `/alts/${i}`;
     const ngram = alt.ngram;
     const shown = JSON.stringify(ngram);
-    if (ngram.length < 2 || ngram.length > 3) {
-      return { error: "invalid_payload", message: `alts[].ngram must have 2 or 3 items, got ${shown}`, path: `${base}/ngram` };
+    if (ngram.length < 1 || ngram.length > 3) {
+      return { error: "invalid_payload", message: `alts[].ngram must have 1, 2 or 3 items, got ${shown}`, path: `${base}/ngram` };
     }
     for (let p = 0; p < ngram.length; p++) {
       const item = ngram[p] ?? null;
@@ -543,9 +545,9 @@ function validateAlts(alts: Alt[] | undefined, keys: Record<string, Position>): 
         };
       }
     }
-    const id = shown;
+    const id = ngram.length === 1 ? JSON.stringify([ngram, fingers]) : shown;
     if (seen.has(id)) {
-      return { error: "invalid_payload", message: `duplicate alts[].ngram ${shown}`, path: `${base}/ngram` };
+      return { error: "invalid_payload", message: ngram.length === 1 ? `duplicate unary alt key/finger assignment ${shown} ${JSON.stringify(fingers)}` : `duplicate alts[].ngram ${shown}`, path: `${base}/ngram` };
     }
     seen.add(id);
   }
