@@ -92,3 +92,36 @@ nothing else vanishes or leaks in.
 
 `DB` (+ akl.gg) -- this format lives with the service. Changes go through
 `OWNERS`.
+
+## Unary alternatives (API 1.36)
+
+An ordinary `spark/1` key can have multiple allowed fingers:
+
+```json
+{
+  "keys": [{"char":"w","row":0,"col":3,"finger":"LI"}],
+  "alts": [
+    {"ngram":["w"],"fingers":["LM"]},
+    {"ngram":["w"],"fingers":["LR"]},
+    {"ngram":["w"],"fingers":["RT"]}
+  ]
+}
+```
+
+`LI` remains the default. Alternatives may include either thumb (`LT`/`RT`)
+and other-hand fingers; this storage format imposes no ergonomic crossing
+rules. Identical unary key/finger assignments are rejected. Two/three-item
+alts retain their existing uniqueness and wildcard rules.
+
+No feature parameter or new Spark/API major is required. The schema and
+all ordinary payload responses include unary alternatives. A strict reader
+that assumed every alt had 2–3 items needs an update. PUT remains a complete
+replacement, so an older writer that omits unfamiliar alts could erase them;
+use PATCH to edit unrelated fields without rebuilding the payload. Existing
+revision checks prevent concurrent overwrites, not omission of unknown data.
+
+The list/full/detail/revision endpoints, write and stale replies, and stored
+backup/revision payloads retain the same envelopes. `has_alts` includes unary
+alts. `mana2/1` continues its documented omission of all alternate fingerings.
+See [integration handoff](../../../docs/fuzzy-v1-integration.md) for client
+requirements and local verification.

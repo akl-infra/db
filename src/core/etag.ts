@@ -239,7 +239,8 @@ export async function readHead(dbArg: StoreArg, stateKeys: readonly string[] = [
 //   refused for newer/other-pending work or a deleted layout, and the reopen
 //   body's `status` also accepts `superseded` (comments unchanged). Additive;
 //   no stored shape changes; no migration.
-export const WIRE_VERSION = 35;
+// 36: spark/1 unary alternative fingers (ordinary v1, no feature flag).
+export const WIRE_VERSION = 36;
 
 export async function etagFor(headSeqValue: number, query: unknown): Promise<string> {
   const hash = await sha256Hex(canonical({ wireVersion: WIRE_VERSION, query: query ?? null }));

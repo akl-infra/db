@@ -25,6 +25,17 @@ this file just gives them a public, versioned home. From here on, a
 `WIRE_VERSION` bump and a line here land in the SAME PR, never one without
 the other (`[LDB-V5]`).
 
+## 1.36 — Fuzzy fingers in ordinary spark/1
+
+`spark/1` now accepts one-item `alts[].ngram` entries. Repeat a key with
+separate distinct fingers to allow two or more alternatives; `keys[].finger`
+remains its default. Duplicate unary key/finger assignments are rejected;
+two/three-item alt rules are unchanged. No feature query or `/v2` is involved.
+All payload routes, revisions and backups retain these entries normally.
+Strict older readers that reject unigrams must upgrade; this extends the
+accepted payload language and is not compatible with every old validator.
+PUT still replaces the complete payload; use PATCH for unrelated edits.
+
 ## 1.35 — 2026-11-03
 
 LDB-MD20: any decided WPM submission can be reopened for review at any time

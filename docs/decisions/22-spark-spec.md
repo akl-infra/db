@@ -337,9 +337,9 @@ reshaped in place 2026-10-01, before release, to one entry per ngram, and
 again 2026-10-02: `ngram` is an array and `null` is the wildcard):
 `alts[]`, each `{ngram, fingers}`, is an alternate fingering for one ngram.
 
-- `ngram` is an ARRAY of exactly 2 or 3 items. Each item is a string of
+- `ngram` is an ARRAY of 1, 2 or 3 items. Each item is a string of
   exactly ONE code point, or `null`, the wildcard (any key). `null` may
-  appear only as the MIDDLE item of a 3-item ngram, so every ngram holds at
+  appear only as the MIDDLE item of a 3-item ngram, so every multigram holds at
   least two literal characters (the "at least two non-wildcards" rule
   follows from the two before it and has no check of its own). A literal
   `"_"` is just the underscore character: the earlier `_`-in-a-string
@@ -356,8 +356,14 @@ again 2026-10-02: `ngram` is an array and `null` is the wildcard):
   and never refused, so a fingermap edit can never invalidate stored alts.
   Example: `{"ngram": ["a", "b", "c"], "fingers": ["LI", "LM", "RM"]}`,
   `{"ngram": ["a", null, "c"], "fingers": ["LI", null, "RM"]}`.
-- No two entries may share an `ngram` (compared element-wise, `null` equal
-  to `null`).
+- Since API 1.36, a one-item ngram adds an allowed finger for its key.
+  `keys[].finger` stays the default. Multiple entries can name that one
+  key when their fingers differ, e.g. `{"ngram":["w"],"fingers":["LM"]}`
+  and `{"ngram":["w"],"fingers":["LR"]}` alongside default `LI`.
+  Duplicate unary key/finger assignments are refused. Multi-gram entries
+  still cannot share an `ngram` (element-wise, `null` equal to `null`).
+  This is ordinary spark/1, with no query flag or new API major.
+  Existing readers that require 2–3 items must update before consuming it.
 - Nothing else is allowed on an entry. The earlier shapes (per-key `key`,
   `finger`, `when`, `except`, `guard`; the string `ngram` with `"_"` in
   `fingers`) never shipped and are gone; there is no compatibility path.
