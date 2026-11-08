@@ -5,6 +5,7 @@
 import { createHash } from "node:crypto";
 // @ts-expect-error -- plain scripts, no .d.ts
 import { copyDumps } from "../../scripts/cutover/dumps.mjs";
+import { WIRE_VERSION } from "../../src/core/etag";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -33,7 +34,7 @@ export const PUBLIC = "https://api.akldb.org";
 export const WORKER_DIRECT = "https://akl-db.akl-58a.workers.dev";
 export const REHEARSAL_WORKER = "https://rehearsal.example";
 export const STAGING_PUBLIC = "https://staging-api.akldb.org";
-export const MINOR = 35;
+export const MINOR = WIRE_VERSION; // the fake Worker serves this tree's own API minor, as a deployed build of it does
 const SECRET = "s3cret-origin-value-0123456789abcdef";
 
 export interface Res {
