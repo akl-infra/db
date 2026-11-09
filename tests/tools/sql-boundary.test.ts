@@ -39,6 +39,8 @@ const D1_ONLY = [
   // [LDB-ST1] the stress scenarios check table invariants with read-only joins/aggregates (layout_revs against events, gap
   // checks) that no port method expresses; runs under both the workers and the shim projects.
   "tests/api/stress.test.ts",
+  // [LDB-ST2] wraps the D1 binding to interleave a real write between two table reads of a dump.
+  "tests/api/dump-settle.test.ts",
 ];
 
 function walk(dir: string): string[] {
