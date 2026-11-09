@@ -56,7 +56,7 @@ for (const [name, fn] of Object.entries(scenarios)) {
 const soakMin = Number(arg("soak-minutes", "0"));
 if (soakMin > 0 && (only.length === 0 || only.includes("soak"))) {
   console.log(`soak: ${soakMin} min, workers=${arg("workers", "16")}`);
-  const r = await S.soak(target, { durationMs: soakMin * 60000, workers: Number(arg("workers", "16")), owners: Number(arg("owners", "50")), layouts: Number(arg("layouts", "60")), seed: Number(arg("seed", "1")), log: (s) => console.log(s) });
+  const r = await S.soak(target, { durationMs: soakMin * 60000, workers: Number(arg("workers", "16")), owners: Number(arg("owners", "50")), layouts: Number(arg("layouts", "60")), seed: Number(arg("seed", "1")), skip: arg("skip", "").split(",").filter(Boolean), log: (s) => console.log(s) });
   console.log(`${r.failures.length === 0 ? "PASS" : "FAIL"} soak ${JSON.stringify(r.stats)}`);
   for (const f of r.failures.slice(0, 40)) console.log(`   - ${f}`);
   bad += r.failures.length;
