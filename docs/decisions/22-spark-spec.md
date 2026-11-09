@@ -381,13 +381,16 @@ own pointer: ngram length and item shape, one code point or `null`
 (`/alts/<i>/ngram`); `null` position (`/alts/<i>/ngram`); literal characters
 on the layout (`/alts/<i>/ngram`); `fingers` length equal to the ngram's
 (`/alts/<i>/fingers`); `null` in `fingers` exactly where the ngram has its
-wildcard (`/alts/<i>/fingers`); then duplicate ngram (`/alts/<i>/ngram`, the
-later entry). A string `ngram`, an ngram of fewer than 2 or more than 3
-items, an item that is neither a non-empty string nor `null`, a `fingers`
-that is not an array of 2-3 finger codes or `null`s, a missing field, or an
-unknown property is the schema's own refusal.
+wildcard (`/alts/<i>/fingers`); then a duplicate (`/alts/<i>/ngram`, the
+later entry): the same ngram for a multi-gram, the same key/finger pair for
+a one-item ngram. A string `ngram`, an ngram of fewer than 1 or more than 3
+items (the validator also names it, `/alts/<i>/ngram`), an item that is
+neither a non-empty string nor `null`, a `fingers` that is not an array of
+1-3 finger codes or `null`s, a missing field, or an unknown property is the
+schema's own refusal. There is no cap on the number of one-item entries for
+a key beyond the distinct-finger rule (10 fingers).
 
-*Schema: `db/formats/spark/1/schema.json`'s `alt` `$def` (`ngram` is an array of 2-3 items, each `oneOf` a string with `minLength: 1` or `null`; no `maxLength` -- code-point exactness is not expressible in JSON Schema, same reason `rawRule.output`/`magicKeyRule.after`/`emit` have none; `fingers` is an array of 2-3 items, each the finger enum or `null`; the length link, the `null` placement and the one-code-point rule are not expressible and live in `validateAlts`). Semantics: `db/formats/spark/1/index.ts`'s `validateAlts`. LDB-F44.*
+*Schema: `db/formats/spark/1/schema.json`'s `alt` `$def` (`ngram` is an array of 1-3 items, each `oneOf` a string with `minLength: 1` or `null`; no `maxLength` -- code-point exactness is not expressible in JSON Schema, same reason `rawRule.output`/`magicKeyRule.after`/`emit` have none; `fingers` is an array of 1-3 items, each the finger enum or `null`; the length link, the `null` placement and the one-code-point rule are not expressible and live in `validateAlts`). Semantics: `db/formats/spark/1/index.ts`'s `validateAlts`. LDB-F44.*
 
 ## 5b. Combos
 
@@ -418,7 +421,7 @@ error}`. Checks run in this order, each stopping at the first failure:
 | 6 | every magic-named character has at most one entry (§3) | `magic_needs_unique_key` | `/keys` |
 | 7 | a both-hands duplicate is excepted or ruled for every chiral key that would enumerate it (§3) | `magic_needs_unique_key` | `/keys` |
 | 8 | magic semantics (single-code-point fields, rule shapes -- `after`/`emit` non-empty, no duplicate `after`, no magic/chiral key sharing a character, reserved `rules[].type` words) | `invalid_payload` or `reserved_rule_type` | `/magic/...` |
-| 8a | `alts[]` semantics (§5a) -- ngram is 2-3 items each one code point or `null`, `null` only mid-3-ngram, literal characters on the layout, `fingers` one entry per item with `null` exactly at the wildcard (no "must differ" rule), no duplicate ngram | `invalid_payload` | `/alts/<i>/ngram`, `/alts/<i>/fingers` |
+| 8a | `alts[]` semantics (§5a) -- ngram is 1-3 items each one code point or `null`, `null` only mid-3-ngram, literal characters on the layout, `fingers` one entry per item with `null` exactly at the wildcard (no "must differ" rule), no duplicate ngram (a one-item ngram: no duplicate key/finger pair) | `invalid_payload` | `/alts/<i>/ngram`, `/alts/<i>/fingers` |
 | 8b | `combos[]` semantics (§5b) -- two distinct layout keys, no duplicate pair, output length, no duplicate output | `invalid_payload` | `/combos/...` |
 | 9 | the lowering has no collision (5.3) | `magic_collision` | the later side's `/magic/...` pointer |
 
