@@ -150,6 +150,11 @@ export default defineConfig(async () => {
               // belongs here alongside docs-site.test.ts, not "workers".
               "tests/contract/**/*.test.ts",
             ],
+            // Same reasoning as the workers project above: the 5 s default is a wall-clock bound that trips under full-suite load
+            // (tests/infra/cutover.test.ts [LDB-CV12] runs deploy-aws.sh, probe.test.ts [LDB-PV9] runs cfn-lint: both spawn a
+            // process and take ~1-2 s alone, 5-7 s while the other projects run).
+            testTimeout: 30000,
+            hookTimeout: 30000,
           },
         },
       ],
