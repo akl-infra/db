@@ -12,6 +12,7 @@ export interface Res {
   status: number;
   etag: string | null;
   json: any;
+  req?: CallOpts; // set by the soak's wrapper so a failure can name the request that caused it
   bytes?: Uint8Array; // set for application/gzip bodies (dumps), which are not JSON
 }
 export interface CallOpts {
@@ -73,7 +74,9 @@ export class Report {
   constructor(name: string) {
     this.name = name;
   }
+  log?: (s: string) => void; // called for EVERY failed check, at the moment it happens
   check(cond: unknown, msg: string): boolean {
+    if (!cond) this.log?.(`FAIL ${new Date().toISOString()} [${this.name}] ${msg}`);
     if (!cond && this.failures.length < 60) this.failures.push(msg);
     if (!cond) this.stats["failures"] = (this.stats["failures"] ?? 0) + 1;
     return !!cond;
@@ -598,8 +601,10 @@ export interface SoakOpts {
 }
 
 /** Randomized mixed traffic for `durationMs`, then every invariant on the quiesced database. */
-export async function soak(t: Target, o: SoakOpts): Promise<Report> {
+export async function soak(t0: Target, o: SoakOpts): Promise<Report> {
   const r = new Report("soak");
+  r.log = o.log;
+  const t: Target = { sql: (q, ...p) => t0.sql(q, ...p), call: async (c) => { const x = await t0.call(c); x.req = c; return x; } };
   const rnd = mulberry32(o.seed);
   const pick = <T,>(a: T[]): T => a[Math.floor(rnd() * a.length)]!;
   const log = o.log ?? (() => {});
@@ -610,7 +615,7 @@ export async function soak(t: Target, o: SoakOpts): Promise<Report> {
   const pool: L[] = [];
   const touched = new Set<string>();
   let seed = 1, names = 0, stop = false, backoff = 0;
-  const fail = (op: string, x: Res) => r.check(false, `${op}: unexpected ${x.status} ${x.json?.error ?? ""} ${JSON.stringify(x.json).slice(0, 160)}`);
+  const fail = (op: string, x: Res) => r.check(false, `${op}: unexpected ${x.status} ${x.json?.error ?? ""} for ${x.req?.method} ${x.req?.path} user=${x.req?.user} if-match=${x.req?.headers?.["If-Match"] ?? "-"} body=${JSON.stringify(x.req?.body)?.slice(0, 120)} -> ${JSON.stringify(x.json).slice(0, 400)}`);
   const sync = (l: L, x: Res) => { // adopt the server's view from any layout-shaped body
     const j = x.json?.record ?? x.json;
     if (j && typeof j.layout_rev === "number" && j.id === l.id) {
@@ -725,8 +730,8 @@ export async function soak(t: Target, o: SoakOpts): Promise<Report> {
     }
   })();
 
-  const t0 = Date.now(), end = t0 + o.durationMs;
-  let nextLog = t0 + 30000, iterations = 0;
+  const tStart = Date.now(), end = tStart + o.durationMs;
+  let nextLog = tStart + 30000, iterations = 0;
   const worker = async () => {
     while (Date.now() < end) {
       iterations++;
@@ -735,7 +740,7 @@ export async function soak(t: Target, o: SoakOpts): Promise<Report> {
       const l = pool.length > 0 ? (rnd() < 0.6 ? pool[Math.floor(rnd() * Math.min(8, pool.length))]! : pick(pool)) : undefined;
       try { await op[2](l ?? ({ id: "none", owner: 0, name: "", lrev: 1, frev: 1, deleted: false })); }
       catch (e) { r.check(false, `${op[0]} threw: ${String(e).slice(0, 200)}`); }
-      if (Date.now() > nextLog) { nextLog = Date.now() + 30000; log(`  ${Math.round((Date.now() - t0) / 1000)}s iterations=${iterations} acked=${acked.length} layouts=${pool.length} seq~${lastSeq} failures=${r.failures.length}`); }
+      if (Date.now() > nextLog) { nextLog = Date.now() + 30000; log(`  ${Math.round((Date.now() - tStart) / 1000)}s iterations=${iterations} acked=${acked.length} layouts=${pool.length} seq~${lastSeq} failures=${r.failures.length}`); }
     }
   };
   await Promise.all(Array.from({ length: o.workers }, worker));
@@ -743,7 +748,7 @@ export async function soak(t: Target, o: SoakOpts): Promise<Report> {
   r.stats["iterations"] = iterations;
   r.stats["backoff_429"] = backoff;
   r.stats["layouts_created"] = pool.length;
-  r.stats["seconds"] = Math.round((Date.now() - t0) / 1000);
+  r.stats["seconds"] = Math.round((Date.now() - tStart) / 1000);
   log(`soak traffic done: ${iterations} ops, ${acked.length} acked writes; checking invariants`);
 
   const ids = [...touched];
