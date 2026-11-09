@@ -220,8 +220,10 @@ async function computeMeta(store: Store): Promise<DumpMeta> {
 
 // MF-13 (LDB-B10 with two tables): `meta` is read FIRST, and every table
 // page is read AFTER it (not in one `Promise.all` with `meta`'s own
-// queries) -- so every row this dump carries was written at or before
-// `meta.seq`'s snapshot instant. A `Promise.all` that started `meta` and
+// queries) -- so the dump is never BEHIND `meta.seq`: every write at or
+// below it is in the tables, and a write that landed during the dump may be
+// in them too (the file can hold more events than `meta.seq`; the tables
+// are separate reads, not one snapshot). A `Promise.all` that started `meta` and
 // the table pages at the same moment could let a write land between them
 // and be reflected in, say, `layout_formats` but not in `meta.seq`,
 // putting the dump BEHIND its own claimed floor: booting from it and
