@@ -322,7 +322,7 @@ for a create or an import) — each event's own `format` field says which:
 `null` for a layout-scope kind (`created`/`renamed`/`transferred`/
 `deleted`/`restored`/`upstream_deleted`), a format id for a format-scope
 one (`format_added`/`updated`/`fingermap`/`imported`) — carrying
-`before`/`after` (scope-shaped: layout fields, or that one format's own)
+`before`/`after` (scope-shaped: layout fields, or that one format's own; a layout-scope `before` also carries the internal `n`, `like_count` and `link` — ignore `n`)
 plus per-event `source`; `liked`/`unliked` move only `like_count`;
 `upstream_changed`/`import_conflict`/`import_error`/`admin.*` are
 informational. `kinds=` filters to a comma list. Every layout also carries
