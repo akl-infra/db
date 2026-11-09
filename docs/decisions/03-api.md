@@ -49,6 +49,15 @@ against the live router, `LDB-G10`):
   id means that format's own scope (`before`/`after` are that ONE
   format's fields — never another's, never a layout field). A
   create/import always appends two events, one per scope, in one batch.
+  **What a snapshot actually carries (as built):** an `after` layout
+  snapshot is exactly `scope, id, name, owner, layout_rev, created_at,
+  modified_at, deleted, upstream, source`. A `before` layout snapshot is
+  built from the whole stored row, so it also carries `n` (the internal
+  per-layout write counter `layout_revs` serializes on: the number of
+  rev-bumping writes the layout had committed), `like_count` and `link`
+  (both already public on the layout wire shape). `n` is not part of the
+  contract; do not read it. The extra fields are in the public feed and
+  the dump (`events.before_json`) and are left as they are.
 - **`?as=` is gone. `?format=` is required, everywhere, no default** (D4)
   — every `?as=<format>` in §2 below should read `?format=<format>,
   REQUIRED`. A layout missing (and unable to derive) the format asked for

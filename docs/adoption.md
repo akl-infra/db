@@ -407,6 +407,7 @@ GET /v1/authors/{user_id}
 GET /v1/formats
 GET /v1/formats/{name}/{N}/schema.json
 ```
+`GET /v1/formats` and the schema routes carry no `ETag`/`304`: the registry changes only when akldb is deployed, not with the event log, so there is no head to key one on (the polled routes above do carry them).
 
 **From a web page, call these directly** (LDB-CORS1): every GET/HEAD
 answer carries `Access-Control-Allow-Origin: *` (and exposes `ETag`,
