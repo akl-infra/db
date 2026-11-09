@@ -597,6 +597,7 @@ export interface SoakOpts {
   owners: number;
   layouts: number;
   seed: number;
+  skip?: string[]; // op names to leave out (e.g. list-full)
   log?: (s: string) => void;
 }
 
@@ -715,6 +716,7 @@ export async function soak(t0: Target, o: SoakOpts): Promise<Report> {
       for (const it of x.json.items) r.check(it.formats["spark/1"].has_alts === true, `has_alts list returned ${it.id} with has_alts=false`);
     }],
   ];
+  if (o.skip) for (let i = ops.length - 1; i >= 0; i--) if (o.skip.includes(ops[i]![0])) ops.splice(i, 1);
   const total = ops.reduce((a, b) => a + b[1], 0);
   const chooseOp = () => { let k = rnd() * total; for (const op of ops) { k -= op[1]; if (k <= 0) return op; } return ops[0]!; };
 
