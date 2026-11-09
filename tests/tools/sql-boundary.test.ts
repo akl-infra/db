@@ -36,6 +36,9 @@ const D1_ONLY = [
   // Phase A (design A): the D1 bind/read-back parity file runs raw D1 under both the workers and the shim projects.
   "tests/api/d1-bind-parity.test.ts",
   "tests/api/d1-meta-parity.test.ts",
+  // [LDB-ST1] the stress scenarios check table invariants with read-only joins/aggregates (layout_revs against events, gap
+  // checks) that no port method expresses; runs under both the workers and the shim projects.
+  "tests/api/stress.test.ts",
 ];
 
 function walk(dir: string): string[] {
