@@ -13,7 +13,7 @@ import type { Bindings } from "../env";
 import { workersPlatform } from "../platform/workers";
 import { canonical } from "../core/canonical";
 import type { ClientRow } from "../core/clients";
-import { readHead } from "../core/etag";
+import { headSeq, readHead } from "../core/etag";
 import { redactEventRow, type EventDbRow } from "../core/events";
 import { readMetaCore } from "../core/meta";
 import type { FormatDbRow, LayoutDbRow } from "../core/records";
@@ -221,22 +221,51 @@ async function computeMeta(store: Store): Promise<DumpMeta> {
 // MF-13 (LDB-B10 with two tables): `meta` is read FIRST, and every table
 // page is read AFTER it (not in one `Promise.all` with `meta`'s own
 // queries) -- so the dump is never BEHIND `meta.seq`: every write at or
-// below it is in the tables, and a write that landed during the dump may be
-// in them too (the file can hold more events than `meta.seq`; the tables
-// are separate reads, not one snapshot). A `Promise.all` that started `meta` and
-// the table pages at the same moment could let a write land between them
-// and be reflected in, say, `layout_formats` but not in `meta.seq`,
-// putting the dump BEHIND its own claimed floor: booting from it and
-// draining `/v1/changes` from `meta.seq` would then miss that write
-// entirely (it precedes the drain's `since`, but the dump's own tables
-// don't carry it either).
+// below it is in the tables. A `Promise.all` that started `meta` and the
+// table pages at the same moment could let a write land between them and be
+// reflected in, say, `layout_formats` but not in `meta.seq`, putting the dump
+// BEHIND its own claimed floor: booting from it and draining `/v1/changes`
+// from `meta.seq` would then miss that write entirely.
+//
+// Neither backend reads the tables in one snapshot (D1 makes only a `batch`
+// atomic; the replica's shim catches up before each statement), so a write
+// landing between two table reads could still leave the tables disagreeing
+// with each other (say `layout_formats` a revision ahead of `layout_revs`).
+// Every state change appends an event, so the dump is validated by the head:
+// `headSeq` read after the tables must still equal `meta.seq`, else nothing was
+// written while it was read and the tables are one state. If it moved, the
+// read starts over, up to DUMP_ATTEMPTS times; if it never settles the last
+// read is returned anyway with `settled: false` (`writeDump` then raises one
+// `akldb-alarm: dump-unsettled` line and records it in the `dump.last_at` row).
+export const DUMP_ATTEMPTS = 3;
+
+export interface DumpBuild {
+  dump: Dump;
+  attempts: number;
+  /** true when no event was appended while the tables were read */
+  settled: boolean;
+}
+
 export async function buildDump(env: Bindings, now: Clock): Promise<Dump> {
-  const store = workersPlatform(env, undefined).store;
+  return (await buildDumpChecked(env, now)).dump;
+}
+
+/** `store` is injectable for tests; production passes none. */
+export async function buildDumpChecked(env: Bindings, now: Clock, store: Store = workersPlatform(env, undefined).store): Promise<DumpBuild> {
   const date = now().slice(0, 10);
 
-  const meta = await computeMeta(store);
+  for (let attempt = 1; ; attempt++) {
+    const meta = await computeMeta(store);
+    const tables = await store.dump.tables();
+    const settled = (await headSeq(store)) === meta.seq;
+    if (settled || attempt >= DUMP_ATTEMPTS) return { dump: assembleDump(date, meta, tables), attempts: attempt, settled };
+  }
+}
 
-  const { records, layout_formats, layout_revs, likes, authors, admins, events, import_state: import_state_all, import_map, clients, bans, link_submissions, wpm_submissions, layout_comments, comment_likes } = await store.dump.tables();
+type DumpTables = Awaited<ReturnType<Store["dump"]["tables"]>>;
+
+function assembleDump(date: string, meta: DumpMeta, tables: DumpTables): Dump {
+  const { records, layout_formats, layout_revs, likes, authors, admins, events, import_state: import_state_all, import_map, clients, bans, link_submissions, wpm_submissions, layout_comments, comment_likes } = tables;
 
   // LDB-D8: `dump.last_at` is this dump's OWN scheduling bookkeeping (see
   // the `Dump.import_state` comment above) -- filtered out here, not left
@@ -290,6 +319,10 @@ export interface DumpState {
   at: string;
   seq: number;
   key: string;
+  // Present only when the dump never settled (writes kept landing while its tables were read, DUMP_ATTEMPTS times):
+  // the file was still written, but its tables may disagree with each other. Read it in D1/the replica:
+  // SELECT value FROM import_state WHERE key = 'dump.last_at'.
+  unsettled?: { attempts: number };
 }
 
 export const DUMP_STATE_KEY = "dump.last_at"; // exported for `/v1/meta`'s one-query head (src/index.ts), same reason `import/difftick.ts`'s IMPORT_STATE_KEY is
@@ -346,7 +379,9 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
 // catch-up check (`src/index.ts`).
 export async function writeDump(env: Bindings, now: Clock): Promise<{ key: string; latest: LatestJson }> {
   const platform = workersPlatform(env, undefined);
-  const dump = await buildDump(env, now);
+  const built = await buildDumpChecked(env, now);
+  const dump = built.dump;
+  if (!built.settled) console.error(`akldb-alarm: dump-unsettled: seq=${dump.meta.seq} attempts=${built.attempts}; writes kept landing while the tables were read, the dump may be torn`);
   const bytes = new TextEncoder().encode(canonical(dump));
   const gz = await gzip(bytes);
   const sha256 = await sha256Hex(gz);
@@ -382,7 +417,7 @@ export async function writeDump(env: Bindings, now: Clock): Promise<{ key: strin
   // previous `dump.last_at` in place, so the NEXT tick's catch-up check
   // still sees this attempt as not having happened and retries, rather
   // than wrongly believing a dump exists that was never fully written.
-  await writeDumpState(platform.store, { at: now(), seq: dump.meta.seq, key });
+  await writeDumpState(platform.store, { at: now(), seq: dump.meta.seq, key, ...(built.settled ? {} : { unsettled: { attempts: built.attempts } }) });
 
   return { key, latest };
 }

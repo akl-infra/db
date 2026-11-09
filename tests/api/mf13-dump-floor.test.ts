@@ -26,7 +26,7 @@ import { commitWrite, foldLayout, rowToEvent, type CommitInput, type Event } fro
 import { formatsForLayout, readById, rowToLayout, type LayoutDbRow } from "../../src/core/records";
 import { fixedClock } from "../../src/core/time";
 import { ulid } from "ulidx";
-import { buildDump } from "../../src/dump/write";
+import { buildDumpChecked } from "../../src/dump/write";
 import * as etagModule from "../../src/core/etag";
 
 const bindings = env as unknown as Bindings;
@@ -76,14 +76,17 @@ describe("[MF-13 = LDB-D7] the dump floor: tables are never behind meta.seq", ()
     vi.restoreAllMocks();
   });
 
-  it("[MF-13] [LDB-D7] a rename injected between readHead() and the table pages lands in the dump's own tables, strictly ahead of meta.seq", async () => {
+  it("[MF-13] [LDB-D7] a rename injected between readHead() and the table pages is caught and the dump is re-read: floor and tables agree at the new head", async () => {
     const seeded = await seed();
     const seqBeforeInjection = await headSeqNow();
 
     const originalReadHead = etagModule.readHead;
     let seqAfterInjection: number | null = null;
+    let injected = false;
     const spy = vi.spyOn(etagModule, "readHead").mockImplementation(async (...args: Parameters<typeof originalReadHead>) => {
       const head = await originalReadHead(...args);
+      if (injected) return head; // only the first attempt is disturbed
+      injected = true;
       // Land a write the instant `computeMeta`'s one query resolves --
       // strictly between `meta`'s read and the table pages' own reads
       // (buildDump's `Promise.all` hasn't started yet).
@@ -107,17 +110,20 @@ describe("[MF-13 = LDB-D7] the dump floor: tables are never behind meta.seq", ()
       return head; // the head captured BEFORE the injected write -- meta.seq stays at the old floor
     });
 
-    const dump = await buildDump(bindings, clock);
+    // [LDB-ST2] The disturbed first read is detected (headSeq moved past the stale meta.seq) and the dump is read again, so the
+    // floor it reports is now the NEW head and the tables are exactly at it: not behind (MF-13) and, since the validate-and-retry,
+    // not ahead either.
+    const built = await buildDumpChecked(bindings, clock);
+    const dump = built.dump;
     spy.mockRestore();
+    expect(built.attempts).toBe(2);
+    expect(built.settled).toBe(true);
 
     expect(seqAfterInjection).not.toBeNull();
     expect(seqAfterInjection!).toBeGreaterThan(seqBeforeInjection);
-    // The floor buildDump reports is the OLD seq (proving the race really
-    // happened, mocked out from under it)...
-    expect(dump.meta.seq).toBe(seqBeforeInjection);
-    // ...yet the tables it actually returned already carry the injected
-    // write, i.e. they are AHEAD of the reported floor, never behind it.
-    expect(dump.meta.seq).toBeLessThan(seqAfterInjection!);
+    // The race really happened (the first read's floor was the old seq); the dump that came back is the second read.
+    expect(dump.meta.seq).toBe(seqAfterInjection);
+    expect(dump.meta.seq).toBeGreaterThan(seqBeforeInjection);
 
     const layoutEvents: Event[] = dump.events.filter((e) => e.layout_id === seeded.id).map(rowToEvent);
     expect(layoutEvents.length).toBe(3); // created, format_added, renamed
