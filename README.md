@@ -67,6 +67,24 @@ The local API runs at `http://localhost:8787`. Use `npm test` and
 `npm run typecheck` to check changes. For website development, see
 [site/README.md](site/README.md).
 
+## Changing the format or API
+
+[emulayout](https://github.com/emulayout/emulayout.github.io), an external project, syncs the whole catalog
+through a strict reader, so a new shape in `spark/1` or the API can stop its sync without anyone here noticing
+(API 1.29's skip magic did, for three weeks). Before any change to a format, a payload shape or the `/v1` wire:
+
+1. Run `npm run check:emulayout` (add `-- --live` to also read the live catalog). It runs emulayout's current
+   `master` reader over `tests/emulayout/corpus/` and the frozen fixtures and lists what it accepts, drops or
+   rejects. Needs [bun](https://bun.sh) and `git`.
+2. Add a corpus record for every new shape (`tests/emulayout/corpus/NN-name.json`: a bare `spark/1` payload, or
+   `{"name", "owner", "link", "likes", "payload"}`). `npm test` checks that akldb itself accepts every record
+   and that the corpus still covers every feature.
+3. If emulayout would reject the shape, write a heads-up note for its maintainer (what changes, the exact rules,
+   what a reader must do, how to check their client, and that unknown values are to be dropped, never fatal) and
+   hold the deploy until they ship. CI's `emulayout-compat` job blocks the deploy until the reader accepts the
+   corpus. If emulayout's `master` is broken independently of the change, the job says so and fails; the repo
+   variable `EMULAYOUT_KNOWN_BROKEN_SHA` (that exact emulayout commit) lets it pass, loudly, until they fix it.
+
 ## Further reading
 
 - [API guide](docs/adoption.md): authentication, reads, writes, and endpoints.

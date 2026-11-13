@@ -49,6 +49,48 @@ jobs:
       - name: Test
         run: npm test
 
+  # LDB-EM1: emulayout (https://github.com/emulayout/emulayout.github.io), an external project that syncs the whole
+  # catalog through a strict reader, must still accept the shape corpus (tests/emulayout/corpus + the frozen
+  # spark/1 fixtures) under its CURRENT master, run in its own runtime (bun). `deploy` needs this job, so a change
+  # that breaks emulayout cannot ship. No secrets, read-only token: it runs third-party code (their reader only,
+  # with a scrubbed environment; see scripts/emulayout-compat.mjs).
+  #
+  # When emulayout's own master is broken independently of us, the script says so (it re-runs the corpus as it
+  # was at the base commit and exits 3 when emulayout rejects the SAME records there) and the job fails with that
+  # message rather than passing. The one way past it: set the repo variable EMULAYOUT_KNOWN_BROKEN_SHA to that
+  # emulayout commit. It matches one exact commit, so it lapses the moment emulayout moves, and the job logs
+  # SKIPPED. Never a silent pass.
+  emulayout-compat:
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24.22.1"
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.5"
+      - name: Install dependencies
+        run: npm ci
+      - name: emulayout reads the shape corpus
+        env:
+          EMULAYOUT_KNOWN_BROKEN_SHA: ${{ vars.EMULAYOUT_KNOWN_BROKEN_SHA }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          case "${BASE_SHA:-}" in
+            ""|0000000000000000000000000000000000000000) npm run check:emulayout ;;
+            *) npm run check:emulayout -- --baseline-ref "$BASE_SHA" ;;
+          esac
+
   # Push to main only: checkpoint, apply migrations, then deploy. Same order
   # a rehost uses (07 §6 S7) -- a deploy never ships code expecting a
   # column/table a freshly-created remote D1 (or one behind on migrations)
@@ -66,7 +108,7 @@ jobs:
   # The API ships to AWS (design A; the cutover moved api.akldb.org there 2026-11-03, LDB-CV29). The Cloudflare
   # Worker and its D1 stay frozen as the rollback target and are never deployed from here again.
   deploy:
-    needs: test
+    needs: [test, emulayout-compat]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     environment: akldb-production
     concurrency:

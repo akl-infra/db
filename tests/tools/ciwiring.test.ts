@@ -95,6 +95,21 @@ describe("db.yml wiring", () => {
     }
   });
 
+  it("[LDB-EM1] the emulayout-compat job runs on PRs and pushes with a read-only token and no secrets, and the deploy job needs it", () => {
+    const wf = loadWorkflow();
+    const job = wf.jobs["emulayout-compat"];
+    expect(job, "no `emulayout-compat` job").toBeDefined();
+    if (!job) throw new Error("unreachable");
+    expect(job.if).toContain("pull_request");
+    expect(job.if).toContain("push");
+    expect((job as { permissions?: unknown }).permissions).toEqual({ contents: "read" });
+    const text = JSON.stringify(job);
+    expect(text, "the emulayout job runs third-party code: no secrets in it").not.toMatch(/secrets\./);
+    expect(text).toContain("check:emulayout");
+    expect(text).toContain("setup-bun");
+    expect([wf.jobs.deploy?.needs].flat()).toContain("emulayout-compat");
+  });
+
   it("[LDB-C1] push runs only on main (other PR branches run once, on pull_request -- 2026-09-10, doubled runs and failure emails)", () => {
     const wf = loadWorkflow();
     const push = (wf.on as Record<string, { branches?: string[] }>).push;
@@ -107,7 +122,8 @@ describe("db.yml wiring", () => {
     expect(deploy, "no `deploy` job in db.yml").toBeDefined();
     if (!deploy) throw new Error("unreachable: assertion above failed");
 
-    expect(deploy.needs).toEqual(expect.stringContaining("test"));
+    // `needs` is a list since LDB-EM1 added the emulayout gate beside `test`.
+    expect([deploy.needs].flat()).toEqual(expect.arrayContaining(["test", "emulayout-compat"]));
     expect(deploy.if, "deploy job has no `if:` guard").toContain("refs/heads/main");
     expect(deploy.if).toContain("github.event_name == 'push'");
     // The CI key lives in the main-restricted environment only.
@@ -301,7 +317,7 @@ describe("db.yml wiring", () => {
 
     // saltorbit 2026-09-28: "deploy site only if tests etc work".
     expect(job.needs).toEqual(["site", "deploy"]);
-    expect(wf.jobs.deploy?.needs, "deploy must itself wait on the db suite").toBe("test");
+    expect([wf.jobs.deploy?.needs].flat(), "deploy must itself wait on the db suite (and, LDB-EM1, on emulayout)").toEqual(["test", "emulayout-compat"]);
     expect(job.if).toContain("github.event_name == 'push'");
     expect(job.if).toContain("github.ref == 'refs/heads/main'");
 

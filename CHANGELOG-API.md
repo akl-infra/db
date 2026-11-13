@@ -12,6 +12,9 @@ fails the build if this file's newest entry doesn't name the live
 `API_MINOR`, and its `[LDB-V4]` case fails if any route's shape changed
 without a new entry here.
 
+Before landing an entry, run `npm run check:emulayout` (README, "Changing the format or API"): an external
+client reads every shape this API serves, and the deploy waits on it (`LDB-EM1`).
+
 **A `/v1` change is additive-only**: a new optional field, a new route, a
 new enum value somewhere the docs already say to tolerate an unknown one.
 A removal, a rename, or a meaning change under an unchanged shape is a new
