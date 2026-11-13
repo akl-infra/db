@@ -364,9 +364,7 @@ describe("payload mutations", () => {
             // Key.row's minimum to -1, so the generic "negative number"
             // mutation (which always sets the leaf to literal -1) no longer
             // has a UNIFORM verdict for `row` the way ALLOWED/refused pairs
-            // elsewhere in this matrix do: it's a valid payload UNLESS the
-            // mutated entry is a thumb (LT/RT can't sit on a finger row,
-            // LDB-F27 -- row -1 is one, same as 0-2) or it collides with an
+            // elsewhere in this matrix do: it's a valid payload UNLESS it collides with an
             // entry already sitting on row -1 at the same column (the
             // ordinary duplicate-position check). Both are re-derived here,
             // not hand-waved into a blanket ALLOWED entry, so this stays
@@ -375,9 +373,8 @@ describe("payload mutations", () => {
               const payload = fixture.payload as { keys: { row: number; col: number; finger: string }[] };
               const idx = Number(leaf.segs[1]);
               const entry = payload.keys[idx]!;
-              const isThumb = entry.finger === "LT" || entry.finger === "RT";
-              const collides = payload.keys.some((k, i) => i !== idx && k.row === -1 && k.col === entry.col);
-              const expectOk = !isThumb && !collides;
+                            const collides = payload.keys.some((k, i) => i !== idx && k.row === -1 && k.col === entry.col);
+              const expectOk = !collides;
               it(`[LDB-F1][LDB-F42] ${fixture.stem} ${leaf.pointer} negative number -- row -1 is valid unless it's a thumb finger or collides with an existing row -1 entry`, () => {
                 const result = format.validate(applyMutation(fixture.payload, leaf, "negative number"));
                 expect(result.ok).toBe(expectOk);
@@ -450,9 +447,8 @@ describe("payload mutations", () => {
 // db/23-geometry.md §4.4 minus everything a board word carried --
 // 26-no-board.md deleted the board enum and the iso-row-2-width rule with
 // the field): the thumb-row rule is a hand-written check in
-// `validateGeometry` -- a dedicated refusing fixture rather than a row in
-// the generic per-leaf matrix (it is a cross-field finger/row check, not a
-// single-leaf mutation).
+// `validateGeometry` -- RETIRED 2026-11-13: a thumb finger is valid on any
+// row, so the cases below now pin ACCEPTANCE.
 // [LDB-F41] design/layout-db/27-magic-emit.md: a magic key's rule is
 // `{after, emit}`; the retired `{after, output}` is refused by the schema
 // (never silently re-read as an emission), `after` may be an n-gram, and
@@ -493,17 +489,29 @@ describe("[LDB-F27] spark/1's real (non-schema) geometry rules", () => {
     expect(spark1.validate({ keys: [] }).ok).toBe(true);
   });
 
-  it("[LDB-F27] a thumb finger (LT/RT) on a finger row (-1..2) is refused; row 3+ is fine", () => {
-    const onFingerRow = spark1.validate({ keys: [{ char: "a", row: 2, col: 0, finger: "LT" }] });
-    expect(onFingerRow.ok).toBe(false);
-    const onThumbRow = spark1.validate({ keys: [{ char: "a", row: 3, col: 0, finger: "LT" }] });
-    expect(onThumbRow.ok).toBe(true);
+  it("[LDB-F27] [LDB-F70] a thumb finger (LT/RT) is accepted on ANY row, finger rows (-1..2) included", () => {
+    for (const row of [-1, 0, 1, 2, 3, 4]) {
+      for (const finger of ["LT", "RT"]) {
+        const result = spark1.validate({ keys: [{ char: "a", row, col: 0, finger }] });
+        expect(result.ok, `${finger} on row ${row}`).toBe(true);
+      }
+    }
   });
 
-  it("[LDB-F42] a thumb finger (LT/RT) on row -1 (the number row) is refused, same as rows 0-2", () => {
+  it("[LDB-F42] [LDB-F70] a thumb finger on row -1 (the number row) is accepted like any other row", () => {
     const result = spark1.validate({ keys: [{ char: "a", row: -1, col: 0, finger: "LT" }] });
+    expect(result.ok).toBe(true);
+  });
+
+  it("[LDB-F27] thumbs on letter rows keep the ordinary position rules (duplicate position still refused)", () => {
+    const result = spark1.validate({
+      keys: [
+        { char: "a", row: 1, col: 4, finger: "LT" },
+        { char: "b", row: 1, col: 4, finger: "LI" },
+      ],
+    });
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.message).toMatch(/rows -1\.\.2 are finger rows/);
+    if (!result.ok) expect(result.error.message).toMatch(/duplicate position/);
   });
 });
 
@@ -521,10 +529,9 @@ describe("[LDB-F43] a space (\" \") is an ordinary char", () => {
     expect(result.ok).toBe(true);
   });
 
-  it("[LDB-F43] a ' ' key on a finger row with an LT/RT finger is refused BY THE THUMB-ROW RULE, not a space-specific one", () => {
+  it("[LDB-F43] a ' ' key with an LT/RT finger on a finger row validates (no thumb-row rule any more)", () => {
     const result = spark1.validate({ keys: [{ char: " ", row: 2, col: 0, finger: "LT" }] });
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.message).toMatch(/rows -1\.\.2 are finger rows/);
+    expect(result.ok).toBe(true);
   });
 
   it("[LDB-F43] ' ' may duplicate across positions, same as any other char", () => {

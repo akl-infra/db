@@ -94,13 +94,58 @@ describe("[LDB-F42] row -1 (the number row) round-trips through the real write/r
     expect(detail.payload.board.rowOrColumnStagger[1]).toBe(0);
   });
 
-  it("[LDB-F42] a thumb finger on row -1 is refused at write time, same as any other finger row", async () => {
-    const name = uniqueName("rm1-thumb-refused");
+  it("[LDB-F42] [LDB-F70] a thumb finger on row -1 is accepted at write time and reads back byte-identical", async () => {
+    const name = uniqueName("rm1-thumb-ok");
     const payload = { keys: [{ char: "1", row: -1, col: 0, finger: "LT" }] };
     const res = await writeFetch("/v1/layouts", "POST", headers(), { name, format: "spark/1", payload });
-    expect(res.status).toBe(400);
-    const body = await res.json<{ error: string; message: string }>();
-    expect(body.error).toBe("invalid_payload");
-    expect(body.message).toMatch(/rows -1\.\.2 are finger rows/);
+    expect(res.status).toBe(201);
+    const body = await res.json<{ id: string }>();
+    const read = await writeFetch(`/v1/layouts/${body.id}?format=spark/1`, "GET");
+    expect(read.status).toBe(200);
+    expect((await read.json<{ payload: unknown }>()).payload).toEqual(payload);
+  });
+
+  // 2026-11-13 (API 1.37, LDB-F27 as amended): a thumb finger may sit on ANY
+  // row; a POST/PUT stores it, spark/1 reads it back unchanged, and the
+  // mana2/1 projection is well-formed (the thumb moves to its side's thumb
+  // string, its grid cell becomes a skip hole).
+  const THUMB_ON_LETTER_ROWS = {
+    keys: [
+      { char: "a", row: 1, col: 0, finger: "LP" },
+      { char: "s", row: 1, col: 1, finger: "LR" },
+      { char: "d", row: 1, col: 2, finger: "LM" },
+      { char: "f", row: 1, col: 3, finger: "LT" },
+      { char: "j", row: 0, col: 6, finger: "RT" },
+      { char: "k", row: 1, col: 7, finger: "RM" },
+    ],
+  };
+
+  it("[LDB-F27] [LDB-F70] POST and PUT accept LT on row 1 and RT on row 0; spark/1 reads back byte-identical; mana2/1 is well-formed", async () => {
+    const name = uniqueName("thumb-any-row");
+    const res = await writeFetch("/v1/layouts", "POST", headers(), { name, format: "spark/1", payload: THUMB_ON_LETTER_ROWS });
+    expect(res.status).toBe(201);
+    const body = await res.json<{ id: string }>();
+
+    const read = await writeFetch(`/v1/layouts/${body.id}?format=spark/1`, "GET");
+    expect(read.status).toBe(200);
+    expect((await read.json<{ payload: unknown }>()).payload).toEqual(THUMB_ON_LETTER_ROWS);
+
+    const m = await writeFetch(`/v1/layouts/${body.id}?format=mana2/1`, "GET");
+    expect(m.status).toBe(200);
+    const mana = await m.json<{ payload: { layout: { fingers: string[]; thumbs?: string[] } }; derived_from: string }>();
+    expect(mana.derived_from).toBe("spark/1");
+    expect(mana.payload.layout.thumbs).toEqual(["f", "j"]);
+    expect(mana.payload.layout.fingers[1]).toBe("a s d skip skip skip skip k");
+  });
+
+  it("[LDB-F27] [LDB-F70] PUT replaces a payload with one carrying thumbs on letter rows", async () => {
+    const name = uniqueName("thumb-any-row-put");
+    const res = await writeFetch("/v1/layouts", "POST", headers(), { name, format: "spark/1", payload: { keys: [{ char: "a", row: 1, col: 0, finger: "LP" }] } });
+    expect(res.status).toBe(201);
+    const created = await res.json<{ id: string }>();
+    const put = await writeFetch(`/v1/layouts/${created.id}`, "PUT", { ...headers(), "If-Match": '"spark:1"' }, { format: "spark/1", payload: THUMB_ON_LETTER_ROWS });
+    expect(put.status).toBe(200);
+    const read = await writeFetch(`/v1/layouts/${created.id}?format=spark/1`, "GET");
+    expect((await read.json<{ payload: unknown }>()).payload).toEqual(THUMB_ON_LETTER_ROWS);
   });
 });

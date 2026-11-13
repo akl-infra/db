@@ -550,6 +550,13 @@ function assertMana2RoundTrip(stem: string, a: SparkPayload): void {
   const m = fromSpark(a);
   expect(mana2_1.validate(m).ok).toBe(true);
   const back = toSpark(m);
+  if (stem === "010-test12222") {
+    // 9 thumb keys on one side: HELD on the way back (see the dedicated
+    // test12222 case). Since 2026-11-13 it is a valid spark/1 base fixture,
+    // so the generic loops reach it; the held verdict is its assertion here.
+    expect(isHeldResult(back)).toBe(true);
+    return;
+  }
   expect(isHeldResult(back)).toBe(false);
   expect(back).toEqual(adjustForMana2RoundTrip(a));
 }
@@ -569,20 +576,13 @@ describe("akl/1 -> mana2/1 -> akl/1 (every akl/1 fixture, thumb re-anchoring ass
 
   // `010-test12222` ("both thumbs; thumb fingers on rows 0-2", 07 §5.3) is
   // real cmini data where a thumb-labelled key physically sits on a FINGER
-  // row (0-2) -- exactly what design/layout-db/23-geometry.md §4.4-3 now
-  // refuses (LDB-F27): `fromCmini` still preserves the (row, col, finger)
-  // multiset exactly (LDB-F23) rather than inventing a fix, so its spark
-  // projection fails spark/1's own validate() and never becomes a real
-  // `formats/spark/1/fixtures/010-test12222.json` base fixture (`scripts/
-  // goldens.mjs` skips writing it). Read here straight from the cmini
-  // adapter's own golden instead, which still exists (cmini's schema has no
-  // such row rule) -- the >5-keys-on-one-thumb-side held case this fixture
-  // was originally picked for survives regardless: §4.6's relabel (by
-  // column) puts all 9 of its thumb-ish keys on ONE side (RT, every one at
-  // col >= 5), no re-anchoring needed to trigger it any more.
-  it("test12222: a real cmini layout with 9 same-side thumb-labelled keys is held (more than five keys on one thumb)", () => {
+  // row (0-2). spark/1 refused it until 2026-11-13 (LDB-F27's thumb-row rule,
+  // retired), so it is now an ordinary base fixture; the dedicated case
+  // below still reads its cmini-side golden and asserts the >5-keys-on-one-
+  // thumb-side held case it was picked for.
+  it("[LDB-F70] test12222: a real cmini layout with 9 same-side thumb-labelled keys is held (more than five keys on one thumb)", () => {
     const a = JSON.parse(fs.readFileSync(path.join(CMINI_FIXTURES_DIR, "010-test12222.spark-1.json"), "utf8")) as SparkPayload;
-    expect(spark1.validate(a).ok).toBe(false); // the known LDB-F27 case, not a fixture regression
+    expect(spark1.validate(a).ok).toBe(true); // valid since the 2026-11-13 thumb-any-row relaxation (was the LDB-F27 refusal)
     const ltCount = a.keys.filter((k) => k.finger === "LT").length;
     const rtCount = a.keys.filter((k) => k.finger === "RT").length;
     expect(Math.max(ltCount, rtCount)).toBeGreaterThan(5);

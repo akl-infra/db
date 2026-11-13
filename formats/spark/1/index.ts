@@ -438,40 +438,14 @@ function validateMagicKeysUnique(p: Payload): ErrBody | null {
   return null;
 }
 
-// design/layout-db/23-geometry.md §4.4's geometry checks, run after the
-// schema and the duplicate-position check -- minus everything that needed
-// a board word (design/layout-db/26-no-board.md): rule 1 (the four-word
-// enum) and rule 2 (the iso row-2 width) are gone with the field, and rule
-// 4 ("angle/nokwts/meteorite needs board: ansi") was never enforced here
-// anyway (24-spark-wire-review.md finding 10: `classifyFingering` is a
-// derived, read-time label, never a write-time refusal). What is left is
-// the thumb-row rule, a pure function of `keys` -- the former space
-// refusal (finding 11, F11) is closed by #333: a space (" ") is now an
-// ordinary `char` like any other (positions, duplicates, magic references
-// all follow the same rules; see formats/spark/1/magic.ts's `computeRows`
-// for the one place " " stays special -- it never enters the compiled
-// board-char scaffold).
-function validateGeometry(p: Payload): ErrBody | null {
-  // §4.4-3: a thumb key (LT/RT) never sits on a finger row (-1..2, since the
-  // row-minus-one decision widened the schema's row minimum to -1 for the
-  // number row above the 3x10 alpha block -- rows -1/0/1/2 keep their one
-  // meaning everywhere) -- the 22 number-row layouts put a NON-thumb key on
-  // row 3 (or, now, row -1), so row 3+ stays otherwise unrestricted (§4.2:
-  // "any row >= 3"). `pos.row <= 2` already covers row -1 with no change:
-  // -1 <= 2 is true, so a thumb on the number row is refused the same way.
-  for (let i = 0; i < p.keys.length; i++) {
-    const pos = p.keys[i]!;
-    if ((pos.finger === "LT" || pos.finger === "RT") && pos.row <= 2) {
-      return {
-        error: "invalid_payload",
-        message: `finger '${pos.finger}' is a thumb -- it can't sit on row ${pos.row} (rows -1..2 are finger rows)`,
-        path: `/keys/${i}`,
-      };
-    }
-  }
-
-  return null;
-}
+// design/layout-db/23-geometry.md §4.4 had a geometry check pass here (the
+// thumb-row rule: a thumb finger LT/RT never sits on rows -1..2). saltorbit
+// retired it 2026-11-13 (tracker spark-aklgg-issues #134, LDB-F27/F42/F43 as
+// amended): a key may carry a thumb finger on ANY row, letter rows included;
+// clients draw it in place and analyse it as a thumb press. Nothing else
+// geometric is refused (rules 1/2/4 went with `board`, 26-no-board.md; the
+// space refusal went with #333), so there is no validateGeometry any more --
+// the schema and the duplicate-position check are the whole shape contract.
 
 // LDB-F52 extends design/alts/07-format.md. Per alt, in index order and
 // in this order (first violation wins, each names its own path):
@@ -632,9 +606,6 @@ export function validate(p: unknown): ValidationResult {
       },
     };
   }
-
-  const geometryErr = validateGeometry(payload);
-  if (geometryErr) return { ok: false, error: geometryErr };
 
   const uniqueErr = validateMagicKeysUnique(payload);
   if (uniqueErr) return { ok: false, error: uniqueErr };

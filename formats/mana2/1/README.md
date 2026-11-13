@@ -35,7 +35,12 @@ exact function/line each claim comes from.
   (`addThumbsToLayout`: finger 4/5, hardcoded, no fingermap lookup). A
   slot can hold more than one key (`chantries.jsonc`: `"l h"`). Thumbs sit
   at `row = layout.fingers.length` (computed, not hardcoded -- always 3 in
-  every vendored fixture).
+  every vendored fixture). **Position loss (2026-11-13, spark/1 allows a
+  thumb finger on ANY row):** `fromSpark` splits thumbs by finger, so a
+  spark `LT`/`RT` key on a letter row (-1..2) goes to its side's thumb
+  string and re-appears at the thumb row on the way back; the grid cell it
+  occupied lowers to a `skip` hole (fingermap digit `0`). Same class as the
+  other LDB-F5 losses.
 - **`skip`** occupies its column (a real cell with no character) --
   `fingermap[y][x]` still names its finger. mana2's own runtime keeps no
   record of a `skip` position once loaded; this format keeps it on the
@@ -93,7 +98,8 @@ hop, before there is anything left to lift back.
 akl/1's `TB` finger has no mana2 idiom -- mana2 always names a specific
 physical thumb by which STRING a key sits in. `from["akl/1"]` classifies
 ANY key with finger `LT`/`RT`/`TB` (on any row -- several live upstream
-layouts put thumb-fingered keys on rows 0-2, e.g. `test12222`) as a thumb
+layouts put thumb-fingered keys on rows 0-2, e.g. `test12222`, which
+spark/1 now stores as is) as a thumb
 key, then assigns its SIDE by `col < 4.5` (the site's own
 `PhysicalThumbSide` rule, `bridgecore/cmini.go`) -- the original finger
 LABEL is not consulted for side assignment, only the column. `TB` never
