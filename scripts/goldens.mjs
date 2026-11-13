@@ -185,18 +185,12 @@ function main() {
     // The spark side holds the SAME translation as its own base fixture
     // (07 §5.3), not just a golden under adapters/cmini/ -- so its own
     // goldens.test.ts rows (validate, compileMagic) exist for it too.
-    // design/layout-db/23-geometry.md §4.4-3 (LDB-F27): 'test12222' is the
-    // one known upstream-100 layout with a thumb-labelled key physically on
-    // a finger row (0-2) -- fromCmini preserves the (row, col, finger)
-    // multiset exactly (LDB-F23) rather than inventing a fix, so its own
-    // spark projection fails spark/1's own validate() by design. Skipped
-    // here (not written as a spark/1 base fixture at all -- every
-    // db/tests/formats/*.test.ts loop that globs formats/spark/1/fixtures/
-    // therefore naturally never sees it); the cmini/1-side golden
-    // (adapters/cmini/fixtures/010-test12222.spark-1.json, written by
-    // writeDerivedGoldens(cmini1) below) is unaffected and still exists,
-    // still exercised by mf9-fromcmini.test.ts's multiset check and
-    // mana2.test.ts's dedicated "6 LT-labelled keys is held" case.
+    // 'test12222' (a thumb-labelled key physically on a finger row, 0-2) used
+    // to be skipped here because spark/1 refused it (LDB-F27's thumb-row
+    // rule). That rule was retired 2026-11-13 (a thumb finger is valid on
+    // any row), so it is now an ordinary spark/1 base fixture. The
+    // validate() gate stays as a guard against a genuinely invalid
+    // projection.
     const spark = cmini1.to["spark/1"] ? cmini1.to["spark/1"](payload) : undefined;
     if (spark !== undefined) {
       const sparkCheck = spark1.validate(spark);

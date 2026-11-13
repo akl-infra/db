@@ -240,7 +240,10 @@ export async function readHead(dbArg: StoreArg, stateKeys: readonly string[] = [
 //   body's `status` also accepts `superseded` (comments unchanged). Additive;
 //   no stored shape changes; no migration.
 // 36: spark/1 unary alternative fingers (ordinary v1, no feature flag).
-export const WIRE_VERSION = 36;
+// 37 (2026-11-13, LDB-F70): spark/1 accepts a thumb finger (LT/RT) on ANY row; the
+//   thumb-row refusal is gone. Additive to the accepted payload language; no
+//   stored shape change; no migration.
+export const WIRE_VERSION = 37;
 
 export async function etagFor(headSeqValue: number, query: unknown): Promise<string> {
   const hash = await sha256Hex(canonical({ wireVersion: WIRE_VERSION, query: query ?? null }));

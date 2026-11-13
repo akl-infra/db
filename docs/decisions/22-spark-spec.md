@@ -197,14 +197,17 @@ format package exported a `handSplit`/`handSplitRows` for clients to
 mirror; nothing in akldb used them, and their minimum-over-rows rule drew
 a row with a hole next to the gap one column early.)
 
-**Thumbs.** A thumb key is any entry whose `finger` is `LT` or `RT`; it
-must sit on row >= 3 (never on a finger row, 0-2). Two thumb rows (3 and
-4) are both legal; a non-thumb key on row 3 is also legal (the 22 real
+**Thumbs.** A thumb key is any entry whose `finger` is `LT` or `RT`, on
+ANY row (amended 2026-11-13, saltorbit, tracker spark-aklgg-issues #134:
+the former "never on a finger row, 0-2" refusal is retired). Clients draw
+a thumb key where it is stored -- a thumb on a letter row is drawn in
+place -- and analyse it as a thumb press. Two thumb rows (3 and 4) are
+both legal; a non-thumb key on row 3 is also legal (the 22 real
 number-row layouts). **The label is the hand**: a key's finger being `LT`
 or `RT` is what makes it a left or right thumb, at whatever column it
 sits, never re-derived by column.
 
-*Row restriction: `db/formats/spark/1/index.ts:298-310` (`validateGeometry`, rule 3), comment explicitly notes rows >= 3 are otherwise unrestricted. LDB-F27. Label-is-hand: `db/formats/mana2/1/translate.ts` (`fromSpark`'s thumb-string split checks `finger === "LT"` / `"RT"` directly, no column re-anchoring) and `LDB-F29`.*
+*No row restriction: `validateGeometry` (the former rule 3) was removed from `db/formats/spark/1/index.ts` on 2026-11-13; LDB-F27 as amended (LDB-F70). Label-is-hand: `db/formats/mana2/1/translate.ts` (`fromSpark`'s thumb-string split checks `finger === "LT"` / `"RT"` directly, no column re-anchoring) and `LDB-F29`.*
 
 **Named fingerings are derived labels, never stored, and never refuse a
 write.** A client classifies a layout's rows 0-2 against its fixed

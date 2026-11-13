@@ -424,10 +424,15 @@ function defaultBoard(minRow: number, maxRow: number): { isRowStaggered: boolean
 // column with neither a key nor a `free` entry (fingermap digit 0 for
 // those, since there is no finger to report), trailing `skip`s of a row
 // trimmed so mana2's own vendored files round-trip byte-for-byte; thumb
-// keys (finger LT/RT, §4.2: the label IS the hand, on ANY row >= 3) go
+// keys (finger LT/RT, §4.2: the label IS the hand, on ANY row -- a thumb finger on a letter row is
+// allowed since 2026-11-13, LDB-F27 as amended) go
 // straight to their own side's string BY LABEL, never re-anchored by
 // column any more (design/layout-db/23-geometry.md §4.5 -- `LDB-F29`),
-// sorted by (col, row) within that side.
+// sorted by (col, row) within that side. Position loss, same class as the
+// other LDB-F5 losses: mana2 holds a thumb as a bare string cell on its own
+// side with no row, so a thumb at row 0-2 re-appears at the thumb row
+// (`fingers.length`) after the round trip, and the grid cell it occupied
+// lowers to a `skip` (a hole, fingermap digit 0).
 // design/layout-db/23-geometry.md's duplicate-characters follow-up
 // (24-spark-wire-review.md finding 5, the coordinator's correction): mana2
 // refuses duplicate letters (`checkGrammarAndDuplicates`), so a spark/1

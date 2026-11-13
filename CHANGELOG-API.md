@@ -28,6 +28,20 @@ this file just gives them a public, versioned home. From here on, a
 `WIRE_VERSION` bump and a line here land in the SAME PR, never one without
 the other (`[LDB-V5]`).
 
+## 1.37 — Thumb fingers on any row
+
+`spark/1` now accepts a key with finger `LT` or `RT` on any row, including
+the letter rows (-1..2), where it used to be refused with `invalid_payload`
+("rows -1..2 are finger rows"). Clients that read `spark/1` may therefore
+see a thumb key sitting in the middle of the alpha block: draw it where it
+is stored and analyse it as a thumb press. Strict older readers that assumed
+thumbs only on row >= 3 should draw such keys in place instead. This extends
+the accepted payload language and is not compatible with every old
+validator. In `mana2/1` the key moves to its side's `thumbs` string (its
+position is lost, like the other documented projection losses) and its grid
+cell becomes a `skip`. No shape or route changes; no feature query or `/v2`
+is involved.
+
 ## 1.36 — Fuzzy fingers in ordinary spark/1
 
 `spark/1` now accepts one-item `alts[].ngram` entries. Repeat a key with

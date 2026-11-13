@@ -178,11 +178,13 @@ same as row 3+ already was.
 
 ### 4.2 Thumbs
 
-A thumb key is refused on row −1 the same as on rows 0–2 (§4.4 rule 3,
-below) — row −1 is a finger row, not a thumb row; a thumb key still only
-ever sits on a row ≥ 3.
+**Amended 2026-11-13 (saltorbit, spark-aklgg-issues #134): a thumb key may
+sit on ANY row, row −1 and the letter rows 0–2 included.** The earlier
+refusal (§4.4 rule 3) is retired. Clients draw it in place and analyse it
+as a thumb press; the mana2 projection moves it to its side's thumb string
+(position lost, LDB-F5-style).
 
-- A thumb key is any key whose finger is `LT` or `RT`, on any row ≥ 3. Its
+- A thumb key is any key whose finger is `LT` or `RT`, on any row. Its
   `col` is its absolute column, the same axis as the finger rows.
 - **The label is the hand.** `LT` is analysed and drawn as a left thumb
   wherever its column is. `physicalThumbSide` and its ports go away; the
@@ -217,9 +219,9 @@ ISO angle mod is `iso` + the `LP LR LM LI LI LI` row typed as
 
 1. `board` is one of the four words.
 2. On `iso`, row 2 may be one column wider than rows 0–1.
-3. Finger rows are −1..2 (plus 3 when no key on row 3 is a thumb — the 22
-   number-row layouts, now more naturally expressed on row −1 instead, §4.1a);
-   a thumb key never sits on rows −1..2.
+3. ~~a thumb key never sits on rows −1..2~~ — retired 2026-11-13: a thumb
+   finger (`LT`/`RT`) is valid on any row (LDB-F70). No row-based
+   refusal remains.
 4. ~~fingering needs ansi~~ — dropped per review 24 F10: the classifier
    is a derived label and never refuses a write; the BOT enforces "angle
    only on ansi" for its `fingers!`/`board!` verbs (§5.2). `" "` is refused
