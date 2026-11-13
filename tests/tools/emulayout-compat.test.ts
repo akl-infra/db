@@ -49,6 +49,7 @@ describe("[LDB-EM1] the shape corpus is what akldb accepts", () => {
       "combos": has((p) => p.combos?.length),
       "number row (-1)": has((p) => p.keys.some((k: any) => k.row === -1)),
       "thumb row": has((p) => p.keys.some((k: any) => k.finger === "LT" || k.finger === "RT")),
+      "thumb finger on a letter row (1.37)": has((p) => p.keys.some((k: any) => (k.finger === "LT" || k.finger === "RT") && k.row <= 2)),
       "row 4": has((p) => p.keys.some((k: any) => k.row === 4)),
       "free key (no char)": has((p) => p.keys.some((k: any) => k.char === undefined)),
       "duplicate char": has((p) => { const c = p.keys.map((k: any) => k.char).filter(Boolean); return new Set(c).size < c.length; }),
