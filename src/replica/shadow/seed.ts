@@ -4,7 +4,7 @@
 //
 // What it seeds: every table the public dump covers, as the dump has them (restoreSql). What it does NOT: the private
 // tables (auth_cache, ratelimit, nonces, idempotency, discord_*, modqueue_notifications, moderation_review_history,
-// discord_users, ...) stay empty, and nothing synthetic is added: the replay is GETs on public routes, which read none of them.
+// ...) stay empty (`discord_users` is seeded with the dump's public WPM typists' names, LDB-D10), and nothing synthetic is added: the replay is GETs on public routes, which read none of them.
 //
 // Idempotent: a database that already holds events or layouts, or a follower row, is refused. `reset: true` restores over it
 // anyway (the restore deletes every dumped table first and the follower row is rewritten), which is the way out of a seed that

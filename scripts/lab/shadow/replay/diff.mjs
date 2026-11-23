@@ -15,7 +15,8 @@
 // Reported as diff-state (informational, like the /v1/meta author fields), because shadow cannot hold the state (LDB-CV24):
 //   - `edited` on comment objects, in every comments route: the public dump keeps only approved comments with a body (src/dump/write.ts), and
 //     `edited` needs the `replaced` history rows, which it does not carry.
-//   - `user_name` in wpm answers when shadow has null and prod has a value: it falls back to `discord_users`, which the dump does not carry.
+//   - `user_name` in wpm answers when shadow has null and prod has a value: it falls back to `discord_users`, which the dump carries only as of
+//     the last dump (LDB-D10; a name looked up since then is not on shadow yet).
 //   Any other field difference in those routes, and any other direction of a user_name difference, stays a diff. When the body differs only in such
 //   state, an ETag that differs at the same head is diff-state too: those routes' ETags hash the body.
 // Not masked: everything else, including the whole ETag of the validated routes (it carries the head seq and a hash of the query).

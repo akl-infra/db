@@ -35,7 +35,7 @@ describe("the applier's kind table", () => {
     expect(applyKindOf({ ...base, kind: "upstream_deleted", rev: null })).toBe("row");
     expect(applyKindOf({ ...base, kind: "upstream_deleted", rev: 4 })).toBe("write");
     expect(applyKindOf({ ...base, kind: "admin.user_banned", rev: null })).toBe("row");
-    expect(FEED_TABLES.length + STATE_TABLES.length).toBe(15);
+    expect(FEED_TABLES.length + STATE_TABLES.length).toBe(16);
   });
 });
 
