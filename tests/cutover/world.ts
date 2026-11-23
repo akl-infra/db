@@ -186,6 +186,8 @@ export interface Faults {
   exportTriggersFirst?: boolean;
   /** No R2 token in the environment. */
   noR2Token?: boolean;
+  /** The Workers schedules API refuses the token (no CLOUDFLARE_API_TOKEN, or one without Workers Scripts Read). */
+  noWorkersToken?: boolean;
   /** One R2 object arrives damaged. */
   r2CorruptKey?: string;
   /** The S3 side forgets content types. */
@@ -211,6 +213,8 @@ export interface World {
   /** Who answers api.akldb.org: the Worker until the record moves. */
   dns: "worker" | "aws";
   dnsPolls: number;
+  /** The deployed Worker's cron triggers (the Workers schedules API). Default: wrangler.toml's one trigger. */
+  crons: string[];
   /** The D1 the cutover is about ("akl-db", or "scratch" in a rehearsal). */
   d1Name: string;
   /** Flags that make a run a staging rehearsal (empty for production). */
@@ -280,7 +284,7 @@ export async function makeWorld(init: { faults?: Faults; events?: number; churnR
   const snapshots = new MemorySnapshotState();
   const operator = createOperator({ kit: { Replica, bootReplica, appendImage, writeSnapshot }, log, objects, state: snapshots, logLine: () => {} });
 
-  const w = { now: Date.parse("2026-11-04T09:00:00Z"), calls: [] as string[], callsByStep: {} as Record<string, string[]>, dbs: new Map([[d1Name, d1]]), workerDb: d1Name, d1Name, dns: "worker", dnsPolls: 0, baseArgs: init.rehearsal ? ["--stage", "staging", "--d1", "scratch", "--worker-url", REHEARSAL_WORKER, "--public-url", STAGING_PUBLIC] : [], faults: init.faults ?? {}, currentStep: null as string | null, crashed: false, lines: [] as string[] } as unknown as World;
+  const w = { now: Date.parse("2026-11-04T09:00:00Z"), calls: [] as string[], callsByStep: {} as Record<string, string[]>, dbs: new Map([[d1Name, d1]]), workerDb: d1Name, d1Name, dns: "worker", dnsPolls: 0, crons: ["*/5 * * * *"], baseArgs: init.rehearsal ? ["--stage", "staging", "--d1", "scratch", "--worker-url", REHEARSAL_WORKER, "--public-url", STAGING_PUBLIC] : [], faults: init.faults ?? {}, currentStep: null as string | null, crashed: false, lines: [] as string[] } as unknown as World;
   Object.assign(w, { dir, log, blobs, snapshots, objects, operator, r2, s3, stateFile: path.join(dir, "state.json") });
   w.d1 = (name = d1Name) => w.dbs.get(name)!;
   w.state = () => JSON.parse(fs.readFileSync(w.stateFile, "utf8"));
@@ -500,6 +504,13 @@ export async function makeWorld(init: { faults?: Faults; events?: number; churnR
           },
         };
         return copyDumps({ src, dst });
+      }),
+    },
+    workers: {
+      schedules: track("workers.schedules", (script: string) => {
+        if (w.faults.noWorkersToken) throw new Error("CLOUDFLARE_API_TOKEN is not set");
+        if (script !== "akl-db") throw new Error(`Workers schedules 404: 10007 workers.api.error.script_not_found (${script})`);
+        return [...w.crons];
       }),
     },
     aws: {
