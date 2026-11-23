@@ -155,7 +155,10 @@ member must also have **at least one**: a rule set that names a key the
 layout doesn't have is refused (`400 invalid_payload`, `... is not one of
 this layout's keys`, LDB-F22; `formats/spark/1/magic.ts`
 `validateMagicSemantics`). A rule's `after` or an `except[]` entry may have
-zero: it simply gets no scaffold row.
+zero: it simply gets no scaffold row. So may a swap `trigger` of `" "`
+(space), on every layout (amended 2026-11-23, saltorbit, API 1.38, LDB-F71):
+a trigger is context, the character typed just before, and space is typed on
+every layout whether or not `keys` lists it. Only U+0020 is exempt.
 
 *`db/formats/spark/1/index.ts:218-260` (`collectMagicChars`, `validateMagicKeysUnique`); error `400 magic_needs_unique_key`, path `/keys` — not `/keys/<i>` (LEDGER.md row S1). LDB-F33.*
 
@@ -347,10 +350,10 @@ again 2026-10-02: `ngram` is an array and `null` is the wildcard):
   follows from the two before it and has no check of its own). A literal
   `"_"` is just the underscore character: the earlier `_`-in-a-string
   wildcard is gone because `_` is a real key on 149 of 4431 stored layouts
-  and an alt could never name it. Every literal item must be a character on
-  this layout's keys (§3's `charMap`, first occurrence, no uniqueness
-  requirement -- unlike a magic/chiral key's own char, an ngram's
-  characters are plain positional references).
+  and an alt could never name it. A literal item need NOT be one of this
+  layout's keys (amended 2026-11-23, saltorbit, API 1.38, LDB-F71; it used
+  to be refused): `"\""` (the shifted `'`) or `"∞"` is stored as written.
+  A reader with no position for that character skips the alt.
 - `fingers` is an array of the same length as `ngram`: §3's two-letter
   finger codes (the `key.finger` enum), the finger that types that
   position's character in this alt, and `null` exactly where the ngram has
@@ -381,8 +384,7 @@ ngram's fingers apply. `alts` is absent when empty, same convention
 
 Checks run per entry, in index order, first violation wins, each naming its
 own pointer: ngram length and item shape, one code point or `null`
-(`/alts/<i>/ngram`); `null` position (`/alts/<i>/ngram`); literal characters
-on the layout (`/alts/<i>/ngram`); `fingers` length equal to the ngram's
+(`/alts/<i>/ngram`); `null` position (`/alts/<i>/ngram`); `fingers` length equal to the ngram's
 (`/alts/<i>/fingers`); `null` in `fingers` exactly where the ngram has its
 wildcard (`/alts/<i>/fingers`); then a duplicate (`/alts/<i>/ngram`, the
 later entry): the same ngram for a multi-gram, the same key/finger pair for
@@ -424,7 +426,7 @@ error}`. Checks run in this order, each stopping at the first failure:
 | 6 | every magic-named character has at most one entry (§3) | `magic_needs_unique_key` | `/keys` |
 | 7 | a both-hands duplicate is excepted or ruled for every chiral key that would enumerate it (§3) | `magic_needs_unique_key` | `/keys` |
 | 8 | magic semantics (single-code-point fields, rule shapes -- `after`/`emit` non-empty, no duplicate `after`, no magic/chiral key sharing a character, reserved `rules[].type` words) | `invalid_payload` or `reserved_rule_type` | `/magic/...` |
-| 8a | `alts[]` semantics (§5a) -- ngram is 1-3 items each one code point or `null`, `null` only mid-3-ngram, literal characters on the layout, `fingers` one entry per item with `null` exactly at the wildcard (no "must differ" rule), no duplicate ngram (a one-item ngram: no duplicate key/finger pair) | `invalid_payload` | `/alts/<i>/ngram`, `/alts/<i>/fingers` |
+| 8a | `alts[]` semantics (§5a) -- ngram is 1-3 items each one code point or `null`, `null` only mid-3-ngram (literals need not be on the layout, LDB-F71), `fingers` one entry per item with `null` exactly at the wildcard (no "must differ" rule), no duplicate ngram (a one-item ngram: no duplicate key/finger pair) | `invalid_payload` | `/alts/<i>/ngram`, `/alts/<i>/fingers` |
 | 8b | `combos[]` semantics (§5b) -- two distinct layout keys, no duplicate pair, output length, no duplicate output | `invalid_payload` | `/combos/...` |
 | 9 | the lowering has no collision (5.3) | `magic_collision` | the later side's `/magic/...` pointer |
 

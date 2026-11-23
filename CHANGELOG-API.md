@@ -28,6 +28,21 @@ this file just gives them a public, versioned home. From here on, a
 `WIRE_VERSION` bump and a line here land in the SAME PR, never one without
 the other (`[LDB-V5]`).
 
+## 1.38 — Off-layout alt characters and space triggers
+
+`spark/1` now accepts an `alts[].ngram` literal item that is not one of the
+layout's keys (for example `"\""`, the shifted `'`, or `"∞"`), and an
+`adaptive_swaps[].trigger` of `" "` (space, "after a space") on every layout,
+whether or not `keys` lists space. Both used to be refused with
+`invalid_payload` ("... is not one of this layout's keys"). They are stored
+and served exactly as written. A reader with no position for an alt's
+character should skip that alt; a space-triggered swap lowers to rows such as
+`" y" -> " h"` (also in `mana2/1`'s `magic.rules`). Any other off-layout
+trigger, and every off-layout magic key, chiral key, swap member or combo
+key, is still refused. This extends the accepted payload language and is not
+compatible with every old validator. No shape or route changes; no feature
+query or `/v2` is involved.
+
 ## 1.37 — Thumb fingers on any row
 
 `spark/1` now accepts a key with finger `LT` or `RT` on any row, including

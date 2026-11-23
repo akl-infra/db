@@ -193,7 +193,7 @@ describe("[LDB-P1] PATCH {format, fingermap|magic}: that format's scope", () => 
     const record = await seed();
     const headers = ownerHeaders(`tok-${uniqueName("alts-bad")}`);
     const cases: [unknown, string][] = [
-      [[{ ngram: ["a", "z"], fingers: ["RP", "RP"] }], "/alts/0/ngram"],
+      [[{ ngram: ["a", null], fingers: ["RP", null] }], "/alts/0/ngram"], // null only mid-3 (an off-layout literal is valid, LDB-F71)
       [[{ ngram: ["a", "a"], fingers: ["RP"] }], "/alts/0/fingers"], // length mismatch
       [[{ ngram: ["a", "a"], fingers: ["RP", "RP"] }, { ngram: ["a", "a"], fingers: ["RR", "RR"] }], "/alts/1/ngram"],
       [[{ key: "a", finger: "RP", when: [{ text: "a", at: 0 }] }], "/alts/0"], // the old shape

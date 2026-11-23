@@ -79,8 +79,9 @@ export type { MagicIntent, MagicKey, ChiralKey, AdaptiveSwap, RawRule };
 // distinct finger assignments; multigrams have one assignment. `ngram` is an
 // array of 1, 2 or 3 items; each is a string of exactly ONE code point, or null
 // (the wildcard: any key). null may only be the middle item of a 3-item
-// ngram, so every multigram holds at least two literal layout characters (a
-// literal "_" is just the underscore key). `fingers` is an array of the same
+// ngram, so every multigram holds at least two literal characters (a
+// literal "_" is just the underscore character). A literal need not be one
+// of this layout's keys (LDB-F71, API 1.38). `fingers` is an array of the same
 // length of this format's two-letter finger codes (the Key.finger enum): the
 // finger that types that position's character in this alt, null exactly
 // where the ngram has null. A code equal to the key's own finger means "no
@@ -453,17 +454,18 @@ function validateMagicKeysUnique(p: Payload): ErrBody | null {
 //                                                        -> /alts/i/ngram
 //   2. null only at the middle of a 3-item ngram          -> /alts/i/ngram
 //      (a unary ngram has exactly one literal)
-//   3. every literal item is a key on this layout        -> /alts/i/ngram
-//      (charMap, first occurrence, same as combos[].keys)
-//   4. `fingers` has one entry per ngram item            -> /alts/i/fingers
-//   5. null in `fingers` exactly where the ngram has null -> /alts/i/fingers
-//   6. multigrams cannot repeat; unary key/finger pairs cannot repeat
+//   3. `fingers` has one entry per ngram item            -> /alts/i/fingers
+//   4. null in `fingers` exactly where the ngram has null -> /alts/i/fingers
+//   5. multigrams cannot repeat; unary key/finger pairs cannot repeat
 //                                                        -> /alts/i/ngram
 // That `fingers` entries are finger codes or null is the schema's rule (items
 // enum). A code equal to the key's own finger is NOT refused. Deliberately
-// NOT checked: an alt naming a one-character combo's output key (akldb is
-// permissive; the analyzers refuse that themselves).
-function validateAlts(alts: Alt[] | undefined, keys: Record<string, Position>): ErrBody | null {
+// NOT checked (akldb is permissive; the analyzers decide): an alt naming a
+// one-character combo's output key, and (LDB-F71, API 1.38, saltorbit
+// 2026-11-23) a literal item that is not one of this layout's keys -- e.g.
+// `"` (shifted `'`) or `∞`. Such an alt is stored and served as written;
+// a reader with no position for that character skips the alt.
+function validateAlts(alts: Alt[] | undefined): ErrBody | null {
   if (alts === undefined) return null;
   const seen = new Set<string>();
   for (let i = 0; i < alts.length; i++) {
@@ -486,11 +488,6 @@ function validateAlts(alts: Alt[] | undefined, keys: Record<string, Position>): 
         }
       } else if ([...item].length !== 1) {
         return { error: "invalid_payload", message: `alts[].ngram ${shown} has ${JSON.stringify(item)} at position ${p}; each item must be exactly one code point or null`, path: `${base}/ngram` };
-      }
-    }
-    for (const item of ngram) {
-      if (item !== null && !(item in keys)) {
-        return { error: "invalid_payload", message: `alts[].ngram ${shown} has ${JSON.stringify(item)}, which is not one of this layout's keys`, path: `${base}/ngram` };
       }
     }
     const fingers = alt.fingers;
@@ -617,7 +614,7 @@ export function validate(p: unknown): ValidationResult {
   const magicErr = validateMagicSemantics(payload.magic, keys);
   if (magicErr) return { ok: false, error: { error: magicErr.code ?? "invalid_payload", message: magicErr.message, path: magicErr.path } };
 
-  const altsErr = validateAlts(payload.alts, keys);
+  const altsErr = validateAlts(payload.alts);
   if (altsErr) return { ok: false, error: altsErr };
 
   const combosErr = validateCombos(payload.combos, keys);

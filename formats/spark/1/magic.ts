@@ -28,7 +28,8 @@
 // this layer), plus 01-format.md §2.1's `except[]` entries being single code
 // points. Every key a rule set names (a magic/chiral key, a swap trigger or
 // member) must be one of the layout's keys, on both sides (LDB-F22, issue
-// saltorbit/aklgg#322). Schema-level facts (types, required-ness) are left to
+// saltorbit/aklgg#322) -- except a space trigger, valid on every layout
+// (LDB-F71, API 1.38; akl.gg's gate refused it until it follows). Schema-level facts (types, required-ness) are left to
 // schema.json; only checks JSON Schema can't express live here, matching
 // rules.mjs's own approach (it validates a plain object with no schema
 // pass at all).
@@ -895,7 +896,12 @@ export function validateMagicSemantics(
     if (!isSingleChar(sw.trigger)) {
       return { message: `adaptive_swaps[].trigger must be a single character, got ${JSON.stringify(sw.trigger)}`, path: `${base}/trigger` };
     }
-    if (!(sw.trigger in keys)) {
+    // LDB-F71 (API 1.38, saltorbit 2026-11-23): a trigger is the character
+    // typed just before -- context, like a rule's `after` -- and space is
+    // typed on every layout whether or not `keys` lists it, so " " is always
+    // a valid trigger ("after a space", a word start). Any other trigger
+    // still has to be a layout key (LDB-F22, #322's off-layout upper-case).
+    if (sw.trigger !== " " && !(sw.trigger in keys)) {
       return { message: `adaptive_swaps[].trigger ${JSON.stringify(sw.trigger)} is not one of this layout's keys`, path: `${base}/trigger` };
     }
     const pair = sw.swap;

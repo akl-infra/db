@@ -38,13 +38,12 @@ describe("[LDB-F44] spark/1 alts (one entry per ngram: an array, null is the wil
     expect(spark1.validate(payloadWith({ alts })).ok).toBe(true);
   });
 
-  it("[LDB-F44] a literal \"_\" is just the underscore key, valid when the layout has it", () => {
+  it("[LDB-F44] [LDB-F71] a literal \"_\" is just the underscore character, never a wildcard", () => {
     const withUnderscore: Payload = { keys: [...KEYS, { char: "_", row: 2, col: 1, finger: "RP" }], alts: [A(["g", "_"], ["LP", "RP"]), A(["g", "_", "s"], ["LP", "RR", "LI"])] };
     expect(spark1.validate(withUnderscore).ok).toBe(true);
-    expect(refusal({ alts: [A(["g", "_"], ["LP", "RP"])] })).toEqual({
-      message: `alts[].ngram ["g","_"] has "_", which is not one of this layout's keys`,
-      path: "/alts/0/ngram",
-    });
+    // a literal, so its finger is a finger code, never null; off-layout it is still accepted (LDB-F71)
+    expect(refusal({ alts: [A(["g", "_"], ["LP", "RP"])] })).toBeNull();
+    expect(refusal({ alts: [A(["g", "_"], ["LP", null])] })?.path).toBe("/alts/0/fingers");
   });
 
   it("[LDB-F44] an ngram must have 1, 2 or 3 items: empty and 4 are refused (schema)", () => {
@@ -71,11 +70,9 @@ describe("[LDB-F44] spark/1 alts (one entry per ngram: an array, null is the wil
     });
   });
 
-  it("[LDB-F44] astral code points count once: a lone astral item passes the length rule, the key check refuses it", () => {
-    expect(refusal({ alts: [A(["\u{1F600}", "\u{1F601}"], ["LP", "LP"])] })).toEqual({
-      message: `alts[].ngram ["\u{1F600}","\u{1F601}"] has "\u{1F600}", which is not one of this layout's keys`,
-      path: "/alts/0/ngram",
-    });
+  it("[LDB-F44] astral code points count once: a lone astral item passes the length rule", () => {
+    expect(refusal({ alts: [A(["\u{1F600}", "\u{1F601}"], ["LP", "LP"])] })).toBeNull();
+    expect(refusal({ alts: [A(["\u{1F600}\u{1F601}"], ["LP"])] })?.path).toBe("/alts/0/ngram");
   });
 
   it("[LDB-F44] null at the start or end of a 3-item ngram is refused", () => {
@@ -96,12 +93,19 @@ describe("[LDB-F44] spark/1 alts (one entry per ngram: an array, null is the wil
     expect(refusal({ alts: [A([null, null, null], [null, null, null])] })?.path).toBe("/alts/0/ngram");
   });
 
-  it("[LDB-F44] every non-null item must be one of the layout's keys", () => {
-    expect(refusal({ alts: [A(["g", "z", "s"], ["LP", "LI", "LP"])] })).toEqual({
-      message: `alts[].ngram ["g","z","s"] has "z", which is not one of this layout's keys`,
-      path: "/alts/0/ngram",
-    });
-    expect(refusal({ alts: [A(["g", null, "z"], ["LP", null, "LP"])] })?.path).toBe("/alts/0/ngram");
+  it("[LDB-F71] a literal item need not be one of the layout's keys (API 1.38; was refused)", () => {
+    // the three publishes akldb refused in 2026-11 (akl.gg error telemetry): `∞`, a double quote
+    expect(refusal({ alts: [A(["\u221E"], ["LT"])] })).toBeNull();
+    expect(refusal({ alts: [A(['"'], ["LI"])] })).toBeNull();
+    expect(refusal({ alts: [A(["g", "z", "s"], ["LP", "LI", "LP"])] })).toBeNull();
+    expect(refusal({ alts: [A(["g", null, "z"], ["LP", null, "LP"])] })).toBeNull();
+    expect(refusal({ alts: [A([" ", "g"], ["RT", "LP"])] })).toBeNull();
+    // every other rule still applies to an off-layout literal: duplicates, finger shape, null placement
+    expect(refusal({ alts: [A(['"'], ["LI"]), A(['"'], ["LI"])] })?.path).toBe("/alts/1/ngram");
+    expect(refusal({ alts: [A(["z", "q"], ["LP", "LP"]), A(["z", "q"], ["LI", "LI"])] })?.path).toBe("/alts/1/ngram");
+    expect(refusal({ alts: [A(["z", null], ["LP", null])] })?.path).toBe("/alts/0/ngram");
+    expect(refusal({ alts: [A(["\u221E"], [null])] })?.path).toBe("/alts/0/fingers");
+    expect(refusal({ alts: [A(["\u221E\u221E"], ["LT"])] })?.path).toBe("/alts/0/ngram");
   });
 
   it("[LDB-F44] fingers entries must be finger codes or null (schema rule)", () => {
@@ -180,7 +184,8 @@ describe("[LDB-F44] spark/1 alts (one entry per ngram: an array, null is the wil
   });
 
   it("[LDB-F44] checks run in order: a bad ngram is reported before a bad fingers array", () => {
-    expect(refusal({ alts: [A(["g", "z", "s"], ["LP", "LI", "LM"])] })?.path).toBe("/alts/0/ngram");
+    expect(refusal({ alts: [A(["g", null, "s", "e"], ["LP", null, "LM"])] })?.path).toBe("/alts/0/ngram");
+    expect(refusal({ alts: [A([null, "g", "s"], ["LP", "LI"])] })?.path).toBe("/alts/0/ngram");
     expect(refusal({ alts: [A(["g", "s"], ["LP", "LI", "LM"])] })?.path).toBe("/alts/0/fingers");
   });
 
