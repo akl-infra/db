@@ -427,6 +427,8 @@ export interface NotificationDbRow {
   message_format: MessageFormat;
   transport: MessageTransport;
   channel_id: string | null;
+  failed_attempts: number;
+  parked_key: string | null;
 }
 
 export interface QueueSourceStatusRow {
@@ -445,8 +447,12 @@ export interface CommentCandidateRow { id: string; review_version: number; layou
 export interface ModqueueStore {
   /** strong, read. The source submission's current state for the card. D1: modqueue.ts sourceStatus. */
   sourceStatus(kind: QueueKind, id: string): Promise<QueueSourceStatusRow | null>;
-  /** single. D1: modqueue.ts failedStatusEdit. */
-  bumpFailedAttempts(kind: QueueKind, id: string): Promise<void>;
+  /** single. One more failed edit; the row is skipped by the sweep until `nextAttemptAt`. D1: modqueue.ts failedStatusEdit. */
+  bumpFailedAttempts(kind: QueueKind, id: string, nextAttemptAt: string): Promise<void>;
+  /** single. [LDB-MD25] Stop retrying this card at source state `key` and record why; skipped by the sweep while the source state still equals `key`. */
+  parkNotification(kind: QueueKind, id: string, key: string, error: string, nowIso: string): Promise<void>;
+  /** single. [LDB-MD25] Source state changed: forget the park and the attempt count. */
+  unparkNotification(kind: QueueKind, id: string): Promise<void>;
   /** single. Take the reconcile lease if free or expired. D1: modqueue.ts reconcileOne's lease. */
   leaseNotification(kind: QueueKind, id: string, token: string, until: string, nowIso: string): Promise<boolean>;
   /** strong, read. D1: modqueue.ts reconcileOne. */
@@ -460,7 +466,7 @@ export interface ModqueueStore {
   /** single. Insert if absent. D1: modqueue.ts savePostedMessage. */
   insertNotification(r: { kind: QueueKind; id: string; messageId: string; format: MessageFormat; transport: MessageTransport; channelId: string | null; reviewVersion: number; sourceMessageUrl: string | null }): Promise<void>;
   /** strong, read. Notifications whose card disagrees with the source, fewest failures first. D1: modqueue.ts retryStatusEdits. */
-  staleNotifications(limit: number): Promise<{ kind: QueueKind; submission_id: string }[]>;
+  staleNotifications(limit: number, nowIso: string): Promise<{ kind: QueueKind; submission_id: string }[]>;
   /** strong, read. Pending, never-announced link submissions. D1: modqueue.ts LINK_QUEUE.candidateSql. */
   linkCandidates(limit: number): Promise<LinkCandidateRow[]>;
   /** strong, read. D1: modqueue.ts WPM_QUEUE.candidateSql. */

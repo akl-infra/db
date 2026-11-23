@@ -23,7 +23,7 @@ export interface World {
   clock: { ms: number };
 }
 
-/** A world at the real 37 migrations. `clock` is the fake time every snapshot job reads. */
+/** A world at the real 38 migrations. `clock` is the fake time every snapshot job reads. */
 export async function world(start = "2026-11-02T00:00:00Z"): Promise<World> {
   const blobs = new MemoryObjects();
   const log = new MemoryLog({}, blobs);

@@ -96,7 +96,7 @@ describe("[LDB-J1] the tick's work probe", () => {
       await seed(s, layout);
       const work = await store.cron.work(NOW);
       const announce = (await store.modqueue.linkCandidates(1000)).length + (await store.modqueue.wpmCandidates(1000)).length;
-      const reconcile = (await store.modqueue.staleNotifications(1000)).length;
+      const reconcile = (await store.modqueue.staleNotifications(1000, NOW)).length;
       const dms = (await store.outbox.due(NOW, 1000)).length;
       const callbacks = (await Promise.all(ACTION_TABLES.map((t) => store.discord.pendingCallbacks(t, NOW, 1000)))).flat().length;
       const before = await snapshot();

@@ -14,6 +14,16 @@ function announceTable(kind: "link" | "wpm" | "comment"): "link_submissions" | "
   return ANNOUNCE_TABLE[kind];
 }
 
+// [LDB-MD25] The row is due for a sweep: not parked at the source's current
+// state (status:review_version:source_message_url, the key core/modqueue.ts
+// builds) and past its backoff. `?1` is the caller's now (ISO).
+export function dueSql(key: string): string {
+  return `(n.parked_key IS NULL OR n.parked_key != ${key}) AND (n.next_attempt_at IS NULL OR n.next_attempt_at <= ?1)`;
+}
+export const LINK_KEY = "(s.status || ':0:')";
+export const WPM_KEY = "(s.status || ':' || s.review_version || ':' || COALESCE(s.source_message_url, ''))";
+export const COMMENT_KEY = "(s.status || ':' || s.review_version || ':')";
+
 export function d1ModqueueStore(db: D1Database): ModqueueStore {
   return {
     async sourceStatus(kind, id): Promise<QueueSourceStatusRow | null> {
@@ -21,8 +31,16 @@ export function d1ModqueueStore(db: D1Database): ModqueueStore {
     LEFT JOIN authors a ON a.user_id = s.decided_by WHERE s.id = ?`).bind(id)
         .first<QueueSourceStatusRow>();
     },
-    async bumpFailedAttempts(kind, id) {
-      await db.prepare("UPDATE modqueue_notifications SET failed_attempts = failed_attempts + 1 WHERE kind = ? AND submission_id = ?")
+    async bumpFailedAttempts(kind, id, nextAttemptAt) {
+      await db.prepare("UPDATE modqueue_notifications SET failed_attempts = failed_attempts + 1, next_attempt_at = ? WHERE kind = ? AND submission_id = ?")
+        .bind(nextAttemptAt, kind, id).run();
+    },
+    async parkNotification(kind, id, key, error, nowIso) {
+      await db.prepare("UPDATE modqueue_notifications SET failed_attempts = failed_attempts + 1, next_attempt_at = NULL, parked_at = ?, parked_key = ?, parked_error = ? WHERE kind = ? AND submission_id = ?")
+        .bind(nowIso, key, error, kind, id).run();
+    },
+    async unparkNotification(kind, id) {
+      await db.prepare("UPDATE modqueue_notifications SET failed_attempts = 0, next_attempt_at = NULL, parked_at = NULL, parked_key = NULL, parked_error = NULL WHERE kind = ? AND submission_id = ?")
         .bind(kind, id).run();
     },
     async leaseNotification(kind, id, token, until, nowIso) {
@@ -32,14 +50,14 @@ export function d1ModqueueStore(db: D1Database): ModqueueStore {
       return (lease.meta.changes ?? 0) === 1;
     },
     async notification(kind, id): Promise<NotificationDbRow | null> {
-      return db.prepare("SELECT message_id, shown_status, shown_review_version, shown_source_message_url, message_format, transport, channel_id FROM modqueue_notifications WHERE kind = ? AND submission_id = ?")
+      return db.prepare("SELECT message_id, shown_status, shown_review_version, shown_source_message_url, message_format, transport, channel_id, failed_attempts, parked_key FROM modqueue_notifications WHERE kind = ? AND submission_id = ?")
         .bind(kind, id).first<NotificationDbRow>();
     },
     async deleteNotification(kind, id) {
       await db.prepare("DELETE FROM modqueue_notifications WHERE kind = ? AND submission_id = ?").bind(kind, id).run();
     },
     async markShown(r) {
-      await db.prepare("UPDATE modqueue_notifications SET shown_status = ?, shown_review_version = ?, shown_source_message_url = ?, failed_attempts = 0 WHERE kind = ? AND submission_id = ? AND reconcile_lease_token = ?")
+      await db.prepare("UPDATE modqueue_notifications SET shown_status = ?, shown_review_version = ?, shown_source_message_url = ?, failed_attempts = 0, next_attempt_at = NULL, parked_at = NULL, parked_key = NULL, parked_error = NULL WHERE kind = ? AND submission_id = ? AND reconcile_lease_token = ?")
         .bind(r.status, r.reviewVersion, r.sourceMessageUrl, r.kind, r.id, r.leaseToken).run();
     },
     async releaseNotificationLease(kind, id, leaseToken) {
@@ -51,14 +69,14 @@ export function d1ModqueueStore(db: D1Database): ModqueueStore {
       VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?) ON CONFLICT(kind, submission_id) DO NOTHING`)
         .bind(r.kind, r.id, r.messageId, r.format, r.transport, r.channelId, r.reviewVersion, r.sourceMessageUrl).run();
     },
-    async staleNotifications(limit) {
+    async staleNotifications(limit, nowIso) {
       const candidates = await db.prepare(`SELECT n.kind, n.submission_id, n.failed_attempts FROM modqueue_notifications n
-    JOIN link_submissions s ON n.kind = 'link' AND s.id = n.submission_id WHERE n.shown_status != s.status OR n.shown_review_version != 0
+    JOIN link_submissions s ON n.kind = 'link' AND s.id = n.submission_id WHERE (n.shown_status != s.status OR n.shown_review_version != 0) AND ${dueSql(LINK_KEY)}
     UNION ALL SELECT n.kind, n.submission_id, n.failed_attempts FROM modqueue_notifications n
-    JOIN wpm_submissions s ON n.kind = 'wpm' AND s.id = n.submission_id WHERE n.shown_status != s.status OR n.shown_review_version != s.review_version OR n.shown_source_message_url IS NOT s.source_message_url
+    JOIN wpm_submissions s ON n.kind = 'wpm' AND s.id = n.submission_id WHERE (n.shown_status != s.status OR n.shown_review_version != s.review_version OR n.shown_source_message_url IS NOT s.source_message_url) AND ${dueSql(WPM_KEY)}
     UNION ALL SELECT n.kind, n.submission_id, n.failed_attempts FROM modqueue_notifications n
-    JOIN layout_comments s ON n.kind = 'comment' AND s.id = n.submission_id WHERE n.shown_status != s.status OR n.shown_review_version != s.review_version
-    ORDER BY failed_attempts ASC LIMIT ?`).bind(limit).all<{ kind: QueueKind; submission_id: string }>();
+    JOIN layout_comments s ON n.kind = 'comment' AND s.id = n.submission_id WHERE (n.shown_status != s.status OR n.shown_review_version != s.review_version) AND ${dueSql(COMMENT_KEY)}
+    ORDER BY failed_attempts ASC LIMIT ?2`).bind(nowIso, limit).all<{ kind: QueueKind; submission_id: string }>();
       return candidates.results;
     },
     async linkCandidates(limit): Promise<LinkCandidateRow[]> {

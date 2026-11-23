@@ -12,6 +12,7 @@
 // and store/d1/outbox.ts (due); tests/api/cron-probe.test.ts holds each
 // flag to them.
 import type { CronStore, CronWork } from "../port";
+import { COMMENT_KEY, dueSql, LINK_KEY, WPM_KEY } from "./modqueue";
 
 const ACTION_TABLES = ["discord_pending_actions", "discord_reopen_actions"] as const;
 
@@ -32,11 +33,11 @@ const SQL = `SELECT
   (EXISTS (SELECT 1 FROM link_submissions WHERE status = 'pending' AND notified_at IS NULL)
     OR EXISTS (SELECT 1 FROM wpm_submissions WHERE status = 'pending' AND notified_at IS NULL)) AS announce,
   (EXISTS (SELECT 1 FROM modqueue_notifications n JOIN link_submissions s ON n.kind = 'link' AND s.id = n.submission_id
-      WHERE n.shown_status != s.status OR n.shown_review_version != 0)
+      WHERE (n.shown_status != s.status OR n.shown_review_version != 0) AND ${dueSql(LINK_KEY)})
     OR EXISTS (SELECT 1 FROM modqueue_notifications n JOIN wpm_submissions s ON n.kind = 'wpm' AND s.id = n.submission_id
-      WHERE n.shown_status != s.status OR n.shown_review_version != s.review_version OR n.shown_source_message_url IS NOT s.source_message_url)
+      WHERE (n.shown_status != s.status OR n.shown_review_version != s.review_version OR n.shown_source_message_url IS NOT s.source_message_url) AND ${dueSql(WPM_KEY)})
     OR EXISTS (SELECT 1 FROM modqueue_notifications n JOIN layout_comments s ON n.kind = 'comment' AND s.id = n.submission_id
-      WHERE n.shown_status != s.status OR n.shown_review_version != s.review_version)) AS reconcile,
+      WHERE (n.shown_status != s.status OR n.shown_review_version != s.review_version) AND ${dueSql(COMMENT_KEY)})) AS reconcile,
   (${discordWork}) AS discord,
   EXISTS (SELECT 1 FROM discord_rejection_dm_outbox WHERE (status = 'pending' AND next_attempt_at <= ?1) OR (status = 'leased' AND lease_until <= ?1)) AS dms,
   (SELECT value FROM import_state WHERE key = 'dump.last_at') AS dump_state,

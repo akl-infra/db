@@ -190,11 +190,12 @@ describe("[LDB-MD11] [LDB-MD12] notifyPending", () => {
     await notifyPending(store, envWith(WEBHOOK_URL), clock, post.fetchImpl);
     await testStore.patch("link_submissions", { id }, { status: "rejected" });
     const failedEdit = new FakeWebhook((i) => i === 1 ? 500 : 200);
-    await updateQueueNotification(store, envWith(WEBHOOK_URL), "link", id, failedEdit.fetchImpl);
+    await updateQueueNotification(store, envWith(WEBHOOK_URL), "link", id, failedEdit.fetchImpl, clock);
     expect(failedEdit.requests.some((r) => r.method === "PATCH" && r.body.content.includes(id))).toBe(true);
 
+    // [LDB-MD25] the failed edit backs off; the next sweep after it retries.
     const retry = new FakeWebhook();
-    await notifyPending(store, envWith(WEBHOOK_URL), clock, retry.fetchImpl);
+    await notifyPending(store, envWith(WEBHOOK_URL), fixedClock("2026-09-28T01:00:00.000Z"), retry.fetchImpl);
     const retried = retry.requests.find((r) => r.method === "PATCH" && r.body.content.includes(id));
     expect(retried?.body.content.startsWith("❌ REJECTED\n")).toBe(true);
   });

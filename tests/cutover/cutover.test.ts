@@ -245,7 +245,7 @@ describe("each step's precondition stops the run with a clear message (CV11)", (
     w.d1().exec("DELETE FROM d1_migrations WHERE name = (SELECT name FROM d1_migrations ORDER BY id DESC LIMIT 1)");
     w.d1().exec("DROP TABLE discord_deny_modals");
     const r = await w.cutover(["--execute", "--from", "export"]);
-    await fails(r, /failed its sanity checks: .*tables_present: missing: discord_deny_modals.*d1_migrations_complete: .*pending \[0037_read_indexes\.sql\]/s, "load");
+    await fails(r, /failed its sanity checks: .*tables_present: missing: discord_deny_modals.*d1_migrations_complete: .*pending \[0038_modqueue_parking\.sql\]/s, "load");
     // --allow-pending forgives only the migrations, never the table
     const lenient = await w.cutover(["--execute", "--from", "load", "--allow-pending"]);
     expect(text(lenient)).toMatch(/tables_present: missing: discord_deny_modals/);
