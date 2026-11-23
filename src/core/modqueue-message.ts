@@ -300,6 +300,53 @@ function fitComponentText(components: unknown[]): void {
   body.content = clipUtf16(body.content as string, Math.max(1, (body.content as string).length - over));
 }
 
+// [LDB-MD26] Discord's GET returns a message's own uploads inside File, Media
+// Gallery and Thumbnail components as resolved CDN urls, but a PATCH rejects
+// those (400 UNFURLED_MEDIA_ITEM_MUST_USE_ATTACHMENT_PROTOCOL): an upload must
+// be referenced as `attachment://<filename>`. Rewrite every such item, keeping
+// its description/spoiler and dropping the resolved-url extras. External urls
+// (a YouTube thumbnail) are left alone; the `attachments` key stays absent so
+// Discord keeps every upload (see the note where the patch is built).
+function referenceOwnAttachments(components: unknown[], attachments: unknown): void {
+  const names = new Set<string>();
+  const byUrl = new Map<string, string>();
+  for (const a of Array.isArray(attachments) ? attachments : []) {
+    if (a === null || typeof a !== "object" || typeof (a as { filename?: unknown }).filename !== "string") continue;
+    const { filename, url, proxy_url } = a as { filename: string; url?: unknown; proxy_url?: unknown };
+    names.add(filename);
+    for (const u of [url, proxy_url]) if (typeof u === "string") byUrl.set(u.split("?")[0]!, filename);
+  }
+  const resolve = (url: unknown, force: boolean): string | null => {
+    if (typeof url !== "string" || url.startsWith("attachment://")) return null;
+    const base = url.split("?")[0]!;
+    const hit = byUrl.get(base);
+    if (hit !== undefined) return hit;
+    let last = "";
+    try { last = decodeURIComponent(base.slice(base.lastIndexOf("/") + 1)); } catch { /* keep empty */ }
+    return (names.has(last) || (force && last !== "")) && /^https?:\/\/(?:cdn|media)\.discord(?:app)?\.(?:com|net)\//.test(base) ? last : null;
+  };
+  const media = (item: unknown, force: boolean): unknown => {
+    if (item === null || typeof item !== "object") return item;
+    const m = item as Record<string, unknown>;
+    const name = resolve(m.url, force);
+    if (name === null) return item;
+    return { url: `attachment://${name}` };
+  };
+  const walk = (c: unknown): void => {
+    if (Array.isArray(c)) { c.forEach(walk); return; }
+    if (c === null || typeof c !== "object") return;
+    const row = c as Record<string, unknown>;
+    if (row.type === 13) row.file = media(row.file, true);
+    else if (row.type === 11) row.media = media(row.media, false);
+    else if (row.type === 12 && Array.isArray(row.items)) {
+      row.items = row.items.map((i: unknown) => i !== null && typeof i === "object" ? { ...(i as Record<string, unknown>), media: media((i as { media?: unknown }).media, false) } : i);
+    }
+    walk(row.components);
+    walk(row.accessory);
+  };
+  walk(components);
+}
+
 export function buildV2StatusPatch(current: unknown, kind: QueueKind, id: string, state: QueueStatus, actionsEnabled = true): Record<string, unknown> | null {
   if (current === null || typeof current !== "object" || !("components" in current) || !Array.isArray(current.components)) return null;
   // Older cards did not reserve room for a reason. Preserve their bounded
@@ -371,6 +418,7 @@ export function buildV2StatusPatch(current: unknown, kind: QueueKind, id: string
   }
   if (!foundStatus) return null;
   fitComponentText(components);
+  referenceOwnAttachments(components, (current as { attachments?: unknown }).attachments);
   const patchBody: Record<string, unknown> = { flags: DISCORD_COMPONENTS_V2_FLAG, components, allowed_mentions: { parse: [] } };
   // No `attachments` key keeps every upload. Components V2 messages list
   // their uploads only inside media items, so any explicit list (even one
