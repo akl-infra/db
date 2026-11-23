@@ -44,9 +44,12 @@ function evalCond(t: Json, params: Json, node: Json): boolean {
   throw new Error(`condition ${JSON.stringify(node)}`);
 }
 
+/** A reader role for the tests (LDB-MD27); the template's own default is empty, which creates no TelemetryReadRole. */
+export const TEST_READER_ARN = "arn:aws:iam::111111111111:role/test-reader";
+
 /** The template with Fn::If resolved and unselected resources removed, for one stage. */
 export function resolveStage(t: Json, stage: string, extra: Json = {}): { params: Json; resources: Record<string, Json> } {
-  const params = { Stage: stage, ...extra };
+  const params = { Stage: stage, TelemetryReaderArn: TEST_READER_ARN, ...extra };
   const conds = Object.fromEntries(Object.keys(t.Conditions ?? {}).map((c) => [c, evalCond(t, params, { Condition: c })]));
   const walk = (n: Json): Json => {
     if (Array.isArray(n)) return n.map(walk).filter((x) => x !== undefined && !(x && x.Ref === "AWS::NoValue"));
@@ -95,13 +98,16 @@ export function expectedResources(stage: string): string[] {
     "HttpApi", "ApiIntegration", "DefaultRoute", "DefaultStage", "ApiInvokePermission", "CustomDomain", "ApiMapping",
     "SchedulerRole", "JobsSchedule", "KeepWarmSchedule", "AlarmTopic", "AlarmTopicPolicy", "AlarmPrefixFilter", ...alarmsFor(stage),
   ];
-  return [...common, ...(stage === "prod" ? ["Budget"] : [])].sort();
+  return [...common, ...(stage === "prod" ? ["Budget", "TelemetryReadRole"] : [])].sort();
 }
 
 /** The alarms a stage has: the account's free tier is 10, so only prod gets the full set. */
 export const ALARMS_EVERY_STAGE = ["LambdaErrorsAlarm", "AlarmPrefixAlarm"];
 export const ALARMS_PROD_ONLY = ["JobsErrorsAlarm", "LambdaThrottlesAlarm", "LambdaDurationAlarm", "Api5xxAlarm", "DdbSystemErrorsAlarm", "DdbThrottledAlarm"];
 export const alarmsFor = (stage: string): string[] => (stage === "prod" ? [...ALARMS_EVERY_STAGE, ...ALARMS_PROD_ONLY] : ALARMS_EVERY_STAGE);
+
+/** The read-only actions IAM has no resource type for; the one place an Allow may name Resource "*". */
+export const NO_RESOURCE_LEVEL_READS = ["cloudwatch:GetMetricData", "cloudwatch:DescribeAlarms", "logs:GetQueryResults", "logs:StopQuery"];
 
 export function violations(t: Json, stage: string, extra: Json = {}): string[] {
   const { resources: R, params } = resolveStage(t, stage, extra);
@@ -233,7 +239,9 @@ export function violations(t: Json, stage: string, extra: Json = {}): string[] {
   for (const [name, doc] of policyDocs(R)) {
     for (const s of statements(doc)) {
       for (const a of arr(s.Action)) if (typeof a === "string" && a.includes("*")) v.push(`${name}: wildcard action ${a}`);
-      if (s.Effect === "Allow" && arr(s.Resource).some((x) => x === "*")) v.push(`${name}: Resource *`);
+      // The only Resource * the stage has: the read-only calls IAM cannot scope (LDB-MD27), on TelemetryReadRole alone.
+      const noResourceLevel = name.startsWith("TelemetryReadRole/") && /^NoResourceLevel/.test(s.Sid ?? "") && arr(s.Action).every((a: string) => NO_RESOURCE_LEVEL_READS.includes(a));
+      if (s.Effect === "Allow" && arr(s.Resource).some((x) => x === "*") && !noResourceLevel) v.push(`${name}: Resource *`);
       if (arr(s.Action).includes("lambda:InvokeFunction")) {
         const r = s.Resource;
         const okFn = r?.["Fn::Sub"] === "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:akldb-${Stage}-api:live";
@@ -257,6 +265,18 @@ export function violations(t: Json, stage: string, extra: Json = {}): string[] {
   if (dyn?.Resource?.["Fn::Sub"] !== "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/akldb-${Stage}-log") v.push("ApiRole: DynamoDB resource is not the log table");
   for (const [id, r] of ofType("AWS::IAM::Role")) {
     if (r.Properties.PermissionsBoundary?.["Fn::ImportValue"] !== "akldb-boundary-arn") v.push(`${id}: no permissions boundary (the exported akldb-boundary-arn)`);
+  }
+  // TelemetryReadRole (LDB-MD27): prod only, trusted by one named role plus an ExternalId, read-only actions, short session.
+  if (stage !== "prod" && R.TelemetryReadRole) v.push("TelemetryReadRole: outside prod");
+  const tr = R.TelemetryReadRole;
+  if (tr) {
+    const trust = tr.Properties.AssumeRolePolicyDocument.Statement;
+    const t0 = trust[0];
+    if (trust.length !== 1 || t0.Effect !== "Allow" || t0.Action !== "sts:AssumeRole") v.push("TelemetryReadRole: trust is not one sts:AssumeRole allow");
+    if (!t0.Condition?.ArnEquals?.["aws:PrincipalArn"]?.Ref || !t0.Condition?.StringEquals?.["sts:ExternalId"]) v.push("TelemetryReadRole: trust is not pinned to the reader ARN and an ExternalId");
+    if (tr.Properties.MaxSessionDuration > 3600) v.push("TelemetryReadRole: session longer than an hour");
+    const okActions = [...NO_RESOURCE_LEVEL_READS, "cloudwatch:DescribeAlarmHistory", "logs:StartQuery"];
+    for (const [name, doc] of policyDocs({ TelemetryReadRole: tr })) for (const s of statements(doc)) for (const a of arr(s.Action)) if (!okActions.includes(a) || s.Effect !== "Allow") v.push(`${name}: ${a} is not a read-only telemetry action`);
   }
   const schedRole = R.SchedulerRole?.Properties.AssumeRolePolicyDocument.Statement[0];
   if (schedRole?.Principal?.Service !== "scheduler.amazonaws.com" || !schedRole?.Condition?.StringEquals?.["aws:SourceAccount"]) v.push("SchedulerRole: trust is not scheduler.amazonaws.com scoped to the account");

@@ -43,6 +43,24 @@ Staging is deployed; shadow and prod are not. Commands use profile `akldb`.
    header `x-akldb-origin` = the `origin-secret` value. Without it every request is a 403; the API Gateway default
    endpoint is disabled, so there is no way around Cloudflare.
 
+## Telemetry read role (LDB-MD27)
+
+The error-telemetry routine (Spark's ops Lambda, in the akl project, same AWS organization) reads akldb's metrics, alarm history
+and logs through one read-only role, `akldb-prod-telemetry-read`, prod only. Nothing here writes or deploys by itself; the order is:
+
+1. **Admin, once** (bootstrap stack, a profile with IAM rights, not `akldb-deploy`): re-run the bootstrap command above. It widens
+   `akldb-boundary` by `cloudwatch:GetMetricData`/`DescribeAlarms`/`DescribeAlarmHistory` and `logs:StartQuery`/`GetQueryResults`/`StopQuery`
+   (alarms and log groups on `akldb-*`; the calls IAM cannot scope are `*`). Without it the role would exist but could read nothing.
+2. **Deploy prod** with the reader's role ARN once: `TELEMETRY_READER_ARN=arn:aws:iam::<akl account>:role/<ops role> sh scripts/deploy-aws.sh --stage prod --execute`
+   (or the CI prod deploy after the variable is set). `akldb-deploy` may create it as is: the name is `akldb-*`, the boundary is attached, and
+   the role actions it needs are already in its policy. Later deploys keep the stack's value; `TELEMETRY_READER_ARN=` (empty) removes the role.
+   The stack output `TelemetryReadRoleArn` is the ARN to give the reader.
+3. **In the reader's project** (the akl account): allow `sts:AssumeRole` on that output ARN in the ops role's policy, and have the Lambda call
+   `AssumeRole` with `ExternalId: "akldb-telemetry-read"` and `DurationSeconds: 900`.
+
+The managed RCPs (`DenyAnyoneOutsideMyOrgAndAWS` on `sts:*` and `logs:*`) only refuse principals outside the organization; both projects are in
+the same one, so the cross-project assume is not blocked. The managed SCPs name no `sts` deny.
+
 ## Notes
 
 - **Concurrency.** The account limit is 10 and a raise to 1000 is requested (pending). Keep-warm K=4 takes 4 of the 10, and real
