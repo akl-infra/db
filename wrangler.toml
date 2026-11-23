@@ -33,6 +33,8 @@ bucket_name = "akl-db-dumps"
 
 [triggers]
 crons = ["*/5 * * * *"] # ONE trigger for three jobs -- src/index.ts's scheduled() dispatches by event.scheduledTime, not event.cron
+# Since 2026-11-23 the DEPLOYED frozen Worker has no trigger (removed via the schedules API, never by a deploy). Keep this line: a rollback's
+# fresh-d1 deploy restores it from here, and its original-d1 variant puts it back by hand (scripts/cutover/rollback-steps.mjs cron-back, LDB-CV30).
 
 [vars]
 DISCORD_API_URL = "https://discord.com/api"

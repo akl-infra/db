@@ -8,7 +8,12 @@
 //   fresh-d1     AWS took writes. Freeze AWS, take its database at the head, import it into a FRESH D1, prove it equal, point the Worker at it (a PR:
 //                manual), put the record back, clear the flag there. The old D1 is not touched.
 //
-//  decide -> aws-readonly -> capture -> [original-d1: d1-prove] [fresh-d1: create-d1 -> import -> verify -> point-worker] -> dns-back -> reopen -> report
+//  decide -> aws-readonly -> capture -> [original-d1: d1-prove] [fresh-d1: create-d1 -> import -> verify -> point-worker] -> dns-back -> reopen
+//    -> [original-d1: cron-back] -> report
+//
+// cron-back: the frozen Worker's one cron trigger (wrangler.toml [triggers], every job of scheduled()) was REMOVED from the deployed Worker on
+// 2026-11-23 (CF API PUT schedules [], handoff/error-telemetry/D6-dump.md: a D1 error made its skipped ticks fail open). The original-d1 variant
+// redeploys nothing, so once writes reopen saltorbit adds it back by hand and the step proves it; fresh-d1's point-worker deploy brings it back.
 import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -29,6 +34,18 @@ export function dnsBackInstructions(o) {
   return [
     `1. Cloudflare dashboard > akldb.org > DNS: delete the proxied CNAME ${host.split(".")[0]} (the one pointing at the stack's ApiDomainTarget).`,
     `2. Cloudflare dashboard > Workers & Pages > akl-db > Settings > Domains & Routes: add the custom domain ${host} back.`,
+  ];
+}
+
+/** The Worker's cron trigger (wrangler.toml [triggers] crons): put back by `cron-back` in the original-d1 variant. */
+export const WORKER_CRON = "*/5 * * * *";
+
+/** What saltorbit does to put the trigger back (no code upload: `wrangler deploy` would replace the frozen version). */
+export function cronBackInstructions(o) {
+  return [
+    `1. Cloudflare dashboard > Workers & Pages > ${o.workerName} > Settings > Trigger events: add the Cron Trigger ${WORKER_CRON} (it was removed on 2026-11-23).`,
+    `   or: curl -X PUT https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/${o.workerName}/schedules -H "Authorization: Bearer <Workers Scripts Edit>" -H "Content-Type: application/json" --data '[{"cron":"${WORKER_CRON}"}]'`,
+    `   Never \`wrangler deploy\` for this: it uploads the checked-out code over the frozen version.`,
   ];
 }
 
@@ -300,6 +317,44 @@ export function steps(o) {
       },
     },
     {
+      id: "cron-back",
+      title: `[original-d1] saltorbit puts the Worker's cron trigger ${WORKER_CRON} back (removed 2026-11-23); prove it is there`,
+      commands: () => (o.workerName === undefined ? [] : [...cronBackInstructions(o), `curl -s https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/${o.workerName}/schedules   # lists ${WORKER_CRON}`]),
+      skip: (c) =>
+        c.data.variant === "fresh-d1" // undecided falls through to the precondition (reopen is not done either)
+          ? "variant fresh-d1: point-worker's deploy from main carries wrangler.toml's [triggers] crons"
+          : o.workerName === undefined
+            ? "no --worker-name (a rehearsal Worker): no trigger to put back"
+            : null,
+      async precondition(c) {
+        // before reopen every tick only skips, but a D1 error makes it fail open (D6): the trigger goes back once the D1 serves writes anyway
+        need(c.state.steps.reopen?.status === "done", "the trigger goes back only after reopen: until then the D1 must stay exactly as d1-prove proved it");
+      },
+      async run(c) {
+        let crons = null;
+        let readError = null;
+        try {
+          crons = await c.ports.workers.schedules(o.workerName);
+        } catch (e) {
+          readError = e instanceof Error ? e.message : String(e);
+        }
+        if (crons !== null && crons.includes(WORKER_CRON)) return { message: `${o.workerName} has its cron trigger ${WORKER_CRON} again`, proof: { crons } };
+        if (crons === null && o.cronBack) {
+          return { message: `${o.workerName}'s cron trigger ${WORKER_CRON}: confirmed by the operator (--cron-back); its triggers could not be read (${readError})`, proof: { confirmed: true, readError } };
+        }
+        c.out("      ---- ACTION FOR SALTORBIT (Cloudflare dashboard, akl account) ----");
+        for (const line of cronBackInstructions(o)) c.out(`      ${line}`);
+        c.out("      ------------------------------------------------------------------");
+        need(
+          false,
+          crons !== null
+            ? `MANUAL STEP. ${o.workerName}'s cron triggers are ${JSON.stringify(crons)}, without ${WORKER_CRON}: add it (above), then re-run with --from cron-back`
+            : `MANUAL STEP. Add ${o.workerName}'s cron trigger ${WORKER_CRON} (above). Its triggers could not be read (${readError}): re-run with --from cron-back, plus --cron-back to confirm it by hand when no token can read them`,
+          { hint: "the trigger is account configuration, not code: nothing here uploads the Worker" },
+        );
+      },
+    },
+    {
       id: "report",
       title: "write the rollback report",
       commands: () => [`write ${o.report}`],
@@ -318,7 +373,7 @@ export function renderReport(state, o) {
   lines.push("## Steps", "", "| step | status | ms | result |", "|---|---|---|---|");
   for (const [id, st] of Object.entries(state.steps)) lines.push(`| ${id} | ${st.status === "running" && id === "report" ? "this report" : st.status} | ${st.ms ?? ""} | ${(st.message ?? "").replaceAll("|", "\\|")} |`);
   lines.push("", "## Proofs", "");
-  for (const id of ["decide", "aws-readonly", "capture", "d1-prove", "create-d1", "import", "verify", "point-worker", "dns-back", "reopen"]) {
+  for (const id of ["decide", "aws-readonly", "capture", "d1-prove", "create-d1", "import", "verify", "point-worker", "dns-back", "reopen", "cron-back"]) {
     const p = state.steps[id]?.proof;
     if (p) lines.push(`### ${id}`, "", "```json", JSON.stringify(p, null, 2).slice(0, 3000), "```", "");
   }

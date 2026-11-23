@@ -28,6 +28,30 @@ export function parseJsonOutput(text) {
 }
 
 /**
+ * A Worker's cron triggers through the Cloudflare REST API (`GET /accounts/<id>/workers/scripts/<name>/schedules`), READ only: the rollback's
+ * `cron-back` step checks that saltorbit put the frozen Worker's trigger back. Never writes (adding a trigger is a dashboard click, and the token
+ * that could do it could also upload code). Without a token `schedules` throws, and the step falls back to the operator's confirmation.
+ */
+export function createWorkersPort({ accountId, token, fetchImpl = globalThis.fetch, timeoutMs = 30_000 }) {
+  return {
+    async schedules(script) {
+      if (!token) throw new Error("CLOUDFLARE_API_TOKEN is not set");
+      const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/workers/scripts/${encodeURIComponent(script)}/schedules`;
+      const res = await fetchImpl(url, { method: "GET", headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(timeoutMs) });
+      const text = await res.text();
+      let json;
+      try {
+        json = JSON.parse(text);
+      } catch {
+        throw new Error(`Workers schedules ${res.status}: not JSON: ${text.slice(0, 200)}`);
+      }
+      if (!res.ok || json.success === false) throw new Error(`Workers schedules ${res.status}: ${(json.errors ?? []).map((e) => `${e.code} ${e.message}`).join("; ") || text.slice(0, 200)}`);
+      return (json.result?.schedules ?? []).map((s) => s.cron);
+    },
+  };
+}
+
+/**
  * D1 through the Cloudflare REST API (`POST /accounts/<id>/d1/database/<db id>/query`), SELECTs only. One HTTP call is 70-150 ms against about a
  * second for a `wrangler` process, and `selectMany` runs several statements in ONE call (the API returns one result per statement). The account's
  * limit is 1,200 calls per 5 minutes per user, shared with every other agent on the token, so callers keep the count low (proveAllBatched) and a

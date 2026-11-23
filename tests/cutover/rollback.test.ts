@@ -15,7 +15,7 @@ afterEach(() => w && cleanup(w));
 const text = (r: { out: string[] }) => r.out.join("\n");
 const rbState = () => JSON.parse(fs.readFileSync(path.join(w.dir, "rollback-state.json"), "utf8"));
 const FRESH = "akl-db-rollback-2026-11-04";
-const ROLLBACK_STEPS = ["decide", "aws-readonly", "capture", "d1-prove", "create-d1", "import", "verify", "point-worker", "dns-back", "reopen", "report"];
+const ROLLBACK_STEPS = ["decide", "aws-readonly", "capture", "d1-prove", "create-d1", "import", "verify", "point-worker", "dns-back", "reopen", "cron-back", "report"];
 
 const rb = (args: string[] = ["--execute"]) => w.rollback(args);
 /** The log without read-path bookkeeping (nonces from the signed probes, LDB-CV25): the image, the operator's flag units, real writes. */
@@ -100,6 +100,11 @@ describe("rollback, variant fresh-d1 (AWS took writes)", () => {
     expect(md).toMatch(/\| verify \| done \| \d+ \|/);
     expect(md).toContain("### dns-back");
     expect(md).toContain("### reopen");
+    // [LDB-CV30] the point-worker deploy from main carries wrangler.toml's crons: nothing to put back, nothing read
+    expect(rbState().steps["cron-back"]).toMatchObject({ status: "skipped", message: "variant fresh-d1: point-worker's deploy from main carries wrangler.toml's [triggers] crons" });
+    expect(w.calls).not.toContain("workers.schedules");
+    // which holds only while wrangler.toml keeps the trigger
+    expect(fs.readFileSync(path.join(__dirname, "../../wrangler.toml"), "utf8")).toMatch(/^crons = \["\*\/5 \* \* \* \*"\]/m);
   });
 
   it("[LDB-CV18] an import that loses a row is caught by the proof: the record does not move back and nothing reopens", async () => {
@@ -151,7 +156,7 @@ describe("rollback, variant original-d1 (AWS took no write past the image)", () 
     expect(r.code, text(r)).toBe(0);
     const st = rbState();
     expect(st.data.variant).toBe("original-d1");
-    for (const id of ["decide", "aws-readonly", "capture", "d1-prove", "dns-back", "reopen", "report"]) expect(st.steps[id].status, id).toBe("done");
+    for (const id of ["decide", "aws-readonly", "capture", "d1-prove", "dns-back", "reopen", "cron-back", "report"]) expect(st.steps[id].status, id).toBe("done");
     for (const id of ["create-d1", "import", "verify", "point-worker"]) expect(st.steps[id].status, id).toBe("skipped");
     expect(st.steps["aws-readonly"].proof.appended).toBe(false); // the image already carries read_only
     expect(w.dbs.size).toBe(1); // no fresh D1
@@ -220,6 +225,50 @@ describe("rollback, variant original-d1 (AWS took no write past the image)", () 
     expect(text(r)).toContain("this AWS log has no image as seq 1");
   });
 
+  it("[LDB-CV30] the Worker's cron trigger (removed 2026-11-23) goes back after reopen: the run stops with what to do, and a re-run proves it is there", async () => {
+    w = await makeWorld();
+    await w.cutoverUntil("dns");
+    w.crons = []; // CF API PUT schedules [] on 2026-11-23
+    const r = await rb();
+    expect(r.code).toBe(1);
+    const t = text(r);
+    expect(t).toContain("ACTION FOR SALTORBIT");
+    expect(t).toContain("Workers & Pages > akl-db > Settings > Trigger events: add the Cron Trigger */5 * * * *");
+    expect(t).toContain("Never `wrangler deploy` for this");
+    expect(t).toContain(`MANUAL STEP. akl-db's cron triggers are [], without */5 * * * *: add it (above), then re-run with --from cron-back`);
+    expect(t).toContain("resume with: node scripts/cutover/rollback.mjs --execute --from cron-back");
+    const st = rbState();
+    expect(st.steps.reopen.status).toBe("done"); // writes reopened first; only the trigger is missing
+    expect(st.steps["cron-back"].status).toBe("failed");
+    expect(st.steps.report).toBeUndefined();
+    // saltorbit adds it in the dashboard
+    w.crons = ["*/5 * * * *"];
+    const again = await rb(["--execute", "--from", "cron-back"]);
+    expect(again.code, text(again)).toBe(0);
+    expect(rbState().steps["cron-back"]).toMatchObject({ status: "done", proof: { crons: ["*/5 * * * *"] } });
+    expect(fs.readFileSync(path.join(w.dir, "rollback-report.md"), "utf8")).toContain("### cron-back");
+  });
+
+  it("[LDB-CV30] cron-back runs only after reopen, never touches the Worker, and without a token that can read the triggers takes --cron-back as the operator's confirmation", async () => {
+    w = await makeWorld();
+    await w.cutoverUntil("dns");
+    const early = await rb(["--execute", "--only", "cron-back"]);
+    expect(early.code).toBe(1);
+    expect(text(early)).toContain("the trigger goes back only after reopen");
+    w.faults.noWorkersToken = true;
+    const r = await rb();
+    expect(r.code).toBe(1);
+    expect(text(r)).toMatch(/MANUAL STEP\. Add akl-db's cron trigger \*\/5 \* \* \* \* \(above\)\. Its triggers could not be read \(CLOUDFLARE_API_TOKEN is not set\): re-run with --from cron-back, plus --cron-back/);
+    const confirmed = await rb(["--execute", "--from", "cron-back", "--cron-back"]);
+    expect(confirmed.code, text(confirmed)).toBe(0);
+    expect(rbState().steps["cron-back"].proof).toEqual({ confirmed: true, readError: "CLOUDFLARE_API_TOKEN is not set" });
+    // a readable answer wins over the confirmation: a missing trigger is not confirmed away
+    w.faults.noWorkersToken = false;
+    w.crons = [];
+    expect((await rb(["--execute", "--from", "cron-back", "--cron-back"])).code).toBe(1);
+    expect(w.calls.filter((c) => c.startsWith("workers.") && c !== "workers.schedules")).toEqual([]);
+  });
+
   it("[LDB-CV18] in a rehearsal the public name is not the Worker's: dns-back checks the Worker itself and prints no instruction", async () => {
     w = await makeWorld({ rehearsal: true });
     await w.cutoverUntil("dns");
@@ -228,6 +277,7 @@ describe("rollback, variant original-d1 (AWS took no write past the image)", () 
     expect(text(r)).toContain("(rehearsal: https://staging-api.akldb.org is not the Worker's name; checking the Worker at https://rehearsal.example)");
     expect(text(r)).not.toContain("ACTION FOR SALTORBIT");
     expect(rbState().data.variant).toBe("original-d1");
+    expect(rbState().steps["cron-back"]).toMatchObject({ status: "skipped", message: "no --worker-name (a rehearsal Worker): no trigger to put back" }); // [LDB-CV30]
   });
 });
 
@@ -295,6 +345,7 @@ describe("the rollback machine (CV11)", () => {
     expect(t).toContain("open a PR on akl-infra/db");
     expect(t).toContain("delete the proxied CNAME api");
     expect(t).toContain("add the custom domain api.akldb.org back");
+    expect(t).toContain("Trigger events: add the Cron Trigger */5 * * * *"); // [LDB-CV30]
     expect(w.calls).toEqual([]);
     expect(fs.existsSync(path.join(w.dir, "rollback-state.json"))).toBe(false);
   });

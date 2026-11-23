@@ -1,7 +1,7 @@
 // [LDB-CV22] The D1 REST port (scripts/cutover/ports-real.mjs): read-only SELECTs, several statements per call, the account's rate limit waited out.
 import { describe, expect, it } from "vitest";
 // @ts-expect-error -- plain scripts, no .d.ts
-import { createD1RestPort } from "../../scripts/cutover/ports-real.mjs";
+import { createD1RestPort, createWorkersPort } from "../../scripts/cutover/ports-real.mjs";
 
 const ok = (result: unknown) => new Response(JSON.stringify({ success: true, errors: [], result }), { status: 200 });
 
@@ -43,5 +43,22 @@ describe("the D1 REST port (CV22)", () => {
     await expect(short.selectMany(["SELECT 1", "SELECT 2"], "x")).rejects.toThrow(/answered 1 results for 2 statements/);
     const forever = createD1RestPort({ accountId: "a", token: "t", resolveId: () => "i", fetchImpl: async () => new Response("", { status: 429 }), sleep: async () => {}, retries: 2 });
     await expect(forever.select("SELECT 1", "x")).rejects.toThrow(/D1 REST 429/);
+  });
+});
+
+describe("the Workers schedules port (CV30)", () => {
+  it("[LDB-CV30] GETs the Worker's schedules with the bearer token and returns the cron strings; no token or an API error is an error; it never writes", async () => {
+    const sent: { url: string; method: string | undefined; auth: string | null }[] = [];
+    const fetchImpl = async (url: string, init: RequestInit) => {
+      sent.push({ url, method: init.method, auth: new Headers(init.headers).get("authorization") });
+      return ok({ schedules: [{ cron: "*/5 * * * *", created_on: "2026-10-10T00:00:00Z", modified_on: "2026-10-10T00:00:00Z" }] });
+    };
+    expect(await createWorkersPort({ accountId: "acct", token: "tok", fetchImpl }).schedules("akl-db")).toEqual(["*/5 * * * *"]);
+    expect(sent).toEqual([{ url: "https://api.cloudflare.com/client/v4/accounts/acct/workers/scripts/akl-db/schedules", method: "GET", auth: "Bearer tok" }]);
+    expect(await createWorkersPort({ accountId: "a", token: "t", fetchImpl: async () => ok({ schedules: [] }) }).schedules("akl-db")).toEqual([]);
+    await expect(createWorkersPort({ accountId: "a", token: undefined, fetchImpl }).schedules("akl-db")).rejects.toThrow("CLOUDFLARE_API_TOKEN is not set");
+    const denied = createWorkersPort({ accountId: "a", token: "t", fetchImpl: async () => new Response(JSON.stringify({ success: false, errors: [{ code: 10000, message: "Authentication error" }] }), { status: 403 }) });
+    await expect(denied.schedules("akl-db")).rejects.toThrow("Workers schedules 403: 10000 Authentication error");
+    expect(Object.keys(createWorkersPort({ accountId: "a", token: "t", fetchImpl }))).toEqual(["schedules"]);
   });
 });

@@ -133,7 +133,7 @@ node scripts/cutover/run.mjs $S                                  # the dry run: 
 # 1a. cutover up to `dns` (AWS still frozen, log = the image), then roll back: variant original-d1
 for s in preflight copy-dumps freeze export load verify image serve dns; do node scripts/cutover/run.mjs $S --execute --only $s || break; done
 node scripts/cutover/rollback.mjs $S                             # the dry run
-node scripts/cutover/rollback.mjs $S --execute                   # decide, aws-readonly, capture, d1-prove, dns-back, reopen
+node scripts/cutover/rollback.mjs $S --execute                   # decide, aws-readonly, capture, d1-prove, dns-back, reopen (cron-back: skipped without --worker-name)
 # 1b. reset (below), then the whole cutover with ten minutes of writes on AWS, then roll back to a FRESH D1
 node scripts/cutover/run.mjs $S --execute
 node scripts/cutover/rollback.mjs $S --execute                   # variant fresh-d1: stops at point-worker (manual)
@@ -230,6 +230,14 @@ back**, clear the D1 flag. It picks the variant from the AWS log:
 The `dns-back` step mirrors `dns`: it prints the instruction (**saltorbit deletes the proxied CNAME `api`, then re-adds the custom domain `api.akldb.org`
 to the Worker `akl-db`**) and polls the public name until it answers from the Worker (no `X-Akldb-Backend`) with the database's seq, 5 times in a row on
 fresh connections. The flag is cleared only after that. The report (`rollback-report.md`) states which variant applied.
+
+The `cron-back` step (original-d1 only, after `reopen`) puts back the Worker's one cron trigger, `*/5 * * * *`. It was removed from the frozen
+Worker on 2026-11-23 (CF API `PUT .../workers/scripts/akl-db/schedules` with `[]`, `handoff/error-telemetry/D6-dump.md`): its ticks only skipped, but
+a D1 error made them fail open and run every job against the frozen D1. The original-d1 variant redeploys nothing, so the step prints the instruction
+(**saltorbit adds the Cron Trigger in the dashboard, Workers & Pages > `akl-db` > Settings > Trigger events**, never `wrangler deploy`, which would
+replace the frozen version) and reads the Worker's schedules back with `CLOUDFLARE_API_TOKEN` (read only); without a token that can read them,
+`--from cron-back --cron-back` records the operator's confirmation. fresh-d1 skips it: `point-worker` deploys from main, and `wrangler.toml` still
+carries the trigger.
 
 ## Open questions
 

@@ -3,11 +3,13 @@
 //
 //   node scripts/cutover/rollback.mjs [--execute] [--from <step>] [--only <step>] [--variant original-d1|fresh-d1] [options]
 //
-//   steps      decide aws-readonly capture d1-prove create-d1 import verify point-worker dns-back reopen report
+//   steps      decide aws-readonly capture d1-prove create-d1 import verify point-worker dns-back reopen cron-back report
 //   variants   original-d1  AWS took no write past the image (only operator flag units): reuse the ORIGINAL D1, proven equal to the image
 //              fresh-d1     otherwise: capture AWS, import into a fresh D1 (--new-d1, default akl-db-rollback-<date>), prove it equal,
 //                           point the Worker at it (manual: a PR; re-run with --worker-pointed)
 //              both         then saltorbit puts the DNS record back on the Worker (dns-back polls), and the flag is cleared (reopen)
+//              original-d1  last, saltorbit adds the Worker's cron trigger */5 * * * * back (removed 2026-11-23; cron-back reads it with
+//                           CLOUDFLARE_API_TOKEN, or --cron-back confirms it by hand); fresh-d1's deploy brings it back by itself
 //   (none)     DRY RUN: prints the commands each step would run and does nothing
 //
 // The same options as run.mjs (--stage, --d1, --worker-url, --stack, --profile, --state, --work, --report ...).
