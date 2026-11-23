@@ -125,3 +125,13 @@ backup/revision payloads retain the same envelopes. `has_alts` includes unary
 alts. `mana2/1` continues its documented omission of all alternate fingerings.
 See [integration handoff](../../../docs/fuzzy-v1-integration.md) for client
 requirements and local verification.
+
+## Off-layout alt characters and space triggers (API 1.38)
+
+An `alts[].ngram` literal need not be one of the layout's keys: `"\""` (the
+shifted `'`) or `"∞"` is stored and served as written, and a reader with no
+position for that character skips the alt. A space is a valid
+`adaptive_swaps[].trigger` on every layout (`{"trigger":" ","swap":["y","h"]}`
+= "after a space, y and h swap"), lowering to `" y" -> " h"` and its mirror.
+Every other trigger, and every magic key, chiral key, swap member and combo
+key, must still be one of the layout's keys (LDB-F22, LDB-F71).

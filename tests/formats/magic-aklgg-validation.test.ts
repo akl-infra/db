@@ -9,6 +9,9 @@
 //     validators together (saltorbit/aklgg#322, 2026-09-13), which is what
 //     refuses adaptative-magic-sturdy's and jazz's upper-case swaps;
 //   - a `null` chiral `same`/`opposite` reads as absent.
+// One deliberate divergence since API 1.38 (LDB-F71, saltorbit 2026-11-23):
+// a SPACE swap trigger is accepted on every layout ("after a space", a word
+// start), whether or not `keys` lists space; akl.gg's gate refused it.
 // design/layout-db/24-spark-wire-review.md round 2's resolution item 2:
 // `notes`/`updated` are DROPPED from the payload entirely now (no writer
 // ever produced them) -- the schema refuses them outright, a divergence
@@ -97,6 +100,25 @@ describe("spark/1 magic validation == akl.gg's gate (LDB-F22)", () => {
     expect(rows.find((r) => r.inputs === "ah")?.output).toBe("aa"); // opposite hand, repeat_previous
     expect(check({ chiral_keys: [{ key: "h", same: null, opposite: null }] }).ok).toBe(false);
     expect(check({ chiral_keys: [{ key: "h" }] }).ok).toBe(false);
+  });
+
+  it("[LDB-F71] a space trigger is valid on any layout and compiles to space-led rows; no other off-layout trigger is", () => {
+    const magic = { adaptive_swaps: [{ trigger: " ", swap: ["a", "h"] }] };
+    expect(check(magic)).toEqual({ ok: true });
+    const rows = spark1.compileMagic({ keys: KEYS, magic } as unknown as Payload);
+    expect(rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({ inputs: " a", output: " h" }),
+      expect.objectContaining({ inputs: " h", output: " a" }),
+    ]));
+    // a layout that lists space as a key still accepts it
+    expect(check(magic, [...KEYS, { char: " ", row: 3, col: 4, finger: "LT" }])).toEqual({ ok: true });
+    // only space: other whitespace and other off-layout characters are still refused, and members still must be keys
+    for (const trigger of ["\t", "\u00A0", "\n", "C", '"']) {
+      expect(refusal({ adaptive_swaps: [{ trigger, swap: ["a", "h"] }] })?.path, JSON.stringify(trigger)).toBe("/magic/adaptive_swaps/0/trigger");
+    }
+    expect(refusal({ adaptive_swaps: [{ trigger: " ", swap: ["a", " "] }] })?.path).toBe("/magic/adaptive_swaps/0/swap");
+    // a space trigger still collides like any other
+    expect(refusal({ adaptive_swaps: [{ trigger: " ", swap: ["a", "b"] }, { trigger: " ", swap: ["a", "c"] }] })?.path).toBe("/magic/adaptive_swaps/1/swap");
   });
 
   it("[LDB-F22] [LDB-F41] every refusal akl.gg's gate makes is still made (plus the emit-shape refusals)", () => {

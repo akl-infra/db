@@ -244,7 +244,7 @@ describe("spark/1 setAlts/setCombos (LDB-E1, LDB-F46)", () => {
   });
 
   it("[LDB-F46] setAlts with an invalid value fails the pipeline's own validate() re-run (the edit itself never checks)", () => {
-    const result = spark1.edits!.setAlts!(BASE, [{ ngram: ["z", "s"], fingers: ["LI", "LM"] }]);
+    const result = spark1.edits!.setAlts!(BASE, [{ ngram: ["z", null], fingers: ["LI", null] }]); // null only mid-3 (an off-layout "z" alone is valid since LDB-F71)
     const payload = unwrap<Parameters<typeof spark1.validate>[0]>(result);
     expect(spark1.validate(payload).ok).toBe(false);
   });

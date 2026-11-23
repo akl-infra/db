@@ -24,11 +24,13 @@ describe("[LDB-F52] default spark/1 fuzzy alternatives", () => {
     { ngram: ["w"], fingers: [] },
     { ngram: ["w"], fingers: ["LM", "LR"] },
     { ngram: ["w"], fingers: ["bad"] },
-    { ngram: ["x"], fingers: ["LM"] },
     { ngram: ["ws"], fingers: ["LM"] },
     { ngram: ["w"], fingers: ["LM"], unknown: true },
   ])("rejects malformed unary alt %j", entry => {
     expect(validate({ keys, alts: [entry] }).ok).toBe(false);
+  });
+  it("[LDB-F71] accepts a unary alt for a character that is not on the layout", () => {
+    expect(validate({ keys, alts: [{ ngram: ["x"], fingers: ["LM"] }] }).ok).toBe(true);
   });
   it("[LDB-F52] allows an explicit default finger consistently with existing no-move alts", () => {
     expect(validate({ keys, alts: [alt("LI"), alt("LM")] }).ok).toBe(true);

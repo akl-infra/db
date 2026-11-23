@@ -432,9 +432,10 @@ export async function unaryAltPayloads(t: Target, o: { owner: number }): Promise
   const mix = await Promise.all([create(t, o.owner, freshName("umix"), mk([...per(2), per(1)[0]])), create(t, o.owner, freshName("umix"), mk(per(3)))]);
   r.check(mix[0].status === 400 && mix[1].status === 201, `mixed invalid/valid concurrent: ${mix.map((x) => x.status)}`);
   r.check(Number((await t.sql("SELECT COUNT(*) c FROM layouts"))[0]!.c) === dupBefore + 1, "an invalid payload created a layout row");
-  // Unary alt naming a char that is not on the layout, wrong arity, wildcard in a unary: all 400, nothing written.
+  // Wrong arity, a wildcard in a unary, a null or unknown finger: all 400, nothing written. (A unary alt naming a char
+  // that is not on the layout is valid since LDB-F71, API 1.38.)
   const evBefore = Number((await t.sql("SELECT COUNT(*) c FROM events"))[0]!.c);
-  for (const bad of [[{ ngram: ["z"], fingers: ["LI"] }], [{ ngram: ["a"], fingers: ["LI", "LM"] }], [{ ngram: [null], fingers: [null] }], [{ ngram: ["a"], fingers: [null] }], [{ ngram: ["a"], fingers: ["XX"] }]]) {
+  for (const bad of [[{ ngram: ["a"], fingers: ["LI", "LM"] }], [{ ngram: [null], fingers: [null] }], [{ ngram: ["a"], fingers: [null] }], [{ ngram: ["a"], fingers: ["XX"] }]]) {
     const x = await create(t, o.owner, freshName("ubad"), mk(bad));
     r.check(x.status === 400, `bad unary ${JSON.stringify(bad)} -> ${x.status}`);
   }
