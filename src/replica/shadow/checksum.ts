@@ -28,6 +28,7 @@ export const DUMP_TABLES: Record<string, { table: string; class: TableClass }> =
   wpm_submissions: { table: "wpm_submissions", class: "state" },
   layout_comments: { table: "layout_comments", class: "state" },
   comment_likes: { table: "comment_likes", class: "state" },
+  discord_users: { table: "discord_users", class: "state" }, // [LDB-D10]
 };
 
 /** `meta` fields that follow the feed (the author fields follow the authors table, a state table). */

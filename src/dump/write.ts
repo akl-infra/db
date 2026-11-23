@@ -80,8 +80,9 @@ export interface BanDbRow {
   at: string;
   reason: string | null;
 }
-// docs/decisions/28-wpm-records.md, migrations/0022 (LDB-WPM10): every WPM
-// submission, whatever its status -- proofs are kept forever.
+// docs/decisions/28-wpm-records.md, migrations/0022 (LDB-WPM10): only
+// APPROVED submissions are dumped (the dump is public; `assembleDump`), and
+// never `source_message_url` (the pager's column list, store/d1/dump.ts).
 export interface WpmSubmissionDbRow {
   id: string;
   layout_id: string;
@@ -122,6 +123,25 @@ export interface CommentLikeDbRow {
   user_id: string;
   via: string;
   created_at: string;
+}
+// [LDB-D10] migrations/0036 (LDB-WPM18): a WPM typist's Discord names, the
+// fallback `GET /v1/wpm` names a typist by when `authors` has no usable name.
+// Least exposure (the dump is a public repo): rows of typists with an
+// approved WPM record and a display name (`assembleDump`), `id` and
+// `global_name` only -- never `username` (the account handle) and never
+// `updated_at`. Restore writes `username` as '' (NOT NULL; resolvedNameSql
+// reads a blank as absent) and `updated_at` as the epoch, so the first submit
+// after a rehost looks the names up again (LDB-WPM18). A typist with no
+// display name has no dumped row, so the admin backfill (LDB-WPM20) still
+// sees them as missing after a restore.
+export interface DiscordUserDbRow {
+  id: string;
+  global_name: string;
+}
+/** What `DumpStore.tables()` reads for it, before `assembleDump` filters. */
+export interface DiscordUserSourceRow {
+  id: string;
+  global_name: string | null;
 }
 export interface LinkSubmissionDbRow {
   id: string;
@@ -197,6 +217,7 @@ export interface Dump {
   wpm_submissions: WpmSubmissionDbRow[]; // [LDB-WPM10] migrations/0022; absent from a dump written before it
   comment_likes: CommentLikeDbRow[]; // [LDB-CMT12] migrations/0023; absent from a dump written before it
   layout_comments: LayoutCommentDbRow[]; // [LDB-CMT10] migrations/0023; approved rows only; absent from a dump written before it
+  discord_users: DiscordUserDbRow[]; // [LDB-D10] migrations/0036; approved typists' display names (id, global_name); absent from a dump written before it
 }
 
 export interface LatestJson {
@@ -265,13 +286,17 @@ export async function buildDumpChecked(env: Bindings, now: Clock, store: Store =
 type DumpTables = Awaited<ReturnType<Store["dump"]["tables"]>>;
 
 function assembleDump(date: string, meta: DumpMeta, tables: DumpTables): Dump {
-  const { records, layout_formats, layout_revs, likes, authors, admins, events, import_state: import_state_all, import_map, clients, bans, link_submissions, wpm_submissions, layout_comments, comment_likes } = tables;
+  const { records, layout_formats, layout_revs, likes, authors, admins, events, import_state: import_state_all, import_map, clients, bans, link_submissions, wpm_submissions: wpm_all, layout_comments, comment_likes, discord_users } = tables;
 
   // LDB-D8: `dump.last_at` is this dump's OWN scheduling bookkeeping (see
   // the `Dump.import_state` comment above) -- filtered out here, not left
   // for `restoreSql` to special-case, so a restored database has no memory
   // of a dump that predates it.
   const import_state = import_state_all.filter((r) => r.key !== DUMP_STATE_KEY);
+  const wpm_submissions = wpm_all.filter((s) => s.status === "approved"); // approved only, like link_submissions
+  // [LDB-D10] only typists `GET /v1/wpm` lists (an approved record), so no
+  // pending or rejected submitter's id or name is published.
+  const wpmTypists = new Set(wpm_submissions.map((s) => s.user_id));
 
   return {
     version: 1,
@@ -294,9 +319,10 @@ function assembleDump(date: string, meta: DumpMeta, tables: DumpTables): Dump {
     auth_cache: [],
     bans,
     link_submissions: link_submissions.filter((s) => s.status === "approved"),
-    wpm_submissions: wpm_submissions.filter((s) => s.status === "approved"), // approved only, like link_submissions
+    wpm_submissions,
     comment_likes,
     layout_comments: layout_comments.filter((s) => s.status === "approved" && s.body !== null), // approved only: the one status that still holds public text
+    discord_users: discord_users.flatMap((u) => (wpmTypists.has(u.id) && u.global_name !== null && u.global_name.trim() !== "" ? [{ id: u.id, global_name: u.global_name }] : [])),
   };
 }
 

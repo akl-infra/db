@@ -6,7 +6,7 @@
 //     events, layouts, layout_formats, layout_revs, likes   (layouts_head moves by its triggers)
 //   STATE tables (NOT reproducible from public data: submissions, comment bodies, authors, clients, import bookkeeping ...):
 //     authors(+authors_head), admins, clients, bans, import_state, import_map, link_submissions, wpm_submissions,
-//     layout_comments, comment_likes
+//     layout_comments, comment_likes, discord_users (LDB-D10: the dumped names follow the approved WPM typists)
 //     An event of a kind that changes one of these is applied as its `events` row (and any feed-table effect it has) only;
 //     the table named in KINDS[kind].state is counted as stale and is replaced wholesale from the next public dump
 //     (follower.ts). Nothing here ever writes an approximation into a state table.
@@ -24,7 +24,7 @@
 import { canonical } from "../../core/canonical";
 
 export const FEED_TABLES = ["events", "layouts", "layout_formats", "layout_revs", "likes"] as const;
-export const STATE_TABLES = ["authors", "admins", "clients", "bans", "import_state", "import_map", "link_submissions", "wpm_submissions", "layout_comments", "comment_likes"] as const;
+export const STATE_TABLES = ["authors", "admins", "clients", "bans", "import_state", "import_map", "link_submissions", "wpm_submissions", "layout_comments", "comment_likes", "discord_users"] as const;
 export type StateTable = (typeof STATE_TABLES)[number];
 
 /** How an event is applied. "write" is the commitWrite path (rev-bumping); "row" is the events row alone. */
@@ -77,10 +77,10 @@ export const KINDS: Record<string, KindRule> = {
   "admin.user_banned": row("bans"),
   "admin.user_unbanned": row("bans"),
   "admin.author_renamed": row("authors"),
-  wpm_submitted: row("wpm_submissions"),
-  wpm_approved: row("wpm_submissions"),
-  wpm_rejected: row("wpm_submissions"),
-  wpm_reopened: row("wpm_submissions"),
+  wpm_submitted: row("wpm_submissions", "discord_users"),
+  wpm_approved: row("wpm_submissions", "discord_users"),
+  wpm_rejected: row("wpm_submissions", "discord_users"),
+  wpm_reopened: row("wpm_submissions", "discord_users"),
   comment_submitted: row("layout_comments"),
   comment_approved: row("layout_comments"),
   comment_rejected: row("layout_comments"),
