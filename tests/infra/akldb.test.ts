@@ -8,7 +8,7 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 import { parse } from "yaml";
-import { ALARMS_EVERY_STAGE, ALARMS_PROD_ONLY, alarmsFor, expectedResources, loadTemplate, policyDocs, resolveStage, violations, type Json } from "./checks";
+import { TEST_READER_ARN, ALARMS_EVERY_STAGE, ALARMS_PROD_ONLY, alarmsFor, expectedResources, loadTemplate, policyDocs, resolveStage, violations, type Json } from "./checks";
 
 // cfn-lint, cfn-guard and the deploy script's dry runs spawn processes; the machine can be busy.
 vi.setConfig({ testTimeout: 120_000 });
@@ -94,7 +94,7 @@ describe("template lint and guard (AX1)", () => {
     expect(cert.Parameters.DomainName.AllowedValues).toEqual(t.Parameters.DomainName.AllowedValues);
     expect(cert.Resources.Certificate.Properties.ValidationMethod).toBe("DNS");
     expect(cert.Outputs.CertificateArn.Value).toEqual({ Ref: "Certificate" });
-    expect(Object.keys(t.Outputs).sort()).toEqual(["AlarmTopicArn", "AliasArn", "ApiDomainHostedZoneId", "ApiDomainTarget", "DataBucket", "FunctionName", "JobsFunctionName", "LogTable"].sort());
+    expect(Object.keys(t.Outputs).sort()).toEqual(["AlarmTopicArn", "AliasArn", "ApiDomainHostedZoneId", "ApiDomainTarget", "DataBucket", "FunctionName", "JobsFunctionName", "LogTable", "TelemetryReadRoleArn"].sort());
     expect(t.Outputs.ApiDomainTarget.Value).toEqual({ "Fn::GetAtt": ["CustomDomain", "RegionalDomainName"] });
   });
 
@@ -232,10 +232,11 @@ describe("template lint and guard (AX1)", () => {
     expect(bs.every((s) => s.Effect === "Allow")).toBe(true);
     const allowedActions = new Set(bs.flatMap((s) => list(s.Action)));
     expect([...allowedActions].every((a) => !a.includes("*"))).toBe(true);
-    for (const s of bs) for (const r of list(s.Resource)) expect(JSON.stringify(r), s.Sid).toMatch(/akldb-\*|parameter\/akldb\/\*/);
+    // a resource names akldb-*; the one exception is the read-only calls IAM cannot scope (LDB-MD27)
+    for (const s of bs) for (const r of list(s.Resource)) expect(s.Sid === "TelemetryReadNoResourceLevel" ? r : JSON.stringify(r), s.Sid).toMatch(s.Sid === "TelemetryReadNoResourceLevel" ? /^\*$/ : /akldb-\*|parameter\/akldb\/\*/);
     expect([...allowedActions].sort()).toEqual([
-      "dynamodb:ConditionCheckItem", "dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:Query", "dynamodb:UpdateItem",
-      "lambda:InvokeFunction", "logs:CreateLogStream", "logs:PutLogEvents", "s3:DeleteObject", "s3:GetObject", "s3:ListBucket", "s3:PutObject",
+      "cloudwatch:DescribeAlarmHistory", "cloudwatch:DescribeAlarms", "cloudwatch:GetMetricData", "dynamodb:ConditionCheckItem", "dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:Query", "dynamodb:UpdateItem",
+      "lambda:InvokeFunction", "logs:CreateLogStream", "logs:GetQueryResults", "logs:PutLogEvents", "logs:StartQuery", "logs:StopQuery", "s3:DeleteObject", "s3:GetObject", "s3:ListBucket", "s3:PutObject",
       "ssm:GetParameter", "ssm:GetParameters",
     ]);
     // nothing the stack's roles are granted falls outside the boundary
@@ -244,7 +245,7 @@ describe("template lint and guard (AX1)", () => {
         for (const s of doc.Statement as Json[]) for (const a of list(s.Action)) expect(allowedActions.has(a), `${name}: ${a}`).toBe(true);
       }
       const roles = Object.entries(resolveStage(t, stage).resources).filter(([, r]) => r.Type === "AWS::IAM::Role");
-      expect(roles.length).toBeGreaterThanOrEqual(2);
+      expect(roles.length).toBeGreaterThanOrEqual(stage === "prod" ? 3 : 2);
       for (const [id, r] of roles) expect(r.Properties.PermissionsBoundary, id).toEqual({ "Fn::ImportValue": "akldb-boundary-arn" });
     }
     const m = clone(t);
@@ -717,5 +718,67 @@ describe("CI file", () => {
       expect(text).toMatch(/deploy-aws\.sh --stage (staging|prod|\$\{\{ inputs\.stage \}\}) --profile none --execute/);
     }
     expect(JSON.stringify(stepsOf("test"))).toContain("npm test");
+  });
+});
+
+describe("telemetry read role (MD27)", () => {
+  const stmts = (role: Json): Json[] => role.Properties.Policies[0].PolicyDocument.Statement;
+  const prod = () => resolveStage(t, "prod").resources.TelemetryReadRole;
+
+  it("[LDB-MD27] only prod creates it, and only when TelemetryReaderArn is set; the default is no role, no output", () => {
+    for (const s of ["staging", "shadow"]) expect(resolveStage(t, s).resources.TelemetryReadRole, s).toBeUndefined();
+    expect(resolveStage(t, "prod", { TelemetryReaderArn: "" }).resources.TelemetryReadRole).toBeUndefined();
+    expect(t.Parameters.TelemetryReaderArn.Default).toBe("");
+    expect(t.Outputs.TelemetryReadRoleArn.Condition).toBe("TelemetryReadEnabled");
+    expect(new RegExp(t.Parameters.TelemetryReaderArn.AllowedPattern).test(TEST_READER_ARN)).toBe(true);
+    for (const bad of ["arn:aws:iam::111111111111:user/x", "arn:aws:iam::111111111111:root", "*", "111111111111"]) expect(new RegExp(t.Parameters.TelemetryReaderArn.AllowedPattern).test(bad), bad).toBe(false);
+  });
+
+  it("[LDB-MD27] trust: the reader's account, pinned to that one role ARN and the ExternalId, nothing else; a session of an hour at most; the boundary caps it", () => {
+    const r = prod();
+    expect(r.Properties.RoleName).toEqual({ "Fn::Sub": "akldb-${Stage}-telemetry-read" });
+    expect(r.Properties.MaxSessionDuration).toBe(3600);
+    expect(r.Properties.PermissionsBoundary).toEqual({ "Fn::ImportValue": "akldb-boundary-arn" });
+    const st = r.Properties.AssumeRolePolicyDocument.Statement;
+    expect(st).toHaveLength(1);
+    expect(st[0].Action).toBe("sts:AssumeRole");
+    expect(st[0].Condition).toEqual({ ArnEquals: { "aws:PrincipalArn": { Ref: "TelemetryReaderArn" } }, StringEquals: { "sts:ExternalId": "akldb-telemetry-read" } });
+    expect(JSON.stringify(st[0].Principal)).toContain(":root");
+  });
+
+  it("[LDB-MD27] it reads and nothing else: metrics, alarm history and Logs Insights on this stage's two log groups; every other grant is refused by the checks", () => {
+    const acts = stmts(prod()).flatMap((s) => list(s.Action)).sort();
+    expect(acts).toEqual(["cloudwatch:DescribeAlarmHistory", "cloudwatch:DescribeAlarms", "cloudwatch:GetMetricData", "logs:GetQueryResults", "logs:StartQuery", "logs:StopQuery"]);
+    expect(stmts(prod()).every((s) => s.Effect === "Allow")).toBe(true);
+    const star = stmts(prod()).filter((s) => list(s.Resource).includes("*")).map((s) => s.Sid).sort();
+    expect(star).toEqual(["NoResourceLevelQueryResults", "NoResourceLevelRead"]);
+    const sq = stmts(prod()).find((s) => s.Sid === "StartQuery")!;
+    expect(list(sq.Resource).map((x) => x["Fn::Sub"]).sort()).toEqual([
+      "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/akldb-${Stage}-api",
+      "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/akldb-${Stage}-api:*",
+      "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/akldb-${Stage}-jobs",
+      "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/akldb-${Stage}-jobs:*",
+    ]);
+    expect(violations(t, "prod")).toEqual([]);
+    const add = (mut: (r: Json) => void): string[] => { const m = clone(t); mut(m.Resources.TelemetryReadRole); return violations(m, "prod"); };
+    expect(add((r) => stmts(r)[0].Action.push("cloudwatch:PutMetricData")).some((x) => /not a read-only telemetry action/.test(x))).toBe(true);
+    expect(add((r) => stmts(r).push({ Sid: "X", Effect: "Allow", Action: "logs:StartQuery", Resource: "*" })).some((x) => /Resource \*/.test(x))).toBe(true);
+    expect(add((r) => stmts(r).push({ Sid: "NoResourceLevelX", Effect: "Allow", Action: "s3:GetObject", Resource: "*" })).length).toBeGreaterThan(0);
+    expect(add((r) => delete r.Properties.AssumeRolePolicyDocument.Statement[0].Condition.StringEquals).some((x) => /pinned to the reader ARN and an ExternalId/.test(x))).toBe(true);
+    expect(add((r) => delete r.Properties.AssumeRolePolicyDocument.Statement[0].Condition.ArnEquals).some((x) => /pinned/.test(x))).toBe(true);
+    expect(add((r) => { r.Properties.MaxSessionDuration = 43200; }).some((x) => /session longer than an hour/.test(x))).toBe(true);
+    expect(add((r) => delete r.Properties.PermissionsBoundary).some((x) => /no permissions boundary/.test(x))).toBe(true);
+    const staging = clone(t); expect(violations(staging, "staging", { TelemetryReaderArn: TEST_READER_ARN })).toEqual([]);
+  });
+
+  it("[LDB-MD27] the deploy script passes TelemetryReaderArn (the env value, else the stack's current one) and the CI deploy role can create the role under the boundary", () => {
+    const text = fs.readFileSync(file("scripts", "deploy-aws.sh"), "utf8");
+    expect(text).toContain('TELEMETRY_READER="${TELEMETRY_READER_ARN-$(current TelemetryReaderArn \'\')}"');
+    expect(text).toContain("ParameterKey=TelemetryReaderArn,ParameterValue=$TELEMETRY_READER");
+    const call = dryRun("prod", ["--execute"]).lines.map((l) => l.join(" ")).find((l) => l.includes("create-change-set"))!;
+    expect(call).toContain("ParameterKey=TelemetryReaderArn,ParameterValue=");
+    // the role is akldb-*, created with the boundary, using only role actions the deploy role already holds
+    const stmtsB = boot.Resources.DeployRole.Properties.Policies[0].PolicyDocument.Statement as Json[];
+    expect(stmtsB.find((s) => s.Sid === "RolesWithBoundary")!.Resource).toEqual({ "Fn::Sub": "arn:aws:iam::${AWS::AccountId}:role/akldb-*" });
   });
 });

@@ -116,6 +116,24 @@ Resources:
               - ssm:GetParameter
               - ssm:GetParameters
             Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/akldb/*"
+          # Read-only telemetry for TelemetryReadRole (LDB-MD27). GetMetricData and DescribeAlarms have no resource-level
+          # permissions; the alarm history is limited to akldb-* alarms and the queries to akldb-* log groups.
+          - Sid: TelemetryReadNoResourceLevel
+            Effect: Allow
+            Action:
+              - cloudwatch:GetMetricData
+              - cloudwatch:DescribeAlarms
+              - logs:GetQueryResults
+              - logs:StopQuery
+            Resource: "*"
+          - Sid: TelemetryAlarmHistory
+            Effect: Allow
+            Action: cloudwatch:DescribeAlarmHistory
+            Resource: !Sub "arn:aws:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:akldb-*"
+          - Sid: TelemetryStartQuery
+            Effect: Allow
+            Action: logs:StartQuery
+            Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/akldb-*"
           - Sid: LogWrite
             Effect: Allow
             Action:

@@ -60,6 +60,11 @@ Parameters:
     Default: auto
     AllowedValues: [ auto, "0", "1" ]
     Description: "auto = prod awaits its cutover image (AKLDB_AWAIT_IMAGE=1 on both functions: migrate, tick and nightly do nothing while the log is empty, so no migration lands before the image, LDB-CV12); 0 or 1 force it. Harmless once the log has entries."
+  TelemetryReaderArn:
+    Type: String
+    Default: ""
+    AllowedPattern: "^(arn:aws:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]+)?$"
+    Description: "The one IAM role (in another project of the same organization) that may assume TelemetryReadRole, to read akldb's metrics, alarm history and logs (LDB-MD27). Empty (the default) creates no role. scripts/deploy-aws.sh passes TELEMETRY_READER_ARN, else the stack's current value, so a CI deploy keeps it. Prod only."
   BudgetLimitUsd:
     Type: Number
     Default: 5
@@ -85,6 +90,8 @@ Conditions:
   AwaitsImage: !Or
     - !Equals [ !Ref AwaitImage, "1" ]
     - !And [ !Equals [ !Ref AwaitImage, auto ], !Condition IsProd ]
+  HasTelemetryReader: !Not [ !Equals [ !Ref TelemetryReaderArn, "" ] ]
+  TelemetryReadEnabled: !And [ !Condition IsProd, !Condition HasTelemetryReader ]
   HasReservedConcurrency: !Not [ !Equals [ !Ref ReservedConcurrency, "" ] ]
 
 Resources:
@@ -808,6 +815,64 @@ Resources:
         - Notification: { NotificationType: FORECASTED, ComparisonOperator: GREATER_THAN, ThresholdType: ABSOLUTE_VALUE, Threshold: 5 }
           Subscribers: [ { SubscriptionType: EMAIL, Address: !Ref AlarmEmail } ]
 
+  # Read-only telemetry for one named reader in another project of the organization (LDB-MD27): metrics, alarm history and
+  # Logs Insights over this stage's two log groups, nothing else. Prod only, and only when TelemetryReaderArn is set.
+  # Trust: that account's root as the principal, narrowed to the one role ARN (aws:PrincipalArn survives the role being
+  # recreated, a role-ARN principal would not) AND a fixed ExternalId, so another role of that account cannot use it, nor
+  # can the reader be steered to it by a third party. One hour is IAM's shortest MaxSessionDuration; the reader asks for 900 s.
+  TelemetryReadRole:
+    Type: AWS::IAM::Role
+    Condition: TelemetryReadEnabled
+    Properties:
+      RoleName: !Sub akldb-${Stage}-telemetry-read
+      Description: Read-only metrics, alarm history and Logs Insights for one named role of another project (LDB-MD27).
+      MaxSessionDuration: 3600
+      PermissionsBoundary: !ImportValue akldb-boundary-arn
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: OnlyTheNamedReader
+            Effect: Allow
+            Principal: { AWS: !Sub [ "arn:aws:iam::${ReaderAccount}:root", { ReaderAccount: !Select [ 4, !Split [ ":", !Ref TelemetryReaderArn ] ] } ] }
+            Action: sts:AssumeRole
+            Condition:
+              ArnEquals: { "aws:PrincipalArn": !Ref TelemetryReaderArn }
+              StringEquals: { "sts:ExternalId": akldb-telemetry-read }
+      Policies:
+        - PolicyName: akldb-telemetry-read
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # GetMetricData and DescribeAlarms have no resource-level permissions in IAM; both only read.
+              - Sid: NoResourceLevelRead
+                Effect: Allow
+                Action:
+                  - cloudwatch:GetMetricData
+                  - cloudwatch:DescribeAlarms
+                Resource: "*"
+              - Sid: AlarmHistory
+                Effect: Allow
+                Action: cloudwatch:DescribeAlarmHistory
+                Resource: !Sub "arn:aws:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:akldb-${Stage}-*"
+              - Sid: StartQuery
+                Effect: Allow
+                Action: logs:StartQuery
+                Resource:
+                  - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/akldb-${Stage}-api"
+                  - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/akldb-${Stage}-api:*"
+                  - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/akldb-${Stage}-jobs"
+                  - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/akldb-${Stage}-jobs:*"
+              # IAM has no resource type for these two: a query id is the only handle, and only the starter knows it.
+              - Sid: NoResourceLevelQueryResults
+                Effect: Allow
+                Action:
+                  - logs:GetQueryResults
+                  - logs:StopQuery
+                Resource: "*"
+      Tags:
+        - { Key: project, Value: akldb }
+        - { Key: stage, Value: !Ref Stage }
+
 Outputs:
   ApiDomainTarget:
     Description: The proxied Cloudflare CNAME for DomainName points here.
@@ -826,3 +891,7 @@ Outputs:
     Value: !Sub akldb-${Stage}-data-${AWS::AccountId}
   AlarmTopicArn:
     Value: !Ref AlarmTopic
+  TelemetryReadRoleArn:
+    Condition: TelemetryReadEnabled
+    Description: The role TelemetryReaderArn assumes (ExternalId akldb-telemetry-read, session of 900 s) to read akldb-prod metrics, alarm history and logs.
+    Value: !GetAtt TelemetryReadRole.Arn

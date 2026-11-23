@@ -101,7 +101,8 @@ rule no_cdn_no_function_url_no_waf {
 # Data-plane actions never name a wildcard, and no Allow statement names Resource "*".
 rule no_wildcard_actions when %roles !empty {
     %roles.Properties.Policies[*].PolicyDocument.Statement[*].Action[*] != /\*/
-    %roles.Properties.Policies[*].PolicyDocument.Statement[*] {
+    # the one exception: TelemetryReadRole's NoResourceLevel* statements (read-only calls IAM cannot scope, LDB-MD27)
+    %roles.Properties.Policies[*].PolicyDocument.Statement[ Sid not exists or Sid != /^NoResourceLevel/ ] {
         when Resource is_string { Resource != '*' }
         when Resource is_list { Resource[*] { when this is_string { this != '*' } } }
     }
