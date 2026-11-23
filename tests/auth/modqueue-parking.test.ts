@@ -209,3 +209,62 @@ describe("[LDB-MD25] the stuck production card drains", () => {
     expect(log.mock.calls.map((c) => String(c[0])).filter((l) => l.includes(id))).toHaveLength(1);
   });
 });
+
+describe("[LDB-MD26] a card with an uploaded file can have its status edited", () => {
+  const CDN = "https://cdn.discordapp.com/attachments/1/2/comment-X.txt?ex=1&is=2&hm=3";
+  /** Discord's rule: a file component may only use attachment://; and the upload must still exist. */
+  function strictDiscord(card: unknown) {
+    const seen: Record<string, unknown>[] = [];
+    const fetchImpl: typeof fetch = async (_i, init) => {
+      if (init?.method === "GET") return Response.json(card);
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      seen.push(body);
+      const bad: string[] = [];
+      const walk = (c: unknown): void => {
+        if (Array.isArray(c)) c.forEach(walk);
+        else if (c !== null && typeof c === "object") {
+          const r = c as { type?: number; file?: { url?: string }; components?: unknown };
+          if (r.type === 13 && !String(r.file?.url).startsWith("attachment://")) bad.push(String(r.file?.url));
+          walk(r.components);
+        }
+      };
+      walk(body.components);
+      if (bad.length) return Response.json({ code: 50035, errors: { components: { "0": { components: { "2": { file: { url: { _errors: [{ code: "UNFURLED_MEDIA_ITEM_MUST_USE_ATTACHMENT_PROTOCOL" }] } } } } } } } }, { status: 400 });
+      if ("attachments" in body) return Response.json({ message: "attachments key would drop uploads" }, { status: 400 });
+      return new Response(null, { status: 200 });
+    };
+    return { fetchImpl, seen };
+  }
+  async function fileCard(): Promise<{ id: string; card: Record<string, unknown> }> {
+    const id = ulid();
+    const layoutId = await freshLayout();
+    await testStore.insert("layout_comments", { id, layout_id: layoutId, user_id: "900000000000000020", body: "b".repeat(5000), via: "discord", submitted_at: AT, status: "approved", decided_by: null, decided_at: AT, reason: null });
+    await testStore.insert("modqueue_notifications", { kind: "comment", submission_id: id, message_id: `m-${id}`, shown_status: "pending", message_format: "components_v2", transport: "legacy_webhook" });
+    const card = buildV2Payload("comment", { id, layout_id: layoutId, user_id: "900000000000000020", body: "b".repeat(5000), layout_name: "x", layout_owner: "900000000000000001", user_name: "S", live_body: null }) as { components: { components: Record<string, unknown>[] }[]; attachments?: unknown };
+    delete (card as Record<string, unknown>).__files;
+    // What Discord's GET returns: resolved urls plus extras, and the message's attachment list.
+    const file = card.components[0]!.components.find((c) => c.type === 13)!;
+    file.file = { url: CDN, proxy_url: CDN, content_type: "text/plain" };
+    card.attachments = [{ id: "9", filename: "comment-X.txt", url: CDN, proxy_url: CDN }];
+    return { id, card };
+  }
+
+  it("[LDB-MD26] the file component is re-sent as attachment://<filename>, the upload is kept, and the card converges", async () => {
+    const { id, card } = await fileCard();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const d = strictDiscord(card);
+    await notifyPending(store, bindingsV2, handClock(), d.fetchImpl);
+    expect(d.seen).toHaveLength(1);
+    const file = (d.seen[0]!.components as { components: { type: number; file?: unknown }[] }[])[0]!.components.find((c) => c.type === 13)!;
+    expect(file.file).toEqual({ url: "attachment://comment-X.txt" });
+    expect("attachments" in d.seen[0]!).toBe(false);
+    expect(await notification(id, "comment")).toMatchObject({ shown_status: "approved", parked_at: null });
+  });
+
+  it("[LDB-MD26] the same card with the old behaviour is a permanent 400 (the fake is faithful)", async () => {
+    const { card } = await fileCard();
+    const d = strictDiscord(card);
+    const res = await d.fetchImpl("x", { method: "PATCH", body: JSON.stringify({ components: [{ type: 17, components: [{ type: 13, file: { url: CDN } }] }] }) });
+    expect(res.status).toBe(400);
+  });
+});
