@@ -318,7 +318,7 @@ describe("[LDB-MD21] WPM notification review versions", () => {
       expect(JSON.stringify(remote)).not.toContain(`<@${userId}>`);
       expect(pick(await testStore.row("modqueue_notifications", { submission_id: id }), "shown_review_version")).toEqual({ shown_review_version: -1 });
       fail = false;
-      await notifyPending(store, config, clock, fetchImpl);
+      await notifyPending(store, config, fixedClock("2026-10-18T01:00:00.000Z"), fetchImpl); // past the [LDB-MD25] backoff
       expect(patches).toBe(2);
       expect(JSON.stringify(remote)).toContain(`<@${userId}>`);
       expect(JSON.stringify(remote)).toMatch(/Approved|APPROVED/);
@@ -608,10 +608,11 @@ describe("original receipt reconciliation", () => {
       if (init?.method === "PATCH") { failures++; return new Response(null, { status: 503 }); }
       return webhook.fetchImpl(input, init);
     };
-    await updateQueueNotification(store, envWith(WEBHOOK_URL), "wpm", id, failPatch);
+    await updateQueueNotification(store, envWith(WEBHOOK_URL), "wpm", id, failPatch, clock);
     expect(failures).toBe(1);
     expect(await shown(id)).toEqual({ shown_source_message_url: null });
-    await notifyPending(store, envWith(WEBHOOK_URL), clock, webhook.fetchImpl);
+    // [LDB-MD25] the failed edit backs off; the next sweep after it retries.
+    await notifyPending(store, envWith(WEBHOOK_URL), fixedClock("2026-10-18T01:00:00.000Z"), webhook.fetchImpl);
     expect(await shown(id)).toEqual({ shown_source_message_url: source });
     for (const status of ["approved", "pending", "rejected", "superseded"]) {
       const current = await testStore.row<{ review_version: number }>("wpm_submissions", { id });

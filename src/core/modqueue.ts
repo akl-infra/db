@@ -18,7 +18,7 @@
 // candidate); the cron's own `core/jobs.ts` `runJob` guard is a second,
 // belt-and-suspenders layer, not the only one.
 import type { Bindings } from "../env";
-import type { Clock } from "./time";
+import { systemClock, type Clock } from "./time";
 import { deliver, DeliveryDeferred, discordJson } from "./modqueue-delivery";
 import { buildV2Payload, buildV2StatusPatch, DISCORD_COMPONENTS_V2_FLAG, formatCommentText, queueUserName, repairQueueUser, type CommentCardData, type LinkCardData, type QueueStatus, type TextFileAttachment, type MessageFileAttachment, type WpmCardData } from "./modqueue-message";
 import { resolveProofPreview, type ProofPreview } from "./modqueue-proof";
@@ -27,13 +27,20 @@ import type { Store } from "../store/port";
 
 const WEBHOOK_TIMEOUT_MS = 5000;
 const USER_AGENT = "akl-db/1.0";
+// [LDB-MD25] A status edit is retried at most this many times (transient
+// failures, with exponential backoff from BACKOFF_BASE_MS up to BACKOFF_MAX_MS
+// between sweeps); a permanent Discord refusal (400/403) is not retried at all.
+// Either way the card is PARKED (see `failedStatusEdit`).
+export const MAX_EDIT_ATTEMPTS = 8;
+const BACKOFF_BASE_MS = 5 * 60_000;
+const BACKOFF_MAX_MS = 6 * 3_600_000;
 const BATCH_LIMIT = 10; // one sweep never announces more than this many at once
 
 export type QueueKind = "link" | "wpm" | "comment";
 type DecidedStatus = "pending" | "approved" | "rejected" | "superseded" | "replaced" | "deleted" | "removed";
 type MessageFormat = "text" | "components_v2";
 type MessageTransport = "legacy_webhook" | "bot";
-interface NotificationRow { message_id: string; shown_status: DecidedStatus; shown_review_version: number; shown_source_message_url: string | null; message_format: MessageFormat; transport: MessageTransport; channel_id: string | null }
+interface NotificationRow { message_id: string; shown_status: DecidedStatus; shown_review_version: number; shown_source_message_url: string | null; message_format: MessageFormat; transport: MessageTransport; channel_id: string | null; failed_attempts: number; parked_key: string | null }
 
 const STATUS_TABLE: Record<QueueKind, string> = { link: "link_submissions", wpm: "wpm_submissions", comment: "layout_comments" };
 const EDITABLE_STATUSES = new Set<DecidedStatus>(["pending", "approved", "rejected", "superseded", "replaced", "deleted", "removed"]);
@@ -134,18 +141,56 @@ async function sourceStatus(store: Store, kind: QueueKind, id: string): Promise<
     : null;
 }
 
-async function failedStatusEdit(store: Store, kind: QueueKind, id: string): Promise<void> {
-  await store.modqueue.bumpFailedAttempts(kind, id);
+function sourceKey(state: QueueStatus): string {
+  return `${state.status}:${state.review_version ?? 0}:${state.source_message_url ?? ""}`;
 }
 
-async function reconcileOne(store: Store, env: Bindings, kind: QueueKind, id: string, fetchImpl: typeof fetch): Promise<void> {
+/** What Discord said, bounded, for the one log line a parked card gets. */
+async function discordError(response: Response): Promise<string> {
+  try { return JSON.stringify(await discordJson(response)).slice(0, 500); } catch { return ""; }
+}
+
+// [LDB-MD25] Permanent refusals (400/403: the request itself is unacceptable,
+// retrying the same state cannot succeed) park at once; everything else
+// (5xx, network, 401, a read that failed) retries with backoff and parks when
+// the attempt cap is reached. A parked card is skipped by the sweep until the
+// source state changes (`reconcileOne` then un-parks it). 429 never gets here:
+// the shared delivery gate defers it for every caller.
+function isPermanent(status: number): boolean {
+  return status === 400 || status === 403;
+}
+
+interface EditFailure { what: string; status?: number; body?: string }
+
+async function failedStatusEdit(store: Store, kind: QueueKind, id: string, now: Clock, attempts: number, state: QueueStatus | null, failure: EditFailure): Promise<void> {
+  const permanent = failure.status !== undefined && isPermanent(failure.status);
+  if (state !== null && (permanent || attempts + 1 >= MAX_EDIT_ATTEMPTS)) {
+    const detail = `${failure.what}${failure.status !== undefined ? ` status ${failure.status}` : ""}${failure.body ? ` ${failure.body}` : ""}`;
+    console.error(`modqueue status edit parked for ${kind} submission '${id}' after ${permanent ? 1 : attempts + 1} attempt(s) at ${sourceKey(state)}: ${detail}`);
+    await store.modqueue.parkNotification(kind, id, sourceKey(state), detail.slice(0, 600), now());
+    return;
+  }
+  const delay = Math.min(BACKOFF_BASE_MS * 2 ** attempts, BACKOFF_MAX_MS);
+  await store.modqueue.bumpFailedAttempts(kind, id, new Date(Date.parse(now()) + delay).toISOString());
+}
+
+async function reconcileOne(store: Store, env: Bindings, kind: QueueKind, id: string, fetchImpl: typeof fetch, now: Clock = systemClock): Promise<void> {
+  let attempts = 0;
+  let state: QueueStatus | null = null;
   const leaseToken = crypto.randomUUID();
   const leaseUntil = new Date(Date.now() + 60_000).toISOString();
   if (!(await store.modqueue.leaseNotification(kind, id, leaseToken, leaseUntil, new Date().toISOString()))) return;
   try {
     const row = await store.modqueue.notification(kind, id) as NotificationRow | null;
     if (row === null) return; // Legacy messages have no known id and cannot be backfilled safely.
-    let state = await sourceStatus(store, kind, id);
+    attempts = row.failed_attempts;
+    state = await sourceStatus(store, kind, id);
+    // [LDB-MD25] Parked at this very state: nothing to retry. Parked at an older one: the source moved on, start over.
+    if (row.parked_key !== null) {
+      if (state !== null && row.parked_key === sourceKey(state)) return;
+      await store.modqueue.unparkNotification(kind, id);
+      attempts = 0;
+    }
     if (state === null || (state.status === row.shown_status && state.review_version === row.shown_review_version && (state.source_message_url ?? null) === row.shown_source_message_url)) return;
     const url = messageUrl(env, row.transport, row.channel_id, row.message_id, row.message_format);
     const headers = requestHeaders(env, row.transport);
@@ -154,11 +199,15 @@ async function reconcileOne(store: Store, env: Bindings, kind: QueueKind, id: st
       method: "GET",
       headers,
       signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS),
-    }, async (response) => ({ ok: response.ok, status: response.status, message: response.ok ? await discordJson(response) : null }));
+    }, async (response) => ({ ok: response.ok, status: response.status, error: response.ok ? "" : await discordError(response), message: response.ok ? await discordJson(response) : null }));
     if (!get.ok) {
-      console.error(`modqueue message read failed for ${kind} submission '${id}' with status ${get.status}`);
-      if (get.status === 404) await store.modqueue.deleteNotification(kind, id);
-      else await failedStatusEdit(store, kind, id);
+      if (get.status === 404) {
+        console.error(`modqueue message read failed for ${kind} submission '${id}' with status ${get.status}`);
+        await store.modqueue.deleteNotification(kind, id);
+      } else {
+        if (!isPermanent(get.status)) console.error(`modqueue message read failed for ${kind} submission '${id}' with status ${get.status}`);
+        await failedStatusEdit(store, kind, id, now, attempts, state, { what: "message read", status: get.status, body: get.error });
+      }
       return;
     }
     let message: unknown = get.message;
@@ -174,14 +223,14 @@ async function reconcileOne(store: Store, env: Bindings, kind: QueueKind, id: st
         const componentsPatch = buildV2StatusPatch(message, kind, id, state, row.transport === "bot" && env.MODQUEUE_DISCORD_ACTIONS === "true");
         if (componentsPatch === null) {
           console.error(`modqueue component status target missing for ${kind} submission '${id}'`);
-          await failedStatusEdit(store, kind, id);
+          await failedStatusEdit(store, kind, id, now, attempts, state, { what: "component status target missing", status: 400 });
           return;
         }
         patchBody = componentsPatch;
       } else {
         if (message === null || typeof message !== "object" || !("content" in message) || typeof message.content !== "string") {
           console.error(`modqueue message read omitted content for ${kind} submission '${id}'`);
-          await failedStatusEdit(store, kind, id);
+          await failedStatusEdit(store, kind, id, now, attempts, state, { what: "message read omitted content", status: 400 });
           return;
         }
         patchBody = { content: legacyContent(state, withoutStatusPrefix(message.content), kind), allowed_mentions: { parse: [] } };
@@ -194,11 +243,15 @@ async function reconcileOne(store: Store, env: Bindings, kind: QueueKind, id: st
         headers: requestHeaders(env, row.transport, true)!,
         body: JSON.stringify(patchBody),
         signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS),
-      }, async (response) => ({ ok: response.ok, status: response.status }));
+      }, async (response) => ({ ok: response.ok, status: response.status, error: response.ok ? "" : await discordError(response) }));
       if (!response.ok) {
-        console.error(`modqueue status edit failed for ${kind} submission '${id}' with status ${response.status}`);
-        if (response.status === 404) await store.modqueue.deleteNotification(kind, id);
-        else await failedStatusEdit(store, kind, id);
+        if (response.status === 404) {
+          console.error(`modqueue status edit failed for ${kind} submission '${id}' with status ${response.status}`);
+          await store.modqueue.deleteNotification(kind, id);
+        } else {
+          if (!isPermanent(response.status)) console.error(`modqueue status edit failed for ${kind} submission '${id}' with status ${response.status}`);
+          await failedStatusEdit(store, kind, id, now, attempts, state, { what: "status edit", status: response.status, body: response.error });
+        }
         return;
       }
       await store.modqueue.markShown({ kind, id, status: state.status, reviewVersion: state.review_version ?? 0, sourceMessageUrl: state.source_message_url ?? null, leaseToken });
@@ -211,11 +264,11 @@ async function reconcileOne(store: Store, env: Bindings, kind: QueueKind, id: st
       state = latest;
     }
     // A later cron sweep sees the still-different source/shown status.
-    await failedStatusEdit(store, kind, id);
+    await failedStatusEdit(store, kind, id, now, attempts, state, { what: "status kept changing" });
   } catch (error) {
     if (error instanceof DeliveryDeferred) return;
     console.error(`modqueue status reconciliation failed for ${kind} submission '${id}'`);
-    try { await failedStatusEdit(store, kind, id); } catch { /* retain a safe no-throw boundary */ }
+    try { await failedStatusEdit(store, kind, id, now, attempts, state, { what: "reconciliation threw" }); } catch { /* retain a safe no-throw boundary */ }
   } finally {
     try {
       await store.modqueue.releaseNotificationLease(kind, id, leaseToken);
@@ -239,14 +292,14 @@ async function savePostedMessage(store: Store, env: Bindings, kind: QueueKind, i
   }
 }
 
-export async function updateQueueNotification(dbArg: StoreArg, env: Bindings, kind: QueueKind, id: string, fetchImpl: typeof fetch = fetch): Promise<void> {
+export async function updateQueueNotification(dbArg: StoreArg, env: Bindings, kind: QueueKind, id: string, fetchImpl: typeof fetch = fetch, now: Clock = systemClock): Promise<void> {
   const store = toStore(dbArg);
-  await reconcileOne(store, env, kind, id, fetchImpl);
+  await reconcileOne(store, env, kind, id, fetchImpl, now);
 }
 
-async function retryStatusEdits(store: Store, env: Bindings, fetchImpl: typeof fetch): Promise<void> {
-  const candidates = await store.modqueue.staleNotifications(BATCH_LIMIT);
-  for (const row of candidates) await reconcileOne(store, env, row.kind, row.submission_id, fetchImpl);
+async function retryStatusEdits(store: Store, env: Bindings, fetchImpl: typeof fetch, now: Clock): Promise<void> {
+  const candidates = await store.modqueue.staleNotifications(BATCH_LIMIT, now());
+  for (const row of candidates) await reconcileOne(store, env, row.kind, row.submission_id, fetchImpl, now);
 }
 
 interface LinkCandidate {
@@ -465,7 +518,7 @@ export async function notifyPending(dbArg: StoreArg, env: Bindings, now: Clock, 
   }
   if (!work.reconcile) return;
   try {
-    await retryStatusEdits(store, env, fetchImpl);
+    await retryStatusEdits(store, env, fetchImpl, now);
   } catch {
     console.error("modqueue status retry scan failed");
   }

@@ -27,8 +27,8 @@ describe("snapshot writer (RP1)", () => {
     expect(sha(raw)).toBe(ref.sha256);
     expect(raw.byteLength).toBe(ref.size);
     const obj = w.objects.peek(ref.key)!;
-    expect(obj.meta).toMatchObject({ sha256: ref.sha256, size: String(ref.size), seq: String(ref.seq), "migration-count": "37" });
-    expect(ref.migrations).toHaveLength(37);
+    expect(obj.meta).toMatchObject({ sha256: ref.sha256, size: String(ref.size), seq: String(ref.seq), "migration-count": "38" });
+    expect(ref.migrations).toHaveLength(38);
     expect(ref.migrations[0]).toMatch(/^0001_/);
     const rebuilt = await replayFrom0(w.log, ref.seq);
     expect(digestOf(Replica.fromSnapshot(w.log, raw, ref.seq, FAST))).toBe(digestOf(rebuilt));

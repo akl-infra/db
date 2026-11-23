@@ -110,7 +110,7 @@ describe("the image entry (CV10)", () => {
     for (const head of [1, 5, w.log.length]) {
       await expect(w.log.append(head, { unitId: "U".repeat(26), kind: "image", stmts: [], hash: sha(raw), image: { key: "log/x.image.zst", bytes: 1, zbytes: 1, tables: {} } })).rejects.toThrow(/first entry/);
     }
-    expect(w.log.length).toBe(37);
+    expect(w.log.length).toBe(38);
     // an image reference on a unit is refused, an image without a reference is refused
     const e = emptyStack();
     await expect(e.log.append(0, { unitId: "A".repeat(26), kind: "unit", stmts: [], hash: "x", image: { key: "k", bytes: 1, zbytes: 1, tables: {} } })).rejects.toThrow(/carries an image reference/);

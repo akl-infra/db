@@ -33,3 +33,7 @@ The gate conservatively shares cooldown across configured transports/channels;
 this can delay an independent destination until a later five-minute cron sweep.
 It stores no webhook URL or token. No public API, signature validation, or D1
 write retry policy changes.
+
+## Parked cards (LDB-MD25)
+
+A status edit that Discord permanently refuses (400/403) is parked after one attempt; transient failures back off (5 min doubling to 6 h) and park on the 8th. Parked rows carry `parked_at`, `parked_key` (the source state `status:review_version:source_message_url` they stopped at) and `parked_error` (Discord's answer). The sweep skips a row while the source still equals `parked_key`; any new decision, reopen or receipt binding un-parks it with a fresh budget. To count or list them: `SELECT kind, submission_id, parked_at, parked_error FROM modqueue_notifications WHERE parked_at IS NOT NULL`. The log line is `modqueue status edit parked for <kind> submission '<id>' ...`, once per park.

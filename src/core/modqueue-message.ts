@@ -277,6 +277,29 @@ export function buildV2Payload(kind: QueueKind, candidate: LinkCardData | WpmCar
   return payload(kind, c.id, "", metadata, formatted.inline, actionsEnabled, file, c.review_version ?? 0);
 }
 
+// [LDB-MD25] Discord refuses (400) a Components V2 message whose text displays
+// total over 4000 characters. Cards posted before the status reserve existed,
+// or with a long reason, can cross it once a decision adds its status line;
+// the edit then failed forever. Trim the preview body (the status, actions and
+// metadata are never cut) with an ellipsis so the edit always fits.
+function fitComponentText(components: unknown[]): void {
+  const texts: Record<string, unknown>[] = [];
+  const walk = (c: unknown): void => {
+    if (Array.isArray(c)) { c.forEach(walk); return; }
+    if (c === null || typeof c !== "object") return;
+    const row = c as Record<string, unknown>;
+    if (row.type === 10 && typeof row.content === "string") texts.push(row);
+    walk(row.components);
+  };
+  walk(components);
+  const total = () => texts.reduce((n, t) => n + (t.content as string).length, 0);
+  const over = total() - MAX_COMPONENT_TEXT_UNITS;
+  if (over <= 0) return;
+  const body = texts.find((t) => t.id === COMPONENT_BODY_ID);
+  if (body === undefined) return;
+  body.content = clipUtf16(body.content as string, Math.max(1, (body.content as string).length - over));
+}
+
 export function buildV2StatusPatch(current: unknown, kind: QueueKind, id: string, state: QueueStatus, actionsEnabled = true): Record<string, unknown> | null {
   if (current === null || typeof current !== "object" || !("components" in current) || !Array.isArray(current.components)) return null;
   // Older cards did not reserve room for a reason. Preserve their bounded
@@ -347,6 +370,7 @@ export function buildV2StatusPatch(current: unknown, kind: QueueKind, id: string
     }
   }
   if (!foundStatus) return null;
+  fitComponentText(components);
   const patchBody: Record<string, unknown> = { flags: DISCORD_COMPONENTS_V2_FLAG, components, allowed_mentions: { parse: [] } };
   // No `attachments` key keeps every upload. Components V2 messages list
   // their uploads only inside media items, so any explicit list (even one
