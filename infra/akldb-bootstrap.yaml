@@ -328,6 +328,7 @@ Resources:
                 Effect: Allow
                 Action:
                   - cloudwatch:PutMetricAlarm
+                  - cloudwatch:DeleteAlarms
                   - cloudwatch:TagResource
                   - cloudwatch:ListTagsForResource
                 Resource: !Sub "arn:aws:cloudwatch:${AWS::Region}:${AWS::AccountId}:alarm:akldb-*"
