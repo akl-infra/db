@@ -453,7 +453,67 @@ function firstOccurrencePerChar(keys: SparkPosition[]): Map<string, SparkPositio
   return out;
 }
 
+// What a mana2/1 payload can carry (LDB-F72). mana2's `layout.fingers` holds
+// at most five rows (its schema's maxItems) and writes one token per COLUMN
+// up to the widest key, so an unbounded spark/1 `col` would be an unbounded
+// payload (and loop). Production's widest layout is 26 columns; 1024 leaves
+// every real board far inside and keeps the output a few KB per row.
+export const MANA2_MAX_ROWS = 5;
+export const MANA2_MAX_COLS = 1024;
+
+// A key's char is representable when it survives as ONE token of a
+// `fingers`/`thumbs` string: the row grammar must read it back as that one
+// character. A multi-code-point char ("{}") is "Unrecognisable word"; a
+// whitespace/control char other than " " (which is the `space` token) is
+// swallowed by the whitespace split or reads as a tap-hold bracket.
+function charRepresentable(ch: string): boolean {
+  if (ch === " ") return true;
+  if ([...ch].length !== 1) return false;
+  const parsed = parseRow(ch);
+  if ("message" in parsed || parsed.length !== 1) return false;
+  const r = parsed[0]!.resolution;
+  return r.tap === ch && r.hold === undefined && r.heldReason === undefined && !r.isSkip;
+}
+
+// Why `p` has no mana2/1 form, or undefined when it has one. O(keys +
+// combos): never loops over a coordinate's value, so a `col` of 1e9 (or 1e308)
+// is refused as cheaply as any other. The route answers `409 held`
+// (`see: spark/1`), never an invalid or half-built payload.
+function notRepresentable(p: SparkPayload): string | undefined {
+  let minRow = 0;
+  let maxRow = -1;
+  let maxCol = -1;
+  for (const k of p.keys) {
+    if (k.char !== undefined && !charRepresentable(k.char)) {
+      return `key ${JSON.stringify(k.char)} is not a single character mana2/1 can write as a token`;
+    }
+    if (k.finger === "LT" || k.finger === "RT") continue;
+    if (k.row < minRow) minRow = k.row;
+    if (k.row > maxRow) maxRow = k.row;
+    if (k.col > maxCol) maxCol = k.col;
+  }
+  if (maxRow - minRow + 1 > MANA2_MAX_ROWS) return `${maxRow - minRow + 1} key rows; mana2/1 holds at most ${MANA2_MAX_ROWS}`;
+  if (maxCol >= MANA2_MAX_COLS) return `column ${maxCol}; mana2/1 holds at most ${MANA2_MAX_COLS} columns`;
+  for (const c of p.combos ?? []) {
+    for (const key of c.keys) {
+      if (!charRepresentable(key)) return `combo key ${JSON.stringify(key)} is not a single character mana2/1 can write as a token`;
+    }
+  }
+  return undefined;
+}
+
+// The registered edge (spark/1's `to["mana2/1"]`, the cmini adapter): holds a
+// layout mana2/1 cannot write instead of building it.
+export function fromSparkOrHeld(p: SparkPayload): Mana2Payload | Held {
+  const why = notRepresentable(p);
+  return why === undefined ? fromSpark(p) : { held: true, reason: why };
+}
+
+// The converter proper. Callers that did not go through `fromSparkOrHeld`
+// get a thrown Error for an unrepresentable layout, never a long loop.
 export function fromSpark(p: SparkPayload): Mana2Payload {
+  const why = notRepresentable(p);
+  if (why !== undefined) throw new Error(`spark/1 layout has no mana2/1 form: ${why}`);
   const main: MainEntry[] = [];
   const left: ThumbEntry[] = [];
   const right: ThumbEntry[] = [];
@@ -488,10 +548,15 @@ export function fromSpark(p: SparkPayload): Mana2Payload {
   // refused that) -- array index `i` is always physical row `minRow + i`,
   // so index 0 is row -1 when present, matching the physical top-to-bottom
   // order every other row already used.
-  const minRow = main.length === 0 ? 0 : Math.min(0, ...main.map((e) => e.row));
-  const maxRow = main.length === 0 ? -1 : Math.max(...main.map((e) => e.row));
+  let minRow = 0;
+  let maxRow = -1;
+  let maxCol = -1;
+  for (const e of main) {
+    if (e.row < minRow) minRow = e.row;
+    if (e.row > maxRow) maxRow = e.row;
+    if (e.col > maxCol) maxCol = e.col;
+  }
   const numMainRows = Math.max(maxRow - minRow + 1, 1);
-  const maxCol = main.length === 0 ? -1 : Math.max(...main.map((e) => e.col));
 
   const fingers: string[] = [];
   const fingermap: string[] = [];

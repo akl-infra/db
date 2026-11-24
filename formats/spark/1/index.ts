@@ -48,7 +48,8 @@ import type { Key } from "./geometry.ts";
 // the adapter. No runtime import cycle: mana2/1/translate.ts imports only
 // TYPES from this file (erased at compile time), and its one VALUE import
 // from this format (`computeRows`) comes from ./magic.ts, not this file.
-import { toSpark as mana2ToSpark, fromSpark as mana2FromSpark } from "../../mana2/1/translate.ts";
+import { toSpark as mana2ToSpark, fromSparkOrHeld as mana2FromSpark } from "../../mana2/1/translate.ts";
+import type { Held as Mana2Held } from "../../mana2/1/translate.ts";
 import type { Payload as Mana2Payload } from "../../mana2/1/index.ts";
 
 export const id: `${string}/${number}` = "spark/1";
@@ -662,12 +663,14 @@ export function hasCombos(p: Payload): boolean {
   return (p.combos?.length ?? 0) > 0;
 }
 
-// spark/1 -> mana2/1 never holds (12 §2.5's held cases are all in the
-// mana2 -> spark direction). spark's `to` never listed `cmini/1` (20-spark
+// spark/1 -> mana2/1 holds only a layout mana2/1 cannot write (LDB-F72: a
+// column past MANA2_MAX_COLS, more than five key rows, a key or combo key
+// that is not one token); 12 §2.5's other held cases are in the mana2 ->
+// spark direction. spark's `to` never listed `cmini/1` (20-spark
 // .md S1): cmini was always reached through the unregistered adapter, and
 // 21-formats.md D5 deleted that read path entirely -- there is no cmini
 // export left at all now.
-export const to: Record<string, (p: Payload) => Mana2Payload> = {
+export const to: Record<string, (p: Payload) => Mana2Payload | Mana2Held> = {
   "mana2/1": mana2FromSpark,
 };
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

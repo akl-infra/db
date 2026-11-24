@@ -28,6 +28,20 @@ this file just gives them a public, versioned home. From here on, a
 `WIRE_VERSION` bump and a line here land in the SAME PR, never one without
 the other (`[LDB-V5]`).
 
+## 1.39 — `?format=mana2/1` holds what mana2/1 cannot write
+
+`GET /v1/layouts/{id}?format=mana2/1` (and the list, `?full=1` and revision
+reads of it) now answers the existing `409 held` (`see: "spark/1"`) for a
+stored `spark/1` layout that `mana2/1` has no form for: a key in a column past
+1023, key rows spanning more than five (rows -1..4; thumbs do not count), a key
+whose `char` is not one code point (such as `"{}"`), and a key or combo key that
+is whitespace other than the space key (such as `"\f"`). Before, the first
+spun the CPU for seconds and failed, and the others produced a `mana2/1`
+payload that `mana2/1`'s own validator refuses. In a list or `?full=1` such a
+row carries `held: true` and no payload, as any held row does. Reading the same
+layout as `spark/1` is unchanged and nothing the API accepts on write changed.
+No shape or route changes; no feature query or `/v2` is involved.
+
 ## 1.38 — Off-layout alt characters and space triggers
 
 `spark/1` now accepts an `alts[].ngram` literal item that is not one of the
