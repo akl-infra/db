@@ -36,6 +36,7 @@ import * as spark1 from "../formats/spark/1/index.ts";
 const SCRIPTS_DIR = path.dirname(url.fileURLToPath(import.meta.url));
 const DB_ROOT = path.join(SCRIPTS_DIR, "..");
 const OUT_FILE = path.join(DB_ROOT, "formats", "spark", "1", "fixtures", "parity-vectors.json");
+const REFUSED_OUT_FILE = path.join(DB_ROOT, "formats", "spark", "1", "fixtures", "refused-vectors.json");
 const CHECK = process.argv.includes("--check");
 const SEED = 0x53504b31; // 'SPK1' -- arbitrary, fixed forever (changing it changes every vector)
 const NUM_RUNS = 300;
@@ -222,24 +223,105 @@ function build() {
   return [...samples.map(buildVector), ...refused.map(buildRefusedVector), ...SKIP_MAGIC.map(buildSkipVector)];
 }
 
-function main() {
-  const vectors = build();
-  const text = JSON.stringify(vectors, null, 2) + "\n";
+// ---------------------------------------------------------------------
+// [LDB-MD28] refused-vectors.json (Stage 4 F-db): whole-payload refusals, one per refusal class, each frozen with the error CODE
+// (`error`), message and path spark1.validate() answers. The sibling of parity-vectors.json's 60 off-layout-key refusals: those
+// pin one class inside magic, these pin the rest (shape, enums, ranges, duplicates, alts, combos, magic semantics). A client (the
+// bot's own validator, akl.gg's gate) reuses the file to prove it refuses what akldb refuses, with the same code and path. Hand
+// written (a named mutation of a small valid base), so the file is reviewable and every entry's reason is in its `name`.
+// ---------------------------------------------------------------------
+const BASE_KEYS = [
+  { char: "a", row: 1, col: 0, finger: "LP" },
+  { char: "b", row: 1, col: 1, finger: "LR" },
+  { char: "c", row: 1, col: 2, finger: "LM" },
+  { char: "d", row: 1, col: 3, finger: "LI" },
+  { char: "e", row: 1, col: 6, finger: "RI" },
+  { char: "f", row: 1, col: 7, finger: "RM" },
+];
+const base = () => ({ keys: structuredClone(BASE_KEYS) });
+const withMagic = (magic) => ({ ...base(), magic });
+const REFUSED_CASES = [
+  ["payload is null", () => null],
+  ["payload is an array", () => []],
+  ["payload is a string", () => "keys"],
+  ["payload is a number", () => 42],
+  ["no keys field", () => ({})],
+  ["keys is not an array", () => ({ keys: {} })],
+  ["a key is null", () => ({ keys: [null] })],
+  ["unknown top-level field", () => ({ ...base(), board: "ansi" })],
+  ["key without a finger", () => ({ keys: [{ char: "a", row: 0, col: 0 }] })],
+  ["key finger outside the enum", () => ({ keys: [{ char: "a", row: 0, col: 0, finger: "TB" }] })],
+  ["key row above the range", () => ({ keys: [{ char: "a", row: 5, col: 0, finger: "LP" }] })],
+  ["key row below the range", () => ({ keys: [{ char: "a", row: -2, col: 0, finger: "LP" }] })],
+  ["key col negative", () => ({ keys: [{ char: "a", row: 0, col: -1, finger: "LP" }] })],
+  ["key col fractional", () => ({ keys: [{ char: "a", row: 0, col: 0.5, finger: "LP" }] })],
+  ["key char is a number", () => ({ keys: [{ char: 7, row: 0, col: 0, finger: "LP" }] })],
+  ["two keys on one position", () => ({ keys: [...BASE_KEYS, { char: "z", row: 1, col: 0, finger: "LP" }] })],
+  ["magic is not an object", () => ({ ...base(), magic: 3 })],
+  ["magic key names a char twice on the layout", () => ({ keys: [...BASE_KEYS, { char: "a", row: 2, col: 0, finger: "LP" }], magic: { magic_keys: [{ key: "a", default: { kind: "repeat" } }] } })],
+  ["magic key is not a single code point", () => withMagic({ magic_keys: [{ key: "ab", default: { kind: "repeat" } }] })],
+  ["magic key is off the layout", () => withMagic({ magic_keys: [{ key: "Z", default: { kind: "repeat" } }] })],
+  ["two rules, one input, different outputs", () => withMagic({ magic_keys: [{ key: "a", rules: [{ after: "b", emit: "c" }, { after: "b", emit: "d" }] }] })],
+  ["a key both magic and chiral", () => withMagic({ magic_keys: [{ key: "a", default: { kind: "repeat" } }], chiral_keys: [{ key: "a", same: { kind: "repeat" } }] })],
+  ["adaptive swap trigger is off the layout", () => withMagic({ adaptive_swaps: [{ trigger: "Z", swap: ["a", "b"] }] })],
+  ["adaptive swap swaps a key with itself", () => withMagic({ adaptive_swaps: [{ trigger: "c", swap: ["a", "a"] }] })],
+  ["alt ngram with four items", () => ({ ...base(), alts: [{ ngram: ["a", "b", "c", "d"], fingers: ["LP", "LR", "LM", "LI"] }] })],
+  ["alt fingers shorter than its ngram", () => ({ ...base(), alts: [{ ngram: ["a", "b"], fingers: ["LP"] }] })],
+  ["alt finger outside the enum", () => ({ ...base(), alts: [{ ngram: ["a"], fingers: ["XX"] }] })],
+  ["alt wildcard as the first item", () => ({ ...base(), alts: [{ ngram: [null, "a", "b"], fingers: [null, "LP", "LR"] }] })],
+  ["alt literal is two code points", () => ({ ...base(), alts: [{ ngram: ["ab"], fingers: ["LP"] }] })],
+  ["alt literal is empty", () => ({ ...base(), alts: [{ ngram: [""], fingers: ["LP"] }] })],
+  ["the same unary alt twice", () => ({ ...base(), alts: [{ ngram: ["a"], fingers: ["LR"] }, { ngram: ["a"], fingers: ["LR"] }] })],
+  ["combo key is off the layout", () => ({ ...base(), combos: [{ keys: ["a", "Z"], output: "x" }] })],
+  ["the same combo pair twice", () => ({ ...base(), combos: [{ keys: ["a", "b"], output: "x" }, { keys: ["b", "a"], output: "y" }] })],
+  ["two combos with one output", () => ({ ...base(), combos: [{ keys: ["a", "b"], output: "x" }, { keys: ["c", "d"], output: "x" }] })],
+  ["combos is not an array", () => ({ ...base(), combos: "ab" })],
+];
 
+function buildRefusedFile() {
+  return REFUSED_CASES.map(([name, make]) => {
+    const payload = make();
+    const v = spark1.validate(payload);
+    if (v.ok) throw new Error(`refused case "${name}" was ACCEPTED by spark1.validate(): ${JSON.stringify(payload)}`);
+    const { error, message, path: at } = v.error;
+    return { name, payload, refused: { error, message, path: at } };
+  });
+}
+
+// the accepted twins: the base itself and API 1.38's cases (LDB-F71) must stay accepted -- a refused-vector list must never
+// start refusing what the API took on purpose.
+function checkTwinsAccepted() {
+  const twins = [
+    base(),
+    { ...base(), alts: [{ ngram: ["\u221e"], fingers: ["LP"] }, { ngram: ['"'], fingers: ["LR"] }] },
+    withMagic({ adaptive_swaps: [{ trigger: " ", swap: ["a", "b"] }] }),
+  ];
+  for (const t of twins) {
+    const v = spark1.validate(t);
+    if (!v.ok) throw new Error(`accepted twin was refused: ${JSON.stringify(v.error)}\n${JSON.stringify(t)}`);
+  }
+}
+
+function writeOrCheck(file, text) {
   if (CHECK) {
-    const existing = fs.existsSync(OUT_FILE) ? fs.readFileSync(OUT_FILE, "utf8") : null;
+    const existing = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : null;
     if (existing !== text) {
-      console.error(`${path.relative(DB_ROOT, OUT_FILE)} is out of date -- run 'node scripts/gen-spark-parity-vectors.mjs' to regenerate.`);
+      console.error(`${path.relative(DB_ROOT, file)} is out of date -- run 'node scripts/gen-spark-parity-vectors.mjs' to regenerate.`);
       process.exitCode = 1;
       return;
     }
-    console.log(`${path.relative(DB_ROOT, OUT_FILE)} matches (--check OK)`);
+    console.log(`${path.relative(DB_ROOT, file)} matches (--check OK)`);
     return;
   }
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, text);
+  console.log(`wrote ${path.relative(DB_ROOT, file)}`);
+}
 
-  fs.mkdirSync(path.dirname(OUT_FILE), { recursive: true });
-  fs.writeFileSync(OUT_FILE, text);
-  console.log(`wrote ${path.relative(DB_ROOT, OUT_FILE)} (${vectors.length} vectors)`);
+function main() {
+  checkTwinsAccepted();
+  writeOrCheck(OUT_FILE, JSON.stringify(build(), null, 2) + "\n");
+  writeOrCheck(REFUSED_OUT_FILE, JSON.stringify(buildRefusedFile(), null, 2) + "\n");
 }
 
 main();

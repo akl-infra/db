@@ -218,6 +218,29 @@ describe("db.yml wiring", () => {
     }
   });
 
+  it("[LDB-FZ12] the nightly fuzz job runs only on schedule/dispatch, with a random seed and every fuzz step even after a failure, and uploads findings", () => {
+    const wf = loadWorkflow();
+    const fuzz = wf.jobs.fuzz;
+    expect(fuzz, "no `fuzz` job in ci.yml").toBeDefined();
+    if (!fuzz) throw new Error("unreachable: assertion above failed");
+    expect(fuzz.if).toContain("schedule");
+    expect(fuzz.if).toContain("workflow_dispatch");
+    expect(fuzz.if).not.toContain("pull_request");
+    expect(fuzz.if).not.toContain("'push'");
+    const steps = fuzz.steps ?? [];
+    const runs = steps.map((s) => s.run ?? "").join("\n");
+    expect(runs).toContain("/dev/urandom"); // a random seed, printed
+    expect(runs).toContain("tests/formats/spark1.props.test.ts");
+    expect(runs).toContain("tests/api/write.props.test.ts");
+    expect(runs).toContain("npm run fuzz:shim");
+    for (const s of steps.filter((s) => /vitest run|fuzz:shim/.test(s.run ?? ""))) {
+      expect(s.if, `fuzz step ${s.name} must run even after an earlier failure`).toBe("always()");
+    }
+    const upload = steps.find((s) => (s.uses ?? "").startsWith("actions/upload-artifact"));
+    expect(upload, "no upload-artifact step").toBeDefined();
+    expect(String(upload?.with?.path)).toContain("fuzz-failures");
+  });
+
   it("[LDB-C1] [LDB-I27] the daily job runs the rehost drill and the upstream diff (S8 landed the file; the diff step's only allowed guard is the LDB-I27 kill switch)", () => {
     const wf = loadWorkflow();
     const daily = wf.jobs.daily;

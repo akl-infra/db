@@ -1,0 +1,1436 @@
+[
+  {
+    "name": "payload is null",
+    "payload": null,
+    "refused": {
+      "error": "invalid_payload",
+      "message": "payload must be object",
+      "path": "/"
+    }
+  },
+  {
+    "name": "payload is an array",
+    "payload": [],
+    "refused": {
+      "error": "invalid_payload",
+      "message": "payload must be object",
+      "path": "/"
+    }
+  },
+  {
+    "name": "payload is a string",
+    "payload": "keys",
+    "refused": {
+      "error": "invalid_payload",
+      "message": "payload must be object",
+      "path": "/"
+    }
+  },
+  {
+    "name": "payload is a number",
+    "payload": 42,
+    "refused": {
+      "error": "invalid_payload",
+      "message": "payload must be object",
+      "path": "/"
+    }
+  },
+  {
+    "name": "no keys field",
+    "payload": {},
+    "refused": {
+      "error": "invalid_payload",
+      "message": "payload must have required property 'keys'",
+      "path": "/"
+    }
+  },
+  {
+    "name": "keys is not an array",
+    "payload": {
+      "keys": {}
+    },
+    "refused": {
+      "error": "invalid_payload",
+      "message": "payload/keys must be array",
+      "path": "/keys"
+    }
+  },
+  {
+    "name": "a key is null",
+    "payload": {
+      "keys": [
+        null
+      ]
+    },
+    "refused": {
+      "error": "invalid_payload",
+      "message": "payload/keys/0 must be object",
+      "path": "/keys/0"
+    }
+  },
+  {
+    "name": "unknown top-level field",
+    "payload": {
+      "keys": [
+        {
+          "char": "a",
+          "row": 1,
+          "col": 0,
+          "finger": "LP"
+        },
+        {
+          "char": "b",
+          "row": 1,
+          "col": 1,
+          "finger": "LR"
+        },
+        {
+          "char": "c",
+          "row": 1,
+          "col": 2,
+          "finger": "LM"
+        },
+        {
+          "char": "d",
+          "row": 1,
+          "col": 3,
+          "finger": "LI"
+        },
+        {
+          "char": "e",
+          "row": 1,
+          "col": 6,
+          "finger": "RI"
+        },
+        {
+          "char": "f",
+          "row": 1,
+          "col": 7,
+          "finger": "RM"
+        }
+      ],
+      "board": "ansi"
+    },
+    "refused": {
+      "error": "invalid_payload",
+      "message": "payload must NOT have additional properties",
+      "path": "/"
+    }
+  },
+  {
+    "name": "key without a finger",
+    "payload": {
+      "keys": [
+        {
+          "char": "a",
+          "row": 0,
+          "col": 0
+        }
+      ]
+    },
+    "refused": {
+      "error": "invalid_payload",
+      "message": "payload/keys/0 must have required property 'finger'",
+      "path": "/keys/0"
+    }
+  },
+  {
+    "name": "key finger outside the enum",
+    "payload": {
+      "keys": [
+        {
+          "char": "a",
+          "row": 0,
+          "col": 0,
+          "finger": "TB"
+        }
+      ]
+    },
+    "refused": {
+      "error": "invalid_payload",
+      "message": "payload/keys/0/finger must be equal to one of the allowed values",
+      "path": "/keys/0/finger"
+    }
+  },
+  {
+    "name": "key row above the range",
+    "payload": {
+      "keys": [
+        {
+          "char": "a",
+          "row": 5,
+          "col": 0,
+          "finger": "LP"
+        }
+      ]
+    },
+    "refused": {
+      "error": "invalid_payload",
+      "message": "payload/keys/0/row must be <= 4",
+      "path": "/keys/0/row"
+    }
+  },
+  {
+    "name": "key row below the range",
+    "payload": {
+      "keys": [
+        {
+          "char": "a",
+          "row": -2,
+          "col": 0,
+          "finger": "LP"
+        }
+      ]
+    },
+    "refused": {
+      "error": "invalid_payload",
+      "message": "payload/keys/0/row must be >= -1",
+      "path": "/keys/0/row"
+    }
+  },
+  {
+    "name": "key col negative",
+    "payload": {
+      "keys": [
+        {
+          "char": "a",
+          "row": 0,
+          "col": -1,
+          "finger": "LP"
+        }
+      ]
+    },
+    "refused": {
+      "error": "invalid_payload",
+      "message": "payload/keys/0/col must be >= 0",
+      "path": "/keys/0/col"
+    }
+  },
+  {
+    "name": "key col fractional",
+    "payload": {
+      "keys": [
+        {
+          "char": "a",
+          "row": 0,
+          "col": 0.5,
+          "finger": "LP"
+        }
+      ]
+    },
+    "refused": {
+      "error": "invalid_payload",
+      "message": "payload/keys/0/col must be integer",
+      "path": "/keys/0/col"
+    }
+  },
+  {
+    "name": "key char is a number",
+    "payload": {
+      "keys": [
+        {
+          "char": 7,
+          "row": 0,
+          "col": 0,
+          "finger": "LP"
+        }
+      ]
+    },
+    "refused": {
+      "error": "invalid_payload",
+      "message": "payload/keys/0/char must be string",
+      "path": "/keys/0/char"
+    }
+  },
+  {
+    "name": "two keys on one position",
+    "payload": {
+      "keys": [
+        {
+          "char": "a",
+          "row": 1,
+          "col": 0,
+          "finger": "LP"
+        },
+        {
+          "char": "b",
+          "row": 1,
+          "col": 1,
+          "finger": "LR"
+        },
+        {
+          "char": "c",
+          "row": 1,
+          "col": 2,
+          "finger": "LM"
+        },
+        {
+          "char": "d",
+          "row": 1,
+          "col": 3,
+          "finger": "LI"
+        },
+        {
+          "char": "e",
+          "row": 1,
+          "col": 6,
+          "finger": "RI"
+        },
+        {
+          "char": "f",
+          "row": 1,
+          "col": 7,
+          "finger": "RM"
+        },
+        {
+          "char": "z",
+          "row": 1,
+          "col": 0,
+          "finger": "LP"
+        }
+      ]
+    },
+    "refused": {
+      "error": "invalid_payload",
+      "message": "duplicate position row 1 col 0 (/keys/0, /keys/6)",
+      "path": "/keys/6"
+    }
+  },
+  {
+    "name": "magic is not an object",
+    "payload": {
+      "keys": [
+        {
+          "char": "a",
+          "row": 1,
+          "col": 0,
+          "finger": "LP"
+        },
+        {
+          "char": "b",
+          "row": 1,
+          "col": 1,
+          "finger": "LR"
+        },
+        {
+          "char": "c",
+          "row": 1,
+          "col": 2,
+          "finger": "LM"
+        },
+        {
+          "char": "d",
+          "row": 1,
+          "col": 3,
+          "finger": "LI"
+        },
+        {
+          "char": "e",
+          "row": 1,
+          "col": 6,
+          "finger": "RI"
+        },
+        {
+          "char": "f",
+          "row": 1,
+          "col": 7,
+          "finger": "RM"
+        }
+      ],
+      "magic": 3
+    },
+    "refused": {
+      "error": "invalid_payload",
+      "message": "payload/magic must be object",
+      "path": "/magic"
+    }
+  },
+  {
+    "name": "magic key names a char twice on the layout",
+    "payload": {
+      "keys": [
+        {
+          "char": "a",
+          "row": 1,
+          "col": 0,
+          "finger": "LP"
+        },
+        {
+          "char": "b",
+          "row": 1,
+          "col": 1,
+          "finger": "LR"
+        },
+        {
+          "char": "c",
+          "row": 1,
+          "col": 2,
+          "finger": "LM"
+        },
+        {
+          "char": "d",
+          "row": 1,
+          "col": 3,
+          "finger": "LI"
+        },
+        {
+          "char": "e",
+          "row": 1,
+          "col": 6,
+          "finger": "RI"
+        },
+        {
+          "char": "f",
+          "row": 1,
+          "col": 7,
+          "finger": "RM"
+        },
+        {
+          "char": "a",
+          "row": 2,
+          "col": 0,
+          "finger": "LP"
+        }
+      ],
+      "magic": {
+        "magic_keys": [
+          {
+            "key": "a",
+            "default": {
+              "kind": "repeat"
+            }
+          }
+        ]
+      }
+    },
+    "refused": {
+      "error": "magic_needs_unique_key",
+      "message": "magic names \"a\", which appears on more than one position -- a magic-referenced character must be unique",
+      "path": "/keys"
+    }
+  },
+  {
+    "name": "magic key is not a single code point",
+    "payload": {
+      "keys": [
+        {
+          "char": "a",
+          "row": 1,
+          "col": 0,
+          "finger": "LP"
+        },
+        {
+          "char": "b",
+          "row": 1,
+          "col": 1,
+          "finger": "LR"
+        },
+        {
+          "char": "c",
+          "row": 1,
+          "col": 2,
+          "finger": "LM"
+        },
+        {
+          "char": "d",
+          "row": 1,
+          "col": 3,
+          "finger": "LI"
+        },
+        {
+          "char": "e",
+          "row": 1,
+          "col": 6,
+          "finger": "RI"
+        },
+        {
+          "char": "f",
+          "row": 1,
+          "col": 7,
+          "finger": "RM"
+        }
+      ],
+      "magic": {
+        "magic_keys": [
+          {
+            "key": "ab",
+            "default": {
+              "kind": "repeat"
+            }
+          }
+        ]
+      }
+    },
+    "refused": {
+      "error": "invalid_payload",
+      "message": "magic_keys[].key must be a single character",
+      "path": "/magic/magic_keys/0/key"
+    }
+  },
+  {
+    "name": "magic key is off the layout",
+    "payload": {
+      "keys": [
+        {
+          "char": "a",
+          "row": 1,
+          "col": 0,
+          "finger": "LP"
+        },
+        {
+          "char": "b",
+          "row": 1,
+          "col": 1,
+          "finger": "LR"
+        },
+        {
+          "char": "c",
+          "row": 1,
+          "col": 2,
+          "finger": "LM"
+        },
+        {
+          "char": "d",
+          "row": 1,
+          "col": 3,
+          "finger": "LI"
+        },
+        {
+          "char": "e",
+          "row": 1,
+          "col": 6,
+          "finger": "RI"
+        },
+        {
+          "char": "f",
+          "row": 1,
+          "col": 7,
+          "finger": "RM"
+        }
+      ],
+      "magic": {
+        "magic_keys": [
+          {
+            "key": "Z",
+            "default": {
+              "kind": "repeat"
+            }
+          }
+        ]
+      }
+    },
+    "refused": {
+      "error": "invalid_payload",
+      "message": "magic_keys[].key \"Z\" is not one of this layout's keys",
+      "path": "/magic/magic_keys/0/key"
+    }
+  },
+  {
+    "name": "two rules, one input, different outputs",
+    "payload": {
+      "keys": [
+        {
+          "char": "a",
+          "row": 1,
+          "col": 0,
+          "finger": "LP"
+        },
+        {
+          "char": "b",
+          "row": 1,
+          "col": 1,
+          "finger": "LR"
+        },
+        {
+          "char": "c",
+          "row": 1,
+          "col": 2,
+          "finger": "LM"
+        },
+        {
+          "char": "d",
+          "row": 1,
+          "col": 3,
+          "finger": "LI"
+        },
+        {
+          "char": "e",
+          "row": 1,
+          "col": 6,
+          "finger": "RI"
+        },
+        {
+          "char": "f",
+          "row": 1,
+          "col": 7,
+          "finger": "RM"
+        }
+      ],
+      "magic": {
+        "magic_keys": [
+          {
+            "key": "a",
+            "rules": [
+              {
+                "after": "b",
+                "emit": "c"
+              },
+              {
+                "after": "b",
+                "emit": "d"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "refused": {
+      "error": "invalid_payload",
+      "message": "duplicate rule.after \"b\" for magic key \"a\"",
+      "path": "/magic/magic_keys/0/rules/1/after"
+    }
+  },
+  {
+    "name": "a key both magic and chiral",
+    "payload": {
+      "keys": [
+        {
+          "char": "a",
+          "row": 1,
+          "col": 0,
+          "finger": "LP"
+        },
+        {
+          "char": "b",
+          "row": 1,
+          "col": 1,
+          "finger": "LR"
+        },
+        {
+          "char": "c",
+          "row": 1,
+          "col": 2,
+          "finger": "LM"
+        },
+        {
+          "char": "d",
+          "row": 1,
+          "col": 3,
+          "finger": "LI"
+        },
+        {
+          "char": "e",
+          "row": 1,
+          "col": 6,
+          "finger": "RI"
+        },
+        {
+          "char": "f",
+          "row": 1,
+          "col": 7,
+          "finger": "RM"
+        }
+      ],
+      "magic": {
+        "magic_keys": [
+          {
+            "key": "a",
+            "default": {
+              "kind": "repeat"
+            }
+          }
+        ],
+        "chiral_keys": [
+          {
+            "key": "a",
+            "same": {
+              "kind": "repeat"
+            }
+          }
+        ]
+      }
+    },
+    "refused": {
+      "error": "invalid_payload",
+      "message": "\"a\" is both a magic key and a chiral key -- a key is magic or chiral, never both",
+      "path": "/magic/chiral_keys/0/key"
+    }
+  },
+  {
+    "name": "adaptive swap trigger is off the layout",
+    "payload": {
+      "keys": [
+        {
+          "char": "a",
+          "row": 1,
+          "col": 0,
+          "finger": "LP"
+        },
+        {
+          "char": "b",
+          "row": 1,
+          "col": 1,
+          "finger": "LR"
+        },
+        {
+          "char": "c",
+          "row": 1,
+          "col": 2,
+          "finger": "LM"
+        },
+        {
+          "char": "d",
+          "row": 1,
+          "col": 3,
+          "finger": "LI"
+        },
+        {
+          "char": "e",
+          "row": 1,
+          "col": 6,
+          "finger": "RI"
+        },
+        {
+          "char": "f",
+          "row": 1,
+          "col": 7,
+          "finger": "RM"
+        }
+      ],
+      "magic": {
+        "adaptive_swaps": [
+          {
+            "trigger": "Z",
+            "swap": [
+              "a",
+              "b"
+            ]
+          }
+        ]
+      }
+    },
+    "refused": {
+      "error": "invalid_payload",
+      "message": "adaptive_swaps[].trigger \"Z\" is not one of this layout's keys",
+      "path": "/magic/adaptive_swaps/0/trigger"
+    }
+  },
+  {
+    "name": "adaptive swap swaps a key with itself",
+    "payload": {
+      "keys": [
+        {
+          "char": "a",
+          "row": 1,
+          "col": 0,
+          "finger": "LP"
+        },
+        {
+          "char": "b",
+          "row": 1,
+          "col": 1,
+          "finger": "LR"
+        },
+        {
+          "char": "c",
+          "row": 1,
+          "col": 2,
+          "finger": "LM"
+        },
+        {
+          "char": "d",
+          "row": 1,
+          "col": 3,
+          "finger": "LI"
+        },
+        {
+          "char": "e",
+          "row": 1,
+          "col": 6,
+          "finger": "RI"
+        },
+        {
+          "char": "f",
+          "row": 1,
+          "col": 7,
+          "finger": "RM"
+        }
+      ],
+      "magic": {
+        "adaptive_swaps": [
+          {
+            "trigger": "c",
+            "swap": [
+              "a",
+              "a"
+            ]
+          }
+        ]
+      }
+    },
+    "refused": {
+      "error": "invalid_payload",
+      "message": "adaptive_swaps[].swap must name two different characters",
+      "path": "/magic/adaptive_swaps/0/swap"
+    }
+  },
+  {
+    "name": "alt ngram with four items",
+    "payload": {
+      "keys": [
+        {
+          "char": "a",
+          "row": 1,
+          "col": 0,
+          "finger": "LP"
+        },
+        {
+          "char": "b",
+          "row": 1,
+          "col": 1,
+          "finger": "LR"
+        },
+        {
+          "char": "c",
+          "row": 1,
+          "col": 2,
+          "finger": "LM"
+        },
+        {
+          "char": "d",
+          "row": 1,
+          "col": 3,
+          "finger": "LI"
+        },
+        {
+          "char": "e",
+          "row": 1,
+          "col": 6,
+          "finger": "RI"
+        },
+        {
+          "char": "f",
+          "row": 1,
+          "col": 7,
+          "finger": "RM"
+        }
+      ],
+      "alts": [
+        {
+          "ngram": [
+            "a",
+            "b",
+            "c",
+            "d"
+          ],
+          "fingers": [
+            "LP",
+            "LR",
+            "LM",
+            "LI"
+          ]
+        }
+      ]
+    },
+    "refused": {
+      "error": "invalid_payload",
+      "message": "payload/alts/0/ngram must NOT have more than 3 items",
+      "path": "/alts/0/ngram"
+    }
+  },
+  {
+    "name": "alt fingers shorter than its ngram",
+    "payload": {
+      "keys": [
+        {
+          "char": "a",
+          "row": 1,
+          "col": 0,
+          "finger": "LP"
+        },
+        {
+          "char": "b",
+          "row": 1,
+          "col": 1,
+          "finger": "LR"
+        },
+        {
+          "char": "c",
+          "row": 1,
+          "col": 2,
+          "finger": "LM"
+        },
+        {
+          "char": "d",
+          "row": 1,
+          "col": 3,
+          "finger": "LI"
+        },
+        {
+          "char": "e",
+          "row": 1,
+          "col": 6,
+          "finger": "RI"
+        },
+        {
+          "char": "f",
+          "row": 1,
+          "col": 7,
+          "finger": "RM"
+        }
+      ],
+      "alts": [
+        {
+          "ngram": [
+            "a",
+            "b"
+          ],
+          "fingers": [
+            "LP"
+          ]
+        }
+      ]
+    },
+    "refused": {
+      "error": "invalid_payload",
+      "message": "alts[].fingers [\"LP\"] must have one entry per item of ngram [\"a\",\"b\"] (2), got 1",
+      "path": "/alts/0/fingers"
+    }
+  },
+  {
+    "name": "alt finger outside the enum",
+    "payload": {
+      "keys": [
+        {
+          "char": "a",
+          "row": 1,
+          "col": 0,
+          "finger": "LP"
+        },
+        {
+          "char": "b",
+          "row": 1,
+          "col": 1,
+          "finger": "LR"
+        },
+        {
+          "char": "c",
+          "row": 1,
+          "col": 2,
+          "finger": "LM"
+        },
+        {
+          "char": "d",
+          "row": 1,
+          "col": 3,
+          "finger": "LI"
+        },
+        {
+          "char": "e",
+          "row": 1,
+          "col": 6,
+          "finger": "RI"
+        },
+        {
+          "char": "f",
+          "row": 1,
+          "col": 7,
+          "finger": "RM"
+        }
+      ],
+      "alts": [
+        {
+          "ngram": [
+            "a"
+          ],
+          "fingers": [
+            "XX"
+          ]
+        }
+      ]
+    },
+    "refused": {
+      "error": "invalid_payload",
+      "message": "payload/alts/0/fingers/0 must be null",
+      "path": "/alts/0/fingers/0"
+    }
+  },
+  {
+    "name": "alt wildcard as the first item",
+    "payload": {
+      "keys": [
+        {
+          "char": "a",
+          "row": 1,
+          "col": 0,
+          "finger": "LP"
+        },
+        {
+          "char": "b",
+          "row": 1,
+          "col": 1,
+          "finger": "LR"
+        },
+        {
+          "char": "c",
+          "row": 1,
+          "col": 2,
+          "finger": "LM"
+        },
+        {
+          "char": "d",
+          "row": 1,
+          "col": 3,
+          "finger": "LI"
+        },
+        {
+          "char": "e",
+          "row": 1,
+          "col": 6,
+          "finger": "RI"
+        },
+        {
+          "char": "f",
+          "row": 1,
+          "col": 7,
+          "finger": "RM"
+        }
+      ],
+      "alts": [
+        {
+          "ngram": [
+            null,
+            "a",
+            "b"
+          ],
+          "fingers": [
+            null,
+            "LP",
+            "LR"
+          ]
+        }
+      ]
+    },
+    "refused": {
+      "error": "invalid_payload",
+      "message": "alts[].ngram [null,\"a\",\"b\"] has a wildcard null at position 0; null is allowed only as the middle of a 3-item ngram",
+      "path": "/alts/0/ngram"
+    }
+  },
+  {
+    "name": "alt literal is two code points",
+    "payload": {
+      "keys": [
+        {
+          "char": "a",
+          "row": 1,
+          "col": 0,
+          "finger": "LP"
+        },
+        {
+          "char": "b",
+          "row": 1,
+          "col": 1,
+          "finger": "LR"
+        },
+        {
+          "char": "c",
+          "row": 1,
+          "col": 2,
+          "finger": "LM"
+        },
+        {
+          "char": "d",
+          "row": 1,
+          "col": 3,
+          "finger": "LI"
+        },
+        {
+          "char": "e",
+          "row": 1,
+          "col": 6,
+          "finger": "RI"
+        },
+        {
+          "char": "f",
+          "row": 1,
+          "col": 7,
+          "finger": "RM"
+        }
+      ],
+      "alts": [
+        {
+          "ngram": [
+            "ab"
+          ],
+          "fingers": [
+            "LP"
+          ]
+        }
+      ]
+    },
+    "refused": {
+      "error": "invalid_payload",
+      "message": "alts[].ngram [\"ab\"] has \"ab\" at position 0; each item must be exactly one code point or null",
+      "path": "/alts/0/ngram"
+    }
+  },
+  {
+    "name": "alt literal is empty",
+    "payload": {
+      "keys": [
+        {
+          "char": "a",
+          "row": 1,
+          "col": 0,
+          "finger": "LP"
+        },
+        {
+          "char": "b",
+          "row": 1,
+          "col": 1,
+          "finger": "LR"
+        },
+        {
+          "char": "c",
+          "row": 1,
+          "col": 2,
+          "finger": "LM"
+        },
+        {
+          "char": "d",
+          "row": 1,
+          "col": 3,
+          "finger": "LI"
+        },
+        {
+          "char": "e",
+          "row": 1,
+          "col": 6,
+          "finger": "RI"
+        },
+        {
+          "char": "f",
+          "row": 1,
+          "col": 7,
+          "finger": "RM"
+        }
+      ],
+      "alts": [
+        {
+          "ngram": [
+            ""
+          ],
+          "fingers": [
+            "LP"
+          ]
+        }
+      ]
+    },
+    "refused": {
+      "error": "invalid_payload",
+      "message": "payload/alts/0/ngram/0 must be null",
+      "path": "/alts/0/ngram/0"
+    }
+  },
+  {
+    "name": "the same unary alt twice",
+    "payload": {
+      "keys": [
+        {
+          "char": "a",
+          "row": 1,
+          "col": 0,
+          "finger": "LP"
+        },
+        {
+          "char": "b",
+          "row": 1,
+          "col": 1,
+          "finger": "LR"
+        },
+        {
+          "char": "c",
+          "row": 1,
+          "col": 2,
+          "finger": "LM"
+        },
+        {
+          "char": "d",
+          "row": 1,
+          "col": 3,
+          "finger": "LI"
+        },
+        {
+          "char": "e",
+          "row": 1,
+          "col": 6,
+          "finger": "RI"
+        },
+        {
+          "char": "f",
+          "row": 1,
+          "col": 7,
+          "finger": "RM"
+        }
+      ],
+      "alts": [
+        {
+          "ngram": [
+            "a"
+          ],
+          "fingers": [
+            "LR"
+          ]
+        },
+        {
+          "ngram": [
+            "a"
+          ],
+          "fingers": [
+            "LR"
+          ]
+        }
+      ]
+    },
+    "refused": {
+      "error": "invalid_payload",
+      "message": "duplicate unary alt key/finger assignment [\"a\"] [\"LR\"]",
+      "path": "/alts/1/ngram"
+    }
+  },
+  {
+    "name": "combo key is off the layout",
+    "payload": {
+      "keys": [
+        {
+          "char": "a",
+          "row": 1,
+          "col": 0,
+          "finger": "LP"
+        },
+        {
+          "char": "b",
+          "row": 1,
+          "col": 1,
+          "finger": "LR"
+        },
+        {
+          "char": "c",
+          "row": 1,
+          "col": 2,
+          "finger": "LM"
+        },
+        {
+          "char": "d",
+          "row": 1,
+          "col": 3,
+          "finger": "LI"
+        },
+        {
+          "char": "e",
+          "row": 1,
+          "col": 6,
+          "finger": "RI"
+        },
+        {
+          "char": "f",
+          "row": 1,
+          "col": 7,
+          "finger": "RM"
+        }
+      ],
+      "combos": [
+        {
+          "keys": [
+            "a",
+            "Z"
+          ],
+          "output": "x"
+        }
+      ]
+    },
+    "refused": {
+      "error": "invalid_payload",
+      "message": "combos[].keys \"Z\" is not one of this layout's keys",
+      "path": "/combos/0/keys/1"
+    }
+  },
+  {
+    "name": "the same combo pair twice",
+    "payload": {
+      "keys": [
+        {
+          "char": "a",
+          "row": 1,
+          "col": 0,
+          "finger": "LP"
+        },
+        {
+          "char": "b",
+          "row": 1,
+          "col": 1,
+          "finger": "LR"
+        },
+        {
+          "char": "c",
+          "row": 1,
+          "col": 2,
+          "finger": "LM"
+        },
+        {
+          "char": "d",
+          "row": 1,
+          "col": 3,
+          "finger": "LI"
+        },
+        {
+          "char": "e",
+          "row": 1,
+          "col": 6,
+          "finger": "RI"
+        },
+        {
+          "char": "f",
+          "row": 1,
+          "col": 7,
+          "finger": "RM"
+        }
+      ],
+      "combos": [
+        {
+          "keys": [
+            "a",
+            "b"
+          ],
+          "output": "x"
+        },
+        {
+          "keys": [
+            "b",
+            "a"
+          ],
+          "output": "y"
+        }
+      ]
+    },
+    "refused": {
+      "error": "invalid_payload",
+      "message": "combos entries collide on the same pair of keys (\"b\", \"a\")",
+      "path": "/combos/1/keys"
+    }
+  },
+  {
+    "name": "two combos with one output",
+    "payload": {
+      "keys": [
+        {
+          "char": "a",
+          "row": 1,
+          "col": 0,
+          "finger": "LP"
+        },
+        {
+          "char": "b",
+          "row": 1,
+          "col": 1,
+          "finger": "LR"
+        },
+        {
+          "char": "c",
+          "row": 1,
+          "col": 2,
+          "finger": "LM"
+        },
+        {
+          "char": "d",
+          "row": 1,
+          "col": 3,
+          "finger": "LI"
+        },
+        {
+          "char": "e",
+          "row": 1,
+          "col": 6,
+          "finger": "RI"
+        },
+        {
+          "char": "f",
+          "row": 1,
+          "col": 7,
+          "finger": "RM"
+        }
+      ],
+      "combos": [
+        {
+          "keys": [
+            "a",
+            "b"
+          ],
+          "output": "x"
+        },
+        {
+          "keys": [
+            "c",
+            "d"
+          ],
+          "output": "x"
+        }
+      ]
+    },
+    "refused": {
+      "error": "invalid_payload",
+      "message": "duplicate combos[].output \"x\"",
+      "path": "/combos/1/output"
+    }
+  },
+  {
+    "name": "combos is not an array",
+    "payload": {
+      "keys": [
+        {
+          "char": "a",
+          "row": 1,
+          "col": 0,
+          "finger": "LP"
+        },
+        {
+          "char": "b",
+          "row": 1,
+          "col": 1,
+          "finger": "LR"
+        },
+        {
+          "char": "c",
+          "row": 1,
+          "col": 2,
+          "finger": "LM"
+        },
+        {
+          "char": "d",
+          "row": 1,
+          "col": 3,
+          "finger": "LI"
+        },
+        {
+          "char": "e",
+          "row": 1,
+          "col": 6,
+          "finger": "RI"
+        },
+        {
+          "char": "f",
+          "row": 1,
+          "col": 7,
+          "finger": "RM"
+        }
+      ],
+      "combos": "ab"
+    },
+    "refused": {
+      "error": "invalid_payload",
+      "message": "payload/combos must be array",
+      "path": "/combos"
+    }
+  }
+]

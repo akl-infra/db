@@ -108,7 +108,7 @@ function writeJson(file, data) {
 // it from its own copy of this predicate.
 function isBaseFixtureFile(filename) {
   if (!filename.endsWith(".json")) return false;
-  if (filename === "parity-vectors.json") return false;
+  if (filename === "parity-vectors.json" || filename === "refused-vectors.json") return false;
   return !filename.slice(0, -".json".length).includes(".");
 }
 

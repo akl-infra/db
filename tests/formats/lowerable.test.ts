@@ -24,7 +24,7 @@ const SPARK_FIXTURES_DIR = path.resolve(import.meta.dirname, "..", "..", "format
 // posture) copy of this function.
 function isBaseFixtureFile(filename: string): boolean {
   if (!filename.endsWith(".json")) return false;
-  if (filename === "parity-vectors.json") return false;
+  if (filename === "parity-vectors.json" || filename === "refused-vectors.json") return false;
   return !filename.slice(0, -".json".length).includes(".");
 }
 
