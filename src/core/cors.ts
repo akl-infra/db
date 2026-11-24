@@ -21,11 +21,15 @@
 // `Max-Age`. Nothing else is granted: no credentials ever, no other method, no other header (`Authorization`
 // above all), so a credentialed or writing cross-origin request is still refused before it is sent.
 
+// [LDB-CORS4] (API 1.39) `X-Request-ID` and `Server-Timing` are exposed to pages, every GET/HEAD answer carries
+// `Timing-Allow-Origin: *` (so Resource Timing's `serverTiming` is readable cross-origin), and a preflight may also ask for
+// `X-Request-ID` (a page that sends its own id pays one preflight, which is granted). `Authorization` is still refused.
+
 export const CORS_ALLOW_ORIGIN = "*";
-export const CORS_EXPOSE_HEADERS = "ETag, Retry-After, X-AKLDB-API, CF-Ray";
+export const CORS_EXPOSE_HEADERS = "ETag, Retry-After, X-AKLDB-API, CF-Ray, X-Request-ID, Server-Timing";
 export const CORP = "cross-origin";
 export const PREFLIGHT_METHODS = "GET, HEAD";
-export const PREFLIGHT_HEADERS = ["if-none-match", "cache-control", "pragma"] as const;
+export const PREFLIGHT_HEADERS = ["if-none-match", "cache-control", "pragma", "x-request-id"] as const;
 export const PREFLIGHT_MAX_AGE = "86400";
 
 export function corsApplies(method: string): boolean {
@@ -36,7 +40,7 @@ export function corsApplies(method: string): boolean {
 /** The CORS headers for a response to `method`, or `{}` when none apply. */
 export function corsHeadersFor(method: string): Record<string, string> {
   if (!corsApplies(method)) return {};
-  return { "Access-Control-Allow-Origin": CORS_ALLOW_ORIGIN, "Access-Control-Expose-Headers": CORS_EXPOSE_HEADERS, "Cross-Origin-Resource-Policy": CORP };
+  return { "Access-Control-Allow-Origin": CORS_ALLOW_ORIGIN, "Access-Control-Expose-Headers": CORS_EXPOSE_HEADERS, "Cross-Origin-Resource-Policy": CORP, "Timing-Allow-Origin": "*" };
 }
 
 /** [LDB-CORS3] The answer to an `OPTIONS` request: the granting headers when it is a preflight for a GET/HEAD that
@@ -48,7 +52,7 @@ export function preflightHeadersFor(requestMethod: string | undefined, requestHe
   return {
     "Access-Control-Allow-Origin": CORS_ALLOW_ORIGIN,
     "Access-Control-Allow-Methods": PREFLIGHT_METHODS,
-    "Access-Control-Allow-Headers": "If-None-Match, Cache-Control, Pragma",
+    "Access-Control-Allow-Headers": "If-None-Match, Cache-Control, Pragma, X-Request-ID",
     "Access-Control-Max-Age": PREFLIGHT_MAX_AGE,
     "Cross-Origin-Resource-Policy": CORP,
   };

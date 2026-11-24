@@ -63,6 +63,7 @@ live registry (adoption guide §3).
 `design/layout-db/25-api-versioning.md` is the full audit + policy;
 this is the short version a client actually needs. Every response —
 success or error, every route — carries `X-AKLDB-API: <major>.<minor>`.
+Every response also carries `X-Request-ID` (send your own, 8–64 of `A-Za-z0-9._:-`, or akldb mints one; quote it in bug reports) and `Server-Timing: akldb;dur=<ms>`.
 `GET /v1/meta` carries the same numbers, plus a deprecation list:
 
 ```json

@@ -411,16 +411,23 @@ GET /v1/formats/{name}/{N}/schema.json
 
 **From a web page, call these directly** (LDB-CORS1): every GET/HEAD
 answer carries `Access-Control-Allow-Origin: *` (and exposes `ETag`,
-`Retry-After`, `X-AKLDB-API`, `CF-Ray`), so a browser `fetch()` needs no
+`Retry-After`, `X-AKLDB-API`, `CF-Ray`, `X-Request-ID`, `Server-Timing`), so a browser `fetch()` needs no
 proxy, and `Cross-Origin-Resource-Policy: cross-origin`, so a page with
 `Cross-Origin-Embedder-Policy: require-corp` may read it too (LDB-CORS3).
 Send it plain: the only preflight akldb grants is a GET/HEAD asking for
-the revalidation headers `If-None-Match`, `Cache-Control` or `Pragma`;
+the revalidation headers `If-None-Match`, `Cache-Control` or `Pragma`, or `X-Request-ID` (LDB-CORS4);
 anything else that needs one (`Authorization`, a write) is refused
 (LDB-CORS2). For a conditional read,
 let the browser cache revalidate for you: `fetch(url, { cache: 'no-cache' })`
 sends the stored `ETag` back and turns a `304` into the stored body.
 Signed-in reads and writes stay server-side (§2.2).
+
+**Request ids** (LDB-API4): every response carries `X-Request-ID` and
+`Server-Timing: akldb;dur=<ms>` (the app's own time). Send your own
+`X-Request-ID` (8–64 of `A-Z a-z 0-9 . _ : -`) and akldb echoes it; an absent
+or invalid one is replaced by a minted id, never refused. Quote the id when
+you report a problem. A page can read both headers and, thanks to
+`Timing-Allow-Origin: *`, the `serverTiming` entry of Resource Timing.
 
 **A layout can hold several formats at once** (`spark/1` today; a future
 `lw/1` for layouts.wiki, §7's own worked example). `formats` on every

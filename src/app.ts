@@ -9,7 +9,7 @@ import type { Bindings } from "./env";
 import type { Platform } from "./platform/port";
 import { workersPlatform } from "./platform/workers";
 
-export type AppVariables = ActorVariables & { platform: Platform };
+export type AppVariables = ActorVariables & { platform: Platform; requestId: string };
 export type AppEnv = { Bindings: Bindings; Variables: AppVariables };
 
 function executionCtxOf(c: Context): { waitUntil(p: Promise<unknown>): void } | undefined {
