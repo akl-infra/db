@@ -445,7 +445,9 @@ are registered today:
   always the ANSI row stagger, flat `magic.rules[]`). Never stored — derived from whichever ONE stored
   format is registered to reach it (`spark/1` today; §7's "For format
   authors" has the mechanics) on every read that asks for it explicitly.
-  Never written (`400 format_not_writable`, §5).
+  Never written (`400 format_not_writable`, §5). A stored layout it cannot
+  write (a column past 1023, key rows spanning more than five, a key that is
+  not one token) answers `409 held` when asked for as `mana2/1`.
 
 Real detail response (`tests/conformance/layouts-detail/200.json`,
 trimmed, `?format=spark/1`):
@@ -1057,8 +1059,10 @@ been read whole in that older major (§5).
 
 `spark/1`'s `to["mana2/1"]` (named export `fromSpark`,
 `formats/mana2/1/translate.ts`) is what `?format=mana2/1` and the
-analyzer pipeline both call. **It must never hold for a valid `spark/1` payload**
-(`LDB-F17`) — the held cases documented on `mana2/1`'s own README are all in
+analyzer pipeline both call. **It holds only a layout `mana2/1` cannot write**
+(`LDB-F72`, API 1.39: a column past 1023, key rows spanning more than five,
+a key or combo key that is not one token) and answers `409 held`; every
+other valid `spark/1` payload translates (`LDB-F17`). The held cases documented on `mana2/1`'s own README are all in
 the *other* direction (`mana2/1 -> spark/1`, a tap-hold token, a directional
 token, more than five keys on one thumb, a non-empty `combos`): mana2's own
 vocabulary is a strict subset of what `spark/1` can express on the way

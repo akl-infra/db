@@ -27,8 +27,9 @@ import type { Payload as SparkPayload } from "../../spark/1/index.ts";
 // cases (12 §2.5's held rows are all mana2 -> spark) -- so no
 // held-passthrough is needed here. No import cycle: mana2/1/translate.ts
 // imports nothing from this file.
-import { fromSpark as mana2FromSpark } from "../../mana2/1/translate.ts";
+import { fromSparkOrHeld as mana2FromSpark } from "../../mana2/1/translate.ts";
 import type { Payload as Mana2Payload } from "../../mana2/1/index.ts";
+import type { Held as Mana2Held } from "../../mana2/1/translate.ts";
 
 export const id: `${string}/${number}` = "cmini/1";
 // `GET /v1/formats` (07 §6 S6; registry.ts's FormatModule comment explains
@@ -222,9 +223,9 @@ export function hasMagic(p: Payload): boolean {
 // don't need restructuring, keyed by spark/1's real id now instead of the
 // old alias-shaped "akl/1". `from` (spark -> cmini, §6.2's `toCmini`) was
 // deleted by 21-formats.md D5 along with the export it served.
-export const to: Record<string, (p: Payload) => SparkPayload | Mana2Payload> = {
+export const to: Record<string, (p: Payload) => SparkPayload | Mana2Payload | Mana2Held> = {
   "spark/1": fromCmini, // cmini -> spark IS §6.1's "fromCmini"
-  "mana2/1": (p) => mana2FromSpark(fromCmini(p)), // 12 §2.5's declared composition; never held (see the import comment above)
+  "mana2/1": (p) => mana2FromSpark(fromCmini(p)), // 12 §2.5's declared composition; held only when mana2/1 cannot write it (LDB-F72)
 };
 
 // The record-level projection used by `?as=cmini/1`, the D12 diff and the

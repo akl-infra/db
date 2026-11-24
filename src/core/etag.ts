@@ -247,7 +247,11 @@ export async function readHead(dbArg: StoreArg, stateKeys: readonly string[] = [
 //   not one of the layout's keys, and a space `adaptive_swaps[].trigger` on any
 //   layout. Additive to the accepted payload language; no stored shape change;
 //   no migration.
-export const WIRE_VERSION = 38;
+// 39 (2026-11-24, LDB-F72): `?format=mana2/1` of a stored spark/1 layout that mana2/1
+//   cannot write (a column past 1023, more than five key rows, a key or combo key that
+//   is not one token) answers `409 held` instead of hanging, a 500 or an invalid
+//   payload. No shape change; no migration.
+export const WIRE_VERSION = 39;
 
 export async function etagFor(headSeqValue: number, query: unknown): Promise<string> {
   const hash = await sha256Hex(canonical({ wireVersion: WIRE_VERSION, query: query ?? null }));
