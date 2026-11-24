@@ -1,4 +1,4 @@
-// [LDB-CORS1] [LDB-CORS2] [LDB-CORS3] Public browser reads from any origin (src/core/cors.ts): every GET/HEAD answer
+// [LDB-CORS1] [LDB-CORS2] [LDB-CORS3] [LDB-CORS4] Public browser reads from any origin (src/core/cors.ts): every GET/HEAD answer
 // carries `Access-Control-Allow-Origin: *` and `Cross-Origin-Resource-Policy: cross-origin`, success, 304 or error
 // alike; writes never do; the only preflight granted is a GET/HEAD asking for the revalidation headers.
 import { SELF } from "../harness";
@@ -86,7 +86,7 @@ describe("CORS on public reads", () => {
 });
 
 describe("[LDB-CORS3] the one preflight akldb grants", () => {
-  it("[LDB-CORS3] a GET/HEAD preflight asking for nothing, or only for If-None-Match, Cache-Control, Pragma (any case, any order), gets 204 with exactly those (and X-Request-ID, LDB-CORS4), GET, HEAD and a day's Max-Age, never credentials", async () => {
+  it("[LDB-CORS3] a GET/HEAD preflight asking for nothing, or only for If-None-Match, Cache-Control, Pragma (any case, any order), gets 204 with exactly those (and X-Request-ID, [LDB-CORS4]), GET, HEAD and a day's Max-Age, never credentials", async () => {
     for (const [method, asked] of [["GET", undefined], ["GET", "if-none-match"], ["HEAD", "Cache-Control"], ["GET", "pragma, cache-control, If-None-Match"], ["GET", " "]] as const) {
       for (const path of ["/v1/comment-counts", "/v1/comments?ids=01A", "/v1/layouts/01ZZZZZZZZZZZZZZZZZZZZZZZZ/comments", "/v1/meta"]) {
         const res = await SELF.fetch(`https://example.com${path}`, {
