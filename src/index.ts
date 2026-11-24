@@ -85,6 +85,8 @@ app.use("*", async (c, next) => {
   c.set("requestId", requestId);
   const t0 = performance.now();
   await next();
+  // [LDB-MD29] the matched route pattern (never the path) for the request line.
+  c.env?.AKLDB_OBSERVE?.({ route: c.req.routePath });
   if (c.res) {
     let res = withApiVersionHeader(c.res);
     res = withRequestHeaders(res, requestId, performance.now() - t0);
@@ -365,6 +367,7 @@ app.onError((err, c) => {
   // [LDB-CORS1] an error to a GET/HEAD is readable cross-origin too, so a browser client sees the real status.
   // [LDB-API4] and it carries the same request id and a Server-Timing as every other answer (the middleware above never saw it).
   const requestId = c.get("requestId") ?? effectiveRequestId(c.req.header(REQUEST_ID_HEADER));
+  c.env?.AKLDB_OBSERVE?.({ route: c.req.routePath, err: err instanceof ApiError ? err.body.error : "internal" });
   const headers = { ...(err instanceof ApiError ? err.headers : undefined), [API_VERSION_HEADER]: apiVersionString(), ...corsHeadersFor(c.req.method), [REQUEST_ID_HEADER]: requestId, "Server-Timing": serverTiming(0) };
   if (err instanceof ApiError) {
     return c.json(err.body, err.status as 400 | 401 | 403 | 404 | 409 | 422 | 429 | 500 | 503, headers);

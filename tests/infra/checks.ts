@@ -103,7 +103,7 @@ export function expectedResources(stage: string): string[] {
 
 /** The alarms a stage has: the account's free tier is 10, so only prod gets the full set. */
 export const ALARMS_EVERY_STAGE = ["LambdaErrorsAlarm", "AlarmPrefixAlarm"];
-export const ALARMS_PROD_ONLY = ["JobsErrorsAlarm", "LambdaThrottlesAlarm", "LambdaDurationAlarm", "Api5xxAlarm", "DdbSystemErrorsAlarm", "DdbThrottledAlarm"];
+export const ALARMS_PROD_ONLY = ["JobsErrorsAlarm", "LambdaSaturationAlarm", "LambdaDurationAlarm", "Api5xxAlarm", "DdbSystemErrorsAlarm", "DdbThrottledAlarm"];
 export const alarmsFor = (stage: string): string[] => (stage === "prod" ? [...ALARMS_EVERY_STAGE, ...ALARMS_PROD_ONLY] : ALARMS_EVERY_STAGE);
 
 /** The read-only actions IAM has no resource type for; the one place an Allow may name Resource "*". */
@@ -298,8 +298,17 @@ export function violations(t: Json, stage: string, extra: Json = {}): string[] {
   for (const id of alarmsFor(stage)) if (!(id in R)) v.push(`${id}: missing`);
   for (const id of ALARMS_PROD_ONLY) if (stage !== "prod" && id in R) v.push(`${id}: outside prod (the free tier is 10 alarms)`);
   for (const [id, r] of alarms) if (arr(r.Properties.AlarmActions).some((a) => a?.Ref !== "AlarmTopic") || arr(r.Properties.AlarmActions).length !== 1) v.push(`${id}: not wired to the topic`);
-  for (const id of ["LambdaErrorsAlarm", "LambdaThrottlesAlarm", "LambdaDurationAlarm"]) {
+  for (const id of ["LambdaErrorsAlarm", "LambdaDurationAlarm"]) {
     if (R[id] !== undefined && JSON.stringify(R[id].Properties.Dimensions) !== JSON.stringify([{ Name: "FunctionName", Value: { Ref: "ApiFunction" } }])) v.push(`${id}: not scoped to this function (FunctionName dimension)`);
+  }
+  // [LDB-MD30] The saturation alarm is metric math over this function's own Throttles and ConcurrentExecutions (never account-wide).
+  if (R.LambdaSaturationAlarm !== undefined) {
+    const ms: Json[] = R.LambdaSaturationAlarm.Properties.Metrics ?? [];
+    const expr = JSON.stringify(ms.find((x) => x.Id === "e1")?.Expression ?? "");
+    if (!expr.includes("FILL(m1, 0)") || !expr.includes("FILL(m2, 0)")) v.push("LambdaSaturationAlarm: e1 must FILL(m1, 0) and FILL(m2, 0) (a metric with no datapoints would hide a saturation)");
+    for (const m of ms.filter((x) => x.MetricStat)) {
+      if (JSON.stringify(m.MetricStat.Metric.Dimensions) !== JSON.stringify([{ Name: "FunctionName", Value: { Ref: "ApiFunction" } }])) v.push(`LambdaSaturationAlarm: ${m.Id} not scoped to this function (FunctionName dimension)`);
+    }
   }
   if (ofType("AWS::CloudWatch::Alarm").some(([, a]) => a.Properties.MetricName === "ConcurrentExecutions" || a.Properties.MetricName === "UnreservedConcurrentExecutions")) v.push("an account-wide concurrency alarm");
   // The uniform failure prefix the code logs, as a metric the alarm reads.

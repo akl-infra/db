@@ -566,7 +566,7 @@ describe("deploy order (AX3)", () => {
 });
 
 describe("alarms, budget, reserved concurrency (AX4)", () => {
-  it("[LDB-AX4] prod has the full alarm set, staging and shadow only Errors and the akldb-alarm line; one email topic; within the free 10 per stage", () => {
+  it("[LDB-AX4] [LDB-MD30] prod has the full alarm set, staging and shadow only Errors and the akldb-alarm line; one email topic; within the free 10 per stage", () => {
     const metricsOf = (R: Record<string, Json>): string[] => {
       const metrics = new Set<string>();
       for (const [, a] of Object.entries(R).filter(([, r]) => r.Type === "AWS::CloudWatch::Alarm")) {
@@ -587,7 +587,7 @@ describe("alarms, budget, reserved concurrency (AX4)", () => {
     expect(ALARMS_EVERY_STAGE).toEqual(["LambdaErrorsAlarm", "AlarmPrefixAlarm"]);
     expect(metricsOf(resolveStage(t, "staging").resources)).toEqual(["AWS/Lambda/Errors", "akldb/${Stage}/Alarms"]);
     expect(metricsOf(resolveStage(t, "shadow").resources)).toEqual(["AWS/Lambda/Errors", "akldb/${Stage}/Alarms"]);
-    expect(metricsOf(resolveStage(t, "prod").resources)).toEqual(["AWS/ApiGateway/5xx", "AWS/DynamoDB/SystemErrors", "AWS/DynamoDB/ThrottledRequests", "AWS/Lambda/Duration", "AWS/Lambda/Errors", "AWS/Lambda/Throttles", "akldb/${Stage}/Alarms"]);
+    expect(metricsOf(resolveStage(t, "prod").resources)).toEqual(["AWS/ApiGateway/5xx", "AWS/DynamoDB/SystemErrors", "AWS/DynamoDB/ThrottledRequests", "AWS/Lambda/ConcurrentExecutions", "AWS/Lambda/Duration", "AWS/Lambda/Errors", "AWS/Lambda/Throttles", "akldb/${Stage}/Alarms"]);
     for (const id of ALARMS_PROD_ONLY) expect(t.Resources[id].Condition, id).toBe("IsProd");
     const stray = clone(t);
     delete stray.Resources.LambdaDurationAlarm.Condition;
@@ -596,11 +596,26 @@ describe("alarms, budget, reserved concurrency (AX4)", () => {
     expect(p.LambdaErrorsAlarm.Properties).toMatchObject({ EvaluationPeriods: 2, DatapointsToAlarm: 2, Period: 300, Threshold: 0, ComparisonOperator: "GreaterThanThreshold" });
     expect(p.LambdaDurationAlarm.Properties).toMatchObject({ ExtendedStatistic: "p95", Threshold: 3000 });
     expect(p.Api5xxAlarm.Properties.Dimensions).toEqual([{ Name: "ApiId", Value: { Ref: "HttpApi" } }]);
-    // Throttles (and Errors, Duration) are this function's own, never the account-wide concurrency metrics.
-    for (const id of ["LambdaErrorsAlarm", "LambdaThrottlesAlarm", "LambdaDurationAlarm"]) expect(p[id].Properties.Dimensions, id).toEqual([{ Name: "FunctionName", Value: { Ref: "ApiFunction" } }]);
+    // Errors and Duration are this function's own, never the account-wide concurrency metrics.
+    for (const id of ["LambdaErrorsAlarm", "LambdaDurationAlarm"]) expect(p[id].Properties.Dimensions, id).toEqual([{ Name: "FunctionName", Value: { Ref: "ApiFunction" } }]);
+    // [LDB-MD30] the saturation alarm replaced the throttles-only one: Throttles + IF(ConcurrentExecutions max >= SaturationConcurrency, 1, 0) > 0, 1 of 1
+    expect("LambdaThrottlesAlarm" in t.Resources).toBe(false);
+    expect(JSON.stringify(t)).not.toContain("lambda-throttles");
+    const sat = p.LambdaSaturationAlarm.Properties;
+    expect(sat).toMatchObject({ AlarmName: { "Fn::Sub": "akldb-${Stage}-lambda-saturation" }, EvaluationPeriods: 1, DatapointsToAlarm: 1, Threshold: 0, ComparisonOperator: "GreaterThanThreshold", TreatMissingData: "notBreaching", AlarmActions: [{ Ref: "AlarmTopic" }] });
+    const e1 = sat.Metrics.find((m: Json) => m.Id === "e1");
+    expect(e1).toMatchObject({ Expression: { "Fn::Sub": "FILL(m1, 0) + IF(FILL(m2, 0) >= ${SaturationConcurrency}, 1, 0)" }, ReturnData: true });
+    const stat = (id: string) => sat.Metrics.find((m: Json) => m.Id === id).MetricStat;
+    expect(stat("m1")).toMatchObject({ Period: 300, Stat: "Sum", Metric: { Namespace: "AWS/Lambda", MetricName: "Throttles" } });
+    expect(stat("m2")).toMatchObject({ Period: 300, Stat: "Maximum", Metric: { Namespace: "AWS/Lambda", MetricName: "ConcurrentExecutions" } });
+    expect(t.Parameters.SaturationConcurrency).toMatchObject({ Type: "Number", Default: 100 });
+    // missing data must not hide a saturation: both inputs are FILLed with 0
+    const th0 = clone(t);
+    th0.Resources.LambdaSaturationAlarm.Properties.Metrics[0].Expression = { "Fn::Sub": "m1 + IF(m2 >= ${SaturationConcurrency}, 1, 0)" };
+    expect(violations(th0, "prod").some((x) => /LambdaSaturationAlarm: .*FILL/.test(x))).toBe(true);
     const th = clone(t);
-    th.Resources.LambdaThrottlesAlarm.Properties.Dimensions = [];
-    expect(violations(th, "prod").some((x) => /LambdaThrottlesAlarm: not scoped to this function/.test(x))).toBe(true);
+    th.Resources.LambdaSaturationAlarm.Properties.Metrics[2].MetricStat.Metric.Dimensions = [];
+    expect(violations(th, "prod").some((x) => /LambdaSaturationAlarm: m2 not scoped to this function/.test(x))).toBe(true);
     // the DynamoDB alarms cover every operation the log makes
     const ops = (id: string) => p[id].Properties.Metrics.filter((m: Json) => m.MetricStat).map((m: Json) => m.MetricStat.Metric.Dimensions.find((d: Json) => d.Name === "Operation").Value).sort();
     expect(ops("DdbSystemErrorsAlarm")).toEqual(["GetItem", "PutItem", "Query", "TransactWriteItems", "UpdateItem"]);

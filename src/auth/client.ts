@@ -68,6 +68,8 @@ export type VerifyImpl = (pubkey: Uint8Array, signature: Uint8Array, message: Ui
 
 export interface ClientDeps {
   verify?: VerifyImpl;
+  /** [LDB-MD29] Called once with the client id after the signature and every check passed (the request line's `cli`). */
+  onVerified?: (clientId: string) => void;
 }
 
 // base64url, no padding -- what every header on this lane carries (02 §3.2).
@@ -201,6 +203,7 @@ export async function verifyClientRequest(
   if (scopeCapOf(client.caps) === "act-as-owner-only" && actorRaw !== client.owner_user_id) {
     throw actorNotAllowed(actorRaw, client.owner_user_id);
   }
+  deps.onVerified?.(client.id);
 
   // Step 7: the actor. `authors` upserted like resolveBearer's, except the
   // client lane carries no display name (D14): `name` is set to the id

@@ -210,6 +210,7 @@ export function changesRoute(authDeps: AuthDeps) {
       }
       if (honored) {
         held = true;
+        c.env?.AKLDB_OBSERVE?.({ hold: true }); // [LDB-MD29] the request line's `hold`
         await waitForChanges(db, since, waitRequested, resolveSleep(c.env));
       } else {
         waitIgnored = true;

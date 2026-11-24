@@ -40,7 +40,12 @@ Parameters:
     Type: String
     Default: ""
     AllowedPattern: "^[0-9]*$"
-    Description: Reserved concurrent executions for the function; empty leaves it unset. The account limit is 10 until a quota increase, and a reservation must leave 10 unreserved, so it cannot be set yet.
+    Description: Reserved concurrent executions for the function; empty leaves it unset. The account's concurrency limit is 1000 now (it was 10 until the quota increase), so a reservation is possible; none is set.
+  SaturationConcurrency:
+    Type: Number
+    Default: 100
+    MinValue: 2
+    Description: The peak ConcurrentExecutions (5-minute Maximum) at which the saturation alarm fires on its own, with or without a throttle. 100 is 4.5x the busiest observed week (22); the 2026-11-09 burst peaked at 627.
   KeepWarm:
     Type: Number
     Default: 4
@@ -689,21 +694,28 @@ Resources:
       TreatMissingData: notBreaching
       AlarmActions: [ !Ref AlarmTopic ]
 
-  LambdaThrottlesAlarm:
+  # [LDB-MD30] Saturation: any throttle, OR the function ran at SaturationConcurrency or more at once in the window. Metric math,
+  # with FILL(.., 0) so a metric that emitted nothing (Throttles usually does not) still yields a datapoint; one alarm (two metrics) replaces the old throttles-only alarm. Both metrics are this function's own (FunctionName).
+  LambdaSaturationAlarm:
     Type: AWS::CloudWatch::Alarm
     Condition: IsProd
     Properties:
-      AlarmName: !Sub akldb-${Stage}-lambda-throttles
-      Namespace: AWS/Lambda
-      MetricName: Throttles
-      Dimensions: [ { Name: FunctionName, Value: !Ref ApiFunction } ]
-      Statistic: Sum
-      Period: 300
+      AlarmName: !Sub akldb-${Stage}-lambda-saturation
+      AlarmDescription: Lambda throttled, or ConcurrentExecutions reached SaturationConcurrency, in a 5-minute window
       EvaluationPeriods: 1
+      DatapointsToAlarm: 1
       Threshold: 0
       ComparisonOperator: GreaterThanThreshold
       TreatMissingData: notBreaching
       AlarmActions: [ !Ref AlarmTopic ]
+      Metrics:
+        - { Id: e1, Expression: !Sub "FILL(m1, 0) + IF(FILL(m2, 0) >= ${SaturationConcurrency}, 1, 0)", Label: Saturation, ReturnData: true }
+        - Id: m1
+          ReturnData: false
+          MetricStat: { Metric: { Namespace: AWS/Lambda, MetricName: Throttles, Dimensions: [ { Name: FunctionName, Value: !Ref ApiFunction } ] }, Period: 300, Stat: Sum }
+        - Id: m2
+          ReturnData: false
+          MetricStat: { Metric: { Namespace: AWS/Lambda, MetricName: ConcurrentExecutions, Dimensions: [ { Name: FunctionName, Value: !Ref ApiFunction } ] }, Period: 300, Stat: Maximum }
 
   LambdaDurationAlarm:
     Type: AWS::CloudWatch::Alarm
