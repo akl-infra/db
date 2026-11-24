@@ -126,21 +126,15 @@ export interface CommentLikeDbRow {
 }
 // [LDB-D10] migrations/0036 (LDB-WPM18): a WPM typist's Discord names, the
 // fallback `GET /v1/wpm` names a typist by when `authors` has no usable name.
-// Least exposure (the dump is a public repo): rows of typists with an
-// approved WPM record and a display name (`assembleDump`), `id` and
-// `global_name` only -- never `username` (the account handle) and never
-// `updated_at`. Restore writes `username` as '' (NOT NULL; resolvedNameSql
-// reads a blank as absent) and `updated_at` as the epoch, so the first submit
-// after a rehost looks the names up again (LDB-WPM18). A typist with no
-// display name has no dumped row, so the admin backfill (LDB-WPM20) still
-// sees them as missing after a restore.
+// Rows of every typist with an approved WPM record (`assembleDump`; saltorbit
+// 2026-11-23: the backup carries the Discord username too), `id`, `username`
+// and `global_name` -- never `updated_at` (the lookup clock). Restore writes
+// the names as dumped and `updated_at` as the epoch, so the first submit after
+// a rehost looks them up again (LDB-WPM18); a restored row is "named" for the
+// admin backfill (LDB-WPM20), as its username is real.
 export interface DiscordUserDbRow {
   id: string;
-  global_name: string;
-}
-/** What `DumpStore.tables()` reads for it, before `assembleDump` filters. */
-export interface DiscordUserSourceRow {
-  id: string;
+  username: string;
   global_name: string | null;
 }
 export interface LinkSubmissionDbRow {
@@ -217,7 +211,7 @@ export interface Dump {
   wpm_submissions: WpmSubmissionDbRow[]; // [LDB-WPM10] migrations/0022; absent from a dump written before it
   comment_likes: CommentLikeDbRow[]; // [LDB-CMT12] migrations/0023; absent from a dump written before it
   layout_comments: LayoutCommentDbRow[]; // [LDB-CMT10] migrations/0023; approved rows only; absent from a dump written before it
-  discord_users: DiscordUserDbRow[]; // [LDB-D10] migrations/0036; approved typists' display names (id, global_name); absent from a dump written before it
+  discord_users: DiscordUserDbRow[]; // [LDB-D10] migrations/0036; approved typists' names (id, username, global_name); absent from a dump written before it
 }
 
 export interface LatestJson {
@@ -322,7 +316,7 @@ function assembleDump(date: string, meta: DumpMeta, tables: DumpTables): Dump {
     wpm_submissions,
     comment_likes,
     layout_comments: layout_comments.filter((s) => s.status === "approved" && s.body !== null), // approved only: the one status that still holds public text
-    discord_users: discord_users.flatMap((u) => (wpmTypists.has(u.id) && u.global_name !== null && u.global_name.trim() !== "" ? [{ id: u.id, global_name: u.global_name }] : [])),
+    discord_users: discord_users.filter((u) => wpmTypists.has(u.id)).map((u) => ({ id: u.id, username: u.username, global_name: u.global_name })),
   };
 }
 

@@ -44,7 +44,7 @@ import type { FormatRow, LayoutRow, LayoutWithFormats, ListPage, ListParams, Sou
 import type { RejectionOutboxRow } from "../core/rejection-dm";
 import type { Clock } from "../core/time";
 import type { WpmQueueRow, WpmRecord, WpmStatus, WpmSubmissionRow } from "../core/wpm";
-import type { DiscordUserSourceRow, Dump } from "../dump/write";
+import type { Dump } from "../dump/write";
 
 // ---------------------------------------------------------------------------
 // Shared value types
@@ -617,7 +617,7 @@ export interface OutboxStore {
 
 export interface DumpStore {
   /** strong, read. Every dumped table's raw rows, all read AFTER the caller's meta read (MF-13 floor); unfiltered (the caller redacts and filters). D1: dump/write.ts buildDump's pagers. */
-  tables(): Promise<Omit<Dump, "version" | "date" | "meta" | "auth_cache" | "discord_users"> & { discord_users: DiscordUserSourceRow[] }>;
+  tables(): Promise<Omit<Dump, "version" | "date" | "meta" | "auth_cache">>;
   /** sequence (chunked). Load a dump into an EMPTY database (rehost, tests). D1: dump/restore.ts restoreInto. */
   restore(dump: Dump): Promise<void>;
 }

@@ -14,7 +14,7 @@
 // reconstructs rows verbatim from a dump rather than replaying writes
 // through the fold.
 import type { ClientDbRow, Dump } from "../../dump/write";
-import type { AdminDbRow, AuthorDbRow, BanDbRow, CommentLikeDbRow, DiscordUserSourceRow, ImportMapDbRow, ImportStateDbRow, LayoutCommentDbRow, LayoutRevDbRow, LikeDbRow, LinkSubmissionDbRow, WpmSubmissionDbRow } from "../../dump/write";
+import type { AdminDbRow, AuthorDbRow, BanDbRow, CommentLikeDbRow, DiscordUserDbRow, ImportMapDbRow, ImportStateDbRow, LayoutCommentDbRow, LayoutRevDbRow, LikeDbRow, LinkSubmissionDbRow, WpmSubmissionDbRow } from "../../dump/write";
 import type { EventDbRow } from "../../core/events";
 import type { FormatDbRow, LayoutDbRow } from "../../core/records";
 import type { DumpStore } from "../port";
@@ -102,8 +102,8 @@ export function d1DumpStore(db: D1Database): DumpStore {
         pageBySingleKey<WpmSubmissionDbRow>(db, "wpm_submissions", "id", "id, layout_id, user_id, wpm, proof, submitted_by, via, submitted_at, status, decided_by, decided_at, reason, notified_at, review_version"),
         pageBySingleKey<LayoutCommentDbRow>(db, "layout_comments", "id"),
         pageCommentLikes(db),
-        // [LDB-D10] id and display name only; `username` and `updated_at` are never dumped
-        pageBySingleKey<DiscordUserSourceRow>(db, "discord_users", "id", "id, global_name"),
+        // [LDB-D10] the name columns; `updated_at` is never dumped
+        pageBySingleKey<DiscordUserDbRow>(db, "discord_users", "id", "id, username, global_name"),
       ]);
       return { records, layout_formats, layout_revs, likes, authors, admins, events, import_state, import_map, clients, bans, link_submissions, wpm_submissions, layout_comments, comment_likes, discord_users };
     },
@@ -154,7 +154,7 @@ const TABLE_ORDER_DELETE = [
   "import_state",
   "clients", // LDB-D9: dumped and restored below -- pubkeys/caps are public, no reason to drop them
   "bans", // [LDB-MD8] §4.5
-  "discord_users", // [LDB-D10]: dumped (public WPM typists' names) and restored below; discord_users_head moves by its triggers
+  "discord_users", // [LDB-D10]: dumped (approved WPM typists' names) and restored below; discord_users_head moves by its triggers
   "auth_cache",
   "ratelimit",
   "nonces", // never dumped (replay guard, <=300s lifetime by construction -- 09 §2.5); deleted here too so a restore starts with no history of recent requests
@@ -169,9 +169,6 @@ const MAX_PARAMS_PER_STMT = 100;
 // [LDB-D10] `discord_users.updated_at` of a restored row: older than any
 // lookup, so LDB-WPM18's freshness check treats the name as due a refresh.
 export const RESTORED_NAME_AT = "1970-01-01T00:00:00.000Z";
-// [LDB-D10] `discord_users.username` of a restored row: never dumped, and the
-// column is NOT NULL; resolvedNameSql treats a blank as absent.
-export const RESTORED_USERNAME = "";
 
 function sqlLit(v: string | number | null): string {
   if (v === null) return "NULL";
@@ -454,16 +451,16 @@ export function restoreSql(dump: Dump): string[] {
   );
 
   // [LDB-D10] migrations/0036: absent from a dump written before it (`?? []`).
-  // Only `id`/`global_name` are in the dump: `username` restores as '' and
-  // `updated_at` as the epoch, so a typist's next submit looks both up again
-  // (LDB-WPM18); meanwhile `GET /v1/wpm` shows the display name as before.
+  // The names restore as dumped; `updated_at` (not in the dump) as the epoch,
+  // so a typist's next submit looks them up again (LDB-WPM18), and
+  // `GET /v1/wpm` names the same typists as before.
   // The inserts move `discord_users_head` by its trigger (the `/v1/wpm` ETag
   // validator), which only ever has to change, never to match.
   statements.push(
     ...chunkedInserts(
       "INSERT INTO discord_users",
       ["id", "username", "global_name", "updated_at"],
-      (dump.discord_users ?? []).map((r) => ({ id: r.id, username: RESTORED_USERNAME, global_name: r.global_name, updated_at: RESTORED_NAME_AT })),
+      (dump.discord_users ?? []).map((r) => ({ id: r.id, username: r.username, global_name: r.global_name ?? null, updated_at: RESTORED_NAME_AT })),
     ),
   );
 
