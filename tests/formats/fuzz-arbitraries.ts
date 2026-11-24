@@ -20,15 +20,15 @@ export const charArb = fc.oneof(
 );
 export const fingerArb = fc.constantFrom(...FINGERS);
 
-// Rows -1..3 only: the schema allows row 4, but a layout spanning six rows (-1..4) translates to a mana2/1 payload that mana2/1's own
-// validate refuses (`/layout/fingers` has more than 5 items; reported to the owner in the Stage 4 F-db handoff, LDB-FZ10 note), so the
-// "translation validates" property is stated over layouts that fit mana2/1's five rows.
+// Rows reach the schema's full -1..4 and columns reach huge values on purpose: spark/1 -> mana2/1 must HOLD what mana2/1 cannot write
+// (API 1.39, LDB-F72) rather than throw, loop, or hand back a payload mana2/1 refuses.
+const colArb = fc.oneof({ weight: 8, arbitrary: fc.integer({ min: 0, max: 12 }) }, { weight: 1, arbitrary: fc.constantFrom(1023, 1024, 1_000_000, 1_000_000_000, Number.MAX_SAFE_INTEGER, 1e308) });
 // A layout with distinct characters (so magic can name them), arbitrary positions (the duplicate-position refusal is a valid
 // outcome the properties must survive), then optional alts/combos/magic built from layout chars and odd literals.
 export const payloadArb: fc.Arbitrary<Record<string, unknown>> = fc
   .uniqueArray(charArb, { minLength: 1, maxLength: 14 })
   .chain((chars) => {
-    const keys = fc.tuple(...chars.map((c) => fc.record({ char: fc.constant(c), row: fc.integer({ min: -1, max: 3 }), col: fc.integer({ min: 0, max: 12 }), finger: fingerArb })));
+    const keys = fc.tuple(...chars.map((c) => fc.record({ char: fc.constant(c), row: fc.integer({ min: -1, max: 4 }), col: colArb, finger: fingerArb })));
     const lit = fc.oneof(fc.constantFrom(...chars), charArb);
     const alt = fc.oneof(
       fc.record({ ngram: fc.tuple(lit), fingers: fc.tuple(fingerArb) }),
