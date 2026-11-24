@@ -195,7 +195,7 @@ Every 5 minutes for the hour (and again at +24 h):
 
 | What | How |
 |---|---|
-| CloudWatch alarms | `aws cloudwatch describe-alarms --alarm-name-prefix akldb-prod- --state-value ALARM --region us-east-2` must be empty: `lambda-errors`, `alarm-lines`, `jobs-errors`, `lambda-throttles`, `lambda-duration-p95`, `api-5xx`, `log-system-errors`, `log-throttled-requests` |
+| CloudWatch alarms | `aws cloudwatch describe-alarms --alarm-name-prefix akldb-prod- --state-value ALARM --region us-east-2` must be empty: `lambda-errors`, `alarm-lines`, `jobs-errors`, `lambda-saturation`, `lambda-duration-p95`, `api-5xx`, `log-system-errors`, `log-throttled-requests` |
 | `akldb-alarm:` lines (boot fallback, replica halt, snapshot, proof, retention, **response-too-large**) | `aws logs filter-log-events --log-group-name /aws/lambda/akldb-prod-api --filter-pattern '"akldb-alarm:"' --start-time $(( ($(date +%s) - 3600) * 1000 )) --region us-east-2` (and `/aws/lambda/akldb-prod-jobs`); expect none. `replica: halted` is the serious one |
 | Error rates | API 5xx and Lambda Errors in CloudWatch |
 | Feed contiguity | `curl -s 'https://api.akldb.org/v1/changes?since=<report: events counter>'` continues at counter + 1 with no gap; `/v1/meta` `seq` rises with writes |

@@ -22,7 +22,7 @@ import zlib from "node:zlib";
 import path from "node:path";
 import { Hono } from "hono";
 import { handle } from "hono/aws-lambda";
-import type { Bindings } from "../env";
+import type { Bindings, ObserveFields } from "../env";
 import worker, { app as workerApp, discordFollowUp } from "../index";
 import { appendServerTiming, bootTiming, effectiveRequestId, REQUEST_ID_HEADER } from "../core/request-id";
 import { bootReplica } from "../replica/boot";
@@ -44,6 +44,7 @@ import { createShimD1 } from "../store/shim/d1";
 import { createFakeDiscord, FAKE_DISCORD_BASE, type FakeDiscord } from "./fake-discord";
 import { installEgressGuard } from "./shadow-egress";
 import type { Aws } from "./lambda-aws";
+import { countryToken, errorCodeOf, ipKey, pathHash, rayToken, requestLine, uaToken } from "./request-line";
 import { createNodePlatform, lruResponseCache, r2Binding } from "./node";
 import type { PlatformConfig } from "./port";
 
@@ -152,6 +153,8 @@ type SchedulerEvent =
   | { akldb: "discord" }
   | ({ akldb: "seed" } & SeedRequest)
   | { akldb: "shadow-status" };
+
+type HttpOut = { statusCode?: number; headers?: Record<string, string>; body?: string; isBase64Encoded?: boolean };
 
 interface HttpEvent {
   version?: string;
@@ -313,8 +316,30 @@ export function createLambdaHandler(opts: LambdaOptions): LambdaHandler {
     return bindings(replica, (await getParams()).config);
   }
 
+  // [LDB-MD29] What the app and the front learn during one HTTP invocation, for its `akldb-req` line. A container serves one
+  // invocation at a time, so one slot is enough; `observe` is a no-op outside an HTTP invocation (tick, warm-up, jobs).
+  interface Note {
+    gate: "ok" | "missing" | "bad";
+    secret?: string;
+    route?: string;
+    err?: string;
+    client?: string;
+    hold: boolean;
+    boot?: number;
+  }
+  let note: Note | undefined;
+  let httpSeen = false;
+  const observe = (f: ObserveFields): void => {
+    if (note === undefined) return;
+    if (f.route !== undefined) note.route = f.route;
+    if (f.err !== undefined) note.err = f.err;
+    if (f.client !== undefined) note.client = f.client;
+    if (f.hold === true) note.hold = true;
+  };
+
   function bindings(replica: Replica, config: Params["config"]): Bindings {
     return {
+      AKLDB_OBSERVE: observe,
       // shadow takes none of the Discord settings, whatever SSM holds: it has no bot, no webhook, no signing key
       ...(isShadow ? {} : config),
       DISCORD_API_URL: isShadow ? FAKE_DISCORD_BASE : (env.DISCORD_API_URL ?? "https://discord.com/api"),
@@ -423,7 +448,14 @@ export function createLambdaHandler(opts: LambdaOptions): LambdaHandler {
   front.use("*", async (c, next) => {
     const got = c.req.header(ORIGIN_HEADER);
     // No header: refuse without even reading SSM. A wrong one: refuse before the replica is touched.
-    if (got === undefined || !safeEqual(got, (await getParams()).secret)) {
+    // [LDB-MD29] `gate` for the request line; the secret is kept (never logged) only to key `ipk`, and only once it was read anyway.
+    const secret = got === undefined ? undefined : (await getParams()).secret;
+    const open = got !== undefined && safeEqual(got, secret!);
+    if (note !== undefined) {
+      note.gate = got === undefined ? "missing" : open ? "ok" : "bad";
+      if (secret !== undefined) note.secret = secret;
+    }
+    if (!open) {
       return c.text("forbidden", 403, { "cache-control": "no-store", [REQUEST_ID_HEADER]: requestIdOf(c.req.raw) });
     }
     if (isShadow) {
@@ -447,6 +479,7 @@ export function createLambdaHandler(opts: LambdaOptions): LambdaHandler {
     // The first request this container serves reports the wait for the boot it triggered or joined (`akldb-boot`).
     if (!bootReported) {
       bootReported = true;
+      if (note !== undefined) note.boot = waitedMs;
       const out = new Headers(res.headers);
       out.set("Server-Timing", appendServerTiming(out.get("Server-Timing"), bootTiming(waitedMs)));
       return new Response(res.body, { status: res.status, statusText: res.statusText, headers: out });
@@ -455,7 +488,64 @@ export function createLambdaHandler(opts: LambdaOptions): LambdaHandler {
   });
   const serve = handle(front);
 
+  /** One `akldb-req` line per HTTP invocation, after `settle()`, even when the handler throws (`st=- err=throw`, still rethrown). */
   async function http(event: HttpEvent, context: unknown): Promise<unknown> {
+    const t0 = performance.now();
+    const cold = !httpSeen;
+    httpSeen = true;
+    const mine: Note = { gate: "ok", hold: false };
+    note = mine;
+    let out: HttpOut | undefined;
+    let threw = false;
+    try {
+      out = (await httpInner(event, context)) as typeof out;
+      return out;
+    } catch (e) {
+      threw = true;
+      throw e;
+    } finally {
+      note = undefined;
+      try {
+        logLine(lineOf(event, mine, out, threw, cold, performance.now() - t0));
+      } catch {
+        // a log line must never change the answer
+      }
+    }
+  }
+
+  function lineOf(event: HttpEvent, n: Note, out: HttpOut | undefined, threw: boolean, cold: boolean, ms: number): string {
+    const h: Record<string, string | undefined> = {};
+    for (const [k, v] of Object.entries(event.headers ?? {})) h[k.toLowerCase()] = v;
+    const rc = (event.requestContext ?? {}) as { requestId?: string; http?: { method?: string; sourceIp?: string } };
+    const status = out?.statusCode;
+    // Behind Cloudflare the peer is Cloudflare; its connecting-ip header is believed only when the origin secret proved the hop.
+    const ip = (n.gate === "ok" ? h["cf-connecting-ip"] : undefined) ?? rc.http?.sourceIp;
+    const day = new Date(now()).toISOString().slice(0, 10);
+    const err = threw ? "throw" : status !== undefined && status >= 400 ? (n.err ?? errorCodeOf(out?.body, out?.isBase64Encoded)) : undefined;
+    return requestLine({
+      rid: effectiveRequestId(out?.headers?.["x-request-id"] ?? out?.headers?.["X-Request-ID"] ?? h["x-request-id"]),
+      gw: rc.requestId,
+      ray: rayToken(h["cf-ray"]),
+      m: rc.http?.method ?? "GET",
+      r: n.route,
+      ph: pathHash(event.rawPath ?? ""),
+      st: threw ? undefined : status,
+      ms,
+      cold,
+      boot: n.boot,
+      edge: h["cf-ray"] !== undefined ? "cf" : "direct",
+      gate: n.gate,
+      ua: uaToken(h["user-agent"]),
+      cli: n.client,
+      cc: countryToken(h["cf-ipcountry"]),
+      ipk: n.secret !== undefined && ip !== undefined ? ipKey(n.secret, day, ip) : undefined,
+      b: Buffer.byteLength(out?.body ?? "", "utf8"),
+      err,
+      hold: n.hold,
+    });
+  }
+
+  async function httpInner(event: HttpEvent, context: unknown): Promise<unknown> {
     const result = (await serve(event as never, context as never)) as { statusCode?: number; headers?: Record<string, string>; body?: string; isBase64Encoded?: boolean };
     await settle();
     assertAlive();
@@ -464,6 +554,7 @@ export function createLambdaHandler(opts: LambdaOptions): LambdaHandler {
     if (bytes > MAX_RESPONSE_BYTES) {
       const responseId = result.headers?.["x-request-id"] ?? effectiveRequestId((event as { headers?: Record<string, string | undefined> }).headers?.["x-request-id"]);
       const route = `${(event as { requestContext?: { http?: { method?: string } } }).requestContext?.http?.method ?? "GET"} ${event.rawPath ?? "?"}`;
+      if (note !== undefined) note.err = "response_too_large";
       raise(logLine, "response-too-large", `route=${route} bytes=${bytes} limit=${MAX_RESPONSE_BYTES} encoded=${result.isBase64Encoded === true ? "base64" : "text"}`);
       return {
         statusCode: 500,

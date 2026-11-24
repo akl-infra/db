@@ -1,6 +1,15 @@
 // The Worker's bindings and vars, as declared in wrangler.toml. Every key
 // here must have a row in README.md's secrets/bindings table (LDB-G4).
+/** [LDB-MD29] What the app tells the Lambda front for its one request line. Callers optional-chain `Bindings.AKLDB_OBSERVE`; the Workers platform leaves it unset. */
+export interface ObserveFields {
+  route?: string;
+  err?: string;
+  client?: string;
+  hold?: boolean;
+}
+
 export interface Bindings {
+  AKLDB_OBSERVE?: (f: ObserveFields) => void;
   DB: D1Database;
   DUMPS: R2Bucket;
   DISCORD_API_URL: string; // e.g. https://discord.com/api -- src/auth/discord.ts (09 §3 T1)

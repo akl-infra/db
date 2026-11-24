@@ -203,7 +203,7 @@ export async function resolveActor(env: Bindings, req: HonoRequest, deps: AuthDe
     // Read ONCE through Hono's cache (see requireActorOnWrites's comment) so
     // a route handler's later `c.req.json()` still sees the same bytes.
     const bodyBytes = new Uint8Array(await req.arrayBuffer());
-    return verifyClientRequest(env.DB, deps.now, req.raw, bodyBytes, deps);
+    return verifyClientRequest(env.DB, deps.now, req.raw, bodyBytes, { ...deps, onVerified: (client) => env.AKLDB_OBSERVE?.({ client }) });
   }
 
   throw unauthorized();
