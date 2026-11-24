@@ -280,6 +280,9 @@ jobs:
     if: (github.event_name == 'schedule' && github.event.schedule == '0 4 * * *') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    permissions:
+      contents: read
+      issues: write
     env:
       FUZZ_OUT: ${{ github.workspace }}/fuzz-failures
     steps:
@@ -323,3 +326,21 @@ jobs:
           path: fuzz-failures/
           if-no-files-found: warn
           retention-days: 30
+      # The alert: one open issue titled "Nightly fuzz failure" is created, or commented on while it stays open (no new issue
+      # per night). GITHUB_TOKEN with issues:write; the repo is public, so the issue is the visible signal beyond the red run.
+      - name: Open or update the failure issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SEED: ${{ steps.seed.outputs.seed }}
+        run: |
+          set -euo pipefail
+          title="Nightly fuzz failure"
+          body="The nightly fuzz job failed. Seed \`$SEED\` (property files replay with \`FUZZ_SEED=$SEED\`; the lab fuzzer seeds are in the log). Run: $RUN_URL. The shrunk input is in the run log and the \`fuzz-failures-$SEED\` artifact."
+          n=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$n" ]; then
+            gh issue comment "$n" --repo "$GITHUB_REPOSITORY" --body "$body"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body"
+          fi

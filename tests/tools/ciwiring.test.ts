@@ -239,6 +239,11 @@ describe("db.yml wiring", () => {
     const upload = steps.find((s) => (s.uses ?? "").startsWith("actions/upload-artifact"));
     expect(upload, "no upload-artifact step").toBeDefined();
     expect(String(upload?.with?.path)).toContain("fuzz-failures");
+    // the alert: a failure opens or updates ONE issue, with the job-scoped token
+    expect((fuzz as { permissions?: Record<string, string> }).permissions?.issues).toBe("write");
+    const alert = steps.find((s) => (s.run ?? "").includes("gh issue create"));
+    expect(alert?.if).toBe("failure()");
+    expect(alert?.run).toContain("gh issue comment");
   });
 
   it("[LDB-C1] [LDB-I27] the daily job runs the rehost drill and the upstream diff (S8 landed the file; the diff step's only allowed guard is the LDB-I27 kill switch)", () => {
