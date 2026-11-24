@@ -99,7 +99,7 @@ export { getFormat };
 // this directory (mutations/goldens/edits) would otherwise pick it up as if
 // it were one, mutate/lower/golden-check fields that don't exist on it, and
 // fail in bulk. Named out here, the one place that would otherwise matter.
-const NOT_A_BASE_FIXTURE = new Set(["parity-vectors.json"]);
+const NOT_A_BASE_FIXTURE = new Set(["parity-vectors.json", "refused-vectors.json"]);
 
 export function isBaseFixtureFile(filename: string): boolean {
   if (!filename.endsWith(".json")) return false;

@@ -205,7 +205,7 @@ describe("[LDB-F37] error selection is deterministic", () => {
 // spark/1 fixture" and hand it to `spark1.validate()` as if it were one.
 function isBaseFixtureFile(filename: string): boolean {
   if (!filename.endsWith(".json")) return false;
-  if (filename === "parity-vectors.json") return false;
+  if (filename === "parity-vectors.json" || filename === "refused-vectors.json") return false;
   return !filename.slice(0, -".json".length).includes(".");
 }
 

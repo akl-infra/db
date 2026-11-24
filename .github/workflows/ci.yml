@@ -269,3 +269,57 @@ jobs:
         run: |
           set -euo pipefail
           DB_BASE_URL="${{ vars.DB_BASE_URL }}" npx vitest run tests/upstream-diff.test.ts --project node
+
+  # [LDB-FZ12] Nightly long fuzz (Stage 4 F-db, stage4-spec.md §3). Same 04:00 schedule as `daily` (and workflow_dispatch), never on
+  # a PR/push: the fixed-seed property suites already run in `test`. This job re-runs the SAME property files with a RANDOM seed and a
+  # large FUZZ_RUNS, then the lab differential fuzzer (shim vs the D1 oracle, `npm run fuzz:shim`) on seeds that rotate by day. This
+  # repo is public, so the minutes are free. A failure prints its seed and shrunk input in the log and uploads `fuzz-failures/`
+  # (kept 30 days); GitHub's failure e-mail is the alert. Each step runs even when an earlier one failed, so one finding never
+  # hides another. A finding becomes a fixture (a frozen test with the input), never a flaky nightly.
+  fuzz:
+    if: (github.event_name == 'schedule' && github.event.schedule == '0 4 * * *') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      FUZZ_OUT: ${{ github.workspace }}/fuzz-failures
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24.22.1"
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Pick a random seed (printed, so a failure replays)
+        id: seed
+        run: |
+          set -euo pipefail
+          seed=$(od -An -N4 -tu4 /dev/urandom | tr -d ' ')
+          echo "FUZZ_SEED=$seed" >> "$GITHUB_ENV"
+          echo "seed=$seed" >> "$GITHUB_OUTPUT"
+          echo "FUZZ_SEED=$seed"
+      - name: Format properties (random seed, large run)
+        if: always()
+        env:
+          FUZZ_RUNS: "15000"
+        run: npx vitest run tests/formats/spark1.props.test.ts --project node --testTimeout=0
+      - name: Write-route properties (random seed)
+        if: always()
+        env:
+          FUZZ_RUNS: "1500"
+        run: npx vitest run tests/api/write.props.test.ts --project shim --testTimeout=0
+      - name: Lab differential fuzzer (shim vs D1 oracle, seeds rotate by day)
+        if: always()
+        run: |
+          set -euo pipefail
+          d=$(date -u +%j)
+          npm run fuzz:shim -- --seeds "${d}1,${d}2,${d}3" --sequences 200 --out "$FUZZ_OUT/lab"
+      - name: Upload the findings
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-failures-${{ steps.seed.outputs.seed }}
+          path: fuzz-failures/
+          if-no-files-found: warn
+          retention-days: 30
