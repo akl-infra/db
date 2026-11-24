@@ -117,6 +117,21 @@ describe("origin secret (AX2)", () => {
     expect(seeded.counts).toEqual(before);
   });
 
+  it("[LDB-API4] the front's own 403 carries a valid request id (a supplied one echoed), and a supplied id survives front to app", async () => {
+    const aws = fakeAws();
+    const { handler } = handlerOn(seeded, aws);
+    const lower = (h: Record<string, string>) => Object.fromEntries(Object.entries(h).map(([k, v]) => [k.toLowerCase(), v]));
+    const refused = (await handler(event("/v1/meta", { "x-request-id": "front-echo_0001" }))) as Http;
+    expect(refused.statusCode).toBe(403);
+    expect(lower(refused.headers)["x-request-id"]).toBe("front-echo_0001");
+    const minted = (await handler(event("/v1/meta", { "x-request-id": "bad id" }))) as Http;
+    expect(lower(minted.headers)["x-request-id"]).toMatch(/^[A-Za-z0-9._:-]{8,64}$/);
+    const ok = (await handler(event("/v1/meta", { [ORIGIN_HEADER]: SECRET, "x-request-id": "front-app_0002" }))) as Http;
+    expect(ok.statusCode).toBe(200);
+    expect(lower(ok.headers)["x-request-id"]).toBe("front-app_0002");
+    expect(lower(ok.headers)["server-timing"]).toMatch(/^akldb;dur=\d+(\.\d)?/);
+  });
+
   it("[LDB-AX2] the comparison is constant-time shaped: equal strings match, any other does not, a missing value never does", () => {
     expect(safeEqual(SECRET, SECRET)).toBe(true);
     expect(safeEqual(SECRET + "0", SECRET)).toBe(false);

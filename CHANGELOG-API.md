@@ -28,6 +28,15 @@ this file just gives them a public, versioned home. From here on, a
 `WIRE_VERSION` bump and a line here land in the SAME PR, never one without
 the other (`[LDB-V5]`).
 
+## 1.40 — Request ids and Server-Timing
+
+Every response carries `X-Request-ID` and `Server-Timing: akldb;dur=<ms>`. A
+client may send `X-Request-ID` (8–64 of `A-Z a-z 0-9 . _ : -`); akldb uses it
+for that request and echoes it, else mints one (an invalid value is ignored,
+never refused). Quote it when reporting a problem. Both headers are exposed to
+browsers, and `Timing-Allow-Origin: *` is set. A browser that sends the header
+pays one preflight, which akldb grants. No body, route or status changes.
+
 ## 1.39 — `?format=mana2/1` holds what mana2/1 cannot write
 
 `GET /v1/layouts/{id}?format=mana2/1` (and the list, `?full=1` and revision

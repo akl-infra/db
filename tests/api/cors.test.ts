@@ -86,7 +86,7 @@ describe("CORS on public reads", () => {
 });
 
 describe("[LDB-CORS3] the one preflight akldb grants", () => {
-  it("[LDB-CORS3] a GET/HEAD preflight asking for nothing, or only for If-None-Match, Cache-Control, Pragma (any case, any order), gets 204 with exactly those, GET, HEAD and a day's Max-Age, never credentials", async () => {
+  it("[LDB-CORS3] a GET/HEAD preflight asking for nothing, or only for If-None-Match, Cache-Control, Pragma (any case, any order), gets 204 with exactly those (and X-Request-ID, LDB-CORS4), GET, HEAD and a day's Max-Age, never credentials", async () => {
     for (const [method, asked] of [["GET", undefined], ["GET", "if-none-match"], ["HEAD", "Cache-Control"], ["GET", "pragma, cache-control, If-None-Match"], ["GET", " "]] as const) {
       for (const path of ["/v1/comment-counts", "/v1/comments?ids=01A", "/v1/layouts/01ZZZZZZZZZZZZZZZZZZZZZZZZ/comments", "/v1/meta"]) {
         const res = await SELF.fetch(`https://example.com${path}`, {
@@ -97,7 +97,7 @@ describe("[LDB-CORS3] the one preflight akldb grants", () => {
         expect(res.status, label).toBe(204);
         expect(res.headers.get("Access-Control-Allow-Origin"), label).toBe("*");
         expect(res.headers.get("Access-Control-Allow-Methods"), label).toBe("GET, HEAD");
-        expect(res.headers.get("Access-Control-Allow-Headers"), label).toBe("If-None-Match, Cache-Control, Pragma");
+        expect(res.headers.get("Access-Control-Allow-Headers"), label).toBe("If-None-Match, Cache-Control, Pragma, X-Request-ID");
         expect(res.headers.get("Access-Control-Max-Age"), label).toBe("86400");
         expect(res.headers.get("Cross-Origin-Resource-Policy"), label).toBe("cross-origin");
         expect(res.headers.get("Access-Control-Allow-Credentials"), label).toBeNull();

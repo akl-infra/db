@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { TrieRouter } from "hono/router/trie-router";
+import { appendServerTiming, effectiveRequestId, REQUEST_ID_HEADER, serverTiming } from "./core/request-id";
 import { type AppEnv, platformMiddleware, platformOf } from "./app";
 import { workersPlatform } from "./platform/workers";
 import type { Bindings } from "./env";
@@ -44,6 +45,14 @@ const CACHE_CONTROL = "public, max-age=10";
 // RegExpRouter, which refuses this route table (`/v1/dump/:key`'s pattern),
 // then falls back to TrieRouter -- that failed attempt cost ~1.6 ms of CPU on
 // the first request of every isolate (site-cpu's profile, 2026-11-02).
+/** [LDB-API4] The request id and Server-Timing on a rebuilt response (never mutated in place: a cached response may be immutable). */
+function withRequestHeaders(res: Response, requestId: string, appMs: number): Response {
+  const headers = new Headers(res.headers);
+  headers.set(REQUEST_ID_HEADER, requestId);
+  headers.set("Server-Timing", appendServerTiming(headers.get("Server-Timing"), serverTiming(appMs)));
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
+}
+
 const app = new Hono<AppEnv>({ router: new TrieRouter() });
 
 // design/aws-port.md §4.1: every request gets its `Platform` (store, blobs,
@@ -71,9 +80,14 @@ const authDeps: AuthDeps = { fetchImpl: ((url, init) => fetch(url, init)) as Fet
 // route (none today, `core/version.ts`'s `DEPRECATIONS`) also gets
 // `Deprecation`/`Sunset` here, never scattered per-route.
 app.use("*", async (c, next) => {
+  // [LDB-API4] the request id is decided once, here, before anything else runs; the app's wall time is measured around `next()`.
+  const requestId = effectiveRequestId(c.req.header(REQUEST_ID_HEADER));
+  c.set("requestId", requestId);
+  const t0 = performance.now();
   await next();
   if (c.res) {
     let res = withApiVersionHeader(c.res);
+    res = withRequestHeaders(res, requestId, performance.now() - t0);
     // [LDB-CORS1] the GET/HEAD answers' CORS headers ride the same rebuild (src/core/cors.ts).
     const extra = { ...deprecationHeadersFor(c.req.method, c.req.routePath), ...corsHeadersFor(c.req.method) };
     if (Object.keys(extra).length > 0) {
@@ -349,7 +363,9 @@ app.post("/discord/interactions", async (c) => {
 // place a response is ever constructed.
 app.onError((err, c) => {
   // [LDB-CORS1] an error to a GET/HEAD is readable cross-origin too, so a browser client sees the real status.
-  const headers = { ...(err instanceof ApiError ? err.headers : undefined), [API_VERSION_HEADER]: apiVersionString(), ...corsHeadersFor(c.req.method) };
+  // [LDB-API4] and it carries the same request id and a Server-Timing as every other answer (the middleware above never saw it).
+  const requestId = c.get("requestId") ?? effectiveRequestId(c.req.header(REQUEST_ID_HEADER));
+  const headers = { ...(err instanceof ApiError ? err.headers : undefined), [API_VERSION_HEADER]: apiVersionString(), ...corsHeadersFor(c.req.method), [REQUEST_ID_HEADER]: requestId, "Server-Timing": serverTiming(0) };
   if (err instanceof ApiError) {
     return c.json(err.body, err.status as 400 | 401 | 403 | 404 | 409 | 422 | 429 | 500 | 503, headers);
   }

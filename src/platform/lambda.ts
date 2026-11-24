@@ -24,6 +24,7 @@ import { Hono } from "hono";
 import { handle } from "hono/aws-lambda";
 import type { Bindings } from "../env";
 import worker, { app as workerApp, discordFollowUp } from "../index";
+import { appendServerTiming, bootTiming, effectiveRequestId, REQUEST_ID_HEADER } from "../core/request-id";
 import { bootReplica } from "../replica/boot";
 import { raise } from "../replica/alarm";
 import { nightlyDue, runNightlyJobs, runRollingJob, type SnapshotJobDeps } from "../replica/jobs";
@@ -412,23 +413,45 @@ export function createLambdaHandler(opts: LambdaOptions): LambdaHandler {
     const etag = c.res.headers.get("etag");
     if (etag !== null && !etag.startsWith("W/")) c.res.headers.set("etag", `W/${etag}`);
   });
+  /** The effective request id of a request (valid inbound header, else minted once and remembered for this request). */
+  const ids = new WeakMap<Request, string>();
+  const requestIdOf = (req: Request): string => {
+    let id = ids.get(req);
+    if (id === undefined) ids.set(req, (id = effectiveRequestId(req.headers.get(REQUEST_ID_HEADER))));
+    return id;
+  };
   front.use("*", async (c, next) => {
     const got = c.req.header(ORIGIN_HEADER);
     // No header: refuse without even reading SSM. A wrong one: refuse before the replica is touched.
     if (got === undefined || !safeEqual(got, (await getParams()).secret)) {
-      return c.text("forbidden", 403, { "cache-control": "no-store" });
+      return c.text("forbidden", 403, { "cache-control": "no-store", [REQUEST_ID_HEADER]: requestIdOf(c.req.raw) });
     }
     if (isShadow) {
       // LDB-PV1: shadow is read-only to the world. A write would diverge it from production; a credential would make the
       // sign-in lane write an author row (and ask Discord, faked or not). Refused before the replica is touched.
-      if (!SHADOW_READ_METHODS.has(c.req.method)) return c.json({ error: "shadow_read_only", message: "the shadow stage serves reads only" }, 405, { "cache-control": "no-store", allow: "GET, HEAD, OPTIONS" });
-      if (SHADOW_CREDENTIAL_HEADERS.some((h) => c.req.header(h) !== undefined)) return c.json({ error: "shadow_no_credentials", message: "the shadow stage takes no credentials" }, 403, { "cache-control": "no-store" });
+      if (!SHADOW_READ_METHODS.has(c.req.method)) return c.json({ error: "shadow_read_only", message: "the shadow stage serves reads only" }, 405, { "cache-control": "no-store", [REQUEST_ID_HEADER]: requestIdOf(c.req.raw), allow: "GET, HEAD, OPTIONS" });
+      if (SHADOW_CREDENTIAL_HEADERS.some((h) => c.req.header(h) !== undefined)) return c.json({ error: "shadow_no_credentials", message: "the shadow stage takes no credentials" }, 403, { "cache-control": "no-store", [REQUEST_ID_HEADER]: requestIdOf(c.req.raw) });
     }
     await next();
   });
+  let bootReported = false;
   front.all("*", async (c) => {
+    // [LDB-API4] the front decides the id, so the app and the front's own answers agree; the app reads it from `x-request-id`.
+    const t0 = performance.now();
     const replica = await getReplica();
-    return workerApp.fetch(c.req.raw, await buildEnv(replica), execCtx);
+    const waitedMs = performance.now() - t0;
+    const raw = c.req.raw;
+    const headers = new Headers(raw.headers);
+    headers.set("x-request-id", requestIdOf(raw));
+    const res = await workerApp.fetch(new Request(raw, { headers }), await buildEnv(replica), execCtx);
+    // The first request this container serves reports the wait for the boot it triggered or joined (`akldb-boot`).
+    if (!bootReported) {
+      bootReported = true;
+      const out = new Headers(res.headers);
+      out.set("Server-Timing", appendServerTiming(out.get("Server-Timing"), bootTiming(waitedMs)));
+      return new Response(res.body, { status: res.status, statusText: res.statusText, headers: out });
+    }
+    return res;
   });
   const serve = handle(front);
 
@@ -439,11 +462,12 @@ export function createLambdaHandler(opts: LambdaOptions): LambdaHandler {
     // LDB-CV19: never let API Gateway answer for us. The payload limit counts the base64 text of a binary body.
     const bytes = Buffer.byteLength(result.body ?? "", "utf8");
     if (bytes > MAX_RESPONSE_BYTES) {
+      const responseId = result.headers?.["x-request-id"] ?? effectiveRequestId((event as { headers?: Record<string, string | undefined> }).headers?.["x-request-id"]);
       const route = `${(event as { requestContext?: { http?: { method?: string } } }).requestContext?.http?.method ?? "GET"} ${event.rawPath ?? "?"}`;
       raise(logLine, "response-too-large", `route=${route} bytes=${bytes} limit=${MAX_RESPONSE_BYTES} encoded=${result.isBase64Encoded === true ? "base64" : "text"}`);
       return {
         statusCode: 500,
-        headers: { "content-type": "application/json", "cache-control": "no-store", "x-akldb-backend": BACKEND_VALUE },
+        headers: { "content-type": "application/json", "cache-control": "no-store", "x-akldb-backend": BACKEND_VALUE, "x-request-id": responseId },
         body: JSON.stringify({ error: "response_too_large", message: "this answer does not fit one Lambda response; ask for a smaller page" }),
         isBase64Encoded: false,
       };

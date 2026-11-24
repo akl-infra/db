@@ -174,6 +174,10 @@ export async function assertConformanceCase(kase: ConformanceCase, resolvePath?:
   // pairs including every error code, not just the success path.
   expect(res.headers.get(API_VERSION_HEADER), `${kase.id}: ${API_VERSION_HEADER} header`).toBe(apiVersionString());
 
+  // [LDB-API4] ... and a valid `X-Request-ID` plus an `akldb` Server-Timing entry, on every case too.
+  expect(res.headers.get("X-Request-ID") ?? "", `${kase.id}: X-Request-ID header`).toMatch(/^[A-Za-z0-9._:-]{8,64}$/);
+  expect(res.headers.get("Server-Timing") ?? "", `${kase.id}: Server-Timing header`).toMatch(/^akldb;dur=\d/);
+
   for (const [name, expected] of Object.entries(kase.response.headers ?? {})) {
     expect(res.headers.get(name), `${kase.id}: header '${name}'`).toBe(expected);
   }
