@@ -44,6 +44,8 @@ describe("[LDB-FZ10] spark/1 seeded properties", () => {
   });
 
   it("[LDB-FZ10] valid => compile/flags/translate never throw, mana2/1 output validates, JSON round-trip is stable", async () => {
+    let held = 0;
+    let translated = 0;
     await runProperty(
       "spark1-valid-downstream",
       fc.property(anyInput, (p) => {
@@ -57,25 +59,24 @@ describe("[LDB-FZ10] spark/1 seeded properties", () => {
         const again = JSON.parse(JSON.stringify(payload));
         expect(spark1.validate(again)).toEqual({ ok: true });
         expect(JSON.stringify(spark1.compileMagic(again))).toBe(JSON.stringify(rows));
-        // Third reported gap: spark/1 has no upper bound on `col`, and translating a layout with col 1e9 (or 1e308) to mana2/1
-        // pushes one "skip" token per empty column (`mana2/1/translate.ts` fromSpark) -- seconds of CPU, then RangeError. The
-        // translation half of this property therefore only runs for plausible columns.
-        if (payload.keys.some((k) => k.col > 1000)) return;
+        // The translation contract (API 1.39, LDB-F72): translate never throws and does bounded work; it either HOLDS the layout
+        // (mana2/1 cannot write it: col >= 1024, more than 5 main rows, multi-code-point or whitespace keys, ...) or returns a
+        // payload mana2/1's own validate accepts. Huge cols and six-row layouts are generated on purpose.
         const t = translate({ format: "spark/1", payload }, "mana2/1");
         if ("payload" in t) {
-          // Reported gaps (Stage 4 F-db handoff): spark/1 accepts a multi-code-point `char`, a control-character `char` used in a
-          // combo, and a six-row (-1..4) layout, and their mana2/1 translations are refused by mana2/1's own validate. The validity half of this property holds for the rest.
-          const ks = payload.keys;
-          const rowsSpan = ks.length === 0 ? 0 : Math.max(...ks.map((k) => k.row)) - Math.min(...ks.map((k) => k.row)) + 1;
-          const singleChars = ks.every((k) => k.char === undefined || ([...k.char].length === 1 && !/[\p{Cc}\p{Cs}]/u.test(k.char)));
-          if (singleChars && rowsSpan <= 5) {
-            const v = mana2.validate(t.payload);
-            expect(v.ok, JSON.stringify(v)).toBe(true);
-          }
-        } else expect("held" in t || "unknown" in t).toBe(true);
+          translated++;
+          const v = mana2.validate(t.payload);
+          expect(v.ok, JSON.stringify(v)).toBe(true);
+        } else {
+          held++;
+          expect("held" in t || "unknown" in t).toBe(true);
+        }
       }),
       200,
     );
+    // both sides of the contract were exercised (not vacuous)
+    expect(translated).toBeGreaterThan(0);
+    expect(held).toBeGreaterThan(0);
   });
 
   it("[LDB-FZ10] an edit never throws: a typed {error}, or a payload validate can judge; a well-formed fingermap edit validates", async () => {
@@ -128,7 +129,6 @@ describe("[LDB-FZ10] spark/1 seeded properties", () => {
         for (const as of ["spark/1", "mana2/1", "cmini/1", "nope/9"]) {
           for (const [format, mod] of [["spark/1", spark1], ["mana2/1", mana2]] as const) {
             if (!mod.validate(p).ok) continue;
-            if (format === "spark/1" && (p as spark1.Payload).keys.some((k) => k.col > 1000)) continue; // see the col note above
             const t = translate({ format, payload: p }, as);
             expect("payload" in t || "held" in t || "unknown" in t).toBe(true);
           }
