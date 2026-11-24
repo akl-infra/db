@@ -197,7 +197,7 @@ describe("[LDB-A16] a read-only client's writes are refused before anything is w
 async function shape(res: Response, ids: string[]): Promise<{ status: number; headers: [string, string][]; body: string }> {
   const norm = (s: string) => ids.reduce((acc, id) => acc.split(id).join("<client>"), s);
   const headers = [...res.headers.entries()]
-    .filter(([k]) => !["date", "x-request-id", "cf-ray"].includes(k.toLowerCase()))
+    .filter(([k]) => !["date", "x-request-id", "cf-ray", "server-timing"].includes(k.toLowerCase()))
     .map(([k, v]) => [k, norm(v)] as [string, string])
     .sort(([a], [b]) => a.localeCompare(b));
   return { status: res.status, headers, body: norm(await res.text()) };
